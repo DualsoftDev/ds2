@@ -275,13 +275,26 @@ internal static class DialogHelpers
             FontSize = 13
         };
 
+        // 가변 길이 메시지(예: 예외 메시지 + log tail)가 화면 높이를 넘겨 버튼을 밀어내는 사고 차단 —
+        // ScrollViewer 로 감싸고 MaxHeight 제한 (ShowGraphWarnings 와 동일 패턴). 짧은 메시지는 SizeToContent 로 그대로 작게,
+        // 긴 메시지는 MaxHeight 에서 세로 스크롤 + 버튼 항상 노출. StackPanel(mainPanel) 안에서는 ScrollViewer 자체에 MaxHeight 필수
+        // (StackPanel 이 자식에게 무한 높이를 주므로 dialog MaxHeight 만으로는 ScrollViewer 가 콘텐츠 전체로 측정돼 버튼이 다시 밀림).
+        var messageScroller = new ScrollViewer
+        {
+            Content = messageBlock,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            MaxHeight = SystemParameters.WorkArea.Height * 0.6,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
         var contentPanel = new Grid { Margin = new Thickness(16, 16, 16, 12) };
         contentPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         contentPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         Grid.SetColumn(iconBlock, 0);
-        Grid.SetColumn(messageBlock, 1);
+        Grid.SetColumn(messageScroller, 1);
         contentPanel.Children.Add(iconBlock);
-        contentPanel.Children.Add(messageBlock);
+        contentPanel.Children.Add(messageScroller);
 
         CheckBox? dontShowCheck = null;
         if (showDontShowAgain)

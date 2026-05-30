@@ -18,11 +18,13 @@ namespace Promaker.Services;
 /// 인스톨러가 배치한 scripts/enable-ai.ps1 을 trigger 하고 결과(PSK 평문)를 임시 파일에서 흡수해
 /// DPAPI 로 LlmConfig.LightHouseServices 의 Local entry 에 박제한다.
 ///
-/// 운영 / 개발 환경 모두 동작:
-///   운영 = {app}\LightHouseService\scripts\enable-ai.ps1  +  {app}\LightHouseService\Ds2.LightHouseService.exe
-///   개발 = repo/Solutions/Tools/Ds2.LightHouseService/scripts/enable-ai.ps1  +  exe 는 ResolveDeployment 의 devExeCandidates 후보
-///          (make publish-lighthouse → bin/Release/net9.0/win-x64/publish-self-contained|publish-framework-dependent,
-///           make install/light-house → bin/Release/net9.0/publish)
+/// **설치본 기준만 사용 (2026-05-30 사용자 결정)** — dev repo 빌드 출력은 service binPath 로 부적합
+/// (clean 시 소멸 / 버전 불일치 / 배포 미검증) 하므로 탐색 대상에서 제외. <see cref="ResolveDeployment"/> 는
+/// 설치된 Promaker 의 {app}\LightHouseService\ 만 탐색한다:
+///   ① 실행 디렉터리 {AppContext.BaseDirectory}\LightHouseService  (설치본을 직접 실행 중인 경우)
+///   ② 레지스트리 InstallLocation\LightHouseService  (개발 빌드를 실행 중이어도 설치된 Promaker 를 사용)
+/// 설치본 미발견 시 <see cref="EnableAsync(SecureString, SecureString, CancellationToken)"/> 가 명시 throw
+/// → 사용자에게 Promaker installer ('AI 기능 활성화' 컴포넌트) 설치 유도.
 /// </summary>
 public sealed class LightHouseLocalInstaller
 {
@@ -71,11 +73,13 @@ public sealed class LightHouseLocalInstaller
 
             var deployment = ResolveDeployment()
                 ?? throw new InvalidOperationException(
-                    "LightHouseService 배포 파일 미발견 — installer 의 'AI 기능 활성화' 컴포넌트 체크 후 재설치 (개발 환경은 'make publish-lighthouse' 필요).");
+                    "설치된 Promaker 의 LightHouseService 를 찾지 못했습니다. " +
+                    "Promaker installer 로 'AI 기능 활성화' 컴포넌트를 포함해 설치한 뒤 다시 시도하십시오 " +
+                    "(개발 환경에서도 설치본 기준으로만 service 를 등록합니다).");
 
             var enableScript = Path.Combine(deployment.ScriptsDir, "enable-ai.ps1");
             if (!File.Exists(enableScript))
-                throw new FileNotFoundException("enable-ai.ps1 미발견 — installer 갱신 또는 'make publish-lighthouse' 후 재시도.", enableScript);
+                throw new FileNotFoundException("enable-ai.ps1 미발견 — Promaker installer 로 'AI 기능 활성화' 컴포넌트를 포함해 재설치 후 재시도하십시오.", enableScript);
 
             // **B4 (2026-05-27)** — SecureString → UTF-8 byte[]. Owner-only ACL 은 default Temp 디렉터리 권한에 의존
             // (Windows 의 %TEMP% 가 사용자별 분리 박제 — 다른 사용자 read 불가, admin elevation 시 read 가능 — UAC 후 자기 process 가 read).
@@ -234,52 +238,47 @@ public sealed class LightHouseLocalInstaller
         return entry;
     }
 
-    /// <summary>운영 (`{AppContext.BaseDirectory}\LightHouseService\`) → 개발 (repo/Solutions/Tools/...) 순으로 탐색.</summary>
+    /// <summary>설치된 Promaker 의 {app}\LightHouseService\ 만 탐색 — dev repo fallback 없음 (2026-05-30 사용자 결정).
+    /// ① 실행 디렉터리(설치본 직접 실행) → ② 레지스트리 InstallLocation(개발 빌드 실행이어도 설치본 사용) 순.
+    /// 두 후보 모두 scripts\ + Ds2.LightHouseService.exe 가 함께 있어야 유효. 미발견 시 null.</summary>
     public static Deployment? ResolveDeployment()
     {
-        // 운영 — installer 가 배치한 위치.
-        var opsRoot = Path.Combine(AppContext.BaseDirectory, "LightHouseService");
-        var opsScripts = Path.Combine(opsRoot, "scripts");
-        var opsExe = Path.Combine(opsRoot, "Ds2.LightHouseService.exe");
-        if (Directory.Exists(opsScripts) && File.Exists(opsExe))
-            return new Deployment(opsScripts, opsExe, IsOperational: true);
-
-        // 개발 — repo root 검색 (.git 디렉터리 탐색).
-        var repoRoot = FindRepoRoot(AppContext.BaseDirectory);
-        if (repoRoot is not null)
+        foreach (var root in EnumerateInstalledServiceRoots())
         {
-            var devRoot = Path.Combine(repoRoot, "Solutions", "Tools", "Ds2.LightHouseService");
-            var devScripts = Path.Combine(devRoot, "scripts");
-            // dev exe 탐색 후보 (Makefile SSOT). `make publish-lighthouse` 는 LH_INSTALLER_PUBLISH
-            // (`bin/Release/net9.0/win-x64/publish-self-contained|publish-framework-dependent`, MODE=sc 기본/fd)
-            // 로, `make install`/`light-house`(콘솔) 은 LH_PUBLISH_DIR(`bin/Release/net9.0/publish`) 로 출력한다.
-            // 셋 다 순서대로 탐색 — sc 우선(dev 에서도 .NET 런타임 번들로 service 등록 안전).
-            var devBin = Path.Combine(devRoot, "bin", "Release", "net9.0");
-            string[] devExeCandidates =
-            {
-                Path.Combine(devBin, "win-x64", "publish-self-contained", "Ds2.LightHouseService.exe"),
-                Path.Combine(devBin, "win-x64", "publish-framework-dependent", "Ds2.LightHouseService.exe"),
-                Path.Combine(devBin, "publish", "Ds2.LightHouseService.exe"),
-            };
-            var devExe = devExeCandidates.FirstOrDefault(File.Exists);
-            if (Directory.Exists(devScripts) && devExe is not null)
-                return new Deployment(devScripts, devExe, IsOperational: false);
+            var scripts = Path.Combine(root, "scripts");
+            var exe = Path.Combine(root, "Ds2.LightHouseService.exe");
+            if (Directory.Exists(scripts) && File.Exists(exe))
+                return new Deployment(scripts, exe);
         }
-
         return null;
     }
 
-    private static string? FindRepoRoot(string start)
+    /// <summary>설치본의 LightHouseService 폴더 후보를 우선순위 순으로 산출. exe + scripts 묶음 정합을 위해
+    /// scripts 와 exe 는 항상 동일 root 에서 가져온다 (enable-ai.ps1 이 같은 폴더의 install-service.ps1 등을 상대 참조).</summary>
+    private static IEnumerable<string> EnumerateInstalledServiceRoots()
     {
-        var dir = new DirectoryInfo(start);
-        while (dir is not null)
-        {
-            var gitPath = Path.Combine(dir.FullName, ".git");
-            // worktree / submodule 환경에서는 .git 가 파일 (`gitdir: ...`). 둘 다 인식.
-            if (Directory.Exists(gitPath) || File.Exists(gitPath)) return dir.FullName;
-            dir = dir.Parent;
-        }
-        return null;
+        // ① 설치본을 직접 실행 중 — installer 가 {app}\LightHouseService\ 로 번들.
+        yield return Path.Combine(AppContext.BaseDirectory, "LightHouseService");
+
+        // ② 개발 빌드를 실행 중이어도 설치된 Promaker 의 service 를 사용 — Inno Setup InstallLocation.
+        var installRoot = ResolveInstalledPromakerRoot();
+        if (installRoot is not null)
+            yield return Path.Combine(installRoot, "LightHouseService");
+    }
+
+    /// <summary>설치된 Promaker 의 app 루트(InstallLocation) 를 Inno Setup uninstall 레지스트리에서 조회.
+    /// 키의 GUID 는 Installer/Setup.iss 의 [Setup] AppId SSOT — AppId 는 업그레이드 호환을 위해 영구 불변.
+    /// 64-bit 모드 설치(ArchitecturesInstallIn64BitMode)이므로 64-bit view 의 HKLM 만 조회. 미설치 / 값 없음 시 null.</summary>
+    private static string? ResolveInstalledPromakerRoot()
+    {
+        // Setup.iss: AppId={{7B74787E-6F09-4AB9-AE16-4C9D5F8B3D31} → uninstall 키는 "<GUID>_is1".
+        const string subKey =
+            @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{7B74787E-6F09-4AB9-AE16-4C9D5F8B3D31}_is1";
+        using var hklm = Microsoft.Win32.RegistryKey.OpenBaseKey(
+            Microsoft.Win32.RegistryHive.LocalMachine, Microsoft.Win32.RegistryView.Registry64);
+        using var key = hklm.OpenSubKey(subKey);
+        var loc = key?.GetValue("InstallLocation") as string;
+        return string.IsNullOrWhiteSpace(loc) ? null : loc.TrimEnd('\\', '/');
     }
 
     /// <summary>두 BaseUrl 이 같은 endpoint 인지 판정 — scheme / host(localhost↔127.0.0.1 정규화) / port 비교.
@@ -403,6 +402,7 @@ public sealed class LightHouseLocalInstaller
         return null;
     }
 
-    public sealed record Deployment(string ScriptsDir, string ExePath, bool IsOperational);
+    // 설치본 전용 — dev fallback 제거 후 "운영/개발" 구분 플래그(IsOperational)는 의미를 잃어 제거 (2026-05-30).
+    public sealed record Deployment(string ScriptsDir, string ExePath);
     public readonly record struct EnableResult(string ServiceId, string LogPath, bool? Healthy);
 }
