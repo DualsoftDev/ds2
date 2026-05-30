@@ -282,6 +282,13 @@ CREATE INDEX IF NOT EXISTS IX_ImgRef_Chunk         ON ImageReferences(ChunkId);
     /// SQLite 의 `LoadExtension` 은 OS native API (LoadLibrary on Windows / dlopen on Linux/macOS) 직접 호출 —
     /// `.NET runtime asset` (`runtimes/<rid>/native/`) 의 자동 search path 무관. 절대 path 명시 의무 (Microsoft 공식
     /// doc 박제: "SQLite can't leverage .NET's logic for locating native libraries; it calls the platform API directly").
+    ///
+    /// **publish 레이아웃 2종 probe (SqliteStore.fs, 2026-05-30 fix)** — vec0 native 위치는 publish 방식별로 상이:
+    ///   - portable (RID 미지정) publish → `<BaseDir>/runtimes/<rid>/native/vec0.dll` (CLI 기본 레이아웃).
+    ///   - RID-specific (`-r win-x64`) publish → native 가 `<BaseDir>/vec0.dll` 로 flatten (LightHouseService 설치본).
+    /// 종전 runtimes/ 단일 경로만 참조 → flatten 된 설치본 서비스에서 `LoadLibrary` ERROR_MOD_NOT_FOUND
+    /// ("지정된 모듈을 찾을 수 없습니다") → 모든 collection open 실패. 두 후보를 순서대로 probe 하여 최초 존재 path 반환.
+    /// 둘 다 부재 시 두 경로 명시한 FileNotFoundException 으로 fail-fast (운영자 진단용).
     let private resolveVec0Path () : string =
         let rid =
             if RuntimeInformation.IsOSPlatform OSPlatform.Windows then "win-x64"
@@ -294,7 +301,15 @@ CREATE INDEX IF NOT EXISTS IX_ImgRef_Chunk         ON ImageReferences(ChunkId);
             if RuntimeInformation.IsOSPlatform OSPlatform.Windows then "vec0.dll"
             elif RuntimeInformation.IsOSPlatform OSPlatform.OSX then "vec0.dylib"
             else "vec0.so"
-        Path.Combine(AppContext.BaseDirectory, "runtimes", rid, "native", fileName)
+        let baseDir = AppContext.BaseDirectory
+        let candidates =
+            [ Path.Combine(baseDir, "runtimes", rid, "native", fileName)  // portable publish (CLI)
+              Path.Combine(baseDir, fileName) ]                           // RID-specific flatten (설치본 서비스)
+        match candidates |> List.tryFind File.Exists with
+        | Some path -> path
+        | None ->
+            raise (FileNotFoundException(
+                sprintf "sqlite-vec native (%s) 미발견 — probe 경로: %s" fileName (String.Join(" | ", candidates))))
 
     /// **B-R12 (perf sweep, s6-r71+)** — vec0 path lazy cache. process lifetime 동안 1회 산출.
     /// 매 `openConnection` 호출마다 `RuntimeInformation.IsOSPlatform` + `Path.Combine` 반복 cost 회피
@@ -303,8 +318,9 @@ CREATE INDEX IF NOT EXISTS IX_ImgRef_Chunk         ON ImageReferences(ChunkId);
 
     /// **Phase 4 (s6-r34)** — sqlite-vec extension load. open 직후 1회 호출 + ATTACH 별도 connection 도 호출.
     ///
-    /// `vec0.dll` (Windows) / `libvec0.so` (Linux) / `libvec0.dylib` (macOS) 가 caller 의 publish output 의
-    /// `runtimes/<rid>/native/` 에 있어야 함 (sqlite-vec NuGet 0.1.7-alpha.2.1 박제 의무, s6-r33 검증).
+    /// `vec0.dll` (Windows) / `vec0.so` (Linux) / `vec0.dylib` (macOS) 가 caller 의 publish output 에 있어야 함
+    /// (`runtimes/<rid>/native/` portable 또는 `<BaseDir>/` flatten — `resolveVec0Path` 가 양쪽 probe).
+    /// sqlite-vec NuGet 0.1.7-alpha.2.1 박제 의무 (s6-r33 검증).
     ///
     /// Microsoft.Data.Sqlite 의 `LoadExtension` 은 SqliteConnection 의 method — `EnableExtensions(true)` 자동 호출.
     /// extension load 실패 시 SqliteException throw — caller (Indexer / Searcher) 가 명확 fail-fast.
