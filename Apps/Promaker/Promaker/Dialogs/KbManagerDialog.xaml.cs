@@ -352,6 +352,10 @@ public partial class KbManagerDialog : Window
         await RunIngestAsync(async (ct, progress) =>
         {
             var collectionId = await ingest.IngestAndUploadAsync(folder, title, progress, ct).ConfigureAwait(true);
+            // 옵션 A (2026-05-30) — collectionId = sanitized 폴더명 (멱등). 같은 이름 재등록 시 server 가 기존 것을
+            // overwrite 하므로, client config 도 기존 동일 (CollectionId, ServiceId) entry 제거 후 재추가 (중복 row 방지).
+            _config.KbCollections.RemoveAll(k =>
+                k.CollectionId == collectionId && k.ServiceId == sid);
             _config.KbCollections.Add(new KbCollectionEntry
             {
                 CollectionId = collectionId,

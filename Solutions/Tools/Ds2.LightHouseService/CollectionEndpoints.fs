@@ -25,9 +25,12 @@ module CollectionEndpoints =
     // **C-15 (s6-r79)** — 4 helper 폐기 → `EndpointHelpers` SSOT 통과 alias. caller 변경 0 (signature 정합).
     let private userIdentityOf = EndpointHelpers.userIdentityOf
 
-    /// multipart form 의 "title" 필드 + "zip" 파일 추출.
+    /// multipart form 의 "title" 필드 + "overwrite" 필드 + "zip" 파일 추출.
     /// title 누락 시 400. zip 누락 시 400.
-    let private parseMultipart (ctx: HttpContext) : Task<Result<string * IFormFile, int * string>> = task {
+    ///
+    /// **옵션 A overwrite (2026-05-30)** — 동일 폴더명(collectionId) 존재 시 덮어쓰기 여부. **default true**
+    /// (필드 미박제 시 overwrite — 기존 client 호환). `"false"`/`"0"`/`"off"` (대소문자 무시) 만 fail 모드.
+    let private parseMultipart (ctx: HttpContext) : Task<Result<string * bool * IFormFile, int * string>> = task {
         if not (ctx.Request.HasFormContentType) then
             return Error (415, "multipart/form-data 필수")
         else
@@ -36,6 +39,12 @@ module CollectionEndpoints =
                 match form.TryGetValue "title" with
                 | true, v -> v.ToString()
                 | _ -> ""
+            let overwrite =
+                match form.TryGetValue "overwrite" with
+                | true, v ->
+                    let s = v.ToString().Trim().ToLowerInvariant()
+                    not (s = "false" || s = "0" || s = "off")
+                | _ -> true
             if String.IsNullOrWhiteSpace title then
                 return Error (400, "title 필드 필수")
             else
@@ -43,7 +52,7 @@ module CollectionEndpoints =
                     return Error (400, "zip 파일 필드 필수")
                 else
                     let zip = form.Files.[0]
-                    return Ok (title.Trim(), zip)
+                    return Ok (title.Trim(), overwrite, zip)
     }
 
     let private writeJson = EndpointHelpers.writeJson
@@ -102,13 +111,20 @@ module CollectionEndpoints =
                 return false
         }
 
-    /// POST /collections — multipart zip + title → guid 발급 + 전개 + IndexerVersion gate + 등록.
-    /// notifier 는 본 endpoint 에서 미사용 — payload swap / delete 가 호출. 신규 등록은 detach 불요.
-    /// bus (s6-r27, D-S7-2) — Compatible 분기 성공 시 `collection-added` event publish.
+    /// POST /collections — multipart zip + title → 등록 OR 멱등 overwrite.
+    ///
+    /// **옵션 A (guid 폐기 + 폴더명 멱등, 2026-05-30)**:
+    /// - `collectionId = sanitizeTitle(title)` — server 발급 guid 폐기, 폴더명이 canonical 식별 키.
+    /// - 같은 이름 collection 이 이미 있으면:
+    ///   - `overwrite=true` (default) → 기존 payload swap (rollback-safe, Acl 보존) + `collection-updated`.
+    ///   - `overwrite=false` → 409 conflict (fail 모드).
+    /// - 없으면 → 신규 등록 (atomic move) + `collection-added`.
+    /// - **staging 은 unique guid 유지** — 동일 title 동시 upload 시 작업공간 충돌 회피 (최종 식별자와 분리).
+    /// - 멱등 overwrite 는 swap 의미 → multi-tenant acl 검증 (Hidden=404 / ReadOnly=403, T1 모드는 항상 Allow).
     let private postCollections
         (cfg: ServiceConfig)
         (storageRoot: string)
-        (_notifier: ICollectionLifecycleNotifier)
+        (notifier: ICollectionLifecycleNotifier)
         (bus: EventBus)
         (ctx: HttpContext)
         : Task =
@@ -117,69 +133,102 @@ module CollectionEndpoints =
             match! parseMultipart ctx with
             | Error (status, msg) ->
                 do! writeError ctx status msg
-            | Ok (rawTitle, zip) ->
-                // server 가 guid 발급 (D3 / CR3)
-                let collectionId = Guid.NewGuid().ToString("D")
-                let stagingId = collectionId
+            | Ok (rawTitle, overwrite, zip) ->
+                // review IC-2: title sanitize SSOT 일원화. **옵션 A** — sanitized title 자체가 collectionId.
+                let title = ZipImport.sanitizeTitle rawTitle
+                let collectionId = title
+                // staging 은 unique guid 유지 — 동일 title 동시 upload race 회피 (최종 식별자 collectionId 와 분리).
+                let stagingId = Guid.NewGuid().ToString("D")
                 let stagingPath = Path.Combine(Storage.stagingDir storageRoot, stagingId)
 
-                // review IC-2 (3/7 reviewer): title sanitize SSOT 일원화.
-                // parseMultipart 직후 1회 산출 → meta.Title / Registry.DisplayName / storageRelPath / 모든 로그 일관.
-                // raw title 의 unicode bidi / control char / CR-LF 가 audit log 를 spoofing 하는 위험 차단 + swap path 의 path drift 차단.
-                let title = ZipImport.sanitizeTitle rawTitle
+                let existingOpt = Registry.tryFindById storageRoot collectionId
 
-                Log.audit.Info(sprintf "collection upload 시작 — id=%s title=%s by=%s size=%d"
-                    collectionId title user zip.Length)
+                // 멱등 overwrite = swap 의미 → 기존 entry 의 multi-tenant acl 검증 (T1 모드는 항상 Allow).
+                let aclReject =
+                    match existingOpt with
+                    | Some existing ->
+                        match MultiTenantPolicy.evaluate cfg.MultiTenant.Mode user existing with
+                        | MultiTenantPolicy.AccessDecision.Hidden ->
+                            Log.audit.Warn(sprintf "POST /collections overwrite acl reject (hidden) — id=%s user=%s mode=%s" collectionId user cfg.MultiTenant.Mode)
+                            Some (404, sprintf "collection 미존재 — id=%s" collectionId)
+                        | MultiTenantPolicy.AccessDecision.ReadOnly ->
+                            Log.audit.Warn(sprintf "POST /collections overwrite acl reject (readOnly) — id=%s user=%s mode=%s" collectionId user cfg.MultiTenant.Mode)
+                            Some (403, sprintf "read-only collection — id=%s" collectionId)
+                        | MultiTenantPolicy.AccessDecision.Allow -> None
+                    | None -> None
 
-                try
-                    Directory.CreateDirectory stagingPath |> ignore
-                    // zip stream 을 staging 에 직접 extract — sanitize + bomb 가드.
-                    use zipStream = zip.OpenReadStream()
-                    let decompressed =
-                        ZipImport.extractAll zipStream stagingPath zip.Length cfg.ZipBombRatioLimit
-                    Log.service.Info(sprintf "zip extracted — collection=%s compressed=%d decompressed=%d"
-                        collectionId zip.Length decompressed)
+                match aclReject with
+                | Some (status, msg) -> do! writeError ctx status msg
+                | None ->
+                match existingOpt with
+                | Some _ when not overwrite ->
+                    // fail 모드 — 동일 이름 존재 + overwrite=false.
+                    Log.audit.Info(sprintf "collection upload 거부 (overwrite=false, 동일 이름 존재) — id=%s by=%s" collectionId user)
+                    do! writeJson ctx 409 {| error = "collection exists"; id = collectionId
+                                             reason = sprintf "동일 이름 collection 이미 존재 — id=%s" collectionId
+                                             suggestedAction = "overwrite=true 로 재요청하거나 다른 폴더명 사용" |}
+                | _ ->
+                    Log.audit.Info(sprintf "collection upload 시작 — id=%s overwrite=%b by=%s size=%d"
+                        collectionId overwrite user zip.Length)
+                    try
+                        Directory.CreateDirectory stagingPath |> ignore
+                        // zip stream 을 staging 에 직접 extract — sanitize + bomb 가드.
+                        use zipStream = zip.OpenReadStream()
+                        let decompressed =
+                            ZipImport.extractAll zipStream stagingPath zip.Length cfg.ZipBombRatioLimit
+                        Log.service.Info(sprintf "zip extracted — collection=%s compressed=%d decompressed=%d"
+                            collectionId zip.Length decompressed)
 
-                    // meta.json 검증 + server 필드 stamp.
-                    // safeTitle (`title`) 로 clientMeta.Title 도 overwrite — Registry / 디렉토리명과 일관.
-                    let clientMeta = MetaJsonIO.load stagingPath
-                    let storageRelPath = sprintf "Collections\\%s" (ZipImport.collectionDirName collectionId title)
-                    let serverMeta =
-                        MetaJsonIO.stampServerFields collectionId user storageRelPath { clientMeta with Title = title }
-                    MetaJsonIO.save stagingPath serverMeta
+                        // meta.json 검증 + server 필드 stamp. safeTitle 로 clientMeta.Title overwrite.
+                        let clientMeta = MetaJsonIO.load stagingPath
+                        let storageRelPath = sprintf "Collections\\%s" (ZipImport.collectionDirName collectionId title)
+                        let serverMeta =
+                            MetaJsonIO.stampServerFields collectionId user storageRelPath { clientMeta with Title = title }
+                        MetaJsonIO.save stagingPath serverMeta
 
-                    // IndexerVersion gate (§3.12) — SSOT = `processStagingExtractGate` (s6-r43).
-                    // **2026-05-28 fix** — probe 시그니처 변경 (option → IndexerVersionProbe DU). cause 분리.
-                    let probe = Ds2.LightHouse.KnowledgeBase.probeIndexerVersionDetailed stagingPath
-                    let gate = ZipImport.evaluateIndexerVersionGate probe cfg.IndexerVersionRange.Min cfg.IndexerVersionRange.Max
-                    let! compatible = processStagingExtractGate ctx storageRoot stagingId cfg.IndexerVersionRange gate collectionId ""
-                    if compatible then
-                        // atomic move → Collections\<guid>-<sanitized>\
-                        let target = ZipImport.moveStagingToCollection storageRoot stagingPath collectionId title
-                        let entry = MetaJsonRegistry.toRegistryEntry serverMeta
-                        do! Registry.upsertAsync storageRoot entry
-                        Log.audit.Info(sprintf "collection registered — id=%s by=%s target=%s" collectionId user target)
-                        bus.Publish(ServerEvent.collectionAdded collectionId)  // D-S7-2 s6-r27
-                        do! writeJson ctx 201 {| id = collectionId; storageRelPath = entry.StorageRelPath |}
-                with
-                | SanitizeException err ->
-                    Log.audit.Warn(sprintf "sanitize 실패 — id=%s by=%s err=%A" collectionId user err)
-                    StagingSweep.removeStaging storageRoot stagingId |> ignore
-                    do! writeError ctx 400 (sprintf "zip sanitize 실패: %A" err)
-                | :? FileNotFoundException as ex ->
-                    // zip 에 meta.json / index.db 누락 — client 결함 (400, review M6)
-                    Log.audit.Warn(sprintf "zip 구조 결함 — id=%s by=%s missing=%s" collectionId user ex.FileName)
-                    StagingSweep.removeStaging storageRoot stagingId |> ignore
-                    do! writeError ctx 400 (sprintf "zip 구조 결함 — %s 누락" (Path.GetFileName ex.FileName))
-                | :? InvalidDataException as ex ->
-                    // meta.json schemaVersion mismatch / 역직렬화 실패 — client 결함 (400, review M6)
-                    Log.audit.Warn(sprintf "zip 구조 결함 — id=%s by=%s ex=%s" collectionId user ex.Message)
-                    StagingSweep.removeStaging storageRoot stagingId |> ignore
-                    do! writeError ctx 400 (sprintf "zip 구조 결함: %s" ex.Message)
-                | ex ->
-                    Log.service.Error(sprintf "collection upload 실패 — id=%s ex=%s" collectionId ex.Message)
-                    StagingSweep.removeStaging storageRoot stagingId |> ignore
-                    do! writeError ctx 500 "internal error"
+                        // IndexerVersion gate (§3.12) — SSOT = `processStagingExtractGate`. gate fail 시 stagingId 정리.
+                        let probe = Ds2.LightHouse.KnowledgeBase.probeIndexerVersionDetailed stagingPath
+                        let gate = ZipImport.evaluateIndexerVersionGate probe cfg.IndexerVersionRange.Min cfg.IndexerVersionRange.Max
+                        let labelSuffix = if existingOpt.IsSome then " (overwrite)" else ""
+                        let! compatible = processStagingExtractGate ctx storageRoot stagingId cfg.IndexerVersionRange gate collectionId labelSuffix
+                        if compatible then
+                            match existingOpt with
+                            | Some existing ->
+                                // 멱등 overwrite — 기존 collection payload swap (rollback-safe, K1 unique backup). Acl 보존.
+                                let target = ZipImport.swapCollectionPayload storageRoot stagingPath collectionId title
+                                let entry = { MetaJsonRegistry.toRegistryEntry serverMeta with Acl = existing.Acl }
+                                do! Registry.upsertAsync storageRoot entry
+                                notifier.OnPayloadSwapped collectionId  // active session KB 무효화
+                                Log.audit.Info(sprintf "collection overwritten — id=%s by=%s target=%s" collectionId user target)
+                                bus.Publish(ServerEvent.collectionUpdated collectionId)
+                                do! writeJson ctx 200 {| id = collectionId; storageRelPath = entry.StorageRelPath |}
+                            | None ->
+                                // atomic move → Collections\<sanitized-title>\
+                                let target = ZipImport.moveStagingToCollection storageRoot stagingPath collectionId title
+                                let entry = MetaJsonRegistry.toRegistryEntry serverMeta
+                                do! Registry.upsertAsync storageRoot entry
+                                Log.audit.Info(sprintf "collection registered — id=%s by=%s target=%s" collectionId user target)
+                                bus.Publish(ServerEvent.collectionAdded collectionId)  // D-S7-2 s6-r27
+                                do! writeJson ctx 201 {| id = collectionId; storageRelPath = entry.StorageRelPath |}
+                    with
+                    | SanitizeException err ->
+                        Log.audit.Warn(sprintf "sanitize 실패 — id=%s by=%s err=%A" collectionId user err)
+                        StagingSweep.removeStaging storageRoot stagingId |> ignore
+                        do! writeError ctx 400 (sprintf "zip sanitize 실패: %A" err)
+                    | :? FileNotFoundException as ex ->
+                        // zip 에 meta.json / index.db 누락 — client 결함 (400, review M6)
+                        Log.audit.Warn(sprintf "zip 구조 결함 — id=%s by=%s missing=%s" collectionId user ex.FileName)
+                        StagingSweep.removeStaging storageRoot stagingId |> ignore
+                        do! writeError ctx 400 (sprintf "zip 구조 결함 — %s 누락" (Path.GetFileName ex.FileName))
+                    | :? InvalidDataException as ex ->
+                        // meta.json schemaVersion mismatch / 역직렬화 실패 — client 결함 (400, review M6)
+                        Log.audit.Warn(sprintf "zip 구조 결함 — id=%s by=%s ex=%s" collectionId user ex.Message)
+                        StagingSweep.removeStaging storageRoot stagingId |> ignore
+                        do! writeError ctx 400 (sprintf "zip 구조 결함: %s" ex.Message)
+                    | ex ->
+                        Log.service.Error(sprintf "collection upload 실패 — id=%s ex=%s" collectionId ex.Message)
+                        StagingSweep.removeStaging storageRoot stagingId |> ignore
+                        do! writeError ctx 500 "internal error"
         } :> Task
 
     /// GET /collections — registry list. **s6-r66 D-S7-4**: T2/T3 모드에서 visible filter.
@@ -246,7 +295,8 @@ module CollectionEndpoints =
                 match! parseMultipart ctx with
                 | Error (status, msg) ->
                     do! writeError ctx status msg
-                | Ok (rawTitle, zip) ->
+                | Ok (rawTitle, _overwrite, zip) ->
+                    // swap endpoint — overwrite 무관 (기존 id 명시 교체). overwrite 필드는 무시.
                     let stagingId = Guid.NewGuid().ToString("D")
                     let stagingPath = Path.Combine(Storage.stagingDir storageRoot, stagingId)
                     // review IC-2 (swap path 변형): title 은 첫 upload 시점에 고정 — swap 은 payload (zip 안 source/ + .lighthouse-kb/) 만 교체.

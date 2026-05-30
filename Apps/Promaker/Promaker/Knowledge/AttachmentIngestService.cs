@@ -56,7 +56,8 @@ public sealed class AttachmentIngestService
     }
 
     /// <summary>
-    /// 신규 collection 등록 — `sourceFolder` 색인 + upload. 반환 = server 가 발급한 collection guid (D3).
+    /// 신규/멱등 collection 등록 — `sourceFolder` 색인 + upload. 반환 = collectionId
+    /// (옵션 A 2026-05-30 — server 가 sanitizeTitle(title) 로 발급, 종전 guid. 같은 폴더명 재업로드 = 멱등 overwrite).
     /// </summary>
     public async Task<string> IngestAndUploadAsync(
         string sourceFolder,
@@ -385,7 +386,7 @@ public sealed class AttachmentIngestService
             return chunkedId;
         }
         progress?.Report(new IngestStageProgress(IngestStage.Uploading, 0, 1, $"upload → {title}"));
-        var collectionId = await _client.UploadCollectionAsync(title, zipStream, ct).ConfigureAwait(false);
+        var collectionId = await _client.UploadCollectionAsync(title, zipStream, ct: ct).ConfigureAwait(false);
         progress?.Report(new IngestStageProgress(IngestStage.Done, 1, 1, $"등록 완료 — {collectionId}"));
         return collectionId;
     }

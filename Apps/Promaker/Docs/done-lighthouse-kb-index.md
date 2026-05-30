@@ -12,7 +12,7 @@
 >
 > | 회귀 단원 | service 도입 후 (요약 hint) |
 > |---|---|
-> | §3.9 (사용자 폴더 = SSOT, 사본 X) | server-side `Collections\<guid>-<title>\` 가 SSOT, 사용자 폴더에 흔적 0 |
+> | §3.9 (사용자 폴더 = SSOT, 사본 X) | server-side `Collections\<폴더명>\` 가 SSOT (옵션 A 2026-05-30 — guid prefix 폐기), 사용자 폴더에 흔적 0 |
 > | §3.10 (MCP tool host = Promaker) | host 위치만 service 로 이동, tool 이름/인자 변경 0, 호출 context 만 session 헤더로 갈음 |
 > | §3.17 (SQLite 운영 — WAL/PRAGMA/재색인) | client write-path SSOT 유지, service read-path 는 read-only ATTACH 만 |
 > | §3.18 (KnowledgeBase facade) | client 측 Indexer facade / service 측 Searcher facade 양분 (`kb-server.md §3.1.2`) |

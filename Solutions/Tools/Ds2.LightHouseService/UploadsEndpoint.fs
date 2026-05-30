@@ -455,45 +455,53 @@ module UploadsEndpoint =
                             do! writeError ctx 409
                                     (sprintf "incomplete — offset=%d / totalBytes=%d" meta.Offset meta.TotalBytes)
                         else
-                        // **phase 4 (s6-r74 b1)** — body parse 후 swap target 박제 여부 분기.
-                        let! swapTarget = readFinalizeBody ctx
-                        let isSwap = not (String.IsNullOrWhiteSpace swapTarget)
-                        // swap 분기: existing entry 검증 + acl 분기. new 분기: 새 collectionId 발급.
+                        // **phase 4 (s6-r74 b1) + 옵션 A (guid 폐기 + 폴더명 멱등, 2026-05-30)** — target 결정.
+                        // effectiveTarget = 명시 swapTarget 또는 (미명시 시) sanitizeTitle(meta.Title). 둘 다 같은 이름
+                        // collection 이 이미 있으면 멱등 overwrite (swap). 명시 swapTarget 미존재만 404, title-멱등 미존재는
+                        // 순수 신규 (정상). collectionId 도 guid 대신 sanitizeTitle (single-shot postCollections 정합).
+                        let! bodySwapTarget = readFinalizeBody ctx
+                        let explicitSwap = not (String.IsNullOrWhiteSpace bodySwapTarget)
+                        let effectiveTarget =
+                            if explicitSwap then bodySwapTarget
+                            else ZipImport.sanitizeTitle meta.Title
                         let mutable existingEntry : CollectionEntry option = None
                         let mutable aclReject : (int * string) option = None
-                        if isSwap then
-                            match Registry.tryFindById storageRoot swapTarget with
-                            | None ->
-                                aclReject <- Some (404, sprintf "swap target 미존재 — id=%s" swapTarget)
-                            | Some entry ->
-                                match MultiTenantPolicy.evaluate cfg.MultiTenant.Mode meta.UserIdentity entry with
-                                | MultiTenantPolicy.AccessDecision.Hidden ->
-                                    Log.audit.Warn(
-                                        sprintf "D-S7-5 phase 4: finalize swap acl reject (hidden) — uploadId=%s target=%s user=%s mode=%s"
-                                            uploadId swapTarget
-                                            (Log.sanitizeForLog meta.UserIdentity) cfg.MultiTenant.Mode)
-                                    aclReject <- Some (404, sprintf "swap target 미존재 — id=%s" swapTarget)
-                                | MultiTenantPolicy.AccessDecision.ReadOnly ->
-                                    Log.audit.Warn(
-                                        sprintf "D-S7-5 phase 4: finalize swap acl reject (readOnly) — uploadId=%s target=%s user=%s mode=%s"
-                                            uploadId swapTarget
-                                            (Log.sanitizeForLog meta.UserIdentity) cfg.MultiTenant.Mode)
-                                    aclReject <- Some (403, sprintf "read-only collection — id=%s" swapTarget)
-                                | MultiTenantPolicy.AccessDecision.Allow ->
-                                    existingEntry <- Some entry
+                        match Registry.tryFindById storageRoot effectiveTarget with
+                        | None ->
+                            // 명시 swapTarget 인데 미존재 = 404. title-멱등 path (explicitSwap=false) 의 None = 순수 신규.
+                            if explicitSwap then
+                                aclReject <- Some (404, sprintf "swap target 미존재 — id=%s" bodySwapTarget)
+                        | Some entry ->
+                            match MultiTenantPolicy.evaluate cfg.MultiTenant.Mode meta.UserIdentity entry with
+                            | MultiTenantPolicy.AccessDecision.Hidden ->
+                                Log.audit.Warn(
+                                    sprintf "D-S7-5: finalize overwrite acl reject (hidden) — uploadId=%s target=%s user=%s mode=%s"
+                                        uploadId effectiveTarget
+                                        (Log.sanitizeForLog meta.UserIdentity) cfg.MultiTenant.Mode)
+                                aclReject <- Some (404, sprintf "collection 미존재 — id=%s" effectiveTarget)
+                            | MultiTenantPolicy.AccessDecision.ReadOnly ->
+                                Log.audit.Warn(
+                                    sprintf "D-S7-5: finalize overwrite acl reject (readOnly) — uploadId=%s target=%s user=%s mode=%s"
+                                        uploadId effectiveTarget
+                                        (Log.sanitizeForLog meta.UserIdentity) cfg.MultiTenant.Mode)
+                                aclReject <- Some (403, sprintf "read-only collection — id=%s" effectiveTarget)
+                            | MultiTenantPolicy.AccessDecision.Allow ->
+                                existingEntry <- Some entry
                         match aclReject with
                         | Some (status, msg) -> do! writeError ctx status msg
                         | None ->
                             let collectionId, title, labelSuffix =
                                 match existingEntry with
                                 | Some entry ->
-                                    // swap path — 기존 id + DisplayName 유지 (registry SSOT). client meta.Title overwrite.
-                                    entry.Id, entry.DisplayName, " (resumable-swap)"
+                                    // overwrite path — 기존 id + DisplayName 유지 (registry SSOT). client meta.Title overwrite.
+                                    entry.Id, entry.DisplayName, " (resumable-overwrite)"
                                 | None ->
-                                    let newId = Guid.NewGuid().ToString("D")
+                                    // 옵션 A — guid 폐기. collectionId = sanitizeTitle (신규 등록).
                                     let safeTitle = ZipImport.sanitizeTitle meta.Title
-                                    newId, safeTitle, " (resumable)"
-                            let collStaging = Path.Combine(Storage.stagingDir storageRoot, collectionId)
+                                    safeTitle, safeTitle, " (resumable)"
+                            // **옵션 A** — collectionId=title 이므로 extract 작업공간은 별도 unique guid 로 분리 (동시 동일 title finalize race 회피).
+                            let collStagingId = Guid.NewGuid().ToString("D")
+                            let collStaging = Path.Combine(Storage.stagingDir storageRoot, collStagingId)
 
                             Log.audit.Info(
                                 sprintf "D-S7-5: finalize 시작%s — uploadId=%s collectionId=%s title=%s totalBytes=%d"
@@ -520,7 +528,7 @@ module UploadsEndpoint =
                                         cfg.IndexerVersionRange.Min cfg.IndexerVersionRange.Max
                                 let! compatible =
                                     CollectionEndpoints.processStagingExtractGate
-                                        ctx storageRoot collectionId cfg.IndexerVersionRange gate collectionId
+                                        ctx storageRoot collStagingId cfg.IndexerVersionRange gate collectionId
                                         labelSuffix
                                 if compatible then
                                     match existingEntry with
@@ -570,14 +578,14 @@ module UploadsEndpoint =
                                 Log.audit.Warn(
                                     sprintf "D-S7-5: finalize sanitize 실패%s — uploadId=%s collectionId=%s err=%A"
                                         labelSuffix uploadId collectionId err)
-                                StagingSweep.removeStaging storageRoot collectionId |> ignore
+                                StagingSweep.removeStaging storageRoot collStagingId |> ignore
                                 if Directory.Exists dir then try Directory.Delete(dir, true) with _ -> ()
                                 do! writeError ctx 400 (sprintf "zip sanitize 실패: %A" err)
                             | :? FileNotFoundException as ex ->
                                 Log.audit.Warn(
                                     sprintf "D-S7-5: finalize zip 구조 결함%s — uploadId=%s missing=%s"
                                         labelSuffix uploadId ex.FileName)
-                                StagingSweep.removeStaging storageRoot collectionId |> ignore
+                                StagingSweep.removeStaging storageRoot collStagingId |> ignore
                                 if Directory.Exists dir then try Directory.Delete(dir, true) with _ -> ()
                                 do! writeError ctx 400
                                         (sprintf "zip 구조 결함 — %s 누락" (Path.GetFileName ex.FileName))
@@ -585,14 +593,14 @@ module UploadsEndpoint =
                                 Log.audit.Warn(
                                     sprintf "D-S7-5: finalize zip 구조 결함%s — uploadId=%s ex=%s"
                                         labelSuffix uploadId ex.Message)
-                                StagingSweep.removeStaging storageRoot collectionId |> ignore
+                                StagingSweep.removeStaging storageRoot collStagingId |> ignore
                                 if Directory.Exists dir then try Directory.Delete(dir, true) with _ -> ()
                                 do! writeError ctx 400 (sprintf "zip 구조 결함: %s" ex.Message)
                             | ex ->
                                 Log.service.Error(
                                     sprintf "D-S7-5: finalize 실패%s — uploadId=%s ex=%s"
                                         labelSuffix uploadId ex.Message)
-                                StagingSweep.removeStaging storageRoot collectionId |> ignore
+                                StagingSweep.removeStaging storageRoot collStagingId |> ignore
                                 if Directory.Exists dir then try Directory.Delete(dir, true) with _ -> ()
                                 do! writeError ctx 500 "internal error"
                 finally
