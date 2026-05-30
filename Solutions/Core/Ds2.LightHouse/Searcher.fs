@@ -228,25 +228,28 @@ module Searcher =
         }
         { KbIdx = kbIdx; ChunkId = chunkId; Hit = hit; RawScore = rawScore }
 
-    /// 한 chunk 가 참조하는 이미지 — `SearchHit.Images` 박제용. `readImagesByRef` (docId+RefLocator 기반) 의
-    /// **chunkId 기반 변형** — `HasImages` (= `Chunks.ImageCount = COUNT(ImageReferences WHERE ChunkId=Chunks.Id)`)
-    /// 와 동일 셋 (RefLocator 기반은 같은 페이지 다른 chunk 까지 중복 노출 → HasImages 불일치).
+    /// 검색 매칭 chunk 가 속한 **페이지 ((DocumentId, RefLocator))의 이미지 전부** — `SearchHit.Images` 박제용.
     ///
-    /// 본 쿼리는 ImageCache INNER JOIN — "동일 셋" 은 `ImageReferences.ImageHash → ImageCache` FK 무결성 가정 하
-    /// 성립 (`addImageReference` 가 항상 `upsertImageCache` 후 호출 → orphan ImageReference 0; `readImagesByRef`
-    /// 와 동일 JOIN). orphan 발생 시엔 HasImages=true 라도 빈 배열일 수 있으나 그 hash 는 blob 도 없어 다운로드 404.
+    /// **도면 노출 버그 수정 (s6 후속)** — 종전 `readImagesByChunkId` (`ImageReferences.ChunkId = $chunk`) 는
+    /// `ImageReferences.ChunkId` 가 한 RefLocator 의 *첫 (본문) chunk* 만 가리키는 구조 (Indexer C4 매핑) 라,
+    /// 검색이 **caption-chunk** (`[그림 p.N #k hash=..] ...`) 나 같은 페이지의 다른 chunk 에 매칭하면
+    /// `Chunks.ImageCount=0` → `HasImages=false` → images=[] (도면 있는 페이지인데 노출 0). 매칭 chunk 의
+    /// (DocumentId, RefLocator) 로 조회하도록 전환 — 페이지의 이미지를 *어느 chunk 가 매칭됐든* 모두 노출.
     ///
-    /// `alias` = 해당 collection 의 ATTACH alias (kb0..). `hash` 는 full 64자 — caller 가 그대로 노출.
-    /// 빈 결과 (chunkId 에 매핑된 ImageReference 없음 → HasImages=false) → 빈 배열.
-    let private readImagesByChunkId (conn: SqliteConnection) (alias: string) (chunkId: int64) : SearchHitImage array =
+    /// `DISTINCT` — 같은 (DocumentId, RefLocator) 안 동일 hash 중복행 방어. 같은 hash 도면이 여러 chunk/hit 에
+    /// 걸쳐 중복 노출될 수 있으나 **의도된 동작** — hash dedup 은 caller (ev2 / frontend) 책임.
+    /// ImageCache INNER JOIN — `ImageReferences.ImageHash → ImageCache` FK 무결성 가정 (orphan 0; orphan 이면
+    /// hash 가 와도 blob 부재로 다운로드 404). `hash` 는 full 64자 그대로 노출.
+    let private readImagesByChunkRefLocator (conn: SqliteConnection) (alias: string) (chunkId: int64) : SearchHitImage array =
         use cmd = conn.CreateCommand()
         cmd.CommandText <- sprintf """
-            SELECT ir.ImageHash, ir.Ordinal, ic.CaptionText
+            SELECT DISTINCT ir.ImageHash, ir.Ordinal, ic.CaptionText
             FROM %s.ImageReferences ir
-            JOIN %s.ImageCache ic ON ic.ImageHash = ir.ImageHash
-            WHERE ir.ChunkId = $chunk
+            JOIN %s.Chunks ch       ON ch.Id = $chunk
+            JOIN %s.ImageCache ic   ON ic.ImageHash = ir.ImageHash
+            WHERE ir.DocumentId = ch.DocumentId AND ir.RefLocator = ch.RefLocator
             ORDER BY ir.Ordinal
-        """ alias alias
+        """ alias alias alias
         cmd.Parameters.AddWithValue("$chunk", chunkId) |> ignore
         use reader = cmd.ExecuteReader()
         let acc = ResizeArray<SearchHitImage>()
@@ -257,10 +260,12 @@ module Searcher =
             acc.Add { Hash = hash; Ordinal = ordinal; Caption = caption }
         acc.ToArray()
 
-    /// 최종 (topK trim 된) keyed hit 목록의 `Images` 필드 박제. key = `<kbIdx>:<chunkId>` (runBm25/runVector 가 생성).
+    /// 최종 (topK trim 된) keyed hit 목록의 `Images` + `HasImages` 박제. key = `<kbIdx>:<chunkId>` (runBm25/runVector 가 생성).
     ///
-    /// over-fetch 후보 전체가 아닌 **최종 hit 만** 이미지 조회 (IO 절약). `HasImages=false` 인 hit 은 쿼리 skip —
-    /// `Chunks.ImageCount=0` 이라 ChunkId 매핑된 ImageReference 가 없음 (조회해도 빈 배열, fast path).
+    /// over-fetch 후보 전체가 아닌 **최종 hit 만** 조회 (IO 절약, topK ≤ MaxSearchTopK 라 in-memory N+1 부담 낮음).
+    /// 매칭 chunk 의 페이지 ((DocumentId, RefLocator)) 이미지를 `readImagesByChunkRefLocator` 로 조회 후
+    /// `HasImages = Images.Length > 0` 으로 **재설정** — readHit 의 `Chunks.ImageCount > 0` 추정 (caption-chunk
+    /// 매칭 시 0) 을 실측으로 교정, HasImages ↔ Images 항상 정합 (도면 노출 버그 수정 SSOT).
     let private enrichWithImages
         (conn: SqliteConnection)
         (aliases: string array)
@@ -268,14 +273,13 @@ module Searcher =
         : SearchHit array =
         keyed
         |> List.map (fun (key, hit) ->
-            if not hit.HasImages then hit
-            else
-                // key 형식 = `<kbIdx>:<chunkId>` — parseFileId 의 `<kbIdx>:<docId>` 와 형식 동일 (int:int64).
-                // 두 번째 요소만 chunkId 로 해석하는 형식-중립 재사용 (별도 파서 신설 회피).
-                match parseFileId key with
-                | Some (kbIdx, chunkId) when kbIdx >= 0 && kbIdx < aliases.Length ->
-                    { hit with Images = readImagesByChunkId conn aliases.[kbIdx] chunkId }
-                | _ -> hit)
+            // key 형식 = `<kbIdx>:<chunkId>` — parseFileId 의 `<kbIdx>:<docId>` 와 형식 동일 (int:int64).
+            // 두 번째 요소만 chunkId 로 해석하는 형식-중립 재사용 (별도 파서 신설 회피).
+            match parseFileId key with
+            | Some (kbIdx, chunkId) when kbIdx >= 0 && kbIdx < aliases.Length ->
+                let imgs = readImagesByChunkRefLocator conn aliases.[kbIdx] chunkId
+                { hit with Images = imgs; HasImages = imgs.Length > 0 }
+            | _ -> hit)
         |> List.toArray
 
     /// **Phase 4 (s6-r35)** — BM25 UNION ALL 결과를 dedup key (`<kbIdx>:<ChunkId>`) 순서로 반환.
