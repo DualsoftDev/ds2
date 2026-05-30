@@ -1,6 +1,7 @@
 ﻿<#
 .SYNOPSIS
-  LightHouseService dev install — PFX password 1회 입력으로 generate-dev-cert + install-service 통합 호출.
+  LightHouseService 설치 — 빌드 산출물을 *설치본* 폴더로 복사 + PFX password 1회 입력으로
+  generate-dev-cert + install-service 통합 호출 (설치본 exe 를 service binPath 로 등록).
 
 .DESCRIPTION
   기존 Makefile install 은 (a) generate-dev-cert PFX password + (b) install-service PSK + (c) install-service
@@ -12,14 +13,20 @@
   (RNG path 는 2026-05-27 폐기 — 사용자 입력만).
   관리자 권한 PowerShell 필요 (DPAPI LocalMachine + sc.exe).
 
+  **설치본 기준 고정 (2026-05-30 사용자 결정)** — Promaker GUI 경로(LightHouseLocalInstaller.ResolveDeployment)
+  와 동일하게 dev repo 빌드 출력을 binPath 로 쓰지 않는다 (clean 시 소멸 / 버전 불일치). 대신 빌드 산출물
+  ($PublishDir) 을 설치본 폴더({InstallLocation}\LightHouseService) 로 복사한 뒤, 복사된 exe 를 binPath 로 등록.
+  InstallLocation 조회는 LightHouseLocalInstaller.ResolveInstalledPromakerRoot 와 동일 레지스트리/GUID(Setup.iss AppId).
+
   또한 generate-dev-cert.ps1 의 "PFX exists → skip" 가드는 stale PFX 에 대해 새 password 가 박제되어
   mismatch 를 silent 로 유발 → 본 wrapper 가 기존 PFX 를 자동 삭제 후 재발급.
 
 .PARAMETER PfxPath
   생성할 PFX 파일의 절대 경로.
 
-.PARAMETER ExePath
-  Ds2.LightHouseService.exe 의 절대 경로 (publish output).
+.PARAMETER PublishDir
+  dotnet publish 산출물 폴더 (dev repo). 본 스크립트가 설치본 폴더로 복사한 뒤 복사된 exe 를
+  service binPath 로 등록한다. Promaker installer ('AI 기능 활성화' 컴포넌트) 미설치 시 throw.
 
 .PARAMETER ListenUrl
   HTTPS bind URL. install-service.ps1 default 와 동일.
@@ -27,7 +34,7 @@
 .EXAMPLE
   # Makefile install 이 호출하는 형태 (관리자 PowerShell)
   .\setup-cert-and-service.ps1 -PfxPath "C:\ProgramData\Dualsoft\LightHouseService\service.pfx" `
-                               -ExePath "F:\...\publish\Ds2.LightHouseService.exe"
+                               -PublishDir "F:\...\bin\Release\net9.0\publish"
 #>
 
 #Requires -RunAsAdministrator
@@ -35,7 +42,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory=$true)][string]$PfxPath,
-  [Parameter(Mandatory=$true)][string]$ExePath,
+  [Parameter(Mandatory=$true)][string]$PublishDir,
   [string]$ListenUrl = "https://127.0.0.1:8443"
 )
 
@@ -46,6 +53,56 @@ $generateScript = Join-Path $scriptsDir "generate-dev-cert.ps1"
 $installScript  = Join-Path $scriptsDir "install-service.ps1"
 if (-not (Test-Path $generateScript)) { throw "generate-dev-cert.ps1 not found: $generateScript" }
 if (-not (Test-Path $installScript))  { throw "install-service.ps1 not found:  $installScript" }
+
+# ── 설치본 LightHouseService 폴더 확정 + 빌드 산출물 복사 (2026-05-30 사용자 결정) ──────
+# `make install` 도 GUI 경로(LightHouseLocalInstaller.ResolveDeployment)와 동일하게 *설치본 기준*으로
+# service 를 등록한다. 흐름: 빌드 산출물($PublishDir) → 설치본 폴더({InstallLocation}\LightHouseService)
+# 복사 → 복사된 exe 를 binPath. dev repo 빌드 출력을 직접 binPath 로 쓰지 않음 (clean 시 소멸 / 버전 불일치).
+if (-not (Test-Path $PublishDir)) { throw "PublishDir 미존재 — $PublishDir (먼저 dotnet publish 필요)." }
+
+# InstallLocation 조회 — LightHouseLocalInstaller.ResolveInstalledPromakerRoot 와 동일 레지스트리/GUID.
+# Setup.iss: AppId={{7B74787E-6F09-4AB9-AE16-4C9D5F8B3D31} → uninstall 키 "<GUID>_is1".
+# 64-bit 모드 설치(ArchitecturesInstallIn64BitMode)이므로 64-bit view HKLM 만 조회. 미설치 / 값 없음 시 null.
+function Resolve-InstalledServiceDir {
+  $subKey = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{7B74787E-6F09-4AB9-AE16-4C9D5F8B3D31}_is1'
+  $hklm = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
+    [Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry64)
+  try {
+    $key = $hklm.OpenSubKey($subKey)
+    if ($null -eq $key) { return $null }
+    try {
+      $loc = $key.GetValue('InstallLocation')
+      if ([string]::IsNullOrWhiteSpace($loc)) { return $null }
+      return (Join-Path ($loc.TrimEnd('\', '/')) 'LightHouseService')
+    } finally { $key.Dispose() }
+  } finally { $hklm.Dispose() }
+}
+
+$installServiceDir = Resolve-InstalledServiceDir
+if ($null -eq $installServiceDir) {
+  throw "설치된 Promaker 를 찾지 못했습니다. Promaker installer 로 'AI 기능 활성화' 컴포넌트를 포함해 설치한 뒤 다시 시도하십시오 (make install 은 설치본 기준으로만 service 를 등록합니다)."
+}
+if (-not (Test-Path $installServiceDir)) {
+  throw "설치 폴더에 LightHouseService 가 없습니다 — $installServiceDir. Promaker installer 의 'AI 기능 활성화' 컴포넌트를 포함해 재설치 후 재시도하십시오."
+}
+
+# 복사 전 service stop — 설치본 exe 가 실행 중이면 파일 잠김으로 복사 실패. install-service.ps1 이 이후
+# stop+delete+create 를 다시 수행하므로 여기서는 파일 잠금 해제 목적의 stop 만 (delete 는 install-service 가).
+$svc = Get-Service -Name 'Ds2.LightHouseService' -ErrorAction SilentlyContinue
+if ($null -ne $svc -and $svc.Status -ne 'Stopped') {
+  Write-Host "기존 service 실행 중 — 파일 복사를 위해 정지: Ds2.LightHouseService"
+  Stop-Service -Name 'Ds2.LightHouseService' -Force
+  $svc.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
+}
+
+# 빌드 산출물 → 설치본 폴더 overlay 복사 (installer 가 배치한 scripts\ 등은 $PublishDir 에 없으므로 보존).
+Write-Host "빌드 산출물 복사: $PublishDir -> $installServiceDir"
+Copy-Item -Path (Join-Path $PublishDir '*') -Destination $installServiceDir -Recurse -Force
+
+# 이후 모든 단계는 설치본 exe 기준 — install-service.ps1 이 이 경로를 sc.exe binPath 로 등록.
+$ExePath = Join-Path $installServiceDir 'Ds2.LightHouseService.exe'
+if (-not (Test-Path $ExePath)) { throw "복사 후에도 exe 미발견 — $ExePath ($PublishDir 에 Ds2.LightHouseService.exe 없음)." }
+Write-Host "service binPath 기준 exe (설치본): $ExePath"
 
 # PFX exists → 재발급 (skip 가드 우회). 기존 PFX 의 password 는 알 수 없으므로 stale.
 if (Test-Path $PfxPath) {
