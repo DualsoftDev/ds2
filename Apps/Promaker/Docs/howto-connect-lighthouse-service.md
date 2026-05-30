@@ -331,7 +331,7 @@ LLM Chat 패널 상단 **📚 KB 관리** 버튼.
 
 KbManagerDialog 의 collection 행에 **재업로드** / **제거** 버튼.
 - **재업로드** — 새 폴더 선택 → 같은 collection ID 의 zip swap (D5)
-- **제거** — server 의 `Collections\<guid>\` purge + LlmConfig 정리
+- **제거** — server 의 `Collections\<폴더명>\` purge + LlmConfig 정리 (옵션 A 2026-05-30 — collectionId = sanitized 폴더명, guid prefix 폐기)
 
 ---
 
@@ -489,7 +489,7 @@ PoC → production 전환 시:
 - `%PROGRAMDATA%\Dualsoft\LightHouseService\` (service)
   - `config.json` (DPAPI 암호화 PSK/PFX password)
   - `service.pfx`
-  - `Collections\<guid>-<title>\` (등록된 KB)
+  - `Collections\<폴더명>\` (등록된 KB, 옵션 A — guid prefix 폐기. 같은 폴더명 재업로드 = 멱등 overwrite)
   - `Logs\service-YYYYMMDD.log`
   - `Audit\audit-YYYYMMDD.log`
   - `Staging\` (upload 임시)

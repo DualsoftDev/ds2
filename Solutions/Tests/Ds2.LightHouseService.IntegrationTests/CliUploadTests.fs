@@ -16,7 +16,8 @@ open Ds2.LightHouseService.IntegrationTests
 ///
 /// 검증 범위:
 /// - `Packager.{resetKbDir, runIngest, summarize, countIngested, writeMeta, createZip}` in-process round-trip
-/// - `LightHouseClient.uploadCollection` 의 multipart wire 정합 (PSK Bearer + X-User-Identity + server 발급 guid)
+/// - `LightHouseClient.uploadCollection` 의 multipart wire 정합 (PSK Bearer + X-User-Identity + collectionId = sanitized 폴더명, 옵션 A)
+/// - 옵션 A 멱등 overwrite (동일 title 2회 → 같은 id) + `--no-overwrite` (overwrite=false → 409)
 /// - 인증 실패 (잘못된 PSK) → `LightHouseAuthError`
 /// - 인증 통과 + plain HTTP 거부 (HTTPS-only enforcement)
 ///
@@ -70,9 +71,9 @@ type CliUploadTests(fixture: ServiceFixture) =
         finally
             Packager.safeDelete srcFolder
 
-    /// LightHouseClient.uploadCollection 정상 → server 발급 guid.
+    /// LightHouseClient.uploadCollection 정상 → collectionId = sanitized 폴더명 (옵션 A).
     [<Fact>]
-    member _.``LightHouseClient.uploadCollection — 정상 PSK + 발급 guid`` () =
+    member _.``LightHouseClient.uploadCollection — 정상 PSK + collectionId = 폴더명`` () =
         task {
             let srcFolder = buildSourceFolder ()
             let mutable zipPath = ""
@@ -88,10 +89,11 @@ type CliUploadTests(fixture: ServiceFixture) =
                         (fixture.BaseAddress.AbsoluteUri.TrimEnd '/')
                         true  // allowInvalidCerts — fixture 의 self-signed cert
                 use stream = File.OpenRead zipPath
-                let! id = LightHouseClient.uploadCollection client psk userIdentity title stream CancellationToken.None
+                let! id = LightHouseClient.uploadCollection client psk userIdentity title true stream CancellationToken.None
                 Assert.False(String.IsNullOrWhiteSpace id)
-                Assert.True(Guid.TryParse(id, ref Unchecked.defaultof<Guid>),
-                    sprintf "발급된 collection id 가 guid 형식 아님 — %s" id)
+                // 옵션 A (2026-05-30) — collectionId = sanitizeTitle(title) (server guid 발급 폐기).
+                // title 이 valid char(영문/숫자/하이픈) 만이라 sanitizeTitle 결과 = title 그대로.
+                Assert.Equal(title, id)
                 collectionId <- id
             with ex ->
                 ediOpt <- Some (ExceptionDispatchInfo.Capture ex)
@@ -126,7 +128,7 @@ type CliUploadTests(fixture: ServiceFixture) =
                 let mutable threw = false
                 let mutable status = HttpStatusCode.OK
                 try
-                    let! _ = LightHouseClient.uploadCollection client "wrong-psk-xxx" userIdentity "auth-fail" stream CancellationToken.None
+                    let! _ = LightHouseClient.uploadCollection client "wrong-psk-xxx" userIdentity "auth-fail" true stream CancellationToken.None
                     ()
                 with
                 | LightHouseAuthError(_, s) ->
@@ -146,5 +148,92 @@ type CliUploadTests(fixture: ServiceFixture) =
             LightHouseClient.createHttpClient "http://localhost:8443" true
             |> ignore)
         |> ignore
+
+    /// **옵션 A 멱등 overwrite** — 동일 title 2회 upload (overwrite=true default) → 같은 collectionId.
+    /// `Registry.upsertAsync` 의 Id-PK upsert 가 같은 row 갱신 → KB dialog 중복 누적 차단의 회귀 방어 Fact.
+    [<Fact>]
+    member _.``LightHouseClient.uploadCollection — 동일 title 2회 → 멱등 overwrite (같은 id)`` () =
+        task {
+            let title = "cli-ovw-" + Guid.NewGuid().ToString("N").Substring(0, 8)
+            let src1 = buildSourceFolder ()
+            let src2 = buildSourceFolder ()
+            let mutable z1 = ""
+            let mutable z2 = ""
+            let mutable cid = ""
+            let mutable ediOpt : ExceptionDispatchInfo option = None
+            try
+                use client = LightHouseClient.createHttpClient (fixture.BaseAddress.AbsoluteUri.TrimEnd '/') true
+                let zp1, _ = prepareInPlaceZip src1 title
+                z1 <- zp1
+                use s1 = File.OpenRead z1
+                let! id1 = LightHouseClient.uploadCollection client psk userIdentity title true s1 CancellationToken.None
+                cid <- id1
+                let zp2, _ = prepareInPlaceZip src2 title
+                z2 <- zp2
+                use s2 = File.OpenRead z2
+                let! id2 = LightHouseClient.uploadCollection client psk userIdentity title true s2 CancellationToken.None
+                Assert.Equal(title, id1)   // collectionId = sanitized 폴더명
+                Assert.Equal(id1, id2)     // 멱등 — 같은 id (registry upsert 가 같은 row 갱신, 중복 0)
+            with ex ->
+                ediOpt <- Some (ExceptionDispatchInfo.Capture ex)
+            Packager.safeDelete z1
+            Packager.safeDelete z2
+            Packager.safeDelete src1
+            Packager.safeDelete src2
+            if not (String.IsNullOrEmpty cid) then
+                use cleanupClient = fixture.CreateAuthClient()
+                let! r = cleanupClient.DeleteAsync(sprintf "/collections/%s" cid)
+                r.Dispose()
+            match ediOpt with
+            | Some edi -> edi.Throw()
+            | None -> ()
+        }
+
+    /// **옵션 A --no-overwrite** — overwrite=false + 동일 title 존재 → 409 (LightHouseProtocolError, CLI exit 4 매핑).
+    [<Fact>]
+    member _.``LightHouseClient.uploadCollection — overwrite=false + 동일 title → 409`` () =
+        task {
+            let title = "cli-noovw-" + Guid.NewGuid().ToString("N").Substring(0, 8)
+            let src1 = buildSourceFolder ()
+            let src2 = buildSourceFolder ()
+            let mutable z1 = ""
+            let mutable z2 = ""
+            let mutable cid = ""
+            let mutable ediOpt : ExceptionDispatchInfo option = None
+            try
+                use client = LightHouseClient.createHttpClient (fixture.BaseAddress.AbsoluteUri.TrimEnd '/') true
+                let zp1, _ = prepareInPlaceZip src1 title
+                z1 <- zp1
+                use s1 = File.OpenRead z1
+                let! id1 = LightHouseClient.uploadCollection client psk userIdentity title true s1 CancellationToken.None
+                cid <- id1
+                let zp2, _ = prepareInPlaceZip src2 title
+                z2 <- zp2
+                use s2 = File.OpenRead z2
+                let mutable status = HttpStatusCode.OK
+                let mutable threw = false
+                try
+                    let! _ = LightHouseClient.uploadCollection client psk userIdentity title false s2 CancellationToken.None
+                    ()
+                with
+                | LightHouseProtocolError(_, Some s) ->
+                    threw <- true
+                    status <- s
+                Assert.True(threw, "overwrite=false + 동일 title 은 ProtocolError 기대")
+                Assert.Equal(HttpStatusCode.Conflict, status)   // 409
+            with ex ->
+                ediOpt <- Some (ExceptionDispatchInfo.Capture ex)
+            Packager.safeDelete z1
+            Packager.safeDelete z2
+            Packager.safeDelete src1
+            Packager.safeDelete src2
+            if not (String.IsNullOrEmpty cid) then
+                use cleanupClient = fixture.CreateAuthClient()
+                let! r = cleanupClient.DeleteAsync(sprintf "/collections/%s" cid)
+                r.Dispose()
+            match ediOpt with
+            | Some edi -> edi.Throw()
+            | None -> ()
+        }
 
     interface IClassFixture<ServiceFixture>

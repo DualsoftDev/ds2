@@ -79,6 +79,7 @@ module LightHouseClient =
         (psk: string)
         (userIdentity: string)
         (title: string)
+        (overwrite: bool)
         (zipStream: Stream)
         (ct: CancellationToken)
         : Task<string> =
@@ -88,6 +89,9 @@ module LightHouseClient =
 
             use content = new MultipartFormDataContent()
             content.Add(new StringContent(title), "title")
+            // **옵션 A overwrite** — 동일 폴더명(collectionId) 존재 시 덮어쓰기 여부 (default true).
+            // server `CollectionEndpoints.parseMultipart` 정합. false 시 server 가 409 반환.
+            content.Add(new StringContent(if overwrite then "true" else "false"), "overwrite")
             let zipContent = new StreamContent(zipStream)
             zipContent.Headers.ContentType <- MediaTypeHeaderValue.Parse "application/zip"
             content.Add(zipContent, "zip", "payload.zip")

@@ -110,8 +110,9 @@ type E2eRoundTripTests(fixture: ServiceFixture) =
             let postJson = JsonDocument.Parse postBody
             let collectionId = postJson.RootElement.GetProperty("id").GetString()
             Assert.False(String.IsNullOrWhiteSpace collectionId)
-            Assert.True(Guid.TryParse(collectionId, ref Unchecked.defaultof<Guid>),
-                sprintf "발급된 collection id 가 guid 형식 아님 — %s" collectionId)
+            // 옵션 A (2026-05-30) — collectionId = sanitizeTitle(title) (server guid 발급 폐기).
+            // title 이 valid char(영문/숫자/하이픈) 만이라 sanitizeTitle 결과 = title 그대로.
+            Assert.Equal(title, collectionId)
 
             try
                 // (2) GET /collections — 등록된 entry 포함 확인

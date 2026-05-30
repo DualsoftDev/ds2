@@ -62,7 +62,7 @@ LLM chat 이 외부 사양 문서(.pdf/.docx/.pptx/.xlsx/.txt/.md + 이미지)�
 ### 3.1 REST endpoints (Service)
 | Endpoint | 용도 |
 |---|---|
-| `POST /collections` (multipart: zip+title) | 신규 등록, server 가 guid v4 발급 → 201 `{id}` |
+| `POST /collections` (multipart: zip+title+overwrite) | 등록/멱등 overwrite. **collectionId = sanitized 폴더명**(guid 폐기). 동일명+`overwrite=false`→409. 신규 201 / overwrite 200 `{id}` |
 | `GET /collections` | registry list |
 | `GET /collections/{id}/status` | `{id, status, errorReason, lastImportedAt}` |
 | `POST /collections/{id}/payload` | 같은 id 새 zip swap (.bak rename + rollback) |
@@ -76,6 +76,7 @@ LLM chat 이 외부 사양 문서(.pdf/.docx/.pptx/.xlsx/.txt/.md + 이미지)�
 | `PUT /admin/collections/{id}/acl {users, readOnly}` | ACL 설정 (admin) |
 | resumable upload | `POST /uploads-rs` → `PATCH /uploads-rs/{id}` → `…/finalize`(body `swapTargetCollectionId`) / `GET`(status) / `DELETE`(cancel) |
 
+- **collection 식별 (2026-05-30 옵션 A)**: `collectionId = sanitizeTitle(폴더명)` — server guid 발급 폐기, 디렉토리 = `Collections\<폴더명>\`. 같은 폴더명 재업로드 = **멱등 overwrite**(기존 payload swap, `Registry.upsertAsync` 가 같은 Id 라 row 1개 유지 → 중복 누적 차단). `overwrite=false`(CLI `--no-overwrite`) 시 동일명 존재하면 409. resumable finalize 도 동일(명시 `swapTargetCollectionId` 없으면 폴더명 멱등).
 - 공통 헤더: `Authorization: Bearer <PSK>`(전체), `X-LightHouse-Session: <token>`(session/MCP), `X-User-Identity: <username>`(의무, 누락 401).
 - SSE payload: `{event, collectionId?, progress?, message?, timestamp}`. event 이름 SSOT = `ServerEventNames`(Protocol Literal).
 
@@ -90,7 +91,7 @@ LLM chat 이 외부 사양 문서(.pdf/.docx/.pptx/.xlsx/.txt/.md + 이미지)�
 | `attachment_summary` | `collectionId` | doc summary (RAG layer D) |
 
 - `attachment_search` 반환 JSON: `{ results: [{ fileId, fileName, ref, outlinePath, score, excerpt, tokenCount, hasImages }], moreAvailable, hint? }`
-- **fileId 합성** = `<collection-guid>:<documents-id>` (service) / `<collection-index>:<docId>` (lib in-memory). cross-collection unique.
+- **fileId 합성** = `<collection-id>:<documents-id>` (service, collection-id = sanitized 폴더명) / `<collection-index>:<docId>` (lib in-memory). cross-collection unique.
 - `attachment_read` 응답 = MCP ContentBlock (text + base64 image). size 가드: 단일 ≤ ~5MB / ≤ 5장 → 초과 시 `caption_only` 자동 강등.
 - citation link: `[<fileName>](attachment:///<fileId>/<ref>)` (slash 3개 의무). `attachment:///` = popup, `http(s)` = OS shell, 그 외 차단.
 - **quota 가드(tool wrapper hard enforce)**: `maxCallsPerTurn=8`, `maxExcerptTokens=4000`, `maxCumulativeTokens=16000`.
@@ -102,6 +103,7 @@ LLM chat 이 외부 사양 문서(.pdf/.docx/.pptx/.xlsx/.txt/.md + 이미지)�
 | `index <folder> --skip-upload` | 색인만(`/indexer` skill Step 1, force-without-caption 자동) |
 | `index <folder> --no-embedding` | embedding opt-out (BM25-only) |
 | `--reuse-kb` (upload 시) | 기존 `.lighthouse-kb/` wipe 없이 그대로 zip+POST (Step 3) |
+| `--no-overwrite` (upload 시) | 동일 폴더명 collection 이 server 에 이미 있으면 fail(409). default = overwrite (옵션 A) |
 | `list-pending-captions <folder>` | caption=NULL row JSON stream (skill Step 2) |
 | `caption-update <folder> <batch.json>` | subagent caption batch → 단일 SQLite transaction UPDATE |
 | `print-caption-prompt` | lib `CaptionGenerator.CaptionPrompt` literal stdout (drift 차단 fetch) |
@@ -122,7 +124,7 @@ zip = source/ + .lighthouse-kb/{meta.json, index.db, text/, summary.md, blobs/im
 
 server storage = %PROGRAMDATA%\Dualsoft\LightHouseService\
   ├─ config.json, registry.json
-  ├─ Collections\<guid>-<sanitized-title>\{source\, .lighthouse-kb\}
+  ├─ Collections\<sanitized-title>\{source\, .lighthouse-kb\}   ← collectionId = 폴더명 (guid 폐기, 동일명 멱등 overwrite)
   └─ Logs\, Audit\, Staging\
 ```
 

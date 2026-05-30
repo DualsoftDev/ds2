@@ -18,6 +18,7 @@ open Ds2.LightHouse.Ollama
 ///   1  인증 실패 (401/403)
 ///   2  IndexerVersion mismatch (415)
 ///   3  zip / size 초과 (413 또는 stream IO 거부)
+///   4  409 동일 이름 collection 존재 (--no-overwrite, 옵션 A overwrite 거부)
 ///   10 명령행 인자 오류 (사용법 mismatch)
 ///   11 폴더 미존재 / 접근 불가
 ///   12 ingested=0 (등록 가치 0 — server 거부 사전 차단)
@@ -56,6 +57,10 @@ let private FlagSkipUpload = "skip-upload"
 /// 사용 전제: `<folder>/.lighthouse-kb/index.db` 이미 존재 (Step 1-a 색인 완료). 부재 시 exit 11.
 [<Literal>]
 let private FlagReuseKb = "reuse-kb"
+/// **옵션 A (2026-05-30)** — 동일 폴더명(collectionId = sanitized title) 이 server 에 이미 있으면 fail (409 시 abort).
+/// 미박제 = default overwrite (server 가 기존 collection payload swap). server `parseMultipart` 의 overwrite 필드로 전달.
+[<Literal>]
+let private FlagNoOverwrite = "no-overwrite"
 
 // **env var key SSOT (s6-r41)** — 자가 검열 s6-r40 Minor-2 정합. cli scope 한정 (Promaker LlmConfig 의
 // LIGHTHOUSE_VLM_API_KEY 박제 는 별 cross-project SSOT 박제 의무 — K4 Protocol 통합 phase 묶음).
@@ -96,6 +101,8 @@ let private usage () =
     eprintfn "  --reuse-kb                     기존 <folder>/.lighthouse-kb/ 산출물을 wipe 없이 그대로 zip + POST."
     eprintfn "                                 /indexer skill Step 3 — Step 2 caption-update / Step 1-b summary-update"
     eprintfn "                                 박제분을 server 까지 전달 보장. <folder>/.lighthouse-kb/index.db 필수."
+    eprintfn "  --no-overwrite                 동일 폴더명 collection 이 server 에 이미 있으면 fail (409). default = overwrite"
+    eprintfn "                                 (옵션 A — collectionId = sanitized 폴더명, 같은 이름은 기존 것 덮어씀)."
     eprintfn "  --psk <key>                    PSK (DPAPI 미적용 평문 — env var %s 권장)" EnvPsk
     eprintfn "  --title <name>                 collection 표시 이름 (생략 시 폴더명)"
     eprintfn "  --user <id>                    X-User-Identity (생략 시 USERNAME@MachineName)"
@@ -111,7 +118,7 @@ let private parseArgs (args: string array) : Map<string, string> * string list =
     // **s6-r70 review C-17** — boolean flag set 분리 (다음 토큰 흡수 차단).
     // 예: `--no-embedding <folder>` 가 folder 를 no-embedding 의 value 로 흡수했던 결함. boolean flag 는
     // value 없는 형식으로만 처리, 다음 토큰은 positional 또는 별 flag 로 그대로 분리.
-    let booleanFlags = Set.ofList [ FlagNoEmbedding; FlagAllowInvalidCerts; FlagForceWithoutImageCaption; FlagSkipUpload; FlagReuseKb ]
+    let booleanFlags = Set.ofList [ FlagNoEmbedding; FlagAllowInvalidCerts; FlagForceWithoutImageCaption; FlagSkipUpload; FlagReuseKb; FlagNoOverwrite ]
     while i < args.Length do
         let arg = args.[i]
         if arg.StartsWith "--" then
@@ -302,7 +309,8 @@ let private runIndex (folder: string) (noEmbedding: bool) (forceWithoutCaption: 
 /// `--upload` 본격 분기 — in-place 색인 + zip + POST /collections (옵션 P + 보관 정책).
 /// 산출물 = `<folder>/.lighthouse-kb/{index.db, meta.json}` (색인 시작 전 wipe + 색인 후 보관).
 /// zip 은 temp 에 생성 후 업로드 완료 시 정리. `.lighthouse-kb/` 는 source 안 보존.
-/// exit code (D-S6-4): 0/1/2/3/11/12/13/99 (review M-1 — 13 = VLM API key 미박제 + force 미박제).
+/// exit code (D-S6-4): 0/1/2/3/4/11/12/13/99 (review M-1 — 13 = VLM API key 미박제 + force 미박제.
+///                       4 = 409 동일 이름 collection 존재 / --no-overwrite 옵션 A).
 let private runUpload
         (folder: string)
         (baseUrl: string)
@@ -313,6 +321,7 @@ let private runUpload
         (noEmbedding: bool)
         (forceWithoutCaption: bool)
         (reuseKb: bool)
+        (overwrite: bool)
         : int =
     if not (Directory.Exists folder) then
         eprintfn "오류: 폴더 미존재 — %s" folder
@@ -426,7 +435,7 @@ let private runUpload
                     eprintfn "  POST /collections → %s" baseUrl
                     let id =
                         LightHouseClient.uploadCollection
-                            client psk userIdentity title stream CancellationToken.None
+                            client psk userIdentity title overwrite stream CancellationToken.None
                         |> fun t -> t.GetAwaiter().GetResult()
                     printfn "업로드 완료 — collectionId=%s" id
                     let retainMsg =
@@ -445,6 +454,10 @@ let private runUpload
             | LightHouseProtocolError(msg, Some status) when int status = 413 ->
                 eprintfn "zip size 초과 (HTTP 413) — %s" msg
                 3
+            | LightHouseProtocolError(msg, Some status) when int status = 409 ->
+                // 옵션 A — --no-overwrite 박제 + 동일 폴더명 collection 이미 존재. fail 모드 의도된 거부.
+                eprintfn "동일 이름 collection 이미 존재 (HTTP 409, --no-overwrite) — %s" msg
+                4
             | LightHouseProtocolError(msg, _) ->
                 eprintfn "프로토콜 오류 — %s" msg
                 99
@@ -709,7 +722,8 @@ let main args =
                     let noEmbedding = Map.containsKey FlagNoEmbedding flags
                     let forceWithoutCaption = Map.containsKey FlagForceWithoutImageCaption flags
                     let reuseKb = Map.containsKey FlagReuseKb flags
-                    runUpload folder baseUrl psk title userIdentity allowInvalidCerts noEmbedding forceWithoutCaption reuseKb
+                    let overwrite = not (Map.containsKey FlagNoOverwrite flags)
+                    runUpload folder baseUrl psk title userIdentity allowInvalidCerts noEmbedding forceWithoutCaption reuseKb overwrite
             | Some _ ->
                 // 자가 검열 C1 — `--upload` 가 value 없거나 빈 string 이면 silent `runIndex` fallback 차단.
                 // 사용자 의도는 upload 였으므로 explicit reject 후 exit 10 (usage hint).

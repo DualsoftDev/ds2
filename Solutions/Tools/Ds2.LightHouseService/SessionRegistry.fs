@@ -88,7 +88,9 @@ type AttachmentResolver = {
 [<RequireQualifiedAccess>]
 module AttachmentResolver =
 
-    /// collection id + DisplayName → collection 디렉토리 절대 경로 (Phase S2 의 `Collections\<guid>-<sanitized>\`).
+    /// collection id + DisplayName → collection 디렉토리 절대 경로.
+    /// **옵션 A (2026-05-30)** — `ZipImport.collectionDirName` 가 `sanitizeTitle id` 반환 → `Collections\<sanitized-title>\`
+    /// (종전 Phase S2 의 `Collections\<guid>-<sanitized>\`). id 자체가 sanitized 폴더명 식별 키.
     let collectionPath (storageRoot: string) (id: string) (displayName: string) : string =
         let dirName = ZipImport.collectionDirName id displayName
         Path.Combine(Storage.collectionsDir storageRoot, dirName)

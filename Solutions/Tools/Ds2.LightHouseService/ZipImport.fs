@@ -11,7 +11,7 @@ open System.Text.RegularExpressions
 /// - sanitize: entry path `..` / 절대경로 / symlink / Collections\<id>\ 하위 verify / blobs/images regex
 /// - zip bomb: 누적 압축 해제 byte / 압축 byte 비율 한도 (zipBombRatioLimit)
 /// - IndexerVersion gate: 전개된 `.lighthouse-kb/index.db` 의 `Meta.indexer_version` 호환성 검증
-/// - atomic move: Staging\ → Collections\<guid>-<sanitized-title>\
+/// - atomic move: Staging\ → Collections\<sanitized-title>\ (옵션 A 2026-05-30 — guid prefix 폐기)
 
 /// IndexerVersion gate (§3.12) 의 분기 결과 — `Missing` 단일 case 의 cause 압축을 풀이 (2026-05-28 fix).
 ///
@@ -51,7 +51,7 @@ module ZipImport =
         Regex(@"^[0-9a-f]{64}\.(png|jpg|jpeg|webp|tif|jp2)$", RegexOptions.Compiled)
 
     /// Windows 파일명 invalid char (`<>:"/\|?*` + control + format(Cf) + trailing dot/space).
-    /// title sanitize 시 underscore 로 치환. 길이 한도 80 자 (Collections\<guid>-<sanitized> 의 디스크 path 한도 고려).
+    /// title sanitize 시 underscore 로 치환. 길이 한도 80 자 (Collections\<sanitized-title> 의 디스크 path 한도 고려).
     ///
     /// review IC-2 (1/7 reviewer): unicode bidi override (U+202E 등) 는 `Char.IsControl` 가 false (Cf 분류).
     /// audit log spoofing / OS file picker 우회 차단을 위해 Format category 도 함께 거부 →
@@ -73,9 +73,14 @@ module ZipImport =
             let limited = if s.Length > 80 then s.Substring(0, 80) else s
             if String.IsNullOrEmpty limited then "untitled" else limited
 
-    /// collection 디렉토리 이름 — `<guid>-<sanitized-title>` (D2).
-    let collectionDirName (id: string) (rawTitle: string) : string =
-        sprintf "%s-%s" id (sanitizeTitle rawTitle)
+    /// collection 디렉토리 이름.
+    ///
+    /// **옵션 A (guid 폐기, 2026-05-30)** — 종전 `<guid>-<sanitized-title>` (D2) 에서 guid prefix 제거.
+    /// collectionId 자체가 `sanitizeTitle(title)` canonical key 이므로 디렉토리명 = `sanitizeTitle id`.
+    /// `rawTitle` 인자는 호출처 호환 위해 유지하되 미사용 (id 가 SSOT). 방어적 재-sanitize 는 idempotent —
+    /// 외부 호출처가 비정규 id 전달해도 path-unsafe char 차단 (sanitizeTitle 의 invalid char → '_' + 80자 한도).
+    let collectionDirName (id: string) (_rawTitle: string) : string =
+        sanitizeTitle id
 
     /// entry name 의 path traversal / 절대경로 가드.
     /// zip entry 의 path separator 는 `/` 표준이지만 Windows 도구가 `\` 도 만들 수 있어 양쪽 정규화.
@@ -252,7 +257,7 @@ module ZipImport =
             elif compareVersion v hostMax > 0 then IndexerVersionGateResult.TooHigh(v, hostMax)
             else IndexerVersionGateResult.Compatible
 
-    /// Staging 경로 → Collections\<guid>-<sanitized>\ atomic move (§3.10).
+    /// Staging 경로 → Collections\<sanitized-title>\ atomic move (옵션 A — guid prefix 폐기, §3.10).
     /// 호출 전제: stagingPath 가 sanitize + IndexerVersion gate 통과한 상태.
     /// Collections root 안 이미 같은 이름 디렉토리 존재 시 InvalidOperationException (caller 가 swap path 사용).
     let moveStagingToCollection

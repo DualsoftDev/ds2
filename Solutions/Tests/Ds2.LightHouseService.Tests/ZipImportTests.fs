@@ -75,10 +75,11 @@ let ``sanitizeTitle — unicode bidi / control char → underscore (audit log sp
     Assert.DoesNotContain('\n', crlf)
 
 [<Fact>]
-let ``collectionDirName — guid + sanitized title`` () =
-    let id = "550e8400-e29b-41d4-a716-446655440000"
-    Assert.Equal(id + "-line-A", ZipImport.collectionDirName id "line-A")
-    Assert.Equal(id + "-untitled", ZipImport.collectionDirName id "")
+let ``collectionDirName — sanitized id (옵션 A, guid 폐기)`` () =
+    // 옵션 A (2026-05-30) — collectionDirName = sanitizeTitle id (rawTitle 무시). id 자체가 canonical 폴더명 키.
+    Assert.Equal("line-A", ZipImport.collectionDirName "line-A" "ignored-title")
+    Assert.Equal("a_b", ZipImport.collectionDirName "a/b" "ignored")   // invalid char → '_'
+    Assert.Equal("untitled", ZipImport.collectionDirName "" "x")       // 빈 id → untitled fallback
 
 [<Fact>]
 let ``extractAll — 정상 zip 추출`` () = withTempDir (fun root ->

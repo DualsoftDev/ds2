@@ -287,16 +287,21 @@ public sealed class LightHouseClient : IDisposable
     }
 
     /// <summary>
-    /// `POST /collections` — multipart (title + zip stream) 으로 등록 후 server 가 발급한 guid 반환.
+    /// `POST /collections` — multipart (title + overwrite + zip stream) 으로 등록 후 server 가 발급한 id 반환.
+    ///
+    /// **옵션 A (2026-05-30)** — server 가 guid 대신 `sanitizeTitle(title)` 를 collectionId 로 발급. 같은 폴더명은
+    /// 같은 collection (멱등). `overwrite=true` (default) → 기존 것 덮어쓰기, `false` → 동일 이름 존재 시 409
+    /// (`LightHouseProtocolException`).
     ///
     /// **`zipStream` ownership**: `StreamContent` wrap 후 `MultipartFormDataContent.Dispose` 가 child stream 까지
     /// dispose. caller 가 `using FileStream` 로 열어 본 메서드에 넘기면 본 호출 후 stream 은 *이미 dispose 됨*.
     /// caller 는 `MemoryStream` 같은 throwaway 또는 본 호출 후 stream 재사용 금지 (review S5a-M1).
     /// </summary>
-    /// <returns>collection guid (server-assigned, D3).</returns>
+    /// <returns>collection id (server-assigned = sanitized 폴더명).</returns>
     public async Task<string> UploadCollectionAsync(
         string title,
         Stream zipStream,
+        bool overwrite = true,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(title)) throw new ArgumentException("title 필수.", nameof(title));
@@ -304,6 +309,9 @@ public sealed class LightHouseClient : IDisposable
 
         using var content = new MultipartFormDataContent();
         content.Add(new StringContent(title), "title");
+        // 옵션 A overwrite — 동일 폴더명(collectionId = sanitized title) 존재 시 덮어쓰기 여부 (default true).
+        // server CollectionEndpoints.parseMultipart 정합. false 시 server 가 409 반환.
+        content.Add(new StringContent(overwrite ? "true" : "false"), "overwrite");
         var zip = new StreamContent(zipStream);
         zip.Headers.ContentType = new MediaTypeHeaderValue("application/zip");
         content.Add(zip, "zip", "payload.zip");

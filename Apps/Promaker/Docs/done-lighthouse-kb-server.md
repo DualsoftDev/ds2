@@ -50,8 +50,8 @@
 | Q3 | session 간 connection 격리 — 각자 별 `SqliteConnection` (pool X) | §3.8 |
 | Q4 | active 셋 sync = lazy reject driven (Promaker 가 그대로 보내고 server reject 시 sync) | §3.8 |
 | D1 | 사본 정책 = **1회성 import** (등록 시점 snapshot, 자동 drift 감지 X) | §3.5 |
-| D2 | server 디렉토리 = `Collections\<guid>-<sanitized-title>\` (guid 식별 + title hint) | §3.4, §3.10 |
-| D3 | collection 식별 SSOT = **guid v4**, **id 발급 주체 = server** (첫 POST 응답에 반환) | §3.4 |
+| D2 | server 디렉토리 = `Collections\<sanitized-title>\` (**옵션 A 2026-05-30**: guid prefix 폐기, 폴더명 = 식별 키. 종전 `<guid>-<title>`) | §3.4, §3.10, revision-history opt-A |
+| D3 | collection 식별 SSOT = **sanitized 폴더명** (**옵션 A 2026-05-30**: guid v4 폐기 → `sanitizeTitle(title)` deterministic key. 같은 폴더명 = 같은 collection = 멱등 overwrite. 종전 server guid 발급) | §3.4, revision-history opt-A |
 | D4 | client → server upload = **multipart zip** (사용자 폴더 통째 포함) | §3.3, §3.9 |
 | D5 | drift 갱신 = 사용자 명시 "새 버전 업로드" trigger 만 (FileSystemWatcher X) | §3.5 |
 | D6 | citation 클릭 시 원문 보기 = **server 가 stream 응답** (LAN 가정) | §3.9, §4.2 Phase S4 |
