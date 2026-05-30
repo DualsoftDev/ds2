@@ -151,13 +151,15 @@ type Query = {
     FileId: string option
 }
 
-/// `SearchHit` 이 참조하는 한 이미지 — chunk ↔ image 매핑 (`ImageReferences.ChunkId` 기반).
+/// `SearchHit` 이 참조하는 한 이미지 — 검색 매칭 chunk 가 속한 **페이지 ((DocumentId, RefLocator))** 의 이미지.
 ///
-/// `HasImages` (= `Chunks.ImageCount > 0`) 의 SSOT 와 동일 셋: `updateChunkImageCounts` 가
-/// `COUNT(ImageReferences WHERE ChunkId = Chunks.Id)` 로 ImageCount 를 박제하고, `ImageReferences.ChunkId` 는
-/// 한 RefLocator 의 **첫 chunk** 만 가리키므로 (Indexer C4 매핑), chunkId 기반 조회가 HasImages 와 정확히 정합.
+/// **도면 노출 버그 수정 (s6 후속)** — 종전 `ImageReferences.ChunkId` 기반 조회는 ChunkId 가 한 RefLocator 의
+/// *첫 (본문) chunk* 만 가리켜 (Indexer C4 매핑), 검색이 caption-chunk (`[그림 p.N #k hash=..] ...`) 등 다른
+/// chunk 에 매칭하면 `Chunks.ImageCount=0` → 이미지 노출 0. 매칭 chunk 의 (DocumentId, RefLocator) 로 조회
+/// (`Searcher.readImagesByChunkRefLocator`) — 페이지의 이미지를 *어느 chunk 가 매칭됐든* 모두 노출.
+/// `SearchHit.HasImages` 는 enrich 단계에서 `Images.Length > 0` 으로 재설정 (HasImages ↔ Images 항상 정합).
 ///   - `Hash` = sha256 64 char lowercase (**full** — frontend / 이미지 다운로드 endpoint 가 64자 요구).
-///   - `Ordinal` = 같은 chunk 안 N번째 (ImageReferences.Ordinal, asc 정렬).
+///   - `Ordinal` = 같은 페이지 안 N번째 (ImageReferences.Ordinal, asc 정렬).
 ///   - `Caption` = `ImageCache.CaptionText` (미생성 시 None).
 type SearchHitImage = {
     Hash: string
@@ -168,9 +170,9 @@ type SearchHitImage = {
 /// MCP `attachment_search` 의 한 hit (§3.10 JSON schema 와 1:1 대응).
 ///
 /// `Ref` = 저장형 (`RefLocator` SSOT, §3.13). 표시형 변환은 LLM / UI 책임.
-/// `HasImages` = Phase 1 항상 false. Phase 2 부터 의미 부여.
-/// `Images` = 그 chunk 가 참조하는 이미지 hash 목록 (HasImages 와 동일 셋, 빈 배열 허용). frontend 가
-///            특정 이미지를 가리킬 수 있도록 full 64자 hash 노출 — `HasImages` 는 하위호환 유지 (기존 ev2 caller).
+/// `HasImages` = Phase 1 항상 false. Phase 2 부터 의미 부여. enrich 단계에서 `Images.Length > 0` 로 재설정.
+/// `Images` = 매칭 chunk 가 속한 페이지의 이미지 목록 (`HasImages` 와 동일 셋 — enrich 가 둘을 함께 박제, 빈 배열 허용).
+///            frontend 가 특정 이미지를 가리킬 수 있도록 full 64자 hash 노출. `HasImages` 는 하위호환 boolean 요약.
 type SearchHit = {
     FileId: string
     FileName: string

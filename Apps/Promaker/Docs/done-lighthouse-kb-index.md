@@ -338,10 +338,10 @@ citation 가독성 최우선 ("스펙 §3.2 Conveyor" 단위 인용).
       "excerpt": "string",              // ≤ maxExcerptTokens
       "tokenCount": "integer",
       "hasImages": "boolean",           // Phase 2 부터 의미. Phase 1 은 항상 false (하위호환 유지)
-      "images": [                       // 그 chunk 가 참조하는 이미지 (hasImages 와 동일 셋; ImageReferences.ChunkId 기반). 빈 배열 허용
+      "images": [                       // 매칭 chunk 가 속한 페이지((DocumentId,RefLocator))의 이미지 (hasImages 와 동일 셋). 빈 배열 허용
         {
           "hash": "string",             // ImageCache.ImageHash — sha256 64자 lowercase hex (full, 12자 prefix 아님)
-          "ordinal": "integer",         // 같은 chunk 안 N번째 (ImageReferences.Ordinal)
+          "ordinal": "integer",         // 같은 페이지((DocumentId,RefLocator)) 안 N번째 (ImageReferences.Ordinal)
           "caption": "string?"          // ImageCache.CaptionText (VLM caption 미생성 시 null)
         }
       ]
