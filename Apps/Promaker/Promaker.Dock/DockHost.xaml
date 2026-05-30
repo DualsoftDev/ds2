@@ -97,6 +97,12 @@
         외부 노출 API = IDockManager. DX type 은 본 UserControl 안에서만 사용.
         size 보존 / drag-drop / floating 동작은 DX DockLayoutManager 가 native 처리 — 별도 보정 코드 없음.
     -->
+    <!--
+        FloatingMode="Desktop"(부동 pane 을 main window 밖으로 이동/resize 허용)은 XAML 에 선언하지 않고
+        code-behind 의 ApplyNonSerializedSettings() 에서 설정. RestoreLayoutFromXml 이 manager 속성 FloatingMode 를
+        직렬화하지 않아 복원 시 기본값(Window=창 내부 제한)으로 되돌리므로(DocumentGroup 버튼과 동일 현상),
+        XAML 선언은 복원에 덮어써져 무효 — 코드로 일원화하여 ctor + 복원 직후 양쪽에서 재적용. (DockHost.xaml.cs)
+    -->
     <dxdo:DockLayoutManager x:Name="_dockLayout">
         <dxdo:LayoutGroup x:Name="_rootGroup" Orientation="Horizontal">
 
@@ -111,7 +117,7 @@
                 <!-- Document area (Welcome / Canvas) — RegisterDocument 가 DocumentPanel 추가 -->
                 <!--
                     caption 우측 기본 버튼(▼ 문서목록 드롭다운 / ✕ 활성문서 닫기) 표시 숨김은
-                    code-behind 의 ApplyDocumentGroupCaptionButtons() 에서 설정 (DockHost.xaml.cs).
+                    code-behind 의 ApplyNonSerializedSettings() 에서 설정 (DockHost.xaml.cs).
                     XAML 속성으로 주면 RestoreLayoutFromXml(레이아웃 복원)이 해당 설정을 기본값으로 되돌려
                     (XML 미직렬화 속성) 버튼이 다시 노출됨 — 복원 후 재적용이 필요해 코드로 일원화. -->
                 <dxdo:DocumentGroup x:Name="_documentGroup" />
