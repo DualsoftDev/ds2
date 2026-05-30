@@ -12,29 +12,21 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <TextBlock Grid.Row="0" TextWrapping="Wrap" Margin="0,0,0,12"
                    Foreground="{DynamicResource SecondaryTextBrush}" FontSize="11">
-            <Run Text="LightHouseService 설치/재설치에 사용할 비밀번호를 입력하십시오."/>
+            <Run Text="LightHouseService 설치/재설치에 사용할 비밀번호를 입력하십시오 (PSK 와 인증서 PFX 에 공용)."/>
             <LineBreak/>
             <Run Text="기존 service 가 있으면 정지 후 재등록됩니다. 다른 머신 client 가 있다면 새 PSK 로 갱신 의무 (안전 채널로 전달)."/>
         </TextBlock>
 
-        <TextBlock Grid.Row="1" Text="PSK (Pre-Shared Key)" FontSize="11"
+        <TextBlock Grid.Row="1" Text="비밀번호 (PSK / Cert 공용)" FontSize="11"
                    Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
-        <PasswordBox Grid.Row="2" x:Name="PskBox" Padding="6,4" FontFamily="Consolas"
-                     Margin="0,0,0,10"/>
-
-        <TextBlock Grid.Row="3" Text="Cert PFX Password" FontSize="11"
-                   Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
-        <PasswordBox Grid.Row="4" x:Name="CertPwdBox" Padding="6,4" FontFamily="Consolas"
+        <PasswordBox Grid.Row="2" x:Name="PwdBox" Padding="6,4" FontFamily="Consolas"
                      Margin="0,0,0,16"/>
 
-        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right">
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right">
             <Button Content="OK" Width="80" Margin="0,0,8,0" Click="Ok_Click" IsDefault="True"/>
             <Button Content="취소" Width="80" Click="Cancel_Click" IsCancel="True"/>
         </StackPanel>

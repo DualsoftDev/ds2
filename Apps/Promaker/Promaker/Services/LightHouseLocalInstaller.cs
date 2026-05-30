@@ -49,10 +49,13 @@ public sealed class LightHouseLocalInstaller
     /// **B5 (2026-05-27)** — DPAPI 박제 단계도 SecureString overload 직접 호출 (B4 의 PtrToStringUni 마지막 1지점 leak 제거).
     /// <para/>
     /// **caller (EnableLocalServiceDialog)** 가 SecureString 소유권 이양. 본 메서드는 사용 후 Dispose 의무 가짐.
+    /// <para/>
+    /// **단일 비밀번호 통합 (2026-05-30)** — 이전 (psk, certPwd) 2개 인자를 단일 <paramref name="password"/> 로 통합.
+    /// 같은 byte[] 를 PSK / cert PFX password 양쪽 임시 파일에 박제 → enable-ai.ps1 의 -PskInputPath /
+    /// -CertPasswordInputPath 계약은 그대로 유지 (ps1 무변경).
     /// </summary>
-    /// <param name="psk">사용자 입력 PSK SecureString. 본 메서드가 Dispose (early-throw 경로 포함).</param>
-    /// <param name="certPwd">사용자 입력 cert PFX password SecureString. 본 메서드가 Dispose (early-throw 경로 포함).</param>
-    public async Task<EnableResult> EnableAsync(SecureString psk, SecureString certPwd, CancellationToken ct = default)
+    /// <param name="password">사용자 입력 비밀번호 SecureString (PSK / cert PFX password 공용). 본 메서드가 Dispose (early-throw 경로 포함).</param>
+    public async Task<EnableResult> EnableAsync(SecureString password, CancellationToken ct = default)
     {
         // **B4 자가 검열 Critical-1 fix (2026-05-27)** — Dispose 의무 박제는 진입 직후부터 보장.
         // (이전 구현: Argument 검사 / ResolveDeployment / File.Exists throw 가 try 블록 *바깥* 이라 SecureString 누수.)
@@ -60,14 +63,11 @@ public sealed class LightHouseLocalInstaller
         var cpwdIn = Path.Combine(Path.GetTempPath(), $"promaker-cpw-{Guid.NewGuid():N}.tmp");
         var logOut = Path.Combine(Path.GetTempPath(), $"promaker-ai-{Guid.NewGuid():N}.log");
 
-        byte[]? pskBytes = null;
-        byte[]? cpwBytes = null;
+        byte[]? pwdBytes = null;
         try
         {
-            if (psk is null) throw new ArgumentNullException(nameof(psk));
-            if (certPwd is null) throw new ArgumentNullException(nameof(certPwd));
-            if (psk.Length == 0) throw new ArgumentException("PSK 비어있음.", nameof(psk));
-            if (certPwd.Length == 0) throw new ArgumentException("Cert PFX password 비어있음.", nameof(certPwd));
+            if (password is null) throw new ArgumentNullException(nameof(password));
+            if (password.Length == 0) throw new ArgumentException("비밀번호 비어있음.", nameof(password));
 
             var deployment = ResolveDeployment()
                 ?? throw new InvalidOperationException(
@@ -79,10 +79,10 @@ public sealed class LightHouseLocalInstaller
 
             // **B4 (2026-05-27)** — SecureString → UTF-8 byte[]. Owner-only ACL 은 default Temp 디렉터리 권한에 의존
             // (Windows 의 %TEMP% 가 사용자별 분리 박제 — 다른 사용자 read 불가, admin elevation 시 read 가능 — UAC 후 자기 process 가 read).
-            pskBytes = SecureStringToUtf8Bytes(psk);
-            cpwBytes = SecureStringToUtf8Bytes(certPwd);
-            File.WriteAllBytes(pskIn, pskBytes);
-            File.WriteAllBytes(cpwdIn, cpwBytes);
+            // **단일 비밀번호 통합 (2026-05-30)** — 같은 byte[] 를 PSK / cert PFX password 양쪽 파일에 박제.
+            pwdBytes = SecureStringToUtf8Bytes(password);
+            File.WriteAllBytes(pskIn, pwdBytes);
+            File.WriteAllBytes(cpwdIn, pwdBytes);
 
             var psArgs = string.Join(' ', new[]
             {
@@ -117,7 +117,7 @@ public sealed class LightHouseLocalInstaller
 
             // **B5 (2026-05-27)** — LlmConfig.SetLightHousePsk(SecureString) overload 박제 완료. SecureString 직접 박제 path —
             // managed string 변환 0 (B4 의 PtrToStringUni 마지막 1지점 leak 제거).
-            var serviceId = PersistLocalEntry(psk);
+            var serviceId = PersistLocalEntry(password);
             Log.Info($"LightHouse Local entry 박제 완료 — ServiceId={serviceId}");
 
             var startOk = TryParseStartResult(logOut);
@@ -126,13 +126,12 @@ public sealed class LightHouseLocalInstaller
         finally
         {
             // **B4 (2026-05-27)** — heap 평문 wipe (Array.Clear) + temp file wipe (이중 안전).
-            if (pskBytes is not null) Array.Clear(pskBytes, 0, pskBytes.Length);
-            if (cpwBytes is not null) Array.Clear(cpwBytes, 0, cpwBytes.Length);
+            // **단일 비밀번호 통합 (2026-05-30)** — 단일 byte[] / SecureString 만 정리.
+            if (pwdBytes is not null) Array.Clear(pwdBytes, 0, pwdBytes.Length);
             TryWipeFile(pskIn);
             TryWipeFile(cpwdIn);
-            // null-safe — ArgumentNullException 분기 진입 시 한쪽이 null 일 수 있음.
-            psk?.Dispose();
-            certPwd?.Dispose();
+            // null-safe — ArgumentNullException 분기 진입 시 null 일 수 있음.
+            password?.Dispose();
             // log 는 caller 가 결과 표시 후 직접 cleanup. (실패 시 진단 자료로 유용.)
         }
     }
@@ -143,13 +142,11 @@ public sealed class LightHouseLocalInstaller
     /// 후 정공 path 호출 — string 자체는 immutable 이라 wipe 불가, caller 평문 잔존 risk 그대로.
     /// </summary>
     [Obsolete("B4 (2026-05-27): SecureString overload 사용 권장. managed string path 는 heap 평문 잔존 risk.")]
-    public Task<EnableResult> EnableAsync(string pskPlain, string certPwdPlain, CancellationToken ct = default)
+    public Task<EnableResult> EnableAsync(string passwordPlain, CancellationToken ct = default)
     {
-        if (string.IsNullOrEmpty(pskPlain)) throw new ArgumentException("PSK 평문 비어있음.", nameof(pskPlain));
-        if (string.IsNullOrEmpty(certPwdPlain)) throw new ArgumentException("Cert PFX password 평문 비어있음.", nameof(certPwdPlain));
-        var psk = StringToSecureString(pskPlain);
-        var cpw = StringToSecureString(certPwdPlain);
-        return EnableAsync(psk, cpw, ct);
+        if (string.IsNullOrEmpty(passwordPlain)) throw new ArgumentException("비밀번호 평문 비어있음.", nameof(passwordPlain));
+        var pwd = StringToSecureString(passwordPlain);
+        return EnableAsync(pwd, ct);
     }
 
     private static SecureString StringToSecureString(string s)

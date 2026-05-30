@@ -554,8 +554,8 @@ public partial class ApplicationSettingsDialog : Window
     /// 4단계 (Ollama / cert / install-service + 사용자 입력 PSK / firewall + service start) 완료 후
     /// LlmConfig.LightHouseServices 의 Local entry 에 DPAPI 박제. UI 가 자동 갱신.
     /// <para/>
-    /// 진입 시 sc query 1회 → RUNNING 인 경우 confirm dialog → PSK + Cert PFX Password 입력 dialog
-    /// (검증 / RNG 버튼 0) → installer.EnableAsync(pskPlain, certPwdPlain) 호출.
+    /// 진입 시 sc query 1회 → RUNNING 인 경우 confirm dialog → 단일 비밀번호 입력 dialog
+    /// (검증 / RNG 버튼 0) → installer.EnableAsync(password) 호출 (PSK / cert PFX password 공용).
     /// <para/>
     /// service 정지 / config wire-up 만 원하면 "Local 항목 추가" 버튼 권장.</summary>
     private async void LhEnableLocal_Click(object sender, RoutedEventArgs e)
@@ -575,17 +575,14 @@ public partial class ApplicationSettingsDialog : Window
             if (result != MessageBoxResult.Yes) return;
         }
 
-        // PSK / Cert PFX Password 입력 dialog (검증 0).
+        // 단일 비밀번호 입력 dialog (검증 0, PSK / cert PFX password 공용).
         // **B4 (2026-05-27)** — SecureString 정공 path. dialog 가 SecureString 반환 → installer 가 소유권 이양 후 Dispose.
         var inputDialog = new Promaker.Dialogs.EnableLocalServiceDialog { Owner = Window.GetWindow(this) };
         if (inputDialog.ShowDialog() != true) return;
-        var pskSecure = inputDialog.PskResult;
-        var certPwdSecure = inputDialog.CertPwdResult;
-        if (pskSecure is null || certPwdSecure is null)
+        var pwdSecure = inputDialog.PasswordResult;
+        if (pwdSecure is null)
         {
-            // dialog OK 후 빈 값 차단 — 방어 분기. 한쪽만 null 케이스의 leak 차단.
-            pskSecure?.Dispose();
-            certPwdSecure?.Dispose();
+            // dialog OK 후 빈 값 차단 — 방어 분기.
             return;
         }
 
@@ -595,7 +592,7 @@ public partial class ApplicationSettingsDialog : Window
         try
         {
             var installer = new LightHouseLocalInstaller(_llmConfig);
-            var result = await installer.EnableAsync(pskSecure, certPwdSecure).ConfigureAwait(true);
+            var result = await installer.EnableAsync(pwdSecure).ConfigureAwait(true);
 
             LlmConfigChanged = true;
             ReloadLhServicesWorking();
