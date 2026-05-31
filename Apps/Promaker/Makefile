@@ -201,6 +201,7 @@ iscc: publish publish-agent publish-agenttray publish-lighthouse
 	          /DLightHouseScriptsDir="$(abspath $(LH_SCRIPTS_DIR))" \
 	          /DSelfContainedMode="$(SELF_CONTAINED)" \
 	          /DOutputSuffix="$(OUTPUT_SUFFIX)" \
+	          /DOutputVersion="$(PROMAKER_VER)" \
 	          "$(SETUP_ISS)"
 
 clean:
