@@ -155,6 +155,7 @@ LLM chat 이 외부 사양 문서 (.pdf, .docx, .pptx, .xlsx, .txt, .md) 를 "�
   `PromptLoader.cs:46-66` 의 `LoadEmbeddedAll` 이 glob + natural sort (NaturalComparer) 로 baseline 합성.
   3-tier 조합: baseline (assembly resource) → operator (`<exedir>/Prompts/`) → user (`%APPDATA%/Promaker/Prompts/`).
   현재 baseline = `1.entities`, `2.modeling`, `3.tooling`, `4.attachments`, `9.environment`, `facts` (6 파일).
+  > ※ **갱신 (PR-S1 / light-house split 이후 현행, 2026-06)**: 위 6 파일 서술은 *작업 시작 시점 배경* 이며 현 코드와 다름. prompt 가 두 어셈블리로 분리됨 — baseline (`Llm.Shared/Prompts/baseline/`, prefix `Llm.Shared.Prompts.baseline.`) = `1.attachments`/`2.knowledge-base`/`3.environment`, overlay (`Promaker/LlmAgent/Prompts/`, prefix `Promaker.LlmAgent.Prompts.`) = `1.entities`/`2.modeling`/`3.tooling`. **`facts.md` 와 `CLAUDE.md` 는 `Promaker.csproj` 의 `<EmbeddedResource Remove>` 로 주입 제외** (위 "facts 포함" 서술은 옛 상태이며, 제외가 의도된 동작). 조립·주입 파이프라인 SSOT = [`abstract-light-house.md §4.7`](abstract-light-house.md).
 - LLM provider: `Solutions/Core/Ds2.LlmAgent/` F# 프로젝트 (ClaudeCliProvider, CodexCliProvider, 그리고 Anthropic/OpenAI/Ollama API providers via Microsoft.Extensions.AI).
 - **`Solutions/Core/Ds2.LlmAgent/AttachmentClassifier.fs` 는 활성 코드** (정정):
   - `LlmChatViewModel.Attachments.cs:265, 270, 348` 가 `classify` + `Classification.AcceptImage` 호출 (UI thread). `:360` 가 `detectEncoding` 호출 (background thread).
