@@ -290,6 +290,33 @@ module ZipImport =
     let makeBackupPath (target: string) : string =
         sprintf "%s.bak-%s" target (Guid.NewGuid().ToString("N").Substring(0, BackupSuffixHexLen))
 
+    /// **lock-free swap retry (2026-05-30)** — Windows 는 내부에 열린 파일 핸들 (SQLite index.db WAL 등) 이
+    /// 있는 디렉토리의 rename (`Directory.Move`) 을 'Access denied'(`UnauthorizedAccessException`) /
+    /// 'used by another process'(`IOException`) 로 거부한다 (Linux 의 inode rename 과 달리).
+    /// swap caller 가 직전에 `notifier.OnPayloadSwapped` 로 활성 session 의 KB ATTACH 핸들을 동기 dispose 해도
+    /// OS file 핸들 해제까지 µs~ms 시간차가 남을 수 있어, 짧은 backoff 재시도로 흡수한다 (보통 1~2회 내 성공).
+    /// 본 두 예외형만 재시도 — 그 외 (디렉토리 미존재 등) 는 즉시 throw 하여 잘못된 무한 재시도 회피.
+    let private MoveRetryMaxAttempts = 10
+    let private MoveRetryDelayMs = 100
+    let private moveWithRetry (src: string) (dst: string) : unit =
+        let mutable attempt = 1
+        let mutable moved = false
+        while not moved do
+            try
+                Directory.Move(src, dst)
+                moved <- true
+            with ex ->
+                // file lock 추정 예외 (IOException / UnauthorizedAccessException) 만 재시도. 그 외 예외형
+                // (디렉토리 미존재 등) 또는 최종 시도까지 실패 시 원래 ex 그대로 전파 (reraise) →
+                // swapCollectionPayload 의 rollback path 진입.
+                let retriable = (ex :? IOException) || (ex :? UnauthorizedAccessException)
+                if not retriable || attempt >= MoveRetryMaxAttempts then reraise()
+                Log.service.Warn(
+                    sprintf "moveWithRetry: '%s' → '%s' rename 실패 (attempt %d/%d, file lock 추정) — %s. %dms 후 재시도"
+                        src dst attempt MoveRetryMaxAttempts ex.Message MoveRetryDelayMs)
+                System.Threading.Thread.Sleep MoveRetryDelayMs
+                attempt <- attempt + 1
+
     /// payload swap — 기존 collection 디렉토리의 source/ + .lighthouse-kb/ 만 새 staging 내용으로 교체.
     /// meta.json 의 server 필드 (id / importedAt / importedBy / storageRelPath) 는 caller 가 stampServerFields 로
     /// 미리 stagingPath/meta.json 에 박아둠. 본 함수는 디렉토리 단위 swap 만.
@@ -319,7 +346,10 @@ module ZipImport =
         let backup = makeBackupPath target
 
         try
-            Directory.Move(target, backup)
+            // **lock-free swap (2026-05-30)** — target → backup rename 은 target 안 index.db 핸들이 열려 있으면
+            // Windows 가 거부. caller 가 swap 직전에 OnPayloadSwapped 로 활성 session KB 를 detach 했어도 OS
+            // 핸들 해제 시간차가 남을 수 있어 moveWithRetry 로 흡수. staging → target 은 방금 비운 자리라 lock 무관.
+            moveWithRetry target backup
             Directory.Move(stagingPath, target)
             // 성공 — 백업 제거
             Directory.Delete(backup, true)
