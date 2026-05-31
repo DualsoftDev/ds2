@@ -47,6 +47,12 @@
 #define SetupIconPath "..\Promaker\Assets\Promaker.ico"
 #define MyAppName "Promaker"
 #define MyAppVersion GetVersionNumbersString(AppExePath)
+; OutputVersion: 산출물 파일명(Promaker_Setup_<ver>) 에 쓰는 버전. Makefile 의 iscc 타깃이
+; BuildVersion.txt(3-part) 값을 /DOutputVersion 으로 주입 → 파일명 SSOT 를 BuildVersion.txt 로
+; 일원화. 직접 ISCC 호출(Makefile 미경유) 시엔 exe file-version(4-part)인 MyAppVersion fallback.
+#ifndef OutputVersion
+  #define OutputVersion MyAppVersion
+#endif
 #define MyAppPublisher "Dualsoft"
 #define MyAppURL "https://dualsoft.co.kr"
 #define MyExeName "Promaker.exe"
@@ -70,7 +76,7 @@ DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 OutputDir=Output
-OutputBaseFilename=Promaker_Setup_{#MyAppVersion}{#OutputSuffix}
+OutputBaseFilename=Promaker_Setup_{#OutputVersion}{#OutputSuffix}
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
