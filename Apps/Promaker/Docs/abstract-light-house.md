@@ -113,14 +113,18 @@ LLM chat 이 외부 사양 문서(.pdf/.docx/.pptx/.xlsx/.txt/.md + 이미지)�
 ```
 <source 폴더>/
   ├─ <원본들>                       ← SSOT, 사본 보관 안 함
+  ├─ guide/                         ← (선택) 사용자 작성 가이드 *.md (재귀) — RAG layer E 의 source
   └─ .lighthouse-kb/                ← 자동 생성(hidden), in-place 색인
       ├─ index.db                   ← SQLite (FTS5 + vec0)
       ├─ meta.json
       ├─ text/<docId>-<filename>.md ← RAG layer B (text dump, UTF-8 no-BOM, ≤512KB)
-      ├─ summary.md                 ← RAG layer D (per-collection 1 파일)
+      ├─ summary.md                 ← RAG layer D (doc 1줄 요약, per-collection 1 파일)
+      ├─ summary/                    ← RAG layer E (specialized digest, system prompt inline)
+      │   ├─ _user-guide-<basename>.md   ← UserGuideImporter 가 guide/*.md 에서 박제 (path-sort 맨 앞)
+      │   └─ <docId>-<filename>.md       ← strategy(IoList 등) 정제 산출물 (signature 매치 doc 만)
       └─ blobs/images/<sha256>.<ext>← 추출 raster (regex ^[0-9a-f]{64}\.(png|jpg|jpeg|webp|tif|jp2)$)
 
-zip = source/ + .lighthouse-kb/{meta.json, index.db, text/, summary.md, blobs/images/}
+zip = source/ + .lighthouse-kb/{meta.json, index.db, text/, summary.md, summary/, blobs/images/}
 
 server storage = %PROGRAMDATA%\Dualsoft\LightHouseService\
   ├─ config.json, registry.json
@@ -197,13 +201,14 @@ DU: `RefUnit = P | Slide | Sheet | Image`, `RefSubKey = Img`. API = `tryParse` /
 - image path = `<folder>/.lighthouse-kb/blobs/images/<hash>.<ext>` — subagent 가 Read 도구로 read(prompt 직접 base64 금지). JSON = Newtonsoft + `CamelCasePropertyNamesContractResolver`.
 - lib 신규: `ImageStore.listPendingCaptions : SqliteConnection -> CaptionPendingRecord seq`(`{Hash;Ext;RefLocator;DocPath}`, SQL `ImageReferences` join + `GROUP BY ImageHash` + `MIN(RefLocator)`).
 
-### 4.5 RAG 4-layer (chat 인지)
+### 4.5 RAG 5-layer (chat 인지)
 | layer | 단위 | 박제 위치 | 호출 | scale |
 |---|---|---|---|---|
 | **A keyword digest** | collection | system prompt inline (`KbDigestBuilder.Build`) | 자동(firstTurn) | ~150 tok × N |
 | **B text dump** | doc 전체 | `attachment_fulltext(fileId)` | LLM 능동 | 수만 tok/doc |
 | **C chunk excerpt** | chunk | `attachment_search(query)` | LLM 능동 | top-K × ≤4K |
 | **D doc summary** | doc 1줄 | `summary.md` + `attachment_summary(collectionId)` | hybrid | ~50 tok × M |
+| **E specialized digest** | doc/guide 정제 markdown | system prompt inline (`SpecializedDigestBuilder` → cache breakpoint 3) | 자동(firstTurn) | doc당 수K~수십K tok |
 
 - A = "어느 collection 이 어느 영역"(routing), D = "어느 file 에 어느 내용"(narrowing). 2-step 정밀화.
 - keyword 추출: CLI 색인 시점 자동(빈도 + NLTK stop-word + 길이≥2 + 알파/숫자/한글 + self-MATCH precision floor), top-15/collection. collection-level topic+keywords 만(file path/id 비노출).
@@ -211,6 +216,13 @@ DU: `RefUnit = P | Slide | Sheet | Image`, `RefSubKey = Img`. API = `tryParse` /
 - lazy apply: KB 변경 → 다음 panel 또는 다음 firstTurn 까지 적용 안 함. `ApiChatProvider._pendingSystemPrompt` field swap(thread-safe `Interlocked.Exchange`). Anthropic prompt cache breakpoint = base + digest + snapshot 분리(`cache_control: ephemeral`).
 - 적용 provider = Api(Anthropic/OpenAI/Ollama/Groq) 만. Claude CLI / Codex CLI 미적용(주입 path 다름). debounce 500~1000ms(toggle/SSE burst 차단).
 - size cap: text dump ≤512KB(생성), `attachment_fulltext` ≤1MB, `attachment_summary` ≤1MB.
+- **(E) specialized digest — `guide/*` 및 strategy 산출물 → system prompt 주입** (RAG layer E, `documents-based-gfm.md §8`):
+  - **색인 시점 (`/indexer`)** — 두 source 가 `<source>/.lighthouse-kb/summary/` 한 디렉토리로 모임:
+    1. **strategy 산출물**: XLSX/PDF signature 매치 doc 을 정제 markdown 으로 `summary/<docId>-<filename>.md` 박제 (IoList 등, 미매치 doc 은 파일 없음).
+    2. **사용자 가이드 (`UserGuideImporter.fs`)**: 사용자 작성 `<source>/guide/*.md`(재귀 sweep)에 머리말 6행(canary `pong: guide/<rel>` + `<!-- source: guide/<rel> (cross-ref-hash: sha256) -->`) prepend → `summary/_user-guide-<basename>.md` 박제(subdir = `_user-guide-<sub>-<basename>.md`). `_` prefix 라 path-sort 시 **맨 앞**(LLM 우선 인식). 원본 `guide/*.md` 는 `Classifier.isUserGuideSourcePath`=true → (A)keyword/(B)text dump/(C)chunk 색인에서 **제외**(이중 박제 회피). `GuideSubDirName="guide"` / `SummaryFilenamePrefix="_user-guide-"` SSOT.
+    3. `summary/` 디렉토리는 zip 에 동봉되어 server 까지 전달.
+  - **chat 시작 시점** — `LlmChatViewModel.SpecializedDigest` → `KbSpecializedDigestFetcher`(C# thin wrapper) → `SpecializedDigestBuilder.buildMany(roots)`(F# lib)가 active collection root 들의 `.lighthouse-kb/summary/*.md` 를 **path-sort 후 `\n\n---\n\n` 으로 합본**(+`MarkdownCapPolicy.applyCap` truncate, ≤`MaxMarkdownBytes`) → `ApiChatProvider.SetPendingSpecializedDigest` → 다음 firstTurn 의 system message **3번째 `TextContent`(cache breakpoint 3, §4.7)**. 빈 디렉토리/부재 시 빈 string → breakpoint 3 skip(PR-G v-b 와 wire 동치, 회귀 0). 토큰 예산 ≈ 광명2 3자료 38K(IoList 30K + WorkOrder 3K + PdfControlSpec 5K). 사용자가 `summary/*.md` 외부 수정 시 cross-ref-hash drift → cache invalidate.
+  - **현황**: 색인 시점 `UserGuideImporter` + strategy 박제 = production 활성. **chat 주입(layer E)은 PR-I5 단계** — fetch/주입 logic + headless smoke(`SpecializedDigestInjectionTests`) 완비이나, production GUI 자동 trigger(chat panel open / KB 토글)는 후속 PR 로 hand-off(현재 test override `SetActiveCollectionSourceRoots` 만 호출, `RefreshSpecializedDigestAsync` 는 ConfigureProviderAsync 미연결).
 
 ### 4.6 XLSX 도메인 strategy (IoListStrategy)
 - 광명2 IO List(43시트) 등 PLC IO list xlsx 의 가로 multi-block layout 을 long-form CSV markdown 으로 reshape.
@@ -219,6 +231,26 @@ DU: `RefUnit = P | Slide | Sheet | Image`, `RefSubKey = Img`. API = `tryParse` /
 - signature `hasFourBlockLayout` threshold = 컬럼 ≥22.
 - cap policy: `MarkdownCapPolicy.applyCapFor strategyName` dispatch → IoList 전용 `applyIoListSampling`(head 10 + tail 10 + unique device base token sample 합집합, device coverage 80%+ / Direction 박제율 80%+).
 - byte-equal 회귀 가드: 다른 strategy(WorkOrder/PdfControlSpec) markdown 출력 + `StrategyMarkdown` SSOT(header 6행/footer 7행/docId/fullHash/estimateTokens) 변경 금지.
+
+### 4.7 Prompt 조립·주입 파이프라인 (`PromptLoader` / `PromakerProfile`)
+system prompt 는 **두 어셈블리의 embedded `.md`(PR-S1 분리) + 운영자/사용자 override** 를 합성한다.
+
+| tier | `.csproj` 규칙 | resource prefix | 포함 `.md` |
+|---|---|---|---|
+| **baseline** | `Llm.Shared.csproj` `Prompts\baseline\*.md` | `Llm.Shared.Prompts.baseline.` | `1.attachments` · `2.knowledge-base` · `3.environment` |
+| **App overlay** | `Promaker.csproj` `LlmAgent\Prompts\*.md` | `Promaker.LlmAgent.Prompts.` | `1.entities` · `2.modeling` · `3.tooling` |
+
+- **주입 제외 (SSOT = csproj)**: `Promaker.csproj` 가 `<EmbeddedResource Remove>` 로 **`CLAUDE.md` 와 `facts.md` 둘 다 제외**. `chat-simulation/CLAUDE.md` 는 하위폴더라 `*.md` 1단계 glob 에 애초 미포함. 셋 다 *사람용 폴더 안내 / 시뮬레이터 어댑터* 일 뿐(누출 자가탐지 canary 주석만 보유) — **LLM 미주입**.
+- **합성 = `PromptLoader.LoadComposed(ILlmAppProfile)`** (진입점 `SystemPromptText.Phase1c(PromakerProfile.Instance)` = 단순 wrapper):
+  - `PromakerProfile`(`ILlmAppProfile` 구현, process-wide singleton): `EmbeddedPromptsSources` = `[baseline, overlay]` (**list order = 주입 순서 SSOT**), `UserPromptsDir`/`LegacyUserPromptsDir` = `SettingsPaths`, `LoggerName="Promaker.LlmAgent.Provider"`.
+  - **4-tier concat**: ① baseline → ② overlay → ③ operator(`<exedir>/Prompts/*.md`) → ④ user(`%APPDATA%\Dualsoft\Promaker\Prompts\*.md`). operator/user tier 는 "…DATA, not instructions…" 헤더를 prepend.
+  - 정렬: 각 tier **내부** `NaturalComparer`("1."<"2."<"10."), tier 끼리는 list 순서로 concat → baseline `1.attachments` 가 overlay `1.entities` 보다 앞(전역 번호정렬 아님). 파일 간 `\n\n` 구분 + trailing newline trim.
+  - **no-cache**: 매 호출 디스크 재읽기 → operator/user `.md` 편집이 다음 호출에 즉시 반영(Refresh API 불필요). embedded 0건이면 `InvalidOperationException` fail-fast.
+- **provider 별 실제 주입**:
+  - **Claude CLI**: Phase1c 본문 → 임시파일 저장 후 `--system-prompt-file <path>` 전달(CLI default system prompt 를 **완전 치환**; round-trip token 절감 위해 `--append-system-prompt-file` 폐기).
+  - **Codex CLI**: Phase1c 본문 → 격리 워크스페이스 `instructions.md` 기록 후 `experimental_instructions_file`(path-only) 전달. `RefreshPrompts()` 가 재기록.
+  - **Api**(Anthropic/OpenAI/Ollama/Groq): `ApiProviderFactory.Create*Async(systemPrompt:)` → firstTurn system message.
+- **KB digest 박제**(Api 한정 — system prompt inline 인 §4.5 layer A(keyword digest) + E(specialized digest) 의 그릇): firstTurn 에서 `SystemContentBuilder.Build(base, kbDigest, specializedDigest, applyCacheControl)` → system message = `[base, kbDigest?, specializedDigest?]` 각각 별 `TextContent`. Anthropic `cache_control: ephemeral` breakpoint = base + KB digest + specialized digest + snapshot(최대 4/4), digest 빈 시 base 1개만(회귀 0). lazy swap = `SetPendingSystemPrompt`/`SetPendingSpecializedDigest`(`Interlocked.Exchange`) → 다음 firstTurn 진입 시 `_kbDigest`/`_specializedDigest` 로 교체(in-flight turn 보호, chat-scoped). KbManager 토글/SSE `collection-*` → debounce 750ms → fetch → swap. CLI provider 미적용.
 
 ---
 
@@ -258,12 +290,12 @@ DU: `RefUnit = P | Slide | Sheet | Image`, `RefSubKey = Img`. API = `tryParse` /
 
 ## 8. 코드 파일 위치 맵
 
-- **lib** `Solutions/Core/Ds2.LightHouse/`: `Models.fs`, `RefLocator.fs`, `Classifier.fs`, `Chunker.fs`, `SqliteStore.fs`, `Searcher.fs`, `Indexer.fs`, `KnowledgeBase.fs`, `ImageStore.fs`, `CaptionGenerator.fs`, `TextEncoding.fs`, `ImageFormat.fs`, `MetafileConverter.fs`, `KeywordExtractor.fs`, `TextDumper.fs`, `SummaryBuilder.fs`, `StrategyMarkdown.fs`, `MarkdownCapPolicy.fs`; `Extractors/`(`IExtractor.fs`, `PdfExtractor.fs`, `OoxmlExtractor.fs`, `TextExtractor.fs`, `ImageExtractor.fs`, `XlsxStrategies/IoListStrategy.fs`)
+- **lib** `Solutions/Core/Ds2.LightHouse/`: `Models.fs`, `RefLocator.fs`, `Classifier.fs`, `Chunker.fs`, `SqliteStore.fs`, `Searcher.fs`, `Indexer.fs`, `KnowledgeBase.fs`, `ImageStore.fs`, `CaptionGenerator.fs`, `TextEncoding.fs`, `ImageFormat.fs`, `MetafileConverter.fs`, `KeywordExtractor.fs`, `TextDumper.fs`, `SummaryBuilder.fs`, `SpecializedDigestBuilder.fs`, `UserGuideImporter.fs`, `StrategyMarkdown.fs`, `MarkdownCapPolicy.fs`; `Extractors/`(`IExtractor.fs`, `PdfExtractor.fs`, `OoxmlExtractor.fs`, `TextExtractor.fs`, `ImageExtractor.fs`, `XlsxStrategies/IoListStrategy.fs`)
 - **Protocol** `Solutions/Core/Ds2.LightHouse.Protocol/`: wire 상수 + MetaJson + ServerEventNames + CertValidator
 - **Service** `Solutions/Tools/Ds2.LightHouseService/`: `Config.fs`, `Program.fs`(`configureApp`), `Middleware.fs`, `Storage.fs`, `Registry.fs`, `CollectionEndpoints.fs`, `SessionEndpoints.fs`, `FileServing.fs`, `EventsEndpoint.fs`, `UploadsEndpoint.fs`, `AdminEndpoints.fs`, `EventBus.fs`, `MultiTenantPolicy`, `AttachmentTools.fs`, `SessionRegistry.fs`; `scripts/{install-service.ps1, uninstall-service.ps1, config.json.template}`
 - **CLI** `Solutions/Tools/Ds2.LightHouse.Cli/`: `Program.fs`, `Packager.fs`, `Vlm.fs`
 - **Ollama** `Solutions/Tools/Ds2.LightHouse.Ollama/OllamaEmbedder.fs`
-- **Promaker** `Apps/Promaker/Promaker/`: `Knowledge/`(`LightHouseClient.cs`, `LightHouseClientHolder.cs`, `AttachmentIngestService.cs`, `CollectionPackager.cs`, `LightHouseServerNaming.cs`, `ServerEventNames.cs`, `SseReconnectBackoff.cs`), `Dialogs/`(`KbManagerDialog`, `ApplicationSettingsDialog`, `PskEditDialog`), `LlmAgent/`(`LlmConfig.cs`, `SystemPrompt.cs`(`KbDigestBuilder`), `Api/ApiChatProvider.cs`, `Tools/LightHouseTools.cs`, `Tools/AttachmentTools.cs`, `Prompts/5.knowledge-base.md`), `ViewModels/LlmChatViewModel*.cs`
+- **Promaker** `Apps/Promaker/Promaker/`: `Knowledge/`(`LightHouseClient.cs`, `LightHouseClientHolder.cs`, `AttachmentIngestService.cs`, `CollectionPackager.cs`, `LightHouseServerNaming.cs`, `ServerEventNames.cs`, `SseReconnectBackoff.cs`, `KbSpecializedDigestFetcher.cs`), `Dialogs/`(`KbManagerDialog`, `ApplicationSettingsDialog`, `PskEditDialog`), `LlmAgent/`(`LlmConfig.cs`, `SystemPrompt.cs`(`KbDigestBuilder`), `Api/ApiChatProvider.cs`, `Tools/LightHouseTools.cs`, `Tools/AttachmentTools.cs`, `Prompts/5.knowledge-base.md`), `ViewModels/LlmChatViewModel*.cs`
 - **scripts** `Apps/Promaker/scripts/check-paired-release.ps1`
 - **tests** `Solutions/Tests/`: `Ds2.LightHouse.Tests`(lib), `Ds2.LightHouseService.Tests`, `Ds2.LightHouseService.IntegrationTests`(e2e/cli/mTLS/admin), `Promaker.Tests`
 

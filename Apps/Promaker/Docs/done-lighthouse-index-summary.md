@@ -83,6 +83,7 @@ LLM 이 chat 시작 시점부터 active KB 의 *영역* + *깊은 내용* 양쪽
 
 ### 현재 LLM 의 KB 인식 = 0 (PR-G 진입 전)
 - system prompt baseline = `Apps/Promaker/Promaker/LlmAgent/Prompts/{1.entities, 2.modeling, 3.tooling, 4.attachments, 5.knowledge-base, 9.environment, facts}.md` 6 파일. KB 의 *영역* / *내용* / *목록* 어느 것도 박제 안 됨.
+  > ※ **갱신 (현행, 2026-06)**: 위 경로/개수는 *PR-G 진입 전 배경* 이며 현 코드와 다름 (7개 나열하면서 "6 파일" 표기 자체도 오류). PR-S1 이후 prompt 는 baseline (`Llm.Shared/Prompts/baseline/` = `1.attachments`/`2.knowledge-base`/`3.environment`) + overlay (`Promaker/LlmAgent/Prompts/` = `1.entities`/`2.modeling`/`3.tooling`) 두 어셈블리로 분리. **`facts.md`·`CLAUDE.md` 는 `Promaker.csproj <EmbeddedResource Remove>` 로 주입 제외** (제외가 의도된 동작). 조립 파이프라인 SSOT = [`abstract-light-house.md §4.7`](abstract-light-house.md).
 - `LlmChatViewModel.Initialize.cs:35-103` 의 `TryCreateLightHouseSessionsAsync` 는 session token 발급만 — LLM 노출 0.
 - `attachment_list / outline / search / read / fulltext` MCP tool 만이 유일 정보 경로 (LLM 능동 호출 필요).
 - 사용자 query 어휘가 chunk text token 과 매칭 안 되면 LLM 이 `attachment_search` trigger 자체 안 함 → PR-F/G 가 keyword digest 로 trigger 정확도 향상.
