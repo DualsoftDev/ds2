@@ -194,11 +194,15 @@ module CollectionEndpoints =
                         if compatible then
                             match existingOpt with
                             | Some existing ->
+                                // **lock-free swap 순서 교정 (2026-05-30)** — swap (Directory.Move) *전에* detach.
+                                // Windows 는 열린 index.db 핸들이 있는 디렉토리 rename 을 거부 → 활성 session 의 KB
+                                // ATTACH 핸들을 swap 전에 동기 dispose (OnPayloadSwapped = phasedKbDispose 동기 완료).
+                                // 종전 swap-후-detach 순서는 swap 이 lock 으로 영구 실패 → detach 도달 불가 (HTTP 500).
+                                notifier.OnPayloadSwapped collectionId  // active session KB 무효화 (swap 전 핸들 해제)
                                 // 멱등 overwrite — 기존 collection payload swap (rollback-safe, K1 unique backup). Acl 보존.
                                 let target = ZipImport.swapCollectionPayload storageRoot stagingPath collectionId title
                                 let entry = { MetaJsonRegistry.toRegistryEntry serverMeta with Acl = existing.Acl }
                                 do! Registry.upsertAsync storageRoot entry
-                                notifier.OnPayloadSwapped collectionId  // active session KB 무효화
                                 Log.audit.Info(sprintf "collection overwritten — id=%s by=%s target=%s" collectionId user target)
                                 bus.Publish(ServerEvent.collectionUpdated collectionId)
                                 do! writeJson ctx 200 {| id = collectionId; storageRelPath = entry.StorageRelPath |}
@@ -325,11 +329,12 @@ module CollectionEndpoints =
                         // s6-r43: postCollections 와 동일 SSOT (`processStagingExtractGate`) — swap label 박제.
                         let! compatible = processStagingExtractGate ctx storageRoot stagingId cfg.IndexerVersionRange gate id " (swap)"
                         if compatible then
+                            // **lock-free swap 순서 교정 (2026-05-30)** — swap 전에 detach (postCollections 와 동일 사유).
+                            notifier.OnPayloadSwapped id  // active session KB 무효화 (swap 전 핸들 해제)
                             // existing.DisplayName 으로 swap 대상 폴더 이름 산출 — IC-2 fix 후 title=existing.DisplayName 라 동일 결과.
                             let target = ZipImport.swapCollectionPayload storageRoot stagingPath id title
                             let entry = MetaJsonRegistry.toRegistryEntry serverMeta
                             do! Registry.upsertAsync storageRoot entry
-                            notifier.OnPayloadSwapped id
                             Log.audit.Info(sprintf "collection payload swapped — id=%s by=%s target=%s" id user target)
                             bus.Publish(ServerEvent.collectionUpdated id)  // D-S7-2 s6-r27
                             do! writeJson ctx 200 {| id = id; storageRelPath = entry.StorageRelPath |}

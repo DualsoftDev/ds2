@@ -217,6 +217,12 @@ module KnowledgeBase =
         let csb = SqliteConnectionStringBuilder()
         csb.DataSource <- sprintf "file:lhmain-%s?mode=memory&cache=private" (Guid.NewGuid().ToString("N"))
         csb.Mode <- SqliteOpenMode.Memory
+        // **lock-free swap 정합 (2026-05-30 KnowledgeBase.fs)** — 메인 connection pooling 비활성.
+        // unique-guid URI 라 pool 재사용 이득 0 인데, default Pooling=true 면 Dispose (conn.Close/Dispose) 가
+        // sqlite3 핸들을 pool 에 잔존시킴 → 이 핸들이 ATTACH 한 collection 의 index.db file 핸들도 잔존 →
+        // Windows 에서 server 의 동일-title 재업로드 swap (Directory.Move) 이 'Access denied' 로 영구 실패
+        // (CollectionEndpoints.swapCollectionPayload). Pooling=false → Dispose 시 핸들 + ATTACH file 즉시 해제.
+        csb.Pooling <- false
         let conn = new SqliteConnection(csb.ToString())
         conn.Open()
         // Phase 4 (s6-r35) — main connection 에도 vec0 extension load. ATTACH 된 DB 의 Chunks_Vectors 를

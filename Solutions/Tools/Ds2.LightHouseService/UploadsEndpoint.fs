@@ -533,13 +533,15 @@ module UploadsEndpoint =
                                 if compatible then
                                     match existingEntry with
                                     | Some existing ->
+                                        // **lock-free swap 순서 교정 (2026-05-30)** — swap (Directory.Move) *전에* detach.
+                                        // Windows lock 회피 — CollectionEndpoints 의 swap path 2곳과 동일 사유/순서.
+                                        notifier.OnPayloadSwapped existing.Id  // active session KB 무효화 (swap 전 핸들 해제)
                                         // swap path — atomic rollback-safe (K1 unique backup), Acl 보존 (existing.Acl 직접 박제).
                                         let target =
                                             ZipImport.swapCollectionPayload storageRoot collStaging existing.Id title
                                         let baseEntry = MetaJsonRegistry.toRegistryEntry serverMeta
                                         let entry = { baseEntry with Acl = existing.Acl }
                                         do! Registry.upsertAsync storageRoot entry
-                                        notifier.OnPayloadSwapped existing.Id
                                         eventBus.Publish(ServerEvent.collectionUpdated existing.Id)
                                         Log.audit.Info(
                                             sprintf "D-S7-5: finalize → collection swapped — uploadId=%s collectionId=%s target=%s"
