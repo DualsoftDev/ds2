@@ -36,6 +36,7 @@
         <KeyBinding Gesture="Ctrl+C" Command="{Binding CopySelectedCommand}"/>
         <KeyBinding Gesture="Ctrl+X" Command="{Binding CutSelectedCommand}"/>
         <KeyBinding Gesture="Ctrl+V" Command="{Binding PasteCopiedCommand}"/>
+        <KeyBinding Key="Escape" Command="{Binding CancelCutCommand}"/>
         <KeyBinding Gesture="Ctrl+S" Command="{Binding SaveFileCommand}"/>
         <KeyBinding Gesture="Ctrl+O" Command="{Binding OpenFileCommand}"/>
         <KeyBinding Gesture="Ctrl+N" Command="{Binding NewProjectCommand}"/>

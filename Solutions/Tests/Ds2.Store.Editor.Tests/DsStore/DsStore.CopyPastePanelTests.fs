@@ -369,6 +369,53 @@ module MoveTests =
         Assert.Equal(work1.Id, store.Calls.[callA.Id].ParentId)
         Assert.Equal(work1.Id, store.Calls.[callB.Id].ParentId)
 
+    [<Fact>]
+    let ``MoveWorksToFlow moves work to another flow in a single undo step`` () =
+        let store = createStore ()
+        let _, system, flowA, work = setupBasicHierarchy store
+        let flowB = addFlow store "FlowB" system.Id
+
+        let moved = store.MoveWorksToFlow([ work.Id ], flowB.Id)
+
+        Assert.Equal(1, moved)
+        Assert.Equal(flowB.Id, store.Works.[work.Id].ParentId)
+
+        // 단일 Undo 로 원래 Flow 로 복귀
+        store.Undo()
+        Assert.Equal(flowA.Id, store.Works.[work.Id].ParentId)
+
+    [<Fact>]
+    let ``MoveWorksToFlow skips when target flow already has same local name`` () =
+        let store = createStore ()
+        let _, system, flowA, work = setupBasicHierarchy store
+        let flowB = addFlow store "FlowB" system.Id
+        addWork store work.LocalName flowB.Id |> ignore   // 같은 LocalName 선점
+
+        let moved = store.MoveWorksToFlow([ work.Id ], flowB.Id)
+
+        Assert.Equal(0, moved)
+        Assert.Equal(flowA.Id, store.Works.[work.Id].ParentId)
+
+    /// Work cross-flow 이동 = 내부 Call 전부 cross-flow → device mode(CloneSystem)로 paste 후
+    /// 원본 Work cascade-remove. 새 Work 가 target Flow 에 생기고 내부 Call 도 따라온다.
+    [<Fact>]
+    let ``MoveWorksAcrossFlow moves work with its calls to another flow (clone device)`` () =
+        let store = createStore ()
+        let project, system, _flowA, work = setupBasicHierarchy store
+        let flowB = addFlow store "FlowB" system.Id
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.ApiA"; "Dev.ApiB" ], true, None)
+        Assert.Equal(2, Queries.callsOf work.Id store |> List.length)
+
+        let newIds = store.MoveWorksAcrossFlow([ work.Id ], flowB.Id, CrossFlowDeviceMode.CloneSystem)
+
+        // paste 기반 이동: 원본 Work 는 cascade-remove, target Flow 에 새 Work 1개 생성.
+        Assert.Equal(1, List.length newIds)
+        Assert.False(store.Works.ContainsKey work.Id)
+        let newWork = store.Works.[List.head newIds]
+        Assert.Equal(flowB.Id, newWork.ParentId)
+        // 내부 Call 2개도 새 Work 로 따라온다.
+        Assert.Equal(2, Queries.callsOf newWork.Id store |> List.length)
+
 // =============================================================================
 // Panel (도메인 타입 직접 사용)
 // =============================================================================

@@ -48,7 +48,16 @@ let tryOpenParentTab (store: DsStore) (entityKind: EntityKind) (entityId: Guid) 
         |> Option.bind (fun parentId -> tryOpenTabForEntity store pk parentId))
 
 let tabTitle (store: DsStore) (tabKind: TabKind) (rootId: Guid) : string option =
-    lookupEntity store tabKind rootId |> Option.map snd
+    match tabKind with
+    | TabKind.Work ->
+        // 비활성 Flow 의 Work 탭은 title 을 None 으로 → ValidateAndRefresh 가 dead tab 으로 자동 정리(탭 닫힘)
+        match Queries.getWork rootId store with
+        | Some work ->
+            match Queries.getFlow work.ParentId store with
+            | Some flow when flow.IsDisabled -> None
+            | _ -> Some work.Name
+        | None -> None
+    | _ -> lookupEntity store tabKind rootId |> Option.map snd
 
 [<CompiledName("TryOpenTabForEntityOrNull")>]
 let tryOpenTabForEntityOrNull (store: DsStore) (entityKind: EntityKind) (entityId: Guid) : TabOpenInfo =

@@ -230,6 +230,59 @@ public partial class MainViewModel
         return true;
     }
 
+    /// <summary>다중 Work 를 target Flow 로 drag&drop (또는 cut-paste). copy=복제, move=이동(ParentId 변경).
+    /// Work 는 Call 과 달리 cross-flow 라도 통째로 옮겨지므로 device 모드 다이얼로그가 필요 없다.</summary>
+    /// <param name="copyMode">true 면 copy(원본 유지), false 면 move(원본 이동).</param>
+    public bool TryMoveWorksToFlowFromTree(IReadOnlyList<Guid> workIds, Guid targetFlowId, bool copyMode)
+    {
+        if (workIds.Count == 0) return false;
+        if (!GuardSimulationSemanticEdit(copyMode ? "Work 복사" : "Work 이동")) return false;
+
+        var targetFlowOpt = StoreHierarchyQueries.resolveTarget(_store, EntityKind.Flow, EntityKind.Flow, targetFlowId);
+        if (targetFlowOpt is null) return false;
+        var flowId = targetFlowOpt.Value;
+
+        if (copyMode)
+        {
+            // 복사 — 기존 device 처리(CloneSystem) PasteEntities (pasteWorksToFlowBatch 가 device 복제).
+            if (!TryEditorFunc(
+                    () => _store.PasteEntities(EntityKind.Work, workIds, EntityKind.Flow, flowId, 0),
+                    out PasteResult result,
+                    fallback: PasteResult.NewOk(Microsoft.FSharp.Collections.ListModule.Empty<Guid>()),
+                    warnDialog: true))
+                return false;
+            if (result is PasteResult.Blocked) { _dialogService.ShowWarning("Work 를 복사할 수 없습니다."); return false; }
+            var ids = ((PasteResult.Ok)result).Item;
+            StatusText = $"Copied {ids.Length} Work(s).";
+            return ids.Length > 0;
+        }
+
+        // 이동 — Work cross-flow = 내부 Call 전부 cross-flow → device mode 다이얼로그 후 MoveWorksAcrossFlow.
+        if (!TryResolveWorkMoveDeviceMode(workIds, out var mode)) return false;
+        TryEditorFunc(
+            () => _store.MoveWorksAcrossFlow(workIds, flowId, mode),
+            out var movedIds,
+            fallback: Microsoft.FSharp.Collections.ListModule.Empty<Guid>());
+        var moved = movedIds?.ToList() ?? new List<Guid>();
+        if (moved.Count > 0) StatusText = $"Moved {moved.Count} Work(s) across Flow ({mode}).";
+        else _dialogService.ShowWarning("이동할 Work 가 없습니다 (같은 Flow 이거나 잘못된 대상).");
+        return moved.Count > 0;
+    }
+
+    /// <summary>drag-over 표시용 — Work 를 다른 Flow 로 이동 가능한지. 같은 Flow 로의 드롭은 거부.</summary>
+    public bool CanMoveWorksToFlowFromTree(IReadOnlyList<Guid> workIds, Guid targetFlowId)
+    {
+        if (workIds.Count == 0) return false;
+        if (!_store.FlowsReadOnly.ContainsKey(targetFlowId)) return false;
+        // 하나라도 다른 Flow 에 속한 Work 면 이동 후보 (이름 충돌은 drop 시 MoveWorksToFlow 가 필터).
+        foreach (var wid in workIds)
+        {
+            if (!_store.WorksReadOnly.TryGetValue(wid, out var w)) return false;
+            if (w.ParentId == targetFlowId) return false;  // 이미 그 Flow — 의미 없음
+        }
+        return true;
+    }
+
     public bool TryReconnectArrowFromCanvas(Guid arrowId, bool replaceSource, Guid newEndpointId)
     {
         if (!GuardArrowEditByRuntimeMode("Arrow 재연결")) return false;
