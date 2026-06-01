@@ -415,6 +415,25 @@ type DsStoreNodesExtensions =
             StoreLog.warn($"Entity not found. kind={entityKind}, id={id}")
             invalidOp $"Entity not found. kind={entityKind}, id={id}"
 
+    /// 여러 Flow 의 IsDisabled 를 한 transaction(=1 undo step)으로 토글한다. 실제로 바뀐 개수를 반환.
+    /// disabled=true → 비활성화(숨김), false → 복원. 이미 같은 상태인 Flow 는 건너뛴다.
+    [<Extension>]
+    static member SetFlowsDisabled(store: DsStore, flowIds: seq<Guid>, disabled: bool) : int =
+        let targets =
+            flowIds
+            |> Seq.distinct
+            |> Seq.choose (fun id -> Queries.getFlow id store)
+            |> Seq.filter (fun f -> f.IsDisabled <> disabled)
+            |> Seq.toList
+        if targets.IsEmpty then 0
+        else
+            let verb = if disabled then "비활성화" else "복원"
+            store.WithTransaction($"Flow {targets.Length}개 {verb}", fun () ->
+                for f in targets do
+                    store.TrackMutate(store.Flows, f.Id, fun x -> x.IsDisabled <- disabled))
+            store.EmitRefreshAndHistory()
+            targets.Length
+
     // ─── AutoLayout ────────────────────────────────────────────────────
 
     /// 노드들이 모두 같은 좌표에 몰려있으면 자동 배치 적용 (Mermaid 임포트, 탭 최초 오픈 등).

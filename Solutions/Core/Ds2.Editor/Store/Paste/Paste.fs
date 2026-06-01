@@ -44,6 +44,14 @@ type DsStorePasteExtensions =
         (store: DsStore, copiedEntityKind: EntityKind, copiedEntityIds: seq<Guid>,
          targetEntityKind: EntityKind, targetEntityId: Guid, pasteIndex: int) : PasteResult =
         let ids = copiedEntityIds |> Seq.distinct |> Seq.toList
+        // 비활성화된 Flow 는 복사 불가 — 소스에서 제외한다 (트리에 없어 진입점도 없지만 방어적 가드).
+        let ids =
+            if copiedEntityKind = EntityKind.Flow then
+                ids |> List.filter (fun id ->
+                    match Queries.getFlow id store with
+                    | Some f -> not f.IsDisabled
+                    | None -> true)
+            else ids
         if not (PasteResolvers.isCopyableEntityKind copiedEntityKind) || ids.IsEmpty then PasteResult.Ok []
         else
             // Call 붙여넣기 사전 검증 (참조 Call은 원본으로 resolve)

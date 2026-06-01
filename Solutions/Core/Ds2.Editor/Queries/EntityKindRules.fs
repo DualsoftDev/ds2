@@ -24,6 +24,7 @@ module EntityKindRules =
                              || kind = Some EntityKind.Work || kind = Some EntityKind.Call
         | "Delete"        -> kind = Some EntityKind.System || kind = Some EntityKind.Flow
                              || kind = Some EntityKind.Work || kind = Some EntityKind.Call
+        | "Disable"       -> kind = Some EntityKind.Flow
         | _ -> true
 
     /// Mermaid 임포트 가능한 EntityKind인지

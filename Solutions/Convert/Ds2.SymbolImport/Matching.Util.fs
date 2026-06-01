@@ -25,6 +25,38 @@ module DeviceGroupingUtils =
     let getConfigPath () : string = currentConfigPath
 
     // ============================================================================
+    // 키워드 glob 매칭 (FilterExclusions / FlowInclusions / MappingSet.DeviceKeywords 공용)
+    // ============================================================================
+
+    /// 단순 glob 키워드 매칭 (대소문자 무시).
+    /// 패턴: *text* → Contains, text* → StartsWith, *text → EndsWith, text → Equals.
+    /// core 가 비면(예: "*") 항상 true.
+    let matchesKeyword (keyword: string) (name: string) : bool =
+        let kw = keyword.Trim()
+        let startsWithStar = kw.StartsWith("*")
+        let endsWithStar = kw.EndsWith("*")
+        let core = kw.Trim('*')
+
+        if String.IsNullOrEmpty(core) then true
+        elif startsWithStar && endsWithStar then
+            // *text* → Contains
+            name.IndexOf(core, StringComparison.OrdinalIgnoreCase) >= 0
+        elif startsWithStar then
+            // *text → EndsWith
+            name.EndsWith(core, StringComparison.OrdinalIgnoreCase)
+        elif endsWithStar then
+            // text* → StartsWith
+            name.StartsWith(core, StringComparison.OrdinalIgnoreCase)
+        else
+            // text → Equals
+            name.Equals(core, StringComparison.OrdinalIgnoreCase)
+
+    /// 키워드 목록 중 하나라도 name 에 매칭되면 true (list / array 둘 다 허용).
+    let matchesAnyKeyword (keywords: string seq) (name: string) : bool =
+        not (isNull (box keywords))
+        && (keywords |> Seq.exists (fun kw -> matchesKeyword kw name))
+
+    // ============================================================================
     // ApiNaming 설정 (CompoundSuffixes) - 와일드카드 패턴 지원
     // ============================================================================
 

@@ -66,31 +66,6 @@ module InputMatching =
     // 핵심 매칭 로직
     // ============================================================================
 
-    /// 성능 최적화: Regex 대신 단순 문자열 매칭 사용
-    /// 패턴: *text* → Contains, text* → StartsWith, *text → EndsWith, text → Equals
-    let private matchesKeyword (keyword: string) (name: string) =
-        let kw = keyword.Trim()
-        let startsWithStar = kw.StartsWith("*")
-        let endsWithStar = kw.EndsWith("*")
-        let core = kw.Trim('*')
-
-        if String.IsNullOrEmpty(core) then true
-        elif startsWithStar && endsWithStar then
-            // *text* → Contains
-            name.IndexOf(core, StringComparison.OrdinalIgnoreCase) >= 0
-        elif startsWithStar then
-            // *text → EndsWith
-            name.EndsWith(core, StringComparison.OrdinalIgnoreCase)
-        elif endsWithStar then
-            // text* → StartsWith
-            name.StartsWith(core, StringComparison.OrdinalIgnoreCase)
-        else
-            // text → Equals
-            name.Equals(core, StringComparison.OrdinalIgnoreCase)
-
-    let private matchesAnyKeyword (keywords: string list) (name: string) =
-        keywords |> List.exists (fun kw -> matchesKeyword kw name)
-
     /// 성능 최적화: apiDict 파라미터 추가 (extractApiFromTag 사전 계산)
     /// 이전: 각 매칭마다 extractApiFromTag 호출 O(매칭 수 × extractApiFromTag 비용)
     /// 이후: apiDict에서 O(1) 조회
@@ -147,7 +122,7 @@ module InputMatching =
         let allMatches =
             mappingSets
             |> List.choose (fun ms ->
-                if not (matchesAnyKeyword ms.DeviceKeywords deviceName) then None
+                if not (DeviceGroupingUtils.matchesAnyKeyword ms.DeviceKeywords deviceName) then None
                 else
                     // 먼저 API 이름으로 직접 매칭 시도
                     let directMatch = ms.Apis.TryFind(outputApi)

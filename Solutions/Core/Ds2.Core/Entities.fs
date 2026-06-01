@@ -50,6 +50,9 @@ type Flow [<JsonConstructor>] internal (name, parentId) =
 
     member val Properties = ResizeArray<FlowSubmodelProperty>() with get, set
 
+    /// true 면 비활성화(숨김) — 트리/캔버스/런타임에서 제외되고 비활성화 섹션으로 이동한다.
+    [<AasxField("IsDisabled")>] member val IsDisabled : bool = false with get, set
+
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
 

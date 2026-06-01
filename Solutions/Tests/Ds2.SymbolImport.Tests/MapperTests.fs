@@ -119,6 +119,47 @@ let ``Mapper.mapWithConfig — LS QX SV to IX RS maps and keeps CV_1~6 in one CV
         Assert.True(mapping.OutputEntry.IsSome)
         Assert.NotEmpty(mapping.InputEntries)
 
+/// config 필터 동작 가드 — FilterExclusions(Device/Api/Flow blacklist) + FlowInclusions(Flow whitelist).
+/// 이전엔 mapWithConfig 가 config 의 이 필드들을 통째 무시 (DTO 파싱만 되고 미사용) → UI 의
+/// "제외 Flow 키워드" / "기본 선택 Flow" 가 동작 안 함. flow 이름을 가정하지 않으려고 필터 없는
+/// config 로 실제 FlowName/ApiName 을 먼저 뽑아 검증한다.
+[<Fact>]
+let ``Mapper.mapWithConfig — FilterExclusions / FlowInclusions 필터가 실제로 적용됨`` () =
+    let baseConfig = MappingConfig.loadDefault ()
+    let entries = [
+        vendorEntry XGK "QX_CV_1_ADV_SV" "P00104" SymbolDirection.Output
+        vendorEntry XGK "IX_CV_1_ADV_RS" "P00028" SymbolDirection.Input
+    ]
+    let emptyFx : MappingConfig.FilterExclusionsDto =
+        { Description = ""; DeviceKeywords = [||]; ApiKeywords = [||]; FlowKeywords = [||] }
+    // baseline: 필터 전부 비움 → 정상 매핑 + 실제 flow/api 이름 확보.
+    let openCfg =
+        { baseConfig with
+            FilterExclusions = emptyFx
+            FlowInclusions = { Description = ""; Flows = [||] } }
+    let openBatch = Mapper.mapWithConfig XGK openCfg entries
+    Assert.NotEmpty(openBatch.Mapped)
+    let flow = openBatch.Mapped.Head.FlowName
+    let api  = openBatch.Mapped.Head.ApiName
+
+    // FlowInclusions whitelist — 해당 flow 포함 시 통과.
+    let inCfg = { openCfg with FlowInclusions = { Description = ""; Flows = [| flow |] } }
+    Assert.NotEmpty((Mapper.mapWithConfig XGK inCfg entries).Mapped)
+
+    // FlowInclusions whitelist — 다른 flow 만 허용 시 전부 배제 (unmatched 로 보존).
+    let outCfg = { openCfg with FlowInclusions = { Description = ""; Flows = [| flow + "_NOPE" |] } }
+    let outBatch = Mapper.mapWithConfig XGK outCfg entries
+    Assert.Empty(outBatch.Mapped)
+    Assert.Equal(entries.Length, outBatch.Unmatched.Length)
+
+    // FilterExclusions.FlowKeywords — glob(*flow*) 매칭 시 제외.
+    let flowExCfg = { openCfg with FilterExclusions = { emptyFx with FlowKeywords = [| "*" + flow + "*" |] } }
+    Assert.Empty((Mapper.mapWithConfig XGK flowExCfg entries).Mapped)
+
+    // FilterExclusions.ApiKeywords — glob(*api*) 매칭 시 제외.
+    let apiExCfg = { openCfg with FilterExclusions = { emptyFx with ApiKeywords = [| "*" + api + "*" |] } }
+    Assert.Empty((Mapper.mapWithConfig XGK apiExCfg entries).Mapped)
+
 /// 회귀 가드 — 같은 Name 을 가진 actuator(Y)/sensor(X) 페어 (예: "Stopper Up" 가 X1240 / Y1250 둘 다).
 /// 이전 Mapper.fs 의 entryByName = Map<string, SymbolEntry> 는 collision 으로 후자만 유지 → OutputEntry 의 lookup 도
 /// 의도와 다른 entry 로 치환 → InputEntries 에도 OutputEntry 와 동일 주소가 박힘 → 시뮬레이터 duplicate-address 에러.
