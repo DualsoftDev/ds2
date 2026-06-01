@@ -277,7 +277,8 @@ CLI 가 **in-place 색인** — 색인 산출물은 `<folder>/.lighthouse-kb/` �
 - **`--upload --reuse-kb` 경로는 wipe 안 함** — `<folder>/.lighthouse-kb/` 의 기존 산출물 (DB + caption + summary + text dump)
   을 그대로 zip + POST. /indexer skill 의 Step 3 default path 박제 — Step 1-b / Step 2 박제분 server 까지 전달 보장.
 - **self-ingest 방지**: `Indexer.enumerateFiles` 가 `.lighthouse-kb/` 안 파일 (DB / blob / dump 등) 을 `GetFullPath`
-  normalize 비교로 제외.
+  normalize 비교로 제외. 추가로 source top-level 의 caption cache (`.lighthouse-caption-cache.json`, `CaptionCache.CacheFileName`
+  SSOT) 도 파일명 기준 제외 — `.lighthouse-kb/` 밖 sibling 이라 미제외 시 base64 caption dump 가 collection content 로 색인됨.
 - **upload zip**: temp 위치에 만들고 업로드 완료/실패 시 즉시 정리. `.lighthouse-kb/` 는 source 안에 유지.
 - **source write 권한 필수** — 부재 시 exit 11.
 - **권장**: `<folder>` 가 git tree 안이면 `.gitignore` 에 `.lighthouse-kb/` 추가.
