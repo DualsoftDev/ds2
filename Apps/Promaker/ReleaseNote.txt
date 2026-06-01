@@ -1,6 +1,22 @@
 # Promaker Release Notes
 
 --------------------------------------------------
+[v0.1.8] 2026-06-01 19:51:28
+Previous: vPromaker_0.1.7
+--------------------------------------------------
+Promaker v0.1.8 배포
+
+- LLM Chat (지식 기반 대화)
+  - Claude CLI / Codex CLI 대화에도 KB·전문 지식 요약(digest)을 시스템 프롬프트에 주입 (이전엔 API 모드에만 적용)
+  - 전문 지식 요약을 원격 LightHouse 서비스에서 조회하도록 전환 — 원격 KB 환경 지원
+- KB 색인 시 내부 caption 캐시 파일(.lighthouse-caption-cache.json)이 collection 콘텐츠로 잘못 포함되던 결함 수정
+- Installer
+  - AI 설치 시, 설치 직전 실행 중이던 LightHouse 서비스를 설치 후 자동 재시작하도록 복원
+  - 설치 산출물 파일명 버전을 3-part(0.1.8) 표기로 통일
+- SymbolImport: Config 필터(제외 Flow 키워드 / 기본 선택 Flow / Device·API 제외 키워드)가 실제 매칭에 적용되도록 수정 (이전엔 파싱만 되고 무시됨)
+- Flow 비활성화(Disable) 기능 추가 (진행중) — 비활성 Flow 및 그 끝점 화살표가 Explorer 트리·캔버스·런타임에서 제외
+
+--------------------------------------------------
 [v0.1.7] 2026-06-01 08:07:13
 Previous: vPromaker_0.1.6
 --------------------------------------------------
