@@ -24,6 +24,19 @@ open System.Threading
 type CodexCliProvider(options: CodexCliOptions) =
 
     let mutable sessionId : string option = None
+    // layer A(KB digest) / layer E(specialized digest) lazy 주입 — `ILlmSystemPromptDigestSink`.
+    // Claude provider 와 동일 pending→firstTurn swap 패턴. Codex 는 base 본문이 아닌 instructions 파일 path
+    // (`ExperimentalInstructionsFile`) 만 보유하므로, Send 시 digest 가 있으면 그 파일을 읽어 base 로 삼고
+    // 합성본을 별 임시파일에 써서 path 를 교체 (digest 둘 다 빈 시 원본 path 그대로 — 회귀 0).
+    // pending 은 background thread(SSE invalidate / provider 토글) write — ApiChatProvider 의 Interlocked 와
+    // 동치의 cross-thread visibility 보장 위해 VolatileField. active(_kbDigest/_specializedDigest) 는 firstTurn
+    // (Send, 단일 caller thread) read/write 라 plain.
+    [<VolatileField>]
+    let mutable _pendingKbDigest : string = ""
+    [<VolatileField>]
+    let mutable _pendingSpecializedDigest : string = ""
+    let mutable _kbDigest : string = ""
+    let mutable _specializedDigest : string = ""
     let executableName = options.ExecutablePath |> Option.defaultValue "codex"
     /// PATHEXT 자동 검색 fragility 회피 — ctor 1회 PATH 검색 결과를 캐시. EnsureCli + Send 가 공유.
     /// 일부 사용자 환경 (Promaker process 의 PATH 가 셸 PATH 와 다른 경우) 에서 npm 글로벌 디렉토리
@@ -133,7 +146,40 @@ type CodexCliProvider(options: CodexCliOptions) =
                     cleanup ()
                     reraise ()
 
-        let args = CodexCliArgs.buildWith options sessionId prompt imagePaths
+        // firstTurn(sessionId None) 진입 시 pending digest 를 active 로 고정 (lazy apply).
+        // resume turn 은 active 유지 → 같은 합성 instructions 가 매 Send 전달돼 Codex prompt cache 안정.
+        if sessionId.IsNone then
+            _kbDigest <- _pendingKbDigest
+            _specializedDigest <- _pendingSpecializedDigest
+
+        // digest(layer A/E) 가 active 로 비어있지 않으면 instructions 파일을 base 로 읽어 합성본을 별 임시파일에
+        // 써서 `experimental_instructions_file` path 를 교체. `experimental_instructions_file` 은 codex default 를
+        // 완전 override 하므로 base 를 반드시 포함. digest 둘 다 빈 시 원본 path 그대로 — 회귀 0.
+        let effectiveOptions, cleanupInstructionsFile =
+            try
+                let hasDigest =
+                    not (String.IsNullOrEmpty _kbDigest) || not (String.IsNullOrEmpty _specializedDigest)
+                match options.ExperimentalInstructionsFile with
+                | Some baseFile when hasDigest && File.Exists baseFile ->
+                    let basePrompt = File.ReadAllText(baseFile, Text.Encoding.UTF8)
+                    let effective = SystemPromptDigest.compose basePrompt _kbDigest _specializedDigest
+                    let dir = Path.Combine(Path.GetTempPath(), "Promaker.LlmAgent")
+                    Directory.CreateDirectory(dir) |> ignore
+                    let path = Path.Combine(dir, sprintf "codex-instructions-%s.md" (Guid.NewGuid().ToString("N")))
+                    File.WriteAllText(path, effective, Text.Encoding.UTF8)
+                    let cleanup () =
+                        try if File.Exists path then File.Delete path
+                        with ex -> Log.provider.Warn($"Codex 임시 instructions 파일 삭제 실패 ({path}): {ex.Message}", ex)
+                    { options with ExperimentalInstructionsFile = Some path }, cleanup
+                | _ ->
+                    options, (fun () -> ())
+            with _ ->
+                // M1 fix 일관 — digest 합성 IO throw(디스크 풀/권한) 시 이미 만든 이미지 spool 이 OnFinally 등록
+                // 전이라 회수 안 됨 → 명시 cleanup 후 reraise (이미지 spool 자체 try/with(M1, 위) 와 동일 방어).
+                cleanupImageSpool ()
+                reraise ()
+
+        let args = CodexCliArgs.buildWith effectiveOptions sessionId prompt imagePaths
 
         // rev 20 (F2 외부 review) — Windows CreateProcess lpCommandLine 한도 사전 가드.
         // Codex 는 prompt 가 위치 인자 + Stdin 미사용이라 1MB text 첨부 inline 시 32K 초과 → process spawn 깨짐.
@@ -141,6 +187,7 @@ type CodexCliProvider(options: CodexCliOptions) =
         let argsBytes = CodexCliArgs.measureArgsBytes args
         if argsBytes > CodexCliArgs.CodexArgsByteCap then
             cleanupImageSpool ()
+            cleanupInstructionsFile ()
             invalidArg "msg"
                 (sprintf "Codex CLI 명령줄 한도 초과 (%d > %d byte) — 큰 텍스트 첨부 사용 시 Claude / Anthropic API / OpenAI API 로 전환하세요."
                     argsBytes CodexCliArgs.CodexArgsByteCap)
@@ -168,7 +215,7 @@ type CodexCliProvider(options: CodexCliOptions) =
             // Codex 는 prompt 가 위치 인자 (codex exec [resume <sid>] [OPTS] <prompt>) — stdin 미사용.
             // 32K 한도 도달 가능성은 별도 spike 후 결정.
             Stdin = None
-            OnFinally = cleanupImageSpool
+            OnFinally = fun () -> cleanupImageSpool (); cleanupInstructionsFile ()
         }
         CliProcessHost.runStream spec ct
 
@@ -203,3 +250,8 @@ type CodexCliProvider(options: CodexCliOptions) =
         member this.SessionId = this.SessionId
         member this.ClearSession () = this.ClearSession ()
         member this.Capabilities = this.Capabilities
+
+    // layer A / layer E digest 주입 — pending 박제 (null→""). firstTurn 진입 시 active 로 swap.
+    interface ILlmSystemPromptDigestSink with
+        member _.SetPendingSystemPrompt digest = _pendingKbDigest <- (if isNull digest then "" else digest)
+        member _.SetPendingSpecializedDigest digest = _pendingSpecializedDigest <- (if isNull digest then "" else digest)

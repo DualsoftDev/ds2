@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Ds2.LlmAgent;
 using Promaker.Knowledge;
 using Promaker.LlmAgent;
 using Llm.Shared;
@@ -239,8 +240,9 @@ public partial class LlmChatViewModel
                 .Select(c => new KbCollectionDescriptor { DisplayName = c.DisplayName, Description = c.Description, Keywords = c.Keywords })
                 .ToArray());
         var digest = KbDigestBuilder.Build(snapshot);
-        if (_provider is ApiChatProvider api)
-            api.SetPendingSystemPrompt(digest);
+        // CLI(Claude/Codex) + API provider 모두 `ILlmSystemPromptDigestSink` 구현 → 단일 캐스팅 path.
+        if (_provider is ILlmSystemPromptDigestSink sink)
+            sink.SetPendingSystemPrompt(digest);
         if (Log.IsDebugEnabled)
             Log.Debug($"ApplyPendingKbDigest — digest len={digest.Length} (services={_kbProfileCache.Count}, provider={_provider?.GetType().Name ?? "none"})");
     }
