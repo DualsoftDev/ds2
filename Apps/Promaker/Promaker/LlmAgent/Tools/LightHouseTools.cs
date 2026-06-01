@@ -135,8 +135,10 @@ public static class LightHouseTools
         var match = FindClientByPrefix(prefix);
         if (match is null)
             return Task.FromResult(JsonSerializer.Serialize(new { error = $"no active LightHouse service matches fileId prefix '{prefix}'." }));
+        // LLM overview path (layer D) — includeSpecialized=false 명시 (service signature required, 누락 시 missing-arg).
+        // specialized digest(layer E) 합본은 Promaker 자동 주입 path 가 includeSpecialized=true 로 별도 수신.
         return CallClientAsync(match.Value.ServiceId, match.Value.DisplayName, match.Value.Client, "attachment_summary",
-            new { collectionId = collectionGuid }, null, ct);
+            new { collectionId = collectionGuid, includeSpecialized = false }, null, ct);
     }
 
     // ─── helpers ──────────────────────────────────────────────────────────────────

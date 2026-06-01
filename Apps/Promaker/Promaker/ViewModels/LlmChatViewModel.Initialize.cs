@@ -51,17 +51,11 @@ public partial class LlmChatViewModel
             // 한 service 실패 ≠ chat 차단 (FetchKbProfilesAsync 가 try/catch 흡수).
             // **review M-2** — RefreshKbDigestAsync 자체가 Exception 흡수 (Log.Warn) → unobserved 0.
             SubscribeKbProfileEvents();
+            // KB digest + specialized digest(layer E) 초기 fetch. RefreshKbDigestAsync 안에서 specialized digest 도
+            // 동반 갱신 (KbProfile.cs). fire-and-forget — RefreshKbDigestAsync 자체 try/catch 흡수로 unobserved 0.
+            // layer E 는 MCP attachment_summary(includeSpecialized=true) fetch (로컬 SourceFolder read 폐기,
+            // 사용자 지시 2026-06-01) — 로컬/원격 service 모두 지원, collection 식별자(_acceptedCollectionIds)만 의존.
             _ = RefreshKbDigestAsync();
-            // 본 _ = 는 의도된 fire-and-forget. unobserved exception 위험은 RefreshKbDigestAsync 의 자체 흡수로 차단.
-            // N8 (todo-documents-based-gfm.md §6.1) — production GUI wiring: PR-I5 의 specialized digest fetch 를
-            // KB digest 와 동일 lifecycle 에 진입. SetActiveCollectionSourceRoots(null) 명시 박제로 (1) chat panel
-            // 재진입 시 stale override 차단 (2) production 진입점 박제 의미 확보 + ApplyPendingSpecializedDigest
-            // 1회 sync trigger (file IO — 비용 작음). 뒤이은 RefreshSpecializedDigestAsync 는 진정한 async path
-            // (FetchManyAsync) 로 file IO 후 ApplyFetchedDigest 진입 — IOException / UnauthorizedAccessException
-            // 흡수 (Log.Warn) → unobserved 0. SourceFolder schema 미박제 collection 만 있으면 빈 list 반환 →
-            // graceful skip (cache breakpoint 3 박제 skip = PR-G v-b wire 동치).
-            SetActiveCollectionSourceRoots(null);
-            _ = RefreshSpecializedDigestAsync();
         }
         catch (Exception ex)
         {
@@ -226,11 +220,10 @@ public partial class LlmChatViewModel
             // PR-G review C-1 fix — provider 토글 시 새 ApiChatProvider 의 _kbDigest 가 "" 박제로 reset 되므로
             // 현재 cache snapshot 으로 즉시 re-apply. SSE event 없이도 다음 firstTurn 에 KB digest 박제 보장.
             ApplyPendingKbDigest();
-            // N8 (todo-documents-based-gfm.md §6.1) — provider 토글 시 새 ApiChatProvider 의 _specializedDigest 도
-            // "" 박제로 reset 되므로 동일 시점에 re-apply. KB digest 패턴 1:1 정합 — sync path (file IO) 라 fetch
-            // 비용 작음. cache snapshot 부재 (init 미완료) 시 GetActiveCollectionSourceRoots 가 빈 list →
-            // SetPendingSpecializedDigest("") → cache breakpoint 3 skip = PR-G v-b wire 동치 (회귀 0).
-            ApplyPendingSpecializedDigest();
+            // provider 토글 시 새 ApiChatProvider 의 _specializedDigest 도 "" reset → layer E 재 fetch 로 re-apply.
+            // MCP attachment_summary(includeSpecialized=true) fetch (async) — fire-and-forget (RefreshSpecializedDigestAsync
+            // 자체 try/catch 흡수). 빈 active 셋 → SetPendingSpecializedDigest("") → cache breakpoint 3 skip (회귀 0).
+            _ = RefreshSpecializedDigestAsync();
 
             var result = await Task.Run(() => provider.EnsureCli()).ConfigureAwait(true);
 

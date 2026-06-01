@@ -853,7 +853,7 @@ let ``PR-H2 — 정상 summary 반환 (summary.md 존재)`` () =
             Kb = None; SyncRoot = obj()
         }
         let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
-        let result = AttachmentTools.attachment_summary(accessor, reg, cfg, collGuid)
+        let result = AttachmentTools.attachment_summary(accessor, reg, cfg, collGuid, false)
         Assert.Contains("# Collection Summary", result)
         Assert.Contains("A 본문 요약", result)
     finally cleanupDirs [ storageRoot ]
@@ -873,9 +873,9 @@ let ``PR-H2 — collectionId null/empty → empty + audit warn`` () =
             Kb = None; SyncRoot = obj()
         }
         let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
-        let r1 = AttachmentTools.attachment_summary(accessor, reg, cfg, null)
+        let r1 = AttachmentTools.attachment_summary(accessor, reg, cfg, null, false)
         Assert.Equal("", r1)
-        let r2 = AttachmentTools.attachment_summary(accessor, reg, cfg, "  ")
+        let r2 = AttachmentTools.attachment_summary(accessor, reg, cfg, "  ", false)
         Assert.Equal("", r2)
     finally cleanupDirs [ storageRoot ]
 
@@ -896,7 +896,7 @@ let ``PR-H2 — collection 가 session active 셋 밖 → empty + audit warn`` (
             Kb = None; SyncRoot = obj()
         }
         let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
-        let r = AttachmentTools.attachment_summary(accessor, reg, cfg, otherColl)
+        let r = AttachmentTools.attachment_summary(accessor, reg, cfg, otherColl, false)
         Assert.Equal("", r)
     finally cleanupDirs [ storageRoot ]
 
@@ -917,7 +917,7 @@ let ``PR-H2 — Registry 미존재 → empty + audit warn`` () =
             Kb = None; SyncRoot = obj()
         }
         let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
-        let r = AttachmentTools.attachment_summary(accessor, reg, cfg, collGuid)
+        let r = AttachmentTools.attachment_summary(accessor, reg, cfg, collGuid, false)
         Assert.Equal("", r)
     finally cleanupDirs [ storageRoot ]
 
@@ -942,6 +942,45 @@ let ``PR-H2 — legacy collection (summary.md 부재) → empty + audit info`` (
             Kb = None; SyncRoot = obj()
         }
         let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
-        let r = AttachmentTools.attachment_summary(accessor, reg, cfg, collGuid)
+        let r = AttachmentTools.attachment_summary(accessor, reg, cfg, collGuid, false)
         Assert.Equal("", r)
+    finally cleanupDirs [ storageRoot ]
+
+
+[<Fact>]
+let ``attachment_summary includeSpecialized=true → summary.md + summary/*.md 합본 (false 는 미포함)`` () =
+    // 사용자 지시 2026-06-01 — layer E (specialized digest) MCP fetch: includeSpecialized=true 시 summary/*.md
+    // 합본 동봉. false 는 기존 동작 (summary.md 만, LLM overview 호환) 유지.
+    let storageRoot = Path.Combine(Path.GetTempPath(), sprintf "lh-spec-%s" (Guid.NewGuid().ToString("N")))
+    Directory.CreateDirectory storageRoot |> ignore
+    try
+        // 옵션 A (2026-05-30, CollectionEndpoints.fs §3.1) — collectionId = sanitizeTitle(폴더명).
+        // server 발급 GUID 식별자 폐기 정합 — collection id 는 폴더명 문자열.
+        let collId = "spec-folder"
+        let displayName = "spec-folder"
+        let body = "# Collection Summary\n\n| 원본 | text dump | 요약 |\n|---|---|---|\n| a.txt | text/1-a.md | A 요약 |"
+        upsertPrDEntry storageRoot collId displayName |> fun t -> t.Wait()
+        newCollectionWithSummary storageRoot collId displayName body
+        // summary/ 디렉토리에 specialized markdown (user-guide 전환물 모사) 박제.
+        let collDir = AttachmentResolver.collectionPath storageRoot collId displayName
+        let summaryDir = Path.Combine(collDir, Ds2.LightHouse.Protocol.ZipLayout.KbFolderName, "summary")
+        Directory.CreateDirectory summaryDir |> ignore
+        File.WriteAllText(Path.Combine(summaryDir, "_user-guide-01-test.md"), "GUIDE_CANARY_BODY_XYZ", Encoding.UTF8)
+        let cfg = newPrDCfg storageRoot
+        let resolver = mkResolver Map.empty
+        let reg = SessionRegistry(resolver) :> ISessionRegistry
+        let s : SessionState = {
+            Token = "tok"; UserIdentity = "u"; CollectionIds = [| collId |]
+            LastUsedAt = DateTime.UtcNow
+            Kb = None; SyncRoot = obj()
+        }
+        let accessor = FakeAccessor(newCtxWithSession s) :> IHttpContextAccessor
+        // false → summary.md 만 (specialized 미포함).
+        let rFalse = AttachmentTools.attachment_summary(accessor, reg, cfg, collId, false)
+        Assert.Contains("# Collection Summary", rFalse)
+        Assert.DoesNotContain("GUIDE_CANARY_BODY_XYZ", rFalse)
+        // true → summary.md + summary/*.md 합본 (둘 다 포함).
+        let rTrue = AttachmentTools.attachment_summary(accessor, reg, cfg, collId, true)
+        Assert.Contains("# Collection Summary", rTrue)
+        Assert.Contains("GUIDE_CANARY_BODY_XYZ", rTrue)
     finally cleanupDirs [ storageRoot ]

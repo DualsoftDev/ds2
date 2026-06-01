@@ -536,14 +536,16 @@ type AttachmentTools() =
     /// **legacy collection** (summary.md 부재 — PR-H1 이전 색인): empty string + audit Info.
     /// 사용자 명시 "재업로드" 시 색인 갱신 (parent D5 + PR-D 패턴 정합).
     [<McpServerTool>]
-    [<Description("Read doc-level summary table of a collection (PR-H2). Returns markdown table of all documents with 1-line summaries — use as on-demand collection overview for file narrowing before attachment_search / attachment_fulltext.")>]
+    [<Description("Read collection summary. includeSpecialized=false: summary.md only (doc 1-line table, LLM overview — file narrowing before attachment_search/_fulltext). includeSpecialized=true: summary.md + summary/*.md 합본 (specialized digest, Promaker 자동 주입용 — 원격 service 도 MCP 로 수신).")>]
     static member attachment_summary
         (
             accessor: IHttpContextAccessor,
             registry: ISessionRegistry,
             cfg: ServiceConfig,
             [<Description("Collection GUID from attachment_list (active session 셋 안 의무)")>]
-            collectionId: string
+            collectionId: string,
+            [<Description("true: summary.md + summary/*.md 합본 (specialized digest 주입). false: summary.md 만 (LLM overview, 기존 호환).")>]
+            includeSpecialized: bool
         ) : string =
         let _ = registry
         let s = activeSession accessor
@@ -566,19 +568,36 @@ type AttachmentTools() =
                 let summaryPath =
                     Path.Combine(collRoot, Ds2.LightHouse.Protocol.ZipLayout.KbFolderName,
                                  Ds2.LightHouse.SummaryBuilder.SummaryFileName)
-                if not (File.Exists summaryPath) then
-                    Log.audit.Info(sprintf "PR-H2: attachment_summary legacy collection (summary.md 부재) — coll=%s" collectionId)
-                    ""
-                else
-                    let fileInfo = FileInfo summaryPath
-                    let maxBytes = 1048576L
-                    if fileInfo.Length <= maxBytes then
-                        File.ReadAllText(summaryPath, System.Text.Encoding.UTF8)
+                // summary.md 본문 (size 가드 ≤1MB). 부재 (legacy collection) → "".
+                let summaryMdText =
+                    if not (File.Exists summaryPath) then
+                        Log.audit.Info(sprintf "PR-H2: attachment_summary legacy collection (summary.md 부재) — coll=%s" collectionId)
+                        ""
                     else
-                        use stream = File.OpenRead summaryPath
-                        let buf = Array.zeroCreate<byte> (int maxBytes)
-                        let read = stream.Read(buf, 0, buf.Length)
-                        let body =
-                            if read = buf.Length then System.Text.Encoding.UTF8.GetString(buf)
-                            else System.Text.Encoding.UTF8.GetString(buf, 0, read)
-                        body + "\n\n---\n\n[summary truncated at 1MB — collection has unusually many docs]\n"
+                        let fileInfo = FileInfo summaryPath
+                        let maxBytes = 1048576L
+                        if fileInfo.Length <= maxBytes then
+                            File.ReadAllText(summaryPath, System.Text.Encoding.UTF8)
+                        else
+                            use stream = File.OpenRead summaryPath
+                            let buf = Array.zeroCreate<byte> (int maxBytes)
+                            let read = stream.Read(buf, 0, buf.Length)
+                            let body =
+                                if read = buf.Length then System.Text.Encoding.UTF8.GetString(buf)
+                                else System.Text.Encoding.UTF8.GetString(buf, 0, read)
+                            body + "\n\n---\n\n[summary truncated at 1MB — collection has unusually many docs]\n"
+                // **layer E (specialized digest MCP fetch — 사용자 지시 2026-06-01)**: includeSpecialized=true 시
+                // summary/*.md 합본 동봉 → 원격 service 도 MCP 로 specialized digest 수신. SpecializedDigestBuilder
+                // SSOT 재사용 (path-sort + FileSeparator + MarkdownCapPolicy cap). collRoot 입력 → 내부에서
+                // <collRoot>/.lighthouse-kb/summary/ 조합. false 시 기존 동작 (summary.md 만 — LLM overview 호환).
+                if not includeSpecialized then
+                    summaryMdText
+                else
+                    let specialized = Ds2.LightHouse.SpecializedDigestBuilder.build collRoot
+                    match summaryMdText, specialized.Combined with
+                    | "", "" ->
+                        Log.audit.Info(sprintf "attachment_summary includeSpecialized 이나 summary.md/summary/ 모두 부재 — coll=%s" collectionId)
+                        ""
+                    | s, "" -> s
+                    | "", sp -> sp
+                    | s, sp -> s + "\n\n---\n\n" + sp
