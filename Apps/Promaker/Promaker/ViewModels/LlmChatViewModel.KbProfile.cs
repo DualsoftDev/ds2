@@ -166,10 +166,10 @@ public partial class LlmChatViewModel
         {
             await FetchKbProfilesAsync().ConfigureAwait(true);
             ApplyPendingKbDigest();
-            // N8 (todo-documents-based-gfm.md §6.1) — SSE collection-* invalidate path 의 specialized digest 동반
-            // 갱신. KB collection 의 활성 변경/추가/삭제는 SourceFolder 변경 가능성도 의미 → KB digest 와 동일
-            // 시점에 specialized digest 도 re-apply. sync path (file IO) — UI thread invariant 정합.
-            ApplyPendingSpecializedDigest();
+            // SSE collection-* invalidate / 초기 fetch path 의 specialized digest(layer E) 동반 갱신. active 셋 변경은
+            // specialized digest 변경 가능성 → KB digest 와 동일 시점에 MCP fetch 로 re-apply (attachment_summary
+            // includeSpecialized=true). ConfigureAwait(true) — _provider 박제 UI thread invariant.
+            await RefreshSpecializedDigestAsync().ConfigureAwait(true);
         }
         catch (Exception ex)
         {

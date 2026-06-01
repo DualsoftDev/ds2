@@ -1,21 +1,24 @@
 using System;
 using System.IO;
 using Promaker.LlmAgent;
-using Promaker.ViewModels;
 using Xunit;
 
 namespace Promaker.Tests;
 
 /// <summary>
-/// **Backlog A (todo-documents-based-gfm.md §5.4 / §10.3 P2 hand-off)** — KbCollectionEntry.SourceFolder schema
-/// 확장 회귀 박제. PR-I5 (commit 8f149300) 의 specialized digest fetch path 가 production GUI 에서 활성화되도록
-/// 본 필드가 LlmConfig.json 에 round-trip 되고 LlmChatViewModel 의 source root 추출 logic 이 본 필드를 참조.
+/// **KbCollectionEntry.SourceFolder schema 회귀 박제**. 본 필드는 KB collection 등록 / payload swap 시
+/// (KbManagerDialog) 로컬 색인 폴더 경로를 박제한다.
 /// <list type="bullet">
 ///   <item>schema round-trip — Save/Load 후 SourceFolder 값 보존</item>
 ///   <item>backward-compat — 기존 LlmConfig.json (SourceFolder 필드 부재) 로드 시 default null</item>
 ///   <item>JsonIgnore(WhenWritingNull) — 빈/null SourceFolder 는 disk JSON 에 키 작성 0 (legacy 호환)</item>
-///   <item>LlmChatViewModel.ExtractActiveSourceRoots — Active=true + non-empty SourceFolder 만 채집</item>
+///   <item>setter canonical 정규화 (Backlog K) — trailing sep trim / alt-sep 변환 / relative→absolute</item>
 /// </list>
+/// <para/>
+/// **참고 (2026-06-01)**: specialized digest(layer E) fetch 가 로컬 SourceFolder read → MCP
+/// <c>attachment_summary(includeSpecialized=true)</c> 로 전환되면서, SourceFolder 를 layer E 입력으로 소비하던
+/// <c>LlmChatViewModel.ExtractActiveSourceRoots</c> 및 그 회귀 테스트는 제거됐다. SourceFolder field 자체는 KB
+/// 등록 메타로 유지되므로 본 schema/normalize 회귀만 남긴다.
 /// </summary>
 public sealed class KbCollectionSourceFolderTests : IDisposable
 {
@@ -38,7 +41,7 @@ public sealed class KbCollectionSourceFolderTests : IDisposable
     [Fact]
     public void SourceFolder_default_is_null_for_new_entry()
     {
-        // Backlog A — backward-compat 의무. 신규 entry 는 SourceFolder=null (legacy fetch path 가 빈 list 반환).
+        // backward-compat 의무. 신규 entry 는 SourceFolder=null.
         var entry = new KbCollectionEntry();
         Assert.Null(entry.SourceFolder);
     }
@@ -100,8 +103,7 @@ public sealed class KbCollectionSourceFolderTests : IDisposable
     [Fact]
     public void Load_legacy_LlmConfig_without_sourceFolder_field_defaults_to_null()
     {
-        // backward-compat 핵심 — 기존 (Backlog A 이전) LlmConfig.json 에 sourceFolder 키 부재 →
-        // 로드 시 default null. 회귀 0.
+        // backward-compat 핵심 — 기존 LlmConfig.json 에 sourceFolder 키 부재 → 로드 시 default null. 회귀 0.
         var path = Path.Combine(_root, "kb-legacy.json");
         const string json = """
             {
@@ -120,106 +122,12 @@ public sealed class KbCollectionSourceFolderTests : IDisposable
         Assert.True(cfg.KbCollections[0].Active);
     }
 
-    // ── LlmChatViewModel.ExtractActiveSourceRoots filter semantic ─────────────────
-
-    [Fact]
-    public void ExtractActiveSourceRoots_returns_empty_when_no_collections()
-    {
-        var cfg = new LlmConfig();
-        var roots = LlmChatViewModel.ExtractActiveSourceRoots(cfg);
-        Assert.Empty(roots);
-    }
-
-    [Fact]
-    public void ExtractActiveSourceRoots_skips_inactive_entries()
-    {
-        // Active=false 인 entry 는 specialized digest 진입 0 (cache breakpoint 3 skip 정합).
-        var cfg = new LlmConfig();
-        cfg.KbCollections.Add(new KbCollectionEntry
-        {
-            CollectionId = "c1", DisplayName = "A", ServiceId = "s1",
-            Active = false, SourceFolder = @"C:\KB\A",
-        });
-        cfg.KbCollections.Add(new KbCollectionEntry
-        {
-            CollectionId = "c2", DisplayName = "B", ServiceId = "s1",
-            Active = true, SourceFolder = @"C:\KB\B",
-        });
-
-        var roots = LlmChatViewModel.ExtractActiveSourceRoots(cfg);
-        Assert.Single(roots);
-        Assert.Equal(@"C:\KB\B", roots[0]);
-    }
-
-    [Fact]
-    public void ExtractActiveSourceRoots_skips_entries_with_null_or_empty_sourceFolder()
-    {
-        // legacy entry (SourceFolder=null) 또는 빈 문자열 entry 는 fetcher 입력 부적합 — skip.
-        var cfg = new LlmConfig();
-        cfg.KbCollections.Add(new KbCollectionEntry
-        {
-            CollectionId = "c1", DisplayName = "legacy", ServiceId = "s1",
-            Active = true, SourceFolder = null,
-        });
-        cfg.KbCollections.Add(new KbCollectionEntry
-        {
-            CollectionId = "c2", DisplayName = "empty", ServiceId = "s1",
-            Active = true, SourceFolder = "",
-        });
-        cfg.KbCollections.Add(new KbCollectionEntry
-        {
-            CollectionId = "c3", DisplayName = "valid", ServiceId = "s1",
-            Active = true, SourceFolder = @"C:\KB\valid",
-        });
-
-        var roots = LlmChatViewModel.ExtractActiveSourceRoots(cfg);
-        Assert.Single(roots);
-        Assert.Equal(@"C:\KB\valid", roots[0]);
-    }
-
-    [Fact]
-    public void ExtractActiveSourceRoots_preserves_input_order_for_multi_collections()
-    {
-        // 다중 active collection — 입력 순서 보존 (FetchMany 의 합본 순서 결정 — caller 의 우선순위 의도 반영).
-        var cfg = new LlmConfig();
-        cfg.KbCollections.Add(new KbCollectionEntry
-        {
-            CollectionId = "c1", DisplayName = "first", ServiceId = "s1",
-            Active = true, SourceFolder = @"C:\KB\first",
-        });
-        cfg.KbCollections.Add(new KbCollectionEntry
-        {
-            CollectionId = "c2", DisplayName = "second", ServiceId = "s1",
-            Active = true, SourceFolder = @"C:\KB\second",
-        });
-        cfg.KbCollections.Add(new KbCollectionEntry
-        {
-            CollectionId = "c3", DisplayName = "third", ServiceId = "s1",
-            Active = true, SourceFolder = @"C:\KB\third",
-        });
-
-        var roots = LlmChatViewModel.ExtractActiveSourceRoots(cfg);
-        Assert.Equal(3, roots.Count);
-        Assert.Equal(@"C:\KB\first", roots[0]);
-        Assert.Equal(@"C:\KB\second", roots[1]);
-        Assert.Equal(@"C:\KB\third", roots[2]);
-    }
-
-    [Fact]
-    public void ExtractActiveSourceRoots_with_null_config_returns_empty()
-    {
-        // defensive — null config 입력 시 throw 0, 빈 list 반환 (caller 의 fail-safe 정합).
-        var roots = LlmChatViewModel.ExtractActiveSourceRoots(null!);
-        Assert.Empty(roots);
-    }
-
-    // ── Backlog K (s6-r? A+G 검열 M2) — SourceFolder canonical path 정규화 ─────────
+    // ── Backlog K — SourceFolder canonical path 정규화 ───────────────────────────
 
     [Fact]
     public void SourceFolder_setter_strips_trailing_directory_separator()
     {
         // Backlog K — trailing separator 가 있는 입력은 canonical (no trailing sep) 으로 정규화.
-        // Directory.GetFiles 결과 비결정성 / 중복 root 박제 / fetcher 입력 회피.
         var entry = new KbCollectionEntry { SourceFolder = @"C:\KB\Foo\" };
         Assert.Equal(@"C:\KB\Foo", entry.SourceFolder);
 
@@ -236,7 +144,6 @@ public sealed class KbCollectionSourceFolderTests : IDisposable
     public void SourceFolder_setter_converts_relative_path_to_absolute()
     {
         // Backlog K — relative path 입력은 Path.GetFullPath 로 cwd 기준 절대경로 변환.
-        // 운영시에는 absolute 입력이 의도이지만, 테스트 / 사용자 manual 입력 시 graceful.
         var entry = new KbCollectionEntry { SourceFolder = "./KB" };
         Assert.NotNull(entry.SourceFolder);
         Assert.True(Path.IsPathRooted(entry.SourceFolder));
@@ -249,7 +156,6 @@ public sealed class KbCollectionSourceFolderTests : IDisposable
     public void SourceFolder_setter_preserves_null_and_empty_input()
     {
         // Backlog K — null / 빈 / whitespace-only 입력은 그대로 보존.
-        // legacy entry + JsonIgnore(WhenWritingNull) 정합 + caller fail-safe 의무 위임.
         var entry1 = new KbCollectionEntry { SourceFolder = null };
         Assert.Null(entry1.SourceFolder);
 
@@ -260,13 +166,12 @@ public sealed class KbCollectionSourceFolderTests : IDisposable
         Assert.Equal("   ", entry3.SourceFolder);
     }
 
-    // ── B·M5 (Outlier/Minor 묶음 2) — silent rewrite 명세 round-trip ───────────
+    // ── B·M5 — silent rewrite 명세 round-trip ───────────────────────────────────
 
     [Fact]
     public void BM5_SourceFolder_round_trip_alt_separator_with_trailing_slash_normalizes_to_canonical()
     {
         // B·M5 — raw JSON `"C:/KB/광명2/"` → setter NormalizeSourceFolder → disk 값 `"C:\KB\광명2"`.
-        // alt separator 변환 + trailing sep trim 의 round-trip 명세 검증.
         var path = Path.Combine(_root, "bm5-alt-sep.json");
         var rawInput = "C:/KB/광명2/";
         var entry = new KbCollectionEntry { SourceFolder = rawInput };
@@ -286,8 +191,7 @@ public sealed class KbCollectionSourceFolderTests : IDisposable
     [Fact]
     public void BM5_SourceFolder_disk_json_external_edit_then_load_normalizes_silently()
     {
-        // B·M5 — disk JSON 을 외부 텍스트 편집기로 raw 박제 (`"C:\\KB\\광명2\\"`) → Load 시점에
-        // setter 진입 → canonical 정렬. 다음 Save 시 disk 가 canonical form 으로 자동 정렬됨 (drift 회피 명세).
+        // B·M5 — disk JSON 을 외부 텍스트 편집기로 raw 박제 → Load 시점에 setter 진입 → canonical 정렬.
         var path = Path.Combine(_root, "bm5-external-edit.json");
         const string externallyEditedJson = """
             {
@@ -305,13 +209,10 @@ public sealed class KbCollectionSourceFolderTests : IDisposable
 
         // Save 후 disk 의 sourceFolder 값도 canonical (drift 회피).
         cfg.SaveTo(path);
-        // disk → 다시 load 했을 때 canonical 유지 — System.Text.Json 의 한글 escape (\uXXXX) 정책에
-        // 의존하지 않는 round-trip-only assertion (JSON serializer 의 정책 변경 회귀 회피).
         var reloaded2 = LlmConfig.LoadFrom(path);
         Assert.Single(reloaded2.KbCollections);
         Assert.Equal(@"C:\KB\광명2", reloaded2.KbCollections[0].SourceFolder);
-        // raw disk JSON 에 trailing-sep 박제 흔적 부재 — 어느 escape 형식이든 trailing sep ("\\\\\\\\"
-        // = JSON-encoded `\\\\` = 한 쌍 escape) 이 없음을 verify.
+        // raw disk JSON 에 trailing-sep 박제 흔적 부재.
         var raw = File.ReadAllText(path);
         Assert.DoesNotContain(@"\\\\", raw);
     }
@@ -319,11 +220,8 @@ public sealed class KbCollectionSourceFolderTests : IDisposable
     [Fact]
     public void SourceFolder_setter_returns_raw_on_invalid_path_chars()
     {
-        // **--review 라운드 1 Major-2 fix** — narrow catch (ArgumentException / PathTooLongException /
-        // NotSupportedException) + Log.Warn + raw 보존. 본 fact 는 Path.GetFullPath 가 throw 하는
-        // 입력으로 fail-safe path 회귀 검증. NULL char ('\0') 는 ArgumentException trigger SSOT 입력.
-        // throw 미발생 시 정규화된 path 가 반환되므로 본 fact 의 raw 보존 assertion 이 정확히
-        // catch path 만 검증.
+        // narrow catch (ArgumentException / PathTooLongException / NotSupportedException) + raw 보존.
+        // NULL char ('\0') 는 ArgumentException trigger SSOT 입력.
         const string invalidRaw = "C:\\foo\0bar";
         var entry = new KbCollectionEntry { SourceFolder = invalidRaw };
         // fail-safe — raw 그대로 반환 (caller / UI 가 사용 시점에 다시 검증).
