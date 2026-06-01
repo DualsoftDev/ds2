@@ -126,7 +126,7 @@ module internal DirectPasteOps =
         replayCallArrows store sourceCallArrows callMap
         pastedFlow.Id
 
-    let pasteWorksToFlowBatch (store: DsStore) (sourceWorks: Work list) (targetFlowId: Guid) (baseIndex: int) : Guid list =
+    let pasteWorksToFlowBatch (store: DsStore) (sourceWorks: Work list) (targetFlowId: Guid) (baseIndex: int) (mode: CrossFlowDeviceMode) : Guid list =
         let selectedWorkIds = sourceWorks |> List.map (fun w -> w.Id) |> Set.ofList
         let selectedCallIds =
             sourceWorks
@@ -140,7 +140,7 @@ module internal DirectPasteOps =
             collectArrowsWithinSet Queries.arrowWorksOf (fun a -> a.SourceId) (fun a -> a.TargetId) sourceSystemIds selectedWorkIds store
         let sourceCallArrows =
             collectArrowsWithinSet Queries.arrowCallsOf (fun a -> a.SourceId) (fun a -> a.TargetId) selectedWorkIds selectedCallIds store
-        let deviceFlowCtxOpt = PasteDeviceOps.makeDeviceFlowCtx store targetFlowId CrossFlowDeviceMode.CloneSystem
+        let deviceFlowCtxOpt = PasteDeviceOps.makeDeviceFlowCtx store targetFlowId mode
         let workMap, callMap, pastedIdsRev, _ =
             sourceWorks
             |> sortByPositionAndName (fun work -> work.Position) (fun work -> work.Name)
@@ -205,7 +205,7 @@ module internal DirectPasteOps =
                 let targetFlowId =
                     StoreHierarchyQueries.resolveTarget store EntityKind.Flow targetEntityKind targetEntityId
                     |> Option.defaultValue sourceWorks.Head.ParentId
-                pasteWorksToFlowBatch store sourceWorks targetFlowId baseIndex
+                pasteWorksToFlowBatch store sourceWorks targetFlowId baseIndex CrossFlowDeviceMode.CloneSystem
         | EntityKind.Call ->
             let sourceCalls = copiedIds |> List.choose (fun id -> Queries.getCall id store)
             if sourceCalls.IsEmpty then []

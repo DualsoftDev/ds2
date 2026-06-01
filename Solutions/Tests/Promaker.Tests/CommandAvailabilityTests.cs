@@ -240,6 +240,42 @@ public sealed class CommandAvailabilityTests
         });
     }
 
+    /// 회귀 가드 — Work 를 Ctrl+X(cut) 후 다른 Flow 를 선택해 Ctrl+V(paste) 하면 이동돼야 한다.
+    /// 이전 PasteCopied 의 cut 검증이 clipboard 엔티티를 항상 CallsReadOnly 에서만 찾아, Work cut 은
+    /// 전부 "삭제됨" 으로 오판 → clipboard 를 비우고 return → Work cut/paste 가 통째로 동작하지 않았다.
+    /// Work cross-flow 이동은 MoveWorksAcrossFlow(paste+원본 cascade-remove) 라 원본 id 는 사라지고
+    /// 대상 Flow 에 새 Work 가 생긴다 (Call 없는 Work 라 device 다이얼로그는 뜨지 않음).
+    [Fact]
+    public void Cut_work_and_paste_to_another_flow_moves_it()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            vm.NewProjectCommand.Execute(null);
+
+            var store = GetStore(vm);
+            var projectId = Queries.allProjects(store).Head.Id;
+            var systemId = Queries.activeSystemsOf(projectId, store).Head.Id;
+            var flowAId = Queries.flowsOf(systemId, store).Head.Id;
+            var flowBId = store.AddFlow("FlowB", systemId);
+            var workId = store.AddWork("W1", flowAId);
+
+            // Work cut
+            vm.SelectedNode = new EntityNode(workId, EntityKind.Work, "Flow.W1");
+            Assert.True(vm.CutSelectedCommand.CanExecute(null));
+            vm.CutSelectedCommand.Execute(null);
+
+            // 대상 Flow(FlowB) 를 선택한 뒤 paste → cross-flow 이동
+            vm.SelectedNode = new EntityNode(flowBId, EntityKind.Flow, "FlowB");
+            Assert.True(vm.PasteCopiedCommand.CanExecute(null));
+            vm.PasteCopiedCommand.Execute(null);
+
+            // 원본 Work 는 제거되고 FlowB 에 새 Work 1개가 생긴다.
+            Assert.False(store.WorksReadOnly.ContainsKey(workId));
+            Assert.Single(Queries.worksOf(flowBId, store));
+        });
+    }
+
     private static DsStore GetStore(MainViewModel vm)
     {
         var field = typeof(MainViewModel).GetField("_store", BindingFlags.Instance | BindingFlags.NonPublic)!;

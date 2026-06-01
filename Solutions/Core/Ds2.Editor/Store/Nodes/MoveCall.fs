@@ -271,3 +271,31 @@ type DsStoreCallMoveExtensions =
                 if not pastedIds.IsEmpty then store.EmitRefreshAndHistory()
                 Moved pastedIds
         | other -> Blocked other
+
+    /// Work 를 다른 Flow 로 cross-flow 이동. Work cross-flow = 내부 Call 전부 cross-flow 이므로
+    /// Call 이동(MoveCallsAcrossFlow)과 동일하게 device mode 를 적용한다: target Flow 에 paste
+    /// (pasteWorksToFlowBatch 가 Work+Call+arrow+device 처리) 후 원본 Work cascade-remove.
+    /// 반환 = target Flow 에 새로 생성된 Work id 리스트. 이미 그 Flow 인 Work 는 제외.
+    [<Extension>]
+    static member MoveWorksAcrossFlow
+        (store: DsStore, workIds: seq<Guid>, targetFlowId: Guid, mode: CrossFlowDeviceMode)
+        : Guid list =
+        match Queries.getFlow targetFlowId store with
+        | None -> []
+        | Some _ ->
+            let movables =
+                workIds
+                |> Seq.distinct
+                |> Seq.choose (fun id -> Queries.getWork id store)
+                |> Seq.filter (fun w -> w.ParentId <> targetFlowId)
+                |> Seq.toList
+            if movables.IsEmpty then []
+            else
+                let mutable pastedIds = []
+                store.WithTransaction($"Move {movables.Length} Work(s) across Flow ({mode})", fun () ->
+                    pastedIds <- DirectPasteOps.pasteWorksToFlowBatch store movables targetFlowId 0 mode
+                    for w in movables do
+                        CascadeRemove.cascadeRemoveWork store w.Id
+                    CascadeRemove.removeOrphanApiCalls store)
+                if not pastedIds.IsEmpty then store.EmitRefreshAndHistory()
+                pastedIds
