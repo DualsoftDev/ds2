@@ -296,3 +296,43 @@ let ``zip round-trip — extractAll 후 summary/ markdown 파일 byte-equal`` ()
                 Assert.Equal<byte>(originalSummaryBytes, extractedBytes))
         finally
             if File.Exists zipPath then File.Delete zipPath)
+
+// ── 시나리오 3: caption cache (`.lighthouse-caption-cache.json`) 는 upload 산출물에서 제외 ──
+//   `.lighthouse-kb/` 밖 sibling 인 client 내부 산출물 → Packager.createZip 동봉 제외 +
+//   summarizeReuse fileCount 미포함 (Indexer.enumerateFiles 와 동일 SSOT). guide/* 등 실제
+//   user content 는 영향 없음 — 본 fact 는 caption cache 단일 leaf 만 검증.
+
+[<Fact>]
+let ``Packager.createZip — caption cache 는 zip 동봉 제외 (source 원본은 포함)`` () =
+    withTempDir (fun dir ->
+        // 일반 source 1개 + top-level caption cache 박제.
+        File.WriteAllText(Path.Combine(dir, "a.txt"), "본문", Encoding.UTF8)
+        File.WriteAllText(CaptionCache.cacheFilePath dir, "{\"version\":1,\"captions\":{}}", Encoding.UTF8)
+
+        let zipPath = Packager.createZip dir
+        try
+            use archive = ZipFile.OpenRead zipPath
+            let names = archive.Entries |> Seq.map (fun e -> e.FullName) |> Seq.toArray
+            let cacheLeaked =
+                names |> Array.exists (fun n ->
+                    n.EndsWith(CaptionCache.CacheFileName, StringComparison.OrdinalIgnoreCase))
+            Assert.False(cacheLeaked, sprintf "caption cache 가 zip 에 동봉됨 — entries=%A" names)
+            // 일반 source 원본은 정상 동봉.
+            Assert.Contains("source/a.txt", names)
+        finally
+            if File.Exists zipPath then File.Delete zipPath)
+
+[<Fact>]
+let ``Packager.summarizeReuse — caption cache 는 fileCount 에서 제외`` () =
+    withTempDir (fun dir ->
+        File.WriteAllText(Path.Combine(dir, "a.txt"), "본문", Encoding.UTF8)
+        // 유효한 index.db 생성 (summarizeReuse 의 Documents count 쿼리 전제).
+        let ex = extractors()
+        try Indexer.ingest dir ex CaptionGenerator.noop None (fun _ -> ()) CancellationToken.None |> ignore
+        finally disposeAll ex
+        // 색인 후 top-level caption cache 박제.
+        File.WriteAllText(CaptionCache.cacheFilePath dir, "{\"version\":1,\"captions\":{}}", Encoding.UTF8)
+
+        // source 파일은 a.txt 1개만 카운트 — caption cache 미포함.
+        let summary = Packager.summarizeReuse dir
+        Assert.Equal(1, summary.FileCount))

@@ -299,7 +299,7 @@ module Indexer =
                                 path docId extracted.Segments.Length chunks.Length extracted.Images.Length)
                         Ingested docId
 
-    /// collection 폴더 안 모든 지원 파일 enumerate (`.lighthouse-kb/` 자체는 제외).
+    /// collection 폴더 안 모든 지원 파일 enumerate (`.lighthouse-kb/` + `.lighthouse-caption-cache.json` 제외).
     /// recursive — 하위 폴더 포함. symlink 는 OS 정책 따름.
     ///
     /// **D2 보강 (s6-r... 2026-05-21)** — `Path.GetFullPath` normalize 후 prefix 비교.
@@ -318,7 +318,12 @@ module Indexer =
             not (pNorm.StartsWith(kbFolderNorm, StringComparison.OrdinalIgnoreCase))
             // **PR-N15 (todo-documents-based-gfm.md §6.1 N15)** — `<root>/guide/*` 는 UserGuideImporter
             // 가 별도 박제 (`_user-guide-*.md`) → 일반 색인 source set 에서 제외 (이중 박제 회피).
-            && not (Classifier.isUserGuideSourcePath collectionRoot p))
+            && not (Classifier.isUserGuideSourcePath collectionRoot p)
+            // **caption cache 제외 (CaptionCache.fs SSOT)** — `.lighthouse-caption-cache.json` 은
+            // `.lighthouse-kb/` 밖 sibling 에 박제되는 내부 산출물 (재색인 시 caption 재활용용). 미제외 시
+            // base64 caption dump 가 collection content 로 self-ingest 되어 검색 노이즈 → 파일명 기준 제외
+            // (top-level + 재색인 트리의 하위 폴더 동명 cache 모두 차단).
+            && not (String.Equals(Path.GetFileName p, CaptionCache.CacheFileName, StringComparison.OrdinalIgnoreCase)))
         |> Seq.toArray
 
     /// 한 connection 위에서 파일들을 순차 ingest. 진행률 콜백 호출. 결과 array 반환 (review m6).

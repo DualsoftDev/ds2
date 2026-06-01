@@ -171,6 +171,21 @@ let ``.lighthouse-kb 폴더 자체는 색인 대상에서 제외`` () =
         let touched = results |> Array.exists (fun (p, _) -> p = bogus)
         Assert.False(touched, "inside .lighthouse-kb/ 파일은 enumerate 에서 제외되어야 함"))
 
+[<Fact>]
+let ``.lighthouse-caption-cache.json 은 색인 대상에서 제외`` () =
+    withTempDir (fun dir ->
+        // 첫 ingest 후 .lighthouse-kb/index.db 생성
+        writeFile dir "a.txt" "본문" |> ignore
+        let _ = Indexer.ingest dir (extractors()) CaptionGenerator.noop None noProgress CancellationToken.None
+
+        // source top-level 에 caption cache 박제 (CaptionCache.fs SSOT 경로) — 재 ingest 시 enumerate 제외 확인.
+        // 미제외 시 base64 caption dump 가 collection content 로 self-ingest → 검색 노이즈.
+        let cachePath = CaptionCache.cacheFilePath dir
+        File.WriteAllText(cachePath, "{\"version\":1,\"captions\":{}}", Encoding.UTF8)
+        let results = Indexer.ingest dir (extractors()) CaptionGenerator.noop None noProgress CancellationToken.None
+        let touched = results |> Array.exists (fun (p, _) -> Path.GetFileName p = CaptionCache.CacheFileName)
+        Assert.False(touched, ".lighthouse-caption-cache.json 은 enumerate 에서 제외되어야 함"))
+
 // ── Phase 2 task C1 (s6-r12): Indexer.ingestImagesIntoStore 회귀 차단 ──
 // 본 단원 = Indexer 가 ExtractedDocument.Images 를 받아 ImageStore 로 dispatch 하는 helper 의 unit-level fact.
 // 실 extractor 의 image 추출 (Phase 2 task C2 PdfExtractor / C3 OoxmlExtractor) 은 별 turn — 본 fact 는
