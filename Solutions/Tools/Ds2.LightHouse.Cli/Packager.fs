@@ -22,7 +22,8 @@ open Ds2.LightHouse.Protocol
 /// SSOT:
 ///   - `.lighthouse-kb/` 위치 = `SqliteStore.KbFolderName` (lib core 박제) — 본 모듈이 참조.
 ///   - zip layout = §3.3 (done-lighthouse-kb-server.md)
-///   - `.lighthouse-kb/` skip rule = `Indexer.enumerateFiles` 와 동일 SSOT (lib core).
+///   - internal-artifact skip rule (`.lighthouse-kb/` + `.lighthouse-caption-cache.json`) = `Indexer.enumerateFiles`
+///     와 동일 SSOT (lib core). 단 `guide/*` 는 실제 user content 라 upload 대상 — enumerate 와 달리 제외 안 함.
 
 [<RequireQualifiedAccess>]
 module Packager =
@@ -154,7 +155,10 @@ module Packager =
         let mutable fileCount = 0
         let mutable bytes = 0L
         for filePath in Directory.EnumerateFiles(srcFull, "*", SearchOption.AllDirectories) do
-            if not (filePath.StartsWith(kbPrefix, StringComparison.OrdinalIgnoreCase)) then
+            // `.lighthouse-kb/` + caption cache (`.lighthouse-caption-cache.json`) 제외 — Indexer.enumerateFiles
+            // 와 동일 SSOT. 내부 산출물이라 fileCount / totalBytes (meta.json) 통계에 포함 안 함.
+            if not (filePath.StartsWith(kbPrefix, StringComparison.OrdinalIgnoreCase))
+               && not (String.Equals(Path.GetFileName filePath, CaptionCache.CacheFileName, StringComparison.OrdinalIgnoreCase)) then
                 fileCount <- fileCount + 1
                 bytes <- bytes + (FileInfo filePath).Length
         let ingested =
@@ -223,9 +227,15 @@ module Packager =
         use archive = ZipFile.Open(zipPath, ZipArchiveMode.Create)
         for filePath in Directory.EnumerateFiles(srcFull, "*", SearchOption.AllDirectories) do
             let isKb = filePath.StartsWith(kbPrefix, StringComparison.OrdinalIgnoreCase)
-            let rel = Path.GetRelativePath(srcFull, filePath).Replace('\\', '/')
-            let entryName =
-                if isKb then rel               // .lighthouse-kb/...  → zip root
-                else "source/" + rel           // 사용자 원본 → source/ prefix
-            archive.CreateEntryFromFile(filePath, entryName, CompressionLevel.Optimal) |> ignore
+            // caption cache (`.lighthouse-caption-cache.json`) 는 내부 산출물 → zip 동봉 제외 (Indexer.enumerateFiles
+            // 와 동일 SSOT). server 가 source 재색인 안 하므로 불필요 전송. cache 파일 자체는 source 에 보존(미삭제)
+            // 되어 다음 client 재색인의 caption 재활용 유지.
+            let isCaptionCache =
+                String.Equals(Path.GetFileName filePath, CaptionCache.CacheFileName, StringComparison.OrdinalIgnoreCase)
+            if not isCaptionCache then
+                let rel = Path.GetRelativePath(srcFull, filePath).Replace('\\', '/')
+                let entryName =
+                    if isKb then rel               // .lighthouse-kb/...  → zip root
+                    else "source/" + rel           // 사용자 원본 → source/ prefix
+                archive.CreateEntryFromFile(filePath, entryName, CompressionLevel.Optimal) |> ignore
         zipPath
