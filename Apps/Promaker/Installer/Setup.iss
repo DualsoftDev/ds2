@@ -243,6 +243,16 @@ Filename: "{sys}\sc.exe"; Parameters: "start {#MyAgentServiceName}"; \
   Flags: runhidden waituntilterminated; \
   StatusMsg: "Promaker Agent 서비스 시작 중..."
 #endif
+#if HasLightHouse
+; ── 설치 전 LightHouse 서비스가 RUNNING 이었으면 재시작. ──
+; LightHouseWasRunning Check = (설치 전 RUNNING) AND (이번 설치에서 ai 컴포넌트 선택). PrepareToInstall 이
+; [Files] 직전 stop 했으므로, 사용자가 켜 두었던 경우에만 설치 후 자동 복원한다. 미등록 / STOPPED 였으면
+; Check=False 로 미실행 → 현 상태 유지. service 등록 자체는 Promaker UI 'AI 활성화' 가 수행하며, 여기서는
+; 기존 등록분을 새 바이너리로 재기동만 한다 (start 가 비-0 이어도 runhidden 으로 무시 — best-effort).
+Filename: "{sys}\sc.exe"; Parameters: "start Ds2.LightHouseService"; \
+  Components: ai; Check: LightHouseWasRunning; Flags: runhidden waituntilterminated; \
+  StatusMsg: "LightHouse 서비스 재시작 중..."
+#endif
 #if HasAgentTray
 ; 설치 직후 한 번 트레이 띄움 — 체크박스 없이 무조건 실행. 다음 부팅부터는 HKCU\Run 이 자동 실행.
 ; runasoriginaluser: 인스톨러는 admin 으로 elevated 되어 있어도 트레이는 로그온한 사용자 컨텍스트로
@@ -278,6 +288,19 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=
 ; InnoDependencyInstaller (fd 모드에서 .NET 런타임 자동 설치). 헤더 `[Code]` 포함.
 #include "CodeDependencies.iss"
 
+// 설치 직전 LightHouseService 의 RUNNING 여부 — PrepareToInstall 이 stop 전에 기록하고,
+// 설치 후 [Run] 의 LightHouseWasRunning Check 가 이 값을 보고 service 재시작 여부를 결정한다.
+var
+  GLightHouseWasRunning: Boolean;
+
+// [Run] 의 'sc start Ds2.LightHouseService' Check. 설치 전 RUNNING 이었고 + 이번 설치에서 AI 컴포넌트를
+// 선택(= LightHouseService 파일 갱신)한 경우에만 재시작 → 사용자가 켜 두었던 서비스를 설치 후 자동 복원.
+// 설치 전 미등록 / STOPPED 였으면 False → 미실행으로 현 상태 유지.
+function LightHouseWasRunning: Boolean;
+begin
+  Result := GLightHouseWasRunning and WizardIsComponentSelected('ai');
+end;
+
 // install 진입 시 자동 stop — service / process 가 살아있으면 dll/exe file lock 으로 [Files] copy fail.
 // CloseApplications=yes 는 user-mode process 만 — Windows Service 미해당. 본 함수가 service stop 보완.
 // sc/taskkill 모두 미설치 / 미실행 시 비-0 반환하지만 결과 무시 (best-effort).
@@ -285,6 +308,13 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode: Integer;
 begin
+  // stop 으로 상태가 바뀌기 전에 RUNNING 여부를 먼저 포착 (설치 후 [Run] 이 조건부 재시작에 사용).
+  // cmd 의 findstr exit code 로 판정: 'sc query' 출력에 RUNNING 이 있으면 findstr=0,
+  // STOPPED / 미등록(1060) 이면 비-0. Exec 자체 실패(=cmd 미기동) 시에도 안전하게 False.
+  if Exec(ExpandConstant('{cmd}'), '/C sc query Ds2.LightHouseService | findstr /C:"RUNNING"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    GLightHouseWasRunning := (ResultCode = 0)
+  else
+    GLightHouseWasRunning := False;
   Exec(ExpandConstant('{sys}\sc.exe'), 'stop Ds2.LightHouseService', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{sys}\sc.exe'), 'stop PromakerAgentService',  '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM Promaker.exe',           '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
