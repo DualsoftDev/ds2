@@ -214,7 +214,7 @@ DU: `RefUnit = P | Slide | Sheet | Image`, `RefSubKey = Img`. API = `tryParse` /
 - keyword 추출: CLI 색인 시점 자동(빈도 + NLTK stop-word + 길이≥2 + 알파/숫자/한글 + self-MATCH precision floor), top-15/collection. collection-level topic+keywords 만(file path/id 비노출).
 - summary 1줄 = `[top-5 keywords] — Title(또는 첫 sentence)`, zero-cost(LLM 호출 0). markdown heading = RefLocator 기반(`## p.N` / `## 슬라이드 N` / `## 시트 N`), 이미지는 doc 끝 `## Images (N)`.
 - lazy apply: KB 변경 → 다음 panel 또는 다음 firstTurn 까지 적용 안 함. `ApiChatProvider._pendingSystemPrompt` field swap(thread-safe `Interlocked.Exchange`). Anthropic prompt cache breakpoint = base + digest + snapshot 분리(`cache_control: ephemeral`).
-- 적용 provider = Api(Anthropic/OpenAI/Ollama/Groq) 만. Claude CLI / Codex CLI 미적용(주입 path 다름). debounce 500~1000ms(toggle/SSE burst 차단).
+- 적용 provider = Api(Anthropic/OpenAI/Ollama/Groq) + Claude CLI + Codex CLI 전부. 공통 sink `ILlmSystemPromptDigestSink`(F# `LlmProvider.fs`) 를 3 provider 가 구현 → `LlmChatViewModel` 의 `ApplyPendingKbDigest`/`ApplyFetchedDigest` 가 `is ILlmSystemPromptDigestSink` 단일 캐스팅. CLI 는 firstTurn(=sessionId None) 시점에 digest 고정 후 base(Phase1c)+digest 합성본을 `--system-prompt-file`/`experimental_instructions_file` 로 전달(default 완전 치환이라 base 포함 필수, breakpoint 분리는 불가하고 단일 덩어리). debounce 500~1000ms(toggle/SSE burst 차단).
 - size cap: text dump ≤512KB(생성), `attachment_fulltext` ≤1MB, `attachment_summary` ≤1MB.
 - **(E) specialized digest — `guide/*` 및 strategy 산출물 → system prompt 주입** (RAG layer E, `documents-based-gfm.md §8`):
   - **색인 시점 (`/indexer`)** — 두 source 가 `<source>/.lighthouse-kb/summary/` 한 디렉토리로 모임:
@@ -248,10 +248,10 @@ system prompt 는 **두 어셈블리의 embedded `.md`(PR-S1 분리) + 운영자
   - 정렬: 각 tier **내부** `NaturalComparer`("1."<"2."<"10."), tier 끼리는 list 순서로 concat → baseline `1.attachments` 가 overlay `1.entities` 보다 앞(전역 번호정렬 아님). 파일 간 `\n\n` 구분 + trailing newline trim.
   - **no-cache**: 매 호출 디스크 재읽기 → operator/user `.md` 편집이 다음 호출에 즉시 반영(Refresh API 불필요). embedded 0건이면 `InvalidOperationException` fail-fast.
 - **provider 별 실제 주입**:
-  - **Claude CLI**: Phase1c 본문 → 임시파일 저장 후 `--system-prompt-file <path>` 전달(CLI default system prompt 를 **완전 치환**; round-trip token 절감 위해 `--append-system-prompt-file` 폐기).
-  - **Codex CLI**: Phase1c 본문 → 격리 워크스페이스 `instructions.md` 기록 후 `experimental_instructions_file`(path-only) 전달. `RefreshPrompts()` 가 재기록.
+  - **Claude CLI**: `base(Phase1c) + KB digest? + specialized digest?` 합성본(`SystemPromptDigest.compose`) → 임시파일 저장 후 `--system-prompt-file <path>` 전달(CLI default system prompt 를 **완전 치환**; round-trip token 절감 위해 `--append-system-prompt-file` 폐기). digest 둘 다 빈 시 base 단독(회귀 0).
+  - **Codex CLI**: 격리 워크스페이스 `instructions.md`(Phase1c) → `experimental_instructions_file`(path-only) 전달. `RefreshPrompts()` 가 재기록. digest 있으면 Send 시 instructions.md 를 base 로 읽어 `SystemPromptDigest.compose` 합성본을 별 임시파일에 써서 path 교체.
   - **Api**(Anthropic/OpenAI/Ollama/Groq): `ApiProviderFactory.Create*Async(systemPrompt:)` → firstTurn system message.
-- **KB digest 박제**(Api 한정 — system prompt inline 인 §4.5 layer A(keyword digest) + E(specialized digest) 의 그릇): firstTurn 에서 `SystemContentBuilder.Build(base, kbDigest, specializedDigest, applyCacheControl)` → system message = `[base, kbDigest?, specializedDigest?]` 각각 별 `TextContent`. Anthropic `cache_control: ephemeral` breakpoint = base + KB digest + specialized digest + snapshot(최대 4/4), digest 빈 시 base 1개만(회귀 0). lazy swap = `SetPendingSystemPrompt`/`SetPendingSpecializedDigest`(`Interlocked.Exchange`) → 다음 firstTurn 진입 시 `_kbDigest`/`_specializedDigest` 로 교체(in-flight turn 보호, chat-scoped). KbManager 토글/SSE `collection-*` → debounce 750ms → fetch → swap. CLI provider 미적용.
+- **KB digest 박제**(§4.5 layer A(keyword digest) + E(specialized digest) 의 그릇): **Api** 는 firstTurn 에서 `SystemContentBuilder.Build(base, kbDigest, specializedDigest, applyCacheControl)` → system message = `[base, kbDigest?, specializedDigest?]` 각각 별 `TextContent`. Anthropic `cache_control: ephemeral` breakpoint = base + KB digest + specialized digest + snapshot(최대 4/4), digest 빈 시 base 1개만(회귀 0). **CLI**(Claude/Codex)는 동일 본문을 `SystemPromptDigest.compose` 로 단일 string 합성(breakpoint 분리 불가). lazy swap = `SetPendingSystemPrompt`/`SetPendingSpecializedDigest`(공통 `ILlmSystemPromptDigestSink`, Api 는 `Interlocked.Exchange`) → 다음 firstTurn 진입 시 `_kbDigest`/`_specializedDigest` 로 교체(in-flight turn 보호, chat-scoped). KbManager 토글/SSE `collection-*` → debounce 750ms → fetch → swap.
 
 ---
 

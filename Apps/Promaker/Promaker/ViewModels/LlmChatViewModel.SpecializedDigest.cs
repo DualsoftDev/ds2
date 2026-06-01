@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using Ds2.LlmAgent;
 using Promaker.Knowledge;
 using Llm.Shared.Api;
 
@@ -64,8 +65,9 @@ public partial class LlmChatViewModel
     private void ApplyFetchedDigest(string digest, int serviceScopeCount, string callerLabel)
     {
         AssertUiThread(callerLabel);
-        if (_provider is ApiChatProvider api)
-            api.SetPendingSpecializedDigest(digest);
+        // CLI(Claude/Codex) + API provider 모두 `ILlmSystemPromptDigestSink` 구현 → 단일 캐스팅 path.
+        if (_provider is ILlmSystemPromptDigestSink sink)
+            sink.SetPendingSpecializedDigest(digest);
         // **주입 로그 (사용자 요청 2026-06-01)** — Info 레벨로 주입 여부/크기 노출 (Debug 면 production 에서 놓침).
         // digest len=0 이면 cache breakpoint 3 skip = layer E 미주입 → 즉시 원인 식별 가능.
         Log.Info(

@@ -41,3 +41,38 @@ type ILlmProvider =
     /// 본 provider 의 multimodal 능력. Claude/Codex CLI 는 `EnsureCli` 시점 정적 확정,
     /// Ollama 는 모델별 `/api/show` 동적 갱신. 첨부 미지원 provider 는 `Capabilities.TextOnly`.
     abstract Capabilities : Capabilities
+
+/// system prompt 에 RAG digest 를 lazy 주입하는 sink. provider 가 본 인터페이스를 구현하면
+/// `LlmChatViewModel` 의 layer A(KB keyword digest) / layer E(specialized digest) 적용 path 가
+/// `is ILlmSystemPromptDigestSink` 캐스팅으로 진입 → CLI / API provider 모두 동일 wire.
+///
+/// **구현체 계약**:
+/// - 두 Set 은 background thread (SSE invalidate / provider 토글) 에서 호출 가능 → 구현체가 race-free 박제.
+/// - 빈 string = digest 비활성 (이전 digest 제거). null 인자도 빈 string 으로 정규화.
+/// - 실제 적용 시점은 구현체 정책 — API provider 는 firstTurn swap, CLI provider 도 firstTurn(=sessionId None)
+///   고정 (turn 중간 digest 변경으로 CLI prompt cache 가 흔들리지 않게).
+///
+/// **cross-language**: 본 인터페이스는 F# 에 두지만 C# `ApiChatProvider` 가 구현 (이미 F# `ILlmProvider` 를
+/// C#이 구현 중이라 동일 패턴). 메서드 시그니처는 ApiChatProvider 의 기존 `SetPendingSystemPrompt(string)` /
+/// `SetPendingSpecializedDigest(string)` 와 1:1.
+type ILlmSystemPromptDigestSink =
+    /// KB keyword digest(layer A). 빈 string = 비활성.
+    abstract SetPendingSystemPrompt : digest: string -> unit
+    /// specialized digest(layer E). 빈 string = 비활성.
+    abstract SetPendingSpecializedDigest : digest: string -> unit
+
+/// CLI provider 의 effective system prompt 합성 SSOT. ApiChatProvider 의 `SystemContentBuilder.Build`
+/// (별 TextContent + cache_control) 와 동치 wire 를 단일 string 으로 표현 — CLI 는 system-prompt-file 이
+/// 한 덩어리라 breakpoint 분리는 불가하나 본문 순서/구성은 동일 (base → KB digest → specialized digest).
+[<RequireQualifiedAccess>]
+module SystemPromptDigest =
+    /// base(Phase1c) + (kbDigest 있으면 "\n\n"+digest) + (specialized 있으면 "\n\n"+digest).
+    /// `--system-prompt-file`(Claude) / `experimental_instructions_file`(Codex) 는 CLI default 를 완전
+    /// 치환하므로 base 를 반드시 포함. 두 digest 모두 빈 시 base 단독 (회귀 0).
+    let compose (basePrompt: string) (kbDigest: string) (specializedDigest: string) : string =
+        let sb = System.Text.StringBuilder(basePrompt)
+        if not (System.String.IsNullOrEmpty kbDigest) then
+            sb.Append("\n\n").Append(kbDigest) |> ignore
+        if not (System.String.IsNullOrEmpty specializedDigest) then
+            sb.Append("\n\n").Append(specializedDigest) |> ignore
+        sb.ToString()

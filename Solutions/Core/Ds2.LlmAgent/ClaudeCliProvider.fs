@@ -16,6 +16,17 @@ open System.Threading
 type ClaudeCliProvider(options: ClaudeCliOptions) =
 
     let mutable sessionId : string option = None
+    // layer A(KB digest) / layer E(specialized digest) lazy 주입 — `ILlmSystemPromptDigestSink`.
+    // pending(VolatileField) 은 background thread(SSE invalidate / provider 토글) write, active 는 firstTurn
+    // (sessionId None) 진입 시 swap → resume turn 은 firstTurn 시점값 유지 (turn 중간 digest 변경으로
+    // system-prompt-file 흔들림 방지, CLI prompt cache 안정). ApiChatProvider 의 pending→firstTurn swap +
+    // Interlocked(=VolatileField cross-thread visibility) 패턴과 동치.
+    [<VolatileField>]
+    let mutable _pendingKbDigest : string = ""
+    [<VolatileField>]
+    let mutable _pendingSpecializedDigest : string = ""
+    let mutable _kbDigest : string = ""
+    let mutable _specializedDigest : string = ""
     let executableName = options.ExecutablePath |> Option.defaultValue "claude"
     /// PATHEXT 자동 검색 fragility 회피 — ctor 1회 fully-qualified 정규화.
     /// 못 찾으면 raw name 으로 fallback (Process.Start 가 자체 PATH 검색 시도, 실패 시 EnsureCli 가 진단).
@@ -52,6 +63,12 @@ type ClaudeCliProvider(options: ClaudeCliOptions) =
                     | _ -> true)
         let useStreamJsonInput = nonTextAttachments.Length > 0
 
+        // firstTurn(sessionId None) 진입 시 pending digest 를 active 로 고정 (lazy apply).
+        // resume turn 은 active 유지 → 같은 합성 system prompt 가 매 Send 전달돼 CLI cache 안정.
+        if sessionId.IsNone then
+            _kbDigest <- _pendingKbDigest
+            _specializedDigest <- _pendingSpecializedDigest
+
         // SystemPrompt 본문은 임시 파일에 저장 후 `--system-prompt-file <path>` 로 전달.
         // **Why**: Windows CreateProcess 의 lpCommandLine 32K 한계 초과 시 [WinError 206]
         // ("파일 이름이나 확장명이 너무 깁니다") 가 발생. 본 회피 패턴은 Ev2.Oracle 의 ClaudeCliProvider
@@ -63,7 +80,10 @@ type ClaudeCliProvider(options: ClaudeCliOptions) =
                 let dir = Path.Combine(Path.GetTempPath(), "Promaker")
                 Directory.CreateDirectory(dir) |> ignore
                 let path = Path.Combine(dir, sprintf "claude-append-system-%s.md" (Guid.NewGuid().ToString("N")))
-                File.WriteAllText(path, sp, Text.Encoding.UTF8)
+                // base(Phase1c) + KB digest(layer A) + specialized digest(layer E) 합성본 — `--system-prompt-file`
+                // 은 CLI default 를 완전 치환하므로 base 를 반드시 포함. digest 둘 다 빈 시 base 단독 (회귀 0).
+                let effective = SystemPromptDigest.compose sp _kbDigest _specializedDigest
+                File.WriteAllText(path, effective, Text.Encoding.UTF8)
                 let cleanup () =
                     try if File.Exists path then File.Delete path
                     with ex -> Log.provider.Warn($"임시 system-prompt 파일 삭제 실패 ({path}): {ex.Message}", ex)
@@ -133,3 +153,8 @@ type ClaudeCliProvider(options: ClaudeCliOptions) =
         member this.SessionId = this.SessionId
         member this.ClearSession () = this.ClearSession ()
         member this.Capabilities = this.Capabilities
+
+    // layer A / layer E digest 주입 — pending 박제 (null→""). firstTurn 진입 시 active 로 swap.
+    interface ILlmSystemPromptDigestSink with
+        member _.SetPendingSystemPrompt digest = _pendingKbDigest <- (if isNull digest then "" else digest)
+        member _.SetPendingSpecializedDigest digest = _pendingSpecializedDigest <- (if isNull digest then "" else digest)

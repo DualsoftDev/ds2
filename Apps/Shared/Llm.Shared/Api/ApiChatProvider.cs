@@ -41,7 +41,7 @@ namespace Llm.Shared.Api;
 ///   - FunctionResultContent → ToolResult
 ///   - UsageContent → SessionEnd
 /// </summary>
-public sealed class ApiChatProvider : ILlmProvider, IAsyncDisposable
+public sealed class ApiChatProvider : ILlmProvider, ILlmSystemPromptDigestSink, IAsyncDisposable
 {
     private static readonly ILog Log = LogManager.GetLogger(typeof(ApiChatProvider));
 
