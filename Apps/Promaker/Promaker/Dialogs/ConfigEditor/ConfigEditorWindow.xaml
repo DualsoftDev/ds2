@@ -126,8 +126,10 @@
 
                                     <StackPanel Grid.Row="0" Grid.ColumnSpan="2">
                                         <TextBlock Text="Flow 선택" Style="{StaticResource SectionTitleStyle}"/>
-                                        <TextBlock Text="비어 있으면 기존 자동 규칙을 사용하고, 값을 넣으면 해당 Flow만 기본 선택됩니다."
+                                        <TextBlock Text="기본 선택 Flow: 비우면 전체 Flow, 채우면 매칭되는 Flow만 모델로 생성. 제외 Flow 키워드: 매칭되는 Flow는 결과에서 제외. 한 줄에 하나씩 입력."
                                                    Style="{StaticResource HintTextStyle}"/>
+                                        <TextBlock Text="와일드카드: *HOP* = HOP 포함(HOP1·HOP2…) · HOP* = HOP 로 시작 · *HOP = HOP 로 끝 · HOP = 정확히 HOP 만"
+                                                   Style="{StaticResource HintTextStyle}" FontFamily="Consolas"/>
                                     </StackPanel>
 
                                     <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,10,6,0">
@@ -213,8 +215,10 @@
 
                                     <StackPanel Grid.Row="0" Grid.ColumnSpan="3">
                                         <TextBlock Text="기본 제외 및 표시명" Style="{StaticResource SectionTitleStyle}"/>
-                                        <TextBlock Text="초기 체크 해제 대상과 UI 표시용 축약 토큰입니다. 변환 자체를 막는 값은 아닙니다."
+                                        <TextBlock Text="Device / API 제외 키워드: 매칭되는 항목은 변환 결과에서 제외됩니다. 표시명 제거 토큰: UI 표시용 축약일 뿐 변환을 막지 않습니다. 한 줄에 하나씩 입력."
                                                    Style="{StaticResource HintTextStyle}"/>
+                                        <TextBlock Text="와일드카드: *ext* = ext 포함 · ext* = ext 로 시작 · *ext = ext 로 끝 · ext = 정확히 ext 만"
+                                                   Style="{StaticResource HintTextStyle}" FontFamily="Consolas"/>
                                     </StackPanel>
 
                                     <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,10,6,0">

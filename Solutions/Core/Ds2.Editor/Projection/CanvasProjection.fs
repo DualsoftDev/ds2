@@ -26,8 +26,10 @@ let private toArrowInfo (a: DsArrow) : CanvasArrowInfo =
     { Id = a.Id; SourceId = a.SourceId; TargetId = a.TargetId; ArrowType = a.ArrowType }
 
 let canvasContentForSystemWorks (store: DsStore) (systemId: Guid) : CanvasContent =
+    let hidden = Queries.hiddenWorkIds store
     let flowIds =
         Queries.flowsOf systemId store
+        |> List.filter (fun f -> not f.IsDisabled)   // 비활성 Flow 의 Work 는 표시하지 않음
         |> List.map (fun f -> f.Id)
 
     let nodes =
@@ -38,6 +40,8 @@ let canvasContentForSystemWorks (store: DsStore) (systemId: Guid) : CanvasConten
 
     let arrows =
         Queries.arrowWorksOf systemId store
+        // 끝점(source/target) 중 하나라도 비활성 Flow 의 Work 면 화살표 제거 (cross-flow 연결 포함)
+        |> List.filter (fun a -> not (hidden.Contains a.SourceId || hidden.Contains a.TargetId))
         |> List.map toArrowInfo
 
     { Nodes = nodes; Arrows = arrows }
@@ -56,10 +60,12 @@ let canvasContentForFlowWorks (store: DsStore) (flowId: Guid) : CanvasContent =
         | None -> [], []
         | Some flow ->
             let systemArrows = Queries.arrowWorksOf flow.ParentId store
-            // 이 Flow의 Work가 한쪽이라도 포함된 화살표
+            let hidden = Queries.hiddenWorkIds store
+            // 이 Flow의 Work가 한쪽이라도 포함된 화살표 (단, 비활성 Flow Work 가 끝점이면 제외 → ghost 도 자동 제외)
             let relevantArrows =
                 systemArrows
                 |> List.filter (fun a -> workIds.Contains a.SourceId || workIds.Contains a.TargetId)
+                |> List.filter (fun a -> not (hidden.Contains a.SourceId || hidden.Contains a.TargetId))
 
             // 외부 Work ID 수집
             let externalIds =

@@ -96,6 +96,15 @@ module Queries =
     let worksOf (flowId: Guid) (store: DsStore) : Work list =
         childrenOf store.WorksReadOnly.Values flowId (fun w -> w.ParentId)
 
+    /// 비활성화(IsDisabled) Flow 들에 속한 Work id 집합. 표시(Canvas)/런타임(SimIndex) 공통 필터용.
+    /// 화살표는 끝점(source/target) 중 하나라도 이 집합에 속하면 제외 대상이다.
+    let hiddenWorkIds (store: DsStore) : Set<Guid> =
+        allFlows store
+        |> List.filter (fun f -> f.IsDisabled)
+        |> List.collect (fun f -> worksOf f.Id store)
+        |> List.map (fun w -> w.Id)
+        |> Set.ofList
+
     /// <summary>특정 Project의 Active System에 속한 모든 Work 조회</summary>
     let activeWorksOf (projectId: Guid) (store: DsStore) : Work list =
         activeSystemsOf projectId store

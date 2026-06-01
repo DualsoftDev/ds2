@@ -29,6 +29,37 @@ module TreeProjectionTests =
         Assert.Contains(controlRoot.Children, fun node -> node.Id = flow.Id)
         Assert.Contains(deviceRoot.Children, fun node -> node.Id = passiveSystem.Id)
 
+    [<Fact>]
+    let ``disabled flow is excluded from control tree and listed in DisabledFlows`` () =
+        let store = createStore ()
+        let _, system, flow, _ = setupBasicHierarchy store
+        let flowB = addFlow store "FlowB" system.Id
+
+        store.SetFlowsDisabled([ flow.Id ], true) |> ignore
+
+        let controlRoots, _ = EditorTreeProjection.buildTrees store
+        let controlRoot = Assert.Single(controlRoots)
+        // 비활성 flow 는 트리에서 빠지고 활성 flowB 만 남는다
+        Assert.DoesNotContain(controlRoot.Children, fun n -> n.Id = flow.Id)
+        Assert.Contains(controlRoot.Children, fun n -> n.Id = flowB.Id)
+        // 비활성 flow 는 DisabledFlows 목록에 노출된다
+        let disabled = EditorTreeProjection.disabledFlows store
+        Assert.Contains(disabled, fun n -> n.Id = flow.Id)
+        Assert.DoesNotContain(disabled, fun n -> n.Id = flowB.Id)
+
+    [<Fact>]
+    let ``SetFlowsDisabled toggle then restore is a single undo step`` () =
+        let store = createStore ()
+        let _, _, flow, _ = setupBasicHierarchy store
+
+        let n = store.SetFlowsDisabled([ flow.Id ], true)
+        Assert.Equal(1, n)
+        Assert.True(store.Flows.[flow.Id].IsDisabled)
+
+        // 단일 Undo 로 복원되어야 한다
+        store.Undo()
+        Assert.False(store.Flows.[flow.Id].IsDisabled)
+
 module NavigationTests =
 
     [<Fact>]
@@ -73,6 +104,20 @@ module CanvasProjectionTests =
 
         Assert.Equal(2, realNodes.Length)
         Assert.Contains(realNodes, fun node -> node.Id = work2.Id)
+
+    [<Fact>]
+    let ``canvas excludes works of disabled flow on system tab`` () =
+        let store = createStore ()
+        let _, system, flowA, workA = setupBasicHierarchy store
+        let flowB = addFlow store "FlowB" system.Id
+        let workB = addWork store "WorkB" flowB.Id
+
+        store.SetFlowsDisabled([ flowA.Id ], true) |> ignore
+
+        let content = EditorCanvasProjection.canvasContentForTab store TabKind.System system.Id
+        // 비활성 flowA 의 Work 는 캔버스에서 제외, 활성 flowB 의 Work 는 표시
+        Assert.DoesNotContain(content.Nodes, fun n -> n.Id = workA.Id)
+        Assert.Contains(content.Nodes, fun n -> n.Id = workB.Id)
 
     [<Fact>]
     let ``EditorCanvasLayout computes auto layout for overlapping flow nodes`` () =

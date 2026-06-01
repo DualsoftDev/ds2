@@ -135,8 +135,12 @@ module internal SimIndexBuild =
             state.WorkSkipActionConditions <- state.WorkSkipActionConditions.Add(work.Id, buildConditionExpression store ConditionType.SkipAction conditionsSource)
             state.AllWorkGuids <- work.Id :: state.AllWorkGuids
 
+        let hidden = Queries.hiddenWorkIds store
         for system in allSystems do
-            let workArrows = Queries.arrowWorksOf system.Id store
+            let workArrows =
+                Queries.arrowWorksOf system.Id store
+                // 비활성 Flow 의 Work 가 끝점인 전이 제거 → 활성 Work 의 선행조건에 dangling 으로 남지 않음
+                |> List.filter (fun a -> not (hidden.Contains a.SourceId || hidden.Contains a.TargetId))
             let wType = fun (a: ArrowBetweenWorks) -> a.ArrowType
             let wSrc = fun (a: ArrowBetweenWorks) -> a.SourceId
             let wTgt = fun (a: ArrowBetweenWorks) -> a.TargetId
@@ -161,7 +165,7 @@ module internal SimIndexBuild =
 
             tokenSuccMap <- SimIndexTokenGraph.appendSuccessorsFromStartPreds tokenSuccMap wStartPreds
 
-            let flows = Queries.flowsOf system.Id store
+            let flows = Queries.flowsOf system.Id store |> List.filter (fun f -> not f.IsDisabled)
             let allCallArrows =
                 flows
                 |> List.collect (fun flow -> Queries.worksOf flow.Id store)

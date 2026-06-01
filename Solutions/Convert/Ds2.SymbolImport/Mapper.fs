@@ -56,6 +56,24 @@ module Mapper =
           Strategy = dam.MatchingStrategy
           Confidence = dam.MatchingConfidence }
 
+    /// config 의 FilterExclusions (Device/Api/Flow blacklist) + FlowInclusions (Flow whitelist) 통과 여부.
+    /// glob 규칙은 DeviceGroupingUtils.matchesKeyword 와 동일 (*text*=Contains, text*=StartsWith, *text=EndsWith, text=Equals).
+    /// - FilterExclusions: DeviceName/ApiName/FlowName 중 하나라도 키워드에 매칭되면 제외.
+    /// - FlowInclusions: Flows 가 비어있으면 전체 통과, 항목이 있으면 FlowName 이 매칭되는 것만 통과.
+    /// 제외된 Mapping 의 SymbolEntry 는 mapped 에서 빠지고 unmatched 로 분류된다.
+    let private passesConfigFilters (config: MappingConfig.InputMatchingConfigDto) (m: Mapping) : bool =
+        let fx = config.FilterExclusions
+        let excludedByFilter =
+            not (isNull (box fx))
+            && (DeviceGroupingUtils.matchesAnyKeyword fx.DeviceKeywords m.DeviceName
+                || DeviceGroupingUtils.matchesAnyKeyword fx.ApiKeywords m.ApiName
+                || DeviceGroupingUtils.matchesAnyKeyword fx.FlowKeywords m.FlowName)
+        let includedByFlow =
+            let fi = config.FlowInclusions
+            if isNull (box fi) || isNull fi.Flows || fi.Flows.Length = 0 then true
+            else DeviceGroupingUtils.matchesAnyKeyword fi.Flows m.FlowName
+        (not excludedByFilter) && includedByFlow
+
     /// 명시적 config 로 매핑 — vendor / FlowInclusions / FilterExclusions / SymmetryRules 모두 반영.
     /// vendor 인자가 필수 — Common.MappingSets + Vendors.<vendor>.MappingSets (+ vendor OutputAddressPatterns/InputAddressPatterns) 를 합쳐 dsev2 매칭 엔진에 전달.
     let mapWithConfig (vendor: Vendor) (config: MappingConfig.InputMatchingConfigDto) (entries: SymbolEntry list) : MappingBatch =
@@ -67,7 +85,10 @@ module Mapper =
         // 같은 (Name, Address) 가 중복되면 마지막 entry 만 — 거의 일어나지 않지만 가능.
         let entryByKey =
             entries |> List.map (fun e -> (e.Name, e.Address), e) |> Map.ofList
-        let mapped = dsev2Mappings |> List.map (fromDsev2Mapping entryByKey)
+        let mapped =
+            dsev2Mappings
+            |> List.map (fromDsev2Mapping entryByKey)
+            |> List.filter (passesConfigFilters config)
 
         // 매칭된 SymbolEntry name 집합 → unmatched 추출.
         let matchedNames =

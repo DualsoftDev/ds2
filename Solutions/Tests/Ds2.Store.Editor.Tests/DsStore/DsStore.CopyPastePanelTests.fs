@@ -95,6 +95,17 @@ module PasteTests =
         Assert.Equal(Some 3500, deviceDuration)
 
     [<Fact>]
+    let ``Disabled flow is not pasted`` () =
+        let store = createStore ()
+        let _, system, flow, _ = setupBasicHierarchy store
+        store.SetFlowsDisabled([ flow.Id ], true) |> ignore
+
+        let result = store.PasteEntities(EntityKind.Flow, [ flow.Id ], EntityKind.System, system.Id, 0)
+        match result with
+        | PasteResult.Ok ids -> Assert.Empty(ids)
+        | _ -> Assert.Fail("expected Ok with empty result for disabled flow")
+
+    [<Fact>]
     let ``PasteEntities keeps multiple Work order and relative positions`` () =
         let store = createStore ()
         let _, _, flow, workA = setupBasicHierarchy store

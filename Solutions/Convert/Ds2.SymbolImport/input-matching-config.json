@@ -4064,11 +4064,7 @@
   },
   "FlowInclusions": {
     "Description": "Flow 필터링: 비어있으면 S{숫자} 패턴 사용, 항목 있으면 해당 Flow만 체크됨",
-    "Flows": [
-      "S141",
-      "S142",
-      "S151"
-    ]
+    "Flows": []
   },
   "ApiNaming": {
     "Description": "API 이름 추출 규칙 - 마지막 토큰이 CompoundSuffixes에 있으면 앞 토큰과 합침",

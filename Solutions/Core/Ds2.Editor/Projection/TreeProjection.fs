@@ -56,6 +56,7 @@ let private buildDeviceSystemChildren (store: DsStore) (systemId: Guid) : TreeNo
 let private buildSystemChildren (store: DsStore) (systemId: Guid) =
     let flows =
         Queries.flowsOf systemId store
+        |> List.filter (fun f -> not f.IsDisabled)   // 비활성 Flow 는 트리에서 제외 (하단 "비활성화" 섹션으로)
         |> List.map (fun flow ->
             let works =
                 Queries.originalWorksOf flow.Id store
@@ -126,3 +127,19 @@ let buildTrees (store: DsStore) : TreeNodeInfo list * TreeNodeInfo list =
     let deviceTree = buildDeviceTree store
 
     controlTree, deviceTree
+
+/// Control(Active) System 의 비활성화(IsDisabled) Flow 목록 — Explorer 하단 "비활성화" 섹션용 (평면 리스트).
+[<CompiledName("DisabledFlows")>]
+let disabledFlows (store: DsStore) : TreeNodeInfo list =
+    Queries.allProjects store
+    |> List.collect (fun project ->
+        Queries.activeSystemsOf project.Id store
+        |> List.collect (fun system ->
+            Queries.flowsOf system.Id store
+            |> List.filter (fun f -> f.IsDisabled)
+            |> List.map (fun flow ->
+                { Id = flow.Id
+                  EntityKind = EntityKind.Flow
+                  Name = flow.Name
+                  ParentId = Some system.Id
+                  Children = [] })))
