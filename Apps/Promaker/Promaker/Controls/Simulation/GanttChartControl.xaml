@@ -125,10 +125,10 @@
                 <ScrollViewer x:Name="TimelineScrollViewer"
                               HorizontalScrollBarVisibility="Auto"
                               VerticalScrollBarVisibility="Auto"
+                              PreviewMouseWheel="OnTimelineMouseWheel"
                               ScrollChanged="OnTimelineScrollChanged">
                     <Canvas x:Name="TimelineCanvas"
                             Background="Transparent" ClipToBounds="False"
-                            PreviewMouseWheel="OnTimelineMouseWheel"
                             MouseLeftButtonDown="OnTimelineMouseDown"
                             MouseMove="OnTimelineMouseMove"
                             MouseLeftButtonUp="OnTimelineMouseUp"/>
