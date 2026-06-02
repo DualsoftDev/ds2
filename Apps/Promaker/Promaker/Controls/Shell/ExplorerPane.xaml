@@ -123,11 +123,13 @@
             <MenuItem Tag="ExportCsv" Header="CSV 내보내기..." Command="{Binding ExportCsvCommand}"/>
             <Separator Tag="SepImport"/>
             <MenuItem Tag="Copy" Header="복사" Command="{Binding CopySelectedCommand}"/>
+            <MenuItem Tag="Cut" Header="잘라내기" Command="{Binding CutSelectedCommand}"/>
             <MenuItem Tag="Paste" Header="붙여넣기" Command="{Binding PasteCopiedCommand}"/>
             <Separator Tag="SepEdit"/>
             <MenuItem Tag="FocusCanvas" Header="캔버스에서 보기" Command="{Binding Canvas.FocusSelectedInCanvasCommand}"/>
             <MenuItem Tag="Rename" Header="이름 바꾸기..." Command="{Binding FocusNameEditorCommand}"/>
             <MenuItem Tag="Delete" Header="삭제" Command="{Binding DeleteSelectedCommand}" Foreground="{DynamicResource RedAccentBrush}"/>
+            <MenuItem Tag="Disable" Header="비활성화" Command="{Binding DisableSelectedFlowsCommand}"/>
             <Separator Tag="SepExpandCollapse"/>
             <MenuItem Tag="ExpandAll" Header="전체 펼치기" Click="ExpandAll_Click"/>
             <MenuItem Tag="CollapseAll" Header="전체 접기" Click="CollapseAll_Click"/>
@@ -139,6 +141,7 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
@@ -189,7 +192,50 @@
                 </TreeView>
             </Grid>
 
-            <Border Grid.Row="2" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource BorderBrush}">
+            <Expander Grid.Row="2"
+                      x:Name="DisabledSection"
+                      BorderThickness="0,1,0,0"
+                      BorderBrush="{DynamicResource BorderBrush}"
+                      AllowDrop="True"
+                      DragOver="DisabledSection_DragOver"
+                      Drop="DisabledSection_Drop"
+                      Visibility="{Binding DisabledFlows.Count, Converter={StaticResource PositiveIntToVis}}">
+                <Expander.Header>
+                    <TextBlock FontSize="12" FontWeight="SemiBold"><Run Text="비활성화"/><Run Text="{Binding DisabledFlows.Count, StringFormat=' ({0})', Mode=OneWay}"/></TextBlock>
+                </Expander.Header>
+                <ListBox x:Name="DisabledList"
+                         ItemsSource="{Binding DisabledFlows}"
+                         MaxHeight="160"
+                         BorderThickness="0"
+                         Background="Transparent"
+                         PreviewMouseLeftButtonDown="DisabledList_PreviewMouseLeftButtonDown"
+                         PreviewMouseMove="DisabledList_PreviewMouseMove">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:EntityNode}">
+                            <StackPanel Orientation="Horizontal" Margin="2,1">
+                                <Border Width="18" Height="18" CornerRadius="3" Margin="0,0,6,0"
+                                        Background="{Binding EntityType, Converter={StaticResource TypeToBrush}}">
+                                    <TextBlock Text="{Binding EntityType, Converter={StaticResource TypeToIcon}}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               FontSize="10" FontWeight="Bold"
+                                               Foreground="{Binding EntityType, Converter={StaticResource TypeToForeground}}"/>
+                                </Border>
+                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontSize="13"
+                                           Foreground="{DynamicResource SecondaryTextBrush}"/>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                    <ListBox.ContextMenu>
+                        <ContextMenu DataContext="{Binding Data, Source={StaticResource Proxy}}">
+                            <MenuItem Header="복원"
+                                      Command="{Binding RestoreFlowCommand}"
+                                      CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                        </ContextMenu>
+                    </ListBox.ContextMenu>
+                </ListBox>
+            </Expander>
+
+            <Border Grid.Row="3" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource BorderBrush}">
                 <UniformGrid Columns="2">
                     <ToggleButton x:Name="ControlTreeButton"
                                   Style="{StaticResource TreePaneToggleStyle}"

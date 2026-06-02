@@ -19,8 +19,12 @@ public partial class ExplorerPane : UserControl
 {
     private const string TreeMoveCallNodeDataFormat = "TreeMoveCallNode";
     private const string TreeMoveCallIdsDataFormat = "TreeMoveCallIds";
+    private const string TreeMoveWorkIdsDataFormat = "TreeMoveWorkIds";  // 트리 Work → 다른 Flow 이동/복사
+    private const string FlowDragIdsFormat = "FlowDragIds";          // 트리 Flow → 비활성화 섹션(=비활성화)
+    private const string FlowRestoreIdsFormat = "FlowRestoreIds";    // 비활성화 섹션 Flow → 트리(=복원)
 
     private Point _treeDragStartPoint;
+    private Point _disabledDragStart;
     private bool _treeDragCandidate;
     private EntityNode? _pendingTreeSelectionNode;
     private EntityNode? _treeMoveDropTarget;
@@ -31,6 +35,7 @@ public partial class ExplorerPane : UserControl
 
     public ObservableCollection<EntityNode> FilteredControlTreeRoots { get; } = [];
     public ObservableCollection<EntityNode> FilteredDeviceTreeRoots { get; } = [];
+    public ObservableCollection<EntityNode> FilteredDisabledFlows { get; } = [];
 
     public ExplorerPane()
     {
@@ -157,7 +162,7 @@ public partial class ExplorerPane : UserControl
         var shiftPressed = (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift;
 
         if (item.DataContext is EntityNode node
-            && node.EntityType == EntityKind.Call
+            && (node.EntityType == EntityKind.Call || node.EntityType == EntityKind.Work)
             && !ctrlPressed
             && !shiftPressed)
         {
@@ -172,6 +177,13 @@ public partial class ExplorerPane : UserControl
             // 누르는 순간 선택이 1개로 줄어들어 다중 드래그가 깨진다.
             ViewModel?.Selection.SetActiveTreePane(pane);
             return;
+        }
+
+        // Flow 노드: 비활성화 섹션으로 드래그하기 위한 시작점만 기록 (선택/candidate 는 기존 경로 유지).
+        if (item.DataContext is EntityNode { EntityType: EntityKind.Flow } && !ctrlPressed && !shiftPressed)
+        {
+            try { _disabledDragStart = e.GetPosition(null); }
+            catch { _disabledDragStart = default; }
         }
 
         ClearPendingTreeDragSelection();
@@ -323,7 +335,20 @@ public partial class ExplorerPane : UserControl
 
     private void TreeViewItem_PreviewMouseMove_Drag(object sender, MouseEventArgs e)
     {
-        if (!_treeDragCandidate || e.LeftButton != MouseButtonState.Pressed) return;
+        if (e.LeftButton != MouseButtonState.Pressed) return;
+
+        // Flow 노드를 비활성화 섹션으로 드래그 (Call drag-candidate 경로와 독립)
+        if (sender is TreeViewItem { DataContext: EntityNode { EntityType: EntityKind.Flow } flowNode } flowItem
+            && ReferenceEquals(flowItem, FindAncestor<TreeViewItem>(e.OriginalSource as DependencyObject)))
+        {
+            var fd = e.GetPosition(null) - _disabledDragStart;
+            if (Math.Abs(fd.X) >= SystemParameters.MinimumHorizontalDragDistance
+                || Math.Abs(fd.Y) >= SystemParameters.MinimumVerticalDragDistance)
+                DragDrop.DoDragDrop(flowItem, new DataObject(FlowDragIdsFormat, SelectedFlowIdsForDrag(flowNode)), DragDropEffects.Move);
+            return;
+        }
+
+        if (!_treeDragCandidate) return;
 
         var pos = e.GetPosition(null);
         var diff = pos - _treeDragStartPoint;
@@ -331,33 +356,63 @@ public partial class ExplorerPane : UserControl
             && Math.Abs(diff.Y) < SystemParameters.MinimumVerticalDragDistance)
             return;
 
-        if (sender is not TreeViewItem { DataContext: EntityNode node }) return;
-        if (node.EntityType != EntityKind.Call) return;
+        if (sender is not TreeViewItem { DataContext: EntityNode node } item) return;
+        if (node.EntityType != EntityKind.Call && node.EntityType != EntityKind.Work) return;
+        // PreviewMouseMove 는 터널링이라 부모 TreeViewItem 들도 이 핸들러를 받는다. 포인터 아래
+        // 최근접 노드일 때만 drag 를 시작해야 부모 Work 가 자식 Call 의 drag 를 가로채지 않는다
+        // (Work drag 추가 전에는 node!=Call return 이 부모를 걸렀으나, Work 허용 후 보호가 깨졌음).
+        if (!ReferenceEquals(item, FindAncestor<TreeViewItem>(e.OriginalSource as DependencyObject))) return;
 
         ClearPendingTreeDragSelection();
 
-        // 다중 선택 지원: selection 에 들어 있는 Call 모두 + (없으면) drag 시작 노드
-        var selectedCallIds = ViewModel?.Selection.OrderedNodeSelection
-            .Where(k => k.EntityKind == EntityKind.Call)
+        // 다중 선택 지원: selection 에 들어 있는 같은 종류 노드 모두 + (없으면) drag 시작 노드
+        var selectedIds = ViewModel?.Selection.OrderedNodeSelection
+            .Where(k => k.EntityKind == node.EntityType)
             .Select(k => k.Id)
             .ToList() ?? new System.Collections.Generic.List<Guid>();
-        if (!selectedCallIds.Contains(node.Id))
-            selectedCallIds = new System.Collections.Generic.List<Guid> { node.Id };
+        if (!selectedIds.Contains(node.Id))
+            selectedIds = new System.Collections.Generic.List<Guid> { node.Id };
 
         var data = new DataObject();
-        data.SetData(ConditionDropHelper.DataFormat, node);
-        data.SetData(TreeMoveCallNodeDataFormat, node);
-        data.SetData(TreeMoveCallIdsDataFormat, selectedCallIds.ToArray());
+        if (node.EntityType == EntityKind.Call)
+        {
+            data.SetData(ConditionDropHelper.DataFormat, node);
+            data.SetData(TreeMoveCallNodeDataFormat, node);
+            data.SetData(TreeMoveCallIdsDataFormat, selectedIds.ToArray());
+        }
+        else // Work → 다른 Flow 이동/복사
+        {
+            data.SetData(TreeMoveWorkIdsDataFormat, selectedIds.ToArray());
+        }
         DragDrop.DoDragDrop((DependencyObject)sender, data, DragDropEffects.Copy | DragDropEffects.Move);
         ClearTreeMoveDropTarget();
     }
 
     private void TreeViewItem_DragOver(object sender, DragEventArgs e)
     {
+        // 비활성화 섹션에서 끌어온 Flow → 트리에 놓으면 복원
+        if (e.Data.GetDataPresent(FlowRestoreIdsFormat))
+        {
+            e.Effects = DragDropEffects.Move;
+            e.Handled = true;
+            return;
+        }
+
         if (TryResolveCallMoveTarget(sender, e, out var sourceCallIds, out var targetWork)
             && ViewModel?.CanMoveCallsToWorkFromTree(sourceCallIds, targetWork.Id) == true)
         {
             SetTreeMoveDropTarget(targetWork);
+            var copyMode = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
+            e.Effects = copyMode ? DragDropEffects.Copy : DragDropEffects.Move;
+            e.Handled = true;
+            return;
+        }
+
+        // Work → 다른 Flow 이동/복사 (drop 대상 = Flow 노드)
+        if (TryResolveWorkMoveTarget(sender, e, out var sourceWorkIds, out var targetFlow)
+            && ViewModel?.CanMoveWorksToFlowFromTree(sourceWorkIds, targetFlow.Id) == true)
+        {
+            SetTreeMoveDropTarget(targetFlow);
             var copyMode = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
             e.Effects = copyMode ? DragDropEffects.Copy : DragDropEffects.Move;
             e.Handled = true;
@@ -377,6 +432,27 @@ public partial class ExplorerPane : UserControl
 
     private void TreeViewItem_Drop(object sender, DragEventArgs e)
     {
+        // 비활성화 섹션에서 끌어온 Flow → 복원
+        if (e.Data.GetDataPresent(FlowRestoreIdsFormat) && e.Data.GetData(FlowRestoreIdsFormat) is Guid[] restoreIds)
+        {
+            ViewModel?.RestoreFlows(restoreIds);
+            e.Handled = true;
+            return;
+        }
+
+        // Work → 다른 Flow 이동/복사
+        if (TryResolveWorkMoveTarget(sender, e, out var sourceWorkIds, out var targetFlow))
+        {
+            ClearTreeMoveDropTarget();
+            var workCopyMode = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
+            if (ViewModel?.TryMoveWorksToFlowFromTree(sourceWorkIds, targetFlow.Id, workCopyMode) == true)
+            {
+                e.Effects = workCopyMode ? DragDropEffects.Copy : DragDropEffects.Move;
+                e.Handled = true;
+            }
+            return;
+        }
+
         if (!TryResolveCallMoveTarget(sender, e, out var sourceCallIds, out var targetWork))
             return;
 
@@ -416,6 +492,31 @@ public partial class ExplorerPane : UserControl
         {
             sourceCallIds = new[] { draggedCall.Id };
             targetWork = workNode;
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>Work 드래그의 drop 대상은 Flow 노드 — sender 가 Flow 이고 TreeMoveWorkIds 페이로드가 있으면 resolve.</summary>
+    private static bool TryResolveWorkMoveTarget(
+        object sender,
+        DragEventArgs e,
+        out IReadOnlyList<Guid> sourceWorkIds,
+        out EntityNode targetFlow)
+    {
+        sourceWorkIds = Array.Empty<Guid>();
+        targetFlow = null!;
+
+        if (sender is not TreeViewItem { DataContext: EntityNode { EntityType: EntityKind.Flow } flowNode } item)
+            return false;
+        if (!ReferenceEquals(item, FindAncestor<TreeViewItem>(e.OriginalSource as DependencyObject)))
+            return false;
+
+        if (e.Data.GetDataPresent(TreeMoveWorkIdsDataFormat)
+            && e.Data.GetData(TreeMoveWorkIdsDataFormat) is Guid[] ids && ids.Length > 0)
+        {
+            sourceWorkIds = ids;
+            targetFlow = flowNode;
             return true;
         }
         return false;
@@ -510,6 +611,12 @@ public partial class ExplorerPane : UserControl
     {
         var vm = ViewModel;
         if (vm is null) return null;
+        // 검색 중에는 화면에 filtered(클론) 트리가 떠 있다. 원본 roots 의 IsExpanded 를 바꿔봐야
+        // 화면에 반영 안 되므로(펼치기/접기 먹통), 검색 중엔 filtered roots 를 대상으로 한다.
+        if (HasActiveSearch)
+            return _activeTreePane == TreePaneKind.Device
+                ? FilteredDeviceTreeRoots
+                : FilteredControlTreeRoots;
         return _activeTreePane == TreePaneKind.Device
             ? vm.DeviceTreeRoots
             : vm.ControlTreeRoots;
@@ -593,4 +700,50 @@ public partial class ExplorerPane : UserControl
 
     private static string NodeKey(EntityNode node) =>
         $"{(int)node.EntityType}:{node.Id}";
+
+    // ─── 비활성화 섹션 드래그&드롭 ───────────────────────────────────────────
+    // 트리 Flow → 섹션 = 비활성화 / 섹션 Flow → 트리 = 복원. 편집 의미는 ViewModel(F#) 위임.
+    private Guid[] SelectedFlowIdsForDrag(EntityNode node)
+    {
+        var ids = ViewModel?.Selection.OrderedNodeSelection
+            .Where(k => k.EntityKind == EntityKind.Flow)
+            .Select(k => k.Id)
+            .ToList() ?? new List<Guid>();
+        if (!ids.Contains(node.Id))
+            ids = new List<Guid> { node.Id };
+        return ids.ToArray();
+    }
+
+    private void DisabledSection_DragOver(object sender, DragEventArgs e)
+    {
+        e.Effects = e.Data.GetDataPresent(FlowDragIdsFormat) ? DragDropEffects.Move : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private void DisabledSection_Drop(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent(FlowDragIdsFormat) && e.Data.GetData(FlowDragIdsFormat) is Guid[] ids)
+        {
+            ViewModel?.DisableFlows(ids);
+            e.Handled = true;
+        }
+    }
+
+    private void DisabledList_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        try { _disabledDragStart = e.GetPosition(null); }
+        catch { _disabledDragStart = default; }
+    }
+
+    private void DisabledList_PreviewMouseMove(object sender, MouseEventArgs e)
+    {
+        if (e.LeftButton != MouseButtonState.Pressed) return;
+        var d = e.GetPosition(null) - _disabledDragStart;
+        if (Math.Abs(d.X) < SystemParameters.MinimumHorizontalDragDistance
+            && Math.Abs(d.Y) < SystemParameters.MinimumVerticalDragDistance)
+            return;
+        var ids = DisabledList.SelectedItems.OfType<EntityNode>().Select(n => n.Id).ToArray();
+        if (ids.Length == 0) return;
+        DragDrop.DoDragDrop(DisabledList, new DataObject(FlowRestoreIdsFormat, ids), DragDropEffects.Move);
+    }
 }

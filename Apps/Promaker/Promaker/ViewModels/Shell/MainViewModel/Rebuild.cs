@@ -16,6 +16,7 @@ public partial class MainViewModel
 
         ControlTreeRoots.Clear();
         DeviceTreeRoots.Clear();
+        DisabledFlows.Clear();
 
         if (!TryEditorRef(
                 () => EditorTreeProjection.BuildTrees(_store),
@@ -29,6 +30,8 @@ public partial class MainViewModel
             ControlTreeRoots.Add(MapToEntityNode(info));
         foreach (var info in trees.Item2)
             DeviceTreeRoots.Add(MapToEntityNode(info));
+        foreach (var info in EditorTreeProjection.DisabledFlows(_store))
+            DisabledFlows.Add(MapToEntityNode(info));
 
         Selection.ApplyExpansionStateTo(ControlTreeRoots, expandedNodes);
         Selection.ApplyExpansionStateTo(DeviceTreeRoots, expandedNodes);

@@ -50,6 +50,7 @@ public partial class ExplorerPane
         {
             ControlTree.ItemsSource = null;
             DeviceTree.ItemsSource = null;
+            DisabledList.ItemsSource = null;
             return;
         }
 
@@ -57,6 +58,7 @@ public partial class ExplorerPane
         {
             ControlTree.ItemsSource = _boundViewModel.ControlTreeRoots;
             DeviceTree.ItemsSource = _boundViewModel.DeviceTreeRoots;
+            DisabledList.ItemsSource = _boundViewModel.DisabledFlows;
             return;
         }
 
@@ -65,6 +67,12 @@ public partial class ExplorerPane
         RebuildFilteredRoots(_boundViewModel.DeviceTreeRoots, FilteredDeviceTreeRoots, query);
         ControlTree.ItemsSource = FilteredControlTreeRoots;
         DeviceTree.ItemsSource = FilteredDeviceTreeRoots;
+
+        // 비활성화 섹션도 검색 대상 — 평면 리스트라 이름 매칭으로 필터
+        FilteredDisabledFlows.Clear();
+        foreach (var f in _boundViewModel.DisabledFlows.Where(n => n.Name.Contains(query, StringComparison.OrdinalIgnoreCase)))
+            FilteredDisabledFlows.Add(f);
+        DisabledList.ItemsSource = FilteredDisabledFlows;
         _boundViewModel.StatusText =
             FilteredControlTreeRoots.Count + FilteredDeviceTreeRoots.Count > 0
                 ? $"탐색기에서 '{query}' 검색 결과를 표시합니다."

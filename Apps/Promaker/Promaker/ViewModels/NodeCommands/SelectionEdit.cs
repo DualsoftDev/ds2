@@ -141,13 +141,14 @@ public partial class MainViewModel
     {
         if (!CanCopySelected())
             return false;
-        // Cut 은 Call 만 지원 (1차 release). Flow/Work cut 은 cascade 폭이 커서 별도 명세 필요.
+        // Cut(이동)은 Call/Work 지원. (Flow cut 은 cascade 폭이 커서 별도 명세 필요)
         var candidates = Selection.OrderedNodeSelection.Count > 0
             ? Selection.OrderedNodeSelection
             : SelectedNode is { } single
                 ? new[] { new SelectionKey(single.Id, single.EntityType) }
                 : Array.Empty<SelectionKey>();
-        return candidates.Count > 0 && candidates.All(k => k.EntityKind == EntityKind.Call);
+        return candidates.Count > 0
+            && candidates.All(k => k.EntityKind == EntityKind.Call || k.EntityKind == EntityKind.Work);
     }
 
     [RelayCommand(CanExecute = nameof(CanCutSelected))]
@@ -182,9 +183,9 @@ public partial class MainViewModel
         }
 
         var validated = ok.Item;
-        if (validated[0].EntityKind != EntityKind.Call)
+        if (validated[0].EntityKind != EntityKind.Call && validated[0].EntityKind != EntityKind.Work)
         {
-            _dialogService.ShowWarning("Cut(이동) 은 Call 만 지원합니다.");
+            _dialogService.ShowWarning("Cut(이동) 은 Call/Work 만 지원합니다.");
             return;
         }
 
@@ -197,7 +198,22 @@ public partial class MainViewModel
         // Cut visual: 클립보드 entry 들을 디밍/반투명 표시
         Selection.ApplyCutPendingVisuals(_clipboardSelection);
 
-        StatusText = $"Cut {_clipboardSelection.Count} Call(s) — Ctrl+V to move.";
+        StatusText = $"Cut {_clipboardSelection.Count} {validated[0].EntityKind}(s) — Ctrl+V to move.";
+        RefreshEditorCommandStates();
+    }
+
+    private bool CanCancelCut() => _clipboardIsCut && _clipboardSelection.Count > 0;
+
+    /// <summary>Cut(잘라내기) 대기 상태 취소 — clipboard 비우고 흐림(IsCutPending) 시각 복원.
+    /// ESC 또는 (paste 전) Ctrl+Z 로 호출. Copy clipboard 는 visual 이 없어 대상 아님.</summary>
+    [RelayCommand(CanExecute = nameof(CanCancelCut))]
+    private void CancelCut()
+    {
+        if (!_clipboardIsCut) return;
+        _clipboardSelection.Clear();
+        _clipboardIsCut = false;
+        Selection.ApplyCutPendingVisuals([]);
+        StatusText = "잘라내기 취소됨.";
         RefreshEditorCommandStates();
     }
 
@@ -232,10 +248,16 @@ public partial class MainViewModel
             return;
         }
 
-        // Cut clipboard: source Call 들이 그 동안 삭제되었는지 검증. 사라졌으면 자동 clear + 안내.
+        // Cut clipboard: source 엔티티들이 그 동안 삭제되었는지 검증. 사라졌으면 자동 clear + 안내.
+        // Cut 은 Call/Work 둘 다 지원하므로 종류에 맞는 store 맵으로 확인 (Work 를 CallsReadOnly 로
+        // 보면 항상 missing 으로 판정돼 Work cut/paste 가 통째로 막힌다 — 회귀 가드).
         if (_clipboardIsCut)
         {
-            var missing = _clipboardSelection.Where(k => !_store.CallsReadOnly.ContainsKey(k.Id)).ToList();
+            var cutKind = _clipboardSelection[0].EntityKind;
+            var missing = _clipboardSelection.Where(k =>
+                cutKind == EntityKind.Work
+                    ? !_store.WorksReadOnly.ContainsKey(k.Id)
+                    : !_store.CallsReadOnly.ContainsKey(k.Id)).ToList();
             if (missing.Count > 0)
             {
                 _clipboardSelection.Clear();
@@ -279,6 +301,13 @@ public partial class MainViewModel
         if (batchType == EntityKind.Call && _clipboardIsCut)
         {
             DispatchCallMoveSameFlow(target.Value);
+            return;
+        }
+
+        // Cut Work → target Flow 로 이동 (MoveWorksToFlow, 1 undo step)
+        if (batchType == EntityKind.Work && _clipboardIsCut)
+        {
+            DispatchWorkMove(target.Value);
             return;
         }
 
@@ -391,6 +420,58 @@ public partial class MainViewModel
         else
         {
             StatusText = "Nothing moved (duplicate name or invalid target).";
+        }
+    }
+
+    /// <summary>Work 들의 내부 Call 을 모아 cross-flow device mode 다이얼로그를 띄운다.
+    /// Work cross-flow = 내부 Call 전부 cross-flow 이므로 Call 이동과 동일한 device 처리 선택이 필요.
+    /// Call 이 없으면 device 무관 → 다이얼로그 없이 CloneSystem. 사용자가 취소하면 false.</summary>
+    private bool TryResolveWorkMoveDeviceMode(IReadOnlyList<Guid> workIds, out CrossFlowDeviceMode mode)
+    {
+        mode = CrossFlowDeviceMode.CloneSystem;
+        var callIds = workIds
+            .SelectMany(wid => Queries.callsOf(wid, _store))
+            .Select(c => c.Id)
+            .ToArray();
+        if (callIds.Length == 0) return true;
+        var m = _dialogService.PromptCrossFlowDeviceMode(
+            new CrossFlowDeviceModePromptContext(
+                CallCount: callIds.Length,
+                IsCut: true,
+                Store: _store,
+                SourceCallIds: callIds,
+                TargetWorkId: Guid.Empty));   // Work 이동엔 특정 target Work 없음 — rename 사전검사 스킵
+        if (m is null) return false;          // 다이얼로그 취소
+        mode = m;
+        return true;
+    }
+
+    /// <summary>Cut Work → target Flow 로 cross-flow 이동. 내부 Call device 처리 모드 선택 후
+    /// MoveWorksAcrossFlow(paste+원본 cascade-remove). no-op 은 F# 가 제외.</summary>
+    private void DispatchWorkMove((EntityKind EntityType, Guid EntityId) target)
+    {
+        var targetFlowOpt = StoreHierarchyQueries.resolveTarget(_store, EntityKind.Flow, target.EntityType, target.EntityId);
+        if (targetFlowOpt is null) return;
+
+        var workIds = _clipboardSelection.Select(k => k.Id).ToArray();
+        if (!TryResolveWorkMoveDeviceMode(workIds, out var mode)) return;
+
+        TryEditorFunc(
+            () => _store.MoveWorksAcrossFlow(workIds, targetFlowOpt.Value, mode),
+            out var movedIds,
+            fallback: Microsoft.FSharp.Collections.ListModule.Empty<Guid>());
+        var moved = movedIds?.ToList() ?? new List<Guid>();
+        if (moved.Count > 0)
+        {
+            _clipboardSelection.Clear();
+            _clipboardIsCut = false;
+            Selection.ApplyCutPendingVisuals([]);
+            ApplyPasteSelection(moved, $"Moved {moved.Count} Work(s) across Flow ({mode}).");
+            RefreshEditorCommandStates();
+        }
+        else
+        {
+            StatusText = "Nothing moved (invalid target).";
         }
     }
 

@@ -248,11 +248,13 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanUndoNow))]
     private void Undo()
     {
+        // Cut(잘라내기) 대기 중이면 Ctrl+Z 는 데이터 undo 보다 먼저 잘라내기부터 취소한다.
+        if (_clipboardIsCut) { CancelCut(); return; }
         if (!GuardSimulationSemanticEdit("Undo")) return;
         _pasteCount = 0;
         TryEditorAction(() => _store.Undo());
     }
-    private bool CanUndoNow => CanUndo;
+    private bool CanUndoNow => CanUndo || _clipboardIsCut;
 
     [RelayCommand(CanExecute = nameof(CanRedoNow))]
     private void Redo()
