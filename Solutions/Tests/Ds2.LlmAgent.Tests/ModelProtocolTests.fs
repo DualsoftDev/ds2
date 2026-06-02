@@ -2876,7 +2876,9 @@ systems:
     Assert.Equal(TokenRole.Source, advAfter.TokenRole)
 
 // ════════════════════════════════════════════════════════════════════════════
-// todo §4.5 — system-level work arrows 신규 구조 회귀 테스트 (14건)
+// todo §4.5 — system-level work arrows 신규 구조 회귀 테스트 (14 항목 = 12 신규 fact + 2 전환)
+// (#12 중복 flow 키 의미 전환 / #13 Mermaid 14 fact 이식 은 기존 테스트 새 구조 전환으로 충족 —
+//  ModelProtocolMermaidTests.fs + '중복 flow 키' 테스트. 본 파일 신규 [<Fact>]/[<Theory>] = #1~#11,#14.)
 // ════════════════════════════════════════════════════════════════════════════
 
 // ─── #1 cross-flow work arrow round-trip (핵심 버그 수정 증명) ───────────────
@@ -3234,3 +3236,47 @@ patch:
     let arrows = Queries.arrowWorksOf ctrl.Id store
     Assert.Equal(1, arrows.Length)
     Assert.Equal(ArrowType.Start, arrows.Head.ArrowType)
+
+// ─── C-2/M-1 회귀 — modeling patch 가 seed된 기존 work reuse (D1 가드 over-fire 차단) ──
+
+/// 메타 리뷰 C-2: seedStoreSystems(patch 경로)가 기존 work 를 WorkIdsByName 에 미리 채우는데
+/// D1 가드가 *reuse* 까지 '중복'으로 차단하던 회귀. modeling level 은 lookup-first reuse 가 계약
+/// (SSOT §4 level: modeling) 이므로, seed 된 기존 entity 재참조는 충돌이 아니어야 함.
+let private c2BaseYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flows:
+      Run: {}
+    works:
+        Adv: { flow: Run, calls: [Cyl1.ADV] }
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+[<Fact>]
+let ``메타리뷰 C-2 — modeling patch 가 seed된 기존 work reuse (가드 over-fire 차단)`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store c2BaseYaml
+    let proj = (Queries.allProjects store).Head
+    let ctrl = Queries.activeSystemsOf proj.Id store |> List.head
+    let run = Queries.flowsOf ctrl.Id store |> List.head
+    Assert.Equal(1, Queries.worksOf run.Id store |> List.length)
+    // modeling level patch — 기존 Adv 재참조. OLD: D1 가드가 seed된 Adv 차단 → HasErrors. NEW: reuse 라 통과.
+    let patchYaml = """
+protocol: promaker/v0
+level: modeling
+patch:
+  add:
+    - in: Controller
+      works:
+        Adv: { flow: Run }
+"""
+    let diag, _, plan = parseAndApply store patchYaml
+    Assert.False(diag.HasErrors, sprintf "modeling reuse 가 D1 가드로 차단됨 (C-2 회귀): %s" (diag.Format()))
+    store.ApplyImportPlan("modeling reuse", plan.Build())
+    // work 중복 생성 없이 그대로 1개 (reuse — 새 entity 미생성).
+    Assert.Equal(1, Queries.worksOf run.Id store |> List.length)

@@ -1298,12 +1298,24 @@ module ModelProtocol =
         try
             // M1 fix: work localName sanitize 가드.
             if not (tryValidateName ctx path "Work localName" workLocalName) then () else
-            // D1 — work 이름 system-unique. flat 평탄 dict 에 이미 존재하면 import 충돌 (silent 덮어쓰기 금지).
-            // 동명 work 가 같은 system 의 다른 flow 에 있거나 (cross-flow) wire dup-key 인 경우 fail-fast.
-            if sysEntry.WorkIdsByName.ContainsKey workLocalName then
+            // S3b — modeling level 시 lookup-first (기존 store/plan 의 같은 (flowId, workLocalName) Work reuse).
+            // #32 — store + plan 합집합. plan-only Work 도 reuse. durationOpt 무관 → 가드 전에 산출.
+            let reuseId =
+                match !ctx.Level with
+                | Modeling ->
+                    Queries.worksOf flowId ctx.Store
+                    |> List.tryFind (fun w -> w.LocalName = workLocalName)
+                    |> Option.orElseWith (fun () -> Internal.PlanLookup.tryFindWorkByLocalName ctx.Plan flowId workLocalName)
+                    |> Option.map (fun w -> w.Id)
+                | Full -> None
+            // D1 — work 이름 system-unique. **새 work 생성** 시 이름이 system 에 이미 존재하면 충돌 (silent 덮어쓰기 금지).
+            // modeling reuse (기존 entity 재사용) 는 동일 entity 라 충돌 아님 — seedStoreSystems 가 채운 기존 work 의
+            // patch-merge reuse 를 가드가 잘못 차단하던 회귀(C-2) 차단. cross-flow 동명/wire dup 의 신규 생성만 fail-fast.
+            if reuseId.IsNone && sysEntry.WorkIdsByName.ContainsKey workLocalName then
                 ctx.Diagnostics.Add(path, sprintf "Work 이름 '%s' 가 system '%s' 안에서 중복 정의되었습니다 (work 이름은 system-unique — D1)." workLocalName sysEntry.Name) else
             // M3 fix: workDuration 을 queueAddWork 호출 *전* 에 파싱해서 옵션 인자로 전달.
             // 후행 mutation (plan.Operations 재검색 + w.Duration <- ts) 제거 — Operations immutable invariant 보존.
+            // wire 의 workDuration 키는 modeling walk (S3a) 가 사전 거부 — modeling 시 durationOpt 는 None 보장.
             let durationOpt =
                 tryProp workEl "workDuration" |> Option.bind tryString
                 |> Option.bind (fun s ->
@@ -1312,22 +1324,10 @@ module ModelProtocol =
                     | Error msg ->
                         ctx.Diagnostics.Add(joinDiagKey path "workDuration", msg)
                         None)
-            // S3b — modeling level 시 lookup-first (기존 store 의 같은 (flowId, workLocalName) Work reuse).
-            // wire 의 workDuration 키는 modeling walk (S3a) 가 사전 거부 — durationOpt 는 None 보장.
-            // #32 — store + plan 합집합. plan-only Work 도 reuse.
             let workId =
-                match !ctx.Level with
-                | Modeling ->
-                    let storeHit =
-                        Queries.worksOf flowId ctx.Store
-                        |> List.tryFind (fun w -> w.LocalName = workLocalName)
-                    let combinedHit =
-                        storeHit
-                        |> Option.orElseWith (fun () -> Internal.PlanLookup.tryFindWorkByLocalName ctx.Plan flowId workLocalName)
-                    match combinedHit with
-                    | Some w -> w.Id
-                    | None -> ToolOperations.queueAddWork ctx.Plan ctx.Store workLocalName flowId durationOpt
-                | Full -> ToolOperations.queueAddWork ctx.Plan ctx.Store workLocalName flowId durationOpt
+                match reuseId with
+                | Some id -> id
+                | None -> ToolOperations.queueAddWork ctx.Plan ctx.Store workLocalName flowId durationOpt
             // WorkIdsByName 누적 — work 이름 → Guid (system 전역, cross-flow arrow resolve 용).
             sysEntry.WorkIdsByName.[workLocalName] <- workId
 
@@ -1562,26 +1562,27 @@ module ModelProtocol =
                     let flowEl = prop.Value
                     let flowPath = sprintf "%s.flows.%s" basePath flowName
                     // M1 fix: flow 이름 sanitize 가드.
-                    if not (tryValidateName ctx flowPath "Flow name" flowName) then ()
-                    elif sysEntry.FlowIds.ContainsKey flowName then
+                    if not (tryValidateName ctx flowPath "Flow name" flowName) then () else
+                    // S3b — modeling level 시 lookup-first (기존 store/plan 의 같은 (sysId, flowName) Flow reuse).
+                    // #32 — store + plan 합집합. plan-only Flow 도 reuse (multi-stage forward-ref 회귀 가드).
+                    let reuseFlowId =
+                        match !ctx.Level with
+                        | Modeling ->
+                            Queries.flowsOf sysId ctx.Store
+                            |> List.tryFind (fun f -> f.Name = flowName)
+                            |> Option.orElseWith (fun () -> Internal.PlanLookup.tryFindFlowByName ctx.Plan sysId flowName)
+                            |> Option.map (fun f -> f.Id)
+                        | Full -> None
+                    // **새 flow 생성** 시에만 중복 검사 — modeling reuse (seed 된 기존 flow 재참조) 는 제외 (M-1 회귀 차단).
+                    if reuseFlowId.IsNone && sysEntry.FlowIds.ContainsKey flowName then
                         // flows mapping key 중복 (wire dup-key) — 첫 등장만 채택.
                         ctx.Diagnostics.Add(flowPath, sprintf "flow '%s' 키 중복." flowName)
                     else
                     try
-                        // S3b — modeling level 시 lookup-first (기존 store/plan 의 같은 (sysId, flowName) Flow reuse).
-                        // #32 — store + plan 합집합. plan-only Flow 도 reuse (multi-stage forward-ref 회귀 가드).
                         let flowId =
-                            match !ctx.Level with
-                            | Modeling ->
-                                let storeHit =
-                                    Queries.flowsOf sysId ctx.Store
-                                    |> List.tryFind (fun f -> f.Name = flowName)
-                                storeHit
-                                |> Option.orElseWith (fun () -> Internal.PlanLookup.tryFindFlowByName ctx.Plan sysId flowName)
-                                |> function
-                                   | Some f -> f.Id
-                                   | None -> ToolOperations.queueAddFlow ctx.Plan ctx.Store flowName sysId
-                            | Full -> ToolOperations.queueAddFlow ctx.Plan ctx.Store flowName sysId
+                            match reuseFlowId with
+                            | Some id -> id
+                            | None -> ToolOperations.queueAddFlow ctx.Plan ctx.Store flowName sysId
                         sysEntry.FlowIds.[flowName] <- flowId
 
                         // flows value 허용 키 화이트리스트 = plc 만 (D5). 그 외 거부.
