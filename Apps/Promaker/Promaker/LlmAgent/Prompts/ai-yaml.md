@@ -94,16 +94,16 @@ system `arrows:` — `"<FlowN_anchor> -> <FlowN+1_anchor> : Start"` (bare, cross
       Clear (마지막 flow)
 system `arrows:` — `"<lastAnchor> -> Clear : StartReset"` + `"<lastAnchor> -> Clear : Reset"`
 
-#### Call 제약 (callCondition — AutoAux / ComAux / SkipAction)
+#### Call 제약 (condition — AutoAux / ComAux / SkipAction)
 
       AutoAux
-일반 선후. `callCondition: { type: AutoAux, conditions: [<Passive>.<Api>] }`
+일반 선후. `condition: { type: AutoAux, conditions: [<Passive>.<Api>] }`
 
       ComAux ★
-안전 선행조건. `callCondition: { type: ComAux, conditions: [...] }`
+안전 선행조건. `condition: { type: ComAux, conditions: [...] }`
 
       SkipAction ★
-분기 우회. `callCondition: { type: SkipAction, conditions: [<cond Passive>.<Api>] }`
+분기 우회. `condition: { type: SkipAction, conditions: [<cond Passive>.<Api>] }`
 
 #### 작명 규칙
 
@@ -145,25 +145,25 @@ system `arrows:` — `"<lastAnchor> -> Clear : StartReset"` + `"<lastAnchor> -> 
 | Group | system `arrows:` (bare) | `"<WorkA> -> <WorkB> : Group"` | **같은 flow 안 모든 work 간** (전부 Group) |
 | Start (Flow 간) | system `arrows:` (bare) | `"<FlowN_anchor> -> <FlowN+1_anchor> : Start"` | 인접 flow anchor work 끼리 1개 |
 | StartReset + Reset | system `arrows:` (bare) | `"<lastAnchor> -> Clear : StartReset"` / `": Reset"` | 마지막 flow → Clear self-reset |
-| AutoAux | call object `callCondition` | `{ type: AutoAux, conditions:[<P>.<Api>] }` | 일반 선후 (work 간 Group 으로는 표현 안 되는 call 타이밍) |
-| ComAux ★ | call object `callCondition` | `{ type: ComAux, conditions:[...] }` | 안전 선행조건 |
-| SkipAction ★ | call object `callCondition` | `{ type: SkipAction, conditions:[...] }` | 분기 우회 |
+| AutoAux | call object `condition` | `{ type: AutoAux, conditions:[<P>.<Api>] }` | 일반 선후 (work 간 Group 으로는 표현 안 되는 call 타이밍) |
+| ComAux ★ | call object `condition` | `{ type: ComAux, conditions:[...] }` | 안전 선행조건 |
+| SkipAction ★ | call object `condition` | `{ type: SkipAction, conditions:[...] }` | 분기 우회 |
 
       ★ 설계 원칙 (사용자 결정)
-      flow 안 work 들은 전부 `Group` 으로 묶는다(실행 인과는 Group 에 없음 — UI 그룹 hint). **실제 call 실행 제약은 `callCondition`(AutoAux 등) 으로 부여**한다. 즉 work 간 순서·동기화는 Group 이 아니라 call 의 AutoAux/ComAux 가 담당.
+      flow 안 work 들은 전부 `Group` 으로 묶는다(실행 인과는 Group 에 없음 — UI 그룹 hint). **실제 call 실행 제약은 `condition`(AutoAux 등) 으로 부여**한다. 즉 work 간 순서·동기화는 Group 이 아니라 call 의 AutoAux/ComAux 가 담당.
 
 ### AutoAux / ComAux / SkipAction — 결정 트리 (call 제약 분류)
 
       조건 미충족 시 위험·사고·설비 손상? → ComAux (인터록, 안전문, 비상정지, 에어압력, 클램프 후 용접 등)
       조건 미충족 시 그 call 건너뛰고 진행? → SkipAction (검사 NG 재작업, 옵션 부품, 모델별 선택 공정)
       단순 시간적 선후(공정 순서)? → AutoAux (Cyl1 후 Cyl2, 로봇 위치 후 실러 도포)
-      제약 없음 → callCondition 생략 (Work 내부면 work `arrows:` 의 Start 로 충분)
+      제약 없음 → condition 생략 (Work 내부면 work `arrows:` 의 Start 로 충분)
 
-### callCondition 의 conditions = 다른 call 의 `<Passive>.<Api>`
+### condition 의 conditions = 선행 call 을 지목하는 `<Passive>.<Api>` 참조 배열
 
-- `conditions` 는 **실재하는 Passive.Api 참조** 목록. 자유 문자열 금지.
-- 같은 work 안/다른 work 의 call 모두 참조 가능 (system 전체 resolve).
-- Mermaid 의 `AutoAux: <call_id>` (예: `AutoAux: Main_S201_Robot_WORK3`) → YAML `conditions: [Robot201.WORK3]` 로 변환 (full path → `<Passive>.<Api>`).
+- `conditions` 는 **call 참조 배열** — 각 원소는 `<Passive>.<Api>` dotted-path 로 store 의 실재 call 을 *구조적으로 지목* 한다 (자연어·임의 텍스트가 아님). 미존재 참조는 파서가 resolve 실패로 거부 (§2.7 룰3) — 표현 구조 자체가 임의 문자열을 차단하므로 별도 "문자열 금지" 규약 불필요.
+- 참조 대상은 같은 work / 다른 work 의 call 모두 가능 (system 전체에서 resolve).
+- 선행조건이 여럿이면 배열에 나열: `conditions: [Robot205a.WORK3, Robot205b.WORK2]` (둘 다 완료되어야 실행).
 
 ## 3출력 형식 (계약)
 
@@ -184,7 +184,7 @@ systems:
       calls:
         - <Passive>.<Api>                       # 제약 없으면 string scalar
         - ref: <Passive>.<Api>                  # 제약 있으면 object 승격
-          callCondition: { type: AutoAux, conditions: [<Passive>.<Api>] }
+          condition: { type: AutoAux, conditions: [<Passive>.<Api>] }
       arrows:                    # work 내부 call DAG
         - "<Passive>.<Api> -> <Passive>.<Api> : Start"
   arrows:                        # system 레벨 work 간 arrow
@@ -207,11 +207,11 @@ systems:
 
 ### 3.3 calls dual format
 
-- **string scalar** — 제약(callCondition) 없을 때. 예: `- Robot201.WORK1`
-- **object** — `callCondition` 있을 때. `ref:` 필수.
+- **string scalar** — 제약(condition) 없을 때. 예: `- Robot201.WORK1`
+- **object** — `condition` 있을 때. `ref:` 필수.
   ```yaml
   - ref: Robot201.WORK4
-    callCondition: { type: AutoAux, conditions: [Sealer201a.SEAL] }
+    condition: { type: AutoAux, conditions: [Sealer201a.SEAL] }
   ```
 - 같은 work 안 같은 `<Passive>.<Api>` N회 등장 = concurrent (동시 호출). 단 work `arrows:` 의 source/target 으로 중복 이름 참조는 금지 (모호) — 순차면 Passive 를 분리.
 
@@ -253,12 +253,12 @@ systems:
 
 - 각 work 의 `calls:` = 그 타입 인스턴스들의 모든 api 호출 (`<Passive>.<Api>`).
 - 호출 순서가 있으면 work `arrows:` 에 `"<P>.<Api> -> <P>.<Api> : Start"` chain (cycle 금지, 분기/합류 가능).
-- 제약(다른 call 타이밍/안전/분기)이 있으면 해당 call 을 object 승격 + `callCondition`.
+- 제약(다른 call 타이밍/안전/분기)이 있으면 해당 call 을 object 승격 + `condition`.
 
-### Stage 4 — flow 내 Work 간 연결 (Group) + call 제약(callCondition)
+### Stage 4 — flow 내 Work 간 연결 (Group) + call 제약(condition)
 
 - 같은 flow 안 **모든 work 쌍/체인을 `Group` 으로 연결** (system `arrows:`, bare). 보통 work 들을 일렬 chain 으로: `A o Group o B`, `B o Group o C`.
-- work 간 실제 실행 순서/동기화는 Group 이 아니라 **call 의 `callCondition`** 으로 부여:
+- work 간 실제 실행 순서/동기화는 Group 이 아니라 **call 의 `condition`** 으로 부여:
   - 일반 선후 → AutoAux / 안전 선행 → ComAux / 분기 우회 → SkipAction (결정 트리 §2).
 
 ### Stage 5 — flow 간 연결 (Start, anchor work 끼리)
@@ -281,7 +281,7 @@ systems:
   ```
 - Clear 는 마지막 flow 에만 1개 — 중간 flow 는 없음.
 
-### Stage 7 — Passive system 블록 생성 (★ Mermaid 에 없는 단계)
+### Stage 7 — Passive system 블록 생성 (★ 필수 — 빠뜨리기 쉬움)
 
 - Stage 2 에서 식별한 모든 디바이스 인스턴스를 `systems[]` 에 `kind: passive` 로 emit.
 - 각 Passive: `device:` (§6 매핑) + `apis:` (그 인스턴스가 노출한 동작 = calls 에서 쓴 api 의 합집합).
@@ -302,7 +302,7 @@ Active System 단 1개(default Main). 디바이스 인스턴스마다 Passive sy
 call 간 arrow 는 Start 만, cycle 금지. work 안에서만 정의.
 
       E · flow 내 Work 간 = Group (system `arrows:`, bare)
-같은 flow 모든 work 는 Group. 실행 제약은 Group 이 아니라 callCondition 이 담당.
+같은 flow 모든 work 는 Group. 실행 제약은 Group 이 아니라 condition 이 담당.
 
       F · flow 간 = Start (anchor 끼리 1개)
 인접 flow anchor work 끼리 Start 1개 (bare, cross-flow). StartReset 아님.
@@ -316,8 +316,8 @@ call 간 arrow 는 Start 만, cycle 금지. work 안에서만 정의.
       I · ArrowType = Start / Group / StartReset / Reset (+ ResetReset 특수)
 그 외 금지. work 간은 Group/Start/StartReset/Reset, call 간은 Start.
 
-      J · call 제약 = callCondition (AutoAux/ComAux/SkipAction)
-type 3종만. conditions = 실재 `<Passive>.<Api>` 참조 (자유 문자열 금지). 안전 = ComAux 필수.
+      J · call 제약 = condition (AutoAux/ComAux/SkipAction)
+type 3종만. conditions = 선행 call 의 `<Passive>.<Api>` 참조 배열 (미존재 = validate 에러). 안전 = ComAux 필수.
 
       K · 추측 금지
 미명시 디바이스/동작/Flow/capacity 임의 추가 금지. Clear 만 자동 추가(룰 G).
@@ -397,7 +397,7 @@ systems:
   apis: [ADV, RET]
 ```
 
-### 예제 B — flow 내 Group + callCondition(AutoAux) "Robot 핸들링 + Sealer 도포 동기화" (STN201 발췌)
+### 예제 B — flow 내 Group + condition(AutoAux) "Robot 핸들링 + Sealer 도포 동기화" (STN201 발췌)
 
 ```yaml
 protocol: promaker/v0
@@ -416,10 +416,10 @@ systems:
         - Robot201.WORK2
         - Robot201.WORK3
         - ref: Robot201.WORK4
-          callCondition: { type: AutoAux, conditions: [Sealer201a.SEAL] }
+          condition: { type: AutoAux, conditions: [Sealer201a.SEAL] }
         - Robot201.WORK5
         - ref: Robot201.HOME
-          callCondition: { type: AutoAux, conditions: [Sealer201b.SEAL] }
+          condition: { type: AutoAux, conditions: [Sealer201b.SEAL] }
       arrows:
         - "Robot201.WORK1 -> Robot201.WORK2 : Start"
         - "Robot201.WORK2 -> Robot201.WORK3 : Start"
@@ -430,9 +430,9 @@ systems:
       flow: S201
       calls:
         - ref: Sealer201a.SEAL
-          callCondition: { type: AutoAux, conditions: [Robot201.WORK3] }
+          condition: { type: AutoAux, conditions: [Robot201.WORK3] }
         - ref: Sealer201b.SEAL
-          callCondition: { type: AutoAux, conditions: [Robot201.WORK5] }
+          condition: { type: AutoAux, conditions: [Robot201.WORK5] }
     S202_Robots:
       flow: S202
       calls: [Robot202.WORK1, Robot202.HOME]
@@ -467,16 +467,16 @@ systems:
       flow: S204
       calls:
         - ref: Jig204.CLP
-          callCondition: { type: AutoAux, conditions: [Robot204.LOAD] }
+          condition: { type: AutoAux, conditions: [Robot204.LOAD] }
         - ref: Jig204.UNCLP
-          callCondition: { type: AutoAux, conditions: [Gun204.WELD] }
+          condition: { type: AutoAux, conditions: [Gun204.WELD] }
       arrows:
         - "Jig204.CLP -> Jig204.UNCLP : Start"
     S204_Guns:
       flow: S204
       calls:
         - ref: Gun204.WELD
-          callCondition: { type: ComAux, conditions: [Jig204.CLP] }   # 안전: 클램프 후에만 용접
+          condition: { type: ComAux, conditions: [Jig204.CLP] }   # 안전: 클램프 후에만 용접
   arrows:
     - "S204_Robots -> S204_Clamps : Group"
     - "S204_Clamps -> S204_Guns : Group"
@@ -518,7 +518,7 @@ systems:
 - ☐ work 내부 call arrow = work `arrows:` 의 Start (cycle 없음)
 - ☐ flow 내 work 간 = system `arrows:` 의 Group (bare) · flow 간 = Start (anchor 끼리 1개, bare)
 - ☐ 마지막 flow 에만 Clear · anchor → Clear 두 arrow (StartReset + Reset)
-- ☐ call 제약 = callCondition (AutoAux/ComAux/SkipAction) · conditions = 실재 `<Passive>.<Api>` · 안전 = ComAux
+- ☐ call 제약 = condition (AutoAux/ComAux/SkipAction) · conditions = 실재 `<Passive>.<Api>` · 안전 = ComAux
 - ☐ 이름에 `.` 없음 · 영문/숫자/_ 만 · Api = §6 표준 또는 명시 UPPERCASE
 - ☐ 사용자 미명시 디바이스/동작/Flow 추가 안 됨 (Clear만 자동)
 
@@ -533,7 +533,7 @@ systems:
 - flow 간을 StartReset 으로 (Start 필수) · 중간 flow 에 Clear
 - Clear 가 단일 arrow (StartReset + Reset 두 개 필수)
 - Call 이 `<Passive>.<Api>` dotted-path 아님 · `<Passive>` 미정의
-- callCondition.conditions 를 자유 문자열로 (실재 `<Passive>.<Api>` 필수)
+- condition.conditions 원소가 store 에 미존재하는 참조 (각 원소 = 실재 `<Passive>.<Api>` call — resolve 안 되면 에러)
 - 안전 선행조건을 AutoAux 로 (안전 = ComAux 필수)
 - ArrowType / CallConditionType 외 값 사용
 - 이름에 `.`(점) 사용 (path 구분자 충돌)
@@ -645,7 +645,7 @@ FirstScan,                          ...,    Bool, %M1.0,    Mem flag     ← 제
         (0) capacity 미명시 시 되묻기,
         (1) capacity = Flow 수 / flow 안 device 타입 묶음 = Work(`<Flow>_<타입복수>`) / 디바이스 인스턴스 = Passive system / api 호출 = Call(`<Passive>.<Api>`),
         (2) Work 내부는 work `arrows:` 의 Start DAG,
-        (3) flow 안 Work 들은 system `arrows:` 의 Group 으로 묶고, 실제 call 제약은 callCondition(AutoAux 일반선후 / ComAux 안전 / SkipAction 분기),
+        (3) flow 안 Work 들은 system `arrows:` 의 Group 으로 묶고, 실제 call 제약은 condition(AutoAux 일반선후 / ComAux 안전 / SkipAction 분기),
         (4) flow 간은 anchor work 끼리 Start 1개,
         (5) 마지막 flow 에 Clear + anchor → Clear (StartReset + Reset),
         (6) 모든 `<Passive>` 를 `kind: passive` 로 emit
