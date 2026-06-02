@@ -110,7 +110,7 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     /// in-memory only — app restart / chat history 복원 시 첫 송신에 자동 재첨부 (null 시작).
     ///
     /// **갱신 시점**: 송신 성공 (await foreach 정상 종료) 직후. 실패 / cancel 시에는 갱신 안 함 → 재시도 시 재첨부.
-    /// **reset 시점**: <see cref="Reset"/>, <see cref="UpdateStore"/>, provider switch (<see cref="ConfigureProviderAsync"/>),
+    /// **reset 시점**: <see cref="ResetConversation"/>, <see cref="UpdateStore"/>, provider switch (<see cref="ConfigureProviderAsync"/>),
     ///   ApplyImportPlan 실패 (round-trip §M1).
     /// TODO(roundtrip): message edit / regenerate 기능 추가 시 해당 진입점에서도 reset 필요.
     /// </summary>
@@ -228,13 +228,77 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
 
     private bool CanCancel() => IsSending;
 
-    [RelayCommand]
-    private void Reset()
+    /// <summary>
+    /// LLM chat 재시작 (구 "초기화" 버튼 흡수/대체 — 결정 2026-06-02). 대화·세션·첨부를 전부 비우고 패널을
+    /// 처음 연 직후 상태로 완전 재초기화한다: <see cref="TeardownAsync"/> → <see cref="_config"/> 재로드 →
+    /// <see cref="InitializeAsync"/>. 따라서 system prompt + KB digest 가 처음 열 때와 동일하게 재주입된다
+    /// (별도 자동 전송 메시지 없음 — 빈 입력창 + 새 세션 상태).
+    ///
+    /// **KB 변경 반영** — KB 관리에서 collection active 를 바꾼 뒤 재시작하면, TeardownAsync 가 기존 LightHouse
+    /// 세션 + KB profile/accepted cache 를 비우고, InitializeAsync 의 TryCreateLightHouseSessionsAsync 가 최신
+    /// _config 의 active 셋으로 세션을 재발급 → RefreshKbDigestAsync 가 새 KB digest 를 system prompt 에 주입한다.
+    /// chat-scoped invariant(§3.8 L1)의 "active 토글은 다음 패널부터 반영" 을 버튼으로 즉시 트리거하는 셈.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanRestart))]
+    private async Task RestartAsync()
+    {
+        // 재진입 가드 set — 더블클릭 / 버튼 외 호출 시 InitializeAsync / McpHostService.StartAsync 이중 진입 race 봉쇄.
+        _isRestarting = true;
+        RestartCommand.NotifyCanExecuteChanged();
+        try
+        {
+            IsReady = false;
+            SendCommand.NotifyCanExecuteChanged();
+            StatusText = "재시작 중…";
+
+            // 재시작·영구종료 공통 teardown — 진행 turn cancel + provider / mcpConfig / Codex 워크스페이스 / MCP host /
+            // LightHouse 세션 / KB cache 정리. ConfigureAwait(true) — 이후 UI 상태 mutation 이 dispatcher thread 보장.
+            await TeardownAsync().ConfigureAwait(true);
+
+            // 대화/세션/첨부/citation/snapshot 상태 reset (L1 — OnProjectClosing 과 공유). teardown 직후라 _provider 는
+            // 이미 null → 내부 ClearSession() 은 noop, 나머지 UI 상태만 초기화.
+            ResetConversation();
+            // 재시작 = 처음 연 직후 상태 약속 — 입력창도 비움 (OnProjectClosing 의 L1 ResetConversation 은 입력 보존 유지).
+            Input = "";
+
+            // KB 관리 / 설정 다이얼로그가 disk 에 저장한 최신 상태를 메모리로 반영 (변경된 KB active 셋 / API key / model).
+            _config = LlmConfig.Load();
+
+            // 처음 패널 열 때와 동일 경로로 재초기화 — MCP host StartAsync / LightHouse 세션 발급 / provider 재생성
+            // (system prompt baked-in) / KB digest fetch 가 모두 재실행된다. IsReady / StatusText 도 InitializeAsync 가 확정.
+            await InitializeAsync().ConfigureAwait(true);
+        }
+        finally
+        {
+            // 가드 해제 — 성공/실패/취소 무관 보장. Minor-1(teardown thread-affinity) 도 본 가드로 동반 해소.
+            _isRestarting = false;
+            RestartCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    /// <summary>재진입 가드 상태 (<see cref="RestartAsync"/> 진행 중 true). CommunityToolkit.Mvvm 8.4
+    /// AsyncRelayCommand 의 기본 non-concurrent(실행 중 CanExecute=false) 동작과 중복이나, 버튼 외 호출 경로 /
+    /// 옵션·버전 변화에도 견고하도록 명시적으로 박제.</summary>
+    private bool _isRestarting;
+    /// <summary>재시작 가능 조건. streaming(<see cref="IsSending"/>) 중 비활성 — <see cref="TeardownAsync"/> 의
+    /// provider DisposeAsync 가 진행 중 stream 에 닿으면 OperationCanceledException 이 아닌 ObjectDisposedException
+    /// 으로 빠져 에러 turn / stale turn 회귀를 유발(구 Reset 은 provider dispose 를 안 해 무관했음). CanSend /
+    /// CanCancel 과 동일한 IsSending 가드로 일관성 + "취소 후 재시작" UX 확보. <see cref="OnIsSendingChanged"/> 가
+    /// IsSending 토글 시 재평가.</summary>
+    private bool CanRestart() => !_isRestarting && !IsSending;
+
+    /// <summary>
+    /// L1 대화/세션 초기화 — 진행 turn cancel + provider session 버림 + 대화·첨부·citation·snapshot 상태 reset.
+    /// <see cref="RestartAsync"/>(L3 재시작, teardown 후 호출 — 이 경우 _provider 는 이미 null)와
+    /// <see cref="OnProjectClosing"/>(프로젝트 닫기) 양쪽에서 재사용. MCP host / LightHouse 세션 / provider 인스턴스
+    /// lifecycle 은 건드리지 않음 (그건 <see cref="TeardownAsync"/> 책임).
+    /// </summary>
+    private void ResetConversation()
     {
         Cancel();
         _provider?.ClearSession();
         Turns.Clear();
-        // review F4: Reset 은 세션/대화 초기화 의미 — chip / notice 도 함께 정리해 stale 상태 회피.
+        // review F4: chip / notice 도 함께 정리해 stale 상태 회피.
         Attachments.Clear();
         AttachmentNotice = "";
         SessionId = null;
@@ -244,7 +308,6 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         ClearCitationCache();
         // round-trip §3 — 세션 초기화 시 snapshot 재첨부 강제 (새 history 의 첫 turn 에 무조건 snapshot 보냄).
         _lastSentRevision = null;
-        StatusText = "세션 초기화 완료";
     }
 
     /// <summary>전체 대화를 Markdown 형식으로 clipboard 에 복사 (Role 라벨 + 빈 줄 구분).</summary>
@@ -379,6 +442,8 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
 
     partial void OnInputChanged(string value) => SendCommand.NotifyCanExecuteChanged();
     partial void OnIsReadyChanged(bool value) => SendCommand.NotifyCanExecuteChanged();
+    // streaming 시작/종료 시 재시작 버튼 가드 재평가 (CanRestart 의 !IsSending) — streaming 중 재시작 race 차단.
+    partial void OnIsSendingChanged(bool value) => RestartCommand.NotifyCanExecuteChanged();
 
     /// <summary>
     /// ComboBox 변경 시 provider 재구성. 첫 init 이전 (`_mcpConfig == null`) 에는 무시 — InitializeAsync 의
@@ -400,14 +465,22 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     private static string Truncate(string s, int max)
         => string.IsNullOrEmpty(s) ? "" : (s.Length <= max ? s : s.Substring(0, max) + "…");
 
-    public async ValueTask DisposeAsync()
+    /// <summary>
+    /// 재시작(<see cref="RestartAsync"/>)과 영구 종료(<see cref="DisposeAsync"/>)가 공유하는 리소스 teardown.
+    /// 진행 turn cancel + KB SSE 구독 해제 + LightHouse 세션 best-effort DELETE + provider / mcpConfig / Codex
+    /// 워크스페이스 / MCP host 정리. 재시작 후 <see cref="InitializeAsync"/> 가 깨끗한 상태에서 setup 하도록
+    /// 관련 필드를 null / empty 로 되돌린다 (provider·mcpConfig null 화로 ConfigureProviderAsync 의 이중 dispose 회피,
+    /// KB cache clear 로 변경된 KB 재fetch 보장).
+    ///
+    /// **editor subscription 미포함** — _store 는 재시작해도 동일 인스턴스라 구독 유지가 맞다. 패널 영구 종료
+    /// 시에만 해제하므로 <see cref="DisposeAsync"/> 가 본 메서드 호출 후 별도로 dispose 한다.
+    /// </summary>
+    private async Task TeardownAsync()
     {
         _cts?.Cancel();
         _assistantFlushTimer?.Stop();
-        _editorSubscription?.Dispose();
-        _editorSubscription = null;
 
-        // PR-F (§5.1) — SSE handler 해제 + debounce CTS cancel.
+        // PR-F (§5.1) — SSE handler 해제 + debounce CTS cancel. 재시작 시 InitializeAsync 가 SubscribeKbProfileEvents 로 재구독.
         UnsubscribeKbProfileEvents();
 
         // Phase S5c → D-S7-3b — LightHouse session 해제 per-service (§3.8 L2-1). client 자체 dispose 는 App.OnExit (LightHouseClientHolder).
@@ -426,13 +499,22 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
             LightHouseClientHolder.UnregisterSession(serviceId, token);
         }
         _lightHouseSessions.Clear();
+        // 재시작 시 stale KB 반영 차단 — accepted / profile cache 를 비워 InitializeAsync 가 최신 active 셋으로
+        // 세션 재발급 + KB profile 재fetch (FetchKbProfilesAsync 의 cache hit 으로 옛 KB digest 가 재주입되는 회귀 방지).
+        _acceptedCollectionIds.Clear();
+        _kbProfileCache.Clear();
 
         if (_provider is IAsyncDisposable apiAsync)
         {
             try { await apiAsync.DisposeAsync().ConfigureAwait(false); }
             catch (Exception ex) { Log.Warn("provider DisposeAsync 실패", ex); }
         }
+        // null 화 — 재시작 시 ConfigureProviderAsync 의 이전 provider 이중 dispose / ClearSession 호출 회피 + clean 재생성.
+        _provider = null;
+
         _mcpConfig?.Dispose();
+        _mcpConfig = null;
+
         if (_codexWorkspacePath != null)
         {
             try
@@ -444,8 +526,23 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
             {
                 Log.Warn($"Codex 워크스페이스 디렉토리 삭제 실패 — {_codexWorkspacePath}", ex);
             }
+            // 재시작 후 Codex 재선택 시 lazy 재생성되도록 경로 초기화.
+            _codexWorkspacePath = null;
+            _codexInstructionsPath = null;
         }
-        await _mcpHost.DisposeAsync().ConfigureAwait(false);
+
+        // StopAsync → _app=null (idempotent). 재시작 시 InitializeAsync 의 StartAsync 가 다시 동작
+        // (McpHostService.StartAsync 의 `_app != null` 재진입 가드 — 새 nonce / ephemeral port 재바인딩).
+        // McpHostService.DisposeAsync 자체가 StopAsync 래퍼라 영구 종료 시에도 동치.
+        await _mcpHost.StopAsync().ConfigureAwait(false);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await TeardownAsync().ConfigureAwait(false);
+        // 영구 종료 전용 — editor subscription 은 재시작 시 유지하나 패널 종료 시 해제 (store 구독 정리).
+        _editorSubscription?.Dispose();
+        _editorSubscription = null;
     }
 }
 

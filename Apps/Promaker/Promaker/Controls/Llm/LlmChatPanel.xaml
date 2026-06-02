@@ -577,14 +577,14 @@
         <!-- Buttons. PR-E (3): 단일 버튼이 IsSending 에 따라 "전송 (Enter)" ↔ "취소" 로 토글. 별도 취소 버튼 삭제.
              Icon: Segoe MDL2 Assets — Refresh(E72C) / Send(E724) / Cancel(E711). DurationBatchDialog 기존 관례 재사용. -->
         <StackPanel Grid.Row="7" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
-            <Button Command="{Binding ResetCommand}"
+            <Button Command="{Binding RestartCommand}"
                     Style="{StaticResource ChatButtonStyle}"
                     Width="80" Margin="0,0,6,0"
-                    ToolTip="대화 초기화 (세션 종료 + Turns 비우기)">
+                    ToolTip="LLM 재시작 — 세션·대화 초기화 후 처음처럼 System/KB prompt 재주입 (KB 변경 후 누르면 새 KB 반영)">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="&#xE72C;" FontFamily="Segoe MDL2 Assets"
                                FontSize="12" Margin="0,0,6,0" VerticalAlignment="Center"/>
-                    <TextBlock Text="초기화" VerticalAlignment="Center"/>
+                    <TextBlock Text="재시작" VerticalAlignment="Center"/>
                 </StackPanel>
             </Button>
             <Button Width="128">
