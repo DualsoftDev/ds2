@@ -284,4 +284,47 @@ public partial class TagInspectorDialog : Window
         BatchDialogHelper.ApplyCheckStateToSelectedRows(IoGrid, row, cb.IsChecked == true);
     }
 
+    // Delete 키 — 우클릭 메뉴와 동일하게 체크된 항목 I/O 삭제. (IsReadOnly 그리드라 기본 행삭제는 동작 안 함)
+    private void IoGrid_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Delete) return;
+        DeleteSelectedIo_Click(sender, e);
+        e.Handled = true;
+    }
+
+    // ── 선택 항목 I/O 삭제 ──────────────────────────────────────────────────
+    // 체크한 행의 ApiCall(=I/O 매핑)을 store 에서 제거. Call 자체는 유지된다.
+    // 참조 Call / 매핑 없는 행(CallId·ApiCallId Empty = dangling)은 건너뛴다.
+    private void DeleteSelectedIo_Click(object sender, RoutedEventArgs e)
+    {
+        var targets = _rows.Where(r => r.IsSelected).ToList();
+        if (targets.Count == 0)
+        {
+            DialogHelpers.ShowThemedMessageBox("체크된 항목이 없습니다.",
+                "I/O 삭제", MessageBoxButton.OK, "ℹ");
+            return;
+        }
+
+        var res = DialogHelpers.ShowThemedMessageBox(
+            $"체크한 {targets.Count}개 항목의 I/O(ApiCall)를 삭제하시겠습니까?\nCall 자체는 유지되고 매핑만 제거됩니다.",
+            "I/O 삭제", MessageBoxButton.OKCancel, "❓");
+        if (res != MessageBoxResult.OK) return;
+
+        int removed = 0, skipped = 0;
+        foreach (var r in targets)
+        {
+            if (r.CallId == Guid.Empty || r.ApiCallId == Guid.Empty) { skipped++; continue; }
+            try { _store.RemoveApiCallFromCall(r.CallId, r.ApiCallId); removed++; }
+            catch { skipped++; }
+        }
+
+        LoadFromStore();
+
+        DialogHelpers.ShowThemedMessageBox(
+            skipped > 0
+                ? $"{removed}개 삭제, {skipped}개 건너뜀(참조 Call / 매핑 없음)."
+                : $"{removed}개 항목의 I/O를 삭제했습니다.",
+            "I/O 삭제", MessageBoxButton.OK, "✓");
+    }
+
 }
