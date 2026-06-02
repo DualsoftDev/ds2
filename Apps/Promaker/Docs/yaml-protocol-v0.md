@@ -127,6 +127,7 @@ LLM 의 강점과 약점을 다시 정리:
 | **SSOT 갱신 책임 표 — §6.1 매핑 (Phase 7)** | export 보강 작업은 SSOT 의 *여러 절 동시 갱신* 강제. todo 변경 항목 ↔ SSOT 절을 1:1 매핑하는 책임 표를 todo §6.1 에 명세. 매핑 표 9 row 모두 갱신 전에는 commit 금지 — 자가 검열 trigger ⑤ (SSOT 상수 갱신) 정합. 본 §1.7 row 자체도 매핑 표의 "전체 → §1.7" row 산출물 |
 | **Read level + modeling-level patch merge (Phase 7 §10.2 #31)** | `export_model_doc.level: "full" \| "modeling"` 인자 + apply 측 wire `level:` 키 self-tagged dispatch 도입. 분류 SSOT = `Ds2.LlmAgent.Internal.ModelingCategory` 모듈의 4 카테고리 (A_Modeling / B_Addressing / C_Meta / D_Plc). **A_Modeling**: TokenRole / ContactKind / SkipInputSensor / CallType / CallCondition / apiDetails.actionType — LLM 모델 동작 의미 직결. **B_Addressing**: IOTag (inTag / outTag) — PLC 어드레스 매핑. **C_Meta**: author / version / iri / description / workDuration — 동작 무관 메타. **D_Plc**: `plc:` sub-section 통째 (54 leaf). modeling level emit = A 만, B/C/D + workDuration + apiDetails.description 생략. modeling level apply = patch-merge mode (entity lookup-first reuse + missing 키 no-op + B/C/D 키 wire 등장 사전 거부). wire 의 `level: modeling` 키가 self-tagged — apply 측은 wire 의 level 만 보고 mode 결정 (`apply_model_doc` 에 별도 level 인자 없음). 사용자 결정 (2026-05-15): B IOTag / `workDuration` / `apiDetails.description` 모두 modeling 제외. D 회색 지대 (`waitForCompletion` / Work pulse 4 등) 도 modeling 제외 (§7 후속 결정 row 정합). silent destructive 차단 — modeling export → 기존 store 에 modeling apply 시 B/C/D 보존. sub-agent review S1 산출 (Major-1 해소): apply 에 level 인자 추가 X → wire 의 level 키 SSOT → "modeling 결과를 full apply" 경로 자체 부재 (C1 자동 해소). 본 row 의 SSOT 영향 = §2.1 top-level 키 enum +1 (`level`) / §2.4.1 신규 row 2건 (`level` / `Category` enum) / §2.6 footnote (patch DSL × modeling 상호작용) / §2.7 룰 #29~#30 신설 / §2.8 view × level 4 case 표 / §4 도구 시그니처 갱신 / §6.3 default fallback 표 확장. |
 | **PLC metadata leaf scalar 보강 (Phase 7 §4.2 C-7.1)** | `ControlSystemProperties` / `ControlFlowProperties` / `ControlWorkProperties` / `ControlCallProperties` 의 단순 leaf scalar 를 entity 안 `plc:` sub-section 으로 emit/apply. **Wire 위치**: System / Flow / Work / Call 각 entity 안 `plc:` 키 — 4 레벨 모두 분산. Project 차원 아님 (`SubmodelProperties.fs` 의 DU 4종이 각 entity 의 `.Properties` 콜렉션에 attach). Promaker 의 "단일 active system × Primary ControlSystemProperties" 운영 패턴이 project 차원으로 보일 수 있으나 데이터 모델은 System 단위. **Default 정책**: type-default (= 빈 생성자 호출 결과) 와 다른 값만 emit. 모든 leaf default 면 `plc:` 키 자체 생략 — `§6.3 (b)` 정합. **TimeSpan 표현**: `TimeSpan.ToString("c")` = `"00:00:05"` (5초) / `"00:00:00.005"` (5 ms). ms 표현 round-trip 가능. **Runtime-only 제외 (派)**: `CurrentState` / `LastExecutionTime` / `ExecutionCount` / `ErrorCount` (Work) — 시뮬 lossy 4-set 유사. emit 안 함, apply 측은 unknown 키 진단으로 거부. **복합 collection 후속 phase (C-7.2)**: `FBTagMapPresets` (System) / `BaseAddressOverride` (Flow) / `InterlockConditions` / `SignalCounts` (Call) — wire 표현 복잡도로 분리. **Call dual format**: Call 의 plc 변경 → `callHasEnhancement` true → object 승격 (§2.2.1 정합). **partial export 정책**: depth 절단 없이 emit — entity 안 sub-section 이라 depth 영향 받음. todo §7 m7 partial 정책은 후속 phase 별도 결정 |
+| **work 간 arrow 의 system 레벨 단일화 + 기본 구조 변경 (D1~D7)** | 옛 구조는 work-arrow 를 flow 안 `arrows:` 에 욱여넣어 export(source flow 배분) / import(flow 한정 resolve) 비대칭 → **cross-flow work arrow read 실패**. 모델은 `ArrowBetweenWorks.ParentId=SystemId` (work 간 arrow = 이미 system 레벨 엔티티) 라 disk 구조도 정합화. **D1**: work 이름 = system-unique, flow 이름 = system-unique (모델은 flow-scope unique 만 보장 → 본 작업으로 import validate 충돌 검사 + export 충돌 exception 으로 신규 강제). **D2**: work 간 arrow = bare 표기 (`work -> work`). **D3**: 마이그레이션 don't care — 옛 `flow <Name>:` prefix 구조 read 지원 제거. **D4**: `arrows:` scope 분리 — system 직속 = work 간 / work 안 = call 간. **D5**: `flows:` 는 system 직속 mapping (flow별 속성 = plc 만 허용). **D6**: `works:` 는 system 직속 mapping, 각 work 에 `flow:` 속성 (Work.ParentId 복원). **D7**: export 시 system 내 동명 work 발견 → 즉시 exception (flat works mapping 의 silent overwrite 차단, 자동 rename 금지 — round-trip 보존). **SSOT 영향** = §2.2 active 구조 전면 / §2.4 arrow scope / §2.5 flow 식별 / §2.6 patch system-scope / §2.7 룰 6·11·13·13a~c·14 / §2.8 entity-level depth / §3.1~3.4 예시 / §4·§5 도구표. **코드** = `ModelProtocol.fs` (`SystemEntry.WorkIdsByName` 평탄 dict / `dispatchActiveFlows` import / export active emit + D7 / `iterSystemArrowEntries` patch / `applyPathScope`·`applyDepthCap`·`countEntities` partial) + `ModelProtocol.Mermaid.fs` (flows mapping / works 직속 그룹핑). |
 
 ---
 
@@ -192,29 +193,39 @@ patch:                            # (선택) 점진 mutation — 새로 만드�
 
 ### 2.2 Active system
 
+> **구조 (work 간 arrow 의 system 레벨 단일화 — D1~D7)**: Active system 은 **3 개의 system 직속 형제 키** `flows:` / `works:` / `arrows:` 로 구성. work 는 더 이상 flow 안에 중첩되지 않고 **system 직속** 이며 `flow:` 속성으로 소속을 명시. work 간 arrow 는 **system 직속 `arrows:`** 에서만 (work 이름이 system-unique 이므로 bare 표기, cross-flow 자연 지원). call 간 arrow 는 **work 안 `arrows:`** 에서만 (scope 로 의미 분리 — D4). 옛 `flow <Name>:` prefix 키 구조는 폐기 (마이그레이션 don't care — D3).
+
 ```yaml
 - system: Controller
   kind: active
   plc: { ... }                    # (선택) ControlSystemProperties — type-default 와 다른 leaf 만. §2.2.2 (Phase 7 §4.2 C-7.1)
-  flow <FlowName>:                # Flow N개 가능 — 키 prefix "flow " 로 식별
-    plc: { ... }                  # (선택) ControlFlowProperties — type-default 와 다른 leaf 만. §2.2.2
-    works:
-      <WorkName>:
-        tokenRole: Source         # (선택) Work.TokenRole — None default 면 생략. enum §2.4.1 (Phase 7 §4.2 C-6)
-        plc: { ... }              # (선택) ControlWorkProperties — type-default 와 다른 leaf 만. §2.2.2
-        calls:                    # ApiDef 참조 — dual format (§2.2.1)
-          - <System>.<ApiDef>     # string scalar — 보강 0 (default 만)
-          - ref: <System>.<ApiDef>   # object — non-default 보강 1개 이상
-            contactKind: NcContact
-            callCondition: { ... }   # §2.2.1 참조
-            plc: { ... }             # (선택) ControlCallProperties — §2.2.2
-        arrows:                   # (선택) ArrowBetweenCalls — source/target 으로 같은 이름 중복 시 validate 에러
-          - <System>.<ApiDef> -> <System>.<ApiDef> : <ArrowType>
-      <WorkName>:
-        ...
-    arrows:                       # ArrowBetweenWorks
-      - <WorkName> -> <WorkName> : <ArrowType>
+  flows:                          # [MUST 구조] Flow 목록 — system 직속 mapping (D5). flow 이름 = system-unique key
+    <FlowName>: {}                # 속성 없으면 빈 객체. value 허용 키 = plc 만 (그 외 거부 — §2.7 룰 11)
+    <FlowName2>:
+      plc: { ... }                # (선택) ControlFlowProperties — type-default 와 다른 leaf 만. §2.2.2
+  works:                          # [MUST 구조] Work 목록 — system 직속 mapping (D6). work 이름 = system-unique key
+    <WorkName>:
+      flow: <FlowName>            # [MUST] 소속 flow (Work.ParentId=FlowId 복원). 누락/미존재 flow → validate 에러 (§2.7 룰 13a/13b)
+      tokenRole: Source           # (선택) Work.TokenRole — None default 면 생략. enum §2.4.1 (Phase 7 §4.2 C-6)
+      plc: { ... }                # (선택) ControlWorkProperties — type-default 와 다른 leaf 만. §2.2.2
+      calls:                      # ApiDef 참조 — dual format (§2.2.1)
+        - <System>.<ApiDef>       # string scalar — 보강 0 (default 만)
+        - ref: <System>.<ApiDef>     # object — non-default 보강 1개 이상
+          contactKind: NcContact
+          callCondition: { ... }     # §2.2.1 참조
+          plc: { ... }               # (선택) ControlCallProperties — §2.2.2
+      arrows:                     # (선택) ArrowBetweenCalls (call 간, work 안에서만) — 같은 이름 중복 시 validate 에러
+        - <System>.<ApiDef> -> <System>.<ApiDef> : <ArrowType>
+    <WorkName2>:
+      flow: <FlowName2>
+      ...
+  arrows:                         # ArrowBetweenWorks (work 간, system 직속 — D2). bare 표기, cross-flow 도 bare
+    - <WorkName> -> <WorkName> : <ArrowType>
 ```
+
+**scope 규칙 (D4)**: `arrows:` 키는 *위치(scope)* 로 의미 분리 — system 직속 `arrows:` = **work 간 arrow** / work 안 `arrows:` = **call 간 arrow**. YAML depth 가 달라 충돌 없음. "work 간 arrow 는 system level 에서만, call 간 arrow 는 work level 에서만 정의한다."
+
+**모델 정합 (D1·D2)**: `ArrowBetweenWorks.ParentId = SystemId` (work 간 arrow 는 모델상 이미 system 레벨 엔티티 — flow scope 필드 없음) 와 1:1. work 이름은 본 구조에서 **system-unique** (모델은 flow-scope unique 만 보장하므로 import validate 충돌 검사 + export 충돌 시 exception 으로 신규 강제 — §2.7 / D7). flow 이름도 system-unique.
 
 ### 2.2.1 `calls` dual format (Phase 7 §4.1.5 — 옵션 C)
 
@@ -398,8 +409,10 @@ Parse regex: `^([A-Za-z][A-Za-z0-9_]*)(?:\(([A-Za-z][A-Za-z0-9_]*)\))?$`. ASCII-
 
 - **Type**: `Start` | `Reset` | `StartReset` | `ResetReset` | `Group` | `Unspecified`
 - `Type` 누락 시 validate 에러 (default 두지 않음 — 의도 명시 강제). 단 *명시적 미정* 의도면 `: Unspecified` 로 표기 — *키 누락* (parse 에러) 와 *명시적 미정* (도메인 의미) 의 의도 분리
-- `<From>` / `<To>` 는 *현재 scope* (Work 안 arrows = Call 식별자, Flow 안 arrows = Work 식별자)
-- cross-scope 가 필요하면 full dotted-path
+- **scope 별 식별자** (D4):
+  - **system 직속 `arrows:`** = work 간 arrow → `<From>`/`<To>` 는 **Work 이름 (bare)**. work 이름이 system-unique 이므로 flow prefix 불필요, cross-flow 도 bare (`BprSeal -> ReinfSeal : Start` 처럼 source=St201, target=St202 인 cross-flow 자연 표현).
+  - **work 안 `arrows:`** = call 간 arrow → `<From>`/`<To>` 는 **Call 식별자 (`<System>.<ApiDef>`)**.
+- call 간 arrow 의 cross-system Call 참조는 full dotted-path (`<System>.<ApiDef>`). work 간 arrow 는 항상 bare (work 가 system-unique 라 모호성 0).
 
 ### 2.4.1 Enum 라벨 사전 (Phase 7 §4.2 C-1)
 
@@ -413,7 +426,7 @@ ArrowType 외 export 보강에 도입되는 enum 라벨 — `calls` object 승�
 | **ApiDefActionType** | `Normal` \| `Push` \| `Pulse` \| `TimeTotal(<ms>)` \| `TimeAppend(<ms>)` \| `MultiAction(<count>, <ms>)` | `Normal` | `apiDetails.<ApiDef>.actionType` (Passive system) |
 | **TokenRole** | `None` \| `Source` \| `Ignore` \| `Sink` | `None` | `works.<WorkName>.tokenRole` (Phase 7 §4.2 C-6 — PoC scope: 단일 flag 만. **복합 Flags (`Source ||| Sink` 등) 가 store 에 있으면 emit 시 forensic `Combined(<int>)` 으로 표기되고 parse 측은 즉시 거부 — round-trip 불가, 의도된 제약**. 복합 표기 (`"Source|Sink"` pipe 표현 등) 는 후속 phase. **modeling level**: A_Modeling 분류이나 `Combined(n)` 라벨은 LLM 모델링 부담 회피 차원에서 emit suppress 권장 — 본 PoC 는 unsupported 라 wire 에 등장 시 즉시 거부 됨) |
 | **level** | `full` \| `modeling` | `full` (부재 시) | top-level `level:` 키 (Phase 7 §10.2 #31 — Read level + modeling patch merge). `full` = 전체 카테고리 emit / 기존 apply 동작 (entity 재생성). `modeling` = A_Modeling 만 emit / apply 측 patch-merge mode (entity lookup-first reuse + missing 키 no-op + B/C/D 키 wire 등장 사전 거부 — 룰 #29/#30). |
-| **Category** | `A_Modeling` \| `B_Addressing` \| `C_Meta` \| `D_Plc` | — | wire 의 각 키 분류 (Phase 7 §10.2 #31). `Ds2.LlmAgent.Internal.ModelingCategory.Category` DU 와 1:1. modeling level emit 대상 = `A_Modeling` 만. wire 에 직접 등장하는 enum 은 아니나 룰 #30 진단 메시지에 분류명 등장. **A_Modeling**: TokenRole / ContactKind / SkipInputSensor / CallType / CallCondition / apiDetails.actionType. **B_Addressing**: inTag / outTag (IOTag). **C_Meta**: author / version / iri / description / workDuration. **D_Plc**: `plc:` sub-section 통째 (54 leaf). 골격 키 (`protocol` / `project` / `view` / `level` / `summary` / `systems` / `system` / `kind` / `device` / `apis` / `opposing` / `flow <Name>` / `works` / `arrows` / `calls` / `ref` / `patch` / ArrowType) 는 카테고리 무관 — modeling 도 그대로 emit. |
+| **Category** | `A_Modeling` \| `B_Addressing` \| `C_Meta` \| `D_Plc` | — | wire 의 각 키 분류 (Phase 7 §10.2 #31). `Ds2.LlmAgent.Internal.ModelingCategory.Category` DU 와 1:1. modeling level emit 대상 = `A_Modeling` 만. wire 에 직접 등장하는 enum 은 아니나 룰 #30 진단 메시지에 분류명 등장. **A_Modeling**: TokenRole / ContactKind / SkipInputSensor / CallType / CallCondition / apiDetails.actionType. **B_Addressing**: inTag / outTag (IOTag). **C_Meta**: author / version / iri / description / workDuration. **D_Plc**: `plc:` sub-section 통째 (54 leaf). 골격 키 (`protocol` / `project` / `view` / `level` / `summary` / `systems` / `system` / `kind` / `device` / `apis` / `opposing` / `flows` / `flow` (work 소속 속성) / `works` / `arrows` / `calls` / `ref` / `patch` / ArrowType) 는 카테고리 무관 — modeling 도 그대로 emit. |
 
 **ApiDefActionType grammar** (DU 인자 case):
 - regex: `^([A-Za-z][A-Za-z0-9]*)(?:\(\s*(\d+)(?:\s*,\s*(\d+))?\s*\))?$`
@@ -429,20 +442,14 @@ ArrowType 외 export 보강에 도입되는 enum 라벨 — `calls` object 승�
 ### 2.5 Path 룰
 
 - segment 구분자 = `.` (canonical) 또는 `/` (혼용 허용). normalize 시점: **parse 직후 즉시 `/` → `.` 단일화**. 이후 모든 lookup/에러 메시지는 `.` 기준.
-- 같은 부모 children 끼리는 **bare name** (예: Flow 안 arrows 의 `Z1_Adv -> Z1_Punch`)
-- cross-parent / cross-system 은 **full dotted-path** (예: `Controller.Run.Z1_Adv`, `Z1_C1.ADV`)
+- 같은 부모 children 끼리는 **bare name**. work 간 arrow 의 `<From>`/`<To>` 는 work 이름 bare (system-unique 이므로 cross-flow 도 bare — 예 system 직속 `arrows:` 의 `Z1_Adv -> Z1_Punch`).
+- cross-parent / cross-system 은 **full dotted-path** (예: call 간 arrow 의 `Z1_C1.ADV`, patch path `Controller.Run.Z1_Adv`).
 - forward-ref 허용 (1-pass 이름 테이블 구축 → 2-pass GUID resolve)
-- **entity 이름에 `.` (점) 금지** — segment 구분자 ambiguity 회피. `sanitizeName` 에 `.` 거부 추가 (Phase 1 작업). 예: 시스템 이름 `Z1.C1` 은 불허 → `Z1_C1` / `Z1-C1` / `Zone1Cyl1` 등 사용. ApiDef / Flow / Work 이름도 동일.
+- **entity 이름에 `.` (점) 금지** — segment 구분자 ambiguity 회피. `sanitizeName` 에 `.` 거부 추가. 예: 시스템 이름 `Z1.C1` 은 불허 → `Z1_C1` / `Z1-C1` / `Zone1Cyl1` 등 사용. ApiDef / Flow / Work 이름도 동일.
 
-**Flow prefix 키 normalize**: schema 의 `flow <FlowName>:` 키는 다음 grammar 로 매칭, segment 추출 후 path 안에서는 *FlowName 만* 사용:
+**Flow 식별** (옛 `flow <FlowName>:` prefix 키 normalize 절 폐기 — D3): flow 는 system 직속 **`flows:` mapping 의 key** 로 식별 (`flows: { Run: {} }` → flow 이름 `Run`). work 의 소속은 work entry 의 `flow:` 속성으로 명시 (`works: { Adv: { flow: Run } }`). path `Controller.Run.Adv` (project 생략 시 `Controller.Run.Adv`) 의 `Run` segment 는 `flows:` key 와 정합. `flows:` mapping 의 key 중복은 YAML duplicate map key 라 파서가 거부 (§2.0).
 
-```
-flow-key  = "flow" WS+ identifier
-identifier = (\w | "_" | "-")+    ; ASCII only (Unicode 는 NFC 후 entity 이름 내부 허용, key 식별자는 ASCII)
-WS         = " " | "\t"
-```
-
-예: `flow Run:` → key normalize → `Run` segment. path `Controller.Run.Z1_Adv` 의 `Run` 과 정합. 중복 prefix 키 (`flow Run:` 두 번) 는 validate 에러.
+> **§2.5.1 의 dotted-path depth (store 기준 논리 chain — Work=4 segment 등) 는 본 작업으로 불변** — store 구조 (Project→System→Flow→Work→Call) 기준이라 disk YAML 의 평탄화 (`works:` 가 system 직속) 와 무관한 별개 축 (§2.8 의 JSON-tree/entity-level depth 와도 구분).
 
 #### 2.5.1 Path resolver — entity lookup helper
 
@@ -489,13 +496,13 @@ patch:
     - in: <PathToParent>          # 추가할 entity 의 부모 경로
       <key>: <value>              # 추가할 entity (system/work/call 등)
 
-  arrows:                         # arrow 만 별도 — scope 가 부모와 다름 (Flow 단위)
+  arrows:                         # work 간 arrow — system-scope (C1·D2). `in:` = System path (Flow 아님)
     add:
-      - in: <PathToFlow>
+      - in: <PathToSystem>        # work 간 arrow 는 system 레벨 — system 전체 work 테이블에서 resolve (cross-flow)
         entries:
-          - <From> -> <To> : <Type>
+          - <From> -> <To> : <Type>     # bare work 이름 (system-unique)
     remove:
-      - in: <PathToFlow>
+      - in: <PathToSystem>
         entries:
           - <From> -> <To>        # type 없이도 식별 가능 (from,to pair 가 unique)
 
@@ -523,15 +530,18 @@ modeling level apply 는 *missing 키 = no-op* (entity 보존). 따라서 *기�
 | 3 | dotted-path resolve 실패 | `ERROR <yamlPath>: '{ref}' 가 발견되지 않음. 가까운 후보: {top-3 Levenshtein}.` |
 | 4 | ArrowBetweenCalls 의 source/target 이 중복 ApiDef Call 이름 참조 | `ERROR <yamlPath>.arrows: '{api}' 가 같은 Work 안에서 N회 호출되어 source/target 으로 식별 불가. 순차 chain 이면 중복 호출을 다른 Work 로 분리하세요.` |
 | 5 | arrow type 누락 | `ERROR <yamlPath>.arrows[i]: type 누락. '{from} -> {to} : <Type>' 형식 사용.` |
-| 6 | kind 와 키 불일치 | `ERROR systems[i]: kind=passive 인데 flow 키 존재 (또는 그 반대). 어느 한 쪽 수정.` |
+| 6 | kind 와 키 불일치 | `ERROR systems[i]: kind=passive 인데 flows 키 존재 (또는 kind=active 인데 device 키 존재). 어느 한 쪽 수정.` (active 전용 키 = `flows` — D1 구조) |
 | 7 | apply / validate 입력에 `view: partial` | `ERROR view: partial export 결과는 view-only — apply/validate 재입력 불가. 전체 export (view: full) 로 다시 호출하거나 'view:' 키를 제거하세요.` (view: full 또는 부재는 허용 — 자기 round-trip 시나리오 정합) |
 | 8 | apply / validate 입력의 `view:` 값이 `full` / `partial` 외 | `ERROR view: 값 '<value>' 인식 불가. 'full' 또는 'partial'.` |
 | 9 | apply / validate 입력에 `summary:` 키 등장 (Phase 6 v6) | `ERROR summary 는 partial export 진단 metadata 전용 — apply/validate 재입력 불가. 'summary:' 키를 제거하세요.` (`view: partial` 과 짝이 되는 진단 신호 — 입력 단 등장 자체가 의미 미정의) |
 | 10 | top-level unknown 키 (Phase 7 §4.2 C-6) | `ERROR: top-level 키 '<key>' 인식 불가. 허용 = protocol / project / author / version / systems / patch / view / summary.` (`author` / `version` row 는 §2.1 top-level 키 enum 표에 신규 추가) |
-| 11 | Active system 안 unknown 키 (Phase 7 §4.2 C-6) | `ERROR systems[i]: 키 '<key>' 인식 불가. Active system 허용 키 = system / kind / iri / flow <Name>.` (`iri` 는 §2.2 신규) |
+| 11 | Active system 안 unknown 키 (Phase 7 §4.2 C-6) | `ERROR systems[i]: 키 '<key>' 인식 불가. Active system 허용 키 = system / kind / iri / plc / flows / works / arrows.` (D1 구조 — 옛 `flow <Name>` prefix 폐기). `flows:` value 안 허용 키 = `plc` 만 (그 외 `ERROR systems[i].flows.<F>: 키 '<key>' 인식 불가. flows value 허용 키 = plc.`) |
 | 12 | Passive system 안 unknown 키 (Phase 7 §4.2 C-5) | `ERROR systems[i]: 키 '<key>' 인식 불가. Passive system 허용 키 = system / kind / iri / device / apis / opposing / workDuration / apiDetails.` (`iri` / `apiDetails` 는 §2.3 신규) |
-| 13 | Active Work 안 unknown 키 (Phase 7 §4.2 C-6) | `ERROR systems[i].flow.works.<W>: 키 '<key>' 인식 불가. Work 허용 키 = tokenRole / calls / arrows.` (`tokenRole` 은 §2.2 신규) |
-| 14 | calls element object 안 unknown 키 (Phase 7 §4.2 C-3/C-4/C-5) | `ERROR systems[i].flow.works.<W>.calls[j]: 키 '<key>' 인식 불가. calls object 허용 키 = ref / contactKind / skipInputSensor / inTag / outTag / callType / callCondition.` (`ref` 필수, 나머지 모두 선택 — §2.2.1) |
+| 13 | Active Work 안 unknown 키 (Phase 7 §4.2 C-6) | `ERROR systems[i].works.<W>: 키 '<key>' 인식 불가. Work 허용 키 = flow / tokenRole / plc / calls / arrows.` (work 는 system 직속 — D6. `flow` 는 [MUST] 소속 속성) |
+| 13a | Work `flow:` 속성 누락 (D6) | `ERROR systems[i].works.<W>: work 의 'flow' 속성 누락 — 소속 flow 를 명시하세요.` |
+| 13b | Work `flow:` 가 미존재 flow 참조 (D6) | `ERROR systems[i].works.<W>.flow: flow '<name>' 가 발견되지 않음. 가까운 후보: {top-3 Levenshtein}.` (flow 는 같은 system 의 `flows:` mapping 에 정의돼 있어야 함) |
+| 13c | work 이름 system-unique 충돌 (import, D1) | `ERROR systems[i].works.<W>: Work 이름 '<W>' 가 system '<S>' 안에서 중복 정의되었습니다 (work 이름은 system-unique — D1).` (export 측 D7 exception 과 양방향 대칭) |
+| 14 | calls element object 안 unknown 키 (Phase 7 §4.2 C-3/C-4/C-5) | `ERROR systems[i].works.<W>.calls[j]: 키 '<key>' 인식 불가. calls object 허용 키 = ref / contactKind / skipInputSensor / inTag / outTag / callType / callCondition.` (`ref` 필수, 나머지 모두 선택 — §2.2.1) |
 | 15 | callCondition object 안 unknown 키 (Phase 7 §4.2 C-3) | `ERROR <yamlPath>.callCondition: 키 '<key>' 인식 불가. 허용 키 = type / isOR / isInverted / conditions / children.` 빈 object (`callCondition: {}`) 는 *None 정규화* — entity 미생성 (외부 reviewer M-D 반영, §2.2.1) |
 | 16 | callCondition.conditions / children 이 array 가 아님 (Phase 7 §4.2 C-3) | `ERROR <yamlPath>.callCondition.conditions: array 타입 필요 (현재 '<kind>'). leaf ApiCall list 또는 nested CallCondition list 형식 사용.` (silent skip 대신 진단 — 외부 reviewer M-F 정합) |
 | 17 | apiDetails entry 안 unknown 키 (Phase 7 §4.2 C-5) | `ERROR systems[i].apiDetails.<ApiDef>: 키 '<key>' 인식 불가. 허용 키 = actionType / description.` |
@@ -578,6 +588,18 @@ walk 종료 후:
 - `truncated.Value` = `false` → `view: full` emit (입력 `depth=999` 라도 실제 절단 0건이면 `full` 정확 emit — 의미 정확성). summary 키 부재.
 
 **전체 export 의 무제한 정책**: `path` 미지정 + `depth` 미지정 → entity budget 미적용 (round-trip 정합 필수 — full export 결과는 apply 재입력 가능해야 함). 결과는 `view: full`.
+
+**Depth 절단 매핑 (entity-level — D1 평탄화 정합)**: 새 구조에서 `flows:` / `works:` / `arrows:` 는 system content 의 형제 키이고 work 는 flow 안에 중첩되지 않으므로, depth 절단은 *literal JSON 중첩* 이 아니라 **entity level** (`§2.5.1` 정합: Project=0 / System=1 / Flow·ApiDef=2 / Work=3 / Call=4) 기준. `maxAbsDepth = baseDepth + depth` (`baseDepth` = scope entity 의 level — path 미지정 시 0). `applyDepthCap` 절단 규칙:
+
+| `maxAbsDepth` | 유지 | 제거 (truncated) |
+|---|---|---|
+| `< 1` | project envelope 만 | `systems` 배열 비움 |
+| `< 2` (=1) | system identity (`system`/`kind`/`device`) | `flows`/`works`/`arrows`/`apis`/`iri`/`plc` 등 system content |
+| `< 3` (=2) | `flows`(active flow 엔티티) / `apis`(passive ApiDef) | `works`(work=레벨3) + system `arrows` |
+| `< 4` (=3) | `works` skeleton (`flow:`/`tokenRole` 등) + `flows` + system `arrows` | 각 work 의 `calls`(call=레벨4) + call-arrows |
+| `>= 4` | `calls` 포함 전체 | (절단 없음) |
+
+> **dotted-path depth (§2.5.1, store 논리 chain) vs entity-level JSON 절단 depth (본 절, disk 기준) 는 별개 축** — §2.5.1 의 path 매핑은 store 구조 기준이라 disk 평탄화와 무관 (불변).
 
 **`summary` metadata 구조** (Phase 6 v6 — 절단 발생 시에만 emit):
 
@@ -636,14 +658,17 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
-        Adv:
-          calls: [Cyl1.ADV]
-        Ret:
-          calls: [Cyl1.RET]
-      arrows:
-        - Adv -> Ret : Start
+    flows:
+      Run: {}
+    works:
+      Adv:
+        flow: Run
+        calls: [Cyl1.ADV]
+      Ret:
+        flow: Run
+        calls: [Cyl1.RET]
+    arrows:
+      - Adv -> Ret : Start
 
   - system: Cyl1
     kind: passive
@@ -660,26 +685,27 @@ systems:
   # ─ Active 컨트롤러 ────────────────────────────────────
   - system: Controller
     kind: active
-    flow Run:
-      works:
-        Z1_Adv:    { calls: [Z1_C1.ADV, Z1_C2.ADV] }
-        Z1_Punch:  { calls: [P1.PUNCH] }
-        Z1_Ret:    { calls: [Z1_C1.RET, Z1_C2.RET] }
-        Z2_Adv:    { calls: [Z2_C1.ADV, Z2_C2.ADV, Z2_C3.ADV] }
-        Z2_Punch:  { calls: [P2.PUNCH] }
-        Z2_Ret:    { calls: [Z2_C1.RET, Z2_C2.RET, Z2_C3.RET] }
-        Z3_Adv:    { calls: [Z3_C1.ADV, Z3_C2.ADV, Z3_C3.ADV, Z3_C4.ADV] }
-        Z3_Punch:  { calls: [P3.PUNCH] }
-        Z3_Ret:    { calls: [Z3_C1.RET, Z3_C2.RET, Z3_C3.RET, Z3_C4.RET] }
-      arrows:
-        - Z1_Adv   -> Z1_Punch : Start
-        - Z1_Punch -> Z1_Ret   : Start
-        - Z1_Ret   -> Z2_Adv   : Start
-        - Z2_Adv   -> Z2_Punch : Start
-        - Z2_Punch -> Z2_Ret   : Start
-        - Z2_Ret   -> Z3_Adv   : Start
-        - Z3_Adv   -> Z3_Punch : Start
-        - Z3_Punch -> Z3_Ret   : Start
+    flows:
+      Run: {}
+    works:
+      Z1_Adv:    { flow: Run, calls: [Z1_C1.ADV, Z1_C2.ADV] }
+      Z1_Punch:  { flow: Run, calls: [P1.PUNCH] }
+      Z1_Ret:    { flow: Run, calls: [Z1_C1.RET, Z1_C2.RET] }
+      Z2_Adv:    { flow: Run, calls: [Z2_C1.ADV, Z2_C2.ADV, Z2_C3.ADV] }
+      Z2_Punch:  { flow: Run, calls: [P2.PUNCH] }
+      Z2_Ret:    { flow: Run, calls: [Z2_C1.RET, Z2_C2.RET, Z2_C3.RET] }
+      Z3_Adv:    { flow: Run, calls: [Z3_C1.ADV, Z3_C2.ADV, Z3_C3.ADV, Z3_C4.ADV] }
+      Z3_Punch:  { flow: Run, calls: [P3.PUNCH] }
+      Z3_Ret:    { flow: Run, calls: [Z3_C1.RET, Z3_C2.RET, Z3_C3.RET, Z3_C4.RET] }
+    arrows:                              # work 간 arrow — system 직속 (cross-flow 도 bare)
+      - Z1_Adv   -> Z1_Punch : Start
+      - Z1_Punch -> Z1_Ret   : Start
+      - Z1_Ret   -> Z2_Adv   : Start
+      - Z2_Adv   -> Z2_Punch : Start
+      - Z2_Punch -> Z2_Ret   : Start
+      - Z2_Ret   -> Z3_Adv   : Start
+      - Z3_Adv   -> Z3_Punch : Start
+      - Z3_Punch -> Z3_Ret   : Start
 
   # ─ Passive 디바이스 ───────────────────────────────────
   - { system: Z1_C1, kind: passive, device: cylinder }
@@ -714,18 +740,20 @@ project: Jig1
 systems:
   - system: Controller
     kind: active
-    flow Test:
-      works:
-        Sequence:
-          # 중복 없는 단순 순차 — ArrowBetweenCalls 로 chain
-          calls: [Jig.TILT_UP, Jig.HOLD, Jig.TILT_DOWN]
-          arrows:
-            - Jig.TILT_UP -> Jig.HOLD       : Start
-            - Jig.HOLD    -> Jig.TILT_DOWN  : Start
-
-        Concurrent:
-          # 중복 OK — concurrent 의미 (arrow 없음)
-          calls: [Jig.TILT_UP, Jig.TILT_UP, Jig.TILT_DOWN]   # TILT_UP 2 회 동시
+    flows:
+      Test: {}
+    works:
+      Sequence:
+        flow: Test
+        # 중복 없는 단순 순차 — work 안 arrows (call 간) 로 chain
+        calls: [Jig.TILT_UP, Jig.HOLD, Jig.TILT_DOWN]
+        arrows:                       # call 간 arrow — work 안에서만
+          - Jig.TILT_UP -> Jig.HOLD       : Start
+          - Jig.HOLD    -> Jig.TILT_DOWN  : Start
+      Concurrent:
+        flow: Test
+        # 중복 OK — concurrent 의미 (arrow 없음)
+        calls: [Jig.TILT_UP, Jig.TILT_UP, Jig.TILT_DOWN]   # TILT_UP 2 회 동시
 
   - system: Jig
     kind: passive
@@ -740,17 +768,18 @@ systems:
 ```yaml
 patch:
   add:
-    - in: Controller.Run.works
-      Z4_Adv:    { calls: [Z4_C1.ADV, Z4_C2.ADV] }
-      Z4_Punch:  { calls: [P4.PUNCH] }
-      Z4_Ret:    { calls: [Z4_C1.RET, Z4_C2.RET] }
+    - in: Controller                  # system path — works 는 system 직속, 각 work 에 flow: 속성 (D6)
+      works:
+        Z4_Adv:    { flow: Run, calls: [Z4_C1.ADV, Z4_C2.ADV] }
+        Z4_Punch:  { flow: Run, calls: [P4.PUNCH] }
+        Z4_Ret:    { flow: Run, calls: [Z4_C1.RET, Z4_C2.RET] }
     - { system: Z4_C1, kind: passive, device: cylinder }
     - { system: Z4_C2, kind: passive, device: cylinder }
     - { system: P4,    kind: passive, device: custom(Pusher), apis: [PUNCH] }
 
   arrows:
     add:
-      - in: Controller.Run
+      - in: Controller              # system path (work 간 arrow 는 system-scope — C1). cross-flow 도 가능
         entries:
           - Z3_Ret   -> Z4_Adv   : Start
           - Z4_Adv   -> Z4_Punch : Start
@@ -913,11 +942,11 @@ read 2종:
 | `system: ..., kind: passive, device: robot` | `queueAddRobot` |
 | `system: ..., kind: passive, device: custom(<T>)` | `queueAddDevice` |
 | `system: ..., kind: passive` (device 키 부재) | `queueAddPassiveSystem` — device 미지정 단순 Passive (validate 에러 vs 허용은 PoC 중 결정, 잠정 허용) |
-| `flow <Name>:` | `queueAddFlow` |
-| `<WorkName>:` (Work) | `queueAddWork` |
+| `flows: { <Name>: {} }` (system 직속) | `queueAddFlow` |
+| `works: { <WorkName>: { flow: <Name> } }` (system 직속) | `queueAddWork` (flow: 속성으로 parent Flow 결정) |
 | `calls: [...]` — *순차 chain* (Work 안 arrows 있음) | `queueAddCall` (기존 — 중복 차단 유지) |
 | `calls: [...]` — *concurrent* (Work 안 arrows 없음, 중복 허용) | **`queueAddCallAllowDup`** (신규) |
-| `arrows: - A -> B : T` | `queueAddArrow` |
+| `arrows: - A -> B : T` (system 직속 = work 간 / work 안 = call 간) | `queueAddArrow` (GUID 도메인 자동 판별) |
 | `patch.rename` | `queueRenameEntity` |
 | `patch.remove` | `queueRemoveEntity` |
 
