@@ -22,6 +22,10 @@ public partial class GanttChartControl
     {
         if (_viewModel == null) return;
 
+        // Shift+휠 = 시간축 확대/축소. Shift 없는 일반 휠은 세로 스크롤(ScrollViewer 기본 동작)에 위임.
+        if ((Keyboard.Modifiers & ModifierKeys.Shift) != ModifierKeys.Shift)
+            return;
+
         // GetPosition(TimelineCanvas) 는 canvas 의 내부 좌표계(= 절대 좌표) 반환.
         // HorizontalOffset 을 더하면 이중 가산이 되므로 mousePos.X 자체가 절대 위치.
         var mousePos = e.GetPosition(TimelineCanvas);

@@ -256,12 +256,15 @@ public sealed class ExplorerPaneTests
                 vm.PropertyPanel.SyncSelection(null, []);
                 Assert.Null(vm.PropertyPanel.SelectedNode);
 
-                var args = new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                // Work 도 drag-candidate 경로(누름→뗌)라 선택은 mouseup 에서 확정된다.
+                item.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
                 {
                     RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent
-                };
-
-                item.RaiseEvent(args);
+                });
+                item.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                {
+                    RoutedEvent = UIElement.PreviewMouseLeftButtonUpEvent
+                });
                 StaTestRunner.PumpPendingUi();
 
                 Assert.Equal(workId, vm.PropertyPanel.SelectedNode?.Id);
@@ -311,12 +314,15 @@ public sealed class ExplorerPaneTests
                 Assert.False(Flatten(vm.ControlTreeRoots).First(node => node.Id == workId).IsTreeSelected);
                 Assert.True(item.IsSelected);
 
-                var args = new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                // Work 도 drag-candidate 경로(누름→뗌)라 선택은 mouseup 에서 확정된다.
+                item.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
                 {
                     RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent
-                };
-
-                item.RaiseEvent(args);
+                });
+                item.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                {
+                    RoutedEvent = UIElement.PreviewMouseLeftButtonUpEvent
+                });
                 StaTestRunner.PumpPendingUi();
 
                 Assert.Equal(workId, vm.PropertyPanel.SelectedNode?.Id);

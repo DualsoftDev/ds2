@@ -3,7 +3,7 @@ module PromptCanaryTests
 open System.IO
 open Xunit
 
-/// extend-mcp §5.6 신규 3 — 4 prompt md 첫 줄 canary 회귀 방어 (todo §6.1 protocol).
+/// extend-mcp §5.6 — prompt md 첫 줄 canary 회귀 방어 (todo §6.1 protocol).
 ///
 /// canary 가 의도치 않게 제거되면 LLM 측 진단 trigger (`ping all`) 가 동작 불능.
 /// release 시점에 canary 제거 결정되면 본 test 도 동시에 skip/제거 (todo §6.4 회수 절차).
@@ -36,11 +36,7 @@ let ``3.tooling.md 첫 줄에 canary pong 표기`` () =
     Assert.Contains("canary:", line)
     Assert.Contains("pong: Prompts/3.tooling.md", line)
 
-[<Fact>]
-let ``4.attachments.md 첫 줄에 canary pong 표기`` () =
-    let line = firstLine "4.attachments.md"
-    Assert.Contains("canary:", line)
-    Assert.Contains("pong: Prompts/4.attachments.md", line)
+// 4.attachments.md 는 아직 미생성 — attachments 처리 prompt 추가 시 canary 검증도 함께 복원.
 
 [<Fact>]
 let ``CLAUDE.md 첫 줄에 canary pong 표기`` () =

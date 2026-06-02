@@ -128,7 +128,7 @@
                               ScrollChanged="OnTimelineScrollChanged">
                     <Canvas x:Name="TimelineCanvas"
                             Background="Transparent" ClipToBounds="False"
-                            MouseWheel="OnTimelineMouseWheel"
+                            PreviewMouseWheel="OnTimelineMouseWheel"
                             MouseLeftButtonDown="OnTimelineMouseDown"
                             MouseMove="OnTimelineMouseMove"
                             MouseLeftButtonUp="OnTimelineMouseUp"/>
