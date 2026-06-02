@@ -952,6 +952,24 @@ read 2종:
 
 → **YAML processor 는 *얇은 transformer***. cascade / canonical 로직은 기존 함수 재사용. 새로 작성할 코드는 (a) YAML parse + ast (b) 이름 → entity 테이블 + resolver (c) 위 매핑 dispatcher (d) 에러 메시지 (가까운 후보 Levenshtein).
 
+### 5.1 system-level work arrows — 모델 정합 + 유지보수 사실 (D1~D7 구현 메모)
+
+work 간 arrow 의 system 레벨 단일화 (§1.7 D1~D7) 의 *결정적 사실* 과 유지보수 주의. (구 transfer 문서 `todo-yaml-system-level-work-arrows.md` 의 fact 통합.)
+
+**모델 내부 구조 (결정적)**:
+- `Work.ParentId = FlowId` — work 는 flow 의 자식. **모델 기준** work 이름 unique 범위는 flow inner-map 단위 (`St201.Work_A` 와 `St202.Work_A` 모델상 공존 가능). 본 작업의 disk 구조 (flat `works:`) + import/export 가드가 **system-unique** 를 신규 강제.
+- `ArrowBetweenWorks.ParentId = SystemId` — work 간 arrow 는 **모델상 이미 system 레벨 엔티티** (flow scope 필드 자체 없음). `Queries.arrowWorksOf <systemId>` 로 조회. → disk 의 system 직속 `arrows:` 와 1:1.
+- arrow 도메인 판별 (Work 간 vs Call 간) 은 `ToolOperations.queueAddArrow` 가 **source/target GUID 의 도메인** 으로 자동 수행 → system `arrows:` / work `arrows:` 의 scope 분리가 파서 무모호.
+
+**옛 구조 read 실패 진단 (수정된 버그)**: 옛 disk 포맷은 system 레벨 arrow 를 flow 안 `arrows:` 에 욱여넣어 **export(source work 의 flow 에 bare 배분) ↔ import(현재 flow work map 에서만 resolve)** 비대칭. cross-flow arrow (`BprSeal@St201 -> ReinfSeal@St202`) 는 export 가 St201 flow 에 bare 로 쓰지만 import 가 St201 work map 에서 `ReinfSeal` 을 못 찾아 **resolve 실패 → arrow 누락**. = "system 레벨 work arrow read 실패" 의 실체. 새 구조는 system 전체 work 테이블 1-pass resolve 로 해소.
+
+**유지보수 invariant (회귀 가능성 높은 지점)**:
+1. **patch 양방향 대칭** — import 본체 (`dispatchActiveFlows`) 와 patch arrows (`iterSystemArrowEntries`) **둘 다 system-scope**. 한쪽만 고치면 cross-flow 가 한 경로로만 깨짐.
+2. **work system-unique 양방향** — import 충돌 = validate 에러 (§2.7 룰 13c, `dispatchWork` 의 *새 work 생성 시* 가드), export 충돌 = exception (D7, `exportToJson` flat `works:` 직렬화 직전). 한쪽만 막으면 반대 방향 silent loss. **자동 prefix/rename 금지** (round-trip 깨짐). modeling lookup-first reuse 는 *새 생성* 이 아니므로 가드 제외 (seed 된 기존 entity 재참조 차단 회귀 방지).
+3. **depth 평탄화** — work 가 flow 안 → system 직속으로 1단계 상승 → off-by-one 이 아니라 **구조 재평탄화**. partial depth 절단은 **entity-level** (§2.8 표) 기준 — literal JSON 중첩 depth 아님.
+4. **flow-level plc 보존** — `flows:` mapping value 의 `plc:` (flowControlEnabled/flowPriority) emit/parse. 빈 flow 는 `{}`. value 의 plc 외 키는 validate 거부.
+5. **resolve 자료구조** — `SystemEntry.WorkIdsByName : Dictionary<string,Guid>` (work LocalName→Guid, system 전역 평탄). arrow 순회 중 재평탄화 (`Seq.collect`) 금지 — O(A×W) 회귀 차단.
+
 ---
 
 ## 6. 마이그레이션 / 단계 계획
