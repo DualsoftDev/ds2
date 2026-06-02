@@ -434,6 +434,39 @@ type DsStoreNodesExtensions =
             store.EmitRefreshAndHistory()
             targets.Length
 
+    /// 여러 Work 를 target Flow 로 이동한다(한 transaction = 1 undo step). 이동한 개수를 반환.
+    /// 이름 중복(target Flow 내 동일 LocalName)·no-op(이미 그 Flow)은 제외한다.
+    /// 이동 시 그 Work 가 끝점인 Work 화살표는 제거한다(Call 이동과 동일 정책 — cross-flow 연결 끊김).
+    [<Extension>]
+    static member MoveWorksToFlow(store: DsStore, workIds: seq<Guid>, targetFlowId: Guid) : int =
+        match Queries.getFlow targetFlowId store with
+        | None -> 0
+        | Some targetFlow ->
+            let movables =
+                workIds
+                |> Seq.distinct
+                |> Seq.choose (fun id -> Queries.getWork id store)
+                |> Seq.filter (fun w ->
+                    w.ParentId <> targetFlowId
+                    && Queries.isLocalNameUniqueInFlow targetFlowId w.LocalName (Some w.Id) store)
+                |> Seq.toList
+            if movables.IsEmpty then 0
+            else
+                store.WithTransaction($"Move {movables.Length} Work(s) to Flow", fun () ->
+                    for w in movables do
+                        let arrowIds =
+                            store.ArrowWorksReadOnly.Values
+                            |> Seq.filter (fun a -> a.SourceId = w.Id || a.TargetId = w.Id)
+                            |> Seq.map (fun a -> a.Id)
+                            |> Seq.toList
+                        for aid in arrowIds do
+                            store.TrackRemove(store.ArrowWorks, aid)
+                        store.TrackMutate(store.Works, w.Id, fun x ->
+                            x.ParentId <- targetFlowId
+                            x.FlowPrefix <- targetFlow.Name))
+                store.EmitRefreshAndHistory()
+                movables.Length
+
     // ─── AutoLayout ────────────────────────────────────────────────────
 
     /// 노드들이 모두 같은 좌표에 몰려있으면 자동 배치 적용 (Mermaid 임포트, 탭 최초 오픈 등).
