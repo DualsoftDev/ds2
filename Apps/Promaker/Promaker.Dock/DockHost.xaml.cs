@@ -38,9 +38,11 @@ public partial class DockHost : UserControl, IDockManager
     /// (light) 부적합 → Office2019Black 채택. DevExpress.Xpf.Themes.Office2019Black.v24.1.dll 1종만 deploy).
     /// 다른 dark skin (Office2019DarkGray / VS2019Dark / Win11Dark 등) 은 별도 Themes assembly 추가 deploy 필요.
     /// </summary>
-    public static void InitializeTheme()
+    public static void SetTheme(bool dark)
     {
-        ApplicationThemeHelper.ApplicationThemeName = "Office2019Black";
+        // Promaker 라이트/다크 테마 연동. dark → Office2019Black, light → Office2019Colorful.
+        // 두 Themes assembly 모두 deploy (Promaker.Dock.csproj). DX type 외부 노출 0 (bool 매개만).
+        ApplicationThemeHelper.ApplicationThemeName = dark ? "Office2019Black" : "Office2019Colorful";
     }
 
     /// <summary>

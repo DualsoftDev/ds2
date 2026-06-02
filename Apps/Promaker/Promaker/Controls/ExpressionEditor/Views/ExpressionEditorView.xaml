@@ -165,7 +165,7 @@
                         CornerRadius="2">
                     <Grid>
                         <Border x:Name="StHighlightOverlay"
-                                Background="#1F2A3A"
+                                Background="{DynamicResource TertiaryBackgroundBrush}"
                                 Padding="6,4"
                                 CornerRadius="2">
                             <Grid>
@@ -181,7 +181,7 @@
                                         CornerRadius="2"
                                         Padding="4,1" Margin="0,2,2,0">
                                     <TextBlock Text="🔒 read-only" FontSize="9"
-                                               Foreground="#A8B0BD"/>
+                                               Foreground="{DynamicResource SecondaryTextBrush}"/>
                                 </Border>
                             </Grid>
                         </Border>

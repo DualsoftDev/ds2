@@ -89,6 +89,11 @@
       <HintPath>$(DXInstallRoot)\Bin\NetCore\DevExpress.Xpf.Themes.Office2019Black.v24.1.dll</HintPath>
       <Private>true</Private>
     </Reference>
+    <!-- 라이트 테마용 skin (Promaker 라이트 테마 연동 — DockHost.SetTheme). -->
+    <Reference Include="DevExpress.Xpf.Themes.Office2019Colorful.v24.1">
+      <HintPath>$(DXInstallRoot)\Bin\NetCore\DevExpress.Xpf.Themes.Office2019Colorful.v24.1.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
     <!--
       System.Drawing.Common / Microsoft.Win32.SystemEvents — XAML compile pass (MC1000) 가 명시 reference
       필요 (UseWPF=true 의 implicit 가 XAML pass 에서 visible 하지 않음). 4.7.2 reference 유지 + NoWarn
@@ -114,6 +119,10 @@
   <ItemGroup>
     <Content Include="$(DXInstallRoot)\Bin\NetCore\DevExpress.Xpf.Themes.Office2019Black.v24.1.dll">
       <Link>DevExpress.Xpf.Themes.Office2019Black.v24.1.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="$(DXInstallRoot)\Bin\NetCore\DevExpress.Xpf.Themes.Office2019Colorful.v24.1.dll">
+      <Link>DevExpress.Xpf.Themes.Office2019Colorful.v24.1.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

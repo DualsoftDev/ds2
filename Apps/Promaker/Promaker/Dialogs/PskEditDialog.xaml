@@ -9,14 +9,14 @@
     <Window.Resources>
         <!-- ApplicationSettingsDialog 와 동일 패턴 — TextBox / PasswordBox default light style 차단 (dark 정합). -->
         <Style TargetType="{x:Type TextBox}">
-            <Setter Property="Background" Value="#2D2D30"/>
+            <Setter Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}"/>
             <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
             <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CaretBrush" Value="{DynamicResource PrimaryTextBrush}"/>
         </Style>
         <Style TargetType="{x:Type PasswordBox}">
-            <Setter Property="Background" Value="#2D2D30"/>
+            <Setter Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}"/>
             <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
             <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>

@@ -129,9 +129,10 @@ public partial class App : Application
 
         ThemeManager.ApplySavedTheme();
 
-        // PR-D7.3 — DX skin 정합. Promaker.Dock 의 격리 helper 1줄 호출 (DX type 외부 노출 0건 유지, §7 #4).
-        // 사용자 시각 검수 결과 Office2019Colorful (light) 부적합 → Office2019Black (dark) 채택 (PR-D7.3 fix).
-        Promaker.Dock.DockHost.InitializeTheme();
+        // DX 독 스킨 — Promaker 라이트/다크 테마에 연동 (dark=Office2019Black, light=Office2019Colorful).
+        // 격리 helper 호출 (DX type 외부 노출 0건 유지, §7 #4). 초기 1회 + 테마 전환 시 갱신.
+        Promaker.Dock.DockHost.SetTheme(ThemeManager.CurrentTheme == AppTheme.Dark);
+        ThemeManager.ThemeChanged += t => Promaker.Dock.DockHost.SetTheme(t == AppTheme.Dark);
 
         // GUI Log tab 의 AppLogState (singleton + ICollectionView) 를 UI thread 에서 강제 prefetch.
         // worker thread 의 첫 log 호출이 lazy 생성을 trigger 하면 CollectionView 가 worker SynchronizationContext
