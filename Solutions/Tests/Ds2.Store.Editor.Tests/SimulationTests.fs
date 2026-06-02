@@ -581,10 +581,14 @@ module EventDrivenEngineTokenTests =
                 "Group members B, C, D should all reach Finish")
 
             // E 가 Going 또는 Finish 까지 진행됐는지 — token shift 가 그룹 모두 Finish 후 발화한다는 증거.
-            let eState = engine.GetWorkState(e.Id)
+            // B/C/D Finish 와 E 의 token shift 처리 사이에 짧은 비동기 race 가 있어 즉시 체크는 flaky →
+            // E 의 Going/Finish 도 waitUntil 로 폴링한다.
             Assert.True(
-                eState = Some Status4.Going || eState = Some Status4.Finish,
-                $"E should start after group finished, but state={eState}")
+                waitUntil 2000 (fun () ->
+                    match engine.GetWorkState(e.Id) with
+                    | Some Status4.Going | Some Status4.Finish -> true
+                    | _ -> false),
+                $"E should start after group finished, but state={engine.GetWorkState(e.Id)}")
         finally
             engine.Stop()
 
