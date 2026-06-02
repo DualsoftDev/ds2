@@ -339,7 +339,9 @@ module ModelProtocol =
         SystemId: Guid option ref  // 2-pass 에서 채워짐
         ApiDefIds: Dictionary<string, Guid>  // ApiDef name → Guid (passive 의 cascade 결과)
         FlowIds: Dictionary<string, Guid>    // Flow name → Guid (active)
-        WorkIds: Dictionary<string, Dictionary<string, Guid>>  // flowName → workLocalName → Guid
+        // work 이름은 system-unique (D1) — flat lookup 으로 cross-flow work arrow 를 1-pass O(1) resolve.
+        // 옛 2-level `WorkIds (flowName→work→Guid)` 는 flow 안 arrows 폐기로 read 용도 소멸 → 평탄 dict 로 단일화.
+        WorkIdsByName: Dictionary<string, Guid>  // workLocalName → Guid (system 전역)
     }
 
     let private newSystemEntry name kind = {
@@ -348,7 +350,7 @@ module ModelProtocol =
         SystemId = ref None
         ApiDefIds = Dictionary<string, Guid>(StringComparer.Ordinal)
         FlowIds = Dictionary<string, Guid>(StringComparer.Ordinal)
-        WorkIds = Dictionary<string, Dictionary<string, Guid>>(StringComparer.Ordinal)
+        WorkIdsByName = Dictionary<string, Guid>(StringComparer.Ordinal)
     }
 
     // ─── Schema dispatcher ──────────────────────────────────────────────────
@@ -705,15 +707,6 @@ module ModelProtocol =
                 | None -> let cp = ControlCallProperties() in c.SetControlProperties(cp); cp
             parsePlcLeaves ctx path plcEl cp plcCallLeaves
 
-    /// `flow Run` 같은 prefix 키 매칭 (SSOT §2.5).
-    /// grammar: `flow` WS+ identifier (ASCII).
-    let private flowKeyRegex =
-        System.Text.RegularExpressions.Regex(@"^flow[ \t]+([A-Za-z0-9_\-]+)$", System.Text.RegularExpressions.RegexOptions.Compiled)
-
-    let tryParseFlowKey (key: string) : string option =
-        let m = flowKeyRegex.Match(key)
-        if m.Success then Some m.Groups.[1].Value else None
-
     // ─── Pass 1 — 이름 테이블 빌드 ──────────────────────────────────────────
 
     let private collectSystems (ctx: ApplyContext) (systemsEl: JsonElement) : unit =
@@ -738,15 +731,11 @@ module ModelProtocol =
                         | Some kind when kind <> "active" && kind <> "passive" ->
                             ctx.Diagnostics.Add(joinDiagKey path "kind", sprintf "'%s' 미지원. 'active' 또는 'passive' 만 허용." kind)
                         | Some kind ->
-                            // kind 와 키 정합성 체크 (SSOT §2.7 룰 6)
-                            let hasFlowKey =
-                                if sysEl.ValueKind = JsonValueKind.Object then
-                                    sysEl.EnumerateObject()
-                                    |> Seq.exists (fun p -> tryParseFlowKey p.Name |> Option.isSome)
-                                else false
+                            // kind 와 키 정합성 체크 (SSOT §2.7 룰 6) — active 전용 키 = flows (system 직속 mapping).
+                            let hasFlowKey = tryProp sysEl "flows" |> Option.isSome
                             let hasDeviceKey = tryProp sysEl "device" |> Option.isSome
                             if kind = "passive" && hasFlowKey then
-                                ctx.Diagnostics.Add(path, "kind=passive 인데 flow 키 존재. 어느 한쪽 수정.")
+                                ctx.Diagnostics.Add(path, "kind=passive 인데 flows 키 존재. 어느 한쪽 수정.")
                             if kind = "active" && hasDeviceKey then
                                 ctx.Diagnostics.Add(path, "kind=active 인데 device 키 존재. 어느 한쪽 수정.")
                             if ctx.Systems.ContainsKey name then
@@ -870,10 +859,10 @@ module ModelProtocol =
 
                         for flow in Queries.flowsOf sys.Id ctx.Store do
                             entry.FlowIds.[flow.Name] <- flow.Id
-                            let works = Dictionary<string, Guid>(StringComparer.Ordinal)
                             for work in Queries.worksOf flow.Id ctx.Store do
-                                works.[work.LocalName] <- work.Id
-                            entry.WorkIds.[flow.Name] <- works
+                                // work 이름 system-unique (D1) — flat 평탄 dict. 기존 store 가 (마이그레이션 이전)
+                                // 동명 work 를 가질 수 있으나 seed 단계는 last-wins (export 측 D7 가드가 강제).
+                                entry.WorkIdsByName.[work.LocalName] <- work.Id
 
                         ctx.Systems.[sys.Name] <- entry)
 
@@ -1297,10 +1286,10 @@ module ModelProtocol =
                         idx <- idx + 1)
             Some cond
 
+    // flowName 인자는 더 이상 불필요 — WorkIdsByName 평탄 dict 가 flow scope 무관 (work 이름 system-unique).
     let private dispatchWork
         (ctx: ApplyContext)
         (sysEntry: SystemEntry)
-        (flowName: string)
         (flowId: Guid)
         (workLocalName: string)
         (workEl: JsonElement)
@@ -1309,6 +1298,10 @@ module ModelProtocol =
         try
             // M1 fix: work localName sanitize 가드.
             if not (tryValidateName ctx path "Work localName" workLocalName) then () else
+            // D1 — work 이름 system-unique. flat 평탄 dict 에 이미 존재하면 import 충돌 (silent 덮어쓰기 금지).
+            // 동명 work 가 같은 system 의 다른 flow 에 있거나 (cross-flow) wire dup-key 인 경우 fail-fast.
+            if sysEntry.WorkIdsByName.ContainsKey workLocalName then
+                ctx.Diagnostics.Add(path, sprintf "Work 이름 '%s' 가 system '%s' 안에서 중복 정의되었습니다 (work 이름은 system-unique — D1)." workLocalName sysEntry.Name) else
             // M3 fix: workDuration 을 queueAddWork 호출 *전* 에 파싱해서 옵션 인자로 전달.
             // 후행 mutation (plan.Operations 재검색 + w.Duration <- ts) 제거 — Operations immutable invariant 보존.
             let durationOpt =
@@ -1335,10 +1328,8 @@ module ModelProtocol =
                     | Some w -> w.Id
                     | None -> ToolOperations.queueAddWork ctx.Plan ctx.Store workLocalName flowId durationOpt
                 | Full -> ToolOperations.queueAddWork ctx.Plan ctx.Store workLocalName flowId durationOpt
-            // WorkIds 누적
-            if not (sysEntry.WorkIds.ContainsKey flowName) then
-                sysEntry.WorkIds.[flowName] <- Dictionary<string, Guid>(StringComparer.Ordinal)
-            sysEntry.WorkIds.[flowName].[workLocalName] <- workId
+            // WorkIdsByName 누적 — work 이름 → Guid (system 전역, cross-flow arrow resolve 용).
+            sysEntry.WorkIdsByName.[workLocalName] <- workId
 
             if tryProp workEl "duration" |> Option.isSome then
                 ctx.Diagnostics.Add(joinDiagKey path "duration", "키 폐기됨. 'workDuration' 으로 변경하세요.")
@@ -1560,129 +1551,138 @@ module ModelProtocol =
         match sysEntry.SystemId.Value with
         | None -> ()
         | Some sysId ->
-            // flow prefix 키 수집
-            let flowKeys =
-                if sysEl.ValueKind = JsonValueKind.Object then
-                    sysEl.EnumerateObject()
-                    |> Seq.choose (fun p ->
-                        tryParseFlowKey p.Name
-                        |> Option.map (fun fname -> fname, p.Value))
-                    |> Seq.toList
-                else []
-
-            // 중복 prefix 검사 — 첫 등장만 채택, 두 번째 이후는 diagnostic 후 skip (Critical 3 fix).
-            // 미수정 시 같은 이름 Flow 가 두 번 queueAddFlow 되어 sysEntry.FlowIds 가 두 번째 ID 로 덮어써짐.
-            // single-pass: filter 가 dedup 과 diagnostic 동시 수행.
-            let seen = HashSet<string>(StringComparer.Ordinal)
-            let dedupedFlowKeys =
-                flowKeys
-                |> List.filter (fun (fname, _) ->
-                    if seen.Add fname then true
+            // ── flows: mapping (D5) — flow 별 속성 가능 (value 허용 키 = plc 만) ──
+            // flows 를 먼저 생성해야 works 의 `flow:` 속성을 FlowIds 에서 resolve 가능.
+            match tryProp sysEl "flows" with
+            | Some flowsEl when flowsEl.ValueKind <> JsonValueKind.Object ->
+                ctx.Diagnostics.Add(joinDiagKey basePath "flows", "Object 기대.")
+            | Some flowsEl ->
+                for prop in flowsEl.EnumerateObject() do
+                    let flowName = prop.Name
+                    let flowEl = prop.Value
+                    let flowPath = sprintf "%s.flows.%s" basePath flowName
+                    // M1 fix: flow 이름 sanitize 가드.
+                    if not (tryValidateName ctx flowPath "Flow name" flowName) then ()
+                    elif sysEntry.FlowIds.ContainsKey flowName then
+                        // flows mapping key 중복 (wire dup-key) — 첫 등장만 채택.
+                        ctx.Diagnostics.Add(flowPath, sprintf "flow '%s' 키 중복." flowName)
                     else
-                        ctx.Diagnostics.Add(basePath, sprintf "'flow %s' 키 중복." fname)
-                        false)
-
-            for (flowName, flowEl) in dedupedFlowKeys do
-                let flowPath = sprintf "%s.flow %s" basePath flowName
-                // M1 fix: flow 이름 sanitize 가드.
-                if not (tryValidateName ctx flowPath "Flow name" flowName) then () else
-                try
-                    // S3b — modeling level 시 lookup-first (기존 store 의 같은 (sysId, flowName) Flow reuse).
-                    // #32 — store + plan 합집합. plan-only Flow 도 reuse (multi-stage forward-ref 회귀 가드).
-                    let flowId =
-                        match !ctx.Level with
-                        | Modeling ->
-                            let storeHit =
-                                Queries.flowsOf sysId ctx.Store
-                                |> List.tryFind (fun f -> f.Name = flowName)
-                            let combinedHit =
+                    try
+                        // S3b — modeling level 시 lookup-first (기존 store/plan 의 같은 (sysId, flowName) Flow reuse).
+                        // #32 — store + plan 합집합. plan-only Flow 도 reuse (multi-stage forward-ref 회귀 가드).
+                        let flowId =
+                            match !ctx.Level with
+                            | Modeling ->
+                                let storeHit =
+                                    Queries.flowsOf sysId ctx.Store
+                                    |> List.tryFind (fun f -> f.Name = flowName)
                                 storeHit
                                 |> Option.orElseWith (fun () -> Internal.PlanLookup.tryFindFlowByName ctx.Plan sysId flowName)
-                            match combinedHit with
-                            | Some f -> f.Id
-                            | None -> ToolOperations.queueAddFlow ctx.Plan ctx.Store flowName sysId
-                        | Full -> ToolOperations.queueAddFlow ctx.Plan ctx.Store flowName sysId
-                    sysEntry.FlowIds.[flowName] <- flowId
+                                |> function
+                                   | Some f -> f.Id
+                                   | None -> ToolOperations.queueAddFlow ctx.Plan ctx.Store flowName sysId
+                            | Full -> ToolOperations.queueAddFlow ctx.Plan ctx.Store flowName sysId
+                        sysEntry.FlowIds.[flowName] <- flowId
 
-                    // Phase 7 §4.2 C-7.1: ControlFlowProperties plc 키
-                    tryProp flowEl "plc"
-                    |> Option.iter (fun plcEl ->
-                        lookupFlowById ctx flowId
-                        |> Option.iter (fun flow ->
-                            parsePlcFlow ctx (joinDiagKey flowPath "plc") flow plcEl))
+                        // flows value 허용 키 화이트리스트 = plc 만 (D5). 그 외 거부.
+                        if flowEl.ValueKind = JsonValueKind.Object then
+                            for fp in flowEl.EnumerateObject() do
+                                if fp.Name <> "plc" then
+                                    ctx.Diagnostics.Add(flowPath, sprintf "키 '%s' 인식 불가. flows value 허용 키 = plc." fp.Name)
 
-                    // works (mapping)
-                    let worksEl = tryProp flowEl "works"
-                    match worksEl with
-                    | None -> ()
-                    | Some w when w.ValueKind <> JsonValueKind.Object ->
-                        ctx.Diagnostics.Add(joinDiagKey flowPath "works", "Object 기대.")
-                    | Some w ->
-                        for prop in w.EnumerateObject() do
-                            let workPath = sprintf "%s.works.%s" flowPath prop.Name
-                            dispatchWork ctx sysEntry flowName flowId prop.Name prop.Value workPath
+                        // Phase 7 §4.2 C-7.1: ControlFlowProperties plc 키
+                        tryProp flowEl "plc"
+                        |> Option.iter (fun plcEl ->
+                            lookupFlowById ctx flowId
+                            |> Option.iter (fun flow ->
+                                parsePlcFlow ctx (joinDiagKey flowPath "plc") flow plcEl))
+                    with ex ->
+                        ctx.Diagnostics.Add(flowPath, ex.Message)
+            | None -> ()
 
-                    // arrows (Flow 안 — ArrowBetweenWorks)
-                    let arrowsList =
-                        tryProp flowEl "arrows"
-                        |> Option.bind (fun el ->
-                            if el.ValueKind = JsonValueKind.Array then
-                                el.EnumerateArray()
-                                |> Seq.map extractArrowString
-                                |> Seq.toList
-                                |> Some
-                            else None)
-                        |> Option.defaultValue []
-                    let resolveWorkId (rawName: string) (subPath: string) : Guid option =
-                        let workMap =
-                            match sysEntry.WorkIds.TryGetValue flowName with
-                            | true, m -> m
-                            | _ -> Dictionary<string, Guid>()
-                        let normalized = normalizePath rawName
-                        match workMap.TryGetValue normalized with
-                        | true, id -> Some id
-                        | _ ->
-                            // Levenshtein 키 통일 (review m3): normalized vs key set 모두 normalized 형식.
-                            let candidates = nearestCandidates normalized workMap.Keys 3
-                            ctx.Diagnostics.Add(
-                                subPath,
-                                sprintf "Work '%s' 가 발견되지 않음." rawName,
-                                ?suggestion = (if candidates.IsEmpty then None else Some (String.Join(" / ", candidates))))
-                            None
-                    let processOneFlowArrow (arrowPath: string) (arrowRaw: string) : unit =
-                        match parseArrowSpec arrowRaw with
+            // ── works: system 직속 mapping (D6) — 각 work 에 flow: 속성으로 소속 명시 ──
+            match tryProp sysEl "works" with
+            | Some worksEl when worksEl.ValueKind <> JsonValueKind.Object ->
+                ctx.Diagnostics.Add(joinDiagKey basePath "works", "Object 기대.")
+            | Some worksEl ->
+                for prop in worksEl.EnumerateObject() do
+                    let workLocalName = prop.Name
+                    let workEl = prop.Value
+                    let workPath = sprintf "%s.works.%s" basePath workLocalName
+                    if workEl.ValueKind <> JsonValueKind.Object then
+                        ctx.Diagnostics.Add(workPath, "Object 기대.")
+                    else
+                        // flow: 속성 — 소속 flow (D6). 누락/미존재 flow → validate 에러.
+                        match tryProp workEl "flow" |> Option.bind tryString with
+                        | None ->
+                            ctx.Diagnostics.Add(workPath, "work 의 'flow' 속성 누락 — 소속 flow 를 명시하세요.")
+                        | Some flowName ->
+                            match sysEntry.FlowIds.TryGetValue flowName with
+                            | false, _ ->
+                                let candidates = nearestCandidates flowName sysEntry.FlowIds.Keys 3
+                                ctx.Diagnostics.Add(
+                                    joinDiagKey workPath "flow",
+                                    sprintf "flow '%s' 가 발견되지 않음." flowName,
+                                    ?suggestion = (if candidates.IsEmpty then None else Some (String.Join(" / ", candidates))))
+                            | true, flowId ->
+                                dispatchWork ctx sysEntry flowId workLocalName workEl workPath
+            | None -> ()
+
+            // ── arrows: system 직속 (work 간 arrow, bare 표기 — D2) ──
+            // work 이름이 system-unique 이므로 WorkIdsByName flat dict 로 cross-flow 1-pass O(1) resolve.
+            let arrowsList =
+                tryProp sysEl "arrows"
+                |> Option.bind (fun el ->
+                    if el.ValueKind = JsonValueKind.Array then
+                        el.EnumerateArray()
+                        |> Seq.map extractArrowString
+                        |> Seq.toList
+                        |> Some
+                    else None)
+                |> Option.defaultValue []
+            let resolveWorkId (rawName: string) (subPath: string) : Guid option =
+                let normalized = normalizePath rawName
+                match sysEntry.WorkIdsByName.TryGetValue normalized with
+                | true, id -> Some id
+                | _ ->
+                    let candidates = nearestCandidates normalized sysEntry.WorkIdsByName.Keys 3
+                    ctx.Diagnostics.Add(
+                        subPath,
+                        sprintf "Work '%s' 가 발견되지 않음." rawName,
+                        ?suggestion = (if candidates.IsEmpty then None else Some (String.Join(" / ", candidates))))
+                    None
+            let processOneWorkArrow (arrowPath: string) (arrowRaw: string) : unit =
+                match parseArrowSpec arrowRaw with
+                | Error msg -> ctx.Diagnostics.Add(arrowPath, msg)
+                | Ok spec ->
+                    match spec.TypeRaw with
+                    | None -> ctx.Diagnostics.Add(arrowPath, "type 누락. '<from> -> <to> : <Type>' 형식 사용.")
+                    | Some tRaw ->
+                        match parseArrowType tRaw with
                         | Error msg -> ctx.Diagnostics.Add(arrowPath, msg)
-                        | Ok spec ->
-                            match spec.TypeRaw with
-                            | None -> ctx.Diagnostics.Add(arrowPath, "type 누락. '<from> -> <to> : <Type>' 형식 사용.")
-                            | Some tRaw ->
-                                match parseArrowType tRaw with
-                                | Error msg -> ctx.Diagnostics.Add(arrowPath, msg)
-                                | Ok aType ->
-                                    let srcOpt = resolveWorkId spec.FromRaw (arrowPath + ".from")
-                                    let tgtOpt = resolveWorkId spec.ToRaw (arrowPath + ".to")
-                                    match srcOpt, tgtOpt with
-                                    | Some s, Some t ->
-                                        // S3b — modeling 시 같은 arrow 가 store 에 이미 있으면 중복 add skip.
-                                        let skipDup =
-                                            match !ctx.Level with
-                                            | Modeling -> arrowWorkExists ctx.Store s t aType
-                                            | Full -> false
-                                        if not skipDup then
-                                            try
-                                                ToolOperations.queueAddArrow ctx.Plan ctx.Store s t aType |> ignore
-                                            with ex ->
-                                                ctx.Diagnostics.Add(arrowPath, ex.Message)
-                                    | _ -> ()
-                    let mutable aIdx = 0
-                    for arrowResult in arrowsList do
-                        let arrowPath = sprintf "%s.arrows[%d]" flowPath aIdx
-                        match arrowResult with
-                        | Error msg -> ctx.Diagnostics.Add(arrowPath, msg)
-                        | Ok arrowRaw -> processOneFlowArrow arrowPath arrowRaw
-                        aIdx <- aIdx + 1
-                with ex ->
-                    ctx.Diagnostics.Add(flowPath, ex.Message)
+                        | Ok aType ->
+                            let srcOpt = resolveWorkId spec.FromRaw (arrowPath + ".from")
+                            let tgtOpt = resolveWorkId spec.ToRaw (arrowPath + ".to")
+                            match srcOpt, tgtOpt with
+                            | Some s, Some t ->
+                                // S3b — modeling 시 같은 arrow 가 store 에 이미 있으면 중복 add skip.
+                                let skipDup =
+                                    match !ctx.Level with
+                                    | Modeling -> arrowWorkExists ctx.Store s t aType
+                                    | Full -> false
+                                if not skipDup then
+                                    try
+                                        ToolOperations.queueAddArrow ctx.Plan ctx.Store s t aType |> ignore
+                                    with ex ->
+                                        ctx.Diagnostics.Add(arrowPath, ex.Message)
+                            | _ -> ()
+            let mutable aIdx = 0
+            for arrowResult in arrowsList do
+                let arrowPath = sprintf "%s.arrows[%d]" basePath aIdx
+                match arrowResult with
+                | Error msg -> ctx.Diagnostics.Add(arrowPath, msg)
+                | Ok arrowRaw -> processOneWorkArrow arrowPath arrowRaw
+                aIdx <- aIdx + 1
 
     let private buildActiveFlows (ctx: ApplyContext) (systemsEl: JsonElement) : unit =
         if systemsEl.ValueKind <> JsonValueKind.Array then ()
@@ -1726,11 +1726,12 @@ module ModelProtocol =
         | Some system ->
             match tryGetSeededSystemEntry ctx system.Name with
             | Some sysEntry when sysEntry.Kind = "active" ->
-                let hasFlowKey =
-                    entryEl.EnumerateObject()
-                    |> Seq.exists (fun p -> tryParseFlowKey p.Name |> Option.isSome)
-                if not hasFlowKey then
-                    ctx.Diagnostics.Add(path, "`in:` 이 System 을 가리키면 `flow <Name>` 키가 필요합니다.")
+                // 새 구조 — active content 키 = flows / works / arrows (system 직속). 하나라도 있어야 함.
+                let hasActiveKey =
+                    [ "flows"; "works"; "arrows" ]
+                    |> List.exists (fun k -> tryProp entryEl k |> Option.isSome)
+                if not hasActiveKey then
+                    ctx.Diagnostics.Add(path, "`in:` 이 System 을 가리키면 `flows` / `works` / `arrows` 키가 필요합니다.")
                 else
                     dispatchActiveFlows ctx sysEntry entryEl path
             | Some _ ->
@@ -1765,7 +1766,7 @@ module ModelProtocol =
                         if prop.Value.ValueKind <> JsonValueKind.Object then
                             ctx.Diagnostics.Add(workPath, "Object 기대.")
                         else
-                            dispatchWork ctx sysEntry flow.Name flow.Id prop.Name prop.Value workPath
+                            dispatchWork ctx sysEntry flow.Id prop.Name prop.Value workPath
                 | Some _ ->
                     ctx.Diagnostics.Add(path, sprintf "Flow '%s' 는 active system 아래 Flow 가 아닙니다. Active Work 만 patch.add 로 추가할 수 있습니다." flowPath)
                 | None ->
@@ -1946,29 +1947,36 @@ module ModelProtocol =
                 |> List.iter (fun (i, entry) -> dispatchPatchAddChild ctx i entry)
         | _ -> ()
 
-        // patch.arrows.add / patch.arrows.remove — SSOT §2.6 / §3.4 (Critical 1 fix)
-        // 두 dispatcher 의 outer + middle loop (in/entries/findFlowByPath/extractArrowString/parseArrowSpec/resolveWork)
-        // 골격을 iterFlowArrowEntries helper 로 통합. add 는 spec.TypeRaw 필수, remove 는 옵션 분기 (callback 안 위치).
-        let iterFlowArrowEntries
+        // patch.arrows.add / patch.arrows.remove — SSOT §2.6 / §3.4 (C1 — work 간 arrow 는 system-scope, D2)
+        // work 간 arrow 는 system 레벨 엔티티 (ArrowBetweenWorks.ParentId=SystemId) 이므로 `in:` = system path.
+        // 두 dispatcher 의 outer + middle loop (in/entries/findSystemByPath/extractArrowString/parseArrowSpec/resolveWork)
+        // 골격을 iterSystemArrowEntries helper 로 통합. add 는 spec.TypeRaw 필수, remove 는 옵션 분기 (callback 안 위치).
+        let iterSystemArrowEntries
             (sectionTag: string)
             (listEl: JsonElement)
-            (onSpec: string -> Flow -> string -> ArrowSpec -> (string -> Guid option) -> unit) =
+            (onSpec: string -> DsSystem -> string -> ArrowSpec -> (string -> Guid option) -> unit) =
             let mutable aIdx = 0
             for entry in listEl.EnumerateArray() do
                 let path = sprintf "patch.arrows.%s[%d]" sectionTag aIdx
                 let inPath = tryProp entry "in" |> Option.bind tryString
                 let entriesEl = tryProp entry "entries"
                 match inPath, entriesEl with
-                | None, _ -> ctx.Diagnostics.Add(path, "'in' 키 누락 (Flow path 필요).")
+                | None, _ -> ctx.Diagnostics.Add(path, "'in' 키 누락 (System path 필요).")
                 | _, None -> ctx.Diagnostics.Add(path, "'entries' 키 누락 (arrow 표기 list 필요).")
-                | Some flowPath, Some entries when entries.ValueKind = JsonValueKind.Array ->
-                    match findFlowByPath ctx.Store flowPath with
-                    | None -> ctx.Diagnostics.Add(path, sprintf "Flow '%s' 가 store 에 없습니다." flowPath)
-                    | Some flow ->
+                | Some systemPath, Some entries when entries.ValueKind = JsonValueKind.Array ->
+                    match findSystemByPath ctx.Store systemPath with
+                    | None -> ctx.Diagnostics.Add(path, sprintf "System '%s' 가 store 에 없습니다." systemPath)
+                    | Some system ->
+                        // work 이름 = system-unique (D1) — system 전체 work 테이블 O(W) 1회 빌드 후 O(1) lookup
+                        // (arrow 순회 중 재평탄화 금지 — M2). cross-flow resolve 자연 해소.
+                        let workTable = Dictionary<string, Guid>(StringComparer.Ordinal)
+                        for f in Queries.flowsOf system.Id ctx.Store do
+                            for wk in Queries.worksOf f.Id ctx.Store do
+                                workTable.[wk.LocalName] <- wk.Id
                         let resolveWork (rawName: string) : Guid option =
-                            Queries.worksOf flow.Id ctx.Store
-                            |> List.tryFind (fun w -> w.LocalName = normalizePath rawName)
-                            |> Option.map (fun w -> w.Id)
+                            match workTable.TryGetValue (normalizePath rawName) with
+                            | true, id -> Some id
+                            | _ -> None
                         let mutable eIdx = 0
                         for arrEl in entries.EnumerateArray() do
                             let entryPath = sprintf "%s.entries[%d]" path eIdx
@@ -1977,17 +1985,17 @@ module ModelProtocol =
                             | Ok raw ->
                                 match parseArrowSpec raw with
                                 | Error msg -> ctx.Diagnostics.Add(entryPath, msg)
-                                | Ok spec -> onSpec flowPath flow entryPath spec resolveWork
+                                | Ok spec -> onSpec systemPath system entryPath spec resolveWork
                             eIdx <- eIdx + 1
                 | _ -> ctx.Diagnostics.Add(path, "'entries' 가 array 가 아닙니다.")
                 aIdx <- aIdx + 1
 
         match tryProp patchEl "arrows" with
         | Some arrowsEl when arrowsEl.ValueKind = JsonValueKind.Object ->
-            // arrows.add — Flow 단위 entries. spec.TypeRaw 필수.
+            // arrows.add — System 단위 entries. spec.TypeRaw 필수.
             match tryProp arrowsEl "add" with
             | Some addList when addList.ValueKind = JsonValueKind.Array ->
-                iterFlowArrowEntries "add" addList (fun flowPath _flow entryPath spec resolveWork ->
+                iterSystemArrowEntries "add" addList (fun systemPath _system entryPath spec resolveWork ->
                     match spec.TypeRaw with
                     | None -> ctx.Diagnostics.Add(entryPath, "type 누락. '<from> -> <to> : <Type>' 형식 사용.")
                     | Some tRaw ->
@@ -1999,31 +2007,30 @@ module ModelProtocol =
                                 try
                                     ToolOperations.queueAddArrow ctx.Plan ctx.Store s t aType |> ignore
                                 with ex -> ctx.Diagnostics.Add(entryPath, ex.Message)
-                            | None, _ -> ctx.Diagnostics.Add(entryPath + ".from", sprintf "Work '%s' 가 Flow '%s' 에 없습니다." spec.FromRaw flowPath)
-                            | _, None -> ctx.Diagnostics.Add(entryPath + ".to", sprintf "Work '%s' 가 Flow '%s' 에 없습니다." spec.ToRaw flowPath))
+                            | None, _ -> ctx.Diagnostics.Add(entryPath + ".from", sprintf "Work '%s' 가 System '%s' 에 없습니다." spec.FromRaw systemPath)
+                            | _, None -> ctx.Diagnostics.Add(entryPath + ".to", sprintf "Work '%s' 가 System '%s' 에 없습니다." spec.ToRaw systemPath))
             | _ -> ()
-            // arrows.remove — Flow 단위 entries (arrows.add 와 대칭).
-            // 입력: { in: <flowPath>, entries: [ "<from> -> <to>" | "<from> -> <to> : <Type>", ... ] }
+            // arrows.remove — System 단위 entries (arrows.add 와 대칭).
+            // 입력: { in: <systemPath>, entries: [ "<from> -> <to>" | "<from> -> <to> : <Type>", ... ] }
             // Type 미지정 시 (from, to) 쌍 unique 일 때만 매칭 — 다중 매칭 시 type 명시 요구.
-            // Call arrow 제거는 첫 cycle 미지원 (in path 가 flow 임을 전제).
             match tryProp arrowsEl "remove" with
             | Some remList when remList.ValueKind = JsonValueKind.Array ->
-                iterFlowArrowEntries "remove" remList (fun flowPath _flow entryPath spec resolveWork ->
+                iterSystemArrowEntries "remove" remList (fun systemPath _system entryPath spec resolveWork ->
                     let typeFilter : Result<ArrowType option, string> =
                         match spec.TypeRaw with
                         | None -> Ok None
                         | Some tRaw -> parseArrowType tRaw |> Result.map Some
                     match resolveWork spec.FromRaw, resolveWork spec.ToRaw, typeFilter with
                     | None, _, _ ->
-                        ctx.Diagnostics.Add(entryPath + ".from", sprintf "Work '%s' 가 Flow '%s' 에 없습니다." spec.FromRaw flowPath)
+                        ctx.Diagnostics.Add(entryPath + ".from", sprintf "Work '%s' 가 System '%s' 에 없습니다." spec.FromRaw systemPath)
                     | _, None, _ ->
-                        ctx.Diagnostics.Add(entryPath + ".to", sprintf "Work '%s' 가 Flow '%s' 에 없습니다." spec.ToRaw flowPath)
+                        ctx.Diagnostics.Add(entryPath + ".to", sprintf "Work '%s' 가 System '%s' 에 없습니다." spec.ToRaw systemPath)
                     | _, _, Error msg ->
                         ctx.Diagnostics.Add(entryPath, msg)
                     | Some s, Some t, Ok aTypeOpt ->
-                        // Flow scope invariant: ArrowBetweenWorks.ParentId = SystemId (Flow scope 필드 부재) 이지만
-                        // Source/Target Work 는 Flow 안에서 unique (Queries.worksOf flow.Id 가 LocalName unique list).
-                        // resolveWork 가 flow.Id 의 Work 만 반환하므로 (s, t) 매칭이 자동으로 Flow scope.
+                        // resolveWork 가 system 전체 work 테이블에서 (s, t) 를 resolve 하므로 cross-flow arrow 도 매칭.
+                        // candidate 는 store 전역 ArrowWorks 에서 (s, t) 정확 ID 매칭 — ArrowBetweenWorks.ParentId=SystemId
+                        // 이라 자동으로 해당 system scope (Work id 가 unique).
                         let candidates =
                             ctx.Store.ArrowWorksReadOnly.Values
                             |> Seq.filter (fun a -> a.SourceId = s && a.TargetId = t)
@@ -2034,7 +2041,7 @@ module ModelProtocol =
                             |> Seq.toList
                         match candidates with
                         | [] ->
-                            ctx.Diagnostics.Add(entryPath, sprintf "Arrow '%s -> %s' 가 Flow '%s' 에 없습니다." spec.FromRaw spec.ToRaw flowPath)
+                            ctx.Diagnostics.Add(entryPath, sprintf "Arrow '%s -> %s' 가 System '%s' 에 없습니다." spec.FromRaw spec.ToRaw systemPath)
                         | [ arrow ] ->
                             try
                                 ToolOperations.queueRemoveEntity ctx.Plan ctx.Store arrow.Id |> ignore
@@ -2042,8 +2049,8 @@ module ModelProtocol =
                         | many ->
                             ctx.Diagnostics.Add(
                                 entryPath,
-                                sprintf "Arrow '%s -> %s' 가 Flow '%s' 에 %d 개 — Type 을 명시하세요 (예: '%s -> %s : Start')."
-                                    spec.FromRaw spec.ToRaw flowPath many.Length spec.FromRaw spec.ToRaw))
+                                sprintf "Arrow '%s -> %s' 가 System '%s' 에 %d 개 — Type 을 명시하세요 (예: '%s -> %s : Start')."
+                                    spec.FromRaw spec.ToRaw systemPath many.Length spec.FromRaw spec.ToRaw))
             | _ -> ()
         | _ -> ()
 
@@ -2555,171 +2562,166 @@ module ModelProtocol =
                     // #31 — plc 는 D_Plc — Modeling 시 emit 생략.
                     if isEmittedIn level D_Plc then
                         s.GetControlProperties() |> Option.iter (emitPlcSystem w)
-                    // flows (object)
-                    let flows = Queries.flowsOf s.Id store
-                    for f in flows do
-                        w.WritePropertyName(sprintf "flow %s" f.Name)
-                        w.WriteStartObject()
-                        // Phase 7 §4.2 C-7.1: ControlFlowProperties plc 키 — #31 D_Plc
-                        if isEmittedIn level D_Plc then
-                            f.GetControlProperties() |> Option.iter (emitPlcFlow w)
-                        // works
-                        let works = Queries.worksOf f.Id store
-                        if not works.IsEmpty then
-                            w.WritePropertyName "works"
-                            w.WriteStartObject()
-                            // Work emit 시 공용 apiCallRef (Work.Conditions / Call.Conditions 둘 다 사용).
-                            let workApiCallRef (ac: ApiCall) : string =
-                                match ac.ApiDefId with
-                                | Some apiDefId ->
-                                    match Queries.getApiDef apiDefId store with
-                                    | Some apiDef ->
-                                        match Queries.getSystem apiDef.ParentId store with
-                                        | Some sys -> sprintf "%s.%s" sys.Name apiDef.Name
-                                        | None -> ac.Name
-                                    | None -> ac.Name
-                                | None -> ac.Name
 
-                            for wk in works do
-                                w.WritePropertyName wk.LocalName
-                                w.WriteStartObject()
-                                // Phase 7 §4.2 C-6: Work.TokenRole (default None 면 생략) — #31 A_Modeling (그대로 emit)
-                                if wk.TokenRole <> TokenRole.None then
-                                    w.WriteString("tokenRole", formatTokenRole wk.TokenRole)
-                                // Phase 7 §4.2 C-7.1: ControlWorkProperties plc 키 — #31 D_Plc
-                                if isEmittedIn level D_Plc then
-                                    wk.GetControlProperties() |> Option.iter (emitPlcWork w)
-                                // Work.Conditions (SkipAction 등) — emitCondition 재사용. 첫 root 만 emit.
-                                if wk.Conditions.Count > 0 then
-                                    w.WritePropertyName "condition"
-                                    emitCondition w workApiCallRef wk.Conditions.[0]
-                                let calls = Queries.callsOf wk.Id store
-                                if not calls.IsEmpty then
-                                    w.WritePropertyName "calls"
-                                    w.WriteStartArray()
-                                    // Condition.Conditions leaf (ApiCall) → path 도출 람다. ApiDefId/getApiDef/getSystem
-                                    // 어느 단계든 실패 시 ApiCall.Name fallback (데이터 무결성 깨진 케이스).
-                                    let apiCallRef (ac: ApiCall) : string =
-                                        match ac.ApiDefId with
-                                        | Some apiDefId ->
-                                            match Queries.getApiDef apiDefId store with
-                                            | Some apiDef ->
-                                                match Queries.getSystem apiDef.ParentId store with
-                                                | Some sys -> sprintf "%s.%s" sys.Name apiDef.Name
-                                                | None -> ac.Name
-                                            | None -> ac.Name
-                                        | None -> ac.Name
-                                    for c in calls do
-                                        // SSOT §1.7: Call 참조는 DevicesAlias 가 아닌 *Passive system 이름* 으로 emit.
-                                        // ApiDef.ParentId → system.Name 으로 정정. GUI 사용자가 부여한 alias 는
-                                        // doc-level 추상화에서 무시.
-                                        //
-                                        // *invariant 가정* (M1, 자가 검열): Call.ApiCalls 는 본 PoC scope (cylinder/clamp/
-                                        // robot sugar) 에서 1:1 매핑 — `Seq.tryHead` 로 canonical ApiDef 식별. multi-entry
-                                        // 케이스 (Paste.DeviceOps 등) 가 들어와도 첫 항목 = 정답으로 가정.
-                                        //
-                                        // *fallback* (M2, 외부 review 적용): 다음 4 케이스에서 alias 그대로 emit (= 기존 동작):
-                                        // (a) ApiCalls 빈 list / (b) ApiDefId None / (c) getApiDef None / (d) getSystem None.
-                                        // 모두 데이터 무결성 깨진 상태 — fallback 유지 + logWarn 으로 forensic 단서 남김.
-                                        let resolved =
-                                            Queries.tryResolveCallTargetSystem c store
-                                            |> Option.map (fun sys -> sys.Name)
-                                        let sysName =
-                                            match resolved with
-                                            | Some n -> n
-                                            | None ->
-                                                log.Warn(sprintf "[exportToJson] call '%s.%s' systemName resolution 실패 — DevicesAlias fallback" c.DevicesAlias c.ApiName)
-                                                c.DevicesAlias
-                                        let callRef = sprintf "%s.%s" sysName c.ApiName
-                                        // Phase 7 §4.1.5 dual format — enhancement 없으면 string scalar (legacy 동일).
-                                        // 있으면 object 승격 + 보강 property (현 phase: contactKind / condition).
-                                        // CallType / SkipInputSensor / InTag/OutTag/etc 는 C-4/C-5 phase.
-                                        // #31 — callHasEnhancement level 인자로 modeling 시 B/C/D 무시 (string scalar 유지).
-                                        if callHasEnhancement level c then
-                                            w.WriteStartObject()
-                                            w.WriteString("ref", callRef)
-                                            if c.ApiCalls.Count > 0 then
-                                                let ac = c.ApiCalls.[0]
-                                                // A_Modeling (그대로 emit)
-                                                if ac.ContactKind <> ContactKind.NoContact then
-                                                    w.WriteString("contactKind", formatContactKind ac.ContactKind)
-                                                // v10: skipInputSensor 폐기 — SensingType=Virtual 로 ApiDef 차원 표현.
-                                                // #31 — inTag/outTag 는 B_Addressing — Modeling 시 생략.
-                                                // 외부 reviewer M-B: 빈 IOTag (Some empty) 는 emit 자체 skip
-                                                if isEmittedIn level B_Addressing then
-                                                    ac.InTag
-                                                    |> Option.filter ioTagHasContent
-                                                    |> Option.iter (writeIOTag w "inTag")
-                                                    ac.OutTag
-                                                    |> Option.filter ioTagHasContent
-                                                    |> Option.iter (writeIOTag w "outTag")
-                                            // C-5: SimulationCallProperties.CallType (default WaitForCompletion 면 생략) — A_Modeling
-                                            match callTypeOf c with
-                                            | Some ct when ct <> CallType.WaitForCompletion ->
-                                                w.WriteString("callType", formatCallType ct)
-                                            | _ -> ()
-                                            // A_Modeling (그대로 emit)
-                                            if c.Conditions.Count > 0 then
-                                                w.WritePropertyName "condition"
-                                                emitCondition w apiCallRef c.Conditions.[0]
-                                            // Phase 7 §4.2 C-7.1: ControlCallProperties plc 키 — #31 D_Plc
-                                            if isEmittedIn level D_Plc then
-                                                c.GetControlProperties() |> Option.iter (emitPlcCall w)
-                                            w.WriteEndObject()
-                                        else
-                                            w.WriteStringValue(callRef)
-                                    w.WriteEndArray()
-                                // arrows (Work 안 — ArrowBetweenCalls). round-trip 정합: apply 측 (line 617~) 의
-                                // callIdMap 키 (`sysName.apiName`) 와 동일한 normalized 표현 사용 → load 시 resolveCallId
-                                // 매칭 보장. 미 emit 시 work-level call 간 분기 (병렬/순차) 정보가 round-trip 에서 소실.
-                                let callArrows = Queries.arrowCallsOf wk.Id store
-                                if not callArrows.IsEmpty then
-                                    let toCallRef (c: Call) =
-                                        let sysName =
-                                            Queries.tryResolveCallTargetSystem c store
-                                            |> Option.map (fun sys -> sys.Name)
-                                            |> Option.defaultValue c.DevicesAlias
-                                        sprintf "%s.%s" sysName c.ApiName
-                                    w.WritePropertyName "arrows"
-                                    w.WriteStartArray()
-                                    for a in callArrows do
-                                        match Queries.getCall a.SourceId store, Queries.getCall a.TargetId store with
-                                        | Some sc, Some tc ->
-                                            w.WriteStringValue(
-                                                sprintf "%s -> %s : %s"
-                                                    (toCallRef sc) (toCallRef tc) (formatArrowType a.ArrowType))
-                                        | _ ->
-                                            log.Warn(sprintf "[exportToJson] ArrowBetweenCalls %O source/target Call resolution 실패 — emit 누락" a)
-                                    w.WriteEndArray()
-                                // Active Work duration override (default 500ms 와 다른 경우만 emit)
-                                // #31 — workDuration 는 C_Meta (사용자 결정 — modeling 제외)
-                                if isEmittedIn level C_Meta then
-                                    match wk.Duration with
-                                    | Some d when d <> TimeSpan.FromMilliseconds 500. ->
-                                        w.WriteString("workDuration", formatDuration d)
-                                    | _ -> ()
-                                w.WriteEndObject()
+                    let flows = Queries.flowsOf s.Id store
+
+                    // ── flows: mapping (D5) — flow 를 key 로, flow 별 속성(plc) 가능. 없으면 빈 객체 {} ──
+                    if not flows.IsEmpty then
+                        w.WritePropertyName "flows"
+                        w.WriteStartObject()
+                        for f in flows do
+                            w.WritePropertyName f.Name
+                            w.WriteStartObject()
+                            // Phase 7 §4.2 C-7.1: ControlFlowProperties plc 키 — #31 D_Plc
+                            if isEmittedIn level D_Plc then
+                                f.GetControlProperties() |> Option.iter (emitPlcFlow w)
                             w.WriteEndObject()
-                        // arrows (Flow 안 — ArrowBetweenWorks)
-                        let workArrows = Queries.arrowWorksOf s.Id store
-                        let workArrowsForFlow =
-                            workArrows
-                            |> List.filter (fun a ->
-                                match Queries.getWork a.SourceId store with
-                                | Some sw -> sw.ParentId = f.Id
-                                | None -> false)
-                        if not workArrowsForFlow.IsEmpty then
-                            w.WritePropertyName "arrows"
-                            w.WriteStartArray()
-                            for a in workArrowsForFlow do
-                                let srcW = Queries.getWork a.SourceId store
-                                let tgtW = Queries.getWork a.TargetId store
-                                match srcW, tgtW with
-                                | Some sw, Some tw ->
-                                    w.WriteStringValue(sprintf "%s -> %s : %s" sw.LocalName tw.LocalName (formatArrowType a.ArrowType))
-                                | _ -> ()
-                            w.WriteEndArray()
                         w.WriteEndObject()
+
+                    // ── works: system 직속 mapping (D6) — work 이름 = system-unique key, flow: 속성으로 소속 명시 ──
+                    // 공용 apiCallRef (Work.Conditions / Call.Conditions / leaf 도출 모두 동일 — 중복 helper 제거).
+                    // ApiDefId/getApiDef/getSystem 어느 단계든 실패 시 ApiCall.Name fallback (데이터 무결성 깨진 케이스).
+                    let workApiCallRef (ac: ApiCall) : string =
+                        match ac.ApiDefId with
+                        | Some apiDefId ->
+                            match Queries.getApiDef apiDefId store with
+                            | Some apiDef ->
+                                match Queries.getSystem apiDef.ParentId store with
+                                | Some sys -> sprintf "%s.%s" sys.Name apiDef.Name
+                                | None -> ac.Name
+                            | None -> ac.Name
+                        | None -> ac.Name
+                    // 전 flow 의 work 를 평탄 수집 ((flow, work) pair). work 이름 = mapping key.
+                    let allWorks =
+                        flows |> List.collect (fun f -> Queries.worksOf f.Id store |> List.map (fun wk -> f, wk))
+                    if not allWorks.IsEmpty then
+                        w.WritePropertyName "works"
+                        w.WriteStartObject()
+                        // D7 — system 내 동명 work 발견 → 즉시 exception. flat works mapping 은 system-unique key 라
+                        // JSON key 충돌 시 silent overwrite (data loss) 발생 → fail-fast 로 차단 (자동 rename 금지).
+                        let seenWorkNames = HashSet<string>(StringComparer.Ordinal)
+                        for (f, wk) in allWorks do
+                            if not (seenWorkNames.Add wk.LocalName) then
+                                invalidOp (sprintf "Export 실패: active system '%s' 안에 work 이름 '%s' 가 중복되어 system-unique works mapping 으로 직렬화할 수 없습니다 (work 이름은 system-unique — D7). work 이름을 고유하게 변경 후 다시 export 하세요." s.Name wk.LocalName)
+                            w.WritePropertyName wk.LocalName
+                            w.WriteStartObject()
+                            // flow: 소속 flow (D6) — Work.ParentId=FlowId 복원에 필요. 항상 emit.
+                            w.WriteString("flow", f.Name)
+                            // Phase 7 §4.2 C-6: Work.TokenRole (default None 면 생략) — #31 A_Modeling (그대로 emit)
+                            if wk.TokenRole <> TokenRole.None then
+                                w.WriteString("tokenRole", formatTokenRole wk.TokenRole)
+                            // Phase 7 §4.2 C-7.1: ControlWorkProperties plc 키 — #31 D_Plc
+                            if isEmittedIn level D_Plc then
+                                wk.GetControlProperties() |> Option.iter (emitPlcWork w)
+                            // Work.Conditions (SkipAction 등) — emitCondition 재사용. 첫 root 만 emit.
+                            if wk.Conditions.Count > 0 then
+                                w.WritePropertyName "condition"
+                                emitCondition w workApiCallRef wk.Conditions.[0]
+                            let calls = Queries.callsOf wk.Id store
+                            if not calls.IsEmpty then
+                                w.WritePropertyName "calls"
+                                w.WriteStartArray()
+                                for c in calls do
+                                    // SSOT §1.7: Call 참조는 DevicesAlias 가 아닌 *Passive system 이름* 으로 emit.
+                                    // ApiDef.ParentId → system.Name 으로 정정. GUI 사용자가 부여한 alias 는
+                                    // doc-level 추상화에서 무시.
+                                    //
+                                    // *invariant 가정* (M1, 자가 검열): Call.ApiCalls 는 본 PoC scope (cylinder/clamp/
+                                    // robot sugar) 에서 1:1 매핑 — `Seq.tryHead` 로 canonical ApiDef 식별. multi-entry
+                                    // 케이스 (Paste.DeviceOps 등) 가 들어와도 첫 항목 = 정답으로 가정.
+                                    //
+                                    // *fallback* (M2, 외부 review 적용): 다음 4 케이스에서 alias 그대로 emit (= 기존 동작):
+                                    // (a) ApiCalls 빈 list / (b) ApiDefId None / (c) getApiDef None / (d) getSystem None.
+                                    // 모두 데이터 무결성 깨진 상태 — fallback 유지 + logWarn 으로 forensic 단서 남김.
+                                    let resolved =
+                                        Queries.tryResolveCallTargetSystem c store
+                                        |> Option.map (fun sys -> sys.Name)
+                                    let sysName =
+                                        match resolved with
+                                        | Some n -> n
+                                        | None ->
+                                            log.Warn(sprintf "[exportToJson] call '%s.%s' systemName resolution 실패 — DevicesAlias fallback" c.DevicesAlias c.ApiName)
+                                            c.DevicesAlias
+                                    let callRef = sprintf "%s.%s" sysName c.ApiName
+                                    // Phase 7 §4.1.5 dual format — enhancement 없으면 string scalar (legacy 동일).
+                                    // 있으면 object 승격 + 보강 property (현 phase: contactKind / condition).
+                                    // #31 — callHasEnhancement level 인자로 modeling 시 B/C/D 무시 (string scalar 유지).
+                                    if callHasEnhancement level c then
+                                        w.WriteStartObject()
+                                        w.WriteString("ref", callRef)
+                                        if c.ApiCalls.Count > 0 then
+                                            let ac = c.ApiCalls.[0]
+                                            // A_Modeling (그대로 emit)
+                                            if ac.ContactKind <> ContactKind.NoContact then
+                                                w.WriteString("contactKind", formatContactKind ac.ContactKind)
+                                            // #31 — inTag/outTag 는 B_Addressing — Modeling 시 생략.
+                                            // 외부 reviewer M-B: 빈 IOTag (Some empty) 는 emit 자체 skip
+                                            if isEmittedIn level B_Addressing then
+                                                ac.InTag
+                                                |> Option.filter ioTagHasContent
+                                                |> Option.iter (writeIOTag w "inTag")
+                                                ac.OutTag
+                                                |> Option.filter ioTagHasContent
+                                                |> Option.iter (writeIOTag w "outTag")
+                                        // C-5: SimulationCallProperties.CallType (default WaitForCompletion 면 생략) — A_Modeling
+                                        match callTypeOf c with
+                                        | Some ct when ct <> CallType.WaitForCompletion ->
+                                            w.WriteString("callType", formatCallType ct)
+                                        | _ -> ()
+                                        // A_Modeling (그대로 emit)
+                                        if c.Conditions.Count > 0 then
+                                            w.WritePropertyName "condition"
+                                            emitCondition w workApiCallRef c.Conditions.[0]
+                                        // Phase 7 §4.2 C-7.1: ControlCallProperties plc 키 — #31 D_Plc
+                                        if isEmittedIn level D_Plc then
+                                            c.GetControlProperties() |> Option.iter (emitPlcCall w)
+                                        w.WriteEndObject()
+                                    else
+                                        w.WriteStringValue(callRef)
+                                w.WriteEndArray()
+                            // arrows (Work 안 — ArrowBetweenCalls). round-trip 정합: apply 측 callIdMap 키
+                            // (`sysName.apiName`) 와 동일한 normalized 표현 사용 → load 시 resolveCallId 매칭 보장.
+                            let callArrows = Queries.arrowCallsOf wk.Id store
+                            if not callArrows.IsEmpty then
+                                let toCallRef (c: Call) =
+                                    let sysName =
+                                        Queries.tryResolveCallTargetSystem c store
+                                        |> Option.map (fun sys -> sys.Name)
+                                        |> Option.defaultValue c.DevicesAlias
+                                    sprintf "%s.%s" sysName c.ApiName
+                                w.WritePropertyName "arrows"
+                                w.WriteStartArray()
+                                for a in callArrows do
+                                    match Queries.getCall a.SourceId store, Queries.getCall a.TargetId store with
+                                    | Some sc, Some tc ->
+                                        w.WriteStringValue(
+                                            sprintf "%s -> %s : %s"
+                                                (toCallRef sc) (toCallRef tc) (formatArrowType a.ArrowType))
+                                    | _ ->
+                                        log.Warn(sprintf "[exportToJson] ArrowBetweenCalls %O source/target Call resolution 실패 — emit 누락" a)
+                                w.WriteEndArray()
+                            // Active Work duration override (default 500ms 와 다른 경우만 emit)
+                            // #31 — workDuration 는 C_Meta (사용자 결정 — modeling 제외)
+                            if isEmittedIn level C_Meta then
+                                match wk.Duration with
+                                | Some d when d <> TimeSpan.FromMilliseconds 500. ->
+                                    w.WriteString("workDuration", formatDuration d)
+                                | _ -> ()
+                            w.WriteEndObject()
+                        w.WriteEndObject()
+
+                    // ── arrows: system 직속 (work 간 arrow, bare 표기 — D2) ──
+                    // ArrowBetweenWorks.ParentId = SystemId 와 1:1 — source-flow 배분 없이 system 전체를 평탄 emit.
+                    let workArrows = Queries.arrowWorksOf s.Id store
+                    if not workArrows.IsEmpty then
+                        w.WritePropertyName "arrows"
+                        w.WriteStartArray()
+                        for a in workArrows do
+                            match Queries.getWork a.SourceId store, Queries.getWork a.TargetId store with
+                            | Some sw, Some tw ->
+                                w.WriteStringValue(sprintf "%s -> %s : %s" sw.LocalName tw.LocalName (formatArrowType a.ArrowType))
+                            | _ -> ()
+                        w.WriteEndArray()
                     w.WriteEndObject()
 
                 for s in passives do
@@ -2909,62 +2911,88 @@ module ModelProtocol =
                         | :? JsonObject as sysObj ->
                             let activeSys = isActiveSystem sysObj
                             if activeSys then
-                                // segs[2] = flow 이름 — "flow X" 키 외 제거
-                                let flowKey = "flow " + segs.[2]
-                                let keysToRemove =
-                                    sysObj
-                                    |> Seq.filter (fun kv ->
-                                        kv.Key.StartsWith("flow ") && kv.Key <> flowKey)
-                                    |> Seq.map (fun kv -> kv.Key)
-                                    |> Seq.toList
-                                for k in keysToRemove do
-                                    sysObj.Remove(k) |> ignore
-                                    truncated := true
-                                // 추가로 system 의 arrows (cross-flow arrows 가 있으면) 도 path 외부 → 제거
-                                if sysObj.ContainsKey("arrows") then
-                                    sysObj.Remove("arrows") |> ignore
-                                    truncated := true
-                                // segs[3] = work 안 필터
-                                if segs.Length >= 4 then
-                                    match sysObj.TryGetPropertyValue(flowKey) with
-                                    | true, (:? JsonObject as flowObj) ->
-                                        match flowObj.TryGetPropertyValue("works") with
-                                        | true, (:? JsonObject as worksObj) ->
-                                            let workKeys =
-                                                worksObj
-                                                |> Seq.map (fun kv -> kv.Key)
-                                                |> Seq.toList
-                                            for wk in workKeys do
-                                                if wk <> segs.[3] then
-                                                    worksObj.Remove(wk) |> ignore
-                                                    truncated := true
-                                            // flow level arrows 도 제거 (work 한정 scope)
-                                            if flowObj.ContainsKey("arrows") then
-                                                flowObj.Remove("arrows") |> ignore
-                                                truncated := true
-                                            // segs[4] = call 필터 (calls[] 안 string 항목)
-                                            if segs.Length >= 5 then
-                                                match worksObj.TryGetPropertyValue(segs.[3]) with
-                                                | true, (:? JsonObject as workObj) ->
-                                                    match workObj.TryGetPropertyValue("calls") with
-                                                    | true, (:? JsonArray as callsArr) ->
-                                                        let kept = ResizeArray<JsonNode>()
-                                                        let mutable removed = false
-                                                        let orig = callsArr |> Seq.toArray
-                                                        for cn in orig do
-                                                            // call 문자열은 "SysName.ApiName" — `.ApiName` suffix 비교
-                                                            let s = if cn = null then "" else cn.ToString()
-                                                            let lastDot = s.LastIndexOf('.')
-                                                            let apiPart = if lastDot >= 0 then s.Substring(lastDot + 1) else s
-                                                            if apiPart = segs.[4] then
-                                                                kept.Add(JsonNode.Parse(if cn = null then "null" else cn.ToJsonString()))
-                                                            else
-                                                                removed <- true
-                                                        if removed then truncated := true
-                                                        callsArr.Clear()
-                                                        for k in kept do callsArr.Add(k)
-                                                    | _ -> ()
-                                                | _ -> ()
+                                // 새 구조: flows: mapping / works: system 직속(flow: 속성) / arrows: system 직속(work 간).
+                                // segs[2] = flow 이름. segs[3] = work (work scope). segs[4] = call.
+                                let targetFlow = segs.[2]
+                                // 1) flows: — targetFlow 외 제거
+                                match sysObj.TryGetPropertyValue("flows") with
+                                | true, (:? JsonObject as flowsObj) ->
+                                    let toRemove =
+                                        flowsObj |> Seq.filter (fun kv -> kv.Key <> targetFlow)
+                                        |> Seq.map (fun kv -> kv.Key) |> Seq.toList
+                                    for k in toRemove do
+                                        flowsObj.Remove(k) |> ignore
+                                        truncated := true
+                                | _ -> ()
+                                // 2) works: — work scope (segs[3]) 면 그 work 만, flow scope 면 targetFlow 소속 work 만 유지
+                                let keptWorks = HashSet<string>(StringComparer.Ordinal)
+                                match sysObj.TryGetPropertyValue("works") with
+                                | true, (:? JsonObject as worksObj) ->
+                                    let workKeys = worksObj |> Seq.map (fun kv -> kv.Key) |> Seq.toList
+                                    for wk in workKeys do
+                                        let workFlow =
+                                            match worksObj.TryGetPropertyValue(wk) with
+                                            | true, (:? JsonObject as wo) ->
+                                                match wo.TryGetPropertyValue("flow") with
+                                                | true, v when v <> null -> v.ToString()
+                                                | _ -> ""
+                                            | _ -> ""
+                                        let keep =
+                                            if segs.Length >= 4 then wk = segs.[3]
+                                            else workFlow = targetFlow
+                                        if keep then keptWorks.Add wk |> ignore
+                                        else
+                                            worksObj.Remove(wk) |> ignore
+                                            truncated := true
+                                | _ -> ()
+                                // 3) arrows: (work 간) — 양 끝 work 가 모두 keptWorks 에 있는 것만 유지
+                                match sysObj.TryGetPropertyValue("arrows") with
+                                | true, (:? JsonArray as arrowsArr) ->
+                                    let kept = ResizeArray<JsonNode>()
+                                    let mutable removed = false
+                                    for an in (arrowsArr |> Seq.toArray) do
+                                        let raw = if an = null then "" else an.ToString()
+                                        let inScope =
+                                            match parseArrowSpec raw with
+                                            | Ok spec ->
+                                                keptWorks.Contains(normalizePath spec.FromRaw)
+                                                && keptWorks.Contains(normalizePath spec.ToRaw)
+                                            | Error _ -> false
+                                        if inScope then kept.Add(JsonNode.Parse(if an = null then "null" else an.ToJsonString()))
+                                        else removed <- true
+                                    if removed then truncated := true
+                                    arrowsArr.Clear()
+                                    for k in kept do arrowsArr.Add(k)
+                                | _ -> ()
+                                // 4) segs[4] = call 필터 (해당 work 의 calls[] — string scalar 또는 object ref)
+                                if segs.Length >= 5 then
+                                    match sysObj.TryGetPropertyValue("works") with
+                                    | true, (:? JsonObject as worksObj) ->
+                                        match worksObj.TryGetPropertyValue(segs.[3]) with
+                                        | true, (:? JsonObject as workObj) ->
+                                            match workObj.TryGetPropertyValue("calls") with
+                                            | true, (:? JsonArray as callsArr) ->
+                                                let kept = ResizeArray<JsonNode>()
+                                                let mutable removed = false
+                                                for cn in (callsArr |> Seq.toArray) do
+                                                    // call element 은 "SysName.ApiName" string 또는 { ref: ... } object.
+                                                    let callStr =
+                                                        match cn with
+                                                        | :? JsonObject as co ->
+                                                            match co.TryGetPropertyValue("ref") with
+                                                            | true, v when v <> null -> v.ToString()
+                                                            | _ -> ""
+                                                        | _ -> if cn = null then "" else cn.ToString()
+                                                    let lastDot = callStr.LastIndexOf('.')
+                                                    let apiPart = if lastDot >= 0 then callStr.Substring(lastDot + 1) else callStr
+                                                    if apiPart = segs.[4] then
+                                                        kept.Add(JsonNode.Parse(if cn = null then "null" else cn.ToJsonString()))
+                                                    else
+                                                        removed <- true
+                                                if removed then truncated := true
+                                                callsArr.Clear()
+                                                for k in kept do callsArr.Add(k)
+                                            | _ -> ()
                                         | _ -> ()
                                     | _ -> ()
                             else
@@ -2992,12 +3020,14 @@ module ModelProtocol =
                 | _ -> ()
 
     /// depth cap — scope root 로부터 d 단계 자식까지 유지. 그 너머는 제거 + truncated set.
-    /// `baseDepth` = scope entity 가 project root 로부터 떨어진 depth (0=project, 1=system, 2=flow/api, 3=work, 4=call).
-    /// `maxAbsDepth` = baseDepth + d. JSON tree 의 각 노드 절대 depth 와 비교.
-    /// 절대 depth 매핑: project=0, system entity=1, system content(flow X 키/device/apis 등)=2,
-    /// flow content(works obj / arrows)=3, work content(calls 배열)=4, call element(string)=5.
+    /// `baseDepth` = scope entity 의 entity-level depth (0=project, 1=system, 2=flow/api, 3=work, 4=call — §2.5.1 정합).
+    /// `maxAbsDepth` = baseDepth + d. **entity-level** 절단 (disk JSON 평탄화로 flows/works/arrows 가 system content
+    /// 형제 키가 되었으므로 literal JSON 중첩 depth 가 아닌 entity 레벨 기준 — §4.3):
+    ///   level<1 → systems 배열 제거 / level<2 → system identity(system/kind/device)만 / level<3 → flows·apis(레벨2)
+    ///   유지 + works·arrows(work=레벨3) 제거 / level<4 → works skeleton 유지 + 각 work 의 calls·call-arrows(call=레벨4)
+    ///   제거 / level>=4 → calls 까지 유지.
     let private applyDepthCap (root: JsonObject) (maxAbsDepth: int) (truncated: bool ref) : unit =
-        // depth=0 : systems 배열 제거 (envelope only)
+        // level<1 : systems 배열 제거 (envelope only)
         if maxAbsDepth < 1 then
             match root.TryGetPropertyValue("systems") with
             | true, (:? JsonArray as sa) when sa.Count > 0 ->
@@ -3005,15 +3035,13 @@ module ModelProtocol =
                 sa.Clear()
             | _ -> ()
         else
-            // depth>=1: systems[] 안 각 system entry 정리
             match root.TryGetPropertyValue("systems") with
             | true, (:? JsonArray as systemsArr) ->
                 for node in systemsArr do
                     match node with
                     | :? JsonObject as sysObj ->
-                        // 절대 depth 2 = system content (flow X 키 / apis / device / arrows / workDuration / opposing)
                         if maxAbsDepth < 2 then
-                            // system identity 만 유지: system, kind, device (passive identity 보존)
+                            // level 1 — system identity 만 (system/kind/device). flows/works/arrows/apis/iri/plc 등 제거.
                             let keysToRemove =
                                 sysObj
                                 |> Seq.filter (fun kv ->
@@ -3023,48 +3051,30 @@ module ModelProtocol =
                             if not keysToRemove.IsEmpty then truncated := true
                             for k in keysToRemove do
                                 sysObj.Remove(k) |> ignore
-                        else
-                            // depth>=2: flow content (works/arrows) 절단
-                            if maxAbsDepth < 3 then
-                                // active: 각 "flow X" obj 내부 비우기
-                                let flowKeys =
-                                    sysObj
-                                    |> Seq.filter (fun kv -> kv.Key.StartsWith("flow "))
-                                    |> Seq.map (fun kv -> kv.Key)
-                                    |> Seq.toList
-                                for fk in flowKeys do
-                                    match sysObj.TryGetPropertyValue(fk) with
-                                    | true, (:? JsonObject as flowObj) when flowObj.Count > 0 ->
-                                        truncated := true
-                                        flowObj.Clear()
+                        elif maxAbsDepth < 3 then
+                            // level 2 — flow(active) / apidef(passive) 까지 유지. work(레벨3) + work 간 arrows 제거.
+                            if sysObj.ContainsKey("works") then
+                                truncated := true
+                                sysObj.Remove("works") |> ignore
+                            if sysObj.ContainsKey("arrows") then
+                                truncated := true
+                                sysObj.Remove("arrows") |> ignore
+                        elif maxAbsDepth < 4 then
+                            // level 3 — work skeleton (flow:/tokenRole 등) 유지. 각 work 의 calls + call-arrows(레벨4) 제거.
+                            match sysObj.TryGetPropertyValue("works") with
+                            | true, (:? JsonObject as worksObj) ->
+                                for kv in (worksObj |> Seq.toArray) do
+                                    match kv.Value with
+                                    | :? JsonObject as workObj ->
+                                        if workObj.ContainsKey("calls") then
+                                            truncated := true
+                                            workObj.Remove("calls") |> ignore
+                                        if workObj.ContainsKey("arrows") then
+                                            truncated := true
+                                            workObj.Remove("arrows") |> ignore
                                     | _ -> ()
-                                // system level arrows 도 절단 — Phase 6 에선 active 의 cross-flow arrows
-                                if sysObj.ContainsKey("arrows") then
-                                    truncated := true
-                                    sysObj.Remove("arrows") |> ignore
-                            elif maxAbsDepth < 4 then
-                                // depth=3: flow content 유지 (works obj) — works 안 work entry 비우기
-                                let flowKeys =
-                                    sysObj
-                                    |> Seq.filter (fun kv -> kv.Key.StartsWith("flow "))
-                                    |> Seq.map (fun kv -> kv.Key)
-                                    |> Seq.toList
-                                for fk in flowKeys do
-                                    match sysObj.TryGetPropertyValue(fk) with
-                                    | true, (:? JsonObject as flowObj) ->
-                                        match flowObj.TryGetPropertyValue("works") with
-                                        | true, (:? JsonObject as worksObj) ->
-                                            // 각 work entry 의 calls 제거 (work identity 만 유지)
-                                            for kv in (worksObj |> Seq.toArray) do
-                                                match kv.Value with
-                                                | :? JsonObject as workObj ->
-                                                    if workObj.ContainsKey("calls") then
-                                                        truncated := true
-                                                        workObj.Remove("calls") |> ignore
-                                                | _ -> ()
-                                        | _ -> ()
-                                    | _ -> ()
-                            // depth>=4: calls 까지 모두 유지 — 추가 절단 없음
+                            | _ -> ()
+                        // maxAbsDepth >= 4 — calls 까지 모두 유지 (추가 절단 없음)
                     | _ -> ()
             | _ -> ()
 
@@ -3078,28 +3088,26 @@ module ModelProtocol =
             match n with
             | :? JsonObject as sysObj ->
                 c <- c + 1
-                // passive system 의 apidef 카운트 (apis[] 의 string 각 항목)
+                // passive system 의 ApiDef 카운트 (apis[] 의 string 각 항목)
                 match sysObj.TryGetPropertyValue("apis") with
                 | true, (:? JsonArray as apisArr) -> c <- c + apisArr.Count
                 | _ -> ()
-                for kv in sysObj do
-                    if kv.Key.StartsWith("flow ") then
-                        c <- c + 1
-                        match kv.Value with
-                        | :? JsonObject as flowObj ->
-                            match flowObj.TryGetPropertyValue("works") with
-                            | true, (:? JsonObject as worksObj) ->
-                                for wkv in worksObj do
-                                    c <- c + 1
-                                    match wkv.Value with
-                                    | :? JsonObject as workObj ->
-                                        match workObj.TryGetPropertyValue("calls") with
-                                        | true, (:? JsonArray as callsArr) ->
-                                            c <- c + callsArr.Count
-                                        | _ -> ()
-                                    | _ -> ()
+                // active Flow 카운트 (flows: mapping 의 key 수)
+                match sysObj.TryGetPropertyValue("flows") with
+                | true, (:? JsonObject as flowsObj) -> c <- c + flowsObj.Count
+                | _ -> ()
+                // active Work + Call 카운트 (works: system 직속 mapping)
+                match sysObj.TryGetPropertyValue("works") with
+                | true, (:? JsonObject as worksObj) ->
+                    for wkv in worksObj do
+                        c <- c + 1   // Work
+                        match wkv.Value with
+                        | :? JsonObject as workObj ->
+                            match workObj.TryGetPropertyValue("calls") with
+                            | true, (:? JsonArray as callsArr) -> c <- c + callsArr.Count   // Call
                             | _ -> ()
                         | _ -> ()
+                | _ -> ()
             | _ -> ()
         c
 

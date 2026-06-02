@@ -131,20 +131,12 @@ module ModelProtocolMermaid =
 
     // ── doc JSON 순회 helpers ────────────────────────────────────────────────
 
-    /// "flow <name>" 키 식별 — SSOT §2.5 flow-key grammar.
-    let private tryFlowKey (key: string) : string option =
-        if not (key.StartsWith("flow ")) then None
-        else
-            let name = key.Substring(5).Trim()
-            if String.IsNullOrEmpty name then None else Some name
-
-    let private collectFlows (systemEl: JsonElement) : (string * JsonElement) list =
-        if systemEl.ValueKind <> JsonValueKind.Object then []
-        else
-            systemEl.EnumerateObject()
-            |> Seq.choose (fun prop ->
-                tryFlowKey prop.Name |> Option.map (fun name -> name, prop.Value))
-            |> Seq.toList
+    /// flows: mapping 의 flow 이름 목록 (선언 순서 유지). 새 구조 — SSOT §2.2.
+    let private collectFlowNames (systemEl: JsonElement) : string list =
+        match ModelProtocol.tryProp systemEl "flows" with
+        | Some flowsEl when flowsEl.ValueKind = JsonValueKind.Object ->
+            flowsEl.EnumerateObject() |> Seq.map (fun p -> p.Name) |> Seq.toList
+        | _ -> []
 
     let private collectActiveSystems (root: JsonElement) : (string * JsonElement) list =
         match ModelProtocol.tryProp root "systems" with
@@ -163,11 +155,18 @@ module ModelProtocolMermaid =
             |> Seq.toList
         | _ -> []
 
-    let private collectWorks (flowEl: JsonElement) : (string * JsonElement) list =
-        match ModelProtocol.tryProp flowEl "works" with
+    /// works: system 직속 mapping → (workName, flowName, workEl) list. flow: 속성 누락 시 "" (방어).
+    /// 새 구조 — work 는 system 직속, flow: 속성으로 소속 명시 (SSOT §2.2 D6).
+    let private collectSystemWorks (systemEl: JsonElement) : (string * string * JsonElement) list =
+        match ModelProtocol.tryProp systemEl "works" with
         | Some worksEl when worksEl.ValueKind = JsonValueKind.Object ->
             worksEl.EnumerateObject()
-            |> Seq.map (fun p -> p.Name, p.Value)
+            |> Seq.map (fun p ->
+                let flowName =
+                    ModelProtocol.tryProp p.Value "flow"
+                    |> Option.bind ModelProtocol.tryString
+                    |> Option.defaultValue ""
+                p.Name, flowName, p.Value)
             |> Seq.toList
         | _ -> []
 
@@ -208,8 +207,9 @@ module ModelProtocolMermaid =
             let idxStr = String.Join(",", indices |> Seq.map string)
             lines.Add (sprintf "%slinkStyle %s %s;" indent idxStr startResetLinkStyle)
 
-    /// 모든 active system 의 Flow 안 Work 노드 + work-scope arrows 를 한 mermaid 로.
-    /// (system, flow) 쌍마다 subgraph 묶음. arrows 가 없어도 work 노드만 있으면 emit.
+    /// 모든 active system 의 Work 노드 ((system, flow) subgraph) + system-scope work 간 arrows 를 한 mermaid 로.
+    /// 새 구조: works 는 system 직속(flow: 속성으로 그룹핑) / arrows 는 system 직속(work 간, cross-flow 가능).
+    /// arrows 는 subgraph 밖에 emit (cross-flow edge 표현). work 가 있는 flow 만 subgraph.
     /// active 가 0건이거나 (work 0건 + arrow 0건) 이면 None — 호출처는 block 자체 skip.
     let jsonElementToWorkFlowMermaid (root: JsonElement) : string option =
         let activeSystems = collectActiveSystems root
@@ -221,24 +221,43 @@ module ModelProtocolMermaid =
             let mutable arrowIdx = 0
             let startResetIndices = ResizeArray<int>()
             for (sysName, sysEl) in activeSystems do
-                for (flowName, flowEl) in collectFlows sysEl do
-                    let works = collectWorks flowEl
-                    let arrows = collectArrows flowEl
-                    if not (List.isEmpty works) || not (List.isEmpty arrows) then
+                let works = collectSystemWorks sysEl   // (workName, flowName, workEl)
+                // work → flow 매핑 (arrow node id 계산용)
+                let workFlow = Dictionary<string, string>(StringComparer.Ordinal)
+                for (wn, fn, _) in works do workFlow.[wn] <- fn
+                // subgraph node id = 본문 정의와 동일 규칙 (이중 sanitize).
+                let nodeIdOf (workName: string) =
+                    match workFlow.TryGetValue workName with
+                    | true, fn -> sanitizeId (sanitizeId (sysName + "__" + fn) + "__" + workName)
+                    | _ -> sanitizeId (sysName + "____" + workName)
+                // flow 순서 = flows: 선언 순서. works 의 flow 가 flows: 에 없으면 뒤에 보강 (방어).
+                let flowNames = collectFlowNames sysEl
+                let flowsToRender =
+                    let extra =
+                        works |> List.map (fun (_, fn, _) -> fn)
+                        |> List.filter (fun fn -> not (List.contains fn flowNames))
+                        |> List.distinct
+                    flowNames @ extra
+                for flowName in flowsToRender do
+                    let flowWorks = works |> List.filter (fun (_, fn, _) -> fn = flowName)
+                    if not (List.isEmpty flowWorks) then
                         rendered <- true
                         let subId = sanitizeId (sysName + "__" + flowName)
                         lines.Add (sprintf "  subgraph %s[\"%s.%s\"]" subId sysName flowName)
                         lines.Add "    direction TB"
-                        for (workName, _workEl) in works do
+                        for (workName, _, _) in flowWorks do
                             let nodeId = sanitizeId (subId + "__" + workName)
                             lines.Add (sprintf "    %s[\"%s\"]:::neutral" nodeId workName)
-                        for (fr, t, atype) in arrows do
-                            let frId = sanitizeId (subId + "__" + fr)
-                            let toId = sanitizeId (subId + "__" + t)
-                            emitArrowLine lines "    " frId (connectorFor atype) (edgeLabel atype) toId
-                            if atype = "StartReset" then startResetIndices.Add arrowIdx
-                            arrowIdx <- arrowIdx + 1
                         lines.Add "  end"
+                // system-level work 간 arrows — subgraph 밖에 emit (cross-flow edge).
+                for (fr, t, atype) in collectArrows sysEl do
+                    if workFlow.ContainsKey fr && workFlow.ContainsKey t then
+                        rendered <- true
+                        let frId = nodeIdOf fr
+                        let toId = nodeIdOf t
+                        emitArrowLine lines "  " frId (connectorFor atype) (edgeLabel atype) toId
+                        if atype = "StartReset" then startResetIndices.Add arrowIdx
+                        arrowIdx <- arrowIdx + 1
             emitStartResetLinkStyle lines "  " startResetIndices
             if rendered then
                 Some (String.Join("\n", lines))
@@ -252,8 +271,7 @@ module ModelProtocolMermaid =
     let jsonElementToCallFlowMermaids (root: JsonElement) : MermaidBlock list =
         let blocks = ResizeArray<MermaidBlock>()
         for (sysName, sysEl) in collectActiveSystems root do
-            for (flowName, flowEl) in collectFlows sysEl do
-                for (workName, workEl) in collectWorks flowEl do
+            for (workName, flowName, workEl) in collectSystemWorks sysEl do
                     let calls = collectCalls workEl
                     if not (List.isEmpty calls) then
                         let arrows = collectArrows workEl
