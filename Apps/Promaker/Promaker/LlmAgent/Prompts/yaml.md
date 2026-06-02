@@ -280,6 +280,20 @@ systems:
 
 ## 4Stage 1~7 절차
 
+### ★ 작업 순서 — Top-Down 2단계 (사고 분할 · 번복 차단)
+
+전체 모델을 한 thinking 에 펼치지 않는다. **골격(전역·얕음)을 먼저 확정**한 뒤 **상세(station 별·독립)** 를 채운다 — station 간 재검토·번복이 사라져 사고가 짧아진다. (LLM 작업기억 = context: 골격을 적어두면 상세 단계에서 전체를 다시 들고 있을 필요 없음.)
+
+- **Phase A — 골격 (전역, 1회, 가볍게)** = "인터페이스만 확정":
+  - capacity = Flow 목록 + 발행 순서 (Stage 1)
+  - flow 간 StartReset 체인 순서 + 각 flow 의 anchor work 이름 (Stage 5)
+  - 디바이스 인스턴스 전체 목록 + 이름 (Stage 2 식별부 · 작명 규칙)
+  - → 이름·순서·anchor 만 정하고 call 내부는 비운다. 전역이되 *얕아서* 무거운 사고가 아니다.
+- **Phase B — 상세 (station 별 독립, 반복)** = "구현":
+  - 각 flow 를 *하나씩* 완성한다: work 분할 → call DAG → condition (Stage 2~4).
+  - 각 station 은 Phase A 골격(anchor · 이웃 flow · 이름)만 참조 → 다른 station 내부를 다시 볼 필요 없음.
+- **발행**: Phase B 산출을 모아 `apply_model_doc` **1회** (§8.5 발행 규칙). 사고는 분할하되 JSON 은 합쳐 1회 생성한다.
+
 ### Stage 1 — Flow 수 결정 (= capacity, Stage 0 통과 후)
 
 | 단서 | Flow 수 |
@@ -301,6 +315,19 @@ systems:
   - 같은 타입 1 인스턴스 → Passive `<타입><station>` (예: Robot201).
   - 같은 타입 다 인스턴스 → `<타입><station>a/b…` (예: Sealer201a/Sealer201b).
 - 디바이스 미식별 → 단일 Work fallback `<Flow>`.
+
+#### 즉결 표 — 자주 망설이는 결정의 기본값 (번복 차단)
+
+사용자 명시가 없으면 아래대로 *즉결* 한다 (재검토 금지 — 명시 있으면 명시 우선).
+
+| 상황 | 기본 결정 |
+| --- | --- |
+| 같은 타입 로봇/장치 N대 (용접로봇 등) | 각각 별도 Passive (`<타입><station>a/b…`) · api 동일(예 WELD) · 동시면 Group chain + 대표 1개 Start |
+| 로봇이 운반/도포하는 실러·안티스패터·건 | 적용 행위(SEAL/SPRAY/WELD)는 **별도 Passive** 로 분리 · 로봇 핸들링과 AutoAux 동기화 |
+| 클램프/지그 후 용접·작업 | 그 call 에 `ComAux [<Jig>.CLP]` (안전 선행) |
+| station 작업서의 합류/수렴 (서브부품 로딩들 → 조립) | **선형 StartReset 체인** (발행 순서대로). 수렴(다대일)은 사용자 명시 시만 |
+| 좌우대칭 라인 ("RH 대칭" 등 명시) | 한쪽(LH 등)만 모델 — 대칭측 생성 금지 |
+| 작업시간(초)·용접 타수·도포 길이 등 수치 | 구조 모델 미반영 (순서·동기화만). 필요 시 `workDuration` 등으로만 |
 
 ### Stage 3 — Call DAG 작성 (Work 내부)
 
@@ -572,6 +599,13 @@ systems:
 - ☐ call 제약 = condition (AutoAux/ComAux/SkipAction) · conditions = 실재 `<Passive>.<Api>` · 안전 = ComAux
 - ☐ 이름에 `.` 없음 · 영문/숫자/_ 만 · Api = §6 표준 또는 명시 UPPERCASE
 - ☐ 사용자 미명시 디바이스/동작/Flow 추가 안 됨 (Clear만 자동)
+
+## 8.5 발행 규칙 — apply 1회 기본 (중복 토큰 생성 차단)
+
+- 산출 doc 은 **`apply_model_doc` 1회** 로 발행한다 — apply 가 schema 검증을 내장한다 (실패 시 `VALIDATION_ERROR` + 후보 제안, mutation 미반영/트랜잭션).
+- **`validate_model_doc`(dry-run) 은 *대규모 신규 모델* 에서만 1회** 권장 — 기준: **Passive 20+ 또는 Flow(station) 8+ 또는 신규 전체 모델**. 그 외에는 생략한다 — 같은 거대 JSON 을 validate·apply 로 **두 번 토큰 생성하지 않는다**.
+- 이유: dry-run 의 이점은 "mutation 없는 사전 확인"이나, apply 도 실패 시 트랜잭션으로 미반영이라 실질 차이가 작다. *대규모만* 첫-시도 실패 비용이 커서 dry-run 을 보험으로 둔다.
+- 사고를 Top-Down(§4)으로 분할했더라도 **발행 JSON 은 합쳐 1회** — 분할은 사고에만, 발행은 한 번.
 
 ## 9금지 사항
 
