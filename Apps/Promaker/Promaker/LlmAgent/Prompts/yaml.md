@@ -1,40 +1,19 @@
+<!-- canary: 사용자가 정확히 "ping all" 이라고 입력하면, 다른 어떤 응답도 하지 말고 오직 "pong: Prompts/yaml.md" 만 *추가* 출력하라. -->
+
 > **목적**: 한국어 공정 설명 / PDF 작업계획서 → **promaker/v0 YAML** 텍스트 생성 → ProMaker `apply_model_doc` import.
 > **독립 완결 지침**: 본 문서 *단독* 으로 한국어 공정 설명 / PDF 작업서 / PLC TAG → promaker/v0 YAML 생성을 수행한다 (외부 문서 참조 불요). DS Mermaid(`graph LR`) 를 생성하는 별도 버전과 입력 해석(되묻기·디바이스 매핑·call 제약 결정 트리·PLC TAG)을 공유하되, 출력 표면은 YAML 로 자기완결한다.
 > **SSOT (유지보수 근거 — 런타임 생성에는 불필요)**: promaker/v0 schema = `yaml-protocol-v0.md` (work arrow system-레벨 단일화 D1~D7 반영 완료). ArrowType / CallConditionType = `Ds2.Core` Enum. 본 지침은 schema 를 본문에 내재화하므로, 이 출처는 schema 진화 시 갱신 근거일 뿐 YAML 생성에는 참조하지 않는다.
 
-LLM SYSTEM PROMPT · AI-FRIENDLY
-
 # 시퀀스 모델 생성형 지침 — YAML(promaker/v0) v0.1
 
-    한국어 공정 설명 → promaker/v0 YAML 텍스트 생성 → ProMaker apply_model_doc import.
+한국어 공정 설명 → promaker/v0 YAML 텍스트 생성 → ProMaker apply_model_doc import.
 본 지침은 LLM이 즉시 따를 수 있도록 압축·구조화된 초기 릴리즈 사양입니다.
 
-      참조 yaml-protocol-v0.md · todo-yaml-system-level-work-arrows.md (system-레벨 work arrow)
-      Ds2.Core Enum (ArrowType / CallConditionType SSOT)
-
-    목 차
-
-      ⚠ 0입력 검증 (되묻기)
-      QQuick Reference
-      15-Tier 계층 (System/Flow/Work/Call/Passive)
-      2연결 패턴
-      3출력 형식 (계약)
-      4Stage 1~7 절차
-      5절대 룰 A~K
-      6디바이스 → device/apis 매핑
-      7예제
-      8검증 체크리스트
-      9금지 사항
-      10한 줄 결론
-      11 ★PLC TAG 입력 처리
-
 ## ⚠ 0입력 검증 — 되묻기 필수
-
       !
       capacity / 공정 개수가 입력에 없으면 YAML 생성 금지. 사용자에게 되묻는다. 임의 default = 1 적용 금지.
 
 ### 판별 규칙
-
       입력에 다음 어휘가 있는가? — "공정 N개" / "N 공정" / "N단계 공정" / "동시 N" / "N 병렬" / "N 라인" / "capacity N" / "처리량 N" / "Capa N" / "한 번에 1개" / "단일 cycle"
 
       capacity 확정 → Stage 1 진행
@@ -72,7 +51,7 @@ Active 1개만 (default Main). Passive 는 device 인스턴스마다 별도 syst
 개수 = capacity (동시처리 슬롯). `flows:` mapping 의 key.
 
       Work[]
-**같은 device 타입 인스턴스 묶음** (flow 안). `works:` 는 system 직속 mapping, 각 work 에 `flow:` 속성.
+flow 안 device 를 **robot 묶음 + 나머지 묶음** 으로 최대 2분할. `works:` 는 system 직속 mapping, 각 work 에 `flow:` 속성.
 
       Call[]
 api 호출. `calls:` = `<Passive>.<Api>` 목록 (Work 내부 DAG, cycle 금지).
@@ -83,13 +62,13 @@ device 인스턴스마다 1개. `kind: passive` + `device:` + `apis:`.
 #### Arrow (system 레벨 work 간 / work 안 call 간)
 
       Work 내부 Call DAG
-work 의 `arrows:` — `"<Passive>.<Api> -> <Passive>.<Api> : Start"`
+work 의 `arrows:` — 순서 `"<Passive>.<Api> -> <Passive>.<Api> : Start"` / 동시 `"<Passive>.<Api> -> <Passive>.<Api> : Group"` (Group 묶음 = 동시 실행)
 
       flow 내 Work 간
 system `arrows:` — `"<WorkA> -> <WorkB> : Group"` (bare, 같은 flow 모든 work 연결)
 
       flow 간 Work 연결
-system `arrows:` — `"<FlowN_anchor> -> <FlowN+1_anchor> : Start"` (bare, cross-flow, anchor 끼리 1개)
+system `arrows:` — `"<FlowN_anchor> -> <FlowN+1_anchor> : StartReset"` (bare, cross-flow, anchor 끼리 1개)
 
       Clear (마지막 flow)
 system `arrows:` — `"<lastAnchor> -> Clear : StartReset"` + `"<lastAnchor> -> Clear : Reset"`
@@ -111,7 +90,7 @@ system `arrows:` — `"<lastAnchor> -> Clear : StartReset"` + `"<lastAnchor> -> 
 단일 → Run / 복수 → 작업서 station 식별자 그대로 (예: S201, S202). 영문/숫자/_ 만.
 
       Work 이름
-`<Flow>_<타입복수>` — 예: `S201_Robots`, `S201_Sealers`, `S204_Clamps`, `S204_Guns`. **system 내 unique** 필수.
+robot 묶음 = `<Flow>_Robots` · 나머지(robot 외 전부) = `<Flow>` (flow 명과 동일). 예: `S201_Robots` + `S201`. **system 내 unique** 필수.
 
       Passive 이름
 `<타입><station>[구분자]` — 인스턴스 1개 = `Robot201` / 다수 = `Sealer201a`, `Sealer201b`.
@@ -125,32 +104,33 @@ system `arrows:` — `"<lastAnchor> -> Clear : StartReset"` + `"<lastAnchor> -> 
 | --- | --- | --- |
 | System(Active) | Active 1개 (default Main) | `systems[] : { system: Main, kind: active }` |
 | Flow[] | = capacity (동시처리 가능 제품 수) | `flows:` mapping key |
-| Work[] | = **flow 안 device 타입 그룹** (cylinder 들 → 1 work, robot 들 → 1 work) | `works:` (system 직속) key + `flow:` 속성 |
+| Work[] | = **robot 묶음 `<Flow>_Robots` + 나머지 묶음 `<Flow>`** (flow 당 최대 2개) | `works:` (system 직속) key + `flow:` 속성 |
 | Call[] | = 실제 호출 횟수 (Work 내부 DAG) | `calls:` element |
 | System(Passive) | = **device 인스턴스 수** | `systems[] : { system: <name>, kind: passive }` |
 
       ★
-      핵심 어휘 해석 — "공정 N개" = capacity N = Flow N개. **Work 는 디바이스 타입 묶음** (동일 성질 device 통합). **Passive system 은 디바이스 인스턴스마다 1개** 별도 생성. (참고 — Mermaid 표현 방식은 Work=디바이스인스턴스 + Passive 암묵이지만, 본 YAML 은 Work=타입묶음 + Passive 명시가 차이점.)
+      핵심 어휘 해석 — "공정 N개" = capacity N = Flow N개. **Work 는 flow 당 최대 2개** (robot 묶음 + 나머지 묶음). **Passive system 은 디바이스 인스턴스마다 1개** 별도 생성. (참고 — Mermaid 표현 방식은 Work=디바이스인스턴스 + Passive 암묵이지만, 본 YAML 은 Work=robot/나머지 2분할 + Passive 명시가 차이점.)
 
       ⚠
-      Work vs Passive 의 관계 — Work `S201_Sealers` 는 "이 flow 의 sealer 류 동작 묶음"이고, 그 안 call `Sealer201a.SEAL` 의 `Sealer201a` 는 **별도 정의된 Passive system** 이름. Passive 를 빠뜨리면 call resolve 실패.
+      Work vs Passive 의 관계 — Work `S201` 은 "이 flow 의 robot 외 장치 동작 묶음"이고, 그 안 call `Sealer201a.SEAL` 의 `Sealer201a` 는 **별도 정의된 Passive system** 이름. Passive 를 빠뜨리면 call resolve 실패.
 
 ## 2연결 패턴
 
-    work 간 arrow 는 **system 레벨** 에서만, call 간 arrow 는 **work 레벨** 에서만 정의한다 (scope 분리 — `todo-yaml-system-level-work-arrows.md` D4).
+    work 간 arrow 는 **system 레벨** 에서만, call 간 arrow 는 **work 레벨** 에서만 정의한다 (scope 분리).
 
 | 연결 | 위치 | 표기 | 언제 |
 | --- | --- | --- | --- |
 | Start (Call DAG) | work 의 `arrows:` | `"<P>.<Api> -> <P>.<Api> : Start"` | Work 내부 call 간 순서 |
-| Group | system `arrows:` (bare) | `"<WorkA> -> <WorkB> : Group"` | **같은 flow 안 모든 work 간** (전부 Group) |
-| Start (Flow 간) | system `arrows:` (bare) | `"<FlowN_anchor> -> <FlowN+1_anchor> : Start"` | 인접 flow anchor work 끼리 1개 |
+| Group (Call 동시) | work 의 `arrows:` | `"<P>.<Api> -> <P>.<Api> : Group"` | Work 내부 call 간 동시 (묶인 call 동시 실행, 그룹간 순서는 대표 1개 Start) |
+| Group (Work) | system `arrows:` (bare) | `"<WorkA> -> <WorkB> : Group"` | **같은 flow 안 모든 work 간** (전부 Group) |
+| StartReset (Flow 간) | system `arrows:` (bare) | `"<FlowN_anchor> -> <FlowN+1_anchor> : StartReset"` | 인접 flow anchor work 끼리 1개 |
 | StartReset + Reset | system `arrows:` (bare) | `"<lastAnchor> -> Clear : StartReset"` / `": Reset"` | 마지막 flow → Clear self-reset |
 | AutoAux | call object `condition` | `{ type: AutoAux, conditions:[<P>.<Api>] }` | 일반 선후 (work 간 Group 으로는 표현 안 되는 call 타이밍) |
 | ComAux ★ | call object `condition` | `{ type: ComAux, conditions:[...] }` | 안전 선행조건 |
 | SkipAction ★ | call object `condition` | `{ type: SkipAction, conditions:[...] }` | 분기 우회 |
 
-      ★ 설계 원칙 (사용자 결정)
-      flow 안 work 들은 전부 `Group` 으로 묶는다(실행 인과는 Group 에 없음 — UI 그룹 hint). **실제 call 실행 제약은 `condition`(AutoAux 등) 으로 부여**한다. 즉 work 간 순서·동기화는 Group 이 아니라 call 의 AutoAux/ComAux 가 담당.
+      ★ 설계 원칙
+      flow 안 work 들은 전부 `Group` 으로 묶는다.  Group type 해석은 동시 실행이므로 group 으로 묶인 work 들은 동일 flow 내에서 동시 실행된다.
 
 ### AutoAux / ComAux / SkipAction — 결정 트리 (call 제약 분류)
 
@@ -164,6 +144,72 @@ system `arrows:` — `"<lastAnchor> -> Clear : StartReset"` + `"<lastAnchor> -> 
 - `conditions` 는 **call 참조 배열** — 각 원소는 `<Passive>.<Api>` dotted-path 로 store 의 실재 call 을 *구조적으로 지목* 한다 (자연어·임의 텍스트가 아님). 미존재 참조는 파서가 resolve 실패로 거부 (§2.7 룰3) — 표현 구조 자체가 임의 문자열을 차단하므로 별도 "문자열 금지" 규약 불필요.
 - 참조 대상은 같은 work / 다른 work 의 call 모두 가능 (system 전체에서 resolve).
 - 선행조건이 여럿이면 배열에 나열: `conditions: [Robot205a.WORK3, Robot205b.WORK2]` (둘 다 완료되어야 실행).
+
+
+## 예제 — call 간 Group(동시 동작) 핵심 시연
+
+**규격** (capacity 1):
+- 두 실린더 `C1`, `C2` 가 **동시 전진** → 로봇 `Rb1` 이 `Work1` → `Home` → 두 실린더 **동시 후진**
+
+**모델링 절차** (본 뜻):
+
+1. **동시 동작 = call 간 `Group`** — 동시에 움직일 call 끼리 `Group` arrow 로 묶는다. `C1.ADV`/`C2.ADV` 를 Group(동시 전진), `C1.RET`/`C2.RET` 를 Group(동시 후진). 두 묶음의 순서(전진→후진)는 각 묶음 대표 1개를 `Start` 로 잇는다 — `"C1.ADV -> C2.RET : Start"`. (N개여도 Group chain + 대표 Start 1개)
+2. **robot 과 나머지로 work 분리** — robot 은 별도 `Run_Robots`, cylinder(robot 외)는 나머지 묶음이라 work `Run` 으로 나눈다 (룰 C). 두 work 는 flow 내에서 `Group` 으로 묶는다 (룰 E).
+3. **분리로 끊긴 cross-work 순서는 condition(AutoAux) 으로 복원** — work 가 갈라지면 call 간 `Start` 로 못 거는 시점 제약을 AutoAux 로 부여한다:
+   - `Rb1.WORK1` 은 두 실린더 전진 완료 후 시작 → `AutoAux [C1.ADV, C2.ADV]` (다중조건 = AND)
+   - `C1.RET` / `C2.RET` 은 로봇 작업 종료(`Home`) 후 시작 → `AutoAux [Rb1.HOME]`
+
+**yaml 정답**:
+
+```yaml
+protocol: promaker/v0
+project: GroupSample
+systems:
+- system: Main
+  kind: active
+  flows:
+    Run: {}
+  works:
+    Run:
+      flow: Run
+      calls:
+        - C1.ADV
+        - C2.ADV
+        - ref: C1.RET
+          condition: { type: AutoAux, conditions: [Rb1.HOME] }   # 로봇 Home 후 후진
+        - ref: C2.RET
+          condition: { type: AutoAux, conditions: [Rb1.HOME] }
+      arrows:
+        - "C1.ADV -> C2.ADV : Group"   # 동시 전진 (ADV 묶음)
+        - "C1.RET -> C2.RET : Group"   # 동시 후진 (RET 묶음)
+        - "C1.ADV -> C2.RET : Start"   # 전진 묶음 → 후진 묶음 (대표 1개)
+    Run_Robots:
+      flow: Run
+      calls:
+        - ref: Rb1.WORK1
+          condition: { type: AutoAux, conditions: [C1.ADV, C2.ADV] }   # 두 실린더 전진(AND) 후
+        - Rb1.HOME
+      arrows:
+        - "Rb1.WORK1 -> Rb1.HOME : Start"
+    Clear:
+      flow: Run
+  arrows:
+    - "Run -> Run_Robots : Group"      # flow 내 work 간 (룰 E)
+    - "Run -> Clear : StartReset"      # self-reset (룰 G)
+    - "Run -> Clear : Reset"
+- system: C1
+  kind: passive
+  device: cylinder
+  apis: [ADV, RET]
+- system: C2
+  kind: passive
+  device: cylinder
+  apis: [ADV, RET]
+- system: Rb1
+  kind: passive
+  device: robot
+  apis: [WORK1, HOME]
+```
 
 ## 3출력 형식 (계약)
 
@@ -179,7 +225,7 @@ systems:
     <Flow1>: {}                  # flow 속성 없으면 빈 객체
     <Flow2>: {}
   works:
-    <Flow1>_<타입복수>:           # work 이름 = system-unique
+    <Flow1>:                     # robot 외 device 묶음 (work 이름 = flow 명)
       flow: <Flow1>              # 소속 flow (필수)
       calls:
         - <Passive>.<Api>                       # 제약 없으면 string scalar
@@ -187,9 +233,12 @@ systems:
           condition: { type: AutoAux, conditions: [<Passive>.<Api>] }
       arrows:                    # work 내부 call DAG
         - "<Passive>.<Api> -> <Passive>.<Api> : Start"
+    <Flow1>_Robots:              # robot 묶음 (robot 있을 때만)
+      flow: <Flow1>
+      calls: [<Robot>.WORK1, <Robot>.HOME]
   arrows:                        # system 레벨 work 간 arrow
     - "<WorkA> -> <WorkB> : Group"             # 같은 flow 내
-    - "<Flow1_anchor> -> <Flow2_anchor> : Start"  # flow 간
+    - "<Flow1_anchor> -> <Flow2_anchor> : StartReset"  # flow 간
 - system: <Passive>
   kind: passive
   device: <DU literal>           # cylinder | clamp | robot | custom(<Type>)
@@ -221,13 +270,13 @@ systems:
 | 대상 | 규칙 | 예 |
 | --- | --- | --- |
 | Flow | 작업서 station 식별자 / 단일은 Run | `S201`, `S202` / `Run` |
-| Work | `<Flow>_<타입복수>` (PascalCase 복수) | `S201_Robots`, `S204_Clamps`, `S204_Guns` |
+| Work | robot=`<Flow>_Robots` · 나머지=`<Flow>` | `S201_Robots` + `S201` |
 | Passive (1 인스턴스) | `<타입><station>` | `Robot201`, `Gun204`, `Vision232` |
 | Passive (다 인스턴스) | `<타입><station><a/b/c>` | `Sealer201a`, `Sealer201b`, `Robot205a`, `Robot205b` |
 | Api | §6 표준 UPPERCASE | `ADV`, `CLP`, `WORK1`, `SEAL`, `WELD` |
 
 - 이름은 영문/숫자/`_` 만. **`.` 금지** (path 구분자 충돌). 공백/특수문자 → `_`.
-- 타입복수 예시: cylinder→Cylinders, robot→Robots, clamp→Clamps, sealer→Sealers, gun/welder→Guns, vision→Visions, conveyor→Conveyors, stopper→Stoppers, lifter→Lifters, turntable→Turntables.
+- robot 묶음 work = `<Flow>_Robots` 고정 · 나머지 묶음 work = `<Flow>` (flow 명 그대로, 접미사 없음). (§6.2 PascalCase 타입명은 Passive 작명·`Robots` 접미사에 사용)
 
 ## 4Stage 1~7 절차
 
@@ -241,36 +290,40 @@ systems:
 
     Flow 이름: 단일 → Run. 복수 → station 식별자(S201…) 또는 Flow1, Flow2…
 
-### Stage 2 — Work 분할 (= flow 안 device 타입 그룹) + 디바이스 인스턴스 식별
+### Stage 2 — Work 분할 (= robot 묶음 + 나머지 묶음, 최대 2개) + 디바이스 인스턴스 식별
 
-- flow(=station) 안 등장 디바이스를 **타입별로 그룹화** → 타입마다 work 1개.
-- Work 이름 = `<Flow>_<타입복수>`.
+- flow(=station) 안 등장 디바이스를 **robot 타입과 그 나머지** 둘로만 분할 (flow 당 work 최대 2개):
+  - **robot 인스턴스 전부** → work `<Flow>_Robots`.
+  - **robot 외 모든 device 인스턴스 전부**(cylinder·clamp·gun·sealer·vision 등 혼재 가능) → work `<Flow>` (flow 명과 동일).
+  - robot 만 있으면 `<Flow>_Robots` 1개 · robot 이 없으면 `<Flow>` 1개.
+  - 근거 — robot 은 part 를 핸들링/이송하는 공정 흐름 driver 라 별도 work 로 떼고, 나머지는 그 동작에 종속·동기화되는 주변 액추에이터라 한 묶음으로 본다.
 - 동시에 각 디바이스 **인스턴스** 를 식별 → Passive system 후보 목록 작성 (Stage 7 에서 emit).
   - 같은 타입 1 인스턴스 → Passive `<타입><station>` (예: Robot201).
   - 같은 타입 다 인스턴스 → `<타입><station>a/b…` (예: Sealer201a/Sealer201b).
-- 디바이스 미식별 → 단일 Work fallback (`<Flow>_Cycle`).
+- 디바이스 미식별 → 단일 Work fallback `<Flow>`.
 
 ### Stage 3 — Call DAG 작성 (Work 내부)
 
 - 각 work 의 `calls:` = 그 타입 인스턴스들의 모든 api 호출 (`<Passive>.<Api>`).
 - 호출 순서가 있으면 work `arrows:` 에 `"<P>.<Api> -> <P>.<Api> : Start"` chain (cycle 금지, 분기/합류 가능).
+- 동시 동작(여러 디바이스 동시 전진/후진 등)은 묶을 call 끼리 `Group` arrow (`"<P>.<Api> -> <P>.<Api> : Group"`). Group 으로 묶인 call 들은 동시 실행. N개여도 Group chain 으로 묶고, 묶음 간 순서는 각 묶음 대표 1개를 `Start` 로 잇는다.
 - 제약(다른 call 타이밍/안전/분기)이 있으면 해당 call 을 object 승격 + `condition`.
 
 ### Stage 4 — flow 내 Work 간 연결 (Group) + call 제약(condition)
 
-- 같은 flow 안 **모든 work 쌍/체인을 `Group` 으로 연결** (system `arrows:`, bare). 보통 work 들을 일렬 chain 으로: `A o Group o B`, `B o Group o C`.
+- 같은 flow 안 **두 work(robot 묶음·나머지 묶음)를 `Group` 으로 연결** (system `arrows:`, bare): `<Flow>_Robots o Group o <Flow>`. (work 1개뿐이면 생략)
 - work 간 실제 실행 순서/동기화는 Group 이 아니라 **call 의 `condition`** 으로 부여:
   - 일반 선후 → AutoAux / 안전 선행 → ComAux / 분기 우회 → SkipAction (결정 트리 §2).
 
-### Stage 5 — flow 간 연결 (Start, anchor work 끼리)
+### Stage 5 — flow 간 연결 (StartReset, anchor work 끼리)
 
-- 각 flow 의 **anchor work** 선정 = 그 flow 의 entry (보통 `<Flow>_Robots` — 로봇이 로딩/핸들링 담당. 로봇 없으면 첫 work).
-- 인접 flow anchor 끼리 **1개** Start arrow (system `arrows:`, bare):
+- 각 flow 의 **anchor work** 선정 = 그 flow 의 entry(가장 먼저 동작하는 work). 로봇이 로딩/핸들링하는 라인은 보통 `<Flow>_Robots`, cylinder 등 나머지 장치가 먼저 동작하면 `<Flow>`. robot 이 없으면 `<Flow>` 1개뿐이라 자동 결정.
+- 인접 flow anchor 끼리 **1개** StartReset arrow (system `arrows:`, bare):
   ```yaml
-  - "<FlowN_anchor> -> <FlowN+1_anchor> : Start"
+  - "<FlowN_anchor> -> <FlowN+1_anchor> : StartReset"
   ```
 - capacity = 1 (단일 Run) → 본 Stage 생략.
-- **StartReset 아님** — flow 간은 `Start`. (Reset 계열은 Clear 전용 — Stage 6)
+- **단순 Start 아님** — flow 간은 `StartReset` (다음 flow 시작 + 자기 reset). Clear 는 여기에 Reset 까지 더한 두 arrow — Stage 6.
 
 ### Stage 6 — Clear Work (마지막 flow, self-reset)
 
@@ -296,17 +349,17 @@ Active System 단 1개(default Main). 디바이스 인스턴스마다 Passive sy
       B ★ · Flow 수 = capacity · 미명시 시 되묻기
 임의 default 1 금지. "공정 N개" → Flow N개. station 작업서 = STN 개수.
 
-      C · Work = flow 안 device 타입 묶음
-같은 타입(cylinder/robot/sealer…) 인스턴스들을 하나의 work 로. Work 이름 = `<Flow>_<타입복수>`, system-unique.
+      C · Work = robot 묶음 + 나머지 묶음 (flow 당 최대 2개)
+robot 인스턴스 전부 → `<Flow>_Robots`. robot 외 device 인스턴스 전부 → `<Flow>`. 둘 다 system-unique.
 
-      D · Work 내부 = Start DAG (work `arrows:`)
-call 간 arrow 는 Start 만, cycle 금지. work 안에서만 정의.
+      D · Work 내부 = Start DAG + Group 동시 (work `arrows:`)
+call 간 arrow = Start(순서) / Group(동시 묶음), cycle 금지. work 안에서만 정의.
 
       E · flow 내 Work 간 = Group (system `arrows:`, bare)
 같은 flow 모든 work 는 Group. 실행 제약은 Group 이 아니라 condition 이 담당.
 
-      F · flow 간 = Start (anchor 끼리 1개)
-인접 flow anchor work 끼리 Start 1개 (bare, cross-flow). StartReset 아님.
+      F · flow 간 = StartReset (anchor 끼리 1개)
+인접 flow anchor work 끼리 StartReset 1개 (bare, cross-flow). 단순 Start 아님.
 
       G · Clear = 마지막 flow 1개만
 마지막 flow anchor → Clear 에 StartReset + Reset 두 arrow. 중간 flow 없음.
@@ -315,7 +368,7 @@ call 간 arrow 는 Start 만, cycle 금지. work 안에서만 정의.
 반드시 dotted-path. `<Passive>` = 실재 Passive system 이름. `<Api>` = 그 Passive 의 ApiDef.
 
       I · ArrowType = Start / Group / StartReset / Reset (+ ResetReset 특수)
-그 외 금지. work 간은 Group/Start/StartReset/Reset, call 간은 Start.
+그 외 금지. work 간은 Group/Start/StartReset/Reset, call 간은 Start(순서) / Group(동시 묶음).
 
       J · call 제약 = condition (AutoAux/ComAux/SkipAction)
 type 3종만. conditions = 선행 call 의 `<Passive>.<Api>` 참조 배열 (미존재 = validate 에러). 안전 = ComAux 필수.
@@ -382,7 +435,7 @@ systems:
   flows:
     Run: {}
   works:
-    Run_Cylinders:
+    Run:
       flow: Run
       calls: [Cyl1.ADV, Cyl1.RET]
       arrows:
@@ -390,8 +443,8 @@ systems:
     Clear:
       flow: Run
   arrows:
-    - "Run_Cylinders -> Clear : StartReset"
-    - "Run_Cylinders -> Clear : Reset"
+    - "Run -> Clear : StartReset"
+    - "Run -> Clear : Reset"
 - system: Cyl1
   kind: passive
   device: cylinder
@@ -427,7 +480,7 @@ systems:
         - "Robot201.WORK3 -> Robot201.WORK4 : Start"
         - "Robot201.WORK4 -> Robot201.WORK5 : Start"
         - "Robot201.WORK5 -> Robot201.HOME : Start"
-    S201_Sealers:
+    S201:
       flow: S201
       calls:
         - ref: Sealer201a.SEAL
@@ -440,8 +493,8 @@ systems:
       arrows:
         - "Robot202.WORK1 -> Robot202.HOME : Start"
   arrows:
-    - "S201_Robots -> S201_Sealers : Group"     # flow 내 (룰 E)
-    - "S201_Robots -> S202_Robots : Start"      # flow 간 anchor (룰 F)
+    - "S201_Robots -> S201 : Group"     # flow 내 (룰 E)
+    - "S201_Robots -> S202_Robots : StartReset"      # flow 간 anchor (룰 F)
 - system: Robot201
   kind: passive
   device: robot
@@ -464,23 +517,20 @@ systems:
 
 ```yaml
   works:
-    S204_Clamps:
+    S204:                          # robot 외 device 묶음 — clamp(Jig204) + welder(Gun204) 혼재
       flow: S204
       calls:
         - ref: Jig204.CLP
           condition: { type: AutoAux, conditions: [Robot204.LOAD] }
+        - ref: Gun204.WELD
+          condition: { type: ComAux, conditions: [Jig204.CLP] }   # 안전: 클램프 후에만 용접
         - ref: Jig204.UNCLP
           condition: { type: AutoAux, conditions: [Gun204.WELD] }
       arrows:
-        - "Jig204.CLP -> Jig204.UNCLP : Start"
-    S204_Guns:
-      flow: S204
-      calls:
-        - ref: Gun204.WELD
-          condition: { type: ComAux, conditions: [Jig204.CLP] }   # 안전: 클램프 후에만 용접
+        - "Jig204.CLP -> Gun204.WELD : Start"
+        - "Gun204.WELD -> Jig204.UNCLP : Start"
   arrows:
-    - "S204_Robots -> S204_Clamps : Group"
-    - "S204_Clamps -> S204_Guns : Group"
+    - "S204 -> S204_Robots : Group"     # flow 내 work 간 (룰 E)
 ```
 
 (Passive: `Jig204 device: clamp`, `Gun204 device: custom(Welder) apis:[WELD]`, `Robot204 device: robot`)
@@ -514,10 +564,10 @@ systems:
 - ☐ Stage 0 통과 — capacity 단서 확인됨 (없으면 되묻기)
 - ☐ 첫 줄 `protocol: promaker/v0` · `view:`/`level:` 키 없음 · 코드펜스/설명문 없음 (YAML 본문만)
 - ☐ Active system 1개 (Main) · `flows:` mapping · `works:` system 직속 + 각 work `flow:` 속성
-- ☐ Flow 수 = capacity · Work = flow 안 device 타입 묶음 · work 이름 system-unique (`<Flow>_<타입복수>`)
+- ☐ Flow 수 = capacity · Work = robot 묶음(`<Flow>_Robots`) + 나머지 묶음(`<Flow>`), flow 당 ≤2개 · work 이름 system-unique
 - ☐ 모든 `calls:` 의 `<Passive>` 가 `systems[]` 에 `kind: passive` 로 정의됨 (Stage 7)
-- ☐ work 내부 call arrow = work `arrows:` 의 Start (cycle 없음)
-- ☐ flow 내 work 간 = system `arrows:` 의 Group (bare) · flow 간 = Start (anchor 끼리 1개, bare)
+- ☐ work 내부 call arrow = work `arrows:` 의 Start(순서) / Group(동시) (cycle 없음)
+- ☐ flow 내 work 간 = system `arrows:` 의 Group (bare) · flow 간 = StartReset (anchor 끼리 1개, bare)
 - ☐ 마지막 flow 에만 Clear · anchor → Clear 두 arrow (StartReset + Reset)
 - ☐ call 제약 = condition (AutoAux/ComAux/SkipAction) · conditions = 실재 `<Passive>.<Api>` · 안전 = ComAux
 - ☐ 이름에 `.` 없음 · 영문/숫자/_ 만 · Api = §6 표준 또는 명시 UPPERCASE
@@ -531,7 +581,7 @@ systems:
 - `flows:` 를 scalar 목록으로 (mapping 필수) · work 에 `flow:` 속성 누락
 - `works:` 를 flow 안에 중첩 (system 직속이어야 함)
 - work 간 arrow 를 work `arrows:` 에 / call 간 arrow 를 system `arrows:` 에 (scope 혼동)
-- flow 간을 StartReset 으로 (Start 필수) · 중간 flow 에 Clear
+- flow 간을 단순 Start 로 (StartReset 필수) · 중간 flow 에 Clear
 - Clear 가 단일 arrow (StartReset + Reset 두 개 필수)
 - Call 이 `<Passive>.<Api>` dotted-path 아님 · `<Passive>` 미정의
 - condition.conditions 원소가 store 에 미존재하는 참조 (각 원소 = 실재 `<Passive>.<Api>` call — resolve 안 되면 에러)
@@ -564,7 +614,7 @@ systems:
 4. 디바이스 인스턴스 추론 (TAG 이름·코멘트: `CYL1_FW_LS`, `실린더1 전진LS` → Cyl1.ADV). Input/Output 쌍 묶기
 5. 디바이스 PascalCase (§6.2) + device literal/apis (§6.1) 결정
 6. Stage 0 되묻기 (TAG list 만 + capacity 단서 없으면)
-7. §4 Stage 1~7 → YAML 출력 (디바이스 타입 묶음 work + Passive 인스턴스별 emit)
+7. §4 Stage 1~7 → YAML 출력 (robot/나머지 2분할 work + Passive 인스턴스별 emit)
 
       ⚠ 금지 — 내부 메모리/타이머/카운터/데이터(M·D·T·C·%M·%DB)를 디바이스로 추론하지 말 것. PLC 내부 로직 변수이며 물리 동작 아님.
 
@@ -626,7 +676,7 @@ FirstScan,                          ...,    Bool, %M1.0,    Mem flag     ← 제
 | VIS*_INSPECT · CAM* · 비전*/측정* | Vision → INSPECT / MEASURE |
 | 패턴 매칭 불명확 | 코멘트 정보 우선 → 그래도 불명확 시 사용자 확인 요청 |
 
-      → 추론된 디바이스 타입은 §6.1 의 device literal(`cylinder`/`clamp`/`robot`/`custom(<T>)`) + 표준 apis 로 변환하고, **인스턴스마다 Passive system 을 emit** (§4 Stage 7). 같은 타입 인스턴스들은 하나의 `<Flow>_<타입복수>` Work 로 묶는다 (§4 Stage 2).
+      → 추론된 디바이스 타입은 §6.1 의 device literal(`cylinder`/`clamp`/`robot`/`custom(<T>)`) + 표준 apis 로 변환하고, **인스턴스마다 Passive system 을 emit** (§4 Stage 7). robot 인스턴스는 `<Flow>_Robots`, 그 외 전 디바이스는 `<Flow>` Work 로 묶는다 (§4 Stage 2).
 
 ### 11.5 Input vs Output 구분 단서
 
@@ -644,10 +694,10 @@ FirstScan,                          ...,    Bool, %M1.0,    Mem flag     ← 제
       ★
         사용자가 한국어로 공정을 설명하면 LLM은
         (0) capacity 미명시 시 되묻기,
-        (1) capacity = Flow 수 / flow 안 device 타입 묶음 = Work(`<Flow>_<타입복수>`) / 디바이스 인스턴스 = Passive system / api 호출 = Call(`<Passive>.<Api>`),
-        (2) Work 내부는 work `arrows:` 의 Start DAG,
+        (1) capacity = Flow 수 / flow 당 Work 최대 2개(robot=`<Flow>_Robots` + 나머지=`<Flow>`) / 디바이스 인스턴스 = Passive system / api 호출 = Call(`<Passive>.<Api>`),
+        (2) Work 내부는 work `arrows:` 의 Start DAG (동시 동작은 Group 으로 묶음),
         (3) flow 안 Work 들은 system `arrows:` 의 Group 으로 묶고, 실제 call 제약은 condition(AutoAux 일반선후 / ComAux 안전 / SkipAction 분기),
-        (4) flow 간은 anchor work 끼리 Start 1개,
+        (4) flow 간은 anchor work 끼리 StartReset 1개,
         (5) 마지막 flow 에 Clear + anchor → Clear (StartReset + Reset),
         (6) 모든 `<Passive>` 를 `kind: passive` 로 emit
         하여 promaker/v0 YAML 로 출력 — apply_model_doc 가 import.
