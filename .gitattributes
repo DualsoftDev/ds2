@@ -6,3 +6,8 @@
 *.fsi   text diff eol=lf
 *.fsx   text diff eol=lf
 *.cs    text diff eol=lf
+
+# Windows batch scripts must keep CRLF. cmd.exe misparses LF-only .bat/.cmd
+# (set/() blocks, ^ escaping, labels break) — overrides core.autocrlf=input.
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
