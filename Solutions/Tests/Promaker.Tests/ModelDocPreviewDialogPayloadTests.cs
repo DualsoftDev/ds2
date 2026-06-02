@@ -16,15 +16,20 @@ public sealed class ModelDocPreviewDialogPayloadTests
     private const string SampleYaml = @"
 protocol: promaker/v0
 project: M1
+
 systems:
+  - system: Controller
+    kind: active
+    flows:
+      Run: {}
+    works:
+      W1:
+        flow: Run
+        calls: [Cyl1.ADV]
+
   - system: Cyl1
     kind: passive
     device: cylinder
-  - system: Controller
-    kind: active
-    flow Run:
-      works:
-        W1: { calls: [Cyl1.ADV] }
 ";
 
     [Fact]
