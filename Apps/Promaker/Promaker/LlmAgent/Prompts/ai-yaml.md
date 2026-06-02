@@ -194,6 +194,7 @@ systems:
   kind: passive
   device: <DU literal>           # cylinder | clamp | robot | custom(<Type>)
   apis: [<Api>, ...]
+  opposing: chain                # (선택) default=sugar(cylinder/clamp) chain·robot/custom none. 상호배타(ResetReset) 필요 시 명시
 ```
 
 ### 3.2 출력 규약
@@ -340,7 +341,7 @@ type 3종만. conditions = 선행 call 의 `<Passive>.<Api>` 참조 배열 (미�
 | GUN / WELDER / 용접건 | `custom(Welder)` | WELD 또는 SPOT | none |
 | VISION / 측정 / SMS | `custom(Vision)` | MEASURE 또는 INSPECT | none |
 
-      sugar 3종 = cylinder / clamp / robot 만 단축. 그 외 모두 `custom(<Type>) + apis:[...]` long-form. opposing 은 default 와 다를 때만 명시.
+      sugar 3종 = cylinder / clamp / robot 만 단축. 그 외 모두 `custom(<Type>) + apis:[...]` long-form. **opposing default = sugar(cylinder/clamp) chain · robot/custom none.** 표의 opposing 값이 default 와 다르면(예: custom Gate/Valve/Lifter = chain) passive 에 `opposing: chain` 명시 — 생략 시 none 이라 상호배타(ResetReset) 미생성.
       표 외 디바이스 / 변형 행위는 사용자 명시 그대로 (UPPERCASE 권장: SPOT, SPRAY, DRILL, HEAT, MARK, PICKUP, BOND, BRAZE).
 
 ### 6.2 한국어 → PascalCase 타입 (Work 복수형 / Passive 단수)
