@@ -128,7 +128,9 @@ authJWTClaimKey: mediamtx_permissions
 # Global settings -> Control API
 
 # Enable controlling the server through the Control API.
-api: no
+# 제어 API — DSPilot(CctvMediaMtxService)이 카메라 RTSP 경로를 :9997 로 등록/갱신한다.
+# 끄면(api: no) 경로 동기화가 실패해 WHEP 가 404(미게시)로 떨어진다 — 반드시 yes.
+api: yes
 # Address of the Control API listener.
 apiAddress: :9997
 # Enable TLS/HTTPS on the Control API server.
