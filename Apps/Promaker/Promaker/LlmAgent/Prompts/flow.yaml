@@ -1,0 +1,384 @@
+protocol: promaker/v0
+# capacity=9 (STN 을 Flow 로 해석). System=Main(Active).
+# 공정순서 201->202->203->204->205->211->231->232->233
+# flow 내 work = Group / flow 간 anchor(Robots) = Start / 마지막 flow = Clear(StartReset+Reset)
+# work 간 실행 제약은 callCondition(AutoAux 일반선후 / ComAux 안전) 으로 보존
+project: CT_SideLine
+systems:
+- system: Main
+  kind: active
+  flows:
+    S201: {}
+    S202: {}
+    S203: {}
+    S204: {}
+    S205: {}
+    S211: {}
+    S231: {}
+    S232: {}
+    S233: {}
+  works:
+    # ── STN201 S/OTR BPR 실러도포 ──────────────────────────
+    S201_Robots:
+      flow: S201
+      calls:
+        - Robot201.WORK1
+        - Robot201.WORK2
+        - Robot201.WORK3
+        - ref: Robot201.WORK4
+          callCondition: { type: AutoAux, conditions: [Sealer201a.SEAL] }
+        - Robot201.WORK5
+        - ref: Robot201.HOME
+          callCondition: { type: AutoAux, conditions: [Sealer201b.SEAL] }
+      arrows:
+        - "Robot201.WORK1 -> Robot201.WORK2 : Start"
+        - "Robot201.WORK2 -> Robot201.WORK3 : Start"
+        - "Robot201.WORK3 -> Robot201.WORK4 : Start"
+        - "Robot201.WORK4 -> Robot201.WORK5 : Start"
+        - "Robot201.WORK5 -> Robot201.HOME : Start"
+    S201_Sealers:
+      flow: S201
+      calls:
+        - ref: Sealer201a.SEAL          # BPR실러
+          callCondition: { type: AutoAux, conditions: [Robot201.WORK3] }
+        - ref: Sealer201b.SEAL          # 안티스패터
+          callCondition: { type: AutoAux, conditions: [Robot201.WORK5] }
+    # ── STN202 REINF S/OTR 실링 ───────────────────────────
+    S202_Robots:
+      flow: S202
+      calls:
+        - Robot202.WORK1
+        - Robot202.WORK2
+        - Robot202.WORK3
+        - Robot202.WORK4
+        - Robot202.WORK5
+        - Robot202.WORK6
+        - ref: Robot202.WORK7
+          callCondition: { type: AutoAux, conditions: [Sealer202a.SEAL] }
+        - Robot202.WORK8
+        - Robot202.HOME
+      arrows:
+        - "Robot202.WORK1 -> Robot202.WORK2 : Start"
+        - "Robot202.WORK2 -> Robot202.WORK3 : Start"
+        - "Robot202.WORK3 -> Robot202.WORK4 : Start"
+        - "Robot202.WORK4 -> Robot202.WORK5 : Start"
+        - "Robot202.WORK5 -> Robot202.WORK6 : Start"
+        - "Robot202.WORK6 -> Robot202.WORK7 : Start"
+        - "Robot202.WORK7 -> Robot202.WORK8 : Start"
+        - "Robot202.WORK8 -> Robot202.HOME : Start"
+    S202_Sealers:
+      flow: S202
+      calls:
+        - ref: Sealer202a.SEAL          # 구조용접착제
+          callCondition: { type: AutoAux, conditions: [Robot202.WORK6] }
+    # ── STN203 R/CLAMP ASSY 로딩 ──────────────────────────
+    S203_Robots:
+      flow: S203
+      calls:
+        - Robot203.WORK1
+        - Robot203.WORK2
+        - Robot203.WORK3
+        - Robot203.WORK4
+        - Robot203.HOME
+      arrows:
+        - "Robot203.WORK1 -> Robot203.WORK2 : Start"
+        - "Robot203.WORK2 -> Robot203.WORK3 : Start"
+        - "Robot203.WORK3 -> Robot203.WORK4 : Start"
+        - "Robot203.WORK4 -> Robot203.HOME : Start"
+    # ── STN204 S/OTR ASSY 키용접 ──────────────────────────
+    S204_Robots:
+      flow: S204
+      calls:
+        - Robot204.WORK1
+        - Robot204.WORK2
+        - Robot204.WORK3
+        - Robot204.HOME
+      arrows:
+        - "Robot204.WORK1 -> Robot204.WORK2 : Start"
+        - "Robot204.WORK2 -> Robot204.WORK3 : Start"
+        - "Robot204.WORK3 -> Robot204.HOME : Start"
+    S204_Turntables:
+      flow: S204
+      calls:
+        - Turntable204.TURN
+    S204_Clamps:
+      flow: S204
+      calls:
+        - ref: Clamp204.CLP             # 키지그
+          callCondition: { type: AutoAux, conditions: [Robot204.WORK3] }
+        - ref: Clamp204.UNCLP
+          callCondition: { type: AutoAux, conditions: [Gun204.SPOT] }
+      arrows:
+        - "Clamp204.CLP -> Clamp204.UNCLP : Start"
+    S204_Guns:
+      flow: S204
+      calls:
+        - ref: Gun204.SPOT
+          callCondition: { type: ComAux, conditions: [Clamp204.CLP] }   # 안전: 클램프 후에만 용접
+    # ── STN205 S/OTR ASSY 증타 ────────────────────────────
+    S205_Robots:
+      flow: S205
+      calls:
+        - Robot205a.WORK1               # S/OTR 핸들링
+        - Robot205a.WORK2
+        - Robot205a.WORK3
+        - ref: Robot205a.HOME
+          callCondition: { type: AutoAux, conditions: [Gun205.SPOT] }
+        - Robot205b.WORK1               # FDR MTG 핸들링
+        - Robot205b.WORK2
+      arrows:
+        - "Robot205a.WORK1 -> Robot205a.WORK2 : Start"
+        - "Robot205a.WORK2 -> Robot205a.WORK3 : Start"
+        - "Robot205a.WORK3 -> Robot205a.HOME : Start"
+        - "Robot205b.WORK1 -> Robot205b.WORK2 : Start"
+    S205_Clamps:
+      flow: S205
+      calls:
+        - ref: Clamp205.CLP             # 증타지그
+          callCondition: { type: AutoAux, conditions: [Robot205a.WORK3, Robot205b.WORK2] }
+        - ref: Clamp205.UNCLP
+          callCondition: { type: AutoAux, conditions: [Gun205.SPOT] }
+      arrows:
+        - "Clamp205.CLP -> Clamp205.UNCLP : Start"
+    S205_Guns:
+      flow: S205
+      calls:
+        - ref: Gun205.SPOT
+          callCondition: { type: ComAux, conditions: [Clamp205.CLP] }
+    # ── STN211 S/COMPL ASSY 키용접 ────────────────────────
+    S211_Robots:
+      flow: S211
+      calls:
+        - Robot211a.WORK1               # S/OTR 핸들링
+        - Robot211a.WORK2
+        - Robot211a.WORK3
+        - Robot211a.HOME
+        - Robot211b.WORK1               # QTR INR 핸들링
+        - Robot211b.WORK2
+        - Robot211b.WORK3
+        - Robot211b.WORK4
+        - Robot211b.WORK5
+        - Robot211b.WORK6
+        - ref: Robot211b.WORK7
+          callCondition: { type: AutoAux, conditions: [Sealer211a.SEAL] }
+        - Robot211b.HOME
+      arrows:
+        - "Robot211a.WORK1 -> Robot211a.WORK2 : Start"
+        - "Robot211a.WORK2 -> Robot211a.WORK3 : Start"
+        - "Robot211a.WORK3 -> Robot211a.HOME : Start"
+        - "Robot211b.WORK1 -> Robot211b.WORK2 : Start"
+        - "Robot211b.WORK2 -> Robot211b.WORK3 : Start"
+        - "Robot211b.WORK3 -> Robot211b.WORK4 : Start"
+        - "Robot211b.WORK4 -> Robot211b.WORK5 : Start"
+        - "Robot211b.WORK5 -> Robot211b.WORK6 : Start"
+        - "Robot211b.WORK6 -> Robot211b.WORK7 : Start"
+        - "Robot211b.WORK7 -> Robot211b.HOME : Start"
+    S211_Sealers:
+      flow: S211
+      calls:
+        - ref: Sealer211a.SEAL          # 구조용실러
+          callCondition: { type: AutoAux, conditions: [Robot211b.WORK6] }
+    S211_Clamps:
+      flow: S211
+      calls:
+        - ref: Clamp211.CLP             # 키지그
+          callCondition: { type: AutoAux, conditions: [Robot211a.WORK3, Robot211b.WORK7] }
+        - ref: Clamp211.UNCLP
+          callCondition: { type: AutoAux, conditions: [Gun211.SPOT] }
+      arrows:
+        - "Clamp211.CLP -> Clamp211.UNCLP : Start"
+    S211_Guns:
+      flow: S211
+      calls:
+        - ref: Gun211.SPOT
+          callCondition: { type: ComAux, conditions: [Clamp211.CLP] }
+    # ── STN231 S/COMPL ASSY 증타용접 ──────────────────────
+    S231_Robots:
+      flow: S231
+      calls:
+        - Robot231.WORK1
+        - Robot231.WORK2
+        - ref: Robot231.HOME
+          callCondition: { type: AutoAux, conditions: [Clamp231.UNCLP] }
+      arrows:
+        - "Robot231.WORK1 -> Robot231.WORK2 : Start"
+        - "Robot231.WORK2 -> Robot231.HOME : Start"
+    S231_Clamps:
+      flow: S231
+      calls:
+        - ref: Clamp231.CLP             # 증타지그
+          callCondition: { type: AutoAux, conditions: [Robot231.WORK2] }
+        - ref: Clamp231.UNCLP
+          callCondition: { type: AutoAux, conditions: [Gun231.SPOT] }
+      arrows:
+        - "Clamp231.CLP -> Clamp231.UNCLP : Start"
+    S231_Guns:
+      flow: S231
+      calls:
+        - ref: Gun231.SPOT
+          callCondition: { type: ComAux, conditions: [Clamp231.CLP] }
+    # ── STN232 S/COMPL ASSY SMS측정 ───────────────────────
+    S232_Robots:
+      flow: S232
+      calls:
+        - Robot232.WORK1
+        - Robot232.WORK2
+        - ref: Robot232.HOME
+          callCondition: { type: AutoAux, conditions: [Vision232.MEASURE] }
+      arrows:
+        - "Robot232.WORK1 -> Robot232.WORK2 : Start"
+        - "Robot232.WORK2 -> Robot232.HOME : Start"
+    S232_Visions:
+      flow: S232
+      calls:
+        - ref: Vision232.MEASURE        # SMS 측정시스템
+          callCondition: { type: AutoAux, conditions: [Robot232.WORK2] }
+    # ── STN233 S/COMPL 실러도포 EMS로딩 (마지막 flow) ─────
+    S233_Robots:
+      flow: S233
+      calls:
+        - Robot233.WORK1
+        - Robot233.WORK2
+        - ref: Robot233.WORK3
+          callCondition: { type: AutoAux, conditions: [Sealer233a.SEAL] }
+        - Robot233.HOME
+      arrows:
+        - "Robot233.WORK1 -> Robot233.WORK2 : Start"
+        - "Robot233.WORK2 -> Robot233.WORK3 : Start"
+        - "Robot233.WORK3 -> Robot233.HOME : Start"
+    S233_Sealers:
+      flow: S233
+      calls:
+        - ref: Sealer233a.SEAL          # 구조용실러
+          callCondition: { type: AutoAux, conditions: [Robot233.WORK2] }
+    Clear:
+      flow: S233
+  arrows:
+    # flow 내 work 간 = Group
+    - "S201_Robots -> S201_Sealers : Group"
+    - "S202_Robots -> S202_Sealers : Group"
+    - "S204_Robots -> S204_Turntables : Group"
+    - "S204_Turntables -> S204_Clamps : Group"
+    - "S204_Clamps -> S204_Guns : Group"
+    - "S205_Robots -> S205_Clamps : Group"
+    - "S205_Clamps -> S205_Guns : Group"
+    - "S211_Robots -> S211_Sealers : Group"
+    - "S211_Sealers -> S211_Clamps : Group"
+    - "S211_Clamps -> S211_Guns : Group"
+    - "S231_Robots -> S231_Clamps : Group"
+    - "S231_Clamps -> S231_Guns : Group"
+    - "S232_Robots -> S232_Visions : Group"
+    - "S233_Robots -> S233_Sealers : Group"
+    # flow 간 anchor(Robots) = Start
+    - "S201_Robots -> S202_Robots : Start"
+    - "S202_Robots -> S203_Robots : Start"
+    - "S203_Robots -> S204_Robots : Start"
+    - "S204_Robots -> S205_Robots : Start"
+    - "S205_Robots -> S211_Robots : Start"
+    - "S211_Robots -> S231_Robots : Start"
+    - "S231_Robots -> S232_Robots : Start"
+    - "S232_Robots -> S233_Robots : Start"
+    # 마지막 flow self-reset
+    - "S233_Robots -> Clear : StartReset"
+    - "S233_Robots -> Clear : Reset"
+# ── Passive systems (device 인스턴스별) ──────────────────
+- system: Robot201
+  kind: passive
+  device: robot
+  apis: [WORK1, WORK2, WORK3, WORK4, WORK5, HOME]
+- system: Robot202
+  kind: passive
+  device: robot
+  apis: [WORK1, WORK2, WORK3, WORK4, WORK5, WORK6, WORK7, WORK8, HOME]
+- system: Robot203
+  kind: passive
+  device: robot
+  apis: [WORK1, WORK2, WORK3, WORK4, HOME]
+- system: Robot204
+  kind: passive
+  device: robot
+  apis: [WORK1, WORK2, WORK3, HOME]
+- system: Robot205a
+  kind: passive
+  device: robot
+  apis: [WORK1, WORK2, WORK3, HOME]
+- system: Robot205b
+  kind: passive
+  device: robot
+  apis: [WORK1, WORK2]
+- system: Robot211a
+  kind: passive
+  device: robot
+  apis: [WORK1, WORK2, WORK3, HOME]
+- system: Robot211b
+  kind: passive
+  device: robot
+  apis: [WORK1, WORK2, WORK3, WORK4, WORK5, WORK6, WORK7, HOME]
+- system: Robot231
+  kind: passive
+  device: robot
+  apis: [WORK1, WORK2, HOME]
+- system: Robot232
+  kind: passive
+  device: robot
+  apis: [WORK1, WORK2, HOME]
+- system: Robot233
+  kind: passive
+  device: robot
+  apis: [WORK1, WORK2, WORK3, HOME]
+- system: Sealer201a
+  kind: passive
+  device: custom(Sealer)
+  apis: [SEAL]
+- system: Sealer201b
+  kind: passive
+  device: custom(Sealer)
+  apis: [SEAL]
+- system: Sealer202a
+  kind: passive
+  device: custom(Sealer)
+  apis: [SEAL]
+- system: Sealer211a
+  kind: passive
+  device: custom(Sealer)
+  apis: [SEAL]
+- system: Sealer233a
+  kind: passive
+  device: custom(Sealer)
+  apis: [SEAL]
+- system: Turntable204
+  kind: passive
+  device: custom(Turntable)
+  apis: [TURN]
+- system: Clamp204
+  kind: passive
+  device: clamp
+- system: Clamp205
+  kind: passive
+  device: clamp
+- system: Clamp211
+  kind: passive
+  device: clamp
+- system: Clamp231
+  kind: passive
+  device: clamp
+- system: Gun204
+  kind: passive
+  device: custom(Welder)
+  apis: [SPOT]
+- system: Gun205
+  kind: passive
+  device: custom(Welder)
+  apis: [SPOT]
+- system: Gun211
+  kind: passive
+  device: custom(Welder)
+  apis: [SPOT]
+- system: Gun231
+  kind: passive
+  device: custom(Welder)
+  apis: [SPOT]
+- system: Vision232
+  kind: passive
+  device: custom(Vision)
+  apis: [MEASURE]
