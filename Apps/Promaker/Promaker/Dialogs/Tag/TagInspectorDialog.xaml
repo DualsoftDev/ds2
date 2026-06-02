@@ -446,6 +446,7 @@
                               CanUserAddRows="False"
                               CanUserDeleteRows="False"
                               IsReadOnly="True"
+                              PreviewKeyDown="IoGrid_PreviewKeyDown"
                               HeadersVisibility="None"
                               SelectionMode="Extended"
                               SelectionUnit="FullRow"
@@ -472,6 +473,8 @@
                                 <Separator/>
                                 <MenuItem Header="전체 체크" Click="CheckAll_Click"/>
                                 <MenuItem Header="전체 체크 해제" Click="UncheckAll_Click"/>
+                                <Separator/>
+                                <MenuItem Header="선택 항목 I/O 삭제" Click="DeleteSelectedIo_Click"/>
                             </ContextMenu>
                         </DataGrid.ContextMenu>
                         <DataGrid.Columns>

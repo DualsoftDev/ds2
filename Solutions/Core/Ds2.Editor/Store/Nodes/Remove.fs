@@ -99,7 +99,22 @@ module internal CascadeRemove =
             | EntityKind.Flow      -> cascadeRemoveFlow store id
             | EntityKind.System    -> cascadeRemoveSystem store id
             | EntityKind.Project   -> cascadeRemoveProject store id
-            | EntityKind.ApiDef    -> store.TrackRemove(store.ApiDefs, id)
+            | EntityKind.ApiDef    ->
+                // ApiDef(Device) 제거 시, 이 ApiDef 를 ApiCall.ApiDefId 로 참조하는 ApiCall 을
+                // 각 Call 의 직접 참조 목록(call.ApiCalls)에서 떼어낸다. store 의 실제 제거는 아래
+                // removeOrphanApiCalls 에 위임 — condition 이 아직 참조하면 보존(무결성), 아니면 자동 정리.
+                // 이 단계가 없으면 ApiDef 만 사라지고 ApiCall 이 dangling 으로 남아 I/O 가 UNKNOWN 으로 표시됨.
+                let deadApiCallIds =
+                    store.ApiCalls.Values
+                    |> Seq.filter (fun ac -> ac.ApiDefId = Some id)
+                    |> Seq.map (fun ac -> ac.Id)
+                    |> Set.ofSeq
+                if not (Set.isEmpty deadApiCallIds) then
+                    for call in store.Calls.Values |> Seq.toList do
+                        if call.ApiCalls |> Seq.exists (fun ac -> deadApiCallIds.Contains ac.Id) then
+                            store.TrackMutate(store.Calls, call.Id, fun c ->
+                                c.ApiCalls.RemoveAll(fun ac -> deadApiCallIds.Contains ac.Id) |> ignore)
+                store.TrackRemove(store.ApiDefs, id)
             | EntityKind.ArrowWork -> store.TrackRemove(store.ArrowWorks, id)
             // ArrowCall: 현 cycle 의 dispatcher 입력 경로 부재 (arrows.remove 는 ArrowWork 만 enumerate,
             // patch.remove 의 tryFindEntity 는 Arrow 미식별). 안전망 선반영 — 후속 cycle 에서 call-graph
