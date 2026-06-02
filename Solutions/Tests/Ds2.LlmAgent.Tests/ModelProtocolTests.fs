@@ -34,14 +34,17 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
-        Adv:
-          calls: [Cyl1.ADV]
-        Ret:
-          calls: [Cyl1.RET]
-      arrows:
-        - Adv -> Ret : Start
+    flows:
+      Run: {}
+    works:
+      Adv:
+        flow: Run
+        calls: [Cyl1.ADV]
+      Ret:
+        flow: Run
+        calls: [Cyl1.RET]
+    arrows:
+      - Adv -> Ret : Start
 
   - system: Cyl1
     kind: passive
@@ -106,12 +109,13 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
-        Z1_Adv:    { calls: [Z1_C1.ADV, Z1_C2.ADV] }
-        Z1_Punch:  { calls: [P1.PUNCH] }
-        Z1_Ret:    { calls: [Z1_C1.RET, Z1_C2.RET] }
-      arrows:
+    flows:
+      Run: {}
+    works:
+        Z1_Adv:    { flow: Run, calls: [Z1_C1.ADV, Z1_C2.ADV] }
+        Z1_Punch:  { flow: Run, calls: [P1.PUNCH] }
+        Z1_Ret:    { flow: Run, calls: [Z1_C1.RET, Z1_C2.RET] }
+    arrows:
         - Z1_Adv   -> Z1_Punch : Start
         - Z1_Punch -> Z1_Ret   : Start
 
@@ -183,11 +187,12 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
-        A: { calls: [] }
-        B: { calls: [] }
-      arrows:
+    flows:
+      Run: {}
+    works:
+        A: { flow: Run, calls: [] }
+        B: { flow: Run, calls: [] }
+    arrows:
         - A -> B
 """
     let store = DsStore()
@@ -264,9 +269,11 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           calls: [Cyl1.ADV, Cyl1.ADV]
   - system: Cyl1
     kind: passive
@@ -352,13 +359,13 @@ systems:
   - system: P1
     kind: passive
     device: cylinder
-    flow Bad:
-      works: {}
+    flows:
+      Bad: {}
 """
     let store = DsStore()
     let diag, _, _ = parseAndApply store yaml
     Assert.True(diag.HasErrors)
-    Assert.Contains("flow 키 존재", diag.Format())
+    Assert.Contains("flows 키 존재", diag.Format())
 
 [<Fact>]
 let ``kind=active 인데 device 키 존재 → validate 에러`` () =
@@ -399,9 +406,10 @@ systems:
 
 [<Fact>]
 let ``중복 flow 키 → diagnostic + plan 전체 rollback (review C1)`` () =
-    // 동일 raw 키 두 번은 YAML duplicate map key 로 잡힘 → JSON 변환 후 dispatcher 가 보지 못함.
-    // 본 테스트는 *normalize 후 같은 이름* 이 되는 두 키 (e.g. "flow Run" 과 "flow  Run" — 공백 차이)
-    // 가 들어오는 케이스를 시뮬레이션하기 위해 JSON 직접 입력 사용.
+    // 새 구조 — flows: mapping 안 같은 flow 이름이 JSON dup key 로 두 번 등장하는 케이스.
+    // YAML 은 duplicate map key 를 파서가 거부하므로 (별도 테스트 존재), wire 의 dup key 검증은
+    // JSON 직접 입력 사용. System.Text.Json 은 dup key 둘 다 enumerate → dispatchActiveFlows 가
+    // 두 번째 등장 시 FlowIds.ContainsKey 로 "flow 'Run' 키 중복" diagnostic 발행.
     //
     // review C1 (partial-commit transactional leak): HasErrors 시 부분 op (첫 등장 flow 1번)
     // 가 plan 에 남아 EndTurn 시 store 에 silent commit 되던 회귀 — apply 가 snapshotCount +
@@ -412,8 +420,7 @@ let ``중복 flow 키 → diagnostic + plan 전체 rollback (review C1)`` () =
   "project": "M1",
   "systems": [
     { "system": "Controller", "kind": "active",
-      "flow Run":  { "works": { "A": { "calls": [] } } },
-      "flow  Run": { "works": { "B": { "calls": [] } } }
+      "flows": { "Run": {}, "Run": {} }
     }
   ]
 }
@@ -424,7 +431,7 @@ let ``중복 flow 키 → diagnostic + plan 전체 rollback (review C1)`` () =
     let diag, refs = ModelProtocol.apply plan store jdoc.RootElement
     // diagnostic 에 flow 키 중복 메시지 포함
     Assert.True(diag.HasErrors, "중복 flow 키는 HasErrors 발생해야")
-    Assert.Contains("flow Run", diag.Format())
+    Assert.Contains("flow 'Run'", diag.Format())
     // C1 fix: plan 전체 rollback — 어떤 op 도 남아있으면 안 됨.
     Assert.Equal(0, plan.Operations |> Seq.length)
     // refs 도 invalidate.
@@ -448,11 +455,12 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
-        A: { calls: [] }
-        B: { calls: [] }
-      arrows:
+    flows:
+      Run: {}
+    works:
+        A: { flow: Run, calls: [] }
+        B: { flow: Run, calls: [] }
+    arrows:
         - A -> B : __TYPE__
 """
     let yaml = template.Replace("__TYPE__", typeName)
@@ -474,18 +482,19 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
-        Z1_Adv: { calls: [Z1_C1.ADV] }
-        Z1_Ret: { calls: [Z1_C1.RET] }
-      arrows:
+    flows:
+      Run: {}
+    works:
+        Z1_Adv: { flow: Run, calls: [Z1_C1.ADV] }
+        Z1_Ret: { flow: Run, calls: [Z1_C1.RET] }
+    arrows:
         - Z1_Adv -> Z1_Ret : Start
   - { system: Z1_C1, kind: passive, device: cylinder }
 """
     let store = DsStore()
     let _ = parseApplyCommit store baseYaml
 
-    // 2단계: patch — Zone 4 system 추가 + 같은 Flow 에 arrow 추가
+    // 2단계: patch — Zone 4 system 추가 + 같은 System 에 arrow 추가 (work 간 arrow 는 system-scope, D2)
     let patchYaml = """
 protocol: promaker/v0
 patch:
@@ -493,7 +502,7 @@ patch:
     - { system: Z4_C1, kind: passive, device: cylinder }
   arrows:
     add:
-      - in: Controller.Run
+      - in: Controller
         entries:
           - Z1_Adv -> Z1_Ret : Reset
 """
@@ -653,11 +662,12 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
-        A: { calls: [] }
-        B: { calls: [] }
-      arrows:
+    flows:
+      Run: {}
+    works:
+        A: { flow: Run, calls: [] }
+        B: { flow: Run, calls: [] }
+    arrows:
         - A -> B : Start
 """
 
@@ -671,7 +681,7 @@ protocol: promaker/v0
 patch:
   arrows:
     remove:
-      - in: Controller.Run
+      - in: Controller
         entries:
           - A -> B
 """
@@ -691,7 +701,7 @@ protocol: promaker/v0
 patch:
   arrows:
     remove:
-      - in: Controller.Run
+      - in: Controller
         entries:
           - "A -> B : Start"
 """
@@ -709,7 +719,7 @@ protocol: promaker/v0
 patch:
   arrows:
     remove:
-      - in: Controller.Run
+      - in: Controller
         entries:
           - NoSuch -> B
 """
@@ -719,7 +729,8 @@ patch:
     Assert.Contains("Work 'NoSuch'", fmt)
 
 [<Fact>]
-let ``patch.arrows.remove — 존재하지 않는 Flow path`` () =
+let ``patch.arrows.remove — 존재하지 않는 System path`` () =
+    // 새 구조 — work 간 arrow 는 system-scope (D2). patch.arrows 의 `in:` = system path.
     let store = DsStore()
     let _ = parseApplyCommit store arrowsRemoveBaseYaml
     let patchYaml = """
@@ -727,13 +738,13 @@ protocol: promaker/v0
 patch:
   arrows:
     remove:
-      - in: Controller.NoSuchFlow
+      - in: NoSuchSystem
         entries:
           - A -> B
 """
     let diag, _, _ = parseAndApply store patchYaml
     Assert.True(diag.HasErrors)
-    Assert.Contains("Flow 'Controller.NoSuchFlow'", diag.Format())
+    Assert.Contains("System 'NoSuchSystem' 가 store 에 없습니다", diag.Format())
 
 [<Fact>]
 let ``patch.arrows.remove — 매칭되는 Arrow 없음`` () =
@@ -745,7 +756,7 @@ protocol: promaker/v0
 patch:
   arrows:
     remove:
-      - in: Controller.Run
+      - in: Controller
         entries:
           - B -> A
 """
@@ -763,7 +774,7 @@ protocol: promaker/v0
 patch:
   arrows:
     remove:
-      - in: Controller.Run
+      - in: Controller
         entries:
           - "A B"
 """
@@ -782,9 +793,11 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Slow:
+          flow: Run
           calls: [Cyl1.ADV]
           workDuration: 2s
   - system: Cyl1
@@ -883,16 +896,20 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Step1:
+          flow: Run
           calls: [Cyl1.ADV, Clm1.CLP]
         Step2:
+          flow: Run
           calls: [R1.PICK, R1.PLACE]
           workDuration: 2s
         Step3:
+          flow: Run
           calls: [Cyl1.RET, Clm1.UNCLP]
-      arrows:
+    arrows:
         - Step1 -> Step2 : Start
         - Step2 -> Step3 : Start
 
@@ -1166,9 +1183,10 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
-        Existing: { calls: [] }
+    flows:
+      Run: {}
+    works:
+        Existing: { flow: Run, calls: [] }
 """
     let store = DsStore()
     let _ = parseApplyCommit store baseYaml
@@ -1178,9 +1196,10 @@ protocol: promaker/v0
 patch:
   add:
     - in: Controller
-      flow Inspection:
-        works:
-          Check: { calls: [] }
+      flows:
+        Inspection: {}
+      works:
+        Check: { flow: Inspection, calls: [] }
 """
     let diag, _, plan = parseAndApply store patchYaml
     Assert.False(diag.HasErrors, diag.Format())
@@ -1246,12 +1265,12 @@ let ``useAllowDup — arrows 키 명시 + parse error 라도 concurrent 분기 �
   "systems": [
     { "system": "Cyl1", "kind": "passive", "device": "cylinder" },
     { "system": "Controller", "kind": "active",
-      "flow Run": {
-        "works": {
-          "W1": {
-            "calls": ["Cyl1.ADV", "Cyl1.ADV"],
-            "arrows": ["BROKEN_ARROW_NO_TYPE"]
-          }
+      "flows": { "Run": {} },
+      "works": {
+        "W1": {
+          "flow": "Run",
+          "calls": ["Cyl1.ADV", "Cyl1.ADV"],
+          "arrows": ["BROKEN_ARROW_NO_TYPE"]
         }
       }
     }
@@ -1275,7 +1294,7 @@ let ``useAllowDup — arrows 키 명시 + parse error 라도 concurrent 분기 �
 [<InlineData("Passive System $ prefix",
     """{"protocol":"promaker/v0","project":"M1","systems":[{"system":"$Bad","kind":"passive","device":"cylinder"}]}""")>]
 [<InlineData("Work localName 에 '.' 포함",
-    """{"protocol":"promaker/v0","project":"M1","systems":[{"system":"Ctl","kind":"active","flow Run":{"works":{"A.B":{"calls":[]}}}}]}""")>]
+    """{"protocol":"promaker/v0","project":"M1","systems":[{"system":"Ctl","kind":"active","flows":{"Run":{}},"works":{"A.B":{"flow":"Run","calls":[]}}}]}""")>]
 let ``doc-level entity 이름 sanitize — 3 진입점 차단 + 전체 rollback (review M1)`` (label: string) (json: string) =
     // Phase 5 op-layer cleanup 으로 SanitizeOrThrow 가 일소 — doc-level dispatcher 의 sanitize
     // 가드가 entry 이름 (Active/Passive System, Work localName) 의 `@`/`$` prefix / '.' / Cc/Cf
@@ -1332,9 +1351,11 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           calls:
             - ref: Cyl1.ADV
               contactKind: NcContact
@@ -1346,8 +1367,9 @@ systems:
                     contactKind: RisingPulse
                   - Cyl1.ADV
         Ret:
+          flow: Run
           calls: [Cyl1.RET]
-      arrows:
+    arrows:
         - Adv -> Ret : Start
 
   - system: Cyl1
@@ -1437,15 +1459,18 @@ systems:
   - system: Controller
     kind: active
     iri: "urn:dualsoft:ctrl1"
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           tokenRole: Source
           calls: [Cyl1.ADV]
         Ret:
+          flow: Run
           tokenRole: Sink
           calls: [Cyl1.RET]
-      arrows:
+    arrows:
         - Adv -> Ret : Start
 
   - system: Cyl1
@@ -1514,9 +1539,11 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           calls:
             - ref: Cyl1.ADV
               condition:
@@ -1589,9 +1616,11 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           calls:
             - ref: Cyl1.ADV
               condition: {}
@@ -1645,9 +1674,11 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           tokenRole: 123
           calls: [Cyl1.ADV]
   - system: Cyl1
@@ -1661,9 +1692,11 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           calls:
             - ref: Cyl1.ADV
               inTag: "should-be-object"
@@ -1678,9 +1711,11 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           calls:
             - ref: Cyl1.ADV
               skipInputSensor: "yes"
@@ -1695,9 +1730,11 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           calls: [Cyl1.ADV]
   - system: Cyl1
     kind: passive
@@ -1711,9 +1748,11 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           calls: [Cyl1.ADV]
   - system: Cyl1
     kind: passive
@@ -1729,9 +1768,11 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           calls:
             - ref: Cyl1.ADV
               condition:
@@ -1748,9 +1789,11 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           calls:
             - ref: Cyl1.ADV
               condition:
@@ -1768,9 +1811,11 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           calls:
             - ref: Cyl1.ADV
               outTag: "should-be-object"
@@ -1815,9 +1860,11 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           tokenRole: NoSuchRole
           calls: [Cyl1.ADV]
   - system: Cyl1
@@ -1831,9 +1878,11 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           calls: [Cyl1.ADV]
   - system: Cyl1
     kind: passive
@@ -1850,9 +1899,11 @@ systems:
   - system: Controller
     kind: active
     iri: 42
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           calls: [Cyl1.ADV]
   - system: Cyl1
     kind: passive
@@ -1866,9 +1917,11 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           calls:
             - ref: Cyl1.ADV
               condition:
@@ -1884,9 +1937,11 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           calls:
             - ref: Cyl1.ADV
               contactKind: NoSuchKind
@@ -1901,9 +1956,11 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           calls:
             - ref: Cyl1.ADV
               callType: NoSuchCallType
@@ -1951,9 +2008,11 @@ systems:
       safetyTimeoutSeconds: 45.5
       tagPrefix: PLC1_
       systemType: Unit
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           calls: [Cyl1.ADV]
   - system: Cyl1
     kind: passive
@@ -1987,12 +2046,14 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      plc:
-        flowControlEnabled: true
-        flowPriority: 7
-      works:
+    flows:
+      Run:
+        plc:
+          flowControlEnabled: true
+          flowPriority: 7
+    works:
         Adv:
+          flow: Run
           calls: [Cyl1.ADV]
   - system: Cyl1
     kind: passive
@@ -2018,9 +2079,11 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           plc:
             enableHardwareControl: true
             controlMode: Parallel
@@ -2068,9 +2131,11 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           calls:
             - ref: Cyl1.ADV
               plc:
@@ -2126,9 +2191,11 @@ systems:
   - system: Controller
     kind: active
     plc: "not-object"
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           calls: [Cyl1.ADV]
   - system: Cyl1
     kind: passive
@@ -2148,9 +2215,11 @@ systems:
     kind: active
     plc:
       __KEY__
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           calls: [Cyl1.ADV]
   - system: Cyl1
     kind: passive
@@ -2170,9 +2239,11 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           plc:
             currentState: Running
           calls: [Cyl1.ADV]
@@ -2217,9 +2288,11 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           calls: [Cyl1.ADV]
   - system: Cyl1
     kind: passive
@@ -2260,9 +2333,11 @@ systems:
     kind: active
     plc:
       tagPrefix: ""
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           calls: [Cyl1.ADV]
   - system: Cyl1
     kind: passive
@@ -2285,9 +2360,11 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           calls: [Cyl1.ADV]
   - system: Cyl1
     kind: passive
@@ -2313,9 +2390,11 @@ systems:
   - system: Controller
     kind: active
     iri: ""
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           calls: [Cyl1.ADV]
   - system: Cyl1
     kind: passive
@@ -2329,9 +2408,11 @@ systems:
   - system: Controller
     kind: active
     iri: null
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           calls: [Cyl1.ADV]
   - system: Cyl1
     kind: passive
@@ -2344,9 +2425,11 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           calls: [Cyl1.ADV]
   - system: Cyl1
     kind: passive
@@ -2395,9 +2478,11 @@ systems:
   - system: Controller
     kind: active
     iri: http://example.com/controller
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           tokenRole: Source
           workDuration: 250ms
           calls:
@@ -2406,8 +2491,9 @@ systems:
               callType: SkipIfCompleted
               inTag: { name: ADV_LMT, address: '%X10' }
         Ret:
+          flow: Run
           calls: [Cyl1.RET]
-      arrows:
+    arrows:
         - Adv -> Ret : Start
   - system: Cyl1
     kind: passive
@@ -2457,15 +2543,18 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           calls:
             - ref: Cyl1.ADV
               inTag: { name: ADV_LMT, address: '%X10' }   # B_Addressing 만 — modeling 시 emit 0
         Ret:
+          flow: Run
           calls: [Cyl1.RET]
-      arrows:
+    arrows:
         - Adv -> Ret : Start
   - system: Cyl1
     kind: passive
@@ -2517,9 +2606,11 @@ systems:
   - system: Controller
     kind: active
     iri: http://example.com     # C_Meta — modeling 에서 등장 금지
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           calls: [Cyl1.ADV]
   - system: Cyl1
     kind: passive
@@ -2603,9 +2694,11 @@ project: M1
 systems:
   - system: Cyl1
     kind: active
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         X:
+          flow: Run
           calls: []
 """
     let diag, _, _ = parseAndApply store badYaml
@@ -2684,15 +2777,18 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           calls:
             - ref: Cyl1.ADV
               contactKind: NcContact
         Ret:
+          flow: Run
           calls: [Cyl1.RET]
-      arrows:
+    arrows:
         - Adv -> Ret : Start
   - system: Cyl1
     kind: passive
@@ -2758,14 +2854,17 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           tokenRole: Source
           calls: [Cyl1.ADV]
         Ret:
+          flow: Run
           calls: [Cyl1.RET]
-      arrows:
+    arrows:
         - Adv -> Ret : Start
   - system: Cyl1
     kind: passive
@@ -2775,3 +2874,363 @@ systems:
     // 3. store 의 Adv.TokenRole 가 Source 로 변경 검증
     let advAfter = Queries.worksOf run.Id store |> List.find (fun w -> w.LocalName = "Adv")
     Assert.Equal(TokenRole.Source, advAfter.TokenRole)
+
+// ════════════════════════════════════════════════════════════════════════════
+// todo §4.5 — system-level work arrows 신규 구조 회귀 테스트 (14건)
+// ════════════════════════════════════════════════════════════════════════════
+
+// ─── #1 cross-flow work arrow round-trip (핵심 버그 수정 증명) ───────────────
+
+/// 두 flow(St201/St202) 에 각각 work(BprSeal/ReinfSeal), system arrows 에
+/// `BprSeal -> ReinfSeal : Start` (cross-flow). apply→commit→export→재apply 후에도
+/// 이 cross-flow arrow 가 shape 동등하게 보존되는지 검증.
+let private crossFlowArrowYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flows:
+      St201: {}
+      St202: {}
+    works:
+        BprSeal:   { flow: St201, calls: [Cyl1.ADV] }
+        ReinfSeal: { flow: St202, calls: [Cyl1.RET] }
+    arrows:
+        - BprSeal -> ReinfSeal : Start
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+[<Fact>]
+let ``§4.5 #1 — cross-flow work arrow round-trip 보존 (shape 동등)`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store crossFlowArrowYaml
+    // 원본 store 에 cross-flow arrow 존재 확인
+    let proj = (Queries.allProjects store).Head
+    let ctrl = Queries.activeSystemsOf proj.Id store |> List.head
+    let arrows = Queries.arrowWorksOf ctrl.Id store
+    Assert.Equal(1, arrows.Length)
+    Assert.Equal(ArrowType.Start, arrows.Head.ArrowType)
+    // round-trip — export→재apply 후에도 shape 동등 (cross-flow arrow 보존 = 핵심 버그 수정 증명)
+    let shape1, shape2 = ModelEquivalence.roundTripShape store
+    let diffs = ModelEquivalence.diff shape1 shape2
+    Assert.True(diffs.IsEmpty, sprintf "cross-flow arrow round-trip mismatch: %A" diffs)
+    // Controller 의 cross-flow arrow (St201.BprSeal → St202.ReinfSeal) 가 shape 에 정확히 1건 보존.
+    // (Cyl1 cylinder cascade 의 internal arrow 는 별도 — Controller scope 만 필터)
+    let crossFlow =
+        shape1.WorkArrows
+        |> Set.filter (fun a -> a.SourceLabel.StartsWith("Controller.") && a.TargetLabel.StartsWith("Controller."))
+    Assert.Equal(1, crossFlow.Count)
+    let arrow = Set.toList crossFlow |> List.head
+    Assert.Equal("Controller.St201.BprSeal", arrow.SourceLabel)
+    Assert.Equal("Controller.St202.ReinfSeal", arrow.TargetLabel)
+
+// ─── #2 depth 경계 Theory (entity-level depth 의미) ─────────────────────────
+
+/// depthCap 경계 검증 — `exportToJsonScoped store None (Some d)`.
+/// d=1 → system identity (flows/works/arrows 없음) / d=2 → flows 유지·works·arrows 제거 /
+/// d=3 → works skeleton (calls 없음) / d=4 → calls 포함.
+[<Theory>]
+[<InlineData(1)>]
+[<InlineData(2)>]
+[<InlineData(3)>]
+[<InlineData(4)>]
+let ``§4.5 #2 — depth 경계 entity-level 절단`` (d: int) =
+    let store = DsStore()
+    let _ = parseApplyCommit store crossFlowArrowYaml
+    use doc = ModelProtocol.exportToJsonScoped store None (Some d)
+    let raw = doc.RootElement.GetRawText()
+    match d with
+    | 1 ->
+        // system identity 만 — flows/works/arrows 모두 제거
+        Assert.DoesNotContain("\"flows\"", raw)
+        Assert.DoesNotContain("\"works\"", raw)
+        Assert.DoesNotContain("\"arrows\"", raw)
+        // system identity 키는 유지
+        Assert.Contains("\"system\":\"Controller\"", raw)
+    | 2 ->
+        // flows 유지, works·arrows 제거
+        Assert.Contains("\"flows\"", raw)
+        Assert.DoesNotContain("\"works\"", raw)
+        Assert.DoesNotContain("\"arrows\"", raw)
+    | 3 ->
+        // works skeleton 유지 (flow: 등), calls 제거
+        Assert.Contains("\"works\"", raw)
+        Assert.Contains("\"flow\":\"St201\"", raw)
+        Assert.DoesNotContain("\"calls\"", raw)
+    | 4 ->
+        // calls 까지 모두 유지
+        Assert.Contains("\"works\"", raw)
+        Assert.Contains("\"calls\"", raw)
+    | _ -> failwithf "unexpected depth %d" d
+
+// ─── #3 path scope (work 단위) ──────────────────────────────────────────────
+
+/// `exportToJsonScoped store (Some "<flow path>") None` — 해당 flow 의 works 만 유지,
+/// 타 flow works / cross-flow arrows 필터됨.
+[<Fact>]
+let ``§4.5 #3 — path scope flow 단위 (타 flow works / arrows 필터)`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store crossFlowArrowYaml
+    // St201 flow scope — BprSeal 만 유지, ReinfSeal (St202) 제거.
+    use doc = ModelProtocol.exportToJsonScoped store (Some ".M1.Controller.St201") None
+    let raw = doc.RootElement.GetRawText()
+    Assert.Contains("\"BprSeal\"", raw)
+    Assert.DoesNotContain("\"ReinfSeal\"", raw)
+    // cross-flow arrow 는 한쪽 끝(ReinfSeal) 이 scope 밖 → 필터됨
+    Assert.DoesNotContain("BprSeal -\\u003E ReinfSeal", raw)
+    // partial view 표기
+    Assert.Contains("\"view\":\"partial\"", raw)
+
+// ─── #4 countEntities 카운트 불변 (export view:full 평탄화 합) ───────────────
+
+/// EntityKind 5종(System/Flow/Work/Call/ApiDef) 합이 기대값인지.
+/// countEntities 가 private 이므로 export 결과 JSON 을 파싱해서 직접 카운트.
+[<Fact>]
+let ``§4.5 #4 — entity 카운트 불변 (export 결과 파싱 합)`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store crossFlowArrowYaml
+    use doc = ModelProtocol.exportToJson store
+    let systems = doc.RootElement.GetProperty("systems")
+    let mutable count = 0
+    for sys in systems.EnumerateArray() do
+        count <- count + 1   // System
+        match sys.TryGetProperty("flows") with
+        | true, flows -> count <- count + (flows.EnumerateObject() |> Seq.length)   // Flow
+        | _ -> ()
+        match sys.TryGetProperty("apis") with
+        | true, apis -> count <- count + (apis.EnumerateArray() |> Seq.length)   // ApiDef
+        | _ -> ()
+        match sys.TryGetProperty("works") with
+        | true, works ->
+            for w in works.EnumerateObject() do
+                count <- count + 1   // Work
+                match w.Value.TryGetProperty("calls") with
+                | true, calls -> count <- count + (calls.EnumerateArray() |> Seq.length)   // Call
+                | _ -> ()
+        | _ -> ()
+    // 기대: Controller(1) + flows St201/St202(2) + works BprSeal/ReinfSeal(2)
+    //       + calls Cyl1.ADV / Cyl1.RET(2) + Cyl1(1) = 8.
+    // (Cyl1 은 cylinder sugar short-form 으로 export — apis 키 생략되어 countEntities 의 ApiDef 합 0.
+    //  countEntities 가 export JSON 의 apis[] 키를 세는 정책이므로 sugar 생략분은 카운트 제외.)
+    Assert.Equal(8, count)
+
+// ─── #5 빈 flow {} 보존 round-trip ──────────────────────────────────────────
+
+/// work 없는 빈 flow (`flows: { St233: {} }`) 가 export→import 후 보존.
+let private emptyFlowYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flows:
+      St233: {}
+"""
+
+[<Fact>]
+let ``§4.5 #5 — 빈 flow {} 보존 round-trip`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store emptyFlowYaml
+    let proj = (Queries.allProjects store).Head
+    let ctrl = Queries.activeSystemsOf proj.Id store |> List.head
+    let flows = Queries.flowsOf ctrl.Id store |> List.map (fun f -> f.Name) |> Set.ofList
+    Assert.Equal<Set<string>>(Set.ofList ["St233"], flows)
+    // round-trip — 빈 flow 가 export→재apply 후에도 보존
+    let shape1, shape2 = ModelEquivalence.roundTripShape store
+    let diffs = ModelEquivalence.diff shape1 shape2
+    Assert.True(diffs.IsEmpty, sprintf "empty flow round-trip mismatch: %A" diffs)
+
+// ─── #6 flow: 키 부재 work → validate 에러 ──────────────────────────────────
+
+[<Fact>]
+let ``§4.5 #6 — works entry 에 flow 속성 누락 → validate 에러`` () =
+    let yaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flows:
+      Run: {}
+    works:
+        Adv: { calls: [] }
+"""
+    let store = DsStore()
+    let diag, _, _ = parseAndApply store yaml
+    Assert.True(diag.HasErrors)
+    Assert.Contains("flow' 속성 누락", diag.Format())
+
+// ─── #7 flow: 미존재 flow 참조 → 에러 + nearest 후보 ────────────────────────
+
+[<Fact>]
+let ``§4.5 #7 — work 가 미존재 flow 참조 → 에러`` () =
+    let yaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flows:
+      Run: {}
+    works:
+        Adv: { flow: NoSuch, calls: [] }
+"""
+    let store = DsStore()
+    let diag, _, _ = parseAndApply store yaml
+    Assert.True(diag.HasErrors)
+    Assert.Contains("flow 'NoSuch' 가 발견되지 않음", diag.Format())
+
+// ─── #8 동명 work import 충돌 → validate 에러 (JSON dup key 경로) ────────────
+
+/// YAML 은 dup map key 를 거부하므로 JSON 직접 구성. System.Text.Json 은 dup key 둘 다
+/// enumerate → 같은 works mapping 에 동명 work 두 개 → system-unique 위반 → validate 에러.
+[<Fact>]
+let ``§4.5 #8 — 동명 work import 충돌 (works dup key) → validate 에러`` () =
+    let json = """
+{
+  "protocol": "promaker/v0",
+  "project": "M1",
+  "systems": [
+    { "system": "Controller", "kind": "active",
+      "flows": { "Run": {} },
+      "works": {
+        "Dup": { "flow": "Run", "calls": [] },
+        "Dup": { "flow": "Run", "calls": [] }
+      }
+    }
+  ]
+}
+"""
+    use jdoc = System.Text.Json.JsonDocument.Parse(json)
+    let store = DsStore()
+    let plan = ImportPlanBuilder()
+    let diag, _ = ModelProtocol.apply plan store jdoc.RootElement
+    Assert.True(diag.HasErrors, "동명 work 두 개는 system-unique 위반 → HasErrors")
+    Assert.Contains("안에서 중복 정의", diag.Format())
+    // C1 rollback 동반 — plan 비어있음.
+    Assert.Equal(0, plan.Operations |> Seq.length)
+
+// ─── #9 동명 work export 충돌 → exception (D7) ──────────────────────────────
+
+/// store 에 같은 system 의 두 flow 에 동일 LocalName work 를 직접 생성(queueAddWork) 후
+/// exportToJson 호출 시 system-unique works mapping 직렬화 불가 → invalidOp exception.
+[<Fact>]
+let ``§4.5 #9 — 동명 work export 충돌 → exception (D7)`` () =
+    let store = DsStore()
+    store.AddProject("M1") |> ignore
+    let plan = ImportPlanBuilder()
+    let sysId = ToolOperations.queueAddActiveSystem plan store "Controller"
+    let flow1 = ToolOperations.queueAddFlow plan store "F1" sysId
+    let flow2 = ToolOperations.queueAddFlow plan store "F2" sysId
+    // 두 다른 flow 에 같은 LocalName "Dup" — queueAddWork 는 flow별 unique 라 둘 다 통과.
+    ToolOperations.queueAddWork plan store "Dup" flow1 None |> ignore
+    ToolOperations.queueAddWork plan store "Dup" flow2 None |> ignore
+    store.ApplyImportPlan("dup work export 충돌", plan.Build())
+    // export 시 system-unique works mapping 직렬화 불가 → invalidOp.
+    let ex = Assert.Throws<System.InvalidOperationException>(fun () ->
+        use _ = ModelProtocol.exportToJson store
+        ())
+    Assert.Contains("system-unique", ex.Message)
+
+// ─── #10 call-arrow (work 안 arrows) 보존 round-trip ────────────────────────
+
+/// work 안 `arrows:` (call 간 ArrowBetweenCalls) 가 새 구조 변환 후에도 round-trip 무손실.
+let private callArrowPreserveYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flows:
+      Run: {}
+    works:
+        Seq:
+          flow: Run
+          calls: [Cyl1.ADV, Cyl1.RET]
+          arrows:
+            - "Cyl1.ADV -> Cyl1.RET : Start"
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+[<Fact>]
+let ``§4.5 #10 — work 안 call-arrow 보존 round-trip`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store callArrowPreserveYaml
+    let original = Queries.allArrowCalls store |> List.length
+    Assert.True(original > 0, "원본 store 에 ArrowBetweenCalls 가 있어야 함")
+    let shape1, shape2 = ModelEquivalence.roundTripShape store
+    let diffs = ModelEquivalence.diff shape1 shape2
+    Assert.True(diffs.IsEmpty, sprintf "call-arrow round-trip mismatch: %A" diffs)
+    Assert.Equal(1, shape1.CallArrows.Count)
+
+// ─── #11 flows mapping value unknown 키(plc 외) 거부 ────────────────────────
+
+[<Fact>]
+let ``§4.5 #11 — flows value 에 plc 외 키 → 거부`` () =
+    let yaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flows:
+      Run:
+        foo: 1
+    works:
+        Adv: { flow: Run, calls: [] }
+"""
+    let store = DsStore()
+    let diag, _, _ = parseAndApply store yaml
+    Assert.True(diag.HasErrors)
+    Assert.Contains("flows value 허용 키 = plc", diag.Format())
+
+// ─── #14 patch.arrows.add in: <System> 로 cross-flow arrow 추가 round-trip ──
+
+/// patch.arrows.add 의 `in: <Sys>` (system-scope) 로 기존 store 의 서로 다른 flow 에 속한
+/// 두 work 사이 cross-flow arrow 를 추가 — system-scope arrow 의 cross-flow resolve 검증.
+[<Fact>]
+let ``§4.5 #14 — patch.arrows.add in System 으로 cross-flow arrow 추가`` () =
+    // 1단계: 두 flow(St201/St202) 에 각각 work, arrow 없음.
+    let baseYaml = """
+protocol: promaker/v0
+project: M1
+systems:
+  - system: Controller
+    kind: active
+    flows:
+      St201: {}
+      St202: {}
+    works:
+        BprSeal:   { flow: St201, calls: [Cyl1.ADV] }
+        ReinfSeal: { flow: St202, calls: [Cyl1.RET] }
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+    let store = DsStore()
+    let _ = parseApplyCommit store baseYaml
+    let proj = (Queries.allProjects store).Head
+    let ctrl = Queries.activeSystemsOf proj.Id store |> List.head
+    Assert.Empty(Queries.arrowWorksOf ctrl.Id store)
+    // 2단계: patch.arrows.add — in: Controller (system-scope) 로 cross-flow arrow 추가.
+    let patchYaml = """
+protocol: promaker/v0
+patch:
+  arrows:
+    add:
+      - in: Controller
+        entries:
+          - BprSeal -> ReinfSeal : Start
+"""
+    let diag, _, plan = parseAndApply store patchYaml
+    Assert.False(diag.HasErrors, sprintf "예상치 못한 diagnostics: %s" (diag.Format()))
+    store.ApplyImportPlan("cross-flow arrow patch", plan.Build())
+    // cross-flow arrow 1건 추가됨 (system-scope resolve 성공)
+    let arrows = Queries.arrowWorksOf ctrl.Id store
+    Assert.Equal(1, arrows.Length)
+    Assert.Equal(ArrowType.Start, arrows.Head.ArrowType)
