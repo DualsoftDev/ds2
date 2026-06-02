@@ -21,6 +21,9 @@ let private modelToolsPath =
 let private promakerToolNamesPath =
     Path.Combine(repoRoot, "Apps", "Promaker", "Promaker", "LlmAgent", "PromakerToolNames.cs")
 
+let private lightHouseToolsPath =
+    Path.Combine(repoRoot, "Apps", "Promaker", "Promaker", "LlmAgent", "Tools", "LightHouseTools.cs")
+
 /// PascalCase → snake_case. "AddSystem" → "add_system", "AddApiDef" → "add_api_def".
 let private toSnakeCase (s: string) =
     let sb = System.Text.StringBuilder()
@@ -55,9 +58,13 @@ let ``ModelTools.cs / PromakerToolNames.cs 둘 다 존재`` () =
 [<Fact>]
 let ``[McpServerTool] 메소드와 PromakerToolNames.All 화이트리스트 정합성`` () =
     let csModel = File.ReadAllText modelToolsPath
+    let csLight = File.ReadAllText lightHouseToolsPath
     let csNames = File.ReadAllText promakerToolNamesPath
 
-    let methodsSnake = extractMcpServerToolMethods csModel |> Set.map toSnakeCase
+    // tool 은 ModelTools.cs + LightHouseTools.cs 양쪽의 [McpServerTool] 메소드 합집합.
+    let methodsSnake =
+        Set.union (extractMcpServerToolMethods csModel) (extractMcpServerToolMethods csLight)
+        |> Set.map toSnakeCase
     let listed = extractPromakerToolNames csNames
 
     Assert.NotEmpty(methodsSnake)
@@ -74,7 +81,7 @@ let ``[McpServerTool] 메소드와 PromakerToolNames.All 화이트리스트 정�
         sprintf "PromakerToolNames.All 잔재: %A (ModelTools 에서 메소드 제거 후 화이트리스트 정리 필요)" (Set.toList staleInList))
 
 [<Fact>]
-let ``현재 tool 풀세트 lock-in = 6종 set equality (doc-level 4 + read 2)`` () =
+let ``현재 tool 풀세트 lock-in = 12종 set equality (ModelTools 6 + LightHouse 6)`` () =
     let csNames = File.ReadAllText promakerToolNamesPath
     let listed = extractPromakerToolNames csNames
     // Phase 5 (op-layer 15종 일소) + Phase 6 (read 4종 일소 — list_projects / list_systems / describe_system /
@@ -84,10 +91,16 @@ let ``현재 tool 풀세트 lock-in = 6종 set equality (doc-level 4 + read 2)``
     //
     // Phase 6 closure #5 v4 격상 (count → set equality): 동일 size 라도 1종 swap (예: find_by_name 제거
     // 및 새 도구 1종 등장) 시 silent drift 회귀 차단. 신규 도구 추가 / 일소 시 본 expectedSet 도 sync.
+    // Plan B (ed816024): ModelTools 6 + LightHouseTools 6(KB 검색 wrapper) = 12종.
+    // 신규 도구 추가 / 일소 시 본 expectedSet 도 sync.
     let expectedSet =
         Set.ofList [
+            // ModelTools — doc-level 4 + read 2
             "apply_model_doc"; "validate_model_doc"; "export_model_doc"; "json_to_yaml"
             "find_by_name"; "validate_model"
+            // LightHouseTools — KB 검색 wrapper 6
+            "lighthouse_list"; "lighthouse_search"; "lighthouse_outline"
+            "lighthouse_read"; "lighthouse_fulltext"; "lighthouse_summary"
         ]
     Assert.Equal<Set<string>>(expectedSet, listed)
 
