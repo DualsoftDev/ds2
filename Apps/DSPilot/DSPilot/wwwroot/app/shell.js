@@ -58,8 +58,7 @@
             { label: '대시보드',     href: '/',                    icon: 'space_dashboard', match: 'all',    legacy: '/app/dashboard.html' },
             { label: '동작편차',     href: '/heatmap',             icon: 'gradient',        match: 'prefix', legacy: '/app/heatmap.html' },
             { label: '사이클 분석',  href: '/cycle-time-analysis', icon: 'equalizer',       match: 'prefix', legacy: '/app/cycle-time-analysis.html' },
-            { label: 'Call 사이클',  href: '/call-test',           icon: 'play_circle',     match: 'prefix', legacy: '/app/call-test.html' },
-            { label: '이상발생 관리', href: '/user-tags',          icon: 'crisis_alert',    match: 'prefix', legacy: '/app/user-tags.html' },
+            { label: '가동시간·이상',  href: '/uptime',     icon: 'monitor_heart',   match: 'prefix', legacy: '/app/uptime.html' },
             { label: 'CCTV',         href: '/cctv',                icon: 'videocam',        match: 'prefix', legacy: '/app/cctv.html' }
         ];
         var PLC_DEBUG_ITEM = { label: 'PLC 디버그', href: '/plc-debug', icon: 'bug_report', match: 'prefix', legacy: '/app/plc-debug.html' };
@@ -107,10 +106,10 @@
         var brand = el('a', 'dsp-brand');
         brand.href = '/';
         brand.title = 'DSPilot';
-        brand.appendChild(el('span', 'dsp-brand-mark'));
-        var word = el('span', 'dsp-brand-word');
-        word.innerHTML = 'DS<b>Pilot</b>';
-        brand.appendChild(word);
+        var brandLogo = el('img');
+        brandLogo.src = '/images/logo.png';
+        brandLogo.alt = 'DSPilot';
+        brand.appendChild(brandLogo);
 
         var titleSpan = el('span', 'header-page-title', pageTitle);
         var spacer = el('div', 'spacer');
@@ -162,7 +161,7 @@
         var anomalyLink = null;
         NAV_ITEMS.forEach(function (item) {
             var link = buildNavLink(item);
-            if (item.href === '/user-tags') anomalyLink = link;
+            if (item.href === '/uptime') anomalyLink = link;
             navMenu.appendChild(link);
         });
 
@@ -203,7 +202,12 @@
         var systemContainer = el('div');
         navMenu.appendChild(systemContainer);
 
-        // (4) agent 통신 상태 — Hub / PLC
+        // (4) 설정
+        navMenu.appendChild(sectionHead('설정'));
+        var settingsNavLink = buildNavLink({ label: '설정', href: '/settings', icon: 'settings', match: 'prefix', legacy: '/app/settings.html' });
+        navMenu.appendChild(settingsNavLink);
+
+        // (5) agent 통신 상태 — Hub / PLC
         navMenu.appendChild(sectionHead('agent 통신 상태'));
         var agBody = el('div', 'nav-section-body agent-status');
         function agentRow(label) {

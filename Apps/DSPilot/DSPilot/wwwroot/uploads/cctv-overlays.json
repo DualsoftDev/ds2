@@ -1,0 +1,35 @@
+{
+  "Version": 1,
+  "Overlays": [
+    {
+      "Id": "ovl_476c74b2-3067-4d9a-9288-05ef9bd99b9f",
+      "CameraName": "camera1-test",
+      "FlowId": "16641492-4e5f-4f1c-ae70-d751af763c83",
+      "FlowName": "F3",
+      "CallId": null,
+      "CallName": "",
+      "X": 0.5815939278937381,
+      "Y": 0.0033206831119544367,
+      "W": 0.4184060721062619,
+      "H": 0.5142314990512334,
+      "Label": "F3",
+      "AnchorX": null,
+      "AnchorY": null
+    },
+    {
+      "Id": "ovl_f4bc1718-2616-4191-aaec-060eb781ff74",
+      "CameraName": "camera1-test",
+      "FlowId": "16641492-4e5f-4f1c-ae70-d751af763c83",
+      "FlowName": "F3",
+      "CallId": null,
+      "CallName": "",
+      "X": 0.038425047438330175,
+      "Y": 0.2333965844402277,
+      "W": 0.1750474383301708,
+      "H": 0.25426944971536997,
+      "Label": "F3",
+      "AnchorX": null,
+      "AnchorY": null
+    }
+  ]
+}

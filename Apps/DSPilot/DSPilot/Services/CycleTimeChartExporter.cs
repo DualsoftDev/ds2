@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using ClosedXML.Excel;
 using DSPilot.Models.Analysis;
@@ -5,13 +6,21 @@ using DSPilot.Models.Analysis;
 namespace DSPilot.Services;
 
 /// <summary>
-/// Cycle-Time Analysis 페이지의 CSV / Excel 내보내기.
-/// 페이지 컴포넌트는 데이터만 넘기고 브라우저 다운로드는 cycle-time-chart.js 의 downloadFile 헬퍼 사용.
+/// Cycle-Time Analysis 페이지의 내보내기.
+///
+/// Excel(.xlsx) 은 <see cref="BuildCycleAnalysisExcel"/> 로 생성한다 — 서버에서 데이터를 재계산하지 않고,
+/// 클라이언트(정적 cycle-time-analysis.html)가 화면에 그린 현재 상태(<see cref="CycleExcelModel"/>: 정렬된 lane +
+/// 병합 intervals + Head/Tail + 보기모드 + 사이클 경계/Tail 마커 + 활성 Gap)를 그대로 받아 렌더한다.
+/// → 화면 간트와 1:1 (WYSIWYG). Sheet1 = 간트 재현(셀 그리드), Sheet2 = 신호 세그먼트 + 사이클 요약 데이터 테이블.
+///
+/// CSV 는 (구 Blazor 경로) 데이터만 넘기고 브라우저 다운로드는 클라이언트가 처리한다.
 /// </summary>
 public static class CycleTimeChartExporter
 {
     public const string CsvMimeType = "text/csv;charset=utf-8";
     public const string XlsxMimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+    // ─── CSV (구 Blazor 경로 — 데이터 전용) ──────────────────────────────────────
 
     public static byte[] BuildCsvBytes(GanttChartData data)
     {
@@ -43,56 +52,6 @@ public static class CycleTimeChartExporter
     public static string CsvFileName(string flowName)
         => $"CycleAnalysis_{flowName}_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
 
-    public static string ExcelFileName(string flowName)
-        => $"GanttChart_{flowName}_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
-
-    public static byte[] BuildExcelBytes(
-        GanttChartData data,
-        IList<int> displayLaneOrder,
-        IList<(DateTime Start, DateTime End)> idleRegions)
-    {
-        using var workbook = new XLWorkbook();
-        var ws = workbook.Worksheets.Add("Gantt Chart");
-
-        var chartStartTime = data.ActualEventStartTime ?? data.StartTime;
-        var chartEndTime = data.ActualEventEndTime ?? (data.EndTime ?? data.StartTime.AddSeconds(1));
-        var totalMs = (int)(chartEndTime - chartStartTime).TotalMilliseconds;
-
-        int msPerCol = totalMs switch
-        {
-            <= 5_000 => 10,
-            <= 30_000 => 100,
-            <= 300_000 => 1000,
-            _ => 5000
-        };
-
-        var totalCols = Math.Min((totalMs / msPerCol) + 1, 2000);
-        const int dataStartCol = 4; // A=Call, B=Tag, C=Type, then time columns
-
-        var palette = new ExcelPalette();
-
-        BuildExcelTitleRow(ws, chartStartTime, chartEndTime, data, dataStartCol, totalCols);
-        BuildExcelTimeAxis(ws, chartStartTime, msPerCol, totalCols, dataStartCol, palette);
-        BuildExcelColumnWidths(ws, dataStartCol, totalCols);
-        var idleColRanges = ComputeIdleColumnRanges(idleRegions, chartStartTime, msPerCol, totalCols);
-        BuildExcelLaneRows(ws, data, displayLaneOrder, idleColRanges, chartStartTime, msPerCol, totalCols, dataStartCol, palette);
-        BuildExcelSummarySheet(workbook, data, chartStartTime, chartEndTime, msPerCol, palette);
-        BuildExcelDataSheet(workbook, data, palette);
-
-        ws.SheetView.FreezeRows(3);
-        ws.SheetView.FreezeColumns(3);
-        ws.PageSetup.PageOrientation = XLPageOrientation.Landscape;
-        ws.PageSetup.PagesWide = 1;
-        ws.PageSetup.Header.Center.AddText($"{data.FlowName} - Cycle #{data.CycleNumber}");
-        ws.PageSetup.Footer.Center.AddText($"Exported: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
-
-        using var ms = new MemoryStream();
-        workbook.SaveAs(ms);
-        return ms.ToArray();
-    }
-
-    // ─── helpers ─────────────────────────────────────────────────────────────
-
     private static string CsvEscape(string? value)
     {
         if (string.IsNullOrEmpty(value)) return "";
@@ -101,337 +60,516 @@ public static class CycleTimeChartExporter
         return value;
     }
 
-    private sealed class ExcelPalette
+    // ─── Excel (WYSIWYG — 화면 모델 기반) ────────────────────────────────────────
+
+    /// <summary>
+    /// 화면이 그린 현재 상태(<paramref name="model"/>)를 그대로 .xlsx 로 렌더. 두 시트:
+    ///   Sheet1 "간트차트" — 시간 그리드 셀에 lane별 막대/신호 + 사이클 리본 + 경계선 + Head/Tail + 활성 Gap 재현.
+    ///   Sheet2 "데이터"   — 신호 세그먼트 표 + 사이클 요약 표.
+    /// </summary>
+    public static byte[] BuildCycleAnalysisExcel(CycleExcelModel model)
     {
-        public XLColor In { get; } = XLColor.FromHtml("#64B5F6");
-        public XLColor Out { get; } = XLColor.FromHtml("#F48FB1");
-        public XLColor HeaderBg { get; } = XLColor.FromHtml("#263238");
-        public XLColor HeaderBg2 { get; } = XLColor.FromHtml("#37474F");
-        public XLColor LaneHeaderBg { get; } = XLColor.FromHtml("#455A64");
-        public XLColor SeparatorBg { get; } = XLColor.FromHtml("#ECEFF1");
-        public XLColor IdleBg { get; } = XLColor.FromHtml("#FFEBEE");
-        public XLColor StripeBg { get; } = XLColor.FromHtml("#FAFAFA");
+        using var workbook = new XLWorkbook();
+        var palette = new CycleExcelPalette();
+        BuildGanttSheet(workbook, model, palette);
+        BuildDataSheet(workbook, model, palette);
+
+        using var ms = new MemoryStream();
+        workbook.SaveAs(ms);
+        return ms.ToArray();
     }
 
-    private static void BuildExcelTitleRow(
-        IXLWorksheet ws, DateTime chartStartTime, DateTime chartEndTime,
-        GanttChartData data, int dataStartCol, int totalCols)
+    // ── Sheet1: 간트 재현 ─────────────────────────────────────────────────────────
+    private static void BuildGanttSheet(XLWorkbook workbook, CycleExcelModel model, CycleExcelPalette p)
     {
-        var titleText = $"{chartStartTime:yyyy-MM-dd (ddd)}  {chartStartTime:HH:mm:ss} ~ {chartEndTime:HH:mm:ss}  ({data.FlowName} Cycle #{data.CycleNumber})";
-        ws.Cell(1, 1).Value = titleText;
-        var titleEndCol = Math.Min(dataStartCol + totalCols - 1, dataStartCol + 40);
-        ws.Range(1, 1, 1, titleEndCol).Merge();
-        ws.Cell(1, 1).Style.Font.Bold = true;
-        ws.Cell(1, 1).Style.Font.FontSize = 12;
-        ws.Cell(1, 1).Style.Font.FontColor = XLColor.Black;
-        ws.Cell(1, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
-        ws.Cell(1, 1).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
-        ws.Row(1).Height = 28;
-    }
+        var ws = workbook.Worksheets.Add("간트차트");
+        var lanes = model.Lanes ?? new List<CycleExcelLane>();
+        var boundaries = (model.CycleBoundaries ?? new List<string>());
 
-    private static void BuildExcelTimeAxis(
-        IXLWorksheet ws, DateTime chartStartTime, int msPerCol, int totalCols, int dataStartCol,
-        ExcelPalette palette)
-    {
-        ws.Cell(2, 1).Value = "Call";
-        ws.Cell(2, 2).Value = "Tag";
-        ws.Cell(2, 3).Value = "Type";
-        ws.Range(2, 1, 3, 1).Merge().Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
-        ws.Range(2, 2, 3, 2).Merge().Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
-        ws.Range(2, 3, 3, 3).Merge().Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        long chartStartMs = EpochMs(model.ChartStart);
+        long chartEndMs = EpochMs(model.ChartEnd);
+        if (chartEndMs <= chartStartMs) chartEndMs = chartStartMs + 1000;
+        long totalMs = Math.Max(1, chartEndMs - chartStartMs);
+        var startWall = Wall(model.ChartStart);
 
-        // Row 2: major time labels (per-second groups, merged)
+        // 칸 해상도 — 화면처럼 컨테이너 폭에 맞추는 대신 시간당 ms 로 양자화. cap 를 넘으면 해상도를 낮춰
+        // (msPerCol↑) 전체 구간을 빠짐없이 덮는다(구 버전이 열 cap 으로 뒤 구간을 잘라먹던 버그 방지).
+        const int cap = 1000;
+        int msPerCol = totalMs switch
+        {
+            <= 5_000 => 10,
+            <= 30_000 => 100,
+            <= 300_000 => 1000,
+            _ => 5000
+        };
+        if (totalMs / msPerCol + 1 > cap)
+            msPerCol = (int)Math.Ceiling((double)totalMs / cap);
+        int totalCols = (int)(totalMs / msPerCol) + 1;
+
+        const int firstDataCol = 3;                       // A=Call, B=Work, C..=시간
+        int lastDataCol = firstDataCol + totalCols - 1;
+
+        int ColOf(long ms) => Math.Max(0, Math.Min((int)((ms - chartStartMs) / msPerCol), totalCols - 1));
+        int ColOfOff(double offMs) => Math.Max(0, Math.Min((int)(offMs / msPerCol), totalCols - 1));
+
+        var bnd = boundaries
+            .Select(s => DateTimeOffset.Parse(s, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind).ToUnixTimeMilliseconds())
+            .OrderBy(x => x).ToList();
+        var tails = (model.TailEdges ?? new List<string>())
+            .Select(EpochMs).OrderBy(x => x).ToList();
+        bool hasCycles = bnd.Count > 0;
+        var spans = hasCycles ? BuildSpans(bnd, tails, chartEndMs) : new List<CycleSpan>();
+
+        const int rowTitle = 1, rowMajor = 2, rowFine = 3;
+        int rowRibbon = hasCycles ? 4 : 0;
+        int firstLaneRow = hasCycles ? 5 : 4;
+        int lastLaneRow = lanes.Count > 0 ? firstLaneRow + lanes.Count - 1 : firstLaneRow;
+        bool bar = string.Equals(model.ViewMode, "bar", StringComparison.OrdinalIgnoreCase);
+
+        bool IsHead(CycleExcelLane l) => !string.IsNullOrEmpty(model.HeadCallId) && l.CallId == model.HeadCallId;
+        bool IsTail(CycleExcelLane l) => !string.IsNullOrEmpty(model.TailCallId) && l.CallId == model.TailCallId;
+
+        // 1) 제목
+        var title = new StringBuilder($"{model.FlowName}    {startWall:yyyy-MM-dd HH:mm:ss} ~ {Wall(model.ChartEnd):HH:mm:ss}");
+        if (!string.IsNullOrEmpty(model.HeadName))
+            title.Append($"    ·  Head {model.HeadName}{(string.IsNullOrEmpty(model.TailName) ? "" : $" → Tail {model.TailName}")}");
+        if (model.AvgCycleMs.HasValue) title.Append($"    ·  CT평균 {FormatMs(model.AvgCycleMs)}");
+        if (model.AvgActiveMs.HasValue) title.Append($"  활성평균 {FormatMs(model.AvgActiveMs)}");
+        title.Append($"    ·  {msPerCol}ms/칸");
+        ws.Cell(rowTitle, 1).Value = title.ToString();
+        ws.Range(rowTitle, 1, rowTitle, Math.Max(2, Math.Min(lastDataCol, firstDataCol + 60))).Merge();
+        ws.Cell(rowTitle, 1).Style.Font.Bold = true;
+        ws.Cell(rowTitle, 1).Style.Font.FontSize = 12;
+        ws.Cell(rowTitle, 1).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        ws.Row(rowTitle).Height = 26;
+
+        // 2) 시간축 — major(병합) + fine
+        ws.Cell(rowMajor, 1).Value = "Call";
+        ws.Cell(rowMajor, 2).Value = "Work";
+        ws.Range(rowMajor, 1, rowFine, 1).Merge().Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        ws.Range(rowMajor, 2, rowFine, 2).Merge().Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+
         int mergeStart = 0;
-        string lastSecLabel = "";
+        string lastLabel = "";
         for (int col = 0; col <= totalCols; col++)
         {
-            var t = chartStartTime.AddMilliseconds(col * msPerCol);
-            var secLabel = msPerCol < 1000 ? t.ToString("HH:mm:ss") : t.ToString("HH:mm");
-            if (col == totalCols || secLabel != lastSecLabel)
+            var t = startWall.AddMilliseconds((double)col * msPerCol);
+            var label = msPerCol < 1000 ? t.ToString("HH:mm:ss") : t.ToString("HH:mm");
+            if (col == totalCols || label != lastLabel)
             {
-                if (col > mergeStart && !string.IsNullOrEmpty(lastSecLabel))
+                if (col > mergeStart && !string.IsNullOrEmpty(lastLabel))
                 {
-                    var c1 = dataStartCol + mergeStart;
-                    var c2 = dataStartCol + col - 1;
-                    if (c2 > c1) ws.Range(2, c1, 2, c2).Merge();
-                    ws.Cell(2, c1).Value = lastSecLabel;
+                    int c1 = firstDataCol + mergeStart, c2 = firstDataCol + col - 1;
+                    if (c2 > c1) ws.Range(rowMajor, c1, rowMajor, c2).Merge();
+                    ws.Cell(rowMajor, c1).Value = lastLabel;
                 }
                 mergeStart = col;
-                lastSecLabel = secLabel;
+                lastLabel = label;
             }
         }
-
-        // Row 3: fine time labels
         for (int col = 0; col < totalCols; col++)
         {
-            var t = chartStartTime.AddMilliseconds(col * msPerCol);
-            var cell = ws.Cell(3, dataStartCol + col);
-            cell.Value = msPerCol < 1000 ? t.ToString(".fff") : t.ToString(":ss");
+            var t = startWall.AddMilliseconds((double)col * msPerCol);
+            ws.Cell(rowFine, firstDataCol + col).Value = msPerCol < 1000 ? t.ToString(".fff") : t.ToString(":ss");
         }
-
-        for (int row = 2; row <= 3; row++)
+        foreach (var (row, bg) in new[] { (rowMajor, p.HeaderBg), (rowFine, p.HeaderBg2) })
         {
-            var bg = row == 2 ? palette.HeaderBg : palette.HeaderBg2;
-            var range = ws.Range(row, 1, row, dataStartCol + totalCols - 1);
+            var range = ws.Range(row, 1, row, lastDataCol);
             range.Style.Font.Bold = true;
             range.Style.Fill.BackgroundColor = bg;
             range.Style.Font.FontColor = XLColor.White;
             range.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             range.Style.Font.FontSize = 8;
         }
-        ws.Row(2).Height = 18;
-        ws.Row(3).Height = 14;
-    }
+        ws.Row(rowMajor).Height = 16;
+        ws.Row(rowFine).Height = 13;
 
-    private static void BuildExcelColumnWidths(IXLWorksheet ws, int dataStartCol, int totalCols)
-    {
-        for (int col = 0; col < totalCols; col++)
-            ws.Column(dataStartCol + col).Width = 1.5;
-        ws.Column(1).Width = 22;
-        ws.Column(2).Width = 18;
-        ws.Column(3).Width = 5;
-    }
-
-    private static List<(int Start, int End)> ComputeIdleColumnRanges(
-        IList<(DateTime Start, DateTime End)> idleRegions,
-        DateTime chartStartTime, int msPerCol, int totalCols)
-    {
-        return idleRegions.Select(r =>
+        // 3) 사이클 리본 — [활성 초록 | 유휴 회청] + #N + 가동률 (화면 appendCycleRibbon)
+        if (hasCycles)
         {
-            var s = Math.Max(0, (int)((r.Start - chartStartTime).TotalMilliseconds / msPerCol));
-            var e = Math.Min(totalCols - 1, (int)((r.End - chartStartTime).TotalMilliseconds / msPerCol));
-            return (Start: s, End: e);
-        }).Where(r => r.End >= r.Start).ToList();
-    }
-
-    private static void BuildExcelLaneRows(
-        IXLWorksheet ws, GanttChartData data, IList<int> displayLaneOrder,
-        List<(int Start, int End)> idleColRanges,
-        DateTime chartStartTime, int msPerCol, int totalCols, int dataStartCol,
-        ExcelPalette palette)
-    {
-        var itemsByLane = data.Items
-            .GroupBy(i => i.Lane)
-            .ToDictionary(g => g.Key, g => g.OrderBy(i => i.GoingStartTime).ToList());
-
-        int currentRow = 4;
-        foreach (var laneIdx in displayLaneOrder)
-        {
-            var laneLabel = laneIdx >= 0 && laneIdx < data.LaneLabels.Count
-                ? data.LaneLabels[laneIdx]
-                : $"Lane {laneIdx}";
-
-            ws.Range(currentRow, 1, currentRow, 3).Merge();
-            ws.Cell(currentRow, 1).Value = laneLabel;
-            ws.Cell(currentRow, 1).Style.Font.Bold = true;
-            ws.Cell(currentRow, 1).Style.Font.FontSize = 10;
-            ws.Cell(currentRow, 1).Style.Font.FontColor = XLColor.White;
-            ws.Range(currentRow, 1, currentRow, dataStartCol + totalCols - 1)
-                .Style.Fill.BackgroundColor = palette.LaneHeaderBg;
-            ws.Row(currentRow).Height = 20;
-            currentRow++;
-
-            if (!itemsByLane.TryGetValue(laneIdx, out var laneItems))
+            ws.Range(rowRibbon, 1, rowRibbon, 2).Merge();
+            ws.Cell(rowRibbon, 1).Value = "사이클";
+            ws.Cell(rowRibbon, 1).Style.Font.Bold = true;
+            ws.Cell(rowRibbon, 1).Style.Font.FontSize = 9;
+            ws.Range(rowRibbon, firstDataCol, rowRibbon, lastDataCol).Style.Fill.BackgroundColor = p.RibbonTrack;
+            foreach (var sp in spans)
             {
-                currentRow++;
-                continue;
-            }
-
-            var inItems = laneItems.Where(i => i.EventType == IOEventType.InTag).OrderBy(i => i.GoingStartTime).ToList();
-            var outItems = laneItems.Where(i => i.EventType == IOEventType.OutTag).OrderBy(i => i.GoingStartTime).ToList();
-
-            foreach (var eventGroup in new[]
-            {
-                (Label: "IN",  Items: inItems,  Color: palette.In),
-                (Label: "OUT", Items: outItems, Color: palette.Out)
-            })
-            {
-                if (!eventGroup.Items.Any()) continue;
-
-                var callGroups = eventGroup.Items.GroupBy(i => i.CallName).OrderBy(g => g.Min(i => i.GoingStartTime));
-
-                foreach (var callGroup in callGroups)
+                int sCol = ColOf(sp.Start), eCol = ColOf(sp.End);
+                if (sp.TailIn.HasValue)
                 {
-                    var firstItem = callGroup.First();
-                    ws.Cell(currentRow, 1).Value = callGroup.Key;
-                    ws.Cell(currentRow, 1).Style.Font.FontSize = 9;
-                    ws.Cell(currentRow, 2).Value = firstItem.TagName;
-                    ws.Cell(currentRow, 2).Style.Font.FontSize = 8;
-                    ws.Cell(currentRow, 2).Style.Font.FontColor = XLColor.FromHtml("#78909C");
-                    ws.Cell(currentRow, 3).Value = eventGroup.Label;
-                    ws.Cell(currentRow, 3).Style.Font.FontSize = 8;
-                    ws.Cell(currentRow, 3).Style.Font.FontColor = eventGroup.Label == "IN"
-                        ? XLColor.FromHtml("#1565C0")
-                        : XLColor.FromHtml("#AD1457");
+                    int tCol = ColOf(sp.TailIn.Value);
+                    if (tCol > sCol)
+                        ws.Range(rowRibbon, firstDataCol + sCol, rowRibbon, firstDataCol + tCol - 1).Style.Fill.BackgroundColor = p.RibbonActive;
+                    ws.Range(rowRibbon, firstDataCol + tCol, rowRibbon, firstDataCol + eCol).Style.Fill.BackgroundColor = p.RibbonIdle;
+                }
+                else
+                {
+                    ws.Range(rowRibbon, firstDataCol + sCol, rowRibbon, firstDataCol + eCol).Style.Fill.BackgroundColor =
+                        sp.Number % 2 == 0 ? p.RibbonAltA : p.RibbonAltB;
+                }
 
-                    foreach (var item in callGroup.OrderBy(i => i.GoingStartTime))
-                    {
-                        DrawExcelBar(ws, item, currentRow, dataStartCol, chartStartTime, msPerCol, totalCols, eventGroup.Color);
-                    }
+                var numCell = ws.Cell(rowRibbon, firstDataCol + sCol);
+                numCell.Value = sp.IsOpen ? $"#{sp.Number}↻" : $"#{sp.Number}";
+                numCell.Style.Font.Bold = true;
+                numCell.Style.Font.FontSize = 8;
+                numCell.Style.Font.FontColor = p.Ink;
 
-                    PaintIdleAndStripeBg(ws, currentRow, dataStartCol, totalCols, idleColRanges, chartStartTime, msPerCol, palette);
-
-                    ws.Row(currentRow).Height = 16;
-                    currentRow++;
+                if (sp.TailIn.HasValue && eCol - sCol > 6)
+                {
+                    long ct = sp.End - sp.Start, at = sp.TailIn.Value - sp.Start;
+                    int ratio = ct > 0 ? (int)Math.Round(at * 100.0 / ct) : 0;
+                    var rc = ws.Cell(rowRibbon, firstDataCol + Math.Max(sCol + 1, eCol - 4));
+                    rc.Value = $"{ratio}%";
+                    rc.Style.Font.FontSize = 8;
+                    rc.Style.Font.Bold = true;
+                    rc.Style.Font.FontColor = ratio >= 80 ? p.Good : ratio >= 50 ? p.Mid : p.Low;
+                    rc.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
                 }
             }
-
-            ws.Range(currentRow, 1, currentRow, dataStartCol + totalCols - 1)
-                .Style.Fill.BackgroundColor = palette.SeparatorBg;
-            ws.Row(currentRow).Height = 4;
-            currentRow++;
-        }
-    }
-
-    private static void DrawExcelBar(
-        IXLWorksheet ws, GanttChartItem item, int row, int dataStartCol,
-        DateTime chartStartTime, int msPerCol, int totalCols, XLColor color)
-    {
-        var itemStartMs = (item.GoingStartTime - chartStartTime).TotalMilliseconds;
-        var itemEndMs = item.FinishTime.HasValue
-            ? (item.FinishTime.Value - chartStartTime).TotalMilliseconds
-            : itemStartMs + (item.Duration ?? msPerCol);
-
-        var startCol = (int)(itemStartMs / msPerCol);
-        var endCol = (int)(itemEndMs / msPerCol);
-        startCol = Math.Max(0, Math.Min(startCol, totalCols - 1));
-        endCol = Math.Max(startCol, Math.Min(endCol, totalCols - 1));
-        if (endCol - startCol < 2) endCol = Math.Min(startCol + 2, totalCols - 1);
-
-        for (int col = startCol; col <= endCol; col++)
-        {
-            ws.Cell(row, dataStartCol + col).Style.Fill.BackgroundColor = color;
+            ws.Row(rowRibbon).Height = 18;
         }
 
-        var startCell = ws.Cell(row, dataStartCol + startCol);
-        startCell.Value = item.GoingStartTime.ToString("mm:ss.fff");
-        startCell.Style.Font.FontSize = 7;
-        startCell.Style.Font.FontColor = XLColor.FromHtml("#1A237E");
-        startCell.Style.Font.Bold = true;
-
-        if (endCol > startCol + 1 && item.Duration.HasValue)
+        // 4) lane 라벨 + Head/Tail 틴트
+        for (int i = 0; i < lanes.Count; i++)
         {
-            var endCell = ws.Cell(row, dataStartCol + endCol);
-            endCell.Value = item.Duration.Value >= 1000
-                ? $"({item.Duration.Value / 1000.0:F1}s)"
-                : $"({item.Duration.Value}ms)";
-            endCell.Style.Font.FontSize = 6;
-            endCell.Style.Font.FontColor = XLColor.FromHtml("#1A237E");
-        }
+            var lane = lanes[i];
+            int r = firstLaneRow + i;
+            bool head = IsHead(lane), tail = IsTail(lane);
 
-        if (endCol >= startCol)
-        {
-            var barRange = ws.Range(row, dataStartCol + startCol, row, dataStartCol + endCol);
-            barRange.Style.Border.TopBorder = XLBorderStyleValues.Thin;
-            barRange.Style.Border.TopBorderColor = color;
-            barRange.Style.Border.BottomBorder = XLBorderStyleValues.Thin;
-            barRange.Style.Border.BottomBorderColor = color;
-            ws.Cell(row, dataStartCol + startCol).Style.Border.LeftBorder = XLBorderStyleValues.Thin;
-            ws.Cell(row, dataStartCol + startCol).Style.Border.LeftBorderColor = color;
-            ws.Cell(row, dataStartCol + endCol).Style.Border.RightBorder = XLBorderStyleValues.Thin;
-            ws.Cell(row, dataStartCol + endCol).Style.Border.RightBorderColor = color;
-        }
-    }
-
-    private static void PaintIdleAndStripeBg(
-        IXLWorksheet ws, int row, int dataStartCol, int totalCols,
-        List<(int Start, int End)> idleColRanges,
-        DateTime chartStartTime, int msPerCol, ExcelPalette palette)
-    {
-        bool IsEmptyBg(IXLCell cell) =>
-            cell.Style.Fill.BackgroundColor == XLColor.NoColor
-            || cell.Style.Fill.BackgroundColor.Equals(XLColor.FromTheme(XLThemeColor.Background1));
-
-        foreach (var idle in idleColRanges)
-        {
-            for (int col = idle.Start; col <= idle.End; col++)
+            var nameCell = ws.Cell(r, 1);
+            nameCell.Value = lane.CallName + (head ? "  ▶H" : tail ? "  ▶T" : "");
+            nameCell.Style.Font.FontSize = 9;
+            nameCell.Style.Font.Bold = head || tail;
+            var workCell = ws.Cell(r, 2);
+            workCell.Value = lane.WorkName ?? "";
+            workCell.Style.Font.FontSize = 8;
+            workCell.Style.Font.FontColor = p.SubInk;
+            if (head || tail)
             {
-                var cell = ws.Cell(row, dataStartCol + col);
-                if (IsEmptyBg(cell)) cell.Style.Fill.BackgroundColor = palette.IdleBg;
+                ws.Range(r, 1, r, 2).Style.Fill.BackgroundColor = head ? p.HeadTint : p.TailTint;
+                nameCell.Style.Border.LeftBorder = XLBorderStyleValues.Thick;
+                nameCell.Style.Border.LeftBorderColor = head ? p.Head : p.Tail;
+            }
+            ws.Row(r).Height = 16;
+        }
+
+        // 5) 사이클 band (레인 뒤 옅은 컬럼 음영) — 막대보다 먼저 칠해 막대가 덮도록
+        if (hasCycles && lanes.Count > 0)
+        {
+            foreach (var sp in spans)
+            {
+                int sCol = ColOf(sp.Start), eCol = ColOf(sp.End);
+                if (sp.TailIn.HasValue)
+                {
+                    int tCol = ColOf(sp.TailIn.Value);
+                    if (tCol > sCol)
+                        ws.Range(firstLaneRow, firstDataCol + sCol, lastLaneRow, firstDataCol + tCol - 1).Style.Fill.BackgroundColor = p.BandActive;
+                    ws.Range(firstLaneRow, firstDataCol + tCol, lastLaneRow, firstDataCol + eCol).Style.Fill.BackgroundColor = p.BandIdle;
+                }
+                else
+                {
+                    ws.Range(firstLaneRow, firstDataCol + sCol, lastLaneRow, firstDataCol + eCol).Style.Fill.BackgroundColor =
+                        sp.Number % 2 == 0 ? p.BandAltA : p.BandAltB;
+                }
             }
         }
 
-        for (int col = 0; col < totalCols; col++)
+        // 6) 막대/신호 — bar=합집합 솔리드, line=OUT(파랑)/IN(주황) 신호 (화면 색 그대로)
+        for (int i = 0; i < lanes.Count; i++)
         {
-            var t = chartStartTime.AddMilliseconds(col * msPerCol);
-            var sec = msPerCol < 1000 ? t.Second : t.Minute;
-            if (sec % 2 != 0) continue;
-            var cell = ws.Cell(row, dataStartCol + col);
-            if (IsEmptyBg(cell)) cell.Style.Fill.BackgroundColor = palette.StripeBg;
+            var lane = lanes[i];
+            int r = firstLaneRow + i;
+            if (bar)
+            {
+                var fill = IsHead(lane) ? p.Head : IsTail(lane) ? p.Tail : p.Union;
+                foreach (var iv in lane.Intervals ?? new List<CycleExcelInterval>())
+                    FillBar(ws, r, firstDataCol, ColOf(EpochMs(iv.Start)), ColOf(EpochMs(iv.End)), fill);
+            }
+            else
+            {
+                foreach (var iv in lane.OutIntervals ?? new List<CycleExcelInterval>())
+                    FillBar(ws, r, firstDataCol, ColOf(EpochMs(iv.Start)), ColOf(EpochMs(iv.End)), p.Out);
+                foreach (var iv in lane.InIntervals ?? new List<CycleExcelInterval>())
+                    FillBar(ws, r, firstDataCol, ColOf(EpochMs(iv.Start)), ColOf(EpochMs(iv.End)), p.In);
+            }
         }
+
+        // 7) 활성 Gap 강조 (화면과 동일 — showMaxGap + 선택 인덱스 1개)
+        var topGaps = model.TopGaps ?? new List<CycleExcelGap>();
+        if (model.ShowMaxGap && topGaps.Count > 0)
+        {
+            int gi = model.SelectedGapIndex >= 0 && model.SelectedGapIndex < topGaps.Count ? model.SelectedGapIndex : 0;
+            var gap = topGaps[gi];
+            int laneIdx = lanes.FindIndex(l => l.CallId == gap.CallId);
+            if (laneIdx >= 0)
+            {
+                int r = firstLaneRow + laneIdx;
+                int gs = ColOfOff(gap.StartOffMs), ge = Math.Max(ColOfOff(gap.EndOffMs), ColOfOff(gap.StartOffMs));
+                var gr = ws.Range(r, firstDataCol + gs, r, firstDataCol + ge);
+                gr.Style.Fill.BackgroundColor = p.GapFill;
+                gr.Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
+                gr.Style.Border.OutsideBorderColor = p.GapBorder;
+                var gc = ws.Cell(r, firstDataCol + gs);
+                gc.Value = $"⚠ {FormatMs(gap.DurMs)}";
+                gc.Style.Font.FontSize = 7;
+                gc.Style.Font.Bold = true;
+                gc.Style.Font.FontColor = p.GapBorder;
+            }
+        }
+
+        // 8) 사이클 경계선(주황) + Tail 분할선(보라) — 막대 위 세로 좌측 보더
+        if (hasCycles && lanes.Count > 0)
+        {
+            int topRow = rowRibbon > 0 ? rowRibbon : firstLaneRow;
+            foreach (var b in bnd)
+            {
+                int c = ColOf(b);
+                var line = ws.Range(topRow, firstDataCol + c, lastLaneRow, firstDataCol + c);
+                line.Style.Border.LeftBorder = XLBorderStyleValues.Medium;
+                line.Style.Border.LeftBorderColor = p.Boundary;
+            }
+            foreach (var sp in spans.Where(s => s.TailIn.HasValue))
+            {
+                int c = ColOf(sp.TailIn!.Value);
+                var line = ws.Range(firstLaneRow, firstDataCol + c, lastLaneRow, firstDataCol + c);
+                line.Style.Border.LeftBorder = XLBorderStyleValues.Dashed;
+                line.Style.Border.LeftBorderColor = p.Tail;
+            }
+        }
+
+        // 9) 폭/고정/페이지
+        ws.Column(1).Width = 22;
+        ws.Column(2).Width = 14;
+        ws.Columns(firstDataCol, lastDataCol).Width = 1.6;
+        ws.SheetView.FreezeRows(hasCycles ? 4 : 3);
+        ws.SheetView.FreezeColumns(2);
+        ws.PageSetup.PageOrientation = XLPageOrientation.Landscape;
+        ws.PageSetup.Header.Center.AddText(model.FlowName);
+        ws.PageSetup.Footer.Center.AddText($"Exported: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
     }
 
-    private static void BuildExcelSummarySheet(
-        XLWorkbook workbook, GanttChartData data,
-        DateTime chartStartTime, DateTime chartEndTime, int msPerCol,
-        ExcelPalette palette)
+    // ── Sheet2: 데이터 테이블 ───────────────────────────────────────────────────────
+    private static void BuildDataSheet(XLWorkbook workbook, CycleExcelModel model, CycleExcelPalette p)
     {
-        var summaryWs = workbook.Worksheets.Add("Summary");
-        var rows = new (string Label, object Value)[]
-        {
-            ("Flow", data.FlowName),
-            ("Cycle", data.CycleNumber),
-            ("CT (ms)", data.CT ?? 0),
-            ("MT (ms)", data.MT ?? 0),
-            ("WT (ms)", data.WT ?? 0),
-            ("Start", chartStartTime.ToString("yyyy-MM-dd HH:mm:ss.fff")),
-            ("End", chartEndTime.ToString("yyyy-MM-dd HH:mm:ss.fff")),
-            ("Resolution", $"{msPerCol}ms/col"),
-        };
-        for (int i = 0; i < rows.Length; i++)
-        {
-            summaryWs.Cell(i + 1, 1).Value = rows[i].Label;
-            summaryWs.Cell(i + 1, 2).Value = XLCellValue.FromObject(rows[i].Value);
-        }
-        summaryWs.Column(1).Width = 15;
-        summaryWs.Column(2).Width = 30;
-        summaryWs.Range(1, 1, rows.Length, 1).Style.Font.Bold = true;
+        var ws = workbook.Worksheets.Add("데이터");
+        var lanes = model.Lanes ?? new List<CycleExcelLane>();
 
-        // Legend
-        summaryWs.Cell(rows.Length + 2, 1).Value = "Legend";
-        summaryWs.Cell(rows.Length + 2, 1).Style.Font.Bold = true;
-        var legend = new (string Label, XLColor Color, string Desc)[]
-        {
-            ("IN (InTag)", palette.In, "Call 시작 신호"),
-            ("OUT (OutTag)", palette.Out, "Call 종료 신호"),
-            ("비가동 구간", palette.IdleBg, "Cycle Time 초과 유휴 구간"),
-        };
-        for (int i = 0; i < legend.Length; i++)
-        {
-            var r = rows.Length + 3 + i;
-            summaryWs.Cell(r, 1).Value = legend[i].Label;
-            summaryWs.Cell(r, 1).Style.Fill.BackgroundColor = legend[i].Color;
-            summaryWs.Cell(r, 2).Value = legend[i].Desc;
-        }
-    }
-
-    private static void BuildExcelDataSheet(XLWorkbook workbook, GanttChartData data, ExcelPalette palette)
-    {
-        var dataWs = workbook.Worksheets.Add("Data");
-        var headers = new[] { "CallName", "WorkName", "FlowName", "TagName", "TagAddress", "EventType", "GoingStartTime", "FinishTime", "Duration(ms)", "Lane" };
+        // 1) 신호 세그먼트 표 — 화면 간트가 이 세그먼트들로 그려진다(같은 원천 → 표·그래프 일치).
+        var headers = new[] { "Call", "Work", "신호", "Tag", "시작", "종료", "지속(ms)" };
         for (int i = 0; i < headers.Length; i++)
         {
-            dataWs.Cell(1, i + 1).Value = headers[i];
-            dataWs.Cell(1, i + 1).Style.Font.Bold = true;
-            dataWs.Cell(1, i + 1).Style.Fill.BackgroundColor = palette.HeaderBg2;
-            dataWs.Cell(1, i + 1).Style.Font.FontColor = XLColor.White;
+            var c = ws.Cell(1, i + 1);
+            c.Value = headers[i];
+            c.Style.Font.Bold = true;
+            c.Style.Fill.BackgroundColor = p.HeaderBg2;
+            c.Style.Font.FontColor = XLColor.White;
         }
-        int dataRow = 2;
-        foreach (var item in data.Items.OrderBy(i => i.GoingStartTime))
+
+        var rows = new List<(string Call, string Work, string Kind, string Tag, DateTime Start, DateTime End, long Dur)>();
+        foreach (var lane in lanes)
         {
-            dataWs.Cell(dataRow, 1).Value = item.CallName;
-            dataWs.Cell(dataRow, 2).Value = item.WorkName;
-            dataWs.Cell(dataRow, 3).Value = item.FlowName;
-            dataWs.Cell(dataRow, 4).Value = item.TagName;
-            dataWs.Cell(dataRow, 5).Value = item.TagAddress;
-            dataWs.Cell(dataRow, 6).Value = item.EventType == IOEventType.InTag ? "IN" : "OUT";
-            dataWs.Cell(dataRow, 7).Value = item.GoingStartTime.ToString("yyyy-MM-dd HH:mm:ss.fff");
-            dataWs.Cell(dataRow, 8).Value = item.FinishTime?.ToString("yyyy-MM-dd HH:mm:ss.fff") ?? "";
-            dataWs.Cell(dataRow, 9).Value = item.Duration ?? 0;
-            dataWs.Cell(dataRow, 10).Value = item.Lane;
-            dataRow++;
+            foreach (var iv in lane.OutIntervals ?? new List<CycleExcelInterval>())
+                rows.Add((lane.CallName, lane.WorkName ?? "", "OUT", lane.OutTag ?? "", Wall(iv.Start), Wall(iv.End), EpochMs(iv.End) - EpochMs(iv.Start)));
+            foreach (var iv in lane.InIntervals ?? new List<CycleExcelInterval>())
+                rows.Add((lane.CallName, lane.WorkName ?? "", "IN", lane.InTag ?? "", Wall(iv.Start), Wall(iv.End), EpochMs(iv.End) - EpochMs(iv.Start)));
         }
-        dataWs.Columns().AdjustToContents();
-        dataWs.SheetView.FreezeRows(1);
+
+        int row = 2;
+        foreach (var x in rows.OrderBy(x => x.Start))
+        {
+            ws.Cell(row, 1).Value = x.Call;
+            ws.Cell(row, 2).Value = x.Work;
+            ws.Cell(row, 3).Value = x.Kind;
+            ws.Cell(row, 3).Style.Font.Bold = true;
+            ws.Cell(row, 3).Style.Font.FontColor = x.Kind == "OUT" ? p.Out : p.In;
+            ws.Cell(row, 4).Value = x.Tag;
+            ws.Cell(row, 5).Value = x.Start.ToString("HH:mm:ss.fff");
+            ws.Cell(row, 6).Value = x.End.ToString("HH:mm:ss.fff");
+            ws.Cell(row, 7).Value = x.Dur;
+            row++;
+        }
+
+        // 고정 너비 — ClosedXML AdjustToContents 의 한글 폭 버그 회피(메모리 규칙).
+        ws.Column(1).Width = 22;
+        ws.Column(2).Width = 18;
+        ws.Column(3).Width = 6;
+        ws.Column(4).Width = 24;
+        ws.Column(5).Width = 14;
+        ws.Column(6).Width = 14;
+        ws.Column(7).Width = 11;
+        ws.SheetView.FreezeRows(1);
+
+        // 2) 사이클 요약 표 (화면 '사이클 목록' 과 동일) — I열부터.
+        var bndDto = (model.CycleBoundaries ?? new List<string>())
+            .Select(s => DateTimeOffset.Parse(s, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind))
+            .OrderBy(x => x).ToList();
+        if (bndDto.Count > 0)
+        {
+            var bnd = bndDto.Select(x => x.ToUnixTimeMilliseconds()).ToList();
+            var tails = (model.TailEdges ?? new List<string>()).Select(EpochMs).OrderBy(x => x).ToList();
+            var spans = BuildSpans(bnd, tails, EpochMs(model.ChartEnd));
+
+            const int c0 = 9;
+            var sh = new[] { "#", "시작", "AT(ms)", "CT(ms)", "가동률%" };
+            for (int i = 0; i < sh.Length; i++)
+            {
+                var c = ws.Cell(1, c0 + i);
+                c.Value = sh[i];
+                c.Style.Font.Bold = true;
+                c.Style.Fill.BackgroundColor = p.HeaderBg2;
+                c.Style.Font.FontColor = XLColor.White;
+            }
+
+            int rr = 2;
+            foreach (var sp in spans)
+            {
+                long ct = sp.End - sp.Start;
+                long? at = sp.TailIn.HasValue ? sp.TailIn.Value - sp.Start : (long?)null;
+                int? ratio = (at.HasValue && ct > 0) ? (int)Math.Round(at.Value * 100.0 / ct) : (int?)null;
+
+                ws.Cell(rr, c0).Value = sp.IsOpen ? $"#{sp.Number}↻" : $"#{sp.Number}";
+                ws.Cell(rr, c0 + 1).Value = bndDto[sp.Number - 1].DateTime.ToString("HH:mm:ss");
+                if (at.HasValue) ws.Cell(rr, c0 + 2).Value = at.Value;
+                else ws.Cell(rr, c0 + 2).Value = "—";
+                ws.Cell(rr, c0 + 3).Value = ct;
+                if (ratio.HasValue)
+                {
+                    var rc = ws.Cell(rr, c0 + 4);
+                    rc.Value = ratio.Value;
+                    rc.Style.Font.Bold = true;
+                    rc.Style.Font.FontColor = ratio.Value >= 80 ? p.Good : ratio.Value >= 50 ? p.Mid : p.Low;
+                }
+                else ws.Cell(rr, c0 + 4).Value = "—";
+                rr++;
+            }
+
+            ws.Column(c0).Width = 6;
+            ws.Column(c0 + 1).Width = 12;
+            ws.Column(c0 + 2).Width = 11;
+            ws.Column(c0 + 3).Width = 11;
+            ws.Column(c0 + 4).Width = 9;
+        }
+    }
+
+    // ─── helpers ─────────────────────────────────────────────────────────────────
+
+    private static void FillBar(IXLWorksheet ws, int row, int firstDataCol, int startCol, int endCol, XLColor color)
+    {
+        if (endCol < startCol) endCol = startCol;
+        ws.Range(row, firstDataCol + startCol, row, firstDataCol + endCol).Style.Fill.BackgroundColor = color;
+    }
+
+    /// <summary>cycleBoundaries(+ open span to chartEnd) → 사이클 구간. 각 구간의 첫 Tail(InTag↑) 부착. 화면 cycleList 와 동일.</summary>
+    private static List<CycleSpan> BuildSpans(IReadOnlyList<long> bnd, IReadOnlyList<long> tails, long chartEndMs)
+    {
+        var spans = new List<CycleSpan>();
+        for (int i = 0; i < bnd.Count - 1; i++)
+            spans.Add(new CycleSpan(bnd[i], bnd[i + 1], i + 1, false));
+        if (bnd.Count > 0 && bnd[^1] < chartEndMs)
+            spans.Add(new CycleSpan(bnd[^1], chartEndMs, bnd.Count, true));
+
+        int ti = 0;
+        foreach (var sp in spans)
+        {
+            while (ti < tails.Count && tails[ti] <= sp.Start) ti++;
+            if (ti < tails.Count && tails[ti] < sp.End) sp.TailIn = tails[ti];
+        }
+        return spans;
+    }
+
+    private static long EpochMs(string iso)
+        => DateTimeOffset.Parse(iso, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind).ToUnixTimeMilliseconds();
+
+    /// <summary>ISO 의 벽시계(작성된 로컬 시각) — 라벨용. offset 이 박혀 있어도 표기된 시:분:초 그대로.</summary>
+    private static DateTime Wall(string iso)
+        => DateTimeOffset.Parse(iso, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind).DateTime;
+
+    private static string FormatMs(double? ms)
+    {
+        if (ms is null || ms <= 0) return "-";
+        var v = ms.Value;
+        if (v < 1000) return $"{Math.Round(v)} ms";
+        if (v < 60000) return (v / 1000.0).ToString("0.00", CultureInfo.InvariantCulture) + " s";
+        return (v / 60000.0).ToString("0.00", CultureInfo.InvariantCulture) + " min";
+    }
+
+    private sealed class CycleSpan
+    {
+        public long Start { get; }
+        public long End { get; }
+        public int Number { get; }
+        public bool IsOpen { get; }
+        public long? TailIn { get; set; }
+        public CycleSpan(long start, long end, int number, bool isOpen)
+        {
+            Start = start; End = end; Number = number; IsOpen = isOpen;
+        }
+    }
+
+    // 색은 화면 SVG 리터럴과 1:1 (캔버스는 항상 흰 배경 기준).
+    private sealed class CycleExcelPalette
+    {
+        public XLColor Union { get; } = XLColor.FromHtml("#5B9BD5");
+        public XLColor Head { get; } = XLColor.FromHtml("#4CAF50");
+        public XLColor Tail { get; } = XLColor.FromHtml("#AB47BC");
+        public XLColor Out { get; } = XLColor.FromHtml("#1E88E5");
+        public XLColor In { get; } = XLColor.FromHtml("#FB8C00");
+        public XLColor RibbonTrack { get; } = XLColor.FromHtml("#FAFBFC");
+        public XLColor RibbonActive { get; } = XLColor.FromHtml("#81C784");
+        public XLColor RibbonIdle { get; } = XLColor.FromHtml("#B0BEC5");
+        public XLColor RibbonAltA { get; } = XLColor.FromHtml("#9FA8DA");
+        public XLColor RibbonAltB { get; } = XLColor.FromHtml("#CE93D8");
+        public XLColor BandActive { get; } = XLColor.FromHtml("#EAF6EA");
+        public XLColor BandIdle { get; } = XLColor.FromHtml("#ECEFF1");
+        public XLColor BandAltA { get; } = XLColor.FromHtml("#EDEFF8");
+        public XLColor BandAltB { get; } = XLColor.FromHtml("#F6EDF8");
+        public XLColor HeadTint { get; } = XLColor.FromHtml("#E8F5E9");
+        public XLColor TailTint { get; } = XLColor.FromHtml("#F3E5F5");
+        public XLColor GapFill { get; } = XLColor.FromHtml("#FDE7C9");
+        public XLColor GapBorder { get; } = XLColor.FromHtml("#E5494F");
+        public XLColor Boundary { get; } = XLColor.FromHtml("#FF9800");
+        public XLColor HeaderBg { get; } = XLColor.FromHtml("#263238");
+        public XLColor HeaderBg2 { get; } = XLColor.FromHtml("#37474F");
+        public XLColor Ink { get; } = XLColor.FromHtml("#263238");
+        public XLColor SubInk { get; } = XLColor.FromHtml("#78909C");
+        public XLColor Good { get; } = XLColor.FromHtml("#2E7D32");
+        public XLColor Mid { get; } = XLColor.FromHtml("#E65100");
+        public XLColor Low { get; } = XLColor.FromHtml("#C62828");
     }
 }
+
+// ─── 화면 모델 (positional records → camelCase 자동 바인딩). 클라이언트가 그린 현재 상태 그대로. ─────────────
+
+public sealed record CycleExcelModel(
+    string FlowName,
+    string ChartStart,
+    string ChartEnd,
+    string? ViewMode,
+    string? HeadCallId,
+    string? TailCallId,
+    string? HeadName,
+    string? TailName,
+    double? AvgCycleMs,
+    double? AvgActiveMs,
+    List<CycleExcelLane> Lanes,
+    List<string> CycleBoundaries,
+    List<string> TailEdges,
+    List<CycleExcelGap> TopGaps,
+    bool ShowMaxGap,
+    int SelectedGapIndex);
+
+public sealed record CycleExcelLane(
+    string CallId,
+    string CallName,
+    string? WorkName,
+    int LaneIndex,
+    string? InTag,
+    string? OutTag,
+    List<CycleExcelInterval> Intervals,
+    List<CycleExcelInterval> OutIntervals,
+    List<CycleExcelInterval> InIntervals);
+
+public sealed record CycleExcelInterval(string Start, string End);
+
+/// <summary>활성 Gap — 좌표는 chartStart 기준 오프셋(ms), tz 무관.</summary>
+public sealed record CycleExcelGap(string CallId, double DurMs, double StartOffMs, double EndOffMs);

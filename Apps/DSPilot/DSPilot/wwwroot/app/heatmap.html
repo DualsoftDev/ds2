@@ -7,13 +7,14 @@
     <title>동작편차 — DSPilot</title>
 
     <!--
-      DSPilot 정적 호스팅 — Swiss Technical 리디자인.
+      DSPilot 정적 호스팅 — DS Pilot(네이비/청록) 리디자인.
       서버/코어/모델은 C#(/api/heatmap/*), 뷰는 순수 HTML/CSS/JS(Alpine + Chart.js).
-      디자인 시스템: /css/swiss.css (토큰/컴포넌트/다크). 페이지 고유 클래스(hm-*)만 인라인.
+      디자인 시스템: /css/ds.css (swiss.css @import + mockup 팔레트). 공통 클래스(ds-topbar/ds-legend/ds-card-h)는 ds.css, 페이지 고유 클래스(hm-*)만 인라인.
       viz 클래스(flow-dashboard-*, heatmap-*)와 heatmap-indeterminate keyframe 은 swiss.css 에 정의됨 → 참조만.
+      편차 기준: 시스템에 표준(takt) 시간이 없으므로 "변동계수(CV)=표준편차/평균" 및 "평균 대비 편차"만 사용(거짓 라벨 금지).
     -->
     <link href="/css/fonts.css" rel="stylesheet" />
-    <link href="/css/swiss.css" rel="stylesheet" />
+    <link href="/css/ds.css" rel="stylesheet" />
 
     <style>
         [x-cloak] { display: none !important; }
@@ -25,41 +26,108 @@
         .dsp-appbar .spacer { flex: 1; }
         .dsp-main { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px 20px 24px; }
 
-        /* ── 콘텐츠 상단 페이지 헤더 (셸이 제거하지 않는 영역 → 데이터 카운트 노출) ── */
-        .hm-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; padding-bottom: 12px; border-bottom: 2px solid var(--color-text-primary); }
-        .hm-toolbar .hm-head { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
-        .hm-toolbar .hm-index { font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700; color: var(--color-primary); letter-spacing: 0.04em; }
-        .hm-toolbar .hm-title { font-size: 1.4rem; font-weight: 700; letter-spacing: -0.015em; }
-        .hm-count { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--color-text-secondary); font-variant-numeric: tabular-nums; }
+        /* ── 데이터 카운트 pill (ds-topbar 액션 영역) ── */
+        .hm-count { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-lg); font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-secondary); font-variant-numeric: tabular-nums; background: var(--color-surface); }
 
         /* ── 컨트롤 패널 폼 라벨/필드 ── */
         .hm-control-grid { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; }
-        .hm-field-metric { flex: 0 0 auto; min-width: 180px; }
         .hm-field-filter { flex: 1; min-width: 220px; max-width: 420px; }
         .hm-control-actions { flex: 0 0 auto; display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
 
         /* ── 4-up KPI 계기판 (metric-strip 셀) ── */
-        .hm-kpi-label { font-size: 0.64rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--color-text-secondary); }
-        .hm-kpi-value { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 1.7rem; font-weight: 700; line-height: 1.05; letter-spacing: -0.02em; margin-top: 4px; color: var(--color-text-primary); }
+        .hm-kpi-label { font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--color-text-disabled); }
+        .hm-kpi-value { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 1.7rem; font-weight: 800; line-height: 1.05; letter-spacing: -0.02em; margin-top: 4px; color: var(--navy); }
+        .dark-theme .hm-kpi-value { color: var(--color-text-primary); }
         .hm-kpi-sub { font-size: 0.66rem; color: var(--color-text-secondary); margin-top: 3px; font-weight: 600; }
 
-        /* ── 범례 행 ── */
-        .hm-legend-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+        /* ── 범례 행 (ds-legend 기반, swiss heatmap 스와치 재사용) ── */
+        .hm-legend-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+        .hm-legend-bar .heatmap-legend-item { margin: 0; }
+
+        /* ── 보기 전환 세그먼트 (flow-call 매트릭스 ⇄ 테이블 나열) ── */
+        .hm-view-switch { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+        .hm-seg { display: inline-flex; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-lg); overflow: hidden; background: var(--color-surface); }
+        .hm-seg button { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border: none; background: transparent; color: var(--color-text-secondary); font-size: 0.78rem; font-weight: 700; cursor: pointer; transition: background .14s ease, color .14s ease; }
+        .hm-seg button .material-icons { font-size: 18px; }
+        .hm-seg button + button { border-left: 1px solid var(--color-lines); }
+        .hm-seg button.is-active { background: var(--color-primary); color: #fff; }
+        .hm-seg button:not(.is-active):hover { background: var(--color-surface-variant); color: var(--color-text-primary); }
+        .hm-view-hint { font-size: 0.72rem; color: var(--color-text-secondary); font-weight: 600; }
+
+        /* ── Call 블럭 그리드(디바이스 카드) — mockup p3(P2) "색으로 즉시 진단" UX ──
+           편차 등급은 변동계수 CV=σ/평균(평균 대비) 4구간 파생. takt/표준 시간 미사용. */
+        .hm-flow-block-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 2px 12px; flex-wrap: wrap; }
+        .hm-flow-block-head .hm-fb-title { font-size: 0.95rem; font-weight: 800; letter-spacing: -0.01em; margin: 0; color: var(--navy); }
+        .dark-theme .hm-flow-block-head .hm-fb-title { color: var(--color-text-primary); }
+        .hm-flow-block-head .hm-fb-sub { font-size: 0.7rem; color: var(--color-text-secondary); font-weight: 600; }
+
+        .hm-block-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+        .hm-block {
+            position: relative; display: flex; flex-direction: column; gap: 6px;
+            padding: 14px 14px 12px; min-height: 118px; cursor: pointer;
+            border-radius: var(--radius-md); border: 1px solid var(--color-lines);
+            background: var(--color-surface); box-shadow: var(--shadow-1);
+            transition: transform .14s ease, box-shadow .14s ease, border-color .14s ease;
+            outline: none;
+        }
+        /* hover: 살짝 확대 + 그림자 (mockup ② 시각 피드백) */
+        .hm-block:hover { transform: scale(1.035); box-shadow: var(--shadow-card-hover); z-index: 1; }
+        .hm-block:focus-visible { box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.30); }
+        /* 선택 카드: 청록 강조 테두리 (mockup ③ cb-selected) */
+        .hm-block.is-active { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.22); transform: scale(1.035); }
+
+        /* 3단계 진단 배경/테두리 — CV(σ/평균) 구간 파생. ds.css 토큰만 사용 */
+        .hm-block.tier-normal  { background: rgba(var(--color-success-rgb), 0.14); border-color: rgba(var(--color-success-rgb), 0.45); }
+        .hm-block.tier-caution { background: rgba(var(--color-warning-rgb), 0.16); border-color: rgba(var(--color-warning-rgb), 0.55); }
+        .hm-block.tier-danger  { background: rgba(var(--color-error-rgb), 0.16); border-color: rgba(var(--color-error-rgb), 0.55); }
+
+        .hm-block .hm-b-name { font-size: 0.78rem; font-weight: 700; color: var(--navy); line-height: 1.2; display: flex; align-items: center; gap: 4px; word-break: break-all; }
+        .dark-theme .hm-block .hm-b-name { color: var(--color-text-primary); }
+        .hm-block .hm-b-warn { color: var(--red); font-size: 0.9rem; line-height: 1; flex-shrink: 0; }
+        .hm-block .hm-b-avg { display: flex; align-items: baseline; gap: 5px; margin-top: auto; }
+        .hm-block .hm-b-avg .hm-b-val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 1.5rem; font-weight: 800; line-height: 1; letter-spacing: -0.02em; color: var(--navy); }
+        .dark-theme .hm-block .hm-b-avg .hm-b-val { color: var(--color-text-primary); }
+        .hm-block .hm-b-avg .hm-b-unit { font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-disabled); }
+        .hm-block .hm-b-dev { display: inline-flex; align-items: center; align-self: flex-start; padding: 2px 8px; border-radius: var(--radius-lg); font-size: 0.66rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+        .hm-block .hm-b-dev.tone-normal  { background: rgba(var(--color-success-rgb), 0.22); color: #1B7A50; }
+        .hm-block .hm-b-dev.tone-caution { background: rgba(var(--color-warning-rgb), 0.30); color: #8A5E00; }
+        .hm-block .hm-b-dev.tone-danger  { background: rgba(var(--color-error-rgb), 0.22); color: #B0271D; }
+        .dark-theme .hm-block .hm-b-dev.tone-normal  { color: #4FD19A; }
+        .dark-theme .hm-block .hm-b-dev.tone-caution { color: #E6B748; }
+        .dark-theme .hm-block .hm-b-dev.tone-danger  { color: #F0705F; }
+
+        /* ── 공유 tier 색(범례 3색) — 단일 소스 ──
+           매트릭스 뱃지(.hm-b-dev.tone-*)와 동일 값. 테이블 색상 셀(.heatmap-cell-compact/-mini)이
+           서버 5색(heatmap-*) 대신 이 클래스를 참조 → 범례·매트릭스·테이블 색상코드 통일(절대 CV tier).
+           swiss.css 기본 .heatmap-cell-*는 color:#fff + 배경 없음이라, 본 인라인 규칙(ds.css 링크 뒤)이
+           동일 명시도에서 소스 순서로 우선 적용됨. */
+        .hm-tier-bg-normal  { background: rgba(var(--color-success-rgb), 0.22); color: #1B7A50; }
+        .hm-tier-bg-caution { background: rgba(var(--color-warning-rgb), 0.30); color: #8A5E00; }
+        .hm-tier-bg-danger  { background: rgba(var(--color-error-rgb), 0.22); color: #B0271D; }
+        .dark-theme .hm-tier-bg-normal  { color: #4FD19A; }
+        .dark-theme .hm-tier-bg-caution { color: #E6B748; }
+        .dark-theme .hm-tier-bg-danger  { color: #F0705F; }
+
+        /* ── 인라인 상세 패널 (가림 모달 → 컨텍스트 유지 펼침) ── */
+        .hm-detail-panel { border-top: 4px solid var(--color-primary); }
+        .hm-detail-eyebrow { display: inline-flex; align-items: center; gap: 6px; font-size: 0.6rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-primary-strong); }
+        .hm-detail-cols { display: grid; gap: 18px; grid-template-columns: 1fr 1.6fr; align-items: start; }
+        @media (max-width: 820px) { .hm-detail-cols { grid-template-columns: 1fr; } }
+        .hm-info-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+        .hm-info-table th { text-align: left; color: var(--color-text-secondary); font-weight: 600; padding: 6px 8px 6px 0; white-space: nowrap; vertical-align: top; width: 40%; }
+        .hm-info-table td { padding: 6px 0; font-variant-numeric: tabular-nums; border-bottom: 1px solid var(--color-lines); }
+        .hm-info-table tr:last-child td, .hm-info-table tr:last-child th { border-bottom: none; }
+        .hm-info-table .hm-info-mono { font-family: var(--font-mono); }
+        .hm-info-table .hm-info-strong { font-weight: 800; }
 
         /* ── Flow 매트릭스 테이블 카드 헤더 (per-flow) ── */
         .hm-table-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--color-lines); flex-wrap: wrap; }
         .hm-table-head-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
-        .hm-flow-title { font-size: 0.95rem; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
-
-        /* ── Call 상세 모달 detail 카드 그리드 ── */
-        .hm-detail-grid { display: grid; gap: 12px; grid-template-columns: repeat(4, 1fr); }
-        @media (max-width: 720px) { .hm-detail-grid { grid-template-columns: 1fr 1fr; } }
-        .hm-detail-value { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 1.25rem; font-weight: 700; line-height: 1.1; margin: 4px 0 2px; }
-        /* "실행횟수" 카드 — 중립 잉크 톤 (의미 색 없음) */
-        .hm-detail-card-neutral { background: var(--color-tertiary); }
+        .hm-flow-title { font-size: 0.95rem; font-weight: 800; letter-spacing: -0.01em; margin: 0; color: var(--navy); }
+        .dark-theme .hm-flow-title { color: var(--color-text-primary); }
 
         .hm-chart-box { height: 280px; position: relative; }
-        .hm-chart-empty { color: var(--color-text-secondary); padding: 28px; text-align: center; background: var(--color-surface-variant); border: 1px solid var(--color-lines); border-radius: var(--radius-sm); }
+        .hm-chart-empty { color: var(--color-text-secondary); padding: 28px; text-align: center; background: var(--color-surface-variant); border: 1px solid var(--color-lines); border-radius: var(--radius-md); }
 
         /* 정렬 가능 헤더의 도움말 점선 밑줄 (잉크 톤) */
         .hm-help { border-bottom: 1px dotted var(--color-lines-strong); cursor: help; }
@@ -91,32 +159,25 @@
 
         <main class="dsp-main">
 
-            <!-- 콘텐츠 페이지 헤더: 번호 인덱스 + 제목 + 데이터 카운트 -->
-            <div class="hm-toolbar">
-                <div class="hm-head">
-                    <span class="hm-index">02 / 편차</span>
-                    <span class="hm-title">동작편차</span>
+            <!-- 콘텐츠 상단 툴바: 제목 + breadcrumb + 액션(데이터 카운트) -->
+            <div class="ds-topbar">
+                <div class="ds-topbar-titles">
+                    <h2>동작편차 진단</h2>
+                    <div class="ds-breadcrumb">홈 · 동작편차 · 변동계수(CV) 기반</div>
                 </div>
-                <div class="spacer"></div>
-                <span class="hm-count" x-show="!loading && filteredGroups.length > 0">
-                    <span x-text="filteredGroups.length + ' FLOW'"></span>
-                    <span style="color:var(--color-lines-strong);">·</span>
-                    <span x-text="totalCalls + ' CALL'"></span>
-                </span>
+                <div class="ds-topbar-actions">
+                    <span class="hm-count" x-show="!loading && filteredGroups.length > 0">
+                        <span x-text="filteredGroups.length + ' FLOW'"></span>
+                        <span style="color:var(--color-lines-strong);">·</span>
+                        <span x-text="totalCalls + ' CALL'"></span>
+                    </span>
+                </div>
             </div>
 
             <!-- 컨트롤 패널 -->
-            <div class="dsp-panel mb-4">
+            <div class="card mb-4">
                 <div class="dsp-panel-body">
                     <div class="hm-control-grid">
-                        <div class="hm-field-metric">
-                            <label class="form-label">표시 메트릭</label>
-                            <select class="form-select" x-model.number="selectedMetricIdx">
-                                <template x-for="(m, i) in metrics" :key="m.key">
-                                    <option :value="i" x-text="m.name"></option>
-                                </template>
-                            </select>
-                        </div>
                         <div class="hm-field-filter">
                             <label class="form-label">Flow 필터</label>
                             <input class="form-field" x-model="flowFilter" placeholder="Flow 이름 검색..." />
@@ -124,10 +185,6 @@
                         <div class="hm-control-actions">
                             <button class="btn btn-filled" @click="loadData()">
                                 <span class="material-icons">refresh</span> 새로고침
-                            </button>
-                            <button class="btn btn-outlined color-default" @click="allExpanded = !allExpanded">
-                                <span class="material-icons" x-text="allExpanded ? 'unfold_less' : 'unfold_more'"></span>
-                                <span x-text="allExpanded ? 'Flow Group Matrix 접기' : 'Flow Group Matrix 펼치기'"></span>
                             </button>
                             <button class="btn btn-outlined color-default" @click="exportCsv()" :disabled="filteredGroups.length === 0">
                                 <span class="material-icons">file_download</span> CSV 내보내기
@@ -148,16 +205,18 @@
                 <span x-text="error"></span>
             </div>
 
-            <!-- 데이터 없음 -->
-            <div class="alert alert-info mb-4" x-show="!loading && !error && filteredGroups.length === 0" style="flex-shrink:0;">
-                <span class="material-icons">info</span>
-                <span>표시할 데이터가 없습니다. PLC 데이터가 수집되면 자동으로 표시됩니다.</span>
+            <!-- 데이터 없음 — 정직한 빈 상태 -->
+            <div class="ds-empty mb-4" x-show="!loading && !error && filteredGroups.length === 0" style="flex-shrink:0;">
+                <span class="material-icons">grid_off</span>
+                <div class="ds-empty-title">표시할 동작편차 데이터가 없습니다</div>
+                <div class="ds-empty-desc">Call 실행 이력(Going 전환)이 수집되면 평균·표준편차·변동계수(CV)가 자동으로 계산되어 히트맵으로 표시됩니다. PLC 연동 후 잠시 기다려 주세요.</div>
+                <span class="ds-empty-tag">데이터 수집 대기</span>
             </div>
 
             <template x-if="!loading && filteredGroups.length > 0">
                 <div>
                     <!-- 요약 계기판 (KPI metric-strip) -->
-                    <div class="metric-strip mb-4">
+                    <div class="metric-strip mb-4" style="box-shadow:var(--shadow-card);">
                         <div>
                             <div class="hm-kpi-label">총 Flow</div>
                             <div class="hm-kpi-value" style="color:var(--color-primary);" x-text="filteredGroups.length"></div>
@@ -167,213 +226,244 @@
                             <div class="hm-kpi-value" x-text="totalCalls"></div>
                         </div>
                         <div>
-                            <div class="hm-kpi-label">이슈 Call</div>
-                            <div class="hm-kpi-value" :style="`color:${issueCalls > 0 ? 'var(--color-error)' : 'var(--color-success)'};`" x-text="issueCalls"></div>
+                            <div class="hm-kpi-label">위험 Call (편차 평균대비)</div>
+                            <div class="hm-kpi-value" :style="`color:${dangerCalls > 0 ? 'var(--color-error)' : 'var(--color-success)'};`" x-text="dangerCalls"></div>
+                            <div class="hm-kpi-sub" x-text="'CV ≥ 0.30 (편차 ±30% 초과)'"></div>
                         </div>
                         <div>
-                            <div class="hm-kpi-label">선택 메트릭 평균</div>
-                            <div class="hm-kpi-value" x-text="fmt(selectedMetric.key, selectedMetricAverage)"></div>
-                            <div class="hm-kpi-sub" x-text="selectedMetric.name"></div>
+                            <div class="hm-kpi-label">분석 N (총 실행)</div>
+                            <div class="hm-kpi-value" x-text="totalGoingCount.toLocaleString()"></div>
+                            <div class="hm-kpi-sub">전체 Going 전환 합산</div>
                         </div>
                     </div>
 
-                    <!-- 범례 -->
-                    <div class="dsp-panel mb-4">
-                        <div class="dsp-panel-body" style="padding:12px 16px;">
-                            <div class="hm-legend-bar">
-                                <span class="eyebrow" style="margin-right:8px;">범례</span>
-                                <div class="heatmap-legend-item"><div class="heatmap-cell heatmap-excellent"></div><span class="typo-caption">우수</span></div>
-                                <div class="heatmap-legend-item"><div class="heatmap-cell heatmap-good"></div><span class="typo-caption">양호</span></div>
-                                <div class="heatmap-legend-item"><div class="heatmap-cell heatmap-fair"></div><span class="typo-caption">보통</span></div>
-                                <div class="heatmap-legend-item"><div class="heatmap-cell heatmap-poor"></div><span class="typo-caption">개선필요</span></div>
-                                <div class="heatmap-legend-item"><div class="heatmap-cell heatmap-critical"></div><span class="typo-caption">심각</span></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Flow Group Matrix 대시보드 -->
-                    <div class="dsp-panel mb-4" x-show="allExpanded">
-                        <div class="dsp-panel-head">
-                            <div>
-                                <div class="dsp-panel-title">Flow Group Matrix</div>
-                                <div class="typo-body2" style="color:var(--color-text-secondary); margin-top:2px;">Flow 패널 안에 Work 블록과 Call 셀을 배치해 그룹 구조를 한눈에 봅니다.</div>
-                            </div>
-                            <span class="chip chip-primary" x-text="filteredGroups.length + ' Flows'"></span>
-                        </div>
-                        <div class="dsp-panel-body">
-                            <div class="flow-dashboard-grid">
-                                <template x-for="group in filteredGroups" :key="'fg-' + group.flowName">
-                                    <section class="flow-dashboard-panel">
-                                        <div class="flow-dashboard-panel-header">
-                                            <div>
-                                                <div class="flow-dashboard-panel-title" x-text="group.flowName"></div>
-                                                <div class="flow-dashboard-panel-subtitle" x-text="'평균 ' + fmt(selectedMetric.key, flowAvgValue(group, selectedMetric.key))"></div>
-                                            </div>
-                                            <span class="chip chip-info" x-text="group.callCount + ' Calls'"></span>
-                                        </div>
-                                        <div class="flow-dashboard-work-grid">
-                                            <template x-for="wg in workGroups(group)" :key="'wg-' + group.flowName + '-' + wg.workName">
-                                                <div class="flow-dashboard-work-panel">
-                                                    <div class="flow-dashboard-work-header">
-                                                        <span x-text="wg.workName"></span>
-                                                        <span x-text="wg.calls.length"></span>
-                                                    </div>
-                                                    <div class="flow-dashboard-call-grid" style="grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));">
-                                                        <template x-for="call in wg.calls" :key="'fc-' + call.callId">
-                                                            <div :class="'flow-dashboard-call-cell ' + colorClass(call, selectedMetric.key)"
-                                                                 :title="callTooltip(call)" @click="selectCall(call)">
-                                                                <div class="flow-dashboard-call-name" x-text="call.callName"></div>
-                                                                <div class="flow-dashboard-call-value" x-text="fmt(selectedMetric.key, metricValue(call, selectedMetric.key))"></div>
-                                                                <div class="flow-dashboard-call-meta" x-text="call.workName"></div>
-                                                            </div>
-                                                        </template>
-                                                    </div>
-                                                </div>
-                                            </template>
-                                        </div>
-                                    </section>
+                    <!-- 3단계 진단 범례 (변동계수 CV = σ/평균 · 평균 대비 편차 기반 — 표준(takt) 시간 미사용) -->
+                    <div class="card mb-4" style="padding:14px 16px;">
+                        <div class="ds-card-h">
+                            <h4>색상 범례 — 편차(평균 대비) 3단계 진단</h4>
+                            <span class="ds-card-h-sub">
+                                CV = 표준편차 / 평균 · 값이 클수록 평균 대비 편차가 큼
+                                <template x-if="totalGoingCount > 0">
+                                    <span style="color:var(--color-text-disabled); font-weight:700; margin-left:8px;"
+                                          x-text="'N = 총 실행 ' + totalGoingCount.toLocaleString() + '회 분석'"></span>
                                 </template>
-                            </div>
+                            </span>
+                        </div>
+                        <div class="ds-legend" style="margin-top:4px;">
+                            <div class="lg-item"><span class="lg-swatch" style="background:rgba(var(--color-success-rgb),0.30); border:1px solid rgba(var(--color-success-rgb),0.6);"></span> 정상 (편차 ±10% 미만)</div>
+                            <div class="lg-item"><span class="lg-swatch" style="background:rgba(var(--color-warning-rgb),0.40); border:1px solid rgba(var(--color-warning-rgb),0.7);"></span> 주의 (±10~30%)</div>
+                            <div class="lg-item"><span class="lg-swatch" style="background:rgba(var(--color-error-rgb),0.30); border:1px solid rgba(var(--color-error-rgb),0.6);"></span> 위험 (±30% 초과)</div>
+                            <template x-if="dangerCalls > 0">
+                                <span class="ds-status bad" style="margin-left:6px;" x-text="'위험 ' + dangerCalls + ' Call'"></span>
+                            </template>
                         </div>
                     </div>
 
-                    <!-- Flow 그룹별 매트릭스 히트맵 테이블 -->
-                    <template x-for="group in filteredGroups" :key="'tbl-' + group.flowName">
-                        <div class="dsp-panel mb-4">
-                            <div class="hm-table-head">
-                                <div class="hm-table-head-left">
-                                    <button class="btn-icon btn-sm" @click="group.isExpanded = !group.isExpanded">
-                                        <span class="material-icons" x-text="group.isExpanded ? 'expand_more' : 'chevron_right'"></span>
-                                    </button>
-                                    <h6 class="hm-flow-title" x-text="group.flowName"></h6>
-                                    <span class="chip chip-info" x-text="group.callCount + ' Calls'"></span>
-                                    <span class="chip chip-error" x-show="issueCount(group) > 0" x-text="issueCount(group) + ' 이슈'"></span>
-                                </div>
-                                <div class="d-flex" style="align-items:center; gap:4px;">
-                                    <div :class="'heatmap-cell-mini ' + group.flowColorClassAvg" :title="'평균: ' + Math.round(group.flowAverageTime) + ' ms'">Avg</div>
-                                    <div :class="'heatmap-cell-mini ' + group.flowColorClassStdDev" :title="'표준편차: ' + Math.round(group.flowAverageStdDev) + ' ms'">SD</div>
-                                    <div :class="'heatmap-cell-mini ' + group.flowColorClassCV" :title="'변동계수: ' + group.flowAverageCV.toFixed(2)">CV</div>
-                                </div>
-                            </div>
+                    <!-- 보기 전환: flow-call 매트릭스 ⇄ 테이블 나열 (한 번에 하나만 표시 — 매트릭스 중복 배치 제거) -->
+                    <div class="hm-view-switch mb-4">
+                        <div class="hm-seg" role="tablist" aria-label="보기 전환">
+                            <button type="button" role="tab" :aria-selected="viewMode === 'matrix'"
+                                    :class="viewMode === 'matrix' ? 'is-active' : ''" @click="viewMode = 'matrix'">
+                                <span class="material-icons">grid_view</span> 매트릭스 보기
+                            </button>
+                            <button type="button" role="tab" :aria-selected="viewMode === 'table'"
+                                    :class="viewMode === 'table' ? 'is-active' : ''" @click="viewMode = 'table'">
+                                <span class="material-icons">table_rows</span> 테이블 보기
+                            </button>
+                        </div>
+                        <span class="hm-view-hint" x-text="viewMode === 'matrix' ? 'Flow별 Call 블럭을 편차 색상으로 진단 · 클릭 시 상세' : 'Call별 평균·표준편차·변동계수 정렬 표 · 클릭 시 상세'"></span>
+                    </div>
 
-                            <div class="table-container" x-show="group.isExpanded" style="overflow:auto;">
-                                <table class="table table-hover heatmap-matrix-table" style="table-layout:fixed; width:100%;">
-                                    <colgroup>
-                                        <col style="width:22%;" /><col style="width:14%;" /><col style="width:12%;" />
-                                        <col style="width:12%;" /><col style="width:12%;" /><col style="width:10%;" />
-                                    </colgroup>
-                                    <thead class="table-head-sticky">
-                                        <tr>
-                                            <th class="sortable" @click="sortBy('callName')">Call <span x-html="sortIcon('callName')"></span></th>
-                                            <th class="sortable" @click="sortBy('workName')">Work <span x-html="sortIcon('workName')"></span></th>
-                                            <th class="sortable heatmap-col-header" @click="sortBy('avg')">
-                                                <span title="Call의 평균 실행 시간 (ms). 낮을수록 빠릅니다." class="hm-help">평균 <span x-html="sortIcon('avg')"></span></span>
-                                            </th>
-                                            <th class="sortable heatmap-col-header" @click="sortBy('stddev')">
-                                                <span title="실행 시간의 표준편차 (ms). 낮을수록 안정적입니다." class="hm-help">표준편차 <span x-html="sortIcon('stddev')"></span></span>
-                                            </th>
-                                            <th class="sortable heatmap-col-header" @click="sortBy('cv')">
-                                                <span title="변동계수 (CV) = 표준편차/평균. 0.1 미만: 안정, 0.3 이상: 불안정" class="hm-help">변동계수 <span x-html="sortIcon('cv')"></span></span>
-                                            </th>
-                                            <th style="text-align:center;"><span title="Call이 Going 상태로 전환된 총 횟수" class="hm-help">실행횟수</span></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <template x-for="call in sortedCalls(group)" :key="'row-' + call.callId">
-                                            <tr :class="'heatmap-matrix-row ' + (selectedCall && selectedCall.callId === call.callId ? 'selected' : '')"
-                                                @click="selectCall(call)" :title="callTooltip(call)">
-                                                <td class="heatmap-matrix-label" x-text="call.callName"></td>
-                                                <td class="heatmap-matrix-label" x-text="call.workName"></td>
-                                                <td style="text-align:center; padding:4px;">
-                                                    <div :class="'heatmap-cell-compact ' + call.colorClassAvg" x-text="fmtShortAvg(call.averageGoingTime)"></div>
-                                                </td>
-                                                <td style="text-align:center; padding:4px;">
-                                                    <div :class="'heatmap-cell-compact ' + call.colorClassStdDev" x-text="fmtShortAvg(call.stdDevGoingTime)"></div>
-                                                </td>
-                                                <td style="text-align:center; padding:4px;">
-                                                    <div :class="'heatmap-cell-compact ' + call.colorClassCV" x-text="call.coefficientOfVariation.toFixed(2)"></div>
-                                                </td>
-                                                <td style="text-align:center;"><span class="typo-body2" style="font-family:var(--font-mono); font-variant-numeric:tabular-nums;" x-text="call.goingCount"></span></td>
-                                            </tr>
+                    <!-- ════ Flow 그룹 루프: 매트릭스/테이블 카드 + (선택 Call 소속 그룹) 인라인 상세 ════
+                         두 보기를 하나의 그룹 루프로 통합 → 상세 패널을 "선택 Call 이 속한 그룹의
+                         매트릭스/테이블 카드 바로 아래"에 렌더(페이지 맨 끝 단일 패널 폐지).
+                         상세 패널은 viewMode x-if 바깥(소속 그룹 기준)이라 보기 전환 시 캔버스가
+                         유지됨 → 매트릭스⇄테이블 전환에도 차트 재그리기 불필요. -->
+                    <template x-for="group in filteredGroups" :key="'grp-' + group.flowName">
+                        <div>
+                            <!-- 매트릭스 보기 카드 -->
+                            <template x-if="viewMode === 'matrix'">
+                                <div class="card mb-4" style="padding:14px 16px 16px;">
+                                    <div class="hm-flow-block-head">
+                                        <div style="min-width:0; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                                            <h6 class="hm-fb-title" x-text="group.flowName"></h6>
+                                            <span class="chip chip-info" x-text="group.callCount + ' Calls'"></span>
+                                            <span class="ds-status bad" x-show="flowDangerCount(group) > 0" x-text="'위험 ' + flowDangerCount(group)"></span>
+                                        </div>
+                                        <span class="hm-fb-sub">평균 실행시간 · 편차%(평균 대비) · 클릭으로 상세</span>
+                                    </div>
+
+                                    <div class="hm-block-grid">
+                                        <template x-for="call in blockCalls(group)" :key="'blk-' + call.callId">
+                                            <div :class="'hm-block tier-' + blockTier(call) + (selectedCall && selectedCall.callId === call.callId ? ' is-active' : '')"
+                                                 role="button" tabindex="0"
+                                                 :title="callTooltip(call)"
+                                                 @click="selectCall(call)"
+                                                 @keydown.enter.prevent="selectCall(call)"
+                                                 @keydown.space.prevent="selectCall(call)">
+                                                <div class="hm-b-name">
+                                                    <span x-text="call.callName"></span>
+                                                    <span class="hm-b-warn material-icons" style="font-size:14px;" x-show="blockTier(call) === 'danger'" title="위험 — 평균 대비 편차 30% 초과">warning</span>
+                                                </div>
+                                                <div class="hm-b-avg">
+                                                    <span class="hm-b-val" x-text="fmtShortAvg(call.averageGoingTime)"></span>
+                                                    <span class="hm-b-unit">avg</span>
+                                                </div>
+                                                <span :class="'hm-b-dev tone-' + blockTier(call)" x-text="'±' + deviationPct(call) + '%'"></span>
+                                            </div>
                                         </template>
-                                    </tbody>
-                                </table>
-                            </div>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <!-- 테이블 보기 카드 -->
+                            <template x-if="viewMode === 'table'">
+                                <div class="card mb-4">
+                                    <div class="hm-table-head">
+                                        <div class="hm-table-head-left">
+                                            <button class="btn-icon btn-sm" @click="group.isExpanded = !group.isExpanded">
+                                                <span class="material-icons" x-text="group.isExpanded ? 'expand_more' : 'chevron_right'"></span>
+                                            </button>
+                                            <h6 class="hm-flow-title" x-text="group.flowName"></h6>
+                                            <span class="chip chip-info" x-text="group.callCount + ' Calls'"></span>
+                                            <span class="chip chip-error" x-show="flowDangerCount(group) > 0" x-text="'위험 ' + flowDangerCount(group)"></span>
+                                        </div>
+                                        <div class="d-flex" style="align-items:center; gap:4px;">
+                                            <div :class="'heatmap-cell-mini hm-tier-bg-' + flowTier(group)" :title="'평균: ' + Math.round(group.flowAverageTime) + ' ms'">Avg</div>
+                                            <div :class="'heatmap-cell-mini hm-tier-bg-' + flowTier(group)" :title="'표준편차: ' + Math.round(group.flowAverageStdDev) + ' ms'">SD</div>
+                                            <div :class="'heatmap-cell-mini hm-tier-bg-' + flowTier(group)" :title="'변동계수: ' + group.flowAverageCV.toFixed(2)">CV</div>
+                                        </div>
+                                    </div>
+
+                                    <div class="table-container" x-show="group.isExpanded" style="overflow:auto;">
+                                        <table class="table table-hover heatmap-matrix-table" style="table-layout:fixed; width:100%;">
+                                            <colgroup>
+                                                <col style="width:22%;" /><col style="width:14%;" /><col style="width:12%;" />
+                                                <col style="width:12%;" /><col style="width:12%;" /><col style="width:10%;" />
+                                            </colgroup>
+                                            <thead class="table-head-sticky">
+                                                <tr>
+                                                    <th class="sortable" @click="sortBy('callName')">Call <span x-html="sortIcon('callName')"></span></th>
+                                                    <th class="sortable" @click="sortBy('workName')">Work <span x-html="sortIcon('workName')"></span></th>
+                                                    <th class="sortable heatmap-col-header" @click="sortBy('avg')">
+                                                        <span title="Call의 평균 실행 시간 (ms). 낮을수록 빠릅니다." class="hm-help">평균 <span x-html="sortIcon('avg')"></span></span>
+                                                    </th>
+                                                    <th class="sortable heatmap-col-header" @click="sortBy('stddev')">
+                                                        <span title="실행 시간의 표준편차 (ms). 낮을수록 안정적입니다." class="hm-help">표준편차 <span x-html="sortIcon('stddev')"></span></span>
+                                                    </th>
+                                                    <th class="sortable heatmap-col-header" @click="sortBy('cv')">
+                                                        <span title="변동계수 (CV) = 표준편차/평균. 0.1 미만: 안정, 0.3 이상: 불안정" class="hm-help">변동계수 <span x-html="sortIcon('cv')"></span></span>
+                                                    </th>
+                                                    <th style="text-align:center;"><span title="Call이 Going 상태로 전환된 총 횟수" class="hm-help">실행횟수</span></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <template x-for="call in sortedCalls(group)" :key="'row-' + call.callId">
+                                                    <tr :class="'heatmap-matrix-row ' + (selectedCall && selectedCall.callId === call.callId ? 'selected' : '')"
+                                                        @click="selectCall(call)" :title="callTooltip(call)">
+                                                        <td class="heatmap-matrix-label" x-text="call.callName"></td>
+                                                        <td class="heatmap-matrix-label" x-text="call.workName"></td>
+                                                        <td style="text-align:center; padding:4px;">
+                                                            <div :class="'heatmap-cell-compact hm-tier-bg-' + blockTier(call)" x-text="fmtShortAvg(call.averageGoingTime)"></div>
+                                                        </td>
+                                                        <td style="text-align:center; padding:4px;">
+                                                            <div :class="'heatmap-cell-compact hm-tier-bg-' + blockTier(call)" x-text="fmtShortAvg(call.stdDevGoingTime)"></div>
+                                                        </td>
+                                                        <td style="text-align:center; padding:4px;">
+                                                            <div :class="'heatmap-cell-compact hm-tier-bg-' + blockTier(call)" x-text="call.coefficientOfVariation.toFixed(2)"></div>
+                                                        </td>
+                                                        <td style="text-align:center;"><span class="typo-body2" style="font-family:var(--font-mono); font-variant-numeric:tabular-nums;" x-text="call.goingCount"></span></td>
+                                                    </tr>
+                                                </template>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <!-- ════ 선택 Call 상세 — 소속 그룹의 매트릭스/테이블 카드 바로 아래 ════ -->
+                            <template x-if="groupHasSelected(group)">
+                                <div class="card mb-4 hm-detail-panel" x-transition.opacity x-ref="detail">
+                                    <div class="dsp-panel-body">
+                                <div class="d-flex" style="justify-content:space-between; align-items:flex-start; margin-bottom:14px;">
+                                    <div style="min-width:0;">
+                                        <div class="hm-detail-eyebrow mb-1"><span class="material-icons" style="font-size:14px;">search</span>선택된 Call · 상세</div>
+                                        <h6 class="typo-h6" style="margin:2px 0 0; color:var(--navy);" x-text="selectedCall.callName"></h6>
+                                        <span class="typo-caption" style="color:var(--color-text-secondary); font-family:var(--font-mono);"
+                                              x-text="'Flow: ' + selectedCall.flowName + ' | Work: ' + (selectedCall.workName || '—')"></span>
+                                    </div>
+                                    <button class="btn-icon btn-sm" @click="closeChart()" title="상세 닫기"><span class="material-icons">close</span></button>
+                                </div>
+
+                                <div class="hm-detail-cols">
+                                    <!-- 좌: 기본정보 행 테이블 -->
+                                    <div>
+                                        <div class="ds-card-h" style="margin-bottom:6px;"><h4>기본 정보</h4></div>
+                                        <table class="hm-info-table">
+                                            <tr><th>Call ID</th><td class="hm-info-mono" x-text="selectedCall.callId"></td></tr>
+                                            <tr><th>Flow / Work</th><td x-text="selectedCall.flowName + ' / ' + (selectedCall.workName || '—')"></td></tr>
+                                            <tr><th>평균</th><td class="hm-info-mono hm-info-strong" x-text="formatMs(chartCount > 0 ? chartAvg : selectedCall.averageGoingTime)"></td></tr>
+                                            <tr>
+                                                <th>최소 / 최대</th>
+                                                <td class="hm-info-mono" x-text="displayedMin === null ? '—' : (formatMs(displayedMin) + ' / ' + formatMs(displayedMax))"></td>
+                                            </tr>
+                                            <tr>
+                                                <th>편차 (평균 대비)</th>
+                                                <td>
+                                                    <span class="hm-info-mono hm-info-strong" x-text="'±' + deviationPctFromCv(chartCount > 0 ? chartCV : selectedCall.coefficientOfVariation) + '%'"></span>
+                                                    <span :class="'ds-status ' + tierStatusClass(cvToTier(chartCount > 0 ? chartCV : selectedCall.coefficientOfVariation))"
+                                                          style="margin-left:6px;" x-text="tierLabel(cvToTier(chartCount > 0 ? chartCV : selectedCall.coefficientOfVariation))"></span>
+                                                </td>
+                                            </tr>
+                                            <tr><th>변동계수 (CV=σ/평균)</th><td class="hm-info-mono" x-text="(chartCount > 0 ? chartCV : selectedCall.coefficientOfVariation).toFixed(2)"></td></tr>
+                                            <tr><th>표준편차 (σ)</th><td class="hm-info-mono" x-text="formatMs(chartCount > 0 ? chartStdDev : selectedCall.stdDevGoingTime)"></td></tr>
+                                            <tr><th>N (실행횟수)</th><td class="hm-info-mono" x-text="(chartCount > 0 ? chartCount : selectedCall.goingCount).toLocaleString() + '회'"></td></tr>
+                                        </table>
+                                        <div class="typo-caption" style="color:var(--color-text-disabled); margin-top:8px;">
+                                            ※ 본 시스템은 표준(takt) 시간을 사용하지 않습니다. 편차는 모두 평균 대비(CV=σ/평균)로 산출됩니다. 디바이스명·최소/최대는 실행 이력 기준이며 이력이 없으면 '—'.
+                                        </div>
+                                    </div>
+
+                                    <!-- 우: 실행 시간 추이 차트 -->
+                                    <div>
+                                        <div class="d-flex" style="align-items:center; gap:8px; margin-bottom:10px; flex-wrap:wrap;">
+                                            <span class="material-icons" style="font-size:18px; color:var(--color-primary);">show_chart</span>
+                                            <span class="typo-subtitle2">실행 시간 추이</span>
+                                            <span class="typo-caption" x-show="isChartLoading" style="color:var(--color-text-secondary);">로딩 중...</span>
+                                            <div class="d-flex" style="align-items:center; gap:8px; margin-left:auto; flex-wrap:wrap;">
+                                                <div class="d-flex" style="gap:4px;" title="표시할 실행 이력의 기간을 선택합니다.">
+                                                    <button class="btn btn-sm" :class="historyPeriod === 'all' ? 'btn-primary' : 'btn-outlined color-default'" @click="setHistoryPeriod('all')">전체</button>
+                                                    <button class="btn btn-sm" :class="historyPeriod === 'today' ? 'btn-primary' : 'btn-outlined color-default'" @click="setHistoryPeriod('today')">오늘</button>
+                                                    <button class="btn btn-sm" :class="historyPeriod === '7d' ? 'btn-primary' : 'btn-outlined color-default'" @click="setHistoryPeriod('7d')">지난 7일</button>
+                                                    <button class="btn btn-sm" :class="historyPeriod === '30d' ? 'btn-primary' : 'btn-outlined color-default'" @click="setHistoryPeriod('30d')">지난 30일</button>
+                                                </div>
+                                                <label class="switch" title="이동평균의 0.5배~2배 범위를 벗어나는 회차(위·아래 이상치)를 제외합니다.">
+                                                    <input type="checkbox" x-model="excludeDeviation" @change="onExcludeDeviationChange()" /> 이상치 제외
+                                                </label>
+                                            </div>
+                                        </div>
+
+                                        <div x-show="callHistory.length > 0" class="hm-chart-box">
+                                            <canvas id="callHistoryChart"></canvas>
+                                        </div>
+                                        <div x-show="callHistory.length === 0 && !isChartLoading" class="typo-body2 hm-chart-empty">
+                                            <span class="material-icons" style="font-size:32px; display:block; margin-bottom:8px; opacity:0.5;">timeline</span>
+                                            실행 이력이 없습니다.
+                                        </div>
+                                        <div class="typo-caption" style="color:var(--color-text-secondary); margin-top:6px;">
+                                            녹색 밴드 = 정상 범위(평균 ± 2σ) · 빨간선 = 실제 실행시간 · 최근 포인트 강조. (표준/takt 기준 아님)
+                                        </div>
+                                    </div>
+                                </div>
+                                    </div>
+                                </div>
+                            </template>
                         </div>
                     </template>
                 </div>
             </template>
         </main>
 
-        <!-- Call 상세 모달 -->
-        <div class="modal-overlay" x-show="selectedCall" @click="closeModal()" style="display:none;" x-transition.opacity>
-            <template x-if="selectedCall">
-                <div class="modal-content" style="max-width:720px; width:90vw;" @click.stop>
-                    <div class="d-flex" style="justify-content:space-between; align-items:center; margin-bottom:16px;">
-                        <div>
-                            <div class="eyebrow mb-1">Call 상세</div>
-                            <h6 class="typo-h6" style="margin:0;" x-text="selectedCall.callName"></h6>
-                            <span class="typo-caption" style="color:var(--color-text-secondary); font-family:var(--font-mono);"
-                                  x-text="'Flow: ' + selectedCall.flowName + ' | Work: ' + selectedCall.workName"></span>
-                        </div>
-                        <button class="btn-icon btn-sm" @click="closeModal()"><span class="material-icons">close</span></button>
-                    </div>
-
-                    <div class="hm-detail-grid">
-                        <div :class="'heatmap-detail-card ' + selectedCall.colorClassAvg">
-                            <div class="typo-overline" style="color:inherit; opacity:0.85;">평균 시간</div>
-                            <div class="hm-detail-value" x-text="formatMs(chartCount > 0 ? chartAvg : selectedCall.averageGoingTime)"></div>
-                            <div class="typo-caption" style="color:inherit; opacity:0.7;">낮을수록 빠름</div>
-                        </div>
-                        <div :class="'heatmap-detail-card ' + selectedCall.colorClassStdDev">
-                            <div class="typo-overline" style="color:inherit; opacity:0.85;">표준편차</div>
-                            <div class="hm-detail-value" x-text="formatMs(chartCount > 0 ? chartStdDev : selectedCall.stdDevGoingTime)"></div>
-                            <div class="typo-caption" style="color:inherit; opacity:0.7;">낮을수록 안정적</div>
-                        </div>
-                        <div :class="'heatmap-detail-card ' + selectedCall.colorClassCV">
-                            <div class="typo-overline" style="color:inherit; opacity:0.85;">변동계수</div>
-                            <div class="hm-detail-value" x-text="(chartCount > 0 ? chartCV : selectedCall.coefficientOfVariation).toFixed(2)"></div>
-                            <div class="typo-caption" style="color:inherit; opacity:0.7;" x-text="cvStatus(chartCount > 0 ? chartCV : selectedCall.coefficientOfVariation)"></div>
-                        </div>
-                        <div class="heatmap-detail-card hm-detail-card-neutral">
-                            <div class="typo-overline" style="color:inherit; opacity:0.85;">실행횟수</div>
-                            <div class="hm-detail-value" x-text="(chartCount > 0 ? chartCount : selectedCall.goingCount) + '회'"></div>
-                            <div class="typo-caption" style="color:inherit; opacity:0.7;" x-text="goingCountStatus(chartCount > 0 ? chartCount : selectedCall.goingCount)"></div>
-                        </div>
-                    </div>
-
-                    <!-- 실행 이력 차트 -->
-                    <div style="margin-top:16px; border-top:1px solid var(--color-lines); padding-top:16px;">
-                        <div class="d-flex" style="align-items:center; gap:8px; margin-bottom:10px; flex-wrap:wrap;">
-                            <span class="material-icons" style="font-size:18px; color:var(--color-primary);">show_chart</span>
-                            <span class="typo-subtitle2">실행 시간 추이</span>
-                            <span class="typo-caption" x-show="isChartLoading" style="color:var(--color-text-secondary);">로딩 중...</span>
-                            <div class="d-flex" style="align-items:center; gap:8px; margin-left:auto; flex-wrap:wrap;">
-                                <div class="d-flex" style="gap:4px;" title="표시할 실행 이력의 기간을 선택합니다.">
-                                    <button class="btn btn-sm" :class="historyPeriod === 'all' ? 'btn-primary' : 'btn-outlined color-default'" @click="setHistoryPeriod('all')">전체</button>
-                                    <button class="btn btn-sm" :class="historyPeriod === 'today' ? 'btn-primary' : 'btn-outlined color-default'" @click="setHistoryPeriod('today')">오늘</button>
-                                    <button class="btn btn-sm" :class="historyPeriod === '7d' ? 'btn-primary' : 'btn-outlined color-default'" @click="setHistoryPeriod('7d')">지난 7일</button>
-                                    <button class="btn btn-sm" :class="historyPeriod === '30d' ? 'btn-primary' : 'btn-outlined color-default'" @click="setHistoryPeriod('30d')">지난 30일</button>
-                                </div>
-                                <label class="switch"
-                                       title="이동평균의 0.5배~2배 범위를 벗어나는 회차(위·아래 스파이크)를 제외합니다.">
-                                    <input type="checkbox" x-model="excludeDeviation" @change="onExcludeDeviationChange()" /> 스파이크 제외
-                                </label>
-                            </div>
-                        </div>
-
-                        <div x-show="callHistory.length > 0" class="hm-chart-box">
-                            <canvas id="callHistoryChart"></canvas>
-                        </div>
-                        <div x-show="callHistory.length === 0 && !isChartLoading"
-                             class="typo-body2 hm-chart-empty">
-                            <span class="material-icons" style="font-size:32px; display:block; margin-bottom:8px; opacity:0.5;">timeline</span>
-                            실행 이력이 없습니다.
-                        </div>
-                    </div>
-                </div>
-            </template>
-        </div>
     </div>
 
     <!-- Chart.js + 기존 차트 인터롭(camelCase 키 기대 → API 도 camelCase) -->
@@ -390,24 +480,15 @@
                 error: null,
                 demoBlocked: false,
                 flowFilter: '',
-                selectedMetricIdx: 2, // 기본: 변동계수(CV) — Blazor SelectedMetric 기본값과 동일
-                allExpanded: true,
+                viewMode: 'matrix', // 'matrix'(flow-call 블럭 매트릭스) | 'table'(정렬 표) — 한 번에 하나만
                 sortField: 'cv',
                 sortAsc: false,
                 selectedCall: null,
                 callHistory: [],
                 excludeDeviation: true,
-                historyPeriod: 'all',
+                historyPeriod: 'today',
                 isChartLoading: false,
                 dark: false,
-
-                metrics: [
-                    { key: 'avg', name: '평균 시간 (ms)' },
-                    { key: 'stddev', name: '표준편차 (ms)' },
-                    { key: 'cv', name: '변동계수 (CV)' }
-                ],
-
-                get selectedMetric() { return this.metrics[this.selectedMetricIdx] || this.metrics[2]; },
 
                 async init() {
                     this.dark = localStorage.getItem('dspilot-theme') === 'dark';
@@ -432,7 +513,16 @@
                 async loadData() {
                     this.loading = true; this.error = null;
                     try {
-                        this.allGroups = await this.apiGet('/api/heatmap/data');
+                        const groups = await this.apiGet('/api/heatmap/data') || [];
+                        // 렌더 비용 선계산(1회): 행마다 blockTier / flowDangerCount 재계산 방지(O(n²) 렉 회피)
+                        for (const g of groups) {
+                            const calls = g.calls || [];
+                            for (const c of calls) { c._tier = this.cvToTier(c.coefficientOfVariation); c._dev = this.deviationPctFromCv(c.coefficientOfVariation); }
+                            g._dangerCount = calls.reduce((n, c) => n + (c._tier === 'danger' ? 1 : 0), 0);
+                            g._blockCalls = calls.slice().sort((a, b) => (b.coefficientOfVariation - a.coefficientOfVariation) || (a.callName || '').localeCompare(b.callName || ''));
+                            g.isExpanded = true; // 테이블 보기 기본 펼침
+                        }
+                        this.allGroups = groups;
                         // 새로고침으로 데이터가 교체됐는데 열린 모달의 Call 이 더 이상 없으면 모달 정리(좀비 모달 방지)
                         if (this.selectedCall &&
                             !this.allGroups.some(g => (g.calls || []).some(c => c.callId === this.selectedCall.callId))) {
@@ -452,57 +542,49 @@
                     return this.allGroups.filter(g => (g.flowName || '').toLowerCase().includes(f));
                 },
 
-                metricValue(call, key) {
-                    if (key === 'avg') return call.averageGoingTime;
-                    if (key === 'stddev') return call.stdDevGoingTime;
-                    return call.coefficientOfVariation;
-                },
-                colorClass(call, key) {
-                    if (key === 'avg') return call.colorClassAvg;
-                    if (key === 'stddev') return call.colorClassStdDev;
-                    return call.colorClassCV;
-                },
-                flowAvgValue(group, key) {
-                    if (key === 'avg') return group.flowAverageTime;
-                    if (key === 'stddev') return group.flowAverageStdDev;
-                    return group.flowAverageCV;
-                },
-
-                // HeatmapPerformance.FormatMetricValue: avg/stddev → F0, cv → F2
-                fmt(key, value) {
-                    if (key === 'cv') return Number(value).toFixed(2);
-                    return Math.round(Number(value)).toString();
-                },
                 // FormatMetricValueShort(AverageTime/StdDeviation): <1000 → 정수, else (x/1000)s
                 fmtShortAvg(v) {
                     return v < 1000 ? Math.round(v).toString() : (v / 1000).toFixed(1) + 's';
                 },
 
-                isIssueCall(call) {
-                    const c = this.colorClass(call, this.selectedMetric.key);
-                    return c === 'heatmap-poor' || c === 'heatmap-critical';
+                // ── 3단계 진단 등급 파생 (CV=σ/평균 구간 → normal/caution/danger) ──
+                // 서버 ColorClassCV 클래스에 의존하지 않고 클라에서 평균 대비 편차(CV)로만 파생. takt/표준 미사용.
+                cvToTier(cv) {
+                    if (cv < 0.10) return 'normal';   // 편차 ±10% 미만
+                    if (cv < 0.30) return 'caution';  // 편차 ±10~30%
+                    return 'danger';                  // 편차 ±30% 초과
                 },
-                issueCount(group) { return group.calls.filter(c => this.isIssueCall(c)).length; },
+                blockTier(call) { return call._tier != null ? call._tier : this.cvToTier(call.coefficientOfVariation); },
+                tierLabel(tier) {
+                    return { normal: '정상', caution: '주의', danger: '위험' }[tier] || '정상';
+                },
+                tierStatusClass(tier) {
+                    return { normal: 'ok', caution: 'warn', danger: 'bad' }[tier] || 'info';
+                },
+                // 편차%(평균 대비) = CV × 100 = (σ/평균)×100
+                deviationPct(call) { return call._dev != null ? call._dev : this.deviationPctFromCv(call.coefficientOfVariation); },
+                deviationPctFromCv(cv) {
+                    const v = Number(cv) * 100;
+                    return v >= 100 ? Math.round(v) : v.toFixed(1);
+                },
+                // 블럭 그리드용 정렬: 편차(CV) 큰 순 → 진단 카드가 위험부터 보이도록
+                blockCalls(group) {
+                    return group._blockCalls || group.calls.slice().sort((a, b) =>
+                        (b.coefficientOfVariation - a.coefficientOfVariation)
+                        || (a.callName || '').localeCompare(b.callName || ''));
+                },
+                flowDangerCount(group) { return group._dangerCount != null ? group._dangerCount : group.calls.filter(c => this.blockTier(c) === 'danger').length; },
+                // Flow 대표 tier: 서버 flowColorClassCV(데이터셋 상대값) 대신 cvToTier(평균CV) 절대기준 사용 → Call/범례/매트릭스와 동일 모델.
+                // (flowAverageCV = 서버의 Call별 CV 평균값. flowDangerCount 가 Call tier 를 집계하는 방식과 일관)
+                flowTier(group) { return this.cvToTier(group.flowAverageCV != null ? group.flowAverageCV : 0); },
+                // 선택된 Call 이 이 그룹 소속인지 — 상세 패널을 "소속 그룹의 매트릭스/테이블 바로 아래"에 렌더하는 데 사용
+                groupHasSelected(group) {
+                    return this.selectedCall && (group.calls || []).some(c => c.callId === this.selectedCall.callId);
+                },
 
                 get totalCalls() { return this.filteredGroups.reduce((s, g) => s + g.callCount, 0); },
-                get issueCalls() { return this.filteredGroups.reduce((s, g) => s + this.issueCount(g), 0); },
-                get selectedMetricAverage() {
-                    const calls = this.filteredGroups.flatMap(g => g.calls);
-                    if (calls.length === 0) return 0;
-                    return calls.reduce((s, c) => s + this.metricValue(c, this.selectedMetric.key), 0) / calls.length;
-                },
-
-                workGroups(group) {
-                    const map = {};
-                    for (const call of group.calls) {
-                        const w = (call.workName && call.workName.trim()) ? call.workName : 'No Work';
-                        (map[w] = map[w] || []).push(call);
-                    }
-                    return Object.keys(map).sort((a, b) => a.localeCompare(b)).map(w => ({
-                        workName: w,
-                        calls: map[w].slice().sort((a, b) => (a.callName || '').localeCompare(b.callName || ''))
-                    }));
-                },
+                get dangerCalls() { return this.filteredGroups.reduce((s, g) => s + this.flowDangerCount(g), 0); },
+                get totalGoingCount() { return this.filteredGroups.flatMap(g => g.calls).reduce((s, c) => s + (c.goingCount || 0), 0); },
 
                 sortedCalls(group) {
                     const calls = group.calls.slice();
@@ -526,27 +608,16 @@
                     return `<span class="material-icons sort-icon">${icon}</span>`;
                 },
 
-                cvStatus(cv) {
-                    if (cv < 0.1) return '매우 안정적';
-                    if (cv < 0.2) return '안정적';
-                    if (cv < 0.3) return '보통';
-                    if (cv < 0.5) return '불안정';
-                    return '매우 불안정';
-                },
-                goingCountStatus(n) {
-                    if (n >= 30) return '샘플 충분';
-                    if (n >= 10) return '샘플 보통';
-                    return '샘플 적음';
-                },
                 callTooltip(call) {
-                    const key = this.selectedMetric.key;
-                    return `[${call.callName}]\nFlow: ${call.flowName}\nWork: ${call.workName}\n`
-                        + `평균: ${Math.round(call.averageGoingTime)} ms\n표준편차: ${Math.round(call.stdDevGoingTime)} ms\n`
-                        + `변동계수: ${call.coefficientOfVariation.toFixed(2)} (${this.cvStatus(call.coefficientOfVariation)})\n`
-                        + `실행횟수: ${call.goingCount}회\n${this.selectedMetric.name}: ${this.fmt(key, this.metricValue(call, key))}`;
+                    const tier = this.blockTier(call);
+                    return `[${call.callName}]\nFlow: ${call.flowName}\nWork: ${call.workName || '—'}\n`
+                        + `평균: ${Math.round(call.averageGoingTime)} ms\n표준편차(σ): ${Math.round(call.stdDevGoingTime)} ms\n`
+                        + `편차(평균 대비): ±${this.deviationPct(call)}%  [${this.tierLabel(tier)}]\n`
+                        + `변동계수(CV=σ/평균): ${call.coefficientOfVariation.toFixed(2)}\n`
+                        + `실행횟수(N): ${call.goingCount}회\n클릭 → 추이·상세 펼침`;
                 },
 
-                // ── 차트/통계 (스파이크 제외 반영) ──
+                // ── 차트/통계 (이상치 제외 반영) ──
                 get displayedHistory() {
                     if (!this.excludeDeviation || this.callHistory.length === 0) return this.callHistory;
                     const times = this.callHistory.map(r => r.goingTimeMs);
@@ -563,11 +634,16 @@
                 get chartStdDev() { const d = this.displayedHistory; if (!d.length) return 0; const a = this.chartAvg; return Math.sqrt(d.reduce((s, r) => s + Math.pow(r.goingTimeMs - a, 2), 0) / d.length); },
                 get chartCV() { return this.chartAvg > 0 ? this.chartStdDev / this.chartAvg : 0; },
                 get chartCount() { return this.displayedHistory.length; },
+                // 최소/최대 실행시간 — 표시 이력(이상치 제외 반영) 기준. 이력 없으면 null('—' 표기).
+                get displayedMin() { const d = this.displayedHistory; return d.length ? Math.min(...d.map(r => r.goingTimeMs)) : null; },
+                get displayedMax() { const d = this.displayedHistory; return d.length ? Math.max(...d.map(r => r.goingTimeMs)) : null; },
 
                 async selectCall(call) {
                     if (this.selectedCall && this.selectedCall.callId === call.callId) { await this.closeModal(); return; }
                     this.selectedCall = call;
                     this.callHistory = [];
+                    // 공통 상세 패널이 뷰 하단에 있으므로 선택 시 부드럽게 스크롤(매트릭스/테이블 공통)
+                    this.$nextTick(() => { const el = this.$refs.detail; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); });
                     await this.loadHistory();
                 },
                 async loadHistory() {
@@ -615,11 +691,13 @@
                     };
                     draw(0);
                 },
-                async closeModal() {
+                // 인라인 상세 패널 닫기 (구 모달 closeModal 과 동작 동일 — loadData 의 좀비 정리 호출 호환 위해 둘 다 유지)
+                async closeChart() {
                     this.selectedCall = null;
                     this.callHistory = [];
                     window.destroyCallHistoryChart();
                 },
+                async closeModal() { await this.closeChart(); },
 
                 formatMs(ms) {
                     if (ms <= 0) return '0s';

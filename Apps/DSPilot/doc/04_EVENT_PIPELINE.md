@@ -1,5 +1,10 @@
 # 이벤트 처리 파이프라인
 
+> ⚠️ **[2026-06 정정] InTag/OutTag start·finish polarity 정정.**
+> 본문 일부가 `InTag Rising = Call 시작`, `OutTag Rising = Call 종료` 로 기술하나 이는 폐기된 초기 설계다.
+> InTag/OutTag 는 모두 **PLC 기준** 명칭 → 정본(진영 B): **OutTag Rising(명령) = 시작**, **InTag Rising(응답) = 완료**.
+> "Rising 만 사용, Falling 무시" 자체는 유효(완료=신호 ON; Falling=복귀). 자세한 내용은 14번 문서 상단 정정 배너 참고.
+
 ## 🎯 목적
 
 PLC 이벤트를 수신하여 Projection 테이블(dspFlow, dspCall)을 실시간으로 업데이트하는 파이프라인 설계입니다.

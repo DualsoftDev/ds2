@@ -10,7 +10,7 @@ public class AppSettingsService
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     private static readonly string[] ManagedSections =
-        ["Database", "FlowCycle", "DspTables", "Hub", "Logging", "Ui", "HistoryView", "Cctv"];
+        ["Database", "FlowCycle", "DspTables", "Hub", "Logging", "Ui", "HistoryView", "Cctv", "OeeSignals", "Shift"];
 
     private readonly string _filePath;
     private readonly string _productionFilePath;
@@ -66,6 +66,8 @@ public class AppSettingsService
             Ui = Deserialize<UiSettings>(root["Ui"]),
             HistoryView = Deserialize<HistoryViewSettings>(root["HistoryView"]),
             Cctv = Deserialize<CctvSettings>(root["Cctv"]),
+            OeeSignals = Deserialize<OeeSignalSettings>(root["OeeSignals"]),
+            Shift = Deserialize<ShiftSettings>(root["Shift"]),
         };
     }
 
@@ -92,6 +94,8 @@ public class AppSettingsService
         target["Ui"] = JsonSerializer.SerializeToNode(model.Ui, JsonOptions);
         target["HistoryView"] = JsonSerializer.SerializeToNode(model.HistoryView, JsonOptions);
         target["Cctv"] = JsonSerializer.SerializeToNode(model.Cctv, JsonOptions);
+        target["OeeSignals"] = JsonSerializer.SerializeToNode(model.OeeSignals, JsonOptions);
+        target["Shift"] = JsonSerializer.SerializeToNode(model.Shift, JsonOptions);
     }
 
     public FlowCycleOverride? GetFlowCycleOverride(string flowName)
@@ -154,6 +158,57 @@ public class AppSettingsService
     {
         var settings = LoadSettings();
         settings.FlowCycle.Overrides.Clear();
+        SaveSettings(settings);
+    }
+
+    /// <summary>
+    /// Flow 의 표준(ideal) 사이클 시간(ms)만 갱신. P5 OEE Performance 의 단일 소스 (doc/21 §2.4).
+    /// 기존 StartCallName/EndCallName override 는 보존 — backward compatible.
+    /// idealCycleTimeMs == null 이면 IdealCycleTimeMs 만 비우고, 다른 override 도 모두 비어 있으면 항목 제거.
+    /// </summary>
+    public void SaveFlowIdealCycleTime(string flowName, int? idealCycleTimeMs)
+    {
+        if (string.IsNullOrWhiteSpace(flowName))
+        {
+            throw new ArgumentException("Flow name is required.", nameof(flowName));
+        }
+
+        var normalized = idealCycleTimeMs is > 0 ? idealCycleTimeMs : null;
+
+        var settings = LoadSettings();
+        var overrides = settings.FlowCycle.Overrides;
+        var existing = overrides
+            .FirstOrDefault(item => string.Equals(item.FlowName, flowName, StringComparison.OrdinalIgnoreCase));
+
+        if (existing is null)
+        {
+            if (normalized is null)
+            {
+                return; // 설정할 것도, 제거할 것도 없음
+            }
+            overrides.Add(new FlowCycleOverride
+            {
+                FlowName = flowName,
+                IdealCycleTimeMs = normalized,
+            });
+        }
+        else
+        {
+            existing.IdealCycleTimeMs = normalized;
+
+            // 모든 override 필드가 비면 항목 자체 제거 (SaveFlowCycleOverride 의 빈 항목 정리와 동일 원칙)
+            if (normalized is null
+                && string.IsNullOrWhiteSpace(existing.StartCallName)
+                && string.IsNullOrWhiteSpace(existing.EndCallName))
+            {
+                overrides.Remove(existing);
+            }
+        }
+
+        settings.FlowCycle.Overrides = overrides
+            .OrderBy(item => item.FlowName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
         SaveSettings(settings);
     }
 

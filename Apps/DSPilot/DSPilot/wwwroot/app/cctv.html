@@ -7,13 +7,23 @@
     <title>CCTV — DSPilot</title>
 
     <!--
-      DSPilot 정적 호스팅 — Swiss Technical 리디자인 (CCTV).
-      영상은 MediaMTX WHEP 로 브라우저 직접 연결 — /js/cctv-whep.js 그대로 재사용.
-      서버=C#(/api/cctv/config|status|sync), 뷰=Alpine. POST /sync 는 antiforgery 미적용 평범한 fetch.
-      디자인 시스템: /css/swiss.css (토큰/컴포넌트/다크). 페이지 고유 클래스(cctv-*)만 인라인.
+      DSPilot 정적 호스팅 — P4 CCTV 관제 (2026-06 개편: 단일 "영상벽" 워크스페이스).
+      개편 목표(사용자 요구):
+        ① 더 직관적인 카메라 선택·배치 — 레이아웃 프리셋(단독/2/2×2/2×3/자동) 세그먼트 컨트롤 + 클릭 우선 카메라 레일 +
+           1클릭 단독(SOLO) 보기. 단독은 같은 <video> 를 CSS 로 확대(추가 WHEP 스트림 없음 → 6대 동시 상한 무관).
+        ② 오버레이(Flow/Call) 를 라이브 타일 위에서 바로 배치/편집 — 별도 에디터 섹션 폐지(중복 스트림 제거).
+        ③ Flow 와 Call 은 디자인으로 구분 — 색(hue)=상태 전용, 종류는 모양/글리프/뱃지/텍스처로 인코딩:
+             Flow=둥근 ZONE(실선 테두리 + ● 원형 뱃지 account_tree),
+             Call=POINT/설비(점선 테두리 + 대각 해치 + ◆ 다이아 뱃지 memory). 6분할 썸네일·흑백·색약에서도 구분.
+        ④ 상태는 색으로, 그 외 상세는 호버 툴팁으로 — Ready/Going/Finish/Error/미수신 색(colorOf), 진행 중 펄스.
+           툴팁: Flow/시스템/Call/Work 이름(클라 조인) + 평균 사이클 + 진행 횟수/진행률/설비/현재CT/이동구간/이상텍스트(서버).
+      영상=MediaMTX WHEP 직접 연결(/js/cctv-whep.js). 서버=C#(/api/cctv/*). 뷰=Alpine.
+      좌표=정규화 0~1, object-fit:contain letterbox → per-tile displayRect(computeRect)로 px 변환(편집·렌더 공통).
+      상태색 /api/cctv/overlay-state 3초 폴링(overlay id 기준): Call 있으면 Call.State, 없으면 Flow.State.
+      실시간알람·스트림지연 KPI 는 텔레메트리 미확보 — 등록 오버레이/진행 중(실데이터)로 대체.
     -->
     <link href="/css/fonts.css" rel="stylesheet" />
-    <link href="/css/swiss.css" rel="stylesheet" />
+    <link href="/css/ds.css" rel="stylesheet" />
 
     <style>
         [x-cloak] { display: none !important; }
@@ -25,66 +35,211 @@
         .dsp-appbar .spacer { flex: 1; }
         .dsp-main { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
-        /* ── CCTV 페이지 셸 ── */
-        .cctv-page { box-sizing: border-box; height: calc(100vh - 56px); padding: 16px 20px 12px; display: flex; flex-direction: column; gap: 14px; overflow: hidden; }
+        /* ── CCTV 페이지 셸 — 높이 제한 없음, 세로로 쌓이며 스크롤 ── */
+        .cctv-page { box-sizing: border-box; padding: 16px 20px 28px; display: flex; flex-direction: column; gap: 16px; }
+        .cctv-head-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .ds-live.ds-live-sm { padding: 3px 9px; gap: 5px; font-size: 0.6rem; }
+        .ds-live.ds-live-sm .ds-live-dot { width: 6px; height: 6px; }
 
-        /* ── 콘텐츠 페이지 헤더 ── */
-        .cctv-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding-bottom: 12px; border-bottom: 2px solid var(--color-text-primary); flex-shrink: 0; }
-        .cctv-head-main { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
-        .cctv-head-index { font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700; color: var(--color-primary); letter-spacing: 0.04em; }
-        .cctv-head-title { font-size: 1.4rem; font-weight: 700; letter-spacing: -0.015em; margin: 0; }
-        .cctv-header-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        /* ════════ 영상벽 워크스페이스 (레일 + 그리드) ════════ */
+        .cctv-composer { display: grid; grid-template-columns: 248px 1fr; gap: 14px; align-items: stretch; }
+        @media (max-width: 900px) { .cctv-composer { grid-template-columns: 1fr; } }
 
-        /* ── 라이브 상태 배지 ── */
-        .cctv-status { display: inline-flex; align-items: center; gap: 7px; font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; font-variant-numeric: tabular-nums; padding: 5px 11px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); color: var(--color-text-secondary); }
-        .cctv-status .material-icons { font-size: 16px; }
-        .cctv-status.ok { color: var(--color-success); border-color: color-mix(in srgb, var(--color-success) 50%, transparent); background: color-mix(in srgb, var(--color-success) 8%, transparent); }
-        .cctv-status.ok .cctv-status-dot { animation: cctv-pulse 1.6s ease-in-out infinite; }
-        .cctv-status.fail { color: var(--color-error); border-color: color-mix(in srgb, var(--color-error) 50%, transparent); background: color-mix(in srgb, var(--color-error) 8%, transparent); }
-        .cctv-status-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+        /* 좌측 카메라 레일 (클릭 우선, 드래그는 보조) */
+        .cctv-rail { display: flex; flex-direction: column; min-height: 0; }
+        .cctv-rail .ds-card-h { margin-bottom: 8px; }
+        .cctv-rail-search { display: flex; align-items: center; gap: 7px; padding: 6px 9px; margin-bottom: 9px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); }
+        .cctv-rail-search .material-icons { font-size: 16px; color: var(--color-text-disabled); }
+        .cctv-rail-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; color: var(--color-text-primary); font-size: 0.78rem; }
+        .cctv-rail-list { display: flex; flex-direction: column; gap: 7px; overflow-y: auto; max-height: clamp(360px, 66vh, 820px); padding-right: 2px; }
+        .cctv-rail-item { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border: 1px solid var(--color-lines); border-radius: var(--radius-md); background: var(--color-surface); cursor: pointer; transition: border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease; }
+        .cctv-rail-item:hover { border-color: var(--teal); box-shadow: 0 2px 8px rgba(109, 91, 208, 0.16); }
+        .cctv-rail-item.is-placed { border-color: color-mix(in srgb, var(--teal) 45%, var(--color-lines)); background: color-mix(in srgb, var(--teal) 5%, var(--color-surface)); }
+        .cctv-rail-item.is-solo { border-color: var(--teal); box-shadow: inset 0 0 0 1px var(--teal); }
+        .cctv-rail-thumb { width: 38px; height: 30px; flex-shrink: 0; border-radius: var(--radius-sm); background: #0d1726; color: var(--teal-2); display: flex; align-items: center; justify-content: center; position: relative; }
+        .cctv-rail-thumb .material-icons { font-size: 18px; }
+        .cctv-rail-thumb .placed-tick { position: absolute; right: -4px; bottom: -4px; font-size: 14px !important; color: var(--green); background: var(--color-surface); border-radius: 50%; }
+        .cctv-rail-meta { flex: 1; min-width: 0; }
+        .cctv-rail-name { font-family: var(--font-mono); font-size: 0.78rem; font-weight: 700; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .cctv-rail-sub { font-size: 0.64rem; color: var(--color-text-secondary); display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+        .cctv-rail-sub .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+        .cctv-rail-sub .dot.is-live { background: var(--red); }
+        .cctv-rail-sub .dot.is-off { background: var(--color-text-disabled); }
+        .cctv-rail-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+
+        /* 우측 영상벽 */
+        .cctv-wall { display: flex; flex-direction: column; min-width: 0; }
+        .cctv-wall .ds-card-h { margin-bottom: 10px; gap: 10px; }
+        .cctv-wall-area { display: flex; flex-direction: column; min-height: 0; }
+        .cctv-grid { flex: 1; min-height: 0; min-width: 0; display: grid; gap: 10px; height: clamp(360px, 64vh, 760px); }
+        .cctv-grid.count-1, .cctv-grid.layout-solo { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+        .cctv-grid.count-2, .cctv-grid.layout-2 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
+        .cctv-grid.count-3, .cctv-grid.count-4, .cctv-grid.layout-2x2 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+        .cctv-grid.count-5, .cctv-grid.count-6, .cctv-grid.layout-2x3 { grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr; }
+        /* 단독(solo): 같은 타일을 CSS 로만 확대 — 추가 스트림 없음 */
+        .cctv-grid.layout-solo .cctv-tile { display: none; }
+        .cctv-grid.layout-solo .cctv-tile.is-solo { display: flex; grid-column: 1 / -1; grid-row: 1 / -1; }
+
+        /* 레이아웃 프리셋 세그먼트 컨트롤 (폰트 비의존 인라인 SVG) */
+        .cctv-lay-group { display: inline-flex; gap: 3px; padding: 3px; background: var(--color-surface-variant); border: 1px solid var(--color-lines); border-radius: var(--radius-md); }
+        .cctv-lay-btn { display: inline-flex; align-items: center; justify-content: center; width: 31px; height: 26px; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-secondary); cursor: pointer; transition: background 0.12s ease, color 0.12s ease; }
+        .cctv-lay-btn:hover { background: color-mix(in srgb, var(--teal) 12%, transparent); color: var(--teal-dark); }
+        .cctv-lay-btn.is-active { background: var(--teal); color: #fff; box-shadow: var(--shadow-1); }
+        .cctv-lay-btn svg { width: 16px; height: 12px; display: block; }
+        .cctv-lay-btn svg rect { fill: currentColor; }
+        .cctv-lay-btn .material-icons { font-size: 17px; }
+
+        /* 그리드 비었을 때 드롭 안내 */
+        .cctv-wall-empty { flex: 1; height: clamp(360px, 64vh, 760px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 2px dashed var(--color-lines-strong); border-radius: var(--radius-md); color: var(--color-text-secondary); text-align: center; padding: 24px; }
+        .cctv-wall-empty.is-dragover { border-color: var(--teal); background: color-mix(in srgb, var(--teal) 8%, transparent); color: var(--teal-dark); }
+        .cctv-wall-empty .material-icons { font-size: 40px; opacity: 0.7; }
+        .cctv-wall-area.is-dragover .cctv-grid { outline: 2px dashed var(--teal); outline-offset: 3px; border-radius: var(--radius-md); }
+
+        /* 빈 슬롯 플레이스홀더 */
+        .cctv-cell-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; border: 1.5px dashed var(--color-lines-strong); border-radius: var(--radius-md); background: var(--color-surface-variant); color: var(--color-text-disabled); cursor: pointer; transition: border-color 0.12s ease, color 0.12s ease; min-height: 0; }
+        .cctv-cell-empty:hover { border-color: var(--teal); color: var(--teal-dark); }
+        .cctv-cell-empty .material-icons { font-size: 26px; }
+        .cctv-cell-empty span:last-child { font-size: 0.68rem; font-weight: 700; }
+
+        /* 비디오 타일 */
+        .cctv-tile { position: relative; display: flex; flex-direction: column; background: #0d1726; overflow: hidden; min-height: 0; min-width: 0; border: 1.5px solid var(--color-lines); border-radius: var(--radius-md); transition: border-color 0.12s ease, box-shadow 0.12s ease; }
+        .cctv-tile:hover { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(109, 91, 208, 0.15); }
+        .cctv-tile.is-dragging { opacity: 0.5; }
+        .cctv-tile.is-editing { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(109, 91, 208, 0.28); }
+        .cctv-tile-bar { display: flex; align-items: center; gap: 6px; padding: 5px 8px; background: rgba(10, 37, 64, 0.92); color: #fff; flex-shrink: 0; }
+        .cctv-tile-grip { cursor: grab; color: var(--teal-2); display: flex; align-items: center; }
+        .cctv-tile-grip:active { cursor: grabbing; }
+        .cctv-tile-grip .material-icons { font-size: 16px; }
+        .cctv-tile-name { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .cctv-tile-btn { background: transparent; border: none; color: rgba(255, 255, 255, 0.82); cursor: pointer; padding: 2px; border-radius: var(--radius-sm); display: inline-flex; align-items: center; }
+        .cctv-tile-btn:hover { background: rgba(255, 255, 255, 0.16); color: #fff; }
+        .cctv-tile-btn.is-active { background: var(--teal); color: #fff; }
+        .cctv-tile-btn .material-icons { font-size: 16px; }
+        .cctv-tile-btn.is-danger:hover { color: var(--red); }
+        .cctv-tile-stage { position: relative; flex: 1; min-height: 0; min-width: 0; }
+        .cctv-tile-stage video { width: 100%; height: 100%; object-fit: contain; background: #0d1726; display: block; }
+        .cctv-tile-live { position: absolute; top: 6px; left: 6px; display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: var(--radius-lg); background: var(--red); color: #fff; font-size: 0.55rem; font-weight: 800; letter-spacing: 0.06em; pointer-events: none; z-index: 3; }
+        .cctv-tile-live .ds-live-dot { width: 6px; height: 6px; border-radius: 50%; background: #fff; animation: cctv-pulse 1.6s ease-in-out infinite; }
+        .cctv-tile-live.is-connecting { background: var(--color-warning); color: #1a1a1a; }
+        .cctv-tile-live.is-down { background: var(--color-text-disabled); }
+        .cctv-tile-live.is-connecting .ds-live-dot, .cctv-tile-live.is-down .ds-live-dot { animation: none; }
+        .cctv-tile-ovl { position: absolute; bottom: 6px; right: 6px; display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: var(--radius-lg); background: rgba(10, 37, 64, 0.82); color: #fff; font-size: 0.56rem; font-weight: 800; pointer-events: none; z-index: 3; }
+        .cctv-tile-ovl .material-icons { font-size: 12px; }
         @keyframes cctv-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-        /* ── 빈 상태 ── */
-        .cctv-empty { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 64px 16px; color: var(--color-text-secondary); background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); }
-        .cctv-empty p { margin: 0; }
+        /* 타일 내 인라인 arm 바 (편집 시) */
+        .cctv-tile-armbar { display: flex; align-items: center; gap: 7px; padding: 7px 9px; background: color-mix(in srgb, var(--teal) 12%, var(--color-surface)); border-bottom: 1px solid var(--color-lines); flex-shrink: 0; flex-wrap: wrap; }
+        .cctv-tile-armbar .material-icons.lead { font-size: 16px; color: var(--teal-dark); }
+        .cctv-tile-armbar select { padding: 4px 7px; font-size: 0.74rem; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-primary); max-width: 150px; }
+        .cctv-tile-armbar .arm-hint { font-size: 0.66rem; color: var(--teal-dark); font-weight: 700; }
+        .cctv-tile-armbar .spacer { flex: 1; }
 
-        /* ── 표시 제한 안내 ── */
-        .cctv-overflow-note { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border: 1px solid var(--color-lines); border-left: 3px solid var(--color-info); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-info) 7%, var(--color-surface)); font-size: 0.78rem; color: var(--color-text-secondary); flex-shrink: 0; }
-        .cctv-overflow-note .material-icons { font-size: 16px; color: var(--color-info); flex-shrink: 0; }
+        /* ── 오버레이 레이어 (영상 위 정확히 겹침) ── */
+        .cctv-ovl-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 2; }
+        .cctv-ovl-layer.is-editing { pointer-events: auto; }
+        .cctv-ovl-layer.is-armed { cursor: crosshair; }
 
-        /* ── 영상 영역 (그리드/싱글 공통 컨테이너) ── */
-        .cctv-video-area { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+        /* 오버레이 박스 — 색(hue)=상태, 모양/뱃지/텍스처=종류 */
+        .cctv-ovl-box { position: absolute; box-sizing: border-box; border: 2px solid var(--ovl-color, var(--color-text-disabled)); background: color-mix(in srgb, var(--ovl-color, #888) 12%, transparent); box-shadow: inset 0 0 0 1px rgba(10, 37, 64, 0.5); pointer-events: auto; cursor: default; transition: box-shadow 0.12s ease; }
+        .cctv-ovl-box::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; }
+        /* FLOW = ZONE: 실선 + 둥근 모서리 */
+        .cctv-ovl-box.kind-flow { border-style: solid; border-radius: var(--radius-md); }
+        /* CALL = POINT/설비: 점선 + 각진 모서리 + 대각 해치 텍스처 */
+        .cctv-ovl-box.kind-call { border-style: dashed; border-radius: 2px;
+            background-image: repeating-linear-gradient(45deg, color-mix(in srgb, var(--ovl-color, #888) 18%, transparent) 0 5px, transparent 5px 11px); }
+        /* 상태=색 펄스(부가 단서): Going 느린, Error 빠른 링 */
+        .cctv-ovl-box.state-going::after { animation: cctv-ovl-pulse 1.8s ease-in-out infinite; }
+        .cctv-ovl-box.state-error::after { animation: cctv-ovl-pulse 0.9s ease-in-out infinite; }
+        .cctv-ovl-box.state-unknown { opacity: 0.7; }
+        /* 인셋 링 펄스 — 박스 안쪽에서 호흡(레이어 overflow:hidden 에 안 잘림, 가장자리 박스도 안전) */
+        @keyframes cctv-ovl-pulse { 0% { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--ovl-color, #888) 78%, transparent); opacity: 1; } 70%, 100% { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--ovl-color, #888) 0%, transparent); opacity: 0; } }
+        .cctv-ovl-box:hover { box-shadow: inset 0 0 0 1px rgba(10, 37, 64, 0.5), 0 0 0 2px color-mix(in srgb, var(--ovl-color, #888) 55%, transparent); }
+        .cctv-ovl-box.is-selected { box-shadow: inset 0 0 0 1px rgba(10, 37, 64, 0.5), 0 0 0 3px color-mix(in srgb, var(--ovl-color, #888) 75%, transparent); }
 
-        /* ── 비디오 그리드 ── */
-        .cctv-grid { flex: 1; min-height: 0; min-width: 0; display: grid; gap: 8px; }
-        .cctv-grid.count-1 { grid-template-columns: 1fr; grid-template-rows: 1fr; }
-        .cctv-grid.count-2 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
-        .cctv-grid.count-3, .cctv-grid.count-4 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
-        .cctv-grid.count-5, .cctv-grid.count-6 { grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr; }
+        /* 종류 뱃지 (박스 안쪽 모서리 — letterbox overflow 에 안 잘림) */
+        .cctv-kind-badge { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; background: var(--ovl-color, var(--navy)); color: #fff; box-shadow: var(--shadow-2); z-index: 2; }
+        .cctv-ovl-box.kind-flow .cctv-kind-badge { border-radius: 50%; }
+        .cctv-ovl-box.kind-call .cctv-kind-badge { border-radius: 3px; transform: rotate(45deg); }
+        .cctv-ovl-box.kind-call .cctv-kind-badge .material-icons { transform: rotate(-45deg); }
+        .cctv-kind-badge .material-icons { font-size: 12px; }
 
-        /* ── 비디오 타일 ── */
-        .cctv-tile { position: relative; background: #000; overflow: hidden; cursor: pointer; min-height: 0; min-width: 0; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); transition: border-color 0.12s ease; }
-        .cctv-tile:hover { border-color: var(--color-primary); }
-        .cctv-tile video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
-        .cctv-tile-label { position: absolute; left: 8px; bottom: 8px; display: flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: var(--radius-sm); background: rgba(18, 17, 13, 0.66); color: #fff; font-family: var(--font-mono); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; pointer-events: none; }
-        .cctv-tile-label .material-icons { font-size: 14px; }
-        .cctv-tile-hint { position: absolute; top: 8px; right: 8px; color: #fff; opacity: 0; transition: opacity 0.15s ease; pointer-events: none; text-shadow: 0 1px 3px rgba(0,0,0,0.7); font-size: 0.7rem; font-weight: 700; letter-spacing: 0.05em; display: flex; align-items: center; gap: 3px; background: rgba(0,0,0,0.45); padding: 3px 7px; border-radius: var(--radius-sm); }
-        .cctv-tile-hint .material-icons { font-size: 15px; }
-        .cctv-tile:hover .cctv-tile-hint { opacity: 1; }
+        /* 라벨 칩 (박스 위/아래) */
+        .cctv-ovl-chip { position: absolute; left: -2px; top: -22px; display: inline-flex; align-items: center; gap: 5px; max-width: 230px; padding: 2px 8px; border-radius: var(--radius-sm); background: var(--ovl-color, var(--navy)); color: #fff; font-family: var(--font-mono); font-size: 0.62rem; font-weight: 800; letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: var(--shadow-2); }
+        .cctv-ovl-chip .ovl-kind-tag { font-size: 0.5rem; font-weight: 800; letter-spacing: 0.06em; padding: 0 4px; border-radius: 3px; background: rgba(255, 255, 255, 0.24); flex-shrink: 0; }
+        .cctv-ovl-chip .ovl-chip-label { overflow: hidden; text-overflow: ellipsis; }
+        .cctv-ovl-box.tag-below .cctv-ovl-chip { top: auto; bottom: -22px; }
+        /* 좌측 가장자리 박스: 칩을 안쪽으로 붙여 overflow:hidden 클립 방지 */
+        .cctv-ovl-box.tag-inset-left .cctv-ovl-chip { left: 2px; }
+        .cctv-ovl-layer.is-editing .cctv-ovl-box { cursor: move; }
+        /* 삭제 버튼(편집 모드) */
+        .cctv-ovl-chip .cctv-ovl-del { display: none; align-items: center; justify-content: center; width: 15px; height: 15px; margin-left: 2px; padding: 0; border: none; border-radius: 50%; background: rgba(255, 255, 255, 0.22); color: #fff; cursor: pointer; flex-shrink: 0; }
+        .cctv-ovl-chip .cctv-ovl-del:hover { background: var(--red); }
+        .cctv-ovl-chip .cctv-ovl-del .material-icons { font-size: 11px; }
+        .cctv-ovl-layer.is-editing .cctv-ovl-chip .cctv-ovl-del { display: inline-flex; }
+        /* 모서리 리사이즈 앵커 */
+        .cctv-ovl-handle { position: absolute; width: 13px; height: 13px; border-radius: 50%; background: #fff; border: 2px solid var(--ovl-color, var(--teal)); box-shadow: var(--shadow-2); display: none; z-index: 4; }
+        .cctv-ovl-layer.is-editing .cctv-ovl-handle { display: block; }
+        .cctv-ovl-handle.h-nw { left: -1px; top: -1px; cursor: nwse-resize; }
+        .cctv-ovl-handle.h-ne { right: -1px; top: -1px; cursor: nesw-resize; }
+        .cctv-ovl-handle.h-sw { left: -1px; bottom: -1px; cursor: nesw-resize; }
+        .cctv-ovl-handle.h-se { right: -1px; bottom: -1px; cursor: nwse-resize; }
+        .cctv-ovl-draft { position: absolute; box-sizing: border-box; border: 2px dashed var(--teal); background: rgba(109, 91, 208, 0.16); pointer-events: none; }
 
-        /* ── 싱글 뷰 ── */
-        .cctv-single { flex: 1; min-height: 0; display: flex; flex-direction: column; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); overflow: hidden; background: #000; }
-        .cctv-single-bar { display: flex; align-items: center; gap: 10px; padding: 9px 14px; background: var(--color-surface); border-bottom: 1px solid var(--color-lines); flex-shrink: 0; }
-        .cctv-single-bar .cctv-single-name { font-family: var(--font-mono); font-size: 0.84rem; font-weight: 700; letter-spacing: 0.02em; flex: 1; display: flex; align-items: center; gap: 6px; }
-        .cctv-single-bar .cctv-single-name .material-icons { font-size: 17px; color: var(--color-text-secondary); }
-        .cctv-single video { flex: 1; width: 100%; min-height: 0; object-fit: contain; background: #000; display: block; }
+        /* ── 호버 툴팁 (요구사항 #4 상세) — 타일 stage 기준 절대배치, 포인터 통과 ── */
+        .cctv-ovl-tip { position: absolute; z-index: 6; min-width: 178px; max-width: 270px; border-radius: var(--radius-md); background: rgba(10, 37, 64, 0.96); color: #fff; box-shadow: var(--shadow-4); pointer-events: none; overflow: hidden; border-left: 3px solid var(--ovl-color, var(--teal)); }
+        .cctv-ovl-tip .tip-head { display: flex; align-items: center; gap: 6px; padding: 7px 10px 5px; }
+        .cctv-ovl-tip .tip-head .material-icons { font-size: 14px; opacity: 0.95; }
+        .cctv-ovl-tip .tip-kind { font-size: 0.56rem; font-weight: 800; letter-spacing: 0.08em; opacity: 0.85; }
+        .cctv-ovl-tip .tip-state { margin-left: auto; font-size: 0.58rem; font-weight: 800; padding: 1px 7px; border-radius: var(--radius-lg); background: var(--ovl-color, var(--color-text-disabled)); color: #fff; }
+        .cctv-ovl-tip .tip-title { padding: 0 10px 7px; font-family: var(--font-mono); font-size: 0.78rem; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .cctv-ovl-tip .tip-rows { padding: 6px 10px 9px; border-top: 1px solid rgba(255, 255, 255, 0.12); display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; }
+        .cctv-ovl-tip .tip-rows .tk { font-size: 0.6rem; color: rgba(255, 255, 255, 0.6); white-space: nowrap; }
+        .cctv-ovl-tip .tip-rows .tv { font-size: 0.64rem; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; word-break: break-word; }
+        .cctv-ovl-tip .tip-rows .tv.is-error { color: var(--color-error); }
+        .cctv-ovl-tip .tip-rows .tv.mono { font-family: var(--font-mono); }
 
-        /* ── 전체화면 시 비디오 영역 꽉 채우기 ── */
-        :fullscreen .cctv-video-area { height: 100vh; padding: 0; }
-        :fullscreen .cctv-single { border-radius: 0; border: none; }
-        :fullscreen .cctv-grid { border-radius: 0; }
+        /* 전체화면 */
+        :fullscreen .cctv-wall-area { height: 100vh; padding: 0; background: #0d1726; }
+        :fullscreen .cctv-grid { height: 100vh; border-radius: 0; }
 
-        /* ── 간이 토스트 ── */
+        /* 범례 */
+        .cctv-legend { display: flex; align-items: center; gap: 8px 18px; flex-wrap: wrap; padding: 9px 12px; margin-top: 10px; border: 1px solid var(--color-lines); border-radius: var(--radius-md); background: var(--color-surface); font-size: 0.7rem; color: var(--color-text-secondary); flex-shrink: 0; }
+        .cctv-legend .lg-cap { font-weight: 700; color: var(--color-text-primary); }
+        .cctv-legend .lg-grp { display: inline-flex; align-items: center; gap: 11px; flex-wrap: wrap; }
+        .cctv-legend .lg-item { display: inline-flex; align-items: center; gap: 6px; }
+        .cctv-legend .lg-dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }
+        .cctv-legend .lg-kind { width: 14px; height: 14px; display: inline-flex; align-items: center; justify-content: center; background: var(--color-text-secondary); color: #fff; flex-shrink: 0; }
+        .cctv-legend .lg-kind .material-icons { font-size: 9px; }
+        .cctv-legend .lg-kind.is-flow { border-radius: 50%; }
+        .cctv-legend .lg-kind.is-call { border-radius: 2px; transform: rotate(45deg); }
+        .cctv-legend .lg-kind.is-call .material-icons { transform: rotate(-45deg); }
+        .cctv-legend .lg-swatch { width: 11px; height: 11px; border-radius: 3px; flex-shrink: 0; }
+        .cctv-legend .lg-sep { width: 1px; align-self: stretch; background: var(--color-lines); }
+
+        /* ════════ 오버레이 관리 보드 (접이식) ════════ */
+        .cctv-board-toggle { display: flex; align-items: center; gap: 8px; width: 100%; padding: 11px 14px; border: 1px solid var(--color-lines); border-radius: var(--radius-md); background: var(--color-surface); cursor: pointer; font-size: 0.82rem; font-weight: 700; color: var(--color-text-primary); }
+        .cctv-board-toggle:hover { border-color: var(--teal); }
+        .cctv-board-toggle .material-icons { font-size: 18px; color: var(--teal-dark); }
+        .cctv-board-toggle .spacer { flex: 1; }
+        .cctv-board-toggle .sub { font-weight: 600; font-size: 0.7rem; color: var(--color-text-secondary); }
+        .cctv-board-wrap { border: 1px solid var(--color-lines); border-top: none; border-radius: 0 0 var(--radius-md) var(--radius-md); overflow: hidden; max-height: 420px; overflow-y: auto; }
+        .cctv-board th { position: sticky; top: 0; z-index: 1; }
+        .cctv-board tbody tr { cursor: pointer; }
+        .cctv-board tbody tr:hover { background: color-mix(in srgb, var(--teal) 6%, transparent); }
+        .cctv-board-state { display: inline-flex; align-items: center; gap: 6px; font-size: 0.74rem; font-weight: 700; color: var(--color-text-secondary); }
+        .cctv-board-state .sl-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+        .cctv-kind-pill { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; border-radius: var(--radius-lg); font-size: 0.6rem; font-weight: 800; letter-spacing: 0.03em; }
+        .cctv-kind-pill .material-icons { font-size: 11px; }
+        .cctv-kind-pill.is-flow { background: color-mix(in srgb, var(--teal) 16%, transparent); color: var(--teal-dark); }
+        .cctv-kind-pill.is-call { background: color-mix(in srgb, var(--color-warning) 22%, transparent); color: #8a5a00; }
+
+        /* 라벨 편집 폼 */
+        .cctv-form-row { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
+        .cctv-form-row label { font-size: 0.74rem; font-weight: 700; color: var(--color-text-secondary); }
+        .cctv-form-row input { padding: 8px 10px; font-size: 0.84rem; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-primary); outline: none; width: 100%; box-sizing: border-box; }
+        .cctv-form-row input:focus { border-color: var(--teal); box-shadow: 0 0 0 2px rgba(109, 91, 208, 0.18); }
+
+        /* 토스트 */
         .dsp-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 2500; padding: 11px 18px; border-radius: var(--radius-sm); border: 1px solid var(--color-lines-strong); border-left: 3px solid var(--color-text-secondary); background: var(--color-text-primary); color: var(--color-surface); font-size: 0.82rem; font-weight: 600; box-shadow: var(--shadow-4); }
         .dsp-toast.success { border-left-color: var(--color-success); }
         .dsp-toast.error { border-left-color: var(--color-error); }
@@ -117,97 +272,457 @@
         <main class="dsp-main">
             <div class="cctv-page">
 
-                <!-- 콘텐츠 페이지 헤더 -->
-                <section class="cctv-header">
-                    <div class="cctv-head-main">
-                        <span class="cctv-head-index">06 / CCTV</span>
-                        <h1 class="cctv-head-title" x-text="view === 'single' && selectedCam ? selectedCam.name : '실시간 영상'"></h1>
+                <!-- 콘텐츠 상단 제목/액션 바 -->
+                <div class="ds-topbar">
+                    <div class="ds-topbar-titles">
+                        <h2>CCTV 관제</h2>
+                        <div class="ds-breadcrumb">P4 · 영상벽 + 단독 보기 · Flow/Call 오버레이 · 상태색 + 호버 상세 · MediaMTX WHEP</div>
                     </div>
-                    <div class="cctv-header-actions">
-                        <span class="cctv-status" :class="status.ok ? 'ok' : 'fail'">
-                            <span class="cctv-status-dot"></span>
-                            <span class="material-icons" x-text="status.ok ? 'videocam' : 'videocam_off'"></span>
-                            <span x-text="status.message"></span>
+                    <div class="ds-topbar-actions">
+                        <span class="ds-live" :class="status.ok ? 'is-live' : 'is-poll'" :title="status.message">
+                            <span class="ds-live-dot"></span>
+                            <span x-text="status.ok ? 'LIVE' : 'OFFLINE'"></span>
                         </span>
-                        <template x-if="view === 'single'">
-                            <button class="btn btn-outlined btn-sm" @click="backToGrid()">
-                                <span class="material-icons" style="font-size:16px;">grid_view</span> 스플릿으로
-                            </button>
-                        </template>
                         <button class="btn btn-outlined btn-sm" @click="resync()" :disabled="syncing">
                             <span class="material-icons" style="font-size:16px;">sync</span> <span x-text="syncing ? '동기화 중...' : '재동기화'"></span>
                         </button>
-                        <template x-if="cameras.length > 0">
-                            <button class="btn btn-outlined btn-sm" @click="enterFullscreen()" title="전체화면">
+                        <template x-if="wall.length > 0">
+                            <button class="btn btn-outlined btn-sm" @click="enterFullscreen()" title="영상벽 전체화면">
                                 <span class="material-icons" style="font-size:16px;">fullscreen</span> 전체화면
                             </button>
                         </template>
                     </div>
-                </section>
+                </div>
 
+                <!-- KPI 3셀 (정직한 실데이터로 구성) -->
+                <div class="kpi-row">
+                    <div class="kpi-cell tone-primary">
+                        <div class="kp-label">활성 채널</div>
+                        <div class="kp-value" x-text="totalCount > 0 ? (wall.length + ' / ' + totalCount) : '—'"></div>
+                        <div class="kp-target" x-text="totalCount > 0 ? ('표시 ' + wall.length + '대 · 등록 ' + totalCount + '대') : '등록된 카메라 없음'"></div>
+                    </div>
+                    <div class="kpi-cell">
+                        <div class="kp-label">등록 오버레이</div>
+                        <div class="kp-value" x-text="overlaysAll.length"></div>
+                        <div class="kp-target" x-text="overlayBoardSummary.cameras + ' 카메라'"></div>
+                    </div>
+                    <div class="kpi-cell">
+                        <div class="kp-label">진행 중</div>
+                        <div class="kp-value" :style="overlayBoardSummary.going > 0 ? 'color:var(--teal-dark);' : ''" x-text="overlayBoardSummary.going"></div>
+                        <div class="kp-target">실시간 상태 (3초)</div>
+                    </div>
+                </div>
+
+                <!-- 카메라 없음 -->
                 <template x-if="cameras.length === 0">
-                    <div class="cctv-empty">
-                        <span class="material-icons" style="font-size:48px; opacity:.4;">videocam_off</span>
-                        <p class="typo-body2">등록된 카메라가 없습니다.</p>
+                    <div class="ds-empty">
+                        <span class="material-icons">videocam_off</span>
+                        <div class="ds-empty-title">등록된 카메라가 없습니다</div>
+                        <div class="ds-empty-desc">설정에서 RTSP 카메라를 추가하면 MediaMTX 동기화 후 여기에 표시됩니다.</div>
                         <a class="btn btn-outlined btn-sm" href="/settings">
                             <span class="material-icons" style="font-size:16px;">settings</span> 설정에서 카메라 추가
                         </a>
                     </div>
                 </template>
 
+                <!-- ════════ 영상벽 워크스페이스 ════════ -->
                 <template x-if="cameras.length > 0">
-                    <div class="cctv-video-area" x-ref="videoArea">
+                    <div class="cctv-composer">
 
-                        <!-- 넘침 안내 (그리드 뷰에만 표시) -->
-                        <template x-if="view === 'grid' && hiddenCount > 0">
-                            <div class="cctv-overflow-note">
-                                <span class="material-icons">info</span>
-                                <span x-text="'FHD 디테일 모니터링을 위해 동시 표시는 최대 6대로 제한합니다. 현재 표시 ' + shownCount + '대 / 등록 ' + totalCount + '대 (나머지 ' + hiddenCount + '대는 다음 버전에서 페이지네이션 지원 예정).'"></span>
+                        <!-- 좌측: 카메라 레일 -->
+                        <div class="card cctv-rail" style="padding:14px;"
+                             @dragover="onRailDragOver($event)" @drop="onRailDrop($event)">
+                            <div class="ds-card-h">
+                                <h4>카메라</h4>
+                                <span class="ds-card-h-sub" x-text="'등록 ' + totalCount + '대'"></span>
                             </div>
-                        </template>
-
-                        <!-- 그리드 뷰 -->
-                        <template x-if="view === 'grid'">
-                            <div :class="'cctv-grid count-' + cameras.length">
-                                <template x-for="cam in cameras" :key="cam.id">
-                                    <div class="cctv-tile" @click="focusCam(cam)">
-                                        <video :id="'cctv-grid-' + cam.id" muted autoplay playsinline></video>
-                                        <div class="cctv-tile-label">
-                                            <span class="material-icons">photo_camera</span>
-                                            <span x-text="cam.name"></span>
+                            <div class="cctv-rail-search">
+                                <span class="material-icons">search</span>
+                                <input type="text" x-model="camFilter" placeholder="카메라 검색…" />
+                                <template x-if="camFilter">
+                                    <span class="material-icons" style="cursor:pointer;" @click="camFilter=''">close</span>
+                                </template>
+                            </div>
+                            <div class="cctv-rail-list">
+                                <template x-for="cam in filteredCameras" :key="cam.id">
+                                    <div class="cctv-rail-item" :class="(inWall(cam.id) ? 'is-placed ' : '') + (layout==='solo' && soloId===cam.id ? 'is-solo' : '')"
+                                         draggable="true" @dragstart="startDrag('rail', cam.id, $event)" @dragend="endDrag()"
+                                         @click="toggleWall(cam.id)" :title="inWall(cam.id) ? '영상벽에 표시 중 (클릭=제거)' : '클릭/드래그로 영상벽에 추가'">
+                                        <div class="cctv-rail-thumb">
+                                            <span class="material-icons">videocam</span>
+                                            <template x-if="inWall(cam.id)"><span class="material-icons placed-tick">check_circle</span></template>
                                         </div>
-                                        <div class="cctv-tile-hint">
-                                            <span class="material-icons">crop_free</span>
-                                            <span>단독 보기</span>
+                                        <div class="cctv-rail-meta">
+                                            <div class="cctv-rail-name" x-text="cam.name"></div>
+                                            <div class="cctv-rail-sub">
+                                                <span class="dot" :class="status.ok ? 'is-live' : 'is-off'"></span>
+                                                <span x-text="status.ok ? 'LIVE' : 'OFFLINE'"></span>
+                                                <template x-if="overlayCountFor(cam.name) > 0">
+                                                    <span x-text="'· 오버레이 ' + overlayCountFor(cam.name)"></span>
+                                                </template>
+                                            </div>
+                                        </div>
+                                        <div class="cctv-rail-actions">
+                                            <template x-if="inWall(cam.id)">
+                                                <button class="btn-icon btn-sm" @click.stop="soloCamera(cam.id)" title="단독 보기">
+                                                    <span class="material-icons" style="font-size:17px;"
+                                                          :style="layout==='solo' && soloId===cam.id ? 'color:var(--teal);' : 'color:var(--color-text-secondary);'">crop_free</span>
+                                                </button>
+                                            </template>
+                                            <button class="btn-icon btn-sm" @click.stop="toggleWall(cam.id)"
+                                                    :title="inWall(cam.id) ? '영상벽에서 제거' : '영상벽에 추가'">
+                                                <span class="material-icons" style="font-size:18px;"
+                                                      :style="inWall(cam.id) ? 'color:var(--green);' : 'color:var(--teal-dark);'"
+                                                      x-text="inWall(cam.id) ? 'check_circle' : 'add_circle'"></span>
+                                            </button>
                                         </div>
                                     </div>
                                 </template>
+                                <template x-if="filteredCameras.length === 0">
+                                    <div style="padding:18px 4px; text-align:center; font-size:0.74rem; color:var(--color-text-disabled);">검색 결과 없음</div>
+                                </template>
                             </div>
-                        </template>
+                        </div>
 
-                        <!-- 싱글(단독) 뷰 -->
-                        <template x-if="view === 'single' && selectedCam">
-                            <div class="cctv-single">
-                                <div class="cctv-single-bar">
-                                    <button class="btn btn-ghost btn-sm" @click="backToGrid()" title="스플릿으로 돌아가기 (ESC)">
-                                        <span class="material-icons" style="font-size:18px;">arrow_back</span>
-                                    </button>
-                                    <span class="cctv-single-name">
-                                        <span class="material-icons">videocam</span>
-                                        <span x-text="selectedCam.name"></span>
+                        <!-- 우측: 영상벽 -->
+                        <div class="card cctv-wall" style="padding:14px;">
+                            <div class="ds-card-h">
+                                <h4 x-text="wallTitle"></h4>
+                                <div class="cctv-head-right">
+                                    <!-- 레이아웃 프리셋 세그먼트 컨트롤 -->
+                                    <div class="cctv-lay-group" role="group" aria-label="레이아웃">
+                                        <button class="cctv-lay-btn" :class="layout==='solo' ? 'is-active' : ''" @click="setLayout('solo')" title="단독">
+                                            <svg viewBox="0 0 16 12"><rect x="1" y="1" width="14" height="10" rx="0.8"/></svg>
+                                        </button>
+                                        <button class="cctv-lay-btn" :class="layout==='2' ? 'is-active' : ''" @click="setLayout('2')" title="2분할">
+                                            <svg viewBox="0 0 16 12"><rect x="1" y="1" width="6.5" height="10" rx="0.8"/><rect x="8.5" y="1" width="6.5" height="10" rx="0.8"/></svg>
+                                        </button>
+                                        <button class="cctv-lay-btn" :class="layout==='2x2' ? 'is-active' : ''" @click="setLayout('2x2')" title="2×2">
+                                            <svg viewBox="0 0 16 12"><rect x="1" y="1" width="6.5" height="4.5" rx="0.8"/><rect x="8.5" y="1" width="6.5" height="4.5" rx="0.8"/><rect x="1" y="6.5" width="6.5" height="4.5" rx="0.8"/><rect x="8.5" y="6.5" width="6.5" height="4.5" rx="0.8"/></svg>
+                                        </button>
+                                        <button class="cctv-lay-btn" :class="layout==='2x3' ? 'is-active' : ''" @click="setLayout('2x3')" title="2×3 (6분할)">
+                                            <svg viewBox="0 0 16 12"><rect x="1" y="1" width="4" height="4.5" rx="0.7"/><rect x="6" y="1" width="4" height="4.5" rx="0.7"/><rect x="11" y="1" width="4" height="4.5" rx="0.7"/><rect x="1" y="6.5" width="4" height="4.5" rx="0.7"/><rect x="6" y="6.5" width="4" height="4.5" rx="0.7"/><rect x="11" y="6.5" width="4" height="4.5" rx="0.7"/></svg>
+                                        </button>
+                                        <button class="cctv-lay-btn" :class="layout==='auto' ? 'is-active' : ''" @click="setLayout('auto')" title="자동 (표시 대수에 맞춤)">
+                                            <span class="material-icons">auto_awesome</span>
+                                        </button>
+                                    </div>
+                                    <template x-if="layout==='solo'">
+                                        <button class="btn btn-outlined btn-sm" @click="exitSolo()" title="영상벽으로">
+                                            <span class="material-icons" style="font-size:16px;">grid_view</span> 영상벽
+                                        </button>
+                                    </template>
+                                    <span class="ds-live ds-live-sm" :class="status.ok ? 'is-live' : 'is-poll'" :title="status.message">
+                                        <span class="ds-live-dot"></span>
+                                        <span x-text="status.ok ? 'LIVE' : 'OFFLINE'"></span>
                                     </span>
-                                    <button class="btn btn-ghost btn-sm" @click="enterFullscreen()" title="전체화면">
-                                        <span class="material-icons" style="font-size:18px;">fullscreen</span>
-                                    </button>
+                                    <template x-if="wall.length > 0">
+                                        <button class="btn-icon btn-sm" @click="clearWall()" title="영상벽 비우기">
+                                            <span class="material-icons" style="font-size:18px;">grid_off</span>
+                                        </button>
+                                    </template>
                                 </div>
-                                <video :id="'cctv-single-' + selectedCam.id" muted autoplay playsinline></video>
                             </div>
-                        </template>
 
+                            <div class="cctv-wall-area" :class="dragOverWall ? 'is-dragover' : ''" x-ref="wallArea"
+                                 @dragover="onWallDragOver($event)" @drop="onWallDrop($event)"
+                                 @dragleave="if (!$event.currentTarget.contains($event.relatedTarget)) dragOverWall = false">
+
+                                <!-- 그리드 -->
+                                <template x-if="wall.length > 0">
+                                    <div :class="'cctv-grid ' + gridClass" x-ref="wallGrid">
+                                        <template x-for="(cam, idx) in wallCams" :key="cam.id">
+                                            <div class="cctv-tile"
+                                                 :class="(dragCamId === cam.id ? 'is-dragging ' : '') + (editTileId === cam.id ? 'is-editing ' : '') + (isSoloTile(cam, idx) ? 'is-solo' : '')"
+                                                 @dragover="onTileDragOver($event)" @drop="onTileDrop($event, cam.id)">
+                                                <div class="cctv-tile-bar">
+                                                    <span class="cctv-tile-grip" draggable="true"
+                                                          @dragstart="startDrag('tile', cam.id, $event)" @dragend="endDrag()"
+                                                          title="드래그로 위치 변경 / 레일로 드래그하면 제거">
+                                                        <span class="material-icons">drag_indicator</span>
+                                                    </span>
+                                                    <span class="cctv-tile-name" x-text="cam.name"></span>
+                                                    <button class="cctv-tile-btn" :class="layout==='solo' && soloId===cam.id ? 'is-active' : ''"
+                                                            @click="layout==='solo' && soloId===cam.id ? exitSolo() : soloCamera(cam.id)"
+                                                            :title="layout==='solo' && soloId===cam.id ? '영상벽으로' : '단독 보기'">
+                                                        <span class="material-icons" x-text="layout==='solo' && soloId===cam.id ? 'grid_view' : 'crop_free'"></span>
+                                                    </button>
+                                                    <button class="cctv-tile-btn" :class="editTileId === cam.id ? 'is-active' : ''"
+                                                            @click="toggleTileEdit(cam.id)" title="오버레이 편집">
+                                                        <span class="material-icons">edit_location_alt</span>
+                                                    </button>
+                                                    <button class="cctv-tile-btn is-danger" @click="removeFromWall(cam.id)" title="영상벽에서 제거">
+                                                        <span class="material-icons">close</span>
+                                                    </button>
+                                                </div>
+
+                                                <!-- 인라인 arm 바 (편집 중) -->
+                                                <template x-if="editTileId === cam.id">
+                                                    <div class="cctv-tile-armbar">
+                                                        <span class="material-icons lead">edit_location_alt</span>
+                                                        <select x-model="armedFlowId" @change="onArmFlowChange()">
+                                                            <option value="">Flow 선택…</option>
+                                                            <template x-for="f in availableFlows" :key="f.flowId">
+                                                                <option :value="f.flowId" x-text="f.flowName + ' · ' + f.systemName"></option>
+                                                            </template>
+                                                        </select>
+                                                        <template x-if="armedFlowId">
+                                                            <select x-model="armedCallId">
+                                                                <option value="">Flow 전체</option>
+                                                                <template x-for="c in armedFlowCalls" :key="c.callId">
+                                                                    <option :value="c.callId" x-text="c.callName"></option>
+                                                                </template>
+                                                            </select>
+                                                        </template>
+                                                        <span class="arm-hint" x-text="armedFlowId ? '영상 위를 드래그해 영역 지정' : 'Flow 를 먼저 선택'"></span>
+                                                        <span class="spacer"></span>
+                                                        <button class="btn btn-primary btn-sm" @click="toggleTileEdit(cam.id)">
+                                                            <span class="material-icons" style="font-size:15px;">check</span> 완료
+                                                        </button>
+                                                    </div>
+                                                </template>
+
+                                                <div class="cctv-tile-stage">
+                                                    <video :id="'cctv-wall-' + cam.id" muted autoplay playsinline
+                                                           @loadedmetadata="recalcWallRects()"></video>
+                                                    <span class="cctv-tile-live" :class="streamClass(cam.id)">
+                                                        <span class="ds-live-dot"></span> <span x-text="streamLabel(cam.id)"></span>
+                                                    </span>
+
+                                                    <!-- 오버레이 레이어 -->
+                                                    <div class="cctv-ovl-layer"
+                                                         :class="(editTileId===cam.id ? 'is-editing ' : '') + (editTileId===cam.id && armedFlowId ? 'is-armed' : '')"
+                                                         @mousedown="onDrawStart($event, cam.id)" @mousemove="onDrawMove($event)"
+                                                         @mouseup="onDrawEnd($event, cam.id)" @mouseleave="onDrawCancel()">
+                                                        <template x-for="b in overlayBoxesForCam(cam)" :key="b.id">
+                                                            <div class="cctv-ovl-box"
+                                                                 :class="(b.kind==='Call' ? 'kind-call ' : 'kind-flow ') + 'state-' + b.stateKey + (b.tagBelow ? ' tag-below' : '') + (b.tagInsetLeft ? ' tag-inset-left' : '') + (editTileId===cam.id && selectedOverlayId===b.id ? ' is-selected' : '')"
+                                                                 :style="`left:${b.px.left}px; top:${b.px.top}px; width:${b.px.width}px; height:${b.px.height}px; --ovl-color:${b.color};`"
+                                                                 @mouseenter="setHover(b, cam.id, $event)" @mouseleave="clearHover()"
+                                                                 @mousedown.stop="onBoxDown($event, b, cam.id)" @click.stop="onBoxClick(b, cam.id)">
+                                                                <span class="cctv-kind-badge">
+                                                                    <span class="material-icons" x-text="b.kind==='Call' ? 'memory' : 'account_tree'"></span>
+                                                                </span>
+                                                                <span class="cctv-ovl-chip">
+                                                                    <span class="ovl-kind-tag" x-text="b.kind==='Call' ? 'CALL' : 'FLOW'"></span>
+                                                                    <span class="ovl-chip-label" x-text="b.label"></span>
+                                                                    <template x-if="editTileId===cam.id">
+                                                                        <button class="cctv-ovl-del" title="삭제"
+                                                                                @mousedown.stop @click.stop="deleteOverlay(b.id)">
+                                                                            <span class="material-icons">close</span>
+                                                                        </button>
+                                                                    </template>
+                                                                </span>
+                                                                <template x-if="editTileId===cam.id">
+                                                                    <span>
+                                                                        <span class="cctv-ovl-handle h-nw" @mousedown.stop="onResizeDown($event, b, 'nw', cam.id)"></span>
+                                                                        <span class="cctv-ovl-handle h-ne" @mousedown.stop="onResizeDown($event, b, 'ne', cam.id)"></span>
+                                                                        <span class="cctv-ovl-handle h-sw" @mousedown.stop="onResizeDown($event, b, 'sw', cam.id)"></span>
+                                                                        <span class="cctv-ovl-handle h-se" @mousedown.stop="onResizeDown($event, b, 'se', cam.id)"></span>
+                                                                    </span>
+                                                                </template>
+                                                            </div>
+                                                        </template>
+
+                                                        <!-- 드래그 중 임시 사각형 -->
+                                                        <template x-if="editTileId===cam.id && draft">
+                                                            <div class="cctv-ovl-draft"
+                                                                 :style="`left:${draft.left}px; top:${draft.top}px; width:${draft.width}px; height:${draft.height}px;`"></div>
+                                                        </template>
+                                                    </div>
+
+                                                    <!-- 호버 툴팁 (해당 타일에서만 마운트) -->
+                                                    <template x-if="hoverOverlay && hoverOverlay.camId === cam.id">
+                                                        <div class="cctv-ovl-tip" :style="tipStyle(cam)">
+                                                            <div class="tip-head">
+                                                                <span class="material-icons" x-text="hoverOverlay.kind==='Call' ? 'memory' : 'account_tree'"></span>
+                                                                <span class="tip-kind" x-text="hoverOverlay.kind==='Call' ? 'CALL · 설비' : 'FLOW'"></span>
+                                                                <span class="tip-state" x-text="hoverOverlay.model.stateLabel"></span>
+                                                            </div>
+                                                            <div class="tip-title" x-text="hoverOverlay.model.title"></div>
+                                                            <div class="tip-rows">
+                                                                <template x-if="hoverOverlay.model.flowName"><span class="tk">Flow</span></template>
+                                                                <template x-if="hoverOverlay.model.flowName"><span class="tv" x-text="hoverOverlay.model.flowName"></span></template>
+                                                                <template x-if="hoverOverlay.model.systemName"><span class="tk">시스템</span></template>
+                                                                <template x-if="hoverOverlay.model.systemName"><span class="tv" x-text="hoverOverlay.model.systemName"></span></template>
+                                                                <template x-if="hoverOverlay.model.callName"><span class="tk">Call</span></template>
+                                                                <template x-if="hoverOverlay.model.callName"><span class="tv mono" x-text="hoverOverlay.model.callName"></span></template>
+                                                                <template x-if="hoverOverlay.model.workName"><span class="tk">Work</span></template>
+                                                                <template x-if="hoverOverlay.model.workName"><span class="tv" x-text="hoverOverlay.model.workName"></span></template>
+                                                                <template x-if="hoverOverlay.model.device"><span class="tk">설비</span></template>
+                                                                <template x-if="hoverOverlay.model.device"><span class="tv mono" x-text="hoverOverlay.model.device"></span></template>
+                                                                <template x-if="hoverOverlay.model.avgMs != null"><span class="tk">평균 사이클</span></template>
+                                                                <template x-if="hoverOverlay.model.avgMs != null"><span class="tv" x-text="fmtDuration(hoverOverlay.model.avgMs)"></span></template>
+                                                                <template x-if="hoverOverlay.model.currentCt != null"><span class="tk">현재 CT</span></template>
+                                                                <template x-if="hoverOverlay.model.currentCt != null"><span class="tv" x-text="fmtDuration(hoverOverlay.model.currentCt)"></span></template>
+                                                                <template x-if="hoverOverlay.model.goingCount != null && hoverOverlay.model.goingCount > 0"><span class="tk">진행 횟수</span></template>
+                                                                <template x-if="hoverOverlay.model.goingCount != null && hoverOverlay.model.goingCount > 0"><span class="tv" x-text="hoverOverlay.model.goingCount + '회'"></span></template>
+                                                                <template x-if="hoverOverlay.model.progressRate != null && hoverOverlay.model.progressRate > 0"><span class="tk">진행률</span></template>
+                                                                <template x-if="hoverOverlay.model.progressRate != null && hoverOverlay.model.progressRate > 0"><span class="tv" x-text="fmtPct(hoverOverlay.model.progressRate)"></span></template>
+                                                                <template x-if="hoverOverlay.model.movingStartName || hoverOverlay.model.movingEndName"><span class="tk">이동 구간</span></template>
+                                                                <template x-if="hoverOverlay.model.movingStartName || hoverOverlay.model.movingEndName"><span class="tv" x-text="(hoverOverlay.model.movingStartName || '?') + ' → ' + (hoverOverlay.model.movingEndName || '?')"></span></template>
+                                                                <template x-if="hoverOverlay.model.errorText"><span class="tk">이상</span></template>
+                                                                <template x-if="hoverOverlay.model.errorText"><span class="tv is-error" x-text="hoverOverlay.model.errorText"></span></template>
+                                                            </div>
+                                                        </div>
+                                                    </template>
+
+                                                    <template x-if="overlayCountFor(cam.name) > 0 && editTileId !== cam.id">
+                                                        <div class="cctv-tile-ovl">
+                                                            <span class="material-icons">label</span>
+                                                            <span x-text="overlayCountFor(cam.name)"></span>
+                                                        </div>
+                                                    </template>
+                                                </div>
+                                            </div>
+                                        </template>
+
+                                        <!-- 빈 슬롯 (고정 프리셋에서 표시 대수 < 셀 수) -->
+                                        <template x-for="i in emptySlots" :key="'empty-' + i">
+                                            <div class="cctv-cell-empty" @click="addNextCamera()" title="카메라 추가">
+                                                <span class="material-icons">add_to_queue</span>
+                                                <span>＋ 카메라</span>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
+
+                                <!-- 빈 그리드 -->
+                                <template x-if="wall.length === 0">
+                                    <div class="cctv-wall-empty" :class="dragOverWall ? 'is-dragover' : ''">
+                                        <span class="material-icons">add_to_queue</span>
+                                        <div style="font-weight:700;">시청할 카메라를 선택하세요</div>
+                                        <div style="font-size:0.74rem;">좌측 레일에서 카메라를 클릭하거나 끌어다 놓으면 영상벽에 표시됩니다 (최대 <span x-text="maxConcurrent"></span>대).</div>
+                                    </div>
+                                </template>
+                            </div>
+
+                            <!-- 범례: 종류 + 상태 + 연결 -->
+                            <div class="cctv-legend">
+                                <span class="lg-cap">종류</span>
+                                <span class="lg-grp">
+                                    <span class="lg-item"><span class="lg-kind is-flow"><span class="material-icons">account_tree</span></span>Flow (구간)</span>
+                                    <span class="lg-item"><span class="lg-kind is-call"><span class="material-icons">memory</span></span>Call (설비)</span>
+                                </span>
+                                <span class="lg-sep"></span>
+                                <span class="lg-cap">상태</span>
+                                <span class="lg-grp">
+                                    <span class="lg-item"><span class="lg-dot" style="background:var(--green);"></span>준비</span>
+                                    <span class="lg-item"><span class="lg-dot" style="background:var(--teal);"></span>진행</span>
+                                    <span class="lg-item"><span class="lg-dot" style="background:var(--color-info);"></span>완료</span>
+                                    <span class="lg-item"><span class="lg-dot" style="background:var(--red);"></span>이상</span>
+                                    <span class="lg-item"><span class="lg-dot" style="background:var(--color-text-disabled);"></span>미수신</span>
+                                </span>
+                                <span class="lg-sep"></span>
+                                <span class="lg-cap">연결</span>
+                                <span class="lg-grp">
+                                    <span class="lg-item"><span class="lg-swatch" style="background:var(--red);"></span>LIVE</span>
+                                    <span class="lg-item"><span class="lg-swatch" style="background:var(--color-warning);"></span>연결 중</span>
+                                    <span class="lg-item"><span class="lg-swatch" style="background:var(--color-text-disabled);"></span>끊김</span>
+                                </span>
+                                <span style="margin-left:auto; color:var(--color-text-disabled);">색=상태 · 모양=종류 · 호버=상세</span>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- ════════ 오버레이 관리 보드 (접이식) ════════ -->
+                <template x-if="cameras.length > 0">
+                    <div>
+                        <button class="cctv-board-toggle" @click="boardOpen = !boardOpen">
+                            <span class="material-icons">view_list</span>
+                            <span>오버레이 관리</span>
+                            <span class="ds-pill" x-text="overlaysAll.length + '개'"></span>
+                            <span class="sub" x-show="overlaysAll.length > 0"
+                                  x-text="overlayBoardSummary.cameras + ' 카메라 · 진행 ' + overlayBoardSummary.going"></span>
+                            <span class="spacer"></span>
+                            <span class="material-icons" x-text="boardOpen ? 'expand_less' : 'expand_more'"></span>
+                        </button>
+
+                        <div x-show="boardOpen" x-transition>
+                            <template x-if="overlaysAll.length > 0">
+                                <div class="cctv-board-wrap">
+                                    <table class="ds-table cctv-board">
+                                        <thead>
+                                            <tr>
+                                                <th style="width:120px;">카메라</th>
+                                                <th>라벨</th>
+                                                <th style="width:80px;">종류</th>
+                                                <th>Flow</th>
+                                                <th>Call</th>
+                                                <th style="width:84px;">상태</th>
+                                                <th style="width:84px;"></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <template x-for="r in overlayBoard" :key="r.id">
+                                                <tr @click="openBoardRow(r)" title="클릭 → 해당 카메라 타일 편집">
+                                                    <td style="font-size:0.74rem; color:var(--color-text-secondary);">
+                                                        <span class="material-icons" style="font-size:14px; vertical-align:-2px; margin-right:3px;">videocam</span>
+                                                        <span x-text="r.cameraName"></span>
+                                                    </td>
+                                                    <td style="font-weight:700;" x-text="r.label"></td>
+                                                    <td>
+                                                        <span class="cctv-kind-pill" :class="r.isCall ? 'is-call' : 'is-flow'">
+                                                            <span class="material-icons" x-text="r.isCall ? 'memory' : 'account_tree'"></span>
+                                                            <span x-text="r.isCall ? 'Call' : 'Flow'"></span>
+                                                        </span>
+                                                    </td>
+                                                    <td style="font-size:0.74rem;" :style="r.flowName ? '' : 'color:var(--color-text-disabled);'" x-text="r.flowName || '—'"></td>
+                                                    <td style="font-family:var(--font-mono); font-size:0.72rem;" :style="r.callName ? '' : 'color:var(--color-text-disabled);'" x-text="r.callName || '—'"></td>
+                                                    <td>
+                                                        <span class="cctv-board-state">
+                                                            <span class="sl-dot" :style="`background:${r.color};`"></span>
+                                                            <span x-text="r.stateLabel"></span>
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        <button class="btn-icon btn-sm" title="라벨 수정" @click.stop="openLabelEdit(r.id)">
+                                                            <span class="material-icons" style="font-size:16px;">edit</span>
+                                                        </button>
+                                                        <button class="btn-icon btn-sm" title="삭제" @click.stop="deleteOverlay(r.id)">
+                                                            <span class="material-icons" style="font-size:16px; color:var(--red);">delete</span>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </template>
+                            <template x-if="overlaysAll.length === 0">
+                                <div class="ds-empty" style="padding:24px 0;">
+                                    <span class="material-icons">add_location_alt</span>
+                                    <div class="ds-empty-title">등록된 오버레이가 없습니다</div>
+                                    <div class="ds-empty-desc">영상벽 타일의 <span class="material-icons" style="font-size:14px; vertical-align:-3px;">edit_location_alt</span> 버튼을 눌러 Flow/Call 을 고르고 영상 위를 드래그하면 오버레이가 등록됩니다.</div>
+                                </div>
+                            </template>
+                        </div>
                     </div>
                 </template>
             </div>
         </main>
+
+        <!-- ── 라벨 수정 모달 ── -->
+        <div class="modal-overlay" x-show="labelForm.open" style="z-index:3500;" @click.self="cancelLabel()" x-cloak>
+            <div class="modal-content" style="max-width:420px;">
+                <div class="ds-card-h" style="margin-bottom:14px;">
+                    <h4>라벨 수정</h4>
+                    <button class="btn-icon" @click="cancelLabel()" title="취소"><span class="material-icons">close</span></button>
+                </div>
+                <div class="cctv-form-row">
+                    <label>표시 라벨 (비우면 Flow/Call 이름 사용)</label>
+                    <input type="text" x-model="labelForm.label" maxlength="40" placeholder="예: 조립1 입구" />
+                </div>
+                <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:8px;">
+                    <button class="btn btn-outlined" @click="cancelLabel()">취소</button>
+                    <button class="btn btn-primary" :disabled="labelForm.saving" @click="submitLabel()">
+                        <span class="material-icons" style="font-size:16px;">save</span>
+                        <span x-text="labelForm.saving ? '저장 중...' : '저장'"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
 
         <!-- 토스트 -->
         <div class="dsp-toast" :class="toast.type" x-show="toast.show" x-transition style="display:none;" x-text="toast.msg"></div>
@@ -215,35 +730,102 @@
 
     <script src="/js/cctv-whep.js"></script>
     <script>
+        const CCTV_WALL_KEY = 'dspilot-cctv-wall';
+        const CCTV_LAYOUT_KEY = 'dspilot-cctv-layout';
+        const CCTV_SOLO_KEY = 'dspilot-cctv-solo';
+        const VALID_LAYOUTS = ['solo', '2', '2x2', '2x3', 'auto'];
+
         function cctvApp() {
+            // 렌더 캐시(비반응형): overlayCountFor 의 O(n) filter 제거
+            let ovlCountMap = null, ovlCountSrc = null, ovlCountLen = -1;
             return {
-                cameras: [], webRtcPort: 8889, shownCount: 0, hiddenCount: 0, totalCount: 0,
+                cameras: [], webRtcPort: 8889, totalCount: 0, maxConcurrent: 6,
                 status: { ok: false, message: '동기화 전' },
-                view: 'grid', selectedCam: null,
-                syncing: false, dark: false, demoBlocked: false,
+                dark: false, syncing: false, demoBlocked: false,
                 toast: { show: false, msg: '', type: 'success' },
-                _gridStarted: false, _singleStartedId: null,
+
+                // 영상벽
+                wall: [],                  // 그리드에 표시 중인 카메라 id(sanitized) 배열 (순서 = 표시 순서)
+                layout: 'auto',            // 'solo' | '2' | '2x2' | '2x3' | 'auto'
+                _prevLayout: 'auto',       // 단독 진입 직전 프리셋(복귀용)
+                soloId: null,              // 단독 보기 대상 카메라 id
+                camFilter: '',
+                dragOverWall: false,
+                dragCamId: null,
+                _drag: null,               // { kind:'rail'|'tile', id }
+                _wallStarted: {},          // id -> true (WHEP 시작 여부)
+                streamHealth: {},          // id -> WebRTC connectionState (per-stream 헬스)
+                _wallResizeObs: null,
+
+                // 오버레이 데이터
+                overlaysAll: [],
+                availableFlows: [],        // { flowId, flowName, systemName }
+                availableCalls: [],        // { callId, callName, flowId, flowName, workName }
+                overlayStates: {},         // overlayId -> { state, avgTimeMs, workName, device, goingCount, progressRate, errorText, currentCt, movingStartName, movingEndName }
+                tileRects: {},             // camId -> displayRect (per-tile letterbox)
+                _renderTick: 0, _stateTimer: null, _statusTimer: null,
+
+                // 편집(인플레이스 — 타일별)
+                editTileId: null,          // 편집 중인 타일 camId (null = 모니터링)
+                armedFlowId: '',
+                armedCallId: '',
+                selectedOverlayId: null,
+                draft: null, _drawStart: null, _moving: null, _resizing: null, _suppressClick: false, _winMove: null,
+
+                // 호버 툴팁
+                hoverOverlay: null,        // { id, camId, kind, color, pos:{left, top?|bottom?}, model:{...} }
+
+                boardOpen: false,
+                labelForm: { open: false, id: null, label: '', saving: false },
 
                 async init() {
                     this.dark = localStorage.getItem('dspilot-theme') === 'dark';
                     window.addEventListener('storage', (e) => { if (e.key === 'dspilot-theme') this.dark = e.newValue === 'dark'; });
+                    this.restoreLayout();
                     await this.loadConfig();
                     await this.loadStatus();
-                    setInterval(() => this.loadStatus(), 15000);
+                    await this.loadAvailableFlows();
+                    await this.loadAvailableCalls();
+                    await this.loadAllOverlays();
+                    await this.loadAllOverlayState();
+                    this.startStatePolling();
+                    this._statusTimer = setInterval(() => this.loadStatus(), 15000);
                     window.addEventListener('keydown', (e) => {
-                        if (e.key === 'Escape' && this.view === 'single' && !document.fullscreenElement) this.backToGrid();
+                        if (e.key !== 'Escape') return;
+                        if (document.fullscreenElement) return;          // 브라우저 fullscreen 우선
+                        if (this.editTileId) { this.toggleTileEdit(this.editTileId); }
+                        else if (this.layout === 'solo') { this.exitSolo(); }
                     });
-                    document.addEventListener('fullscreenchange', () => {
-                        if (!document.fullscreenElement && this.view === 'single') {
-                            // 전체화면 종료 — 싱글 뷰는 유지
-                        }
+                    window.addEventListener('resize', () => this.recalcWallRects());
+                    // 리사이즈/이동 제스처는 stage 를 벗어나도 유지하고, 버튼 release(어디서든)로 마무리.
+                    window.addEventListener('mouseup', () => {
+                        if (this._resizing) this._onResizeUp();
+                        else if (this._moving) this._onBoxUp();
+                        else if (this._drawStart) { this._drawStart = null; this.draft = null; }   // 타일 밖 release → 드래프트 취소
                     });
                     window.addEventListener('beforeunload', () => { try { window.cctvWhep.stopAll(); } catch (e) {} });
                 },
+
+                destroy() {
+                    clearInterval(this._statusTimer);
+                    this.stopStatePolling();
+                    try { window.cctvWhep?.stopAll(); } catch (e) {}
+                },
+
                 toggleTheme() { this.dark = !this.dark; localStorage.setItem('dspilot-theme', this.dark ? 'dark' : 'light'); },
 
                 async apiGet(url) {
                     const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    return await res.json();
+                },
+                async apiPost(url, body) {
+                    const res = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                        body: JSON.stringify(body)
+                    });
                     if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     return await res.json();
@@ -254,8 +836,9 @@
                         const c = await this.apiGet('/api/cctv/config');
                         this.cameras = c.cameras || [];
                         this.webRtcPort = c.webRtcPort;
-                        this.shownCount = c.shownCount; this.hiddenCount = c.hiddenCount; this.totalCount = c.totalCount;
-                        this.$nextTick(() => this.startGrid());
+                        this.totalCount = c.totalCount;
+                        this.maxConcurrent = c.maxConcurrent || 6;
+                        this.restoreWall();
                     } catch (e) { if (e.message !== 'demo-blocked') console.error(e); }
                 },
                 async loadStatus() {
@@ -263,44 +846,662 @@
                     catch (e) { /* 503 already flagged */ }
                 },
 
-                startGrid() {
-                    if (this._gridStarted || this.cameras.length === 0 || !window.cctvWhep) return;
-                    this._gridStarted = true;
-                    for (const cam of this.cameras) {
-                        window.cctvWhep.start('cctv-grid-' + cam.id, this.webRtcPort, cam.id);
-                    }
+                // ── 카메라 식별 ──
+                camById(id) { return this.cameras.find(c => c.id === id) || null; },
+                camByName(name) { const n = (name || '').toLowerCase(); return this.cameras.find(c => (c.name || '').toLowerCase() === n) || null; },
+                inWall(id) { return this.wall.includes(id); },
+                get wallCams() { return this.wall.map(id => this.camById(id)).filter(Boolean); },
+                get filteredCameras() {
+                    const q = (this.camFilter || '').trim().toLowerCase();
+                    if (!q) return this.cameras;
+                    return this.cameras.filter(c => (c.name || '').toLowerCase().includes(q));
                 },
 
-                focusCam(cam) {
-                    this.selectedCam = cam;
-                    this.view = 'single';
+                // ── 레이아웃 프리셋 ──
+                restoreLayout() {
+                    const l = localStorage.getItem(CCTV_LAYOUT_KEY);
+                    this.layout = VALID_LAYOUTS.includes(l) ? l : 'auto';
+                    if (this.layout !== 'solo') this._prevLayout = this.layout; else this._prevLayout = 'auto';
+                    const s = localStorage.getItem(CCTV_SOLO_KEY);
+                    this.soloId = s || null;
+                },
+                persistLayout() {
+                    try {
+                        localStorage.setItem(CCTV_LAYOUT_KEY, this.layout);
+                        if (this.soloId) localStorage.setItem(CCTV_SOLO_KEY, this.soloId); else localStorage.removeItem(CCTV_SOLO_KEY);
+                    } catch (e) {}
+                },
+                get gridClass() { return this.layout === 'auto' ? ('count-' + this.wall.length) : ('layout-' + this.layout); },
+                get wallTitle() {
+                    if (this.layout === 'solo') {
+                        const cam = this.soloId ? this.camById(this.soloId) : null;
+                        return '영상벽 — 단독' + (cam ? ' · ' + cam.name : '');
+                    }
+                    const names = { '2': '2분할', '2x2': '2×2', '2x3': '2×3', 'auto': '자동' };
+                    return '영상벽 · ' + (names[this.layout] || '자동') + ' (' + this.wall.length + '대)';
+                },
+                get gridCells() {
+                    switch (this.layout) {
+                        case 'solo': return 1;
+                        case '2': return 2;
+                        case '2x2': return 4;
+                        case '2x3': return 6;
+                        default: return this.wall.length;
+                    }
+                },
+                get emptySlots() {
+                    if (this.layout === 'solo' || this.layout === 'auto') return [];
+                    const n = this.gridCells - this.wallCams.length;
+                    return n > 0 ? Array.from({ length: n }, (_, i) => i + 1) : [];
+                },
+                isSoloTile(cam, idx) {
+                    if (this.layout !== 'solo') return false;
+                    if (this.soloId) return cam.id === this.soloId;
+                    return idx === 0;   // soloId 미설정 폴백
+                },
+                setLayout(l) {
+                    if (!VALID_LAYOUTS.includes(l) || l === this.layout) return;
+                    if (l === 'solo') {
+                        this._prevLayout = (this.layout !== 'solo') ? this.layout : 'auto';
+                        if (!this.soloId || !this.inWall(this.soloId)) this.soloId = this.wall[0] || null;
+                        // 편집 중 타일이 단독 대상이 아니면 숨겨져 편집 불가 → 편집 종료
+                        if (this.editTileId && this.editTileId !== this.soloId) this.editTileId = null;
+                    }
+                    this.layout = l;
+                    this.persistLayout();
+                    this.$nextTick(() => this.recalcWallRects());
+                },
+                exitSolo() {
+                    this.layout = VALID_LAYOUTS.includes(this._prevLayout) && this._prevLayout !== 'solo' ? this._prevLayout : 'auto';
+                    this.persistLayout();
+                    this.$nextTick(() => this.recalcWallRects());
+                },
+                soloCamera(id) {
+                    if (!this.camById(id)) return;
+                    if (!this.inWall(id)) this.addToWall(id);
+                    this.soloId = id;
+                    if (this.layout !== 'solo') { this._prevLayout = this.layout; this.layout = 'solo'; }
+                    if (this.editTileId && this.editTileId !== id) this.editTileId = null;
+                    this.persistLayout();
+                    this.$nextTick(() => this.recalcWallRects());
+                },
+                addNextCamera() {
+                    const next = this.cameras.find(c => !this.inWall(c.id));
+                    if (next) this.addToWall(next.id);
+                    else this.showToast('추가할 카메라가 없습니다.', 'error');
+                },
+
+                // ── 영상벽 영속 (localStorage) ──
+                restoreWall() {
+                    let saved = [];
+                    try { saved = JSON.parse(localStorage.getItem(CCTV_WALL_KEY) || '[]'); } catch (e) { saved = []; }
+                    const valid = (Array.isArray(saved) ? saved : []).filter(id => this.camById(id)).slice(0, this.maxConcurrent);
+                    this.wall = valid.length > 0 ? valid : this.cameras.slice(0, Math.min(2, this.maxConcurrent)).map(c => c.id);
+                    if (this.soloId && !this.inWall(this.soloId)) this.soloId = this.wall[0] || null;
+                    this.persistWall();
+                    this.$nextTick(() => { this.syncWallStreams(); this.setupWallObserver(); this.recalcWallRects(); });
+                },
+                persistWall() { try { localStorage.setItem(CCTV_WALL_KEY, JSON.stringify(this.wall)); } catch (e) {} },
+
+                toggleWall(id) { this.inWall(id) ? this.removeFromWall(id) : this.addToWall(id); },
+                addToWall(id) {
+                    if (this.inWall(id) || !this.camById(id)) return;
+                    if (this.wall.length >= this.maxConcurrent) { this.showToast('동시 표시는 최대 ' + this.maxConcurrent + '대입니다.', 'error'); return; }
+                    this.wall.push(id);
+                    this.persistWall();
+                    this.$nextTick(() => { this.startWallStream(id); this.setupWallObserver(); this.recalcWallRects(); });
+                },
+                removeFromWall(id) {
+                    if (!this.inWall(id)) return;
+                    this.wall = this.wall.filter(x => x !== id);
+                    this.stopWallStream(id);
+                    if (this.editTileId === id) this.editTileId = null;
+                    if (this.soloId === id) { this.soloId = this.wall[0] || null; if (this.layout === 'solo' && !this.soloId) this.exitSolo(); }
+                    this.persistWall();
+                    this.$nextTick(() => this.recalcWallRects());
+                },
+                clearWall() {
+                    for (const id of this.wall.slice()) this.stopWallStream(id);
+                    this.wall = [];
+                    this.editTileId = null; this.soloId = null;
+                    if (this.layout === 'solo') this.layout = this._prevLayout || 'auto';
+                    this.persistWall(); this.persistLayout();
+                },
+                reorderWall(srcId, targetId) {
+                    const src = this.wall.indexOf(srcId), tgt = this.wall.indexOf(targetId);
+                    if (src < 0 || tgt < 0 || src === tgt) return;
+                    const next = this.wall.slice();
+                    next.splice(src, 1);
+                    next.splice(next.indexOf(targetId), 0, srcId);
+                    this.wall = next;
+                    this.persistWall();
+                    this.$nextTick(() => this.recalcWallRects());
+                },
+
+                // ── 드래그앤드롭 ──
+                startDrag(kind, id, e) {
+                    this._drag = { kind, id };
+                    if (kind === 'tile') this.dragCamId = id;
+                    try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', id); } catch (_) {}
+                },
+                endDrag() { this._drag = null; this.dragCamId = null; this.dragOverWall = false; },
+                onWallDragOver(e) { if (this._drag) { e.preventDefault(); try { e.dataTransfer.dropEffect = 'move'; } catch (_) {} this.dragOverWall = true; } },
+                onWallDrop(e) {
+                    e.preventDefault();
+                    const d = this._drag; this.dragOverWall = false;
+                    if (d && d.kind === 'rail') this.addToWall(d.id);
+                    this.endDrag();
+                },
+                onTileDragOver(e) { if (this._drag) { e.preventDefault(); } },
+                onTileDrop(e, targetId) {
+                    e.preventDefault(); e.stopPropagation();
+                    const d = this._drag; this.dragOverWall = false;
+                    if (d) {
+                        if (d.kind === 'rail') this.addToWall(d.id);
+                        else if (d.kind === 'tile' && d.id !== targetId) this.reorderWall(d.id, targetId);
+                    }
+                    this.endDrag();
+                },
+                onRailDragOver(e) { if (this._drag && this._drag.kind === 'tile') e.preventDefault(); },
+                onRailDrop(e) {
+                    e.preventDefault();
+                    const d = this._drag;
+                    if (d && d.kind === 'tile') this.removeFromWall(d.id);
+                    this.endDrag();
+                },
+
+                // ── WHEP 스트림 (그리드) ──
+                startWallStream(id) {
+                    if (!window.cctvWhep) return;
+                    this.streamHealth = { ...this.streamHealth, [id]: 'connecting' };
+                    window.cctvWhep.start('cctv-wall-' + id, this.webRtcPort, id,
+                        (st) => { this.streamHealth = { ...this.streamHealth, [id]: st }; });
+                    this._wallStarted[id] = true;
+                },
+                stopWallStream(id) {
+                    if (window.cctvWhep) window.cctvWhep.stop('cctv-wall-' + id);
+                    delete this._wallStarted[id];
+                    const h = { ...this.streamHealth }; delete h[id]; this.streamHealth = h;
+                },
+                syncWallStreams() { for (const id of this.wall) if (!this._wallStarted[id]) this.startWallStream(id); },
+                streamClass(id) {
+                    const st = this.streamHealth[id];
+                    if (st === 'connected') return '';
+                    if (st === 'failed' || st === 'disconnected' || st === 'closed') return 'is-down';
+                    return 'is-connecting';
+                },
+                streamLabel(id) {
+                    const st = this.streamHealth[id];
+                    if (st === 'connected') return 'LIVE';
+                    if (st === 'failed' || st === 'disconnected' || st === 'closed') return '끊김';
+                    return '연결 중';
+                },
+
+                // ── per-tile displayRect (object-fit:contain letterbox 보정) ──
+                computeRect(video) {
+                    if (!video) return null;
+                    const stage = video.parentElement;
+                    if (!stage) return null;
+                    const cw = stage.clientWidth, ch = stage.clientHeight;
+                    if (cw <= 0 || ch <= 0) return null;
+                    const vw = video.videoWidth, vh = video.videoHeight;
+                    if (!vw || !vh) return { left: 0, top: 0, width: cw, height: ch };
+                    const scale = Math.min(cw / vw, ch / vh);
+                    const dw = vw * scale, dh = vh * scale;
+                    return { left: (cw - dw) / 2, top: (ch - dh) / 2, width: dw, height: dh };
+                },
+                recalcWallRects() {
+                    const map = {};
+                    for (const id of this.wall) {
+                        const r = this.computeRect(document.getElementById('cctv-wall-' + id));
+                        if (r) map[id] = r;
+                    }
+                    this.tileRects = map;
+                    this._renderTick++;
+                },
+                setupWallObserver() {
+                    const grid = this.$refs.wallGrid;
+                    if (!grid) return;
+                    if (this._wallResizeObs) { try { this._wallResizeObs.disconnect(); } catch (e) {} }
+                    this._wallResizeObs = new ResizeObserver(() => this.recalcWallRects());
+                    this._wallResizeObs.observe(grid);
+                },
+
+                // ── 오버레이 데이터 로드 ──
+                async loadAllOverlays() {
+                    try { this.overlaysAll = await this.apiGet('/api/cctv/overlays') || []; }
+                    catch (e) { if (e.message !== 'demo-blocked') console.error(e); this.overlaysAll = []; }
+                },
+                async loadAvailableFlows() {
+                    try { this.availableFlows = await this.apiGet('/api/cctv/available-flows') || []; }
+                    catch (e) { if (e.message !== 'demo-blocked') console.error(e); this.availableFlows = []; }
+                },
+                async loadAvailableCalls() {
+                    try { this.availableCalls = await this.apiGet('/api/cctv/available-calls') || []; }
+                    catch (e) { if (e.message !== 'demo-blocked') console.error(e); this.availableCalls = []; }
+                },
+                async loadAllOverlayState() {
+                    try {
+                        const list = await this.apiGet('/api/cctv/overlay-state') || [];
+                        const map = {};
+                        for (const s of list) map[s.id] = {
+                            state: s.state, avgTimeMs: s.avgTimeMs,
+                            workName: s.workName, device: s.device, goingCount: s.goingCount,
+                            progressRate: s.progressRate, errorText: s.errorText,
+                            currentCt: s.currentCt, movingStartName: s.movingStartName, movingEndName: s.movingEndName
+                        };
+                        this.overlayStates = map;
+                        this._renderTick++;
+                        // 호버 중이면 툴팁 모델 새로고침(상태색/상세 동기)
+                        if (this.hoverOverlay) this.hoverOverlay = { ...this.hoverOverlay, model: this.tooltipModel(this.hoverOverlay.id), color: this.colorOf(this.stateOf(this.hoverOverlay.id)) };
+                    } catch (e) { if (e.message !== 'demo-blocked') console.error(e); }
+                },
+                startStatePolling() {
+                    this.stopStatePolling();
+                    this._stateTimer = setInterval(() => { if (!this.demoBlocked) this.loadAllOverlayState(); }, 3000);
+                },
+                stopStatePolling() { if (this._stateTimer) { clearInterval(this._stateTimer); this._stateTimer = null; } },
+
+                overlayCountFor(cameraName) {
+                    const src = this.overlaysAll;
+                    if (ovlCountSrc !== src || ovlCountLen !== src.length) {
+                        ovlCountSrc = src; ovlCountLen = src.length; ovlCountMap = {};
+                        for (const o of src) { const k = (o.cameraName || '').toLowerCase(); ovlCountMap[k] = (ovlCountMap[k] || 0) + 1; }
+                    }
+                    return ovlCountMap[(cameraName || '').toLowerCase()] || 0;
+                },
+
+                // ── 상태 → 색/라벨 (overlayId 기준) ──
+                stateOf(overlayId) { const s = this.overlayStates[overlayId]; return s ? (s.state || '') : ''; },
+                colorOf(state) {
+                    switch ((state || '').toLowerCase()) {
+                        case 'going': return 'var(--teal)';
+                        case 'finish': return 'var(--color-info)';
+                        case 'ready': return 'var(--green)';
+                        case 'error': return 'var(--red)';
+                        default: return 'var(--color-text-disabled)';
+                    }
+                },
+                stateKeyOf(state) {
+                    const k = (state || '').toLowerCase();
+                    return ['ready', 'going', 'finish', 'error'].includes(k) ? k : 'unknown';
+                },
+                stateLabelFor(state) {
+                    switch ((state || '').toLowerCase()) {
+                        case 'going': return '진행'; case 'finish': return '완료';
+                        case 'ready': return '준비'; case 'error': return '이상';
+                        default: return '미수신';
+                    }
+                },
+                labelText(o) { return o.label || o.callName || o.flowName || '(이름없음)'; },
+                fmtDuration(ms) {
+                    if (ms == null) return '—';
+                    const n = Number(ms);
+                    if (!isFinite(n)) return '—';
+                    if (n >= 1000) return (n / 1000).toFixed(1) + 's';
+                    return Math.round(n) + 'ms';
+                },
+                fmtPct(v) {
+                    if (v == null) return '';
+                    const n = Number(v);
+                    if (!isFinite(n)) return '';
+                    const p = n <= 1 ? n * 100 : n;
+                    return Math.round(p) + '%';
+                },
+
+                // ── 박스 파생 (정규화→px) ──
+                boxFrom(o, r) {
+                    const left = r.left + o.x * r.width, top = r.top + o.y * r.height;
+                    const width = o.w * r.width, height = o.h * r.height;
+                    const st = this.stateOf(o.id);
+                    return {
+                        id: o.id, label: this.labelText(o), kind: o.callId ? 'Call' : 'Flow',
+                        color: this.colorOf(st), stateKey: this.stateKeyOf(st), tagBelow: top < 24, tagInsetLeft: left < 6,
+                        px: { left, top, width, height }
+                    };
+                },
+                overlayBoxesForCam(cam) {
+                    const _ = this._renderTick;
+                    const r = this.tileRects[cam.id];
+                    if (!r) return [];
+                    const n = (cam.name || '').toLowerCase();
+                    return this.overlaysAll.filter(o => (o.cameraName || '').toLowerCase() === n).map(o => this.boxFrom(o, r));
+                },
+                overlaysForCamId(camId) {
+                    const cam = this.camById(camId);
+                    if (!cam) return [];
+                    const n = (cam.name || '').toLowerCase();
+                    return this.overlaysAll.filter(o => (o.cameraName || '').toLowerCase() === n);
+                },
+
+                // ── 호버 툴팁 ──
+                tooltipModel(id) {
+                    const o = this.overlaysAll.find(x => x.id === id) || {};
+                    const s = this.overlayStates[id] || {};
+                    let systemName = '';
+                    if (o.flowId) { const f = this.availableFlows.find(x => x.flowId === o.flowId); if (f) systemName = f.systemName || ''; }
+                    let workName = s.workName || '';
+                    if (!workName && o.callId) { const c = this.availableCalls.find(x => x.callId === o.callId); if (c) workName = c.workName || ''; }
+                    return {
+                        title: this.labelText(o),
+                        flowName: o.flowName || '',
+                        systemName,
+                        callName: o.callName || '',
+                        workName,
+                        stateLabel: this.stateLabelFor(s.state),
+                        avgMs: (s.avgTimeMs == null ? null : s.avgTimeMs),
+                        goingCount: (s.goingCount == null ? null : s.goingCount),
+                        progressRate: (s.progressRate == null ? null : s.progressRate),
+                        device: s.device || '',
+                        currentCt: (s.currentCt == null ? null : s.currentCt),
+                        movingStartName: s.movingStartName || '',
+                        movingEndName: s.movingEndName || '',
+                        errorText: s.errorText || ''
+                    };
+                },
+                setHover(b, camId, e) {
+                    if (this.editTileId === camId) return;   // 편집 중 타일은 툴팁 억제(드래그 방해 방지)
+                    const layer = e.currentTarget.parentElement;   // .cctv-ovl-layer
+                    const sw = layer ? layer.clientWidth : 0, sh = layer ? layer.clientHeight : 0;
+                    const below = (b.px.top + b.px.height) < sh * 0.62;
+                    const left = Math.max(4, Math.min(b.px.left, Math.max(4, sw - 210)));
+                    const pos = below ? { left, top: (b.px.top + b.px.height + 8) } : { left, bottom: (sh - b.px.top + 8) };
+                    this.hoverOverlay = { id: b.id, camId, kind: b.kind, color: b.color, pos, model: this.tooltipModel(b.id) };
+                },
+                clearHover() { this.hoverOverlay = null; },
+                tipStyle(cam) {
+                    const h = this.hoverOverlay;
+                    if (!h || h.camId !== cam.id) return 'display:none;';
+                    const p = h.pos;
+                    const vpos = (p.top != null) ? ('top:' + p.top + 'px;') : ('bottom:' + p.bottom + 'px;');
+                    return `left:${p.left}px; ${vpos} --ovl-color:${h.color};`;
+                },
+
+                // ════════ 인플레이스 편집 ════════
+                get armedFlow() { return this.availableFlows.find(f => f.flowId === this.armedFlowId) || null; },
+                get armedFlowCalls() {
+                    const f = this.armedFlow; if (!f) return [];
+                    return this.availableCalls.filter(c => c.flowId === f.flowId);
+                },
+                toggleTileEdit(camId) {
+                    if (this.editTileId === camId) {
+                        this.editTileId = null;
+                    } else {
+                        this.editTileId = camId;
+                        this.clearHover();
+                    }
+                    this.armedFlowId = ''; this.armedCallId = '';
+                    this.selectedOverlayId = null;
+                    this.draft = null; this._drawStart = null; this._moving = null; this._resizing = null;
+                    this.$nextTick(() => this.recalcWallRects());
+                },
+                onArmFlowChange() { this.armedCallId = ''; },
+
+                _layerXY(e) {
+                    // 이동/리사이즈 중 window 추적(e.currentTarget=window)일 때는 편집 타일의 레이어를 직접 찾는다.
+                    let layer = (e.currentTarget && e.currentTarget.closest) ? e.currentTarget.closest('.cctv-ovl-layer') : null;
+                    if (!layer && this.editTileId) {
+                        const v = document.getElementById('cctv-wall-' + this.editTileId);
+                        const stage = v ? v.parentElement : null;
+                        layer = stage ? stage.querySelector('.cctv-ovl-layer') : null;
+                    }
+                    const host = layer || e.currentTarget;
+                    const b = host.getBoundingClientRect();
+                    return { x: e.clientX - b.left, y: e.clientY - b.top };
+                },
+                // 이동/리사이즈는 타일 레이어(overflow 클립) 밖에서도 좌표가 갱신되도록 window 레벨에서 추적.
+                _armWindowMove() {
+                    if (this._winMove) return;
+                    this._winMove = (ev) => { if (this._resizing) this._onResizeMove(ev); else if (this._moving) this._onBoxMove(ev); };
+                    window.addEventListener('mousemove', this._winMove);
+                },
+                _disarmWindowMove() {
+                    if (this._winMove) { window.removeEventListener('mousemove', this._winMove); this._winMove = null; }
+                },
+
+                // ── 드래그로 새 영역 그리기 ──
+                onDrawStart(e, camId) {
+                    if (this.editTileId !== camId || this._moving || this._resizing || e.button !== 0) return;
+                    if (!this.armedFlowId) { this.showToast('Flow 를 먼저 선택하세요.', 'error'); return; }
+                    this.recalcWallRects();
+                    const p = this._layerXY(e);
+                    this._drawStart = p;
+                    this.draft = { left: p.x, top: p.y, width: 0, height: 0 };
+                },
+                onDrawMove(e) {
+                    if (this._winMove) return;   // 이동/리사이즈는 window 리스너가 추적(타일 밖에서도) — 레이어 핸들러는 양보
+                    if (this._resizing) { this._onResizeMove(e); return; }
+                    if (this._moving) { this._onBoxMove(e); return; }
+                    if (!this.editTileId || !this._drawStart) return;
+                    const p = this._layerXY(e);
+                    const x0 = Math.min(this._drawStart.x, p.x), y0 = Math.min(this._drawStart.y, p.y);
+                    this.draft = { left: x0, top: y0, width: Math.abs(p.x - this._drawStart.x), height: Math.abs(p.y - this._drawStart.y) };
+                },
+                onDrawEnd(e, camId) {
+                    if (this._resizing) { this._onResizeUp(); return; }
+                    if (this._moving) { this._onBoxUp(); return; }
+                    if (this.editTileId !== camId || !this.draft || !this._drawStart) { this._drawStart = null; return; }
+                    const d = this.draft, r = this.tileRects[camId];
+                    this._drawStart = null;
+                    if (!r || d.width < 8 || d.height < 8) { this.draft = null; return; }
+                    const clamp = (v) => Math.max(0, Math.min(1, v));
+                    let nx = clamp((d.left - r.left) / r.width);
+                    let ny = clamp((d.top - r.top) / r.height);
+                    let nw = clamp(d.width / r.width);
+                    let nh = clamp(d.height / r.height);
+                    if (nx + nw > 1) nw = 1 - nx;
+                    if (ny + nh > 1) nh = 1 - ny;
+                    this.draft = null;
+                    if (nw <= 0.005 || nh <= 0.005) return;
+                    this.createOverlay(camId, { x: nx, y: ny, w: nw, h: nh });
+                },
+                onDrawCancel() {
+                    if (this._resizing || this._moving) return;   // 제스처 중 이탈 무시(window mouseup 이 마무리)
+                    this._drawStart = null; this.draft = null;
+                },
+
+                // ── 기존 박스 이동 ──
+                onBoxDown(e, b, camId) {
+                    if (this.editTileId !== camId || e.button !== 0) return;
+                    this._suppressClick = false;
+                    const p = this._layerXY(e);
+                    const ovl = this.overlaysForCamId(camId).find(x => x.id === b.id);
+                    if (!ovl) return;
+                    this._moving = { id: b.id, camId, startX: p.x, startY: p.y, origX: ovl.x, origY: ovl.y, moved: false };
+                    this._armWindowMove();
+                },
+                onBoxClick(b, camId) {
+                    if (this.editTileId !== camId) return;
+                    if (this._suppressClick) { this._suppressClick = false; return; }
+                    this.selectedOverlayId = (this.selectedOverlayId === b.id) ? null : b.id;
+                },
+                _onBoxMove(e) {
+                    const m = this._moving, r = this.tileRects[m && m.camId];
+                    if (!m || !r) return;
+                    const p = this._layerXY(e);
+                    const dnx = (p.x - m.startX) / r.width, dny = (p.y - m.startY) / r.height;
+                    if (Math.abs(p.x - m.startX) > 2 || Math.abs(p.y - m.startY) > 2) m.moved = true;
+                    const ovl = this.overlaysForCamId(m.camId).find(x => x.id === m.id);
+                    if (!ovl) return;
+                    const clamp = (v, max) => Math.max(0, Math.min(max, v));
+                    ovl.x = clamp(m.origX + dnx, 1 - ovl.w);
+                    ovl.y = clamp(m.origY + dny, 1 - ovl.h);
+                    this._renderTick++;
+                },
+                async _onBoxUp() {
+                    const m = this._moving; this._moving = null;
+                    this._disarmWindowMove();
+                    if (!m) return;
+                    if (m.moved) this._suppressClick = true;
+                    const ovl = this.overlaysForCamId(m.camId).find(x => x.id === m.id);
+                    if (!ovl) return;
+                    if (Math.abs(ovl.x - m.origX) < 0.0005 && Math.abs(ovl.y - m.origY) < 0.0005) return;
+                    await this.saveOverlay(ovl, true);
+                },
+
+                // ── 모서리 앵커로 크기 조절 (반대 모서리 고정) ──
+                onResizeDown(e, b, corner, camId) {
+                    if (this.editTileId !== camId || e.button !== 0) return;
+                    this._suppressClick = true;
+                    this.recalcWallRects();
+                    const ovl = this.overlaysForCamId(camId).find(x => x.id === b.id);
+                    if (!ovl) return;
+                    this.selectedOverlayId = b.id;
+                    const p = this._layerXY(e);
+                    this._resizing = {
+                        id: b.id, camId, corner,
+                        startX: p.x, startY: p.y,
+                        origX: ovl.x, origY: ovl.y, origW: ovl.w, origH: ovl.h, moved: false
+                    };
+                    this._armWindowMove();
+                },
+                _onResizeMove(e) {
+                    const m = this._resizing, r = this.tileRects[m && m.camId];
+                    if (!m || !r) return;
+                    const p = this._layerXY(e);
+                    const dnx = (p.x - m.startX) / r.width, dny = (p.y - m.startY) / r.height;
+                    if (Math.abs(p.x - m.startX) > 2 || Math.abs(p.y - m.startY) > 2) m.moved = true;
+                    const ovl = this.overlaysForCamId(m.camId).find(x => x.id === m.id);
+                    if (!ovl) return;
+                    const MIN = 0.02, clamp01 = (v) => Math.max(0, Math.min(1, v));
+                    const west = (m.corner === 'nw' || m.corner === 'sw');
+                    const north = (m.corner === 'nw' || m.corner === 'ne');
+                    let left, right, top, bottom;
+                    if (west) { right = m.origX + m.origW; left = clamp01(m.origX + dnx); if (left > right - MIN) left = Math.max(0, right - MIN); }
+                    else      { left = m.origX;            right = clamp01(m.origX + m.origW + dnx); if (right < left + MIN) right = Math.min(1, left + MIN); }
+                    if (north) { bottom = m.origY + m.origH; top = clamp01(m.origY + dny); if (top > bottom - MIN) top = Math.max(0, bottom - MIN); }
+                    else       { top = m.origY;              bottom = clamp01(m.origY + m.origH + dny); if (bottom < top + MIN) bottom = Math.min(1, top + MIN); }
+                    ovl.x = left; ovl.y = top; ovl.w = right - left; ovl.h = bottom - top;
+                    this._renderTick++;
+                },
+                async _onResizeUp() {
+                    const m = this._resizing; this._resizing = null;
+                    this._disarmWindowMove();
+                    if (!m) return;
+                    if (m.moved) this._suppressClick = true;
+                    const ovl = this.overlaysForCamId(m.camId).find(x => x.id === m.id);
+                    if (!ovl) return;
+                    if (Math.abs(ovl.x - m.origX) < 0.0005 && Math.abs(ovl.y - m.origY) < 0.0005
+                        && Math.abs(ovl.w - m.origW) < 0.0005 && Math.abs(ovl.h - m.origH) < 0.0005) return;
+                    await this.saveOverlay(ovl, true);
+                },
+
+                // ── 생성 / 저장 / 삭제 ──
+                async createOverlay(camId, coords) {
+                    const cam = this.camById(camId);
+                    if (!cam || !this.armedFlowId) return;
+                    const flow = this.armedFlow;
+                    const call = this.armedCallId ? this.availableCalls.find(c => c.callId === this.armedCallId) : null;
+                    const payload = {
+                        id: 'ovl_' + (crypto.randomUUID ? crypto.randomUUID() : (Date.now() + '-' + Math.random().toString(16).slice(2))),
+                        cameraName: cam.name,
+                        flowId: flow ? flow.flowId : null,
+                        flowName: flow ? flow.flowName : null,
+                        callId: call ? call.callId : null,
+                        callName: call ? call.callName : null,
+                        x: coords.x, y: coords.y, w: coords.w, h: coords.h,
+                        label: call ? call.callName : (flow ? flow.flowName : null),
+                        anchorX: null, anchorY: null
+                    };
+                    try {
+                        const saved = await this.apiPost('/api/cctv/overlays', payload);
+                        this.overlaysAll.push(saved);
+                        this.selectedOverlayId = saved.id;
+                        this._renderTick++;
+                        this.loadAllOverlayState();
+                        this.showToast('오버레이 등록 — ' + this.labelText(saved), 'success');
+                    } catch (e) { if (e.message !== 'demo-blocked') this.showToast('등록 실패: ' + e.message, 'error'); }
+                },
+                async saveOverlay(ovl, silent) {
+                    const payload = {
+                        id: ovl.id, cameraName: ovl.cameraName,
+                        flowId: ovl.flowId ?? null, flowName: ovl.flowName ?? null,
+                        callId: ovl.callId ?? null, callName: ovl.callName ?? null,
+                        x: ovl.x, y: ovl.y, w: ovl.w, h: ovl.h, label: ovl.label,
+                        anchorX: ovl.anchorX ?? null, anchorY: ovl.anchorY ?? null
+                    };
+                    try {
+                        const saved = await this.apiPost('/api/cctv/overlays', payload);
+                        const i = this.overlaysAll.findIndex(x => x.id === saved.id);
+                        if (i >= 0) this.overlaysAll[i] = saved;
+                        this._renderTick++;
+                        if (!silent) this.showToast('저장됨', 'success');
+                    } catch (e) { if (e.message !== 'demo-blocked') this.showToast('저장 실패: ' + e.message, 'error'); }
+                },
+                async deleteOverlay(id) {
+                    try {
+                        await this.apiPost('/api/cctv/overlays/delete', { id });
+                        this.overlaysAll = this.overlaysAll.filter(o => o.id !== id);
+                        if (this.selectedOverlayId === id) this.selectedOverlayId = null;
+                        if (this.hoverOverlay && this.hoverOverlay.id === id) this.clearHover();
+                        this._renderTick++;
+                        this.showToast('오버레이 삭제됨', 'success');
+                    } catch (e) { if (e.message !== 'demo-blocked') this.showToast('삭제 실패: ' + e.message, 'error'); }
+                },
+
+                // ── 보드 행 클릭 → 해당 카메라 타일 편집 ──
+                openBoardRow(r) {
+                    const cam = this.camByName(r.cameraName);
+                    if (!cam) { this.showToast('카메라를 찾을 수 없습니다: ' + r.cameraName, 'error'); return; }
+                    if (!this.inWall(cam.id)) this.addToWall(cam.id);
+                    if (this.layout === 'solo') this.soloId = cam.id;   // 단독 모드면 그 카메라를 단독 대상으로
+                    this.editTileId = cam.id;
+                    this.selectedOverlayId = r.id;
+                    this.boardOpen = false;
                     this.$nextTick(() => {
-                        const id = 'cctv-single-' + cam.id;
-                        if (this._singleStartedId && this._singleStartedId !== id) {
-                            window.cctvWhep.stop(this._singleStartedId);
-                        }
-                        window.cctvWhep.start(id, this.webRtcPort, cam.id);
-                        this._singleStartedId = id;
+                        this.recalcWallRects();
+                        if (this.$refs.wallArea) this.$refs.wallArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     });
                 },
 
-                backToGrid() {
-                    if (document.fullscreenElement) document.exitFullscreen();
-                    if (this._singleStartedId) { window.cctvWhep.stop(this._singleStartedId); this._singleStartedId = null; }
-                    this.selectedCam = null;
-                    this.view = 'grid';
+                // ── 전체 카메라 오버레이 보드 ──
+                get overlayBoard() {
+                    const _ = this._renderTick;
+                    return this.overlaysAll.map(o => {
+                        const st = this.stateOf(o.id);
+                        return {
+                            id: o.id, cameraName: o.cameraName || '—',
+                            label: this.labelText(o), isCall: !!o.callId,
+                            flowName: o.flowName || '', callName: o.callName || '',
+                            stateLabel: this.stateLabelFor(st), color: this.colorOf(st)
+                        };
+                    }).sort((a, b) => (a.cameraName || '').localeCompare(b.cameraName || '') || (a.label || '').localeCompare(b.label || ''));
+                },
+                get overlayBoardSummary() {
+                    const _ = this._renderTick;
+                    const cams = new Set();
+                    let going = 0;
+                    for (const o of this.overlaysAll) {
+                        if (o.cameraName) cams.add(o.cameraName.toLowerCase());
+                        if ((this.stateOf(o.id) || '').toLowerCase() === 'going') going++;
+                    }
+                    return { cameras: cams.size, total: this.overlaysAll.length, going };
+                },
+
+                // ── 라벨 수정 ──
+                openLabelEdit(id) {
+                    const o = this.overlaysAll.find(x => x.id === id);
+                    if (!o) return;
+                    this.labelForm = { open: true, id, label: o.label || '', saving: false };
+                },
+                cancelLabel() { this.labelForm = { open: false, id: null, label: '', saving: false }; },
+                async submitLabel() {
+                    const o = this.overlaysAll.find(x => x.id === this.labelForm.id);
+                    if (!o) { this.cancelLabel(); return; }
+                    this.labelForm.saving = true;
+                    const trimmed = this.labelForm.label ? this.labelForm.label.trim() : '';
+                    o.label = trimmed || null;
+                    try { await this.saveOverlay(o, true); this.showToast('라벨 저장됨', 'success'); this.cancelLabel(); }
+                    catch (e) { this.labelForm.saving = false; }
                 },
 
                 enterFullscreen() {
-                    const el = this.$refs.videoArea;
+                    const el = this.$refs.wallArea;
                     if (!el) return;
-                    if (document.fullscreenElement) {
-                        document.exitFullscreen();
-                    } else if (el.requestFullscreen) {
-                        el.requestFullscreen();
-                    } else if (el.webkitRequestFullscreen) {
-                        el.webkitRequestFullscreen();
-                    }
+                    if (document.fullscreenElement) document.exitFullscreen();
+                    else if (el.requestFullscreen) el.requestFullscreen();
+                    else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+                    setTimeout(() => this.recalcWallRects(), 150);
                 },
 
                 async resync() {
@@ -309,10 +1510,7 @@
                     try {
                         const res = await fetch('/api/cctv/sync', { method: 'POST', headers: { 'Accept': 'application/json' } });
                         if (res.status === 503) { this.demoBlocked = true; return; }
-                        if (res.ok) {
-                            this.status = await res.json();
-                            this.showToast(this.status.message, this.status.ok ? 'success' : 'error');
-                        }
+                        if (res.ok) { this.status = await res.json(); this.showToast(this.status.message, this.status.ok ? 'success' : 'error'); }
                     } catch (e) { this.showToast('재동기화 실패: ' + e.message, 'error'); }
                     finally { this.syncing = false; }
                 },

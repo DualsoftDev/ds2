@@ -1,3 +1,4 @@
+using DSPilot.Models.Analysis;
 using DSPilot.Repositories;
 using DSPilot.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -20,6 +21,7 @@ public class CallTestController : ControllerBase
     private readonly IPlcRepository _plcRepository;
     private readonly CycleAnalysisService _cycleAnalysis;
     private readonly IFlowMetricsService _flowMetrics;
+    private readonly AppSettingsService _settings;
     private readonly ILogger<CallTestController> _logger;
 
     public CallTestController(
@@ -27,12 +29,14 @@ public class CallTestController : ControllerBase
         IPlcRepository plcRepository,
         CycleAnalysisService cycleAnalysis,
         IFlowMetricsService flowMetrics,
+        AppSettingsService settings,
         ILogger<CallTestController> logger)
     {
         _callMapper = callMapper;
         _plcRepository = plcRepository;
         _cycleAnalysis = cycleAnalysis;
         _flowMetrics = flowMetrics;
+        _settings = settings;
         _logger = logger;
     }
 
@@ -73,7 +77,8 @@ public class CallTestController : ControllerBase
     /// <summary>
     /// 메인 로드 — segment(lane), Call별 (InTag/OutTag) lookup, head/tail 경계, cycle 통계 를 한 번에.
     /// Blazor LoadAsync 의 segment 빌드 + MergeIntervals + ApplyProjectHeadTail + Resolve(Head|Tail) + ComputeCycleStats 를 재현.
-    /// headCallId/tailCallId 가 명시되면 그 값으로, 아니면 프로젝트 정의(AASX) 기본 Head/Tail 을 적용.
+    /// headCallId/tailCallId 가 명시되면 그 값으로, 아니면 유효(override 적용) Head/Tail 을 적용.
+    /// 유효값 = 저장된 사용자 지정(FlowCycleOverride) > AASX 기본값. 저장/복원은 POST /api/flow/{name}/cycle-override 재사용.
     /// </summary>
     [HttpPost("load")]
     public async Task<ActionResult<CtLoadDto>> Load([FromBody] CtLoadRequest req)
@@ -104,6 +109,13 @@ public class CallTestController : ControllerBase
                 var first = g.First();
                 var intervals = MergeIntervals(
                     g.Select(i => (i.GoingStartTime, i.FinishTime ?? i.GoingStartTime)).ToList());
+                // 태그별 ON 구간 분리 — Call 막대 안에 OutTag(명령)/InTag(응답) 라인 그래프로 그리기 위함.
+                var outIntervals = MergeIntervals(
+                    g.Where(i => i.EventType == IOEventType.OutTag)
+                     .Select(i => (i.GoingStartTime, i.FinishTime ?? i.GoingStartTime)).ToList());
+                var inIntervals = MergeIntervals(
+                    g.Where(i => i.EventType == IOEventType.InTag)
+                     .Select(i => (i.GoingStartTime, i.FinishTime ?? i.GoingStartTime)).ToList());
                 var tags = _callMapper.GetCallTagsByCallId(first.CallId);
                 return new CtLaneDto(
                     first.CallId.ToString(),
@@ -112,7 +124,9 @@ public class CallTestController : ControllerBase
                     first.Lane,
                     intervals.Select(iv => new CtIntervalDto(IsoLocal(iv.Start), IsoLocal(iv.End))).ToList(),
                     tags?.InTag,
-                    tags?.OutTag);
+                    tags?.OutTag,
+                    outIntervals.Select(iv => new CtIntervalDto(IsoLocal(iv.Start), IsoLocal(iv.End))).ToList(),
+                    inIntervals.Select(iv => new CtIntervalDto(IsoLocal(iv.Start), IsoLocal(iv.End))).ToList());
             })
             .OrderBy(l => l.LaneIndex)
             .ToList();
@@ -125,22 +139,30 @@ public class CallTestController : ControllerBase
                      .Where(c => !laneIds.Contains(c.CallId.ToString())))
         {
             lanes.Add(new CtLaneDto(c.CallId.ToString(), c.CallName, c.WorkName, nextLane++,
-                new List<CtIntervalDto>(), c.InTag, c.OutTag));
+                new List<CtIntervalDto>(), c.InTag, c.OutTag,
+                new List<CtIntervalDto>(), new List<CtIntervalDto>()));
         }
 
-        // 프로젝트 정의 Head/Tail (override 안 했을 때 적용할 기본값) — 클라이언트가 _userOverrodeHeadTail
-        // 플래그로 적용 여부를 결정하지만, 서버는 항상 "현재 요청에서 어떤 H/T 로 boundary 를 구할지" 를 확정해야 한다.
-        var (projHeadId, projTailId) = ResolveProjectHeadTail(req.FlowName, lanes);
+        // 유효(override 적용) Head/Tail — override 안 했을 때 적용할 기본값. 저장된 사용자 지정이 있으면
+        // 그 값을, 없으면 AASX 기본값을 쓴다(GetCycleBoundaryCallNames = override 적용 후 런타임 경계).
+        var (effHeadId, effTailId) = ResolveEffectiveHeadTail(req.FlowName, lanes);
+        // Head/Tail 은 Flow 별로 무조건 존재 — 유효값이 없으면 첫 lane(Head)/마지막 lane(Tail) 으로 기본 지정.
+        (effHeadId, effTailId) = EnsureHeadTailDefaults(effHeadId, effTailId, lanes);
+        // AASX 원본 Head/Tail — "AASX 기본값 복원" 시 되돌릴 대상(override 와 무관한 프로젝트 정의).
+        var (aasxHeadId, aasxTailId) = ResolveProjectHeadTail(req.FlowName, lanes);
 
         // 요청에 H/T 명시 여부. headCallId/tailCallId 가 빈 문자열이면 명시적 "해제"(null),
-        // null(미전송)이면 프로젝트 기본값을 적용.
-        Guid? headId = ResolveRequestedId(req.HeadCallId, projHeadId, req.HeadSpecified);
-        Guid? tailId = ResolveRequestedId(req.TailCallId, projTailId, req.TailSpecified);
+        // null(미전송)이면 유효(override 적용) 기본값을 적용.
+        Guid? headId = ResolveRequestedId(req.HeadCallId, effHeadId, req.HeadSpecified);
+        Guid? tailId = ResolveRequestedId(req.TailCallId, effTailId, req.TailSpecified);
         if (headId == tailId) tailId = null;
 
         var (cycleBoundaries, tailEdges) = await ResolveBoundariesAsync(req.FlowName, start, end, headId, tailId, lanes);
 
         var stats = ComputeCycleStats(cycleBoundaries, tailEdges, chartEnd);
+
+        // 이 Flow 에 저장된 사용자 지정(override) 이 존재하는지 — UI 의 'CT 기준: 사용자 지정/AASX 기본' 표시용.
+        var isOverride = _settings.GetFlowCycleOverride(req.FlowName) is not null;
 
         return new CtLoadDto(
             req.FlowName,
@@ -149,12 +171,13 @@ public class CallTestController : ControllerBase
             lanes,
             headId?.ToString(),
             tailId?.ToString(),
-            projHeadId?.ToString(),
-            projTailId?.ToString(),
+            aasxHeadId?.ToString(),
+            aasxTailId?.ToString(),
             cycleBoundaries.Select(IsoLocal).ToList(),
             tailEdges.Select(IsoLocal).ToList(),
             stats.AvgCycleMs,
-            stats.AvgActiveMs);
+            stats.AvgActiveMs,
+            isOverride);
     }
 
     /// <summary>
@@ -199,22 +222,22 @@ public class CallTestController : ControllerBase
         Guid? headId = ParseGuid(req.HeadCallId);
         Guid? tailId = ParseGuid(req.TailCallId);
 
-        // Head 경계
+        // Head 경계(시작) = Head OutTag↑ (진영 B: OutTag=PLC 출력=명령=동작 시작)
         List<DateTime> cycleBoundaries;
-        if (headId.HasValue && !string.IsNullOrWhiteSpace(req.HeadInTag))
+        if (headId.HasValue && !string.IsNullOrWhiteSpace(req.HeadStartTag))
         {
-            cycleBoundaries = await _plcRepository.FindRisingEdgesAsync(req.HeadInTag!, start, end);
+            cycleBoundaries = await _plcRepository.FindRisingEdgesAsync(req.HeadStartTag!, start, end);
         }
         else
         {
             cycleBoundaries = await _cycleAnalysis.GetCycleBoundaryTimesAsync(req.FlowName, start, end);
         }
 
-        // Tail 마커
+        // Tail 완료 마커 = Tail InTag↑ (진영 B: InTag=PLC 입력=응답=동작 완료)
         List<DateTime> tailEdges;
-        if (tailId.HasValue && !string.IsNullOrWhiteSpace(req.TailOutTag))
+        if (tailId.HasValue && !string.IsNullOrWhiteSpace(req.TailFinishTag))
         {
-            tailEdges = await _plcRepository.FindRisingEdgesAsync(req.TailOutTag!, start, end);
+            tailEdges = await _plcRepository.FindRisingEdgesAsync(req.TailFinishTag!, start, end);
         }
         else
         {
@@ -258,10 +281,53 @@ public class CallTestController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// 유효(override 적용) Head/Tail Call 이름 → lane CallId. 저장된 사용자 지정(FlowCycleOverride)이 있으면
+    /// 그 값이, 없으면 AASX 기본값이 GetCycleBoundaryCallNames 로 반환된다(런타임 경계 = override 적용 결과).
+    /// 런타임 상태가 아직 없으면 AASX 기본값으로 폴백.
+    /// </summary>
+    private (Guid? headId, Guid? tailId) ResolveEffectiveHeadTail(string flowName, List<CtLaneDto> lanes)
+    {
+        try
+        {
+            var (effHead, effTail) = _flowMetrics.GetCycleBoundaryCallNames(flowName);
+            if (string.IsNullOrEmpty(effHead) && string.IsNullOrEmpty(effTail))
+                (effHead, effTail) = _flowMetrics.GetAasxCycleBoundaries(flowName);
+
+            Guid? headId = !string.IsNullOrEmpty(effHead) ? MatchLaneId(lanes, effHead) : null;
+            Guid? tailId = !string.IsNullOrEmpty(effTail) ? MatchLaneId(lanes, effTail) : null;
+            if (headId == tailId) tailId = null;
+            return (headId, tailId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[CallTest] failed to resolve effective head/tail for flow '{Flow}'", flowName);
+            return (null, null);
+        }
+    }
+
     private static Guid? MatchLaneId(List<CtLaneDto> lanes, string callName)
     {
         var lane = lanes.FirstOrDefault(l => string.Equals(l.CallName, callName, StringComparison.OrdinalIgnoreCase));
         return lane is null ? null : ParseGuid(lane.CallId);
+    }
+
+    /// <summary>
+    /// Head/Tail 이 모두 존재하도록 보장 — 유효값이 없으면 첫 lane(Head)/마지막 lane(Tail, Head 와 다른) 으로 채운다.
+    /// (Flow 별 사이클 경계는 무조건 존재해야 한다 — UI 에서 해제 불가.)
+    /// </summary>
+    private static (Guid? headId, Guid? tailId) EnsureHeadTailDefaults(Guid? headId, Guid? tailId, List<CtLaneDto> lanes)
+    {
+        if (lanes.Count == 0) return (headId, tailId);
+        headId ??= ParseGuid(lanes[0].CallId);
+        if (tailId is null)
+        {
+            var lastId = ParseGuid(lanes[^1].CallId);
+            tailId = lastId != headId
+                ? lastId
+                : lanes.Select(l => ParseGuid(l.CallId)).FirstOrDefault(id => id != headId);
+        }
+        return (headId, tailId);
     }
 
     /// <summary>
@@ -277,15 +343,17 @@ public class CallTestController : ControllerBase
     private async Task<(List<DateTime> cycleBoundaries, List<DateTime> tailEdges)> ResolveBoundariesAsync(
         string flowName, DateTime start, DateTime end, Guid? headId, Guid? tailId, List<CtLaneDto> lanes)
     {
-        var headInTag = headId.HasValue ? lanes.FirstOrDefault(l => l.CallId == headId.Value.ToString())?.InTag : null;
-        var tailOutTag = tailId.HasValue ? lanes.FirstOrDefault(l => l.CallId == tailId.Value.ToString())?.OutTag : null;
+        // 진영 B (PLC 기준): OutTag=출력(명령)=동작 시작, InTag=입력(응답)=동작 완료.
+        //   Head 사이클 경계(시작) = Head OutTag↑, Tail 완료 마커 = Tail InTag↑.
+        var headStartTag = headId.HasValue ? lanes.FirstOrDefault(l => l.CallId == headId.Value.ToString())?.OutTag : null;
+        var tailFinishTag = tailId.HasValue ? lanes.FirstOrDefault(l => l.CallId == tailId.Value.ToString())?.InTag : null;
 
-        Task<List<DateTime>> headTask = headId.HasValue && !string.IsNullOrWhiteSpace(headInTag)
-            ? _plcRepository.FindRisingEdgesAsync(headInTag!, start, end)
+        Task<List<DateTime>> headTask = headId.HasValue && !string.IsNullOrWhiteSpace(headStartTag)
+            ? _plcRepository.FindRisingEdgesAsync(headStartTag!, start, end)
             : _cycleAnalysis.GetCycleBoundaryTimesAsync(flowName, start, end);
 
-        Task<List<DateTime>> tailTask = tailId.HasValue && !string.IsNullOrWhiteSpace(tailOutTag)
-            ? _plcRepository.FindRisingEdgesAsync(tailOutTag!, start, end)
+        Task<List<DateTime>> tailTask = tailId.HasValue && !string.IsNullOrWhiteSpace(tailFinishTag)
+            ? _plcRepository.FindRisingEdgesAsync(tailFinishTag!, start, end)
             : Task.FromResult(new List<DateTime>());
 
         await Task.WhenAll(headTask, tailTask);
@@ -295,7 +363,7 @@ public class CallTestController : ControllerBase
             tailTask.Result.OrderBy(t => t).ToList());
     }
 
-    /// <summary>사이클 경계 간 CT 평균 + (Head↑ → 사이클 내 첫 Tail↑) 활성구간 평균. Blazor ComputeCycleStats 동일.</summary>
+    /// <summary>사이클 경계 간 CT 평균 + (Head OutTag↑ 시작 → 사이클 내 첫 Tail InTag↑ 완료) 활성구간 평균. Blazor ComputeCycleStats 동일.</summary>
     private static (double? AvgCycleMs, double? AvgActiveMs) ComputeCycleStats(
         List<DateTime> cycleBoundaries, List<DateTime> tailEdges, DateTime chartEnd)
     {
@@ -394,8 +462,9 @@ public record CtOverlayRequest(
     DateTime End,
     string? HeadCallId,
     string? TailCallId,
-    string? HeadInTag,
-    string? TailOutTag);
+    // 진영 B: Head 시작 = OutTag↑, Tail 완료 = InTag↑.
+    string? HeadStartTag,
+    string? TailFinishTag);
 
 public record CtCycleBoundaryRequest(string FlowName, DateTime Start, DateTime End);
 
@@ -410,7 +479,10 @@ public record CtLaneDto(
     int LaneIndex,
     List<CtIntervalDto> Intervals,
     string? InTag,
-    string? OutTag);
+    string? OutTag,
+    // 태그별 ON 구간 (Call 막대 안 라인 그래프용). OutTag=명령(시작), InTag=응답(완료).
+    List<CtIntervalDto> OutIntervals,
+    List<CtIntervalDto> InIntervals);
 
 public record CtLoadDto(
     string FlowName,
@@ -419,12 +491,15 @@ public record CtLoadDto(
     List<CtLaneDto> Lanes,
     string? HeadCallId,
     string? TailCallId,
+    // ProjectHead/TailCallId = AASX 원본 기본값(override 와 무관) — 'AASX 기본값 복원'용.
     string? ProjectHeadCallId,
     string? ProjectTailCallId,
     List<string> CycleBoundaries,
     List<string> TailEdges,
     double? AvgCycleMs,
-    double? AvgActiveMs);
+    double? AvgActiveMs,
+    // 이 Flow 에 저장된 사용자 지정(FlowCycleOverride) 존재 여부.
+    bool IsOverride);
 
 public record CtOverlayDto(
     List<string> CycleBoundaries,

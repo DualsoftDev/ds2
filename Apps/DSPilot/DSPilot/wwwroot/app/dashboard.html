@@ -7,13 +7,15 @@
     <title>대시보드 — DSPilot</title>
 
     <!--
-      DSPilot 정적 호스팅 — Swiss Technical 리디자인.
+      DSPilot 정적 호스팅 — Swiss Technical 리디자인 / UX 설계(dspilot-ux.html P1) 반영.
       서버/모델 = C#(/api/dashboard/*), 뷰 = 정적 HTML/CSS/JS(Alpine + SVG + SignalR 실시간).
-      디자인 시스템: /css/swiss.css (토큰/컴포넌트/다크). 페이지 고유 클래스(ds-card/ct-*)만 인라인.
+      디자인 시스템: /css/ds.css (토큰/컴포넌트/다크). mockup 고유 컴포넌트(KPI 힌트/도면 스택바/
+      가로 스택막대 비교/상시 히스토리 테이블)는 본 페이지 <style> 에 ds.css 토큰으로 인라인 정의.
       실시간: /hubs/monitoring SignalR 이벤트 → /api/dashboard/snapshot 디바운스 refetch.
+      UX: 상단 클릭형 KPI 띠 + 양방향 강조(KPI↔도면↔비교막대) + 하단 상시 히스토리 테이블.
     -->
     <link href="/css/fonts.css" rel="stylesheet" />
-    <link href="/css/swiss.css" rel="stylesheet" />
+    <link href="/css/ds.css" rel="stylesheet" />
 
     <style>
         [x-cloak] { display: none !important; }
@@ -23,13 +25,15 @@
         .dsp-appbar { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 20px; background: var(--color-appbar-bg); color: var(--color-appbar-text); border-bottom: 1px solid var(--color-lines-strong); position: sticky; top: 0; z-index: 50; flex-shrink: 0; }
         .dsp-appbar .dsp-title { font-size: 18px; font-weight: 700; }
         .dsp-appbar .spacer { flex: 1; }
-        .dsp-main { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px 20px 20px; }
+        .dsp-main { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px 20px 20px; overflow-y: auto; }
 
         /* ── 콘텐츠 상단 툴바 (셸이 제거하지 않는 영역 → 실시간 상태 노출) ── */
         .dash-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; padding-bottom: 12px; border-bottom: 2px solid var(--color-text-primary); }
         .dash-toolbar .dash-head { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
         .dash-toolbar .dash-index { font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700; color: var(--color-primary); letter-spacing: 0.04em; }
         .dash-toolbar .dash-title { font-size: 1.4rem; font-weight: 700; letter-spacing: -0.015em; }
+        .dash-toolbar .dash-sub { font-size: 0.7rem; color: var(--color-text-disabled); }
+        .dash-toolbar .dash-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
         .dash-live { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; font-variant-numeric: tabular-nums; }
         .dash-live .dash-live-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
         .dash-live.is-live { color: var(--color-success); border-color: color-mix(in srgb, var(--color-success) 50%, transparent); }
@@ -37,101 +41,268 @@
         .dash-live.is-poll { color: var(--color-text-secondary); }
         @keyframes dash-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-        /* ── 위젯 그리드 ── */
-        .dashboard-grid { display: flex; gap: 14px; min-height: 0; flex: 1; }
-        .dashboard-grid.grid-h { flex-direction: row; }
-        .dashboard-grid.grid-v { flex-direction: column; }
-        .widget-container { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-        @media (max-width: 1024px) {
-            .dashboard-grid.grid-h { flex-direction: column !important; height: auto !important; }
-            .dashboard-grid.grid-h > .widget-container { flex: 0 0 auto !important; height: 60vh !important; }
-        }
+        /* ── KPI 띠 (kp-target Flow 명 줄임) ── */
+        .kpi-cell .kp-target { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .kpi-cell.is-active.tone-max { box-shadow: 0 0 0 3px rgba(229, 73, 79, 0.22); border-color: var(--red); }
+        .kpi-cell.is-active.tone-min { box-shadow: 0 0 0 3px rgba(54, 194, 138, 0.22); border-color: var(--green); }
+        .kpi-cell.is-active.tone-wait { box-shadow: 0 0 0 3px rgba(248, 197, 69, 0.30); border-color: var(--amber); }
+
+        /* ── 시프트 목표 KPI 셀 (클릭 → 설정 팝업) ── */
+        .kpi-shift .kp-value { color: var(--color-primary-strong); }
+        .kpi-shift.state-ended .kp-value { color: var(--color-text-disabled); }
+        .kpi-shift.state-pending .kp-value { color: var(--amber); }
+        .kpi-shift .kp-target { color: var(--color-text-secondary); }
+        .kpi-shift .kp-target .sh-pct { color: var(--ct); font-weight: 800; }
+        .kpi-shift .kp-target .sh-pct.is-over { color: var(--green); }
+        .kpi-shift .kp-target .sh-pct.is-under { color: var(--red); }
+
+        /* ── 시프트 설정 팝업 ── */
+        .shift-modal { width: min(520px, 94vw); padding: 0; }
+        .shift-modal .sm-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px 14px; border-bottom: 1px solid var(--color-lines); }
+        .shift-modal .sm-title { font-size: 1.05rem; font-weight: 800; letter-spacing: -0.01em; }
+        .shift-modal .sm-body { padding: 18px 22px 4px; }
+        .shift-modal .sm-foot { display: flex; gap: 10px; padding: 14px 22px 20px; }
+        .shift-modal .sm-foot .btn { flex: 1; justify-content: center; }
+        .sm-times { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .sm-seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+        .sm-seg button { padding: 10px 6px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-secondary); font-weight: 700; font-size: 0.82rem; cursor: pointer; transition: all 0.12s; }
+        .sm-seg button:hover { border-color: var(--color-primary); }
+        .sm-seg button.is-active { background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface)); border-color: var(--color-primary); color: var(--color-primary-strong); }
+        .sm-stepper { display: flex; align-items: center; gap: 8px; }
+        .sm-stepper input { flex: 1; text-align: center; font-size: 1.25rem; font-weight: 800; color: var(--color-primary-strong); font-variant-numeric: tabular-nums; padding: 8px 10px; }
+        .sm-stepper button { width: 44px; height: 44px; flex-shrink: 0; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-primary); font-size: 1.3rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+        .sm-stepper button:hover { border-color: var(--color-primary); color: var(--color-primary); }
+        .sm-hint { display: flex; gap: 9px; align-items: flex-start; margin-top: 6px; padding: 11px 13px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--color-primary) 22%, transparent); font-size: 0.78rem; line-height: 1.5; color: var(--color-text-secondary); }
+        .sm-hint .material-icons { font-size: 17px; color: var(--color-primary); flex-shrink: 0; margin-top: 1px; }
+        .sm-hint b { color: var(--color-primary-strong); font-weight: 800; }
+
+        /* ── 2단 레이아웃 (도면 2fr : 비교차트 1fr) ── */
+        /* 2단 행: 자연 높이(도면은 가로세로비 유지). flex-shrink:0 → .dsp-main 의 flex 압축 금지(압축 대신 페이지 스크롤) */
+        .dash-2col { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; align-items: stretch; flex-shrink: 0; }
+        @media (max-width: 1024px) { .dash-2col { grid-template-columns: 1fr; } }
 
         /* ── ds-card (스위스 패널) ── */
-        .ds-card { --u: clamp(10px, 1.3vh, 15px); border-radius: var(--radius-md); overflow: hidden; flex: 1; min-height: 0; display: flex; flex-direction: column; border: 1px solid var(--color-lines); background: var(--color-surface); }
+        .ds-card { --u: clamp(10px, 1.3vh, 15px); border-radius: var(--radius-md); overflow: hidden; display: flex; flex-direction: column; border: 1px solid var(--color-lines); background: var(--color-surface); box-shadow: var(--shadow-card); }
         .ds-card-header { padding: calc(var(--u) * 0.55) calc(var(--u) * 1.2); background: var(--color-surface); border-bottom: 1px solid var(--color-lines); flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: calc(var(--u) * 0.9); min-height: calc(var(--u) * 3.2); flex-wrap: wrap; }
         .ct-section-title { font-size: calc(var(--u) * 1.15); color: var(--color-text-primary); font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; }
         .ds-card-header .btn-sm { padding: calc(var(--u) * 0.4) calc(var(--u) * 0.9); font-size: calc(var(--u) * 1.0); }
         .ds-card-header .btn-icon { width: calc(var(--u) * 2.6); height: calc(var(--u) * 2.6); }
+        .ds-card-header .hdr-sub { font-size: calc(var(--u) * 0.92); color: var(--color-text-disabled); font-weight: 600; }
         .ds-card-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
         .layout-legend { display: flex; gap: calc(var(--u) * 0.9); flex-wrap: wrap; align-items: center; }
         .layout-legend-item { display: flex; align-items: center; gap: calc(var(--u) * 0.4); font-size: calc(var(--u) * 0.95); color: var(--color-text-secondary); font-weight: 600; }
         .layout-legend-dot { width: calc(var(--u) * 0.85); height: calc(var(--u) * 0.85); border-radius: 1px; flex-shrink: 0; }
 
-        /* ── CT 요약 바 ── */
-        .ct-summary-bar { display: flex; flex-direction: row; gap: 1px; padding: 0; margin-top: 12px; flex-shrink: 0; background: var(--color-lines); border-top: 1px solid var(--color-lines); border-bottom: 1px solid var(--color-lines); }
-        .ct-summary-group { display: flex; gap: 1px; }
-        .ct-summary-group.group-time { flex: 2; }
-        .ct-summary-group.group-wait { flex: 1; }
-        .ct-top-cell { flex: 1; padding: 10px 14px; display: flex; flex-direction: column; justify-content: center; gap: 3px; background: var(--color-surface); min-width: 0; }
-        .ct-top-cell.danger { border-top: 2px solid var(--color-error); }
-        .ct-top-cell.warning { border-top: 2px solid var(--color-warning); }
-        .ct-top-cell.success { border-top: 2px solid var(--color-success); }
-        .ct-combined-cell { flex: 1; display: flex; background: var(--color-surface); min-width: 0; overflow: hidden; gap: 1px; }
-        .ct-combined-half { flex: 1; padding: 10px 14px; display: flex; flex-direction: column; justify-content: center; gap: 3px; min-width: 0; background: var(--color-surface); }
-        .ct-combined-half.danger { border-top: 2px solid var(--color-error); }
-        .ct-combined-half.success { border-top: 2px solid var(--color-success); }
-        .ct-combined-half, .ct-top-cell { cursor: pointer; transition: box-shadow 0.12s, background 0.12s; }
-        .ct-combined-half:hover, .ct-top-cell:hover { background: color-mix(in srgb, var(--color-text-primary) 4%, var(--color-surface)); }
-        .ct-combined-half.active, .ct-top-cell.active { box-shadow: inset 0 0 0 2px var(--color-primary); background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface)); }
-        .ct-summary-title { font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-secondary); }
-        .ct-top-cell.danger .ct-summary-title, .ct-combined-half.danger .ct-summary-title { color: var(--color-error); }
-        .ct-top-cell.warning .ct-summary-title { color: var(--color-warning); }
-        .ct-top-cell.success .ct-summary-title, .ct-combined-half.success .ct-summary-title { color: var(--color-success); }
-        .ct-summary-sub { font-size: 0.82rem; color: var(--color-text-primary); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-        .ct-summary-value { font-size: 0.72rem; font-weight: 700; color: var(--color-text-secondary); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-        .ct-badge-pill { display: inline-block; padding: 1px 6px; border-radius: 1px; font-size: 0.6rem; font-weight: 800; color: white; white-space: nowrap; flex-shrink: 0; line-height: 1.6; letter-spacing: 0.04em; }
-        .ct-tooltip-state { font-size: 0.6rem; font-weight: 800; color: #fff; padding: 2px 8px; border-radius: 1px; white-space: nowrap; flex-shrink: 0; letter-spacing: 0.06em; text-transform: uppercase; }
+        /* ── 라인 도면 Flow 카드: dspilot-ux.html 대시보드 카드 스타일 (도넛 → MT/WT 막대, 겹치는 배지 제거) ──
+           swiss.css 의 도넛 카드 규칙(.fl-card/.fc-*)을 이 페이지에서만 오버라이드. swiss.css 는 손대지 않음. */
+        .fl-card { --fc-accent: var(--color-primary); position: absolute; z-index: 2; border: 1.5px solid var(--color-lines-strong); border-radius: 8px; background: var(--color-surface); box-shadow: 0 2px 7px rgba(10,37,64,0.12); overflow: hidden; }
+        /* 좌측 테두리 = MT/WT 우세 표시(가동 청록 --mt / 대기 앰버 --wt), 단 최대 CT Flow 면 빨강 --red.
+           색은 cardFor.edgeColor 가 결정해 --fc-edge 로 주입 → 도면 범례(MT/WT/최대 CT)와 통일. */
+        .fl-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 5px; background: var(--fc-edge, var(--color-primary)); border-radius: 8px 0 0 8px; z-index: 3; }
+        .fl-card:hover { border-color: var(--color-primary); box-shadow: 0 6px 16px rgba(109,91,208,0.22); }
+        .fl-card-selected { border-color: var(--color-primary); border-width: 2px; box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 22%, transparent); transform: none; z-index: 10; animation: none; }
+        .fl-card-selected::after { display: none; }
+        .fl-card.is-bottleneck { outline: none; border: 2px solid var(--red); box-shadow: 0 0 0 4px rgba(229,73,79,0.16); background: #FFF6F4; z-index: 6; }
+        .dark-theme .fl-card.is-bottleneck { background: color-mix(in srgb, var(--red) 13%, var(--color-surface)); }
+        .fl-card.is-bottleneck.fl-card-selected { box-shadow: 0 0 0 4px rgba(229,73,79,0.30); }
 
-        /* ── CT 차트 리스트 ── */
-        .ct-chart-section { padding: 8px 10px; overflow-y: auto; flex: 1; min-height: 0; background: var(--color-surface); }
-        .ct-chart-row { display: flex; flex-direction: column; padding: 8px 10px; margin-bottom: 1px; border-left: 3px solid transparent; border-bottom: 1px solid var(--color-lines); background: var(--color-surface); position: relative; z-index: 0; cursor: pointer; transition: background 0.12s; }
-        .ct-chart-row:last-child { border-bottom: none; }
-        .ct-chart-row.highlighted { background: color-mix(in srgb, var(--color-text-primary) 2.5%, var(--color-surface)); }
-        .ct-chart-row.selected { background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface)); border-left-color: var(--color-primary); }
-        .ct-chart-row:hover { background: color-mix(in srgb, var(--color-primary) 4%, var(--color-surface)); z-index: 10; }
-        .ct-row-header { display: flex; align-items: baseline; gap: 6px; margin-bottom: 5px; min-width: 0; }
-        .ct-row-name { font-size: 0.82rem; color: var(--color-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
-        .ct-process-number { font-size: 0.66rem; font-weight: 700; color: var(--color-primary); min-width: 18px; text-align: center; flex-shrink: 0; font-family: var(--font-mono); }
-        .ct-row-footer { display: flex; align-items: center; gap: 10px; }
-        .ct-bar-track { flex: 1; height: 10px; background: var(--color-surface-variant); display: flex; }
-        .ct-bar-mt { background: var(--color-primary); height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-        .ct-bar-wt { background: var(--color-secondary); height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-        .ct-bar-pct { font-size: 0.56rem; font-weight: 700; color: white; line-height: 1; white-space: nowrap; font-variant-numeric: tabular-nums; }
-        .ct-row-time { font-size: 0.78rem; font-weight: 700; color: var(--color-text-primary); white-space: nowrap; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-        .ct-row-detail-btn { flex-shrink: 0; align-self: center; padding: 3px 9px; font-size: 0.66rem; font-weight: 700; color: var(--color-primary); background: transparent; border: 1px solid var(--color-primary); border-radius: var(--radius-sm); cursor: pointer; line-height: 1.4; text-decoration: none; transition: background 0.12s, color 0.12s; }
-        .ct-row-detail-btn:hover { background: var(--color-primary); color: #fff; }
-        .ct-sort-select { padding: calc(var(--u) * 0.35) calc(var(--u) * 0.7); font-size: calc(var(--u) * 0.95); font-weight: 700; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-primary); cursor: pointer; outline: none; }
+        .fl-card .fc-root { justify-content: center; gap: 1.8cqmin; padding: clamp(6px,5cqmin,16px) clamp(9px,6cqmin,20px); }
+        /* 2:1 가로형 카드: 이름+배지를 한 줄(상단), 막대+시간을 아래 → 짧은 높이에서 가로 폭 활용 */
+        .fc-toprow { display: flex; align-items: center; justify-content: space-between; gap: 2cqmin; width: 100%; min-width: 0; }
+        .fc-toprow .fc-name { flex: 1; min-width: 0; text-align: left; }
+        .fc-toprow .fc-badges { flex-wrap: nowrap; flex-shrink: 0; justify-content: flex-end; }
+        .fc-name { font-size: clamp(0.88rem, 12.5cqmin, 2.1rem); font-weight: 800; color: var(--navy); line-height: 1.18; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .dark-theme .fc-name { color: var(--color-text-primary); }
+        .fl-card.is-bottleneck .fc-name { color: var(--red); }
+        .fc-stats { display: flex; flex-direction: column; gap: 1.6cqmin; }
+        .fc-bar-row { display: flex; align-items: center; gap: 1.5cqmin; height: clamp(8px, 4cqmin, 16px); }
+        .fc-bar { height: 100%; border-radius: 2px; }
+        .fc-bar.mt { background: var(--mt); }
+        .fc-bar.wt { background: var(--wt); }
+        .fl-card.is-bottleneck .fc-bar.wt { background: var(--wt); }
+        .fc-bar-empty { flex: 1; height: 100%; border-radius: 2px; background: color-mix(in srgb, var(--color-text-secondary) 18%, transparent); }
+        /* 시간(좌측 정렬·우측 여백) → 우측 하단 상세 버튼 자리 확보(겹침 방지) */
+        .fc-times { display: flex; justify-content: flex-start; align-items: baseline; gap: clamp(4px, 4cqmin, 12px); padding-right: clamp(46px, 30cqmin, 78px); overflow: hidden; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: clamp(0.62rem, 5.4cqmin, 1.05rem); color: var(--color-text-secondary); white-space: nowrap; }
+        .fc-times .mt { color: var(--mt); font-weight: 700; }   /* MT 데이터색(청록) — 브랜드 보라와 분리 */
+        .fc-times .wt { color: var(--amber); font-weight: 700; }
+        .fl-card.is-bottleneck .fc-times .wt { color: var(--red); }
+        .fc-times .ct { color: var(--ct); font-weight: 800; }   /* CT 색상 통일: var(--ct) (도면·비교차트·범례 동일) */
+        .fc-times .muted { color: var(--color-text-disabled); font-weight: 600; }
+        /* 상세 분석 버튼: 모든 카드 우측 하단 (편집 중엔 아래 .is-editing 규칙으로 숨김).
+           외곽선 톤 = 헤더 [편집]/[전체화면] 버튼(btn-outlined) 과 동일: surface 배경 + primary 테두리/아이콘 */
+        .fc-detail-btn { position: absolute; right: clamp(3px, 2.5cqmin, 8px); bottom: clamp(3px, 2.5cqmin, 8px); z-index: 4; pointer-events: auto; display: inline-flex; align-items: center; justify-content: center; gap: clamp(2px, 1.4cqmin, 5px); background: var(--color-surface); border: 1px solid var(--color-primary); color: var(--color-primary); border-radius: 4px; padding: clamp(1px,1.2cqmin,4px) clamp(4px,2.4cqmin,9px); cursor: pointer; text-decoration: none; font-weight: 700; box-shadow: 0 1px 2px rgba(10,37,64,0.12); }
+        .fc-detail-btn .material-icons { font-size: clamp(13px, 9cqmin, 20px); }
+        .fc-detail-btn .fc-detail-label { font-size: clamp(0.56rem, 4.6cqmin, 0.86rem); line-height: 1.2; white-space: nowrap; }
+        .fc-detail-btn:hover { background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface)); }
 
-        /* ── 팝업 모달 ── */
-        .ct-popup-overlay { position: fixed; inset: 0; z-index: 1000; background: rgba(18,17,13,0.46); display: flex; align-items: center; justify-content: center; animation: ct-fade-in 0.15s ease; backdrop-filter: blur(2px); }
-        .dark-theme .ct-popup-overlay { background: rgba(0,0,0,0.62); }
-        @keyframes ct-fade-in { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes ct-scale-in { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
-        .ct-popup-modal { background: var(--color-surface); border: 1px solid var(--color-lines-strong); border-radius: var(--radius-md); box-shadow: var(--shadow-modal); width: 400px; max-width: 90vw; overflow: hidden; animation: ct-scale-in 0.15s ease; }
-        .ct-popup-header { display: flex; align-items: center; gap: 8px; padding: 14px 16px; background: var(--color-surface); border-bottom: 1px solid var(--color-lines); }
-        .ct-popup-name { font-size: 1rem; font-weight: 700; color: var(--color-text-primary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-        .ct-popup-close { flex-shrink: 0; color: var(--color-text-secondary); }
-        .ct-popup-badges { display: flex; gap: 6px; padding: 12px 16px 0; flex-wrap: wrap; }
-        .ct-popup-bar-section { padding: 14px 16px 6px; }
-        .ct-popup-bar-track { height: 16px; display: flex; overflow: hidden; background: var(--color-surface-variant); }
-        .ct-popup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; padding: 10px 16px 16px; background: var(--color-lines); margin: 12px 16px 16px; border: 1px solid var(--color-lines); }
-        .ct-popup-item { display: flex; flex-direction: column; gap: 3px; padding: 10px; background: var(--color-surface); }
-        .ct-popup-label { font-size: 0.62rem; color: var(--color-text-secondary); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
-        .ct-popup-val { font-size: 1.15rem; font-weight: 700; color: var(--color-text-primary); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-        .ct-popup-history { margin-top: 0; border-top: 1px solid var(--color-lines); padding: 14px 16px; }
-        .ct-popup-history-header { display: flex; align-items: center; padding-bottom: 10px; font-size: 0.72rem; color: var(--color-text-primary); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
-        .ct-popup-history-list { max-height: 240px; overflow-y: auto; }
-        .ct-history-item { padding: 9px; background: var(--color-surface-variant); border: 1px solid var(--color-lines); margin-bottom: 6px; }
-        .ct-history-item:last-child { margin-bottom: 0; }
-        .ct-history-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; font-size: 0.68rem; }
-        .ct-history-cycle { font-weight: 700; color: var(--color-primary); font-family: var(--font-mono); }
-        .ct-history-time { color: var(--color-text-secondary); font-family: var(--font-mono); }
-        .ct-history-bar { height: 7px; display: flex; overflow: hidden; margin-bottom: 6px; background: var(--color-surface); }
-        .ct-history-values { display: flex; gap: 12px; font-size: 0.66rem; font-weight: 700; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+        /* ── 최대 대기 Flow 강조 (최대 CT=병목 빨강과 동일 방식, 대기 색상=amber) ── */
+        .fl-card.is-maxwait { border: 2px solid var(--amber); box-shadow: 0 0 0 4px rgba(248,197,69,0.18); background: #FFFBF0; z-index: 5; }
+        .dark-theme .fl-card.is-maxwait { background: color-mix(in srgb, var(--amber) 12%, var(--color-surface)); }
+        .fl-card.is-maxwait.fl-card-selected { box-shadow: 0 0 0 4px rgba(248,197,69,0.32); }
 
-        /* ── 다크 보강 (토큰으로 대부분 처리되나 명시) ── */
-        .dark-theme .ct-summary-bar, .dark-theme .ct-chart-row { background: var(--color-surface); }
+        /* ── Flow 카드 내 상태/지표 배지 (READY/GOING/FINISH/ERROR + 병목/대기↑) ── */
+        .fc-badges { display: flex; flex-wrap: wrap; gap: 1.4cqmin; justify-content: center; }
+        .fc-badge { display: inline-flex; align-items: center; gap: 0.8cqmin; padding: 0.5cqmin 1.7cqmin; border-radius: 999px; font-size: clamp(0.5rem, 4.2cqmin, 0.8rem); font-weight: 800; line-height: 1.35; white-space: nowrap; }
+        .fc-badge::before { content: ''; width: clamp(3px, 1.4cqmin, 6px); height: clamp(3px, 1.4cqmin, 6px); border-radius: 50%; background: currentColor; flex-shrink: 0; }
+        .fc-badge.state-ready  { color: var(--green); background: color-mix(in srgb, var(--green) 16%, transparent); }
+        .fc-badge.state-going  { color: #8A6D1A; background: color-mix(in srgb, var(--amber) 30%, transparent); }
+        .fc-badge.state-finish { color: #1E6FB8; background: color-mix(in srgb, #2196F3 16%, transparent); }
+        .fc-badge.state-error  { color: var(--red); background: color-mix(in srgb, var(--red) 16%, transparent); }
+        .dark-theme .fc-badge.state-going { color: var(--amber); }
+        .fc-badge.tag-bottleneck { color: #fff; background: var(--red); }
+        .fc-badge.tag-wait { color: #fff; background: var(--amber); }
+        .fc-badge.tag-bottleneck::before, .fc-badge.tag-wait::before { display: none; }
+
+        /* ── 데이터 없음 카드 = 대기중 표시 (곧 시작 / 방금 시작) ── */
+        .fc-waiting { display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 1.6cqmin; color: var(--color-text-disabled); }
+        .fc-waiting .material-icons { font-size: clamp(16px, 9cqmin, 30px); opacity: 0.65; }
+        .fc-waiting .fc-waiting-text { font-size: clamp(0.58rem, 5cqmin, 1rem); font-weight: 700; }
+
+        /* ── 가로 스택막대 비교 차트 (mockup .stack-bar 대응, ds.css 토큰) ── */
+        .sb-legend { padding: calc(var(--u) * 0.8) calc(var(--u) * 1.2); border-bottom: 1px solid var(--color-lines); flex-shrink: 0; }
+        .sb-chart { padding: 6px 8px; overflow-y: auto; flex: 1; min-height: 0; background: var(--color-surface); }
+        .stack-bar { display: grid; grid-template-columns: minmax(72px, 1fr) 2.1fr auto; align-items: center; gap: 10px; padding: 7px 10px; border-bottom: 1px solid var(--color-lines); cursor: pointer; transition: background 0.12s; border-left: 3px solid transparent; }
+        .stack-bar:last-child { border-bottom: none; }
+        .stack-bar:hover { background: color-mix(in srgb, var(--color-primary) 4%, var(--color-surface)); }
+        .stack-bar.is-selected { background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); border-left-color: var(--color-primary); }
+        .stack-bar.is-bottleneck { background: color-mix(in srgb, var(--red) 8%, var(--color-surface)); border-left-color: var(--red); }
+        .stack-bar.is-bottleneck.is-selected { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--red) 35%, transparent); }
+        /* 최대 대기 강조 (병목 빨강과 동일 방식, 대기 색=amber) */
+        .stack-bar.is-maxwait { background: color-mix(in srgb, var(--amber) 10%, var(--color-surface)); border-left-color: var(--amber); }
+        .stack-bar.is-maxwait.is-selected { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--amber) 42%, transparent); }
+        .stack-bar.is-maxwait .sb-label { color: #8A6D1A; font-weight: 800; }
+        .dark-theme .stack-bar.is-maxwait .sb-label { color: var(--amber); }
+        .sb-tag { font-size: 0.54rem; font-weight: 800; color: #fff; padding: 0 5px; border-radius: 7px; line-height: 1.55; white-space: nowrap; flex-shrink: 0; }
+        .sb-tag.tag-bottleneck { background: var(--red); }
+        .sb-tag.tag-wait { background: var(--amber); }
+        .sb-label { font-size: 0.74rem; font-weight: 600; color: var(--color-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 5px; min-width: 0; }
+        .stack-bar.is-bottleneck .sb-label { color: var(--red); font-weight: 800; }
+        .sb-num { font-family: var(--font-mono); font-size: 0.6rem; font-weight: 700; color: var(--color-primary); flex-shrink: 0; }
+        .sb-bars { display: flex; height: 14px; background: var(--color-surface-variant); border-radius: 1px; overflow: hidden; }
+        .sb-mt { background: var(--mt); height: 100%; display: flex; align-items: center; padding-left: 4px; overflow: hidden; }
+        .sb-wt { background: var(--wt); height: 100%; display: flex; align-items: center; padding-left: 4px; overflow: hidden; }
+        .stack-bar.is-bottleneck .sb-wt { background: linear-gradient(180deg, #FF8A65, var(--red)); }
+        .sb-bar-lbl { font-size: 0.55rem; font-weight: 700; color: #fff; line-height: 1; white-space: nowrap; font-variant-numeric: tabular-nums; }
+        .sb-total { font-size: 0.74rem; font-weight: 700; color: var(--ct); font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+        .stack-bar.is-bottleneck .sb-total { color: var(--red); }
+        .sb-detail { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: var(--radius-sm); color: var(--color-primary); flex-shrink: 0; text-decoration: none; }
+        .sb-detail:hover { background: color-mix(in srgb, var(--color-primary) 14%, transparent); }
+        .sb-detail .material-icons { font-size: 16px; }
+
+        /* ── 하단 상시 히스토리 (테이블 ↔ 차트 전환) ── */
+        /* flex-shrink:0 必: 없으면 .dsp-main(고정높이 flex column)이 히스토리를 0 가까이 압축해 "납작" + 스크롤 미발생 */
+        .hist-card { margin-top: 14px; flex-shrink: 0; }
+        .hist-toggle { display: inline-flex; gap: 1px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); overflow: hidden; }
+        .hist-toggle button { display: inline-flex; align-items: center; gap: 4px; border: none; border-radius: 0; padding: 4px 10px; font-size: 0.72rem; font-weight: 700; cursor: pointer; background: var(--color-surface); color: var(--color-text-secondary); }
+        .hist-toggle button .material-icons { font-size: 15px; }
+        .hist-toggle button.is-active { background: var(--color-primary); color: #fff; }
+        .hist-chart-wrap { position: relative; height: clamp(240px, 40vh, 460px); padding: 6px 2px 0; }
+        .hist-auto-tag { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: var(--radius-lg); font-size: 0.6rem; font-weight: 800; letter-spacing: 0.04em; vertical-align: middle; color: var(--color-warning); background: color-mix(in srgb, var(--color-warning) 14%, transparent); border: 1px solid color-mix(in srgb, var(--color-warning) 45%, transparent); }
+        .hist-table-wrap { max-height: clamp(240px, 46vh, 520px); overflow-y: auto; border: 1px solid var(--color-lines); border-radius: var(--radius-md); }
+        .hist-table-wrap .ds-table th { position: sticky; top: 0; z-index: 1; }
+        .hist-table-wrap .ds-table td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+        .hist-mt { color: var(--mt); font-weight: 700; }
+        .hist-wt { color: var(--color-warning); font-weight: 700; }
+        .hist-ct { color: var(--color-text-primary); font-weight: 800; }
+
+        /* ── 히스토리 이상치 필터 (차트 드래그 구간 제외 + 자동 감지) ── */
+        .hist-chart-wrap.is-pickable { cursor: crosshair; user-select: none; }
+        .hist-drag-rect { position: absolute; top: 0; bottom: 0; z-index: 5; pointer-events: none; background: color-mix(in srgb, var(--color-primary) 14%, transparent); border-left: 2px solid var(--color-primary); border-right: 2px solid var(--color-primary); }
+        .hist-drag-hint { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 4; pointer-events: none; display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: var(--radius-lg); font-size: 0.66rem; font-weight: 700; color: var(--color-text-secondary); background: color-mix(in srgb, var(--color-surface) 88%, transparent); border: 1px dashed var(--color-lines-strong); }
+        .hist-drag-hint .material-icons { font-size: 14px; }
+        .hist-filter-chip { display: inline-flex; align-items: center; gap: 7px; padding: 3px 6px 3px 11px; border-radius: var(--radius-lg); font-size: 0.68rem; font-weight: 800; color: var(--color-warning); background: color-mix(in srgb, var(--color-warning) 12%, transparent); border: 1px solid color-mix(in srgb, var(--color-warning) 45%, transparent); }
+        .hist-filter-chip .hfc-reset { display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px; border: none; border-radius: var(--radius-sm); background: var(--color-warning); color: #fff; font-size: 0.62rem; font-weight: 800; cursor: pointer; }
+        .hist-filter-chip .hfc-reset .material-icons { font-size: 13px; }
+
+        /* ── 편집바 슬라이더 컨트롤 (공통 카드 크기 / 스냅 간격) ── */
+        .fl-ctrl { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); font-size: 0.72rem; font-weight: 700; color: var(--color-text-secondary); }
+        .fl-ctrl .material-icons { font-size: 16px; color: var(--color-text-disabled); }
+        .fl-ctrl input[type=range] { width: clamp(70px, 9vw, 130px); accent-color: var(--color-primary); cursor: pointer; vertical-align: middle; }
+        .fl-ctrl .fl-val { font-variant-numeric: tabular-nums; color: var(--color-primary-strong); min-width: 30px; text-align: right; }
+        .fl-ctrl.is-off { opacity: 0.5; }
+        .fl-snaptoggle { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; }
+        .fl-snaptoggle input { accent-color: var(--color-primary); width: 15px; height: 15px; cursor: pointer; margin: 0; }
+
+        /* ── 전체화면: 도면을 기준으로 최대 확대 (종횡비 유지 = 스트래치 금지) ──
+           --fl-cap = 도면 캔버스 height 상한. 평상시 58vh, 전체화면시 가용 화면 높이로 키워
+           폭(width:100%)·높이(cap) 중 작은 쪽이 도면 종횡비를 유지하며 화면을 채움. */
+        /* 전체화면: 도면만 노출(헤더 숨김) + 도면 높이를 화면 위아래에 꽉 채움.
+           헤더를 숨겨 가용 높이 전체를 도면에 할당하고, --fl-cap = 100vh(여백 최소)로 도면 종횡비를
+           유지한 채 위아래를 모니터에 맞춘다. 종료는 Esc(브라우저 기본 안내). */
+        .ds-card:fullscreen, .ds-card:-webkit-full-screen { --fl-cap: calc(100vh - 24px); background: var(--color-background); }
+        .ds-card:fullscreen .ds-card-header, .ds-card:-webkit-full-screen .ds-card-header { display: none; }
+        .ds-card:fullscreen .ds-card-body, .ds-card:-webkit-full-screen .ds-card-body { padding: 0; }
+
+        /* ── 도면 인플레이스 편집 (자유 배치 + 선택적 스냅) ──
+           격자 방식 폐지: 카드는 캔버스 정규화 중심좌표(X/Y)에 자유 배치되고, 공통 크기(CardScale, 2:1)는
+           편집 UI 슬라이더로 조절(레이아웃에 저장·전 화면 공유). 스냅 토글 시 조절 가능한 간격으로 정렬한다. */
+        .fl-editpanel { width: 100%; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+        .fl-editbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .fl-editbar .ds-status { display: inline-flex; align-items: center; gap: 5px; }
+        .fl-editbar .spacer { flex: 1; min-width: 8px; }
+
+        /* 미배치 Flow 팔레트 (편집 중 추가용) */
+        .fl-palette { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 8px 10px; border: 1px dashed var(--color-lines-strong); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-primary) 4%, var(--color-surface)); }
+        .fl-palette .fp-hint { font-size: 0.72rem; font-weight: 700; color: var(--color-text-secondary); display: inline-flex; align-items: center; gap: 4px; }
+        .fl-chip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border: 1px solid var(--color-lines-strong); border-radius: 999px; background: var(--color-surface); color: var(--color-text-primary); font-size: 0.74rem; font-weight: 700; cursor: pointer; transition: all 0.12s; }
+        .fl-chip:hover { border-color: var(--color-primary); color: var(--color-primary); }
+        .fl-chip.is-armed { background: var(--color-primary); border-color: var(--color-primary); color: #fff; box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 25%, transparent); }
+        .fl-chip.is-placed { opacity: 0.5; cursor: default; border-style: dashed; }
+        .fl-chip.is-placed:hover { border-color: var(--color-lines-strong); color: var(--color-text-disabled); }
+        .fl-chip .fp-num { width: 16px; height: 16px; border-radius: 8px; background: var(--color-primary); color: #fff; font-size: 0.6rem; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .fl-chip.is-placed .fp-num { background: var(--color-lines-strong); }
+        .fl-chip .material-icons { font-size: 14px; }
+
+        /* 스냅 격자선 오버레이 (편집 + 스냅 ON) — 카드보다 뒤(z-index:1, pointer-events:none) */
+        .fl-grid-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+        .fl-grid-overlay line { vector-effect: non-scaling-stroke; }
+        .fl-grid-overlay .gl-line { stroke: color-mix(in srgb, var(--color-primary) 26%, transparent); stroke-width: 1; stroke-dasharray: 4 4; }
+        /* 자유 배치: 무장(배치 대기) 중 캔버스 = 클릭으로 배치 */
+        .fl-canvas.is-armed { cursor: crosshair; }
+        /* 편집 중 캔버스: 드래그가 페이지 스크롤/텍스트 선택/이미지 고스트 드래그로 새지 않게 차단
+           (touch-action:none → 터치 스크롤 금지, user-select:none → 텍스트 선택 금지). */
+        .fl-canvas.is-editing-canvas { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+
+        /* 편집 중 카드: 자유 드래그 이동 + 삭제(공통 크기 2:1 유지)
+           transition:none → 레거시 swiss.css .fl-card{transition:transform .15s} 무력화.
+           이게 없으면 드래그 중 카드가 커서를 0.15s 지연 추종하고, 드롭 시 left/top 은 즉시 확정되는데
+           transform 은 0 으로 애니메이션돼 카드가 늦게 미끄러져 이동하는 현상이 생김. */
+        .fl-card.is-editing { cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-user-drag: none; transition: none; }
+        .fl-card.is-editing * { -webkit-user-drag: none; user-select: none; -webkit-user-select: none; }
+        .fl-card.is-editing.is-dragging { cursor: grabbing; opacity: 0.82; box-shadow: 0 8px 20px rgba(10,37,64,0.28); z-index: 40; }
+        .fl-card.is-editing .fc-detail-btn { display: none !important; }
+        .fl-card.is-editsel { border-color: var(--color-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 28%, transparent); z-index: 12; }
+        .fl-del { position: absolute; top: 3px; right: 3px; z-index: 50; width: 20px; height: 20px; border: none; border-radius: 50%; background: rgba(10,37,64,0.55); color: #fff; font-size: 15px; line-height: 1; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+        .fl-del:hover { background: var(--red); }
+
+        /* ── 공정 순서 편집 (도면 좌측 사이드 컬럼: 고정 폭으로 도면 영역 침범 방지) ── */
+        .fl-canvas-wrap { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        .fl-order { display: flex; flex-direction: column; flex: 0 0 auto; width: 220px; max-width: 32%; min-height: 0; padding: 8px 10px; border: 1px dashed var(--color-lines-strong); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-primary) 4%, var(--color-surface)); }
+        .fl-order-head { display: flex; align-items: center; gap: 6px; font-size: 0.78rem; font-weight: 800; color: var(--color-text-secondary); margin-bottom: 4px; }
+        .fl-order-hint { font-weight: 600; color: var(--color-text-disabled); font-size: 0.66rem; line-height: 1.4; margin-bottom: 8px; }
+        .fl-order-list { display: flex; flex-direction: column; gap: 4px; flex: 1; min-height: 0; overflow-y: auto; }
+        .fl-order-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); cursor: grab; }
+        .fl-order-row.is-dragging { opacity: 0.55; border-style: dashed; border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); }
+        .fl-order-handle { color: var(--color-text-disabled); cursor: grab; font-size: 18px; flex-shrink: 0; }
+        .fl-order-num { width: 20px; height: 20px; flex-shrink: 0; border-radius: 6px; background: var(--color-primary); color: #fff; font-size: 0.66rem; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums; }
+        .fl-order-name { flex: 1; min-width: 0; font-size: 0.8rem; font-weight: 700; color: var(--color-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .fl-order-sys { font-size: 0.66rem; font-weight: 700; color: var(--color-text-secondary); background: var(--color-surface-variant); padding: 1px 7px; border-radius: 999px; flex-shrink: 0; }
+        .fl-order-btns { display: inline-flex; gap: 2px; flex-shrink: 0; }
+        .fl-order-btn { width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-secondary); cursor: pointer; padding: 0; }
+        .fl-order-btn:hover:not(:disabled) { border-color: var(--color-primary); color: var(--color-primary); }
+        .fl-order-btn:disabled { opacity: 0.35; cursor: default; }
+        .fl-order-btn .material-icons { font-size: 16px; }
+
+        /* 편집 토스트 */
+        .dash-toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 4000; padding: 9px 16px; border-radius: var(--radius-md); font-size: 0.78rem; font-weight: 700; color: #fff; box-shadow: var(--shadow-modal); opacity: 0; transition: opacity 0.2s; pointer-events: none; }
+        .dash-toast.show { opacity: 1; }
+        .dash-toast.info { background: var(--color-info); }
+        .dash-toast.success { background: var(--color-success); }
+        .dash-toast.warning { background: var(--color-warning); }
+        .dash-toast.error { background: var(--color-error); }
+
+        /* ── 다크 보강 ── */
+        .dark-theme .ds-card-header, .dark-theme .sb-chart, .dark-theme .ds-card { background: var(--color-surface); }
     </style>
 </head>
 
@@ -160,18 +331,23 @@
 
         <main class="dsp-main">
 
-            <!-- 콘텐츠 툴바: 페이지 제목 + 실시간 상태 -->
+            <!-- 콘텐츠 툴바: 페이지 제목 + 실시간 상태 + 새로고침 -->
             <div class="dash-toolbar">
                 <div class="dash-head">
-                    <span class="dash-index">01 / 모니터</span>
-                    <span class="dash-title">실시간 대시보드</span>
+                    <div style="display:flex; flex-direction:column;">
+                        <span class="dash-title">모니터링</span>
+                        <span class="dash-sub">홈 · 대시보드 · 실시간</span>
+                    </div>
                 </div>
                 <div class="spacer"></div>
-                <span class="dash-live" :class="rt.connected ? 'is-live' : 'is-poll'"
-                      :title="rt.connected ? 'SignalR 실시간 연결됨' : '폴링(10초) 모드'">
-                    <span class="dash-live-dot"></span>
-                    <span x-text="rt.connected ? 'LIVE · 실시간' : 'POLL · 10초'"></span>
-                </span>
+                <div class="dash-actions">
+                    <span class="dash-live" :class="rt.connected ? 'is-live' : 'is-poll'"
+                          :title="rt.connected ? 'SignalR 실시간 연결됨' : '폴링(5초) 모드'">
+                        <span class="dash-live-dot"></span>
+                        <span x-text="rt.connected ? 'LIVE · 실시간' : 'POLL · 5초'"></span>
+                    </span>
+
+                </div>
             </div>
 
             <!-- 로딩 -->
@@ -189,331 +365,577 @@
                 <span>PLC 데이터가 수집되면 자동으로 표시됩니다.</span>
             </div>
 
-            <!-- 위젯 그리드 -->
-            <div :class="'dashboard-grid ' + (direction === 'horizontal' ? 'grid-h' : 'grid-v')">
-                <template x-for="wid in visibleWidgets" :key="wid">
-                    <div class="widget-container" :style="widgetStyle(wid)">
-
-                        <!-- ── 도면 레이아웃 위젯 ── -->
-                        <template x-if="wid === 'layout'">
-                            <div class="ds-card" x-ref="layoutCard">
-                                <div class="ds-card-header">
-                                    <span class="ct-section-title">도면 레이아웃</span>
-                                    <div style="display:flex; align-items:center; gap:calc(var(--u) * 0.7);">
-                                        <div class="layout-legend">
-                                            <template x-for="lg in stateLegend" :key="lg.label">
-                                                <div class="layout-legend-item">
-                                                    <span class="layout-legend-dot" :style="`background:${lg.color};`"></span>
-                                                    <span x-text="lg.label"></span>
-                                                </div>
-                                            </template>
-                                        </div>
-                                        <a class="btn btn-sm btn-outlined" href="/editor">
-                                            <span class="material-icons" style="font-size:calc(var(--u) * 1.3);">edit</span> 편집
-                                        </a>
-                                        <button class="btn btn-sm btn-outlined" @click="toggleFullscreen()" title="전체화면">
-                                            <span class="material-icons" style="font-size:calc(var(--u) * 1.3);">fullscreen</span> 전체화면
-                                        </button>
-                                    </div>
-                                </div>
-                                <div class="ds-card-body" style="align-items:center; justify-content:center;">
-                                    <template x-if="layout && layout.flowPlacements.length > 0">
-                                        <div style="flex:1; min-height:0; width:100%; display:flex; justify-content:center; align-items:center; overflow:hidden; padding:12px;">
-                                            <div x-ref="svgArea" class="fl-canvas"
-                                                 :style="`position:relative; width:100%; max-height:100%; aspect-ratio:${renderCanvasW}/${renderCanvasH}; overflow:hidden;`"
-                                                 @click="selectLayout(null)">
-                                                <template x-if="layout.blueprintImagePath">
-                                                    <img class="fl-blueprint" :src="'/' + layout.blueprintImagePath.replace(/^\/+/, '') + '?v=' + layout.imageVersion"
-                                                         style="position:absolute; inset:0; width:100%; height:100%; pointer-events:none; object-fit:fill;" />
-                                                </template>
-                                                <template x-for="c in cards" :key="c.flowName">
-                                                    <div :class="'fl-card ' + (c.selected ? 'fl-card-selected' : '')"
-                                                         :style="`left:${c.leftPct}%; top:${c.topPct}%; width:${c.widthPct}%; height:${c.heightPct}%; --fc-accent:${c.accent}; --fc-state:${c.stateColor};`"
-                                                         @click.stop="selectLayout(c.flowName)">
-                                                        <div :class="'fc-cq ' + (c.isEmpty ? 'fc-cq-empty' : '')">
-                                                            <div class="fc-root">
-                                                                <div class="fc-header">
-                                                                    <div class="fc-title" x-text="c.flowName"></div>
-                                                                    <template x-if="c.badges.length > 0">
-                                                                        <div class="fc-badges">
-                                                                            <template x-for="bd in c.badges" :key="bd.label">
-                                                                                <span class="fc-badge" :style="`background:${bd.color}; border-color:${bd.color}; color:#fff;`" x-text="bd.label"></span>
-                                                                            </template>
-                                                                        </div>
-                                                                    </template>
-                                                                </div>
-                                                                <div class="fc-body">
-                                                                    <div class="fc-chart">
-                                                                        <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-                                                                            <g transform="rotate(-90 50 50)">
-                                                                                <circle class="fc-donut-bg" cx="50" cy="50" r="40" fill="none" stroke-width="10" />
-                                                                                <circle class="fc-donut-arc" cx="50" cy="50" r="40" fill="none" stroke-width="10"
-                                                                                        x-show="c.mtFrac > 0" :stroke-dasharray="c.sMtDash + ' ' + c.sCirc" stroke-linecap="butt" />
-                                                                            </g>
-                                                                        </svg>
-                                                                        <div class="fc-chart-center">
-                                                                            <span class="fc-chart-label" x-text="fmtCard(c.total)"></span>
-                                                                            <template x-if="c.stateLabel">
-                                                                                <span class="fc-chart-state" x-text="c.stateLabel"></span>
-                                                                            </template>
-                                                                        </div>
-                                                                    </div>
-                                                                    <div class="fc-info">
-                                                                        <div class="fc-status" x-text="c.stateLabel"></div>
-                                                                        <div class="fc-time-row"><span class="fc-time-label">가동</span><span class="fc-time-value" x-text="fmtCard(c.mt)"></span></div>
-                                                                        <div class="fc-time-row"><span class="fc-time-label">대기</span><span class="fc-time-value" x-text="fmtCard(c.wt)"></span></div>
-                                                                    </div>
-                                                                </div>
-                                                                <div class="fc-progress">
-                                                                    <div class="fc-progress-fill" :style="`width:${c.mtPercent}%`"></div>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </template>
-                                            </div>
-                                        </div>
-                                    </template>
-                                    <template x-if="!layout || layout.flowPlacements.length === 0">
-                                        <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:var(--color-text-disabled); padding:40px 0;">
-                                            <span class="material-icons" style="font-size:48px;">map</span>
-                                            <span class="typo-body2">배치된 Flow 블럭이 없습니다</span>
-                                            <a class="btn btn-sm btn-outlined" href="/editor">레이아웃 수정</a>
-                                        </div>
-                                    </template>
-                                </div>
-                            </div>
-                        </template>
-
-                        <!-- ── Time 분석 위젯 ── -->
-                        <template x-if="wid === 'ct'">
-                            <div class="ds-card">
-                                <div class="ds-card-header">
-                                    <span class="ct-section-title">Time 분석</span>
-                                    <div style="display:flex; align-items:center; gap:calc(var(--u) * 0.35); flex-wrap:wrap;">
-                                        <div style="display:flex; gap:1px; border:1px solid var(--color-lines-strong); border-radius:var(--radius-sm); overflow:hidden;">
-                                            <button class="btn btn-sm" style="border:none; border-radius:0;" :class="!showAverage ? 'btn-filled' : ''" @click="setDisplayMode(false)" title="이전 사이클 값 표시">
-                                                <span class="material-icons" style="font-size:16px;">history</span> 이전
-                                            </button>
-                                            <button class="btn btn-sm" style="border:none; border-radius:0;" :class="showAverage ? 'btn-filled' : ''" @click="setDisplayMode(true)" title="평균값 표시">
-                                                <span class="material-icons" style="font-size:16px;">analytics</span> 평균
-                                            </button>
-                                        </div>
-                                        <select class="ct-sort-select" x-model="sortField">
-                                            <option value="ct">전체시간</option>
-                                            <option value="mt">가동시간</option>
-                                            <option value="wt">대기시간</option>
-                                            <option value="name">이름</option>
-                                            <option value="order">공정</option>
-                                        </select>
-                                        <button class="btn-icon" :title="sortDesc ? '내림차순' : '오름차순'" @click="sortDesc = !sortDesc">
-                                            <span class="material-icons" x-text="sortDesc ? 'arrow_downward' : 'arrow_upward'"></span>
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <template x-if="chartData.length > 0">
-                                    <div style="display:flex; flex-direction:column; flex:1; min-height:0;">
-                                        <!-- 요약 셀 -->
-                                        <div class="ct-summary-bar">
-                                            <div class="ct-summary-group group-time">
-                                                <div class="ct-combined-cell">
-                                                    <div class="ct-combined-half danger" :class="selectedFlowName && selectedFlowName === maxCtName ? 'active' : ''"
-                                                         @click="selectCt(maxCtName)">
-                                                        <span class="ct-summary-title">최대시간</span>
-                                                        <span class="ct-summary-sub" :title="maxCtName" x-text="maxCtName || '-'"></span>
-                                                        <span class="ct-summary-value" x-text="maxCtName ? fmt(maxCtVal) : '--'"></span>
-                                                    </div>
-                                                    <div class="ct-combined-half success" :class="selectedFlowName && selectedFlowName === minCtName ? 'active' : ''"
-                                                         @click="selectCt(minCtName)">
-                                                        <span class="ct-summary-title">최소시간</span>
-                                                        <span class="ct-summary-sub" :title="minCtName" x-text="minCtName || '-'"></span>
-                                                        <span class="ct-summary-value" x-text="minCtName ? fmt(minCtVal) : '--'"></span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div class="ct-summary-group group-wait">
-                                                <div class="ct-top-cell warning" :class="selectedFlowName && selectedFlowName === maxWtName ? 'active' : ''"
-                                                     @click="selectCt(maxWtName)">
-                                                    <span class="ct-summary-title">최대 대기율</span>
-                                                    <span class="ct-summary-sub" :title="maxWtName" x-text="maxWtName || '-'"></span>
-                                                    <span class="ct-summary-value" x-text="maxWtName ? (maxWtRatio * 100).toFixed(1) + '%' : '--'"></span>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <!-- 차트 리스트 -->
-                                        <div class="ct-chart-section" @click="selectCt(null)">
-                                            <template x-for="flow in chartData" :key="flow.flowName">
-                                                <div :class="'ct-chart-row ' + (isHighlighted(flow.flowName) ? 'highlighted ' : '') + (flow.flowName === selectedFlowName ? 'selected' : '')"
-                                                     :style="rowBorderStyle(flow.flowName) + ' cursor:pointer;'"
-                                                     @click.stop="selectCt(flow.flowName === selectedFlowName ? null : flow.flowName)">
-                                                    <div class="ct-row-header">
-                                                        <span class="ct-row-name" :style="`font-weight:${isHighlighted(flow.flowName) ? 700 : 500}; display:flex; align-items:center; gap:6px;`">
-                                                            <template x-if="sortField === 'order'">
-                                                                <span class="ct-process-number" x-text="(flowProcessOrder[flow.flowName] ?? 0) + 1"></span>
-                                                            </template>
-                                                            <img src="/images/aas.png" alt="" style="width:15px; height:15px; object-fit:contain; flex-shrink:0;" />
-                                                            <span x-text="flow.flowName"></span>
-                                                        </span>
-                                                        <template x-if="flow.flowName === maxCtName"><span class="ct-badge-pill" style="background:var(--color-error);">최대</span></template>
-                                                        <template x-if="flow.flowName === minCtName"><span class="ct-badge-pill" style="background:var(--color-success);">최소</span></template>
-                                                        <template x-if="flow.flowName === maxWtName"><span class="ct-badge-pill" style="background:var(--color-warning);">대기</span></template>
-                                                        <a class="ct-row-detail-btn" :href="'/flow?name=' + encodeURIComponent(flow.flowName)" @click.stop title="상세 보기">상세</a>
-                                                    </div>
-                                                    <div class="ct-row-footer">
-                                                        <div class="ct-bar-track">
-                                                            <div :style="`display:flex; height:100%; width:${barFill(flow)}%;`">
-                                                                <div class="ct-bar-mt" :style="`width:${barMt(flow)}%;`">
-                                                                    <template x-if="barMt(flow) >= 15"><span class="ct-bar-pct" x-text="Math.round(barMt(flow)) + '%'"></span></template>
-                                                                </div>
-                                                                <div class="ct-bar-wt" :style="`width:${barWt(flow)}%;`">
-                                                                    <template x-if="barWt(flow) >= 15"><span class="ct-bar-pct" x-text="Math.round(barWt(flow)) + '%'"></span></template>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                        <span class="ct-row-time" x-text="fmt(flow.ct)"></span>
-                                                    </div>
-                                                </div>
-                                            </template>
-                                        </div>
-                                    </div>
-                                </template>
-                                <template x-if="chartData.length === 0">
-                                    <div style="display:flex; flex-direction:column; flex:1; min-height:0;">
-                                        <div class="ds-card-body" style="display:flex; align-items:center; justify-content:center; padding:24px 0; color:var(--color-text-disabled); flex:0 0 auto;">
-                                            <span class="typo-body2">사이클 데이터 대기 중</span>
-                                        </div>
-                                        <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; padding:40px 0; color:var(--color-text-disabled); flex:1;">
-                                            <span class="material-icons" style="font-size:48px;">bar_chart</span>
-                                            <span class="typo-body2">Time 데이터가 없습니다</span>
-                                        </div>
-                                    </div>
-                                </template>
-                            </div>
-                        </template>
-
-                    </div>
-                </template>
+            <!-- ── 상단 클릭형 KPI 띠 (최대 CT · 최대 대기율 = 양방향 강조 진입점 / 시프트 목표 = 설정 팝업) ── -->
+            <div class="kpi-row">
+                <!-- 최대 CT -->
+                <div class="kpi-cell is-clickable tone-max"
+                     :class="selectedFlowName && selectedFlowName === maxCtName ? 'is-active' : ''"
+                     @click="selectFlow(maxCtName)">
+                    <span class="kp-click-hint">▼ 클릭</span>
+                    <div class="kp-label">최대 시간 (CT)</div>
+                    <div class="kp-value" x-text="maxCtName ? fmt(maxCtVal) : '--'"></div>
+                    <div class="kp-target" :title="maxCtName" x-text="maxCtName ? ('→ ' + maxCtName) : '데이터 없음'"></div>
+                </div>
+                <!-- 최대 대기율 -->
+                <div class="kpi-cell is-clickable tone-wait"
+                     :class="selectedFlowName && selectedFlowName === maxWtName ? 'is-active' : ''"
+                     @click="selectFlow(maxWtName)">
+                    <span class="kp-click-hint">▼ 클릭</span>
+                    <div class="kp-label">최대 대기율 (WT/CT)</div>
+                    <div class="kp-value" x-text="maxWtName ? (maxWtRatio * 100).toFixed(1) + '%' : '--'"></div>
+                    <div class="kp-target" :title="maxWtName" x-text="maxWtName ? ('→ ' + maxWtName) : '데이터 없음'"></div>
+                </div>
+                <!-- 시프트 목표 (클릭 → 설정 팝업) -->
+                <div class="kpi-cell is-clickable tone-primary kpi-shift" :class="'state-' + shiftState"
+                     @click="openShiftModal()" title="시프트 설정 열기">
+                    <span class="kp-click-hint" style="background:var(--color-primary-strong);">
+                        <span class="material-icons" style="font-size:11px; vertical-align:-1px;">settings</span> 설정
+                    </span>
+                    <div class="kp-label" x-text="shiftLabel"></div>
+                    <div class="kp-value" x-text="shiftCountdownText"></div>
+                    <div class="kp-target" x-html="shiftSubText"></div>
+                </div>
             </div>
-        </main>
 
-        <!-- ── 클릭 팝업 모달 (도면 카드 클릭 시) ── -->
-        <div class="ct-popup-overlay" x-show="popupFlow" @click="closePopup()" style="display:none;">
-            <template x-if="popupFlow">
-                <div class="ct-popup-modal" @click.stop>
-                    <div class="ct-popup-header" :style="`border-left:4px solid ${stateColor(popupFlow.flowName)};`">
-                        <span class="ct-popup-name" x-text="popupFlow.flowName"></span>
-                        <span class="ct-tooltip-state" :style="`background:${stateColor(popupFlow.flowName)};`" x-text="flowStateLabel(popupFlow.flowName) || 'Ready'"></span>
-                        <a class="btn btn-sm btn-outlined" :href="'/flow?name=' + encodeURIComponent(popupFlow.flowName)" style="display:inline-flex; align-items:center; gap:4px; padding:4px 10px; font-size:12px;">
-                            <span class="material-icons" style="font-size:16px;">open_in_new</span> 상세
-                        </a>
-                        <button class="btn-icon ct-popup-close" @click="closePopup()"><span class="material-icons">close</span></button>
+            <!-- ── 2단: 도면(좌, 1.4fr) + 비교 스택막대(우, 1fr) ── -->
+            <div class="dash-2col">
+
+                <!-- ── 도면 레이아웃 ── -->
+                <div class="ds-card" x-ref="layoutCard" style="min-height:240px;">
+                    <div class="ds-card-header">
+                        <span class="ct-section-title">📐 라인 도면 (Floor Layout)</span>
+                        <div style="display:flex; align-items:center; gap:calc(var(--u) * 0.7); flex-wrap:wrap;">
+                            <!-- 통일 색상 범례 -->
+                            <div class="layout-legend">
+                                <div class="layout-legend-item"><span class="layout-legend-dot" style="background:var(--mt);"></span><span>MT 가동</span></div>
+                                <div class="layout-legend-item"><span class="layout-legend-dot" style="background:var(--wt);"></span><span>WT 대기</span></div>
+                            </div>
+                            <button class="btn btn-sm" :class="editing ? 'btn-filled' : 'btn-outlined'"
+                                    @click="toggleEdit()" :title="editing ? '편집 종료 (변경사항 저장 후 도면 보기로 복귀)' : '도면 편집 (블럭 이동·추가·삭제)'">
+                                <span class="material-icons" style="font-size:calc(var(--u) * 1.3);" x-text="editing ? 'check' : 'edit'"></span>
+                                <span x-text="editing ? '편집 종료' : '편집'"></span>
+                            </button>
+                            <button class="btn btn-sm btn-outlined" @click="toggleFullscreen()" title="전체화면">
+                                <span class="material-icons" style="font-size:calc(var(--u) * 1.3);">fullscreen</span> 전체화면
+                            </button>
+                        </div>
                     </div>
-                    <template x-if="isHighlighted(popupFlow.flowName)">
-                        <div class="ct-popup-badges">
-                            <template x-if="popupFlow.flowName === maxCtName"><span class="ct-badge-pill" style="background:var(--color-error);">최대시간</span></template>
-                            <template x-if="popupFlow.flowName === minCtName"><span class="ct-badge-pill" style="background:var(--color-success);">최소시간</span></template>
-                            <template x-if="popupFlow.flowName === maxWtName"><span class="ct-badge-pill" style="background:var(--color-warning);">최대대기율</span></template>
+                    <div class="ds-card-body" style="align-items:center; justify-content:center;">
+                        <!-- ── 편집 패널 (편집 모드 전용): 저장 상태 · 크기/스냅/이미지/일괄 · 미배치 Flow 팔레트 ──
+                             자유 배치 모델: 카드는 공통 고정 크기(2:1)로 도면 위 임의 위치에 배치(스냅 선택). 별도 편집 페이지 없음.
+                             ※ 공정순서(FlowProcessOrder)는 도면 좌측 사이드 컬럼('공정 순서')에서 드래그/▲▼ 로 편집 →
+                                [편집 종료] 시 /api/blueprint/replace 의 flowProcessOrder 로 저장. -->
+                        <div class="fl-editpanel" x-show="editing" x-cloak>
+                            <div class="fl-editbar">
+                                <!-- 인플레이스 편집: 모든 변경은 화면 내(메모리)에서 즉시 반영되고 [편집 종료] 를 누르면 서버에 저장됨 (별도 저장 버튼 없음) -->
+                                <span class="ds-status" x-show="saving"><span class="material-icons" style="font-size:14px;">sync</span> 저장 중…</span>
+                                <span class="ds-status warn" x-show="!saving && dirty"><span class="material-icons" style="font-size:14px;">edit_note</span> 변경됨 · [편집 종료] 시 저장</span>
+                                <span class="ds-status ok" x-show="!saving && !dirty"><span class="material-icons" style="font-size:14px;">cloud_done</span> 저장됨</span>
+                                <span class="ds-status warn" x-show="isStale" title="AASX Flow 집합과 배치가 일치하지 않습니다 — [자동배치] 권장."><span class="material-icons" style="font-size:14px;">warning</span> Flow 집합 불일치</span>
+                                <div class="spacer"></div>
+                                <!-- 공통 카드 크기 (레이아웃에 저장 · 전 화면 공유) -->
+                                <span class="fl-ctrl" title="모든 카드 공통 크기 (가로:세로 2:1 고정, 레이아웃에 저장)">
+                                    <span class="material-icons">photo_size_select_large</span>
+                                    <input type="range" min="0.05" max="0.4" step="0.005" x-model.number="cardScale" @input="onCardScaleInput()" />
+                                    <span class="fl-val" x-text="Math.round(cardScale * 100) + '%'"></span>
+                                </span>
+                                <!-- 스냅: 토글 + 간격 -->
+                                <span class="fl-ctrl" :class="snapEnabled ? '' : 'is-off'" title="스냅: 켜면 배치/이동이 격자 간격에 맞춰짐">
+                                    <label class="fl-snaptoggle"><input type="checkbox" x-model="snapEnabled" @change="persistSnap()" /> 스냅</label>
+                                    <input type="range" min="20" max="240" step="10" x-model.number="snapSize" @input="persistSnap()" :disabled="!snapEnabled" />
+                                    <span class="fl-val" x-text="snapSize + 'px'"></span>
+                                </span>
+                                <label class="btn btn-sm btn-outlined" style="cursor:pointer;">
+                                    <span class="material-icons" style="font-size:16px;">image</span> 이미지
+                                    <input type="file" accept=".png,.jpg,.jpeg" style="display:none;" @change="onImageSelected($event)" />
+                                </label>
+                                <button class="btn btn-sm btn-outlined color-success" @click="autofill()" :disabled="!availableFlows.length" title="모든 Flow 자동 배치"><span class="material-icons" style="font-size:16px;">auto_awesome_mosaic</span> 자동배치</button>
+                                <button class="btn btn-sm btn-outlined color-warning" @click="clearAll()" :disabled="!(layout && layout.flowPlacements.length)"><span class="material-icons" style="font-size:16px;">delete_sweep</span> 지우기</button>
+                                <button class="btn btn-sm btn-outlined" @click="cancelEdits()" :disabled="!dirty || saving" title="저장하지 않은 변경을 취소하고 마지막 저장 상태로 되돌리기"><span class="material-icons" style="font-size:16px;">undo</span> 취소</button>
+                            </div>
+                            <!-- 배치 가능한 Flow 자체가 없음 (AASX 미로드 등) → 빈 격자 막다른 길 방지 안내 -->
+                            <div class="fl-palette" x-show="!availableFlows.length" style="border-style:solid; border-color:var(--color-warning); background:color-mix(in srgb, var(--color-warning) 7%, var(--color-surface));">
+                                <span class="fp-hint" style="color:var(--color-warning);">
+                                    <span class="material-icons" style="font-size:15px;">info</span>
+                                    <span>배치 가능한 Flow 가 없습니다 — Promaker 에서 AASX 프로젝트를 로드하면 Flow 가 표시됩니다.</span>
+                                </span>
+                            </div>
+                            <div class="fl-palette" x-show="availableFlows.length">
+                                <span class="fp-hint">
+                                    <span class="material-icons" style="font-size:15px;" x-text="armedFlowId ? 'ads_click' : 'touch_app'"></span>
+                                    <span x-text="armedFlowId ? '도면의 원하는 위치를 클릭해 배치 (취소: 칩 재클릭)' : '미배치 Flow 클릭 → 도면 클릭하여 배치 · 배치 후 드래그로 이동'"></span>
+                                </span>
+                                <template x-for="(f, i) in availableFlows" :key="f.id">
+                                    <button :class="'fl-chip ' + (isPlaced(f.id) ? 'is-placed' : '') + (armedFlowId === f.id ? ' is-armed' : '')"
+                                            @click="!isPlaced(f.id) && armFlow(f.id)" :disabled="isPlaced(f.id)" :title="f.name + (f.system ? (' · ' + f.system) : '')">
+                                        <span class="fp-num" x-text="i + 1"></span>
+                                        <span x-text="f.name"></span>
+                                        <span class="material-icons" x-text="isPlaced(f.id) ? 'check_circle' : (armedFlowId === f.id ? 'ads_click' : 'add_box')"></span>
+                                    </button>
+                                </template>
+                            </div>
+                        </div>
+                        <template x-if="layout && (layout.flowPlacements.length > 0 || editing)">
+                            <div class="fl-stage" style="flex:1; min-height:0; width:100%; display:flex; gap:12px; align-items:stretch; overflow:hidden; padding:12px;">
+                                <!-- ── 좌측: 공정 순서 편집 (편집 모드 전용 사이드 컬럼) — 고정 폭(max 32%)으로 도면 영역 침범 방지 ──
+                                     availableFlows 배열 순서 = 공정 순서. 드래그/▲▼ 재정렬 → markDirty, [편집 종료] 시 /replace 의
+                                     flowProcessOrder 로 저장. 우측 CT 비교 차트의 공정 번호가 라이브로 갱신됨. -->
+                                <aside class="fl-order" x-show="editing && availableFlows.length" x-cloak>
+                                    <div class="fl-order-head">
+                                        <span class="material-icons" style="font-size:16px;">format_list_numbered</span>
+                                        <span>공정 순서</span>
+                                    </div>
+                                    <div class="fl-order-hint">드래그 또는 ▲▼ 로 순서 변경 · 우측 차트 번호가 즉시 반영</div>
+                                    <div class="fl-order-list">
+                                        <template x-for="(f, i) in availableFlows" :key="f.id">
+                                            <div class="fl-order-row" :class="orderDragIdx === i ? 'is-dragging' : ''"
+                                                 draggable="true"
+                                                 @dragstart="orderDragIdx = i"
+                                                 @dragover.prevent="onOrderDragOver(i)"
+                                                 @drop.prevent="orderDragIdx = null"
+                                                 @dragend="orderDragIdx = null">
+                                                <span class="material-icons fl-order-handle" title="드래그하여 순서 변경">drag_indicator</span>
+                                                <span class="fl-order-num" x-text="i + 1"></span>
+                                                <span class="fl-order-name" :title="f.name + (f.system ? (' · ' + f.system) : '')" x-text="f.name"></span>
+                                                <span class="fl-order-btns">
+                                                    <button class="fl-order-btn" :disabled="i === 0" @click="orderNudge(i, -1)" title="위로"><span class="material-icons">keyboard_arrow_up</span></button>
+                                                    <button class="fl-order-btn" :disabled="i === availableFlows.length - 1" @click="orderNudge(i, 1)" title="아래로"><span class="material-icons">keyboard_arrow_down</span></button>
+                                                </span>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </aside>
+                                <!-- ── 우측: 도면 (가운데 정렬은 wrap 이 담당, 캔버스 크기는 --fl-cap 기준 유지) ── -->
+                                <div class="fl-canvas-wrap">
+                                <div x-ref="svgArea" class="fl-canvas" :class="{ 'is-armed': editing && armedFlowId, 'is-editing-canvas': editing }"
+                                     :style="`position:relative; width:100%; max-width:calc(var(--fl-cap, 58vh) * ${renderCanvasW} / ${renderCanvasH}); margin:0 auto; aspect-ratio:${renderCanvasW}/${renderCanvasH}; overflow:hidden;`"
+                                     @click="onCanvasClick($event)" @dragstart.prevent
+                                     @pointermove="onDragMove($event)" @pointerup="onDragEnd($event)" @pointercancel="onDragEnd($event)">
+                                    <template x-if="(layout?.blueprintImagePath) || (editing && pendingImage)">
+                                        <img class="fl-blueprint" :src="blueprintSrc" draggable="false"
+                                             style="position:absolute; inset:0; width:100%; height:100%; pointer-events:none; object-fit:fill;" />
+                                    </template>
+                                    <!-- 스냅 격자선 오버레이 (편집 + 스냅 ON) — 카드보다 뒤(z-index:1, pointer-events:none) -->
+                                    <svg class="fl-grid-overlay" x-show="editing && snapEnabled" x-cloak xmlns="http://www.w3.org/2000/svg"
+                                         :viewBox="`0 0 ${layout.canvasWidth} ${layout.canvasHeight}`" preserveAspectRatio="none" x-html="gridOverlaySvg"></svg>
+                                    <template x-for="c in cards" :key="c.flowName">
+                                        <div :class="'fl-card ' + (editing ? 'is-editing ' : '') + (editing && dragName === c.flowName ? 'is-dragging ' : '') + (c.editSelected ? 'is-editsel ' : '') + (c.selected ? 'fl-card-selected ' : '') + (c.isBottleneck ? 'is-bottleneck' : (c.isMaxWait ? 'is-maxwait' : ''))"
+                                             :style="`left:${c.leftPct}%; top:${c.topPct}%; width:${c.widthPct}%; height:${c.heightPct}%; --fc-edge:${c.edgeColor};`"
+                                             :draggable="editing ? 'false' : null"
+                                             @click.stop="editing || selectFlow(c.flowName)"
+                                             @pointerdown="onCardPointerDown($event, c)">
+                                            <button class="fl-del" x-show="editing" x-cloak @click.stop="removePlacement(c.flowName)" @pointerdown.stop title="이 블럭 삭제">×</button>
+                                            <div class="fc-cq">
+                                                <div class="fc-root">
+                                                    <!-- 상단 행: 이름(좌) + 상태/지표 배지(우) — 가로 폭 활용 -->
+                                                    <div class="fc-toprow">
+                                                        <div class="fc-name" :title="c.flowName">
+                                                            <span x-text="c.flowName"></span>
+                                                        </div>
+                                                        <!-- 상태(READY/GOING/FINISH/ERROR) + 지표(병목/대기↑) 배지 -->
+                                                        <div class="fc-badges">
+                                                            <span class="fc-badge" :class="'state-' + c.state" x-text="c.stateText"></span>
+                                                            <template x-if="c.isBottleneck"><span class="fc-badge tag-bottleneck">최대 CT</span></template>
+                                                            <template x-if="c.isMaxWait"><span class="fc-badge tag-wait">대기↑</span></template>
+                                                        </div>
+                                                    </div>
+                                                    <!-- MT/WT 가로 스택막대 + 시간 (도넛 대체) -->
+                                                    <template x-if="!c.isEmpty">
+                                                        <div class="fc-stats">
+                                                            <div class="fc-bar-row" :title="`MT ${c.mtPercent}% · WT ${(100 - c.mtFrac * 100).toFixed(0)}%`">
+                                                                <div class="fc-bar mt" :style="`width:${c.mtPercent}%`"></div>
+                                                                <div class="fc-bar wt" :style="`width:${(100 - c.mtFrac * 100).toFixed(1)}%`"></div>
+                                                            </div>
+                                                            <div class="fc-times">
+                                                                <span class="mt" x-text="fmt(c.mt)"></span>
+                                                                <span class="wt" x-text="fmt(c.wt)"></span>
+                                                                <span class="ct" x-text="fmt(c.total)"></span>
+                                                            </div>
+                                                        </div>
+                                                    </template>
+                                                    <!-- 데이터 없음 = 대기중 (곧 시작 / 방금 시작) -->
+                                                    <template x-if="c.isEmpty">
+                                                        <div class="fc-waiting">
+                                                            <span class="material-icons">schedule</span>
+                                                            <span class="fc-waiting-text" x-text="c.waitText"></span>
+                                                        </div>
+                                                    </template>
+                                                </div>
+                                                <!-- 모든 카드 우측 하단: 사이클 분석 상세 보기 (편집 중엔 .is-editing 규칙으로 숨김) -->
+                                                <a class="fc-detail-btn" :href="'/cycle-time-analysis?flow=' + encodeURIComponent(c.flowName)" @click.stop title="사이클 분석 상세 보기">
+                                                    <span class="material-icons">query_stats</span>
+                                                    <span class="fc-detail-label">자세히</span>
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                                </div>
+                            </div>
+                        </template>
+                        <template x-if="!editing && (!layout || layout.flowPlacements.length === 0)">
+                            <div class="ds-empty" style="padding:40px 0;">
+                                <span class="material-icons">map</span>
+                                <span class="ds-empty-title">배치된 Flow 블럭이 없습니다</span>
+                                <span class="ds-empty-desc">[편집] 을 눌러 도면에 Flow 블럭을 배치하면 실시간 사이클타임이 표시됩니다.</span>
+                                <button class="btn btn-sm btn-outlined" @click="enterEdit()">
+                                    <span class="material-icons" style="font-size:16px;">edit</span> 도면 편집 시작
+                                </button>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- ── 가로 스택막대 비교 차트 (MT + WT + CT 범례) ── -->
+                <div class="ds-card" style="min-height:340px;">
+                    <div class="ds-card-header">
+                        <span class="ct-section-title">📊 Flow별 CT 구성 비교 (MT + WT)</span>
+                        <div style="display:flex; align-items:center; gap:calc(var(--u) * 0.35); flex-wrap:wrap;">
+                            <div style="display:flex; gap:1px; border:1px solid var(--color-lines-strong); border-radius:var(--radius-sm); overflow:hidden;">
+                                <button class="btn btn-sm" style="border:none; border-radius:0;" :class="!showAverage ? 'btn-filled' : ''" @click="setDisplayMode(false)" title="이전 사이클 값 표시">
+                                    <span class="material-icons" style="font-size:16px;">history</span> 이전
+                                </button>
+                                <button class="btn btn-sm" style="border:none; border-radius:0;" :class="showAverage ? 'btn-filled' : ''" @click="setDisplayMode(true)" title="평균값 표시">
+                                    <span class="material-icons" style="font-size:16px;">analytics</span> 평균
+                                </button>
+                            </div>
+                            <select class="ct-sort-select" x-model="sortField"
+                                    style="padding:4px 8px; font-size:0.78rem; font-weight:700; border:1px solid var(--color-lines-strong); border-radius:var(--radius-sm); background:var(--color-surface); color:var(--color-text-primary); cursor:pointer; outline:none;">
+                                <option value="ct">전체시간</option>
+                                <option value="mt">가동시간</option>
+                                <option value="wt">대기시간</option>
+                                <option value="name">이름</option>
+                                <option value="order">공정</option>
+                            </select>
+                            <button class="btn-icon" :title="sortDesc ? '내림차순' : '오름차순'" @click="sortDesc = !sortDesc">
+                                <span class="material-icons" x-text="sortDesc ? 'arrow_downward' : 'arrow_upward'"></span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <template x-if="chartData.length > 0">
+                        <div style="display:flex; flex-direction:column; flex:1; min-height:0;">
+                            <!-- MT/WT/CT 3색 범례 -->
+                            <div class="sb-legend">
+                                <div class="ds-legend">
+                                    <div class="lg-item"><span class="lg-swatch" style="background:var(--mt);"></span> MT 가동</div>
+                                    <div class="lg-item"><span class="lg-swatch" style="background:var(--wt);"></span> WT 대기</div>
+                                    <div class="lg-item"><span class="lg-swatch" style="background:var(--ct);"></span> CT 전체</div>
+                                    <div class="lg-item"><span class="lg-swatch" style="background:var(--red);"></span> 최대 CT</div>
+                                </div>
+                            </div>
+                            <!-- 막대 행 (클릭 → 양방향 강조 동기화) -->
+                            <div class="sb-chart" @click="selectFlow(null)">
+                                <template x-for="flow in chartData" :key="flow.flowName">
+                                    <div :class="'stack-bar ' + (flow.flowName === selectedFlowName ? 'is-selected ' : '') + (flow.flowName === maxCtName ? 'is-bottleneck' : (flow.flowName === maxWtName ? 'is-maxwait' : ''))"
+                                         @click.stop="selectFlow(flow.flowName)">
+                                        <div class="sb-label">
+                                            <template x-if="sortField === 'order'">
+                                                <span class="sb-num" x-text="(flowProcessOrder[flow.flowName] ?? 0) + 1"></span>
+                                            </template>
+                                            <span :title="flow.flowName" x-text="flow.flowName"></span>
+                                            <template x-if="flow.flowName === maxCtName"><span class="sb-tag tag-bottleneck">최대 CT</span></template>
+                                            <template x-if="flow.flowName !== maxCtName && flow.flowName === maxWtName"><span class="sb-tag tag-wait">대기↑</span></template>
+                                        </div>
+                                        <div class="sb-bars">
+                                            <div class="sb-mt" :style="`width:${barMt(flow)}%;`">
+                                                <template x-if="barMt(flow) >= 20"><span class="sb-bar-lbl" x-text="fmt(flow.mt)"></span></template>
+                                            </div>
+                                            <div class="sb-wt" :style="`width:${barWt(flow)}%;`">
+                                                <template x-if="barWt(flow) >= 20"><span class="sb-bar-lbl" x-text="fmt(flow.wt)"></span></template>
+                                            </div>
+                                        </div>
+                                        <div style="display:flex; align-items:center; gap:4px;">
+                                            <span class="sb-total" x-text="'CT: ' + fmt(flow.ct)"></span>
+                                            <a class="sb-detail" :href="'/cycle-time-analysis?flow=' + encodeURIComponent(flow.flowName)" @click.stop title="사이클 분석 상세">
+                                                <span class="material-icons">chevron_right</span>
+                                            </a>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
                         </div>
                     </template>
-                    <div class="ct-popup-bar-section">
-                        <div class="ct-popup-bar-track">
-                            <div class="ct-bar-mt" :style="`width:${popupMtPct}%;`">
-                                <template x-if="popupMtPct >= 10"><span class="ct-bar-pct" style="font-size:11px;" x-text="Math.round(popupMtPct) + '%'"></span></template>
-                            </div>
-                            <div class="ct-bar-wt" :style="`width:${popupWtPct}%;`">
-                                <template x-if="popupWtPct >= 10"><span class="ct-bar-pct" style="font-size:11px;" x-text="Math.round(popupWtPct) + '%'"></span></template>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="ct-popup-grid">
-                        <div class="ct-popup-item"><span class="ct-popup-label">가동시간 (MT)</span><span class="ct-popup-val" style="color:var(--color-primary);" x-text="fmt(popupFlow.mt)"></span></div>
-                        <div class="ct-popup-item"><span class="ct-popup-label">대기시간 (WT)</span><span class="ct-popup-val" style="color:var(--color-secondary);" x-text="fmt(popupFlow.wt)"></span></div>
-                        <div class="ct-popup-item"><span class="ct-popup-label">전체시간 (CT)</span><span class="ct-popup-val" x-text="fmt(popupFlow.ct)"></span></div>
-                        <div class="ct-popup-item"><span class="ct-popup-label">대기율</span><span class="ct-popup-val" x-text="(popupFlow.wtRatio * 100).toFixed(1) + '%'"></span></div>
-                    </div>
-                    <template x-if="flowHistory.length > 0">
-                        <div class="ct-popup-history">
-                            <div class="ct-popup-history-header">
-                                <span class="material-icons" style="font-size:16px; vertical-align:middle; margin-right:4px;">history</span>
-                                <span>최근 히스토리</span>
-                                <span style="margin-left:auto; font-size:0.66rem; color:var(--color-text-secondary); font-family:var(--font-mono);" x-text="'총 ' + flowHistory.length + '개'"></span>
-                            </div>
-                            <div class="ct-popup-history-list">
-                                <template x-for="h in flowHistory" :key="h.cycleNo">
-                                    <div class="ct-history-item">
-                                        <div class="ct-history-meta">
-                                            <span class="ct-history-cycle" x-text="'#' + (h.cycleNo ?? 0)"></span>
-                                            <span class="ct-history-time" x-text="histTime(h.recordedAt)"></span>
-                                        </div>
-                                        <div class="ct-history-bar">
-                                            <div class="ct-bar-mt" :style="`width:${histMtPct(h)}%;`"></div>
-                                            <div class="ct-bar-wt" :style="`width:${100 - histMtPct(h)}%;`"></div>
-                                        </div>
-                                        <div class="ct-history-values">
-                                            <span style="color:var(--color-primary);" x-text="'MT: ' + fmt(h.mt ?? 0)"></span>
-                                            <span style="color:var(--color-secondary);" x-text="'WT: ' + fmt(h.wt ?? 0)"></span>
-                                            <span style="font-weight:700;" x-text="'CT: ' + fmt(h.ct ?? 0)"></span>
-                                        </div>
-                                    </div>
-                                </template>
+                    <template x-if="chartData.length === 0">
+                        <div class="ds-card-body" style="align-items:center; justify-content:center;">
+                            <div class="ds-empty" style="padding:32px 0;">
+                                <span class="material-icons">bar_chart</span>
+                                <span class="ds-empty-title">Time 데이터가 없습니다</span>
+                                <span class="ds-empty-desc">사이클이 수집되면 Flow별 MT/WT 구성이 막대로 표시됩니다.</span>
                             </div>
                         </div>
                     </template>
                 </div>
-            </template>
-        </div>
+            </div>
+
+            <!-- ── 하단 상시 히스토리 테이블 (선택 Flow) ── -->
+            <div class="card hist-card" style="padding:14px 16px;">
+                <div class="ds-card-h">
+                    <h4>
+                        <span x-text="histFlowName ? ('📋 최근 사이클 히스토리 — ' + histFlowName) : '📋 최근 사이클 히스토리'"></span>
+                        <span class="hist-auto-tag" x-show="histIsAuto" x-cloak
+                              title="고정 선택이 없어 최대 CT Flow 를 자동 표시 중 · KPI·도면·막대를 클릭하면 다른 Flow 로 전환">최대 CT·자동</span>
+                    </h4>
+                    <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+                        <span class="ds-card-h-sub" x-show="histFlowName && flowHistory.length > 0"
+                              x-text="'총 ' + visibleHistory.length + '개' + (excludedCount > 0 ? (' / 제외 ' + excludedCount) : '') + ' · 평균 CT ' + (histAvgCt > 0 ? fmt(histAvgCt) : '--') + (histStdCt > 0 ? (' ±' + fmt(histStdCt)) : '')"></span>
+                        <!-- 제외(이상치) 알림 + 초기화 -->
+                        <span class="hist-filter-chip" x-show="excludedCount > 0" x-cloak>
+                            <span x-text="excludedCount + '개 제외됨' + (_exThreshold != null ? (' · CT>' + fmt(_exThreshold) + ' 규칙') : '') + ' · 평균 재계산'"></span>
+                            <button class="hfc-reset" @click="resetExclusions()" title="제외 해제 (전체 복원)">
+                                <span class="material-icons">restart_alt</span> 초기화
+                            </button>
+                        </span>
+                        <!-- 이상치 제외 (상자그림 Q3+1.5·IQR — 규칙으로 저장돼 새 사이클에도 지속 적용) -->
+                        <button class="btn btn-sm btn-outlined" x-show="histFlowName && flowHistory.length >= 4"
+                                :class="_exThreshold != null ? 'btn-filled' : ''"
+                                @click="autoExcludeOutliers()" title="평균을 왜곡하는 비정상(스파이크) 사이클을 상자그림(Q3 + 1.5·IQR) 기준으로 자동 제외 — 새 사이클이 들어와도 규칙이 유지됩니다">
+                            <span class="material-icons" style="font-size:16px;">filter_alt</span>
+                            <span x-text="_exThreshold != null ? ('이상치 규칙 ON · ' + fmt(_exThreshold)) : '이상치 제외'"></span>
+                        </button>
+                        <div class="hist-toggle" x-show="histFlowName && flowHistory.length > 0">
+                            <button :class="histView === 'table' ? 'is-active' : ''" @click="setHistView('table')" title="데이터 테이블로 보기">
+                                <span class="material-icons">table_rows</span> 테이블
+                            </button>
+                            <button :class="histView === 'chart' ? 'is-active' : ''" @click="setHistView('chart')" title="차트로 보기">
+                                <span class="material-icons">bar_chart</span> 차트
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 표시할 Flow 자체가 없음 (사이클 데이터 0) -->
+                <template x-if="!histFlowName">
+                    <div class="ds-empty" style="padding:28px 0;">
+                        <span class="material-icons">history_toggle_off</span>
+                        <span class="ds-empty-title">표시할 사이클 데이터가 없습니다</span>
+                        <span class="ds-empty-desc">사이클이 수집되면 최대 CT Flow 의 히스토리가 자동으로 표시됩니다. KPI 셀 · 도면 카드 · 비교 막대를 클릭하면 특정 Flow 로 고정할 수 있습니다.</span>
+                    </div>
+                </template>
+
+                <!-- 대상 Flow 는 있으나 히스토리 0건 -->
+                <template x-if="histFlowName && flowHistory.length === 0">
+                    <div class="ds-empty" style="padding:28px 0;">
+                        <span class="material-icons">history_toggle_off</span>
+                        <span class="ds-empty-title" x-text="'기록된 사이클이 없습니다 — ' + histFlowName"></span>
+                        <span class="ds-empty-desc">사이클이 완료되면 시작시각·MT·WT·CT 가 누적되어 표시됩니다.</span>
+                    </div>
+                </template>
+
+                <!-- 히스토리: 테이블 ↔ 차트 전환 -->
+                <template x-if="histFlowName && flowHistory.length > 0">
+                    <div>
+                        <!-- 차트 뷰 (사이클별 MT/WT 스택 + 평균 CT 기준선) · 가로 드래그 → 구간 제외 -->
+                        <div class="hist-chart-wrap is-pickable" x-show="histView === 'chart'"
+                             @mousedown.prevent="onChartDragStart($event)"
+                             @mousemove="onChartDragMove($event)"
+                             @mouseup="onChartDragEnd()"
+                             @mouseleave="onChartDragCancel()">
+                            <canvas x-ref="histChart"></canvas>
+                            <div class="hist-drag-rect" x-show="drag.active" x-cloak
+                                 :style="`left:${drag.rectLeft}px; width:${drag.rectWidth}px;`"></div>
+                            <div class="hist-drag-hint" x-show="!drag.active && excludedCount === 0 && visibleHistory.length > 2" x-cloak>
+                                <span class="material-icons">touch_app</span> 튀는 막대 구간을 가로로 드래그하면 제외됩니다
+                            </div>
+                        </div>
+                        <!-- 테이블 뷰 -->
+                        <div class="hist-table-wrap" x-show="histView === 'table'">
+                        <table class="ds-table">
+                            <thead>
+                                <tr>
+                                    <th style="width:42px;">#</th>
+                                    <th style="width:140px;">시작 시각</th>
+                                    <th>MT</th><th>WT</th><th>CT</th>
+                                    <th>WT/CT</th><th style="width:64px;">상태</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="(h, i) in visibleHistory" :key="h._key">
+                                    <tr>
+                                        <td class="num" x-text="(h.cycleNo != null) ? ('#' + h.cycleNo) : (i + 1)"></td>
+                                        <td class="num" x-text="h._time"></td>
+                                        <td class="num hist-mt" x-text="fmt(h.mt ?? 0)"></td>
+                                        <td class="num hist-wt" x-text="fmt(h.wt ?? 0)"></td>
+                                        <td class="num hist-ct" x-text="fmt(h.ct ?? 0)"></td>
+                                        <td class="num" x-text="h._wt"></td>
+                                        <td>
+                                            <template x-if="h._status">
+                                                <span class="ds-status" :class="h._status?.cls" x-text="h._status?.label"></span>
+                                            </template>
+                                            <template x-if="!h._status">
+                                                <span class="ds-status info" title="표본<2 — 편차 기준 산출 불가">–</span>
+                                            </template>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                        </div>
+                    </div>
+                </template>
+            </div>
+
+            <!-- ── 시프트 설정 팝업 ── -->
+            <div class="modal-overlay" x-show="shiftModalOpen" x-cloak style="z-index:2000;" @click="closeShiftModal()">
+                <div class="modal-content shift-modal" @click.stop>
+                    <div class="sm-head">
+                        <span class="sm-title">⏱ 시프트 설정</span>
+                        <button class="btn-icon" @click="closeShiftModal()" title="닫기">
+                            <span class="material-icons">close</span>
+                        </button>
+                    </div>
+                    <div class="sm-body">
+                        <!-- 시프트 시간 -->
+                        <div class="form-group">
+                            <label class="form-label">시프트 시간</label>
+                            <div class="sm-times">
+                                <div>
+                                    <div class="form-helper" style="margin:0 0 5px;">시작</div>
+                                    <input type="time" class="form-field" x-model="shiftForm.start" @change="onShiftTimeEdited()" />
+                                </div>
+                                <div>
+                                    <div class="form-helper" style="margin:0 0 5px;">종료</div>
+                                    <input type="time" class="form-field" x-model="shiftForm.end" @change="onShiftTimeEdited()" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 시프트 종류 (프리셋) -->
+                        <div class="form-group">
+                            <label class="form-label">시프트 종류</label>
+                            <div class="sm-seg">
+                                <button :class="shiftForm.shiftType === 'morning' ? 'is-active' : ''" @click="applyShiftType('morning')">오전</button>
+                                <button :class="shiftForm.shiftType === 'afternoon' ? 'is-active' : ''" @click="applyShiftType('afternoon')">오후</button>
+                                <button :class="shiftForm.shiftType === 'night' ? 'is-active' : ''" @click="applyShiftType('night')">야간</button>
+                            </div>
+                        </div>
+
+                        <!-- 생산 목표: 대상 Flow + 목표 수량 -->
+                        <div class="form-group">
+                            <label class="form-label">생산 목표 대상 Flow</label>
+                            <select class="form-select" x-model="shiftForm.targetFlow">
+                                <option value="">— Flow 선택 —</option>
+                                <template x-for="name in flowNames" :key="name">
+                                    <option :value="name" x-text="name"></option>
+                                </template>
+                            </select>
+                            <div class="form-helper" x-show="!flowNames.length">배치된 Flow 가 없습니다 — 에디터에서 도면에 Flow 를 배치하세요.</div>
+                        </div>
+
+                        <div class="form-group" x-show="shiftForm.targetFlow">
+                            <label class="form-label">생산 목표 수량</label>
+                            <div class="sm-stepper">
+                                <button @click="bumpTarget(-10)" title="-10">−</button>
+                                <input type="number" class="form-field" min="0" step="1" x-model.number="shiftForm.targetCount" />
+                                <button @click="bumpTarget(10)" title="+10">+</button>
+                            </div>
+                        </div>
+
+                        <!-- 파생 안내: 시프트 동안 만들어야 할 총 개수 -->
+                        <div class="form-group" x-show="shiftForm.targetFlow && shiftForm.targetCount > 0">
+                            <label class="form-label">시프트 동안 만들어야 할 총 개수</label>
+                            <div class="sm-hint">
+                                <span class="material-icons">info</span>
+                                <span>
+                                    <b x-text="shiftForm.targetCount + '개'"></b> 목표 ·
+                                    균등 페이스 기준 시간당 <b x-text="'약 ' + shiftFormPerHour + '개'"></b> 만들면 목표를 달성합니다.
+                                    <span x-show="shiftFormDurationHours > 0" x-text="'(시프트 ' + shiftFormDurationHours.toFixed(1) + '시간)'"></span>
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="sm-foot">
+                        <button class="btn btn-outlined" @click="closeShiftModal()">취소</button>
+                        <button class="btn btn-filled" @click="saveShift()">
+                            <span class="material-icons" style="font-size:17px;">check</span> 저장
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- 인플레이스 편집 토스트 -->
+        <div :class="'dash-toast ' + editToast.kind + (editToast.show ? ' show' : '')" x-text="editToast.msg" x-cloak></div>
     </div>
 
     <script src="/lib/signalr.min.js"></script>
+    <script src="/lib/chart.umd.min.js"></script>
     <script>
         function dashboardApp() {
             const SYSTEM_COLORS = ['#3A3A40', '#52525B', '#6B675A', '#8A8578', '#A8A493'];
+            const histCache = {};   // flowName → rows: 클릭 즉시 표시(서버 왕복 대기 없이), SignalR/폴링이 최신값으로 갱신
             return {
                 flows: [], layout: null, hasData: false, loading: true, error: null, demoBlocked: false, dark: false,
-                transposed: false,
+                cardScale: 0.15,   // 공통 카드 폭 = canvasWidth × cardScale (높이=폭/2 고정). 레이아웃(서버)에서 로드.
                 selectedFlowName: null,
-                popupFlow: null,
+                // ── 인플레이스 도면 편집 (자유 배치 + 선택적 스냅) — /api/blueprint 직접 호출 ──
+                // 편집 중에는 layout 이 blueprint 응답(placement 에 flowId 포함)으로 운전된다 →
+                // loadSnapshot 은 editing 중 layout/cardScale 을 덮지 않고 flows(실시간 데이터)만 갱신.
+                editing: false,
+                availableFlows: [],   // /api/blueprint 배치 대상 Flow ({id,name,system,systemId})
+                isStale: false,
+                armedFlowId: null,    // 팔레트에서 무장된(배치 대기) Flow id
+                selectedFlowId: null, // 편집 중 강조된 placement (Guid)
+                // 인플레이스 편집 = 화면 내(메모리)에서 즉시 편집, [저장] 눌러야 서버 적용.
+                saving: false,        // /api/blueprint/replace 진행 중
+                dirty: false,         // 미저장(서버 미반영) 변경 존재
+                pendingImage: null,   // 저장 시 업로드할 보류 이미지 { file, url, width, height }
+                snapEnabled: false,   // 스냅(격자 정렬) on/off — localStorage 'dspilot-dash-snap'
+                snapSize: 40,         // 스냅 간격(캔버스 px) — localStorage 'dspilot-dash-snapsize'
+                dragName: null,       // 드래그 중인 카드 flowName (.is-dragging 시각 피드백용)
+                orderDragIdx: null,   // 공정 순서 리스트에서 드래그 중인 행 index (null=비활성)
+                _drag: null,          // { name, flowId, sx, sy, x, y, w, h, moved } — 라이브 좌표 커밋용
+                editToast: { show: false, msg: '', kind: 'info' },
+                _editToastT: null,
                 flowHistory: [],
+                histAvgCt: 0, histStdCt: 0,   // setHistory 에서 1회 계산 (렌더 중 재계산 금지 → O(n²) 렉 제거)
+                _histShownFor: null,          // 현재 히스토리 테이블이 표시 중인 Flow (전환 감지용)
+                histView: 'chart',            // 히스토리 표시 방식: 'table' | 'chart'
+                _histChart: null,             // Chart.js 인스턴스
+                // ── 이상치 필터 ──
+                // excludedByFlow: 드래그 수동 제외 { flowName: { _key→true } }. recordedAt 기준 키라 재조회에도 안정.
+                // thresholdByFlow: 자동감지 임계치 { flowName: fenceMs }. CT > fence 인 사이클을 매 recompute 마다 제외 →
+                //   새 사이클이 들어와도 fence 넘으면 걸림. cycleNo/recordedAt 키에 무관하게 동작.
+                excludedByFlow: {},
+                thresholdByFlow: {},
+                drag: { active: false, startX: 0, curX: 0, rectLeft: 0, rectWidth: 0 },
+                _chartKeys: [],               // 차트 막대 index → 사이클 _key (드래그 히트테스트용)
                 showAverage: false,
                 sortField: 'ct', sortDesc: true,
                 flowProcessOrder: {},
-                direction: 'horizontal', ratio: '1:3', widgetOrder: ['ct', 'layout'], hiddenWidgets: [],
                 rt: { connected: false },
-                stateLegend: [
-                    { label: 'Ready', color: '#4CAF50' }, { label: 'Going', color: '#EAB308' },
-                    { label: 'Finish', color: '#2196F3' }, { label: 'Error', color: '#F44336' }
-                ],
-                _conn: null, _dt: null, _ro: null, _sysColorIdx: {},
+                // ── 시프트 운영 (서버 공유: GET/POST /api/dashboard/shift, SignalR ShiftChanged) ──
+                shift: { start: '08:00', end: '17:00', shiftType: 'morning', targetFlow: null, targetCount: 0, madeCount: 0 },
+                shiftForm: { start: '08:00', end: '17:00', shiftType: 'morning', targetFlow: '', targetCount: 0 },
+                shiftModalOpen: false,
+                nowTick: Date.now(),   // 카운트다운 재계산 트리거 (1초 틱)
+                _conn: null, _dt: null, _sysColorIdx: {}, _shiftTimer: null, _pollTimer: null,
 
                 async init() {
                     this.dark = localStorage.getItem('dspilot-theme') === 'dark';
                     window.addEventListener('storage', (e) => { if (e.key === 'dspilot-theme') this.dark = e.newValue === 'dark'; });
-                    this.loadLayoutPrefs();
+                    // 스냅 편집 환경설정(브라우저 로컬). 공통 카드 크기(cardScale)는 레이아웃에서 로드됨.
+                    this.snapEnabled = localStorage.getItem('dspilot-dash-snap') === '1';
+                    const ss = parseInt(localStorage.getItem('dspilot-dash-snapsize'), 10);
+                    // 슬라이더(min20·max240·step10)에 맞춰 클램프+정렬 → 핸들이 트랙 밖/비정렬로 표시되지 않게.
+                    if (!isNaN(ss)) this.snapSize = Math.max(20, Math.min(240, Math.round(ss / 10) * 10));
                     await this.loadSnapshot();
+                    await this.loadShift();
                     this.connectSignalR();
-                    setInterval(() => this.loadSnapshot(), 10000);
+                    this._pollTimer = setInterval(() => this.loadSnapshot(), 5000);
+                    this._shiftTimer = setInterval(() => { this.nowTick = Date.now(); }, 1000);
                     document.addEventListener('fullscreenchange', () => {});
                 },
 
-                loadLayoutPrefs() {
-                    try {
-                        const json = localStorage.getItem('dsp-dashboard-layout-v5');
-                        if (!json) return;
-                        const d = JSON.parse(json);
-                        if (Array.isArray(d.order)) {
-                            const loaded = d.order.filter(s => this.widgetOrder.includes(s));
-                            this.widgetOrder.forEach(w => { if (!loaded.includes(w)) loaded.push(w); });
-                            this.widgetOrder = loaded;
-                        }
-                        if (Array.isArray(d.hidden)) this.hiddenWidgets = d.hidden;
-                        if (typeof d.direction === 'string') this.direction = d.direction;
-                        if (typeof d.ratio === 'string') this.ratio = d.ratio;
-                    } catch (e) { /* ignore */ }
+                destroy() {
+                    clearInterval(this._pollTimer);
+                    clearInterval(this._shiftTimer);
+                    clearTimeout(this._dt);
+                    this._conn?.stop();
                 },
 
-                toggleTheme() { this.dark = !this.dark; localStorage.setItem('dspilot-theme', this.dark ? 'dark' : 'light'); },
+                toggleTheme() { this.dark = !this.dark; localStorage.setItem('dspilot-theme', this.dark ? 'dark' : 'light'); if (this.histView === 'chart') this.$nextTick(() => this.renderHistChart()); },
+                persistSnap() { localStorage.setItem('dspilot-dash-snap', this.snapEnabled ? '1' : '0'); localStorage.setItem('dspilot-dash-snapsize', String(this.snapSize)); },
 
                 async apiGet(url) {
                     const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
@@ -526,24 +948,23 @@
                     try {
                         const data = await this.apiGet('/api/dashboard/snapshot');
                         this.flows = data.flows || [];
-                        this.layout = data.layout || null;
+                        // 편집 중에는 layout 을 blueprint 응답이 소유한다(placement 에 flowId 필요) → 스냅샷이 덮지 않음.
+                        // 실시간 데이터(flows)만 갱신해 카드가 살아있는 MT/WT/상태를 계속 보여준다.
+                        if (!this.editing) {
+                            this.layout = data.layout || null;
+                            if (this.layout && this.layout.cardScale > 0) this.cardScale = this.layout.cardScale;   // 공통 크기 = 서버 공유
+                        }
                         this.hasData = data.hasData;
                         this.error = null;
-                        // 공정 순서 맵
-                        this.flowProcessOrder = {};
-                        if (this.layout) {
-                            const order = this.layout.flowProcessOrder || [];
-                            const src = order.length ? order.map(o => o.flowName) : this.layout.flowPlacements.map(p => p.flowName);
-                            src.forEach((n, i) => { this.flowProcessOrder[n] = i; });
+                        this.rebuildProcessOrder();
+                        // 선택 Flow 좀비 가드: 더 이상 배치/데이터에 없으면 선택 해제(→ 자동 병목으로 폴백)
+                        if (this.selectedFlowName) {
+                            const stillPlaced = this.layout && this.layout.flowPlacements.some(p => p.flowName === this.selectedFlowName);
+                            if (!stillPlaced) this.selectedFlowName = null;
                         }
-                        // 열린 팝업 동기화 / 좀비 가드
-                        if (this.popupFlow) {
-                            const row = this.chartData.find(r => r.flowName === this.popupFlow.flowName);
-                            const stillPlaced = this.layout && this.layout.flowPlacements.some(p => p.flowName === this.popupFlow.flowName);
-                            if (row) this.popupFlow = { flowName: row.flowName, mt: row.mt, wt: row.wt, ct: row.ct, wtRatio: row.wtRatio };
-                            else if (!stillPlaced) this.closePopup();
-                        }
-                        this.$nextTick(() => this.setupTranspose());
+                        // 미선택이면 병목(최대 CT) Flow 자동 표시, 선택돼 있으면 그 Flow 추적 (effective = selectedFlowName ?? maxCtName)
+                        this.syncHistory();
+                        this.loadShift();   // 만든 수(시프트 진행)도 스냅샷 주기에 맞춰 갱신 (fire-and-forget)
                     } catch (e) {
                         if (e.message !== 'demo-blocked') this.error = '데이터를 불러오지 못했습니다: ' + e.message;
                     } finally {
@@ -561,49 +982,67 @@
                     const trigger = () => this.debouncedLoad();
                     conn.on('CallStateChangedBatch', trigger);
                     conn.on('CallStateChanged', trigger);
-                    conn.on('DatabaseRebuilt', () => { this.loadSnapshot(); });
+                    conn.on('DatabaseRebuilt', () => {
+                        // Flow 집합이 바뀌면 서버가 배치를 리셋/오토필할 수 있음 → 편집 중이면 blueprint 도 새로고침
+                        // (팔레트·flowId·불일치 배지가 enterEdit 시점에 얼어붙는 문제 방지).
+                        if (this.editing) this.reloadBlueprint().then(() => this.editToastShow('Flow 집합이 변경되어 편집 도면을 새로고침했습니다.', 'info')).catch(() => {});
+                        this.loadSnapshot();
+                    });
                     conn.on('FlowHistoryCleared', trigger);
+                    conn.on('ShiftChanged', () => { this.loadShift(); });   // 다른 작업자 화면이 시프트 변경 → 동기화
                     conn.onreconnected(() => { this.rt.connected = true; this.loadSnapshot(); });
                     conn.onreconnecting(() => { this.rt.connected = false; });
                     conn.onclose(() => { this.rt.connected = false; });
                     conn.start().then(() => { this.rt.connected = true; }).catch(() => { this.rt.connected = false; });
                     this._conn = conn;
                 },
-                debouncedLoad() { clearTimeout(this._dt); this._dt = setTimeout(() => this.loadSnapshot(), 200); },
+                debouncedLoad() {
+                    clearTimeout(this._dt);
+                    this._dt = setTimeout(() => {
+                        this.loadSnapshot();   // 스냅샷 끝에서 syncHistory() 가 effective Flow 히스토리까지 갱신
+                    }, 200);
+                },
 
-                // ── 도면 레이아웃 (FlowLayoutSvg 재구현) ──
-                get renderCanvasW() { if (!this.layout) return 1; return this.transposed ? this.layout.canvasHeight : this.layout.canvasWidth; },
-                get renderCanvasH() { if (!this.layout) return 1; return this.transposed ? this.layout.canvasWidth : this.layout.canvasHeight; },
+                // ── 도면 레이아웃 (자유 배치) ── 전치 없음(캔버스 고정 종횡비). 카드는 정규화 중심좌표 X/Y + 공통 크기.
+                get renderCanvasW() { return this.layout ? this.layout.canvasWidth : 1; },
+                get renderCanvasH() { return this.layout ? this.layout.canvasHeight : 1; },
                 get cards() { return this.layout ? this.layout.flowPlacements.map(fp => this.cardFor(fp)) : []; },
 
                 cardFor(fp) {
-                    const L = this.layout, t = this.transposed, pad = 4;
-                    const col = t ? fp.row : fp.col, row = t ? fp.col : fp.row;
-                    const colSpan = t ? fp.rowSpan : fp.colSpan, rowSpan = t ? fp.colSpan : fp.rowSpan;
-                    const cellW = t ? L.cellHeight : L.cellWidth, cellH = t ? L.cellWidth : L.cellHeight;
-                    const offsetX = t ? L.offsetY : L.offsetX, offsetY = t ? L.offsetX : L.offsetY;
-                    const canvasW = t ? L.canvasHeight : L.canvasWidth, canvasH = t ? L.canvasWidth : L.canvasHeight;
-                    const px = offsetX + col * cellW, py = offsetY + row * cellH;
-                    const pw = colSpan * cellW, ph = rowSpan * cellH;
-                    const innerW = pw - pad * 2, innerH = ph - pad * 2;
+                    const L = this.layout;
+                    const canvasW = L.canvasWidth, canvasH = L.canvasHeight;
+                    // 공통 고정 크기: 폭 = 캔버스 폭 × cardScale, 높이 = 폭/2 (가로세로비 2:1 고정).
+                    // 위치 = 정규화 중심좌표(X/Y, 0..1) → 화면 좌상단 px 환산. (전치 없음)
+                    const cardW = canvasW * this.cardScale, cardH = cardW / 2;
+                    const cx = (fp.x ?? 0.5) * canvasW, cy = (fp.y ?? 0.5) * canvasH;
+                    const px = cx - cardW / 2, py = cy - cardH / 2;
                     const f4 = (x) => x.toFixed(4);
                     const mtwt = this.flowMtWt(fp.flowName);
                     const mt = mtwt ? mtwt.mt : 0, wt = mtwt ? mtwt.wt : 0, total = mt + wt;
                     const isEmpty = !mtwt || total <= 0;
-                    let accent, stateColor;
-                    if (isEmpty) { accent = 'var(--color-text-secondary)'; stateColor = 'var(--color-text-secondary)'; }
-                    else { accent = mt >= wt ? 'var(--color-primary)' : 'var(--color-secondary)'; stateColor = this.flowColor(fp.flowName, fp.systemId); }
+                    // 상태 배지 (READY/GOING/FINISH/ERROR) + 데이터 없음 카드 대기 문구
+                    const stateRaw = (this.flowStateLabel(fp.flowName) || '').toLowerCase();
+                    const stateKey = ['ready', 'going', 'finish', 'error'].includes(stateRaw) ? stateRaw : 'ready';
+                    const stateText = { ready: 'Ready', going: 'Going', finish: 'Finish', error: 'Error' }[stateKey];
+                    const waitText = stateKey === 'going' ? '방금 시작' : stateKey === 'finish' ? '방금 완료' : '곧 시작';
                     const mtFrac = total > 0 ? mt / total : 0;
-                    const circ = 2 * Math.PI * 40, mtDash = circ * mtFrac;
+                    const isBottleneck = fp.flowName === this.maxCtName && !isEmpty;
+                    const isMaxWait = fp.flowName === this.maxWtName && !isEmpty;
+                    // 좌측 테두리색: 최대 CT면 빨강, 아니면 MT/WT 우세 색(가동≥대기 → --mt 청록, 대기 우세 → --wt 앰버),
+                    // 데이터 없으면 중립 회색. (상태색 아님 — 도면 범례 MT/WT/최대 CT 와 통일)
+                    const edgeColor = isBottleneck ? 'var(--red)'
+                        : isEmpty ? 'var(--color-lines-strong)'
+                        : (mtFrac >= 0.5 ? 'var(--mt)' : 'var(--wt)');
                     return {
                         flowName: fp.flowName,
-                        leftPct: f4((px + pad) / canvasW * 100), topPct: f4((py + pad) / canvasH * 100),
-                        widthPct: f4(innerW / canvasW * 100), heightPct: f4(innerH / canvasH * 100),
-                        accent, stateColor, stateLabel: this.flowStateLabel(fp.flowName), isEmpty,
+                        leftPct: f4(px / canvasW * 100), topPct: f4(py / canvasH * 100),
+                        widthPct: f4(cardW / canvasW * 100), heightPct: f4(cardH / canvasH * 100),
+                        state: stateKey, stateText, edgeColor, waitText, isEmpty,
                         mt, wt, total, mtPercent: (mtFrac * 100).toFixed(1), mtFrac,
-                        sMtDash: mtDash.toFixed(1), sCirc: circ.toFixed(1),
-                        badges: this.flowBadges(fp.flowName),
-                        selected: this.selectedFlowName === fp.flowName
+                        wtRatio: total > 0 ? wt / total : 0,
+                        selected: this.selectedFlowName === fp.flowName,
+                        editSelected: this.editing && !!this.selectedFlowId && fp.flowId === this.selectedFlowId,
+                        isBottleneck, isMaxWait
                     };
                 },
 
@@ -647,31 +1086,316 @@
                     return b;
                 },
 
-                // ── 전치(transpose) — ResizeObserver + ShouldTranspose (1.15 hysteresis) ──
-                setupTranspose() {
-                    const area = this.$refs.svgArea;
-                    if (!area || this._ro) return;
-                    this._ro = new ResizeObserver(() => {
-                        requestAnimationFrame(() => {
-                            const parent = area.parentElement; if (!parent) return;
-                            const pw = parent.clientWidth, ph = parent.clientHeight;
-                            const next = this.shouldTranspose(pw, ph);
-                            if (next !== this.transposed) this.transposed = next;
-                        });
-                    });
-                    this._ro.observe(area.parentElement || area);
+                // ───────────────────────── 인플레이스 도면 편집 (자유 배치) ─────────────────────────
+                // /api/blueprint/* 를 대시보드 도면에서 직접 호출. 카드 = 공통 크기(cardScale, 2:1) + 자유 좌표(X/Y).
+                // 격자 방식 폐지 → 이동(자유 드래그)/추가(클릭 배치)/삭제 + 공통크기·스냅·이미지·일괄 작업.
+
+                rebuildProcessOrder() {
+                    this.flowProcessOrder = {};
+                    // 편집 중에는 사용자가 재정렬 중인 availableFlows 순서가 정본(미저장). 5초 폴링의
+                    // rebuildProcessOrder 가 저장된 순서로 되돌리지 않도록 여기서 분기한다.
+                    if (this.editing && this.availableFlows.length) {
+                        this.availableFlows.forEach((f, i) => { this.flowProcessOrder[f.name] = i; });
+                        return;
+                    }
+                    if (this.layout) {
+                        const order = this.layout.flowProcessOrder || [];
+                        const src = order.length ? order.map(o => o.flowName) : this.layout.flowPlacements.map(p => p.flowName);
+                        src.forEach((n, i) => { this.flowProcessOrder[n] = i; });
+                    }
                 },
-                shouldTranspose(pw, ph) {
-                    const L = this.layout;
-                    if (!L || pw <= 0 || ph <= 0 || L.canvasWidth <= 0 || L.canvasHeight <= 0) return this.transposed;
-                    const canvasAR = L.canvasWidth / L.canvasHeight;
-                    const fitWidth = (w, h, ar) => Math.min(w, h * ar);
-                    const asIsW = fitWidth(pw, ph, canvasAR);
-                    const asIsArea = asIsW * (asIsW / canvasAR);
-                    const trAR = 1 / canvasAR;
-                    const trW = fitWidth(pw, ph, trAR);
-                    const trArea = trW * (trW / trAR);
-                    return this.transposed ? (trArea * 1.15 > asIsArea) : (trArea > asIsArea * 1.15);
+                // 공정 순서 리스트 재정렬 (availableFlows 배열 = 공정 순서 정본). 드래그/▲▼ 공통.
+                moveOrderItem(from, to) {
+                    const arr = this.availableFlows;
+                    if (!arr || from < 0 || from >= arr.length || to < 0 || to >= arr.length || from === to) return;
+                    const [m] = arr.splice(from, 1);
+                    arr.splice(to, 0, m);
+                    this.rebuildProcessOrder();   // 차트 공정 번호 라이브 갱신
+                    this.markDirty();
+                },
+                onOrderDragOver(i) {
+                    if (this.orderDragIdx === null || this.orderDragIdx === i) return;
+                    this.moveOrderItem(this.orderDragIdx, i);
+                    this.orderDragIdx = i;        // 드래그 행이 새 위치를 따라가도록 추적
+                },
+                orderNudge(i, dir) { this.moveOrderItem(i, i + dir); },   // dir: -1 위 / +1 아래
+
+                async bpApiPost(url, body) {
+                    const res = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
+                    if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || ('HTTP ' + res.status)); }
+                    return await res.json();   // 자유 배치 = 겹침 허용 → 409 없음
+                },
+
+                // blueprint 응답(layout 에 flowId 포함 / availableFlows / isStale) 을 편집 상태에 반영 (저장 직후 서버 정본 동기화용).
+                applyBpState(data) {
+                    if (!this.editing) return;   // 편집 종료 후 도착한 응답은 무시(뷰 모드 snapshot layout 보존)
+                    this.layout = data.layout || this.layout;
+                    this.availableFlows = data.availableFlows || [];
+                    this.isStale = !!data.isStale;
+                    if (this.layout && this.layout.cardScale > 0) this.cardScale = this.layout.cardScale;
+                    this.rebuildProcessOrder();
+                    if (this.selectedFlowId && this.layout && !this.layout.flowPlacements.some(p => p.flowId === this.selectedFlowId)) this.selectedFlowId = null;
+                },
+                _clearPendingImage() {
+                    if (this.pendingImage && this.pendingImage.url) { try { URL.revokeObjectURL(this.pendingImage.url); } catch (_) {} }
+                    this.pendingImage = null;
+                },
+                // 서버 정본 다시 읽기 = 미저장 로컬 편집 폐기(편집 진입 / Flow 집합 변경 시). dirty 해제.
+                async reloadBlueprint() {
+                    const data = await this.apiGet('/api/blueprint');
+                    this.layout = data.layout || null;
+                    this.availableFlows = data.availableFlows || [];
+                    this.isStale = !!data.isStale;
+                    if (this.layout && this.layout.cardScale > 0) this.cardScale = this.layout.cardScale;
+                    this.rebuildProcessOrder();
+                    if (this.selectedFlowId && this.layout && !this.layout.flowPlacements.some(p => p.flowId === this.selectedFlowId)) this.selectedFlowId = null;
+                    this._clearPendingImage();
+                    this.dirty = false;
+                },
+
+                // 로컬(메모리) 편집 = 서버 왕복 없이 즉시 반영, dirty 표시. [편집 종료] 시 한 번에 서버 적용.
+                markDirty() { this.dirty = true; },
+                // 배치 추가/이동(로컬) — availableFlows 에서 이름/시스템 메타 결합.
+                setPlacementLocal(flowId, x, y) {
+                    if (!this.layout) return;
+                    const f = this.availableFlows.find(a => a.id === flowId);
+                    if (!f) return;
+                    // in-place 갱신: x-for 가 leaf(fp.x/fp.y) 변경을 추적해 즉시 재렌더(드롭/이동 지연 없음).
+                    const list = this.layout.flowPlacements;
+                    const existing = list.find(p => p.flowId === flowId);
+                    if (existing) { existing.x = x; existing.y = y; }
+                    else list.push({ flowId, flowName: f.name, systemId: f.systemId, systemName: f.system, x, y });
+                    this.markDirty();
+                },
+
+                toggleEdit() { this.editing ? this.exitEdit() : this.enterEdit(); },
+                async enterEdit() {
+                    // editing 을 먼저 켜서 스냅샷 폴링이 layout 을 덮지 않게 한 뒤 blueprint 로드.
+                    this.editing = true; this.dirty = false;
+                    this.armedFlowId = null; this.selectedFlowId = null;
+                    this._clearPendingImage();
+                    try {
+                        await this.reloadBlueprint();
+                    } catch (e) {
+                        this.editing = false;
+                        if (e.message !== 'demo-blocked') this.editToastShow('편집 데이터를 불러오지 못했습니다: ' + e.message, 'error');
+                        this.loadSnapshot();
+                    }
+                },
+                async exitEdit() {
+                    // [편집 종료] = 미저장 변경을 서버에 저장한 뒤 도면 보기로 복귀. (별도 저장 버튼 없음)
+                    if (this.dirty) {
+                        await this.saveLayout();
+                        if (this.dirty) return;   // 저장 실패(여전히 dirty) → 편집 모드 유지하여 재시도 가능
+                    }
+                    this.editing = false; this.armedFlowId = null; this.selectedFlowId = null;
+                    this._drag = null; this.dragName = null; this.dirty = false;
+                    this._clearPendingImage();
+                    this.loadSnapshot();   // 실시간 layout(스냅샷) 복원
+                },
+
+                // ── 팔레트 (미배치 Flow 추가) ──
+                isPlaced(flowId) { return (this.layout?.flowPlacements || []).some(p => p.flowId === flowId); },
+                armFlow(flowId) { this.armedFlowId = (this.armedFlowId === flowId) ? null : flowId; },
+                placementFor(flowName) { return (this.layout?.flowPlacements || []).find(p => p.flowName === flowName) || null; },
+
+                // ── 스냅 격자선 SVG (x-html 문자열 주입; 스냅 ON 시 시각 가이드) ──
+                get gridOverlaySvg() {
+                    const L = this.layout; if (!L || !this.editing || !this.snapEnabled) return '';
+                    const s = this.snapSize; if (s <= 0) return '';
+                    const w = L.canvasWidth, h = L.canvasHeight, parts = [];
+                    for (let x = 0; x <= w + 0.5; x += s) parts.push(`<line class="gl-line" x1="${x}" y1="0" x2="${x}" y2="${h}" />`);
+                    for (let y = 0; y <= h + 0.5; y += s) parts.push(`<line class="gl-line" x1="0" y1="${y}" x2="${w}" y2="${y}" />`);
+                    return parts.join('');
+                },
+                // 정규화 좌표(0..1) 스냅 — 스냅 ON 이면 캔버스 px 기준 snapSize 격자에 정렬.
+                snapXY(xf, yf) {
+                    if (!this.snapEnabled || !this.layout) return [xf, yf];
+                    const s = this.snapSize, w = this.layout.canvasWidth, h = this.layout.canvasHeight;
+                    if (s <= 0 || w <= 0 || h <= 0) return [xf, yf];
+                    return [Math.round(xf * w / s) * s / w, Math.round(yf * h / s) * s / h];
+                },
+                clamp01(v) { return Math.min(1, Math.max(0, v)); },
+                // 캔버스 클릭: 편집 중 무장 상태면 클릭 지점에 배치, 아니면(뷰) 선택 해제.
+                onCanvasClick(e) {
+                    if (!this.editing) { this.selectFlow(null); return; }
+                    if (this.armedFlowId) this.placeAtPoint(e.clientX, e.clientY);
+                },
+                // 배치(로컬) — 클릭 지점에 즉시 추가. 서버 왕복 없음.
+                placeAtPoint(clientX, clientY) {
+                    const flowId = this.armedFlowId; if (!flowId) return;
+                    const area = this.$refs.svgArea; if (!area) return;
+                    const rect = area.getBoundingClientRect(); if (rect.width <= 0 || rect.height <= 0) return;
+                    let xf = (clientX - rect.left) / rect.width, yf = (clientY - rect.top) / rect.height;
+                    [xf, yf] = this.snapXY(this.clamp01(xf), this.clamp01(yf));
+                    this.setPlacementLocal(flowId, this.clamp01(xf), this.clamp01(yf));
+                    this.armedFlowId = null;
+                    this.selectedFlowId = flowId;
+                },
+                // 삭제(로컬)
+                removePlacement(flowName) {
+                    const fp = this.placementFor(flowName); if (!fp || !this.layout) return;
+                    this.layout.flowPlacements = this.layout.flowPlacements.filter(p => p.flowId !== fp.flowId);
+                    if (this.selectedFlowId === fp.flowId) this.selectedFlowId = null;
+                    this.markDirty();
+                },
+
+                // ── 자유 드래그 이동 ──
+                // 위치는 transform 이 아니라 fp.x/fp.y(→ left/top) 로만 구동한다. (드래그 중 라이브 커밋)
+                // 이유: 카드 :style 이 transform(dragDX/dragDY) 에 의존하면 "dragName 해제 + 좌표 커밋"이 같은
+                //   Alpine flush 에 겹쳐, 스케줄러가 드래그 카드 :style 을 stale 좌표로 남기고 재실행하지 않는
+                //   버그(드롭 후 다음 폴링까지 카드가 안 움직임)가 발생함. transform 의존을 없애 충돌을 제거한다.
+                onCardPointerDown(e, c) {
+                    if (!this.editing) return;
+                    e.preventDefault();   // 텍스트 선택/네이티브 드래그(고스트)·페이지 스크롤 시작 방지
+                    const fp = this.placementFor(c.flowName); if (!fp) return;
+                    this.selectedFlowId = fp.flowId; this.armedFlowId = null;
+                    const area = this.$refs.svgArea;
+                    const rect = area ? area.getBoundingClientRect() : null;
+                    this._drag = { name: c.flowName, flowId: fp.flowId, sx: e.clientX, sy: e.clientY,
+                                   x: fp.x ?? 0.5, y: fp.y ?? 0.5,
+                                   w: (rect && rect.width > 0) ? rect.width : 1, h: (rect && rect.height > 0) ? rect.height : 1,
+                                   moved: false };
+                    this.dragName = c.flowName;   // .is-dragging 시각 피드백용(위치와 무관)
+                    try { area && area.setPointerCapture && area.setPointerCapture(e.pointerId); } catch (_) {}
+                },
+                onDragMove(e) {
+                    const d = this._drag; if (!d) return;
+                    const dx = e.clientX - d.sx, dy = e.clientY - d.sy;
+                    if (!d.moved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) d.moved = true;
+                    if (!d.moved) return;
+                    // 라이브: 원시(미스냅) 좌표로 즉시 커밋 → left/top 으로 부드럽게 추종. fp.x 변경만 발생해 충돌 없음.
+                    this.setPlacementLocal(d.flowId, this.clamp01(d.x + dx / d.w), this.clamp01(d.y + dy / d.h));
+                },
+                // 드롭 = 스냅 적용한 최종 좌표 확정(로컬). dragName 해제는 .is-dragging 클래스에만 영향(위치 무관).
+                onDragEnd(e) {
+                    const d = this._drag; this._drag = null; this.dragName = null;
+                    const area = this.$refs.svgArea;
+                    try { area && area.releasePointerCapture && area.releasePointerCapture(e.pointerId); } catch (_) {}
+                    if (!d || !d.moved) return;
+                    let nx = this.clamp01(d.x + (e.clientX - d.sx) / d.w);
+                    let ny = this.clamp01(d.y + (e.clientY - d.sy) / d.h);
+                    [nx, ny] = this.snapXY(nx, ny);
+                    this.setPlacementLocal(d.flowId, this.clamp01(nx), this.clamp01(ny));
+                },
+
+                // ── 공통 카드 크기 (로컬 즉시 반영 · [저장] 시 서버 적용) ──
+                // cardScale 은 x-model 로 즉시 바인딩되어 카드가 바로 리사이즈됨 — dirty 표시만.
+                onCardScaleInput() { this.markDirty(); },
+
+                // ── 도면 이미지 선택 (저장 시 업로드) — 미리보기는 로컬 objectURL, 캔버스 크기는 클라이언트에서 즉시 판독 ──
+                onImageSelected(e) {
+                    const file = e.target.files && e.target.files[0]; e.target.value = '';
+                    if (!file) return;
+                    const url = URL.createObjectURL(file);
+                    const img = new Image();
+                    img.onload = () => {
+                        this._clearPendingImage();   // 이전 보류 이미지 정리
+                        this.pendingImage = { file, url, width: img.naturalWidth, height: img.naturalHeight };
+                        // 캔버스 종횡비를 새 이미지에 맞춤(배치는 정규화 좌표라 비례 유지) → 미리보기가 즉시 정확.
+                        if (this.layout && img.naturalWidth > 0 && img.naturalHeight > 0) {
+                            this.layout.canvasWidth = img.naturalWidth;
+                            this.layout.canvasHeight = img.naturalHeight;
+                        }
+                        this.markDirty();
+                        this.editToastShow(`이미지 선택됨 (${img.naturalWidth}×${img.naturalHeight}) · [저장] 시 적용`, 'info');
+                    };
+                    img.onerror = () => { try { URL.revokeObjectURL(url); } catch (_) {} this.editToastShow('이미지를 읽지 못했습니다.', 'error'); };
+                    img.src = url;
+                },
+                // 편집 중 보류 이미지가 있으면 objectURL 미리보기, 아니면 서버 경로.
+                get blueprintSrc() {
+                    if (this.editing && this.pendingImage) return this.pendingImage.url;
+                    const p = this.layout?.blueprintImagePath; if (!p) return '';
+                    return '/' + p.replace(/^\/+/, '') + '?v=' + (this.layout?.imageVersion ?? '');
+                },
+
+                // ── 일괄 작업 (모두 로컬) ──
+                clearAll() {
+                    const n = this.layout?.flowPlacements?.length || 0;
+                    if (!n || !confirm(`배치된 블럭 ${n}개를 모두 삭제하시겠습니까?`)) return;
+                    this.armedFlowId = null; this.selectedFlowId = null;
+                    this.layout.flowPlacements = [];
+                    this.markDirty();
+                    this.editToastShow('모든 블럭을 삭제했습니다 (저장 전).', 'info');
+                },
+                // 모든 availableFlows 를 캔버스 비율에 맞는 격자로 자동 배치(서버 AutoFillPlacements 클라이언트 포팅).
+                autofillLocal() {
+                    const L = this.layout; if (!L) return 0;
+                    const ordered = this.availableFlows; const n = ordered.length;
+                    L.flowPlacements = [];
+                    if (n === 0) return 0;
+                    const usableW = Math.max(1, L.canvasWidth), usableH = Math.max(1, L.canvasHeight);
+                    const aspect = usableW / usableH;
+                    const cols = Math.max(1, Math.ceil(Math.sqrt(n * aspect)));
+                    let rows = Math.ceil(n / cols);
+                    while (cols * rows < n) rows++;
+                    this.cardScale = Math.min(0.35, Math.max(0.06, 0.82 / cols));   // 격자 칸 폭 ~82%
+                    L.flowPlacements = ordered.map((f, i) => {
+                        const col = i % cols, row = Math.floor(i / cols);
+                        return { flowId: f.id, flowName: f.name, systemId: f.systemId, systemName: f.system, x: (col + 0.5) / cols, y: (row + 0.5) / rows };
+                    });
+                    this.markDirty();
+                    return n;
+                },
+                autofill() {
+                    if (!this.availableFlows.length) return;
+                    if ((this.layout?.flowPlacements?.length || 0) > 0 && !confirm(`기존 배치를 제거하고 Flow ${this.availableFlows.length}개를 자동 배치합니다. 계속하시겠습니까?`)) return;
+                    this.armedFlowId = null; this.selectedFlowId = null;
+                    const n = this.autofillLocal();
+                    this.editToastShow(`Flow ${n}개를 자동 배치했습니다 (저장 전).`, 'success');
+                },
+                // 취소 = 저장하지 않은 로컬 편집을 모두 버리고 마지막 저장(서버 정본) 상태로 되돌림.
+                async cancelEdits() {
+                    if (!this.dirty || this.saving) return;
+                    if (!confirm('저장하지 않은 변경사항을 모두 취소하고 마지막 저장 상태로 되돌립니다. 계속하시겠습니까?')) return;
+                    this.armedFlowId = null; this.selectedFlowId = null;
+                    try {
+                        await this.reloadBlueprint();   // 서버 정본 재로드 → 미저장 편집 폐기 + dirty 해제 + 보류 이미지 정리
+                        this.editToastShow('마지막 저장 상태로 되돌렸습니다.', 'success');
+                    } catch (e) {
+                        if (e.message !== 'demo-blocked') this.editToastShow('되돌리기 실패: ' + e.message, 'error');
+                    }
+                },
+
+                // ── 저장 ([편집 종료] 시 호출) — 보류 이미지 업로드 후 배치/크기를 한 번에 서버로 flush ──
+                async saveLayout() {
+                    if (!this.editing || !this.dirty || this.saving) return;
+                    this.saving = true;
+                    try {
+                        // 1) 보류 이미지 먼저 업로드 → 서버가 이미지/캔버스 갱신.
+                        if (this.pendingImage) {
+                            const fd = new FormData(); fd.append('file', this.pendingImage.file);
+                            const res = await fetch('/api/blueprint/image', { method: 'POST', body: fd });
+                            if (res.status === 503) { this.demoBlocked = true; return; }
+                            if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || ('HTTP ' + res.status)); }
+                            const r = await res.json();
+                            if (this.layout) {
+                                this.layout.blueprintImagePath = r.imagePath;
+                                this.layout.imageVersion = r.imageVersion;
+                                this.layout.canvasWidth = r.canvasWidth;
+                                this.layout.canvasHeight = r.canvasHeight;
+                            }
+                            this._clearPendingImage();
+                        }
+                        // 2) 배치 + 공통 크기 + 공정 순서 일괄 적용(서버가 이름 재해석).
+                        const placements = (this.layout?.flowPlacements || []).map(p => ({ flowId: p.flowId, x: p.x, y: p.y }));
+                        // 공정 순서 = 현재 availableFlows 배열 순서(flowId). 비어있으면 서버가 기존값 보존.
+                        const flowProcessOrder = (this.availableFlows || []).map(f => f.id);
+                        const data = await this.bpApiPost('/api/blueprint/replace', { cardScale: this.cardScale, placements, flowProcessOrder });
+                        this.applyBpState(data);
+                        this.dirty = false;
+                        this.editToastShow('저장되었습니다.', 'success');
+                    } catch (e) {
+                        if (e.message !== 'demo-blocked') this.editToastShow('저장 실패: ' + e.message, 'error');
+                    } finally { this.saving = false; }
+                },
+
+                editToastShow(msg, kind) {
+                    this.editToast = { show: true, msg, kind: kind || 'info' };
+                    clearTimeout(this._editToastT);
+                    this._editToastT = setTimeout(() => { this.editToast.show = false; }, 2600);
                 },
 
                 // ── CT 분석 (UpdateChartCache 재구현) ──
@@ -708,52 +1432,213 @@
                     return r;
                 },
                 isHighlighted(name) { return name === this.maxCtName || name === this.minCtName || name === this.maxWtName; },
-                rowBorderStyle(name) {
-                    const c = name === this.maxCtName ? 'var(--color-error)' : name === this.minCtName ? 'var(--color-success)' : name === this.maxWtName ? 'var(--color-warning)' : '';
-                    return c ? `border-left-color:${c};` : '';
-                },
                 barFill(flow) { return this.maxCtVal > 0 ? (flow.ct * 100 / this.maxCtVal) : 0; },
+                // 비교 막대: 같은 행 안에서 CT=100% 기준 MT/WT 비율 (한 행 안의 가독 구성)
                 barMt(flow) { return flow.ct > 0 ? (flow.mt * 100 / flow.ct) : 0; },
                 barWt(flow) { return 100 - this.barMt(flow); },
 
-                setDisplayMode(avg) { this.showAverage = avg; },
+                setDisplayMode(avg) { this.showAverage = avg; this.syncHistory(); },  // 현재/평균 전환 시 병목 Flow 가 바뀔 수 있음
 
-                // ── 선택/팝업 ──
-                selectCt(name) {
-                    this.selectedFlowName = (name && this.selectedFlowName === name) ? null : (name || null);
-                    this.popupFlow = null;
+                // ── 선택 (KPI · 도면 · 막대 단일 소스 양방향 동기화) — 전부 클라이언트, 클릭 즉시 반응 ──
+                // 히스토리 대상 Flow = 사용자가 고정한 Flow, 없으면 병목(최대 CT) Flow 자동 표시
+                get histFlowName() { return this.selectedFlowName || this.maxCtName || null; },
+                get histIsAuto() { return !this.selectedFlowName && !!this.maxCtName; },
+                // 현재 Flow 의 수동 제외 집합 / 자동 임계치
+                get _exSet() { return this.excludedByFlow[this.histFlowName] || {}; },
+                get _exThreshold() { return this.thresholdByFlow[this.histFlowName] ?? null; },
+                // 제외(이상치)된 사이클을 뺀 표시 대상 — 차트·테이블·평균이 모두 이 집합 기준
+                get visibleHistory() {
+                    const ex = this._exSet, thr = this._exThreshold;
+                    return this.flowHistory.filter(h => !ex[h._key] && !(thr != null && (h.ct ?? 0) > thr));
                 },
-                async selectLayout(name) {
-                    this.selectedFlowName = name;
-                    if (name) {
-                        const row = this.chartData.find(r => r.flowName === name);
-                        this.popupFlow = row ? { flowName: row.flowName, mt: row.mt, wt: row.wt, ct: row.ct, wtRatio: row.wtRatio }
-                                             : { flowName: name, mt: 0, wt: 0, ct: 0, wtRatio: 0 };
-                        await this.loadHistory(name);
-                    } else { this.popupFlow = null; this.flowHistory = []; }
+                get excludedCount() {
+                    const ex = this._exSet, thr = this._exThreshold;
+                    let n = 0;
+                    for (const h of this.flowHistory) if (ex[h._key] || (thr != null && (h.ct ?? 0) > thr)) n++;
+                    return n;
                 },
-                closePopup() { this.popupFlow = null; this.flowHistory = []; },
+
+                selectFlow(name) {
+                    const next = (name && this.selectedFlowName === name) ? null : (name || null);
+                    this.selectedFlowName = next;            // 하이라이트는 즉시(클라이언트, 서버 왕복 없음)
+                    this.syncHistory();                      // 고정 해제 시에도 병목 Flow 로 폴백 (빈 화면 방지)
+                },
+                // effective Flow 의 히스토리를 캐시로 즉시 표시 + 서버 최신값으로 갱신
+                syncHistory() {
+                    const target = this.histFlowName;
+                    if (!target) { this._histShownFor = null; this.setHistory([]); return; }
+                    if (target !== this._histShownFor) {
+                        this._histShownFor = target;
+                        // 제외 구간은 Flow 별(excludedByFlow)로 보관 → 여기서 비우지 않음. 병목 Flow 자동전환 후
+                        // 돌아와도 그 Flow 의 필터가 그대로 복원됨. (사용자가 직접 "초기화" 눌러야 해제)
+                        if (histCache[target]) this.setHistory(histCache[target]);  // 전환 시 캐시 즉시 표시(렉 제거)
+                    }
+                    this.loadHistory(target);                // 이어서 서버에서 최신값으로 갱신
+                },
                 async loadHistory(name) {
                     try {
-                        this.flowHistory = await this.apiGet('/api/dashboard/flows/' + encodeURIComponent(name) + '/history?limit=200');
-                    } catch (e) { if (e.message !== 'demo-blocked') console.error('history failed', e); this.flowHistory = []; }
+                        const rows = await this.apiGet('/api/dashboard/flows/' + encodeURIComponent(name) + '/history?limit=200');
+                        histCache[name] = rows;
+                        if (this.histFlowName === name) this.setHistory(rows);  // 그 사이 대상 Flow 바뀌면 무시(경쟁 가드)
+                    } catch (e) {
+                        if (e.message !== 'demo-blocked') console.error('history failed', e);
+                        if (this.histFlowName === name) this.setHistory([]);
+                    }
                 },
-                get popupMtPct() { return this.popupFlow && this.popupFlow.ct > 0 ? (this.popupFlow.mt * 100 / this.popupFlow.ct) : 0; },
-                get popupWtPct() { return 100 - this.popupMtPct; },
-                histMtPct(h) { const ct = h.ct ?? 0, mt = h.mt ?? 0; return ct > 0 ? (mt * 100 / ct) : 0; },
+
+                // ── 히스토리 가공: 평균/σ + 행별 상태/비율/시각을 1회만 계산해 행에 박아둔다 ──
+                // (이전엔 histStatus 가 행마다 3회 호출 × σ/평균 getter(O(n)) → 200행에서 O(n²) 렌더 렉)
+                setHistory(rows) {
+                    rows = Array.isArray(rows) ? rows : [];
+                    // 안정 식별자(_key) + 정적 필드(_time) 1회 부여 → 5초 재조회/윈도우 슬라이딩에도 동일 사이클 추적.
+                    // recordedAt(저장 시각) 은 사이클당 불변 → 식별자로 사용. cycleNo 는 표시용 순번이라 제외.
+                    rows.forEach((h, i) => {
+                        h._key = (h.recordedAt != null && h.recordedAt !== '')
+                            ? ('r' + h.recordedAt)
+                            : ('n' + (h.cycleNo ?? '?') + '|' + (h.mt ?? 0) + '|' + (h.ct ?? 0) + '|' + i);
+                        h._time = this.histTime(h.recordedAt);
+                    });
+                    this.flowHistory = rows;
+                    this.recomputeHist();
+                },
+                // 제외(이상치) 반영: 평균·σ·행별 상태를 "보이는 사이클" 기준으로 재계산 + 차트 갱신
+                // (행마다 σ/평균 getter 호출하던 O(n²) 렉 회피 — 여기서 1회만 계산해 행에 박아둔다)
+                recomputeHist() {
+                    const cts = [];
+                    for (const h of this.visibleHistory) { const ct = h.ct ?? 0; if (ct > 0) cts.push(ct); }
+                    let avg = 0, std = 0;
+                    if (cts.length) {
+                        avg = cts.reduce((a, b) => a + b, 0) / cts.length;
+                        if (cts.length >= 2) std = Math.sqrt(cts.reduce((a, b) => a + (b - avg) * (b - avg), 0) / cts.length);
+                    }
+                    this.histAvgCt = avg;
+                    this.histStdCt = std;
+                    for (const h of this.flowHistory) {
+                        const ct = h.ct ?? 0, wt = h.wt ?? 0;
+                        h._status = (ct > 0 && std > 0)
+                            ? (ct > avg + std ? { cls: 'bad', label: '초과' }
+                               : ct > avg + std * 0.5 ? { cls: 'warn', label: '주의' }
+                               : { cls: 'ok', label: '정상' })
+                            : null;
+                        h._wt = ct > 0 ? (wt * 100 / ct).toFixed(1) + '%' : '--';
+                    }
+                    if (this.histView === 'chart') this.$nextTick(() => this.renderHistChart());  // 차트 뷰면 데이터 갱신
+                },
+                // ── 히스토리 뷰 전환 (테이블 ↔ 차트) ──
+                setHistView(v) {
+                    this.histView = v;
+                    if (v === 'chart') this.$nextTick(() => this.renderHistChart());
+                },
+                // 사이클별 MT/WT 스택 막대 + 평균 CT 기준선 (오래된→최신, 좌→우)
+                renderHistChart() {
+                    const cv = this.$refs.histChart;
+                    if (!cv || !window.Chart) return;
+                    if (this._histChart) { this._histChart.destroy(); this._histChart = null; }
+                    const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+                    const rows = this.visibleHistory.slice().reverse();   // 제외분 빼고, 최신순 저장 → 차트는 좌(오래)→우(최신)
+                    this._chartKeys = rows.map(h => h._key);   // 막대 index → 사이클 _key (드래그 구간 제외 히트테스트)
+                    const labels = rows.map((h, i) => (h.cycleNo != null) ? ('#' + h.cycleNo) : ('#' + (i + 1)));
+                    const toS = (ms) => Math.round((ms ?? 0) / 100) / 10;   // ms → 초(0.1s)
+                    const mt = rows.map(h => toS(h.mt));
+                    const wt = rows.map(h => toS(h.wt));
+                    const avg = this.histAvgCt > 0 ? toS(this.histAvgCt) : null;
+                    const cMt = css('--mt') || css('--teal') || '#2BB5C5';
+                    const cWt = css('--wt') || css('--color-warning') || '#F8C545';
+                    const cRed = css('--red') || css('--color-error') || '#E5494F';
+                    const grid = css('--color-lines') || 'rgba(120,120,120,0.18)';
+                    const txt = css('--color-text-secondary') || '#667085';
+                    const datasets = [
+                        { label: 'MT (가동)', data: mt, backgroundColor: cMt, stack: 'ct', borderWidth: 0 },
+                        { label: 'WT (대기)', data: wt, backgroundColor: cWt, stack: 'ct', borderWidth: 0 },
+                    ];
+                    if (avg != null) {
+                        datasets.push({ type: 'line', label: '평균 CT', data: labels.map(() => avg),
+                            borderColor: cRed, borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0, fill: false });
+                    }
+                    const fmtMs = (s) => this.fmt(s * 1000);
+                    this._histChart = new Chart(cv, {
+                        type: 'bar',
+                        data: { labels, datasets },
+                        options: {
+                            responsive: true, maintainAspectRatio: false, animation: false,
+                            interaction: { mode: 'index', intersect: false },
+                            plugins: {
+                                legend: { position: 'top', labels: { color: txt, boxWidth: 12, font: { size: 11 } } },
+                                tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${fmtMs(c.parsed.y || 0)}` } },
+                            },
+                            scales: {
+                                x: { stacked: true, grid: { display: false }, ticks: { color: txt, font: { size: 10 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 8 } },
+                                y: { stacked: true, beginAtZero: true, min: 0, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, callback: (v) => fmtMs(v) }, title: { display: true, text: '시간', color: txt } },
+                            },
+                        },
+                    });
+                },
+                // ── 이상치 필터: 차트 가로 드래그 → 구간 제외 ──
+                onChartDragStart(e) {
+                    if (!this._histChart || this.histView !== 'chart') return;
+                    this.drag.active = true;
+                    this.drag.startX = e.clientX;
+                    this.drag.curX = e.clientX;
+                    this._syncDragRect(e.currentTarget);
+                },
+                onChartDragMove(e) {
+                    if (!this.drag.active) return;
+                    this.drag.curX = e.clientX;
+                    this._syncDragRect(e.currentTarget);
+                },
+                onChartDragEnd() {
+                    if (!this.drag.active) return;
+                    this.drag.active = false;
+                    if (Math.abs(this.drag.curX - this.drag.startX) < 5) return;   // 클릭(드래그 아님)은 무시
+                    this._excludeByClientRange(Math.min(this.drag.startX, this.drag.curX), Math.max(this.drag.startX, this.drag.curX));
+                },
+                onChartDragCancel() { this.drag.active = false; },
+                _syncDragRect(wrap) {
+                    const r = wrap.getBoundingClientRect();
+                    const a = Math.max(0, Math.min(this.drag.startX, this.drag.curX) - r.left);
+                    const b = Math.min(r.width, Math.max(this.drag.startX, this.drag.curX) - r.left);
+                    this.drag.rectLeft = a;
+                    this.drag.rectWidth = Math.max(0, b - a);
+                },
+                // 드래그 가로 구간(client px) 안에 막대 중심이 든 사이클을 제외 집합에 추가
+                _excludeByClientRange(aClient, bClient) {
+                    const chart = this._histChart, canvas = this.$refs.histChart;
+                    if (!chart || !canvas) return;
+                    const cr = canvas.getBoundingClientRect();
+                    const aPx = aClient - cr.left, bPx = bClient - cr.left;
+                    const meta = chart.getDatasetMeta(0);
+                    const flow = this.histFlowName;
+                    const next = { ...(this.excludedByFlow[flow] || {}) };
+                    let count = 0;
+                    meta.data.forEach((bar, i) => {
+                        const key = this._chartKeys[i];
+                        if (key && bar.x >= aPx && bar.x <= bPx && !next[key]) { next[key] = true; count++; }
+                    });
+                    if (count) { this.excludedByFlow = { ...this.excludedByFlow, [flow]: next }; this.recomputeHist(); }
+                },
+                // 상자그림 상단 울타리(Q3 + 1.5·IQR) → 임계치(fenceMs)를 thresholdByFlow 에 저장.
+                // 특정 사이클 키가 아닌 규칙이므로, 이후 새 사이클이 들어와도 fence 초과면 자동 제외.
+                autoExcludeOutliers() {
+                    const cts = this.flowHistory.map(h => h.ct ?? 0).filter(c => c > 0).sort((a, b) => a - b);
+                    if (cts.length < 4) return;
+                    const q = (p) => { const idx = (cts.length - 1) * p, lo = Math.floor(idx), hi = Math.ceil(idx); return cts[lo] + (cts[hi] - cts[lo]) * (idx - lo); };
+                    const q1 = q(0.25), q3 = q(0.75), fence = q3 + 1.5 * (q3 - q1);
+                    const flow = this.histFlowName;
+                    this.thresholdByFlow = { ...this.thresholdByFlow, [flow]: fence };
+                    this.recomputeHist();
+                },
+                resetExclusions() {
+                    if (this.excludedCount === 0) return;
+                    const flow = this.histFlowName;
+                    this.excludedByFlow = { ...this.excludedByFlow, [flow]: {} };
+                    this.thresholdByFlow = { ...this.thresholdByFlow, [flow]: null };
+                    this.recomputeHist();
+                },
+
                 histTime(iso) {
                     const d = new Date(iso); if (isNaN(d)) return '';
                     const p = (x) => String(x).padStart(2, '0');
-                    return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
-                },
-
-                // ── 위젯 레이아웃 (읽기 전용 prefs) ──
-                get visibleWidgets() { return this.widgetOrder.filter(w => !this.hiddenWidgets.includes(w)); },
-                widgetStyle(id) {
-                    const parts = (this.ratio || '1:3').split(':');
-                    const left = parseInt(parts[0], 10) || 1, right = parseInt(parts[1], 10) || 1;
-                    const flex = (this.widgetOrder.length > 0 && this.widgetOrder[0] === id) ? left : right;
-                    return `flex:${flex}; min-width:0; min-height:0;`;
+                    return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
                 },
 
                 // ── 전체화면 (native) ──
@@ -764,17 +1649,131 @@
                     else document.exitFullscreen && document.exitFullscreen();
                 },
 
+                // ── 시프트 운영 (서버 공유 설정 + 만든 수) ──
+                get flowNames() {
+                    if (!this.layout) return [];
+                    const order = this.flowProcessOrder || {};
+                    return this.layout.flowPlacements.map(p => p.flowName)
+                        .sort((a, b) => (order[a] ?? 0) - (order[b] ?? 0));
+                },
+                // 현재(또는 가장 최근) 시프트 윈도우 — 서버 ResolveShiftStartUtc 와 동일 규칙(로컬 기준)
+                _shiftWindow() {
+                    const now = new Date(this.nowTick);
+                    const [sh, sm] = (this.shift.start || '08:00').split(':').map(Number);
+                    const [eh, em] = (this.shift.end || '17:00').split(':').map(Number);
+                    const crosses = ((eh || 0) * 60 + (em || 0)) <= ((sh || 0) * 60 + (sm || 0));   // 야간(자정 넘김)
+                    const start = new Date(now); start.setHours(sh || 0, sm || 0, 0, 0);
+                    const end = new Date(now); end.setHours(eh || 0, em || 0, 0, 0);
+                    if (crosses) {
+                        if (now >= start) end.setDate(end.getDate() + 1);   // 오늘 시작 → 내일 종료
+                        else start.setDate(start.getDate() - 1);            // 어제 시작 → 오늘 종료
+                    }
+                    return { start, end, now };
+                },
+                get shiftState() {
+                    const { start, end, now } = this._shiftWindow();
+                    if (now < start) return 'pending';
+                    if (now >= end) return 'ended';
+                    return 'running';
+                },
+                get shiftLabel() {
+                    const s = this.shiftState;
+                    return s === 'pending' ? '시프트 시작까지' : s === 'ended' ? '시프트 종료' : '시프트 종료까지';
+                },
+                get shiftCountdownText() {
+                    const st = this.shiftState;
+                    if (st === 'ended') return '종료됨';
+                    const { start, end, now } = this._shiftWindow();
+                    const diff = Math.max(0, (st === 'pending' ? start : end) - now);
+                    const h = Math.floor(diff / 3600000), m = Math.floor((diff % 3600000) / 60000);
+                    return h > 0 ? (h + '시간 ' + m + '분') : (m + '분');
+                },
+                get shiftSubText() {
+                    const s = this.shift;
+                    if (s.targetFlow && s.targetCount > 0) {
+                        const made = s.madeCount || 0, tgt = s.targetCount;
+                        const pct = tgt > 0 ? Math.round(made * 100 / tgt) : 0;
+                        const cls = made >= tgt ? 'is-over' : (pct < 50 ? 'is-under' : '');
+                        return '📦 ' + made + ' / ' + tgt + '개 · <span class="sh-pct ' + cls + '">' + pct + '%</span>';
+                    }
+                    return (s.start || '08:00') + ' → ' + (s.end || '17:00') + ' · 목표 미설정 (클릭)';
+                },
+                get shiftFormDurationHours() {
+                    const [sh, sm] = (this.shiftForm.start || '08:00').split(':').map(Number);
+                    const [eh, em] = (this.shiftForm.end || '17:00').split(':').map(Number);
+                    let mins = ((eh || 0) * 60 + (em || 0)) - ((sh || 0) * 60 + (sm || 0));
+                    if (mins <= 0) mins += 24 * 60;   // 야간(자정 넘김)
+                    return mins / 60;
+                },
+                get shiftFormPerHour() {
+                    const h = this.shiftFormDurationHours;
+                    const t = Math.max(0, parseInt(this.shiftForm.targetCount) || 0);
+                    return h > 0 ? Math.ceil(t / h) : 0;
+                },
+                async loadShift() {
+                    try { const s = await this.apiGet('/api/dashboard/shift'); if (s) this.shift = s; }
+                    catch (e) { /* 미수신 시 기존값 유지 (demo-blocked 포함) */ }
+                },
+                openShiftModal() {
+                    const s = this.shift;
+                    this.shiftForm = {
+                        start: s.start || '08:00', end: s.end || '17:00',
+                        shiftType: s.shiftType || 'morning',
+                        targetFlow: s.targetFlow || '', targetCount: s.targetCount || 0
+                    };
+                    this.shiftModalOpen = true;
+                },
+                closeShiftModal() { this.shiftModalOpen = false; },
+                _shiftPresets: { morning: ['08:00', '17:00'], afternoon: ['14:00', '22:00'], night: ['22:00', '06:00'] },
+                applyShiftType(type) {
+                    this.shiftForm.shiftType = type;
+                    const p = this._shiftPresets[type];
+                    if (p) { this.shiftForm.start = p[0]; this.shiftForm.end = p[1]; }
+                },
+                // 시간 직접 수정 시 일치하는 프리셋이 있으면 그 종류로, 없으면 custom 표식
+                onShiftTimeEdited() {
+                    const p = this._shiftPresets;
+                    const match = Object.keys(p).find(k => p[k][0] === this.shiftForm.start && p[k][1] === this.shiftForm.end);
+                    this.shiftForm.shiftType = match || 'custom';
+                },
+                bumpTarget(delta) {
+                    const cur = Math.max(0, parseInt(this.shiftForm.targetCount) || 0);
+                    this.shiftForm.targetCount = Math.max(0, cur + delta);
+                },
+                async saveShift() {
+                    try {
+                        const body = {
+                            start: this.shiftForm.start || '08:00',
+                            end: this.shiftForm.end || '17:00',
+                            shiftType: this.shiftForm.shiftType || 'morning',
+                            targetFlow: this.shiftForm.targetFlow || null,
+                            targetCount: Math.max(0, parseInt(this.shiftForm.targetCount) || 0)
+                        };
+                        const res = await fetch('/api/dashboard/shift', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                            body: JSON.stringify(body)
+                        });
+                        if (res.status === 503) { this.demoBlocked = true; return; }
+                        if (!res.ok) throw new Error('HTTP ' + res.status);
+                        this.shift = await res.json();
+                        this.shiftModalOpen = false;
+                    } catch (e) {
+                        this.error = '시프트 저장 실패: ' + e.message;
+                    }
+                },
+
                 // ── 포맷터 ──
                 fmtCard(ms) {
                     if (ms <= 0) return '0초';
-                    if (ms < 1000) return ms + 'ms';
+                    if (ms < 1000) return Math.round(ms) + 'ms';
                     if (ms < 60000) return (ms / 1000).toFixed(1) + '초';
                     if (ms < 3600000) return Math.floor(ms / 60000) + '분 ' + Math.floor(ms % 60000 / 1000) + '초';
                     return Math.floor(ms / 3600000) + '시 ' + Math.floor(ms % 3600000 / 60000) + '분';
                 },
                 fmt(ms) {
                     if (ms <= 0) return '0s';
-                    if (ms < 1000) return ms + 'ms';
+                    if (ms < 1000) return Math.round(ms) + 'ms';
                     if (ms < 60000) return (ms / 1000).toFixed(1) + 's';
                     if (ms < 3600000) return Math.floor(ms / 60000) + 'm ' + Math.floor(ms % 60000 / 1000) + 's';
                     return Math.floor(ms / 3600000) + 'h ' + Math.floor(ms % 3600000 / 60000) + 'm';

@@ -24,11 +24,8 @@
     <a class="nav-link" href="/cycle-time-analysis">
         <span class="material-icons">equalizer</span> 사이클 분석
     </a>
-    <a class="nav-link" href="/call-test">
-        <span class="material-icons">play_circle</span> Call 사이클
-    </a>
-    <a class="nav-link" href="/user-tags">
-        <span class="material-icons">crisis_alert</span> 이상발생 관리
+    <a class="nav-link" href="/uptime">
+        <span class="material-icons">monitor_heart</span> 가동시간·이상
         @if (_anomalyActiveCount > 0)
         {
             <span class="nav-link-badge" title="최근 10분 내 Error 알림">@_anomalyActiveCount</span>
@@ -96,7 +93,13 @@
         <div class="nav-section-empty">프로젝트 미로드</div>
     }
 
-    @* ── 4. agent 통신 상태 (Hub + PLC) ── *@
+    @* ── 4. 설정 ── *@
+    <div class="nav-section-head"><span class="eyebrow">설정</span></div>
+    <a class="nav-link" href="/settings">
+        <span class="material-icons">settings</span> 설정
+    </a>
+
+    @* ── 5. agent 통신 상태 (Hub + PLC) ── *@
     <div class="nav-section-head"><span class="eyebrow">agent 통신 상태</span></div>
     <div class="nav-section-body agent-status">
         <div class="ag-row is-@_hubLevel" title="@_hubTooltip">

@@ -1,0 +1,299 @@
+@import url("/css/swiss.css");
+
+/* ============================================================================
+   DSPilot — "DS Pilot" Redesign Design System  (ds.css)
+   ----------------------------------------------------------------------------
+   dspilot-ux.html(UX 설계 5-Pages) 의 디자인 언어를 전면 채택한 테마.
+     · 네이비(#0A2540) 사이드바/헤더 + 청록(#2BB5C5) 액션 악센트
+     · 둥근 카드(6~10px) + 부드러운 그림자, MT/WT/CT 색 체계
+     · Pretendard → (로컬)Noto Sans KR 폴백
+
+   구현 전략(중요):
+     · swiss.css 를 그대로 @import → 모든 클래스/레이아웃/shell.js 계약을 상속.
+     · 아래에서 "토큰 이름" 만 mockup 팔레트로 재정의 → 페이지/JS 수정 없이 자동 재테마.
+     · 네이비 사이드바/헤더는 .drawer/.app-bar 에 토큰 변수를 "재스코프" 하여
+       (--color-text-* 등) 하위 규칙이 밝은 색으로 자동 전환되게 한다.
+     · swiss.css 는 손대지 않음 → 되돌리기 = 링크만 원복.
+   페이지 링크: <link href="/css/fonts.css"><link href="/css/ds.css">
+   ============================================================================ */
+
+/* ───────────────────────────── 1. 토큰 (Light) ──────────────────────────── */
+:root {
+    /* mockup raw 팔레트 */
+    --navy: #0A2540;
+    --navy-2: #1A2B4A;
+    /* 브랜드 강조 = 보라/인디고 (구 청록에서 재테마). 토큰명은 호환 위해 teal 유지하되 값은 보라.
+       데이터 색(MT/WT/CT)은 의미색이라 그대로 둠 — MT 데이터는 --mt 사용(브랜드 보라와 분리). */
+    --teal: #6D5BD0;
+    --teal-2: #9486E6;
+    --teal-dark: #5A47B8;
+    --cyan-bg: #EEEBFB;
+    --cyan-soft: #D9D1F5;
+    --amber: #F8C545;
+    --green: #36C28A;
+    --red: #E5494F;
+    --purple: #6D5BD0;
+    --mt: #1FA8B8;   /* 가동 (데이터색, 청록 유지) */
+    --wt: #F8C545;   /* 대기 */
+    --ct: #36C28A;   /* 사이클 */
+
+    /* 액센트 = 보라/인디고 */
+    --color-primary: #6D5BD0;
+    --color-primary-rgb: 109, 91, 208;
+    --color-primary-strong: #5A47B8;
+    --color-secondary: #8896A6;
+    --color-tertiary: #5B6B7E;
+
+    /* 시맨틱 */
+    --color-info: #2B86C5;
+    --color-success: #2AA877;
+    --color-warning: #C98A12;
+    --color-error: #E5494F;
+    --color-success-rgb: 54, 194, 138;
+    --color-warning-rgb: 248, 197, 69;
+    --color-error-rgb: 229, 73, 79;
+
+    /* 표면 — 쿨 그레이 페이퍼 */
+    --color-background: #EEF2F5;
+    --color-surface: #FFFFFF;
+    --color-surface-variant: #F5F7FA;
+    --color-lines: #E1E5EA;
+    --color-lines-strong: #CBD4DD;
+    --color-border: #E1E5EA;
+
+    /* 앱바 / 드로어 (네이비) */
+    --color-appbar-bg: var(--navy);
+    --color-appbar-text: #FFFFFF;
+    --color-drawer-bg: var(--navy);
+    --color-drawer-text: #C3D4E4;
+    --color-drawer-icon: #8FA8C2;
+    --drawer-width: 230px;
+
+    /* 텍스트 */
+    --color-text-primary: #1A2B4A;
+    --color-text-secondary: #5B6B7E;
+    --color-text-disabled: #8896A6;
+    --color-action-default: #6D5BD0;
+
+    /* 타이포 */
+    --font-family: 'Pretendard', 'Noto Sans KR', 'Malgun Gothic', sans-serif;
+    --tracking-eyebrow: 0.14em;
+
+    /* 모서리 — 둥글게 */
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 10px;
+
+    /* 그림자 — 부드러운 리프트 */
+    --shadow-1: 0 1px 3px rgba(10, 37, 64, 0.05);
+    --shadow-2: 0 2px 8px rgba(10, 37, 64, 0.06);
+    --shadow-4: 0 12px 32px rgba(10, 37, 64, 0.16);
+    --shadow-card: 0 2px 12px rgba(10, 37, 64, 0.06);
+    --shadow-card-hover: 0 6px 18px rgba(109, 91, 208, 0.18);
+    --shadow-modal: 0 24px 64px rgba(10, 37, 64, 0.28);
+
+    /* Gantt / 시계열 SVG — run=청록, gap=앰버, ct=그린 */
+    --gantt-bg: var(--color-surface);
+    --gantt-lane-even: #FFFFFF;
+    --gantt-lane-odd: #F2F6F9;
+    --gantt-lane-border: var(--color-lines);
+    --gantt-lane-center: rgba(10, 37, 64, 0.05);
+    --gantt-label: var(--color-text-primary);
+    --gantt-sublabel: var(--color-text-secondary);
+    --gantt-axis: rgba(10, 37, 64, 0.45);
+    --gantt-tick-label: var(--color-text-secondary);
+    --gantt-bar-in: #2BB5C5;
+    --gantt-bar-in-stroke: #1FA8B8;
+    --gantt-bar-out: #5BC9D6;
+    --gantt-bar-out-stroke: #2BB5C5;
+    --gantt-gap-fill: rgba(248, 197, 69, 0.30);
+    --gantt-gap-stroke: rgba(229, 73, 79, 0.65);
+    --gantt-gap-text: #BF360C;
+    --gantt-ct-fill: rgba(54, 194, 138, 0.10);
+    --gantt-ct-stroke: rgba(54, 194, 138, 0.55);
+    --gantt-ct-start: #36C28A;
+    --gantt-ct-end: #C98A12;
+    --gantt-ct-text: #1F7A4D;
+    --gantt-connector-bg: rgba(255, 255, 255, 0.95);
+    --gantt-info-from: var(--navy);
+    --gantt-info-to: var(--navy-2);
+    --gantt-info-shadow: rgba(10, 37, 64, 0.30);
+}
+
+/* ───────────────────────────── 2. 토큰 (Dark) ───────────────────────────── */
+.dark-theme {
+    --color-primary: #B197FC;
+    --color-primary-rgb: 177, 151, 252;
+    --color-primary-strong: #C8B6FF;
+    --color-secondary: #7E8C9E;
+    --color-tertiary: #9DB0C6;
+
+    --color-info: #5AA0E6;
+    --color-success: #4FD19A;
+    --color-warning: #E6B748;
+    --color-error: #F0705F;
+
+    --color-background: #0E1726;
+    --color-surface: #16233A;
+    --color-surface-variant: #1C2C46;
+    --color-lines: rgba(255, 255, 255, 0.10);
+    --color-lines-strong: rgba(255, 255, 255, 0.20);
+    --color-border: rgba(255, 255, 255, 0.10);
+
+    --color-appbar-bg: #07182B;
+    --color-drawer-bg: #07182B;
+
+    --color-text-primary: #E6EDF5;
+    --color-text-secondary: #9DB0C6;
+    --color-text-disabled: #6B7B90;
+
+    --shadow-card: 0 2px 12px rgba(0, 0, 0, 0.40);
+    --shadow-card-hover: 0 6px 18px rgba(0, 0, 0, 0.55);
+    --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.66);
+}
+
+/* ───────────────────────────── 3. 네이비 헤더(app-bar) ───────────────────── */
+/* 토큰을 헤더 스코프에서 밝게 재정의 → 하위 텍스트/아이콘/구분선 자동 전환 */
+.app-bar {
+    background: linear-gradient(135deg, var(--navy) 0%, var(--navy-2) 100%);
+    border-bottom: 2px solid var(--color-primary);
+    --color-text-primary: #FFFFFF;
+    --color-text-secondary: rgba(255, 255, 255, 0.72);
+    --color-lines: rgba(255, 255, 255, 0.18);
+    --color-lines-strong: rgba(255, 255, 255, 0.28);
+}
+.dark-theme .app-bar { border-bottom-color: var(--color-primary); }
+.app-bar .dsp-brand-word { color: #fff; }
+.app-bar .dsp-brand-word b { color: var(--teal-2); }
+.app-bar .dsp-brand-mark { background: var(--teal); box-shadow: 3px 3px 0 0 rgba(255, 255, 255, 0.22); border-radius: 2px; }
+.app-bar .btn-icon { color: #fff; }
+.app-bar .btn-icon:hover { background: rgba(255, 255, 255, 0.12); }
+
+/* ───────────────────────────── 4. 네이비 사이드바(drawer) ────────────────── */
+/* drawer 내부에서 토큰 변수를 밝은 팔레트로 재스코프 → 모든 하위 규칙 자동 라이트 */
+.drawer {
+    background: var(--navy);
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    --color-text-primary: #FFFFFF;
+    --color-text-secondary: rgba(255, 255, 255, 0.58);
+    --color-text-disabled: rgba(255, 255, 255, 0.34);
+    --color-drawer-text: #C3D4E4;
+    --color-drawer-icon: #8FA8C2;
+    --color-lines: rgba(255, 255, 255, 0.10);
+    --color-lines-strong: rgba(255, 255, 255, 0.18);
+    --color-surface: rgba(255, 255, 255, 0.04);
+    --color-surface-variant: rgba(255, 255, 255, 0.06);
+}
+.dark-theme .drawer { background: #07182B; }
+.nav-link { color: var(--color-drawer-text); }
+.nav-link:hover { background: rgba(255, 255, 255, 0.06); color: #fff; }
+.nav-link.active, a.nav-link.active {
+    background: rgba(109, 91, 208, 0.20);
+    border-left-color: var(--teal);
+    color: #fff;
+}
+.nav-link .material-icons { color: var(--color-drawer-icon); }
+.nav-link.active .material-icons { color: var(--teal-2); }
+.nav-flow-name { color: var(--color-drawer-text); }
+.nav-flow.is-selected .nav-flow-name { color: var(--teal-2); }
+.nav-flow.is-selected { background: rgba(109, 91, 208, 0.16); }
+.nav-sys img { filter: brightness(0) invert(1); opacity: 0.85; }
+.ls-eff-val { color: var(--teal-2); }
+
+/* ───────────────────────────── 5. 카드/표면 둥글게 + 그림자 ──────────────── */
+.card, .paper {
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-card);
+    border-color: var(--color-lines);
+}
+.card:hover.is-hoverable { box-shadow: var(--shadow-card-hover); }
+
+/* ───────────────────────────── 6. mockup 공통 컴포넌트 ───────────────────── */
+
+/* 콘텐츠 상단 툴바 (제목 + breadcrumb + 액션) */
+.ds-topbar {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    gap: 14px; flex-wrap: wrap;
+    padding-bottom: 14px; margin-bottom: 16px;
+    border-bottom: 3px solid var(--color-primary);
+}
+.ds-topbar .ds-topbar-titles { min-width: 0; }
+.ds-topbar h2 { font-size: 1.35rem; font-weight: 800; color: var(--navy); letter-spacing: -0.01em; margin: 0; }
+.dark-theme .ds-topbar h2 { color: var(--color-text-primary); }
+.ds-topbar .ds-breadcrumb { font-size: 0.7rem; color: var(--color-text-disabled); margin-top: 3px; }
+.ds-topbar .ds-topbar-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* 실시간 LIVE / POLL pill */
+.ds-live { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-lg); font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; font-variant-numeric: tabular-nums; }
+.ds-live .ds-live-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.ds-live.is-live { color: var(--color-success); border-color: color-mix(in srgb, var(--color-success) 50%, transparent); }
+.ds-live.is-live .ds-live-dot { animation: ds-pulse 1.6s ease-in-out infinite; }
+.ds-live.is-poll { color: var(--color-text-secondary); }
+@keyframes ds-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+/* KPI 요약 셀 (클릭형) */
+.kpi-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; }
+.kpi-cell {
+    position: relative;
+    background: var(--color-surface); border: 2px solid var(--color-lines);
+    border-radius: var(--radius-md); padding: 14px 16px;
+    box-shadow: var(--shadow-card); transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+.kpi-cell.is-clickable { cursor: pointer; }
+.kpi-cell.is-clickable:hover { border-color: var(--color-primary); box-shadow: var(--shadow-card-hover); transform: translateY(-1px); }
+.kpi-cell.is-active { border-color: var(--color-primary); box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.18); }
+.kpi-cell .kp-label { font-size: 0.62rem; color: var(--color-text-disabled); letter-spacing: 0.08em; font-weight: 700; text-transform: uppercase; margin-bottom: 5px; }
+.kpi-cell .kp-value { font-size: 1.5rem; font-weight: 800; color: var(--navy); line-height: 1.05; font-variant-numeric: tabular-nums; }
+.dark-theme .kpi-cell .kp-value { color: var(--color-text-primary); }
+.kpi-cell .kp-target { font-size: 0.7rem; color: var(--color-primary-strong); font-weight: 700; margin-top: 4px; }
+.kpi-cell .kp-click-hint { position: absolute; top: 9px; right: 11px; font-size: 0.58rem; background: var(--color-primary); color: #fff; padding: 1px 6px; border-radius: var(--radius-sm); }
+.kpi-cell.tone-max .kp-value { color: var(--red); }
+.kpi-cell.tone-min .kp-value { color: var(--green); }
+.kpi-cell.tone-wait .kp-value { color: var(--color-warning); }
+.kpi-cell.tone-primary .kp-value { color: var(--teal-dark); }
+
+/* 범례 */
+.ds-legend { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; font-size: 0.68rem; color: var(--color-text-secondary); }
+.ds-legend .lg-item { display: flex; align-items: center; gap: 5px; font-weight: 600; }
+.ds-legend .lg-swatch { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
+
+/* 상태 배지 (테이블) */
+.ds-status { display: inline-block; padding: 2px 8px; border-radius: var(--radius-lg); font-size: 0.62rem; font-weight: 700; }
+.ds-status.ok { background: rgba(54, 194, 138, 0.18); color: #1B7A50; }
+.ds-status.warn { background: rgba(248, 197, 69, 0.24); color: #8A5E00; }
+.ds-status.bad { background: rgba(229, 73, 79, 0.18); color: #B0271D; }
+.ds-status.info { background: rgba(109, 91, 208, 0.18); color: var(--teal-dark); }
+.dark-theme .ds-status.ok { color: #4FD19A; }
+.dark-theme .ds-status.warn { color: #E6B748; }
+.dark-theme .ds-status.bad { color: #F0705F; }
+
+/* 데이터 테이블 (mockup history-table) */
+.ds-table { width: 100%; border-collapse: collapse; font-size: 0.74rem; }
+.ds-table th, .ds-table td { padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--color-lines); }
+.ds-table th { background: var(--cyan-bg); color: var(--navy); font-weight: 700; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.dark-theme .ds-table th { background: rgba(177, 151, 252, 0.12); color: var(--color-text-primary); }
+.ds-table .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.ds-table tbody tr:hover { background: color-mix(in srgb, var(--color-primary) 5%, transparent); }
+
+/* 빈 상태 / "준비중·데이터 없음" 카드 (막힌 기능의 정직한 표현) */
+.ds-empty {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 10px; text-align: center; padding: 36px 24px;
+    color: var(--color-text-disabled);
+    border: 1.5px dashed var(--color-lines-strong); border-radius: var(--radius-md);
+    background: var(--color-surface-variant);
+}
+.ds-empty .material-icons { font-size: 40px; opacity: 0.7; }
+.ds-empty .ds-empty-title { font-size: 0.92rem; font-weight: 700; color: var(--color-text-secondary); }
+.ds-empty .ds-empty-desc { font-size: 0.74rem; max-width: 520px; line-height: 1.55; }
+.ds-empty .ds-empty-tag { font-size: 0.6rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-warning); border: 1px solid color-mix(in srgb, var(--color-warning) 50%, transparent); padding: 2px 8px; border-radius: var(--radius-lg); }
+
+/* 작은 pill 태그 */
+.ds-pill { display: inline-block; padding: 2px 9px; border-radius: var(--radius-lg); font-size: 0.62rem; font-weight: 700; background: var(--cyan-bg); color: var(--navy); }
+.dark-theme .ds-pill { background: rgba(177, 151, 252, 0.16); color: var(--color-text-primary); }
+
+/* 섹션 카드 헤더 (mockup card-h) */
+.ds-card-h { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.ds-card-h h4 { font-size: 0.82rem; font-weight: 800; color: var(--navy); letter-spacing: 0.01em; margin: 0; }
+.dark-theme .ds-card-h h4 { color: var(--color-text-primary); }
+.ds-card-h .ds-card-h-sub { font-size: 0.66rem; color: var(--color-text-disabled); }

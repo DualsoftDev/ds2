@@ -154,14 +154,16 @@ public class PlcDatabaseMonitorService : BackgroundService
                 if (!isRisingEdge && !isFallingEdge)
                     continue;
 
+                // 진영 B (PLC 기준): OutTag↑ = 명령 = Ready→Going(시작), InTag↑ = 응답 = Going→Done(완료).
+                //   falling 은 역전이(복귀)로만 표시.
                 var edgeType = isRisingEdge ? "Rising" : "Falling";
                 var newState = mapping.IsInTag
-                    ? (isRisingEdge ? "Going" : "Ready")
-                    : (isRisingEdge ? "Done" : "Going");
+                    ? (isRisingEdge ? "Done" : "Going")
+                    : (isRisingEdge ? "Going" : "Ready");
 
                 var prevState = mapping.IsInTag
-                    ? (isRisingEdge ? "Ready" : "Going")
-                    : (isRisingEdge ? "Going" : "Done");
+                    ? (isRisingEdge ? "Going" : "Done")
+                    : (isRisingEdge ? "Ready" : "Going");
 
                 _logger.LogInformation(
                     "Broadcasting: Call={CallName}, Tag={Address}, Edge={EdgeType}, {PrevState} -> {NewState}",

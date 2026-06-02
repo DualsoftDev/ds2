@@ -116,6 +116,20 @@ public interface IPlcRepository
         string address, DateTime startTime, DateTime endTime);
 
     /// <summary>
+    /// 특정 태그의 Falling Edge (1→0) 시점 찾기. FindRisingEdgesAsync 의 조건을 뒤집은 것
+    /// (직전 정규화값='1' AND 현재='0'). OEE 고장비트 clear 자동 마감에 사용.
+    /// </summary>
+    Task<List<DateTime>> FindFallingEdgesAsync(
+        string address, DateTime startTime, DateTime endTime);
+
+    /// <summary>
+    /// 특정 태그의 Rising Edge (0→1) 를 발생 로그의 plcTagLog.id 와 함께 조회.
+    /// id 는 OEE 정지 onset 의 멱등 키(oeeDowntimeEvent.sourceLogId)로 사용한다.
+    /// </summary>
+    Task<List<PlcEdge>> FindRisingEdgesWithLogIdAsync(
+        string address, DateTime startTime, DateTime endTime);
+
+    /// <summary>
     /// 특정 태그의 최근 N개 Rising Edge (0→1) 시점만 빠르게 조회 (최신순)
     /// </summary>
     Task<List<DateTime>> FindRecentRisingEdgesAsync(string address, int count);

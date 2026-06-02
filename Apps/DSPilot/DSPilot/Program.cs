@@ -71,6 +71,7 @@ builder.Services.AddSingleton<AppSettingsService>();
 builder.Services.AddSingleton<DsProjectService>();
 builder.Services.AddScoped<DashboardEditService>();
 builder.Services.AddSingleton<BlueprintService>();
+builder.Services.AddSingleton<CctvOverlayService>(); // CCTV 설비 오버레이 영속(WebRoot/uploads/cctv-overlays.json)
 builder.Services.AddSingleton<HeatmapService>();
 builder.Services.AddSingleton<DspDbService>();
 builder.Services.AddSingleton<PlcDebugService>();
@@ -132,6 +133,13 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<UserTagAlertServic
 // userTagAlertDaily 일별 집계 backfill (purge 없음 — raw 는 영구 보존)
 builder.Services.AddHostedService<UserTagAlertAggregationService>();
 
+// OEE / 정지 이벤트 — 별도 oee.db(수동입력 자산 보존, plc.db rebuild 무관). repo scoped, 무사이클 상태머신 HostedService.
+builder.Services.AddScoped<IOeeRepository, OeeRepositoryAdapter>();
+builder.Services.AddHostedService<OeeDowntimeStateMachine>();
+// UserTag 기반 OEE 자동수집(detectSource='usertag') — raw plcTagLog 를 직접 쿼리해 고장 onset/clear·정지원인
+// 자동분류·생산/불량을 채운다. 무사이클 상태머신과 소스 구분으로 공존. OeeSignals 설정 없으면 무동작.
+builder.Services.AddHostedService<OeeUserTagPollerService>();
+
 // CCTV — 카메라 목록을 별도 프로세스 MediaMTX(:9997) 로 동기화. WebRTC 재게시는 MediaMTX 담당.
 // Singleton + HostedService — Settings 페이지가 동일 인스턴스로 SyncAsync 직접 호출.
 builder.Services.AddSingleton<CctvMediaMtxService>();
@@ -154,6 +162,14 @@ var app = builder.Build();
     var dspRepoEarly = app.Services.GetRequiredService<DspRepositoryAdapter>();
     var schemaOk = await dspRepoEarly.CreateSchemaAsync();
     app.Logger.LogInformation("[Startup] Eager schema creation: {Ok}", schemaOk);
+}
+
+// OEE 전용 oee.db 스키마 1회 생성 (별도 파일이라 plc.db CreateSchemaAsync 가 만들지 않음). repo 가 scoped 라 scope 필요.
+{
+    using var oeeScope = app.Services.CreateScope();
+    var oeeRepo = oeeScope.ServiceProvider.GetRequiredService<IOeeRepository>();
+    var oeeOk = await oeeRepo.CreateSchemaAsync();
+    app.Logger.LogInformation("[Startup] OEE schema creation: {Ok}", oeeOk);
 }
 
 if (!app.Environment.IsDevelopment())
@@ -226,18 +242,21 @@ app.Use(async (context, next) =>
 // 이전 완료된 8개 Blazor 페이지를 정적 페이지로 "대체". 미들웨어로 short-circuit 하므로
 // (엔드포인트가 아님) Blazor @page 엔드포인트와 ambiguity 없음 — 이 줄을 지우면 즉시 원복.
 // 데모 게이트 뒤에 위치하므로 데모 차단 시 정식 라우트도 503(기존 Blazor 동작과 동일).
-// 미이전 페이지(/flow, /editor, /pw)는 가로채지 않아 Blazor 가 계속 처리.
+// /flow·/pw 도 정적 페이지로 이전 완료 — 이제 모든 페이지가 정적(격리형 호스팅)이다.
+// /editor(레이아웃 편집기)는 폐지: 대시보드 도면 인플레이스 자유배치 편집으로 흡수(라우트·editor.html·Editor.razor 제거).
+// 기존 Blazor @page(.razor)는 폴백으로 남겨두며(딕셔너리에서 해당 줄 삭제 시 즉시 Blazor 로 원복).
 var canonicalStaticRoutes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 {
     ["/"] = "dashboard.html",
     ["/dashboard"] = "dashboard.html",
     ["/heatmap"] = "heatmap.html",
     ["/cycle-time-analysis"] = "cycle-time-analysis.html",
-    ["/call-test"] = "call-test.html",
-    ["/user-tags"] = "user-tags.html",
+    ["/uptime"] = "uptime.html",
     ["/cctv"] = "cctv.html",
     ["/plc-debug"] = "plc-debug.html",
     ["/settings"] = "settings.html",
+    ["/flow"] = "flow.html",
+    ["/pw"] = "pw.html",
 };
 app.Use(async (context, next) =>
 {
@@ -286,7 +305,9 @@ static bool IsAllowedDuringDemoBlock(string path)
         || path.Equals("/favicon.ico", StringComparison.OrdinalIgnoreCase)
         || path.Equals("/DSPilot.styles.css", StringComparison.OrdinalIgnoreCase)
         || path.Equals("/pw", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWith("/pw/", StringComparison.OrdinalIgnoreCase);
+        || path.StartsWith("/pw/", StringComparison.OrdinalIgnoreCase)
+        // /pw 정적 백도어가 데모 차단 중에도 바이패스를 토글할 수 있도록 데모 API 만 예외 허용.
+        || path.StartsWith("/api/demo", StringComparison.OrdinalIgnoreCase);
 }
 
 static string DemoBlockedHtml() => """

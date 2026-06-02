@@ -24,17 +24,11 @@ public record FlowStateDto(
     string? MovingStartName,
     string? MovingEndName);
 
+// 자유 배치 모델: 격자(Grid/Offset/Cell/Col/Row/Span) 폐지. 카드 = 공통 크기(CardScale) + 중심좌표 X/Y(0..1).
 public record LayoutDto(
     int CanvasWidth,
     int CanvasHeight,
-    int GridColumns,
-    int GridRows,
-    int OffsetX,
-    int OffsetY,
-    int OffsetRight,
-    int OffsetBottom,
-    int CellWidth,
-    int CellHeight,
+    double CardScale,
     string? BlueprintImagePath,
     long ImageVersion,
     List<FlowPlacementDto> FlowPlacements,
@@ -43,10 +37,8 @@ public record LayoutDto(
 public record FlowPlacementDto(
     string FlowName,
     System.Guid SystemId,
-    int Col,
-    int Row,
-    int ColSpan,
-    int RowSpan);
+    double X,
+    double Y);
 
 public record FlowOrderDto(string FlowName);
 
@@ -57,3 +49,22 @@ public record FlowHistoryDto(
     int? CT,
     System.DateTime RecordedAt,
     bool IsIdle);
+
+// 시프트 운영 — 서버 공유 설정 + 실시간 진행(만든 수).
+// Start/End 는 로컬 "HH:mm". MadeCount = TargetFlow 의 현재 시프트 시작 이후 완료(비가동 제외) 사이클 수
+// (서버에서 시프트 윈도우 해석 후 집계). 미설정(TargetFlow 빈값)이면 0.
+public record ShiftDto(
+    string Start,
+    string End,
+    string ShiftType,
+    string? TargetFlow,
+    int TargetCount,
+    int MadeCount);
+
+// POST 본문 — TargetCount 음수는 서버에서 0 으로 정규화.
+public record ShiftSaveDto(
+    string? Start,
+    string? End,
+    string? ShiftType,
+    string? TargetFlow,
+    int TargetCount);

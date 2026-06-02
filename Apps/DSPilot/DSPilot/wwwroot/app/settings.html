@@ -16,7 +16,7 @@
       ConnectionString↔DB폴더 분리 / H·M·S↔ms 변환은 서버(SettingsController)에서 처리.
     -->
     <link href="/css/fonts.css" rel="stylesheet" />
-    <link href="/css/swiss.css" rel="stylesheet" />
+    <link href="/css/ds.css" rel="stylesheet" />
 
     <style>
         [x-cloak] { display: none !important; }
@@ -110,7 +110,6 @@
             <!-- 콘텐츠 페이지 헤더: 번호 인덱스 + 제목 + 실시간 상태 -->
             <div class="set-toolbar">
                 <div class="set-head">
-                    <span class="set-index">08 / 설정</span>
                     <span class="set-title">시스템 설정</span>
                 </div>
                 <div class="spacer"></div>
@@ -451,6 +450,9 @@
                     await this.load();
                     this.connectSignalR();
                 },
+
+                destroy() { this._conn?.stop(); },
+
                 toggleTheme() { this.dark = !this.dark; localStorage.setItem('dspilot-theme', this.dark ? 'dark' : 'light'); },
 
                 async apiGet(url) {
