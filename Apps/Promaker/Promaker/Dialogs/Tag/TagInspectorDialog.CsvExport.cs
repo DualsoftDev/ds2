@@ -20,6 +20,17 @@ public partial class TagInspectorDialog
             return;
         }
 
+        // 체크된 행이 있으면 "체크 항목만" 내보낼지 확인. 아무것도 체크 안 했으면 전체 내보내기.
+        var selected = rows.Where(r => r.IsSelected).ToList();
+        if (selected.Count > 0)
+        {
+            var pick = DialogHelpers.ShowThemedMessageBox(
+                $"체크한 {selected.Count}개 항목만 내보내겠습니까?\n(전체 {rows.Count}개 중 — 취소 시 중단)",
+                "IO CSV 내보내기", MessageBoxButton.OKCancel, "❓");
+            if (pick != MessageBoxResult.OK) return;
+            rows = selected;
+        }
+
         if (!TryGetSavePath("IoList", out var path)) return;
 
         try

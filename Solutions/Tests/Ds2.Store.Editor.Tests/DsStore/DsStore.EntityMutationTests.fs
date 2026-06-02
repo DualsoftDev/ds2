@@ -56,6 +56,26 @@ module RemoveTests =
         Assert.Equal(sourceApiCallId, nestedApiCallId)
 
     [<Fact>]
+    let ``RemoveEntities ApiDef detaches referencing ApiCall and removes it`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
+        let call = Queries.callsOf work.Id store |> List.head
+        let apiCall = call.ApiCalls |> Seq.head
+        let apiCallId = apiCall.Id
+        Assert.True(apiCall.ApiDefId.IsSome)
+        let apiDefId = apiCall.ApiDefId.Value
+
+        // ApiDef(Device) 제거 → 이 ApiDef 를 참조하던 ApiCall 이 Call 직접 참조에서 떨어지고
+        // orphan 정리로 store 에서도 제거됨 (ApiDef 만 남고 ApiCall 이 dangling = UNKNOWN I/O 방지). Call 자체는 보존.
+        store.RemoveEntities([ (EntityKind.ApiDef, apiDefId) ])
+
+        Assert.False(store.ApiDefs.ContainsKey(apiDefId))
+        Assert.False(store.ApiCalls.ContainsKey(apiCallId))
+        Assert.True(store.Calls.ContainsKey(call.Id))
+        Assert.False(store.Calls.[call.Id].ApiCalls |> Seq.exists (fun ac -> ac.Id = apiCallId))
+
+    [<Fact>]
     let ``Undo restores deleted entities`` () =
         let store = createStore ()
         let project, _, _, _ = setupBasicHierarchy store
