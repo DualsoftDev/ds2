@@ -19,14 +19,17 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
-        Adv:
-          calls: [Cyl1.ADV]
-        Ret:
-          calls: [Cyl1.RET]
-      arrows:
-        - Adv -> Ret : Start
+    flows:
+      Run: {}
+    works:
+      Adv:
+        flow: Run
+        calls: [Cyl1.ADV]
+      Ret:
+        flow: Run
+        calls: [Cyl1.RET]
+    arrows:
+      - Adv -> Ret : Start
 
   - system: Cyl1
     kind: passive
@@ -110,11 +113,12 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Loop:
-      works:
-        A: { calls: [Cyl1.ADV] }
-        B: { calls: [Cyl1.RET] }
-      arrows:
+    flows:
+      Loop: {}
+    works:
+        A: { flow: Loop, calls: [Cyl1.ADV] }
+        B: { flow: Loop, calls: [Cyl1.RET] }
+    arrows:
         - A -> B : Start
         - B -> A : Reset
 
@@ -142,9 +146,11 @@ project: Jig1
 systems:
   - system: Controller
     kind: active
-    flow Test:
-      works:
+    flows:
+      Test: {}
+    works:
         Sequence:
+          flow: Test
           calls: [Jig.TILT_UP, Jig.HOLD, Jig.TILT_DOWN]
           arrows:
             - Jig.TILT_UP -> Jig.HOLD       : Start
@@ -183,15 +189,15 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
-        Z1_Adv: { calls: [Z1_C1.ADV] }
-        Z1_Ret: { calls: [Z1_C1.RET] }
-      arrows:
+    flows:
+      Run: {}
+      Stop: {}
+    works:
+        Z1_Adv: { flow: Run, calls: [Z1_C1.ADV] }
+        Z1_Ret: { flow: Run, calls: [Z1_C1.RET] }
+        Halt:   { flow: Stop, calls: [Z1_C1.RET] }
+    arrows:
         - Z1_Adv -> Z1_Ret : Start
-    flow Stop:
-      works:
-        Halt: { calls: [Z1_C1.RET] }
 
   - system: Z1_C1
     kind: passive

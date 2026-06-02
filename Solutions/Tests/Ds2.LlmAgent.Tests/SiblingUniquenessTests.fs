@@ -59,9 +59,10 @@ protocol: promaker/v0
 systems:
   - system: Main
     kind: active
-    flow F:
-      works:
-        W1: { calls: [] }
+    flows:
+      F: {}
+    works:
+        W1: { flow: F, calls: [] }
 """
     let diag, _, plan2 = parseAndApply store yaml
     Assert.False(diag.HasErrors, diag.Format())
@@ -97,9 +98,10 @@ protocol: promaker/v0
 systems:
   - system: Secondary
     kind: active
-    flow F:
-      works:
-        W1: { calls: [] }
+    flows:
+      F: {}
+    works:
+        W1: { flow: F, calls: [] }
 """
     let diag, _, _ = parseAndApply store yaml
     Assert.True(diag.HasErrors, "PLC 1 controller fail 진단 누락")

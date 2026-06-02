@@ -17,14 +17,17 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
-        Adv:
-          calls: [Cyl1.ADV]
-        Ret:
-          calls: [Cyl1.RET]
-      arrows:
-        - Adv -> Ret : Start
+    flows:
+      Run: {}
+    works:
+      Adv:
+        flow: Run
+        calls: [Cyl1.ADV]
+      Ret:
+        flow: Run
+        calls: [Cyl1.RET]
+    arrows:
+      - Adv -> Ret : Start
 
   - system: Cyl1
     kind: passive
@@ -99,9 +102,11 @@ project: M1
 systems:
   - system: Controller
     kind: active
-    flow Run:
-      works:
+    flows:
+      Run: {}
+    works:
         Adv:
+          flow: Run
           calls: [Cyl1.ADV, Cyl1.RET]
           arrows:
             - "Cyl1.ADV -> Cyl1.RET : Start"
