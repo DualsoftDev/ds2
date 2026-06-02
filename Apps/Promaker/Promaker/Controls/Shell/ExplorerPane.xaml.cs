@@ -611,6 +611,12 @@ public partial class ExplorerPane : UserControl
     {
         var vm = ViewModel;
         if (vm is null) return null;
+        // 검색 중에는 화면에 filtered(클론) 트리가 떠 있다. 원본 roots 의 IsExpanded 를 바꿔봐야
+        // 화면에 반영 안 되므로(펼치기/접기 먹통), 검색 중엔 filtered roots 를 대상으로 한다.
+        if (HasActiveSearch)
+            return _activeTreePane == TreePaneKind.Device
+                ? FilteredDeviceTreeRoots
+                : FilteredControlTreeRoots;
         return _activeTreePane == TreePaneKind.Device
             ? vm.DeviceTreeRoots
             : vm.ControlTreeRoots;
