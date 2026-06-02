@@ -123,6 +123,7 @@
             <MenuItem Tag="ExportCsv" Header="CSV 내보내기..." Command="{Binding ExportCsvCommand}"/>
             <Separator Tag="SepImport"/>
             <MenuItem Tag="Copy" Header="복사" Command="{Binding CopySelectedCommand}"/>
+            <MenuItem Tag="Cut" Header="잘라내기" Command="{Binding CutSelectedCommand}"/>
             <MenuItem Tag="Paste" Header="붙여넣기" Command="{Binding PasteCopiedCommand}"/>
             <Separator Tag="SepEdit"/>
             <MenuItem Tag="FocusCanvas" Header="캔버스에서 보기" Command="{Binding Canvas.FocusSelectedInCanvasCommand}"/>
