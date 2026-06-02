@@ -16,7 +16,7 @@ set "OUTPUT_DIR=%SOLUTION_DIR%Output"
 set "ISCC=C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 set "ISS_FILE=%SOLUTION_DIR%Installer\DSPilot.iss"
 set "MTX_DIR=%SOLUTION_DIR%Installer\mediamtx"
-:: CCTV — 번들할 외부 바이너리 버전 (필요 시 갱신)
+:: CCTV - bundled external binary versions (update as needed)
 set "MTX_VERSION=v1.9.3"
 set "WINSW_VERSION=v2.12.0"
 
@@ -52,17 +52,17 @@ if not exist "%MTX_DIR%" mkdir "%MTX_DIR%"
 
 if not exist "%MTX_DIR%\mediamtx.exe" (
     echo       Downloading MediaMTX %MTX_VERSION%...
-    powershell -NoProfile -Command "$ErrorActionPreference='Stop'; $u='https://github.com/bluenviron/mediamtx/releases/download/%MTX_VERSION%/mediamtx_%MTX_VERSION%_windows_amd64.zip'; $z='%MTX_DIR%\mtx.zip'; Invoke-WebRequest -Uri $u -OutFile $z; Expand-Archive -Path $z -DestinationPath '%MTX_DIR%' -Force; Remove-Item $z"
+    powershell -NoProfile -Command "$ErrorActionPreference='Stop'; [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $u='https://github.com/bluenviron/mediamtx/releases/download/%MTX_VERSION%/mediamtx_%MTX_VERSION%_windows_amd64.zip'; $z='%MTX_DIR%\mtx.zip'; Invoke-WebRequest -Uri $u -OutFile $z; Expand-Archive -Path $z -DestinationPath '%MTX_DIR%' -Force; Remove-Item $z"
     if !errorlevel! neq 0 goto :fail_cctv
 ) else (
     echo       MediaMTX already present, skipping.
 )
 
+rem Use WinSW-net461 build: depends only on Windows 10/11 in-box .NET Framework 4.8,
+rem so it works on an offline target PC with no .NET Core runtime installed.
 if not exist "%MTX_DIR%\mediamtx-service.exe" (
-    echo       Downloading WinSW %WINSW_VERSION% (net461)...
-    rem WinSW-net461 빌드 사용: Windows 10/11 in-box .NET Framework(4.8)만 의존 →
-    rem 대상 PC 가 오프라인이고 .NET Core 런타임이 없어도 동작 보장.
-    powershell -NoProfile -Command "$ErrorActionPreference='Stop'; $u='https://github.com/winsw/winsw/releases/download/%WINSW_VERSION%/WinSW-net461.exe'; Invoke-WebRequest -Uri $u -OutFile '%MTX_DIR%\mediamtx-service.exe'"
+    echo       Downloading WinSW %WINSW_VERSION% ^(net461^)...
+    powershell -NoProfile -Command "$ErrorActionPreference='Stop'; [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $u='https://github.com/winsw/winsw/releases/download/%WINSW_VERSION%/WinSW.NET461.exe'; Invoke-WebRequest -Uri $u -OutFile '%MTX_DIR%\mediamtx-service.exe'"
     if !errorlevel! neq 0 goto :fail_cctv
 ) else (
     echo       WinSW already present, skipping.
