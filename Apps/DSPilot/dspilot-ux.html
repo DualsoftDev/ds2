@@ -1,0 +1,2029 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>DSPilot — UX 설계 (5 Pages)</title>
+<style>
+  :root {
+    --navy:#0A2540; --navy-2:#1A2B4A;
+    --primary:#2BB5C5; --primary-2:#5BC9D6; --primary-dark:#1FA8B8;
+    --cyan-bg:#E8F6F8; --cyan-soft:#C7E9F0;
+    --text:#1A2B4A; --text-light:#5B6B7E; --text-mute:#8896A6;
+    --line:#E1E5EA; --bg-soft:#F5F7FA;
+    --green:#36C28A; --amber:#F8C545; --red:#E5494F; --purple:#8B6FD8;
+    --mt:#1FA8B8; --wt:#F8C545; --ct:#36C28A;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    font-family:'Pretendard','Malgun Gothic',sans-serif;
+    background:#EEF2F5; color:var(--text);
+    line-height:1.55; font-size:13px;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ====== Top header ====== */
+  .doc-header {
+    background:linear-gradient(135deg, var(--navy) 0%, var(--navy-2) 100%);
+    color:#fff; padding:36px 30px;
+    border-bottom:4px solid var(--primary);
+    position:relative; overflow:hidden;
+  }
+  .doc-header::after {
+    content:""; position:absolute; top:-80px; right:-80px;
+    width:260px; height:260px; background:rgba(43,181,197,0.12);
+    border-radius:50%;
+  }
+  .doc-header .container { max-width:1280px; margin:0 auto; position:relative; }
+  .doc-header .tag {
+    display:inline-block; background:var(--primary); color:#fff;
+    padding:4px 14px; font-size:11px; font-weight:800;
+    letter-spacing:2px; margin-bottom:12px;
+  }
+  .doc-header h1 { font-size:28px; font-weight:800; letter-spacing:-0.3px; }
+  .doc-header .sub { margin-top:6px; font-size:13px; opacity:0.88; }
+  .doc-header .pills { margin-top:14px; }
+  .doc-header .pill {
+    display:inline-block; background:rgba(255,255,255,0.16);
+    border:1px solid rgba(255,255,255,0.4); color:#fff;
+    padding:4px 11px; font-size:10.5px; font-weight:700;
+    letter-spacing:1px; margin-right:6px; border-radius:2px;
+  }
+
+  /* ====== Page nav ====== */
+  nav.page-nav {
+    position:sticky; top:0; z-index:100; background:#fff;
+    border-bottom:2px solid var(--primary); padding:10px 30px;
+    box-shadow:0 2px 8px rgba(0,0,0,0.06);
+  }
+  nav.page-nav .container { max-width:1280px; margin:0 auto; display:flex; gap:8px; align-items:center; }
+  nav.page-nav a {
+    padding:6px 14px; background:var(--cyan-bg); color:var(--navy);
+    text-decoration:none; font-size:11.5px; font-weight:700;
+    border-radius:3px; letter-spacing:0.5px;
+    border:1px solid var(--cyan-soft);
+  }
+  nav.page-nav a:hover { background:var(--primary); color:#fff; border-color:var(--primary); }
+  nav.page-nav a .n {
+    display:inline-block; background:var(--navy); color:#fff;
+    padding:1px 6px; border-radius:2px; font-size:10px;
+    font-family:monospace; margin-right:4px;
+  }
+
+  main { max-width:1280px; margin:24px auto; padding:0 30px; }
+
+  /* ====== Section (per page) ====== */
+  .page-section {
+    background:#fff; border-radius:10px; padding:24px 28px;
+    margin-bottom:32px; box-shadow:0 2px 12px rgba(0,0,0,0.06);
+  }
+  .page-section .ps-head {
+    display:flex; justify-content:space-between; align-items:flex-end;
+    padding-bottom:14px; border-bottom:3px solid var(--primary);
+    margin-bottom:18px;
+  }
+  .page-section .ps-title h2 {
+    font-size:22px; font-weight:800; color:var(--navy);
+    letter-spacing:-0.3px;
+  }
+  .page-section .ps-title h2 .num {
+    display:inline-block; background:var(--primary); color:#fff;
+    padding:2px 10px; border-radius:3px; font-size:14px;
+    font-family:monospace; margin-right:8px;
+    vertical-align:middle;
+  }
+  .page-section .ps-title .purpose {
+    font-size:13px; color:var(--text-light); margin-top:4px;
+  }
+  .page-section .ps-title .purpose b { color:var(--primary-dark); }
+  .page-section .ps-meta {
+    text-align:right; font-size:10.5px; color:var(--text-mute);
+    font-family:monospace; letter-spacing:0.5px;
+  }
+  .page-section .ps-meta .url {
+    color:var(--primary-dark); font-weight:700;
+    background:var(--cyan-bg); padding:2px 8px; border-radius:2px;
+  }
+
+  /* ====== Mock browser frame ====== */
+  .browser {
+    background:#252a36; border-radius:8px 8px 6px 6px;
+    box-shadow:0 8px 24px rgba(0,0,0,0.18);
+    margin:16px 0; overflow:hidden;
+  }
+  .browser .b-bar {
+    background:#2c323e; padding:8px 12px;
+    display:flex; align-items:center; gap:6px;
+  }
+  .browser .b-bar .dot { width:10px; height:10px; border-radius:50%; }
+  .browser .b-bar .r { background:#ff6b5b; } .browser .b-bar .y { background:#ffb84a; } .browser .b-bar .g { background:#36c28a; }
+  .browser .b-bar .url-bar {
+    flex:1; background:#1a1f29; color:#8FA5C4;
+    padding:4px 10px; border-radius:3px;
+    font-family:monospace; font-size:10.5px;
+    margin-left:8px;
+  }
+  .browser .b-bar .url-bar .lock { color:#36c28a; margin-right:4px; }
+  .browser .b-body { background:#F5F7FA; padding:0; }
+
+  /* ====== App layout inside browser ====== */
+  .app {
+    display:grid; grid-template-columns:200px 1fr;
+    min-height:540px;
+  }
+  .app .sidebar {
+    background:var(--navy); color:#fff;
+    padding:18px 0;
+  }
+  .app .sidebar .logo {
+    padding:0 18px 16px; font-size:18px; font-weight:800;
+    letter-spacing:3px; border-bottom:1px solid rgba(255,255,255,0.1);
+    display:flex; align-items:center; gap:8px;
+  }
+  .app .sidebar .logo .dot {
+    width:8px; height:8px; background:var(--primary); border-radius:50%;
+  }
+  .app .sidebar .menu { padding:14px 0; }
+  .app .sidebar .menu-item {
+    padding:9px 18px; font-size:12px; cursor:pointer;
+    border-left:3px solid transparent;
+    color:#B5CCDF; display:flex; align-items:center; gap:8px;
+  }
+  .app .sidebar .menu-item.active {
+    background:rgba(43,181,197,0.16); color:#fff;
+    border-left-color:var(--primary);
+    font-weight:700;
+  }
+  .app .sidebar .menu-item .ico {
+    font-size:13px; width:14px; text-align:center;
+  }
+  .app .sidebar .menu-item .badge {
+    margin-left:auto; background:var(--red); color:#fff;
+    padding:0 6px; border-radius:8px; font-size:9.5px;
+  }
+
+  .app .content {
+    padding:18px 22px; background:#F5F7FA; overflow:auto;
+  }
+  .app .top-bar {
+    display:flex; justify-content:space-between; align-items:center;
+    margin-bottom:14px;
+  }
+  .app .top-bar .title-area h3 {
+    font-size:18px; font-weight:800; color:var(--navy); letter-spacing:-0.3px;
+  }
+  .app .top-bar .title-area .breadcrumb {
+    font-size:10.5px; color:var(--text-mute); margin-top:2px;
+  }
+  .app .top-bar .actions {
+    display:flex; gap:8px;
+  }
+  .app .top-bar .btn {
+    background:#fff; border:1px solid var(--line);
+    padding:6px 12px; font-size:11px; font-weight:600;
+    border-radius:3px; cursor:pointer; color:var(--navy);
+  }
+  .app .top-bar .btn.primary { background:var(--primary); color:#fff; border-color:var(--primary); }
+
+  /* ====== Card ====== */
+  .card {
+    background:#fff; border:1px solid var(--line);
+    border-radius:6px; padding:14px 16px; margin-bottom:12px;
+  }
+  .card .card-h {
+    display:flex; justify-content:space-between; align-items:center;
+    margin-bottom:10px;
+  }
+  .card .card-h h4 {
+    font-size:12.5px; font-weight:800; color:var(--navy);
+    letter-spacing:0.3px;
+  }
+
+  /* ====== KPI summary cells (clickable) ====== */
+  .kpi-row {
+    display:grid; grid-template-columns:repeat(3,1fr); gap:10px;
+    margin-bottom:12px;
+  }
+  .kpi-cell {
+    background:#fff; border:2px solid var(--line);
+    border-radius:6px; padding:12px 14px;
+    cursor:pointer; transition:all 0.15s;
+    position:relative;
+  }
+  .kpi-cell:hover {
+    border-color:var(--primary); box-shadow:0 4px 12px rgba(43,181,197,0.12);
+    transform:translateY(-1px);
+  }
+  .kpi-cell .kp-label {
+    font-size:10px; color:var(--text-mute); letter-spacing:1.2px;
+    font-weight:700; margin-bottom:4px;
+  }
+  .kpi-cell .kp-value {
+    font-size:20px; font-weight:800; color:var(--navy);
+    line-height:1; margin-bottom:3px;
+  }
+  .kpi-cell .kp-target {
+    font-size:10.5px; color:var(--primary-dark);
+    font-weight:700;
+  }
+  .kpi-cell .kp-click-hint {
+    position:absolute; top:8px; right:10px;
+    font-size:9px; background:var(--primary); color:#fff;
+    padding:1px 5px; border-radius:2px;
+    opacity:0.85;
+  }
+  .kpi-cell.max .kp-value { color:var(--red); }
+  .kpi-cell.min .kp-value { color:var(--green); }
+  .kpi-cell.wait .kp-value { color:var(--amber); }
+
+  /* ====== Flow layout (도면) ====== */
+  .flow-layout {
+    background:#fff; border:1px solid var(--line);
+    border-radius:6px; padding:14px;
+    position:relative; overflow:hidden;
+  }
+  .flow-layout .grid-bg {
+    position:absolute; inset:0;
+    background-image:linear-gradient(to right, rgba(43,181,197,0.05) 1px, transparent 1px),
+                     linear-gradient(to bottom, rgba(43,181,197,0.05) 1px, transparent 1px);
+    background-size:20px 20px;
+    pointer-events:none;
+  }
+  .flow-card {
+    position:absolute; background:#fff;
+    border:1.5px solid var(--line); border-radius:6px;
+    padding:8px 10px; cursor:pointer; transition:all 0.15s;
+    box-shadow:0 1px 3px rgba(0,0,0,0.05);
+  }
+  .flow-card:hover { border-color:var(--primary); box-shadow:0 4px 12px rgba(43,181,197,0.15); }
+  .flow-card.highlighted {
+    border-color:var(--red); border-width:2.5px;
+    box-shadow:0 0 0 4px rgba(229,73,79,0.18);
+    background:#FFF6F4;
+  }
+  .flow-card .fc-name {
+    font-size:11px; font-weight:800; color:var(--navy); margin-bottom:6px;
+  }
+  .flow-card .fc-bar-row {
+    display:flex; align-items:center; gap:3px;
+    height:8px; margin-bottom:4px;
+  }
+  .flow-card .fc-bar { height:100%; border-radius:2px; }
+  .flow-card .fc-bar.mt { background:var(--mt); }
+  .flow-card .fc-bar.wt { background:var(--wt); }
+  .flow-card .fc-times {
+    display:flex; justify-content:space-between;
+    font-size:9.5px; color:var(--text-light); font-family:monospace;
+  }
+  .flow-card .fc-times .mt { color:var(--mt); font-weight:700; }
+  .flow-card .fc-times .wt { color:var(--amber); font-weight:700; }
+  .flow-card .fc-times .ct { color:var(--navy); font-weight:800; }
+  .flow-card .fc-detail-btn {
+    margin-top:6px; background:var(--primary); color:#fff;
+    border:none; padding:3px 10px; border-radius:2px;
+    font-size:9px; font-weight:700; cursor:pointer;
+    width:100%;
+  }
+  .flow-card .fc-wait-pct {
+    position:absolute; top:6px; right:8px;
+    background:var(--amber); color:#1a1a1a;
+    padding:1px 5px; border-radius:8px;
+    font-size:9px; font-weight:800;
+  }
+
+  /* ====== Bar chart (cycle composition) ====== */
+  .stack-bar-chart {
+    background:#fff; border:1px solid var(--line);
+    border-radius:6px; padding:14px;
+  }
+  .stack-bar { display:flex; align-items:center; margin-bottom:10px; gap:8px; }
+  .stack-bar .sb-label { width:90px; font-size:11px; font-weight:700; color:var(--navy); }
+  .stack-bar .sb-bars { flex:1; height:18px; background:#F0F2F5; border-radius:3px; overflow:hidden; position:relative; display:flex; }
+  .stack-bar .sb-mt { background:linear-gradient(180deg, var(--primary-2), var(--mt)); position:relative; }
+  .stack-bar .sb-wt { background:linear-gradient(180deg, #FFE082, var(--wt)); position:relative; }
+  .stack-bar .sb-bars .lbl { color:#fff; font-size:9.5px; font-weight:700; padding:0 5px; line-height:18px; }
+  .stack-bar .sb-total { width:70px; text-align:right; font-size:10px; color:var(--text-light); font-family:monospace; }
+
+  /* ====== Legend ====== */
+  .legend {
+    display:flex; gap:14px; font-size:10.5px; align-items:center;
+    margin-bottom:10px;
+  }
+  .legend .lg-item { display:flex; align-items:center; gap:5px; }
+  .legend .lg-swatch { width:12px; height:12px; border-radius:2px; }
+
+  /* ====== Annotation pin ====== */
+  .annotation {
+    margin:16px 0; padding:12px 16px;
+    background:#FFF8E5; border-left:4px solid var(--amber);
+    border-radius:0 4px 4px 0;
+    font-size:12.5px;
+  }
+  .annotation strong { color:#E65100; }
+  .annotation .step {
+    display:inline-block; background:var(--amber); color:#1a1a1a;
+    width:18px; height:18px; line-height:18px; text-align:center;
+    border-radius:50%; font-size:11px; font-weight:800; margin-right:6px;
+  }
+  .actions-list {
+    background:#fff; border:1px solid var(--line); border-radius:6px;
+    padding:14px 18px; margin:12px 0;
+  }
+  .actions-list h4 {
+    font-size:13px; color:var(--navy); margin-bottom:8px;
+    display:flex; align-items:center; gap:6px;
+  }
+  .actions-list ol {
+    padding-left:0; list-style:none; counter-reset:act;
+  }
+  .actions-list ol li {
+    counter-increment:act; position:relative;
+    padding:6px 0 6px 32px; font-size:12.5px; line-height:1.6;
+    border-bottom:1px dashed #E1E5EA;
+  }
+  .actions-list ol li:last-child { border-bottom:none; }
+  .actions-list ol li::before {
+    content:counter(act); position:absolute; left:0; top:6px;
+    width:22px; height:22px; line-height:22px; text-align:center;
+    background:var(--primary); color:#fff;
+    border-radius:50%; font-size:11px; font-weight:800;
+  }
+  .actions-list ol li b { color:var(--primary-dark); }
+  .actions-list ol li code {
+    background:var(--cyan-bg); padding:1px 5px; border-radius:2px;
+    font-family:monospace; font-size:11px; color:var(--navy);
+  }
+
+  /* ====== History table ====== */
+  .history-table {
+    width:100%; border-collapse:collapse; font-size:11px;
+  }
+  .history-table th, .history-table td {
+    padding:6px 9px; text-align:left; border-bottom:1px solid #EEE;
+  }
+  .history-table th {
+    background:var(--cyan-bg); color:var(--navy); font-weight:700;
+    font-size:10.5px;
+  }
+  .history-table .ct-cell { color:var(--ct); font-weight:700; font-family:monospace; }
+  .history-table .mt-cell { color:var(--mt); font-family:monospace; }
+  .history-table .wt-cell { color:var(--amber); font-family:monospace; }
+  .history-table .status {
+    padding:1px 7px; border-radius:8px; font-size:9.5px; font-weight:700;
+  }
+  .history-table .status.ok { background:#C8E6C9; color:#1B5E20; }
+  .history-table .status.warn { background:#FFE082; color:#7A5200; }
+  .history-table .status.bad { background:#FFCDD2; color:#B71C1C; }
+
+  /* ====== CT 기준 카드 ====== */
+  .ct-criteria {
+    background:var(--cyan-bg); border-radius:6px; padding:14px;
+    margin-bottom:12px;
+  }
+  .ct-criteria-row {
+    display:grid; grid-template-columns:120px 1fr 1fr 110px;
+    gap:10px; align-items:center; padding:6px 0;
+    border-bottom:1px solid var(--cyan-soft);
+  }
+  .ct-criteria-row:last-child { border-bottom:none; }
+  .ct-criteria-row .label { font-size:11px; font-weight:700; color:var(--navy); }
+  .ct-criteria-row .input-mock {
+    background:#fff; border:1px solid var(--line); padding:5px 8px;
+    border-radius:3px; font-size:11px; font-family:monospace;
+    color:var(--navy);
+  }
+  .ct-criteria-row .input-mock.modified {
+    border-color:var(--amber); background:#FFFDE7;
+  }
+  .ct-criteria-row .src {
+    font-size:10px; padding:2px 6px; border-radius:8px;
+    text-align:center; font-weight:700;
+  }
+  .ct-criteria-row .src.aasx { background:#E1F5FE; color:#01579B; }
+  .ct-criteria-row .src.user { background:#FFF3E0; color:#E65100; }
+
+  /* ====== Period chart ====== */
+  .period-chart {
+    background:#fff; border:1px solid var(--line); border-radius:6px;
+    padding:14px; position:relative;
+  }
+  .period-chart svg { display:block; width:100%; height:auto; }
+
+  /* ====== 동작편차 — Call grid (heatmap) ====== */
+  .call-heatmap {
+    display:grid; grid-template-columns:repeat(8, 1fr);
+    gap:8px; padding:6px;
+  }
+  .call-block {
+    background:#fff; border:1.5px solid var(--line);
+    border-radius:5px; padding:10px 8px;
+    cursor:pointer; transition:all 0.15s;
+    text-align:center; min-height:78px;
+    display:flex; flex-direction:column; justify-content:space-between;
+    position:relative;
+  }
+  .call-block:hover { transform:scale(1.05); box-shadow:0 4px 12px rgba(0,0,0,0.1); z-index:2; }
+  .call-block .cb-name {
+    font-size:10px; font-weight:800; color:var(--navy);
+    margin-bottom:4px;
+  }
+  .call-block .cb-time {
+    font-size:14px; font-weight:800; font-family:monospace;
+  }
+  .call-block .cb-unit {
+    font-size:9px; color:var(--text-mute);
+  }
+  .call-block .cb-dev {
+    font-size:9px; padding:1px 5px; border-radius:6px;
+    font-weight:700; margin-top:3px;
+  }
+  .call-block.cb-good   { background:#E8F5E9; border-color:#A5D6A7; }
+  .call-block.cb-good   .cb-time { color:#1B5E20; }
+  .call-block.cb-good   .cb-dev { background:#C8E6C9; color:#1B5E20; }
+  .call-block.cb-mid    { background:#FFFDE7; border-color:#FFE082; }
+  .call-block.cb-mid    .cb-time { color:#7A5200; }
+  .call-block.cb-mid    .cb-dev { background:#FFF59D; color:#7A5200; }
+  .call-block.cb-high   { background:#FFF3E0; border-color:#FFB74D; }
+  .call-block.cb-high   .cb-time { color:#BF360C; }
+  .call-block.cb-high   .cb-dev { background:#FFCC80; color:#BF360C; }
+  .call-block.cb-critical { background:#FFEBEE; border-color:#E57373; }
+  .call-block.cb-critical .cb-time { color:#B71C1C; }
+  .call-block.cb-critical .cb-dev { background:#FFCDD2; color:#B71C1C; }
+  .call-block.cb-selected {
+    border-color:var(--primary); border-width:3px;
+    box-shadow:0 0 0 4px rgba(43,181,197,0.2);
+  }
+
+  /* ====== Gantt chart (LOB) ====== */
+  .gantt {
+    background:#fff; border:1px solid var(--line);
+    border-radius:6px; padding:14px;
+    overflow-x:auto;
+  }
+  .gantt-row {
+    display:grid; grid-template-columns:120px 1fr;
+    align-items:center; gap:8px;
+    height:30px; margin-bottom:3px;
+  }
+  .gantt-row .gr-label {
+    font-size:10.5px; font-weight:700; color:var(--navy);
+    font-family:monospace;
+  }
+  .gantt-row .gr-track {
+    position:relative; height:100%;
+    background:#F0F2F5; border-radius:3px;
+  }
+  .gantt-bar {
+    position:absolute; height:18px; top:6px;
+    border-radius:3px; cursor:pointer;
+    display:flex; align-items:center; padding:0 6px;
+    font-size:9.5px; color:#fff; font-weight:700;
+  }
+  .gantt-bar.run { background:linear-gradient(180deg, var(--primary-2), var(--primary)); }
+  .gantt-bar.gap { background:linear-gradient(180deg, #FFE082, var(--amber)); color:#1a1a1a; }
+  .gantt-bar:hover { box-shadow:0 0 0 2px rgba(0,0,0,0.15); z-index:2; }
+  .gantt-axis {
+    display:grid; grid-template-columns:120px 1fr; gap:8px;
+    font-size:10px; color:var(--text-mute); margin-top:8px;
+    font-family:monospace;
+  }
+  .gantt-axis .ga-ticks {
+    display:flex; justify-content:space-between;
+  }
+  .gantt-tooltip {
+    position:absolute; background:var(--navy); color:#fff;
+    padding:8px 12px; border-radius:4px;
+    font-size:10.5px; font-family:monospace;
+    line-height:1.6;
+  }
+  .gantt-tooltip::before {
+    content:""; position:absolute; bottom:-4px; left:20px;
+    width:8px; height:8px; background:var(--navy); transform:rotate(45deg);
+  }
+
+  /* ====== UserTag 이상발생 ====== */
+  .usertag-list {
+    background:#fff; border:1px solid var(--line); border-radius:6px;
+    overflow:hidden;
+  }
+  .usertag-row {
+    display:grid; grid-template-columns:30px 1fr 100px 110px 80px 60px;
+    gap:10px; padding:10px 14px;
+    align-items:center; font-size:11px;
+    border-bottom:1px solid #EEE;
+  }
+  .usertag-row.head {
+    background:var(--navy); color:#fff; font-weight:700;
+    font-size:10.5px; letter-spacing:0.5px;
+  }
+  .usertag-row .tag-icon {
+    width:20px; height:20px; border-radius:50%;
+    background:var(--red); color:#fff;
+    text-align:center; line-height:20px; font-size:11px;
+  }
+  .usertag-row .tag-icon.warn { background:var(--amber); color:#1a1a1a; }
+  .usertag-row .tag-icon.info { background:var(--primary); }
+  .usertag-row .tag-name { font-weight:700; color:var(--navy); }
+  .usertag-row .tag-cond { font-family:monospace; font-size:10px; color:var(--text-light); }
+  .usertag-row .tag-time { font-family:monospace; font-size:10.5px; color:var(--text); }
+  .usertag-row .tag-count { font-weight:800; color:var(--primary-dark); text-align:center; }
+  .usertag-row .tag-status {
+    padding:2px 7px; border-radius:8px; text-align:center;
+    font-size:9.5px; font-weight:700;
+  }
+  .usertag-row .tag-status.new { background:var(--red); color:#fff; }
+  .usertag-row .tag-status.ack { background:#E0E0E0; color:#444; }
+
+  /* ====== Trend chart (mini) ====== */
+  .trend-chart {
+    background:#fff; border:1px solid var(--line); border-radius:6px;
+    padding:14px;
+  }
+
+  /* ====== Footer ====== */
+  footer {
+    background:linear-gradient(135deg, var(--navy) 0%, var(--navy-2) 100%);
+    color:#fff; padding:24px;
+    text-align:center; margin-top:40px; font-size:11px;
+    letter-spacing:0.5px;
+  }
+  footer .ft-title {
+    font-size:13px; font-weight:700; margin-bottom:5px;
+    letter-spacing:1px;
+  }
+
+  @media print {
+    @page { size: A4 landscape; margin: 8mm; }
+    body { background:#fff; }
+    .doc-header, footer { color:#fff; }
+    nav.page-nav { display:none; }
+    .page-section { box-shadow:none; page-break-after:always; }
+  }
+</style>
+</head>
+<body>
+
+<header class="doc-header">
+  <div class="container">
+    <div class="tag">UX DESIGN · DSPILOT WEB APP</div>
+    <h1>DSPilot — UX 설계 (5 Pages)</h1>
+    <div class="sub">PLC 운영 생산설비 실시간 관제·분석 · 사이클타임·병목·이상동작 자동 분석 · 웹 기반</div>
+    <div class="pills">
+      <span class="pill">5 PAGES</span>
+      <span class="pill">REAL-TIME</span>
+      <span class="pill">WEB BASED</span>
+      <span class="pill">DASHBOARD · FLOW · DEVIATION · LOB · USERTAG</span>
+    </div>
+  </div>
+</header>
+
+<nav class="page-nav">
+  <div class="container">
+    <a href="#p1"><span class="n">P1</span>대시보드</a>
+    <a href="#p3"><span class="n">P2</span>동작편차</a>
+    <a href="#p4"><span class="n">P3</span>사이클 분석 (Flow 통합)</a>
+    <a href="#p6"><span class="n">P4</span>CCTV 관제</a>
+    <a href="#p7"><span class="n">P5</span>가동시간·이상 분석</a>
+  </div>
+</nav>
+
+<main>
+
+<!-- =================== PAGE 1 : DASHBOARD =================== -->
+<section class="page-section" id="p1">
+  <div class="ps-head">
+    <div class="ps-title">
+      <h2><span class="num">P1</span>대시보드 (메인 페이지)</h2>
+      <div class="purpose"><b>목적</b> — 라인(Flow)별 사이클타임 구성을 막대로 비교해 <b>어디서 시간이 새는지</b> 한눈에 식별</div>
+    </div>
+    <div class="ps-meta">
+      <div class="url">/dashboard</div>
+      <div>main page · default landing</div>
+    </div>
+  </div>
+
+  <!-- Mock browser -->
+  <div class="browser">
+    <div class="b-bar">
+      <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+      <div class="url-bar"><span class="lock">🔒</span> dspilot.local/dashboard</div>
+    </div>
+    <div class="b-body">
+      <div class="app">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+          <div class="logo"><span class="dot"></span>DSPilot</div>
+          <div class="menu">
+            <div class="menu-item active"><span class="ico">📊</span>대시보드</div>            <div class="menu-item"><span class="ico">🎨</span>동작편차</div>
+            <div class="menu-item"><span class="ico">⏱</span>사이클 분석</div>            <div class="menu-item"><span class="ico">📹</span>CCTV 관제</div>
+            <div class="menu-item"><span class="ico">⏰</span>가동시간·이상 분석</div>
+            <div class="menu-item" style="margin-top:auto;"><span class="ico">⚙</span>설정</div>
+          </div>
+        </aside>
+
+        <!-- Content -->
+        <div class="content">
+          <div class="top-bar">
+            <div class="title-area">
+              <h3>전체 라인 사이클타임 모니터링</h3>
+              <div class="breadcrumb">홈 · 대시보드 · 실시간 (last 30 min)</div>
+            </div>
+            <div class="actions">
+              <button class="btn">🔄 새로고침 (5s)</button>
+              <button class="btn primary">필터</button>
+            </div>
+          </div>
+
+          <!-- KPI Summary cells (clickable) -->
+          <div class="kpi-row">
+            <div class="kpi-cell max">
+              <span class="kp-click-hint">▼ 클릭</span>
+              <div class="kp-label">최대 시간 (CT)</div>
+              <div class="kp-value">128.4s</div>
+              <div class="kp-target">→ Flow B-3 (조립 라인)</div>
+            </div>
+            <div class="kpi-cell min">
+              <span class="kp-click-hint">▼ 클릭</span>
+              <div class="kp-label">최소 시간 (CT)</div>
+              <div class="kp-value">42.1s</div>
+              <div class="kp-target">→ Flow A-1 (반입)</div>
+            </div>
+            <div class="kpi-cell wait">
+              <span class="kp-click-hint">▼ 클릭</span>
+              <div class="kp-label">최대 대기율 (WT/CT)</div>
+              <div class="kp-value">38.6%</div>
+              <div class="kp-target">→ Flow B-3 (조립 라인)</div>
+            </div>
+          </div>
+
+          <!-- Layout + chart -->
+          <div style="display:grid; grid-template-columns:1.4fr 1fr; gap:14px;">
+            <!-- Floor layout -->
+            <div class="card" style="margin-bottom:0;">
+              <div class="card-h">
+                <h4>📐 라인 도면 (Floor Layout)</h4>
+                <div style="font-size:10px; color:var(--text-mute);">강조: Flow B-3 (최대 CT)</div>
+              </div>
+              <div class="flow-layout" style="height:300px;">
+                <div class="grid-bg"></div>
+                <!-- Flow cards positioned -->
+                <div class="flow-card" style="top:12px; left:10px; width:130px;">
+                  <div class="fc-name">Flow A-1 · 반입</div>
+                  <div class="fc-bar-row">
+                    <div class="fc-bar mt" style="width:78%;"></div>
+                    <div class="fc-bar wt" style="width:22%;"></div>
+                  </div>
+                  <div class="fc-times"><span><b class="mt">33s</b></span><span><b class="wt">9s</b></span><span class="ct">42s</span></div>
+                </div>
+
+                <div class="flow-card" style="top:12px; left:160px; width:130px;">
+                  <div class="fc-name">Flow A-2 · 검사</div>
+                  <div class="fc-bar-row">
+                    <div class="fc-bar mt" style="width:65%;"></div>
+                    <div class="fc-bar wt" style="width:35%;"></div>
+                  </div>
+                  <div class="fc-times"><span><b class="mt">42s</b></span><span><b class="wt">22s</b></span><span class="ct">64s</span></div>
+                </div>
+
+                <div class="flow-card" style="top:12px; left:310px; width:130px;">
+                  <div class="fc-name">Flow A-3 · 분류</div>
+                  <div class="fc-bar-row">
+                    <div class="fc-bar mt" style="width:70%;"></div>
+                    <div class="fc-bar wt" style="width:30%;"></div>
+                  </div>
+                  <div class="fc-times"><span><b class="mt">52s</b></span><span><b class="wt">22s</b></span><span class="ct">74s</span></div>
+                </div>
+
+                <div class="flow-card" style="top:130px; left:10px; width:130px;">
+                  <div class="fc-name">Flow B-1 · 조립1</div>
+                  <div class="fc-bar-row">
+                    <div class="fc-bar mt" style="width:72%;"></div>
+                    <div class="fc-bar wt" style="width:28%;"></div>
+                  </div>
+                  <div class="fc-times"><span><b class="mt">62s</b></span><span><b class="wt">24s</b></span><span class="ct">86s</span></div>
+                </div>
+
+                <div class="flow-card" style="top:130px; left:160px; width:130px;">
+                  <div class="fc-name">Flow B-2 · 조립2</div>
+                  <div class="fc-bar-row">
+                    <div class="fc-bar mt" style="width:74%;"></div>
+                    <div class="fc-bar wt" style="width:26%;"></div>
+                  </div>
+                  <div class="fc-times"><span><b class="mt">69s</b></span><span><b class="wt">24s</b></span><span class="ct">93s</span></div>
+                </div>
+
+                <!-- Highlighted Flow B-3 -->
+                <div class="flow-card highlighted" style="top:130px; left:310px; width:130px;">
+                  <span class="fc-wait-pct">38.6%</span>
+                  <div class="fc-name">Flow B-3 · 조립3 ⚠</div>
+                  <div class="fc-bar-row">
+                    <div class="fc-bar mt" style="width:62%;"></div>
+                    <div class="fc-bar wt" style="width:38%;background:var(--red);"></div>
+                  </div>
+                  <div class="fc-times"><span><b class="mt">79s</b></span><span style="color:var(--red);"><b>49s</b></span><span class="ct">128s</span></div>
+                  <button class="fc-detail-btn">상세 보기 →</button>
+                </div>
+
+                <div class="flow-card" style="top:250px; left:10px; width:130px;">
+                  <div class="fc-name">Flow C-1 · 포장</div>
+                  <div class="fc-bar-row">
+                    <div class="fc-bar mt" style="width:80%;"></div>
+                    <div class="fc-bar wt" style="width:20%;"></div>
+                  </div>
+                  <div class="fc-times"><span><b class="mt">55s</b></span><span><b class="wt">14s</b></span><span class="ct">69s</span></div>
+                </div>
+
+                <div class="flow-card" style="top:250px; left:160px; width:130px;">
+                  <div class="fc-name">Flow C-2 · 출하</div>
+                  <div class="fc-bar-row">
+                    <div class="fc-bar mt" style="width:84%;"></div>
+                    <div class="fc-bar wt" style="width:16%;"></div>
+                  </div>
+                  <div class="fc-times"><span><b class="mt">48s</b></span><span><b class="wt">9s</b></span><span class="ct">57s</span></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Bar chart comparison -->
+            <div class="card" style="margin-bottom:0;">
+              <div class="card-h">
+                <h4>📊 Flow별 CT 구성 비교 (MT + WT)</h4>
+                <div style="font-size:10px; color:var(--text-mute);">단위: 초</div>
+              </div>
+              <div class="stack-bar-chart">
+                <div class="legend">
+                  <div class="lg-item"><span class="lg-swatch" style="background:var(--mt);"></span> MT (가동)</div>
+                  <div class="lg-item"><span class="lg-swatch" style="background:var(--wt);"></span> WT (대기)</div>
+                  <div class="lg-item"><span class="lg-swatch" style="background:var(--ct);"></span> CT = MT+WT</div>
+                </div>
+                <div class="stack-bar">
+                  <div class="sb-label">A-1 반입</div>
+                  <div class="sb-bars">
+                    <div class="sb-mt" style="width:26%;"><span class="lbl">33s</span></div>
+                    <div class="sb-wt" style="width:7%;"></div>
+                  </div>
+                  <div class="sb-total">CT: 42s</div>
+                </div>
+                <div class="stack-bar">
+                  <div class="sb-label">A-2 검사</div>
+                  <div class="sb-bars">
+                    <div class="sb-mt" style="width:33%;"><span class="lbl">42s</span></div>
+                    <div class="sb-wt" style="width:17%;"></div>
+                  </div>
+                  <div class="sb-total">CT: 64s</div>
+                </div>
+                <div class="stack-bar">
+                  <div class="sb-label">A-3 분류</div>
+                  <div class="sb-bars">
+                    <div class="sb-mt" style="width:41%;"><span class="lbl">52s</span></div>
+                    <div class="sb-wt" style="width:17%;"></div>
+                  </div>
+                  <div class="sb-total">CT: 74s</div>
+                </div>
+                <div class="stack-bar">
+                  <div class="sb-label">B-1 조립1</div>
+                  <div class="sb-bars">
+                    <div class="sb-mt" style="width:48%;"><span class="lbl">62s</span></div>
+                    <div class="sb-wt" style="width:19%;"></div>
+                  </div>
+                  <div class="sb-total">CT: 86s</div>
+                </div>
+                <div class="stack-bar">
+                  <div class="sb-label">B-2 조립2</div>
+                  <div class="sb-bars">
+                    <div class="sb-mt" style="width:54%;"><span class="lbl">69s</span></div>
+                    <div class="sb-wt" style="width:19%;"></div>
+                  </div>
+                  <div class="sb-total">CT: 93s</div>
+                </div>
+                <div class="stack-bar" style="background:#FFF6F4; padding:5px 6px; border-radius:3px;">
+                  <div class="sb-label" style="color:var(--red);"><b>B-3 조립3 ⚠</b></div>
+                  <div class="sb-bars">
+                    <div class="sb-mt" style="width:62%;"><span class="lbl">79s</span></div>
+                    <div class="sb-wt" style="width:38%; background:linear-gradient(180deg,#FF8A65,var(--red));"><span class="lbl">49s</span></div>
+                  </div>
+                  <div class="sb-total" style="color:var(--red); font-weight:700;">CT: 128s</div>
+                </div>
+                <div class="stack-bar">
+                  <div class="sb-label">C-1 포장</div>
+                  <div class="sb-bars">
+                    <div class="sb-mt" style="width:43%;"><span class="lbl">55s</span></div>
+                    <div class="sb-wt" style="width:11%;"></div>
+                  </div>
+                  <div class="sb-total">CT: 69s</div>
+                </div>
+                <div class="stack-bar">
+                  <div class="sb-label">C-2 출하</div>
+                  <div class="sb-bars">
+                    <div class="sb-mt" style="width:37%;"><span class="lbl">48s</span></div>
+                    <div class="sb-wt" style="width:7%;"></div>
+                  </div>
+                  <div class="sb-total">CT: 57s</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- History (revealed on Flow card click) -->
+          <div class="card" style="margin-top:12px;">
+            <div class="card-h">
+              <h4>📋 최근 사이클 히스토리 — Flow B-3 (선택됨)</h4>
+              <div style="font-size:10px; color:var(--text-mute);">최근 10 사이클</div>
+            </div>
+            <table class="history-table">
+              <thead>
+                <tr>
+                  <th style="width:30px;">#</th><th style="width:130px;">시작 시각</th>
+                  <th>MT</th><th>WT</th><th>CT</th>
+                  <th>WT/CT</th><th>상태</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>1</td><td>14:22:18</td><td class="mt-cell">79.2s</td><td class="wt-cell">49.4s</td><td class="ct-cell">128.6s</td><td>38.4%</td><td><span class="status bad">초과</span></td></tr>
+                <tr><td>2</td><td>14:20:09</td><td class="mt-cell">78.8s</td><td class="wt-cell">47.1s</td><td class="ct-cell">125.9s</td><td>37.4%</td><td><span class="status bad">초과</span></td></tr>
+                <tr><td>3</td><td>14:18:03</td><td class="mt-cell">77.4s</td><td class="wt-cell">52.0s</td><td class="ct-cell">129.4s</td><td>40.2%</td><td><span class="status bad">초과</span></td></tr>
+                <tr><td>4</td><td>14:15:56</td><td class="mt-cell">76.0s</td><td class="wt-cell">31.2s</td><td class="ct-cell">107.2s</td><td>29.1%</td><td><span class="status warn">주의</span></td></tr>
+                <tr><td>5</td><td>14:13:48</td><td class="mt-cell">75.8s</td><td class="wt-cell">28.4s</td><td class="ct-cell">104.2s</td><td>27.3%</td><td><span class="status warn">주의</span></td></tr>
+                <tr><td>6</td><td>14:11:42</td><td class="mt-cell">74.2s</td><td class="wt-cell">19.6s</td><td class="ct-cell">93.8s</td><td>20.9%</td><td><span class="status ok">정상</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="actions-list">
+    <h4>🎯 동작 시퀀스 (User Interactions)</h4>
+    <ol>
+      <li>① <b>요약 셀 클릭</b> — <code>최대시간</code>·<code>최소시간</code>·<code>최대 대기율</code> 셀을 클릭하면 좌측 도면 레이아웃에서 <b>해당 Flow 카드가 빨간 테두리·노란 배경으로 강조</b>됨. (예: B-3 카드 highlight)</li>
+      <li>② <b>Flow 카드 클릭</b> — 카드 클릭 시 우측에 <b>MT/WT/CT 시간 정보 + 대기율 + 최근 10 사이클 히스토리 내역</b>이 펼쳐짐.</li>
+      <li>③ <b>상세 버튼</b> — 카드 안의 <code>상세 보기 →</code> 버튼 클릭 시 <b>P3 사이클 분석 페이지</b>로 이동 (Flow ID query 파라미터 포함).</li>
+      <li>④ <b>자동 새로고침</b> — 5초마다 모든 KPI·차트·도면이 자동 갱신. 우측 상단 <code>🔄 새로고침 (5s)</code> 버튼으로 수동 갱신 가능.</li>
+      <li>⑤ <b>막대 클릭</b> — 우측 비교 차트의 막대 클릭도 좌측 도면 강조와 동일한 효과 (양방향 동기화).</li>
+    </ol>
+  </div>
+</section>
+
+<!-- =================== PAGE 3 : DEVIATION =================== -->
+<section class="page-section" id="p3">
+  <div class="ps-head">
+    <div class="ps-title">
+      <h2><span class="num">P2</span>동작편차 페이지</h2>
+      <div class="purpose"><b>목적</b> — Flow 내 디바이스(Call) 간 동작 편차를 <b>색상으로 진단</b></div>
+    </div>
+    <div class="ps-meta">
+      <div class="url">/flow/B-3/deviation</div>
+      <div>heatmap view</div>
+    </div>
+  </div>
+
+  <div class="browser">
+    <div class="b-bar">
+      <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+      <div class="url-bar"><span class="lock">🔒</span> dspilot.local/flow/B-3/deviation</div>
+    </div>
+    <div class="b-body">
+      <div class="app">
+        <aside class="sidebar">
+          <div class="logo"><span class="dot"></span>DSPilot</div>
+          <div class="menu">
+            <div class="menu-item"><span class="ico">📊</span>대시보드</div>            <div class="menu-item active"><span class="ico">🎨</span>동작편차</div>
+            <div class="menu-item"><span class="ico">⏱</span>사이클 분석</div>            <div class="menu-item"><span class="ico">📹</span>CCTV 관제</div>
+            <div class="menu-item"><span class="ico">⏰</span>가동시간·이상 분석</div>
+          </div>
+        </aside>
+
+        <div class="content">
+          <div class="top-bar">
+            <div class="title-area">
+              <h3>Flow B-3 · 동작편차 진단 (Deviation Heatmap)</h3>
+              <div class="breadcrumb">홈 · B-3 · 동작편차</div>
+            </div>
+            <div class="actions">
+              <button class="btn">기간 변경</button>
+              <button class="btn primary">📤 내보내기</button>
+            </div>
+          </div>
+
+          <!-- Legend -->
+          <div class="card">
+            <div class="card-h">
+              <h4>🎨 색상 범례 (표준 대비 편차)</h4>
+              <div style="font-size:10px; color:var(--text-mute);">N = 사이클 1,247회 분석</div>
+            </div>
+            <div class="legend" style="margin-bottom:0;">
+              <div class="lg-item"><span class="lg-swatch" style="background:#C8E6C9;border:1px solid #A5D6A7;"></span> 정상 (편차 ±5% 이내)</div>
+              <div class="lg-item"><span class="lg-swatch" style="background:#FFF59D;border:1px solid #FFE082;"></span> 주의 (±5~10%)</div>
+              <div class="lg-item"><span class="lg-swatch" style="background:#FFCC80;border:1px solid #FFB74D;"></span> 경고 (±10~20%)</div>
+              <div class="lg-item"><span class="lg-swatch" style="background:#FFCDD2;border:1px solid #E57373;"></span> 위험 (±20% 초과)</div>
+            </div>
+          </div>
+
+          <!-- Heatmap -->
+          <div class="card">
+            <div class="card-h">
+              <h4>📐 Call 블럭 (Flow 내 디바이스 16개)</h4>
+              <div style="font-size:10px; color:var(--text-mute);">표시 = 평균 실행시간 · 편차% · 클릭으로 상세</div>
+            </div>
+            <div class="call-heatmap">
+              <div class="call-block cb-good">
+                <div class="cb-name">Robot.Pick</div>
+                <div>
+                  <div class="cb-time">2.1s</div>
+                  <div class="cb-unit">avg</div>
+                </div>
+                <div class="cb-dev">±2.1%</div>
+              </div>
+              <div class="call-block cb-good">
+                <div class="cb-name">Conveyor.A1</div>
+                <div>
+                  <div class="cb-time">4.8s</div>
+                  <div class="cb-unit">avg</div>
+                </div>
+                <div class="cb-dev">±3.4%</div>
+              </div>
+              <div class="call-block cb-good">
+                <div class="cb-name">Loader.In</div>
+                <div>
+                  <div class="cb-time">1.6s</div>
+                  <div class="cb-unit">avg</div>
+                </div>
+                <div class="cb-dev">±1.8%</div>
+              </div>
+              <div class="call-block cb-mid">
+                <div class="cb-name">Fixture.Lock</div>
+                <div>
+                  <div class="cb-time">3.2s</div>
+                  <div class="cb-unit">avg</div>
+                </div>
+                <div class="cb-dev">±7.6%</div>
+              </div>
+              <div class="call-block cb-good">
+                <div class="cb-name">Scanner.Read</div>
+                <div>
+                  <div class="cb-time">0.8s</div>
+                  <div class="cb-unit">avg</div>
+                </div>
+                <div class="cb-dev">±2.9%</div>
+              </div>
+              <div class="call-block cb-mid">
+                <div class="cb-name">Driver.Down</div>
+                <div>
+                  <div class="cb-time">5.4s</div>
+                  <div class="cb-unit">avg</div>
+                </div>
+                <div class="cb-dev">±9.1%</div>
+              </div>
+              <div class="call-block cb-high">
+                <div class="cb-name">Torque.Run</div>
+                <div>
+                  <div class="cb-time">8.2s</div>
+                  <div class="cb-unit">avg</div>
+                </div>
+                <div class="cb-dev">±14.3%</div>
+              </div>
+              <div class="call-block cb-good">
+                <div class="cb-name">Driver.Up</div>
+                <div>
+                  <div class="cb-time">2.4s</div>
+                  <div class="cb-unit">avg</div>
+                </div>
+                <div class="cb-dev">±3.0%</div>
+              </div>
+              <div class="call-block cb-good">
+                <div class="cb-name">Vision.Cap</div>
+                <div>
+                  <div class="cb-time">1.2s</div>
+                  <div class="cb-unit">avg</div>
+                </div>
+                <div class="cb-dev">±2.4%</div>
+              </div>
+              <div class="call-block cb-mid">
+                <div class="cb-name">Vision.Eval</div>
+                <div>
+                  <div class="cb-time">3.8s</div>
+                  <div class="cb-unit">avg</div>
+                </div>
+                <div class="cb-dev">±8.2%</div>
+              </div>
+              <div class="call-block cb-critical cb-selected">
+                <div class="cb-name">Press.Down ⚠</div>
+                <div>
+                  <div class="cb-time">12.5s</div>
+                  <div class="cb-unit">avg</div>
+                </div>
+                <div class="cb-dev">±28.7%</div>
+              </div>
+              <div class="call-block cb-high">
+                <div class="cb-name">Press.Up</div>
+                <div>
+                  <div class="cb-time">4.6s</div>
+                  <div class="cb-unit">avg</div>
+                </div>
+                <div class="cb-dev">±11.4%</div>
+              </div>
+              <div class="call-block cb-good">
+                <div class="cb-name">Fixture.Unlock</div>
+                <div>
+                  <div class="cb-time">2.0s</div>
+                  <div class="cb-unit">avg</div>
+                </div>
+                <div class="cb-dev">±2.5%</div>
+              </div>
+              <div class="call-block cb-good">
+                <div class="cb-name">Unloader.Out</div>
+                <div>
+                  <div class="cb-time">1.8s</div>
+                  <div class="cb-unit">avg</div>
+                </div>
+                <div class="cb-dev">±2.2%</div>
+              </div>
+              <div class="call-block cb-good">
+                <div class="cb-name">Conveyor.A2</div>
+                <div>
+                  <div class="cb-time">4.9s</div>
+                  <div class="cb-unit">avg</div>
+                </div>
+                <div class="cb-dev">±3.1%</div>
+              </div>
+              <div class="call-block cb-good">
+                <div class="cb-name">Robot.Place</div>
+                <div>
+                  <div class="cb-time">2.3s</div>
+                  <div class="cb-unit">avg</div>
+                </div>
+                <div class="cb-dev">±2.7%</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Selected Call detail (popup) -->
+          <div class="card" style="border:2px solid var(--primary);">
+            <div class="card-h">
+              <h4 style="color:var(--primary-dark);">🔍 선택된 Call · Press.Down 상세</h4>
+              <button class="btn">✕ 닫기</button>
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1.6fr; gap:14px;">
+              <div>
+                <h4 style="font-size:11px;">기본 정보</h4>
+                <table style="width:100%; font-size:11px; margin-top:6px;">
+                  <tr><td style="color:var(--text-mute); padding:3px 0;">Call ID</td><td style="font-family:monospace; padding:3px 0;">Press.Down</td></tr>
+                  <tr><td style="color:var(--text-mute); padding:3px 0;">Device</td><td style="padding:3px 0;">Press Module #3</td></tr>
+                  <tr><td style="color:var(--text-mute); padding:3px 0;">평균</td><td style="padding:3px 0;"><b style="color:#B71C1C;">12.5s</b></td></tr>
+                  <tr><td style="color:var(--text-mute); padding:3px 0;">최소 / 최대</td><td style="padding:3px 0;">9.2s / 17.8s</td></tr>
+                  <tr><td style="color:var(--text-mute); padding:3px 0;">편차</td><td style="padding:3px 0;"><b style="color:#B71C1C;">±28.7%</b></td></tr>
+                  <tr><td style="color:var(--text-mute); padding:3px 0;">표준</td><td style="padding:3px 0;">9.5s ± 5%</td></tr>
+                  <tr><td style="color:var(--text-mute); padding:3px 0;">N</td><td style="padding:3px 0;">1,247회</td></tr>
+                </table>
+              </div>
+              <div>
+                <h4 style="font-size:11px;">실행 시간 추이 (최근 100회)</h4>
+                <div class="trend-chart" style="margin-top:6px;">
+                  <svg viewBox="0 0 500 140">
+                    <line x1="30" y1="20" x2="30" y2="120" stroke="#5B6B7E"/>
+                    <line x1="30" y1="120" x2="480" y2="120" stroke="#5B6B7E"/>
+                    <text x="24" y="24" text-anchor="end" font-size="8" fill="#5B6B7E">18s</text>
+                    <text x="24" y="74" text-anchor="end" font-size="8" fill="#5B6B7E">12s</text>
+                    <text x="24" y="124" text-anchor="end" font-size="8" fill="#5B6B7E">6s</text>
+                    <!-- Tolerance band -->
+                    <rect x="30" y="55" width="450" height="20" fill="#C8E6C9" opacity="0.4"/>
+                    <text x="466" y="68" font-size="8" fill="#1B5E20" font-weight="700">표준</text>
+                    <!-- Trend (jittery, increasing) -->
+                    <polyline points="40,72 50,68 60,75 70,70 80,73 90,69 100,72 110,80 120,76 130,68 140,82 150,72 160,75 170,84 180,68 190,72 200,76 210,90 220,80 230,72 240,68 250,76 260,82 270,70 280,68 290,78 300,72 310,86 320,72 330,68 340,76 350,82 360,70 370,80 380,76 390,72 400,68 410,76 420,82 430,90 440,68 450,40 460,32 470,28"
+                              fill="none" stroke="#E5494F" stroke-width="1.5"/>
+                    <!-- Recent points -->
+                    <circle cx="460" cy="32" r="3" fill="#E5494F"/>
+                    <circle cx="470" cy="28" r="4" fill="#E5494F"/>
+                  </svg>
+                </div>
+                <div style="font-size:10px; color:var(--text-mute); margin-top:4px;">▲ 최근 5회 모두 표준 초과 — 마모/공차 점검 권장</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="actions-list">
+    <h4>🎯 동작 시퀀스</h4>
+    <ol>
+      <li>① <b>색상 즉시 진단</b> — 페이지 진입 시 16개 Call 블럭이 4 단계 색상 (녹/노/주/적) 으로 동시 표시.</li>
+      <li>② <b>Call 블럭 hover</b> — 살짝 확대 + 그림자 효과로 시각 피드백. tooltip 으로 짧은 요약 정보 (편차 + 최근 추세).</li>
+      <li>③ <b>Call 블럭 클릭</b> — 블럭에 청록색 강조 테두리 + 하단에 <b>상세 패널</b> 펼침 (좌: 기본정보 / 우: 실행시간 추이 차트).</li>
+      <li>④ <b>추이 차트</b> — 최근 100회 실행시간 라인. 표준 범위(녹색 밴드) + 실제값(빨간선). hover 로 사이클 번호·시각·값 표시.</li>
+      <li>⑤ <b>위험 알림</b> — 위험(빨강) Call 옆에 ⚠ 아이콘 표시. 5회 연속 표준 초과 시 자동 경고 메시지.</li>
+      <li>⑥ <b>내보내기</b> — 우상단 <code>📤 내보내기</code> 로 Heatmap + 차트를 CSV/PNG/PDF 로 출력.</li>
+    </ol>
+  </div>
+</section>
+
+<!-- =================== PAGE 4 : LOB =================== -->
+<section class="page-section" id="p4">
+  <div class="ps-head">
+    <div class="ps-title">
+      <h2><span class="num">P3</span>사이클 분석 페이지 (Flow 상세 + LOB / 병목·유휴 통합)</h2>
+      <div class="purpose"><b>목적</b> — Flow 사이클 기준 관리·기간별 성능 추이 + 시간 구간 내 <b>병목(Gap)</b> 시각 분석 (Flow 상세 통합)</div>
+    </div>
+    <div class="ps-meta">
+      <div class="url">/flow/B-3/lob</div>
+      <div>Line of Balance · gantt view</div>
+    </div>
+  </div>
+
+  <div class="browser">
+    <div class="b-bar">
+      <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+      <div class="url-bar"><span class="lock">🔒</span> dspilot.local/flow/B-3/lob?from=14:00&amp;to=14:30</div>
+    </div>
+    <div class="b-body">
+      <div class="app">
+        <aside class="sidebar">
+          <div class="logo"><span class="dot"></span>DSPilot</div>
+          <div class="menu">
+            <div class="menu-item"><span class="ico">📊</span>대시보드</div>            <div class="menu-item"><span class="ico">🎨</span>동작편차</div>
+            <div class="menu-item active"><span class="ico">⏱</span>사이클 분석</div>            <div class="menu-item"><span class="ico">📹</span>CCTV 관제</div>
+            <div class="menu-item"><span class="ico">⏰</span>가동시간·이상 분석</div>
+          </div>
+        </aside>
+
+        <div class="content">
+          <div class="top-bar">
+            <div class="title-area">
+              <h3>Flow B-3 · 사이클 분석 (LOB · Gap 진단)</h3>
+              <div class="breadcrumb">홈 · B-3 · LOB</div>
+            </div>
+            <div class="actions">
+              <button class="btn">14:00 ~ 14:30</button>
+              <button class="btn">📅 기간</button>
+              <button class="btn primary">조회</button>
+            </div>
+          </div>
+
+          <!-- Summary -->
+          <div class="kpi-row">
+            <div class="kpi-cell">
+              <div class="kp-label">총 디바이스</div>
+              <div class="kp-value">8개</div>
+              <div class="kp-target">간트 row 수</div>
+            </div>
+            <div class="kpi-cell">
+              <div class="kp-label">최대 병목(Gap)</div>
+              <div class="kp-value" style="color:var(--red);">14.2s</div>
+              <div class="kp-target">→ Press.Down ↔ Press.Up</div>
+            </div>
+            <div class="kpi-cell">
+              <div class="kp-label">전체 유휴율</div>
+              <div class="kp-value" style="color:var(--amber);">23.4%</div>
+              <div class="kp-target">평균 대비 +6.2%</div>
+            </div>
+          </div>
+
+          <!-- Gantt -->
+          <div class="card">
+            <div class="card-h">
+              <h4>📊 디바이스별 최대 병목 간트 차트 (Gap = 노란색)</h4>
+              <div class="legend" style="margin-bottom:0;">
+                <div class="lg-item"><span class="lg-swatch" style="background:var(--primary);"></span> 실행 (Run)</div>
+                <div class="lg-item"><span class="lg-swatch" style="background:var(--amber);"></span> 병목 (Gap)</div>
+              </div>
+            </div>
+            <div class="gantt" style="position:relative;">
+              <!-- Gantt rows -->
+              <div class="gantt-row">
+                <div class="gr-label">Robot.Pick</div>
+                <div class="gr-track">
+                  <div class="gantt-bar run" style="left:0%; width:6%;">2.1s</div>
+                  <div class="gantt-bar gap" style="left:6%; width:4%;">1.5s</div>
+                  <div class="gantt-bar run" style="left:10%; width:6%;">2.0s</div>
+                  <div class="gantt-bar gap" style="left:16%; width:5%;">1.8s</div>
+                  <div class="gantt-bar run" style="left:21%; width:6%;">2.2s</div>
+                  <div class="gantt-bar gap" style="left:27%; width:60%;"></div>
+                  <div class="gantt-bar run" style="left:87%; width:6%;">2.1s</div>
+                </div>
+              </div>
+              <div class="gantt-row">
+                <div class="gr-label">Conveyor.A1</div>
+                <div class="gr-track">
+                  <div class="gantt-bar gap" style="left:0%; width:6%;"></div>
+                  <div class="gantt-bar run" style="left:6%; width:14%;">4.8s</div>
+                  <div class="gantt-bar gap" style="left:20%; width:3%;">1.1s</div>
+                  <div class="gantt-bar run" style="left:23%; width:14%;">4.7s</div>
+                  <div class="gantt-bar gap" style="left:37%; width:50%;"></div>
+                  <div class="gantt-bar run" style="left:87%; width:13%;">4.8s</div>
+                </div>
+              </div>
+              <div class="gantt-row">
+                <div class="gr-label">Fixture.Lock</div>
+                <div class="gr-track">
+                  <div class="gantt-bar gap" style="left:0%; width:20%;"></div>
+                  <div class="gantt-bar run" style="left:20%; width:10%;">3.2s</div>
+                  <div class="gantt-bar gap" style="left:30%; width:8%;">2.8s</div>
+                  <div class="gantt-bar run" style="left:38%; width:9%;">3.0s</div>
+                  <div class="gantt-bar gap" style="left:47%; width:40%;"></div>
+                  <div class="gantt-bar run" style="left:87%; width:10%;">3.3s</div>
+                </div>
+              </div>
+              <div class="gantt-row" style="background:#FFF6F4; border-radius:3px;">
+                <div class="gr-label" style="color:#B71C1C;"><b>Press.Down ⚠</b></div>
+                <div class="gr-track">
+                  <div class="gantt-bar gap" style="left:0%; width:30%;"></div>
+                  <div class="gantt-bar run" style="left:30%; width:36%;">12.5s</div>
+                  <!-- Critical gap -->
+                  <div class="gantt-bar gap" style="left:66%; width:21%; background:linear-gradient(180deg,#FF8A65,#E5494F); color:#fff;">14.2s ⚠ 최대 Gap</div>
+                  <div class="gantt-bar run" style="left:87%; width:13%;">11.8s</div>
+                </div>
+              </div>
+              <div class="gantt-row">
+                <div class="gr-label">Press.Up</div>
+                <div class="gr-track">
+                  <div class="gantt-bar gap" style="left:0%; width:66%;"></div>
+                  <div class="gantt-bar run" style="left:66%; width:13%;">4.6s</div>
+                  <div class="gantt-bar gap" style="left:79%; width:8%;">2.6s</div>
+                  <div class="gantt-bar run" style="left:87%; width:13%;">4.5s</div>
+                </div>
+              </div>
+              <div class="gantt-row">
+                <div class="gr-label">Fixture.Unlock</div>
+                <div class="gr-track">
+                  <div class="gantt-bar gap" style="left:0%; width:79%;"></div>
+                  <div class="gantt-bar run" style="left:79%; width:6%;">2.0s</div>
+                  <div class="gantt-bar gap" style="left:85%; width:2%;"></div>
+                  <div class="gantt-bar run" style="left:87%; width:6%;">2.0s</div>
+                </div>
+              </div>
+              <div class="gantt-row">
+                <div class="gr-label">Unloader.Out</div>
+                <div class="gr-track">
+                  <div class="gantt-bar gap" style="left:0%; width:85%;"></div>
+                  <div class="gantt-bar run" style="left:85%; width:6%;">1.8s</div>
+                  <div class="gantt-bar gap" style="left:91%; width:1%;"></div>
+                  <div class="gantt-bar run" style="left:92%; width:5%;">1.8s</div>
+                </div>
+              </div>
+              <div class="gantt-row">
+                <div class="gr-label">Robot.Place</div>
+                <div class="gr-track">
+                  <div class="gantt-bar gap" style="left:0%; width:92%;"></div>
+                  <div class="gantt-bar run" style="left:92%; width:7%;">2.3s</div>
+                </div>
+              </div>
+
+              <!-- Drag-selected range overlay -->
+              <div style="position:absolute; left:calc(120px + (100% - 128px)*0.66); top:8px; width:calc((100% - 128px)*0.21); height:calc(8*30px); background:rgba(43,181,197,0.12); border:2px dashed var(--primary); pointer-events:none;"></div>
+
+              <!-- Time axis -->
+              <div class="gantt-axis">
+                <div></div>
+                <div class="ga-ticks">
+                  <span>14:00</span><span>14:05</span><span>14:10</span><span>14:15</span><span>14:20</span><span>14:25</span><span>14:30</span>
+                </div>
+              </div>
+
+              <!-- Tooltip on Press.Down gap -->
+              <div class="gantt-tooltip" style="left:calc(120px + (100% - 128px)*0.66 + 80px); top:calc(3*30px + 4px);">
+                <b>Press.Down → Press.Up</b><br>
+                Gap: 14.2s (병목)<br>
+                14:18:32 ~ 14:18:46<br>
+                <span style="color:#FFD180;">▲ 최대 병목 구간</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Drag-selected stats -->
+          <div class="card" style="border-color:var(--primary);">
+            <div class="card-h">
+              <h4 style="color:var(--primary-dark);">🎯 드래그 선택 구간 (14:18:32 ~ 14:18:46)</h4>
+              <button class="btn">✕ 해제</button>
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:12px;">
+              <div>
+                <div style="font-size:10px; color:var(--text-mute); letter-spacing:1px; font-weight:700;">선택 구간 길이</div>
+                <div style="font-size:18px; font-weight:800; color:var(--navy);">14.2s</div>
+              </div>
+              <div>
+                <div style="font-size:10px; color:var(--text-mute); letter-spacing:1px; font-weight:700;">동작 (Run) 합</div>
+                <div style="font-size:18px; font-weight:800; color:var(--primary-dark);">0.0s</div>
+              </div>
+              <div>
+                <div style="font-size:10px; color:var(--text-mute); letter-spacing:1px; font-weight:700;">병목 (Gap) 합</div>
+                <div style="font-size:18px; font-weight:800; color:var(--red);">14.2s</div>
+              </div>
+              <div>
+                <div style="font-size:10px; color:var(--text-mute); letter-spacing:1px; font-weight:700;">활성 디바이스</div>
+                <div style="font-size:18px; font-weight:800; color:var(--navy);">0 / 8</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="actions-list">
+    <h4>🎯 동작 시퀀스</h4>
+    <ol>
+      <li>① <b>시간 구간 지정</b> — 상단 <code>📅 기간</code> 버튼으로 시작·종료 시각 입력 (예: 14:00 ~ 14:30). <code>조회</code> 클릭.</li>
+      <li>② <b>간트 차트 표시</b> — 8개 디바이스를 row 로 정렬. 각 row 에 실행(파랑) · 병목(노랑) bar 를 시각화.</li>
+      <li>③ <b>최대 Gap 강조</b> — 가장 긴 Gap 구간은 <b>빨간색 그라데이션</b> + <code>⚠ 최대 Gap</code> 라벨로 자동 강조.</li>
+      <li>④ <b>차트 클릭</b> — 특정 bar 클릭 시 tooltip 으로 정확한 디바이스명·시각·길이 표시.</li>
+      <li>⑤ <b>범위 드래그</b> — 마우스 드래그로 가로 범위 선택. 점선 박스로 선택 영역 표시.</li>
+      <li>⑥ <b>구간 통계</b> — 선택 영역 아래 <b>4 KPI 박스</b> 표시 (길이 / Run 합 / Gap 합 / 활성 디바이스 수).</li>
+      <li>⑦ <b>해제 / 재선택</b> — <code>✕ 해제</code> 버튼 또는 차트 빈 영역 클릭으로 선택 해제.</li>
+    </ol>
+  </div>
+</section>
+
+<!-- =================== PAGE 6 : CCTV 관제 =================== -->
+<section class="page-section" id="p6">
+  <div class="ps-head">
+    <div class="ps-title">
+      <h2><span class="num">P4</span>CCTV 관제 (실시간 영상 + 설비 오버레이)</h2>
+      <div class="purpose"><b>목적</b> — 실시간 CCTV 영상 위에 <b>설비 ID·상태·알람</b>을 동적 라벨로 오버레이하여 현장 위치를 즉시 식별</div>
+    </div>
+    <div class="ps-meta">
+      <div class="url">/cctv</div>
+      <div>RTSP overlay · multi-channel</div>
+    </div>
+  </div>
+
+  <div class="browser">
+    <div class="b-bar">
+      <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+      <div class="url-bar"><span class="lock">🔒</span> dspilot.local/cctv?ch=STN1</div>
+    </div>
+    <div class="b-body">
+      <div class="app">
+        <aside class="sidebar">
+          <div class="logo"><span class="dot"></span>DSPilot</div>
+          <div class="menu">
+            <div class="menu-item"><span class="ico">📊</span>대시보드</div>            <div class="menu-item"><span class="ico">🎨</span>동작편차</div>
+            <div class="menu-item"><span class="ico">⏱</span>사이클 분석</div>            <div class="menu-item active"><span class="ico">📹</span>CCTV 관제</div>
+            <div class="menu-item"><span class="ico">⏰</span>가동시간·이상 분석</div>
+          </div>
+        </aside>
+
+        <div class="content">
+          <div class="top-bar">
+            <div class="title-area">
+              <h3>CCTV 관제 · STN1 라인 (Live)</h3>
+              <div class="breadcrumb">홈 · CCTV · STN1 (RTSP H.265 · 1080p)</div>
+            </div>
+            <div class="actions">
+              <button class="btn">📐 영역 편집</button>
+              <button class="btn">🖼 배경 모드</button>
+              <button class="btn primary">⏺ 녹화 시작</button>
+            </div>
+          </div>
+
+          <!-- KPI -->
+          <div class="kpi-row">
+            <div class="kpi-cell">
+              <div class="kp-label">활성 채널</div>
+              <div class="kp-value" style="color:var(--primary);">4 / 8</div>
+              <div class="kp-target">STN1·2·3·5 Live</div>
+            </div>
+            <div class="kpi-cell">
+              <div class="kp-label">실시간 알람</div>
+              <div class="kp-value" style="color:var(--red);">2건</div>
+              <div class="kp-target">설비 오버레이 깜빡임</div>
+            </div>
+            <div class="kpi-cell">
+              <div class="kp-label">스트림 지연</div>
+              <div class="kp-value" style="color:var(--green);">148ms</div>
+              <div class="kp-target">정상 (≤200ms)</div>
+            </div>
+          </div>
+
+          <!-- Main view: Live CCTV with overlay -->
+          <div style="display:grid; grid-template-columns:1.7fr 1fr; gap:14px;">
+
+            <!-- Live View -->
+            <div class="card" style="margin-bottom:0; padding:0; overflow:hidden;">
+              <div class="card-h" style="padding:10px 14px; border-bottom:1px solid var(--line);">
+                <h4>📹 STN1 Live View · 라벨 자동 정합</h4>
+                <div style="display:flex; gap:6px; font-size:10px;">
+                  <span style="background:var(--red); color:#fff; padding:1px 7px; border-radius:8px; font-weight:700;">● LIVE</span>
+                  <span style="background:var(--cyan-bg); color:var(--navy-2); padding:1px 7px; border-radius:8px; font-weight:700;">2026-05-28 14:23:05</span>
+                </div>
+              </div>
+
+              <!-- Mock CCTV scene with overlays -->
+              <div style="position:relative; background:#1a1a1a; height:340px; overflow:hidden;">
+                <!-- Background pattern simulating warehouse/factory -->
+                <svg viewBox="0 0 600 340" style="position:absolute;inset:0;width:100%;height:100%;">
+                  <defs>
+                    <linearGradient id="floor" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stop-color="#3d4a5c"/><stop offset="100%" stop-color="#1a1f29"/>
+                    </linearGradient>
+                    <linearGradient id="wall" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stop-color="#2a323e"/><stop offset="100%" stop-color="#3d4a5c"/>
+                    </linearGradient>
+                  </defs>
+                  <!-- Floor / wall -->
+                  <rect x="0" y="0" width="600" height="200" fill="url(#wall)"/>
+                  <rect x="0" y="200" width="600" height="140" fill="url(#floor)"/>
+                  <!-- Floor grid (perspective) -->
+                  <g stroke="rgba(255,255,255,0.08)" stroke-width="0.5">
+                    <line x1="0" y1="220" x2="600" y2="220"/>
+                    <line x1="0" y1="260" x2="600" y2="260"/>
+                    <line x1="0" y1="300" x2="600" y2="300"/>
+                    <line x1="100" y1="200" x2="50" y2="340"/>
+                    <line x1="200" y1="200" x2="180" y2="340"/>
+                    <line x1="300" y1="200" x2="300" y2="340"/>
+                    <line x1="400" y1="200" x2="420" y2="340"/>
+                    <line x1="500" y1="200" x2="550" y2="340"/>
+                  </g>
+                  <!-- Equipment silhouettes -->
+                  <!-- Device 1 (left) -->
+                  <rect x="60" y="130" width="90" height="100" rx="3" fill="#4a5568" stroke="#1a2530" stroke-width="1"/>
+                  <rect x="65" y="135" width="80" height="20" fill="#5a6878"/>
+                  <circle cx="105" cy="185" r="14" fill="#8896a6"/>
+                  <rect x="55" y="225" width="100" height="20" fill="#2a323e"/>
+                  <!-- Device 2 (center) -->
+                  <rect x="200" y="100" width="120" height="130" rx="3" fill="#4a5568" stroke="#1a2530" stroke-width="1"/>
+                  <rect x="208" y="108" width="104" height="30" fill="#5a6878"/>
+                  <circle cx="240" cy="170" r="10" fill="#8896a6"/>
+                  <circle cx="280" cy="170" r="10" fill="#8896a6"/>
+                  <rect x="195" y="225" width="130" height="22" fill="#2a323e"/>
+                  <!-- Device 3 (right) -->
+                  <rect x="380" y="120" width="100" height="110" rx="3" fill="#4a5568" stroke="#1a2530" stroke-width="1"/>
+                  <rect x="386" y="128" width="88" height="22" fill="#5a6878"/>
+                  <rect x="400" y="160" width="60" height="50" fill="#3d4a5c"/>
+                  <rect x="375" y="225" width="110" height="20" fill="#2a323e"/>
+                  <!-- Device 4 (far right) -->
+                  <rect x="500" y="140" width="80" height="90" rx="3" fill="#4a5568" stroke="#1a2530" stroke-width="1"/>
+                  <rect x="505" y="146" width="70" height="18" fill="#5a6878"/>
+                  <circle cx="540" cy="190" r="10" fill="#8896a6"/>
+                  <!-- Cables/pipes -->
+                  <path d="M 100,150 Q 130,160 150,140" stroke="#888" stroke-width="1.5" fill="none"/>
+                  <path d="M 260,140 Q 280,150 300,135" stroke="#888" stroke-width="1.5" fill="none"/>
+                  <!-- Ceiling lights -->
+                  <rect x="50" y="20" width="40" height="6" fill="#FFD180" opacity="0.8"/>
+                  <rect x="250" y="20" width="40" height="6" fill="#FFD180" opacity="0.8"/>
+                  <rect x="450" y="20" width="40" height="6" fill="#FFD180" opacity="0.8"/>
+                </svg>
+
+                <!-- OVERLAY LABELS (with status colors) -->
+                <!-- Device 1: 정상 (green) -->
+                <div style="position:absolute; left:60px; top:105px; background:rgba(54,194,138,0.92); color:#fff; padding:4px 8px; border-radius:3px; font-size:11px; font-weight:800; border:1.5px solid #fff; box-shadow:0 2px 8px rgba(0,0,0,0.4);">
+                  STN1-Device1<br>
+                  <span style="font-size:9.5px; font-weight:600;">정상 · 2.1s</span>
+                </div>
+                <!-- Device 2: 주의 (amber) -->
+                <div style="position:absolute; left:210px; top:75px; background:rgba(248,197,69,0.94); color:#1a1a1a; padding:4px 8px; border-radius:3px; font-size:11px; font-weight:800; border:1.5px solid #fff; box-shadow:0 2px 8px rgba(0,0,0,0.4);">
+                  STN1-Device2 ⚠<br>
+                  <span style="font-size:9.5px; font-weight:600;">주의 · 8.2s (편차)</span>
+                </div>
+                <!-- Device 3: ALARM (red blinking) -->
+                <div style="position:absolute; left:380px; top:90px; background:rgba(229,73,79,0.95); color:#fff; padding:5px 10px; border-radius:3px; font-size:12px; font-weight:800; border:2px solid #fff; box-shadow:0 0 0 4px rgba(229,73,79,0.4), 0 2px 12px rgba(0,0,0,0.5); animation:blink 1s infinite;">
+                  STN1-Device3 🚨<br>
+                  <span style="font-size:10px; font-weight:700;">ALARM · ErrOver 14.2s</span>
+                </div>
+                <!-- Device 4: 정상 -->
+                <div style="position:absolute; left:495px; top:115px; background:rgba(54,194,138,0.92); color:#fff; padding:4px 8px; border-radius:3px; font-size:11px; font-weight:800; border:1.5px solid #fff; box-shadow:0 2px 8px rgba(0,0,0,0.4);">
+                  STN1-Device4<br>
+                  <span style="font-size:9.5px; font-weight:600;">정상 · 1.8s</span>
+                </div>
+
+                <!-- Connecting lines from labels to equipment -->
+                <svg viewBox="0 0 600 340" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;">
+                  <line x1="105" y1="125" x2="105" y2="135" stroke="#36C28A" stroke-width="2"/>
+                  <line x1="260" y1="100" x2="260" y2="105" stroke="#F8C545" stroke-width="2"/>
+                  <line x1="430" y1="120" x2="430" y2="120" stroke="#E5494F" stroke-width="2"/>
+                  <line x1="540" y1="140" x2="540" y2="135" stroke="#36C28A" stroke-width="2"/>
+                </svg>
+
+                <!-- Bottom info bar -->
+                <div style="position:absolute; left:0; right:0; bottom:0; background:rgba(0,0,0,0.7); color:#fff; padding:6px 12px; font-size:10.5px; display:flex; justify-content:space-between; font-family:monospace;">
+                  <span>📹 STN1 · rtsp://192.168.9.16/stream · H.265 · 1920×1080 @ 30fps</span>
+                  <span>● REC 00:12:48 · 148ms latency</span>
+                </div>
+              </div>
+
+              <!-- Status legend below player -->
+              <div style="padding:10px 14px; display:flex; gap:14px; align-items:center; background:var(--bg-soft); font-size:11px;">
+                <span style="font-weight:700; color:var(--text-light);">설비 상태 범례:</span>
+                <span style="display:flex; align-items:center; gap:5px;"><span style="width:12px;height:12px;background:#36C28A;border-radius:2px;"></span>정상</span>
+                <span style="display:flex; align-items:center; gap:5px;"><span style="width:12px;height:12px;background:#F8C545;border-radius:2px;"></span>주의 (편차)</span>
+                <span style="display:flex; align-items:center; gap:5px;"><span style="width:12px;height:12px;background:#E5494F;border-radius:2px;animation:blink 1s infinite;"></span>알람 (깜빡임)</span>
+              </div>
+            </div>
+
+            <!-- Side panel: Channels + Selected -->
+            <div>
+              <!-- Channel grid -->
+              <div class="card">
+                <div class="card-h">
+                  <h4>📺 채널 그리드 (멀티뷰)</h4>
+                  <div style="font-size:10px; color:var(--text-mute);">4 active · 8 total</div>
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                  <!-- STN1 thumbnail (selected) -->
+                  <div style="background:#1a1a1a; border:2.5px solid var(--primary); border-radius:4px; padding:6px; cursor:pointer; box-shadow:0 0 0 3px rgba(43,181,197,0.2);">
+                    <div style="background:linear-gradient(180deg,#2a323e,#1a1f29); height:60px; border-radius:3px; position:relative; display:flex; align-items:center; justify-content:center;">
+                      <span style="font-size:9px; color:#888;">STN1 (선택)</span>
+                      <span style="position:absolute; top:3px; right:3px; background:var(--red); color:#fff; padding:0 4px; border-radius:6px; font-size:8px; font-weight:700;">⦿ LIVE</span>
+                    </div>
+                    <div style="font-size:10px; color:#fff; padding:3px 0 0; font-weight:700;">STN1 · 조립1</div>
+                    <div style="font-size:9px; color:var(--red);">🚨 1 알람</div>
+                  </div>
+                  <!-- STN2 -->
+                  <div style="background:#1a1a1a; border:1.5px solid #444; border-radius:4px; padding:6px; cursor:pointer;">
+                    <div style="background:linear-gradient(180deg,#2a323e,#1a1f29); height:60px; border-radius:3px; position:relative; display:flex; align-items:center; justify-content:center;">
+                      <span style="font-size:9px; color:#888;">STN2</span>
+                      <span style="position:absolute; top:3px; right:3px; background:var(--red); color:#fff; padding:0 4px; border-radius:6px; font-size:8px; font-weight:700;">⦿ LIVE</span>
+                    </div>
+                    <div style="font-size:10px; color:#fff; padding:3px 0 0; font-weight:700;">STN2 · 조립2</div>
+                    <div style="font-size:9px; color:var(--green);">● 정상</div>
+                  </div>
+                  <!-- STN3 -->
+                  <div style="background:#1a1a1a; border:1.5px solid #444; border-radius:4px; padding:6px; cursor:pointer;">
+                    <div style="background:linear-gradient(180deg,#2a323e,#1a1f29); height:60px; border-radius:3px; position:relative; display:flex; align-items:center; justify-content:center;">
+                      <span style="font-size:9px; color:#888;">STN3</span>
+                      <span style="position:absolute; top:3px; right:3px; background:var(--red); color:#fff; padding:0 4px; border-radius:6px; font-size:8px; font-weight:700;">⦿ LIVE</span>
+                    </div>
+                    <div style="font-size:10px; color:#fff; padding:3px 0 0; font-weight:700;">STN3 · 조립3</div>
+                    <div style="font-size:9px; color:var(--amber);">⚠ 1 주의</div>
+                  </div>
+                  <!-- STN5 -->
+                  <div style="background:#1a1a1a; border:1.5px solid #444; border-radius:4px; padding:6px; cursor:pointer;">
+                    <div style="background:linear-gradient(180deg,#2a323e,#1a1f29); height:60px; border-radius:3px; position:relative; display:flex; align-items:center; justify-content:center;">
+                      <span style="font-size:9px; color:#888;">STN5</span>
+                      <span style="position:absolute; top:3px; right:3px; background:var(--red); color:#fff; padding:0 4px; border-radius:6px; font-size:8px; font-weight:700;">⦿ LIVE</span>
+                    </div>
+                    <div style="font-size:10px; color:#fff; padding:3px 0 0; font-weight:700;">STN5 · 포장</div>
+                    <div style="font-size:9px; color:var(--green);">● 정상</div>
+                  </div>
+                  <!-- STN4 (offline) -->
+                  <div style="background:#1a1a1a; border:1.5px solid #444; border-radius:4px; padding:6px; cursor:pointer; opacity:0.55;">
+                    <div style="background:#2a323e; height:60px; border-radius:3px; display:flex; align-items:center; justify-content:center;">
+                      <span style="font-size:9px; color:#666;">OFFLINE</span>
+                    </div>
+                    <div style="font-size:10px; color:#888; padding:3px 0 0; font-weight:700;">STN4 · 검사</div>
+                    <div style="font-size:9px; color:#666;">○ 연결 끊김</div>
+                  </div>
+                  <!-- STN6 (offline) -->
+                  <div style="background:#1a1a1a; border:1.5px solid #444; border-radius:4px; padding:6px; cursor:pointer; opacity:0.55;">
+                    <div style="background:#2a323e; height:60px; border-radius:3px; display:flex; align-items:center; justify-content:center;">
+                      <span style="font-size:9px; color:#666;">OFFLINE</span>
+                    </div>
+                    <div style="font-size:10px; color:#888; padding:3px 0 0; font-weight:700;">STN6 · 출하</div>
+                    <div style="font-size:9px; color:#666;">○ 연결 끊김</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Selected device detail -->
+              <div class="card" style="border-color:var(--red); border-width:2px; background:#FFF6F4;">
+                <div class="card-h">
+                  <h4 style="color:#B71C1C;">🚨 선택 설비 · STN1-Device3</h4>
+                  <span style="background:var(--red); color:#fff; padding:1px 7px; border-radius:8px; font-size:9px; font-weight:700; animation:blink 1s infinite;">ALARM</span>
+                </div>
+                <table style="width:100%; font-size:11px;">
+                  <tr><td style="color:var(--text-mute); padding:3px 0;">Device ID</td><td style="font-family:monospace; font-weight:700;">STN1-Device3</td></tr>
+                  <tr><td style="color:var(--text-mute); padding:3px 0;">위치</td><td>(x=430, y=120) · STN1</td></tr>
+                  <tr><td style="color:var(--text-mute); padding:3px 0;">현재 상태</td><td style="color:#B71C1C; font-weight:700;">ActionOver = 2 (시간초과)</td></tr>
+                  <tr><td style="color:var(--text-mute); padding:3px 0;">현재 동작</td><td>Press.Down · 14.2s (한도 9.5s)</td></tr>
+                  <tr><td style="color:var(--text-mute); padding:3px 0;">발생 시각</td><td>14:22:51 · 14초 전</td></tr>
+                </table>
+                <div style="display:flex; gap:6px; margin-top:8px;">
+                  <button class="btn primary" style="flex:1;">📈 상세 추이</button>
+                  <button class="btn" style="flex:1;">🔇 알람 음소거</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Overlay editor preview -->
+          <div class="card" style="margin-top:14px;">
+            <div class="card-h">
+              <h4>📐 Overlay Editor · 영역 배치 모드 (Grid Edit)</h4>
+              <div style="display:flex; gap:6px;">
+                <button class="btn">CCTV 스트림</button>
+                <button class="btn">정적 이미지</button>
+                <button class="btn primary">3D 뷰</button>
+              </div>
+            </div>
+            <div style="display:grid; grid-template-columns:2fr 1fr; gap:12px;">
+              <!-- Edit grid -->
+              <div style="background:#1a1a1a; padding:8px; border-radius:4px; position:relative; height:180px;">
+                <!-- Grid -->
+                <svg viewBox="0 0 600 180" style="width:100%; height:100%;">
+                  <defs>
+                    <pattern id="editgrid" width="60" height="36" patternUnits="userSpaceOnUse">
+                      <path d="M 60 0 L 0 0 0 36" fill="none" stroke="rgba(43,181,197,0.25)" stroke-width="0.5"/>
+                    </pattern>
+                  </defs>
+                  <rect x="0" y="0" width="600" height="180" fill="url(#editgrid)"/>
+                  <!-- Existing zones -->
+                  <rect x="60" y="36" width="60" height="72" fill="rgba(54,194,138,0.3)" stroke="#36C28A" stroke-width="1.5"/>
+                  <text x="90" y="76" text-anchor="middle" font-size="10" fill="#36C28A" font-weight="700">Device1</text>
+                  <rect x="180" y="20" width="120" height="100" fill="rgba(248,197,69,0.3)" stroke="#F8C545" stroke-width="1.5"/>
+                  <text x="240" y="74" text-anchor="middle" font-size="10" fill="#F8C545" font-weight="700">Device2</text>
+                  <!-- Being drawn -->
+                  <rect x="360" y="40" width="120" height="80" fill="rgba(43,181,197,0.35)" stroke="#5BC9D6" stroke-width="2" stroke-dasharray="4,3"/>
+                  <text x="420" y="84" text-anchor="middle" font-size="10" fill="#5BC9D6" font-weight="700">+ 영역 추가 중</text>
+                  <!-- Cursor crosshair -->
+                  <line x1="420" y1="40" x2="420" y2="120" stroke="#5BC9D6" stroke-width="0.8" stroke-dasharray="2,2"/>
+                  <line x1="360" y1="80" x2="480" y2="80" stroke="#5BC9D6" stroke-width="0.8" stroke-dasharray="2,2"/>
+                </svg>
+              </div>
+              <!-- Edit form -->
+              <div>
+                <div style="font-size:11px; font-weight:700; margin-bottom:6px;">신규 Device 등록</div>
+                <table style="width:100%; font-size:10.5px;">
+                  <tr><td style="padding:3px 0; color:var(--text-mute);">Device ID</td>
+                      <td><input type="text" value="STN1-Device5" style="width:100%; padding:3px 5px; border:1px solid var(--line); border-radius:2px; font-size:10px; font-family:monospace;" readonly></td></tr>
+                  <tr><td style="padding:3px 0; color:var(--text-mute);">RTSP URL</td>
+                      <td><input type="text" value="rtsp://192.168.9.16/stream5" style="width:100%; padding:3px 5px; border:1px solid var(--line); border-radius:2px; font-size:10px; font-family:monospace;" readonly></td></tr>
+                  <tr><td style="padding:3px 0; color:var(--text-mute);">PLC 태그</td>
+                      <td><input type="text" value="Press5.Status" style="width:100%; padding:3px 5px; border:1px solid var(--line); border-radius:2px; font-size:10px; font-family:monospace;" readonly></td></tr>
+                  <tr><td style="padding:3px 0; color:var(--text-mute);">위치</td>
+                      <td style="font-family:monospace; font-size:10px;">x=360 y=40 w=120 h=80</td></tr>
+                </table>
+                <div style="font-size:9.5px; color:var(--text-mute); margin-top:6px;">자동 저장 → Runtime DB (.db)</div>
+                <div style="display:flex; gap:5px; margin-top:8px;">
+                  <button class="btn" style="flex:1;">취소</button>
+                  <button class="btn primary" style="flex:1;">✓ 저장</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="actions-list">
+    <h4>🎯 동작 시퀀스</h4>
+    <ol>
+      <li>① <b>채널 선택</b> — 우측 채널 그리드에서 STN 클릭. 좌측 메인 뷰에 해당 채널의 실시간 영상 표시. 선택 채널은 청록 테두리 + 외곽 그림자.</li>
+      <li>② <b>오버레이 자동 표시</b> — 영상 위에 등록된 모든 설비 라벨이 절대 좌표 기반으로 자동 정합. <code>{Device ID}</code> + <code>{현재 상태}</code> + <code>{시간/편차}</code>.</li>
+      <li>③ <b>상태별 색상</b> — 녹색(정상) · 주황(주의 ⚠) · 빨강(알람 🚨, <b>1초 주기 깜빡임</b>). 라벨 자체에 외곽 4px 빛 효과.</li>
+      <li>④ <b>알람 라벨 클릭</b> — 우측 하단에 <b>선택 설비 상세 패널</b> 표시 (Device ID, 위치, 상태, 동작, 발생 시각).</li>
+      <li>⑤ <b>상세 추이</b> — <code>📈 상세 추이</code> 클릭 시 P3 동작편차 페이지로 이동 (Call ID 유지).</li>
+      <li>⑥ <b>영역 편집 모드</b> — 우상단 <code>📐 영역 편집</code> 클릭 시 그리드 편집 UI 활성화. 마우스 드래그로 영역 지정 → 신규 Device 등록 폼.</li>
+      <li>⑦ <b>배경 모드 전환</b> — CCTV 스트림 / 정적 이미지 / 3D 뷰 자유 전환. 동일 레이아웃 유지.</li>
+      <li>⑧ <b>Runtime DB 저장</b> — 영역·매핑 변경 시 SQLite Runtime DB(.db)에 자동 저장. 별도 빌드·배포 없이 즉시 반영.</li>
+    </ol>
+  </div>
+</section>
+
+<style>
+@keyframes blink {
+  0%, 50% { opacity:1; }
+  51%, 100% { opacity:0.45; }
+}
+</style>
+
+<!-- =================== PAGE 7 : 가동시간 분석 =================== -->
+<section class="page-section" id="p7">
+  <div class="ps-head">
+    <div class="ps-title">
+      <h2><span class="num">P5</span>설비 가동시간·이상발생 통합 분석 (Uptime + UserTag)</h2>
+      <div class="purpose"><b>목적</b> — 설비별 <b>가동/정지/유휴/점검</b> 시간 집계 (OEE·MTBF·MTTR) + 사용자 태그 기반 <b>이상발생</b> 이벤트 추적 (P5 통합)</div>
+    </div>
+    <div class="ps-meta">
+      <div class="url">/uptime</div>
+      <div>OEE · MTBF · MTTR · downtime</div>
+    </div>
+  </div>
+
+  <div class="browser">
+    <div class="b-bar">
+      <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+      <div class="url-bar"><span class="lock">🔒</span> dspilot.local/uptime?range=week</div>
+    </div>
+    <div class="b-body">
+      <div class="app">
+        <aside class="sidebar">
+          <div class="logo"><span class="dot"></span>DSPilot</div>
+          <div class="menu">
+            <div class="menu-item"><span class="ico">📊</span>대시보드</div>            <div class="menu-item"><span class="ico">🎨</span>동작편차</div>
+            <div class="menu-item"><span class="ico">⏱</span>사이클 분석</div>            <div class="menu-item"><span class="ico">📹</span>CCTV 관제</div>
+            <div class="menu-item active"><span class="ico">⏰</span>가동시간·이상 분석</div>
+          </div>
+        </aside>
+
+        <div class="content">
+          <div class="top-bar">
+            <div class="title-area">
+              <h3>설비 가동시간 분석 · OEE 종합 지표</h3>
+              <div class="breadcrumb">홈 · 가동시간 · 최근 7일</div>
+            </div>
+            <div class="actions">
+              <button class="btn">📅 2026-05-22 ~ 05-28</button>
+              <button class="btn">설비 선택</button>
+              <button class="btn primary">📤 리포트 출력</button>
+            </div>
+          </div>
+
+          <!-- KPI: OEE breakdown -->
+          <div class="kpi-row">
+            <div class="kpi-cell" style="border-color:var(--primary);">
+              <div class="kp-label">OEE 종합</div>
+              <div class="kp-value" style="color:var(--primary);">76.8%</div>
+              <div class="kp-target">목표 85% (Δ−8.2%p)</div>
+            </div>
+            <div class="kpi-cell">
+              <div class="kp-label">가용성 (Availability)</div>
+              <div class="kp-value" style="color:var(--green);">92.4%</div>
+              <div class="kp-target">계획 시간 대비</div>
+            </div>
+            <div class="kpi-cell">
+              <div class="kp-label">성능 (Performance)</div>
+              <div class="kp-value" style="color:var(--amber);">87.6%</div>
+              <div class="kp-target">표준 사이클 대비</div>
+            </div>
+          </div>
+
+          <div class="kpi-row">
+            <div class="kpi-cell">
+              <div class="kp-label">품질 (Quality)</div>
+              <div class="kp-value" style="color:var(--green);">94.9%</div>
+              <div class="kp-target">불량률 5.1%</div>
+            </div>
+            <div class="kpi-cell">
+              <div class="kp-label">MTBF · 평균 무고장</div>
+              <div class="kp-value" style="color:var(--primary);">42.7h</div>
+              <div class="kp-target">전주 38.2h (+11.8%)</div>
+            </div>
+            <div class="kpi-cell">
+              <div class="kp-label">MTTR · 평균 복구</div>
+              <div class="kp-value" style="color:var(--amber);">24min</div>
+              <div class="kp-target">목표 20min (Δ+4min)</div>
+            </div>
+          </div>
+
+          <!-- Time composition stacked bar (7일) -->
+          <div class="card">
+            <div class="card-h">
+              <h4>📊 일자별 시간 구성 (가동·유휴·정지·점검) · 단위: 시간</h4>
+              <div class="legend" style="margin-bottom:0;">
+                <div class="lg-item"><span class="lg-swatch" style="background:#36C28A;"></span> 가동</div>
+                <div class="lg-item"><span class="lg-swatch" style="background:#F8C545;"></span> 유휴</div>
+                <div class="lg-item"><span class="lg-swatch" style="background:#E5494F;"></span> 정지(고장)</div>
+                <div class="lg-item"><span class="lg-swatch" style="background:#8B6FD8;"></span> 점검</div>
+              </div>
+            </div>
+
+            <!-- SVG stacked bar chart -->
+            <div style="background:#fff; border:1px solid var(--line); border-radius:4px; padding:14px;">
+              <svg viewBox="0 0 720 280" style="width:100%; display:block;">
+                <!-- Y axis -->
+                <line x1="50" y1="20" x2="50" y2="240" stroke="#5B6B7E"/>
+                <line x1="50" y1="240" x2="700" y2="240" stroke="#5B6B7E"/>
+                <g font-size="9.5" fill="#5B6B7E" font-family="monospace">
+                  <text x="44" y="24" text-anchor="end">24h</text>
+                  <text x="44" y="79" text-anchor="end">18h</text>
+                  <text x="44" y="134" text-anchor="end">12h</text>
+                  <text x="44" y="189" text-anchor="end">6h</text>
+                  <text x="44" y="244" text-anchor="end">0</text>
+                </g>
+                <g stroke="#EEE" stroke-width="0.5">
+                  <line x1="50" y1="79" x2="700" y2="79"/>
+                  <line x1="50" y1="134" x2="700" y2="134"/>
+                  <line x1="50" y1="189" x2="700" y2="189"/>
+                </g>
+
+                <!-- Bars (Mon~Sun) -->
+                <!-- Day 1 (5/22) -->
+                <g>
+                  <rect x="78" y="55"  width="60" height="135" fill="#36C28A"/>
+                  <rect x="78" y="190" width="60" height="22"  fill="#F8C545"/>
+                  <rect x="78" y="212" width="60" height="20"  fill="#E5494F"/>
+                  <rect x="78" y="232" width="60" height="8"   fill="#8B6FD8"/>
+                  <text x="108" y="255" text-anchor="middle" font-size="10" fill="#5B6B7E">5/22</text>
+                  <text x="108" y="48" text-anchor="middle" font-size="9.5" fill="#36C28A" font-weight="700">14.7h</text>
+                </g>
+                <!-- Day 2 (5/23) -->
+                <g>
+                  <rect x="158" y="40"  width="60" height="150" fill="#36C28A"/>
+                  <rect x="158" y="190" width="60" height="32"  fill="#F8C545"/>
+                  <rect x="158" y="222" width="60" height="12"  fill="#E5494F"/>
+                  <rect x="158" y="234" width="60" height="6"   fill="#8B6FD8"/>
+                  <text x="188" y="255" text-anchor="middle" font-size="10" fill="#5B6B7E">5/23</text>
+                  <text x="188" y="33" text-anchor="middle" font-size="9.5" fill="#36C28A" font-weight="700">16.4h</text>
+                </g>
+                <!-- Day 3 (5/24) - weekend, low -->
+                <g>
+                  <rect x="238" y="160" width="60" height="30"  fill="#36C28A"/>
+                  <rect x="238" y="190" width="60" height="14"  fill="#F8C545"/>
+                  <rect x="238" y="204" width="60" height="0"   fill="#E5494F"/>
+                  <rect x="238" y="204" width="60" height="36"  fill="#8B6FD8"/>
+                  <text x="268" y="255" text-anchor="middle" font-size="10" fill="#5B6B7E">5/24</text>
+                  <text x="268" y="155" text-anchor="middle" font-size="9.5" fill="#8B6FD8" font-weight="700">주말 점검</text>
+                </g>
+                <!-- Day 4 (5/25) -->
+                <g>
+                  <rect x="318" y="35"  width="60" height="155" fill="#36C28A"/>
+                  <rect x="318" y="190" width="60" height="32"  fill="#F8C545"/>
+                  <rect x="318" y="222" width="60" height="14"  fill="#E5494F"/>
+                  <rect x="318" y="236" width="60" height="4"   fill="#8B6FD8"/>
+                  <text x="348" y="255" text-anchor="middle" font-size="10" fill="#5B6B7E">5/25</text>
+                  <text x="348" y="28" text-anchor="middle" font-size="9.5" fill="#36C28A" font-weight="700">17.0h</text>
+                </g>
+                <!-- Day 5 (5/26) -->
+                <g>
+                  <rect x="398" y="42"  width="60" height="148" fill="#36C28A"/>
+                  <rect x="398" y="190" width="60" height="38"  fill="#F8C545"/>
+                  <rect x="398" y="228" width="60" height="8"   fill="#E5494F"/>
+                  <rect x="398" y="236" width="60" height="4"   fill="#8B6FD8"/>
+                  <text x="428" y="255" text-anchor="middle" font-size="10" fill="#5B6B7E">5/26</text>
+                  <text x="428" y="35" text-anchor="middle" font-size="9.5" fill="#36C28A" font-weight="700">16.2h</text>
+                </g>
+                <!-- Day 6 (5/27) - bad day -->
+                <g>
+                  <rect x="478" y="78"  width="60" height="112" fill="#36C28A"/>
+                  <rect x="478" y="190" width="60" height="22"  fill="#F8C545"/>
+                  <rect x="478" y="212" width="60" height="22"  fill="#E5494F"/>
+                  <rect x="478" y="234" width="60" height="6"   fill="#8B6FD8"/>
+                  <text x="508" y="255" text-anchor="middle" font-size="10" fill="#5B6B7E">5/27 ⚠</text>
+                  <text x="508" y="71" text-anchor="middle" font-size="9.5" fill="#E5494F" font-weight="700">12.2h ↓</text>
+                </g>
+                <!-- Day 7 (5/28 - today) -->
+                <g>
+                  <rect x="558" y="50"  width="60" height="140" fill="#36C28A"/>
+                  <rect x="558" y="190" width="60" height="36"  fill="#F8C545"/>
+                  <rect x="558" y="226" width="60" height="14"  fill="#E5494F"/>
+                  <text x="588" y="255" text-anchor="middle" font-size="10" fill="#5B6B7E">5/28 (오늘)</text>
+                  <text x="588" y="43" text-anchor="middle" font-size="9.5" fill="#36C28A" font-weight="700">15.3h</text>
+                </g>
+
+                <!-- 평균선 (가동시간) -->
+                <line x1="50" y1="60" x2="700" y2="60" stroke="#1FA8B8" stroke-width="1.5" stroke-dasharray="4,3"/>
+                <text x="680" y="55" text-anchor="end" font-size="10" fill="#1FA8B8" font-weight="700">평균 15.4h</text>
+              </svg>
+            </div>
+          </div>
+
+          <!-- Two columns: Stop reasons + Equipment ranking -->
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+            <!-- Stop reasons (donut) -->
+            <div class="card">
+              <div class="card-h">
+                <h4>🍩 정지 원인 분석 (이번 주)</h4>
+                <div style="font-size:10px; color:var(--text-mute);">총 정지: 6.4h</div>
+              </div>
+              <div style="display:grid; grid-template-columns:130px 1fr; gap:14px; align-items:center;">
+                <svg viewBox="0 0 100 100" style="width:130px; height:130px;">
+                  <!-- Donut chart -->
+                  <circle cx="50" cy="50" r="38" fill="none" stroke="#F0F2F5" stroke-width="14"/>
+                  <!-- Slice 1: 설비고장 38% -->
+                  <circle cx="50" cy="50" r="38" fill="none" stroke="#E5494F" stroke-width="14"
+                          stroke-dasharray="90.7 238.8" transform="rotate(-90 50 50)"/>
+                  <!-- Slice 2: 자재대기 26% -->
+                  <circle cx="50" cy="50" r="38" fill="none" stroke="#F8C545" stroke-width="14"
+                          stroke-dasharray="62.0 267.5" stroke-dashoffset="-90.7" transform="rotate(-90 50 50)"/>
+                  <!-- Slice 3: 작업자 대기 18% -->
+                  <circle cx="50" cy="50" r="38" fill="none" stroke="#5BC9D6" stroke-width="14"
+                          stroke-dasharray="43.0 286.5" stroke-dashoffset="-152.7" transform="rotate(-90 50 50)"/>
+                  <!-- Slice 4: 금형/공구 12% -->
+                  <circle cx="50" cy="50" r="38" fill="none" stroke="#8B6FD8" stroke-width="14"
+                          stroke-dasharray="28.6 300.9" stroke-dashoffset="-195.7" transform="rotate(-90 50 50)"/>
+                  <!-- Slice 5: 기타 6% -->
+                  <circle cx="50" cy="50" r="38" fill="none" stroke="#8896A6" stroke-width="14"
+                          stroke-dasharray="14.3 315.2" stroke-dashoffset="-224.3" transform="rotate(-90 50 50)"/>
+                  <text x="50" y="48" text-anchor="middle" font-size="14" font-weight="800" fill="#0A2540">6.4h</text>
+                  <text x="50" y="60" text-anchor="middle" font-size="7" fill="#5B6B7E">총 정지</text>
+                </svg>
+                <div>
+                  <div style="font-size:11px; display:flex; align-items:center; gap:6px; margin:3px 0;">
+                    <span style="width:11px;height:11px;background:#E5494F;border-radius:2px;"></span>
+                    <span style="flex:1;">설비고장</span>
+                    <span style="font-weight:700;">38% (2.4h)</span>
+                  </div>
+                  <div style="font-size:11px; display:flex; align-items:center; gap:6px; margin:3px 0;">
+                    <span style="width:11px;height:11px;background:#F8C545;border-radius:2px;"></span>
+                    <span style="flex:1;">자재대기</span>
+                    <span style="font-weight:700;">26% (1.7h)</span>
+                  </div>
+                  <div style="font-size:11px; display:flex; align-items:center; gap:6px; margin:3px 0;">
+                    <span style="width:11px;height:11px;background:#5BC9D6;border-radius:2px;"></span>
+                    <span style="flex:1;">작업자 대기</span>
+                    <span style="font-weight:700;">18% (1.2h)</span>
+                  </div>
+                  <div style="font-size:11px; display:flex; align-items:center; gap:6px; margin:3px 0;">
+                    <span style="width:11px;height:11px;background:#8B6FD8;border-radius:2px;"></span>
+                    <span style="flex:1;">금형/공구</span>
+                    <span style="font-weight:700;">12% (0.8h)</span>
+                  </div>
+                  <div style="font-size:11px; display:flex; align-items:center; gap:6px; margin:3px 0;">
+                    <span style="width:11px;height:11px;background:#8896A6;border-radius:2px;"></span>
+                    <span style="flex:1;">기타</span>
+                    <span style="font-weight:700;">6% (0.3h)</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Equipment ranking -->
+            <div class="card">
+              <div class="card-h">
+                <h4>🏆 설비별 OEE 순위 (Top 8)</h4>
+                <div style="font-size:10px; color:var(--text-mute);">주간 집계</div>
+              </div>
+              <table style="width:100%; font-size:11px;">
+                <thead>
+                  <tr style="background:var(--cyan-bg); color:var(--navy);">
+                    <th style="padding:6px 8px; text-align:center; font-weight:700;">#</th>
+                    <th style="padding:6px 8px; text-align:left; font-weight:700;">설비</th>
+                    <th style="padding:6px 8px; text-align:center; font-weight:700;">OEE</th>
+                    <th style="padding:6px 8px; text-align:right; font-weight:700;">가동시간</th>
+                    <th style="padding:6px 8px; text-align:right; font-weight:700;">정지</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td style="padding:5px 8px; text-align:center;">🥇 1</td><td style="padding:5px 8px;">STN5 · 포장</td><td style="padding:5px 8px; text-align:center; color:#1B5E20; font-weight:800;">89.4%</td><td style="padding:5px 8px; text-align:right; font-family:monospace;">108.6h</td><td style="padding:5px 8px; text-align:right; font-family:monospace; color:var(--green);">2.1h</td></tr>
+                  <tr><td style="padding:5px 8px; text-align:center;">🥈 2</td><td style="padding:5px 8px;">STN2 · 조립2</td><td style="padding:5px 8px; text-align:center; color:#1B5E20; font-weight:800;">86.2%</td><td style="padding:5px 8px; text-align:right; font-family:monospace;">104.8h</td><td style="padding:5px 8px; text-align:right; font-family:monospace; color:var(--green);">3.2h</td></tr>
+                  <tr><td style="padding:5px 8px; text-align:center;">🥉 3</td><td style="padding:5px 8px;">STN1 · 조립1</td><td style="padding:5px 8px; text-align:center; color:#7A5200; font-weight:800;">82.7%</td><td style="padding:5px 8px; text-align:right; font-family:monospace;">102.1h</td><td style="padding:5px 8px; text-align:right; font-family:monospace; color:var(--amber);">4.4h</td></tr>
+                  <tr><td style="padding:5px 8px; text-align:center;">4</td><td style="padding:5px 8px;">STN6 · 출하</td><td style="padding:5px 8px; text-align:center; color:#7A5200; font-weight:800;">79.5%</td><td style="padding:5px 8px; text-align:right; font-family:monospace;">98.4h</td><td style="padding:5px 8px; text-align:right; font-family:monospace; color:var(--amber);">5.1h</td></tr>
+                  <tr><td style="padding:5px 8px; text-align:center;">5</td><td style="padding:5px 8px;">STN4 · 검사</td><td style="padding:5px 8px; text-align:center; color:#7A5200; font-weight:800;">75.8%</td><td style="padding:5px 8px; text-align:right; font-family:monospace;">94.2h</td><td style="padding:5px 8px; text-align:right; font-family:monospace; color:var(--amber);">5.8h</td></tr>
+                  <tr style="background:#FFF6F4;"><td style="padding:5px 8px; text-align:center;">6</td><td style="padding:5px 8px;"><b style="color:#B71C1C;">STN3 · 조립3 ⚠</b></td><td style="padding:5px 8px; text-align:center; color:#B71C1C; font-weight:800;">62.4%</td><td style="padding:5px 8px; text-align:right; font-family:monospace;">82.6h</td><td style="padding:5px 8px; text-align:right; font-family:monospace; color:var(--red); font-weight:700;">12.2h</td></tr>
+                  <tr><td style="padding:5px 8px; text-align:center;">7</td><td style="padding:5px 8px;">STN7 · 반입</td><td style="padding:5px 8px; text-align:center; color:#7A5200; font-weight:800;">77.3%</td><td style="padding:5px 8px; text-align:right; font-family:monospace;">96.8h</td><td style="padding:5px 8px; text-align:right; font-family:monospace; color:var(--amber);">5.4h</td></tr>
+                  <tr><td style="padding:5px 8px; text-align:center;">8</td><td style="padding:5px 8px;">STN8 · 분류</td><td style="padding:5px 8px; text-align:center; color:#7A5200; font-weight:800;">73.8%</td><td style="padding:5px 8px; text-align:right; font-family:monospace;">92.3h</td><td style="padding:5px 8px; text-align:right; font-family:monospace; color:var(--amber);">6.3h</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Downtime log -->
+          <div class="card">
+            <div class="card-h">
+              <h4>📋 정지 이벤트 로그 (이번 주)</h4>
+              <div style="display:flex; gap:6px; font-size:10.5px;">
+                <button class="btn">전체 (12건)</button>
+                <button class="btn primary">미해결 (2건)</button>
+                <button class="btn">정지 원인별</button>
+              </div>
+            </div>
+            <table class="history-table" style="margin-top:6px;">
+              <thead>
+                <tr>
+                  <th style="width:130px;">발생 시각</th>
+                  <th>설비</th>
+                  <th>정지 원인</th>
+                  <th>지속시간</th>
+                  <th>복구 시각</th>
+                  <th>MTTR</th>
+                  <th>상태</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>5/28 14:18</td><td>STN1-Device3</td><td>Press 시간초과 (Over)</td><td class="wt-cell">진행중</td><td>—</td><td>—</td><td><span class="status bad">미해결</span></td></tr>
+                <tr><td>5/27 15:42</td><td>STN3 · 조립3</td><td>센서 단선 (Open)</td><td class="wt-cell">진행중</td><td>—</td><td>—</td><td><span class="status bad">미해결</span></td></tr>
+                <tr><td>5/27 11:24</td><td>STN3 · 조립3</td><td>금형 교체</td><td class="wt-cell">2h 8min</td><td>13:32</td><td>128min</td><td><span class="status ok">복구완료</span></td></tr>
+                <tr><td>5/26 16:08</td><td>STN4 · 검사</td><td>비전 캘리브레이션</td><td class="wt-cell">48min</td><td>16:56</td><td>48min</td><td><span class="status ok">복구완료</span></td></tr>
+                <tr><td>5/25 09:14</td><td>STN1 · 조립1</td><td>자재대기</td><td class="wt-cell">35min</td><td>09:49</td><td>35min</td><td><span class="status ok">복구완료</span></td></tr>
+                <tr><td>5/24 (주말)</td><td>전체</td><td>정기 점검 · 윤활·청소</td><td class="wt-cell">6h</td><td>—</td><td>—</td><td><span class="status warn">계획 점검</span></td></tr>
+                <tr><td>5/23 13:46</td><td>STN6 · 출하</td><td>작업자 대기</td><td class="wt-cell">22min</td><td>14:08</td><td>22min</td><td><span class="status ok">복구완료</span></td></tr>
+                <tr><td>5/22 10:32</td><td>STN3 · 조립3</td><td>공구 교체</td><td class="wt-cell">42min</td><td>11:14</td><td>42min</td><td><span class="status ok">복구완료</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- AI Insight -->
+          <div class="card" style="border-left:5px solid var(--primary); background:linear-gradient(90deg, var(--cyan-bg), #fff);">
+            <div class="card-h">
+              <h4>🤖 AI 자동 인사이트</h4>
+              <span style="font-size:10px; color:var(--text-mute);">매일 09:00 자동 생성</span>
+            </div>
+            <div style="font-size:12px; color:var(--text); line-height:1.7;">
+              ⚠ <b>STN3 · 조립3</b> 설비가 이번 주 OEE <b style="color:#B71C1C;">62.4%</b> 로 최하위. 정지시간 <b style="color:#B71C1C;">12.2h</b> 중
+              <b>설비고장 5.6h (46%)</b>· <b>자재대기 3.4h (28%)</b> 가 주 원인입니다.<br>
+              💡 <b>권장 조치:</b> ① Press 모터·실린더 정밀 점검 (마모 진단) · ② 자재 공급 라인 버퍼 증설 · ③ 사전 알람 임계값 5% 하향 조정.<br>
+              📈 <b>개선 효과 예측:</b> 위 조치 적용 시 OEE 6.8%p 회복 가능 (62.4% → 69.2%, 주간 가동시간 +9.4h).
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="actions-list">
+    <h4>🎯 동작 시퀀스</h4>
+    <ol>
+      <li>① <b>기간 선택</b> — 상단 <code>📅 2026-05-22 ~ 05-28</code> 버튼으로 분석 기간 지정 (일/주/월/사용자 정의).</li>
+      <li>② <b>OEE 6 KPI 표시</b> — 종합 OEE / 가용성 / 성능 / 품질 / MTBF / MTTR. 각 셀에 <b>전주 대비 변화율</b> 표시.</li>
+      <li>③ <b>시간 구성 막대</b> — 일자별 24h 누적 막대 차트. 가동(녹) · 유휴(노) · 정지(빨) · 점검(보라) 4 종 stacked. 평균선 점선 표시.</li>
+      <li>④ <b>이상 일자 강조</b> — 평균 미달 일자 (5/27 ⚠) 는 자동 빨간 라벨 + 가동시간 화살표(↓) 표시.</li>
+      <li>⑤ <b>정지 원인 donut</b> — 5 종 원인별 비율·시간. slice 클릭 시 해당 원인의 상세 이벤트만 필터링.</li>
+      <li>⑥ <b>설비별 OEE 순위</b> — Top 8 표. 🥇🥈🥉 메달 + 최하위 빨간 강조. 행 클릭 시 P3 동작편차로 이동.</li>
+      <li>⑦ <b>정지 이벤트 로그</b> — 시작/종료 시각·원인·MTTR. 필터 (전체/미해결/원인별).</li>
+      <li>⑧ <b>AI 인사이트</b> — 매일 09:00 자동 생성. 최하위 설비 분석 + 권장 조치 + 개선 효과 예측 (정량).</li>
+      <li>⑨ <b>리포트 출력</b> — 우상단 <code>📤 리포트 출력</code> 클릭 → 주간 OEE 리포트 PDF/Excel 다운로드.</li>
+    </ol>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="ft-title">DSPilot — UX Design Specification</div>
+  5 Pages · Real-Time Web Dashboard · MT/WT/CT Analysis · Bottleneck Detection · UserTag Events<br>
+  DualSoft · 2026 · Industrial PLC Monitoring Tool
+</footer>
+
+</body>
+</html>

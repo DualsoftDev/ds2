@@ -160,18 +160,24 @@ public class BlueprintService : IDisposable
 
         _layout.GridColumns = cols;
         _layout.GridRows = rows;
+        // 자유 배치 모델의 공통 카드 크기 — 자동 배치 격자 칸에 맞게 폭의 ~82%로 산정(사용자가 슬라이더로 재조정 가능).
+        _layout.CardScale = Math.Clamp(0.82 / cols, 0.06, 0.35);
 
         for (int i = 0; i < n; i++)
         {
             var f = orderedFlows[i];
+            int col = i % cols, row = i / cols;
             _layout.FlowPlacements.Add(new FlowPlacement
             {
                 FlowId = f.FlowId,
                 SystemId = f.SystemId,
                 FlowName = f.FlowName,
                 SystemName = f.SystemName,
-                Col = i % cols,
-                Row = i / cols,
+                // 자유 배치 중심좌표(0..1) = 격자 칸 중심. (Col/Row 도 레거시 호환용으로 함께 기록)
+                X = (col + 0.5) / cols,
+                Y = (row + 0.5) / rows,
+                Col = col,
+                Row = row,
                 ColSpan = 1,
                 RowSpan = 1,
             });
@@ -243,13 +249,17 @@ public class BlueprintService : IDisposable
     {
         var imported = JsonSerializer.Deserialize<BlueprintLayout>(json)
             ?? throw new InvalidOperationException("Invalid layout JSON");
+        // 격자→자유 변환은 임포트본의 "자기 캔버스/격자" 기준으로 먼저 수행해야 정확하다.
+        // (LoadLayoutJson 은 현재 캔버스/이미지를 보존하므로, imported 격자를 현재 캔버스로 환산하면 오배치됨.)
+        MigrateLayoutToFree(imported);
+        _layout.CardScale = imported.CardScale > 0 ? imported.CardScale : _layout.CardScale;
         _layout.GridColumns = imported.GridColumns;
         _layout.GridRows = imported.GridRows;
         _layout.OffsetX = imported.OffsetX;
         _layout.OffsetY = imported.OffsetY;
         _layout.OffsetRight = imported.OffsetRight;
         _layout.OffsetBottom = imported.OffsetBottom;
-        _layout.FlowPlacements = imported.FlowPlacements;
+        _layout.FlowPlacements = imported.FlowPlacements;   // 이미 X/Y 보유(임포트 캔버스 기준 정규화)
         _layout.FlowProcessOrder = imported.FlowProcessOrder ?? [];
         Save();
     }
@@ -286,11 +296,31 @@ public class BlueprintService : IDisposable
         {
             var json = File.ReadAllText(_layoutFilePath);
             _layout = JsonSerializer.Deserialize<BlueprintLayout>(json) ?? new();
+            MigrateLayoutToFree(_layout);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to load layout data");
             _layout = new();
+        }
+    }
+
+    /// <summary>
+    /// 구 격자(Col/Row/Span) 레이아웃을 자유 배치(X/Y = 캔버스 정규화 중심좌표)로 1회 변환.
+    /// X/Y 가 이미 있으면(신규 자유 배치 저장본) 건드리지 않는다. 격자 폐지 후 하위호환 로딩 경로.
+    /// 반드시 변환 대상 레이아웃 "자신의" 캔버스/격자/오프셋 기준으로 정규화한다(다른 캔버스 환산 금지).
+    /// </summary>
+    private static void MigrateLayoutToFree(BlueprintLayout L)
+    {
+        if (L.CardScale <= 0) L.CardScale = 0.15;
+        double cw = L.CellWidth, ch = L.CellHeight;
+        foreach (var p in L.FlowPlacements)
+        {
+            if (p.X is not null && p.Y is not null) continue;   // 이미 자유 좌표 보유
+            var cx = L.OffsetX + (p.Col + p.ColSpan / 2.0) * cw;
+            var cy = L.OffsetY + (p.Row + p.RowSpan / 2.0) * ch;
+            p.X = L.CanvasWidth > 0 ? Math.Clamp(cx / L.CanvasWidth, 0, 1) : 0.5;
+            p.Y = L.CanvasHeight > 0 ? Math.Clamp(cy / L.CanvasHeight, 0, 1) : 0.5;
         }
     }
 }

@@ -11,9 +11,9 @@
     <link href="css/dark-theme.css" rel="stylesheet" />
     <link href="css/app.css" rel="stylesheet" />
     <link href="css/flow-card.css" rel="stylesheet" />
-    <!-- Swiss Technical 디자인 시스템 — 맨 마지막에 로드해 위 전역 css 의 토큰/클래스를 Swiss 값으로 override.
-         정적 /app/*.html 과 동일 시스템을 Blazor(/flow·/editor·/pw + MainLayout)에도 적용. -->
-    <link href="css/swiss.css" rel="stylesheet" />
+    <!-- DS Pilot 리디자인 디자인 시스템 — 맨 마지막에 로드해 위 전역 css 의 토큰/클래스를 mockup(네이비/청록) 값으로 override.
+         ds.css 는 swiss.css 를 @import 후 재정의하므로, 정적 /app/*.html 과 동일하게 Blazor(/flow·/editor·/pw + MainLayout)도 새 테마로 통일된다. -->
+    <link href="css/ds.css" rel="stylesheet" />
     <link href="DSPilot.styles.css" rel="stylesheet" />
     <HeadOutlet @rendermode="new InteractiveServerRenderMode(prerender: false)" />
 </head>

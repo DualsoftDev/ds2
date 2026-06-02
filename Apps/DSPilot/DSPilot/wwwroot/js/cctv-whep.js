@@ -48,6 +48,8 @@ window.cctvWhep = (function () {
 
         pc.onconnectionstatechange = () => {
             if (session.closed) return;
+            // 연결 상태를 호출자에게 통지(옵션) — 실제 스트림 헬스 표시용(전역 sync 상태와 구분).
+            if (session.onState) { try { session.onState(pc.connectionState); } catch (e) {} }
             if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
                 scheduleReconnect(session);
             }
@@ -85,9 +87,10 @@ window.cctvWhep = (function () {
     }
 
     return {
-        start(videoId, port, name) {
+        // onState(optional): RTCPeerConnection.connectionState 가 바뀔 때마다 호출됨(per-stream 헬스).
+        start(videoId, port, name, onState) {
             this.stop(videoId); // 중복 방지
-            const session = { videoId, port, name, closed: false, pc: null, retryTimer: null };
+            const session = { videoId, port, name, onState: onState || null, closed: false, pc: null, retryTimer: null };
             sessions[videoId] = session;
             negotiate(session);
         },

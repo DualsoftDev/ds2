@@ -1,5 +1,12 @@
 # Step 2: PLC Event 수신 및 상태 업데이트
 
+> ⚠️ **[2026-06 정정] 이 문서의 polarity 는 폐기됨.**
+> 아래 본문은 `InTag Rising → Going(시작)`, `OutTag Rising → Done(완료)` 로 기술하나, 이는 초기 설계이며
+> **현재 라이브 엔진(`Ds2.Runtime/Engine/Passive/Inference.fs`)·`PlcToCallMapperService` 와 반대**다.
+> InTag/OutTag 는 모두 **PLC(제어기) 기준** 명칭이므로 정본(진영 B)은:
+> **OutTag Rising(PLC 출력=명령) → Going(시작)**, **InTag Rising(PLC 입력=응답) → Done/Finish(완료)**.
+> Falling 은 완료가 아니라 복귀(Homing)이며 사이클 산출에 미사용. 신규 코드는 이 정정 기준을 따를 것.
+
 ## 🎯 목표
 
 PLC Tag 이벤트를 수신하여 Call의 State를 실시간으로 업데이트합니다.

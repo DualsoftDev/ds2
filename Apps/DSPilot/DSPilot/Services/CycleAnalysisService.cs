@@ -65,15 +65,15 @@ public class CycleAnalysisService
             return boundaries;
         }
 
-        // 2. Head Call의 InTag 주소 찾기
+        // 2. Head Call의 OutTag 주소 찾기 (진영 B: OutTag↑ = PLC 명령 = 사이클 시작)
         var tags = _mapperService.GetCallTagsByCallId(headCall.Id);
-        if (!tags.HasValue || string.IsNullOrEmpty(tags.Value.InTag))
+        if (!tags.HasValue || string.IsNullOrEmpty(tags.Value.OutTag))
         {
-            _logger.LogWarning("Head Call '{CallName}' has no InTag", headCall.Name);
+            _logger.LogWarning("Head Call '{CallName}' has no OutTag", headCall.Name);
             return boundaries;
         }
 
-        // 3. PLC 로그에서 InTag Rising Edge 찾기
+        // 3. PLC 로그에서 OutTag Rising Edge 찾기 (= 사이클 시작 경계)
         var latestLogTime = await _plcRepository.GetLatestLogDateTimeAsync();
         var oldestLogTime = await _plcRepository.GetOldestLogDateTimeAsync();
 
@@ -84,15 +84,15 @@ public class CycleAnalysisService
         }
 
         var risingEdges = await _plcRepository.FindRisingEdgesAsync(
-            tags.Value.InTag,
+            tags.Value.OutTag,
             oldestLogTime.Value,
             latestLogTime.Value);
 
         if (risingEdges.Count == 0)
         {
             _logger.LogWarning(
-                "No rising edges found for Head Call '{CallName}' (InTag: '{InTag}')",
-                headCall.Name, tags.Value.InTag);
+                "No rising edges found for Head Call '{CallName}' (OutTag: '{OutTag}')",
+                headCall.Name, tags.Value.OutTag);
             return boundaries;
         }
 
@@ -141,10 +141,10 @@ public class CycleAnalysisService
         if (headCall == null) return null;
 
         var tags = _mapperService.GetCallTagsByCallId(headCall.Id);
-        if (!tags.HasValue || string.IsNullOrEmpty(tags.Value.InTag)) return null;
+        if (!tags.HasValue || string.IsNullOrEmpty(tags.Value.OutTag)) return null;
 
-        // 최근 2개 rising edge만 조회 (1개 사이클 = 2개 경계)
-        var edges = await _plcRepository.FindRecentRisingEdgesAsync(tags.Value.InTag, 2);
+        // 최근 2개 rising edge만 조회 (1개 사이클 = 2개 경계). 진영 B: Head OutTag↑ = 사이클 시작.
+        var edges = await _plcRepository.FindRecentRisingEdgesAsync(tags.Value.OutTag, 2);
         if (edges.Count < 2) return null;
 
         return edges[0]; // 가장 최근 완료 사이클의 시작시간
@@ -359,9 +359,10 @@ public class CycleAnalysisService
         if (headCall == null) return new();
 
         var tags = _mapperService.GetCallTagsByCallId(headCall.Id);
-        if (!tags.HasValue || string.IsNullOrEmpty(tags.Value.InTag)) return new();
+        if (!tags.HasValue || string.IsNullOrEmpty(tags.Value.OutTag)) return new();
 
-        var edges = await _plcRepository.FindRisingEdgesAsync(tags.Value.InTag, startTime, endTime);
+        // 진영 B: Head OutTag↑(PLC 명령) = 사이클 시작 경계.
+        var edges = await _plcRepository.FindRisingEdgesAsync(tags.Value.OutTag, startTime, endTime);
         return edges;
     }
 
@@ -476,26 +477,27 @@ public class CycleAnalysisService
                 int? relativeEnd = null;
                 DateTime? finishTime = null;
 
-                if (e.EventType == IOEventType.InTag)
+                if (e.EventType == IOEventType.OutTag)
                 {
-                    var nextOutTag = eventsForCall
-                        .FirstOrDefault(evt => evt.EventType == IOEventType.OutTag && evt.RelativeTimeMs > e.RelativeTimeMs);
+                    // 진영 B: OutTag↑(시작) → 다음 InTag↑(완료) 로 구간 길이 계산.
+                    var nextInTag = eventsForCall
+                        .FirstOrDefault(evt => evt.EventType == IOEventType.InTag && evt.RelativeTimeMs > e.RelativeTimeMs);
 
-                    if (nextOutTag != null)
+                    if (nextInTag != null)
                     {
-                        duration = nextOutTag.RelativeTimeMs - e.RelativeTimeMs;
-                        relativeEnd = nextOutTag.RelativeTimeMs;
-                        finishTime = nextOutTag.Timestamp;
+                        duration = nextInTag.RelativeTimeMs - e.RelativeTimeMs;
+                        relativeEnd = nextInTag.RelativeTimeMs;
+                        finishTime = nextInTag.Timestamp;
                     }
                 }
                 else
                 {
-                    var prevInTag = eventsForCall
-                        .LastOrDefault(evt => evt.EventType == IOEventType.InTag && evt.RelativeTimeMs < e.RelativeTimeMs);
+                    var prevOutTag = eventsForCall
+                        .LastOrDefault(evt => evt.EventType == IOEventType.OutTag && evt.RelativeTimeMs < e.RelativeTimeMs);
 
-                    if (prevInTag != null)
+                    if (prevOutTag != null)
                     {
-                        duration = e.RelativeTimeMs - prevInTag.RelativeTimeMs;
+                        duration = e.RelativeTimeMs - prevOutTag.RelativeTimeMs;
                         relativeEnd = e.RelativeTimeMs;
                         finishTime = e.Timestamp;
                     }
@@ -997,15 +999,15 @@ public class CycleAnalysisService
 
         foreach (var evt in callIOEvents)
         {
-            if (evt.EventType == IOEventType.InTag)
+            if (evt.EventType == IOEventType.OutTag)
             {
-                // Call 시작 이벤트
+                // Call 시작 이벤트 (진영 B: OutTag↑ = PLC 명령 = 시작)
                 var deviceName = GetDeviceNameForCall(evt.CallId, allCalls);
                 callStarts[evt.CallId] = (evt.Timestamp, evt.CallName, deviceName);
             }
-            else if (evt.EventType == IOEventType.OutTag)
+            else if (evt.EventType == IOEventType.InTag)
             {
-                // Call 종료 이벤트
+                // Call 종료 이벤트 (진영 B: InTag↑ = 응답 = 완료)
                 if (callStarts.TryGetValue(evt.CallId, out var startInfo))
                 {
                     sequenceNumber++;

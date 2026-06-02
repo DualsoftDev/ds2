@@ -144,40 +144,19 @@ public class CycleAnalysisController : ControllerBase
     }
 
     /// <summary>
-    /// Excel(.xlsx) 내보내기. gantt-data 와 동일한 분석을 다시 돌려 <see cref="GanttChartData"/> 를 얻은 뒤
-    /// <see cref="CycleTimeChartExporter.BuildExcelBytes"/> 에 Blazor ExportGanttExcel 과 동일한 인자
-    /// (data, displayLaneOrder, idleRegions) 를 넘긴다.
-    ///
-    /// displayLaneOrder: 정적 페이지는 정렬 상태를 서버로 보내지 않으므로 기본 정렬(ByLane = lane 오름차순)의
-    /// 서버 측 등가물을 계산한다(Blazor GetDisplayLaneOrder 의 default 분기와 동일).
-    /// idleRegions: gantt-data 와 동일하게 LoadIdleEdgesAsync + BuildIdleRegionsFromEdges 로 산출.
-    /// antiforgery 미적용 평범한 POST. 파일명 = CycleTime_&lt;flow&gt;_&lt;yyyyMMdd_HHmmss&gt;.xlsx.
+    /// Excel(.xlsx) 내보내기 — WYSIWYG. 서버가 분석을 다시 돌리지 않고, 클라이언트(정적 페이지)가 화면에 그린
+    /// 현재 상태(<see cref="CycleExcelModel"/>: 정렬된 lane + 병합 intervals + Head/Tail + 보기모드 + 사이클 경계/
+    /// Tail 마커 + 활성 Gap)를 그대로 받아 <see cref="CycleTimeChartExporter.BuildCycleAnalysisExcel"/> 로 렌더한다.
+    /// → 화면 간트와 1:1 (서버 재계산으로 인한 정렬/Head·Tail 불일치 제거). antiforgery 미적용 평범한 POST.
+    /// 파일명 = CycleTime_&lt;flow&gt;_&lt;yyyyMMdd_HHmmss&gt;.xlsx.
     /// </summary>
     [HttpPost("export-excel")]
-    public async Task<IActionResult> ExportExcel([FromBody] GanttRequest req)
+    public IActionResult ExportExcel([FromBody] CycleExcelModel req)
     {
-        if (string.IsNullOrEmpty(req.FlowName))
+        if (req is null || string.IsNullOrEmpty(req.FlowName))
             return BadRequest("flowName required");
 
-        var start = ParseLocal(req.Start) ?? DateTime.Now.AddMinutes(-1);
-        var end = ParseLocal(req.End) ?? DateTime.Now;
-
-        var dataTask = _cycleAnalysis.GetActualIoSignalSegmentsInTimeRangeAsync(req.FlowName, start, end);
-        var idleEdgesTask = LoadIdleEdgesAsync(req.FlowName, start, end);
-        await Task.WhenAll(dataTask, idleEdgesTask);
-
-        var data = dataTask.Result;
-        var idleEdges = idleEdgesTask.Result;
-        var idleRegions = BuildIdleRegionsFromEdges(idleEdges, start, end);
-
-        // 기본 정렬(ByLane) 등가물 — lane 오름차순.
-        var displayLaneOrder = data.Items
-            .Select(i => i.Lane)
-            .Distinct()
-            .OrderBy(lane => lane)
-            .ToList();
-
-        var bytes = CycleTimeChartExporter.BuildExcelBytes(data, displayLaneOrder, idleRegions);
+        var bytes = CycleTimeChartExporter.BuildCycleAnalysisExcel(req);
         var fileName = $"CycleTime_{req.FlowName}_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
         return File(bytes, CycleTimeChartExporter.XlsxMimeType, fileName);
     }
@@ -190,16 +169,17 @@ public class CycleAnalysisController : ControllerBase
             return new List<DateTime>();
 
         var (headCallName, _) = _flowMetrics.GetCycleBoundaryCallNames(flowName);
-        string? inTagAddress = null;
+        // 진영 B: Head OutTag↑(PLC 명령) = 사이클 시작 경계.
+        string? startTagAddress = null;
         if (!string.IsNullOrEmpty(headCallName))
         {
             var allPairs = _callMapper.GetAllCallTagPairs();
             var match = allPairs.FirstOrDefault(p => p.FlowName == flowName && p.CallName == headCallName);
-            if (match != default) inTagAddress = match.InTag;
+            if (match != default) startTagAddress = match.OutTag;
         }
 
-        if (!string.IsNullOrEmpty(inTagAddress))
-            return await _plcRepository.FindRisingEdgesAsync(inTagAddress, start, end);
+        if (!string.IsNullOrEmpty(startTagAddress))
+            return await _plcRepository.FindRisingEdgesAsync(startTagAddress, start, end);
         return await _cycleAnalysis.GetCycleBoundaryTimesAsync(flowName, start, end);
     }
 

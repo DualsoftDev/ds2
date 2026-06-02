@@ -277,7 +277,7 @@ select:focus-visible {
 .nav-menu { padding: 10px 0 28px; display: flex; flex-direction: column; }
 .nav-link {
     position: relative;
-    display: flex; align-items: center; gap: 13px;
+    display: flex; align-items: flex-start; gap: 13px;
     padding: 11px 22px;
     text-decoration: none; cursor: pointer;
     color: var(--color-drawer-text);
@@ -292,7 +292,7 @@ select:focus-visible {
     color: var(--color-primary);
     font-weight: 700;
 }
-.nav-link .material-icons { font-size: 19px; color: var(--color-drawer-icon); }
+.nav-link .material-icons { font-size: 19px; color: var(--color-drawer-icon); margin-top: 1px; }
 .nav-link.active .material-icons { color: var(--color-primary); }
 
 /* ── 사이드바 섹션 (페이지 바로가기 / 라인요약 / 시스템 / agent 통신) ──

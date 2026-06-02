@@ -14,7 +14,7 @@
       디자인 시스템: /css/swiss.css (토큰/컴포넌트/다크). 페이지 고유 클래스(plc-debug-*)만 인라인으로 스위스 재정의.
     -->
     <link href="/css/fonts.css" rel="stylesheet" />
-    <link href="/css/swiss.css" rel="stylesheet" />
+    <link href="/css/ds.css" rel="stylesheet" />
 
     <style>
         [x-cloak] { display: none !important; }
@@ -127,7 +127,6 @@
             <!-- 콘텐츠 페이지 헤더: 번호 인덱스 + 제목 + DB 로드 상태 칩 -->
             <div class="pd-pagehead">
                 <div class="pd-head">
-                    <span class="pd-index">07 / PLC 디버그</span>
                     <span class="pd-title">PLC 로그 타임라인</span>
                 </div>
                 <div class="spacer"></div>
@@ -289,7 +288,7 @@
                                     <canvas id="plcDebugChart"></canvas>
 
                                     <div class="plc-debug-chart-placeholder" x-show="!chartLoaded && !loadingChart">
-                                        <span class="material-icons">monitoring</span>
+                                        <span class="material-icons">show_chart</span>
                                         <div>선택한 태그와 기간으로 차트를 다시 그려주세요.</div>
                                     </div>
                                 </div>

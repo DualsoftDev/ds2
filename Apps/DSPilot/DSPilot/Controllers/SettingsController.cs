@@ -27,6 +27,7 @@ public class SettingsController : ControllerBase
     private readonly IFlowMetricsService _flowMetrics;
     private readonly DsProjectService _project;
     private readonly CctvMediaMtxService _cctvSync;
+    private readonly CctvOverlayService _cctvOverlays;
     private readonly IDatabasePathResolver _pathResolver;
     private readonly IHubContext<MonitoringHub> _hub;
     private readonly ILogger<SettingsController> _logger;
@@ -37,6 +38,7 @@ public class SettingsController : ControllerBase
         IFlowMetricsService flowMetrics,
         DsProjectService project,
         CctvMediaMtxService cctvSync,
+        CctvOverlayService cctvOverlays,
         IDatabasePathResolver pathResolver,
         IHubContext<MonitoringHub> hub,
         ILogger<SettingsController> logger)
@@ -46,6 +48,7 @@ public class SettingsController : ControllerBase
         _flowMetrics = flowMetrics;
         _project = project;
         _cctvSync = cctvSync;
+        _cctvOverlays = cctvOverlays;
         _pathResolver = pathResolver;
         _hub = hub;
         _logger = logger;
@@ -83,6 +86,12 @@ public class SettingsController : ControllerBase
             m.HistoryView.MaxCallGoingTimeMs = req.MaxCallGoingTimeMs;
             m.HistoryView.MinCallGoingTimeMs = req.MinCallGoingTimeMs;
 
+            // 카메라 개명(rename) 보존: 저장으로 카메라 Name 이 바뀌면 그 이름을 FK 로 쓰는 CCTV 오버레이를
+            // 따라 옮겨야 좌표가 유실되지 않는다(doc/20 §3·§10.3). 추가/삭제/순서변경과 명확히 구분하기 위해
+            // (old∖new)·(new∖old) 가 각각 정확히 1건일 때만 단일 rename 으로 간주(모호하면 보존만 하고 미적용).
+            var oldCameraNames = m.Cctv.Cameras
+                .Select(c => c.Name).Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
+
             m.Cctv.MediaMtxApiUrl = req.MediaMtxApiUrl ?? m.Cctv.MediaMtxApiUrl;
             m.Cctv.WebRtcPort = req.WebRtcPort;
             m.Cctv.Cameras = (req.Cameras ?? new List<CameraDto>())
@@ -90,6 +99,17 @@ public class SettingsController : ControllerBase
                 .ToList();
 
             _settings.SaveSettings(m);
+
+            // 단일 카메라 개명 감지 → 오버레이 FK 이전(삭제 아님).
+            var newCameraNames = m.Cctv.Cameras
+                .Select(c => c.Name).Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
+            var removed = oldCameraNames.Except(newCameraNames, StringComparer.OrdinalIgnoreCase).ToList();
+            var added = newCameraNames.Except(oldCameraNames, StringComparer.OrdinalIgnoreCase).ToList();
+            if (removed.Count == 1 && added.Count == 1)
+            {
+                try { _cctvOverlays.RenameCamera(removed[0], added[0]); }
+                catch (Exception ex) { _logger.LogWarning(ex, "[Settings] CCTV 오버레이 카메라 rename 이전 실패"); }
+            }
 
             // 비가동 임계값 변경 소급 적용 (대시보드·히스토리 즉시 반영) — Blazor SaveSettings 와 동일.
             var (restamped, flows) = await _flowMetrics.ReapplyIdleThresholdsAsync();

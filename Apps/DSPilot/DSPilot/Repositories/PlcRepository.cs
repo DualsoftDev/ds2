@@ -586,6 +586,102 @@ ORDER BY DateTime ASC, Id ASC";
         return rows.Select(row => ParseSqliteDateTime(row.DateTime)).ToList();
     }
 
+    public async Task<List<DateTime>> FindFallingEdgesAsync(
+        string address, DateTime startTime, DateTime endTime)
+    {
+        using var connection = CreateConnection();
+        var startStr = SqliteDateTimeHelpers.ToSqliteUtcString(startTime);
+        var endStr = SqliteDateTimeHelpers.ToSqliteUtcString(endTime);
+
+        // FindRisingEdgesAsync 의 역 — prev='1' AND cur='0'. leading 행(LAG NULL)은 '1'≠NULL 이므로
+        // falling 으로 오검출되지 않는다. 호출부(OEE 폴러)가 onset '1' 로그를 포함하도록 윈도를 잡아
+        // 첫 '0' 의 직전값이 '1' 로 인식되게 한다.
+        const string sql = @"
+WITH ordered_logs AS (
+    SELECT
+        l.Id AS Id,
+        l.DateTime AS DateTime,
+        CASE
+            WHEN lower(trim(coalesce(l.Value, ''))) IN ('1', 'true', 'on') THEN '1'
+            ELSE '0'
+        END AS NormalizedValue,
+        LAG(
+            CASE
+                WHEN lower(trim(coalesce(l.Value, ''))) IN ('1', 'true', 'on') THEN '1'
+                ELSE '0'
+            END
+        ) OVER (PARTITION BY l.PlcTagId ORDER BY l.DateTime ASC, l.Id ASC) AS PreviousNormalizedValue
+    FROM plcTagLog l
+    INNER JOIN plcTag t ON l.PlcTagId = t.Id
+    WHERE t.Address = @Address
+      AND l.DateTime >= @StartTime
+      AND l.DateTime <= @EndTime
+)
+SELECT
+    Id,
+    DateTime
+FROM ordered_logs
+WHERE PreviousNormalizedValue = '1'
+  AND NormalizedValue = '0'
+ORDER BY DateTime ASC, Id ASC";
+
+        var rows = await connection.QueryAsync<PlcTagDateTimeRow>(sql, new
+        {
+            Address = address,
+            StartTime = startStr,
+            EndTime = endStr
+        });
+
+        return rows.Select(row => ParseSqliteDateTime(row.DateTime)).ToList();
+    }
+
+    public async Task<List<PlcEdge>> FindRisingEdgesWithLogIdAsync(
+        string address, DateTime startTime, DateTime endTime)
+    {
+        using var connection = CreateConnection();
+        var startStr = SqliteDateTimeHelpers.ToSqliteUtcString(startTime);
+        var endStr = SqliteDateTimeHelpers.ToSqliteUtcString(endTime);
+
+        // FindRisingEdgesAsync 와 동일하나 엣지 로그의 id 를 함께 반환(OEE onset 멱등 키 sourceLogId 용).
+        const string sql = @"
+WITH ordered_logs AS (
+    SELECT
+        l.Id AS Id,
+        l.DateTime AS DateTime,
+        CASE
+            WHEN lower(trim(coalesce(l.Value, ''))) IN ('1', 'true', 'on') THEN '1'
+            ELSE '0'
+        END AS NormalizedValue,
+        LAG(
+            CASE
+                WHEN lower(trim(coalesce(l.Value, ''))) IN ('1', 'true', 'on') THEN '1'
+                ELSE '0'
+            END
+        ) OVER (PARTITION BY l.PlcTagId ORDER BY l.DateTime ASC, l.Id ASC) AS PreviousNormalizedValue
+    FROM plcTagLog l
+    INNER JOIN plcTag t ON l.PlcTagId = t.Id
+    WHERE t.Address = @Address
+      AND l.DateTime >= @StartTime
+      AND l.DateTime <= @EndTime
+)
+SELECT
+    Id,
+    DateTime
+FROM ordered_logs
+WHERE coalesce(PreviousNormalizedValue, '0') = '0'
+  AND NormalizedValue = '1'
+ORDER BY DateTime ASC, Id ASC";
+
+        var rows = await connection.QueryAsync<PlcTagDateTimeRow>(sql, new
+        {
+            Address = address,
+            StartTime = startStr,
+            EndTime = endStr
+        });
+
+        return rows.Select(row => new PlcEdge(row.Id, ParseSqliteDateTime(row.DateTime))).ToList();
+    }
+
 
     public async Task<List<DateTime>> FindRecentRisingEdgesAsync(string address, int count)
     {

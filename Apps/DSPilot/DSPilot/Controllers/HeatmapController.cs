@@ -31,7 +31,7 @@ public class HeatmapController : ControllerBase
     /// <summary>
     /// 특정 Call 의 실행 이력(plcTagLog 의 InTag↔OutTag rising edge 매칭).
     /// period: all | today | 7d | 30d (Blazor Heatmap 페이지의 기간 프리셋과 동일).
-    /// 스파이크 제외 필터는 클라이언트(heatmap.html)에서 적용한다 — 원본 회차를 모두 내려보낸다.
+    /// 이상치 제외 필터는 클라이언트(heatmap.html)에서 적용한다 — 원본 회차를 모두 내려보낸다.
     /// </summary>
     [HttpGet("call-history")]
     public async Task<ActionResult<List<CallExecutionRecord>>> GetCallHistory(
