@@ -5,6 +5,9 @@
   <!-- WPF MVVM -->
   <ItemGroup>
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+    <!-- JSON 편집 탭 에디터 (검색/바꾸기 + syntax highlighting). MIT, ICSharpCode(ILSpy/SharpDevelop).
+         AvalonDock(도킹) 과 이름만 닮은 별개 텍스트 에디터 컨트롤. -->
+    <PackageVersion Include="AvalonEdit" Version="6.3.0.90" />
     <PackageVersion Include="ModelContextProtocol" Version="1.2.0" />
     <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="1.2.0" />
     <!-- LLM Chat 첨부 (review F3) — App.xaml.cs 의 CodePagesEncodingProvider 등록용. -->
