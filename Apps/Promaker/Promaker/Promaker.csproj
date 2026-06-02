@@ -29,6 +29,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" />
+    <PackageReference Include="AvalonEdit" />
     <PackageReference Include="log4net" />
     <!-- IsAgentAvailable 가 PromakerAgentService 등록 여부까지 검증 (시나리오 C 가드). -->
     <PackageReference Include="System.ServiceProcess.ServiceController" />
@@ -72,6 +73,14 @@
     <Resource Include="Assets\SdfFile.ico" />
     <Resource Include="Resources\Icons\aas.png" />
     <Resource Include="Assets\Runtime\**\*.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Dialogs\ConfigEditor\JsonHighlighting.xshd">
+      <LogicalName>JsonHighlighting.xshd</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Dialogs\ConfigEditor\JsonHighlighting.Light.xshd">
+      <LogicalName>JsonHighlighting.Light.xshd</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Update="Resources\Strings.resx">
