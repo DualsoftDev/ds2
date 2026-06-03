@@ -11,7 +11,7 @@
 |---|---|---|---|
 | **P1** F# 쿼리·헬퍼 | ✅ 완료 | `apiCallsReferencingApiDef`(본체 한정)+`splitApiCallName`(첫'.') 추가 · Paste.DeviceOps 3곳 치환 · System 유일성=기존 `isSystemNameUniqueInProject`(Queries.fs:150) 재활용 | 빌드 통과 · 테스트 444 통과(회귀0) ✓ |
 | **P2** F# cascade 본체 | ✅ 완료 | `RenameDevice.fs`: `RenameDevicePreview` DTO · `CollectRenameImpact`(SSOT, 본체+Condition 2경로) · `RenameDeviceBatch`(단일 트랜잭션) · Undo dict추적 버그 수정 | 빌드 통과 · 신규 8케이스 통과 · 회귀0(452) · 검열 C/M 0(Minor 2 보류) ✓ |
-| **P3** C# 다이얼로그 | ⬜ 미시작 | `DeviceRenameDialog`(xaml+cs) · `DeviceApiRenameRow : BatchRowBase` · 미리보기 바인딩 | 빌드 통과(§10) |
+| **P3** C# 다이얼로그 | ✅ 완료 | `DeviceRenameDialog`(xaml+cs) · `DeviceApiRenameRow : BatchRowBase` · `CollectRenameImpact` 미리보기 바인딩 · `BatchDialogHelper.SetField` bool화 | 빌드 통과 · 검열 C/M/m 0 ✓ (P4: ChangedRows.NewName `.Trim()` 후 전달·`GetApiDefsForSystem` 공급) |
 | **P4** C# 진입·통합 | ⬜ 미시작 | `EntityKindRules` 분기 · Device 탭 우클릭 → 다이얼로그 → `RenameDeviceBatch` 적용 | 빌드 통과 |
 | **P5** 검증·검열 | ⬜ 미시작 | 전체 빌드+테스트 · 자가검열(W2) sub agent 위임 | 빌드+테스트 통과 · 검열 Critical 0 |
 

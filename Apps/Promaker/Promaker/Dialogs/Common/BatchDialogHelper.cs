@@ -119,12 +119,17 @@ public abstract class BatchRowBase : IBatchRow
         set => SetField(ref _hasError, value);
     }
 
-    protected void SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
+    protected bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
     {
         if (EqualityComparer<T>.Default.Equals(field, value))
-            return;
+            return false;
 
         field = value;
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        OnPropertyChanged(propertyName);
+        return true;
     }
+
+    /// <summary>파생 행에서 계산 프로퍼티(예: IsChanged)를 추가 통지할 때 사용.</summary>
+    protected void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 }
