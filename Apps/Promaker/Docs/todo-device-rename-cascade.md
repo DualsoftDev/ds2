@@ -194,7 +194,7 @@ Device 탭에서 디바이스(Passive System, `EntityKind.System`) 노드 우클
 - **dummy(ApiDefId=None) ApiCall 제외**(`.` 없는 raw 심볼/`__inverter__`).
 - **Tx/RxGuid distinct** 후 각 Work 갱신.
 - **중복 검사**: ApiDef(`isApiDefNameUniqueInSystem` — RenameEntity 분기엔 없음), Work(flow), Call(work), System(프로젝트).
-- **대소문자 표류는 cascade 범위 밖** → 미리보기 경고만.
+- **대소문자 표류**: cascade 키가 ApiDefId(Guid)라 표기가 달라도(robot vs Robot) 동일 ApiDef 면 `newDev.*` 로 자동 정규화 교체됨 → 별도 경고/DriftItems 없음(리뷰 Major-1 반영, §13).
 - **Line ending**: F#/C# 모두 LF. newline 직전 공백 제거.
 
 ## 9. Sub agent prompt 골격 (`--orch` 가 그대로 사용)
@@ -257,3 +257,15 @@ Device 탭에서 디바이스(Passive System, `EntityKind.System`) 노드 우클
 - **Tx/RxGuid distinct**: 정방향 `getWork` 충분, 역방향 쿼리 부재 우려는 기각, distinct 필요성만 승계.
 - **split 헬퍼/preview DTO/집계 SSOT/ApiCall.Name 목적/진입분기 일원화/경로 통일**: §5·§6·§8·§10 반영.
 - **긍정(3/3 유지)**: Guid cascade·이름 파싱 금지, 단일 WithTransaction=Undo 1단계, store 확장 레이어, C# BatchRowBase/ChangedRows 차용.
+
+## 13. 외부 리뷰(5인 메타) 반영 내역 (rev4)
+
+main 대비 P1~P5 에 대한 외부 5인 교차검증 리뷰를 실제 코드로 재검증 후 반영. 코어 테스트 455 통과(회귀0), 자가검열 Critical/Major 0.
+
+- **Major-1 (DriftItems 경고 모순) — 수용·제거**: `driftItems` 가 "자동 정리 안 됨"으로 경고하던 대소문자 표류 ApiCall 은, cascade 키가 ApiDefId(Guid, §6)라 실제로는 동일 ApiDef 면 `newDev.*` 로 정규화 교체된다(거짓 경고). 표류는 cascade 밖이 아니라 **자동 정규화 대상**. → `RenameDevicePreview.DriftItems` 필드 + `CollectRenameImpact` 의 driftItems 산출 + `DeviceRenameDialog` 표류 경고(xaml/xaml.cs) 전부 제거. §4.2 레이아웃의 "⚠ 대소문자 표류" 줄·§8 "표류 cascade 범위 밖" 기술 폐기(§8 정정).
+- **Major-2 (preview↔apply 재계산 = SSOT 위반) — 수용·SSOT화**: `preview.Calls` 를 `(callId, oldName, newFull, newApiName option, newAlias option)` 로 확장. `callChanges` 가 newApiName/newAlias 를 단일 계산하고 apply 4b 는 재계산 없이 `Option.iter` 로 그대로 set. 부수로 apply 의 DevicesAlias 판정이 callChanges 의 `touchesBody` 조건을 공유(기존 단순 `=oldDev` 보다 §4.3 의도에 정확, 실관측 동작은 동일 — 증명 완료).
+- **Major-3 (테스트 미커버) — 부분 수용·추가**: ⑦ no-op(TotalCount=0 early-return), ⑧ `splitApiCallName` 순수함수(첫'.'/점없음/null), ⑨ device-only negative(ApiName·ApiDef 불변) 3건 추가(총 11). DriftItems 테스트는 제거로 불요.
+- **Minor-4 (apiCallsReferencingApiDef dead) — 수용·삭제**: 호출처 0(P2 가 `allApiCalls` 단일순회 채택). §4.3/§5 P1 의 이 함수 사용 명세는 무효(`splitApiCallName` 만 P1 산출물로 유지).
+- **Minor-5 (4b·5 중복 TrackMutate) — 반론/유지**: Condition+Call 동시 변경 Call 의 2회 TrackMutate. Undo 역순 복원 정확(테스트 ⑥), DeepCopy 비용뿐 → 유지.
+- **Minor-6 (split 패턴 잔존) — 반론/후속**: 이번 PR 이 만든 중복 아님 + P1 범위는 "Paste.DeviceOps 3곳" 한정. 잔존처(Nodes.fs 등) 중 LastIndexOf/컴파일순서/invalidArg 의미차로 무분별 치환 위험(W4) → 후속 과제.
+- **Outlier (색상/1:1주석/결합도) — 부분 수용**: `#FFC107` 하드코딩은 DriftWarningText 제거로 자동 해소. 1:1 ApiCall 주석·`_store` 결합도는 regression 아님/현 규모 적정 → 미변경.
