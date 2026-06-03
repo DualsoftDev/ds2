@@ -21,6 +21,8 @@ module EntityKindRules =
         | "Cut"           -> kind = Some EntityKind.Work || kind = Some EntityKind.Call
         | "Paste"         -> kind = Some EntityKind.System || kind = Some EntityKind.Flow || kind = Some EntityKind.Work
         | "FocusCanvas"   -> kind = Some EntityKind.Work || kind = Some EntityKind.Call
+        // System 은 양쪽 트리에서 "이름 바꾸기..." 허용. 단 진입 동작은 다름(FocusNameEditor 분기):
+        //   Device 탭 System = 디바이스/Action 일괄 변경 다이얼로그(cascade). Control 탭 System = 기존 인라인 편집.
         | "Rename"        -> kind = Some EntityKind.Project || kind = Some EntityKind.System || kind = Some EntityKind.Flow
                              || kind = Some EntityKind.Work || kind = Some EntityKind.Call
         | "Delete"        -> kind = Some EntityKind.System || kind = Some EntityKind.Flow

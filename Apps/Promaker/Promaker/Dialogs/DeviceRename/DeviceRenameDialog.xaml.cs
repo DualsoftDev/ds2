@@ -66,6 +66,22 @@ public partial class DeviceRenameDialog : Window
     public string? NewDeviceName =>
         DeviceNameChanged ? DeviceNameBox.Text.Trim() : null;
 
+    /// <summary>F#(CollectRenameImpact/RenameDeviceBatch)에 넘길 디바이스명 인자.
+    /// 변경 시 Some(trim), 아니면 None. preview(다이얼로그)와 apply(호출 측 P4)가 공유한다.</summary>
+    public FSharpOption<string> NewDeviceNameOption =>
+        DeviceNameChanged
+            ? FSharpOption<string>.Some(DeviceNameBox.Text.Trim())
+            : FSharpOption<string>.None;
+
+    /// <summary>F#(CollectRenameImpact/RenameDeviceBatch)에 넘길 (apiDefId, newName) 목록.
+    /// 변경된 행만, NewName 은 <c>.Trim()</c> 후 전달 — preview 가 trim 값으로 계산하므로 apply 도 동일해야
+    /// preview↔apply 가 일치한다. CollectRenameImpact 는 oldName==newName 항목을 스스로 제외한다.</summary>
+    public FSharpList<Tuple<Guid, string>> BuildApiRenames() =>
+        ListModule.OfSeq(
+            _apiRows
+                .Where(r => r.IsChanged)
+                .Select(r => Tuple.Create(r.ApiDefId, r.NewName.Trim())));
+
     private void Row_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(DeviceApiRenameRow.NewName))
@@ -76,16 +92,7 @@ public partial class DeviceRenameDialog : Window
     /// CollectRenameImpact 는 oldName==newName 항목을 스스로 제외하므로 변경 후보 전부를 넘겨도 안전.</summary>
     private void RefreshPreview()
     {
-        var newDeviceName = DeviceNameChanged
-            ? FSharpOption<string>.Some(DeviceNameBox.Text.Trim())
-            : FSharpOption<string>.None;
-
-        var apiRenames = ListModule.OfSeq(
-            _apiRows
-                .Where(r => r.IsChanged)
-                .Select(r => Tuple.Create(r.ApiDefId, r.NewName.Trim())));
-
-        var preview = _store.CollectRenameImpact(_systemId, newDeviceName, apiRenames);
+        var preview = _store.CollectRenameImpact(_systemId, NewDeviceNameOption, BuildApiRenames());
 
         ImpactSummaryText.Text = $"영향 미리보기 — Call/ApiCall 외 총 {preview.TotalCount}건";
 

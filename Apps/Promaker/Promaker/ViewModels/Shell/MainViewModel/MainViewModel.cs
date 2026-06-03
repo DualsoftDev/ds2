@@ -183,11 +183,20 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanFocusNameEditor))]
     private void FocusNameEditor()
     {
-        if (SelectedNode is not null)
+        if (SelectedNode is not { } node)
+            return;
+
+        // Device 탭의 System(디바이스) 노드 = 디바이스/Action 일괄 이름 변경 다이얼로그 경로.
+        // (Control 탭 System rename 은 기존 인라인 편집 유지 — 이번 미통일.)
+        if (Selection.ActiveTreePane == TreePaneKind.Device
+            && node.EntityType == EntityKind.System)
         {
-            PropertyPanel.BeginNameEditGuidance();
-            FocusNameEditorRequested?.Invoke();
+            OpenDeviceRenameDialog(node.Id, node.Name);
+            return;
         }
+
+        PropertyPanel.BeginNameEditGuidance();
+        FocusNameEditorRequested?.Invoke();
     }
 
     [RelayCommand]
