@@ -339,3 +339,11 @@ type DsStoreRenameDeviceExtensions =
 
         store.EmitRefreshAndHistory()
         preview.TotalCount
+
+    /// Control 트리의 Call → 그 Call 이 참조하는 디바이스(Passive System) 역추적.
+    /// Call.ApiCalls 첫 ApiCall → ApiDefId → ApiDef.ParentId 체인(Queries.tryResolveCallTargetSystem 재활용).
+    /// 디바이스 이름변경 다이얼로그 유도용. dummy/orphan(미해결) 이면 None.
+    [<Extension>]
+    static member TryGetDeviceSystemOfCall(store: DsStore, callId: Guid) : DsSystem option =
+        Queries.getCall callId store
+        |> Option.bind (fun call -> Queries.tryResolveCallTargetSystem call store)

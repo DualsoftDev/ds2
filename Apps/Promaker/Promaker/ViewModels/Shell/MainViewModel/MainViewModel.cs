@@ -195,8 +195,14 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
+        // 현행: 속성창의 해당 항목으로 이동(인라인 편집).
         PropertyPanel.BeginNameEditGuidance();
         FocusNameEditorRequested?.Invoke();
+
+        // Control 트리의 Call 노드: 이름 뒷부분(Action명)은 속성창에서 read-only 라,
+        // 그 Call 이 속한 디바이스의 일괄 이름변경 다이얼로그로 유도(현행 이동 + 다이얼로그 안내).
+        if (node.EntityType == EntityKind.Call)
+            OpenDeviceRenameDialogForCall(node.Id);
     }
 
     [RelayCommand]

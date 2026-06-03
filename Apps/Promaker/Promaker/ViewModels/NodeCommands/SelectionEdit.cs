@@ -133,6 +133,21 @@ public partial class MainViewModel
         }
     }
 
+    /// <summary>Control 트리 Call 노드 → 그 Call 이 참조하는 디바이스의 일괄 이름변경 다이얼로그로 유도.
+    /// (Call 이름 뒷부분=Action명 은 속성창에서 read-only 라 정식 변경 경로로 안내.)
+    /// dummy/orphan(디바이스 미해결) Call 은 조용히 무시 — 현행 속성창 이동만 유효.</summary>
+    private void OpenDeviceRenameDialogForCall(Guid callId)
+    {
+        if (!TryEditorFunc(
+                () => _store.TryGetDeviceSystemOfCall(callId),
+                out var deviceOpt,
+                fallback: FSharpOption<DsSystem>.None))
+            return;
+
+        if (FSharpOption<DsSystem>.get_IsSome(deviceOpt))
+            OpenDeviceRenameDialog(deviceOpt.Value.Id, deviceOpt.Value.Name);
+    }
+
     [RelayCommand(CanExecute = nameof(CanCopySelected))]
     private void CopySelected()
     {
