@@ -164,9 +164,9 @@ module internal PasteDeviceOps =
                 accState
             | Some sourceSystemId ->
                 let devAlias =
-                    match apiCall.Name.IndexOf('.') with
-                    | -1 -> sourceCall.DevicesAlias
-                    | idx -> apiCall.Name.[..idx - 1]
+                    Queries.splitApiCallName apiCall.Name
+                    |> Option.map fst
+                    |> Option.defaultValue sourceCall.DevicesAlias
                 let newState, apiDefMapping = ensureTargetDeviceSystem store projectId targetFlowName devAlias sourceSystemId accState
                 let copied =
                     cloneApiCall
@@ -196,9 +196,9 @@ module internal PasteDeviceOps =
                 accState
             | Some sourceSystemId ->
                 let devAlias =
-                    match apiCall.Name.IndexOf('.') with
-                    | -1 -> sourceCall.DevicesAlias
-                    | idx -> apiCall.Name.[..idx - 1]
+                    Queries.splitApiCallName apiCall.Name
+                    |> Option.map fst
+                    |> Option.defaultValue sourceCall.DevicesAlias
                 let renameKey = $"{targetFlowName}_{devAlias}"
                 let newState =
                     if Map.containsKey renameKey accState.ClonedSystems then accState
@@ -277,9 +277,9 @@ module internal PasteDeviceOps =
                     tryFindPassiveSystemId store ac.ApiDefId
                     |> Option.map (fun sysId ->
                         let devAlias =
-                            match ac.Name.IndexOf('.') with
-                            | -1 -> sc.DevicesAlias
-                            | idx -> ac.Name.[..idx - 1]
+                            Queries.splitApiCallName ac.Name
+                            |> Option.map fst
+                            |> Option.defaultValue sc.DevicesAlias
                         sysId, devAlias))
                 |> Seq.toList)
             |> List.distinct
