@@ -65,6 +65,23 @@ URL 결정이 우선순위 3 (default) 인 경우 다음을 1회 수행:
 ### CLI binary
 repo local build 결과를 직접 사용. `dotnet publish` 또는 PATH 등록 불필요.
 
+### source 폴더 write 권한 사전 확인 (Step 1-a 진입 전)
+
+색인 산출물은 `<folder>/.lighthouse-kb/` 에 쓰인다 — source write 권한 필수 (부재 시 CLI 가 exit 11 거부).
+긴 색인 진입 전 1회 사전 확인하여 조기 abort (사용자 친화):
+
+```powershell
+$probe = Join-Path "<folder>" ".lh-write-probe.tmp"
+try { Set-Content -LiteralPath $probe -Value "" -Encoding utf8 -ErrorAction Stop; Remove-Item -LiteralPath $probe }
+catch { Write-Error "<folder> write 불가 — 권한/잠금 확인 후 재시도"; exit 1 }
+```
+
+- write OK 면 정상 진입. 실패 시 위 메시지 노출 후 abort.
+- **NOTE (2026-06 fix)**: `summary/` strategy 정제본 산출 실패는 더 이상 silent 누락되지 않는다 —
+  `dumpStrategySummaries` 가 폴더 핸들 lock 을 회피하도록 파일-단위 정리로 바뀌었고 (종전 `Directory.Delete`
+  통째 wipe → 상주 KB consumer 의 폴더 핸들과 충돌), best-effort try-with 도 폐기되어 실패 시 throw 전파 →
+  색인 명령이 명확히 비정상 종료한다. 따라서 lock/service 별도 사전검사는 불요 (실패가 자체적으로 표면화).
+
 ## CLI 위치 도출 절차
 
 1. `git rev-parse --show-toplevel` 으로 repo root 도출.
