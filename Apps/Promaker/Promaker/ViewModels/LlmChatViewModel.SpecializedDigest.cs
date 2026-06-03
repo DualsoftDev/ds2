@@ -18,7 +18,7 @@ namespace Promaker.ViewModels;
 ///   (<see cref="KbSpecializedDigestFetcher.FetchManyViaMcpAsync"/>)</item>
 ///   <item>합본 결과를 <see cref="ApiChatProvider.SetPendingSpecializedDigest"/> 에 주입 — 다음 firstTurn 의 system prompt
 ///   cache breakpoint 3 박제</item>
-///   <item>chat panel open / provider 토글 / SSE invalidate 시 trigger (<see cref="RefreshKbDigestAsync"/> 와 동일 lifecycle)</item>
+///   <item>provider 구성/토글/재시작 및 SSE invalidate 시 trigger</item>
 /// </list>
 /// <para/>
 /// **로컬 SourceFolder read 폐기**: 구 PR-I5 는 <c>&lt;SourceFolder&gt;/.lighthouse-kb/summary/*.md</c> 직접 read 라 로컬에
@@ -30,27 +30,37 @@ namespace Promaker.ViewModels;
 /// </summary>
 public partial class LlmChatViewModel
 {
+    /// <summary>layer E fetch 의 IsReady 블로킹 상한 (backstop). <see cref="ConfigureProviderAsync"/> 가 IsReady 전에
+    /// 동기 await 하므로, 무응답/느린 service 가 chat 진입을 무한 지연시키지 않도록 제한. 초과 시
+    /// OperationCanceledException → best-effort 빈 digest 로 진행 (다음 SSE / 재시작에서 재시도).</summary>
+    private static readonly TimeSpan SpecializedDigestFetchTimeout = TimeSpan.FromSeconds(30);
+
     /// <summary>
-    /// **specialized digest(layer E) fetch + 주입** — <see cref="RefreshKbDigestAsync"/> (초기 fetch / SSE invalidate) /
-    /// <see cref="ConfigureProviderAsync"/> (provider 토글) 진입점에서 호출. active 셋의 collection 마다 MCP
+    /// **specialized digest(layer E) fetch + 주입** — <see cref="ConfigureProviderAsync"/> (provider 구성/토글/재시작,
+    /// <paramref name="targetProvider"/> 명시 전달로 자기 provider 에만 박제) / <see cref="RefreshKbDigestAsync"/>
+    /// (SSE invalidate, 인자 없이 호출 → <c>_provider</c> fallback best-effort) 진입점에서 호출. active 셋의 collection 마다 MCP
     /// <c>attachment_summary(includeSpecialized=true)</c> 호출 → 합본 → <see cref="ApiChatProvider.SetPendingSpecializedDigest"/>
     /// → 다음 firstTurn cache breakpoint 3.
     /// <para/>
     /// best-effort — fetch 실패(인증/네트워크/직렬화)는 Log.Warn 후 빈 digest (chat 진입 차단 0). 빈 active 셋 / 전부
     /// 빈 응답 → 빈 digest → breakpoint 3 skip (회귀 0).
     /// </summary>
-    private async Task RefreshSpecializedDigestAsync()
+    private async Task RefreshSpecializedDigestAsync(ILlmProvider? targetProvider = null)
     {
         try
         {
+            // layer E fetch 는 ConfigureProviderAsync 가 IsReady 전에 동기 await 하므로, 무응답/느린 service 가 chat
+            // 진입을 무한 지연(LightHouseClient HttpClient.Timeout=10분)시키지 않도록 timeout backstop. 초과 시
+            // OperationCanceledException → 아래 catch 가 빈 digest 로 흡수 (다음 SSE / 재시작에서 재시도).
+            using var fetchCts = new CancellationTokenSource(SpecializedDigestFetchTimeout);
             var digest = await KbSpecializedDigestFetcher
-                .FetchManyViaMcpAsync(_acceptedCollectionIds, CancellationToken.None)
+                .FetchManyViaMcpAsync(_acceptedCollectionIds, fetchCts.Token)
                 .ConfigureAwait(true); // UI thread 복귀 — _provider 박제 invariant.
-            ApplyFetchedDigest(digest, _acceptedCollectionIds.Count, nameof(RefreshSpecializedDigestAsync));
+            ApplyFetchedDigest(digest, _acceptedCollectionIds.Count, nameof(RefreshSpecializedDigestAsync), targetProvider);
         }
         catch (Exception ex)
         {
-            // MCP fetch best-effort — 인증/네트워크/직렬화 실패 모두 흡수 (chat 진입 자체는 막지 않음).
+            // MCP fetch best-effort — 인증/네트워크/직렬화/timeout(OperationCanceled) 실패 모두 흡수 (chat 진입 차단 0).
             Log.Warn("RefreshSpecializedDigestAsync 실패 — specialized digest 미갱신, chat 영향 0", ex);
         }
     }
@@ -62,17 +72,30 @@ public partial class LlmChatViewModel
     /// <para/>
     /// **thread-affinity**: <c>_provider</c> 박제는 UI thread (dispatcher). <see cref="AssertUiThread"/> 로 진입 시 강제.
     /// </summary>
-    private void ApplyFetchedDigest(string digest, int serviceScopeCount, string callerLabel)
+    private void ApplyFetchedDigest(
+        string digest,
+        int serviceScopeCount,
+        string callerLabel,
+        ILlmProvider? targetProvider = null)
     {
         AssertUiThread(callerLabel);
+        // stale 가드 — targetProvider(ConfigureProviderAsync 가 넘긴 자기 provider)가 더 이상 active(_provider)가 아니면
+        // (await 사이 다른 switch 가 _provider 교체) 폐기 예정 provider 박제는 무의미 → skip. SSE 경로(targetProvider=null)는
+        // _provider fallback 이라 본 가드 비대상 (debounce 후 UI marshalling 시점의 현재 provider 가 맞음).
+        if (targetProvider is not null && !ReferenceEquals(targetProvider, _provider))
+        {
+            Log.Debug($"[layer E] {callerLabel} — stale provider 박제 skip (target={targetProvider.GetType().Name})");
+            return;
+        }
+        var provider = targetProvider ?? _provider;
         // CLI(Claude/Codex) + API provider 모두 `ILlmSystemPromptDigestSink` 구현 → 단일 캐스팅 path.
-        if (_provider is ILlmSystemPromptDigestSink sink)
+        if (provider is ILlmSystemPromptDigestSink sink)
             sink.SetPendingSpecializedDigest(digest);
         // **주입 로그 (사용자 요청 2026-06-01)** — Info 레벨로 주입 여부/크기 노출 (Debug 면 production 에서 놓침).
         // digest len=0 이면 cache breakpoint 3 skip = layer E 미주입 → 즉시 원인 식별 가능.
         Log.Info(
             $"[layer E] {callerLabel} — specialized digest len={digest.Length} " +
-            $"(services={serviceScopeCount}, provider={_provider?.GetType().Name ?? "none"})");
+            $"(services={serviceScopeCount}, provider={provider?.GetType().Name ?? "none"})");
     }
 
     /// <summary>

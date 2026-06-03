@@ -43,19 +43,14 @@ public partial class LlmChatViewModel
             // **Plan B (2026-05-27)** — `.mcp-config` 박제 안 함. mcp__promaker__lighthouse_* wrapper 사용.
             await TryCreateLightHouseSessionsAsync().ConfigureAwait(true);
 
+            // Fill the active KB profile cache before provider readiness, so the first turn after restart
+            // receives the new KB digest instead of racing the old fire-and-forget refresh.
+            SubscribeKbProfileEvents();
+            await PrimeInitialKbProfileCacheAsync().ConfigureAwait(true);
+
             _mcpConfig = BuildMcpConfig();
             await ConfigureProviderAsync(SelectedProvider).ConfigureAwait(true);
 
-            // PR-F (§5.1) — KB profile subscribe (SSE collection-* invalidate) + 초기 fetch.
-            // chat panel lifetime 동안 _acceptedCollectionIds 와 holder event 가 sync.
-            // 한 service 실패 ≠ chat 차단 (FetchKbProfilesAsync 가 try/catch 흡수).
-            // **review M-2** — RefreshKbDigestAsync 자체가 Exception 흡수 (Log.Warn) → unobserved 0.
-            SubscribeKbProfileEvents();
-            // KB digest + specialized digest(layer E) 초기 fetch. RefreshKbDigestAsync 안에서 specialized digest 도
-            // 동반 갱신 (KbProfile.cs). fire-and-forget — RefreshKbDigestAsync 자체 try/catch 흡수로 unobserved 0.
-            // layer E 는 MCP attachment_summary(includeSpecialized=true) fetch (로컬 SourceFolder read 폐기,
-            // 사용자 지시 2026-06-01) — 로컬/원격 service 모두 지원, collection 식별자(_acceptedCollectionIds)만 의존.
-            _ = RefreshKbDigestAsync();
         }
         catch (Exception ex)
         {
@@ -65,6 +60,7 @@ public partial class LlmChatViewModel
             // McpHostService.WaitReadyAsync timeout 등으로 throw 시 _app 은 이미 set 된 상태.
             // panel close 까지 DisposeAsync 가 지연되면 background Kestrel + ephemeral port leak →
             // defense-in-depth 로 즉시 stop. StopAsync 자체가 _app == null 이면 noop 이라 idempotent.
+            UnsubscribeKbProfileEvents();
             await _mcpHost.StopAsync().ConfigureAwait(true);
         }
     }
@@ -220,24 +216,18 @@ public partial class LlmChatViewModel
             // PR-G review C-1 fix — provider 토글 시 새 ApiChatProvider 의 _kbDigest 가 "" 박제로 reset 되므로
             // 현재 cache snapshot 으로 즉시 re-apply. SSE event 없이도 다음 firstTurn 에 KB digest 박제 보장.
             ApplyPendingKbDigest();
-            // provider 토글 시 새 ApiChatProvider 의 _specializedDigest 도 "" reset → layer E 재 fetch 로 re-apply.
-            // MCP attachment_summary(includeSpecialized=true) fetch (async) — fire-and-forget (RefreshSpecializedDigestAsync
-            // 자체 try/catch 흡수). 빈 active 셋 → SetPendingSpecializedDigest("") → cache breakpoint 3 skip (회귀 0).
-            _ = RefreshSpecializedDigestAsync();
+            // provider 토글/재시작 시 새 provider 의 _specializedDigest 도 "" reset 된다. Ready=true 전에 layer E 를
+            // fetch/주입해 첫 turn 이 summary 없이 시작되는 race 를 막는다. 빈 active 셋이면 빈 digest 박제 →
+            // cache breakpoint 3 skip (회귀 0).
+            await RefreshSpecializedDigestAsync(provider).ConfigureAwait(true);
+
+            // digest fetch await 경계 — 그 사이 더 늦은 switch / teardown 이 끼어들었으면 방금 만든 provider 폐기.
+            if (await DisposeIfStaleAsync(myCounter, provider).ConfigureAwait(true)) return;
 
             var result = await Task.Run(() => provider.EnsureCli()).ConfigureAwait(true);
 
-            // stale 결과 무시 (다른 switch 가 더 늦게 들어와 _switchCounter 증가시켰으면).
-            // API provider 는 IAsyncDisposable 라 stale 방어 시 leak 방지로 즉시 dispose.
-            if (myCounter != _switchCounter)
-            {
-                if (provider is IAsyncDisposable staleAsync)
-                {
-                    try { await staleAsync.DisposeAsync().ConfigureAwait(true); }
-                    catch (Exception ex) { Log.Warn("stale provider DisposeAsync 실패", ex); }
-                }
-                return;
-            }
+            // EnsureCli await 경계 — 동일 stale 가드 (SSOT helper). API provider leak 방지로 즉시 dispose.
+            if (await DisposeIfStaleAsync(myCounter, provider).ConfigureAwait(true)) return;
 
             if (result.IsValid)
             {
@@ -272,5 +262,22 @@ public partial class LlmChatViewModel
             IsReady = false;
             SendCommand.NotifyCanExecuteChanged();
         }
+    }
+
+    /// <summary>
+    /// stale-switch 가드 — <paramref name="myCounter"/> 가 현재 <see cref="_switchCounter"/> 와 다르면 (더 늦은
+    /// switch / teardown 이 끼어듦) 방금 만든 <paramref name="provider"/> 를 leak 없이 dispose 하고 true 반환 →
+    /// caller 는 즉시 return. <see cref="ConfigureProviderAsync"/> 의 await 경계마다(digest fetch 후 / EnsureCli 후)
+    /// 반복되던 dispose 블록 SSOT (CLAUDE.md "3줄 이상 반복 패턴 refactoring").
+    /// </summary>
+    private async Task<bool> DisposeIfStaleAsync(int myCounter, ILlmProvider provider)
+    {
+        if (myCounter == _switchCounter) return false;
+        if (provider is IAsyncDisposable staleAsync)
+        {
+            try { await staleAsync.DisposeAsync().ConfigureAwait(true); }
+            catch (Exception ex) { Log.Warn("stale provider DisposeAsync 실패", ex); }
+        }
+        return true;
     }
 }

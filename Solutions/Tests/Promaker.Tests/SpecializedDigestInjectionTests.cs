@@ -223,18 +223,39 @@ public sealed class SpecializedDigestInjectionTests
     // specialized digest fetch 가 production 진입점에 연결됐는지 source-level 박제 — drift (KB digest 옆
     // specialized fetch 호출 누락) 발생 시 즉시 차단. WPF Dispatcher / LightHouseClientHolder 의존 회피.
 
-    private static string ResolveViewModelsDir()
+    private static string ResolveViewModelsDir([CallerFilePath] string sourceFile = "")
     {
-        var baseDir = AppContext.BaseDirectory;
-        var testProjectRoot = Path.GetFullPath(Path.Combine(baseDir, "..", "..", ".."));
-        var repoRoot = Path.GetFullPath(Path.Combine(testProjectRoot, "..", "..", ".."));
-        return Path.Combine(repoRoot, "Apps", "Promaker", "Promaker", "ViewModels");
+        if (!string.IsNullOrEmpty(sourceFile))
+        {
+            var testProjectDir = Path.GetDirectoryName(sourceFile);
+            if (!string.IsNullOrEmpty(testProjectDir))
+            {
+                var repoRoot = Path.GetFullPath(Path.Combine(testProjectDir, "..", "..", ".."));
+                var fromSource = Path.Combine(repoRoot, "Apps", "Promaker", "Promaker", "ViewModels");
+                if (Directory.Exists(fromSource)) return fromSource;
+            }
+        }
+
+        foreach (var start in new[] { AppContext.BaseDirectory, Directory.GetCurrentDirectory() })
+        {
+            var dir = new DirectoryInfo(Path.GetFullPath(start));
+            while (dir is not null)
+            {
+                var candidate = Path.Combine(dir.FullName, "Apps", "Promaker", "Promaker", "ViewModels");
+                if (Directory.Exists(candidate)) return candidate;
+                dir = dir.Parent;
+            }
+        }
+
+        var fallbackRepoRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", ".."));
+        return Path.Combine(fallbackRepoRoot, "Apps", "Promaker", "Promaker", "ViewModels");
     }
 
     [Fact]
-    public void Wiring_InitializeAsync_RefreshKbDigest_진입()
+    public void Wiring_InitializeAsync_PrimeKbProfile_before_provider()
     {
-        // InitializeAsync 안에 RefreshKbDigestAsync() 호출 — specialized digest fetch 는 RefreshKbDigestAsync 안에서 동반.
+        // InitializeAsync primes the KB profile cache before provider creation; ConfigureProviderAsync then applies
+        // that cache to the new provider before IsReady=true.
         var file = Path.Combine(ResolveViewModelsDir(), "LlmChatViewModel.Initialize.cs");
         Assert.True(File.Exists(file), $"source file 부재: {file}");
         var src = File.ReadAllText(file);
@@ -243,7 +264,10 @@ public sealed class SpecializedDigestInjectionTests
         var nextMethodIdx = src.IndexOf("private async Task TryCreateLightHouseSessionsAsync", initIdx, StringComparison.Ordinal);
         Assert.True(nextMethodIdx > initIdx, "InitializeAsync 종료 boundary 부재");
         var initBody = src.Substring(initIdx, nextMethodIdx - initIdx);
-        Assert.Contains("RefreshKbDigestAsync()", initBody);
+        var primeIdx = initBody.IndexOf("PrimeInitialKbProfileCacheAsync()", StringComparison.Ordinal);
+        var configureIdx = initBody.IndexOf("ConfigureProviderAsync(SelectedProvider)", StringComparison.Ordinal);
+        Assert.True(primeIdx >= 0, "InitializeAsync KB profile prime 진입점 부재");
+        Assert.True(configureIdx > primeIdx, "KB profile prime 은 provider 구성 전에 끝나야 함");
     }
 
     [Fact]
@@ -254,7 +278,10 @@ public sealed class SpecializedDigestInjectionTests
         var cfgIdx = src.IndexOf("private async Task ConfigureProviderAsync(LlmProviderKind kind)", StringComparison.Ordinal);
         Assert.True(cfgIdx >= 0, "ConfigureProviderAsync 진입점 부재");
         var cfgBody = src.Substring(cfgIdx);
-        Assert.Contains("RefreshSpecializedDigestAsync()", cfgBody);
+        var refreshIdx = cfgBody.IndexOf("await RefreshSpecializedDigestAsync(provider).ConfigureAwait(true);", StringComparison.Ordinal);
+        var readyIdx = cfgBody.IndexOf("IsReady = true;", StringComparison.Ordinal);
+        Assert.True(refreshIdx >= 0, "ConfigureProviderAsync layer E 동기 fetch 진입점 부재");
+        Assert.True(readyIdx > refreshIdx, "layer E summary fetch 는 IsReady=true 전에 끝나야 함");
         Assert.Contains("ApplyPendingKbDigest();", cfgBody);
     }
 
@@ -266,7 +293,7 @@ public sealed class SpecializedDigestInjectionTests
         var src = File.ReadAllText(file);
         var rkIdx = src.IndexOf("private async Task RefreshKbDigestAsync()", StringComparison.Ordinal);
         Assert.True(rkIdx >= 0, "RefreshKbDigestAsync 진입점 부재");
-        var nextMethodIdx = src.IndexOf("internal async Task<IReadOnlyDictionary", rkIdx, StringComparison.Ordinal);
+        var nextMethodIdx = src.IndexOf("private async Task PrimeInitialKbProfileCacheAsync()", rkIdx, StringComparison.Ordinal);
         Assert.True(nextMethodIdx > rkIdx, "RefreshKbDigestAsync 종료 boundary 부재");
         var rkBody = src.Substring(rkIdx, nextMethodIdx - rkIdx);
         Assert.Contains("ApplyPendingKbDigest();", rkBody);
