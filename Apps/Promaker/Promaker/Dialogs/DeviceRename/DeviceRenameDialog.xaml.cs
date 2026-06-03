@@ -91,18 +91,6 @@ public partial class DeviceRenameDialog : Window
         var preview = _store.CollectRenameImpact(_systemId, NewDeviceNameOption, BuildApiRenames());
 
         ImpactSummaryText.Text = $"영향 미리보기 — Call/ApiCall 외 총 {preview.TotalCount}건";
-
-        var driftCount = preview.DriftItems.Length;
-        if (driftCount > 0)
-        {
-            DriftWarningText.Text =
-                $"⚠ 대소문자 표류로 자동 정리되지 않는 항목 {driftCount}건";
-            DriftWarningText.Visibility = Visibility.Visible;
-        }
-        else
-        {
-            DriftWarningText.Visibility = Visibility.Collapsed;
-        }
     }
 
     private void Accept_Click(object sender, RoutedEventArgs e) => DialogResult = true;

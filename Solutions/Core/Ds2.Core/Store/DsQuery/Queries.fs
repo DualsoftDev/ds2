@@ -311,14 +311,6 @@ module Queries =
             | -1  -> None
             | idx -> Some (name.[..idx - 1], name.[idx + 1..])
 
-    /// 주어진 ApiDef 를 ApiCall.ApiDefId 로 참조하는 모든 ApiCall (본체 한정).
-    /// ★주의(DsStore.fs RebuildApiCallsDictionary 근거): store.ApiCalls(=allApiCalls) 에는
-    /// Call 본체 ApiCall 만 등록되며, Call.Conditions / Work.Conditions 트리 내 ApiCall 은
-    /// 같은 Id 의 독립 인스턴스로 dict 에 없다. 따라서 이 쿼리는 Condition 내 ApiCall 을 포함하지 않는다.
-    /// cascade rename 시 Condition 경로는 소유 Call/Work 의 Conditions 를 별도 재귀 순회해야 한다.
-    let apiCallsReferencingApiDef (apiDefId: Guid) (store: DsStore) : ApiCall list =
-        allApiCalls store |> List.filter (fun ac -> ac.ApiDefId = Some apiDefId)
-
     /// Call → ApiCall.tryHead → ApiDefId → ApiDef → ParentSystem chain resolve.
     /// PoC scope (cylinder/clamp/robot sugar) 에서 Call.ApiCalls 는 1:1 매핑 — 첫 ApiCall 만 본다.
     /// 4 fallback case (ApiCalls 빈 list / ApiDefId None / orphan ApiDef / orphan System) 시 None.

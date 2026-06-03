@@ -34,13 +34,11 @@ type RenameDevicePreview = {
     /// 이름이 바뀌는 Condition 내 ApiCall 목록 (소유 ownerKind/ownerId + 옛/새 ApiCall 이름).
     /// 같은 owner 안 여러 ApiCall 이 바뀌면 항목 다건. apply 는 여기 등장한 owner 만 TrackMutate 한다.
     ConditionApiCalls: (EntityKind * Guid * string * string) list
-    /// ApiName/DevicesAlias 가 바뀌는 Call 목록 (callId, oldCallName, newCallName).
-    Calls            : (Guid * string * string) list
+    /// ApiName/DevicesAlias 가 바뀌는 Call 목록 (callId, oldCallName, newCallName, newApiName option, newAlias option).
+    /// newApiName/newAlias 는 callChanges 단일 계산 결과 — apply 가 재계산 없이 그대로 set 한다(SSOT).
+    Calls            : (Guid * string * string * string option * string option) list
     /// LocalName 이 바뀌는 내부 Work 목록 (workId, oldLocalName, newLocalName).
     Works            : (Guid * string * string) list
-    /// 대소문자 표류 등으로 자동 정리 불가한 항목 (위치 설명).
-    /// 디바이스명 변경 시 ApiCall.Name 앞부분이 옛 디바이스명과 대소문자까지 일치하지 않으면 여기 모인다.
-    DriftItems       : string list
 }
 with
     /// Call/ApiCall 외 영향 총 건수 합 (System + ApiDef + 본체 ApiCall + Condition ApiCall + Call + Work).
@@ -174,28 +172,32 @@ type DsStoreRenameDeviceExtensions =
                 RenameDeviceOps.applyUnitsToName units ac
                 |> Option.map (fun newName -> ac.Id, ac.Name, newName))
 
-        // ── 소유 Call 의 ApiName / DevicesAlias 변경 ──────────────────
+        // ── 소유 Call 의 ApiName / DevicesAlias 변경 (단일 계산 = apply 가 그대로 set, SSOT) ──
         let callChanges =
             store.CallsReadOnly.Values
             |> Seq.choose (fun call ->
                 let touchesBody =
                     call.ApiCalls |> Seq.exists (fun ac -> units |> List.exists (fun u -> u.Predicate ac))
-                // ApiName 변경: 본체 ApiCall 중 effectiveApiRenames 대상이 있으면 새 ApiName.
-                let newApiName =
+                // ApiName 변경: 본체 ApiCall 중 effectiveApiRenames 대상이 있으면 새 ApiName(없으면 None).
+                let newApiNameOpt =
                     call.ApiCalls
                     |> Seq.tryPick (fun ac ->
                         effectiveApiRenames
                         |> List.tryPick (fun (apiDefId, _, newName) ->
                             if ac.ApiDefId = Some apiDefId then Some newName else None))
-                    |> Option.defaultValue call.ApiName
                 // DevicesAlias 변경: 디바이스명 변경 + 현재 DevicesAlias == 옛 디바이스명 + 이 Call 이 그 디바이스 참조.
-                let newAlias =
+                let newAliasOpt =
                     match deviceRename, oldDeviceName with
-                    | Some(_, _, newDev), Some oldDev when call.DevicesAlias = oldDev && touchesBody -> newDev
-                    | _ -> call.DevicesAlias
-                if newApiName <> call.ApiName || newAlias <> call.DevicesAlias then
-                    Some(call.Id, call.Name, $"{newAlias}.{newApiName}")
-                else None)
+                    | Some(_, _, newDev), Some oldDev when call.DevicesAlias = oldDev && touchesBody -> Some newDev
+                    | _ -> None
+                match newApiNameOpt, newAliasOpt with
+                | None, None -> None
+                | _ ->
+                    let newFull =
+                        sprintf "%s.%s"
+                            (newAliasOpt |> Option.defaultValue call.DevicesAlias)
+                            (newApiNameOpt |> Option.defaultValue call.ApiName)
+                    Some(call.Id, call.Name, newFull, newApiNameOpt, newAliasOpt))
             |> Seq.toList
 
         // ── (b) Condition 내 ApiCall (소유 Call/Work 별, ApiCall 인스턴스 단위 정확 계산) ──
@@ -223,29 +225,14 @@ type DsStoreRenameDeviceExtensions =
                 | None -> [])
             |> List.distinctBy (fun (id, _, _) -> id)
 
-        // ── 대소문자 표류(자동 정리 불가 — 미리보기 경고만) ───────────
-        let driftItems =
-            match deviceRename, oldDeviceName with
-            | Some _, Some oldDev ->
-                let deviceApiDefIds =
-                    Queries.apiDefsOf systemId store |> List.map (fun d -> d.Id) |> Set.ofList
-                Queries.allApiCalls store
-                |> List.filter (fun ac -> ac.ApiDefId |> Option.exists deviceApiDefIds.Contains)
-                |> List.choose (fun ac ->
-                    Queries.splitApiCallName ac.Name
-                    |> Option.bind (fun (devPart, _) ->
-                        if devPart <> oldDev && String.Equals(devPart, oldDev, StringComparison.OrdinalIgnoreCase)
-                        then Some $"ApiCall '{ac.Name}' 의 디바이스 표기 '{devPart}' 가 '{oldDev}' 와 대소문자 불일치"
-                        else None))
-            | _ -> []
-
+        // 주: 대소문자 표류(robot vs Robot)는 cascade 키가 ApiDefId(Guid, §6 박제)라 자동 정규화되므로
+        //     별도 경고 항목을 두지 않는다. 표기가 달랐던 ApiCall 도 newDev.* 로 통일 교체된다.
         { DeviceRename      = deviceRename
           ApiRenames        = effectiveApiRenames
           BodyApiCalls      = bodyApiCalls
           ConditionApiCalls = conditionApiCalls
           Calls             = callChanges
-          Works             = works
-          DriftItems        = driftItems }
+          Works             = works }
 
     /// collectRenameImpact 결과를 *단일* WithTransaction(=Undo 1단계) 으로 적용한다.
     /// 종료 emit = EmitRefreshAndHistory() 1회. 중복검사 포함 — 위반 시 invalidOp(트랜잭션 진입 전 차단).
@@ -283,7 +270,7 @@ type DsStoreRenameDeviceExtensions =
                     invalidOp $"Flow 내에 이미 '{newName}' Work 가 존재합니다."
             | None -> ()
 
-        for (callId, _, newFull) in preview.Calls do
+        for (callId, _, newFull, _, _) in preview.Calls do
             match Queries.getCall callId store with
             | Some call ->
                 if not (Queries.isCallNameUniqueInWork call.ParentId newFull (Some callId) store) then
@@ -296,9 +283,6 @@ type DsStoreRenameDeviceExtensions =
                 (preview.DeviceRename |> Option.map (fun (_, _, n) -> n))
                 (preview.ApiRenames |> List.map (fun (id, _, n) -> id, n))
 
-        // ApiName/DevicesAlias 가 바뀌는 Call 집합 (preview.Calls = callChanges SSOT — 본체 ApiCall 이
-        // renamed ApiDef 를 참조하면 callChanges 가 이미 그 Call 을 newApiName 으로 포함한다).
-        let aliasOrApiCallIds = preview.Calls |> List.map (fun (cid, _, _) -> cid) |> Set.ofList
         // Condition 내 ApiCall 이 바뀌는 소유 Call/Work 집합 (preview 가 특정 — 무관 owner mutate 회피).
         let condCallIds =
             preview.ConditionApiCalls
@@ -337,19 +321,12 @@ type DsStoreRenameDeviceExtensions =
             for (acId, _, newName) in preview.BodyApiCalls do
                 store.TrackMutate(store.ApiCalls, acId, fun ac -> ac.Name <- newName)
 
-            // 4b) 소유 Call.ApiName / DevicesAlias.
+            // 4b) 소유 Call.ApiName / DevicesAlias — callChanges 가 미리 계산한 값을 그대로 set(재계산 없음, SSOT).
             //     Call.Name setter 가 ApiName 변경을 차단 → 필드(c.ApiName / c.DevicesAlias) 직접 set.
-            for callId in aliasOrApiCallIds do
+            for (callId, _, _, newApiNameOpt, newAliasOpt) in preview.Calls do
                 store.TrackMutate(store.Calls, callId, fun c ->
-                    c.ApiCalls
-                    |> Seq.tryPick (fun ac ->
-                        preview.ApiRenames
-                        |> List.tryPick (fun (apiDefId, _, newName) ->
-                            if ac.ApiDefId = Some apiDefId then Some newName else None))
-                    |> Option.iter (fun newApiName -> c.ApiName <- newApiName)
-                    match preview.DeviceRename with
-                    | Some(_, oldDev, newDev) when c.DevicesAlias = oldDev -> c.DevicesAlias <- newDev
-                    | _ -> ())
+                    newApiNameOpt |> Option.iter (fun newApiName -> c.ApiName <- newApiName)
+                    newAliasOpt |> Option.iter (fun newAlias -> c.DevicesAlias <- newAlias))
 
             // 5) Condition 내 ApiCall.Name — preview 가 특정한 소유 Call/Work 만 TrackMutate 하며
             //    트리 직접 재귀 순회 (§3.1: store.ApiCalls dict 경로로는 못 바꾼다).

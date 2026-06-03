@@ -249,3 +249,42 @@ let ``RenameDeviceBatch 는 Undo 1회로 본체와 Condition 의 모든 변경�
     Assert.Equal("LOAD", store.Calls.[callId].ApiName)
     Assert.Equal("Robot231a.LOAD", store.Calls.[callId].Conditions.[0].ApiCalls.[0].Name)
     Assert.Equal("Robot231a.LOAD", store.Works.[work.Id].Conditions.[0].ApiCalls.[0].Name)
+
+
+// ⑦ no-op (동일 이름 / 빈 cascade) → 0 반환, 이름 불변 ─────────────────────────
+[<Fact>]
+let ``RenameDeviceBatch 는 실질 변경이 없으면 0 을 반환하고 이름을 바꾸지 않는다`` () =
+    let store = createStore ()
+    let _, device, apiDef, _, _ = setupDeviceCall store "Robot231a" "LOAD"
+
+    // 같은 이름으로 rename (실질 변경 0) — preview/apply 둘 다 0.
+    Assert.Equal(0, store.CollectRenameImpact(device.Id, Some "Robot231a", [ apiDef.Id, "LOAD" ]).TotalCount)
+    let changed = store.RenameDeviceBatch(device.Id, Some "Robot231a", [ apiDef.Id, "LOAD" ])
+
+    Assert.Equal(0, changed)
+    Assert.Equal("Robot231a", store.Systems.[device.Id].Name)
+    Assert.Equal("LOAD", store.ApiDefs.[apiDef.Id].Name)
+
+
+// ⑧ splitApiCallName 순수함수 — 첫 '.' 분리 / 점 없음·null → None ───────────────
+[<Fact>]
+let ``splitApiCallName 은 첫 점 기준 분리하고 점이 없거나 null 이면 None`` () =
+    Assert.Equal(Some("Robot231a", "LOAD"), Queries.splitApiCallName "Robot231a.LOAD")
+    Assert.Equal(Some("A", "B.C"), Queries.splitApiCallName "A.B.C")   // 첫 점 기준(앞=A)
+    Assert.Equal(None, Queries.splitApiCallName "__inverter__")        // dummy/raw 심볼(점 없음)
+    Assert.Equal(None, Queries.splitApiCallName null)
+
+
+// ⑨ device-only rename 은 ApiName(뒷부분)/ApiDef 를 건드리지 않는다 (negative) ───
+[<Fact>]
+let ``RenameDeviceBatch 디바이스명만 변경 시 ApiName 과 ApiDef 이름은 불변이다`` () =
+    let store = createStore ()
+    let _, device, apiDef, call, _ = setupDeviceCall store "Robot231a" "LOAD"
+
+    store.RenameDeviceBatch(device.Id, Some "Cobot999", []) |> ignore
+
+    // 앞부분(디바이스명)만 교체, 뒷부분(ApiName)·ApiDef 불변.
+    Assert.Equal("Cobot999.LOAD", (store.Calls.[call.Id].ApiCalls |> Seq.head).Name)
+    Assert.Equal("LOAD", store.Calls.[call.Id].ApiName)
+    Assert.Equal("Cobot999", store.Calls.[call.Id].DevicesAlias)
+    Assert.Equal("LOAD", store.ApiDefs.[apiDef.Id].Name)

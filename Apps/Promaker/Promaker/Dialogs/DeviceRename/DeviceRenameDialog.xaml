@@ -119,11 +119,6 @@
                     <TextBlock x:Name="ImpactSummaryText"
                                Text="영향 미리보기 — Call/ApiCall 외 총 0건"
                                FontWeight="SemiBold"/>
-                    <TextBlock x:Name="DriftWarningText"
-                               Margin="0,6,0,0"
-                               TextWrapping="Wrap"
-                               Foreground="#FFC107"
-                               Visibility="Collapsed"/>
                 </StackPanel>
             </Border>
 
