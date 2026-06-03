@@ -15,7 +15,7 @@ namespace Promaker.Dialogs;
 /// 디바이스(Passive System) 이름 + 그 디바이스 Action(API) 이름들을 한 번에 편집하는 다이얼로그.
 /// 영향 미리보기(총 N건 + 대소문자 표류 경고 K건)는 P2 SSOT <see cref="DsStoreRenameDeviceExtensions"/>
 /// 의 CollectRenameImpact 를 그대로 호출해 채운다(dry-run/apply 동일 소스). 실제 적용(RenameDeviceBatch)은
-/// 호출 측(P4)이 ChangedRows / DeviceNameChanged 결과로 수행한다 — 본 다이얼로그는 미리보기만 담당.
+/// 호출 측(P4)이 NewDeviceNameOption / BuildApiRenames() 결과로 수행한다 — 본 다이얼로그는 미리보기만 담당.
 /// 배치 다이얼로그 패턴은 DurationBatchDialog 차용(ObservableCollection + ChangedRows).
 /// </summary>
 public partial class DeviceRenameDialog : Window
@@ -61,10 +61,6 @@ public partial class DeviceRenameDialog : Window
     public bool DeviceNameChanged =>
         !string.IsNullOrWhiteSpace(DeviceNameBox.Text)
         && DeviceNameBox.Text.Trim() != _originalDeviceName;
-
-    /// <summary>디바이스명이 바뀐 경우 새 이름(trim), 아니면 null.</summary>
-    public string? NewDeviceName =>
-        DeviceNameChanged ? DeviceNameBox.Text.Trim() : null;
 
     /// <summary>F#(CollectRenameImpact/RenameDeviceBatch)에 넘길 디바이스명 인자.
     /// 변경 시 Some(trim), 아니면 None. preview(다이얼로그)와 apply(호출 측 P4)가 공유한다.</summary>
