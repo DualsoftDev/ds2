@@ -39,6 +39,7 @@
     <Compile Include="Store\Paste\Paste.DirectOps.fs" />
     <Compile Include="Store\Paste\Paste.fs" />
     <Compile Include="Store\Nodes\MoveCall.fs" />
+    <Compile Include="Store\Nodes\RenameDevice.fs" />
     <Compile Include="Store\Arrows.fs" />
     <Compile Include="Store\Panel\Panel.fs" />
     <Compile Include="Store\Panel\Panel.Condition.fs" />
