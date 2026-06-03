@@ -152,7 +152,7 @@ let ``Packager.createZip — summary/*.md 가 zip 안 .lighthouse-kb/summary/ pr
             if File.Exists zipPath then File.Delete zipPath)
 
 // ── 시나리오 1-b (G·G-Major-3, Outlier/Minor 묶음 2) ─────────────────────────
-//   signature 미달 fixture (BOM xlsx — IoListStrategy / WorkOrderStrategy 모두 0~near-miss) 박제 시
+//   signature 미달 fixture (BOM xlsx — IoListStrategy 0~near-miss; WorkOrder 는 2026-06-04 미등록) 박제 시
 //   `.lighthouse-kb/rejected.json` 또는 `.lighthouse-kb/near-miss.json` 가 zip 안에 동봉되는지 verify.
 //   본 fact 가 cover 하는 wire: TextDumper.dumpStrategySummaries 의 N1/N4 default 결과가
 //   Packager.createZip 의 .lighthouse-kb/ whitelist 안에 포함됨.

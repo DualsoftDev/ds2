@@ -35,7 +35,7 @@
     <Compile Include="Extractors\PdfExtractor.fs" />
     <!-- PR-I1 (todo §3.1 / §11.4) — xlsx strategy interface + IoListStrategy + classifier.
          OoxmlExtractor 보다 앞 박제 (XlsxStrategies 는 Diagnostics + Models 만 의존, OoxmlExtractor 와 직교).
-         PR-I2 시점 WorkOrderStrategy 가 IoListStrategy 다음 / XlsxSignatureClassifier 보다 앞에 append. -->
+         WorkOrderStrategy.fs 는 IoListStrategy 다음 컴파일 (파일 보존 — 2026-06-04 classifier list 등록만 해제). -->
     <Compile Include="Extractors\XlsxStrategies\IXlsxStrategy.fs" />
     <Compile Include="Extractors\XlsxStrategies\IoListStrategy.fs" />
     <Compile Include="Extractors\XlsxStrategies\WorkOrderStrategy.fs" />
@@ -47,7 +47,8 @@
     <Compile Include="Extractors\XlsxStrategies\XlsxSignatureClassifier.fs" />
     <!-- PR-I2 (todo §3.1 / §11.4 / §2.1) — pdf strategy interface + PdfControlSpecStrategy + classifier.
          IXlsxStrategy 의 SignatureResult / StrategyOutcome 재사용 → XlsxStrategies 의 IXlsxStrategy.fs 보다 뒤.
-         PdfExtractor 보다 뒤 (Models / Diagnostics / XlsxStrategies SignatureResult 만 의존). -->
+         PdfExtractor 보다 뒤 (Models / Diagnostics / XlsxStrategies SignatureResult 만 의존).
+         PdfControlSpecStrategy.fs 는 파일 보존 — 2026-06-04 classifier list 비움(등록 해제). -->
     <Compile Include="PdfStrategies\IPdfStrategy.fs" />
     <Compile Include="PdfStrategies\PdfControlSpecStrategy.fs" />
     <Compile Include="PdfStrategies\PdfSignatureClassifier.fs" />

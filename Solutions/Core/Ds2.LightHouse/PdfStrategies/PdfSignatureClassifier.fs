@@ -7,7 +7,7 @@ open Ds2.LightHouse.Extractors.XlsxStrategies
 /// **PR-I2 (todo-documents-based-gfm.md §2 + §2.1 + documents-based-gfm.md §8.5.7)** —
 /// pdf strategy classifier 진입점. 등록된 strategy list 를 priority 순으로 평가 후 매치된 strategy 의 `Build` 호출.
 ///
-/// **PR-I2 시점 strategy list** = `[ PdfControlSpecStrategy ]` 단독.
+/// **strategy list** = 빈 list (2026-06-04 PdfControlSpecStrategy 제거 — PDF 는 일반 KB 자료, specialized 미적용).
 /// 진단 schema (NearMissEntry / RejectedEntry) 는 XlsxStrategies 와 공유 — 사용자 진단 view 통일.
 ///
 /// **Backlog C (PR-I2 검열 Major 2)**: 종전 pdf 전용 분류 DU 를 `ClassificationResult`
@@ -24,10 +24,10 @@ open Ds2.LightHouse.Extractors.XlsxStrategies
 /// pdf strategy classifier — 등록된 strategy list 의 priority 순 평가 + dispatch.
 module PdfSignatureClassifier =
 
-    /// PR-I2 시점 등록 strategy list. priority order = `documents-based-gfm.md` §8.5.7 → PdfControlSpec (현재 단독).
-    let strategies : IPdfStrategy list = [
-        PdfControlSpecStrategy() :> IPdfStrategy
-    ]
+    /// 등록 strategy list = 빈 list (2026-06-04 PdfControlSpecStrategy 제거 — PDF 는 일반 KB 자료).
+    /// 제어시스템 PDF 는 specialized 정제 없이 일반 색인 (WorkOrder 와 동일 정책). PDF 전용 strategy 가
+    /// 다시 필요해지면 본 list 에 등록 (PdfControlSpecStrategy.fs 코드는 보존).
+    let strategies : IPdfStrategy list = []
 
     /// 입력 `ExtractedDocument` 의 strategy 매치 시도.
     /// 동작:
