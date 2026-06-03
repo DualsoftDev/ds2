@@ -1,0 +1,340 @@
+<Window x:Class="Ds2.Reverse.Studio.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:Ds2.Reverse.Studio.ViewModels"
+        xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.WPF;assembly=LiveChartsCore.SkiaSharpView.WPF"
+        Title="Ds2.Reverse.Studio"
+        Width="1400" Height="900"
+        WindowStartupLocation="CenterScreen">
+    <Window.DataContext>
+        <vm:MainViewModel/>
+    </Window.DataContext>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Toolbar -->
+        <ToolBar Grid.Row="0" Background="#1565C0">
+            <Button Content="⚙ Generate" Command="{Binding GenerateCommand}" Padding="8,4" Margin="4,0"/>
+            <Button Content="▶ Simulate" Command="{Binding SimulateCommand}" Padding="8,4" Margin="4,0"/>
+            <Button Content="🔍 Reverse" Command="{Binding ReverseCommand}" Padding="8,4" Margin="4,0"/>
+            <Button Content="🎲 Seed Sweep" Command="{Binding SeedSweepCommand}"
+                    Padding="8,4" Margin="4,0"
+                    ToolTip="10 seed 로 같은 case 시뮬+역변환, F1 분포 출력"/>
+            <Separator/>
+            <CheckBox Content="Auto run" IsChecked="{Binding AutoRun}" VerticalAlignment="Center" Margin="8,0"/>
+            <CheckBox Content="Auto-tune threshold" IsChecked="{Binding AutoTuneThreshold}"
+                      VerticalAlignment="Center" Margin="8,0"
+                      ToolTip="events 의 noise level 추정 → suff/necc 자동 조정"/>
+        </ToolBar>
+
+        <!-- Main content: 3 columns (sidebar | model | results) -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="280"/>
+                <ColumnDefinition Width="5"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Sidebar: case + params -->
+            <Border Grid.Column="0" Background="#F5F5F5" Padding="12">
+                <StackPanel>
+                    <TextBlock Text="Case" FontWeight="Bold" Margin="0,0,0,4"/>
+                    <RadioButton Content="A — Inline Line (StartReset chain)"
+                                 IsChecked="{Binding IsCaseInline}" Margin="0,0,0,2"/>
+                    <RadioButton Content="B — Standalone Work + DAG"
+                                 IsChecked="{Binding IsCaseDag}" Margin="0,0,0,2"/>
+                    <RadioButton Content="C — Multi-Flow Inline (cross-flow)"
+                                 IsChecked="{Binding IsCaseMultiFlow}" Margin="0,0,0,2"/>
+                    <RadioButton Content="D — Branch / Choice"
+                                 IsChecked="{Binding IsCaseBranch}" Margin="0,0,0,2"/>
+                    <RadioButton Content="E — Recycle Loop"
+                                 IsChecked="{Binding IsCaseRecycle}" Margin="0,0,0,2"/>
+                    <RadioButton Content="F — PLC-Realistic Cell"
+                                 IsChecked="{Binding IsCasePlcCell}" Margin="0,0,0,2"/>
+                    <RadioButton Content="G — Capacity Variable"
+                                 IsChecked="{Binding IsCaseCapacity}" Margin="0,0,0,2"/>
+                    <RadioButton Content="H — Adversarial Mix"
+                                 IsChecked="{Binding IsCaseAdversarial}" Margin="0,0,0,12"/>
+
+                    <GroupBox Header="Case A 파라미터">
+                        <StackPanel>
+                            <DockPanel Margin="0,2">
+                                <TextBlock Text="Stages:" Width="80"/>
+                                <TextBox Text="{Binding NStages}" Width="60"/>
+                            </DockPanel>
+                            <DockPanel Margin="0,2">
+                                <TextBlock Text="Capacity:" Width="80"/>
+                                <TextBox Text="{Binding Capacity}" Width="60"/>
+                            </DockPanel>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Header="Case B 파라미터" Margin="0,8,0,0">
+                        <StackPanel>
+                            <DockPanel Margin="0,2">
+                                <TextBlock Text="# Calls:" Width="80"/>
+                                <TextBox Text="{Binding NCalls}" Width="60"/>
+                            </DockPanel>
+                            <DockPanel Margin="0,2">
+                                <TextBlock Text="Density:" Width="80"/>
+                                <TextBox Text="{Binding Density}" Width="60"/>
+                            </DockPanel>
+                            <DockPanel Margin="0,2">
+                                <TextBlock Text="Group prob:" Width="80"/>
+                                <TextBox Text="{Binding GroupProb}" Width="60"/>
+                            </DockPanel>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Header="Case C 파라미터" Margin="0,8,0,0">
+                        <StackPanel>
+                            <DockPanel Margin="0,2">
+                                <TextBlock Text="# Flows:" Width="90"/>
+                                <TextBox Text="{Binding NFlows}" Width="60"/>
+                            </DockPanel>
+                            <DockPanel Margin="0,2">
+                                <TextBlock Text="Stages/flow:" Width="90"/>
+                                <TextBox Text="{Binding StagesPerFlow}" Width="60"/>
+                            </DockPanel>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Header="Case D 파라미터" Margin="0,8,0,0">
+                        <StackPanel>
+                            <DockPanel Margin="0,2">
+                                <TextBlock Text="# Branches:" Width="90"/>
+                                <TextBox Text="{Binding NBranches}" Width="60"/>
+                            </DockPanel>
+                            <DockPanel Margin="0,2">
+                                <TextBlock Text="Entropy:" Width="90"/>
+                                <TextBox Text="{Binding BranchEntropy}" Width="60"/>
+                            </DockPanel>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Header="Case E 파라미터" Margin="0,8,0,0">
+                        <StackPanel>
+                            <DockPanel Margin="0,2">
+                                <TextBlock Text="Stages:" Width="90"/>
+                                <TextBox Text="{Binding RecycleStages}" Width="60"/>
+                            </DockPanel>
+                            <DockPanel Margin="0,2">
+                                <TextBlock Text="Recycle prob:" Width="90"/>
+                                <TextBox Text="{Binding RecycleProbability}" Width="60"/>
+                            </DockPanel>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Header="Case F 파라미터" Margin="0,8,0,0">
+                        <StackPanel>
+                            <CheckBox Content="Robot" IsChecked="{Binding PlcUseRobot}" Margin="0,2"/>
+                            <CheckBox Content="Conveyor" IsChecked="{Binding PlcUseConveyor}" Margin="0,2"/>
+                            <CheckBox Content="Jig" IsChecked="{Binding PlcUseJig}" Margin="0,2"/>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Header="Case G 파라미터" Margin="0,8,0,0">
+                        <StackPanel>
+                            <DockPanel Margin="0,2">
+                                <TextBlock Text="Min tokens:" Width="90"/>
+                                <TextBox Text="{Binding CapMinTokens}" Width="60"/>
+                            </DockPanel>
+                            <DockPanel Margin="0,2">
+                                <TextBlock Text="Max tokens:" Width="90"/>
+                                <TextBox Text="{Binding CapMaxTokens}" Width="60"/>
+                            </DockPanel>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Header="Case H 파라미터" Margin="0,8,0,0">
+                        <StackPanel>
+                            <DockPanel Margin="0,2">
+                                <TextBlock Text="Spurious cnt:" Width="90"/>
+                                <TextBox Text="{Binding AdvSpuriousCount}" Width="60"/>
+                            </DockPanel>
+                            <DockPanel Margin="0,2">
+                                <TextBlock Text="Noise level:" Width="90"/>
+                                <TextBox Text="{Binding AdvNoiseLevel}" Width="60"/>
+                            </DockPanel>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Header="공통" Margin="0,8,0,0">
+                        <StackPanel>
+                            <DockPanel Margin="0,2">
+                                <CheckBox Content="Random seed (Generate 마다 새 seed)"
+                                          IsChecked="{Binding RandomSeed}"/>
+                            </DockPanel>
+                            <DockPanel Margin="0,2">
+                                <TextBlock Text="Seed:" Width="80"/>
+                                <TextBox Text="{Binding Seed}" Width="60"/>
+                            </DockPanel>
+                            <DockPanel Margin="0,2">
+                                <TextBlock Text="Lag ms:" Width="80"/>
+                                <TextBox Text="{Binding LagMs}" Width="60"/>
+                            </DockPanel>
+                            <DockPanel Margin="0,2">
+                                <TextBlock Text="Jitter ms:" Width="80"/>
+                                <TextBox Text="{Binding JitterMs}" Width="60"/>
+                            </DockPanel>
+                            <DockPanel Margin="0,2">
+                                <TextBlock Text="N cycles:" Width="80"/>
+                                <TextBox Text="{Binding NCycles}" Width="60"/>
+                            </DockPanel>
+                            <DockPanel Margin="0,2">
+                                <TextBlock Text="Cycle ms:" Width="80"/>
+                                <TextBox Text="{Binding CycleMs}" Width="60"/>
+                            </DockPanel>
+                            <DockPanel Margin="0,2">
+                                <TextBlock Text="Step delay ms:" Width="100"
+                                           ToolTip="시뮬 cycle 사이 지연 (0 = 즉시)"/>
+                                <TextBox Text="{Binding SimStepDelayMs}" Width="60"/>
+                            </DockPanel>
+                            <DockPanel Margin="0,2">
+                                <TextBlock Text="Sim progress:" Width="100"/>
+                                <TextBlock Text="{Binding SimProgressCycle}" FontWeight="Bold"/>
+                                <TextBlock Text=" / "/>
+                                <TextBlock Text="{Binding NCycles}"/>
+                            </DockPanel>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <Separator Margin="0,12"/>
+                    <Button Content="⚙ Generate" Command="{Binding GenerateCommand}"
+                            Padding="8,6" Margin="0,2"/>
+                    <Button Content="▶ Simulate" Command="{Binding SimulateCommand}"
+                            Padding="8,6" Margin="0,2"/>
+                    <Button Content="🔍 Reverse" Command="{Binding ReverseCommand}"
+                            Padding="8,6" Margin="0,2"/>
+                </StackPanel>
+            </Border>
+
+            <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch"/>
+
+            <!-- Right area: 3 rows (model / timeline / report) -->
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="5"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="5"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- Model Graph (text dump 우선) -->
+                <GroupBox Grid.Row="0" Header="Model" Padding="6">
+                    <ScrollViewer>
+                        <TextBox Text="{Binding ModelGraphText, Mode=OneWay}"
+                                 IsReadOnly="True"
+                                 FontFamily="Consolas"
+                                 BorderThickness="0"/>
+                    </ScrollViewer>
+                </GroupBox>
+
+                <GridSplitter Grid.Row="1" Height="5" HorizontalAlignment="Stretch"/>
+
+                <!-- Simulation timeline chart -->
+                <GroupBox Grid.Row="2" Header="Simulation Timeline">
+                    <lvc:CartesianChart Series="{Binding TimelineSeries}"
+                                        XAxes="{Binding TimelineXAxes}"
+                                        YAxes="{Binding TimelineYAxes}"
+                                        ZoomMode="Both"/>
+                </GroupBox>
+
+                <GridSplitter Grid.Row="3" Height="5" HorizontalAlignment="Stretch"/>
+
+                <!-- Reverse Report -->
+                <GroupBox Grid.Row="4" Header="Reverse Report">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="6">
+                            <Border Background="#E8F5E9" Padding="10,4" Margin="0,0,8,0" CornerRadius="4">
+                                <StackPanel>
+                                    <TextBlock Text="Precision" Foreground="#2E7D32" FontSize="11"/>
+                                    <TextBlock Text="{Binding MetricPrecision, StringFormat={}{0:F3}}"
+                                               FontSize="22" FontWeight="Bold"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Background="#E3F2FD" Padding="10,4" Margin="0,0,8,0" CornerRadius="4">
+                                <StackPanel>
+                                    <TextBlock Text="Recall" Foreground="#1565C0" FontSize="11"/>
+                                    <TextBlock Text="{Binding MetricRecall, StringFormat={}{0:F3}}"
+                                               FontSize="22" FontWeight="Bold"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Background="#FFF3E0" Padding="10,4" Margin="0,0,8,0" CornerRadius="4">
+                                <StackPanel>
+                                    <TextBlock Text="F1" Foreground="#E65100" FontSize="11"/>
+                                    <TextBlock Text="{Binding MetricF1, StringFormat={}{0:F3}}"
+                                               FontSize="22" FontWeight="Bold"/>
+                                </StackPanel>
+                            </Border>
+                            <TextBlock Text="{Binding MetricCounts}"
+                                       VerticalAlignment="Center" Margin="8,0" FontFamily="Consolas"/>
+                        </StackPanel>
+                        <TextBlock Grid.Row="0" Text="{Binding AnomalySummary}"
+                                   Margin="6,40,6,0" FontFamily="Consolas" FontSize="11"
+                                   Foreground="#D84315"/>
+                        <DataGrid Grid.Row="1" ItemsSource="{Binding Diffs}"
+                                  AutoGenerateColumns="False" IsReadOnly="True"
+                                  CanUserResizeColumns="True" Margin="6">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="60"/>
+                                <DataGridTextColumn Header="Src" Binding="{Binding Src}" Width="*"/>
+                                <DataGridTextColumn Header="Tgt" Binding="{Binding Tgt}" Width="*"/>
+                                <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="80"/>
+                                <DataGridTextColumn Header="Conf"
+                                                    Binding="{Binding Confidence, StringFormat={}{0:F2}}"
+                                                    Width="60"/>
+                                <DataGridTextColumn Header="Tier" Binding="{Binding Tier}" Width="70"/>
+                                <DataGridTextColumn Header="Note" Binding="{Binding Note}" Width="2*"/>
+                            </DataGrid.Columns>
+                            <DataGrid.RowStyle>
+                                <Style TargetType="DataGridRow">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Tier}" Value="High">
+                                            <Setter Property="Background" Value="#E8F5E9"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Tier}" Value="Medium">
+                                            <Setter Property="Background" Value="#FFF9C4"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Tier}" Value="Low">
+                                            <Setter Property="Background" Value="#FFCCBC"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </DataGrid.RowStyle>
+                        </DataGrid>
+                    </Grid>
+                </GroupBox>
+            </Grid>
+        </Grid>
+
+        <!-- Status bar -->
+        <StatusBar Grid.Row="2" Background="#1565C0">
+            <StatusBarItem>
+                <TextBlock Text="{Binding Status}" Foreground="White"/>
+            </StatusBarItem>
+            <Separator/>
+            <StatusBarItem>
+                <TextBlock Text="{Binding ModelSummary}" Foreground="White"/>
+            </StatusBarItem>
+            <Separator/>
+            <StatusBarItem>
+                <TextBlock Text="{Binding SimSummary}" Foreground="White"/>
+            </StatusBarItem>
+            <Separator/>
+            <StatusBarItem>
+                <TextBlock Text="{Binding ReverseSummary}" Foreground="White"/>
+            </StatusBarItem>
+        </StatusBar>
+    </Grid>
+</Window>

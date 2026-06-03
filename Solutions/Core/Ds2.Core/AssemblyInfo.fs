@@ -23,5 +23,8 @@ open System.Runtime.CompilerServices
 [<assembly: InternalsVisibleTo("Ds2.View3D.Core")>]
 [<assembly: InternalsVisibleTo("Ds2.JsonFormatter")>]
 [<assembly: InternalsVisibleTo("Ds2.Runtime.Sim")>]
+[<assembly: InternalsVisibleTo("Ds2.Reverse.Core")>]
+[<assembly: InternalsVisibleTo("Ds2.Reverse.Bench")>]
+[<assembly: InternalsVisibleTo("Ds2.Reverse.Tests")>]
 
 do ()

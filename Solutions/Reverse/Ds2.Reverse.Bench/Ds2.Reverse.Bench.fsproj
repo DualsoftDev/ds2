@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="VLine.fs" />
+    <Compile Include="Simulator.fs" />
+    <Compile Include="Evaluation.fs" />
+    <Compile Include="Scenario.fs" />
+    <Compile Include="Models.fs" />
+    <Compile Include="MoreModels.fs" />
+    <Compile Include="LogicModels.fs" />
+    <Compile Include="CapacityModels.fs" />
+    <Compile Include="StressModels.fs" />
+    <Compile Include="AdvancedModels.fs" />
+    <Compile Include="HybridModels.fs" />
+    <Compile Include="ClusterModels.fs" />
+    <Compile Include="Phase1Models.fs" />
+    <Compile Include="Phase2Models.fs" />
+    <Compile Include="Phase3Models.fs" />
+    <Compile Include="Phase4Models.fs" />
+    <Compile Include="Phase5Models.fs" />
+    <Compile Include="Phase6Models.fs" />
+    <Compile Include="Phase7Models.fs" />
+    <Compile Include="Phase8Models.fs" />
+    <Compile Include="Phase10Models.fs" />
+    <Compile Include="BenchRunner.fs" />
+    <!-- Upgrade 2 (2026-05-24): 무한 반복 테스팅 인프라 -->
+    <Compile Include="RandomScenarioGen.fs" />
+    <Compile Include="InfiniteTestRunner.fs" />
+    <Compile Include="FailureRecorder.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Core\Ds2.Core\Ds2.Core.fsproj" />
+    <ProjectReference Include="..\Ds2.Reverse.Core\Ds2.Reverse.Core.fsproj" />
+  </ItemGroup>
+
+</Project>

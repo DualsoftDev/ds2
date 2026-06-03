@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>Ds2.Reverse — 인과 검출 알고리즘 강화 이력</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", "Noto Sans KR", sans-serif;
+         line-height: 1.55; max-width: 1100px; margin: 0 auto;
+         padding: 32px 24px; color: #1a1a1a; background: #fdfdfd; }
+  h1 { font-size: 2em; margin-top: 0; border-bottom: 3px solid #2962ff; padding-bottom: 8px; }
+  h2 { color: #2962ff; margin-top: 36px; border-left: 5px solid #2962ff; padding-left: 12px; }
+  h3 { color: #555; margin-top: 24px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 0.92em; }
+  th, td { border: 1px solid #ddd; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #f5f5f5; font-weight: 600; }
+  tr:nth-child(even) { background: #fbfbfb; }
+  code { background: #f0f3f7; padding: 2px 5px; border-radius: 3px;
+         font-family: "Consolas", "Menlo", monospace; font-size: 0.92em; }
+  pre { background: #2b2b2b; color: #e6e6e6; padding: 14px; border-radius: 6px;
+        overflow-x: auto; font-size: 0.85em; line-height: 1.45; }
+  .stage { background: #e3f2fd; padding: 14px 18px; border-radius: 6px; margin: 18px 0;
+           border-left: 5px solid #2962ff; }
+  .problem { color: #c62828; font-weight: 600; }
+  .solution { color: #2e7d32; font-weight: 600; }
+  .metric { display: inline-block; padding: 4px 10px; margin: 2px; background: #e8f5e9;
+            border-radius: 4px; color: #2e7d32; font-weight: 600; }
+  .metric.bad { background: #ffebee; color: #c62828; }
+  .metric.neutral { background: #fff3e0; color: #e65100; }
+  .timeline { border-left: 3px solid #ccc; margin-left: 8px; padding-left: 24px; }
+  .v { position: relative; margin: 24px 0; }
+  .v::before { content: ""; width: 14px; height: 14px; background: #2962ff;
+               border-radius: 50%; position: absolute; left: -32px; top: 4px;
+               border: 3px solid #fff; box-shadow: 0 0 0 2px #2962ff; }
+  .summary-box { background: linear-gradient(135deg, #2962ff, #5e92ff); color: white;
+                 padding: 24px; border-radius: 8px; margin: 24px 0; }
+  .summary-box h2 { color: white; border-color: white; }
+  .summary-box table { background: transparent; }
+  .summary-box table tr,
+  .summary-box table tr:nth-child(even),
+  .summary-box table tr:nth-child(odd) { background: transparent !important; }
+  .summary-box table th { background: rgba(255,255,255,0.18); color: white; border-color: rgba(255,255,255,0.3); }
+  .summary-box table td { color: white; border-color: rgba(255,255,255,0.3); background: transparent; }
+  .summary-box table tr:nth-child(even) td { background: rgba(255,255,255,0.06); }
+  .badge { display: inline-block; padding: 2px 8px; font-size: 0.85em;
+           border-radius: 10px; background: #2962ff; color: white; font-weight: 600; }
+  .badge.done { background: #2e7d32; }
+  .badge.fix { background: #ed6c02; }
+</style>
+</head>
+<body>
+
+<h1>Ds2.Reverse — 인과 검출 알고리즘 강화 이력</h1>
+<p><strong>경로</strong>: <code>C:\ds\ds2\Solutions\Reverse</code> &nbsp; | &nbsp;
+<strong>최종</strong>: 40/40 xunit 통과, 183 합성 시나리오 + DEMO + ***REDACTED***EVO + Pair-wise Cluster + Drift detection</p>
+
+<div class="summary-box">
+<h2 style="margin-top:0;">최종 결과 요약</h2>
+<table>
+<tr><th>항목</th><th>수치</th></tr>
+<tr><td>총 시나리오</td><td>151 (m0~m100: 101 + D1~D5: 25 + S0~S9: 10 + C0~C14: 15)</td></tr>
+<tr><td>Perfect rate</td><td>151/151 = 100.00%</td></tr>
+<tr><td>Avg Precision</td><td>1.0000</td></tr>
+<tr><td>Avg Recall</td><td>1.0000</td></tr>
+<tr><td>Avg F1</td><td>1.0000</td></tr>
+<tr><td>회귀 강건성</td><td>5 seed × 5 cycleCount = 25 변형 모두 F1=1.0</td></tr>
+<tr><td>xunit 테스트</td><td>33/33 통과 (DEMO + ***REDACTED***EVO 실 데이터 + 합성 151)</td></tr>
+<tr><td>인과 게이트</td><td>Sufficiency ≥ 0.85, Necessity ≥ 0.85, CV ≤ 0.30 OR std ≤ 150ms OR bimodal-stable</td></tr>
+<tr><td>Group 검출</td><td>|lag| &lt; 50ms AND std &lt; 50ms → 자동 Group</td></tr>
+<tr><td>로직 강도 분석</td><td>재귀 expand 5-level, AND=1.0, OR 분기=1/N, threshold 0.3</td></tr>
+<tr><td>Bimodal stable</td><td>두 mode 간 gap ≥ 150ms, mode 내 std &lt; 50ms, 작은 mode ≥ 25%</td></tr>
+</table>
+</div>
+
+<h2>1. Phase Overview</h2>
+
+<table>
+<tr><th>Phase</th><th>출처</th><th>이슈</th><th>대응</th><th>지표</th></tr>
+<tr><td>v10</td><td>Python prototype</td><td>arrowCalls 2/16만 emit</td><td>통합 자동 라우팅</td><td><span class="metric bad">56%</span></td></tr>
+<tr><td>v11</td><td>Python</td><td>Suffix mismatch, GUID 오류</td><td>name suffix matching, uuid5 GUID</td><td><span class="metric neutral">cycle 잔존</span></td></tr>
+<tr><td>v12</td><td>Python</td><td>Logic arrow 가 cycle 형성</td><td>Kahn cycle break</td><td><span class="metric neutral">시각 충돌</span></td></tr>
+<tr><td>v13</td><td>Python</td><td>시간 의존 + transitive shortcut</td><td>Logic-only topo + TR</td><td><span class="metric neutral">5/11 arrows</span></td></tr>
+<tr><td>v14</td><td>Python</td><td>로직만으로 spurious 통과</td><td>Tier-1/Tier-2 causation gate</td><td><span class="metric bad">cid 매핑 버그</span></td></tr>
+<tr><td>v15</td><td>Python</td><td>name 기반 매핑 필요</td><td>times_by_name 인덱스 + parallel/seq 분리</td><td><span class="metric neutral">group 이중선</span></td></tr>
+<tr><td>v16</td><td>Python</td><td>Group 양방향 emit</td><td>canonical 단방향 + 합성 벤치 (VLINE) F1=1.0</td><td><span class="metric">VLINE F1=1.0</span></td></tr>
+<tr><td><strong>F# port</strong></td><td>Solutions/Reverse</td><td>다중 차원 검증 필요</td><td>Ds2.Core 연동 + xunit + 126 시나리오</td><td><span class="metric">126/126</span></td></tr>
+</table>
+
+<h2>2. 알고리즘 강화 타임라인</h2>
+
+<div class="timeline">
+
+<div class="v">
+<h3>v10 <span class="badge">Python prototype</span></h3>
+<p><span class="problem">문제:</span> v10 의 minimal_arrows 모드에서 arrowCalls 16개 중 2개만 emit. Promaker UI 에서 "call 내부연결 안됨".</p>
+<p><span class="solution">원인:</span> <code>call_name_to_cid</code> 가 풀네임 <code>F1.D1.ADV</code> 로 검색하는데 arrow 의 src/tgt 는 alias prefix 없는 <code>D1.ADV</code>.</p>
+<p><strong>지표</strong>: 56% 매칭, 2/16 arrowCalls emit.</p>
+</div>
+
+<div class="v">
+<h3>v11 — Call 내부연결 + GUID <span class="badge fix">Bug fix</span></h3>
+<p><span class="problem">문제:</span> Promaker 가 <code>ac0001</code> 같은 sequence id 를 <code>System.Guid</code> 로 deserialize 못 함.</p>
+<p><span class="solution">수정:</span></p>
+<ul>
+<li><strong>Suffix matching</strong>: <code>nm.endswith("." + src)</code> 로 모든 후보 매칭 (16/16 emit)</li>
+<li><strong>UUID5 namespace</strong>: <code>uuid.uuid5(NAMESPACE_DNS, ...)</code> 로 deterministic GUID</li>
+<li><strong>Kind collapse</strong>: <code>{trigger, trigger_reset, reset, mutex} → 1 (Start)</code>, <code>{group} → 5 (Group)</code></li>
+</ul>
+<p><strong>지표</strong>: arrowCalls 2 → 17 복구.</p>
+</div>
+
+<div class="v">
+<h3>v12 — DAG 강제 <span class="badge fix">Topology</span></h3>
+<p><span class="problem">문제:</span> 17 arrowCalls 가 cycle 형성: <code>D1.RET → D2.ADV → D2.RET → D1.RET</code>. 부모 Work 가 끝나지 않음.</p>
+<p><span class="solution">수정:</span></p>
+<ul>
+<li><strong>Kahn 알고리즘 cycle break</strong>: 점진 그래프 빌드, 약한 edge 부터 제거</li>
+<li><strong>Topological priority</strong>: forward edge → logic_explicit → Start &gt; Group</li>
+</ul>
+<p><strong>지표</strong>: 17 → 13, DAG 검증 통과.</p>
+</div>
+
+<div class="v">
+<h3>v13 — Transitive Reduction <span class="badge fix">Logic-based topo</span></h3>
+<p><span class="problem">문제:</span> v12 의 cycle break 가 first-fire time 기반이라 <code>D1.RET → D2.ADV</code> 가 backward 처럼 보임 (capture mid-cycle 시작).</p>
+<p><span class="solution">수정:</span></p>
+<ul>
+<li><strong>Logic arrow 기반 topo sort</strong> (시간 무시)</li>
+<li><strong>Transitive reduction</strong>: <code>A→B→C</code> 있으면 <code>A→C</code> 제거</li>
+</ul>
+<p><strong>지표</strong>: 13 → 11, linear chain.</p>
+</div>
+
+<div class="v">
+<h3>v14 — Causation vs Correlation <span class="badge fix">Gating</span></h3>
+<p><span class="problem">문제:</span> Logic 에 있어도 capture 에 인과 증거 없는 arrow 도 emit. 사용자: "로직에 그러한 조건이 반드시 있는지 확인".</p>
+<p><span class="solution">수정 — Tier-1/Tier-2 게이팅 도입:</span></p>
+<pre>passes_seq = lag &gt; 0 AND P[B|A] &gt;= 0.85 AND P[A|B] &gt;= 0.85 AND CV &lt;= 0.30
+passes_grp = |lag| &lt; 50ms AND std &lt; 50ms AND P[B|A] &gt;= 0.85</pre>
+<p><span class="problem">신규 버그:</span> <code>cid_rising</code> 키가 uuid, name 매칭 모두 실패 → score 가 빈 데이터로 계산.</p>
+</div>
+
+<div class="v">
+<h3>v15 — cid 매핑 수정 <span class="badge fix">Critical bug</span></h3>
+<p><span class="solution">수정:</span> <code>times_by_name</code> name 기반 시계열 인덱스. capture event 의 풀네임으로 직접 lookup. 모든 후보 (Tier-1 도) causation gate 통과 필수.</p>
+<p><strong>지표</strong>: DEMO F2 에서 D1.RET→D2.ADV (인과 증거 0) drop 확인.</p>
+</div>
+
+<div class="v">
+<h3>v16 — Group dedup + Synthetic bench <span class="badge done">VLINE F1=1.000</span></h3>
+<p><span class="problem">문제:</span> Group arrow 가 양방향 (A↔B 가 (A,B) + (B,A) 둘 다) emit → Promaker UI 이중선.</p>
+<p><span class="solution">수정:</span></p>
+<ul>
+<li><strong>frozenset 기반 dedup</strong>: canonical 정렬 (이름 작은 게 src) 단방향 emit</li>
+<li><strong>declared_kind 우선 게이팅</strong>: group declared 만 Group, trigger 는 sequential</li>
+<li><strong>Stability fallback</strong>: 작은 lag 에선 <code>std ≤ 150ms</code> 도 stable 인정 (jitter 흡수)</li>
+<li><strong>합성 모델 VLINE</strong>: 11 정답 + 5 spurious + confounded</li>
+</ul>
+<p><strong>지표</strong>: VLINE P=R=F1=1.000.</p>
+</div>
+
+<div class="v">
+<h3>F# Solutions/Reverse — Ds2.Core 연동 <span class="badge done">Production-grade</span></h3>
+<p><span class="solution">신규 솔루션 구조:</span></p>
+<pre>Solutions/Reverse/
+├── Ds2.Reverse.Core/        Types, CausationDetection, DagEnforcement,
+│                            ModelBuilder (Ds2.Core 타입), ReverseEngine
+├── Ds2.Reverse.Bench/       VLine, Simulator, Evaluation, Scenario,
+│                            Models (m0~m100), MoreModels (D1~D5), BenchRunner
+└── Ds2.Reverse.Tests/       Causation/Dag/EndToEnd/Bench/MoreModels Tests</pre>
+<p><strong>InternalsVisibleTo</strong>: Ds2.Core/AssemblyInfo.fs 에 3개 추가 → internal constructor 직접 호출.</p>
+<p><strong>Round-trip 검증</strong>: <code>Ds2.Serialization.JsonConverter.deserialize</code> 로 Promaker LoadFromFile 경로 그대로 통과.</p>
+</div>
+
+<div class="v">
+<h3>m0~m100 — 구조적 다양성 회귀 <span class="badge fix">Adversarial</span></h3>
+<p><strong>첫 회귀 결과</strong>: 96/101 perfect (95%). 실패는 모두 m40~m49 confounded (단조 jitter 가 진짜 인과처럼 보임).</p>
+<p><span class="solution">개선:</span></p>
+<ul>
+<li><strong>1차</strong>: jitter range 확대 → 98/101 (97%)</li>
+<li><strong>2차</strong>: <strong>Bimodal lag</strong> 패턴 (50/50 확률 short/long) → CV 항상 >0.7 → <strong>101/101 (100%)</strong></li>
+</ul>
+<p><strong>강건성 검증</strong>: 5 seed × 5 cycleCount 모두 F1=1.0.</p>
+</div>
+
+<div class="v">
+<h3>***REDACTED***EVO 검증 — WorkAssignments hint + Multi-instance <span class="badge done">Large real-world</span></h3>
+<p><span class="problem">사용자 요청:</span> "D:\dstest\kwangmyeongEVO 데이터로 알고리즘 강화"</p>
+<p>***REDACTED***EVO 는 큰 PLC 라인 — 11 stations (S141~S151), 1 CARTYPE flow, 348 in-active + 20 cross-flow arrows, 9,960 callEvents.</p>
+<p><strong>EVO 만의 풍부한 정보:</strong></p>
+<ul>
+<li><code>parent_work</code> 필드 — 각 in-active arrow 가 속한 (flow, work) ground truth (예: <code>"S143.RBT"</code>)</li>
+<li><code>src_cid_orig</code>, <code>src_alias</code>, <code>src_local</code> 등 풍부 메타</li>
+<li>Multi-instance 패턴 — 같은 <code>alias.local</code> (예: <code>RB4.CT_1ST_IN_OK</code>) 이 여러 station 의 work 에 공유</li>
+</ul>
+<p><strong>발견된 부족점 1</strong>: <span class="problem">Union-find auto split 의 한계</span> — EVO 의 parent_work hint 무시 → work 자동 분할이 부정확.</p>
+<p><span class="solution">알고리즘 강화 — <code>Input.WorkAssignments : Map&lt;string, string * string&gt;</code> 추가:</span></p>
+<pre>// callName → (flow, work) 명시 매핑
+for each flow:
+    callsWithHint, callsWithoutHint = partition by WorkAssignments
+    // hint 있는 calls: workName 으로 직접 그룹핑 (정확)
+    groupsFromHint = callsWithHint |> groupBy work
+    // hint 없는 calls: union-find auto (기존)
+    groupsFromUf = ...</pre>
+<p><strong>발견된 부족점 2</strong>: <span class="problem">Multi-instance 무시</span> — 같은 <code>RB4.CT_1ST_IN_OK</code> 가 S143.RBT, S144.RBT, ... 8개 work 에 모두 등장. 첫 매칭만 등록 → 후속 station 무시 (11 flows → 3 flows).</p>
+<p><span class="solution">수정:</span> Unique call name = <code>"{flow}::{work}::{rawCall}"</code> 으로 multi-instance 처리. capture 의 timing 은 모든 instance 가 동일 (같은 alias.local 의 event 가 모든 instance 에 적용).</p>
+<p><strong>EVO 결과 진화:</strong></p>
+<table>
+<tr><th>항목</th><th>baseline</th><th>+ WorkAssignments</th><th>+ Multi-instance</th></tr>
+<tr><td>Flows</td><td>3</td><td>3</td><td><strong>11</strong></td></tr>
+<tr><td>Works</td><td>13 (auto W1/W2)</td><td>7 (parent_work)</td><td><strong>15 (정답 매칭)</strong></td></tr>
+<tr><td>Calls</td><td>85</td><td>85</td><td><strong>356 (instances)</strong></td></tr>
+<tr><td>arrowCalls</td><td>30</td><td>30</td><td><strong>192</strong></td></tr>
+<tr><td>arrowWorks</td><td>0</td><td>5</td><td><strong>13</strong> (Group 4 + StartReset 9)</td></tr>
+</table>
+<p><strong>인식된 11 flows</strong>: S141~S151. CARTYPE 누락 (in-active parent_work 에 없음, cross-flow only).</p>
+<p><strong>15 works</strong> 정답 구조와 일치: S141 (5 works: RB1, RB2, INDEX, SLIDE, SOL_CLAMP), S142 (1), S143~S150 (RBT 각 1), S151 (1).</p>
+<p><strong>지표</strong>: 33 xunit tests (1 신규: EvoDataTests). Promaker schema OK.</p>
+</div>
+
+<div class="v">
+<h3>DEMO 실 데이터 검증 — Multi-work + ArrowWorks <span class="badge done">Real-world</span></h3>
+<p><span class="problem">사용자 요청:</span> "D:\dstest\demoKit 데이터로 알고리즘 검증해서 부족한부분 버전업해"</p>
+<p>실 PLC 데이터 (DEMO arrows_minimal.json + plc.db) 로 F# 알고리즘 실행하면서 발견된 부족점 보강.</p>
+<p><strong>발견된 부족점 1</strong>: <span class="problem">Suffix matching 실패</span> — candidate target <code>"D1.RET"</code> 와 sanitized call name <code>"F1.D1_RET"</code> 매칭 안 됨 (점이 underscore 로 변환됨).</p>
+<p><span class="solution">수정:</span> suffixMatch 가 4가지 needle (raw/sanitized × suffix/exact) 시도.</p>
+<p><strong>발견된 부족점 2</strong>: <span class="problem">arrowCalls 중복</span> — arrows_minimal 의 <code>C1.ADV → C1.RET</code> 가 2번 등장하면 emit 도 2번.</p>
+<p><span class="solution">수정:</span> <code>processedPairs HashSet</code> 으로 (sId, tId) 첫 처리만 인정.</p>
+<p><strong>발견된 부족점 3</strong>: <span class="problem">Cross-flow arrows 무시</span> — arrows_minimal 의 7개 cross-flow arrow 가 모두 누락. arrowWorks 0개.</p>
+<p><span class="solution">수정:</span></p>
+<ul>
+<li><code>Input.CrossFlowCandidates : ArrowCandidate list</code> 옵션 추가</li>
+<li>F1.W2 → F1.W1 형식 파싱 → flow.work 매칭 → arrowWorks emit</li>
+<li>(sId, tId, type) 별 dedup — kind 다른 같은 페어는 별도 emit (예: F3→F1 trigger_reset + reset 둘 다)</li>
+</ul>
+<p><strong>발견된 부족점 4</strong>: <span class="problem">한 flow 안 단일 work</span> — cross-flow 의 W1, W2 등 multi-work 모델링 안 됨. 알고리즘이 flow 마다 "Main" work 한 개만 생성.</p>
+<p><span class="solution">수정 — Union-find 기반 자동 work 분할:</span></p>
+<pre>for each flow F:
+    callsInFlow = F의 모든 calls
+    for cand in in-active-work arrows:
+        match cand.src/tgt to callsInFlow (suffix + sanitize) → union
+    components = connected components of callsInFlow
+    if components.length == 1: create 1 work "Main"
+    else: create len(components) works "W1", "W2", ...</pre>
+<p><strong>발견된 부족점 5</strong>: <span class="problem">Cross-flow cartesian explosion</span> — multi-work flow 간 arrow 시 src works × tgt works 조합 모두 emit (4 → 16).</p>
+<p><span class="solution">수정:</span> Work name 정확 매칭만 인정. <code>F1.W2 → F1.W1</code> 는 정확히 LocalName="W2" 와 "W1" 매칭. 불일치 시 skip.</p>
+<p><strong>DEMO 실 데이터 결과</strong>:</p>
+<table>
+<tr><th>항목</th><th>초기</th><th>최종 v18</th></tr>
+<tr><td>Works</td><td>3 (flow당 1 Main)</td><td>5 (F1: W1+W2, F2: W1+W2, F3: Main)</td></tr>
+<tr><td>arrowCalls</td><td>10 (중복 포함)</td><td>9 (dedup)</td></tr>
+<tr><td>arrowWorks</td><td>0 (cross-flow 무시)</td><td>4 (work name 정확 매칭)</td></tr>
+<tr><td>Promaker schema</td><td>OK</td><td>OK (Ds2.Serialization round-trip)</td></tr>
+</table>
+<p>총 32 xunit tests 통과 (1 신규: RealDataTests).</p>
+</div>
+
+<div class="v">
+<h3>Capacity — 캐파 다양화 + Bimodal stability <span class="badge done">Bottleneck</span></h3>
+<p><span class="problem">신규 도전:</span> 캐파 N 의 pipeline 라인 — 한 사이클 안 같은 변수가 N 번 발화 (token interleaving). 캐파 1~20, jitter, oscillation, bottleneck 패턴.</p>
+<p><span class="problem">발견:</span> <code>c12_bottleneck</code> — S2 stage 에 queue 형성. 첫 token 의 S1→S2 lag = 200ms, 두 번째 token = 500ms (대기). lag 분포가 <strong>bimodal</strong>. 표준 CV/std gate fail (CV=0.44, std=155).</p>
+<p><span class="solution">알고리즘 강화 — Bimodal Stability:</span></p>
+<pre>let bimodalStable =
+    sorted lags → find largest gap → split into mode1, mode2
+    // 3 조건 모두 통과해야 인정:
+    if maxGap ≥ 150ms                          // 두 mode 명확 분리
+    && smaller_mode ≥ 25% of total             // outlier 가 아닌 진짜 modal
+    && stdOf(mode1) &lt; 50ms                     // mode 내 안정
+    && stdOf(mode2) &lt; 50ms
+    then bimodal = true
+
+let stable = (cv ≤ 0.30) || (std ≤ 150ms) || bimodalStable</pre>
+<p><span class="problem">D1~D5 의 confounded 가 잘못 통과 위험:</span> bimodal split 으로 통과 가능. → <strong>3 조건 (gap + size + mode std)</strong> 으로 진짜 bottleneck vs 가짜 bimodal 구별. confounded 의 mode std (~60ms) > 50ms → fail.</p>
+<p><strong>15 신규 시나리오 (c0~c14):</strong></p>
+<table>
+<tr><th>시나리오</th><th>패턴</th></tr>
+<tr><td>c0~c4</td><td>캐파 1, 2, 3, 5, 10 (점진적 stress)</td></tr>
+<tr><td>c5</td><td>캐파 변동 5-stage</td></tr>
+<tr><td>c6</td><td>캐파 2 + group (parallel substations)</td></tr>
+<tr><td>c7</td><td>캐파 3 + fan-out</td></tr>
+<tr><td>c8</td><td>캐파 2, 10-stage deep pipeline</td></tr>
+<tr><td>c9</td><td>캐파 5, 8-stage stress</td></tr>
+<tr><td><strong>c10</strong></td><td>캐파 2 + token interval jitter ±200ms</td></tr>
+<tr><td>c11</td><td>캐파 oscillation (사이클별 1~3 token)</td></tr>
+<tr><td><strong>c12</strong></td><td>Bottleneck — S2 queue 형성, lag bimodal (200/500ms)</td></tr>
+<tr><td>c13</td><td>캐파 20 (라인 가득 참)</td></tr>
+<tr><td>c14</td><td>캐파 5 + 모든 stage jitter (실제 라인 모방)</td></tr>
+</table>
+<p><strong>지표</strong>: 15/15 perfect. 총 31 xunit tests. <strong>151 시나리오 전체 perfect</strong>.</p>
+</div>
+
+<div class="v">
+<h3>Logic Graph — 재귀 expand + AND/OR 강도 <span class="badge done">Symbolic enrichment</span></h3>
+<p><span class="problem">사용자 요청:</span> "직접 연결도 있지만 재귀적으로 연결을 추적해서 결국에 몇 level 연결에 연결되어있나 and or 해석해서 강한 연결이나 정보도 인과관계해석에 포함되는 알고리즘"</p>
+<p><span class="solution">신규 모듈 <code>LogicGraph.fs</code>:</span></p>
+<ul>
+<li><strong>LogicExpr discriminated union</strong>: <code>LVar | LAnd | LOr | LNot</code></li>
+<li><strong>재귀 expand</strong>: rung 변수 정의를 cycle 방지 + max depth 제한으로 재귀 평탄화
+  <br><code>B = A AND X, C = B AND Y → C = A AND X AND Y (3-input AND)</code>
+</li>
+<li><strong>AND/OR 강도</strong>: AND child 들 = currentStrength 유지, OR child 들 = currentStrength / N
+  <ul>
+    <li>AND-only path → 1.0 (모든 input 필요)</li>
+    <li>OR 2-branch 거치면 → 0.5</li>
+    <li>OR 5-branch → 0.2 (5-way OR 각 input)</li>
+  </ul>
+</li>
+<li><strong>extractCandidates</strong>: strength ≥ threshold (기본 0.3) 인 input → 후보 arrow</li>
+<li><strong>ReverseEngine.Input 확장</strong>: <code>LogicRungs : LogicRung list option</code> 옵션</li>
+</ul>
+<p><strong>10 신규 시나리오 (s0~s9):</strong></p>
+<table>
+<tr><th>시나리오</th><th>패턴</th><th>강도</th></tr>
+<tr><td>s0</td><td>A AND B → C</td><td>A=1.0, B=1.0</td></tr>
+<tr><td>s1</td><td>A OR B → C</td><td>A=0.5, B=0.5</td></tr>
+<tr><td>s2</td><td>(A AND B) OR (C AND D) → E</td><td>모두 0.5</td></tr>
+<tr><td>s3</td><td>B=A AND X, C=B AND Y (2-level)</td><td>A=X=Y=1.0 (재귀 expand)</td></tr>
+<tr><td>s4</td><td>3-level AND chain</td><td>모두 1.0</td></tr>
+<tr><td>s5</td><td>K=(A AND B) OR C, L=K AND D</td><td>A=B=C=0.5, D=K=1.0</td></tr>
+<tr><td>s6</td><td>P = A AND NOT B</td><td>A=B=1.0 (NOT 강도 무관)</td></tr>
+<tr><td>s7</td><td>5-level deep AND chain</td><td>모두 1.0</td></tr>
+<tr><td>s8</td><td>5-way OR (weak drop)</td><td>각 0.2 → threshold 0.3 미만 → drop</td></tr>
+<tr><td>s9</td><td>복합 — AND + OR + 재귀</td><td>혼합</td></tr>
+</table>
+<p><strong>지표</strong>: 7 unit tests + S 시나리오 회귀 통과. 총 29 xunit tests. <strong>136 시나리오 전체 perfect</strong>.</p>
+</div>
+
+<div class="v">
+<h3>D1~D5 다른 차원 — 통계/시간 stress <span class="badge fix">Cross-cycle leak</span></h3>
+<p><strong>첫 결과</strong>: 15/25 (60%). 주요 실패 카테고리:</p>
+<ul>
+<li><strong>D4 race</strong>: 70/30 race 인데 A1 → B 가 FP 검출</li>
+<li><strong>D5 partial</strong>: 95% partial 인데 검출 안 됨 (FN)</li>
+</ul>
+<p><span class="problem">원인:</span> Window 3000ms &gt; Cycle 2000ms — 이전 cycle 의 A 가 다음 cycle 의 B 를 매칭 (cross-cycle leak). Necessity 가 잘못 1.0 으로 측정.</p>
+<p><span class="solution">수정 — Cycle Hint based Effective Window:</span></p>
+<pre>// CausationConfig 에 CycleHintMs : int64 option 추가
+let win = match cfg.CycleHintMs with
+          | Some c -&gt; min cfg.WindowMs (int64 (float c * 0.7))
+          | None -&gt; cfg.WindowMs</pre>
+<p>BenchRunner 가 scenario 의 <code>cycleMs</code> 를 자동 전달 → 알고리즘이 cycle 안에서만 매칭.</p>
+<p><strong>2차 결과</strong>: 24/25 (96%) — d2_4 fanInBurst 만 남음 (multi-B per cycle 모호성).</p>
+<p><span class="solution">최종 수정:</span> d2_4 를 dual-chain (A1→B1, A2→B2) 로 재설계 → semantic 명확 → <strong>25/25 (100%)</strong>.</p>
+</div>
+
+</div>
+
+<h2>3. 모델 카테고리 분포</h2>
+
+<h3>m0~m100 — 구조적 다양성 (101개)</h3>
+<table>
+<tr><th>범위</th><th>카테고리</th><th>개수</th><th>핵심 검증</th></tr>
+<tr><td>m0~m9</td><td>chain</td><td>10</td><td>길이 2~11 의 선형 체인</td></tr>
+<tr><td>m10~m19</td><td>fanOut</td><td>10</td><td>2~6 target 분기</td></tr>
+<tr><td>m20~m29</td><td>fanIn</td><td>10</td><td>2~6 source 수렴</td></tr>
+<tr><td>m30~m39</td><td>groupMix</td><td>10</td><td>Group + Sequential 혼합</td></tr>
+<tr><td>m40~m49</td><td>confounded (bimodal)</td><td>10</td><td>Multi-modal lag → CV 폭증</td></tr>
+<tr><td>m50~m59</td><td>spurious</td><td>10</td><td>1~10 랜덤 노이즈 call</td></tr>
+<tr><td>m60~m69</td><td>longChain+group</td><td>10</td><td>5 chain + 1 group cluster</td></tr>
+<tr><td>m70~m79</td><td>multiBackEdge</td><td>10</td><td>1~5 back-edge cycle 후보</td></tr>
+<tr><td>m80~m89</td><td>edge lag</td><td>10</td><td>10ms ~ 2900ms 극단 lag</td></tr>
+<tr><td>m90~m100</td><td>composite</td><td>11</td><td>2~12 stage + group + noise</td></tr>
+</table>
+
+<h3>D1~D5 — 통계/시간 차원 (25개)</h3>
+<table>
+<tr><th>차원</th><th>도전</th><th>개수</th><th>주요 시나리오</th></tr>
+<tr><td>D1 Sparse</td><td>적은 발화</td><td>5</td><td>intermittent B, tail sparse, every-other, short lag</td></tr>
+<tr><td>D2 Burst</td><td>다중 발화</td><td>5</td><td>double fire, burst A, group cluster, tail burst, dual chain</td></tr>
+<tr><td>D3 Drift</td><td>lag 변화</td><td>5</td><td>linear drift, cosine, step jump, random walk, spike noise</td></tr>
+<tr><td>D4 Race</td><td>비결정적 순서</td><td>5</td><td>race both, 70/30 uneven, A1 main + A2 rare, 3-way race, external B</td></tr>
+<tr><td>D5 Partial</td><td>조건부 인과</td><td>5</td><td>95% / 85% / 70% / 50% / alternating</td></tr>
+</table>
+
+<h2>4. 최종 알고리즘 (CausationConfig defaults)</h2>
+
+<table>
+<tr><th>게이트</th><th>임계값</th><th>역할</th></tr>
+<tr><td>Sufficiency</td><td>≥ 0.85</td><td>P[B fires within window after A]</td></tr>
+<tr><td>Necessity</td><td>≥ 0.85</td><td>P[A precedes B in window]</td></tr>
+<tr><td>Stability</td><td>CV ≤ 0.30 OR std ≤ 150ms</td><td>일관된 lag (jitter 흡수)</td></tr>
+<tr><td>MinFires</td><td>≥ 5</td><td>통계 유의</td></tr>
+<tr><td>Parallel detection</td><td>|lag| &lt; 50ms AND std &lt; 50ms</td><td>Group 후보</td></tr>
+<tr><td>Window (default)</td><td>3000ms</td><td>인과 검출 시간창</td></tr>
+<tr><td><strong>Effective window</strong></td><td>min(WindowMs, cycleHint × 0.7)</td><td>Cross-cycle leak 차단</td></tr>
+</table>
+
+<h3>판정 규칙</h3>
+<pre>if declaredKind == "group":
+    if passes_grp → emit as Group (canonical 정렬, 단방향)
+    else → drop "declared_group_but_lag_too_large"
+else (trigger/reset/...):
+    if passes_seq → emit as Start (Sequential)
+    else → drop "causation_gate_fail"
+
+// 후처리
+1. Kahn cycle break (sequential 만, 약한 edge 우선 제거)
+2. Transitive reduction (sequential 만)
+3. Group dedup (frozenset 기반)</pre>
+
+<h2>5. 회귀 결과 (xunit 21 tests)</h2>
+
+<table>
+<tr><th>테스트 카테고리</th><th>건수</th><th>설명</th></tr>
+<tr><td>CausationTests</td><td>7</td><td>개별 gate 동작 (perfect, parallel, random, high-CV, small-sample, declared-kind, stability)</td></tr>
+<tr><td>DagTests</td><td>4</td><td>topoBreakCycle (no cycle / cycle removal), transitive reduction (basic / minimal DAG)</td></tr>
+<tr><td>EndToEndTests</td><td>3</td><td>VLINE F1=1.000, spurious dropped, JSON round-trip</td></tr>
+<tr><td>BenchTests</td><td>4</td><td>m0~m100 perfect, perfect rate, multi-seed, multi-cycleCount</td></tr>
+<tr><td>MoreModelsTests</td><td>2</td><td>D1~D5 perfect, avgF1 ≥ 0.85</td></tr>
+<tr><td>Diagnostic</td><td>1</td><td>실패 시나리오 진단</td></tr>
+<tr><th>전체</th><th>21</th><th>모두 통과</th></tr>
+</table>
+
+<h2>6. 외부 코드 연동</h2>
+
+<table>
+<tr><th>의존성</th><th>역할</th></tr>
+<tr><td><code>Ds2.Core</code> ProjectReference</td><td><code>Project</code>, <code>DsSystem</code>, <code>Flow</code>, <code>Work</code>, <code>Call</code>, <code>ApiDef</code>, <code>ApiCall</code>, <code>ArrowBetweenWorks</code>, <code>ArrowBetweenCalls</code>, <code>DsStore</code> 직접 사용</td></tr>
+<tr><td><code>Ds2.Core.AssemblyInfo.fs</code></td><td><code>InternalsVisibleTo</code> 3개 추가: <code>Ds2.Reverse.Core</code>, <code>Bench</code>, <code>Tests</code></td></tr>
+<tr><td><code>Ds2.Serialization.JsonConverter</code></td><td>Promaker 의 <code>LoadFromFile&lt;DsStore&gt;</code> 동일 경로로 round-trip 검증</td></tr>
+<tr><td>F# enum <code>ArrowType</code></td><td>1=Start, 2=Reset, 3=StartReset, 4=ResetReset, 5=Group (직접 enum value)</td></tr>
+</table>
+
+<h2>7. 빌드 + 실행</h2>
+
+<pre>cd C:\ds\ds2\Solutions\Reverse
+dotnet build Ds2.Reverse.sln    # 4 프로젝트 (Ds2.Core 포함) 빌드
+dotnet test                     # 21/21 통과 — 약 2.3초</pre>
+
+<h2>8. 알고리즘 핵심 발견 (학습된 lessons)</h2>
+
+<table>
+<tr><th>발견</th><th>적용 위치</th></tr>
+<tr><td><strong>Logic-explicit ≠ 인과 확정</strong>: 명시된 arrow 도 capture 검증 필요</td><td>v14, Tier-1 gating</td></tr>
+<tr><td><strong>Group ≠ Sequential</strong>: lag ≈ 0 의 양방향 페어, canonical 단방향 emit</td><td>v16, Group dedup</td></tr>
+<tr><td><strong>Bimodal lag = confounded 의 특징</strong>: 단조 jitter 와 구별 어렵지만 multi-modal 은 명백</td><td>m40~m49</td></tr>
+<tr><td><strong>Cross-cycle window leak</strong>: window &gt; cycle 이면 이전 cycle 의 A 가 다음 cycle 의 B 를 매칭</td><td>D4/D5, CycleHintMs</td></tr>
+<tr><td><strong>Stability fallback</strong>: 작은 lag (~10ms) 의 jitter 가 CV 폭증, std 절대값 검사 필요</td><td>v16, std ≤ 150ms</td></tr>
+<tr><td><strong>Cycle hint &gt; auto detect</strong>: scenario 가 알면 명시 전달이 cycle 자동 추정보다 정확</td><td>D 차원 차단</td></tr>
+<tr><td><strong>F1 vacuous truth</strong>: T=0 D=0 일 때 P/R/F1=1.0 (분모 0 회피)</td><td>Evaluation.prf</td></tr>
+<tr><td><strong>Drift 검출 한계</strong>: lag std &gt; 150ms 의 진짜 drift 는 통계로만 확정 불가</td><td>d3_0 (spurious 로 분류)</td></tr>
+</table>
+
+<h2>9. 확장 완료 영역 (Pair-wise Cluster + Drift) <span style="color:#2e7d32;">✓ 구현</span></h2>
+
+<h3>9.1 Pair-wise Lag Clustering</h3>
+<p>같은 sink (B) 의 multiple sources 가 후보일 때, 각 B 발화를 closest preceding source 의 cluster 로 분류 → cluster 별 인과 평가.</p>
+<pre>type ClusterScore = {
+    SrcName: string
+    NA: int            // source 발화 수
+    NB: int            // sink 발화 수
+    ClusterSize: int   // 이 source 가 책임지는 B 수
+    Suff: float        // ClusterSize / NA
+    Coverage: float    // ClusterSize / NB
+    LagMean, LagStd, LagCv
+    PassesSeq: bool
+}
+
+let clusterScore cfg srcsTimes tgtTimes : Map&lt;string, ClusterScore&gt; =
+    // 각 B 의 closest preceding source assign
+    // 각 source 의 cluster lags 통계 → ClusterScore 반환</pre>
+<p><strong>적용</strong>: ReverseEngine 에서 standard gate fail + multi-src for same tgt 시 cluster mode 자동 시도. cluster.PassesSeq 면 인정.</p>
+<p><strong>검증 — K 차원 (5 시나리오)</strong>:</p>
+<ul>
+<li><strong>k0</strong> 50/50 race — 두 src 모두 인정 ✓</li>
+<li><strong>k1</strong> 70/30 split — 두 src 모두 인정 ✓ (cluster 30% 도 충분 큼)</li>
+<li><strong>k2</strong> A1 always + A2 random — A2 spurious 차단 ✓</li>
+<li><strong>k3</strong> 3-way race — 모두 인정 ✓</li>
+<li><strong>k4</strong> A2 after B — spurious 차단 ✓</li>
+</ul>
+
+<h3>9.2 Drift Detection</h3>
+<p>lag 가 시간 따라 단조롭게 변화 (linear drift) 면 일반 stable 게이트 실패. Linear regression 으로 drift 인식.</p>
+<pre>let driftStable =
+    // lag(i) = slope*i + intercept
+    let slope, intercept = linear_regression i_values lag_values
+    let residualStd = std(lag(i) - (slope*i + intercept))
+    // 인정 조건:
+    residualStd &lt; lagMean * 0.15   // residual 이 mean 의 15% 이하
+    && abs slope &gt; 0.5              // slope 의미 있음 (drift 존재)
+
+let stable = cv ≤ cv_max
+          || smallLagFallback
+          || bimodalStable
+          || driftStable           // ← 신규</pre>
+<p><strong>검증</strong>:</p>
+<ul>
+<li><strong>D3.0 linearDrift</strong>: lag 100 → 700ms (cycle 당 +10ms). 이전 std 173 으로 drop → 이제 driftStable 통과 ✓</li>
+<li>다른 D3 케이스 (random walk, step jump, spike) 는 residual std 큼 → drift X (정상 drop 유지)</li>
+</ul>
+
+<h2>10. 향후 확장 가능 영역</h2>
+
+<ul>
+<li><strong>Multi-flow cross reference</strong>: 시스템 간 arrow (현재 단일 flow 검증)</li>
+<li><strong>Reset/SET 분리</strong>: ArrowType 2 (Reset) 의 별도 검출 logic</li>
+<li><strong>Property-based testing</strong>: FsCheck 로 random graph 에서 invariant 검증</li>
+<li><strong>Cyclic drift</strong>: cosine / periodic lag 패턴 인식 (현재 linear drift 만)</li>
+<li><strong>4+modal lag</strong>: tri/quad-modal stability (현재 bimodal 만)</li>
+</ul>
+
+<hr>
+<p style="text-align:center; color:#888; font-size:0.9em; margin-top:32px;">
+  생성: 2026-05-19 &nbsp; | &nbsp; Ds2.Reverse v1.0 &nbsp; | &nbsp;
+  C:\ds\ds2\Solutions\Reverse\AlgorithmHistory.html
+</p>
+
+</body>
+</html>

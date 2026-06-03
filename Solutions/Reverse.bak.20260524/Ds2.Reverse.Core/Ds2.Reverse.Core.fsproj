@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Types.fs" />
+    <Compile Include="LogicGraph.fs" />
+    <Compile Include="CausationDetection.fs" />
+    <Compile Include="OnlineDetection.fs" />
+    <Compile Include="AnomalyDetection.fs" />
+    <Compile Include="DagEnforcement.fs" />
+    <Compile Include="ModelBuilder.fs" />
+    <Compile Include="ReverseEngine.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Core\Ds2.Core\Ds2.Core.fsproj" />
+  </ItemGroup>
+
+</Project>

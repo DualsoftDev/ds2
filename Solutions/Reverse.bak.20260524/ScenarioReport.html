@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="UTF-8">
+<title>Ds2.Reverse 시나리오별 결과</title>
+<style>
+body { font-family: -apple-system, "Segoe UI", "Noto Sans KR", sans-serif;
+       max-width: 1100px; margin: 20px auto; padding: 0 16px; }
+h1 { color: #0d47a1; }
+.summary { background: #e3f2fd; padding: 10px 14px; border-left: 4px solid #1565c0; }
+table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+th, td { border: 1px solid #ddd; padding: 6px 10px; text-align: left; }
+th { background: #f5f5f5; }
+.f1-perfect { background: #c8e6c9; }
+.f1-good { background: #fff9c4; }
+.f1-poor { background: #ffcdd2; }
+.dim-R { color: #c62828; } .dim-Q { color: #1565c0; }
+.dim-D { color: #6a1b9a; } .dim-P { color: #00838f; }
+.dim-V { color: #2e7d32; } .dim-G { color: #ef6c00; }
+.dim-Z { color: #455a64; } .dim-K { color: #4e342e; }
+.dim-S { color: #ad1457; } .dim-O { color: #1b5e20; }
+.dim-T { color: #4527a0; }
+</style></head><body>
+<h1>Ds2.Reverse 시나리오별 결과</h1>
+<div class="summary">전체 42 시나리오, perfect 39, 평균 F1=0.9722</div>
+<table>
+<thead><tr><th>시나리오</th><th>차원</th><th>Truth</th><th>Detected</th><th>TP/FP/FN</th><th>P</th><th>R</th><th>F1</th></tr></thead>
+<tbody>
+<tr class="f1-perfect"><td>r0_aResetByB</td><td class="dim-R">R</td><td>2</td><td>2</td><td>2/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>r1_simpleReset</td><td class="dim-R">R</td><td>1</td><td>1</td><td>1/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>r2_mutexAB</td><td class="dim-R">R</td><td>1</td><td>1</td><td>1/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>r3_startReset</td><td class="dim-R">R</td><td>1</td><td>1</td><td>1/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>r4_spuriousReset</td><td class="dim-R">R</td><td>0</td><td>0</td><td>0/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>q0_shortQueue</td><td class="dim-Q">Q</td><td>1</td><td>1</td><td>1/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>q1_longQueue</td><td class="dim-Q">Q</td><td>1</td><td>1</td><td>1/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>q2_variableQueue</td><td class="dim-Q">Q</td><td>1</td><td>1</td><td>1/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>q3_queueRejection10pct</td><td class="dim-Q">Q</td><td>1</td><td>1</td><td>1/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>q4_deepBottleneck</td><td class="dim-Q">Q</td><td>0</td><td>0</td><td>0/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>d0_linearDrift</td><td class="dim-D">D</td><td>1</td><td>1</td><td>1/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>d1_cyclicDrift</td><td class="dim-D">D</td><td>1</td><td>1</td><td>1/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>d2_strongCyclic</td><td class="dim-D">D</td><td>1</td><td>1</td><td>1/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>p0_pollingOnly</td><td class="dim-P">P</td><td>0</td><td>0</td><td>0/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-poor"><td>p1_pollingPlusCausation</td><td class="dim-P">P</td><td>1</td><td>2</td><td>1/1/0</td><td>0.500</td><td>1.000</td><td><b>0.667</b></td></tr>
+<tr class="f1-poor"><td>p2_heartbeatNoise</td><td class="dim-P">P</td><td>1</td><td>2</td><td>1/1/0</td><td>0.500</td><td>1.000</td><td><b>0.667</b></td></tr>
+<tr class="f1-perfect"><td>v0_uniformRange</td><td class="dim-V">V</td><td>1</td><td>1</td><td>1/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>v1_bimodal50_50</td><td class="dim-V">V</td><td>1</td><td>1</td><td>1/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>v2_warmupDrift</td><td class="dim-V">V</td><td>1</td><td>1</td><td>1/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>g0_star4</td><td class="dim-G">G</td><td>4</td><td>4</td><td>4/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>g1_treeDepth3</td><td class="dim-G">G</td><td>5</td><td>5</td><td>5/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>g2_bipartite3x2</td><td class="dim-G">G</td><td>6</td><td>6</td><td>6/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>g3_diamond</td><td class="dim-G">G</td><td>4</td><td>4</td><td>4/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>z0_realPlusNoise2</td><td class="dim-Z">Z</td><td>1</td><td>1</td><td>1/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>z1_noise5</td><td class="dim-Z">Z</td><td>1</td><td>1</td><td>1/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>z2_allSpurious</td><td class="dim-Z">Z</td><td>0</td><td>0</td><td>0/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>z3_outlier2of60</td><td class="dim-Z">Z</td><td>1</td><td>1</td><td>1/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>z4_doubleFire10pct</td><td class="dim-Z">Z</td><td>1</td><td>1</td><td>1/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>k0_chainPlusGroup</td><td class="dim-K">K</td><td>3</td><td>3</td><td>3/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>k1_diamondCross</td><td class="dim-K">K</td><td>5</td><td>5</td><td>5/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>k2_driftPlusNoise</td><td class="dim-K">K</td><td>1</td><td>1</td><td>1/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>k3_chainPlusReset</td><td class="dim-K">K</td><td>3</td><td>3</td><td>3/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>s0_tightLag80ms</td><td class="dim-S">S</td><td>1</td><td>1</td><td>1/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>s1_longLag1800ms</td><td class="dim-S">S</td><td>1</td><td>1</td><td>1/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>s2_largeJitter80ms</td><td class="dim-S">S</td><td>1</td><td>1</td><td>1/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>s3_kmeans3modal</td><td class="dim-S">S</td><td>1</td><td>1</td><td>1/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>o0_twoChainsParallel</td><td class="dim-O">O</td><td>2</td><td>2</td><td>2/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-poor"><td>o1_independentChains</td><td class="dim-O">O</td><td>2</td><td>2</td><td>1/1/1</td><td>0.500</td><td>0.500</td><td><b>0.500</b></td></tr>
+<tr class="f1-perfect"><td>o2_nestedChain</td><td class="dim-O">O</td><td>3</td><td>3</td><td>3/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>t0_regimeChange</td><td class="dim-T">T</td><td>1</td><td>1</td><td>1/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>t1_gradualShift</td><td class="dim-T">T</td><td>1</td><td>1</td><td>1/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+<tr class="f1-perfect"><td>t2_variableCycle</td><td class="dim-T">T</td><td>1</td><td>1</td><td>1/0/0</td><td>1.000</td><td>1.000</td><td><b>1.000</b></td></tr>
+</tbody></table>
+</body></html>

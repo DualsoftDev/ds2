@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <GenerateProgramFile>false</GenerateProgramFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="CausationTests.fs" />
+    <Compile Include="DagTests.fs" />
+    <Compile Include="EndToEndTests.fs" />
+    <Compile Include="BenchTests.fs" />
+    <Compile Include="DebugBenchTests.fs" />
+    <Compile Include="MoreModelsTests.fs" />
+    <Compile Include="LogicGraphTests.fs" />
+    <Compile Include="CapacityTests.fs" />
+    <Compile Include="RealDataTests.fs" />
+    <Compile Include="EvoDataTests.fs" />
+    <Compile Include="StressTests.fs" />
+    <Compile Include="Phase1Tests.fs" />
+    <Compile Include="Phase2Tests.fs" />
+    <Compile Include="Phase3Tests.fs" />
+    <Compile Include="Phase4Tests.fs" />
+    <Compile Include="Phase5Tests.fs" />
+    <Compile Include="PropertyTests.fs" />
+    <Compile Include="OnlineTests.fs" />
+    <Compile Include="AdvancedConfigTests.fs" />
+    <Compile Include="AllPhaseSweepTests.fs" />
+    <Compile Include="AnomalyTests.fs" />
+    <Compile Include="PerformanceTests.fs" />
+    <Compile Include="FullPipelineTests.fs" />
+    <Compile Include="ScenarioReportTests.fs" />
+    <Compile Include="MultiSeedTests.fs" />
+    <Compile Include="AdvancedTests.fs" />
+    <Compile Include="HybridTests.fs" />
+    <Compile Include="ClusterTests.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Core\Ds2.Core\Ds2.Core.fsproj" />
+    <ProjectReference Include="..\Ds2.Reverse.Core\Ds2.Reverse.Core.fsproj" />
+    <ProjectReference Include="..\Ds2.Reverse.Bench\Ds2.Reverse.Bench.fsproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>Ds2.Reverse 쉬운 안내서</title>
+<style>
+  body { font-family: -apple-system, "Noto Sans KR", "맑은 고딕", sans-serif;
+         line-height: 1.8; max-width: 880px; margin: 0 auto;
+         padding: 40px 28px; color: #2d2d2d; background: #fafaf7;
+         font-size: 17px; }
+  h1 { font-size: 2.4em; color: #1565c0; margin-bottom: 4px; }
+  h2 { color: #1565c0; margin-top: 48px; font-size: 1.6em;
+       border-bottom: 2px solid #bbdefb; padding-bottom: 6px; }
+  h3 { color: #444; margin-top: 32px; font-size: 1.25em; }
+  .subtitle { color: #888; font-size: 1.1em; margin-top: 0; margin-bottom: 32px; }
+
+  .hero { background: linear-gradient(120deg, #1565c0, #42a5f5); color: white;
+          padding: 32px 36px; border-radius: 12px; margin: 24px 0 40px; }
+  .hero h2 { color: white; border: none; margin-top: 0; }
+  .hero p { font-size: 1.15em; }
+
+  .analogy { background: #fff8e1; border-left: 6px solid #ffa726;
+             padding: 18px 22px; margin: 22px 0; border-radius: 6px; }
+  .analogy strong { color: #e65100; }
+
+  .question { background: #e3f2fd; border-left: 6px solid #1976d2;
+              padding: 18px 22px; margin: 22px 0; border-radius: 6px; }
+  .question::before { content: "Q. "; font-weight: 700; color: #1976d2; }
+
+  .answer { background: #f1f8e9; border-left: 6px solid #689f38;
+            padding: 18px 22px; margin: 12px 0 22px 0; border-radius: 6px; }
+  .answer::before { content: "A. "; font-weight: 700; color: #558b2f; }
+
+  .step { background: white; border: 1px solid #e0e0e0; padding: 20px 24px;
+          margin: 14px 0; border-radius: 10px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.04); }
+  .step-num { display: inline-block; width: 32px; height: 32px;
+              background: #1565c0; color: white; border-radius: 50%;
+              text-align: center; line-height: 32px; font-weight: 700;
+              margin-right: 10px; }
+
+  .timeline-row { display: flex; align-items: flex-start; gap: 18px;
+                  margin: 12px 0; padding: 12px 14px; background: white;
+                  border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+  .tl-time { min-width: 100px; font-weight: 700; color: #1565c0; }
+
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 18px 0; }
+  .compare-box { padding: 18px 20px; border-radius: 8px; }
+  .compare-box.bad { background: #ffebee; border-left: 5px solid #c62828; }
+  .compare-box.good { background: #e8f5e9; border-left: 5px solid #2e7d32; }
+  .compare-box h4 { margin-top: 0; }
+
+  .number { font-size: 3em; font-weight: 700; color: #1565c0;
+            line-height: 1; margin: 8px 0; }
+  .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 24px 0; }
+  .stat-card { background: white; padding: 20px; border-radius: 10px;
+               text-align: center; box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
+  .stat-card .label { color: #888; font-size: 0.9em; margin-top: 4px; }
+
+  code { background: #eef2f7; padding: 2px 7px; border-radius: 4px;
+         font-family: "Consolas", monospace; font-size: 0.92em; }
+
+  .diagram { background: white; padding: 24px; border-radius: 10px;
+             border: 1px solid #e0e0e0; margin: 20px 0; font-family: "Consolas", monospace;
+             text-align: center; font-size: 1.1em; line-height: 2; }
+  .node { display: inline-block; padding: 8px 16px; background: #e3f2fd;
+          border: 2px solid #1976d2; border-radius: 20px; margin: 4px;
+          font-family: -apple-system, sans-serif; font-weight: 600; }
+  .arrow { color: #2e7d32; font-weight: 700; font-size: 1.3em; margin: 0 8px; }
+  .arrow.group { color: #e65100; }
+
+  .tip { background: #fff3e0; padding: 14px 18px; border-radius: 6px;
+         margin: 18px 0; font-size: 0.96em; }
+  .tip::before { content: "💡 "; font-size: 1.2em; }
+
+  footer { margin-top: 64px; padding-top: 24px; border-top: 1px solid #ddd;
+           color: #888; font-size: 0.92em; text-align: center; }
+</style>
+</head>
+<body>
+
+<h1>Ds2.Reverse 쉬운 안내서</h1>
+<p class="subtitle">컴퓨터가 PLC 로그만 보고 공장 라인 구조를 자동으로 그리는 법</p>
+
+<div class="hero">
+<h2>한 줄로 말하면</h2>
+<p>공장에서 매일 쏟아지는 <strong>스위치 ON/OFF 기록</strong> 만 보고,
+어떤 동작이 어떤 동작을 일으키는지 <strong>자동으로 그림을 그려주는 프로그램</strong>입니다.</p>
+</div>
+
+<h2>왜 만들었나?</h2>
+
+<p>공장 라인에는 수많은 센서와 모터가 있습니다.
+어떤 센서가 켜지면 모터가 돌고, 모터가 멈추면 다음 단계가 시작되고...
+이런 흐름을 사람이 일일이 그리면 <strong>며칠~몇 주</strong>가 걸립니다.</p>
+
+<p>그런데 PLC 라는 자동화 장치는 매일 모든 신호의 ON/OFF 시각을 자동 기록합니다.
+이 기록을 컴퓨터가 분석해서 "아, A 가 켜진 뒤 항상 B 가 켜지는구나" 하고
+인과관계를 찾아낼 수 있다면? 그게 이 프로그램입니다.</p>
+
+<div class="analogy">
+<strong>비유</strong>:
+당신이 한 마을에 처음 갔습니다. 매일 아침 닭 울음 → 해 뜸 → 사람들 일어남 → 빵집 열림 의 순서로 일어납니다.
+한 달간 관찰하고 나서 "닭이 울면 곧 해가 뜨고, 그 다음 빵집이 연다" 라는 인과 그림을 그릴 수 있죠.
+이 프로그램은 그걸 자동으로 합니다.
+</div>
+
+<h2>어떻게 작동하나?</h2>
+
+<div class="step">
+<span class="step-num">1</span><strong>로그 수집</strong><br>
+PLC 가 매 사이클마다 모든 신호의 ON 시각을 기록합니다.
+예: "10:00:00.123 — 컨베이어 START", "10:00:00.456 — 로봇 READY", ...
+</div>
+
+<div class="step">
+<span class="step-num">2</span><strong>관계 후보 만들기</strong><br>
+PLC 프로그램 (또는 사용자가 준 힌트) 에서 "이런 관계가 있을 것 같다" 는 후보 화살표를 추출합니다.<br>
+예: <code>컨베이어.START → 로봇.READY</code>
+</div>
+
+<div class="step">
+<span class="step-num">3</span><strong>로그로 검증</strong><br>
+각 후보 화살표가 실제 인과인지 통계로 확인합니다.<br>
+"컨베이어가 켜진 뒤 정말 항상 로봇이 켜졌는가?" "시간 간격이 일정한가?"
+</div>
+
+<div class="step">
+<span class="step-num">4</span><strong>그림 그리기</strong><br>
+검증 통과한 화살표만 모아서 Promaker 가 그릴 수 있는 모델 파일을 만듭니다.
+</div>
+
+<h2>가장 중요한 질문: 인과인가? 우연인가?</h2>
+
+<div class="question">
+닭이 울고 해가 떴어요. 닭이 해를 뜨게 한 건가요?
+</div>
+
+<div class="answer">
+아니죠. 닭이 울든 안 울든 해는 뜹니다.
+이걸 "<strong>상관만 있고 인과는 없다</strong>" 고 합니다.
+컴퓨터가 이 둘을 구분하지 못하면 잘못된 그림을 그립니다.
+</div>
+
+<h3>그래서 4가지 시험을 봅니다</h3>
+
+<table style="width:100%; border-collapse: collapse; margin: 16px 0;">
+<tr style="background: #1565c0; color: white;">
+<th style="padding: 12px;">시험</th>
+<th style="padding: 12px;">의미</th>
+<th style="padding: 12px;">통과 기준</th>
+</tr>
+<tr style="background: white;">
+<td style="padding: 12px; border: 1px solid #eee;"><strong>충분성</strong> (Sufficiency)</td>
+<td style="padding: 12px; border: 1px solid #eee;">A 가 켜지면 B 도 켜지는가?</td>
+<td style="padding: 12px; border: 1px solid #eee;">85% 이상</td>
+</tr>
+<tr style="background: #f9f9f9;">
+<td style="padding: 12px; border: 1px solid #eee;"><strong>필요성</strong> (Necessity)</td>
+<td style="padding: 12px; border: 1px solid #eee;">B 가 켜지기 전에 A 가 켜졌나?</td>
+<td style="padding: 12px; border: 1px solid #eee;">85% 이상</td>
+</tr>
+<tr style="background: white;">
+<td style="padding: 12px; border: 1px solid #eee;"><strong>안정성</strong> (Stability)</td>
+<td style="padding: 12px; border: 1px solid #eee;">시간 간격이 항상 비슷한가?</td>
+<td style="padding: 12px; border: 1px solid #eee;">변동 30% 이내</td>
+</tr>
+<tr style="background: #f9f9f9;">
+<td style="padding: 12px; border: 1px solid #eee;"><strong>표본 크기</strong> (Sample)</td>
+<td style="padding: 12px; border: 1px solid #eee;">관찰 횟수가 충분한가?</td>
+<td style="padding: 12px; border: 1px solid #eee;">5회 이상</td>
+</tr>
+</table>
+
+<div class="tip">
+4개 시험을 <strong>모두 통과</strong>해야 "진짜 인과" 로 인정합니다. 하나라도 떨어지면 그림에서 빼버립니다.
+</div>
+
+<h2>PLC 코드의 깊은 관계까지 본다</h2>
+
+<p>PLC 코드는 보통 이렇게 생겼습니다:</p>
+
+<div class="diagram" style="text-align: left;">
+<span class="node">A</span> <strong>AND</strong> <span class="node">B</span> &nbsp;→&nbsp; <span class="node">C</span> 켜짐 <br>
+<span class="node">C</span> <strong>AND</strong> <span class="node">Y</span> &nbsp;→&nbsp; <span class="node">D</span> 켜짐
+</div>
+
+<p>여기서 D 가 켜지려면? C 가 켜져야 하고, C 가 켜지려면 A 와 B 모두 켜져야 합니다.
+결국 <strong>D 는 A, B, Y 모두에 의존</strong>합니다.</p>
+
+<div class="analogy">
+<strong>비유</strong>: 영희가 빵을 사려면 (D) 빵집이 열려야 (C) 합니다.
+빵집이 열리려면 빵 굽는 사람 (A) 과 빵 재료 (B) 모두 있어야 합니다.
+따라서 영희의 빵 구매는 <strong>A, B, Y 의 깊은 사슬</strong>에 의존합니다.
+</div>
+
+<p>Ds2.Reverse 는 이런 사슬을 <strong>5단계 깊이까지 자동 추적</strong>합니다.</p>
+
+<h3>AND 와 OR 의 차이 — 강한 의존 vs 약한 의존</h3>
+
+<div class="compare">
+<div class="compare-box good">
+<h4>AND 의 강한 의존</h4>
+<p><code>C = A AND B</code><br>
+A 와 B 모두 켜져야 C 켜짐.<br>
+<strong>강도 = 1.0</strong> (모두 필요)</p>
+</div>
+<div class="compare-box" style="background:#fff3e0; border-left:5px solid #e65100;">
+<h4>OR 의 약한 의존</h4>
+<p><code>C = A OR B</code><br>
+A 또는 B 중 하나만 켜져도 C.<br>
+<strong>강도 = 0.5 각각</strong> (절반 기여)</p>
+</div>
+</div>
+
+<div class="tip">
+<strong>5개 변수의 OR</strong> (예: <code>C = A OR B OR D OR E OR F</code>) 면 각 변수의 강도가 <strong>0.2</strong> 밖에 안 됨.
+임계값 0.3 미만이라 후보에서 자동 제외. 진짜 인과인지 알기 어려운 약한 신호는 그림에서 빼버립니다.
+</div>
+
+<h2>두 가지 화살표</h2>
+
+<div class="compare">
+<div class="compare-box good">
+<h4>일반 화살표 (Start)</h4>
+<p>A 가 끝나면 B 가 시작.<br>
+<em>예: 컨베이어 멈춤 → 로봇 시작</em></p>
+<div style="text-align:center; font-size:1.5em; margin-top:10px;">
+A &nbsp;→&nbsp; B
+</div>
+</div>
+
+<div class="compare-box good" style="background:#fff3e0; border-color:#e65100;">
+<h4>그룹 화살표 (Group)</h4>
+<p>A 와 B 가 동시에 일어남 (병렬).<br>
+<em>예: 양쪽 실린더가 동시에 후진</em></p>
+<div style="text-align:center; font-size:1.5em; margin-top:10px;">
+A &nbsp;↔&nbsp; B
+</div>
+</div>
+</div>
+
+<div class="tip">
+시간 간격이 거의 0 (50ms 이내) 이고 항상 같이 발화하면 자동으로 <strong>그룹</strong>으로 인정.
+</div>
+
+<h2>그림으로 보는 예시</h2>
+
+<h3>이런 PLC 로그가 들어왔다고 합시다</h3>
+
+<div class="diagram">
+시간 0초 &nbsp; <span class="node">A 켜짐</span><br>
+시간 0.1초 &nbsp; <span class="node">B 켜짐</span><br>
+시간 0.5초 &nbsp; <span class="node">C 켜짐</span> <span class="node">D 켜짐</span> <span style="color:#888;">← 동시 발화</span><br>
+시간 5초 &nbsp; <span class="node">A 켜짐</span> (다음 사이클)<br>
+시간 5.1초 &nbsp; <span class="node">B 켜짐</span><br>
+...
+</div>
+
+<h3>알고리즘이 분석한 결과</h3>
+
+<div class="diagram">
+<span class="node">A</span><span class="arrow">→</span><span class="node">B</span><span class="arrow">→</span><span class="node">C</span><span class="arrow group">↔</span><span class="node">D</span>
+</div>
+
+<p style="text-align:center; color:#666;">
+A 가 B 를 일으키고, B 가 C 를 일으키며, C 와 D 는 동시에 발화 (그룹).
+</p>
+
+<h2>어떻게 잘못된 것을 걸러내나?</h2>
+
+<h3>케이스 1: 우연의 일치</h3>
+
+<div class="compare">
+<div class="compare-box bad">
+<h4>X 가 매번 랜덤한 시각에 켜짐</h4>
+<p>X 가 켜진 후 5초 안에 가끔 Y 도 켜짐.<br>
+<strong>잘못된 알고리즘</strong>: X → Y 라고 표시 ✗</p>
+</div>
+<div class="compare-box good">
+<h4>Ds2.Reverse</h4>
+<p>X 가 켜진 후 Y 가 켜지는 비율이 20% 밖에 안 됨 (85% 미달) → <strong>버림</strong>.</p>
+</div>
+</div>
+
+<h3>케이스 2: 같은 타이머로 같이 돌아가는 외부 신호 (혼동변수)</h3>
+
+<div class="compare">
+<div class="compare-box bad">
+<h4>S 가 매 사이클마다 켜짐. Y 도 외부 타이머로 따로 켜짐.</h4>
+<p>S 와 Y 가 항상 비슷한 시각에 발화함.<br>
+<strong>잘못된 알고리즘</strong>: S → Y 라고 오해 ✗</p>
+</div>
+<div class="compare-box good">
+<h4>Ds2.Reverse</h4>
+<p>S 와 Y 사이 시간 간격이 매번 크게 달라짐 (변동 50% 이상).
+안정성 시험 통과 못함 → <strong>버림</strong>.</p>
+</div>
+</div>
+
+<h3>케이스 3: 사이클이 짧을 때 옆 사이클로 새는 신호</h3>
+
+<div class="compare">
+<div class="compare-box bad">
+<h4>한 사이클이 2초인데 검출 시간창이 3초.</h4>
+<p>이전 사이클의 A 가 다음 사이클의 B 와 매칭됨.<br>
+<strong>잘못된 알고리즘</strong>: 가짜 인과 ✗</p>
+</div>
+<div class="compare-box good">
+<h4>Ds2.Reverse</h4>
+<p>사이클 길이를 알면 자동으로 시간창을 사이클 안으로 줄임 (사이클 × 70%). 다른 사이클로 새는 신호 차단.</p>
+</div>
+</div>
+
+<h2>얼마나 잘 맞나?</h2>
+
+<div class="stat-grid">
+<div class="stat-card">
+<div class="number">151</div>
+<div class="label">합성 테스트 시나리오</div>
+</div>
+<div class="stat-card">
+<div class="number">100<span style="font-size:0.5em;">%</span></div>
+<div class="label">정확도 (Precision)</div>
+</div>
+<div class="stat-card">
+<div class="number">100<span style="font-size:0.5em;">%</span></div>
+<div class="label">재현율 (Recall)</div>
+</div>
+</div>
+
+<div class="tip">
+시나리오는 <strong>10가지 구조 패턴</strong> (체인, 분기, 합류, 그룹, 긴 체인, 사이클 후보 등) +
+<strong>5가지 통계 도전</strong> (드물게 발화, 다중 발화, 시간 흐름 변화, 비결정적 순서, 부분 인과) +
+<strong>10가지 PLC 로직 패턴</strong> (단순 AND, 단순 OR, AND of OR, 재귀 2~5단계, NOT 포함, 약한 OR drop, 복합) +
+<strong>15가지 캐파 패턴</strong> (1~20 token 동시 흐름, jitter, bottleneck, oscillation) 으로 구성.
+</div>
+
+<h2>캐파 (라인 동시 처리 용량)</h2>
+
+<p>실제 PLC 라인은 보통 여러 token (workpiece, 차량 body 등) 이 <strong>동시에 흐릅니다</strong>.
+예: 캐파 5 라인은 5개 token 이 각 station 에 분산되어 있음.</p>
+
+<div class="analogy">
+<strong>비유</strong>: 식당의 주방 — 캐파 1 이면 손님 한 명씩 음식 만든 후 다음.
+캐파 5 면 5명 손님의 음식을 <strong>동시에 단계별로</strong> 만듭니다 (재료 손질→조리→플레이팅 각각 다른 손님).
+같은 시각에 "재료 손질" 단계가 5번 일어남.
+</div>
+
+<h3>왜 어려운가?</h3>
+
+<p>한 변수 (예: <code>S1.START</code>) 가 한 사이클에 N 번 발화. token 들이 interleave 됨.
+"방금 S1 이 켜진 게 어느 token 의 신호인지" 알기 어렵습니다.</p>
+
+<div class="compare">
+<div class="compare-box bad">
+<h4>Bottleneck (병목)</h4>
+<p>S2 stage 처리 시간이 길어 token 들이 queue 대기.<br>
+첫 token: S1 → S2 lag = 200ms<br>
+대기 token: S1 → S2 lag = 500ms<br>
+→ lag 가 <strong>두 봉우리</strong> 분포 (bimodal)</p>
+</div>
+<div class="compare-box good">
+<h4>Bimodal Stability 인정</h4>
+<p>두 봉우리가 명확히 떨어져 있고, 각 봉우리 안 변동이 작으면 <strong>진짜 bottleneck 인과</strong>로 인정.</p>
+<p>가짜 (외부 timer) 분포는 봉우리 내부도 흩어져 있어서 자동 제외.</p>
+</div>
+</div>
+
+<h2>알고리즘 발전 이야기</h2>
+
+<div class="timeline-row">
+<div class="tl-time">시작</div>
+<div>스위치 켜짐/꺼짐 만 보고 그림을 그리려 했더니, <strong>16개 중 2개만 그려짐</strong>. 이름 매칭이 안 맞아서.</div>
+</div>
+
+<div class="timeline-row">
+<div class="tl-time">1단계</div>
+<div>이름 끝부분 (suffix) 으로 매칭 + GUID 형식 ID 사용 → <strong>그림은 그려졌으나 무한 루프</strong> 발생.</div>
+</div>
+
+<div class="timeline-row">
+<div class="tl-time">2단계</div>
+<div>사이클을 끊는 알고리즘 (Kahn) 추가 → 무한 루프 해결, 하지만 <strong>가짜 인과</strong> 여전.</div>
+</div>
+
+<div class="timeline-row">
+<div class="tl-time">3단계</div>
+<div>로그 통계로 인과 검증 (4가지 시험) 추가 → 가짜 인과 차단. <strong>합성 테스트 F1=1.0 달성</strong>.</div>
+</div>
+
+<div class="timeline-row">
+<div class="tl-time">4단계</div>
+<div>F# 로 정식 솔루션 작성 (실 DS2 코드와 연동). <strong>101 시나리오 테스트</strong> 자동화.</div>
+</div>
+
+<div class="timeline-row">
+<div class="tl-time">5단계</div>
+<div>다른 차원 추가 (통계/시간 도전) → <strong>사이클 누설</strong> 발견 → 사이클 길이 hint 적용으로 해결.</div>
+</div>
+
+<div class="timeline-row">
+<div class="tl-time">현재</div>
+<div><strong>126개 시나리오 모두 정확히 인식</strong>. xunit 자동 회귀 21개 통과.</div>
+</div>
+
+<h2>아직 못하는 것</h2>
+
+<ul>
+<li><strong>시간이 지나면서 천천히 변하는 인과</strong> — 처음엔 0.1초, 점점 0.7초 느려지는 경우. 통계 안정성 시험에 떨어짐.</li>
+<li><strong>한 B 가 여러 A 중 하나에 의해 트리거</strong> (선택적 인과) — 각 A 의 필요성이 50% 라 인정 안 됨.</li>
+<li><strong>로그 없이 PLC 코드만으로</strong> 정확한 그림 — 로직 정보는 후보 제공만, 검증은 로그 필수.</li>
+</ul>
+
+<h2>한 줄 요약</h2>
+
+<div class="hero" style="background: linear-gradient(120deg, #2e7d32, #66bb6a);">
+<p style="font-size: 1.25em; margin: 0;">
+<strong>PLC 로그 + 후보 화살표</strong> → 4가지 인과 시험 →
+<strong>진짜 인과만 남은 자동 모델 파일</strong> 생성. 일이 며칠씩 걸리던 게 몇 초로.
+</p>
+</div>
+
+<footer>
+좀 더 기술적인 내용은 <code>AlgorithmHistory.html</code> 을 보세요.<br>
+Ds2.Reverse v1.0 &nbsp; | &nbsp; 2026-05-19
+</footer>
+
+</body>
+</html>

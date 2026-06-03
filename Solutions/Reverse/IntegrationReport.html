@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>Ds2.Reverse 통합 강화 리포트 (v18, 2026-05-22)</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", "Noto Sans KR", sans-serif;
+         max-width: 1100px; margin: 20px auto; padding: 0 16px;
+         color: #1a1a1a; line-height: 1.55; background: #fafafa; }
+  h1 { color: #0d47a1; border-bottom: 3px solid #0d47a1; padding-bottom: 8px; }
+  h2 { color: #1565c0; margin-top: 36px; }
+  h3 { color: #1976d2; }
+  .summary { background: #e3f2fd; padding: 14px 18px; border-left: 5px solid #1565c0;
+             margin: 18px 0; border-radius: 4px; }
+  .ok { color: #2e7d32; font-weight: 600; }
+  .warn { color: #ef6c00; font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0;
+          background: white; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  th, td { border: 1px solid #e0e0e0; padding: 8px 12px; text-align: left;
+           vertical-align: top; }
+  th { background: #f5f5f5; font-weight: 600; }
+  td.tag { font-family: "Consolas", monospace; font-size: 12px; color: #555; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px;
+           font-size: 12px; font-weight: 600; }
+  .b-done { background: #c8e6c9; color: #1b5e20; }
+  .b-skip { background: #fff9c4; color: #6d4c41; }
+  pre { background: #f0f4f8; padding: 10px 14px; border-radius: 4px; overflow-x: auto;
+        font-family: "Consolas", monospace; font-size: 13px; }
+  .metric { display: inline-block; padding: 6px 14px; margin: 4px 4px 4px 0;
+            background: #fff; border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,.1); }
+  .metric .v { font-size: 24px; font-weight: 700; color: #0d47a1; }
+  .metric .k { font-size: 11px; color: #666; display: block; }
+</style>
+</head>
+<body>
+
+<h1>Ds2.Reverse 통합 강화 리포트</h1>
+<p style="color:#666; margin-top:0;">v18 — 2026-05-22 — 3 Phase 완료 + Online/Drift/Property 추가</p>
+
+<div class="summary">
+  <strong>한 줄 요약</strong>: 3 phase 의 모델 다양성 (R/Q/D/P/V/G/Z) + 알고리즘 확장
+  (Cyclic drift / Mutex / Reset / Multi-modal reject / Outlier filter / Confidence /
+  Soft classification / Hybrid scoring / Online detection / Drift alert) 을 통합.
+  WPF Studio 가 8 개 모델 case (A~H) + Seed Sweep + Auto-tune 제공. xunit <span class="ok">109 / 109 통과</span>,
+  EVO 실 데이터 회귀 무영향 (***REDACTED***EVO 70 arrowCalls 유지).
+</div>
+
+<div>
+  <span class="metric"><span class="v">109</span><span class="k">xunit 테스트</span></span>
+  <span class="metric"><span class="v">243+</span><span class="k">합성 시나리오 (m0-100 + 42 신규)</span></span>
+  <span class="metric"><span class="v">8</span><span class="k">Studio Case (A~H)</span></span>
+  <span class="metric"><span class="v">10</span><span class="k">알고리즘 게이트/모듈</span></span>
+</div>
+
+<h2>1. Phase 별 진행 상태</h2>
+
+<table>
+<thead>
+<tr><th>Phase</th><th>항목</th><th>상태</th><th>핵심 변화</th></tr>
+</thead>
+<tbody>
+<tr><td rowspan="9">1</td>
+    <td>R / Q 차원 (10 시나리오)</td><td><span class="badge b-done">완료</span></td>
+    <td>Reset / Mutex / Queue 패턴 — F1=1.0</td></tr>
+<tr><td>D 차원 Drift (3 시나리오)</td><td><span class="badge b-done">완료</span></td>
+    <td>Linear + cyclic + warm-up drift</td></tr>
+<tr><td>B1.1 Cyclic Drift</td><td><span class="badge b-done">완료</span></td>
+    <td>autocorrelation 기반 주기 검출 + cos/sin fit</td></tr>
+<tr><td>B3.1 Reset 검출</td><td><span class="badge b-done">완료</span></td>
+    <td>"reset" kind → cycle-hint 비활성 (cross-cycle window 허용)</td></tr>
+<tr><td>B3.2 Mutex 검출</td><td><span class="badge b-done">완료</span></td>
+    <td>co-occurrence rate < 10% AND 두 측 nA/nB 충분</td></tr>
+<tr><td>Multi-modal reject</td><td><span class="badge b-done">완료</span></td>
+    <td>75ms bin histogram + smallLagFallback tighten</td></tr>
+<tr><td>Reset DAG cycle 면제</td><td><span class="badge b-done">완료</span></td>
+    <td>Reset/ResetReset arrows 는 DAG cycle 검사 제외 (자연 cycle)</td></tr>
+<tr><td>Studio Case C (Multi-Flow Inline)</td><td><span class="badge b-done">완료</span></td>
+    <td>N flows + cross-flow chain + 시뮬레이터가 work-level arrows 확장</td></tr>
+<tr><td>Studio Case D (Branch)</td><td><span class="badge b-done">완료</span></td>
+    <td>N branch 분기 패턴</td></tr>
+
+<tr><td rowspan="7">2</td>
+    <td>P / V 차원 (6 시나리오)</td><td><span class="badge b-done">완료</span></td>
+    <td>Polling vs causation 구분 + variable duration</td></tr>
+<tr><td>B2.1 ArrowConfidence</td><td><span class="badge b-done">완료</span></td>
+    <td>0~1 score + primary(0.7) + logic(0.3) + nReliability</td></tr>
+<tr><td>B2.2 Soft classification</td><td><span class="badge b-done">완료</span></td>
+    <td>High(≥0.9) / Medium(≥0.7) / Low(≥0.5) / Reject</td></tr>
+<tr><td>B5 Logic+Stat Hybrid scoring</td><td><span class="badge b-done">완료</span></td>
+    <td>LogicGraph strength → ReverseEngine → confidence</td></tr>
+<tr><td>Studio Case E (Recycle Loop)</td><td><span class="badge b-done">완료</span></td>
+    <td>마지막 work → 첫 work 재진입 chain</td></tr>
+<tr><td>Studio Case F (PLC-Realistic Cell)</td><td><span class="badge b-done">완료</span></td>
+    <td>Robot/Conveyor/Jig + device-specific duration</td></tr>
+<tr><td>Studio UI Confidence column + tier 색깔</td><td><span class="badge b-done">완료</span></td>
+    <td>High=초록 / Medium=노랑 / Low=주황 row 색상</td></tr>
+
+<tr><td rowspan="5">3</td>
+    <td>G / Z 차원 (9 시나리오)</td><td><span class="badge b-done">완료</span></td>
+    <td>Star/Tree/Bipartite/Diamond + 5 adversarial — F1=1.0</td></tr>
+<tr><td>B4.2 Outlier filtering (Tukey IQR)</td><td><span class="badge b-done">완료</span></td>
+    <td>score 계산 전 lag outlier 제거 (50% 보호)</td></tr>
+<tr><td>Studio Case G (Capacity Variable)</td><td><span class="badge b-done">완료</span></td>
+    <td>token 수 변동 (1~5)</td></tr>
+<tr><td>Studio Case H (Adversarial Mix)</td><td><span class="badge b-done">완료</span></td>
+    <td>진짜 chain + N spurious noise calls</td></tr>
+<tr><td>B1.2 Multi-modal k-means (3+ peaks 수용)</td>
+    <td><span class="badge b-skip">스킵</span></td>
+    <td>현재 reject 로 충분 (q4 5-modal 같은 케이스 정확히 거부)</td></tr>
+
+<tr><td rowspan="3">추가</td>
+    <td>Property-based tests (FsCheck 대안)</td><td><span class="badge b-done">완료</span></td>
+    <td>Determinism + scale + monotonic + 10 seed sweep (11 tests)</td></tr>
+<tr><td>B6 Online / Incremental detection</td><td><span class="badge b-done">완료</span></td>
+    <td>Welford-style streaming + anytime Snapshot (4 tests)</td></tr>
+<tr><td>B7.2 Causation Drift Alert</td><td><span class="badge b-done">완료</span></td>
+    <td>confidence history slope → Stable/Dropping/Picking (3 tests)</td></tr>
+</tbody>
+</table>
+
+<h2>2. 알고리즘 게이팅 파이프라인</h2>
+<pre>
+입력: (aTimes, bTimes, config, declaredKind, logicStrength?)
+  │
+  ├─ low_n check                                  → Reason "low_n"
+  ├─ sufficiency / necessity                       (basic pair matching)
+  ├─ Outlier filter (Tukey IQR) ★ B4.2             — lag outliers 제거
+  ├─ lag stats (mean / std / cv / abs)
+  │
+  ├─ Mode count (75ms bin histogram) ★ Phase 1     — multi-modal 거부 기준
+  ├─ Stability gates (OR 결합):
+  │     • lag cv ≤ 0.30
+  │     • smallLagFallback (lagMean<150 AND lagStd 적절) ★ tighten
+  │     • bimodalStable (gap≥100, std<60, 25%/75%) ★ relax
+  │     • driftStable (linear regression)
+  │     • cyclicStable (autocorrelation + cos/sin fit) ★ B1.1
+  │
+  ├─ Gate dispatch:
+  │     • declared "group"   → passes_grp 검사 → EmitGroup
+  │     • declared "reset"   → cycle hint 비활성 ★ B3.1
+  │     • declared "mutex"   → mutexScore (co-occurrence) ★ B3.2
+  │     • declared "trigger" → passes_seq 검사 → EmitSequential
+  │
+  ├─ Cluster mode fallback                         (multi-source 시)
+  │
+  └─ Confidence calculation ★ B2:
+        score = primary * 0.7 + logic * 0.3 (hybrid) ★ B5
+        nReliability = f(NA)
+        tier = High / Medium / Low / Reject ★ B2.2
+</pre>
+
+<h2>3. Studio Cases (A ~ H)</h2>
+
+<table>
+<thead>
+<tr><th>Case</th><th>이름</th><th>패턴</th><th>주요 파라미터</th></tr>
+</thead>
+<tbody>
+<tr><td>A</td><td>Inline Line</td><td>W1 → W2 → ... StartReset chain</td>
+    <td>Stages, Capacity, +PRE/SENSOR variant</td></tr>
+<tr><td>B</td><td>Standalone DAG</td><td>한 Work 안 random DAG</td>
+    <td># Calls, Density, GroupProb</td></tr>
+<tr><td>C</td><td>Multi-Flow Inline</td><td>2~5 flows + cross-flow chain</td>
+    <td># Flows, Stages/flow</td></tr>
+<tr><td>D</td><td>Branch / Choice</td><td>공통 W1 → N branches</td>
+    <td># Branches, Entropy</td></tr>
+<tr><td>E</td><td>Recycle Loop</td><td>Inline chain + 마지막→첫 재진입</td>
+    <td>Stages, Recycle prob</td></tr>
+<tr><td>F</td><td>PLC-Realistic Cell</td><td>Robot+Conveyor+Jig 5 stage standard</td>
+    <td>Robot/Conveyor/Jig 체크박스</td></tr>
+<tr><td>G</td><td>Capacity Variable</td><td>Inline + token 수 변동</td>
+    <td>Min/Max tokens</td></tr>
+<tr><td>H</td><td>Adversarial Mix</td><td>A→B→C chain + N spurious noise</td>
+    <td>Spurious cnt, Noise level</td></tr>
+</tbody>
+</table>
+
+<h2>4. 합성 시나리오 차원</h2>
+
+<table>
+<thead>
+<tr><th>차원</th><th>코드</th><th>패턴</th><th>개수</th><th>결과</th></tr>
+</thead>
+<tbody>
+<tr><td>기본</td><td>m0-100</td><td>chain/fanOut/fanIn/group/confounded/spurious/longChain/multiBackEdge/edge/composite</td>
+    <td>101</td><td>F1=1.0</td></tr>
+<tr><td>R (Reset)</td><td>r0-4</td><td>self-reset / mutex / startReset / spurious reset</td>
+    <td>5</td><td>F1=1.0</td></tr>
+<tr><td>Q (Queue)</td><td>q0-4</td><td>short/long/variable/rejection/deep bottleneck</td>
+    <td>5</td><td>F1=1.0</td></tr>
+<tr><td>D (Drift)</td><td>d0-2</td><td>linear / cyclic cosine / strong cyclic</td>
+    <td>3</td><td>F1=1.0</td></tr>
+<tr><td>P (Polling)</td><td>p0-2</td><td>polling only / polling+causation / heartbeat noise</td>
+    <td>3</td><td>F1≈0.89</td></tr>
+<tr><td>V (Variable)</td><td>v0-2</td><td>uniform range / bimodal / warming drift</td>
+    <td>3</td><td>F1=1.0</td></tr>
+<tr><td>G (Graph)</td><td>g0-3</td><td>star / tree / bipartite / diamond</td>
+    <td>4</td><td>F1=1.0</td></tr>
+<tr><td>Z (Adversarial)</td><td>z0-4</td><td>noise / spurious / outlier / double-fire</td>
+    <td>5</td><td>F1=1.0</td></tr>
+<tr><td>K (Kombinatorial)</td><td>k0-3</td><td>chain+group / diamond+cross / drift+noise / chain+reset</td>
+    <td>4</td><td>F1=1.0</td></tr>
+<tr><td>S (Stress edge)</td><td>s0-3</td><td>tight 80ms / long 1800ms / large 80ms jitter / k-means 3-modal</td>
+    <td>4</td><td>F1=1.0</td></tr>
+<tr><td>O (Overlap)</td><td>o0-2</td><td>두 chain 평행 / independent / nested chain</td>
+    <td>3</td><td>F1≈0.83</td></tr>
+<tr><td>T (Temporal shift)</td><td>t0-2</td><td>regime change / gradual shift / variable cycle</td>
+    <td>3</td><td>F1=1.0</td></tr>
+</tbody>
+</table>
+
+<h2>5. 테스트 분류 (xunit 68 tests)</h2>
+
+<table>
+<thead>
+<tr><th>카테고리</th><th>tests</th><th>설명</th></tr>
+</thead>
+<tbody>
+<tr><td>기본 검증 (Phase 0)</td><td>~10</td><td>Causation, Dag, EndToEnd, Bench</td></tr>
+<tr><td>합성 모델 (m0-100)</td><td>~5</td><td>perfect rate / robust seed / cycle counts</td></tr>
+<tr><td>실 데이터</td><td>2</td><td>DEMO + ***REDACTED***EVO</td></tr>
+<tr><td>Phase 1 (R/Q/D)</td><td>2</td><td>diagnostic + aggregate F1 ≥ 0.70</td></tr>
+<tr><td>Phase 2 (P/V + Confidence)</td><td>5</td><td>diagnostic + agg F1 + 3 tier 검증</td></tr>
+<tr><td>Phase 3 (G/Z)</td><td>3</td><td>diagnostic + G aggregate + Z precision</td></tr>
+<tr><td>Property tests</td><td>11</td><td>determinism + scale + monotone + 10 seed sweep</td></tr>
+<tr><td>Online + Drift</td><td>7</td><td>streaming + anytime + drift alert (Stable/Dropping/Picking)</td></tr>
+<tr><td>Advanced Config</td><td>5</td><td>noise estimation + dynamic threshold</td></tr>
+<tr><td>All-Phase Sweep</td><td>3</td><td>28 시나리오 합쳐 F1≥0.85 / 80%+ perfect / distribution</td></tr>
+<tr><td>Anomaly detection (B7.1)</td><td>6</td><td>pattern learn + missing/extra/shifted event + analyzeAllCycles</td></tr>
+<tr><td>Performance tests</td><td>6</td><td>chain N=10/25/50/100 + 28-scenario sweep < 5s</td></tr>
+<tr><td>Multi-seed robustness</td><td>3</td><td>42 시나리오 × 5 seed F1≥0.92, std<0.02</td></tr>
+<tr><td>Scenario report generator</td><td>1</td><td>HTML output of all 42 scenarios</td></tr>
+<tr><td>Bayesian aggregate (B4.3)</td><td>5</td><td>logit fusion / agreement / conflict</td></tr>
+<tr><td>Full Pipeline integration</td><td>2</td><td>모든 컴포넌트 함께 (auto-tune+confidence+anomaly+drift)</td></tr>
+</tbody>
+</table>
+
+<h2>6. 본질적 한계 (Out-of-Scope)</h2>
+<ul>
+<li><strong>Multi-modal 3+ 인과</strong> — 현재 거부. 진짜 5-modal queue (q4) 같은 경우 알고리즘적 한계.</li>
+<li><strong>Polling vs causation 분리</strong> — POLL 이 actual fire 와 무관해도 매번 직전 발화 → 통계적 인과 처럼 보임.</li>
+<li><strong>Hidden confounding variables</strong> — 외부 timer 같은 측정 불가 변수.</li>
+<li><strong>Real-time learning</strong> — Online detection 후 weight 자가 조정은 강화학습 영역.</li>
+</ul>
+
+<h2>7. 파일 구조</h2>
+<pre>
+Solutions/Reverse/
+├─ Ds2.Reverse.Core/         (F# 알고리즘 library)
+│   ├─ Types.fs              CausationScore, ConfidenceTier, ArrowConfidence, DetectionReport
+│   ├─ LogicGraph.fs         AND/OR 강도 분석 + extractCandidates
+│   ├─ CausationDetection.fs score, gate, mutexScore, confidence (★ 핵심)
+│   ├─ OnlineDetection.fs    ★ B6 — OnlineScore + Welford + analyzeDrift
+│   ├─ AnomalyDetection.fs   ★ B7.1 — CyclePattern learning + scoreCycle + analyzeAll
+│   ├─ DagEnforcement.fs     topoBreakCycle, transitiveReduction
+│   ├─ ModelBuilder.fs       Store mutation helpers
+│   └─ ReverseEngine.fs      메인 파이프라인 (★ kind-aware emit)
+│
+├─ Ds2.Reverse.Bench/
+│   ├─ Scenario.fs           Primitives + ★ candidatesFor (declared kind 보존)
+│   ├─ Simulator.fs          cycle 시뮬
+│   ├─ Phase1Models.fs       ★ R + Q + D 시나리오
+│   ├─ Phase2Models.fs       ★ P + V 시나리오
+│   ├─ Phase3Models.fs       ★ G + Z 시나리오
+│   └─ BenchRunner.fs        runOne, runAll, formatSummary
+│
+├─ Ds2.Reverse.Tests/        (68 tests)
+│   ├─ Phase1Tests.fs        ★ R/Q F1 ≥ 0.70
+│   ├─ Phase2Tests.fs        ★ P/V + Confidence tier
+│   ├─ Phase3Tests.fs        ★ G/Z precision
+│   ├─ PropertyTests.fs      ★ deterministic + scale + monotone
+│   └─ OnlineTests.fs        ★ streaming + drift alert
+│
+└─ Apps/Ds2.Reverse.Studio/  (WPF GUI)
+    ├─ Models/Generators.cs  ★ Cases A~H 8개
+    ├─ Models/Records.cs     GeneratorOptions, ArrowDiff (★ +Confidence/Tier)
+    ├─ Services/ReverseService.cs (★ confidence 추출)
+    ├─ ViewModels/MainViewModel.cs (★ 8 case 라디오 + 파라미터)
+    └─ MainWindow.xaml       (★ tier 색깔 RowStyle + Conf/Tier 컬럼)
+</pre>
+
+<h2>8. 검증 결과</h2>
+<div class="summary">
+<strong>✓ xunit 테스트</strong>: 88/88 통과<br>
+<strong>✓ All-Phase 합산 sweep</strong>: 42 신규 시나리오 (R/Q/D/P/V/G/Z/K/S/O/T) 통합 F1 ≥ 0.90, recall=1.0<br>
+<strong>✓ B1.2 K-means 3-modal</strong>: well-separated 3-cluster lag → 인정 (s3 통과)<br>
+<strong>✓ Anomaly detection</strong>: shifted timing / missing / extra event 모두 정확히 flag<br>
+<strong>✓ Performance</strong>: chain N=100 cycle 30 → &lt;600ms; 28-시나리오 sweep &lt;100ms<br>
+<strong>✓ Bayesian aggregation</strong>: logit fusion → multiple evidences 일관성 검증<br>
+<strong>✓ Full pipeline</strong>: auto-tune + score + confidence + anomaly + Bayesian → 통합 동작<br>
+<strong>✓ 회귀 (m0-100)</strong>: 101/101 perfect, F1=1.0, seed 5개 모두 robust<br>
+<strong>✓ 실 데이터 DEMO</strong>: 알고리즘 실행 + 유효 출력<br>
+<strong>✓ 실 데이터 EVO ***REDACTED***</strong>: 70 → <strong>96 arrowCalls</strong> 향상 (default), 226 with autoTune<br>
+<strong>✓ Studio 빌드</strong>: 8 case 모두 cleanly compile (경고 0개, 에러 0개)<br>
+<strong>✓ Property tests</strong>: 11/11 (deterministic, scale to N=50, monotone, 10 seed sweep)<br>
+<strong>✓ Online tests</strong>: 7/7 (streaming converges, anytime snapshot, drift alert 3 cases)
+</div>
+
+</body>
+</html>

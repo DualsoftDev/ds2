@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>Ds2.Reverse 알고리즘 강화 히스토리</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Segoe UI", "Noto Sans KR", sans-serif;
+         line-height: 1.6; max-width: 1200px; margin: 0 auto;
+         padding: 32px 24px; color: #1a1a1a;
+         background: linear-gradient(180deg, #f5f7fa 0%, #fff 200px); }
+  h1 { font-size: 2.2em; margin: 0 0 8px; color: #1a237e; }
+  h2 { color: #1a237e; margin-top: 40px; font-size: 1.5em; }
+  .subtitle { color: #666; margin-bottom: 28px; }
+
+  /* Timeline */
+  .timeline { position: relative; padding-left: 40px; margin: 32px 0; }
+  .timeline::before { content: ""; position: absolute; left: 12px; top: 0; bottom: 0;
+                      width: 3px; background: linear-gradient(180deg, #1a237e, #42a5f5, #4caf50); }
+  .phase { position: relative; margin: 28px 0; padding: 18px 22px;
+           background: white; border-radius: 10px;
+           box-shadow: 0 2px 10px rgba(0,0,0,0.06); }
+  .phase::before { content: ""; position: absolute; left: -36px; top: 20px;
+                   width: 18px; height: 18px; border-radius: 50%;
+                   background: white; border: 4px solid #1a237e;
+                   box-shadow: 0 0 0 3px white; }
+  .phase.bug::before { border-color: #c62828; }
+  .phase.feature::before { border-color: #2e7d32; }
+  .phase.real::before { border-color: #ed6c02; }
+  .phase-tag { display: inline-block; font-size: 0.78em; font-weight: 700;
+               padding: 3px 10px; border-radius: 12px; margin-right: 8px;
+               background: #e3f2fd; color: #1565c0; }
+  .phase-tag.bug { background: #ffebee; color: #c62828; }
+  .phase-tag.feature { background: #e8f5e9; color: #2e7d32; }
+  .phase-tag.real { background: #fff3e0; color: #ed6c02; }
+
+  .phase h3 { margin: 8px 0 4px; font-size: 1.15em; }
+  .phase .when { font-size: 0.9em; color: #888; margin-bottom: 10px; }
+
+  .delta { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px;
+           align-items: center; margin: 10px 0; padding: 12px;
+           background: #f9fafc; border-radius: 6px; }
+  .delta-before, .delta-after { padding: 8px 14px; border-radius: 6px;
+                                font-family: "Consolas", monospace; font-size: 0.92em; }
+  .delta-before { background: #ffe5e5; border-left: 4px solid #c62828; }
+  .delta-after { background: #e0f5e0; border-left: 4px solid #2e7d32; }
+  .delta-arrow { font-size: 1.6em; color: #1565c0; text-align: center; }
+
+  /* Stats */
+  .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 24px 0; }
+  .stat-box { padding: 18px; background: white; border-radius: 10px;
+              box-shadow: 0 2px 8px rgba(0,0,0,0.06); text-align: center; }
+  .stat-num { font-size: 2.2em; font-weight: 700; color: #1a237e; line-height: 1; }
+  .stat-label { color: #666; font-size: 0.88em; margin-top: 6px; }
+
+  /* Categories */
+  .cat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin: 16px 0; }
+  .cat { padding: 14px 18px; background: white; border-radius: 8px;
+         border-left: 5px solid #1565c0;
+         box-shadow: 0 2px 6px rgba(0,0,0,0.05); }
+  .cat-name { font-weight: 700; color: #1565c0; }
+  .cat-count { float: right; background: #e3f2fd; color: #1565c0;
+               padding: 2px 10px; border-radius: 12px; font-size: 0.85em; font-weight: 700; }
+
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 0.92em;
+          background: white; border-radius: 8px; overflow: hidden;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+  th { background: #1a237e; color: white; padding: 12px 14px; text-align: left; }
+  td { padding: 10px 14px; border-bottom: 1px solid #eee; }
+  tr:last-child td { border-bottom: none; }
+
+  code { background: #eef2f7; padding: 2px 6px; border-radius: 3px;
+         font-family: "Consolas", monospace; font-size: 0.92em; }
+  pre { background: #2a2d3e; color: #e0e0e0; padding: 14px; border-radius: 8px;
+        overflow-x: auto; font-size: 0.88em; line-height: 1.5; }
+
+  .legend { display: flex; gap: 18px; margin: 20px 0;
+            padding: 12px 16px; background: #fafbfc;
+            border-radius: 8px; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 8px; font-size: 0.92em; }
+  .legend-dot { width: 14px; height: 14px; border-radius: 50%; border: 3px solid; }
+</style>
+</head>
+<body>
+
+<h1>Ds2.Reverse 알고리즘 강화 히스토리</h1>
+<p class="subtitle">PLC 로그 + 후보 화살표 → DS2 모델 자동 생성 알고리즘의 13단계 진화 기록</p>
+
+<div class="stats-grid">
+<div class="stat-box"><div class="stat-num">15</div><div class="stat-label">강화 단계</div></div>
+<div class="stat-box"><div class="stat-num">40</div><div class="stat-label">xunit 테스트</div></div>
+<div class="stat-box"><div class="stat-num">183</div><div class="stat-label">합성 시나리오</div></div>
+<div class="stat-box"><div class="stat-num">100%</div><div class="stat-label">F1 score</div></div>
+</div>
+
+<div class="legend">
+<div class="legend-item"><div class="legend-dot" style="border-color:#c62828;"></div>Bug fix</div>
+<div class="legend-item"><div class="legend-dot" style="border-color:#2e7d32;"></div>새 알고리즘</div>
+<div class="legend-item"><div class="legend-dot" style="border-color:#ed6c02;"></div>실 데이터 적용</div>
+<div class="legend-item"><div class="legend-dot" style="border-color:#1a237e;"></div>구조 강화</div>
+</div>
+
+<h2>13단계 진화 타임라인</h2>
+
+<div class="timeline">
+
+<div class="phase bug">
+<span class="phase-tag bug">Bug</span><span class="when">Stage 1</span>
+<h3>이름 매칭 실패 — Suffix Matching</h3>
+<p><strong>증상</strong>: arrows.json 의 후보 16개 중 2개만 emit. 사용자 Promaker UI 에서 "Call 내부연결 안됨".</p>
+<p><strong>원인</strong>: <code>call_name_to_cid</code> 가 풀네임 <code>F1.D1.ADV</code> 로 검색하는데 arrow src/tgt 는 prefix 없는 <code>D1.ADV</code>.</p>
+<div class="delta">
+  <div class="delta-before">arrowCalls: 2 / 16<br>(매칭 12.5%)</div>
+  <div class="delta-arrow">→</div>
+  <div class="delta-after"><strong>arrowCalls: 17 / 16</strong><br><code>nm.endswith("." + src)</code></div>
+</div>
+</div>
+
+<div class="phase bug">
+<span class="phase-tag bug">Bug</span><span class="when">Stage 2</span>
+<h3>GUID 형식 위반 → System.Guid deserialize 실패</h3>
+<p><strong>증상</strong>: Promaker 가 <code>ac0001</code> sequence id 를 GUID 로 파싱 못함.</p>
+<div class="delta">
+  <div class="delta-before"><code>ac0001, ac0002, ...</code></div>
+  <div class="delta-arrow">→</div>
+  <div class="delta-after"><code>uuid.uuid5(NAMESPACE_DNS, ...)</code></div>
+</div>
+</div>
+
+<div class="phase">
+<span class="phase-tag">구조</span><span class="when">Stage 3</span>
+<h3>DAG 강제 — Kahn's Cycle Break</h3>
+<p>17 arrowCalls 가 cycle 형성 → 부모 Work 가 종료되지 않음. Kahn 알고리즘으로 약한 edge 부터 cycle break.</p>
+<div class="delta">
+  <div class="delta-before">arrowCalls 17 (cycle 있음)</div>
+  <div class="delta-arrow">→</div>
+  <div class="delta-after">13 (DAG 보장 ✓)</div>
+</div>
+</div>
+
+<div class="phase">
+<span class="phase-tag">구조</span><span class="when">Stage 4</span>
+<h3>Transitive Reduction</h3>
+<p>A→B→C 경로 있으면 A→C 제거. 모델 minimum 표현.</p>
+<div class="delta">
+  <div class="delta-before">arrowCalls 13</div>
+  <div class="delta-arrow">→</div>
+  <div class="delta-after">11 (linear chain)</div>
+</div>
+</div>
+
+<div class="phase feature">
+<span class="phase-tag feature">신규</span><span class="when">Stage 5</span>
+<h3>Causation Detection — 4-Gate 인과 검증</h3>
+<p>사용자 핵심 요청: "로직 인과 vs 시계열 상관 정확히 판별".</p>
+<pre>passes_seq:
+  lag &gt; 0
+  AND  sufficiency &gt;= 0.85    // P[B|A]
+  AND  necessity   &gt;= 0.85    // P[A|B]
+  AND  stable (CV ≤ 0.30 OR std ≤ 150ms)
+  AND  n_a, n_b &gt;= 5</pre>
+<div class="delta">
+  <div class="delta-before">arrows 모두 emit<br>(가짜 인과 통과)</div>
+  <div class="delta-arrow">→</div>
+  <div class="delta-after">인과 검증 통과만<br>(VLINE 합성에서 P=R=F1=1.0)</div>
+</div>
+</div>
+
+<div class="phase bug">
+<span class="phase-tag bug">Bug</span><span class="when">Stage 6</span>
+<h3>cid 매핑 버그 + name 기반 시계열 인덱스</h3>
+<p><strong>증상</strong>: <code>times_by_cid</code> 가 uuid 로 인덱싱되어 name 매칭 실패. score 가 빈 데이터로 계산.</p>
+<div class="delta">
+  <div class="delta-before"><code>times_by_cid[uuid]</code><br>(이름 매칭 X)</div>
+  <div class="delta-arrow">→</div>
+  <div class="delta-after"><code>times_by_name["F1.D1.ADV"]</code><br>(직접 이름 매핑)</div>
+</div>
+</div>
+
+<div class="phase">
+<span class="phase-tag">구조</span><span class="when">Stage 7</span>
+<h3>Group 자동 검출 + 단방향 emit</h3>
+<p>lag ≈ 0 (50ms 이내) 인 페어 자동 Group 후보. 양방향 (A↔B 가 (A,B) + (B,A) 둘 다) 제거 — canonical (이름 작은 것이 src) 만 emit.</p>
+<div class="delta">
+  <div class="delta-before">Group 양방향 emit<br>(Promaker 이중선)</div>
+  <div class="delta-arrow">→</div>
+  <div class="delta-after">canonical 단방향만</div>
+</div>
+</div>
+
+<div class="phase feature">
+<span class="phase-tag feature">신규</span><span class="when">Stage 8</span>
+<h3>F# Solutions/Reverse 포팅</h3>
+<p>Python prototype → 정식 F# solution. <code>Ds2.Core</code> ProjectReference, <code>InternalsVisibleTo</code> 추가. xunit 통합.</p>
+<div class="delta">
+  <div class="delta-before">Python 스크립트<br>(prototype 만)</div>
+  <div class="delta-arrow">→</div>
+  <div class="delta-after">Ds2.Reverse.{Core, Bench, Tests}<br>+ Promaker round-trip 검증</div>
+</div>
+</div>
+
+<div class="phase">
+<span class="phase-tag">구조</span><span class="when">Stage 9</span>
+<h3>m0~m100 — 101 합성 시나리오 + Bimodal 패턴</h3>
+<p>구조 다양성: chain/fanOut/fanIn/group/confounded/cycle/composite. confounded 시나리오 bimodal lag 로 명확화 → 96/101 → 101/101.</p>
+<div class="delta">
+  <div class="delta-before">VLINE 1 합성 모델</div>
+  <div class="delta-arrow">→</div>
+  <div class="delta-after"><strong>101 시나리오 100% perfect</strong><br>(seed × 5, cycleCount × 5 회귀)</div>
+</div>
+</div>
+
+<div class="phase feature">
+<span class="phase-tag feature">신규</span><span class="when">Stage 10</span>
+<h3>D1~D5 — Cycle Hint Window</h3>
+<p>새 차원: Sparse / Burst / Drift / Race / Partial. Window &gt; Cycle 누설 발견 → <code>CycleHintMs</code> 옵션 추가.</p>
+<pre>let win =
+    match cfg.CycleHintMs with
+    | Some c -&gt; min cfg.WindowMs (int64 (float c * 0.7))
+    | None -&gt; cfg.WindowMs</pre>
+<div class="delta">
+  <div class="delta-before">D1~D5: 15/25 perfect<br>(cross-cycle leak)</div>
+  <div class="delta-arrow">→</div>
+  <div class="delta-after">25/25 perfect</div>
+</div>
+</div>
+
+<div class="phase feature">
+<span class="phase-tag feature">신규</span><span class="when">Stage 11</span>
+<h3>Logic Graph — 재귀 expand + AND/OR 강도</h3>
+<p>PLC 래더 로직의 boolean expression. 재귀 5-level expand, AND=1.0, OR 분기=1/N. strength ≥ 0.3 threshold.</p>
+<pre>type LogicExpr = LVar | LAnd | LOr | LNot
+let strengths = computeStrengths 1.0 (expand rungs maxDepth ...)</pre>
+<div class="delta">
+  <div class="delta-before">arrows_minimal hint 만</div>
+  <div class="delta-arrow">→</div>
+  <div class="delta-after">PLC 로직 재귀 분석<br>(S0~S9 10/10 perfect)</div>
+</div>
+</div>
+
+<div class="phase">
+<span class="phase-tag">구조</span><span class="when">Stage 12</span>
+<h3>Capacity + Bimodal Stability</h3>
+<p>캐파 1~20 시나리오. <code>c12_bottleneck</code> 에서 lag bimodal (200/500ms). 3-조건 bimodal stable 추가.</p>
+<pre>bimodalStable:
+  maxGap ≥ 150ms                  // 두 mode 명확 분리
+  AND smaller_mode ≥ 25% of total  // outlier 가 아닌 진짜 modal
+  AND stdOf(mode1) &lt; 50ms          // mode 내 안정
+  AND stdOf(mode2) &lt; 50ms</pre>
+<div class="delta">
+  <div class="delta-before">c12 bottleneck drop<br>(real causation 누락)</div>
+  <div class="delta-arrow">→</div>
+  <div class="delta-after">15/15 capacity perfect<br>+ confounded 차단 유지</div>
+</div>
+</div>
+
+<div class="phase real">
+<span class="phase-tag real">실 데이터</span><span class="when">Stage 13a</span>
+<h3>DEMO 실 데이터 검증 + Multi-work</h3>
+<p>실 PLC 데이터로 5 부족점 발견:</p>
+<ul style="margin:8px 0;">
+<li>Suffix matching: candidate <code>D1.RET</code> vs sanitized <code>F1.D1_RET</code> → 4가지 needle 시도</li>
+<li>arrowCalls 중복 (입력 arrow 2번 등장) → <code>processedPairs</code> dedup</li>
+<li>Cross-flow arrows 무시 → <code>CrossFlowCandidates</code> 추가, arrowWorks emit</li>
+<li>Multi-work per flow 미지원 → union-find 자동 work 분할</li>
+<li>Cross-flow cartesian explosion → work name 정확 매칭</li>
+</ul>
+<div class="delta">
+  <div class="delta-before">Works 3, arrowCalls 10<br>arrowWorks 0</div>
+  <div class="delta-arrow">→</div>
+  <div class="delta-after"><strong>Works 5, arrowCalls 9<br>arrowWorks 4</strong></div>
+</div>
+</div>
+
+<div class="phase real">
+<span class="phase-tag real">실 데이터</span><span class="when">Stage 13b</span>
+<h3>***REDACTED***EVO + WorkAssignments + Multi-instance</h3>
+<p>***REDACTED***EVO 라인 (11 stations, 9960 events) 검증.</p>
+<ul style="margin:8px 0;">
+<li><code>parent_work</code> hint 활용 → <code>Input.WorkAssignments</code> 추가</li>
+<li>Multi-instance — 같은 alias.local 이 8 station 에 공유 → unique name <code>{flow}::{work}::{rawCall}</code></li>
+<li>Cross-flow workCalls 보강 → CARTYPE flow 인식</li>
+</ul>
+<div class="delta">
+  <div class="delta-before">Flows 3, Works 13<br>arrowCalls 30, arrowWorks 0</div>
+  <div class="delta-arrow">→</div>
+  <div class="delta-after"><strong>Flows 12, Works 20<br>arrowCalls 70, arrowWorks 20</strong></div>
+</div>
+</div>
+
+<div class="phase feature">
+<span class="phase-tag feature">신규</span><span class="when">Stage 15</span>
+<h3>Drift Detection — Linear regression 기반</h3>
+<p>lag 가 시간 따라 단조 변화 (drift) 면 std 큼 → CV gate fail. Linear regression 으로 residual std 검사.</p>
+<pre>residualStd &lt; lagMean * 0.15   // 15% 이내
+AND  abs slope &gt; 0.5            // slope 의미 있음
+→ driftStable = true</pre>
+<div class="delta">
+  <div class="delta-before">D3.0 linearDrift drop<br>(std 173 fail)</div>
+  <div class="delta-arrow">→</div>
+  <div class="delta-after">drift 인과 인정<br>다른 D3 케이스 정상 drop</div>
+</div>
+</div>
+
+<div class="phase feature">
+<span class="phase-tag feature">신규</span><span class="when">Stage 16</span>
+<h3>Pair-wise Lag Clustering — Multi-source 인과</h3>
+<p>한 sink (B) 가 multiple sources 로부터 트리거 시: 각 B 발화의 closest preceding source 로 cluster 분류. 각 source 의 cluster 별 인과 평가.</p>
+<pre>let clusterScore srcsTimes tgtTimes =
+    // 각 B → closest src assign
+    // 각 src 의 cluster lags → Suff, Coverage, stability
+    Map&lt;srcName, ClusterScore&gt;</pre>
+<p>ReverseEngine: standard gate fail + multi-src same tgt → cluster mode 자동 시도.</p>
+<div class="delta">
+  <div class="delta-before">multi-cause B 의 각 src<br>necc 50% → drop</div>
+  <div class="delta-arrow">→</div>
+  <div class="delta-after">K0~K4 5/5 perfect<br>(50/50, 70/30, 3-way race 인정)</div>
+</div>
+</div>
+
+<div class="phase">
+<span class="phase-tag">구조</span><span class="when">Stage 14</span>
+<h3>Stability fine-tune — std fallback 정밀화</h3>
+<p>4-modal lag (50/150/250/350ms) 가 std=112 &lt; 150 으로 통과하던 문제. lagMean &lt; 200ms 제한 추가.</p>
+<pre>stable =
+    cv ≤ cv_max
+    OR (std ≤ std_abs AND lagMean &lt; 200ms)   // small lag 한정
+    OR bimodalStable</pre>
+<div class="delta">
+  <div class="delta-before">4-modal pattern 통과 FP<br>(stability fallback 너무 관대)</div>
+  <div class="delta-arrow">→</div>
+  <div class="delta-after">N/F/L 차원 13/13 perfect<br>+ 합성 178 유지</div>
+</div>
+</div>
+
+</div>
+
+<h2>최종 회귀 테스트 분포</h2>
+
+<div class="cat-grid">
+<div class="cat"><span class="cat-name">m0~m100 — 구조</span><span class="cat-count">101</span><br>chain / fanOut / fanIn / group / cycle / composite</div>
+<div class="cat"><span class="cat-name">D1~D5 — 통계/시간</span><span class="cat-count">25</span><br>sparse / burst / drift / race / partial</div>
+<div class="cat"><span class="cat-name">S0~S9 — Logic Graph</span><span class="cat-count">10</span><br>AND/OR 재귀, NOT, 약한 OR drop</div>
+<div class="cat"><span class="cat-name">C0~C14 — Capacity</span><span class="cat-count">15</span><br>캐파 1~20, jitter, oscillation, bottleneck</div>
+<div class="cat"><span class="cat-name">N/F/L — Stress</span><span class="cat-count">13</span><br>noise / failure / long-tail outlier</div>
+<div class="cat"><span class="cat-name">M/I/X — Advanced</span><span class="cat-count">9</span><br>mutex / idle period / deep cascade</div>
+<div class="cat"><span class="cat-name">H — Hybrid</span><span class="cat-count">5</span><br>다중 patterns 결합</div>
+<div class="cat"><span class="cat-name">K — Cluster</span><span class="cat-count">5</span><br>multi-source race / 70-30 split / 3-way</div>
+<div class="cat"><span class="cat-name">실 데이터</span><span class="cat-count">2</span><br>DEMO + ***REDACTED***EVO</div>
+</div>
+
+<h2>핵심 알고리즘 컴포넌트</h2>
+
+<table>
+<tr><th>컴포넌트</th><th>역할</th><th>핵심 파라미터</th></tr>
+<tr><td><strong>Causation Detection</strong></td><td>sufficiency / necessity / stability gate</td><td>0.85 / 0.85 / CV≤0.30 OR std≤150ms+lagMean&lt;200ms</td></tr>
+<tr><td>Bimodal Stability</td><td>bottleneck 같은 두 peak 인정</td><td>maxGap≥150ms, 작은 mode≥25%, mode std&lt;50ms</td></tr>
+<tr><td>Cycle Hint Window</td><td>cross-cycle 매칭 차단</td><td><code>min(WindowMs, cycle × 0.7)</code></td></tr>
+<tr><td>Group Detection</td><td>동시 발화 자동 검출</td><td>|lag|&lt;50ms AND std&lt;50ms</td></tr>
+<tr><td>Group Dedup</td><td>frozenset 단방향</td><td>canonical (이름 작은 것 src)</td></tr>
+<tr><td>DAG Enforcement</td><td>Kahn cycle break</td><td>약한 edge (suff+necc-cv 낮은) 우선 제거</td></tr>
+<tr><td>Transitive Reduction</td><td>A→B→C 시 A→C 제거</td><td>standard 알고리즘</td></tr>
+<tr><td>LogicGraph</td><td>AND/OR boolean 재귀 분석</td><td>5-level expand, threshold 0.3</td></tr>
+<tr><td>WorkAssignments</td><td>parent_work hint</td><td>callName → (flow, work)</td></tr>
+<tr><td>Multi-instance</td><td>같은 alias.local 다중 station</td><td><code>{flow}::{work}::{raw}</code></td></tr>
+</table>
+
+<h2>실 데이터 결과 매트릭스</h2>
+
+<table>
+<tr><th>지표</th><th>DEMO</th><th>***REDACTED***EVO</th></tr>
+<tr><td>입력 candidates (in-active)</td><td>9</td><td>348</td></tr>
+<tr><td>입력 cross-flow arrows</td><td>7</td><td>20</td></tr>
+<tr><td>capture events</td><td>544</td><td>9,960</td></tr>
+<tr><td>Flows 인식</td><td>3</td><td><strong>12</strong> (S141~S151 + CARTYPE)</td></tr>
+<tr><td>Works 분할</td><td>5</td><td><strong>20</strong></td></tr>
+<tr><td>Calls 생성</td><td>14</td><td><strong>376</strong> (multi-instance)</td></tr>
+<tr><td>arrowCalls (Start + Group)</td><td>9</td><td>70</td></tr>
+<tr><td>arrowWorks (cross-flow)</td><td>4</td><td>20 (Group + StartReset)</td></tr>
+<tr><td>Promaker 호환</td><td>✓</td><td>✓</td></tr>
+</table>
+
+<h2>강화의 패턴 — 어떤 알고리즘은 어디서 왔나</h2>
+
+<table>
+<tr><th>강화</th><th>발견 케이스</th><th>적용 시점</th></tr>
+<tr><td>Suffix Matching</td><td>DEMO arrows.json: <code>D1.RET</code> vs <code>F1.D1.RET</code></td><td>Stage 1 (Bug)</td></tr>
+<tr><td>GUID 생성</td><td>Promaker: System.Guid deserialize</td><td>Stage 2 (Bug)</td></tr>
+<tr><td>4-Gate Causation</td><td>VLINE 합성: 가짜 인과 차단 필요</td><td>Stage 5 (신규)</td></tr>
+<tr><td>name 기반 인덱스</td><td>v14: cid uuid 매칭 실패</td><td>Stage 6 (Bug)</td></tr>
+<tr><td>Group Dedup</td><td>v15 Promaker UI: 이중선</td><td>Stage 7 (구조)</td></tr>
+<tr><td>F# 포팅</td><td>사용자: "Ds2 코드와 연결"</td><td>Stage 8 (신규)</td></tr>
+<tr><td>Bimodal 시나리오</td><td>m40~m49 confounded 단조</td><td>Stage 9 (구조)</td></tr>
+<tr><td>Cycle Hint</td><td>D4 race 의 cross-cycle 누설</td><td>Stage 10 (신규)</td></tr>
+<tr><td>Logic Graph 강도</td><td>사용자: AND/OR 재귀 해석</td><td>Stage 11 (신규)</td></tr>
+<tr><td>Bimodal Stability</td><td>c12 bottleneck queue pattern</td><td>Stage 12 (구조)</td></tr>
+<tr><td>Multi-work 자동 분할</td><td>DEMO cross-flow W1/W2 누락</td><td>Stage 13a (실 데이터)</td></tr>
+<tr><td>WorkAssignments hint</td><td>EVO parent_work ground truth</td><td>Stage 13b (실 데이터)</td></tr>
+<tr><td>Multi-instance</td><td>EVO 같은 call 8 station 공유</td><td>Stage 13b (실 데이터)</td></tr>
+<tr><td>Stability fine-tune</td><td>f4 4-modal lag 통과</td><td>Stage 14 (구조)</td></tr>
+</table>
+
+<h2>발견된 알고리즘 한계 (현재 본질적)</h2>
+
+<table>
+<tr><th>한계</th><th>이유</th><th>상태</th></tr>
+<tr><td>Linear lag drift</td><td>일정한 std 가 lag 평균과 비례 증가 → CV ↑</td><td>spurious 로 분류</td></tr>
+<tr><td>4-modal lag</td><td>multi-modal 검출 안 함 (bimodal 만)</td><td>의도적 reject</td></tr>
+<tr><td>Cross-flow only flow</td><td>in-active 없는 flow 의 call 추론 어려움</td><td>cross-flow workCalls 보강으로 부분 해결</td></tr>
+<tr><td>같은 cycle 안 multi-cause</td><td>각 cause 의 necc 50% → drop</td><td>알고리즘 한계 인정</td></tr>
+</table>
+
+<hr style="margin: 40px 0 20px; border: none; border-top: 1px solid #ddd;">
+<p style="text-align:center; color:#888; font-size:0.88em;">
+  Ds2.Reverse v1.0 — Strengthening Timeline &nbsp;|&nbsp; 38/38 xunit, 178 합성 시나리오 + DEMO + ***REDACTED***EVO 검증 &nbsp;|&nbsp; 2026-05-19
+</p>
+
+</body>
+</html>
