@@ -307,6 +307,73 @@ let ``PR-Img-Chunk — formatCaptionChunkText SSOT 형식 검증`` () =
     Assert.Equal("[그림 p.1 #0 hash=abcd] test", textShort)
 
 [<Fact>]
+let ``kb-caption — formatImagePointer: caption 텍스트 없는 위치 포인터 (formatCaptionChunkText 와 동일 prefix)`` () =
+    Assert.Equal("[그림 p.5 #3 hash=abcdef012345]", ImageStore.formatImagePointer "p=5" 3 "abcdef0123456789ffffffff")
+    Assert.Equal("[그림 slide 2 #1 hash=0123456789ab]", ImageStore.formatImagePointer "slide=2" 1 "0123456789abcdef")
+    // 본문 포인터 ↔ gallery anchor 매칭 보장: full caption-chunk Text 가 포인터로 시작 (caption 만 생략형).
+    let full = ImageStore.formatCaptionChunkText "p=5" 3 "abcdef0123456789ffffffff" "공장 레이아웃"
+    let ptr = ImageStore.formatImagePointer "p=5" 3 "abcdef0123456789ffffffff"
+    Assert.StartsWith(ptr, full)
+
+[<Fact>]
+let ``kb-caption — dumpAll: 동일 hash 다중 ref → 본문 포인터 + gallery hash 별 1회 full caption (text dump SSOT)`` () =
+    withTempDir (fun dir ->
+        use conn = openFresh dir
+        let hash = ImageStore.computeSha256 pngBytes
+        ImageStore.upsertImageCache conn hash "blob.png" Png None None
+        // gallery full caption source = ImageCache.CaptionText.
+        ImageStore.updateCaption conn hash "공장 레이아웃 평면도" "test-model"
+        let docId = SqliteStore.insertDocument conn "H-dump" "layout.pdf" Pdf 100L None None
+        // 동일 hash 가 2 page 에 등장 (p=1 #2, p=2 #3) — 종전 결함: caption 이 본문 2회 + gallery 2회 (총 4회).
+        ImageStore.addImageReference conn docId None hash "p=1" 2
+        ImageStore.addImageReference conn docId None hash "p=2" 3
+        ImageStore.upsertCaptionChunkForRef conn docId hash "p=1" 2 "공장 레이아웃 평면도"
+        ImageStore.upsertCaptionChunkForRef conn docId hash "p=2" 3 "공장 레이아웃 평면도"
+        let files = TextDumper.dumpAll conn dir
+        Assert.Single files |> ignore
+        let body = File.ReadAllText (fst files.[0])
+        let hash12 = ImageStore.hashShort hash
+        // (1) 본문 — 위치 포인터 (caption 텍스트 0).
+        Assert.Contains(sprintf "[그림 p.1 #2 hash=%s]" hash12, body)
+        Assert.Contains(sprintf "[그림 p.2 #3 hash=%s]" hash12, body)
+        // (2) gallery — 고유 hash 1개 + anchor + 등장 위치 목록.
+        Assert.Contains("## Images (1)", body)
+        Assert.Contains(sprintf "### hash=%s" hash12, body)
+        Assert.Contains("_등장: p.1#2, p.2#3_", body)
+        // (3) SSOT 핵심 — caption 텍스트가 전체 dump 에서 정확히 1회 (gallery 에만; 본문 포인터엔 0).
+        let occ = (body.Split([| "공장 레이아웃 평면도" |], StringSplitOptions.None)).Length - 1
+        Assert.Equal(1, occ))
+
+[<Fact>]
+let ``kb-caption — dumpAll: 다중 hash 격리 — 각 hash gallery 1회 + 등장위치 독립`` () =
+    withTempDir (fun dir ->
+        use conn = openFresh dir
+        let hashA = ImageStore.computeSha256 pngBytes
+        let hashB = ImageStore.computeSha256 (Array.append pngBytes [| 0x00uy |])  // 다른 bytes → 다른 hash
+        ImageStore.upsertImageCache conn hashA "a.png" Png None None
+        ImageStore.upsertImageCache conn hashB "b.png" Png None None
+        ImageStore.updateCaption conn hashA "도면 A 평면" "m"
+        ImageStore.updateCaption conn hashB "사진 B 측면" "m"
+        let docId = SqliteStore.insertDocument conn "H-multi" "doc.pdf" Pdf 100L None None
+        // hashA: p=1 #2, p=2 #3 (2 ref) / hashB: p=1 #5 (1 ref).
+        ImageStore.addImageReference conn docId None hashA "p=1" 2
+        ImageStore.addImageReference conn docId None hashA "p=2" 3
+        ImageStore.addImageReference conn docId None hashB "p=1" 5
+        ImageStore.upsertCaptionChunkForRef conn docId hashA "p=1" 2 "도면 A 평면"
+        ImageStore.upsertCaptionChunkForRef conn docId hashA "p=2" 3 "도면 A 평면"
+        ImageStore.upsertCaptionChunkForRef conn docId hashB "p=1" 5 "사진 B 측면"
+        let files = TextDumper.dumpAll conn dir
+        let body = File.ReadAllText (fst files.[0])
+        // gallery — 고유 hash 2개.
+        Assert.Contains("## Images (2)", body)
+        // 각 caption 정확히 1회 (hash 별 dedup 격리).
+        Assert.Equal(1, (body.Split([| "도면 A 평면" |], StringSplitOptions.None)).Length - 1)
+        Assert.Equal(1, (body.Split([| "사진 B 측면" |], StringSplitOptions.None)).Length - 1)
+        // 등장 위치 — hashA 2곳, hashB 1곳 독립.
+        Assert.Contains("_등장: p.1#2, p.2#3_", body)
+        Assert.Contains("_등장: p.1#5_", body))
+
+[<Fact>]
 let ``PR-Img-Chunk — upsertCaptionChunkForRef INSERT path: Chunks row + ImageReferences.CaptionChunkId 박제`` () =
     withTempDir (fun dir ->
         use conn = openFresh dir

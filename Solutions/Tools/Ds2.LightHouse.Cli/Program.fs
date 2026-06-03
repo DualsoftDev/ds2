@@ -224,29 +224,20 @@ let private runPostIngestHooks (folder: string) (extractors: IExtractor list) : 
     // 에 누적 박제 (N1, N4 default). Packager.createZip 가 `.lighthouse-kb/` 전체를 zip 에 동봉 → server upload.
     // extractors 의 dispose 는 caller (runIndex) 의 finally 에서 단일 책임 — 본 helper 는 forward 만.
     //
-    // **F·M2 (Outlier/Minor 묶음 2) — best-effort 정책 통일**: KB digest path (keyword / text dump /
-    // SummaryBuilder) 는 사용자 색인 결과가 1차 가치이므로 strategy summary 실패가 전체 색인 abort 로
-    // 이어지면 안 됨. 종전 동작은 strategy hook 만 fail-fast (Indexer.ingest 성공 후에도 strategy 단계
-    // throw 시 caller 가 exit) — 정책 비대칭. 본 try/with 로 catch + log + 빈 결과 fallback 박제 →
-    // KB digest fail-safe 정합. CLAUDE.md "외부 환경 의존 예외는 log + 계속" 정합.
-    let dump =
-        try
-            TextDumper.dumpStrategySummaries folder extractors CancellationToken.None
-        with ex ->
-            eprintfn "경고: strategy summary 박제 실패 — %s (색인 자체는 정상, summary/ 비어 있음)" ex.Message
-            { SummaryFiles = [||]; RejectedCount = 0; NearMissCount = 0 }
+    // **kb-caption fix (F·M2 best-effort 폐기)**: 종전엔 strategy summary 실패가 전체 색인 abort 로
+    // 이어지지 않도록 try/with 로 catch + 빈 결과 fallback 했으나, 이 best-effort 가 lock / extractor 오류 등을
+    // 삼켜 summary/ 정제본 silent 누락 (rejected/near-miss.json 도 0 → 진단 불가) 을 유발. dumpStrategySummaries
+    // 는 내부 fail-fast (파일별 catch 0) 설계이므로 caller 도 throw 전파로 정합. CLAUDE.md "꼭 필요한 경우에만
+    // catch, 그냥 오류 나게 두라" 정합 — 실패 시 색인 명령이 명확히 비정상 종료하여 사용자 즉시 인지.
+    let dump = TextDumper.dumpStrategySummaries folder extractors CancellationToken.None
     eprintfn "  strategy summary 박제 — %d 파일 (.lighthouse-kb/%s/), rejected=%d, near-miss=%d"
         dump.SummaryFiles.Length TextDumper.SummarySubDirName dump.RejectedCount dump.NearMissCount
     // **PR-N15 (todo-documents-based-gfm.md §6.1 N15 + documents-based-gfm.md §8.5.4)** — 사용자 작성
     // `<folder>/guide/*.md` 를 `_user-guide-*.md` 로 박제. 호출 순서 — `dumpStrategySummaries` 가
-    // `summary/` 디렉토리를 wipe + 재생성하므로 본 hook 은 반드시 그 *후*에 호출 (wipe 회피).
-    // strategy summary 와 동일 fail-safe 정책 — 실패 시 log + 계속 (사용자 KB digest 1차 가치).
-    let userGuideFiles =
-        try
-            UserGuideImporter.importAll folder
-        with ex ->
-            eprintfn "경고: user-guide 박제 실패 — %s (색인 자체는 정상)" ex.Message
-            [||]
+    // `summary/` 의 기존 *.md (user-guide 포함) 를 삭제 후 재생성하므로 본 hook 은 반드시 그 *후*에 호출.
+    // **kb-caption fix**: strategy 와 동일 — best-effort try-with 제거. UserGuideImporter 실패 (guide/ IO 등) 도
+    // silent 누락 대신 throw 전파 (CLAUDE.md catch 자제 정합).
+    let userGuideFiles = UserGuideImporter.importAll folder
     eprintfn "  user-guide 박제 — %d 파일 (.lighthouse-kb/%s/_user-guide-*.md)"
         userGuideFiles.Length TextDumper.SummarySubDirName
     kwResult

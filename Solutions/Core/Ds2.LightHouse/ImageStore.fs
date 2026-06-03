@@ -214,23 +214,38 @@ module ImageStore =
     [<Literal>]
     let CaptionPlaceholderText = "(caption 미생성)"
 
+    /// RefLocator 저장형(`p=14`/`slide=5`/`sheet=BOM`) → caption marker 표시형(`p.14`/`slide 5`/`sheet BOM`).
+    /// `formatCaptionChunkText` / `formatImagePointer` / TextDumper gallery 등장위치 의 공통 SSOT.
+    /// NOTE: heading 표시형(한글 "슬라이드/시트", `TextDumper.formatHeading`) 과는 별개 — caption marker 는 영문 유지.
+    let formatRefDisplay (refLocator: string) : string =
+        if refLocator.StartsWith("p=") then sprintf "p.%s" (refLocator.Substring 2)
+        elif refLocator.StartsWith("slide=") then sprintf "slide %s" (refLocator.Substring 6)
+        elif refLocator.StartsWith("sheet=") then sprintf "sheet %s" (refLocator.Substring 6)
+        else refLocator
+
+    /// image hash 의 12 char prefix — 본문 포인터(`formatImagePointer`) ↔ gallery anchor 표기 일치 SSOT.
+    let hashShort (imageHash: string) : string =
+        if imageHash.Length >= 12 then imageHash.Substring(0, 12) else imageHash
+
     /// **PR-Img-Chunk** — caption-chunk 의 Text 형식 SSOT.
     /// 형식 = `[그림 <refDisplay> #<ord> hash=<hash12>] <captionText>`.
     /// BM25 search 시 "그림" 키워드 또는 hash prefix 로 caption-only filter 가능 + 본문 chunk 와 자연스럽게
-    /// page grouping (RefLocator 동일).
+    /// page grouping (RefLocator 동일). DB Chunks 의 caption-chunk Text 는 full caption 유지 (BM25 retrieval 대상).
     let formatCaptionChunkText
         (refLocator: string)
         (ordinal: int)
         (imageHash: string)
         (captionText: string)
         : string =
-        let refDisplay =
-            if refLocator.StartsWith("p=") then sprintf "p.%s" (refLocator.Substring 2)
-            elif refLocator.StartsWith("slide=") then sprintf "slide %s" (refLocator.Substring 6)
-            elif refLocator.StartsWith("sheet=") then sprintf "sheet %s" (refLocator.Substring 6)
-            else refLocator
-        let hashShort = if imageHash.Length >= 12 then imageHash.Substring(0, 12) else imageHash
-        sprintf "[그림 %s #%d hash=%s] %s" refDisplay ordinal hashShort captionText
+        sprintf "[그림 %s #%d hash=%s] %s" (formatRefDisplay refLocator) ordinal (hashShort imageHash) captionText
+
+    /// **kb-caption (text dump SSOT)** — caption 텍스트 없는 위치 포인터 — `[그림 p.5 #2 hash=c0af05714d4b]`.
+    /// `TextDumper.buildDocumentMarkdown` 가 본문에서 동일 hash caption 중복 출력 제거용으로 사용 — 본문은 위치+hash
+    /// prefix 만 박제, 문서 끝 gallery 가 hash 별 1회 full caption 박제 (파일 내 SSOT anchor).
+    /// `formatCaptionChunkText` 의 caption 생략형 — 동일 prefix 라 본문 hash 로 gallery 매칭 가능.
+    /// DB Chunks 의 caption-chunk Text 는 불변 — 본 포인터는 text dump 렌더링 시점에만 적용 (BM25 무영향).
+    let formatImagePointer (refLocator: string) (ordinal: int) (imageHash: string) : string =
+        sprintf "[그림 %s #%d hash=%s]" (formatRefDisplay refLocator) ordinal (hashShort imageHash)
 
     /// **PR-Img-Chunk** — image reference 1개에 대해 caption-chunk INSERT/UPDATE + ImageReferences.CaptionChunkId
     /// 박제 (1:1 매핑). caller (`Indexer.ingestImagesIntoStore` eager path, `updateCaptionBatch` late path) 의 wrapper.
@@ -450,4 +465,30 @@ module ImageStore =
             let ord = reader.GetInt32 2
             let chunk = if reader.IsDBNull 3 then None else Some (reader.GetInt64 3)
             acc.Add (hash, ref, ord, chunk)
+        acc.ToArray()
+
+    /// **kb-caption (text dump SSOT)** — 한 문서의 caption-chunk Id → (ImageHash, Ordinal) 매핑.
+    /// `TextDumper.buildDocumentMarkdown` 가 본문 chunk 스트리밍 중 caption-chunk 를 식별 (Chunks.Id ↔ CaptionChunkId
+    /// 일치) → full caption 대신 `formatImagePointer` 위치 포인터로 축약. CaptionChunkId IS NULL (caption 미박제) 제외.
+    /// RefLocator 는 본문 streaming row 가 동일 page 로 이미 제공 → 미반환 (ORDER BY 는 결정적 순회용으로만 유지).
+    /// NOTE: `lookupReferencesByDocument` 의 4번째 ChunkId(image 가 속한 본문 chunk) 와 혼동 주의 — 본 함수는 CaptionChunkId.
+    let lookupCaptionChunkRefs
+        (conn: SqliteConnection)
+        (documentId: int64)
+        : (int64 * string * int) array =
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- """
+            SELECT CaptionChunkId, ImageHash, Ordinal
+            FROM ImageReferences
+            WHERE DocumentId = $doc AND CaptionChunkId IS NOT NULL
+            ORDER BY RefLocator, Ordinal
+        """
+        cmd.Parameters.AddWithValue("$doc", documentId) |> ignore
+        use reader = cmd.ExecuteReader()
+        let acc = ResizeArray<int64 * string * int>()
+        while reader.Read() do
+            let cid = reader.GetInt64 0
+            let hash = reader.GetString 1
+            let ord = reader.GetInt32 2
+            acc.Add (cid, hash, ord)
         acc.ToArray()

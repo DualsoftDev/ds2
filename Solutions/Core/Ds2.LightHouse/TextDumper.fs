@@ -153,6 +153,17 @@ module TextDumper =
         sb.AppendLine(sprintf "_DocType: %s | DocId: %d_" docType docId) |> ignore
         sb.AppendLine() |> ignore
 
+        // **kb-caption (text dump SSOT)**: 동일 hash image 가 N page 에 등장해도 본문은 위치 포인터
+        // (`[그림 p.5 #2 hash=...]`) 만, 문서 끝 gallery 가 hash 별 1회 full caption 박제. imgRefs(gallery hash
+        // dedup) + captionChunkById(본문 포인터화) 양쪽 fetch. caption-chunk 는 본문 chunk 와 별 Chunks row
+        // (SqliteStore §246) — ImageReferences.CaptionChunkId 로 1:1 식별. DB Chunks 의 caption-chunk Text 는
+        // 불변 (BM25 retrieval 은 full caption 유지) — dedup 은 text dump 렌더링 시점에만 적용.
+        let imgRefs = ImageStore.lookupReferencesByDocument conn docId
+        let captionChunkById =
+            ImageStore.lookupCaptionChunkRefs conn docId
+            |> Array.map (fun (cid, hash, ord) -> cid, (hash, ord))
+            |> dict
+
         // chunks streaming — RefLocator 변화 detection 으로 heading 박제.
         // **PR-Img-Chunk**: ORDER BY 를 (RefLocator 첫 등장 Id, Ordinal, Id) 로 변경 — page 자연 정렬 보장.
         // 종전 `ORDER BY Ordinal, Id` 결함: 페이지당 본문 chunk 가 2개 이상이면 ord 0 (전 페이지) → ord 1 (전 페이지)
@@ -160,9 +171,10 @@ module TextDumper =
         // 박제로 본문 chunk 와 같은 RefLocator 안 ordinal >= 1 row 등장 빈도 증가 → 결함 노출.
         // window function `MIN(Id) OVER (PARTITION BY RefLocator)` 가 RefLocator 의 첫 INSERT 순서 (=
         // 본문 chunks INSERT 순서 = page 자연 순서) 를 sort key 로 사용 → page grouping 정합.
+        // **kb-caption**: SELECT 에 Id 추가 — caption-chunk(CaptionChunkId 일치) 를 포인터로 축약 식별용.
         use cmd = conn.CreateCommand()
         cmd.CommandText <- """
-            SELECT RefLocator, Text FROM Chunks
+            SELECT Id, RefLocator, Text FROM Chunks
             WHERE DocumentId = $doc
             ORDER BY MIN(Id) OVER (PARTITION BY RefLocator), Ordinal, Id
         """
@@ -170,30 +182,42 @@ module TextDumper =
         use reader = cmd.ExecuteReader()
         let mutable lastRef = ""
         while reader.Read() do
-            let refLoc = reader.GetString 0
-            let text = reader.GetString 1
+            let chunkId = reader.GetInt64 0
+            let refLoc = reader.GetString 1
+            let text = reader.GetString 2
             if refLoc <> lastRef then
                 if sb.Length > 0 then sb.AppendLine() |> ignore
                 sb.AppendLine(formatHeading refLoc) |> ignore
                 sb.AppendLine() |> ignore
                 lastRef <- refLoc
-            sb.AppendLine text |> ignore
+            match captionChunkById.TryGetValue chunkId with
+            | true, (hash, ord) ->
+                // caption-chunk → 위치 포인터만 (caption 텍스트 0, gallery 가 hash 별 full SSOT)
+                sb.AppendLine(ImageStore.formatImagePointer refLoc ord hash) |> ignore
+            | _ ->
+                sb.AppendLine text |> ignore
 
-        // image gallery section — ImageReferences + ImageCache caption
-        let imgRefs = ImageStore.lookupReferencesByDocument conn docId
+        // image gallery — hash 별 1회 full caption + 등장 위치 목록 (파일 내 SSOT anchor).
+        // 종전 ref 별 출력 (동일 caption N 회 중복) → groupBy hash. `## Images (N)` 의 N = 고유 hash 수.
         if imgRefs.Length > 0 then
+            let byHash = imgRefs |> Array.groupBy (fun (hash, _, _, _) -> hash)
             sb.AppendLine() |> ignore
             sb.AppendLine("---") |> ignore
             sb.AppendLine() |> ignore
-            sb.AppendLine(sprintf "## Images (%d)" imgRefs.Length) |> ignore
+            sb.AppendLine(sprintf "## Images (%d)" byHash.Length) |> ignore
             sb.AppendLine() |> ignore
-            for (hash, refLoc, ord, _) in imgRefs do
+            for (hash, refs) in byHash do
                 let caption =
                     match ImageStore.getCaption conn hash with
                     | Some (text, _model) -> text
                     | None -> ImageStore.CaptionPlaceholderText
-                sb.AppendLine(sprintf "### %s #img=%d" refLoc ord) |> ignore
-                sb.AppendLine(sprintf "_hash=%s_" (hash.Substring(0, min 12 hash.Length))) |> ignore
+                let locations =
+                    refs
+                    |> Array.map (fun (_, refLoc, ord, _) ->
+                        sprintf "%s#%d" (ImageStore.formatRefDisplay refLoc) ord)
+                    |> String.concat ", "
+                sb.AppendLine(sprintf "### hash=%s" (ImageStore.hashShort hash)) |> ignore
+                sb.AppendLine(sprintf "_등장: %s_" locations) |> ignore
                 sb.AppendLine() |> ignore
                 sb.AppendLine caption |> ignore
                 sb.AppendLine() |> ignore
@@ -340,9 +364,16 @@ module TextDumper =
         (ct: CancellationToken)
         : StrategyDumpSummary =
         let dir = summaryDir collectionRoot
-        // 멱등 박제 — 기존 `summary/` 통째 wipe 후 재생성 (strategy 결과 stale 방어).
-        if Directory.Exists dir then Directory.Delete(dir, true)
+        // 멱등 박제 — 기존 strategy 산출 정리 후 재생성 (stale 방어).
+        // **kb-caption fix**: 종전 `Directory.Delete(dir, true)` (폴더 통째 삭제) 는 summary/ 폴더를
+        // watch/enumerate 하는 상주 KB consumer 의 **폴더 핸들** 과 충돌 → "being used by another process"
+        // 예외 → caller (Program.fs runIndex) 의 try-with 가 삼켜 strategy 정제본 silent 누락.
+        // dumpAll(text/) 이 동일 lock 에서도 성공하는 이유 = 파일 overwrite 라 폴더 핸들 무관. 같은 정책 —
+        // 폴더는 유지하고 기존 *.md 만 파일 단위 삭제 (종전 통째 wipe 와 결과 동일: user-guide 포함 전체
+        // 제거 → strategy 재생성 + UserGuideImporter hook 재박제). summary/ 직속에 *.md 외 산출물 없음.
         Directory.CreateDirectory dir |> ignore
+        for stale in Directory.GetFiles(dir, "*.md") do
+            File.Delete stale
 
         let summaryPaths = ResizeArray<string>()
         let rejected = ResizeArray<RejectedEntry>()
