@@ -7,9 +7,9 @@ open Ds2.LightHouse.Extractors
 /// xlsx strategy classifier 진입점. 등록된 strategy list 를 priority 순으로 평가 후
 /// 매치된 strategy 의 `Build` 호출.
 ///
-/// **PR-I1 시점 strategy list** = `[ IoListStrategy ]` 단독.
-/// PR-I2 진입 시 `WorkOrderStrategy` append (`documents-based-gfm.md` §8.5.7 priority order #3).
-/// **금지** (todo §2.1): 본 PR 의 strategy list 에 IoList 외 추가 0.
+/// **strategy list** = `[ IoListStrategy ]` 단독 (2026-06-04 WorkOrderStrategy 제거).
+/// IoList 만 specialized strategy 로 정제 → SpecializedDigestBuilder 가 cache breakpoint 3 상시 주입.
+/// WorkOrder/제어 PDF 는 일반 KB 자료 (specialized 미적용) — WorkOrderStrategy.fs 코드는 보존(등록만 해제).
 ///
 /// **Backlog C (PR-I2 검열 Major 2)**: 종전 xlsx 전용 분류 DU 를 `ClassificationResult`
 /// (Extractors/ClassificationResult.fs) 로 통합. case 명 `Rejected` → `RejectedByStrategy` 정합
@@ -24,11 +24,11 @@ open Ds2.LightHouse.Extractors
 /// strategy classifier — 등록된 strategy list 의 priority 순 평가 + dispatch.
 module XlsxSignatureClassifier =
 
-    /// PR-I1 시점 등록 strategy list. **본 list 에 추가는 PR-I2 의 영역** (todo §2.1).
-    /// PR-I2: WorkOrderStrategy append. priority order = `documents-based-gfm.md` §8.5.7 → IoList(specific) > WorkOrder.
+    /// 등록 strategy list = `[ IoListStrategy ]` 단독.
+    /// **2026-06-04 (XlsxSignatureClassifier.fs)**: WorkOrderStrategy 제거 — IoList 만 specialized strategy 로
+    /// 정제·상시 주입. WorkOrder(조립작업서)는 일반 KB 자료로 색인 (text dump + summary + 검색, specialized 미포함).
     let strategies : IXlsxStrategy list = [
         IoListStrategy() :> IXlsxStrategy
-        WorkOrderStrategy() :> IXlsxStrategy
     ]
 
     /// 입력 `ExtractedDocument` 의 strategy 매치 시도.

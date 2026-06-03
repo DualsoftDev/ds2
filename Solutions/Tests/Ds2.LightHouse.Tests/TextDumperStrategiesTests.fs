@@ -293,7 +293,8 @@ let private makeBomFixture (path: string) =
 // ── 시나리오 1: IoList + WorkOrder 2 xlsx → summary/ 안 정확히 2 파일 ───
 
 [<Fact>]
-let ``IoList + WorkOrder 2 xlsx → summary/ 안 정확히 2개 markdown 박제`` () =
+let ``IoList + WorkOrder 2 xlsx → summary/ 안 IoList 1개만 박제 (2026-06-04 WorkOrder 일반 자료)`` () =
+    // WorkOrderStrategy 제거 — WorkOrder xlsx 는 strategy 산출물 미생성 (일반 자료). IoList 만 박제.
     withTempDir (fun dir ->
         makeIoListFixture (Path.Combine(dir, "iolist.xlsx"))
         makeWorkOrderFixture (Path.Combine(dir, "workorder.xlsx"))
@@ -301,14 +302,14 @@ let ``IoList + WorkOrder 2 xlsx → summary/ 안 정확히 2개 markdown 박제`
         Directory.CreateDirectory (SqliteStore.kbDir dir) |> ignore
 
         let summary = runDump dir
-        Assert.Equal(2, summary.SummaryFiles.Length)
-        // 디렉토리 안 .md 파일 정확히 2개.
+        Assert.Equal(1, summary.SummaryFiles.Length)
+        // 디렉토리 안 .md 파일 정확히 1개 (IoList).
         let mdFiles = Directory.GetFiles(TextDumper.summaryDir dir, "*.md")
-        Assert.Equal(2, mdFiles.Length)
-        // strategy 별 prefix 확인.
+        Assert.Equal(1, mdFiles.Length)
+        // IoList prefix 확인 + WorkOrder 미박제 확인.
         let names = mdFiles |> Array.map Path.GetFileName |> Array.sort
         Assert.Contains(names, fun (n: string) -> n.StartsWith("IoListStrategy-"))
-        Assert.Contains(names, fun (n: string) -> n.StartsWith("WorkOrderStrategy-"))
+        Assert.DoesNotContain(names, fun (n: string) -> n.StartsWith("WorkOrderStrategy-"))
         // 머리말 6행 (canary + 기존 5행, 2026-05-27 patch) + footer 박제 확인 (간단 spot-check).
         for path in mdFiles do
             let content = File.ReadAllText(path, System.Text.Encoding.UTF8)
@@ -344,7 +345,7 @@ let ``BOM 신호 0 → Unmatched (rejected/near-miss 박제 0)`` () =
 
         let summary = runDump dir
         Assert.Equal(0, summary.SummaryFiles.Length)
-        // BOM 은 IoList / WorkOrder 둘 다 score 0 → Unmatched → 진단 파일 미생성.
+        // BOM 은 IoList score 0 → Unmatched → 진단 파일 미생성 (WorkOrder 는 2026-06-04 미등록).
         Assert.Equal(0, summary.NearMissCount)
         Assert.Equal(0, summary.RejectedCount)
         Assert.False(File.Exists (TextDumper.nearMissJsonPath dir))
@@ -464,7 +465,9 @@ let private hasKbCoreFixtures () : bool =
     && Directory.GetFiles(kbCorePath).Length >= 3
 
 [<Fact>]
-let ``자료 A/B/C 실파일 (옵션) → summary/ 안 정확히 3 markdown 박제`` () =
+let ``자료 A/B/C 실파일 (옵션) → summary/ 안 IoList 1 markdown 만 박제 (2026-06-04 WorkOrder/PDF 일반 자료)`` () =
+    // WorkOrder/PdfControlSpec 제거 — 자료 B(PDF)/C(WorkOrder)는 strategy 산출물 미생성 (일반 자료).
+    // 자료 A(IoList)만 specialized 박제. user-guide(guide/*.md)는 UserGuideImporter 별도 박제라 본 카운트 무관.
     if not (hasKbCoreFixtures()) then
         // fixture 미존재 머신은 graceful skip — secrets repo clone 전제 (todo M5 default).
         ()
@@ -476,9 +479,9 @@ let ``자료 A/B/C 실파일 (옵션) → summary/ 안 정확히 3 markdown 박�
             Directory.CreateDirectory (SqliteStore.kbDir dir) |> ignore
 
             let summary = runDump dir
-            Assert.Equal(3, summary.SummaryFiles.Length)
-            // strategy 분포 — IoList 1 + WorkOrder 1 + PdfControlSpec 1.
+            Assert.Equal(1, summary.SummaryFiles.Length)
+            // strategy 분포 — IoList 1 (WorkOrder/PDF 는 일반 자료로 미박제).
             let names = summary.SummaryFiles |> Array.map Path.GetFileName
             Assert.Contains(names, fun (n: string) -> n.StartsWith("IoListStrategy-"))
-            Assert.Contains(names, fun (n: string) -> n.StartsWith("WorkOrderStrategy-"))
-            Assert.Contains(names, fun (n: string) -> n.StartsWith("PdfControlSpecStrategy-")))
+            Assert.DoesNotContain(names, fun (n: string) -> n.StartsWith("WorkOrderStrategy-"))
+            Assert.DoesNotContain(names, fun (n: string) -> n.StartsWith("PdfControlSpecStrategy-")))
