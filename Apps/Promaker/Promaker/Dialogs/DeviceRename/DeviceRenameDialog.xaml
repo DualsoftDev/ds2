@@ -1,0 +1,157 @@
+<Window x:Class="Promaker.Dialogs.DeviceRenameDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="디바이스 일괄 이름 변경"
+        Width="720"
+        Height="600"
+        MinWidth="560"
+        MinHeight="440"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        ResizeMode="CanResize">
+    <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+            BorderBrush="{DynamicResource BorderBrush}"
+            BorderThickness="1">
+        <Grid Margin="14">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="12"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="12"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="10"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="12"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- Header -->
+            <Grid Grid.Row="0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock x:Name="HeaderText"
+                           Text="디바이스 일괄 이름 변경"
+                           FontSize="18"
+                           FontWeight="SemiBold"
+                           VerticalAlignment="Center"/>
+
+                <Button Grid.Column="1"
+                        Width="28"
+                        Height="28"
+                        Style="{StaticResource DarkButton}"
+                        Padding="0"
+                        Click="Close_Click"
+                        ToolTip="닫기">
+                    <TextBlock Text="&#xE711;"
+                               FontFamily="Segoe MDL2 Assets"
+                               FontSize="12"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"/>
+                </Button>
+            </Grid>
+
+            <!-- Device name -->
+            <Grid Grid.Row="2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="12"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0"
+                           Text="디바이스 이름"
+                           VerticalAlignment="Center"
+                           Foreground="{DynamicResource SecondaryTextBrush}"/>
+                <TextBox Grid.Column="2"
+                         x:Name="DeviceNameBox"
+                         Padding="8,6"
+                         VerticalAlignment="Center"
+                         ToolTip="디바이스(Passive System) 이름"/>
+            </Grid>
+
+            <!-- Action(API) DataGrid (header columns describe 현재 → 새 이름) -->
+            <Border Grid.Row="4"
+                    Background="{DynamicResource TertiaryBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1">
+                <DataGrid x:Name="ApiRenameGrid"
+                          AutoGenerateColumns="False"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False"
+                          HeadersVisibility="Column"
+                          GridLinesVisibility="All"
+                          HorizontalGridLinesBrush="{DynamicResource BorderBrush}"
+                          VerticalGridLinesBrush="{DynamicResource BorderBrush}"
+                          SelectionMode="Single"
+                          SelectionUnit="Cell"
+                          RowHeaderWidth="0">
+                    <DataGrid.RowStyle>
+                        <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsChanged}" Value="True">
+                                    <Setter Property="Background" Value="#3047A0FF"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </DataGrid.RowStyle>
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="현재 Action 이름"
+                                            Binding="{Binding CurrentName}"
+                                            Width="*"
+                                            IsReadOnly="True"/>
+                        <DataGridTextColumn Header="새 이름"
+                                            Binding="{Binding NewName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                            Width="*"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </Border>
+
+            <!-- Impact preview -->
+            <Border Grid.Row="6"
+                    Background="{DynamicResource TertiaryBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="3"
+                    Padding="10,8">
+                <StackPanel>
+                    <TextBlock x:Name="ImpactSummaryText"
+                               Text="영향 미리보기 — Call/ApiCall 외 총 0건"
+                               FontWeight="SemiBold"/>
+                    <TextBlock x:Name="DriftWarningText"
+                               Margin="0,6,0,0"
+                               TextWrapping="Wrap"
+                               Foreground="#FFC107"
+                               Visibility="Collapsed"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Footer -->
+            <Grid Grid.Row="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="10"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Text="변경된 항목만 1단계 Undo 로 반영됩니다."
+                           VerticalAlignment="Center"
+                           Foreground="{DynamicResource SecondaryTextBrush}"/>
+
+                <Button Grid.Column="1"
+                        MinWidth="82"
+                        Style="{StaticResource DarkButton}"
+                        Content="확인"
+                        Click="Accept_Click"/>
+
+                <Button Grid.Column="3"
+                        MinWidth="82"
+                        Style="{StaticResource DarkButton}"
+                        Content="취소"
+                        IsCancel="True"/>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>
