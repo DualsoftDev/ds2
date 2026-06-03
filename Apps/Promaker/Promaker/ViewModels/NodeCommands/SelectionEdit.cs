@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
 using Ds2.Core.Store;
 using Ds2.Editor;
+using Microsoft.FSharp.Core;
 using Promaker.Services;
 
 namespace Promaker.ViewModels;
@@ -90,6 +91,46 @@ public partial class MainViewModel
         if (TryEditorAction(
                 () => _store.RenameEntity(SelectedNode.Id, SelectedNode.EntityType, newName)))
             StatusText = $"Renamed to '{newName}'.";
+    }
+
+    /// <summary>Device 탭 System(디바이스) 노드 → 디바이스/Action 일괄 이름 변경 다이얼로그.
+    /// [확인] 시 디바이스명 + 변경된 Action 이름들을 단일 트랜잭션(RenameDeviceBatch = Undo 1단계)으로
+    /// cascade 적용한다. 영향 미리보기/검증은 P2 SSOT(CollectRenameImpact)를 다이얼로그가 공유한다.</summary>
+    private void OpenDeviceRenameDialog(Guid systemId, string deviceName)
+    {
+        if (!GuardSimulationSemanticEdit("디바이스 이름 변경"))
+            return;
+
+        // ApiDef(Action) 공급원 = P2/Panel SSOT. FSharpList → IReadOnlyList 변환(다이얼로그 생성자 계약).
+        if (!TryEditorFunc(
+                () => _store.GetApiDefsForSystem(systemId),
+                out var apiDefs,
+                fallback: Microsoft.FSharp.Collections.ListModule.Empty<ApiDefPanelItem>()))
+            return;
+
+        var dialog = new Promaker.Dialogs.DeviceRenameDialog(_store, systemId, deviceName, apiDefs.ToList());
+        if (_dialogService.ShowDialog(dialog) != true)
+            return;
+
+        var newDeviceName = dialog.NewDeviceNameOption;
+        var apiRenames = dialog.BuildApiRenames();
+
+        // 변경 사항이 전혀 없으면(디바이스명·Action명 모두 그대로) no-op.
+        if (FSharpOption<string>.get_IsNone(newDeviceName) && apiRenames.IsEmpty)
+        {
+            StatusText = "변경된 이름이 없습니다.";
+            return;
+        }
+
+        if (TryEditorFunc(
+                () => _store.RenameDeviceBatch(systemId, newDeviceName, apiRenames),
+                out int changedCount,
+                fallback: 0))
+        {
+            StatusText = changedCount > 0
+                ? $"디바이스 일괄 이름 변경: {changedCount}건 적용됨"
+                : "적용할 변경이 없습니다.";
+        }
     }
 
     [RelayCommand(CanExecute = nameof(CanCopySelected))]
