@@ -157,8 +157,8 @@ public partial class LlmChatViewModel
     }
 
     /// <summary>
-    /// FetchKbProfilesAsync + ApplyPendingKbDigest 묶음. <see cref="InitializeAsync"/> 초기 진입과 debounce fire
-    /// 양쪽에서 사용. UI thread 에서 호출 의도. **review M-2 fix** — exception 흡수 + log (caller 의 fire-and-forget
+    /// FetchKbProfilesAsync + ApplyPendingKbDigest 묶음. SSE debounce refresh 에서 사용. UI thread 에서 호출 의도.
+    /// **review M-2 fix** — exception 흡수 + log (caller 의 fire-and-forget
     /// 으로 unobserved task 가 되지 않도록).
     /// </summary>
     private async Task RefreshKbDigestAsync()
@@ -167,7 +167,7 @@ public partial class LlmChatViewModel
         {
             await FetchKbProfilesAsync().ConfigureAwait(true);
             ApplyPendingKbDigest();
-            // SSE collection-* invalidate / 초기 fetch path 의 specialized digest(layer E) 동반 갱신. active 셋 변경은
+            // SSE collection-* invalidate path 의 specialized digest(layer E) 동반 갱신. active 셋 변경은
             // specialized digest 변경 가능성 → KB digest 와 동일 시점에 MCP fetch 로 re-apply (attachment_summary
             // includeSpecialized=true). ConfigureAwait(true) — _provider 박제 UI thread invariant.
             await RefreshSpecializedDigestAsync().ConfigureAwait(true);
@@ -175,6 +175,23 @@ public partial class LlmChatViewModel
         catch (Exception ex)
         {
             Log.Warn("RefreshKbDigestAsync 실패 — KB digest 미갱신, chat 영향 0", ex);
+        }
+    }
+
+    /// <summary>
+    /// Initial panel/restart path: populate the KB profile cache before the provider is marked ready.
+    /// Provider creation then calls <see cref="ApplyPendingKbDigest"/> against this cache, so the first turn sees
+    /// the active KB set selected before Restart was pressed. No provider mutation is done here.
+    /// </summary>
+    private async Task PrimeInitialKbProfileCacheAsync()
+    {
+        try
+        {
+            await FetchKbProfilesAsync().ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("PrimeInitialKbProfileCacheAsync 실패 — 초기 KB digest cache 미갱신, chat 영향 0", ex);
         }
     }
 

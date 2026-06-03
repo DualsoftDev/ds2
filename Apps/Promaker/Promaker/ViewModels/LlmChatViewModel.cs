@@ -478,6 +478,9 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     private async Task TeardownAsync()
     {
         _cts?.Cancel();
+        // Invalidate any in-flight ConfigureProviderAsync so restart/dispose teardown cannot be overwritten by
+        // a stale provider readiness result.
+        Interlocked.Increment(ref _switchCounter);
         _assistantFlushTimer?.Stop();
 
         // PR-F (§5.1) — SSE handler 해제 + debounce CTS cancel. 재시작 시 InitializeAsync 가 SubscribeKbProfileEvents 로 재구독.
@@ -580,4 +583,3 @@ public partial class ChatTurn : ObservableObject
     [ObservableProperty]
     private string _payload = "";
 }
-
