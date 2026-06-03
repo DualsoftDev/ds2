@@ -301,6 +301,24 @@ module Queries =
     /// <summary>모든 ApiCall 조회</summary>
     let allApiCalls (store: DsStore) : ApiCall list = allOf store.ApiCallsReadOnly
 
+    /// ApiCall.Name("{DevicesAlias}.{ApiName}")을 첫 '.' 기준 (앞=DevicesAlias, 뒤=ApiName) 으로 분리.
+    /// '.' 이 없으면(dummy/raw 심볼: `.` 없는 `__inverter__` 등) None. 호출부에서 fallback 처리.
+    /// Paste.DeviceOps(devAlias 추출) 및 cascade rename(앞/뒤부분 교체) 공용 헬퍼.
+    let splitApiCallName (name: string) : (string * string) option =
+        if isNull name then None
+        else
+            match name.IndexOf('.') with
+            | -1  -> None
+            | idx -> Some (name.[..idx - 1], name.[idx + 1..])
+
+    /// 주어진 ApiDef 를 ApiCall.ApiDefId 로 참조하는 모든 ApiCall (본체 한정).
+    /// ★주의(DsStore.fs RebuildApiCallsDictionary 근거): store.ApiCalls(=allApiCalls) 에는
+    /// Call 본체 ApiCall 만 등록되며, Call.Conditions / Work.Conditions 트리 내 ApiCall 은
+    /// 같은 Id 의 독립 인스턴스로 dict 에 없다. 따라서 이 쿼리는 Condition 내 ApiCall 을 포함하지 않는다.
+    /// cascade rename 시 Condition 경로는 소유 Call/Work 의 Conditions 를 별도 재귀 순회해야 한다.
+    let apiCallsReferencingApiDef (apiDefId: Guid) (store: DsStore) : ApiCall list =
+        allApiCalls store |> List.filter (fun ac -> ac.ApiDefId = Some apiDefId)
+
     /// Call → ApiCall.tryHead → ApiDefId → ApiDef → ParentSystem chain resolve.
     /// PoC scope (cylinder/clamp/robot sugar) 에서 Call.ApiCalls 는 1:1 매핑 — 첫 ApiCall 만 본다.
     /// 4 fallback case (ApiCalls 빈 list / ApiDefId None / orphan ApiDef / orphan System) 시 None.
