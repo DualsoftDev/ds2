@@ -1,0 +1,2228 @@
+<!DOCTYPE html>
+<html lang="ko"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>대시보드 — DSPilot</title>
+
+<!--
+  DSPilot dashboard2 — stitch "Industrial Insight" 디자인(Tailwind CDN)을 그대로 보존하면서
+  메인 대시보드(dashboard.html)의 기능을 전부 이식한 페이지.
+    · 디자인: stitch/code.html(=Tailwind 토큰/사이드바/KPI/도면/도넛/히스토리/푸터) 유지.
+    · 기능 : dashboard.html 의 Alpine 앱(dashboardApp) 을 그대로 이식 →
+             KPI 띠 / 도면 자유배치 + 인플레이스 편집 / CT 비교 도넛(Chart.js) /
+             상시 히스토리(테이블·차트·이상치 제외) / 시프트 설정·카운트다운 /
+             UserTag 이상 배너 / SignalR 실시간 + 5초 폴링.
+    · 셸: shell.js 를 쓰지 않고 stitch 자체 사이드바/푸터를 유지하되,
+          라인요약·agent 통신 상태는 /api/nav/summary 폴링으로 라이브 바인딩.
+    · 라이브러리는 자체호스팅(/lib/*) 사용(오프라인). Tailwind/폰트만 CDN(디자인 보존).
+    · 테마: <html> 에 .dark + .dark-theme 동시 토글 → Tailwind dark: 변형과
+           이식 컴포넌트(CSS 변수)·Chart.js getComputedStyle 가 모두 다크 적응.
+-->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "secondary": "#0058be",
+                        "on-primary-fixed-variant": "#3c475a",
+                        "tertiary-fixed": "#fadfb8",
+                        "background": "#f7f9fb",
+                        "on-surface-variant": "#45474c",
+                        "inverse-primary": "#bcc7de",
+                        "on-secondary-container": "#fefcff",
+                        "primary-fixed-dim": "#bcc7de",
+                        "on-secondary-fixed": "#001a42",
+                        "primary": "#091426",
+                        "surface-container-lowest": "#ffffff",
+                        "tertiary": "#1e1200",
+                        "outline-variant": "#c5c6cd",
+                        "on-error-container": "#93000a",
+                        "surface-bright": "#f7f9fb",
+                        "error": "#ba1a1a",
+                        "surface-container-low": "#f2f4f6",
+                        "on-tertiary-container": "#a38c6a",
+                        "tertiary-fixed-dim": "#ddc39d",
+                        "surface-container-high": "#e6e8ea",
+                        "inverse-on-surface": "#eff1f3",
+                        "on-background": "#191c1e",
+                        "secondary-container": "#2170e4",
+                        "on-primary-container": "#8590a6",
+                        "inverse-surface": "#2d3133",
+                        "on-primary-fixed": "#111c2d",
+                        "surface": "#f7f9fb",
+                        "surface-dim": "#d8dadc",
+                        "secondary-fixed": "#d8e2ff",
+                        "on-tertiary-fixed": "#271902",
+                        "secondary-fixed-dim": "#adc6ff",
+                        "primary-fixed": "#d8e3fb",
+                        "surface-variant": "#e0e3e5",
+                        "on-tertiary": "#ffffff",
+                        "on-surface": "#191c1e",
+                        "on-tertiary-fixed-variant": "#564427",
+                        "surface-tint": "#545f73",
+                        "on-error": "#ffffff",
+                        "surface-container": "#eceef0",
+                        "outline": "#75777d",
+                        "on-primary": "#ffffff",
+                        "error-container": "#ffdad6",
+                        "on-secondary": "#ffffff",
+                        "primary-container": "#1e293b",
+                        "surface-container-highest": "#e0e3e5",
+                        "on-secondary-fixed-variant": "#004395",
+                        "tertiary-container": "#35260c"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "gutter": "16px",
+                        "stack-sm": "8px",
+                        "stack-md": "16px",
+                        "card-padding": "20px",
+                        "container-margin": "24px"
+                    },
+                    "fontFamily": {
+                        "display-metrics": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "label-sm": ["Inter"],
+                        "body-md": ["Inter"],
+                        "mono-data": ["Inter"]
+                    },
+                    "fontSize": {
+                        "display-metrics": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "headline-lg": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                        "headline-md": ["18px", {"lineHeight": "24px", "fontWeight": "600"}],
+                        "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                        "label-sm": ["12px", {"lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500"}],
+                        "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                        "mono-data": ["14px", {"lineHeight": "20px", "fontWeight": "600"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        [x-cloak] { display: none !important; }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; vertical-align: middle; }
+        body { background-color: #f7f9fb; font-family: 'Inter', 'Noto Sans KR', sans-serif; overflow-x: hidden; }
+        html.dark body { background-color: #0b1220; }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 2px; }
+
+        /* ──────────────────────────────────────────────────────────────
+           이식 컴포넌트 토큰 — ds.css/swiss.css 를 로드하지 않으므로(stitch 디자인 보존)
+           dashboard.html 마크업이 쓰는 CSS 변수/베이스 컴포넌트 클래스를 여기 재정의한다.
+           Chart.js(renderCtDonut/renderHistChart)가 getComputedStyle(documentElement)로
+           읽으므로 데이터 토큰은 :root / html.dark-theme 에 둔다. (stitch Industrial Insight 팔레트) */
+        :root {
+            --color-background: #f7f9fb;
+            --color-surface: #ffffff;
+            --color-surface-variant: #f1f5f9;
+            --color-lines: #e2e8f0;
+            --color-lines-strong: #cbd5e1;
+            --color-border: #e2e8f0;
+            --cyan-bg: #eef2f8;
+            --cyan-soft: #e2e8f0;
+
+            --color-text-primary: #0f1b2d;
+            --color-text-secondary: #45556c;
+            --color-text-disabled: #8694a6;
+
+            --color-primary: #0058be;
+            --color-primary-rgb: 0, 88, 190;
+            --color-primary-strong: #00468f;
+            --color-action-default: #0058be;
+            --navy: #091426;
+            --navy-2: #1e293b;
+
+            --green: #16a34a;  --color-success: #16a34a;  --color-success-rgb: 22, 163, 74;
+            --amber: #d97706;  --color-warning: #d97706;  --color-warning-rgb: 217, 119, 6;
+            --red:   #dc2626;  --color-error: #dc2626;    --color-error-rgb: 220, 38, 38;
+            --color-info: #0058be;
+            --ct: #16a34a;
+
+            --dash-mt: #16a34a;   /* 가동 = 녹 */
+            --dash-wt: #cbd5e1;   /* 대기 = 쿨그레이 */
+
+            /* 폰트 / 라운드 / 그림자 */
+            --font-family: 'Inter', 'Noto Sans KR', sans-serif;
+            --font-mono: 'Inter', ui-monospace, 'Cascadia Code', Consolas, monospace;
+            --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px;
+            --shadow-card: 0 2px 4px rgba(15, 27, 45, 0.05);
+            --shadow-card-hover: 0 6px 18px rgba(0, 88, 190, 0.14);
+            --shadow-modal: 0 24px 64px rgba(15, 27, 45, 0.22);
+            --shadow-2: 0 24px 64px rgba(15, 27, 45, 0.22);
+        }
+        /* 다크: stitch 네이비/블루를 어둡게 적응 — <html>.dark-theme 토글 시 적용 */
+        .dark-theme {
+            --color-background: #0b1220;
+            --color-surface: #131d2e;
+            --color-surface-variant: #1a2740;
+            --color-lines: rgba(148, 178, 214, 0.13);
+            --color-lines-strong: rgba(148, 178, 214, 0.26);
+            --color-border: rgba(148, 178, 214, 0.13);
+            --cyan-bg: #16243a;
+            --cyan-soft: #1d3050;
+            --color-text-primary: #e7eef8;
+            --color-text-secondary: #9fb0c8;
+            --color-text-disabled: #64758c;
+            --color-primary: #4d9fff;
+            --color-primary-rgb: 77, 159, 255;
+            --color-primary-strong: #7eb8ff;
+            --color-action-default: #4d9fff;
+            --navy: #060c16;
+            --navy-2: #16273a;
+            --green: #2bbf6a;  --color-success: #2bbf6a;  --color-success-rgb: 43, 191, 106;
+            --amber: #f59e0b;  --color-warning: #f59e0b;  --color-warning-rgb: 245, 158, 11;
+            --red:   #f26d6d;  --color-error: #f26d6d;    --color-error-rgb: 242, 109, 109;
+            --color-info: #4d9fff;
+            --ct: #2bbf6a;
+            --dash-mt: #2bbf6a;
+            --dash-wt: #46566b;
+            --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.45);
+            --shadow-card-hover: 0 6px 20px rgba(0, 0, 0, 0.5);
+        }
+
+        /* ── .material-icons → Material Symbols Outlined (CDN 폰트) 재지정 (마크업 변경 없이 글리프) ── */
+        .material-icons {
+            font-family: 'Material Symbols Outlined';
+            font-weight: normal; font-style: normal; font-size: 24px; line-height: 1;
+            letter-spacing: normal; text-transform: none; display: inline-block;
+            white-space: nowrap; word-wrap: normal; direction: ltr; vertical-align: middle;
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            -webkit-font-feature-settings: 'liga'; font-feature-settings: 'liga';
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* ── 베이스 컴포넌트 (ds.css/swiss.css 재현, stitch 팔레트) ── */
+        .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 16px; border-radius: var(--radius-sm); font-size: 0.875rem; font-weight: 600; font-family: var(--font-family); cursor: pointer; border: none; transition: background 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease; white-space: nowrap; text-decoration: none; line-height: 1.6; }
+        .btn:disabled { opacity: 0.5; cursor: default; }
+        .btn .material-icons { font-size: 17px; }
+        .btn-filled { background: var(--color-primary); color: #fff; }
+        .btn-filled:hover { filter: brightness(1.1); }
+        .btn-filled.color-warning { background: var(--color-warning); } .btn-filled.color-success { background: var(--color-success); } .btn-filled.color-error { background: var(--color-error); }
+        .btn-outlined { background: var(--color-surface); border: 1px solid var(--color-primary); color: var(--color-primary); }
+        .btn-outlined:hover { background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); }
+        .btn-outlined.color-warning { border-color: var(--color-warning); color: var(--color-warning); } .btn-outlined.color-success { border-color: var(--color-success); color: var(--color-success); } .btn-outlined.color-error { border-color: var(--color-error); color: var(--color-error); }
+        .btn-sm { padding: 4px 10px; font-size: 0.8125rem; } .btn-sm .material-icons { font-size: 15px; }
+        .btn-icon { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0; border-radius: 50%; background: transparent; border: none; cursor: pointer; color: inherit; transition: background 0.15s ease; } .btn-icon:hover { background: color-mix(in srgb, var(--color-text-primary) 8%, transparent); } .btn-icon .material-icons { font-size: 22px; } .btn-icon.btn-sm { width: 32px; height: 32px; } .btn-icon.btn-sm .material-icons { font-size: 19px; }
+
+        .form-group { margin-bottom: 16px; }
+        .form-label { display: block; font-size: 0.75rem; font-weight: 600; color: var(--color-text-secondary); margin-bottom: 6px; }
+        .form-helper { font-size: 0.75rem; color: var(--color-text-secondary); margin-top: 4px; }
+        .form-field, .form-select { display: block; width: 100%; padding: 10px 12px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); font-size: 0.875rem; font-family: var(--font-family); background: var(--color-surface); color: var(--color-text-primary); box-sizing: border-box; transition: border-color 0.15s ease; }
+        .form-field:focus, .form-select:focus { outline: none; border-color: var(--color-primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 20%, transparent); }
+        .form-field::placeholder { color: var(--color-text-disabled); }
+        .form-select { cursor: pointer; }
+
+        .alert { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border: 1px solid var(--color-lines); border-left: 3px solid var(--color-text-secondary); border-radius: var(--radius-sm); font-size: 0.82rem; background: var(--color-surface); }
+        .alert .material-icons { font-size: 19px; flex-shrink: 0; }
+        .alert-info { border-left-color: var(--color-info); color: var(--color-info); background: color-mix(in srgb, var(--color-info) 7%, var(--color-surface)); }
+        .alert-error { border-left-color: var(--color-error); color: var(--color-error); background: color-mix(in srgb, var(--color-error) 7%, var(--color-surface)); }
+        .mb-4 { margin-bottom: 14px; }
+
+        .progress-bar { width: 100%; height: 3px; background: var(--color-lines); overflow: hidden; border-radius: 2px; }
+        .progress-bar-fill { height: 100%; background: var(--color-primary); transition: width 0.3s ease; }
+        .progress-bar-indeterminate .progress-bar-fill { width: 30%; animation: progress-slide 1.4s infinite cubic-bezier(0.4, 0, 0.2, 1); }
+        @keyframes progress-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(400%); } }
+
+        .modal-overlay { position: fixed; inset: 0; z-index: 1200; background: rgba(15, 27, 45, 0.46); display: flex; align-items: center; justify-content: center; backdrop-filter: blur(3px); }
+        .dark-theme .modal-overlay { background: rgba(0, 0, 0, 0.62); }
+        .modal-content { background: var(--color-surface); border: 1px solid var(--color-lines-strong); border-radius: var(--radius-lg); box-shadow: var(--shadow-modal); max-height: 86vh; overflow-y: auto; padding: 24px; color: var(--color-text-primary); }
+
+        .ds-table { width: 100%; border-collapse: collapse; font-size: 0.74rem; }
+        .ds-table th, .ds-table td { padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--color-lines); }
+        .ds-table th { background: var(--cyan-bg); color: var(--color-primary-strong); font-weight: 700; font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.06em; font-family: var(--font-mono); }
+        .ds-table .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+        .ds-table tbody tr:hover { background: color-mix(in srgb, var(--color-primary) 5%, transparent); }
+
+        .ds-status { display: inline-block; padding: 2px 8px; border-radius: var(--radius-sm); font-size: 0.62rem; font-weight: 700; font-family: var(--font-mono); letter-spacing: 0.03em; }
+        .ds-status.ok { background: color-mix(in srgb, var(--green) 16%, transparent); color: var(--green); }
+        .ds-status.warn { background: color-mix(in srgb, var(--amber) 18%, transparent); color: #8A5808; }
+        .dark-theme .ds-status.warn { color: var(--amber); }
+        .ds-status.bad { background: color-mix(in srgb, var(--red) 16%, transparent); color: var(--red); }
+        .ds-status.info { background: color-mix(in srgb, var(--color-primary) 16%, transparent); color: var(--color-primary-strong); }
+
+        .ds-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; padding: 36px 24px; color: var(--color-text-disabled); border: 1.5px dashed var(--color-lines-strong); border-radius: var(--radius-md); background: var(--color-surface-variant); }
+        .ds-empty .material-icons { font-size: 40px; opacity: 0.7; }
+        .ds-empty .ds-empty-title { font-size: 0.92rem; font-weight: 700; color: var(--color-text-secondary); }
+        .ds-empty .ds-empty-desc { font-size: 0.74rem; max-width: 520px; line-height: 1.55; }
+
+        .ds-card-h { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+        .ds-card-h h4 { font-size: 0.95rem; font-weight: 700; color: var(--color-text-primary); letter-spacing: -0.01em; margin: 0; }
+        .ds-card-h .ds-card-h-sub { font-size: 0.66rem; color: var(--color-text-disabled); font-family: var(--font-mono); }
+
+        .demo-blocked-card { max-width: 480px; padding: 36px 40px; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: 12px; box-shadow: var(--shadow-2); text-align: center; }
+        .demo-blocked-icon { font-size: 48px !important; color: #f0883e; margin-bottom: 8px; }
+        .demo-blocked-card h3 { margin: 0 0 12px; color: #f0883e; font-weight: 700; }
+        .demo-blocked-card p { margin: 4px 0; color: var(--color-text-secondary); line-height: 1.6; }
+
+        /* flow 카드 컨테이너 베이스 (swiss.css 재현) — 컨테이너쿼리 단위(cqmin) 활성 */
+        .fc-cq { width: 100%; height: 100%; box-sizing: border-box; container-type: size; container-name: card; }
+        .fc-cq *, .fc-cq *::before, .fc-cq *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        .fc-root { width: 100%; height: 100%; display: flex; flex-direction: column; padding: 3cqmin 4cqmin; box-sizing: border-box; font-family: var(--font-family); color: var(--color-text-primary); pointer-events: none; overflow: hidden; }
+        .fl-blueprint { opacity: 0.22; filter: grayscale(0.85) contrast(0.92); }
+        .dark-theme .fl-blueprint { opacity: 0.32; filter: grayscale(0.85) brightness(1.35) contrast(0.85); }
+
+        /* ════════════════════════════════════════════════════════════════════════
+           ↓↓↓ dashboard.html <style> 이식 (KPI/도면 카드/CT도넛/히스토리/시프트·이상치
+                모달/편집/토스트/에러배너). stitch 토큰 var() 참조. ↓↓↓
+           ════════════════════════════════════════════════════════════════════════ */
+
+        /* ── 콘텐츠 상단 라이브 배지 ── */
+        .dash-live { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; font-variant-numeric: tabular-nums; }
+        .dash-live .dash-live-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+        .dash-live.is-live { color: var(--color-success); border-color: color-mix(in srgb, var(--color-success) 50%, transparent); }
+        .dash-live.is-live .dash-live-dot { animation: dash-pulse 1.6s ease-in-out infinite; }
+        .dash-live.is-poll { color: var(--color-text-secondary); }
+        @keyframes dash-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+        /* ── UserTag 이상(Error) 배너 ── */
+        .err-banner { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; padding: 11px 14px; border-radius: var(--radius-md); flex-shrink: 0; color: var(--red); background: color-mix(in srgb, var(--red) 10%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--red) 45%, transparent); border-left: 4px solid var(--red); box-shadow: 0 0 0 3px rgba(var(--color-error-rgb), 0.08); }
+        .dark-theme .err-banner { background: color-mix(in srgb, var(--red) 16%, var(--color-surface)); }
+        .err-banner .eb-icon { font-size: 26px; flex-shrink: 0; animation: eb-blink 1.4s ease-in-out infinite; }
+        @keyframes eb-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+        .err-banner .eb-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+        .err-banner .eb-title { font-size: 0.92rem; font-weight: 800; letter-spacing: -0.01em; }
+        .err-banner .eb-title .eb-count { font-variant-numeric: tabular-nums; }
+        .err-banner .eb-title .eb-window { font-weight: 600; color: var(--color-text-secondary); }
+        .err-banner .eb-sub { font-size: 0.74rem; font-weight: 600; color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .err-banner .eb-sub .eb-tag { color: var(--red); font-weight: 800; }
+        .err-banner .eb-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+        .err-banner .eb-link { display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; border-radius: var(--radius-sm); background: var(--red); color: #fff; font-size: 0.74rem; font-weight: 800; text-decoration: none; white-space: nowrap; }
+        .err-banner .eb-link:hover { filter: brightness(1.08); }
+        .err-banner .eb-link .material-icons { font-size: 16px; }
+        .err-banner .eb-dismiss { width: 30px; height: 30px; flex-shrink: 0; border: 1px solid color-mix(in srgb, var(--red) 35%, transparent); border-radius: var(--radius-sm); background: transparent; color: var(--red); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+        .err-banner .eb-dismiss:hover { background: color-mix(in srgb, var(--red) 14%, transparent); }
+        .err-banner .eb-dismiss .material-icons { font-size: 18px; }
+
+        /* ── KPI 시프트 셀 상태색 (Tailwind 카드 셸 위 보조) ── */
+        .kpi-shift .kp-pct { font-variant-numeric: tabular-nums; }
+        .kpi-shift.state-ended .kp-value { color: var(--color-text-disabled) !important; }
+        .kpi-shift.state-pending .kp-value { color: var(--amber) !important; }
+        .sh-pct { font-weight: 800; color: var(--ct); }
+        .sh-pct.is-over { color: var(--green); }
+        .sh-pct.is-under { color: var(--red); }
+
+        /* ── 시프트 설정 / 이상치 팝업 ── */
+        .shift-modal { width: min(520px, 94vw); padding: 0; }
+        .shift-modal .sm-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px 14px; border-bottom: 1px solid var(--color-lines); }
+        .shift-modal .sm-title { font-size: 1.05rem; font-weight: 800; letter-spacing: -0.01em; }
+        .shift-modal .sm-body { padding: 18px 22px 4px; }
+        .shift-modal .sm-foot { display: flex; gap: 10px; padding: 14px 22px 20px; }
+        .shift-modal .sm-foot .btn { flex: 1; justify-content: center; }
+        .sm-times { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .range-row { display: flex; gap: 6px; align-items: center; }
+        .range-row .form-field { flex: 1 1 auto; min-width: 0; }
+        .range-row .range-unit { flex: 0 0 auto; width: auto; padding: 10px 8px; }
+        .sm-seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+        .sm-seg button { padding: 10px 6px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-secondary); font-weight: 700; font-size: 0.82rem; cursor: pointer; transition: all 0.12s; }
+        .sm-seg button:hover { border-color: var(--color-primary); }
+        .sm-seg button.is-active { background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface)); border-color: var(--color-primary); color: var(--color-primary-strong); }
+        .sm-stepper { display: flex; align-items: center; gap: 8px; }
+        .sm-stepper input { flex: 1; text-align: center; font-size: 1.25rem; font-weight: 800; color: var(--color-primary-strong); font-variant-numeric: tabular-nums; padding: 8px 10px; }
+        .sm-stepper button { width: 44px; height: 44px; flex-shrink: 0; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-primary); font-size: 1.3rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+        .sm-stepper button:hover { border-color: var(--color-primary); color: var(--color-primary); }
+        .sm-hint { display: flex; gap: 9px; align-items: flex-start; margin-top: 6px; padding: 11px 13px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--color-primary) 22%, transparent); font-size: 0.78rem; line-height: 1.5; color: var(--color-text-secondary); }
+        .sm-hint .material-icons { font-size: 17px; color: var(--color-primary); flex-shrink: 0; margin-top: 1px; }
+        .sm-hint b { color: var(--color-primary-strong); font-weight: 800; }
+
+        /* ── 라인 도면 Flow 카드 ── */
+        .fl-card { --fc-accent: var(--color-primary); position: absolute; z-index: 2; border: 1.5px solid var(--color-lines-strong); border-radius: 8px; background: var(--color-surface); box-shadow: 0 2px 7px rgba(14,27,42,0.12); overflow: hidden; }
+        .fl-card:hover { border-color: var(--color-primary); box-shadow: 0 6px 16px rgba(var(--color-primary-rgb),0.20); }
+        .fl-card-selected { border-color: var(--color-primary); border-width: 2px; box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 22%, transparent); transform: none; z-index: 10; animation: none; }
+        .fl-card.is-bottleneck { outline: none; border: 2px solid var(--red); box-shadow: 0 0 0 4px rgba(var(--color-error-rgb),0.16); background: color-mix(in srgb, var(--red) 8%, var(--color-surface)); z-index: 6; }
+        .fl-card.is-bottleneck.fl-card-selected { box-shadow: 0 0 0 4px rgba(var(--color-error-rgb),0.30); }
+        .fl-card .fc-root { justify-content: center; gap: 1.8cqmin; padding: clamp(6px,5cqmin,16px) clamp(9px,6cqmin,20px); }
+        .fc-toprow { display: flex; align-items: center; justify-content: space-between; gap: 2cqmin; width: 100%; min-width: 0; }
+        .fc-toprow .fc-name { flex: 1; min-width: 0; text-align: left; }
+        .fc-toprow .fc-badges { flex-wrap: nowrap; flex-shrink: 0; justify-content: flex-end; }
+        .fc-name { font-size: clamp(0.88rem, 12.5cqmin, 2.1rem); font-weight: 800; color: var(--color-primary); line-height: 1.18; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .fl-card.is-bottleneck .fc-name { color: var(--red); }
+        .fc-main { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: clamp(3px, 2.6cqmin, 9px); width: 100%; min-width: 0; }
+        .fc-ct-line { display: flex; align-items: baseline; gap: clamp(3px, 2cqmin, 7px); line-height: 1; min-width: 0; }
+        .fc-ct-val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 800; font-size: clamp(1rem, 15cqmin, 2.5rem); color: var(--color-primary); letter-spacing: -0.02em; white-space: nowrap; }
+        .fc-ct-lbl { font-size: clamp(0.46rem, 3.4cqmin, 0.72rem); font-weight: 800; letter-spacing: 0.12em; color: var(--color-text-disabled); }
+        .fl-card.is-bottleneck .fc-ct-val { color: var(--red); }
+        .fc-rw { display: flex; flex-direction: column; gap: clamp(2px, 1.7cqmin, 6px); width: 100%; min-width: 0; }
+        .fc-rw-row { display: flex; align-items: baseline; justify-content: space-between; gap: clamp(4px, 2.6cqmin, 9px); min-width: 0; }
+        .fc-rw-row.bot { padding-right: clamp(26px, 22cqmin, 60px); }
+        .fc-rw-lbl { font-size: clamp(0.48rem, 3.6cqmin, 0.74rem); font-weight: 700; letter-spacing: 0.04em; white-space: nowrap; }
+        .fc-rw-val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: clamp(0.52rem, 4.2cqmin, 0.9rem); font-weight: 700; white-space: nowrap; text-align: right; }
+        .fc-rw-row .mt { color: var(--dash-mt); }
+        .fc-rw-row .wt { color: var(--color-text-secondary); }
+        .fc-segbar { display: flex; width: 100%; height: clamp(6px, 3.4cqmin, 12px); border-radius: 999px; overflow: hidden; background: color-mix(in srgb, var(--color-text-secondary) 14%, transparent); }
+        .fc-seg { height: 100%; transition: width 0.3s ease; }
+        .fc-seg.mt { background: var(--dash-mt); }
+        .fc-seg.wt { background: var(--dash-wt); }
+        .fl-card.is-maxwait .fc-seg.wt { background: var(--amber); }
+        .fl-card.is-maxwait .fc-rw-row .wt { color: #8A6D1A; }
+        .dark-theme .fl-card.is-maxwait .fc-rw-row .wt { color: var(--amber); }
+        .fl-card.is-bottleneck .fc-seg.wt { background: var(--red); }
+        .fl-card.is-bottleneck .fc-rw-row .wt { color: var(--red); }
+        .fc-detail-btn { position: absolute; right: clamp(3px, 2.5cqmin, 8px); bottom: clamp(3px, 2.5cqmin, 8px); z-index: 4; pointer-events: auto; display: inline-flex; align-items: center; justify-content: center; gap: clamp(2px, 1.4cqmin, 5px); background: var(--color-surface); border: 1px solid var(--color-primary); color: var(--color-primary); border-radius: 4px; padding: clamp(1px,1.2cqmin,4px) clamp(4px,2.4cqmin,9px); cursor: pointer; text-decoration: none; font-weight: 700; box-shadow: 0 1px 2px rgba(14,27,42,0.12); }
+        .fc-detail-btn .material-icons { font-size: clamp(13px, 9cqmin, 20px); }
+        .fc-detail-btn .fc-detail-label { font-size: clamp(0.56rem, 4.6cqmin, 0.86rem); line-height: 1.2; white-space: nowrap; }
+        .fc-detail-btn:hover { background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface)); }
+        .fl-card.is-maxwait { border: 2px solid var(--amber); box-shadow: 0 0 0 4px rgba(var(--color-warning-rgb),0.18); background: color-mix(in srgb, var(--amber) 10%, var(--color-surface)); z-index: 5; }
+        .fl-card.is-maxwait.fl-card-selected { box-shadow: 0 0 0 4px rgba(var(--color-warning-rgb),0.32); }
+        .fc-badges { display: flex; flex-wrap: wrap; gap: 1.4cqmin; justify-content: center; }
+        .fc-badge { display: inline-flex; align-items: center; gap: 0.8cqmin; padding: 0.5cqmin 1.7cqmin; border-radius: 999px; font-size: clamp(0.5rem, 4.2cqmin, 0.8rem); font-weight: 800; line-height: 1.35; white-space: nowrap; }
+        .fc-badge::before { content: ''; width: clamp(3px, 1.4cqmin, 6px); height: clamp(3px, 1.4cqmin, 6px); border-radius: 50%; background: currentColor; flex-shrink: 0; }
+        .fc-badge.state-ready  { color: var(--green); background: color-mix(in srgb, var(--green) 16%, transparent); }
+        .fc-badge.state-going  { color: #8A6D1A; background: color-mix(in srgb, var(--amber) 30%, transparent); }
+        .fc-badge.state-finish { color: var(--color-info); background: color-mix(in srgb, var(--color-info) 16%, transparent); }
+        .fc-badge.state-error  { color: var(--red); background: color-mix(in srgb, var(--red) 16%, transparent); }
+        .dark-theme .fc-badge.state-going { color: var(--amber); }
+        .fc-badge.tag-bottleneck { color: #fff; background: var(--red); }
+        .fc-badge.tag-wait { color: #fff; background: var(--amber); }
+        .fc-badge.tag-bottleneck::before, .fc-badge.tag-wait::before { display: none; }
+        .fc-waiting { display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 1.6cqmin; color: var(--color-text-disabled); }
+        .fc-waiting .material-icons { font-size: clamp(16px, 9cqmin, 30px); opacity: 0.65; }
+        .fc-waiting .fc-waiting-text { font-size: clamp(0.58rem, 5cqmin, 1rem); font-weight: 700; }
+
+        /* ── CT 비교 도넛 범례 ── */
+        .ct-legend { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 10px; padding: 8px 14px 12px; border-top: 1px solid var(--color-lines); flex-shrink: 0; }
+        .ct-legend-item { display: flex; align-items: center; gap: 7px; padding: 3px 6px; border: none; background: transparent; border-radius: var(--radius-sm); cursor: pointer; min-width: 0; text-align: left; }
+        .ct-legend-item:hover { background: color-mix(in srgb, var(--color-primary) 7%, transparent); }
+        .ct-legend-item.is-sel { background: color-mix(in srgb, var(--color-primary) 13%, transparent); }
+        .ct-legend-sw { width: 11px; height: 11px; border-radius: 3px; flex-shrink: 0; }
+        .ct-legend-name { font-size: 0.72rem; font-weight: 600; color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+        .ct-legend-val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 0.68rem; font-weight: 700; color: var(--color-text-primary); flex-shrink: 0; }
+
+        /* ── 하단 상시 히스토리 ── */
+        .hist-toggle { display: inline-flex; gap: 1px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); overflow: hidden; }
+        .hist-toggle button { display: inline-flex; align-items: center; gap: 4px; border: none; border-radius: 0; padding: 4px 10px; font-size: 0.72rem; font-weight: 700; cursor: pointer; background: var(--color-surface); color: var(--color-text-secondary); }
+        .hist-toggle button .material-icons { font-size: 15px; }
+        .hist-toggle button.is-active { background: var(--color-primary); color: #fff; }
+        .hist-chart-wrap { position: relative; height: clamp(240px, 40vh, 460px); padding: 6px 2px 0; }
+        .hist-auto-tag { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: var(--radius-lg); font-size: 0.6rem; font-weight: 800; letter-spacing: 0.04em; vertical-align: middle; color: var(--color-warning); background: color-mix(in srgb, var(--color-warning) 14%, transparent); border: 1px solid color-mix(in srgb, var(--color-warning) 45%, transparent); }
+        .hist-table-wrap { max-height: clamp(240px, 46vh, 520px); overflow-y: auto; border: 1px solid var(--color-lines); border-radius: var(--radius-md); }
+        .hist-table-wrap .ds-table th { position: sticky; top: 0; z-index: 1; }
+        .hist-table-wrap .ds-table td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+        .hist-mt { color: var(--dash-mt); font-weight: 700; }
+        .hist-wt { color: var(--color-text-secondary); font-weight: 700; }
+        .hist-ct { color: var(--color-text-primary); font-weight: 800; }
+        .hist-filter-chip { display: inline-flex; align-items: center; gap: 7px; padding: 3px 6px 3px 11px; border-radius: var(--radius-lg); font-size: 0.68rem; font-weight: 800; color: var(--color-warning); background: color-mix(in srgb, var(--color-warning) 12%, transparent); border: 1px solid color-mix(in srgb, var(--color-warning) 45%, transparent); }
+        .hist-filter-chip .hfc-reset { display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px; border: none; border-radius: var(--radius-sm); background: var(--color-warning); color: #fff; font-size: 0.62rem; font-weight: 800; cursor: pointer; }
+        .hist-filter-chip .hfc-reset .material-icons { font-size: 13px; }
+
+        /* ── 편집바 슬라이더 컨트롤 ── */
+        .fl-ctrl { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); font-size: 0.72rem; font-weight: 700; color: var(--color-text-secondary); }
+        .fl-ctrl .material-icons { font-size: 16px; color: var(--color-text-disabled); }
+        .fl-ctrl input[type=range] { width: clamp(70px, 9vw, 130px); accent-color: var(--color-primary); cursor: pointer; vertical-align: middle; }
+        .fl-ctrl .fl-val { font-variant-numeric: tabular-nums; color: var(--color-primary-strong); min-width: 30px; text-align: right; }
+        .fl-ctrl.is-off { opacity: 0.5; }
+        .fl-snaptoggle { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; }
+        .fl-snaptoggle input { accent-color: var(--color-primary); width: 15px; height: 15px; cursor: pointer; margin: 0; }
+        .fl-editbar .ds-status { display: inline-flex; align-items: center; gap: 4px; }
+
+        /* ── 전체화면: 도면 카드를 화면에 꽉 (헤더 숨김) ── */
+        .fl-fs:fullscreen, .fl-fs:-webkit-full-screen { --fl-cap: calc(100vh - 24px); background: var(--color-background); }
+        .fl-fs:fullscreen .fl-fs-chrome, .fl-fs:-webkit-full-screen .fl-fs-chrome { display: none; }
+
+        /* ── 도면 인플레이스 편집 ── */
+        .fl-editpanel { width: 100%; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+        .fl-editbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .fl-editbar .spacer { flex: 1; min-width: 8px; }
+        .fl-palette { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 8px 10px; border: 1px dashed var(--color-lines-strong); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-primary) 4%, var(--color-surface)); }
+        .fl-palette .fp-hint { font-size: 0.72rem; font-weight: 700; color: var(--color-text-secondary); display: inline-flex; align-items: center; gap: 4px; }
+        .fl-chip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border: 1px solid var(--color-lines-strong); border-radius: 999px; background: var(--color-surface); color: var(--color-text-primary); font-size: 0.74rem; font-weight: 700; cursor: pointer; transition: all 0.12s; }
+        .fl-chip:hover { border-color: var(--color-primary); color: var(--color-primary); }
+        .fl-chip.is-armed { background: var(--color-primary); border-color: var(--color-primary); color: #fff; box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 25%, transparent); }
+        .fl-chip.is-placed { opacity: 0.5; cursor: default; border-style: dashed; }
+        .fl-chip.is-placed:hover { border-color: var(--color-lines-strong); color: var(--color-text-disabled); }
+        .fl-chip .fp-num { width: 16px; height: 16px; border-radius: 8px; background: var(--color-primary); color: #fff; font-size: 0.6rem; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .fl-chip.is-placed .fp-num { background: var(--color-lines-strong); }
+        .fl-chip .material-icons { font-size: 14px; }
+        .fl-grid-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+        .fl-grid-overlay line { vector-effect: non-scaling-stroke; }
+        .fl-grid-overlay .gl-line { stroke: color-mix(in srgb, var(--color-primary) 26%, transparent); stroke-width: 1; stroke-dasharray: 4 4; }
+        .fl-canvas { background-color: var(--color-surface); background-image: radial-gradient(color-mix(in srgb, var(--color-text-primary) 13%, transparent) 1px, transparent 1px); background-size: 22px 22px; border: 1px solid var(--color-lines); border-radius: 6px; }
+        .fl-canvas.is-armed { cursor: crosshair; }
+        .fl-canvas.is-editing-canvas { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+        .fl-card.is-editing { cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-user-drag: none; transition: none; }
+        .fl-card.is-editing * { -webkit-user-drag: none; user-select: none; -webkit-user-select: none; }
+        .fl-card.is-editing.is-dragging { cursor: grabbing; opacity: 0.82; box-shadow: 0 8px 20px rgba(14,27,42,0.28); z-index: 40; }
+        .fl-card.is-editing .fc-detail-btn { display: none !important; }
+        .fl-card.is-editsel { border-color: var(--color-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 28%, transparent); z-index: 12; }
+        .fl-del { position: absolute; top: 3px; right: 3px; z-index: 50; width: 20px; height: 20px; border: none; border-radius: 50%; background: rgba(14,27,42,0.55); color: #fff; font-size: 15px; line-height: 1; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+        .fl-del:hover { background: var(--red); }
+        .fl-canvas-wrap { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        .fl-order { display: flex; flex-direction: column; flex: 0 0 auto; width: 220px; max-width: 32%; min-height: 0; padding: 8px 10px; border: 1px dashed var(--color-lines-strong); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-primary) 4%, var(--color-surface)); }
+        .fl-order-head { display: flex; align-items: center; gap: 6px; font-size: 0.78rem; font-weight: 800; color: var(--color-text-secondary); margin-bottom: 4px; }
+        .fl-order-hint { font-weight: 600; color: var(--color-text-disabled); font-size: 0.66rem; line-height: 1.4; margin-bottom: 8px; }
+        .fl-order-list { display: flex; flex-direction: column; gap: 4px; flex: 1; min-height: 0; overflow-y: auto; }
+        .fl-order-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); cursor: grab; }
+        .fl-order-row.is-dragging { opacity: 0.55; border-style: dashed; border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); }
+        .fl-order-handle { color: var(--color-text-disabled); cursor: grab; font-size: 18px; flex-shrink: 0; }
+        .fl-order-num { width: 20px; height: 20px; flex-shrink: 0; border-radius: 6px; background: var(--color-primary); color: #fff; font-size: 0.66rem; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums; }
+        .fl-order-name { flex: 1; min-width: 0; font-size: 0.8rem; font-weight: 700; color: var(--color-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .fl-order-btns { display: inline-flex; gap: 2px; flex-shrink: 0; }
+        .fl-order-btn { width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-secondary); cursor: pointer; padding: 0; }
+        .fl-order-btn:hover:not(:disabled) { border-color: var(--color-primary); color: var(--color-primary); }
+        .fl-order-btn:disabled { opacity: 0.35; cursor: default; }
+        .fl-order-btn .material-icons { font-size: 16px; }
+
+        /* 편집 토스트 */
+        .dash-toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 4000; padding: 9px 16px; border-radius: var(--radius-md); font-size: 0.78rem; font-weight: 700; color: #fff; box-shadow: var(--shadow-modal); opacity: 0; transition: opacity 0.2s; pointer-events: none; }
+        .dash-toast.show { opacity: 1; }
+        .dash-toast.info { background: var(--color-info); }
+        .dash-toast.success { background: var(--color-success); }
+        .dash-toast.warning { background: var(--color-warning); }
+        .dash-toast.error { background: var(--color-error); }
+
+        /* ════════════════════════════════════════════════════════════════════════
+           stitch Tailwind 크롬의 다크 대응 — 목업은 사이드바에만 dark: 변형이 있어
+           본문 패널/텍스트/테두리는 라이트로 남는다. 다크 토글 시 색 충돌을 막기 위해
+           주요 Tailwind 표면/잉크/라인 유틸을 html.dark 에서 어두운 값으로 리맵.
+           ════════════════════════════════════════════════════════════════════════ */
+        html.dark .bg-background { background-color: #0b1220 !important; }
+        html.dark .bg-surface, html.dark .bg-surface-bright { background-color: #131d2e !important; }
+        html.dark .bg-surface-container-lowest { background-color: #131d2e !important; }
+        html.dark .bg-surface-container-low { background-color: #16243a !important; }
+        html.dark .bg-surface-container { background-color: #16243a !important; }
+        html.dark .bg-surface-container-high, html.dark .bg-surface-container-highest { background-color: #1d3050 !important; }
+        html.dark .text-on-background, html.dark .text-on-surface, html.dark .text-primary { color: #e7eef8 !important; }
+        html.dark .text-on-surface-variant { color: #9fb0c8 !important; }
+        html.dark .border-outline-variant { border-color: rgba(148,178,214,0.16) !important; }
+        html.dark .border-outline { border-color: rgba(148,178,214,0.26) !important; }
+        html.dark .text-secondary { color: #4d9fff !important; }
+</style>
+</head>
+
+<body class="bg-background text-on-background">
+<div x-data="dashboardApp()" x-init="init()" x-cloak>
+
+    <!-- ── 데모 만료 ── -->
+    <div class="modal-overlay" x-show="demoBlocked" x-cloak style="z-index:3000;">
+        <div class="modal-content demo-blocked-card" style="max-width:480px;">
+            <span class="material-icons demo-blocked-icon">hourglass_disabled</span>
+            <h3>DEMO 만료</h3>
+            <p>데모 사용 시간(3시간)이 종료되었습니다.</p>
+            <p>서비스 관리자에게 문의해 주세요.</p>
+        </div>
+    </div>
+
+    <!-- ════════════ Sidebar Navigation (stitch) ════════════ -->
+    <aside class="fixed left-0 top-0 h-full flex flex-col pt-gutter bg-surface-container-low dark:bg-inverse-surface border-r border-outline-variant dark:border-outline shadow-sm w-60 z-50">
+        <div class="px-6 mb-8">
+            <h1 class="font-display-metrics text-display-metrics font-black text-secondary dark:text-secondary-fixed">DSPilot</h1>
+            <p class="font-label-sm text-label-sm text-on-surface-variant opacity-70">Industrial Monitoring</p>
+        </div>
+        <nav class="flex-1 flex flex-col gap-1 px-3 overflow-y-auto custom-scrollbar">
+            <a class="flex items-center gap-3 px-4 py-3 rounded bg-secondary-container dark:bg-secondary text-on-secondary-container dark:text-on-secondary border-l-4 border-secondary transition-colors" href="/app/dashboard2.html">
+                <span class="material-icons">space_dashboard</span>
+                <span class="font-label-sm text-label-sm">Dashboard</span>
+            </a>
+            <a class="flex items-center gap-3 px-4 py-3 rounded text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high transition-colors" href="/heatmap">
+                <span class="material-icons">gradient</span>
+                <span class="font-label-sm text-label-sm">동작편차</span>
+            </a>
+            <a class="flex items-center gap-3 px-4 py-3 rounded text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high transition-colors" href="/cycle-time-analysis">
+                <span class="material-icons">equalizer</span>
+                <span class="font-label-sm text-label-sm">사이클 분석</span>
+            </a>
+            <a class="flex items-center gap-3 px-4 py-3 rounded text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high transition-colors" href="/uptime">
+                <span class="material-icons">monitor_heart</span>
+                <span class="font-label-sm text-label-sm">가동시간·이상</span>
+                <span x-show="nav.anomaly > 0" x-cloak class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-error text-white text-[10px] font-bold" x-text="nav.anomaly"></span>
+            </a>
+            <a class="flex items-center gap-3 px-4 py-3 rounded text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high transition-colors" href="/cctv">
+                <span class="material-icons">videocam</span>
+                <span class="font-label-sm text-label-sm">CCTV</span>
+            </a>
+            <div class="mt-8 mb-4 px-4">
+                <div class="text-[10px] uppercase font-bold tracking-wider text-outline mb-2">Line Summary</div>
+                <div class="flex items-center justify-between p-3 bg-surface rounded-lg border border-outline-variant">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                            <span class="font-label-sm text-label-sm">가동: <b x-text="nav.running"></b></span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="w-2 h-2 rounded-full bg-orange-400"></span>
+                            <span class="font-label-sm text-label-sm">대기: <b x-text="nav.idle"></b></span>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-secondary font-bold text-lg" x-text="nav.total > 0 ? nav.eff + '%' : '—'"></div>
+                        <div class="text-[10px] text-outline">Eff.</div>
+                    </div>
+                </div>
+            </div>
+        </nav>
+        <div class="p-4 border-t border-outline-variant flex flex-col gap-1">
+            <a class="flex items-center gap-3 px-4 py-2 rounded text-on-surface-variant hover:bg-surface-container-high transition-colors" href="/settings">
+                <span class="material-icons">settings</span>
+                <span class="font-label-sm text-label-sm">Settings</span>
+            </a>
+        </div>
+    </aside>
+
+    <!-- ════════════ Main Content ════════════ -->
+    <main class="ml-60">
+        <!-- Top Nav Bar -->
+        <header class="h-16 flex justify-between items-center w-full px-container-margin bg-surface dark:bg-background border-b border-outline-variant sticky top-0 z-40">
+            <div class="flex items-center gap-4">
+                <h2 class="font-headline-lg text-headline-lg font-bold text-on-surface">Dashboard</h2>
+                <div class="flex items-center gap-2 text-on-surface-variant font-body-md text-body-md opacity-60">
+                    <span>Home</span>
+                    <span class="material-icons text-[16px]">chevron_right</span>
+                    <span>Dashboard</span>
+                    <span class="material-icons text-[16px]">chevron_right</span>
+                    <span class="text-primary font-semibold">Real-time</span>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <span class="dash-live" :class="rt.connected ? 'is-live' : 'is-poll'"
+                      :title="rt.connected ? 'SignalR 실시간 연결됨' : '폴링(5초) 모드'">
+                    <span class="dash-live-dot"></span>
+                    <span x-text="rt.connected ? 'LIVE · 실시간' : 'POLL · 5초'"></span>
+                </span>
+                <button class="btn-icon btn-sm text-on-surface-variant" @click="toggleTheme()" title="테마 전환">
+                    <span class="material-icons" x-text="dark ? 'light_mode' : 'dark_mode'"></span>
+                </button>
+            </div>
+        </header>
+
+        <div class="p-container-margin space-y-gutter">
+
+            <!-- 로딩 / 오류 / 데이터 없음 -->
+            <div class="mb-4 progress-bar progress-bar-indeterminate" x-show="loading"><div class="progress-bar-fill"></div></div>
+            <div class="alert alert-error mb-4" x-show="error" x-cloak><span class="material-icons">error</span><span x-text="error"></span></div>
+            <div class="alert alert-info mb-4" x-show="!loading && !error && !hasData" x-cloak><span class="material-icons">info</span><span>PLC 데이터가 수집되면 자동으로 표시됩니다.</span></div>
+
+            <!-- ── UserTag 이상(Error) 배너 ── -->
+            <div class="err-banner" x-show="showErrorBanner" x-cloak x-transition.opacity>
+                <span class="material-icons eb-icon">error</span>
+                <div class="eb-body">
+                    <div class="eb-title">
+                        UserTag 이상 발생 <span class="eb-count" x-text="errorStatus.active"></span>건
+                        <span class="eb-window">(최근 10분)</span>
+                    </div>
+                    <div class="eb-sub" x-show="errorStatus.latestName">
+                        최신 · <span x-text="errorStatus.latestAt"></span> ·
+                        <span class="eb-tag" x-text="(errorStatus.latestSystem ? errorStatus.latestSystem + ' / ' : '') + errorStatus.latestName"></span>
+                        <span x-show="errorStatus.today > errorStatus.active" x-text="'· 오늘 누적 ' + errorStatus.today + '건'"></span>
+                    </div>
+                </div>
+                <div class="eb-actions">
+                    <a class="eb-link" :href="userTagsHref" title="가동시간·이상 페이지에서 상세 확인"><span class="material-icons">open_in_new</span> 이상발생 관리</a>
+                    <button class="eb-dismiss" @click="dismissErrorBanner()" title="배너 닫기 (새 이상 발생 시 다시 표시)"><span class="material-icons">close</span></button>
+                </div>
+            </div>
+
+            <!-- Monitoring Title Row -->
+            <div class="flex justify-between items-end gap-4 flex-wrap">
+                <div>
+                    <h3 class="font-headline-lg text-headline-lg text-primary">Monitoring</h3>
+                    <p class="text-on-surface-variant font-body-md text-body-md opacity-70">Real-time production floor overview</p>
+                </div>
+                <div class="flex gap-2">
+                    <button class="flex items-center gap-2 px-4 py-2 bg-surface border border-outline-variant rounded-lg hover:bg-surface-container-high transition-colors text-label-sm font-label-sm disabled:opacity-50"
+                            @click="loadSnapshot()" :disabled="loading">
+                        <span class="material-icons text-[18px]">refresh</span> Reload
+                    </button>
+                    <button class="flex items-center gap-2 px-4 py-2 bg-secondary text-white rounded-lg hover:opacity-90 transition-colors shadow-sm text-label-sm font-label-sm" @click="toggleFullscreen()">
+                        <span class="material-icons text-[18px]">grid_view</span> Floor Layout
+                    </button>
+                </div>
+            </div>
+
+            <!-- ════════════ Summary Row (3 KPI 카드) ════════════ -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-gutter">
+
+                <!-- Max CT (CRITICAL) -->
+                <div class="bg-error-container dark:bg-[#2a1414] border p-card-padding rounded-xl shadow-sm relative overflow-hidden group cursor-pointer transition-all"
+                     :class="(maxCtName && selectedFlowName === maxCtName) ? 'border-error ring-2 ring-error/40' : 'border-error/20'"
+                     @click="maxCtName && selectFlow(maxCtName)">
+                    <div class="flex justify-between items-start mb-4">
+                        <div>
+                            <span class="font-label-sm text-label-sm text-on-error-container opacity-80 uppercase tracking-tighter">최대 시간 (CT)</span>
+                            <h4 class="font-display-metrics text-display-metrics text-error leading-none mt-2" x-text="maxCtName ? fmt(maxCtVal) : '--'"></h4>
+                        </div>
+                        <div class="bg-error text-white px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1" x-show="maxCtName" x-cloak>
+                            <span class="material-icons text-[12px]" style="font-variation-settings:'FILL' 1;">error</span> CRITICAL
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 text-on-error-container font-mono-data text-mono-data" :title="maxCtName">
+                        <span class="material-icons text-[16px]">arrow_forward</span>
+                        <span class="truncate" x-text="maxCtName || '데이터 없음'"></span>
+                    </div>
+                    <div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                        <span class="material-icons text-[120px]">timer</span>
+                    </div>
+                </div>
+
+                <!-- Max Waiting Rate (WARNING) -->
+                <div class="bg-[#FFF4E5] dark:bg-[#2a2310] border p-card-padding rounded-xl shadow-sm relative overflow-hidden group cursor-pointer transition-all"
+                     :class="(maxWtName && selectedFlowName === maxWtName) ? 'border-orange-400 ring-2 ring-orange-400/40' : 'border-orange-200'"
+                     @click="maxWtName && selectFlow(maxWtName)">
+                    <div class="flex justify-between items-start mb-4">
+                        <div>
+                            <span class="font-label-sm text-label-sm text-orange-800 dark:text-orange-300 opacity-80 uppercase tracking-tighter">최대 대기율 (WT/CT)</span>
+                            <h4 class="font-display-metrics text-display-metrics text-orange-600 leading-none mt-2" x-text="maxWtName ? (maxWtRatio * 100).toFixed(1) + '%' : '--'"></h4>
+                        </div>
+                        <div class="bg-orange-500 text-white px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1" x-show="maxWtName" x-cloak>
+                            <span class="material-icons text-[12px]" style="font-variation-settings:'FILL' 1;">warning</span> WARNING
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 text-orange-800 dark:text-orange-300 font-mono-data text-mono-data" :title="maxWtName">
+                        <span class="material-icons text-[16px]">arrow_forward</span>
+                        <span class="truncate" x-text="maxWtName || '데이터 없음'"></span>
+                    </div>
+                    <div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                        <span class="material-icons text-[120px]">pause_circle</span>
+                    </div>
+                </div>
+
+                <!-- Shift Progress -->
+                <div class="kpi-shift bg-surface-container-lowest border border-outline-variant p-card-padding rounded-xl shadow-sm flex flex-col justify-between relative overflow-hidden cursor-pointer"
+                     :class="'state-' + shiftState" @click="openShiftModal()" title="시프트 설정 열기">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <span class="font-label-sm text-label-sm text-on-surface-variant opacity-80 uppercase tracking-tighter" x-text="shiftLabel"></span>
+                            <h4 class="kp-value font-headline-lg text-headline-lg text-primary mt-2" x-text="shiftCountdownText"></h4>
+                        </div>
+                        <button class="material-icons text-outline hover:text-secondary" @click.stop="openShiftModal()" title="시프트 설정">settings</button>
+                    </div>
+                    <template x-if="shift.targetFlow && shift.targetCount > 0">
+                        <div class="space-y-2 mt-4">
+                            <div class="flex justify-between text-label-sm font-label-sm">
+                                <span class="text-on-surface-variant" x-text="'생산 ' + (shift.madeCount || 0) + ' / ' + shift.targetCount + '개'"></span>
+                                <span class="text-secondary font-bold kp-pct" x-text="Math.round((shift.madeCount || 0) * 100 / Math.max(1, shift.targetCount)) + '%'"></span>
+                            </div>
+                            <div class="w-full bg-surface-container-high rounded-full h-2 overflow-hidden">
+                                <div class="bg-secondary h-full rounded-full transition-all" :style="`width:${Math.min(100, Math.round((shift.madeCount || 0) * 100 / Math.max(1, shift.targetCount)))}%`"></div>
+                            </div>
+                        </div>
+                    </template>
+                    <template x-if="!(shift.targetFlow && shift.targetCount > 0)">
+                        <div class="mt-4 text-label-sm font-label-sm text-on-surface-variant" x-html="shiftSubText"></div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- ════════════ Main Layout Grid ════════════ -->
+            <div class="grid grid-cols-12 gap-gutter">
+
+                <!-- ── Floor Layout (8/12) ── -->
+                <div class="fl-fs col-span-12 lg:col-span-8 bg-surface-container-lowest border border-outline-variant rounded-xl shadow-sm overflow-hidden flex flex-col" x-ref="layoutCard" style="min-height:360px;">
+                    <div class="fl-fs-chrome p-4 border-b border-outline-variant flex justify-between items-center bg-surface-container-low flex-wrap gap-3">
+                        <div class="flex items-center gap-3">
+                            <span class="font-headline-md text-headline-md text-primary">Floor Layout</span>
+                            <span class="text-on-surface-variant opacity-60 text-label-sm">실시간 사이클타임</span>
+                        </div>
+                        <div class="flex items-center gap-5 flex-wrap">
+                            <div class="flex items-center gap-2">
+                                <span class="w-2.5 h-2.5 rounded-sm" style="background:var(--dash-mt);"></span>
+                                <span class="text-[11px] font-bold text-on-surface-variant">MT 가동</span>
+                            </div>
+                            <div class="flex items-center gap-2 border-r pr-5 border-outline-variant">
+                                <span class="w-2.5 h-2.5 rounded-sm" style="background:var(--dash-wt);"></span>
+                                <span class="text-[11px] font-bold text-on-surface-variant">WT 대기</span>
+                            </div>
+                            <div class="flex gap-2">
+                                <button class="p-1.5 hover:bg-surface-container-highest rounded transition-colors text-on-surface-variant flex items-center gap-1 text-[12px] font-bold"
+                                        :class="editing ? 'bg-secondary text-white hover:opacity-90' : ''"
+                                        @click="toggleEdit()" :title="editing ? '저장 (변경 저장 후 도면 보기로 복귀)' : '도면 편집 (블럭 이동·추가·삭제)'">
+                                    <span class="material-icons text-[20px]" x-text="editing ? 'save' : 'edit'"></span>
+                                    <span x-text="editing ? '저장' : '편집'"></span>
+                                </button>
+                                <button class="p-1.5 hover:bg-surface-container-highest rounded transition-colors text-on-surface-variant" @click="toggleFullscreen()" title="전체화면">
+                                    <span class="material-icons text-[20px]">fullscreen</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex-1 p-4 flex flex-col" style="min-height:0;">
+                        <!-- ── 편집 패널 ── -->
+                        <div class="fl-editpanel" x-show="editing" x-cloak>
+                            <div class="fl-editbar">
+                                <span class="ds-status" x-show="saving"><span class="material-icons" style="font-size:14px;">sync</span> 저장 중…</span>
+                                <span class="ds-status warn" x-show="!saving && dirty"><span class="material-icons" style="font-size:14px;">edit_note</span> 변경됨 · [저장] 클릭 시 반영</span>
+                                <span class="ds-status ok" x-show="!saving && !dirty"><span class="material-icons" style="font-size:14px;">cloud_done</span> 저장됨</span>
+                                <span class="ds-status warn" x-show="isStale" title="AASX Flow 집합과 배치가 일치하지 않습니다 — [자동배치] 권장."><span class="material-icons" style="font-size:14px;">warning</span> Flow 집합 불일치</span>
+                                <div class="spacer"></div>
+                                <span class="fl-ctrl" title="모든 카드 공통 크기 (가로:세로 2:1 고정, 레이아웃에 저장)">
+                                    <span class="material-icons">photo_size_select_large</span>
+                                    <input type="range" min="0.05" max="0.4" step="0.005" x-model.number="cardScale" @input="onCardScaleInput()" />
+                                    <span class="fl-val" x-text="Math.round(cardScale * 100) + '%'"></span>
+                                </span>
+                                <span class="fl-ctrl" :class="snapEnabled ? '' : 'is-off'" title="스냅: 켜면 배치/이동이 격자 간격에 맞춰짐">
+                                    <label class="fl-snaptoggle"><input type="checkbox" x-model="snapEnabled" @change="persistSnap()" /> 스냅</label>
+                                    <input type="range" min="20" max="240" step="10" x-model.number="snapSize" @input="persistSnap()" :disabled="!snapEnabled" />
+                                    <span class="fl-val" x-text="snapSize + 'px'"></span>
+                                </span>
+                                <label class="btn btn-sm btn-outlined" style="cursor:pointer;">
+                                    <span class="material-icons" style="font-size:16px;">image</span> 이미지
+                                    <input type="file" accept=".png,.jpg,.jpeg" style="display:none;" @change="onImageSelected($event)" />
+                                </label>
+                                <button class="btn btn-sm btn-outlined color-success" @click="autofill()" :disabled="!availableFlows.length" title="모든 Flow 자동 배치"><span class="material-icons" style="font-size:16px;">auto_awesome_mosaic</span> 자동배치</button>
+                                <button class="btn btn-sm btn-outlined color-warning" @click="clearAll()" :disabled="!(layout && layout.flowPlacements.length)"><span class="material-icons" style="font-size:16px;">delete_sweep</span> 지우기</button>
+                                <button class="btn btn-sm btn-outlined" @click="cancelEdits()" :disabled="!dirty || saving" title="저장하지 않은 변경을 취소하고 마지막 저장 상태로 되돌리기"><span class="material-icons" style="font-size:16px;">undo</span> 취소</button>
+                            </div>
+                            <div class="fl-palette" x-show="!availableFlows.length" style="border-style:solid; border-color:var(--color-warning); background:color-mix(in srgb, var(--color-warning) 7%, var(--color-surface));">
+                                <span class="fp-hint" style="color:var(--color-warning);">
+                                    <span class="material-icons" style="font-size:15px;">info</span>
+                                    <span>배치 가능한 Flow 가 없습니다 — Promaker 에서 AASX 프로젝트를 로드하면 Flow 가 표시됩니다.</span>
+                                </span>
+                            </div>
+                            <div class="fl-palette" x-show="availableFlows.length">
+                                <span class="fp-hint">
+                                    <span class="material-icons" style="font-size:15px;" x-text="armedFlowId ? 'ads_click' : 'touch_app'"></span>
+                                    <span x-text="armedFlowId ? '도면의 원하는 위치를 클릭해 배치 (취소: 칩 재클릭)' : '미배치 Flow 클릭 → 도면 클릭하여 배치 · 배치 후 드래그로 이동'"></span>
+                                </span>
+                                <template x-for="(f, i) in availableFlows" :key="f.id">
+                                    <button :class="'fl-chip ' + (isPlaced(f.id) ? 'is-placed' : '') + (armedFlowId === f.id ? ' is-armed' : '')"
+                                            @click="!isPlaced(f.id) && armFlow(f.id)" :disabled="isPlaced(f.id)" :title="f.name + (f.system ? (' · ' + f.system) : '')">
+                                        <span class="fp-num" x-text="i + 1"></span>
+                                        <span x-text="f.name"></span>
+                                        <span class="material-icons" x-text="isPlaced(f.id) ? 'check_circle' : (armedFlowId === f.id ? 'ads_click' : 'add_box')"></span>
+                                    </button>
+                                </template>
+                            </div>
+                        </div>
+
+                        <template x-if="layout && (layout.flowPlacements.length > 0 || editing)">
+                            <div class="fl-stage" style="flex:1; min-height:0; width:100%; display:flex; gap:12px; align-items:stretch; overflow:hidden;">
+                                <aside class="fl-order" x-show="editing && availableFlows.length" x-cloak>
+                                    <div class="fl-order-head">
+                                        <span class="material-icons" style="font-size:16px;">format_list_numbered</span>
+                                        <span>공정 순서</span>
+                                    </div>
+                                    <div class="fl-order-hint">드래그 또는 ▲▼ 로 순서 변경 · 우측 차트 번호가 즉시 반영</div>
+                                    <div class="fl-order-list">
+                                        <template x-for="(f, i) in availableFlows" :key="f.id">
+                                            <div class="fl-order-row" :class="orderDragIdx === i ? 'is-dragging' : ''"
+                                                 draggable="true"
+                                                 @dragstart="orderDragIdx = i"
+                                                 @dragover.prevent="onOrderDragOver(i)"
+                                                 @drop.prevent="orderDragIdx = null"
+                                                 @dragend="orderDragIdx = null">
+                                                <span class="material-icons fl-order-handle" title="드래그하여 순서 변경">drag_indicator</span>
+                                                <span class="fl-order-num" x-text="i + 1"></span>
+                                                <span class="fl-order-name" :title="f.name + (f.system ? (' · ' + f.system) : '')" x-text="f.name"></span>
+                                                <span class="fl-order-btns">
+                                                    <button class="fl-order-btn" :disabled="i === 0" @click="orderNudge(i, -1)" title="위로"><span class="material-icons">keyboard_arrow_up</span></button>
+                                                    <button class="fl-order-btn" :disabled="i === availableFlows.length - 1" @click="orderNudge(i, 1)" title="아래로"><span class="material-icons">keyboard_arrow_down</span></button>
+                                                </span>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </aside>
+                                <div class="fl-canvas-wrap">
+                                    <div x-ref="svgArea" class="fl-canvas" :class="{ 'is-armed': editing && armedFlowId, 'is-editing-canvas': editing }"
+                                         :style="`position:relative; width:100%; max-width:calc(var(--fl-cap, 56vh) * ${renderCanvasW} / ${renderCanvasH}); margin:0 auto; aspect-ratio:${renderCanvasW}/${renderCanvasH}; overflow:hidden;`"
+                                         @click="onCanvasClick($event)" @dragstart.prevent
+                                         @pointermove="onDragMove($event)" @pointerup="onDragEnd($event)" @pointercancel="onDragEnd($event)">
+                                        <template x-if="(layout?.blueprintImagePath) || (editing && pendingImage)">
+                                            <img class="fl-blueprint" :src="blueprintSrc" draggable="false"
+                                                 style="position:absolute; inset:0; width:100%; height:100%; pointer-events:none; object-fit:fill;" />
+                                        </template>
+                                        <svg class="fl-grid-overlay" x-show="editing && snapEnabled" x-cloak xmlns="http://www.w3.org/2000/svg"
+                                             :viewBox="`0 0 ${layout.canvasWidth} ${layout.canvasHeight}`" preserveAspectRatio="none" x-html="gridOverlaySvg"></svg>
+                                        <template x-for="c in cards" :key="c.flowName">
+                                            <div :class="'fl-card ' + (editing ? 'is-editing ' : '') + (editing && dragName === c.flowName ? 'is-dragging ' : '') + (c.editSelected ? 'is-editsel ' : '') + (c.selected ? 'fl-card-selected ' : '') + (c.isBottleneck ? 'is-bottleneck' : (c.isMaxWait ? 'is-maxwait' : ''))"
+                                                 :style="`left:${c.leftPct}%; top:${c.topPct}%; width:${c.widthPct}%; height:${c.heightPct}%; --fc-edge:${c.edgeColor};`"
+                                                 :draggable="editing ? 'false' : null"
+                                                 @click.stop="editing || selectFlow(c.flowName)"
+                                                 @pointerdown="onCardPointerDown($event, c)">
+                                                <button class="fl-del" x-show="editing" x-cloak @click.stop="removePlacement(c.flowName)" @pointerdown.stop title="이 블럭 삭제">×</button>
+                                                <div class="fc-cq">
+                                                    <div class="fc-root">
+                                                        <div class="fc-toprow">
+                                                            <div class="fc-name" :title="c.flowName"><span x-text="c.flowName"></span></div>
+                                                            <div class="fc-badges">
+                                                                <template x-if="c.isBottleneck"><span class="fc-badge tag-bottleneck">최대 CT</span></template>
+                                                                <template x-if="c.isMaxWait"><span class="fc-badge tag-wait">대기↑</span></template>
+                                                                <span class="fc-badge" :class="'state-' + c.state" x-text="c.stateText"></span>
+                                                            </div>
+                                                        </div>
+                                                        <template x-if="!c.isEmpty">
+                                                            <div class="fc-main">
+                                                                <div class="fc-ct-line" :title="`전체 사이클타임 ${fmt(c.total)}`">
+                                                                    <span class="fc-ct-val" x-text="fmt(c.total)"></span>
+                                                                    <span class="fc-ct-lbl">CT</span>
+                                                                </div>
+                                                                <div class="fc-rw">
+                                                                    <div class="fc-rw-row top">
+                                                                        <span class="fc-rw-lbl mt">가동</span>
+                                                                        <span class="fc-rw-val mt" x-text="fmt(c.mt)"></span>
+                                                                    </div>
+                                                                    <div class="fc-segbar" :title="`가동 ${fmt(c.mt)} (${c.mtPercent}%) · 대기 ${fmt(c.wt)}`">
+                                                                        <div class="fc-seg mt" :style="`width:${c.mtPercent}%`"></div>
+                                                                        <div class="fc-seg wt" :style="`width:${(100 - c.mtFrac * 100).toFixed(1)}%`"></div>
+                                                                    </div>
+                                                                    <div class="fc-rw-row bot">
+                                                                        <span class="fc-rw-lbl wt">대기</span>
+                                                                        <span class="fc-rw-val wt" x-text="fmt(c.wt)"></span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </template>
+                                                        <template x-if="c.isEmpty">
+                                                            <div class="fc-waiting">
+                                                                <span class="material-icons">schedule</span>
+                                                                <span class="fc-waiting-text" x-text="c.waitText"></span>
+                                                            </div>
+                                                        </template>
+                                                    </div>
+                                                </div>
+                                                <a class="fc-detail-btn" x-show="!editing" :href="'/flow?name=' + encodeURIComponent(c.flowName)" @click.stop title="상세 분석">
+                                                    <span class="material-icons">analytics</span>
+                                                    <span class="fc-detail-label">상세</span>
+                                                </a>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                        <template x-if="!editing && (!layout || layout.flowPlacements.length === 0)">
+                            <div class="ds-empty" style="padding:40px 0; margin:auto;">
+                                <span class="material-icons">map</span>
+                                <span class="ds-empty-title">배치된 Flow 블럭이 없습니다</span>
+                                <span class="ds-empty-desc">[편집] 을 눌러 도면에 Flow 블럭을 배치하면 실시간 사이클타임이 표시됩니다.</span>
+                                <button class="btn btn-sm btn-outlined" @click="enterEdit()">
+                                    <span class="material-icons" style="font-size:16px;">edit</span> 도면 편집 시작
+                                </button>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- ── CT Comparison (4/12) — Chart.js 도넛 ── -->
+                <div class="col-span-12 lg:col-span-4 bg-surface-container-lowest border border-outline-variant rounded-xl shadow-sm overflow-hidden flex flex-col" style="min-height:360px;">
+                    <div class="p-4 border-b border-outline-variant flex justify-between items-center bg-surface-container-low">
+                        <span class="font-headline-md text-headline-md text-primary">CT Comparison</span>
+                        <div class="flex bg-surface border border-outline-variant rounded p-0.5">
+                            <button class="px-2 py-1 text-[10px] font-bold rounded-sm transition-all flex items-center gap-1"
+                                    :class="!showAverage ? 'bg-secondary text-white shadow-sm' : 'text-on-surface-variant hover:bg-surface-container-high'"
+                                    @click="setDisplayMode(false)" title="이전 사이클 값 표시">
+                                <span class="material-icons text-[14px]">history</span> 이전
+                            </button>
+                            <button class="px-2 py-1 text-[10px] font-bold rounded-sm transition-all flex items-center gap-1"
+                                    :class="showAverage ? 'bg-secondary text-white shadow-sm' : 'text-on-surface-variant hover:bg-surface-container-high'"
+                                    @click="setDisplayMode(true)" title="평균값 표시">
+                                <span class="material-icons text-[14px]">analytics</span> 평균
+                            </button>
+                        </div>
+                    </div>
+
+                    <template x-if="chartData.length > 0">
+                        <div style="flex:1; min-height:0; display:flex; flex-direction:column;">
+                            <div style="position:relative; flex:1; min-height:220px; padding:10px 4px 4px;" x-effect="renderCtDonut()" @click="selectFlow(null)">
+                                <canvas x-ref="ctDonut"></canvas>
+                                <div style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; pointer-events:none; text-align:center; padding:0 12px;">
+                                    <span style="font-size:0.6rem; font-weight:800; letter-spacing:0.1em; text-transform:uppercase; font-family:var(--font-mono); color:var(--color-text-secondary); max-width:52%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"
+                                          x-text="selectedFlowName ? selectedFlowName : '전체 CT'"></span>
+                                    <span style="font-size:1.35rem; font-weight:800; color:var(--color-text-primary); font-family:var(--font-mono); font-variant-numeric:tabular-nums; margin-top:2px;"
+                                          x-text="fmt(selectedFlowName ? (chartData.find(f => f.flowName === selectedFlowName)?.ct || 0) : chartData.reduce((a, b) => a + b.ct, 0))"></span>
+                                </div>
+                            </div>
+                            <div class="ct-legend">
+                                <template x-for="(f, i) in chartData" :key="f.flowName">
+                                    <button class="ct-legend-item" :class="selectedFlowName === f.flowName ? 'is-sel' : ''"
+                                            @click.stop="selectFlow(selectedFlowName === f.flowName ? null : f.flowName)" :title="f.flowName + ' · ' + fmt(f.ct)">
+                                        <span class="ct-legend-sw" :style="`background:${f.flowName === maxCtName ? 'var(--red)' : ctPalette(i)}`"></span>
+                                        <span class="ct-legend-name" x-text="f.flowName"></span>
+                                        <span class="ct-legend-val" x-text="fmt(f.ct)"></span>
+                                    </button>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
+                    <template x-if="chartData.length === 0">
+                        <div class="flex-1 flex items-center justify-center p-6">
+                            <div class="ds-empty" style="padding:32px 0;">
+                                <span class="material-icons">donut_large</span>
+                                <span class="ds-empty-title">Time 데이터가 없습니다</span>
+                                <span class="ds-empty-desc">사이클이 수집되면 Flow별 CT 가 도넛으로 표시됩니다.</span>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- ════════════ Recent History ════════════ -->
+            <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-sm overflow-hidden">
+                <div class="p-4 border-b border-outline-variant bg-surface-container-low">
+                    <div class="ds-card-h" style="margin-bottom:0;">
+                        <h4>
+                            <span x-text="histFlowName ? ('Recent History — ' + histFlowName) : 'Recent History'"></span>
+                            <span class="hist-auto-tag" x-show="histIsAuto" x-cloak
+                                  title="고정 선택이 없어 최대 CT Flow 를 자동 표시 중 · KPI·도면·막대를 클릭하면 다른 Flow 로 전환">최대 CT·자동</span>
+                        </h4>
+                        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+                            <span class="ds-card-h-sub" x-show="histFlowName && flowHistory.length > 0"
+                                  :title="'최근 발생순으로 최대 ' + histLimit + '개 사이클을 조회합니다. 더 과거 데이터는 사이클분석 페이지에서 확인하세요.'"
+                                  x-text="'총 ' + visibleHistory.length + '개' + (excludedCount > 0 ? (' / 제외 ' + excludedCount) : '') + ' · 최근 최대 ' + histLimit + ' · 평균 CT ' + (histAvgCt > 0 ? fmt(histAvgCt) : '--') + (histStdCt > 0 ? (' ±' + fmt(histStdCt)) : '')"></span>
+                            <span class="hist-filter-chip" x-show="excludedCount > 0" x-cloak>
+                                <span x-text="excludedCount + '개 제외됨 · ' + rangeLabel + ' · 평균 재계산'"></span>
+                                <button class="hfc-reset" @click="resetExclusions()" title="제외 해제 (전체 복원)">
+                                    <span class="material-icons">restart_alt</span> 초기화
+                                </button>
+                            </span>
+                            <button class="btn btn-sm btn-outlined" x-show="histFlowName && flowHistory.length > 0"
+                                    :class="_exRange ? 'btn-filled' : ''"
+                                    @click="openRangeModal()" title="최소·최대 CT 를 지정해 그 범위를 벗어난 사이클(이상치)을 제외합니다 — 선택한 Flow 별로 적용·유지됩니다">
+                                <span class="material-icons" style="font-size:16px;">filter_alt</span>
+                                <span x-text="_exRange ? ('범위 ' + rangeLabel) : '이상치 제외'"></span>
+                            </button>
+                            <div class="hist-toggle" x-show="histFlowName && flowHistory.length > 0">
+                                <button :class="histView === 'table' ? 'is-active' : ''" @click="setHistView('table')" title="데이터 테이블로 보기">
+                                    <span class="material-icons">table_rows</span> 테이블
+                                </button>
+                                <button :class="histView === 'chart' ? 'is-active' : ''" @click="setHistView('chart')" title="차트로 보기">
+                                    <span class="material-icons">bar_chart</span> 차트
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="p-4">
+                    <template x-if="!histFlowName">
+                        <div class="ds-empty" style="padding:28px 0;">
+                            <span class="material-icons">history_toggle_off</span>
+                            <span class="ds-empty-title">표시할 사이클 데이터가 없습니다</span>
+                            <span class="ds-empty-desc">사이클이 수집되면 최대 CT Flow 의 히스토리가 자동으로 표시됩니다. KPI 셀 · 도면 카드 · 비교 막대를 클릭하면 특정 Flow 로 고정할 수 있습니다.</span>
+                        </div>
+                    </template>
+                    <template x-if="histFlowName && flowHistory.length === 0">
+                        <div class="ds-empty" style="padding:28px 0;">
+                            <span class="material-icons">history_toggle_off</span>
+                            <span class="ds-empty-title" x-text="'기록된 사이클이 없습니다 — ' + histFlowName"></span>
+                            <span class="ds-empty-desc">사이클이 완료되면 시작시각·MT·WT·CT 가 누적되어 표시됩니다.</span>
+                        </div>
+                    </template>
+                    <template x-if="histFlowName && flowHistory.length > 0">
+                        <div>
+                            <div class="hist-chart-wrap" x-show="histView === 'chart'">
+                                <canvas x-ref="histChart"></canvas>
+                            </div>
+                            <div class="hist-table-wrap" x-show="histView === 'table'">
+                                <table class="ds-table">
+                                    <thead>
+                                        <tr>
+                                            <th style="width:150px;">시작 시각</th>
+                                            <th>MT</th><th>WT</th><th>CT</th>
+                                            <th>WT/CT</th><th style="width:64px;">상태</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <template x-for="h in visibleHistory" :key="h._key">
+                                            <tr>
+                                                <td class="num" x-text="h._time"></td>
+                                                <td class="num hist-mt" x-text="fmt(h.mt ?? 0)"></td>
+                                                <td class="num hist-wt" x-text="fmt(h.wt ?? 0)"></td>
+                                                <td class="num hist-ct" x-text="fmt(h.ct ?? 0)"></td>
+                                                <td class="num" x-text="h._wt"></td>
+                                                <td>
+                                                    <template x-if="h._status">
+                                                        <span class="ds-status" :class="h._status?.cls" x-text="h._status?.label"></span>
+                                                    </template>
+                                                    <template x-if="!h._status">
+                                                        <span class="ds-status info" title="표본<2 — 편차 기준 산출 불가">–</span>
+                                                    </template>
+                                                </td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- ════════════ Footer / Agent Status ════════════ -->
+            <footer class="mt-2 border-t border-outline-variant bg-surface-container-low px-2 py-4 flex justify-between items-center text-[10px] uppercase font-bold text-outline flex-wrap gap-3 rounded-b-lg">
+                <div class="flex gap-8 flex-wrap">
+                    <div class="flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full" :class="nav.hub === 'connected' ? 'bg-green-500' : (nav.hub === 'connecting' || nav.hub === 'reconnecting' ? 'bg-orange-400' : 'bg-gray-400')"></span>
+                        <span x-text="'PROMAKER HUB: ' + hubLabel"></span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full" :class="nav.hub === 'connected' && nav.plcDown === 0 && nav.plcTotal > 0 ? 'bg-green-500' : (nav.plcDown > 0 ? 'bg-red-500' : 'bg-gray-400')"></span>
+                        <span x-text="plcLabel"></span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full" :class="hasData ? 'bg-green-500' : 'bg-gray-400'"></span>
+                        <span x-text="hasData ? 'PLC 데이터 수신중' : 'PLC 데이터 대기'"></span>
+                    </div>
+                </div>
+                <div>© DSPILOT INDUSTRIAL SYSTEM · 실시간 모니터링</div>
+            </footer>
+        </div>
+
+        <!-- ── 시프트 설정 팝업 ── -->
+        <div class="modal-overlay" x-show="shiftModalOpen" x-cloak style="z-index:2000;" @click="closeShiftModal()">
+            <div class="modal-content shift-modal" @click.stop>
+                <div class="sm-head">
+                    <span class="sm-title">⏱ 시프트 설정</span>
+                    <button class="btn-icon" @click="closeShiftModal()" title="닫기"><span class="material-icons">close</span></button>
+                </div>
+                <div class="sm-body">
+                    <div class="form-group">
+                        <label class="form-label">시프트 시간</label>
+                        <div class="sm-times">
+                            <div>
+                                <div class="form-helper" style="margin:0 0 5px;">시작</div>
+                                <input type="time" class="form-field" x-model="shiftForm.start" @change="onShiftTimeEdited()" />
+                            </div>
+                            <div>
+                                <div class="form-helper" style="margin:0 0 5px;">종료</div>
+                                <input type="time" class="form-field" x-model="shiftForm.end" @change="onShiftTimeEdited()" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">시프트 종류</label>
+                        <div class="sm-seg">
+                            <button :class="shiftForm.shiftType === 'morning' ? 'is-active' : ''" @click="applyShiftType('morning')">오전</button>
+                            <button :class="shiftForm.shiftType === 'afternoon' ? 'is-active' : ''" @click="applyShiftType('afternoon')">오후</button>
+                            <button :class="shiftForm.shiftType === 'night' ? 'is-active' : ''" @click="applyShiftType('night')">야간</button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">생산 목표 대상 Flow</label>
+                        <select class="form-select" x-model="shiftForm.targetFlow">
+                            <option value="">— Flow 선택 —</option>
+                            <template x-for="name in flowNames" :key="name">
+                                <option :value="name" x-text="name"></option>
+                            </template>
+                        </select>
+                        <div class="form-helper" x-show="!flowNames.length">배치된 Flow 가 없습니다 — 도면에서 Flow 를 배치하세요.</div>
+                    </div>
+                    <div class="form-group" x-show="shiftForm.targetFlow">
+                        <label class="form-label">생산 목표 수량</label>
+                        <div class="sm-stepper">
+                            <button @click="bumpTarget(-10)" title="-10">−</button>
+                            <input type="number" class="form-field" min="0" step="1" x-model.number="shiftForm.targetCount" />
+                            <button @click="bumpTarget(10)" title="+10">+</button>
+                        </div>
+                    </div>
+                    <div class="form-group" x-show="shiftForm.targetFlow && shiftForm.targetCount > 0">
+                        <label class="form-label">시프트 동안 만들어야 할 총 개수</label>
+                        <div class="sm-hint">
+                            <span class="material-icons">info</span>
+                            <span>
+                                <b x-text="shiftForm.targetCount + '개'"></b> 목표 ·
+                                균등 페이스 기준 시간당 <b x-text="'약 ' + shiftFormPerHour + '개'"></b> 만들면 목표를 달성합니다.
+                                <span x-show="shiftFormDurationHours > 0" x-text="'(시프트 ' + shiftFormDurationHours.toFixed(1) + '시간)'"></span>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                <div class="sm-foot">
+                    <button class="btn btn-outlined" @click="closeShiftModal()">취소</button>
+                    <button class="btn btn-filled" @click="saveShift()"><span class="material-icons" style="font-size:17px;">check</span> 저장</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── 이상치 제외 범위 팝업 ── -->
+        <div class="modal-overlay" x-show="rangeModalOpen" x-cloak style="z-index:2000;" @click="closeRangeModal()">
+            <div class="modal-content shift-modal" @click.stop>
+                <div class="sm-head">
+                    <span class="sm-title">🔎 이상치 제외 · <span x-text="histFlowName"></span></span>
+                    <button class="btn-icon" @click="closeRangeModal()" title="닫기"><span class="material-icons">close</span></button>
+                </div>
+                <div class="sm-body">
+                    <div class="sm-hint" style="margin-bottom:14px;">
+                        <span class="material-icons">info</span>
+                        <span>
+                            설정한 <b>최소 ~ 최대</b> CT 범위를 벗어난 사이클을 차트·테이블·평균에서 제외합니다.
+                            한쪽만 입력해도 됩니다 (예: <b>최대</b>만 입력 = 그보다 긴 사이클만 제외). 새 사이클이 들어와도 범위가 유지됩니다.
+                        </span>
+                    </div>
+                    <div class="form-group" x-show="flowHistory.length > 0">
+                        <label class="form-label">현재 CT 범위 (참고)</label>
+                        <div class="form-helper" style="margin:0;">
+                            최소 <b x-text="fmt(histCtMinMs)"></b> · 최대 <b x-text="fmt(histCtMaxMs)"></b> · 평균 <b x-text="histAvgCt > 0 ? fmt(histAvgCt) : '--'"></b>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">제외 기준 범위</label>
+                        <div class="sm-times">
+                            <div>
+                                <div class="form-helper" style="margin:0 0 5px;">최소 시간</div>
+                                <div class="range-row">
+                                    <input type="number" class="form-field" min="0" step="any" placeholder="제한 없음" x-model="rangeForm.min" />
+                                    <select class="form-select range-unit" :value="rangeForm.minUnit" @change="changeUnit('min', $event.target.value)" title="최소 시간 단위">
+                                        <option value="s">초</option><option value="m">분</option><option value="h">시간</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="form-helper" style="margin:0 0 5px;">최대 시간</div>
+                                <div class="range-row">
+                                    <input type="number" class="form-field" min="0" step="any" placeholder="제한 없음" x-model="rangeForm.max" />
+                                    <select class="form-select range-unit" :value="rangeForm.maxUnit" @change="changeUnit('max', $event.target.value)" title="최대 시간 단위">
+                                        <option value="s">초</option><option value="m">분</option><option value="h">시간</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-helper" style="margin:7px 0 0;" x-show="rangePreviewLabel" x-text="rangePreviewLabel"></div>
+                    </div>
+                </div>
+                <div class="sm-foot">
+                    <button class="btn btn-outlined" @click="resetExclusions(); closeRangeModal()" :disabled="!_exRange" title="이 Flow 의 제외 범위 해제 (전체 복원)">제외 해제</button>
+                    <button class="btn btn-filled" @click="applyRange()"><span class="material-icons" style="font-size:17px;">check</span> 적용</button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 인플레이스 편집 토스트 -->
+    <div :class="'dash-toast ' + editToast.kind + (editToast.show ? ' show' : '')" x-text="editToast.msg" x-cloak></div>
+</div>
+
+<script src="/lib/signalr.min.js"></script>
+<script src="/lib/chart.umd.min.js"></script>
+<script>
+    function dashboardApp() {
+        const SYSTEM_COLORS = ['#2A3646', '#3A4A5E', '#4A5B70', '#5E7088', '#7889A0'];
+        const CT_DONUT_COLORS = ['#0058be', '#16a34a', '#0ea5e9', '#10b981', '#6366f1', '#0891b2', '#22c55e', '#3b82f6', '#14b8a6', '#8b5cf6', '#2563eb', '#059669'];
+        const histCache = {};
+        return {
+            flows: [], layout: null, hasData: false, loading: true, error: null, demoBlocked: false, dark: false,
+            cardScale: 0.15,
+            selectedFlowName: null,
+            editing: false,
+            availableFlows: [],
+            isStale: false,
+            armedFlowId: null,
+            selectedFlowId: null,
+            saving: false,
+            dirty: false,
+            pendingImage: null,
+            snapEnabled: false,
+            snapSize: 40,
+            dragName: null,
+            orderDragIdx: null,
+            _drag: null,
+            editToast: { show: false, msg: '', kind: 'info' },
+            _editToastT: null,
+            flowHistory: [],
+            histAvgCt: 0, histStdCt: 0,
+            _histShownFor: null,
+            histView: 'chart',
+            histLimit: 200,
+            _histChart: null,
+            _ctDonut: null,
+            rangeByFlow: {},
+            rangeModalOpen: false,
+            rangeForm: { min: '', max: '', minUnit: 's', maxUnit: 's' },
+            showAverage: false,
+            sortField: 'ct', sortDesc: true,
+            flowProcessOrder: {},
+            rt: { connected: false },
+            // ── 사이드바 라인요약 / 푸터 agent 통신 (stitch 셸용, /api/nav/summary 폴링) ──
+            nav: { running: 0, idle: 0, total: 0, eff: 0, hub: 'disconnected', plcTotal: 0, plcDown: 0, anomaly: 0 },
+            errorStatus: { active: 0, today: 0, latestId: null, latestAt: null, latestSystem: null, latestName: null },
+            _errDismissedId: 0,
+            userTagsHref: '/uptime',
+            shift: { start: '08:00', end: '17:00', shiftType: 'morning', targetFlow: null, targetCount: 0, madeCount: 0 },
+            shiftForm: { start: '08:00', end: '17:00', shiftType: 'morning', targetFlow: '', targetCount: 0 },
+            shiftModalOpen: false,
+            nowTick: Date.now(),
+            _conn: null, _dt: null, _sysColorIdx: {}, _shiftTimer: null, _pollTimer: null, _navTimer: null,
+
+            async init() {
+                this.dark = localStorage.getItem('dspilot-theme') === 'dark';
+                this._applyTheme();
+                window.addEventListener('storage', (e) => {
+                    if (e.key !== 'dspilot-theme') return;
+                    this.dark = e.newValue === 'dark';
+                    this._applyTheme();
+                    this.$nextTick(() => { this.renderCtDonut(); if (this.histView === 'chart') this.renderHistChart(); });
+                });
+                this.snapEnabled = localStorage.getItem('dspilot-dash-snap') === '1';
+                const ss = parseInt(localStorage.getItem('dspilot-dash-snapsize'), 10);
+                if (!isNaN(ss)) this.snapSize = Math.max(20, Math.min(240, Math.round(ss / 10) * 10));
+                await this.loadExclusions();
+                await this.loadSnapshot();
+                await this.loadShift();
+                this.loadNavSummary();
+                this.connectSignalR();
+                this._pollTimer = setInterval(() => this.loadSnapshot(), 5000);
+                this._navTimer = setInterval(() => this.loadNavSummary(), 4000);
+                this._shiftTimer = setInterval(() => { this.nowTick = Date.now(); }, 1000);
+                document.addEventListener('fullscreenchange', () => {});
+            },
+
+            destroy() {
+                clearInterval(this._pollTimer);
+                clearInterval(this._navTimer);
+                clearInterval(this._shiftTimer);
+                clearTimeout(this._dt);
+                this._conn?.stop();
+            },
+
+            // <html> 에 .dark + .dark-theme 동시 토글 → Tailwind dark: 변형과 CSS변수/차트 모두 적응
+            _applyTheme() {
+                document.documentElement.classList.toggle('dark', this.dark);
+                document.documentElement.classList.toggle('dark-theme', this.dark);
+            },
+            toggleTheme() {
+                this.dark = !this.dark;
+                localStorage.setItem('dspilot-theme', this.dark ? 'dark' : 'light');
+                this._applyTheme();
+                this.$nextTick(() => { this.renderCtDonut(); if (this.histView === 'chart') this.renderHistChart(); });
+            },
+            persistSnap() { localStorage.setItem('dspilot-dash-snap', this.snapEnabled ? '1' : '0'); localStorage.setItem('dspilot-dash-snapsize', String(this.snapSize)); },
+
+            async apiGet(url) {
+                const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+                if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                return await res.json();
+            },
+
+            // ── 사이드바 라인요약 / 푸터 agent 통신 (shell.js 미사용 → 직접 폴링) ──
+            async loadNavSummary() {
+                try {
+                    const d = await this.apiGet('/api/nav/summary');
+                    const lines = d.lines || {}, agent = d.agent || {};
+                    this.nav = {
+                        running: lines.running || 0, idle: lines.idle || 0, total: lines.total || 0,
+                        eff: lines.efficiencyPct || 0,
+                        hub: agent.hub || 'disconnected', plcTotal: agent.plcTotal || 0, plcDown: agent.plcDisconnected || 0,
+                        anomaly: d.anomalyActiveCount || 0
+                    };
+                } catch (e) { /* 비핵심 — 마지막 값 유지 */ }
+            },
+            get hubLabel() {
+                return this.nav.hub === 'connected' ? '정상'
+                    : (this.nav.hub === 'connecting' ? '연결 중'
+                    : (this.nav.hub === 'reconnecting' ? '재연결 중' : '끊김'));
+            },
+            get plcLabel() {
+                if (this.nav.hub !== 'connected') return 'PLC 어댑터: —';
+                if (this.nav.plcTotal === 0) return 'PLC 어댑터: 보고 없음';
+                if (this.nav.plcDown > 0) return 'PLC 어댑터: ' + this.nav.plcDown + '대 끊김';
+                return 'PLC 어댑터: ' + this.nav.plcTotal + '대 연결';
+            },
+
+            async loadSnapshot() {
+                try {
+                    const data = await this.apiGet('/api/dashboard/snapshot');
+                    this.flows = data.flows || [];
+                    if (!this.editing) {
+                        this.layout = data.layout || null;
+                        if (this.layout && this.layout.cardScale > 0) this.cardScale = this.layout.cardScale;
+                    }
+                    this.hasData = data.hasData;
+                    this.error = null;
+                    this.rebuildProcessOrder();
+                    if (this.selectedFlowName) {
+                        const stillPlaced = this.layout && this.layout.flowPlacements.some(p => p.flowName === this.selectedFlowName);
+                        if (!stillPlaced) this.selectedFlowName = null;
+                    }
+                    this.syncHistory();
+                    this.loadShift();
+                    this.loadErrorStatus();
+                } catch (e) {
+                    if (e.message !== 'demo-blocked') this.error = '데이터를 불러오지 못했습니다: ' + e.message;
+                } finally {
+                    this.loading = false;
+                }
+            },
+
+            get showErrorBanner() {
+                const e = this.errorStatus;
+                return e.active > 0 && !!e.latestId && e.latestId !== this._errDismissedId;
+            },
+            async loadErrorStatus() {
+                try {
+                    const s = await this.apiGet('/api/user-tags/error-status');
+                    this.errorStatus = {
+                        active: s.activeErrorCount || 0,
+                        today: s.todayErrorCount || 0,
+                        latestId: s.latestErrorId || null,
+                        latestAt: s.latestErrorAtLocal || null,
+                        latestSystem: s.latestErrorSystem || null,
+                        latestName: s.latestErrorName || null,
+                    };
+                } catch (e) { /* 배너는 비핵심 — 조용히 무시 */ }
+            },
+            dismissErrorBanner() { this._errDismissedId = this.errorStatus.latestId || 0; },
+
+            connectSignalR() {
+                if (!window.signalR) return;
+                const conn = new signalR.HubConnectionBuilder()
+                    .withUrl('/hubs/monitoring')
+                    .withAutomaticReconnect([0, 0, 1000, 3000, 5000, 10000])
+                    .build();
+                const trigger = () => this.debouncedLoad();
+                conn.on('CallStateChangedBatch', trigger);
+                conn.on('CallStateChanged', trigger);
+                conn.on('DatabaseRebuilt', () => {
+                    if (this.editing) this.reloadBlueprint().then(() => this.editToastShow('Flow 집합이 변경되어 편집 도면을 새로고침했습니다.', 'info')).catch(() => {});
+                    this.loadSnapshot();
+                });
+                conn.on('FlowHistoryCleared', trigger);
+                conn.on('ShiftChanged', () => { this.loadShift(); });
+                conn.on('ExclusionsChanged', () => { this.loadExclusions(); });
+                conn.onreconnected(() => { this.rt.connected = true; this.loadSnapshot(); });
+                conn.onreconnecting(() => { this.rt.connected = false; });
+                conn.onclose(() => { this.rt.connected = false; });
+                conn.start().then(() => { this.rt.connected = true; }).catch(() => { this.rt.connected = false; });
+                this._conn = conn;
+            },
+            debouncedLoad() {
+                clearTimeout(this._dt);
+                this._dt = setTimeout(() => {
+                    this.loadSnapshot();
+                }, 200);
+            },
+
+            get renderCanvasW() { return this.layout ? this.layout.canvasWidth : 1; },
+            get renderCanvasH() { return this.layout ? this.layout.canvasHeight : 1; },
+            get cards() { return this.layout ? this.layout.flowPlacements.map(fp => this.cardFor(fp)) : []; },
+
+            cardFor(fp) {
+                const L = this.layout;
+                const canvasW = L.canvasWidth, canvasH = L.canvasHeight;
+                const cardW = canvasW * this.cardScale, cardH = cardW / 2;
+                const cx = (fp.x ?? 0.5) * canvasW, cy = (fp.y ?? 0.5) * canvasH;
+                const px = cx - cardW / 2, py = cy - cardH / 2;
+                const f4 = (x) => x.toFixed(4);
+                const mtwt = this.flowMtWt(fp.flowName);
+                const mt = mtwt ? mtwt.mt : 0, wt = mtwt ? mtwt.wt : 0, total = mt + wt;
+                const isEmpty = !mtwt || total <= 0;
+                const stateRaw = (this.flowStateLabel(fp.flowName) || '').toLowerCase();
+                const stateKey = ['ready', 'going', 'finish', 'error'].includes(stateRaw) ? stateRaw : 'ready';
+                const stateText = { ready: 'Ready', going: 'Going', finish: 'Finish', error: 'Error' }[stateKey];
+                const waitText = stateKey === 'going' ? '방금 시작' : stateKey === 'finish' ? '방금 완료' : '곧 시작';
+                const mtFrac = total > 0 ? mt / total : 0;
+                const isBottleneck = fp.flowName === this.maxCtName && !isEmpty;
+                const isMaxWait = fp.flowName === this.maxWtName && !isEmpty;
+                const edgeColor = isBottleneck ? 'var(--red)'
+                    : isEmpty ? 'var(--color-lines-strong)'
+                    : (mtFrac >= 0.5 ? 'var(--dash-mt)' : 'var(--dash-wt)');
+                return {
+                    flowName: fp.flowName,
+                    leftPct: f4(px / canvasW * 100), topPct: f4(py / canvasH * 100),
+                    widthPct: f4(cardW / canvasW * 100), heightPct: f4(cardH / canvasH * 100),
+                    state: stateKey, stateText, edgeColor, waitText, isEmpty,
+                    mt, wt, total, mtPercent: (mtFrac * 100).toFixed(1), mtFrac,
+                    wtRatio: total > 0 ? wt / total : 0,
+                    selected: this.selectedFlowName === fp.flowName,
+                    editSelected: this.editing && !!this.selectedFlowId && fp.flowId === this.selectedFlowId,
+                    isBottleneck, isMaxWait
+                };
+            },
+
+            flowMtWt(name) {
+                const s = this.flows.find(f => f.flowName === name);
+                if (this.showAverage) {
+                    if (s && (s.avgMT != null || s.avgWT != null))
+                        return { mt: s.avgMT != null ? Math.trunc(s.avgMT) : 0, wt: s.avgWT != null ? Math.trunc(s.avgWT) : 0 };
+                    if (!s || (s.mt == null && s.wt == null)) return null;
+                    return { mt: s.mt ?? 0, wt: s.wt ?? 0 };
+                }
+                if (!s || (s.mt == null && s.wt == null)) return null;
+                return { mt: s.mt ?? 0, wt: s.wt ?? 0 };
+            },
+            flowColor(name, systemId) {
+                const s = this.flows.find(f => f.flowName === name);
+                if (!s) return this.systemColor(systemId);
+                switch ((s.state || '').toLowerCase()) {
+                    case 'ready': return '#9FB0C2'; case 'going': return '#0E7CCB';
+                    case 'finish': return '#2FA968'; case 'error': return '#D8392B';
+                    default: return '#9FB0C2';
+                }
+            },
+            systemColor(systemId) {
+                if (!(systemId in this._sysColorIdx)) this._sysColorIdx[systemId] = Object.keys(this._sysColorIdx).length % SYSTEM_COLORS.length;
+                return SYSTEM_COLORS[this._sysColorIdx[systemId]];
+            },
+            flowStateLabel(name) { const s = this.flows.find(f => f.flowName === name); return (s && s.state) ? s.state : ''; },
+            stateColor(name) {
+                switch ((this.flowStateLabel(name) || '').toLowerCase()) {
+                    case 'ready': return '#9FB0C2'; case 'going': return '#0E7CCB';
+                    case 'finish': return '#2FA968'; case 'error': return '#D8392B';
+                    default: return '#9FB0C2';
+                }
+            },
+            flowBadges(name) {
+                const b = [];
+                if (name === this.maxCtName) b.push({ label: '최대', color: 'var(--color-error)' });
+                if (name === this.minCtName) b.push({ label: '최소', color: 'var(--color-success)' });
+                if (name === this.maxWtName) b.push({ label: '대기', color: 'var(--color-warning)' });
+                return b;
+            },
+
+            rebuildProcessOrder() {
+                this.flowProcessOrder = {};
+                if (this.editing && this.availableFlows.length) {
+                    this.availableFlows.forEach((f, i) => { this.flowProcessOrder[f.name] = i; });
+                    return;
+                }
+                if (this.layout) {
+                    const order = this.layout.flowProcessOrder || [];
+                    const src = order.length ? order.map(o => o.flowName) : this.layout.flowPlacements.map(p => p.flowName);
+                    src.forEach((n, i) => { this.flowProcessOrder[n] = i; });
+                }
+            },
+            moveOrderItem(from, to) {
+                const arr = this.availableFlows;
+                if (!arr || from < 0 || from >= arr.length || to < 0 || to >= arr.length || from === to) return;
+                const [m] = arr.splice(from, 1);
+                arr.splice(to, 0, m);
+                this.rebuildProcessOrder();
+                this.markDirty();
+            },
+            onOrderDragOver(i) {
+                if (this.orderDragIdx === null || this.orderDragIdx === i) return;
+                this.moveOrderItem(this.orderDragIdx, i);
+                this.orderDragIdx = i;
+            },
+            orderNudge(i, dir) { this.moveOrderItem(i, i + dir); },
+
+            async bpApiPost(url, body) {
+                const res = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+                if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
+                if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || ('HTTP ' + res.status)); }
+                return await res.json();
+            },
+
+            applyBpState(data) {
+                if (!this.editing) return;
+                this.layout = data.layout || this.layout;
+                this.availableFlows = data.availableFlows || [];
+                this.isStale = !!data.isStale;
+                if (this.layout && this.layout.cardScale > 0) this.cardScale = this.layout.cardScale;
+                this.rebuildProcessOrder();
+                if (this.selectedFlowId && this.layout && !this.layout.flowPlacements.some(p => p.flowId === this.selectedFlowId)) this.selectedFlowId = null;
+            },
+            _clearPendingImage() {
+                if (this.pendingImage && this.pendingImage.url) { try { URL.revokeObjectURL(this.pendingImage.url); } catch (_) {} }
+                this.pendingImage = null;
+            },
+            async reloadBlueprint() {
+                const data = await this.apiGet('/api/blueprint');
+                this.layout = data.layout || null;
+                this.availableFlows = data.availableFlows || [];
+                this.isStale = !!data.isStale;
+                if (this.layout && this.layout.cardScale > 0) this.cardScale = this.layout.cardScale;
+                this.rebuildProcessOrder();
+                if (this.selectedFlowId && this.layout && !this.layout.flowPlacements.some(p => p.flowId === this.selectedFlowId)) this.selectedFlowId = null;
+                this._clearPendingImage();
+                this.dirty = false;
+            },
+
+            markDirty() { this.dirty = true; },
+            setPlacementLocal(flowId, x, y) {
+                if (!this.layout) return;
+                const f = this.availableFlows.find(a => a.id === flowId);
+                if (!f) return;
+                const list = this.layout.flowPlacements;
+                const existing = list.find(p => p.flowId === flowId);
+                if (existing) { existing.x = x; existing.y = y; }
+                else list.push({ flowId, flowName: f.name, systemId: f.systemId, systemName: f.system, x, y });
+                this.markDirty();
+            },
+
+            toggleEdit() { this.editing ? this.exitEdit() : this.enterEdit(); },
+            async enterEdit() {
+                this.editing = true; this.dirty = false;
+                this.armedFlowId = null; this.selectedFlowId = null;
+                this._clearPendingImage();
+                try {
+                    await this.reloadBlueprint();
+                } catch (e) {
+                    this.editing = false;
+                    if (e.message !== 'demo-blocked') this.editToastShow('편집 데이터를 불러오지 못했습니다: ' + e.message, 'error');
+                    this.loadSnapshot();
+                }
+            },
+            async exitEdit() {
+                if (this.dirty) {
+                    await this.saveLayout();
+                    if (this.dirty) return;
+                }
+                this.editing = false; this.armedFlowId = null; this.selectedFlowId = null;
+                this._drag = null; this.dragName = null; this.dirty = false;
+                this._clearPendingImage();
+                this.loadSnapshot();
+            },
+
+            isPlaced(flowId) { return (this.layout?.flowPlacements || []).some(p => p.flowId === flowId); },
+            armFlow(flowId) { this.armedFlowId = (this.armedFlowId === flowId) ? null : flowId; },
+            placementFor(flowName) { return (this.layout?.flowPlacements || []).find(p => p.flowName === flowName) || null; },
+
+            get gridOverlaySvg() {
+                const L = this.layout; if (!L || !this.editing || !this.snapEnabled) return '';
+                const s = this.snapSize; if (s <= 0) return '';
+                const w = L.canvasWidth, h = L.canvasHeight, parts = [];
+                for (let x = 0; x <= w + 0.5; x += s) parts.push(`<line class="gl-line" x1="${x}" y1="0" x2="${x}" y2="${h}" />`);
+                for (let y = 0; y <= h + 0.5; y += s) parts.push(`<line class="gl-line" x1="0" y1="${y}" x2="${w}" y2="${y}" />`);
+                return parts.join('');
+            },
+            snapXY(xf, yf) {
+                if (!this.snapEnabled || !this.layout) return [xf, yf];
+                const s = this.snapSize, w = this.layout.canvasWidth, h = this.layout.canvasHeight;
+                if (s <= 0 || w <= 0 || h <= 0) return [xf, yf];
+                return [Math.round(xf * w / s) * s / w, Math.round(yf * h / s) * s / h];
+            },
+            clamp01(v) { return Math.min(1, Math.max(0, v)); },
+            onCanvasClick(e) {
+                if (!this.editing) { this.selectFlow(null); return; }
+                if (this.armedFlowId) this.placeAtPoint(e.clientX, e.clientY);
+            },
+            placeAtPoint(clientX, clientY) {
+                const flowId = this.armedFlowId; if (!flowId) return;
+                const area = this.$refs.svgArea; if (!area) return;
+                const rect = area.getBoundingClientRect(); if (rect.width <= 0 || rect.height <= 0) return;
+                let xf = (clientX - rect.left) / rect.width, yf = (clientY - rect.top) / rect.height;
+                [xf, yf] = this.snapXY(this.clamp01(xf), this.clamp01(yf));
+                this.setPlacementLocal(flowId, this.clamp01(xf), this.clamp01(yf));
+                this.armedFlowId = null;
+                this.selectedFlowId = flowId;
+            },
+            removePlacement(flowName) {
+                const fp = this.placementFor(flowName); if (!fp || !this.layout) return;
+                this.layout.flowPlacements = this.layout.flowPlacements.filter(p => p.flowId !== fp.flowId);
+                if (this.selectedFlowId === fp.flowId) this.selectedFlowId = null;
+                this.markDirty();
+            },
+
+            onCardPointerDown(e, c) {
+                if (!this.editing) return;
+                e.preventDefault();
+                const fp = this.placementFor(c.flowName); if (!fp) return;
+                this.selectedFlowId = fp.flowId; this.armedFlowId = null;
+                const area = this.$refs.svgArea;
+                const rect = area ? area.getBoundingClientRect() : null;
+                this._drag = { name: c.flowName, flowId: fp.flowId, sx: e.clientX, sy: e.clientY,
+                               x: fp.x ?? 0.5, y: fp.y ?? 0.5,
+                               w: (rect && rect.width > 0) ? rect.width : 1, h: (rect && rect.height > 0) ? rect.height : 1,
+                               moved: false };
+                this.dragName = c.flowName;
+                try { area && area.setPointerCapture && area.setPointerCapture(e.pointerId); } catch (_) {}
+            },
+            onDragMove(e) {
+                const d = this._drag; if (!d) return;
+                const dx = e.clientX - d.sx, dy = e.clientY - d.sy;
+                if (!d.moved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) d.moved = true;
+                if (!d.moved) return;
+                this.setPlacementLocal(d.flowId, this.clamp01(d.x + dx / d.w), this.clamp01(d.y + dy / d.h));
+            },
+            onDragEnd(e) {
+                const d = this._drag; this._drag = null; this.dragName = null;
+                const area = this.$refs.svgArea;
+                try { area && area.releasePointerCapture && area.releasePointerCapture(e.pointerId); } catch (_) {}
+                if (!d || !d.moved) return;
+                let nx = this.clamp01(d.x + (e.clientX - d.sx) / d.w);
+                let ny = this.clamp01(d.y + (e.clientY - d.sy) / d.h);
+                [nx, ny] = this.snapXY(nx, ny);
+                this.setPlacementLocal(d.flowId, this.clamp01(nx), this.clamp01(ny));
+            },
+
+            onCardScaleInput() { this.markDirty(); },
+
+            onImageSelected(e) {
+                const file = e.target.files && e.target.files[0]; e.target.value = '';
+                if (!file) return;
+                const url = URL.createObjectURL(file);
+                const img = new Image();
+                img.onload = () => {
+                    this._clearPendingImage();
+                    this.pendingImage = { file, url, width: img.naturalWidth, height: img.naturalHeight };
+                    if (this.layout && img.naturalWidth > 0 && img.naturalHeight > 0) {
+                        this.layout.canvasWidth = img.naturalWidth;
+                        this.layout.canvasHeight = img.naturalHeight;
+                    }
+                    this.markDirty();
+                    this.editToastShow(`이미지 선택됨 (${img.naturalWidth}×${img.naturalHeight}) · [저장] 시 적용`, 'info');
+                };
+                img.onerror = () => { try { URL.revokeObjectURL(url); } catch (_) {} this.editToastShow('이미지를 읽지 못했습니다.', 'error'); };
+                img.src = url;
+            },
+            get blueprintSrc() {
+                if (this.editing && this.pendingImage) return this.pendingImage.url;
+                const p = this.layout?.blueprintImagePath; if (!p) return '';
+                return '/' + p.replace(/^\/+/, '') + '?v=' + (this.layout?.imageVersion ?? '');
+            },
+
+            clearAll() {
+                const n = this.layout?.flowPlacements?.length || 0;
+                if (!n || !confirm(`배치된 블럭 ${n}개를 모두 삭제하시겠습니까?`)) return;
+                this.armedFlowId = null; this.selectedFlowId = null;
+                this.layout.flowPlacements = [];
+                this.markDirty();
+                this.editToastShow('모든 블럭을 삭제했습니다 (저장 전).', 'info');
+            },
+            autofillLocal() {
+                const L = this.layout; if (!L) return 0;
+                const ordered = this.availableFlows; const n = ordered.length;
+                L.flowPlacements = [];
+                if (n === 0) return 0;
+                const usableW = Math.max(1, L.canvasWidth), usableH = Math.max(1, L.canvasHeight);
+                const aspect = usableW / usableH;
+                const cols = Math.max(1, Math.ceil(Math.sqrt(n * aspect)));
+                let rows = Math.ceil(n / cols);
+                while (cols * rows < n) rows++;
+                this.cardScale = Math.min(0.35, Math.max(0.06, 0.82 / cols));
+                L.flowPlacements = ordered.map((f, i) => {
+                    const col = i % cols, row = Math.floor(i / cols);
+                    return { flowId: f.id, flowName: f.name, systemId: f.systemId, systemName: f.system, x: (col + 0.5) / cols, y: (row + 0.5) / rows };
+                });
+                this.markDirty();
+                return n;
+            },
+            autofill() {
+                if (!this.availableFlows.length) return;
+                if ((this.layout?.flowPlacements?.length || 0) > 0 && !confirm(`기존 배치를 제거하고 Flow ${this.availableFlows.length}개를 자동 배치합니다. 계속하시겠습니까?`)) return;
+                this.armedFlowId = null; this.selectedFlowId = null;
+                const n = this.autofillLocal();
+                this.editToastShow(`Flow ${n}개를 자동 배치했습니다 (저장 전).`, 'success');
+            },
+            async cancelEdits() {
+                if (!this.dirty || this.saving) return;
+                if (!confirm('저장하지 않은 변경사항을 모두 취소하고 마지막 저장 상태로 되돌립니다. 계속하시겠습니까?')) return;
+                this.armedFlowId = null; this.selectedFlowId = null;
+                try {
+                    await this.reloadBlueprint();
+                    this.editToastShow('마지막 저장 상태로 되돌렸습니다.', 'success');
+                } catch (e) {
+                    if (e.message !== 'demo-blocked') this.editToastShow('되돌리기 실패: ' + e.message, 'error');
+                }
+            },
+
+            async saveLayout() {
+                if (!this.editing || !this.dirty || this.saving) return;
+                this.saving = true;
+                try {
+                    if (this.pendingImage) {
+                        const fd = new FormData(); fd.append('file', this.pendingImage.file);
+                        const res = await fetch('/api/blueprint/image', { method: 'POST', body: fd });
+                        if (res.status === 503) { this.demoBlocked = true; return; }
+                        if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || ('HTTP ' + res.status)); }
+                        const r = await res.json();
+                        if (this.layout) {
+                            this.layout.blueprintImagePath = r.imagePath;
+                            this.layout.imageVersion = r.imageVersion;
+                            this.layout.canvasWidth = r.canvasWidth;
+                            this.layout.canvasHeight = r.canvasHeight;
+                        }
+                        this._clearPendingImage();
+                    }
+                    const placements = (this.layout?.flowPlacements || []).map(p => ({ flowId: p.flowId, x: p.x, y: p.y }));
+                    const flowProcessOrder = (this.availableFlows || []).map(f => f.id);
+                    const data = await this.bpApiPost('/api/blueprint/replace', { cardScale: this.cardScale, placements, flowProcessOrder });
+                    this.applyBpState(data);
+                    this.dirty = false;
+                    this.editToastShow('저장되었습니다.', 'success');
+                } catch (e) {
+                    if (e.message !== 'demo-blocked') this.editToastShow('저장 실패: ' + e.message, 'error');
+                } finally { this.saving = false; }
+            },
+
+            editToastShow(msg, kind) {
+                this.editToast = { show: true, msg, kind: kind || 'info' };
+                clearTimeout(this._editToastT);
+                this._editToastT = setTimeout(() => { this.editToast.show = false; }, 2600);
+            },
+
+            get metricRows() {
+                if (!this.layout) return [];
+                return this.layout.flowPlacements.map((fp, idx) => {
+                    const s = this.flows.find(f => f.flowName === fp.flowName);
+                    let mt, wt, ct;
+                    if (this.showAverage) {
+                        mt = (s && s.avgMT != null) ? Math.trunc(s.avgMT) : 0;
+                        wt = (s && s.avgWT != null) ? Math.trunc(s.avgWT) : 0;
+                        ct = (s && s.avgCT != null) ? Math.trunc(s.avgCT) : 0;
+                        if (ct === 0) { mt = (s && s.mt != null) ? s.mt : 0; wt = (s && s.wt != null) ? s.wt : 0; ct = mt + wt; }
+                    } else {
+                        mt = (s && s.mt != null) ? s.mt : 0; wt = (s && s.wt != null) ? s.wt : 0; ct = mt + wt;
+                    }
+                    return { flowName: fp.flowName, mt, wt, ct, wtRatio: ct > 0 ? wt / ct : 0, idx };
+                }).filter(r => r.ct > 0);
+            },
+            get maxCtName() { const r = this.metricRows; return r.length ? r.reduce((a, b) => b.ct > a.ct ? b : a).flowName : null; },
+            get minCtName() { const r = this.metricRows; return r.length > 1 ? r.reduce((a, b) => b.ct < a.ct ? b : a).flowName : null; },
+            get maxWtName() { const r = this.metricRows; return r.length ? r.reduce((a, b) => b.wtRatio > a.wtRatio ? b : a).flowName : null; },
+            get maxCtVal() { const r = this.metricRows; return r.length ? Math.max(...r.map(x => x.ct)) : 1; },
+            get minCtVal() { const r = this.metricRows; return r.length ? Math.min(...r.map(x => x.ct)) : 0; },
+            get maxWtRatio() { const n = this.maxWtName; const r = this.metricRows.find(x => x.flowName === n); return r ? r.wtRatio : 0; },
+            get chartData() {
+                const r = this.metricRows.slice();
+                const f = this.sortField, desc = this.sortDesc;
+                const cmp = (a, b) => (a || '').localeCompare(b || '');
+                if (f === 'name') r.sort((a, b) => cmp(a.flowName, b.flowName));
+                else if (f === 'order') r.sort((a, b) => (this.flowProcessOrder[a.flowName] ?? a.idx) - (this.flowProcessOrder[b.flowName] ?? b.idx));
+                else { const k = f === 'mt' ? 'mt' : f === 'wt' ? 'wt' : 'ct'; r.sort((a, b) => a[k] - b[k]); }
+                if (desc) r.reverse();
+                return r;
+            },
+            isHighlighted(name) { return name === this.maxCtName || name === this.minCtName || name === this.maxWtName; },
+            barFill(flow) { return this.maxCtVal > 0 ? (flow.ct * 100 / this.maxCtVal) : 0; },
+            barMt(flow) { return flow.ct > 0 ? (flow.mt * 100 / flow.ct) : 0; },
+            barWt(flow) { return 100 - this.barMt(flow); },
+
+            ctPalette(i) { return CT_DONUT_COLORS[i % CT_DONUT_COLORS.length]; },
+            _hexAlpha(hex, a) {
+                if (typeof hex === 'string' && hex[0] === '#' && (hex.length === 7 || hex.length === 4)) {
+                    const h = hex.length === 4 ? '#' + hex[1] + hex[1] + hex[2] + hex[2] + hex[3] + hex[3] : hex;
+                    return `rgba(${parseInt(h.slice(1, 3), 16)},${parseInt(h.slice(3, 5), 16)},${parseInt(h.slice(5, 7), 16)},${a})`;
+                }
+                return hex;
+            },
+            renderCtDonut() {
+                const rows = this.chartData;
+                const sel = this.selectedFlowName;
+                const maxName = this.maxCtName;
+                const cv = this.$refs.ctDonut;
+                if (!cv || !window.Chart) return;
+                if (this._ctDonut) { this._ctDonut.destroy(); this._ctDonut = null; }
+                if (!rows.length) return;
+                const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+                const red = css('--red') || css('--color-error') || '#D8392B';
+                const surface = css('--color-surface') || '#ffffff';
+                const labels = rows.map(r => r.flowName);
+                const data = rows.map(r => r.ct);
+                const total = data.reduce((a, b) => a + b, 0) || 1;
+                const baseOf = (name, i) => name === maxName ? red : this.ctPalette(i);
+                const bg = rows.map((r, i) => {
+                    const c = baseOf(r.flowName, i);
+                    return (sel && r.flowName !== sel) ? this._hexAlpha(c, 0.28) : c;
+                });
+                const fmt = (ms) => this.fmt(ms);
+                const clip = (s) => (s && s.length > 10) ? (s.slice(0, 9) + '…') : (s || '');
+                const arcLabels = {
+                    id: 'ctArcLabels',
+                    afterDatasetsDraw(chart) {
+                        const ctx = chart.ctx, meta = chart.getDatasetMeta(0);
+                        meta.data.forEach((arc, i) => {
+                            if ((data[i] / total) < 0.05) return;
+                            const mid = (arc.startAngle + arc.endAngle) / 2;
+                            const r = (arc.innerRadius + arc.outerRadius) / 2;
+                            const x = arc.x + Math.cos(mid) * r, y = arc.y + Math.sin(mid) * r;
+                            ctx.save();
+                            ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+                            ctx.globalAlpha = (sel && labels[i] !== sel) ? 0.45 : 1;
+                            const draw = (txt, dy, font) => {
+                                ctx.font = font;
+                                ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineWidth = 3; ctx.strokeText(txt, x, y + dy);
+                                ctx.fillStyle = '#fff'; ctx.fillText(txt, x, y + dy);
+                            };
+                            draw(clip(labels[i]), -7, '700 11px Inter, system-ui, sans-serif');
+                            draw(fmt(data[i]), 8, '800 12px Inter, system-ui, sans-serif');
+                            ctx.restore();
+                        });
+                    },
+                };
+                this._ctDonut = new Chart(cv, {
+                    type: 'doughnut',
+                    data: { labels, datasets: [{ data, backgroundColor: bg, borderColor: surface, borderWidth: 2, hoverOffset: 6 }] },
+                    plugins: [arcLabels],
+                    options: {
+                        responsive: true, maintainAspectRatio: false, animation: false, cutout: '55%',
+                        layout: { padding: 6 },
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: { callbacks: { label: (c) => `${c.label}: ${fmt(c.parsed)} (${(c.parsed * 100 / total).toFixed(1)}%)` } },
+                        },
+                        onClick: (e, els) => { if (els && els.length) this.selectFlow(labels[els[0].index]); },
+                    },
+                });
+            },
+
+            setDisplayMode(avg) { this.showAverage = avg; this.syncHistory(); },
+
+            get histFlowName() { return this.selectedFlowName || this.maxCtName || null; },
+            get histIsAuto() { return !this.selectedFlowName && !!this.maxCtName; },
+            get _exRange() {
+                const r = this.rangeByFlow[this.histFlowName];
+                return (r && (r.min != null || r.max != null)) ? r : null;
+            },
+            get _exRangeMs() {
+                const r = this._exRange;
+                if (!r) return null;
+                return { min: r.min != null ? r.min * 1000 : null, max: r.max != null ? r.max * 1000 : null };
+            },
+            get rangeLabel() {
+                const r = this._exRangeMs;
+                if (!r) return '';
+                const lo = r.min != null ? this.fmt(r.min) : null;
+                const hi = r.max != null ? this.fmt(r.max) : null;
+                if (lo != null && hi != null) return lo + ' ~ ' + hi;
+                if (lo != null) return '≥ ' + lo;
+                return '≤ ' + hi;
+            },
+            get histCtMinMs() { const c = this.flowHistory.map(h => h.ct ?? 0).filter(v => v > 0); return c.length ? Math.min(...c) : 0; },
+            get histCtMaxMs() { const c = this.flowHistory.map(h => h.ct ?? 0).filter(v => v > 0); return c.length ? Math.max(...c) : 0; },
+            get visibleHistory() {
+                const r = this._exRangeMs;
+                if (!r) return this.flowHistory;
+                const min = r.min, max = r.max;
+                return this.flowHistory.filter(h => {
+                    const ct = h.ct ?? 0;
+                    if (min != null && ct < min) return false;
+                    if (max != null && ct > max) return false;
+                    return true;
+                });
+            },
+            get excludedCount() {
+                const r = this._exRangeMs;
+                if (!r) return 0;
+                const min = r.min, max = r.max;
+                let n = 0;
+                for (const h of this.flowHistory) {
+                    const ct = h.ct ?? 0;
+                    if ((min != null && ct < min) || (max != null && ct > max)) n++;
+                }
+                return n;
+            },
+
+            selectFlow(name) {
+                const next = (name && this.selectedFlowName === name) ? null : (name || null);
+                this.selectedFlowName = next;
+                this.syncHistory();
+            },
+            syncHistory() {
+                const target = this.histFlowName;
+                if (!target) { this._histShownFor = null; this.setHistory([]); return; }
+                if (target !== this._histShownFor) {
+                    this._histShownFor = target;
+                    if (histCache[target]) this.setHistory(histCache[target]);
+                }
+                this.loadHistory(target);
+            },
+            async loadHistory(name) {
+                try {
+                    const rows = await this.apiGet('/api/dashboard/flows/' + encodeURIComponent(name) + '/history?limit=' + this.histLimit);
+                    histCache[name] = rows;
+                    if (this.histFlowName === name) this.setHistory(rows);
+                } catch (e) {
+                    if (e.message !== 'demo-blocked') console.error('history failed', e);
+                    if (this.histFlowName === name) this.setHistory([]);
+                }
+            },
+
+            setHistory(rows) {
+                rows = Array.isArray(rows) ? rows : [];
+                rows.forEach((h, i) => {
+                    h._key = (h.recordedAt != null && h.recordedAt !== '')
+                        ? ('r' + h.recordedAt)
+                        : ('n' + (h.cycleNo ?? '?') + '|' + (h.mt ?? 0) + '|' + (h.ct ?? 0) + '|' + i);
+                    h._time = this.histTime(h.recordedAt);
+                });
+                this.flowHistory = rows;
+                this.recomputeHist();
+            },
+            recomputeHist() {
+                const cts = [];
+                for (const h of this.visibleHistory) { const ct = h.ct ?? 0; if (ct > 0) cts.push(ct); }
+                let avg = 0, std = 0;
+                if (cts.length) {
+                    avg = cts.reduce((a, b) => a + b, 0) / cts.length;
+                    if (cts.length >= 2) std = Math.sqrt(cts.reduce((a, b) => a + (b - avg) * (b - avg), 0) / cts.length);
+                }
+                this.histAvgCt = avg;
+                this.histStdCt = std;
+                for (const h of this.flowHistory) {
+                    const ct = h.ct ?? 0, wt = h.wt ?? 0;
+                    h._status = (ct > 0 && std > 0)
+                        ? (ct > avg + std ? { cls: 'bad', label: '초과' }
+                           : ct > avg + std * 0.5 ? { cls: 'warn', label: '주의' }
+                           : { cls: 'ok', label: '정상' })
+                        : null;
+                    h._wt = ct > 0 ? (wt * 100 / ct).toFixed(1) + '%' : '--';
+                }
+                if (this.histView === 'chart') this.$nextTick(() => this.renderHistChart());
+            },
+            setHistView(v) {
+                this.histView = v;
+                if (v === 'chart') this.$nextTick(() => this.renderHistChart());
+            },
+            renderHistChart() {
+                const cv = this.$refs.histChart;
+                if (!cv || !window.Chart) return;
+                if (this._histChart) { this._histChart.destroy(); this._histChart = null; }
+                const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+                const rows = this.visibleHistory.slice().reverse();
+                const times = rows.map(h => h._time || '');
+                const labels = rows.map(h => h._time ? h._time.slice(6) : '');
+                const toS = (ms) => Math.round((ms ?? 0) / 100) / 10;
+                const mt = rows.map(h => toS(h.mt));
+                const wt = rows.map(h => toS(h.wt));
+                const avg = this.histAvgCt > 0 ? toS(this.histAvgCt) : null;
+                const cMt = css('--dash-mt') || css('--color-primary') || '#12A594';
+                const cWt = css('--dash-wt') || '#AEB9C6';
+                const cRed = css('--red') || css('--color-error') || '#D8392B';
+                const grid = css('--color-lines') || 'rgba(14,27,42,0.10)';
+                const txt = css('--color-text-secondary') || '#51637A';
+                const datasets = [
+                    { label: 'MT (가동)', data: mt, backgroundColor: cMt, stack: 'ct', borderWidth: 0 },
+                    { label: 'WT (대기)', data: wt, backgroundColor: cWt, stack: 'ct', borderWidth: 0 },
+                ];
+                if (avg != null) {
+                    datasets.push({ type: 'line', label: '평균 CT', data: labels.map(() => avg),
+                        borderColor: cRed, borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0, fill: false });
+                }
+                const fmtMs = (s) => this.fmt(s * 1000);
+                this._histChart = new Chart(cv, {
+                    type: 'bar',
+                    data: { labels, datasets },
+                    options: {
+                        responsive: true, maintainAspectRatio: false, animation: false,
+                        interaction: { mode: 'index', intersect: false },
+                        plugins: {
+                            legend: { position: 'top', labels: { color: txt, boxWidth: 12, font: { size: 11 } } },
+                            tooltip: { callbacks: {
+                                title: (items) => times[items[0].dataIndex] || '',
+                                label: (c) => `${c.dataset.label}: ${fmtMs(c.parsed.y || 0)}`,
+                            } },
+                        },
+                        scales: {
+                            x: { stacked: true, grid: { display: false }, title: { display: true, text: '사이클 발생 시각', color: txt }, ticks: { color: txt, font: { size: 10 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 12 } },
+                            y: { stacked: true, beginAtZero: true, min: 0, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, callback: (v) => fmtMs(v) }, title: { display: true, text: '시간', color: txt } },
+                        },
+                    },
+                });
+            },
+            _unitSec: { s: 1, m: 60, h: 3600 },
+            _rangeFieldSec(field) {
+                const v = field === 'min' ? this.rangeForm.min : this.rangeForm.max;
+                const unit = field === 'min' ? this.rangeForm.minUnit : this.rangeForm.maxUnit;
+                const n = parseFloat(v), mult = this._unitSec[unit] || 1;
+                return (v !== '' && v != null && isFinite(n) && n >= 0) ? Math.round(n * mult * 1000) / 1000 : null;
+            },
+            get rangePreviewLabel() {
+                const lo = this._rangeFieldSec('min'), hi = this._rangeFieldSec('max');
+                if (lo == null && hi == null) return '';
+                const loS = lo != null ? this.fmt(lo * 1000) : null, hiS = hi != null ? this.fmt(hi * 1000) : null;
+                if (loS != null && hiS != null) return '적용: ' + loS + ' ~ ' + hiS;
+                return loS != null ? ('적용: ≥ ' + loS) : ('적용: ≤ ' + hiS);
+            },
+            openRangeModal() {
+                if (!this.histFlowName) return;
+                const r = this.rangeByFlow[this.histFlowName];
+                this.rangeForm.minUnit = 's';
+                this.rangeForm.maxUnit = 's';
+                const toStr = (sec) => (sec != null) ? String(sec) : '';
+                this.rangeForm.min = toStr(r?.min);
+                this.rangeForm.max = toStr(r?.max);
+                this.rangeModalOpen = true;
+            },
+            changeUnit(field, u) {
+                const cur = field === 'min' ? this.rangeForm.minUnit : this.rangeForm.maxUnit;
+                if (u === cur) return;
+                const from = this._unitSec[cur] || 1, to = this._unitSec[u] || 1;
+                const v = field === 'min' ? this.rangeForm.min : this.rangeForm.max;
+                const n = parseFloat(v);
+                const conv = (v === '' || v == null || !isFinite(n)) ? v : String(Math.round((n * from / to) * 1000) / 1000);
+                if (field === 'min') { this.rangeForm.min = conv; this.rangeForm.minUnit = u; }
+                else { this.rangeForm.max = conv; this.rangeForm.maxUnit = u; }
+            },
+            closeRangeModal() { this.rangeModalOpen = false; },
+            async applyRange() {
+                const flow = this.histFlowName;
+                if (!flow) { this.rangeModalOpen = false; return; }
+                let min = this._rangeFieldSec('min'), max = this._rangeFieldSec('max');
+                if (min != null && max != null && min > max) { const t = min; min = max; max = t; }
+                if (min == null && max == null) {
+                    const { [flow]: _drop, ...rest } = this.rangeByFlow;
+                    this.rangeByFlow = rest;
+                } else {
+                    this.rangeByFlow = { ...this.rangeByFlow, [flow]: { min, max } };
+                }
+                this.recomputeHist();
+                this.rangeModalOpen = false;
+                await this.saveExclusion(flow, min, max);
+            },
+            async resetExclusions() {
+                const flow = this.histFlowName;
+                if (!flow || !this.rangeByFlow[flow]) return;
+                const { [flow]: _drop, ...rest } = this.rangeByFlow;
+                this.rangeByFlow = rest;
+                this.recomputeHist();
+                await this.saveExclusion(flow, null, null);
+            },
+            _exclusionsToMap(rows) {
+                const map = {};
+                for (const r of (rows || [])) {
+                    if (r && r.flowName) map[r.flowName] = { min: r.minSec ?? null, max: r.maxSec ?? null };
+                }
+                return map;
+            },
+            async loadExclusions() {
+                try {
+                    const rows = await this.apiGet('/api/dashboard/exclusions');
+                    this.rangeByFlow = this._exclusionsToMap(rows);
+                    this.recomputeHist();
+                } catch (e) { /* 미수신 시 기존값 유지 */ }
+            },
+            async saveExclusion(flowName, minSec, maxSec) {
+                try {
+                    const res = await fetch('/api/dashboard/exclusions', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                        body: JSON.stringify({ flowName, minSec, maxSec })
+                    });
+                    if (res.status === 503) { this.demoBlocked = true; return; }
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    this.rangeByFlow = this._exclusionsToMap(await res.json());
+                    this.recomputeHist();
+                } catch (e) {
+                    this.error = '이상치 제외 저장 실패: ' + e.message;
+                }
+            },
+
+            histTime(iso) {
+                const d = new Date(iso); if (isNaN(d)) return '';
+                const p = (x) => String(x).padStart(2, '0');
+                return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+            },
+
+            toggleFullscreen() {
+                const el = this.$refs.layoutCard;
+                if (!el) return;
+                if (!document.fullscreenElement) el.requestFullscreen && el.requestFullscreen();
+                else document.exitFullscreen && document.exitFullscreen();
+            },
+
+            get flowNames() {
+                if (!this.layout) return [];
+                const order = this.flowProcessOrder || {};
+                return this.layout.flowPlacements.map(p => p.flowName)
+                    .sort((a, b) => (order[a] ?? 0) - (order[b] ?? 0));
+            },
+            _shiftWindow() {
+                const now = new Date(this.nowTick);
+                const [sh, sm] = (this.shift.start || '08:00').split(':').map(Number);
+                const [eh, em] = (this.shift.end || '17:00').split(':').map(Number);
+                const crosses = ((eh || 0) * 60 + (em || 0)) <= ((sh || 0) * 60 + (sm || 0));
+                const start = new Date(now); start.setHours(sh || 0, sm || 0, 0, 0);
+                const end = new Date(now); end.setHours(eh || 0, em || 0, 0, 0);
+                if (crosses) {
+                    if (now >= start) end.setDate(end.getDate() + 1);
+                    else start.setDate(start.getDate() - 1);
+                }
+                return { start, end, now };
+            },
+            get shiftState() {
+                const { start, end, now } = this._shiftWindow();
+                if (now < start) return 'pending';
+                if (now >= end) return 'ended';
+                return 'running';
+            },
+            get shiftLabel() {
+                const s = this.shiftState;
+                return s === 'pending' ? '시프트 시작까지' : s === 'ended' ? '시프트 종료' : '시프트 종료까지';
+            },
+            get shiftCountdownText() {
+                const st = this.shiftState;
+                if (st === 'ended') return '종료됨';
+                const { start, end, now } = this._shiftWindow();
+                const diff = Math.max(0, (st === 'pending' ? start : end) - now);
+                const h = Math.floor(diff / 3600000), m = Math.floor((diff % 3600000) / 60000);
+                return h > 0 ? (h + '시간 ' + m + '분') : (m + '분');
+            },
+            get shiftSubText() {
+                const s = this.shift;
+                if (s.targetFlow && s.targetCount > 0) {
+                    const made = s.madeCount || 0, tgt = s.targetCount;
+                    const pct = tgt > 0 ? Math.round(made * 100 / tgt) : 0;
+                    const cls = made >= tgt ? 'is-over' : (pct < 50 ? 'is-under' : '');
+                    return '📦 ' + made + ' / ' + tgt + '개 · <span class="sh-pct ' + cls + '">' + pct + '%</span>';
+                }
+                return (s.start || '08:00') + ' → ' + (s.end || '17:00') + ' · 목표 미설정 (클릭)';
+            },
+            get shiftFormDurationHours() {
+                const [sh, sm] = (this.shiftForm.start || '08:00').split(':').map(Number);
+                const [eh, em] = (this.shiftForm.end || '17:00').split(':').map(Number);
+                let mins = ((eh || 0) * 60 + (em || 0)) - ((sh || 0) * 60 + (sm || 0));
+                if (mins <= 0) mins += 24 * 60;
+                return mins / 60;
+            },
+            get shiftFormPerHour() {
+                const h = this.shiftFormDurationHours;
+                const t = Math.max(0, parseInt(this.shiftForm.targetCount) || 0);
+                return h > 0 ? Math.ceil(t / h) : 0;
+            },
+            async loadShift() {
+                try { const s = await this.apiGet('/api/dashboard/shift'); if (s) this.shift = s; }
+                catch (e) { /* 미수신 시 기존값 유지 */ }
+            },
+            openShiftModal() {
+                const s = this.shift;
+                this.shiftForm = {
+                    start: s.start || '08:00', end: s.end || '17:00',
+                    shiftType: s.shiftType || 'morning',
+                    targetFlow: s.targetFlow || '', targetCount: s.targetCount || 0
+                };
+                this.shiftModalOpen = true;
+            },
+            closeShiftModal() { this.shiftModalOpen = false; },
+            _shiftPresets: { morning: ['08:00', '17:00'], afternoon: ['14:00', '22:00'], night: ['22:00', '06:00'] },
+            applyShiftType(type) {
+                this.shiftForm.shiftType = type;
+                const p = this._shiftPresets[type];
+                if (p) { this.shiftForm.start = p[0]; this.shiftForm.end = p[1]; }
+            },
+            onShiftTimeEdited() {
+                const p = this._shiftPresets;
+                const match = Object.keys(p).find(k => p[k][0] === this.shiftForm.start && p[k][1] === this.shiftForm.end);
+                this.shiftForm.shiftType = match || 'custom';
+            },
+            bumpTarget(delta) {
+                const cur = Math.max(0, parseInt(this.shiftForm.targetCount) || 0);
+                this.shiftForm.targetCount = Math.max(0, cur + delta);
+            },
+            async saveShift() {
+                try {
+                    const body = {
+                        start: this.shiftForm.start || '08:00',
+                        end: this.shiftForm.end || '17:00',
+                        shiftType: this.shiftForm.shiftType || 'morning',
+                        targetFlow: this.shiftForm.targetFlow || null,
+                        targetCount: Math.max(0, parseInt(this.shiftForm.targetCount) || 0)
+                    };
+                    const res = await fetch('/api/dashboard/shift', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                        body: JSON.stringify(body)
+                    });
+                    if (res.status === 503) { this.demoBlocked = true; return; }
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    this.shift = await res.json();
+                    this.shiftModalOpen = false;
+                } catch (e) {
+                    this.error = '시프트 저장 실패: ' + e.message;
+                }
+            },
+
+            fmt(ms) {
+                if (ms <= 0) return '0초';
+                if (ms < 1000) return Math.round(ms) + 'ms';
+                if (ms < 60000) return (ms / 1000).toFixed(1) + '초';
+                if (ms < 3600000) return Math.floor(ms / 60000) + '분 ' + Math.floor(ms % 60000 / 1000) + '초';
+                return Math.floor(ms / 3600000) + '시간 ' + Math.floor(ms % 3600000 / 60000) + '분';
+            }
+        };
+    }
+</script>
+<script defer src="/lib/alpine.min.js"></script>
+</body></html>

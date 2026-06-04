@@ -73,13 +73,13 @@
     --color-lines-strong: rgba(14, 27, 42, 0.22);
     --color-border: rgba(14, 27, 42, 0.10);
 
-    /* 앱바 / 드로어 — 라이트 크롬 (크리스프 화이트 + 쿨 레일) */
+    /* 앱바 = 라이트 화이트, 드로어 = code.html 네이비 사이드바 ('DSPilot Industrial Monitoring') */
     --color-appbar-bg: #FFFFFF;
     --color-appbar-text: #0E1B2A;
-    --color-drawer-bg: #F4F7FB;
-    --color-drawer-text: #2A3B52;
-    --color-drawer-icon: #6B7C90;
-    --drawer-width: 232px;
+    --color-drawer-bg: #0F172A;
+    --color-drawer-text: #C7D2E1;
+    --color-drawer-icon: #8595AD;
+    --drawer-width: 240px;
 
     /* 텍스트 (슬레이트 잉크) */
     --color-text-primary: #0E1B2A;
@@ -277,8 +277,21 @@
 /* Light = 쿨 레일(#F4F7FB), Dark = 니어블랙 베젤. */
 .drawer {
     background: var(--color-drawer-bg);
-    border-right: 1px solid var(--color-lines);
+    border-right: 1px solid rgba(148, 178, 214, 0.12);
+    /* 네이비 사이드바: 내부 텍스트/헤어라인 토큰을 밝게 리매핑 → 하위 swiss 규칙(var(--color-text-*)) 자동 가독 */
+    --color-text-primary: #E8EEF8;
+    --color-text-secondary: #AAB8CC;
+    --color-text-disabled: #74849B;
+    --color-lines: rgba(148, 178, 214, 0.12);
+    --color-lines-strong: rgba(148, 178, 214, 0.22);
+    --color-surface: transparent;
+    --color-surface-variant: rgba(255, 255, 255, 0.05);
 }
+/* 사이드바 상단 브랜드 (code.html "DSPilot / Industrial Monitoring") */
+.drawer-brand { display: block; padding: 17px 20px 15px; text-decoration: none; border-bottom: 1px solid rgba(148, 178, 214, 0.12); }
+.drawer-brand .db-title { font-size: 1.5rem; font-weight: 900; letter-spacing: -0.01em; color: #4DA3FF; line-height: 1.1; }
+.drawer-brand .db-sub { font-size: 0.64rem; font-weight: 600; letter-spacing: 0.06em; color: #7C8DA8; margin-top: 2px; text-transform: uppercase; }
+.drawer-brand:hover .db-title { color: #6BB4FF; }
 .dark-theme .drawer {
     background: var(--color-drawer-bg);
     border-right-color: rgba(150, 180, 210, 0.08);
@@ -287,14 +300,15 @@
 }
 
 .nav-link { color: var(--color-drawer-text); }
-.nav-link:hover { background: color-mix(in srgb, var(--color-primary) 8%, transparent); color: var(--color-primary); }
+.nav-link:hover { background: rgba(255, 255, 255, 0.06); color: #fff; }
+.nav-link:hover .material-icons { color: #fff; }
 .nav-link.active, a.nav-link.active {
-    background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+    background: color-mix(in srgb, var(--color-primary) 26%, transparent);
     border-left-color: var(--color-primary);
-    color: var(--color-primary);
+    color: #fff;
 }
 .nav-link .material-icons { color: var(--color-drawer-icon); }
-.nav-link.active .material-icons { color: var(--color-primary); }
+.nav-link.active .material-icons { color: #fff; }
 .nav-flow-name { color: var(--color-drawer-text); }
 .nav-flow.is-selected .nav-flow-name { color: var(--color-primary); }
 .nav-flow.is-selected { background: color-mix(in srgb, var(--color-primary) 10%, transparent); }

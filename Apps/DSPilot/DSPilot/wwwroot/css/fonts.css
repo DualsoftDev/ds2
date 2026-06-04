@@ -35,7 +35,17 @@
     src: url('../fonts/NotoSansKR-Bold.ttf') format('truetype');
 }
 
-/* Material Icons */
+/* Material Symbols Outlined (가변폰트: FILL/wght/GRAD/opsz 축) — code.html 과 동일한 아이콘 글리프.
+   self-host woff2(오프라인). classic Material Icons 는 폴백으로 유지. */
+@font-face {
+    font-family: 'Material Symbols Outlined';
+    font-style: normal;
+    font-weight: 100 700;
+    font-display: block;
+    src: url('../fonts/MaterialSymbolsOutlined.woff2') format('woff2');
+}
+
+/* classic Material Icons — Symbols 에 없는 이름의 폴백 */
 @font-face {
     font-family: 'Material Icons';
     font-style: normal;
@@ -44,8 +54,11 @@
     src: url('../fonts/MaterialIcons-Regular.woff2') format('woff2');
 }
 
-.material-icons {
-    font-family: 'Material Icons';
+/* 앱 전역은 .material-icons 클래스를 쓰므로, 이 클래스를 Symbols 로 재지정 → 마크업 변경 없이 전 페이지 글리프 교체.
+   기본 FILL 0(외곽선, code.html 기본값). 채움이 필요한 곳(예: KPI 배지)은 개별적으로 'FILL' 1 지정. */
+.material-icons,
+.material-symbols-outlined {
+    font-family: 'Material Symbols Outlined', 'Material Icons';
     font-weight: normal;
     font-style: normal;
     font-size: 24px;
@@ -56,6 +69,7 @@
     white-space: nowrap;
     word-wrap: normal;
     direction: ltr;
+    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
     -webkit-font-feature-settings: 'liga';
     font-feature-settings: 'liga';
     -webkit-font-smoothing: antialiased;
