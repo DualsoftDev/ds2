@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <OutputType>Library</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="RemoteSimulationEngine.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
+    <PackageReference Include="log4net" />
+  </ItemGroup>
+
+  <!-- client-side proxy: ISimulationEngine(Ds2.Runtime) 구현 + Runtime* DTO 계약(Ds2.Backend.Common).
+       R1 무관 — Backend(server) 어셈블리는 참조하지 않는다. R3: SimIndex/IOMap 은 client 로컬 build,
+       server 와는 DTO state/event 만 교환한다. -->
+  <ItemGroup>
+    <ProjectReference Include="..\Ds2.Runtime\Ds2.Runtime.fsproj" />
+    <ProjectReference Include="..\..\Backend\Ds2.Backend.Common\Ds2.Backend.Common.fsproj" />
+  </ItemGroup>
+
+</Project>

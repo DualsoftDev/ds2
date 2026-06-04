@@ -141,6 +141,8 @@
     <ProjectReference Include="..\..\..\Solutions\Tools\Ds2.LightHouse.Ollama\Ds2.LightHouse.Ollama.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Core\Ds2.LlmAgent\Ds2.LlmAgent.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj" />
+    <!-- client-side ISimulationEngine proxy (Agent 호스팅 engine 의 SignalR client). Monitoring/Control proxy 전환용. -->
+    <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.Runtime.Remote\Ds2.Runtime.Remote.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.Runtime.Report\Ds2.Runtime.Report.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Backend\Ds2.Backend\Ds2.Backend.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Backend\Ds2.Backend.Common\Ds2.Backend.Common.fsproj" />

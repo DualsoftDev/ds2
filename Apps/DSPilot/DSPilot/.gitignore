@@ -2,3 +2,9 @@
 appsettings.json
 appsettings.Production.json
 appsettings.Development.json
+
+# Node / Tailwind(stitch) CSS 빌드 — 도구/의존성은 제외.
+# 산출물(wwwroot/css/stitch.css·stitch-shell.css)과 package.json/package-lock.json·tailwind*.js 는 커밋.
+node_modules/
+npm-install.log
+npm-debug.log*

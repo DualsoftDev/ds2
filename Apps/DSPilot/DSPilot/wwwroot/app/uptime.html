@@ -101,7 +101,7 @@
         /* ── 정지 이벤트 로그 테이블 (필터 + 분류/수리 인라인 액션) ── */
         .up-filter-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
         .up-chip { padding: 4px 10px; font-size: 0.72rem; font-weight: 700; border: 1px solid var(--color-lines-strong); border-radius: 999px; background: var(--color-surface); color: var(--color-text-secondary); cursor: pointer; }
-        .up-chip.is-on { background: var(--navy); color: #fff; border-color: var(--navy); }
+        .up-chip.is-on { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
         .up-chip.is-q { border-color: var(--amber); color: var(--amber); }
         .up-chip.is-q.is-on { background: var(--amber); color: #2a1d00; border-color: var(--amber); }
         .up-dt-table td.unclassified { font-weight: 800; color: var(--amber); }
@@ -116,7 +116,7 @@
         /* ── 설비별 OEE 순위 ── */
         .up-rank-row { display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--color-lines); cursor: pointer; border-left: 3px solid transparent; }
         .up-rank-row:last-child { border-bottom: none; }
-        .up-rank-row:hover { background: color-mix(in srgb, var(--navy) 4%, var(--color-surface)); }
+        .up-rank-row:hover { background: color-mix(in srgb, var(--color-primary) 4%, var(--color-surface)); }
         .up-rank-row.is-worst { background: color-mix(in srgb, var(--red) 7%, var(--color-surface)); border-left-color: var(--red); }
         .up-rank-medal { font-size: 1.1rem; text-align: center; font-weight: 800; }
         .up-rank-name { font-weight: 700; font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -280,7 +280,7 @@
                         </select>
                     </div>
 
-                    <div class="alert alert-error" x-show="oeeError" style="margin-bottom:12px;"><span class="material-icons">error_outline</span><span x-text="oeeError"></span></div>
+                    <div class="alert alert-error" x-show="oeeError" style="margin-bottom:12px;"><span class="material-icons">error</span><span x-text="oeeError"></span></div>
 
                     <template x-if="filteredDowntime.length > 0">
                         <div style="overflow-x:auto;">
@@ -506,7 +506,7 @@
 
                     <!-- 로딩/오류 -->
                     <div x-show="loading && !ut" class="progress-bar progress-bar-indeterminate" style="margin-bottom:12px;"><div class="progress-bar-fill"></div></div>
-                    <div class="alert alert-error" x-show="error" style="margin-bottom:12px;"><span class="material-icons">error_outline</span><span x-text="error"></span></div>
+                    <div class="alert alert-error" x-show="error" style="margin-bottom:12px;"><span class="material-icons">error</span><span x-text="error"></span></div>
 
                     <template x-if="ut">
                         <div>
@@ -670,7 +670,7 @@
                             </template>
                             <template x-if="!ut.alerts || ut.alerts.length === 0">
                                 <div class="ds-empty" style="border-style:solid;">
-                                    <span class="material-icons">notifications_none</span>
+                                    <span class="material-icons">notifications</span>
                                     <div class="ds-empty-title">조회 기간 / 필터에 해당하는 알림 없음</div>
                                     <div class="ds-empty-desc">기간·검색·레벨·System 필터를 변경해 보세요.</div>
                                 </div>
@@ -679,7 +679,7 @@
                             <!-- 정의된 UserTag (접이식) -->
                             <div class="ds-card-h" style="margin-top:16px; cursor:pointer;" @click="showDefinitions = !showDefinitions">
                                 <h4 style="font-size:0.74rem; display:flex; align-items:center; gap:6px;">
-                                    <span class="material-icons" style="font-size:18px; color:var(--navy);" x-text="showDefinitions ? 'expand_more' : 'chevron_right'"></span>
+                                    <span class="material-icons" style="font-size:18px; color:var(--color-primary);" x-text="showDefinitions ? 'expand_more' : 'chevron_right'"></span>
                                     정의된 UserTag (<span x-text="(ut.definitions || []).length"></span>)
                                 </h4>
                                 <span class="ds-card-h-sub">AASX System 정의 기반 모니터링 태그 · 페이지당 10건</span>

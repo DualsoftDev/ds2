@@ -16,12 +16,12 @@ public sealed partial class SimulationHubBridge
 
     /// <summary>현재 모드/PLC 옵션에 해당하는 host:port. Monitoring + 실 PLC self-host 만 MonitoringHubAddress(5051),
     /// Monitoring 이라도 PLC 미연결이면 외부 Control hub 에 붙으므로 HubAddress(5050).</summary>
-    private string ActiveAddress =>
-        IsHubHost && _runtimeMode() == RuntimeMode.Monitoring ? _monitoringHubAddress() : _hubAddress();
+    // Agent 가 5051 단일 호스팅 — Control/Monitoring/VP 모두 같은 Hub(5051)에 붙는다. 포트/주소 통일.
+    private string ActiveAddress => _monitoringHubAddress();
 
     private int ParsePort()
     {
-        var defaultPort = IsHubHost && _runtimeMode() == RuntimeMode.Monitoring ? 5051 : 5050;
+        var defaultPort = 5051;
         return ActiveAddress.Split(':') is { Length: >= 2 } parts && int.TryParse(parts[^1], out var p)
             ? p
             : defaultPort;
@@ -112,8 +112,10 @@ public sealed partial class SimulationHubBridge
     {
         var isMonitoring = _runtimeMode() == RuntimeMode.Monitoring;
 
-        // ── Monitoring + 실 PLC → Agent 전담 ──
-        if (isMonitoring && _isRealPlcConnected())
+        // ── 실 PLC (Control/Monitoring) → Agent 전담 ──
+        // engine 을 Agent 한 곳(5051)에 모아 Control+Monitoring 이 같은 PLC 를 각자 물던 중복(이상감지/런타임)을 없앤다.
+        // Agent 는 session.RuntimeMode 로 Control(read-write, OUT→PLC) / Monitoring(read-only) engine 을 분기 생성.
+        if (_isRealPlcConnected())
         {
             if (!IsAgentAvailable)
             {
@@ -122,7 +124,7 @@ public sealed partial class SimulationHubBridge
                     "트레이의 'Promaker Agent' 아이콘에서 시작하거나 'sc start PromakerAgentService' 로 시작하세요. " +
                     "서비스가 누락되어 있으면 인스톨러로 재설치해 주세요.",
                     LogSeverity.Error);
-                _setStatusText("Agent 미가용 — 모니터링 시작 불가");
+                _setStatusText("Agent 미가용 — 시작 불가");
                 return false;
             }
 
@@ -138,7 +140,9 @@ public sealed partial class SimulationHubBridge
             // PLC 설정은 다이얼로그 OK 시점에 이미 저장됨. 첫 PLAY 누락 방지 차원에서 명시적 1회 더.
             _plcSettings().Save();
 
-            var session = AgentSession.ForCurrentDefaults(requestedBy: "promaker");
+            // session.RuntimeMode 로 Agent 가 engine 모드를 결정 — Control 이면 read-write, Monitoring 이면 read-only.
+            var modeName = isMonitoring ? "Monitoring" : "Control";
+            var session = AgentSession.ForCurrentDefaults(requestedBy: "promaker", runtimeMode: modeName);
             if (!session.TryWrite())
             {
                 _addSimLog("Agent active.flag 기록 실패 — 공유 폴더 권한을 확인하세요.", LogSeverity.Error);
@@ -146,44 +150,26 @@ public sealed partial class SimulationHubBridge
                 return false;
             }
             _delegatedToAgent = true;
-            _hubHost = null;       // 우리가 host 가 아님.
+            _hubHost = null;       // 우리가 host 가 아님 — Agent 가 5051 을 호스팅.
             IsHosting = false;
             var ps = _plcSettings();
             _addSimLog(
-                $"Promaker.Agent 에 모니터링 위임 (5051, vendor={ps.Vendor}, ip={ps.IpAddress}:{ps.Port}). " +
+                $"Promaker.Agent 에 {modeName} 위임 (5051, vendor={ps.Vendor}, ip={ps.IpAddress}:{ps.Port}). " +
                 "상태는 트레이의 'Promaker Agent' 아이콘 참조.",
                 LogSeverity.System);
 
-            // "다시 보지 않기" 가 체크된 적이 있으면 SimLog 만 남기고 다이얼로그 생략.
-            if (!Promaker.Dialogs.AgentDelegationNoticeDialog.IsSuppressed())
+            // Monitoring 위임 안내 다이얼로그 (Control 은 라인 제어라 별도 안내 없이 진행).
+            if (isMonitoring && !Promaker.Dialogs.AgentDelegationNoticeDialog.IsSuppressed())
                 Promaker.Dialogs.AgentDelegationNoticeDialog.Show();
 
             return true;
         }
 
-        // ── Control + 실 PLC → 자체 호스팅 ──
-        if (_isRealPlcConnected())
-        {
-            var plcConfig = _buildPlcGatewayConfig(out var errors);
-            if (plcConfig is null)
-            {
-                var msg = "PLC 설정 검증 실패:\n  - " + string.Join("\n  - ", errors);
-                _addSimLog(msg, LogSeverity.Error);
-                _setStatusText("PLC 설정 오류 — Hub 시작 중단");
-                return false;
-            }
-            _hubHost = BackendHost.startWithPlcConfig(ParsePort(), plcConfig);
-            var ps2 = _plcSettings();
-            _addSimLog(
-                $"SignalR Hub + PLC 게이트웨이 시작 (port={ParsePort()}, vendor={ps2.Vendor}, ip={ps2.IpAddress}:{ps2.Port})",
-                LogSeverity.System);
-        }
-        else
-        {
-            // Control PLC 미연결 — idle host.
-            _hubHost = BackendHost.start(ParsePort());
-            _addSimLog($"SignalR Hub 호스팅 시작 (port={ParsePort()})", LogSeverity.System);
-        }
+        // ── PLC 미연결 → 자체 호스팅 (idle) ──
+        // 실 PLC 가 없으면 Agent 위임 의미가 없다(가상/오프라인). Promaker 가 직접 idle host 를 띄워
+        // VirtualPlant·외부 client 가 붙을 수 있게 한다.
+        _hubHost = BackendHost.start(ParsePort());
+        _addSimLog($"SignalR Hub 호스팅 시작 (port={ParsePort()})", LogSeverity.System);
         IsHosting = true;
         return true;
     }

@@ -316,10 +316,12 @@ module JsonRoundTripTests =
 module WorkRoundTripTests =
 
     [<Fact>]
-    let ``JsonConverter should roundtrip Work with FlowPrefix LocalName and ReferenceOf`` () =
+    let ``JsonConverter should roundtrip Work with timing fields and identity fields`` () =
         let flowId = Guid.NewGuid()
         let work = Work("TestFlow", "TestWork", flowId)
         work.Duration <- Some(TimeSpan.FromSeconds(5.0))
+        work.MinDuration <- Some(TimeSpan.FromSeconds(3.0))
+        work.MaxDuration <- Some(TimeSpan.FromSeconds(7.0))
         let workProps = SimulationWorkProperties()
         workProps.OperationCode <- Some "OP-001"
         workProps.SequenceOrder <- 20
@@ -336,6 +338,8 @@ module WorkRoundTripTests =
         Assert.Equal("TestWork", actual.LocalName)
         Assert.Equal("TestFlow.TestWork", actual.Name)
         Assert.Equal(work.Duration, actual.Duration)
+        Assert.Equal(work.MinDuration, actual.MinDuration)
+        Assert.Equal(work.MaxDuration, actual.MaxDuration)
         Assert.Equal(work.GetSimulationProperties() |> Option.bind (fun p -> p.OperationCode),
                      actual.GetSimulationProperties() |> Option.bind (fun p -> p.OperationCode))
         Assert.Equal(work.GetSimulationProperties() |> Option.map (fun p -> p.SequenceOrder),
@@ -565,4 +569,3 @@ module V10ActionSensingTypeTests =
         let actual = roundTrip apiDef
         Assert.Equal(apiDef.SensingType, actual.SensingType)
         Assert.Equal(SensingType.Virtual None, actual.SensingType)
-

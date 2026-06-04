@@ -173,6 +173,22 @@ module BatchTests =
         Assert.Equal(5000, rows.[0].PeriodMs)
 
     [<Fact>]
+    let ``GetAllWorkDurationRows returns abnormal duration range columns`` () =
+        let store = createStore ()
+        let project = addProject store "P"
+        let system = addSystem store "S" project.Id true
+        let flow = addFlow store "Flow1" system.Id
+        let work = addWork store "Work1" flow.Id
+        work.MinDuration <- Some(TimeSpan.FromMilliseconds 100.0)
+        work.MaxDuration <- Some(TimeSpan.FromMilliseconds 900.0)
+
+        let rows = store.GetAllWorkDurationRows()
+
+        Assert.Equal(1, rows.Length)
+        Assert.Equal(100, rows.[0].MinDurationMs)
+        Assert.Equal(900, rows.[0].MaxDurationMs)
+
+    [<Fact>]
     let ``GetAllWorkDurationRows classifies rows by explorer tree ownership`` () =
         let store = createStore ()
         let project = addProject store "P"
@@ -224,6 +240,36 @@ module BatchTests =
         let w2AfterUndo = store.Works.[work2.Id]
         Assert.True(w1AfterUndo.Duration.IsNone)
         Assert.True(w2AfterUndo.Duration.IsNone)
+
+    [<Fact>]
+    let ``UpdateWorkDurationRangesBatch changes duration range and supports undo`` () =
+        let store = createStore ()
+        let project = addProject store "P"
+        let system = addSystem store "S" project.Id true
+        let flow = addFlow store "F" system.Id
+        let work1 = addWork store "W1" flow.Id
+        let work2 = addWork store "W2" flow.Id
+
+        store.UpdateWorkDurationRangesBatch([
+            struct(work1.Id, Nullable<int>(1200), Nullable<int>(100), Nullable<int>(2200))
+            struct(work2.Id, Nullable<int>(), Nullable<int>(200), Nullable<int>(3400))
+        ])
+
+        Assert.Equal(1200.0, store.Works.[work1.Id].Duration.Value.TotalMilliseconds)
+        Assert.Equal(100.0, store.Works.[work1.Id].MinDuration.Value.TotalMilliseconds)
+        Assert.Equal(2200.0, store.Works.[work1.Id].MaxDuration.Value.TotalMilliseconds)
+        Assert.True(store.Works.[work2.Id].Duration.IsNone)
+        Assert.Equal(200.0, store.Works.[work2.Id].MinDuration.Value.TotalMilliseconds)
+        Assert.Equal(3400.0, store.Works.[work2.Id].MaxDuration.Value.TotalMilliseconds)
+
+        store.Undo()
+
+        Assert.True(store.Works.[work1.Id].Duration.IsNone)
+        Assert.True(store.Works.[work1.Id].MinDuration.IsNone)
+        Assert.True(store.Works.[work1.Id].MaxDuration.IsNone)
+        Assert.True(store.Works.[work2.Id].Duration.IsNone)
+        Assert.True(store.Works.[work2.Id].MinDuration.IsNone)
+        Assert.True(store.Works.[work2.Id].MaxDuration.IsNone)
 
     [<Fact>]
     let ``GetAllApiCallIORows returns apiCalls with IO tags`` () =

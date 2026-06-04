@@ -77,6 +77,37 @@ public class UserTagsController : ControllerBase
             defDtos, systemOptions);
     }
 
+    /// <summary>
+    /// 대시보드 이상(Error) 배너용 경량 상태 — 최근 10분 활성 Error 수 + 오늘 누적 + 최신 Error 1건.
+    /// 대시보드가 스냅샷 주기(5초/SignalR)에 맞춰 폴링해 배너를 띄운다. snapshot 의 무거운 8쿼리를 피한다.
+    /// </summary>
+    [HttpGet("error-status")]
+    public async Task<ActionResult<UserTagErrorStatusDto>> GetErrorStatus(CancellationToken ct = default)
+    {
+        var nowUtc = DateTime.UtcNow;
+        var activeWindowStart = nowUtc - TimeSpan.FromMinutes(10);
+        var todayStartUtc = DateTime.Now.Date.ToUniversalTime();
+
+        var activeError = await _repo.CountAlertsAsync(activeWindowStart, nowUtc, null, "Error", null, ct);
+        var todayError = await _repo.CountAlertsAsync(todayStartUtc, nowUtc, null, "Error", null, ct);
+
+        // 활성 창의 최신 Error 1건(배너 부제: 시각·시스템·태그명). 활성 0 이면 조회 생략.
+        UserTagAlertRecord? latest = null;
+        if (activeError > 0)
+        {
+            var page = await _repo.QueryAlertsAsync(activeWindowStart, nowUtc, null, "Error", null, 1, 0, ct);
+            latest = page.Count > 0 ? page[0] : null;
+        }
+
+        return new UserTagErrorStatusDto(
+            activeError,
+            todayError,
+            latest?.Id,
+            latest is null ? null : latest.OccurredAt.ToLocalTime().ToString("MM-dd HH:mm:ss"),
+            latest?.SystemName,
+            latest?.Name);
+    }
+
     /// <summary>CSV 내보내기용 — 현재 필터의 전체 알림(최신순, 상한 limit).</summary>
     [HttpGet("alerts")]
     public async Task<ActionResult<List<UtAlertDto>>> GetAlerts(

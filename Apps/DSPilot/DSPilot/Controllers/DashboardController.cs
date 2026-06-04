@@ -120,6 +120,35 @@ public class DashboardController : ControllerBase
         return await GetShift();
     }
 
+    /// <summary>
+    /// 히스토리 이상치 제외 필터(Flow별 최소·최대 CT 범위). 여러 작업자 화면이 같은 기준을 보도록 서버 공유.
+    /// </summary>
+    [HttpGet("exclusions")]
+    public ActionResult<List<CycleExclusionDto>> GetExclusions()
+    {
+        return _settings.LoadSettings().CycleExclusion.Ranges
+            .Select(r => new CycleExclusionDto(r.FlowName, r.MinSec, r.MaxSec))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Flow 의 이상치 제외 범위 저장(upsert) 또는 해제(min/max 둘 다 null). 저장 후 ExclusionsChanged 브로드캐스트로
+    /// 다른 작업자 화면 동기화. 정규화된 전체 목록을 반환.
+    /// </summary>
+    [HttpPost("exclusions")]
+    public async Task<ActionResult<List<CycleExclusionDto>>> SaveExclusion([FromBody] CycleExclusionSaveDto req)
+    {
+        if (req is null || string.IsNullOrWhiteSpace(req.FlowName))
+            return BadRequest("flowName is required.");
+
+        _settings.SaveCycleExclusion(req.FlowName.Trim(), req.MinSec, req.MaxSec);
+
+        try { await _hub.Clients.All.SendAsync("ExclusionsChanged"); }
+        catch { /* best effort — 브로드캐스트 실패해도 저장은 유효 */ }
+
+        return GetExclusions();
+    }
+
     // 현재(또는 가장 최근) 시프트 시작을 UTC 로 해석. 클라이언트 _shiftWindow() 와 동일 규칙:
     //  - 주간(End>Start): 윈도우는 오늘 [Start, End]. 시작은 오늘 Start.
     //  - 야간(End≤Start, 자정 넘김): now≥Start 면 오늘 Start, 아니면 어제 Start.

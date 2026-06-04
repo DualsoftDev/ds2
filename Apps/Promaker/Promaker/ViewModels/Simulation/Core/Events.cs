@@ -50,6 +50,15 @@ public partial class SimulationPanelState
                 OnCallTimeout(args);
             });
 
+        // v12 P5 — 경로이탈 이상감지. proxy 모드면 Agent engine 이 단일 발행한 OnAbnormal 을 받아 재발행한 것.
+        engine.AbnormalDetected += (_, record) =>
+            _dispatcher.BeginInvoke(() =>
+            {
+                if (!ReferenceEquals(_simEngine, engine) || Interlocked.Read(ref _simUiGeneration) != generation)
+                    return;
+                OnAbnormalDetected(record);
+            });
+
         WireTokenEvent(engine, generation);
     }
 
@@ -59,6 +68,17 @@ public partial class SimulationPanelState
         ApplyWarningsToCanvas();
         AddWarningLog("TIMEOUT", $"{args.CallName} Timeout ({args.TimeoutMs}ms)");
         SimLog.Warn($"[Timeout] {args.CallName} ({args.TimeoutMs}ms) @{args.Clock}");
+    }
+
+    /// <summary>v12 P5 — 경로이탈 이상감지 표시(최소). SensorOpen/SensorShort/ActionOver/ActionUnder.
+    /// Action* 는 elapsedMs 동반, Sensor* 는 -1. 캔버스 하이라이트 등 상세 UI 는 P6.</summary>
+    private void OnAbnormalDetected(AbnormalRecord record)
+    {
+        var elapsed = Microsoft.FSharp.Core.FSharpOption<int>.get_IsSome(record.ElapsedMs)
+            ? record.ElapsedMs.Value : -1;
+        var detail = elapsed >= 0 ? $"{record.Kind} (elapsed={elapsed}ms)" : record.Kind.ToString();
+        AddWarningLog("ABNORMAL", detail);
+        SimLog.Warn($"[Abnormal] {record.Kind} elapsed={elapsed} @{record.TimestampUtc:HH:mm:ss}");
     }
 
     private static LogSeverity SeverityFromState(Status4 state) => state switch

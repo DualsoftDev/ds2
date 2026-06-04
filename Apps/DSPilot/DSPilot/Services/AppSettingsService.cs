@@ -10,7 +10,7 @@ public class AppSettingsService
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     private static readonly string[] ManagedSections =
-        ["Database", "FlowCycle", "DspTables", "Hub", "Logging", "Ui", "HistoryView", "Cctv", "OeeSignals", "Shift"];
+        ["Database", "FlowCycle", "DspTables", "Hub", "Logging", "Ui", "HistoryView", "Cctv", "OeeSignals", "Shift", "CycleExclusion"];
 
     private readonly string _filePath;
     private readonly string _productionFilePath;
@@ -68,6 +68,7 @@ public class AppSettingsService
             Cctv = Deserialize<CctvSettings>(root["Cctv"]),
             OeeSignals = Deserialize<OeeSignalSettings>(root["OeeSignals"]),
             Shift = Deserialize<ShiftSettings>(root["Shift"]),
+            CycleExclusion = Deserialize<CycleExclusionSettings>(root["CycleExclusion"]),
         };
     }
 
@@ -96,6 +97,7 @@ public class AppSettingsService
         target["Cctv"] = JsonSerializer.SerializeToNode(model.Cctv, JsonOptions);
         target["OeeSignals"] = JsonSerializer.SerializeToNode(model.OeeSignals, JsonOptions);
         target["Shift"] = JsonSerializer.SerializeToNode(model.Shift, JsonOptions);
+        target["CycleExclusion"] = JsonSerializer.SerializeToNode(model.CycleExclusion, JsonOptions);
     }
 
     public FlowCycleOverride? GetFlowCycleOverride(string flowName)
@@ -206,6 +208,51 @@ public class AppSettingsService
         }
 
         settings.FlowCycle.Overrides = overrides
+            .OrderBy(item => item.FlowName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        SaveSettings(settings);
+    }
+
+    /// <summary>
+    /// 대시보드 히스토리 이상치 제외 범위를 Flow별로 upsert/삭제 (단위 = 초). minSec/maxSec 둘 다 null 이면
+    /// 해당 Flow 의 제외 규칙을 제거(전체 복원). 음수는 무시(null), min &gt; max 로 뒤집힌 입력은 자동 교정한다.
+    /// (SaveFlowCycleOverride 와 같은 per-flow 리스트 정리 원칙 — 빈 항목은 남기지 않음.)
+    /// </summary>
+    public void SaveCycleExclusion(string flowName, double? minSec, double? maxSec)
+    {
+        if (string.IsNullOrWhiteSpace(flowName))
+        {
+            throw new ArgumentException("Flow name is required.", nameof(flowName));
+        }
+
+        var min = minSec is >= 0 ? minSec : null;
+        var max = maxSec is >= 0 ? maxSec : null;
+        if (min is not null && max is not null && min > max)
+        {
+            (min, max) = (max, min);   // 뒤집힌 입력 자동 교정
+        }
+
+        var settings = LoadSettings();
+        var ranges = settings.CycleExclusion.Ranges;
+        var existing = ranges
+            .FirstOrDefault(item => string.Equals(item.FlowName, flowName, StringComparison.OrdinalIgnoreCase));
+
+        if (min is null && max is null)
+        {
+            if (existing is not null) ranges.Remove(existing);   // 미설정 = 제외 해제
+        }
+        else if (existing is null)
+        {
+            ranges.Add(new FlowCycleExclusion { FlowName = flowName, MinSec = min, MaxSec = max });
+        }
+        else
+        {
+            existing.MinSec = min;
+            existing.MaxSec = max;
+        }
+
+        settings.CycleExclusion.Ranges = ranges
             .OrderBy(item => item.FlowName, StringComparer.OrdinalIgnoreCase)
             .ToList();
 

@@ -187,7 +187,7 @@
                                 <span class="material-icons">refresh</span> 새로고침
                             </button>
                             <button class="btn btn-outlined color-default" @click="exportCsv()" :disabled="filteredGroups.length === 0">
-                                <span class="material-icons">file_download</span> CSV 내보내기
+                                <span class="material-icons">download</span> CSV 내보내기
                             </button>
                         </div>
                     </div>
@@ -201,7 +201,7 @@
 
             <!-- 오류 -->
             <div class="alert alert-error mb-4" x-show="error" style="flex-shrink:0;">
-                <span class="material-icons">error_outline</span>
+                <span class="material-icons">error</span>
                 <span x-text="error"></span>
             </div>
 
@@ -388,7 +388,7 @@
                                 <div class="d-flex" style="justify-content:space-between; align-items:flex-start; margin-bottom:14px;">
                                     <div style="min-width:0;">
                                         <div class="hm-detail-eyebrow mb-1"><span class="material-icons" style="font-size:14px;">search</span>선택된 Call · 상세</div>
-                                        <h6 class="typo-h6" style="margin:2px 0 0; color:var(--navy);" x-text="selectedCall.callName"></h6>
+                                        <h6 class="typo-h6" style="margin:2px 0 0; color:var(--color-text-primary);" x-text="selectedCall.callName"></h6>
                                         <span class="typo-caption" style="color:var(--color-text-secondary); font-family:var(--font-mono);"
                                               x-text="'Flow: ' + selectedCall.flowName + ' | Work: ' + (selectedCall.workName || '—')"></span>
                                     </div>

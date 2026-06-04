@@ -8,11 +8,16 @@
 
     <!--
       DSPilot 정적 호스팅 — Flow Workspace (FlowWorkspace.razor 이전).
-      서버/모델 = C#(/api/flow/*, /api/dashboard/flows/*), 뷰 = 정적 HTML/CSS/JS(Alpine + Chart.js + SignalR).
-      디자인 시스템: /css/ds.css.
-      진입: ?name=<flowName>. 헤더 카드 + Flow CT 기준(override 저장) + KPI 6셀 + 기간별 추이(클라 집계).
-      실시간: /hubs/monitoring SignalR 이벤트 → /api/flow/{name} 디바운스 refetch (대시보드와 동일).
-      정직성: Call Inventory(In/Out Tag, per-call 상태표) 는 API 노출이 없어 재현하지 않고 .ds-empty 로 명시.
+      서버/모델 = C#(/api/flow/*, /api/dashboard/flows/*, /api/call-test/*, /api/cycle-analysis/export-excel),
+      뷰 = 정적 HTML/CSS/JS(Alpine + Chart.js + vanilla SVG + SignalR). 디자인 시스템: /css/ds.css.
+      진입: ?name=<flowName> (이 Flow 1개에 스코프됨 — Flow 선택 드롭다운 없음).
+      구성: 헤더 카드 + KPI 6셀 + 기간별 추이(클라 집계)
+            + 사이클 분석(구 cycle-time-analysis 전체 기능: 간트/Head·Tail 적용·저장/Excel/정렬/최대Gap/드래그 구간통계)
+            + 최근 히스토리(구 대시보드 하단: 테이블↔차트 + 이상치 제외 범위 필터, 서버 공유).
+      구 'Flow CT 기준' override 패널은 제거 — 사이클 분석의 'Head/Tail 적용(저장)' 이 동일 엔드포인트
+      (/api/flow/{name}/cycle-override) 로 더 풍부하게 대체한다.
+      실시간: /hubs/monitoring SignalR 이벤트 → /api/flow/{name} + 히스토리 디바운스 refetch.
+              사이클 분석(간트)은 줌/선택 보존을 위해 수동 새로고침(프리셋/새로고침 버튼).
     -->
     <link href="/css/fonts.css" rel="stylesheet" />
     <link href="/css/ds.css" rel="stylesheet" />
@@ -35,19 +40,6 @@
         .fw-hero-meta b { color: var(--color-text-primary); font-weight: 700; }
         .fw-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
         .fw-info-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; background: color-mix(in srgb, var(--color-primary) 8%, transparent); color: var(--color-primary); }
-
-        /* Cycle 기준 그리드 */
-        .fw-cycle-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 4px; }
-        @media (max-width: 900px) { .fw-cycle-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-        .fw-field { display: flex; flex-direction: column; gap: 6px; }
-        .fw-field label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-secondary); }
-        .fw-input, .fw-select { width: 100%; padding: 8px 10px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-primary); font-size: 0.86rem; font-family: var(--font-family); }
-        .fw-input:disabled { background: var(--color-surface-variant); color: var(--color-text-secondary); }
-        .fw-cycle-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
-        .fw-cycle-note { font-size: 0.78rem; color: var(--color-text-secondary); }
-        .fw-badge { padding: 4px 12px; border-radius: 999px; font-size: 0.78rem; font-weight: 700; }
-        .fw-badge.is-default { background: color-mix(in srgb, var(--green) 14%, transparent); color: var(--green); }
-        .fw-badge.is-override { background: color-mix(in srgb, var(--amber) 18%, transparent); color: var(--color-warning); }
 
         /* KPI 6셀 */
         .fw-kpi-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
@@ -72,6 +64,169 @@
         .fw-chart-md { position: relative; height: 260px; }
 
         .fw-period-controls { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+
+        /* ── 탭 바 (기간별 추이 / 사이클 분석 / 최근 히스토리 전환) ── */
+        .fw-tabs { display: flex; gap: 2px; flex-wrap: wrap; border-bottom: 1px solid var(--color-lines-strong); }
+        .fw-tabs button { appearance: none; border: none; background: none; padding: 10px 18px; font-size: 0.9rem; font-weight: 700; color: var(--color-text-secondary); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; display: inline-flex; align-items: center; gap: 7px; transition: color 0.12s, border-color 0.12s; }
+        .fw-tabs button:hover { color: var(--color-text-primary); }
+        .fw-tabs button.is-active { color: var(--color-primary); border-bottom-color: var(--color-primary); }
+        .fw-tabs button .material-icons { font-size: 18px; }
+        /* 공용 툴바 (이상치 제외 등 전 탭 공유 필터) */
+        .fw-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 9px 2px 0; }
+        .fw-toolbar-label { display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; font-weight: 800; color: var(--color-text-secondary); }
+        .fw-toolbar-label .material-icons { font-size: 17px; }
+        .fw-toolbar-hint { font-size: 0.68rem; font-weight: 600; color: var(--color-text-tertiary, var(--color-text-secondary)); opacity: 0.85; }
+
+        /* ════════════════════════════════════════════════════════════════
+           사이클 분석 (구 cycle-time-analysis 에서 이식) — ct-* 페이지 고유 클래스
+           ════════════════════════════════════════════════════════════════ */
+        .call-test-page { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+        /* 컨트롤 패널 (헤어라인 박스, 플랫) */
+        .call-test-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; padding: 14px 16px; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); }
+        .ct-field { display: flex; flex-direction: column; gap: 6px; min-width: 180px; }
+        .ct-field label { font-size: 0.66rem; color: var(--color-text-secondary); font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; }
+        .ct-presets { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-left: auto; }
+        .ct-preset-sep { margin-left: 6px; padding-left: 10px; border-left: 1px solid var(--color-lines-strong); font-size: 0.68rem; font-weight: 800; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.06em; }
+
+        /* 로딩 / 빈 상태 (점선 헤어라인) */
+        .ct-loading, .ct-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 48px 20px; color: var(--color-text-secondary); background: var(--color-surface); border: 1px dashed var(--color-lines-strong); border-radius: var(--radius-md); }
+        .ct-loading p, .ct-empty p { margin: 0; }
+        .ct-empty .material-icons { font-size: 38px; color: var(--color-text-disabled); }
+        .ct-empty-hint { font-size: 0.72rem; color: var(--color-text-secondary); }
+
+        /* 정보 바 (계기판 readout 묶음) */
+        .ct-info-bar { display: flex; flex-wrap: wrap; gap: 8px 22px; padding: 12px 16px; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); align-items: center; font-size: 0.78rem; }
+        .ct-info-item { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+        .ct-info-k { font-size: 0.6rem; color: var(--color-text-secondary); text-transform: uppercase; font-weight: 700; letter-spacing: 0.12em; }
+        .ct-info-v { color: var(--color-text-primary); font-weight: 700; font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+        .ct-mono { font-family: var(--font-mono); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+        /* 간트 layout (헤어라인 박스, 그림자 없음) */
+        .ct-gantt-layout { display: flex; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); overflow: hidden; max-height: calc(100vh - 300px); }
+        .ct-lane-sidebar { flex: 0 0 280px; width: 280px; background: var(--color-surface); border-right: 1px solid var(--color-lines); overflow-y: auto; overflow-x: hidden; z-index: 1; }
+        .ct-sidebar-header { display: flex; align-items: flex-end; padding: 0 12px 8px; font-size: 0.66rem; font-weight: 700; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.12em; border-bottom: 1.5px solid var(--color-text-primary); background: var(--color-surface-variant); position: sticky; top: 0; z-index: 2; }
+        .ct-ribbon-side { display: flex; flex-direction: column; justify-content: center; gap: 1px; padding: 0 12px; background: #fafbfc; border-bottom: 1px solid var(--color-lines); }
+        .ct-ribbon-side .rs-t { font-size: 0.7rem; font-weight: 800; color: var(--color-text-primary); }
+        .ct-ribbon-side .rs-sub { font-size: 0.58rem; color: var(--color-text-secondary); white-space: nowrap; }
+        .dark-theme .ct-ribbon-side { background: var(--color-surface-variant); }
+        .ct-lane-row { display: flex; align-items: center; padding: 0 10px; gap: 8px; border-bottom: 1px solid var(--color-lines); background: var(--color-surface); }
+        .ct-lane-row.is-head { background: color-mix(in srgb, #4caf50 12%, var(--color-surface)); box-shadow: inset 3px 0 0 #4caf50; }
+        .ct-lane-row.is-tail { background: color-mix(in srgb, #ab47bc 12%, var(--color-surface)); box-shadow: inset 3px 0 0 #ab47bc; }
+        .ct-lane-name-block { flex: 1; min-width: 0; overflow: hidden; }
+        .ct-lane-name { font-size: 0.78rem; font-weight: 700; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 5px; }
+        .ct-lane-work { font-size: 0.66rem; color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+        .ct-badge { display: inline-block; font-size: 0.56rem; font-weight: 800; letter-spacing: 0.08em; padding: 1px 5px; border-radius: var(--radius-sm); color: #fff; line-height: 1.5; }
+        .ct-badge.head { background: #4caf50; }
+        .ct-badge.tail { background: #ab47bc; }
+        .ct-lane-tags { display: flex; gap: 4px; flex: 0 0 auto; }
+        .ct-tag-btn { width: 24px; height: 24px; border-radius: var(--radius-sm); border: 1px solid var(--color-lines-strong); background: var(--color-surface); font-size: 0.7rem; font-weight: 800; cursor: pointer; padding: 0; color: var(--color-text-primary); font-family: var(--font-mono); transition: background-color 0.12s, color 0.12s, border-color 0.12s; }
+        .ct-tag-btn:hover:not(:disabled) { border-color: var(--color-primary); color: var(--color-primary); }
+        .ct-tag-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+        .ct-tag-btn.head.active { background: #4caf50; color: #fff; border-color: #2e7d32; }
+        .ct-tag-btn.tail.active { background: #ab47bc; color: #fff; border-color: #7b1fa2; }
+        .ct-gantt-chart-area { flex: 1; overflow: auto; background: var(--color-surface); overscroll-behavior-x: contain; }
+        .ct-gantt-wrapper { display: inline-block; }
+
+        /* 간트 툴바 (보기 전환 + 줌) */
+        .ct-gantt-toolbar { display: flex; align-items: center; gap: 12px; padding: 6px 10px; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); flex-wrap: wrap; }
+        .ct-gantt-toolbar .spacer { flex: 1; }
+        .ct-tb-hint { font-size: 0.66rem; color: var(--color-text-secondary); }
+        .ct-seg { display: inline-flex; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); overflow: hidden; }
+        .ct-seg button { border: 0; background: var(--color-surface); color: var(--color-text-secondary); font-size: 0.72rem; font-weight: 700; padding: 5px 12px; cursor: pointer; }
+        .ct-seg button + button { border-left: 1px solid var(--color-lines); }
+        .ct-seg button.active { background: var(--color-primary); color: #fff; }
+        .ct-zoom { display: inline-flex; align-items: center; gap: 6px; }
+        .ct-zoom button { width: 26px; height: 26px; border: 1px solid var(--color-lines-strong); background: var(--color-surface); border-radius: var(--radius-sm); cursor: pointer; font-weight: 800; font-size: 0.85rem; color: var(--color-text-primary); padding: 0; line-height: 1; }
+        .ct-zoom button.ct-zoom-reset { width: auto; padding: 0 10px; font-size: 0.7rem; font-weight: 700; }
+        .ct-zoom button:hover:not(:disabled) { border-color: var(--color-primary); color: var(--color-primary); }
+        .ct-zoom button:disabled { opacity: 0.4; cursor: not-allowed; }
+        .ct-zoom-val { font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700; min-width: 44px; text-align: center; }
+        .dark-theme .ct-seg button, .dark-theme .ct-zoom button { background: var(--color-surface-variant); }
+
+        /* 범례 (헤어라인 박스) */
+        .ct-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 0.72rem; color: var(--color-text-secondary); padding: 10px 16px; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); align-items: center; }
+        .ct-legend > span { display: inline-flex; align-items: center; }
+        .ct-sw { display: inline-block; width: 12px; height: 12px; border-radius: 1px; margin-right: 6px; vertical-align: middle; }
+        .ct-sw-going { background: #5b9bd5; }
+        .ct-sw-out { background: #1e88e5; }
+        .ct-sw-in { background: #fb8c00; }
+        .ct-sw-head { background: #4caf50; }
+        .ct-sw-tail { background: #ab47bc; }
+        .ct-sw-cycle-edge { background: transparent; border-left: 2px solid #ff9800; border-radius: 0; width: 6px; }
+        .ct-sw-active-band { background: #c8e6c9; border: 1px solid #81c784; }
+        .ct-sw-idle-band { background: #cfd8dc; border: 1px solid #90a4ae; }
+        .ct-sw-band-a { background: #f3e5f5; border: 1px solid #ce93d8; }
+        .ct-sw-band-b { background: #e8eaf6; border: 1px solid #9fa8da; }
+        .ct-sw-maxgap { background: rgba(245,166,35,0.28); border: 1.5px solid #e5494f; }
+        .ct-sw-range { background: rgba(126,87,194,0.16); border: 1px dashed #7e57c2; }
+
+        /* 툴바 정렬/최대Gap 컨트롤 */
+        .ct-tb-field { display: inline-flex; align-items: center; gap: 6px; }
+        .ct-tb-field > label { font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--color-text-secondary); }
+        .ct-gantt-toolbar select.form-select { font-size: 0.72rem; padding: 4px 8px; min-width: auto; height: auto; }
+        .ct-gap-pick { max-width: 260px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+        .ct-tb-check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.74rem; font-weight: 700; color: var(--color-text-primary); white-space: nowrap; }
+        .ct-tb-check input[type="checkbox"] { accent-color: var(--color-primary); width: 15px; height: 15px; cursor: pointer; }
+        .ct-tb-check:has(input:disabled) { opacity: 0.45; cursor: not-allowed; }
+
+        /* 최대 Gap(병목) readout */
+        .ct-bottleneck { display: flex; flex-direction: column; gap: 3px; min-width: 0; background: none; border: 0; padding: 0; margin: 0; text-align: left; cursor: pointer; font: inherit; }
+        .ct-bottleneck:hover .ct-info-v { text-decoration: underline; }
+        .ct-bottleneck .ct-info-v { color: var(--red); }
+
+        /* 간트 가로 드래그 → 구간 통계 4-KPI */
+        .ct-range-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+        @media (max-width: 768px) { .ct-range-stats { grid-template-columns: repeat(2, 1fr); } }
+        .ct-range-stats .kpi-cell .kp-value { font-size: 1.15rem; }
+
+        /* 사이클 목록 테이블 */
+        .ct-cycle-scroll { max-height: 260px; overflow-y: auto; overflow-x: hidden; }
+        .ct-cycle-open td { color: var(--color-text-secondary); font-style: italic; }
+        .ct-ratio-good { color: var(--color-success); font-weight: 700; }
+        .ct-ratio-mid  { color: var(--color-warning); font-weight: 700; }
+        .ct-ratio-low  { color: var(--color-error); font-weight: 700; }
+
+        /* 다크 보강 */
+        .dark-theme .ct-sidebar-header { background: var(--color-surface-variant); }
+        .dark-theme .ct-lane-row.is-head { background: color-mix(in srgb, #4caf50 18%, var(--color-surface)); }
+        .dark-theme .ct-lane-row.is-tail { background: color-mix(in srgb, #ab47bc 18%, var(--color-surface)); }
+        .dark-theme .ct-tag-btn { background: var(--color-surface-variant); }
+        .dark-theme .ct-gantt-chart-area { background: #ffffff; }
+
+        /* ════════════════════════════════════════════════════════════════
+           최근 히스토리 (구 대시보드 하단에서 이식) — hist-* + 이상치 제외 모달
+           ════════════════════════════════════════════════════════════════ */
+        .hist-toggle { display: inline-flex; gap: 1px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); overflow: hidden; }
+        .hist-toggle button { display: inline-flex; align-items: center; gap: 4px; border: none; border-radius: 0; padding: 4px 10px; font-size: 0.72rem; font-weight: 700; cursor: pointer; background: var(--color-surface); color: var(--color-text-secondary); }
+        .hist-toggle button .material-icons { font-size: 15px; }
+        .hist-toggle button.is-active { background: var(--color-primary); color: #fff; }
+        .hist-chart-wrap { position: relative; height: clamp(240px, 40vh, 460px); padding: 6px 2px 0; }
+        .hist-table-wrap { max-height: clamp(240px, 46vh, 520px); overflow-y: auto; border: 1px solid var(--color-lines); border-radius: var(--radius-md); }
+        .hist-table-wrap .ds-table th { position: sticky; top: 0; z-index: 1; }
+        .hist-table-wrap .ds-table td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+        .hist-mt { color: var(--dash-mt); font-weight: 700; }
+        .hist-wt { color: var(--color-text-secondary); font-weight: 700; }
+        .hist-ct { color: var(--color-text-primary); font-weight: 800; }
+
+        .hist-filter-chip { display: inline-flex; align-items: center; gap: 7px; padding: 3px 6px 3px 11px; border-radius: var(--radius-lg); font-size: 0.68rem; font-weight: 800; color: var(--color-warning); background: color-mix(in srgb, var(--color-warning) 12%, transparent); border: 1px solid color-mix(in srgb, var(--color-warning) 45%, transparent); }
+        .hist-filter-chip .hfc-reset { display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px; border: none; border-radius: var(--radius-sm); background: var(--color-warning); color: #fff; font-size: 0.62rem; font-weight: 800; cursor: pointer; }
+        .hist-filter-chip .hfc-reset .material-icons { font-size: 13px; }
+
+        /* 이상치 제외 범위 모달 */
+        .shift-modal { width: min(520px, 94vw); padding: 0; }
+        .shift-modal .sm-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px 14px; border-bottom: 1px solid var(--color-lines); }
+        .shift-modal .sm-title { font-size: 1.05rem; font-weight: 800; letter-spacing: -0.01em; }
+        .shift-modal .sm-body { padding: 18px 22px 4px; }
+        .shift-modal .sm-foot { display: flex; gap: 10px; padding: 14px 22px 20px; }
+        .shift-modal .sm-foot .btn { flex: 1; justify-content: center; }
+        .sm-times { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .range-row { display: flex; gap: 6px; align-items: center; }
+        .range-row .form-field { flex: 1 1 auto; min-width: 0; }
+        .range-row .range-unit { flex: 0 0 auto; width: auto; padding: 10px 8px; }
+        .sm-hint { display: flex; gap: 9px; align-items: flex-start; margin-top: 6px; padding: 11px 13px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--color-primary) 22%, transparent); font-size: 0.78rem; line-height: 1.5; color: var(--color-text-secondary); }
+        .sm-hint .material-icons { font-size: 17px; color: var(--color-primary); flex-shrink: 0; margin-top: 1px; }
+        .sm-hint b { color: var(--color-primary-strong); font-weight: 800; }
     </style>
 </head>
 
@@ -122,7 +277,7 @@
 
             <!-- 로딩/오류 -->
             <div x-show="loading && !flow" class="progress-bar progress-bar-indeterminate" style="margin-bottom:12px;"><div class="progress-bar-fill"></div></div>
-            <div class="alert alert-error" x-show="error" style="margin-bottom:12px;"><span class="material-icons">error_outline</span><span x-text="error"></span></div>
+            <div class="alert alert-error" x-show="error" style="margin-bottom:12px;"><span class="material-icons">error</span><span x-text="error"></span></div>
 
             <!-- Flow 없음 -->
             <template x-if="!loading && !error && !flow">
@@ -161,50 +316,6 @@
                         </div>
                     </section>
 
-                    <!-- ════ Flow CT 기준 ════ -->
-                    <section class="card fw-section">
-                        <div class="ds-card-h">
-                            <h4>Flow CT 기준</h4>
-                            <span class="fw-badge" :class="flow.isOverride ? 'is-override' : 'is-default'"
-                                  x-text="flow.isOverride ? '사용자 override 사용 중' : '현재 AASX 기본값 사용 중'"></span>
-                        </div>
-                        <div class="ds-card-h-sub" style="margin:-8px 0 12px;">AASX 기본 start/end Call을 기준으로 사용자 override를 저장합니다.</div>
-
-                        <div class="fw-cycle-grid">
-                            <div class="fw-field">
-                                <label>AASX 기본 시작 Call</label>
-                                <input class="fw-input" :value="flow.aasxDefaultStartCall || '-'" disabled />
-                            </div>
-                            <div class="fw-field">
-                                <label>AASX 기본 종료 Call</label>
-                                <input class="fw-input" :value="flow.aasxDefaultEndCall || '-'" disabled />
-                            </div>
-                            <div class="fw-field">
-                                <label>Cycle 시작 Call</label>
-                                <select class="fw-select" x-model="selStart" :disabled="flow.callOptions.length === 0">
-                                    <!-- callOptions 는 work 간 동일 Call 명이 중복될 수 있어(BuildCallOptions 미dedup) :key 에 index 합성 → 중복키로 인한 x-for 재배치 크래시 방지 -->
-                                    <template x-for="(o, i) in flow.callOptions" :key="o + '|' + i"><option :value="o" x-text="o"></option></template>
-                                </select>
-                            </div>
-                            <div class="fw-field">
-                                <label>Cycle 종료 Call</label>
-                                <select class="fw-select" x-model="selEnd" :disabled="flow.callOptions.length === 0">
-                                    <!-- callOptions 는 work 간 동일 Call 명이 중복될 수 있어(BuildCallOptions 미dedup) :key 에 index 합성 → 중복키로 인한 x-for 재배치 크래시 방지 -->
-                                    <template x-for="(o, i) in flow.callOptions" :key="o + '|' + i"><option :value="o" x-text="o"></option></template>
-                                </select>
-                            </div>
-                        </div>
-
-                        <div class="fw-cycle-actions">
-                            <button class="btn btn-sm btn-filled" @click="saveCycleOverride()" :disabled="flow.callOptions.length === 0 || saving">
-                                <span class="material-icons" style="font-size:16px;">save</span>
-                                <span x-text="saving ? '저장 중...' : 'CT 기준 저장'"></span>
-                            </button>
-                            <span class="fw-cycle-note">AASX 기본값과 동일하게 저장하면 override는 제거됩니다.</span>
-                            <span class="fw-cycle-note" x-show="cycleMsg" x-text="cycleMsg" style="color:var(--color-primary); font-weight:600;"></span>
-                        </div>
-                    </section>
-
                     <!-- ════ KPI 6셀 ════ -->
                     <div class="fw-kpi-grid">
                         <article class="card fw-kpi">
@@ -239,8 +350,41 @@
                         </article>
                     </div>
 
+                    <!-- ════ 탭 바 ════ -->
+                    <div class="fw-tabs">
+                        <button :class="tab === 'trend' ? 'is-active' : ''" @click="setTab('trend')">
+                            <span class="material-icons">timeline</span> 기간별 추이
+                        </button>
+                        <button :class="tab === 'cycle' ? 'is-active' : ''" @click="setTab('cycle')">
+                            <span class="material-icons">account_tree</span> 사이클 분석
+                        </button>
+                        <button :class="tab === 'history' ? 'is-active' : ''" @click="setTab('history')">
+                            <span class="material-icons">history</span> 최근 히스토리
+                        </button>
+                    </div>
+
+                    <!-- ════ 공용 툴바: 이상치 제외 필터 (이 Flow · 서버 공유 · 사이클분석·히스토리 전 탭 적용) ════ -->
+                    <div class="fw-toolbar" x-show="flow" x-cloak>
+                        <span class="fw-toolbar-label">
+                            <span class="material-icons">filter_alt</span> 이상치 제외
+                            <span class="fw-toolbar-hint">CT 범위 밖 사이클 제외 · 이 Flow 서버 공유</span>
+                        </span>
+                        <button class="btn btn-sm" :class="_exRange ? 'btn-filled' : 'btn-outlined'"
+                                @click="openRangeModal()"
+                                title="최소·최대 CT 를 지정해 그 범위를 벗어난 사이클(이상치)을 사이클 목록·차트·히스토리에서 제외합니다 — 이 Flow 에 적용·서버 공유">
+                            <span class="material-icons" style="font-size:16px;">tune</span>
+                            <span x-text="_exRange ? ('범위 ' + rangeLabel) : '범위 설정'"></span>
+                        </button>
+                        <span class="hist-filter-chip" x-show="_exRange && (excludedCount > 0 || excludedCycleCount > 0)" x-cloak>
+                            <span x-text="(tab === 'cycle' ? excludedCycleCount : excludedCount) + '개 제외됨 · 평균 재계산'"></span>
+                            <button class="hfc-reset" @click="resetExclusions()" title="제외 해제 (전체 복원)">
+                                <span class="material-icons">restart_alt</span> 초기화
+                            </button>
+                        </span>
+                    </div>
+
                     <!-- ════ 기간별 추이 ════ -->
-                    <section class="card fw-section">
+                    <section class="card fw-section" x-show="tab === 'trend'">
                         <div class="ds-card-h">
                             <div>
                                 <h4>기간별 추이</h4>
@@ -313,25 +457,454 @@
                         </template>
                     </section>
 
-                    <!-- ════ Call Inventory (미재현 — 정직성 표기) ════ -->
-                    <section class="card fw-section">
-                        <div class="ds-card-h">
-                            <h4>Call Inventory</h4>
-                            <span class="ds-card-h-sub">Work / Call / InTag / OutTag / 상태</span>
-                        </div>
-                        <div class="ds-empty">
-                            <span class="material-icons">table_rows</span>
-                            <div class="ds-empty-title">per-Call 인벤토리는 정적 미러에서 아직 제공되지 않습니다</div>
-                            <div class="ds-empty-desc">
-                                Call 별 In/Out Tag · 상태 · Going 횟수 · 평균 시간 표는 전용 직렬화 엔드포인트가 없어 재현하지 않았습니다(가짜 데이터 금지).
-                                Flow 단위 상태/MT/WT/CT 와 사이클 추이는 위에서 실데이터로 표시됩니다.
+                    <!-- ════ 사이클 분석 (구 cycle-time-analysis 전체 기능, 이 Flow 스코프) ════ -->
+                    <section class="card fw-section" x-show="tab === 'cycle'">
+                        <div class="ds-card-h" style="margin-bottom:12px;">
+                            <div>
+                                <h4>사이클 분석</h4>
+                                <span class="ds-card-h-sub">신호 간트 · Head/Tail 사이클 경계 적용(저장) · 최대 Gap(병목) · 드래그 구간통계 · Excel</span>
                             </div>
-                            <span class="ds-empty-tag">준비중</span>
+                            <span class="ct-live" :class="(isLoading || overlayBusy) ? 'is-busy' : ''"
+                                  :title="(isLoading || overlayBusy) ? '데이터/오버레이 갱신 중' : '읽기 전용 분석'"
+                                  style="display:inline-flex; align-items:center; gap:7px; padding:5px 11px; border:1px solid var(--color-lines-strong); border-radius:var(--radius-sm); font-size:0.66rem; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; color:var(--color-text-secondary);">
+                                <span x-text="(isLoading || overlayBusy) ? 'SYNC · 갱신중' : 'READ · 읽기전용'"></span>
+                            </span>
                         </div>
+
+                        <div class="call-test-page">
+                            <!-- 컨트롤 (Flow 는 이 페이지로 고정 → 시간 범위만) -->
+                            <div class="call-test-controls">
+                                <div class="ct-field">
+                                    <label>시작</label>
+                                    <input type="datetime-local" step="1" class="form-field" x-model="startTime" @change="onTimeChanged()" />
+                                </div>
+                                <div class="ct-field">
+                                    <label>종료</label>
+                                    <input type="datetime-local" step="1" class="form-field" x-model="endTime" @change="onTimeChanged()" />
+                                </div>
+                                <div class="ct-presets">
+                                    <button class="btn btn-sm" @click="setRecentMinutes(1)">최근 1분</button>
+                                    <button class="btn btn-sm" @click="setRecentMinutes(5)">최근 5분</button>
+                                    <button class="btn btn-sm" @click="setRecentMinutes(30)">최근 30분</button>
+                                    <button class="btn btn-sm" @click="setRecentHours(1)">최근 1시간</button>
+                                    <button class="btn btn-sm" @click="setRecentHours(24)">최근 24시간</button>
+                                    <span class="ct-preset-sep" title="사이클 개수 기준 — 최근 발생한 N개 사이클이 들어오도록 시간 범위를 자동 설정">사이클</span>
+                                    <button class="btn btn-sm" :class="cyclePreset === 20 ? 'btn-filled' : ''" @click="setRecentCycles(20)" :disabled="isLoading || !selectedFlow">최근 20</button>
+                                    <button class="btn btn-sm" :class="cyclePreset === 50 ? 'btn-filled' : ''" @click="setRecentCycles(50)" :disabled="isLoading || !selectedFlow">최근 50</button>
+                                    <button class="btn btn-sm" :class="cyclePreset === 100 ? 'btn-filled' : ''" @click="setRecentCycles(100)" :disabled="isLoading || !selectedFlow">최근 100</button>
+                                    <button class="btn btn-filled btn-sm" @click="load()" :disabled="isLoading || !selectedFlow">
+                                        <span class="material-icons" style="font-size:15px; vertical-align:middle;">refresh</span>
+                                        새로고침
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- 오류 -->
+                            <div class="alert alert-error" x-show="errorMessage">
+                                <span class="material-icons">error</span>
+                                <span x-text="errorMessage"></span>
+                            </div>
+
+                            <!-- 로딩 -->
+                            <template x-if="isLoading">
+                                <div class="ct-loading">
+                                    <div class="spinner"></div>
+                                    <p>데이터 로딩 중…</p>
+                                </div>
+                            </template>
+
+                            <!-- 데이터 없음 -->
+                            <template x-if="!isLoading && callLanes.length === 0">
+                                <div class="ct-empty">
+                                    <span class="material-icons">hourglass_disabled</span>
+                                    <p>선택한 시간 범위에 신호 이벤트가 없습니다.</p>
+                                    <p class="ct-empty-hint">시간 범위를 늘리거나 프리셋 버튼을 사용해 보세요.</p>
+                                </div>
+                            </template>
+
+                            <!-- 본문 -->
+                            <template x-if="!isLoading && callLanes.length > 0">
+                                <div style="display:flex; flex-direction:column; gap:12px;">
+                                    <!-- 정보 바 -->
+                                    <div class="ct-info-bar">
+                                        <div class="ct-info-item"><span class="ct-info-k">Call 수</span><span class="ct-info-v" x-text="callLanes.length"></span></div>
+                                        <div class="ct-info-item"><span class="ct-info-k">사이클 경계 기준</span><span class="ct-info-v" x-text="(headName || '(기본 Head)') + ' · ' + cycleBoundaries.length + ' 회'"></span></div>
+                                        <div class="ct-info-item"><span class="ct-info-k">Tail 마커</span><span class="ct-info-v" x-text="(tailName || '-') + ' · ' + tailEdges.length + ' 회'"></span></div>
+                                        <template x-if="avgCycleMs !== null">
+                                            <div class="ct-info-item"><span class="ct-info-k">CT 평균 (시작→다음 시작)</span><span class="ct-info-v ct-mono" x-text="formatMs(avgCycleMs)"></span></div>
+                                        </template>
+                                        <template x-if="avgActiveMs !== null">
+                                            <div class="ct-info-item"><span class="ct-info-k">MT 평균 (시작→완료)</span><span class="ct-info-v ct-mono" x-text="formatMs(avgActiveMs)"></span></div>
+                                        </template>
+                                        <template x-if="topGaps.length">
+                                            <button type="button" class="ct-bottleneck" @click="focusMaxGap()"
+                                                    title="최대 Gap(병목) 으로 스크롤 + 간트에서 강조">
+                                                <span class="ct-info-k">최대 Gap (병목)</span>
+                                                <span class="ct-info-v ct-mono" x-text="formatMs(topGaps[0].durMs) + ' · ' + topGaps[0].callName"></span>
+                                            </button>
+                                        </template>
+                                        <div class="ct-info-item" style="margin-left:auto;">
+                                            <span class="ct-info-k">CT 기준</span>
+                                            <span class="ct-info-v" x-text="isOverride ? '사용자 지정' : 'AASX 기본'"
+                                                  :style="isOverride ? 'color:var(--color-primary)' : ''"
+                                                  :title="isOverride ? '이 Flow 의 사이클 경계가 사용자 지정(저장됨)으로 적용 중' : 'AASX 프로젝트 정의 Head/Tail 적용 중'"></span>
+                                        </div>
+                                        <button class="btn btn-sm btn-filled" @click="applyHeadTail()"
+                                                :disabled="overlayBusy || recomputeBusy || !headCallId || !tailCallId"
+                                                title="현재 Head/Tail 을 이 Flow 의 사이클 경계로 저장하고, 이 Flow 의 과거 이력 전체를 새 경계로 재계산합니다(백그라운드, 진행률 표시) — 라이브 CT·대시보드에 과거 포함 반영">
+                                            <span class="material-icons" style="font-size:15px; vertical-align:middle;">save</span>
+                                            적용(저장)
+                                        </button>
+                                        <button class="btn btn-sm btn-outlined" @click="restoreAasxDefault()"
+                                                :disabled="overlayBusy || recomputeBusy || !projectHeadId || !projectTailId"
+                                                title="AASX 프로젝트 기본 Head/Tail 로 되돌리고 저장된 사용자 지정을 제거합니다">
+                                            AASX 기본값 복원
+                                        </button>
+                                        <span x-show="recomputeBusy || recomputeMsg" class="ct-info-v"
+                                              :style="recomputeError ? 'color:var(--color-error,#d33)' : 'color:var(--color-primary)'"
+                                              x-text="recomputeMsg"></span>
+                                        <button class="btn btn-sm btn-outlined color-default" @click="exportExcel()"
+                                                :disabled="exporting || !selectedFlow"
+                                                title="현재 Flow·시간범위의 IO 세그먼트를 Excel(.xlsx) 로 내보냅니다">
+                                            <span x-text="exporting ? 'Excel 생성 중…' : 'Excel'"></span>
+                                        </button>
+                                    </div>
+
+                                    <!-- 간트 툴바: 정렬 + 보기 전환 + 최대 Gap + 휠 확대/축소 -->
+                                    <div class="ct-gantt-toolbar">
+                                        <div class="ct-tb-field">
+                                            <label>정렬</label>
+                                            <select class="form-select" x-model="chartSort" @change="onSortChanged()"
+                                                    title="간트 lane(Call) 순서 정렬 방식">
+                                                <option value="ByLane">Lane순</option>
+                                                <option value="ByTime">시간순</option>
+                                                <option value="ByCallName">Call 이름순</option>
+                                                <option value="ByGapSize">GAP 크기순</option>
+                                            </select>
+                                        </div>
+                                        <div class="ct-seg">
+                                            <button :class="viewMode === 'bar' ? 'active' : ''" @click="setView('bar')"
+                                                    title="실행(InTag ∪ OutTag 합집합) 막대그래프">막대</button>
+                                            <button :class="viewMode === 'line' ? 'active' : ''" @click="setView('line')"
+                                                    title="OutTag(명령=시작)·InTag(응답=완료) 신호 라인 그래프">InOut 라인</button>
+                                        </div>
+                                        <label class="ct-tb-check" :title="topGaps.length ? '최대/상위 Gap 을 간트에 강조' : '표시할 Gap 없음'">
+                                            <input type="checkbox" x-model="showMaxGap" @change="svgMarkup = buildSvg()" :disabled="!topGaps.length" />
+                                            최대 Gap
+                                        </label>
+                                        <select class="form-select ct-gap-pick" x-model.number="selectedGapIndex" @change="onGapPicked()"
+                                                x-show="topGaps.length" :disabled="!showMaxGap || !topGaps.length"
+                                                title="강조할 Gap 선택 (#1 = 최대 병목)">
+                                            <template x-for="(g, i) in topGaps" :key="i">
+                                                <option :value="i" x-text="'#' + (i+1) + ': ' + formatMs(g.durMs) + ' · ' + g.callName"></option>
+                                            </template>
+                                        </select>
+                                        <span class="ct-tb-hint">휠 = 확대/축소 · 간트 가로 드래그 = 구간 선택</span>
+                                        <div class="spacer"></div>
+                                        <div class="ct-zoom">
+                                            <button @click="zoomBy(1/1.3)" :disabled="zoom <= 1" title="축소">−</button>
+                                            <span class="ct-zoom-val" x-text="Math.round(zoom * 100) + '%'"></span>
+                                            <button @click="zoomBy(1.3)" :disabled="zoom >= 24" title="확대">＋</button>
+                                            <button class="ct-zoom-reset" @click="resetZoom()" :disabled="zoom <= 1" title="전체 보기로 리셋">전체</button>
+                                        </div>
+                                    </div>
+
+                                    <!-- 간트 layout -->
+                                    <div class="ct-gantt-layout">
+                                        <div class="ct-lane-sidebar">
+                                            <div class="ct-sidebar-header" :style="`height:${TOP_MARGIN}px;`">Call</div>
+                                            <div class="ct-ribbon-side" x-show="cycleBoundaries.length" :style="`height:${RIBBON_H}px;`">
+                                                <span class="rs-t">사이클</span>
+                                                <span class="rs-sub">MT · WT · 가동률</span>
+                                            </div>
+                                            <template x-for="lane in callLanes" :key="lane.callId">
+                                                <div :class="laneRowClass(lane)" :style="`height:${LANE_HEIGHT}px;`">
+                                                    <div class="ct-lane-name-block">
+                                                        <div class="ct-lane-name">
+                                                            <span x-text="lane.callName"></span>
+                                                            <template x-if="headCallId === lane.callId"><span class="ct-badge head">HEAD</span></template>
+                                                            <template x-if="tailCallId === lane.callId"><span class="ct-badge tail">TAIL</span></template>
+                                                        </div>
+                                                        <div class="ct-lane-work" x-text="lane.workName"></div>
+                                                    </div>
+                                                    <div class="ct-lane-tags">
+                                                        <button :class="'ct-tag-btn head ' + (headCallId === lane.callId ? 'active' : '')"
+                                                                @click="toggleHead(lane.callId)"
+                                                                :disabled="overlayBusy"
+                                                                title="Head 로 지정: 이 Call 의 OutTag↑(PLC 명령) 가 사이클 시작 경계가 됩니다">H</button>
+                                                        <button :class="'ct-tag-btn tail ' + (tailCallId === lane.callId ? 'active' : '')"
+                                                                @click="toggleTail(lane.callId)"
+                                                                :disabled="overlayBusy"
+                                                                title="Tail 로 지정: 이 Call 의 InTag↑(PLC 응답) 가 사이클 완료 마커가 됩니다">T</button>
+                                                    </div>
+                                                </div>
+                                            </template>
+                                        </div>
+                                        <div class="ct-gantt-chart-area" x-ref="chartArea"
+                                             x-init="$el.addEventListener('wheel', (e) => onWheel(e), { passive: false })"
+                                             @mousedown="onDragStart($event)">
+                                            <div class="ct-gantt-wrapper" x-html="svgMarkup"></div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 사이클 목록 (Head/Tail 기반 감지된 사이클 상세) -->
+                                    <template x-if="cycleList.length > 0">
+                                        <div class="card">
+                                            <div class="ds-card-h">
+                                                <h4>
+                                                    사이클 목록
+                                                    <span style="font-weight:400; font-size:0.82em; color:var(--color-text-secondary);"
+                                                          x-text="' — ' + (headName || '(Head)') + (tailCallId ? (' → ' + (tailName || '(Tail)')) : '')"></span>
+                                                </h4>
+                                                <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+                                                    <span class="ds-card-h-sub"
+                                                          x-text="visibleCycleList.filter(c => !c.isOpen).length + '개 완료' + (visibleCycleList.some(c => c.isOpen) ? ' + 1개 진행중' : '') + (excludedCycleCount > 0 ? (' · 제외 ' + excludedCycleCount) : '')"></span>
+                                                    <div class="hist-toggle">
+                                                        <button :class="cycleView === 'table' ? 'is-active' : ''" @click="setCycleView('table')" title="데이터 테이블로 보기">
+                                                            <span class="material-icons">table_rows</span> 테이블
+                                                        </button>
+                                                        <button :class="cycleView === 'chart' ? 'is-active' : ''" @click="setCycleView('chart')" title="차트로 보기 (MT/WT 스택 + 평균 CT)">
+                                                            <span class="material-icons">bar_chart</span> 차트
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <!-- 차트 뷰 (사이클별 활성/유휴 스택 + 평균 CT 기준선) -->
+                                            <div class="hist-chart-wrap" x-show="cycleView === 'chart'">
+                                                <canvas x-ref="cycleChart"></canvas>
+                                            </div>
+                                            <!-- 테이블 뷰 -->
+                                            <div class="ct-cycle-scroll" x-show="cycleView === 'table'">
+                                                <table class="ds-table">
+                                                    <thead>
+                                                        <tr>
+                                                            <th style="width:52px;">#</th>
+                                                            <th style="width:140px;">시작 시각</th>
+                                                            <th title="가동 시간 = 시작(Head OutTag↑) → 완료(Tail InTag↑)">MT</th>
+                                                            <th title="대기 시간 = 완료 → 다음 시작 = CT − MT">WT</th>
+                                                            <th title="사이클 시간 = 시작 → 다음 시작">CT</th>
+                                                            <th style="width:76px;" title="가동률 = MT / CT">가동률</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        <template x-for="c in visibleCycleList" :key="c.number">
+                                                            <tr :class="c.isOpen ? 'ct-cycle-open' : ''">
+                                                                <td class="num ct-mono" x-text="'#' + c.number + (c.isOpen ? ' ↻' : '')"></td>
+                                                                <td class="num ct-mono" x-text="hms(new Date(c.startMs))"></td>
+                                                                <td class="num ct-mono hist-mt" x-text="c.atMs !== null ? formatMs(c.atMs) : '—'"></td>
+                                                                <td class="num ct-mono hist-wt" x-text="c.wtMs !== null ? formatMs(c.wtMs) : '—'"></td>
+                                                                <td class="num ct-mono hist-ct" x-text="(c.isOpen ? '≥' : '') + formatMs(c.ctMs)"></td>
+                                                                <td class="num" :class="ratioCls(c.ratio)" x-text="c.ratio !== null ? c.ratio + '%' : '—'"></td>
+                                                            </tr>
+                                                        </template>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </template>
+
+                                    <!-- 간트 가로 드래그 선택 구간 4-KPI (전부 로컬 파생) -->
+                                    <template x-if="selectedRange">
+                                        <div class="card" style="border-color: var(--color-primary);">
+                                            <div class="ds-card-h">
+                                                <h4 x-text="'🎯 선택 구간 (' + hms2(new Date(selectedRange.startMs)) + ' ~ ' + hms2(new Date(selectedRange.endMs)) + ')'"></h4>
+                                                <button class="btn btn-sm btn-outlined" @click="clearRangeSelection()" style="white-space:nowrap;">✕ 해제</button>
+                                            </div>
+                                            <div class="ct-range-stats">
+                                                <div class="kpi-cell">
+                                                    <div class="kp-label">선택 구간 길이</div>
+                                                    <div class="kp-value" x-text="formatMs(selRangeLenMs)"></div>
+                                                </div>
+                                                <div class="kpi-cell tone-primary">
+                                                    <div class="kp-label">동작 (Run) 합</div>
+                                                    <div class="kp-value" x-text="formatMs(selRunMs)"></div>
+                                                </div>
+                                                <div class="kpi-cell tone-max">
+                                                    <div class="kp-label">병목 (Gap) 합</div>
+                                                    <div class="kp-value" x-text="formatMs(selGapMs)"></div>
+                                                </div>
+                                                <div class="kpi-cell">
+                                                    <div class="kp-label">활성 Call</div>
+                                                    <div class="kp-value" x-text="selActiveDevices + ' / ' + callLanes.length"></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
+
+                                    <!-- 범례 -->
+                                    <div class="ct-legend">
+                                        <span><i class="ct-sw ct-sw-out"></i> OutTag (명령 = 시작)</span>
+                                        <span><i class="ct-sw ct-sw-in"></i> InTag (응답 = 완료)</span>
+                                        <span><i class="ct-sw ct-sw-going"></i> 실행 (InTag ∪ OutTag 합집합 · 배경)</span>
+                                        <span><i class="ct-sw ct-sw-head"></i> Head 마크 lane</span>
+                                        <span><i class="ct-sw ct-sw-tail"></i> Tail 마크 lane</span>
+                                        <span><i class="ct-sw ct-sw-cycle-edge"></i> 사이클 경계 (Head OutTag↑ = 시작)</span>
+                                        <template x-if="tailCallId !== null">
+                                            <span style="display:contents;">
+                                                <span style="color:var(--color-text-primary);font-weight:700;">▭ 상단 리본 = 사이클별 MT|WT 비율 + 가동률(MT/CT)</span>
+                                                <span><i class="ct-sw ct-sw-active-band"></i> MT(가동) = 시작(Head OutTag↑) → 완료(Tail InTag↑)</span>
+                                                <span><i class="ct-sw ct-sw-idle-band"></i> WT(대기) = 완료 → 다음 시작</span>
+                                            </span>
+                                        </template>
+                                        <template x-if="tailCallId === null">
+                                            <span style="display:contents;">
+                                                <span><i class="ct-sw ct-sw-band-a"></i> 사이클 칸 (홀수)</span>
+                                                <span><i class="ct-sw ct-sw-band-b"></i> 사이클 칸 (짝수)</span>
+                                            </span>
+                                        </template>
+                                        <template x-if="showMaxGap && topGaps.length">
+                                            <span><i class="ct-sw ct-sw-maxgap"></i> 최대/상위 Gap (병목)</span>
+                                        </template>
+                                        <template x-if="selectedRange">
+                                            <span><i class="ct-sw ct-sw-range"></i> 드래그 선택 구간</span>
+                                        </template>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </section>
+
+                    <!-- ════ 최근 히스토리 (구 대시보드 하단, 이 Flow 스코프) ════ -->
+                    <section class="card fw-section" x-show="tab === 'history'">
+                        <div class="ds-card-h">
+                            <h4>
+                                <span x-text="histFlowName ? ('최근 히스토리 — ' + histFlowName) : '최근 히스토리'"></span>
+                            </h4>
+                            <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+                                <span class="ds-card-h-sub" x-show="histFlowName && flowHistory.length > 0"
+                                      :title="'최근 발생순으로 최대 ' + histLimit + '개 사이클을 조회합니다. 더 과거 데이터는 위 사이클 분석에서 확인하세요.'"
+                                      x-text="'총 ' + visibleHistory.length + '개' + (excludedCount > 0 ? (' / 제외 ' + excludedCount) : '') + ' · 최근 최대 ' + histLimit + ' · 평균 CT ' + (histAvgCt > 0 ? fmt(histAvgCt) : '--') + (histStdCt > 0 ? (' ±' + fmt(histStdCt)) : '')"></span>
+                                <!-- 이상치 제외 컨트롤은 페이지 상단 공용 툴바로 이동됨 -->
+                                <div class="hist-toggle" x-show="histFlowName && flowHistory.length > 0">
+                                    <button :class="histView === 'table' ? 'is-active' : ''" @click="setHistView('table')" title="데이터 테이블로 보기">
+                                        <span class="material-icons">table_rows</span> 테이블
+                                    </button>
+                                    <button :class="histView === 'chart' ? 'is-active' : ''" @click="setHistView('chart')" title="차트로 보기">
+                                        <span class="material-icons">bar_chart</span> 차트
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 히스토리 0건 -->
+                        <template x-if="flowHistory.length === 0">
+                            <div class="ds-empty" style="padding:28px 0;">
+                                <span class="material-icons">history_toggle_off</span>
+                                <span class="ds-empty-title" x-text="'기록된 사이클이 없습니다 — ' + (histFlowName || '')"></span>
+                                <span class="ds-empty-desc">사이클이 완료되면 시작시각·MT·WT·CT 가 누적되어 표시됩니다.</span>
+                            </div>
+                        </template>
+
+                        <!-- 히스토리: 테이블 ↔ 차트 전환 -->
+                        <template x-if="flowHistory.length > 0">
+                            <div>
+                                <!-- 차트 뷰 (사이클별 MT/WT 스택 + 평균 CT 기준선) -->
+                                <div class="hist-chart-wrap" x-show="histView === 'chart'">
+                                    <canvas x-ref="histChart"></canvas>
+                                </div>
+                                <!-- 테이블 뷰 -->
+                                <div class="hist-table-wrap" x-show="histView === 'table'">
+                                <table class="ds-table">
+                                    <thead>
+                                        <tr>
+                                            <th style="width:150px;">시작 시각</th>
+                                            <th>MT</th><th>WT</th><th>CT</th>
+                                            <th>WT/CT</th><th style="width:64px;">상태</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <template x-for="h in visibleHistory" :key="h._key">
+                                            <tr>
+                                                <td class="num" x-text="h._time"></td>
+                                                <td class="num hist-mt" x-text="fmt(h.mt ?? 0)"></td>
+                                                <td class="num hist-wt" x-text="fmt(h.wt ?? 0)"></td>
+                                                <td class="num hist-ct" x-text="fmt(h.ct ?? 0)"></td>
+                                                <td class="num" x-text="h._wt"></td>
+                                                <td>
+                                                    <template x-if="h._status">
+                                                        <span class="ds-status" :class="h._status?.cls" x-text="h._status?.label"></span>
+                                                    </template>
+                                                    <template x-if="!h._status">
+                                                        <span class="ds-status info" title="표본<2 — 편차 기준 산출 불가">–</span>
+                                                    </template>
+                                                </td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                                </div>
+                            </div>
+                        </template>
                     </section>
 
                 </div>
             </template>
+
+            <!-- ── 이상치 제외 범위 팝업 (이 Flow 의 최소·최대 CT) ── -->
+            <div class="modal-overlay" x-show="rangeModalOpen" x-cloak style="z-index:2000;" @click="closeRangeModal()">
+                <div class="modal-content shift-modal" @click.stop>
+                    <div class="sm-head">
+                        <span class="sm-title">🔎 이상치 제외 · <span x-text="histFlowName"></span></span>
+                        <button class="btn-icon" @click="closeRangeModal()" title="닫기">
+                            <span class="material-icons">close</span>
+                        </button>
+                    </div>
+                    <div class="sm-body">
+                        <div class="sm-hint" style="margin-bottom:14px;">
+                            <span class="material-icons">info</span>
+                            <span>
+                                설정한 <b>최소 ~ 최대</b> CT 범위를 벗어난 사이클을 차트·테이블·평균에서 제외합니다.
+                                한쪽만 입력해도 됩니다 (예: <b>최대</b>만 입력 = 그보다 긴 사이클만 제외). 새 사이클이 들어와도 범위가 유지됩니다.
+                            </span>
+                        </div>
+
+                        <!-- 현재 데이터 범위 안내 -->
+                        <div class="form-group" x-show="flowHistory.length > 0">
+                            <label class="form-label">현재 CT 범위 (참고)</label>
+                            <div class="form-helper" style="margin:0;">
+                                최소 <b x-text="fmt(histCtMinMs)"></b> · 최대 <b x-text="fmt(histCtMaxMs)"></b> · 평균 <b x-text="histAvgCt > 0 ? fmt(histAvgCt) : '--'"></b>
+                            </div>
+                        </div>
+
+                        <!-- 제외 범위 입력 — 최소/최대 각각 단위(초/분/시간) 드롭다운 선택. 내부 관리값은 초. -->
+                        <div class="form-group">
+                            <label class="form-label">제외 기준 범위</label>
+                            <div class="sm-times">
+                                <div>
+                                    <div class="form-helper" style="margin:0 0 5px;">최소 시간</div>
+                                    <div class="range-row">
+                                        <input type="number" class="form-field" min="0" step="any" placeholder="제한 없음" x-model="rangeForm.min" />
+                                        <select class="form-select range-unit" :value="rangeForm.minUnit" @change="changeUnit('min', $event.target.value)" title="최소 시간 단위">
+                                            <option value="s">초</option>
+                                            <option value="m">분</option>
+                                            <option value="h">시간</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div class="form-helper" style="margin:0 0 5px;">최대 시간</div>
+                                    <div class="range-row">
+                                        <input type="number" class="form-field" min="0" step="any" placeholder="제한 없음" x-model="rangeForm.max" />
+                                        <select class="form-select range-unit" :value="rangeForm.maxUnit" @change="changeUnit('max', $event.target.value)" title="최대 시간 단위">
+                                            <option value="s">초</option>
+                                            <option value="m">분</option>
+                                            <option value="h">시간</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- 입력값 → 실제 적용 범위 미리보기 (단위 환산 확인용) -->
+                            <div class="form-helper" style="margin:7px 0 0;" x-show="rangePreviewLabel" x-text="rangePreviewLabel"></div>
+                        </div>
+                    </div>
+                    <div class="sm-foot">
+                        <button class="btn btn-outlined" @click="resetExclusions(); closeRangeModal()" :disabled="!_exRange" title="이 Flow 의 제외 범위 해제 (전체 복원)">제외 해제</button>
+                        <button class="btn btn-filled" @click="applyRange()">
+                            <span class="material-icons" style="font-size:17px;">check</span> 적용
+                        </button>
+                    </div>
+                </div>
+            </div>
         </main>
     </div>
 
@@ -339,15 +912,21 @@
     <script src="/lib/chart.umd.min.js"></script>
     <script>
         function flowApp() {
+            // ── BuildSvg 레이아웃 상수 (cycle-time-analysis 와 동일) ──
+            const TOP_MARGIN = 50, LANE_HEIGHT = 44, BAR_HEIGHT = 18, RIBBON_H = 48, LEFT_PAD = 12, RIGHT_PAD = 40, BOTTOM_PAD = 20, MIN_PLOT_WIDTH = 640, MAX_ZOOM = 24;
+            const histCache = {};   // flowName → rows: 전환 시 즉시 표시(서버 왕복 대기 없이)
+
             return {
+                TOP_MARGIN, LANE_HEIGHT, RIBBON_H,
+
+                // ── Flow 워크스페이스 공통 ──
                 flowName: null,
                 flow: null,
                 loading: true, error: null, demoBlocked: false, dark: false,
-                saving: false, cycleMsg: '',
-                selStart: '', selEnd: '',
                 rt: { connected: false },
+                tab: 'trend',   // 'trend' | 'cycle' | 'history' — 콘텐츠 탭 전환
 
-                // 기간별 추이
+                // ── 기간별 추이 ──
                 period: 'today',
                 trendLoading: false,
                 trend: { cycleCount: 0, idleCount: 0, avgCT: null, avgMT: null, avgWT: null, minCT: null, maxCT: null, utilization: 0, totalMt: 0, totalWt: 0 },
@@ -355,17 +934,85 @@
                 granularity: 'hour',
                 periodStart: null, periodEnd: null,
                 _trendSeq: 0,
+                _charts: { trend: null, count: null, dist: null },
+
+                // ── 사이클 분석 (구 cycle-time-analysis, 이 Flow 스코프) ──
+                selectedFlow: '',
+                startTime: '', endTime: '',
+                isLoading: false, overlayBusy: false, errorMessage: null,
+                recomputeBusy: false, recomputeMsg: '', recomputeError: false,
+                callLanes: [],
+                cycleBoundaries: [], tailEdges: [],
+                chartStart: null, chartEnd: null,
+                chartStartIso: '', chartEndIso: '',
+                cycleBoundariesIso: [], tailEdgesIso: [],
+                plotWidth: 1200, baseWidth: 1200, zoom: 1, viewMode: 'line',
+                headCallId: null, tailCallId: null,
+                projectHeadId: null, projectTailId: null,
+                userOverrodeHeadTail: false,
+                isOverride: false,
+                exporting: false,
+                avgCycleMs: null, avgActiveMs: null,
+                svgMarkup: '',
+                cycleView: 'table',   // 사이클 목록: 'table' | 'chart'
+                cyclePreset: null,    // 활성 사이클-기준 프리셋(최근 N 사이클) — 시간 프리셋/수동 변경 시 해제
+                _cycleChart: null,
+                chartSort: 'ByLane',
+                callLanesRaw: [],
+                showMaxGap: true,
+                topGaps: [],
+                selectedGapIndex: 0,
+                selectedRange: null,
+                _geo: null, _drag: null, _timeReloadTimer: null,
+
+                // ── 최근 히스토리 (구 대시보드 하단) ──
+                flowHistory: [],
+                histAvgCt: 0, histStdCt: 0,
+                _histShownFor: null,
+                histView: 'chart',
+                histLimit: 200,
+                _histChart: null,
+                rangeByFlow: {},
+                rangeModalOpen: false,
+                rangeForm: { min: '', max: '', minUnit: 's', maxUnit: 's' },
+                _unitSec: { s: 1, m: 60, h: 3600 },
 
                 _conn: null, _dt: null, _pollTimer: null,
-                _charts: { trend: null, count: null, dist: null },
 
                 async init() {
                     this.dark = localStorage.getItem('dspilot-theme') === 'dark';
                     window.addEventListener('storage', (e) => { if (e.key === 'dspilot-theme') this.dark = e.newValue === 'dark'; });
                     this.flowName = new URLSearchParams(location.search).get('name');
                     this.computePeriod('today');
+
+                    // 컨테이너 폭 변화 시 간트 폭맞춤(줌 대체) — 디바운스
+                    let _rt;
+                    window.addEventListener('resize', () => {
+                        clearTimeout(_rt);
+                        _rt = setTimeout(() => {
+                            if (this._drag) return;
+                            if (this.callLanes.length) { this.measurePlotWidth(); this.svgMarkup = this.buildSvg(); }
+                        }, 150);
+                    });
+
                     await this.loadFlow();
-                    if (this.flow) await this.reloadTrend();
+                    if (this.flow) {
+                        this.selectedFlow = this.flow.flowName;
+                        await this.reloadTrend();
+                        await this.loadExclusions();
+                        this.syncHistory();
+                        // 사이클 분석 기본 시간범위 (최신-5분 ~ 최신)
+                        try {
+                            const t = await this.apiGet('/api/call-test/latest-time');
+                            this.startTime = this.toInputValue(t.start);
+                            this.endTime = this.toInputValue(t.end);
+                        } catch (e) {
+                            const now = new Date();
+                            this.endTime = this.dateToInput(now);
+                            this.startTime = this.dateToInput(new Date(now.getTime() - 5 * 60000));
+                        }
+                        await this.load();
+                    }
                     this.connectSignalR();
                     this._pollTimer = setInterval(() => this.loadFlow(true), 10000);
                 },
@@ -373,7 +1020,10 @@
                 destroy() {
                     clearInterval(this._pollTimer);
                     clearTimeout(this._dt);
+                    clearTimeout(this._timeReloadTimer);
                     this._conn?.stop();
+                    Object.values(this._charts).forEach(c => { if (c) c.destroy(); });
+                    if (this._histChart) this._histChart.destroy();
                 },
 
                 toggleTheme() { this.dark = !this.dark; localStorage.setItem('dspilot-theme', this.dark ? 'dark' : 'light'); },
@@ -397,21 +1047,27 @@
                     if (!silent) this.loading = true;
                     try {
                         const data = await this.apiGet('/api/flow/' + encodeURIComponent(this.flowName));
-                        const firstLoad = !this.flow;
                         this.flow = data;
                         this.error = null;
-                        // 사용자가 편집 중이 아닐 때만 드롭다운 동기화 (silent refetch 가 선택 덮어쓰지 않게)
-                        if (firstLoad || !this.saving) {
-                            this.selStart = data.currentStartCall || (data.callOptions[0] || '');
-                            this.selEnd = data.currentEndCall || (data.callOptions[0] || '');
-                        }
+                        if (!this.selectedFlow) this.selectedFlow = data.flowName;
                     } catch (e) {
                         if (e.message === 'not-found') this.error = "Flow '" + this.flowName + "' 을(를) 찾을 수 없습니다.";
                         else if (e.message !== 'demo-blocked') this.error = 'Flow 데이터를 불러오지 못했습니다: ' + e.message;
                     } finally { this.loading = false; }
                 },
 
-                async refreshAll() { await this.loadFlow(); if (this.flow) await this.reloadTrend(); },
+                async refreshAll() { await this.loadFlow(); if (this.flow) { await this.reloadTrend(); this.syncHistory(); } },
+
+                // 탭 전환 — 숨겨진 탭(display:none)에서 0 크기로 렌더된 차트/간트를 보일 때 다시 맞춘다.
+                setTab(t) {
+                    if (this.tab === t) return;
+                    this.tab = t;
+                    this.$nextTick(() => {
+                        if (t === 'trend') { if (this.trend.cycleCount > 0) this.drawCharts(); }
+                        else if (t === 'cycle') { if (this.callLanes.length) { this.measurePlotWidth(); this.svgMarkup = this.buildSvg(); } if (this.cycleView === 'chart') this.renderCycleChart(); }
+                        else if (t === 'history') { if (this.histView === 'chart') this.renderHistChart(); }
+                    });
+                },
 
                 kpi(field) { return (this.flow && this.flow.kpi) ? this.flow.kpi[field] : null; },
 
@@ -432,38 +1088,26 @@
                     }
                 },
 
-                async saveCycleOverride() {
-                    if (!this.flow || this.saving) return;
-                    this.saving = true; this.cycleMsg = '';
-                    try {
-                        const data = await this.apiPost('/api/flow/' + encodeURIComponent(this.flow.flowName) + '/cycle-override',
-                            { startCallName: this.selStart, endCallName: this.selEnd });
-                        this.flow = data;
-                        this.selStart = data.currentStartCall || (data.callOptions[0] || '');
-                        this.selEnd = data.currentEndCall || (data.callOptions[0] || '');
-                        this.cycleMsg = data.isOverride ? '사용자 override 저장됨' : 'AASX 기본값으로 저장됨';
-                    } catch (e) {
-                        if (e.message !== 'demo-blocked') this.cycleMsg = '저장 실패: ' + e.message;
-                    } finally { this.saving = false; }
-                },
-
                 // ── 실시간 (디바운스 refetch) ──
                 connectSignalR() {
                     if (!window.signalR) return;
                     const conn = new signalR.HubConnectionBuilder().withUrl('/hubs/monitoring').withAutomaticReconnect([0, 0, 1000, 3000, 5000, 10000]).build();
-                    const trigger = () => { clearTimeout(this._dt); this._dt = setTimeout(() => this.loadFlow(true), 250); };
+                    const trigger = () => { clearTimeout(this._dt); this._dt = setTimeout(() => { this.loadFlow(true); this.syncHistory(); }, 250); };
                     conn.on('CallStateChangedBatch', trigger);
                     conn.on('CallStateChanged', trigger);
                     conn.on('DatabaseRebuilt', () => { this.refreshAll(); });
                     conn.on('FlowHistoryCleared', () => { this.refreshAll(); });
-                    conn.onreconnected(() => { this.rt.connected = true; this.loadFlow(true); });
+                    conn.on('ExclusionsChanged', () => { this.loadExclusions(); });   // 다른 화면이 제외 범위 변경 → 동기화
+                    conn.onreconnected(() => { this.rt.connected = true; this.loadFlow(true); this.syncHistory(); });
                     conn.onreconnecting(() => { this.rt.connected = false; });
                     conn.onclose(() => { this.rt.connected = false; });
                     conn.start().then(() => { this.rt.connected = true; }).catch(() => { this.rt.connected = false; });
                     this._conn = conn;
                 },
 
-                // ── 기간/버킷 ──
+                // ════════════════════════════════════════════════════════════════
+                //  기간별 추이 (클라 집계 — 대시보드 히스토리 재사용)
+                // ════════════════════════════════════════════════════════════════
                 computePeriod(preset) {
                     const now = new Date();
                     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -488,7 +1132,6 @@
                     const seq = ++this._trendSeq;
                     this.trendLoading = true;
                     try {
-                        // 대시보드 히스토리 재사용 (최신순, 비가동 제외). 기간/버킷은 클라에서 집계.
                         const hist = await this.apiGet('/api/dashboard/flows/' + encodeURIComponent(this.flow.flowName) + '/history?limit=2000');
                         if (seq !== this._trendSeq) return;
                         const startMs = this.periodStart.getTime(), endMs = this.periodEnd.getTime();
@@ -561,33 +1204,35 @@
                     const labels = this.buckets.map(b => labelFor(b.ts));
                     const toSec = (ms) => Math.round(ms / 1000 * 10) / 10;
                     const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim() || '#888';
-                    const cPrimary = css('--color-primary') || '#1f3a5f';
-                    const cSecondary = css('--color-secondary') || '#009bb4';
-                    const grid = 'rgba(128,128,128,0.15)';
+                    const cCt = css('--color-primary') || '#0E7CCB';
+                    const cMt = css('--mt') || '#12A594';
+                    const cWt = css('--wt') || '#C07A10';
+                    const grid = css('--color-lines') || 'rgba(14,27,42,0.10)';
+                    const tickColor = css('--color-text-secondary') || '#5A6B7E';
 
                     if (this.$refs.trendChart) {
                         this._charts.trend = new Chart(this.$refs.trendChart, {
                             type: 'line',
                             data: { labels, datasets: [
-                                { label: '평균 CT (s)', data: this.buckets.map(b => toSec(b.avgCT)), borderColor: cPrimary, backgroundColor: 'transparent', tension: 0.25, borderWidth: 2 },
-                                { label: '평균 MT (s)', data: this.buckets.map(b => toSec(b.avgMT)), borderColor: cSecondary, backgroundColor: 'transparent', tension: 0.25, borderWidth: 2 },
-                                { label: '평균 WT (s)', data: this.buckets.map(b => toSec(b.avgWT)), borderColor: '#e0a82e', backgroundColor: 'transparent', tension: 0.25, borderWidth: 2 },
+                                { label: '평균 CT (s)', data: this.buckets.map(b => toSec(b.avgCT)), borderColor: cCt, backgroundColor: 'transparent', tension: 0.25, borderWidth: 2 },
+                                { label: '평균 MT (s)', data: this.buckets.map(b => toSec(b.avgMT)), borderColor: cMt, backgroundColor: 'transparent', tension: 0.25, borderWidth: 2 },
+                                { label: '평균 WT (s)', data: this.buckets.map(b => toSec(b.avgWT)), borderColor: cWt, backgroundColor: 'transparent', tension: 0.25, borderWidth: 2 },
                             ]},
-                            options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'top' } }, scales: { x: { grid: { color: grid } }, y: { beginAtZero: true, grid: { color: grid }, title: { display: true, text: '초' } } } }
+                            options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'top', labels: { color: tickColor } } }, scales: { x: { grid: { color: grid }, ticks: { color: tickColor } }, y: { beginAtZero: true, grid: { color: grid }, ticks: { color: tickColor }, title: { display: true, text: '초', color: tickColor } } } }
                         });
                     }
                     if (this.$refs.countChart) {
                         this._charts.count = new Chart(this.$refs.countChart, {
                             type: 'bar',
-                            data: { labels, datasets: [{ label: '사이클 수', data: this.buckets.map(b => b.count), backgroundColor: cPrimary }] },
-                            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: grid } }, y: { beginAtZero: true, grid: { color: grid } } } }
+                            data: { labels, datasets: [{ label: '사이클 수', data: this.buckets.map(b => b.count), backgroundColor: cCt }] },
+                            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: grid }, ticks: { color: tickColor } }, y: { beginAtZero: true, grid: { color: grid }, ticks: { color: tickColor } } } }
                         });
                     }
                     if (this.$refs.distChart) {
                         this._charts.dist = new Chart(this.$refs.distChart, {
                             type: 'doughnut',
-                            data: { labels: ['가동(MT)', '대기(WT)'], datasets: [{ data: [this.trend.totalMt, this.trend.totalWt], backgroundColor: [cPrimary, cSecondary] }] },
-                            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+                            data: { labels: ['가동(MT)', '대기(WT)'], datasets: [{ data: [this.trend.totalMt, this.trend.totalWt], backgroundColor: [cMt, cWt] }] },
+                            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: tickColor } } } }
                         });
                     }
                 },
@@ -595,6 +1240,1163 @@
                 fmtDur(ms) {
                     if (ms == null || ms <= 0) return '—';
                     return (ms / 1000).toFixed(1) + ' sec';
+                },
+
+                // ════════════════════════════════════════════════════════════════
+                //  사이클 분석 (구 cycle-time-analysis @code — 이 Flow 스코프)
+                // ════════════════════════════════════════════════════════════════
+                measurePlotWidth() {
+                    const el = this.$refs.chartArea;
+                    const avail = el ? el.clientWidth : 1100;
+                    this.baseWidth = Math.max(MIN_PLOT_WIDTH, Math.round(avail - LEFT_PAD - RIGHT_PAD - 4));
+                    this.plotWidth = Math.max(MIN_PLOT_WIDTH, Math.round(this.baseWidth * this.zoom));
+                },
+                setView(mode) {
+                    if (this.viewMode === mode) return;
+                    this.viewMode = mode;
+                    this.svgMarkup = this.buildSvg();
+                },
+                onWheel(e) {
+                    if (!this.callLanes.length) return;
+                    if (this._drag) return;
+                    const el = this.$refs.chartArea;
+                    if (!el) return;
+                    e.preventDefault();
+                    const screenX = e.clientX - el.getBoundingClientRect().left;
+                    const factor = e.deltaY < 0 ? 1.25 : 1 / 1.25;
+                    this.applyZoom(this.zoom * factor, screenX);
+                },
+                zoomBy(factor) {
+                    const el = this.$refs.chartArea;
+                    if (!el || !this.callLanes.length) return;
+                    this.applyZoom(this.zoom * factor, el.clientWidth / 2);
+                },
+                resetZoom() {
+                    this.zoom = 1;
+                    this.measurePlotWidth();
+                    this.svgMarkup = this.buildSvg();
+                    this.$nextTick(() => { const el = this.$refs.chartArea; if (el) el.scrollLeft = 0; });
+                },
+                applyZoom(targetZoom, anchorX) {
+                    const el = this.$refs.chartArea;
+                    if (!el) return;
+                    const newZoom = Math.min(MAX_ZOOM, Math.max(1, targetZoom));
+                    if (Math.abs(newZoom - this.zoom) < 1e-6) return;
+                    const plotAreaX = Math.max(0, anchorX + el.scrollLeft - LEFT_PAD);
+                    const frac = this.plotWidth > 0 ? Math.min(1, plotAreaX / this.plotWidth) : 0;
+                    this.zoom = newZoom;
+                    this.plotWidth = Math.max(MIN_PLOT_WIDTH, Math.round(this.baseWidth * this.zoom));
+                    this.svgMarkup = this.buildSvg();
+                    this.$nextTick(() => { el.scrollLeft = frac * this.plotWidth + LEFT_PAD - anchorX; });
+                },
+
+                // 시각 helper
+                toInputValue(iso) { return iso ? iso.slice(0, 19) : ''; },
+                dateToInput(d) {
+                    const p = (x) => String(x).padStart(2, '0');
+                    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+                },
+                inputToDate(v) {
+                    if (!v) return new Date();
+                    const m = v.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/);
+                    if (!m) return new Date(v);
+                    return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], m[6] ? +m[6] : 0);
+                },
+
+                onTimeChanged() {
+                    if (!this.selectedFlow) return;
+                    this.cyclePreset = null;   // 수동 시간 변경 → 사이클-기준 프리셋 해제
+                    clearTimeout(this._timeReloadTimer);
+                    this._timeReloadTimer = setTimeout(() => {
+                        if (this.inputToDate(this.endTime) <= this.inputToDate(this.startTime)) return;
+                        this.errorMessage = null;
+                        this.load();
+                    }, 300);
+                },
+
+                async setRecentMinutes(minutes) {
+                    this.cyclePreset = null;
+                    const end = await this.effectiveLatest();
+                    this.endTime = this.dateToInput(end);
+                    this.startTime = this.dateToInput(new Date(end.getTime() - minutes * 60000));
+                    if (this.selectedFlow) await this.load();
+                },
+                async setRecentHours(hours) {
+                    this.cyclePreset = null;
+                    const end = await this.effectiveLatest();
+                    this.endTime = this.dateToInput(end);
+                    this.startTime = this.dateToInput(new Date(end.getTime() - hours * 3600000));
+                    if (this.selectedFlow) await this.load();
+                },
+                async effectiveLatest() {
+                    try {
+                        const t = await this.apiGet('/api/call-test/latest-time');
+                        return this.inputToDate(this.toInputValue(t.end));
+                    } catch (e) { return new Date(); }
+                },
+                // 사이클-기준 프리셋 — 최근 N 사이클을 포함하는 시간창을 히스토리(recordedAt=완료시각)로 역산해 로드.
+                // rows[0]=최신·완료(비가동) 사이클. 원하는 N개=rows[0..N-1]; 그 직전 완료(rows[N])를 창 시작으로 잡아
+                // 가장 오래된 대상 사이클의 시작 경계(Head OutTag↑)까지 포함시킨다.
+                async setRecentCycles(n) {
+                    const name = this.histFlowName;
+                    if (!name || !this.selectedFlow) return;
+                    let rows = histCache[name];
+                    if (!Array.isArray(rows) || rows.length < n + 1) {
+                        try {
+                            rows = await this.apiGet('/api/dashboard/flows/' + encodeURIComponent(name) + '/history?limit=' + Math.max(n + 1, 50));
+                            histCache[name] = rows;
+                        } catch (e) {
+                            if (e.message !== 'demo-blocked') this.errorMessage = '사이클 히스토리 조회 실패: ' + e.message;
+                            return;
+                        }
+                    }
+                    rows = Array.isArray(rows) ? rows : [];
+                    if (rows.length === 0) { this.errorMessage = '기록된 사이클이 없어 사이클-기준 범위를 만들 수 없습니다.'; return; }
+
+                    const end = await this.effectiveLatest();
+                    let startDate;
+                    if (rows.length > n) {
+                        startDate = new Date(rows[n].recordedAt);
+                    } else {
+                        // 보유 사이클이 N 미만 → 전부 포함. 가장 오래된 사이클 시작을 CT 만큼 앞당겨 추정.
+                        const oldest = rows[rows.length - 1];
+                        const ctMs = (oldest && oldest.ct) ? oldest.ct : 5000;
+                        startDate = new Date(new Date(oldest.recordedAt).getTime() - ctMs - 2000);
+                    }
+                    this.cyclePreset = n;
+                    this.endTime = this.dateToInput(end);
+                    this.startTime = this.dateToInput(startDate);
+                    this.errorMessage = null;
+                    await this.load();
+                },
+
+                // H/T 토글 — Head/Tail 은 무조건 존재(이동/스왑만)
+                async toggleHead(callId) {
+                    if (this.headCallId === callId) return;
+                    if (this.tailCallId === callId) this.tailCallId = this.headCallId;
+                    this.headCallId = callId;
+                    this.userOverrodeHeadTail = true;
+                    await this.resolveOverlays();
+                },
+                async toggleTail(callId) {
+                    if (this.tailCallId === callId) return;
+                    if (this.headCallId === callId) this.headCallId = this.tailCallId;
+                    this.tailCallId = callId;
+                    this.userOverrodeHeadTail = true;
+                    await this.resolveOverlays();
+                },
+                async applyHeadTail() {
+                    if (!this.selectedFlow) return;
+                    const headName = this.headName, tailName = this.tailName;
+                    if (!headName || !tailName) { this.errorMessage = '적용하려면 Head 와 Tail 을 모두 지정하세요.'; return; }
+                    await this.saveBoundaryAndRecompute(headName, tailName, '적용(저장) 실패');
+                },
+                async saveBoundaryAndRecompute(headName, tailName, failLabel) {
+                    this.overlayBusy = true; this.errorMessage = null;
+                    this.recomputeError = false;
+                    this.recomputeMsg = '전체 이력 재계산 준비…';
+                    try {
+                        await this.apiPost('/api/flow/' + encodeURIComponent(this.selectedFlow) + '/cycle-override',
+                            { startCallName: headName, endCallName: tailName });
+                        this.userOverrodeHeadTail = false;
+                        await this.pollRecomputeStatus();
+                        await this.load();
+                        // 사이클 경계 변경 → 라이브 KPI/추이/히스토리도 새 기준 반영
+                        await this.loadFlow(true);
+                        await this.reloadTrend();
+                        this.syncHistory();
+                    } catch (e) {
+                        if (e.message !== 'demo-blocked') this.errorMessage = failLabel + ': ' + e.message;
+                        this.recomputeMsg = '';
+                    } finally { this.overlayBusy = false; }
+                },
+                async pollRecomputeStatus() {
+                    this.recomputeBusy = true; this.recomputeError = false;
+                    const flow = this.selectedFlow;
+                    let sawMineRunning = false, settled = false;
+                    try {
+                        for (let i = 0; i < 600; i++) {
+                            let s = null;
+                            try { const r = await fetch('/api/flow/recompute-status'); if (r.ok) s = await r.json(); } catch (_) {}
+                            if (s && s.flow === flow) {
+                                if (s.running) {
+                                    sawMineRunning = true;
+                                    this.recomputeMsg = '전체 이력 재계산 중… (' + (s.phase || '') + (s.cyclesFound ? ', ' + s.cyclesFound + ' 사이클' : '') + ')';
+                                } else if (s.done && (sawMineRunning || i === 0)) {
+                                    if (s.phase === 'error') { this.recomputeError = true; this.recomputeMsg = '전체 이력 재계산 실패: ' + (s.error || ''); }
+                                    else { this.recomputeMsg = '전체 이력 재계산 완료 (' + (s.inserted || 0) + '건 재기록)'; }
+                                    settled = true; break;
+                                }
+                            } else if (s && s.running) {
+                                this.recomputeMsg = '다른 작업 진행 중 — 대기…';
+                            }
+                            await new Promise(r => setTimeout(r, 500));
+                        }
+                    } finally { this.recomputeBusy = false; }
+                    if (!settled && !this.recomputeError) this.recomputeMsg = '재계산 상태를 확인할 수 없습니다 (백그라운드에서 계속될 수 있음)';
+                    setTimeout(() => { if (!this.recomputeBusy && !this.recomputeError) this.recomputeMsg = ''; }, 6000);
+                },
+                async restoreAasxDefault() {
+                    if (!this.selectedFlow) return;
+                    const headName = this.callNameOf(this.projectHeadId);
+                    const tailName = this.callNameOf(this.projectTailId);
+                    if (!headName || !tailName) { this.errorMessage = '이 Flow 에는 AASX 기본 Head/Tail 정의가 없어 복원할 수 없습니다.'; return; }
+                    await this.saveBoundaryAndRecompute(headName, tailName, 'AASX 기본값 복원 실패');
+                },
+                callNameOf(id) { const l = id ? this.callLanes.find(x => x.callId === id) : null; return l ? l.callName : null; },
+                buildExportModel() {
+                    const csMs = this.chartStart ? this.chartStart.getTime() : 0;
+                    return {
+                        flowName: this.selectedFlow,
+                        chartStart: this.chartStartIso, chartEnd: this.chartEndIso,
+                        viewMode: this.viewMode,
+                        headCallId: this.headCallId, tailCallId: this.tailCallId,
+                        headName: this.headName, tailName: this.tailName,
+                        avgCycleMs: this.avgCycleMs, avgActiveMs: this.avgActiveMs,
+                        lanes: this.callLanes.map(l => ({
+                            callId: l.callId, callName: l.callName, workName: l.workName, laneIndex: l.laneIndex,
+                            inTag: l.inTag, outTag: l.outTag,
+                            intervals: l.intervals, outIntervals: l.outIntervals, inIntervals: l.inIntervals
+                        })),
+                        cycleBoundaries: this.cycleBoundariesIso, tailEdges: this.tailEdgesIso,
+                        showMaxGap: this.showMaxGap, selectedGapIndex: this.selectedGapIndex,
+                        topGaps: this.topGaps.map(g => ({
+                            callId: g.callId, durMs: g.durMs,
+                            startOffMs: g.startMs - csMs, endOffMs: g.endMs - csMs
+                        }))
+                    };
+                },
+                async exportExcel() {
+                    if (!this.selectedFlow || this.exporting) return;
+                    this.exporting = true; this.errorMessage = null;
+                    try {
+                        const res = await fetch('/api/cycle-analysis/export-excel', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(this.buildExportModel())
+                        });
+                        if (res.status === 503) { this.demoBlocked = true; return; }
+                        if (!res.ok) throw new Error('HTTP ' + res.status);
+                        let fn = this.excelFileName();
+                        const cd = res.headers.get('Content-Disposition');
+                        if (cd) {
+                            const star = cd.match(/filename\*=(?:UTF-8'')?([^;]+)/i);
+                            const plain = cd.match(/filename="?([^";]+)"?/i);
+                            if (star) { try { fn = decodeURIComponent(star[1].trim()); } catch (_) {} }
+                            else if (plain) { fn = plain[1].trim(); }
+                        }
+                        const blob = await res.blob();
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a'); a.href = url; a.download = fn;
+                        document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+                    } catch (e) {
+                        this.errorMessage = 'Excel 내보내기 실패: ' + e.message;
+                    } finally { this.exporting = false; }
+                },
+                excelFileName() {
+                    const t = new Date(); const p = (x) => String(x).padStart(2, '0');
+                    return `CycleTime_${this.selectedFlow}_${t.getFullYear()}${p(t.getMonth()+1)}${p(t.getDate())}_${p(t.getHours())}${p(t.getMinutes())}${p(t.getSeconds())}.xlsx`;
+                },
+
+                async load() {
+                    if (!this.selectedFlow) return;
+                    const start = this.inputToDate(this.startTime);
+                    const end = this.inputToDate(this.endTime);
+                    if (end <= start) { this.errorMessage = '종료 시각은 시작 시각보다 커야 합니다.'; return; }
+
+                    this.isLoading = true; this.errorMessage = null;
+                    try {
+                        const body = {
+                            flowName: this.selectedFlow,
+                            start: this.startTime, end: this.endTime,
+                            headCallId: this.headCallId, tailCallId: this.tailCallId,
+                            headSpecified: this.userOverrodeHeadTail, tailSpecified: this.userOverrodeHeadTail
+                        };
+                        const d = await this.apiPost('/api/call-test/load', body);
+                        this.applyLoadResult(d);
+                    } catch (e) {
+                        if (e.message !== 'demo-blocked') this.errorMessage = '데이터 로딩 실패: ' + e.message;
+                    } finally {
+                        this.isLoading = false;
+                    }
+                },
+                applyLoadResult(d) {
+                    this.callLanesRaw = d.lanes || [];
+                    this.chartStart = new Date(d.chartStart);
+                    this.chartEnd = new Date(d.chartEnd);
+                    this.chartStartIso = d.chartStart; this.chartEndIso = d.chartEnd;
+                    this.headCallId = d.headCallId || null;
+                    this.tailCallId = d.tailCallId || null;
+                    this.projectHeadId = d.projectHeadCallId || null;
+                    this.projectTailId = d.projectTailCallId || null;
+                    this.cycleBoundaries = (d.cycleBoundaries || []).map(s => new Date(s));
+                    this.tailEdges = (d.tailEdges || []).map(s => new Date(s));
+                    this.cycleBoundariesIso = d.cycleBoundaries || []; this.tailEdgesIso = d.tailEdges || [];
+                    this.avgCycleMs = d.avgCycleMs ?? null;
+                    this.avgActiveMs = d.avgActiveMs ?? null;
+                    this.isOverride = !!d.isOverride;
+                    this.selectedRange = null;
+                    this.applySort();
+                    this.recomputeTopGaps();
+                    this.svgMarkup = this.buildSvg();
+                    this.$nextTick(() => { this.measurePlotWidth(); this.svgMarkup = this.buildSvg(); if (this.tab === 'cycle' && this.cycleView === 'chart') this.renderCycleChart(); });
+                },
+
+                onSortChanged() { this.applySort(); this.svgMarkup = this.buildSvg(); },
+                applySort() {
+                    const lanes = (this.callLanesRaw || []).slice();
+                    const firstStart = (l) => {
+                        let m = Infinity;
+                        for (const iv of (l.intervals || [])) { const s = new Date(iv.start).getTime(); if (s < m) m = s; }
+                        return m;
+                    };
+                    const maxGap = (l) => {
+                        const ivs = (l.intervals || []).map(iv => ({ s: new Date(iv.start).getTime(), e: new Date(iv.end).getTime() })).sort((a, b) => a.s - b.s);
+                        let g = 0;
+                        for (let i = 0; i < ivs.length - 1; i++) g = Math.max(g, ivs[i + 1].s - ivs[i].e);
+                        return g;
+                    };
+                    const li = (l) => (typeof l.laneIndex === 'number' ? l.laneIndex : 0);
+                    switch (this.chartSort) {
+                        case 'ByTime':     lanes.sort((a, b) => (firstStart(a) - firstStart(b)) || (li(a) - li(b))); break;
+                        case 'ByCallName': lanes.sort((a, b) => (a.callName || '').toLowerCase().localeCompare((b.callName || '').toLowerCase()) || (li(a) - li(b))); break;
+                        case 'ByGapSize':  lanes.sort((a, b) => (maxGap(b) - maxGap(a)) || (firstStart(a) - firstStart(b)) || (li(a) - li(b))); break;
+                        default:           lanes.sort((a, b) => li(a) - li(b)); break;
+                    }
+                    this.callLanes = lanes;
+                },
+
+                computeAllGaps() {
+                    const gaps = [];
+                    for (const lane of this.callLanes) {
+                        const ivs = (lane.intervals || []).map(iv => ({ s: new Date(iv.start).getTime(), e: new Date(iv.end).getTime() })).sort((a, b) => a.s - b.s);
+                        for (let i = 0; i < ivs.length - 1; i++) {
+                            const gs = ivs[i].e, ge = ivs[i + 1].s;
+                            if (ge > gs) gaps.push({ callId: lane.callId, callName: lane.callName, startMs: gs, endMs: ge, durMs: ge - gs });
+                        }
+                    }
+                    return gaps;
+                },
+                recomputeTopGaps() {
+                    this.topGaps = this.computeAllGaps().sort((a, b) => b.durMs - a.durMs).slice(0, 5);
+                    if (this.selectedGapIndex >= this.topGaps.length) this.selectedGapIndex = 0;
+                },
+                activeGap() {
+                    if (!this.showMaxGap || !this.topGaps.length) return null;
+                    const i = (this.selectedGapIndex >= 0 && this.selectedGapIndex < this.topGaps.length) ? this.selectedGapIndex : 0;
+                    return this.topGaps[i];
+                },
+                onGapPicked() {
+                    this.svgMarkup = this.buildSvg();
+                    const g = this.activeGap();
+                    if (g) this.$nextTick(() => this.scrollToGap(g));
+                },
+                focusMaxGap() {
+                    if (!this.topGaps.length) return;
+                    this.showMaxGap = true; this.selectedGapIndex = 0;
+                    this.svgMarkup = this.buildSvg();
+                    this.$nextTick(() => this.scrollToGap(this.topGaps[0]));
+                },
+                scrollToGap(gap) {
+                    const area = this.$refs.chartArea;
+                    if (!area || !this._geo || !gap) return;
+                    const { cs, xScale } = this._geo;
+                    const midX = LEFT_PAD + ((gap.startMs + gap.endMs) / 2 - cs) * xScale;
+                    const target = Math.max(0, midX - area.clientWidth / 2);
+                    try { area.scrollTo({ left: target, behavior: 'smooth' }); }
+                    catch (_) { area.scrollLeft = target; }
+                },
+
+                get cycleList() {
+                    if (!this.chartStart || this.cycleBoundaries.length === 0) return [];
+                    const ce = this.chartEnd ? this.chartEnd.getTime() : 0;
+                    const bnd = this.cycleBoundaries.map(d => d.getTime());
+                    const tails = this.tailEdges.map(d => d.getTime()).slice().sort((a, b) => a - b);
+                    const spans = [];
+                    for (let i = 0; i < bnd.length - 1; i++) spans.push({ start: bnd[i], end: bnd[i + 1], number: i + 1, isOpen: false });
+                    if (bnd.length > 0 && ce && bnd[bnd.length - 1] < ce) spans.push({ start: bnd[bnd.length - 1], end: ce, number: bnd.length, isOpen: true });
+                    let tIdx = 0;
+                    return spans.map(span => {
+                        while (tIdx < tails.length && tails[tIdx] <= span.start) tIdx++;
+                        let tailIn = null;
+                        if (tIdx < tails.length && tails[tIdx] < span.end) tailIn = tails[tIdx];
+                        const ctMs = span.end - span.start;
+                        const atMs = tailIn !== null ? tailIn - span.start : null;   // MT = 완료 − 시작
+                        const wtMs = atMs !== null ? Math.max(0, ctMs - atMs) : null; // WT = CT − MT
+                        const ratio = (atMs !== null && ctMs > 0) ? +(atMs / ctMs * 100).toFixed(1) : null;
+                        return { number: span.number, isOpen: span.isOpen, startMs: span.start, ctMs, atMs, wtMs, ratio };
+                    });
+                },
+                // 이상치 제외(min/max CT) 를 사이클 목록/차트에도 적용 — 히스토리 visibleHistory 와 동일 규칙.
+                // 진행중(isOpen) 사이클은 CT 미확정이므로 항상 포함.
+                get visibleCycleList() {
+                    const r = this._exRangeMs;
+                    if (!r) return this.cycleList;
+                    const min = r.min, max = r.max;
+                    return this.cycleList.filter(c => {
+                        if (c.isOpen) return true;
+                        const ct = c.ctMs ?? 0;
+                        if (min != null && ct < min) return false;
+                        if (max != null && ct > max) return false;
+                        return true;
+                    });
+                },
+                get excludedCycleCount() {
+                    const r = this._exRangeMs;
+                    if (!r) return 0;
+                    const min = r.min, max = r.max;
+                    let n = 0;
+                    for (const c of this.cycleList) {
+                        if (c.isOpen) continue;
+                        const ct = c.ctMs ?? 0;
+                        if ((min != null && ct < min) || (max != null && ct > max)) n++;
+                    }
+                    return n;
+                },
+                ratioCls(ratio) {
+                    if (ratio === null) return '';
+                    if (ratio >= 80) return 'ct-ratio-good';
+                    if (ratio >= 50) return 'ct-ratio-mid';
+                    return 'ct-ratio-low';
+                },
+
+                onDragStart(e) {
+                    if (e.button !== 0 || !this.callLanes.length) return;
+                    const area = this.$refs.chartArea;
+                    const svg = area && area.querySelector('svg');
+                    if (!svg || !this._geo) return;
+                    const rectOf = () => svg.getBoundingClientRect();
+                    const clampX = (x) => Math.max(LEFT_PAD, Math.min(LEFT_PAD + this.plotWidth, x));
+                    const laneTop = this.laneTopY;
+                    const laneBottom = laneTop + this.callLanes.length * LANE_HEIGHT;
+                    const r0 = rectOf();
+                    const x0 = e.clientX - r0.left, y0 = e.clientY - r0.top;
+                    if (x0 < LEFT_PAD || x0 > LEFT_PAD + this.plotWidth || y0 < laneTop - 8 || y0 > laneBottom + 8) return;
+                    e.preventDefault();
+                    const { cs, xScale } = this._geo;
+                    const edgePx = [];
+                    for (const lane of this.callLanes) {
+                        for (const arr of [lane.intervals, lane.outIntervals, lane.inIntervals]) {
+                            for (const iv of (arr || [])) {
+                                edgePx.push(LEFT_PAD + (new Date(iv.start).getTime() - cs) * xScale);
+                                edgePx.push(LEFT_PAD + (new Date(iv.end).getTime() - cs) * xScale);
+                            }
+                        }
+                    }
+                    for (const b of (this.cycleBoundaries || [])) edgePx.push(LEFT_PAD + (b.getTime() - cs) * xScale);
+                    const SNAP_PX = 10;
+                    const snapCurX = (x) => {
+                        let best = x, bestDist = SNAP_PX;
+                        for (const ex of edgePx) { const d = Math.abs(ex - x); if (d < bestDist) { bestDist = d; best = ex; } }
+                        return best;
+                    };
+                    const sx = clampX(snapCurX(x0));
+                    const startMs = cs + (sx - LEFT_PAD) / xScale;
+                    const ns = 'http://www.w3.org/2000/svg';
+                    const live = document.createElementNS(ns, 'rect');
+                    live.setAttribute('x', this.f(sx)); live.setAttribute('width', '0');
+                    live.setAttribute('y', laneTop); live.setAttribute('height', this.callLanes.length * LANE_HEIGHT);
+                    live.setAttribute('fill', 'rgba(126,87,194,0.16)');
+                    live.setAttribute('stroke', '#7e57c2'); live.setAttribute('stroke-dasharray', '4 3');
+                    live.setAttribute('pointer-events', 'none');
+                    svg.appendChild(live);
+                    let moved = false;
+                    const onMove = (ev) => {
+                        const cur = clampX(snapCurX(ev.clientX - rectOf().left));
+                        const x = Math.min(sx, cur), w = Math.abs(cur - sx);
+                        live.setAttribute('x', this.f(x)); live.setAttribute('width', this.f(w));
+                        if (w > 3) moved = true;
+                    };
+                    const onUp = (ev) => {
+                        document.removeEventListener('mousemove', onMove, true);
+                        document.removeEventListener('mouseup', onUp, true);
+                        if (live.parentNode) live.parentNode.removeChild(live);
+                        this._drag = null;
+                        if (!moved) { if (this.selectedRange) this.clearRangeSelection(); return; }
+                        const cur = clampX(snapCurX(ev.clientX - rectOf().left));
+                        const endMs = cs + (cur - LEFT_PAD) / xScale;
+                        this.selectedRange = { startMs: Math.min(startMs, endMs), endMs: Math.max(startMs, endMs) };
+                        this.svgMarkup = this.buildSvg();
+                    };
+                    this._drag = { onMove, onUp };
+                    document.addEventListener('mousemove', onMove, true);
+                    document.addEventListener('mouseup', onUp, true);
+                },
+                clearRangeSelection() { this.selectedRange = null; this.svgMarkup = this.buildSvg(); },
+
+                get selRangeLenMs() { return this.selectedRange ? Math.max(0, this.selectedRange.endMs - this.selectedRange.startMs) : 0; },
+                get selRunMs() {
+                    const r = this.selectedRange; if (!r) return 0;
+                    let sum = 0;
+                    for (const lane of this.callLanes) for (const iv of (lane.intervals || [])) {
+                        const s = new Date(iv.start).getTime(), e = new Date(iv.end).getTime();
+                        const lo = Math.max(s, r.startMs), hi = Math.min(e, r.endMs);
+                        if (hi > lo) sum += (hi - lo);
+                    }
+                    return sum;
+                },
+                get selGapMs() {
+                    const r = this.selectedRange; if (!r) return 0;
+                    let sum = 0;
+                    for (const g of this.computeAllGaps()) {
+                        const lo = Math.max(g.startMs, r.startMs), hi = Math.min(g.endMs, r.endMs);
+                        if (hi > lo) sum += (hi - lo);
+                    }
+                    return sum;
+                },
+                get selActiveDevices() {
+                    const r = this.selectedRange; if (!r) return 0;
+                    const set = new Set();
+                    for (const lane of this.callLanes) {
+                        for (const iv of (lane.intervals || [])) {
+                            const s = new Date(iv.start).getTime(), e = new Date(iv.end).getTime();
+                            if (Math.min(e, r.endMs) > Math.max(s, r.startMs)) { set.add(lane.callId); break; }
+                        }
+                    }
+                    return set.size;
+                },
+
+                async resolveOverlays() {
+                    if (!this.selectedFlow) return;
+                    this.overlayBusy = true;
+                    try {
+                        const headLane = this.headCallId ? this.callLanes.find(l => l.callId === this.headCallId) : null;
+                        const tailLane = this.tailCallId ? this.callLanes.find(l => l.callId === this.tailCallId) : null;
+                        const body = {
+                            flowName: this.selectedFlow,
+                            start: this.startTime, end: this.endTime,
+                            headCallId: this.headCallId, tailCallId: this.tailCallId,
+                            headStartTag: headLane ? headLane.outTag : null,
+                            tailFinishTag: tailLane ? tailLane.inTag : null
+                        };
+                        const d = await this.apiPost('/api/call-test/resolve-overlays', body);
+                        this.cycleBoundaries = (d.cycleBoundaries || []).map(s => new Date(s));
+                        this.tailEdges = (d.tailEdges || []).map(s => new Date(s));
+                        this.cycleBoundariesIso = d.cycleBoundaries || []; this.tailEdgesIso = d.tailEdges || [];
+                        this.avgCycleMs = d.avgCycleMs ?? null;
+                        this.avgActiveMs = d.avgActiveMs ?? null;
+                        this.svgMarkup = this.buildSvg();
+                        if (this.cycleView === 'chart') this.$nextTick(() => this.renderCycleChart());
+                    } catch (e) {
+                        if (e.message !== 'demo-blocked') this.errorMessage = '오버레이 갱신 실패: ' + e.message;
+                    } finally {
+                        this.overlayBusy = false;
+                    }
+                },
+
+                get headName() { const l = this.headCallId ? this.callLanes.find(x => x.callId === this.headCallId) : null; return l ? l.callName : null; },
+                get tailName() { const l = this.tailCallId ? this.callLanes.find(x => x.callId === this.tailCallId) : null; return l ? l.callName : null; },
+                laneRowClass(lane) {
+                    if (this.headCallId === lane.callId) return 'ct-lane-row is-head';
+                    if (this.tailCallId === lane.callId) return 'ct-lane-row is-tail';
+                    return 'ct-lane-row';
+                },
+
+                get laneTopY() { return TOP_MARGIN + (this.cycleBoundaries.length ? RIBBON_H : 0); },
+
+                // ── BuildSvg() ──
+                buildSvg() {
+                    if (this.callLanes.length === 0) return '';
+                    const cs = this.chartStart.getTime(), ce = this.chartEnd.getTime();
+                    const totalMs = Math.max(1.0, ce - cs);
+                    const laneCount = this.callLanes.length;
+                    const PW = this.plotWidth;
+                    const chartW = LEFT_PAD + PW + RIGHT_PAD;
+                    const ribbonH = this.cycleBoundaries.length ? RIBBON_H : 0;
+                    const laneAreaTop = TOP_MARGIN + ribbonH;
+                    const laneAreaBottom = laneAreaTop + laneCount * LANE_HEIGHT;
+                    const chartH = laneAreaBottom + BOTTOM_PAD;
+                    const xScale = PW / totalMs;
+                    this._geo = { cs, xScale };
+                    const ms = (d) => d.getTime() - cs;
+
+                    let sb = '';
+                    sb += `<svg class="ct-gantt" width="${chartW}" height="${chartH}" xmlns="http://www.w3.org/2000/svg">`;
+                    sb += `<rect width="100%" height="100%" fill="#ffffff"/>`;
+
+                    if (ribbonH > 0) sb += this.appendCycleRibbon(xScale, TOP_MARGIN, ribbonH, cs, ce);
+                    sb += this.appendCycleBands(xScale, laneAreaTop, laneAreaBottom, cs, ce);
+                    sb += this.appendTimeAxis(totalMs, xScale, cs, laneAreaTop, laneAreaBottom);
+
+                    for (let i = 0; i < this.callLanes.length; i++) {
+                        const lane = this.callLanes[i];
+                        const laneY = laneAreaTop + i * LANE_HEIGHT;
+                        const laneCY = laneY + LANE_HEIGHT / 2.0;
+                        const isHead = this.headCallId === lane.callId;
+                        const isTail = this.tailCallId === lane.callId;
+
+                        if (isHead || isTail) {
+                            const stripeFill = isHead ? '#c8e6c9' : '#e1bee7';
+                            sb += `<rect x="0" y="${laneY}" width="${chartW}" height="${LANE_HEIGHT}" fill="${stripeFill}" opacity="0.35"/>`;
+                        }
+                        sb += `<line x1="0" y1="${laneY + LANE_HEIGHT}" x2="${chartW}" y2="${laneY + LANE_HEIGHT}" stroke="#e3e6ea" stroke-width="1"/>`;
+
+                        if (this.viewMode === 'bar') {
+                            const fill = isHead ? '#4caf50' : isTail ? '#ab47bc' : '#5b9bd5';
+                            const stroke = isHead ? '#2e7d32' : isTail ? '#7b1fa2' : '#3478b8';
+                            for (const iv of lane.intervals) {
+                                const s = new Date(iv.start), e = new Date(iv.end);
+                                const x = LEFT_PAD + ms(s) * xScale;
+                                const w = Math.max(2, (e.getTime() - s.getTime()) * xScale);
+                                const durMs = e.getTime() - s.getTime();
+                                const tip = `${lane.callName}  ${this.hms(s)} ~ ${this.hms(e)}  (${this.formatMs(durMs)})`;
+                                sb += `<g><title>${this.esc(tip)}</title>`;
+                                sb += `<rect x="${this.f(x)}" y="${this.f(laneCY - BAR_HEIGHT / 2.0)}" width="${this.f(w)}" height="${BAR_HEIGHT}" rx="2" fill="${fill}" stroke="${stroke}" stroke-width="0.5"/>`;
+                                sb += `</g>`;
+                            }
+                        } else {
+                            const unionFill = isHead ? '#4caf50' : isTail ? '#ab47bc' : '#5b9bd5';
+                            for (const iv of lane.intervals) {
+                                const s = new Date(iv.start), e = new Date(iv.end);
+                                const x = LEFT_PAD + ms(s) * xScale;
+                                const w = Math.max(2, (e.getTime() - s.getTime()) * xScale);
+                                sb += `<rect x="${this.f(x)}" y="${this.f(laneY + 6)}" width="${this.f(w)}" height="${LANE_HEIGHT - 12}" rx="2" fill="${unionFill}" opacity="0.10"/>`;
+                            }
+                            const plotRightX = LEFT_PAD + PW;
+                            sb += this.appendSignalTrace(lane.outIntervals, '#1e88e5', laneY + 20, laneY + 7, cs, xScale, plotRightX, lane.callName, lane.outTag, 'OUT 명령');
+                            sb += this.appendSignalTrace(lane.inIntervals, '#fb8c00', laneY + 37, laneY + 24, cs, xScale, plotRightX, lane.callName, lane.inTag, 'IN 응답');
+                        }
+                    }
+
+                    if (this.selectedRange) {
+                        const a = Math.max(cs, this.selectedRange.startMs), b = Math.min(ce, this.selectedRange.endMs);
+                        if (b > a) {
+                            const rx = LEFT_PAD + (a - cs) * xScale;
+                            const rw = Math.max(1, (b - a) * xScale);
+                            sb += `<rect x="${this.f(rx)}" y="${laneAreaTop}" width="${this.f(rw)}" height="${this.f(laneAreaBottom - laneAreaTop)}" fill="rgba(126,87,194,0.16)" pointer-events="none"/>`;
+                            sb += `<line x1="${this.f(rx)}" y1="${laneAreaTop}" x2="${this.f(rx)}" y2="${laneAreaBottom}" stroke="#7e57c2" stroke-width="1.2" stroke-dasharray="4 3" pointer-events="none"/>`;
+                            sb += `<line x1="${this.f(rx + rw)}" y1="${laneAreaTop}" x2="${this.f(rx + rw)}" y2="${laneAreaBottom}" stroke="#7e57c2" stroke-width="1.2" stroke-dasharray="4 3" pointer-events="none"/>`;
+                        }
+                    }
+                    const gap = this.activeGap();
+                    if (gap) {
+                        const li = this.callLanes.findIndex(l => l.callId === gap.callId);
+                        if (li >= 0) {
+                            const gy = laneAreaTop + li * LANE_HEIGHT;
+                            const gx = LEFT_PAD + (gap.startMs - cs) * xScale;
+                            const gw = Math.max(2, (gap.endMs - gap.startMs) * xScale);
+                            sb += `<rect x="${this.f(gx)}" y="${this.f(gy)}" width="${this.f(gw)}" height="${LANE_HEIGHT}" rx="3" fill="rgba(245,166,35,0.28)" stroke="#e5494f" stroke-width="2" pointer-events="none"/>`;
+                            if (gw > 40) {
+                                const label = `⚠ ${this.formatMs(gap.durMs)}`;
+                                const fs = 11, tw = label.length * (fs * 0.62), padX = 6, padY = 3;
+                                const bgW = tw + padX * 2, bgH = fs + padY * 2;
+                                const cx = gx + gw / 2, cy = gy + LANE_HEIGHT / 2;
+                                sb += `<rect x="${this.f(cx - bgW / 2)}" y="${this.f(cy - bgH / 2)}" width="${this.f(bgW)}" height="${this.f(bgH)}" rx="3" fill="#ffffff" stroke="#e5494f" stroke-width="1.2" pointer-events="none"/>`;
+                                sb += `<text x="${this.f(cx)}" y="${this.f(cy)}" text-anchor="middle" dominant-baseline="central" font-size="${fs}" font-weight="700" fill="#e5494f" pointer-events="none">${this.esc(label)}</text>`;
+                            }
+                        }
+                    }
+
+                    sb += `</svg>`;
+                    return sb;
+                },
+
+                appendSignalTrace(intervals, color, yLow, yHigh, cs, xScale, plotRightX, callName, tagName, kindLabel) {
+                    let sb = '';
+                    sb += `<line x1="${LEFT_PAD}" y1="${this.f(yLow)}" x2="${this.f(plotRightX)}" y2="${this.f(yLow)}" stroke="${color}" stroke-width="0.75" opacity="0.28"/>`;
+                    if (!intervals || intervals.length === 0) return sb;
+                    const ms = (d) => d.getTime() - cs;
+                    const segs = intervals.map(iv => ({ s: new Date(iv.start), e: new Date(iv.end) })).sort((a, b) => a.s - b.s);
+                    let pts = `${this.f(LEFT_PAD)},${this.f(yLow)}`;
+                    for (const seg of segs) {
+                        const xs = LEFT_PAD + ms(seg.s) * xScale;
+                        const xe = Math.max(LEFT_PAD + ms(seg.e) * xScale, xs + 1.5);
+                        const durMs = seg.e.getTime() - seg.s.getTime();
+                        const tip = `${callName} · ${kindLabel}${tagName ? ' (' + tagName + ')' : ''}  ${this.hms(seg.s)} ~ ${this.hms(seg.e)}  (${this.formatMs(durMs)})`;
+                        sb += `<g><title>${this.esc(tip)}</title><rect x="${this.f(xs)}" y="${this.f(yHigh)}" width="${this.f(xe - xs)}" height="${this.f(yLow - yHigh)}" fill="${color}" opacity="0.20"/></g>`;
+                        pts += ` ${this.f(xs)},${this.f(yLow)} ${this.f(xs)},${this.f(yHigh)} ${this.f(xe)},${this.f(yHigh)} ${this.f(xe)},${this.f(yLow)}`;
+                    }
+                    pts += ` ${this.f(plotRightX)},${this.f(yLow)}`;
+                    sb += `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.4"/>`;
+                    return sb;
+                },
+
+                appendCycleRibbon(xScale, ribbonTop, ribbonH, cs, ce) {
+                    if (this.cycleBoundaries.length === 0) return '';
+                    let sb = '';
+                    const bnd = this.cycleBoundaries.map(d => d.getTime());
+                    const ms = (t) => t - cs;
+                    const plotRight = LEFT_PAD + this.plotWidth;
+
+                    const spans = [];
+                    for (let i = 0; i < bnd.length - 1; i++) spans.push({ start: bnd[i], end: bnd[i + 1], number: i + 1, isOpen: false });
+                    if (bnd[bnd.length - 1] < ce) spans.push({ start: bnd[bnd.length - 1], end: ce, number: bnd.length, isOpen: true });
+
+                    const tails = this.tailEdges.map(d => d.getTime());
+                    let tailIdx = 0;
+
+                    const barY = ribbonTop + 16;
+                    const barH = Math.max(14, ribbonH - 20);
+                    const barCY = barY + barH / 2.0;
+
+                    sb += `<rect x="${this.f(LEFT_PAD)}" y="${ribbonTop}" width="${this.f(plotRight - LEFT_PAD)}" height="${ribbonH}" fill="#fafbfc"/>`;
+                    sb += `<line x1="0" y1="${this.f(ribbonTop + ribbonH)}" x2="${this.f(plotRight)}" y2="${this.f(ribbonTop + ribbonH)}" stroke="#cfd8dc" stroke-width="1"/>`;
+
+                    for (const span of spans) {
+                        const sx = LEFT_PAD + ms(span.start) * xScale;
+                        const ex = LEFT_PAD + ms(span.end) * xScale;
+                        const bandW = Math.max(1, ex - sx);
+                        const isEven = span.number % 2 === 0;
+                        const dim = span.isOpen ? 0.55 : 1;
+
+                        while (tailIdx < tails.length && tails[tailIdx] <= span.start) tailIdx++;
+                        let tailIn = null;
+                        if (tailIdx < tails.length && tails[tailIdx] < span.end) tailIn = tails[tailIdx];
+                        const tailX = tailIn !== null ? LEFT_PAD + ms(tailIn) * xScale : null;
+
+                        const ctMs = span.end - span.start;
+                        const atMs = tailIn !== null ? tailIn - span.start : null;
+                        const idleMs = atMs !== null ? ctMs - atMs : null;
+                        const ratio = (atMs !== null && ctMs > 0) ? Math.round(atMs / ctMs * 100) : null;
+
+                        const tip = tailIn !== null
+                            ? `사이클 #${span.number}${span.isOpen ? ' (진행중)' : ''} · MT ${this.formatMs(atMs)} · WT ${this.formatMs(idleMs)} / CT ${this.formatMs(ctMs)} · 가동률 ${ratio}%`
+                            : `사이클 #${span.number}${span.isOpen ? ' (진행중)' : ''} · CT ${this.formatMs(ctMs)}`;
+                        let g = `<g><title>${this.esc(tip)}</title>`;
+
+                        if (tailX !== null) {
+                            const aw = Math.max(0, tailX - sx);
+                            const iw = Math.max(0, ex - tailX);
+                            g += `<rect x="${this.f(sx)}" y="${barY}" width="${this.f(aw)}" height="${barH}" fill="#4caf50" opacity="${0.9 * dim}"/>`;
+                            g += `<rect x="${this.f(tailX)}" y="${barY}" width="${this.f(iw)}" height="${barH}" fill="#b0bec5" opacity="${0.9 * dim}"/>`;
+                            if (aw > 54) g += `<text x="${this.f(sx + aw / 2.0)}" y="${this.f(barCY)}" text-anchor="middle" dominant-baseline="central" font-size="9.5" font-weight="700" fill="#1b5e20" font-family="ui-monospace,Consolas,monospace">${this.esc(this.formatMs(atMs))}</text>`;
+                            if (iw > 54) g += `<text x="${this.f(tailX + iw / 2.0)}" y="${this.f(barCY)}" text-anchor="middle" dominant-baseline="central" font-size="9.5" fill="#37474f" font-family="ui-monospace,Consolas,monospace">${this.esc(this.formatMs(idleMs))}</text>`;
+                        } else {
+                            const fill = isEven ? '#9fa8da' : '#ce93d8';
+                            g += `<rect x="${this.f(sx)}" y="${barY}" width="${this.f(bandW)}" height="${barH}" fill="${fill}" opacity="${0.85 * dim}"/>`;
+                            if (bandW > 54) g += `<text x="${this.f(sx + bandW / 2.0)}" y="${this.f(barCY)}" text-anchor="middle" dominant-baseline="central" font-size="9.5" fill="#37474f" font-family="ui-monospace,Consolas,monospace">CT ${this.esc(this.formatMs(ctMs))}</text>`;
+                        }
+                        g += `<rect x="${this.f(sx)}" y="${barY}" width="${this.f(bandW)}" height="${barH}" fill="none" stroke="#90a4ae" stroke-width="0.75"/>`;
+                        if (span.isOpen) g += `<line x1="${this.f(ex)}" y1="${barY}" x2="${this.f(ex)}" y2="${this.f(barY + barH)}" stroke="#90a4ae" stroke-width="1" stroke-dasharray="3 2"/>`;
+
+                        if (bandW > 22) {
+                            const num = span.isOpen ? `#${span.number} ↻` : `#${span.number}`;
+                            g += `<text x="${this.f(sx + 4)}" y="${this.f(ribbonTop + 12)}" font-size="11" font-weight="800" fill="#263238">${num}</text>`;
+                        }
+                        if (ratio !== null && bandW > 86) {
+                            const rc = ratio >= 80 ? '#2e7d32' : ratio >= 50 ? '#e65100' : '#c62828';
+                            g += `<text x="${this.f(ex - 4)}" y="${this.f(ribbonTop + 12)}" text-anchor="end" font-size="10" font-weight="700" fill="${rc}">가동 ${ratio}%</text>`;
+                        }
+                        g += `</g>`;
+                        sb += g;
+                    }
+                    return sb;
+                },
+
+                appendCycleBands(xScale, laneAreaTop, laneAreaBottom, cs, ce) {
+                    if (this.cycleBoundaries.length === 0) return '';
+                    let sb = '';
+                    const bnd = this.cycleBoundaries.map(d => d.getTime());
+                    const ms = (t) => t - cs;
+
+                    const spans = [];
+                    for (let i = 0; i < bnd.length - 1; i++) spans.push({ start: bnd[i], end: bnd[i + 1], number: i + 1, isOpen: false });
+                    if (bnd[bnd.length - 1] < ce) spans.push({ start: bnd[bnd.length - 1], end: ce, number: bnd.length, isOpen: true });
+
+                    const tails = this.tailEdges.map(d => d.getTime());
+                    let tailIdx = 0;
+                    const laneAreaH = laneAreaBottom - laneAreaTop;
+
+                    for (const span of spans) {
+                        const sx = LEFT_PAD + ms(span.start) * xScale;
+                        const ex = LEFT_PAD + ms(span.end) * xScale;
+                        const bandW = Math.max(1, ex - sx);
+                        const isEven = span.number % 2 === 0;
+                        const dim = span.isOpen ? 0.6 : 1;
+
+                        while (tailIdx < tails.length && tails[tailIdx] <= span.start) tailIdx++;
+                        let tailIn = null;
+                        if (tailIdx < tails.length && tails[tailIdx] < span.end) tailIn = tails[tailIdx];
+                        const tailX = tailIn !== null ? LEFT_PAD + ms(tailIn) * xScale : null;
+
+                        if (tailX !== null) {
+                            sb += `<rect x="${this.f(sx)}" y="${laneAreaTop}" width="${this.f(tailX - sx)}" height="${laneAreaH}" fill="#4caf50" opacity="${0.10 * dim}"/>`;
+                            sb += `<rect x="${this.f(tailX)}" y="${laneAreaTop}" width="${this.f(ex - tailX)}" height="${laneAreaH}" fill="#607d8b" opacity="${0.08 * dim}"/>`;
+                        } else {
+                            const bandFill = isEven ? '#5c6bc0' : '#8e24aa';
+                            sb += `<rect x="${this.f(sx)}" y="${laneAreaTop}" width="${this.f(bandW)}" height="${laneAreaH}" fill="${bandFill}" opacity="${0.07 * dim}"/>`;
+                        }
+
+                        sb += `<line x1="${this.f(sx)}" y1="${TOP_MARGIN}" x2="${this.f(sx)}" y2="${laneAreaBottom}" stroke="#ff9800" stroke-width="1.8" opacity="0.9"/>`;
+                        if (tailX !== null) {
+                            sb += `<line x1="${this.f(tailX)}" y1="${laneAreaTop}" x2="${this.f(tailX)}" y2="${laneAreaBottom}" stroke="#ab47bc" stroke-width="1.2" stroke-dasharray="3 2" opacity="0.85"/>`;
+                        }
+                    }
+
+                    const lastEdge = bnd[bnd.length - 1];
+                    if (lastEdge >= cs && lastEdge <= ce) {
+                        const lx = LEFT_PAD + ms(lastEdge) * xScale;
+                        sb += `<line x1="${this.f(lx)}" y1="${TOP_MARGIN}" x2="${this.f(lx)}" y2="${laneAreaBottom}" stroke="#ff9800" stroke-width="1.8" opacity="0.9"/>`;
+                    }
+                    return sb;
+                },
+
+                appendTimeAxis(totalMs, xScale, cs, laneAreaTop, laneAreaBottom) {
+                    let sb = '';
+                    sb += `<line x1="${LEFT_PAD}" y1="${TOP_MARGIN - 6}" x2="${LEFT_PAD + this.plotWidth}" y2="${TOP_MARGIN - 6}" stroke="#888" stroke-width="1"/>`;
+                    const tickStep = this.chooseTickStepMs(totalMs);
+                    for (let t = 0; t <= totalMs + 1e-6; t += tickStep) {
+                        const x = LEFT_PAD + t * xScale;
+                        sb += `<line x1="${this.f(x)}" y1="${this.f(laneAreaTop)}" x2="${this.f(x)}" y2="${this.f(laneAreaBottom)}" stroke="#e9ecef" stroke-width="1" stroke-dasharray="2 4"/>`;
+                        const labelTime = new Date(cs + t);
+                        sb += `<text x="${this.f(x)}" y="${TOP_MARGIN - 12}" text-anchor="middle" font-size="10" fill="#666" font-family="ui-monospace,Consolas,monospace">${this.esc(this.hms2(labelTime))}</text>`;
+                    }
+                    return sb;
+                },
+
+                chooseTickStepMs(totalMs) {
+                    const targetCount = 10;
+                    const rough = totalMs / targetCount;
+                    const mag = Math.pow(10, Math.floor(Math.log10(Math.max(1, rough))));
+                    const norm = rough / mag;
+                    let mult;
+                    if (norm <= 1) mult = 1; else if (norm <= 2) mult = 2; else if (norm <= 5) mult = 5; else mult = 10;
+                    return Math.max(1, mult * mag);
+                },
+
+                formatMs(ms) {
+                    if (ms <= 0) return '0';
+                    if (ms < 1000) return Math.round(ms) + ' ms';
+                    if (ms < 60000) return (ms / 1000.0).toFixed(2) + ' s';
+                    return (ms / 60000.0).toFixed(2) + ' min';
+                },
+                f(v) { return String(Math.round(v * 100) / 100); },
+                hms(d) {
+                    const p = (x) => String(x).padStart(2, '0');
+                    return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, '0')}`;
+                },
+                hms2(d) {
+                    const p = (x) => String(x).padStart(2, '0');
+                    return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+                },
+                esc(s) {
+                    if (s == null || s === '') return '';
+                    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+                },
+
+                // ════════════════════════════════════════════════════════════════
+                //  최근 히스토리 (구 대시보드 하단 — 이 Flow 스코프, 서버 공유 이상치 필터)
+                // ════════════════════════════════════════════════════════════════
+                // 히스토리 대상 Flow = 이 페이지의 Flow (자동 전환/병목 폴백 없음)
+                get histFlowName() { return this.flow ? this.flow.flowName : (this.flowName || null); },
+                get _exRange() {
+                    const r = this.rangeByFlow[this.histFlowName];
+                    return (r && (r.min != null || r.max != null)) ? r : null;
+                },
+                get _exRangeMs() {
+                    const r = this._exRange;
+                    if (!r) return null;
+                    return { min: r.min != null ? r.min * 1000 : null, max: r.max != null ? r.max * 1000 : null };
+                },
+                get rangeLabel() {
+                    const r = this._exRangeMs;
+                    if (!r) return '';
+                    const lo = r.min != null ? this.fmt(r.min) : null;
+                    const hi = r.max != null ? this.fmt(r.max) : null;
+                    if (lo != null && hi != null) return lo + ' ~ ' + hi;
+                    if (lo != null) return '≥ ' + lo;
+                    return '≤ ' + hi;
+                },
+                get histCtMinMs() { const c = this.flowHistory.map(h => h.ct ?? 0).filter(v => v > 0); return c.length ? Math.min(...c) : 0; },
+                get histCtMaxMs() { const c = this.flowHistory.map(h => h.ct ?? 0).filter(v => v > 0); return c.length ? Math.max(...c) : 0; },
+                get visibleHistory() {
+                    const r = this._exRangeMs;
+                    if (!r) return this.flowHistory;
+                    const min = r.min, max = r.max;
+                    return this.flowHistory.filter(h => {
+                        const ct = h.ct ?? 0;
+                        if (min != null && ct < min) return false;
+                        if (max != null && ct > max) return false;
+                        return true;
+                    });
+                },
+                get excludedCount() {
+                    const r = this._exRangeMs;
+                    if (!r) return 0;
+                    const min = r.min, max = r.max;
+                    let n = 0;
+                    for (const h of this.flowHistory) {
+                        const ct = h.ct ?? 0;
+                        if ((min != null && ct < min) || (max != null && ct > max)) n++;
+                    }
+                    return n;
+                },
+
+                syncHistory() {
+                    const target = this.histFlowName;
+                    if (!target) { this._histShownFor = null; this.setHistory([]); return; }
+                    if (target !== this._histShownFor) {
+                        this._histShownFor = target;
+                        if (histCache[target]) this.setHistory(histCache[target]);
+                    }
+                    this.loadHistory(target);
+                },
+                async loadHistory(name) {
+                    try {
+                        const rows = await this.apiGet('/api/dashboard/flows/' + encodeURIComponent(name) + '/history?limit=' + this.histLimit);
+                        histCache[name] = rows;
+                        if (this.histFlowName === name) this.setHistory(rows);
+                    } catch (e) {
+                        if (e.message !== 'demo-blocked') console.error('history failed', e);
+                        if (this.histFlowName === name) this.setHistory([]);
+                    }
+                },
+
+                setHistory(rows) {
+                    rows = Array.isArray(rows) ? rows : [];
+                    rows.forEach((h, i) => {
+                        h._key = (h.recordedAt != null && h.recordedAt !== '')
+                            ? ('r' + h.recordedAt)
+                            : ('n' + (h.cycleNo ?? '?') + '|' + (h.mt ?? 0) + '|' + (h.ct ?? 0) + '|' + i);
+                        h._time = this.histTime(h.recordedAt);
+                    });
+                    this.flowHistory = rows;
+                    this.recomputeHist();
+                },
+                recomputeHist() {
+                    const cts = [];
+                    for (const h of this.visibleHistory) { const ct = h.ct ?? 0; if (ct > 0) cts.push(ct); }
+                    let avg = 0, std = 0;
+                    if (cts.length) {
+                        avg = cts.reduce((a, b) => a + b, 0) / cts.length;
+                        if (cts.length >= 2) std = Math.sqrt(cts.reduce((a, b) => a + (b - avg) * (b - avg), 0) / cts.length);
+                    }
+                    this.histAvgCt = avg;
+                    this.histStdCt = std;
+                    for (const h of this.flowHistory) {
+                        const ct = h.ct ?? 0, wt = h.wt ?? 0;
+                        h._status = (ct > 0 && std > 0)
+                            ? (ct > avg + std ? { cls: 'bad', label: '초과' }
+                               : ct > avg + std * 0.5 ? { cls: 'warn', label: '주의' }
+                               : { cls: 'ok', label: '정상' })
+                            : null;
+                        h._wt = ct > 0 ? (wt * 100 / ct).toFixed(1) + '%' : '--';
+                    }
+                    if (this.histView === 'chart') this.$nextTick(() => this.renderHistChart());
+                },
+                setHistView(v) {
+                    this.histView = v;
+                    if (v === 'chart') this.$nextTick(() => this.renderHistChart());
+                },
+                setCycleView(v) {
+                    this.cycleView = v;
+                    if (v === 'chart') this.$nextTick(() => this.renderCycleChart());
+                },
+                // 사이클 목록 차트 — 히스토리 차트와 동일 형태/용어(MT/WT 스택 + 평균선).
+                // MT(가동)=atMs(완료−시작), WT(대기)=CT−MT. Tail 미지정(atMs=null) 사이클은 CT 단일 막대.
+                renderCycleChart() {
+                    const cv = this.$refs.cycleChart;
+                    if (!cv || !window.Chart) return;
+                    if (this._cycleChart) { this._cycleChart.destroy(); this._cycleChart = null; }
+                    const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+                    const rows = this.visibleCycleList;
+                    if (!rows.length) return;
+                    const labels = rows.map(c => '#' + c.number + (c.isOpen ? ' ↻' : ''));
+                    const times = rows.map(c => this.hms(new Date(c.startMs)));
+                    const ratios = rows.map(c => c.ratio);
+                    const toS = (ms) => Math.round((ms ?? 0) / 100) / 10;
+                    const hasTail = rows.some(c => c.atMs !== null);
+                    const at = rows.map(c => c.atMs !== null ? toS(c.atMs) : null);
+                    const idle = rows.map(c => c.atMs !== null ? toS(Math.max(0, c.ctMs - c.atMs)) : null);
+                    const ctOnly = rows.map(c => c.atMs === null ? toS(c.ctMs) : null);
+                    // 평균 CT = 현재 표시(이상치 제외 반영)된 완료 사이클 평균 — 히스토리 차트와 동일하게 보이는 집합 기준
+                    const completed = rows.filter(c => !c.isOpen && c.ctMs > 0);
+                    const avgMs = completed.length ? completed.reduce((s, c) => s + c.ctMs, 0) / completed.length : (this.avgCycleMs || 0);
+                    const avg = avgMs > 0 ? toS(avgMs) : null;
+                    const cAt = css('--dash-mt') || css('--color-primary') || '#12A594';
+                    const cIdle = css('--dash-wt') || '#AEB9C6';
+                    const cRed = css('--red') || css('--color-error') || '#D8392B';
+                    const grid = css('--color-lines') || 'rgba(14,27,42,0.10)';
+                    const txt = css('--color-text-secondary') || '#51637A';
+                    const datasets = [];
+                    if (hasTail) {
+                        datasets.push({ label: 'MT (가동)', data: at, backgroundColor: cAt, stack: 'ct', borderWidth: 0 });
+                        datasets.push({ label: 'WT (대기)', data: idle, backgroundColor: cIdle, stack: 'ct', borderWidth: 0 });
+                    }
+                    // Tail 미지정 사이클(또는 Tail 없는 Flow)은 CT 단일 막대로 폴백
+                    if (ctOnly.some(v => v !== null)) {
+                        datasets.push({ label: 'CT (사이클)', data: ctOnly, backgroundColor: cAt, stack: 'ct', borderWidth: 0 });
+                    }
+                    if (avg != null) {
+                        datasets.push({ type: 'line', label: '평균 CT', data: labels.map(() => avg),
+                            borderColor: cRed, borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0, fill: false });
+                    }
+                    const fmtMs = (s) => this.fmt(s * 1000);
+                    this._cycleChart = new Chart(cv, {
+                        type: 'bar',
+                        data: { labels, datasets },
+                        options: {
+                            responsive: true, maintainAspectRatio: false, animation: false,
+                            interaction: { mode: 'index', intersect: false },
+                            plugins: {
+                                legend: { position: 'top', labels: { color: txt, boxWidth: 12, font: { size: 11 } } },
+                                tooltip: { callbacks: {
+                                    title: (items) => labels[items[0].dataIndex] + ' · ' + (times[items[0].dataIndex] || ''),
+                                    label: (c) => `${c.dataset.label}: ${fmtMs(c.parsed.y || 0)}`,
+                                    afterBody: (items) => { const r = ratios[items[0].dataIndex]; return r !== null ? ['가동률: ' + r + '%'] : []; },
+                                } },
+                            },
+                            scales: {
+                                x: { stacked: true, grid: { display: false }, title: { display: true, text: '사이클', color: txt }, ticks: { color: txt, font: { size: 10 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 12 } },
+                                y: { stacked: true, beginAtZero: true, min: 0, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, callback: (v) => fmtMs(v) }, title: { display: true, text: '시간', color: txt } },
+                            },
+                        },
+                    });
+                },
+                renderHistChart() {
+                    const cv = this.$refs.histChart;
+                    if (!cv || !window.Chart) return;
+                    if (this._histChart) { this._histChart.destroy(); this._histChart = null; }
+                    const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+                    const rows = this.visibleHistory.slice().reverse();
+                    const times = rows.map(h => h._time || '');
+                    const labels = rows.map(h => h._time ? h._time.slice(6) : '');
+                    const toS = (ms) => Math.round((ms ?? 0) / 100) / 10;
+                    const mt = rows.map(h => toS(h.mt));
+                    const wt = rows.map(h => toS(h.wt));
+                    const avg = this.histAvgCt > 0 ? toS(this.histAvgCt) : null;
+                    const cMt = css('--dash-mt') || css('--color-primary') || '#12A594';
+                    const cWt = css('--dash-wt') || '#AEB9C6';
+                    const cRed = css('--red') || css('--color-error') || '#D8392B';
+                    const grid = css('--color-lines') || 'rgba(14,27,42,0.10)';
+                    const txt = css('--color-text-secondary') || '#51637A';
+                    const datasets = [
+                        { label: 'MT (가동)', data: mt, backgroundColor: cMt, stack: 'ct', borderWidth: 0 },
+                        { label: 'WT (대기)', data: wt, backgroundColor: cWt, stack: 'ct', borderWidth: 0 },
+                    ];
+                    if (avg != null) {
+                        datasets.push({ type: 'line', label: '평균 CT', data: labels.map(() => avg),
+                            borderColor: cRed, borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0, fill: false });
+                    }
+                    const fmtMs = (s) => this.fmt(s * 1000);
+                    this._histChart = new Chart(cv, {
+                        type: 'bar',
+                        data: { labels, datasets },
+                        options: {
+                            responsive: true, maintainAspectRatio: false, animation: false,
+                            interaction: { mode: 'index', intersect: false },
+                            plugins: {
+                                legend: { position: 'top', labels: { color: txt, boxWidth: 12, font: { size: 11 } } },
+                                tooltip: { callbacks: {
+                                    title: (items) => times[items[0].dataIndex] || '',
+                                    label: (c) => `${c.dataset.label}: ${fmtMs(c.parsed.y || 0)}`,
+                                } },
+                            },
+                            scales: {
+                                x: { stacked: true, grid: { display: false }, title: { display: true, text: '사이클 발생 시각', color: txt }, ticks: { color: txt, font: { size: 10 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 12 } },
+                                y: { stacked: true, beginAtZero: true, min: 0, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, callback: (v) => fmtMs(v) }, title: { display: true, text: '시간', color: txt } },
+                            },
+                        },
+                    });
+                },
+                // ── 이상치 필터: 이 Flow 의 최소·최대 CT 범위 (팝업으로 입력) ──
+                _rangeFieldSec(field) {
+                    const v = field === 'min' ? this.rangeForm.min : this.rangeForm.max;
+                    const unit = field === 'min' ? this.rangeForm.minUnit : this.rangeForm.maxUnit;
+                    const n = parseFloat(v), mult = this._unitSec[unit] || 1;
+                    return (v !== '' && v != null && isFinite(n) && n >= 0) ? Math.round(n * mult * 1000) / 1000 : null;
+                },
+                get rangePreviewLabel() {
+                    const lo = this._rangeFieldSec('min'), hi = this._rangeFieldSec('max');
+                    if (lo == null && hi == null) return '';
+                    const loS = lo != null ? this.fmt(lo * 1000) : null, hiS = hi != null ? this.fmt(hi * 1000) : null;
+                    if (loS != null && hiS != null) return '적용: ' + loS + ' ~ ' + hiS;
+                    return loS != null ? ('적용: ≥ ' + loS) : ('적용: ≤ ' + hiS);
+                },
+                openRangeModal() {
+                    if (!this.histFlowName) return;
+                    const r = this.rangeByFlow[this.histFlowName];
+                    this.rangeForm.minUnit = 's';
+                    this.rangeForm.maxUnit = 's';
+                    const toStr = (sec) => (sec != null) ? String(sec) : '';
+                    this.rangeForm.min = toStr(r?.min);
+                    this.rangeForm.max = toStr(r?.max);
+                    this.rangeModalOpen = true;
+                },
+                changeUnit(field, u) {
+                    const cur = field === 'min' ? this.rangeForm.minUnit : this.rangeForm.maxUnit;
+                    if (u === cur) return;
+                    const from = this._unitSec[cur] || 1, to = this._unitSec[u] || 1;
+                    const v = field === 'min' ? this.rangeForm.min : this.rangeForm.max;
+                    const n = parseFloat(v);
+                    const conv = (v === '' || v == null || !isFinite(n)) ? v : String(Math.round((n * from / to) * 1000) / 1000);
+                    if (field === 'min') { this.rangeForm.min = conv; this.rangeForm.minUnit = u; }
+                    else { this.rangeForm.max = conv; this.rangeForm.maxUnit = u; }
+                },
+                closeRangeModal() { this.rangeModalOpen = false; },
+                // 이상치 범위 변경 후 사이클 차트(보이면)도 갱신 — 목록/요약은 getter 라 자동 반영
+                _afterExclusionChange() {
+                    if (this.tab === 'cycle' && this.cycleView === 'chart') this.$nextTick(() => this.renderCycleChart());
+                },
+                async applyRange() {
+                    const flow = this.histFlowName;
+                    if (!flow) { this.rangeModalOpen = false; return; }
+                    let min = this._rangeFieldSec('min'), max = this._rangeFieldSec('max');
+                    if (min != null && max != null && min > max) { const t = min; min = max; max = t; }
+                    if (min == null && max == null) {
+                        const { [flow]: _drop, ...rest } = this.rangeByFlow;
+                        this.rangeByFlow = rest;
+                    } else {
+                        this.rangeByFlow = { ...this.rangeByFlow, [flow]: { min, max } };
+                    }
+                    this.recomputeHist();
+                    this._afterExclusionChange();
+                    this.rangeModalOpen = false;
+                    await this.saveExclusion(flow, min, max);
+                },
+                async resetExclusions() {
+                    const flow = this.histFlowName;
+                    if (!flow || !this.rangeByFlow[flow]) return;
+                    const { [flow]: _drop, ...rest } = this.rangeByFlow;
+                    this.rangeByFlow = rest;
+                    this.recomputeHist();
+                    this._afterExclusionChange();
+                    await this.saveExclusion(flow, null, null);
+                },
+                _exclusionsToMap(rows) {
+                    const map = {};
+                    for (const r of (rows || [])) {
+                        if (r && r.flowName) map[r.flowName] = { min: r.minSec ?? null, max: r.maxSec ?? null };
+                    }
+                    return map;
+                },
+                async loadExclusions() {
+                    try {
+                        const rows = await this.apiGet('/api/dashboard/exclusions');
+                        this.rangeByFlow = this._exclusionsToMap(rows);
+                        this.recomputeHist();
+                        this._afterExclusionChange();
+                    } catch (e) { /* 미수신 시 기존값 유지 (demo-blocked 포함) */ }
+                },
+                async saveExclusion(flowName, minSec, maxSec) {
+                    try {
+                        const res = await fetch('/api/dashboard/exclusions', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                            body: JSON.stringify({ flowName, minSec, maxSec })
+                        });
+                        if (res.status === 503) { this.demoBlocked = true; return; }
+                        if (!res.ok) throw new Error('HTTP ' + res.status);
+                        this.rangeByFlow = this._exclusionsToMap(await res.json());
+                        this.recomputeHist();
+                    } catch (e) {
+                        this.errorMessage = '이상치 제외 저장 실패: ' + e.message;
+                    }
+                },
+
+                histTime(iso) {
+                    const d = new Date(iso); if (isNaN(d)) return '';
+                    const p = (x) => String(x).padStart(2, '0');
+                    return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+                },
+
+                // 히스토리 표시용 포맷 (한글 단위 — 대시보드 동일)
+                fmt(ms) {
+                    if (ms <= 0) return '0초';
+                    if (ms < 1000) return Math.round(ms) + 'ms';
+                    if (ms < 60000) return (ms / 1000).toFixed(1) + '초';
+                    if (ms < 3600000) return Math.floor(ms / 60000) + '분 ' + Math.floor(ms % 60000 / 1000) + '초';
+                    return Math.floor(ms / 3600000) + '시간 ' + Math.floor(ms % 3600000 / 60000) + '분';
                 }
             };
         }
