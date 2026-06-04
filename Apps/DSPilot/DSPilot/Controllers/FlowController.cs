@@ -24,6 +24,7 @@ public class FlowController : ControllerBase
     private readonly AppSettingsService _settings;
     private readonly IFlowMetricsService _flowMetrics;
     private readonly PlcToCallMapperService _mapper;
+    private readonly CycleRecomputeService _recompute;
     private readonly ILogger<FlowController> _logger;
 
     public FlowController(
@@ -32,6 +33,7 @@ public class FlowController : ControllerBase
         AppSettingsService settings,
         IFlowMetricsService flowMetrics,
         PlcToCallMapperService mapper,
+        CycleRecomputeService recompute,
         ILogger<FlowController> logger)
     {
         _project = project;
@@ -39,6 +41,7 @@ public class FlowController : ControllerBase
         _settings = settings;
         _flowMetrics = flowMetrics;
         _mapper = mapper;
+        _recompute = recompute;
         _logger = logger;
     }
 
@@ -93,8 +96,27 @@ public class FlowController : ControllerBase
             return StatusCode(500, new { message = $"저장 실패: {ex.Message}" });
         }
 
+        // 경계 저장 성공 후, 해당 flow 의 과거 dspFlowHistory 전체를 새 경계로 재도출(백그라운드 + 진행률).
+        //   대시보드/평균이 "과거 포함" 새 경계 기준으로 갱신되도록(수용기준). 화면은 응답 후 load() 로 즉시 미리보기,
+        //   대시보드는 잡 완료(수초~) 시 갱신. 윈도우-부분 재계산은 대시보드 전체평균을 붕괴시켜 폐기했다.
+        //   트리거 실패(다른 잡 진행 중)는 저장 성공을 무효화하지 않는다.
+        try
+        {
+            var started = _recompute.TryStartFullHistoryRecompute(flow.Name, effectiveStart, effectiveEnd);
+            if (!started)
+                _logger.LogWarning("[Flow] 전체 이력 재계산 시작 실패(다른 잡 진행 중): {Flow}", flow.Name);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Flow] cycle-override 과거 재계산 트리거 실패(저장은 유효): {Flow}", flow.Name);
+        }
+
         return BuildDetail(flow.Name);
     }
+
+    /// <summary>전체-이력 재계산 백그라운드 잡 진행 상태(폴링용). 화면은 적용 후 잡 실행 중에만 폴링한다.</summary>
+    [HttpGet("recompute-status")]
+    public ActionResult<RecomputeJobStatus> RecomputeStatus() => _recompute.Status;
 
     // ── helpers ──
 

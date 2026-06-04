@@ -310,9 +310,16 @@ public class DspRepositoryAdapter : IDspRepository
             const string createUserTagAlertDailyIdxDate =
                 "CREATE INDEX IF NOT EXISTS idx_userTagAlertDaily_date ON userTagAlertDaily(bucketDate)";
 
+            // dspFlowHistory 는 (flowName) 필터 + (recordedAt) 정렬/범위가 모든 조회·재집계의 공통 패턴인데
+            // 인덱스가 전혀 없어 매번 풀스캔이었다. (flowName, recordedAt) 복합 인덱스로 per-flow seek + 범위
+            // 스캔(history 조회 / 경계 재계산 delete-by-range / Recompute 상관 서브쿼리)을 모두 가속한다.
+            const string createFlowHistoryIdxFlowTime =
+                "CREATE INDEX IF NOT EXISTS idx_dspFlowHistory_flow_recordedAt ON dspFlowHistory(flowName, recordedAt)";
+
             await conn.ExecuteAsync(createFlow);
             await conn.ExecuteAsync(createCall);
             await conn.ExecuteAsync(createFlowHistory);
+            await conn.ExecuteAsync(createFlowHistoryIdxFlowTime);
             await conn.ExecuteAsync(createPlc);
             await conn.ExecuteAsync(createPlcTag);
             await conn.ExecuteAsync(createPlcTagLog);
@@ -865,6 +872,58 @@ public class DspRepositoryAdapter : IDspRepository
         {
             _logger.LogError(ex, "Failed to insert Flow history for '{FlowName}'", history.FlowName);
             return 0;
+        }
+    }
+
+    /// <summary>
+    /// 한 Flow 의 [<paramref name="fromUtc"/>, <paramref name="toUtc"/>) (RecordedAt 기준, UTC) history 행을
+    /// 통째로 <paramref name="rows"/> 로 교체한다(delete-by-range + bulk insert, 단일 트랜잭션).
+    /// Head/Tail 경계 변경 시 원시 plcTagLog 로부터 재도출한 사이클을 과거 구간에 덮어쓰기 위한 용도.
+    /// dspFlowHistory 는 원시 로그의 파생 캐시로 취급하므로(원시 로그 = 진짜 아카이브) 제자리 덮어쓰기가 안전.
+    /// <para>주의: <paramref name="fromUtc"/>/<paramref name="toUtc"/> 와 각 row.RecordedAt 은 라이브 경로
+    /// (DateTime.UtcNow 저장)와 동일하게 <b>UTC 벽시계(Kind=Utc)</b> 여야 비교/저장 포맷이 일치한다.</para>
+    /// </summary>
+    public async Task<(int Deleted, int Inserted)> ReplaceFlowHistoryRangeAsync(
+        string flowName, DateTime fromUtc, DateTime toUtc, IReadOnlyList<DspFlowHistoryEntity> rows)
+    {
+        if (!_enabled) return (0, 0);
+        if (string.IsNullOrWhiteSpace(flowName)) return (0, 0);
+
+        await using var conn = await OpenAsync();
+        if (!await TableExistsAsync(conn, HistoryTable)) return (0, 0);
+        await EnsureIsIdleColumnAsync(conn);
+
+        using var tx = conn.BeginTransaction();
+        try
+        {
+            var deleted = await conn.ExecuteAsync(
+                $@"DELETE FROM {HistoryTable}
+                   WHERE FlowName = @FlowName
+                     AND RecordedAt >= @FromUtc
+                     AND RecordedAt <  @ToUtc",
+                new { FlowName = flowName, FromUtc = fromUtc, ToUtc = toUtc }, transaction: tx);
+
+            int inserted = 0;
+            if (rows.Count > 0)
+            {
+                // Dapper: IEnumerable 파라미터 → 트랜잭션 안에서 항목당 1회 실행(배치).
+                var insertSql = $@"
+                    INSERT INTO {HistoryTable} (FlowName, MT, WT, CT, CycleNo, RecordedAt, IsIdle, HeadCallName, TailCallName)
+                    VALUES (@FlowName, @MT, @WT, @CT, @CycleNo, @RecordedAt, @IsIdle, @HeadCallName, @TailCallName)";
+                inserted = await conn.ExecuteAsync(insertSql, rows, transaction: tx);
+            }
+
+            tx.Commit();
+            _logger.LogInformation(
+                "ReplaceFlowHistoryRange '{Flow}' [{From:o}, {To:o}): deleted={Deleted}, inserted={Inserted}",
+                flowName, fromUtc, toUtc, deleted, inserted);
+            return (deleted, inserted);
+        }
+        catch (Exception ex)
+        {
+            tx.Rollback();
+            _logger.LogError(ex, "ReplaceFlowHistoryRangeAsync 실패 ({Flow})", flowName);
+            throw;
         }
     }
 

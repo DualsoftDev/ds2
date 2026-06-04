@@ -1,6 +1,17 @@
 // Call History Chart - 실행 회차별 GoingTime 라인 차트
 let callHistoryChartInstance = null;
 
+// ds.css 토큰을 페인트 시점에 읽어 라이트/다크 양쪽에서 차트가 읽히도록 한다.
+// shell.js 가 <html> 에 .dark-theme 를 붙이므로 :root 읽기로 현재 테마 값이 해결됨.
+function _hmToken(name, fallback) {
+    try {
+        const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+        return v || fallback;
+    } catch (e) {
+        return fallback;
+    }
+}
+
 // ms → 사람이 읽기 쉬운 시간 문자열 변환
 function formatMs(ms) {
     if (ms <= 0) return '0s';
@@ -140,7 +151,7 @@ const crosshairPlugin = {
         ctx.moveTo(chart._crosshairX, top);
         ctx.lineTo(chart._crosshairX, bottom);
         ctx.lineWidth = 1;
-        ctx.strokeStyle = 'rgba(100, 100, 100, 0.4)';
+        ctx.strokeStyle = _hmToken('--color-lines-strong', 'rgba(100, 100, 100, 0.4)');
         ctx.setLineDash([4, 3]);
         ctx.stroke();
         ctx.restore();
@@ -169,9 +180,10 @@ const anomalyHighlightPlugin = {
         if (!meta || meta.length === 0) return;
 
         const { ctx, chartArea: { top, bottom }, scales: { x } } = chart;
+        const errRgb = _hmToken('--color-error-rgb', '239, 68, 68'); // 이상치 = 시맨틱 빨강 유지
         ctx.save();
-        ctx.fillStyle = 'rgba(239, 68, 68, 0.08)';
-        ctx.strokeStyle = 'rgba(239, 68, 68, 0.25)';
+        ctx.fillStyle = 'rgba(' + errRgb + ', 0.08)';
+        ctx.strokeStyle = 'rgba(' + errRgb + ', 0.25)';
         ctx.lineWidth = 1;
 
         for (const zone of meta) {
@@ -235,6 +247,17 @@ window.renderCallHistoryChart = function (canvasId, executionData, averageMs, st
         callHistoryChartInstance.destroy();
     }
 
+    // ── 팔레트 토큰 (페인트 시점, 라이트/다크 자동 해결) ──
+    const azure = _hmToken('--color-primary', '#0E7CCB');          // 주 계열 = azure 액센트
+    const errRgb = _hmToken('--color-error-rgb', '239, 68, 68');    // 이상치/평균/밴드 = 시맨틱 빨강 유지
+    const azureFill = 'rgba(' + _hmToken('--color-primary-rgb', '14, 124, 203') + ', 0.10)';
+    const gridColor = _hmToken('--color-lines', 'rgba(0, 0, 0, 0.05)');
+    const axisText = _hmToken('--color-text-secondary', '#5A6B7E');
+    const titleText = _hmToken('--color-text-primary', '#0E1B2A');
+    const tipBg = _hmToken('--color-surface', '#0E1722');
+    const tipText = _hmToken('--color-text-primary', '#DCE6F0');
+    const tipBorder = _hmToken('--color-lines-strong', 'rgba(0,0,0,0.2)');
+
     const labels = executionData.map(d => d.executionNumber);
     const goingTimes = executionData.map(d => d.goingTimeMs);
     const timestamps = executionData.map(d => d.timestamp);
@@ -252,7 +275,7 @@ window.renderCallHistoryChart = function (canvasId, executionData, averageMs, st
         Math.abs(v - chartAvg) > threshold ? outlierRadius : baseRadius
     );
     const pointColors = goingTimes.map(v =>
-        Math.abs(v - chartAvg) > threshold ? 'rgb(239, 68, 68)' : 'rgb(59, 130, 246)'
+        Math.abs(v - chartAvg) > threshold ? 'rgb(' + errRgb + ')' : azure
     );
 
     // 이상치 연속 구간 감지
@@ -266,8 +289,8 @@ window.renderCallHistoryChart = function (canvasId, executionData, averageMs, st
                 {
                     label: 'GoingTime',
                     data: goingTimes,
-                    borderColor: 'rgb(59, 130, 246)',
-                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    borderColor: azure,
+                    backgroundColor: azureFill,
                     borderWidth: 2,
                     fill: true,
                     tension: 0.2,
@@ -280,7 +303,7 @@ window.renderCallHistoryChart = function (canvasId, executionData, averageMs, st
                 {
                     label: '\ud3c9\uade0 (' + formatMs(Math.round(chartAvg)) + ')',
                     data: labels.map(() => chartAvg),
-                    borderColor: 'rgba(239, 68, 68, 0.7)',
+                    borderColor: 'rgba(' + errRgb + ', 0.7)',
                     borderWidth: 2,
                     borderDash: [6, 4],
                     pointRadius: 0,
@@ -290,18 +313,18 @@ window.renderCallHistoryChart = function (canvasId, executionData, averageMs, st
                 {
                     label: '\uc815\uc0c1 \ubc94\uc704 (' + formatMs(Math.round(Math.max(0, chartAvg - threshold))) + ' ~ ' + formatMs(Math.round(chartAvg + threshold)) + ')',
                     data: labels.map(() => chartAvg + threshold),
-                    borderColor: 'rgba(239, 68, 68, 0.15)',
+                    borderColor: 'rgba(' + errRgb + ', 0.15)',
                     borderWidth: 1,
                     borderDash: [3, 3],
                     pointRadius: 0,
                     pointHitRadius: 0,
                     fill: '+1',
-                    backgroundColor: 'rgba(239, 68, 68, 0.04)'
+                    backgroundColor: 'rgba(' + errRgb + ', 0.04)'
                 },
                 {
                     label: '\uc815\uc0c1\ubc94\uc704_\ud558\ud55c',
                     data: labels.map(() => Math.max(0, chartAvg - threshold)),
-                    borderColor: 'rgba(239, 68, 68, 0.15)',
+                    borderColor: 'rgba(' + errRgb + ', 0.15)',
                     borderWidth: 1,
                     borderDash: [3, 3],
                     pointRadius: 0,
@@ -313,6 +336,7 @@ window.renderCallHistoryChart = function (canvasId, executionData, averageMs, st
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            color: axisText,
             interaction: { mode: 'nearest', intersect: false },
             plugins: {
                 crosshair: true,
@@ -322,6 +346,7 @@ window.renderCallHistoryChart = function (canvasId, executionData, averageMs, st
                     labels: {
                         usePointStyle: true,
                         padding: 12,
+                        color: axisText,
                         font: { size: 11, weight: '600' },
                         filter: function (item) {
                             // GoingTime, 평균, 정상 범위(상한)만 표시. 하한은 숨김
@@ -333,8 +358,8 @@ window.renderCallHistoryChart = function (canvasId, executionData, averageMs, st
                                 // 정상 범위 (index 2): 분홍색 사각형 스타일로 표시
                                 if (label.datasetIndex === 2) {
                                     label.pointStyle = 'rectRounded';
-                                    label.fillStyle = 'rgba(239, 68, 68, 0.12)';
-                                    label.strokeStyle = 'rgba(239, 68, 68, 0.3)';
+                                    label.fillStyle = 'rgba(' + errRgb + ', 0.12)';
+                                    label.strokeStyle = 'rgba(' + errRgb + ', 0.3)';
                                 }
                                 return label;
                             });
@@ -343,7 +368,11 @@ window.renderCallHistoryChart = function (canvasId, executionData, averageMs, st
                 },
                 tooltip: {
                     enabled: true,
-                    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+                    backgroundColor: tipBg,
+                    titleColor: tipText,
+                    bodyColor: tipText,
+                    borderColor: tipBorder,
+                    borderWidth: 1,
                     titleFont: { size: 12, weight: 'bold' },
                     bodyFont: { size: 11 },
                     padding: 10,
@@ -367,16 +396,17 @@ window.renderCallHistoryChart = function (canvasId, executionData, averageMs, st
             scales: {
                 x: {
                     display: true,
-                    title: { display: true, text: '\uc2e4\ud589 \ud68c\ucc28', font: { size: 11, weight: '600' } },
+                    title: { display: true, text: '\uc2e4\ud589 \ud68c\ucc28', color: titleText, font: { size: 11, weight: '600' } },
                     grid: { display: false },
-                    ticks: { maxTicksLimit: 20, font: { size: 10 } }
+                    ticks: { maxTicksLimit: 20, color: axisText, font: { size: 10 } }
                 },
                 y: {
                     display: true,
-                    title: { display: true, text: 'GoingTime', font: { size: 11, weight: '600' } },
+                    title: { display: true, text: 'GoingTime', color: titleText, font: { size: 11, weight: '600' } },
                     beginAtZero: true,
-                    grid: { color: 'rgba(0, 0, 0, 0.05)' },
+                    grid: { color: gridColor },
                     ticks: {
+                        color: axisText,
                         font: { size: 10 },
                         callback: function (value) { return formatMs(value); }
                     }

@@ -124,6 +124,13 @@ Filename: "{sys}\netsh.exe"; \
   Flags: runhidden waituntilterminated; \
   StatusMsg: "CCTV 방화벽 규칙 추가 중 (UDP)..."
 
+; WebRTC 미디어 TCP 폴백 (UDP 8189 와 동일 포트, 프로토콜만 다름). UDP 차단망에서 외부 시청 대비.
+; 외부 접속 주소를 설정하면 MediaMTX 가 이 TCP 리스너도 켠다(webrtcLocalTCPAddress).
+Filename: "{sys}\netsh.exe"; \
+  Parameters: "advfirewall firewall add rule name=""DSPilot CCTV WebRTC TCP Media"" dir=in action=allow protocol=tcp localport={#MyWebRtcUdpPort}"; \
+  Flags: runhidden waituntilterminated; \
+  StatusMsg: "CCTV 방화벽 규칙 추가 중 (TCP 미디어 폴백)..."
+
 ; Open browser after install (optional)
 Filename: "{code:GetAppURL}"; \
   Description: "DSPilot 웹 대시보드 열기"; \
@@ -154,6 +161,11 @@ Filename: "{sys}\netsh.exe"; \
   Parameters: "advfirewall firewall delete rule name=""DSPilot CCTV WebRTC UDP"""; \
   Flags: runhidden waituntilterminated; \
   RunOnceId: "DeleteMtxFirewallUdp"
+
+Filename: "{sys}\netsh.exe"; \
+  Parameters: "advfirewall firewall delete rule name=""DSPilot CCTV WebRTC TCP Media"""; \
+  Flags: runhidden waituntilterminated; \
+  RunOnceId: "DeleteMtxFirewallTcpMedia"
 
 ; Stop the service before uninstall
 Filename: "{sys}\sc.exe"; \
