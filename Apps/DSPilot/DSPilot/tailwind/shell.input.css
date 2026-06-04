@@ -1,0 +1,50 @@
+/* shell 빌드 입력 — stitch-shell.css 로 컴파일.
+   @tailwind base = (preflight off 라) 커스텀 @layer base 주입 지점만 제공.
+   @tailwind utilities = shell.js 가 쓰는 유틸리티(+dark:/임의값/variant).
+   아래 커스텀 = 구 shell.js 주입 <style>(셸 스코프 리셋 · 연결배지 · stitch 다크 리맵). */
+@tailwind base;
+@tailwind utilities;
+
+/* ── .dsp-shell 스코프 리셋 (preflight off 보정) ──
+   @layer base 에 둬야 utilities(.border-r/.border-l-4 등)보다 먼저 출력되어,
+   동일 명시도에서 유틸리티가 이김 → border-width 가 살아 라인이 보인다.
+   (base 밖에 두면 utilities 보다 뒤라 border-width:0 이 이겨 라인이 사라짐.) */
+@layer base {
+  .dsp-shell,
+  .dsp-shell *,
+  .dsp-shell *::before,
+  .dsp-shell *::after { box-sizing: border-box; border-width: 0; border-style: solid; border-color: var(--color-lines, #c5c6cd); }
+  .dsp-shell h1, .dsp-shell h2, .dsp-shell h3, .dsp-shell p { margin: 0; }
+  .dsp-shell a { text-decoration: none; }
+}
+
+/* ── 셸 안에 들어온 페이지(.dsp-page) 보정 ── */
+.dsp-in-shell { min-height: calc(100vh - 64px) !important; }
+.dsp-in-shell .dsp-appbar { display: none; }
+
+/* ── 사이드바 스크롤바 ── */
+.dsp-shell .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+.dsp-shell .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.dsp-shell .custom-scrollbar::-webkit-scrollbar-thumb { background: var(--color-lines-strong); border-radius: 2px; }
+
+/* ── 헤더 연결 배지(.dash-live) — ds.css 토큰 참조 ── */
+.dash-live { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); font-size: .66rem; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; font-variant-numeric: tabular-nums; }
+.dash-live .dash-live-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.dash-live.is-live { color: var(--color-success); border-color: color-mix(in srgb, var(--color-success) 50%, transparent); }
+.dash-live.is-live .dash-live-dot { animation: dash-pulse 1.6s ease-in-out infinite; }
+.dash-live.is-poll { color: var(--color-text-secondary); }
+@keyframes dash-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+
+/* ── stitch 토큰 클래스 다크 리맵 (stitch 토큰은 라이트값 → html.dark 에서 어둡게).
+   이 클래스명은 공유 ds.css 페이지가 쓰지 않으므로(=셸 전용) 전역 선언이 안전. ── */
+html.dark .bg-background { background-color: #0b1220 !important; }
+html.dark .bg-surface, html.dark .bg-surface-bright { background-color: #131d2e !important; }
+html.dark .bg-surface-container-lowest { background-color: #131d2e !important; }
+html.dark .bg-surface-container-low { background-color: #16243a !important; }
+html.dark .bg-surface-container { background-color: #16243a !important; }
+html.dark .bg-surface-container-high, html.dark .bg-surface-container-highest { background-color: #1d3050 !important; }
+html.dark .text-on-background, html.dark .text-on-surface, html.dark .text-primary { color: #e7eef8 !important; }
+html.dark .text-on-surface-variant { color: #9fb0c8 !important; }
+html.dark .border-outline-variant { border-color: rgba(148, 178, 214, .16) !important; }
+html.dark .border-outline { border-color: rgba(148, 178, 214, .26) !important; }
+html.dark .text-secondary { color: #4d9fff !important; }

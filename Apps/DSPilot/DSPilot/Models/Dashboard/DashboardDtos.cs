@@ -68,3 +68,16 @@ public record ShiftSaveDto(
     string? ShiftType,
     string? TargetFlow,
     int TargetCount);
+
+// 히스토리 이상치 제외 필터 — Flow별 최소·최대 CT 범위(초). 서버(appsettings) 공유.
+// CT 가 [MinSec, MaxSec] 밖이면 제외. MinSec/MaxSec 가 null 이면 해당 방향 제한 없음.
+public record CycleExclusionDto(
+    string FlowName,
+    double? MinSec,
+    double? MaxSec);
+
+// POST 본문 — FlowName 필수. MinSec/MaxSec 둘 다 null 이면 해당 Flow 제외 해제.
+public record CycleExclusionSaveDto(
+    string? FlowName,
+    double? MinSec,
+    double? MaxSec);

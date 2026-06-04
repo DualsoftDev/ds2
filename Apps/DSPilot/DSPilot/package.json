@@ -1,0 +1,16 @@
+{
+  "name": "dspilot-web",
+  "private": true,
+  "version": "1.0.0",
+  "description": "DSPilot 정적 뷰(wwwroot/app)용 Tailwind(stitch) CSS 빌드. CDN 대신 self-host 정적 CSS 생성(오프라인).",
+  "scripts": {
+    "build:css": "tailwindcss -c tailwind.config.js -i tailwind/stitch.input.css -o wwwroot/css/stitch.css --minify && tailwindcss -c tailwind.shell.config.js -i tailwind/shell.input.css -o wwwroot/css/stitch-shell.css --minify",
+    "watch:full": "tailwindcss -c tailwind.config.js -i tailwind/stitch.input.css -o wwwroot/css/stitch.css --watch",
+    "watch:shell": "tailwindcss -c tailwind.shell.config.js -i tailwind/shell.input.css -o wwwroot/css/stitch-shell.css --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/container-queries": "^0.1.1",
+    "@tailwindcss/forms": "^0.5.7",
+    "tailwindcss": "^3.4.17"
+  }
+}

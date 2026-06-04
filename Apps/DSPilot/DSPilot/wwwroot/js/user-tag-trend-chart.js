@@ -3,11 +3,32 @@
 
 const charts = {};
 
-const LEVEL_COLORS = {
-    'Error':   { fill: 'rgba(239, 68, 68, 0.85)',  border: 'rgb(239, 68, 68)'  },
-    'Warning': { fill: 'rgba(245, 158, 11, 0.85)', border: 'rgb(245, 158, 11)' },
-    'Info':    { fill: 'rgba(59, 130, 246, 0.7)',  border: 'rgb(59, 130, 246)' },
-};
+// 차트 색은 paint 시점에 테마 토큰을 읽어 산출한다 (다크/라이트 토글 대응).
+// Error=red / Warning=amber 는 심각도 시맨틱이라 고정. Info=브랜드 azure accent.
+function cssVar(name, fallback) {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+}
+
+function levelColors() {
+    const azure = cssVar('--color-primary', '#0E7CCB');
+    return {
+        'Error':   { fill: 'rgba(239, 68, 68, 0.85)',  border: 'rgb(239, 68, 68)'  },
+        'Warning': { fill: 'rgba(245, 158, 11, 0.85)', border: 'rgb(245, 158, 11)' },
+        'Info':    { fill: `color-mix(in srgb, ${azure} 70%, transparent)`, border: azure },
+    };
+}
+
+// 축/범례/툴팁 텍스트·격자선을 테마 가변으로 (다크 캔버스에서 가독성 확보).
+function themeChartColors() {
+    return {
+        grid: cssVar('--color-lines', 'rgba(127, 127, 127, 0.12)'),
+        gridSoft: cssVar('--color-lines', 'rgba(127, 127, 127, 0.08)'),
+        text: cssVar('--color-text-secondary', '#5b6b7d'),
+        textStrong: cssVar('--color-text-primary', '#0E1B2A'),
+        surface: cssVar('--color-surface', '#ffffff'),
+    };
+}
 
 function destroyIfExists(id) {
     if (charts[id]) {
@@ -31,6 +52,8 @@ export function renderTrendChart(chartId, timeBuckets, granularity) {
     const labels = Array.from(seen.keys());
     const labelToIdx = new Map(labels.map((l, i) => [l, i]));
 
+    const LEVEL_COLORS = levelColors();
+    const tc = themeChartColors();
     const levels = ['Info', 'Warning', 'Error'];
     const datasets = levels.map(lvl => {
         const data = new Array(labels.length).fill(0);
@@ -70,18 +93,19 @@ export function renderTrendChart(chartId, timeBuckets, granularity) {
                     type: 'time',
                     time: { unit: timeUnit, tooltipFormat: 'yyyy-MM-dd HH:mm' },
                     stacked: true,
-                    grid: { color: 'rgba(127, 127, 127, 0.08)' },
+                    grid: { color: tc.gridSoft },
+                    ticks: { color: tc.text },
                 },
                 y: {
                     stacked: true,
                     beginAtZero: true,
-                    ticks: { precision: 0 },
-                    grid: { color: 'rgba(127, 127, 127, 0.12)' },
+                    ticks: { precision: 0, color: tc.text },
+                    grid: { color: tc.grid },
                 },
             },
             plugins: {
-                legend: { position: 'top' },
-                tooltip: { enabled: true },
+                legend: { position: 'top', labels: { color: tc.text } },
+                tooltip: { enabled: true, backgroundColor: tc.surface, titleColor: tc.textStrong, bodyColor: tc.text, borderColor: tc.grid, borderWidth: 1 },
             },
         },
     });
@@ -93,6 +117,8 @@ export function renderTopChart(chartId, topRows) {
     const canvas = document.getElementById(chartId);
     if (!canvas) return;
 
+    const LEVEL_COLORS = levelColors();
+    const tc = themeChartColors();
     const labels = topRows.map(r => r.name);
     const counts = topRows.map(r => r.count);
     const colors = topRows.map(r => (LEVEL_COLORS[r.level] || LEVEL_COLORS.Info).fill);
@@ -114,12 +140,12 @@ export function renderTopChart(chartId, topRows) {
             responsive: true,
             maintainAspectRatio: false,
             scales: {
-                x: { beginAtZero: true, ticks: { precision: 0 } },
-                y: { ticks: { autoSkip: false } },
+                x: { beginAtZero: true, ticks: { precision: 0, color: tc.text }, grid: { color: tc.gridSoft } },
+                y: { ticks: { autoSkip: false, color: tc.text }, grid: { color: tc.grid } },
             },
             plugins: {
                 legend: { display: false },
-                tooltip: { enabled: true },
+                tooltip: { enabled: true, backgroundColor: tc.surface, titleColor: tc.textStrong, bodyColor: tc.text, borderColor: tc.grid, borderWidth: 1 },
             },
         },
     });
@@ -131,9 +157,12 @@ export function renderLevelDoughnut(chartId, levelCounts) {
     const canvas = document.getElementById(chartId);
     if (!canvas) return;
 
+    const LEVEL_COLORS = levelColors();
+    const tc = themeChartColors();
     const labels = ['Info', 'Warning', 'Error'];
     const data = labels.map(l => levelCounts[l] || 0);
     const colors = labels.map(l => (LEVEL_COLORS[l] || LEVEL_COLORS.Info).fill);
+    const borders = labels.map(l => (LEVEL_COLORS[l] || LEVEL_COLORS.Info).border);
 
     charts[chartId] = new Chart(canvas.getContext('2d'), {
         type: 'doughnut',
@@ -142,14 +171,17 @@ export function renderLevelDoughnut(chartId, levelCounts) {
             datasets: [{
                 data,
                 backgroundColor: colors,
-                borderColor: colors.map(c => c.replace(/0\.\d+/, '1')),
+                borderColor: borders,
                 borderWidth: 1,
             }],
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            plugins: { legend: { position: 'bottom' } },
+            plugins: {
+                legend: { position: 'bottom', labels: { color: tc.text } },
+                tooltip: { backgroundColor: tc.surface, titleColor: tc.textStrong, bodyColor: tc.text, borderColor: tc.grid, borderWidth: 1 },
+            },
         },
     });
 }
