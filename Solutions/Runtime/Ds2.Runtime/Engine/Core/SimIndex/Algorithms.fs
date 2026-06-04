@@ -193,3 +193,20 @@ module internal SimIndexAlgorithms =
         |> List.fold (fun (acc: Map<Guid, float>) workGuid ->
             if skipGuids.Contains workGuid then acc
             else acc.Add(workGuid, computeWorkDuration store workCallGuids workGuid)) currentDurations
+
+    let reloadDurationRanges
+        (store: DsStore)
+        (allWorkGuids: Guid list)
+        (currentRanges: Map<Guid, RxTimingRange>)
+        (skipGuids: Set<Guid>) =
+        allWorkGuids
+        |> List.fold (fun (acc: Map<Guid, RxTimingRange>) workGuid ->
+            if skipGuids.Contains workGuid then acc
+            else
+                let resolvedGuid =
+                    Queries.getWork workGuid store
+                    |> Option.bind (fun work -> work.ReferenceOf)
+                    |> Option.defaultValue workGuid
+                match Queries.tryGetDeviceDurationRangeMs resolvedGuid store with
+                | Some range -> acc.Add(workGuid, range)
+                | None -> acc.Remove(workGuid)) currentRanges

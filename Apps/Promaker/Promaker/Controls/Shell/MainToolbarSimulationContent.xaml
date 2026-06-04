@@ -612,7 +612,7 @@
                          Padding="6,2"
                          VerticalContentAlignment="Center"
                          IsEnabled="{Binding Simulation.CanChangeMode}"
-                         ToolTip="Hub 주소 (host:port) — Control 5050 / Monitoring 5051 / VirtualPlant 외부"
+                         ToolTip="Hub 주소 (host:port) — Agent 단일 호스팅이라 Control/Monitoring/VP 모두 localhost:5051"
                          Visibility="{Binding Simulation.NeedsHubConnection, Converter={StaticResource BoolToVis}}"/>
             </StackPanel>
         </StackPanel>

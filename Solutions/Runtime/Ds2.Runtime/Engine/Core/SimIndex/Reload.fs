@@ -32,3 +32,9 @@ module internal SimIndexReload =
                 index.AllWorkGuids
                 index.WorkDuration
                 skipGuids
+        index.WorkDurationRange <-
+            SimIndexAlgorithms.reloadDurationRanges
+                index.Store
+                index.AllWorkGuids
+                index.WorkDurationRange
+                skipGuids

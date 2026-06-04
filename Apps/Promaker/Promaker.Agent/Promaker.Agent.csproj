@@ -26,6 +26,8 @@
          Promaker WPF Monitoring + RealPLC 분기가 호출하던 BackendHost.startWithPlcConfigReadOnly 를
          Agent 가 SYSTEM 컨텍스트에서 대신 호출. -->
     <ProjectReference Include="..\..\..\Solutions\Backend\Ds2.Backend\Ds2.Backend.fsproj" />
+    <!-- Agent 단일 호스팅: engine ↔ Hub 브리지 (IRuntimeHubSession 실제 구현). R1: 이 어셈블리만 Runtime+Backend 둘 다 참조. -->
+    <ProjectReference Include="..\..\..\Solutions\Backend\Ds2.Backend.Runtime\Ds2.Backend.Runtime.fsproj" />
     <!-- AASX → DsStore 로드 (shared project.aasx 읽어 IOMap 빌드). -->
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.Aasx\Ds2.Aasx.fsproj" />
     <!-- DsStore, SignalIOMap. -->

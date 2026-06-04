@@ -32,6 +32,7 @@ type SimIndex = {
     mutable WorkPureStartPreds: Map<Guid, Guid list>
     mutable WorkResetPreds: Map<Guid, Guid list>
     mutable WorkDuration: Map<Guid, float>
+    mutable WorkDurationRange: Map<Guid, RxTimingRange>
     WorkSystemName: Map<Guid, string>
     WorkName: Map<Guid, string>
     WorkFlowGuid: Map<Guid, Guid>
@@ -76,6 +77,7 @@ type internal SimIndexBuildState = {
     mutable WorkPureStartPreds: Map<Guid, Guid list>
     mutable WorkResetPreds: Map<Guid, Guid list>
     mutable WorkDuration: Map<Guid, float>
+    mutable WorkDurationRange: Map<Guid, RxTimingRange>
     mutable WorkSystemName: Map<Guid, string>
     mutable WorkName: Map<Guid, string>
     mutable WorkFlowGuid: Map<Guid, Guid>

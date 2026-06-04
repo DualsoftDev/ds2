@@ -89,6 +89,47 @@ module SimIndexTests =
         Assert.Equal<Guid list>([ callIds[0] ], index.CallStartPreds[callIds[1]])
 
     [<Fact>]
+    let ``build maps active work abnormal duration range from device Rx work`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        let deviceSystem = addSystem store "Device" project.Id false
+        let deviceFlow = addFlow store "DeviceFlow" deviceSystem.Id
+        let deviceWork = addWork store "ADV" deviceFlow.Id
+        deviceWork.MinDuration <- Some(TimeSpan.FromMilliseconds 250.0)
+        deviceWork.MaxDuration <- Some(TimeSpan.FromMilliseconds 900.0)
+        let apiDef = addApiDef store "ADV" deviceSystem.Id
+        apiDef.TxGuid <- Some deviceWork.Id
+        apiDef.RxGuid <- Some deviceWork.Id
+        store.AddCallWithLinkedApiDefs(work.Id, "Device", "ADV", [ apiDef.Id ]) |> ignore
+
+        let index = SimIndex.build store 10
+
+        let activeRange = index.WorkDurationRange.[work.Id]
+        Assert.Equal(250, activeRange.MinMs)
+        Assert.Equal(900, activeRange.MaxMs)
+        let deviceRange = index.WorkDurationRange.[deviceWork.Id]
+        Assert.Equal(250, deviceRange.MinMs)
+        Assert.Equal(900, deviceRange.MaxMs)
+
+    [<Fact>]
+    let ``build omits active work abnormal duration range when device Rx max is missing`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        let deviceSystem = addSystem store "Device" project.Id false
+        let deviceFlow = addFlow store "DeviceFlow" deviceSystem.Id
+        let deviceWork = addWork store "ADV" deviceFlow.Id
+        deviceWork.MinDuration <- Some(TimeSpan.FromMilliseconds 250.0)
+        let apiDef = addApiDef store "ADV" deviceSystem.Id
+        apiDef.TxGuid <- Some deviceWork.Id
+        apiDef.RxGuid <- Some deviceWork.Id
+        store.AddCallWithLinkedApiDefs(work.Id, "Device", "ADV", [ apiDef.Id ]) |> ignore
+
+        let index = SimIndex.build store 10
+
+        Assert.False(index.WorkDurationRange.ContainsKey work.Id)
+        Assert.False(index.WorkDurationRange.ContainsKey deviceWork.Id)
+
+    [<Fact>]
     let ``build collects token role successor and manual sink`` () =
         let store = createStore ()
         let _, _, flow, work1 = setupBasicHierarchy store

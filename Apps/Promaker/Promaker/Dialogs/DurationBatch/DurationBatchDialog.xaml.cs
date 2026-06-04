@@ -154,15 +154,21 @@ public partial class DurationBatchDialog : Window
 public sealed class DurationRow : BatchRowBase
 {
     private string _duration;
+    private string _minDuration;
+    private string _maxDuration;
 
-    public DurationRow(Guid workId, string systemName, string flowName, string workName, string duration, bool isDeviceWork)
+    public DurationRow(Guid workId, string systemName, string flowName, string workName, string duration, string minDuration, string maxDuration, bool isDeviceWork)
     {
         WorkId = workId;
         SystemName = systemName;
         FlowName = flowName;
         WorkName = workName;
         _duration = duration;
+        _minDuration = minDuration;
+        _maxDuration = maxDuration;
         OriginalDuration = duration;
+        OriginalMinDuration = minDuration;
+        OriginalMaxDuration = maxDuration;
         IsDeviceWork = isDeviceWork;
     }
 
@@ -171,6 +177,8 @@ public sealed class DurationRow : BatchRowBase
     public string FlowName { get; }
     public string WorkName { get; }
     public string OriginalDuration { get; }
+    public string OriginalMinDuration { get; }
+    public string OriginalMaxDuration { get; }
     public bool IsDeviceWork { get; }
 
     public string Duration
@@ -179,7 +187,22 @@ public sealed class DurationRow : BatchRowBase
         set => SetField(ref _duration, value);
     }
 
-    public bool IsChanged => Duration != OriginalDuration;
+    public string MinDuration
+    {
+        get => _minDuration;
+        set => SetField(ref _minDuration, value);
+    }
+
+    public string MaxDuration
+    {
+        get => _maxDuration;
+        set => SetField(ref _maxDuration, value);
+    }
+
+    public bool IsChanged =>
+        Duration != OriginalDuration
+        || MinDuration != OriginalMinDuration
+        || MaxDuration != OriginalMaxDuration;
 
     // UI first column (Device=System, Control=Flow)
     public string DisplayCategory => IsDeviceWork ? SystemName : FlowName;

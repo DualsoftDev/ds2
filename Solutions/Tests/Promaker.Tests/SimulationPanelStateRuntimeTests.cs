@@ -285,6 +285,7 @@ public sealed class SimulationPanelStateRuntimeTests
         public event FSharpHandler<TokenEventArgs>? TokenEvent;
         public event FSharpHandler<CallTimeoutArgs>? CallTimeout;
         public event FSharpHandler<EventArgs>? HomingPhaseCompleted;
+        public event FSharpHandler<AbnormalRecord>? AbnormalDetected;
 
         public SimState State => _state;
         public SimulationStatus Status => SimulationStatus.Running;

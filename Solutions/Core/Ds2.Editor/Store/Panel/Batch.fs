@@ -8,12 +8,14 @@ open Ds2.Core.Store
 
 
 /// Duration 일괄편집용 행
-type WorkDurationBatchRow(workId: Guid, systemName: string, flowName: string, workName: string, periodMs: int, isDeviceWork: bool) =
+type WorkDurationBatchRow(workId: Guid, systemName: string, flowName: string, workName: string, periodMs: int, minDurationMs: int, maxDurationMs: int, isDeviceWork: bool) =
     member val WorkId = workId
     member val SystemName = systemName
     member val FlowName = flowName
     member val WorkName = workName
     member val PeriodMs = periodMs
+    member val MinDurationMs = minDurationMs
+    member val MaxDurationMs = maxDurationMs
     member val IsDeviceWork = isDeviceWork
 
 /// I/O 일괄편집용 행
@@ -52,7 +54,15 @@ type DsStorePanelBatchExtensions =
                             work.Duration
                             |> Option.map (fun t -> int t.TotalMilliseconds)
                             |> Option.defaultValue 0
-                        WorkDurationBatchRow(work.Id, sys.Name, flow.Name, work.LocalName, ms, isDeviceWork))))
+                        let minMs =
+                            work.MinDuration
+                            |> Option.map (fun t -> int t.TotalMilliseconds)
+                            |> Option.defaultValue 0
+                        let maxMs =
+                            work.MaxDuration
+                            |> Option.map (fun t -> int t.TotalMilliseconds)
+                            |> Option.defaultValue 0
+                        WorkDurationBatchRow(work.Id, sys.Name, flow.Name, work.LocalName, ms, minMs, maxMs, isDeviceWork))))
 
         Queries.allProjects store
         |> List.collect (fun project ->
@@ -157,6 +167,36 @@ type DsStorePanelBatchExtensions =
             store.WithTransaction("Work Duration 일괄 변경", fun () ->
                 for struct(workId, period) in changeList do
                     store.TrackMutate(store.Works, workId, fun work -> work.Duration <- period))
+            store.EmitRefreshAndHistory()
+
+    /// Work Duration / abnormal MinDuration / MaxDuration 일괄 변경 (Nullable 허용)
+    [<Extension>]
+    static member UpdateWorkDurationRangesBatch(store: DsStore, changes: seq<struct(Guid * Nullable<int> * Nullable<int> * Nullable<int>)>) =
+        let toPeriod (value: Nullable<int>) =
+            if value.HasValue && value.Value > 0 then Some (TimeSpan.FromMilliseconds(float value.Value)) else None
+
+        let changeList =
+            changes
+            |> Seq.map (fun struct(workId, durationMs, minDurationMs, maxDurationMs) ->
+                let resolvedId = Queries.resolveOriginalWorkId workId store
+                struct(resolvedId, toPeriod durationMs, toPeriod minDurationMs, toPeriod maxDurationMs))
+            |> Seq.distinctBy (fun struct(workId, _, _, _) -> workId)
+            |> Seq.filter (fun struct(workId, duration, minDuration, maxDuration) ->
+                match Queries.getWork workId store with
+                | Some work ->
+                    work.Duration <> duration
+                    || work.MinDuration <> minDuration
+                    || work.MaxDuration <> maxDuration
+                | None -> false)
+            |> Seq.toList
+        if not changeList.IsEmpty then
+            StoreLog.debug($"UpdateWorkDurationRangesBatch: {changeList.Length} items")
+            store.WithTransaction("Work Duration/Range 일괄 변경", fun () ->
+                for struct(workId, duration, minDuration, maxDuration) in changeList do
+                    store.TrackMutate(store.Works, workId, fun work ->
+                        work.Duration <- duration
+                        work.MinDuration <- minDuration
+                        work.MaxDuration <- maxDuration))
             store.EmitRefreshAndHistory()
 
     /// Work TokenRole 일괄 변경 (단일 Undo 트랜잭션)

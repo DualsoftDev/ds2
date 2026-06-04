@@ -43,6 +43,8 @@ module internal AasxExportGraph =
             ("Work",     "Position"),         $"{cdBase}/Work/Position"
             ("Work",     "TokenRole"),        $"{cdBase}/Work/TokenRole"
             ("Work",     "Duration"),         $"{cdBase}/Work/Duration"
+            ("Work",     "MinDuration"),      $"{cdBase}/Work/MinDuration"
+            ("Work",     "MaxDuration"),      $"{cdBase}/Work/MaxDuration"
             ("Work",     "ReferenceOf"),      $"{cdBase}/Work/ReferenceOf"
             ("Work",     "Conditions"),       $"{cdBase}/Work/Conditions"
             // Call
