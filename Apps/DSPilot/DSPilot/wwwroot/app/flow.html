@@ -122,7 +122,7 @@
 
             <!-- 로딩/오류 -->
             <div x-show="loading && !flow" class="progress-bar progress-bar-indeterminate" style="margin-bottom:12px;"><div class="progress-bar-fill"></div></div>
-            <div class="alert alert-error" x-show="error" style="margin-bottom:12px;"><span class="material-icons">error_outline</span><span x-text="error"></span></div>
+            <div class="alert alert-error" x-show="error" style="margin-bottom:12px;"><span class="material-icons">error</span><span x-text="error"></span></div>
 
             <!-- Flow 없음 -->
             <template x-if="!loading && !error && !flow">

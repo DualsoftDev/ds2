@@ -187,7 +187,7 @@
                                 <span class="material-icons">refresh</span> 새로고침
                             </button>
                             <button class="btn btn-outlined color-default" @click="exportCsv()" :disabled="filteredGroups.length === 0">
-                                <span class="material-icons">file_download</span> CSV 내보내기
+                                <span class="material-icons">download</span> CSV 내보내기
                             </button>
                         </div>
                     </div>
@@ -201,7 +201,7 @@
 
             <!-- 오류 -->
             <div class="alert alert-error mb-4" x-show="error" style="flex-shrink:0;">
-                <span class="material-icons">error_outline</span>
+                <span class="material-icons">error</span>
                 <span x-text="error"></span>
             </div>
 

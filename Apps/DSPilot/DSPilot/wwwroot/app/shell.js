@@ -122,8 +122,15 @@
         appBar.appendChild(titleSpan);
         appBar.appendChild(spacer);
 
-        // aside.drawer > nav.nav-menu
+        // aside.drawer > (brand) + nav.nav-menu
         var drawer = el('aside', 'drawer');
+        // 사이드바 상단 브랜드 (code.html "DSPilot / Industrial Monitoring")
+        var drawerBrand = el('a', 'drawer-brand');
+        drawerBrand.href = '/';
+        drawerBrand.title = 'DSPilot';
+        drawerBrand.appendChild(el('div', 'db-title', 'DSPilot'));
+        drawerBrand.appendChild(el('div', 'db-sub', 'Industrial Monitoring'));
+        drawer.appendChild(drawerBrand);
         var navMenu = el('nav', 'nav-menu');
         drawer.appendChild(navMenu);
 

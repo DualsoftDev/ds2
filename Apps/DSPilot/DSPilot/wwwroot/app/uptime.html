@@ -280,7 +280,7 @@
                         </select>
                     </div>
 
-                    <div class="alert alert-error" x-show="oeeError" style="margin-bottom:12px;"><span class="material-icons">error_outline</span><span x-text="oeeError"></span></div>
+                    <div class="alert alert-error" x-show="oeeError" style="margin-bottom:12px;"><span class="material-icons">error</span><span x-text="oeeError"></span></div>
 
                     <template x-if="filteredDowntime.length > 0">
                         <div style="overflow-x:auto;">
@@ -506,7 +506,7 @@
 
                     <!-- 로딩/오류 -->
                     <div x-show="loading && !ut" class="progress-bar progress-bar-indeterminate" style="margin-bottom:12px;"><div class="progress-bar-fill"></div></div>
-                    <div class="alert alert-error" x-show="error" style="margin-bottom:12px;"><span class="material-icons">error_outline</span><span x-text="error"></span></div>
+                    <div class="alert alert-error" x-show="error" style="margin-bottom:12px;"><span class="material-icons">error</span><span x-text="error"></span></div>
 
                     <template x-if="ut">
                         <div>
@@ -670,7 +670,7 @@
                             </template>
                             <template x-if="!ut.alerts || ut.alerts.length === 0">
                                 <div class="ds-empty" style="border-style:solid;">
-                                    <span class="material-icons">notifications_none</span>
+                                    <span class="material-icons">notifications</span>
                                     <div class="ds-empty-title">조회 기간 / 필터에 해당하는 알림 없음</div>
                                     <div class="ds-empty-desc">기간·검색·레벨·System 필터를 변경해 보세요.</div>
                                 </div>
