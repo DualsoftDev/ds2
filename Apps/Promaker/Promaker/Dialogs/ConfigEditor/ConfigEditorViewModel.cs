@@ -12,6 +12,7 @@ using System.Windows.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.SymbolImport.Matching;
+using Microsoft.Win32;
 using Promaker.Dialogs.ConfigEditor.Models;
 
 namespace Promaker.Dialogs.ConfigEditor;
@@ -729,26 +730,52 @@ public partial class ConfigEditorViewModel : ObservableObject
         Ds2.SymbolImport.CsvParser.setConfigPath(_configPath);
     }
 
-    private void LoadXgkSlots()
+    /// <summary>JSON 슬롯 노드 1개 → XgkSlotItem (Load/Import 공통)</summary>
+    private static XgkSlotItem SlotFromJson(JsonNode slot) => new()
+    {
+        Slot = slot["Slot"]?.GetValue<int>() ?? 0,
+        Module = slot["Module"]?.GetValue<string>() ?? "",
+        Direction = slot["Direction"]?.GetValue<string>() ?? "Input",
+        AddressStart = slot["AddressStart"]?.GetValue<string>() ?? "",
+        AddressEnd = slot["AddressEnd"]?.GetValue<string>() ?? "",
+        Description = slot["Description"]?.GetValue<string>() ?? ""
+    };
+
+    /// <summary>XgkSlotItem → JSON 슬롯 노드 1개 (Save/Export 공통)</summary>
+    private static JsonObject SlotToJson(XgkSlotItem s) => new()
+    {
+        ["Slot"] = s.Slot,
+        ["Module"] = s.Module,
+        ["Direction"] = s.Direction,
+        ["AddressStart"] = s.AddressStart,
+        ["AddressEnd"] = s.AddressEnd,
+        ["Description"] = s.Description
+    };
+
+    /// <summary>현재 XgkSlots 컬렉션을 JsonArray 로 직렬화 (Save/Export 공통)</summary>
+    private JsonArray XgkSlotsToJsonArray()
+    {
+        var slotsArray = new JsonArray();
+        foreach (var s in XgkSlots)
+            slotsArray.Add(SlotToJson(s));
+        return slotsArray;
+    }
+
+    /// <summary>주어진 슬롯 JsonArray 로 XgkSlots 컬렉션을 교체 (Load/Import 공통)</summary>
+    private void ReplaceXgkSlotsFrom(JsonArray? slots)
     {
         XgkSlots.Clear();
-        var slots = _rootNode?["VendorSettings"]?["XGK"]?["Slots"]?.AsArray();
         if (slots == null) return;
 
         foreach (var slot in slots)
         {
             if (slot == null) continue;
-            XgkSlots.Add(new XgkSlotItem
-            {
-                Slot = slot["Slot"]?.GetValue<int>() ?? 0,
-                Module = slot["Module"]?.GetValue<string>() ?? "",
-                Direction = slot["Direction"]?.GetValue<string>() ?? "Input",
-                AddressStart = slot["AddressStart"]?.GetValue<string>() ?? "",
-                AddressEnd = slot["AddressEnd"]?.GetValue<string>() ?? "",
-                Description = slot["Description"]?.GetValue<string>() ?? ""
-            });
+            XgkSlots.Add(SlotFromJson(slot));
         }
     }
+
+    private void LoadXgkSlots() =>
+        ReplaceXgkSlotsFrom(_rootNode?["VendorSettings"]?["XGK"]?["Slots"]?.AsArray());
 
     private void SaveXgkSlots()
     {
@@ -760,21 +787,7 @@ public partial class ConfigEditorViewModel : ObservableObject
 
         var xgk = _rootNode["VendorSettings"]!["XGK"]!;
         xgk["Description"] = "XGK 슬롯별 P-주소 범위 — 입력/출력 disambiguation 용";
-
-        var slotsArray = new JsonArray();
-        foreach (var s in XgkSlots)
-        {
-            slotsArray.Add(new JsonObject
-            {
-                ["Slot"] = s.Slot,
-                ["Module"] = s.Module,
-                ["Direction"] = s.Direction,
-                ["AddressStart"] = s.AddressStart,
-                ["AddressEnd"] = s.AddressEnd,
-                ["Description"] = s.Description
-            });
-        }
-        xgk["Slots"] = slotsArray;
+        xgk["Slots"] = XgkSlotsToJsonArray();
     }
 
     [RelayCommand]
@@ -808,6 +821,89 @@ public partial class ConfigEditorViewModel : ObservableObject
         XgkSlots.Add(new XgkSlotItem { Slot = 2, Module = "XGQ-TR8A/B (트랜지스터 출력, 64점)", Direction = "Output", AddressStart = "P00080", AddressEnd = "P0011F", Description = "" });
         XgkSlots.Add(new XgkSlotItem { Slot = 3, Module = "XGQ-TR4A/B (트랜지스터 출력, 32점)", Direction = "Output", AddressStart = "P00120", AddressEnd = "P0013F", Description = "" });
         XgkSlots.Add(new XgkSlotItem { Slot = 4, Module = "XGF-M16M (모션, 16축)",            Direction = "Input",  AddressStart = "P00140", AddressEnd = "P0014F", Description = "" });
+    }
+
+    /// <summary>현재 XGK 슬롯 구성을 별도 JSON 파일로 내보낸다 (issue #180).</summary>
+    [RelayCommand]
+    private void ExportXgkSlots()
+    {
+        var dlg = new SaveFileDialog
+        {
+            Filter = "XGK 슬롯 JSON (*.xgkslots.json;*.json)|*.xgkslots.json;*.json|모든 파일 (*.*)|*.*",
+            Title = "XGK 슬롯 구성 내보내기",
+            FileName = "xgk-slots.json",
+            AddExtension = true,
+            DefaultExt = ".json"
+        };
+
+        if (dlg.ShowDialog() != true) return;
+
+        try
+        {
+            var doc = new JsonObject
+            {
+                ["Vendor"] = "XGK",
+                ["Description"] = "XGK 슬롯별 P-주소 범위 — 입력/출력 disambiguation 용 (Promaker Config Editor export)",
+                ["Slots"] = XgkSlotsToJsonArray()
+            };
+
+            var options = new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            };
+            File.WriteAllText(dlg.FileName, doc.ToJsonString(options),
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+            StatusMessage = $"XGK 슬롯 {XgkSlots.Count}개를 내보냈습니다: {Path.GetFileName(dlg.FileName)}";
+            StatusColor = Brushes.Green;
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"내보내기 오류: {ex.Message}";
+            StatusColor = Brushes.Red;
+        }
+    }
+
+    /// <summary>별도 JSON 파일에서 XGK 슬롯 구성을 가져와 현재 목록을 교체한다 (issue #180).
+    /// Export 파일(Slots 래퍼), config 의 VendorSettings.XGK 형태, 또는 슬롯 배열만 있는 파일 모두 허용.</summary>
+    [RelayCommand]
+    private void ImportXgkSlots()
+    {
+        var dlg = new OpenFileDialog
+        {
+            Filter = "XGK 슬롯 JSON (*.xgkslots.json;*.json)|*.xgkslots.json;*.json|모든 파일 (*.*)|*.*",
+            Title = "XGK 슬롯 구성 가져오기"
+        };
+
+        if (dlg.ShowDialog() != true) return;
+
+        try
+        {
+            var node = JsonNode.Parse(File.ReadAllText(dlg.FileName));
+            // 허용 형태: ① 최상위 슬롯 배열, ② { "Slots": [...] }, ③ { "VendorSettings": { "XGK": { "Slots": [...] } } }
+            var slots =
+                (node as JsonArray)
+                ?? node?["Slots"]?.AsArray()
+                ?? node?["XGK"]?["Slots"]?.AsArray()
+                ?? node?["VendorSettings"]?["XGK"]?["Slots"]?.AsArray();
+
+            if (slots == null)
+            {
+                StatusMessage = "가져오기 실패: 슬롯 데이터를 찾을 수 없습니다 (Slots 배열 누락)";
+                StatusColor = Brushes.Red;
+                return;
+            }
+
+            ReplaceXgkSlotsFrom(slots);
+            StatusMessage = $"XGK 슬롯 {XgkSlots.Count}개를 가져왔습니다: {Path.GetFileName(dlg.FileName)} (저장 버튼으로 확정)";
+            StatusColor = Brushes.Green;
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"가져오기 오류: {ex.Message}";
+            StatusColor = Brushes.Red;
+        }
     }
 
     [RelayCommand]
