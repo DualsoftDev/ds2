@@ -237,6 +237,7 @@
                         <ListBox Grid.Row="3" x:Name="ApiDefListBox"
                                  DisplayMemberPath="DisplayName"
                                  SelectionMode="Extended"
+                                 SelectionChanged="OnApiDefSelectionChanged"
                                  ScrollViewer.VerticalScrollBarVisibility="Auto"
                                  Background="{DynamicResource PrimaryBackgroundBrush}"
                                  Foreground="{DynamicResource PrimaryTextBrush}"

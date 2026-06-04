@@ -315,8 +315,14 @@ public partial class CallCreateDialog : Window
     }
 
     // ─── 고급 탭: ApiDef 검색 ───
+
+    /// <summary>검색 결과 목록 선택 → ApiName 칸 자동 채움 시, 그 텍스트 변경이
+    /// 목록을 재검색·선택 리셋하지 않도록 억제하는 플래그.</summary>
+    private bool _suppressApiNameFilter;
+
     private void OnApiNameFilterChanged(object sender, TextChangedEventArgs e)
     {
+        if (_suppressApiNameFilter) return;
         RefreshApiDefList();
     }
 
@@ -327,6 +333,21 @@ public partial class CallCreateDialog : Window
         ApiDefListBox.ItemsSource = matches;
         if (matches.Count > 0)
             ApiDefListBox.SelectedIndex = 0;
+    }
+
+    /// <summary>검색 결과에서 항목 선택 시 ApiName 칸을 선택한 ApiDef 의 ApiName 으로 자동 채운다.
+    /// 여러 개 선택 시 마지막으로 선택한 항목 기준. 자동 채움이 목록을 재검색하지 않도록 억제.</summary>
+    private void OnApiDefSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        var picked = e.AddedItems.OfType<ApiDefMatch>().LastOrDefault()
+                     ?? ApiDefListBox.SelectedItems.OfType<ApiDefMatch>().LastOrDefault();
+        if (picked is null) return;
+        if (string.Equals(AdvApiNameFilterBox.Text, picked.ApiDefName, StringComparison.Ordinal)) return;
+
+        _suppressApiNameFilter = true;
+        AdvApiNameFilterBox.Text = picked.ApiDefName;
+        AdvApiNameFilterBox.CaretIndex = AdvApiNameFilterBox.Text.Length;
+        _suppressApiNameFilter = false;
     }
 
     // ─── 추가 버튼 ───
