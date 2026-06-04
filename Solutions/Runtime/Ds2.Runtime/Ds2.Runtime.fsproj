@@ -32,6 +32,9 @@
     <Compile Include="Engine\Core\Projection\SimulationProjection.fs" />
     <Compile Include="IO\SignalIOMap.fs" />
     <Compile Include="Engine\Core\Commands\EngineAwareHomingPlan.fs" />
+    <Compile Include="Engine\Abnormal\AbnormalDetector.fs" />
+    <Compile Include="Engine\Abnormal\ControlAbnormalAdapter.fs" />
+    <Compile Include="Engine\Abnormal\MonitoringAbnormalAdapter.fs" />
     <Compile Include="Engine\Passive\InferenceTypes.fs" />
     <Compile Include="Engine\Passive\WorkCycleAlignment.fs" />
     <Compile Include="Engine\Passive\WorkCycleState.fs" />

@@ -23,6 +23,8 @@
   <ItemGroup>
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
     <PackageVersion Include="Microsoft.Extensions.Hosting.WindowsServices" Version="9.0.0" />
+    <!-- Ds2.Runtime.Remote — client-side ISimulationEngine proxy over SignalR (Promaker WPF·DSPilot 공유). -->
+    <PackageVersion Include="Microsoft.AspNetCore.SignalR.Client" Version="9.0.5" />
     <!-- DPAPI (LocalMachine / CurrentUser scope) — Windows-only. CR4 의 preSharedKey / tlsCertPassword 암호화 SSOT. -->
     <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" />
     <!-- Phase S3 MCP HTTP transport host (D-S3-2 = 1.2.0, Promaker `Apps/Promaker/Directory.Packages.props` 와 동일). -->

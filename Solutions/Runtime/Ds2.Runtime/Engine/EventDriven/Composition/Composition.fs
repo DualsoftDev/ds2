@@ -7,6 +7,7 @@ open Ds2.Core.Store
 open Ds2.Runtime.Model
 open Ds2.Runtime.Engine.Core
 open Ds2.Runtime.Engine.Scheduler
+open Ds2.Runtime.Engine.Abnormal
 
 /// 이벤트 기반 시뮬레이션 엔진
 /// H 상태 구현: F->H (내부 Call R 정리) -> H->R (최소 1ms)
@@ -45,6 +46,28 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
     let callTimeoutEvent = Event<CallTimeoutArgs>()
     let simulationStatusChangedEvent = Event<SimulationStatusChangedArgs>()
     let tokenEventEvent = Event<TokenEventArgs>()
+    // v12 P3b — Control 모드만 abnormal adapter 활성. 다른 모드/구독자 없으면 noop (기존 동작 무영향).
+    let abnormalDetectedEvent = Event<AbnormalRecord>()
+    let abnormalAdapter =
+        if runtimeMode = RuntimeMode.Control then
+            let isInputActive apiCallId =
+                match Queries.getApiCall apiCallId index.Store with
+                | Some apiCall ->
+                    match (stateManager.GetState()).IOValues.TryFind apiCallId with
+                    | Some v -> RuntimeSemantics.isActiveInputValue apiCall v
+                    | None -> false
+                | None -> false
+            Some(ControlAbnormalAdapter(
+                    index, ioMap, stateManager.GetCallState, isInputActive,
+                    (fun () -> DateTime.UtcNow), abnormalDetectedEvent.Trigger))
+        else None
+    do match abnormalAdapter with
+       | Some adapter ->
+           callStateChangedEvent.Publish.Add(fun args ->
+               let nowMs = int scheduler.CurrentTimeMs
+               if args.NewState = Status4.Going then adapter.OnCallGoing(args.CallGuid, nowMs)
+               elif args.NewState = Status4.Ready then adapter.OnCallReset(args.CallGuid))
+       | None -> ()
     let scheduleNow eventType priority =
         scheduler.ScheduleNow(eventType, priority) |> ignore
         signalWork ()
@@ -69,7 +92,25 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
             | Some mappings ->
                 let mutable maxDebounceMs = 0
                 for m in mappings do
+                    // v12 P3b — SetIOValue 전후 active 여부로 rising/falling edge 추출 → Control adapter.
+                    let prevActive =
+                        match abnormalAdapter, Queries.getApiCall m.ApiCallGuid index.Store with
+                        | Some _, Some ac ->
+                            match (stateManager.GetState()).IOValues.TryFind m.ApiCallGuid with
+                            | Some pv -> RuntimeSemantics.isActiveInputValue ac pv
+                            | None -> false
+                        | _ -> false
                     stateManager.SetIOValue(m.ApiCallGuid, value)
+                    match abnormalAdapter with
+                    | Some adapter ->
+                        let nowActive =
+                            match Queries.getApiCall m.ApiCallGuid index.Store with
+                            | Some ac -> RuntimeSemantics.isActiveInputValue ac value
+                            | None -> false
+                        let nowMs = int scheduler.CurrentTimeMs
+                        if (not prevActive) && nowActive then adapter.OnInputRising(m.ApiCallGuid, nowMs)
+                        elif prevActive && (not nowActive) then adapter.OnInputFalling(m.ApiCallGuid, nowMs)
+                    | None -> ()
                     let ms = SimIndex.apiCallSensingAppendMs index m.ApiCallGuid
                     if ms > maxDebounceMs then maxDebounceMs <- ms
                 scheduleConditionEvaluation ()
@@ -541,6 +582,7 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
         [<CLIEvent>] member _.TokenEvent = tokenEventEvent.Publish
         [<CLIEvent>] member _.CallTimeout = callTimeoutEvent.Publish
         [<CLIEvent>] member _.HomingPhaseCompleted = homingPhaseCompletedEvent.Publish
+        [<CLIEvent>] member _.AbnormalDetected = abnormalDetectedEvent.Publish
         member _.Dispose() =
             EngineLifecycle.stop lifecycleContext
             wakeSignal.Dispose()

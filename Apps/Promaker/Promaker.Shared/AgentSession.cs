@@ -28,6 +28,11 @@ public sealed class AgentSession
     /// <summary>기록 주체 — "promaker" (WPF PLAY) 또는 "agent" (자동 재개) 등. 로그/디버깅 보조.</summary>
     public string RequestedBy { get; set; } = "";
 
+    /// <summary>Agent 가 호스팅할 runtime engine 모드 — "Control"(read-write, OUT→PLC 쓰기) 또는
+    /// "Monitoring"(read-only). WPF Control PLAY → "Control", Monitoring+실PLC PLAY → "Monitoring".
+    /// 기본 "Monitoring" (하위호환: 구 session.json 에 필드 없으면 Monitoring 으로 간주).</summary>
+    public string RuntimeMode { get; set; } = "Monitoring";
+
     /// <summary>스키마 버전 — 향후 필드 추가 시 호환성 가드.</summary>
     public int SchemaVersion { get; set; } = 1;
 
@@ -105,11 +110,12 @@ public sealed class AgentSession
     }
 
     /// <summary>현재 시점 + 기본 경로로 채운 세션 인스턴스 생성 helper.</summary>
-    public static AgentSession ForCurrentDefaults(string requestedBy) => new()
+    public static AgentSession ForCurrentDefaults(string requestedBy, string runtimeMode = "Monitoring") => new()
     {
         AasxPath = SharedPaths.AasxFilePath,
         PlcConnectionPath = SharedPaths.PlcConnectionFilePath,
         ActivatedAtUtc = DateTime.UtcNow.ToString("o"),
         RequestedBy = requestedBy,
+        RuntimeMode = runtimeMode,
     };
 }

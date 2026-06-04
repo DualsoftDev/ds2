@@ -57,6 +57,7 @@ module internal SimIndexBuild =
             WorkPureStartPreds = Map.empty
             WorkResetPreds = Map.empty
             WorkDuration = Map.empty
+            WorkDurationRange = Map.empty
             WorkSystemName = Map.empty
             WorkName = Map.empty
             WorkFlowGuid = Map.empty
@@ -125,6 +126,9 @@ module internal SimIndexBuild =
             state.WorkPureStartPreds <- state.WorkPureStartPreds.Add(work.Id, findOrEmpty work.Id workPureStartPreds)
             state.WorkResetPreds <- state.WorkResetPreds.Add(work.Id, findOrEmpty work.Id workResetPreds)
             state.WorkDuration <- state.WorkDuration.Add(work.Id, duration)
+            match Queries.tryGetDeviceDurationRangeMs resolvedId store with
+            | Some range -> state.WorkDurationRange <- state.WorkDurationRange.Add(work.Id, range)
+            | None -> ()
             state.WorkSystemName <- state.WorkSystemName.Add(work.Id, system.Name)
             state.WorkName <- state.WorkName.Add(work.Id, work.Name)
             state.WorkFlowGuid <- state.WorkFlowGuid.Add(work.Id, flowId)
@@ -264,6 +268,7 @@ module internal SimIndexBuild =
             WorkPureStartPreds = expandedWorkPureStartPreds
             WorkResetPreds = expandedWorkResetPreds
             WorkDuration = state.WorkDuration
+            WorkDurationRange = state.WorkDurationRange
             WorkSystemName = state.WorkSystemName
             WorkName = state.WorkName
             WorkFlowGuid = state.WorkFlowGuid

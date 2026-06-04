@@ -14,6 +14,8 @@ type IPlcHubBroadcaster =
     /// PLC 어댑터 1개의 연결 상태 변화. PlcScanService 가 IPlcGateway.ConnectionStatusChanged 를
     /// 받아 위임 호출 — SignalHub broadcaster 가 모든 클라이언트로 fan-out + 캐시 갱신.
     abstract member BroadcastPlcConnectionStatus : status: PlcConnectionStatus -> Task
+    /// v12 — Control/Monitoring abnormal 감지 결과를 모든 클라이언트로 fan-out (server-origin).
+    abstract member BroadcastAbnormal : payload: AbnormalPayload -> Task
 
 /// 주기적으로 PlcGateway.ScanOnceAsync 를 호출해 OnTagChanged broadcast.
 /// StartAsync 에서 connect + first scan 을 *동기적으로* 완료시켜, BackendHost.start 가 반환되는 시점에

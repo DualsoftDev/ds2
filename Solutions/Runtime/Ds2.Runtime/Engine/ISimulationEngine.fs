@@ -121,3 +121,6 @@ type ISimulationEngine =
     /// 자동 원위치 페이즈 완료 이벤트
     [<CLIEvent>]
     abstract HomingPhaseCompleted: IEvent<EventArgs>
+    /// v12 — Control/Monitoring 경로이탈 이상감지 이벤트 (구독자 없으면 noop)
+    [<CLIEvent>]
+    abstract AbnormalDetected: IEvent<AbnormalRecord>

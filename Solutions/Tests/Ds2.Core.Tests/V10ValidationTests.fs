@@ -2,6 +2,7 @@ module Ds2.Core.Tests.V10ValidationTests
 
 open System
 open Ds2.Core
+open Ds2.Core.Store
 open Ds2.Core.V10Validation
 open Xunit
 
@@ -13,6 +14,9 @@ let private makeApiDef name systemId actionType sensingType =
 
 let private makeApiCall name =
     ApiCall(name)
+
+let private makeWork name =
+    Work("Flow", name, Guid.NewGuid())
 
 // V1: ActionType=Real ⇒ OutTag required (Error)
 [<Fact>]
@@ -150,3 +154,63 @@ let ``V6 — single Latched ApiDef is OK`` () =
     let ad1 = makeApiDef "ADV" deviceId (ActionType.Real (Latched, None)) (SensingType.Real (Level, None))
     let ad2 = makeApiDef "RET" deviceId (ActionType.Real (Level, None))   (SensingType.Real (Level, None))
     Assert.Empty(validateDeviceV6 deviceId [ ad1; ad2 ])
+
+// v12 abnormal timing range: Work.MinDuration / MaxDuration
+[<Fact>]
+let ``ABN-R1 — negative Work abnormal duration bounds emit Error`` () =
+    let work = makeWork "Clamp"
+    work.MinDuration <- Some(TimeSpan.FromMilliseconds(-1.0))
+    work.MaxDuration <- Some(TimeSpan.FromMilliseconds(-2.0))
+
+    let issues = validateWorkAbnormalDurationRange work
+
+    Assert.Equal(2, issues.Length)
+    Assert.All(issues, fun issue ->
+        Assert.Equal("ABN-R1", issue.Rule)
+        Assert.Equal(Error, issue.Severity))
+
+[<Fact>]
+let ``ABN-R2 — MaxDuration below MinDuration emits Error`` () =
+    let work = makeWork "Clamp"
+    work.MinDuration <- Some(TimeSpan.FromMilliseconds(500.0))
+    work.MaxDuration <- Some(TimeSpan.FromMilliseconds(300.0))
+
+    let issues = validateWorkAbnormalDurationRange work
+
+    Assert.Single(issues) |> ignore
+    Assert.Equal("ABN-R2", issues.[0].Rule)
+    Assert.Equal(Error, issues.[0].Severity)
+
+[<Fact>]
+let ``ABN-R3 — nominal Duration outside abnormal range emits Warning`` () =
+    let work = makeWork "Clamp"
+    work.Duration <- Some(TimeSpan.FromMilliseconds(1000.0))
+    work.MinDuration <- Some(TimeSpan.FromMilliseconds(100.0))
+    work.MaxDuration <- Some(TimeSpan.FromMilliseconds(900.0))
+
+    let issues = validateWorkAbnormalDurationRange work
+
+    Assert.Single(issues) |> ignore
+    Assert.Equal("ABN-R3", issues.[0].Rule)
+    Assert.Equal(Warning, issues.[0].Severity)
+
+[<Fact>]
+let ``ABN range — valid Work abnormal duration range is OK`` () =
+    let work = makeWork "Clamp"
+    work.Duration <- Some(TimeSpan.FromMilliseconds(500.0))
+    work.MinDuration <- Some(TimeSpan.FromMilliseconds(100.0))
+    work.MaxDuration <- Some(TimeSpan.FromMilliseconds(900.0))
+
+    Assert.Empty(validateWorkAbnormalDurationRange work)
+
+[<Fact>]
+let ``V10ValidationBatch includes Work abnormal duration range issues`` () =
+    let store = DsStore()
+    let work = makeWork "Clamp"
+    work.MinDuration <- Some(TimeSpan.FromMilliseconds(800.0))
+    work.MaxDuration <- Some(TimeSpan.FromMilliseconds(100.0))
+    store.Works.[work.Id] <- work
+
+    let issues = V10ValidationBatch.validateStore store
+
+    Assert.True(issues |> List.exists (fun issue -> issue.Rule = "ABN-R2" && issue.Severity = Error))

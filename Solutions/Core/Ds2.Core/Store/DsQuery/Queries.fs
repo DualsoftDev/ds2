@@ -415,6 +415,40 @@ module Queries =
             |> Option.map (fun ts -> int ts.TotalMilliseconds))
         |> Seq.fold max 0
 
+    let private directWorkDurationRangeMs (work: Work) : RxTimingRange option =
+        work.MaxDuration
+        |> Option.map (fun maxValue ->
+            let minMs =
+                work.MinDuration
+                |> Option.map (fun minValue -> int minValue.TotalMilliseconds)
+                |> Option.defaultValue 0
+            { MinMs = minMs; MaxMs = int maxValue.TotalMilliseconds })
+
+    /// Work 하나에 직접 설정된 abnormal duration range(ms)를 반환합니다.
+    let tryGetWorkDurationRangeMs (workId: Guid) (store: DsStore) : RxTimingRange option =
+        getWork workId store |> Option.bind directWorkDurationRangeMs
+
+    /// Call 하나의 Device abnormal duration range(ms): Call → ApiCall → ApiDef → RxGuid → Device Work → Min/MaxDuration.
+    let private callDeviceDurationRangeMs (call: Call) (store: DsStore) : RxTimingRange option =
+        let rangeOptions =
+            call.ApiCalls
+            |> Seq.choose (fun apiCall ->
+                apiCall.ApiDefId
+                |> Option.bind (fun defId -> getApiDef defId store)
+                |> Option.bind (fun def -> def.RxGuid)
+                |> Option.map (fun rxWorkId -> tryGetWorkDurationRangeMs rxWorkId store))
+            |> Seq.toList
+
+        match rangeOptions with
+        | [] -> None
+        | xs when xs |> List.exists Option.isNone -> None
+        | xs ->
+            let ranges = xs |> List.choose id
+            Some {
+                MinMs = ranges |> List.map (fun r -> r.MinMs) |> List.max
+                MaxMs = ranges |> List.map (fun r -> r.MaxMs) |> List.max
+            }
+
     /// <summary>Work 내 Call들의 Critical Path Duration(ms)을 반환합니다.
     /// Call arrow topology(ArrowBetweenCalls Start)를 분석하여 병렬/직렬 실행을 고려한
     /// 최장 경로(critical path)를 계산합니다. Device duration이 없으면 None.</summary>
@@ -459,6 +493,59 @@ module Queries =
                 | xs -> List.max xs
 
             if criticalPath > 0 then Some criticalPath else None
+
+    /// <summary>Work 내 Call들의 Device abnormal duration range(ms)를 critical path 기준으로 반환합니다.
+    /// MinDuration 미명시는 0ms 로 해석하지만, MaxDuration 이 없는 Device Work 는 range 계산에서 제외합니다.</summary>
+    let tryGetDeviceDurationRangeMs (workId: Guid) (store: DsStore) : RxTimingRange option =
+        let calls = callsOf workId store
+        if calls.IsEmpty then tryGetWorkDurationRangeMs workId store
+        else
+            let callIds = calls |> List.map (fun c -> c.Id) |> Set.ofList
+            let rangeMap =
+                calls
+                |> List.choose (fun c -> callDeviceDurationRangeMs c store |> Option.map (fun range -> c.Id, range))
+                |> Map.ofList
+
+            if rangeMap.Count <> calls.Length then None
+            else
+                let arrows = arrowCallsOf workId store
+                let predsMap =
+                    arrows
+                    |> List.filter (fun a ->
+                        a.ArrowType = ArrowType.Start || a.ArrowType = ArrowType.StartReset)
+                    |> List.filter (fun a -> Set.contains a.SourceId callIds && Set.contains a.TargetId callIds)
+                    |> List.groupBy (fun a -> a.TargetId)
+                    |> List.map (fun (tgt, arr) -> tgt, arr |> List.map (fun a -> a.SourceId))
+                    |> Map.ofList
+
+                let mutable memo = Map.empty<Guid, RxTimingRange>
+                let rec longestRangeTo (callId: Guid) =
+                    match Map.tryFind callId memo with
+                    | Some v -> v
+                    | None ->
+                        let myRange =
+                            Map.tryFind callId rangeMap
+                            |> Option.defaultValue { MinMs = 0; MaxMs = 0 }
+                        let preds = Map.tryFind callId predsMap |> Option.defaultValue []
+                        let predRanges = preds |> List.map longestRangeTo
+                        let predRange =
+                            match predRanges with
+                            | [] -> { MinMs = 0; MaxMs = 0 }
+                            | xs ->
+                                { MinMs = xs |> List.map (fun r -> r.MinMs) |> List.max
+                                  MaxMs = xs |> List.map (fun r -> r.MaxMs) |> List.max }
+                        let result =
+                            { MinMs = myRange.MinMs + predRange.MinMs
+                              MaxMs = myRange.MaxMs + predRange.MaxMs }
+                        memo <- memo.Add(callId, result)
+                        result
+
+                let ranges = calls |> List.map (fun c -> longestRangeTo c.Id)
+                let criticalRange =
+                    { MinMs = ranges |> List.map (fun r -> r.MinMs) |> List.max
+                      MaxMs = ranges |> List.map (fun r -> r.MaxMs) |> List.max }
+
+                if criticalRange.MaxMs > 0 then Some criticalRange else None
 
     // ─────────────────────────────────────────────────────────────────────────
     // TokenSpec 쿼리

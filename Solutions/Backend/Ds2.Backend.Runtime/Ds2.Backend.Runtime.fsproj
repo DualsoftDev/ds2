@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <OutputType>Library</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="EventDrivenEngineRuntimeHubSession.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+    <PackageReference Include="log4net" />
+  </ItemGroup>
+
+  <!-- R1: 이 모듈이 Runtime + Backend 둘 위 레벨에서 조립한다.
+       Ds2.Backend / Ds2.Runtime 자체는 서로 참조하지 않는다. -->
+  <ItemGroup>
+    <ProjectReference Include="..\Ds2.Backend.Common\Ds2.Backend.Common.fsproj" />
+    <ProjectReference Include="..\Ds2.Backend\Ds2.Backend.fsproj" />
+    <ProjectReference Include="..\..\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj" />
+  </ItemGroup>
+
+</Project>
