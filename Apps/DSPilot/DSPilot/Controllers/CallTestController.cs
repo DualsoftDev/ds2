@@ -366,40 +366,17 @@ public class CallTestController : ControllerBase
             tailTask.Result.OrderBy(t => t).ToList());
     }
 
-    /// <summary>사이클 경계 간 CT 평균 + (Head OutTag↑ 시작 → 사이클 내 첫 Tail InTag↑ 완료) 활성구간 평균. Blazor ComputeCycleStats 동일.</summary>
-    private static (double? AvgCycleMs, double? AvgActiveMs) ComputeCycleStats(
+    /// <summary>
+    /// 사이클 경계 간 CT 평균 + (Head OutTag↑ 시작 → 사이클 내 첫 Tail InTag↑ 완료) 활성구간 평균.
+    /// 도출 로직은 <see cref="CycleDerivation"/> 로 추출되어 과거 history 재계산(CycleRecomputeService)과
+    /// 동일 코드를 공유하고, 대시보드와 동일한 Max/MinCycleTimeMs 비가동 필터를 적용한다 → 화면 ↔ 대시보드 1:1.
+    /// </summary>
+    private (double? AvgCycleMs, double? AvgActiveMs) ComputeCycleStats(
         List<DateTime> cycleBoundaries, List<DateTime> tailEdges, DateTime chartEnd)
     {
-        double? avgCycleMs = null;
-        double? avgActiveMs = null;
-
-        if (cycleBoundaries.Count >= 2)
-        {
-            var diffs = new List<double>();
-            for (int i = 0; i < cycleBoundaries.Count - 1; i++)
-                diffs.Add((cycleBoundaries[i + 1] - cycleBoundaries[i]).TotalMilliseconds);
-            if (diffs.Count > 0) avgCycleMs = diffs.Average();
-        }
-
-        if (tailEdges.Count > 0 && cycleBoundaries.Count > 0)
-        {
-            var actives = new List<double>();
-            int ti = 0;
-            for (int i = 0; i < cycleBoundaries.Count; i++)
-            {
-                var cStart = cycleBoundaries[i];
-                var cEnd = i + 1 < cycleBoundaries.Count ? cycleBoundaries[i + 1] : chartEnd;
-                while (ti < tailEdges.Count && tailEdges[ti] <= cStart) ti++;
-                if (ti < tailEdges.Count && tailEdges[ti] < cEnd)
-                {
-                    actives.Add((tailEdges[ti] - cStart).TotalMilliseconds);
-                    ti++;
-                }
-            }
-            if (actives.Count > 0) avgActiveMs = actives.Average();
-        }
-
-        return (avgCycleMs, avgActiveMs);
+        var hv = _settings.LoadSettings().HistoryView;
+        var cycles = CycleDerivation.BuildCycles(cycleBoundaries, tailEdges, chartEnd);
+        return CycleDerivation.Averages(cycles, hv.MaxCycleTimeMs, hv.MinCycleTimeMs);
     }
 
     private static List<(DateTime Start, DateTime End)> MergeIntervals(List<(DateTime Start, DateTime End)> intervals)

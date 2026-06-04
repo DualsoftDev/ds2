@@ -292,16 +292,19 @@
                                       :title="isOverride ? '이 Flow 의 사이클 경계가 사용자 지정(저장됨)으로 적용 중' : 'AASX 프로젝트 정의 Head/Tail 적용 중'"></span>
                             </div>
                             <button class="btn btn-sm btn-filled" @click="applyHeadTail()"
-                                    :disabled="overlayBusy || !headCallId || !tailCallId"
-                                    title="현재 Head/Tail 을 이 Flow 의 사이클 경계로 저장합니다 — 라이브 CT·대시보드·OEE 에 반영됩니다">
+                                    :disabled="overlayBusy || recomputeBusy || !headCallId || !tailCallId"
+                                    title="현재 Head/Tail 을 이 Flow 의 사이클 경계로 저장하고, 이 Flow 의 과거 이력 전체를 새 경계로 재계산합니다(백그라운드, 진행률 표시) — 라이브 CT·대시보드에 과거 포함 반영">
                                 <span class="material-icons" style="font-size:15px; vertical-align:middle;">save</span>
                                 적용(저장)
                             </button>
                             <button class="btn btn-sm btn-outlined" @click="restoreAasxDefault()"
-                                    :disabled="overlayBusy || !projectHeadId || !projectTailId"
+                                    :disabled="overlayBusy || recomputeBusy || !projectHeadId || !projectTailId"
                                     title="AASX 프로젝트 기본 Head/Tail 로 되돌리고 저장된 사용자 지정을 제거합니다">
                                 AASX 기본값 복원
                             </button>
+                            <span x-show="recomputeBusy || recomputeMsg" class="ct-info-v"
+                                  :style="recomputeError ? 'color:var(--color-error,#d33)' : 'color:var(--color-primary)'"
+                                  x-text="recomputeMsg"></span>
                             <button class="btn btn-sm btn-outlined color-default" @click="exportExcel()"
                                     :disabled="exporting || !selectedFlow"
                                     title="현재 Flow·시간범위의 IO 세그먼트를 Excel(.xlsx) 로 내보냅니다">
@@ -501,6 +504,8 @@
                 startTime: '', endTime: '',
                 isLoading: false, overlayBusy: false, errorMessage: null,
                 dark: false, demoBlocked: false,
+                // 과거 history 재계산: 적용 시 항상 이 Flow 전체 이력을 새 경계로 재도출(백그라운드, 진행률 폴링).
+                recomputeBusy: false, recomputeMsg: '', recomputeError: false,
 
                 callLanes: [],
                 cycleBoundaries: [], tailEdges: [],
@@ -718,15 +723,52 @@
                     if (!this.selectedFlow) return;
                     const headName = this.headName, tailName = this.tailName;
                     if (!headName || !tailName) { this.errorMessage = '적용하려면 Head 와 Tail 을 모두 지정하세요.'; return; }
+                    await this.saveBoundaryAndRecompute(headName, tailName, '적용(저장) 실패');
+                },
+                // Head/Tail 저장 + 이 Flow 전체 과거 history 를 새 경계로 재도출(서버 백그라운드 잡). 진행률은 폴링.
+                async saveBoundaryAndRecompute(headName, tailName, failLabel) {
                     this.overlayBusy = true; this.errorMessage = null;
+                    this.recomputeError = false;
+                    this.recomputeMsg = '전체 이력 재계산 준비…';
                     try {
                         await this.apiPost('/api/flow/' + encodeURIComponent(this.selectedFlow) + '/cycle-override',
                             { startCallName: headName, endCallName: tailName });
                         this.userOverrodeHeadTail = false;   // 저장됐으니 load 가 effective(=저장값) 를 사용
-                        await this.load();
+                        await this.pollRecomputeStatus();    // 백그라운드 잡 완료까지 진행률 폴링
+                        await this.load();                   // 화면 갱신 → 재계산된 history·대시보드와 1:1
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') this.errorMessage = '적용(저장) 실패: ' + e.message;
+                        if (e.message !== 'demo-blocked') this.errorMessage = failLabel + ': ' + e.message;
+                        this.recomputeMsg = '';
                     } finally { this.overlayBusy = false; }
+                },
+                // 전체-이력 재계산 백그라운드 잡 진행률 폴링(잡 실행 중에만 — 영구 폴링/구독 아님).
+                // status 는 싱글톤 전역이라, 반드시 s.flow === 현재 flow 인 잡만 인정하고(다른 flow/이전 잡 오인 방지),
+                // 완료는 '내 flow 의 진행을 한 번이라도 본 뒤'에만 성공으로 처리한다(스테일 Done 오탐 방지).
+                async pollRecomputeStatus() {
+                    this.recomputeBusy = true; this.recomputeError = false;
+                    const flow = this.selectedFlow;
+                    let sawMineRunning = false, settled = false;
+                    try {
+                        for (let i = 0; i < 600; i++) {                          // 최대 ~5분
+                            let s = null;
+                            try { const r = await fetch('/api/flow/recompute-status'); if (r.ok) s = await r.json(); } catch (_) {}
+                            if (s && s.flow === flow) {
+                                if (s.running) {
+                                    sawMineRunning = true;
+                                    this.recomputeMsg = '전체 이력 재계산 중… (' + (s.phase || '') + (s.cyclesFound ? ', ' + s.cyclesFound + ' 사이클' : '') + ')';
+                                } else if (s.done && (sawMineRunning || i === 0)) {  // 내 잡 진행을 봤거나, 첫 폴 전에 이미 빠르게 끝난 경우
+                                    if (s.phase === 'error') { this.recomputeError = true; this.recomputeMsg = '전체 이력 재계산 실패: ' + (s.error || ''); }
+                                    else { this.recomputeMsg = '전체 이력 재계산 완료 (' + (s.inserted || 0) + '건 재기록)'; }
+                                    settled = true; break;
+                                }
+                            } else if (s && s.running) {
+                                this.recomputeMsg = '다른 작업 진행 중 — 대기…';     // 다른 flow 잡이 게이트 점유
+                            }
+                            await new Promise(r => setTimeout(r, 500));
+                        }
+                    } finally { this.recomputeBusy = false; }
+                    if (!settled && !this.recomputeError) this.recomputeMsg = '재계산 상태를 확인할 수 없습니다 (백그라운드에서 계속될 수 있음)';
+                    setTimeout(() => { if (!this.recomputeBusy && !this.recomputeError) this.recomputeMsg = ''; }, 6000);
                 },
                 // AASX 기본값으로 되돌림 + 저장된 사용자 지정 제거(서버가 AASX 와 동일 값이면 override 항목을 삭제).
                 async restoreAasxDefault() {
@@ -735,15 +777,8 @@
                     const tailName = this.callNameOf(this.projectTailId);
                     // AASX 기본 H/T 가 모두 정의된 경우에만 복원(둘 중 하나라도 null 이면 서버 정규화가 첫 Call 로 오저장됨).
                     if (!headName || !tailName) { this.errorMessage = '이 Flow 에는 AASX 기본 Head/Tail 정의가 없어 복원할 수 없습니다.'; return; }
-                    this.overlayBusy = true; this.errorMessage = null;
-                    try {
-                        await this.apiPost('/api/flow/' + encodeURIComponent(this.selectedFlow) + '/cycle-override',
-                            { startCallName: headName, endCallName: tailName });
-                        this.userOverrodeHeadTail = false;
-                        await this.load();
-                    } catch (e) {
-                        if (e.message !== 'demo-blocked') this.errorMessage = 'AASX 기본값 복원 실패: ' + e.message;
-                    } finally { this.overlayBusy = false; }
+                    // 복원도 경계 변경이므로 과거 history 를 AASX 기본 경계로 동일하게 재계산한다.
+                    await this.saveBoundaryAndRecompute(headName, tailName, 'AASX 기본값 복원 실패');
                 },
                 callNameOf(id) { const l = id ? this.callLanes.find(x => x.callId === id) : null; return l ? l.callName : null; },
                 // 화면이 그린 현재 상태를 그대로 담은 Excel 내보내기 모델(WYSIWYG).
