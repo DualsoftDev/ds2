@@ -59,6 +59,9 @@
                             <Separator Margin="4,4"/>
                             <TextBlock Text="뷰" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
                             <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding Open3DViewCommand}" Click="CloseUtilPopup"><TextBlock Text="3D 배치 뷰"/></Button>
+                            <Separator Margin="4,4"/>
+                            <TextBlock Text="외부 앱" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
+                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenAasxEditorCommand}" Click="CloseUtilPopup"><TextBlock Text="AASX 에디터 열기"/></Button>
                         </StackPanel>
                     </Border>
                 </Popup>
