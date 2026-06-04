@@ -62,6 +62,10 @@ public partial class MainViewModel
             case EditorEvent.EntityRenamed ren:
                 // 이름만 갱신 — 전체 재구축 없이 tree/canvas/property panel 의 name 필드만 직접 patch.
                 ApplyEntityRename(ren.id, ren.newName, ren.treeName);
+                // 3D 뷰는 store snapshot(BuildScene)으로 device-by-flow 트리/카드의 Flow 이름을 한 번 굽고
+                // live binding 이 없어, ApplyEntityRename 의 ID 패치로는 갱신되지 않는다(특히 Flow rename →
+                // ContextBuilder 의 FlowName / 좌측 Flow 그룹 헤더). SystemPropsChanged 와 동일하게 재동기화.
+                ResyncView3DIfOpen();
                 return;
 
             case EditorEvent.HistoryChanged h:
