@@ -114,22 +114,13 @@
         var titleSpan = el('span', 'header-page-title', pageTitle);
         var spacer = el('div', 'spacer');
 
-        var themeBtn = el('button', 'btn-icon');
-        themeBtn.title = '테마 전환';
-        var themeIcon = el('span', 'material-icons', dark ? 'light_mode' : 'dark_mode');
-        themeBtn.appendChild(themeIcon);
-
-        var settingsBtn = el('a', 'btn-icon');
-        settingsBtn.title = '설정';
-        settingsBtn.href = '/settings';
-        settingsBtn.innerHTML = '<span class="material-icons">settings</span>';
-
+        // 테마 전환·설정 버튼은 앱바에서 제거됨:
+        //   - 테마 전환 → 설정 페이지(/settings)의 "사용자 인터페이스" 카드로 이관
+        //   - 설정      → 사이드바 "설정" 섹션 링크로 접근
         appBar.appendChild(hamburger);
         appBar.appendChild(brand);
         appBar.appendChild(titleSpan);
         appBar.appendChild(spacer);
-        appBar.appendChild(themeBtn);
-        appBar.appendChild(settingsBtn);
 
         // aside.drawer > nav.nav-menu
         var drawer = el('aside', 'drawer');
@@ -376,25 +367,12 @@
         pollSummary();
         setInterval(pollSummary, 4000);
 
-        // ── 8) 테마 토글 ──
-        themeBtn.addEventListener('click', function () {
-            var next = !document.documentElement.classList.contains('dark-theme');
-            localStorage.setItem('dspilot-theme', next ? 'dark' : 'light');
-            document.documentElement.classList.toggle('dark-theme', next);
-            layout.classList.toggle('dark-theme', next);
-            themeIcon.textContent = next ? 'light_mode' : 'dark_mode';
-            window.dispatchEvent(new StorageEvent('storage', {
-                key: 'dspilot-theme',
-                newValue: next ? 'dark' : 'light'
-            }));
-        });
-
+        // ── 8) 테마 동기화 (변경은 설정 페이지에서 수행; 여기서는 다른 탭·페이지 반영만) ──
         window.addEventListener('storage', function (e) {
             if (e.key !== 'dspilot-theme') return;
             var d = e.newValue === 'dark';
             document.documentElement.classList.toggle('dark-theme', d);
             layout.classList.toggle('dark-theme', d);
-            themeIcon.textContent = d ? 'light_mode' : 'dark_mode';
         });
 
         // ── 9) drawer 토글 (햄버거) ──
