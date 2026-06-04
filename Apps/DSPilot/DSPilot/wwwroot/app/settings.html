@@ -268,6 +268,14 @@
                                 </div>
                                 <div class="card-content">
                                     <label class="switch mb-2">
+                                        <input type="checkbox" :checked="dark" @change="toggleTheme()" />
+                                        다크 모드
+                                    </label>
+                                    <small class="settings-hint">
+                                        화면을 어두운 테마로 전환합니다. 선택은 이 브라우저에 저장되어 모든 페이지에 즉시 적용됩니다.
+                                    </small>
+                                    <hr class="divider my-3" />
+                                    <label class="switch mb-2">
                                         <input type="checkbox" x-model="s.showPlcDebug" />
                                         PLC 디버그 페이지 표시
                                     </label>
@@ -418,7 +426,15 @@
 
                 destroy() { this._conn?.stop(); },
 
-                toggleTheme() { this.dark = !this.dark; localStorage.setItem('dspilot-theme', this.dark ? 'dark' : 'light'); },
+                // 테마 변경: .dsp-page(Alpine) + <html> + 셸 레이아웃 + 다른 탭까지 모두 반영.
+                // shell.js 는 storage 이벤트를 듣고 layout/<html> 에 dark-theme 를 토글한다.
+                toggleTheme() {
+                    this.dark = !this.dark;
+                    const val = this.dark ? 'dark' : 'light';
+                    localStorage.setItem('dspilot-theme', val);
+                    document.documentElement.classList.toggle('dark-theme', this.dark);
+                    window.dispatchEvent(new StorageEvent('storage', { key: 'dspilot-theme', newValue: val }));
+                },
 
                 async apiGet(url) {
                     const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
