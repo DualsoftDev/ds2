@@ -1,209 +1,289 @@
 @import url("/css/swiss.css");
 
 /* ============================================================================
-   DSPilot — "DS Pilot" Redesign Design System  (ds.css)
+   DSPilot — "CONTROL ROOM" Redesign Design System  (ds.css)
    ----------------------------------------------------------------------------
-   dspilot-ux.html(UX 설계 5-Pages) 의 디자인 언어를 전면 채택한 테마.
-     · 네이비(#0A2540) 사이드바/헤더 + 청록(#2BB5C5) 액션 악센트
-     · 둥근 카드(6~10px) + 부드러운 그림자, MT/WT/CT 색 체계
-     · Pretendard → (로컬)Noto Sans KR 폴백
+   테크니컬 HUD / 관제실(Control Room) 미학. 라이트·다크 양쪽을 1급으로 설계.
+     · LIGHT "Daylight Control" : 쿨 블루그레이 캔버스 + 크리스프 화이트 패널 +
+                                  딥 슬레이트 잉크 + 일렉트릭 애저(#0E7CCB) 단일 악센트.
+     · DARK  "Night Watch"      : 니어블랙 슬레이트 캔버스 + 밝은 애저(#36B5FF) +
+                                  쿨틴트 헤어라인 + 미세 애저 글로우(관제 벽면).
+     · 시그니처: 등폭(mono) 수치 readout, 헤어라인 그리드, 날카로운 소형 라운드(2/4/6),
+                 단일 시그널 악센트, LIVE 펄스. 데이터색(가동=틸/대기=앰버/사이클=그린/
+                 결함=레드)은 브랜드 블루와 분리 유지 → 블루 계열은 브랜드 전용.
 
    구현 전략(중요):
      · swiss.css 를 그대로 @import → 모든 클래스/레이아웃/shell.js 계약을 상속.
-     · 아래에서 "토큰 이름" 만 mockup 팔레트로 재정의 → 페이지/JS 수정 없이 자동 재테마.
-     · 네이비 사이드바/헤더는 .drawer/.app-bar 에 토큰 변수를 "재스코프" 하여
-       (--color-text-* 등) 하위 규칙이 밝은 색으로 자동 전환되게 한다.
-     · swiss.css 는 손대지 않음 → 되돌리기 = 링크만 원복.
+     · 아래에서 "토큰 이름" 만 Control Room 팔레트로 재정의 → 페이지/JS 수정 없이 자동 재테마.
+     · 레거시 토큰명(--teal* 등)은 호환 위해 유지하되 값은 애저로 재배색.
+     · 오프라인 폰트 제약: 본문 Noto Sans KR, 수치/라벨은 mono 스택(Cascadia/Consolas)
+       으로 "계기판" 대비를 만든다(신규 웹폰트 미도입).
+     · swiss.css 는 손대지 않음 → 되돌리기 = 이 파일만 원복.
    페이지 링크: <link href="/css/fonts.css"><link href="/css/ds.css">
    ============================================================================ */
 
-/* ───────────────────────────── 1. 토큰 (Light) ──────────────────────────── */
+/* ───────────────────────────── 1. 토큰 (Light / Daylight Control) ─────────── */
 :root {
-    /* mockup raw 팔레트 */
-    --navy: #0A2540;
-    --navy-2: #1A2B4A;
-    /* 브랜드 강조 = 보라/인디고 (구 청록에서 재테마). 토큰명은 호환 위해 teal 유지하되 값은 보라.
-       데이터 색(MT/WT/CT)은 의미색이라 그대로 둠 — MT 데이터는 --mt 사용(브랜드 보라와 분리). */
-    --teal: #6D5BD0;
-    --teal-2: #9486E6;
-    --teal-dark: #5A47B8;
-    --cyan-bg: #EEEBFB;
-    --cyan-soft: #D9D1F5;
-    --amber: #F8C545;
-    --green: #36C28A;
-    --red: #E5494F;
-    --purple: #6D5BD0;
-    --mt: #1FA8B8;   /* 가동 (데이터색, 청록 유지) */
-    --wt: #F8C545;   /* 대기 */
-    --ct: #36C28A;   /* 사이클 */
+    /* raw 팔레트 — 일렉트릭 애저 시그널 */
+    --azure: #0E7CCB;
+    --azure-bright: #2E97E6;
+    --azure-deep: #0A5FA0;
+    --slate: #0E1B2A;          /* 딥 슬레이트 잉크 / 다크 캔버스 베이스 */
+    --slate-2: #16273A;
 
-    /* 액센트 = 보라/인디고 */
-    --color-primary: #6D5BD0;
-    --color-primary-rgb: 109, 91, 208;
-    --color-primary-strong: #5A47B8;
-    --color-secondary: #8896A6;
-    --color-tertiary: #5B6B7E;
+    /* 레거시 호환 토큰 (값은 Control Room 으로 재배색) */
+    --navy: #0E1B2A;
+    --navy-2: #16273A;
+    --teal: #0E7CCB;           /* 브랜드 악센트 = 애저 (구 청록/보라) */
+    --teal-2: #2E97E6;
+    --teal-dark: #0A5FA0;
+    --cyan-bg: #E8F1FB;        /* 애저 틴트 표면 (th/pill 배경) */
+    --cyan-soft: #CFE3F6;
+    --amber: #C07A10;
+    --green: #1F8E5A;
+    --red: #D8392B;
+    --purple: #6E63C4;
 
-    /* 시맨틱 */
-    --color-info: #2B86C5;
-    --color-success: #2AA877;
-    --color-warning: #C98A12;
-    --color-error: #E5494F;
-    --color-success-rgb: 54, 194, 138;
-    --color-warning-rgb: 248, 197, 69;
-    --color-error-rgb: 229, 73, 79;
+    /* 데이터 의미색 (브랜드 블루와 분리) — 가동/대기/사이클 */
+    --mt: #12A594;   /* 가동 = 틸 */
+    --wt: #C07A10;   /* 대기 = 앰버 */
+    --ct: #2FA968;   /* 사이클 = 그린 */
 
-    /* 표면 — 쿨 그레이 페이퍼 */
-    --color-background: #EEF2F5;
+    /* 액센트 = 애저 */
+    --color-primary: #0E7CCB;
+    --color-primary-rgb: 14, 124, 203;
+    --color-primary-strong: #0A5FA0;
+    --color-secondary: #67788C;
+    --color-tertiary: #45566B;
+
+    /* 시맨틱 (도메인 상태) */
+    --color-info: #1488A6;     /* 정보 = 시안(애저와 구분) */
+    --color-success: #1F8E5A;
+    --color-warning: #C07A10;
+    --color-error: #D8392B;
+    --color-success-rgb: 31, 142, 90;
+    --color-warning-rgb: 192, 122, 16;
+    --color-error-rgb: 216, 57, 43;
+
+    /* 표면 — 쿨 블루그레이 페이퍼 */
+    --color-background: #EAEFF4;
     --color-surface: #FFFFFF;
-    --color-surface-variant: #F5F7FA;
-    --color-lines: #E1E5EA;
-    --color-lines-strong: #CBD4DD;
-    --color-border: #E1E5EA;
+    --color-surface-variant: #F1F5F9;
+    --color-lines: rgba(14, 27, 42, 0.10);
+    --color-lines-strong: rgba(14, 27, 42, 0.22);
+    --color-border: rgba(14, 27, 42, 0.10);
 
-    /* 앱바 / 드로어 (네이비) */
-    --color-appbar-bg: var(--navy);
-    --color-appbar-text: #FFFFFF;
-    --color-drawer-bg: var(--navy);
-    --color-drawer-text: #C3D4E4;
-    --color-drawer-icon: #8FA8C2;
-    --drawer-width: 230px;
+    /* 앱바 / 드로어 — 라이트 크롬 (크리스프 화이트 + 쿨 레일) */
+    --color-appbar-bg: #FFFFFF;
+    --color-appbar-text: #0E1B2A;
+    --color-drawer-bg: #F4F7FB;
+    --color-drawer-text: #2A3B52;
+    --color-drawer-icon: #6B7C90;
+    --drawer-width: 232px;
 
-    /* 텍스트 */
-    --color-text-primary: #1A2B4A;
-    --color-text-secondary: #5B6B7E;
-    --color-text-disabled: #8896A6;
-    --color-action-default: #6D5BD0;
+    /* 텍스트 (슬레이트 잉크) */
+    --color-text-primary: #0E1B2A;
+    --color-text-secondary: #51637A;
+    --color-text-disabled: #93A3B5;
+    --color-action-default: #0E7CCB;
 
-    /* 타이포 */
+    /* 타이포 — 본문 Sans / 수치 Mono(계기판) */
     --font-family: 'Pretendard', 'Noto Sans KR', 'Malgun Gothic', sans-serif;
     --tracking-eyebrow: 0.14em;
 
-    /* 모서리 — 둥글게 */
-    --radius-sm: 4px;
-    --radius-md: 6px;
-    --radius-lg: 10px;
+    /* 모서리 — 테크니컬, 날카롭게 */
+    --radius-sm: 2px;
+    --radius-md: 4px;
+    --radius-lg: 6px;
 
-    /* 그림자 — 부드러운 리프트 */
-    --shadow-1: 0 1px 3px rgba(10, 37, 64, 0.05);
-    --shadow-2: 0 2px 8px rgba(10, 37, 64, 0.06);
-    --shadow-4: 0 12px 32px rgba(10, 37, 64, 0.16);
-    --shadow-card: 0 2px 12px rgba(10, 37, 64, 0.06);
-    --shadow-card-hover: 0 6px 18px rgba(109, 91, 208, 0.18);
-    --shadow-modal: 0 24px 64px rgba(10, 37, 64, 0.28);
+    /* 그림자 — 평면 우선 + 미세 쿨 리프트 */
+    --shadow-1: 0 1px 2px rgba(14, 27, 42, 0.05);
+    --shadow-2: 0 2px 6px rgba(14, 27, 42, 0.06);
+    --shadow-4: 0 16px 44px rgba(14, 27, 42, 0.16);
+    --shadow-card: 0 1px 3px rgba(14, 27, 42, 0.06);
+    --shadow-card-hover: 0 6px 18px rgba(14, 124, 203, 0.16);
+    --shadow-modal: 0 24px 64px rgba(14, 27, 42, 0.26);
 
-    /* Gantt / 시계열 SVG — run=청록, gap=앰버, ct=그린 */
+    /* Gantt / 시계열 SVG — in=애저, out=틸, gap=레드, ct=그린 */
     --gantt-bg: var(--color-surface);
     --gantt-lane-even: #FFFFFF;
-    --gantt-lane-odd: #F2F6F9;
+    --gantt-lane-odd: #F1F5F9;
     --gantt-lane-border: var(--color-lines);
-    --gantt-lane-center: rgba(10, 37, 64, 0.05);
+    --gantt-lane-center: rgba(14, 27, 42, 0.05);
     --gantt-label: var(--color-text-primary);
     --gantt-sublabel: var(--color-text-secondary);
-    --gantt-axis: rgba(10, 37, 64, 0.45);
+    --gantt-axis: rgba(14, 27, 42, 0.45);
     --gantt-tick-label: var(--color-text-secondary);
-    --gantt-bar-in: #2BB5C5;
-    --gantt-bar-in-stroke: #1FA8B8;
-    --gantt-bar-out: #5BC9D6;
-    --gantt-bar-out-stroke: #2BB5C5;
-    --gantt-gap-fill: rgba(248, 197, 69, 0.30);
-    --gantt-gap-stroke: rgba(229, 73, 79, 0.65);
-    --gantt-gap-text: #BF360C;
-    --gantt-ct-fill: rgba(54, 194, 138, 0.10);
-    --gantt-ct-stroke: rgba(54, 194, 138, 0.55);
-    --gantt-ct-start: #36C28A;
-    --gantt-ct-end: #C98A12;
+    --gantt-bar-in: #0E7CCB;
+    --gantt-bar-in-stroke: #0A5FA0;
+    --gantt-bar-out: #12A594;
+    --gantt-bar-out-stroke: #0E8276;
+    --gantt-gap-fill: rgba(216, 57, 43, 0.10);
+    --gantt-gap-stroke: rgba(216, 57, 43, 0.55);
+    --gantt-gap-text: #B22C1E;
+    --gantt-ct-fill: rgba(47, 169, 104, 0.10);
+    --gantt-ct-stroke: rgba(47, 169, 104, 0.52);
+    --gantt-ct-start: #2FA968;
+    --gantt-ct-end: #C07A10;
     --gantt-ct-text: #1F7A4D;
     --gantt-connector-bg: rgba(255, 255, 255, 0.95);
-    --gantt-info-from: var(--navy);
-    --gantt-info-to: var(--navy-2);
-    --gantt-info-shadow: rgba(10, 37, 64, 0.30);
+    --gantt-info-from: #0E1B2A;
+    --gantt-info-to: #16273A;
+    --gantt-info-shadow: rgba(14, 27, 42, 0.30);
+    --gantt-arrow-orange: #C07A10;
+    --gantt-arrow-teal: #12A594;
+    --gantt-arrow-purple: #67788C;
 }
 
-/* ───────────────────────────── 2. 토큰 (Dark) ───────────────────────────── */
+/* ───────────────────────────── 2. 토큰 (Dark / Night Watch) ───────────────── */
 .dark-theme {
-    --color-primary: #B197FC;
-    --color-primary-rgb: 177, 151, 252;
-    --color-primary-strong: #C8B6FF;
-    --color-secondary: #7E8C9E;
-    --color-tertiary: #9DB0C6;
+    /* raw 팔레트 — 다크에서 밝은 애저로 부스트 */
+    --azure: #36B5FF;
+    --azure-bright: #5FC6FF;
+    --azure-deep: #1E8FE0;
 
-    --color-info: #5AA0E6;
-    --color-success: #4FD19A;
-    --color-warning: #E6B748;
-    --color-error: #F0705F;
+    --teal: #36B5FF;
+    --teal-2: #5FC6FF;
+    --teal-dark: #1E8FE0;
+    --cyan-bg: #14202E;        /* 다크 애저 틴트 표면 */
+    --cyan-soft: #1B2C3F;
+    --amber: #FFB020;
+    --green: #3FD08A;
+    --red: #FF6552;
+    --purple: #9A8BEA;
 
-    --color-background: #0E1726;
-    --color-surface: #16233A;
-    --color-surface-variant: #1C2C46;
-    --color-lines: rgba(255, 255, 255, 0.10);
-    --color-lines-strong: rgba(255, 255, 255, 0.20);
-    --color-border: rgba(255, 255, 255, 0.10);
+    --mt: #2DD4BF;   /* 가동 = 밝은 틸 */
+    --wt: #FFB020;   /* 대기 = 앰버 */
+    --ct: #3FD08A;   /* 사이클 = 그린 */
 
-    --color-appbar-bg: #07182B;
-    --color-drawer-bg: #07182B;
+    --color-primary: #36B5FF;
+    --color-primary-rgb: 54, 181, 255;
+    --color-primary-strong: #5FC6FF;
+    --color-secondary: #7C8DA3;
+    --color-tertiary: #A9B8CB;
 
-    --color-text-primary: #E6EDF5;
-    --color-text-secondary: #9DB0C6;
-    --color-text-disabled: #6B7B90;
+    --color-info: #38C6E0;
+    --color-success: #3FD08A;
+    --color-warning: #FFB020;
+    --color-error: #FF6552;
+    --color-success-rgb: 63, 208, 138;
+    --color-warning-rgb: 255, 176, 32;
+    --color-error-rgb: 255, 101, 82;
 
-    --shadow-card: 0 2px 12px rgba(0, 0, 0, 0.40);
-    --shadow-card-hover: 0 6px 18px rgba(0, 0, 0, 0.55);
-    --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.66);
+    /* 표면 — 니어블랙 슬레이트 */
+    --color-background: #0A0F16;
+    --color-surface: #121A24;
+    --color-surface-variant: #18222F;
+    --color-lines: rgba(150, 180, 210, 0.12);
+    --color-lines-strong: rgba(150, 180, 210, 0.24);
+    --color-border: rgba(150, 180, 210, 0.12);
+
+    /* 크롬 — 더 깊은 니어블랙 (계기 베젤) */
+    --color-appbar-bg: #0A0F16;
+    --color-appbar-text: #DCE6F0;
+    --color-drawer-bg: #070B11;
+    --color-drawer-text: #B9C7D9;
+    --color-drawer-icon: #7C90A8;
+
+    --color-text-primary: #DCE6F0;
+    --color-text-secondary: #8DA0B8;
+    --color-text-disabled: #5A6B80;
+    --color-action-default: #36B5FF;
+
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-2: 0 2px 8px rgba(0, 0, 0, 0.45);
+    --shadow-4: 0 18px 52px rgba(0, 0, 0, 0.6);
+    --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.45);
+    --shadow-card-hover: 0 6px 20px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(54, 181, 255, 0.25);
+    --shadow-modal: 0 28px 72px rgba(0, 0, 0, 0.7);
+
+    /* Gantt (Dark) */
+    --gantt-bg: #121A24;
+    --gantt-lane-even: #131C27;
+    --gantt-lane-odd: #18222F;
+    --gantt-lane-border: rgba(150, 180, 210, 0.10);
+    --gantt-lane-center: rgba(150, 180, 210, 0.07);
+    --gantt-label: #DCE6F0;
+    --gantt-sublabel: rgba(220, 230, 240, 0.52);
+    --gantt-axis: rgba(220, 230, 240, 0.46);
+    --gantt-tick-label: rgba(220, 230, 240, 0.52);
+    --gantt-bar-in: #36B5FF;
+    --gantt-bar-in-stroke: #1E8FE0;
+    --gantt-bar-out: #2DD4BF;
+    --gantt-bar-out-stroke: #14A594;
+    --gantt-gap-fill: rgba(255, 101, 82, 0.16);
+    --gantt-gap-stroke: rgba(255, 101, 82, 0.55);
+    --gantt-gap-text: #FF8A78;
+    --gantt-ct-fill: rgba(63, 208, 138, 0.12);
+    --gantt-ct-stroke: rgba(63, 208, 138, 0.5);
+    --gantt-ct-start: #3FD08A;
+    --gantt-ct-end: #FFB020;
+    --gantt-ct-text: #3FD08A;
+    --gantt-connector-bg: rgba(18, 26, 36, 0.94);
+    --gantt-info-from: #18222F;
+    --gantt-info-to: #233141;
+    --gantt-info-shadow: rgba(0, 0, 0, 0.55);
+    --gantt-arrow-orange: #FFB020;
+    --gantt-arrow-teal: #2DD4BF;
+    --gantt-arrow-purple: #A9B8CB;
+
+    color-scheme: dark;
 }
 
-/* ───────────────────────────── 3. 헤더(app-bar) ──────────────────────────── */
-/* Light = 흰 표면 + 네이비 텍스트 + 보라 악센트, Dark = 네이비 그라데이션.
-   네이비 스타일은 .dark-theme 로 스코프하고, 라이트가 기본값이 되도록 재구성. */
+/* 다크 캔버스 분위기 — 좌상단 미세 애저 글로우(관제 벽면 느낌). 가독성 무해. */
+.dark-theme body,
+.dark-theme .main-content {
+    background-color: var(--color-background);
+    background-image:
+        radial-gradient(130% 90% at 0% -8%, rgba(54, 181, 255, 0.055), transparent 58%),
+        radial-gradient(120% 80% at 100% 110%, rgba(45, 212, 191, 0.04), transparent 60%);
+    background-attachment: fixed;
+}
+
+/* ───────────────────────────── 3. 헤더 (app-bar) ─────────────────────────── */
+/* Light = 흰 표면 + 슬레이트 잉크 + 애저 악센트, Dark = 니어블랙 슬레이트 베젤. */
 .app-bar {
     background: var(--color-surface);
-    color: var(--color-text-primary);          /* 라이트: 기본 텍스트도 네이비(흰 헤더 위 가독성) */
-    border-bottom: 2px solid var(--color-primary);
-    box-shadow: var(--shadow-1);
+    color: var(--color-text-primary);
+    border-bottom: 1px solid var(--color-lines);
+    box-shadow: var(--shadow-1), inset 0 -2px 0 0 var(--color-primary);
 }
 .app-bar .dsp-brand-word { color: var(--color-text-primary); }
 .app-bar .dsp-brand-word b { color: var(--color-primary); }
-.app-bar .dsp-brand-mark { background: var(--teal); box-shadow: 3px 3px 0 0 rgba(10, 37, 64, 0.16); border-radius: 2px; }
-.app-bar .btn-icon { color: var(--color-text-secondary); }
-.app-bar .btn-icon:hover { background: color-mix(in srgb, var(--color-text-primary) 8%, transparent); }
-
-/* Dark: 네이비 그라데이션 헤더 — 토큰을 흰색 계열로 재스코프 */
-.dark-theme .app-bar {
-    background: linear-gradient(135deg, var(--navy) 0%, var(--navy-2) 100%);
-    border-bottom-color: var(--color-primary);
-    box-shadow: none;
-    --color-text-primary: #FFFFFF;
-    --color-text-secondary: rgba(255, 255, 255, 0.72);
-    --color-lines: rgba(255, 255, 255, 0.18);
-    --color-lines-strong: rgba(255, 255, 255, 0.28);
+.app-bar .dsp-brand-mark {
+    background: var(--color-primary);
+    box-shadow: 3px 3px 0 0 rgba(14, 27, 42, 0.18);
+    border-radius: 1px;
 }
-.dark-theme .app-bar .dsp-brand-word { color: #fff; }
-.dark-theme .app-bar .dsp-brand-word b { color: var(--teal-2); }
-.dark-theme .app-bar .dsp-brand-mark { box-shadow: 3px 3px 0 0 rgba(255, 255, 255, 0.22); }
-.dark-theme .app-bar .btn-icon { color: #fff; }
-.dark-theme .app-bar .btn-icon:hover { background: rgba(255, 255, 255, 0.12); }
+.app-bar .btn-icon { color: var(--color-text-secondary); }
+.app-bar .btn-icon:hover { background: color-mix(in srgb, var(--color-primary) 10%, transparent); color: var(--color-primary); }
+.app-bar .header-page-title { color: var(--color-text-secondary); border-left-color: var(--color-lines); }
 
-/* ───────────────────────────── 4. 사이드바(drawer) ───────────────────────── */
-/* Light = 흰 표면 + 네이비 텍스트(시맨틱 토큰 기본값 사용), Dark = 네이비.
-   네이비 토큰 재스코프는 .dark-theme .drawer 에만 적용. */
+/* Dark: 니어블랙 슬레이트 + 상단 애저 헤어라인 글로우 */
+.dark-theme .app-bar {
+    background: linear-gradient(180deg, #0C141E 0%, #070B11 100%);
+    border-bottom: 1px solid rgba(150, 180, 210, 0.10);
+    box-shadow: 0 1px 0 0 rgba(0, 0, 0, 0.5), inset 0 2px 0 0 var(--color-primary), inset 0 -1px 0 0 rgba(54, 181, 255, 0.12);
+    --color-text-primary: #EAF2FB;
+    --color-text-secondary: rgba(220, 230, 240, 0.66);
+}
+.dark-theme .app-bar .dsp-brand-word { color: #EAF2FB; }
+.dark-theme .app-bar .dsp-brand-word b { color: var(--color-primary); }
+.dark-theme .app-bar .dsp-brand-mark { box-shadow: 0 0 0 1px rgba(54, 181, 255, 0.4), 0 0 10px rgba(54, 181, 255, 0.55); }
+.dark-theme .app-bar .btn-icon { color: rgba(220, 230, 240, 0.78); }
+.dark-theme .app-bar .btn-icon:hover { background: rgba(54, 181, 255, 0.14); color: var(--color-primary); }
+
+/* ───────────────────────────── 4. 사이드바 (drawer) ──────────────────────── */
+/* Light = 쿨 레일(#F4F7FB), Dark = 니어블랙 베젤. */
 .drawer {
-    background: var(--color-surface);
+    background: var(--color-drawer-bg);
     border-right: 1px solid var(--color-lines);
-    --color-drawer-text: #2A3B57;
-    --color-drawer-icon: #6B7B90;
 }
 .dark-theme .drawer {
-    background: #07182B;
-    border-right-color: rgba(255, 255, 255, 0.08);
-    --color-text-primary: #FFFFFF;
-    --color-text-secondary: rgba(255, 255, 255, 0.58);
-    --color-text-disabled: rgba(255, 255, 255, 0.34);
-    --color-drawer-text: #C3D4E4;
-    --color-drawer-icon: #8FA8C2;
-    --color-lines: rgba(255, 255, 255, 0.10);
-    --color-lines-strong: rgba(255, 255, 255, 0.18);
-    --color-surface: rgba(255, 255, 255, 0.04);
-    --color-surface-variant: rgba(255, 255, 255, 0.06);
+    background: var(--color-drawer-bg);
+    border-right-color: rgba(150, 180, 210, 0.08);
+    --color-surface: rgba(255, 255, 255, 0.03);
+    --color-surface-variant: rgba(255, 255, 255, 0.05);
 }
 
 .nav-link { color: var(--color-drawer-text); }
@@ -218,73 +298,77 @@
 .nav-flow-name { color: var(--color-drawer-text); }
 .nav-flow.is-selected .nav-flow-name { color: var(--color-primary); }
 .nav-flow.is-selected { background: color-mix(in srgb, var(--color-primary) 10%, transparent); }
-.nav-sys img { opacity: 0.9; }
 .ls-eff-val { color: var(--color-primary); }
 
-/* Dark: 사이드바 네이비 배경에 맞춘 흰색 계열 상호작용 */
-.dark-theme .nav-link:hover { background: rgba(255, 255, 255, 0.06); color: #fff; }
+/* Dark: 사이드바 인터랙션(애저 글로우) */
+.dark-theme .nav-link:hover { background: rgba(54, 181, 255, 0.08); color: var(--color-primary); }
 .dark-theme .nav-link.active, .dark-theme a.nav-link.active {
-    background: rgba(109, 91, 208, 0.20);
-    border-left-color: var(--teal);
-    color: #fff;
+    background: rgba(54, 181, 255, 0.14);
+    border-left-color: var(--color-primary);
+    color: #EAF2FB;
 }
-.dark-theme .nav-link.active .material-icons { color: var(--teal-2); }
-.dark-theme .nav-flow.is-selected .nav-flow-name { color: var(--teal-2); }
-.dark-theme .nav-flow.is-selected { background: rgba(109, 91, 208, 0.16); }
-.dark-theme .nav-sys img { filter: brightness(0) invert(1); opacity: 0.85; }
-.dark-theme .ls-eff-val { color: var(--teal-2); }
+.dark-theme .nav-link.active .material-icons { color: var(--color-primary); }
+.dark-theme .nav-flow.is-selected .nav-flow-name { color: var(--color-primary); }
+.dark-theme .nav-flow.is-selected { background: rgba(54, 181, 255, 0.12); }
+.dark-theme .nav-sys img { filter: brightness(0) invert(1); opacity: 0.82; }
+.dark-theme .ls-eff-val { color: var(--color-primary); }
 
-/* ───────────────────────────── 5. 카드/표면 둥글게 + 그림자 ──────────────── */
+/* ───────────────────────────── 5. 카드 / 표면 ───────────────────────────── */
 .card, .paper {
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-card);
     border-color: var(--color-lines);
 }
-.card:hover.is-hoverable { box-shadow: var(--shadow-card-hover); }
+.card:hover.is-hoverable { box-shadow: var(--shadow-card-hover); border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-lines)); }
 
-/* ───────────────────────────── 6. mockup 공통 컴포넌트 ───────────────────── */
+/* ───────────────────────────── 6. Control Room 공통 컴포넌트 ─────────────── */
 
 /* 콘텐츠 상단 툴바 (제목 + breadcrumb + 액션) */
 .ds-topbar {
     display: flex; align-items: flex-end; justify-content: space-between;
     gap: 14px; flex-wrap: wrap;
-    padding-bottom: 14px; margin-bottom: 16px;
-    border-bottom: 3px solid var(--color-primary);
+    padding-bottom: 13px; margin-bottom: 16px;
+    border-bottom: 2px solid var(--color-primary);
 }
 .ds-topbar .ds-topbar-titles { min-width: 0; }
-.ds-topbar h2 { font-size: 1.35rem; font-weight: 800; color: var(--navy); letter-spacing: -0.01em; margin: 0; }
-.dark-theme .ds-topbar h2 { color: var(--color-text-primary); }
-.ds-topbar .ds-breadcrumb { font-size: 0.7rem; color: var(--color-text-disabled); margin-top: 3px; }
+.ds-topbar h2 { font-size: 1.35rem; font-weight: 800; color: var(--color-text-primary); letter-spacing: -0.01em; margin: 0; }
+.ds-topbar .ds-breadcrumb { font-size: 0.7rem; color: var(--color-text-disabled); margin-top: 3px; font-family: var(--font-mono); letter-spacing: 0.02em; }
 .ds-topbar .ds-topbar-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
 /* 실시간 LIVE / POLL pill */
-.ds-live { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-lg); font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; font-variant-numeric: tabular-nums; }
+.ds-live { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; font-variant-numeric: tabular-nums; }
 .ds-live .ds-live-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
 .ds-live.is-live { color: var(--color-success); border-color: color-mix(in srgb, var(--color-success) 50%, transparent); }
-.ds-live.is-live .ds-live-dot { animation: ds-pulse 1.6s ease-in-out infinite; }
+.ds-live.is-live .ds-live-dot { animation: ds-pulse 1.6s ease-in-out infinite; box-shadow: 0 0 0 0 currentColor; }
 .ds-live.is-poll { color: var(--color-text-secondary); }
 @keyframes ds-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-/* KPI 요약 셀 (클릭형) */
+/* KPI 요약 셀 (클릭형) — 등폭 수치 readout */
 .kpi-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; }
 .kpi-cell {
     position: relative;
-    background: var(--color-surface); border: 2px solid var(--color-lines);
+    background: var(--color-surface); border: 1px solid var(--color-lines);
     border-radius: var(--radius-md); padding: 14px 16px;
     box-shadow: var(--shadow-card); transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
 }
+.kpi-cell::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
+    background: var(--color-primary); opacity: 0; transition: opacity 0.15s;
+}
 .kpi-cell.is-clickable { cursor: pointer; }
-.kpi-cell.is-clickable:hover { border-color: var(--color-primary); box-shadow: var(--shadow-card-hover); transform: translateY(-1px); }
-.kpi-cell.is-active { border-color: var(--color-primary); box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.18); }
-.kpi-cell .kp-label { font-size: 0.62rem; color: var(--color-text-disabled); letter-spacing: 0.08em; font-weight: 700; text-transform: uppercase; margin-bottom: 5px; }
-.kpi-cell .kp-value { font-size: 1.5rem; font-weight: 800; color: var(--navy); line-height: 1.05; font-variant-numeric: tabular-nums; }
-.dark-theme .kpi-cell .kp-value { color: var(--color-text-primary); }
+.kpi-cell.is-clickable:hover { border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-lines)); box-shadow: var(--shadow-card-hover); transform: translateY(-1px); }
+.kpi-cell.is-clickable:hover::before { opacity: 1; }
+.kpi-cell.is-active { border-color: var(--color-primary); box-shadow: 0 0 0 2px rgba(var(--color-primary-rgb), 0.22); }
+.kpi-cell.is-active::before { opacity: 1; }
+.kpi-cell .kp-label { font-size: 0.62rem; color: var(--color-text-disabled); letter-spacing: 0.1em; font-weight: 700; text-transform: uppercase; margin-bottom: 5px; font-family: var(--font-mono); }
+.kpi-cell .kp-value { font-family: var(--font-mono); font-size: 1.55rem; font-weight: 700; color: var(--color-text-primary); line-height: 1.05; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
 .kpi-cell .kp-target { font-size: 0.7rem; color: var(--color-primary-strong); font-weight: 700; margin-top: 4px; }
-.kpi-cell .kp-click-hint { position: absolute; top: 9px; right: 11px; font-size: 0.58rem; background: var(--color-primary); color: #fff; padding: 1px 6px; border-radius: var(--radius-sm); }
+.kpi-cell .kp-click-hint { position: absolute; top: 9px; right: 11px; font-size: 0.56rem; font-family: var(--font-mono); letter-spacing: 0.06em; background: var(--color-primary); color: #fff; padding: 1px 6px; border-radius: var(--radius-sm); }
+.dark-theme .kpi-cell .kp-click-hint { color: #051018; }
 .kpi-cell.tone-max .kp-value { color: var(--red); }
 .kpi-cell.tone-min .kp-value { color: var(--green); }
 .kpi-cell.tone-wait .kp-value { color: var(--color-warning); }
-.kpi-cell.tone-primary .kp-value { color: var(--teal-dark); }
+.kpi-cell.tone-primary .kp-value { color: var(--color-primary); }
 
 /* 범례 */
 .ds-legend { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; font-size: 0.68rem; color: var(--color-text-secondary); }
@@ -292,24 +376,25 @@
 .ds-legend .lg-swatch { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
 
 /* 상태 배지 (테이블) */
-.ds-status { display: inline-block; padding: 2px 8px; border-radius: var(--radius-lg); font-size: 0.62rem; font-weight: 700; }
-.ds-status.ok { background: rgba(54, 194, 138, 0.18); color: #1B7A50; }
-.ds-status.warn { background: rgba(248, 197, 69, 0.24); color: #8A5E00; }
-.ds-status.bad { background: rgba(229, 73, 79, 0.18); color: #B0271D; }
-.ds-status.info { background: rgba(109, 91, 208, 0.18); color: var(--teal-dark); }
-.dark-theme .ds-status.ok { color: #4FD19A; }
-.dark-theme .ds-status.warn { color: #E6B748; }
-.dark-theme .ds-status.bad { color: #F0705F; }
+.ds-status { display: inline-block; padding: 2px 8px; border-radius: var(--radius-sm); font-size: 0.62rem; font-weight: 700; font-family: var(--font-mono); letter-spacing: 0.03em; }
+.ds-status.ok { background: rgba(31, 142, 90, 0.16); color: #167046; }
+.ds-status.warn { background: rgba(192, 122, 16, 0.18); color: #8A5808; }
+.ds-status.bad { background: rgba(216, 57, 43, 0.16); color: #B22C1E; }
+.ds-status.info { background: rgba(14, 124, 203, 0.16); color: var(--color-primary-strong); }
+.dark-theme .ds-status.ok { background: rgba(63, 208, 138, 0.16); color: #5FE0A6; }
+.dark-theme .ds-status.warn { background: rgba(255, 176, 32, 0.18); color: #FFC761; }
+.dark-theme .ds-status.bad { background: rgba(255, 101, 82, 0.18); color: #FF8A78; }
+.dark-theme .ds-status.info { background: rgba(54, 181, 255, 0.18); color: var(--color-primary); }
 
-/* 데이터 테이블 (mockup history-table) */
+/* 데이터 테이블 */
 .ds-table { width: 100%; border-collapse: collapse; font-size: 0.74rem; }
 .ds-table th, .ds-table td { padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--color-lines); }
-.ds-table th { background: var(--cyan-bg); color: var(--navy); font-weight: 700; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.04em; }
-.dark-theme .ds-table th { background: rgba(177, 151, 252, 0.12); color: var(--color-text-primary); }
+.ds-table th { background: var(--cyan-bg); color: var(--color-primary-strong); font-weight: 700; font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.06em; font-family: var(--font-mono); }
+.dark-theme .ds-table th { color: var(--color-primary); }
 .ds-table .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .ds-table tbody tr:hover { background: color-mix(in srgb, var(--color-primary) 5%, transparent); }
 
-/* 빈 상태 / "준비중·데이터 없음" 카드 (막힌 기능의 정직한 표현) */
+/* 빈 상태 / "준비중·데이터 없음" 카드 */
 .ds-empty {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     gap: 10px; text-align: center; padding: 36px 24px;
@@ -320,14 +405,16 @@
 .ds-empty .material-icons { font-size: 40px; opacity: 0.7; }
 .ds-empty .ds-empty-title { font-size: 0.92rem; font-weight: 700; color: var(--color-text-secondary); }
 .ds-empty .ds-empty-desc { font-size: 0.74rem; max-width: 520px; line-height: 1.55; }
-.ds-empty .ds-empty-tag { font-size: 0.6rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-warning); border: 1px solid color-mix(in srgb, var(--color-warning) 50%, transparent); padding: 2px 8px; border-radius: var(--radius-lg); }
+.ds-empty .ds-empty-tag { font-size: 0.6rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mono); color: var(--color-warning); border: 1px solid color-mix(in srgb, var(--color-warning) 50%, transparent); padding: 2px 8px; border-radius: var(--radius-sm); }
 
 /* 작은 pill 태그 */
-.ds-pill { display: inline-block; padding: 2px 9px; border-radius: var(--radius-lg); font-size: 0.62rem; font-weight: 700; background: var(--cyan-bg); color: var(--navy); }
-.dark-theme .ds-pill { background: rgba(177, 151, 252, 0.16); color: var(--color-text-primary); }
+.ds-pill { display: inline-block; padding: 2px 9px; border-radius: var(--radius-sm); font-size: 0.62rem; font-weight: 700; font-family: var(--font-mono); letter-spacing: 0.03em; background: var(--cyan-bg); color: var(--color-primary-strong); }
+.dark-theme .ds-pill { color: var(--color-primary); }
 
-/* 섹션 카드 헤더 (mockup card-h) */
+/* 섹션 카드 헤더 */
 .ds-card-h { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
-.ds-card-h h4 { font-size: 0.82rem; font-weight: 800; color: var(--navy); letter-spacing: 0.01em; margin: 0; }
-.dark-theme .ds-card-h h4 { color: var(--color-text-primary); }
-.ds-card-h .ds-card-h-sub { font-size: 0.66rem; color: var(--color-text-disabled); }
+.ds-card-h h4 { font-size: 0.82rem; font-weight: 800; color: var(--color-text-primary); letter-spacing: 0.01em; margin: 0; }
+.ds-card-h .ds-card-h-sub { font-size: 0.66rem; color: var(--color-text-disabled); font-family: var(--font-mono); }
+
+/* 시그니처: 모든 계기 readout 은 등폭 수치 (swiss readout-value 보강) */
+.readout-value, .bottleneck-value, .kp-value { font-family: var(--font-mono); }

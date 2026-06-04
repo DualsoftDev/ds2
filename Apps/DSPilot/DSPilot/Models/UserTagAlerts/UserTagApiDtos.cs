@@ -46,3 +46,16 @@ public record UtDefinitionDto(
     string ValueType,
     string MatchOp,
     string? MatchValue);
+
+/// <summary>
+/// 대시보드 이상(Error) 배너 전용 경량 상태 — 5초 폴링에 적합하게 카운트 2건 + 최신 Error 1건만 담는다.
+/// (snapshot 의 8개 쿼리를 띄우지 않으려고 별도 분리.)
+/// LatestErrorId 는 배너 "닫기 후 새 Error 발생 시 재등장" 판정 키(클라이언트가 닫은 id 와 비교).
+/// </summary>
+public record UserTagErrorStatusDto(
+    int ActiveErrorCount,           // 최근 10분 Error (nav/summary anomalyActiveCount 와 동일 정의)
+    int TodayErrorCount,            // 오늘(로컬 자정~) Error
+    long? LatestErrorId,            // 활성 창 최신 Error 의 id (없으면 null)
+    string? LatestErrorAtLocal,     // "MM-dd HH:mm:ss" (로컬)
+    string? LatestErrorSystem,
+    string? LatestErrorName);

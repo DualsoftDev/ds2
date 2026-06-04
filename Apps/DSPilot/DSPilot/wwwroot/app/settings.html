@@ -42,8 +42,8 @@
         @keyframes set-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
         /* 모달 (확인 / 데모만료) — swiss .modal-overlay / .modal-content 와 결 맞춤 */
-        .modal-overlay { position: fixed; inset: 0; background: rgba(18, 17, 13, 0.46); display: flex; align-items: center; justify-content: center; z-index: 2000; backdrop-filter: blur(2px); }
-        .dark-theme .modal-overlay { background: rgba(0, 0, 0, 0.62); }
+        .modal-overlay { position: fixed; inset: 0; background: rgba(10, 15, 22, 0.42); display: flex; align-items: center; justify-content: center; z-index: 2000; backdrop-filter: blur(2px); }
+        .dark-theme .modal-overlay { background: rgba(4, 8, 14, 0.68); }
         .modal-content { background: var(--color-surface); border: 1px solid var(--color-lines-strong); border-radius: var(--radius-md); padding: 24px; box-shadow: var(--shadow-modal); }
         @keyframes heatmap-indeterminate { 0% { transform: translateX(-100%); } 100% { transform: translateX(400%); } }
 
@@ -68,8 +68,6 @@
         .hms-cell { display: flex; align-items: center; gap: 4px; }
         .hms-cell input { width: 72px; text-align: center; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
         .hms-cell span { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-secondary); }
-        .cam-card { border: 1px solid var(--color-lines); border-radius: var(--radius-sm); padding: 10px; margin-bottom: 8px; background: var(--color-surface-variant); }
-        .cam-row1 { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
         .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 0.78rem; }
         .divider { border: none; border-top: 1px solid var(--color-lines); }
         .settings-page code { background: color-mix(in srgb, var(--color-text-primary) 7%, transparent); padding: 1px 6px; border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: 0.8rem; }
@@ -369,46 +367,13 @@
                                 <div class="card-content">
                                     <div class="settings-note">
                                         <small>
-                                            RTSP 카메라를 등록하면 <strong>MediaMTX</strong>(별도 서비스)가 받아 WebRTC 로 재게시하고,
-                                            <a href="/app/cctv.html" style="color:var(--color-primary);">CCTV 페이지</a>에서 시청합니다. 저장 시 MediaMTX 에 자동 반영됩니다.
+                                            RTSP 카메라 등록·편집과 MediaMTX 설정은 <a href="/app/cctv.html" style="color:var(--color-primary);">CCTV 페이지</a>의
+                                            <strong>"카메라 설정"</strong> 에서 관리합니다. (등록한 카메라는 MediaMTX 가 받아 WebRTC 로 재게시 → CCTV 페이지에서 시청)
                                         </small>
                                     </div>
-
-                                    <div class="form-group mb-2">
-                                        <label class="form-label">MediaMTX 제어 API</label>
-                                        <input class="form-field mono" x-model="s.cctv.mediaMtxApiUrl" placeholder="http://localhost:9997" />
-                                    </div>
-                                    <div class="form-group mb-3">
-                                        <label class="form-label">WebRTC 포트</label>
-                                        <input type="number" class="form-field mono" x-model.number="s.cctv.webRtcPort" min="1" max="65535" placeholder="8889" style="width:120px;" />
-                                    </div>
-
-                                    <hr class="divider my-2" />
-
-                                    <template x-if="s.cctv.cameras.length === 0">
-                                        <small style="color: var(--color-text-secondary); display:block; margin:8px 0; font-size:0.78rem;">등록된 카메라가 없습니다.</small>
-                                    </template>
-                                    <template x-for="(cam, i) in s.cctv.cameras" :key="i">
-                                        <div class="cam-card">
-                                            <div class="cam-row1">
-                                                <input class="form-field" x-model="cam.name" placeholder="이름 (예: line1-entry)" style="flex:1;" />
-                                                <label class="switch" style="margin:0; white-space:nowrap;">
-                                                    <input type="checkbox" x-model="cam.enabled" /> 사용
-                                                </label>
-                                                <button class="btn-icon btn-sm" style="color:var(--color-error);" @click="removeCamera(i)" title="삭제">
-                                                    <span class="material-icons">delete</span>
-                                                </button>
-                                            </div>
-                                            <input class="form-field mono" x-model="cam.rtspUrl" placeholder="rtsp://user:pass@192.168.0.10:554/stream1" />
-                                        </div>
-                                    </template>
-
-                                    <button class="btn btn-outlined btn-sm w-100" @click="addCamera()">
-                                        <span class="material-icons">add</span> 카메라 추가
-                                    </button>
-                                    <small class="settings-hint">
-                                        MediaMTX 동기화 상태: <span class="mono" :style="`color:${s.cctv.syncOk ? 'var(--color-success)' : 'var(--color-error)'};`" x-text="s.cctv.syncMessage"></span>
-                                    </small>
+                                    <a class="btn btn-outlined w-100" href="/app/cctv.html">
+                                        <span class="material-icons">videocam</span> CCTV 페이지에서 카메라 관리
+                                    </a>
                                 </div>
                             </div>
 
@@ -509,10 +474,6 @@
                     this.s.historyView.minCycleTimeMs = h * 3600000 + m * 60000 + sec * 1000;
                 },
 
-                // ── 카메라 편집 (로컬 Alpine 상태 — 저장 시 일괄 전송) ──
-                addCamera() { this.s.cctv.cameras.push({ name: 'camera' + (this.s.cctv.cameras.length + 1), rtspUrl: '', enabled: true }); },
-                removeCamera(i) { this.s.cctv.cameras.splice(i, 1); },
-
                 // ── 저장 ──
                 async save() {
                     if (this.busy) return;
@@ -526,14 +487,11 @@
                             maxCycleTimeMs: hv.maxCycleTimeMs | 0,
                             minCycleTimeMs: hv.minCycleTimeMs | 0,
                             maxCallGoingTimeMs: hv.maxCallGoingTimeMs | 0,
-                            minCallGoingTimeMs: hv.minCallGoingTimeMs | 0,
-                            mediaMtxApiUrl: this.s.cctv.mediaMtxApiUrl,
-                            webRtcPort: this.s.cctv.webRtcPort | 0,
-                            cameras: this.s.cctv.cameras.map(c => ({ name: c.name, rtspUrl: c.rtspUrl, enabled: !!c.enabled }))
+                            minCallGoingTimeMs: hv.minCallGoingTimeMs | 0
                         };
                         const r = await this.apiPost('/api/settings/save', body);
                         this.showToast(r.message, r.ok ? 'success' : 'error');
-                        // 저장이 ConnectionString 을 정규화하고 CCTV 동기화 상태가 바뀌므로 재로딩.
+                        // 저장이 ConnectionString 을 정규화하므로 재로딩.
                         if (r.ok) await this.load();
                     } catch (e) {
                         if (e.message !== 'demo-blocked') this.showToast('저장 실패: ' + e.message, 'error');

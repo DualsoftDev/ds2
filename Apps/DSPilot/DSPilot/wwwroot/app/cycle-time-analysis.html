@@ -148,9 +148,9 @@
         /* ── 사이클 목록 테이블 ── */
         .ct-cycle-scroll { max-height: 260px; overflow-y: auto; overflow-x: hidden; }
         .ct-cycle-open td { color: var(--color-text-secondary); font-style: italic; }
-        .ct-ratio-good { color: #2e7d32; font-weight: 700; }
-        .ct-ratio-mid  { color: #e65100; font-weight: 700; }
-        .ct-ratio-low  { color: #c62828; font-weight: 700; }
+        .ct-ratio-good { color: var(--color-success); font-weight: 700; }
+        .ct-ratio-mid  { color: var(--color-warning); font-weight: 700; }
+        .ct-ratio-low  { color: var(--color-error); font-weight: 700; }
 
         /* ── 다크 보강 (dark-theme.css 미링크 → ct-* 계열 인라인 오버라이드) ── */
         .dark-theme .ct-sidebar-header { background: var(--color-surface-variant); }
@@ -533,6 +533,7 @@
                 selectedRange: null,          // 간트 가로 드래그 구간 {startMs,endMs}.
                 _geo: null,                   // 마지막 buildSvg geometry {cs,xScale} — 드래그/Gap 좌표 변환.
                 _drag: null,                  // 드래그 진행 상태(또는 null).
+                _timeReloadTimer: null,       // 날짜 직접 편집 시 디바운스 리로드 타이머.
 
                 async init() {
                     this.dark = localStorage.getItem('dspilot-theme') === 'dark';
@@ -663,7 +664,18 @@
                     this.userOverrodeHeadTail = false; // 새 Flow → override 리셋
                     if (this.selectedFlow) this.load();
                 },
-                onTimeChanged() { if (this.selectedFlow) this.load(); },
+                // 날짜 직접 편집 → 디바운스 후 리로드. 양쪽 필드를 잇따라 고칠 때 한 번만 로드되고,
+                // 한쪽만 고치는 도중 윈도우가 역전(end<=start)되면 에러로 막지 않고 유효해질 때까지 대기한다
+                // (다음 편집에서 자연스럽게 갱신). 명시적 '새로고침' 버튼/프리셋은 load() 직접 호출 → 즉시 + 검증.
+                onTimeChanged() {
+                    if (!this.selectedFlow) return;
+                    clearTimeout(this._timeReloadTimer);
+                    this._timeReloadTimer = setTimeout(() => {
+                        if (this.inputToDate(this.endTime) <= this.inputToDate(this.startTime)) return; // 편집 도중 역전 → 대기
+                        this.errorMessage = null;
+                        this.load();
+                    }, 300);
+                },
 
                 async setRecentMinutes(minutes) {
                     const end = await this.effectiveLatest();

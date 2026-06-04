@@ -366,7 +366,9 @@ webrtcLocalUDPAddress: :8189
 # Address of a local TCP listener that will receive connections.
 # This is disabled by default since TCP is less efficient than UDP and
 # introduces a progressive delay when network is congested.
-webrtcLocalTCPAddress: ''
+# DSPilot: UDP 차단망(모바일/사내/일부 클라우드)에서도 영상이 붙도록 TCP 폴백을 켠다(UDP 8189 와 동일 포트, 프로토콜만 다름).
+# 방화벽/보안그룹에서 TCP 8189 인바운드도 함께 열어야 한다(인스톨러가 Windows 방화벽은 자동 추가).
+webrtcLocalTCPAddress: :8189
 # WebRTC clients need to know the IP of the server.
 # Gather IPs from interfaces and send them to clients.
 webrtcIPsFromInterfaces: yes
