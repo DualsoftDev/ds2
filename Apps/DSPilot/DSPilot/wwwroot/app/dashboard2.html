@@ -18,10 +18,11 @@
     · 테마: <html> 에 .dark + .dark-theme 동시 토글 → Tailwind dark: 변형과
            이식 컴포넌트(CSS 변수)·Chart.js getComputedStyle 가 모두 다크 적응.
 -->
-<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&amp;display=swap" rel="stylesheet"/>
-<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
-<script id="tailwind-config">
+<!-- Tailwind: CDN(런타임 JIT) 대신 self-host 빌드 산출물 사용(오프라인). 토큰/유틸은 tailwind.theme.js + `npm run build:css` 로 생성 -->
+<link rel="stylesheet" href="/css/stitch.css"/>
+<!-- 폰트: Google Fonts CDN 대신 self-host(오프라인). Inter(라틴) + Material Symbols + Noto Sans KR(한글) = /css/fonts.css -->
+<link rel="stylesheet" href="/css/fonts.css"/>
+<script id="tailwind-config" type="text/plain" data-note="비활성(미실행): stitch 토큰은 tailwind.theme.js 로 이관, /css/stitch.css 로 빌드. 아래는 참고용.">
         tailwind.config = {
             darkMode: "class",
             theme: {
@@ -122,7 +123,7 @@
         /* ──────────────────────────────────────────────────────────────
            이식 컴포넌트 토큰 — ds.css/swiss.css 를 로드하지 않으므로(stitch 디자인 보존)
            dashboard.html 마크업이 쓰는 CSS 변수/베이스 컴포넌트 클래스를 여기 재정의한다.
-           Chart.js(renderCtDonut/renderHistChart)가 getComputedStyle(documentElement)로
+           Chart.js(renderCtDonut)가 getComputedStyle(documentElement)로
            읽으므로 데이터 토큰은 :root / html.dark-theme 에 둔다. (stitch Industrial Insight 팔레트) */
         :root {
             --color-background: #f7f9fb;
@@ -151,12 +152,12 @@
             --color-info: #0058be;
             --ct: #16a34a;
 
-            --dash-mt: #16a34a;   /* 가동 = 녹 */
-            --dash-wt: #cbd5e1;   /* 대기 = 쿨그레이 */
+            --dash-mt: #4f46e5;   /* 가동시간 = 인디고 (이미지 도넛/범례 색) */
+            --dash-wt: #cbd5e1;   /* 대기시간 = 쿨그레이 */
 
             /* 폰트 / 라운드 / 그림자 */
             --font-family: 'Inter', 'Noto Sans KR', sans-serif;
-            --font-mono: 'Inter', ui-monospace, 'Cascadia Code', Consolas, monospace;
+            --font-mono: 'Inter', 'Noto Sans KR', ui-monospace, 'Cascadia Code', Consolas, monospace;
             --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px;
             --shadow-card: 0 2px 4px rgba(15, 27, 45, 0.05);
             --shadow-card-hover: 0 6px 18px rgba(0, 88, 190, 0.14);
@@ -187,7 +188,7 @@
             --red:   #f26d6d;  --color-error: #f26d6d;    --color-error-rgb: 242, 109, 109;
             --color-info: #4d9fff;
             --ct: #2bbf6a;
-            --dash-mt: #2bbf6a;
+            --dash-mt: #818cf8;
             --dash-wt: #46566b;
             --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.45);
             --shadow-card-hover: 0 6px 20px rgba(0, 0, 0, 0.5);
@@ -322,9 +323,6 @@
         .shift-modal .sm-foot { display: flex; gap: 10px; padding: 14px 22px 20px; }
         .shift-modal .sm-foot .btn { flex: 1; justify-content: center; }
         .sm-times { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-        .range-row { display: flex; gap: 6px; align-items: center; }
-        .range-row .form-field { flex: 1 1 auto; min-width: 0; }
-        .range-row .range-unit { flex: 0 0 auto; width: auto; padding: 10px 8px; }
         .sm-seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
         .sm-seg button { padding: 10px 6px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-secondary); font-weight: 700; font-size: 0.82rem; cursor: pointer; transition: all 0.12s; }
         .sm-seg button:hover { border-color: var(--color-primary); }
@@ -338,7 +336,11 @@
         .sm-hint b { color: var(--color-primary-strong); font-weight: 800; }
 
         /* ── 라인 도면 Flow 카드 ── */
-        .fl-card { --fc-accent: var(--color-primary); position: absolute; z-index: 2; border: 1.5px solid var(--color-lines-strong); border-radius: 8px; background: var(--color-surface); box-shadow: 0 2px 7px rgba(14,27,42,0.12); overflow: hidden; }
+        .fl-card { --fc-accent: var(--color-primary); position: absolute; z-index: 2; border: 1.5px solid var(--color-lines-strong); border-radius: 8px; background: var(--color-surface); box-shadow: 0 2px 7px rgba(14,27,42,0.12); overflow: hidden; cursor: pointer; transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease; }
+        /* 호버 강조 = 선택 강조(fl-card-selected)와 동일 톤 — 도넛 슬라이스 강조와 동기 */
+        .fl-card:not(.is-editing):hover { border-color: var(--color-primary); box-shadow: 0 8px 20px rgba(var(--color-primary-rgb),0.24); transform: translateY(-1px); z-index: 11; }
+        .fl-card.is-bottleneck:not(.is-editing):hover { box-shadow: 0 0 0 4px rgba(var(--color-error-rgb),0.24), 0 8px 20px rgba(var(--color-error-rgb),0.20); }
+        .fl-card.is-maxwait:not(.is-editing):hover { box-shadow: 0 0 0 4px rgba(var(--color-warning-rgb),0.26), 0 8px 20px rgba(var(--color-warning-rgb),0.18); }
         .fl-card:hover { border-color: var(--color-primary); box-shadow: 0 6px 16px rgba(var(--color-primary-rgb),0.20); }
         .fl-card-selected { border-color: var(--color-primary); border-width: 2px; box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 22%, transparent); transform: none; z-index: 10; animation: none; }
         .fl-card.is-bottleneck { outline: none; border: 2px solid var(--red); box-shadow: 0 0 0 4px rgba(var(--color-error-rgb),0.16); background: color-mix(in srgb, var(--red) 8%, var(--color-surface)); z-index: 6; }
@@ -347,18 +349,17 @@
         .fc-toprow { display: flex; align-items: center; justify-content: space-between; gap: 2cqmin; width: 100%; min-width: 0; }
         .fc-toprow .fc-name { flex: 1; min-width: 0; text-align: left; }
         .fc-toprow .fc-badges { flex-wrap: nowrap; flex-shrink: 0; justify-content: flex-end; }
-        .fc-name { font-size: clamp(0.88rem, 12.5cqmin, 2.1rem); font-weight: 800; color: var(--color-primary); line-height: 1.18; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .fc-name { font-size: clamp(0.55rem, calc(8.13cqh + 4.38cqw), 3.2rem); font-weight: 800; color: var(--color-primary); line-height: 1.18; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .fl-card.is-bottleneck .fc-name { color: var(--red); }
         .fc-main { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: clamp(3px, 2.6cqmin, 9px); width: 100%; min-width: 0; }
         .fc-ct-line { display: flex; align-items: baseline; gap: clamp(3px, 2cqmin, 7px); line-height: 1; min-width: 0; }
-        .fc-ct-val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 800; font-size: clamp(1rem, 15cqmin, 2.5rem); color: var(--color-primary); letter-spacing: -0.02em; white-space: nowrap; }
-        .fc-ct-lbl { font-size: clamp(0.46rem, 3.4cqmin, 0.72rem); font-weight: 800; letter-spacing: 0.12em; color: var(--color-text-disabled); }
+        .fc-ct-val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 800; font-size: clamp(0.6rem, calc(9.75cqh + 5.25cqw), 3.8rem); color: var(--color-primary); letter-spacing: -0.02em; white-space: nowrap; }
+        .fc-ct-lbl { font-size: clamp(0.32rem, calc(2.21cqh + 1.19cqw), 1.05rem); font-weight: 800; letter-spacing: 0.12em; color: var(--color-text-disabled); }
         .fl-card.is-bottleneck .fc-ct-val { color: var(--red); }
         .fc-rw { display: flex; flex-direction: column; gap: clamp(2px, 1.7cqmin, 6px); width: 100%; min-width: 0; }
         .fc-rw-row { display: flex; align-items: baseline; justify-content: space-between; gap: clamp(4px, 2.6cqmin, 9px); min-width: 0; }
-        .fc-rw-row.bot { padding-right: clamp(26px, 22cqmin, 60px); }
-        .fc-rw-lbl { font-size: clamp(0.48rem, 3.6cqmin, 0.74rem); font-weight: 700; letter-spacing: 0.04em; white-space: nowrap; }
-        .fc-rw-val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: clamp(0.52rem, 4.2cqmin, 0.9rem); font-weight: 700; white-space: nowrap; text-align: right; }
+        .fc-rw-lbl { font-size: clamp(0.5rem, calc(3.51cqh + 1.89cqw), 1.3rem); font-weight: 700; letter-spacing: 0.04em; white-space: nowrap; }
+        .fc-rw-val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: clamp(0.55rem, calc(3.9cqh + 2.1cqw), 1.55rem); font-weight: 700; white-space: nowrap; text-align: right; }
         .fc-rw-row .mt { color: var(--dash-mt); }
         .fc-rw-row .wt { color: var(--color-text-secondary); }
         .fc-segbar { display: flex; width: 100%; height: clamp(6px, 3.4cqmin, 12px); border-radius: 999px; overflow: hidden; background: color-mix(in srgb, var(--color-text-secondary) 14%, transparent); }
@@ -370,23 +371,18 @@
         .dark-theme .fl-card.is-maxwait .fc-rw-row .wt { color: var(--amber); }
         .fl-card.is-bottleneck .fc-seg.wt { background: var(--red); }
         .fl-card.is-bottleneck .fc-rw-row .wt { color: var(--red); }
-        .fc-detail-btn { position: absolute; right: clamp(3px, 2.5cqmin, 8px); bottom: clamp(3px, 2.5cqmin, 8px); z-index: 4; pointer-events: auto; display: inline-flex; align-items: center; justify-content: center; gap: clamp(2px, 1.4cqmin, 5px); background: var(--color-surface); border: 1px solid var(--color-primary); color: var(--color-primary); border-radius: 4px; padding: clamp(1px,1.2cqmin,4px) clamp(4px,2.4cqmin,9px); cursor: pointer; text-decoration: none; font-weight: 700; box-shadow: 0 1px 2px rgba(14,27,42,0.12); }
-        .fc-detail-btn .material-icons { font-size: clamp(13px, 9cqmin, 20px); }
-        .fc-detail-btn .fc-detail-label { font-size: clamp(0.56rem, 4.6cqmin, 0.86rem); line-height: 1.2; white-space: nowrap; }
-        .fc-detail-btn:hover { background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface)); }
         .fl-card.is-maxwait { border: 2px solid var(--amber); box-shadow: 0 0 0 4px rgba(var(--color-warning-rgb),0.18); background: color-mix(in srgb, var(--amber) 10%, var(--color-surface)); z-index: 5; }
         .fl-card.is-maxwait.fl-card-selected { box-shadow: 0 0 0 4px rgba(var(--color-warning-rgb),0.32); }
         .fc-badges { display: flex; flex-wrap: wrap; gap: 1.4cqmin; justify-content: center; }
-        .fc-badge { display: inline-flex; align-items: center; gap: 0.8cqmin; padding: 0.5cqmin 1.7cqmin; border-radius: 999px; font-size: clamp(0.5rem, 4.2cqmin, 0.8rem); font-weight: 800; line-height: 1.35; white-space: nowrap; }
-        .fc-badge::before { content: ''; width: clamp(3px, 1.4cqmin, 6px); height: clamp(3px, 1.4cqmin, 6px); border-radius: 50%; background: currentColor; flex-shrink: 0; }
+        .fc-badge { display: inline-flex; align-items: center; gap: 1cqmin; padding: 0.8cqmin 2.4cqmin; border-radius: 999px; font-size: clamp(0.5rem, calc(3.6cqh + 1.95cqw), 1.55rem); font-weight: 800; line-height: 1.35; white-space: nowrap; }
+        .fc-badge::before { content: ''; width: clamp(4px, 1.9cqmin, 9px); height: clamp(4px, 1.9cqmin, 9px); border-radius: 50%; background: currentColor; flex-shrink: 0; }
         .fc-badge.state-ready  { color: var(--green); background: color-mix(in srgb, var(--green) 16%, transparent); }
         .fc-badge.state-going  { color: #8A6D1A; background: color-mix(in srgb, var(--amber) 30%, transparent); }
         .fc-badge.state-finish { color: var(--color-info); background: color-mix(in srgb, var(--color-info) 16%, transparent); }
         .fc-badge.state-error  { color: var(--red); background: color-mix(in srgb, var(--red) 16%, transparent); }
         .dark-theme .fc-badge.state-going { color: var(--amber); }
-        .fc-badge.tag-bottleneck { color: #fff; background: var(--red); }
-        .fc-badge.tag-wait { color: #fff; background: var(--amber); }
-        .fc-badge.tag-bottleneck::before, .fc-badge.tag-wait::before { display: none; }
+        .fc-badge.tag-maxtime { color: var(--dash-mt); background: color-mix(in srgb, var(--dash-mt) 16%, transparent); }
+        .fc-badge.tag-maxwait { color: var(--color-text-secondary); background: color-mix(in srgb, var(--color-text-secondary) 18%, transparent); }
         .fc-waiting { display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 1.6cqmin; color: var(--color-text-disabled); }
         .fc-waiting .material-icons { font-size: clamp(16px, 9cqmin, 30px); opacity: 0.65; }
         .fc-waiting .fc-waiting-text { font-size: clamp(0.58rem, 5cqmin, 1rem); font-weight: 700; }
@@ -399,23 +395,6 @@
         .ct-legend-sw { width: 11px; height: 11px; border-radius: 3px; flex-shrink: 0; }
         .ct-legend-name { font-size: 0.72rem; font-weight: 600; color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
         .ct-legend-val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 0.68rem; font-weight: 700; color: var(--color-text-primary); flex-shrink: 0; }
-
-        /* ── 하단 상시 히스토리 ── */
-        .hist-toggle { display: inline-flex; gap: 1px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); overflow: hidden; }
-        .hist-toggle button { display: inline-flex; align-items: center; gap: 4px; border: none; border-radius: 0; padding: 4px 10px; font-size: 0.72rem; font-weight: 700; cursor: pointer; background: var(--color-surface); color: var(--color-text-secondary); }
-        .hist-toggle button .material-icons { font-size: 15px; }
-        .hist-toggle button.is-active { background: var(--color-primary); color: #fff; }
-        .hist-chart-wrap { position: relative; height: clamp(240px, 40vh, 460px); padding: 6px 2px 0; }
-        .hist-auto-tag { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: var(--radius-lg); font-size: 0.6rem; font-weight: 800; letter-spacing: 0.04em; vertical-align: middle; color: var(--color-warning); background: color-mix(in srgb, var(--color-warning) 14%, transparent); border: 1px solid color-mix(in srgb, var(--color-warning) 45%, transparent); }
-        .hist-table-wrap { max-height: clamp(240px, 46vh, 520px); overflow-y: auto; border: 1px solid var(--color-lines); border-radius: var(--radius-md); }
-        .hist-table-wrap .ds-table th { position: sticky; top: 0; z-index: 1; }
-        .hist-table-wrap .ds-table td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-        .hist-mt { color: var(--dash-mt); font-weight: 700; }
-        .hist-wt { color: var(--color-text-secondary); font-weight: 700; }
-        .hist-ct { color: var(--color-text-primary); font-weight: 800; }
-        .hist-filter-chip { display: inline-flex; align-items: center; gap: 7px; padding: 3px 6px 3px 11px; border-radius: var(--radius-lg); font-size: 0.68rem; font-weight: 800; color: var(--color-warning); background: color-mix(in srgb, var(--color-warning) 12%, transparent); border: 1px solid color-mix(in srgb, var(--color-warning) 45%, transparent); }
-        .hist-filter-chip .hfc-reset { display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px; border: none; border-radius: var(--radius-sm); background: var(--color-warning); color: #fff; font-size: 0.62rem; font-weight: 800; cursor: pointer; }
-        .hist-filter-chip .hfc-reset .material-icons { font-size: 13px; }
 
         /* ── 편집바 슬라이더 컨트롤 ── */
         .fl-ctrl { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); font-size: 0.72rem; font-weight: 700; color: var(--color-text-secondary); }
@@ -454,7 +433,6 @@
         .fl-card.is-editing { cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-user-drag: none; transition: none; }
         .fl-card.is-editing * { -webkit-user-drag: none; user-select: none; -webkit-user-select: none; }
         .fl-card.is-editing.is-dragging { cursor: grabbing; opacity: 0.82; box-shadow: 0 8px 20px rgba(14,27,42,0.28); z-index: 40; }
-        .fl-card.is-editing .fc-detail-btn { display: none !important; }
         .fl-card.is-editsel { border-color: var(--color-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 28%, transparent); z-index: 12; }
         .fl-del { position: absolute; top: 3px; right: 3px; z-index: 50; width: 20px; height: 20px; border: none; border-radius: 50%; background: rgba(14,27,42,0.55); color: #fff; font-size: 15px; line-height: 1; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
         .fl-del:hover { background: var(--red); }
@@ -590,9 +568,6 @@
                     <span class="dash-live-dot"></span>
                     <span x-text="rt.connected ? 'LIVE · 실시간' : 'POLL · 5초'"></span>
                 </span>
-                <button class="btn-icon btn-sm text-on-surface-variant" @click="toggleTheme()" title="테마 전환">
-                    <span class="material-icons" x-text="dark ? 'light_mode' : 'dark_mode'"></span>
-                </button>
             </div>
         </header>
 
@@ -629,60 +604,45 @@
                     <h3 class="font-headline-lg text-headline-lg text-primary">Monitoring</h3>
                     <p class="text-on-surface-variant font-body-md text-body-md opacity-70">Real-time production floor overview</p>
                 </div>
-                <div class="flex gap-2">
-                    <button class="flex items-center gap-2 px-4 py-2 bg-surface border border-outline-variant rounded-lg hover:bg-surface-container-high transition-colors text-label-sm font-label-sm disabled:opacity-50"
-                            @click="loadSnapshot()" :disabled="loading">
-                        <span class="material-icons text-[18px]">refresh</span> Reload
-                    </button>
-                    <button class="flex items-center gap-2 px-4 py-2 bg-secondary text-white rounded-lg hover:opacity-90 transition-colors shadow-sm text-label-sm font-label-sm" @click="toggleFullscreen()">
-                        <span class="material-icons text-[18px]">grid_view</span> Floor Layout
-                    </button>
-                </div>
             </div>
 
             <!-- ════════════ Summary Row (3 KPI 카드) ════════════ -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-gutter">
 
-                <!-- Max CT (CRITICAL) -->
-                <div class="bg-error-container dark:bg-[#2a1414] border p-card-padding rounded-xl shadow-sm relative overflow-hidden group cursor-pointer transition-all"
-                     :class="(maxCtName && selectedFlowName === maxCtName) ? 'border-error ring-2 ring-error/40' : 'border-error/20'"
+                <!-- Max CT — 전체시간 색상(--color-primary) -->
+                <div class="border p-card-padding rounded-xl shadow-sm relative overflow-hidden group cursor-pointer transition-all"
+                     :style="`background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); border-color: ${(maxCtName && selectedFlowName === maxCtName) ? 'var(--color-primary)' : 'color-mix(in srgb, var(--color-primary) 26%, transparent)'}; box-shadow: ${(maxCtName && selectedFlowName === maxCtName) ? '0 0 0 3px color-mix(in srgb, var(--color-primary) 30%, transparent)' : 'var(--shadow-card)'};`"
                      @click="maxCtName && selectFlow(maxCtName)">
                     <div class="flex justify-between items-start mb-4">
                         <div>
-                            <span class="font-label-sm text-label-sm text-on-error-container opacity-80 uppercase tracking-tighter">최대 시간 (CT)</span>
-                            <h4 class="font-display-metrics text-display-metrics text-error leading-none mt-2" x-text="maxCtName ? fmt(maxCtVal) : '--'"></h4>
-                        </div>
-                        <div class="bg-error text-white px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1" x-show="maxCtName" x-cloak>
-                            <span class="material-icons text-[12px]" style="font-variation-settings:'FILL' 1;">error</span> CRITICAL
+                            <span class="font-label-sm text-label-sm opacity-80 uppercase tracking-tighter" style="color:var(--color-primary-strong);">최대 시간 (전체시간)</span>
+                            <h4 class="font-display-metrics text-display-metrics leading-none mt-2" style="color:var(--color-primary);" x-text="maxCtName ? fmt(maxCtVal) : '--'"></h4>
                         </div>
                     </div>
-                    <div class="flex items-center gap-2 text-on-error-container font-mono-data text-mono-data" :title="maxCtName">
+                    <div class="flex items-center gap-2 font-mono-data text-mono-data" style="color:var(--color-primary-strong);" :title="maxCtName">
                         <span class="material-icons text-[16px]">arrow_forward</span>
                         <span class="truncate" x-text="maxCtName || '데이터 없음'"></span>
                     </div>
-                    <div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                    <div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity" style="color:var(--color-primary);">
                         <span class="material-icons text-[120px]">timer</span>
                     </div>
                 </div>
 
-                <!-- Max Waiting Rate (WARNING) -->
-                <div class="bg-[#FFF4E5] dark:bg-[#2a2310] border p-card-padding rounded-xl shadow-sm relative overflow-hidden group cursor-pointer transition-all"
-                     :class="(maxWtName && selectedFlowName === maxWtName) ? 'border-orange-400 ring-2 ring-orange-400/40' : 'border-orange-200'"
+                <!-- Max Waiting Rate — 대기시간 색상(--color-text-secondary) -->
+                <div class="border p-card-padding rounded-xl shadow-sm relative overflow-hidden group cursor-pointer transition-all"
+                     :style="`background: color-mix(in srgb, var(--color-text-secondary) 8%, var(--color-surface)); border-color: ${(maxWtName && selectedFlowName === maxWtName) ? 'var(--color-text-secondary)' : 'color-mix(in srgb, var(--color-text-secondary) 26%, transparent)'}; box-shadow: ${(maxWtName && selectedFlowName === maxWtName) ? '0 0 0 3px color-mix(in srgb, var(--color-text-secondary) 30%, transparent)' : 'var(--shadow-card)'};`"
                      @click="maxWtName && selectFlow(maxWtName)">
                     <div class="flex justify-between items-start mb-4">
                         <div>
-                            <span class="font-label-sm text-label-sm text-orange-800 dark:text-orange-300 opacity-80 uppercase tracking-tighter">최대 대기율 (WT/CT)</span>
-                            <h4 class="font-display-metrics text-display-metrics text-orange-600 leading-none mt-2" x-text="maxWtName ? (maxWtRatio * 100).toFixed(1) + '%' : '--'"></h4>
-                        </div>
-                        <div class="bg-orange-500 text-white px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1" x-show="maxWtName" x-cloak>
-                            <span class="material-icons text-[12px]" style="font-variation-settings:'FILL' 1;">warning</span> WARNING
+                            <span class="font-label-sm text-label-sm opacity-80 uppercase tracking-tighter" style="color:var(--color-text-secondary);">최대 대기율 (대기시간/전체시간)</span>
+                            <h4 class="font-display-metrics text-display-metrics leading-none mt-2" style="color:var(--color-text-secondary);" x-text="maxWtName ? (maxWtRatio * 100).toFixed(1) + '%' : '--'"></h4>
                         </div>
                     </div>
-                    <div class="flex items-center gap-2 text-orange-800 dark:text-orange-300 font-mono-data text-mono-data" :title="maxWtName">
+                    <div class="flex items-center gap-2 font-mono-data text-mono-data" style="color:var(--color-text-secondary);" :title="maxWtName">
                         <span class="material-icons text-[16px]">arrow_forward</span>
                         <span class="truncate" x-text="maxWtName || '데이터 없음'"></span>
                     </div>
-                    <div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                    <div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity" style="color:var(--color-text-secondary);">
                         <span class="material-icons text-[120px]">pause_circle</span>
                     </div>
                 </div>
@@ -727,11 +687,11 @@
                         <div class="flex items-center gap-5 flex-wrap">
                             <div class="flex items-center gap-2">
                                 <span class="w-2.5 h-2.5 rounded-sm" style="background:var(--dash-mt);"></span>
-                                <span class="text-[11px] font-bold text-on-surface-variant">MT 가동</span>
+                                <span class="text-[11px] font-bold text-on-surface-variant">가동</span>
                             </div>
                             <div class="flex items-center gap-2 border-r pr-5 border-outline-variant">
                                 <span class="w-2.5 h-2.5 rounded-sm" style="background:var(--dash-wt);"></span>
-                                <span class="text-[11px] font-bold text-on-surface-variant">WT 대기</span>
+                                <span class="text-[11px] font-bold text-on-surface-variant">대기</span>
                             </div>
                             <div class="flex gap-2">
                                 <button class="p-1.5 hover:bg-surface-container-highest rounded transition-colors text-on-surface-variant flex items-center gap-1 text-[12px] font-bold"
@@ -835,10 +795,12 @@
                                         <svg class="fl-grid-overlay" x-show="editing && snapEnabled" x-cloak xmlns="http://www.w3.org/2000/svg"
                                              :viewBox="`0 0 ${layout.canvasWidth} ${layout.canvasHeight}`" preserveAspectRatio="none" x-html="gridOverlaySvg"></svg>
                                         <template x-for="c in cards" :key="c.flowName">
-                                            <div :class="'fl-card ' + (editing ? 'is-editing ' : '') + (editing && dragName === c.flowName ? 'is-dragging ' : '') + (c.editSelected ? 'is-editsel ' : '') + (c.selected ? 'fl-card-selected ' : '') + (c.isBottleneck ? 'is-bottleneck' : (c.isMaxWait ? 'is-maxwait' : ''))"
+                                            <div :class="'fl-card ' + (editing ? 'is-editing ' : '') + (editing && dragName === c.flowName ? 'is-dragging ' : '') + (c.editSelected ? 'is-editsel ' : '') + (c.selected ? 'fl-card-selected ' : '')"
                                                  :style="`left:${c.leftPct}%; top:${c.topPct}%; width:${c.widthPct}%; height:${c.heightPct}%; --fc-edge:${c.edgeColor};`"
                                                  :draggable="editing ? 'false' : null"
-                                                 @click.stop="editing || selectFlow(c.flowName)"
+                                                 @click.stop="editing || goFlow(c.flowName)"
+                                                 @mouseenter="hoverFlow(c.flowName)"
+                                                 @mouseleave="hoverFlow(null)"
                                                  @pointerdown="onCardPointerDown($event, c)">
                                                 <button class="fl-del" x-show="editing" x-cloak @click.stop="removePlacement(c.flowName)" @pointerdown.stop title="이 블럭 삭제">×</button>
                                                 <div class="fc-cq">
@@ -846,8 +808,8 @@
                                                         <div class="fc-toprow">
                                                             <div class="fc-name" :title="c.flowName"><span x-text="c.flowName"></span></div>
                                                             <div class="fc-badges">
-                                                                <template x-if="c.isBottleneck"><span class="fc-badge tag-bottleneck">최대 CT</span></template>
-                                                                <template x-if="c.isMaxWait"><span class="fc-badge tag-wait">대기↑</span></template>
+                                                                <template x-if="c.isBottleneck"><span class="fc-badge tag-maxtime">최대시간</span></template>
+                                                                <template x-if="c.isMaxWait"><span class="fc-badge tag-maxwait">최대대기율</span></template>
                                                                 <span class="fc-badge" :class="'state-' + c.state" x-text="c.stateText"></span>
                                                             </div>
                                                         </div>
@@ -855,7 +817,7 @@
                                                             <div class="fc-main">
                                                                 <div class="fc-ct-line" :title="`전체 사이클타임 ${fmt(c.total)}`">
                                                                     <span class="fc-ct-val" x-text="fmt(c.total)"></span>
-                                                                    <span class="fc-ct-lbl">CT</span>
+                                                                    <span class="fc-ct-lbl">전체</span>
                                                                 </div>
                                                                 <div class="fc-rw">
                                                                     <div class="fc-rw-row top">
@@ -881,10 +843,6 @@
                                                         </template>
                                                     </div>
                                                 </div>
-                                                <a class="fc-detail-btn" x-show="!editing" :href="'/flow?name=' + encodeURIComponent(c.flowName)" @click.stop title="상세 분석">
-                                                    <span class="material-icons">analytics</span>
-                                                    <span class="fc-detail-label">상세</span>
-                                                </a>
                                             </div>
                                         </template>
                                     </div>
@@ -928,15 +886,16 @@
                                 <canvas x-ref="ctDonut"></canvas>
                                 <div style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; pointer-events:none; text-align:center; padding:0 12px;">
                                     <span style="font-size:0.6rem; font-weight:800; letter-spacing:0.1em; text-transform:uppercase; font-family:var(--font-mono); color:var(--color-text-secondary); max-width:52%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"
-                                          x-text="selectedFlowName ? selectedFlowName : '전체 CT'"></span>
+                                          x-text="focusFlowName ? focusFlowName : '전체 CT'"></span>
                                     <span style="font-size:1.35rem; font-weight:800; color:var(--color-text-primary); font-family:var(--font-mono); font-variant-numeric:tabular-nums; margin-top:2px;"
-                                          x-text="fmt(selectedFlowName ? (chartData.find(f => f.flowName === selectedFlowName)?.ct || 0) : chartData.reduce((a, b) => a + b.ct, 0))"></span>
+                                          x-text="fmt(focusFlowName ? (chartData.find(f => f.flowName === focusFlowName)?.ct || 0) : chartData.reduce((a, b) => a + b.ct, 0))"></span>
                                 </div>
                             </div>
                             <div class="ct-legend">
                                 <template x-for="(f, i) in chartData" :key="f.flowName">
-                                    <button class="ct-legend-item" :class="selectedFlowName === f.flowName ? 'is-sel' : ''"
-                                            @click.stop="selectFlow(selectedFlowName === f.flowName ? null : f.flowName)" :title="f.flowName + ' · ' + fmt(f.ct)">
+                                    <button class="ct-legend-item" :class="focusFlowName === f.flowName ? 'is-sel' : ''"
+                                            @click.stop="goFlow(f.flowName)"
+                                            @mouseenter="hoverFlow(f.flowName)" @mouseleave="hoverFlow(null)" :title="f.flowName + ' · 상세 분석'">
                                         <span class="ct-legend-sw" :style="`background:${f.flowName === maxCtName ? 'var(--red)' : ctPalette(i)}`"></span>
                                         <span class="ct-legend-name" x-text="f.flowName"></span>
                                         <span class="ct-legend-val" x-text="fmt(f.ct)"></span>
@@ -951,98 +910,6 @@
                                 <span class="material-icons">donut_large</span>
                                 <span class="ds-empty-title">Time 데이터가 없습니다</span>
                                 <span class="ds-empty-desc">사이클이 수집되면 Flow별 CT 가 도넛으로 표시됩니다.</span>
-                            </div>
-                        </div>
-                    </template>
-                </div>
-            </div>
-
-            <!-- ════════════ Recent History ════════════ -->
-            <div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-sm overflow-hidden">
-                <div class="p-4 border-b border-outline-variant bg-surface-container-low">
-                    <div class="ds-card-h" style="margin-bottom:0;">
-                        <h4>
-                            <span x-text="histFlowName ? ('Recent History — ' + histFlowName) : 'Recent History'"></span>
-                            <span class="hist-auto-tag" x-show="histIsAuto" x-cloak
-                                  title="고정 선택이 없어 최대 CT Flow 를 자동 표시 중 · KPI·도면·막대를 클릭하면 다른 Flow 로 전환">최대 CT·자동</span>
-                        </h4>
-                        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
-                            <span class="ds-card-h-sub" x-show="histFlowName && flowHistory.length > 0"
-                                  :title="'최근 발생순으로 최대 ' + histLimit + '개 사이클을 조회합니다. 더 과거 데이터는 사이클분석 페이지에서 확인하세요.'"
-                                  x-text="'총 ' + visibleHistory.length + '개' + (excludedCount > 0 ? (' / 제외 ' + excludedCount) : '') + ' · 최근 최대 ' + histLimit + ' · 평균 CT ' + (histAvgCt > 0 ? fmt(histAvgCt) : '--') + (histStdCt > 0 ? (' ±' + fmt(histStdCt)) : '')"></span>
-                            <span class="hist-filter-chip" x-show="excludedCount > 0" x-cloak>
-                                <span x-text="excludedCount + '개 제외됨 · ' + rangeLabel + ' · 평균 재계산'"></span>
-                                <button class="hfc-reset" @click="resetExclusions()" title="제외 해제 (전체 복원)">
-                                    <span class="material-icons">restart_alt</span> 초기화
-                                </button>
-                            </span>
-                            <button class="btn btn-sm btn-outlined" x-show="histFlowName && flowHistory.length > 0"
-                                    :class="_exRange ? 'btn-filled' : ''"
-                                    @click="openRangeModal()" title="최소·최대 CT 를 지정해 그 범위를 벗어난 사이클(이상치)을 제외합니다 — 선택한 Flow 별로 적용·유지됩니다">
-                                <span class="material-icons" style="font-size:16px;">filter_alt</span>
-                                <span x-text="_exRange ? ('범위 ' + rangeLabel) : '이상치 제외'"></span>
-                            </button>
-                            <div class="hist-toggle" x-show="histFlowName && flowHistory.length > 0">
-                                <button :class="histView === 'table' ? 'is-active' : ''" @click="setHistView('table')" title="데이터 테이블로 보기">
-                                    <span class="material-icons">table_rows</span> 테이블
-                                </button>
-                                <button :class="histView === 'chart' ? 'is-active' : ''" @click="setHistView('chart')" title="차트로 보기">
-                                    <span class="material-icons">bar_chart</span> 차트
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="p-4">
-                    <template x-if="!histFlowName">
-                        <div class="ds-empty" style="padding:28px 0;">
-                            <span class="material-icons">history_toggle_off</span>
-                            <span class="ds-empty-title">표시할 사이클 데이터가 없습니다</span>
-                            <span class="ds-empty-desc">사이클이 수집되면 최대 CT Flow 의 히스토리가 자동으로 표시됩니다. KPI 셀 · 도면 카드 · 비교 막대를 클릭하면 특정 Flow 로 고정할 수 있습니다.</span>
-                        </div>
-                    </template>
-                    <template x-if="histFlowName && flowHistory.length === 0">
-                        <div class="ds-empty" style="padding:28px 0;">
-                            <span class="material-icons">history_toggle_off</span>
-                            <span class="ds-empty-title" x-text="'기록된 사이클이 없습니다 — ' + histFlowName"></span>
-                            <span class="ds-empty-desc">사이클이 완료되면 시작시각·MT·WT·CT 가 누적되어 표시됩니다.</span>
-                        </div>
-                    </template>
-                    <template x-if="histFlowName && flowHistory.length > 0">
-                        <div>
-                            <div class="hist-chart-wrap" x-show="histView === 'chart'">
-                                <canvas x-ref="histChart"></canvas>
-                            </div>
-                            <div class="hist-table-wrap" x-show="histView === 'table'">
-                                <table class="ds-table">
-                                    <thead>
-                                        <tr>
-                                            <th style="width:150px;">시작 시각</th>
-                                            <th>MT</th><th>WT</th><th>CT</th>
-                                            <th>WT/CT</th><th style="width:64px;">상태</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <template x-for="h in visibleHistory" :key="h._key">
-                                            <tr>
-                                                <td class="num" x-text="h._time"></td>
-                                                <td class="num hist-mt" x-text="fmt(h.mt ?? 0)"></td>
-                                                <td class="num hist-wt" x-text="fmt(h.wt ?? 0)"></td>
-                                                <td class="num hist-ct" x-text="fmt(h.ct ?? 0)"></td>
-                                                <td class="num" x-text="h._wt"></td>
-                                                <td>
-                                                    <template x-if="h._status">
-                                                        <span class="ds-status" :class="h._status?.cls" x-text="h._status?.label"></span>
-                                                    </template>
-                                                    <template x-if="!h._status">
-                                                        <span class="ds-status info" title="표본<2 — 편차 기준 산출 불가">–</span>
-                                                    </template>
-                                                </td>
-                                            </tr>
-                                        </template>
-                                    </tbody>
-                                </table>
                             </div>
                         </div>
                     </template>
@@ -1135,58 +1002,6 @@
             </div>
         </div>
 
-        <!-- ── 이상치 제외 범위 팝업 ── -->
-        <div class="modal-overlay" x-show="rangeModalOpen" x-cloak style="z-index:2000;" @click="closeRangeModal()">
-            <div class="modal-content shift-modal" @click.stop>
-                <div class="sm-head">
-                    <span class="sm-title">🔎 이상치 제외 · <span x-text="histFlowName"></span></span>
-                    <button class="btn-icon" @click="closeRangeModal()" title="닫기"><span class="material-icons">close</span></button>
-                </div>
-                <div class="sm-body">
-                    <div class="sm-hint" style="margin-bottom:14px;">
-                        <span class="material-icons">info</span>
-                        <span>
-                            설정한 <b>최소 ~ 최대</b> CT 범위를 벗어난 사이클을 차트·테이블·평균에서 제외합니다.
-                            한쪽만 입력해도 됩니다 (예: <b>최대</b>만 입력 = 그보다 긴 사이클만 제외). 새 사이클이 들어와도 범위가 유지됩니다.
-                        </span>
-                    </div>
-                    <div class="form-group" x-show="flowHistory.length > 0">
-                        <label class="form-label">현재 CT 범위 (참고)</label>
-                        <div class="form-helper" style="margin:0;">
-                            최소 <b x-text="fmt(histCtMinMs)"></b> · 최대 <b x-text="fmt(histCtMaxMs)"></b> · 평균 <b x-text="histAvgCt > 0 ? fmt(histAvgCt) : '--'"></b>
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">제외 기준 범위</label>
-                        <div class="sm-times">
-                            <div>
-                                <div class="form-helper" style="margin:0 0 5px;">최소 시간</div>
-                                <div class="range-row">
-                                    <input type="number" class="form-field" min="0" step="any" placeholder="제한 없음" x-model="rangeForm.min" />
-                                    <select class="form-select range-unit" :value="rangeForm.minUnit" @change="changeUnit('min', $event.target.value)" title="최소 시간 단위">
-                                        <option value="s">초</option><option value="m">분</option><option value="h">시간</option>
-                                    </select>
-                                </div>
-                            </div>
-                            <div>
-                                <div class="form-helper" style="margin:0 0 5px;">최대 시간</div>
-                                <div class="range-row">
-                                    <input type="number" class="form-field" min="0" step="any" placeholder="제한 없음" x-model="rangeForm.max" />
-                                    <select class="form-select range-unit" :value="rangeForm.maxUnit" @change="changeUnit('max', $event.target.value)" title="최대 시간 단위">
-                                        <option value="s">초</option><option value="m">분</option><option value="h">시간</option>
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="form-helper" style="margin:7px 0 0;" x-show="rangePreviewLabel" x-text="rangePreviewLabel"></div>
-                    </div>
-                </div>
-                <div class="sm-foot">
-                    <button class="btn btn-outlined" @click="resetExclusions(); closeRangeModal()" :disabled="!_exRange" title="이 Flow 의 제외 범위 해제 (전체 복원)">제외 해제</button>
-                    <button class="btn btn-filled" @click="applyRange()"><span class="material-icons" style="font-size:17px;">check</span> 적용</button>
-                </div>
-            </div>
-        </div>
     </main>
 
     <!-- 인플레이스 편집 토스트 -->
@@ -1199,11 +1014,11 @@
     function dashboardApp() {
         const SYSTEM_COLORS = ['#2A3646', '#3A4A5E', '#4A5B70', '#5E7088', '#7889A0'];
         const CT_DONUT_COLORS = ['#0058be', '#16a34a', '#0ea5e9', '#10b981', '#6366f1', '#0891b2', '#22c55e', '#3b82f6', '#14b8a6', '#8b5cf6', '#2563eb', '#059669'];
-        const histCache = {};
         return {
             flows: [], layout: null, hasData: false, loading: true, error: null, demoBlocked: false, dark: false,
             cardScale: 0.15,
             selectedFlowName: null,
+            hoverFlowName: null,
             editing: false,
             availableFlows: [],
             isStale: false,
@@ -1219,16 +1034,7 @@
             _drag: null,
             editToast: { show: false, msg: '', kind: 'info' },
             _editToastT: null,
-            flowHistory: [],
-            histAvgCt: 0, histStdCt: 0,
-            _histShownFor: null,
-            histView: 'chart',
-            histLimit: 200,
-            _histChart: null,
             _ctDonut: null,
-            rangeByFlow: {},
-            rangeModalOpen: false,
-            rangeForm: { min: '', max: '', minUnit: 's', maxUnit: 's' },
             showAverage: false,
             sortField: 'ct', sortDesc: true,
             flowProcessOrder: {},
@@ -1251,12 +1057,11 @@
                     if (e.key !== 'dspilot-theme') return;
                     this.dark = e.newValue === 'dark';
                     this._applyTheme();
-                    this.$nextTick(() => { this.renderCtDonut(); if (this.histView === 'chart') this.renderHistChart(); });
+                    this.$nextTick(() => { this.renderCtDonut(); });
                 });
                 this.snapEnabled = localStorage.getItem('dspilot-dash-snap') === '1';
                 const ss = parseInt(localStorage.getItem('dspilot-dash-snapsize'), 10);
                 if (!isNaN(ss)) this.snapSize = Math.max(20, Math.min(240, Math.round(ss / 10) * 10));
-                await this.loadExclusions();
                 await this.loadSnapshot();
                 await this.loadShift();
                 this.loadNavSummary();
@@ -1284,7 +1089,7 @@
                 this.dark = !this.dark;
                 localStorage.setItem('dspilot-theme', this.dark ? 'dark' : 'light');
                 this._applyTheme();
-                this.$nextTick(() => { this.renderCtDonut(); if (this.histView === 'chart') this.renderHistChart(); });
+                this.$nextTick(() => { this.renderCtDonut(); });
             },
             persistSnap() { localStorage.setItem('dspilot-dash-snap', this.snapEnabled ? '1' : '0'); localStorage.setItem('dspilot-dash-snapsize', String(this.snapSize)); },
 
@@ -1335,7 +1140,6 @@
                         const stillPlaced = this.layout && this.layout.flowPlacements.some(p => p.flowName === this.selectedFlowName);
                         if (!stillPlaced) this.selectedFlowName = null;
                     }
-                    this.syncHistory();
                     this.loadShift();
                     this.loadErrorStatus();
                 } catch (e) {
@@ -1377,9 +1181,7 @@
                     if (this.editing) this.reloadBlueprint().then(() => this.editToastShow('Flow 집합이 변경되어 편집 도면을 새로고침했습니다.', 'info')).catch(() => {});
                     this.loadSnapshot();
                 });
-                conn.on('FlowHistoryCleared', trigger);
                 conn.on('ShiftChanged', () => { this.loadShift(); });
-                conn.on('ExclusionsChanged', () => { this.loadExclusions(); });
                 conn.onreconnected(() => { this.rt.connected = true; this.loadSnapshot(); });
                 conn.onreconnecting(() => { this.rt.connected = false; });
                 conn.onclose(() => { this.rt.connected = false; });
@@ -1414,8 +1216,7 @@
                 const mtFrac = total > 0 ? mt / total : 0;
                 const isBottleneck = fp.flowName === this.maxCtName && !isEmpty;
                 const isMaxWait = fp.flowName === this.maxWtName && !isEmpty;
-                const edgeColor = isBottleneck ? 'var(--red)'
-                    : isEmpty ? 'var(--color-lines-strong)'
+                const edgeColor = isEmpty ? 'var(--color-lines-strong)'
                     : (mtFrac >= 0.5 ? 'var(--dash-mt)' : 'var(--dash-wt)');
                 return {
                     flowName: fp.flowName,
@@ -1790,7 +1591,7 @@
             },
             renderCtDonut() {
                 const rows = this.chartData;
-                const sel = this.selectedFlowName;
+                const sel = this.hoverFlowName || this.selectedFlowName;
                 const maxName = this.maxCtName;
                 const cv = this.$refs.ctDonut;
                 if (!cv || !window.Chart) return;
@@ -1843,258 +1644,21 @@
                             legend: { display: false },
                             tooltip: { callbacks: { label: (c) => `${c.label}: ${fmt(c.parsed)} (${(c.parsed * 100 / total).toFixed(1)}%)` } },
                         },
-                        onClick: (e, els) => { if (els && els.length) this.selectFlow(labels[els[0].index]); },
+                        onClick: (e, els) => { if (els && els.length) this.goFlow(labels[els[0].index]); },
                     },
                 });
             },
 
-            setDisplayMode(avg) { this.showAverage = avg; this.syncHistory(); },
-
-            get histFlowName() { return this.selectedFlowName || this.maxCtName || null; },
-            get histIsAuto() { return !this.selectedFlowName && !!this.maxCtName; },
-            get _exRange() {
-                const r = this.rangeByFlow[this.histFlowName];
-                return (r && (r.min != null || r.max != null)) ? r : null;
-            },
-            get _exRangeMs() {
-                const r = this._exRange;
-                if (!r) return null;
-                return { min: r.min != null ? r.min * 1000 : null, max: r.max != null ? r.max * 1000 : null };
-            },
-            get rangeLabel() {
-                const r = this._exRangeMs;
-                if (!r) return '';
-                const lo = r.min != null ? this.fmt(r.min) : null;
-                const hi = r.max != null ? this.fmt(r.max) : null;
-                if (lo != null && hi != null) return lo + ' ~ ' + hi;
-                if (lo != null) return '≥ ' + lo;
-                return '≤ ' + hi;
-            },
-            get histCtMinMs() { const c = this.flowHistory.map(h => h.ct ?? 0).filter(v => v > 0); return c.length ? Math.min(...c) : 0; },
-            get histCtMaxMs() { const c = this.flowHistory.map(h => h.ct ?? 0).filter(v => v > 0); return c.length ? Math.max(...c) : 0; },
-            get visibleHistory() {
-                const r = this._exRangeMs;
-                if (!r) return this.flowHistory;
-                const min = r.min, max = r.max;
-                return this.flowHistory.filter(h => {
-                    const ct = h.ct ?? 0;
-                    if (min != null && ct < min) return false;
-                    if (max != null && ct > max) return false;
-                    return true;
-                });
-            },
-            get excludedCount() {
-                const r = this._exRangeMs;
-                if (!r) return 0;
-                const min = r.min, max = r.max;
-                let n = 0;
-                for (const h of this.flowHistory) {
-                    const ct = h.ct ?? 0;
-                    if ((min != null && ct < min) || (max != null && ct > max)) n++;
-                }
-                return n;
-            },
+            setDisplayMode(avg) { this.showAverage = avg; },
 
             selectFlow(name) {
                 const next = (name && this.selectedFlowName === name) ? null : (name || null);
                 this.selectedFlowName = next;
-                this.syncHistory();
             },
-            syncHistory() {
-                const target = this.histFlowName;
-                if (!target) { this._histShownFor = null; this.setHistory([]); return; }
-                if (target !== this._histShownFor) {
-                    this._histShownFor = target;
-                    if (histCache[target]) this.setHistory(histCache[target]);
-                }
-                this.loadHistory(target);
-            },
-            async loadHistory(name) {
-                try {
-                    const rows = await this.apiGet('/api/dashboard/flows/' + encodeURIComponent(name) + '/history?limit=' + this.histLimit);
-                    histCache[name] = rows;
-                    if (this.histFlowName === name) this.setHistory(rows);
-                } catch (e) {
-                    if (e.message !== 'demo-blocked') console.error('history failed', e);
-                    if (this.histFlowName === name) this.setHistory([]);
-                }
-            },
-
-            setHistory(rows) {
-                rows = Array.isArray(rows) ? rows : [];
-                rows.forEach((h, i) => {
-                    h._key = (h.recordedAt != null && h.recordedAt !== '')
-                        ? ('r' + h.recordedAt)
-                        : ('n' + (h.cycleNo ?? '?') + '|' + (h.mt ?? 0) + '|' + (h.ct ?? 0) + '|' + i);
-                    h._time = this.histTime(h.recordedAt);
-                });
-                this.flowHistory = rows;
-                this.recomputeHist();
-            },
-            recomputeHist() {
-                const cts = [];
-                for (const h of this.visibleHistory) { const ct = h.ct ?? 0; if (ct > 0) cts.push(ct); }
-                let avg = 0, std = 0;
-                if (cts.length) {
-                    avg = cts.reduce((a, b) => a + b, 0) / cts.length;
-                    if (cts.length >= 2) std = Math.sqrt(cts.reduce((a, b) => a + (b - avg) * (b - avg), 0) / cts.length);
-                }
-                this.histAvgCt = avg;
-                this.histStdCt = std;
-                for (const h of this.flowHistory) {
-                    const ct = h.ct ?? 0, wt = h.wt ?? 0;
-                    h._status = (ct > 0 && std > 0)
-                        ? (ct > avg + std ? { cls: 'bad', label: '초과' }
-                           : ct > avg + std * 0.5 ? { cls: 'warn', label: '주의' }
-                           : { cls: 'ok', label: '정상' })
-                        : null;
-                    h._wt = ct > 0 ? (wt * 100 / ct).toFixed(1) + '%' : '--';
-                }
-                if (this.histView === 'chart') this.$nextTick(() => this.renderHistChart());
-            },
-            setHistView(v) {
-                this.histView = v;
-                if (v === 'chart') this.$nextTick(() => this.renderHistChart());
-            },
-            renderHistChart() {
-                const cv = this.$refs.histChart;
-                if (!cv || !window.Chart) return;
-                if (this._histChart) { this._histChart.destroy(); this._histChart = null; }
-                const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
-                const rows = this.visibleHistory.slice().reverse();
-                const times = rows.map(h => h._time || '');
-                const labels = rows.map(h => h._time ? h._time.slice(6) : '');
-                const toS = (ms) => Math.round((ms ?? 0) / 100) / 10;
-                const mt = rows.map(h => toS(h.mt));
-                const wt = rows.map(h => toS(h.wt));
-                const avg = this.histAvgCt > 0 ? toS(this.histAvgCt) : null;
-                const cMt = css('--dash-mt') || css('--color-primary') || '#12A594';
-                const cWt = css('--dash-wt') || '#AEB9C6';
-                const cRed = css('--red') || css('--color-error') || '#D8392B';
-                const grid = css('--color-lines') || 'rgba(14,27,42,0.10)';
-                const txt = css('--color-text-secondary') || '#51637A';
-                const datasets = [
-                    { label: 'MT (가동)', data: mt, backgroundColor: cMt, stack: 'ct', borderWidth: 0 },
-                    { label: 'WT (대기)', data: wt, backgroundColor: cWt, stack: 'ct', borderWidth: 0 },
-                ];
-                if (avg != null) {
-                    datasets.push({ type: 'line', label: '평균 CT', data: labels.map(() => avg),
-                        borderColor: cRed, borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0, fill: false });
-                }
-                const fmtMs = (s) => this.fmt(s * 1000);
-                this._histChart = new Chart(cv, {
-                    type: 'bar',
-                    data: { labels, datasets },
-                    options: {
-                        responsive: true, maintainAspectRatio: false, animation: false,
-                        interaction: { mode: 'index', intersect: false },
-                        plugins: {
-                            legend: { position: 'top', labels: { color: txt, boxWidth: 12, font: { size: 11 } } },
-                            tooltip: { callbacks: {
-                                title: (items) => times[items[0].dataIndex] || '',
-                                label: (c) => `${c.dataset.label}: ${fmtMs(c.parsed.y || 0)}`,
-                            } },
-                        },
-                        scales: {
-                            x: { stacked: true, grid: { display: false }, title: { display: true, text: '사이클 발생 시각', color: txt }, ticks: { color: txt, font: { size: 10 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 12 } },
-                            y: { stacked: true, beginAtZero: true, min: 0, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, callback: (v) => fmtMs(v) }, title: { display: true, text: '시간', color: txt } },
-                        },
-                    },
-                });
-            },
-            _unitSec: { s: 1, m: 60, h: 3600 },
-            _rangeFieldSec(field) {
-                const v = field === 'min' ? this.rangeForm.min : this.rangeForm.max;
-                const unit = field === 'min' ? this.rangeForm.minUnit : this.rangeForm.maxUnit;
-                const n = parseFloat(v), mult = this._unitSec[unit] || 1;
-                return (v !== '' && v != null && isFinite(n) && n >= 0) ? Math.round(n * mult * 1000) / 1000 : null;
-            },
-            get rangePreviewLabel() {
-                const lo = this._rangeFieldSec('min'), hi = this._rangeFieldSec('max');
-                if (lo == null && hi == null) return '';
-                const loS = lo != null ? this.fmt(lo * 1000) : null, hiS = hi != null ? this.fmt(hi * 1000) : null;
-                if (loS != null && hiS != null) return '적용: ' + loS + ' ~ ' + hiS;
-                return loS != null ? ('적용: ≥ ' + loS) : ('적용: ≤ ' + hiS);
-            },
-            openRangeModal() {
-                if (!this.histFlowName) return;
-                const r = this.rangeByFlow[this.histFlowName];
-                this.rangeForm.minUnit = 's';
-                this.rangeForm.maxUnit = 's';
-                const toStr = (sec) => (sec != null) ? String(sec) : '';
-                this.rangeForm.min = toStr(r?.min);
-                this.rangeForm.max = toStr(r?.max);
-                this.rangeModalOpen = true;
-            },
-            changeUnit(field, u) {
-                const cur = field === 'min' ? this.rangeForm.minUnit : this.rangeForm.maxUnit;
-                if (u === cur) return;
-                const from = this._unitSec[cur] || 1, to = this._unitSec[u] || 1;
-                const v = field === 'min' ? this.rangeForm.min : this.rangeForm.max;
-                const n = parseFloat(v);
-                const conv = (v === '' || v == null || !isFinite(n)) ? v : String(Math.round((n * from / to) * 1000) / 1000);
-                if (field === 'min') { this.rangeForm.min = conv; this.rangeForm.minUnit = u; }
-                else { this.rangeForm.max = conv; this.rangeForm.maxUnit = u; }
-            },
-            closeRangeModal() { this.rangeModalOpen = false; },
-            async applyRange() {
-                const flow = this.histFlowName;
-                if (!flow) { this.rangeModalOpen = false; return; }
-                let min = this._rangeFieldSec('min'), max = this._rangeFieldSec('max');
-                if (min != null && max != null && min > max) { const t = min; min = max; max = t; }
-                if (min == null && max == null) {
-                    const { [flow]: _drop, ...rest } = this.rangeByFlow;
-                    this.rangeByFlow = rest;
-                } else {
-                    this.rangeByFlow = { ...this.rangeByFlow, [flow]: { min, max } };
-                }
-                this.recomputeHist();
-                this.rangeModalOpen = false;
-                await this.saveExclusion(flow, min, max);
-            },
-            async resetExclusions() {
-                const flow = this.histFlowName;
-                if (!flow || !this.rangeByFlow[flow]) return;
-                const { [flow]: _drop, ...rest } = this.rangeByFlow;
-                this.rangeByFlow = rest;
-                this.recomputeHist();
-                await this.saveExclusion(flow, null, null);
-            },
-            _exclusionsToMap(rows) {
-                const map = {};
-                for (const r of (rows || [])) {
-                    if (r && r.flowName) map[r.flowName] = { min: r.minSec ?? null, max: r.maxSec ?? null };
-                }
-                return map;
-            },
-            async loadExclusions() {
-                try {
-                    const rows = await this.apiGet('/api/dashboard/exclusions');
-                    this.rangeByFlow = this._exclusionsToMap(rows);
-                    this.recomputeHist();
-                } catch (e) { /* 미수신 시 기존값 유지 */ }
-            },
-            async saveExclusion(flowName, minSec, maxSec) {
-                try {
-                    const res = await fetch('/api/dashboard/exclusions', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                        body: JSON.stringify({ flowName, minSec, maxSec })
-                    });
-                    if (res.status === 503) { this.demoBlocked = true; return; }
-                    if (!res.ok) throw new Error('HTTP ' + res.status);
-                    this.rangeByFlow = this._exclusionsToMap(await res.json());
-                    this.recomputeHist();
-                } catch (e) {
-                    this.error = '이상치 제외 저장 실패: ' + e.message;
-                }
-            },
-
-            histTime(iso) {
-                const d = new Date(iso); if (isNaN(d)) return '';
-                const p = (x) => String(x).padStart(2, '0');
-                return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
-            },
+            // 카드/범례 = 호버 강조(도넛 동기 강조) · 클릭 = 상세 페이지 이동
+            get focusFlowName() { return this.hoverFlowName || this.selectedFlowName; },
+            hoverFlow(name) { this.hoverFlowName = this.editing ? null : (name || null); },
+            goFlow(name) { if (name) window.location.href = '/flow?name=' + encodeURIComponent(name); },
 
             toggleFullscreen() {
                 const el = this.$refs.layoutCard;
