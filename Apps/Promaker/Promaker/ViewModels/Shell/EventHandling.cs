@@ -159,6 +159,12 @@ public partial class MainViewModel
         }
 
         UpdateMatching(Canvas.CanvasNodes, entityId, static n => n.Id, static (n, value) => n.Name = value, newName);
+        // Flow rename 시 canvas 의 자식 Work node 는 자신의 work id 를 가져 flow id(entityId)로는 위
+        // UpdateMatching 에 안 걸린다. work.Name="{FlowPrefix}.{LocalName}" 이고 FlowPrefix 는 RenameEntity
+        // 가 이미 store 에 cascade 했으므로, 자식 Work 의 (갱신된) Name 으로 canvas node 를 동기화한다.
+        // entityId 가 Flow 가 아니면 worksOf 는 비어 no-op.
+        foreach (var work in Queries.worksOf(entityId, _store))
+            UpdateMatching(Canvas.CanvasNodes, work.Id, static n => n.Id, static (n, value) => n.Name = value, work.Name);
         UpdateMatching(Selection.EnumerateTreeNodes(), entityId, static n => n.Id, static (n, value) => n.Name = value, treeName);
         UpdateMatching(Canvas.OpenTabs, entityId, static t => t.RootId, static (t, value) => t.Title = value, newName);
         PropertyPanel.ApplyEntityRename(entityId, newName);
