@@ -913,6 +913,8 @@
                     conn.on('CallStateChanged', trigger);
                     conn.on('DatabaseRebuilt', () => this.load(true));
                     conn.on('FlowHistoryCleared', trigger);
+                    // 신규 UserTag 알림 — 총알림·시계열 추이를 상단바 배지와 동일하게 실시간 갱신 (issue #176).
+                    conn.on('UserTagAlertsChanged', trigger);
                     conn.onreconnected(() => { this.rt.connected = true; this.load(true); });
                     conn.onreconnecting(() => { this.rt.connected = false; });
                     conn.onclose(() => { this.rt.connected = false; });
