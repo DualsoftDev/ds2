@@ -51,8 +51,8 @@
 
         /* Calculator */
         .pw-calc { display: flex; flex-direction: column; gap: 10px; max-width: 360px; margin: 0 auto; }
-        .pw-calc-display { padding: 10px 14px; background: #11161d; color: #e6edf3; border-radius: 8px; text-align: right; font-family: var(--font-mono, 'Consolas', monospace); min-height: 64px; }
-        .pw-calc-expr { color: #8b949e; font-size: 12px; min-height: 16px; word-break: break-all; }
+        .pw-calc-display { padding: 10px 14px; background: #0E1722; color: #DCE6F0; border-radius: 8px; text-align: right; font-family: var(--font-mono, 'Consolas', monospace); min-height: 64px; }
+        .pw-calc-expr { color: #7C90A8; font-size: 12px; min-height: 16px; word-break: break-all; }
         .pw-calc-result { font-size: 28px; font-weight: 600; word-break: break-all; }
         .pw-calc-keys { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
         .pw-key { height: 48px; border: 1px solid var(--color-lines, #e0e0e0); border-radius: 8px; background: var(--color-surface, #fff); color: var(--color-text-primary, #1a1f24); font-size: 16px; font-weight: 600; cursor: pointer; transition: background-color 0.1s, transform 0.05s; }
@@ -86,12 +86,12 @@
         /* Chips */
         .pw-chips { display: flex; flex-wrap: wrap; gap: 6px; }
         .pw-chip { padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; }
-        .pw-chip-ok   { background: rgba(56, 142, 60, 0.15); color: #2e7d32; }
-        .pw-chip-run  { background: rgba(25, 118, 210, 0.15); color: #1565c0; }
-        .pw-chip-warn { background: rgba(240, 136, 62, 0.18); color: #ef6c00; }
-        .pw-chip-err  { background: rgba(211, 47, 47, 0.15); color: #c62828; }
-        .pw-chip-idle { background: rgba(126, 87, 194, 0.15); color: #5e35b1; }
-        .pw-chip-stop { background: rgba(69, 90, 100, 0.15); color: #37474f; }
+        .pw-chip-ok   { background: rgba(var(--color-success-rgb), 0.15); color: var(--color-success); }
+        .pw-chip-run  { background: rgba(var(--color-primary-rgb), 0.15); color: var(--color-primary); }
+        .pw-chip-warn { background: rgba(var(--color-warning-rgb), 0.16); color: var(--color-warning); }
+        .pw-chip-err  { background: rgba(var(--color-error-rgb), 0.15); color: var(--color-error); }
+        .pw-chip-idle { background: color-mix(in srgb, var(--purple) 16%, transparent); color: var(--purple); }
+        .pw-chip-stop { background: color-mix(in srgb, var(--color-secondary) 18%, transparent); color: var(--color-secondary); }
 
         /* Palette */
         .pw-palette { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; font-size: 11px; color: var(--color-text-secondary); }
@@ -300,10 +300,10 @@
 
                 // 결정적 시드 데모 위젯
                 flowSamples: [
-                    { name: 'Assembly-1', state: 'Running', cycle: 845, progress: 72, color: '#6750A4' },
-                    { name: 'Welding-2', state: 'Ready', cycle: 1120, progress: 100, color: '#4CAF50' },
-                    { name: 'Inspect-3', state: 'Warning', cycle: 612, progress: 45, color: '#F59E0B' },
-                    { name: 'Pack-4', state: 'Idle', cycle: 980, progress: 18, color: '#B197FC' },
+                    { name: 'Assembly-1', state: 'Running', cycle: 845, progress: 72, color: '#0E7CCB' },
+                    { name: 'Welding-2', state: 'Ready', cycle: 1120, progress: 100, color: '#12A594' },
+                    { name: 'Inspect-3', state: 'Warning', cycle: 612, progress: 45, color: '#C07A10' },
+                    { name: 'Pack-4', state: 'Idle', cycle: 980, progress: 18, color: '#2FA968' },
                 ],
                 chartLine: '', chartArea: '', chartAvg: 0, chartPeak: 0,
                 bars: [], barMax: 0,

@@ -70,6 +70,72 @@ public class CctvController : ControllerBase
         return new CctvStatusDto(_mediaMtx.LastSyncOk, _mediaMtx.LastSyncMessage);
     }
 
+    // ──────────────────────────── 카메라 설정 편집 (RTSP 추가/편집은 이 페이지에서) ────────────────────────────
+
+    /// <summary>
+    /// 카메라 설정 편집용 전체 스냅샷 (RtspUrl·Enabled 포함) + MediaMTX 동기화 상태.
+    /// <see cref="GetConfig"/> 는 영상벽용 정제 목록(이름+경로)만 주므로 편집은 별도로 내려보낸다.
+    /// (RTSP 카메라 추가/편집을 Settings 페이지에서 CCTV 페이지로 이관 — doc/20 사용자 요구.)
+    /// </summary>
+    [HttpGet("settings")]
+    public ActionResult<CctvDto> GetSettings()
+    {
+        var cctv = _settings.LoadSettings().Cctv;
+        return new CctvDto(
+            cctv.MediaMtxApiUrl,
+            cctv.WebRtcPort,
+            cctv.Cameras.Select(c => new CameraDto(c.Name, c.RtspUrl, c.Enabled)).ToList(),
+            _mediaMtx.LastSyncOk,
+            _mediaMtx.LastSyncMessage,
+            cctv.WebRtcAdditionalHosts);
+    }
+
+    /// <summary>
+    /// 카메라 설정 저장 + MediaMTX 즉시 동기화 (Settings 페이지의 CCTV 파트를 이관).
+    /// 단일 카메라 개명(rename)만 오버레이 FK 이전 — 추가/삭제/순서변경과 구분, 모호하면 보존만 하고 미적용
+    /// (좌표 유실 방지, doc/20 §3·§10.3). antiforgery 미적용 — 평범한 JSON POST.
+    /// </summary>
+    [HttpPost("settings")]
+    public async Task<ActionResult<CctvDto>> SaveSettings([FromBody] CctvSettingsSaveDto req, CancellationToken ct)
+    {
+        var m = _settings.LoadSettings();
+
+        var oldCameraNames = m.Cctv.Cameras
+            .Select(c => c.Name).Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
+
+        m.Cctv.MediaMtxApiUrl = string.IsNullOrWhiteSpace(req.MediaMtxApiUrl) ? m.Cctv.MediaMtxApiUrl : req.MediaMtxApiUrl;
+        if (req.WebRtcPort > 0) m.Cctv.WebRtcPort = req.WebRtcPort;
+        // 공인주소: null 이면 미변경, 빈 문자열이면 LAN 전용으로 명시적 해제. (Trim 으로 입력 공백 정리)
+        if (req.WebRtcAdditionalHosts is not null) m.Cctv.WebRtcAdditionalHosts = req.WebRtcAdditionalHosts.Trim();
+        m.Cctv.Cameras = (req.Cameras ?? new List<CameraDto>())
+            .Select(c => new CctvCamera { Name = c.Name ?? "", RtspUrl = c.RtspUrl ?? "", Enabled = c.Enabled })
+            .ToList();
+
+        _settings.SaveSettings(m);
+
+        // 단일 카메라 개명 감지 → 오버레이 FK 이전(삭제 아님).
+        var newCameraNames = m.Cctv.Cameras
+            .Select(c => c.Name).Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
+        var removed = oldCameraNames.Except(newCameraNames, StringComparer.OrdinalIgnoreCase).ToList();
+        var added = newCameraNames.Except(oldCameraNames, StringComparer.OrdinalIgnoreCase).ToList();
+        if (removed.Count == 1 && added.Count == 1)
+        {
+            try { _overlays.RenameCamera(removed[0], added[0]); }
+            catch { /* 오버레이 FK 이전 실패는 비치명 — 저장 자체는 성공 처리 */ }
+        }
+
+        // 저장한 카메라 목록을 MediaMTX 에 동기화 (실패해도 저장 자체는 성공).
+        await _mediaMtx.SyncAsync(ct);
+
+        return new CctvDto(
+            m.Cctv.MediaMtxApiUrl,
+            m.Cctv.WebRtcPort,
+            m.Cctv.Cameras.Select(c => new CameraDto(c.Name, c.RtspUrl, c.Enabled)).ToList(),
+            _mediaMtx.LastSyncOk,
+            _mediaMtx.LastSyncMessage,
+            m.Cctv.WebRtcAdditionalHosts);
+    }
+
     // ──────────────────────────── 설비 오버레이 (P4) ────────────────────────────
 
     /// <summary>카메라별 오버레이 목록. camera 미지정 시 전체.</summary>
@@ -271,6 +337,12 @@ public class CctvController : ControllerBase
 public record CctvConfigDto(int WebRtcPort, List<CctvCameraDto> Cameras, int TotalCount, int MaxConcurrent);
 public record CctvCameraDto(string Name, string Id);
 public record CctvStatusDto(bool Ok, string Message);
+
+/// <summary>
+/// 카메라 설정 저장 요청. SettingsController.SaveRequestDto 의 CCTV 부분을 분리한 것.
+/// 응답은 <see cref="CctvDto"/> 재사용(MediaMtxApiUrl/WebRtcPort/Cameras + 동기화 상태).
+/// </summary>
+public record CctvSettingsSaveDto(string? MediaMtxApiUrl, int WebRtcPort, List<CameraDto>? Cameras, string? WebRtcAdditionalHosts = null);
 
 // ── 오버레이 DTO (camelCase 자동: cameraName, flowId, callId, anchorX ...) ──
 

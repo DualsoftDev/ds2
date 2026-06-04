@@ -561,33 +561,35 @@
                     const labels = this.buckets.map(b => labelFor(b.ts));
                     const toSec = (ms) => Math.round(ms / 1000 * 10) / 10;
                     const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim() || '#888';
-                    const cPrimary = css('--color-primary') || '#1f3a5f';
-                    const cSecondary = css('--color-secondary') || '#009bb4';
-                    const grid = 'rgba(128,128,128,0.15)';
+                    const cCt = css('--color-primary') || '#0E7CCB';   // azure brand accent
+                    const cMt = css('--mt') || '#12A594';              // running = teal
+                    const cWt = css('--wt') || '#C07A10';              // wait = amber
+                    const grid = css('--color-lines') || 'rgba(14,27,42,0.10)';
+                    const tickColor = css('--color-text-secondary') || '#5A6B7E';
 
                     if (this.$refs.trendChart) {
                         this._charts.trend = new Chart(this.$refs.trendChart, {
                             type: 'line',
                             data: { labels, datasets: [
-                                { label: '평균 CT (s)', data: this.buckets.map(b => toSec(b.avgCT)), borderColor: cPrimary, backgroundColor: 'transparent', tension: 0.25, borderWidth: 2 },
-                                { label: '평균 MT (s)', data: this.buckets.map(b => toSec(b.avgMT)), borderColor: cSecondary, backgroundColor: 'transparent', tension: 0.25, borderWidth: 2 },
-                                { label: '평균 WT (s)', data: this.buckets.map(b => toSec(b.avgWT)), borderColor: '#e0a82e', backgroundColor: 'transparent', tension: 0.25, borderWidth: 2 },
+                                { label: '평균 CT (s)', data: this.buckets.map(b => toSec(b.avgCT)), borderColor: cCt, backgroundColor: 'transparent', tension: 0.25, borderWidth: 2 },
+                                { label: '평균 MT (s)', data: this.buckets.map(b => toSec(b.avgMT)), borderColor: cMt, backgroundColor: 'transparent', tension: 0.25, borderWidth: 2 },
+                                { label: '평균 WT (s)', data: this.buckets.map(b => toSec(b.avgWT)), borderColor: cWt, backgroundColor: 'transparent', tension: 0.25, borderWidth: 2 },
                             ]},
-                            options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'top' } }, scales: { x: { grid: { color: grid } }, y: { beginAtZero: true, grid: { color: grid }, title: { display: true, text: '초' } } } }
+                            options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'top', labels: { color: tickColor } } }, scales: { x: { grid: { color: grid }, ticks: { color: tickColor } }, y: { beginAtZero: true, grid: { color: grid }, ticks: { color: tickColor }, title: { display: true, text: '초', color: tickColor } } } }
                         });
                     }
                     if (this.$refs.countChart) {
                         this._charts.count = new Chart(this.$refs.countChart, {
                             type: 'bar',
-                            data: { labels, datasets: [{ label: '사이클 수', data: this.buckets.map(b => b.count), backgroundColor: cPrimary }] },
-                            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: grid } }, y: { beginAtZero: true, grid: { color: grid } } } }
+                            data: { labels, datasets: [{ label: '사이클 수', data: this.buckets.map(b => b.count), backgroundColor: cCt }] },
+                            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: grid }, ticks: { color: tickColor } }, y: { beginAtZero: true, grid: { color: grid }, ticks: { color: tickColor } } } }
                         });
                     }
                     if (this.$refs.distChart) {
                         this._charts.dist = new Chart(this.$refs.distChart, {
                             type: 'doughnut',
-                            data: { labels: ['가동(MT)', '대기(WT)'], datasets: [{ data: [this.trend.totalMt, this.trend.totalWt], backgroundColor: [cPrimary, cSecondary] }] },
-                            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+                            data: { labels: ['가동(MT)', '대기(WT)'], datasets: [{ data: [this.trend.totalMt, this.trend.totalWt], backgroundColor: [cMt, cWt] }] },
+                            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: tickColor } } } }
                         });
                     }
                 },

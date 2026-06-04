@@ -97,9 +97,12 @@ public class CallTestController : ControllerBase
         // segment 데이터는 H/T 와 무관하게 먼저 가져온다.
         var data = await _cycleAnalysis.GetActualIoSignalSegmentsInTimeRangeAsync(req.FlowName, start, end);
 
-        var chartStart = data.ActualEventStartTime ?? start;
-        var chartEnd = data.ActualEventEndTime ?? end;
-        if (chartEnd <= chartStart) chartEnd = chartStart.AddSeconds(1);
+        // 간트 시간축 = 사용자가 요청한 날짜 범위 그대로(고정). 과거엔 실제 신호 발생 구간(min/max)에
+        // 맞춰 자동 축소(fit-to-data)했으나, 그러면 윈도우를 넓혀도 축이 데이터 범위로 되돌아가
+        // "날짜를 바꿔도 간트가 안 변한다"로 보였다(특히 신호가 드문/없는 구간). 이제 요청 [start,end] 를
+        // 그대로 축으로 쓴다 — 세그먼트/경계/Tail 은 모두 [start,end] 로 클램프되므로 항상 축 안에 들어온다.
+        var chartStart = start;
+        var chartEnd = end > start ? end : start.AddSeconds(1);
 
         // lane 단위 grouping + interval merge (Blazor 동일).
         var lanes = data.Items

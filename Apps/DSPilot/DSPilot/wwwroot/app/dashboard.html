@@ -23,8 +23,8 @@
         /* ── 템플릿(보라 도넛) 팔레트 ──
            MT(가동)=보라 진행분, WT(대기)=회색 잔여분. 상태색(녹/앰버/적)은 테두리·배지로만 구분.
            전역 --mt(청록)/--wt(앰버) 토큰은 그대로 둠(타 페이지 데이터색 + 색일관성 규칙 유지) → 이 페이지 표시색만 재배색. */
-        :root { --dash-mt: #6D5BD0; --dash-wt: #B4BBC9; }   /* 직접 hex: JS css('--dash-mt') 가 var() 미해소 문자열을 받지 않도록 */
-        .dark-theme { --dash-mt: #B197FC; --dash-wt: #5A6A82; }
+        :root { --dash-mt: #12A594; --dash-wt: #AEB9C6; }   /* 직접 hex: JS css('--dash-mt') 가 var() 미해소 문자열을 받지 않도록 (가동=teal / 대기=cool grey) */
+        .dark-theme { --dash-mt: #2DD4BF; --dash-wt: #46566B; }
 
         /* ── 독립 셸 (shell.js 미동작 시 fallback) ── */
         .dsp-page { min-height: 100vh; display: flex; flex-direction: column; background: var(--color-background); color: var(--color-text-primary); font-family: var(--font-family); }
@@ -47,13 +47,32 @@
         .dash-live.is-poll { color: var(--color-text-secondary); }
         @keyframes dash-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
+        /* ── UserTag 이상(Error) 배너 ──
+           데이터: /api/user-tags/error-status (최근 10분 활성 Error). 대시보드 폴링/SignalR 주기 공유.
+           닫기 가능하되 새 Error(최신 id 변경) 발생 시 자동 재등장, 활성 0 되면 자동 소멸. nav 배지·/uptime 과 동일 정의. */
+        .err-banner { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; padding: 11px 14px; border-radius: var(--radius-md); flex-shrink: 0; color: var(--red); background: color-mix(in srgb, var(--red) 10%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--red) 45%, transparent); border-left: 4px solid var(--red); box-shadow: 0 0 0 3px rgba(var(--color-error-rgb), 0.08); }
+        .dark-theme .err-banner { background: color-mix(in srgb, var(--red) 16%, var(--color-surface)); }
+        .err-banner .eb-icon { font-size: 26px; flex-shrink: 0; animation: eb-blink 1.4s ease-in-out infinite; }
+        @keyframes eb-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+        .err-banner .eb-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+        .err-banner .eb-title { font-size: 0.92rem; font-weight: 800; letter-spacing: -0.01em; }
+        .err-banner .eb-title .eb-count { font-variant-numeric: tabular-nums; }
+        .err-banner .eb-title .eb-window { font-weight: 600; color: var(--color-text-secondary); }
+        .err-banner .eb-sub { font-size: 0.74rem; font-weight: 600; color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .err-banner .eb-sub .eb-tag { color: var(--red); font-weight: 800; }
+        .err-banner .eb-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+        .err-banner .eb-link { display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; border-radius: var(--radius-sm); background: var(--red); color: #fff; font-size: 0.74rem; font-weight: 800; text-decoration: none; white-space: nowrap; }
+        .err-banner .eb-link:hover { filter: brightness(1.08); }
+        .err-banner .eb-link .material-icons { font-size: 16px; }
+        .err-banner .eb-dismiss { width: 30px; height: 30px; flex-shrink: 0; border: 1px solid color-mix(in srgb, var(--red) 35%, transparent); border-radius: var(--radius-sm); background: transparent; color: var(--red); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+        .err-banner .eb-dismiss:hover { background: color-mix(in srgb, var(--red) 14%, transparent); }
+        .err-banner .eb-dismiss .material-icons { font-size: 18px; }
+
         /* ── KPI 띠 (kp-target Flow 명 줄임) ── */
         .kpi-cell .kp-target { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         /* 최대 CT / 최대 대기율 = 상시 경고 강조 (Flow 카드 is-bottleneck/is-maxwait 와 동일 색코드·틴트·액센트) */
-        .kpi-cell.tone-max  { border-color: color-mix(in srgb, var(--red) 45%, var(--color-lines-strong)); border-left: 3px solid var(--red); background: #FFF6F4; }
-        .kpi-cell.tone-wait { border-color: color-mix(in srgb, var(--amber) 55%, var(--color-lines-strong)); border-left: 3px solid var(--amber); background: #FFFBF0; }
-        .dark-theme .kpi-cell.tone-max  { background: color-mix(in srgb, var(--red) 13%, var(--color-surface)); }
-        .dark-theme .kpi-cell.tone-wait { background: color-mix(in srgb, var(--amber) 12%, var(--color-surface)); }
+        .kpi-cell.tone-max  { border-color: color-mix(in srgb, var(--red) 45%, var(--color-lines-strong)); border-left: 3px solid var(--red); background: color-mix(in srgb, var(--red) 8%, var(--color-surface)); }
+        .kpi-cell.tone-wait { border-color: color-mix(in srgb, var(--amber) 55%, var(--color-lines-strong)); border-left: 3px solid var(--amber); background: color-mix(in srgb, var(--amber) 10%, var(--color-surface)); }
         /* 클릭 힌트·타겟 라벨 색도 톤에 맞춤 (기본 보라 → 적/앰버) */
         .kpi-cell.tone-max  .kp-click-hint { background: var(--red); }
         .kpi-cell.tone-wait .kp-click-hint { background: var(--amber); color: #3A2C00; }
@@ -61,9 +80,9 @@
         .kpi-cell.tone-wait .kp-target { color: #8A6D1A; }
         .dark-theme .kpi-cell.tone-wait .kp-target { color: var(--amber); }
         /* 선택 시 = 틴트 위에 색링 추가 */
-        .kpi-cell.is-active.tone-max { box-shadow: 0 0 0 3px rgba(229, 73, 79, 0.22); border-color: var(--red); }
-        .kpi-cell.is-active.tone-min { box-shadow: 0 0 0 3px rgba(54, 194, 138, 0.22); border-color: var(--green); }
-        .kpi-cell.is-active.tone-wait { box-shadow: 0 0 0 3px rgba(248, 197, 69, 0.30); border-color: var(--amber); }
+        .kpi-cell.is-active.tone-max { box-shadow: 0 0 0 3px rgba(var(--color-error-rgb), 0.22); border-color: var(--red); }
+        .kpi-cell.is-active.tone-min { box-shadow: 0 0 0 3px rgba(var(--color-success-rgb), 0.22); border-color: var(--green); }
+        .kpi-cell.is-active.tone-wait { box-shadow: 0 0 0 3px rgba(var(--color-warning-rgb), 0.30); border-color: var(--amber); }
 
         /* ── 시프트 목표 KPI 셀 (클릭 → 설정 팝업) ── */
         .kpi-shift .kp-value { color: var(--color-primary-strong); }
@@ -82,6 +101,10 @@
         .shift-modal .sm-foot { display: flex; gap: 10px; padding: 14px 22px 20px; }
         .shift-modal .sm-foot .btn { flex: 1; justify-content: center; }
         .sm-times { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        /* 값 + 단위(드롭다운) 한 줄 — 입력은 늘어나고 단위 셀렉트는 내용 폭 */
+        .range-row { display: flex; gap: 6px; align-items: center; }
+        .range-row .form-field { flex: 1 1 auto; min-width: 0; }
+        .range-row .range-unit { flex: 0 0 auto; width: auto; padding: 10px 8px; }
         .sm-seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
         .sm-seg button { padding: 10px 6px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-secondary); font-weight: 700; font-size: 0.82rem; cursor: pointer; transition: all 0.12s; }
         .sm-seg button:hover { border-color: var(--color-primary); }
@@ -113,16 +136,15 @@
 
         /* ── 라인 도면 Flow 카드: dspilot-ux.html 대시보드 카드 스타일 (도넛 → MT/WT 막대, 겹치는 배지 제거) ──
            swiss.css 의 도넛 카드 규칙(.fl-card/.fc-*)을 이 페이지에서만 오버라이드. swiss.css 는 손대지 않음. */
-        .fl-card { --fc-accent: var(--color-primary); position: absolute; z-index: 2; border: 1.5px solid var(--color-lines-strong); border-radius: 8px; background: var(--color-surface); box-shadow: 0 2px 7px rgba(10,37,64,0.12); overflow: hidden; }
+        .fl-card { --fc-accent: var(--color-primary); position: absolute; z-index: 2; border: 1.5px solid var(--color-lines-strong); border-radius: 8px; background: var(--color-surface); box-shadow: 0 2px 7px rgba(14,27,42,0.12); overflow: hidden; }
         /* 좌측 테두리 = MT/WT 우세 표시(가동 청록 --mt / 대기 앰버 --wt), 단 최대 CT Flow 면 빨강 --red.
            색은 cardFor.edgeColor 가 결정해 --fc-edge 로 주입 → 도면 범례(MT/WT/최대 CT)와 통일. */
         .fl-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 5px; background: var(--fc-edge, var(--color-primary)); border-radius: 8px 0 0 8px; z-index: 3; }
-        .fl-card:hover { border-color: var(--color-primary); box-shadow: 0 6px 16px rgba(109,91,208,0.22); }
+        .fl-card:hover { border-color: var(--color-primary); box-shadow: 0 6px 16px rgba(var(--color-primary-rgb),0.20); }
         .fl-card-selected { border-color: var(--color-primary); border-width: 2px; box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 22%, transparent); transform: none; z-index: 10; animation: none; }
         .fl-card-selected::after { display: none; }
-        .fl-card.is-bottleneck { outline: none; border: 2px solid var(--red); box-shadow: 0 0 0 4px rgba(229,73,79,0.16); background: #FFF6F4; z-index: 6; }
-        .dark-theme .fl-card.is-bottleneck { background: color-mix(in srgb, var(--red) 13%, var(--color-surface)); }
-        .fl-card.is-bottleneck.fl-card-selected { box-shadow: 0 0 0 4px rgba(229,73,79,0.30); }
+        .fl-card.is-bottleneck { outline: none; border: 2px solid var(--red); box-shadow: 0 0 0 4px rgba(var(--color-error-rgb),0.16); background: color-mix(in srgb, var(--red) 8%, var(--color-surface)); z-index: 6; }
+        .fl-card.is-bottleneck.fl-card-selected { box-shadow: 0 0 0 4px rgba(var(--color-error-rgb),0.30); }
 
         .fl-card .fc-root { justify-content: center; gap: 1.8cqmin; padding: clamp(6px,5cqmin,16px) clamp(9px,6cqmin,20px); }
         /* 2:1 가로형 카드: 이름+배지를 한 줄(상단), 막대+시간을 아래 → 짧은 높이에서 가로 폭 활용 */
@@ -139,13 +161,14 @@
                라벨로 즉시 의미 파악, 미니바로 CT 대비 비율 직관화. */
         .fc-main { flex: 1; min-height: 0; display: flex; align-items: center; gap: clamp(8px, 5cqmin, 22px); width: 100%; min-width: 0; }
         .fc-ct { flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-start; line-height: 1; }
-        .fc-ct-val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 800; font-size: clamp(1.05rem, 18cqmin, 2.8rem); color: var(--ct); letter-spacing: -0.02em; white-space: nowrap; }
+        .fc-ct-val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 800; font-size: clamp(1.05rem, 18cqmin, 2.8rem); color: var(--color-primary); letter-spacing: -0.02em; white-space: nowrap; }
         .fc-ct-lbl { font-size: clamp(0.5rem, 3.8cqmin, 0.78rem); font-weight: 800; letter-spacing: 0.14em; color: var(--color-text-disabled); margin-top: 1cqmin; }
         .fl-card.is-bottleneck .fc-ct-val { color: var(--red); }
 
         /* 우측 분해: padding-right 로 우측 하단 [자세히] 버튼 자리 확보(겹침 방지) */
         .fc-breakdown { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: clamp(3px, 2.6cqmin, 10px); padding-right: clamp(40px, 26cqmin, 72px); }
-        .fc-metric { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: clamp(4px, 2.6cqmin, 9px); min-width: 0; }
+        /* 3번째 컬럼(값)을 고정폭으로 → 값 텍스트 길이("4.1s" vs "1m 50s")에 상관없이 가동/대기 미니바(2번째 1fr 컬럼) 길이가 항상 동일 */
+        .fc-metric { display: grid; grid-template-columns: auto minmax(0, 1fr) clamp(40px, 26cqmin, 74px); align-items: center; gap: clamp(4px, 2.6cqmin, 9px); min-width: 0; }
         .fc-metric-lbl { font-size: clamp(0.55rem, 4.6cqmin, 0.88rem); font-weight: 700; white-space: nowrap; }
         .fc-metric.mt .fc-metric-lbl { color: var(--dash-mt); }
         .fc-metric.wt .fc-metric-lbl { color: var(--color-text-secondary); }
@@ -160,15 +183,14 @@
         .fl-card.is-bottleneck .fc-metric.wt .fc-metric-val { color: var(--red); }   /* 병목 카드만 대기 적색 강조 */
         /* 상세 분석 버튼: 모든 카드 우측 하단 (편집 중엔 아래 .is-editing 규칙으로 숨김).
            외곽선 톤 = 헤더 [편집]/[전체화면] 버튼(btn-outlined) 과 동일: surface 배경 + primary 테두리/아이콘 */
-        .fc-detail-btn { position: absolute; right: clamp(3px, 2.5cqmin, 8px); bottom: clamp(3px, 2.5cqmin, 8px); z-index: 4; pointer-events: auto; display: inline-flex; align-items: center; justify-content: center; gap: clamp(2px, 1.4cqmin, 5px); background: var(--color-surface); border: 1px solid var(--color-primary); color: var(--color-primary); border-radius: 4px; padding: clamp(1px,1.2cqmin,4px) clamp(4px,2.4cqmin,9px); cursor: pointer; text-decoration: none; font-weight: 700; box-shadow: 0 1px 2px rgba(10,37,64,0.12); }
+        .fc-detail-btn { position: absolute; right: clamp(3px, 2.5cqmin, 8px); bottom: clamp(3px, 2.5cqmin, 8px); z-index: 4; pointer-events: auto; display: inline-flex; align-items: center; justify-content: center; gap: clamp(2px, 1.4cqmin, 5px); background: var(--color-surface); border: 1px solid var(--color-primary); color: var(--color-primary); border-radius: 4px; padding: clamp(1px,1.2cqmin,4px) clamp(4px,2.4cqmin,9px); cursor: pointer; text-decoration: none; font-weight: 700; box-shadow: 0 1px 2px rgba(14,27,42,0.12); }
         .fc-detail-btn .material-icons { font-size: clamp(13px, 9cqmin, 20px); }
         .fc-detail-btn .fc-detail-label { font-size: clamp(0.56rem, 4.6cqmin, 0.86rem); line-height: 1.2; white-space: nowrap; }
         .fc-detail-btn:hover { background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface)); }
 
         /* ── 최대 대기 Flow 강조 (최대 CT=병목 빨강과 동일 방식, 대기 색상=amber) ── */
-        .fl-card.is-maxwait { border: 2px solid var(--amber); box-shadow: 0 0 0 4px rgba(248,197,69,0.18); background: #FFFBF0; z-index: 5; }
-        .dark-theme .fl-card.is-maxwait { background: color-mix(in srgb, var(--amber) 12%, var(--color-surface)); }
-        .fl-card.is-maxwait.fl-card-selected { box-shadow: 0 0 0 4px rgba(248,197,69,0.32); }
+        .fl-card.is-maxwait { border: 2px solid var(--amber); box-shadow: 0 0 0 4px rgba(var(--color-warning-rgb),0.18); background: color-mix(in srgb, var(--amber) 10%, var(--color-surface)); z-index: 5; }
+        .fl-card.is-maxwait.fl-card-selected { box-shadow: 0 0 0 4px rgba(var(--color-warning-rgb),0.32); }
 
         /* ── Flow 카드 내 상태/지표 배지 (READY/GOING/FINISH/ERROR + 병목/대기↑) ── */
         .fc-badges { display: flex; flex-wrap: wrap; gap: 1.4cqmin; justify-content: center; }
@@ -176,7 +198,7 @@
         .fc-badge::before { content: ''; width: clamp(3px, 1.4cqmin, 6px); height: clamp(3px, 1.4cqmin, 6px); border-radius: 50%; background: currentColor; flex-shrink: 0; }
         .fc-badge.state-ready  { color: var(--green); background: color-mix(in srgb, var(--green) 16%, transparent); }
         .fc-badge.state-going  { color: #8A6D1A; background: color-mix(in srgb, var(--amber) 30%, transparent); }
-        .fc-badge.state-finish { color: #1E6FB8; background: color-mix(in srgb, #2196F3 16%, transparent); }
+        .fc-badge.state-finish { color: var(--color-info); background: color-mix(in srgb, var(--color-info) 16%, transparent); }
         .fc-badge.state-error  { color: var(--red); background: color-mix(in srgb, var(--red) 16%, transparent); }
         .dark-theme .fc-badge.state-going { color: var(--amber); }
         .fc-badge.tag-bottleneck { color: #fff; background: var(--red); }
@@ -211,7 +233,7 @@
         .sb-bars { display: flex; height: 14px; background: var(--color-surface-variant); border-radius: 1px; overflow: hidden; }
         .sb-mt { background: var(--dash-mt); height: 100%; display: flex; align-items: center; padding-left: 4px; overflow: hidden; }
         .sb-wt { background: var(--dash-wt); height: 100%; display: flex; align-items: center; padding-left: 4px; overflow: hidden; }
-        .stack-bar.is-bottleneck .sb-wt { background: linear-gradient(180deg, #FF8A65, var(--red)); }
+        .stack-bar.is-bottleneck .sb-wt { background: linear-gradient(180deg, color-mix(in srgb, var(--amber) 65%, var(--red)), var(--red)); }
         .sb-bar-lbl { font-size: 0.55rem; font-weight: 700; color: #fff; line-height: 1; white-space: nowrap; font-variant-numeric: tabular-nums; }
         .sb-wt .sb-bar-lbl { color: var(--color-text-primary); }   /* 회색 WT 막대 위 라벨은 어두운 글씨로 대비 확보 */
         .stack-bar.is-bottleneck .sb-wt .sb-bar-lbl { color: #fff; }   /* 단 병목 적색 막대면 흰 글씨 */
@@ -237,11 +259,7 @@
         .hist-wt { color: var(--color-text-secondary); font-weight: 700; }
         .hist-ct { color: var(--color-text-primary); font-weight: 800; }
 
-        /* ── 히스토리 이상치 필터 (차트 드래그 구간 제외 + 자동 감지) ── */
-        .hist-chart-wrap.is-pickable { cursor: crosshair; user-select: none; }
-        .hist-drag-rect { position: absolute; top: 0; bottom: 0; z-index: 5; pointer-events: none; background: color-mix(in srgb, var(--color-primary) 14%, transparent); border-left: 2px solid var(--color-primary); border-right: 2px solid var(--color-primary); }
-        .hist-drag-hint { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 4; pointer-events: none; display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: var(--radius-lg); font-size: 0.66rem; font-weight: 700; color: var(--color-text-secondary); background: color-mix(in srgb, var(--color-surface) 88%, transparent); border: 1px dashed var(--color-lines-strong); }
-        .hist-drag-hint .material-icons { font-size: 14px; }
+        /* ── 히스토리 이상치 필터 (선택 Flow 별 최소·최대 CT 범위) ── */
         .hist-filter-chip { display: inline-flex; align-items: center; gap: 7px; padding: 3px 6px 3px 11px; border-radius: var(--radius-lg); font-size: 0.68rem; font-weight: 800; color: var(--color-warning); background: color-mix(in srgb, var(--color-warning) 12%, transparent); border: 1px solid color-mix(in srgb, var(--color-warning) 45%, transparent); }
         .hist-filter-chip .hfc-reset { display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px; border: none; border-radius: var(--radius-sm); background: var(--color-warning); color: #fff; font-size: 0.62rem; font-weight: 800; cursor: pointer; }
         .hist-filter-chip .hfc-reset .material-icons { font-size: 13px; }
@@ -301,10 +319,10 @@
            transform 은 0 으로 애니메이션돼 카드가 늦게 미끄러져 이동하는 현상이 생김. */
         .fl-card.is-editing { cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-user-drag: none; transition: none; }
         .fl-card.is-editing * { -webkit-user-drag: none; user-select: none; -webkit-user-select: none; }
-        .fl-card.is-editing.is-dragging { cursor: grabbing; opacity: 0.82; box-shadow: 0 8px 20px rgba(10,37,64,0.28); z-index: 40; }
+        .fl-card.is-editing.is-dragging { cursor: grabbing; opacity: 0.82; box-shadow: 0 8px 20px rgba(14,27,42,0.28); z-index: 40; }
         .fl-card.is-editing .fc-detail-btn { display: none !important; }
         .fl-card.is-editsel { border-color: var(--color-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 28%, transparent); z-index: 12; }
-        .fl-del { position: absolute; top: 3px; right: 3px; z-index: 50; width: 20px; height: 20px; border: none; border-radius: 50%; background: rgba(10,37,64,0.55); color: #fff; font-size: 15px; line-height: 1; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+        .fl-del { position: absolute; top: 3px; right: 3px; z-index: 50; width: 20px; height: 20px; border: none; border-radius: 50%; background: rgba(14,27,42,0.55); color: #fff; font-size: 15px; line-height: 1; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
         .fl-del:hover { background: var(--red); }
 
         /* ── 공정 순서 편집 (도면 좌측 사이드 컬럼: 고정 폭으로 도면 영역 침범 방지) ── */
@@ -397,6 +415,31 @@
                 <span>PLC 데이터가 수집되면 자동으로 표시됩니다.</span>
             </div>
 
+            <!-- ── UserTag 이상(Error) 배너: 최근 10분 활성 Error 감지 시 상단 노출 ──
+                 닫기 가능 · 새 Error(최신 id 변경) 발생 시 자동 재등장 · 활성 0 되면 자동 소멸. [이상발생 관리]=/uptime. -->
+            <div class="err-banner" x-show="showErrorBanner" x-cloak x-transition.opacity>
+                <span class="material-icons eb-icon">error</span>
+                <div class="eb-body">
+                    <div class="eb-title">
+                        UserTag 이상 발생 <span class="eb-count" x-text="errorStatus.active"></span>건
+                        <span class="eb-window">(최근 10분)</span>
+                    </div>
+                    <div class="eb-sub" x-show="errorStatus.latestName">
+                        최신 · <span x-text="errorStatus.latestAt"></span> ·
+                        <span class="eb-tag" x-text="(errorStatus.latestSystem ? errorStatus.latestSystem + ' / ' : '') + errorStatus.latestName"></span>
+                        <span x-show="errorStatus.today > errorStatus.active" x-text="'· 오늘 누적 ' + errorStatus.today + '건'"></span>
+                    </div>
+                </div>
+                <div class="eb-actions">
+                    <a class="eb-link" :href="userTagsHref" title="가동시간·이상 페이지에서 상세 확인">
+                        <span class="material-icons">open_in_new</span> 이상발생 관리
+                    </a>
+                    <button class="eb-dismiss" @click="dismissErrorBanner()" title="배너 닫기 (새 이상 발생 시 다시 표시)">
+                        <span class="material-icons">close</span>
+                    </button>
+                </div>
+            </div>
+
             <!-- ── 상단 클릭형 KPI 띠 (최대 CT · 최대 대기율 = 양방향 강조 진입점 / 시프트 목표 = 설정 팝업) ── -->
             <div class="kpi-row">
                 <!-- 최대 CT -->
@@ -435,7 +478,7 @@
                 <!-- ── 도면 레이아웃 ── -->
                 <div class="ds-card" x-ref="layoutCard" style="min-height:240px;">
                     <div class="ds-card-header">
-                        <span class="ct-section-title">📐 라인 도면 (Floor Layout)</span>
+                        <span class="ct-section-title">라인 도면 (Floor Layout)</span>
                         <div style="display:flex; align-items:center; gap:calc(var(--u) * 0.7); flex-wrap:wrap;">
                             <!-- 통일 색상 범례 -->
                             <div class="layout-legend">
@@ -443,9 +486,9 @@
                                 <div class="layout-legend-item"><span class="layout-legend-dot" style="background:var(--dash-wt);"></span><span>WT 대기</span></div>
                             </div>
                             <button class="btn btn-sm" :class="editing ? 'btn-filled' : 'btn-outlined'"
-                                    @click="toggleEdit()" :title="editing ? '편집 종료 (변경사항 저장 후 도면 보기로 복귀)' : '도면 편집 (블럭 이동·추가·삭제)'">
-                                <span class="material-icons" style="font-size:calc(var(--u) * 1.3);" x-text="editing ? 'check' : 'edit'"></span>
-                                <span x-text="editing ? '편집 종료' : '편집'"></span>
+                                    @click="toggleEdit()" :title="editing ? '저장 (변경사항 저장 후 도면 보기로 복귀)' : '도면 편집 (블럭 이동·추가·삭제)'">
+                                <span class="material-icons" style="font-size:calc(var(--u) * 1.3);" x-text="editing ? 'save' : 'edit'"></span>
+                                <span x-text="editing ? '저장' : '편집'"></span>
                             </button>
                             <button class="btn btn-sm btn-outlined" @click="toggleFullscreen()" title="전체화면">
                                 <span class="material-icons" style="font-size:calc(var(--u) * 1.3);">fullscreen</span> 전체화면
@@ -461,7 +504,7 @@
                             <div class="fl-editbar">
                                 <!-- 인플레이스 편집: 모든 변경은 화면 내(메모리)에서 즉시 반영되고 [편집 종료] 를 누르면 서버에 저장됨 (별도 저장 버튼 없음) -->
                                 <span class="ds-status" x-show="saving"><span class="material-icons" style="font-size:14px;">sync</span> 저장 중…</span>
-                                <span class="ds-status warn" x-show="!saving && dirty"><span class="material-icons" style="font-size:14px;">edit_note</span> 변경됨 · [편집 종료] 시 저장</span>
+                                <span class="ds-status warn" x-show="!saving && dirty"><span class="material-icons" style="font-size:14px;">edit_note</span> 변경됨 · [저장] 클릭 시 반영</span>
                                 <span class="ds-status ok" x-show="!saving && !dirty"><span class="material-icons" style="font-size:14px;">cloud_done</span> 저장됨</span>
                                 <span class="ds-status warn" x-show="isStale" title="AASX Flow 집합과 배치가 일치하지 않습니다 — [자동배치] 권장."><span class="material-icons" style="font-size:14px;">warning</span> Flow 집합 불일치</span>
                                 <div class="spacer"></div>
@@ -564,11 +607,11 @@
                                                         <div class="fc-name" :title="c.flowName">
                                                             <span x-text="c.flowName"></span>
                                                         </div>
-                                                        <!-- 상태(READY/GOING/FINISH/ERROR) + 지표(병목/대기↑) 배지 -->
+                                                        <!-- 지표(병목/대기↑) 배지 + 상태(READY/GOING/FINISH/ERROR) — 지표 배지를 상태 배지 왼쪽에 배치 -->
                                                         <div class="fc-badges">
-                                                            <span class="fc-badge" :class="'state-' + c.state" x-text="c.stateText"></span>
                                                             <template x-if="c.isBottleneck"><span class="fc-badge tag-bottleneck">최대 CT</span></template>
                                                             <template x-if="c.isMaxWait"><span class="fc-badge tag-wait">대기↑</span></template>
+                                                            <span class="fc-badge" :class="'state-' + c.state" x-text="c.stateText"></span>
                                                         </div>
                                                     </div>
                                                     <!-- CT 히어로(좌, 핵심 지표) + 가동/대기 분해(우, 라벨+미니바+값) -->
@@ -600,11 +643,6 @@
                                                         </div>
                                                     </template>
                                                 </div>
-                                                <!-- 모든 카드 우측 하단: 사이클 분석 상세 보기 (편집 중엔 .is-editing 규칙으로 숨김) -->
-                                                <a class="fc-detail-btn" :href="'/cycle-time-analysis?flow=' + encodeURIComponent(c.flowName)" @click.stop title="사이클 분석 상세 보기">
-                                                    <span class="material-icons">query_stats</span>
-                                                    <span class="fc-detail-label">자세히</span>
-                                                </a>
                                             </div>
                                         </div>
                                     </template>
@@ -628,7 +666,7 @@
                 <!-- ── CT 비교 도넛 (Flow별 CT 를 하나의 도넛에 배열) ── -->
                 <div class="ds-card" style="min-height:340px;">
                     <div class="ds-card-header">
-                        <span class="ct-section-title">📊 CT 비교</span>
+                        <span class="ct-section-title">CT 비교</span>
                         <div style="display:flex; align-items:center; gap:calc(var(--u) * 0.35); flex-wrap:wrap;">
                             <div style="display:flex; gap:1px; border:1px solid var(--color-lines-strong); border-radius:var(--radius-sm); overflow:hidden;">
                                 <button class="btn btn-sm" style="border:none; border-radius:0;" :class="!showAverage ? 'btn-filled' : ''" @click="setDisplayMode(false)" title="이전 사이클 값 표시">
@@ -638,17 +676,6 @@
                                     <span class="material-icons" style="font-size:16px;">analytics</span> 평균
                                 </button>
                             </div>
-                            <select class="ct-sort-select" x-model="sortField"
-                                    style="padding:4px 8px; font-size:0.78rem; font-weight:700; border:1px solid var(--color-lines-strong); border-radius:var(--radius-sm); background:var(--color-surface); color:var(--color-text-primary); cursor:pointer; outline:none;">
-                                <option value="ct">전체시간</option>
-                                <option value="mt">가동시간</option>
-                                <option value="wt">대기시간</option>
-                                <option value="name">이름</option>
-                                <option value="order">공정</option>
-                            </select>
-                            <button class="btn-icon" :title="sortDesc ? '내림차순' : '오름차순'" @click="sortDesc = !sortDesc">
-                                <span class="material-icons" x-text="sortDesc ? 'arrow_downward' : 'arrow_upward'"></span>
-                            </button>
                         </div>
                     </div>
 
@@ -682,26 +709,27 @@
             <div class="card hist-card" style="padding:14px 16px;">
                 <div class="ds-card-h">
                     <h4>
-                        <span x-text="histFlowName ? ('📋 최근 사이클 히스토리 — ' + histFlowName) : '📋 최근 사이클 히스토리'"></span>
+                        <span x-text="histFlowName ? ('최근 히스토리 — ' + histFlowName) : '최근 히스토리'"></span>
                         <span class="hist-auto-tag" x-show="histIsAuto" x-cloak
                               title="고정 선택이 없어 최대 CT Flow 를 자동 표시 중 · KPI·도면·막대를 클릭하면 다른 Flow 로 전환">최대 CT·자동</span>
                     </h4>
                     <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
                         <span class="ds-card-h-sub" x-show="histFlowName && flowHistory.length > 0"
-                              x-text="'총 ' + visibleHistory.length + '개' + (excludedCount > 0 ? (' / 제외 ' + excludedCount) : '') + ' · 평균 CT ' + (histAvgCt > 0 ? fmt(histAvgCt) : '--') + (histStdCt > 0 ? (' ±' + fmt(histStdCt)) : '')"></span>
+                              :title="'최근 발생순으로 최대 ' + histLimit + '개 사이클을 조회합니다. 더 과거 데이터는 사이클분석 페이지에서 확인하세요.'"
+                              x-text="'총 ' + visibleHistory.length + '개' + (excludedCount > 0 ? (' / 제외 ' + excludedCount) : '') + ' · 최근 최대 ' + histLimit + ' · 평균 CT ' + (histAvgCt > 0 ? fmt(histAvgCt) : '--') + (histStdCt > 0 ? (' ±' + fmt(histStdCt)) : '')"></span>
                         <!-- 제외(이상치) 알림 + 초기화 -->
                         <span class="hist-filter-chip" x-show="excludedCount > 0" x-cloak>
-                            <span x-text="excludedCount + '개 제외됨' + (_exThreshold != null ? (' · CT>' + fmt(_exThreshold) + ' 규칙') : '') + ' · 평균 재계산'"></span>
+                            <span x-text="excludedCount + '개 제외됨 · ' + rangeLabel + ' · 평균 재계산'"></span>
                             <button class="hfc-reset" @click="resetExclusions()" title="제외 해제 (전체 복원)">
                                 <span class="material-icons">restart_alt</span> 초기화
                             </button>
                         </span>
-                        <!-- 이상치 제외 (상자그림 Q3+1.5·IQR — 규칙으로 저장돼 새 사이클에도 지속 적용) -->
-                        <button class="btn btn-sm btn-outlined" x-show="histFlowName && flowHistory.length >= 4"
-                                :class="_exThreshold != null ? 'btn-filled' : ''"
-                                @click="autoExcludeOutliers()" title="평균을 왜곡하는 비정상(스파이크) 사이클을 상자그림(Q3 + 1.5·IQR) 기준으로 자동 제외 — 새 사이클이 들어와도 규칙이 유지됩니다">
+                        <!-- 이상치 제외 (선택 Flow 별 최소·최대 CT 범위 — 범위 밖 사이클 제외, 새 사이클에도 지속 적용) -->
+                        <button class="btn btn-sm btn-outlined" x-show="histFlowName && flowHistory.length > 0"
+                                :class="_exRange ? 'btn-filled' : ''"
+                                @click="openRangeModal()" title="최소·최대 CT 를 지정해 그 범위를 벗어난 사이클(이상치)을 제외합니다 — 선택한 Flow 별로 적용·유지됩니다">
                             <span class="material-icons" style="font-size:16px;">filter_alt</span>
-                            <span x-text="_exThreshold != null ? ('이상치 규칙 ON · ' + fmt(_exThreshold)) : '이상치 제외'"></span>
+                            <span x-text="_exRange ? ('범위 ' + rangeLabel) : '이상치 제외'"></span>
                         </button>
                         <div class="hist-toggle" x-show="histFlowName && flowHistory.length > 0">
                             <button :class="histView === 'table' ? 'is-active' : ''" @click="setHistView('table')" title="데이터 테이블로 보기">
@@ -735,34 +763,23 @@
                 <!-- 히스토리: 테이블 ↔ 차트 전환 -->
                 <template x-if="histFlowName && flowHistory.length > 0">
                     <div>
-                        <!-- 차트 뷰 (사이클별 MT/WT 스택 + 평균 CT 기준선) · 가로 드래그 → 구간 제외 -->
-                        <div class="hist-chart-wrap is-pickable" x-show="histView === 'chart'"
-                             @mousedown.prevent="onChartDragStart($event)"
-                             @mousemove="onChartDragMove($event)"
-                             @mouseup="onChartDragEnd()"
-                             @mouseleave="onChartDragCancel()">
+                        <!-- 차트 뷰 (사이클별 MT/WT 스택 + 평균 CT 기준선) · 이상치 제외는 [이상치 제외] 버튼으로 최소·최대 범위 지정 -->
+                        <div class="hist-chart-wrap" x-show="histView === 'chart'">
                             <canvas x-ref="histChart"></canvas>
-                            <div class="hist-drag-rect" x-show="drag.active" x-cloak
-                                 :style="`left:${drag.rectLeft}px; width:${drag.rectWidth}px;`"></div>
-                            <div class="hist-drag-hint" x-show="!drag.active && excludedCount === 0 && visibleHistory.length > 2" x-cloak>
-                                <span class="material-icons">touch_app</span> 튀는 막대 구간을 가로로 드래그하면 제외됩니다
-                            </div>
                         </div>
                         <!-- 테이블 뷰 -->
                         <div class="hist-table-wrap" x-show="histView === 'table'">
                         <table class="ds-table">
                             <thead>
                                 <tr>
-                                    <th style="width:42px;">#</th>
-                                    <th style="width:140px;">시작 시각</th>
+                                    <th style="width:150px;">시작 시각</th>
                                     <th>MT</th><th>WT</th><th>CT</th>
                                     <th>WT/CT</th><th style="width:64px;">상태</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <template x-for="(h, i) in visibleHistory" :key="h._key">
+                                <template x-for="h in visibleHistory" :key="h._key">
                                     <tr>
-                                        <td class="num" x-text="(h.cycleNo != null) ? ('#' + h.cycleNo) : (i + 1)"></td>
                                         <td class="num" x-text="h._time"></td>
                                         <td class="num hist-mt" x-text="fmt(h.mt ?? 0)"></td>
                                         <td class="num hist-wt" x-text="fmt(h.wt ?? 0)"></td>
@@ -862,6 +879,72 @@
                     </div>
                 </div>
             </div>
+
+            <!-- ── 이상치 제외 범위 팝업 (선택 Flow 별 최소·최대 CT) ── -->
+            <div class="modal-overlay" x-show="rangeModalOpen" x-cloak style="z-index:2000;" @click="closeRangeModal()">
+                <div class="modal-content shift-modal" @click.stop>
+                    <div class="sm-head">
+                        <span class="sm-title">🔎 이상치 제외 · <span x-text="histFlowName"></span></span>
+                        <button class="btn-icon" @click="closeRangeModal()" title="닫기">
+                            <span class="material-icons">close</span>
+                        </button>
+                    </div>
+                    <div class="sm-body">
+                        <div class="sm-hint" style="margin-bottom:14px;">
+                            <span class="material-icons">info</span>
+                            <span>
+                                설정한 <b>최소 ~ 최대</b> CT 범위를 벗어난 사이클을 차트·테이블·평균에서 제외합니다.
+                                한쪽만 입력해도 됩니다 (예: <b>최대</b>만 입력 = 그보다 긴 사이클만 제외). 새 사이클이 들어와도 범위가 유지됩니다.
+                            </span>
+                        </div>
+
+                        <!-- 현재 데이터 범위 안내 -->
+                        <div class="form-group" x-show="flowHistory.length > 0">
+                            <label class="form-label">현재 CT 범위 (참고)</label>
+                            <div class="form-helper" style="margin:0;">
+                                최소 <b x-text="fmt(histCtMinMs)"></b> · 최대 <b x-text="fmt(histCtMaxMs)"></b> · 평균 <b x-text="histAvgCt > 0 ? fmt(histAvgCt) : '--'"></b>
+                            </div>
+                        </div>
+
+                        <!-- 제외 범위 입력 — 최소/최대 각각 단위(초/분/시간) 드롭다운 선택. 내부 관리값은 초. -->
+                        <div class="form-group">
+                            <label class="form-label">제외 기준 범위</label>
+                            <div class="sm-times">
+                                <div>
+                                    <div class="form-helper" style="margin:0 0 5px;">최소 시간</div>
+                                    <div class="range-row">
+                                        <input type="number" class="form-field" min="0" step="any" placeholder="제한 없음" x-model="rangeForm.min" />
+                                        <select class="form-select range-unit" :value="rangeForm.minUnit" @change="changeUnit('min', $event.target.value)" title="최소 시간 단위">
+                                            <option value="s">초</option>
+                                            <option value="m">분</option>
+                                            <option value="h">시간</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div class="form-helper" style="margin:0 0 5px;">최대 시간</div>
+                                    <div class="range-row">
+                                        <input type="number" class="form-field" min="0" step="any" placeholder="제한 없음" x-model="rangeForm.max" />
+                                        <select class="form-select range-unit" :value="rangeForm.maxUnit" @change="changeUnit('max', $event.target.value)" title="최대 시간 단위">
+                                            <option value="s">초</option>
+                                            <option value="m">분</option>
+                                            <option value="h">시간</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- 입력값 → 실제 적용 범위 미리보기 (단위 환산 확인용) -->
+                            <div class="form-helper" style="margin:7px 0 0;" x-show="rangePreviewLabel" x-text="rangePreviewLabel"></div>
+                        </div>
+                    </div>
+                    <div class="sm-foot">
+                        <button class="btn btn-outlined" @click="resetExclusions(); closeRangeModal()" :disabled="!_exRange" title="이 Flow 의 제외 범위 해제 (전체 복원)">제외 해제</button>
+                        <button class="btn btn-filled" @click="applyRange()">
+                            <span class="material-icons" style="font-size:17px;">check</span> 적용
+                        </button>
+                    </div>
+                </div>
+            </div>
         </main>
 
         <!-- 인플레이스 편집 토스트 -->
@@ -872,9 +955,9 @@
     <script src="/lib/chart.umd.min.js"></script>
     <script>
         function dashboardApp() {
-            const SYSTEM_COLORS = ['#3A3A40', '#52525B', '#6B675A', '#8A8578', '#A8A493'];
-            // CT 비교 도넛 세그먼트 팔레트 (Flow 구분용, 병목은 별도 빨강)
-            const CT_DONUT_COLORS = ['#6C5CE7', '#00B894', '#0984E3', '#E17055', '#FDCB6E', '#E84393', '#00CEC9', '#A29BFE', '#55EFC4', '#FAB1A0', '#74B9FF', '#FF7675'];
+            const SYSTEM_COLORS = ['#2A3646', '#3A4A5E', '#4A5B70', '#5E7088', '#7889A0'];
+            // CT 비교 도넛 세그먼트 팔레트 (Flow 구분용, 병목은 별도 빨강) — azure 선두 + teal/green/amber/violet 등 cool-leaning 12색
+            const CT_DONUT_COLORS = ['#0E7CCB', '#12A594', '#2FA968', '#36B5FF', '#7C5CD6', '#4AA3DF', '#5DBFA8', '#E0A53C', '#8AA0B8', '#9C6ADE', '#2D7D9A', '#C2557A'];
             const histCache = {};   // flowName → rows: 클릭 즉시 표시(서버 왕복 대기 없이), SignalR/폴링이 최신값으로 갱신
             return {
                 flows: [], layout: null, hasData: false, loading: true, error: null, demoBlocked: false, dark: false,
@@ -903,20 +986,26 @@
                 histAvgCt: 0, histStdCt: 0,   // setHistory 에서 1회 계산 (렌더 중 재계산 금지 → O(n²) 렉 제거)
                 _histShownFor: null,          // 현재 히스토리 테이블이 표시 중인 Flow (전환 감지용)
                 histView: 'chart',            // 히스토리 표시 방식: 'table' | 'chart'
+                histLimit: 200,               // 최근 발생순 조회 상한 (쿼리·라벨이 이 한 값을 공유)
                 _histChart: null,             // Chart.js 인스턴스
                 _ctDonut: null,               // CT 비교 도넛 Chart.js 인스턴스
-                // ── 이상치 필터 ──
-                // excludedByFlow: 드래그 수동 제외 { flowName: { _key→true } }. recordedAt 기준 키라 재조회에도 안정.
-                // thresholdByFlow: 자동감지 임계치 { flowName: fenceMs }. CT > fence 인 사이클을 매 recompute 마다 제외 →
-                //   새 사이클이 들어와도 fence 넘으면 걸림. cycleNo/recordedAt 키에 무관하게 동작.
-                excludedByFlow: {},
-                thresholdByFlow: {},
-                drag: { active: false, startX: 0, curX: 0, rectLeft: 0, rectWidth: 0 },
-                _chartKeys: [],               // 차트 막대 index → 사이클 _key (드래그 히트테스트용)
+                // ── 이상치 필터 (선택 Flow 별 최소·최대 CT 범위) ──
+                // rangeByFlow: { flowName: { min: sec|null, max: sec|null } }. CT(초 환산)가 [min, max] 밖이면 제외.
+                //   ★ 관리 단위 = 초(seconds). UI 에서 최소/최대 각각 초/분/시간 드롭다운으로 입력받아 초로 환산해 다룬다.
+                //   특정 사이클 키가 아닌 "범위 규칙"이라 새 사이클이 들어와도 그대로 적용되고, cycleNo/recordedAt 키에 무관.
+                //   Flow 키 보관 → 병목 Flow 자동전환 후 돌아와도 그 Flow 의 범위가 복원됨(사용자가 직접 해제해야 풀림).
+                //   ★ 서버(appsettings) 공유: GET/POST /api/dashboard/exclusions(초 단위), SignalR ExclusionsChanged. 브라우저 로컬 저장 아님.
+                rangeByFlow: {},
+                rangeModalOpen: false,
+                rangeForm: { min: '', max: '', minUnit: 's', maxUnit: 's' },   // 팝업 입력값(빈칸=제한 없음) + 최소/최대 각각 단위('s'|'m'|'h', 기본 초)
                 showAverage: false,
                 sortField: 'ct', sortDesc: true,
                 flowProcessOrder: {},
                 rt: { connected: false },
+                // ── UserTag 이상(Error) 배너 (서버: GET /api/user-tags/error-status, 폴링/SignalR 주기 공유) ──
+                errorStatus: { active: 0, today: 0, latestId: null, latestAt: null, latestSystem: null, latestName: null },
+                _errDismissedId: 0,    // 닫기 시점의 latestId — 이후 latestId 가 바뀌면(=새 Error) 다시 표시. 0=미닫음(id 는 항상 ≥1)
+                userTagsHref: '/uptime',   // 이상발생 상세 = 가동시간·이상 페이지 (nav 배지와 동일 대상)
                 // ── 시프트 운영 (서버 공유: GET/POST /api/dashboard/shift, SignalR ShiftChanged) ──
                 shift: { start: '08:00', end: '17:00', shiftType: 'morning', targetFlow: null, targetCount: 0, madeCount: 0 },
                 shiftForm: { start: '08:00', end: '17:00', shiftType: 'morning', targetFlow: '', targetCount: 0 },
@@ -932,6 +1021,7 @@
                     const ss = parseInt(localStorage.getItem('dspilot-dash-snapsize'), 10);
                     // 슬라이더(min20·max240·step10)에 맞춰 클램프+정렬 → 핸들이 트랙 밖/비정렬로 표시되지 않게.
                     if (!isNaN(ss)) this.snapSize = Math.max(20, Math.min(240, Math.round(ss / 10) * 10));
+                    await this.loadExclusions();   // 제외 범위(서버 공유)를 먼저 로드 → 첫 히스토리 렌더부터 반영
                     await this.loadSnapshot();
                     await this.loadShift();
                     this.connectSignalR();
@@ -978,12 +1068,34 @@
                         // 미선택이면 병목(최대 CT) Flow 자동 표시, 선택돼 있으면 그 Flow 추적 (effective = selectedFlowName ?? maxCtName)
                         this.syncHistory();
                         this.loadShift();   // 만든 수(시프트 진행)도 스냅샷 주기에 맞춰 갱신 (fire-and-forget)
+                        this.loadErrorStatus();   // UserTag 이상 배너도 동일 주기로 갱신 (fire-and-forget)
                     } catch (e) {
                         if (e.message !== 'demo-blocked') this.error = '데이터를 불러오지 못했습니다: ' + e.message;
                     } finally {
                         this.loading = false;
                     }
                 },
+
+                // ── UserTag 이상(Error) 배너 ──
+                // 최근 10분 활성 Error 가 있고, 닫은 적 없거나 닫은 이후 새 Error(최신 id 변경)가 발생하면 표시.
+                get showErrorBanner() {
+                    const e = this.errorStatus;
+                    return e.active > 0 && !!e.latestId && e.latestId !== this._errDismissedId;
+                },
+                async loadErrorStatus() {
+                    try {
+                        const s = await this.apiGet('/api/user-tags/error-status');
+                        this.errorStatus = {
+                            active: s.activeErrorCount || 0,
+                            today: s.todayErrorCount || 0,
+                            latestId: s.latestErrorId || null,
+                            latestAt: s.latestErrorAtLocal || null,
+                            latestSystem: s.latestErrorSystem || null,
+                            latestName: s.latestErrorName || null,
+                        };
+                    } catch (e) { /* 배너는 비핵심 — 조용히 무시 (스냅샷 실패 메시지를 덮지 않음) */ }
+                },
+                dismissErrorBanner() { this._errDismissedId = this.errorStatus.latestId || 0; },
 
                 // ── SignalR 실시간 (디바운스 refetch) ──
                 connectSignalR() {
@@ -1003,6 +1115,7 @@
                     });
                     conn.on('FlowHistoryCleared', trigger);
                     conn.on('ShiftChanged', () => { this.loadShift(); });   // 다른 작업자 화면이 시프트 변경 → 동기화
+                    conn.on('ExclusionsChanged', () => { this.loadExclusions(); });   // 다른 화면이 제외 범위 변경 → 동기화
                     conn.onreconnected(() => { this.rt.connected = true; this.loadSnapshot(); });
                     conn.onreconnecting(() => { this.rt.connected = false; });
                     conn.onclose(() => { this.rt.connected = false; });
@@ -1074,9 +1187,9 @@
                     const s = this.flows.find(f => f.flowName === name);
                     if (!s) return this.systemColor(systemId);
                     switch ((s.state || '').toLowerCase()) {
-                        case 'ready': return '#4CAF50'; case 'going': return '#EAB308';
-                        case 'finish': return '#2196F3'; case 'error': return '#F44336';
-                        default: return '#4CAF50';
+                        case 'ready': return '#9FB0C2'; case 'going': return '#0E7CCB';
+                        case 'finish': return '#2FA968'; case 'error': return '#D8392B';
+                        default: return '#9FB0C2';
                     }
                 },
                 systemColor(systemId) {
@@ -1086,9 +1199,9 @@
                 flowStateLabel(name) { const s = this.flows.find(f => f.flowName === name); return (s && s.state) ? s.state : ''; },
                 stateColor(name) {
                     switch ((this.flowStateLabel(name) || '').toLowerCase()) {
-                        case 'ready': return '#4CAF50'; case 'going': return '#EAB308';
-                        case 'finish': return '#2196F3'; case 'error': return '#F44336';
-                        default: return '#4CAF50';
+                        case 'ready': return '#9FB0C2'; case 'going': return '#0E7CCB';
+                        case 'finish': return '#2FA968'; case 'error': return '#D8392B';
+                        default: return '#9FB0C2';
                     }
                 },
                 flowBadges(name) {
@@ -1469,7 +1582,7 @@
                     if (this._ctDonut) { this._ctDonut.destroy(); this._ctDonut = null; }
                     if (!rows.length) return;
                     const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
-                    const red = css('--red') || css('--color-error') || '#E5494F';
+                    const red = css('--red') || css('--color-error') || '#D8392B';
                     const surface = css('--color-surface') || '#ffffff';
                     const labels = rows.map(r => r.flowName);
                     const data = rows.map(r => r.ct);
@@ -1527,18 +1640,51 @@
                 // 히스토리 대상 Flow = 사용자가 고정한 Flow, 없으면 병목(최대 CT) Flow 자동 표시
                 get histFlowName() { return this.selectedFlowName || this.maxCtName || null; },
                 get histIsAuto() { return !this.selectedFlowName && !!this.maxCtName; },
-                // 현재 Flow 의 수동 제외 집합 / 자동 임계치
-                get _exSet() { return this.excludedByFlow[this.histFlowName] || {}; },
-                get _exThreshold() { return this.thresholdByFlow[this.histFlowName] ?? null; },
+                // 현재 Flow 의 제외 범위 ({min,max} 초) — min/max 가 모두 비면 null(미설정)
+                get _exRange() {
+                    const r = this.rangeByFlow[this.histFlowName];
+                    return (r && (r.min != null || r.max != null)) ? r : null;
+                },
+                // 현재 범위를 ms 로 환산 (CT 비교/포맷용) — 관리 단위는 초, 비교 대상 h.ct 는 ms
+                get _exRangeMs() {
+                    const r = this._exRange;
+                    if (!r) return null;
+                    return { min: r.min != null ? r.min * 1000 : null, max: r.max != null ? r.max * 1000 : null };
+                },
+                // 칩/버튼에 보일 범위 라벨 ("10s ~ 30s" / "≥ 10s" / "≤ 30s")
+                get rangeLabel() {
+                    const r = this._exRangeMs;
+                    if (!r) return '';
+                    const lo = r.min != null ? this.fmt(r.min) : null;
+                    const hi = r.max != null ? this.fmt(r.max) : null;
+                    if (lo != null && hi != null) return lo + ' ~ ' + hi;
+                    if (lo != null) return '≥ ' + lo;
+                    return '≤ ' + hi;
+                },
+                // 팝업 안내용: 전체 사이클 CT 의 최소/최대 (ms, ct>0)
+                get histCtMinMs() { const c = this.flowHistory.map(h => h.ct ?? 0).filter(v => v > 0); return c.length ? Math.min(...c) : 0; },
+                get histCtMaxMs() { const c = this.flowHistory.map(h => h.ct ?? 0).filter(v => v > 0); return c.length ? Math.max(...c) : 0; },
                 // 제외(이상치)된 사이클을 뺀 표시 대상 — 차트·테이블·평균이 모두 이 집합 기준
                 get visibleHistory() {
-                    const ex = this._exSet, thr = this._exThreshold;
-                    return this.flowHistory.filter(h => !ex[h._key] && !(thr != null && (h.ct ?? 0) > thr));
+                    const r = this._exRangeMs;
+                    if (!r) return this.flowHistory;
+                    const min = r.min, max = r.max;
+                    return this.flowHistory.filter(h => {
+                        const ct = h.ct ?? 0;
+                        if (min != null && ct < min) return false;
+                        if (max != null && ct > max) return false;
+                        return true;
+                    });
                 },
                 get excludedCount() {
-                    const ex = this._exSet, thr = this._exThreshold;
+                    const r = this._exRangeMs;
+                    if (!r) return 0;
+                    const min = r.min, max = r.max;
                     let n = 0;
-                    for (const h of this.flowHistory) if (ex[h._key] || (thr != null && (h.ct ?? 0) > thr)) n++;
+                    for (const h of this.flowHistory) {
+                        const ct = h.ct ?? 0;
+                        if ((min != null && ct < min) || (max != null && ct > max)) n++;
+                    }
                     return n;
                 },
 
@@ -1553,15 +1699,15 @@
                     if (!target) { this._histShownFor = null; this.setHistory([]); return; }
                     if (target !== this._histShownFor) {
                         this._histShownFor = target;
-                        // 제외 구간은 Flow 별(excludedByFlow)로 보관 → 여기서 비우지 않음. 병목 Flow 자동전환 후
-                        // 돌아와도 그 Flow 의 필터가 그대로 복원됨. (사용자가 직접 "초기화" 눌러야 해제)
+                        // 제외 범위는 Flow 별(rangeByFlow)로 보관 → 여기서 비우지 않음. 병목 Flow 자동전환 후
+                        // 돌아와도 그 Flow 의 범위가 그대로 복원됨. (사용자가 직접 "초기화"/"제외 해제" 눌러야 풀림)
                         if (histCache[target]) this.setHistory(histCache[target]);  // 전환 시 캐시 즉시 표시(렉 제거)
                     }
                     this.loadHistory(target);                // 이어서 서버에서 최신값으로 갱신
                 },
                 async loadHistory(name) {
                     try {
-                        const rows = await this.apiGet('/api/dashboard/flows/' + encodeURIComponent(name) + '/history?limit=200');
+                        const rows = await this.apiGet('/api/dashboard/flows/' + encodeURIComponent(name) + '/history?limit=' + this.histLimit);
                         histCache[name] = rows;
                         if (this.histFlowName === name) this.setHistory(rows);  // 그 사이 대상 Flow 바뀌면 무시(경쟁 가드)
                     } catch (e) {
@@ -1620,17 +1766,19 @@
                     if (this._histChart) { this._histChart.destroy(); this._histChart = null; }
                     const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
                     const rows = this.visibleHistory.slice().reverse();   // 제외분 빼고, 최신순 저장 → 차트는 좌(오래)→우(최신)
-                    this._chartKeys = rows.map(h => h._key);   // 막대 index → 사이클 _key (드래그 구간 제외 히트테스트)
-                    const labels = rows.map((h, i) => (h.cycleNo != null) ? ('#' + h.cycleNo) : ('#' + (i + 1)));
+                    // X축 = 사이클 발생 시각. #회차(cycleNo)는 조회마다 재부여되는 표시용 순번이라 혼란만 줘 표시하지 않음.
+                    // 축 라벨은 짧게(시:분:초), 툴팁엔 전체 날짜시각(_time = "MM-DD HH:MM:SS").
+                    const times = rows.map(h => h._time || '');                       // 전체 날짜시각(툴팁용)
+                    const labels = rows.map(h => h._time ? h._time.slice(6) : '');     // 축 라벨 = 시:분:초 (없으면 빈칸)
                     const toS = (ms) => Math.round((ms ?? 0) / 100) / 10;   // ms → 초(0.1s)
                     const mt = rows.map(h => toS(h.mt));
                     const wt = rows.map(h => toS(h.wt));
                     const avg = this.histAvgCt > 0 ? toS(this.histAvgCt) : null;
-                    const cMt = css('--dash-mt') || css('--color-primary') || '#6D5BD0';
-                    const cWt = css('--dash-wt') || '#B4BBC9';
-                    const cRed = css('--red') || css('--color-error') || '#E5494F';
-                    const grid = css('--color-lines') || 'rgba(120,120,120,0.18)';
-                    const txt = css('--color-text-secondary') || '#667085';
+                    const cMt = css('--dash-mt') || css('--color-primary') || '#12A594';
+                    const cWt = css('--dash-wt') || '#AEB9C6';
+                    const cRed = css('--red') || css('--color-error') || '#D8392B';
+                    const grid = css('--color-lines') || 'rgba(14,27,42,0.10)';
+                    const txt = css('--color-text-secondary') || '#51637A';
                     const datasets = [
                         { label: 'MT (가동)', data: mt, backgroundColor: cMt, stack: 'ct', borderWidth: 0 },
                         { label: 'WT (대기)', data: wt, backgroundColor: cWt, stack: 'ct', borderWidth: 0 },
@@ -1648,75 +1796,112 @@
                             interaction: { mode: 'index', intersect: false },
                             plugins: {
                                 legend: { position: 'top', labels: { color: txt, boxWidth: 12, font: { size: 11 } } },
-                                tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${fmtMs(c.parsed.y || 0)}` } },
+                                tooltip: { callbacks: {
+                                    title: (items) => times[items[0].dataIndex] || '',
+                                    label: (c) => `${c.dataset.label}: ${fmtMs(c.parsed.y || 0)}`,
+                                } },
                             },
                             scales: {
-                                x: { stacked: true, grid: { display: false }, ticks: { color: txt, font: { size: 10 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 8 } },
+                                x: { stacked: true, grid: { display: false }, title: { display: true, text: '사이클 발생 시각', color: txt }, ticks: { color: txt, font: { size: 10 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 12 } },
                                 y: { stacked: true, beginAtZero: true, min: 0, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, callback: (v) => fmtMs(v) }, title: { display: true, text: '시간', color: txt } },
                             },
                         },
                     });
                 },
-                // ── 이상치 필터: 차트 가로 드래그 → 구간 제외 ──
-                onChartDragStart(e) {
-                    if (!this._histChart || this.histView !== 'chart') return;
-                    this.drag.active = true;
-                    this.drag.startX = e.clientX;
-                    this.drag.curX = e.clientX;
-                    this._syncDragRect(e.currentTarget);
+                // ── 이상치 필터: 선택 Flow 별 최소·최대 CT 범위 (팝업으로 입력) ──
+                _unitSec: { s: 1, m: 60, h: 3600 },   // 단위 → 초 배수 (관리 단위 = 초)
+                // 한 필드(min|max)의 입력값을 초로 환산. 빈칸/음수/비수치는 null(제한 없음). 소수 3자리(=ms)까지.
+                _rangeFieldSec(field) {
+                    const v = field === 'min' ? this.rangeForm.min : this.rangeForm.max;
+                    const unit = field === 'min' ? this.rangeForm.minUnit : this.rangeForm.maxUnit;
+                    const n = parseFloat(v), mult = this._unitSec[unit] || 1;
+                    return (v !== '' && v != null && isFinite(n) && n >= 0) ? Math.round(n * mult * 1000) / 1000 : null;
                 },
-                onChartDragMove(e) {
-                    if (!this.drag.active) return;
-                    this.drag.curX = e.clientX;
-                    this._syncDragRect(e.currentTarget);
+                // 입력값 → 실제 적용 범위 미리보기 ("적용: 1m 0s ~ 2m 30s") — 단위 환산 확인용
+                get rangePreviewLabel() {
+                    const lo = this._rangeFieldSec('min'), hi = this._rangeFieldSec('max');   // 초
+                    if (lo == null && hi == null) return '';
+                    const loS = lo != null ? this.fmt(lo * 1000) : null, hiS = hi != null ? this.fmt(hi * 1000) : null;
+                    if (loS != null && hiS != null) return '적용: ' + loS + ' ~ ' + hiS;
+                    return loS != null ? ('적용: ≥ ' + loS) : ('적용: ≤ ' + hiS);
                 },
-                onChartDragEnd() {
-                    if (!this.drag.active) return;
-                    this.drag.active = false;
-                    if (Math.abs(this.drag.curX - this.drag.startX) < 5) return;   // 클릭(드래그 아님)은 무시
-                    this._excludeByClientRange(Math.min(this.drag.startX, this.drag.curX), Math.max(this.drag.startX, this.drag.curX));
+                openRangeModal() {
+                    if (!this.histFlowName) return;
+                    const r = this.rangeByFlow[this.histFlowName];
+                    this.rangeForm.minUnit = 's';   // 기본 단위 = 초
+                    this.rangeForm.maxUnit = 's';
+                    const toStr = (sec) => (sec != null) ? String(sec) : '';   // 저장값은 이미 초
+                    this.rangeForm.min = toStr(r?.min);
+                    this.rangeForm.max = toStr(r?.max);
+                    this.rangeModalOpen = true;
                 },
-                onChartDragCancel() { this.drag.active = false; },
-                _syncDragRect(wrap) {
-                    const r = wrap.getBoundingClientRect();
-                    const a = Math.max(0, Math.min(this.drag.startX, this.drag.curX) - r.left);
-                    const b = Math.min(r.width, Math.max(this.drag.startX, this.drag.curX) - r.left);
-                    this.drag.rectLeft = a;
-                    this.drag.rectWidth = Math.max(0, b - a);
+                // 단위 전환(드롭다운): 그 필드 입력값을 "같은 시간"으로 환산해 유지 (120초 → 분 전환 시 2). 빈칸은 그대로.
+                changeUnit(field, u) {
+                    const cur = field === 'min' ? this.rangeForm.minUnit : this.rangeForm.maxUnit;
+                    if (u === cur) return;
+                    const from = this._unitSec[cur] || 1, to = this._unitSec[u] || 1;
+                    const v = field === 'min' ? this.rangeForm.min : this.rangeForm.max;
+                    const n = parseFloat(v);
+                    const conv = (v === '' || v == null || !isFinite(n)) ? v : String(Math.round((n * from / to) * 1000) / 1000);
+                    if (field === 'min') { this.rangeForm.min = conv; this.rangeForm.minUnit = u; }
+                    else { this.rangeForm.max = conv; this.rangeForm.maxUnit = u; }
                 },
-                // 드래그 가로 구간(client px) 안에 막대 중심이 든 사이클을 제외 집합에 추가
-                _excludeByClientRange(aClient, bClient) {
-                    const chart = this._histChart, canvas = this.$refs.histChart;
-                    if (!chart || !canvas) return;
-                    const cr = canvas.getBoundingClientRect();
-                    const aPx = aClient - cr.left, bPx = bClient - cr.left;
-                    const meta = chart.getDatasetMeta(0);
+                closeRangeModal() { this.rangeModalOpen = false; },
+                // 입력값(각 필드 단위)을 초 범위로 확정 → 낙관적 로컬 반영 후 서버에 영속화. 둘 다 비면 제외 해제.
+                async applyRange() {
                     const flow = this.histFlowName;
-                    const next = { ...(this.excludedByFlow[flow] || {}) };
-                    let count = 0;
-                    meta.data.forEach((bar, i) => {
-                        const key = this._chartKeys[i];
-                        if (key && bar.x >= aPx && bar.x <= bPx && !next[key]) { next[key] = true; count++; }
-                    });
-                    if (count) { this.excludedByFlow = { ...this.excludedByFlow, [flow]: next }; this.recomputeHist(); }
+                    if (!flow) { this.rangeModalOpen = false; return; }
+                    let min = this._rangeFieldSec('min'), max = this._rangeFieldSec('max');   // 각 필드 단위 → 초
+                    if (min != null && max != null && min > max) { const t = min; min = max; max = t; }   // 뒤집힌 입력 자동 교정
+                    if (min == null && max == null) {
+                        const { [flow]: _drop, ...rest } = this.rangeByFlow;   // 미설정 = 제외 해제
+                        this.rangeByFlow = rest;
+                    } else {
+                        this.rangeByFlow = { ...this.rangeByFlow, [flow]: { min, max } };
+                    }
+                    this.recomputeHist();        // 화면 즉시 반영(낙관적)
+                    this.rangeModalOpen = false;
+                    await this.saveExclusion(flow, min, max);   // 서버(appsettings) 영속화 + 다른 화면 동기화
                 },
-                // 상자그림 상단 울타리(Q3 + 1.5·IQR) → 임계치(fenceMs)를 thresholdByFlow 에 저장.
-                // 특정 사이클 키가 아닌 규칙이므로, 이후 새 사이클이 들어와도 fence 초과면 자동 제외.
-                autoExcludeOutliers() {
-                    const cts = this.flowHistory.map(h => h.ct ?? 0).filter(c => c > 0).sort((a, b) => a - b);
-                    if (cts.length < 4) return;
-                    const q = (p) => { const idx = (cts.length - 1) * p, lo = Math.floor(idx), hi = Math.ceil(idx); return cts[lo] + (cts[hi] - cts[lo]) * (idx - lo); };
-                    const q1 = q(0.25), q3 = q(0.75), fence = q3 + 1.5 * (q3 - q1);
+                // 현재 Flow 의 제외 범위 해제 (전체 복원) — 서버에서도 제거
+                async resetExclusions() {
                     const flow = this.histFlowName;
-                    this.thresholdByFlow = { ...this.thresholdByFlow, [flow]: fence };
+                    if (!flow || !this.rangeByFlow[flow]) return;
+                    const { [flow]: _drop, ...rest } = this.rangeByFlow;
+                    this.rangeByFlow = rest;
                     this.recomputeHist();
+                    await this.saveExclusion(flow, null, null);
                 },
-                resetExclusions() {
-                    if (this.excludedCount === 0) return;
-                    const flow = this.histFlowName;
-                    this.excludedByFlow = { ...this.excludedByFlow, [flow]: {} };
-                    this.thresholdByFlow = { ...this.thresholdByFlow, [flow]: null };
-                    this.recomputeHist();
+                // ── 이상치 제외 범위: 서버(appsettings) 공유 영속화 (초 단위) ──
+                // 서버 응답을 rangeByFlow 의 단일 진실 소스로 삼는다(camelCase: flowName/minSec/maxSec).
+                _exclusionsToMap(rows) {
+                    const map = {};
+                    for (const r of (rows || [])) {
+                        if (r && r.flowName) map[r.flowName] = { min: r.minSec ?? null, max: r.maxSec ?? null };
+                    }
+                    return map;
+                },
+                async loadExclusions() {
+                    try {
+                        const rows = await this.apiGet('/api/dashboard/exclusions');
+                        this.rangeByFlow = this._exclusionsToMap(rows);
+                        this.recomputeHist();   // 로드/동기화 후 평균·차트 재계산 (flowHistory 비었으면 no-op)
+                    } catch (e) { /* 미수신 시 기존값 유지 (demo-blocked 포함) */ }
+                },
+                async saveExclusion(flowName, minSec, maxSec) {
+                    try {
+                        const res = await fetch('/api/dashboard/exclusions', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                            body: JSON.stringify({ flowName, minSec, maxSec })
+                        });
+                        if (res.status === 503) { this.demoBlocked = true; return; }
+                        if (!res.ok) throw new Error('HTTP ' + res.status);
+                        this.rangeByFlow = this._exclusionsToMap(await res.json());   // 서버 정규화 결과로 동기화
+                        this.recomputeHist();
+                    } catch (e) {
+                        this.error = '이상치 제외 저장 실패: ' + e.message;
+                    }
                 },
 
                 histTime(iso) {
@@ -1847,20 +2032,13 @@
                     }
                 },
 
-                // ── 포맷터 ──
-                fmtCard(ms) {
+                // ── 포맷터 (시간 표시 = 한글 단위: 초 / 분 / 시간) ──
+                fmt(ms) {
                     if (ms <= 0) return '0초';
                     if (ms < 1000) return Math.round(ms) + 'ms';
                     if (ms < 60000) return (ms / 1000).toFixed(1) + '초';
                     if (ms < 3600000) return Math.floor(ms / 60000) + '분 ' + Math.floor(ms % 60000 / 1000) + '초';
-                    return Math.floor(ms / 3600000) + '시 ' + Math.floor(ms % 3600000 / 60000) + '분';
-                },
-                fmt(ms) {
-                    if (ms <= 0) return '0s';
-                    if (ms < 1000) return Math.round(ms) + 'ms';
-                    if (ms < 60000) return (ms / 1000).toFixed(1) + 's';
-                    if (ms < 3600000) return Math.floor(ms / 60000) + 'm ' + Math.floor(ms % 60000 / 1000) + 's';
-                    return Math.floor(ms / 3600000) + 'h ' + Math.floor(ms % 3600000 / 60000) + 'm';
+                    return Math.floor(ms / 3600000) + '시간 ' + Math.floor(ms % 3600000 / 60000) + '분';
                 }
             };
         }

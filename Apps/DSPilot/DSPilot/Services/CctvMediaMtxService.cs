@@ -41,6 +41,10 @@ public class CctvMediaMtxService : BackgroundService
     /// <summary>실패 시 빠른 재시도(부팅 순서 무관). 성공 시 이 간격으로 주기 재동기화.</summary>
     private static readonly TimeSpan HealthyInterval = TimeSpan.FromSeconds(30);
 
+    /// <summary>WebRTC 미디어 TCP 폴백 리스너 주소(UDP 8189 와 동일 포트, 프로토콜만 다름).
+    /// UDP 차단망(모바일/사내/일부 클라우드) 대비. 공인주소가 설정된 경우에만 함께 켠다.</summary>
+    private const string WebRtcTcpFallbackAddress = ":8189";
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // 주기 재동기화: MediaMTX 가 우리보다 늦게 떠도, 또는 독립적으로 재시작돼
@@ -108,6 +112,9 @@ public class CctvMediaMtxService : BackgroundService
                     _logger.LogWarning("[CCTV] MediaMTX 경로 삭제 실패 {Name}: {Status}", name, res.StatusCode);
             }
 
+            // 외부(원격·클라우드) 접속용 전역 WebRTC 설정 반영(공인주소 광고 + TCP 폴백). best-effort.
+            await SyncGlobalWebRtcAsync(apiBase, cctv, ct);
+
             LastSyncOk = true;
             LastSyncUtc = DateTime.UtcNow;
             LastSyncMessage = $"카메라 {desired.Count}대 동기화 완료";
@@ -143,6 +150,63 @@ public class CctvMediaMtxService : BackgroundService
             }
         }
         return names;
+    }
+
+    /// <summary>
+    /// 외부 접속용 전역 WebRTC 설정을 MediaMTX 에 반영한다.
+    /// 공인주소(WebRtcAdditionalHosts) 가 비어 있으면 <b>무동작</b> — LAN 전용 의도 보존(기존 동작 그대로).
+    /// 값이 있으면: ① webrtcAdditionalHosts 에 공인 IP/도메인을 광고(클라우드 VM 은 NIC 사설 IP 만 광고돼
+    /// 외부 브라우저가 미디어에 못 닿는 문제 해결), ② UDP 차단망 대비 TCP 폴백(webrtcLocalTCPAddress)도 동반.
+    /// 매 reconcile 마다 GET 으로 현재값과 비교해 <b>다를 때만</b> patch — 불필요한 WebRTC 서버 reload(스트림 끊김) 회피.
+    /// MediaMTX 가 독립 재시작돼 yml 기본값으로 돌아가도 다음 주기에 다시 맞춘다(경로 reconcile 과 동일 자가복구).
+    /// 전역 patch 실패는 비치명(경로 동기화 성공은 유지) — 경고만 남긴다.
+    /// </summary>
+    private async Task SyncGlobalWebRtcAsync(string apiBase, CctvSettings cctv, CancellationToken ct)
+    {
+        var desiredHosts = (cctv.WebRtcAdditionalHosts ?? "")
+            .Split(new[] { ',', ';', ' ', '\t', '\r', '\n' },
+                   StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        // 공인주소 미설정 = LAN 전용 의도 → 전역 설정에 일절 손대지 않는다.
+        if (desiredHosts.Count == 0) return;
+
+        try
+        {
+            var json = await _http.GetStringAsync($"{apiBase}/v3/config/global/get", ct);
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            var currentHosts = new List<string>();
+            if (root.TryGetProperty("webrtcAdditionalHosts", out var ha) && ha.ValueKind == JsonValueKind.Array)
+                foreach (var h in ha.EnumerateArray())
+                    if (h.GetString() is { Length: > 0 } s) currentHosts.Add(s);
+
+            var currentTcp = root.TryGetProperty("webrtcLocalTCPAddress", out var ta)
+                             && ta.ValueKind == JsonValueKind.String ? (ta.GetString() ?? "") : "";
+
+            // 순서 무관 비교(광고 순서는 무의미) — 순서만 다른데 매 주기 patch 하면 reload 가 반복돼 스트림이 끊긴다.
+            var hostsMatch = currentHosts.Count == desiredHosts.Count
+                && new HashSet<string>(currentHosts, StringComparer.OrdinalIgnoreCase).SetEquals(desiredHosts);
+            var tcpMatch = string.Equals(currentTcp, WebRtcTcpFallbackAddress, StringComparison.OrdinalIgnoreCase);
+            if (hostsMatch && tcpMatch) return; // 이미 원하는 상태 — patch 생략(reload 회피)
+
+            var patch = JsonSerializer.Serialize(
+                new { webrtcAdditionalHosts = desiredHosts, webrtcLocalTCPAddress = WebRtcTcpFallbackAddress }, JsonOptions);
+            using var content = new StringContent(patch, Encoding.UTF8, "application/json");
+            using var req = new HttpRequestMessage(new HttpMethod("PATCH"), $"{apiBase}/v3/config/global/patch") { Content = content };
+            var res = await _http.SendAsync(req, ct);
+            if (res.IsSuccessStatusCode)
+                _logger.LogInformation("[CCTV] MediaMTX 전역 WebRTC 반영 — 공인주소 [{Hosts}] + TCP 폴백 {Tcp}",
+                    string.Join(", ", desiredHosts), WebRtcTcpFallbackAddress);
+            else
+                _logger.LogWarning("[CCTV] MediaMTX 전역 WebRTC patch 실패: {Status}", res.StatusCode);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[CCTV] MediaMTX 전역 WebRTC 동기화 실패 (비치명)");
+        }
     }
 
     /// <summary>MediaMTX 경로명/URL path 로 안전한 문자만 남긴다.</summary>

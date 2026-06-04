@@ -27,7 +27,6 @@ public class SettingsController : ControllerBase
     private readonly IFlowMetricsService _flowMetrics;
     private readonly DsProjectService _project;
     private readonly CctvMediaMtxService _cctvSync;
-    private readonly CctvOverlayService _cctvOverlays;
     private readonly IDatabasePathResolver _pathResolver;
     private readonly IHubContext<MonitoringHub> _hub;
     private readonly ILogger<SettingsController> _logger;
@@ -38,7 +37,6 @@ public class SettingsController : ControllerBase
         IFlowMetricsService flowMetrics,
         DsProjectService project,
         CctvMediaMtxService cctvSync,
-        CctvOverlayService cctvOverlays,
         IDatabasePathResolver pathResolver,
         IHubContext<MonitoringHub> hub,
         ILogger<SettingsController> logger)
@@ -48,7 +46,6 @@ public class SettingsController : ControllerBase
         _flowMetrics = flowMetrics;
         _project = project;
         _cctvSync = cctvSync;
-        _cctvOverlays = cctvOverlays;
         _pathResolver = pathResolver;
         _hub = hub;
         _logger = logger;
@@ -86,38 +83,15 @@ public class SettingsController : ControllerBase
             m.HistoryView.MaxCallGoingTimeMs = req.MaxCallGoingTimeMs;
             m.HistoryView.MinCallGoingTimeMs = req.MinCallGoingTimeMs;
 
-            // 카메라 개명(rename) 보존: 저장으로 카메라 Name 이 바뀌면 그 이름을 FK 로 쓰는 CCTV 오버레이를
-            // 따라 옮겨야 좌표가 유실되지 않는다(doc/20 §3·§10.3). 추가/삭제/순서변경과 명확히 구분하기 위해
-            // (old∖new)·(new∖old) 가 각각 정확히 1건일 때만 단일 rename 으로 간주(모호하면 보존만 하고 미적용).
-            var oldCameraNames = m.Cctv.Cameras
-                .Select(c => c.Name).Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
-
-            m.Cctv.MediaMtxApiUrl = req.MediaMtxApiUrl ?? m.Cctv.MediaMtxApiUrl;
-            m.Cctv.WebRtcPort = req.WebRtcPort;
-            m.Cctv.Cameras = (req.Cameras ?? new List<CameraDto>())
-                .Select(c => new CctvCamera { Name = c.Name ?? "", RtspUrl = c.RtspUrl ?? "", Enabled = c.Enabled })
-                .ToList();
+            // CCTV(RTSP) 카메라 설정은 CCTV 페이지(CctvController.SaveSettings)가 소유 — 여기서는 건드리지 않는다.
+            // (Settings 저장이 카메라 목록을 덮어써 오버레이/카메라가 유실되는 것을 방지.)
 
             _settings.SaveSettings(m);
-
-            // 단일 카메라 개명 감지 → 오버레이 FK 이전(삭제 아님).
-            var newCameraNames = m.Cctv.Cameras
-                .Select(c => c.Name).Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
-            var removed = oldCameraNames.Except(newCameraNames, StringComparer.OrdinalIgnoreCase).ToList();
-            var added = newCameraNames.Except(oldCameraNames, StringComparer.OrdinalIgnoreCase).ToList();
-            if (removed.Count == 1 && added.Count == 1)
-            {
-                try { _cctvOverlays.RenameCamera(removed[0], added[0]); }
-                catch (Exception ex) { _logger.LogWarning(ex, "[Settings] CCTV 오버레이 카메라 rename 이전 실패"); }
-            }
 
             // 비가동 임계값 변경 소급 적용 (대시보드·히스토리 즉시 반영) — Blazor SaveSettings 와 동일.
             var (restamped, flows) = await _flowMetrics.ReapplyIdleThresholdsAsync();
 
-            // CCTV 카메라 목록을 MediaMTX 에 동기화 (실패해도 저장 자체는 성공).
-            await _cctvSync.SyncAsync(ct);
-
-            // 임계값 소급/카메라 변경 → 대시보드/히트맵 미러 새로고침.
+            // 임계값 소급 적용 → 대시보드/히트맵 미러 새로고침.
             try { await _hub.Clients.All.SendAsync("DatabaseRebuilt", ct); }
             catch (Exception ex) { _logger.LogDebug(ex, "[Settings] SignalR broadcast failed (non-critical)"); }
 
@@ -317,7 +291,9 @@ public record CctvDto(
     int WebRtcPort,
     List<CameraDto> Cameras,
     bool SyncOk,
-    string SyncMessage);
+    string SyncMessage,
+    // 외부(원격·클라우드) 접속용 공인 IP/도메인. 기본값으로 기존 호출부(SettingsController) 무손상.
+    string WebRtcAdditionalHosts = "");
 
 public record CameraDto(string Name, string RtspUrl, bool Enabled);
 
@@ -337,10 +313,7 @@ public record SaveRequestDto(
     int MaxCycleTimeMs,
     int MinCycleTimeMs,
     int MaxCallGoingTimeMs,
-    int MinCallGoingTimeMs,
-    string? MediaMtxApiUrl,
-    int WebRtcPort,
-    List<CameraDto>? Cameras);
+    int MinCallGoingTimeMs);
 
 public record SaveResultDto(bool Ok, string Message);
 
