@@ -3,6 +3,12 @@
 ### 용어 정의
 - gfm (green field modeling) : 아무 것도 없는 상태에서 LLM 과 chat 을 통해 ds 를 모델링 하는 과정.
 
+### 파일 임포트 규약 (2026-06 갱신)
+- **mermaid 확장자**: `.mmd` (기존 `.md` 도 인식하지만 신규 생성은 `.mmd` 통일)
+- **임포트 진입점**: ProMaker **파일 → 열기** 단일 경로. Flow/Work 우클릭 "Mermaid 불러오기" 메뉴 제거됨
+- **IO 분리**: mermaid = 구조만 · PLC 주소는 페어 `<stem>.iotag.json` 사이드카에 저장
+- **LLM 금지**: PLC 주소(`%IX`, `F00099`, `K02408` 등) 추론/생성 금지 — brownfield 추출기 결과만 사용
+
 ### 폴더 내 파일 안내
 - `yaml.md` — **promaker/v0 YAML 생성 주력 지침** (한국어 공정/PDF/PLC TAG → YAML, self-contained). 자동 주입.
 - `0.domain.md` — DS 모델 도메인 배경 (`yaml.md` 보조 — ArrowType 실행 의미 / 왕복=같은 Work / init call / 다중조건=AND 등). 자동 주입.

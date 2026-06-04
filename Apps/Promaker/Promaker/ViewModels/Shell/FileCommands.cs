@@ -19,7 +19,7 @@ namespace Promaker.ViewModels;
 public partial class MainViewModel
 {
     private const string FileFilter =
-        "All Supported (*.sdf;*.json;*.aasx;*.md;*.yaml;*.yml)|*.sdf;*.json;*.aasx;*.md;*.yaml;*.yml|SDF Files (*.sdf)|*.sdf|JSON Files (*.json)|*.json|AASX Files (*.aasx)|*.aasx|Mermaid Files (*.md)|*.md|YAML Files — lossy 공유 포맷 (*.yaml;*.yml)|*.yaml;*.yml";
+        "All Supported (*.sdf;*.json;*.aasx;*.md;*.mmd;*.yaml;*.yml)|*.sdf;*.json;*.aasx;*.md;*.mmd;*.yaml;*.yml|SDF Files (*.sdf)|*.sdf|JSON Files (*.json)|*.json|AASX Files (*.aasx)|*.aasx|Mermaid Files (*.md;*.mmd)|*.md;*.mmd|YAML Files — lossy 공유 포맷 (*.yaml;*.yml)|*.yaml;*.yml";
 
     /// <summary>
     /// `.yaml` Open 직후 AfterFileLoad 가 IsDirty=false 로 덮어쓰지 않도록 lossy 표식.

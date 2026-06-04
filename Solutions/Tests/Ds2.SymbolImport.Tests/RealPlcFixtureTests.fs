@@ -22,16 +22,16 @@ module private RepoPaths =
             if hasSolutions && hasSamples then Some dir
             else findRepoRoot dir.Parent
 
-    let repoRoot () : DirectoryInfo =
-        match findRepoRoot (DirectoryInfo(AppContext.BaseDirectory)) with
-        | Some d -> d
-        | None ->
-            // CI 환경에서 못 찾을 경우 — test skip 신호로 사용.
-            failwith "repo root with Solutions/ + samples/ 찾을 수 없음 (test 환경 점검)"
+    /// samples/ 미존재 환경(CI · sparse checkout · WSL share) 에서는 throw 하지 않고 None 반환.
+    /// 각 테스트는 fixturePath 가 존재할 때만 실행 (skipIfMissing 가드).
+    let tryRepoRoot () : DirectoryInfo option =
+        findRepoRoot (DirectoryInfo(AppContext.BaseDirectory))
 
+    /// samples/ 부재 시 빈 문자열 반환 → File.Exists = false → 테스트 본문에서 skip.
     let samplePath (relative: string) : string =
-        let root = repoRoot ()
-        Path.Combine(root.FullName, "samples", relative)
+        match tryRepoRoot () with
+        | Some d -> Path.Combine(d.FullName, "samples", relative)
+        | None -> ""
 
 let private fixturePath = RepoPaths.samplePath @"미쯔비시\LSEV_CCS_조립라인_CSV_260408\COMMENT.csv"
 let private carbodyPath = RepoPaths.samplePath @"미쯔비시\자동차 차체\COMMENT.csv"

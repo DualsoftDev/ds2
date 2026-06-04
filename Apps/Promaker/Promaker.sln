@@ -61,6 +61,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Llm.Shared", "..\Shared\Llm
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Promaker.Dock", "Promaker.Dock\Promaker.Dock.csproj", "{71CB0BDF-0294-4725-AA35-AAE62D6DCF68}"
 EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.SymbolImport", "..\..\Solutions\Convert\Ds2.SymbolImport\Ds2.SymbolImport.fsproj", "{B23BF74D-304B-F0A1-EB2D-A82B312D5656}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -371,6 +373,18 @@ Global
 		{71CB0BDF-0294-4725-AA35-AAE62D6DCF68}.Release|x64.Build.0 = Release|Any CPU
 		{71CB0BDF-0294-4725-AA35-AAE62D6DCF68}.Release|x86.ActiveCfg = Release|Any CPU
 		{71CB0BDF-0294-4725-AA35-AAE62D6DCF68}.Release|x86.Build.0 = Release|Any CPU
+		{B23BF74D-304B-F0A1-EB2D-A82B312D5656}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B23BF74D-304B-F0A1-EB2D-A82B312D5656}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B23BF74D-304B-F0A1-EB2D-A82B312D5656}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{B23BF74D-304B-F0A1-EB2D-A82B312D5656}.Debug|x64.Build.0 = Debug|Any CPU
+		{B23BF74D-304B-F0A1-EB2D-A82B312D5656}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{B23BF74D-304B-F0A1-EB2D-A82B312D5656}.Debug|x86.Build.0 = Debug|Any CPU
+		{B23BF74D-304B-F0A1-EB2D-A82B312D5656}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B23BF74D-304B-F0A1-EB2D-A82B312D5656}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B23BF74D-304B-F0A1-EB2D-A82B312D5656}.Release|x64.ActiveCfg = Release|Any CPU
+		{B23BF74D-304B-F0A1-EB2D-A82B312D5656}.Release|x64.Build.0 = Release|Any CPU
+		{B23BF74D-304B-F0A1-EB2D-A82B312D5656}.Release|x86.ActiveCfg = Release|Any CPU
+		{B23BF74D-304B-F0A1-EB2D-A82B312D5656}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -119,7 +119,6 @@
             <MenuItem Tag="AddWork" Header="Work 추가" Command="{Binding AddWorkCommand}"/>
             <MenuItem Tag="AddCall" Header="Call 추가" Command="{Binding AddCallCommand}"/>
             <Separator Tag="SepAdd"/>
-            <MenuItem Tag="ImportMermaid" Header="Mermaid 불러오기..." Command="{Binding ImportMermaidCommand}"/>
             <MenuItem Tag="ExportCsv" Header="CSV 내보내기..." Command="{Binding ExportCsvCommand}"/>
             <Separator Tag="SepImport"/>
             <MenuItem Tag="Copy" Header="복사" Command="{Binding CopySelectedCommand}"/>

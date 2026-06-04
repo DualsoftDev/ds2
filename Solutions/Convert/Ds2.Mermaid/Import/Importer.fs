@@ -1,5 +1,7 @@
 namespace Ds2.Mermaid
 
+#nowarn "44" // [Obsolete] mapToFlow/FlowFlat/Work — 테스트 호환 유지
+
 open System
 open System.IO
 open Ds2.Core
@@ -83,21 +85,37 @@ module MermaidImporter =
         | WorkLevel ->
             Ok (MermaidMapper.mapToWork store parentId projectId graph)
 
-    /// Mermaid 파일을 프로젝트로 불러오기 (새 DsStore 생성 후 반환)
+    /// 동일 디렉터리 `<stem>.iotag.json` 페어 파일을 자동 로드하여 callIndex 와 매칭 후
+    /// `IoTagSidecar` 에 등록. 페어 파일 부재 또는 빈 결과면 no-op.
+    let private bindIoTagPairIfPresent (mermaidPath: string)
+                                       (callIndex: System.Collections.Generic.IReadOnlyDictionary<string, Guid>) : unit =
+        let pairPath = IoTagPairLoader.resolvePairPath mermaidPath
+        match IoTagPairLoader.loadFile pairPath with
+        | Ok loaded when not loaded.Tags.IsEmpty ->
+            let _bound, _unmatched = IoTagBinder.bind callIndex loaded.Tags
+            ()
+        | _ -> ()
+
+    /// Mermaid 파일을 프로젝트로 불러오기 (새 DsStore 생성 후 반환).
+    /// 동일 디렉터리 `*.iotag.json` 페어가 있으면 자동으로 `IoTagSidecar` 에 바인딩.
     let loadProjectFromFile (filePath: string) : Result<DsStore, string list> =
         match parseFile filePath with
         | Error errors -> Error errors
         | Ok graph ->
 
-        let projectName =
-            Path.GetFileNameWithoutExtension(filePath)
-
+        let projectName = Path.GetFileNameWithoutExtension(filePath)
         let newStore = DsStore()
         let project = Project(projectName)
         newStore.DirectWrite(newStore.Projects, project)
 
-        match buildImportPlan newStore graph SystemLevel project.Id with
-        | Error errors -> Error errors
-        | Ok plan ->
-            ImportPlan.applyDirect newStore plan
+        // 새 임포트 시작 — 이전 IoTagSidecar 잔여 클리어
+        IoTagSidecar.clear ()
+
+        match MermaidAnalyzer.validate graph SystemLevel with
+        | MermaidInvalid errors -> Error errors
+        | MermaidValid ->
+            // mapToSystemEx 로 Plan + callIndex 동시 획득 (글로벌 mutable 회피)
+            let result = MermaidMapper.mapToSystemEx newStore project.Id graph
+            ImportPlan.applyDirect newStore result.Plan
+            bindIoTagPairIfPresent filePath result.CallIndex
             Ok newStore
