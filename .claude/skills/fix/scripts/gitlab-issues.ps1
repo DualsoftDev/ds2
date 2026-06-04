@@ -42,7 +42,7 @@ if (Test-Path $statePath) { $state = Get-Content $statePath -Raw -Encoding UTF8 
 if (-not $ProjectPath) {
   $ProjectPath = if ($state -and $state.issueRepo) { $state.issueRepo } else { "dualsoft/helpds" }
 }
-$skip = @("resolved","unsolvable","in_progress","needs_review")
+$skip = @("resolved","unsolvable","needs_review")
 $done = @{}
 if ($state -and $state.issues) {
   foreach ($p in $state.issues.PSObject.Properties) {
