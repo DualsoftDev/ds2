@@ -37,6 +37,8 @@ GitLab 의 **open issue** 를 가져와, ds2 코드 repo 의 **격리된 worktre
 
 ## 2. issue 조회 + 선별
 
+> **GitLab 호스트 / 조회 방법 (반드시 준수)**: GitLab 인스턴스는 자체 호스팅 `http://dualsoft.co.kr:8081/api/v4` 이다. **호스트 값의 SSOT 는 아래 `gitlab-issues.ps1` 의 `-GitLabBase` 기본값**(스크립트 param 절) — 값이 바뀌면 스크립트가 기준이고 본 문서 병기값은 참고용. issue 데이터(title/description/labels/web_url)가 필요하면 **단건 본문 확인이라도 반드시 이 스크립트를 통해** 가져온다. `gitlab.com` 등 **임의 호스트로 직접 REST 호출 금지**(잘못된 호스트로 401). 특정 iid 만 빠르게 보려면 `-Iids <iid[,iid...]>` 를 쓰되, **PowerShell 5.1 에서는 호출 방식별 콤마 해석 차이를 피하기 위해 따옴표를 권장**: `-Iids "154,149"`.
+
 기본(전체 스캔):
 ```
 powershell -NoProfile -File .claude/skills/fix/scripts/gitlab-issues.ps1 -ProjectPath <path>
