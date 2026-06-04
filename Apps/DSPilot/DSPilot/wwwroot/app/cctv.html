@@ -184,6 +184,11 @@
         .cctv-ovl-handle.h-sw { left: -1px; bottom: -1px; cursor: nesw-resize; }
         .cctv-ovl-handle.h-se { right: -1px; bottom: -1px; cursor: nwse-resize; }
         .cctv-ovl-draft { position: absolute; box-sizing: border-box; border: 2px dashed var(--teal); background: rgba(109, 91, 208, 0.16); pointer-events: none; }
+        /* 격자 스냅 가이드 — 영상 표시영역(letterbox rect)에만 그림, 포인터 통과 */
+        .cctv-ovl-grid { position: absolute; pointer-events: none; z-index: 0;
+            background-image: linear-gradient(to right, rgba(109, 91, 208, 0.30) 1px, transparent 1px),
+                              linear-gradient(to bottom, rgba(109, 91, 208, 0.30) 1px, transparent 1px);
+            box-shadow: inset 0 0 0 1px rgba(109, 91, 208, 0.45); }
 
         /* ── 호버 툴팁 (요구사항 #4 상세) — 타일 stage 기준 절대배치, 포인터 통과 ── */
         .cctv-ovl-tip { position: absolute; z-index: 6; min-width: 178px; max-width: 270px; border-radius: var(--radius-md); background: rgba(10, 37, 64, 0.96); color: #fff; box-shadow: var(--shadow-4); pointer-events: none; overflow: hidden; border-left: 3px solid var(--ovl-color, var(--teal)); }
@@ -474,8 +479,23 @@
                                                                 </template>
                                                             </select>
                                                         </template>
-                                                        <span class="arm-hint" x-text="armedFlowId ? '영상 위를 드래그해 영역 지정' : 'Flow 를 먼저 선택'"></span>
+                                                        <span class="arm-hint" x-text="armedFlowId ? (gridSnap ? '격자에 맞춰 드래그' : '영상 위를 드래그해 영역 지정') : 'Flow 를 먼저 선택'"></span>
                                                         <span class="spacer"></span>
+                                                        <button class="btn btn-sm" :class="gridSnap ? 'btn-primary' : 'btn-outlined'"
+                                                                @click="toggleGridSnap()" :title="gridSnap ? '격자 스냅 끄기' : '격자 스냅 켜기'">
+                                                            <span class="material-icons" style="font-size:15px;">grid_on</span> 격자
+                                                        </button>
+                                                        <template x-if="gridSnap">
+                                                            <span style="display:inline-flex; align-items:center; gap:3px;">
+                                                                <button class="btn-icon btn-sm" @click="setGridDiv(gridDiv - 2)" title="격자 넓게">
+                                                                    <span class="material-icons" style="font-size:16px;">remove</span>
+                                                                </button>
+                                                                <span class="arm-hint" style="min-width:34px; text-align:center;" x-text="gridDiv + '칸'"></span>
+                                                                <button class="btn-icon btn-sm" @click="setGridDiv(gridDiv + 2)" title="격자 촘촘">
+                                                                    <span class="material-icons" style="font-size:16px;">add</span>
+                                                                </button>
+                                                            </span>
+                                                        </template>
                                                         <button class="btn btn-primary btn-sm" @click="toggleTileEdit(cam.id)">
                                                             <span class="material-icons" style="font-size:15px;">check</span> 완료
                                                         </button>
@@ -494,6 +514,9 @@
                                                          :class="(editTileId===cam.id ? 'is-editing ' : '') + (editTileId===cam.id && armedFlowId ? 'is-armed' : '')"
                                                          @mousedown="onDrawStart($event, cam.id)" @mousemove="onDrawMove($event)"
                                                          @mouseup="onDrawEnd($event, cam.id)" @mouseleave="onDrawCancel()">
+                                                        <template x-if="editTileId===cam.id && gridSnap">
+                                                            <div class="cctv-ovl-grid" :style="gridStyle(cam.id)"></div>
+                                                        </template>
                                                         <template x-for="b in overlayBoxesForCam(cam)" :key="b.id">
                                                             <div class="cctv-ovl-box"
                                                                  :class="(b.kind==='Call' ? 'kind-call ' : 'kind-flow ') + 'state-' + b.stateKey + (b.tagBelow ? ' tag-below' : '') + (b.tagInsetLeft ? ' tag-inset-left' : '') + (editTileId===cam.id && selectedOverlayId===b.id ? ' is-selected' : '')"
@@ -733,7 +756,10 @@
         const CCTV_WALL_KEY = 'dspilot-cctv-wall';
         const CCTV_LAYOUT_KEY = 'dspilot-cctv-layout';
         const CCTV_SOLO_KEY = 'dspilot-cctv-solo';
+        const CCTV_GRIDSNAP_KEY = 'dspilot-cctv-gridsnap';
+        const CCTV_GRIDDIV_KEY = 'dspilot-cctv-griddiv';
         const VALID_LAYOUTS = ['solo', '2', '2x2', '2x3', 'auto'];
+        const GRID_DIV_MIN = 4, GRID_DIV_MAX = 40, GRID_DIV_DEFAULT = 16;
 
         function cctvApp() {
             // 렌더 캐시(비반응형): overlayCountFor 의 O(n) filter 제거
@@ -770,6 +796,8 @@
                 armedFlowId: '',
                 armedCallId: '',
                 selectedOverlayId: null,
+                gridSnap: false,           // 격자 스냅 (그리기/이동/리사이즈에 적용)
+                gridDiv: GRID_DIV_DEFAULT,  // 가로 격자 칸 수 (세로는 정사각 셀이 되도록 rect 비율로 환산)
                 draft: null, _drawStart: null, _moving: null, _resizing: null, _suppressClick: false, _winMove: null,
 
                 // 호버 툴팁
@@ -864,6 +892,9 @@
                     if (this.layout !== 'solo') this._prevLayout = this.layout; else this._prevLayout = 'auto';
                     const s = localStorage.getItem(CCTV_SOLO_KEY);
                     this.soloId = s || null;
+                    this.gridSnap = localStorage.getItem(CCTV_GRIDSNAP_KEY) === '1';
+                    const gd = parseInt(localStorage.getItem(CCTV_GRIDDIV_KEY), 10);
+                    this.gridDiv = (Number.isFinite(gd) && gd >= GRID_DIV_MIN && gd <= GRID_DIV_MAX) ? gd : GRID_DIV_DEFAULT;
                 },
                 persistLayout() {
                     try {
@@ -1237,6 +1268,54 @@
                 },
                 onArmFlowChange() { this.armedCallId = ''; },
 
+                // ── 격자 스냅 ──
+                toggleGridSnap() {
+                    this.gridSnap = !this.gridSnap;
+                    try { localStorage.setItem(CCTV_GRIDSNAP_KEY, this.gridSnap ? '1' : '0'); } catch (e) {}
+                    this._renderTick++;
+                },
+                setGridDiv(n) {
+                    const v = Math.max(GRID_DIV_MIN, Math.min(GRID_DIV_MAX, Math.round(n)));
+                    if (v === this.gridDiv) return;
+                    this.gridDiv = v;
+                    try { localStorage.setItem(CCTV_GRIDDIV_KEY, String(v)); } catch (e) {}
+                    this._renderTick++;
+                },
+                // 정사각 셀: x 스텝 = rect.width/gridDiv, y 스텝도 같은 px → 화면에서 정사각 격자
+                gridStepPx(camId) {
+                    const r = this.tileRects[camId];
+                    if (!r || r.width <= 0) return 0;
+                    return Math.max(6, r.width / this.gridDiv);
+                },
+                gridStyle(camId) {
+                    const _ = this._renderTick;
+                    const r = this.tileRects[camId];
+                    if (!r) return 'display:none;';
+                    const step = this.gridStepPx(camId);
+                    return `left:${r.left}px; top:${r.top}px; width:${r.width}px; height:${r.height}px; background-size:${step}px ${step}px;`;
+                },
+                // 정규화 좌표 스텝(축별) — 정사각 px 셀을 normalized 로 환산
+                gridStepsNorm(camId) {
+                    const r = this.tileRects[camId];
+                    if (!r || r.width <= 0 || r.height <= 0) return null;
+                    const step = this.gridStepPx(camId);
+                    if (step <= 0) return null;
+                    return { sx: step / r.width, sy: step / r.height };
+                },
+                // 레이어 px 좌표를 rect 원점 기준 격자에 스냅
+                _snapPxToGrid(camId, px, axis) {
+                    const r = this.tileRects[camId];
+                    if (!r || !this.gridSnap) return px;
+                    const step = this.gridStepPx(camId);
+                    if (step <= 0) return px;
+                    const origin = axis === 'x' ? r.left : r.top;
+                    return origin + Math.round((px - origin) / step) * step;
+                },
+                _snap01(v, step) {
+                    if (!step || step <= 0) return v;
+                    return Math.max(0, Math.min(1, Math.round(v / step) * step));
+                },
+
                 _layerXY(e) {
                     // 이동/리사이즈 중 window 추적(e.currentTarget=window)일 때는 편집 타일의 레이어를 직접 찾는다.
                     let layer = (e.currentTarget && e.currentTarget.closest) ? e.currentTarget.closest('.cctv-ovl-layer') : null;
@@ -1274,8 +1353,13 @@
                     if (this._moving) { this._onBoxMove(e); return; }
                     if (!this.editTileId || !this._drawStart) return;
                     const p = this._layerXY(e);
-                    const x0 = Math.min(this._drawStart.x, p.x), y0 = Math.min(this._drawStart.y, p.y);
-                    this.draft = { left: x0, top: y0, width: Math.abs(p.x - this._drawStart.x), height: Math.abs(p.y - this._drawStart.y) };
+                    let ax = this._drawStart.x, ay = this._drawStart.y, bx = p.x, by = p.y;
+                    if (this.gridSnap) {
+                        ax = this._snapPxToGrid(this.editTileId, ax, 'x'); ay = this._snapPxToGrid(this.editTileId, ay, 'y');
+                        bx = this._snapPxToGrid(this.editTileId, bx, 'x'); by = this._snapPxToGrid(this.editTileId, by, 'y');
+                    }
+                    const x0 = Math.min(ax, bx), y0 = Math.min(ay, by);
+                    this.draft = { left: x0, top: y0, width: Math.abs(bx - ax), height: Math.abs(by - ay) };
                 },
                 onDrawEnd(e, camId) {
                     if (this._resizing) { this._onResizeUp(); return; }
@@ -1324,8 +1408,13 @@
                     const ovl = this.overlaysForCamId(m.camId).find(x => x.id === m.id);
                     if (!ovl) return;
                     const clamp = (v, max) => Math.max(0, Math.min(max, v));
-                    ovl.x = clamp(m.origX + dnx, 1 - ovl.w);
-                    ovl.y = clamp(m.origY + dny, 1 - ovl.h);
+                    let nx = m.origX + dnx, ny = m.origY + dny;
+                    if (this.gridSnap) {
+                        const s = this.gridStepsNorm(m.camId);
+                        if (s) { nx = this._snap01(nx, s.sx); ny = this._snap01(ny, s.sy); }
+                    }
+                    ovl.x = clamp(nx, 1 - ovl.w);
+                    ovl.y = clamp(ny, 1 - ovl.h);
                     this._renderTick++;
                 },
                 async _onBoxUp() {
@@ -1371,6 +1460,15 @@
                     else      { left = m.origX;            right = clamp01(m.origX + m.origW + dnx); if (right < left + MIN) right = Math.min(1, left + MIN); }
                     if (north) { bottom = m.origY + m.origH; top = clamp01(m.origY + dny); if (top > bottom - MIN) top = Math.max(0, bottom - MIN); }
                     else       { top = m.origY;              bottom = clamp01(m.origY + m.origH + dny); if (bottom < top + MIN) bottom = Math.min(1, top + MIN); }
+                    if (this.gridSnap) {
+                        const s = this.gridStepsNorm(m.camId);
+                        if (s) {
+                            if (west) { left = this._snap01(left, s.sx); if (left > right - MIN) left = Math.max(0, right - MIN); }
+                            else      { right = this._snap01(right, s.sx); if (right < left + MIN) right = Math.min(1, left + MIN); }
+                            if (north) { top = this._snap01(top, s.sy); if (top > bottom - MIN) top = Math.max(0, bottom - MIN); }
+                            else       { bottom = this._snap01(bottom, s.sy); if (bottom < top + MIN) bottom = Math.min(1, top + MIN); }
+                        }
+                    }
                     ovl.x = left; ovl.y = top; ovl.w = right - left; ovl.h = bottom - top;
                     this._renderTick++;
                 },

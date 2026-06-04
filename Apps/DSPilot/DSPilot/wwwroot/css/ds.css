@@ -152,28 +152,49 @@
     --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.66);
 }
 
-/* ───────────────────────────── 3. 네이비 헤더(app-bar) ───────────────────── */
-/* 토큰을 헤더 스코프에서 밝게 재정의 → 하위 텍스트/아이콘/구분선 자동 전환 */
+/* ───────────────────────────── 3. 헤더(app-bar) ──────────────────────────── */
+/* Light = 흰 표면 + 네이비 텍스트 + 보라 악센트, Dark = 네이비 그라데이션.
+   네이비 스타일은 .dark-theme 로 스코프하고, 라이트가 기본값이 되도록 재구성. */
 .app-bar {
-    background: linear-gradient(135deg, var(--navy) 0%, var(--navy-2) 100%);
+    background: var(--color-surface);
+    color: var(--color-text-primary);          /* 라이트: 기본 텍스트도 네이비(흰 헤더 위 가독성) */
     border-bottom: 2px solid var(--color-primary);
+    box-shadow: var(--shadow-1);
+}
+.app-bar .dsp-brand-word { color: var(--color-text-primary); }
+.app-bar .dsp-brand-word b { color: var(--color-primary); }
+.app-bar .dsp-brand-mark { background: var(--teal); box-shadow: 3px 3px 0 0 rgba(10, 37, 64, 0.16); border-radius: 2px; }
+.app-bar .btn-icon { color: var(--color-text-secondary); }
+.app-bar .btn-icon:hover { background: color-mix(in srgb, var(--color-text-primary) 8%, transparent); }
+
+/* Dark: 네이비 그라데이션 헤더 — 토큰을 흰색 계열로 재스코프 */
+.dark-theme .app-bar {
+    background: linear-gradient(135deg, var(--navy) 0%, var(--navy-2) 100%);
+    border-bottom-color: var(--color-primary);
+    box-shadow: none;
     --color-text-primary: #FFFFFF;
     --color-text-secondary: rgba(255, 255, 255, 0.72);
     --color-lines: rgba(255, 255, 255, 0.18);
     --color-lines-strong: rgba(255, 255, 255, 0.28);
 }
-.dark-theme .app-bar { border-bottom-color: var(--color-primary); }
-.app-bar .dsp-brand-word { color: #fff; }
-.app-bar .dsp-brand-word b { color: var(--teal-2); }
-.app-bar .dsp-brand-mark { background: var(--teal); box-shadow: 3px 3px 0 0 rgba(255, 255, 255, 0.22); border-radius: 2px; }
-.app-bar .btn-icon { color: #fff; }
-.app-bar .btn-icon:hover { background: rgba(255, 255, 255, 0.12); }
+.dark-theme .app-bar .dsp-brand-word { color: #fff; }
+.dark-theme .app-bar .dsp-brand-word b { color: var(--teal-2); }
+.dark-theme .app-bar .dsp-brand-mark { box-shadow: 3px 3px 0 0 rgba(255, 255, 255, 0.22); }
+.dark-theme .app-bar .btn-icon { color: #fff; }
+.dark-theme .app-bar .btn-icon:hover { background: rgba(255, 255, 255, 0.12); }
 
-/* ───────────────────────────── 4. 네이비 사이드바(drawer) ────────────────── */
-/* drawer 내부에서 토큰 변수를 밝은 팔레트로 재스코프 → 모든 하위 규칙 자동 라이트 */
+/* ───────────────────────────── 4. 사이드바(drawer) ───────────────────────── */
+/* Light = 흰 표면 + 네이비 텍스트(시맨틱 토큰 기본값 사용), Dark = 네이비.
+   네이비 토큰 재스코프는 .dark-theme .drawer 에만 적용. */
 .drawer {
-    background: var(--navy);
-    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--color-surface);
+    border-right: 1px solid var(--color-lines);
+    --color-drawer-text: #2A3B57;
+    --color-drawer-icon: #6B7B90;
+}
+.dark-theme .drawer {
+    background: #07182B;
+    border-right-color: rgba(255, 255, 255, 0.08);
     --color-text-primary: #FFFFFF;
     --color-text-secondary: rgba(255, 255, 255, 0.58);
     --color-text-disabled: rgba(255, 255, 255, 0.34);
@@ -184,21 +205,34 @@
     --color-surface: rgba(255, 255, 255, 0.04);
     --color-surface-variant: rgba(255, 255, 255, 0.06);
 }
-.dark-theme .drawer { background: #07182B; }
+
 .nav-link { color: var(--color-drawer-text); }
-.nav-link:hover { background: rgba(255, 255, 255, 0.06); color: #fff; }
+.nav-link:hover { background: color-mix(in srgb, var(--color-primary) 8%, transparent); color: var(--color-primary); }
 .nav-link.active, a.nav-link.active {
+    background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+    border-left-color: var(--color-primary);
+    color: var(--color-primary);
+}
+.nav-link .material-icons { color: var(--color-drawer-icon); }
+.nav-link.active .material-icons { color: var(--color-primary); }
+.nav-flow-name { color: var(--color-drawer-text); }
+.nav-flow.is-selected .nav-flow-name { color: var(--color-primary); }
+.nav-flow.is-selected { background: color-mix(in srgb, var(--color-primary) 10%, transparent); }
+.nav-sys img { opacity: 0.9; }
+.ls-eff-val { color: var(--color-primary); }
+
+/* Dark: 사이드바 네이비 배경에 맞춘 흰색 계열 상호작용 */
+.dark-theme .nav-link:hover { background: rgba(255, 255, 255, 0.06); color: #fff; }
+.dark-theme .nav-link.active, .dark-theme a.nav-link.active {
     background: rgba(109, 91, 208, 0.20);
     border-left-color: var(--teal);
     color: #fff;
 }
-.nav-link .material-icons { color: var(--color-drawer-icon); }
-.nav-link.active .material-icons { color: var(--teal-2); }
-.nav-flow-name { color: var(--color-drawer-text); }
-.nav-flow.is-selected .nav-flow-name { color: var(--teal-2); }
-.nav-flow.is-selected { background: rgba(109, 91, 208, 0.16); }
-.nav-sys img { filter: brightness(0) invert(1); opacity: 0.85; }
-.ls-eff-val { color: var(--teal-2); }
+.dark-theme .nav-link.active .material-icons { color: var(--teal-2); }
+.dark-theme .nav-flow.is-selected .nav-flow-name { color: var(--teal-2); }
+.dark-theme .nav-flow.is-selected { background: rgba(109, 91, 208, 0.16); }
+.dark-theme .nav-sys img { filter: brightness(0) invert(1); opacity: 0.85; }
+.dark-theme .ls-eff-val { color: var(--teal-2); }
 
 /* ───────────────────────────── 5. 카드/표면 둥글게 + 그림자 ──────────────── */
 .card, .paper {
