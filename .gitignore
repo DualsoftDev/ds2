@@ -126,3 +126,4 @@ Apps/DSPilot/plc.db
 Apps/DSPilot/plc.db.bak_20260527_095035
 Apps/DSPilot/tools/backfill_demo_data.py
 Apps/DSPilot/DSPilot/wwwroot/uploads/layout-data.json
+*.pdb

@@ -6,6 +6,26 @@ open System
 [<AutoOpen>]
 module Constants =
 
+    /// 파일 확장자 · 사이드카 규약
+    module FileFormat =
+        /// 신규 mermaid 출력 확장자 (권장)
+        let [<Literal>] MermaidExt = ".mmd"
+        /// 구 mermaid 출력 확장자 (호환 유지)
+        let [<Literal>] MermaidExtLegacy = ".md"
+        /// IoTag 페어 사이드카 suffix — `<stem>.iotag.json`
+        let [<Literal>] IoTagPairSuffix = ".iotag.json"
+        /// LLM 응답 안 IoTag 페어 fence 라벨 (` ```iotag-json `)
+        let [<Literal>] IoTagJsonFence = "iotag-json"
+        /// 구 fence 라벨 (deprecated, backward-compat 만 인식)
+        let [<Literal>] PlcBindingsFenceLegacy = "plc-bindings"
+
+    /// 모델 구조 기본값
+    module Model =
+        /// 단일 implicit Active System 의 기본 이름 (ai-core §0)
+        let [<Literal>] DefaultSystemName = "Main"
+        /// IoTag callPath 구분자 — escape-aware (`\.` 는 literal)
+        let [<Literal>] CallPathSeparator = "."
+
     /// 정규식 패턴
     module Patterns =
         open System.Text.RegularExpressions

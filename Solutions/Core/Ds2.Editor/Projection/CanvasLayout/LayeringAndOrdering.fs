@@ -25,48 +25,77 @@ module internal CanvasLayoutLayeringAndOrdering =
 
     let assignLayers (nodes: CanvasNodeInfo list) (arrows: CanvasArrowInfo list) : Map<Guid, int> =
         let nodeIds = nodes |> List.map (fun n -> n.Id) |> Set.ofList
-        let edges =
+        let validArrows =
             arrows
             |> List.filter (fun a -> nodeIds.Contains a.SourceId && nodeIds.Contains a.TargetId)
 
+        // Group arrows force endpoints to same layer (same X-axis column).
+        // Union-find: collapse group-connected nodes into a single representative.
+        let parent = Dictionary<Guid, Guid>()
+        for nid in nodeIds do parent.[nid] <- nid
+        let rec find x =
+            if parent.[x] = x then x
+            else
+                let r = find parent.[x]
+                parent.[x] <- r
+                r
+        let union a b =
+            let ra, rb = find a, find b
+            if ra <> rb then parent.[ra] <- rb
+        for a in validArrows do
+            if a.ArrowType = ArrowType.Group then
+                union a.SourceId a.TargetId
+
+        // Directed edges = non-group arrows; collapse to representatives, drop self-loops.
+        let edges =
+            validArrows
+            |> List.filter (fun a -> a.ArrowType <> ArrowType.Group)
+            |> List.map (fun a -> find a.SourceId, find a.TargetId)
+            |> List.filter (fun (s, t) -> s <> t)
+            |> List.distinct
+
+        let reps = nodeIds |> Set.map find
         let successors = Dictionary<Guid, List<Guid>>()
         let inDegree = Dictionary<Guid, int>()
-        for nid in nodeIds do
-            successors.[nid] <- List<Guid>()
-            inDegree.[nid] <- 0
-        for e in edges do
-            successors.[e.SourceId].Add(e.TargetId)
-            inDegree.[e.TargetId] <- inDegree.[e.TargetId] + 1
+        for rid in reps do
+            successors.[rid] <- List<Guid>()
+            inDegree.[rid] <- 0
+        for (s, t) in edges do
+            successors.[s].Add(t)
+            inDegree.[t] <- inDegree.[t] + 1
 
-        let layer = Dictionary<Guid, int>()
+        let repLayer = Dictionary<Guid, int>()
         let queue = Queue<Guid>()
-        for nid in nodeIds do
-            if inDegree.[nid] = 0 then
-                queue.Enqueue nid
-                layer.[nid] <- 0
+        for rid in reps do
+            if inDegree.[rid] = 0 then
+                queue.Enqueue rid
+                repLayer.[rid] <- 0
 
         while queue.Count > 0 do
             let cur = queue.Dequeue()
-            let curLayer = layer.[cur]
+            let curLayer = repLayer.[cur]
             for succ in successors.[cur] do
                 let newLayer = curLayer + 1
-                if layer.ContainsKey succ then
-                    if newLayer > layer.[succ] then
-                        layer.[succ] <- newLayer
+                if repLayer.ContainsKey succ then
+                    if newLayer > repLayer.[succ] then
+                        repLayer.[succ] <- newLayer
                 else
-                    layer.[succ] <- newLayer
+                    repLayer.[succ] <- newLayer
                 inDegree.[succ] <- inDegree.[succ] - 1
                 if inDegree.[succ] = 0 then
                     queue.Enqueue succ
 
         let maxLayer =
-            if layer.Count = 0 then 0
-            else layer.Values |> Seq.max
-        for nid in nodeIds do
-            if not (layer.ContainsKey nid) then
-                layer.[nid] <- maxLayer + 1
+            if repLayer.Count = 0 then 0
+            else repLayer.Values |> Seq.max
+        for rid in reps do
+            if not (repLayer.ContainsKey rid) then
+                repLayer.[rid] <- maxLayer + 1
 
-        layer |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
+        // Propagate layer from representative to every member of the group.
+        nodeIds
+        |> Seq.map (fun nid -> nid, repLayer.[find nid])
+        |> Map.ofSeq
 
     let orderWithinLayers
         (layerMap: Map<Guid, int>)

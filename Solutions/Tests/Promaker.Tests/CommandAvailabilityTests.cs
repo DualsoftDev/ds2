@@ -24,7 +24,6 @@ public sealed class CommandAvailabilityTests
             Assert.False(vm.CopySelectedCommand.CanExecute(null));
             Assert.False(vm.PasteCopiedCommand.CanExecute(null));
             Assert.False(vm.FocusNameEditorCommand.CanExecute(null));
-            Assert.False(vm.ImportMermaidCommand.CanExecute(null));
             Assert.False(vm.Canvas.FocusSelectedInCanvasCommand.CanExecute(null));
 
             var work = new EntityNode(Guid.NewGuid(), EntityKind.Work, "Work1");
@@ -33,7 +32,6 @@ public sealed class CommandAvailabilityTests
 
             Assert.True(vm.CopySelectedCommand.CanExecute(null));
             Assert.True(vm.FocusNameEditorCommand.CanExecute(null));
-            Assert.True(vm.ImportMermaidCommand.CanExecute(null));
             Assert.True(vm.Canvas.FocusSelectedInCanvasCommand.CanExecute(null));
 
             var clipboard = GetClipboard(vm);
@@ -45,12 +43,10 @@ public sealed class CommandAvailabilityTests
 
             vm.SelectedNode = new EntityNode(Guid.NewGuid(), EntityKind.Call, "Call1");
 
-            Assert.False(vm.ImportMermaidCommand.CanExecute(null));
             Assert.True(vm.Canvas.FocusSelectedInCanvasCommand.CanExecute(null));
 
             vm.SelectedNode = new EntityNode(Guid.NewGuid(), EntityKind.System, "System1");
 
-            Assert.True(vm.ImportMermaidCommand.CanExecute(null));
             Assert.False(vm.Canvas.FocusSelectedInCanvasCommand.CanExecute(null));
         });
     }

@@ -15,7 +15,6 @@ module EntityKindRules =
         | "AddFlow"       -> kind = Some EntityKind.System
         | "AddWork"       -> kind = Some EntityKind.Flow
         | "AddCall"       -> kind = Some EntityKind.Work
-        | "ImportMermaid" -> not isDeviceTree && (kind = Some EntityKind.Flow || kind = Some EntityKind.Work)
         | "ExportCsv"     -> hasProject && not isDeviceTree
         | "Copy"          -> kind = Some EntityKind.Flow || kind = Some EntityKind.Work || kind = Some EntityKind.Call
         | "Cut"           -> kind = Some EntityKind.Work || kind = Some EntityKind.Call
@@ -29,10 +28,6 @@ module EntityKindRules =
                              || kind = Some EntityKind.Work || kind = Some EntityKind.Call
         | "Disable"       -> not isDeviceTree && kind = Some EntityKind.Flow
         | _ -> true
-
-    /// Mermaid 임포트 가능한 EntityKind인지
-    let canImportMermaid (kind: EntityKind) : bool =
-        kind = EntityKind.System || kind = EntityKind.Flow || kind = EntityKind.Work
 
     /// Canvas에서 더블클릭으로 탭을 열 수 있는 EntityKind인지
     let canOpenAsTab (kind: EntityKind) : bool =

@@ -13,6 +13,9 @@
     <Compile Include="Import\ImportTypes.fs" />
     <Compile Include="Import\Analyzer.fs" />
     <Compile Include="Import\MapperCommon.fs" />
+    <Compile Include="Import\IoTagSidecar.fs" />
+    <Compile Include="Import\IoTagPairLoader.fs" />
+    <Compile Include="Import\IoTagBinder.fs" />
     <Compile Include="Import\Targets\MapperTargetPlanning.fs" />
     <Compile Include="Import\Targets\MapperTargets.fs" />
     <Compile Include="Import\Mapper.fs" />
