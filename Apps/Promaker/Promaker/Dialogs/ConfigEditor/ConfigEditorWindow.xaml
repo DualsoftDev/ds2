@@ -428,6 +428,16 @@
                                                 Margin="0,0,8,0"/>
                                         <Button Content="기본값 (XGI-D28x×2 / XGQ-TR×2)"
                                                 Command="{Binding LoadDefaultXgkSlotsCommand}"
+                                                Style="{StaticResource SecondaryButtonStyle}"
+                                                Margin="0,0,8,0"/>
+                                        <Button Content="JSON 가져오기"
+                                                Command="{Binding ImportXgkSlotsCommand}"
+                                                ToolTip="별도 JSON 파일에서 XGK 슬롯 구성을 불러옵니다 (저장 버튼으로 확정)"
+                                                Style="{StaticResource SecondaryButtonStyle}"
+                                                Margin="0,0,8,0"/>
+                                        <Button Content="JSON 내보내기"
+                                                Command="{Binding ExportXgkSlotsCommand}"
+                                                ToolTip="현재 XGK 슬롯 구성을 별도 JSON 파일로 저장합니다"
                                                 Style="{StaticResource SecondaryButtonStyle}"/>
                                     </StackPanel>
 
