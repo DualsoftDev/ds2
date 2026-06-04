@@ -35,6 +35,16 @@
     src: url('../fonts/NotoSansKR-Bold.ttf') format('truetype');
 }
 
+/* Inter (가변폰트: wght 축) — dashboard2(stitch) 라틴 본문/헤딩용. self-host woff2(오프라인).
+   라틴 서브셋(한글 글리프 없음) → 한글은 위 Noto Sans KR 로 폴백. */
+@font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: swap;
+    src: url('../fonts/Inter-Variable.woff2') format('woff2');
+}
+
 /* Material Symbols Outlined (가변폰트: FILL/wght/GRAD/opsz 축) — code.html 과 동일한 아이콘 글리프.
    self-host woff2(오프라인). classic Material Icons 는 폴백으로 유지. */
 @font-face {
