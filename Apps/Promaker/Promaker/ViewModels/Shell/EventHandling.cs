@@ -64,7 +64,7 @@ public partial class MainViewModel
                 ApplyEntityRename(ren.id, ren.newName, ren.treeName);
                 // 3D 뷰는 store snapshot(BuildScene)으로 device-by-flow 트리/카드의 Flow 이름을 한 번 굽고
                 // live binding 이 없어, ApplyEntityRename 의 ID 패치로는 갱신되지 않는다(특히 Flow rename →
-                // ContextBuilder 의 FlowName / 좌측 Flow 그룹 헤더). SystemPropsChanged 와 동일하게 재동기화.
+                // ContextBuilder 의 FlowName / 좌측 Flow 그룹 헤더). 같은 이유로 3D 재동기화한다.
                 ResyncView3DIfOpen();
                 return;
 
@@ -111,9 +111,12 @@ public partial class MainViewModel
                 return;
 
             case { IsStoreRefreshed: true }:
-                // LLM ApplyImportPlan 이후 store 갱신 — HasProject 동기화 후 RefreshScope.All 로 RebuildAll.
+                // LLM ApplyImportPlan / Undo·Redo 이후 store 갱신 — HasProject 동기화 후 RefreshScope.All 로 RebuildAll.
                 HasProject = Queries.allProjects(_store).Any();
                 ApplyRefreshScope(RefreshScopeDecision.ForEditorEvent(evt));
+                // RebuildAll 은 tree/canvas 만 재구축하고 3D(BuildScene)는 안 건드린다. Undo/Redo 로 Flow
+                // rename 을 되돌릴 때(rename 은 light event 미부착 → StoreRefreshed 경로) 3D 가 stale 되므로 재동기화.
+                ResyncView3DIfOpen();
                 return;
         }
 
@@ -159,12 +162,15 @@ public partial class MainViewModel
         }
 
         UpdateMatching(Canvas.CanvasNodes, entityId, static n => n.Id, static (n, value) => n.Name = value, newName);
-        // Flow rename 시 canvas 의 자식 Work node 는 자신의 work id 를 가져 flow id(entityId)로는 위
-        // UpdateMatching 에 안 걸린다. work.Name="{FlowPrefix}.{LocalName}" 이고 FlowPrefix 는 RenameEntity
-        // 가 이미 store 에 cascade 했으므로, 자식 Work 의 (갱신된) Name 으로 canvas node 를 동기화한다.
-        // entityId 가 Flow 가 아니면 worksOf 는 비어 no-op.
+        // Flow rename 시 자식 Work 의 canvas node 와 열린 Work 탭 title 은 각자 work id 를 가져 flow
+        // id(entityId)로는 위 UpdateMatching 에 안 걸린다. work.Name="{FlowPrefix}.{LocalName}" 이고
+        // FlowPrefix 는 RenameEntity 가 이미 store 에 cascade 했으므로, 자식 Work 의 (갱신된) Name 으로
+        // canvas node 와 Work 탭 title 을 동기화한다. entityId 가 Flow 가 아니면 worksOf 는 비어 no-op.
         foreach (var work in Queries.worksOf(entityId, _store))
+        {
             UpdateMatching(Canvas.CanvasNodes, work.Id, static n => n.Id, static (n, value) => n.Name = value, work.Name);
+            UpdateMatching(Canvas.OpenTabs, work.Id, static t => t.RootId, static (t, value) => t.Title = value, work.Name);
+        }
         UpdateMatching(Selection.EnumerateTreeNodes(), entityId, static n => n.Id, static (n, value) => n.Name = value, treeName);
         UpdateMatching(Canvas.OpenTabs, entityId, static t => t.RootId, static (t, value) => t.Title = value, newName);
         PropertyPanel.ApplyEntityRename(entityId, newName);
