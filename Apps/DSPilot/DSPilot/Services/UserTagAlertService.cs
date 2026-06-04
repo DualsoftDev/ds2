@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
+using Microsoft.AspNetCore.SignalR;
 using Ds2.Core;
 using Ds2.Editor;
+using DSPilot.Hubs;
 using DSPilot.Models.UserTagAlerts;
 using DSPilot.Repositories;
 using LoggingHelpers = Ds2.Core.LoggingHelpers;
@@ -23,6 +25,7 @@ public sealed class UserTagAlertService : BackgroundService
     private readonly DsProjectService _projectService;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly SimulationEngineService _engineService;
+    private readonly IHubContext<MonitoringHub> _hubContext;
     private readonly ILogger<UserTagAlertService> _logger;
 
     private readonly object _stateLock = new();
@@ -45,11 +48,13 @@ public sealed class UserTagAlertService : BackgroundService
         DsProjectService projectService,
         IServiceScopeFactory scopeFactory,
         SimulationEngineService engineService,
+        IHubContext<MonitoringHub> hubContext,
         ILogger<UserTagAlertService> logger)
     {
         _projectService = projectService;
         _scopeFactory = scopeFactory;
         _engineService = engineService;
+        _hubContext = hubContext;
         _logger = logger;
     }
 
@@ -74,6 +79,8 @@ public sealed class UserTagAlertService : BackgroundService
     {
         lock (_stateLock) _alerts.Clear();
         AlertsChanged?.Invoke();
+        // 정적 /uptime 페이지(SignalR 구독)에도 즉시 비움 반영 (issue #176).
+        _ = BroadcastAlertsChangedAsync(0, CancellationToken.None);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -324,6 +331,11 @@ public sealed class UserTagAlertService : BackgroundService
                 while (_alerts.Count > MaxAlerts) _alerts.RemoveLast();
             }
             AlertsChanged?.Invoke();
+
+            // 정적 /uptime 페이지(SignalR 구독)에 신규 UserTag 알림을 실시간 통지.
+            // 상단바 배지는 /api/nav/summary 4초 폴링으로 갱신되지만, 탭의 집계
+            // (총알림·시계열 추이)는 SignalR 신호가 없으면 10초 폴링까지 지연됨 (issue #176).
+            await BroadcastAlertsChangedAsync(newUiAlerts.Count, ct);
         }
 
         // 진단 — newLogs 중 정의된 주소 행이 0 이면 plcTagLog INSERT 가 안 일어남 (A 케이스).
@@ -332,6 +344,24 @@ public sealed class UserTagAlertService : BackgroundService
             _logger.LogInformation(
                 "[UserTagAlert] poll: logs={Logs}, matchedDefinedAddr={Matched}, fired={Fired}, defs={Defs}",
                 newLogs.Count, matchedCount, firedCount, defsSnap.Count);
+        }
+    }
+
+    /// <summary>
+    /// UserTag 알림 변경을 SignalR("UserTagAlertsChanged")로 전체 클라이언트에 통지.
+    /// /uptime 페이지가 이 신호를 받아 스냅샷(/api/user-tags/snapshot)을 즉시 재조회 →
+    /// 총알림·시계열 추이가 상단바 배지와 동일하게 실시간 갱신됨.
+    /// 통지 실패는 폴링이 보완하므로 fail-safe 로 로그만 남긴다.
+    /// </summary>
+    private async Task BroadcastAlertsChangedAsync(int count, CancellationToken ct)
+    {
+        try
+        {
+            await _hubContext.Clients.All.SendAsync("UserTagAlertsChanged", new { count }, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[UserTagAlert] SignalR broadcast failed (count={Count})", count);
         }
     }
 }
