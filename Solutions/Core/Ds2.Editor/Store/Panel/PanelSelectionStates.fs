@@ -73,7 +73,12 @@ type WorkSelectionState(
                 match Queries.tryGetDeviceDurationMs singleResolvedWorkId.Value store with
                 | Some ms ->
                     deviceDurationMs <- Nullable(ms)
-                    deviceDurationHint <- sprintf "예상 소요 시간: %dms" ms
+                    deviceDurationHint <-
+                        match Queries.tryGetDeviceDurationRangeMs singleResolvedWorkId.Value store with
+                        | Some range ->
+                            sprintf "예상 소요 시간: %dms / 이상감지 범위: %d~%dms" ms range.MinMs range.MaxMs
+                        | None ->
+                            sprintf "예상 소요 시간: %dms" ms
                 | None -> ()
 
             if singleRawWorkId.HasValue then

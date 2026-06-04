@@ -1,0 +1,5 @@
+/* full stitch 빌드 입력 — dashboard2.html 등 단독 stitch 페이지용.
+   base(=preflight) + components + utilities. 페이지 고유 컴포넌트 CSS 는 각 페이지 <style> 에 유지. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

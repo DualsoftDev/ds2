@@ -15,6 +15,35 @@ public class AppSettingsModel
     public CctvSettings Cctv { get; set; } = new();
     public OeeSignalSettings OeeSignals { get; set; } = new();
     public ShiftSettings Shift { get; set; } = new();
+    public CycleExclusionSettings CycleExclusion { get; set; } = new();
+}
+
+/// <summary>
+/// 대시보드 "최근 사이클 히스토리"의 이상치 제외 필터 (Flow별 최소·최대 CT 범위). 여러 작업자 화면이
+/// 같은 제외 기준을 공유하도록 클라이언트(브라우저)가 아닌 서버(appsettings)에 보관한다.
+/// 관리 단위 = 초(seconds). CT 가 [MinSec, MaxSec] 밖이면 이상치로 제외. 특정 사이클 키가 아닌 "범위 규칙"이라
+/// 새 사이클이 들어와도 그대로 적용되고, 사용자가 직접 해제(둘 다 비움)해야 풀린다.
+/// </summary>
+public class CycleExclusionSettings
+{
+    public List<FlowCycleExclusion> Ranges { get; set; } = [];
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
+}
+
+public class FlowCycleExclusion
+{
+    public string FlowName { get; set; } = "";
+
+    /// <summary>최소 CT(초). CT &lt; MinSec 이면 제외. null = 하한 없음.</summary>
+    public double? MinSec { get; set; }
+
+    /// <summary>최대 CT(초). CT &gt; MaxSec 이면 제외. null = 상한 없음.</summary>
+    public double? MaxSec { get; set; }
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }
 
 /// <summary>
@@ -126,6 +155,15 @@ public class CctvSettings
     /// 클라이언트에서 치환되므로(원격 접속 대비) 포트만 보관한다.
     /// </summary>
     public int WebRtcPort { get; set; } = 8889;
+
+    /// <summary>
+    /// 외부(원격·클라우드) 접속용 공인 IP/도메인. 비우면 LAN 전용(기존 동작 그대로).
+    /// 클라우드 VM 은 NIC 에 사설 IP(10.x/172.x)만 있고 공인 IP 는 1:1 NAT 로 매핑되므로,
+    /// MediaMTX 가 NIC 에서 읽은 사설 IP 만 ICE 후보로 광고하면 외부 브라우저가 미디어에 못 닿는다.
+    /// 이 값을 채우면 CctvMediaMtxService 가 MediaMTX 의 webrtcAdditionalHosts 에 반영해(+TCP 폴백 동반)
+    /// 외부에서도 영상이 붙는다. 쉼표로 여러 개 가능. 예: "203.0.113.10" 또는 "cctv.example.com".
+    /// </summary>
+    public string WebRtcAdditionalHosts { get; set; } = "";
 
     public List<CctvCamera> Cameras { get; set; } = [];
 

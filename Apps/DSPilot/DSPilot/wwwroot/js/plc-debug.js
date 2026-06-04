@@ -19,6 +19,16 @@ window.plcDebug = {
         }
     },
 
+    // 차트 텍스트/격자/툴팁을 Control Room 테마 토큰에서 읽음 (shell.js 가 <html> 에 .dark-theme 설정 → :root 읽기 정확)
+    themeColor: function (token, fallback) {
+        try {
+            const v = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
+            return v || fallback;
+        } catch (e) {
+            return fallback;
+        }
+    },
+
     renderChart: function (datasets, options) {
         const canvas = document.getElementById('plcDebugChart');
         if (!canvas) {
@@ -37,6 +47,15 @@ window.plcDebug = {
             console.error('Chart.js is not loaded');
             return false;
         }
+
+        // Control Room 테마 토큰 (라이트/다크 자동) — 축 텍스트/격자/툴팁이 다크 캔버스에서도 읽히도록
+        const gridColor = this.themeColor('--color-lines', 'rgba(14,27,42,0.10)');
+        const textSecondary = this.themeColor('--color-text-secondary', '#5A6B7E');
+        const textPrimary = this.themeColor('--color-text-primary', '#0E1B2A');
+        const surfaceColor = this.themeColor('--color-surface', '#FFFFFF');
+        const isDark = document.documentElement.classList.contains('dark-theme');
+        const tooltipBg = isDark ? '#0E1722' : textPrimary;
+        const tooltipText = isDark ? '#DCE6F0' : surfaceColor;
 
         canvas.style.height = `${options.chartHeight || 720}px`;
         canvas.style.width = '100%';
@@ -83,6 +102,7 @@ window.plcDebug = {
                         labels: {
                             usePointStyle: true,
                             padding: 12,
+                            color: textSecondary,
                             font: {
                                 size: 11
                             }
@@ -95,6 +115,11 @@ window.plcDebug = {
                         mode: 'nearest',
                         intersect: false,
                         position: 'nearest',
+                        backgroundColor: tooltipBg,
+                        titleColor: tooltipText,
+                        bodyColor: tooltipText,
+                        borderColor: gridColor,
+                        borderWidth: 1,
                         callbacks: {
                             title: function (items) {
                                 if (!items || items.length === 0) {
@@ -136,11 +161,16 @@ window.plcDebug = {
                         max: rangeEnd,
                         title: {
                             display: true,
-                            text: '시간'
+                            text: '시간',
+                            color: textSecondary
                         },
                         ticks: {
                             autoSkip: true,
-                            maxTicksLimit: 14
+                            maxTicksLimit: 14,
+                            color: textSecondary
+                        },
+                        grid: {
+                            color: gridColor
                         }
                     },
                     y: {
@@ -154,10 +184,12 @@ window.plcDebug = {
                         },
                         title: {
                             display: true,
-                            text: '태그'
+                            text: '태그',
+                            color: textSecondary
                         },
                         ticks: {
                             autoSkip: false,
+                            color: textSecondary,
                             font: {
                                 size: 11
                             },
@@ -166,7 +198,7 @@ window.plcDebug = {
                             }
                         },
                         grid: {
-                            color: 'rgba(10, 30, 90, 0.08)'
+                            color: gridColor
                         }
                     }
                 }

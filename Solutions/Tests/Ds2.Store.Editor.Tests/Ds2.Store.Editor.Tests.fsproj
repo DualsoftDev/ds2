@@ -21,6 +21,7 @@
     <Compile Include="ImportPlanTests.fs" />
     <Compile Include="EditorProjectionTests.fs" />
     <Compile Include="SimulationTests.fs" />
+    <Compile Include="AbnormalDetectorTests.fs" />
     <Compile Include="V10ApiDefMatrixTests.fs" />
     <Compile Include="SimulationTimeIgnoreTests.fs" />
     <Compile Include="SimulationConnectionReloadTests.fs" />
@@ -62,6 +63,7 @@
     <ProjectReference Include="..\..\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj" />
     <ProjectReference Include="..\..\Runtime\Ds2.Runtime.Report\Ds2.Runtime.Report.fsproj" />
     <ProjectReference Include="..\..\Backend\Ds2.Backend.Common\Ds2.Backend.Common.fsproj" />
+    <ProjectReference Include="..\..\Backend\Ds2.Backend\Ds2.Backend.fsproj" />
   </ItemGroup>
 
 </Project>

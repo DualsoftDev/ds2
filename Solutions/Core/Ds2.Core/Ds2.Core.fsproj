@@ -34,6 +34,7 @@
     <Compile Include="ValueSpec.fs" />
     <Compile Include="TokenTypes.fs" />
     <Compile Include="Entities.fs" />
+    <Compile Include="Abnormal.fs" />
     <Compile Include="SmartConstructor.fs" />
     <Compile Include="V10Validation.fs" />
     <Compile Include="EntitiesExtension.fs" />

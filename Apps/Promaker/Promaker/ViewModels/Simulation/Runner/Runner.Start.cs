@@ -8,6 +8,8 @@ using Ds2.Core.Store;
 using Ds2.Runtime.Engine;
 using Ds2.Runtime.Engine.Core;
 using Ds2.Runtime.Engine.Passive;
+using Ds2.Runtime.IO;
+using Ds2.Runtime.Remote;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.FSharp.Core;
 using Promaker.Shared;
@@ -157,11 +159,28 @@ public partial class SimulationPanelState
                     sender?.Enqueue(address, value, HubSource.Control);
                 };
             }
-            _simEngine = writeTagAction is not null
-                ? new EventDrivenEngine(index, SelectedRuntimeMode,
-                    FSharpOption<FSharpFunc<string, FSharpFunc<string, Unit>>>.Some(
-                        FuncConvert.FromAction<string, string>(writeTagAction)))
-                : new EventDrivenEngine(index, SelectedRuntimeMode);
+            if (UsesAgentProxy && Hub.Connection is not null)
+            {
+                // Monitoring/Control + 실 PLC: Agent 가 engine 을 단일 호스팅한다 → WPF 는 self EventDrivenEngine 대신
+                // 원격 proxy 를 _simEngine 에 둔다. 같은 PLC 를 WPF·Agent 가 각자 물어 abnormal/상태가 중복되던 문제 제거.
+                // Control 도 Agent engine 이 writeTag→gateway 로 OUT 을 쓰므로 WPF 의 writeTagAction(self engine 용)은 미사용.
+                // index/ioMap 은 로컬 build (SimIndex 가 Store 를 품어 직렬화 불가), 상태는 push-cache.
+                // identity 의 SessionId/Generation 은 OnConnected snapshot 핸드셰이크에서 동기화되고,
+                // ModelHash 는 Agent 와 같은 공유 AASX 파일로 계산해 stale guard 가 맞물린다.
+                var proxyIoMap = SignalIOMapModule.build(Store);
+                var proxyMode = SelectedRuntimeMode == RuntimeMode.Control ? "Control" : "Monitoring";
+                var identity = new RuntimeSessionIdentity(
+                    "", RuntimeModelHash.compute(SharedPaths.AasxFilePath), 0, proxyMode);
+                _simEngine = new RemoteSimulationEngine(Hub.Connection, index, proxyIoMap, identity);
+            }
+            else
+            {
+                _simEngine = writeTagAction is not null
+                    ? new EventDrivenEngine(index, SelectedRuntimeMode,
+                        FSharpOption<FSharpFunc<string, FSharpFunc<string, Unit>>>.Some(
+                            FuncConvert.FromAction<string, string>(writeTagAction)))
+                    : new EventDrivenEngine(index, SelectedRuntimeMode);
+            }
             _runtimeSession = SelectedRuntimeMode == RuntimeMode.Simulation
                 ? null
                 : new RuntimeModeSession(_simEngine.Index, _simEngine.IOMap, SelectedRuntimeMode);
@@ -205,8 +224,10 @@ public partial class SimulationPanelState
                 AddSimLog($"[IOMap] 덤프 실패: {ex.Message}", LogSeverity.Error);
             }
 
-            // VP/Monitoring: Work별 고유 IO 주소 준비 + 학습 상태 리셋
-            if (_runtimeSession?.RequiresPassiveInference == true)
+            // VP/Monitoring: Work별 고유 IO 주소 준비 + 학습 상태 리셋.
+            // 단 Agent 위임(Monitoring/Control+실PLC proxy)에선 Agent engine 이 추론/구동을 수행하므로
+            // WPF 측 추론은 끈다 — 켜두면 같은 IO 를 양쪽이 추론해 이중 Force 가 발생한다.
+            if (!UsesAgentProxy && _runtimeSession?.RequiresPassiveInference == true)
             {
                 PreparePassiveModeIoInference();
             }

@@ -92,7 +92,11 @@ public partial class SimulationPanelState
         AdvanceSimUiGeneration();
         // homing-only 세션 도중 사용자가 STOP 으로 빠져나오는 경우에도 플래그 리셋.
         _homingOnlyMode = false;
-        if (_simEngine is not null
+        // Agent 위임(Monitoring+실PLC)에선 _simEngine 이 원격 proxy 다. proxy.Stop() 은 RuntimeStop 을
+        // Agent 로 보내 sticky monitoring 을 깨뜨리므로 호출하지 않는다 — "정지" 는 아래 Hub.Stop() 으로
+        // Promaker 의 Hub 연결/화면만 정리하고 active.flag 는 유지되어 Agent 는 계속 모니터링한다.
+        if (!IsAgentDelegationMode
+            && _simEngine is not null
             && !TryWithSimEngine("Simulation stop", engine => engine.Stop()))
             return;
         if (_simEngine is not null)
@@ -147,7 +151,10 @@ public partial class SimulationPanelState
     private void ResetSimulation()
     {
         AdvanceSimUiGeneration();
-        if (_simEngine is not null
+        // Agent 위임(Monitoring+실PLC proxy)에선 proxy.Reset() 이 RuntimeReset 을 Agent 로 보내
+        // 단일 호스팅 engine 을 리셋해버린다 — Promaker 로컬 Reset 은 Agent 를 건드리지 않는다.
+        if (!IsAgentDelegationMode
+            && _simEngine is not null
             && !TryWithSimEngine("Simulation reset", engine => engine.Reset()))
             return;
         _simStartTime = DateTime.Now;

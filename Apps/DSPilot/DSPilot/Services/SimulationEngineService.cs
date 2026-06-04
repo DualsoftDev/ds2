@@ -7,6 +7,7 @@ using DSPilot.Repositories;
 using Ds2.Core;
 using Ds2.Editor;
 using Ds2.Runtime.Engine;
+using Ds2.Runtime.Engine.Abnormal;
 using Ds2.Runtime.Engine.Core;
 using Ds2.Runtime.Engine.Passive;
 using Ds2.Runtime.IO;
@@ -37,6 +38,7 @@ public sealed class SimulationEngineService : IDisposable
     private ISimulationEngine? _engine;
     private RuntimeModeSession? _runtimeSession;
     private PassiveInferenceSession? _passiveInference;
+    private MonitoringAbnormalAdapter? _monitoringAbnormal;
     private readonly object _initLock = new();
     private bool _initFailed;
 
@@ -121,12 +123,21 @@ public sealed class SimulationEngineService : IDisposable
                 var runtimeSession = new RuntimeModeSession(engine.Index, engine.IOMap, RuntimeMode.Monitoring);
 
                 PassiveInferenceSession? passive = null;
+                MonitoringAbnormalAdapter? monitoringAbnormal = null;
                 if (runtimeSession.RequiresPassiveInference)
+                {
                     passive = new PassiveInferenceSession(engine.Index, engine.IOMap, RuntimeMode.Monitoring);
+                    // v12 P4 — Monitoring abnormal timing(cycle 학습과 독립). P5 에서 SignalHub 발행으로 sink 교체.
+                    monitoringAbnormal = MonitoringAbnormalAdapter.FromDelegates(
+                        engine.Index, engine.IOMap,
+                        () => DateTime.UtcNow,
+                        rec => _logger.LogWarning("[Abnormal] kind={Kind} elapsedMs={Elapsed}", rec.Kind, rec.ElapsedMs));
+                }
 
                 _engine = engine;
                 _runtimeSession = runtimeSession;
                 _passiveInference = passive;
+                _monitoringAbnormal = monitoringAbnormal;
 
                 // plcTag 행 부트스트랩 (CycleTimeAnalysis 데이터 소스 셋업)
                 BootstrapPlcTags(engine.IOMap);
@@ -496,6 +507,9 @@ public sealed class SimulationEngineService : IDisposable
     private void ObserveAndInferPassiveState(string address, string value)
     {
         if (_engine is null || _passiveInference is null) return;
+
+        // v12 P4 — abnormal timing 판정(cycle 학습과 독립): OutTag On=going / InTag On=finish.
+        _monitoringAbnormal?.OnObservedIo(address, value, Environment.TickCount);
 
         var actions = _passiveInference.Observe(
             address, value,

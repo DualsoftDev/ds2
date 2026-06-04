@@ -163,20 +163,12 @@ public sealed partial class SimulationHubBridge : ObservableObject
             ? "Agent [읽기전용]"
             : "Self-Hosted";
 
-    /// <summary>Monitoring + 실 PLC 체크 — Promaker 가 자체 Hub(5051) 를 띄우고 PLC 게이트웨이를 직접 돌린다.</summary>
-    private bool IsMonitoringSelfHost =>
-        _runtimeMode() == RuntimeMode.Monitoring && _isRealPlcConnected();
-
-    /// <summary>현재 모드가 편집/노출하는 Hub 주소. Monitoring + 실 PLC self-host 만 MonitoringHubAddress,
-    /// 그 외(Monitoring PLC 미연결 포함)는 HubAddress. TextBox 가 mode 별 올바른 backing field 를 편집하도록 dispatch.</summary>
+    /// <summary>편집/노출 Hub 주소. Agent 가 5051 단일 호스팅이라 모든 모드(Control/Monitoring/VP)가
+    /// 같은 주소(_monitoringHubAddress, 기본 localhost:5051)를 공유한다.</summary>
     public string EffectiveHubAddress
     {
-        get => IsMonitoringSelfHost ? _monitoringHubAddress() : _hubAddress();
-        set
-        {
-            if (IsMonitoringSelfHost) _setMonitoringHubAddress(value);
-            else _setHubAddress(value);
-        }
+        get => _monitoringHubAddress();
+        set => _setMonitoringHubAddress(value);
     }
 
     /// <summary>본체 RuntimeMode/PLC 토글 시 호출 — IsHubHost / EffectiveHubAddress / HostingLabel 의 PropertyChanged 발화.</summary>

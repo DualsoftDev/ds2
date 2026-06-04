@@ -3,7 +3,9 @@ namespace Ds2.Backend
 open System
 open Microsoft.AspNetCore.Builder
 open Microsoft.Extensions.DependencyInjection
+open Microsoft.Extensions.DependencyInjection.Extensions
 open Microsoft.Extensions.Hosting
+open Ds2.Backend.Common
 open Ds2.Backend.Plc
 
 module BackendHost =
@@ -36,8 +38,11 @@ module BackendHost =
 
         let cfg = plcConfig |> Option.defaultValue emptyConfig
         builder.Services.AddSingleton<PlcGatewayConfig>(cfg) |> ignore
-        builder.Services.AddSingleton<IPlcGateway, PlcGateway>() |> ignore
+        // TryAdd: configureBuilder 가 IPlcGateway 인스턴스를 먼저 주입하면(Control 호스팅: engine writeTag 와
+        // 같은 gateway 를 공유해야 함) 그것을 쓰고, 없으면 기본 PlcGateway 를 DI 가 생성한다.
+        builder.Services.TryAddSingleton<IPlcGateway, PlcGateway>()
         builder.Services.AddSingleton<IPlcHubBroadcaster, SignalHubBroadcaster>() |> ignore
+        builder.Services.TryAddSingleton<IRuntimeHubSession, NullRuntimeHubSession>()
         builder.Services.AddHostedService<PlcScanService>() |> ignore
 
         let app = builder.Build()

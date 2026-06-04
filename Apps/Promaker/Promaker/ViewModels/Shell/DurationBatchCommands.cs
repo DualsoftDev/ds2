@@ -18,7 +18,15 @@ public partial class MainViewModel
 
         var storeRows = _store.GetAllWorkDurationRows();
         var rows = storeRows
-            .Select(r => new DurationRow(r.WorkId, r.SystemName, r.FlowName, r.WorkName, r.PeriodMs.ToString(), r.IsDeviceWork))
+            .Select(r => new DurationRow(
+                r.WorkId,
+                r.SystemName,
+                r.FlowName,
+                r.WorkName,
+                r.PeriodMs.ToString(),
+                r.MinDurationMs.ToString(),
+                r.MaxDurationMs.ToString(),
+                r.IsDeviceWork))
             .ToList();
 
         if (rows.Count == 0)
@@ -35,30 +43,49 @@ public partial class MainViewModel
         if (changed.Count == 0)
             return;
 
-        var changes = new List<(Guid, int)>();
+        var changes = new List<(Guid, int?, int?, int?)>();
         var invalidCount = 0;
         foreach (var row in changed)
         {
-            if (int.TryParse(row.Duration, out var ms))
-                changes.Add((row.WorkId, ms));
+            if (TryParseDurationCell(row.Duration, out var durationMs)
+                && TryParseDurationCell(row.MinDuration, out var minDurationMs)
+                && TryParseDurationCell(row.MaxDuration, out var maxDurationMs))
+            {
+                changes.Add((row.WorkId, durationMs, minDurationMs, maxDurationMs));
+            }
             else
+            {
                 invalidCount++;
+            }
         }
 
         if (invalidCount > 0)
-            _dialogService.ShowWarning($"{invalidCount}개의 Duration 값이 잘못되어 제외되었습니다.");
+            _dialogService.ShowWarning($"{invalidCount}개의 Duration/Range 값이 잘못되어 제외되었습니다.");
 
         if (changes.Count == 0)
         {
-            StatusText = "적용할 유효한 Duration 변경이 없습니다.";
+            StatusText = "적용할 유효한 Duration/Range 변경이 없습니다.";
             return;
         }
 
-        if (TryEditorAction(() => _store.UpdateWorkDurationsBatch(changes)))
+        if (TryEditorAction(() => _store.UpdateWorkDurationRangesBatch(changes)))
         {
             StatusText = invalidCount > 0
-                ? $"Duration 일괄 변경: {changes.Count}건 적용, {invalidCount}건 제외"
-                : $"Duration 일괄 변경: {changes.Count}건 적용됨";
+                ? $"Duration/Range 일괄 변경: {changes.Count}건 적용, {invalidCount}건 제외"
+                : $"Duration/Range 일괄 변경: {changes.Count}건 적용됨";
         }
+    }
+
+    private static bool TryParseDurationCell(string value, out int? ms)
+    {
+        ms = null;
+        if (string.IsNullOrWhiteSpace(value))
+            return true;
+
+        if (!int.TryParse(value.Trim(), out var parsed))
+            return false;
+
+        ms = parsed > 0 ? parsed : null;
+        return true;
     }
 }

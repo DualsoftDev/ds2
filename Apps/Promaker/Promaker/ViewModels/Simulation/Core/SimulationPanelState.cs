@@ -300,6 +300,13 @@ public partial class SimulationPanelState : ObservableObject
     public bool IsAgentDelegationMode =>
         SelectedRuntimeMode == RuntimeMode.Monitoring && IsRealPlcConnected;
 
+    /// <summary>Agent 가 engine 을 단일 호스팅하고 WPF 는 proxy(RemoteSimulationEngine)로만 붙는 모드 —
+    /// Monitoring+실PLC(read-only) 또는 Control+실PLC(read-write). engine 호스팅/proxy 전환 판정 전용.
+    /// UI 토글(Pause/Step 숨김 등)은 Monitoring 전용 의미라 <see cref="IsAgentDelegationMode"/> 를 따로 유지한다.</summary>
+    public bool UsesAgentProxy =>
+        IsRealPlcConnected
+        && (SelectedRuntimeMode == RuntimeMode.Monitoring || SelectedRuntimeMode == RuntimeMode.Control);
+
     /// <summary>실 라인 owner 일 때만 원위치 버튼 노출 — Sim 모드는 PLAY 가 곧 자동 원위치라 별도 버튼 불필요,
     /// VP/Monitoring 은 외부 컨트롤러가 owner 라 부적절.</summary>
     public bool IsHomingButtonVisible =>

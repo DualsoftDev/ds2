@@ -35,17 +35,19 @@ public partial class DurationBatchDialog
             return;
 
         var sb = new StringBuilder();
-        sb.AppendLine("System,Flow,Work,Duration");
+        sb.AppendLine("System,Flow,Work,Duration,MinDuration,MaxDuration");
         foreach (var row in _workRows)
         {
             sb.AppendLine(string.Join(",",
                 BatchDialogHelper.EscapeCsvField(row.SystemName),
                 BatchDialogHelper.EscapeCsvField(row.FlowName),
                 BatchDialogHelper.EscapeCsvField(row.WorkName),
-                BatchDialogHelper.EscapeCsvField(row.Duration)));
+                BatchDialogHelper.EscapeCsvField(row.Duration),
+                BatchDialogHelper.EscapeCsvField(row.MinDuration),
+                BatchDialogHelper.EscapeCsvField(row.MaxDuration)));
         }
 
-        File.WriteAllText(picker.FileName, sb.ToString(), Encoding.UTF8);
+        File.WriteAllText(picker.FileName, sb.ToString(), new UTF8Encoding(false));
 
         CsvFileHelper.PromptOpenAfterExport(picker.FileName, _workRows.Count, "Duration CSV 내보내기");
     }
@@ -115,7 +117,7 @@ public partial class DurationBatchDialog
 
         var header = lines[0].ToLowerInvariant();
         if (!header.Contains("work") || !header.Contains("duration"))
-            throw new InvalidOperationException("CSV 헤더를 인식할 수 없습니다. (System,Flow,Work,Duration 형식 필요)");
+            throw new InvalidOperationException("CSV 헤더를 인식할 수 없습니다. (System,Flow,Work,Duration[,MinDuration,MaxDuration] 형식 필요)");
 
         var results = new List<DurationImportRow>();
         for (var i = 1; i < lines.Length; i++)
@@ -126,7 +128,13 @@ public partial class DurationBatchDialog
             var fields = ParseCsvFields(line);
             if (fields.Count < 4) continue;
 
-            results.Add(new DurationImportRow(fields[0], fields[1], fields[2], fields[3]));
+            results.Add(new DurationImportRow(
+                fields[0],
+                fields[1],
+                fields[2],
+                fields[3],
+                fields.Count > 4 ? fields[4] : null,
+                fields.Count > 5 ? fields[5] : null));
         }
 
         return results;
@@ -199,13 +207,29 @@ public partial class DurationBatchDialog
         foreach (var importRow in importRows)
         {
             var key = BuildImportKey(importRow.System, importRow.Flow, importRow.Work);
-            if (!rowMap.Contains(key) || string.IsNullOrEmpty(importRow.Duration))
+            if (!rowMap.Contains(key) || !importRow.HasAnyDurationValue)
                 continue;
 
             foreach (var target in rowMap[key])
             {
-                target.Duration = importRow.Duration;
-                targetCellsUpdated++;
+                if (!string.IsNullOrEmpty(importRow.Duration))
+                {
+                    target.Duration = importRow.Duration;
+                    targetCellsUpdated++;
+                }
+
+                if (importRow.MinDuration is not null)
+                {
+                    target.MinDuration = importRow.MinDuration;
+                    targetCellsUpdated++;
+                }
+
+                if (importRow.MaxDuration is not null)
+                {
+                    target.MaxDuration = importRow.MaxDuration;
+                    targetCellsUpdated++;
+                }
+
                 matchedTargetRows.Add(target);
             }
         }
@@ -243,5 +267,17 @@ public partial class DurationBatchDialog
     private static string BuildImportKey(string system, string flow, string work) =>
         string.Join("\u001F", system, flow, work);
 
-    private sealed record DurationImportRow(string System, string Flow, string Work, string Duration);
+    private sealed record DurationImportRow(
+        string System,
+        string Flow,
+        string Work,
+        string Duration,
+        string? MinDuration,
+        string? MaxDuration)
+    {
+        public bool HasAnyDurationValue =>
+            !string.IsNullOrEmpty(Duration)
+            || MinDuration is not null
+            || MaxDuration is not null;
+    }
 }

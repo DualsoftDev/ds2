@@ -1,7 +1,21 @@
 module Ds2.Store.Editor.Tests.HubSourceTests
 
+open System
+open System.Reflection
+open System.Text.Json
+open System.Threading.Tasks
+open Ds2.Backend
 open Ds2.Backend.Common
 open Xunit
+
+let private assertHubMethod (name: string) (parameterType: Type) (returnType: Type) =
+    let flags = BindingFlags.Instance ||| BindingFlags.Public
+    let methodInfo = typeof<SignalHub>.GetMethod(name, flags)
+    Assert.NotNull(methodInfo)
+    Assert.Equal(returnType, methodInfo.ReturnType)
+    let parameters = methodInfo.GetParameters()
+    Assert.Equal(1, parameters.Length)
+    Assert.Equal(parameterType, parameters.[0].ParameterType)
 
 [<Fact>]
 let ``HubSource.WellKnownSources 는 literal 5개 모두 포함`` () =
@@ -36,3 +50,217 @@ let ``HubSource.DefaultAcceptedSources 는 Monitoring/Web 차단 (echo / 외부 
     let defaults = HubSource.DefaultAcceptedSources |> Set.ofArray
     Assert.DoesNotContain(HubSource.Monitoring, defaults)
     Assert.DoesNotContain(HubSource.Web, defaults)
+
+[<Fact>]
+let ``Runtime HubMethod names are locked`` () =
+    Assert.Equal("RuntimeStart", HubMethod.RuntimeStart)
+    Assert.Equal("RuntimeApplyInitialStates", HubMethod.RuntimeApplyInitialStates)
+    Assert.Equal("RuntimeTryForceWorkStateIfGoing", HubMethod.RuntimeTryForceWorkStateIfGoing)
+    Assert.Equal("RuntimeCanAdvanceStep", HubMethod.RuntimeCanAdvanceStep)
+    Assert.Equal("RuntimeStepWithSourcePriming", HubMethod.RuntimeStepWithSourcePriming)
+    Assert.Equal("RuntimeIsStepBatchActive", HubMethod.RuntimeIsStepBatchActive)
+    Assert.Equal("RuntimeGetSnapshot", HubMethod.RuntimeGetSnapshot)
+    Assert.Equal("RuntimeGetIndexProjection", HubMethod.RuntimeGetIndexProjection)
+    Assert.Equal("RuntimeGetIOMapProjection", HubMethod.RuntimeGetIOMapProjection)
+    Assert.Equal("OnRuntimeSnapshot", HubMethod.OnRuntimeSnapshot)
+    Assert.Equal("OnRuntimeWorkStateChanged", HubMethod.OnRuntimeWorkStateChanged)
+    Assert.Equal("OnRuntimeCallStateChanged", HubMethod.OnRuntimeCallStateChanged)
+    Assert.Equal("OnRuntimeStatusChanged", HubMethod.OnRuntimeStatusChanged)
+    Assert.Equal("OnRuntimeCommandRejected", HubMethod.OnRuntimeCommandRejected)
+
+[<Fact>]
+let ``Runtime DTOs expose CLIMutable default constructors`` () =
+    Assert.NotNull(Activator.CreateInstance(typeof<RuntimeSessionIdentity>))
+    Assert.NotNull(Activator.CreateInstance(typeof<RuntimeStateSnapshot>))
+    Assert.NotNull(Activator.CreateInstance(typeof<RuntimeIndexProjection>))
+    Assert.NotNull(Activator.CreateInstance(typeof<RuntimeIOMapProjection>))
+    Assert.NotNull(Activator.CreateInstance(typeof<RuntimeWorkStateChangedPayload>))
+    Assert.NotNull(Activator.CreateInstance(typeof<RuntimeCallStateChangedPayload>))
+    Assert.NotNull(Activator.CreateInstance(typeof<RuntimeHomingPhaseCompletedPayload>))
+    Assert.NotNull(Activator.CreateInstance(typeof<RuntimeEmptyCommand>))
+    Assert.NotNull(Activator.CreateInstance(typeof<RuntimeWorkStateCommand>))
+    Assert.NotNull(Activator.CreateInstance(typeof<RuntimeIOAddressCommand>))
+    Assert.NotNull(Activator.CreateInstance(typeof<RuntimeCommandRejectedPayload>))
+
+[<Fact>]
+let ``Runtime SignalHub methods expose DTO-only command surface`` () =
+    assertHubMethod HubMethod.RuntimeStart typeof<RuntimeEmptyCommand> typeof<Task>
+    assertHubMethod HubMethod.RuntimeStep typeof<RuntimeStepPolicyCommand> typeof<Task>
+    assertHubMethod HubMethod.RuntimeCanAdvanceStep typeof<RuntimeStepPolicyCommand> typeof<Task<bool>>
+    assertHubMethod HubMethod.RuntimeBeginStepBatch typeof<RuntimeStepBatchCommand> typeof<Task>
+    assertHubMethod HubMethod.RuntimeForceWorkState typeof<RuntimeWorkStateCommand> typeof<Task>
+    assertHubMethod HubMethod.RuntimeTryForceWorkStateIfGoing typeof<RuntimeWorkStateCommand> typeof<Task<bool>>
+    assertHubMethod HubMethod.RuntimeGetWorkState typeof<RuntimeWorkCommand> typeof<Task<RuntimeGuidStatus>>
+    assertHubMethod HubMethod.RuntimeInjectIOValueByAddress typeof<RuntimeIOAddressCommand> typeof<Task>
+    assertHubMethod HubMethod.RuntimeGetSnapshot typeof<RuntimeCommandEnvelope> typeof<Task<RuntimeStateSnapshot>>
+    assertHubMethod HubMethod.RuntimeGetIndexProjection typeof<RuntimeCommandEnvelope> typeof<Task<RuntimeIndexProjection>>
+    assertHubMethod HubMethod.RuntimeGetIOMapProjection typeof<RuntimeCommandEnvelope> typeof<Task<RuntimeIOMapProjection>>
+
+[<Fact>]
+let ``RuntimeStateSnapshot serializes as camelCase DTO with generation`` () =
+    let snapshot = {
+        SessionId = "session-1"
+        ModelHash = "model-1"
+        Generation = 7
+        Mode = HubSource.Control
+        StatusName = "Running"
+        StatusValue = 0
+        ClockMs = 1200L
+        CurrentTimeMs = 1200L
+        NextEventTimeMs = Nullable<int64>(1500L)
+        WorkStates = [| { Id = "work-1"; StatusName = "Going"; StatusValue = 1 } |]
+        CallStates = [| { Id = "call-1"; StatusName = "Ready"; StatusValue = 0 } |]
+        FlowStates = [| { Id = "flow-1"; FlowTagName = "Ready"; FlowTagValue = 0 } |]
+        IOValues = [| { Id = "api-1"; Value = "true" } |]
+        HasStartableWork = true
+        HasActiveDuration = false
+        IsHomingPhase = false
+        TimestampUtc = DateTime(2026, 6, 4, 0, 0, 0, DateTimeKind.Utc)
+    }
+    let options = JsonSerializerOptions(PropertyNamingPolicy = JsonNamingPolicy.CamelCase)
+
+    let json = JsonSerializer.Serialize(snapshot, options)
+
+    Assert.Contains("\"sessionId\":\"session-1\"", json)
+    Assert.Contains("\"modelHash\":\"model-1\"", json)
+    Assert.Contains("\"generation\":7", json)
+    Assert.Contains("\"mode\":\"control\"", json)
+    Assert.Contains("\"nextEventTimeMs\":1500", json)
+    Assert.Contains("\"workStates\"", json)
+
+[<Fact>]
+let ``Runtime projections use flat arrays instead of runtime object graphs`` () =
+    let indexProjection = {
+        SessionId = "session-1"
+        ModelHash = "model-1"
+        Generation = 7
+        Mode = HubSource.Control
+        WorkNames = [| { Id = "work-1"; Name = "Flow.Work" } |]
+        WorkSystemNames = [| { Id = "work-1"; Name = "System" } |]
+        WorkFlowGuids = [| { Id = "work-1"; RefId = "flow-1" } |]
+        CallWorkGuids = [| { Id = "call-1"; RefId = "work-1" } |]
+        WorkCallGuids = [| { Id = "work-1"; Values = [| "call-1" |] } |]
+        TokenSourceGuids = [| "work-1" |]
+        TokenSinkGuids = [||]
+    }
+    let ioProjection = {
+        SessionId = "session-1"
+        ModelHash = "model-1"
+        Generation = 7
+        Mode = HubSource.Control
+        OutAddresses = [| "Q0.0" |]
+        InAddresses = [| "I0.0" |]
+        Mappings = [|
+            {
+                ApiCallId = "api-1"
+                CallId = "call-1"
+                TxWorkId = "tx-1"
+                RxWorkId = "rx-1"
+                OutAddress = "Q0.0"
+                InAddress = "I0.0"
+            }
+        |]
+    }
+
+    Assert.Equal(7, indexProjection.Generation)
+    Assert.Equal("work-1", indexProjection.WorkNames.[0].Id)
+    Assert.Equal("call-1", indexProjection.WorkCallGuids.[0].Values.[0])
+    Assert.Equal("Q0.0", ioProjection.OutAddresses.[0])
+    Assert.Equal("api-1", ioProjection.Mappings.[0].ApiCallId)
+
+[<Fact>]
+let ``Runtime command DTO serializes envelope as camelCase`` () =
+    let command = {
+        Envelope = {
+            SessionId = "session-1"
+            ModelHash = "model-1"
+            Generation = 7
+            Mode = HubSource.Control
+            CommandId = "cmd-1"
+        }
+        WorkId = "work-1"
+        StatusName = "Going"
+        StatusValue = 1
+    }
+    let options = JsonSerializerOptions(PropertyNamingPolicy = JsonNamingPolicy.CamelCase)
+
+    let json = JsonSerializer.Serialize(command, options)
+
+    Assert.Contains("\"envelope\"", json)
+    Assert.Contains("\"sessionId\":\"session-1\"", json)
+    Assert.Contains("\"generation\":7", json)
+    Assert.Contains("\"workId\":\"work-1\"", json)
+    Assert.Contains("\"statusValue\":1", json)
+
+[<Fact>]
+let ``Runtime command rejection payload keeps command identity`` () =
+    let command = {
+        SessionId = "session-1"
+        ModelHash = "model-1"
+        Generation = 7
+        Mode = HubSource.Control
+        CommandId = "cmd-1"
+    }
+
+    let payload = RuntimeCommandRejected.fromEnvelope RuntimeCommandRejectReason.GenerationMismatch command
+
+    Assert.Equal("session-1", payload.SessionId)
+    Assert.Equal("model-1", payload.ModelHash)
+    Assert.Equal(7, payload.Generation)
+    Assert.Equal(HubSource.Control, payload.Mode)
+    Assert.Equal("cmd-1", payload.CommandId)
+    Assert.Equal(RuntimeCommandRejectReason.GenerationMismatch, payload.Reason)
+    Assert.Equal(DateTimeKind.Utc, payload.TimestampUtc.Kind)
+
+[<Fact>]
+let ``RuntimeSessionContract accepts matching command identity`` () =
+    let current = {
+        SessionId = "session-1"
+        ModelHash = "model-1"
+        Generation = 7
+        Mode = HubSource.Control
+    }
+    let command = {
+        SessionId = "session-1"
+        ModelHash = "model-1"
+        Generation = 7
+        Mode = "CONTROL"
+        CommandId = "cmd-1"
+    }
+
+    Assert.True(RuntimeSessionContract.isCurrentCommand current command)
+    Assert.True((RuntimeSessionContract.tryRejectCommand current command).IsNone)
+
+[<Fact>]
+let ``RuntimeSessionContract rejects stale command identities`` () =
+    let current = {
+        SessionId = "session-1"
+        ModelHash = "model-1"
+        Generation = 7
+        Mode = HubSource.Control
+    }
+    let command = {
+        SessionId = "session-1"
+        ModelHash = "model-1"
+        Generation = 7
+        Mode = HubSource.Control
+        CommandId = "cmd-1"
+    }
+
+    let sessionMismatch = { command with SessionId = "session-2" }
+    let modelMismatch = { command with ModelHash = "model-2" }
+    let generationMismatch = { command with Generation = 8 }
+    let modeMismatch = { command with Mode = HubSource.Monitoring }
+
+    Assert.Equal(
+        Some RuntimeCommandRejectReason.SessionMismatch,
+        RuntimeSessionContract.tryRejectCommand current sessionMismatch)
+    Assert.Equal(
+        Some RuntimeCommandRejectReason.ModelHashMismatch,
+        RuntimeSessionContract.tryRejectCommand current modelMismatch)
+    Assert.Equal(
+        Some RuntimeCommandRejectReason.GenerationMismatch,
+        RuntimeSessionContract.tryRejectCommand current generationMismatch)
+    Assert.Equal(
+        Some RuntimeCommandRejectReason.ModeMismatch,
+        RuntimeSessionContract.tryRejectCommand current modeMismatch)

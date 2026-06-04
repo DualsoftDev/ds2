@@ -53,6 +53,11 @@ module V10ValidationBatch =
             for issue in validateDeviceV6 deviceId (List.ofSeq defs) do
                 issues.Add issue)
 
+        // v12 abnormal timing range — Work 단위.
+        for kv in store.Works do
+            for issue in validateWorkAbnormalDurationRange kv.Value do
+                issues.Add issue
+
         List.ofSeq issues
 
     /// 단일 ApiCall 단위 (ApiDef pair 룩업) — V1/V2/V5 만. ApiCall 편집 dialog 저장 시점용.

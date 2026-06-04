@@ -1,5 +1,7 @@
 namespace Ds2.Core
 
+open System
+
 /// <summary>v10 spec §12 — Validation V1~V6.
 /// V1~V4 Error, V5~V6 Warning.</summary>
 module V10Validation =
@@ -7,7 +9,7 @@ module V10Validation =
     type Severity = Error | Warning
 
     type ValidationIssue = {
-        Rule: string         // "V1".."V6"
+        Rule: string         // "V1".."V6" 또는 v12 abnormal range rule
         Severity: Severity
         Message: string
     }
@@ -109,3 +111,67 @@ module V10Validation =
             let names = latched |> List.map (fun ad -> ad.Name) |> String.concat ", "
             [{ Rule = "V6"; Severity = Warning
                Message = sprintf "Device '%O' — Latched ApiDef 충돌 가능 (%s) — intentional?" deviceId names }]
+
+    let private durationMs (value: TimeSpan) =
+        int64 value.TotalMilliseconds
+
+    let private abnormalRangeIssue rule severity (work: Work) message =
+        { Rule = rule
+          Severity = severity
+          Message = sprintf "Work '%s' — %s" work.Name message }
+
+    /// v12 abnormal timing range validation.
+    /// Min/MaxDuration 은 Device Work 에 저장되는 이상감지 기준값이며 runtime 상태 진행에는 쓰지 않는다.
+    let validateWorkAbnormalDurationRange (work: Work) : ValidationIssue list =
+        let issues = ResizeArray<ValidationIssue>()
+
+        let add rule severity message =
+            issues.Add(abnormalRangeIssue rule severity work message)
+
+        match work.MinDuration with
+        | Some value when value < TimeSpan.Zero ->
+            add "ABN-R1" Error (sprintf "MinDuration 은 0 이상이어야 함 (실제: %dms)" (durationMs value))
+        | _ -> ()
+
+        match work.MaxDuration with
+        | Some value when value < TimeSpan.Zero ->
+            add "ABN-R1" Error (sprintf "MaxDuration 은 0 이상이어야 함 (실제: %dms)" (durationMs value))
+        | _ -> ()
+
+        match work.MinDuration, work.MaxDuration with
+        | Some minValue, Some maxValue
+            when minValue >= TimeSpan.Zero
+                 && maxValue >= TimeSpan.Zero
+                 && maxValue < minValue ->
+            add
+                "ABN-R2"
+                Error
+                (sprintf
+                    "MaxDuration 은 MinDuration 이상이어야 함 (Min=%dms, Max=%dms)"
+                    (durationMs minValue)
+                    (durationMs maxValue))
+        | _ -> ()
+
+        match work.Duration, work.MinDuration with
+        | Some duration, Some minValue when duration < minValue ->
+            add
+                "ABN-R3"
+                Warning
+                (sprintf
+                    "Duration 이 MinDuration 보다 작음 (Duration=%dms, Min=%dms)"
+                    (durationMs duration)
+                    (durationMs minValue))
+        | _ -> ()
+
+        match work.Duration, work.MaxDuration with
+        | Some duration, Some maxValue when duration > maxValue ->
+            add
+                "ABN-R3"
+                Warning
+                (sprintf
+                    "Duration 이 MaxDuration 보다 큼 (Duration=%dms, Max=%dms)"
+                    (durationMs duration)
+                    (durationMs maxValue))
+        | _ -> ()
+
+        List.ofSeq issues

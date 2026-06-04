@@ -5,12 +5,20 @@ using System.Threading;
 using System.Threading.Tasks;
 using Ds2.Aasx;
 using Ds2.Backend;
+using Ds2.Backend.Common;
 using Ds2.Backend.Plc;
+using Ds2.Backend.Runtime;
+using Ds2.Core;
 using Ds2.Core.Store;
 using Ds2.Editor;
+using Ds2.Runtime.Engine;
+using Ds2.Runtime.Engine.Core;
 using Ds2.Runtime.IO;
 using log4net;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.FSharp.Core;
 using Promaker.Shared;
 
 namespace Promaker.Agent;
@@ -35,6 +43,9 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
     // _pendingReason / _inflight 보호용 monitor lock — SemaphoreSlim 객체에 lock 거는 antipattern 회피.
     private readonly object _pendingLock = new();
     private WebApplication? _app;
+    // Agent 단일 호스팅: Monitoring engine 을 Agent 가 직접 보유. PLC IN → engine → OnRuntime* push.
+    // _app 과 lifecycle 동일 — TryActivate 에서 생성, Deactivate/restart 에서 정리.
+    private ISimulationEngine? _engine;
     private FileSystemWatcher? _flagWatcher;
     private FileSystemWatcher? _sessionWatcher;
     private FileSystemWatcher? _plcWatcher;
@@ -202,6 +213,7 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
                 try { BackendHost.stop(_app); }
                 catch (Exception ex) { Log.Warn("Exception during BackendHost.stop — ignoring.", ex); }
                 _app = null;
+                DisposeEngine();
             }
 
             // 1) session.json 로드 (없으면 기본 경로로 대체 — 첫 부팅 시나리오).
@@ -247,12 +259,68 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
                 return;
             }
 
-            // 4) BackendHost 시작.
-            // UseWindowsService 는 외부 Generic Host (Program.cs) 가 담당 — 여기서는 추가 안 함.
-            // BackendHost 의 WebApplication 은 ASP.NET Core Kestrel 만 호스팅하고 SCM 신호와 무관.
-            Log.Info($"Starting BackendHost on port {Port} (read-only / Monitoring)...");
-            _app = BackendHost.startWithPlcConfigReadOnly(Port, gatewayConfig);
-            Log.Info($"Hub active: {BackendHost.getHubUrl(Port)}");
+            // 4) engine 생성 — Agent 단일 호스팅. session.RuntimeMode 로 Control(read-write)/Monitoring(read-only) 분기.
+            //    호스팅·proxy·발행 경로는 mode 무관 단일 — RuntimeMode 는 engine 생성 파라미터일 뿐이다.
+            //    PLC IN → SignalHubBroadcaster → engine.InjectIOValueByAddress → OnRuntime* push (양 모드 공통).
+            var index = SimIndexModule.build(store, 10);
+            var isControl = string.Equals(session.RuntimeMode, "Control", StringComparison.OrdinalIgnoreCase);
+            var runtimeMode = isControl ? RuntimeMode.Control : RuntimeMode.Monitoring;
+            var readOnly = !isControl;
+
+            // Control 은 OUT 태그를 실제 PLC 로 쓴다. engine 은 BackendHost 시작 전에 생성되므로 DI 가 만드는
+            // gateway 를 기다릴 수 없다 → gateway 인스턴스를 여기서 직접 만들어 engine writeTag 콜백과
+            // BackendHost DI(아래 configureBuilder) 가 동일 인스턴스를 공유한다. Monitoring 은 writeTag 없음(None).
+            IPlcGateway? sharedGateway = isControl ? new PlcGateway(gatewayConfig) : null;
+            // Control OUT 은 실 PLC(gateway) + SignalR broadcast 둘 다 — VP(가상 설비)·관찰 client 가 OUT 을 보고
+            // 반응(echo)해야 한다. broadcast 핸들은 BackendHost 시작 후 IHubContext 확보 시 채운다(아래).
+            Action<string, string>? broadcastOut = null;
+            var writeTag = sharedGateway is not null
+                ? FSharpOption<FSharpFunc<string, FSharpFunc<string, Unit>>>.Some(
+                    FuncConvert.FromAction<string, string>((address, value) =>
+                    {
+                        _ = sharedGateway.WriteAsync(address, value);
+                        broadcastOut?.Invoke(address, value);
+                    }))
+                : FSharpOption<FSharpFunc<string, FSharpFunc<string, Unit>>>.None;
+            var engine = (ISimulationEngine)new EventDrivenEngine(index, runtimeMode, writeTag);
+
+            // session identity — client 의 stale guard 가 맞춰 보낼 기준값. ModelHash 는 AASX 내용 해시(결정적).
+            var identity = new RuntimeSessionIdentity(
+                Guid.NewGuid().ToString("N"),
+                RuntimeModelHash.compute(session.AasxPath),
+                1,
+                isControl ? "Control" : "Monitoring");
+
+            // 5) BackendHost 시작 — configureBuilder 가 bootstrap 의 TryAddSingleton 들보다 먼저 실행 →
+            //    IPlcGateway(Control 공유 인스턴스)·IRuntimeHubSession 을 우선 등록. readOnly=false(Control) 면
+            //    SignalHub.SetReadOnly(false) 로 client write 허용 + PlcScanService 초기 동기 스캔 활성.
+            //    UseWindowsService 는 외부 Generic Host (Program.cs) 담당 — 여기서는 추가 안 함.
+            Log.Info($"Starting BackendHost on port {Port} " +
+                     $"({(readOnly ? "read-only / Monitoring" : "read-write / Control")}) with engine session {identity.SessionId}...");
+            _app = BackendHost.startWithBuilderConfig(Port, gatewayConfig, readOnly, builder =>
+            {
+                if (sharedGateway is not null)
+                    builder.Services.AddSingleton<IPlcGateway>(sharedGateway);
+                builder.Services.AddSingleton<IRuntimeHubSession>(sp =>
+                    new EventDrivenEngineRuntimeHubSession(
+                        engine,
+                        sp.GetRequiredService<IHubContext<SignalHub>>(),
+                        identity));
+            });
+            _engine = engine;
+
+            // Control: engine OUT(writeTag) → 모든 client(OnTagChanged, source="control") broadcast.
+            // VP(가상 설비)가 이 OUT 을 받아 가상 IN echo 를 만들고, 그 IN 은 SignalHub.WriteTag→engine forward 로 돌아온다.
+            if (sharedGateway is not null)
+            {
+                var hubCtx = _app.Services.GetRequiredService<IHubContext<SignalHub>>();
+                broadcastOut = (address, value) =>
+                    hubCtx.Clients.All.SendAsync(HubMethod.OnTagChanged, address, value, HubSource.Control);
+            }
+
+            // 6) engine 기동 — Monitoring 은 passive(조건평가 OFF)지만 IO 주입 처리 루프를 위해, Control 은 능동 구동을 위해 Start.
+            engine.Start();
+            Log.Info($"Hub active: {BackendHost.getHubUrl(Port)} — mode={runtimeMode} engine status={engine.Status}");
         }
         finally
         {
@@ -270,12 +338,22 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
             try { BackendHost.stop(_app); }
             catch (Exception ex) { Log.Warn("Exception during BackendHost.stop — ignoring.", ex); }
             _app = null;
+            DisposeEngine();
             Log.Info("BackendHost stopped → idle.");
         }
         finally
         {
             _gate.Release();
         }
+    }
+
+    /// engine 정리 — host stop 이후 호출. Stop → Dispose 순서로 thread/wakeSignal 해제.
+    private void DisposeEngine()
+    {
+        if (_engine is null) return;
+        try { _engine.Stop(); } catch (Exception ex) { Log.Warn("engine.Stop threw — ignoring.", ex); }
+        try { _engine.Dispose(); } catch (Exception ex) { Log.Warn("engine.Dispose threw — ignoring.", ex); }
+        _engine = null;
     }
 
     public async ValueTask DisposeAsync()
