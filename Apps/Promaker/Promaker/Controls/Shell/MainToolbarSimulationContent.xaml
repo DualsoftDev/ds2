@@ -614,6 +614,15 @@
                          IsEnabled="{Binding Simulation.CanChangeMode}"
                          ToolTip="Hub 주소 (host:port) — Agent 단일 호스팅이라 Control/Monitoring/VP 모두 localhost:5051"
                          Visibility="{Binding Simulation.NeedsHubConnection, Converter={StaticResource BoolToVis}}"/>
+                <!-- issue #154: Monitoring(실 PLC) 시작 시 DSPilot 자동 오픈 여부 토글. IsAgentDelegationMode 일 때만 노출. -->
+                <CheckBox Content="DsPilot으로 실행"
+                          IsChecked="{Binding Simulation.LaunchDspilotOnMonitoring, Mode=TwoWay}"
+                          Visibility="{Binding Simulation.IsAgentDelegationMode, Converter={StaticResource BoolToVis}}"
+                          FontSize="10"
+                          Margin="0,4,0,0"
+                          HorizontalAlignment="Center"
+                          Foreground="{DynamicResource PrimaryTextBrush}"
+                          ToolTip="모니터링 시작(Agent 전송) 시 DSPilot 웹 대시보드를 자동으로 엽니다. 끄면 모니터링만 시작합니다."/>
             </StackPanel>
         </StackPanel>
 

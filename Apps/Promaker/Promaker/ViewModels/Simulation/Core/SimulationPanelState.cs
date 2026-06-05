@@ -307,6 +307,11 @@ public partial class SimulationPanelState : ObservableObject
         IsRealPlcConnected
         && (SelectedRuntimeMode == RuntimeMode.Monitoring || SelectedRuntimeMode == RuntimeMode.Control);
 
+    /// <summary>Monitoring + 실 PLC(Agent 전송) 시작 시 DSPilot 웹 대시보드를 자동으로 띄울지 여부
+    /// (issue #154 "모니터링 > DsPilot으로 실행 체크"). 기본 켜짐(기존 동작 보존) — 체크 해제 시
+    /// 모니터링만 시작하고 DSPilot 브라우저는 띄우지 않는다. (세션 단위 토글, 영구 저장 안 함)</summary>
+    [ObservableProperty] private bool _launchDspilotOnMonitoring = true;
+
     /// <summary>실 라인 owner 일 때만 원위치 버튼 노출 — Sim 모드는 PLAY 가 곧 자동 원위치라 별도 버튼 불필요,
     /// VP/Monitoring 은 외부 컨트롤러가 owner 라 부적절.</summary>
     public bool IsHomingButtonVisible =>

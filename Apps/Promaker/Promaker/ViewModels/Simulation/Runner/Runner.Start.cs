@@ -332,7 +332,8 @@ public partial class SimulationPanelState
 
             // Monitoring + 실 PLC PLAY 성공 시 DSPilot 웹 대시보드를 기본 브라우저로 띄운다.
             // Agent (Windows Service) 는 사용자 세션이 없어 브라우저를 못 띄우므로 Promaker WPF 가 담당.
-            if (SelectedRuntimeMode == RuntimeMode.Monitoring && IsRealPlcConnected)
+            // LaunchDspilotOnMonitoring (issue #154 "DsPilot으로 실행" 체크) 이 꺼져 있으면 띄우지 않는다.
+            if (SelectedRuntimeMode == RuntimeMode.Monitoring && IsRealPlcConnected && LaunchDspilotOnMonitoring)
                 Services.DspilotLauncher.Open();
         }
         catch (Exception ex)
