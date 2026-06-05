@@ -178,10 +178,11 @@
                             </Grid>
                         </Border>
 
-                        <!-- UserTags -->
+                        <!-- UserTags (Active 시스템 전용 — Passive/수동 디바이스는 숨김) -->
                         <Border BorderBrush="{DynamicResource BorderBrush}"
                                 BorderThickness="1"
                                 Margin="0,2,0,8"
+                                Visibility="{Binding ShowSystemUserTags, Converter={StaticResource BoolToVis}}"
                                 Background="{DynamicResource TertiaryBackgroundBrush}">
                             <Grid>
                                 <Grid.RowDefinitions>
