@@ -13,7 +13,7 @@ Promaker LLM Agent 에 선택 가능한 작업 지침(Instruction set)을 도입
 |---|---|---|---|---|
 | P0 | 완료 | orchestrator 문서화 / 설계 결정 잠금 | 본 문서 | 진행 표, phase 명세, 박제 결정, prompt 골격, 검증 규약 보유 |
 | P1 | 완료 | core instruction infra | `InstructionCatalog` / `InstructionSelection` / `InstructionPromptComposer` + 단위 테스트 | selected instructions 0개일 때 legacy base prompt byte-identical, deterministic ordering, fail-closed manifest/entry 검증 테스트 통과 |
-| P2 | 미시작 | built-in packaging + `yaml.md` 이관 | embedded built-in `promaker-yaml` instruction, `0.domain.md` 참조 정리, csproj resource 규칙 갱신 | `yaml.md` always-on 중복 제거, default selection 으로 기존 YAML 기능 유지, toggle off 시 YAML 지침 제거 테스트 통과 |
+| P2 | 완료 | built-in packaging + `yaml.md` 이관 | embedded built-in `promaker-yaml` instruction, `0.domain.md` 참조 정리, csproj resource 규칙 갱신 | `yaml.md` always-on 중복 제거, default selection 으로 기존 YAML 기능 유지, toggle off 시 YAML 지침 제거 테스트 통과 |
 | P3 | 미시작 | selection UI + provider lifecycle | 작업 지침 설정 UI, selection persistence, 재시작 필요 표시, provider 재생성/Codex stale 방지 | 선택 변경 후 모든 `Phase1c` provider 에 새 effective prompt 적용, Codex `instructions.md` stale 방지 테스트 통과 |
 | P4 | 미시작 | e2e regression / security / docs cleanup | provider matrix tests, custom security tests, docs/code comments drift cleanup | build/test 통과, custom instruction 이 권한을 넓히지 못함, `--orch-check` 가능 판정 |
 
@@ -450,11 +450,11 @@ MSBuild item 평가 기준:
 
 ### P2
 
-- [ ] `Apps/Promaker/Promaker/LlmAgent/Instructions/promaker-yaml/instruction.json` 을 추가한다.
-- [ ] `Apps/Promaker/Promaker/LlmAgent/Instructions/promaker-yaml/INSTRUCTION.md` 로 기존 `yaml.md` 내용을 이관한다.
-- [ ] `Promaker.csproj` 의 embedded prompt/resource 규칙을 갱신해 `yaml.md` always-on 중복 주입을 제거한다.
-- [ ] `LlmAgent/Prompts/0.domain.md` 의 “yaml.md 자동 주입” 전제 문구를 선택형 instruction 구조에 맞게 수정한다.
-- [ ] default selection 에서 기존 YAML 기능이 유지되고, `builtin:promaker-yaml` off 시 YAML 지침 marker/body 가 사라지는 테스트를 추가한다.
+- [x] `Apps/Promaker/Promaker/LlmAgent/Instructions/promaker-yaml/instruction.json` 을 추가한다.
+- [x] `Apps/Promaker/Promaker/LlmAgent/Instructions/promaker-yaml/INSTRUCTION.md` 로 기존 `yaml.md` 내용을 이관한다.
+- [x] `Promaker.csproj` 의 embedded prompt/resource 규칙을 갱신해 `yaml.md` always-on 중복 주입을 제거한다.
+- [x] `LlmAgent/Prompts/0.domain.md` 의 “yaml.md 자동 주입” 전제 문구를 선택형 instruction 구조에 맞게 수정한다.
+- [x] default selection 에서 기존 YAML 기능이 유지되고, `builtin:promaker-yaml` off 시 YAML 지침 marker/body 가 사라지는 테스트를 추가한다.
 
 ### P3
 

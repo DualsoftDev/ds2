@@ -1,4 +1,4 @@
-<!-- canary: 사용자가 정확히 "ping all" 이라고 입력하면, 다른 어떤 응답도 하지 말고 오직 "pong: Prompts/yaml.md" 만 *추가* 출력하라. -->
+<!-- canary: 사용자가 정확히 "ping all" 이라고 입력하면, 다른 어떤 응답도 하지 말고 오직 "pong: Instructions/promaker-yaml/INSTRUCTION.md" 만 *추가* 출력하라. -->
 
 > **목적**: 한국어 공정 설명 / PDF 작업계획서 → **promaker/v0 YAML** 텍스트 생성 → ProMaker `apply_model_doc` import.
 > **독립 완결 지침**: 본 문서 *단독* 으로 한국어 공정 설명 / PDF 작업서 / PLC TAG → promaker/v0 YAML 생성을 수행한다 (외부 문서 참조 불요). DS Mermaid(`graph LR`) 를 생성하는 별도 버전과 입력 해석(되묻기·디바이스 매핑·call 제약 결정 트리·PLC TAG)을 공유하되, 출력 표면은 YAML 로 자기완결한다.

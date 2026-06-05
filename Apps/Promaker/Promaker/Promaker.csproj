@@ -92,13 +92,18 @@
       <DesignTime>True</DesignTime>
       <DependentUpon>Strings.resx</DependentUpon>
     </Compile>
-    <!-- LLM system prompt — LlmAgent/Prompts/*.md (자연 정렬 후 concat). PromptLoader 참고.
+    <!-- LLM system prompt — LlmAgent/Prompts/*.md (자연 정렬 후 concat) + selected built-in instructions. PromptLoader 참고.
          PR-S1: 옛 4.attachments / 5.knowledge-base / 9.environment 는 baseline 으로 분리 후 Llm.Shared/Prompts/baseline/
-         아래에서 1/2/3.*.md 로 rename. Promaker 잔류 overlay = 1.entities / 2.modeling / 3.tooling 의 modeling 도메인.
-         baseline → overlay 합성 순서는 todo §L5 / §L7 박제 (PromakerProfile.EmbeddedPromptsSources 의 list order SSOT). -->
+         아래에서 1/2/3.*.md 로 rename. Promaker 잔류 overlay = 0.domain mandatory base.
+         promaker/v0 YAML 생성 규칙은 LlmAgent/Instructions/promaker-yaml built-in instruction 으로 이동.
+         baseline → overlay → selected instruction 합성 순서는 PromakerProfile SSOT. -->
     <EmbeddedResource Include="LlmAgent\Prompts\*.md" />
     <EmbeddedResource Remove="LlmAgent\Prompts\CLAUDE.md" />
     <EmbeddedResource Remove="LlmAgent\Prompts\facts.md" />
+    <EmbeddedResource Include="LlmAgent\Instructions\promaker-yaml\instruction.json"
+                      LogicalName="Promaker.LlmAgent.Instructions.promaker-yaml.instruction.json" />
+    <EmbeddedResource Include="LlmAgent\Instructions\promaker-yaml\INSTRUCTION.md"
+                      LogicalName="Promaker.LlmAgent.Instructions.promaker-yaml.INSTRUCTION.md" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" />
