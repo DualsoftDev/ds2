@@ -13,7 +13,7 @@ namespace Promaker.LlmAgent;
 /// <item>baseline = Llm.Shared.dll 의 <c>Llm.Shared.Prompts.baseline.</c> prefix
 ///   (1.attachments / 2.knowledge-base / 3.environment)</item>
 /// <item>App overlay = Promaker.dll 의 <c>Promaker.LlmAgent.Prompts.</c> prefix
-///   (1.entities / 2.modeling / 3.tooling — modeling 전용)</item>
+///   (0.domain / yaml — modeling 전용, *.mdx 는 주입 제외)</item>
 /// </list>
 /// PromptLoader 가 본 순서대로 concat → LLM 에 명시 주입 순서 signal.
 /// </para>
