@@ -12,7 +12,7 @@ Promaker LLM Agent 에 선택 가능한 작업 지침(Instruction set)을 도입
 | Phase | 상태 | 작업 범위 | 산출물 | 완료 조건 |
 |---|---|---|---|---|
 | P0 | 완료 | orchestrator 문서화 / 설계 결정 잠금 | 본 문서 | 진행 표, phase 명세, 박제 결정, prompt 골격, 검증 규약 보유 |
-| P1 | 미시작 | core instruction infra | `InstructionCatalog` / `InstructionSelection` / `InstructionPromptComposer` + 단위 테스트 | selected instructions 0개일 때 legacy base prompt byte-identical, deterministic ordering, fail-closed manifest/entry 검증 테스트 통과 |
+| P1 | 완료 | core instruction infra | `InstructionCatalog` / `InstructionSelection` / `InstructionPromptComposer` + 단위 테스트 | selected instructions 0개일 때 legacy base prompt byte-identical, deterministic ordering, fail-closed manifest/entry 검증 테스트 통과 |
 | P2 | 미시작 | built-in packaging + `yaml.md` 이관 | embedded built-in `promaker-yaml` instruction, `0.domain.md` 참조 정리, csproj resource 규칙 갱신 | `yaml.md` always-on 중복 제거, default selection 으로 기존 YAML 기능 유지, toggle off 시 YAML 지침 제거 테스트 통과 |
 | P3 | 미시작 | selection UI + provider lifecycle | 작업 지침 설정 UI, selection persistence, 재시작 필요 표시, provider 재생성/Codex stale 방지 | 선택 변경 후 모든 `Phase1c` provider 에 새 effective prompt 적용, Codex `instructions.md` stale 방지 테스트 통과 |
 | P4 | 미시작 | e2e regression / security / docs cleanup | provider matrix tests, custom security tests, docs/code comments drift cleanup | build/test 통과, custom instruction 이 권한을 넓히지 못함, `--orch-check` 가능 판정 |
@@ -437,16 +437,16 @@ MSBuild item 평가 기준:
 
 ### P1
 
-- [ ] `InstructionCatalog` / `InstructionSelection` / `InstructionPromptComposer` 책임을 분리해 구현한다.
-- [ ] `ILlmAppProfile` 에 instruction source/selection hook 을 추가하고 `Phase1c` 단일 진입점을 유지한다.
-- [ ] `PromptLoader.LoadComposed` 를 재구성해 selected instructions 를 operator/user DATA tier 앞에 삽입한다.
-- [ ] `instruction.json` schema 와 source 별 resolver/validator 를 구현한다.
-- [ ] filesystem source 검증: 상대 경로, `.md`, strict UTF-8, 개별 size cap, 합산 instruction budget, symlink/reparse point 탈출 차단, 실패 시 fail-closed.
-- [ ] embedded source 검증: resource 존재, manifest id 대조, `.md` entry, strict UTF-8 decode, 실패 시 fail-closed.
-- [ ] id 충돌, enabled/disabled 동시 포함, stale key, malformed manifest/missing entry/empty file 처리와 warning 로그를 구현한다.
-- [ ] `operator:<id>` 는 reserved key 로 파싱하되 v1 에서는 discover/resolve 하지 않고 항상 비활성 처리한다.
-- [ ] selected instructions 0개 byte-identical, conditional guard/header, `sourcePriority → order → id` 정렬, custom `defaultEnabled` 무시 회귀 테스트를 추가한다.
-- [ ] strict UTF-8 decode 는 `new UTF8Encoding(false, true)` 류의 throw-on-invalid 설정을 사용한다.
+- [x] `InstructionCatalog` / `InstructionSelection` / `InstructionPromptComposer` 책임을 분리해 구현한다.
+- [x] `ILlmAppProfile` 에 instruction source/selection hook 을 추가하고 `Phase1c` 단일 진입점을 유지한다.
+- [x] `PromptLoader.LoadComposed` 를 재구성해 selected instructions 를 operator/user DATA tier 앞에 삽입한다.
+- [x] `instruction.json` schema 와 source 별 resolver/validator 를 구현한다.
+- [x] filesystem source 검증: 상대 경로, `.md`, strict UTF-8, 개별 size cap, 합산 instruction budget, symlink/reparse point 탈출 차단, 실패 시 fail-closed.
+- [x] embedded source 검증: resource 존재, manifest id 대조, `.md` entry, strict UTF-8 decode, 실패 시 fail-closed.
+- [x] id 충돌, enabled/disabled 동시 포함, stale key, malformed manifest/missing entry/empty file 처리와 warning 로그를 구현한다.
+- [x] `operator:<id>` 는 reserved key 로 파싱하되 v1 에서는 discover/resolve 하지 않고 항상 비활성 처리한다.
+- [x] selected instructions 0개 byte-identical, conditional guard/header, `sourcePriority → order → id` 정렬, custom `defaultEnabled` 무시 회귀 테스트를 추가한다.
+- [x] strict UTF-8 decode 는 `new UTF8Encoding(false, true)` 류의 throw-on-invalid 설정을 사용한다.
 
 ### P2
 

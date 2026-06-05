@@ -1,0 +1,7 @@
+{
+  "id": "collision",
+  "displayName": "Builtin Collision",
+  "entry": "INSTRUCTION.md",
+  "defaultEnabled": false,
+  "order": 10
+}

@@ -1,0 +1,7 @@
+{
+  "id": "builtin-late",
+  "displayName": "Builtin Late",
+  "entry": "INSTRUCTION.md",
+  "defaultEnabled": false,
+  "order": 500
+}

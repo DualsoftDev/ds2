@@ -1,0 +1,7 @@
+{
+  "id": "builtin-default",
+  "displayName": "Builtin Default",
+  "entry": "INSTRUCTION.md",
+  "defaultEnabled": true,
+  "order": 30
+}

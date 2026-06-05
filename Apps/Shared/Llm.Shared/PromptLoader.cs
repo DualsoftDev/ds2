@@ -3,14 +3,15 @@ using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
 using Llm.Shared.Abstractions;
+using Llm.Shared.Instructions;
 
 namespace Llm.Shared;
 
 /// <summary>
-/// 3-tier system prompt 로더.
+/// multi-tier system prompt 로더.
 /// baseline + App overlay (둘 다 assembly embedded, <see cref="ILlmAppProfile.EmbeddedPromptsSources"/> 순서) +
-/// operator (exedir/Prompts) + user (<see cref="ILlmAppProfile.UserPromptsDir"/>).
-/// 각 tier 의 *.md 를 자연 정렬(natural sort) 하여 concat. baseline → App → operator → user 순서.
+/// selected instruction tier + operator (exedir/Prompts) + user (<see cref="ILlmAppProfile.UserPromptsDir"/>).
+/// 각 tier 의 *.md 를 자연 정렬(natural sort) 하여 concat. baseline → App → instruction → operator → user 순서.
 /// 본 클래스는 순수 reader — CreateDirectory side-effect 없음 (UI 측에서 책임).
 ///
 /// <para><b>App-agnostic 박제 (PR-S1)</b>: 이전 Promaker.LlmAgent 의 <c>EmbeddedPrefix="Promaker.LlmAgent.Prompts."</c> /
@@ -29,7 +30,7 @@ public static class PromptLoader
 
     /// <summary>
     /// PR-S1 — <see cref="ILlmAppProfile"/> 기반 multi-source 합성.
-    /// embedded sources (baseline + App overlay 순서) + operator dir + user dir 의 *.md 를 concat.
+    /// embedded sources (baseline + App overlay 순서) + selected instructions + operator dir + user dir 를 concat.
     /// </summary>
     public static string LoadComposed(ILlmAppProfile profile)
     {
@@ -47,13 +48,25 @@ public static class PromptLoader
             throw new InvalidOperationException(
                 "embedded prompt missing — ILlmAppProfile.EmbeddedPromptsSources 의 모든 prefix 가 0건 match.");
 
+        var catalog = InstructionCatalog.Discover(profile.InstructionSources, profile.InstructionCatalogOptions);
+        LogWarnings(log, catalog.Warnings);
+
+        var selection = InstructionSelection.Resolve(catalog, profile.InstructionSelection);
+        LogWarnings(log, selection.Warnings);
+
+        var instructionPrompt = InstructionPromptComposer.Compose(
+            selection.EnabledInstructions,
+            profile.InstructionPromptComposerOptions);
+        LogWarnings(log, instructionPrompt.Warnings);
+
         var (operatorText, operatorCount) = LoadDirectoryAll(GetOperatorDir(), log);
         var (userText, userCount)         = LoadDirectoryAll(profile.UserPromptsDir, log);
 
         WarnIfLegacyDirHasFiles(profile, log);
 
-        log.Info($"prompt sources: embedded ({embeddedCount}) + operator ({operatorCount}) + user ({userCount})");
+        log.Info($"prompt sources: embedded ({embeddedCount}) + instructions ({instructionPrompt.InstructionCount}) + operator ({operatorCount}) + user ({userCount})");
 
+        AppendWithSeparator(sb, instructionPrompt.Text);
         if (!string.IsNullOrEmpty(operatorText))
         {
             sb.Append(OperatorHeader);
@@ -65,6 +78,12 @@ public static class PromptLoader
             sb.Append(userText);
         }
         return sb.ToString();
+    }
+
+    static void LogWarnings(log4net.ILog log, IEnumerable<string> warnings)
+    {
+        foreach (var warning in warnings)
+            log.Warn(warning);
     }
 
     static void WarnIfLegacyDirHasFiles(ILlmAppProfile profile, log4net.ILog log)
