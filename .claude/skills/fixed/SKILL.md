@@ -1,4 +1,7 @@
-Base directory for this skill: F:\Git\ds2\auto-fix\.claude\skills\fixed
+---
+name: fixed
+description: Finalize resolved /fix issues by rebasing fix worktrees onto main, fast-forward merging, pushing main, commenting on GitLab issues, closing them, and updating fix-state.json. Use when the user runs /fixed with one or more issue iids after human approval.
+---
 
 # /fixed — resolved issue 를 main 에 반영하고 GitLab 에서 close
 
