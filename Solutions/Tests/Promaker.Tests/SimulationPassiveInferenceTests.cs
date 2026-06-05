@@ -164,7 +164,7 @@ public sealed class SimulationPassiveInferenceTests
     }
 
     [Fact]
-    public void Passive_call_inference_marks_multi_api_call_finish_when_any_input_turns_on()
+    public void Passive_call_inference_requires_all_outputs_for_going_and_all_inputs_for_finish()
     {
         StaTestRunner.Run(() =>
         {
@@ -175,10 +175,22 @@ public sealed class SimulationPassiveInferenceTests
 
             engine.Start();
 
+            // 첫 Out 만으론 Going 안 됨 — 그 Call 의 모든 Out 주소가 High 여야 Going.
             ObservePassive(state, fixture.FirstOutAddress, "true");
+            StaTestRunner.PumpPendingUi();
+            Assert.Equal(Status4.Ready, GetCallState(engine, fixture.CallId));
+
+            // 모든 Out On → Going.
+            ObservePassive(state, fixture.SecondOutAddress, "true");
             Assert.True(StaTestRunner.WaitUntil(1000, () => GetCallState(engine, fixture.CallId) == Status4.Going));
 
+            // 첫 In 만으론 Finish 안 됨 — 그 Call 의 모든 In 주소가 High 여야 Finish.
             ObservePassive(state, fixture.FirstInAddress, "true");
+            StaTestRunner.PumpPendingUi();
+            Assert.Equal(Status4.Going, GetCallState(engine, fixture.CallId));
+
+            // 모든 In On → Finish.
+            ObservePassive(state, fixture.SecondInAddress, "true");
             Assert.True(StaTestRunner.WaitUntil(1000, () => GetCallState(engine, fixture.CallId) == Status4.Finish));
         });
     }

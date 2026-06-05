@@ -53,6 +53,7 @@ module internal AasxExportGraph =
             ("Call",     "Status"),           $"{cdBase}/Call/Status"
             ("Call",     "Position"),         $"{cdBase}/Call/Position"
             ("Call",     "ReferenceOf"),      $"{cdBase}/Call/ReferenceOf"
+            ("Call",     "SequenceLabel"),    $"{cdBase}/Call/SequenceLabel"
             ("Call",     "Conditions"),   $"{cdBase}/Call/Conditions"
             // ApiCall
             ("ApiCall",  "Guid"),             $"{cdBase}/ApiCall/Guid"
@@ -203,6 +204,9 @@ module internal AasxExportGraph =
                         elif prop.PropertyType = typeof<Status4> then
                             let st = value :?> Status4
                             Some (mkProp attr.FieldName (string st))
+                        elif prop.PropertyType = typeof<SequenceLabel> then
+                            let sl = value :?> SequenceLabel
+                            Some (mkProp attr.FieldName (string sl))
                         elif prop.PropertyType = typeof<ArrowType> then
                             let at = value :?> ArrowType
                             Some (mkProp attr.FieldName (string at))

@@ -15,6 +15,10 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
     let workResetTargetsByPred = Dictionary<Guid, ResizeArray<Guid>>()
     let callOutHighAddresses = Dictionary<Guid, HashSet<string>>()
     let callInHighAddresses = Dictionary<Guid, HashSet<string>>()
+    // 308a72ab 복원: Call 별 전체 기대 주소(모든 ApiCall OutTag/InTag). high 가 이를 전부 덮을(IsSupersetOf)
+    // 때만 Going/Finish — "모든 Out On=Going / 모든 In On=Finish".
+    let callOutExpectedAddresses = Dictionary<Guid, HashSet<string>>()
+    let callInExpectedAddresses = Dictionary<Guid, HashSet<string>>()
     let lastObservedValue = Dictionary<string, string>(StringComparer.Ordinal)
 
     let addLog kind message =
@@ -40,6 +44,18 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
             let set = HashSet<string>(StringComparer.Ordinal)
             map[key] <- set
             set
+
+    // 308a72ab HasAllObservedSignals: 그 Call 의 expected 주소가 전부 high 에 포함되는가(IsSupersetOf).
+    let hasAllObserved
+        (expectedMap: Dictionary<Guid, HashSet<string>>)
+        (highMap: Dictionary<Guid, HashSet<string>>)
+        callGuid =
+        match expectedMap.TryGetValue(callGuid) with
+        | true, expected when expected.Count > 0 ->
+            match highMap.TryGetValue(callGuid) with
+            | true, high -> high.IsSupersetOf(expected)
+            | _ -> false
+        | _ -> false
 
     let matchesPassiveSpec valueSpec currentValue =
         match valueSpec with
@@ -70,13 +86,17 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
         else
             highSet.Remove(address) |> ignore
 
+        // 308a72ab: HasAllObservedSignals(IsSupersetOf). rising(matchesSpec) 일 때만 평가해
+        // falling 으로 인한 재진입을 막는다(Finish 후 In off 는 SensorOpen 일 뿐 상태 유지).
         if not matchesSpec then
             ()
         elif isOut then
-            if overlay.GetCallState(callGuid) <> Status4.Going then
+            if hasAllObserved callOutExpectedAddresses callOutHighAddresses callGuid
+               && overlay.GetCallState(callGuid) <> Status4.Going then
                 PassiveInferenceWorkCycle.enqueueCallState actions overlay callGuid Status4.Going
         else
-            if overlay.GetCallState(callGuid) <> Status4.Finish then
+            if hasAllObserved callInExpectedAddresses callInHighAddresses callGuid
+               && overlay.GetCallState(callGuid) <> Status4.Finish then
                 PassiveInferenceWorkCycle.enqueueCallState actions overlay callGuid Status4.Finish
 
     let observePassiveSignalDirectionInternal
@@ -101,6 +121,16 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
             PassiveInferenceWorkCycle.observePositiveWorkSignal workContext actions overlay address isOut observedTick
 
     do
+        // 308a72ab BuildPassiveCallAddressSets: Call 별 전체 ApiCall Out/In 주소를 expected 로 고정.
+        for kvp in ioMap.CallToMappings do
+            let outSet = HashSet<string>(StringComparer.Ordinal)
+            let inSet = HashSet<string>(StringComparer.Ordinal)
+            for m in kvp.Value do
+                if not (String.IsNullOrWhiteSpace m.OutAddress) then outSet.Add(m.OutAddress) |> ignore
+                if not (String.IsNullOrWhiteSpace m.InAddress) then inSet.Add(m.InAddress) |> ignore
+            callOutExpectedAddresses[kvp.Key] <- outSet
+            callInExpectedAddresses[kvp.Key] <- inSet
+
         PassiveInferenceWorkCycle.computeWorkUniqueAddresses workContext
         PassiveInferenceWorkCycle.computeWorkPositiveFamilyTokens workContext
         PassiveInferenceWorkCycle.buildPassiveResetTargetsByPred workContext

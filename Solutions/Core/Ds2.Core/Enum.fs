@@ -52,6 +52,14 @@ type TokenRole =
     | Ignore = 2
     | Sink   = 4
 
+/// Call 이 Work 내 실행 시퀀스에서 차지하는 위치 라벨.
+/// DsPilot·모니터링은 Call 화살표 토폴로지 없이 이 라벨만으로 사이클 시작(Head)·종료(Tail)를 판정한다.
+/// Promaker 는 모델 로드 시 화살표 연결정보로부터 자동 지정한다 (UI 편집 없음).
+type SequenceLabel =
+    | Body = 0   // 시퀀스 중간 (기본값)
+    | Head = 1   // 진입점 — 사이클 시작
+    | Tail = 2   // 종료점 — 사이클 종료
+
 /// Flow runtime state tag for step-by-step simulation.
 type FlowTag =
     | Ready = 0
