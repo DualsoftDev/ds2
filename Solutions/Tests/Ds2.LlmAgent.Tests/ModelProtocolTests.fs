@@ -1,5 +1,6 @@
 module ModelProtocolTests
 
+open System
 open System.Text.Json
 open Xunit
 open Ds2.Core
@@ -3916,3 +3917,184 @@ patch:
     store.ApplyImportPlan("modeling reuse", plan.Build())
     // work 중복 생성 없이 그대로 1개 (reuse — 새 entity 미생성).
     Assert.Equal(1, Queries.worksOf run.Id store |> List.length)
+
+// ─── Phase 3 (Condition 리팩터링) — Multi-root emit (같은 ConditionType implicit AND 보존) ──
+//
+// SSOT: todo-refactor-condition.md "박제 결정" (같은 ConditionType 의 여러 top-level root 는 implicit AND) /
+//       Phase 3 명세 / 남은작업 4 (emit 이 Conditions.[0] 만 내보내던 data loss 제거).
+//
+// 검증 전략: store 에 같은 타입 root 를 (parse 는 entity 당 1 root 만 생성하므로) 직접 주입 → export →
+// 새 store 에 apply → Runtime SimIndex.build 의 ConditionExpression 을 *GUID 무관 leaf 시그니처 multiset*
+// 으로 비교해 의미 동등성 입증. 첫 root 만 emit 되던 버그면 leaf 개수가 줄어 테스트가 실패한다.
+
+/// ConditionExpression 의 모든 Leaf 를 GUID 무관 시그니처로 평탄 추출.
+/// (RxWork.LocalName, ContactKind, InputSpec) — round-trip 으로 GUID 는 바뀌지만 모델 의미는 보존.
+/// RxWorkGuid → store.Works → LocalName 역추적 (store 는 SimIndex 에 포함).
+let rec private leafSignatures (store: DsStore) (expr: Ds2.Runtime.Engine.Core.ConditionExpression) : (string * ContactKind * ValueSpec) list =
+    match expr with
+    | Ds2.Runtime.Engine.Core.Const _ -> []
+    | Ds2.Runtime.Engine.Core.Leaf e ->
+        let rxName =
+            Queries.getWork e.RxWorkGuid store
+            |> Option.map (fun w -> w.LocalName)
+            |> Option.defaultValue (string e.RxWorkGuid)
+        [ (rxName, e.ContactKind, e.InputSpec) ]
+    | Ds2.Runtime.Engine.Core.And xs
+    | Ds2.Runtime.Engine.Core.Or xs -> xs |> List.collect (leafSignatures store)
+    | Ds2.Runtime.Engine.Core.Not x -> leafSignatures store x
+
+/// Cyl1.ADV / Cyl1.RET ApiDef 를 store 에서 찾아 ApiDefId 반환.
+let private cylApiDefId (store: DsStore) (apiName: string) : Guid =
+    let proj = (Queries.allProjects store).Head
+    let cyl = Queries.passiveSystemsOf proj.Id store |> List.find (fun s -> s.Name = "Cyl1")
+    (Queries.apiDefsOf cyl.Id store |> List.find (fun d -> d.Name = apiName)).Id
+
+/// 주어진 ApiDefId 를 참조하는 AutoAux/ComAux/SkipAction leaf 1개짜리 top-level Condition root 생성.
+let private mkRoot (condType: ConditionType) (apiDefId: Guid) : Condition =
+    let ac = ApiCall("")
+    ac.ApiDefId <- Some apiDefId
+    let cond = Condition(Type = Some condType)
+    cond.ApiCalls.Add(ac)
+    cond
+
+/// store → export → 새 store apply → 새 store 반환 (round-trip). diag 오류 시 fail.
+let private roundTrip (store: DsStore) : DsStore =
+    use exported = ModelProtocol.exportToJson store
+    let store2 = DsStore()
+    let plan2 = ImportPlanBuilder()
+    let diag2, _ = ModelProtocol.apply plan2 store2 exported.RootElement
+    Assert.False(diag2.HasErrors, sprintf "round-trip diag: %s" (diag2.Format()))
+    store2.ApplyImportPlan("Phase 3 round-trip", plan2.Build())
+    store2
+
+[<Fact>]
+let ``Phase 3 — 같은 ConditionType(AutoAux) top-level root 2개 → export→apply 후 Runtime 의미 동등`` () =
+    // 단일 cylinder 모델 apply 후, Adv Call 에 AutoAux root 2개 직접 주입 (Cyl1.RET 조건 + Cyl1.ADV 조건).
+    // 첫 root 만 emit 되던 버그면 round-trip 후 leaf 1개로 줄어든다 (data loss).
+    let store = DsStore()
+    let _ = parseApplyCommit store singleCylinderYaml
+    let advCall = findAdvCall store
+    advCall.Conditions.Add(mkRoot ConditionType.AutoAux (cylApiDefId store "RET"))
+    advCall.Conditions.Add(mkRoot ConditionType.AutoAux (cylApiDefId store "ADV"))
+
+    // 원본 Runtime AutoAux 평가 leaf 시그니처 multiset.
+    let idx1 = Ds2.Runtime.Engine.Core.SimIndex.build store 10
+    let sig1 = leafSignatures store idx1.CallAutoAuxConditions.[advCall.Id] |> List.sort
+
+    // round-trip.
+    let store2 = roundTrip store
+    let advCall2 = findAdvCall store2
+    let idx2 = Ds2.Runtime.Engine.Core.SimIndex.build store2 10
+    let sig2 = leafSignatures store2 idx2.CallAutoAuxConditions.[advCall2.Id] |> List.sort
+
+    // 의미 동등: leaf 2개 (각 root 에 1개) 가 round-trip 후에도 보존 (RxWork 이름 / ContactKind / InputSpec 동일).
+    Assert.Equal(2, List.length sig1)
+    Assert.Equal<(string * ContactKind * ValueSpec) list>(sig1, sig2)
+
+[<Fact>]
+let ``Phase 3 — multi-root 는 legacy children 포맷으로 묶여 emit (op/items 미신설)`` () =
+    // wire 포맷 lock-in: 같은 타입 root 2개 → 단일 condition object (children 배열) 로 emit.
+    // op/items 신설 금지 (박제 결정) — wire 에 op/items 키가 없고 children/conditions 만 사용.
+    let store = DsStore()
+    let _ = parseApplyCommit store singleCylinderYaml
+    let advCall = findAdvCall store
+    advCall.Conditions.Add(mkRoot ConditionType.AutoAux (cylApiDefId store "RET"))
+    advCall.Conditions.Add(mkRoot ConditionType.AutoAux (cylApiDefId store "ADV"))
+
+    use exported = ModelProtocol.exportToJson store
+    let json = exported.RootElement.GetRawText()
+    // children 배열로 묶임 (wrapper) — 2개 root 가 children 으로 보존.
+    Assert.Contains("\"children\"", json)
+    // op/items 키는 신설하지 않음.
+    Assert.DoesNotContain("\"op\"", json)
+    Assert.DoesNotContain("\"items\"", json)
+
+[<Fact>]
+let ``Phase 3 — root 1개는 wrapper 없이 그대로 emit (회귀)`` () =
+    // 같은 타입 root 1개만 있을 때는 AND wrapper 합성 없이 기존 emit 동작 그대로 (회귀 0).
+    // singleCylinderYaml 의 Adv Call 에 AutoAux root 1개만 추가 → children wrapper 미발생.
+    let store = DsStore()
+    let _ = parseApplyCommit store singleCylinderYaml
+    let advCall = findAdvCall store
+    advCall.Conditions.Add(mkRoot ConditionType.AutoAux (cylApiDefId store "RET"))
+
+    use exported = ModelProtocol.exportToJson store
+    let advJson =
+        // Adv work 의 calls 안 condition 만 검사 — 단일 root 는 conditions 배열만 (children wrapper 없음).
+        exported.RootElement.GetRawText()
+    Assert.Contains("\"condition\"", advJson)
+    // 단일 root 는 wrapper(children) 로 감싸지 않음 — round-trip 으로 leaf 1개 보존도 확인.
+    let store2 = roundTrip store
+    let advCall2 = findAdvCall store2
+    Assert.Equal(1, advCall2.Conditions.Count)
+    Assert.Equal(Some ConditionType.AutoAux, advCall2.Conditions.[0].Type)
+    // 단일 root 의 leaf 는 conditions(ApiCalls) 에 직접 — children 으로 내려가지 않음.
+    Assert.Equal(1, advCall2.Conditions.[0].ApiCalls.Count)
+    Assert.Equal(0, advCall2.Conditions.[0].Children.Count)
+    let idx2 = Ds2.Runtime.Engine.Core.SimIndex.build store2 10
+    Assert.Equal(1, leafSignatures store2 idx2.CallAutoAuxConditions.[advCall2.Id] |> List.length)
+
+[<Fact>]
+let ``Phase 3 — Work SkipAction top-level root 2개도 round-trip 의미 보존`` () =
+    // Work 경로 (emitConditionRoots 두 번째 호출처) 도 multi-root AND 보존 검증.
+    let store = DsStore()
+    let _ = parseApplyCommit store singleCylinderYaml
+    let proj = (Queries.allProjects store).Head
+    let ctrl = Queries.activeSystemsOf proj.Id store |> List.head
+    let run = Queries.flowsOf ctrl.Id store |> List.head
+    let advWork = Queries.worksOf run.Id store |> List.find (fun w -> w.LocalName = "Adv")
+    advWork.Conditions.Add(mkRoot ConditionType.SkipAction (cylApiDefId store "RET"))
+    advWork.Conditions.Add(mkRoot ConditionType.SkipAction (cylApiDefId store "ADV"))
+
+    let idx1 = Ds2.Runtime.Engine.Core.SimIndex.build store 10
+    let sig1 = leafSignatures store idx1.WorkSkipActionConditions.[advWork.Id] |> List.sort
+
+    let store2 = roundTrip store
+    let ctrl2 = Queries.activeSystemsOf (Queries.allProjects store2).Head.Id store2 |> List.head
+    let run2 = Queries.flowsOf ctrl2.Id store2 |> List.head
+    let advWork2 = Queries.worksOf run2.Id store2 |> List.find (fun w -> w.LocalName = "Adv")
+    let idx2 = Ds2.Runtime.Engine.Core.SimIndex.build store2 10
+    let sig2 = leafSignatures store2 idx2.WorkSkipActionConditions.[advWork2.Id] |> List.sort
+
+    Assert.Equal(2, List.length sig1)
+    Assert.Equal<(string * ContactKind * ValueSpec) list>(sig1, sig2)
+
+[<Fact>]
+let ``Phase 3 — eq 기대값을 가진 같은 타입 root 2개도 round-trip 후 InputSpec 보존`` () =
+    // Phase 2 의 eq(InputSpec) emit 분기가 multi-root wrapper(children) 재귀에서도 보존되는지.
+    // root1: Cyl1.RET eq true / root2: Cyl1.ADV (조건만).
+    let store = DsStore()
+    let _ = parseApplyCommit store singleCylinderYaml
+    let advCall = findAdvCall store
+    let root1 =
+        let ac = ApiCall("")
+        ac.ApiDefId <- Some (cylApiDefId store "RET")
+        ac.InputSpec <- ValueSpec.singleBool true
+        let c = Condition(Type = Some ConditionType.AutoAux)
+        c.ApiCalls.Add(ac); c
+    advCall.Conditions.Add(root1)
+    advCall.Conditions.Add(mkRoot ConditionType.AutoAux (cylApiDefId store "ADV"))
+
+    let store2 = roundTrip store
+    let advCall2 = findAdvCall store2
+    let idx2 = Ds2.Runtime.Engine.Core.SimIndex.build store2 10
+    let sigs = leafSignatures store2 idx2.CallAutoAuxConditions.[advCall2.Id]
+    Assert.Equal(2, List.length sigs)
+    // RET leaf 의 InputSpec 이 BoolValue(Single true) 로 보존 (eq round-trip via children wrapper).
+    let retSig = sigs |> List.tryFind (fun (n, _, _) -> n = "RET")
+    Assert.True(retSig.IsSome, "RET leaf 누락")
+    let (_, _, spec) = retSig.Value
+    Assert.Equal<ValueSpec>(ValueSpec.singleBool true, spec)
+
+[<Fact>]
+let ``Phase 3 — legacy nested conditions/children parse 결과 불변 (회귀)`` () =
+    // 기존 conditions/children 입력 (M-E 와 동일 fixture) 의 parse 결과가 Phase 3 변경 후에도 불변.
+    // emit 변경만 했으므로 parse 경로는 그대로여야 한다.
+    let store = DsStore()
+    let _ = parseApplyCommit store nestedCallConditionYaml
+    let root = (findAdvCall store).Conditions.[0]
+    Assert.Equal(Some ConditionType.ComAux, root.Type)
+    Assert.True(root.IsInverted)
+    Assert.Equal(1, root.ApiCalls.Count)
+    Assert.Equal(1, root.Children.Count)
+    Assert.Equal(Some ConditionType.SkipAction, root.Children.[0].Type)
