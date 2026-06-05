@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Reflection;
+using Llm.Shared.Instructions;
 
 namespace Llm.Shared.Abstractions;
 
@@ -30,6 +31,18 @@ public interface ILlmAppProfile
 
     /// <summary>옛 버전의 user prompts dir (마이그레이션 안내 한정). 없으면 null. PromptLoader 가 *.md 발견 시 1회 warn.</summary>
     string? LegacyUserPromptsDir { get; }
+
+    /// <summary>선택형 작업 지침 catalog source 들. 없으면 기존 prompt 와 byte-identical 이어야 한다.</summary>
+    IReadOnlyList<InstructionSource> InstructionSources => Array.Empty<InstructionSource>();
+
+    /// <summary>source-qualified key 기반 선택 상태. operator:<id> 는 v1 reserved 로 파싱만 하고 비활성 처리한다.</summary>
+    InstructionSelectionState InstructionSelection => InstructionSelectionState.Empty;
+
+    /// <summary>작업 지침 manifest/entry discovery 검증 옵션.</summary>
+    InstructionCatalogOptions InstructionCatalogOptions => InstructionCatalogOptions.Default;
+
+    /// <summary>선택된 작업 지침 prompt 합성 옵션.</summary>
+    InstructionPromptComposerOptions InstructionPromptComposerOptions => InstructionPromptComposerOptions.Default;
 
     /// <summary>log4net logger 이름. App 마다 다른 logger 로 분리 (e.g. "Promaker.LlmAgent.Provider").</summary>
     string LoggerName { get; }

@@ -22,4 +22,25 @@
     <ProjectReference Include="..\..\..\Apps\Promaker\Promaker\Promaker.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="InstructionTestResources\BasePrompts\0.base.md"
+                      LogicalName="Promaker.Tests.InstructionTestResources.BasePrompts.0.base.md" />
+    <EmbeddedResource Include="InstructionTestResources\builtin-alpha\instruction.json"
+                      LogicalName="Promaker.Tests.InstructionTestResources.builtin-alpha.instruction.json" />
+    <EmbeddedResource Include="InstructionTestResources\builtin-alpha\INSTRUCTION.md"
+                      LogicalName="Promaker.Tests.InstructionTestResources.builtin-alpha.INSTRUCTION.md" />
+    <EmbeddedResource Include="InstructionTestResources\builtin-default\instruction.json"
+                      LogicalName="Promaker.Tests.InstructionTestResources.builtin-default.instruction.json" />
+    <EmbeddedResource Include="InstructionTestResources\builtin-default\INSTRUCTION.md"
+                      LogicalName="Promaker.Tests.InstructionTestResources.builtin-default.INSTRUCTION.md" />
+    <EmbeddedResource Include="InstructionTestResources\builtin-late\instruction.json"
+                      LogicalName="Promaker.Tests.InstructionTestResources.builtin-late.instruction.json" />
+    <EmbeddedResource Include="InstructionTestResources\builtin-late\INSTRUCTION.md"
+                      LogicalName="Promaker.Tests.InstructionTestResources.builtin-late.INSTRUCTION.md" />
+    <EmbeddedResource Include="InstructionTestResources\builtin-collision\instruction.json"
+                      LogicalName="Promaker.Tests.InstructionTestResources.collision.instruction.json" />
+    <EmbeddedResource Include="InstructionTestResources\builtin-collision\INSTRUCTION.md"
+                      LogicalName="Promaker.Tests.InstructionTestResources.collision.INSTRUCTION.md" />
+  </ItemGroup>
+
 </Project>
