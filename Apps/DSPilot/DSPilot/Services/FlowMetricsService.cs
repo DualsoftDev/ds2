@@ -147,6 +147,13 @@ public class FlowMetricsService : IFlowMetricsService
         }
     }
 
+    /// <summary>
+    /// Flow 의 사이클 경계(Head/Tail) Call 이름을 돌려준다.
+    /// 우선순위: <see cref="Call.SequenceLabel"/>(Head/Tail) → 라벨이 없으면(경계가 전부 Body)
+    /// <see cref="FlowAnalyzer"/> 토폴로지 기본값(모델 화살표에서 도출).
+    /// 즉 "전부 Body" Flow 는 기존과 동일하게 토폴로지 기본값으로 폴백하므로 사이클 추적 회귀가 없다.
+    /// Head/Tail 폴백은 경계별로 독립적이다 — 한쪽만 라벨이 있으면 그쪽만 라벨, 나머지는 토폴로지.
+    /// </summary>
     public (string? StartCallName, string? EndCallName) GetAasxCycleBoundaries(string flowName)
     {
         if (string.IsNullOrWhiteSpace(flowName))
@@ -171,7 +178,53 @@ public class FlowMetricsService : IFlowMetricsService
             return FlowAnalyzer.AnalyzeFlow(flow, store);
         });
 
-        return (analysisResult.MovingStartName, analysisResult.MovingEndName);
+        // SequenceLabel(Head/Tail) 우선 — 라벨이 박혀 있으면 모델 토폴로지 기본값을 덮어쓴다.
+        // 라벨이 없는 경계(전부 Body)는 토폴로지 기본값(analysisResult)으로 폴백.
+        var (labelStart, labelEnd) = ResolveSequenceLabelBoundaries(flow);
+        var startName = labelStart ?? analysisResult.MovingStartName;
+        var endName = labelEnd ?? analysisResult.MovingEndName;
+
+        return (startName, endName);
+    }
+
+    /// <summary>
+    /// Flow 의 Call 들에서 <see cref="Call.SequenceLabel"/>(Head/Tail)을 읽어 경계 Call 이름을 돌려준다.
+    /// 모든 Call 이 Body(기본값)이면 해당 경계는 null — 호출 측이 모델 토폴로지 기본값으로 폴백한다.
+    /// 같은 라벨이 여러 Call 에 있으면(동명 Call 다중 Work 등) 토폴로지 tie-break 와 동일하게
+    /// 이름 오름차순 첫 번째를 사용하고 경고를 남긴다.
+    /// </summary>
+    private (string? HeadCallName, string? TailCallName) ResolveSequenceLabelBoundaries(Flow flow)
+    {
+        List<Call> calls;
+        try
+        {
+            calls = _projectService.GetWorks(flow.Id)
+                .SelectMany(w => _projectService.GetCalls(w.Id))
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Flow '{FlowName}' SequenceLabel 조회 실패 — 토폴로지 기본값 사용", flow.Name);
+            return (null, null);
+        }
+
+        var heads = calls.Where(c => c.SequenceLabel == SequenceLabel.Head).OrderBy(c => c.Name).ToList();
+        var tails = calls.Where(c => c.SequenceLabel == SequenceLabel.Tail).OrderBy(c => c.Name).ToList();
+
+        if (heads.Count > 1)
+        {
+            _logger.LogWarning(
+                "Flow '{FlowName}' has {Count} Head-labeled calls. Using first '{Name}'.",
+                flow.Name, heads.Count, heads[0].Name);
+        }
+        if (tails.Count > 1)
+        {
+            _logger.LogWarning(
+                "Flow '{FlowName}' has {Count} Tail-labeled calls. Using first '{Name}'.",
+                flow.Name, tails.Count, tails[0].Name);
+        }
+
+        return (heads.FirstOrDefault()?.Name, tails.FirstOrDefault()?.Name);
     }
 
     public async Task ApplyCycleBoundaryOverrideAsync(string flowName, string? startCallName, string? endCallName)
@@ -226,6 +279,8 @@ public class FlowMetricsService : IFlowMetricsService
         }
         return (null, null);
     }
+
+    public IReadOnlyCollection<string> GetTrackedFlowNames() => _flowCycleStates.Keys.ToArray();
 
     /// <summary>
     /// Phase 2: Call Going 시작 이벤트 처리
@@ -556,26 +611,9 @@ public class FlowMetricsService : IFlowMetricsService
     }
 
     /// <summary>
-    /// DsStore 접근 (리플렉션 사용)
+    /// DsStore 접근 — DsProjectService 의 공개 접근자 사용(리플렉션 제거).
     /// </summary>
-    private DsStore GetDsStore()
-    {
-        var storeField = typeof(DsProjectService).GetField("_store",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-
-        if (storeField == null)
-        {
-            throw new InvalidOperationException("Failed to access DsStore from DsProjectService");
-        }
-
-        var store = storeField.GetValue(_projectService) as DsStore;
-        if (store == null)
-        {
-            throw new InvalidOperationException("DsStore is null");
-        }
-
-        return store;
-    }
+    private DsStore GetDsStore() => _projectService.GetStore();
 }
 
 /// <summary>

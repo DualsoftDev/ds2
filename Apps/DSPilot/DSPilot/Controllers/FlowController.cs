@@ -96,6 +96,17 @@ public class FlowController : ControllerBase
             return StatusCode(500, new { message = $"저장 실패: {ex.Message}" });
         }
 
+        // 적용된 Head/Tail 을 공유 project.aasx 의 Call.SequenceLabel 에 박제(Promaker/모니터링 등 외부 소비자용).
+        // best-effort — 실패해도 override 저장/재계산은 그대로 진행한다(아래 recompute 트리거의 관용성과 동일).
+        try
+        {
+            _project.WriteSequenceLabelsAndExport(flow.Id, effectiveStart, effectiveEnd);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Flow] SequenceLabel AASX 박제 실패 (override 저장은 유효): {Flow}", flow.Name);
+        }
+
         // 경계 저장 성공 후, 해당 flow 의 과거 dspFlowHistory 전체를 새 경계로 재도출(백그라운드 + 진행률).
         //   대시보드/평균이 "과거 포함" 새 경계 기준으로 갱신되도록(수용기준). 화면은 응답 후 load() 로 즉시 미리보기,
         //   대시보드는 잡 완료(수초~) 시 갱신. 윈도우-부분 재계산은 대시보드 전체평균을 붕괴시켜 폐기했다.

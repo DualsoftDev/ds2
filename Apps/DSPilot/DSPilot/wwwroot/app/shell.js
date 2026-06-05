@@ -110,13 +110,13 @@
         // FOUC 방지: stitch-shell.css 페인트 전에도 위치/크기 고정(값은 fixed/w-60/z-50 과 동일 → 레이아웃 점프 없음). 색은 미지정.
         aside.style.cssText = 'position:fixed;left:0;top:0;height:100%;width:240px;z-index:50;';
 
-        var brand = el('div', 'px-6 mb-8');
+        var brand = el('div', 'px-6 mb-8 flex flex-col items-center text-center');
         var brandLink = el('a', 'block');
         brandLink.href = '/';
         var brandLogo = el('img');
         brandLogo.src = '/images/logo.png';
         brandLogo.alt = 'DUAL';
-        brandLogo.style.cssText = 'height:34px;width:auto;display:block;';
+        brandLogo.style.cssText = 'height:34px;width:auto;display:block;margin:0 auto;';
         brandLink.appendChild(brandLogo);
         brand.appendChild(brandLink);
         brand.appendChild(el('p', 'font-label-sm text-label-sm text-on-surface-variant opacity-70 mt-2', 'Industrial Monitoring'));
@@ -217,6 +217,23 @@
                     var head = el('div', 'px-3 pb-2 mb-1 border-b border-outline-variant dark:border-outline text-[10px] uppercase font-bold tracking-wider text-outline');
                     head.textContent = sys.name || '';
                     panel.appendChild(head);
+
+                    // ── 전체 편집 — 이 시스템의 모든 Flow 를 한 화면에서 일괄 조회·편집(사이클 분석/이상치/Head·Tail/duration). ──
+                    //   플라이아웃 맨 위(시스템 헤더 바로 아래). /flow-all?system= 으로 시스템 스코프 전달.
+                    var editAll = el('button', 'w-full flex items-center gap-2 px-3 py-2 mb-1 rounded transition-colors text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-inverse-surface');
+                    editAll.type = 'button';
+                    editAll.style.cssText = 'text-align:left;font-weight:700;' + BTN_RESET;
+                    var eaIcon = icon('edit_note');
+                    eaIcon.style.cssText = 'flex:0 0 auto;font-size:18px;color:#2170e4;';
+                    editAll.appendChild(eaIcon);
+                    var eaLabel = el('span', 'font-label-sm text-label-sm', '전체 편집');
+                    eaLabel.style.cssText = 'flex:1;min-width:0;color:#2170e4;';
+                    editAll.appendChild(eaLabel);
+                    editAll.addEventListener('click', function (ev) {
+                        ev.stopPropagation();
+                        location.href = '/flow-all?system=' + encodeURIComponent(sys.name || '');
+                    });
+                    panel.appendChild(editAll);
 
                     (sys.flows || []).forEach(function (flowName) {
                         var isCur = onFlowPage && flowName === curFlowName;
