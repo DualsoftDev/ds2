@@ -63,6 +63,20 @@ public class SettingsController : ControllerBase
     [HttpGet("aasx-status")]
     public ActionResult<AasxStatusDto> GetAasxStatus() => BuildAasxStatus();
 
+    // ── GET: 공유 폴더의 project.aasx 다운로드 ──
+    // Promaker 와 공유하는 파일이므로 FileShare.ReadWrite 로 열어 잠금 충돌을 피한다.
+    [HttpGet("download-aasx")]
+    public IActionResult DownloadAasx()
+    {
+        var path = _project.AasxFilePath;
+        if (!System.IO.File.Exists(path))
+            return NotFound("AASX 파일이 존재하지 않습니다. Promaker 에서 먼저 저장하세요.");
+
+        var stream = System.IO.File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        // fileName 지정 시 Content-Disposition: attachment 가 설정되어 브라우저가 다운로드한다.
+        return File(stream, "application/octet-stream", "project.aasx");
+    }
+
     // ── POST: 저장 (SaveSettings) ──
     // 클라이언트는 split 된 dbDir + 전체 모델을 보낸다. ConnectionString 은 서버에서 재조립.
     [HttpPost("save")]
@@ -71,12 +85,11 @@ public class SettingsController : ControllerBase
         try
         {
             // 현재 디스크 설정을 baseline 으로 로드 후 클라이언트 편집값을 덮어쓴다.
-            // (UI 미노출 섹션 DspTables/Hub 등은 baseline 유지)
+            // (UI 미노출 섹션 DspTables/Hub/Ui.ShowPlcDebug 등은 baseline 유지 — appsettings.json 으로만 관리)
             var m = _settings.LoadSettings();
 
             m.Database.ConnectionString = BuildConnectionString(req.DbDir);
             m.Logging.LogLevel.Default = string.IsNullOrWhiteSpace(req.LogLevelDefault) ? m.Logging.LogLevel.Default : req.LogLevelDefault;
-            m.Ui.ShowPlcDebug = req.ShowPlcDebug;
 
             m.HistoryView.MaxCycleTimeMs = req.MaxCycleTimeMs;
             m.HistoryView.MinCycleTimeMs = req.MinCycleTimeMs;
@@ -309,7 +322,6 @@ public record AasxStatusDto(
 public record SaveRequestDto(
     string DbDir,
     string? LogLevelDefault,
-    bool ShowPlcDebug,
     int MaxCycleTimeMs,
     int MinCycleTimeMs,
     int MaxCallGoingTimeMs,

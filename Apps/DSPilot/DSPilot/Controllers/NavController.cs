@@ -23,6 +23,7 @@ public class NavController : ControllerBase
     private readonly PlcConnectionStatusTracker _plcStatus;
     private readonly HubSubscriberService _hub;
     private readonly IUserTagAlertRepository _alertRepo;
+    private readonly BlueprintService _blueprint;
 
     public NavController(
         DsProjectService project,
@@ -30,7 +31,8 @@ public class NavController : ControllerBase
         DspDbService db,
         PlcConnectionStatusTracker plcStatus,
         HubSubscriberService hub,
-        IUserTagAlertRepository alertRepo)
+        IUserTagAlertRepository alertRepo,
+        BlueprintService blueprint)
     {
         _project = project;
         _settings = settings;
@@ -38,12 +40,19 @@ public class NavController : ControllerBase
         _plcStatus = plcStatus;
         _hub = hub;
         _alertRepo = alertRepo;
+        _blueprint = blueprint;
     }
 
     [HttpGet]
     public ActionResult<NavDto> Get()
     {
         var showPlcDebug = _settings.LoadSettings().Ui.ShowPlcDebug;
+
+        // FlowProcessOrder: 대시보드에서 사용자가 지정한 공정 순서.
+        var processOrder = _blueprint.Layout.FlowProcessOrder;
+        var rankByName = processOrder
+            .Select((o, i) => (o.FlowName, i))
+            .ToDictionary(x => x.FlowName, x => x.i, StringComparer.OrdinalIgnoreCase);
 
         var systems = new List<NavSystemDto>();
         if (_project.IsLoaded)
@@ -54,9 +63,12 @@ public class NavController : ControllerBase
                 // NavMenu.razor 와 동일: flow 가 있는 시스템만 노출.
                 if (flows.Count > 0)
                 {
-                    systems.Add(new NavSystemDto(
-                        system.Name,
-                        flows.Select(f => f.Name).ToList()));
+                    var sorted = flows
+                        .OrderBy(f => rankByName.TryGetValue(f.Name, out var r) ? r : int.MaxValue)
+                        .ThenBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
+                        .Select(f => f.Name)
+                        .ToList();
+                    systems.Add(new NavSystemDto(system.Name, sorted));
                 }
             }
         }
@@ -102,6 +114,7 @@ public class NavController : ControllerBase
         return new NavSummaryDto(
             new NavLinesDto(total, running, idle, efficiencyPct),
             agent,
+            _db.HasData,
             anomalyActiveCount,
             DateTimeOffset.UtcNow);
     }
@@ -125,6 +138,7 @@ public record NavSystemDto(string Name, List<string> Flows);
 public record NavSummaryDto(
     NavLinesDto Lines,
     NavAgentDto Agent,
+    bool HasData,
     int AnomalyActiveCount,
     DateTimeOffset ServerTimeUtc);
 

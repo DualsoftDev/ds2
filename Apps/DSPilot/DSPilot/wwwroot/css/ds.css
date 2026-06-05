@@ -87,8 +87,9 @@
     --color-text-disabled: #93A3B5;
     --color-action-default: #0E7CCB;
 
-    /* 타이포 — 본문 Sans / 수치 Mono(계기판) */
-    --font-family: 'Pretendard', 'Noto Sans KR', 'Malgun Gothic', sans-serif;
+    /* 타이포 — 본문 Inter / 수치 Inter+mono 스택 (dashboard2 통일) */
+    --font-family: 'Inter', 'Noto Sans KR', sans-serif;
+    --font-mono: 'Inter', 'Noto Sans KR', ui-monospace, 'Cascadia Code', Consolas, monospace;
     --tracking-eyebrow: 0.14em;
 
     /* 모서리 — 테크니컬, 날카롭게 */
@@ -390,7 +391,7 @@
 .ds-legend .lg-swatch { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
 
 /* 상태 배지 (테이블) */
-.ds-status { display: inline-block; padding: 2px 8px; border-radius: var(--radius-sm); font-size: 0.62rem; font-weight: 700; font-family: var(--font-mono); letter-spacing: 0.03em; }
+.ds-status { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: var(--radius-sm); font-size: 0.62rem; font-weight: 700; font-family: var(--font-mono); letter-spacing: 0.03em; }
 .ds-status.ok { background: rgba(31, 142, 90, 0.16); color: #167046; }
 .ds-status.warn { background: rgba(192, 122, 16, 0.18); color: #8A5808; }
 .ds-status.bad { background: rgba(216, 57, 43, 0.16); color: #B22C1E; }

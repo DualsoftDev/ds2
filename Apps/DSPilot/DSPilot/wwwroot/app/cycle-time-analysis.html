@@ -187,20 +187,6 @@
         </header>
 
         <main class="dsp-main">
-
-            <!-- 콘텐츠 페이지 헤더: 번호 인덱스 + 제목 + 오버레이 상태 -->
-            <div class="ct-pagehead">
-                <div class="ct-head">
-                    <span class="ct-title">사이클 분석</span>
-                </div>
-                <div class="spacer"></div>
-                <span class="ct-live" :class="(isLoading || overlayBusy) ? 'is-busy' : ''"
-                      :title="(isLoading || overlayBusy) ? '데이터/오버레이 갱신 중' : '읽기 전용 분석'">
-                    <span class="ct-live-dot"></span>
-                    <span x-text="(isLoading || overlayBusy) ? 'SYNC · 갱신중' : 'READ · 읽기전용'"></span>
-                </span>
-            </div>
-
             <div class="call-test-page">
                 <!-- 컨트롤 -->
                 <div class="call-test-controls">
@@ -432,7 +418,7 @@
                         <template x-if="selectedRange">
                             <div class="card" style="border-color: var(--color-primary);">
                                 <div class="ds-card-h">
-                                    <h4 x-text="'🎯 선택 구간 (' + hms2(new Date(selectedRange.startMs)) + ' ~ ' + hms2(new Date(selectedRange.endMs)) + ')'"></h4>
+                                    <h4 x-text="'선택 구간 (' + hms2k(new Date(selectedRange.startMs)) + ' ~ ' + hms2k(new Date(selectedRange.endMs)) + ')'"></h4>
                                     <button class="btn btn-sm btn-outlined" @click="clearRangeSelection()" style="white-space:nowrap;">✕ 해제</button>
                                 </div>
                                 <div class="ct-range-stats">
@@ -1428,6 +1414,10 @@
                 hms2(d) {
                     const p = (x) => String(x).padStart(2, '0');
                     return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+                },
+                // 한글 시·분·초 (선택 구간 제목용)
+                hms2k(d) {
+                    return `${d.getHours()}시 ${d.getMinutes()}분 ${d.getSeconds()}초`;
                 },
                 esc(s) {
                     if (s == null || s === '') return '';

@@ -55,7 +55,7 @@ public sealed class PlcConnectionStatusTracker
         _statuses[status.Name] = status;
 
         // 전이/사유 변화 시에만 Info, 동일 상태는 Trace — UI/구독자만 갱신 알림.
-        if (previous.Name is null
+        if (previous is null
             || previous.IsConnected != status.IsConnected
             || previous.LastError != status.LastError)
         {
