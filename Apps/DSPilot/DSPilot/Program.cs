@@ -251,8 +251,8 @@ app.Use(async (context, next) =>
 // 기존 Blazor @page(.razor)는 폴백으로 남겨두며(딕셔너리에서 해당 줄 삭제 시 즉시 Blazor 로 원복).
 var canonicalStaticRoutes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 {
-    ["/"] = "dashboard.html",
-    ["/dashboard"] = "dashboard.html",
+    ["/"] = "dashboard2.html",
+    ["/dashboard"] = "dashboard2.html",
     ["/heatmap"] = "heatmap.html",
     ["/cycle-time-analysis"] = "cycle-time-analysis.html",
     ["/uptime"] = "uptime.html",

@@ -65,17 +65,22 @@
         .cctv-rail-sub .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
         .cctv-rail-sub .dot.is-live { background: var(--red); }
         .cctv-rail-sub .dot.is-off { background: var(--color-text-disabled); }
-        .cctv-rail-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+        .cctv-rail-actions { display: flex; align-items: center; gap: 1px; flex-shrink: 0; opacity: 0; transition: opacity 0.15s ease; }
+        .cctv-rail-item:hover .cctv-rail-actions,
+        .cctv-rail-actions.has-active { opacity: 1; }
+        /* 레일 내 버튼은 작게 */
+        .cctv-rail-actions .btn-icon.btn-sm { width: 26px; height: 26px; border-radius: var(--radius-sm); }
+        .cctv-rail-actions .btn-icon.btn-sm .material-icons { font-size: 15px; }
 
         /* 우측 영상벽 */
         .cctv-wall { display: flex; flex-direction: column; min-width: 0; }
         .cctv-wall .ds-card-h { margin-bottom: 10px; gap: 10px; }
         .cctv-wall-area { display: flex; flex-direction: column; min-height: 0; }
-        .cctv-grid { flex: 1; min-height: 0; min-width: 0; display: grid; gap: 10px; height: clamp(360px, 64vh, 760px); }
-        .cctv-grid.count-1, .cctv-grid.layout-solo { grid-template-columns: 1fr; grid-template-rows: 1fr; }
-        .cctv-grid.count-2, .cctv-grid.layout-2 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
-        .cctv-grid.count-3, .cctv-grid.count-4, .cctv-grid.layout-2x2 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
-        .cctv-grid.count-5, .cctv-grid.count-6, .cctv-grid.layout-2x3 { grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr; }
+        .cctv-grid { min-width: 0; display: grid; gap: 10px; }
+        .cctv-grid.count-1, .cctv-grid.layout-solo { grid-template-columns: 1fr; }
+        .cctv-grid.count-2, .cctv-grid.layout-2 { grid-template-columns: 1fr 1fr; }
+        .cctv-grid.count-3, .cctv-grid.count-4, .cctv-grid.layout-2x2 { grid-template-columns: 1fr 1fr; }
+        .cctv-grid.count-5, .cctv-grid.count-6, .cctv-grid.layout-2x3 { grid-template-columns: 1fr 1fr 1fr; }
         /* 단독(solo): 같은 타일을 CSS 로만 확대 — 추가 스트림 없음 */
         .cctv-grid.layout-solo .cctv-tile { display: none; }
         .cctv-grid.layout-solo .cctv-tile.is-solo { display: flex; grid-column: 1 / -1; grid-row: 1 / -1; }
@@ -90,19 +95,19 @@
         .cctv-lay-btn .material-icons { font-size: 17px; }
 
         /* 그리드 비었을 때 드롭 안내 */
-        .cctv-wall-empty { flex: 1; height: clamp(360px, 64vh, 760px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 2px dashed var(--color-lines-strong); border-radius: var(--radius-md); color: var(--color-text-secondary); text-align: center; padding: 24px; }
+        .cctv-wall-empty { height: clamp(260px, 45vh, 500px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 2px dashed var(--color-lines-strong); border-radius: var(--radius-md); color: var(--color-text-secondary); text-align: center; padding: 24px; }
         .cctv-wall-empty.is-dragover { border-color: var(--teal); background: color-mix(in srgb, var(--teal) 8%, transparent); color: var(--teal-dark); }
         .cctv-wall-empty .material-icons { font-size: 40px; opacity: 0.7; }
         .cctv-wall-area.is-dragover .cctv-grid { outline: 2px dashed var(--teal); outline-offset: 3px; border-radius: var(--radius-md); }
 
         /* 빈 슬롯 플레이스홀더 */
-        .cctv-cell-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; border: 1.5px dashed var(--color-lines-strong); border-radius: var(--radius-md); background: var(--color-surface-variant); color: var(--color-text-disabled); cursor: pointer; transition: border-color 0.12s ease, color 0.12s ease; min-height: 0; }
+        .cctv-cell-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; border: 1.5px dashed var(--color-lines-strong); border-radius: var(--radius-md); background: var(--color-surface-variant); color: var(--color-text-disabled); cursor: pointer; transition: border-color 0.12s ease, color 0.12s ease; aspect-ratio: 21 / 9; }
         .cctv-cell-empty:hover { border-color: var(--teal); color: var(--teal-dark); }
         .cctv-cell-empty .material-icons { font-size: 26px; }
         .cctv-cell-empty span:last-child { font-size: 0.68rem; font-weight: 700; }
 
         /* 비디오 타일 */
-        .cctv-tile { position: relative; display: flex; flex-direction: column; background: #0A0F16; overflow: hidden; min-height: 0; min-width: 0; border: 1.5px solid var(--color-lines); border-radius: var(--radius-md); transition: border-color 0.12s ease, box-shadow 0.12s ease; }
+        .cctv-tile { position: relative; display: flex; flex-direction: column; background: #0A0F16; overflow: hidden; min-height: 0; min-width: 0; border: 1.5px solid var(--color-lines); border-radius: var(--radius-md); transition: border-color 0.12s ease, box-shadow 0.12s ease; aspect-ratio: 21 / 9; }
         .cctv-tile:hover { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.15); }
         .cctv-tile.is-dragging { opacity: 0.5; }
         .cctv-tile.is-editing { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.28); }
@@ -213,7 +218,8 @@
 
         /* 전체화면 */
         :fullscreen .cctv-wall-area { height: 100vh; padding: 0; background: #0A0F16; }
-        :fullscreen .cctv-grid { height: 100vh; border-radius: 0; }
+        :fullscreen .cctv-grid { height: 100vh; grid-auto-rows: 1fr; border-radius: 0; }
+        :fullscreen .cctv-tile, :fullscreen .cctv-cell-empty { aspect-ratio: auto; }
 
         /* 범례 */
         .cctv-legend { display: flex; align-items: center; gap: 8px 18px; flex-wrap: wrap; padding: 9px 12px; margin-top: 10px; border: 1px solid var(--color-lines); border-radius: var(--radius-md); background: var(--color-surface); font-size: 0.7rem; color: var(--color-text-secondary); flex-shrink: 0; }
@@ -248,6 +254,9 @@
         .cctv-form-row label { font-size: 0.74rem; font-weight: 700; color: var(--color-text-secondary); }
         .cctv-form-row input { padding: 8px 10px; font-size: 0.84rem; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-primary); outline: none; width: 100%; box-sizing: border-box; }
         .cctv-form-row input:focus { border-color: var(--teal); box-shadow: 0 0 0 2px rgba(var(--color-primary-rgb), 0.18); }
+
+        /* 오버레이 숨기기 */
+        .cctv-ovl-layer.is-hidden { display: none !important; }
 
         /* 토스트 */
         .dsp-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 2500; padding: 11px 18px; border-radius: var(--radius-sm); border: 1px solid var(--color-lines-strong); border-left: 3px solid var(--color-text-secondary); background: var(--color-text-primary); color: var(--color-surface); font-size: 0.82rem; font-weight: 600; box-shadow: var(--shadow-4); }
@@ -284,10 +293,6 @@
 
                 <!-- 콘텐츠 상단 제목/액션 바 -->
                 <div class="ds-topbar">
-                    <div class="ds-topbar-titles">
-                        <h2>CCTV 관제</h2>
-                        <div class="ds-breadcrumb">P4 · 영상벽 + 단독 보기 · Flow/Call 오버레이 · 상태색 + 호버 상세 · MediaMTX WHEP</div>
-                    </div>
                     <div class="ds-topbar-actions">
                         <span class="ds-live" :class="status.ok ? 'is-live' : 'is-poll'" :title="status.message">
                             <span class="ds-live-dot"></span>
@@ -304,25 +309,6 @@
                                 <span class="material-icons" style="font-size:16px;">fullscreen</span> 전체화면
                             </button>
                         </template>
-                    </div>
-                </div>
-
-                <!-- KPI 3셀 (정직한 실데이터로 구성) -->
-                <div class="kpi-row">
-                    <div class="kpi-cell tone-primary">
-                        <div class="kp-label">활성 채널</div>
-                        <div class="kp-value" x-text="totalCount > 0 ? (wall.length + ' / ' + totalCount) : '—'"></div>
-                        <div class="kp-target" x-text="totalCount > 0 ? ('표시 ' + wall.length + '대 · 등록 ' + totalCount + '대') : '등록된 카메라 없음'"></div>
-                    </div>
-                    <div class="kpi-cell">
-                        <div class="kp-label">등록 오버레이</div>
-                        <div class="kp-value" x-text="overlaysAll.length"></div>
-                        <div class="kp-target" x-text="overlaySummary.cameras + ' 카메라'"></div>
-                    </div>
-                    <div class="kpi-cell">
-                        <div class="kp-label">진행 중</div>
-                        <div class="kp-value" :style="overlaySummary.going > 0 ? 'color:var(--teal-dark);' : ''" x-text="overlaySummary.going"></div>
-                        <div class="kp-target">실시간 상태 (3초)</div>
                     </div>
                 </div>
 
@@ -375,16 +361,23 @@
                                                 </template>
                                             </div>
                                         </div>
-                                        <div class="cctv-rail-actions">
+                                        <div class="cctv-rail-actions" :class="editTileId === cam.id ? 'has-active' : ''">
                                             <template x-if="inWall(cam.id)">
                                                 <button class="btn-icon btn-sm" @click.stop="soloCamera(cam.id)" title="단독 보기">
-                                                    <span class="material-icons" style="font-size:17px;"
+                                                    <span class="material-icons"
                                                           :style="layout==='solo' && soloId===cam.id ? 'color:var(--teal);' : 'color:var(--color-text-secondary);'">crop_free</span>
+                                                </button>
+                                            </template>
+                                            <template x-if="inWall(cam.id)">
+                                                <button class="btn-icon btn-sm" @click.stop="toggleTileEdit(cam.id)"
+                                                        :title="editTileId === cam.id ? '오버레이 편집 종료' : '오버레이 편집'">
+                                                    <span class="material-icons"
+                                                          :style="editTileId === cam.id ? 'color:var(--teal);' : 'color:var(--color-text-secondary);'">edit_location_alt</span>
                                                 </button>
                                             </template>
                                             <button class="btn-icon btn-sm" @click.stop="toggleWall(cam.id)"
                                                     :title="inWall(cam.id) ? '영상벽에서 제거' : '영상벽에 추가'">
-                                                <span class="material-icons" style="font-size:18px;"
+                                                <span class="material-icons"
                                                       :style="inWall(cam.id) ? 'color:var(--green);' : 'color:var(--teal-dark);'"
                                                       x-text="inWall(cam.id) ? 'check_circle' : 'add_circle'"></span>
                                             </button>
@@ -430,6 +423,14 @@
                                         <span x-text="status.ok ? 'LIVE' : 'OFFLINE'"></span>
                                     </span>
                                     <template x-if="wall.length > 0">
+                                        <button class="btn-icon btn-sm" :class="overlaysHidden ? 'is-active' : ''"
+                                                @click="toggleOverlays()"
+                                                :title="overlaysHidden ? '오버레이 표시' : '오버레이 숨기기'">
+                                            <span class="material-icons" style="font-size:18px;"
+                                                  x-text="overlaysHidden ? 'visibility_off' : 'visibility'"></span>
+                                        </button>
+                                    </template>
+                                    <template x-if="wall.length > 0">
                                         <button class="btn-icon btn-sm" @click="clearWall()" title="영상벽 비우기">
                                             <span class="material-icons" style="font-size:18px;">grid_off</span>
                                         </button>
@@ -448,27 +449,6 @@
                                             <div class="cctv-tile"
                                                  :class="(dragCamId === cam.id ? 'is-dragging ' : '') + (editTileId === cam.id ? 'is-editing ' : '') + (isSoloTile(cam, idx) ? 'is-solo' : '')"
                                                  @dragover="onTileDragOver($event)" @drop="onTileDrop($event, cam.id)">
-                                                <div class="cctv-tile-bar">
-                                                    <span class="cctv-tile-grip" draggable="true"
-                                                          @dragstart="startDrag('tile', cam.id, $event)" @dragend="endDrag()"
-                                                          title="드래그로 위치 변경 / 레일로 드래그하면 제거">
-                                                        <span class="material-icons">drag_indicator</span>
-                                                    </span>
-                                                    <span class="cctv-tile-name" x-text="cam.name"></span>
-                                                    <button class="cctv-tile-btn" :class="layout==='solo' && soloId===cam.id ? 'is-active' : ''"
-                                                            @click="layout==='solo' && soloId===cam.id ? exitSolo() : soloCamera(cam.id)"
-                                                            :title="layout==='solo' && soloId===cam.id ? '영상벽으로' : '단독 보기'">
-                                                        <span class="material-icons" x-text="layout==='solo' && soloId===cam.id ? 'grid_view' : 'crop_free'"></span>
-                                                    </button>
-                                                    <button class="cctv-tile-btn cctv-tile-edit" :class="editTileId === cam.id ? 'is-active' : ''"
-                                                            @click="toggleTileEdit(cam.id)"
-                                                            :title="editTileId === cam.id ? '오버레이 편집 종료' : '오버레이 편집'">
-                                                        <span x-text="editTileId === cam.id ? '편집 종료' : '오버레이 편집'"></span>
-                                                    </button>
-                                                    <button class="cctv-tile-btn is-danger" @click="removeFromWall(cam.id)" title="영상벽에서 제거">
-                                                        <span class="material-icons">close</span>
-                                                    </button>
-                                                </div>
 
                                                 <!-- 인라인 arm 바 (편집 중) -->
                                                 <template x-if="editTileId === cam.id">
@@ -514,13 +494,10 @@
                                                 <div class="cctv-tile-stage">
                                                     <video :id="'cctv-wall-' + cam.id" muted autoplay playsinline
                                                            @loadedmetadata="recalcWallRects()"></video>
-                                                    <span class="cctv-tile-live" :class="streamClass(cam.id)">
-                                                        <span class="ds-live-dot"></span> <span x-text="streamLabel(cam.id)"></span>
-                                                    </span>
 
                                                     <!-- 오버레이 레이어 -->
                                                     <div class="cctv-ovl-layer"
-                                                         :class="(editTileId===cam.id ? 'is-editing ' : '') + (editTileId===cam.id && armedFlowId ? 'is-armed' : '')"
+                                                         :class="(overlaysHidden && editTileId !== cam.id ? 'is-hidden ' : '') + (editTileId===cam.id ? 'is-editing ' : '') + (editTileId===cam.id && armedFlowId ? 'is-armed' : '')"
                                                          @mousedown="onDrawStart($event, cam.id)" @mousemove="onDrawMove($event)"
                                                          @mouseup="onDrawEnd($event, cam.id)" @mouseleave="onDrawCancel()">
                                                         <template x-if="editTileId===cam.id && gridSnap">
@@ -573,39 +550,39 @@
                                                     <template x-if="hoverOverlay && hoverOverlay.camId === cam.id">
                                                         <div class="cctv-ovl-tip" :style="tipStyle(cam)">
                                                             <div class="tip-head">
-                                                                <span class="material-icons" x-text="hoverOverlay.kind==='Call' ? 'memory' : 'account_tree'"></span>
-                                                                <span class="tip-kind" x-text="hoverOverlay.kind==='Call' ? 'CALL · 설비' : 'FLOW'"></span>
-                                                                <span class="tip-state" x-text="hoverOverlay.model.stateLabel"></span>
+                                                                <span class="material-icons" x-text="hoverOverlay?.kind==='Call' ? 'memory' : 'account_tree'"></span>
+                                                                <span class="tip-kind" x-text="hoverOverlay?.kind==='Call' ? 'CALL · 설비' : 'FLOW'"></span>
+                                                                <span class="tip-state" x-text="hoverOverlay?.model?.stateLabel"></span>
                                                             </div>
-                                                            <div class="tip-title" x-text="hoverOverlay.model.title"></div>
+                                                            <div class="tip-title" x-text="hoverOverlay?.model?.title"></div>
                                                             <div class="tip-rows">
-                                                                <template x-if="hoverOverlay.model.flowName"><span class="tk">Flow</span></template>
-                                                                <template x-if="hoverOverlay.model.flowName"><span class="tv" x-text="hoverOverlay.model.flowName"></span></template>
-                                                                <template x-if="hoverOverlay.model.systemName"><span class="tk">시스템</span></template>
-                                                                <template x-if="hoverOverlay.model.systemName"><span class="tv" x-text="hoverOverlay.model.systemName"></span></template>
-                                                                <template x-if="hoverOverlay.model.callName"><span class="tk">Call</span></template>
-                                                                <template x-if="hoverOverlay.model.callName"><span class="tv mono" x-text="hoverOverlay.model.callName"></span></template>
-                                                                <template x-if="hoverOverlay.model.workName"><span class="tk">Work</span></template>
-                                                                <template x-if="hoverOverlay.model.workName"><span class="tv" x-text="hoverOverlay.model.workName"></span></template>
-                                                                <template x-if="hoverOverlay.model.device"><span class="tk">설비</span></template>
-                                                                <template x-if="hoverOverlay.model.device"><span class="tv mono" x-text="hoverOverlay.model.device"></span></template>
-                                                                <template x-if="hoverOverlay.model.avgMs != null"><span class="tk">평균 사이클</span></template>
-                                                                <template x-if="hoverOverlay.model.avgMs != null"><span class="tv" x-text="fmtDuration(hoverOverlay.model.avgMs)"></span></template>
-                                                                <template x-if="hoverOverlay.model.currentCt != null"><span class="tk">현재 CT</span></template>
-                                                                <template x-if="hoverOverlay.model.currentCt != null"><span class="tv" x-text="fmtDuration(hoverOverlay.model.currentCt)"></span></template>
-                                                                <template x-if="hoverOverlay.model.goingCount != null && hoverOverlay.model.goingCount > 0"><span class="tk">진행 횟수</span></template>
-                                                                <template x-if="hoverOverlay.model.goingCount != null && hoverOverlay.model.goingCount > 0"><span class="tv" x-text="hoverOverlay.model.goingCount + '회'"></span></template>
-                                                                <template x-if="hoverOverlay.model.progressRate != null && hoverOverlay.model.progressRate > 0"><span class="tk">진행률</span></template>
-                                                                <template x-if="hoverOverlay.model.progressRate != null && hoverOverlay.model.progressRate > 0"><span class="tv" x-text="fmtPct(hoverOverlay.model.progressRate)"></span></template>
-                                                                <template x-if="hoverOverlay.model.movingStartName || hoverOverlay.model.movingEndName"><span class="tk">이동 구간</span></template>
-                                                                <template x-if="hoverOverlay.model.movingStartName || hoverOverlay.model.movingEndName"><span class="tv" x-text="(hoverOverlay.model.movingStartName || '?') + ' → ' + (hoverOverlay.model.movingEndName || '?')"></span></template>
-                                                                <template x-if="hoverOverlay.model.errorText"><span class="tk">이상</span></template>
-                                                                <template x-if="hoverOverlay.model.errorText"><span class="tv is-error" x-text="hoverOverlay.model.errorText"></span></template>
+                                                                <template x-if="hoverOverlay?.model?.flowName"><span class="tk">Flow</span></template>
+                                                                <template x-if="hoverOverlay?.model?.flowName"><span class="tv" x-text="hoverOverlay?.model?.flowName"></span></template>
+                                                                <template x-if="hoverOverlay?.model?.systemName"><span class="tk">시스템</span></template>
+                                                                <template x-if="hoverOverlay?.model?.systemName"><span class="tv" x-text="hoverOverlay?.model?.systemName"></span></template>
+                                                                <template x-if="hoverOverlay?.model?.callName"><span class="tk">Call</span></template>
+                                                                <template x-if="hoverOverlay?.model?.callName"><span class="tv mono" x-text="hoverOverlay?.model?.callName"></span></template>
+                                                                <template x-if="hoverOverlay?.model?.workName"><span class="tk">Work</span></template>
+                                                                <template x-if="hoverOverlay?.model?.workName"><span class="tv" x-text="hoverOverlay?.model?.workName"></span></template>
+                                                                <template x-if="hoverOverlay?.model?.device"><span class="tk">설비</span></template>
+                                                                <template x-if="hoverOverlay?.model?.device"><span class="tv mono" x-text="hoverOverlay?.model?.device"></span></template>
+                                                                <template x-if="hoverOverlay?.model?.avgMs != null"><span class="tk">평균 사이클</span></template>
+                                                                <template x-if="hoverOverlay?.model?.avgMs != null"><span class="tv" x-text="fmtDuration(hoverOverlay?.model?.avgMs)"></span></template>
+                                                                <template x-if="hoverOverlay?.model?.currentCt != null"><span class="tk">현재 CT</span></template>
+                                                                <template x-if="hoverOverlay?.model?.currentCt != null"><span class="tv" x-text="fmtDuration(hoverOverlay?.model?.currentCt)"></span></template>
+                                                                <template x-if="hoverOverlay?.model?.goingCount != null && hoverOverlay?.model?.goingCount > 0"><span class="tk">진행 횟수</span></template>
+                                                                <template x-if="hoverOverlay?.model?.goingCount != null && hoverOverlay?.model?.goingCount > 0"><span class="tv" x-text="hoverOverlay?.model?.goingCount + '회'"></span></template>
+                                                                <template x-if="hoverOverlay?.model?.progressRate != null && hoverOverlay?.model?.progressRate > 0"><span class="tk">진행률</span></template>
+                                                                <template x-if="hoverOverlay?.model?.progressRate != null && hoverOverlay?.model?.progressRate > 0"><span class="tv" x-text="fmtPct(hoverOverlay?.model?.progressRate)"></span></template>
+                                                                <template x-if="hoverOverlay?.model?.movingStartName || hoverOverlay?.model?.movingEndName"><span class="tk">이동 구간</span></template>
+                                                                <template x-if="hoverOverlay?.model?.movingStartName || hoverOverlay?.model?.movingEndName"><span class="tv" x-text="(hoverOverlay?.model?.movingStartName || '?') + ' → ' + (hoverOverlay?.model?.movingEndName || '?')"></span></template>
+                                                                <template x-if="hoverOverlay?.model?.errorText"><span class="tk">이상</span></template>
+                                                                <template x-if="hoverOverlay?.model?.errorText"><span class="tv is-error" x-text="hoverOverlay?.model?.errorText"></span></template>
                                                             </div>
                                                         </div>
                                                     </template>
 
-                                                    <template x-if="overlayCountFor(cam.name) > 0 && editTileId !== cam.id">
+                                                    <template x-if="overlayCountFor(cam.name) > 0 && editTileId !== cam.id && !overlaysHidden">
                                                         <div class="cctv-tile-ovl">
                                                             <span class="material-icons">label</span>
                                                             <span x-text="overlayCountFor(cam.name)"></span>
@@ -646,8 +623,8 @@
                                 <span class="lg-cap">상태</span>
                                 <span class="lg-grp">
                                     <span class="lg-item"><span class="lg-dot" style="background:var(--green);"></span>준비</span>
-                                    <span class="lg-item"><span class="lg-dot" style="background:var(--teal);"></span>진행</span>
-                                    <span class="lg-item"><span class="lg-dot" style="background:var(--color-info);"></span>완료</span>
+                                    <span class="lg-item"><span class="lg-dot" style="background:var(--color-warning);"></span>진행</span>
+                                    <span class="lg-item"><span class="lg-dot" style="background:var(--teal);"></span>완료</span>
                                     <span class="lg-item"><span class="lg-dot" style="background:var(--red);"></span>이상</span>
                                     <span class="lg-item"><span class="lg-dot" style="background:var(--color-text-disabled);"></span>미수신</span>
                                 </span>
@@ -774,6 +751,7 @@
         const CCTV_SOLO_KEY = 'dspilot-cctv-solo';
         const CCTV_GRIDSNAP_KEY = 'dspilot-cctv-gridsnap';
         const CCTV_GRIDDIV_KEY = 'dspilot-cctv-griddiv';
+        const CCTV_OVL_HIDDEN_KEY = 'dspilot-cctv-ovl-hidden';
         const VALID_LAYOUTS = ['solo', '2', '2x2', '2x3', 'auto'];
         const GRID_DIV_MIN = 4, GRID_DIV_MAX = 40, GRID_DIV_DEFAULT = 16;
 
@@ -784,6 +762,7 @@
                 cameras: [], webRtcPort: 8889, totalCount: 0, maxConcurrent: 6,
                 status: { ok: false, message: '동기화 전' },
                 dark: false, syncing: false, demoBlocked: false,
+                overlaysHidden: false,
                 toast: { show: false, msg: '', type: 'success' },
 
                 // 영상벽
@@ -910,6 +889,7 @@
                     this.gridSnap = localStorage.getItem(CCTV_GRIDSNAP_KEY) === '1';
                     const gd = parseInt(localStorage.getItem(CCTV_GRIDDIV_KEY), 10);
                     this.gridDiv = (Number.isFinite(gd) && gd >= GRID_DIV_MIN && gd <= GRID_DIV_MAX) ? gd : GRID_DIV_DEFAULT;
+                    this.overlaysHidden = localStorage.getItem(CCTV_OVL_HIDDEN_KEY) === '1';
                 },
                 persistLayout() {
                     try {
@@ -1161,8 +1141,8 @@
                 stateOf(overlayId) { const s = this.overlayStates[overlayId]; return s ? (s.state || '') : ''; },
                 colorOf(state) {
                     switch ((state || '').toLowerCase()) {
-                        case 'going': return 'var(--teal)';
-                        case 'finish': return 'var(--color-info)';
+                        case 'going': return 'var(--color-warning)';  // 진행 = 노란색
+                        case 'finish': return 'var(--teal)';          // 완료 = 파란색(애저)
                         case 'ready': return 'var(--green)';
                         case 'error': return 'var(--red)';
                         default: return 'var(--color-text-disabled)';
@@ -1648,6 +1628,13 @@
                         if (res.ok) { this.status = await res.json(); this.showToast(this.status.message, this.status.ok ? 'success' : 'error'); }
                     } catch (e) { this.showToast('재동기화 실패: ' + e.message, 'error'); }
                     finally { this.syncing = false; }
+                },
+
+                toggleOverlays() {
+                    this.overlaysHidden = !this.overlaysHidden;
+                    // 편집 중 타일이 있으면 숨기기 해제(편집 중에는 오버레이가 보여야 함)
+                    if (this.overlaysHidden && this.editTileId) this.editTileId = null;
+                    try { localStorage.setItem(CCTV_OVL_HIDDEN_KEY, this.overlaysHidden ? '1' : '0'); } catch (e) {}
                 },
 
                 showToast(msg, type) {

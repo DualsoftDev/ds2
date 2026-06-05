@@ -9,7 +9,7 @@
  *   <script defer src="/lib/alpine.min.js"></script>
  *
  * 사이드바 구성(dashboard2 와 동일 — 축소판):
- *   · 브랜드 (DSPilot / Industrial Monitoring)
+ *   · 브랜드 (DUAL 로고 이미지 /images/logo.png + Industrial Monitoring)
  *   · 페이지 링크 (대시보드/동작편차/사이클분석/가동시간·이상/CCTV [+PLC 디버그])
  *   · Line Summary (가동/대기)  — /api/nav/summary 폴링
  *   · Settings (푸터)
@@ -76,9 +76,8 @@
 
         // ── 3) 네비게이션 정의 (라우트/아이콘 — 라이브 대시보드는 '/'). ──
         var NAV_ITEMS = [
-            { label: '대시보드',    href: '/',                    icon: 'space_dashboard', match: 'all',    legacy: '/app/dashboard.html' },
+            { label: '대시보드',    href: '/',                    icon: 'space_dashboard', match: 'all',    legacy: ['/app/dashboard.html', '/app/dashboard2.html'] },
             { label: '동작편차',    href: '/heatmap',             icon: 'gradient',        match: 'prefix', legacy: '/app/heatmap.html' },
-            { label: '사이클 분석', href: '/cycle-time-analysis', icon: 'equalizer',       match: 'prefix', legacy: '/app/cycle-time-analysis.html' },
             { label: '가동시간·이상', href: '/uptime',            icon: 'monitor_heart',   match: 'prefix', legacy: '/app/uptime.html' },
             { label: 'CCTV',        href: '/cctv',                icon: 'videocam',        match: 'prefix', legacy: '/app/cctv.html' }
         ];
@@ -87,7 +86,7 @@
 
         var path = (location.pathname || '/').replace(/\/+$/, '') || '/';
         function isActive(item) {
-            var candidates = [item.href, item.legacy].filter(Boolean).map(function (p) {
+            var candidates = [item.href].concat(item.legacy || []).filter(Boolean).map(function (p) {
                 return p.replace(/\/+$/, '') || '/';
             });
             for (var i = 0; i < candidates.length; i++) {
@@ -112,15 +111,22 @@
         aside.style.cssText = 'position:fixed;left:0;top:0;height:100%;width:240px;z-index:50;';
 
         var brand = el('div', 'px-6 mb-8');
-        brand.appendChild(el('h1', 'font-display-metrics text-display-metrics font-black text-secondary dark:text-secondary-fixed', 'DSPilot'));
-        brand.appendChild(el('p', 'font-label-sm text-label-sm text-on-surface-variant opacity-70', 'Industrial Monitoring'));
+        var brandLink = el('a', 'block');
+        brandLink.href = '/';
+        var brandLogo = el('img');
+        brandLogo.src = '/images/logo.png';
+        brandLogo.alt = 'DUAL';
+        brandLogo.style.cssText = 'height:34px;width:auto;display:block;';
+        brandLink.appendChild(brandLogo);
+        brand.appendChild(brandLink);
+        brand.appendChild(el('p', 'font-label-sm text-label-sm text-on-surface-variant opacity-70 mt-2', 'Industrial Monitoring'));
         aside.appendChild(brand);
 
         var navMenu = el('nav', 'flex-1 flex flex-col gap-1 px-3 overflow-y-auto custom-scrollbar');
         aside.appendChild(navMenu);
 
         var anomalyBadge = null;
-        var cycleLink = null;   // '사이클 분석' 링크 — 그 아래에 시스템 서브메뉴를 삽입한다.
+        var flowsAnchor = null;   // 시스템→Flow 서브메뉴를 삽입할 앵커(동작편차 링크 다음 = 구 '사이클 분석' 자리).
         NAV_ITEMS.forEach(function (item) {
             var link = buildNavLink(item, LINK_ACTIVE, LINK_IDLE);
             if (item.href === '/uptime') {
@@ -129,24 +135,24 @@
                 anomalyBadge.style.display = 'none';
                 link.appendChild(anomalyBadge);
             }
-            if (item.href === '/cycle-time-analysis') cycleLink = link;
+            if (item.href === '/heatmap') flowsAnchor = link;
             navMenu.appendChild(link);
         });
 
-        // ── 4.5) '사이클 분석' 하위: 시스템별 Flow 서브메뉴 컨테이너 ──
-        //   각 시스템 행 클릭 → 사이드바 우측에 플라이아웃 패널로 Flow 목록 → Flow 클릭 시 /flow?name= 이동.
+        // ── 4.5) 시스템별 Flow(사이클 분석) 서브메뉴 컨테이너 ──
+        //   구 '사이클 분석' 메뉴 항목은 제거됨 — 각 시스템 행(사이클 분석 아이콘)이 진입점.
+        //   시스템 행 클릭 → 사이드바 우측에 플라이아웃 패널로 Flow 목록 → Flow 클릭 시 /flow?name= 이동.
         //   데이터는 아래 /api/nav fetch 의 systems 트리로 채운다(이미 PLC 디버그용으로 호출 중).
         var cycleSubWrap = el('div', 'flex flex-col gap-0.5');
-        if (cycleLink && cycleLink.parentNode === navMenu) {
-            navMenu.insertBefore(cycleSubWrap, cycleLink.nextSibling);
+        if (flowsAnchor && flowsAnchor.parentNode === navMenu) {
+            navMenu.insertBefore(cycleSubWrap, flowsAnchor);
         }
 
-        // /flow 페이지에 있을 때: 부모 '사이클 분석' 활성 표시 + 현재 Flow 강조용.
+        // /flow 페이지에 있을 때: 해당 시스템/Flow 행을 강조(아래 buildSystemSubmenu 에서 처리).
         var onFlowPage = path === '/flow';
         var curFlowName = onFlowPage
             ? ((new URLSearchParams(location.search)).get('name') || '')
             : '';
-        if (onFlowPage && cycleLink) cycleLink.className = LINK_ACTIVE;
 
         function buildSystemSubmenu(systems) {
             cycleSubWrap.innerHTML = '';
@@ -184,11 +190,14 @@
             systems.forEach(function (sys) {
                 var sysHasCurrent = onFlowPage && (sys.flows || []).indexOf(curFlowName) !== -1;
 
-                var row = el('button', 'w-full flex items-center gap-2 pl-9 pr-3 py-2 rounded text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-inverse-surface transition-colors');
+                var row = el('button', 'w-full flex items-center gap-3 px-4 py-3 rounded text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-inverse-surface transition-colors');
                 row.type = 'button';
                 row.style.cssText = 'text-align:left;' + BTN_RESET;
                 row.setAttribute('aria-expanded', 'false');
-                row.appendChild(dot(sysHasCurrent ? '#2170e4' : 'currentColor', sysHasCurrent ? '1' : '0.55'));
+                // 구 '사이클 분석' 항목을 대체 — 시스템 행 아이콘 = 사이클 분석 아이콘(equalizer)
+                var sysIcon = icon('equalizer');
+                sysIcon.style.cssText = 'flex:0 0 auto;font-size:20px;' + (sysHasCurrent ? 'color:#2170e4;' : 'opacity:0.75;');
+                row.appendChild(sysIcon);
                 var sysLabel = el('span', 'font-label-sm text-label-sm', sys.name || '(이름 없음)');
                 sysLabel.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
                 row.appendChild(sysLabel);
@@ -268,6 +277,7 @@
         lineSummaryBlock.appendChild(lsCard);
         navMenu.appendChild(lineSummaryBlock);
 
+
         // 푸터 (설정)
         var footer = el('div', 'p-4 border-t border-outline-variant dark:border-outline flex flex-col gap-1');
         footer.appendChild(buildNavLink(SETTINGS_ITEM, SET_ACTIVE, SET_IDLE));
@@ -289,12 +299,70 @@
         headLeft.appendChild(crumb);
 
         var headRight = el('div', 'flex items-center gap-3');
+
+        // ── Agent 상태 팝오버 (헤더 배지 클릭 시 펼쳐짐) ──
+        var AG_DOT = { green: '#22c55e', orange: '#fb923c', red: '#ef4444', gray: '#9ca3af' };
+        function agentRow() {
+            var row = el('div', 'flex items-center gap-2');
+            var dot = el('span', 'w-2 h-2 rounded-full');
+            dot.style.cssText = 'flex:0 0 auto;background:' + AG_DOT.gray + ';';
+            var text = el('span', 'font-label-sm text-label-sm');
+            text.style.cssText = 'min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+            row.appendChild(dot);
+            row.appendChild(text);
+            return { row: row, dot: dot, text: text };
+        }
+        var agHub = agentRow();
+        var agPlc = agentRow();
+        var agData = agentRow();
+        agHub.text.textContent = 'PROMAKER HUB: —';
+        agPlc.text.textContent = 'PLC 어댑터: —';
+        agData.text.textContent = 'PLC 데이터 대기';
+
+        var agPopover = el('div', 'bg-surface dark:bg-inverse-surface border border-outline-variant dark:border-outline rounded-lg');
+        agPopover.style.cssText = 'position:fixed;z-index:100;min-width:210px;display:none;box-shadow:0 6px 20px rgba(0,0,0,0.15);padding:10px 14px 12px;';
+        agPopover.appendChild(el('div', 'text-[10px] uppercase font-bold tracking-wider text-outline mb-2', 'Agent 상태'));
+        var agPopCard = el('div', 'flex flex-col gap-2');
+        agPopCard.appendChild(agHub.row);
+        agPopCard.appendChild(agPlc.row);
+        agPopCard.appendChild(agData.row);
+        agPopover.appendChild(agPopCard);
+        document.body.appendChild(agPopover);
+
         var liveBadge = el('span', 'dash-live is-poll');
+        liveBadge.style.cursor = 'pointer';
+        liveBadge.setAttribute('role', 'button');
+        liveBadge.setAttribute('aria-expanded', 'false');
         var liveDot = el('span', 'dash-live-dot');
         var liveText = el('span', null, '연결 확인 중');
+        var liveChev = el('span', 'material-icons');
+        liveChev.style.cssText = 'font-size:15px;transition:transform 0.15s;margin-left:2px;';
+        liveChev.textContent = 'expand_more';
         liveBadge.appendChild(liveDot);
         liveBadge.appendChild(liveText);
+        liveBadge.appendChild(liveChev);
         headRight.appendChild(liveBadge);
+
+        var _agPopOpen = false;
+        function closeAgPopover() {
+            _agPopOpen = false;
+            agPopover.style.display = 'none';
+            liveChev.style.transform = '';
+            liveBadge.setAttribute('aria-expanded', 'false');
+            document.removeEventListener('click', closeAgPopover, true);
+        }
+        liveBadge.addEventListener('click', function (e) {
+            e.stopPropagation();
+            if (_agPopOpen) { closeAgPopover(); return; }
+            _agPopOpen = true;
+            var r = liveBadge.getBoundingClientRect();
+            agPopover.style.top = (r.bottom + 6) + 'px';
+            agPopover.style.right = (window.innerWidth - r.right) + 'px';
+            agPopover.style.display = 'block';
+            liveChev.style.transform = 'rotate(180deg)';
+            liveBadge.setAttribute('aria-expanded', 'true');
+            setTimeout(function () { document.addEventListener('click', closeAgPopover, true); }, 0);
+        });
 
         header.appendChild(headLeft);
         header.appendChild(headRight);
@@ -351,6 +419,30 @@
             var live = HUB_LIVE[agent.hub] || HUB_LIVE.disconnected;
             liveBadge.className = 'dash-live ' + live[0];
             liveText.textContent = live[1];
+
+            // ── Agent 상태 블록 (dashboard2 footer 와 동일 로직) ──
+            var hub = agent.hub || 'disconnected';
+            var plcTotal = agent.plcTotal || 0;
+            var plcDown = agent.plcDisconnected || 0;
+            var hasData = !!data.hasData;
+
+            var hubLabel = hub === 'connected' ? '정상'
+                : (hub === 'connecting' ? '연결 중'
+                : (hub === 'reconnecting' ? '재연결 중' : '끊김'));
+            agHub.text.textContent = 'PROMAKER HUB: ' + hubLabel;
+            agHub.dot.style.background = hub === 'connected' ? AG_DOT.green
+                : ((hub === 'connecting' || hub === 'reconnecting') ? AG_DOT.orange : AG_DOT.gray);
+
+            var plcLabel = hub !== 'connected' ? 'PLC 어댑터: —'
+                : (plcTotal === 0 ? 'PLC 어댑터: 보고 없음'
+                : (plcDown > 0 ? 'PLC 어댑터: ' + plcDown + '대 끊김'
+                : 'PLC 어댑터: ' + plcTotal + '대 연결'));
+            agPlc.text.textContent = plcLabel;
+            agPlc.dot.style.background = (hub === 'connected' && plcDown === 0 && plcTotal > 0) ? AG_DOT.green
+                : (plcDown > 0 ? AG_DOT.red : AG_DOT.gray);
+
+            agData.text.textContent = hasData ? 'PLC 데이터 수신중' : 'PLC 데이터 대기';
+            agData.dot.style.background = hasData ? AG_DOT.green : AG_DOT.gray;
         }
 
         function pollSummary() {

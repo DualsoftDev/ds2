@@ -171,10 +171,6 @@
 
             <!-- 상단 툴바 -->
             <div class="ds-topbar">
-                <div class="ds-topbar-titles">
-                    <h2>설비 가동시간·이상 분석</h2>
-                    <div class="ds-breadcrumb">홈 · 가동시간 · OEE · 정지 이벤트 · 이상발생(UserTag) 통합</div>
-                </div>
                 <div class="ds-topbar-actions">
                     <button class="btn btn-sm" :class="period === 'today' ? 'btn-filled' : 'btn-outlined'" @click="setPeriod('today')">오늘</button>
                     <button class="btn btn-sm" :class="period === '7d' ? 'btn-filled' : 'btn-outlined'" @click="setPeriod('7d')">7일</button>

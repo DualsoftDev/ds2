@@ -14,11 +14,11 @@ function _hmToken(name, fallback) {
 
 // ms → 사람이 읽기 쉬운 시간 문자열 변환
 function formatMs(ms) {
-    if (ms <= 0) return '0s';
-    if (ms < 1000) return ms + 'ms';
-    if (ms < 60000) return (ms / 1000).toFixed(1) + 's';
-    if (ms < 3600000) return Math.floor(ms / 60000) + 'm ' + Math.floor((ms % 60000) / 1000) + 's';
-    return Math.floor(ms / 3600000) + 'h ' + Math.floor((ms % 3600000) / 60000) + 'm';
+    if (ms <= 0) return '0초';
+    if (ms < 1000) return Math.round(ms) + 'ms';
+    if (ms < 60000) return (ms / 1000).toFixed(1) + '초';
+    if (ms < 3600000) return Math.floor(ms / 60000) + '분 ' + Math.floor((ms % 60000) / 1000) + '초';
+    return Math.floor(ms / 3600000) + '시간 ' + Math.floor((ms % 3600000) / 60000) + '분 ' + Math.floor((ms % 60000) / 1000) + '초';
 }
 
 // 마우스 휠 줌 플러그인 - 커서 기준 확대/축소, 더블클릭 초기화

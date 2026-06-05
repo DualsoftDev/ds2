@@ -95,11 +95,32 @@
         .ct-empty .material-icons { font-size: 38px; color: var(--color-text-disabled); }
         .ct-empty-hint { font-size: 0.72rem; color: var(--color-text-secondary); }
 
-        /* 정보 바 (계기판 readout 묶음) */
-        .ct-info-bar { display: flex; flex-wrap: wrap; gap: 8px 22px; padding: 12px 16px; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); align-items: center; font-size: 0.78rem; }
-        .ct-info-item { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-        .ct-info-k { font-size: 0.6rem; color: var(--color-text-secondary); text-transform: uppercase; font-weight: 700; letter-spacing: 0.12em; }
-        .ct-info-v { color: var(--color-text-primary); font-weight: 700; font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+        /* ── 사이클 요약: KPI 카드 그리드 + 액션 바 (구 ct-info-bar 대체) ── */
+        .ct-summary { display: flex; flex-direction: column; gap: 10px; }
+        .ct-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); gap: 10px; }
+        /* ds.css .kpi-cell 재사용 — 이 묶음은 컴팩트 변형 */
+        .ct-kpi-grid .kpi-cell { padding: 11px 14px; box-shadow: none; }
+        .ct-kpi-grid .kpi-cell .kp-value { font-size: 1.3rem; }
+        .ct-kpi-grid .kp-sub { font-size: 0.64rem; color: var(--color-text-secondary); font-weight: 600; margin-top: 3px; letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        button.kpi-cell { display: block; width: 100%; text-align: left; font: inherit; color: inherit; }
+        /* 사이클 정의(Head/Tail) 카드 — 상시 컬러 좌측룰 + 도트로 간트 색과 정합 */
+        .ct-def .ct-def-name { font-family: var(--font-mono); font-size: 0.96rem; font-weight: 800; color: var(--color-text-primary); line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .ct-def .kp-label { display: flex; align-items: center; gap: 6px; }
+        .ct-dot { width: 9px; height: 9px; border-radius: 2px; display: inline-block; flex: 0 0 auto; }
+        .ct-def-head::before { opacity: 1; background: #4caf50; }
+        .ct-def-tail::before { opacity: 1; background: #ab47bc; }
+        .ct-def-head .ct-dot { background: #4caf50; }
+        .ct-def-tail .ct-dot { background: #ab47bc; }
+        /* 액션 바 — CT 기준 상태 칩 + 진행 메시지 + 버튼 */
+        .ct-action-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 8px 12px; background: var(--color-surface-variant); border: 1px solid var(--color-lines); border-radius: var(--radius-md); }
+        .ct-action-spacer { flex: 1; min-width: 8px; }
+        .ct-ctbasis { display: inline-flex; align-items: center; gap: 8px; }
+        .ct-ctbasis-k { font-size: 0.6rem; color: var(--color-text-secondary); text-transform: uppercase; font-weight: 700; letter-spacing: 0.12em; }
+        .ct-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 11px; border-radius: 999px; font-size: 0.72rem; font-weight: 700; border: 1px solid var(--color-lines-strong); color: var(--color-text-secondary); background: var(--color-surface); }
+        .ct-chip::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+        .ct-chip.is-custom { color: var(--color-primary); border-color: color-mix(in srgb, var(--color-primary) 50%, transparent); background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface)); }
+        .ct-recompute { font-size: 0.74rem; font-weight: 700; color: var(--color-primary); font-variant-numeric: tabular-nums; }
+        .ct-recompute.is-err { color: var(--color-error, #d33); }
         .ct-mono { font-family: var(--font-mono); font-weight: 600; font-variant-numeric: tabular-nums; }
 
         /* 간트 layout (헤어라인 박스, 그림자 없음) */
@@ -170,11 +191,6 @@
         .ct-tb-check input[type="checkbox"] { accent-color: var(--color-primary); width: 15px; height: 15px; cursor: pointer; }
         .ct-tb-check:has(input:disabled) { opacity: 0.45; cursor: not-allowed; }
 
-        /* 최대 Gap(병목) readout */
-        .ct-bottleneck { display: flex; flex-direction: column; gap: 3px; min-width: 0; background: none; border: 0; padding: 0; margin: 0; text-align: left; cursor: pointer; font: inherit; }
-        .ct-bottleneck:hover .ct-info-v { text-decoration: underline; }
-        .ct-bottleneck .ct-info-v { color: var(--red); }
-
         /* 간트 가로 드래그 → 구간 통계 4-KPI */
         .ct-range-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
         @media (max-width: 768px) { .ct-range-stats { grid-template-columns: repeat(2, 1fr); } }
@@ -213,8 +229,19 @@
         .hist-filter-chip .hfc-reset { display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px; border: none; border-radius: var(--radius-sm); background: var(--color-warning); color: #fff; font-size: 0.62rem; font-weight: 800; cursor: pointer; }
         .hist-filter-chip .hfc-reset .material-icons { font-size: 13px; }
 
+        /* 미완료 제외 토글 (이상치 제외 옆 — 완료신호(Tail) 없는 사이클. 기본 ON) */
+        .fw-tb-check { display: inline-flex; align-items: center; gap: 6px; font-size: 0.74rem; font-weight: 700; color: var(--color-text-secondary); cursor: pointer; user-select: none; white-space: nowrap; }
+        .fw-tb-check input[type="checkbox"] { accent-color: var(--color-primary); width: 15px; height: 15px; cursor: pointer; margin: 0; }
+        .fw-tb-check.is-on { color: var(--color-text-primary); }
+        .fw-tb-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; font-size: 0.62rem; font-weight: 800; font-variant-numeric: tabular-nums; color: #fff; background: #5b6675; }
+        /* 미완료(완료신호 없음) 사이클 행 — 어두운 회색 (제외 해제 시 참고용 표시) */
+        .ct-cycle-incomplete td { color: var(--color-text-secondary); background: color-mix(in srgb, #5b6675 14%, var(--color-surface)); }
+        .dark-theme .ct-cycle-incomplete td { background: color-mix(in srgb, #5b6675 26%, var(--color-surface)); }
+
         /* 이상치 제외 범위 모달 */
         .shift-modal { width: min(520px, 94vw); padding: 0; }
+        /* 선택 구간(드래그) 통계 다이얼로그 — 4-KPI 그리드 수용 위해 더 넓게 */
+        .range-modal { width: min(680px, 94vw); }
         .shift-modal .sm-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px 14px; border-bottom: 1px solid var(--color-lines); }
         .shift-modal .sm-title { font-size: 1.05rem; font-weight: 800; letter-spacing: -0.01em; }
         .shift-modal .sm-body { padding: 18px 22px 4px; }
@@ -381,6 +408,12 @@
                                 <span class="material-icons">restart_alt</span> 초기화
                             </button>
                         </span>
+                        <label class="fw-tb-check" :class="{ 'is-on': excludeIncomplete }"
+                               title="완료신호(Tail InTag↑)가 없는 미완료 사이클을 사이클 목록·차트·히스토리·평균에서 제외합니다. 보통 로깅/서비스 중단으로 완료신호가 누락된 구간이라 CT 가 부정확합니다. 해제하면 어두운 회색 막대로 표시하되 평균·가동률 집계에는 계속 포함하지 않습니다.">
+                            <input type="checkbox" x-model="excludeIncomplete" @change="onExcludeIncompleteChanged()" />
+                            미완료 제외
+                            <span class="fw-tb-badge" x-show="incompleteCount > 0" x-text="incompleteCount"></span>
+                        </label>
                     </div>
 
                     <!-- ════ 기간별 추이 ════ -->
@@ -525,49 +558,78 @@
                             <!-- 본문 -->
                             <template x-if="!isLoading && callLanes.length > 0">
                                 <div style="display:flex; flex-direction:column; gap:12px;">
-                                    <!-- 정보 바 -->
-                                    <div class="ct-info-bar">
-                                        <div class="ct-info-item"><span class="ct-info-k">Call 수</span><span class="ct-info-v" x-text="callLanes.length"></span></div>
-                                        <div class="ct-info-item"><span class="ct-info-k">사이클 경계 기준</span><span class="ct-info-v" x-text="(headName || '(기본 Head)') + ' · ' + cycleBoundaries.length + ' 회'"></span></div>
-                                        <div class="ct-info-item"><span class="ct-info-k">Tail 마커</span><span class="ct-info-v" x-text="(tailName || '-') + ' · ' + tailEdges.length + ' 회'"></span></div>
-                                        <template x-if="avgCycleMs !== null">
-                                            <div class="ct-info-item"><span class="ct-info-k">CT 평균 (시작→다음 시작)</span><span class="ct-info-v ct-mono" x-text="formatMs(avgCycleMs)"></span></div>
-                                        </template>
-                                        <template x-if="avgActiveMs !== null">
-                                            <div class="ct-info-item"><span class="ct-info-k">MT 평균 (시작→완료)</span><span class="ct-info-v ct-mono" x-text="formatMs(avgActiveMs)"></span></div>
-                                        </template>
-                                        <template x-if="topGaps.length">
-                                            <button type="button" class="ct-bottleneck" @click="focusMaxGap()"
-                                                    title="최대 Gap(병목) 으로 스크롤 + 간트에서 강조">
-                                                <span class="ct-info-k">최대 Gap (병목)</span>
-                                                <span class="ct-info-v ct-mono" x-text="formatMs(topGaps[0].durMs) + ' · ' + topGaps[0].callName"></span>
-                                            </button>
-                                        </template>
-                                        <div class="ct-info-item" style="margin-left:auto;">
-                                            <span class="ct-info-k">CT 기준</span>
-                                            <span class="ct-info-v" x-text="isOverride ? '사용자 지정' : 'AASX 기본'"
-                                                  :style="isOverride ? 'color:var(--color-primary)' : ''"
-                                                  :title="isOverride ? '이 Flow 의 사이클 경계가 사용자 지정(저장됨)으로 적용 중' : 'AASX 프로젝트 정의 Head/Tail 적용 중'"></span>
+                                    <!-- 사이클 요약: KPI 카드 그리드 + 액션 바 -->
+                                    <div class="ct-summary">
+                                        <div class="ct-kpi-grid">
+                                            <!-- 측정 지표 -->
+                                            <div class="kpi-cell">
+                                                <div class="kp-label">Call 수</div>
+                                                <div class="kp-value" x-text="callLanes.length"></div>
+                                            </div>
+                                            <template x-if="avgCycleMs !== null">
+                                                <div class="kpi-cell tone-primary">
+                                                    <div class="kp-label">CT 평균</div>
+                                                    <div class="kp-value" x-text="formatMs(avgCycleMs)"></div>
+                                                    <div class="kp-sub">시작 → 다음 시작</div>
+                                                </div>
+                                            </template>
+                                            <template x-if="avgActiveMs !== null">
+                                                <div class="kpi-cell">
+                                                    <div class="kp-label">MT 평균</div>
+                                                    <div class="kp-value" x-text="formatMs(avgActiveMs)"></div>
+                                                    <div class="kp-sub">시작 → 완료</div>
+                                                </div>
+                                            </template>
+                                            <template x-if="topGaps.length">
+                                                <button type="button" class="kpi-cell tone-max is-clickable" @click="focusMaxGap()"
+                                                        title="최대 Gap(병목) 으로 스크롤 + 간트에서 강조">
+                                                    <span class="kp-click-hint">병목</span>
+                                                    <div class="kp-label">최대 GAP</div>
+                                                    <div class="kp-value" x-text="formatMs(topGaps[0].durMs)"></div>
+                                                    <div class="kp-sub" x-text="topGaps[0].callName"></div>
+                                                </button>
+                                            </template>
+                                            <!-- 사이클 정의 (Head / Tail) -->
+                                            <div class="kpi-cell ct-def ct-def-head">
+                                                <div class="kp-label"><span class="ct-dot"></span> 사이클 경계 · HEAD</div>
+                                                <div class="ct-def-name" x-text="headName || '(기본 Head)'" :title="headName || '(기본 Head)'"></div>
+                                                <div class="kp-sub" x-text="cycleBoundaries.length + ' 회'"></div>
+                                            </div>
+                                            <div class="kpi-cell ct-def ct-def-tail">
+                                                <div class="kp-label"><span class="ct-dot"></span> TAIL 마커</div>
+                                                <div class="ct-def-name" x-text="tailName || '-'" :title="tailName || '-'"></div>
+                                                <div class="kp-sub" x-text="tailEdges.length + ' 회'"></div>
+                                            </div>
                                         </div>
-                                        <button class="btn btn-sm btn-filled" @click="applyHeadTail()"
-                                                :disabled="overlayBusy || recomputeBusy || !headCallId || !tailCallId"
-                                                title="현재 Head/Tail 을 이 Flow 의 사이클 경계로 저장하고, 이 Flow 의 과거 이력 전체를 새 경계로 재계산합니다(백그라운드, 진행률 표시) — 라이브 CT·대시보드에 과거 포함 반영">
-                                            <span class="material-icons" style="font-size:15px; vertical-align:middle;">save</span>
-                                            적용(저장)
-                                        </button>
-                                        <button class="btn btn-sm btn-outlined" @click="restoreAasxDefault()"
-                                                :disabled="overlayBusy || recomputeBusy || !projectHeadId || !projectTailId"
-                                                title="AASX 프로젝트 기본 Head/Tail 로 되돌리고 저장된 사용자 지정을 제거합니다">
-                                            AASX 기본값 복원
-                                        </button>
-                                        <span x-show="recomputeBusy || recomputeMsg" class="ct-info-v"
-                                              :style="recomputeError ? 'color:var(--color-error,#d33)' : 'color:var(--color-primary)'"
-                                              x-text="recomputeMsg"></span>
-                                        <button class="btn btn-sm btn-outlined color-default" @click="exportExcel()"
-                                                :disabled="exporting || !selectedFlow"
-                                                title="현재 Flow·시간범위의 IO 세그먼트를 Excel(.xlsx) 로 내보냅니다">
-                                            <span x-text="exporting ? 'Excel 생성 중…' : 'Excel'"></span>
-                                        </button>
+
+                                        <!-- 상태 + 액션 -->
+                                        <div class="ct-action-bar">
+                                            <div class="ct-ctbasis">
+                                                <span class="ct-ctbasis-k">CT 기준</span>
+                                                <span class="ct-chip" :class="isOverride ? 'is-custom' : ''"
+                                                      x-text="isOverride ? '사용자 지정' : 'AASX 기본'"
+                                                      :title="isOverride ? '이 Flow 의 사이클 경계가 사용자 지정(저장됨)으로 적용 중' : 'AASX 프로젝트 정의 Head/Tail 적용 중'"></span>
+                                            </div>
+                                            <span class="ct-action-spacer"></span>
+                                            <span x-show="recomputeBusy || recomputeMsg" class="ct-recompute"
+                                                  :class="recomputeError ? 'is-err' : ''" x-text="recomputeMsg"></span>
+                                            <button class="btn btn-sm btn-filled" @click="applyHeadTail()"
+                                                    :disabled="overlayBusy || recomputeBusy || !headCallId || !tailCallId"
+                                                    title="현재 Head/Tail 을 이 Flow 의 사이클 경계로 저장하고, 이 Flow 의 과거 이력 전체를 새 경계로 재계산합니다(백그라운드, 진행률 표시) — 라이브 CT·대시보드에 과거 포함 반영">
+                                                <span class="material-icons" style="font-size:15px; vertical-align:middle;">save</span>
+                                                적용(저장)
+                                            </button>
+                                            <button class="btn btn-sm btn-outlined" @click="restoreAasxDefault()"
+                                                    :disabled="overlayBusy || recomputeBusy || !projectHeadId || !projectTailId"
+                                                    title="AASX 프로젝트 기본 Head/Tail 로 되돌리고 저장된 사용자 지정을 제거합니다">
+                                                AASX 기본값 복원
+                                            </button>
+                                            <button class="btn btn-sm btn-outlined color-default" @click="exportExcel()"
+                                                    :disabled="exporting || !selectedFlow"
+                                                    title="현재 Flow·시간범위의 IO 세그먼트를 Excel(.xlsx) 로 내보냅니다">
+                                                <span x-text="exporting ? 'Excel 생성 중…' : 'Excel'"></span>
+                                            </button>
+                                        </div>
                                     </div>
 
                                     <!-- 간트 툴바: 정렬 + 보기 전환 + 최대 Gap + 휠 확대/축소 -->
@@ -688,7 +750,7 @@
                                                     </thead>
                                                     <tbody>
                                                         <template x-for="c in visibleCycleList" :key="c.number">
-                                                            <tr :class="c.isOpen ? 'ct-cycle-open' : ''">
+                                                            <tr :class="c.isOpen ? 'ct-cycle-open' : (isIncompleteCycle(c) ? 'ct-cycle-incomplete' : '')">
                                                                 <td class="num ct-mono" x-text="'#' + c.number + (c.isOpen ? ' ↻' : '')"></td>
                                                                 <td class="num ct-mono" x-text="hms(new Date(c.startMs))"></td>
                                                                 <td class="num ct-mono hist-mt" x-text="c.atMs !== null ? formatMs(c.atMs) : '—'"></td>
@@ -703,29 +765,47 @@
                                         </div>
                                     </template>
 
-                                    <!-- 간트 가로 드래그 선택 구간 4-KPI (전부 로컬 파생) -->
+                                    <!-- 간트 가로 드래그 선택 구간 → 팝업 다이얼로그 (4-KPI + 사이클 기간 설정, 전부 로컬 파생) -->
                                     <template x-if="selectedRange">
-                                        <div class="card" style="border-color: var(--color-primary);">
-                                            <div class="ds-card-h">
-                                                <h4 x-text="'🎯 선택 구간 (' + hms2(new Date(selectedRange.startMs)) + ' ~ ' + hms2(new Date(selectedRange.endMs)) + ')'"></h4>
-                                                <button class="btn btn-sm btn-outlined" @click="clearRangeSelection()" style="white-space:nowrap;">✕ 해제</button>
-                                            </div>
-                                            <div class="ct-range-stats">
-                                                <div class="kpi-cell">
-                                                    <div class="kp-label">선택 구간 길이</div>
-                                                    <div class="kp-value" x-text="formatMs(selRangeLenMs)"></div>
+                                        <div class="modal-overlay" x-cloak style="z-index:2000;" @click="clearRangeSelection()">
+                                            <div class="modal-content shift-modal range-modal" @click.stop>
+                                                <div class="sm-head">
+                                                    <span class="sm-title">선택 구간 · <span x-text="hms2k(new Date(selectedRange.startMs)) + ' ~ ' + hms2k(new Date(selectedRange.endMs))"></span></span>
+                                                    <button class="btn-icon" @click="clearRangeSelection()" title="닫기">
+                                                        <span class="material-icons">close</span>
+                                                    </button>
                                                 </div>
-                                                <div class="kpi-cell tone-primary">
-                                                    <div class="kp-label">동작 (Run) 합</div>
-                                                    <div class="kp-value" x-text="formatMs(selRunMs)"></div>
+                                                <div class="sm-body">
+                                                    <div class="sm-hint" style="margin-bottom:14px;">
+                                                        <span class="material-icons">info</span>
+                                                        <span>간트에서 드래그한 구간의 통계입니다. 이 범위를 분석 기간으로 적용하려면 <b>사이클 기간으로 설정</b> 을 누르세요 — 시작·종료 시간이 이 구간으로 바뀌고 다시 로드됩니다.</span>
+                                                    </div>
+                                                    <div class="ct-range-stats">
+                                                        <div class="kpi-cell">
+                                                            <div class="kp-label">선택 구간 길이</div>
+                                                            <div class="kp-value" x-text="formatMs(selRangeLenMs)"></div>
+                                                        </div>
+                                                        <div class="kpi-cell tone-primary">
+                                                            <div class="kp-label">동작 (Run) 합</div>
+                                                            <div class="kp-value" x-text="formatMs(selRunMs)"></div>
+                                                        </div>
+                                                        <div class="kpi-cell tone-max">
+                                                            <div class="kp-label">병목 (Gap) 합</div>
+                                                            <div class="kp-value" x-text="formatMs(selGapMs)"></div>
+                                                        </div>
+                                                        <div class="kpi-cell">
+                                                            <div class="kp-label">활성 Call</div>
+                                                            <div class="kp-value" x-text="selActiveDevices + ' / ' + callLanes.length"></div>
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                                <div class="kpi-cell tone-max">
-                                                    <div class="kp-label">병목 (Gap) 합</div>
-                                                    <div class="kp-value" x-text="formatMs(selGapMs)"></div>
-                                                </div>
-                                                <div class="kpi-cell">
-                                                    <div class="kp-label">활성 Call</div>
-                                                    <div class="kp-value" x-text="selActiveDevices + ' / ' + callLanes.length"></div>
+                                                <div class="sm-foot">
+                                                    <button class="btn btn-outlined" @click="clearRangeSelection()">닫기</button>
+                                                    <button class="btn btn-filled" @click="applyRangeAsPeriod()" :disabled="isLoading"
+                                                            title="선택 구간을 분석 시작·종료 시간으로 설정하고 다시 로드">
+                                                        <span class="material-icons" style="font-size:17px; vertical-align:middle;">schedule</span>
+                                                        사이클 기간으로 설정
+                                                    </button>
                                                 </div>
                                             </div>
                                         </div>
@@ -935,6 +1015,7 @@
                 periodStart: null, periodEnd: null,
                 _trendSeq: 0,
                 _charts: { trend: null, count: null, dist: null },
+                _drawRetry: 0,
 
                 // ── 사이클 분석 (구 cycle-time-analysis, 이 Flow 스코프) ──
                 selectedFlow: '',
@@ -954,7 +1035,7 @@
                 exporting: false,
                 avgCycleMs: null, avgActiveMs: null,
                 svgMarkup: '',
-                cycleView: 'table',   // 사이클 목록: 'table' | 'chart'
+                cycleView: 'chart',   // 사이클 목록: 'table' | 'chart' (기본=차트)
                 cyclePreset: null,    // 활성 사이클-기준 프리셋(최근 N 사이클) — 시간 프리셋/수동 변경 시 해제
                 _cycleChart: null,
                 chartSort: 'ByLane',
@@ -974,6 +1055,8 @@
                 _histChart: null,
                 rangeByFlow: {},
                 rangeModalOpen: false,
+                // 미완료(완료신호 없는) 사이클 제외 — 로컬 표시 토글(기본 ON). CT 범위 이상치와는 별개 개념.
+                excludeIncomplete: true,
                 rangeForm: { min: '', max: '', minUnit: 's', maxUnit: 's' },
                 _unitSec: { s: 1, m: 60, h: 3600 },
 
@@ -982,6 +1065,8 @@
                 async init() {
                     this.dark = localStorage.getItem('dspilot-theme') === 'dark';
                     window.addEventListener('storage', (e) => { if (e.key === 'dspilot-theme') this.dark = e.newValue === 'dark'; });
+                    // 미완료 제외 토글 복원(로컬 UI 선호 — 기본 ON)
+                    this.excludeIncomplete = localStorage.getItem('dspilot-flow-exclude-incomplete') !== '0';
                     this.flowName = new URLSearchParams(location.search).get('name');
                     this.computePeriod('today');
 
@@ -1194,7 +1279,20 @@
                     if (!window.Chart) return;
                     Object.values(this._charts).forEach(c => { if (c) c.destroy(); });
                     this._charts = { trend: null, count: null, dist: null };
-                    if (this.trend.cycleCount === 0) return;
+                    if (this.trend.cycleCount === 0) { this._drawRetry = 0; return; }
+                    // 캔버스를 $refs 가 아닌 DOM 에서 직접 찾는다.
+                    // 첫 접속 시 중첩 x-if(flow→추이) 가 mount 될 때 Alpine 이 $refs.trendChart 를
+                    // 간헐적으로 등록하지 못해(캔버스는 DOM 에 있는데 $refs 는 비어 있음) 차트가 안 그려졌다.
+                    const root = this.$root || document;
+                    const trendCv = root.querySelector('canvas[x-ref="trendChart"]');
+                    const countCv = root.querySelector('canvas[x-ref="countChart"]');
+                    const distCv = root.querySelector('canvas[x-ref="distChart"]');
+                    // 아직 mount 전이면(템플릿 미렌더) 다음 프레임 재시도.
+                    if (!trendCv) {
+                        if (this._drawRetry < 60) { this._drawRetry++; requestAnimationFrame(() => this.drawCharts()); }
+                        return;
+                    }
+                    this._drawRetry = 0;
 
                     const labelFor = (ts) => {
                         const d = new Date(ts); const p = (x) => String(x).padStart(2, '0');
@@ -1210,8 +1308,8 @@
                     const grid = css('--color-lines') || 'rgba(14,27,42,0.10)';
                     const tickColor = css('--color-text-secondary') || '#5A6B7E';
 
-                    if (this.$refs.trendChart) {
-                        this._charts.trend = new Chart(this.$refs.trendChart, {
+                    if (trendCv) {
+                        this._charts.trend = new Chart(trendCv, {
                             type: 'line',
                             data: { labels, datasets: [
                                 { label: '평균 CT (s)', data: this.buckets.map(b => toSec(b.avgCT)), borderColor: cCt, backgroundColor: 'transparent', tension: 0.25, borderWidth: 2 },
@@ -1221,15 +1319,15 @@
                             options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'top', labels: { color: tickColor } } }, scales: { x: { grid: { color: grid }, ticks: { color: tickColor } }, y: { beginAtZero: true, grid: { color: grid }, ticks: { color: tickColor }, title: { display: true, text: '초', color: tickColor } } } }
                         });
                     }
-                    if (this.$refs.countChart) {
-                        this._charts.count = new Chart(this.$refs.countChart, {
+                    if (countCv) {
+                        this._charts.count = new Chart(countCv, {
                             type: 'bar',
                             data: { labels, datasets: [{ label: '사이클 수', data: this.buckets.map(b => b.count), backgroundColor: cCt }] },
                             options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: grid }, ticks: { color: tickColor } }, y: { beginAtZero: true, grid: { color: grid }, ticks: { color: tickColor } } } }
                         });
                     }
-                    if (this.$refs.distChart) {
-                        this._charts.dist = new Chart(this.$refs.distChart, {
+                    if (distCv) {
+                        this._charts.dist = new Chart(distCv, {
                             type: 'doughnut',
                             data: { labels: ['가동(MT)', '대기(WT)'], datasets: [{ data: [this.trend.totalMt, this.trend.totalWt], backgroundColor: [cMt, cWt] }] },
                             options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: tickColor } } } }
@@ -1239,7 +1337,10 @@
 
                 fmtDur(ms) {
                     if (ms == null || ms <= 0) return '—';
-                    return (ms / 1000).toFixed(1) + ' sec';
+                    if (ms < 1000) return Math.round(ms) + 'ms';
+                    if (ms < 60000) return (ms / 1000).toFixed(1) + '초';
+                    if (ms < 3600000) return Math.floor(ms / 60000) + '분 ' + Math.floor((ms % 60000) / 1000) + '초';
+                    return Math.floor(ms / 3600000) + '시간 ' + Math.floor((ms % 3600000) / 60000) + '분 ' + Math.floor((ms % 60000) / 1000) + '초';
                 },
 
                 // ════════════════════════════════════════════════════════════════
@@ -1631,15 +1732,24 @@
                 // 진행중(isOpen) 사이클은 CT 미확정이므로 항상 포함.
                 get visibleCycleList() {
                     const r = this._exRangeMs;
-                    if (!r) return this.cycleList;
-                    const min = r.min, max = r.max;
                     return this.cycleList.filter(c => {
-                        if (c.isOpen) return true;
-                        const ct = c.ctMs ?? 0;
-                        if (min != null && ct < min) return false;
-                        if (max != null && ct > max) return false;
+                        if (c.isOpen) return true;                                   // 진행중은 항상 표시
+                        if (this.excludeIncomplete && this.isIncompleteCycle(c)) return false;  // 미완료 제외
+                        if (r) {
+                            const ct = c.ctMs ?? 0;
+                            if (r.min != null && ct < r.min) return false;
+                            if (r.max != null && ct > r.max) return false;
+                        }
                         return true;
                     });
+                },
+                // 미완료 = 완료신호(Tail InTag↑) 없는 사이클(atMs=null). Tail 미지정 Flow(=원래 분해 불가)는 제외 대상 아님.
+                isIncompleteCycle(c) { return !c.isOpen && c.atMs === null && this.tailCallId !== null; },
+                // 현재 탭 기준 미완료 사이클 수 (체크박스 배지용)
+                get incompleteCount() {
+                    return this.tab === 'cycle'
+                        ? this.cycleList.filter(c => this.isIncompleteCycle(c)).length
+                        : this.flowHistory.filter(h => h.mt == null).length;
                 },
                 get excludedCycleCount() {
                     const r = this._exRangeMs;
@@ -1723,6 +1833,20 @@
                     document.addEventListener('mouseup', onUp, true);
                 },
                 clearRangeSelection() { this.selectedRange = null; this.svgMarkup = this.buildSvg(); },
+
+                // 드래그 선택 구간을 분석 시작·종료 시간으로 설정하고 다시 로드(사이클 기간 = 이 구간).
+                async applyRangeAsPeriod() {
+                    const r = this.selectedRange;
+                    if (!r) return;
+                    const s = new Date(r.startMs), e = new Date(r.endMs);
+                    if (e <= s) return;
+                    this.cyclePreset = null;          // 수동 범위 → 사이클-기준 프리셋 해제
+                    this.startTime = this.dateToInput(s);
+                    this.endTime = this.dateToInput(e);
+                    this.errorMessage = null;
+                    this.selectedRange = null;        // 다이얼로그 닫기 (load() 의 applyLoadResult 에서도 재초기화됨)
+                    await this.load();
+                },
 
                 get selRangeLenMs() { return this.selectedRange ? Math.max(0, this.selectedRange.endMs - this.selectedRange.startMs) : 0; },
                 get selRunMs() {
@@ -1959,12 +2083,12 @@
                             const iw = Math.max(0, ex - tailX);
                             g += `<rect x="${this.f(sx)}" y="${barY}" width="${this.f(aw)}" height="${barH}" fill="#4caf50" opacity="${0.9 * dim}"/>`;
                             g += `<rect x="${this.f(tailX)}" y="${barY}" width="${this.f(iw)}" height="${barH}" fill="#b0bec5" opacity="${0.9 * dim}"/>`;
-                            if (aw > 54) g += `<text x="${this.f(sx + aw / 2.0)}" y="${this.f(barCY)}" text-anchor="middle" dominant-baseline="central" font-size="9.5" font-weight="700" fill="#1b5e20" font-family="ui-monospace,Consolas,monospace">${this.esc(this.formatMs(atMs))}</text>`;
-                            if (iw > 54) g += `<text x="${this.f(tailX + iw / 2.0)}" y="${this.f(barCY)}" text-anchor="middle" dominant-baseline="central" font-size="9.5" fill="#37474f" font-family="ui-monospace,Consolas,monospace">${this.esc(this.formatMs(idleMs))}</text>`;
+                            if (aw > 54) g += `<text x="${this.f(sx + aw / 2.0)}" y="${this.f(barCY)}" text-anchor="middle" dominant-baseline="central" font-size="9.5" font-weight="700" fill="#1b5e20" font-family="Inter,ui-monospace,Cascadia Code,Consolas,monospace">${this.esc(this.formatMs(atMs))}</text>`;
+                            if (iw > 54) g += `<text x="${this.f(tailX + iw / 2.0)}" y="${this.f(barCY)}" text-anchor="middle" dominant-baseline="central" font-size="9.5" fill="#37474f" font-family="Inter,ui-monospace,Cascadia Code,Consolas,monospace">${this.esc(this.formatMs(idleMs))}</text>`;
                         } else {
                             const fill = isEven ? '#9fa8da' : '#ce93d8';
                             g += `<rect x="${this.f(sx)}" y="${barY}" width="${this.f(bandW)}" height="${barH}" fill="${fill}" opacity="${0.85 * dim}"/>`;
-                            if (bandW > 54) g += `<text x="${this.f(sx + bandW / 2.0)}" y="${this.f(barCY)}" text-anchor="middle" dominant-baseline="central" font-size="9.5" fill="#37474f" font-family="ui-monospace,Consolas,monospace">CT ${this.esc(this.formatMs(ctMs))}</text>`;
+                            if (bandW > 54) g += `<text x="${this.f(sx + bandW / 2.0)}" y="${this.f(barCY)}" text-anchor="middle" dominant-baseline="central" font-size="9.5" fill="#37474f" font-family="Inter,ui-monospace,Cascadia Code,Consolas,monospace">CT ${this.esc(this.formatMs(ctMs))}</text>`;
                         }
                         g += `<rect x="${this.f(sx)}" y="${barY}" width="${this.f(bandW)}" height="${barH}" fill="none" stroke="#90a4ae" stroke-width="0.75"/>`;
                         if (span.isOpen) g += `<line x1="${this.f(ex)}" y1="${barY}" x2="${this.f(ex)}" y2="${this.f(barY + barH)}" stroke="#90a4ae" stroke-width="1" stroke-dasharray="3 2"/>`;
@@ -2039,7 +2163,7 @@
                         const x = LEFT_PAD + t * xScale;
                         sb += `<line x1="${this.f(x)}" y1="${this.f(laneAreaTop)}" x2="${this.f(x)}" y2="${this.f(laneAreaBottom)}" stroke="#e9ecef" stroke-width="1" stroke-dasharray="2 4"/>`;
                         const labelTime = new Date(cs + t);
-                        sb += `<text x="${this.f(x)}" y="${TOP_MARGIN - 12}" text-anchor="middle" font-size="10" fill="#666" font-family="ui-monospace,Consolas,monospace">${this.esc(this.hms2(labelTime))}</text>`;
+                        sb += `<text x="${this.f(x)}" y="${TOP_MARGIN - 12}" text-anchor="middle" font-size="10" fill="#666" font-family="Inter,ui-monospace,Cascadia Code,Consolas,monospace">${this.esc(this.hms2(labelTime))}</text>`;
                     }
                     return sb;
                 },
@@ -2055,10 +2179,18 @@
                 },
 
                 formatMs(ms) {
-                    if (ms <= 0) return '0';
-                    if (ms < 1000) return Math.round(ms) + ' ms';
-                    if (ms < 60000) return (ms / 1000.0).toFixed(2) + ' s';
-                    return (ms / 60000.0).toFixed(2) + ' min';
+                    if (ms <= 0) return '0초';
+                    if (ms < 1000) return Math.round(ms) + 'ms';
+                    const totalSec = ms / 1000.0;
+                    const h = Math.floor(totalSec / 3600);
+                    const m = Math.floor((totalSec % 3600) / 60);
+                    const s = totalSec % 60;
+                    const parts = [];
+                    if (h) parts.push(h + '시간');
+                    if (m) parts.push(m + '분');
+                    if (h || m) { const rs = Math.round(s); if (rs > 0) parts.push(rs + '초'); }
+                    else parts.push(s.toFixed(2) + '초');
+                    return parts.join(' ');
                 },
                 f(v) { return String(Math.round(v * 100) / 100); },
                 hms(d) {
@@ -2068,6 +2200,10 @@
                 hms2(d) {
                     const p = (x) => String(x).padStart(2, '0');
                     return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+                },
+                // 한글 시·분·초 (선택 구간 제목용)
+                hms2k(d) {
+                    return `${d.getHours()}시 ${d.getMinutes()}분 ${d.getSeconds()}초`;
                 },
                 esc(s) {
                     if (s == null || s === '') return '';
@@ -2101,12 +2237,13 @@
                 get histCtMaxMs() { const c = this.flowHistory.map(h => h.ct ?? 0).filter(v => v > 0); return c.length ? Math.max(...c) : 0; },
                 get visibleHistory() {
                     const r = this._exRangeMs;
-                    if (!r) return this.flowHistory;
-                    const min = r.min, max = r.max;
                     return this.flowHistory.filter(h => {
-                        const ct = h.ct ?? 0;
-                        if (min != null && ct < min) return false;
-                        if (max != null && ct > max) return false;
+                        if (this.excludeIncomplete && h.mt == null) return false;   // 미완료(완료신호 없음) 제외
+                        if (r) {
+                            const ct = h.ct ?? 0;
+                            if (r.min != null && ct < r.min) return false;
+                            if (r.max != null && ct > r.max) return false;
+                        }
                         return true;
                     });
                 },
@@ -2185,7 +2322,8 @@
                 // 사이클 목록 차트 — 히스토리 차트와 동일 형태/용어(MT/WT 스택 + 평균선).
                 // MT(가동)=atMs(완료−시작), WT(대기)=CT−MT. Tail 미지정(atMs=null) 사이클은 CT 단일 막대.
                 renderCycleChart() {
-                    const cv = this.$refs.cycleChart;
+                    // $refs 가 중첩 x-if mount 시 간헐적으로 비는 문제 → DOM 에서 직접 조회
+                    const cv = (this.$root || document).querySelector('canvas[x-ref="cycleChart"]') || this.$refs.cycleChart;
                     if (!cv || !window.Chart) return;
                     if (this._cycleChart) { this._cycleChart.destroy(); this._cycleChart = null; }
                     const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
@@ -2199,12 +2337,16 @@
                     const at = rows.map(c => c.atMs !== null ? toS(c.atMs) : null);
                     const idle = rows.map(c => c.atMs !== null ? toS(Math.max(0, c.ctMs - c.atMs)) : null);
                     const ctOnly = rows.map(c => c.atMs === null ? toS(c.ctMs) : null);
-                    // 평균 CT = 현재 표시(이상치 제외 반영)된 완료 사이클 평균 — 히스토리 차트와 동일하게 보이는 집합 기준
-                    const completed = rows.filter(c => !c.isOpen && c.ctMs > 0);
+                    // Tail 지정 Flow 에서 완료신호 없는 사이클 = 미완료(회색). Tail 미지정 Flow 면 CT 단일막대가 정상.
+                    const incompleteFallback = this.tailCallId !== null;
+                    // 평균 CT = 현재 표시 중인 '완료' 사이클 평균. 미완료(atMs=null)는 CT 가 부정확하므로 보이더라도 평균에서 제외.
+                    // (Tail 미지정 Flow 는 분해 자체가 없으므로 CT 단일막대를 평균에 포함)
+                    const completed = rows.filter(c => !c.isOpen && c.ctMs > 0 && (!incompleteFallback || c.atMs !== null));
                     const avgMs = completed.length ? completed.reduce((s, c) => s + c.ctMs, 0) / completed.length : (this.avgCycleMs || 0);
                     const avg = avgMs > 0 ? toS(avgMs) : null;
                     const cAt = css('--dash-mt') || css('--color-primary') || '#12A594';
                     const cIdle = css('--dash-wt') || '#AEB9C6';
+                    const cIncomplete = '#5b6675';   // 어두운 회색 — 미완료(완료신호 없음)
                     const cRed = css('--red') || css('--color-error') || '#D8392B';
                     const grid = css('--color-lines') || 'rgba(14,27,42,0.10)';
                     const txt = css('--color-text-secondary') || '#51637A';
@@ -2213,9 +2355,10 @@
                         datasets.push({ label: 'MT (가동)', data: at, backgroundColor: cAt, stack: 'ct', borderWidth: 0 });
                         datasets.push({ label: 'WT (대기)', data: idle, backgroundColor: cIdle, stack: 'ct', borderWidth: 0 });
                     }
-                    // Tail 미지정 사이클(또는 Tail 없는 Flow)은 CT 단일 막대로 폴백
+                    // 완료신호 없는 사이클: Tail 지정 Flow 면 '미완료'(회색), Tail 미지정 Flow 면 'CT (사이클)' 단일막대
                     if (ctOnly.some(v => v !== null)) {
-                        datasets.push({ label: 'CT (사이클)', data: ctOnly, backgroundColor: cAt, stack: 'ct', borderWidth: 0 });
+                        datasets.push({ label: incompleteFallback ? '미완료 (완료신호 없음)' : 'CT (사이클)',
+                            data: ctOnly, backgroundColor: incompleteFallback ? cIncomplete : cAt, stack: 'ct', borderWidth: 0 });
                     }
                     if (avg != null) {
                         datasets.push({ type: 'line', label: '평균 CT', data: labels.map(() => avg),
@@ -2230,10 +2373,22 @@
                             interaction: { mode: 'index', intersect: false },
                             plugins: {
                                 legend: { position: 'top', labels: { color: txt, boxWidth: 12, font: { size: 11 } } },
-                                tooltip: { callbacks: {
+                                tooltip: {
+                                    filter: (it) => it.dataset.type !== 'line' && (it.parsed.y || 0) > 0,
+                                    callbacks: {
                                     title: (items) => labels[items[0].dataIndex] + ' · ' + (times[items[0].dataIndex] || ''),
                                     label: (c) => `${c.dataset.label}: ${fmtMs(c.parsed.y || 0)}`,
-                                    afterBody: (items) => { const r = ratios[items[0].dataIndex]; return r !== null ? ['가동률: ' + r + '%'] : []; },
+                                    afterBody: (items) => {
+                                        const idx = items[0].dataIndex;
+                                        const atVal = at[idx] ?? 0;
+                                        const idleVal = idle[idx] ?? 0;
+                                        const ctVal = atVal + idleVal;
+                                        const r = ratios[idx];
+                                        const lines = ['CT (전체): ' + fmtMs(ctVal)];
+                                        if (avg != null) lines.push('평균 CT: ' + fmtMs(avg));
+                                        if (r !== null) lines.push('가동률: ' + r + '%');
+                                        return lines;
+                                    },
                                 } },
                             },
                             scales: {
@@ -2244,7 +2399,8 @@
                     });
                 },
                 renderHistChart() {
-                    const cv = this.$refs.histChart;
+                    // $refs 가 중첩 x-if mount 시 간헐적으로 비는 문제 → DOM 에서 직접 조회
+                    const cv = (this.$root || document).querySelector('canvas[x-ref="histChart"]') || this.$refs.histChart;
                     if (!cv || !window.Chart) return;
                     if (this._histChart) { this._histChart.destroy(); this._histChart = null; }
                     const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
@@ -2277,10 +2433,20 @@
                             interaction: { mode: 'index', intersect: false },
                             plugins: {
                                 legend: { position: 'top', labels: { color: txt, boxWidth: 12, font: { size: 11 } } },
-                                tooltip: { callbacks: {
-                                    title: (items) => times[items[0].dataIndex] || '',
-                                    label: (c) => `${c.dataset.label}: ${fmtMs(c.parsed.y || 0)}`,
-                                } },
+                                tooltip: {
+                                    filter: (it) => it.dataset.type !== 'line',
+                                    callbacks: {
+                                        title: (items) => times[items[0].dataIndex] || '',
+                                        label: (c) => `${c.dataset.label}: ${fmtMs(c.parsed.y || 0)}`,
+                                        afterBody: (items) => {
+                                            const idx = items[0].dataIndex;
+                                            const ctVal = (mt[idx] ?? 0) + (wt[idx] ?? 0);
+                                            const lines = ['CT (전체): ' + fmtMs(ctVal)];
+                                            if (avg != null) lines.push('평균 CT: ' + fmtMs(avg));
+                                            return lines;
+                                        },
+                                    }
+                                },
                             },
                             scales: {
                                 x: { stacked: true, grid: { display: false }, title: { display: true, text: '사이클 발생 시각', color: txt }, ticks: { color: txt, font: { size: 10 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 12 } },
@@ -2327,6 +2493,12 @@
                 // 이상치 범위 변경 후 사이클 차트(보이면)도 갱신 — 목록/요약은 getter 라 자동 반영
                 _afterExclusionChange() {
                     if (this.tab === 'cycle' && this.cycleView === 'chart') this.$nextTick(() => this.renderCycleChart());
+                },
+                // 미완료 제외 토글 — 로컬 선호 저장 + 차트(사이클/히스토리) 재렌더. 테이블/요약/배지는 getter 자동 반영.
+                onExcludeIncompleteChanged() {
+                    localStorage.setItem('dspilot-flow-exclude-incomplete', this.excludeIncomplete ? '1' : '0');
+                    this.recomputeHist();           // 히스토리 평균/상태 재계산 + (보이면) 히스토리 차트 재렌더
+                    this._afterExclusionChange();    // 사이클 차트(보이면) 재렌더
                 },
                 async applyRange() {
                     const flow = this.histFlowName;

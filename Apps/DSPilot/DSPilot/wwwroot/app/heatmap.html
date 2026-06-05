@@ -158,22 +158,6 @@
         </header>
 
         <main class="dsp-main">
-
-            <!-- 콘텐츠 상단 툴바: 제목 + breadcrumb + 액션(데이터 카운트) -->
-            <div class="ds-topbar">
-                <div class="ds-topbar-titles">
-                    <h2>동작편차 진단</h2>
-                    <div class="ds-breadcrumb">홈 · 동작편차 · 변동계수(CV) 기반</div>
-                </div>
-                <div class="ds-topbar-actions">
-                    <span class="hm-count" x-show="!loading && filteredGroups.length > 0">
-                        <span x-text="filteredGroups.length + ' FLOW'"></span>
-                        <span style="color:var(--color-lines-strong);">·</span>
-                        <span x-text="totalCalls + ' CALL'"></span>
-                    </span>
-                </div>
-            </div>
-
             <!-- 컨트롤 패널 -->
             <div class="card mb-4">
                 <div class="dsp-panel-body">
@@ -542,9 +526,12 @@
                     return this.allGroups.filter(g => (g.flowName || '').toLowerCase().includes(f));
                 },
 
-                // FormatMetricValueShort(AverageTime/StdDeviation): <1000 → 정수, else (x/1000)s
+                // FormatMetricValueShort(AverageTime/StdDeviation): <1000 → 정수ms, else 시분초
                 fmtShortAvg(v) {
-                    return v < 1000 ? Math.round(v).toString() : (v / 1000).toFixed(1) + 's';
+                    if (v < 1000) return Math.round(v) + 'ms';
+                    if (v < 60000) return (v / 1000).toFixed(1) + '초';
+                    if (v < 3600000) return Math.floor(v / 60000) + '분 ' + Math.floor((v % 60000) / 1000) + '초';
+                    return Math.floor(v / 3600000) + '시간 ' + Math.floor((v % 3600000) / 60000) + '분';
                 },
 
                 // ── 3단계 진단 등급 파생 (CV=σ/평균 구간 → normal/caution/danger) ──
@@ -611,7 +598,7 @@
                 callTooltip(call) {
                     const tier = this.blockTier(call);
                     return `[${call.callName}]\nFlow: ${call.flowName}\nWork: ${call.workName || '—'}\n`
-                        + `평균: ${Math.round(call.averageGoingTime)} ms\n표준편차(σ): ${Math.round(call.stdDevGoingTime)} ms\n`
+                        + `평균: ${this.formatMs(call.averageGoingTime)}\n표준편차(σ): ${this.formatMs(call.stdDevGoingTime)}\n`
                         + `편차(평균 대비): ±${this.deviationPct(call)}%  [${this.tierLabel(tier)}]\n`
                         + `변동계수(CV=σ/평균): ${call.coefficientOfVariation.toFixed(2)}\n`
                         + `실행횟수(N): ${call.goingCount}회\n클릭 → 추이·상세 펼침`;
@@ -700,11 +687,11 @@
                 async closeModal() { await this.closeChart(); },
 
                 formatMs(ms) {
-                    if (ms <= 0) return '0s';
+                    if (ms <= 0) return '0초';
                     if (ms < 1000) return Math.round(ms) + 'ms';
-                    if (ms < 60000) return (ms / 1000).toFixed(1) + 's';
-                    if (ms < 3600000) return Math.floor(ms / 60000) + 'm ' + Math.floor((ms % 60000) / 1000) + 's';
-                    return Math.floor(ms / 3600000) + 'h ' + Math.floor((ms % 3600000) / 60000) + 'm';
+                    if (ms < 60000) return (ms / 1000).toFixed(1) + '초';
+                    if (ms < 3600000) return Math.floor(ms / 60000) + '분 ' + Math.floor((ms % 60000) / 1000) + '초';
+                    return Math.floor(ms / 3600000) + '시간 ' + Math.floor((ms % 3600000) / 60000) + '분 ' + Math.floor((ms % 60000) / 1000) + '초';
                 },
 
                 exportCsv() {
