@@ -1201,10 +1201,34 @@ module ModelProtocol =
                 addressOpt |> Option.iter (fun s -> tag.Address <- s)
                 Some tag
 
+    /// condition object 의 owning entity context (Phase 1 §남은작업 1 — call/work 분리).
+    /// type 생략 보정 정책과 허용 top-level type 이 context 별로 다름:
+    /// - Call: top-level type 생략 → `Some AutoAux` 보정. AutoAux/ComAux/SkipAction 모두 허용.
+    /// - Work: type 생략 보정 *없음* (`None` 유지). top-level AutoAux/ComAux 는 fail diagnostics — Work 는 SkipAction 만 의미.
+    type private ConditionContext =
+        | CallCondition
+        | WorkCondition
+
+    /// condition object 의 legacy 허용 키 whitelist (Phase 1 §남은작업 3).
+    /// op/items 신설은 이번 범위 밖 — 여기 없는 키 (callCondition / op / items / autoAux 등) 는
+    /// silent skip 하지 않고 diagnostics 로 보고한다 (SSOT §2.7 unknown-key 거부 정합).
+    let private conditionAllowedKeys =
+        Set.ofList [ "type"; "isOR"; "isInverted"; "conditions"; "children" ]
+
+    /// calls[] element object 의 허용 키 whitelist (SSOT yaml-protocol-v0.md §2.7 룰 #14).
+    /// canonical condition 키는 `condition` — `callCondition` alias parse 추가 금지 (박제 결정) → 여기 없으므로
+    /// callCondition 입력은 unknown-key diagnostics 대상. v10 에서 skipInputSensor 폐기.
+    let private callObjectAllowedKeys =
+        Set.ofList [ "ref"; "contactKind"; "inTag"; "outTag"; "callType"; "condition"; "plc" ]
+
     /// Condition tree (Type / IsOR / IsInverted / Conditions / Children) recursive parse.
     /// conditions leaf 는 ApiCall — dual format (string scalar 또는 object{ref, contactKind?}).
     /// PoC scope 가정: leaf 의 ApiCall 은 ApiDefId + ContactKind 만 set (IO tag binding 은 C-4 phase).
-    let rec private parseCondition (ctx: ApplyContext) (condEl: JsonElement) (path: string) : Condition option =
+    ///
+    /// `context` = owning entity (Call/Work). `topLevel` = root condition 여부 (children 재귀는 false).
+    /// type 생략 보정 (Some AutoAux) 은 *top-level Call* 에만 적용 — emit 이 AutoAux type 키를 생략하므로
+    /// 보정 없으면 export → apply round-trip 후 Type=None 이 되어 Runtime CallAutoAuxConditions 평가에서 누락됨.
+    let rec private parseCondition (ctx: ApplyContext) (context: ConditionContext) (topLevel: bool) (condEl: JsonElement) (path: string) : Condition option =
         if condEl.ValueKind <> JsonValueKind.Object then
             ctx.Diagnostics.Add(path, sprintf "condition object 기대 (실제 %A)." condEl.ValueKind)
             None
@@ -1212,14 +1236,36 @@ module ModelProtocol =
             // 외부 reviewer m-5 반영: 빈 `condition: {}` 는 의미 0 의 Condition 인스턴스 추가 회피 → None 으로 정규화.
             None
         else
+            // unknown-key whitelist (Phase 1 §남은작업 3) — legacy 허용 키 외 entry 는 diagnostics.
+            // callCondition alias 입력도 여기서 거부 (박제 결정: condition 만 canonical, callCondition alias parse 추가 금지).
+            for prop in condEl.EnumerateObject() do
+                if not (Set.contains prop.Name conditionAllowedKeys) then
+                    ctx.Diagnostics.Add(
+                        joinDiagKey path prop.Name,
+                        sprintf "알 수 없는 condition 키 '%s'. 허용: type|isOR|isInverted|conditions|children." prop.Name)
             let cond = Condition()
-            // type — AutoAux default 면 키 부재
-            tryProp condEl "type"
-            |> Option.bind tryString
-            |> Option.iter (fun s ->
+            // type 보정 정책 (Phase 1 §남은작업 1):
+            //   - 명시된 type 은 항상 보존 (legacy child explicit type 보존 포함).
+            //   - Work top-level 에서 AutoAux/ComAux 는 fail diagnostics (박제 결정 — Work 는 SkipAction 만 허용).
+            //   - Call top-level 에서 type 생략 → Some AutoAux 보정 (round-trip 버그 수정).
+            //   - child / Work top-level 의 type 생략 → None 유지 (legacy 호환 / Work skipAction 기본값 혼동 회피).
+            match tryProp condEl "type" |> Option.bind tryString with
+            | Some s ->
                 match parseConditionType s with
-                | Ok t -> cond.Type <- Some t
-                | Error msg -> ctx.Diagnostics.Add(joinDiagKey path "type", msg))
+                | Ok t ->
+                    match context, topLevel, t with
+                    | WorkCondition, true, ConditionType.AutoAux
+                    | WorkCondition, true, ConditionType.ComAux ->
+                        ctx.Diagnostics.Add(
+                            joinDiagKey path "type",
+                            sprintf "Work condition 은 SkipAction 만 허용. top-level '%s' 는 무효 (Runtime 에서 평가되지 않음)." s)
+                    | _ -> cond.Type <- Some t
+                | Error msg -> ctx.Diagnostics.Add(joinDiagKey path "type", msg)
+            | None ->
+                // type 키 부재 — emit 이 AutoAux 를 생략하므로 top-level Call 은 AutoAux 로 보정.
+                match context, topLevel with
+                | CallCondition, true -> cond.Type <- Some ConditionType.AutoAux
+                | _ -> ()  // child 또는 Work top-level — None 유지 (legacy 호환).
             // isOR / isInverted — bool false default
             let parseBoolKey key target =
                 tryProp condEl key
@@ -1280,7 +1326,8 @@ module ModelProtocol =
                     let mutable idx = 0
                     for childEl in chEl.EnumerateArray() do
                         let childPath = sprintf "%s.children[%d]" path idx
-                        match parseCondition ctx childEl childPath with
+                        // child 는 topLevel=false — type 생략 보정 없음 (legacy 호환), explicit type 은 보존.
+                        match parseCondition ctx context false childEl childPath with
                         | Some child -> cond.Children.Add(child)
                         | None -> ()
                         idx <- idx + 1)
@@ -1345,10 +1392,10 @@ module ModelProtocol =
                 |> Option.iter (fun work ->
                     parsePlcWork ctx (joinDiagKey path "plc") work plcEl))
 
-            // Condition tree (Work) — Call 과 동일 parseCondition 사용. Work 는 SkipAction 만 의미.
+            // Condition tree (Work) — WorkCondition context (top-level AutoAux/ComAux 는 fail diagnostics).
             tryProp workEl "condition"
             |> Option.iter (fun ccEl ->
-                match parseCondition ctx ccEl (path + ".condition") with
+                match parseCondition ctx WorkCondition true ccEl (path + ".condition") with
                 | Some cc ->
                     lookupWorkById ctx workId
                     |> Option.iter (fun work -> work.Conditions.Add(cc))
@@ -1452,6 +1499,12 @@ module ModelProtocol =
                             | None ->
                                 ctx.Diagnostics.Add(callPath, "Call instance 추적 실패 (forensic).")
                             | Some call ->
+                                // calls object unknown-key whitelist (SSOT §2.7 룰 #14) — callCondition alias 입력 거부 포함.
+                                for prop in obj.EnumerateObject() do
+                                    if not (Set.contains prop.Name callObjectAllowedKeys) then
+                                        ctx.Diagnostics.Add(
+                                            joinDiagKey callPath prop.Name,
+                                            sprintf "알 수 없는 calls 키 '%s'. 허용: ref|contactKind|inTag|outTag|callType|condition|plc." prop.Name)
                                 // ApiCall 보강 (C-3 ContactKind + InTag / OutTag). 1:1 invariant.
                                 // v10: skipInputSensor 폐기 — SensingType=Virtual 로 ApiDef 차원에서 표현.
                                 let firstApiCallOpt =
@@ -1479,10 +1532,10 @@ module ModelProtocol =
                                     match parseCallType s with
                                     | Ok ct -> setCallType call ct
                                     | Error msg -> ctx.Diagnostics.Add(joinDiagKey callPath "callType", msg))
-                                // Condition tree (C-3)
+                                // Condition tree (C-3) — CallCondition context (top-level type 생략 → Some AutoAux 보정).
                                 tryProp obj "condition"
                                 |> Option.iter (fun ccEl ->
-                                    match parseCondition ctx ccEl (callPath + ".condition") with
+                                    match parseCondition ctx CallCondition true ccEl (callPath + ".condition") with
                                     | Some cc -> call.Conditions.Add(cc)
                                     | None -> ())
                                 // Phase 7 §4.2 C-7.1: ControlCallProperties plc 키

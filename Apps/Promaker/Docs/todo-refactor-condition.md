@@ -7,12 +7,14 @@
 
 ## --orch 진행 표
 
-현재 상태는 **Phase 1부터 자동 진행 가능**이다. Phase 0의 사용자 사전 결정 항목은 박제 완료했다.
+현재 상태는 **Phase 2부터 자동 진행 가능**이다. Phase 0의 사용자 사전 결정 항목은 박제 완료했고, Phase 1은 구현/독립 검열/테스트를 완료했다.
+
+> 알려진 선행 실패(Phase 1 무관): `Ds2.LlmAgent.Tests`의 `PromptCanaryTests`가 prompt 파일을 `.md`로 참조하나 실제 파일은 `.mdx`라 3건 실패한다. 코드 변경 전부터 깨진 상태이며 Phase 4(Promaker protocol docs, prompt 파일 취급) 또는 별도 작업에서 `.md`↔`.mdx` 정합으로 해소한다.
 
 | Phase | 상태 | 작업 범위 | 주요 산출물 | 완료 조건 |
 | --- | --- | --- | --- | --- |
 | 0. 사전 결정 박제 | 완료 | 외부 wire 포맷, alias, ValueSpec fallback, 표시 정책, 저장 모델 변경 범위 확정 | `박제 결정` 절 갱신 | 모든 결정 항목이 하나의 선택지로 확정됨 |
-| 1. Protocol foundation | 미시작 | `AutoAux` 기본 타입 보정, condition object unknown-key diagnostics, Work condition 정책 | `ModelProtocol.fs`, `ModelProtocolTests.fs` | LlmAgent protocol tests 통과, legacy nested child type 보존 |
+| 1. Protocol foundation | 완료 | `AutoAux` 기본 타입 보정, condition object unknown-key diagnostics, Work condition 정책 | `ModelProtocol.fs`, `ModelProtocolTests.fs` | LlmAgent protocol tests 통과, legacy nested child type 보존 |
 | 2. ValueSpec / `eq` | 미시작 | leaf `eq` parse/emit, `InputSpec` round-trip, fallback 표현 | protocol/helper 코드, tests | `eq` 타입 추론과 unsupported fallback tests 통과 |
 | 3. Multi-root emit | 미시작 | `Conditions.[0]` emit 제거, 같은 `ConditionType` roots implicit AND 보존 | `ModelProtocol.fs`, tests | 다중 root export -> apply 의미 보존 |
 | 4. Promaker protocol docs | 미시작 | Prompt, example YAML, `yaml-protocol-v0.md` 갱신 | `yaml.md`, `flow.yaml`, `yaml-protocol-v0.md` | 문서의 canonical key와 examples가 protocol tests와 일치 |

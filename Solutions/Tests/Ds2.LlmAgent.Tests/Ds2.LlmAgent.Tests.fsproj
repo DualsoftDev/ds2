@@ -51,6 +51,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\Core\Ds2.LlmAgent\Ds2.LlmAgent.fsproj" />
+    <!-- Phase 1 (Condition 리팩터링): AutoAux 기본 타입 보정이 Runtime CallAutoAuxConditions
+         평가 대상에 포함되는지 export->apply round-trip 으로 직접 검증하기 위해 참조 추가. -->
+    <ProjectReference Include="..\..\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj" />
   </ItemGroup>
 
 </Project>
