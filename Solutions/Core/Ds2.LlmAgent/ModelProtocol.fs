@@ -2651,6 +2651,87 @@ module ModelProtocol =
             w.WriteEndArray()
         w.WriteEndObject()
 
+    // ─── Multi-root condition emit (Phase 3 — todo-refactor-condition.md §남은작업 4) ──
+    //
+    // SSOT 박제 결정: "같은 ConditionType 의 여러 top-level root 는 implicit AND".
+    // Runtime (SimIndex/Build.fs `buildConditionExpression`) 은 `Conditions` 에서
+    // `Type = Some conditionType` 인 root 만 필터링해 각 root 를 `convertOne` 한 뒤 `And [...]`
+    // 로 결합한다. 따라서 wire emit 은 *같은 타입* root 들을 AND 로 보존해야 한다.
+    //
+    // **기존 버그**: emit 이 `Conditions.[0]` 만 내보내 같은 타입 root 가 2개 이상이면 data loss.
+    //
+    // **전략** (의미 보존 최우선):
+    //   * Runtime 이 평가하는 root 는 `Type = Some _` 인 것뿐 (Type=None root 는 어떤 타입
+    //     필터에도 안 걸려 inert). emit 대상 root 도 동일 기준으로 그룹화한다.
+    //   * 단일 root 1개만 있으면 그 root 를 그대로 emit (기존 동작 100% 보존 — 회귀 0).
+    //     (Type=None 단일 root 도 이 경로 — 기존처럼 type 키 없이 emit → top-level Call apply 시 AutoAux 보정.)
+    //   * 같은 타입 root 가 2개 이상이면 그 root 들을 `Children` 으로 갖는 단일 wrapper
+    //     Condition (Type=그 타입, IsOR=false, IsInverted=false, ApiCalls 비어있음) 으로 묶어 emit.
+    //     apply 측 parseCondition 이 wrapper 를 1개 root (Type=그 타입, Children=[roots]) 로 복원하고,
+    //     Runtime convertOne(wrapper) = And (빈 leaf @ [convertOne r1; convertOne r2; ...])
+    //                                 = And [convertOne r1; convertOne r2; ...] (원본과 정확히 동등).
+    //   * 서로 다른 타입 root 가 동시에 존재하면 wire 의 condition 키 1개로는 1개 type 만 표현 가능
+    //     (condition object 는 단일 type). 이는 정상 wire round-trip 경로 (parse 가 entity 당 1 root 만
+    //     생성) 에서는 발생하지 않으나, Editor 등 다른 경로로 store 에 혼재할 수 있다. export 경로엔
+    //     Diagnostics 객체가 없으므로 (`exportToJsonWithLevel` 미수신) 기존 export 측 `log.Warn` 패턴으로
+    //     forensic 단서를 남기고, 첫 등장 type 그룹을 보존해 emit 한다 (silent drop 회피 — SSOT 정책 정합).
+
+    /// `Conditions` 컬렉션에서 emit 할 단일 Condition 을 SSOT 박제 결정 (같은 타입 implicit AND) 에
+    /// 맞춰 산출. emit 대상 root 가 없으면 None.
+    /// `entityRefForLog`: 다중 타입 혼재 forensic 로그용 entity 식별자.
+    let private selectConditionRootForEmit
+        (conditions: ResizeArray<Condition>)
+        (entityRefForLog: string) : Condition option =
+        // Runtime 평가 대상 = Type = Some _ 인 root. 등장 순서 보존하며 type 별 그룹화.
+        let typed =
+            conditions
+            |> Seq.choose (fun c -> match c.Type with Some t -> Some (t, c) | None -> None)
+            |> Seq.toList
+        match typed with
+        | [] ->
+            // typed root 0건. 단, 기존 동작 보존: Type=None 단일 root 만 있는 (legacy / 미보정) 케이스는
+            // 첫 root 를 그대로 emit (apply 측 top-level Call AutoAux 보정에 의존하던 기존 round-trip 보존).
+            if conditions.Count > 0 then Some conditions.[0] else None
+        | _ ->
+            // type 별 그룹화 — 등장 순서 유지 (List.groupBy 가 첫 등장 순서로 key 정렬).
+            let groups = typed |> List.groupBy fst
+            let chosenType, chosenPairs =
+                match groups with
+                | [ single ] -> single
+                | first :: _ ->
+                    // 다중 타입 혼재 — wire condition 1개로 1 type 만 표현 가능. 첫 type 그룹 보존 + forensic 로그.
+                    let lostTypes =
+                        groups |> List.skip 1 |> List.map (fst >> formatConditionType) |> String.concat ", "
+                    log.Warn(
+                        sprintf "[exportToJson] %s: 서로 다른 ConditionType 의 top-level root 혼재 — wire condition 은 단일 type 만 표현 가능. 첫 type '%s' 보존, '%s' 누락 (Editor 경로 등에서 생성된 혼재 store)."
+                            entityRefForLog (formatConditionType (fst first)) lostTypes)
+                    first
+                | [] -> failwith "unreachable: typed 가 비어있지 않으므로 groups 도 비어있지 않음."
+            let roots = chosenPairs |> List.map snd
+            match roots with
+            | [ single ] ->
+                // 같은 타입 root 1개 — 기존 동작 보존 (wrapper 합성 없이 그대로 emit).
+                Some single
+            | _ ->
+                // 같은 타입 root 2개 이상 — AND wrapper (Children=roots) 로 묶어 의미 보존.
+                let wrapper = Condition(Type = Some chosenType)
+                for r in roots do wrapper.Children.Add(r)
+                Some wrapper
+
+    /// `Conditions` → SSOT 박제 결정에 맞춘 단일 condition root 를 `keyName` 키로 emit.
+    /// emit 대상 root 가 없으면 키 자체를 발행하지 않는다 (WritePropertyName 후 값 누락 = invalid JSON 회피).
+    let private emitConditionRoots
+        (w: Utf8JsonWriter)
+        (keyName: string)
+        (apiCallRef: ApiCall -> string)
+        (conditions: ResizeArray<Condition>)
+        (entityRefForLog: string) : unit =
+        match selectConditionRootForEmit conditions entityRefForLog with
+        | Some cond ->
+            w.WritePropertyName keyName
+            emitCondition w apiCallRef cond
+        | None -> ()
+
     // ─── PLC metadata emit (Phase 7 §4.2 C-7.1) ─────────────────────────────
     //
     // SSOT §2.2.2 (C-7.1): entity 안 `plc:` sub-section. ControlSystemProperties /
@@ -2824,10 +2905,9 @@ module ModelProtocol =
                             // Phase 7 §4.2 C-7.1: ControlWorkProperties plc 키 — #31 D_Plc
                             if isEmittedIn level D_Plc then
                                 wk.GetControlProperties() |> Option.iter (emitPlcWork w)
-                            // Work.Conditions (SkipAction 등) — emitCondition 재사용. 첫 root 만 emit.
-                            if wk.Conditions.Count > 0 then
-                                w.WritePropertyName "condition"
-                                emitCondition w workApiCallRef wk.Conditions.[0]
+                            // Work.Conditions (SkipAction 등) — 같은 ConditionType 의 모든 top-level root 를
+                            // implicit AND 로 보존해 emit (Phase 3). condition 키 이름은 helper 가 발행.
+                            emitConditionRoots w "condition" workApiCallRef wk.Conditions (sprintf "work '%s'" wk.LocalName)
                             let calls = Queries.callsOf wk.Id store
                             if not calls.IsEmpty then
                                 w.WritePropertyName "calls"
@@ -2879,10 +2959,9 @@ module ModelProtocol =
                                         | Some ct when ct <> CallType.WaitForCompletion ->
                                             w.WriteString("callType", formatCallType ct)
                                         | _ -> ()
-                                        // A_Modeling (그대로 emit)
-                                        if c.Conditions.Count > 0 then
-                                            w.WritePropertyName "condition"
-                                            emitCondition w workApiCallRef c.Conditions.[0]
+                                        // A_Modeling (그대로 emit) — 같은 ConditionType 의 모든 top-level root 를
+                                        // implicit AND 로 보존해 emit (Phase 3). condition 키 이름은 helper 가 발행.
+                                        emitConditionRoots w "condition" workApiCallRef c.Conditions (sprintf "call '%s'" callRef)
                                         // Phase 7 §4.2 C-7.1: ControlCallProperties plc 키 — #31 D_Plc
                                         if isEmittedIn level D_Plc then
                                             c.GetControlProperties() |> Option.iter (emitPlcCall w)

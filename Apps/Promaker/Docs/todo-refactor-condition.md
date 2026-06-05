@@ -7,7 +7,7 @@
 
 ## --orch 진행 표
 
-현재 상태는 **Phase 3부터 자동 진행 가능**이다. Phase 0~2는 구현/독립 검열/테스트를 완료했다.
+현재 상태는 **Phase 4부터 자동 진행 가능**이다. Phase 0~3은 구현/독립 검열/테스트를 완료했다.
 
 > 알려진 선행 실패(Phase 1 무관): `Ds2.LlmAgent.Tests`의 `PromptCanaryTests`가 prompt 파일을 `.md`로 참조하나 실제 파일은 `.mdx`라 3건 실패한다. 코드 변경 전부터 깨진 상태이며 Phase 4(Promaker protocol docs, prompt 파일 취급) 또는 별도 작업에서 `.md`↔`.mdx` 정합으로 해소한다.
 
@@ -16,7 +16,7 @@
 | 0. 사전 결정 박제 | 완료 | 외부 wire 포맷, alias, ValueSpec fallback, 표시 정책, 저장 모델 변경 범위 확정 | `박제 결정` 절 갱신 | 모든 결정 항목이 하나의 선택지로 확정됨 |
 | 1. Protocol foundation | 완료 | `AutoAux` 기본 타입 보정, condition object unknown-key diagnostics, Work condition 정책 | `ModelProtocol.fs`, `ModelProtocolTests.fs` | LlmAgent protocol tests 통과, legacy nested child type 보존 |
 | 2. ValueSpec / `eq` | 완료 | leaf `eq` parse/emit, `InputSpec` round-trip, fallback 표현 | protocol/helper 코드, tests | `eq` 타입 추론과 unsupported fallback tests 통과 |
-| 3. Multi-root emit | 미시작 | `Conditions.[0]` emit 제거, 같은 `ConditionType` roots implicit AND 보존 | `ModelProtocol.fs`, tests | 다중 root export -> apply 의미 보존 |
+| 3. Multi-root emit | 완료 | `Conditions.[0]` emit 제거, 같은 `ConditionType` roots implicit AND 보존 | `ModelProtocol.fs`, tests | 다중 root export -> apply 의미 보존 |
 | 4. Promaker protocol docs | 미시작 | Prompt, example YAML, `yaml-protocol-v0.md` 갱신 | `yaml.md`, `flow.yaml`, `yaml-protocol-v0.md` | 문서의 canonical key와 examples가 protocol tests와 일치 |
 | 5. JsonFormatter docs | 미시작 | `json-format.md` stale field 정정, STJ/AASX 명칭 구분, Builder helper 설명 | `json-format.md` | `isRising` 제거, `isInverted`/Runtime 평가/명칭 정정 반영 |
 | 6. Editor formula projection | 미시작 | `IsInverted`, `ContactKind`, empty condition 표시 정책 반영 | `ConditionFormulaProjection.fs`, projection tests | 표시 테스트 통과 |
