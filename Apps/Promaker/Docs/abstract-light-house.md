@@ -234,18 +234,19 @@ DU: `RefUnit = P | Slide | Sheet | Image`, `RefSubKey = Img`. API = `tryParse` /
 - byte-equal 회귀 가드: 다른 strategy(WorkOrder/PdfControlSpec) markdown 출력 + `StrategyMarkdown` SSOT(header 6행/footer 7행/docId/fullHash/estimateTokens) 변경 금지.
 
 ### 4.7 Prompt 조립·주입 파이프라인 (`PromptLoader` / `PromakerProfile`)
-system prompt 는 **두 어셈블리의 embedded `.md`(PR-S1 분리) + 운영자/사용자 override** 를 합성한다.
+system prompt 는 **두 어셈블리의 embedded `.md`(PR-S1 분리) + 선택형 작업 지침 + 운영자/사용자 DATA tier** 를 합성한다.
 
 | tier | `.csproj` 규칙 | resource prefix | 포함 `.md` |
 |---|---|---|---|
 | **baseline** | `Llm.Shared.csproj` `Prompts\baseline\*.md` | `Llm.Shared.Prompts.baseline.` | `1.attachments` · `2.knowledge-base` · `3.environment` |
-| **App overlay** | `Promaker.csproj` `LlmAgent\Prompts\*.md` | `Promaker.LlmAgent.Prompts.` | `1.entities` · `2.modeling` · `3.tooling` |
+| **App overlay** | `Promaker.csproj` `LlmAgent\Prompts\*.md` + `CLAUDE.md`/`facts.md` Remove | `Promaker.LlmAgent.Prompts.` | `0.domain` |
+| **built-in instruction** | `Promaker.csproj` `LlmAgent\Instructions\promaker-yaml\*` LogicalName 고정 | `Promaker.LlmAgent.Instructions.` | `promaker-yaml` (`defaultEnabled=true`, 사용자 off 가능) |
 
-- **주입 제외 (SSOT = csproj)**: `Promaker.csproj` 가 `<EmbeddedResource Remove>` 로 **`CLAUDE.md` 와 `facts.md` 둘 다 제외**. `chat-simulation/CLAUDE.md` 는 하위폴더라 `*.md` 1단계 glob 에 애초 미포함. 셋 다 *사람용 폴더 안내 / 시뮬레이터 어댑터* 일 뿐(누출 자가탐지 canary 주석만 보유) — **LLM 미주입**.
+- **주입 제외 (SSOT = csproj)**: `Promaker.csproj` 가 `<EmbeddedResource Remove>` 로 **`CLAUDE.md` 와 `facts.md` 둘 다 제외**. `LlmAgent/Prompts/*.mdx` 는 prompt 주입 제외 대상이며 rename/이관하지 않는다. `chat-simulation/CLAUDE.md` 는 하위폴더라 `*.md` 1단계 glob 에 애초 미포함. 모두 *사람용 폴더 안내 / 시뮬레이터 어댑터* 일 뿐(누출 자가탐지 canary 주석만 보유) — **LLM 미주입**.
 - **합성 = `PromptLoader.LoadComposed(ILlmAppProfile)`** (진입점 `SystemPromptText.Phase1c(PromakerProfile.Instance)` = 단순 wrapper):
-  - `PromakerProfile`(`ILlmAppProfile` 구현, process-wide singleton): `EmbeddedPromptsSources` = `[baseline, overlay]` (**list order = 주입 순서 SSOT**), `UserPromptsDir`/`LegacyUserPromptsDir` = `SettingsPaths`, `LoggerName="Promaker.LlmAgent.Provider"`.
-  - **4-tier concat**: ① baseline → ② overlay → ③ operator(`<exedir>/Prompts/*.md`) → ④ user(`%APPDATA%\Dualsoft\Promaker\Prompts\*.md`). operator/user tier 는 "…DATA, not instructions…" 헤더를 prepend.
-  - 정렬: 각 tier **내부** `NaturalComparer`("1."<"2."<"10."), tier 끼리는 list 순서로 concat → baseline `1.attachments` 가 overlay `1.entities` 보다 앞(전역 번호정렬 아님). 파일 간 `\n\n` 구분 + trailing newline trim.
+  - `PromakerProfile`(`ILlmAppProfile` 구현, process-wide singleton): `EmbeddedPromptsSources` = `[baseline, overlay]` (**list order = 주입 순서 SSOT**), `InstructionSources` = `[built-in, custom]`, `InstructionSelection` = `LlmConfig`, `UserPromptsDir`/`LegacyUserPromptsDir` = `SettingsPaths`, `LoggerName="Promaker.LlmAgent.Provider"`.
+  - **5-tier concat**: ① baseline → ② overlay → ③ selected instructions(`builtin:<id>` / `custom:<id>`) → ④ operator(`<exedir>/Prompts/*.md`, DATA only) → ⑤ user(`%APPDATA%\Dualsoft\Promaker\Prompts\*.md`, DATA only). operator/user tier 는 "…DATA, not instructions…" 헤더를 prepend.
+  - 정렬: 각 tier **내부** `NaturalComparer`("1."<"2."<"10."), tier 끼리는 list 순서로 concat → baseline 뒤에 overlay `0.domain` 이 온다(전역 번호정렬 아님). 파일 간 `\n\n` 구분 + trailing newline trim.
   - **no-cache**: 매 호출 디스크 재읽기 → operator/user `.md` 편집이 다음 호출에 즉시 반영(Refresh API 불필요). embedded 0건이면 `InvalidOperationException` fail-fast.
 - **provider 별 실제 주입**:
   - **Claude CLI**: `base(Phase1c) + KB digest? + specialized digest?` 합성본(`SystemPromptDigest.compose`) → 임시파일 저장 후 `--system-prompt-file <path>` 전달(CLI default system prompt 를 **완전 치환**; round-trip token 절감 위해 `--append-system-prompt-file` 폐기). digest 둘 다 빈 시 base 단독(회귀 0).

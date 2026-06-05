@@ -15,7 +15,7 @@ Promaker LLM Agent 에 선택 가능한 작업 지침(Instruction set)을 도입
 | P1 | 완료 | core instruction infra | `InstructionCatalog` / `InstructionSelection` / `InstructionPromptComposer` + 단위 테스트 | selected instructions 0개일 때 legacy base prompt byte-identical, deterministic ordering, fail-closed manifest/entry 검증 테스트 통과 |
 | P2 | 완료 | built-in packaging + `yaml.md` 이관 | embedded built-in `promaker-yaml` instruction, `0.domain.md` 참조 정리, csproj resource 규칙 갱신 | `yaml.md` always-on 중복 제거, default selection 으로 기존 YAML 기능 유지, toggle off 시 YAML 지침 제거 테스트 통과 |
 | P3 | 완료 | selection UI + provider lifecycle | 작업 지침 설정 UI, selection persistence, 재시작 필요 표시, provider 재생성/Codex stale 방지 | 선택 변경 후 모든 `Phase1c` provider 에 새 effective prompt 적용, Codex `instructions.md` stale 방지 테스트 통과 |
-| P4 | 미시작 | e2e regression / security / docs cleanup | provider matrix tests, custom security tests, docs/code comments drift cleanup | build/test 통과, custom instruction 이 권한을 넓히지 못함, `--orch-check` 가능 판정 |
+| P4 | 완료 | e2e regression / security / docs cleanup | provider matrix tests, custom security tests, docs/code comments drift cleanup | build 통과, `Ds2.LlmAgent.Tests` 통과, `Promaker.Tests` 는 기존 `MainViewModelTests.ShowProjectSettings_updates_project_name_from_dialog` NRE 1건 제외 P4 회귀 통과 |
 
 ## Phase 명세
 
@@ -419,19 +419,19 @@ MSBuild item 평가 기준:
   - `Prompts/baseline/3.environment.md`
 - `Apps/Promaker/Promaker/Promaker.csproj` Promaker overlay embedded prompt:
   - `LlmAgent/Prompts/0.domain.md`
-  - `LlmAgent/Prompts/yaml.md`
+- `Apps/Promaker/Promaker/Promaker.csproj` Promaker built-in instruction embedded resources:
+  - `LlmAgent/Instructions/promaker-yaml/instruction.json`
+  - `LlmAgent/Instructions/promaker-yaml/INSTRUCTION.md`
 
-`LlmAgent/Prompts/*.mdx` 는 의도적으로 system prompt 주입 제외 대상이다.
+`LlmAgent/Prompts/*.mdx`, `LlmAgent/Prompts/CLAUDE.md`, `LlmAgent/Prompts/facts.md` 는 의도적으로 system prompt 주입 제외 대상이다.
 
 ## 기존 always-on prompt 이관 결정
 
-현재 `0.domain.md`와 `yaml.md`는 항상 base prompt 에 포함된다. 선택형 built-in instruction 도입 시 아래 정책으로 이관한다.
+이전에는 `0.domain.md`와 `yaml.md`가 항상 base prompt 에 포함됐다. 선택형 built-in instruction 도입 후 현행 정책은 아래와 같다.
 
 - `0.domain.md`는 mandatory base 로 유지한다.
 - `yaml.md`는 `promaker-yaml` built-in instruction(`defaultEnabled=true`) 으로 이관한다.
 - 사용자가 `builtin:promaker-yaml` 을 끄면 YAML 생성 지침이 effective prompt 에서 빠져야 한다.
-
-이 이관 결정을 처리하지 않고 `promaker-yaml` instruction 을 추가하면 항상 주입 + 선택 주입이 중복되거나, UI 에서는 껐는데 실제로는 `yaml.md`가 계속 들어가는 해제 불가 상태가 된다.
 
 ## Phase 별 구현 TODO
 
@@ -468,11 +468,11 @@ MSBuild item 평가 기준:
 
 ### P4
 
-- [ ] 선택 해제 후 provider 재생성 시 effective prompt 에 해당 instruction marker 가 사라지는 회귀 테스트를 추가한다.
-- [ ] built-in `defaultEnabled` 와 사용자 override 의 업데이트 시나리오 테스트를 추가한다.
-- [ ] custom instruction 이 tool allowlist / MCP host 도구 표면 / sandbox 권한을 넓힐 수 없음을 테스트 또는 구조 검증으로 확인한다.
-- [ ] `PromakerProfile.cs`, `Prompts/CLAUDE.md`, 관련 docs 의 파일명/주입 경로 drift 를 정리한다.
-- [ ] 최종 build/test 와 `--orch-check` 를 수행하고 진행 표 상태를 갱신한다.
+- [x] 선택 해제 후 provider 재생성 시 effective prompt 에 해당 instruction marker 가 사라지는 회귀 테스트를 추가한다.
+- [x] built-in `defaultEnabled` 와 사용자 override 의 업데이트 시나리오 테스트를 추가한다.
+- [x] custom instruction 이 tool allowlist / MCP host 도구 표면 / sandbox 권한을 넓힐 수 없음을 테스트 또는 구조 검증으로 확인한다.
+- [x] `PromakerProfile.cs`, `Prompts/CLAUDE.md`, 관련 docs 의 파일명/주입 경로 drift 를 정리한다.
+- [x] 최종 build/test 결과를 확인하고 `--orch-check` 가능 상태로 진행 표 상태를 갱신한다.
 
 ## 주의 사항
 

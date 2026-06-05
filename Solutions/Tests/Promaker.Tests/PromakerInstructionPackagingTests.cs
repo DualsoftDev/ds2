@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Llm.Shared;
 using Llm.Shared.Abstractions;
 using Llm.Shared.Instructions;
@@ -77,6 +78,22 @@ public sealed class PromakerInstructionPackagingTests : IDisposable
         Assert.DoesNotContain("Promaker.LlmAgent.Prompts.yaml.md", names);
         Assert.Contains("Promaker.LlmAgent.Instructions.promaker-yaml.instruction.json", names);
         Assert.Contains("Promaker.LlmAgent.Instructions.promaker-yaml.INSTRUCTION.md", names);
+    }
+
+    [Fact]
+    public void Promaker_prompt_resources_match_instruction_tier_packaging_policy()
+    {
+        var promptResources = typeof(PromakerProfile)
+            .Assembly
+            .GetManifestResourceNames()
+            .Where(n => n.StartsWith("Promaker.LlmAgent.Prompts.", StringComparison.Ordinal))
+            .OrderBy(n => n, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(new[] { "Promaker.LlmAgent.Prompts.0.domain.md" }, promptResources);
+        Assert.DoesNotContain(promptResources, n => n.EndsWith(".mdx", StringComparison.Ordinal));
+        Assert.DoesNotContain("Promaker.LlmAgent.Prompts.CLAUDE.md", promptResources);
+        Assert.DoesNotContain("Promaker.LlmAgent.Prompts.facts.md", promptResources);
     }
 
     private static string NewTempRoot()
