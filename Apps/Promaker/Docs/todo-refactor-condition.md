@@ -7,7 +7,7 @@
 
 ## --orch 진행 표
 
-현재 상태는 **Phase 4부터 자동 진행 가능**이다. Phase 0~3은 구현/독립 검열/테스트를 완료했다.
+현재 상태는 **Phase 5부터 자동 진행 가능**이다. Phase 0~4는 구현/독립 검열/테스트를 완료했다. Phase 4 에서 PromptCanary 선행 실패(.md/.mdx)도 해소되어 `Ds2.LlmAgent.Tests` 는 449 전부 통과한다.
 
 > 알려진 선행 실패(Phase 1 무관): `Ds2.LlmAgent.Tests`의 `PromptCanaryTests`가 prompt 파일을 `.md`로 참조하나 실제 파일은 `.mdx`라 3건 실패한다. 코드 변경 전부터 깨진 상태이며 Phase 4(Promaker protocol docs, prompt 파일 취급) 또는 별도 작업에서 `.md`↔`.mdx` 정합으로 해소한다.
 
@@ -17,7 +17,7 @@
 | 1. Protocol foundation | 완료 | `AutoAux` 기본 타입 보정, condition object unknown-key diagnostics, Work condition 정책 | `ModelProtocol.fs`, `ModelProtocolTests.fs` | LlmAgent protocol tests 통과, legacy nested child type 보존 |
 | 2. ValueSpec / `eq` | 완료 | leaf `eq` parse/emit, `InputSpec` round-trip, fallback 표현 | protocol/helper 코드, tests | `eq` 타입 추론과 unsupported fallback tests 통과 |
 | 3. Multi-root emit | 완료 | `Conditions.[0]` emit 제거, 같은 `ConditionType` roots implicit AND 보존 | `ModelProtocol.fs`, tests | 다중 root export -> apply 의미 보존 |
-| 4. Promaker protocol docs | 미시작 | Prompt, example YAML, `yaml-protocol-v0.md` 갱신 | `yaml.md`, `flow.yaml`, `yaml-protocol-v0.md` | 문서의 canonical key와 examples가 protocol tests와 일치 |
+| 4. Promaker protocol docs | 완료 | Prompt, example YAML, `yaml-protocol-v0.md` 갱신 | `yaml.md`, `flow.yaml`, `yaml-protocol-v0.md` | 문서의 canonical key와 examples가 protocol tests와 일치 |
 | 5. JsonFormatter docs | 미시작 | `json-format.md` stale field 정정, STJ/AASX 명칭 구분, Builder helper 설명 | `json-format.md` | `isRising` 제거, `isInverted`/Runtime 평가/명칭 정정 반영 |
 | 6. Editor formula projection | 미시작 | `IsInverted`, `ContactKind`, empty condition 표시 정책 반영 | `ConditionFormulaProjection.fs`, projection tests | 표시 테스트 통과 |
 | 7. Apps regression | 미시작 | Promaker, Core/Editor, AASX/Runtime 간접 회귀 확인 | test 결과, 필요 시 docs 보강 | 지정 test set 통과 또는 미실행 사유 기록 |
@@ -191,6 +191,7 @@
   - Core/Editor condition tests 회귀 확인.
   - Core/AASX payload 변경이 없다면 다른 Apps는 smoke test 중심으로 확인한다.
   - Phase 2 검열 Minor 후속 검토: `eq` emit→re-parse 비대칭. condition leaf에 typed inputSpec으로 Single 숫자를 직접 주고 그 `ApiDef`를 참조하는 어떤 `ApiCall`도 타입 metadata가 없으면, emit은 `eq` scalar로 내보내나 re-parse가 hint 부재로 거부(잠재 data loss). 좁은 정수(Int8/Int16/UInt8/UInt16)·실수 Single의 case 손실이 원인. fallback 정책(좁은/실수 Single을 `inputSpec` raw DU로 보존 vs 현 동작 유지 + round-trip 테스트 박제)을 결정한다. 현 테스트/통상 경로에서는 미발생.
+  - Phase 4 후속 cleanup: `Ds2.LlmAgent/ModelingCategory.fs` docstring(A_Modeling 분류 주석 등, 약 line 13/74)의 stale `SkipInputSensor` / `callCondition` 표기를 코드 실제와 정합한다(폐기 키 제거, `condition`/`Condition` 표기). 기능 영향 없는 주석 정정.
 - 수정 예상 파일:
   - 필요 시 `Apps/Promaker/Promaker/LlmAgent/Tools/ModelTools.cs`
   - 필요 시 `Apps/Promaker/Promaker/ViewModels/PropertyPanel/CallPanel.Conditions.cs`

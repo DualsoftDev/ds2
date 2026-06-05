@@ -123,9 +123,9 @@ LLM 의 강점과 약점을 다시 정리:
 | **`view` flag 정책 (Phase 6)** | export 결과 = 항상 `view: full` 또는 `view: partial` 명시. apply / validate 입력 = `view: partial` 거부 / `view: full` 허용 (자기 round-trip 시나리오) / 부재도 허용 (사용자 직접 작성 YAML / legacy 호환). `view: <other>` ERROR. partial 결과는 view-only — apply/validate 재입력 거부 (alias fallback / cross-system arrow 의 misleading 회귀 차단) |
 | **Path notation = dot 정규형 + leading `.` 절대 경로 (Phase 6 부속)** | wire 입력 dual-accept (`.` / `/` 모두 OK — 기존 `normalizePath` 동작 유지, 변경 0). 정규형 = dot. **root 절대 경로 = leading `.`** 권장 어휘 (예: `.Proj1.SysA.Flow1`). leading `.` 은 어휘 강조 prefix 일 뿐 segment 카운트에 영향 없음 (`TrimStart('.')` 진입 시 적용). 이름의 `.` 금지 invariant 유지 (변경 0) — leading `.` 와 이름 충돌 0건 |
 | **export 완결성 4분류 (Phase 7 §4.1)** | export 항목을 4분류로 정리 — **必** (모델 의미 기여, 보강 필수) / **派** (도출 가능, 보강 불필요) / **意** (의도된 lossy 4-set = GUID·position·alias·시뮬결과) / **メ** (PLC 코드 생성 메타데이터, 사용자 명시 설정 부분만 必 격상). 본 분류는 *우선순위 라벨 (高/中/低)* 와 직교 — 必 항목만 우선순위 적용. boundary handling sub-rule: ① fallback 으로 보존되는 派 의 forensic 단서는 의미 분류 의 意 우선 유지 (`Call.DevicesAlias` alias-fallback) ② PoC 가정 의존 도출 (`workDuration "첫 work 만 대표"`) 은 必 격상 ③ runtime-only / 단순 cache 는 派 ④ 4-set 명시 lossy 는 意 ⑤ PLC 코드 생성 메타는 メ — 사용자 명시 설정만 必 |
-| **Call object dual format (Phase 7 §4.1.5 — 옵션 C 채택)** | `calls:` 배열 element 표기를 **default 시 string scalar 유지 / non-default 시 object 승격** 의 dual format 으로 결정. `calls: [Z1_C1.ADV, ...]` 형태는 *모든 보강 property 가 entity-default* 일 때 그대로 보존 (legacy .yaml 호환 100%). 하나라도 non-default (`contactKind` / `skipInputSensor` / `callType` / `callCondition` / `inTag` / `outTag` 등) 가 있을 때만 `- ref: <System>.<ApiDef>` + 추가 키 형태의 object 로 승격. 사유: 기존 schema 무변경 (wire breaking 0) + apply 측 dispatcher 분기 1건 추가만 필요 + LLM 부담 0 증가 (default case 는 기존 string 그대로) + §6.3 (b) "default 생략 emit" 정책 완벽 정합. 대안 (옵션 A — object 강제 / 옵션 B — sibling 키 신설) 모두 호환성 또는 ApiDef 중복 호출 식별 불가 문제로 기각 |
+| **Call object dual format (Phase 7 §4.1.5 — 옵션 C 채택)** | `calls:` 배열 element 표기를 **default 시 string scalar 유지 / non-default 시 object 승격** 의 dual format 으로 결정. `calls: [Z1_C1.ADV, ...]` 형태는 *모든 보강 property 가 entity-default* 일 때 그대로 보존 (legacy .yaml 호환 100%). 하나라도 non-default (`contactKind` / `callType` / `condition` / `inTag` / `outTag` 등) 가 있을 때만 `- ref: <System>.<ApiDef>` + 추가 키 형태의 object 로 승격. 사유: 기존 schema 무변경 (wire breaking 0) + apply 측 dispatcher 분기 1건 추가만 필요 + LLM 부담 0 증가 (default case 는 기존 string 그대로) + §6.3 (b) "default 생략 emit" 정책 완벽 정합. 대안 (옵션 A — object 강제 / 옵션 B — sibling 키 신설) 모두 호환성 또는 ApiDef 중복 호출 식별 불가 문제로 기각 |
 | **SSOT 갱신 책임 표 — §6.1 매핑 (Phase 7)** | export 보강 작업은 SSOT 의 *여러 절 동시 갱신* 강제. todo 변경 항목 ↔ SSOT 절을 1:1 매핑하는 책임 표를 todo §6.1 에 명세. 매핑 표 9 row 모두 갱신 전에는 commit 금지 — 자가 검열 trigger ⑤ (SSOT 상수 갱신) 정합. 본 §1.7 row 자체도 매핑 표의 "전체 → §1.7" row 산출물 |
-| **Read level + modeling-level patch merge (Phase 7 §10.2 #31)** | `export_model_doc.level: "full" \| "modeling"` 인자 + apply 측 wire `level:` 키 self-tagged dispatch 도입. 분류 SSOT = `Ds2.LlmAgent.Internal.ModelingCategory` 모듈의 4 카테고리 (A_Modeling / B_Addressing / C_Meta / D_Plc). **A_Modeling**: TokenRole / ContactKind / SkipInputSensor / CallType / CallCondition / apiDetails.actionType — LLM 모델 동작 의미 직결. **B_Addressing**: IOTag (inTag / outTag) — PLC 어드레스 매핑. **C_Meta**: author / version / iri / description / workDuration — 동작 무관 메타. **D_Plc**: `plc:` sub-section 통째 (54 leaf). modeling level emit = A 만, B/C/D + workDuration + apiDetails.description 생략. modeling level apply = patch-merge mode (entity lookup-first reuse + missing 키 no-op + B/C/D 키 wire 등장 사전 거부). wire 의 `level: modeling` 키가 self-tagged — apply 측은 wire 의 level 만 보고 mode 결정 (`apply_model_doc` 에 별도 level 인자 없음). 사용자 결정 (2026-05-15): B IOTag / `workDuration` / `apiDetails.description` 모두 modeling 제외. D 회색 지대 (`waitForCompletion` / Work pulse 4 등) 도 modeling 제외 (§7 후속 결정 row 정합). silent destructive 차단 — modeling export → 기존 store 에 modeling apply 시 B/C/D 보존. sub-agent review S1 산출 (Major-1 해소): apply 에 level 인자 추가 X → wire 의 level 키 SSOT → "modeling 결과를 full apply" 경로 자체 부재 (C1 자동 해소). 본 row 의 SSOT 영향 = §2.1 top-level 키 enum +1 (`level`) / §2.4.1 신규 row 2건 (`level` / `Category` enum) / §2.6 footnote (patch DSL × modeling 상호작용) / §2.7 룰 #29~#30 신설 / §2.8 view × level 4 case 표 / §4 도구 시그니처 갱신 / §6.3 default fallback 표 확장. |
+| **Read level + modeling-level patch merge (Phase 7 §10.2 #31)** | `export_model_doc.level: "full" \| "modeling"` 인자 + apply 측 wire `level:` 키 self-tagged dispatch 도입. 분류 SSOT = `Ds2.LlmAgent.Internal.ModelingCategory` 모듈의 4 카테고리 (A_Modeling / B_Addressing / C_Meta / D_Plc). **A_Modeling**: TokenRole / ContactKind / CallType / Condition / apiDetails.actionType — LLM 모델 동작 의미 직결. **B_Addressing**: IOTag (inTag / outTag) — PLC 어드레스 매핑. **C_Meta**: author / version / iri / description / workDuration — 동작 무관 메타. **D_Plc**: `plc:` sub-section 통째 (54 leaf). modeling level emit = A 만, B/C/D + workDuration + apiDetails.description 생략. modeling level apply = patch-merge mode (entity lookup-first reuse + missing 키 no-op + B/C/D 키 wire 등장 사전 거부). wire 의 `level: modeling` 키가 self-tagged — apply 측은 wire 의 level 만 보고 mode 결정 (`apply_model_doc` 에 별도 level 인자 없음). 사용자 결정 (2026-05-15): B IOTag / `workDuration` / `apiDetails.description` 모두 modeling 제외. D 회색 지대 (`waitForCompletion` / Work pulse 4 등) 도 modeling 제외 (§7 후속 결정 row 정합). silent destructive 차단 — modeling export → 기존 store 에 modeling apply 시 B/C/D 보존. sub-agent review S1 산출 (Major-1 해소): apply 에 level 인자 추가 X → wire 의 level 키 SSOT → "modeling 결과를 full apply" 경로 자체 부재 (C1 자동 해소). 본 row 의 SSOT 영향 = §2.1 top-level 키 enum +1 (`level`) / §2.4.1 신규 row 2건 (`level` / `Category` enum) / §2.6 footnote (patch DSL × modeling 상호작용) / §2.7 룰 #29~#30 신설 / §2.8 view × level 4 case 표 / §4 도구 시그니처 갱신 / §6.3 default fallback 표 확장. |
 | **PLC metadata leaf scalar 보강 (Phase 7 §4.2 C-7.1)** | `ControlSystemProperties` / `ControlFlowProperties` / `ControlWorkProperties` / `ControlCallProperties` 의 단순 leaf scalar 를 entity 안 `plc:` sub-section 으로 emit/apply. **Wire 위치**: System / Flow / Work / Call 각 entity 안 `plc:` 키 — 4 레벨 모두 분산. Project 차원 아님 (`SubmodelProperties.fs` 의 DU 4종이 각 entity 의 `.Properties` 콜렉션에 attach). Promaker 의 "단일 active system × Primary ControlSystemProperties" 운영 패턴이 project 차원으로 보일 수 있으나 데이터 모델은 System 단위. **Default 정책**: type-default (= 빈 생성자 호출 결과) 와 다른 값만 emit. 모든 leaf default 면 `plc:` 키 자체 생략 — `§6.3 (b)` 정합. **TimeSpan 표현**: `TimeSpan.ToString("c")` = `"00:00:05"` (5초) / `"00:00:00.005"` (5 ms). ms 표현 round-trip 가능. **Runtime-only 제외 (派)**: `CurrentState` / `LastExecutionTime` / `ExecutionCount` / `ErrorCount` (Work) — 시뮬 lossy 4-set 유사. emit 안 함, apply 측은 unknown 키 진단으로 거부. **복합 collection 후속 phase (C-7.2)**: `FBTagMapPresets` (System) / `BaseAddressOverride` (Flow) / `InterlockConditions` / `SignalCounts` (Call) — wire 표현 복잡도로 분리. **Call dual format**: Call 의 plc 변경 → `callHasEnhancement` true → object 승격 (§2.2.1 정합). **partial export 정책**: depth 절단 없이 emit — entity 안 sub-section 이라 depth 영향 받음. todo §7 m7 partial 정책은 후속 phase 별도 결정 |
 | **work 간 arrow 의 system 레벨 단일화 + 기본 구조 변경 (D1~D7)** | 옛 구조는 work-arrow 를 flow 안 `arrows:` 에 욱여넣어 export(source flow 배분) / import(flow 한정 resolve) 비대칭 → **cross-flow work arrow read 실패**. 모델은 `ArrowBetweenWorks.ParentId=SystemId` (work 간 arrow = 이미 system 레벨 엔티티) 라 disk 구조도 정합화. **D1**: work 이름 = system-unique, flow 이름 = system-unique (모델은 flow-scope unique 만 보장 → 본 작업으로 import validate 충돌 검사 + export 충돌 exception 으로 신규 강제). **D2**: work 간 arrow = bare 표기 (`work -> work`). **D3**: 마이그레이션 don't care — 옛 `flow <Name>:` prefix 구조 read 지원 제거. **D4**: `arrows:` scope 분리 — system 직속 = work 간 / work 안 = call 간. **D5**: `flows:` 는 system 직속 mapping (flow별 속성 = plc 만 허용). **D6**: `works:` 는 system 직속 mapping, 각 work 에 `flow:` 속성 (Work.ParentId 복원). **D7**: export 시 system 내 동명 work 발견 → 즉시 exception (flat works mapping 의 silent overwrite 차단, 자동 rename 금지 — round-trip 보존). **SSOT 영향** = §2.2 active 구조 전면 / §2.4 arrow scope / §2.5 flow 식별 / §2.6 patch system-scope / §2.7 룰 6·11·13·13a~c·14 / §2.8 entity-level depth / §3.1~3.4 예시 / §4·§5 도구표. **코드** = `ModelProtocol.fs` (`SystemEntry.WorkIdsByName` 평탄 dict / `dispatchActiveFlows` import / export active emit + D7 / `iterSystemArrowEntries` patch / `applyPathScope`·`applyDepthCap`·`countEntities` partial) + `ModelProtocol.Mermaid.fs` (flows mapping / works 직속 그룹핑). |
 
@@ -212,7 +212,7 @@ patch:                            # (선택) 점진 mutation — 새로 만드�
         - <System>.<ApiDef>       # string scalar — 보강 0 (default 만)
         - ref: <System>.<ApiDef>     # object — non-default 보강 1개 이상
           contactKind: NcContact
-          callCondition: { ... }     # §2.2.1 참조
+          condition: { ... }         # §2.2.1 참조 (canonical key = condition. callCondition alias 미지원)
           plc: { ... }               # (선택) ControlCallProperties — §2.2.2
       arrows:                     # (선택) ArrowBetweenCalls (call 간, work 안에서만) — 같은 이름 중복 시 validate 에러
         - <System>.<ApiDef> -> <System>.<ApiDef> : <ArrowType>
@@ -231,7 +231,7 @@ patch:                            # (선택) 점진 mutation — 새로 만드�
 
 `calls:` 배열의 각 element 는 **string scalar** 또는 **object** 의 dual format 으로 표현. §1.7 "Call object dual format" 결정 정합.
 
-- **String scalar** (default case): 모든 보강 property (`contactKind` / `callCondition` / `callType` / `skipInputSensor` / `inTag` / `outTag`) 가 entity-default 일 때. 기존 schema 그대로 — legacy .yaml 호환 100%.
+- **String scalar** (default case): 모든 보강 property (`contactKind` / `condition` / `callType` / `inTag` / `outTag`) 가 entity-default 일 때. 기존 schema 그대로 — legacy .yaml 호환 100%.
 - **Object** (non-default case): 하나라도 non-default 가 있을 때. `ref` 키 필수, 나머지는 default 면 생략.
 
 ```yaml
@@ -239,19 +239,19 @@ calls:
   - Z1_C1.ADV                              # default 만 — string scalar
   - ref: Z2_C2.SENSOR                      # non-default — object
     contactKind: NcContact                 # (선택) ApiCall.ContactKind — default NoContact 면 생략
-    skipInputSensor: true                  # (선택) ApiCall.SkipInputSensor — default false 면 생략
     inTag: { name: ADV_LMT, address: X10 } # (선택) ApiCall.InTag — IOTag (Name + Address). default None
     outTag: { name: ADV, address: Y10 }    # (선택) ApiCall.OutTag — IOTag. default None
     callType: SkipIfCompleted              # (선택) SimulationCallProperties.CallType (Call.Properties 콜렉션) — default WaitForCompletion 면 생략
-    callCondition:                         # (선택) Call.CallConditions[0] — root 1개만 emit (PoC scope)
+    condition:                             # (선택) Condition root — canonical key = condition (callCondition alias 미지원)
       type: ComAux                         # (선택) AutoAux default 면 생략
-      isOR: false                          # (선택) false default 면 생략
-      isInverted: false                    # (선택) false default 면 생략
+      isOR: false                          # (선택) false default 면 생략 (true = OR, false = AND)
+      isInverted: false                    # (선택) false default 면 생략 (true = NOT)
       conditions:                          # (선택) leaf ApiCall list — recursive dual format
         - <System>.<ApiDef>                # leaf default → string scalar
         - ref: <System>.<ApiDef>           # leaf non-default → object
-          contactKind: NcContact
-      children:                            # (선택) nested CallCondition list — recursive
+          contactKind: NcContact           # (선택) leaf ContactKind — default NoContact 면 생략
+          eq: true                         # (선택) 기대값 단일 equality sugar (§2.2.1.1)
+      children:                            # (선택) nested Condition list — recursive (그룹 / NOT 중첩)
         - type: AutoAux
           conditions: [...]
           children: [...]
@@ -259,15 +259,37 @@ calls:
 
 **중복 ApiDef 호출 정합** (§1.7 "ApiDef 중복 Call 허용" 정책): object 형태 호출도 같은 ApiDef 가 N회 등장 가능 (concurrent 의미). object 마다 별개 Call entity 로 mapping.
 
-**`callCondition` 의 recursive 구조**: `CallCondition` entity (Type / IsOR / IsInverted / Conditions / Children) 의 wire 직접 mapping. `conditions` 는 ApiCall leaf list, `children` 은 nested CallCondition list. **PoC scope**: `Call.CallConditions` 가 multiple root 인 경우 첫 root 만 emit — 후속 phase 가 multiple root 정책 결정.
+**`condition` 의 recursive 구조** (canonical key = `condition`. `callCondition` alias 는 미지원 — `callCondition` 입력은 unknown-key 진단으로 거부, 룰 #14): `Condition` entity (Type / IsOR / IsInverted / Conditions / Children) 의 wire 직접 mapping.
 
-**`inTag` / `outTag` shape** (Phase 7 §4.2 C-4): `IOTag` entity (Name / Address / Description / DataType / DefaultValue) 중 **Name + Address 두 키만** wire 표현. Description / DataType (BOOL/SINT/INT/…) / DefaultValue 는 후속 phase. 두 키 모두 부재 시 apply 측이 `None` (= IOTag 미설정) 으로 처리하여 빈 IOTag instance 생성 회피. emit 측도 store 가 *Name/Address 둘 다 빈 string* 인 `Some empty` IOTag 인 경우 key 자체 skip — `Some empty ↔ None` round-trip 비대칭 차단 (외부 reviewer M-B). **`inputSpec` / `outputSpec`** (ApiCall.InputSpec / OutputSpec — `ValueSpec` union 12 case + Ranges 변형) 은 wire 표현 복잡도 때문에 **별도 phase 분리** — 본 C-4 phase scope 외.
+- `type`: `AutoAux` | `ComAux` | `SkipAction` (§2.4.1). **AutoAux default 면 생략** — *top-level Call condition* 에서 `type` 키가 부재하면 apply 시 `AutoAux` 로 보정한다 (emit 도 AutoAux 를 생략하므로 round-trip 정합). Work condition 은 `SkipAction` 만 의미가 있으며, Work 의 top-level `AutoAux` / `ComAux` 는 fail 진단으로 거부된다 (룰 #6 인접 — Work 정책).
+- `isOR`: `false` (AND) default 면 생략, `true` 면 OR.
+- `isInverted`: `false` default 면 생략, `true` 면 NOT (해당 노드 전체 부정). 별도 `not` op 노드는 없다 — NOT 은 노드 flag.
+- `conditions`: leaf `ApiCall` list (dual format — §2.2.1.1). 같은 노드의 leaf 들은 `isOR` 에 따라 AND/OR 로 결합.
+- `children`: nested `Condition` list (recursive). 그룹/중첩 NOT 표현에 사용.
+
+**multiple root = implicit AND**: 한 Call/Work 의 `Conditions` 에 *같은 `ConditionType` 의 top-level root 가 여러 개* 있으면 의미는 implicit AND 다. emit 은 root 를 1개만 내보내지 않고 **모든 root 를 보존** — 같은 타입 root 가 2개 이상이면 단일 `condition` object 의 `children` 배열로 묶어 emit 하고 (wrapper 의 `type` = 그 타입), apply 가 이를 복원해 Runtime AND 의미가 동등하게 유지된다. root 가 1개면 wrapper 없이 그대로 emit (회귀 0). 별도 `op`/`items` 표현은 신설하지 않는다 (박제 결정).
+
+**`inTag` / `outTag` shape** (Phase 7 §4.2 C-4): `IOTag` entity (Name / Address / Description / DataType / DefaultValue) 중 **Name + Address 두 키만** wire 표현. Description / DataType (BOOL/SINT/INT/…) / DefaultValue 는 후속 phase. 두 키 모두 부재 시 apply 측이 `None` (= IOTag 미설정) 으로 처리하여 빈 IOTag instance 생성 회피. emit 측도 store 가 *Name/Address 둘 다 빈 string* 인 `Some empty` IOTag 인 경우 key 자체 skip — `Some empty ↔ None` round-trip 비대칭 차단 (외부 reviewer M-B). **condition leaf 의 기대값** (`ApiCall.InputSpec` — `ValueSpec`) 은 `condition.conditions[]` 의 leaf object 에서 `eq` sugar 또는 typed `inputSpec` fallback 으로 표현한다 — §2.2.1.1 참조.
 
 **default fallback 정책 (§6.3 (b))**: emit 측이 store 값이 entity-default 와 동일 한 경우 키 자체 생략. apply 측은 키 부재 → entity-default 적용. enum 0-default (AutoAux / NoContact / WaitForCompletion / Normal) 인 경우 wire 에 등장 안 함 → silent semantic drift 차단.
 
 **wire normalization**: object{ref-only} 형태 input (보강 property 0개) 는 emit 시 **string scalar 로 압축** — 보강 1개 이상 있을 때만 object 형태 유지. 사용자가 의도적으로 object 로 작성한 wire 도 round-trip 후 *store 값 기준 canonical* 표기로 정규화 (legacy 호환 + canonical emit 일관성 trade-off — 옵션 C 의 자연 결과).
 
-**enum 라벨**: 모두 §2.4.1 "Enum 라벨 사전" 참조 — `parseCallConditionType` / `parseContactKind` / `parseCallType` / `parseApiDefActionType` 의 input.
+**enum 라벨**: 모두 §2.4.1 "Enum 라벨 사전" 참조 — `parseConditionType` / `parseContactKind` / `parseCallType` / `parseApiDefActionType` 의 input.
+
+### 2.2.1.1 condition leaf 기대값 — `eq` sugar / typed `inputSpec` fallback
+
+`condition.conditions[]` 의 leaf object 는 `{ ref, contactKind?, eq?, inputSpec? }` 형태다 (허용 키 whitelist — 그 외 키는 unknown-key 진단). leaf 의 *기대값* (`ApiCall.InputSpec` — `ValueSpec`) 을 두 방식으로 표현한다.
+
+- **`eq` — 단일 equality sugar**: leaf 가 *단일 값과 같음* (`ValueSpec.Single`) 을 표현하는 사람 친화 표기. 예: `eq: true` / `eq: 5` / `eq: "OPEN"`.
+  - **숫자 타입은 JSON token 으로 결정하지 않는다.** `5` 가 `Int32` 인지 `Int16` 인지 `Float64` 인지는 token 만으로 확정 불가하므로, **대상 `ApiDef` 의 데이터 타입 metadata** 로 결정한다. metadata 출처는 그 `ApiDef` 를 참조하는 store/plan `ApiCall` 의 `InputSpec`(우선) / `OutputSpec` ValueSpec case 다.
+  - `bool` token (`true`/`false`) 은 token 자체로 `BoolValue` 확정 — metadata 불요.
+  - `string` token 은 기본 `StringValue`. 단 대상 타입 hint 가 비-string 이면 그 타입으로 텍스트 파싱한다.
+  - **숫자 token 인데 타입 metadata 가 없으면** (예: device sugar 의 `ApiCall` 은 `InputSpec = UndefinedValue` 라 hint 부재) `Int32`/`Float64` 등을 임의로 고정하지 않고 **진단으로 거부** + typed `inputSpec` 사용을 안내한다 (박제 결정 — 폭 손실 방지).
+- **`inputSpec` — typed fallback**: `eq` 로 환원할 수 없는 경우 (`ValueSpec.Multiple` 다중값 / `ValueSpec.Ranges` 범위 / bound 포함 비교) 에 raw `ValueSpec` DU 를 그대로 받는다. 형태는 `{ Case: <ValueSpec case>, Fields: [...] }` (예: `inputSpec: { Case: Int32Value, Fields: [ { Case: Multiple, Fields: [ [1,2,3] ] } ] }`).
+- **`eq` 와 `inputSpec` 동시 지정 금지** — 둘 다 있으면 진단으로 거부 (`eq` = 단일 equality sugar, `inputSpec` = typed fallback. 하나만 사용).
+
+**emit 규칙**: leaf 의 `InputSpec` 이 `UndefinedValue` (default) 면 키 생략 → string scalar leaf 유지. `Single` 값이면 `eq` scalar 로 emit, `Multiple`/`Ranges` 면 `inputSpec` raw DU 로 emit (object 승격). 따라서 default 기대값 leaf 는 round-trip 후에도 string scalar 로 보존된다 (§6.3 (b) 정합).
 
 ### 2.2.2 `plc:` sub-section — PLC metadata (Phase 7 §4.2 C-7.1)
 
@@ -420,13 +442,13 @@ ArrowType 외 export 보강에 도입되는 enum 라벨 — `calls` object 승�
 
 | Enum | 허용 라벨 | default | 사용 위치 |
 |---|---|---|---|
-| **CallConditionType** | `AutoAux` \| `ComAux` \| `SkipAction` | `AutoAux` | `calls[].callCondition.type` |
-| **ContactKind** | `NoContact` \| `NcContact` \| `RisingPulse` \| `FallingPulse` \| `Inverter` | `NoContact` | `calls[].contactKind` + `calls[].callCondition.conditions[].contactKind` (recursive leaf) |
+| **ConditionType** | `AutoAux` \| `ComAux` \| `SkipAction` | `AutoAux` | `calls[].condition.type` (canonical key = `condition`. `callCondition` alias 미지원) |
+| **ContactKind** | `NoContact` \| `NcContact` \| `RisingPulse` \| `FallingPulse` \| `Inverter` | `NoContact` | `calls[].contactKind` + `calls[].condition.conditions[].contactKind` (recursive leaf) |
 | **CallType** | `WaitForCompletion` \| `SkipIfCompleted` | `WaitForCompletion` | `calls[].callType` |
 | **ApiDefActionType** | `Normal` \| `Push` \| `Pulse` \| `TimeTotal(<ms>)` \| `TimeAppend(<ms>)` \| `MultiAction(<count>, <ms>)` | `Normal` | `apiDetails.<ApiDef>.actionType` (Passive system) |
 | **TokenRole** | `None` \| `Source` \| `Ignore` \| `Sink` | `None` | `works.<WorkName>.tokenRole` (Phase 7 §4.2 C-6 — PoC scope: 단일 flag 만. **복합 Flags (`Source ||| Sink` 등) 가 store 에 있으면 emit 시 forensic `Combined(<int>)` 으로 표기되고 parse 측은 즉시 거부 — round-trip 불가, 의도된 제약**. 복합 표기 (`"Source|Sink"` pipe 표현 등) 는 후속 phase. **modeling level**: A_Modeling 분류이나 `Combined(n)` 라벨은 LLM 모델링 부담 회피 차원에서 emit suppress 권장 — 본 PoC 는 unsupported 라 wire 에 등장 시 즉시 거부 됨) |
 | **level** | `full` \| `modeling` | `full` (부재 시) | top-level `level:` 키 (Phase 7 §10.2 #31 — Read level + modeling patch merge). `full` = 전체 카테고리 emit / 기존 apply 동작 (entity 재생성). `modeling` = A_Modeling 만 emit / apply 측 patch-merge mode (entity lookup-first reuse + missing 키 no-op + B/C/D 키 wire 등장 사전 거부 — 룰 #29/#30). |
-| **Category** | `A_Modeling` \| `B_Addressing` \| `C_Meta` \| `D_Plc` | — | wire 의 각 키 분류 (Phase 7 §10.2 #31). `Ds2.LlmAgent.Internal.ModelingCategory.Category` DU 와 1:1. modeling level emit 대상 = `A_Modeling` 만. wire 에 직접 등장하는 enum 은 아니나 룰 #30 진단 메시지에 분류명 등장. **A_Modeling**: TokenRole / ContactKind / SkipInputSensor / CallType / CallCondition / apiDetails.actionType. **B_Addressing**: inTag / outTag (IOTag). **C_Meta**: author / version / iri / description / workDuration. **D_Plc**: `plc:` sub-section 통째 (54 leaf). 골격 키 (`protocol` / `project` / `view` / `level` / `summary` / `systems` / `system` / `kind` / `device` / `apis` / `opposing` / `flows` / `flow` (work 소속 속성) / `works` / `arrows` / `calls` / `ref` / `patch` / ArrowType) 는 카테고리 무관 — modeling 도 그대로 emit. |
+| **Category** | `A_Modeling` \| `B_Addressing` \| `C_Meta` \| `D_Plc` | — | wire 의 각 키 분류 (Phase 7 §10.2 #31). `Ds2.LlmAgent.Internal.ModelingCategory.Category` DU 와 1:1. modeling level emit 대상 = `A_Modeling` 만. wire 에 직접 등장하는 enum 은 아니나 룰 #30 진단 메시지에 분류명 등장. **A_Modeling**: TokenRole / ContactKind / CallType / Condition / apiDetails.actionType. **B_Addressing**: inTag / outTag (IOTag). **C_Meta**: author / version / iri / description / workDuration. **D_Plc**: `plc:` sub-section 통째 (54 leaf). 골격 키 (`protocol` / `project` / `view` / `level` / `summary` / `systems` / `system` / `kind` / `device` / `apis` / `opposing` / `flows` / `flow` (work 소속 속성) / `works` / `arrows` / `calls` / `ref` / `patch` / ArrowType) 는 카테고리 무관 — modeling 도 그대로 emit. |
 
 **ApiDefActionType grammar** (DU 인자 case):
 - regex: `^([A-Za-z][A-Za-z0-9]*)(?:\(\s*(\d+)(?:\s*,\s*(\d+))?\s*\))?$`
@@ -541,14 +563,14 @@ modeling level apply 는 *missing 키 = no-op* (entity 보존). 따라서 *기�
 | 13a | Work `flow:` 속성 누락 (D6) | `ERROR systems[i].works.<W>: work 의 'flow' 속성 누락 — 소속 flow 를 명시하세요.` |
 | 13b | Work `flow:` 가 미존재 flow 참조 (D6) | `ERROR systems[i].works.<W>.flow: flow '<name>' 가 발견되지 않음. 가까운 후보: {top-3 Levenshtein}.` (flow 는 같은 system 의 `flows:` mapping 에 정의돼 있어야 함) |
 | 13c | work 이름 system-unique 충돌 (import, D1) | `ERROR systems[i].works.<W>: Work 이름 '<W>' 가 system '<S>' 안에서 중복 정의되었습니다 (work 이름은 system-unique — D1).` (export 측 D7 exception 과 양방향 대칭) |
-| 14 | calls element object 안 unknown 키 (Phase 7 §4.2 C-3/C-4/C-5) | `ERROR systems[i].works.<W>.calls[j]: 키 '<key>' 인식 불가. calls object 허용 키 = ref / contactKind / skipInputSensor / inTag / outTag / callType / callCondition.` (`ref` 필수, 나머지 모두 선택 — §2.2.1) |
-| 15 | callCondition object 안 unknown 키 (Phase 7 §4.2 C-3) | `ERROR <yamlPath>.callCondition: 키 '<key>' 인식 불가. 허용 키 = type / isOR / isInverted / conditions / children.` 빈 object (`callCondition: {}`) 는 *None 정규화* — entity 미생성 (외부 reviewer M-D 반영, §2.2.1) |
-| 16 | callCondition.conditions / children 이 array 가 아님 (Phase 7 §4.2 C-3) | `ERROR <yamlPath>.callCondition.conditions: array 타입 필요 (현재 '<kind>'). leaf ApiCall list 또는 nested CallCondition list 형식 사용.` (silent skip 대신 진단 — 외부 reviewer M-F 정합) |
+| 14 | calls element object 안 unknown 키 (Phase 7 §4.2 C-3/C-4/C-5) | `ERROR systems[i].works.<W>.calls[j]: 키 '<key>' 인식 불가. calls object 허용 키 = ref / contactKind / inTag / outTag / callType / condition / plc.` (`ref` 필수, 나머지 모두 선택 — §2.2.1). **canonical key = `condition`** — `callCondition` alias parse 미지원이므로 `callCondition` 키 입력은 본 룰로 거부 |
+| 15 | condition object 안 unknown 키 (Phase 1) | `ERROR <yamlPath>.condition: 키 '<key>' 인식 불가. 허용 키 = type / isOR / isInverted / conditions / children.` 빈 object (`condition: {}`) 는 *None 정규화* — entity 미생성 (외부 reviewer m-5 반영, §2.2.1). condition leaf object 의 허용 키 = `ref / contactKind / eq / inputSpec` (§2.2.1.1) — 그 외 키 거부 |
+| 16 | condition.conditions / children 이 array 가 아님 (Phase 1) | `ERROR <yamlPath>.condition.conditions: array 타입 필요 (현재 '<kind>'). leaf ApiCall list 또는 nested Condition list 형식 사용.` (silent skip 대신 진단 — 외부 reviewer M-F 정합) |
 | 17 | apiDetails entry 안 unknown 키 (Phase 7 §4.2 C-5) | `ERROR systems[i].apiDetails.<ApiDef>: 키 '<key>' 인식 불가. 허용 키 = actionType / description.` |
 | 18 | apiDetails entry 가 apis 목록에 없는 이름 (Phase 7 §4.2 C-5) | `ERROR systems[i].apiDetails.<ApiDef>: ApiDef '<ApiDef>' 가 device sugar 의 apis 목록에 없거나, device 키 부재 Passive 라 ApiDef 가 0개입니다. apis 목록과 정합시키거나 device 명시 필요.` (device 키 부재 Passive 거부 정합 — 외부 reviewer M-C, §2.3 적용 범위 제약) |
-| 19 | enum 라벨 위반 — CallConditionType / ContactKind / CallType / TokenRole (Phase 7 §4.2 C-1) | `ERROR <yamlPath>.<key>: '<value>' 인식 불가. 허용 = <라벨 list>. §2.4.1 'Enum 라벨 사전' 참조.` 단 forensic `Unknown(<int>)` / `Combined(<int>)` 표기는 parse 시 즉시 거부 (의도된 round-trip 비대칭) |
+| 19 | enum 라벨 위반 — ConditionType / ContactKind / CallType / TokenRole (Phase 7 §4.2 C-1) | `ERROR <yamlPath>.<key>: '<value>' 인식 불가. 허용 = <라벨 list>. §2.4.1 'Enum 라벨 사전' 참조.` 단 forensic `Unknown(<int>)` / `Combined(<int>)` 표기는 parse 시 즉시 거부 (의도된 round-trip 비대칭). ConditionType 의 실제 진단 메시지 = `condition type '<value>' 미지원. 허용: AutoAux\|ComAux\|SkipAction.` |
 | 20 | ApiDefActionType grammar 위반 (Phase 7 §4.2 C-1/C-5) | `ERROR <yamlPath>.actionType: '<value>' grammar 불일치. 형식: Normal / Push / Pulse / TimeTotal(<ms>) / TimeAppend(<ms>) / MultiAction(<count>, <ms>). 인자 개수는 라벨별로 0 / 1 / 2 고정.` (§2.4.1 regex 정합) |
-| 21 | `skipInputSensor` non-bool / `isOR` / `isInverted` non-bool (Phase 7 §4.2 C-3/C-4) | `ERROR <yamlPath>.<key>: bool 타입 필요 (현재 '<kind>'). true 또는 false 사용.` (silent skip 대신 진단 — 외부 reviewer M-F 정합) |
+| 21 | `isOR` / `isInverted` non-bool (Phase 7 §4.2 C-3/C-4) | `ERROR <yamlPath>.<key>: bool 타입 필요 (현재 '<kind>'). true 또는 false 사용.` (silent skip 대신 진단 — 외부 reviewer M-F 정합) |
 | 22 | `inTag` / `outTag` non-object (Phase 7 §4.2 C-4) | `ERROR <yamlPath>.<key>: object 타입 필요 (현재 '<kind>'). 허용 키 = name / address.` 빈 object (`inTag: {}`) 는 *None 정규화* — IOTag 미설정 (외부 reviewer M-B, §2.2.1) |
 | 23 | `tokenRole` non-string (Phase 7 §4.2 C-6) | `ERROR <yamlPath>.tokenRole: string 라벨 필요 (현재 '<kind>'). 허용 = None / Source / Ignore / Sink. 복합 Flags (Source|Sink 등) PoC scope 외 — 후속 phase 가 pipe 표기 지원.` |
 | 24 | `apiDetails` non-object (Phase 7 §4.2 C-5) | `ERROR systems[i].apiDetails: object 타입 필요 (현재 '<kind>'). 키 = ApiDef 이름, value = { actionType?, description? } object.` |
@@ -882,12 +904,12 @@ apply 측이 보강 키 부재 시 어떻게 처리할지를 명문화. `silent 
 | `apiDetails.<ApiDef>.actionType` | `ApiDefActionType.Normal` | `ApiDef.ApiDefActionType` 기본값 |
 | `apiDetails.<ApiDef>.description` | `None` (빈 string 입력은 None 으로 정규화 — 외부 reviewer M-E) | `ApiDef.Description` 기본값 |
 | `calls[].contactKind` | `ContactKind.NoContact` | `ApiCall.ContactKind` 기본값 |
-| `calls[].skipInputSensor` | `false` | `ApiCall.SkipInputSensor` 기본값 |
 | `calls[].inTag` / `outTag` | `None` (IOTag 미설정). 빈 object (`{}`) 또는 `Name`/`Address` 모두 빈 string 입력은 None 으로 정규화 (외부 reviewer M-B) | `ApiCall.InTag` / `OutTag` 기본값 |
 | `calls[].callType` | `CallType.WaitForCompletion` | `SimulationCallProperties.CallType` 기본값 |
-| `calls[].callCondition` | `Call.CallConditions` 콜렉션 변경 없음 (entity 미생성). 빈 object (`{}`) 입력은 None 정규화 (외부 reviewer M-D) | `Call.CallConditions` 기본값 (빈 콜렉션) |
-| `callCondition.type` | `CallConditionType.AutoAux` | `CallCondition.Type` 기본값 (`Panel.Condition.fs:35` 인용 source) |
-| `callCondition.isOR` / `isInverted` | `false` | `CallCondition.IsOR` / `IsInverted` 기본값 |
+| `calls[].condition` | `Call.Conditions` 콜렉션 변경 없음 (entity 미생성). 빈 object (`{}`) 입력은 None 정규화 (외부 reviewer m-5) | `Call.Conditions` 기본값 (빈 콜렉션) |
+| `calls[].condition.type` | top-level Call 은 `ConditionType.AutoAux` 로 보정 (키 부재 시) | `Condition.Type` — emit 이 AutoAux 를 생략하므로 apply 가 top-level Call 에서 보정 |
+| `calls[].condition.isOR` / `isInverted` | `false` | `Condition.IsOR` / `Condition.IsInverted` 기본값 |
+| `calls[].condition.conditions[].eq` / `inputSpec` | `UndefinedValue` (기대값 미설정 → leaf 는 string scalar) | `ApiCall.InputSpec` 기본값. `eq` = 단일 equality sugar, `inputSpec` = typed fallback (§2.2.1.1) |
 | `<entity>.plc` (4 entity — System / Flow / Work / Call) | 키 부재 → `ControlXxxProperties` instance 미생성 / 변경 없음. apply 측은 키 존재 시 *없으면 생성* + leaf 별 mutate. emit 측은 모든 leaf default 면 키 생략 (Phase 7 §4.2 C-7.1) | `ControlSystemProperties()` / `ControlFlowProperties()` / `ControlWorkProperties()` / `ControlCallProperties()` 빈 생성자 호출 결과 (§2.2.2 표 참조) |
 | `<entity>.plc.<leaf>` (각 entity 의 leaf 키 — System 23 / Flow 2 / Work 21 / Call 8) | 각 type-default (§2.2.2 표 명시) | `Control*Properties` 의 해당 member default 값 (`02_Control.fs:243-370`) |
 | **level: modeling** 시 missing 키 (Phase 7 §10.2 #31) | **no-op** (기존 store 값 보존) — full 의 "default 적용" 과 차이 | entity lookup-first reuse + setter 호출 안 함. `applyStringProp` / `applyEnumProp` / `parsePlcXxx` 등 helper 가 wire 부재 시 자동 no-op (기존 동작 그대로 — 추가 분기 불요). |

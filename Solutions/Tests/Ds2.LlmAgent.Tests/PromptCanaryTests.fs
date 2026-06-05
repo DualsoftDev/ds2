@@ -23,6 +23,10 @@ let private firstLine (file: string) =
     Assert.True(File.Exists path, sprintf "prompt file missing: %s" path)
     File.ReadLines(path) |> Seq.head
 
+// 파일 확장자는 .mdx (커밋 5c4fa028 에서 .md → .mdx pure rename — 내용 무변경).
+// 단 파일 *내부* canary 문자열의 pong 토큰은 rename 시 그대로 유지되어 'Prompts/<name>.md' 표기 — LLM 진단 trigger 규약 보존.
+// 따라서 파일 열기는 .mdx, canary pong 문자열 검증은 파일 내용 그대로 (.md) 유지.
+
 [<Fact>]
 let ``1.entities.mdx 첫 줄에 canary pong 표기`` () =
     let line = firstLine "1.entities.mdx"
