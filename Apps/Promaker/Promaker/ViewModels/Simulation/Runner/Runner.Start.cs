@@ -90,7 +90,12 @@ public partial class SimulationPanelState
 
             // v10 §12 — ApiDef/ApiCall V1~V6 invariant 점검. Error 면 시뮬 시작 중단, Warning 은 로그.
             var v10Issues = V10ValidationBatch.validateStore(Store);
-            var v10Errors = v10Issues.Where(i => i.Severity.IsError).ToList();
+            // Simulation 모드는 가상 시뮬레이션이라 실 I/O 신호가 불필요 — V1(Real⇒OutTag)/V2(Real⇒InTag)
+            // invariant 를 면제해 I/O 미설정 모델도 시뮬 가능하게 연다. Control/Monitoring 은 실 I/O 가 진실원이라 그대로 강제.
+            var v10Errors = v10Issues
+                .Where(i => i.Severity.IsError)
+                .Where(i => !(SelectedRuntimeMode == RuntimeMode.Simulation && (i.Rule == "V1" || i.Rule == "V2")))
+                .ToList();
             var v10Warnings = v10Issues.Where(i => i.Severity.IsWarning).ToList();
             foreach (var w in v10Warnings)
                 AddSimLog($"[v10 {w.Rule}] {w.Message}", LogSeverity.Warn);

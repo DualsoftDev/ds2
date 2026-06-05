@@ -126,7 +126,7 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
             false
     let canStartWork workGuid = WorkConditionChecker.canStartWork index (stateManager.GetState()) workGuid
     let canStartCall callGuid = WorkConditionChecker.canStartCall index (stateManager.GetState()) callGuid
-    let canCompleteCall callGuid = WorkConditionChecker.canCompleteCall index (stateManager.GetState()) callGuid
+    let canCompleteCall callGuid = WorkConditionChecker.canCompleteCall index (stateManager.GetState()) callGuid (runtimeMode = RuntimeMode.Simulation)
     let shouldSkipCall callGuid = WorkConditionChecker.shouldSkipCall index (stateManager.GetState()) callGuid
     let shouldSkipWork workGuid = WorkConditionChecker.shouldSkipWork index (stateManager.GetState()) workGuid
     let isActiveSystemWork workGuid =
