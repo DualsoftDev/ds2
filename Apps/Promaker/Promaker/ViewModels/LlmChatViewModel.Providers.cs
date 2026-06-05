@@ -1,5 +1,7 @@
 using System;
-using System.Linq;
+using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading.Tasks;
 using Ds2.LlmAgent;
 using Promaker.Knowledge;
@@ -7,6 +9,7 @@ using Promaker.LlmAgent;
 using Llm.Shared;
 using Llm.Shared.Abstractions;
 using Llm.Shared.Api;
+using Llm.Shared.Instructions;
 using Llm.Shared.Mcp;
 using Promaker.Services;
 
@@ -21,6 +24,58 @@ public partial class LlmChatViewModel
     private static LlmProviderDeclinedException ProviderDeclined(string providerLabel, string declineReason) =>
         new($"{providerLabel} {declineReason} — provider 비활성화. 다른 provider 선택 또는 재선택 시 다이얼로그 다시 표시됩니다.");
 
+    internal static string LoadSystemPromptForProvider() =>
+        SystemPromptText.Phase1c(PromakerProfile.Instance);
+
+    internal static string LoadInstructionPromptForProvider()
+    {
+        ILlmAppProfile profile = PromakerProfile.Instance;
+        var catalog = InstructionCatalog.Discover(
+            profile.InstructionSources,
+            profile.InstructionCatalogOptions);
+        var selection = InstructionSelection.Resolve(catalog, profile.InstructionSelection);
+        return InstructionPromptComposer.Compose(
+            selection.EnabledInstructions,
+            profile.InstructionPromptComposerOptions).Text;
+    }
+
+    internal static string ComputeSystemPromptHash(string systemPrompt) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(systemPrompt)));
+
+    internal static string LoadSystemPromptHashForProvider() =>
+        ComputeSystemPromptHash(LoadSystemPromptForProvider());
+
+    internal static string LoadInstructionPromptHashForProvider() =>
+        ComputeSystemPromptHash(LoadInstructionPromptForProvider());
+
+    internal static bool IsSystemPromptRestartRequired(string? activeSystemPromptHash)
+    {
+        var pendingHash = LoadSystemPromptHashForProvider();
+        return activeSystemPromptHash is null
+               || !string.Equals(activeSystemPromptHash, pendingHash, StringComparison.Ordinal);
+    }
+
+    internal static bool IsInstructionPromptRestartRequired(string? activeInstructionPromptHash)
+    {
+        var pendingHash = LoadInstructionPromptHashForProvider();
+        return activeInstructionPromptHash is null
+               || !string.Equals(activeInstructionPromptHash, pendingHash, StringComparison.Ordinal);
+    }
+
+    internal static void WriteCodexInstructionsFile(string path, string systemPrompt)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, systemPrompt, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+    }
+
+    private string CreateProviderSystemPrompt()
+    {
+        var prompt = LoadSystemPromptForProvider();
+        _activeSystemPromptHash = ComputeSystemPromptHash(prompt);
+        _activeInstructionPromptHash = LoadInstructionPromptHashForProvider();
+        return prompt;
+    }
+
     private ILlmProvider CreateClaudeProvider()
     {
         // **Plan B (2026-05-27)** — 정적 12종 (Promaker 6 + LightHouse wrapper 6).
@@ -32,7 +87,7 @@ public partial class LlmChatViewModel
             mcpConfigPath: Microsoft.FSharp.Core.FSharpOption<string>.Some(_mcpConfig!.Path),
             permissionMode: Microsoft.FSharp.Core.FSharpOption<string>.Some("bypassPermissions"),
             model: Microsoft.FSharp.Core.FSharpOption<string>.None,
-            systemPrompt: Microsoft.FSharp.Core.FSharpOption<string>.Some(SystemPromptText.Phase1c(PromakerProfile.Instance)),
+            systemPrompt: Microsoft.FSharp.Core.FSharpOption<string>.Some(CreateProviderSystemPrompt()),
             strictMcpConfig: true,
             allowedTools: Microsoft.FSharp.Core.FSharpOption<string[]>.Some(allowed),
             channelCapacity: 256,
@@ -58,17 +113,18 @@ public partial class LlmChatViewModel
         if (!LlmConfig.EnsureCodexConsent())
             throw ProviderDeclined("Codex", "추가 권한 (danger-full-access sandbox) 동의 미완료");
 
-        // 워크스페이스 디렉토리 + instructions 파일 lazy 생성 (Codex 첫 선택 시점), DisposeAsync 에서 일괄 삭제.
-        // experimental_instructions_file 은 path 만 받음 → Phase1c 본문을 워크스페이스 안 .md 파일에 쓰고 path 전달.
+        // 워크스페이스 디렉토리 lazy 생성, instructions 파일은 provider 생성 때마다 덮어쓰기.
+        // experimental_instructions_file 은 path 만 받음 → stale instructions.md 재사용 차단.
         if (_codexWorkspacePath == null)
         {
             _codexWorkspacePath = System.IO.Path.Combine(
                 System.IO.Path.GetTempPath(), "Promaker", $"codex-workspace-{Guid.NewGuid():N}");
             System.IO.Directory.CreateDirectory(_codexWorkspacePath);
             _codexInstructionsPath = System.IO.Path.Combine(_codexWorkspacePath, "instructions.md");
-            System.IO.File.WriteAllText(_codexInstructionsPath, SystemPromptText.Phase1c(PromakerProfile.Instance), System.Text.Encoding.UTF8);
             Log.Info($"Codex 워크스페이스 격리 디렉토리 생성 — {_codexWorkspacePath}");
         }
+        _codexInstructionsPath ??= System.IO.Path.Combine(_codexWorkspacePath, "instructions.md");
+        WriteCodexInstructionsFile(_codexInstructionsPath, CreateProviderSystemPrompt());
 
         var configOverrides = new[]
         {
@@ -109,7 +165,7 @@ public partial class LlmChatViewModel
         return await ApiProviderFactory.CreateAnthropicAsync(
             apiKey: apiKey,
             model: _config.AnthropicModel,
-            systemPrompt: SystemPromptText.Phase1c(PromakerProfile.Instance),
+            systemPrompt: CreateProviderSystemPrompt(),
             mcpServerUrl: _mcpHost.ServerUrl,
             mcpNonce: _mcpHost.HandshakeNonce).ConfigureAwait(true);
     }
@@ -125,7 +181,7 @@ public partial class LlmChatViewModel
         return await ApiProviderFactory.CreateOpenAiAsync(
             apiKey: apiKey,
             model: _config.OpenAiModel,
-            systemPrompt: SystemPromptText.Phase1c(PromakerProfile.Instance),
+            systemPrompt: CreateProviderSystemPrompt(),
             mcpServerUrl: _mcpHost.ServerUrl,
             mcpNonce: _mcpHost.HandshakeNonce).ConfigureAwait(true);
     }
@@ -134,7 +190,7 @@ public partial class LlmChatViewModel
         await ApiProviderFactory.CreateOllamaAsync(
             baseUrl: _config.OllamaBaseUrl,
             model: _config.OllamaModel,
-            systemPrompt: SystemPromptText.Phase1c(PromakerProfile.Instance),
+            systemPrompt: CreateProviderSystemPrompt(),
             mcpServerUrl: _mcpHost.ServerUrl,
             mcpNonce: _mcpHost.HandshakeNonce).ConfigureAwait(true);
 
@@ -152,7 +208,7 @@ public partial class LlmChatViewModel
         return await ApiProviderFactory.CreateGroqAsync(
             apiKey: apiKey,
             model: model,
-            systemPrompt: SystemPromptText.Phase1c(PromakerProfile.Instance),
+            systemPrompt: CreateProviderSystemPrompt(),
             mcpServerUrl: _mcpHost.ServerUrl,
             mcpNonce: _mcpHost.HandshakeNonce).ConfigureAwait(true);
     }

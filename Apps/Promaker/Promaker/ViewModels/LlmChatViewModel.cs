@@ -88,6 +88,8 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     private string? _codexWorkspacePath;
     private string? _codexInstructionsPath;
     private ILlmProvider? _provider;
+    private string? _activeSystemPromptHash;
+    private string? _activeInstructionPromptHash;
 
     /// <summary>Consent + API key + 모델명 + base URL + DefaultProvider 통합 user-scope 설정. DPAPI 로 key 만 암호화.
     /// readonly 가 아닌 사유: <see cref="ReloadConfig"/> 가 설정 다이얼로그 close 후 새 인스턴스로 reassign.</summary>
@@ -388,8 +390,40 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     }
 
     /// <summary>
-    /// 사용자가 user prompts dir 의 *.md 를 편집한 신호. provider 재구성은 불필요 — system prompt 텍스트만 다음 호출 시
-    /// 자동 반영 (SystemPromptText.Phase1c(PromakerProfile.Instance) 가 매 호출 LoadComposed → 디스크 재읽기).
+    /// 설정 파일 snapshot 만 새로 읽는다. 작업 지침 selection-only 저장 후 stale _config.Save() 가
+    /// 최신 enabled/disabledInstructionIds 를 덮어쓰지 않도록 하되, provider/session 은 그대로 둔다.
+    /// </summary>
+    public void ReloadConfigSnapshot()
+    {
+        _config = LlmConfig.Load();
+    }
+
+    /// <summary>
+    /// 작업 지침 선택/본문 변경은 현재 provider session 에서 제거를 시도하지 않는다.
+    /// 다음 LLM 재시작 또는 provider 재생성 때 새 Phase1c prompt 가 적용된다.
+    /// </summary>
+    public void NotifyInstructionsRestartRequired()
+    {
+        if (!HasPendingSystemPromptChange())
+            return;
+
+        StatusText = "LLM 작업 지침 변경됨 — LLM 재시작 후 적용";
+    }
+
+    public string? ActiveSystemPromptHash => _activeSystemPromptHash;
+
+    public string? ActiveInstructionPromptHash => _activeInstructionPromptHash;
+
+    public bool HasPendingSystemPromptChange() =>
+        IsSystemPromptRestartRequired(_activeSystemPromptHash);
+
+    public bool HasPendingInstructionPromptChange() =>
+        _activeInstructionPromptHash is not null
+        && IsInstructionPromptRestartRequired(_activeInstructionPromptHash);
+
+    /// <summary>
+    /// 사용자가 user prompts dir 의 *.md 를 편집한 신호. Codex active provider 는 instructions file 을 즉시 덮어써
+    /// 기존 편의 경로를 유지하고, provider 재생성/재시작 시에는 모든 provider 가 새 Phase1c prompt 를 받는다.
     ///
     /// Codex provider 만 별도 처리 필요: <see cref="_codexInstructionsPath"/> 에 1회 write 한 파일을 사용하므로
     /// Refresh 시점에 동일 파일을 새 Phase1c 로 덮어쓰지 않으면 Codex 세션이 옛 prompt 그대로 사용 (provider 비대칭).
@@ -398,7 +432,9 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     {
         if (_codexInstructionsPath != null && System.IO.File.Exists(_codexInstructionsPath))
         {
-            System.IO.File.WriteAllText(_codexInstructionsPath, SystemPromptText.Phase1c(PromakerProfile.Instance), System.Text.Encoding.UTF8);
+            var prompt = LoadSystemPromptForProvider();
+            WriteCodexInstructionsFile(_codexInstructionsPath, prompt);
+            _activeSystemPromptHash = ComputeSystemPromptHash(prompt);
             Log.Info($"Codex instructions.md 재기록 (user prompts 변경 반영) — {_codexInstructionsPath}");
         }
     }
@@ -455,10 +491,17 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
     partial void OnSelectedProviderChanged(LlmProviderKind value)
     {
         if (_mcpConfig == null) return;
-        _config.DefaultProvider = value.ToString();
-        try { _config.Save(); }
+        try { _config = SaveDefaultProviderSnapshot(value); }
         catch (Exception ex) { Log.Warn("DefaultProvider 저장 실패", ex); }
         _ = ConfigureProviderAsync(value);
+    }
+
+    internal static LlmConfig SaveDefaultProviderSnapshot(LlmProviderKind value)
+    {
+        return LlmConfig.ModifyWithLock(latest =>
+        {
+            latest.DefaultProvider = value.ToString();
+        });
     }
 
 
@@ -514,6 +557,8 @@ public partial class LlmChatViewModel : ObservableObject, IAsyncDisposable
         }
         // null 화 — 재시작 시 ConfigureProviderAsync 의 이전 provider 이중 dispose / ClearSession 호출 회피 + clean 재생성.
         _provider = null;
+        _activeSystemPromptHash = null;
+        _activeInstructionPromptHash = null;
 
         _mcpConfig?.Dispose();
         _mcpConfig = null;

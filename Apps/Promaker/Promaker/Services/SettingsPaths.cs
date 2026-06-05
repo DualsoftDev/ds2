@@ -66,6 +66,9 @@ public static class SettingsPaths
     /// <summary>사용자 추가 LLM system prompt 폴더 — AppData\Dualsoft\Promaker\Prompts. *.md 자동 흡수 (PromptLoader user-tier).</summary>
     public static string UserPromptsDir => Path.Combine(AppDataRoot, "Prompts");
 
+    /// <summary>사용자 정의 LLM 작업 지침 폴더 — AppData\Dualsoft\Promaker\Instructions. 명시 승인된 항목만 instruction-tier 로 주입.</summary>
+    public static string CustomInstructionsDir => Path.Combine(AppDataRoot, "Instructions");
+
     /// <summary>v0.x 사용자 prompts 폴더 — Dualsoft 누락된 옛 경로. 부트 시 존재 감지용 (마이그레이션 안내).</summary>
     public static string LegacyUserPromptsDir => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),

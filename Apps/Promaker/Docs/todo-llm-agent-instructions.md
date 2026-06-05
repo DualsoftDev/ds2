@@ -14,7 +14,7 @@ Promaker LLM Agent 에 선택 가능한 작업 지침(Instruction set)을 도입
 | P0 | 완료 | orchestrator 문서화 / 설계 결정 잠금 | 본 문서 | 진행 표, phase 명세, 박제 결정, prompt 골격, 검증 규약 보유 |
 | P1 | 완료 | core instruction infra | `InstructionCatalog` / `InstructionSelection` / `InstructionPromptComposer` + 단위 테스트 | selected instructions 0개일 때 legacy base prompt byte-identical, deterministic ordering, fail-closed manifest/entry 검증 테스트 통과 |
 | P2 | 완료 | built-in packaging + `yaml.md` 이관 | embedded built-in `promaker-yaml` instruction, `0.domain.md` 참조 정리, csproj resource 규칙 갱신 | `yaml.md` always-on 중복 제거, default selection 으로 기존 YAML 기능 유지, toggle off 시 YAML 지침 제거 테스트 통과 |
-| P3 | 미시작 | selection UI + provider lifecycle | 작업 지침 설정 UI, selection persistence, 재시작 필요 표시, provider 재생성/Codex stale 방지 | 선택 변경 후 모든 `Phase1c` provider 에 새 effective prompt 적용, Codex `instructions.md` stale 방지 테스트 통과 |
+| P3 | 완료 | selection UI + provider lifecycle | 작업 지침 설정 UI, selection persistence, 재시작 필요 표시, provider 재생성/Codex stale 방지 | 선택 변경 후 모든 `Phase1c` provider 에 새 effective prompt 적용, Codex `instructions.md` stale 방지 테스트 통과 |
 | P4 | 미시작 | e2e regression / security / docs cleanup | provider matrix tests, custom security tests, docs/code comments drift cleanup | build/test 통과, custom instruction 이 권한을 넓히지 못함, `--orch-check` 가능 판정 |
 
 ## Phase 명세
@@ -458,13 +458,13 @@ MSBuild item 평가 기준:
 
 ### P3
 
-- [ ] Promaker 설정 UI 에 “LLM 작업 지침” 섹션, built-in toggle, custom 폴더 열기/재스캔/preview/승인 UX 를 추가한다.
-- [ ] selection persistence 파일 또는 기존 설정 저장소 확장 schema 를 구현한다.
-- [ ] 설정 창 진입, 앱 포커스 복귀, 적용/재시작 버튼 클릭 시 catalog 재스캔과 effective prompt hash 비교를 수행한다.
-- [ ] 선택 변경 또는 본문 변경 시 “LLM 재시작 후 적용” 상태를 표시한다.
-- [ ] provider 재생성 hook 을 구현하고 `ClearSession()` 단독 적용 경로를 만들지 않는다.
-- [ ] Codex provider 재생성 시 `_codexInstructionsPath` 재작성 또는 workspace 재생성으로 stale `instructions.md` 를 막는다.
-- [ ] selected instructions 가 `Phase1c` 를 받는 모든 `LlmProviderKind` 에 동일하게 base prompt 로 포함되는지 검증한다. Anthropic/OpenAI/Ollama/Groq/HKMC API, Claude CLI, Codex CLI 를 포함한다.
+- [x] Promaker 설정 UI 에 “LLM 작업 지침” 섹션, built-in toggle, custom 폴더 열기/재스캔/preview/승인 UX 를 추가한다.
+- [x] selection persistence 파일 또는 기존 설정 저장소 확장 schema 를 구현한다.
+- [x] 설정 창 진입, 앱 포커스 복귀, 적용/재시작 버튼 클릭 시 catalog 재스캔과 effective prompt hash 비교를 수행한다.
+- [x] 선택 변경 또는 본문 변경 시 “LLM 재시작 후 적용” 상태를 표시한다.
+- [x] provider 재생성 hook 을 구현하고 `ClearSession()` 단독 적용 경로를 만들지 않는다.
+- [x] Codex provider 재생성 시 `_codexInstructionsPath` 재작성 또는 workspace 재생성으로 stale `instructions.md` 를 막는다.
+- [x] selected instructions 가 `Phase1c` 를 받는 모든 `LlmProviderKind` 에 동일하게 base prompt 로 포함되는지 검증한다. Anthropic/OpenAI/Ollama/Groq/HKMC API, Claude CLI, Codex CLI 를 포함한다.
 
 ### P4
 

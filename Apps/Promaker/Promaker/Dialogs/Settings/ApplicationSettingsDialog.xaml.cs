@@ -1,13 +1,16 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Security;
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
@@ -20,6 +23,7 @@ using Promaker.LlmAgent;
 using Llm.Shared;
 using Llm.Shared.Abstractions;
 using Llm.Shared.Api;
+using Llm.Shared.Instructions;
 using Llm.Shared.Mcp;
 using Promaker.Presentation;
 using Promaker.Services;
@@ -55,10 +59,20 @@ public partial class ApplicationSettingsDialog : Window
 
     /// <summary>
     /// 사용자가 user prompts 폴더를 열어본 신호 — 폴더 안 *.md 변경 가능성. LlmConfig 자체와 무관.
-    /// 호출자는 LlmConfigChanged 와 별개로 본 flag 도 확인해 LlmChatVm.RefreshPrompts() 호출 (provider 재구성 불필요).
+    /// 호출자는 LlmConfigChanged 와 별개로 본 flag 도 확인한다. 작업 지침 변경이 없을 때만 Codex active prompt 를 즉시 재기록한다.
     /// Cancel(취소) 시에도 사용자가 이미 디스크에서 편집한 prompts 는 다음 chat 에서 반영되어야 하므로 본 flag 는 OK/Cancel 무관 적용.
     /// </summary>
     public bool UserPromptsTouched { get; private set; }
+
+    /// <summary>
+    /// 작업 지침 선택 또는 selected custom 본문 변경 감지. 호출자는 현재 provider 를 직접 건드리지 않고
+    /// LLM 재시작 필요 상태만 표시한다.
+    /// </summary>
+    public bool LlmInstructionsChanged { get; private set; }
+
+    private readonly ObservableCollection<InstructionSettingItem> _instructionItems = new();
+    private string _initialInstructionPromptHash = "";
+    private bool _customInstructionsFolderOpened;
 
     /// <summary>
     /// **D-S7-3c (s6-r31)** — DataGrid binding 의 working copy. _llmConfig.LightHouseServices 의 deep clone.
@@ -145,6 +159,7 @@ public partial class ApplicationSettingsDialog : Window
         // Cancel/X 의 경우만 평문 잔존 → 즉시 Dispose + Clear (SecureString lifetime 단축).
         // **PR2 (2026-05-27)** — SecureString Dispose 의무.
         Closed += (_, _) => DisposeAndClearPskChanges();
+        Activated += ApplicationSettingsDialog_Activated;
 
         // "Local 항목 추가" 버튼 IsEnabled 갱신 — _lhServicesWorking 의 row 추가/제거 시 자동.
         // (BaseUrl cell 편집은 INotifyPropertyChanged 미구현이라 즉시 갱신 안 됨 — click handler 내부의
@@ -320,6 +335,9 @@ public partial class ApplicationSettingsDialog : Window
         // User Prompts dir 경로 표시 (read-only) — SettingsPaths SSOT
         LlmUserPromptsDirBox.Text = SettingsPaths.UserPromptsDir;
 
+        // 작업 지침 catalog/selection — instruction tier 전용. custom 은 명시 승인 전까지 off.
+        LoadInstructionUi(_llmConfig.InstructionSelectionState, resetBaselineHash: true);
+
         // **D-S7-3c (s6-r31) — LightHouse Services DataGrid binding**.
         // _llmConfig.LightHouseServices 의 deep clone → working copy. ApplyLlmTab 시점에 _pskChanges 와 함께 commit.
         // Cancel 시 _llmConfig 무변경 (DataGrid 의 add/remove/edit 는 working copy 만 mutate).
@@ -372,9 +390,9 @@ public partial class ApplicationSettingsDialog : Window
         log4net.LogManager.GetLogger(typeof(ApplicationSettingsDialog));
 
     /// <summary>
-    /// 사용자 추가 지침 폴더를 Explorer 에서 열기. 편집은 OS 기본 .md 핸들러에 위임 (P2).
-    /// 폴더 열기 = 변경 가능성 신호 → <see cref="UserPromptsTouched"/> 마킹 (LlmConfigChanged 와 분리 — provider 재구성 회피).
-    /// 호출자(FileCommands)가 dialog close 후 LlmChatVm.RefreshPrompts() 호출 → Codex instructions.md 재기록 + 다음 chat 부터 반영.
+    /// 사용자 참고 자료 폴더를 Explorer 에서 열기. 편집은 OS 기본 .md 핸들러에 위임.
+    /// 폴더 열기 = 변경 가능성 신호 → <see cref="UserPromptsTouched"/> 마킹 (LlmConfigChanged 와 분리).
+    /// 호출자(FileCommands)는 작업 지침 변경이 없을 때만 Codex active provider 의 instructions.md 를 즉시 재기록한다.
     /// </summary>
     private void LlmOpenUserPromptsFolder_Click(object sender, RoutedEventArgs e)
     {
@@ -392,6 +410,207 @@ public partial class ApplicationSettingsDialog : Window
             DialogHelpers.Warn($"폴더를 열 수 없습니다: {dir}\n\n{ex.Message}");
         }
         UserPromptsTouched = true;
+    }
+
+    private void ApplicationSettingsDialog_Activated(object? sender, EventArgs e)
+    {
+        if (!_customInstructionsFolderOpened) return;
+        _customInstructionsFolderOpened = false;
+        LoadInstructionUi(BuildWorkingInstructionSelectionState(), resetBaselineHash: false);
+        MarkInstructionBodyChangeIfNeeded();
+    }
+
+    private void LoadInstructionUi(InstructionSelectionState selectionState, bool resetBaselineHash)
+    {
+        LlmInstructionsDirBox.Text = SettingsPaths.CustomInstructionsDir;
+
+        var selectedKey = (LlmInstructionList.SelectedItem as InstructionSettingItem)?.Key;
+        foreach (var item in _instructionItems)
+            item.PropertyChanged -= InstructionItem_PropertyChanged;
+        _instructionItems.Clear();
+
+        var catalog = DiscoverInstructionCatalog();
+        var selection = InstructionSelection.Resolve(catalog, selectionState);
+        var enabledKeys = selection.EnabledInstructions
+            .Select(e => e.Key.Value)
+            .ToHashSet(StringComparer.Ordinal);
+
+        foreach (var entry in catalog.Entries.Where(e => e.SourceKind != InstructionSourceKind.Operator))
+        {
+            var isSelected = enabledKeys.Contains(entry.Key.Value);
+            var item = new InstructionSettingItem(
+                entry,
+                isSelected,
+                entry.SourceKind == InstructionSourceKind.BuiltIn || isSelected);
+            item.PropertyChanged += InstructionItem_PropertyChanged;
+            _instructionItems.Add(item);
+        }
+        LlmInstructionList.ItemsSource = _instructionItems;
+
+        if (selectedKey is not null)
+            LlmInstructionList.SelectedItem = _instructionItems.FirstOrDefault(i => i.Key == selectedKey);
+        if (LlmInstructionList.SelectedItem is null && _instructionItems.Count > 0)
+            LlmInstructionList.SelectedIndex = 0;
+
+        if (resetBaselineHash)
+            _initialInstructionPromptHash = BuildInstructionPromptHash(selectionState);
+
+        var warnings = catalog.Warnings
+            .Concat(selection.Warnings)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        UpdateInstructionStatus(warnings);
+        UpdateInstructionPreview();
+    }
+
+    private void InstructionItem_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(InstructionSettingItem.IsSelected)) return;
+        UpdateInstructionStatus();
+    }
+
+    private static InstructionCatalog DiscoverInstructionCatalog() =>
+        InstructionCatalog.Discover(
+            PromakerProfile.Instance.InstructionSources,
+            ((ILlmAppProfile)PromakerProfile.Instance).InstructionCatalogOptions);
+
+    private InstructionSelectionState BuildWorkingInstructionSelectionState()
+    {
+        var knownKeys = _instructionItems
+            .Select(i => i.Key)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var enabled = _llmConfig.EnabledInstructionIds
+            .Where(k => !knownKeys.Contains(k))
+            .ToList();
+        var disabled = _llmConfig.DisabledInstructionIds
+            .Where(k => !knownKeys.Contains(k))
+            .ToList();
+
+        foreach (var item in _instructionItems)
+        {
+            if (item.IsBuiltIn)
+            {
+                if (item.IsSelected && !item.DefaultEnabled)
+                    enabled.Add(item.Key);
+                if (!item.IsSelected && item.DefaultEnabled)
+                    disabled.Add(item.Key);
+            }
+            else if (item.IsCustom && item.IsSelected)
+            {
+                enabled.Add(item.Key);
+            }
+        }
+
+        return new InstructionSelectionState(
+            NormalizeInstructionKeys(enabled),
+            NormalizeInstructionKeys(disabled));
+    }
+
+    private static string[] NormalizeInstructionKeys(IEnumerable<string>? values) =>
+        (values ?? Array.Empty<string>())
+        .Where(v => !string.IsNullOrWhiteSpace(v))
+        .Select(v => v.Trim())
+        .Distinct(StringComparer.Ordinal)
+        .OrderBy(v => v, StringComparer.Ordinal)
+        .ToArray();
+
+    private static bool InstructionSelectionEquals(
+        InstructionSelectionState left,
+        InstructionSelectionState right)
+    {
+        var leftEnabled = NormalizeInstructionKeys(left.EnabledInstructionIds);
+        var rightEnabled = NormalizeInstructionKeys(right.EnabledInstructionIds);
+        var leftDisabled = NormalizeInstructionKeys(left.DisabledInstructionIds);
+        var rightDisabled = NormalizeInstructionKeys(right.DisabledInstructionIds);
+        return leftEnabled.SequenceEqual(rightEnabled)
+               && leftDisabled.SequenceEqual(rightDisabled);
+    }
+
+    private static string BuildInstructionPromptHash(InstructionSelectionState selectionState)
+    {
+        var catalog = DiscoverInstructionCatalog();
+        var selection = InstructionSelection.Resolve(catalog, selectionState);
+        var prompt = InstructionPromptComposer.Compose(selection.EnabledInstructions).Text;
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(prompt)));
+    }
+
+    private void UpdateInstructionStatus(IEnumerable<string>? warnings = null)
+    {
+        var workingState = BuildWorkingInstructionSelectionState();
+        var currentHash = BuildInstructionPromptHash(workingState);
+        var changed = currentHash != _initialInstructionPromptHash
+                      || !InstructionSelectionEquals(workingState, _llmConfig.InstructionSelectionState);
+        var selectedCount = _instructionItems.Count(i => i.IsSelected);
+        var warningText = warnings is null ? "" : string.Join(" / ", warnings.Where(w => !string.IsNullOrWhiteSpace(w)).Take(3));
+        var prefix = changed
+            ? "LLM 재시작 후 적용됩니다."
+            : "현재 저장된 작업 지침과 동일합니다.";
+        LlmInstructionStatusText.Text = string.IsNullOrEmpty(warningText)
+            ? $"{prefix} 선택 {selectedCount}개."
+            : $"{prefix} 선택 {selectedCount}개. 경고: {warningText}";
+        LlmInstructionStatusText.Foreground = changed ? WarningBrush : SuccessBrush;
+    }
+
+    private void UpdateInstructionPreview()
+    {
+        if (LlmInstructionList.SelectedItem is not InstructionSettingItem item)
+        {
+            LlmInstructionPreviewBox.Text = "";
+            LlmApproveCustomInstructionButton.IsEnabled = false;
+            return;
+        }
+
+        LlmInstructionPreviewBox.Text = item.Content;
+        LlmApproveCustomInstructionButton.IsEnabled = item.IsCustom && !item.IsSelected;
+    }
+
+    private void LlmInstructionList_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
+        UpdateInstructionPreview();
+
+    private void LlmOpenInstructionsFolder_Click(object sender, RoutedEventArgs e)
+    {
+        var dir = SettingsPaths.CustomInstructionsDir;
+        Directory.CreateDirectory(dir);
+        try
+        {
+            Process.Start(new ProcessStartInfo { FileName = dir, UseShellExecute = true });
+            _log.Info($"custom instructions 폴더 열기: {dir}");
+            LlmInstructionStatusText.Text = "폴더 편집 후 앱으로 돌아오면 자동 재스캔합니다.";
+            LlmInstructionStatusText.Foreground = WarningBrush;
+        }
+        catch (Exception ex)
+        {
+            _log.Warn($"custom instructions 폴더 열기 실패: {dir}", ex);
+            DialogHelpers.Warn($"폴더를 열 수 없습니다: {dir}\n\n{ex.Message}");
+        }
+        _customInstructionsFolderOpened = true;
+    }
+
+    private void LlmRescanInstructions_Click(object sender, RoutedEventArgs e) =>
+        RescanInstructionsFromUi();
+
+    private void RescanInstructionsFromUi()
+    {
+        LoadInstructionUi(BuildWorkingInstructionSelectionState(), resetBaselineHash: false);
+        MarkInstructionBodyChangeIfNeeded();
+    }
+
+    private void MarkInstructionBodyChangeIfNeeded()
+    {
+        if (BuildInstructionPromptHash(_llmConfig.InstructionSelectionState) != _initialInstructionPromptHash)
+            LlmInstructionsChanged = true;
+    }
+
+    private void LlmApproveCustomInstruction_Click(object sender, RoutedEventArgs e)
+    {
+        if (LlmInstructionList.SelectedItem is not InstructionSettingItem { IsCustom: true } item)
+            return;
+
+        item.CanToggle = true;
+        item.IsSelected = true;
+        UpdateInstructionPreview();
+        UpdateInstructionStatus();
     }
 
     // ─── VLM (Phase 2 task D / E, s6-r20) ────────────────────────────────────
@@ -979,7 +1198,12 @@ public partial class ApplicationSettingsDialog : Window
                 System.Globalization.CultureInfo.InvariantCulture, out var parsed)
             ? Math.Max(0, parsed) : oldVlmDailyCap;
 
-        var dirty =
+        var instructionState = BuildWorkingInstructionSelectionState();
+        var instructionSelectionDirty =
+            !InstructionSelectionEquals(instructionState, _llmConfig.InstructionSelectionState);
+        var instructionPromptDirty = BuildInstructionPromptHash(instructionState) != _initialInstructionPromptHash;
+
+        var providerConfigDirty =
             newAnthropicModel != _llmConfig.AnthropicModel
             || newOpenAiModel    != _llmConfig.OpenAiModel
             || newOllamaModel    != _llmConfig.OllamaModel
@@ -991,62 +1215,75 @@ public partial class ApplicationSettingsDialog : Window
             || newVlmModel       != _llmConfig.VlmModel
             || newVlmDailyCap    != oldVlmDailyCap;
 
-        if (!dirty) return;
+        if (!providerConfigDirty && !instructionSelectionDirty)
+        {
+            LlmInstructionsChanged = instructionPromptDirty;
+            return;
+        }
 
         // **D-S7-3c (s6-r31)** — lh dirty 시 uniqueness 검증 먼저. 중복 displayName 있으면 dialog + 저장 차단.
         if (lhDirty && !ValidateLhUniqueness()) return;
 
-        _llmConfig.SetApiKey(ApiProviderFactory.AnthropicKey, newAnthropicKey);
-        _llmConfig.SetApiKey(ApiProviderFactory.OpenAiKey,    newOpenAiKey);
-        _llmConfig.AnthropicModel = newAnthropicModel;
-        _llmConfig.OpenAiModel    = newOpenAiModel;
-        _llmConfig.OllamaModel    = newOllamaModel;
-        _llmConfig.OllamaBaseUrl  = newOllamaBaseUrl;
-        _llmConfig.VlmProvider = newVlmProvider;
-        _llmConfig.VlmModel = newVlmModel;
-        _llmConfig.VisionCostGate.DailyTokenCap = newVlmDailyCap;
+        if (instructionSelectionDirty)
+            _llmConfig.SetInstructionSelection(instructionState);
 
-        // **D-S7-3c (s6-r31)** — LightHouse Services commit: working copy → _llmConfig.LightHouseServices 일괄 대체 +
-        // _pskChanges 의 평문 PSK 를 per-service entropy 로 암호화.
-        if (lhDirty)
+        if (providerConfigDirty)
         {
-            // s6-r38 P4-C.2 — Embedding UI Save 의무. lhDirty 기준 commit 안 묶음 (working copy 의 Embedding 도
-            // _lhServicesWorking 안에 deep clone 박제 정합).
-            SaveEmbeddingUiToWorking();
+            _llmConfig.SetApiKey(ApiProviderFactory.AnthropicKey, newAnthropicKey);
+            _llmConfig.SetApiKey(ApiProviderFactory.OpenAiKey,    newOpenAiKey);
+            _llmConfig.AnthropicModel = newAnthropicModel;
+            _llmConfig.OpenAiModel    = newOpenAiModel;
+            _llmConfig.OllamaModel    = newOllamaModel;
+            _llmConfig.OllamaBaseUrl  = newOllamaBaseUrl;
+            _llmConfig.VlmProvider = newVlmProvider;
+            _llmConfig.VlmModel = newVlmModel;
+            _llmConfig.VisionCostGate.DailyTokenCap = newVlmDailyCap;
 
-            _llmConfig.LightHouseServices.Clear();
-            foreach (var src in _lhServicesWorking)
+            // **D-S7-3c (s6-r31)** — LightHouse Services commit: working copy → _llmConfig.LightHouseServices 일괄 대체 +
+            // _pskChanges 의 평문 PSK 를 per-service entropy 로 암호화.
+            if (lhDirty)
             {
-                _llmConfig.LightHouseServices.Add(new LightHouseServiceConfig
+                // s6-r38 P4-C.2 — Embedding UI Save 의무. lhDirty 기준 commit 안 묶음 (working copy 의 Embedding 도
+                // _lhServicesWorking 안에 deep clone 박제 정합).
+                SaveEmbeddingUiToWorking();
+
+                _llmConfig.LightHouseServices.Clear();
+                foreach (var src in _lhServicesWorking)
                 {
-                    ServiceId = src.ServiceId,
-                    DisplayName = (src.DisplayName ?? "").Trim(),
-                    BaseUrl = (src.BaseUrl ?? "").Trim(),
-                    ApiKeyEncrypted = src.ApiKeyEncrypted ?? "",
-                    Active = src.Active,
-                    Embedding = src.Embedding is null ? null : new EmbeddingProviderConfig
+                    _llmConfig.LightHouseServices.Add(new LightHouseServiceConfig
                     {
-                        Enabled = src.Embedding.Enabled,
-                        BaseUrl = (src.Embedding.BaseUrl ?? "").Trim(),
-                        Model = (src.Embedding.Model ?? "").Trim(),
-                        Dimension = src.Embedding.Dimension,
-                    },
-                });
-            }
-            // **PR2 (2026-05-27)** — SecureString overload 호출. 박제 후 DisposeAndClearPskChanges 가 finally 정리.
-            foreach (var (sid, secure) in _pskChanges)
-            {
-                // _llmConfig.LightHouseServices 안에 sid 가 없으면 (remove 후 PSK 변경 이전) skip.
-                if (_llmConfig.LightHouseServices.Any(s => s.ServiceId == sid))
-                {
-                    _llmConfig.SetLightHousePsk(sid, secure);
+                        ServiceId = src.ServiceId,
+                        DisplayName = (src.DisplayName ?? "").Trim(),
+                        BaseUrl = (src.BaseUrl ?? "").Trim(),
+                        ApiKeyEncrypted = src.ApiKeyEncrypted ?? "",
+                        Active = src.Active,
+                        Embedding = src.Embedding is null ? null : new EmbeddingProviderConfig
+                        {
+                            Enabled = src.Embedding.Enabled,
+                            BaseUrl = (src.Embedding.BaseUrl ?? "").Trim(),
+                            Model = (src.Embedding.Model ?? "").Trim(),
+                            Dimension = src.Embedding.Dimension,
+                        },
+                    });
                 }
+                // **PR2 (2026-05-27)** — SecureString overload 호출. 박제 후 DisposeAndClearPskChanges 가 finally 정리.
+                foreach (var (sid, secure) in _pskChanges)
+                {
+                    // _llmConfig.LightHouseServices 안에 sid 가 없으면 (remove 후 PSK 변경 이전) skip.
+                    if (_llmConfig.LightHouseServices.Any(s => s.ServiceId == sid))
+                    {
+                        _llmConfig.SetLightHousePsk(sid, secure);
+                    }
+                }
+                DisposeAndClearPskChanges();
             }
-            DisposeAndClearPskChanges();
         }
 
         _llmConfig.Save();
-        LlmConfigChanged = true;
+        if (providerConfigDirty)
+            LlmConfigChanged = true;
+        if (instructionSelectionDirty || instructionPromptDirty)
+            LlmInstructionsChanged = true;
         // Phase S5c → D-S7-3c — LightHouse 변경 시 process holder 의 모든 entry 무효화 → 다음 chat 진입 시 N 개 재생성.
         if (lhDirty) LightHouseClientHolder.Invalidate();
     }

@@ -45,7 +45,7 @@ public partial class LlmChatViewModel
             apiKey: apiKey,
             baseUrl: baseUrl,
             model: cfg.ClaudeModel,
-            systemPrompt: SystemPromptText.Phase1c(PromakerProfile.Instance),
+            systemPrompt: CreateProviderSystemPrompt(),
             mcpServerUrl: _mcpHost.ServerUrl,
             mcpNonce: _mcpHost.HandshakeNonce).ConfigureAwait(true);
     }
@@ -68,7 +68,7 @@ public partial class LlmChatViewModel
             apiKey: apiKey,
             baseUrl: baseUrl,
             model: cfg.OpenAiModel,
-            systemPrompt: SystemPromptText.Phase1c(PromakerProfile.Instance),
+            systemPrompt: CreateProviderSystemPrompt(),
             mcpServerUrl: _mcpHost.ServerUrl,
             mcpNonce: _mcpHost.HandshakeNonce).ConfigureAwait(true);
     }
