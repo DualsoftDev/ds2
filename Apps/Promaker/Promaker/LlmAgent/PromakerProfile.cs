@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Reflection;
 using Llm.Shared.Abstractions;
+using Llm.Shared.Instructions;
 using Promaker.Services;
 
 namespace Promaker.LlmAgent;
@@ -13,9 +14,11 @@ namespace Promaker.LlmAgent;
 /// <item>baseline = Llm.Shared.dll 의 <c>Llm.Shared.Prompts.baseline.</c> prefix
 ///   (1.attachments / 2.knowledge-base / 3.environment)</item>
 /// <item>App overlay = Promaker.dll 의 <c>Promaker.LlmAgent.Prompts.</c> prefix
-///   (0.domain / yaml — modeling 전용, *.mdx 는 주입 제외)</item>
+///   (0.domain — mandatory base, *.mdx 는 주입 제외)</item>
+/// <item>built-in instruction = Promaker.dll 의 <c>Promaker.LlmAgent.Instructions.</c> prefix
+///   (promaker-yaml 은 defaultEnabled=true 이며 사용자가 끌 수 있음)</item>
 /// </list>
-/// PromptLoader 가 본 순서대로 concat → LLM 에 명시 주입 순서 signal.
+/// PromptLoader 가 baseline → overlay → selected instructions 순서로 concat → LLM 에 명시 주입 순서 signal.
 /// </para>
 ///
 /// <para><b>UserPromptsDir / LegacyUserPromptsDir</b>: <see cref="SettingsPaths"/> SSOT 위임.
@@ -29,6 +32,7 @@ public sealed class PromakerProfile : ILlmAppProfile
     public static PromakerProfile Instance { get; } = new();
 
     private readonly IReadOnlyList<PromptSource> _sources;
+    private readonly IReadOnlyList<InstructionSource> _instructionSources;
 
     private PromakerProfile()
     {
@@ -40,9 +44,15 @@ public sealed class PromakerProfile : ILlmAppProfile
             new PromptSource(baselineAsm, "Llm.Shared.Prompts.baseline."),
             new PromptSource(promakerAsm, "Promaker.LlmAgent.Prompts."),
         };
+        _instructionSources = new[]
+        {
+            InstructionSource.BuiltInEmbedded(promakerAsm, "Promaker.LlmAgent.Instructions."),
+        };
     }
 
     public IReadOnlyList<PromptSource> EmbeddedPromptsSources => _sources;
+
+    public IReadOnlyList<InstructionSource> InstructionSources => _instructionSources;
 
     public string UserPromptsDir => SettingsPaths.UserPromptsDir;
 

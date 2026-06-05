@@ -1,0 +1,8 @@
+{
+  "id": "promaker-yaml",
+  "displayName": "Promaker YAML 생성",
+  "description": "공정 설명을 promaker/v0 YAML로 작성하도록 지시합니다.",
+  "entry": "INSTRUCTION.md",
+  "defaultEnabled": true,
+  "order": 100
+}

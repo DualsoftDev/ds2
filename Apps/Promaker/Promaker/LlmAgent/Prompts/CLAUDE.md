@@ -10,8 +10,8 @@
 - **LLM 금지**: PLC 주소(`%IX`, `F00099`, `K02408` 등) 추론/생성 금지 — brownfield 추출기 결과만 사용
 
 ### 폴더 내 파일 안내
-- `yaml.md` — **promaker/v0 YAML 생성 주력 지침** (한국어 공정/PDF/PLC TAG → YAML, self-contained). 자동 주입.
-- `0.domain.md` — DS 모델 도메인 배경 (`yaml.md` 보조 — ArrowType 실행 의미 / 왕복=같은 Work / init call / 다중조건=AND 등). 자동 주입.
+- `../Instructions/promaker-yaml/INSTRUCTION.md` — **promaker/v0 YAML 생성 주력 작업 지침** (한국어 공정/PDF/PLC TAG → YAML, self-contained). built-in instruction 으로 기본 활성화되며 사용자가 끌 수 있음.
+- `0.domain.md` — DS 모델 도메인 배경 (`builtin:promaker-yaml` 보조 — ArrowType 실행 의미 / 왕복=같은 Work / init call / 다중조건=AND 등). mandatory base 로 자동 주입.
 - `1.entities.md` — DS / EV2 Entity 모델 핵심 구조 (Project / DsSystem / Flow / Work / Call / ApiDef / Arrow) 참조 문서. (현재 `.mdx` — 주입 제외)
 - `2.modeling.md` — 자연어 사양 → Ds2 모델 분해 도메인 룰 (§0 해석 단계 ~ §5 self-check).
 - `3.tooling.md` — Promaker MCP 도구 사용 규약 (`apply_model_doc` 주력 — 현 도구 풀세트 = 6종 = doc-level 4 + read 2. Phase 5 op-layer 일소 + Phase 6 read GUID-free 정렬 — list/describe 4종을 `export_model_doc(path?, depth?)` 로 흡수).
