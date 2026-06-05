@@ -10,6 +10,13 @@
   사용:
     powershell -NoProfile -File gitlab-issues.ps1 -ProjectPath dualsoft/helpds
     powershell -NoProfile -File gitlab-issues.ps1 -ProjectPath dualsoft/helpds -Iids 182,177
+
+  notes/첨부 (본문 없음 != 정보 없음 — #191 류 재발 방지):
+    각 issue 에 notes(댓글)·attachments(첨부 uploads) 를 포함한다.
+    - 특정 모드(-Iids): 항상 포함.
+    - 전체 모드: -IncludeNotes 스위치 ON 또는 description 이 비어있는 issue 만 자동 포함.
+    - attachments[].apiUrl 은 uploads "API" 엔드포인트. web 경로(/<ns>/<proj>/uploads/..)로
+      받으면 sign_in 리다이렉트(HTML)되니 첨부는 반드시 이 apiUrl 로 받을 것.
 #>
 [CmdletBinding()]
 param(
@@ -17,7 +24,8 @@ param(
   [string]$Iids        = "",
   [string]$RepoRoot    = "",
   [string]$PatFile     = "",
-  [string]$GitLabBase  = "http://dualsoft.co.kr:8081/api/v4"
+  [string]$GitLabBase  = "http://dualsoft.co.kr:8081/api/v4",
+  [switch]$IncludeNotes
 )
 $ErrorActionPreference = "Stop"
 
@@ -85,6 +93,54 @@ function Get-Issues {
   return ,$acc
 }
 
+# --- 특정 issue 의 notes(댓글) 조회 (Get-Issues 와 동일한 curl/UTF-8/exit 검사 규약) ---
+function Get-Notes {
+  param([int]$Iid)
+  $acc  = New-Object System.Collections.ArrayList
+  $page = 1
+  do {
+    $url = "$GitLabBase/projects/$enc/issues/$Iid/notes?per_page=100&page=$page&sort=asc"
+    $tmp = [System.IO.Path]::GetTempFileName()
+    $hdr = [System.IO.Path]::GetTempFileName()
+    [System.IO.File]::WriteAllText($hdr, "PRIVATE-TOKEN: $pat")
+    $hdrArg = "@$hdr"
+    & curl.exe -s -f --max-time 30 -H $hdrArg -o $tmp $url
+    $rc = $LASTEXITCODE
+    Remove-Item $hdr -Force -ErrorAction SilentlyContinue
+    if ($rc -ne 0) {
+      Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+      Write-Error "GitLab notes 조회 실패 (curl exit=$rc, iid=$Iid, page=$page)."
+      exit 3
+    }
+    $raw = [System.IO.File]::ReadAllText($tmp, [System.Text.Encoding]::UTF8)
+    Remove-Item $tmp -Force
+    $batch = $raw | ConvertFrom-Json
+    foreach ($it in $batch) { [void]$acc.Add($it) }
+    $page++
+  } while (@($batch).Count -eq 100)
+  return ,$acc
+}
+
+# --- 텍스트(description/note body) 에서 첨부 uploads 추출 -> apiUrl 동반 ---
+# GitLab 마크다운의 /uploads/<32hex secret>/<filename>. web 경로가 아닌 API 엔드포인트로 변환.
+function Get-UploadsFromText {
+  param([string]$Text)
+  $res = New-Object System.Collections.ArrayList
+  if (-not $Text) { return ,$res }
+  $rx = [regex]'/uploads/([0-9a-fA-F]{32})/([^\s)\]"<>]+)'
+  foreach ($m in $rx.Matches($Text)) {
+    $secret = $m.Groups[1].Value
+    $file   = $m.Groups[2].Value -replace '[.,;:!?]+$', ''   # prose 내 delimiter 없는 bare 경로의 후행 구두점 흡수 방지
+    [void]$res.Add([pscustomobject]@{
+      secret       = $secret
+      filename     = $file
+      markdownPath = $m.Value
+      apiUrl       = "$GitLabBase/projects/$enc/uploads/$secret/$file"
+    })
+  }
+  return ,$res
+}
+
 # --- 모드 분기 ---
 $targets = @()
 if ($Iids) { $targets = $Iids -split '[,\s]+' | Where-Object { $_ } | ForEach-Object { [int]$_ } }
@@ -106,14 +162,35 @@ if ($targets.Count -gt 0) {
     Sort-Object { [int]$_.iid }
 }
 
+# notes 포함 조건: 특정 모드는 항상 / 전체 모드는 -IncludeNotes 또는 본문 빈 issue (정보 누락 방지)
 $out = @($sel) | ForEach-Object {
+  $desc      = $_.description
+  $wantNotes = ($mode -eq "specific") -or $IncludeNotes -or [string]::IsNullOrWhiteSpace($desc)
+  $notesOut  = @()
+  if ($wantNotes) {
+    $rawNotes = Get-Notes -Iid ([int]$_.iid)   # Get-Issues 와 동일하게 변수로 받아 ,$acc 언랩
+    $notesOut = @(@($rawNotes) |
+      Where-Object { -not $_.system } |
+      ForEach-Object { [pscustomobject]@{ author = $_.author.name; created_at = $_.created_at; body = $_.body } })
+  }
+  # description + 모든 note body 에서 첨부 수집(중복 제거)
+  $atts = New-Object System.Collections.ArrayList
+  $seen = @{}
+  foreach ($t in (@($desc) + @($notesOut | ForEach-Object { $_.body }))) {
+    foreach ($u in (Get-UploadsFromText -Text $t)) {
+      $key = "$($u.secret)/$($u.filename)"
+      if (-not $seen.ContainsKey($key)) { $seen[$key] = $true; [void]$atts.Add($u) }
+    }
+  }
   [pscustomobject]@{
     iid         = $_.iid
     title       = $_.title
-    description = $_.description
+    description = $desc
     labels      = @($_.labels)
     issue_type  = $_.issue_type
     web_url     = $_.web_url
+    notes       = @($notesOut)
+    attachments = @($atts)
   }
 }
 
@@ -123,4 +200,4 @@ $out = @($sel) | ForEach-Object {
   total       = @($all).Count
   newCount    = @($out).Count
   issues      = @($out)
-} | ConvertTo-Json -Depth 6
+} | ConvertTo-Json -Depth 8
