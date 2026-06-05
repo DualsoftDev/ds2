@@ -49,9 +49,17 @@ powershell -NoProfile -File .claude/skills/fix/scripts/gitlab-issues.ps1 -Projec
 ```
 - **기본 모드**: open issue 중 ① 이미 처리된(`resolved`/`unsolvable`/`needs_review`) iid, ② **assignee 가 할당된 issue** 를 제외한 신규만 반환.
 - **특정 모드(`-Iids`)**: 지정 iid 만. assignee·처리 이력 무관 강제 처리(닫힌 closed issue 포함).
-- 결과 JSON: `{ projectPath, mode, total, newCount, issues:[{ iid, title, description, labels, issue_type, web_url }] }`
+- 결과 JSON: `{ projectPath, mode, total, newCount, issues:[{ iid, title, description, labels, issue_type, web_url, notes:[{author,created_at,body}], attachments:[{secret,filename,markdownPath,apiUrl}] }] }`
 - `newCount == 0` → "처리할 issue 없음" 출력 후 종료.
 - 스크립트는 `--max` 를 적용하지 않는다(전량 반환). 상한 적용은 메인의 책임(3절).
+
+> **본문(description) 없음 ≠ 정보 없음 (필수 — #191 류 재발 방지)**: GitLab issue 는 본문이 비어도 **댓글(notes)·첨부 이미지**에 핵심 요구·합의가 있는 경우가 많다(실제 #191 "속성버튼 중복" 은 본문 null, 댓글+이미지에서 작업 대상·합의가 결정됨). 따라서:
+> - `gitlab-issues.ps1` 은 위 notes/attachments 를 함께 반환한다(특정 모드 항상 / 전체 모드는 `-IncludeNotes` 또는 본문 빈 issue 자동). **description 만 보고 `unsolvable`/`needs_review` 판정 금지** — notes 와 첨부 이미지를 먼저 확인한다.
+> - **첨부 이미지는 메인이 직접 본다**: 각 `attachments[].apiUrl` 을 아래 스크립트로 받아 로컬 경로를 얻고 **Read 도구로 열어** 화면/대상을 눈으로 확인한 뒤 판단·지시한다.
+>   ```
+>   powershell -NoProfile -File .claude/skills/fix/scripts/gitlab-fetch-upload.ps1 -ApiUrl "<attachments[].apiUrl>"
+>   ```
+>   ⚠️ uploads 를 **web 경로**(`http://<host>/<ns>/<proj>/uploads/..`)로 받으면 `sign_in` 으로 리다이렉트되어 106 byte HTML 만 떨어진다. 반드시 **API 엔드포인트**(`/api/v4/projects/:id/uploads/:secret/:filename` = `apiUrl`)로 받을 것. 위 스크립트가 이 함정과 PAT/리다이렉트 검증을 캡슐화한다.
 
 ## 3. 각 issue 병렬 처리 (최대 N개 subagent)
 
@@ -62,9 +70,9 @@ powershell -NoProfile -File .claude/skills/fix/scripts/gitlab-issues.ps1 -Projec
 
 > **중단 복구**: 회차가 중간에 죽으면 종결 기록되지 않은 iid 는 fix-state.json 에 남지 않으므로, **다음 회차에서 신규로 자동 재픽업**된다(아래 1번 선정리가 잔존 worktree 충돌을 흡수). `/loop` 는 직전 실행이 끝난 뒤 다음 실행이라 동시 처리가 없어 별도 in-progress 락이 불필요하다.
 
-그 다음 issue 들을 **최대 N(기본 5)개씩 `Agent` 도구(subagent_type=general-purpose)** 로 병렬 디스패치한다. worktree 가 물리적으로 분리되어 파일 충돌이 없다. 각 subagent 에 **`<REPO>` 값**과 issue 데이터(iid/title/description/labels/web_url)와 아래 지침을 전달한다:
+그 다음 issue 들을 **최대 N(기본 5)개씩 `Agent` 도구(subagent_type=general-purpose)** 로 병렬 디스패치한다. worktree 가 물리적으로 분리되어 파일 충돌이 없다. 각 subagent 에 **`<REPO>` 값**과 issue 데이터(iid/title/description/labels/web_url)에 더해, **notes(댓글) 요약과 메인이 첨부 이미지를 Read 로 확인해 정리한 "작업 대상·합의 내용"** 을 함께 전달한다(본문이 비어도 notes/이미지에 요구가 있으므로 — 2절). 아래 지침을 전달한다:
 
-> 너는 GitLab issue **하나**를 처리한다. 입력: `<REPO>`(절대경로), iid, title/description/labels.
+> 너는 GitLab issue **하나**를 처리한다. 입력: `<REPO>`(절대경로), iid, title/description/labels, **notes 요약·이미지 분석으로 정리된 작업 대상**.
 >
 > 0. 주의: git(worktree/commit)은 진행 메시지를 **stderr 로** 출력한다 — stderr 존재를 실패로 보지 말고 **exit code 로만** 판정하라. 모든 git path 인자는 **`<REPO>/...` 절대경로**로 준다.
 > 1. 전용 worktree 준비 (**멱등 — 잔존 정리 후 생성**):
@@ -112,13 +120,13 @@ title/reason 에 따옴표·`$`·줄바꿈이 섞여도 안전하도록 **argv �
 
 **unsolvable (코드 자동해결 부적절 → 사람 판단):**
 - 기능 제안·건의("~했으면 좋겠습니다", "~기능 추가") 로 설계 의사결정이 필요한 것
-- 재현 절차·로그·대상 파일이 불명확한 것
+- **notes(댓글)·첨부 이미지까지 확인한 뒤에도** 재현 절차·로그·대상 파일이 불명확한 것 (본문만 비었다고 곧장 unsolvable 금지 — 2절)
 - 외부 시스템/장비(PLC, XG5000, 서버 설치, 하드웨어) 의존
 - UX/디자인 주관 판단이 필요한 것
 - 사양이 모호하거나 변경 범위가 과도하게 큰 것
 
 **해결 시도 가능:**
-- 명확한 버그(재현·원인·기대동작이 본문에 있음)
+- 명확한 버그(재현·원인·기대동작이 **본문 또는 notes/이미지에** 있음 — 예: #191)
 - 국소적·소규모 수정(특정 화면 텍스트, 명백한 로직 오류, null/예외 처리 등)
 - 빌드로 검증 가능한 변경
 
