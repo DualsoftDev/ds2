@@ -143,6 +143,7 @@ public sealed class ConditionItem
         ConditionId   = panel.ConditionId;
         ConditionType = panel.ConditionType;
         IsOR          = panel.IsOR;
+        IsInverted    = panel.IsInverted;
         FormulaText   = panel.FormulaText();
         Items = panel.Items
             .Select(x => new ConditionApiCallRow(callId, panel.ConditionId, x))
@@ -160,6 +161,9 @@ public sealed class ConditionItem
     public ConditionType ConditionType  { get; }
     public bool               IsOR          { get; }
     public bool               IsAND         => !IsOR;
+
+    /// <summary>NOT 플래그 — true 면 수식이 `not (...)` 로 감싸진다 (F# ConditionFormulaProjection 규약).</summary>
+    public bool               IsInverted    { get; }
     public string             FormulaText   { get; }
     public IReadOnlyList<ConditionApiCallRow> Items { get; }
     public IReadOnlyList<ConditionItem> Children { get; }
@@ -199,19 +203,23 @@ public sealed class ConditionApiCallRow : ObservableObject
         OutputSpecTypeIndex  = item.OutputSpecTypeIndex;
         InputSpecText        = item.InputSpecText;
         InputSpecTypeIndex   = item.InputSpecTypeIndex;
+        ContactKind          = item.ContactKind;
         _inputSpec           = item.InputSpec;
         // v10: SkipInputSensor 폐기 — SensingType=Virtual 로 ApiDef 차원 표현.
     }
 
-    public Guid   CallId               { get; }
-    public Guid   ConditionId          { get; }
-    public Guid   ApiCallId            { get; }
-    public string ApiCallName          { get; }
-    public string ApiDefDisplayName    { get; }
-    public string OutputSpecText       { get; }
-    public int    OutputSpecTypeIndex  { get; }
-    public string InputSpecText        { get; }
-    public int    InputSpecTypeIndex   { get; }
+    public Guid        CallId               { get; }
+    public Guid        ConditionId          { get; }
+    public Guid        ApiCallId            { get; }
+    public string      ApiCallName          { get; }
+    public string      ApiDefDisplayName    { get; }
+    public string      OutputSpecText       { get; }
+    public int         OutputSpecTypeIndex  { get; }
+    public string      InputSpecText        { get; }
+    public int         InputSpecTypeIndex   { get; }
+
+    /// <summary>접점 종류 — 수식 표기에 `/`(B접) / `(R)` / `(F)` / `*` 로 반영 (F# ConditionFormulaProjection 규약과 일치).</summary>
+    public ContactKind ContactKind          { get; }
 
     /// <summary>
     /// 시뮬 동작 중에만 채워지는 표시 — `NewFlow_clp.ADV ✓ [현재:true / 기대:true]`.

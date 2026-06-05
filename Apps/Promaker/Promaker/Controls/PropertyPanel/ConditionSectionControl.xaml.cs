@@ -219,35 +219,75 @@ internal static class FormulaColorizer
         MatchedBrush.Freeze(); MismatchBrush.Freeze(); NeutralBrush.Freeze();
     }
 
+    /// 빈 condition 의 Runtime 의미. 빈 And = true, 빈 Or = false.
+    /// (F# ConditionFormulaProjection.emptyText 와 동일 규약 — SSOT 박제 결정.)
+    private static string EmptyText(bool isOR) => isOR ? "false" : "true";
+
+    /// F# ConditionFormulaProjection.formatCondition 과 같은 표시 규약으로 inline 생성.
+    /// IsInverted -> `not (...)`, op join 공백(` & ` / ` | `), ContactKind/빈 condition 표기 일치.
     public static void BuildInlines(ConditionItem cond, InlineCollection inlines, ICommand? navigateCommand)
     {
-        if (cond.Items.Count == 0 && cond.Children.Count == 0)
+        // IsInverted 는 NOT 으로 감싼다. (F# formatCondition: isInverted -> $"not ({inner})")
+        if (cond.IsInverted)
         {
-            inlines.Add(new Run("(empty)") { Foreground = EmptyBrush, FontStyle = FontStyles.Italic });
-            return;
+            inlines.Add(new Run("not ") { Foreground = OperatorBrush, FontWeight = FontWeights.Bold });
+            inlines.Add(new Run("(") { Foreground = ParenBrush, FontWeight = FontWeights.Bold });
+            AddItems(cond, inlines, navigateCommand);
+            inlines.Add(new Run(")") { Foreground = ParenBrush, FontWeight = FontWeights.Bold });
         }
+        else
+        {
+            AddItems(cond, inlines, navigateCommand);
+        }
+    }
 
+    /// F# ConditionFormulaProjection.formatItems 대응 — items + (항등원 아닌) children 을 op 로 join.
+    private static void AddItems(ConditionItem cond, InlineCollection inlines, ICommand? navigateCommand)
+    {
         var op = cond.IsOR ? "|" : "&";
         var parts = new List<System.Action>();
 
         foreach (var item in cond.Items)
-            parts.Add(() => AddApiCallInlines(item, inlines, navigateCommand));
+            parts.Add(() => AddLeaf(item, inlines, navigateCommand));
 
         foreach (var child in cond.Children)
-            parts.Add(() => AddChildRuns(child, inlines, navigateCommand));
+        {
+            // 부모 op 의 항등원(And->true, Or->false)인 빈 자식은 의미 변화 없이 생략.
+            // (F# formatItems: childText <> emptyText isOR 일 때만 추가.)
+            if (child.FormulaText == EmptyText(cond.IsOR)) continue;
+            parts.Add(() => AddChildGroup(child, inlines, navigateCommand));
+        }
+
+        if (parts.Count == 0)
+        {
+            // 빈 condition -> Runtime 의미 그대로 (빈 And=true, 빈 Or=false).
+            inlines.Add(new Run(EmptyText(cond.IsOR)) { Foreground = EmptyBrush, FontStyle = FontStyles.Italic });
+            return;
+        }
 
         for (int i = 0; i < parts.Count; i++)
         {
             if (i > 0)
-                inlines.Add(new Run(op) { Foreground = OperatorBrush, FontWeight = FontWeights.Bold });
+                inlines.Add(new Run($" {op} ") { Foreground = OperatorBrush, FontWeight = FontWeights.Bold });
             parts[i]();
         }
-
     }
 
-    private static void AddApiCallInlines(ConditionApiCallRow item, InlineCollection inlines, ICommand? navigateCommand)
+    /// F# ConditionFormulaProjection.formatApiCallItem 대응 — ContactKind 표기 + 기대값(=spec) 표기.
+    private static void AddLeaf(ConditionApiCallRow item, InlineCollection inlines, ICommand? navigateCommand)
     {
-        // ApiCall identifier 토큰을 Hyperlink로 만들어 클릭 시 소유 Call로 이동
+        // Inverter 는 placeholder leaf (ApiCallId 무시) -> `*` 만 표기.
+        if (item.ContactKind == Ds2.Core.ContactKind.Inverter)
+        {
+            inlines.Add(new Run("*") { Foreground = OperatorBrush, FontWeight = FontWeights.Bold });
+            return;
+        }
+
+        // NcContact(B접) 은 leaf 앞에 `/` 전위.
+        if (item.ContactKind == Ds2.Core.ContactKind.NcContact)
+            inlines.Add(new Run("/") { Foreground = OperatorBrush, FontWeight = FontWeights.Bold });
+
+        // ApiCall identifier 토큰을 Hyperlink로 만들어 클릭 시 소유 Call로 이동.
         var nameRun = new Run(item.ApiDefDisplayName) { Foreground = NameBrush };
         var hyperlink = new Hyperlink(nameRun)
         {
@@ -260,15 +300,22 @@ internal static class FormulaColorizer
         };
         inlines.Add(hyperlink);
 
+        // 기대값(=spec) — UndefinedValue 는 생략. (F# baseText: spec 빈값/Undefined 면 name 만.)
         var spec = item.OutputSpecText;
         if (!string.IsNullOrEmpty(spec) && spec != ValueSpecEditorControl.UndefinedText)
         {
             inlines.Add(new Run("=") { Foreground = OperatorBrush });
             inlines.Add(new Run(spec) { Foreground = ValueBrush });
         }
+
+        // RisingPulse/FallingPulse 는 leaf 뒤에 `(R)`/`(F)` 후위.
+        if (item.ContactKind == Ds2.Core.ContactKind.RisingPulse)
+            inlines.Add(new Run("(R)") { Foreground = RisingBrush, FontWeight = FontWeights.Bold });
+        else if (item.ContactKind == Ds2.Core.ContactKind.FallingPulse)
+            inlines.Add(new Run("(F)") { Foreground = RisingBrush, FontWeight = FontWeights.Bold });
     }
 
-    private static void AddChildRuns(ConditionItem child, InlineCollection inlines, ICommand? navigateCommand)
+    private static void AddChildGroup(ConditionItem child, InlineCollection inlines, ICommand? navigateCommand)
     {
         inlines.Add(new Run("(") { Foreground = ParenBrush, FontWeight = FontWeights.Bold });
         BuildInlines(child, inlines, navigateCommand);
