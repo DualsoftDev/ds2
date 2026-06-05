@@ -884,9 +884,9 @@ public partial class ConfigEditorViewModel : ObservableObject
             // 허용 형태: ① 최상위 슬롯 배열, ② { "Slots": [...] }, ③ { "VendorSettings": { "XGK": { "Slots": [...] } } }
             var slots =
                 (node as JsonArray)
-                ?? node?["Slots"]?.AsArray()
-                ?? node?["XGK"]?["Slots"]?.AsArray()
-                ?? node?["VendorSettings"]?["XGK"]?["Slots"]?.AsArray();
+                ?? (node?["Slots"] as JsonArray)
+                ?? (node?["XGK"]?["Slots"] as JsonArray)
+                ?? (node?["VendorSettings"]?["XGK"]?["Slots"] as JsonArray);
 
             if (slots == null)
             {
