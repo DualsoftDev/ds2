@@ -37,10 +37,14 @@ function destroyIfExists(id) {
     }
 }
 
+// 다크/라이트 토글 시에만 차트를 재생성(색 재계산)하기 위한 테마 시그니처.
+function isDark() {
+    return document.documentElement.classList.contains('dark-theme');
+}
+
 // timeBuckets: [{ bucketStartIso, level, count }]
 // levels: ["Info","Warning","Error"]
 export function renderTrendChart(chartId, timeBuckets, granularity) {
-    destroyIfExists(chartId);
     const canvas = document.getElementById(chartId);
     if (!canvas) return;
 
@@ -81,7 +85,18 @@ export function renderTrendChart(chartId, timeBuckets, granularity) {
         'month': 'month',
     })[granularity] || 'day';
 
-    charts[chartId] = new Chart(canvas.getContext('2d'), {
+    // 같은 canvas·테마면 destroy+new Chart 대신 in-place 갱신 — 차트 재생성 canvas/GPU churn 방지(dashboard2 와 동일 정책).
+    const existing = charts[chartId];
+    if (existing && existing.canvas === canvas && existing._dark === isDark()) {
+        existing.data.labels = labels;
+        existing.data.datasets = datasets;
+        existing.options.scales.x.time.unit = timeUnit;
+        existing.update('none');
+        return;
+    }
+
+    destroyIfExists(chartId);
+    const chart = new Chart(canvas.getContext('2d'), {
         type: 'bar',
         data: { labels, datasets },
         options: {
@@ -109,11 +124,12 @@ export function renderTrendChart(chartId, timeBuckets, granularity) {
             },
         },
     });
+    chart._dark = isDark();
+    charts[chartId] = chart;
 }
 
 // topRows: [{ name, level, count }]
 export function renderTopChart(chartId, topRows) {
-    destroyIfExists(chartId);
     const canvas = document.getElementById(chartId);
     if (!canvas) return;
 
@@ -123,7 +139,18 @@ export function renderTopChart(chartId, topRows) {
     const counts = topRows.map(r => r.count);
     const colors = topRows.map(r => (LEVEL_COLORS[r.level] || LEVEL_COLORS.Info).fill);
 
-    charts[chartId] = new Chart(canvas.getContext('2d'), {
+    // 같은 canvas·테마면 in-place 갱신(차트 재생성 churn 방지).
+    const existing = charts[chartId];
+    if (existing && existing.canvas === canvas && existing._dark === isDark()) {
+        existing.data.labels = labels;
+        const ds = existing.data.datasets[0];
+        ds.data = counts; ds.backgroundColor = colors; ds.borderColor = colors;
+        existing.update('none');
+        return;
+    }
+
+    destroyIfExists(chartId);
+    const chart = new Chart(canvas.getContext('2d'), {
         type: 'bar',
         data: {
             labels,
@@ -149,11 +176,12 @@ export function renderTopChart(chartId, topRows) {
             },
         },
     });
+    chart._dark = isDark();
+    charts[chartId] = chart;
 }
 
 // levelCounts: { Info:N, Warning:N, Error:N }
 export function renderLevelDoughnut(chartId, levelCounts) {
-    destroyIfExists(chartId);
     const canvas = document.getElementById(chartId);
     if (!canvas) return;
 
@@ -164,7 +192,17 @@ export function renderLevelDoughnut(chartId, levelCounts) {
     const colors = labels.map(l => (LEVEL_COLORS[l] || LEVEL_COLORS.Info).fill);
     const borders = labels.map(l => (LEVEL_COLORS[l] || LEVEL_COLORS.Info).border);
 
-    charts[chartId] = new Chart(canvas.getContext('2d'), {
+    // 같은 canvas·테마면 in-place 갱신(차트 재생성 churn 방지).
+    const existing = charts[chartId];
+    if (existing && existing.canvas === canvas && existing._dark === isDark()) {
+        const ds = existing.data.datasets[0];
+        ds.data = data; ds.backgroundColor = colors; ds.borderColor = borders;
+        existing.update('none');
+        return;
+    }
+
+    destroyIfExists(chartId);
+    const chart = new Chart(canvas.getContext('2d'), {
         type: 'doughnut',
         data: {
             labels,
@@ -184,6 +222,8 @@ export function renderLevelDoughnut(chartId, levelCounts) {
             },
         },
     });
+    chart._dark = isDark();
+    charts[chartId] = chart;
 }
 
 export function downloadCsv(filename, csvContent) {

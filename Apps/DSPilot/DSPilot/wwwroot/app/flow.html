@@ -2309,7 +2309,9 @@
                             : null;
                         h._wt = ct > 0 ? (wt * 100 / ct).toFixed(1) + '%' : '--';
                     }
-                    if (this.histView === 'chart') this.$nextTick(() => this.renderHistChart());
+                    // 활성 탭이 history 일 때만 렌더 — 숨겨진(off-tab) 차트를 SignalR 틱마다 재생성하던 churn 차단.
+                    // (setTab('history') 가 탭 진입 시 렌더하므로 off-tab 갱신은 통계만 하고 시각 렌더는 생략)
+                    if (this.tab === 'history' && this.histView === 'chart') this.$nextTick(() => this.renderHistChart());
                 },
                 setHistView(v) {
                     this.histView = v;
@@ -2325,10 +2327,9 @@
                     // $refs 가 중첩 x-if mount 시 간헐적으로 비는 문제 → DOM 에서 직접 조회
                     const cv = (this.$root || document).querySelector('canvas[x-ref="cycleChart"]') || this.$refs.cycleChart;
                     if (!cv || !window.Chart) return;
-                    if (this._cycleChart) { this._cycleChart.destroy(); this._cycleChart = null; }
                     const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
                     const rows = this.visibleCycleList;
-                    if (!rows.length) return;
+                    if (!rows.length) { if (this._cycleChart) { this._cycleChart.destroy(); this._cycleChart = null; } return; }
                     const labels = rows.map(c => '#' + c.number + (c.isOpen ? ' ↻' : ''));
                     const times = rows.map(c => this.hms(new Date(c.startMs)));
                     const ratios = rows.map(c => c.ratio);
@@ -2364,8 +2365,22 @@
                         datasets.push({ type: 'line', label: '평균 CT', data: labels.map(() => avg),
                             borderColor: cRed, borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0, fill: false });
                     }
-                    const fmtMs = (s) => this.fmt(s * 1000);
-                    this._cycleChart = new Chart(cv, {
+                    // 차트 1개만 유지하고 update('none') 로 갱신 — destroy()+new Chart() canvas/GPU churn 제거.
+                    // 가변 데이터셋 수(MT/WT vs CT단일 + 평균선)는 datasets 재할당으로 reconcile. 툴팁은 chart.$ctx 로 최신값.
+                    const dctx = { labels, times, at, idle, ratios, avg };
+                    const themeSig = cAt + '|' + cIdle + '|' + cRed + '|' + grid + '|' + txt + '|' + (incompleteFallback ? 1 : 0);
+                    const ex = this._cycleChart;
+                    if (ex && ex.canvas === cv && ex._themeSig === themeSig) {
+                        ex.$ctx = dctx;
+                        ex.data.labels = labels;
+                        ex.data.datasets = datasets;
+                        ex.update('none');
+                        return;
+                    }
+                    if (ex) { ex.destroy(); this._cycleChart = null; }
+                    const self = this;
+                    const fmtMs = (s) => self.fmt(s * 1000);
+                    const ch = new Chart(cv, {
                         type: 'bar',
                         data: { labels, datasets },
                         options: {
@@ -2376,16 +2391,16 @@
                                 tooltip: {
                                     filter: (it) => it.dataset.type !== 'line' && (it.parsed.y || 0) > 0,
                                     callbacks: {
-                                    title: (items) => labels[items[0].dataIndex] + ' · ' + (times[items[0].dataIndex] || ''),
+                                    title: (items) => { const x = items[0].chart.$ctx, i = items[0].dataIndex; return x.labels[i] + ' · ' + (x.times[i] || ''); },
                                     label: (c) => `${c.dataset.label}: ${fmtMs(c.parsed.y || 0)}`,
                                     afterBody: (items) => {
-                                        const idx = items[0].dataIndex;
-                                        const atVal = at[idx] ?? 0;
-                                        const idleVal = idle[idx] ?? 0;
+                                        const x = items[0].chart.$ctx, idx = items[0].dataIndex;
+                                        const atVal = x.at[idx] ?? 0;
+                                        const idleVal = x.idle[idx] ?? 0;
                                         const ctVal = atVal + idleVal;
-                                        const r = ratios[idx];
+                                        const r = x.ratios[idx];
                                         const lines = ['CT (전체): ' + fmtMs(ctVal)];
-                                        if (avg != null) lines.push('평균 CT: ' + fmtMs(avg));
+                                        if (x.avg != null) lines.push('평균 CT: ' + fmtMs(x.avg));
                                         if (r !== null) lines.push('가동률: ' + r + '%');
                                         return lines;
                                     },
@@ -2397,12 +2412,14 @@
                             },
                         },
                     });
+                    ch.$ctx = dctx;
+                    ch._themeSig = themeSig;
+                    this._cycleChart = ch;
                 },
                 renderHistChart() {
                     // $refs 가 중첩 x-if mount 시 간헐적으로 비는 문제 → DOM 에서 직접 조회
                     const cv = (this.$root || document).querySelector('canvas[x-ref="histChart"]') || this.$refs.histChart;
                     if (!cv || !window.Chart) return;
-                    if (this._histChart) { this._histChart.destroy(); this._histChart = null; }
                     const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
                     const rows = this.visibleHistory.slice().reverse();
                     const times = rows.map(h => h._time || '');
@@ -2424,8 +2441,22 @@
                         datasets.push({ type: 'line', label: '평균 CT', data: labels.map(() => avg),
                             borderColor: cRed, borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0, fill: false });
                     }
-                    const fmtMs = (s) => this.fmt(s * 1000);
-                    this._histChart = new Chart(cv, {
+                    // 차트 1개만 유지하고 update('none') 로 갱신 — destroy()+new Chart() 의 canvas/GPU churn 제거(dashboard2 와 동일 정책).
+                    // 툴팁 콜백이 렌더별 배열을 클로저로 캡처하면 stale 되므로, 최신 컨텍스트는 chart.$ctx 에 실어 콜백이 거기서 읽는다.
+                    const dctx = { times, mt, wt, avg };
+                    const themeSig = txt + '|' + cMt + '|' + cWt + '|' + cRed + '|' + grid;  // 테마 바뀌면 색 갱신 위해 recreate
+                    const ex = this._histChart;
+                    if (ex && ex.canvas === cv && ex._themeSig === themeSig) {
+                        ex.$ctx = dctx;
+                        ex.data.labels = labels;
+                        ex.data.datasets = datasets;
+                        ex.update('none');
+                        return;
+                    }
+                    if (ex) { ex.destroy(); this._histChart = null; }
+                    const self = this;
+                    const fmtMs = (s) => self.fmt(s * 1000);
+                    const ch = new Chart(cv, {
                         type: 'bar',
                         data: { labels, datasets },
                         options: {
@@ -2436,13 +2467,13 @@
                                 tooltip: {
                                     filter: (it) => it.dataset.type !== 'line',
                                     callbacks: {
-                                        title: (items) => times[items[0].dataIndex] || '',
+                                        title: (items) => (items[0].chart.$ctx.times[items[0].dataIndex]) || '',
                                         label: (c) => `${c.dataset.label}: ${fmtMs(c.parsed.y || 0)}`,
                                         afterBody: (items) => {
-                                            const idx = items[0].dataIndex;
-                                            const ctVal = (mt[idx] ?? 0) + (wt[idx] ?? 0);
+                                            const x = items[0].chart.$ctx, idx = items[0].dataIndex;
+                                            const ctVal = (x.mt[idx] ?? 0) + (x.wt[idx] ?? 0);
                                             const lines = ['CT (전체): ' + fmtMs(ctVal)];
-                                            if (avg != null) lines.push('평균 CT: ' + fmtMs(avg));
+                                            if (x.avg != null) lines.push('평균 CT: ' + fmtMs(x.avg));
                                             return lines;
                                         },
                                     }
@@ -2454,6 +2485,9 @@
                             },
                         },
                     });
+                    ch.$ctx = dctx;
+                    ch._themeSig = themeSig;
+                    this._histChart = ch;
                 },
                 // ── 이상치 필터: 이 Flow 의 최소·최대 CT 범위 (팝업으로 입력) ──
                 _rangeFieldSec(field) {
