@@ -7,7 +7,7 @@
 
 ## --orch 진행 표
 
-현재 상태는 **Phase 5부터 자동 진행 가능**이다. Phase 0~4는 구현/독립 검열/테스트를 완료했다. Phase 4 에서 PromptCanary 선행 실패(.md/.mdx)도 해소되어 `Ds2.LlmAgent.Tests` 는 449 전부 통과한다.
+현재 상태는 **Phase 6부터 자동 진행 가능**이다. Phase 0~5는 구현/독립 검열/테스트를 완료했다. Phase 4 에서 PromptCanary 선행 실패(.md/.mdx)도 해소되어 `Ds2.LlmAgent.Tests` 는 449 전부 통과한다.
 
 > 알려진 선행 실패(Phase 1 무관): `Ds2.LlmAgent.Tests`의 `PromptCanaryTests`가 prompt 파일을 `.md`로 참조하나 실제 파일은 `.mdx`라 3건 실패한다. 코드 변경 전부터 깨진 상태이며 Phase 4(Promaker protocol docs, prompt 파일 취급) 또는 별도 작업에서 `.md`↔`.mdx` 정합으로 해소한다.
 
@@ -18,7 +18,7 @@
 | 2. ValueSpec / `eq` | 완료 | leaf `eq` parse/emit, `InputSpec` round-trip, fallback 표현 | protocol/helper 코드, tests | `eq` 타입 추론과 unsupported fallback tests 통과 |
 | 3. Multi-root emit | 완료 | `Conditions.[0]` emit 제거, 같은 `ConditionType` roots implicit AND 보존 | `ModelProtocol.fs`, tests | 다중 root export -> apply 의미 보존 |
 | 4. Promaker protocol docs | 완료 | Prompt, example YAML, `yaml-protocol-v0.md` 갱신 | `yaml.md`, `flow.yaml`, `yaml-protocol-v0.md` | 문서의 canonical key와 examples가 protocol tests와 일치 |
-| 5. JsonFormatter docs | 미시작 | `json-format.md` stale field 정정, STJ/AASX 명칭 구분, Builder helper 설명 | `json-format.md` | `isRising` 제거, `isInverted`/Runtime 평가/명칭 정정 반영 |
+| 5. JsonFormatter docs | 완료 | `json-format.md` stale field 정정, STJ/AASX 명칭 구분, Builder helper 설명 | `json-format.md` | `isRising` 제거, `isInverted`/Runtime 평가/명칭 정정 반영 |
 | 6. Editor formula projection | 미시작 | `IsInverted`, `ContactKind`, empty condition 표시 정책 반영 | `ConditionFormulaProjection.fs`, projection tests | 표시 테스트 통과 |
 | 7. Apps regression | 미시작 | Promaker, Core/Editor, AASX/Runtime 간접 회귀 확인 | test 결과, 필요 시 docs 보강 | 지정 test set 통과 또는 미실행 사유 기록 |
 
