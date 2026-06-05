@@ -1657,6 +1657,284 @@ let ``외부 review m-2 — 모든 default 만 있을 때 신규 키 emit 0건 (
     Assert.DoesNotContain("\"condition\"", json)
     Assert.DoesNotContain("\"apiDetails\"", json)
 
+// ─── Phase 1 (Condition 리팩터링) — AutoAux 기본 타입 보정 + unknown-key + Work 정책 ────
+//
+// SSOT: todo-refactor-condition.md "박제 결정" / Phase 1 명세 / 남은작업 1.
+// parseCondition 의 top-level Call/Work context 분리, type 생략 보정, unknown-key whitelist 검증.
+
+/// Runtime ConditionExpression tree 안 Leaf 노드 개수 — AutoAux condition 이
+/// CallAutoAuxConditions 평가 대상에 *실제로* 포함되는지 (= leaf 가 나타나는지) 측정.
+/// type 보정 누락 시 Build.fs 의 `cc.Type = Some AutoAux` 필터에서 빠져 leaf 0.
+let rec private countLeaves (expr: Ds2.Runtime.Engine.Core.ConditionExpression) : int =
+    match expr with
+    | Ds2.Runtime.Engine.Core.Const _ -> 0
+    | Ds2.Runtime.Engine.Core.Leaf _ -> 1
+    | Ds2.Runtime.Engine.Core.And xs
+    | Ds2.Runtime.Engine.Core.Or xs -> xs |> List.sumBy countLeaves
+    | Ds2.Runtime.Engine.Core.Not x -> countLeaves x
+
+// type 키 없는 top-level call condition — Cyl1.ADV 가 Cyl1.RET 조건을 가짐.
+let private autoAuxOmittedTypeYaml = """
+protocol: promaker/v0
+project: M1
+
+systems:
+  - system: Controller
+    kind: active
+    flows:
+      Run: {}
+    works:
+        Adv:
+          flow: Run
+          calls:
+            - ref: Cyl1.ADV
+              condition:
+                conditions:
+                  - Cyl1.RET
+        Ret:
+          flow: Run
+          calls: [Cyl1.RET]
+    arrows:
+        - Adv -> Ret : Start
+
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+[<Fact>]
+let ``Phase 1 — top-level call condition 의 type 생략은 Some AutoAux 로 보정`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store autoAuxOmittedTypeYaml
+    let advCall = findAdvCall store
+    Assert.Equal(1, advCall.Conditions.Count)
+    // type 키 없었지만 top-level Call → Some AutoAux 보정.
+    Assert.Equal(Some ConditionType.AutoAux, advCall.Conditions.[0].Type)
+
+[<Fact>]
+let ``Phase 1 — type 생략 condition export->apply 후 Runtime CallAutoAuxConditions 평가 대상 포함`` () =
+    // 선행 버그 회귀 lock-in: emit 이 AutoAux type 키를 생략하므로, 보정 없으면
+    // export->apply 후 Type=None 이 되어 Runtime AutoAux 평가에서 누락됨.
+    let store = DsStore()
+    let _ = parseApplyCommit store autoAuxOmittedTypeYaml
+
+    // export → 새 store 에 apply (round-trip).
+    use exported = ModelProtocol.exportToJson store
+    let store2 = DsStore()
+    let plan2 = ImportPlanBuilder()
+    let diag2, _ = ModelProtocol.apply plan2 store2 exported.RootElement
+    Assert.False(diag2.HasErrors, sprintf "round-trip diag: %s" (diag2.Format()))
+    store2.ApplyImportPlan("AutoAux round-trip", plan2.Build())
+
+    // round-trip 후에도 Type=Some AutoAux 보존 (Build.fs `cc.Type = Some AutoAux` 필터 통과 조건).
+    let advCall2 = findAdvCall store2
+    Assert.Equal(1, advCall2.Conditions.Count)
+    Assert.Equal(Some ConditionType.AutoAux, advCall2.Conditions.[0].Type)
+
+    // Runtime SimIndex build — CallAutoAuxConditions 에 leaf 가 실제로 포함되는지 직접 검증.
+    let index = Ds2.Runtime.Engine.Core.SimIndex.build store2 10
+    let autoAuxExpr = index.CallAutoAuxConditions.[advCall2.Id]
+    Assert.True(countLeaves autoAuxExpr >= 1,
+        sprintf "AutoAux condition 이 Runtime 평가 대상에서 누락 (leaf 0): %A" autoAuxExpr)
+    // ComAux/SkipAction 평가에는 안 들어가야 함 (AutoAux 전용).
+    Assert.Equal(0, countLeaves index.CallComAuxConditions.[advCall2.Id])
+    Assert.Equal(0, countLeaves index.CallSkipActionConditions.[advCall2.Id])
+
+[<Fact>]
+let ``Phase 1 — legacy nested child 의 type 생략은 None 유지 (top-level 보정과 분리)`` () =
+    // child 는 topLevel=false → type 생략 시 보정 없음 (None 유지). explicit child type 은 보존 (별도 M-E 테스트).
+    let yaml = """
+protocol: promaker/v0
+project: M1
+
+systems:
+  - system: Controller
+    kind: active
+    flows:
+      Run: {}
+    works:
+        Adv:
+          flow: Run
+          calls:
+            - ref: Cyl1.ADV
+              condition:
+                conditions:
+                  - Cyl1.RET
+                children:
+                  - conditions:
+                      - Cyl1.ADV
+
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+    let store = DsStore()
+    let _ = parseApplyCommit store yaml
+    let root = (findAdvCall store).Conditions.[0]
+    // top-level 은 AutoAux 보정.
+    Assert.Equal(Some ConditionType.AutoAux, root.Type)
+    // child 의 type 생략 → None 유지 (legacy 호환).
+    Assert.Equal(1, root.Children.Count)
+    Assert.Equal<ConditionType option>(None, root.Children.[0].Type)
+
+// ─── Phase 1 — condition object unknown-key diagnostics ─────────────────────
+
+[<Fact>]
+let ``Phase 1 — condition object 의 알 수 없는 키는 diagnostics`` () =
+    let yaml = """
+protocol: promaker/v0
+project: M1
+
+systems:
+  - system: Controller
+    kind: active
+    flows:
+      Run: {}
+    works:
+        Adv:
+          flow: Run
+          calls:
+            - ref: Cyl1.ADV
+              condition:
+                type: ComAux
+                bogusKey: 1
+                conditions:
+                  - Cyl1.RET
+
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+    let store = DsStore()
+    let diag, _, _ = parseAndApply store yaml
+    Assert.True(diag.HasErrors)
+    Assert.Contains("알 수 없는 condition 키 'bogusKey'", diag.Format())
+
+[<Fact>]
+let ``Phase 1 — callCondition 키 입력은 unknown-key diagnostics (alias parse 미지원)`` () =
+    // 박제 결정: canonical key 는 condition 만. callCondition alias parse 추가 금지 → call object 의
+    // callCondition 키는 calls object enhancement whitelist 에 없어 unknown-key 로 거부.
+    let yaml = """
+protocol: promaker/v0
+project: M1
+
+systems:
+  - system: Controller
+    kind: active
+    flows:
+      Run: {}
+    works:
+        Adv:
+          flow: Run
+          calls:
+            - ref: Cyl1.ADV
+              callCondition:
+                type: AutoAux
+                conditions:
+                  - Cyl1.RET
+
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+    let store = DsStore()
+    let diag, _, _ = parseAndApply store yaml
+    Assert.True(diag.HasErrors)
+    Assert.Contains("callCondition", diag.Format())
+
+// ─── Phase 1 — Work context top-level type 정책 (AutoAux/ComAux fail) ────────
+
+[<Fact>]
+let ``Phase 1 — Work condition 의 top-level AutoAux 는 fail diagnostics`` () =
+    let yaml = """
+protocol: promaker/v0
+project: M1
+
+systems:
+  - system: Controller
+    kind: active
+    flows:
+      Run: {}
+    works:
+        Adv:
+          flow: Run
+          calls: [Cyl1.ADV]
+          condition:
+            type: AutoAux
+            conditions:
+              - Cyl1.RET
+
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+    let store = DsStore()
+    let diag, _, _ = parseAndApply store yaml
+    Assert.True(diag.HasErrors)
+    Assert.Contains("Work condition 은 SkipAction 만 허용", diag.Format())
+
+[<Fact>]
+let ``Phase 1 — Work condition 의 top-level ComAux 는 fail diagnostics`` () =
+    let yaml = """
+protocol: promaker/v0
+project: M1
+
+systems:
+  - system: Controller
+    kind: active
+    flows:
+      Run: {}
+    works:
+        Adv:
+          flow: Run
+          calls: [Cyl1.ADV]
+          condition:
+            type: ComAux
+            conditions:
+              - Cyl1.RET
+
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+    let store = DsStore()
+    let diag, _, _ = parseAndApply store yaml
+    Assert.True(diag.HasErrors)
+    Assert.Contains("Work condition 은 SkipAction 만 허용", diag.Format())
+
+[<Fact>]
+let ``Phase 1 — Work condition 의 top-level SkipAction 은 허용`` () =
+    let yaml = """
+protocol: promaker/v0
+project: M1
+
+systems:
+  - system: Controller
+    kind: active
+    flows:
+      Run: {}
+    works:
+        Adv:
+          flow: Run
+          calls: [Cyl1.ADV]
+          condition:
+            type: SkipAction
+            conditions:
+              - Cyl1.RET
+
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+    let store = DsStore()
+    let _ = parseApplyCommit store yaml
+    let projects = Queries.allProjects store
+    let ctrl = Queries.activeSystemsOf projects.Head.Id store |> List.head
+    let runFlow = Queries.flowsOf ctrl.Id store |> List.head
+    let advWork = Queries.worksOf runFlow.Id store |> List.find (fun w -> w.LocalName = "Adv")
+    Assert.Equal(1, advWork.Conditions.Count)
+    Assert.Equal(Some ConditionType.SkipAction, advWork.Conditions.[0].Type)
+
 // ─── 외부 review M-F — shape 위반 7분기 진단 발행 (Phase 7 §4.2 후속) ───
 
 /// 진단 발행 확인 helper — yaml 적용 시 에러 진단이 *expected substring* 을 포함하는지 검증.
