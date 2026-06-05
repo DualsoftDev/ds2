@@ -32,6 +32,7 @@
     <Compile Include="StandardSubmodels\TechnicalData.fs" />
     <Compile Include="SubmodelProperties.fs" />
     <Compile Include="ValueSpec.fs" />
+    <Compile Include="ValueSpecText.fs" />
     <Compile Include="TokenTypes.fs" />
     <Compile Include="Entities.fs" />
     <Compile Include="Abnormal.fs" />
