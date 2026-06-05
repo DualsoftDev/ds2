@@ -917,6 +917,10 @@
         const CT_DONUT_COLORS_LIGHT = ['#0058be', '#0e7490', '#3b5bdb', '#0b7fa6', '#1e40af', '#0e7c86', '#5145cd', '#1d6fc0', '#15708f', '#4338ca', '#2563eb', '#0e6f9e'];
         const CT_DONUT_COLORS_DARK  = ['#4d9fff', '#22b8c9', '#7c8cf8', '#2dd4bf', '#6d9dff', '#38bdf8', '#a5b4fc', '#5ec5d6', '#818cf8', '#3b82f6', '#67d6c4', '#93a8ff'];
         const CT_DONUT_COLORS = CT_DONUT_COLORS_LIGHT; // 레거시 참조용 별칭(라이트 기본)
+        // CT 도넛 차트 상태는 Alpine 반응형 밖(팩토리 클로저)에 둔다 —
+        //  · 거대한 Chart 객체를 deep-proxy 하지 않게 하고, x-effect 의 자기참조 재발화(읽고-쓰기)를 차단
+        //  · ctChart=인스턴스, ctSig=마지막 렌더 시그니처(동일 시 redraw 생략), ctDyn=플러그인이 읽는 최신 동적상태
+        let ctChart = null, ctSig = null, ctDyn = null;
         return {
             flows: [], layout: null, hasData: false, loading: true, error: null, demoBlocked: false, dark: false,
             cardScale: 0.15,
@@ -938,13 +942,10 @@
             _drag: null,
             editToast: { show: false, msg: '', kind: 'info' },
             _editToastT: null,
-            _ctDonut: null,
             showAverage: false,
             sortField: 'ct', sortDesc: true,
             flowProcessOrder: {},
             rt: { connected: false },
-            // ── 사이드바 라인요약 / 푸터 agent 통신 (stitch 셸용, /api/nav/summary 폴링) ──
-            nav: { running: 0, idle: 0, total: 0, eff: 0, hub: 'disconnected', plcTotal: 0, plcDown: 0, anomaly: 0 },
             errorStatus: { active: 0, today: 0, latestId: null, latestAt: null, latestSystem: null, latestName: null },
             _errDismissedId: 0,
             userTagsHref: '/uptime',
@@ -952,7 +953,7 @@
             shiftForm: { start: '08:00', end: '17:00', shiftType: 'morning', targetFlow: '', targetCount: 0 },
             shiftModalOpen: false,
             nowTick: Date.now(),
-            _conn: null, _dt: null, _sysColorIdx: {}, _shiftTimer: null, _pollTimer: null, _navTimer: null,
+            _conn: null, _dt: null, _sysColorIdx: {}, _shiftTimer: null, _pollTimer: null,
 
             async init() {
                 this.dark = localStorage.getItem('dspilot-theme') === 'dark';
@@ -968,19 +969,20 @@
                 if (!isNaN(ss)) this.snapSize = Math.max(20, Math.min(240, Math.round(ss / 10) * 10));
                 await this.loadSnapshot();
                 await this.loadShift();
-                this.loadNavSummary();
                 this.connectSignalR();
                 this._pollTimer = setInterval(() => this.loadSnapshot(), 5000);
-                this._navTimer = setInterval(() => this.loadNavSummary(), 4000);
-                this._shiftTimer = setInterval(() => { this.nowTick = Date.now(); }, 1000);
+                // 시프트 카운트다운은 분 단위 표시라 1초 틱은 불필요한 reactivity churn — 15초면 충분히 라이브.
+                this._shiftTimer = setInterval(() => { this.nowTick = Date.now(); }, 15000);
                 document.addEventListener('fullscreenchange', () => {});
+                // 라인요약·연결배지·이상배지는 공통 셸(shell.js)이 /api/nav/summary 를 자체 폴링·렌더한다.
+                // dashboard2 가 같은 엔드포인트를 또 폴링하던 중복(_navTimer/loadNavSummary)은 제거했다.
             },
 
             destroy() {
                 clearInterval(this._pollTimer);
-                clearInterval(this._navTimer);
                 clearInterval(this._shiftTimer);
                 clearTimeout(this._dt);
+                if (ctChart) { ctChart.destroy(); ctChart = null; ctSig = null; ctDyn = null; }
                 this._conn?.stop();
             },
 
@@ -1004,30 +1006,6 @@
                 return await res.json();
             },
 
-            // ── 사이드바 라인요약 / 푸터 agent 통신 (shell.js 미사용 → 직접 폴링) ──
-            async loadNavSummary() {
-                try {
-                    const d = await this.apiGet('/api/nav/summary');
-                    const lines = d.lines || {}, agent = d.agent || {};
-                    this.nav = {
-                        running: lines.running || 0, idle: lines.idle || 0, total: lines.total || 0,
-                        eff: lines.efficiencyPct || 0,
-                        hub: agent.hub || 'disconnected', plcTotal: agent.plcTotal || 0, plcDown: agent.plcDisconnected || 0,
-                        anomaly: d.anomalyActiveCount || 0
-                    };
-                } catch (e) { /* 비핵심 — 마지막 값 유지 */ }
-            },
-            get hubLabel() {
-                return this.nav.hub === 'connected' ? '정상'
-                    : (this.nav.hub === 'connecting' ? '연결 중'
-                    : (this.nav.hub === 'reconnecting' ? '재연결 중' : '끊김'));
-            },
-            get plcLabel() {
-                if (this.nav.hub !== 'connected') return 'PLC 어댑터: —';
-                if (this.nav.plcTotal === 0) return 'PLC 어댑터: 보고 없음';
-                if (this.nav.plcDown > 0) return 'PLC 어댑터: ' + this.nav.plcDown + '대 끊김';
-                return 'PLC 어댑터: ' + this.nav.plcTotal + '대 연결';
-            },
 
             async loadSnapshot() {
                 try {
@@ -1494,14 +1472,18 @@
                 }
                 return hex;
             },
+            // CT 도넛: x-effect 로 데이터/hover/테마 변화 때마다 호출된다. 예전엔 매번 destroy()+new Chart() 로
+            // 차트를 통째 재생성(5초 폴링·SignalR·hover 마다) → JS 힙은 평탄해도 canvas/GPU 메모리·detached DOM 이
+            // 장시간 누적되어 브라우저 OOM 을 유발했다. 이제는 인스턴스를 1개만 유지하고 update('none') 로 in-place 갱신한다.
             renderCtDonut() {
                 const rows = this.chartData;
                 const sel = this.hoverFlowName || this.selectedFlowName;
                 const maxName = this.maxCtName;
                 const cv = this.$refs.ctDonut;
                 if (!cv || !window.Chart) return;
-                if (this._ctDonut) { this._ctDonut.destroy(); this._ctDonut = null; }
-                if (!rows.length) return;
+                // 데이터 없음: 남은 차트가 detached canvas 에 그리지 않도록 정리하고 종료.
+                if (!rows.length) { if (ctChart) { ctChart.destroy(); ctChart = null; ctSig = null; ctDyn = null; } return; }
+
                 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
                 const red = css('--red') || css('--color-error') || '#D8392B';
                 const surface = css('--color-surface') || '#ffffff';
@@ -1514,34 +1496,54 @@
                     const c = baseOf(r.flowName, i);
                     return (sel && r.flowName !== sel) ? this._hexAlpha(c, 0.28) : c;
                 });
-                const fmt = (ms) => this.fmt(ms);
+                // 플러그인이 클로저로 읽는 최신 동적상태(인스턴스에 박지 않아 stale 없음).
+                ctDyn = { labels, data, total, sel, dark };
+                // 시그니처: 시각적으로 의미있는 입력이 모두 동일하면 redraw 생략(데이터 동일한 5초 폴링 중복 방지).
+                const sig = labels.join('|') + '#' + data.join(',') + '#' + (sel || '') + '#' + (dark ? 1 : 0) + '#' + (maxName || '');
+
+                // (A) 같은 canvas 에 살아있는 차트 → 파괴 없이 in-place 갱신 (canvas/GPU churn 제거).
+                if (ctChart && ctChart.canvas === cv) {
+                    if (sig === ctSig) return;            // 바뀐 게 없으면 update 조차 생략
+                    const ds = ctChart.data.datasets[0];
+                    ctChart.data.labels = labels;
+                    ds.data = data; ds.backgroundColor = bg; ds.borderColor = surface; ds.borderWidth = dark ? 3 : 2;
+                    ctChart.update('none');
+                    ctSig = sig;
+                    return;
+                }
+
+                // (B) 최초 1회 또는 x-if 가 canvas 를 새로 mount 한 경우 → (옛 차트 파괴 후) 단 1회 생성.
+                if (ctChart) { ctChart.destroy(); ctChart = null; }
+                const self = this;
+                const fmt = (ms) => self.fmt(ms);
                 const clip = (s) => (s && s.length > 10) ? (s.slice(0, 9) + '…') : (s || '');
                 const arcLabels = {
                     id: 'ctArcLabels',
                     afterDatasetsDraw(chart) {
+                        const d = ctDyn; if (!d) return;   // 클로저로 최신 데이터/sel/dark 를 읽는다(매 update 갱신).
                         const ctx = chart.ctx, meta = chart.getDatasetMeta(0);
                         meta.data.forEach((arc, i) => {
-                            if ((data[i] / total) < 0.05) return;
+                            if ((d.data[i] / d.total) < 0.05) return;
                             const mid = (arc.startAngle + arc.endAngle) / 2;
                             const r = (arc.innerRadius + arc.outerRadius) / 2;
                             const x = arc.x + Math.cos(mid) * r, y = arc.y + Math.sin(mid) * r;
                             ctx.save();
                             ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
-                            ctx.globalAlpha = (sel && labels[i] !== sel) ? 0.45 : 1;
+                            ctx.globalAlpha = (d.sel && d.labels[i] !== d.sel) ? 0.45 : 1;
                             const draw = (txt, dy, font) => {
                                 ctx.font = font; ctx.lineWidth = 3;
                                 // 라이트=흰 글자/진한 외곽선, 다크=네이비 잉크 글자/밝은 후광 (밝은 다크 슬라이스·살몬 병목 가독성 확보)
-                                if (dark) { ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.strokeText(txt, x, y + dy); ctx.fillStyle = '#0b1220'; }
+                                if (d.dark) { ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.strokeText(txt, x, y + dy); ctx.fillStyle = '#0b1220'; }
                                 else { ctx.strokeStyle = 'rgba(8,17,33,0.6)'; ctx.strokeText(txt, x, y + dy); ctx.fillStyle = '#ffffff'; }
                                 ctx.fillText(txt, x, y + dy);
                             };
-                            draw(clip(labels[i]), -7, '700 11px Inter, system-ui, sans-serif');
-                            draw(fmt(data[i]), 8, '800 12px Inter, system-ui, sans-serif');
+                            draw(clip(d.labels[i]), -7, '700 11px Inter, system-ui, sans-serif');
+                            draw(fmt(d.data[i]), 8, '800 12px Inter, system-ui, sans-serif');
                             ctx.restore();
                         });
                     },
                 };
-                this._ctDonut = new Chart(cv, {
+                ctChart = new Chart(cv, {
                     type: 'doughnut',
                     data: { labels, datasets: [{ data, backgroundColor: bg, borderColor: surface, borderWidth: dark ? 3 : 2, borderAlign: 'inner', borderRadius: 3, spacing: 1, hoverOffset: 6 }] },
                     plugins: [arcLabels],
@@ -1550,12 +1552,17 @@
                         layout: { padding: 6 },
                         plugins: {
                             legend: { display: false },
-                            tooltip: { callbacks: { label: (c) => `${c.label}: ${fmt(c.parsed)} (${(c.parsed * 100 / total).toFixed(1)}%)` } },
+                            // total/labels 는 매 update 로 바뀌므로 콜백은 closure 가 아니라 chart 인자에서 읽는다(stale 방지).
+                            tooltip: { callbacks: { label: (c) => {
+                                const t = c.chart.data.datasets[0].data.reduce((a, b) => a + b, 0) || 1;
+                                return `${c.label}: ${fmt(c.parsed)} (${(c.parsed * 100 / t).toFixed(1)}%)`;
+                            } } },
                         },
-                        onClick: (e, els) => { if (els && els.length) this.goFlow(labels[els[0].index]); },
-                        onHover: (e, els) => { this.chartHoverFlowName = els?.length ? labels[els[0].index] : null; },
+                        onClick: (e, els, chart) => { if (els && els.length) self.goFlow(chart.data.labels[els[0].index]); },
+                        onHover: (e, els, chart) => { self.chartHoverFlowName = (els && els.length) ? chart.data.labels[els[0].index] : null; },
                     },
                 });
+                ctSig = sig;
             },
 
             setDisplayMode(avg) { this.showAverage = avg; },
