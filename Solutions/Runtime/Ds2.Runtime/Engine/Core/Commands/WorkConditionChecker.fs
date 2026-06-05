@@ -217,34 +217,44 @@ module WorkConditionChecker =
             currentEpoch > savedEpoch
             && legacyRxCompletion index state callGuid
 
-    let private completionTriggerSatisfied (index: SimIndex) (state: SimState) (callGuid: Guid) (apiDef: ApiDef) (apiCall: ApiCall) : bool =
-        try
-            match RuntimeSemantics.completionTrigger apiDef apiCall with
-            | RuntimeSemantics.WaitPassiveDuration _
-            | RuntimeSemantics.WaitPassiveDurationPlus _ ->
-                virtualWorkCompletion index state callGuid
-            | RuntimeSemantics.WaitInput _
-            | RuntimeSemantics.WaitInputLatched _ ->
-                runtimeInputSatisfied index state callGuid apiCall
-            | RuntimeSemantics.WaitInputStable (_, ms) ->
-                // v10 §5/§10/§11.2 — Real(Level, Append n) = "센서 ON 후 n ms 연속 유지" debounce.
-                runtimeInputSatisfied index state callGuid apiCall
-                && SimState.getIOStableMs apiCall.Id state >= ms
-            | RuntimeSemantics.WaitInputEdge _ ->
-                runtimeInputEdgeSatisfied index state callGuid apiCall
-            | RuntimeSemantics.WaitInputEdgeStable (_, ms) ->
-                // v10 §5/§10/§11.2 — Real(OneShot, Append n) = "edge 이후 n ms 안정".
-                runtimeInputEdgeSatisfied index state callGuid apiCall
-                && SimState.getIOStableMs apiCall.Id state >= ms
-        with
-        | _ ->
-            let hasRxWork = SimIndex.rxWorkGuids index callGuid |> List.isEmpty |> not
-            hasRxWork && legacyRxCompletion index state callGuid
+    let private completionTriggerSatisfied (index: SimIndex) (state: SimState) (callGuid: Guid) (apiDef: ApiDef) (apiCall: ApiCall) (isSimulation: bool) : bool =
+        // Simulation 정책: Real 인데 I/O(OutTag/InTag) 미설정이면 실 센서 신호가 없어 completionTrigger 가
+        // invalidOp(V2) → catch fallback(RxWork 없는 ResetReset device 는 false)로 영영 완료 못 해 멈춘다.
+        // 가상 시뮬레이션은 I/O 가 불필요하므로 Real 을 Virtual 처럼 Duration 기반 완료로 돌린다("Simulation = Real→Virtual").
+        // Control/Monitoring 은 실 I/O 가 진실원이라 기존대로.
+        let ioMissingReal =
+            (match apiDef.ActionType  with ActionType.Real _  -> apiCall.OutTag.IsNone | _ -> false)
+            || (match apiDef.SensingType with SensingType.Real _ -> apiCall.InTag.IsNone  | _ -> false)
+        if isSimulation && ioMissingReal then
+            virtualWorkCompletion index state callGuid
+        else
+            try
+                match RuntimeSemantics.completionTrigger apiDef apiCall with
+                | RuntimeSemantics.WaitPassiveDuration _
+                | RuntimeSemantics.WaitPassiveDurationPlus _ ->
+                    virtualWorkCompletion index state callGuid
+                | RuntimeSemantics.WaitInput _
+                | RuntimeSemantics.WaitInputLatched _ ->
+                    runtimeInputSatisfied index state callGuid apiCall
+                | RuntimeSemantics.WaitInputStable (_, ms) ->
+                    // v10 §5/§10/§11.2 — Real(Level, Append n) = "센서 ON 후 n ms 연속 유지" debounce.
+                    runtimeInputSatisfied index state callGuid apiCall
+                    && SimState.getIOStableMs apiCall.Id state >= ms
+                | RuntimeSemantics.WaitInputEdge _ ->
+                    runtimeInputEdgeSatisfied index state callGuid apiCall
+                | RuntimeSemantics.WaitInputEdgeStable (_, ms) ->
+                    // v10 §5/§10/§11.2 — Real(OneShot, Append n) = "edge 이후 n ms 안정".
+                    runtimeInputEdgeSatisfied index state callGuid apiCall
+                    && SimState.getIOStableMs apiCall.Id state >= ms
+            with
+            | _ ->
+                let hasRxWork = SimIndex.rxWorkGuids index callGuid |> List.isEmpty |> not
+                hasRxWork && legacyRxCompletion index state callGuid
 
     /// Call 완료 가능 여부.
     /// v10 SensingType 이 Virtual 이면 Duration/RxWork 수명 주기를 따른다.
     /// Real 이면 RuntimeSemantics.completionTrigger 의 input 계열 trigger 를 IOValue/RxWork epoch 에 연결한다.
-    let canCompleteCall (index: SimIndex) (state: SimState) (callGuid: Guid) : bool =
+    let canCompleteCall (index: SimIndex) (state: SimState) (callGuid: Guid) (isSimulation: bool) : bool =
         let apiPairs =
             SimIndex.findOrEmpty callGuid index.CallApiCallGuids
             |> List.choose (fun apiCallId ->
@@ -260,7 +270,7 @@ module WorkConditionChecker =
         else
             apiPairs
             |> List.forall (fun (apiDef, apiCall) ->
-                completionTriggerSatisfied index state callGuid apiDef apiCall)
+                completionTriggerSatisfied index state callGuid apiDef apiCall isSimulation)
 
     /// TokenSource 중 Ready 상태이면서 predecessor 조건이 미충족인 Work 목록
     let collectBlockedSources (index: SimIndex) (state: SimState) : (Guid * string) list =
