@@ -7,7 +7,7 @@
 
 ## --orch 진행 표
 
-현재 상태는 **Phase 6부터 자동 진행 가능**이다. Phase 0~5는 구현/독립 검열/테스트를 완료했다. Phase 4 에서 PromptCanary 선행 실패(.md/.mdx)도 해소되어 `Ds2.LlmAgent.Tests` 는 449 전부 통과한다.
+현재 상태는 **Phase 7부터 자동 진행 가능**이다. Phase 0~6은 구현/독립 검열/테스트를 완료했다. Phase 4 에서 PromptCanary 선행 실패(.md/.mdx)도 해소되어 `Ds2.LlmAgent.Tests` 는 449 전부 통과한다.
 
 > 알려진 선행 실패(Phase 1 무관): `Ds2.LlmAgent.Tests`의 `PromptCanaryTests`가 prompt 파일을 `.md`로 참조하나 실제 파일은 `.mdx`라 3건 실패한다. 코드 변경 전부터 깨진 상태이며 Phase 4(Promaker protocol docs, prompt 파일 취급) 또는 별도 작업에서 `.md`↔`.mdx` 정합으로 해소한다.
 
@@ -19,7 +19,7 @@
 | 3. Multi-root emit | 완료 | `Conditions.[0]` emit 제거, 같은 `ConditionType` roots implicit AND 보존 | `ModelProtocol.fs`, tests | 다중 root export -> apply 의미 보존 |
 | 4. Promaker protocol docs | 완료 | Prompt, example YAML, `yaml-protocol-v0.md` 갱신 | `yaml.md`, `flow.yaml`, `yaml-protocol-v0.md` | 문서의 canonical key와 examples가 protocol tests와 일치 |
 | 5. JsonFormatter docs | 완료 | `json-format.md` stale field 정정, STJ/AASX 명칭 구분, Builder helper 설명 | `json-format.md` | `isRising` 제거, `isInverted`/Runtime 평가/명칭 정정 반영 |
-| 6. Editor formula projection | 미시작 | `IsInverted`, `ContactKind`, empty condition 표시 정책 반영 | `ConditionFormulaProjection.fs`, projection tests | 표시 테스트 통과 |
+| 6. Editor formula projection | 완료 | `IsInverted`, `ContactKind`, empty condition 표시 정책 반영 | `ConditionFormulaProjection.fs`, projection tests | 표시 테스트 통과 |
 | 7. Apps regression | 미시작 | Promaker, Core/Editor, AASX/Runtime 간접 회귀 확인 | test 결과, 필요 시 docs 보강 | 지정 test set 통과 또는 미실행 사유 기록 |
 
 ## 사용자 사전 결정 필요
@@ -192,6 +192,7 @@
   - Core/AASX payload 변경이 없다면 다른 Apps는 smoke test 중심으로 확인한다.
   - Phase 2 검열 Minor 후속 검토: `eq` emit→re-parse 비대칭. condition leaf에 typed inputSpec으로 Single 숫자를 직접 주고 그 `ApiDef`를 참조하는 어떤 `ApiCall`도 타입 metadata가 없으면, emit은 `eq` scalar로 내보내나 re-parse가 hint 부재로 거부(잠재 data loss). 좁은 정수(Int8/Int16/UInt8/UInt16)·실수 Single의 case 손실이 원인. fallback 정책(좁은/실수 Single을 `inputSpec` raw DU로 보존 vs 현 동작 유지 + round-trip 테스트 박제)을 결정한다. 현 테스트/통상 경로에서는 미발생.
   - Phase 4 후속 cleanup: `Ds2.LlmAgent/ModelingCategory.fs` docstring(A_Modeling 분류 주석 등, 약 line 13/74)의 stale `SkipInputSensor` / `callCondition` 표기를 코드 실제와 정합한다(폐기 키 제거, `condition`/`Condition` 표기). 기능 영향 없는 주석 정정.
+  - Phase 6 후속(필수): Promaker C# `FormulaColorizer.BuildInlines`(`Apps/Promaker/Promaker/Controls/PropertyPanel/ConditionSectionControl.xaml.cs`)가 `ConditionFormulaProjection`과 독립 구현이라 ContactKind/IsInverted/빈 condition 표시가 불일치(무공백 / `(empty)` / 접점·NOT 미표시). Phase 6에서 F# projection은 `not (...)` / `/A` / `A(R)` / `A(F)` / 빈 And=`true` / 빈 Or=`false`로 정했으므로, 동일 표시 규약을 C# colorizer에 반영하거나 colorizer가 F# projection 문자열을 사용하도록 정합한다. (남은 작업 6번 Promaker UI 영향과 동일 항목.)
 - 수정 예상 파일:
   - 필요 시 `Apps/Promaker/Promaker/LlmAgent/Tools/ModelTools.cs`
   - 필요 시 `Apps/Promaker/Promaker/ViewModels/PropertyPanel/CallPanel.Conditions.cs`

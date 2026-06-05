@@ -4,11 +4,30 @@ open System.Runtime.CompilerServices
 
 module ConditionFormulaProjection =
 
+    open Ds2.Core
+
+    /// 빈 condition 의 Runtime 의미. 빈 And = true, 빈 Or = false.
+    /// (SSOT todo-refactor-condition.md 박제 결정 — 빈 condition 은 Runtime 의미 그대로 표시.)
+    let private emptyText (isOR: bool) = if isOR then "false" else "true"
+
+    /// leaf 의 ContactKind 를 수식 표기로 반영한다.
+    /// NcContact(B접) 은 `/` 전위, RisingPulse 는 `(R)` 후위, FallingPulse 는 `(F)` 후위.
+    /// NoContact(A접) 은 기본이라 표기 생략. Inverter 는 placeholder leaf 라 `*` 로 표기.
+    /// (SSOT 박제 결정 — NcContact/RisingPulse/FallingPulse 를 수식에서 구분 가능해야 한다.)
     let private formatApiCallItem (item: ConditionApiCallItem) =
-        let name = item.ApiDefDisplayName
-        let spec = item.OutputSpecText
-        if System.String.IsNullOrEmpty(spec) || spec = "Undefined" then name
-        else $"{name}={spec}"
+        match item.ContactKind with
+        | ContactKind.Inverter -> "*"
+        | kind ->
+            let name = item.ApiDefDisplayName
+            let spec = item.OutputSpecText
+            let baseText =
+                if System.String.IsNullOrEmpty(spec) || spec = "Undefined" then name
+                else $"{name}={spec}"
+            match kind with
+            | ContactKind.NcContact    -> $"/{baseText}"
+            | ContactKind.RisingPulse  -> $"{baseText}(R)"
+            | ContactKind.FallingPulse -> $"{baseText}(F)"
+            | _                        -> baseText
 
     let rec private formatItems (isOR: bool) (items: ConditionApiCallItem list) (children: ConditionPanelItem list) =
         let op = if isOR then "|" else "&"
@@ -17,12 +36,15 @@ module ConditionFormulaProjection =
             parts.Add(formatApiCallItem item)
         for child in children do
             let childText = formatCondition child
-            if childText <> "(empty)" then
+            // 부모 op 의 항등원(And→true, Or→false)인 빈 자식은 의미 변화 없이 생략한다.
+            if childText <> emptyText isOR then
                 parts.Add($"({childText})")
-        if parts.Count = 0 then "(empty)" else System.String.Join(op, parts)
+        if parts.Count = 0 then emptyText isOR else System.String.Join($" {op} ", parts)
 
     and formatCondition (cond: ConditionPanelItem) : string =
-        formatItems cond.IsOR (cond.Items |> Seq.toList) (cond.Children |> Seq.toList)
+        let inner = formatItems cond.IsOR (cond.Items |> Seq.toList) (cond.Children |> Seq.toList)
+        // IsInverted 는 NOT 으로 표기한다. (SSOT 완료 조건 — isInverted:true 가 `not (...)` 로 보여야 한다.)
+        if cond.IsInverted then $"not ({inner})" else inner
 
 [<Extension>]
 type ConditionFormulaExtensions =
