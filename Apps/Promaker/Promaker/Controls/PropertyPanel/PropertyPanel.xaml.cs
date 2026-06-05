@@ -94,9 +94,29 @@ public partial class PropertyPanel : UserControl
         while (cur != null && cur != PropertyScroll)
         {
             if (cur is ScrollViewer sv) return sv;
-            cur = VisualTreeHelper.GetParent(cur);
+            cur = GetParentObject(cur);
         }
         return null;
+    }
+
+    /// <summary>
+    /// 부모 DependencyObject 반환. Run 등 ContentElement 는 visual tree 에 없어
+    /// VisualTreeHelper.GetParent 에 넘기면 "Visual 또는 Visual3D 가 아닙니다" 예외가 나므로,
+    /// ContentElement 는 ContentOperations/논리 부모로 visual tree 까지 끌어올린 뒤 처리한다.
+    /// </summary>
+    private static DependencyObject? GetParentObject(DependencyObject child)
+    {
+        switch (child)
+        {
+            case null:
+                return null;
+            case ContentElement ce:
+                var parent = ContentOperations.GetParent(ce);
+                if (parent != null) return parent;
+                return ce is FrameworkContentElement fce ? fce.Parent : null;
+            default:
+                return VisualTreeHelper.GetParent(child);
+        }
     }
 
     /// <summary>UserTags CSV 메뉴 버튼 — 좌클릭 시 ContextMenu 를 펼친다.</summary>
