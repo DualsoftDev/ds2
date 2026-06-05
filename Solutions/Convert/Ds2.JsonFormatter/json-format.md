@@ -258,7 +258,7 @@ Project는 `properties` 필드가 없습니다. 주요 설정은 엔티티 직�
       "name": "Dev.Api"
     }
   ],
-  "callConditions": [],                // CallCondition 배열 (트리 구조)
+  "conditions": [],                    // Condition 배열 (트리 구조). Core 속성 Call.Conditions → camelCase 직렬화명 conditions
   "devicesAlias": "Dev",               // Device 별칭
   "apiName": "Api",                    // API 이름
   "name": "Dev.Api",                   // devicesAlias + "." + apiName
@@ -365,7 +365,7 @@ Work_W:  B -> C₂   (C₂.referenceOf = C₁.id)
     "apiCalls": [
       { "apiDefId": "<apidef-A-guid>", "inputSpec": { "Case": "UndefinedValue" }, "outputSpec": { "Case": "UndefinedValue" }, "id": "<apicall-A-guid>", "name": "cyl1.ADV" }
     ],
-    "callConditions": [],
+    "conditions": [],
     "devicesAlias": "cyl1", "apiName": "ADV", "name": "cyl1.ADV",
     "parentId": "<work-W-guid>",
     "id": "<call-A-guid>"
@@ -375,7 +375,7 @@ Work_W:  B -> C₂   (C₂.referenceOf = C₁.id)
     "apiCalls": [
       { "apiDefId": "<apidef-C-guid>", "inputSpec": { "Case": "UndefinedValue" }, "outputSpec": { "Case": "UndefinedValue" }, "id": "<apicall-C-guid>", "name": "cyl1.RET" }
     ],
-    "callConditions": [],
+    "conditions": [],
     "devicesAlias": "cyl1", "apiName": "RET", "name": "cyl1.RET",
     "parentId": "<work-W-guid>",
     "id": "<call-C1-guid>"
@@ -385,7 +385,7 @@ Work_W:  B -> C₂   (C₂.referenceOf = C₁.id)
     "apiCalls": [
       { "apiDefId": "<apidef-B-guid>", "inputSpec": { "Case": "UndefinedValue" }, "outputSpec": { "Case": "UndefinedValue" }, "id": "<apicall-B-guid>", "name": "Cyl2.ADV" }
     ],
-    "callConditions": [],
+    "conditions": [],
     "devicesAlias": "Cyl2", "apiName": "ADV", "name": "Cyl2.ADV",
     "parentId": "<work-W-guid>",
     "id": "<call-B-guid>"
@@ -393,7 +393,7 @@ Work_W:  B -> C₂   (C₂.referenceOf = C₁.id)
   "<call-C2-guid>": {
     "properties": [], "status4": 0,
     "apiCalls": [],                                       // ★ 비워둠 — 원본에서 상속
-    "callConditions": [],
+    "conditions": [],
     "referenceOf": "<call-C1-guid>",                      // ★ 원본 C₁ 참조 → OR 그룹 형성
     "devicesAlias": "cyl1", "apiName": "RET", "name": "cyl1.RET",
     "parentId": "<work-W-guid>",                          // ★ C₁과 같은 Work도 OK
@@ -416,26 +416,31 @@ Work_W:  B -> C₂   (C₂.referenceOf = C₁.id)
 | 원본 Call | `referenceOf` 필드 생략(또는 null) |
 | 참조 Call | `referenceOf: "<원본 Call GUID>"` |
 | 그룹 멤버의 Name | 동일 (`devicesAlias.apiName` 일치) — `name` 필드도 동일하게 작성. 시뮬레이션 동작상 필수는 아니나 의미적으로 권장 |
-| 참조 Call의 `apiCalls` / `callConditions` | 비워두고 원본에서 상속받음 (작성하더라도 시뮬레이션은 원본 데이터를 사용) |
+| 참조 Call의 `apiCalls` / `conditions` | 비워두고 원본에서 상속받음 (작성하더라도 시뮬레이션은 원본 데이터를 사용) |
 | 다중 OR | 같은 원본을 가리키는 Call을 N개 만들면 N-항 OR (그 중 하나라도 Finish이면 통과) |
 | 배치 자유도 | 같은 Work / 다른 Work 모두 허용. 시뮬레이션은 ParentId 동일성을 강제하지 않음 |
 
 > **참고**: 에디터의 paste 동작에서는 한 Work 내에 동일 Name Call이 새로 들어오는 것을 차단(`Paste.fs:67-72` `DuplicateCallInWork`)하지만, 이는 paste 시나리오에 한정됩니다. 일반 Call 추가/JSON 직접 작성/에디터 본연의 OR 생성 흐름에서는 같은 Work 내 동일 Name 공존이 자연스럽게 사용됩니다 (`OR.json` 참고).
 
-### CallCondition (트리 구조)
+### Condition (트리 구조)
+
+Core 엔티티 타입명은 `Condition`(`Entities.fs`)이며, `Work.Conditions` / `Call.Conditions`가 같은 타입을 공유합니다. STJ 직렬화 시 노드는 다음 키로 표현됩니다.
 
 ```json
 {
   "id": "<guid>",
-  "type": 0,                          // CallConditionType option: AutoAux=0(자동 전용), ComAux=1(공통), SkipAction=2
-  "conditions": [ ... ],              // ApiCall[] — 조건에 참조되는 ApiCall 목록
-  "children": [ ... ],                // CallCondition[] — 재귀 트리 (하위 조건)
-  "isOR": false,                       // bool: OR 조건 여부
-  "isRising": false                    // bool: 상승 엣지 여부
+  "type": 0,                          // ConditionType option: AutoAux=0(자동 전용), ComAux=1(공통), SkipAction=2
+  "conditions": [ ... ],              // ApiCall[] — 이 노드의 leaf 조건 목록 (각 ApiCall 의 contactKind 로 접점 종류 표현)
+  "children": [ ... ],                // Condition[] — 재귀 트리 (하위 조건 그룹)
+  "isOR": false,                      // bool: 이 노드의 leaf/children 결합 연산자 (false=AND, true=OR)
+  "isInverted": false                 // bool: 이 노드 전체 결과의 NOT (Condition.IsInverted)
 }
 ```
 
-Note: CallCondition은 DsEntity를 상속하지 않습니다. 자체 Id(Guid)만 가집니다.
+- `Condition` 에는 `isRising` 필드가 없습니다. 상승/하강 엣지는 노드 플래그가 아니라 **leaf(`conditions[]`) ApiCall 의 `contactKind`** 로 표현합니다. `ContactKind.RisingPulse`(2) = 상승 엣지, `ContactKind.FallingPulse`(3) = 하강 엣지입니다 (`Enum.fs`의 `ContactKind`: `NoContact`=0, `NcContact`=1, `RisingPulse`=2, `FallingPulse`=3, `Inverter`=4).
+- `isInverted` 는 `Condition.IsInverted`(`Entities.fs`)에 대응하며, 이 노드 하위식 전체를 부정합니다.
+
+Note: `Condition` 은 DsEntity 를 상속하지 않습니다. 자체 Id(Guid)만 가집니다.
 
 ### HwButton / HwLamp / HwCondition / HwAction
 
@@ -475,7 +480,7 @@ Project
  │   │   └─ Work ← Duration, TokenRole
  │   │       ├─ Call ← DevicesAlias.ApiName
  │   │       │   ├─ ApiCall[] ← ApiDefId, IOTag
- │   │       │   └─ CallCondition[]
+ │   │       │   └─ Condition[]  (Call.Conditions → 직렬화명 conditions)
  │   │       └─ ArrowBetweenCalls (parent=Work)
  │   └─ ArrowBetweenWorks (parent=System)
  └─ System (Passive = Device) ← passiveSystemIds
@@ -505,7 +510,7 @@ Project
 | 2 | Ignore | 토큰 무시 |
 | 4 | Sink | 토큰 소멸 지점 |
 
-### CallConditionType
+### ConditionType
 | 값 | 이름 | 설명 |
 |----|------|------|
 | 0 | AutoAux | 자동 기동(Auto) 상태에서만 체크하는 전제 조건 |
@@ -646,7 +651,7 @@ Project
 
 ## Auto/Comm Aux 조건 예시
 
-Call의 실행 전제 조건을 `callConditions` 배열로 지정합니다.
+Call의 실행 전제 조건을 `conditions` 배열로 지정합니다 (Core 속성 `Call.Conditions`, camelCase 직렬화명 `conditions`).
 
 | 조건 종류 | `type` | 설명 |
 |-----------|--------|------|
@@ -670,7 +675,7 @@ Call의 실행 전제 조건을 `callConditions` 배열로 지정합니다.
 ### 최소 AutoAux 예시 — type: 0
 
 ```json
-"callConditions": [
+"conditions": [
   {
     "id": "<guid>",
     "type": 0,
@@ -682,8 +687,7 @@ Call의 실행 전제 조건을 `callConditions` 배열로 지정합니다.
       }
     ],
     "children": [],
-    "isOR": false,
-    "isRising": false
+    "isOR": false
   }
 ]
 ```
@@ -696,7 +700,7 @@ Call의 실행 전제 조건을 `callConditions` 배열로 지정합니다.
 `A | B | (C & D)` 형태의 식을 children으로 중첩하여 표현합니다.
 
 ```json
-"callConditions": [
+"conditions": [
   {
     "id": "<guid>",
     "type": 1,
@@ -729,12 +733,10 @@ Call의 실행 전제 조건을 `callConditions` 배열로 지정합니다.
           }
         ],
         "children": [],
-        "isOR": false,
-        "isRising": false
+        "isOR": false
       }
     ],
-    "isOR": true,
-    "isRising": false
+    "isOR": true
   }
 ]
 ```
@@ -759,7 +761,7 @@ Call의 실행 전제 조건을 `callConditions` 배열로 지정합니다.
 #### `(A & B) | (C & D)` 예시
 
 ```json
-"callConditions": [
+"conditions": [
   {
     "id": "<guid-root>",
     "type": 1,
@@ -773,8 +775,7 @@ Call의 실행 전제 조건을 `callConditions` 배열로 지정합니다.
           { "id": "<ac-B>", "apiDefId": "<ad-B>", "inputSpec": { "Case": "Int32Value", "Fields": [{ "Case": "Single", "Fields": [1] }] } }
         ],
         "children": [],
-        "isOR": false,
-        "isRising": false
+        "isOR": false
       },
       {
         "id": "<guid-right>",
@@ -784,12 +785,10 @@ Call의 실행 전제 조건을 `callConditions` 배열로 지정합니다.
           { "id": "<ac-D>", "apiDefId": "<ad-D>", "inputSpec": { "Case": "Int32Value", "Fields": [{ "Case": "Single", "Fields": [2] }] } }
         ],
         "children": [],
-        "isOR": false,
-        "isRising": false
+        "isOR": false
       }
     ],
-    "isOR": true,
-    "isRising": false
+    "isOR": true
   }
 ]
 ```
@@ -797,7 +796,7 @@ Call의 실행 전제 조건을 `callConditions` 배열로 지정합니다.
 #### `A | (B & (C | D))` 예시 (3단 중첩)
 
 ```json
-"callConditions": [
+"conditions": [
   {
     "id": "<guid-root>",
     "type": 1,
@@ -820,29 +819,27 @@ Call의 실행 전제 조건을 `callConditions` 배열로 지정합니다.
               { "id": "<ac-D>", "apiDefId": "<ad-D>", "inputSpec": { "Case": "UndefinedValue" } }
             ],
             "children": [],
-            "isOR": true,
-            "isRising": false
+            "isOR": true
           }
         ],
-        "isOR": false,
-        "isRising": false
+        "isOR": false
       }
     ],
-    "isOR": true,
-    "isRising": false
+    "isOR": true
   }
 ]
 ```
 
-### isOR / isRising / children 시뮬레이션 동작
+### isOR / isInverted / children 시뮬레이션 동작
 
 | 필드 | 시뮬레이션 사용 | 용도 |
 |------|:-:|------|
-| `isOR` | X | 에디터 수식 표시: `false` → `A & B`, `true` → `A \| B` |
-| `isRising` | X | 에디터 수식 표시: `true`이면 식 끝에 `↑` (상승 엣지) 표기 |
-| `children` | X | 에디터 UI 수식 트리 표시용 (괄호로 감싸짐) |
+| `isOR` | O | 노드 내부 결합 연산자. `false` → leaf/children 을 AND, `true` → OR 로 결합 |
+| `isInverted` | O | 노드 하위식 전체에 NOT 적용 (`Condition.IsInverted`) |
+| `children` | O | 재귀 하위 조건 그룹. 각 child 가 다시 `conditions`/`children`/`isOR`/`isInverted` 트리를 가짐 |
+| `contactKind` (leaf 의 ApiCall 필드) | O | 접점 종류. `RisingPulse`/`FallingPulse` = 상승/하강 엣지, `NcContact` = b접점 등 |
 
-현재 시뮬레이션 엔진은 동일 type의 모든 최상위 `conditions`만 AND(`List.forall`)로 평가하며, `children` / `isOR` / `isRising`은 평가하지 않습니다. 위 boolean 식 표현은 에디터 UI(`ConditionFormulaProjection.formatCondition`)에서만 의미가 있습니다.
+시뮬레이션 엔진(`SimIndexBuild.buildConditionExpression`, `Build.fs`)은 동일 `type` 의 모든 최상위 노드를 implicit AND 로 묶은 뒤, 각 노드를 `ConditionExpression`(`Const`/`Leaf`/`And`/`Or`/`Not`)으로 변환합니다. 변환 시 한 노드의 leaf(`conditions[]`)와 `children[]` 을 합쳐 `isOR` 에 따라 `And`/`Or` 로 결합하고, `isInverted` 가 `true` 면 그 결과를 `Not` 으로 감쌉니다. 즉 `children` / `isOR` / `isInverted` 는 모두 런타임 평가에 반영되며, 위 boolean 식 트리는 에디터 UI 표시(`ConditionFormulaProjection.formatCondition`)뿐 아니라 시뮬레이션 의미에도 그대로 적용됩니다.
 
 ---
 
@@ -879,10 +876,10 @@ let devSysId2, _, _, apiDefId2 = Builder.addDevice store projectId "Robot1" "RET
 let callId2, apiCallId2 = Builder.addCall store w2 "Robot1" "RET" apiDefId2
 
 // 8. AutoAux 조건: 자동 기동 시 apiCallId(Robot1.ADV)가 Finish여야 callId2 실행
-Builder.addCondition store callId2 CallConditionType.AutoAux [apiCallId] false |> ignore
+Builder.addCondition store callId2 ConditionType.AutoAux [apiCallId] false |> ignore
 
 // 9. ComAux 조건: 자동/수동 모두에서 apiCallId2(Robot1.RET)가 Finish여야 실행
-Builder.addCondition store callId2 CallConditionType.ComAux [apiCallId2] false |> ignore
+Builder.addCondition store callId2 ConditionType.ComAux [apiCallId2] false |> ignore
 
 // 10. 저장
 Exporter.save store "output.json"
@@ -906,11 +903,34 @@ var (devSysId2, _, _, apiDefId2) = Builder.addDevice(store, projectId, "Robot1",
 var (callId2, apiCallId2) = Builder.addCall(store, w2, "Robot1", "RET", apiDefId2);
 
 // AutoAux 조건 추가
-Builder.addCondition(store, callId2, CallConditionType.AutoAux,
+Builder.addCondition(store, callId2, ConditionType.AutoAux,
     new FSharpList<Guid>(apiCallId1, FSharpList<Guid>.Empty), false);
 // ComAux 조건 추가
-Builder.addCondition(store, callId2, CallConditionType.ComAux,
+Builder.addCondition(store, callId2, ConditionType.ComAux,
     new FSharpList<Guid>(apiCallId2, FSharpList<Guid>.Empty), false);
 
 Exporter.save(store, "output.json");
 ```
+
+## Builder.addCondition 의 표현 한계 (flat leaf 전용)
+
+`Builder.addCondition` / `Builder.addWorkCondition`(`JsonFormatter.fs`)의 시그니처는 다음과 같습니다.
+
+```fsharp
+// 반환: conditionId (Guid)
+Builder.addCondition (store: DsStore) (callId: Guid) (conditionType: ConditionType) (apiCallIds: Guid list) (isOR: bool)
+Builder.addWorkCondition (store: DsStore) (workId: Guid) (apiCallIds: Guid list) (isOR: bool)   // Work 는 SkipAction 만 의미 → type 인자 없음
+```
+
+이 helper 는 단일 `Condition` 노드 하나를 만들고 `apiCallIds` 를 그 노드의 leaf(`conditions[]`)로만 채웁니다. 따라서 다음을 **표현할 수 없습니다**.
+
+- `children` 을 통한 **중첩 그룹** (예: `A & (B | C)`, `(A & B) | (C & D)` 처럼 서로 다른 연산자가 섞인 식). `addCondition` 은 항상 `Children = []` 인 평면(flat) 노드만 생성합니다.
+- 노드의 `isInverted`(NOT). 인자에 없으므로 항상 `false` 로 고정됩니다.
+- leaf 의 `contactKind`(상승/하강 엣지, b접점 등). 추가되는 `ApiCall` 의 `ContactKind` 는 기본값 `NoContact` 로 남습니다 (`Builder.setApiCallIOTags` 도 `contactKind` 는 설정하지 않습니다).
+
+즉 `isOR` 한 가지 연산자로 묶이는 **단층 AND 또는 단층 OR** 까지만 helper 로 작성할 수 있습니다. 위 [임의의 Boolean 식 표현](#임의의-boolean-식-표현) 절의 중첩/부정/엣지 조건을 코드로 만들려면 다음 중 하나가 필요합니다.
+
+1. **권장**: group/중첩·`isInverted`·`contactKind` 까지 받는 별도 helper(예: `Builder.addConditionExpr` — 표현식 트리 또는 미리 구성한 `Condition` 노드를 그대로 받아 `Call.Conditions` / `Work.Conditions` 에 추가)를 신설한다. *현재 모듈에는 이 helper 가 없습니다.*
+2. helper 를 거치지 않고 `Condition` 노드 트리를 직접 구성한 뒤(또는 위 JSON 스키마대로 작성한 뒤) `Call.Conditions` / `Work.Conditions` 에 넣는다. (`Condition` 생성자는 `internal` 이므로 F#/`Ds2.Core` 가시성 범위 안에서만 직접 생성 가능하다.)
+
+> 참고: 본 문서 범위에서는 한계와 필요성만 기술하며, `addConditionExpr` 등 helper 코드는 추가하지 않았습니다. 중첩 조건이 필요한 산출물은 위 JSON 스키마(`conditions` / `children` / `isOR` / `isInverted`)를 직접 작성하거나 에디터/프로토콜 경로를 사용하십시오.
