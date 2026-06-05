@@ -265,3 +265,135 @@ module CallWorkIsolationTests =
         Assert.Equal(Some ConditionType.AutoAux,    call.Conditions.[0].Type)
         Assert.Equal(1, work.Conditions.[0].ApiCalls.Count)
         Assert.Equal(0, call.Conditions.[0].ApiCalls.Count)
+
+
+// =============================================================================
+// Condition formula projection (ConditionFormulaProjection)
+//   - IsInverted -> NOT 표기
+//   - ContactKind -> 수식 구분 표기 (NcContact `/`, RisingPulse `(R)`, FallingPulse `(F)`)
+//   - 빈 condition -> Runtime 의미 (빈 And=true, 빈 Or=false)
+// =============================================================================
+
+module ConditionFormulaProjectionTests =
+
+    /// leaf 패널 항목 생성 헬퍼 — projection 표시만 검증하므로 store 없이 직접 구성.
+    let private leaf (name: string) (kind: ContactKind) : ConditionApiCallItem =
+        ConditionApiCallItem(
+            Guid.NewGuid(), name, name,
+            "", 0,        // outputSpec (text/index) — 기대값 없음
+            "", 0,        // inputSpec (text/index)
+            kind, UndefinedValue)
+
+    /// outputSpec 텍스트를 가진 leaf (= 표기 검증용).
+    let private leafWithSpec (name: string) (specText: string) : ConditionApiCallItem =
+        ConditionApiCallItem(
+            Guid.NewGuid(), name, name,
+            specText, 0,
+            "", 0,
+            ContactKind.NoContact, UndefinedValue)
+
+    let private cond (isOR: bool) (isInverted: bool)
+                     (items: ConditionApiCallItem list) (children: ConditionPanelItem list) : ConditionPanelItem =
+        ConditionPanelItem(Guid.NewGuid(), ConditionType.AutoAux, isOR, isInverted, items, children)
+
+    let private formula (c: ConditionPanelItem) = ConditionFormulaProjection.formatCondition c
+
+    // ── IsInverted ──
+
+    [<Fact>]
+    let ``IsInverted=true 인 OR 조건은 not (A | B) 로 표시된다`` () =
+        let c = cond true true [ leaf "A" ContactKind.NoContact; leaf "B" ContactKind.NoContact ] []
+        Assert.Equal("not (A | B)", formula c)
+
+    [<Fact>]
+    let ``IsInverted=false 면 NOT 표기가 없다`` () =
+        let c = cond true false [ leaf "A" ContactKind.NoContact; leaf "B" ContactKind.NoContact ] []
+        Assert.Equal("A | B", formula c)
+
+    [<Fact>]
+    let ``중첩 자식의 IsInverted 도 NOT 으로 표시된다`` () =
+        // A & not (B | C)
+        let child = cond true true [ leaf "B" ContactKind.NoContact; leaf "C" ContactKind.NoContact ] []
+        let c = cond false false [ leaf "A" ContactKind.NoContact ] [ child ]
+        Assert.Equal("A & (not (B | C))", formula c)
+
+    // ── ContactKind ──
+
+    [<Fact>]
+    let ``NcContact 는 leaf 앞에 슬래시로 표시된다`` () =
+        let c = cond false false [ leaf "A" ContactKind.NcContact ] []
+        Assert.Equal("/A", formula c)
+
+    [<Fact>]
+    let ``RisingPulse 는 leaf 뒤에 (R) 로 표시된다`` () =
+        let c = cond false false [ leaf "A" ContactKind.RisingPulse ] []
+        Assert.Equal("A(R)", formula c)
+
+    [<Fact>]
+    let ``FallingPulse 는 leaf 뒤에 (F) 로 표시된다`` () =
+        let c = cond false false [ leaf "A" ContactKind.FallingPulse ] []
+        Assert.Equal("A(F)", formula c)
+
+    [<Fact>]
+    let ``NoContact 는 ContactKind 표기 없이 이름만 표시된다`` () =
+        let c = cond false false [ leaf "A" ContactKind.NoContact ] []
+        Assert.Equal("A", formula c)
+
+    [<Fact>]
+    let ``ContactKind 5종이 한 수식에서 구분되어 표시된다`` () =
+        let c =
+            cond false false
+                [ leaf "A" ContactKind.NoContact
+                  leaf "B" ContactKind.NcContact
+                  leaf "C" ContactKind.RisingPulse
+                  leaf "D" ContactKind.FallingPulse
+                  leaf "E" ContactKind.Inverter ]
+                []
+        // Inverter 는 placeholder leaf (ApiCallId 무시) → `*`
+        Assert.Equal("A & /B & C(R) & D(F) & *", formula c)
+
+    [<Fact>]
+    let ``ContactKind 표기는 기대값(=) 표기와 함께 보존된다`` () =
+        // RisingPulse + outputSpec → name=spec(R)
+        let item = ConditionApiCallItem(Guid.NewGuid(), "A", "A", "true", 0, "", 0, ContactKind.RisingPulse, UndefinedValue)
+        let c = cond false false [ item ] []
+        Assert.Equal("A=true(R)", formula c)
+
+    // ── 빈 condition (Runtime 의미) ──
+
+    [<Fact>]
+    let ``빈 And 조건은 true 로 표시된다`` () =
+        let c = cond false false [] []
+        Assert.Equal("true", formula c)
+
+    [<Fact>]
+    let ``빈 Or 조건은 false 로 표시된다`` () =
+        let c = cond true false [] []
+        Assert.Equal("false", formula c)
+
+    [<Fact>]
+    let ``빈 And 자식은 부모 And 에서 항등원이라 생략된다`` () =
+        // A & (빈 And=true) → A 만 남는다 (true 는 And 항등원).
+        let emptyChild = cond false false [] []
+        let c = cond false false [ leaf "A" ContactKind.NoContact ] [ emptyChild ]
+        Assert.Equal("A", formula c)
+
+    [<Fact>]
+    let ``빈 Or 자식은 부모 And 에서 false 로 표시되어 보존된다`` () =
+        // A & (빈 Or=false) → A & (false). false 는 And 항등원이 아니라 의미가 있어 표시.
+        let emptyOrChild = cond true false [] []
+        let c = cond false false [ leaf "A" ContactKind.NoContact ] [ emptyOrChild ]
+        Assert.Equal("A & (false)", formula c)
+
+    // ── 회귀: 기존 중첩/연산자 동작 ──
+
+    [<Fact>]
+    let ``A & (B | C) 중첩 그룹이 보존된다`` () =
+        let child = cond true false [ leaf "B" ContactKind.NoContact; leaf "C" ContactKind.NoContact ] []
+        let c = cond false false [ leaf "A" ContactKind.NoContact ] [ child ]
+        Assert.Equal("A & (B | C)", formula c)
+
+    [<Fact>]
+    let ``outputSpec 기대값은 name=spec 으로 표시된다`` () =
+        let c = cond false false [ leafWithSpec "A" "true" ] []
+        Assert.Equal("A=true", formula c)
