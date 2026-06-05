@@ -9,8 +9,8 @@
 
 **Phase 0~7 전부 완료** (구현 / 독립 검열 / 테스트). 회귀: `Ds2.LlmAgent.Tests` 449/0, `Ds2.Core.Tests` 90/0, `Ds2.Store.Editor.Tests` 505/0, `Promaker.Tests` 459/1(아래 무관 선행 실패). Phase 4 에서 PromptCanary 선행 실패(.md/.mdx) 해소, Phase 7 에서 Phase 4 후속(ModelingCategory 주석 정정)·Phase 6 후속(C# FormulaColorizer 표시 규약 일치 + drift 방어 테스트 15종)도 완료했다.
 
-> 미해결 1건 (정책 결정 대기): Phase 2 m1 — `eq` emit→re-parse 비대칭(condition leaf 에 typed inputSpec 의 Single 숫자를 직접 주고 그 `ApiDef` 참조 `ApiCall` 에 타입 metadata 가 전무하면 emit 은 `eq` scalar 로 내보내나 re-parse 가 hint 부재로 거부). 통상 경로/현 테스트에서는 미발생. 좁은 정수·실수 Single 을 `inputSpec` raw DU 로 보존할지 vs 현 동작 유지 + round-trip 테스트 박제할지 사용자 결정 후 구현.
-> Condition 무관 선행 실패: `Promaker.Tests` 의 `MainViewModelTests.ShowProjectSettings_updates_project_name_from_dialog` NRE — 커밋 #191 다이얼로그 탭 제거로 reflection 대상 속성(`ResultDateTime` 등)이 삭제되어 생긴 테스트-구현 불일치. Condition 작업과 무관하며 해당 테스트의 reflection 대상 정리로 별도 해소 권장.
+> Phase 2 m1 — `eq` emit→re-parse 비대칭: **옵션 (1)로 해결** (2026-06-05). emit 시 좁은 정수(Int8/Int16/UInt8/UInt16)·실수(Float32/Float64) Single 을 `eq` 로 강등하지 않고 typed `inputSpec` raw DU 로 보존 → hint 부재에도 case 무손실 round-trip. Int32/Int64/UInt32/UInt64 는 의도 범위 밖으로 `eq` 유지(hint 부재 시 diagnostics). `Ds2.LlmAgent.Tests` 456/0.
+> Condition 무관 선행 실패 `MainViewModelTests.ShowProjectSettings_updates_project_name_from_dialog` NRE: **해결** (2026-06-05). 커밋 #191 다이얼로그 탭 제거로 삭제된 reflection 대상 속성(`ResultIriPrefix`/`ResultSplitDeviceAasx`/`ResultPresetSystemTypes`) set 호출을 테스트에서 제거. `Promaker.Tests` 460/0.
 
 > 알려진 선행 실패(Phase 1 무관): `Ds2.LlmAgent.Tests`의 `PromptCanaryTests`가 prompt 파일을 `.md`로 참조하나 실제 파일은 `.mdx`라 3건 실패한다. 코드 변경 전부터 깨진 상태이며 Phase 4(Promaker protocol docs, prompt 파일 취급) 또는 별도 작업에서 `.md`↔`.mdx` 정합으로 해소한다.
 
@@ -193,7 +193,7 @@
   - Promaker model doc apply/export 회귀 확인.
   - Core/Editor condition tests 회귀 확인.
   - Core/AASX payload 변경이 없다면 다른 Apps는 smoke test 중심으로 확인한다.
-  - Phase 2 검열 Minor 후속 검토: `eq` emit→re-parse 비대칭. condition leaf에 typed inputSpec으로 Single 숫자를 직접 주고 그 `ApiDef`를 참조하는 어떤 `ApiCall`도 타입 metadata가 없으면, emit은 `eq` scalar로 내보내나 re-parse가 hint 부재로 거부(잠재 data loss). 좁은 정수(Int8/Int16/UInt8/UInt16)·실수 Single의 case 손실이 원인. fallback 정책(좁은/실수 Single을 `inputSpec` raw DU로 보존 vs 현 동작 유지 + round-trip 테스트 박제)을 결정한다. 현 테스트/통상 경로에서는 미발생.
+  - Phase 2 검열 Minor 후속 검토: `eq` emit→re-parse 비대칭. condition leaf에 typed inputSpec으로 Single 숫자를 직접 주고 그 `ApiDef`를 참조하는 어떤 `ApiCall`도 타입 metadata가 없으면, emit은 `eq` scalar로 내보내나 re-parse가 hint 부재로 거부(잠재 data loss). 좁은 정수(Int8/Int16/UInt8/UInt16)·실수 Single의 case 손실이 원인. fallback 정책(좁은/실수 Single을 `inputSpec` raw DU로 보존 vs 현 동작 유지 + round-trip 테스트 박제)을 결정한다. 현 테스트/통상 경로에서는 미발생. → **옵션 (1)로 해결**(2026-06-05): emit 시 좁은 정수·실수 Single 을 `inputSpec` raw DU 로 보존. `ModelProtocol.fs` `writeEqSingle` 분기 수정 + m1 테스트 7종 추가.
   - Phase 4 후속 cleanup: `Ds2.LlmAgent/ModelingCategory.fs` docstring(A_Modeling 분류 주석 등, 약 line 13/74)의 stale `SkipInputSensor` / `callCondition` 표기를 코드 실제와 정합한다(폐기 키 제거, `condition`/`Condition` 표기). 기능 영향 없는 주석 정정.
   - Phase 6 후속(필수): Promaker C# `FormulaColorizer.BuildInlines`(`Apps/Promaker/Promaker/Controls/PropertyPanel/ConditionSectionControl.xaml.cs`)가 `ConditionFormulaProjection`과 독립 구현이라 ContactKind/IsInverted/빈 condition 표시가 불일치(무공백 / `(empty)` / 접점·NOT 미표시). Phase 6에서 F# projection은 `not (...)` / `/A` / `A(R)` / `A(F)` / 빈 And=`true` / 빈 Or=`false`로 정했으므로, 동일 표시 규약을 C# colorizer에 반영하거나 colorizer가 F# projection 문자열을 사용하도록 정합한다. (남은 작업 6번 Promaker UI 영향과 동일 항목.)
 - 수정 예상 파일:

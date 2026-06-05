@@ -3949,13 +3949,19 @@ let private cylApiDefId (store: DsStore) (apiName: string) : Guid =
     let cyl = Queries.passiveSystemsOf proj.Id store |> List.find (fun s -> s.Name = "Cyl1")
     (Queries.apiDefsOf cyl.Id store |> List.find (fun d -> d.Name = apiName)).Id
 
-/// 주어진 ApiDefId 를 참조하는 AutoAux/ComAux/SkipAction leaf 1개짜리 top-level Condition root 생성.
-let private mkRoot (condType: ConditionType) (apiDefId: Guid) : Condition =
+/// 주어진 ApiDefId 를 참조하는 leaf 1개짜리 top-level Condition root 생성 (leaf InputSpec 지정).
+let private mkRootWithSpec (condType: ConditionType) (apiDefId: Guid) (spec: ValueSpec) : Condition =
     let ac = ApiCall("")
     ac.ApiDefId <- Some apiDefId
+    ac.InputSpec <- spec
     let cond = Condition(Type = Some condType)
     cond.ApiCalls.Add(ac)
     cond
+
+/// 주어진 ApiDefId 를 참조하는 AutoAux/ComAux/SkipAction leaf 1개짜리 top-level Condition root 생성.
+/// InputSpec 미지정(UndefinedValue) — leaf InputSpec 이 필요하면 mkRootWithSpec 사용.
+let private mkRoot (condType: ConditionType) (apiDefId: Guid) : Condition =
+    mkRootWithSpec condType apiDefId UndefinedValue
 
 /// store → export → 새 store apply → 새 store 반환 (round-trip). diag 오류 시 fail.
 let private roundTrip (store: DsStore) : DsStore =
@@ -4098,3 +4104,111 @@ let ``Phase 3 — legacy nested conditions/children parse 결과 불변 (회귀)
     Assert.Equal(1, root.ApiCalls.Count)
     Assert.Equal(1, root.Children.Count)
     Assert.Equal(Some ConditionType.SkipAction, root.Children.[0].Type)
+
+// ─── Phase 2 검열 m1 옵션 (1) — 좁은 정수·실수 Single 은 eq 강등 대신 typed inputSpec 보존 ──
+//
+// SSOT todo-refactor-condition.md Phase 7 / Phase 2 검열 m1:
+//   기존 emit 은 모든 Single 숫자 case 를 `eq` scalar 로 내보냈고, re-parse(parseEqValue) 는 숫자
+//   token 에 대해 대상 ApiDef 타입 hint(참조 ApiCall 의 InputSpec/OutputSpec) 가 필수였다.
+//   device sugar 처럼 그 ApiDef 를 참조하는 ApiCall 에 타입 metadata 가 전무하면(hint 부재) 숫자 eq
+//   가 거부되어 좁은 정수(Int8/Int16/UInt8/UInt16)·실수(Float32/Float64) 기대값이 round-trip 에서
+//   data loss → emit↔re-parse 비대칭.
+//   옵션 (1): emit 시 이들을 `eq` 로 강등하지 않고 typed `inputSpec`(raw ValueSpec DU) 로 보존 →
+//   re-parse 가 hint 불필요하게 case(폭/정수·실수) 무손실 복원.
+//
+//   아래 테스트들은 *그 ApiDef 를 참조하는 ApiCall 에 타입 metadata 가 전무한* 상태(singleCylinderYaml
+//   device sugar — Call.ApiCalls[*].InputSpec = UndefinedValue) 에서 round-trip 이 닫히는지 검증한다.
+
+/// round-trip 후 새 store 에서 Cyl1 의 주어진 ApiDef 를 *참조하는 모든 Call.ApiCalls* 가
+/// hint 출처(InputSpec/OutputSpec non-Undefined) 를 전혀 갖지 않는지 확인 (hint 부재 보증).
+let private assertNoTypeHintFor (store: DsStore) (apiName: string) : unit =
+    let apiDefId = cylApiDefId store apiName
+    let referencing =
+        store.CallsReadOnly.Values
+        |> Seq.collect (fun c -> c.ApiCalls :> seq<_>)
+        |> Seq.filter (fun ac -> ac.ApiDefId = Some apiDefId)
+        |> Seq.toList
+    // device sugar 가 만든 Call.ApiCalls 만 존재해야 하며 그 InputSpec/OutputSpec 은 Undefined (hint 부재).
+    for ac in referencing do
+        Assert.Equal(UndefinedValue, ac.InputSpec)
+        Assert.Equal(UndefinedValue, ac.OutputSpec)
+
+[<Theory>]
+[<InlineData("Int16-narrow")>]
+[<InlineData("UInt8-narrow")>]
+[<InlineData("Float64-real")>]
+[<InlineData("Float32-real")>]
+let ``m1 옵션1 — 좁은정수·실수 Single 은 hint 부재에도 emit→re-parse round-trip 에서 case 무손실 보존`` (kind: string) =
+    // singleCylinderYaml: Cyl1.ADV/RET 를 참조하는 Call.ApiCalls 는 device sugar 라 InputSpec=Undefined
+    // → 그 ApiDef 를 eq 숫자로 내보냈다면 re-parse hint 부재로 거부됐을 상황.
+    let expected : ValueSpec =
+        match kind with
+        | "Int16-narrow"  -> Int16Value  (Single -1234s)
+        | "UInt8-narrow"  -> UInt8Value  (Single 250uy)
+        | "Float64-real"  -> Float64Value (Single 3.14159)
+        | "Float32-real"  -> Float32Value (Single 2.5f)
+        | other           -> failwithf "unexpected kind %s" other
+    let store = DsStore()
+    let _ = parseApplyCommit store singleCylinderYaml
+    let advCall = findAdvCall store
+    advCall.Conditions.Add(mkRootWithSpec ConditionType.AutoAux (cylApiDefId store "RET") expected)
+
+    // emit: 좁은정수·실수는 eq 강등 금지 → typed inputSpec 로 나가야 한다.
+    use exported = ModelProtocol.exportToJson store
+    let compact = exported.RootElement.ToString().Replace(" ", "")
+    Assert.Contains("\"inputSpec\"", compact)
+    Assert.DoesNotContain("\"eq\"", compact)
+
+    // round-trip (hint 부재) — diag 무오류 + case 무손실 보존.
+    let store2 = roundTrip store
+    // hint 부재 보증: Cyl1.RET 참조 Call.ApiCalls 에 타입 metadata 가 전무.
+    assertNoTypeHintFor store2 "RET"
+    let advCall2 = findAdvCall store2
+    Assert.Equal(1, advCall2.Conditions.Count)
+    Assert.Equal(1, advCall2.Conditions.[0].ApiCalls.Count)
+    Assert.Equal<ValueSpec>(expected, advCall2.Conditions.[0].ApiCalls.[0].InputSpec)
+
+[<Fact>]
+let ``m1 옵션1 — Int32 Single(범위 밖 정수) 은 기존대로 eq 로 emit (회귀)`` () =
+    // 사용자 결정 범위는 "좁은 정수·실수"만 → Int32/Int64/UInt32/UInt64 는 eq 동작 유지.
+    let store = DsStore()
+    let _ = parseApplyCommit store singleCylinderYaml
+    let advCall = findAdvCall store
+    advCall.Conditions.Add(mkRootWithSpec ConditionType.AutoAux (cylApiDefId store "RET") (Int32Value (Single 7)))
+
+    use exported = ModelProtocol.exportToJson store
+    let compact = exported.RootElement.ToString().Replace(" ", "")
+    // Int32 Single 은 eq scalar 로 나가야 한다 (inputSpec 으로 강제되지 않음).
+    Assert.Contains("\"eq\":7", compact)
+    Assert.DoesNotContain("\"inputSpec\"", compact)
+
+[<Fact>]
+let ``m1 옵션1 — Int64/UInt64 Single(범위 밖 정수) 도 eq 로 emit (회귀)`` () =
+    // 좁은 정수에 포함되지 않는 넓은 정수도 eq 유지 — 분기 기준이 좁은정수/실수에 한정됨을 고정.
+    let store = DsStore()
+    let _ = parseApplyCommit store singleCylinderYaml
+    let advCall = findAdvCall store
+    advCall.Conditions.Add(mkRootWithSpec ConditionType.AutoAux (cylApiDefId store "RET") (Int64Value (Single 9000000000L)))
+    advCall.Conditions.Add(mkRootWithSpec ConditionType.AutoAux (cylApiDefId store "ADV") (UInt64Value (Single 42UL)))
+
+    use exported = ModelProtocol.exportToJson store
+    let compact = exported.RootElement.ToString().Replace(" ", "")
+    Assert.Contains("\"eq\":9000000000", compact)
+    Assert.Contains("\"eq\":42", compact)
+    Assert.DoesNotContain("\"inputSpec\"", compact)
+
+[<Fact>]
+let ``m1 옵션1 — 좁은정수·실수 inputSpec emit 은 raw ValueSpec DU 케이스명을 보존`` () =
+    // emit 이 좁은정수/실수를 typed inputSpec 으로 내보낼 때 ValueSpec DU 케이스명(Int16Value/Float64Value)이
+    // wire 에 그대로 나타나는지 — re-parse hint 불필요 복원의 근거.
+    let store = DsStore()
+    let _ = parseApplyCommit store singleCylinderYaml
+    let advCall = findAdvCall store
+    advCall.Conditions.Add(mkRootWithSpec ConditionType.AutoAux (cylApiDefId store "RET") (Int16Value (Single 100s)))
+    advCall.Conditions.Add(mkRootWithSpec ConditionType.AutoAux (cylApiDefId store "ADV") (Float64Value (Single 1.5)))
+
+    use exported = ModelProtocol.exportToJson store
+    let compact = exported.RootElement.ToString().Replace(" ", "")
+    Assert.Contains("\"Int16Value\"", compact)
+    Assert.Contains("\"Float64Value\"", compact)
+    Assert.DoesNotContain("\"eq\"", compact)

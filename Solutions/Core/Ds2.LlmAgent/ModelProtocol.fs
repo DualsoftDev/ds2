@@ -2580,32 +2580,33 @@ module ModelProtocol =
             w.WriteString("address", tag.Address)
         w.WriteEndObject()
 
-    /// condition leaf 의 InputSpec → wire 키 emit (Phase 2). 호출자는 object scalar 안에서 진입.
+    /// condition leaf 의 InputSpec → wire 키 emit (Phase 2; Phase 2 검열 m1 옵션 (1) 보강).
+    /// 호출자는 object scalar 안에서 진입.
     /// - UndefinedValue: 키 생략 (default — parse 측 entity-default 정합).
-    /// - Single (bool/숫자/string): 사람 친화 `eq` scalar.
+    /// - Single (bool/string): token 자체로 타입 확정 가능 → 사람 친화 `eq` scalar.
+    /// - Single (Int32/Int64/UInt32/UInt64): 대상 ApiDef 타입 hint 로 폭 복원 가능 → `eq` scalar 유지.
+    /// - Single (Int8/Int16/UInt8/UInt16 좁은 정수, Float32/Float64 실수): `eq` 로 강등하면 re-parse 시
+    ///   hint 부재(대상 ApiCall 타입 metadata 전무)일 때 폭/정수·실수 case 를 복원할 수 없어 data loss
+    ///   (Phase 2 검열 m1 비대칭). → typed `inputSpec` raw DU 로 emit 해 case 무손실 보존 (옵션 (1)).
     /// - Multiple / Ranges: eq 로 환원 불가 → raw ValueSpec DU `inputSpec` fallback (박제 결정).
     let private writeLeafInputSpec (w: Utf8JsonWriter) (spec: ValueSpec) : unit =
         let writeEqSingle () : bool =
-            // Single 이면 eq scalar 로 emit 하고 true 반환, 아니면 false (fallback 필요).
+            // Single 이면 eq scalar 로 emit 하고 true 반환, 아니면 false (typed inputSpec fallback 필요).
+            // 좁은 정수(Int8/Int16/UInt8/UInt16)·실수(Float32/Float64) Single 은 의도적으로 여기서 제외(false)
+            // → fallback 경로(typed inputSpec)로 보내 case 무손실 보존 (m1 옵션 (1)).
             match spec with
             | BoolValue   (Single v) -> w.WriteBoolean("eq", v); true
-            | Int8Value   (Single v) -> w.WriteNumber("eq", int v); true
-            | Int16Value  (Single v) -> w.WriteNumber("eq", int v); true
             | Int32Value  (Single v) -> w.WriteNumber("eq", v); true
             | Int64Value  (Single v) -> w.WriteNumber("eq", v); true
-            | UInt8Value  (Single v) -> w.WriteNumber("eq", uint32 v); true
-            | UInt16Value (Single v) -> w.WriteNumber("eq", uint32 v); true
             | UInt32Value (Single v) -> w.WriteNumber("eq", v); true
             | UInt64Value (Single v) -> w.WriteNumber("eq", v); true
-            | Float32Value (Single v) -> w.WriteNumber("eq", v); true
-            | Float64Value (Single v) -> w.WriteNumber("eq", v); true
             | StringValue (Single v) -> w.WriteString("eq", v); true
             | _ -> false
         match spec with
         | UndefinedValue -> ()
         | _ ->
             if not (writeEqSingle ()) then
-                // Multiple / Ranges / Undefined-내부 — raw DU fallback.
+                // 좁은 정수·실수 Single / Multiple / Ranges / Undefined-내부 — raw DU fallback (case 무손실).
                 w.WritePropertyName "inputSpec"
                 JsonSerializer.Serialize(w, spec, valueSpecJsonOptions)
 
