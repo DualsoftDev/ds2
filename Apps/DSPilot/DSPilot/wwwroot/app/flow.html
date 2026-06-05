@@ -995,6 +995,14 @@
             // ── BuildSvg 레이아웃 상수 (cycle-time-analysis 와 동일) ──
             const TOP_MARGIN = 50, LANE_HEIGHT = 44, BAR_HEIGHT = 18, RIBBON_H = 48, LEFT_PAD = 12, RIGHT_PAD = 40, BOTTOM_PAD = 20, MIN_PLOT_WIDTH = 640, MAX_ZOOM = 24;
             const histCache = {};   // flowName → rows: 전환 시 즉시 표시(서버 왕복 대기 없이)
+            // ── Chart.js 인스턴스는 Alpine 반응형 밖(클로저)에 보관 ──
+            // 컴포넌트 프로퍼티(this._x)로 두면 Alpine 이 차트의 내부 config/_resolverCache/_fallback 까지
+            // 깊은 Proxy 로 감싸고, 재사용 update() 시 리졸버가 Proxy 순환 스코프를 타며 폭주한다
+            // (stack overflow / 레이아웃 box undefined / 옵션 resolver 의 `.includes` of undefined).
+            // 구버전이 매번 destroy()+new Chart() 라 update() 를 안 해서 안 터졌을 뿐 → 클로저 보관으로 근본 차단.
+            let _charts = { trend: null, count: null, dist: null };   // 추이 탭 (trend/count/dist)
+            let _cycleChart = null;   // 사이클 분석 탭
+            let _histChart = null;    // 최근 히스토리 탭
 
             return {
                 TOP_MARGIN, LANE_HEIGHT, RIBBON_H,
@@ -1014,7 +1022,6 @@
                 granularity: 'hour',
                 periodStart: null, periodEnd: null,
                 _trendSeq: 0,
-                _charts: { trend: null, count: null, dist: null },
                 _drawRetry: 0,
 
                 // ── 사이클 분석 (구 cycle-time-analysis, 이 Flow 스코프) ──
@@ -1037,7 +1044,6 @@
                 svgMarkup: '',
                 cycleView: 'chart',   // 사이클 목록: 'table' | 'chart' (기본=차트)
                 cyclePreset: null,    // 활성 사이클-기준 프리셋(최근 N 사이클) — 시간 프리셋/수동 변경 시 해제
-                _cycleChart: null,
                 chartSort: 'ByLane',
                 callLanesRaw: [],
                 showMaxGap: true,
@@ -1052,7 +1058,6 @@
                 _histShownFor: null,
                 histView: 'chart',
                 histLimit: 200,
-                _histChart: null,
                 rangeByFlow: {},
                 rangeModalOpen: false,
                 // 미완료(완료신호 없는) 사이클 제외 — 로컬 표시 토글(기본 ON). CT 범위 이상치와는 별개 개념.
@@ -1107,8 +1112,8 @@
                     clearTimeout(this._dt);
                     clearTimeout(this._timeReloadTimer);
                     this._conn?.stop();
-                    Object.values(this._charts).forEach(c => { if (c) c.destroy(); });
-                    if (this._histChart) this._histChart.destroy();
+                    Object.values(_charts).forEach(c => { if (c) c.destroy(); });
+                    if (_histChart) _histChart.destroy();
                 },
 
                 toggleTheme() { this.dark = !this.dark; localStorage.setItem('dspilot-theme', this.dark ? 'dark' : 'light'); },
@@ -1277,8 +1282,8 @@
 
                 drawCharts() {
                     if (!window.Chart) return;
-                    Object.values(this._charts).forEach(c => { if (c) c.destroy(); });
-                    this._charts = { trend: null, count: null, dist: null };
+                    Object.values(_charts).forEach(c => { if (c) c.destroy(); });
+                    _charts = { trend: null, count: null, dist: null };
                     if (this.trend.cycleCount === 0) { this._drawRetry = 0; return; }
                     // 캔버스를 $refs 가 아닌 DOM 에서 직접 찾는다.
                     // 첫 접속 시 중첩 x-if(flow→추이) 가 mount 될 때 Alpine 이 $refs.trendChart 를
@@ -1309,7 +1314,7 @@
                     const tickColor = css('--color-text-secondary') || '#5A6B7E';
 
                     if (trendCv) {
-                        this._charts.trend = new Chart(trendCv, {
+                        _charts.trend = new Chart(trendCv, {
                             type: 'line',
                             data: { labels, datasets: [
                                 { label: '평균 CT (s)', data: this.buckets.map(b => toSec(b.avgCT)), borderColor: cCt, backgroundColor: 'transparent', tension: 0.25, borderWidth: 2 },
@@ -1320,14 +1325,14 @@
                         });
                     }
                     if (countCv) {
-                        this._charts.count = new Chart(countCv, {
+                        _charts.count = new Chart(countCv, {
                             type: 'bar',
                             data: { labels, datasets: [{ label: '사이클 수', data: this.buckets.map(b => b.count), backgroundColor: cCt }] },
                             options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: grid }, ticks: { color: tickColor } }, y: { beginAtZero: true, grid: { color: grid }, ticks: { color: tickColor } } } }
                         });
                     }
                     if (distCv) {
-                        this._charts.dist = new Chart(distCv, {
+                        _charts.dist = new Chart(distCv, {
                             type: 'doughnut',
                             data: { labels: ['가동(MT)', '대기(WT)'], datasets: [{ data: [this.trend.totalMt, this.trend.totalWt], backgroundColor: [cMt, cWt] }] },
                             options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: tickColor } } } }
@@ -2329,7 +2334,7 @@
                     if (!cv || !window.Chart) return;
                     const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
                     const rows = this.visibleCycleList;
-                    if (!rows.length) { if (this._cycleChart) { this._cycleChart.destroy(); this._cycleChart = null; } return; }
+                    if (!rows.length) { if (_cycleChart) { _cycleChart.destroy(); _cycleChart = null; } return; }
                     const labels = rows.map(c => '#' + c.number + (c.isOpen ? ' ↻' : ''));
                     const times = rows.map(c => this.hms(new Date(c.startMs)));
                     const ratios = rows.map(c => c.ratio);
@@ -2369,7 +2374,7 @@
                     // 가변 데이터셋 수(MT/WT vs CT단일 + 평균선)는 datasets 재할당으로 reconcile. 툴팁은 chart.$ctx 로 최신값.
                     const dctx = { labels, times, at, idle, ratios, avg };
                     const themeSig = cAt + '|' + cIdle + '|' + cRed + '|' + grid + '|' + txt + '|' + (incompleteFallback ? 1 : 0);
-                    const ex = this._cycleChart;
+                    const ex = _cycleChart;
                     if (ex && ex.canvas === cv && ex._themeSig === themeSig) {
                         ex.$ctx = dctx;
                         ex.data.labels = labels;
@@ -2377,7 +2382,7 @@
                         ex.update('none');
                         return;
                     }
-                    if (ex) { ex.destroy(); this._cycleChart = null; }
+                    if (ex) { ex.destroy(); _cycleChart = null; }
                     const self = this;
                     const fmtMs = (s) => self.fmt(s * 1000);
                     const ch = new Chart(cv, {
@@ -2414,7 +2419,7 @@
                     });
                     ch.$ctx = dctx;
                     ch._themeSig = themeSig;
-                    this._cycleChart = ch;
+                    _cycleChart = ch;
                 },
                 renderHistChart() {
                     // $refs 가 중첩 x-if mount 시 간헐적으로 비는 문제 → DOM 에서 직접 조회
@@ -2445,7 +2450,7 @@
                     // 툴팁 콜백이 렌더별 배열을 클로저로 캡처하면 stale 되므로, 최신 컨텍스트는 chart.$ctx 에 실어 콜백이 거기서 읽는다.
                     const dctx = { times, mt, wt, avg };
                     const themeSig = txt + '|' + cMt + '|' + cWt + '|' + cRed + '|' + grid;  // 테마 바뀌면 색 갱신 위해 recreate
-                    const ex = this._histChart;
+                    const ex = _histChart;
                     if (ex && ex.canvas === cv && ex._themeSig === themeSig) {
                         ex.$ctx = dctx;
                         ex.data.labels = labels;
@@ -2453,7 +2458,7 @@
                         ex.update('none');
                         return;
                     }
-                    if (ex) { ex.destroy(); this._histChart = null; }
+                    if (ex) { ex.destroy(); _histChart = null; }
                     const self = this;
                     const fmtMs = (s) => self.fmt(s * 1000);
                     const ch = new Chart(cv, {
@@ -2487,7 +2492,7 @@
                     });
                     ch.$ctx = dctx;
                     ch._themeSig = themeSig;
-                    this._histChart = ch;
+                    _histChart = ch;
                 },
                 // ── 이상치 필터: 이 Flow 의 최소·최대 CT 범위 (팝업으로 입력) ──
                 _rangeFieldSec(field) {
