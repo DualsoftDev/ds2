@@ -45,7 +45,11 @@ if (-not $pat -and (Test-Path $PatFile)) { $pat = (Get-Content $PatFile -Raw).Tr
 if (-not $pat) { Write-Error "No PAT: set env GITLAB_TOKEN or file $PatFile (scope api, write 필요)"; exit 2 }
 
 if (-not (Test-Path $BodyFile)) { Write-Error "BodyFile 없음: $BodyFile"; exit 6 }
-$bodyText = Get-Content $BodyFile -Raw -Encoding UTF8
+# 주의: Get-Content -Raw 는 ETS NoteProperty(PSPath/PSProvider/ReadCount 등)가 부착된 문자열을
+#       돌려주고, 그걸 @{body=...} | ConvertTo-Json 하면 그 속성 그래프까지 직렬화되어 body 가
+#       거대 객체로 변질된다(GitLab 이 "body is invalid" 로 거부). 순수 string 을 얻기 위해
+#       .NET ReadAllText 를 쓴다(BOM 자동 감지·제거).
+$bodyText = [System.IO.File]::ReadAllText($BodyFile, [System.Text.Encoding]::UTF8)
 
 $enc = [uri]::EscapeDataString($ProjectPath)
 
@@ -61,10 +65,12 @@ function Invoke-GitLabWrite {
   $hdr     = [System.IO.Path]::GetTempFileName()
   $bodyTmp = [System.IO.Path]::GetTempFileName()
   try {
-    [System.IO.File]::WriteAllText($hdr, "PRIVATE-TOKEN: $pat`nContent-Type: application/json")
+    [System.IO.File]::WriteAllText($hdr, "PRIVATE-TOKEN: $pat")
     [System.IO.File]::WriteAllText($bodyTmp, $JsonBody, (New-Object System.Text.UTF8Encoding($false)))
     $hdrArg = "@$hdr"; $bodyArg = "@$bodyTmp"
-    $httpCode = & curl.exe -s --max-time 30 -X $Method -H $hdrArg --data-binary $bodyArg -o $tmpOut -w "%{http_code}" $Url
+    # Content-Type 은 비밀이 아니므로 별도 -H 로 직접 전달한다(헤더파일에는 PAT 한 줄만 두어
+    # gitlab-issues.ps1 의 검증된 단일헤더 패턴과 동일하게 유지 — 멀티라인 -H @file 미전송 회피).
+    $httpCode = & curl.exe -s --max-time 30 -X $Method -H $hdrArg -H "Content-Type: application/json" --data-binary $bodyArg -o $tmpOut -w "%{http_code}" $Url
     $rc = $LASTEXITCODE
   } finally {
     # 토큰이 평문으로 담긴 헤더 임시파일은 예외 발생 시에도 반드시 삭제
