@@ -10,8 +10,9 @@ namespace Ds2.LlmAgent.Internal
 // 분류 표 자체는 `yaml-protocol-v0.md §2.4.1 Category 사전` 행과 docstring 정합.
 //
 // **사용자 결정 (2026-05-15)**:
-// - A_Modeling: Condition / ContactKind / SkipInputSensor / CallType / TokenRole
+// - A_Modeling: Condition / ContactKind / CallType / TokenRole
 //               + apiDetails.actionType (시간 인자 포함 — DU leaf 분해 불가, M2 footnote)
+//               (SkipInputSensor 는 v10 에서 폐기 — SensingType=Virtual 로 ApiDef 차원 흡수)
 // - B_Addressing: IOTag (InTag / OutTag)
 // - C_Meta: author / version / iri / description / workDuration / apiDetails.description
 // - D_Plc: plc: sub-section (PlcMetadata.fs 의 54 leaf 통째 — M5 후속 leaf 단위 override 가능)
@@ -71,7 +72,7 @@ module ModelingCategory =
     /// modeling level wire 에서 *등장 금지* 인 키 → Category 매핑 (SSOT §2.7 룰 #30).
     /// 골격 키 (protocol / project / view / level / summary / systems / system / kind / device /
     /// apis / opposing / flow <Name> / works / arrows / calls / ref / patch) 와 A_Modeling 키
-    /// (tokenRole / contactKind / skipInputSensor / callType / callCondition / actionType) 는
+    /// (tokenRole / contactKind / callType / condition / actionType) 는
     /// 매핑 부재 — modeling level 에서도 등장 허용. 동일 키 (예: `plc`) 가 4 entity context 에 등장하나
     /// path 무관 일관 분류 — wire walk 시 키 이름만 lookup.
     /// **boundary**: `description` 은 apiDetails entry 안 leaf 한정 — C_Meta. top-level / 다른 entity 안

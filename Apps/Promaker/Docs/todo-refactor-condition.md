@@ -7,7 +7,10 @@
 
 ## --orch 진행 표
 
-현재 상태는 **Phase 7부터 자동 진행 가능**이다. Phase 0~6은 구현/독립 검열/테스트를 완료했다. Phase 4 에서 PromptCanary 선행 실패(.md/.mdx)도 해소되어 `Ds2.LlmAgent.Tests` 는 449 전부 통과한다.
+**Phase 0~7 전부 완료** (구현 / 독립 검열 / 테스트). 회귀: `Ds2.LlmAgent.Tests` 449/0, `Ds2.Core.Tests` 90/0, `Ds2.Store.Editor.Tests` 505/0, `Promaker.Tests` 459/1(아래 무관 선행 실패). Phase 4 에서 PromptCanary 선행 실패(.md/.mdx) 해소, Phase 7 에서 Phase 4 후속(ModelingCategory 주석 정정)·Phase 6 후속(C# FormulaColorizer 표시 규약 일치 + drift 방어 테스트 15종)도 완료했다.
+
+> 미해결 1건 (정책 결정 대기): Phase 2 m1 — `eq` emit→re-parse 비대칭(condition leaf 에 typed inputSpec 의 Single 숫자를 직접 주고 그 `ApiDef` 참조 `ApiCall` 에 타입 metadata 가 전무하면 emit 은 `eq` scalar 로 내보내나 re-parse 가 hint 부재로 거부). 통상 경로/현 테스트에서는 미발생. 좁은 정수·실수 Single 을 `inputSpec` raw DU 로 보존할지 vs 현 동작 유지 + round-trip 테스트 박제할지 사용자 결정 후 구현.
+> Condition 무관 선행 실패: `Promaker.Tests` 의 `MainViewModelTests.ShowProjectSettings_updates_project_name_from_dialog` NRE — 커밋 #191 다이얼로그 탭 제거로 reflection 대상 속성(`ResultDateTime` 등)이 삭제되어 생긴 테스트-구현 불일치. Condition 작업과 무관하며 해당 테스트의 reflection 대상 정리로 별도 해소 권장.
 
 > 알려진 선행 실패(Phase 1 무관): `Ds2.LlmAgent.Tests`의 `PromptCanaryTests`가 prompt 파일을 `.md`로 참조하나 실제 파일은 `.mdx`라 3건 실패한다. 코드 변경 전부터 깨진 상태이며 Phase 4(Promaker protocol docs, prompt 파일 취급) 또는 별도 작업에서 `.md`↔`.mdx` 정합으로 해소한다.
 
@@ -20,7 +23,7 @@
 | 4. Promaker protocol docs | 완료 | Prompt, example YAML, `yaml-protocol-v0.md` 갱신 | `yaml.md`, `flow.yaml`, `yaml-protocol-v0.md` | 문서의 canonical key와 examples가 protocol tests와 일치 |
 | 5. JsonFormatter docs | 완료 | `json-format.md` stale field 정정, STJ/AASX 명칭 구분, Builder helper 설명 | `json-format.md` | `isRising` 제거, `isInverted`/Runtime 평가/명칭 정정 반영 |
 | 6. Editor formula projection | 완료 | `IsInverted`, `ContactKind`, empty condition 표시 정책 반영 | `ConditionFormulaProjection.fs`, projection tests | 표시 테스트 통과 |
-| 7. Apps regression | 미시작 | Promaker, Core/Editor, AASX/Runtime 간접 회귀 확인 | test 결과, 필요 시 docs 보강 | 지정 test set 통과 또는 미실행 사유 기록 |
+| 7. Apps regression | 완료 | Promaker, Core/Editor, AASX/Runtime 간접 회귀 확인 | test 결과, 필요 시 docs 보강 | 지정 test set 통과 또는 미실행 사유 기록 |
 
 ## 사용자 사전 결정 필요
 
