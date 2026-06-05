@@ -9,7 +9,7 @@ open Ds2.Editor
 open Ds2.LlmAgent
 
 /// 사용자 요청 rev2 — Sibling Uniqueness 일반화 회귀 방어.
-/// SSOT: $1.entities.md §3a + $3.tooling.md "Sibling Uniqueness — MCP 자동 검사".
+/// SSOT: $1.entities.mdx §3a + $3.tooling.mdx "Sibling Uniqueness — MCP 자동 검사".
 
 let private newStoreWithProject () =
     let store = DsStore()

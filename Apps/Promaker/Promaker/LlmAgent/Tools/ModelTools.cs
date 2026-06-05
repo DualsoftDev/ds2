@@ -29,7 +29,7 @@ public static class ModelTools
     // mutation tool_result self-explanatory 보강 — architectural invariant (1 LLM turn = 1 undo step, mutation 은
     // turn end 에 일괄 apply) 가 작은 모델에서 잘 안 보일 때, 같은 turn 안 read 재조회가 turn-시작 snapshot 만 반환
     // → "queue 안 됨" 으로 잘못 추론 → 동일 mutation 중복 호출 회귀. 본 suffix 가 visibility invariant 를 LLM 에 직접
-    // 알리는 single line. `3.tooling.md` 의 운영 규칙 wording 과 sync 유지.
+    // 알리는 single line. `3.tooling.mdx` 의 운영 규칙 wording 과 sync 유지.
     private const string PlanVisibilityHint = " (반영은 turn 종료 후 — 같은 turn 안에서 재조회 금지)";
 
     // DI 인자 (e.g. LlmTurnContextProvider) 는 attribute 없이 자동 주입됨.

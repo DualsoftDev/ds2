@@ -15,9 +15,9 @@ Promaker MCP server 의 도구 (`mcp__promaker__*`) 를 호출하지만, **본 �
 본 폴더에서 사용자와 모델링 대화를 시작하기 전에 **다음 3 개 문서를 Read 도구로 모두 읽어** 시스템 prompt
 로 적용된 것처럼 동작하십시오. (parent 폴더 = `..` = `LlmAgent/Prompts/`)
 
-1. `../1.entities.md` — DS / EV2 Entity 모델 핵심 구조 (Project / DsSystem / Flow / Work / Call / ApiDef / Arrow)
-2. `../2.modeling.md` — 자연어 사양 → Ds2 모델 분해 도메인 룰 (§0 해석 단계 ~ §5 self-check)
-3. `../3.tooling.md` — MCP 도구 사용 규약 (`apply_model_doc` 주력 — schema v0 doc-level. 현 도구 풀세트 = 6종 = doc-level 4 + read 2. Phase 5 cleanup 으로 op-layer 일소 + Phase 6 read GUID-free 정렬)
+1. `../1.entities.mdx` — DS / EV2 Entity 모델 핵심 구조 (Project / DsSystem / Flow / Work / Call / ApiDef / Arrow)
+2. `../2.modeling.mdx` — 자연어 사양 → Ds2 모델 분해 도메인 룰 (§0 해석 단계 ~ §5 self-check)
+3. `../3.tooling.mdx` — MCP 도구 사용 규약 (`apply_model_doc` 주력 — schema v0 doc-level. 현 도구 풀세트 = 6종 = doc-level 4 + read 2. Phase 5 cleanup 으로 op-layer 일소 + Phase 6 read GUID-free 정렬)
 
 세 문서는 Promaker production 의 system prompt 와 동일한 SSOT 입니다. **본 CLAUDE.md 는 그 위에 얹는
 "시뮬레이션 모드 어댑터"** 일 뿐 — 모델링 의사결정 룰 자체는 위 3 문서가 결정합니다.
@@ -32,7 +32,7 @@ Promaker MCP server 의 도구 (`mcp__promaker__*`) 를 호출하지만, **본 �
 
 - **`mcp__promaker__*` 도구를 *실제로 호출하지 마십시오*.** 본 폴더에서는 MCP server 가 가동되지 않으며,
   호출 시도 시 도구가 존재하지 않거나 무응답입니다. 대신 — 호출하려던 명세를 **fenced code block 으로 출력**.
-- Read 도구는 `../1.entities.md` / `../2.modeling.md` / `../3.tooling.md` 등 *문서 읽기* 용도로만 사용.
+- Read 도구는 `../1.entities.mdx` / `../2.modeling.mdx` / `../3.tooling.mdx` 등 *문서 읽기* 용도로만 사용.
   Promaker store 상태는 시뮬레이터 안에서는 존재하지 않으므로 read 계열 MCP (`export_model_doc(path?, depth?)` /
   `find_by_name` / `validate_model`) 도 *실제 호출 금지* — 동일 출력 규약으로 명세만 표시.
 
@@ -40,7 +40,7 @@ Promaker MCP server 의 도구 (`mcp__promaker__*`) 를 호출하지만, **본 �
 
 자연어 사양 해석 결과 어떤 MCP 호출이 발행될지 다음 두 블록으로 구성하여 표시하십시오.
 
-**(a) 역할 어휘 요약** — `2.modeling.md` §0.2 / §0.3 에 따라 사용자에게 보여줄 역할 트리 / 흐름 설명.
+**(a) 역할 어휘 요약** — `2.modeling.mdx` §0.2 / §0.3 에 따라 사용자에게 보여줄 역할 트리 / 흐름 설명.
 DS entity 어휘 (Flow / Work / Call / ArrowBetweenWorks 등) 를 직접 노출하지 않고 "공정 / station /
 sub-action / 다음 단계 시작" 같은 역할 어휘로 풀어쓰기.
 
@@ -84,7 +84,7 @@ ARGS:
 
 ### 2.4 Self-check 보고
 
-`2.modeling.md` §5 self-check 항목을 실제로 적용하고, 출력 직전에 **체크리스트 통과 여부를 1줄 표** 로
+`2.modeling.mdx` §5 self-check 항목을 실제로 적용하고, 출력 직전에 **체크리스트 통과 여부를 1줄 표** 로
 요약하십시오. 위반 항목이 있으면 명세를 수정한 뒤 다시 출력 — 위반 사실을 숨기지 마십시오.
 
 ---
@@ -92,9 +92,9 @@ ARGS:
 ## 3. 대화 진행 규약
 
 - 사용자의 자연어 입력 (예: "Cyl 을 전진 후 후진", "S301 에 실린더 2 개와 컨베이어 1 개") 을 받으면
-  `2.modeling.md` §0 해석 절차를 그대로 수행: 명사/동사/흐름 단서 추출 → §1 매핑표 적용 → §3.4a 결정
+  `2.modeling.mdx` §0 해석 절차를 그대로 수행: 명사/동사/흐름 단서 추출 → §1 매핑표 적용 → §3.4a 결정
   트리 → §2 절대 룰 검사 → §5 self-check.
-- 모호한 사양은 `3.tooling.md` 의 Clarification 템플릿대로 **역할 어휘로 1회 명확화 질문**. DS entity
+- 모호한 사양은 `3.tooling.mdx` 의 Clarification 템플릿대로 **역할 어휘로 1회 명확화 질문**. DS entity
   어휘 직접 노출 금지.
 - 명확화 질문은 평범한 채팅 텍스트로 (`AskUserQuestion` 등 interactive prompt 도구 호출 금지 — 사용자
   global CLAUDE.md 의 "질문 방식" 규칙과도 일치).
@@ -109,7 +109,7 @@ ARGS:
 - 실제 Promaker 빌드 / 실행 / `dotnet` 명령 / 파일 수정 등 *코드베이스 변경 작업* 은 본 폴더의 목적
   (대화 관찰) 과 무관하므로 사용자가 명시 요청하지 않는 한 수행하지 마십시오.
 - 본 폴더에 새 파일을 만들 일이 생기면 (예: 시뮬레이션 로그 저장) 사용자에게 먼저 확인.
-- production 의 `<editor_changes>` / `<spec>` 구분자 규약은 `3.tooling.md` 에 정의되어 있으며 본 시뮬레이터
+- production 의 `<editor_changes>` / `<spec>` 구분자 규약은 `3.tooling.mdx` 에 정의되어 있으며 본 시뮬레이터
   에서도 동일 처리 — 사용자가 그 형태로 입력해 오면 그대로 해석.
 
 ---

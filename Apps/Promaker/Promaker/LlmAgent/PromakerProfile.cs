@@ -15,11 +15,14 @@ namespace Promaker.LlmAgent;
 ///   (1.attachments / 2.knowledge-base / 3.environment)</item>
 /// <item>App overlay = Promaker.dll 의 <c>Promaker.LlmAgent.Prompts.</c> prefix
 ///   (0.domain — mandatory base, *.mdx 는 주입 제외)</item>
-/// <item>built-in instruction = Promaker.dll 의 <c>Promaker.LlmAgent.Instructions.</c> prefix
-///   (promaker-yaml 은 defaultEnabled=true 이며 사용자가 끌 수 있음)</item>
 /// </list>
 /// PromptLoader 가 baseline → overlay → selected instructions 순서로 concat → LLM 에 명시 주입 순서 signal.
 /// </para>
+///
+/// <para><b>InstructionSources 순서</b>: built-in instruction = Promaker.dll 의
+/// <c>Promaker.LlmAgent.Instructions.</c> prefix, custom instruction =
+/// <see cref="SettingsPaths.CustomInstructionsDir"/>. <c>promaker-yaml</c> 은 defaultEnabled=true 이며
+/// 사용자가 끌 수 있다. custom 은 명시 enabled 전까지 off.</para>
 ///
 /// <para><b>UserPromptsDir / LegacyUserPromptsDir</b>: <see cref="SettingsPaths"/> SSOT 위임.
 /// <b>InstructionSelection</b>: <see cref="LlmConfig"/> 의 source-qualified key 설정을 매 prompt 생성 시점에 로드.

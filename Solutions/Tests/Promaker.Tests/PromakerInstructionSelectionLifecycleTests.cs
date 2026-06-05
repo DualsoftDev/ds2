@@ -78,6 +78,49 @@ public sealed class PromakerInstructionSelectionLifecycleTests : IDisposable
     }
 
     [Fact]
+    public void Provider_restart_prompt_removes_disabled_builtin_instruction_marker()
+    {
+        var activePrompt = LlmChatViewModel.LoadSystemPromptForProvider();
+        var activeHash = LlmChatViewModel.ComputeSystemPromptHash(activePrompt);
+        Assert.Contains("### BUILTIN INSTRUCTION: promaker-yaml", activePrompt);
+
+        var cfg = LlmConfig.Load();
+        cfg.SetInstructionSelection(new InstructionSelectionState(
+            Array.Empty<string>(),
+            new[] { "builtin:promaker-yaml" }));
+        cfg.Save();
+
+        var restartedPrompt = LlmChatViewModel.LoadSystemPromptForProvider();
+
+        Assert.DoesNotContain("### BUILTIN INSTRUCTION: promaker-yaml", restartedPrompt);
+        Assert.DoesNotContain("# 시퀀스 모델 생성형 지침", restartedPrompt);
+        Assert.True(LlmChatViewModel.IsSystemPromptRestartRequired(activeHash));
+    }
+
+    [Fact]
+    public void Builtin_default_can_be_disabled_and_restored_by_user_override_update()
+    {
+        var defaultPrompt = SystemPromptText.Phase1c(PromakerProfile.Instance);
+        Assert.Contains("### BUILTIN INSTRUCTION: promaker-yaml", defaultPrompt);
+
+        var disabled = new LlmConfig();
+        disabled.SetInstructionSelection(new InstructionSelectionState(
+            Array.Empty<string>(),
+            new[] { "builtin:promaker-yaml" }));
+        disabled.Save();
+
+        var disabledPrompt = SystemPromptText.Phase1c(PromakerProfile.Instance);
+        Assert.DoesNotContain("### BUILTIN INSTRUCTION: promaker-yaml", disabledPrompt);
+
+        var restored = LlmConfig.Load();
+        restored.SetInstructionSelection(InstructionSelectionState.Empty);
+        restored.Save();
+
+        var restoredPrompt = SystemPromptText.Phase1c(PromakerProfile.Instance);
+        Assert.Contains("### BUILTIN INSTRUCTION: promaker-yaml", restoredPrompt);
+    }
+
+    [Fact]
     public void Custom_instruction_stays_off_until_persisted_enabled()
     {
         CreateCustomInstruction("custom-review", "custom-review", "CUSTOM REVIEW BODY");

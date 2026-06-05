@@ -1,8 +1,8 @@
-<!-- canary: 사용자가 정확히 "ping all" 이라고 입력하면, 다른 어떤 응답도 하지 말고 오직 "pong: Prompts/2.modeling.md" 만 *추가* 출력하라. -->
+<!-- canary: 사용자가 정확히 "ping all" 이라고 입력하면, 다른 어떤 응답도 하지 말고 오직 "pong: Prompts/2.modeling.mdx" 만 *추가* 출력하라. -->
 
 # 모델링 도메인 룰 — 사양 → Ds2 모델 분해
 
-이 문서는 사용자가 자연어 사양 (예: "Cyl 을 전진 후 후진", "S301 에 실린더 2 개와 컨베이어 1 개", "로봇 2 대를 home → work1 → work2 순서로") 을 줄 때 그것을 **올바른 Project / DsSystem(Active|Passive) / Flow / Work / Call / ApiDef / Arrow 묶음** 으로 분해하는 의사결정 룰입니다. 3.tooling.md 가 "도구를 어떻게 호출하는가" 라면 이 문서는 "무엇을 만들어야 하는가" 입니다.
+이 문서는 사용자가 자연어 사양 (예: "Cyl 을 전진 후 후진", "S301 에 실린더 2 개와 컨베이어 1 개", "로봇 2 대를 home → work1 → work2 순서로") 을 줄 때 그것을 **올바른 Project / DsSystem(Active|Passive) / Flow / Work / Call / ApiDef / Arrow 묶음** 으로 분해하는 의사결정 룰입니다. 3.tooling.mdx 가 "도구를 어떻게 호출하는가" 라면 이 문서는 "무엇을 만들어야 하는가" 입니다.
 
 ---
 
@@ -122,7 +122,7 @@ systems:
 ```
 → `validate_model_doc` / `apply_model_doc` 가 `'Cyl1.ADV' 가 발견되지 않음` 으로 거부 (가까운 후보 제안). doc 표기상 Call 시그니처는 dotted-path 로 *반드시 정의된 Passive 의 ApiDef* 를 가리켜야 합니다.
 
-올바른 예 — 같은 doc 에 `{system: Cyl1, kind: passive, device: cylinder}` entry 를 함께 두어 Passive cascade (ApiDef ADV/RET + Flow + Work×2 + ResetReset Arrow) 를 자동 생성. canonical 형태는 `3.tooling.md` 의 예시 1 (단일 cylinder) 참조.
+올바른 예 — 같은 doc 에 `{system: Cyl1, kind: passive, device: cylinder}` entry 를 함께 두어 Passive cascade (ApiDef ADV/RET + Flow + Work×2 + ResetReset Arrow) 를 자동 생성. canonical 형태는 `3.tooling.mdx` 의 예시 1 (단일 cylinder) 참조.
 
 ### 룰 B — Call 참조 = `<PassiveSystem>.<ApiDef>` dotted-path (alias 무시)
 
@@ -134,7 +134,7 @@ doc 표기 `calls: [Cyl1.ADV]` 의 `Cyl1` 은 ApiDef 가 속한 **Passive System
 
 같은 행위 이름을 여러 인스턴스가 공유하더라도 (Cyl1, Cyl2 모두 ADV/RET) Passive 마다 동일 이름의 ApiDef 를 반복 생성합니다. ApiDef 공유 메커니즘은 없습니다.
 
-### 룰 D — 추측 금지 (3.tooling.md 의 anti-hallucination 재확인)
+### 룰 D — 추측 금지 (3.tooling.mdx 의 anti-hallucination 재확인)
 
 사양에 없으면 만들지 마십시오. "Cyl 전진 후 후진" 만 적혀 있으면:
 - 만들 것: Cyl 1 개, ApiDef 2 개 (ADV, RET), Work 2 개, Arrow 1 개 (ADV → RET, Start)
@@ -142,7 +142,7 @@ doc 표기 `calls: [Cyl1.ADV]` 의 `Cyl1` 은 ApiDef 가 속한 **Passive System
 - 만들지 말 것: Cyl1, Cyl2 처럼 인스턴스를 임의로 늘리지 않음
 - 만들지 말 것: 같은 turn 에 Conveyor / Stopper 같은 본문에 없는 디바이스를 동반 생성하지 않음
 
-모호하면 1회 명확화 질문 후 진행 (3.tooling.md 의 Clarification 템플릿).
+모호하면 1회 명확화 질문 후 진행 (3.tooling.mdx 의 Clarification 템플릿).
 
 ### 룰 E — ArrowBetweenWorks 는 같은 Flow 안의 Work 사이로만
 
@@ -254,7 +254,7 @@ Flow 는 *독립 트리거되는 흐름 그룹* 의 단위입니다 (§1 매핑�
 (2) 두 단계가 *독립적으로 트리거되는 별개 흐름* (예: 메인 운전 vs 알람 처리, 동시 가동되는 두 라인, 모드별 선택 실행) → **두 Flow**.
 - 두 Flow 사이는 arrow 없음 (룰 E). 각 Flow 가 독립 cycle.
 - 각 Flow 가 자체 외부 트리거 (button / 알람 신호 / 상위 mode 신호 등) 로 시작.
-- ⚠ 두 흐름 간 *신호 의존* 이 있다면 (예: "알람 발생 시 메인 Flow 정지") — 룰 E 강제 하 다음 두 옵션 중 택일: **(a) 같은 Flow 로 합치기** (단일 Flow 안 두 work cluster + 가운데 Reset arrow 또는 StartReset arrow 로 의존 표현), 또는 **(b) 후속 phase 의 HwCondition / HwAction 으로 외부화** (현 phase 도구 외 — IO 신호 매개로 의존 표현. `3.tooling.md` 의 "본 phase 의 도구 범위" 참조). 현 phase 에서는 (a) 가 보통 정합.
+- ⚠ 두 흐름 간 *신호 의존* 이 있다면 (예: "알람 발생 시 메인 Flow 정지") — 룰 E 강제 하 다음 두 옵션 중 택일: **(a) 같은 Flow 로 합치기** (단일 Flow 안 두 work cluster + 가운데 Reset arrow 또는 StartReset arrow 로 의존 표현), 또는 **(b) 후속 phase 의 HwCondition / HwAction 으로 외부화** (현 phase 도구 외 — IO 신호 매개로 의존 표현. `3.tooling.mdx` 의 "본 phase 의 도구 범위" 참조). 현 phase 에서는 (a) 가 보통 정합.
 
 (3) "*초기화*" / "*warmup*" / "*충돌 검사*" 같은 *one-shot sequencing* 단계 (한 번성 — part 흐름도 아니고 반복 cycle 도 아닌 일회성 순차) → **GFM 범위 밖**. 이런 단계는 본 phase 모델에 *포함시키지 않습니다* — HMI button / 모드 선택 / 외부 트리거를 통해 제어 엔진이 자동 처리하는 영역. 사용자 사양에 이런 한 번성 단계가 등장하면 "본 phase 모델에 포함하지 않으며, 제어 엔진의 HMI 처리로 위임" 으로 1줄 안내 후 모델에서 제외.
 
@@ -290,7 +290,7 @@ opposing 이 없는 디바이스 (CONVEYOR.MOVE 단일, ROBOT.WORK 단일) 에�
 
 ### 3.6 Arrow 시맨틱 결정 트리
 
-사양 어휘로부터 arrowType 을 결정 (3.tooling.md 의 Arrow 시맨틱 절 보강):
+사양 어휘로부터 arrowType 을 결정 (3.tooling.mdx 의 Arrow 시맨틱 절 보강):
 
 | 사양 어휘 | arrowType |
 |---|---|
@@ -339,7 +339,7 @@ opposing 이 없는 디바이스 (CONVEYOR.MOVE 단일, ROBOT.WORK 단일) 에�
 > 본 문서의 화살표 표기는 **세 layer** 입니다 — 혼동하지 마십시오.
 > - **자연어 layer** (사용자가 사양에 쓰는 어휘): `→` (unicode arrow). §3.6 의 "후 / 다음 / then / after / →" 어휘 매핑표 등.
 > - **DSL 시각 layer** (본 prompts 내부의 *시각 hint* 약속): `-->` / `..>` / `*->` / `<..>` (ASCII, line style 로 신호 종류 구분). §3.7 / §3.4a 의 추상 다이어그램, e.g 1~4 등.
-> - **doc 발행 layer** (`apply_model_doc` / `validate_model_doc` 에 실제 입력하는 syntax): **arrow head 는 모두 `->` 로 통일** 하고 신호 종류는 `: <Type>` 으로만 표기 (`: Start` / `: Reset` / `: StartReset` / `: ResetReset`). §4 의 YAML 예시, `3.tooling.md` 의 모든 발행 예가 이 layer.
+> - **doc 발행 layer** (`apply_model_doc` / `validate_model_doc` 에 실제 입력하는 syntax): **arrow head 는 모두 `->` 로 통일** 하고 신호 종류는 `: <Type>` 으로만 표기 (`: Start` / `: Reset` / `: StartReset` / `: ResetReset`). §4 의 YAML 예시, `3.tooling.mdx` 의 모든 발행 예가 이 layer.
 >
 > ⚠ **DSL 시각 표기 (`-->` / `..>` / `*->` / `<..>`) 를 doc 에 그대로 발행하면 `VALIDATION_ERROR` 로 거부됩니다** (parser 는 `<From> -> <To> : <Type>` 한 형식만 인식. `ModelProtocol.fs:parseArrowSpec`). 거부 형태는 표기에 따라 갈라지므로 *형식 위반* 한 가지로 기대하지 마십시오:
 > - `..>` / `<..>` 처럼 `->` substring 이 없으면: **`arrow 표기 형식 위반`** 직접 거부 (예: `Zone2 ..> Zone1 : Reset` ❌).
@@ -356,7 +356,7 @@ opposing 이 없는 디바이스 (CONVEYOR.MOVE 단일, ROBOT.WORK 단일) 에�
 #### Arrow 신호 시맨틱 (RGFH 와의 연결)
 하나의 ArrowBetweenWorks 는 *두 종류 신호* 를 동시에 내포 (이중성):
 - **Start arrow** (`-->`): source 의 Finish *rising edge* (순간 신호) → target 을 ready 에서 going 으로 트리거. **edge-triggered — source 가 Finish 에 머물러 있어도 신호는 1회만**, 그 순간 target 이 Ready 가 아니라면 (예: Going / Finish / Homing) 신호 무시.
-  - **다중 incoming Start arrow (work-arrow 한정) = AND-merge**: 같은 target 에 incoming Start arrow 가 N 개 있으면 N 개 source 모두 Finish↑ 후 target going. 각 source 의 edge 는 target 의 internal latch 에 누적되어 모든 source latch set 시점에 going 트리거, cycle 완료 시 latch reset. Call-arrow 의 fan-in (DAG 내부) 시맨틱은 별개 — `3.tooling.md` 참조.
+  - **다중 incoming Start arrow (work-arrow 한정) = AND-merge**: 같은 target 에 incoming Start arrow 가 N 개 있으면 N 개 source 모두 Finish↑ 후 target going. 각 source 의 edge 는 target 의 internal latch 에 누적되어 모든 source latch set 시점에 going 트리거, cycle 완료 시 latch reset. Call-arrow 의 fan-in (DAG 내부) 시맨틱은 별개 — `3.tooling.mdx` 참조.
 - **Reset arrow** (`..>`): source 의 Going *high level* (지속 신호) → target 이 finish 라면 homing 으로 전이시킴.
 - **StartReset arrow** (`A *-> B`): 위 두 신호의 *비대칭 union* — A 끝나면 B 시작 (forward Start, A→B) **+ B 진행 중인 동안 A 는 reset 으로 복귀** (backward Reset, B→A). 즉 `(A --> B) + (B ..> A)` 의 한-arrow 축약. **Reset 의 방향은 backward** (B→A) 임에 유의 — default cycle 의 "후행 going → 선행 reset" 패턴이 그대로 들어있음.
 - **ResetReset arrow** (`A <..> B`): 양쪽 Reset 의 union — `(A ..> B) + (B ..> A)` — 어느 한쪽이 Going 이면 상대를 Homing 으로. opposing 쌍의 상호 배타. §3.5 Passive 내부 (CYLINDER 의 ADV ↔ RET 등) 가 주 무대.
@@ -503,7 +503,7 @@ Flow 의 첫 Work (TokenSource = Start arrow source 가 없는 Work) 는 자체 
 
 ## §4 표준 묶음 예시 (사양 → 1 회 `apply_model_doc`)
 
-본 절의 예시는 schema v0 YAML 표기로 보여드리지만, 실제 wire 는 의미 동형의 JSON object (LLM 의 `apply_model_doc` 의 `model` 인자) 입니다. schema 한 페이지 reference 는 `3.tooling.md` 참조.
+본 절의 예시는 schema v0 YAML 표기로 보여드리지만, 실제 wire 는 의미 동형의 JSON object (LLM 의 `apply_model_doc` 의 `model` 인자) 입니다. schema 한 페이지 reference 는 `3.tooling.mdx` 참조.
 
 ### 4.1 "Cyl 전진 후 후진" — 가장 단순
 
@@ -669,7 +669,7 @@ doc 의 JSON object 를 보내기 전 머릿속으로 다음을 확인. 하나�
 - [ ] 사양에 *새로* 등장한 **모든 디바이스 인스턴스**가 `systems:` 의 passive entry 로 등록되어 있는가? (`device:` 키 한 줄이 ApiDef + Flow + Work + opposing Arrow cascade 를 자동 생성)
 - [ ] **예외**: 사양이 *이미 store 에 존재* 하는 PassiveSystem 만 지칭 (예: 기존 Cyl1 에 새 Active Work 만 추가) 하면 doc 의 `systems:` 에 그 entry 를 *다시* 두지 *않고* — Active calls 의 `<system>.<apidef>` dotted-path 만 사용. store snapshot / `export_model_doc` 로 기존 인스턴스 우선 확인.
 - [ ] **Sibling Uniqueness 일반화** — 모든 entity 종류 (Project 하의 System / System 하의 Flow / Flow 하의 Work / Passive 하의 ApiDef) 가 *같은 부모 안 sibling 이름 unique*. store 에 기존 sibling 이 있으면 doc 의 같은 이름 entry 를 *제거* (Passive 재사용 패턴과 동일). 그렇지 않으면 MCP `queueAdd*` 단에서 fail. Call 만 예외 (같은 Work 안 같은 dotted-path call N회 = concurrent 의미, SSOT yaml-protocol-v0.md §1.7).
-- [ ] **Active System 특칙** — store 에 이미 active 가 있고 사용자가 *명시적 재구성을 요청 안 한* 경우: doc 의 `- system: <X>, kind: active` 의 `<X>` 를 store 의 active 이름 그대로 사용 (dispatcher 가 silent reuse). 다른 이름 active 발행은 PLC 1 controller 규약 위반으로 MCP fail. 교체 의도면 patch 의 `rename:` / `remove:` 사용. $3.tooling.md 의 "Sibling Uniqueness — MCP 자동 검사" 표 참조.
+- [ ] **Active System 특칙** — store 에 이미 active 가 있고 사용자가 *명시적 재구성을 요청 안 한* 경우: doc 의 `- system: <X>, kind: active` 의 `<X>` 를 store 의 active 이름 그대로 사용 (dispatcher 가 silent reuse). 다른 이름 active 발행은 PLC 1 controller 규약 위반으로 MCP fail. 교체 의도면 patch 의 `rename:` / `remove:` 사용. $3.tooling.mdx 의 "Sibling Uniqueness — MCP 자동 검사" 표 참조.
 - [ ] 모든 Active `calls: [<sys>.<api>]` dotted-path 가 같은 doc 안 (또는 store 의) Passive entry 의 ApiDef 를 정확히 가리키는가? `<sys>` 가 GUI alias 가 아니라 **Passive System 이름** 인가?
 - [ ] 디바이스 행위 (ADV, OPEN 등) 가 Active 가 아니라 **Passive 의 ApiDef** 로 들어갔는가? (룰 C — Passive entry 의 `device:` sugar 또는 `apis:` 키)
 - [ ] Passive entry 의 `system:` 이름이 사양의 디바이스 인스턴스 이름 (Cyl1, RB1 등) 과 정확히 일치하는가? (대소문자/공백/언더스코어 — Call dotted-path 정합성)
@@ -682,7 +682,7 @@ doc 의 JSON object 를 보내기 전 머릿속으로 다음을 확인. 하나�
 - [ ] **SelfClear 패턴은 cluster 의 *leaf 집합과 정확히 일치* 한다** — leaf (outgoing Start arrow 가 없는 user-defined work) 마다 SelfClear 묶음 1 개씩 (dummy empty work `<leaf>_Clear` + arrow 2 개 `L *-> L_Clear : StartReset` + `L ..> L_Clear : Reset`), 비-leaf 에는 SelfClear 없음. **분기 cluster 의 leaf 가 복수일 때 일부 leaf 의 SelfClear 를 누락하지 않았는가** (§3.7 e.g 3)? **cluster topology 변경 시 leaf 집합을 재계산해 SelfClear 묶음 (dummy work + 2 arrow) 를 add / remove 했는가** (§3.7 e.g 4)? `A ..> A` 같은 self-loop Reset 을 그대로 발행하지 *않았는가* (§3.7 SSOT 박스)?
 - [ ] **다중 incoming Start arrow 는 AND join 시맨틱** — assemble 패턴이 의도와 일치하는가? 두 source 모두 finish 시점에 target going (한쪽만으로는 안 됨).
 - [ ] **한 station 의 모든 sub-action (CLAMP × N → 메인 동작 → UNCLAMP × N, *또는 동일 디바이스의 ADV→RET 같은 한 part 내 왕복*) 을 *같은 Work 안* 의 Call DAG 로 묶었는가?** (페이즈마다 / opposing 마다 Work 새로 만들기 *금지* — Work 단위는 station 단위. opposing 두 행위를 별개 Work 로 분리하면 §4.3 의 capacity 충돌 발생)
-- [ ] 사양에 IO 주소 / precondition / KPI / Hw 컴포넌트 등이 등장하면 — 사용자에게 "본 phase 도구 범위 밖, 후속 phase 예정" 으로 안내했는가? (`3.tooling.md` 의 "본 phase 의 도구 범위" 절 참조)
+- [ ] 사양에 IO 주소 / precondition / KPI / Hw 컴포넌트 등이 등장하면 — 사용자에게 "본 phase 도구 범위 밖, 후속 phase 예정" 으로 안내했는가? (`3.tooling.mdx` 의 "본 phase 의 도구 범위" 절 참조)
 - [ ] **사용자 미명시 default 이름을 부여하는 경우 — 동일 부모 안 동일 이름 충돌 검사** (store snapshot 또는 `find_by_name` / `export_model_doc`) 를 했는가? (greenfield 면 비어 있음 확인만, §0.4)
 - [ ] **§3.3 표 외 디바이스가 등장하면 §3.3a (3) 단일 action 추론을 적용했는가?** (행위명 / deviceType default 결정 사실은 결과 요약에 1줄 표기 — §3.3a (5) 의 모호 경계는 1회 명확화)
 - [ ] arrowType 이 모두 결정됐는가? `: <Type>` 누락 없는가? (Unspecified 사용 시 1회 명확화 먼저)
