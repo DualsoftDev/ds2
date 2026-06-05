@@ -7,7 +7,7 @@
 
 ## --orch 진행 표
 
-현재 상태는 **Phase 2부터 자동 진행 가능**이다. Phase 0의 사용자 사전 결정 항목은 박제 완료했고, Phase 1은 구현/독립 검열/테스트를 완료했다.
+현재 상태는 **Phase 3부터 자동 진행 가능**이다. Phase 0~2는 구현/독립 검열/테스트를 완료했다.
 
 > 알려진 선행 실패(Phase 1 무관): `Ds2.LlmAgent.Tests`의 `PromptCanaryTests`가 prompt 파일을 `.md`로 참조하나 실제 파일은 `.mdx`라 3건 실패한다. 코드 변경 전부터 깨진 상태이며 Phase 4(Promaker protocol docs, prompt 파일 취급) 또는 별도 작업에서 `.md`↔`.mdx` 정합으로 해소한다.
 
@@ -15,7 +15,7 @@
 | --- | --- | --- | --- | --- |
 | 0. 사전 결정 박제 | 완료 | 외부 wire 포맷, alias, ValueSpec fallback, 표시 정책, 저장 모델 변경 범위 확정 | `박제 결정` 절 갱신 | 모든 결정 항목이 하나의 선택지로 확정됨 |
 | 1. Protocol foundation | 완료 | `AutoAux` 기본 타입 보정, condition object unknown-key diagnostics, Work condition 정책 | `ModelProtocol.fs`, `ModelProtocolTests.fs` | LlmAgent protocol tests 통과, legacy nested child type 보존 |
-| 2. ValueSpec / `eq` | 미시작 | leaf `eq` parse/emit, `InputSpec` round-trip, fallback 표현 | protocol/helper 코드, tests | `eq` 타입 추론과 unsupported fallback tests 통과 |
+| 2. ValueSpec / `eq` | 완료 | leaf `eq` parse/emit, `InputSpec` round-trip, fallback 표현 | protocol/helper 코드, tests | `eq` 타입 추론과 unsupported fallback tests 통과 |
 | 3. Multi-root emit | 미시작 | `Conditions.[0]` emit 제거, 같은 `ConditionType` roots implicit AND 보존 | `ModelProtocol.fs`, tests | 다중 root export -> apply 의미 보존 |
 | 4. Promaker protocol docs | 미시작 | Prompt, example YAML, `yaml-protocol-v0.md` 갱신 | `yaml.md`, `flow.yaml`, `yaml-protocol-v0.md` | 문서의 canonical key와 examples가 protocol tests와 일치 |
 | 5. JsonFormatter docs | 미시작 | `json-format.md` stale field 정정, STJ/AASX 명칭 구분, Builder helper 설명 | `json-format.md` | `isRising` 제거, `isInverted`/Runtime 평가/명칭 정정 반영 |
@@ -190,6 +190,7 @@
   - Promaker model doc apply/export 회귀 확인.
   - Core/Editor condition tests 회귀 확인.
   - Core/AASX payload 변경이 없다면 다른 Apps는 smoke test 중심으로 확인한다.
+  - Phase 2 검열 Minor 후속 검토: `eq` emit→re-parse 비대칭. condition leaf에 typed inputSpec으로 Single 숫자를 직접 주고 그 `ApiDef`를 참조하는 어떤 `ApiCall`도 타입 metadata가 없으면, emit은 `eq` scalar로 내보내나 re-parse가 hint 부재로 거부(잠재 data loss). 좁은 정수(Int8/Int16/UInt8/UInt16)·실수 Single의 case 손실이 원인. fallback 정책(좁은/실수 Single을 `inputSpec` raw DU로 보존 vs 현 동작 유지 + round-trip 테스트 박제)을 결정한다. 현 테스트/통상 경로에서는 미발생.
 - 수정 예상 파일:
   - 필요 시 `Apps/Promaker/Promaker/LlmAgent/Tools/ModelTools.cs`
   - 필요 시 `Apps/Promaker/Promaker/ViewModels/PropertyPanel/CallPanel.Conditions.cs`

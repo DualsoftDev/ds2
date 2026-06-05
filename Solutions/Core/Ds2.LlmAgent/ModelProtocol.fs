@@ -1177,6 +1177,98 @@ module ModelProtocol =
                 sprintf "'%s' 형식 위반. '<System>.<ApiDef>' 형식 필요." rawRef)
             None
 
+    // ─── Condition leaf `eq` / `inputSpec` (Phase 2 — ValueSpec sugar) ───────
+    //
+    // SSOT todo-refactor-condition.md Phase 2 / 박제 결정:
+    //   * leaf object `{ ref, contactKind?, eq?, inputSpec? }` — `eq` 는 단일 equality sugar,
+    //     `inputSpec` 은 Multiple/Ranges/명시 타입 fallback (raw ValueSpec DU).
+    //   * `eq` 값의 ValueSpec case 는 JSON token 만으로 추론하지 않고 *대상 ApiDef 의 데이터 타입
+    //     metadata* 기준으로 결정한다. ApiDef entity 자체에는 타입 metadata 가 없으므로 (Entities.fs
+    //     ApiDef = ActionType/SensingType/Tx/Rx/Description), 해당 ApiDefId 를 참조하는 store/plan
+    //     ApiCall 의 InputSpec(우선)/OutputSpec ValueSpec case 를 metadata 출처로 삼는다.
+    //   * 숫자 token 은 정수/실수 폭을 token 만으로 확정할 수 없으므로, hint 부재 시 임의 고정 대신
+    //     diagnostics 로 거부하고 typed `inputSpec` 사용을 안내한다 (박제 결정 — Int32/Float64 임의 고정 금지).
+
+    /// raw ValueSpec DU (`{"Case":"BoolValue","Fields":[...]}`) deserialize 옵션 (STJ + FSharp DU 컨버터).
+    let private valueSpecJsonOptions = JsonOptions.createProjectSerializationOptions ()
+
+    /// 주어진 ApiDefId 를 참조하는 store/plan ApiCall 의 InputSpec(우선)/OutputSpec 중
+    /// non-Undefined ValueSpec 의 *타입 hint* (case 만 유지한 default). 없으면 None.
+    /// device sugar(cylinder 등)의 ApiCall 은 InputSpec=UndefinedValue 라 대부분 None — 이 경우
+    /// 숫자 eq 는 diagnostics 대상.
+    let private apiDefValueSpecHint (ctx: ApplyContext) (apiDefId: Guid) : ValueSpec option =
+        let pickFromApiCall (ac: ApiCall) : ValueSpec option =
+            match ac.InputSpec with
+            | UndefinedValue ->
+                match ac.OutputSpec with
+                | UndefinedValue -> None
+                | other -> Some (ValueSpecText.typeHintOf other)
+            | other -> Some (ValueSpecText.typeHintOf other)
+        let fromStore =
+            ctx.Store.CallsReadOnly.Values
+            |> Seq.collect (fun c -> c.ApiCalls :> seq<_>)
+            |> Seq.filter (fun ac -> ac.ApiDefId = Some apiDefId)
+            |> Seq.tryPick pickFromApiCall
+        match fromStore with
+        | Some _ -> fromStore
+        | None ->
+            // 이번 turn plan operations 의 신규 Call.ApiCalls 도 metadata 출처.
+            ctx.Plan.Operations
+            |> Seq.choose (function ImportPlanOperation.AddCall c -> Some c | _ -> None)
+            |> Seq.collect (fun c -> c.ApiCalls :> seq<_>)
+            |> Seq.filter (fun ac -> ac.ApiDefId = Some apiDefId)
+            |> Seq.tryPick pickFromApiCall
+
+    /// `eq` JsonElement → ValueSpec. 대상 ApiDef 타입 hint 기준으로 case 결정.
+    /// - bool token: hint 무관 `BoolValue (Single b)` (token 자체로 타입 확정).
+    /// - string token: hint 가 비-string 타입이면 그 타입으로 텍스트 파싱, 아니면 `StringValue (Single s)`.
+    /// - number token: hint(숫자 case) 필수. hint 없으면 None + diagnostics (숫자 폭 임의 고정 금지).
+    let private parseEqValue
+        (ctx: ApplyContext) (hint: ValueSpec option) (eqEl: JsonElement) (path: string) : ValueSpec option =
+        match eqEl.ValueKind with
+        | JsonValueKind.True  -> Some (ValueSpec.singleBool true)
+        | JsonValueKind.False -> Some (ValueSpec.singleBool false)
+        | JsonValueKind.String ->
+            let s = eqEl.GetString()
+            match hint with
+            | Some h when not (h = ValueSpec.singleString "") ->
+                // hint 가 string 이외 타입 — 그 타입으로 텍스트 파싱 (실패 시 diagnostics).
+                match ValueSpecText.tryParseAs h s with
+                | Some spec when ValueSpecText.isSingleEquality spec -> Some spec
+                | _ ->
+                    ctx.Diagnostics.Add(path, sprintf "eq 값 '%s' 을(를) 대상 타입으로 해석할 수 없습니다." s)
+                    None
+            | _ -> Some (ValueSpec.singleString s)
+        | JsonValueKind.Number ->
+            match hint with
+            | Some h ->
+                // 대상 ApiDef 의 숫자 타입 case 로 token 텍스트를 파싱 — 폭 보존.
+                let raw = eqEl.GetRawText()
+                match ValueSpecText.tryParseAs h raw with
+                | Some spec when ValueSpecText.isSingleEquality spec -> Some spec
+                | _ ->
+                    ctx.Diagnostics.Add(path, sprintf "eq 숫자 값 '%s' 을(를) 대상 타입으로 해석할 수 없습니다." raw)
+                    None
+            | None ->
+                ctx.Diagnostics.Add(
+                    path,
+                    "eq 숫자 값의 정수/실수 타입을 결정할 수 없습니다 (대상 ApiDef 의 InputSpec 타입 metadata 부재).",
+                    suggestion = "typed inputSpec 포맷 사용 — 예: inputSpec: { Case: Int32Value, Fields: [ { Case: Single, Fields: [ 5 ] } ] }.")
+                None
+        | other ->
+            ctx.Diagnostics.Add(path, sprintf "eq 는 bool/숫자/문자열 scalar 기대 (실제 %A)." other)
+            None
+
+    /// typed `inputSpec` fallback — raw ValueSpec DU 를 STJ 로 deserialize.
+    /// Multiple / Ranges / 명시 타입 비교 조건을 표현 (eq 로 환원 불가한 케이스, 박제 결정).
+    let private parseTypedInputSpec (ctx: ApplyContext) (specEl: JsonElement) (path: string) : ValueSpec option =
+        // 외부 입력(잘못된 DU shape) 파싱 실패는 "예상되는 예외" — silent skip 금지 정책상 diagnostics 로 보고.
+        try
+            Some (JsonSerializer.Deserialize<ValueSpec>(specEl.GetRawText(), valueSpecJsonOptions))
+        with ex ->
+            ctx.Diagnostics.Add(path, sprintf "inputSpec 파싱 실패 (raw ValueSpec DU 기대): %s" ex.Message)
+            None
+
     // ─── Condition / ContactKind apply helpers (Phase 7 §4.2 C-3) ────────
     //
     // SSOT yaml-protocol-v0.md §2.2.1 dual format — object 형태 call 의 보강 property.
@@ -1214,6 +1306,12 @@ module ModelProtocol =
     /// silent skip 하지 않고 diagnostics 로 보고한다 (SSOT §2.7 unknown-key 거부 정합).
     let private conditionAllowedKeys =
         Set.ofList [ "type"; "isOR"; "isInverted"; "conditions"; "children" ]
+
+    /// condition leaf object 의 허용 키 whitelist (Phase 2 — eq/inputSpec sugar 추가).
+    /// `eq` = 단일 equality sugar, `inputSpec` = Multiple/Ranges/명시 타입 typed fallback.
+    /// 여기 없는 키 (op/items/value 등) 는 unknown-key diagnostics 대상.
+    let private conditionLeafAllowedKeys =
+        Set.ofList [ "ref"; "contactKind"; "eq"; "inputSpec" ]
 
     /// calls[] element object 의 허용 키 whitelist (SSOT yaml-protocol-v0.md §2.7 룰 #14).
     /// canonical condition 키는 `condition` — `callCondition` alias parse 추가 금지 (박제 결정) → 여기 없으므로
@@ -1297,6 +1395,12 @@ module ModelProtocol =
                                 validLeaf <- true
                             | None -> ()
                         | JsonValueKind.Object ->
+                            // leaf object 허용 키 whitelist (Phase 2) — unknown 키는 silent skip 금지.
+                            for prop in leafEl.EnumerateObject() do
+                                if not (Set.contains prop.Name conditionLeafAllowedKeys) then
+                                    ctx.Diagnostics.Add(
+                                        joinDiagKey leafPath prop.Name,
+                                        sprintf "알 수 없는 condition leaf 키 '%s'. 허용: ref|contactKind|eq|inputSpec." prop.Name)
                             (match tryProp leafEl "ref" |> Option.bind tryString with
                              | Some refStr ->
                                  match resolveApiDef ctx refStr (leafPath + ".ref") with
@@ -1312,6 +1416,23 @@ module ModelProtocol =
                                 match parseContactKind s with
                                 | Ok k -> apiCall.ContactKind <- k
                                 | Error msg -> ctx.Diagnostics.Add(joinDiagKey leafPath "contactKind", msg))
+                            // eq / inputSpec (Phase 2) — 기대값 sugar. 동시 지정은 혼용 금지 diagnostics.
+                            let hasEq = tryProp leafEl "eq" |> Option.isSome
+                            let hasInputSpec = tryProp leafEl "inputSpec" |> Option.isSome
+                            if hasEq && hasInputSpec then
+                                ctx.Diagnostics.Add(leafPath, "eq 와 inputSpec 은 동시 지정 불가 (eq = 단일 equality sugar, inputSpec = typed fallback). 하나만 사용.")
+                            else
+                                // eq: 대상 ApiDef 타입 hint 기준 ValueSpec 결정.
+                                tryProp leafEl "eq"
+                                |> Option.iter (fun eqEl ->
+                                    let hint = apiCall.ApiDefId |> Option.bind (apiDefValueSpecHint ctx)
+                                    parseEqValue ctx hint eqEl (joinDiagKey leafPath "eq")
+                                    |> Option.iter (fun spec -> apiCall.InputSpec <- spec))
+                                // inputSpec: raw ValueSpec DU fallback (Multiple/Ranges/명시 타입).
+                                tryProp leafEl "inputSpec"
+                                |> Option.iter (fun specEl ->
+                                    parseTypedInputSpec ctx specEl (joinDiagKey leafPath "inputSpec")
+                                    |> Option.iter (fun spec -> apiCall.InputSpec <- spec))
                         | _ ->
                             ctx.Diagnostics.Add(leafPath, sprintf "string 또는 object 기대 (실제 %A)." leafEl.ValueKind)
                         if validLeaf then cond.ApiCalls.Add(apiCall)
@@ -2459,8 +2580,42 @@ module ModelProtocol =
             w.WriteString("address", tag.Address)
         w.WriteEndObject()
 
+    /// condition leaf 의 InputSpec → wire 키 emit (Phase 2). 호출자는 object scalar 안에서 진입.
+    /// - UndefinedValue: 키 생략 (default — parse 측 entity-default 정합).
+    /// - Single (bool/숫자/string): 사람 친화 `eq` scalar.
+    /// - Multiple / Ranges: eq 로 환원 불가 → raw ValueSpec DU `inputSpec` fallback (박제 결정).
+    let private writeLeafInputSpec (w: Utf8JsonWriter) (spec: ValueSpec) : unit =
+        let writeEqSingle () : bool =
+            // Single 이면 eq scalar 로 emit 하고 true 반환, 아니면 false (fallback 필요).
+            match spec with
+            | BoolValue   (Single v) -> w.WriteBoolean("eq", v); true
+            | Int8Value   (Single v) -> w.WriteNumber("eq", int v); true
+            | Int16Value  (Single v) -> w.WriteNumber("eq", int v); true
+            | Int32Value  (Single v) -> w.WriteNumber("eq", v); true
+            | Int64Value  (Single v) -> w.WriteNumber("eq", v); true
+            | UInt8Value  (Single v) -> w.WriteNumber("eq", uint32 v); true
+            | UInt16Value (Single v) -> w.WriteNumber("eq", uint32 v); true
+            | UInt32Value (Single v) -> w.WriteNumber("eq", v); true
+            | UInt64Value (Single v) -> w.WriteNumber("eq", v); true
+            | Float32Value (Single v) -> w.WriteNumber("eq", v); true
+            | Float64Value (Single v) -> w.WriteNumber("eq", v); true
+            | StringValue (Single v) -> w.WriteString("eq", v); true
+            | _ -> false
+        match spec with
+        | UndefinedValue -> ()
+        | _ ->
+            if not (writeEqSingle ()) then
+                // Multiple / Ranges / Undefined-내부 — raw DU fallback.
+                w.WritePropertyName "inputSpec"
+                JsonSerializer.Serialize(w, spec, valueSpecJsonOptions)
+
+    /// condition leaf 가 object 승격 대상인지 — ContactKind non-default 또는 InputSpec non-Undefined.
+    let private leafNeedsObject (ac: ApiCall) : bool =
+        ac.ContactKind <> ContactKind.NoContact || ac.InputSpec <> UndefinedValue
+
     /// Condition tree recursive emit. `apiCallRef` 람다: ApiCall → "<System>.<ApiDef>" path 도출
-    /// (caller 가 store 컨텍스트 제공). conditions leaf 는 ContactKind default 면 string scalar, 아니면 object.
+    /// (caller 가 store 컨텍스트 제공). conditions leaf 는 ContactKind default + InputSpec Undefined 면
+    /// string scalar, 아니면 object (ref + contactKind? + eq?/inputSpec?).
     let rec private emitCondition
         (w: Utf8JsonWriter)
         (apiCallRef: ApiCall -> string)
@@ -2478,10 +2633,12 @@ module ModelProtocol =
             w.WriteStartArray()
             for ac in cond.ApiCalls do
                 let leafRef = apiCallRef ac
-                if ac.ContactKind <> ContactKind.NoContact then
+                if leafNeedsObject ac then
                     w.WriteStartObject()
                     w.WriteString("ref", leafRef)
-                    w.WriteString("contactKind", formatContactKind ac.ContactKind)
+                    if ac.ContactKind <> ContactKind.NoContact then
+                        w.WriteString("contactKind", formatContactKind ac.ContactKind)
+                    writeLeafInputSpec w ac.InputSpec
                     w.WriteEndObject()
                 else
                     w.WriteStringValue(leafRef)

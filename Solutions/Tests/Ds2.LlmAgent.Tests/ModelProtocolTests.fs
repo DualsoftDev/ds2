@@ -1935,6 +1935,364 @@ systems:
     Assert.Equal(1, advWork.Conditions.Count)
     Assert.Equal(Some ConditionType.SkipAction, advWork.Conditions.[0].Type)
 
+// ─── Phase 2 — Condition leaf eq / typed inputSpec (ValueSpec sugar) ─────────
+//
+// SSOT todo-refactor-condition.md Phase 2 / 박제 결정:
+//   * leaf object `{ ref, contactKind?, eq?, inputSpec? }`.
+//   * eq 값 ValueSpec case 는 대상 ApiDef 데이터 타입 metadata(참조 ApiCall InputSpec/OutputSpec)
+//     기준 결정. bool/string 은 token 자체로 확정, 숫자는 metadata 필수 (없으면 diagnostics).
+//   * Multiple/Ranges/bound 는 eq 로 환원 불가 → typed inputSpec(raw ValueSpec DU) fallback.
+
+/// Cyl1.ADV / Cyl1.RET 의 ApiDef 를 참조하는 Adv Call leaf 에 eq 를 단 단일 모델.
+let private eqBoolYaml = """
+protocol: promaker/v0
+project: M1
+
+systems:
+  - system: Controller
+    kind: active
+    flows:
+      Run: {}
+    works:
+        Adv:
+          flow: Run
+          calls:
+            - ref: Cyl1.ADV
+              condition:
+                conditions:
+                  - ref: Cyl1.RET
+                    eq: true
+        Ret:
+          flow: Run
+          calls: [Cyl1.RET]
+    arrows:
+        - Adv -> Ret : Start
+
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+[<Fact>]
+let ``Phase 2 — bool eq parse: BoolValue(Single true) 매핑`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store eqBoolYaml
+    let cond = (findAdvCall store).Conditions.[0]
+    Assert.Equal(1, cond.ApiCalls.Count)
+    Assert.Equal(BoolValue (Single true), cond.ApiCalls.[0].InputSpec)
+
+[<Fact>]
+let ``Phase 2 — bool eq emit: object 승격 + eq:true 출력`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store eqBoolYaml
+    use exported = ModelProtocol.exportToJson store
+    let compact = exported.RootElement.ToString().Replace(" ", "")
+    Assert.Contains("\"eq\":true", compact)
+
+[<Fact>]
+let ``Phase 2 — bool eq round-trip: export->apply 후 InputSpec 보존`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store eqBoolYaml
+    use exported = ModelProtocol.exportToJson store
+    let store2 = DsStore()
+    let plan2 = ImportPlanBuilder()
+    let diag2, _ = ModelProtocol.apply plan2 store2 exported.RootElement
+    Assert.False(diag2.HasErrors, sprintf "round-trip diag: %s" (diag2.Format()))
+    store2.ApplyImportPlan("eq bool round-trip", plan2.Build())
+    let cond2 = (findAdvCall store2).Conditions.[0]
+    Assert.Equal(BoolValue (Single true), cond2.ApiCalls.[0].InputSpec)
+
+let private eqStringYaml = """
+protocol: promaker/v0
+project: M1
+
+systems:
+  - system: Controller
+    kind: active
+    flows:
+      Run: {}
+    works:
+        Adv:
+          flow: Run
+          calls:
+            - ref: Cyl1.ADV
+              condition:
+                conditions:
+                  - ref: Cyl1.RET
+                    eq: "OPEN"
+        Ret:
+          flow: Run
+          calls: [Cyl1.RET]
+    arrows:
+        - Adv -> Ret : Start
+
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+[<Fact>]
+let ``Phase 2 — string eq parse/emit/round-trip: StringValue(Single) 보존`` () =
+    let store = DsStore()
+    let _ = parseApplyCommit store eqStringYaml
+    let cond = (findAdvCall store).Conditions.[0]
+    // metadata(hint) 없는 string → StringValue (token 자체로 타입 확정).
+    Assert.Equal(StringValue (Single "OPEN"), cond.ApiCalls.[0].InputSpec)
+    // emit: eq scalar string.
+    use exported = ModelProtocol.exportToJson store
+    let compact = exported.RootElement.ToString().Replace(" ", "")
+    Assert.Contains("\"eq\":\"OPEN\"", compact)
+    // round-trip.
+    let store2 = DsStore()
+    let plan2 = ImportPlanBuilder()
+    let diag2, _ = ModelProtocol.apply plan2 store2 exported.RootElement
+    Assert.False(diag2.HasErrors, sprintf "round-trip diag: %s" (diag2.Format()))
+    store2.ApplyImportPlan("eq string round-trip", plan2.Build())
+    Assert.Equal(StringValue (Single "OPEN"), (findAdvCall store2).Conditions.[0].ApiCalls.[0].InputSpec)
+
+[<Fact>]
+let ``Phase 2 — 숫자 eq 는 ApiDef 타입 metadata 부재 시 diagnostics (Int32/Float64 임의 고정 금지)`` () =
+    // device sugar 의 Call.ApiCalls[0].InputSpec = UndefinedValue → 숫자 eq 타입 결정 불가.
+    let yaml = """
+protocol: promaker/v0
+project: M1
+
+systems:
+  - system: Controller
+    kind: active
+    flows:
+      Run: {}
+    works:
+        Adv:
+          flow: Run
+          calls:
+            - ref: Cyl1.ADV
+              condition:
+                conditions:
+                  - ref: Cyl1.RET
+                    eq: 5
+
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+    let store = DsStore()
+    let diag, _, _ = parseAndApply store yaml
+    Assert.True(diag.HasErrors)
+    Assert.Contains("정수/실수 타입을 결정할 수 없습니다", diag.Format())
+
+[<Fact>]
+let ``Phase 2 — 숫자 eq 는 대상 ApiDef Int32 metadata 기준 Int32Value 매핑 (실수 case 고정 안 됨)`` () =
+    // 1단계: 모델 생성. Adv Call 이 Cyl1.ADV 를 호출 → 그 Call.ApiCalls[0] 가 ADV ApiDef 참조.
+    let store = DsStore()
+    let _ = parseApplyCommit store eqBoolYaml  // Cyl1.ADV 호출 Call 존재 (Adv work)
+    // 2단계: 그 Call.ApiCalls[0].InputSpec 을 Int32 로 직접 set → ADV ApiDef 의 타입 metadata 출처.
+    let advCall = findAdvCall store
+    advCall.ApiCalls.[0].InputSpec <- Int32Value (Single 0)
+    // 3단계: 같은 ADV 를 condition leaf eq 로 참조하는 patch 적용 (기존 Controller 에 신규 Chk work 추가).
+    //   eqBoolYaml 이 이미 Adv/Ret work 를 만들었으므로 동명 중복(D1) 을 피해 신규 work 이름 Chk 사용.
+    //   eq 숫자 token 5 → hint=Int32 → Int32Value(Single 5) 매핑 (Float64 로 고정되지 않음).
+    let patchYaml = """
+protocol: promaker/v0
+patch:
+  add:
+    - in: Controller
+      works:
+          Chk:
+            flow: Run
+            calls:
+              - ref: Cyl1.RET
+                condition:
+                  conditions:
+                    - ref: Cyl1.ADV
+                      eq: 5
+"""
+    let diag, _, plan = parseAndApply store patchYaml
+    Assert.False(diag.HasErrors, sprintf "patch diag: %s" (diag.Format()))
+    store.ApplyImportPlan("eq int metadata", plan.Build())
+    // Chk work 의 Call condition leaf 의 InputSpec 확인.
+    let proj = (Queries.allProjects store).Head
+    let ctrl = Queries.activeSystemsOf proj.Id store |> List.head
+    let f = Queries.flowsOf ctrl.Id store |> List.head
+    let chkWork = Queries.worksOf f.Id store |> List.find (fun w -> w.LocalName = "Chk")
+    let chkCall = Queries.callsOf chkWork.Id store |> List.head
+    Assert.Equal(1, chkCall.Conditions.Count)
+    Assert.Equal(Int32Value (Single 5), chkCall.Conditions.[0].ApiCalls.[0].InputSpec)
+
+[<Fact>]
+let ``Phase 2 — typed inputSpec fallback: Multiple parse/emit/round-trip`` () =
+    // eq 로 표현 못하는 Multiple → raw ValueSpec DU inputSpec.
+    let yaml = """
+protocol: promaker/v0
+project: M1
+
+systems:
+  - system: Controller
+    kind: active
+    flows:
+      Run: {}
+    works:
+        Adv:
+          flow: Run
+          calls:
+            - ref: Cyl1.ADV
+              condition:
+                conditions:
+                  - ref: Cyl1.RET
+                    inputSpec:
+                      Case: Int32Value
+                      Fields:
+                        - Case: Multiple
+                          Fields:
+                            - [ 1, 2, 3 ]
+
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+    let store = DsStore()
+    let _ = parseApplyCommit store yaml
+    let cond = (findAdvCall store).Conditions.[0]
+    Assert.Equal(Int32Value (Multiple [ 1; 2; 3 ]), cond.ApiCalls.[0].InputSpec)
+    // emit: Multiple 은 eq 환원 불가 → inputSpec raw DU.
+    use exported = ModelProtocol.exportToJson store
+    let compact = exported.RootElement.ToString().Replace(" ", "")
+    Assert.Contains("\"inputSpec\"", compact)
+    Assert.Contains("\"Multiple\"", compact)
+    Assert.DoesNotContain("\"eq\"", compact)
+    // round-trip.
+    let store2 = DsStore()
+    let plan2 = ImportPlanBuilder()
+    let diag2, _ = ModelProtocol.apply plan2 store2 exported.RootElement
+    Assert.False(diag2.HasErrors, sprintf "round-trip diag: %s" (diag2.Format()))
+    store2.ApplyImportPlan("inputSpec Multiple round-trip", plan2.Build())
+    Assert.Equal(Int32Value (Multiple [ 1; 2; 3 ]), (findAdvCall store2).Conditions.[0].ApiCalls.[0].InputSpec)
+
+[<Fact>]
+let ``Phase 2 — typed inputSpec fallback: Ranges round-trip`` () =
+    let yaml = """
+protocol: promaker/v0
+project: M1
+
+systems:
+  - system: Controller
+    kind: active
+    flows:
+      Run: {}
+    works:
+        Adv:
+          flow: Run
+          calls:
+            - ref: Cyl1.ADV
+              condition:
+                conditions:
+                  - ref: Cyl1.RET
+                    inputSpec:
+                      Case: Int32Value
+                      Fields:
+                        - Case: Ranges
+                          Fields:
+                            - - Lower: [ 1, { Case: Closed } ]
+                                Upper: [ 10, { Case: Open } ]
+
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+    let store = DsStore()
+    let _ = parseApplyCommit store yaml
+    let cond = (findAdvCall store).Conditions.[0]
+    let expected = Int32Value (Ranges [ { Lower = Some (1, Closed); Upper = Some (10, Open) } ])
+    Assert.Equal(expected, cond.ApiCalls.[0].InputSpec)
+    // round-trip.
+    use exported = ModelProtocol.exportToJson store
+    let store2 = DsStore()
+    let plan2 = ImportPlanBuilder()
+    let diag2, _ = ModelProtocol.apply plan2 store2 exported.RootElement
+    Assert.False(diag2.HasErrors, sprintf "round-trip diag: %s" (diag2.Format()))
+    store2.ApplyImportPlan("inputSpec Ranges round-trip", plan2.Build())
+    Assert.Equal(expected, (findAdvCall store2).Conditions.[0].ApiCalls.[0].InputSpec)
+
+[<Fact>]
+let ``Phase 2 — eq 와 inputSpec 동시 지정은 diagnostics (혼용 금지)`` () =
+    let yaml = """
+protocol: promaker/v0
+project: M1
+
+systems:
+  - system: Controller
+    kind: active
+    flows:
+      Run: {}
+    works:
+        Adv:
+          flow: Run
+          calls:
+            - ref: Cyl1.ADV
+              condition:
+                conditions:
+                  - ref: Cyl1.RET
+                    eq: true
+                    inputSpec:
+                      Case: BoolValue
+                      Fields:
+                        - Case: Single
+                          Fields:
+                            - true
+
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+    let store = DsStore()
+    let diag, _, _ = parseAndApply store yaml
+    Assert.True(diag.HasErrors)
+    Assert.Contains("동시 지정 불가", diag.Format())
+
+[<Fact>]
+let ``Phase 2 — condition leaf 의 알 수 없는 키는 diagnostics`` () =
+    let yaml = """
+protocol: promaker/v0
+project: M1
+
+systems:
+  - system: Controller
+    kind: active
+    flows:
+      Run: {}
+    works:
+        Adv:
+          flow: Run
+          calls:
+            - ref: Cyl1.ADV
+              condition:
+                conditions:
+                  - ref: Cyl1.RET
+                    bogusLeafKey: 1
+
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+    let store = DsStore()
+    let diag, _, _ = parseAndApply store yaml
+    Assert.True(diag.HasErrors)
+    Assert.Contains("알 수 없는 condition leaf 키 'bogusLeafKey'", diag.Format())
+
+[<Fact>]
+let ``Phase 2 — eq 없는 leaf string/object 회귀: InputSpec UndefinedValue 유지`` () =
+    // 기존 leaf string/object (eq 미지정) 회귀 — InputSpec 은 default UndefinedValue, emit 시 eq/inputSpec 미등장.
+    let store = DsStore()
+    let _ = parseApplyCommit store conditionYaml  // contactKind 만 보강, eq 없음
+    let advCall = findAdvCall store
+    let cond = advCall.Conditions.[0]
+    for ac in cond.ApiCalls do
+        Assert.Equal(UndefinedValue, ac.InputSpec)
+    use exported = ModelProtocol.exportToJson store
+    let compact = exported.RootElement.ToString().Replace(" ", "")
+    Assert.DoesNotContain("\"eq\"", compact)
+    Assert.DoesNotContain("\"inputSpec\"", compact)
+
 // ─── 외부 review M-F — shape 위반 7분기 진단 발행 (Phase 7 §4.2 후속) ───
 
 /// 진단 발행 확인 helper — yaml 적용 시 에러 진단이 *expected substring* 을 포함하는지 검증.
