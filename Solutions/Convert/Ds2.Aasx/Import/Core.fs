@@ -80,6 +80,7 @@ module internal AasxImportCore =
 
     let parseArrowType = parseEnum ArrowType.Unspecified
     let parseStatus4   = parseEnum Status4.Ready
+    let parseSequenceLabel = parseEnum SequenceLabel.Body
 
     let describeSmc (smc: SubmodelElementCollection) =
         let guid = getProp smc "Guid" |> Option.defaultValue "<missing>"

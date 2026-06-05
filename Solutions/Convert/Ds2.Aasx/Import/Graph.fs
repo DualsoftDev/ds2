@@ -65,6 +65,9 @@ module internal AasxImportGraph =
                     elif prop.PropertyType = typeof<Status4> then
                         getProp smc attr.FieldName
                         |> Option.iter (fun s -> prop.SetValue(entity, parseStatus4 s))
+                    elif prop.PropertyType = typeof<SequenceLabel> then
+                        getProp smc attr.FieldName
+                        |> Option.iter (fun s -> prop.SetValue(entity, parseSequenceLabel s))
                     elif prop.PropertyType = typeof<ArrowType> then
                         getProp smc attr.FieldName
                         |> Option.iter (fun s -> prop.SetValue(entity, parseArrowType s))

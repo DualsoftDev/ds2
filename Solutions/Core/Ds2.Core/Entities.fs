@@ -157,6 +157,7 @@ type Call [<JsonConstructor>] internal (devicesAlias: string, apiName: string, p
     [<AasxField("ApiCalls",  Skip = true)>] member val ApiCalls   = ResizeArray<ApiCall>()                with get, set
     [<AasxField("Conditions")>]             member val Conditions = ResizeArray<Condition>()              with get, set
     [<AasxField("ReferenceOf")>]            member val ReferenceOf : Guid option         = None           with get, set
+    [<AasxField("SequenceLabel")>]          member val SequenceLabel : SequenceLabel     = SequenceLabel.Body with get, set
 
     // ── Name 구성요소 (Name에서 파생 가능 → AASX 저장 불필요) ────────────────
     [<AasxField("DevicesAlias", Skip = true)>] member val DevicesAlias = devicesAlias with get, set
