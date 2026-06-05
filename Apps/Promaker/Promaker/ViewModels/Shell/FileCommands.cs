@@ -138,13 +138,23 @@ public partial class MainViewModel
         var accepted = _dialogService.ShowDialog(dlg) == true;
 
         // UserPromptsTouched: 디스크 *.md 변경 가능성은 OK/Cancel 무관 — 사용자가 폴더에서 이미 편집했을 수 있음.
-        // RefreshPrompts() 는 Codex instructions.md 재기록만 (다른 provider 는 Phase1c 가 매 호출 LoadComposed 라 자동 반영).
-        if (dlg.UserPromptsTouched) LlmChatVm?.RefreshPrompts();
+        // 단, 작업 지침 변경이 함께 감지되면 Codex instructions.md 즉시 rewrite 를 피하고 재시작 path 로만 반영.
+        var instructionsPending =
+            dlg.LlmInstructionsChanged
+            || (LlmChatVm?.HasPendingInstructionPromptChange() == true);
+        if (dlg.UserPromptsTouched && !instructionsPending) LlmChatVm?.RefreshPrompts();
 
-        if (!accepted) return;
+        if (!accepted)
+        {
+            if (instructionsPending) LlmChatVm?.NotifyInstructionsRestartRequired();
+            return;
+        }
 
         // PR-B: LLM 탭 변경 사항이 있으면 LlmChatVm 의 메모리 _config 즉시 reload (provider 재구성 포함).
         if (dlg.LlmConfigChanged) LlmChatVm?.ReloadConfig();
+        else if (dlg.LlmInstructionsChanged) LlmChatVm?.ReloadConfigSnapshot();
+        if (instructionsPending && !dlg.LlmConfigChanged)
+            LlmChatVm?.NotifyInstructionsRestartRequired();
 
         // 앱 설정으로 저장 (Editor mutation 없음 — 환경 설정은 Editor undo stack 무관)
         AppSettings.SetSplitDeviceAasx(dlg.ResultSplitDeviceAasx);

@@ -22,6 +22,7 @@ namespace Promaker.LlmAgent;
 /// </para>
 ///
 /// <para><b>UserPromptsDir / LegacyUserPromptsDir</b>: <see cref="SettingsPaths"/> SSOT 위임.
+/// <b>InstructionSelection</b>: <see cref="LlmConfig"/> 의 source-qualified key 설정을 매 prompt 생성 시점에 로드.
 /// PR-S1 이전 PromptLoader 직접 의존 (`using Promaker.Services;`) 을 본 profile 로 추출.</para>
 ///
 /// <para><b>LoggerName</b>: "Promaker.LlmAgent.Provider" — log4net.config 정합 (기존 logger 이름 유지, log 회귀 0).</para>
@@ -32,7 +33,7 @@ public sealed class PromakerProfile : ILlmAppProfile
     public static PromakerProfile Instance { get; } = new();
 
     private readonly IReadOnlyList<PromptSource> _sources;
-    private readonly IReadOnlyList<InstructionSource> _instructionSources;
+    private readonly InstructionSource _builtInInstructionSource;
 
     private PromakerProfile()
     {
@@ -44,19 +45,29 @@ public sealed class PromakerProfile : ILlmAppProfile
             new PromptSource(baselineAsm, "Llm.Shared.Prompts.baseline."),
             new PromptSource(promakerAsm, "Promaker.LlmAgent.Prompts."),
         };
-        _instructionSources = new[]
-        {
-            InstructionSource.BuiltInEmbedded(promakerAsm, "Promaker.LlmAgent.Instructions."),
-        };
+        _builtInInstructionSource = InstructionSource.BuiltInEmbedded(promakerAsm, "Promaker.LlmAgent.Instructions.");
     }
 
     public IReadOnlyList<PromptSource> EmbeddedPromptsSources => _sources;
 
-    public IReadOnlyList<InstructionSource> InstructionSources => _instructionSources;
+    public IReadOnlyList<InstructionSource> InstructionSources => new[]
+    {
+        _builtInInstructionSource,
+        InstructionSource.CustomFileSystem(CustomInstructionsDir),
+    };
 
-    public string UserPromptsDir => SettingsPaths.UserPromptsDir;
+    public InstructionSelectionState InstructionSelection => LlmConfig.Load().InstructionSelectionState;
 
-    public string? LegacyUserPromptsDir => SettingsPaths.LegacyUserPromptsDir;
+    public string UserPromptsDir => TestUserPromptsDirOverride ?? SettingsPaths.UserPromptsDir;
+
+    public string? LegacyUserPromptsDir =>
+        TestUserPromptsDirOverride is null ? SettingsPaths.LegacyUserPromptsDir : null;
 
     public string LoggerName => "Promaker.LlmAgent.Provider";
+
+    internal static string? TestCustomInstructionsDirOverride { get; set; }
+    internal static string? TestUserPromptsDirOverride { get; set; }
+
+    private static string CustomInstructionsDir =>
+        TestCustomInstructionsDirOverride ?? SettingsPaths.CustomInstructionsDir;
 }

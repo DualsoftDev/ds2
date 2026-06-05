@@ -13,6 +13,7 @@ using log4net;
 using Llm.Shared;
 using Llm.Shared.Abstractions;
 using Llm.Shared.Api;
+using Llm.Shared.Instructions;
 using Llm.Shared.Mcp;
 using Promaker.Services;
 
@@ -98,6 +99,35 @@ public sealed partial class LlmConfig
     [JsonPropertyName("ollamaBaseUrl")]
     public string OllamaBaseUrl { get; set; } = "http://localhost:11434";
 
+    // ─── Optional work instructions ─────────────────────────────────────────
+
+    /// <summary>사용자가 명시적으로 켠 작업 지침 key. source-qualified 형식만 사용 (`builtin:<id>`, `custom:<id>`).</summary>
+    [JsonPropertyName("enabledInstructionIds")]
+    public List<string> EnabledInstructionIds { get; set; } = new();
+
+    /// <summary>사용자가 명시적으로 끈 작업 지침 key. built-in defaultEnabled override 용도. custom disabled 단독 값은 stale cleanup 후보.</summary>
+    [JsonPropertyName("disabledInstructionIds")]
+    public List<string> DisabledInstructionIds { get; set; } = new();
+
+    [JsonIgnore]
+    public InstructionSelectionState InstructionSelectionState =>
+        new(EnabledInstructionIds, DisabledInstructionIds);
+
+    public void SetInstructionSelection(InstructionSelectionState selection)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        EnabledInstructionIds = NormalizeInstructionIds(selection.EnabledInstructionIds);
+        DisabledInstructionIds = NormalizeInstructionIds(selection.DisabledInstructionIds);
+    }
+
+    private static List<string> NormalizeInstructionIds(IEnumerable<string>? values) =>
+        (values ?? Array.Empty<string>())
+        .Where(v => !string.IsNullOrWhiteSpace(v))
+        .Select(v => v.Trim())
+        .Distinct(StringComparer.Ordinal)
+        .OrderBy(v => v, StringComparer.Ordinal)
+        .ToList();
+
     // ─── VLM (Vision Language Model) — Phase 2 task D (s6-r20) ────────────────────────────────────
     //
     // **D-2-1 / D-2-5 / D-2-6 SSOT** (done-lighthouse-kb-server.md §0):
@@ -178,7 +208,7 @@ public sealed partial class LlmConfig
     /// Corrupt JSON 시 LLM Chat 영구 차단 회피: `.bak` 백업 후 default 반환.
     /// 다음 Save 시 새 정상 파일이 작성되어 사용자가 동의 다이얼로그를 다시 거치게 됨 (이전 LlmConsent.cs M2 정책 보존).
     /// </summary>
-    public static LlmConfig Load() => LoadFrom(ConfigPath);
+    public static LlmConfig Load() => LoadFrom(EffectiveConfigPath);
 
     /// <summary>
     /// 명시 path 로 부터 load (테스트 / 마이그레이션 전용). production code 는 <see cref="Load"/>.

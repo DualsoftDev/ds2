@@ -488,9 +488,8 @@
                         <TabItem Header="고급 · 정책">
                             <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="10">
                                 <StackPanel>
-                                    <!-- User Prompts (사용자 추가 지침) — %APPDATA%\Dualsoft\Promaker\Prompts\*.md 자동 흡수.
-                                         폴더 열기 → OS Explorer. 편집은 .md 기본 핸들러에 위임 (P2). 다음 새 대화부터 반영 (R2b). -->
-                                    <TextBlock Text="사용자 추가 지침 (User Prompts)"
+                                    <!-- User Prompts — DATA tier. 작업 지침(instruction tier)과 의도적으로 분리. -->
+                                    <TextBlock Text="사용자 참고 자료 (User Prompts)"
                                                FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
                                                FontWeight="SemiBold"
                                                Margin="0,0,0,2"/>
@@ -509,9 +508,96 @@
                                                 Style="{StaticResource DarkButton}"
                                                 Padding="10,4" Click="LlmOpenUserPromptsFolder_Click"/>
                                     </Grid>
-                                    <TextBlock Text="폴더에 *.md 파일을 떨궈두면 system prompt 끝에 자동 합쳐집니다 (다음 LLM 호출부터 반영). 편집은 기본 .md 에디터로 진행."
+                                    <TextBlock Text="폴더에 *.md 파일을 두면 DATA tier 참고 자료로 system prompt 끝에 합쳐집니다. LLM 행동 규칙을 바꾸는 작업 지침은 아래 섹션에서 관리합니다."
                                                FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
                                                Margin="0,0,0,16" FontStyle="Italic" TextWrapping="Wrap"/>
+
+                                    <!-- Optional work instructions — instruction tier. Selection changes require provider recreation/restart. -->
+                                    <TextBlock Text="LLM 작업 지침"
+                                               FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                               FontWeight="SemiBold"
+                                               Margin="0,0,0,2"/>
+                                    <Grid Margin="0,0,0,6">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="6"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="6"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox x:Name="LlmInstructionsDirBox" Grid.Column="0"
+                                                 Padding="6,4" FontFamily="Consolas" FontSize="11"
+                                                 IsReadOnly="True"
+                                                 Background="{DynamicResource PrimaryBackgroundBrush}"
+                                                 ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+                                        <Button Grid.Column="2" Content="폴더 열기"
+                                                Style="{StaticResource DarkButton}"
+                                                Padding="10,4" Click="LlmOpenInstructionsFolder_Click"/>
+                                        <Button Grid.Column="4" Content="재스캔"
+                                                Style="{StaticResource DarkButton}"
+                                                Padding="10,4" Click="LlmRescanInstructions_Click"/>
+                                    </Grid>
+                                    <Grid Margin="0,0,0,6">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="2*"/>
+                                            <ColumnDefinition Width="8"/>
+                                            <ColumnDefinition Width="3*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <ListBox x:Name="LlmInstructionList"
+                                                 Grid.Column="0"
+                                                 MinHeight="160"
+                                                 MaxHeight="220"
+                                                 BorderBrush="{DynamicResource BorderBrush}"
+                                                 Background="{DynamicResource SecondaryBackgroundBrush}"
+                                                 SelectionChanged="LlmInstructionList_SelectionChanged">
+                                            <ListBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <StackPanel Margin="2,4">
+                                                        <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                  IsEnabled="{Binding CanToggle}"
+                                                                  Foreground="{DynamicResource PrimaryTextBrush}"
+                                                                  Content="{Binding DisplayTitle}"/>
+                                                        <TextBlock Text="{Binding Description}"
+                                                                   Margin="22,2,0,0"
+                                                                   FontSize="10"
+                                                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                                                   TextWrapping="Wrap"/>
+                                                    </StackPanel>
+                                                </DataTemplate>
+                                            </ListBox.ItemTemplate>
+                                        </ListBox>
+                                        <TextBox x:Name="LlmInstructionPreviewBox"
+                                                 Grid.Column="2"
+                                                 MinHeight="160"
+                                                 MaxHeight="220"
+                                                 IsReadOnly="True"
+                                                 AcceptsReturn="True"
+                                                 TextWrapping="Wrap"
+                                                 VerticalScrollBarVisibility="Auto"
+                                                 FontFamily="Consolas"
+                                                 FontSize="11"
+                                                 Padding="6,4"/>
+                                    </Grid>
+                                    <Grid Margin="0,0,0,16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="6"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock x:Name="LlmInstructionStatusText"
+                                                   Grid.Column="0"
+                                                   FontSize="10"
+                                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                                   FontStyle="Italic"
+                                                   TextWrapping="Wrap"
+                                                   VerticalAlignment="Center"/>
+                                        <Button x:Name="LlmApproveCustomInstructionButton"
+                                                Grid.Column="2"
+                                                Content="선택한 custom 승인"
+                                                Style="{StaticResource DarkButton}"
+                                                Padding="10,4"
+                                                Click="LlmApproveCustomInstruction_Click"/>
+                                    </Grid>
 
                                     <!-- Consent -->
                                     <TextBlock Text="데이터 전송 동의"

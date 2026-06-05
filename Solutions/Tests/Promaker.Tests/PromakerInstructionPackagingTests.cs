@@ -9,8 +9,31 @@ using Xunit;
 
 namespace Promaker.Tests;
 
-public sealed class PromakerInstructionPackagingTests
+[Collection("LlmConfigOverride")]
+public sealed class PromakerInstructionPackagingTests : IDisposable
 {
+    private readonly string _root;
+
+    public PromakerInstructionPackagingTests()
+    {
+        _root = NewTempRoot();
+        var customInstructionsDir = Path.Combine(_root, "Instructions");
+        var userPromptsDir = Path.Combine(_root, "Prompts");
+        LlmConfig.TestConfigPathOverride = Path.Combine(_root, "llm-config.json");
+        PromakerProfile.TestCustomInstructionsDirOverride = customInstructionsDir;
+        PromakerProfile.TestUserPromptsDirOverride = userPromptsDir;
+        Directory.CreateDirectory(customInstructionsDir);
+        Directory.CreateDirectory(userPromptsDir);
+    }
+
+    public void Dispose()
+    {
+        LlmConfig.TestConfigPathOverride = null;
+        PromakerProfile.TestCustomInstructionsDirOverride = null;
+        PromakerProfile.TestUserPromptsDirOverride = null;
+        try { Directory.Delete(_root, recursive: true); } catch { }
+    }
+
     [Fact]
     public void PromakerProfile_default_prompt_includes_promaker_yaml_instruction()
     {
