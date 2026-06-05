@@ -71,6 +71,11 @@ module Queries =
     let projectSystemsOf (projectId: Guid) (store: DsStore) : DsSystem list =
         activeSystemsOf projectId store @ passiveSystemsOf projectId store
 
+    /// <summary>System 이 Passive(수동, 디바이스) 시스템인지 검사. 소속 Project 가 없거나 Active 면 false.</summary>
+    let isPassiveSystem (systemId: Guid) (store: DsStore) : bool =
+        allProjects store
+        |> List.exists (fun p -> p.PassiveSystemIds.Contains systemId)
+
     // ─────────────────────────────────────────────────────────────────────────
     // Flow 쿼리
     // ─────────────────────────────────────────────────────────────────────────

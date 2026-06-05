@@ -18,13 +18,17 @@ type EditorSelectionProjection(
     nameParts: NameEditorParts,
     workState: WorkSelectionState,
     callState: CallSelectionState,
-    systemType: string) =
+    systemType: string,
+    isPassiveSystem: bool) =
 
     member _.Summary    = summary
     member _.NameParts  = nameParts
     member _.WorkState  = workState
     member _.CallState  = callState
     member _.SystemType = systemType
+    /// 단일 System 선택이고 그 System 이 Passive(수동, 디바이스) 시스템일 때만 true.
+    /// UserTags(로깅 프로퍼티)는 Active 시스템에만 존재하므로 Passive 에서는 패널을 숨긴다.
+    member _.IsPassiveSystem = isPassiveSystem
 
     static member Empty =
         EditorSelectionProjection(
@@ -32,7 +36,8 @@ type EditorSelectionProjection(
             NameEditorParts.ForFallback "",
             WorkSelectionState.Empty,
             CallSelectionState.Empty,
-            "")
+            "",
+            false)
 
     /// <summary>
     /// 단일/다중 선택을 한 번에 받아 PropertyPanel 의 모든 슬롯을 산출.
@@ -104,4 +109,8 @@ type EditorSelectionProjection(
             else
                 ""
 
-        EditorSelectionProjection(summary, nameParts, workState, callState, systemType)
+        let isPassiveSystem =
+            summary.IsSingleSystemSelected && selectedId.HasValue
+            && Queries.isPassiveSystem selectedId.Value store
+
+        EditorSelectionProjection(summary, nameParts, workState, callState, systemType, isPassiveSystem)
