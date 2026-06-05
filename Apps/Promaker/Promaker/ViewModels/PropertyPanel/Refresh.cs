@@ -108,7 +108,17 @@ public partial class PropertyPanelState
         if (IsSystemSelected && selected is not null)
         {
             RefreshSystemPanel(selected.Id);
-            RefreshUserTagsPanel(selected.Id);
+            // Passive(수동/디바이스) 시스템은 UserTags 미보유 → 패널 숨김 + 갱신 생략.
+            ShowSystemUserTags = !projection.IsPassiveSystem;
+            if (ShowSystemUserTags)
+            {
+                RefreshUserTagsPanel(selected.Id);
+            }
+            else
+            {
+                UserTags.Clear();
+                OnPropertyChanged(nameof(UserTagsHeader));
+            }
             _originalSystemType = projection.SystemType;
             SystemType = _originalSystemType;
             IsSystemTypeDirty = false;
@@ -118,6 +128,7 @@ public partial class PropertyPanelState
             SystemApiDefs.Clear();
             UserTags.Clear();
             OnPropertyChanged(nameof(UserTagsHeader));
+            ShowSystemUserTags = false;
             _originalSystemType = string.Empty;
             SystemType = string.Empty;
             IsSystemTypeDirty = false;

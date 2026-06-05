@@ -49,6 +49,8 @@ public partial class PropertyPanelState : ObservableObject
     [ObservableProperty] private bool _isWorkSelected;
     [ObservableProperty] private bool _isCallSelected;
     [ObservableProperty] private bool _isSystemSelected;
+    // Active 시스템에만 UserTags(로깅 프로퍼티) 존재. Passive(수동/디바이스) 선택 시 패널 숨김.
+    [ObservableProperty] private bool _showSystemUserTags;
     [ObservableProperty] private string _systemType = string.Empty;
     [ObservableProperty] private bool _isSystemTypeDirty;
     [ObservableProperty] private string _selectionTypeText = "선택 없음";

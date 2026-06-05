@@ -30,6 +30,7 @@ public partial class PropertyPanelState
     [RelayCommand]
     private void AddSystemUserTag()
     {
+        if (!ShowSystemUserTags) return; // Passive(수동) 시스템은 UserTags 미지원
         if (!GuardSimulationSemanticEdit("사용자 태그 추가")) return;
         if (!TryGetSelectedNode(EntityKind.System, out var systemNode)) return;
 
@@ -125,6 +126,7 @@ public partial class PropertyPanelState
 
     private void ImportUserTagsCsvCore(bool replace)
     {
+        if (!ShowSystemUserTags) return; // Passive(수동) 시스템은 UserTags 미지원
         if (!GuardSimulationSemanticEdit(replace ? "사용자 태그 CSV 교체" : "사용자 태그 CSV 추가")) return;
         if (!TryGetSelectedNode(EntityKind.System, out var systemNode)) return;
 
