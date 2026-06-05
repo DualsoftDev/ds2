@@ -320,6 +320,11 @@ public partial class CallCreateDialog : Window
     /// 목록을 재검색·선택 리셋하지 않도록 억제하는 플래그.</summary>
     private bool _suppressApiNameFilter;
 
+    /// <summary>RefreshApiDefList 의 프로그램적 SelectedIndex 지정(타이핑 중 자동 선택)에는
+    /// ApiName 칸을 덮어쓰지 않도록 억제하는 플래그. issue #149 는 "목록에서 (능동) 선택 시" 자동
+    /// 채움을 요구하므로, 사용자의 클릭/키 선택에서만 채우고 검색 중 첫 매치 강제 자동완성은 막는다.</summary>
+    private bool _suppressApiDefAutoFill;
+
     private void OnApiNameFilterChanged(object sender, TextChangedEventArgs e)
     {
         if (_suppressApiNameFilter) return;
@@ -330,15 +335,22 @@ public partial class CallCreateDialog : Window
     {
         var apiNameFilter = AdvApiNameFilterBox?.Text?.Trim() ?? string.Empty;
         var matches = _findApiDefsByName(apiNameFilter);
+        // ItemsSource 재할당·SelectedIndex 자동 지정은 SelectionChanged 를 발생시키나, 이는 사용자의
+        // 능동 선택이 아니므로 자동 채움을 억제한다(타이핑 중 첫 매치로 ApiName 칸이 덮어써지는 것 방지).
+        _suppressApiDefAutoFill = true;
         ApiDefListBox.ItemsSource = matches;
         if (matches.Count > 0)
             ApiDefListBox.SelectedIndex = 0;
+        _suppressApiDefAutoFill = false;
     }
 
     /// <summary>검색 결과에서 항목 선택 시 ApiName 칸을 선택한 ApiDef 의 ApiName 으로 자동 채운다.
-    /// 여러 개 선택 시 마지막으로 선택한 항목 기준. 자동 채움이 목록을 재검색하지 않도록 억제.</summary>
+    /// 여러 개 선택 시 마지막으로 선택한 항목 기준. 자동 채움이 목록을 재검색하지 않도록 억제.
+    /// 단 RefreshApiDefList 의 프로그램적 선택(타이핑 중)은 _suppressApiDefAutoFill 로 건너뛴다.</summary>
     private void OnApiDefSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (_suppressApiDefAutoFill) return;
+
         var picked = e.AddedItems.OfType<ApiDefMatch>().LastOrDefault()
                      ?? ApiDefListBox.SelectedItems.OfType<ApiDefMatch>().LastOrDefault();
         if (picked is null) return;
