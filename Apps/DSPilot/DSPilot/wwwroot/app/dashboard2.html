@@ -409,8 +409,10 @@
         .fl-editbar .ds-status { display: inline-flex; align-items: center; gap: 4px; }
 
         /* ── 전체화면: 도면 카드를 화면에 꽉 (헤더 숨김) ── */
-        .fl-fs:fullscreen, .fl-fs:-webkit-full-screen { --fl-cap: calc(100vh - 24px); background: var(--color-background); }
+        .fl-fs:fullscreen, .fl-fs:-webkit-full-screen { --fl-cap: 100vh; background: var(--color-background); }
         .fl-fs:fullscreen .fl-fs-chrome, .fl-fs:-webkit-full-screen .fl-fs-chrome { display: none; }
+        .fl-fs:fullscreen .fl-fs-body, .fl-fs:-webkit-full-screen .fl-fs-body { padding: 0; }
+        .fl-fs:fullscreen .fl-canvas, .fl-fs:-webkit-full-screen .fl-canvas { max-height: 100vh; }
 
         /* ── 도면 인플레이스 편집 ── */
         .fl-editpanel { width: 100%; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
@@ -623,7 +625,7 @@
                         </div>
                     </div>
 
-                    <div class="flex-1 p-4 flex flex-col" style="min-height:0;">
+                    <div class="fl-fs-body flex-1 p-4 flex flex-col" style="min-height:0;">
                         <!-- ── 편집 패널 ── -->
                         <div class="fl-editpanel" x-show="editing" x-cloak>
                             <div class="fl-editbar">

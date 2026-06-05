@@ -1,0 +1,1264 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>전체 편집 — DSPilot</title>
+
+    <!--
+      DSPilot 정적 호스팅 — 전체 편집 (한 시스템의 모든 Flow 사이클 분석 일괄 조회·편집).
+      진입: 사이드바 시스템 플라이아웃 맨 위 "전체 편집" → /flow-all?system=<시스템명>.
+      서버/모델 = C#(/api/nav, /api/call-test/*, /api/flow/{name}/cycle-override, /api/dashboard/exclusions),
+      뷰 = 정적 HTML/CSS/JS(Alpine + vanilla SVG + SignalR). 간트 렌더는 /app/cycle-gantt.js(flow.html 추출).
+      ※ flow.html(단일 Flow) 와 독립 — 그 화면 회귀 위험 0. 간트/사이클 로직은 cycle-gantt.js 로 공유.
+
+      구성: 공유 시간범위 컨트롤(모든 Flow 동일 창) + 일괄 적용 바
+            + Flow 별 카드(KPI · Head/Tail 토글 · 이상치 범위 · 실측 duration 스테이징 · 신호 간트 · 사이클 목록).
+      편집은 전부 "스테이징" — 카드에서 이상치/Head·Tail/실측을 바꿔두고 상단 "일괄 적용" 한 번으로 커밋한다.
+        · 이상치(CT 범위)  : POST /api/dashboard/exclusions (Flow별, 초 단위, 서버 공유) — 가볍다(재계산 없음).
+        · Head/Tail 경계   : POST /api/flow/{name}/cycle-override → 전체 이력 백그라운드 재계산(단일잡).
+                             재계산은 단일 슬롯이라 변경된 Flow 를 "순차" 저장·폴링한다(병렬 금지 = 누락 방지).
+        · 실측 duration    : POST /api/call-test/apply-durations (모든 Flow 변경을 1회 병합 — 단일 AASX export).
+      Chart.js 미사용(간트=순수 SVG, 사이클 목록=HTML 테이블) → N개 차트 인스턴스 반응형 폭주 위험 원천 차단.
+    -->
+    <link href="/css/fonts.css" rel="stylesheet" />
+    <link href="/css/ds.css" rel="stylesheet" />
+
+    <style>
+        [x-cloak] { display: none !important; }
+
+        .dsp-page { min-height: 100vh; display: flex; flex-direction: column; background: var(--color-background); color: var(--color-text-primary); font-family: var(--font-family); }
+        .dsp-appbar { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 20px; background: var(--color-appbar-bg); color: var(--color-appbar-text); border-bottom: 1px solid var(--color-lines-strong); position: sticky; top: 0; z-index: 50; flex-shrink: 0; }
+        .dsp-appbar .dsp-title { font-size: 18px; font-weight: 700; }
+        .dsp-appbar .spacer { flex: 1; }
+        .dsp-main { flex: 1; min-height: 0; padding: 16px 20px 24px; max-width: 1500px; margin: 0 auto; width: 100%; }
+
+        /* ── 공유 컨트롤 + 일괄 적용 바 ── */
+        .fa-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; padding: 14px 16px; }
+        .fa-savebar { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 12px 14px; flex-wrap: wrap; padding: 11px 16px; background: var(--color-surface); border: 1px solid var(--color-lines-strong); border-radius: var(--radius-md); box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        .fa-savebar .spacer { flex: 1; min-width: 8px; }
+        .fa-pending { display: inline-flex; align-items: center; gap: 8px; font-size: 0.78rem; font-weight: 700; color: var(--color-text-secondary); flex-wrap: wrap; }
+        .fa-pchip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px; font-size: 0.72rem; font-weight: 700; border: 1px solid var(--color-lines-strong); color: var(--color-text-secondary); background: var(--color-surface); }
+        .fa-pchip.on { color: var(--color-primary); border-color: color-mix(in srgb, var(--color-primary) 50%, transparent); background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface)); }
+        .fa-savemsg { font-size: 0.78rem; font-weight: 700; color: var(--color-primary); font-variant-numeric: tabular-nums; }
+        .fa-savemsg.is-err { color: var(--color-error, #d33); }
+
+        /* ── Flow 카드 ── */
+        .fa-flow { padding: 0; overflow: hidden; }
+        .fa-flow.changed { box-shadow: inset 4px 0 0 var(--color-primary); }
+        .fa-flow-head { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; padding: 13px 18px; border-bottom: 1px solid var(--color-lines); background: var(--color-surface-variant); }
+        .fa-flow-name { font-size: 1.05rem; font-weight: 800; color: var(--color-text-primary); }
+        .fa-flow-body { padding: 14px 18px; display: flex; flex-direction: column; gap: 12px; }
+        .fa-badge { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px; font-size: 0.68rem; font-weight: 800; letter-spacing: 0.02em; background: color-mix(in srgb, var(--color-primary) 14%, transparent); color: var(--color-primary); }
+        .fa-toolbar { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; }
+
+        /* ── 이상치 인라인 편집 ── */
+        .fa-outlier { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; padding: 9px 12px; background: var(--color-surface); border: 1px dashed var(--color-lines-strong); border-radius: var(--radius-md); }
+        .fa-outlier-label { display: inline-flex; align-items: center; gap: 6px; font-size: 0.74rem; font-weight: 800; color: var(--color-text-secondary); }
+        .fa-outlier-label .material-icons { font-size: 17px; }
+        .fa-outlier .fa-min, .fa-outlier .fa-max { display: inline-flex; align-items: center; gap: 5px; font-size: 0.72rem; font-weight: 700; color: var(--color-text-secondary); }
+        .fa-outlier input[type="number"] { width: 88px; }
+        .fa-outlier select { min-width: auto; }
+        .fa-changed-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 0.66rem; font-weight: 800; background: color-mix(in srgb, var(--color-warning, #e8a33d) 18%, transparent); color: var(--color-warning, #b97e1f); }
+
+        /* ════════════════════════════════════════════════════════════════
+           사이클 분석 (flow.html 에서 이식) — ct-* 페이지 고유 클래스
+           ════════════════════════════════════════════════════════════════ */
+        .ct-summary { display: flex; flex-direction: column; gap: 10px; }
+        .ct-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+        .ct-kpi-grid .kpi-cell { padding: 11px 14px; box-shadow: none; }
+        .ct-kpi-grid .kpi-cell .kp-value { font-size: 1.3rem; }
+        .ct-kpi-grid .kp-sub { font-size: 0.64rem; color: var(--color-text-secondary); font-weight: 600; margin-top: 3px; letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        button.kpi-cell { display: block; width: 100%; text-align: left; font: inherit; color: inherit; }
+        .ct-def .ct-def-name { font-family: var(--font-mono); font-size: 0.92rem; font-weight: 800; color: var(--color-text-primary); line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .ct-def .kp-label { display: flex; align-items: center; gap: 6px; }
+        .ct-dot { width: 9px; height: 9px; border-radius: 2px; display: inline-block; flex: 0 0 auto; }
+        .ct-def-head .ct-dot { background: #4caf50; }
+        .ct-def-tail .ct-dot { background: #ab47bc; }
+        .ct-ctbasis { display: inline-flex; align-items: center; gap: 8px; }
+        .ct-ctbasis-k { font-size: 0.6rem; color: var(--color-text-secondary); text-transform: uppercase; font-weight: 700; letter-spacing: 0.12em; }
+        .ct-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 11px; border-radius: 999px; font-size: 0.72rem; font-weight: 700; border: 1px solid var(--color-lines-strong); color: var(--color-text-secondary); background: var(--color-surface); }
+        .ct-chip::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+        .ct-chip.is-custom { color: var(--color-primary); border-color: color-mix(in srgb, var(--color-primary) 50%, transparent); background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface)); }
+        .ct-mono { font-family: var(--font-mono); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+        /* 간트 layout */
+        .ct-gantt-layout { display: flex; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); overflow: hidden; max-height: 60vh; }
+        .ct-lane-sidebar { flex: 0 0 260px; width: 260px; background: var(--color-surface); border-right: 1px solid var(--color-lines); overflow-y: auto; overflow-x: hidden; z-index: 1; }
+        .ct-sidebar-header { display: flex; align-items: flex-end; padding: 0 12px 8px; font-size: 0.66rem; font-weight: 700; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.12em; border-bottom: 1.5px solid var(--color-text-primary); background: var(--color-surface-variant); position: sticky; top: 0; z-index: 2; }
+        .ct-ribbon-side { display: flex; flex-direction: column; justify-content: center; gap: 1px; padding: 0 12px; background: #fafbfc; border-bottom: 1px solid var(--color-lines); }
+        .ct-ribbon-side .rs-t { font-size: 0.7rem; font-weight: 800; color: var(--color-text-primary); }
+        .ct-ribbon-side .rs-sub { font-size: 0.58rem; color: var(--color-text-secondary); white-space: nowrap; }
+        .dark-theme .ct-ribbon-side { background: var(--color-surface-variant); }
+        .ct-lane-row { display: flex; align-items: center; padding: 0 10px; gap: 8px; border-bottom: 1px solid var(--color-lines); background: var(--color-surface); }
+        .ct-lane-row.is-head { background: color-mix(in srgb, #4caf50 12%, var(--color-surface)); box-shadow: inset 3px 0 0 #4caf50; }
+        .ct-lane-row.is-tail { background: color-mix(in srgb, #ab47bc 12%, var(--color-surface)); box-shadow: inset 3px 0 0 #ab47bc; }
+        .ct-lane-name-block { flex: 1; min-width: 0; overflow: hidden; }
+        .ct-lane-name { font-size: 0.78rem; font-weight: 700; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 5px; }
+        .ct-lane-work { font-size: 0.66rem; color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+        .ct-badge { display: inline-block; font-size: 0.56rem; font-weight: 800; letter-spacing: 0.08em; padding: 1px 5px; border-radius: var(--radius-sm); color: #fff; line-height: 1.5; }
+        .ct-badge.head { background: #4caf50; }
+        .ct-badge.tail { background: #ab47bc; }
+        .ct-lane-tags { display: flex; gap: 4px; flex: 0 0 auto; }
+        .ct-tag-btn { width: 24px; height: 24px; border-radius: var(--radius-sm); border: 1px solid var(--color-lines-strong); background: var(--color-surface); font-size: 0.7rem; font-weight: 800; cursor: pointer; padding: 0; color: var(--color-text-primary); font-family: var(--font-mono); transition: background-color 0.12s, color 0.12s, border-color 0.12s; }
+        .ct-tag-btn:hover:not(:disabled) { border-color: var(--color-primary); color: var(--color-primary); }
+        .ct-tag-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+        .ct-tag-btn.head.active { background: #4caf50; color: #fff; border-color: #2e7d32; }
+        .ct-tag-btn.tail.active { background: #ab47bc; color: #fff; border-color: #7b1fa2; }
+        .ct-expand-btn { flex: 0 0 auto; width: 16px; height: 16px; margin-right: 2px; border: none; background: transparent; cursor: pointer; color: var(--color-text-secondary); font-size: 0.7rem; line-height: 1; padding: 0; display: flex; align-items: center; justify-content: center; }
+        .ct-expand-btn:hover:not(:disabled) { color: var(--color-primary); }
+        .ct-expand-btn:disabled { opacity: 0.3; cursor: default; }
+        .ct-api-row { display: flex; align-items: center; padding: 0 10px 0 26px; gap: 8px; border-bottom: 1px solid var(--color-lines); background: color-mix(in srgb, var(--color-text-secondary) 6%, var(--color-surface)); }
+        .ct-api-block { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: row; align-items: center; gap: 8px; }
+        .ct-api-info { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: column; gap: 3px; }
+        .ct-api-name { font-size: 0.72rem; font-weight: 700; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; }
+        .ct-api-dot { width: 6px; height: 6px; border-radius: 50%; background: #607d8b; flex: 0 0 auto; }
+        .ct-api-tags { font-size: 0.58rem; font-weight: 500; color: var(--color-text-secondary); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; }
+        .ct-api-stats { display: flex; flex-direction: column; gap: 1px; font-size: 0.64rem; color: var(--color-text-secondary); white-space: nowrap; }
+        .ct-api-meas b { color: #1565c0; font-weight: 700; }
+        .ct-api-nodata { font-style: italic; opacity: 0.75; }
+        .ct-api-cur b { color: var(--color-text-primary); font-weight: 700; }
+        .dark-theme .ct-api-meas b { color: #64b5f6; }
+        .ct-gantt-chart-area { flex: 1; overflow: auto; background: var(--color-surface); overscroll-behavior-x: contain; }
+        .ct-gantt-wrapper { display: inline-block; }
+
+        .ct-gantt-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .ct-tb-hint { font-size: 0.66rem; color: var(--color-text-secondary); }
+        .ct-tb-field { display: inline-flex; align-items: center; gap: 6px; }
+        .ct-tb-field > label { font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--color-text-secondary); }
+        .ct-gantt-toolbar select.form-select { font-size: 0.72rem; padding: 4px 8px; min-width: auto; height: auto; }
+        .ct-seg { display: inline-flex; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); overflow: hidden; }
+        .ct-seg button { border: 0; background: var(--color-surface); color: var(--color-text-secondary); font-size: 0.72rem; font-weight: 700; padding: 5px 12px; cursor: pointer; }
+        .ct-seg button + button { border-left: 1px solid var(--color-lines); }
+        .ct-seg button.active { background: var(--color-primary); color: #fff; }
+        .ct-zoom { display: inline-flex; align-items: center; gap: 6px; }
+        .ct-zoom button { width: 26px; height: 26px; border: 1px solid var(--color-lines-strong); background: var(--color-surface); border-radius: var(--radius-sm); cursor: pointer; font-weight: 800; font-size: 0.85rem; color: var(--color-text-primary); padding: 0; line-height: 1; }
+        .ct-zoom button.ct-zoom-reset { width: auto; padding: 0 10px; font-size: 0.7rem; font-weight: 700; }
+        .ct-zoom button:hover:not(:disabled) { border-color: var(--color-primary); color: var(--color-primary); }
+        .ct-zoom button:disabled { opacity: 0.4; cursor: not-allowed; }
+        .ct-zoom-val { font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700; min-width: 44px; text-align: center; }
+        .ct-tb-check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.74rem; font-weight: 700; color: var(--color-text-primary); white-space: nowrap; }
+        .ct-tb-check input[type="checkbox"] { accent-color: var(--color-primary); width: 15px; height: 15px; cursor: pointer; }
+        .ct-tb-check:has(input:disabled) { opacity: 0.45; cursor: not-allowed; }
+        .dark-theme .ct-seg button, .dark-theme .ct-zoom button { background: var(--color-surface-variant); }
+        .dark-theme .ct-gantt-chart-area { background: #ffffff; }
+
+        .ct-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 0.68rem; color: var(--color-text-secondary); padding: 9px 14px; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); align-items: center; }
+        .ct-legend > span { display: inline-flex; align-items: center; }
+        .ct-sw { display: inline-block; width: 12px; height: 12px; border-radius: 1px; margin-right: 6px; vertical-align: middle; }
+        .ct-sw-out { background: #1e88e5; }
+        .ct-sw-in { background: #fb8c00; }
+        .ct-sw-going { background: #5b9bd5; }
+        .ct-sw-head { background: #4caf50; }
+        .ct-sw-tail { background: #ab47bc; }
+        .ct-sw-cycle-edge { background: transparent; border-left: 2px solid #ff9800; border-radius: 0; width: 6px; }
+        .ct-sw-active-band { background: #c8e6c9; border: 1px solid #81c784; }
+        .ct-sw-idle-band { background: #cfd8dc; border: 1px solid #90a4ae; }
+        .ct-sw-maxgap { background: rgba(245,166,35,0.28); border: 1.5px solid #e5494f; }
+
+        .ct-cycle-scroll { max-height: 230px; overflow-y: auto; overflow-x: hidden; }
+        .ct-cycle-open td { color: var(--color-text-secondary); font-style: italic; }
+        .ct-ratio-good { color: var(--color-success); font-weight: 700; }
+        .ct-ratio-mid  { color: var(--color-warning); font-weight: 700; }
+        .ct-ratio-low  { color: var(--color-error); font-weight: 700; }
+        .dark-theme .ct-sidebar-header { background: var(--color-surface-variant); }
+        .dark-theme .ct-lane-row.is-head { background: color-mix(in srgb, #4caf50 18%, var(--color-surface)); }
+        .dark-theme .ct-lane-row.is-tail { background: color-mix(in srgb, #ab47bc 18%, var(--color-surface)); }
+        .dark-theme .ct-tag-btn { background: var(--color-surface-variant); }
+
+        .ct-loading, .ct-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 30px 20px; color: var(--color-text-secondary); }
+        .ct-empty .material-icons { font-size: 32px; color: var(--color-text-disabled); }
+
+        /* 추가: ApiCall 개별 duration 적용 버튼 */
+        .ct-api-apply { flex: 0 0 auto; align-self: center; font-size: 0.62rem; font-weight: 800; padding: 3px 9px; border-radius: var(--radius-sm); border: 1px solid var(--color-primary); background: transparent; color: var(--color-primary); cursor: pointer; transition: background-color 0.12s, color 0.12s; }
+        .ct-api-apply:hover:not(:disabled) { background: var(--color-primary); color: #fff; }
+        .ct-api-apply:disabled { opacity: 0.5; cursor: not-allowed; }
+        /* 추가: 드래그 구간 4-KPI */
+        .ct-range-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+        @media (max-width: 768px) { .ct-range-stats { grid-template-columns: repeat(2, 1fr); } }
+        .ct-range-stats .kpi-cell .kp-value { font-size: 1.15rem; }
+        /* 추가: 사이클 프리셋 구분자 */
+        .ct-preset-sep { margin-left: 6px; padding-left: 10px; border-left: 1px solid var(--color-lines-strong); font-size: 0.68rem; font-weight: 800; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.06em; }
+        /* 추가: per-slice duration 메시지 */
+        .fa-dur-msg { font-size: 0.72rem; font-weight: 700; color: var(--color-primary); padding: 0 2px; }
+        /* 추가: ct-sw-range (드래그 범례) */
+        .ct-sw-range { background: rgba(126,87,194,0.16); border: 1px dashed #7e57c2; }
+    </style>
+</head>
+
+<body>
+    <div class="dsp-page" x-data="bulkApp()" x-cloak>
+        <header class="dsp-appbar">
+            <span class="dsp-title">전체 편집</span>
+            <span class="dsp-badge">정적</span>
+            <div class="spacer"></div>
+        </header>
+
+        <main class="dsp-main">
+            <!-- 상단 타이틀 -->
+            <div class="ds-topbar">
+                <div class="ds-topbar-titles">
+                    <h2 x-text="systemName ? ('전체 편집 — ' + systemName) : '전체 편집'"></h2>
+                    <div class="ds-breadcrumb">
+                        <span x-text="flows.length + '개 Flow'"></span> · 사이클 분석 일괄 편집
+                    </div>
+                </div>
+                <div class="ds-topbar-actions">
+                    <span class="ds-live" :class="rt.connected ? 'is-live' : 'is-poll'"
+                          :title="rt.connected ? 'SignalR 실시간 연결됨' : '폴링 모드'">
+                        <span class="ds-live-dot"></span>
+                        <span x-text="rt.connected ? 'LIVE' : 'POLL'"></span>
+                    </span>
+                </div>
+            </div>
+
+            <!-- 데모 차단 -->
+            <div class="alert alert-error" x-show="demoBlocked" x-cloak style="margin-bottom:12px;">
+                <span class="material-icons">lock_clock</span>
+                <span>데모 사용 시간이 만료되어 데이터 API 가 차단되었습니다.</span>
+            </div>
+
+            <div class="fw-grid" style="display:flex; flex-direction:column; gap:16px;">
+
+                <!-- ════ 공유 시간범위 컨트롤 ════ -->
+                <section class="card fa-controls">
+                    <div class="ct-field" style="display:flex; flex-direction:column; gap:6px; min-width:170px;">
+                        <label style="font-size:0.66rem; color:var(--color-text-secondary); font-weight:700; text-transform:uppercase; letter-spacing:0.1em;">시작 (모든 Flow 공통)</label>
+                        <input type="datetime-local" step="1" class="form-field" x-model="startTime" @change="onTimeChanged()" />
+                    </div>
+                    <div class="ct-field" style="display:flex; flex-direction:column; gap:6px; min-width:170px;">
+                        <label style="font-size:0.66rem; color:var(--color-text-secondary); font-weight:700; text-transform:uppercase; letter-spacing:0.1em;">종료</label>
+                        <input type="datetime-local" step="1" class="form-field" x-model="endTime" @change="onTimeChanged()" />
+                    </div>
+                    <div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-left:auto;">
+                        <button class="btn btn-sm" @click="setRecentMinutes(5)" :disabled="loadingAny">최근 5분</button>
+                        <button class="btn btn-sm" @click="setRecentMinutes(30)" :disabled="loadingAny">최근 30분</button>
+                        <button class="btn btn-sm" @click="setRecentHours(1)" :disabled="loadingAny">최근 1시간</button>
+                        <button class="btn btn-sm" @click="setRecentHours(24)" :disabled="loadingAny">최근 24시간</button>
+                        <span class="ct-preset-sep" title="사이클 개수 기준 — 최근 N개 사이클이 들어오도록 시간 범위를 자동 설정 (첫 번째 Flow 히스토리 기준)">사이클</span>
+                        <button class="btn btn-sm" @click="setRecentCycles(20)" :disabled="loadingAny">최근 20</button>
+                        <button class="btn btn-sm" @click="setRecentCycles(50)" :disabled="loadingAny">최근 50</button>
+                        <button class="btn btn-sm" @click="setRecentCycles(100)" :disabled="loadingAny">최근 100</button>
+                        <label class="ct-tb-check" style="margin-left:6px;"
+                               title="완료신호(Tail InTag↑)가 없는 미완료 사이클을 사이클 목록·평균에서 제외 (로컬 표시 토글)">
+                            <input type="checkbox" x-model="excludeIncomplete" @change="onExcludeIncompleteChanged()" />
+                            미완료 제외
+                        </label>
+                        <button class="btn btn-filled btn-sm" @click="loadAll()" :disabled="loadingAny">
+                            <span class="material-icons" style="font-size:15px; vertical-align:middle;">refresh</span>
+                            전체 새로고침
+                        </button>
+                    </div>
+                </section>
+
+                <!-- ════ 일괄 적용 바 (sticky) ════ -->
+                <div class="fa-savebar">
+                    <span class="fa-pending">
+                        <span class="material-icons" style="font-size:18px;">edit_note</span>
+                        변경
+                        <span class="fa-pchip" :class="pendingHt ? 'on' : ''">Head/Tail <b x-text="pendingHt"></b></span>
+                        <span class="fa-pchip" :class="pendingOutlier ? 'on' : ''">이상치 <b x-text="pendingOutlier"></b></span>
+                        <span class="fa-pchip" :class="pendingDur ? 'on' : ''">실측 <b x-text="pendingDur"></b></span>
+                    </span>
+                    <span class="fa-savemsg" :class="saveError ? 'is-err' : ''" x-show="saveMsg" x-text="saveMsg"></span>
+                    <span class="spacer"></span>
+                    <button class="btn btn-sm btn-outlined" @click="resetAllStaged()" :disabled="saving || !hasPending"
+                            title="아직 적용하지 않은 모든 변경을 되돌립니다 (마지막 로드 상태로)">
+                        <span class="material-icons" style="font-size:15px; vertical-align:middle;">undo</span>
+                        변경 취소
+                    </button>
+                    <button class="btn btn-filled" @click="saveAll()" :disabled="saving || !hasPending"
+                            title="모든 Flow 의 이상치·Head/Tail·실측 duration 변경을 한 번에 적용합니다. Head/Tail 변경은 과거 이력 재계산이 동반되어 변경된 Flow 를 순차 처리합니다.">
+                        <span class="material-icons" style="font-size:17px; vertical-align:middle;" x-text="saving ? 'hourglass_top' : 'save'"></span>
+                        <span x-text="saving ? '적용 중…' : '일괄 적용'"></span>
+                    </button>
+                </div>
+
+                <!-- 시스템에 Flow 없음 -->
+                <template x-if="!loadingAny && flows.length === 0">
+                    <section class="card fw-section" style="padding:18px 20px;">
+                        <div class="ds-empty">
+                            <span class="material-icons">account_tree</span>
+                            <div class="ds-empty-title">표시할 Flow 가 없습니다</div>
+                            <div class="ds-empty-desc">URL 에 <span style="font-family:var(--font-mono);">?system=&lt;시스템명&gt;</span> 으로 시스템을 지정하세요. AASX 프로젝트가 로드되어 있어야 하며, Flow 가 있는 시스템만 표시됩니다.</div>
+                        </div>
+                    </section>
+                </template>
+
+                <!-- ════ Flow 카드 (모든 Flow) ════ -->
+                <template x-for="slice in flows" :key="slice.flowName">
+                    <section class="card fa-flow" :class="(headTailChanged(slice) || outlierChanged(slice) || (slice.stageDurations && durCount(slice) > 0)) ? 'changed' : ''">
+                        <!-- 헤더 -->
+                        <div class="fa-flow-head">
+                            <span class="fa-flow-name" x-text="slice.flowName"></span>
+                            <div class="ct-ctbasis">
+                                <span class="ct-ctbasis-k">CT 기준</span>
+                                <span class="ct-chip" :class="slice.isOverride ? 'is-custom' : ''"
+                                      x-text="slice.isOverride ? '사용자 지정' : 'AASX 기본'"></span>
+                            </div>
+                            <template x-if="headTailChanged(slice)"><span class="fa-changed-badge">Head/Tail 변경</span></template>
+                            <template x-if="outlierChanged(slice)"><span class="fa-changed-badge">이상치 변경</span></template>
+                            <template x-if="slice.stageDurations && durCount(slice) > 0"><span class="fa-changed-badge" x-text="'실측 ' + durCount(slice) + '건'"></span></template>
+                            <span class="spacer" style="flex:1;"></span>
+                            <button class="btn btn-sm btn-outlined" @click="loadSlice(slice)" :disabled="slice.loading"
+                                    title="이 Flow 만 다시 로드 (스테이징 변경 취소)">
+                                <span class="material-icons" style="font-size:15px; vertical-align:middle;">refresh</span>
+                            </button>
+                        </div>
+
+                        <!-- 로딩 -->
+                        <template x-if="slice.loading">
+                            <div class="ct-loading"><div class="spinner"></div><p>로딩 중…</p></div>
+                        </template>
+                        <!-- 오류 -->
+                        <template x-if="!slice.loading && slice.error">
+                            <div class="fa-flow-body">
+                                <div class="alert alert-error"><span class="material-icons">error</span><span x-text="slice.error"></span></div>
+                            </div>
+                        </template>
+                        <!-- 데이터 없음 -->
+                        <template x-if="!slice.loading && !slice.error && slice.callLanes.length === 0">
+                            <div class="ct-empty">
+                                <span class="material-icons">hourglass_disabled</span>
+                                <p>선택한 시간 범위에 신호 이벤트가 없습니다.</p>
+                            </div>
+                        </template>
+
+                        <!-- 본문 -->
+                        <template x-if="!slice.loading && !slice.error && slice.callLanes.length > 0">
+                            <div class="fa-flow-body">
+                                <!-- KPI -->
+                                <div class="ct-kpi-grid">
+                                    <div class="kpi-cell">
+                                        <div class="kp-label">Call 수</div>
+                                        <div class="kp-value" x-text="slice.callLanes.length"></div>
+                                    </div>
+                                    <template x-if="slice.avgCycleMs !== null">
+                                        <div class="kpi-cell tone-primary">
+                                            <div class="kp-label">CT 평균</div>
+                                            <div class="kp-value" x-text="fmtMs(slice.avgCycleMs)"></div>
+                                            <div class="kp-sub">시작 → 다음 시작</div>
+                                        </div>
+                                    </template>
+                                    <template x-if="slice.avgActiveMs !== null">
+                                        <div class="kpi-cell">
+                                            <div class="kp-label">MT 평균</div>
+                                            <div class="kp-value" x-text="fmtMs(slice.avgActiveMs)"></div>
+                                            <div class="kp-sub">시작 → 완료</div>
+                                        </div>
+                                    </template>
+                                    <template x-if="slice.topGaps.length">
+                                        <button type="button" class="kpi-cell tone-max" @click="focusMaxGap(slice)"
+                                                title="최대 Gap(병목) 으로 스크롤 + 간트 강조">
+                                            <div class="kp-label">최대 GAP</div>
+                                            <div class="kp-value" x-text="fmtMs(slice.topGaps[0].durMs)"></div>
+                                            <div class="kp-sub" x-text="slice.topGaps[0].callName"></div>
+                                        </button>
+                                    </template>
+                                    <div class="kpi-cell ct-def ct-def-head">
+                                        <div class="kp-label"><span class="ct-dot"></span> HEAD</div>
+                                        <div class="ct-def-name" x-text="headName(slice) || '(기본)'" :title="headName(slice) || '(기본)'"></div>
+                                        <div class="kp-sub" x-text="slice.cycleBoundaries.length + ' 회'"></div>
+                                    </div>
+                                    <div class="kpi-cell ct-def ct-def-tail">
+                                        <div class="kp-label"><span class="ct-dot"></span> TAIL</div>
+                                        <div class="ct-def-name" x-text="tailName(slice) || '-'" :title="tailName(slice) || '-'"></div>
+                                        <div class="kp-sub" x-text="slice.tailEdges.length + ' 회'"></div>
+                                    </div>
+                                </div>
+
+                                <!-- 이상치 인라인 편집 -->
+                                <div class="fa-outlier">
+                                    <span class="fa-outlier-label"><span class="material-icons">filter_alt</span> 이상치 제외 (CT 범위)</span>
+                                    <span class="fa-min">최소
+                                        <input type="number" class="form-field" min="0" step="any" placeholder="제한 없음" x-model="slice.rangeForm.min" />
+                                        <select class="form-select" :value="slice.rangeForm.minUnit" @change="changeUnit(slice, 'min', $event.target.value)">
+                                            <option value="s">초</option><option value="m">분</option><option value="h">시간</option>
+                                        </select>
+                                    </span>
+                                    <span class="fa-max">최대
+                                        <input type="number" class="form-field" min="0" step="any" placeholder="제한 없음" x-model="slice.rangeForm.max" />
+                                        <select class="form-select" :value="slice.rangeForm.maxUnit" @change="changeUnit(slice, 'max', $event.target.value)">
+                                            <option value="s">초</option><option value="m">분</option><option value="h">시간</option>
+                                        </select>
+                                    </span>
+                                    <span class="ct-tb-hint" x-show="excludedCount(slice) > 0" x-text="excludedCount(slice) + '개 제외 · 평균 재계산'"></span>
+                                    <button class="btn btn-sm btn-outlined" @click="resetRange(slice)"
+                                            x-show="slice.rangeForm.min !== '' || slice.rangeForm.max !== ''"
+                                            title="이 Flow 의 제외 범위 비우기">해제</button>
+                                </div>
+
+                                <!-- 간트 툴바 -->
+                                <div class="ct-gantt-toolbar">
+                                    <div class="ct-tb-field">
+                                        <label>정렬</label>
+                                        <select class="form-select" x-model="slice.chartSort" @change="onSortChanged(slice)">
+                                            <option value="ByLane">Lane순</option>
+                                            <option value="ByTime">시간순</option>
+                                            <option value="ByCallName">Call 이름순</option>
+                                            <option value="ByGapSize">GAP 크기순</option>
+                                        </select>
+                                    </div>
+                                    <div class="ct-seg">
+                                        <button :class="slice.viewMode === 'bar' ? 'active' : ''" @click="setView(slice, 'bar')" title="실행 막대그래프">막대</button>
+                                        <button :class="slice.viewMode === 'line' ? 'active' : ''" @click="setView(slice, 'line')" title="OutTag·InTag 신호 라인">InOut 라인</button>
+                                    </div>
+                                    <label class="ct-tb-check" :title="slice.topGaps.length ? '최대 Gap 강조' : '표시할 Gap 없음'">
+                                        <input type="checkbox" x-model="slice.showMaxGap" @change="rebuild(slice)" :disabled="!slice.topGaps.length" />
+                                        최대 Gap
+                                    </label>
+                                    <label class="ct-tb-check" :class="slice.stageDurations ? '' : ''"
+                                           :title="durCount(slice) ? ('일괄 적용 시 이 Flow 의 실측 ' + durCount(slice) + '건을 AASX Work 에 기록') : '적용 가능한 실측 없음'">
+                                        <input type="checkbox" x-model="slice.stageDurations" :disabled="!durCount(slice)" />
+                                        실측 duration 적용 <span x-show="durCount(slice)" x-text="'(' + durCount(slice) + '건)'"></span>
+                                    </label>
+                                    <button class="btn btn-sm btn-outlined" @click="restoreToAasx(slice)"
+                                            :disabled="slice.overlayBusy || !slice.projectHeadId || !slice.projectTailId"
+                                            title="Head/Tail 을 AASX 프로젝트 기본값으로 되돌립니다 (일괄 적용 시 사용자 지정 제거)">AASX 기본</button>
+                                    <span class="ct-tb-hint">휠 = 확대/축소 · 드래그 = 구간 선택</span>
+                                    <span class="fa-dur-msg" x-show="slice.applyDurMsg" x-text="slice.applyDurMsg"></span>
+                                    <div class="spacer" style="flex:1;"></div>
+                                    <div class="ct-zoom">
+                                        <button @click="zoomBy(slice, 1/1.3)" :disabled="slice.zoom <= 1" title="축소">−</button>
+                                        <span class="ct-zoom-val" x-text="Math.round(slice.zoom * 100) + '%'"></span>
+                                        <button @click="zoomBy(slice, 1.3)" :disabled="slice.zoom >= 24" title="확대">＋</button>
+                                        <button class="ct-zoom-reset" @click="resetZoom(slice)" :disabled="slice.zoom <= 1" title="전체 보기">전체</button>
+                                    </div>
+                                </div>
+
+                                <!-- 간트 -->
+                                <div class="ct-gantt-layout">
+                                    <div class="ct-lane-sidebar">
+                                        <div class="ct-sidebar-header" :style="`height:${TOP_MARGIN}px;`">Call</div>
+                                        <div class="ct-ribbon-side" x-show="slice.cycleBoundaries.length" :style="`height:${RIBBON_H}px;`">
+                                            <span class="rs-t">사이클</span>
+                                            <span class="rs-sub">MT · WT · 가동률</span>
+                                        </div>
+                                        <template x-for="row in laneRows(slice)" :key="row.key">
+                                            <div :class="rowClass(slice, row)" :style="`height:${row.h}px;`">
+                                                <button x-show="row.kind === 'call'" class="ct-expand-btn"
+                                                        :disabled="!hasApiCalls(row.lane)"
+                                                        @click="toggleExpand(slice, row.lane.callId)"
+                                                        :title="hasApiCalls(row.lane) ? 'ApiCall 펼치기/접기 (실측 duration)' : 'ApiCall 없음'"
+                                                        x-text="!hasApiCalls(row.lane) ? '·' : (slice.expandedCalls[row.lane.callId] ? '▾' : '▸')"></button>
+                                                <template x-if="row.kind === 'call'">
+                                                    <div class="ct-lane-name-block">
+                                                        <div class="ct-lane-name">
+                                                            <span x-text="row.lane.callName"></span>
+                                                            <template x-if="slice.headCallId === row.lane.callId"><span class="ct-badge head">HEAD</span></template>
+                                                            <template x-if="slice.tailCallId === row.lane.callId"><span class="ct-badge tail">TAIL</span></template>
+                                                        </div>
+                                                        <div class="ct-lane-work" x-text="row.lane.workName"></div>
+                                                    </div>
+                                                </template>
+                                                <template x-if="row.kind === 'call'">
+                                                    <div class="ct-lane-tags">
+                                                        <button :class="'ct-tag-btn head ' + (slice.headCallId === row.lane.callId ? 'active' : '')"
+                                                                @click="toggleHead(slice, row.lane.callId)" :disabled="slice.overlayBusy"
+                                                                title="Head 지정: 이 Call 의 OutTag↑ 가 사이클 시작 경계">H</button>
+                                                        <button :class="'ct-tag-btn tail ' + (slice.tailCallId === row.lane.callId ? 'active' : '')"
+                                                                @click="toggleTail(slice, row.lane.callId)" :disabled="slice.overlayBusy"
+                                                                title="Tail 지정: 이 Call 의 InTag↑ 가 사이클 완료 마커">T</button>
+                                                    </div>
+                                                </template>
+                                                <template x-if="row.kind === 'api'">
+                                                    <div class="ct-api-block">
+                                                        <div class="ct-api-info">
+                                                            <div class="ct-api-name">
+                                                                <span class="ct-api-dot"></span>
+                                                                <span x-text="row.ac.name"></span>
+                                                                <span class="ct-api-tags" x-text="(row.ac.outTag ? ('OUT ' + row.ac.outTag) : '') + (row.ac.inTag ? ('  IN ' + row.ac.inTag) : '')"></span>
+                                                            </div>
+                                                            <div class="ct-api-stats">
+                                                                <span class="ct-api-meas" x-show="row.m.count > 0">
+                                                                    실측 <b x-text="row.m.count + '회'"></b> ·
+                                                                    min <b x-text="fmtMs(row.m.min)"></b> ·
+                                                                    평균 <b x-text="fmtMs(row.m.mean)"></b> ·
+                                                                    max <b x-text="fmtMs(row.m.max)"></b>
+                                                                </span>
+                                                                <span class="ct-api-meas ct-api-nodata" x-show="row.m.count === 0">이 구간 실측 없음</span>
+                                                                <span class="ct-api-cur">
+                                                                    현재 AASX · D <b x-text="fmtAasx(row.ac.currentDurationMs)"></b>
+                                                                    · min <b x-text="fmtAasx(row.ac.currentMinMs)"></b>
+                                                                    · max <b x-text="fmtAasx(row.ac.currentMaxMs)"></b>
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                        <button class="ct-api-apply" x-show="canApplyApi(row.lane, row.ac)"
+                                                                :disabled="slice.applyDurBusy"
+                                                                @click="applyApiCallDuration(slice, row)"
+                                                                title="이 ApiCall 의 실측 평균/min/max 를 대상 Work 의 Duration/Min/Max 로 AASX 에 즉시 기록">적용</button>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                        </template>
+                                    </div>
+                                    <div class="ct-gantt-chart-area" :id="'cta-' + slice.id"
+                                         x-init="$el.addEventListener('wheel', (e) => onWheel(e, slice), { passive: false })"
+                                         @mousedown="onDragStart($event, slice)">
+                                        <div class="ct-gantt-wrapper" x-html="slice.svgMarkup"></div>
+                                    </div>
+                                </div>
+
+                                <!-- 드래그 선택 구간 → 인라인 4-KPI 카드 (flow.html:776-816 동일) -->
+                                <template x-if="slice.selectedRange">
+                                    <div class="card" style="border-color: var(--color-primary);">
+                                        <div class="ds-card-h">
+                                            <h4>
+                                                선택 구간
+                                                <span style="font-weight:400; font-size:0.82em; color:var(--color-text-secondary);"
+                                                      x-text="' · ' + hms2k(new Date(slice.selectedRange.startMs)) + ' ~ ' + hms2k(new Date(slice.selectedRange.endMs))"></span>
+                                            </h4>
+                                            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                                                <button class="btn btn-sm btn-filled" @click="applyRangeAsPeriod(slice)" :disabled="loadingAny"
+                                                        title="선택 구간을 모든 Flow 의 분석 시간으로 설정하고 다시 로드 (공유 시간범위가 바뀝니다)">
+                                                    <span class="material-icons" style="font-size:16px; vertical-align:middle;">schedule</span>
+                                                    사이클 기간으로 설정
+                                                </button>
+                                                <button class="btn btn-sm btn-outlined" @click="clearRangeSelection(slice)" title="선택 구간 해제">✕ 해제</button>
+                                            </div>
+                                        </div>
+                                        <div class="sm-hint" style="margin-bottom:14px;">
+                                            <span class="material-icons">info</span>
+                                            <span>드래그한 구간의 통계입니다. <b>사이클 기간으로 설정</b>을 누르면 모든 Flow 의 분석 시간이 이 구간으로 바뀌고 전체 새로고침합니다.</span>
+                                        </div>
+                                        <div class="ct-range-stats">
+                                            <div class="kpi-cell">
+                                                <div class="kp-label">선택 구간 길이</div>
+                                                <div class="kp-value" x-text="fmtMs(selRangeLenMs(slice))"></div>
+                                            </div>
+                                            <div class="kpi-cell tone-primary">
+                                                <div class="kp-label">동작 (Run) 합</div>
+                                                <div class="kp-value" x-text="fmtMs(selRunMs(slice))"></div>
+                                            </div>
+                                            <div class="kpi-cell tone-max">
+                                                <div class="kp-label">병목 (Gap) 합</div>
+                                                <div class="kp-value" x-text="fmtMs(selGapMs(slice))"></div>
+                                            </div>
+                                            <div class="kpi-cell">
+                                                <div class="kp-label">활성 Call</div>
+                                                <div class="kp-value" x-text="selActiveDevices(slice) + ' / ' + slice.callLanes.length"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+
+                                <!-- 사이클 목록 (접이식) -->
+                                <template x-if="visibleCycles(slice).length > 0">
+                                    <div>
+                                        <button class="btn btn-sm btn-outlined" @click="slice.showCycles = !slice.showCycles">
+                                            <span class="material-icons" style="font-size:16px; vertical-align:middle;" x-text="slice.showCycles ? 'expand_less' : 'expand_more'"></span>
+                                            사이클 목록
+                                            <span style="font-weight:400; color:var(--color-text-secondary);"
+                                                  x-text="' (' + visibleCycles(slice).filter(c => !c.isOpen).length + '개 완료' + (excludedCount(slice) > 0 ? (' · 제외 ' + excludedCount(slice)) : '') + ')'"></span>
+                                        </button>
+                                        <div class="ct-cycle-scroll" x-show="slice.showCycles" x-cloak style="margin-top:8px;">
+                                            <table class="ds-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th style="width:48px;">#</th>
+                                                        <th style="width:130px;">시작 시각</th>
+                                                        <th title="가동 시간 = 시작 → 완료">MT</th>
+                                                        <th title="대기 시간 = CT − MT">WT</th>
+                                                        <th title="사이클 시간 = 시작 → 다음 시작">CT</th>
+                                                        <th style="width:72px;" title="가동률 = MT / CT">가동률</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <template x-for="c in visibleCycles(slice)" :key="c.number">
+                                                        <tr :class="c.isOpen ? 'ct-cycle-open' : ''">
+                                                            <td class="num ct-mono" x-text="'#' + c.number + (c.isOpen ? ' ↻' : '')"></td>
+                                                            <td class="num ct-mono" x-text="hms(new Date(c.startMs))"></td>
+                                                            <td class="num ct-mono" x-text="c.atMs !== null ? fmtMs(c.atMs) : '—'"></td>
+                                                            <td class="num ct-mono" x-text="c.wtMs !== null ? fmtMs(c.wtMs) : '—'"></td>
+                                                            <td class="num ct-mono" x-text="(c.isOpen ? '≥' : '') + fmtMs(c.ctMs)"></td>
+                                                            <td class="num" :class="ratioCls(c.ratio)" x-text="c.ratio !== null ? c.ratio + '%' : '—'"></td>
+                                                        </tr>
+                                                    </template>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </template>
+
+                                <!-- 범례 -->
+                                <div class="ct-legend">
+                                    <span><i class="ct-sw ct-sw-out"></i> OutTag (명령=시작)</span>
+                                    <span><i class="ct-sw ct-sw-in"></i> InTag (응답=완료)</span>
+                                    <span><i class="ct-sw ct-sw-head"></i> Head</span>
+                                    <span><i class="ct-sw ct-sw-tail"></i> Tail</span>
+                                    <span><i class="ct-sw ct-sw-cycle-edge"></i> 사이클 경계</span>
+                                    <span><i class="ct-sw ct-sw-active-band"></i> MT(가동)</span>
+                                    <span><i class="ct-sw ct-sw-idle-band"></i> WT(대기)</span>
+                                    <template x-if="slice.showMaxGap && slice.topGaps.length">
+                                        <span><i class="ct-sw ct-sw-maxgap"></i> 최대 Gap</span>
+                                    </template>
+                                    <template x-if="slice.selectedRange">
+                                        <span><i class="ct-sw ct-sw-range"></i> 드래그 선택 구간</span>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+                    </section>
+                </template>
+
+            </div>
+        </main>
+    </div>
+
+    <script src="/lib/signalr.min.js"></script>
+    <script src="/app/cycle-gantt.js"></script>
+    <script>
+        function bulkApp() {
+            const CG = window.CycleGantt;
+            const LEFT_PAD = CG.LEFT_PAD, RIGHT_PAD = CG.RIGHT_PAD, MIN = CG.MIN_PLOT_WIDTH, MAX_ZOOM = CG.MAX_ZOOM;
+            const _unitSec = { s: 1, m: 60, h: 3600 };
+            // 사이클 프리셋용 히스토리 캐시 (closure, Alpine 반응형 밖 — 단순 캐시)
+            const histCache = {};
+
+            return {
+                TOP_MARGIN: CG.TOP_MARGIN,
+                RIBBON_H: CG.RIBBON_H,
+
+                systemName: '',
+                flows: [],
+                startTime: '', endTime: '',
+                excludeIncomplete: true,
+                rt: { connected: false },
+                demoBlocked: false,
+                saving: false, saveMsg: '', saveError: false,
+                _conn: null, _timer: null,
+
+                async init() {
+                    // 테마는 shell.js 가 <html> 에 적용. 미완료 제외 토글만 복원.
+                    this.excludeIncomplete = localStorage.getItem('dspilot-flow-exclude-incomplete') !== '0';
+                    this.systemName = new URLSearchParams(location.search).get('system') || '';
+
+                    // 컨테이너 폭 변화 → 간트 폭맞춤(디바운스)
+                    let _rt;
+                    window.addEventListener('resize', () => {
+                        clearTimeout(_rt);
+                        _rt = setTimeout(() => {
+                            for (const s of this.flows) {
+                                if (s.callLanes.length) { this.measurePlotWidth(s); s.svgMarkup = CG.buildSvg(s); }
+                            }
+                        }, 180);
+                    });
+
+                    // 기본 시간범위 (최신-5분 ~ 최신)
+                    try {
+                        const t = await this.apiGet('/api/call-test/latest-time');
+                        this.startTime = this.toInputValue(t.start);
+                        this.endTime = this.toInputValue(t.end);
+                    } catch (e) {
+                        const now = new Date();
+                        this.endTime = this.dateToInput(now);
+                        this.startTime = this.dateToInput(new Date(now.getTime() - 5 * 60000));
+                    }
+
+                    await this.loadFlows();
+                    await this.loadExclusions();
+                    await this.loadAll();
+                    this.connectSignalR();
+                },
+
+                destroy() { clearTimeout(this._timer); if (this._conn) this._conn.stop(); },
+
+                // ── API ──
+                async apiGet(url) {
+                    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    return await res.json();
+                },
+                async apiPost(url, body) {
+                    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify(body) });
+                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    return await res.json();
+                },
+
+                // ── Flow 목록 (시스템 스코프) ──
+                async loadFlows() {
+                    let names = [];
+                    try {
+                        const nav = await this.apiGet('/api/nav');
+                        const systems = (nav && nav.systems) || [];
+                        if (this.systemName) {
+                            const sys = systems.find(s => s.name === this.systemName);
+                            names = sys ? (sys.flows || []) : [];
+                        } else {
+                            // 시스템 미지정 → 모든 시스템의 모든 Flow
+                            for (const sys of systems) for (const fn of (sys.flows || [])) names.push(fn);
+                            names = Array.from(new Set(names));
+                        }
+                    } catch (e) { /* demo-blocked 등 — 빈 목록 */ }
+                    this.flows = names.map((n, i) => this.makeSlice(n, i));
+                },
+
+                makeSlice(flowName, idx) {
+                    return {
+                        id: idx, flowName,
+                        loading: true, error: null, overlayBusy: false,
+                        callLanesRaw: [], callLanes: [],
+                        cycleBoundaries: [], tailEdges: [],
+                        chartStart: null, chartEnd: null, chartStartIso: '', chartEndIso: '',
+                        headCallId: null, tailCallId: null,
+                        savedHeadCallId: null, savedTailCallId: null, userOverrodeHeadTail: false,
+                        projectHeadId: null, projectTailId: null,
+                        isOverride: false, avgCycleMs: null, avgActiveMs: null,
+                        plotWidth: 1200, baseWidth: 1200, zoom: 1, viewMode: 'line', chartSort: 'ByLane',
+                        expandedCalls: {}, topGaps: [], showMaxGap: false, selectedGapIndex: 0,
+                        svgMarkup: '', selectedRange: null, _geo: null, _drag: null,
+                        rangeForm: { min: '', max: '', minUnit: 's', maxUnit: 's' }, savedRange: null,
+                        stageDurations: false, applyDurBusy: false, applyDurMsg: '', showCycles: false
+                    };
+                },
+
+                get loadingAny() { return this.flows.some(s => s.loading); },
+
+                // ── 로드 (동시성 제한) ──
+                async loadAll() {
+                    const list = this.flows.slice();
+                    const CONC = 4;
+                    let idx = 0;
+                    const worker = async () => { while (idx < list.length) { const s = list[idx++]; await this.loadSlice(s); } };
+                    const workers = [];
+                    for (let i = 0; i < Math.min(CONC, list.length); i++) workers.push(worker());
+                    await Promise.all(workers);
+                },
+
+                async loadSlice(slice) {
+                    const start = this.inputToDate(this.startTime), end = this.inputToDate(this.endTime);
+                    if (end <= start) { slice.error = '종료 시각은 시작 시각보다 커야 합니다.'; slice.loading = false; return; }
+                    slice.loading = true; slice.error = null;
+                    try {
+                        const body = {
+                            flowName: slice.flowName, start: this.startTime, end: this.endTime,
+                            headCallId: slice.headCallId, tailCallId: slice.tailCallId,
+                            headSpecified: slice.userOverrodeHeadTail, tailSpecified: slice.userOverrodeHeadTail
+                        };
+                        const d = await this.apiPost('/api/call-test/load', body);
+                        this.applyLoadResult(slice, d);
+                    } catch (e) {
+                        if (e.message !== 'demo-blocked') slice.error = '데이터 로딩 실패: ' + e.message;
+                    } finally { slice.loading = false; }
+                },
+
+                applyLoadResult(slice, d) {
+                    slice.callLanesRaw = d.lanes || [];
+                    slice.chartStart = new Date(d.chartStart);
+                    slice.chartEnd = new Date(d.chartEnd);
+                    slice.chartStartIso = d.chartStart; slice.chartEndIso = d.chartEnd;
+                    slice.headCallId = d.headCallId || null;
+                    slice.tailCallId = d.tailCallId || null;
+                    slice.savedHeadCallId = slice.headCallId;   // 변경 감지 기준선
+                    slice.savedTailCallId = slice.tailCallId;
+                    slice.userOverrodeHeadTail = false;
+                    slice.projectHeadId = d.projectHeadCallId || null;
+                    slice.projectTailId = d.projectTailCallId || null;
+                    slice.cycleBoundaries = (d.cycleBoundaries || []).map(s => new Date(s));
+                    slice.tailEdges = (d.tailEdges || []).map(s => new Date(s));
+                    slice.avgCycleMs = d.avgCycleMs ?? null;
+                    slice.avgActiveMs = d.avgActiveMs ?? null;
+                    slice.isOverride = !!d.isOverride;
+                    slice.selectedRange = null;
+                    slice.callLanes = CG.sortLanes(slice.callLanesRaw, slice.chartSort);
+                    slice.topGaps = CG.topGapsOf(slice);
+                    if (slice.selectedGapIndex >= slice.topGaps.length) slice.selectedGapIndex = 0;
+                    slice.svgMarkup = CG.buildSvg(slice);
+                    this.$nextTick(() => { this.measurePlotWidth(slice); slice.svgMarkup = CG.buildSvg(slice); });
+                },
+
+                // ── 간트 지오메트리 / 줌 ──
+                areaEl(slice) { return document.getElementById('cta-' + slice.id); },
+                measurePlotWidth(slice) {
+                    const el = this.areaEl(slice);
+                    const avail = el ? el.clientWidth : 1100;
+                    slice.baseWidth = Math.max(MIN, Math.round(avail - LEFT_PAD - RIGHT_PAD - 4));
+                    slice.plotWidth = Math.max(MIN, Math.round(slice.baseWidth * slice.zoom));
+                },
+                rebuild(slice) { slice.svgMarkup = CG.buildSvg(slice); },
+                setView(slice, mode) { if (slice.viewMode === mode) return; slice.viewMode = mode; slice.svgMarkup = CG.buildSvg(slice); },
+                onSortChanged(slice) { slice.callLanes = CG.sortLanes(slice.callLanesRaw, slice.chartSort); slice.svgMarkup = CG.buildSvg(slice); },
+                toggleExpand(slice, callId) {
+                    slice.expandedCalls = { ...slice.expandedCalls, [callId]: !slice.expandedCalls[callId] };
+                    slice.svgMarkup = CG.buildSvg(slice);
+                },
+                onWheel(e, slice) {
+                    if (!slice.callLanes.length) return;
+                    const el = e.currentTarget; if (!el) return;
+                    e.preventDefault();
+                    const screenX = e.clientX - el.getBoundingClientRect().left;
+                    const factor = e.deltaY < 0 ? 1.25 : 1 / 1.25;
+                    this.applyZoom(slice, slice.zoom * factor, screenX, el);
+                },
+                zoomBy(slice, factor) {
+                    const el = this.areaEl(slice);
+                    if (!el || !slice.callLanes.length) return;
+                    this.applyZoom(slice, slice.zoom * factor, el.clientWidth / 2, el);
+                },
+                resetZoom(slice) {
+                    slice.zoom = 1; this.measurePlotWidth(slice); slice.svgMarkup = CG.buildSvg(slice);
+                    this.$nextTick(() => { const el = this.areaEl(slice); if (el) el.scrollLeft = 0; });
+                },
+                applyZoom(slice, targetZoom, anchorX, el) {
+                    el = el || this.areaEl(slice); if (!el) return;
+                    const newZoom = Math.min(MAX_ZOOM, Math.max(1, targetZoom));
+                    if (Math.abs(newZoom - slice.zoom) < 1e-6) return;
+                    const plotAreaX = Math.max(0, anchorX + el.scrollLeft - LEFT_PAD);
+                    const frac = slice.plotWidth > 0 ? Math.min(1, plotAreaX / slice.plotWidth) : 0;
+                    slice.zoom = newZoom;
+                    slice.plotWidth = Math.max(MIN, Math.round(slice.baseWidth * slice.zoom));
+                    slice.svgMarkup = CG.buildSvg(slice);
+                    this.$nextTick(() => { el.scrollLeft = frac * slice.plotWidth + LEFT_PAD - anchorX; });
+                },
+                focusMaxGap(slice) {
+                    if (!slice.topGaps.length) return;
+                    slice.showMaxGap = true; slice.selectedGapIndex = 0;
+                    slice.svgMarkup = CG.buildSvg(slice);
+                    this.$nextTick(() => {
+                        const area = this.areaEl(slice), g = slice.topGaps[0];
+                        if (!area || !slice._geo || !g) return;
+                        const midX = LEFT_PAD + ((g.startMs + g.endMs) / 2 - slice._geo.cs) * slice._geo.xScale;
+                        const target = Math.max(0, midX - area.clientWidth / 2);
+                        try { area.scrollTo({ left: target, behavior: 'smooth' }); } catch (_) { area.scrollLeft = target; }
+                    });
+                },
+
+                // ── Head/Tail 토글 (스테이징 — 저장은 일괄 적용에서) ──
+                toggleHead(slice, callId) {
+                    if (slice.headCallId === callId) return;
+                    if (slice.tailCallId === callId) slice.tailCallId = slice.headCallId;
+                    slice.headCallId = callId;
+                    slice.userOverrodeHeadTail = true;
+                    this.resolveOverlays(slice);
+                },
+                toggleTail(slice, callId) {
+                    if (slice.tailCallId === callId) return;
+                    if (slice.headCallId === callId) slice.headCallId = slice.tailCallId;
+                    slice.tailCallId = callId;
+                    slice.userOverrodeHeadTail = true;
+                    this.resolveOverlays(slice);
+                },
+                restoreToAasx(slice) {
+                    if (!slice.projectHeadId || !slice.projectTailId) return;
+                    slice.headCallId = slice.projectHeadId;
+                    slice.tailCallId = slice.projectTailId;
+                    slice.userOverrodeHeadTail = true;
+                    this.resolveOverlays(slice);
+                },
+                async resolveOverlays(slice) {
+                    if (!slice.flowName) return;
+                    slice.overlayBusy = true;
+                    try {
+                        const headLane = slice.headCallId ? slice.callLanes.find(l => l.callId === slice.headCallId) : null;
+                        const tailLane = slice.tailCallId ? slice.callLanes.find(l => l.callId === slice.tailCallId) : null;
+                        const body = {
+                            flowName: slice.flowName, start: this.startTime, end: this.endTime,
+                            headCallId: slice.headCallId, tailCallId: slice.tailCallId,
+                            headStartTag: headLane ? headLane.outTag : null,
+                            tailFinishTag: tailLane ? tailLane.inTag : null
+                        };
+                        const d = await this.apiPost('/api/call-test/resolve-overlays', body);
+                        slice.cycleBoundaries = (d.cycleBoundaries || []).map(s => new Date(s));
+                        slice.tailEdges = (d.tailEdges || []).map(s => new Date(s));
+                        slice.avgCycleMs = d.avgCycleMs ?? null;
+                        slice.avgActiveMs = d.avgActiveMs ?? null;
+                        slice.topGaps = CG.topGapsOf(slice);
+                        slice.svgMarkup = CG.buildSvg(slice);
+                    } catch (e) {
+                        if (e.message !== 'demo-blocked') slice.error = '오버레이 갱신 실패: ' + e.message;
+                    } finally { slice.overlayBusy = false; }
+                },
+
+                // ── 변경 감지 (템플릿 바인딩) ──
+                callNameOf(slice, id) { const l = id ? slice.callLanes.find(x => x.callId === id) : null; return l ? l.callName : null; },
+                headName(slice) { return this.callNameOf(slice, slice.headCallId); },
+                tailName(slice) { return this.callNameOf(slice, slice.tailCallId); },
+                headTailChanged(slice) {
+                    return slice.headCallId !== slice.savedHeadCallId || slice.tailCallId !== slice.savedTailCallId;
+                },
+                durCount(slice) { return CG.collectAllDurationChanges(slice).length; },
+
+                // ── 이상치 범위 (스테이징, 초 단위) ──
+                rangeFieldSec(slice, field) {
+                    const v = field === 'min' ? slice.rangeForm.min : slice.rangeForm.max;
+                    const unit = field === 'min' ? slice.rangeForm.minUnit : slice.rangeForm.maxUnit;
+                    const n = parseFloat(v), mult = _unitSec[unit] || 1;
+                    return (v !== '' && v != null && isFinite(n) && n >= 0) ? Math.round(n * mult * 1000) / 1000 : null;
+                },
+                stagedRangeSec(slice) {
+                    let min = this.rangeFieldSec(slice, 'min'), max = this.rangeFieldSec(slice, 'max');
+                    if (min != null && max != null && min > max) { const t = min; min = max; max = t; }
+                    return { min, max };
+                },
+                exRangeMs(slice) {
+                    const r = this.stagedRangeSec(slice);
+                    if (r.min == null && r.max == null) return null;
+                    return { min: r.min != null ? r.min * 1000 : null, max: r.max != null ? r.max * 1000 : null };
+                },
+                outlierChanged(slice) {
+                    const st = this.stagedRangeSec(slice);
+                    const sv = slice.savedRange || { min: null, max: null };
+                    return (st.min ?? null) !== (sv.min ?? null) || (st.max ?? null) !== (sv.max ?? null);
+                },
+                changeUnit(slice, field, u) {
+                    const cur = field === 'min' ? slice.rangeForm.minUnit : slice.rangeForm.maxUnit;
+                    if (u === cur) return;
+                    const from = _unitSec[cur] || 1, to = _unitSec[u] || 1;
+                    const v = field === 'min' ? slice.rangeForm.min : slice.rangeForm.max;
+                    const n = parseFloat(v);
+                    const conv = (v === '' || v == null || !isFinite(n)) ? v : String(Math.round((n * from / to) * 1000) / 1000);
+                    if (field === 'min') { slice.rangeForm.min = conv; slice.rangeForm.minUnit = u; }
+                    else { slice.rangeForm.max = conv; slice.rangeForm.maxUnit = u; }
+                },
+                resetRange(slice) { slice.rangeForm.min = ''; slice.rangeForm.max = ''; },
+
+                // ── 사이클 목록 / 포맷 래퍼 ──
+                visibleCycles(slice) { return CG.visibleCycleRows(slice, this.exRangeMs(slice), this.excludeIncomplete); },
+                excludedCount(slice) { return CG.excludedCycleCount(slice, this.exRangeMs(slice)); },
+                laneRows(slice) { return CG.laneRows(slice); },
+                rowClass(slice, row) { return CG.rowClass(slice, row); },
+                hasApiCalls(lane) { return CG.hasApiCalls(lane); },
+                ratioCls(r) { return CG.ratioCls(r); },
+                fmtMs(ms) { return CG.formatMs(ms); },
+                fmtAasx(ms) { return CG.fmtAasx(ms); },
+                hms(d) { return CG.hms(d); },
+                hms2k(d) { return d.getHours() + '시 ' + d.getMinutes() + '분 ' + d.getSeconds() + '초'; },
+                canApplyApi(lane, ac) { return CG.canApplyApi(lane, ac); },
+
+                // ── 드래그 구간 선택 (flow.html:1841-1903 동일 — e.currentTarget 로 $refs 대체) ──
+                onDragStart(e, slice) {
+                    if (e.button !== 0 || !slice.callLanes.length) return;
+                    const area = e.currentTarget;
+                    const svg = area && area.querySelector('svg');
+                    if (!svg || !slice._geo) return;
+                    const rectOf = () => svg.getBoundingClientRect();
+                    const layout = CG.laneLayout(slice);
+                    const laneTop = CG.TOP_MARGIN + (slice.cycleBoundaries.length ? CG.RIBBON_H : 0);
+                    const laneAreaH = layout.totalH;
+                    const laneBottom = laneTop + laneAreaH;
+                    const r0 = rectOf();
+                    const x0 = e.clientX - r0.left, y0 = e.clientY - r0.top;
+                    if (x0 < LEFT_PAD || x0 > LEFT_PAD + slice.plotWidth || y0 < laneTop - 8 || y0 > laneBottom + 8) return;
+                    e.preventDefault();
+                    const { cs, xScale } = slice._geo;
+                    const edgePx = [];
+                    for (const lane of slice.callLanes) {
+                        for (const arr of [lane.intervals, lane.outIntervals, lane.inIntervals]) {
+                            for (const iv of (arr || [])) {
+                                edgePx.push(LEFT_PAD + (new Date(iv.start).getTime() - cs) * xScale);
+                                edgePx.push(LEFT_PAD + (new Date(iv.end).getTime() - cs) * xScale);
+                            }
+                        }
+                    }
+                    for (const b of (slice.cycleBoundaries || [])) edgePx.push(LEFT_PAD + (b.getTime() - cs) * xScale);
+                    const SNAP_PX = 10;
+                    const clampX = (x) => Math.max(LEFT_PAD, Math.min(LEFT_PAD + slice.plotWidth, x));
+                    const snapCurX = (x) => {
+                        let best = x, bestDist = SNAP_PX;
+                        for (const ex of edgePx) { const d = Math.abs(ex - x); if (d < bestDist) { bestDist = d; best = ex; } }
+                        return best;
+                    };
+                    const sx = clampX(snapCurX(x0));
+                    const startMs = cs + (sx - LEFT_PAD) / xScale;
+                    const ns = 'http://www.w3.org/2000/svg';
+                    const live = document.createElementNS(ns, 'rect');
+                    live.setAttribute('x', CG.f(sx)); live.setAttribute('width', '0');
+                    live.setAttribute('y', String(laneTop)); live.setAttribute('height', String(laneAreaH));
+                    live.setAttribute('fill', 'rgba(126,87,194,0.16)');
+                    live.setAttribute('stroke', '#7e57c2'); live.setAttribute('stroke-dasharray', '4 3');
+                    live.setAttribute('pointer-events', 'none');
+                    svg.appendChild(live);
+                    let moved = false;
+                    const onMove = (ev) => {
+                        const cur = clampX(snapCurX(ev.clientX - rectOf().left));
+                        const x = Math.min(sx, cur), w = Math.abs(cur - sx);
+                        live.setAttribute('x', CG.f(x)); live.setAttribute('width', CG.f(w));
+                        if (w > 3) moved = true;
+                    };
+                    const onUp = (ev) => {
+                        document.removeEventListener('mousemove', onMove, true);
+                        document.removeEventListener('mouseup', onUp, true);
+                        if (live.parentNode) live.parentNode.removeChild(live);
+                        slice._drag = null;
+                        if (!moved) { if (slice.selectedRange) this.clearRangeSelection(slice); return; }
+                        const cur = clampX(snapCurX(ev.clientX - rectOf().left));
+                        const endMs = cs + (cur - LEFT_PAD) / xScale;
+                        slice.selectedRange = { startMs: Math.min(startMs, endMs), endMs: Math.max(startMs, endMs) };
+                        slice.svgMarkup = CG.buildSvg(slice);
+                    };
+                    slice._drag = { onMove, onUp };
+                    document.addEventListener('mousemove', onMove, true);
+                    document.addEventListener('mouseup', onUp, true);
+                },
+                clearRangeSelection(slice) { slice.selectedRange = null; slice.svgMarkup = CG.buildSvg(slice); },
+                async applyRangeAsPeriod(slice) {
+                    const r = slice.selectedRange; if (!r) return;
+                    const s = new Date(r.startMs), e = new Date(r.endMs);
+                    if (e <= s) return;
+                    this.startTime = this.dateToInput(s);
+                    this.endTime = this.dateToInput(e);
+                    for (const fl of this.flows) fl.selectedRange = null;
+                    await this.loadAll();
+                },
+                selRangeLenMs(slice) { return slice.selectedRange ? Math.max(0, slice.selectedRange.endMs - slice.selectedRange.startMs) : 0; },
+                selRunMs(slice) {
+                    const r = slice.selectedRange; if (!r) return 0;
+                    let sum = 0;
+                    for (const lane of slice.callLanes) for (const iv of (lane.intervals || [])) {
+                        const sv = new Date(iv.start).getTime(), ev = new Date(iv.end).getTime();
+                        const lo = Math.max(sv, r.startMs), hi = Math.min(ev, r.endMs);
+                        if (hi > lo) sum += (hi - lo);
+                    }
+                    return sum;
+                },
+                selGapMs(slice) {
+                    const r = slice.selectedRange; if (!r) return 0;
+                    let sum = 0;
+                    for (const g of CG.computeAllGaps(slice)) {
+                        const lo = Math.max(g.startMs, r.startMs), hi = Math.min(g.endMs, r.endMs);
+                        if (hi > lo) sum += (hi - lo);
+                    }
+                    return sum;
+                },
+                selActiveDevices(slice) {
+                    const r = slice.selectedRange; if (!r) return 0;
+                    const set = new Set();
+                    for (const lane of slice.callLanes) {
+                        for (const iv of (lane.intervals || [])) {
+                            const sv = new Date(iv.start).getTime(), ev = new Date(iv.end).getTime();
+                            if (Math.min(ev, r.endMs) > Math.max(sv, r.startMs)) { set.add(lane.callId); break; }
+                        }
+                    }
+                    return set.size;
+                },
+
+                // ── 사이클 기준 프리셋 (flow.html:1509-1540 동일 — 첫 번째 Flow 히스토리로 역산) ──
+                async setRecentCycles(n) {
+                    const target = this.flows[0];
+                    if (!target) return;
+                    const name = target.flowName;
+                    let rows = histCache[name];
+                    if (!Array.isArray(rows) || rows.length < n + 1) {
+                        try {
+                            rows = await this.apiGet('/api/dashboard/flows/' + encodeURIComponent(name) + '/history?limit=' + Math.max(n + 1, 50));
+                            histCache[name] = rows;
+                        } catch (e) { return; }
+                    }
+                    rows = Array.isArray(rows) ? rows : [];
+                    if (!rows.length) return;
+                    const end = await this.effectiveLatest();
+                    let startDate;
+                    if (rows.length > n) {
+                        startDate = new Date(rows[n].recordedAt);
+                    } else {
+                        const oldest = rows[rows.length - 1];
+                        const ctMs = (oldest && oldest.ct) ? oldest.ct : 5000;
+                        startDate = new Date(new Date(oldest.recordedAt).getTime() - ctMs - 2000);
+                    }
+                    this.endTime = this.dateToInput(end);
+                    this.startTime = this.dateToInput(startDate);
+                    await this.loadAll();
+                },
+
+                // ── 실측 → AASX duration 즉시 적용 (개별 행 버튼 — 일괄 적용과 별도) ──
+                async applyApiCallDuration(slice, row) {
+                    const ch = CG.buildDurationChange(row.lane, row.ac);
+                    if (!ch) return;
+                    await this._applyDurations(slice, [ch], `'${row.ac.name}' 실측 duration 을 AASX 에 적용`);
+                },
+                async _applyDurations(slice, changes, label) {
+                    if (!changes.length) return;
+                    if (!window.confirm(label + '합니다.\n\n공유 project.aasx 의 Device Work(Duration/Min/Max)를 덮어씁니다 — Promaker 와 공유되는 파일입니다. 계속할까요?')) return;
+                    slice.applyDurBusy = true; slice.applyDurMsg = 'AASX 적용 중…'; slice.error = null;
+                    try {
+                        const r = await this.apiPost('/api/call-test/apply-durations', { changes });
+                        slice.applyDurMsg = 'AASX 적용 완료 (' + (r != null ? r.applied ?? 0 : 0) + '건)';
+                        await this.loadSlice(slice);   // '현재 AASX' 값 재조회
+                        setTimeout(() => { slice.applyDurMsg = ''; }, 5000);
+                    } catch (e) {
+                        if (e.message !== 'demo-blocked') slice.error = '실측 적용 실패: ' + e.message;
+                        slice.applyDurMsg = '';
+                    } finally { slice.applyDurBusy = false; }
+                },
+
+                // ── 변경 요약 (일괄 적용 바) ──
+                get pendingHt() { return this.flows.filter(s => this.headTailChanged(s) && s.headCallId && s.tailCallId).length; },
+                get pendingOutlier() { return this.flows.filter(s => this.outlierChanged(s)).length; },
+                get pendingDur() { return this.flows.filter(s => s.stageDurations && this.durCount(s) > 0).length; },
+                get hasPending() { return (this.pendingHt + this.pendingOutlier + this.pendingDur) > 0; },
+
+                resetAllStaged() {
+                    if (!confirm('적용하지 않은 모든 변경을 되돌립니다. 계속할까요?')) return;
+                    for (const s of this.flows) {
+                        s.stageDurations = false;
+                        this.initRangeFromSaved(s);
+                        if (this.headTailChanged(s)) { s.headCallId = s.savedHeadCallId; s.tailCallId = s.savedTailCallId; s.userOverrodeHeadTail = false; this.resolveOverlays(s); }
+                    }
+                },
+
+                // ── 일괄 적용 (순차) ──
+                async saveAll() {
+                    if (this.saving) return;
+                    const htFlows = this.flows.filter(s => this.headTailChanged(s) && s.headCallId && s.tailCallId);
+                    const outFlows = this.flows.filter(s => this.outlierChanged(s));
+                    const durChanges = [];
+                    const durFlows = [];
+                    for (const s of this.flows) {
+                        if (s.stageDurations) { const ch = CG.collectAllDurationChanges(s); if (ch.length) { durChanges.push(...ch); durFlows.push(s); } }
+                    }
+                    if (!htFlows.length && !outFlows.length && !durChanges.length) {
+                        this.saveMsg = '변경된 내용이 없습니다.'; this.saveError = false;
+                        setTimeout(() => { this.saveMsg = ''; }, 3000); return;
+                    }
+                    // AASX 공유 파일을 덮어쓰는 작업(Head/Tail · 실측)은 확인 후 진행.
+                    if ((htFlows.length || durChanges.length) &&
+                        !confirm('일괄 적용:\n· Head/Tail ' + htFlows.length + '개 (과거 이력 재계산 동반)\n· 실측 duration ' + durChanges.length + '건\n\n공유 project.aasx 를 덮어씁니다 — Promaker 와 공유되는 파일입니다. 계속할까요?')) return;
+
+                    this.saving = true; this.saveError = false; this.saveMsg = '';
+                    try {
+                        // 1) 이상치 (가벼움 · 재계산 없음)
+                        if (outFlows.length) {
+                            this.saveMsg = '이상치 범위 저장 중…';
+                            for (const s of outFlows) { const r = this.stagedRangeSec(s); await this.saveExclusion(s.flowName, r.min, r.max); }
+                        }
+                        // 2) 실측 duration (전 Flow 병합 1회 POST → 단일 AASX export)
+                        if (durChanges.length) {
+                            this.saveMsg = '실측 duration 적용 중… (' + durChanges.length + '건)';
+                            await this.apiPost('/api/call-test/apply-durations', { changes: durChanges });
+                        }
+                        // 3) Head/Tail — 단일잡 재계산이라 변경된 Flow 를 순차 저장·폴링
+                        for (let i = 0; i < htFlows.length; i++) {
+                            const s = htFlows[i];
+                            const headName = this.callNameOf(s, s.headCallId), tailName = this.callNameOf(s, s.tailCallId);
+                            this.saveMsg = '[' + (i + 1) + '/' + htFlows.length + '] ' + s.flowName + ' 경계 저장…';
+                            await this.apiPost('/api/flow/' + encodeURIComponent(s.flowName) + '/cycle-override', { startCallName: headName, endCallName: tailName });
+                            await this.pollRecompute(s.flowName, i + 1, htFlows.length);
+                        }
+                        // 4) 영향받은 Flow 재로드 + 이상치 동기화
+                        this.saveMsg = '새로고침 중…';
+                        await this.loadExclusions();
+                        const affected = new Set();
+                        htFlows.forEach(s => affected.add(s));
+                        outFlows.forEach(s => affected.add(s));
+                        durFlows.forEach(s => affected.add(s));
+                        for (const s of affected) { s.stageDurations = false; await this.loadSlice(s); }
+                        this.saveMsg = '일괄 적용 완료'; this.saveError = false;
+                        setTimeout(() => { if (!this.saving) this.saveMsg = ''; }, 6000);
+                    } catch (e) {
+                        this.saveError = true;
+                        this.saveMsg = (e.message === 'demo-blocked') ? '데모 만료로 적용이 차단되었습니다.' : ('일괄 적용 실패: ' + e.message);
+                    } finally { this.saving = false; }
+                },
+
+                async pollRecompute(flow, idx, total) {
+                    let sawRunning = false;
+                    for (let i = 0; i < 600; i++) {
+                        let st = null;
+                        try { const r = await fetch('/api/flow/recompute-status'); if (r.ok) st = await r.json(); } catch (_) {}
+                        if (st && st.flow === flow) {
+                            if (st.running) {
+                                sawRunning = true;
+                                this.saveMsg = '[' + idx + '/' + total + '] ' + flow + ' 재계산 중… (' + (st.phase || '') + (st.cyclesFound ? ', ' + st.cyclesFound + ' 사이클' : '') + ')';
+                            } else if (st.done && (sawRunning || i === 0)) {
+                                break;
+                            }
+                        } else if (st && st.running) {
+                            this.saveMsg = '[' + idx + '/' + total + '] 다른 작업 대기 중…';
+                        }
+                        await new Promise(r => setTimeout(r, 500));
+                    }
+                },
+
+                // ── 이상치 서버 공유 ──
+                initRangeFromSaved(slice) {
+                    slice.rangeForm.minUnit = 's'; slice.rangeForm.maxUnit = 's';
+                    slice.rangeForm.min = (slice.savedRange && slice.savedRange.min != null) ? String(slice.savedRange.min) : '';
+                    slice.rangeForm.max = (slice.savedRange && slice.savedRange.max != null) ? String(slice.savedRange.max) : '';
+                },
+                async loadExclusions() {
+                    try {
+                        const rows = await this.apiGet('/api/dashboard/exclusions');
+                        const map = {};
+                        for (const r of (rows || [])) { if (r && r.flowName) map[r.flowName] = { min: r.minSec ?? null, max: r.maxSec ?? null }; }
+                        for (const s of this.flows) {
+                            const had = !!s.savedRange;
+                            s.savedRange = map[s.flowName] || null;
+                            // 사용자가 아직 안 건드린 폼만 초기값 동기화 (이미 스테이징한 편집은 보존)
+                            if (!this.outlierChanged(s) || !had) this.initRangeFromSaved(s);
+                        }
+                    } catch (e) { /* 미수신 시 기존값 유지 */ }
+                },
+                async saveExclusion(flowName, minSec, maxSec) {
+                    const res = await fetch('/api/dashboard/exclusions', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                        body: JSON.stringify({ flowName, minSec, maxSec })
+                    });
+                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                },
+
+                onExcludeIncompleteChanged() { localStorage.setItem('dspilot-flow-exclude-incomplete', this.excludeIncomplete ? '1' : '0'); },
+
+                // ── 시간범위 컨트롤 ──
+                onTimeChanged() {
+                    clearTimeout(this._timer);
+                    this._timer = setTimeout(() => {
+                        if (this.inputToDate(this.endTime) <= this.inputToDate(this.startTime)) return;
+                        this.loadAll();
+                    }, 350);
+                },
+                async setRecentMinutes(min) {
+                    const end = await this.effectiveLatest();
+                    this.endTime = this.dateToInput(end);
+                    this.startTime = this.dateToInput(new Date(end.getTime() - min * 60000));
+                    await this.loadAll();
+                },
+                async setRecentHours(h) {
+                    const end = await this.effectiveLatest();
+                    this.endTime = this.dateToInput(end);
+                    this.startTime = this.dateToInput(new Date(end.getTime() - h * 3600000));
+                    await this.loadAll();
+                },
+                async effectiveLatest() {
+                    try { const t = await this.apiGet('/api/call-test/latest-time'); return this.inputToDate(this.toInputValue(t.end)); }
+                    catch (e) { return new Date(); }
+                },
+
+                toInputValue(iso) { return iso ? iso.slice(0, 19) : ''; },
+                dateToInput(d) {
+                    const p = (x) => String(x).padStart(2, '0');
+                    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+                },
+                inputToDate(v) {
+                    if (!v) return new Date();
+                    const m = v.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/);
+                    if (!m) return new Date(v);
+                    return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], m[6] ? +m[6] : 0);
+                },
+
+                // ── 실시간 (이상치 동기화 + DB 재빌드) ──
+                connectSignalR() {
+                    if (!window.signalR) return;
+                    const conn = new signalR.HubConnectionBuilder().withUrl('/hubs/monitoring').withAutomaticReconnect([0, 0, 1000, 3000, 5000, 10000]).build();
+                    conn.on('ExclusionsChanged', () => { this.loadExclusions(); });
+                    conn.on('DatabaseRebuilt', () => { this.loadAll(); });
+                    conn.on('FlowHistoryCleared', () => { this.loadAll(); });
+                    conn.onreconnected(() => { this.rt.connected = true; });
+                    conn.onreconnecting(() => { this.rt.connected = false; });
+                    conn.onclose(() => { this.rt.connected = false; });
+                    conn.start().then(() => { this.rt.connected = true; }).catch(() => { this.rt.connected = false; });
+                    this._conn = conn;
+                }
+            };
+        }
+    </script>
+    <script src="/app/shell.js" defer></script>
+    <script defer src="/lib/alpine.min.js"></script>
+</body>
+
+</html>

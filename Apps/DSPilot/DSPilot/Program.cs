@@ -109,6 +109,10 @@ builder.Services.AddSingleton<DatabaseLifecycleService>();
 // 의존 서비스가 전부 싱글톤이라 백그라운드(전체-이력) 잡도 안전.
 builder.Services.AddSingleton<CycleRecomputeService>();
 
+// 주기적 자동 재계산 — 라이브 기록기가 놓친 tail 완료로 부풀려진 WT 를 원시 엣지에서 self-heal.
+// 간격은 HistoryView.AutoRecomputeIntervalMinutes(0=비활성).
+builder.Services.AddHostedService<PeriodicCycleRecomputeService>();
+
 // 공유 AASX 파일 감시 — 콘텐츠(SHA256) 변경 시 UI 알림.
 //   - 미로드 상태(초기 설치)에서 첫 AASX 감지 시 자동 DB 재구축
 //   - 이후 변경은 알림만, 사용자가 Settings 에서 수동 재구축
@@ -260,6 +264,7 @@ var canonicalStaticRoutes = new Dictionary<string, string>(StringComparer.Ordina
     ["/plc-debug"] = "plc-debug.html",
     ["/settings"] = "settings.html",
     ["/flow"] = "flow.html",
+    ["/flow-all"] = "flow-all.html",
     ["/pw"] = "pw.html",
 };
 app.Use(async (context, next) =>

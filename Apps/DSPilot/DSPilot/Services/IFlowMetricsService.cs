@@ -34,6 +34,11 @@ public interface IFlowMetricsService
     (string? HeadCallName, string? TailCallName) GetCycleBoundaryCallNames(string flowName);
 
     /// <summary>
+    /// 사이클 경계가 설정되어 추적 중인 Flow 이름 목록 (주기적 자동 재계산 대상 열거용).
+    /// </summary>
+    IReadOnlyCollection<string> GetTrackedFlowNames();
+
+    /// <summary>
     /// Call Going 시작 이벤트 처리
     /// </summary>
     void OnCallGoingStarted(string flowName, string callName, DateTime timestamp);

@@ -22,6 +22,7 @@ public class CallTestController : ControllerBase
     private readonly CycleAnalysisService _cycleAnalysis;
     private readonly IFlowMetricsService _flowMetrics;
     private readonly AppSettingsService _settings;
+    private readonly DsProjectService _project;
     private readonly ILogger<CallTestController> _logger;
 
     public CallTestController(
@@ -30,6 +31,7 @@ public class CallTestController : ControllerBase
         CycleAnalysisService cycleAnalysis,
         IFlowMetricsService flowMetrics,
         AppSettingsService settings,
+        DsProjectService project,
         ILogger<CallTestController> logger)
     {
         _callMapper = callMapper;
@@ -37,6 +39,7 @@ public class CallTestController : ControllerBase
         _cycleAnalysis = cycleAnalysis;
         _flowMetrics = flowMetrics;
         _settings = settings;
+        _project = project;
         _logger = logger;
     }
 
@@ -129,7 +132,8 @@ public class CallTestController : ControllerBase
                     tags?.InTag,
                     tags?.OutTag,
                     outIntervals.Select(iv => new CtIntervalDto(IsoLocal(iv.Start), IsoLocal(iv.End))).ToList(),
-                    inIntervals.Select(iv => new CtIntervalDto(IsoLocal(iv.Start), IsoLocal(iv.End))).ToList());
+                    inIntervals.Select(iv => new CtIntervalDto(IsoLocal(iv.Start), IsoLocal(iv.End))).ToList(),
+                    ResolveApiCalls(first.CallId));
             })
             .OrderBy(l => l.LaneIndex)
             .ToList();
@@ -143,7 +147,8 @@ public class CallTestController : ControllerBase
         {
             lanes.Add(new CtLaneDto(c.CallId.ToString(), c.CallName, c.WorkName, nextLane++,
                 new List<CtIntervalDto>(), c.InTag, c.OutTag,
-                new List<CtIntervalDto>(), new List<CtIntervalDto>()));
+                new List<CtIntervalDto>(), new List<CtIntervalDto>(),
+                ResolveApiCalls(c.CallId)));
         }
 
         // 유효(override 적용) Head/Tail — override 안 했을 때 적용할 기본값. 저장된 사용자 지정이 있으면
@@ -259,6 +264,50 @@ public class CallTestController : ControllerBase
             stats.AvgCycleMs,
             stats.AvgActiveMs);
     }
+
+    /// <summary>
+    /// 실측 duration(평균/min/max)을 ApiCall 의 대상 Device Work 에 기록하고 공유 project.aasx 재export.
+    /// flow.html Call lane 확장 행의 '적용'(행별) / 액션바의 '실측 적용'(전체). 매핑은 평균→Duration,
+    /// min→MinDuration, max→MaxDuration (DsProjectService 에서 min ≤ Duration ≤ max 로 정규화). antiforgery 미적용 POST.
+    /// </summary>
+    [HttpPost("apply-durations")]
+    public ActionResult<CtApplyDurationsResult> ApplyDurations([FromBody] CtApplyDurationsRequest req)
+    {
+        if (req?.Changes is null || req.Changes.Count == 0)
+            return BadRequest("changes is required");
+
+        var parsed = new List<(Guid, int?, int?, int?)>();
+        foreach (var ch in req.Changes)
+        {
+            if (Guid.TryParse(ch.WorkId, out var wid))
+                parsed.Add((wid, ch.DurationMs, ch.MinMs, ch.MaxMs));
+        }
+        if (parsed.Count == 0)
+            return BadRequest("유효한 workId 가 없습니다.");
+
+        var (applied, exported) = _project.WriteWorkDurationCalibrationAndExport(parsed);
+        if (!exported)
+            return StatusCode(500, new { message = "AASX 저장 실패 (프로젝트 미로드 또는 export 오류)." });
+
+        return new CtApplyDurationsResult(applied, true);
+    }
+
+    /// <summary>
+    /// Call lane 확장용 — 이 Call 에 소속된 ApiCall(들) + 보정 대상 Device Work 의 현재 AASX duration(ms).
+    /// 읽기 전용(store 불변). 현재 PoC 는 1:1 이라 보통 1개. 미로드/미해석 시 빈 리스트.
+    /// </summary>
+    private List<CtApiCallDto> ResolveApiCalls(Guid callId)
+        => _project.GetCallApiCallDetails(callId)
+            .Select(d => new CtApiCallDto(
+                d.ApiCallId.ToString(),
+                d.Name,
+                d.InTag,
+                d.OutTag,
+                d.TargetWorkId?.ToString(),
+                d.CurrentDurationMs,
+                d.CurrentMinMs,
+                d.CurrentMaxMs))
+            .ToList();
 
     // ── helpers (Blazor @code 1:1 이식) ───────────────────────────────────────
 
@@ -462,7 +511,31 @@ public record CtLaneDto(
     string? OutTag,
     // 태그별 ON 구간 (Call 막대 안 라인 그래프용). OutTag=명령(시작), InTag=응답(완료).
     List<CtIntervalDto> OutIntervals,
-    List<CtIntervalDto> InIntervals);
+    List<CtIntervalDto> InIntervals,
+    // 이 Call 에 소속된 ApiCall 들 — lane 행 확장 시 표시(소속 ApiCall + 보정 대상 Work 현재값).
+    List<CtApiCallDto> ApiCalls);
+
+/// <summary>
+/// Call lane 확장 행 1개 = ApiCall 하나. inTag/outTag 는 이 ApiCall 자신의 태그(1:1 이면 lane 과 동일).
+/// current* = 보정 대상 Device Work(RxGuid)의 현재 AASX Duration/Min/MaxDuration(ms, 없으면 null) — 실측치와 대비용.
+/// </summary>
+public record CtApiCallDto(
+    string ApiCallId,
+    string Name,
+    string? InTag,
+    string? OutTag,
+    string? TargetWorkId,
+    int? CurrentDurationMs,
+    int? CurrentMinMs,
+    int? CurrentMaxMs);
+
+// ── 실측 duration → AASX 적용 ───────────────────────────────────────────────
+public record CtApplyDurationsRequest(List<CtDurationChange> Changes);
+
+/// <summary>대상 Device Work 에 기록할 한 건 — 평균→Duration, min→MinDuration, max→MaxDuration (ms, null 은 제거).</summary>
+public record CtDurationChange(string WorkId, int? DurationMs, int? MinMs, int? MaxMs);
+
+public record CtApplyDurationsResult(int Applied, bool Ok);
 
 public record CtLoadDto(
     string FlowName,
