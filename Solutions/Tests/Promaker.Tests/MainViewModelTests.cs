@@ -120,6 +120,9 @@ public sealed class MainViewModelTests
                 SetAutoProperty(projectDialog, "ResultAuthor", "TestAuthor");
                 SetAutoProperty(projectDialog, "ResultDateTime", DateTimeOffset.Now);
                 SetAutoProperty(projectDialog, "ResultVersion", "1.0.0");
+                // #192: IriPrefix / SplitDeviceAasx / PresetSystemTypes 는 ProjectPropertiesDialog 에서
+                // ApplicationSettingsDialog 로 이관됨 — 더 이상 이 다이얼로그의 속성이 아니므로 설정하지 않는다
+                // (설정 시 backing field 부재로 SetAutoProperty 에서 NullReferenceException).
 
                 return true;
             }));

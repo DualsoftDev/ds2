@@ -146,6 +146,24 @@
         .ct-tag-btn:disabled { opacity: 0.45; cursor: not-allowed; }
         .ct-tag-btn.head.active { background: #4caf50; color: #fff; border-color: #2e7d32; }
         .ct-tag-btn.tail.active { background: #ab47bc; color: #fff; border-color: #7b1fa2; }
+        /* Call lane 확장 — chevron + ApiCall 서브행 (실측 vs 현재 AASX) */
+        .ct-expand-btn { flex: 0 0 auto; width: 16px; height: 16px; margin-right: 2px; border: none; background: transparent; cursor: pointer; color: var(--color-text-secondary); font-size: 0.7rem; line-height: 1; padding: 0; display: flex; align-items: center; justify-content: center; }
+        .ct-expand-btn:hover:not(:disabled) { color: var(--color-primary); }
+        .ct-expand-btn:disabled { opacity: 0.3; cursor: default; }
+        .ct-api-row { display: flex; align-items: center; padding: 0 10px 0 26px; gap: 8px; border-bottom: 1px solid var(--color-lines); background: color-mix(in srgb, var(--color-text-secondary) 6%, var(--color-surface)); }
+        .ct-api-block { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: row; align-items: center; gap: 8px; }
+        .ct-api-info { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: column; gap: 3px; }
+        .ct-api-apply { flex: 0 0 auto; align-self: center; font-size: 0.62rem; font-weight: 800; padding: 3px 9px; border-radius: var(--radius-sm); border: 1px solid var(--color-primary); background: transparent; color: var(--color-primary); cursor: pointer; transition: background-color 0.12s, color 0.12s; }
+        .ct-api-apply:hover:not(:disabled) { background: var(--color-primary); color: #fff; }
+        .ct-api-apply:disabled { opacity: 0.5; cursor: not-allowed; }
+        .ct-api-name { font-size: 0.72rem; font-weight: 700; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; }
+        .ct-api-dot { width: 6px; height: 6px; border-radius: 50%; background: #607d8b; flex: 0 0 auto; }
+        .ct-api-tags { font-size: 0.58rem; font-weight: 500; color: var(--color-text-secondary); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; }
+        .ct-api-stats { display: flex; flex-direction: column; gap: 1px; font-size: 0.64rem; color: var(--color-text-secondary); white-space: nowrap; }
+        .ct-api-meas b { color: #1565c0; font-weight: 700; }
+        .ct-api-nodata { font-style: italic; opacity: 0.75; }
+        .ct-api-cur b { color: var(--color-text-primary); font-weight: 700; }
+        .dark-theme .ct-api-meas b { color: #64b5f6; }
         .ct-gantt-chart-area { flex: 1; overflow: auto; background: var(--color-surface); overscroll-behavior-x: contain; }
         .ct-gantt-wrapper { display: inline-block; }
 
@@ -240,8 +258,6 @@
 
         /* 이상치 제외 범위 모달 */
         .shift-modal { width: min(520px, 94vw); padding: 0; }
-        /* 선택 구간(드래그) 통계 다이얼로그 — 4-KPI 그리드 수용 위해 더 넓게 */
-        .range-modal { width: min(680px, 94vw); }
         .shift-modal .sm-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px 14px; border-bottom: 1px solid var(--color-lines); }
         .shift-modal .sm-title { font-size: 1.05rem; font-weight: 800; letter-spacing: -0.01em; }
         .shift-modal .sm-body { padding: 18px 22px 4px; }
@@ -613,6 +629,13 @@
                                             <span class="ct-action-spacer"></span>
                                             <span x-show="recomputeBusy || recomputeMsg" class="ct-recompute"
                                                   :class="recomputeError ? 'is-err' : ''" x-text="recomputeMsg"></span>
+                                            <span x-show="applyDurMsg" class="ct-recompute" x-text="applyDurMsg"></span>
+                                            <button class="btn btn-sm btn-outlined" @click="applyAllDurations()"
+                                                    :disabled="applyDurBusy || !hasApplicableDurations"
+                                                    title="이 구간에서 실측된 모든 ApiCall 의 평균/min/max 를 각 Device Work 에 일괄 기록 (평균→Duration, min→MinDuration, max→MaxDuration)">
+                                                <span class="material-icons" style="font-size:15px; vertical-align:middle;">timer</span>
+                                                실측 적용
+                                            </button>
                                             <button class="btn btn-sm btn-filled" @click="applyHeadTail()"
                                                     :disabled="overlayBusy || recomputeBusy || !headCallId || !tailCallId"
                                                     title="현재 Head/Tail 을 이 Flow 의 사이클 경계로 저장하고, 이 Flow 의 과거 이력 전체를 새 경계로 재계산합니다(백그라운드, 진행률 표시) — 라이브 CT·대시보드에 과거 포함 반영">
@@ -679,26 +702,66 @@
                                                 <span class="rs-t">사이클</span>
                                                 <span class="rs-sub">MT · WT · 가동률</span>
                                             </div>
-                                            <template x-for="lane in callLanes" :key="lane.callId">
-                                                <div :class="laneRowClass(lane)" :style="`height:${LANE_HEIGHT}px;`">
-                                                    <div class="ct-lane-name-block">
-                                                        <div class="ct-lane-name">
-                                                            <span x-text="lane.callName"></span>
-                                                            <template x-if="headCallId === lane.callId"><span class="ct-badge head">HEAD</span></template>
-                                                            <template x-if="tailCallId === lane.callId"><span class="ct-badge tail">TAIL</span></template>
+                                            <template x-for="row in laneRows" :key="row.key">
+                                                <div :class="rowClass(row)" :style="`height:${row.h}px;`">
+                                                    <!-- ── CALL 행 ── -->
+                                                    <button x-show="row.kind === 'call'" class="ct-expand-btn"
+                                                            :disabled="!hasApiCalls(row.lane)"
+                                                            @click="toggleExpand(row.lane.callId)"
+                                                            :title="hasApiCalls(row.lane) ? 'ApiCall 펼치기/접기 (실측 duration)' : 'ApiCall 없음'"
+                                                            x-text="!hasApiCalls(row.lane) ? '·' : (expandedCalls[row.lane.callId] ? '▾' : '▸')"></button>
+                                                    <template x-if="row.kind === 'call'">
+                                                        <div class="ct-lane-name-block">
+                                                            <div class="ct-lane-name">
+                                                                <span x-text="row.lane.callName"></span>
+                                                                <template x-if="headCallId === row.lane.callId"><span class="ct-badge head">HEAD</span></template>
+                                                                <template x-if="tailCallId === row.lane.callId"><span class="ct-badge tail">TAIL</span></template>
+                                                            </div>
+                                                            <div class="ct-lane-work" x-text="row.lane.workName"></div>
                                                         </div>
-                                                        <div class="ct-lane-work" x-text="lane.workName"></div>
-                                                    </div>
-                                                    <div class="ct-lane-tags">
-                                                        <button :class="'ct-tag-btn head ' + (headCallId === lane.callId ? 'active' : '')"
-                                                                @click="toggleHead(lane.callId)"
-                                                                :disabled="overlayBusy"
-                                                                title="Head 로 지정: 이 Call 의 OutTag↑(PLC 명령) 가 사이클 시작 경계가 됩니다">H</button>
-                                                        <button :class="'ct-tag-btn tail ' + (tailCallId === lane.callId ? 'active' : '')"
-                                                                @click="toggleTail(lane.callId)"
-                                                                :disabled="overlayBusy"
-                                                                title="Tail 로 지정: 이 Call 의 InTag↑(PLC 응답) 가 사이클 완료 마커가 됩니다">T</button>
-                                                    </div>
+                                                    </template>
+                                                    <template x-if="row.kind === 'call'">
+                                                        <div class="ct-lane-tags">
+                                                            <button :class="'ct-tag-btn head ' + (headCallId === row.lane.callId ? 'active' : '')"
+                                                                    @click="toggleHead(row.lane.callId)"
+                                                                    :disabled="overlayBusy"
+                                                                    title="Head 로 지정: 이 Call 의 OutTag↑(PLC 명령) 가 사이클 시작 경계가 됩니다">H</button>
+                                                            <button :class="'ct-tag-btn tail ' + (tailCallId === row.lane.callId ? 'active' : '')"
+                                                                    @click="toggleTail(row.lane.callId)"
+                                                                    :disabled="overlayBusy"
+                                                                    title="Tail 로 지정: 이 Call 의 InTag↑(PLC 응답) 가 사이클 완료 마커가 됩니다">T</button>
+                                                        </div>
+                                                    </template>
+                                                    <!-- ── ApiCall 서브행 (실측 vs 현재 AASX) ── -->
+                                                    <template x-if="row.kind === 'api'">
+                                                        <div class="ct-api-block">
+                                                            <div class="ct-api-info">
+                                                                <div class="ct-api-name">
+                                                                    <span class="ct-api-dot"></span>
+                                                                    <span x-text="row.ac.name"></span>
+                                                                    <span class="ct-api-tags" x-text="(row.ac.outTag ? ('OUT ' + row.ac.outTag) : '') + (row.ac.inTag ? ('  IN ' + row.ac.inTag) : '')"></span>
+                                                                </div>
+                                                                <div class="ct-api-stats">
+                                                                    <span class="ct-api-meas" x-show="row.m.count > 0">
+                                                                        실측 <b x-text="row.m.count + '회'"></b> ·
+                                                                        min <b x-text="formatMs(row.m.min)"></b> ·
+                                                                        평균 <b x-text="formatMs(row.m.mean)"></b> ·
+                                                                        max <b x-text="formatMs(row.m.max)"></b>
+                                                                    </span>
+                                                                    <span class="ct-api-meas ct-api-nodata" x-show="row.m.count === 0">이 구간 실측 없음(명령~응답 쌍 0)</span>
+                                                                    <span class="ct-api-cur">
+                                                                        현재 AASX · D <b x-text="fmtAasx(row.ac.currentDurationMs)"></b>
+                                                                        · min <b x-text="fmtAasx(row.ac.currentMinMs)"></b>
+                                                                        · max <b x-text="fmtAasx(row.ac.currentMaxMs)"></b>
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                            <button class="ct-api-apply" x-show="canApplyApi(row.lane, row.ac)"
+                                                                    :disabled="applyDurBusy"
+                                                                    @click="applyApiCallDuration(row)"
+                                                                    title="이 ApiCall 의 실측 평균/min/max 를 대상 Work 의 Duration/Min/Max 로 AASX 에 기록">적용</button>
+                                                        </div>
+                                                    </template>
                                                 </div>
                                             </template>
                                         </div>
@@ -708,6 +771,49 @@
                                             <div class="ct-gantt-wrapper" x-html="svgMarkup"></div>
                                         </div>
                                     </div>
+
+                                    <!-- 간트 가로 드래그 선택 구간 → 인라인 카드 (간트 ↔ 사이클 목록 사이, 4-KPI + 사이클 기간 설정, 전부 로컬 파생) -->
+                                    <template x-if="selectedRange">
+                                        <div class="card" style="border-color: var(--color-primary);">
+                                            <div class="ds-card-h">
+                                                <h4>
+                                                    선택 구간
+                                                    <span style="font-weight:400; font-size:0.82em; color:var(--color-text-secondary);"
+                                                          x-text="' · ' + hms2k(new Date(selectedRange.startMs)) + ' ~ ' + hms2k(new Date(selectedRange.endMs))"></span>
+                                                </h4>
+                                                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                                                    <button class="btn btn-sm btn-filled" @click="applyRangeAsPeriod()" :disabled="isLoading"
+                                                            title="선택 구간을 분석 시작·종료 시간으로 설정하고 다시 로드">
+                                                        <span class="material-icons" style="font-size:16px; vertical-align:middle;">schedule</span>
+                                                        사이클 기간으로 설정
+                                                    </button>
+                                                    <button class="btn btn-sm btn-outlined" @click="clearRangeSelection()" style="white-space:nowrap;" title="선택 구간 해제">✕ 해제</button>
+                                                </div>
+                                            </div>
+                                            <div class="sm-hint" style="margin-bottom:14px;">
+                                                <span class="material-icons">info</span>
+                                                <span>간트에서 드래그한 구간의 통계입니다. 이 범위를 분석 기간으로 적용하려면 <b>사이클 기간으로 설정</b> 을 누르세요 — 시작·종료 시간이 이 구간으로 바뀌고 다시 로드됩니다.</span>
+                                            </div>
+                                            <div class="ct-range-stats">
+                                                <div class="kpi-cell">
+                                                    <div class="kp-label">선택 구간 길이</div>
+                                                    <div class="kp-value" x-text="formatMs(selRangeLenMs)"></div>
+                                                </div>
+                                                <div class="kpi-cell tone-primary">
+                                                    <div class="kp-label">동작 (Run) 합</div>
+                                                    <div class="kp-value" x-text="formatMs(selRunMs)"></div>
+                                                </div>
+                                                <div class="kpi-cell tone-max">
+                                                    <div class="kp-label">병목 (Gap) 합</div>
+                                                    <div class="kp-value" x-text="formatMs(selGapMs)"></div>
+                                                </div>
+                                                <div class="kpi-cell">
+                                                    <div class="kp-label">활성 Call</div>
+                                                    <div class="kp-value" x-text="selActiveDevices + ' / ' + callLanes.length"></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
 
                                     <!-- 사이클 목록 (Head/Tail 기반 감지된 사이클 상세) -->
                                     <template x-if="cycleList.length > 0">
@@ -761,52 +867,6 @@
                                                         </template>
                                                     </tbody>
                                                 </table>
-                                            </div>
-                                        </div>
-                                    </template>
-
-                                    <!-- 간트 가로 드래그 선택 구간 → 팝업 다이얼로그 (4-KPI + 사이클 기간 설정, 전부 로컬 파생) -->
-                                    <template x-if="selectedRange">
-                                        <div class="modal-overlay" x-cloak style="z-index:2000;" @click="clearRangeSelection()">
-                                            <div class="modal-content shift-modal range-modal" @click.stop>
-                                                <div class="sm-head">
-                                                    <span class="sm-title">선택 구간 · <span x-text="hms2k(new Date(selectedRange.startMs)) + ' ~ ' + hms2k(new Date(selectedRange.endMs))"></span></span>
-                                                    <button class="btn-icon" @click="clearRangeSelection()" title="닫기">
-                                                        <span class="material-icons">close</span>
-                                                    </button>
-                                                </div>
-                                                <div class="sm-body">
-                                                    <div class="sm-hint" style="margin-bottom:14px;">
-                                                        <span class="material-icons">info</span>
-                                                        <span>간트에서 드래그한 구간의 통계입니다. 이 범위를 분석 기간으로 적용하려면 <b>사이클 기간으로 설정</b> 을 누르세요 — 시작·종료 시간이 이 구간으로 바뀌고 다시 로드됩니다.</span>
-                                                    </div>
-                                                    <div class="ct-range-stats">
-                                                        <div class="kpi-cell">
-                                                            <div class="kp-label">선택 구간 길이</div>
-                                                            <div class="kp-value" x-text="formatMs(selRangeLenMs)"></div>
-                                                        </div>
-                                                        <div class="kpi-cell tone-primary">
-                                                            <div class="kp-label">동작 (Run) 합</div>
-                                                            <div class="kp-value" x-text="formatMs(selRunMs)"></div>
-                                                        </div>
-                                                        <div class="kpi-cell tone-max">
-                                                            <div class="kp-label">병목 (Gap) 합</div>
-                                                            <div class="kp-value" x-text="formatMs(selGapMs)"></div>
-                                                        </div>
-                                                        <div class="kpi-cell">
-                                                            <div class="kp-label">활성 Call</div>
-                                                            <div class="kp-value" x-text="selActiveDevices + ' / ' + callLanes.length"></div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                <div class="sm-foot">
-                                                    <button class="btn btn-outlined" @click="clearRangeSelection()">닫기</button>
-                                                    <button class="btn btn-filled" @click="applyRangeAsPeriod()" :disabled="isLoading"
-                                                            title="선택 구간을 분석 시작·종료 시간으로 설정하고 다시 로드">
-                                                        <span class="material-icons" style="font-size:17px; vertical-align:middle;">schedule</span>
-                                                        사이클 기간으로 설정
-                                                    </button>
-                                                </div>
                                             </div>
                                         </div>
                                     </template>
@@ -994,6 +1054,7 @@
         function flowApp() {
             // ── BuildSvg 레이아웃 상수 (cycle-time-analysis 와 동일) ──
             const TOP_MARGIN = 50, LANE_HEIGHT = 44, BAR_HEIGHT = 18, RIBBON_H = 48, LEFT_PAD = 12, RIGHT_PAD = 40, BOTTOM_PAD = 20, MIN_PLOT_WIDTH = 640, MAX_ZOOM = 24;
+            const API_ROW_HEIGHT = 52;   // Call lane 확장 시 끼어드는 ApiCall 서브행 높이(사이드바·SVG 공통)
             const histCache = {};   // flowName → rows: 전환 시 즉시 표시(서버 왕복 대기 없이)
             // ── Chart.js 인스턴스는 Alpine 반응형 밖(클로저)에 보관 ──
             // 컴포넌트 프로퍼티(this._x)로 두면 Alpine 이 차트의 내부 config/_resolverCache/_fallback 까지
@@ -1046,6 +1107,8 @@
                 cyclePreset: null,    // 활성 사이클-기준 프리셋(최근 N 사이클) — 시간 프리셋/수동 변경 시 해제
                 chartSort: 'ByLane',
                 callLanesRaw: [],
+                expandedCalls: {},   // callId → bool : Call lane 행 확장(소속 ApiCall + 실측 duration 표시) 상태
+                applyDurBusy: false, applyDurMsg: '',   // 실측 → AASX duration 적용 진행/피드백
                 showMaxGap: true,
                 topGaps: [],
                 selectedGapIndex: 0,
@@ -1783,7 +1846,8 @@
                     const rectOf = () => svg.getBoundingClientRect();
                     const clampX = (x) => Math.max(LEFT_PAD, Math.min(LEFT_PAD + this.plotWidth, x));
                     const laneTop = this.laneTopY;
-                    const laneBottom = laneTop + this.callLanes.length * LANE_HEIGHT;
+                    const laneAreaH = this.laneLayout().totalH;
+                    const laneBottom = laneTop + laneAreaH;
                     const r0 = rectOf();
                     const x0 = e.clientX - r0.left, y0 = e.clientY - r0.top;
                     if (x0 < LEFT_PAD || x0 > LEFT_PAD + this.plotWidth || y0 < laneTop - 8 || y0 > laneBottom + 8) return;
@@ -1810,7 +1874,7 @@
                     const ns = 'http://www.w3.org/2000/svg';
                     const live = document.createElementNS(ns, 'rect');
                     live.setAttribute('x', this.f(sx)); live.setAttribute('width', '0');
-                    live.setAttribute('y', laneTop); live.setAttribute('height', this.callLanes.length * LANE_HEIGHT);
+                    live.setAttribute('y', laneTop); live.setAttribute('height', laneAreaH);
                     live.setAttribute('fill', 'rgba(126,87,194,0.16)');
                     live.setAttribute('stroke', '#7e57c2'); live.setAttribute('stroke-dasharray', '4 3');
                     live.setAttribute('pointer-events', 'none');
@@ -1923,17 +1987,116 @@
 
                 get laneTopY() { return TOP_MARGIN + (this.cycleBoundaries.length ? RIBBON_H : 0); },
 
+                // ── Call lane 확장(ApiCall 서브행) ──────────────────────────────
+                hasApiCalls(lane) { return !!(lane && lane.apiCalls && lane.apiCalls.length); },
+                toggleExpand(callId) {
+                    // 새 객체로 재할당 → Alpine 이 키 추가/변경을 확실히 추적.
+                    this.expandedCalls = { ...this.expandedCalls, [callId]: !this.expandedCalls[callId] };
+                    this.svgMarkup = this.buildSvg();   // SVG 는 x-html 이라 수동 재빌드
+                },
+                // 사이드바·SVG 가 공유하는 행 레이아웃: Call 행 + (확장 시) 그 아래 ApiCall 서브행들.
+                // y 는 laneArea 상단 기준 누적 오프셋, h 는 행 높이. totalH = laneArea 총 높이.
+                laneLayout() {
+                    const rows = [];
+                    let y = 0;
+                    for (const lane of this.callLanes) {
+                        rows.push({ kind: 'call', key: 'c:' + lane.callId, lane, y, h: LANE_HEIGHT });
+                        y += LANE_HEIGHT;
+                        if (this.expandedCalls[lane.callId] && this.hasApiCalls(lane)) {
+                            const m = this.apiMeasured(lane);   // 실측 min/max/mean (행마다 1회 계산)
+                            lane.apiCalls.forEach((ac, idx) => {
+                                rows.push({ kind: 'api', key: 'a:' + lane.callId + ':' + (ac.apiCallId || idx), lane, ac, y, h: API_ROW_HEIGHT, m });
+                                y += API_ROW_HEIGHT;
+                            });
+                        }
+                    }
+                    return { rows, totalH: y };
+                },
+                get laneRows() { return this.laneLayout().rows; },
+                rowClass(row) { return row.kind === 'call' ? this.laneRowClass(row.lane) : 'ct-api-row'; },
+
+                // OutTag↑(명령) → 다음 InTag↑(응답) 까지를 한 동작 duration 으로 페어링한 ms 배열.
+                // 진영 B(PLC 기준): OutTag=출력(명령)=동작 시작, InTag=입력(응답)=동작 완료.
+                // 현재 PoC 는 Call:ApiCall 1:1 이라 lane 의 out/in 인터벌이 곧 이 ApiCall 의 것.
+                apiSpans(lane) {
+                    const outs = (lane.outIntervals || []).map(iv => new Date(iv.start).getTime()).sort((a, b) => a - b);
+                    const ins = (lane.inIntervals || []).map(iv => new Date(iv.start).getTime()).sort((a, b) => a - b);
+                    if (!outs.length || !ins.length) return [];
+                    const spans = [];
+                    let j = 0;
+                    for (let i = 0; i < outs.length; i++) {
+                        const o = outs[i];
+                        const nextO = (i + 1 < outs.length) ? outs[i + 1] : Infinity;
+                        while (j < ins.length && ins[j] < o) j++;       // 이전 명령에 묶이지 못한 응답 건너뜀
+                        if (j < ins.length && ins[j] < nextO) { spans.push(ins[j] - o); j++; }
+                        // 응답 없는 명령(미완료)은 스킵
+                    }
+                    return spans;
+                },
+                apiMeasured(lane) {
+                    const spans = this.apiSpans(lane);
+                    if (!spans.length) return { count: 0, min: null, max: null, mean: null };
+                    let mn = Infinity, mx = -Infinity, sum = 0;
+                    for (const s of spans) { if (s < mn) mn = s; if (s > mx) mx = s; sum += s; }
+                    return { count: spans.length, min: mn, max: mx, mean: sum / spans.length };
+                },
+                // 현재 AASX 값(ms) 포매팅 — 미설정(null) 은 '—'.
+                fmtAasx(ms) { return (ms === null || ms === undefined) ? '—' : this.formatMs(ms); },
+
+                // ── 실측 → AASX 적용 (평균→Duration, min→MinDuration, max→MaxDuration) ──
+                // 대상 = ApiCall 의 device Work(targetWorkId). 실측 없음/대상 미해석이면 적용 불가.
+                buildDurationChange(lane, ac) {
+                    const m = this.apiMeasured(lane);
+                    if (m.count === 0 || !ac || !ac.targetWorkId) return null;
+                    return { workId: ac.targetWorkId, durationMs: Math.round(m.mean), minMs: Math.round(m.min), maxMs: Math.round(m.max) };
+                },
+                canApplyApi(lane, ac) { return !!this.buildDurationChange(lane, ac); },
+                collectAllDurationChanges() {
+                    const out = [];
+                    for (const lane of this.callLanes)
+                        for (const ac of (lane.apiCalls || [])) {
+                            const ch = this.buildDurationChange(lane, ac);
+                            if (ch) out.push(ch);
+                        }
+                    return out;   // 같은 Work 중복은 백엔드가 distinct 처리
+                },
+                get hasApplicableDurations() { return this.collectAllDurationChanges().length > 0; },
+                async applyApiCallDuration(row) {
+                    const ch = this.buildDurationChange(row.lane, row.ac);
+                    if (!ch) return;
+                    await this._applyDurations([ch], `'${row.ac.name}' 실측 duration 을 AASX 에 적용`);
+                },
+                async applyAllDurations() {
+                    const changes = this.collectAllDurationChanges();
+                    if (!changes.length) return;
+                    await this._applyDurations(changes, `실측 duration ${changes.length}건을 AASX 에 일괄 적용`);
+                },
+                async _applyDurations(changes, label) {
+                    if (!changes.length) return;
+                    if (!window.confirm(`${label}합니다.\n\n공유 project.aasx 의 Device Work(Duration/Min/Max)를 덮어씁니다 — Promaker 와 공유되는 파일입니다. 계속할까요?`)) return;
+                    this.applyDurBusy = true; this.applyDurMsg = 'AASX 적용 중…'; this.errorMessage = null;
+                    try {
+                        const r = await this.apiPost('/api/call-test/apply-durations', { changes });
+                        this.applyDurMsg = `AASX 적용 완료 (${r.applied}건)`;
+                        await this.load();   // '현재 AASX' 값 재조회
+                        setTimeout(() => { this.applyDurMsg = ''; }, 5000);
+                    } catch (e) {
+                        if (e.message !== 'demo-blocked') this.errorMessage = '실측 적용 실패: ' + e.message;
+                        this.applyDurMsg = '';
+                    } finally { this.applyDurBusy = false; }
+                },
+
                 // ── BuildSvg() ──
                 buildSvg() {
                     if (this.callLanes.length === 0) return '';
                     const cs = this.chartStart.getTime(), ce = this.chartEnd.getTime();
                     const totalMs = Math.max(1.0, ce - cs);
-                    const laneCount = this.callLanes.length;
                     const PW = this.plotWidth;
                     const chartW = LEFT_PAD + PW + RIGHT_PAD;
                     const ribbonH = this.cycleBoundaries.length ? RIBBON_H : 0;
                     const laneAreaTop = TOP_MARGIN + ribbonH;
-                    const laneAreaBottom = laneAreaTop + laneCount * LANE_HEIGHT;
+                    const layout = this.laneLayout();   // Call 행 + 확장된 ApiCall 서브행 (사이드바와 공유)
+                    const laneAreaBottom = laneAreaTop + layout.totalH;
                     const chartH = laneAreaBottom + BOTTOM_PAD;
                     const xScale = PW / totalMs;
                     this._geo = { cs, xScale };
@@ -1947,9 +2110,22 @@
                     sb += this.appendCycleBands(xScale, laneAreaTop, laneAreaBottom, cs, ce);
                     sb += this.appendTimeAxis(totalMs, xScale, cs, laneAreaTop, laneAreaBottom);
 
-                    for (let i = 0; i < this.callLanes.length; i++) {
-                        const lane = this.callLanes[i];
-                        const laneY = laneAreaTop + i * LANE_HEIGHT;
+                    const plotRightX = LEFT_PAD + PW;
+                    for (const row of layout.rows) {
+                        const lane = row.lane;
+                        const rowY = laneAreaTop + row.y;
+
+                        if (row.kind === 'api') {
+                            // ── ApiCall 서브행: 들여쓴 옅은 배경 + 자신의 OUT/IN 트레이스(1:1 이면 Call 과 동일) ──
+                            sb += `<rect x="0" y="${this.f(rowY)}" width="${chartW}" height="${API_ROW_HEIGHT}" fill="#f5f7fa" opacity="0.7"/>`;
+                            sb += `<line x1="0" y1="${this.f(rowY + API_ROW_HEIGHT)}" x2="${chartW}" y2="${this.f(rowY + API_ROW_HEIGHT)}" stroke="#e3e6ea" stroke-width="1"/>`;
+                            sb += `<rect x="0" y="${this.f(rowY)}" width="3" height="${API_ROW_HEIGHT}" fill="#90a4ae" opacity="0.5"/>`;
+                            sb += this.appendSignalTrace(row.ac.outIntervals || lane.outIntervals, '#1e88e5', rowY + 22, rowY + 9, cs, xScale, plotRightX, row.ac.name, row.ac.outTag, 'OUT 명령');
+                            sb += this.appendSignalTrace(row.ac.inIntervals || lane.inIntervals, '#fb8c00', rowY + API_ROW_HEIGHT - 8, rowY + 26, cs, xScale, plotRightX, row.ac.name, row.ac.inTag, 'IN 응답');
+                            continue;
+                        }
+
+                        const laneY = rowY;
                         const laneCY = laneY + LANE_HEIGHT / 2.0;
                         const isHead = this.headCallId === lane.callId;
                         const isTail = this.tailCallId === lane.callId;
@@ -1981,7 +2157,6 @@
                                 const w = Math.max(2, (e.getTime() - s.getTime()) * xScale);
                                 sb += `<rect x="${this.f(x)}" y="${this.f(laneY + 6)}" width="${this.f(w)}" height="${LANE_HEIGHT - 12}" rx="2" fill="${unionFill}" opacity="0.10"/>`;
                             }
-                            const plotRightX = LEFT_PAD + PW;
                             sb += this.appendSignalTrace(lane.outIntervals, '#1e88e5', laneY + 20, laneY + 7, cs, xScale, plotRightX, lane.callName, lane.outTag, 'OUT 명령');
                             sb += this.appendSignalTrace(lane.inIntervals, '#fb8c00', laneY + 37, laneY + 24, cs, xScale, plotRightX, lane.callName, lane.inTag, 'IN 응답');
                         }
@@ -1999,9 +2174,9 @@
                     }
                     const gap = this.activeGap();
                     if (gap) {
-                        const li = this.callLanes.findIndex(l => l.callId === gap.callId);
-                        if (li >= 0) {
-                            const gy = laneAreaTop + li * LANE_HEIGHT;
+                        const gapRow = layout.rows.find(r => r.kind === 'call' && r.lane.callId === gap.callId);
+                        if (gapRow) {
+                            const gy = laneAreaTop + gapRow.y;
                             const gx = LEFT_PAD + (gap.startMs - cs) * xScale;
                             const gw = Math.max(2, (gap.endMs - gap.startMs) * xScale);
                             sb += `<rect x="${this.f(gx)}" y="${this.f(gy)}" width="${this.f(gw)}" height="${LANE_HEIGHT}" rx="3" fill="rgba(245,166,35,0.28)" stroke="#e5494f" stroke-width="2" pointer-events="none"/>`;
