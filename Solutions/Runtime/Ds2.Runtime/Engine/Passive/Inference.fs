@@ -86,17 +86,20 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
         else
             highSet.Remove(address) |> ignore
 
-        // 308a72ab: HasAllObservedSignals(IsSupersetOf). rising(matchesSpec) 일 때만 평가해
-        // falling 으로 인한 재진입을 막는다(Finish 후 In off 는 SensorOpen 일 뿐 상태 유지).
+        // 308a72ab: HasAllObservedSignals(IsSupersetOf) — 전체 ApiCall IO On/Off 기준.
+        //   Call 의 모든 Out high → Going, 모든 In high → Finish. rising(matchesSpec) 일 때만 평가해
+        //   falling 으로 인한 재진입을 막는다(Finish 후 In off 는 SensorOpen 일 뿐 상태 유지).
         if not matchesSpec then
             ()
         elif isOut then
             if hasAllObserved callOutExpectedAddresses callOutHighAddresses callGuid
                && overlay.GetCallState(callGuid) <> Status4.Going then
+                if overlay.GetCallState(callGuid) <> Status4.Ready then
+                    PassiveInferenceWorkCycle.enqueueCallState actions overlay callGuid Status4.Ready
                 PassiveInferenceWorkCycle.enqueueCallState actions overlay callGuid Status4.Going
         else
             if hasAllObserved callInExpectedAddresses callInHighAddresses callGuid
-               && overlay.GetCallState(callGuid) <> Status4.Finish then
+               && overlay.GetCallState(callGuid) = Status4.Going then
                 PassiveInferenceWorkCycle.enqueueCallState actions overlay callGuid Status4.Finish
 
     let observePassiveSignalDirectionInternal

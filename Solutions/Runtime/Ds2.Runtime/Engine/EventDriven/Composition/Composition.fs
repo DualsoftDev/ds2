@@ -126,7 +126,7 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
             false
     let canStartWork workGuid = WorkConditionChecker.canStartWork index (stateManager.GetState()) workGuid
     let canStartCall callGuid = WorkConditionChecker.canStartCall index (stateManager.GetState()) callGuid
-    let canCompleteCall callGuid = WorkConditionChecker.canCompleteCall index (stateManager.GetState()) callGuid (runtimeMode = RuntimeMode.Simulation)
+    let canCompleteCall callGuid = WorkConditionChecker.canCompleteCall index (stateManager.GetState()) callGuid (runtimeMode = RuntimeMode.Simulation) (runtimeMode = RuntimeMode.Control || runtimeMode = RuntimeMode.Monitoring)
     let shouldSkipCall callGuid = WorkConditionChecker.shouldSkipCall index (stateManager.GetState()) callGuid
     let shouldSkipWork workGuid = WorkConditionChecker.shouldSkipWork index (stateManager.GetState()) workGuid
     let isActiveSystemWork workGuid =
@@ -307,9 +307,43 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
             emitTokenEvent
             workStateChangedEvent.Trigger
             durationTracker
+    let isDeviceWorkFn workGuid =
+        match index.WorkSystemName |> Map.tryFind workGuid with
+        | Some sysName -> not (index.ActiveSystemNames.Contains sysName)
+        | None -> false
+    let onDeviceDurationExpired (workGuid: Guid) =
+        match abnormalAdapter with
+        | Some adapter ->
+            // Control: adapter 가 latch/range 포함 판정 후 ActionOver 발행.
+            adapter.OnTick(int scheduler.CurrentTimeMs)
+        | None ->
+            // Monitoring: plan-duration(Max) 초과 — 호출 ApiCall 의 In 이
+            // 미도달이면 ActionOver. engine.abnormalDetectedEvent → RuntimeHubSession broadcastAbnormal 로 발행(B2).
+            if runtimeMode = RuntimeMode.Monitoring then
+                match index.WorkDurationRange |> Map.tryFind workGuid with
+                | Some range ->
+                    let nowUtc = DateTime.UtcNow
+                    let ioState = (stateManager.GetState()).IOValues
+                    for m in ioMap.Mappings do
+                        if m.RxWorkGuid = Some workGuid
+                           && stateManager.GetCallState(m.CallGuid) = Status4.Going then
+                            let inActive =
+                                match Queries.getApiCall m.ApiCallGuid index.Store with
+                                | Some ac ->
+                                    match ioState.TryFind m.ApiCallGuid with
+                                    | Some v -> RuntimeSemantics.isActiveInputValue ac v
+                                    | None -> false
+                                | None -> false
+                            if not inActive then
+                                let target = Abnormal.target (Some m.CallGuid) (Some m.ApiCallGuid) (Some workGuid)
+                                abnormalDetectedEvent.Trigger(Abnormal.actionOver target (range.MaxMs + 1) nowUtc)
+                | None -> ()
     let durationCompleteContext =
         EventDrivenCompositionContext.createDurationCompleteContext
+            runtimeMode
             isPassiveMode
+            isDeviceWorkFn
+            onDeviceDurationExpired
             durationTracker
             stateManager
             index
@@ -318,6 +352,9 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
             applyWorkTransition
     let handleDurationComplete workGuid =
         EventDrivenExecution.handleDurationComplete durationCompleteContext workGuid
+    let handleDeviceOverdueCheck workGuid workEpoch =
+        if stateManager.GetWorkEpoch(workGuid) = workEpoch then
+            onDeviceDurationExpired workGuid
     let applyOutputWrite address value =
         ioMap.OutAddressToMappings
         |> Map.tryFind address
@@ -343,6 +380,7 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
             (TransitionGuards.forceAndApplyCall transitionGuardsContext)
             applyWorkTransition
             handleDurationComplete
+            handleDeviceOverdueCheck
             shiftToken
             emitTokenEvent
             scheduleConditionEvaluation
@@ -500,6 +538,11 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
             runExternalMutation (fun () ->
                 if index.AllWorkGuids |> List.contains workGuid
                    && stateManager.GetWorkState(workGuid) = Status4.Going then
+                    forceWorkState workGuid newState)
+        member _.TryForceWorkStateIfReady(workGuid, newState) =
+            runExternalMutation (fun () ->
+                if index.AllWorkGuids |> List.contains workGuid
+                   && stateManager.GetWorkState(workGuid) = Status4.Ready then
                     forceWorkState workGuid newState)
         member _.ForceCallState(callGuid, newState) =
             runExternalMutation (fun () -> forceCallState callGuid newState)

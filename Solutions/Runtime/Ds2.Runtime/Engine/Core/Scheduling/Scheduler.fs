@@ -12,6 +12,7 @@ type ScheduledEventType =
     | ForcedWorkTransition of workGuid: Guid * targetState: Status4
     | ForcedCallTransition of callGuid: Guid * targetState: Status4
     | DurationComplete of workGuid: Guid
+    | DeviceOverdueCheck of workGuid: Guid * workEpoch: int
     | HomingComplete of workGuid: Guid
     | CallTimeout of callGuid: Guid
     | OutputWrite of address: string * value: string

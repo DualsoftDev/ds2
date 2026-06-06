@@ -121,6 +121,7 @@ type NullRuntimeHubSession() =
         member _.ForceWorkStateAsync _ = Task.CompletedTask
         member _.ForceCallStateAsync _ = Task.CompletedTask
         member _.TryForceWorkStateIfGoingAsync _ = Task.FromResult(false)
+        member _.TryForceWorkStateIfReadyAsync _ = Task.FromResult(false)
         member _.GetWorkStateAsync command =
             let id = if isNull (box command) then "" else command.WorkId
             Task.FromResult(RuntimeHubDefaults.emptyGuidStatus id)
@@ -331,6 +332,9 @@ and SignalHub(gateway: IPlcGateway, runtimeSession: IRuntimeHubSession) =
 
     member this.RuntimeTryForceWorkStateIfGoing(command: RuntimeWorkStateCommand) : Task<bool> =
         this.QueryRuntime(this.EnvelopeOf(command), false, fun () -> runtimeSession.TryForceWorkStateIfGoingAsync(command))
+
+    member this.RuntimeTryForceWorkStateIfReady(command: RuntimeWorkStateCommand) : Task<bool> =
+        this.QueryRuntime(this.EnvelopeOf(command), false, fun () -> runtimeSession.TryForceWorkStateIfReadyAsync(command))
 
     member this.RuntimeGetWorkState(command: RuntimeWorkCommand) : Task<RuntimeGuidStatus> =
         let fallback =

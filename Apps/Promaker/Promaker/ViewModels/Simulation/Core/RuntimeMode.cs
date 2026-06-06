@@ -75,7 +75,7 @@ public partial class SimulationPanelState
             switch (action.TargetKind)
             {
                 case PassiveInferenceTarget.Work:
-                    if (GetWorkStateSafe(action.TargetGuid) != action.State)
+                    if (!IsMappedDeviceWork(action.TargetGuid) && GetWorkStateSafe(action.TargetGuid) != action.State)
                         _simEngine.ForceWorkState(action.TargetGuid, action.State);
                     break;
 
@@ -207,6 +207,11 @@ public partial class SimulationPanelState
                     engine.TryForceWorkStateIfGoing(effect.WorkGuid, effect.State);
                 return;
 
+            case RuntimeHubEffectKind.ForceWorkStateIfReady:
+                if (effect.WorkGuid != Guid.Empty)
+                    engine.TryForceWorkStateIfReady(effect.WorkGuid, effect.State);
+                return;
+
             case RuntimeHubEffectKind.WriteTag:
                 if (Hub.Connection is not null
                     && Hub.IsCurrentConnection(hubGeneration, Hub.Connection)
@@ -253,6 +258,14 @@ public partial class SimulationPanelState
         if (_simEngine is null) return Status4.Ready;
         var opt = _simEngine.GetWorkState(workGuid);
         return (opt != null && FSharpOption<Status4>.get_IsSome(opt)) ? opt.Value : Status4.Ready;
+    }
+
+    private bool IsMappedDeviceWork(Guid workGuid)
+    {
+        var engine = _simEngine;
+        return engine is not null
+               && (engine.IOMap.TxWorkToOutAddresses.Any(kv => kv.Key == workGuid)
+                   || engine.IOMap.RxWorkToInAddresses.Any(kv => kv.Key == workGuid));
     }
 
     private Status4 GetCallStateSafe(Guid callGuid)

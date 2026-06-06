@@ -88,7 +88,19 @@ module internal TransitionGuards =
 
     let forceAndApplyWork (ctx: Context) workGuid newState =
         ctx.StateManager.ClearWorkPending(workGuid)
-        ctx.ApplyWorkTransition workGuid newState
+        // device work 의 Forced Going 은 apply 시점에 Ready 재확인 — schedule-time IfReady 의 race window 차단.
+        //   forced 전이는 무가드라, 큐 enqueue(Ready 확인) 후 적용 전 device 가 engine cycle 로 Finish/Homing 가면
+        //   Forced Going 이 무가드로 그 위에 박혀 Finish->Going / Homing->Going 비정상 전이가 났다.
+        //   (active work force 는 isDevice=false 라 무영향. device going trigger 만 apply-time 가드.)
+        let isDevice =
+            match ctx.Index.WorkSystemName |> Map.tryFind workGuid with
+            | Some sysName -> not (ctx.Index.ActiveSystemNames.Contains sysName)
+            | None -> false
+        let blockedForcedGoing =
+            newState = Status4.Going && isDevice
+            && ctx.StateManager.GetWorkState(workGuid) <> Status4.Ready
+        if not blockedForcedGoing then
+            ctx.ApplyWorkTransition workGuid newState
 
     let forceAndApplyCall (ctx: Context) callGuid newState =
         ctx.StateManager.ClearCallPending(callGuid)

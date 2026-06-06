@@ -39,7 +39,8 @@ public sealed class GanttChartControlRenderingTests
         {
             Id = Guid.NewGuid(),
             Name = "CallA",
-            Kind = EntityKind.Call
+            Kind = EntityKind.Call,
+            RowKind = GanttRowKind.Call
         };
 
         var key = GanttChartControl.ResolveRowBackgroundResourceKey(entry);
@@ -97,37 +98,6 @@ public sealed class GanttChartControlRenderingTests
         Assert.Equal(1.5, thickness.Top);
         Assert.Equal(1.5, thickness.Right);
         Assert.Equal(1.5, thickness.Bottom);
-    }
-
-    [Fact]
-    public void ResolveSegmentRenderParts_adds_output_append_dashed_tail_after_finish()
-    {
-        var start = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Local);
-        var finish = start.AddMilliseconds(500);
-        var entry = new GanttTimelineEntry
-        {
-            Id = Guid.NewGuid(),
-            Name = "CallA",
-            Kind = EntityKind.Call,
-            OutputAppendMs = 200
-        };
-        var segment = new GanttStateSegment
-        {
-            State = Status4.Going,
-            StartTime = start,
-            EndTime = finish
-        };
-
-        var parts = GanttChartControl.ResolveSegmentRenderParts(entry, segment, segment.EndTime!.Value).ToArray();
-
-        Assert.Equal(3, parts.Length);
-        Assert.Equal(GanttChartControl.GanttSegmentRenderKind.Filled, parts[0].Kind);
-        Assert.Equal(GanttChartControl.GanttSegmentRenderKind.OutputAppendLine, parts[1].Kind);
-        Assert.Equal(finish, parts[1].StartTime);
-        Assert.Equal(finish.AddMilliseconds(200), parts[1].EndTime);
-        Assert.Equal(GanttChartControl.GanttSegmentRenderKind.OutputAppendEnd, parts[2].Kind);
-        Assert.Equal(finish.AddMilliseconds(200), parts[2].StartTime);
-        Assert.Equal(finish.AddMilliseconds(200), parts[2].EndTime);
     }
 
     [Fact]

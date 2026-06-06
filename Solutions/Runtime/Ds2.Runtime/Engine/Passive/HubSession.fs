@@ -13,15 +13,6 @@ type RuntimeHubSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: Runtime
     let tryGetApiCall (apiCallGuid: Guid) : ApiCall option =
         Queries.getApiCall apiCallGuid index.Store
 
-    /// inMappings 중 *어떤* mapping 의 ApiCall.InputSpec 으로 평가했을 때 active 인 것이 있는지.
-    /// 같은 InAddress 에 여러 ApiCall (예: 공유 신호) 매핑 가능 — 하나라도 통과하면 trigger.
-    let anyInputActive (mappings: SignalMapping list) (value: string) : bool =
-        mappings
-        |> List.exists (fun m ->
-            tryGetApiCall m.ApiCallGuid
-            |> Option.map (fun ac -> RuntimeSemantics.isActiveInputValue ac value)
-            |> Option.defaultValue (value = "true"))   // ApiCall lookup 실패 시 legacy 동작 fallback
-
     /// VP 측 output→active 판정 — output mapping 의 ApiCall.OutputSpec 으로 평가.
     let isOutputActive (mapping: SignalMapping) (value: string) : bool =
         tryGetApiCall mapping.ApiCallGuid
@@ -57,15 +48,6 @@ type RuntimeHubSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: Runtime
             let inMappings = ioMap.GetByInAddress(address)
             if not (List.isEmpty inMappings) then
                 RuntimeSessionEffects.addInjectIo effects address value
-                // spec 기반 active 판정 — 이전엔 `value = "true"` 하드코딩. Int8/Float 등 InputSpec 대응.
-                if anyInputActive inMappings value then
-                    for mapping in inMappings do
-                        match mapping.RxWorkGuid with
-                        // currentState=Going 일 때만 atomic Force. 외부 PLC 의 stale IN=true 가
-                        // Reset 흐름 도중 Homing→Finish 잘못 전이시키는 race 차단.
-                        | Some rxWorkGuid -> RuntimeSessionEffects.addForceWorkStateIfGoing effects 0 rxWorkGuid Status4.Finish
-                        | None -> ()
-
                 RuntimeSessionEffects.addLog effects 0 RuntimeHubLogSeverity.Finish (sprintf "[Ctrl] In %s=%s (from %s)" address value source)
             else
                 RuntimeSessionEffects.addLog effects 0 RuntimeHubLogSeverity.Warn (sprintf "[Ctrl] %s=%s [unmapped]" address value)
@@ -78,7 +60,8 @@ type RuntimeHubSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: Runtime
                     // spec 기반 active 판정 — 이전엔 `value = "true"` 하드코딩.
                     // Promaker(Control) 가 OutputSpec=Int8(Single 5) 로 "5" 송출하면 여기서 통과해야 echo 발생.
                     if isOutputActive mapping value then
-                        RuntimeSessionEffects.addForceWorkState effects 0 txWorkGuid Status4.Going
+                        // device going trigger — Ready 일 때만(engine 이 device cycle owner. Finish/Homing 중 force 금지 → 경합 차단).
+                        RuntimeSessionEffects.addForceWorkStateIfReady effects 0 txWorkGuid Status4.Going
 
                         match index.WorkResetPreds |> Map.tryFind txWorkGuid with
                         | Some resetPreds ->
@@ -104,7 +87,7 @@ type RuntimeHubSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: Runtime
 
                             // InAddress echo 값 — InputSpec 의 active 대표값 (Bool="true" / Int8(Single 5)="5").
                             let activeIn = activeInValueFor mapping
-                            RuntimeSessionEffects.addForceWorkState effects duration txWorkGuid Status4.Finish
+                            // device Finish 는 engine plan-duration 이 owner — VP 는 actual In 만 echo(합성). device 상태 force 안 함.
                             RuntimeSessionEffects.addWriteTag effects duration mapping.InAddress activeIn
                             RuntimeSessionEffects.addLog effects duration RuntimeHubLogSeverity.Finish (sprintf "[VP] In ON: %s=%s (after %dms)" mapping.InAddress activeIn duration)
                     else if not (String.IsNullOrEmpty(mapping.InAddress)) then
@@ -115,9 +98,32 @@ type RuntimeHubSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: Runtime
                 | None -> ()
             | None -> ()
 
+            let inMappings = ioMap.GetByInAddress(address)
+            if not (List.isEmpty inMappings) then
+                RuntimeSessionEffects.addInjectIo effects address value
+
             RuntimeSessionEffects.addPassiveObserve effects 0 address value
 
         | RuntimeMode.Monitoring ->
+            // Monitoring 도 Control/VP 처럼 device work cycle 을 engine 내부 상태로 구동한다(=plan).
+            // 단 실 장비가 actual IO 의 진실원이므로 PLC 재기록(WriteTag)은 안 한다(read-only).
+            //   Out On → device Work Going (plan 시작; 상호리셋은 engine triggerImmediateResets 가 담당, isPassive device 해제)
+            //   In active → device Work Finish (실제 actual 도달; Going 일 때만 atomic Force)
+            // passive inference(addPassiveObserve)는 active Work/Call 추론을 계속 담당.
+            match ioMap.GetByOutAddress(address) |> List.tryHead with
+            | Some outMapping ->
+                match outMapping.TxWorkGuid with
+                | Some txWorkGuid when isOutputActive outMapping value ->
+                    // device going trigger — Ready 일 때만(engine 이 device cycle owner. Finish/Homing 중 force 금지).
+                    RuntimeSessionEffects.addForceWorkStateIfReady effects 0 txWorkGuid Status4.Going
+                | _ -> ()
+            | None -> ()
+
+            let inMappings = ioMap.GetByInAddress(address)
+            if not (List.isEmpty inMappings) then
+                // engine IOValues 갱신(abnormal actual 대조의 진실원). device Finish 는 engine plan-duration owner — In 으로 force 안 함.
+                RuntimeSessionEffects.addInjectIo effects address value
+
             RuntimeSessionEffects.addLog effects 0 RuntimeHubLogSeverity.Info (sprintf "[Mon] %s=%s (from %s)" address value source)
             RuntimeSessionEffects.addPassiveObserve effects 0 address value
 

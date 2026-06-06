@@ -135,12 +135,12 @@ public partial class GanttChartControl
     private Line GetOrCreateOutputAppendLine(int index)
         => GetOrCreate(_outputAppendLinePool, TimelineCanvas, index,
             () => new Line { StrokeThickness = 2, Cursor = Cursors.Hand, StrokeDashArray = new DoubleCollection { 5, 4 } },
-            line => { line.MouseEnter += OnBarMouseEnter; line.MouseLeave += OnBarMouseLeave; });
+            line => { line.MouseEnter += OnBarMouseEnter; line.MouseLeave += OnBarMouseLeave; Panel.SetZIndex(line, 50); });
 
     private Line GetOrCreateOutputAppendEnd(int index)
         => GetOrCreate(_outputAppendEndPool, TimelineCanvas, index,
             () => new Line { StrokeThickness = 2, Cursor = Cursors.Hand },
-            line => { line.MouseEnter += OnBarMouseEnter; line.MouseLeave += OnBarMouseLeave; });
+            line => { line.MouseEnter += OnBarMouseEnter; line.MouseLeave += OnBarMouseLeave; Panel.SetZIndex(line, 50); });
 
     private Line GetOrCreateRulerTick(int index)
         => GetOrCreate(_rulerTickPool, TimeRulerCanvas, index, () => new Line { StrokeThickness = 1 });
@@ -205,15 +205,7 @@ public partial class GanttChartControl
                 parts.Add(new GanttSegmentRenderPart(GanttSegmentRenderKind.VirtualAppendOutline, appendStart, segmentEnd));
         }
 
-        if (entry.OutputAppendMs > 0 && segment.EndTime is { } finishedAt)
-        {
-            var outputEnd = finishedAt.AddMilliseconds(entry.OutputAppendMs);
-            if (outputEnd > finishedAt)
-            {
-                parts.Add(new GanttSegmentRenderPart(GanttSegmentRenderKind.OutputAppendLine, finishedAt, outputEnd));
-                parts.Add(new GanttSegmentRenderPart(GanttSegmentRenderKind.OutputAppendEnd, outputEnd, outputEnd));
-            }
-        }
+        // timeAppend(출력 유지) 빨간 점선은 Call/Work 줄이 아니라 device I/O 줄(ApiCall 아래줄)에 그린다 → RenderApiCallSubRow 참고.
 
         return parts;
     }
@@ -277,6 +269,18 @@ public partial class GanttChartControl
             rowLine.Y2 = y + rowHeight;
             rowLine.Stroke = borderBrush;
 
+            if (entry.IsApiCall)
+            {
+                // ApiCall — 한 행을 위(Plan=Segments)/아래(I/O=IoSegments) 2줄로.
+                double subH = entry.SubRowHeight;
+                RenderApiCallSubRow(entry, entry.Segments, y, subH, ref barIdx, cullLeft, cullRight, showReady: true,
+                    drawOutputAppend: false, ref outputAppendLineIdx, ref outputAppendEndIdx, outputAppendBrush);    // PLN: R/G/F/H 전부
+                RenderApiCallSubRow(entry, entry.OutSegments, y + subH, subH, ref barIdx, cullLeft, cullRight, showReady: false,
+                    drawOutputAppend: false, ref outputAppendLineIdx, ref outputAppendEndIdx, outputAppendBrush); // I/O Out(주황)
+                RenderApiCallSubRow(entry, entry.InSegments, y + subH, subH, ref barIdx, cullLeft, cullRight, showReady: false,
+                    drawOutputAppend: true, ref outputAppendLineIdx, ref outputAppendEndIdx, outputAppendBrush);  // I/O In(파랑) + In 시작 timeAppend 점선
+            }
+            else
             foreach (var segment in entry.Segments)
             {
                 var segmentEndTime = segment.EndTime ?? _viewModel.CurrentTime;
@@ -285,32 +289,12 @@ public partial class GanttChartControl
                 {
                     double startX = (part.StartTime - _viewModel.StartTime).TotalSeconds * _viewModel.PixelsPerSecond;
                     double width = (part.EndTime - part.StartTime).TotalSeconds * _viewModel.PixelsPerSecond;
-                    if (part.Kind != GanttSegmentRenderKind.OutputAppendEnd && width < 2) width = 2;
+                    if (width < 2) width = 2;
 
                     if (startX + width < cullLeft) continue;
                     if (startX > cullRight) continue;
 
-                    if (part.Kind == GanttSegmentRenderKind.OutputAppendLine)
-                    {
-                        var line = GetOrCreateOutputAppendLine(outputAppendLineIdx++);
-                        line.X1 = startX;
-                        line.X2 = startX + width;
-                        line.Y1 = y + rowHeight / 2.0;
-                        line.Y2 = y + rowHeight / 2.0;
-                        line.Stroke = outputAppendBrush;
-                        line.Tag = new BarTagInfo { Entry = entry, Segment = segment };
-                    }
-                    else if (part.Kind == GanttSegmentRenderKind.OutputAppendEnd)
-                    {
-                        var line = GetOrCreateOutputAppendEnd(outputAppendEndIdx++);
-                        line.X1 = startX;
-                        line.X2 = startX;
-                        line.Y1 = y + 4;
-                        line.Y2 = y + rowHeight - 4;
-                        line.Stroke = outputAppendBrush;
-                        line.Tag = new BarTagInfo { Entry = entry, Segment = segment };
-                    }
-                    else if (part.Kind == GanttSegmentRenderKind.VirtualAppendOutline)
+                    if (part.Kind == GanttSegmentRenderKind.VirtualAppendOutline)
                     {
                         var border = GetOrCreateVirtualAppend(virtualAppendIdx++);
                         border.Width = width;
@@ -344,6 +328,63 @@ public partial class GanttChartControl
         HideRemaining(_virtualAppendPool, virtualAppendIdx);
         HideRemaining(_outputAppendLinePool, outputAppendLineIdx);
         HideRemaining(_outputAppendEndPool, outputAppendEndIdx);
+    }
+
+    /// <summary>ApiCall 한 줄(Plan 또는 I/O) 막대 렌더 — Ready(빈 구간)는 skip.
+    /// drawOutputAppend=true(I/O 줄)면 Out(=Going) high 끝에 timeAppend(출력 유지) 빨간 점선을 그린다.</summary>
+    private void RenderApiCallSubRow(
+        GanttTimelineEntry entry,
+        System.Collections.Generic.IEnumerable<GanttStateSegment> segments,
+        double yTop, double subH, ref int barIdx, double cullLeft, double cullRight,
+        bool showReady, bool drawOutputAppend,
+        ref int outputAppendLineIdx, ref int outputAppendEndIdx, Brush outputAppendBrush)
+    {
+        if (_viewModel == null) return;
+        foreach (var segment in segments)
+        {
+            if (!showReady && segment.State == Ds2.Core.Status4.Ready) continue;
+            var endTime = segment.EndTime ?? _viewModel.CurrentTime;
+            double startX = (segment.StartTime - _viewModel.StartTime).TotalSeconds * _viewModel.PixelsPerSecond;
+            double width = (endTime - segment.StartTime).TotalSeconds * _viewModel.PixelsPerSecond;
+            if (width < 2) width = 2;
+            if (startX + width < cullLeft || startX > cullRight) continue;
+
+            var bar = GetOrCreateBar(barIdx++);
+            bar.Width = width;
+            bar.Height = Math.Max(2, subH - 3);
+            bar.Fill = segment.StateBrush;
+            bar.Stroke = null;
+            bar.StrokeThickness = 0;
+            bar.Tag = new BarTagInfo { Entry = entry, Segment = segment };
+            Canvas.SetLeft(bar, startX);
+            Canvas.SetTop(bar, yTop + 1);
+
+            // device I/O 줄: In(센서=완료 신호) 들어온 시점부터 timeAppend(출력 유지) 만큼 빨간 점선.
+            // (출력 유지는 device 가 In 을 받은 뒤에도 Out 을 더 끄지 않고 유지하는 구간이므로 In on 부터 그린다.)
+            if (drawOutputAppend && entry.OutputAppendMs > 0
+                && segment.State == Ds2.Core.Status4.Finish)
+            {
+                var inOn = segment.StartTime;
+                var outputEnd = inOn.AddMilliseconds(entry.OutputAppendMs);
+                double oStartX = (inOn - _viewModel.StartTime).TotalSeconds * _viewModel.PixelsPerSecond;
+                double oWidth = (outputEnd - inOn).TotalSeconds * _viewModel.PixelsPerSecond;
+                if (oWidth >= 1 && oStartX + oWidth >= cullLeft && oStartX <= cullRight)
+                {
+                    double yMid = yTop + subH / 2.0;
+                    var line = GetOrCreateOutputAppendLine(outputAppendLineIdx++);
+                    line.X1 = oStartX; line.X2 = oStartX + oWidth;
+                    line.Y1 = yMid; line.Y2 = yMid;
+                    line.Stroke = outputAppendBrush;
+                    line.Tag = new BarTagInfo { Entry = entry, Segment = segment };
+
+                    var endLine = GetOrCreateOutputAppendEnd(outputAppendEndIdx++);
+                    endLine.X1 = oStartX + oWidth; endLine.X2 = oStartX + oWidth;
+                    endLine.Y1 = yTop + 1; endLine.Y2 = yTop + subH - 1;
+                    endLine.Stroke = outputAppendBrush;
+                    endLine.Tag = new BarTagInfo { Entry = entry, Segment = segment };
+                }
+            }
+        }
     }
 
     private void RenderTimeRuler()

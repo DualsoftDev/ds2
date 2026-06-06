@@ -307,6 +307,7 @@ public sealed class SimulationPanelStateRuntimeTests
         public void ApplyInitialStates() => throw new NotSupportedException();
         public void ForceCallState(Guid callGuid, Status4 newState) => throw new NotSupportedException();
         public void TryForceWorkStateIfGoing(Guid workGuid, Status4 newState) => throw new NotSupportedException();
+        public void TryForceWorkStateIfReady(Guid workGuid, Status4 newState) => throw new NotSupportedException();
         public FSharpOption<Status4> GetCallState(Guid callGuid) => null!;
         public void SetAllFlowStates(FlowTag tag) => throw new NotSupportedException();
         public FlowTag GetFlowState(Guid flowGuid) => FlowTag.Ready;

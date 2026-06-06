@@ -212,6 +212,8 @@ type RemoteSimulationEngine
         member _.ForceCallState(g, s) = send HubMethod.RuntimeForceCallState (callStateCmd g s)
         member _.TryForceWorkStateIfGoing(g, s) =
             send HubMethod.RuntimeTryForceWorkStateIfGoing (workStateCmd g s)
+        member _.TryForceWorkStateIfReady(g, s) =
+            send HubMethod.RuntimeTryForceWorkStateIfReady (workStateCmd g s)
         member _.GetWorkState(g) = lock stateLock (fun () -> state.WorkStates.TryFind g)
         member _.GetCallState(g) = lock stateLock (fun () -> state.CallStates.TryFind g)
 

@@ -41,6 +41,7 @@ module internal ConnectionReload =
             | ScheduledEventType.WorkTransition(workGuid, _)
             | ScheduledEventType.ForcedWorkTransition(workGuid, _)
             | ScheduledEventType.DurationComplete workGuid
+            | ScheduledEventType.DeviceOverdueCheck(workGuid, _)
             | ScheduledEventType.HomingComplete workGuid ->
                 workGuidSet.Contains(workGuid)
             | ScheduledEventType.CallTransition(callGuid, _)

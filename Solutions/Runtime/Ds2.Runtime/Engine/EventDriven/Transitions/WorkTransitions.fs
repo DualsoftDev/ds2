@@ -53,10 +53,8 @@ module internal WorkTransitions =
         | None -> false
 
     let scheduleDuration (ctx: Context) (workGuid: Guid) =
-        // Control 모드: Device Work의 Duration 무시 (Finish는 외부 In 신호로만) — Homing 중에는 예외
-        if ctx.RuntimeMode = Ds2.Core.RuntimeMode.Control && isDeviceWork ctx workGuid && not (ctx.IsHomingPhase()) then
-            ctx.StateManager.MarkMinDurationMet(workGuid)
-        else
+        // device work 포함 모든 work 가 plan(duration) 으로 정상 Finish 진행한다(In 무관).
+        // (device 의 In/actual 은 abnormal adapter 가 plan 과 대조할 뿐 Finish 스케줄엔 개입 안 함.)
         let scheduleDurationComplete delayMs =
             let eventId =
                 ctx.Scheduler.ScheduleAfter(
@@ -64,6 +62,22 @@ module internal WorkTransitions =
                     delayMs,
                     ScheduledEvent.PriorityDurationCheck)
             ctx.OnDurationScheduled workGuid eventId (ctx.Scheduler.CurrentTimeMs + delayMs)
+
+        let scheduleDeviceOverdueCheck () =
+            let isExternalPlanMode =
+                ctx.RuntimeMode = RuntimeMode.Control || ctx.RuntimeMode = RuntimeMode.Monitoring
+            if isExternalPlanMode && isDeviceWork ctx workGuid then
+                match ctx.Index.WorkDurationRange |> Map.tryFind workGuid with
+                | Some range when range.MaxMs > 0 ->
+                    let workEpoch = ctx.StateManager.GetWorkEpoch(workGuid)
+                    ctx.Scheduler.ScheduleAfter(
+                        ScheduledEventType.DeviceOverdueCheck(workGuid, workEpoch),
+                        max 1L (int64 range.MaxMs + 1L),
+                        ScheduledEvent.PriorityDurationCheck)
+                    |> ignore
+                | _ -> ()
+
+        scheduleDeviceOverdueCheck ()
 
         let duration = ctx.Index.WorkDuration |> Map.tryFind workGuid |> Option.defaultValue 0.0
         let callGuids = SimIndex.findOrEmpty workGuid ctx.Index.WorkCallGuids
@@ -138,8 +152,35 @@ module internal WorkTransitions =
         triggerImmediateResets ctx workGuid
         ctx.ScheduleConditionEvaluation()
 
+    // device 동시-Finish 데드락 tie-break. 상호 대칭 resetPred 짝(ADV↔RET)이 둘 다 Finish 면
+    //   going 시작점이 없어 영구 교착(triggerImmediateResets/evaluateWorkResets 둘 다 going 전이가 유일 트리거).
+    //   min Guid 한쪽만 Homing 으로 깨워 cycle 재기동(Homing→Ready→going 정상 경로). pending 가드로 핑퐁 방지.
+    let private tryBreakMutualFinishDeadlock (ctx: Context) (workGuid: Guid) =
+        let peers =
+            match WorkConditionChecker.collectResetPreds ctx.Index workGuid with
+            | Some (_, _, resetPreds) -> resetPreds
+            | None -> []
+        for peer in peers do
+            let symmetric =
+                match WorkConditionChecker.collectResetPreds ctx.Index peer with
+                | Some (_, _, peerPreds) -> peerPreds |> List.contains workGuid
+                | None -> false
+            if symmetric
+               && ctx.StateManager.GetWorkState(peer) = Status4.Finish
+               && (SimState.getWorkToken peer (ctx.StateManager.GetState()) |> Option.isNone)
+               && not (ctx.StateManager.IsWorkPending(peer)) then
+                let loser = if workGuid < peer then workGuid else peer
+                if not (ctx.StateManager.IsWorkPending(loser)) then
+                    ctx.StateManager.MarkWorkPending(loser)
+                    ctx.Scheduler.ScheduleNow(
+                        ScheduledEventType.WorkTransition(loser, Status4.Homing),
+                        ScheduledEvent.PriorityStateChange) |> ignore
+
     let handleWorkFinishTransition (ctx: Context) workGuid =
         ctx.OnWorkFinish workGuid
+        // device 한정: ADV/RET 동시-Finish 교착이면 한쪽을 Homing 으로 깨워 cycle 재기동.
+        if isDeviceWork ctx workGuid then
+            tryBreakMutualFinishDeadlock ctx workGuid
         ctx.ScheduleConditionEvaluation()
 
     let handleWorkHomingTransition (ctx: Context) workGuid =
@@ -152,14 +193,14 @@ module internal WorkTransitions =
         ctx.ScheduleConditionEvaluation()
 
     let runPostWorkTransitionEffects (ctx: Context) workGuid newState =
-        // Passive 모드 (VirtualPlant / Monitoring): VP passive inference가 Work 상태 owner.
-        // 엔진이 덮어쓰지 않게 후속 자동 전이 차단.
-        let isPassive =
+        // Passive 모드(VP/Monitoring): active work 는 passive inference 가 상태 owner라 후속 자동전이 차단.
+        // 단 device work 는 engine 이 cycle owner(=plan duration) — Control 과 동치로 통과시킨다.
+        let isPassiveBlocked =
             match ctx.RuntimeMode with
             | Ds2.Core.RuntimeMode.VirtualPlant
-            | Ds2.Core.RuntimeMode.Monitoring -> true
+            | Ds2.Core.RuntimeMode.Monitoring -> not (isDeviceWork ctx workGuid)
             | _ -> false
-        if isPassive then () else
+        if isPassiveBlocked then () else
         match newState with
         | Status4.Going -> handleWorkGoingTransition ctx workGuid
         | Status4.Finish -> handleWorkFinishTransition ctx workGuid

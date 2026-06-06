@@ -56,6 +56,7 @@ let ``Runtime HubMethod names are locked`` () =
     Assert.Equal("RuntimeStart", HubMethod.RuntimeStart)
     Assert.Equal("RuntimeApplyInitialStates", HubMethod.RuntimeApplyInitialStates)
     Assert.Equal("RuntimeTryForceWorkStateIfGoing", HubMethod.RuntimeTryForceWorkStateIfGoing)
+    Assert.Equal("RuntimeTryForceWorkStateIfReady", HubMethod.RuntimeTryForceWorkStateIfReady)
     Assert.Equal("RuntimeCanAdvanceStep", HubMethod.RuntimeCanAdvanceStep)
     Assert.Equal("RuntimeStepWithSourcePriming", HubMethod.RuntimeStepWithSourcePriming)
     Assert.Equal("RuntimeIsStepBatchActive", HubMethod.RuntimeIsStepBatchActive)
@@ -90,6 +91,7 @@ let ``Runtime SignalHub methods expose DTO-only command surface`` () =
     assertHubMethod HubMethod.RuntimeBeginStepBatch typeof<RuntimeStepBatchCommand> typeof<Task>
     assertHubMethod HubMethod.RuntimeForceWorkState typeof<RuntimeWorkStateCommand> typeof<Task>
     assertHubMethod HubMethod.RuntimeTryForceWorkStateIfGoing typeof<RuntimeWorkStateCommand> typeof<Task<bool>>
+    assertHubMethod HubMethod.RuntimeTryForceWorkStateIfReady typeof<RuntimeWorkStateCommand> typeof<Task<bool>>
     assertHubMethod HubMethod.RuntimeGetWorkState typeof<RuntimeWorkCommand> typeof<Task<RuntimeGuidStatus>>
     assertHubMethod HubMethod.RuntimeInjectIOValueByAddress typeof<RuntimeIOAddressCommand> typeof<Task>
     assertHubMethod HubMethod.RuntimeGetSnapshot typeof<RuntimeCommandEnvelope> typeof<Task<RuntimeStateSnapshot>>

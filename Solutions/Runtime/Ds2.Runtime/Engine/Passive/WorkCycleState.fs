@@ -82,6 +82,8 @@ module internal PassiveInferenceWorkCycleState =
         workGuid
         state =
         if overlay.GetWorkState(workGuid) <> state then
+            if state = Status4.Going && overlay.GetWorkState(workGuid) <> Status4.Ready then
+                enqueueWorkState actions overlay workGuid Status4.Ready
             enqueueWorkState actions overlay workGuid state
             if state = Status4.Going then
                 applyPassiveResetTargets ctx actions overlay workGuid
@@ -101,14 +103,12 @@ module internal PassiveInferenceWorkCycleState =
                     if shouldHoldFinishForGroup wl groupIdx period then Status4.Finish
                     else Status4.Going
 
-                let shouldSuppressMonitoringFinish =
-                    ctx.RuntimeMode = RuntimeMode.Monitoring
-                    && nextState = Status4.Finish
-                    && not wl.HasObservedSyncedGoing
+                let shouldSuppressFinishWithoutGoing =
+                    nextState = Status4.Finish
                     && currentState <> Status4.Going
                     && currentState <> Status4.Finish
 
-                if not shouldSuppressMonitoringFinish && currentState <> nextState then
+                if not shouldSuppressFinishWithoutGoing && currentState <> nextState then
                     enqueueWorkStateWithGoingEffects ctx actions overlay workGuid nextState
                     if nextState = Status4.Going then
                         wl.HasObservedSyncedGoing <- true

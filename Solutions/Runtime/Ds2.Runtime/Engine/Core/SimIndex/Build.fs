@@ -112,6 +112,8 @@ module internal SimIndexBuild =
                 |> Option.map (fun ts -> ts.TotalMilliseconds)
                 |> Option.defaultValue 0.0
             let resolvedId = work.ReferenceOf |> Option.defaultValue work.Id
+            // device work(leaf)의 plan Going 지속 = work.Duration 만(순수 가동시간).
+            // ActionType timeAppend(출력 유지)는 Going 막대를 늘이지 않고, 간트에 빨간 채워진 사각형(시각화)으로만 표기한다(사용자 확정 2026-06-06).
             let duration =
                 if callGuids.IsEmpty then
                     userDurationMs

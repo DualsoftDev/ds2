@@ -14,6 +14,10 @@ type RuntimeHubEffectKind =
     /// currentState=Going 일 때만 newState 로 Force. Reset 흐름 도중 stale 응답이
     /// Homing→Finish 잘못 전이시키는 race 차단.
     | ForceWorkStateIfGoing = 5
+    /// VP/Monitoring device going trigger 전용. device 상태 owner 는 engine(plan duration cycle)이므로,
+    /// HubSession 은 device 가 Ready 일 때만 Going 으로 진입시킨다. Finish/Homing/Going 중엔 무시 —
+    /// engine cycle 과 경합(Finish->Going 등 비정상 전이) 차단.
+    | ForceWorkStateIfReady = 6
 
 type RuntimeHubLogSeverity =
     | Info = 0
@@ -70,6 +74,9 @@ module RuntimeSessionEffects =
 
     let addForceWorkStateIfGoing effects delayMs workGuid state =
         addEffect effects RuntimeHubEffectKind.ForceWorkStateIfGoing delayMs "" RuntimeHubLogSeverity.Info "" "" workGuid state
+
+    let addForceWorkStateIfReady effects delayMs workGuid state =
+        addEffect effects RuntimeHubEffectKind.ForceWorkStateIfReady delayMs "" RuntimeHubLogSeverity.Info "" "" workGuid state
 
     let addWriteTag effects delayMs address value =
         addEffect effects RuntimeHubEffectKind.WriteTag delayMs "" RuntimeHubLogSeverity.Info address value Guid.Empty Status4.Ready

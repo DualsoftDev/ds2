@@ -184,18 +184,28 @@ module WorkConditionChecker =
         else
             workCompletion index state callGuid workGuids
 
-    let private runtimeInputSatisfied (index: SimIndex) (state: SimState) (callGuid: Guid) (apiCall: ApiCall) : bool =
+    let private runtimeInputSatisfied (index: SimIndex) (state: SimState) (callGuid: Guid) (apiCall: ApiCall) (isExternalIn: bool) : bool =
         let rxCompletionSatisfied () = legacyRxCompletion index state callGuid
         let hasRxWork = SimIndex.rxWorkGuids index callGuid |> List.isEmpty |> not
 
+        // Control/Monitoring(isExternalIn): In(외부 신호)만으로 Call 완료. device(rxCompletion)는
+        //   abnormal under/over 판정의 기준자일 뿐 완료 게이트가 아니다 — In 이 device 보다 빨리(under)/늦게(over)
+        //   와도 In 으로만 Finish. In 미도착이면 미완료(Call 은 Going 유지하며 외부 In 을 기다린다).
+        // Simulation/VP: self-driven — device 가 In 을 생성하는 주체라 device 완료까지 AND.
         match state.IOValues |> Map.tryFind apiCall.Id with
         | Some currentValue ->
-            ValueSpec.evaluate apiCall.InputSpec currentValue
-            && rxCompletionSatisfied ()
-        | None when hasRxWork -> rxCompletionSatisfied ()
+            let inOk = ValueSpec.evaluate apiCall.InputSpec currentValue
+            if isExternalIn then
+                // Control/Monitoring: InputSpec 평가가 통과해도 In 이 실제 활성(high)일 때만 완료.
+                //   InputSpec=UndefinedValue 면 ValueSpec.evaluate 가 io 값 무관 true(= In off "false" 도 통과)라
+                //   In 안 들어왔는데 즉시 Finish 되던 버그 → activeInputValue(In high 값)와 일치할 때만 인정.
+                //   In 미도착(off)이면 Call 은 Going 유지하며 외부 In high 를 기다린다.
+                inOk && String.Equals(currentValue, RuntimeSemantics.activeInputValue apiCall, StringComparison.OrdinalIgnoreCase)
+            else inOk && rxCompletionSatisfied ()
+        | None when not isExternalIn && hasRxWork -> rxCompletionSatisfied ()
         | None -> false
 
-    let private runtimeInputEdgeSatisfied (index: SimIndex) (state: SimState) (callGuid: Guid) (apiCall: ApiCall) : bool =
+    let private runtimeInputEdgeSatisfied (index: SimIndex) (state: SimState) (callGuid: Guid) (apiCall: ApiCall) (isExternalIn: bool) : bool =
         let hasRisingValue =
             match state.IOValues |> Map.tryFind apiCall.Id with
             | Some currentValue -> ValueSpec.evaluate apiCall.InputSpec currentValue
@@ -214,10 +224,12 @@ module WorkConditionChecker =
                 |> Map.tryFind apiCall.Id
                 |> Option.defaultValue 0
 
-            currentEpoch > savedEpoch
-            && legacyRxCompletion index state callGuid
+            let edgeOk = currentEpoch > savedEpoch
+            // Control/Monitoring: edge(외부 In)만. Simulation/VP: edge && device 완료.
+            if isExternalIn then edgeOk
+            else edgeOk && legacyRxCompletion index state callGuid
 
-    let private completionTriggerSatisfied (index: SimIndex) (state: SimState) (callGuid: Guid) (apiDef: ApiDef) (apiCall: ApiCall) (isSimulation: bool) : bool =
+    let private completionTriggerSatisfied (index: SimIndex) (state: SimState) (callGuid: Guid) (apiDef: ApiDef) (apiCall: ApiCall) (isSimulation: bool) (isExternalIn: bool) : bool =
         // Simulation 정책: Real 인데 I/O(OutTag/InTag) 미설정이면 실 센서 신호가 없어 completionTrigger 가
         // invalidOp(V2) → catch fallback(RxWork 없는 ResetReset device 는 false)로 영영 완료 못 해 멈춘다.
         // 가상 시뮬레이션은 I/O 가 불필요하므로 Real 을 Virtual 처럼 Duration 기반 완료로 돌린다("Simulation = Real→Virtual").
@@ -232,29 +244,37 @@ module WorkConditionChecker =
                 match RuntimeSemantics.completionTrigger apiDef apiCall with
                 | RuntimeSemantics.WaitPassiveDuration _
                 | RuntimeSemantics.WaitPassiveDurationPlus _ ->
-                    virtualWorkCompletion index state callGuid
+                    // Control/Monitoring(외부 In): device plan-duration 으로 Call 완료 금지.
+                    //   In(외부 신호) 들어올 때까지 Call Going 유지. (device duration 은 abnormal 판정자일 뿐)
+                    if isExternalIn then false
+                    else virtualWorkCompletion index state callGuid
                 | RuntimeSemantics.WaitInput _
                 | RuntimeSemantics.WaitInputLatched _ ->
-                    runtimeInputSatisfied index state callGuid apiCall
+                    runtimeInputSatisfied index state callGuid apiCall isExternalIn
                 | RuntimeSemantics.WaitInputStable (_, ms) ->
                     // v10 §5/§10/§11.2 — Real(Level, Append n) = "센서 ON 후 n ms 연속 유지" debounce.
-                    runtimeInputSatisfied index state callGuid apiCall
-                    && SimState.getIOStableMs apiCall.Id state >= ms
+                    // Control/Monitoring(외부 In): device Going 이 이미 ActionType.Append(=같은 출력) 만큼 유지하므로
+                    //   여기서 또 stable n ms 를 기다리면 Append 가 이중(200+200) 적용된다 → In 들어오면 즉시 완료.
+                    runtimeInputSatisfied index state callGuid apiCall isExternalIn
+                    && (isExternalIn || SimState.getIOStableMs apiCall.Id state >= ms)
                 | RuntimeSemantics.WaitInputEdge _ ->
-                    runtimeInputEdgeSatisfied index state callGuid apiCall
+                    runtimeInputEdgeSatisfied index state callGuid apiCall isExternalIn
                 | RuntimeSemantics.WaitInputEdgeStable (_, ms) ->
                     // v10 §5/§10/§11.2 — Real(OneShot, Append n) = "edge 이후 n ms 안정".
-                    runtimeInputEdgeSatisfied index state callGuid apiCall
-                    && SimState.getIOStableMs apiCall.Id state >= ms
+                    // Control/Monitoring(외부 In): device Going 의 ActionType.Append 와 이중이라 stable 생략 → In 즉시 완료.
+                    runtimeInputEdgeSatisfied index state callGuid apiCall isExternalIn
+                    && (isExternalIn || SimState.getIOStableMs apiCall.Id state >= ms)
             with
             | _ ->
+                // Control/Monitoring(외부 In): completionTrigger 실패해도 device(rx) 로 Call 완료 금지 — In 만으로.
+                //   (Simulation/VP 는 not isExternalIn 이라 기존대로 device rxCompletion fallback 유지.)
                 let hasRxWork = SimIndex.rxWorkGuids index callGuid |> List.isEmpty |> not
-                hasRxWork && legacyRxCompletion index state callGuid
+                not isExternalIn && hasRxWork && legacyRxCompletion index state callGuid
 
     /// Call 완료 가능 여부.
     /// v10 SensingType 이 Virtual 이면 Duration/RxWork 수명 주기를 따른다.
     /// Real 이면 RuntimeSemantics.completionTrigger 의 input 계열 trigger 를 IOValue/RxWork epoch 에 연결한다.
-    let canCompleteCall (index: SimIndex) (state: SimState) (callGuid: Guid) (isSimulation: bool) : bool =
+    let canCompleteCall (index: SimIndex) (state: SimState) (callGuid: Guid) (isSimulation: bool) (isExternalIn: bool) : bool =
         let apiPairs =
             SimIndex.findOrEmpty callGuid index.CallApiCallGuids
             |> List.choose (fun apiCallId ->
@@ -270,7 +290,7 @@ module WorkConditionChecker =
         else
             apiPairs
             |> List.forall (fun (apiDef, apiCall) ->
-                completionTriggerSatisfied index state callGuid apiDef apiCall isSimulation)
+                completionTriggerSatisfied index state callGuid apiDef apiCall isSimulation isExternalIn)
 
     /// TokenSource 중 Ready 상태이면서 predecessor 조건이 미충족인 Work 목록
     let collectBlockedSources (index: SimIndex) (state: SimState) : (Guid * string) list =

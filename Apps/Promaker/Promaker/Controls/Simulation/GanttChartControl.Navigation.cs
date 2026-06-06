@@ -124,29 +124,36 @@ public partial class GanttChartControl
     {
         if (_viewModel == null) return;
         if (sender is not FrameworkElement { Tag: GanttTimelineEntry entry }) return;
-        if (!entry.IsWork) return;
+        if (!entry.HasChildren) return;   // Work/Call 만 접기-펴기 토글 (ApiCall 은 leaf)
 
-        var now = DateTime.Now;
-        bool isDoubleClick = (now - _lastRowClickTime).TotalMilliseconds < 300 && _lastClickedEntry == entry;
-
-        if (isDoubleClick)
-        {
-            entry.IsExpanded = !entry.IsExpanded;
-            foreach (var child in _viewModel.Entries)
-            {
-                if (child.IsCall && child.ParentWorkId == entry.Id)
-                    child.IsVisible = entry.IsExpanded;
-            }
-
-            InvalidateTimeline();
-            _lastClickedEntry = null;
-        }
-        else
-        {
-            _lastClickedEntry = entry;
-        }
-
-        _lastRowClickTime = now;
+        // 행 라벨 단일 클릭으로 접기-펴기 (아이콘 클릭과 동일 동작 — 더블클릭 요구 제거).
+        _viewModel.SetExpanded(entry.Id, !entry.IsExpanded);
+        InvalidateTimeline();
         e.Handled = true;
+    }
+
+    // ▼/▶ 아이콘 단일 클릭으로 접기-펴기 (Work/Call).
+    private void OnToggleIconClick(object sender, MouseButtonEventArgs e)
+    {
+        if (_viewModel == null) return;
+        if (sender is FrameworkElement { DataContext: GanttTimelineEntry entry } && entry.HasChildren)
+        {
+            _viewModel.SetExpanded(entry.Id, !entry.IsExpanded);
+            InvalidateTimeline();
+            e.Handled = true;
+        }
+    }
+
+    // 우클릭 컨텍스트 메뉴 — 전체 Call/Work 접기·펴기.
+    private void OnExpandAllCalls(object sender, RoutedEventArgs e) => ApplyExpandAll(GanttRowKind.Call, true);
+    private void OnCollapseAllCalls(object sender, RoutedEventArgs e) => ApplyExpandAll(GanttRowKind.Call, false);
+    private void OnExpandAllWorks(object sender, RoutedEventArgs e) => ApplyExpandAll(GanttRowKind.Work, true);
+    private void OnCollapseAllWorks(object sender, RoutedEventArgs e) => ApplyExpandAll(GanttRowKind.Work, false);
+
+    private void ApplyExpandAll(GanttRowKind kind, bool expanded)
+    {
+        if (_viewModel == null) return;
+        _viewModel.ExpandAll(kind, expanded);
+        InvalidateTimeline();
     }
 }

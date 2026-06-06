@@ -53,6 +53,7 @@ module internal EventDrivenEngineRuntime =
         ForceAndApplyCallTransition: Guid -> Status4 -> unit
         ApplyWorkTransition: Guid -> Status4 -> unit
         HandleDurationComplete: Guid -> unit
+        HandleDeviceOverdueCheck: Guid -> int -> unit
         ShiftToken: Guid -> TokenValue -> unit
         EmitTokenEvent: TokenEventKind -> TokenValue -> Guid -> Guid option -> unit
         ScheduleConditionEvaluation: unit -> unit
@@ -77,6 +78,8 @@ module internal EventDrivenEngineRuntime =
             ctx.ForceAndApplyCallTransition callGuid targetState
         | ScheduledEventType.DurationComplete workGuid ->
             ctx.HandleDurationComplete workGuid
+        | ScheduledEventType.DeviceOverdueCheck(workGuid, workEpoch) ->
+            ctx.HandleDeviceOverdueCheck workGuid workEpoch
         | ScheduledEventType.CallTimeout callGuid ->
             if ctx.GetCallState callGuid = Status4.Going then
                 let clock = TimeSpan.FromMilliseconds(float (ctx.CurrentTimeMs()))
