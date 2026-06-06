@@ -287,6 +287,13 @@ public class HistoryViewSettings
     public int MinCycleTimeMs { get; set; } = 0;
 
     /// <summary>
+    /// 주기적 전체-이력 자동 재계산 간격(분). 라이브 기록기가 tail 완료를 실시간에 놓쳐
+    /// WT 가 부풀려진 사이클을, 원시 plcTagLog 엣지에서 주기적으로 재도출해 self-heal 한다
+    /// (사용자가 사이클 분석에서 "저장"을 누르는 것과 동일 경로). 0이면 비활성.
+    /// </summary>
+    public int AutoRecomputeIntervalMinutes { get; set; } = 10;
+
+    /// <summary>
     /// 개별 Call 최대 실행시간(ms). GoingTime이 이 값 초과 시 동작편차 통계에서 제외.
     /// </summary>
     public int MaxCallGoingTimeMs { get; set; } = 30000;

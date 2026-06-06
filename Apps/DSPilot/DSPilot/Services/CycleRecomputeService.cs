@@ -135,6 +135,61 @@ public sealed class CycleRecomputeService
             flowName, outcome.CyclesFound, outcome.Deleted, outcome.Inserted);
     }
 
+    // ── 주기적 자동 재계산(전체 추적 flow) — PeriodicCycleRecomputeService 가 호출 ──────────
+    /// <summary>
+    /// 현재 추적 중인 모든 Flow 의 전체 이력을, 각 Flow 의 유효 경계(override ?? 라벨 ?? 토폴로지)로
+    /// 원시 plcTagLog 에서 재도출해 덮어쓴다. 라이브 기록기가 실시간에 놓친 tail 완료로 부풀려진 WT 를
+    /// self-heal 하는 용도. 수동 "저장" 경로와 동일한 코어(<see cref="RederiveAndReplaceAsync"/>)와
+    /// 재정합(<see cref="RunConsistencyTailAsync"/>)을 재사용하되, 진행률 broadcast/_status 는 건드리지
+    /// 않아(조용한 백그라운드 동작) 수동 적용의 UI 폴링과 충돌하지 않는다.
+    /// 다른 전체-이력 잡(수동/자동)이 진행 중이면 즉시 0 을 반환하고 다음 tick 에 재시도한다.
+    /// </summary>
+    /// <returns>실제로 재도출된 Flow 수(0 이면 게이트 점유/데이터 없음으로 아무 작업 안 함).</returns>
+    public async Task<int> RecomputeAllTrackedFlowsAsync(CancellationToken ct = default)
+    {
+        if (!_fullGate.Wait(0))
+            return 0; // 수동/다른 자동 잡 진행 중 — 이번 tick 은 스킵
+
+        try
+        {
+            var oldest = await _plc.GetOldestLogDateTimeAsync();
+            var latest = await _plc.GetLatestLogDateTimeAsync();
+            if (oldest is null || latest is null || latest <= oldest)
+                return 0;
+
+            var toExclusive = latest.Value.AddMilliseconds(1); // 반열림 상한 — 마지막 사이클 누락 방지
+
+            int recomputed = 0;
+            foreach (var flowName in _flowMetrics.GetTrackedFlowNames())
+            {
+                if (ct.IsCancellationRequested) break;
+
+                var (head, tail) = _flowMetrics.GetCycleBoundaryCallNames(flowName);
+                if (string.IsNullOrEmpty(head)) continue; // 경계 없는(전부 Body·미추적) Flow 는 스킵
+
+                try
+                {
+                    var outcome = await RederiveAndReplaceAsync(flowName, head, tail, oldest.Value, toExclusive);
+                    if (outcome.TagResolved) recomputed++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[CycleRecompute] 자동 재계산 실패 ({Flow})", flowName);
+                }
+            }
+
+            // 평균/스냅샷 재정합 + "DatabaseRebuilt" 는 실제 재도출이 있었을 때만 한 번.
+            if (recomputed > 0 && !ct.IsCancellationRequested)
+                await RunConsistencyTailAsync();
+
+            return recomputed;
+        }
+        finally
+        {
+            _fullGate.Release();
+        }
+    }
+
     // ── 코어: 재도출 + 구간 교체(재정합 없음) ───────────────────────────────────────────
     private async Task<RecomputeOutcome> RederiveAndReplaceAsync(
         string flowName, string? headCallName, string? tailCallName, DateTime fromLocal, DateTime toLocal)
