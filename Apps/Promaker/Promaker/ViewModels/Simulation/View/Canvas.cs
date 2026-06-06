@@ -219,24 +219,38 @@ public partial class SimulationPanelState
     {
         if (_simEngine is null) return;
 
+        double? lastCallDuration = null;
         foreach (var entry in EnumerateSimulationEntries())
         {
-            var timing = SimulationProjection.ganttVisualTiming(
-                _simEngine.Index,
-                entry.Id,
-                entry.Kind,
-                entry.ParentWorkId);
-
-            GanttChart.AddEntry(
-                entry.Id,
-                entry.Name,
-                entry.Kind,
-                entry.ParentWorkId,
-                entry.SystemName,
-                timing.BaseDurationMs.HasValue ? timing.BaseDurationMs.Value : null,
-                timing.VirtualAppendMs,
-                timing.OutputAppendMs);
+            switch (entry.GanttRowKind)
+            {
+                case 0: // Work
+                case 1: // Call
+                {
+                    var timing = SimulationProjection.ganttVisualTiming(
+                        _simEngine.Index, entry.Id, entry.Kind, entry.ParentWorkId);
+                    double? dur = timing.BaseDurationMs.HasValue ? timing.BaseDurationMs.Value : null;
+                    // timeAppend 빨간 점선은 Call/Work 줄이 아니라 device I/O 줄(ApiCall 아래줄)에 ApiCall 각자 값으로 그린다 → 여기선 0.
+                    GanttChart.AddEntry(
+                        entry.Id, entry.Name, entry.Kind, entry.ParentWorkId, entry.SystemName,
+                        dur, timing.VirtualAppendMs, 0);
+                    if (entry.GanttRowKind == 1) lastCallDuration = dur;
+                    break;
+                }
+                case 2: // ApiCall — timeAppend는 ApiCall 각자의 ApiDef 값만 (Call 단위 max 아님). VP·Monitoring은 0.
+                {
+                    int apiOut = UsesSignalDrivenGanttTimeline(SelectedRuntimeMode)
+                        ? 0 : SimulationProjection.apiCallOutputAppendMs(_simEngine.Index, entry.Id);
+                    GanttChart.AddApiCallEntry(
+                        entry.Id, entry.Name,
+                        entry.ParentWorkId!.Value, entry.ParentCallId!.Value,
+                        entry.SystemName, lastCallDuration, entry.OutAddress, entry.InAddress,
+                        apiOut);
+                    break;
+                }
+            }
         }
+        GanttChart.RefreshVisibility();   // Call 기본 접힘 → 자식 ApiCall 초기 숨김 반영
     }
 
     private IEnumerable<SimulationProjection.SimulationEntry> EnumerateSimulationEntries()

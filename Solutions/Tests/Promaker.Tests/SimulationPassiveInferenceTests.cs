@@ -70,6 +70,31 @@ public sealed class SimulationPassiveInferenceTests
     }
 
     [Fact]
+    public void Runtime_engine_try_force_work_state_if_ready_ignores_non_ready_work()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var fixture = BuildSingleCallFixture();
+            var index = SimIndexModule.build(fixture.Store, 10);
+            using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
+
+            engine.Start();
+
+            engine.TryForceWorkStateIfReady(fixture.ActiveWorkId, Status4.Going);
+            Assert.True(StaTestRunner.WaitUntil(1000, () => GetWorkState(engine, fixture.ActiveWorkId) == Status4.Going));
+
+            engine.TryForceWorkStateIfReady(fixture.ActiveWorkId, Status4.Finish);
+            Assert.Equal(Status4.Going, GetWorkState(engine, fixture.ActiveWorkId));
+
+            engine.ForceWorkState(fixture.ActiveWorkId, Status4.Finish);
+            Assert.True(StaTestRunner.WaitUntil(1000, () => GetWorkState(engine, fixture.ActiveWorkId) == Status4.Finish));
+
+            engine.TryForceWorkStateIfReady(fixture.ActiveWorkId, Status4.Going);
+            Assert.Equal(Status4.Finish, GetWorkState(engine, fixture.ActiveWorkId));
+        });
+    }
+
+    [Fact]
     public void Passive_inference_detects_cycle_from_repeating_window_after_noisy_prefix()
     {
         StaTestRunner.Run(() =>
@@ -159,12 +184,12 @@ public sealed class SimulationPassiveInferenceTests
 
             ObservePassive(state, fixture.OutAddress, "true");
             Assert.True(StaTestRunner.WaitUntil(1000, () => GetCallState(engine, fixture.CallId) == Status4.Going));
-            Assert.Equal(new[] { Status4.Going, Status4.Finish, Status4.Going }, transitions);
+            Assert.Equal(new[] { Status4.Going, Status4.Finish, Status4.Ready, Status4.Going }, transitions);
         });
     }
 
     [Fact]
-    public void Passive_call_inference_requires_all_outputs_for_going_and_all_inputs_for_finish()
+    public void Passive_call_inference_requires_all_apicall_outputs_and_inputs_for_call_state()
     {
         StaTestRunner.Run(() =>
         {
@@ -175,21 +200,13 @@ public sealed class SimulationPassiveInferenceTests
 
             engine.Start();
 
-            // 첫 Out 만으론 Going 안 됨 — 그 Call 의 모든 Out 주소가 High 여야 Going.
+            // 전체 ApiCall IO 기준: Call 의 모든 ApiCall Out 이 high 여야 Going (첫 매칭만으론 부족).
             ObservePassive(state, fixture.FirstOutAddress, "true");
-            StaTestRunner.PumpPendingUi();
-            Assert.Equal(Status4.Ready, GetCallState(engine, fixture.CallId));
-
-            // 모든 Out On → Going.
             ObservePassive(state, fixture.SecondOutAddress, "true");
             Assert.True(StaTestRunner.WaitUntil(1000, () => GetCallState(engine, fixture.CallId) == Status4.Going));
 
-            // 첫 In 만으론 Finish 안 됨 — 그 Call 의 모든 In 주소가 High 여야 Finish.
+            // 모든 ApiCall In 이 high 여야 Finish.
             ObservePassive(state, fixture.FirstInAddress, "true");
-            StaTestRunner.PumpPendingUi();
-            Assert.Equal(Status4.Going, GetCallState(engine, fixture.CallId));
-
-            // 모든 In On → Finish.
             ObservePassive(state, fixture.SecondInAddress, "true");
             Assert.True(StaTestRunner.WaitUntil(1000, () => GetCallState(engine, fixture.CallId) == Status4.Finish));
         });
@@ -593,7 +610,7 @@ public sealed class SimulationPassiveInferenceTests
     }
 
     [Fact]
-    public void Control_runtime_hub_session_maps_in_tag_to_inject_and_rx_finish()
+    public void Control_runtime_hub_session_maps_in_tag_to_inject_without_rx_finish()
     {
         var fixture = BuildSingleCallFixture();
         var index = SimIndexModule.build(fixture.Store, 10);
@@ -606,9 +623,8 @@ public sealed class SimulationPassiveInferenceTests
             effect.Kind == RuntimeHubEffectKind.InjectIoByAddress
             && effect.Address == fixture.InAddress
             && effect.Value == "true");
-        Assert.Contains(effects, effect =>
-            effect.Kind == RuntimeHubEffectKind.ForceWorkStateIfGoing
-            && effect.State == Status4.Finish);
+        Assert.DoesNotContain(effects, effect =>
+            effect.Kind == RuntimeHubEffectKind.ForceWorkStateIfGoing);
         Assert.Contains(effects, effect =>
             effect.Kind == RuntimeHubEffectKind.Log
             && effect.Severity == RuntimeHubLogSeverity.Finish
@@ -616,7 +632,7 @@ public sealed class SimulationPassiveInferenceTests
     }
 
     [Fact]
-    public void Monitoring_runtime_hub_session_emits_log_and_passive_observe_only()
+    public void Monitoring_runtime_hub_session_drives_device_going_without_plc_write()
     {
         var fixture = BuildSingleCallFixture();
         var index = SimIndexModule.build(fixture.Store, 10);
@@ -625,6 +641,11 @@ public sealed class SimulationPassiveInferenceTests
 
         var effects = session.HandleHubTag(fixture.OutAddress, "true", "control");
 
+        // Monitoring 도 Control/VP 처럼 device work 를 Going 으로 구동한다(=plan: duration 소모 + 상호리셋).
+        Assert.Contains(effects, effect =>
+            effect.Kind == RuntimeHubEffectKind.ForceWorkStateIfReady
+            && effect.State == Status4.Going
+            && effect.DelayMs == 0);
         Assert.Contains(effects, effect =>
             effect.Kind == RuntimeHubEffectKind.Log
             && effect.Severity == RuntimeHubLogSeverity.Info
@@ -634,8 +655,8 @@ public sealed class SimulationPassiveInferenceTests
             && effect.Address == fixture.OutAddress
             && effect.Value == "true"
             && effect.DelayMs == 0);
+        // read-only: 실 장비가 actual IO 의 진실원 — VP 와 달리 PLC 재기록(WriteTag)은 안 한다.
         Assert.DoesNotContain(effects, effect => effect.Kind == RuntimeHubEffectKind.WriteTag);
-        Assert.DoesNotContain(effects, effect => effect.Kind == RuntimeHubEffectKind.ForceWorkState);
     }
 
     [Fact]
@@ -649,10 +670,10 @@ public sealed class SimulationPassiveInferenceTests
         var effects = session.HandleHubTag(fixture.OutAddress, "true", "control");
 
         Assert.Contains(effects, effect =>
-            effect.Kind == RuntimeHubEffectKind.ForceWorkState
+            effect.Kind == RuntimeHubEffectKind.ForceWorkStateIfReady
             && effect.State == Status4.Going
             && effect.DelayMs == 0);
-        Assert.Contains(effects, effect =>
+        Assert.DoesNotContain(effects, effect =>
             effect.Kind == RuntimeHubEffectKind.ForceWorkState
             && effect.State == Status4.Finish);
         Assert.Contains(effects, effect =>
@@ -668,30 +689,6 @@ public sealed class SimulationPassiveInferenceTests
             effect.Kind == RuntimeHubEffectKind.PassiveObserve
             && effect.Address == fixture.InAddress
             && effect.Value == "true");
-    }
-
-    [Fact]
-    public void VirtualPlant_hub_session_undefined_output_false_is_inactive()
-    {
-        var fixture = BuildSingleCallFixture();
-        var index = SimIndexModule.build(fixture.Store, 10);
-        using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
-        var session = new RuntimeHubSession(index, engine.IOMap, RuntimeMode.VirtualPlant);
-
-        var effects = session.HandleHubTag(fixture.OutAddress, "false", "control");
-
-        Assert.DoesNotContain(effects, effect =>
-            effect.Kind == RuntimeHubEffectKind.ForceWorkState
-            && effect.State == Status4.Going);
-        Assert.DoesNotContain(effects, effect =>
-            effect.Kind == RuntimeHubEffectKind.WriteTag
-            && effect.Address == fixture.InAddress
-            && effect.Value == "true");
-        Assert.Contains(effects, effect =>
-            effect.Kind == RuntimeHubEffectKind.WriteTag
-            && effect.Address == fixture.InAddress
-            && effect.Value == "false"
-            && effect.DelayMs == 0);
     }
 
     [Fact]
@@ -706,9 +703,39 @@ public sealed class SimulationPassiveInferenceTests
 
         var effects = session.HandleHubTag(fixture.InAddress, "true", "virtualplant");
         Assert.Contains(effects, effect =>
+            effect.Kind == RuntimeHubEffectKind.InjectIoByAddress
+            && effect.Address == fixture.InAddress
+            && effect.Value == "true");
+        Assert.Contains(effects, effect =>
             effect.Kind == RuntimeHubEffectKind.PassiveObserve
             && effect.Address == fixture.InAddress
             && effect.Value == "true"
+            && effect.DelayMs == 0);
+        Assert.DoesNotContain(effects, effect =>
+            effect.Kind == RuntimeHubEffectKind.ForceWorkStateIfGoing);
+    }
+
+    [Fact]
+    public void VirtualPlant_hub_session_undefined_output_false_is_inactive()
+    {
+        var fixture = BuildSingleCallFixture();
+        var index = SimIndexModule.build(fixture.Store, 10);
+        using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
+        var session = new RuntimeHubSession(index, engine.IOMap, RuntimeMode.VirtualPlant);
+
+        var effects = session.HandleHubTag(fixture.OutAddress, "false", "control");
+
+        Assert.DoesNotContain(effects, effect =>
+            effect.Kind == RuntimeHubEffectKind.ForceWorkStateIfReady
+            && effect.State == Status4.Going);
+        Assert.DoesNotContain(effects, effect =>
+            effect.Kind == RuntimeHubEffectKind.WriteTag
+            && effect.Address == fixture.InAddress
+            && effect.Value == "true");
+        Assert.Contains(effects, effect =>
+            effect.Kind == RuntimeHubEffectKind.WriteTag
+            && effect.Address == fixture.InAddress
+            && effect.Value == "false"
             && effect.DelayMs == 0);
     }
 
@@ -720,22 +747,22 @@ public sealed class SimulationPassiveInferenceTests
     // 동작하는지 직접 검증. Bool spec 시나리오는 기존 테스트 (위) 가 커버.
 
     [Fact]
-    public void Control_hub_session_int_input_spec_active_triggers_rx_finish()
+    public void Control_hub_session_int_input_spec_active_injects_without_rx_finish()
     {
         var fixture = BuildValueSpecCallFixture();
         var index = SimIndexModule.build(fixture.Store, 10);
         using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.Control);
         var session = new RuntimeHubSession(index, engine.IOMap, RuntimeMode.Control);
 
-        // InputSpec = Int32(Single 9) — "9" 받으면 active → RxWork ForceFinish trigger.
         var activeEffects = session.HandleHubTag(fixture.InAddress, "9", "virtualplant");
         Assert.Contains(activeEffects, e =>
-            e.Kind == RuntimeHubEffectKind.ForceWorkStateIfGoing && e.State == Status4.Finish);
-        Assert.Contains(activeEffects, e =>
             e.Kind == RuntimeHubEffectKind.InjectIoByAddress && e.Value == "9");
+        Assert.DoesNotContain(activeEffects, e =>
+            e.Kind == RuntimeHubEffectKind.ForceWorkStateIfGoing);
 
-        // "5" 받으면 inactive (5 ≠ 9) → trigger 안 됨. 이전 Bool 가정 코드는 false 만 거름.
         var inactiveEffects = session.HandleHubTag(fixture.InAddress, "5", "virtualplant");
+        Assert.Contains(inactiveEffects, e =>
+            e.Kind == RuntimeHubEffectKind.InjectIoByAddress && e.Value == "5");
         Assert.DoesNotContain(inactiveEffects, e =>
             e.Kind == RuntimeHubEffectKind.ForceWorkStateIfGoing);
     }
@@ -757,7 +784,7 @@ public sealed class SimulationPassiveInferenceTests
             && e.Address == fixture.InAddress
             && e.Value == "9");
         Assert.Contains(effects, e =>
-            e.Kind == RuntimeHubEffectKind.ForceWorkState && e.State == Status4.Going);
+            e.Kind == RuntimeHubEffectKind.ForceWorkStateIfReady && e.State == Status4.Going);
     }
 
     [Fact]
@@ -772,7 +799,7 @@ public sealed class SimulationPassiveInferenceTests
         var effects = session.HandleHubTag(fixture.OutAddress, "5", "control");
 
         Assert.DoesNotContain(effects, e =>
-            e.Kind == RuntimeHubEffectKind.ForceWorkState && e.State == Status4.Going);
+            e.Kind == RuntimeHubEffectKind.ForceWorkStateIfReady && e.State == Status4.Going);
         // active echo "9" 안 들어감.
         Assert.DoesNotContain(effects, e =>
             e.Kind == RuntimeHubEffectKind.WriteTag
@@ -819,7 +846,7 @@ public sealed class SimulationPassiveInferenceTests
         var effects = session.ResolveHubSnapshotEffects(snapshot);
 
         Assert.Contains(effects, effect =>
-            effect.Kind == RuntimeHubEffectKind.ForceWorkState
+            effect.Kind == RuntimeHubEffectKind.ForceWorkStateIfReady
             && effect.State == Status4.Going);
         Assert.Contains(effects, effect =>
             effect.Kind == RuntimeHubEffectKind.WriteTag
@@ -907,9 +934,8 @@ public sealed class SimulationPassiveInferenceTests
             effect.Kind == RuntimeHubEffectKind.InjectIoByAddress
             && effect.Address == fixture.InAddress
             && effect.Value == "true");
-        Assert.Contains(tagEffects, effect =>
-            effect.Kind == RuntimeHubEffectKind.ForceWorkStateIfGoing
-            && effect.State == Status4.Finish);
+        Assert.DoesNotContain(tagEffects, effect =>
+            effect.Kind == RuntimeHubEffectKind.ForceWorkStateIfGoing);
 
         var snapshot = new Dictionary<string, string>
         {

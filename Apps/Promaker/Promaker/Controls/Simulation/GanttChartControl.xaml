@@ -12,6 +12,15 @@
     </UserControl.Resources>
 
     <Grid x:Name="RootGrid">
+        <Grid.ContextMenu>
+            <ContextMenu>
+                <MenuItem Header="전체 Call 펼치기" Click="OnExpandAllCalls"/>
+                <MenuItem Header="전체 Call 접기" Click="OnCollapseAllCalls"/>
+                <Separator/>
+                <MenuItem Header="전체 Work 펼치기" Click="OnExpandAllWorks"/>
+                <MenuItem Header="전체 Work 접기" Click="OnCollapseAllWorks"/>
+            </ContextMenu>
+        </Grid.ContextMenu>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="140"/>
             <ColumnDefinition Width="*"/>
@@ -67,38 +76,52 @@
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
                                 <Path x:Name="ExpandedIcon" Grid.Column="0"
-                                      Width="10" Height="10" Margin="2,0,4,0"
+                                      Width="12" Height="12" Margin="2,0,4,0"
+                                      Fill="{DynamicResource SecondaryTextBrush}"
+                                      Stretch="Uniform" VerticalAlignment="Center"
+                                      Data="M7,14L12,9L17,14H7Z"
+                                      Visibility="Collapsed" Cursor="Hand"
+                                      MouseLeftButtonDown="OnToggleIconClick"/>
+                                <Path x:Name="CollapsedIcon" Grid.Column="0"
+                                      Width="12" Height="12" Margin="2,0,4,0"
                                       Fill="{DynamicResource SecondaryTextBrush}"
                                       Stretch="Uniform" VerticalAlignment="Center"
                                       Data="M7,10L12,15L17,10H7Z"
-                                      Visibility="Collapsed"/>
-                                <Path x:Name="CollapsedIcon" Grid.Column="0"
-                                      Width="10" Height="10" Margin="2,0,4,0"
-                                      Fill="{DynamicResource SecondaryTextBrush}"
-                                      Stretch="Uniform" VerticalAlignment="Center"
-                                      Data="M10,17L15,12L10,7V17Z"
-                                      Visibility="Collapsed"/>
+                                      Visibility="Collapsed" Cursor="Hand"
+                                      MouseLeftButtonDown="OnToggleIconClick"/>
                                 <TextBlock Grid.Column="1"
                                            Text="{Binding DisplayName}"
                                            Foreground="{DynamicResource PrimaryTextBrush}"
                                            FontSize="10" VerticalAlignment="Center"
                                            Padding="4,0" TextTrimming="CharacterEllipsis"
                                            ToolTip="{Binding Name}"/>
+                                <!-- ApiCall 전용 — 막대 위(Plan)/아래(I/O)에 맞춘 PLN/I/O 세로 표식 -->
+                                <StackPanel x:Name="IoLabels" Grid.Column="2"
+                                            VerticalAlignment="Center" Margin="4,0,6,0"
+                                            Visibility="Collapsed">
+                                    <TextBlock Text="PLN" FontSize="8" Height="13"
+                                               Foreground="{DynamicResource SecondaryTextBrush}"
+                                               VerticalAlignment="Center" TextAlignment="Right"/>
+                                    <TextBlock Text="I/O" FontSize="8" Height="13"
+                                               Foreground="{DynamicResource SecondaryTextBrush}"
+                                               VerticalAlignment="Center" TextAlignment="Right"/>
+                                </StackPanel>
                             </Grid>
                         </Border>
                         <DataTemplate.Triggers>
                             <MultiDataTrigger>
                                 <MultiDataTrigger.Conditions>
-                                    <Condition Binding="{Binding IsWork}" Value="True"/>
+                                    <Condition Binding="{Binding HasChildren}" Value="True"/>
                                     <Condition Binding="{Binding IsExpanded}" Value="True"/>
                                 </MultiDataTrigger.Conditions>
                                 <Setter TargetName="ExpandedIcon" Property="Visibility" Value="Visible"/>
                             </MultiDataTrigger>
                             <MultiDataTrigger>
                                 <MultiDataTrigger.Conditions>
-                                    <Condition Binding="{Binding IsWork}" Value="True"/>
+                                    <Condition Binding="{Binding HasChildren}" Value="True"/>
                                     <Condition Binding="{Binding IsExpanded}" Value="False"/>
                                 </MultiDataTrigger.Conditions>
                                 <Setter TargetName="CollapsedIcon" Property="Visibility" Value="Visible"/>
@@ -108,6 +131,9 @@
                             </DataTrigger>
                             <DataTrigger Binding="{Binding IsCall}" Value="True">
                                 <Setter TargetName="RowBorder" Property="Background" Value="{DynamicResource GanttCallRowBackgroundBrush}"/>
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding IsApiCall}" Value="True">
+                                <Setter TargetName="IoLabels" Property="Visibility" Value="Visible"/>
                             </DataTrigger>
                             <DataTrigger Binding="{Binding IsVisible}" Value="False">
                                 <Setter Property="Visibility" Value="Collapsed"/>

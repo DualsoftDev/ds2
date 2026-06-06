@@ -94,7 +94,7 @@ public partial class SimulationPanelState
     {
         ApplyWorkStateChangeToVisibleNode(args);
 #if DEBUG
-        AddSimLog($"W {args.WorkName}: {args.PreviousState}→{args.NewState}", SeverityFromState(args.NewState));
+        AddSimLog($"W {args.WorkName}: {args.PreviousState}→{args.NewState} @{args.Clock}", SeverityFromState(args.NewState));
 #endif
         _sceneEventHandler?.OnWorkStateChanged(args.WorkGuid, args.NewState);
         RefreshSimulationProgressUi();
@@ -107,7 +107,7 @@ public partial class SimulationPanelState
         ApplyCallStateChangeToVisibleNode(args);
 #if DEBUG
         var skip = args.IsSkipped ? " (Skip)" : "";
-        AddSimLog($"C {args.CallName}: {args.PreviousState}→{args.NewState}{skip}", SeverityFromState(args.NewState));
+        AddSimLog($"C {args.CallName}: {args.PreviousState}→{args.NewState}{skip} @{args.Clock}", SeverityFromState(args.NewState));
 #endif
         SetSimSkipped(args.CallGuid, args.IsSkipped);
 

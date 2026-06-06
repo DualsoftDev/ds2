@@ -35,6 +35,11 @@ type ISimulationEngine =
     /// 외부 thread(SignalR) 가 GetWorkState + ForceWorkState 를 분리 호출하면 그 사이
     /// Reset 흐름이 진행되어 stale 응답이 Homing→Finish 잘못 전이시키는 race 차단.
     abstract TryForceWorkStateIfGoing: workGuid: Guid * newState: Status4 -> unit
+    /// Hub OUT=true device 시작 처리 전용 atomic 가드.
+    /// engine 내부 lock 안에서 currentState=Ready 일 때만 newState 로 Force.
+    /// Device duration cycle 이 Finish/Homing/Going 을 소유하므로 중복 OUT 이
+    /// Finish→Going 같은 비정상 전이를 만들지 않게 차단.
+    abstract TryForceWorkStateIfReady: workGuid: Guid * newState: Status4 -> unit
     abstract GetWorkState: workGuid: Guid -> Status4 option
     abstract GetCallState: callGuid: Guid -> Status4 option
 

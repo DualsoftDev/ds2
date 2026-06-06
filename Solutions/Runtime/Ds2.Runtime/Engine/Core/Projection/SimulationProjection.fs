@@ -12,6 +12,11 @@ module SimulationProjection =
         Kind: EntityKind
         SystemName: string
         ParentWorkId: Nullable<Guid>
+        ParentCallId: Nullable<Guid>
+        /// 0=Work 1=Call 2=ApiCallPlan 3=ApiCallIo (C# GanttRowKind 매핑)
+        GanttRowKind: int
+        OutAddress: string
+        InAddress: string
     }
 
     type GanttVisualTiming = {
@@ -44,6 +49,10 @@ module SimulationProjection =
                             Kind = EntityKind.Work
                             SystemName = systemName
                             ParentWorkId = Nullable()
+                            ParentCallId = Nullable()
+                            GanttRowKind = 0
+                            OutAddress = ""
+                            InAddress = ""
                         }
 
                         match Map.tryFind workGuid index.WorkCallGuids with
@@ -58,7 +67,30 @@ module SimulationProjection =
                                             Kind = EntityKind.Call
                                             SystemName = systemName
                                             ParentWorkId = Nullable(workGuid)
+                                            ParentCallId = Nullable()
+                                            GanttRowKind = 1
+                                            OutAddress = ""
+                                            InAddress = ""
                                         }
+
+                                        // Call 밑 ApiCall — Plan(duration)/I/O(실제 Out·In) 각 1줄씩 2줄.
+                                        for apiCallGuid in SimIndex.findOrEmpty callGuid index.CallApiCallGuids do
+                                            match Queries.getApiCall apiCallGuid index.Store with
+                                            | Some ac ->
+                                                let outA = match ac.OutTag with | Some t -> t.Address | None -> ""
+                                                let inA = match ac.InTag with | Some t -> t.Address | None -> ""
+                                                yield {
+                                                    Id = apiCallGuid
+                                                    Name = ac.Name
+                                                    Kind = EntityKind.Call
+                                                    SystemName = systemName
+                                                    ParentWorkId = Nullable(workGuid)
+                                                    ParentCallId = Nullable(callGuid)
+                                                    GanttRowKind = 2
+                                                    OutAddress = outA
+                                                    InAddress = inA
+                                                }
+                                            | None -> ()
                                     | None -> ()
                         | None -> ()
                     | _ -> ()
@@ -170,3 +202,16 @@ module SimulationProjection =
                 VirtualAppendMs = 0
                 OutputAppendMs = 0
             }
+
+    /// 단일 ApiCall 의 ActionType timeAppend(출력 유지 ms) — device I/O 줄에 그 ApiCall 것만 표기(Call 단위 max 아님).
+    let apiCallOutputAppendMs (index: SimIndex) (apiCallGuid: Guid) : int =
+        match index.Store.ApiCalls.TryGetValue(apiCallGuid) with
+        | true, apiCall ->
+            apiCall.ApiDefId
+            |> Option.bind (fun id ->
+                match index.Store.ApiDefs.TryGetValue(id) with
+                | true, ad -> Some ad
+                | _ -> None)
+            |> Option.map (fun ad -> outputAppendMs ad.ActionType)
+            |> Option.defaultValue 0
+        | _ -> 0

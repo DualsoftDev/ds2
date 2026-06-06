@@ -101,7 +101,7 @@ type ControlAbnormalAdapter
                 emitLatched (Abnormal.sensorShort target (now ())) nowMs
         | _ -> ()
 
-    /// InTag falling. level-like 센서가 expected active hold(Call Going) 중 꺼지면 SensorOpen.
+    /// InTag falling. level-like 센서가 Finish(reset 전, active hold) 중 꺼지면 SensorOpen.
     member _.OnInputFalling(apiCallId: Guid, nowMs: int) =
         match mappingOfApiCall apiCallId, apiCallAndDef apiCallId with
         | Some mapping, Some(_, def) when AbnormalDetector.isPhysicalSensing def ->
@@ -111,7 +111,9 @@ type ControlAbnormalAdapter
                 | SensingType.Real(Latched, _) -> true
                 | _ -> false   // OneShot falling 은 정상 pulse off 일 수 있으므로 제외
             let callId = mapping.CallGuid
-            if isLevelLike && getCallState callId = Status4.Going then
+            // Finish(reset 전) 에 level 센서가 빠지면 단선/이탈 = SensorOpen.
+            // reset 되어 Ready 면 정상 사이클 종료라 Open 아님.
+            if isLevelLike && getCallState callId = Status4.Finish then
                 let target = Abnormal.target (Some callId) (Some apiCallId) None
                 emitLatched (Abnormal.sensorOpen target (now ())) nowMs
         | _ -> ()

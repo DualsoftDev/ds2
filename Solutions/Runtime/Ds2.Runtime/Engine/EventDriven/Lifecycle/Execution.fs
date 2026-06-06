@@ -41,7 +41,14 @@ and CallOutputReset =
     | ResetAfter of address: string * delayMs: int * value: string
 
 type DurationCompleteContext = {
+    /// plan-duration 대조는 Control/Monitoring 에서만. Simulation/VP 의 device work 는
+    /// duration 으로 정상 Finish (실 IO 없이 plan=actual / VP echo) — IsDeviceWork 분기 안 탐.
+    RuntimeMode: RuntimeMode
     IsPassiveMode: bool
+    /// device work(passive system 의 work) 판정. plan-duration 만료 시 Finish 진행 대신 abnormal 대조.
+    IsDeviceWork: Guid -> bool
+    /// device work 의 plan-duration(Range.Max) 만료 콜백 — actual In 미도달이면 ActionOver (Composition 이 adapter 연결).
+    OnDeviceDurationExpired: Guid -> unit
     RemoveDuration: Guid -> unit
     GetWorkState: Guid -> Status4
     MarkMinDurationMet: Guid -> unit
@@ -157,7 +164,11 @@ module EventDrivenExecution =
     let handleDurationComplete (ctx: DurationCompleteContext) workGuid =
         ctx.RemoveDuration workGuid
 
-        if not ctx.IsPassiveMode && ctx.GetWorkState workGuid = Status4.Going then
+        // device work 는 plan(duration) 으로 정상 Finish — 모든 모드, In 무관.
+        //   (In/actual 은 abnormal adapter 가 plan 과 대조할 뿐 Finish 경로엔 개입 안 한다.)
+        // 비-device work 는 passive 모드(VP/Monitoring)에서 passive inference 가 상태 owner 라 자동 Finish 안 함.
+        let isDevice = ctx.IsDeviceWork workGuid
+        if ctx.GetWorkState workGuid = Status4.Going && (isDevice || not ctx.IsPassiveMode) then
             // v10 §10 — SensingType.Virtual(Some Append ms) 의 추가 대기.
             // 1차 호출: append ms > 0 + 아직 미적용 → ms 후 재 schedule 하고 return.
             // 2차 호출 (또는 append=0): Finish 진행.

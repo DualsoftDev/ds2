@@ -11,6 +11,9 @@ using Promaker.Presentation;
 
 namespace Promaker.ViewModels;
 
+/// <summary>간트 행 종류 — Work ▸ Call ▸ ApiCall(한 행이 Plan 위/I/O 아래 2줄)</summary>
+public enum GanttRowKind { Work, Call, ApiCall }
+
 /// <summary>간트차트 상태 세그먼트 — 하나의 상태 구간</summary>
 public class GanttStateSegment : INotifyPropertyChanged
 {
@@ -56,13 +59,23 @@ public class GanttTimelineEntry : INotifyPropertyChanged
     public Guid Id { get; init; }
     public string Name { get; init; } = "";
     public EntityKind Kind { get; init; } = EntityKind.Work;
+    public GanttRowKind RowKind { get; init; } = GanttRowKind.Work;
     public Guid? ParentWorkId { get; init; }
+    public Guid? ParentCallId { get; init; }
     public string SystemName { get; init; } = "";
     public int RowIndex { get; init; }
     public double? BaseDurationMs { get; init; }
     public int VirtualAppendMs { get; init; }
     public int OutputAppendMs { get; init; }
+    /// <summary>ApiCall I/O \uc904 \u2014 \uc2e4\uc81c \uc1a1\uc2e0(Out)/\uc218\uc2e0(In) Tag \uc8fc\uc18c. OnHubTagChanged \ub9e4\ud551\uc6a9.</summary>
+    public string OutAddress { get; init; } = "";
+    public string InAddress { get; init; } = "";
+    /// <summary>\uc717\uc904 \ub9c9\ub300 \u2014 Work/Call \uc0c1\ud0dc, ApiCall \uc740 Plan(\uacc4\ud68d) \uc904.</summary>
     public ObservableCollection<GanttStateSegment> Segments { get; } = [];
+    /// <summary>\uc544\ub7ab\uc904 \ub9c9\ub300 \u2014 ApiCall \uc758 I/O(\uc2e4\uc81c Out\u00b7In) \uc904.</summary>
+    public ObservableCollection<GanttStateSegment> OutSegments { get; } = [];
+    /// <summary>아랫줄 막대 — device 실제 In(수신) high 구간. Out 과 독립 추적(겹쳐도 서로 안 닫힘).</summary>
+    public ObservableCollection<GanttStateSegment> InSegments { get; } = [];
 
     private Status4 _currentState = Status4.Ready;
     public Status4 CurrentState
@@ -71,13 +84,28 @@ public class GanttTimelineEntry : INotifyPropertyChanged
         set { _currentState = value; Notify(); }
     }
 
-    public bool IsWork => Kind == EntityKind.Work;
-    public bool IsCall => Kind == EntityKind.Call;
+    public bool IsWork => RowKind == GanttRowKind.Work;
+    public bool IsCall => RowKind == GanttRowKind.Call;
+    public bool IsApiCall => RowKind == GanttRowKind.ApiCall;
+    /// <summary>\uc811\uae30/\ud3b4\uae30 \ud1a0\uae00 \ub300\uc0c1 \u2014 Work/Call \ub9cc \uc790\uc2dd\uc744 \uac00\uc9c4\ub2e4.</summary>
+    public bool HasChildren => IsWork || IsCall;
     public double YOffset { get; set; }
-    public double RowHeight => 22;
-    public int IndentLevel => IsCall ? 1 : 0;
-    public Thickness IndentMargin => new(IndentLevel * 16, 0, 0, 0);
-    public string DisplayName => IsCall ? $"\u2514 {Name}" : Name;
+    /// <summary>ApiCall \uc740 Plan(\uc704)/I/O(\uc544\ub798) 2\uc904\uc774\ub77c \ub192\uc774 2\ubc30.</summary>
+    public double RowHeight => IsApiCall ? 28 : 22;
+    /// <summary>ApiCall \ud55c \uc904(Plan \ub610\ub294 I/O) \ub192\uc774.</summary>
+    public double SubRowHeight => 14;
+    public int IndentLevel => RowKind switch
+    {
+        GanttRowKind.Call => 1,
+        GanttRowKind.ApiCall => 2,
+        _ => 0
+    };
+    public Thickness IndentMargin => new(IndentLevel * 14, 0, 0, 0);
+    public string DisplayName => RowKind switch
+    {
+        GanttRowKind.ApiCall => $"\u2514 {Name}",   // PLN/I/O \ud45c\uc2dd\uc740 XAML \uc6b0\uce21 \uce7c\ub7fc\uc5d0 \uc138\ub85c\ub85c
+        _ => Name   // Work/Call \uc740 \uc774\ub984\ub9cc (Call \uc758 \u2514 \uc81c\uac70)
+    };
 
     private bool _isExpanded = true;
     public bool IsExpanded
@@ -210,8 +238,24 @@ public class GanttChartState : INotifyPropertyChanged
         var entry = FindEntry(nodeId);
         if (entry == null) return;
 
-        bool isCall = entry.IsCall;
-        bool shouldShowSegment = !isCall || newState == Status4.Going;
+        ApplyStateSegment(entry, newState, timestamp);
+
+        // Call 의 Plan 줄(=ApiCall 윗줄) = Call 수명(plan duration) 동기화.
+        if (entry.IsCall)
+        {
+            foreach (var e in Entries)
+                if (e.IsApiCall && e.ParentCallId == nodeId)
+                    ApplyStateSegment(e, newState, timestamp);
+        }
+
+        CurrentTime = timestamp;
+    }
+
+    private void ApplyStateSegment(GanttTimelineEntry entry, Status4 newState, DateTime timestamp)
+    {
+        // Call/Plan 줄은 Going 구간만 막대로 그린다 (Ready/Finish/Homing 은 빈 구간).
+        // R/G/F/H 전부 막대로 표기 (Ready 포함) — 색은 Status4Visuals.GanttBar{Ready=초록/Going=주황/Finish=파랑/Homing=회색}.
+        bool shouldShowSegment = true;
 
         var lastSegment = entry.Segments.Count > 0 ? entry.Segments[^1] : null;
         if (lastSegment is { EndTime: null })
@@ -229,6 +273,38 @@ public class GanttChartState : INotifyPropertyChanged
         }
 
         entry.CurrentState = newState;
+    }
+
+    /// <summary>실제 I/O — Tag(Out·In) 변화를 해당 ApiCall I/O 줄의 막대로. on=high 구간 시작, off=종료.</summary>
+    public void UpdateIoState(string address, bool isOn, DateTime timestamp)
+    {
+        if (string.IsNullOrEmpty(address)) return;
+        foreach (var e in Entries)
+        {
+            if (!e.IsApiCall) continue;
+            bool isOut = e.OutAddress == address;
+            bool isIn = e.InAddress == address;
+            if (!isOut && !isIn) continue;
+
+            // Out/In 을 독립 리스트로 추적 — off 신호가 같은 종류(Out↔Out, In↔In)의 직전 high 구간만 닫는다.
+            //   단일 리스트로 섞으면 Out off 가 In segment 를(또는 그 반대) 잘못 닫아 짧은 조각 + 빨간선 중복이
+            //   생긴다(출력 유지 중 In 이 들어와 Out·In high 구간이 겹칠 수 있으므로).
+            var segs = isOut ? e.OutSegments : e.InSegments;
+            var last = segs.Count > 0 ? segs[^1] : null;
+            if (last is { EndTime: null })
+                last.EndTime = timestamp;
+
+            if (isOn)
+            {
+                segs.Add(new GanttStateSegment
+                {
+                    State = isOut ? Status4.Going : Status4.Finish,
+                    StartTime = timestamp
+                });
+                while (segs.Count > MaxSegmentsPerEntry)
+                    segs.RemoveAt(0);
+            }
+        }
         CurrentTime = timestamp;
     }
 
@@ -266,7 +342,7 @@ public class GanttChartState : INotifyPropertyChanged
                 var segmentEnd = segment.EndTime ?? CurrentTime;
                 if (segmentEnd > end) end = segmentEnd;
 
-                if (entry.OutputAppendMs > 0 && segment.EndTime is { } finishedAt)
+                if (entry.OutputAppendMs > 0 && segment.State == Status4.Going && segment.EndTime is { } finishedAt)
                 {
                     var outputEnd = finishedAt.AddMilliseconds(entry.OutputAppendMs);
                     if (outputEnd > end) end = outputEnd;
@@ -291,24 +367,95 @@ public class GanttChartState : INotifyPropertyChanged
             Id = id,
             Name = name,
             Kind = kind,
+            RowKind = kind == EntityKind.Call ? GanttRowKind.Call : GanttRowKind.Work,
             ParentWorkId = parentWorkId,
             SystemName = systemName,
             BaseDurationMs = baseDurationMs,
             VirtualAppendMs = Math.Max(0, virtualAppendMs),
             OutputAppendMs = Math.Max(0, outputAppendMs),
-            RowIndex = Entries.Count
+            RowIndex = Entries.Count,
+            IsExpanded = kind != EntityKind.Call   // Call 기본 접힘(자식 ApiCall 숨김), Work 는 펼침
         };
 
-        if (kind != EntityKind.Call)
+        // 모든 행(Work/Call) 초기 Ready segment로 시작 — R/G/F/H 전부 간트에 표기.
+        entry.Segments.Add(new GanttStateSegment
         {
-            entry.Segments.Add(new GanttStateSegment
-            {
-                State = Status4.Ready,
-                StartTime = StartTime
-            });
-        }
+            State = Status4.Ready,
+            StartTime = StartTime
+        });
 
         Entries.Add(entry);
         return entry;
+    }
+
+    /// <summary>Call 밑 ApiCall 행 추가 — 한 행이 Plan(윗줄)/I/O(아랫줄) 2줄.</summary>
+    public GanttTimelineEntry AddApiCallEntry(
+        Guid apiCallId,
+        string name,
+        Guid parentWorkId,
+        Guid parentCallId,
+        string systemName = "",
+        double? baseDurationMs = null,
+        string outAddress = "",
+        string inAddress = "",
+        int outputAppendMs = 0)
+    {
+        var entry = new GanttTimelineEntry
+        {
+            Id = apiCallId,
+            Name = name,
+            Kind = EntityKind.Call,
+            RowKind = GanttRowKind.ApiCall,
+            ParentWorkId = parentWorkId,
+            ParentCallId = parentCallId,
+            SystemName = systemName,
+            BaseDurationMs = baseDurationMs,
+            OutAddress = outAddress,
+            InAddress = inAddress,
+            OutputAppendMs = Math.Max(0, outputAppendMs),   // device I/O 줄(Out 끝)에 timeAppend 빨간 점선 표기용
+            RowIndex = Entries.Count
+        };
+        entry.Segments.Add(new GanttStateSegment { State = Status4.Ready, StartTime = StartTime });
+        Entries.Add(entry);
+        return entry;
+    }
+
+    /// <summary>Work/Call 접기-펴기 토글 → 자식 행 IsVisible 갱신.</summary>
+    public void SetExpanded(Guid entryId, bool expanded)
+    {
+        var target = FindEntry(entryId);
+        if (target is null || !target.HasChildren) return;
+        target.IsExpanded = expanded;
+        RefreshVisibility();
+    }
+
+    /// <summary>특정 RowKind(Work/Call) 전체 접기-펴기 — 우클릭 메뉴용.</summary>
+    public void ExpandAll(GanttRowKind kind, bool expanded)
+    {
+        foreach (var e in Entries)
+            if (e.RowKind == kind && e.HasChildren)
+                e.IsExpanded = expanded;
+        RefreshVisibility();
+    }
+
+    /// <summary>전체 행 가시성 재계산 — 부모(Work→Call) 의 IsExpanded 사슬을 따른다.</summary>
+    public void RefreshVisibility()
+    {
+        foreach (var e in Entries)
+        {
+            bool visible = true;
+            if (e.RowKind == GanttRowKind.Call)
+            {
+                var work = e.ParentWorkId.HasValue ? FindEntry(e.ParentWorkId.Value) : null;
+                visible = work?.IsExpanded ?? true;
+            }
+            else if (e.IsApiCall)
+            {
+                var call = e.ParentCallId.HasValue ? FindEntry(e.ParentCallId.Value) : null;
+                var work = e.ParentWorkId.HasValue ? FindEntry(e.ParentWorkId.Value) : null;
+                visible = (call?.IsExpanded ?? true) && (work?.IsExpanded ?? true);
+            }
+            e.IsVisible = visible;
+        }
     }
 }

@@ -62,6 +62,8 @@ module HubMethod =
     [<Literal>]
     let RuntimeTryForceWorkStateIfGoing = "RuntimeTryForceWorkStateIfGoing"
     [<Literal>]
+    let RuntimeTryForceWorkStateIfReady = "RuntimeTryForceWorkStateIfReady"
+    [<Literal>]
     let RuntimeGetWorkState = "RuntimeGetWorkState"
     [<Literal>]
     let RuntimeGetCallState = "RuntimeGetCallState"
@@ -564,6 +566,7 @@ type IRuntimeHubSession =
     abstract member ForceWorkStateAsync : RuntimeWorkStateCommand -> Task
     abstract member ForceCallStateAsync : RuntimeCallStateCommand -> Task
     abstract member TryForceWorkStateIfGoingAsync : RuntimeWorkStateCommand -> Task<bool>
+    abstract member TryForceWorkStateIfReadyAsync : RuntimeWorkStateCommand -> Task<bool>
     abstract member GetWorkStateAsync : RuntimeWorkCommand -> Task<RuntimeGuidStatus>
     abstract member GetCallStateAsync : RuntimeCallCommand -> Task<RuntimeGuidStatus>
     abstract member GetFlowStateAsync : RuntimeFlowTagCommand -> Task<RuntimeGuidFlowTag>

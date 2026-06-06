@@ -212,6 +212,23 @@ public partial class SimulationPanelState : ObservableObject
             setStatusText:            setStatusText,
             setSimStatusText:         v => SimStatusText = v,
             applyRuntimeHubEffects:   ApplyRuntimeHubEffects);
+
+        // 간트 I/O 줄 — Hub 의 실제 Tag(Out·In) 변화를 ApiCall I/O 행 막대로 반영.
+        //   Plan(Call 수명=계획) 과 I/O(실제 송수신) 를 위아래로 대조 → 어디서 어긋나는지(abnormal) 가시화.
+        Hub.TagBroadcast += (address, value, _) =>
+        {
+            bool on = !string.IsNullOrEmpty(value)
+                      && !string.Equals(value, "false", StringComparison.OrdinalIgnoreCase)
+                      && value != "0";
+            // I/O 막대는 PLN(Call 상태)과 같은 engine clock 축으로 찍어야 한다.
+            // PLN = ResolveEventTimestamp(args.Clock) = _simStartTime + engineClock 인데
+            // I/O 가 AdjustedNow(wall) 면 같은 In 신호가 서로 다른 위치에 그려져
+            // "Call Finish 먼저, In/Out 나중"으로 어긋난다. 발생 시점(engine 스레드)의 engine clock 으로 캡처.
+            // I/O 막대는 PLN(Call 상태)과 같은 engine clock 축으로 찍는다(발생 시점 캡처).
+            // dispatch 시점 AdjustedNow 로 평가하면 burst dispatch 시 막대가 0너비로 붕괴된다.
+            var ts = _simEngine is null ? GanttChart.AdjustedNow : ToGanttTimestamp(_simEngine.State.Clock);
+            dispatcher.BeginInvoke(new Action(() => GanttChart.UpdateIoState(address, on, ts)));
+        };
     }
 
     private DsStore Store => _storeProvider();

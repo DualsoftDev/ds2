@@ -273,7 +273,7 @@ let ``v10 ApiDef 7x7 matrix builds SimIndex and completion predicate accepts eac
             checkedCount <- checkedCount + 1
             let testCase = createIndexCase action.Value sensing.Value
             let state = completionState testCase sensing.Value
-            let actual = WorkConditionChecker.canCompleteCall testCase.Index state testCase.CallId false
+            let actual = WorkConditionChecker.canCompleteCall testCase.Index state testCase.CallId false false
 
             Assert.True(
                 actual,

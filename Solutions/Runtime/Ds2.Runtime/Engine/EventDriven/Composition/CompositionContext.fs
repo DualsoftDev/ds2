@@ -126,6 +126,9 @@ module internal EventDrivenCompositionContext =
         GetApiCallsForWork = fun workGuid ->
             // v10 §11: Work GUID → 그 Work 를 TxGuid 로 가리키는 ApiDef + 그 ApiDef 를 참조하는 ApiCall 들.
             // SimIndex 에 직접 매핑이 없으므로 store 순회.
+            // 같은 device(workGuid) 를 여러 Call 이 호출하면(예: 묶음 Call + 개별 Call) 같은 ApiCall 이
+            // 여러 Call 에 공유돼 중복 yield → applyOutputEffect 가 같은 Out 을 2번 송출한다(=Control Out 2회,
+            // VP 가 In 2회 echo, 간트 I/O 막대·timeAppend 점선 중복). ApiCall = I/O(주소 고정)이므로 ApiCall.Id 로 중복 제거.
             let store = index.Store
             [ for kv in store.ApiDefs do
                 let apiDef = kv.Value
@@ -134,6 +137,7 @@ module internal EventDrivenCompositionContext =
                         for apiCall in callKv.Value.ApiCalls do
                             if apiCall.ApiDefId = Some apiDef.Id then
                                 yield (apiDef, apiCall) ]
+            |> List.distinctBy (fun (_, apiCall) -> apiCall.Id)
         WriteTag = writeTagForRuntime
         ScheduleAfter = fun (delayMs, action) ->
             // v10 §11: TimePolicy.Append / EdgePulse 의 시간 지연 적용.
@@ -347,7 +351,10 @@ module internal EventDrivenCompositionContext =
     }
 
     let createDurationCompleteContext
+        runtimeMode
         isPassiveMode
+        isDeviceWork
+        onDeviceDurationExpired
         (durationTracker: DurationTracker)
         (stateManager: StateManager)
         (index: SimIndex)
@@ -355,7 +362,10 @@ module internal EventDrivenCompositionContext =
         scheduleConditionEvaluation
         applyWorkTransition
         : DurationCompleteContext = {
+        RuntimeMode = runtimeMode
         IsPassiveMode = isPassiveMode
+        IsDeviceWork = isDeviceWork
+        OnDeviceDurationExpired = onDeviceDurationExpired
         RemoveDuration = fun workGuid ->
             durationTracker.Remove workGuid
         GetWorkState = stateManager.GetWorkState
@@ -443,6 +453,7 @@ module internal EventDrivenCompositionContext =
         forceAndApplyCallTransition
         applyWorkTransition
         handleDurationComplete
+        handleDeviceOverdueCheck
         shiftToken
         emitTokenEvent
         scheduleConditionEvaluation
@@ -469,6 +480,7 @@ module internal EventDrivenCompositionContext =
         ForceAndApplyCallTransition = forceAndApplyCallTransition
         ApplyWorkTransition = applyWorkTransition
         HandleDurationComplete = handleDurationComplete
+        HandleDeviceOverdueCheck = handleDeviceOverdueCheck
         ShiftToken = shiftToken
         EmitTokenEvent = emitTokenEvent
         ScheduleConditionEvaluation = scheduleConditionEvaluation

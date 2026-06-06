@@ -496,6 +496,11 @@ public sealed class SimulationEngineService : IDisposable
                     _engine.TryForceWorkStateIfGoing(effect.WorkGuid, effect.State);
                 break;
 
+            case RuntimeHubEffectKind.ForceWorkStateIfReady:
+                if (effect.WorkGuid != Guid.Empty)
+                    _engine.TryForceWorkStateIfReady(effect.WorkGuid, effect.State);
+                break;
+
             case RuntimeHubEffectKind.PassiveObserve:
                 ObserveAndInferPassiveState(effect.Address, effect.Value);
                 break;
@@ -521,7 +526,7 @@ public sealed class SimulationEngineService : IDisposable
             switch (action.TargetKind)
             {
                 case PassiveInferenceTarget.Work:
-                    if (GetWorkStateSafe(action.TargetGuid) != action.State)
+                    if (!IsMappedDeviceWork(action.TargetGuid) && GetWorkStateSafe(action.TargetGuid) != action.State)
                         _engine.ForceWorkState(action.TargetGuid, action.State);
                     break;
                 case PassiveInferenceTarget.Call:
@@ -540,6 +545,14 @@ public sealed class SimulationEngineService : IDisposable
         if (_engine is null) return Status4.Ready;
         var opt = _engine.GetWorkState(g);
         return opt != null && FSharpOption<Status4>.get_IsSome(opt) ? opt.Value : Status4.Ready;
+    }
+
+    private bool IsMappedDeviceWork(Guid workGuid)
+    {
+        var engine = _engine;
+        return engine is not null
+               && (engine.IOMap.TxWorkToOutAddresses.Any(kv => kv.Key == workGuid)
+                   || engine.IOMap.RxWorkToInAddresses.Any(kv => kv.Key == workGuid));
     }
 
     private Status4 GetCallStateSafe(Guid g)

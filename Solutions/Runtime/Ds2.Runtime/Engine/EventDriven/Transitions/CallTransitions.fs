@@ -75,11 +75,21 @@ module internal CallTransitions =
                     ctx.StateManager.SetIOValue(apiCallId, ValueSpec.toDefaultString apiCall.InputSpec)
                     scheduleDebounceReeval ctx apiCallId))
 
+    let private shouldSynthesizeInputValues (ctx: Context) =
+        match ctx.RuntimeMode with
+        | RuntimeMode.Simulation
+        | RuntimeMode.VirtualPlant -> true
+        | _ -> false
+
+    let private shouldCompleteRxWorksFromCall (ctx: Context) =
+        ctx.RuntimeMode = RuntimeMode.Simulation
+
     let private applyCallTransitionCore (ctx: Context) (callGuid: Guid) newState =
         let result = ctx.StateManager.ApplyCallTransition(callGuid, newState, ctx.ShouldSkipCall)
         if not result.HasChanged then () else
         let clock = TimeSpan.FromMilliseconds(float ctx.Scheduler.CurrentTimeMs)
-        if result.ActualNewState = Status4.Finish then setCallIOValues ctx callGuid
+        if result.ActualNewState = Status4.Finish && shouldSynthesizeInputValues ctx then
+            setCallIOValues ctx callGuid
         ctx.TriggerCallStateChanged({
             CallGuid = callGuid; CallName = result.NodeName
             PreviousState = result.OldState; NewState = result.ActualNewState; IsSkipped = result.IsSkipped; Clock = clock })
@@ -103,8 +113,10 @@ module internal CallTransitions =
             ctx.ScheduleConditionEvaluation ()
         | Status4.Finish ->
             if not result.IsSkipped then
-                setRxWorkIOValues ctx callGuid
-                SimIndex.rxWorkGuids ctx.Index callGuid |> List.iter (fun rxGuid -> ctx.ScheduleWorkIfReady rxGuid Status4.Finish)
+                if shouldSynthesizeInputValues ctx then
+                    setRxWorkIOValues ctx callGuid
+                if shouldCompleteRxWorksFromCall ctx then
+                    SimIndex.rxWorkGuids ctx.Index callGuid |> List.iter (fun rxGuid -> ctx.ScheduleWorkIfReady rxGuid Status4.Finish)
             // Pause 중 마지막 Call Finish -> 해당 Work의 중단된 duration 재스케줄
             match ctx.Index.CallWorkGuid |> Map.tryFind callGuid with
             | Some workGuid ->

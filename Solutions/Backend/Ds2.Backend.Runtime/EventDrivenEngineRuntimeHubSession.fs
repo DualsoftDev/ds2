@@ -10,6 +10,7 @@ open Ds2.Runtime.Engine
 open Ds2.Runtime.Model
 open Ds2.Runtime.Engine.Core
 open Ds2.Runtime.Engine.Passive
+open Ds2.Runtime.Engine.Abnormal
 open Ds2.Runtime.IO
 
 /// IRuntimeHubSession 의 실제 구현 — Agent 가 보유한 ISimulationEngine 에 위임하고,
@@ -32,6 +33,22 @@ type EventDrivenEngineRuntimeHubSession
         match s with | Running -> "Running" | Paused -> "Paused" | Stopped -> "Stopped"
     let simStatusVal (s: SimulationStatus) =
         match s with | Running -> 0 | Paused -> 1 | Stopped -> 2
+
+    // v12 P5 — abnormal → OnAbnormal broadcast. Control engine 발행 / Monitoring adapter sink 공용.
+    let broadcastAbnormal (record: AbnormalRecord) =
+        let gOpt (o: Guid option) = match o with | Some g -> string g | None -> ""
+        let p : AbnormalPayload =
+            { Kind = string record.Kind
+              KindValue = int record.Kind
+              CallId = gOpt record.Target.CallId
+              ApiCallId = gOpt record.Target.ApiCallId
+              WorkId = gOpt record.Target.WorkId
+              ElapsedMs = (match record.ElapsedMs with | Some n -> n | None -> -1)
+              Observed = (match record.Observed with | Some b -> b | None -> false)
+              Mode = identity.Mode.ToLowerInvariant()
+              Source = identity.Mode.ToLowerInvariant()
+              TimestampUtc = record.TimestampUtc }
+        hub.Clients.All.SendAsync(HubMethod.OnAbnormal, p) |> ignore
 
     // ── 이벤트 → 클라이언트 push (생성자에서 구독) ───────────────
     do
@@ -92,24 +109,9 @@ type EventDrivenEngineRuntimeHubSession
                   TimestampUtc = DateTime.UtcNow }
             hub.Clients.All.SendAsync(HubMethod.OnRuntimeHomingPhaseCompleted, p) |> ignore)
 
-        // v12 P5 — engine 이 Agent 한 곳에 단일 호스팅되므로 abnormal 도 여기서 단일 발행한다.
-        // Control/Monitoring 이 각자 engine 을 돌려 같은 이상을 중복 발행하던 문제의 근본 해소.
-        // client 는 OnAbnormal 한 번만 받으므로 dedup 불필요.
-        engine.AbnormalDetected.Add(fun record ->
-            let gOpt (o: Guid option) = match o with | Some g -> string g | None -> ""
-            let isSensor = int record.Kind <= 1   // SensorOpen=0 / SensorShort=1
-            let p : AbnormalPayload =
-                { Kind = string record.Kind
-                  KindValue = int record.Kind
-                  CallId = gOpt record.Target.CallId
-                  ApiCallId = gOpt record.Target.ApiCallId
-                  WorkId = gOpt record.Target.WorkId
-                  ElapsedMs = (match record.ElapsedMs with | Some n -> n | None -> -1)
-                  Observed = (match record.Observed with | Some b -> b | None -> false)
-                  Mode = identity.Mode.ToLowerInvariant()
-                  Source = identity.Mode.ToLowerInvariant()
-                  TimestampUtc = record.TimestampUtc }
-            hub.Clients.All.SendAsync(HubMethod.OnAbnormal, p) |> ignore)
+        // v12 P5 — abnormal 단일 발행. Control 은 engine.AbnormalDetected, Monitoring 은 adapter sink
+        // (아래 monitoringAbnormal) 가 같은 broadcastAbnormal 로 흘려보낸다. client 는 OnAbnormal 한 번만 수신.
+        engine.AbnormalDetected.Add(broadcastAbnormal)
 
     // ── stale command guard ─────────────────────────────────────
     let allow (env: RuntimeCommandEnvelope) : bool =
@@ -135,17 +137,32 @@ type EventDrivenEngineRuntimeHubSession
         if modeSession.RequiresPassiveInference then
             Some(PassiveInferenceSession(engine.Index, engine.IOMap, runtimeMode))
         else None
+    // v12 P3c — Monitoring 만 abnormal adapter. observeAndInfer 의 IO 를 OnObservedIo 로도 흘려
+    // "Going 없이 Finish" = SensorShort / Action* 판정 → broadcastAbnormal. (Control 은 engine 자체 adapter.)
+    let monitoringAbnormal =
+        if runtimeMode = RuntimeMode.Monitoring then
+            // SensorOpen 판정용 Call state — passive inference 가 engine 에 Force 한 현재 상태를 읽는다.
+            let getCallStateForOpen g = match engine.GetCallState(g) with Some s -> s | None -> Status4.Ready
+            Some(MonitoringAbnormalAdapter(engine.Index, engine.IOMap, getCallStateForOpen, (fun () -> DateTime.UtcNow), broadcastAbnormal))
+        else None
     let getWorkStateSafe =
         Func<Guid, Status4>(fun g -> match engine.GetWorkState(g) with Some s -> s | None -> Status4.Ready)
     let getCallStateSafe =
         Func<Guid, Status4>(fun g -> match engine.GetCallState(g) with Some s -> s | None -> Status4.Ready)
+    let isMappedDeviceWork workGuid =
+        (engine.IOMap.TxWorkToOutAddresses |> Map.containsKey workGuid)
+        || (engine.IOMap.RxWorkToInAddresses |> Map.containsKey workGuid)
     let observeAndInfer (address: string) (value: string) =
+        match monitoringAbnormal with
+        | Some ab -> ab.OnObservedIo(address, value, Environment.TickCount)
+        | None -> ()
         match passiveInference with
         | Some pi ->
             for action in pi.Observe(address, value, getWorkStateSafe, getCallStateSafe) do
                 match action.TargetKind with
                 | PassiveInferenceTarget.Work ->
-                    if getWorkStateSafe.Invoke(action.TargetGuid) <> action.State then
+                    if not (isMappedDeviceWork action.TargetGuid)
+                       && getWorkStateSafe.Invoke(action.TargetGuid) <> action.State then
                         engine.ForceWorkState(action.TargetGuid, action.State)
                 | PassiveInferenceTarget.Call ->
                     if getCallStateSafe.Invoke(action.TargetGuid) <> action.State then
@@ -160,10 +177,39 @@ type EventDrivenEngineRuntimeHubSession
             if effect.WorkGuid <> Guid.Empty then engine.ForceWorkState(effect.WorkGuid, effect.State)
         | RuntimeHubEffectKind.ForceWorkStateIfGoing ->
             if effect.WorkGuid <> Guid.Empty then engine.TryForceWorkStateIfGoing(effect.WorkGuid, effect.State)
+        | RuntimeHubEffectKind.ForceWorkStateIfReady ->
+            if effect.WorkGuid <> Guid.Empty then engine.TryForceWorkStateIfReady(effect.WorkGuid, effect.State)
         | RuntimeHubEffectKind.PassiveObserve -> observeAndInfer effect.Address effect.Value
         | RuntimeHubEffectKind.Log -> ()       // 진단 로그 — Agent log4net 노이즈 회피로 생략
         | RuntimeHubEffectKind.WriteTag -> ()  // Monitoring read-only — PLC 재기록 안 함 (Control write 는 P4)
         | _ -> ()
+
+    // device=plan: engine plan-duration 이 device work 의 Finish 시점(=actual In 이 켜질 시점)을 정한다.
+    //   VP 는 가상 plant 로서 바로 그 시점에 해당 device 의 In 을 자기 passive inference 에 observe 시킨다.
+    //   이때 Call 은 이미 Going(Out observe)이고 duration 도 경과한 상태라 Inference 의
+    //   'state=Going + 모든 In On(callInHigh ⊇ expected)' 조건이 충족돼 Call 이 Finish 한다.
+    //   (HubSession 에서 Out On 시점에 In observe 를 delay 로 넣던 방식은 applyEffect 가 DelayMs 를 안 지켜
+    //    In observe 가 Out observe(going)보다 먼저 즉시 실행 → state=Going 미충족 → Call 이 영구 Going 이었다.)
+    do
+        if runtimeMode = RuntimeMode.VirtualPlant then
+            let inputValueFor (apiCallGuid: Guid) (active: bool) =
+                Ds2.Core.Store.Queries.getApiCall apiCallGuid engine.Index.Store
+                |> Option.map (fun ac ->
+                    if active then RuntimeSemantics.activeInputValue ac else RuntimeSemantics.resetInputValue ac)
+                |> Option.defaultValue (if active then "true" else "false")
+            engine.WorkStateChanged.Add(fun args ->
+                if isMappedDeviceWork args.WorkGuid then
+                    // 이 device 가 출력주체(Tx)인 mapping 의 InAddress = device 동작완료 시 켜지는 actual In.
+                    let deviceInMappings =
+                        engine.IOMap.CallToMappings
+                        |> Seq.collect (fun kvp -> kvp.Value)
+                        |> Seq.filter (fun m -> m.TxWorkGuid = Some args.WorkGuid && not (String.IsNullOrEmpty m.InAddress))
+                    match args.NewState with
+                    | Status4.Finish ->
+                        for m in deviceInMappings do observeAndInfer m.InAddress (inputValueFor m.ApiCallGuid true)
+                    | Status4.Ready | Status4.Homing ->
+                        for m in deviceInMappings do observeAndInfer m.InAddress (inputValueFor m.ApiCallGuid false)
+                    | _ -> ())
 
     let guidStatus (id: string) (s: Status4) : RuntimeGuidStatus =
         { Id = id; StatusName = st4Name s; StatusValue = st4Val s }
@@ -221,6 +267,11 @@ type EventDrivenEngineRuntimeHubSession
         member _.TryForceWorkStateIfGoingAsync cmd =
             if allow cmd.Envelope then
                 engine.TryForceWorkStateIfGoing(pg cmd.WorkId, enum<Status4> cmd.StatusValue)
+                Task.FromResult true
+            else Task.FromResult false
+        member _.TryForceWorkStateIfReadyAsync cmd =
+            if allow cmd.Envelope then
+                engine.TryForceWorkStateIfReady(pg cmd.WorkId, enum<Status4> cmd.StatusValue)
                 Task.FromResult true
             else Task.FromResult false
 
