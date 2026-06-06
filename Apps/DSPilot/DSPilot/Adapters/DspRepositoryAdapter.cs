@@ -7,6 +7,9 @@ using Microsoft.Extensions.Logging;
 
 namespace DSPilot.Adapters;
 
+/// <summary>dspCall.State='Going' 행의 식별 정보 — 상태 self-heal reconcile 용.</summary>
+public sealed record GoingCallInfo(Guid CallId, string CallName, string FlowName);
+
 /// <summary>
 /// DSP 실시간 DB 저장소 (pure C# Dapper 구현).
 /// 기존 F# DspRepository에서 이관. DI 등록 이름 유지를 위해 클래스명은 Adapter 유지.
@@ -537,6 +540,23 @@ public class DspRepositoryAdapter : IDspRepository
         var sql = $"SELECT COUNT(*) FROM {_callTable} WHERE FlowName = @FlowName AND State = 'Going'";
         var count = await conn.ExecuteScalarAsync<long>(sql, new { FlowName = flowName });
         return count > 0;
+    }
+
+    /// <summary>
+    /// 현재 dspCall.State = 'Going' 인 모든 Call (CallId/CallName/FlowName). 상태 self-heal reconcile 용 —
+    /// 호출 측이 엔진 in-memory 상태와 대조해 발산(DB=Going, 엔진=non-Going)을 교정한다.
+    /// </summary>
+    public async Task<List<GoingCallInfo>> GetGoingCallsAsync()
+    {
+        if (!_enabled) return new List<GoingCallInfo>();
+
+        await using var conn = await OpenAsync();
+        if (!await FlowAndCallTablesExistAsync(conn, _flowTable, _callTable))
+            return new List<GoingCallInfo>();
+
+        var sql = $"SELECT CallId, CallName, FlowName FROM {_callTable} WHERE State = 'Going'";
+        var rows = await conn.QueryAsync<GoingCallInfo>(sql);
+        return rows.ToList();
     }
 
     public async Task<bool> UpdateFlowMetricsAsync(

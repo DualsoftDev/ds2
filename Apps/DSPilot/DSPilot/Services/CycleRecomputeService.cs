@@ -137,15 +137,20 @@ public sealed class CycleRecomputeService
 
     // ── 주기적 자동 재계산(전체 추적 flow) — PeriodicCycleRecomputeService 가 호출 ──────────
     /// <summary>
-    /// 현재 추적 중인 모든 Flow 의 전체 이력을, 각 Flow 의 유효 경계(override ?? 라벨 ?? 토폴로지)로
+    /// 현재 추적 중인 모든 Flow 의 이력을, 각 Flow 의 유효 경계(override ?? 라벨 ?? 토폴로지)로
     /// 원시 plcTagLog 에서 재도출해 덮어쓴다. 라이브 기록기가 실시간에 놓친 tail 완료로 부풀려진 WT 를
     /// self-heal 하는 용도. 수동 "저장" 경로와 동일한 코어(<see cref="RederiveAndReplaceAsync"/>)와
     /// 재정합(<see cref="RunConsistencyTailAsync"/>)을 재사용하되, 진행률 broadcast/_status 는 건드리지
     /// 않아(조용한 백그라운드 동작) 수동 적용의 UI 폴링과 충돌하지 않는다.
     /// 다른 전체-이력 잡(수동/자동)이 진행 중이면 즉시 0 을 반환하고 다음 tick 에 재시도한다.
+    ///
+    /// <para><paramref name="sinceLocal"/> 가 주어지면 그 시각부터만 재도출(증분) — 라이브가 막 기록한
+    /// 최근 구간만 self-heal 하여 쓰기 트랜잭션(락 점유)을 짧게 유지한다. 경계가 안 바뀌는 주기 케이스라
+    /// 최근 구간만 교체해도 평균이 안 깨진다(과거 행은 직전 tick 들에서 이미 치유됨). null 이면 전 구간(첫 실행).
+    /// straddle(경계에 걸친 사이클) 누락 방지는 호출 측이 충분한 overlap 을 빼서 넘기는 책임이다.</para>
     /// </summary>
     /// <returns>실제로 재도출된 Flow 수(0 이면 게이트 점유/데이터 없음으로 아무 작업 안 함).</returns>
-    public async Task<int> RecomputeAllTrackedFlowsAsync(CancellationToken ct = default)
+    public async Task<int> RecomputeAllTrackedFlowsAsync(DateTime? sinceLocal = null, CancellationToken ct = default)
     {
         if (!_fullGate.Wait(0))
             return 0; // 수동/다른 자동 잡 진행 중 — 이번 tick 은 스킵
@@ -157,6 +162,10 @@ public sealed class CycleRecomputeService
             if (oldest is null || latest is null || latest <= oldest)
                 return 0;
 
+            // 증분이면 sinceLocal 부터, 전체면 oldest 부터. oldest 보다 이른 since 는 oldest 로 클램프.
+            var fromLocal = (sinceLocal.HasValue && sinceLocal.Value > oldest.Value)
+                ? sinceLocal.Value
+                : oldest.Value;
             var toExclusive = latest.Value.AddMilliseconds(1); // 반열림 상한 — 마지막 사이클 누락 방지
 
             int recomputed = 0;
@@ -169,7 +178,7 @@ public sealed class CycleRecomputeService
 
                 try
                 {
-                    var outcome = await RederiveAndReplaceAsync(flowName, head, tail, oldest.Value, toExclusive);
+                    var outcome = await RederiveAndReplaceAsync(flowName, head, tail, fromLocal, toExclusive);
                     if (outcome.TagResolved) recomputed++;
                 }
                 catch (Exception ex)

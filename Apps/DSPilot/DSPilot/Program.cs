@@ -109,9 +109,13 @@ builder.Services.AddSingleton<DatabaseLifecycleService>();
 // 의존 서비스가 전부 싱글톤이라 백그라운드(전체-이력) 잡도 안전.
 builder.Services.AddSingleton<CycleRecomputeService>();
 
-// 주기적 자동 재계산 — 라이브 기록기가 놓친 tail 완료로 부풀려진 WT 를 원시 엣지에서 self-heal.
+// 주기적 자동 재계산 — 라이브 기록기가 놓친 tail 완료로 부풀려진 WT 를 원시 엣지에서 self-heal(증분).
 // 간격은 HistoryView.AutoRecomputeIntervalMinutes(0=비활성).
 builder.Services.AddHostedService<PeriodicCycleRecomputeService>();
+
+// 라이브 상태 self-heal — 엔진 in-memory 정본과 DB 가 발산(DB=Going/엔진=non-Going)한 행을 주기 교정.
+// 재계산 락 경합 등으로 드롭된 Going→Ready 쓰기를 흡수. 간격은 HistoryView.StateReconcileIntervalSeconds(0=비활성).
+builder.Services.AddHostedService<StateReconcileService>();
 
 // 공유 AASX 파일 감시 — 콘텐츠(SHA256) 변경 시 UI 알림.
 //   - 미로드 상태(초기 설치)에서 첫 AASX 감지 시 자동 DB 재구축
