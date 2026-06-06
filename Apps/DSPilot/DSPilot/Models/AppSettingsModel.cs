@@ -294,6 +294,13 @@ public class HistoryViewSettings
     public int AutoRecomputeIntervalMinutes { get; set; } = 10;
 
     /// <summary>
+    /// 라이브 상태 self-heal 점검 간격(초). 엔진 in-memory Call 상태(정본)와 DB(dspCall/dspFlow)를
+    /// 대조해, 쓰기 유실/지연으로 'Going'에 latch된 행을 교정한다(엔진이 non-Going 인데 DB가 Going 인 경우만).
+    /// 자동 재계산의 무거운 트랜잭션이 라이브 다운그레이드 쓰기를 드롭시키는 경합을 흡수하는 안전망. 0이면 비활성.
+    /// </summary>
+    public int StateReconcileIntervalSeconds { get; set; } = 5;
+
+    /// <summary>
     /// 개별 Call 최대 실행시간(ms). GoingTime이 이 값 초과 시 동작편차 통계에서 제외.
     /// </summary>
     public int MaxCallGoingTimeMs { get; set; } = 30000;

@@ -562,6 +562,61 @@ public sealed class SimulationEngineService : IDisposable
         return opt != null && FSharpOption<Status4>.get_IsSome(opt) ? opt.Value : Status4.Ready;
     }
 
+    /// <summary>
+    /// 라이브 상태 self-heal — 엔진 in-memory Call 상태(정본)와 DB(dspCall/dspFlow)를 대조해,
+    /// 쓰기 유실/지연(예: 자동 재계산의 무거운 트랜잭션과 락 경합)으로 'Going'에 latch된 행을 교정한다.
+    /// <para>보수적: <b>DB=Going 인데 엔진=non-Going</b> 인 발산만 교정한다. 엔진도 Going 이면 정상 진행 중이므로
+    /// 건드리지 않고(=절대 Going 으로 강제하지 않음), 깜빡임/이벤트 경로와 충돌하지 않는다.
+    /// 엔진 자체가 Going 에 멈춘 경우(완료 신호 미수신)는 발산이 아니므로 여기서 다루지 않는다.</para>
+    /// </summary>
+    /// <returns>교정한 Call 수(0 = 발산 없음).</returns>
+    public async Task<int> ReconcileStuckStatesAsync()
+    {
+        if (_engine is null) return 0;
+        if (_dspRepository is not Adapters.DspRepositoryAdapter repo) return 0;
+
+        List<Adapters.GoingCallInfo> goingCalls;
+        try { goingCalls = await repo.GetGoingCallsAsync(); }
+        catch (Exception ex) { _logger.LogWarning(ex, "[Engine] reconcile: Going Call 조회 실패"); return 0; }
+        if (goingCalls.Count == 0) return 0;
+
+        var affectedFlows = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var now = DateTime.Now;
+        int corrected = 0;
+
+        foreach (var gc in goingCalls)
+        {
+            if (gc.CallId == Guid.Empty) continue;
+            if (GetCallStateSafe(gc.CallId) == Status4.Going) continue; // 엔진도 Going → 발산 아님
+
+            var next = MapStatus4(GetCallStateSafe(gc.CallId)); // 엔진 정본 상태로 교정
+            bool ok;
+            try { ok = await _dspRepository.UpdateCallStateAsync(gc.CallId, next); }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Engine] reconcile: Call {Call} 교정 실패", gc.CallName);
+                continue;
+            }
+            if (!ok) continue;
+
+            corrected++;
+            if (!string.IsNullOrEmpty(gc.FlowName)) affectedFlows.Add(gc.FlowName);
+            _notificationService.NotifyStateChanged(gc.CallName, "Going", next, now);
+        }
+
+        foreach (var flow in affectedFlows)
+        {
+            try { await repo.SyncFlowStateAsync(flow); }
+            catch (Exception ex) { _logger.LogWarning(ex, "[Engine] reconcile: Flow {Flow} sync 실패", flow); }
+        }
+
+        if (corrected > 0)
+            _logger.LogInformation(
+                "[Engine] reconcile: {Count}개 stale-Going Call 교정(engine↔DB 발산) — flows={Flows}",
+                corrected, string.Join(",", affectedFlows));
+        return corrected;
+    }
+
     // ===== Engine state events =====
 
     private void OnEngineWorkStateChanged(object? sender, WorkStateChangedArgs args)

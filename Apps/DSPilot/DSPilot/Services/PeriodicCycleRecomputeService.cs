@@ -23,8 +23,11 @@ public sealed class PeriodicCycleRecomputeService : BackgroundService
     private static readonly TimeSpan DisabledPollInterval = TimeSpan.FromMinutes(1);
     // 부팅 직후 첫 재계산까지의 워밍업 — 초기화/첫 사이클 기록과 겹쳐 churn 나지 않게.
     private static readonly TimeSpan StartupDelay = TimeSpan.FromMinutes(2);
+    // 증분 재계산 overlap(분) — 워터마크에서 이만큼 뒤로 빼서 재도출. 경계에 걸친(straddle) 사이클이
+    // 누락되지 않도록 "가장 긴 사이클"보다 충분히 커야 한다(이 라인 CT 수분 << 30분이라 안전).
+    private const int IncrementalOverlapMinutes = 30;
 
-    // 마지막으로 재계산에 반영한 최신 로그 시각 — 이후 새 로그가 없으면 스킵.
+    // 마지막으로 재계산에 반영한 최신 로그 시각 — 이후 새 로그가 없으면 스킵 + 증분 하한 산출용.
     private DateTime? _lastRecomputedLatest;
 
     public PeriodicCycleRecomputeService(
@@ -83,11 +86,18 @@ public sealed class PeriodicCycleRecomputeService : BackgroundService
             if (latest is null) return;
             if (_lastRecomputedLatest.HasValue && latest <= _lastRecomputedLatest.Value) return;
 
-            var recomputed = await _recompute.RecomputeAllTrackedFlowsAsync(ct);
+            // 첫 실행(워터마크 없음)은 전 구간, 이후는 증분(워터마크 − overlap)만 재도출 → 쓰기 락 점유 최소화.
+            DateTime? since = _lastRecomputedLatest.HasValue
+                ? _lastRecomputedLatest.Value.AddMinutes(-IncrementalOverlapMinutes)
+                : (DateTime?)null;
+
+            var recomputed = await _recompute.RecomputeAllTrackedFlowsAsync(since, ct);
             if (recomputed > 0)
             {
                 _lastRecomputedLatest = latest;
-                _logger.LogInformation("[AutoRecompute] 주기 재계산 완료 — flows={Count}", recomputed);
+                _logger.LogInformation(
+                    "[AutoRecompute] {Mode} 재계산 완료 — flows={Count}",
+                    since.HasValue ? "증분" : "전체", recomputed);
             }
             // recomputed == 0: 게이트 점유(수동 잡 진행 중) 등 — _lastRecomputedLatest 유지하여 다음 주기 재시도.
         }
