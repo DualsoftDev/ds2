@@ -158,7 +158,7 @@ v1 범위에서 사용자 추가 확인이 필요한 차단 지점은 없음. �
 당신은 Promaker LLM Agent 선택형 작업 지침 도입 작업 subagent 입니다.
 
 대상 phase: <P1|P2|P3|P4>
-SSOT 문서: Apps/Promaker/Docs/todo-llm-agent-instructions.md
+SSOT 문서: Apps/Promaker/Docs/done-llm-agent-instructions.md
 
 사용자 명시 의도:
 - LLM Agent 에 선택형 작업 지침(Instruction set)을 도입한다.
@@ -202,7 +202,7 @@ SSOT 문서: Apps/Promaker/Docs/todo-llm-agent-instructions.md
 
 대상 phase: <P1|P2|P3|P4>
 검토 대상: 현재 git diff
-SSOT 문서: Apps/Promaker/Docs/todo-llm-agent-instructions.md
+SSOT 문서: Apps/Promaker/Docs/done-llm-agent-instructions.md
 
 검증 항목 0번:
 사용자 명시 의도 verbatim 인용 + patch ↔ 의도 1:1 매핑을 확인하세요. 누락된 의도는 Critical 입니다.
