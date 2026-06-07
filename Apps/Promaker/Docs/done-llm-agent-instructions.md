@@ -408,6 +408,7 @@ Codex 는 `_codexWorkspacePath` 가 이미 있으면 `instructions.md`를 다시
 - specialized digest 적용: `Apps/Promaker/Promaker/ViewModels/LlmChatViewModel.SpecializedDigest.cs`.
 - API system message 구성: `Apps/Shared/Llm.Shared/Api/SystemContentBuilder.cs`.
 - CLI effective prompt 합성: `Solutions/Core/Ds2.LlmAgent/LlmProvider.fs` 의 `SystemPromptDigest.compose`.
+- 작업 지침 추가 방법: `Apps/Promaker/Docs/howto-llm-agent-instructions.md`.
 
 ## 현재 확인한 prompt 주입 사실
 
