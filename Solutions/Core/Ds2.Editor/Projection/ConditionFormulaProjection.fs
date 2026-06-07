@@ -19,7 +19,9 @@ module ConditionFormulaProjection =
         | ContactKind.Inverter -> "*"
         | kind ->
             let name = item.ApiDefDisplayName
-            let spec = item.OutputSpecText
+            // condition leaf 의 기대값은 InputSpec(Runtime 평가 대상, Phase 2 의 `eq` 저장 위치)이다.
+            // 따라서 수식에는 InputSpecText 를 `=spec` 으로 표시한다 (OutputSpec 아님).
+            let spec = item.InputSpecText
             let baseText =
                 if System.String.IsNullOrEmpty(spec) || spec = "Undefined" then name
                 else $"{name}={spec}"

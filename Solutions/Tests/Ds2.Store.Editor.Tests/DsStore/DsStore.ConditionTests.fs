@@ -284,13 +284,23 @@ module ConditionFormulaProjectionTests =
             "", 0,        // inputSpec (text/index)
             kind, UndefinedValue)
 
-    /// outputSpec 텍스트를 가진 leaf (= 표기 검증용).
+    /// inputSpec 텍스트를 가진 leaf (= 기대값 표기 검증용).
+    /// condition leaf 기대값은 InputSpec(Runtime 평가 대상)이므로 inputSpecText 인자에 채운다.
     let private leafWithSpec (name: string) (specText: string) : ConditionApiCallItem =
         ConditionApiCallItem(
             Guid.NewGuid(), name, name,
-            specText, 0,
-            "", 0,
+            "", 0,             // outputSpec — condition leaf 표시에 쓰지 않음
+            specText, 0,       // inputSpec — 기대값(=spec)
             ContactKind.NoContact, UndefinedValue)
+
+    /// ValueSpec(InputSpec) 으로부터 leaf 를 만든다 — eq 기대값 표시(BoolValue/StringValue/numeric) 검증용.
+    /// Panel.fs 생성부와 동일하게 PropertyPanelValueSpec.format 으로 InputSpecText 를 채운다.
+    let private leafOfInputSpec (name: string) (kind: ContactKind) (inputSpec: ValueSpec) : ConditionApiCallItem =
+        ConditionApiCallItem(
+            Guid.NewGuid(), name, name,
+            "", 0,
+            PropertyPanelValueSpec.format inputSpec, PropertyPanelValueSpec.dataTypeIndex inputSpec,
+            kind, inputSpec)
 
     let private cond (isOR: bool) (isInverted: bool)
                      (items: ConditionApiCallItem list) (children: ConditionPanelItem list) : ConditionPanelItem =
@@ -354,8 +364,8 @@ module ConditionFormulaProjectionTests =
 
     [<Fact>]
     let ``ContactKind 표기는 기대값(=) 표기와 함께 보존된다`` () =
-        // RisingPulse + outputSpec → name=spec(R)
-        let item = ConditionApiCallItem(Guid.NewGuid(), "A", "A", "true", 0, "", 0, ContactKind.RisingPulse, UndefinedValue)
+        // RisingPulse + inputSpec(기대값) → name=spec(R)
+        let item = ConditionApiCallItem(Guid.NewGuid(), "A", "A", "", 0, "true", 0, ContactKind.RisingPulse, UndefinedValue)
         let c = cond false false [ item ] []
         Assert.Equal("A=true(R)", formula c)
 
@@ -394,6 +404,41 @@ module ConditionFormulaProjectionTests =
         Assert.Equal("A & (B | C)", formula c)
 
     [<Fact>]
-    let ``outputSpec 기대값은 name=spec 으로 표시된다`` () =
+    let ``inputSpec 기대값은 name=spec 으로 표시된다`` () =
         let c = cond false false [ leafWithSpec "A" "true" ] []
         Assert.Equal("A=true", formula c)
+
+    // ── eq 기대값(InputSpec) 표시 — condition leaf 기대값 = InputSpec 확정 ──
+    // (7-reviewer Major: condition leaf 기대값은 InputSpec(Phase 2 의 eq 저장 위치, Runtime 평가 대상)이며
+    //  수식에 `=spec` 으로 표시되어야 한다. OutputSpec 은 condition leaf 표시에 쓰지 않는다.)
+
+    [<Fact>]
+    let ``InputSpec BoolValue true 는 수식에 =true 로 표시된다`` () =
+        let c = cond false false [ leafOfInputSpec "A" ContactKind.NoContact (ValueSpec.singleBool true) ] []
+        Assert.Equal("A=true", formula c)
+
+    [<Fact>]
+    let ``InputSpec StringValue OPEN 은 수식에 =OPEN 으로 표시된다`` () =
+        let c = cond false false [ leafOfInputSpec "Door" ContactKind.NoContact (ValueSpec.singleString "OPEN") ] []
+        Assert.Equal("Door=OPEN", formula c)
+
+    [<Fact>]
+    let ``InputSpec numeric(Int32) 는 수식에 =42 로 표시된다`` () =
+        let c = cond false false [ leafOfInputSpec "Cnt" ContactKind.NoContact (ValueSpec.singleInt32 42) ] []
+        Assert.Equal("Cnt=42", formula c)
+
+    [<Fact>]
+    let ``InputSpec 기대값과 ContactKind 표기가 결합된다`` () =
+        // A접(NoContact) → name=spec, B접(NcContact) → /name=spec, RisingPulse → name=spec(R)
+        let mk kind = leafOfInputSpec "A" kind (ValueSpec.singleBool true)
+        Assert.Equal("A=true",    formula (cond false false [ mk ContactKind.NoContact ] []))
+        Assert.Equal("/A=true",   formula (cond false false [ mk ContactKind.NcContact ] []))
+        Assert.Equal("A=true(R)", formula (cond false false [ mk ContactKind.RisingPulse ] []))
+        Assert.Equal("A=true(F)", formula (cond false false [ mk ContactKind.FallingPulse ] []))
+
+    [<Fact>]
+    let ``OutputSpec 만 있고 InputSpec 이 비면 기대값을 표시하지 않는다`` () =
+        // condition leaf 표시는 InputSpec 기준 — OutputSpec 에 값이 있어도 InputSpec 이 비면 name 만.
+        let item = ConditionApiCallItem(Guid.NewGuid(), "A", "A", "true", 0, "", 0, ContactKind.NoContact, UndefinedValue)
+        let c = cond false false [ item ] []
+        Assert.Equal("A", formula c)

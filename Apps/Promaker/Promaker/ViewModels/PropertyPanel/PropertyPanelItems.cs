@@ -248,9 +248,8 @@ public sealed class ConditionApiCallRow : ObservableObject
         }
 
         var current = ioValues.TryGetValue(ApiCallId, out var v) ? v : null;
-        var expected = !string.IsNullOrEmpty(InputSpecText) ? InputSpecText
-                     : !string.IsNullOrEmpty(OutputSpecText) ? OutputSpecText
-                     : "—";
+        // condition leaf 의 기대값은 InputSpec (Phase 2 eq 저장처, Runtime 평가 대상) — OutputSpec 은 condition 표시에 쓰지 않는다.
+        var expected = !string.IsNullOrEmpty(InputSpecText) ? InputSpecText : "—";
         if (current is null)
         {
             IsMatched = null;
