@@ -177,3 +177,10 @@ module ValueSpecText =
         | UInt8Value _ | UInt16Value _ | UInt32Value _ | UInt64Value _
         | Float32Value _ | Float64Value _ -> true
         | BoolValue _ | StringValue _ | UndefinedValue -> false
+
+    /// 두 ValueSpec 의 *타입 case* (내부 값 무관) 일치 여부. `typeHintOf` 가 case 별 고정 default 로
+    /// 환원하므로 그 결과 equality 가 곧 case 일치. eq strict 파싱(범위 초과·타입 불일치가 다른
+    /// case 로 살아나는 것 차단)과 emit 동적 eq↔inputSpec 판정(re-parse 복원 가능성 = hint case 일치)의
+    /// 공용 술어. `tryParseAs` 의 inferFromText fallback 동작은 본 함수가 건드리지 않음 (Editor 보존).
+    let sameCase (a: ValueSpec) (b: ValueSpec) : bool =
+        typeHintOf a = typeHintOf b

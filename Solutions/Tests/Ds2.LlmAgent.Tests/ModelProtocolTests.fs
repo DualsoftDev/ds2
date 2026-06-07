@@ -1936,6 +1936,67 @@ systems:
     Assert.Equal(1, advWork.Conditions.Count)
     Assert.Equal(Some ConditionType.SkipAction, advWork.Conditions.[0].Type)
 
+// type 키 없는 Work top-level condition — Adv work 이 Cyl1.RET 조건을 가짐 (type 생략).
+let private workSkipActionOmittedTypeYaml = """
+protocol: promaker/v0
+project: M1
+
+systems:
+  - system: Controller
+    kind: active
+    flows:
+      Run: {}
+    works:
+        Adv:
+          flow: Run
+          calls: [Cyl1.ADV]
+          condition:
+            conditions:
+              - Cyl1.RET
+
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+
+[<Fact>]
+let ``7rev Major — Work top-level condition 의 type 생략은 Some SkipAction 으로 보정`` () =
+    // Call 의 AutoAux 보정과 대칭 — Work 는 SkipAction 만 의미. Type=None 이면 Runtime 무시 경로.
+    let store = DsStore()
+    let _ = parseApplyCommit store workSkipActionOmittedTypeYaml
+    let projects = Queries.allProjects store
+    let ctrl = Queries.activeSystemsOf projects.Head.Id store |> List.head
+    let runFlow = Queries.flowsOf ctrl.Id store |> List.head
+    let advWork = Queries.worksOf runFlow.Id store |> List.find (fun w -> w.LocalName = "Adv")
+    Assert.Equal(1, advWork.Conditions.Count)
+    Assert.Equal(Some ConditionType.SkipAction, advWork.Conditions.[0].Type)
+
+[<Fact>]
+let ``7rev Major — Work type 생략 condition export->apply 후 Runtime WorkSkipAction 평가 대상 포함`` () =
+    // 선행 버그 회귀 lock-in: Type=None Work root 는 Build.fs `Type=Some SkipAction` 필터에서 누락.
+    //   보정 후 round-trip 해도 Some SkipAction 유지 → Runtime WorkSkipActionConditions 에 leaf 포함.
+    let store = DsStore()
+    let _ = parseApplyCommit store workSkipActionOmittedTypeYaml
+
+    use exported = ModelProtocol.exportToJson store
+    let store2 = DsStore()
+    let plan2 = ImportPlanBuilder()
+    let diag2, _ = ModelProtocol.apply plan2 store2 exported.RootElement
+    Assert.False(diag2.HasErrors, sprintf "Work SkipAction round-trip diag: %s" (diag2.Format()))
+    store2.ApplyImportPlan("Work SkipAction round-trip", plan2.Build())
+
+    let projects = Queries.allProjects store2
+    let ctrl = Queries.activeSystemsOf projects.Head.Id store2 |> List.head
+    let runFlow = Queries.flowsOf ctrl.Id store2 |> List.head
+    let advWork = Queries.worksOf runFlow.Id store2 |> List.find (fun w -> w.LocalName = "Adv")
+    Assert.Equal(Some ConditionType.SkipAction, advWork.Conditions.[0].Type)
+
+    // Runtime SimIndex build — WorkSkipActionConditions 에 leaf 가 실제로 포함되는지 직접 검증.
+    let index = Ds2.Runtime.Engine.Core.SimIndex.build store2 10
+    let skipExpr = index.WorkSkipActionConditions.[advWork.Id]
+    Assert.True(countLeaves skipExpr >= 1,
+        sprintf "Work SkipAction condition 이 Runtime 평가 대상에서 누락 (leaf 0): %A" skipExpr)
+
 // ─── Phase 2 — Condition leaf eq / typed inputSpec (ValueSpec sugar) ─────────
 //
 // SSOT todo-refactor-condition.md Phase 2 / 박제 결정:
@@ -2293,6 +2354,246 @@ let ``Phase 2 — eq 없는 leaf string/object 회귀: InputSpec UndefinedValue 
     let compact = exported.RootElement.ToString().Replace(" ", "")
     Assert.DoesNotContain("\"eq\"", compact)
     Assert.DoesNotContain("\"inputSpec\"", compact)
+
+// ─── 7-reviewer Critical/Major — numeric round-trip (옵션1) + eq strict 파싱 ──
+//
+// SSOT (본 turn, 옵션1 확정): 모든 numeric Single (Int8~Int64, UInt8~UInt64, Float32/64) 은 emit 시
+// typed inputSpec raw DU 로 직렬화 → case 무손실 round-trip 보장. numeric eq scalar 는 의도적으로
+// 미사용 — re-parse 측 numeric eq 복원은 대상 ApiDef 타입 hint (참조 Call.ApiCalls InputSpec/OutputSpec
+// case) 에 의존하나, 그 hint 출처가 wire 에 직렬화되지 않아 re-parse store 에서 구조적으로 None →
+// 동적 eq 는 round-trip 비대칭 (옵션2 불가). bool/string Single 만 eq scalar (token 자체로 타입 확정).
+// parse 측 strict — eq 의 tryParseAs fallback 이 hint 와 *다른* case 로 살아나는 것 차단.
+
+/// Ret work 의 Call (Cyl1.RET 호출) — Cyl1.RET ApiDef 의 타입 hint 출처.
+let private findRetCall (store: DsStore) : Call =
+    let proj = (Queries.allProjects store).Head
+    let ctrl = Queries.activeSystemsOf proj.Id store |> List.head
+    let f = Queries.flowsOf ctrl.Id store |> List.head
+    let w = Queries.worksOf f.Id store |> List.find (fun w -> w.LocalName = "Ret")
+    Queries.callsOf w.Id store |> List.head
+
+/// eqBoolYaml 기반 store 구성 후, Adv Call 의 condition leaf(Cyl1.RET 참조) InputSpec 을 `leafSpec` 으로,
+/// (옵션) Cyl1.RET ApiDef hint 출처(Ret Call.ApiCalls[0].InputSpec)를 `hintSpec` 으로 set.
+/// emit → 새 store apply round-trip 후 condition leaf InputSpec 반환 (case 무손실 검증용).
+/// 옵션1: numeric leaf 는 hint 유무와 무관하게 inputSpec raw DU 로 emit (hintSpec 은 emit 결과 불변임을
+/// 보이기 위한 인자 — emit 은 hint 를 참조하지 않음).
+let private numericLeafRoundTrip (hintSpec: ValueSpec option) (leafSpec: ValueSpec) : ValueSpec * string =
+    let store = DsStore()
+    let _ = parseApplyCommit store eqBoolYaml
+    // hint 출처: Cyl1.RET 를 호출하는 Ret Call 의 ApiCalls[0].InputSpec.
+    hintSpec |> Option.iter (fun h -> (findRetCall store).ApiCalls.[0].InputSpec <- h)
+    // 검증 대상 leaf: Adv Call 의 condition leaf (Cyl1.RET 참조).
+    (findAdvCall store).Conditions.[0].ApiCalls.[0].InputSpec <- leafSpec
+    use exported = ModelProtocol.exportToJson store
+    let compact = exported.RootElement.ToString().Replace(" ", "")
+    let store2 = DsStore()
+    let plan2 = ImportPlanBuilder()
+    let diag2, _ = ModelProtocol.apply plan2 store2 exported.RootElement
+    Assert.False(diag2.HasErrors, sprintf "numeric leaf round-trip diag: %s\nemitted: %s" (diag2.Format()) compact)
+    store2.ApplyImportPlan("numeric leaf round-trip", plan2.Build())
+    (findAdvCall store2).Conditions.[0].ApiCalls.[0].InputSpec, compact
+
+/// numeric Single 9종 (좁은정수·넓은정수·실수). 옵션1: hint 가 같은 case 로 존재해도 numeric 은
+/// inputSpec raw DU 로 emit (eq sugar 미사용) → round-trip case 무손실.
+[<Theory>]
+[<InlineData("Int8")>]
+[<InlineData("Int16")>]
+[<InlineData("Int32")>]
+[<InlineData("Int64")>]
+[<InlineData("UInt8")>]
+[<InlineData("UInt16")>]
+[<InlineData("UInt32")>]
+[<InlineData("UInt64")>]
+[<InlineData("Float32")>]
+[<InlineData("Float64")>]
+let ``7rev Critical — numeric Single round-trip (hint 존재): inputSpec 로 case 무손실 (eq 미사용)`` (caseName: string) =
+    let spec =
+        match caseName with
+        | "Int8"   -> Int8Value   (Single 7y)
+        | "Int16"  -> Int16Value  (Single 7s)
+        | "Int32"  -> Int32Value  (Single 7)
+        | "Int64"  -> Int64Value  (Single 7L)
+        | "UInt8"  -> UInt8Value  (Single 7uy)
+        | "UInt16" -> UInt16Value (Single 7us)
+        | "UInt32" -> UInt32Value (Single 7u)
+        | "UInt64" -> UInt64Value (Single 7UL)
+        | "Float32"-> Float32Value (Single 7.5f)
+        | "Float64"-> Float64Value (Single 7.5)
+        | other    -> failwithf "unexpected case %s" other
+    // hint 출처를 같은 case 로 set 해도 옵션1 emit 은 hint 를 참조하지 않으므로 numeric 은 inputSpec 로 emit.
+    let result, compact = numericLeafRoundTrip (Some spec) spec
+    Assert.Equal(spec, result)
+    Assert.Contains("\"inputSpec\"", compact)  // 옵션1 — numeric 은 hint 유무 무관 항상 inputSpec.
+    Assert.DoesNotContain("\"eq\":", compact)
+
+/// hint 부재 — numeric Single 9종 모두 inputSpec raw DU 로 emit 되어 round-trip case 무손실 (닫힘).
+/// (옵션1: hint 존재 case 와 동일 결과 — emit 은 hint 를 참조하지 않음.)
+[<Theory>]
+[<InlineData("Int8")>]
+[<InlineData("Int16")>]
+[<InlineData("Int32")>]
+[<InlineData("Int64")>]
+[<InlineData("UInt8")>]
+[<InlineData("UInt16")>]
+[<InlineData("UInt32")>]
+[<InlineData("UInt64")>]
+[<InlineData("Float32")>]
+[<InlineData("Float64")>]
+let ``7rev Critical — numeric Single round-trip (hint 부재): inputSpec 로 case 무손실`` (caseName: string) =
+    let spec =
+        match caseName with
+        | "Int8"   -> Int8Value   (Single 7y)
+        | "Int16"  -> Int16Value  (Single 7s)
+        | "Int32"  -> Int32Value  (Single 7)
+        | "Int64"  -> Int64Value  (Single 7L)
+        | "UInt8"  -> UInt8Value  (Single 7uy)
+        | "UInt16" -> UInt16Value (Single 7us)
+        | "UInt32" -> UInt32Value (Single 7u)
+        | "UInt64" -> UInt64Value (Single 7UL)
+        | "Float32"-> Float32Value (Single 7.5f)
+        | "Float64"-> Float64Value (Single 7.5)
+        | other    -> failwithf "unexpected case %s" other
+    // 옵션1 — numeric 은 hint 부재든 존재든 inputSpec raw DU 로 emit (re-parse hint 가 구조적으로 None 이라
+    // numeric eq sugar 는 round-trip 불가). → inputSpec 로 보존 (round-trip 닫힘).
+    let result, compact = numericLeafRoundTrip None spec
+    Assert.Equal(spec, result)
+    Assert.Contains("\"inputSpec\"", compact)  // numeric 은 inputSpec 로 emit (case 무손실).
+    Assert.DoesNotContain("\"eq\":", compact)
+
+[<Fact>]
+let ``7rev Critical — float round-trip (hint 존재): Float64Value 보존 + inputSpec (eq 미사용)`` () =
+    let spec = Float64Value (Single 3.14)
+    // 옵션1 — hint 가 같은 Float64 로 존재해도 numeric 은 inputSpec 로 emit (eq sugar 미사용).
+    let result, compact = numericLeafRoundTrip (Some spec) spec
+    Assert.Equal(spec, result)
+    Assert.Contains("\"inputSpec\"", compact)
+    Assert.DoesNotContain("\"eq\":", compact)
+
+[<Fact>]
+let ``7rev Critical — leaf 와 hint case 가 달라도 numeric 은 inputSpec 보존 (round-trip 무손실)`` () =
+    // 옵션1 — leaf=Int16, hint=Int32 (case 상이) 라도 numeric 은 inputSpec raw DU 로 emit 되어 leaf case
+    //   (Int16) 그대로 round-trip (만약 eq 로 강등했다면 re-parse 가 hint=Int32 로 복원 → data loss).
+    let result, compact = numericLeafRoundTrip (Some (Int32Value (Single 0))) (Int16Value (Single 7s))
+    Assert.Equal(Int16Value (Single 7s), result)
+    Assert.Contains("\"inputSpec\"", compact)
+    Assert.DoesNotContain("\"eq\":", compact)
+
+[<Fact>]
+let ``7rev Major — eq strict: UInt8 hint + 범위초과 300 거부 (다른 타입 생존 안 함)`` () =
+    // hint=UInt8, eq:300 → UInt8.TryParse 실패, inferFromText 가 Int64 로 fallback 하지만 case 불일치 → 거부.
+    let store = DsStore()
+    let _ = parseApplyCommit store eqBoolYaml
+    // Cyl1.RET ApiDef hint 출처를 UInt8 로 set.
+    (findRetCall store).ApiCalls.[0].InputSpec <- UInt8Value (Single 0uy)
+    // 같은 Cyl1.RET 를 condition leaf eq:300 으로 참조하는 patch — UInt8 범위(0~255) 초과.
+    let patchYaml = """
+protocol: promaker/v0
+patch:
+  add:
+    - in: Controller
+      works:
+          Chk:
+            flow: Run
+            calls:
+              - ref: Cyl1.ADV
+                condition:
+                  conditions:
+                    - ref: Cyl1.RET
+                      eq: 300
+"""
+    let diag, _, _ = parseAndApply store patchYaml
+    Assert.True(diag.HasErrors, "UInt8 범위 초과 eq 300 은 거부되어야 함")
+    Assert.Contains("대상 타입으로 해석할 수 없습니다", diag.Format())
+
+[<Fact>]
+let ``7rev Major — eq strict: UInt8 hint + 음수 string 거부 (Int64 fallback 생존 안 함)`` () =
+    // hint=UInt8, eq:"-5" (string token) → UInt8.TryParse 실패, inferFromText 가 Int64 로 fallback 하지만
+    // case 불일치 → 거부 (음수가 Int64Value 로 살아나지 못함).
+    let store = DsStore()
+    let _ = parseApplyCommit store eqBoolYaml
+    (findRetCall store).ApiCalls.[0].InputSpec <- UInt8Value (Single 0uy)
+    let patchYaml = """
+protocol: promaker/v0
+patch:
+  add:
+    - in: Controller
+      works:
+          Chk:
+            flow: Run
+            calls:
+              - ref: Cyl1.ADV
+                condition:
+                  conditions:
+                    - ref: Cyl1.RET
+                      eq: "-5"
+"""
+    let diag, _, _ = parseAndApply store patchYaml
+    Assert.True(diag.HasErrors, "UInt8 hint + 음수 string 은 거부되어야 함")
+    Assert.Contains("대상 타입으로 해석할 수 없습니다", diag.Format())
+
+[<Fact>]
+let ``7rev Major — eq strict: Int32 hint + 정상 숫자는 통과 (회귀 0)`` () =
+    // strict 검증이 정상 case(hint=Int32 + eq:5 → Int32Value)는 막지 않음을 확인.
+    let store = DsStore()
+    let _ = parseApplyCommit store eqBoolYaml
+    (findRetCall store).ApiCalls.[0].InputSpec <- Int32Value (Single 0)
+    let patchYaml = """
+protocol: promaker/v0
+patch:
+  add:
+    - in: Controller
+      works:
+          Chk:
+            flow: Run
+            calls:
+              - ref: Cyl1.ADV
+                condition:
+                  conditions:
+                    - ref: Cyl1.RET
+                      eq: 5
+"""
+    let diag, _, plan = parseAndApply store patchYaml
+    Assert.False(diag.HasErrors, sprintf "정상 Int32 eq diag: %s" (diag.Format()))
+    store.ApplyImportPlan("eq int32 strict ok", plan.Build())
+    let proj = (Queries.allProjects store).Head
+    let ctrl = Queries.activeSystemsOf proj.Id store |> List.head
+    let f = Queries.flowsOf ctrl.Id store |> List.head
+    let chkWork = Queries.worksOf f.Id store |> List.find (fun w -> w.LocalName = "Chk")
+    let chkCall = Queries.callsOf chkWork.Id store |> List.head
+    Assert.Equal(Int32Value (Single 5), chkCall.Conditions.[0].ApiCalls.[0].InputSpec)
+
+[<Fact>]
+let ``7rev Major — malformed inputSpec 는 diagnostics (silent skip 금지)`` () =
+    // raw ValueSpec DU shape 위반 → 파싱 실패 diagnostics.
+    let yaml = """
+protocol: promaker/v0
+project: M1
+
+systems:
+  - system: Controller
+    kind: active
+    flows:
+      Run: {}
+    works:
+        Adv:
+          flow: Run
+          calls:
+            - ref: Cyl1.ADV
+              condition:
+                conditions:
+                  - ref: Cyl1.RET
+                    inputSpec:
+                      Case: NoSuchValueSpecCase
+                      Fields: [ 1 ]
+
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+    let store = DsStore()
+    let diag, _, _ = parseAndApply store yaml
+    Assert.True(diag.HasErrors, "malformed inputSpec 는 거부되어야 함")
+    Assert.Contains("inputSpec 파싱 실패", diag.Format())
 
 // ─── 외부 review M-F — shape 위반 7분기 진단 발행 (Phase 7 §4.2 후속) ───
 
@@ -4105,16 +4406,17 @@ let ``Phase 3 — legacy nested conditions/children parse 결과 불변 (회귀)
     Assert.Equal(1, root.Children.Count)
     Assert.Equal(Some ConditionType.SkipAction, root.Children.[0].Type)
 
-// ─── Phase 2 검열 m1 옵션 (1) — 좁은 정수·실수 Single 은 eq 강등 대신 typed inputSpec 보존 ──
+// ─── 검열 m1 옵션 (1) 확정 — 모든 numeric Single 은 eq 강등 대신 typed inputSpec 보존 ──
 //
-// SSOT todo-refactor-condition.md Phase 7 / Phase 2 검열 m1:
+// SSOT todo-refactor-condition.md Phase 7 / 7-reviewer Critical:
 //   기존 emit 은 모든 Single 숫자 case 를 `eq` scalar 로 내보냈고, re-parse(parseEqValue) 는 숫자
-//   token 에 대해 대상 ApiDef 타입 hint(참조 ApiCall 의 InputSpec/OutputSpec) 가 필수였다.
-//   device sugar 처럼 그 ApiDef 를 참조하는 ApiCall 에 타입 metadata 가 전무하면(hint 부재) 숫자 eq
-//   가 거부되어 좁은 정수(Int8/Int16/UInt8/UInt16)·실수(Float32/Float64) 기대값이 round-trip 에서
-//   data loss → emit↔re-parse 비대칭.
-//   옵션 (1): emit 시 이들을 `eq` 로 강등하지 않고 typed `inputSpec`(raw ValueSpec DU) 로 보존 →
-//   re-parse 가 hint 불필요하게 case(폭/정수·실수) 무손실 복원.
+//   token 에 대해 대상 ApiDef 타입 hint(참조 ApiCall 의 InputSpec/OutputSpec) 가 필수였다. 그러나 그
+//   hint 출처(Call.ApiCalls InputSpec) 는 정상 wire round-trip 경로에서 직렬화되지 않아 re-parse store
+//   에서 구조적으로 항상 부재 → *어떤* 폭의 numeric eq 든(좁은정수·넓은정수·실수 전부) round-trip 복원
+//   불가 (emit↔re-parse 비대칭).
+//   옵션 (1) 확정: emit 시 모든 numeric Single (Int8~Int64, UInt8~UInt64, Float32/Float64) 을 `eq` 로
+//   강등하지 않고 typed `inputSpec`(raw ValueSpec DU) 로 보존 → re-parse 가 hint 불필요하게 case(폭/
+//   정수·실수) 무손실 복원. (bool/string Single 만 eq scalar — token 자체로 타입 확정.)
 //
 //   아래 테스트들은 *그 ApiDef 를 참조하는 ApiCall 에 타입 metadata 가 전무한* 상태(singleCylinderYaml
 //   device sugar — Call.ApiCalls[*].InputSpec = UndefinedValue) 에서 round-trip 이 닫히는지 검증한다.
@@ -4169,8 +4471,10 @@ let ``m1 옵션1 — 좁은정수·실수 Single 은 hint 부재에도 emit→re
     Assert.Equal<ValueSpec>(expected, advCall2.Conditions.[0].ApiCalls.[0].InputSpec)
 
 [<Fact>]
-let ``m1 옵션1 — Int32 Single(범위 밖 정수) 은 기존대로 eq 로 emit (회귀)`` () =
-    // 사용자 결정 범위는 "좁은 정수·실수"만 → Int32/Int64/UInt32/UInt64 는 eq 동작 유지.
+let ``m1 옵션1 — Int32 Single 도 inputSpec 으로 emit (전체 numeric round-trip 보장)`` () =
+    // 7-reviewer Critical: numeric eq 는 re-parse hint(참조 Call.ApiCalls InputSpec/OutputSpec)가 wire 에
+    // 직렬화되지 않아 re-parse store 에서 구조적 None → 어떤 numeric eq 도 복원 불가. 따라서 Int32 포함
+    // 모든 numeric Single 을 typed inputSpec 으로 emit 해야 round-trip 이 닫힌다.
     let store = DsStore()
     let _ = parseApplyCommit store singleCylinderYaml
     let advCall = findAdvCall store
@@ -4178,13 +4482,17 @@ let ``m1 옵션1 — Int32 Single(범위 밖 정수) 은 기존대로 eq 로 emi
 
     use exported = ModelProtocol.exportToJson store
     let compact = exported.RootElement.ToString().Replace(" ", "")
-    // Int32 Single 은 eq scalar 로 나가야 한다 (inputSpec 으로 강제되지 않음).
-    Assert.Contains("\"eq\":7", compact)
-    Assert.DoesNotContain("\"inputSpec\"", compact)
+    // Int32 Single 도 typed inputSpec 으로 (numeric eq scalar 강등 안 함).
+    Assert.Contains("\"inputSpec\"", compact)
+    Assert.DoesNotContain("\"eq\":7", compact)
+    // round-trip (hint 부재) case 무손실.
+    let store2 = roundTrip store
+    let advCall2 = findAdvCall store2
+    Assert.Equal<ValueSpec>(Int32Value (Single 7), advCall2.Conditions.[0].ApiCalls.[0].InputSpec)
 
 [<Fact>]
-let ``m1 옵션1 — Int64/UInt64 Single(범위 밖 정수) 도 eq 로 emit (회귀)`` () =
-    // 좁은 정수에 포함되지 않는 넓은 정수도 eq 유지 — 분기 기준이 좁은정수/실수에 한정됨을 고정.
+let ``m1 옵션1 — Int64/UInt64 Single 도 inputSpec 으로 emit (전체 numeric)`` () =
+    // 넓은 정수도 동일 — 모든 numeric Single 은 inputSpec emit (eq round-trip 불가, reviewer Critical).
     let store = DsStore()
     let _ = parseApplyCommit store singleCylinderYaml
     let advCall = findAdvCall store
@@ -4193,9 +4501,9 @@ let ``m1 옵션1 — Int64/UInt64 Single(범위 밖 정수) 도 eq 로 emit (회
 
     use exported = ModelProtocol.exportToJson store
     let compact = exported.RootElement.ToString().Replace(" ", "")
-    Assert.Contains("\"eq\":9000000000", compact)
-    Assert.Contains("\"eq\":42", compact)
-    Assert.DoesNotContain("\"inputSpec\"", compact)
+    Assert.Contains("\"inputSpec\"", compact)
+    Assert.DoesNotContain("\"eq\":9000000000", compact)
+    Assert.DoesNotContain("\"eq\":42", compact)
 
 [<Fact>]
 let ``m1 옵션1 — 좁은정수·실수 inputSpec emit 은 raw ValueSpec DU 케이스명을 보존`` () =

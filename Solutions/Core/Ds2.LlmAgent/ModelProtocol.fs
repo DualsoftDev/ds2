@@ -1192,32 +1192,37 @@ module ModelProtocol =
     /// raw ValueSpec DU (`{"Case":"BoolValue","Fields":[...]}`) deserialize 옵션 (STJ + FSharp DU 컨버터).
     let private valueSpecJsonOptions = JsonOptions.createProjectSerializationOptions ()
 
-    /// 주어진 ApiDefId 를 참조하는 store/plan ApiCall 의 InputSpec(우선)/OutputSpec 중
-    /// non-Undefined ValueSpec 의 *타입 hint* (case 만 유지한 default). 없으면 None.
-    /// device sugar(cylinder 등)의 ApiCall 은 InputSpec=UndefinedValue 라 대부분 None — 이 경우
-    /// 숫자 eq 는 diagnostics 대상.
-    let private apiDefValueSpecHint (ctx: ApplyContext) (apiDefId: Guid) : ValueSpec option =
-        let pickFromApiCall (ac: ApiCall) : ValueSpec option =
-            match ac.InputSpec with
-            | UndefinedValue ->
-                match ac.OutputSpec with
-                | UndefinedValue -> None
-                | other -> Some (ValueSpecText.typeHintOf other)
+    /// 주어진 ApiDefId 를 참조하는 ApiCall 의 InputSpec(우선)/OutputSpec 중 non-Undefined ValueSpec 의
+    /// *타입 hint* (case 만 유지한 default). InputSpec/OutputSpec 모두 Undefined 면 None.
+    let private apiCallTypeHint (ac: ApiCall) : ValueSpec option =
+        match ac.InputSpec with
+        | UndefinedValue ->
+            match ac.OutputSpec with
+            | UndefinedValue -> None
             | other -> Some (ValueSpecText.typeHintOf other)
-        let fromStore =
-            ctx.Store.CallsReadOnly.Values
-            |> Seq.collect (fun c -> c.ApiCalls :> seq<_>)
-            |> Seq.filter (fun ac -> ac.ApiDefId = Some apiDefId)
-            |> Seq.tryPick pickFromApiCall
-        match fromStore with
-        | Some _ -> fromStore
+        | other -> Some (ValueSpecText.typeHintOf other)
+
+    /// 주어진 ApiDefId 를 참조하는 *store* ApiCall 의 타입 hint. apply(parse) 측 hint 의 store 부분.
+    /// device sugar(cylinder 등)의 ApiCall 은 InputSpec=UndefinedValue 라 대부분 None.
+    let private apiDefValueSpecHintFromStore (store: DsStore) (apiDefId: Guid) : ValueSpec option =
+        store.CallsReadOnly.Values
+        |> Seq.collect (fun c -> c.ApiCalls :> seq<_>)
+        |> Seq.filter (fun ac -> ac.ApiDefId = Some apiDefId)
+        |> Seq.tryPick apiCallTypeHint
+
+    /// 주어진 ApiDefId 를 참조하는 store/plan ApiCall 의 InputSpec(우선)/OutputSpec 중
+    /// non-Undefined ValueSpec 의 *타입 hint*. store 우선, 없으면 이번 turn plan 신규 Call 보강.
+    /// 없으면 None — 이 경우 숫자 eq 는 diagnostics 대상.
+    let private apiDefValueSpecHint (ctx: ApplyContext) (apiDefId: Guid) : ValueSpec option =
+        match apiDefValueSpecHintFromStore ctx.Store apiDefId with
+        | Some _ as fromStore -> fromStore
         | None ->
             // 이번 turn plan operations 의 신규 Call.ApiCalls 도 metadata 출처.
             ctx.Plan.Operations
             |> Seq.choose (function ImportPlanOperation.AddCall c -> Some c | _ -> None)
             |> Seq.collect (fun c -> c.ApiCalls :> seq<_>)
             |> Seq.filter (fun ac -> ac.ApiDefId = Some apiDefId)
-            |> Seq.tryPick pickFromApiCall
+            |> Seq.tryPick apiCallTypeHint
 
     /// `eq` JsonElement → ValueSpec. 대상 ApiDef 타입 hint 기준으로 case 결정.
     /// - bool token: hint 무관 `BoolValue (Single b)` (token 자체로 타입 확정).
@@ -1233,8 +1238,10 @@ module ModelProtocol =
             match hint with
             | Some h when not (h = ValueSpec.singleString "") ->
                 // hint 가 string 이외 타입 — 그 타입으로 텍스트 파싱 (실패 시 diagnostics).
+                // strict: tryParseAs 의 inferFromText fallback 이 hint 와 *다른* case 로 파싱한 결과
+                // (예: 범위 초과·타입 불일치) 가 eq 로 살아나는 것을 차단 — case 일치까지 확인.
                 match ValueSpecText.tryParseAs h s with
-                | Some spec when ValueSpecText.isSingleEquality spec -> Some spec
+                | Some spec when ValueSpecText.isSingleEquality spec && ValueSpecText.sameCase spec h -> Some spec
                 | _ ->
                     ctx.Diagnostics.Add(path, sprintf "eq 값 '%s' 을(를) 대상 타입으로 해석할 수 없습니다." s)
                     None
@@ -1243,9 +1250,11 @@ module ModelProtocol =
             match hint with
             | Some h ->
                 // 대상 ApiDef 의 숫자 타입 case 로 token 텍스트를 파싱 — 폭 보존.
+                // strict: tryParseAs 의 inferFromText fallback (UInt8 hint + "300" → Int64 등) 이
+                // hint 와 다른 case 로 살아나는 것을 차단 — case 일치까지 확인.
                 let raw = eqEl.GetRawText()
                 match ValueSpecText.tryParseAs h raw with
-                | Some spec when ValueSpecText.isSingleEquality spec -> Some spec
+                | Some spec when ValueSpecText.isSingleEquality spec && ValueSpecText.sameCase spec h -> Some spec
                 | _ ->
                     ctx.Diagnostics.Add(path, sprintf "eq 숫자 값 '%s' 을(를) 대상 타입으로 해석할 수 없습니다." raw)
                     None
@@ -1296,7 +1305,8 @@ module ModelProtocol =
     /// condition object 의 owning entity context (Phase 1 §남은작업 1 — call/work 분리).
     /// type 생략 보정 정책과 허용 top-level type 이 context 별로 다름:
     /// - Call: top-level type 생략 → `Some AutoAux` 보정. AutoAux/ComAux/SkipAction 모두 허용.
-    /// - Work: type 생략 보정 *없음* (`None` 유지). top-level AutoAux/ComAux 는 fail diagnostics — Work 는 SkipAction 만 의미.
+    /// - Work: top-level type 생략 → `Some SkipAction` 보정 (Call AutoAux 보정과 대칭 — Type=None root 의
+    ///   Runtime inert 무시 경로 차단, 박제 결정 7번). top-level AutoAux/ComAux 는 fail diagnostics — Work 는 SkipAction 만 의미.
     type private ConditionContext =
         | CallCondition
         | WorkCondition
@@ -1346,7 +1356,8 @@ module ModelProtocol =
             //   - 명시된 type 은 항상 보존 (legacy child explicit type 보존 포함).
             //   - Work top-level 에서 AutoAux/ComAux 는 fail diagnostics (박제 결정 — Work 는 SkipAction 만 허용).
             //   - Call top-level 에서 type 생략 → Some AutoAux 보정 (round-trip 버그 수정).
-            //   - child / Work top-level 의 type 생략 → None 유지 (legacy 호환 / Work skipAction 기본값 혼동 회피).
+            //   - Work top-level 에서 type 생략 → Some SkipAction 보정 (Call 과 대칭 — Type=None root inert 무시 차단).
+            //   - child (topLevel=false) 의 type 생략 → None 유지 (legacy 호환).
             match tryProp condEl "type" |> Option.bind tryString with
             | Some s ->
                 match parseConditionType s with
@@ -1360,10 +1371,13 @@ module ModelProtocol =
                     | _ -> cond.Type <- Some t
                 | Error msg -> ctx.Diagnostics.Add(joinDiagKey path "type", msg)
             | None ->
-                // type 키 부재 — emit 이 AutoAux 를 생략하므로 top-level Call 은 AutoAux 로 보정.
+                // type 키 부재 — emit 이 default type 을 생략하므로 top-level 은 context 별 default 로 보정.
+                // (박제 결정 7번 "의미 없는 조건 저장·무시 차단" — Type=None top-level root 는 Runtime
+                //  (Build.fs) 의 `Type = Some _` 필터에 안 걸려 inert → 무시 경로 차단.)
                 match context, topLevel with
                 | CallCondition, true -> cond.Type <- Some ConditionType.AutoAux
-                | _ -> ()  // child 또는 Work top-level — None 유지 (legacy 호환).
+                | WorkCondition, true -> cond.Type <- Some ConditionType.SkipAction  // Work 는 SkipAction 만 의미 (Call AutoAux 보정과 대칭).
+                | _ -> ()  // child (topLevel=false) — None 유지 (legacy 호환).
             // isOR / isInverted — bool false default
             let parseBoolKey key target =
                 tryProp condEl key
@@ -2580,43 +2594,37 @@ module ModelProtocol =
             w.WriteString("address", tag.Address)
         w.WriteEndObject()
 
-    /// condition leaf 의 InputSpec → wire 키 emit (Phase 2; Phase 2 검열 m1 옵션 (1) 보강).
+    /// condition leaf 의 InputSpec → wire 키 emit (Phase 2; m1 검열 → 7-reviewer Critical round-trip 완전 해소).
     /// 호출자는 object scalar 안에서 진입.
     /// - UndefinedValue: 키 생략 (default — parse 측 entity-default 정합).
-    /// - Single (bool/string): token 자체로 타입 확정 가능 → 사람 친화 `eq` scalar.
-    /// - Single (Int32/Int64/UInt32/UInt64): 대상 ApiDef 타입 hint 로 폭 복원 가능 → `eq` scalar 유지.
-    /// - Single (Int8/Int16/UInt8/UInt16 좁은 정수, Float32/Float64 실수): `eq` 로 강등하면 re-parse 시
-    ///   hint 부재(대상 ApiCall 타입 metadata 전무)일 때 폭/정수·실수 case 를 복원할 수 없어 data loss
-    ///   (Phase 2 검열 m1 비대칭). → typed `inputSpec` raw DU 로 emit 해 case 무손실 보존 (옵션 (1)).
+    /// - Single (bool): token 자체로 타입 확정 → `eq` scalar (hint 불요, 항상 round-trip 안전).
+    /// - Single (string): 기존 정책 유지 → `eq` scalar (hint 불요, 항상 round-trip 안전).
+    /// - Single (numeric, 정수/실수 전부): typed `inputSpec` raw DU (case 무손실). **옵션 (1) 확정** —
+    ///   numeric `eq` 는 re-parse 시 *대상 ApiDef 타입 hint* (참조 Call.ApiCalls 의 InputSpec/OutputSpec
+    ///   case) 가 있어야 폭/정수·실수를 복원할 수 있는데, 그 hint 출처는 정상 wire round-trip 경로에서
+    ///   emit 되지 않아 (Call.ApiCalls InputSpec 은 wire 미직렬화) re-parse store 에서 항상 부재 → 어떤
+    ///   numeric `eq` 도 re-parse 복원 불가 (round-trip 비대칭). emit store 에 일시적 hint 가 있어도
+    ///   re-parse hint 는 구조적으로 None 이므로 동적 eq 는 round-trip 을 깨뜨린다. → numeric 은 일괄
+    ///   `inputSpec` 으로 emit 해 round-trip 을 무조건 보장 (numeric eq sugar 는 의도적으로 미사용).
     /// - Multiple / Ranges: eq 로 환원 불가 → raw ValueSpec DU `inputSpec` fallback (박제 결정).
     let private writeLeafInputSpec (w: Utf8JsonWriter) (spec: ValueSpec) : unit =
-        let writeEqSingle () : bool =
-            // Single 이면 eq scalar 로 emit 하고 true 반환, 아니면 false (typed inputSpec fallback 필요).
-            // 좁은 정수(Int8/Int16/UInt8/UInt16)·실수(Float32/Float64) Single 은 의도적으로 여기서 제외(false)
-            // → fallback 경로(typed inputSpec)로 보내 case 무손실 보존 (m1 옵션 (1)).
-            match spec with
-            | BoolValue   (Single v) -> w.WriteBoolean("eq", v); true
-            | Int32Value  (Single v) -> w.WriteNumber("eq", v); true
-            | Int64Value  (Single v) -> w.WriteNumber("eq", v); true
-            | UInt32Value (Single v) -> w.WriteNumber("eq", v); true
-            | UInt64Value (Single v) -> w.WriteNumber("eq", v); true
-            | StringValue (Single v) -> w.WriteString("eq", v); true
-            | _ -> false
         match spec with
         | UndefinedValue -> ()
+        | BoolValue   (Single v) -> w.WriteBoolean("eq", v)        // token 확정 — 항상 eq.
+        | StringValue (Single v) -> w.WriteString("eq", v)         // 기존 정책 — 항상 eq.
         | _ ->
-            if not (writeEqSingle ()) then
-                // 좁은 정수·실수 Single / Multiple / Ranges / Undefined-내부 — raw DU fallback (case 무손실).
-                w.WritePropertyName "inputSpec"
-                JsonSerializer.Serialize(w, spec, valueSpecJsonOptions)
+            // numeric Single (정수/실수 전부) / Multiple / Ranges — raw DU inputSpec (case 무손실, round-trip 보장).
+            w.WritePropertyName "inputSpec"
+            JsonSerializer.Serialize(w, spec, valueSpecJsonOptions)
 
     /// condition leaf 가 object 승격 대상인지 — ContactKind non-default 또는 InputSpec non-Undefined.
     let private leafNeedsObject (ac: ApiCall) : bool =
         ac.ContactKind <> ContactKind.NoContact || ac.InputSpec <> UndefinedValue
 
     /// Condition tree recursive emit. `apiCallRef` 람다: ApiCall → "<System>.<ApiDef>" path 도출
-    /// (caller 가 store 컨텍스트 제공). conditions leaf 는 ContactKind default + InputSpec Undefined 면
-    /// string scalar, 아니면 object (ref + contactKind? + eq?/inputSpec?).
+    /// (caller 가 store 컨텍스트 제공).
+    /// conditions leaf 는 ContactKind default + InputSpec Undefined 면 string scalar, 아니면 object
+    /// (ref + contactKind? + eq?/inputSpec?).
     let rec private emitCondition
         (w: Utf8JsonWriter)
         (apiCallRef: ApiCall -> string)
