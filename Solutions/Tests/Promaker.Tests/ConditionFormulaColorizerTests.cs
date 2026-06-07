@@ -12,7 +12,7 @@ using Xunit;
 namespace Promaker.Tests;
 
 // =============================================================================
-// FormulaColorizer 표시 규약 일치 검증 (Phase 7 / todo-refactor-condition.md §Phase7).
+// FormulaColorizer 표시 규약 일치 검증 (Phase 7 / done-refactor-condition.md §Phase7).
 //
 // C# FormulaColorizer.BuildInlines 가 생성하는 inline 들의 *이어붙인 텍스트* 가
 // F# ConditionFormulaProjection (= ConditionItem.FormulaText) 와 정확히 일치해야 한다.

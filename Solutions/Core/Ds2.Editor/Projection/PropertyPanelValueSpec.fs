@@ -35,7 +35,7 @@ module ValueSpecTypeIndex =
 module internal PropertyPanelValueSpec =
 
     // format / tryParseAs 의 ValueSpec 텍스트 parse/format 핵심 로직은 `Ds2.Core.ValueSpecText`
-    // 공용 helper 로 추출됨 (todo-refactor-condition.md Phase 2 박제 결정 #4 — Editor/LlmAgent 공유).
+    // 공용 helper 로 추출됨 (done-refactor-condition.md Phase 2 박제 결정 #4 — Editor/LlmAgent 공유).
     // 본 module 은 typeIndex (UI 콤보 인덱스) 결합 wrapper 만 유지.
 
     /// ValueSpec → 사람 친화 텍스트 (공용 helper 위임).

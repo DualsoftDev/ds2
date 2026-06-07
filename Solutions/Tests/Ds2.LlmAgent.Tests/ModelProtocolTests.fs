@@ -1660,7 +1660,7 @@ let ``외부 review m-2 — 모든 default 만 있을 때 신규 키 emit 0건 (
 
 // ─── Phase 1 (Condition 리팩터링) — AutoAux 기본 타입 보정 + unknown-key + Work 정책 ────
 //
-// SSOT: todo-refactor-condition.md "박제 결정" / Phase 1 명세 / 남은작업 1.
+// SSOT: done-refactor-condition.md "박제 결정" / Phase 1 명세 / 남은작업 1.
 // parseCondition 의 top-level Call/Work context 분리, type 생략 보정, unknown-key whitelist 검증.
 
 /// Runtime ConditionExpression tree 안 Leaf 노드 개수 — AutoAux condition 이
@@ -1999,7 +1999,7 @@ let ``7rev Major — Work type 생략 condition export->apply 후 Runtime WorkSk
 
 // ─── Phase 2 — Condition leaf eq / typed inputSpec (ValueSpec sugar) ─────────
 //
-// SSOT todo-refactor-condition.md Phase 2 / 박제 결정:
+// SSOT done-refactor-condition.md Phase 2 / 박제 결정:
 //   * leaf object `{ ref, contactKind?, eq?, inputSpec? }`.
 //   * eq 값 ValueSpec case 는 대상 ApiDef 데이터 타입 metadata(참조 ApiCall InputSpec/OutputSpec)
 //     기준 결정. bool/string 은 token 자체로 확정, 숫자는 metadata 필수 (없으면 diagnostics).
@@ -4221,7 +4221,7 @@ patch:
 
 // ─── Phase 3 (Condition 리팩터링) — Multi-root emit (같은 ConditionType implicit AND 보존) ──
 //
-// SSOT: todo-refactor-condition.md "박제 결정" (같은 ConditionType 의 여러 top-level root 는 implicit AND) /
+// SSOT: done-refactor-condition.md "박제 결정" (같은 ConditionType 의 여러 top-level root 는 implicit AND) /
 //       Phase 3 명세 / 남은작업 4 (emit 이 Conditions.[0] 만 내보내던 data loss 제거).
 //
 // 검증 전략: store 에 같은 타입 root 를 (parse 는 entity 당 1 root 만 생성하므로) 직접 주입 → export →
@@ -4408,7 +4408,7 @@ let ``Phase 3 — legacy nested conditions/children parse 결과 불변 (회귀)
 
 // ─── 검열 m1 옵션 (1) 확정 — 모든 numeric Single 은 eq 강등 대신 typed inputSpec 보존 ──
 //
-// SSOT todo-refactor-condition.md Phase 7 / 7-reviewer Critical:
+// SSOT done-refactor-condition.md Phase 7 / 7-reviewer Critical:
 //   기존 emit 은 모든 Single 숫자 case 를 `eq` scalar 로 내보냈고, re-parse(parseEqValue) 는 숫자
 //   token 에 대해 대상 ApiDef 타입 hint(참조 ApiCall 의 InputSpec/OutputSpec) 가 필수였다. 그러나 그
 //   hint 출처(Call.ApiCalls InputSpec) 는 정상 wire round-trip 경로에서 직렬화되지 않아 re-parse store

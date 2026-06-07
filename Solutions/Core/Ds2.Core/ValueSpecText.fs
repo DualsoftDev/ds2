@@ -5,7 +5,7 @@ open System.Globalization
 
 /// ValueSpec 의 사람 친화 *텍스트* parser / formatter 공용 SSOT.
 ///
-/// **추출 배경** (todo-refactor-condition.md Phase 2 박제 결정 #4):
+/// **추출 배경** (done-refactor-condition.md Phase 2 박제 결정 #4):
 /// 기존 로직은 `Ds2.Editor` 의 `internal PropertyPanelValueSpec` 에만 있어 `Ds2.LlmAgent`
 /// (friend assembly 아님) 가 재사용할 수 없었다. condition leaf 의 `eq` sugar / typed
 /// `inputSpec` 값 텍스트와 PropertyPanel UI 가 같은 parse/format 규칙을 쓰도록 `Ds2.Core`

@@ -237,14 +237,14 @@ dotnet test Solutions/Tests/Promaker.Tests/Promaker.Tests.csproj
 
 ```text
 사용자 명시 의도:
-"todo-refactor-condition.md 의 Phase <N> 를 문서의 박제 결정과 공통 규약에 맞춰 구현한다."
+"done-refactor-condition.md 의 Phase <N> 를 문서의 박제 결정과 공통 규약에 맞춰 구현한다."
 
 작업 범위:
 - Phase <N> 명세의 작업 범위와 수정 예상 파일만 변경한다.
 - 관련 없는 파일과 Core/AASX 저장 모델은 박제 결정 없이 변경하지 않는다.
 
 박제 결정:
-- todo-refactor-condition.md 의 "박제 결정" 절을 SSOT 로 사용한다.
+- done-refactor-condition.md 의 "박제 결정" 절을 SSOT 로 사용한다.
 
 금지사항:
 - legacy conditions/children compatibility 를 깨지 않는다.
