@@ -281,15 +281,15 @@ calls:
 
 `condition.conditions[]` 의 leaf object 는 `{ ref, contactKind?, eq?, inputSpec? }` 형태다 (허용 키 whitelist — 그 외 키는 unknown-key 진단). leaf 의 *기대값* (`ApiCall.InputSpec` — `ValueSpec`) 을 두 방식으로 표현한다.
 
-- **`eq` — 단일 equality sugar**: leaf 가 *단일 값과 같음* (`ValueSpec.Single`) 을 표현하는 사람 친화 표기. 예: `eq: true` / `eq: 5` / `eq: "OPEN"`.
-  - **숫자 타입은 JSON token 으로 결정하지 않는다.** `5` 가 `Int32` 인지 `Int16` 인지 `Float64` 인지는 token 만으로 확정 불가하므로, **대상 `ApiDef` 의 데이터 타입 metadata** 로 결정한다. metadata 출처는 그 `ApiDef` 를 참조하는 store/plan `ApiCall` 의 `InputSpec`(우선) / `OutputSpec` ValueSpec case 다.
+- **`eq` — 단일 equality sugar**: leaf 가 *단일 bool/string 값과 같음* (`ValueSpec.Single`) 을 표현하는 사람 친화 표기. 예: `eq: true` / `eq: "OPEN"`.
+  - **숫자 타입은 JSON token 으로 결정하지 않는다.** `5` 가 `Int32` 인지 `Int16` 인지 `Float64` 인지는 token 만으로 확정 불가하므로, numeric 기대값은 LLM/YAML 생성 시 typed `inputSpec` 사용을 기본으로 한다. parse 측 numeric `eq` 는 기존 store/plan 에서 대상 `ApiDef` 를 참조하는 `ApiCall` 의 `InputSpec`(우선) / `OutputSpec` ValueSpec case 가 단일하게 확인될 때만 호환 수용한다.
   - `bool` token (`true`/`false`) 은 token 자체로 `BoolValue` 확정 — metadata 불요.
-  - `string` token 은 기본 `StringValue`. 단 대상 타입 hint 가 비-string 이면 그 타입으로 텍스트 파싱한다.
-  - **숫자 token 인데 타입 metadata 가 없으면** (예: device sugar 의 `ApiCall` 은 `InputSpec = UndefinedValue` 라 hint 부재) `Int32`/`Float64` 등을 임의로 고정하지 않고 **진단으로 거부** + typed `inputSpec` 사용을 안내한다 (박제 결정 — 폭 손실 방지).
-- **`inputSpec` — typed fallback**: `eq` 로 환원할 수 없는 경우 (`ValueSpec.Multiple` 다중값 / `ValueSpec.Ranges` 범위 / bound 포함 비교) 에 raw `ValueSpec` DU 를 그대로 받는다. 형태는 `{ Case: <ValueSpec case>, Fields: [...] }` (예: `inputSpec: { Case: Int32Value, Fields: [ { Case: Multiple, Fields: [ [1,2,3] ] } ] }`).
+  - `string` token 은 항상 `StringValue` 로 보존한다. 대상 타입 hint 로 재파싱하지 않는다.
+  - **숫자 token 인데 타입 metadata 가 없거나 여러 case 로 충돌하면** `Int32`/`Float64` 등을 임의로 고정하지 않고 **진단으로 거부** + typed `inputSpec` 사용을 안내한다 (박제 결정 — 폭 손실 방지).
+- **`inputSpec` — typed fallback**: numeric 단일값, `ValueSpec.Multiple` 다중값, `ValueSpec.Ranges` 범위 / bound 포함 비교처럼 타입을 명시해야 하는 기대값에 raw `ValueSpec` DU 를 그대로 받는다. 형태는 `{ Case: <ValueSpec case>, Fields: [...] }` (예: `inputSpec: { Case: Int32Value, Fields: [ { Case: Multiple, Fields: [ [1,2,3] ] } ] }`, numeric 단일값은 `inputSpec: { Case: Int32Value, Fields: [ { Case: Single, Fields: [ 5 ] } ] }`).
 - **`eq` 와 `inputSpec` 동시 지정 금지** — 둘 다 있으면 진단으로 거부 (`eq` = 단일 equality sugar, `inputSpec` = typed fallback. 하나만 사용).
 
-**emit 규칙**: leaf 의 `InputSpec` 이 `UndefinedValue` (default) 면 키 생략 → string scalar leaf 유지. `Single` 값이면 `eq` scalar 로 emit, `Multiple`/`Ranges` 면 `inputSpec` raw DU 로 emit (object 승격). 따라서 default 기대값 leaf 는 round-trip 후에도 string scalar 로 보존된다 (§6.3 (b) 정합).
+**emit 규칙**: leaf 의 `InputSpec` 이 `UndefinedValue` (default) 면 키 생략 → string scalar leaf 유지. `BoolValue(Single)` / `StringValue(Single)` 은 `eq` scalar 로 emit, numeric `Single` 및 `Multiple`/`Ranges` 는 `inputSpec` raw DU 로 emit (object 승격). 따라서 default 기대값 leaf 는 round-trip 후에도 string scalar 로 보존된다 (§6.3 (b) 정합).
 
 ### 2.2.2 `plc:` sub-section — PLC metadata (Phase 7 §4.2 C-7.1)
 
