@@ -301,7 +301,8 @@ internal static class FormulaColorizer
         inlines.Add(hyperlink);
 
         // 기대값(=spec) — UndefinedValue 는 생략. (F# baseText: spec 빈값/Undefined 면 name 만.)
-        var spec = item.OutputSpecText;
+        // condition leaf 기대값 = InputSpec (Runtime 평가 대상). F# formatApiCallItem 과 동일하게 InputSpecText 사용.
+        var spec = item.InputSpecText;
         if (!string.IsNullOrEmpty(spec) && spec != ValueSpecEditorControl.UndefinedText)
         {
             inlines.Add(new Run("=") { Foreground = OperatorBrush });

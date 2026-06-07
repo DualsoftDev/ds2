@@ -26,10 +26,11 @@ namespace Promaker.Tests;
 public sealed class ConditionFormulaColorizerTests
 {
     /// leaf 패널 항목 — projection/colorizer 표시만 검증하므로 store 없이 직접 구성.
-    private static ConditionApiCallItem Leaf(string name, ContactKind kind, string outputSpec = "") =>
+    /// condition leaf 기대값은 InputSpec(Runtime 평가 대상)이므로 기대값은 inputSpec 인자(InputSpecText)에 채운다.
+    private static ConditionApiCallItem Leaf(string name, ContactKind kind, string inputSpec = "") =>
         new(Guid.NewGuid(), name, name,
-            outputSpec, 0,
-            "", 0,
+            "", 0,            // outputSpec — condition leaf 표시에 쓰지 않음
+            inputSpec, 0,     // inputSpec — 기대값(=spec)
             kind, ValueSpec.UndefinedValue);
 
     private static ConditionPanelItem Cond(
@@ -171,8 +172,8 @@ public sealed class ConditionFormulaColorizerTests
     [Fact]
     public void ContactKind_marker_preserved_with_expected_value()
     {
-        // RisingPulse + outputSpec -> name=spec(R)
-        var c = Cond(isOR: false, isInverted: false, Leaf("A", ContactKind.RisingPulse, outputSpec: "true"));
+        // RisingPulse + inputSpec(기대값) -> name=spec(R)
+        var c = Cond(isOR: false, isInverted: false, Leaf("A", ContactKind.RisingPulse, inputSpec: "true"));
         Assert.Equal("A=true(R)", ColorizedText(c));
         AssertMatchesProjection(c);
     }
@@ -232,8 +233,80 @@ public sealed class ConditionFormulaColorizerTests
     [Fact]
     public void Expected_value_shows_name_eq_spec()
     {
-        var c = Cond(isOR: false, isInverted: false, Leaf("A", ContactKind.NoContact, outputSpec: "true"));
+        var c = Cond(isOR: false, isInverted: false, Leaf("A", ContactKind.NoContact, inputSpec: "true"));
         Assert.Equal("A=true", ColorizedText(c));
+        AssertMatchesProjection(c);
+    }
+
+    // ── eq 기대값(InputSpec) 표시 — condition leaf 기대값 = InputSpec 확정 ──
+    // (7-reviewer Major: condition leaf 기대값은 InputSpec(Phase 2 의 eq 저장 위치, Runtime 평가 대상)이며
+    //  colorizer 가 `=spec` 으로 표시해야 한다. OutputSpec 은 condition leaf 표시에 쓰지 않는다.)
+
+    /// InputSpec(ValueSpec) 으로부터 leaf 를 만든다 — Panel.fs 생성부와 동일 규칙으로
+    /// InputSpecText 를 채운다. PropertyPanelValueSpec.format 은 ValueSpecText.format(공용 SSOT)
+    /// 위임이라 결과 동일하고, typeIndex 는 표시 검증에 무관하므로 0 고정.
+    private static ConditionApiCallItem LeafOfInputSpec(string name, ContactKind kind, ValueSpec inputSpec) =>
+        new(Guid.NewGuid(), name, name,
+            "", 0,
+            ValueSpecText.format(inputSpec), 0,
+            kind, inputSpec);
+
+    [Fact]
+    public void InputSpec_bool_true_shows_eq_true()
+    {
+        var c = Cond(isOR: false, isInverted: false,
+            LeafOfInputSpec("A", ContactKind.NoContact, ValueSpecModule.singleBool(true)));
+        Assert.Equal("A=true", ColorizedText(c));
+        AssertMatchesProjection(c);
+    }
+
+    [Fact]
+    public void InputSpec_string_OPEN_shows_eq_OPEN()
+    {
+        var c = Cond(isOR: false, isInverted: false,
+            LeafOfInputSpec("Door", ContactKind.NoContact, ValueSpecModule.singleString("OPEN")));
+        Assert.Equal("Door=OPEN", ColorizedText(c));
+        AssertMatchesProjection(c);
+    }
+
+    [Fact]
+    public void InputSpec_numeric_shows_eq_value()
+    {
+        var c = Cond(isOR: false, isInverted: false,
+            LeafOfInputSpec("Cnt", ContactKind.NoContact, ValueSpecModule.singleInt32(42)));
+        Assert.Equal("Cnt=42", ColorizedText(c));
+        AssertMatchesProjection(c);
+    }
+
+    [Fact]
+    public void InputSpec_expected_value_combines_with_contact_kind()
+    {
+        // A접 -> name=spec, B접(NcContact) -> /name=spec, Rising/Falling -> name=spec(R)/(F)
+        Assert.Equal("A=true",
+            ColorizedText(Cond(isOR: false, isInverted: false,
+                LeafOfInputSpec("A", ContactKind.NoContact, ValueSpecModule.singleBool(true)))));
+        Assert.Equal("/A=true",
+            ColorizedText(Cond(isOR: false, isInverted: false,
+                LeafOfInputSpec("A", ContactKind.NcContact, ValueSpecModule.singleBool(true)))));
+        Assert.Equal("A=true(R)",
+            ColorizedText(Cond(isOR: false, isInverted: false,
+                LeafOfInputSpec("A", ContactKind.RisingPulse, ValueSpecModule.singleBool(true)))));
+        Assert.Equal("A=true(F)",
+            ColorizedText(Cond(isOR: false, isInverted: false,
+                LeafOfInputSpec("A", ContactKind.FallingPulse, ValueSpecModule.singleBool(true)))));
+    }
+
+    [Fact]
+    public void OutputSpec_only_does_not_show_expected_value()
+    {
+        // condition leaf 표시는 InputSpec 기준 — OutputSpec 에 값이 있어도 InputSpec 이 비면 name 만.
+        var item = new ConditionApiCallItem(
+            Guid.NewGuid(), "A", "A",
+            "true", 0,     // outputSpec — 표시에 쓰지 않음
+            "", 0,         // inputSpec 비어 있음
+            ContactKind.NoContact, ValueSpec.UndefinedValue);
+        var c = Cond(isOR: false, isInverted: false, item);
+        Assert.Equal("A", ColorizedText(c));
         AssertMatchesProjection(c);
     }
 }
