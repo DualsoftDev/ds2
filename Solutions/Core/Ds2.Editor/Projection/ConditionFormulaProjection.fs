@@ -7,7 +7,7 @@ module ConditionFormulaProjection =
     open Ds2.Core
 
     /// 빈 condition 의 Runtime 의미. 빈 And = true, 빈 Or = false.
-    /// (SSOT todo-refactor-condition.md 박제 결정 — 빈 condition 은 Runtime 의미 그대로 표시.)
+    /// (SSOT done-refactor-condition.md 박제 결정 — 빈 condition 은 Runtime 의미 그대로 표시.)
     let private emptyText (isOR: bool) = if isOR then "false" else "true"
 
     /// leaf 의 ContactKind 를 수식 표기로 반영한다.

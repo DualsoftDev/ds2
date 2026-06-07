@@ -1179,7 +1179,7 @@ module ModelProtocol =
 
     // ─── Condition leaf `eq` / `inputSpec` (Phase 2 — ValueSpec sugar) ───────
     //
-    // SSOT todo-refactor-condition.md Phase 2 / 박제 결정:
+    // SSOT done-refactor-condition.md Phase 2 / 박제 결정:
     //   * leaf object `{ ref, contactKind?, eq?, inputSpec? }` — `eq` 는 단일 equality sugar,
     //     `inputSpec` 은 Multiple/Ranges/명시 타입 fallback (raw ValueSpec DU).
     //   * `eq` 값의 ValueSpec case 는 JSON token 만으로 추론하지 않고 *대상 ApiDef 의 데이터 타입
@@ -2660,7 +2660,7 @@ module ModelProtocol =
             w.WriteEndArray()
         w.WriteEndObject()
 
-    // ─── Multi-root condition emit (Phase 3 — todo-refactor-condition.md §남은작업 4) ──
+    // ─── Multi-root condition emit (Phase 3 — done-refactor-condition.md §남은작업 4) ──
     //
     // SSOT 박제 결정: "같은 ConditionType 의 여러 top-level root 는 implicit AND".
     // Runtime (SimIndex/Build.fs `buildConditionExpression`) 은 `Conditions` 에서
