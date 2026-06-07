@@ -223,6 +223,12 @@ internal static class FormulaColorizer
     /// (F# ConditionFormulaProjection.emptyText 와 동일 규약 — SSOT 박제 결정.)
     private static string EmptyText(bool isOR) => isOR ? "false" : "true";
 
+    private static bool IsIdentityEmptyChild(ConditionItem parent, ConditionItem child) =>
+        !child.IsInverted
+        && child.IsOR == parent.IsOR
+        && child.Items.Count == 0
+        && child.Children.Count == 0;
+
     /// F# ConditionFormulaProjection.formatCondition 과 같은 표시 규약으로 inline 생성.
     /// IsInverted -> `not (...)`, op join 공백(` & ` / ` | `), ContactKind/빈 condition 표기 일치.
     public static void BuildInlines(ConditionItem cond, InlineCollection inlines, ICommand? navigateCommand)
@@ -253,8 +259,8 @@ internal static class FormulaColorizer
         foreach (var child in cond.Children)
         {
             // 부모 op 의 항등원(And->true, Or->false)인 빈 자식은 의미 변화 없이 생략.
-            // (F# formatItems: childText <> emptyText isOR 일 때만 추가.)
-            if (child.FormulaText == EmptyText(cond.IsOR)) continue;
+            // (F# formatItems 와 동일한 구조 predicate.)
+            if (IsIdentityEmptyChild(cond, child)) continue;
             parts.Add(() => AddChildGroup(child, inlines, navigateCommand));
         }
 

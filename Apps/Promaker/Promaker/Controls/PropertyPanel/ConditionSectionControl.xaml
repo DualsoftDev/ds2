@@ -58,14 +58,28 @@
                                 Drop="ConditionItem_Drop"
                                 Tag="{Binding}">
                             <StackPanel Margin="4,2">
-                                <!-- 그룹 헤더: 그룹 전체 삭제 버튼만 (AND/OR 의미 없음 — 단순 리스트). -->
-                                <Button Content="x"
-                                        HorizontalAlignment="Left"
-                                        Style="{DynamicResource InlineListButton}"
-                                        ToolTip="조건 그룹 삭제"
-                                        Margin="0,0,0,2"
-                                        Command="{Binding RemoveConditionCommand, ElementName=Root}"
-                                        CommandParameter="{Binding}"/>
+                                <!-- 그룹 헤더: 삭제 버튼 + 실제 조건 수식 표시. -->
+                                <Grid Margin="0,0,0,2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Button Grid.Column="0"
+                                            Content="x"
+                                            HorizontalAlignment="Left"
+                                            Style="{DynamicResource InlineListButton}"
+                                            ToolTip="조건 그룹 삭제"
+                                            Command="{Binding RemoveConditionCommand, ElementName=Root}"
+                                            CommandParameter="{Binding}"/>
+                                    <TextBlock Grid.Column="1"
+                                               FontSize="10"
+                                               VerticalAlignment="Center"
+                                               Margin="6,0,0,0"
+                                               TextWrapping="Wrap"
+                                               TextTrimming="CharacterEllipsis"
+                                               Loaded="FormulaBlock_Loaded"
+                                               DataContextChanged="FormulaBlock_DataContextChanged"/>
+                                </Grid>
 
                                 <!-- 그룹 안의 ApiCall 신호 리스트 — 중첩(NOT/AND/OR) 포함 평탄화. -->
                                 <ItemsControl ItemsSource="{Binding AllLeafRows}" Margin="14,0,0,0">

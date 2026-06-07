@@ -144,7 +144,7 @@ robot 묶음 = `<Flow>_Robots` · 나머지(robot 외 전부) = `<Flow>` (flow �
 - `conditions` 는 **call 참조 배열** — 각 원소는 `<Passive>.<Api>` dotted-path 로 store 의 실재 call 을 *구조적으로 지목* 한다 (자연어·임의 텍스트가 아님). 미존재 참조는 파서가 resolve 실패로 거부 (§2.7 룰3) — 표현 구조 자체가 임의 문자열을 차단하므로 별도 "문자열 금지" 규약 불필요.
 - 참조 대상은 같은 work / 다른 work 의 call 모두 가능 (system 전체에서 resolve).
 - 선행조건이 여럿이면 배열에 나열: `conditions: [Robot205a.WORK3, Robot205b.WORK2]` (둘 다 완료되어야 실행).
-- (선택) 기대값이 필요하면 그 원소만 object `{ ref, contactKind?, eq? }` 로 승격해 `eq` 로 단일 기대값(bool/숫자/문자열)을 준다. 예: `{ ref: Vision232.MEASURE, eq: true }`. 숫자 타입은 대상 ApiDef 데이터 타입 기준으로 결정 — 상세·다중값/범위(typed `inputSpec`) 는 yaml-protocol-v0.md §2.2.1.1 참조.
+- (선택) 기대값이 필요하면 그 원소만 object `{ ref, contactKind?, eq?, inputSpec? }` 로 승격한다. `eq` 는 bool/string 단일 기대값에만 사용한다. 예: `{ ref: Vision232.MEASURE, eq: true }`. 숫자 기대값은 폭 손실 방지를 위해 typed `inputSpec` 으로 case 를 명시한다. 다중값/범위도 typed `inputSpec` 을 사용한다. 상세는 yaml-protocol-v0.md §2.2.1.1 참조.
 
 
 ## 예제 — call 간 Group(동시 동작) 핵심 시연

@@ -1182,12 +1182,13 @@ module ModelProtocol =
     // SSOT done-refactor-condition.md Phase 2 / 박제 결정:
     //   * leaf object `{ ref, contactKind?, eq?, inputSpec? }` — `eq` 는 단일 equality sugar,
     //     `inputSpec` 은 Multiple/Ranges/명시 타입 fallback (raw ValueSpec DU).
-    //   * `eq` 값의 ValueSpec case 는 JSON token 만으로 추론하지 않고 *대상 ApiDef 의 데이터 타입
-    //     metadata* 기준으로 결정한다. ApiDef entity 자체에는 타입 metadata 가 없으므로 (Entities.fs
-    //     ApiDef = ActionType/SensingType/Tx/Rx/Description), 해당 ApiDefId 를 참조하는 store/plan
-    //     ApiCall 의 InputSpec(우선)/OutputSpec ValueSpec case 를 metadata 출처로 삼는다.
-    //   * 숫자 token 은 정수/실수 폭을 token 만으로 확정할 수 없으므로, hint 부재 시 임의 고정 대신
-    //     diagnostics 로 거부하고 typed `inputSpec` 사용을 안내한다 (박제 결정 — Int32/Float64 임의 고정 금지).
+    //   * `eq` 값 중 bool/string token 은 token 자체로 ValueSpec case 를 확정한다. 숫자 token 은
+    //     정수/실수 폭을 token 만으로 확정할 수 없으므로 *대상 ApiDef 의 데이터 타입 metadata* 가
+    //     단일하게 확인될 때만 호환 수용한다. ApiDef entity 자체에는 타입 metadata 가 없으므로
+    //     (Entities.fs ApiDef = ActionType/SensingType/Tx/Rx/Description), 해당 ApiDefId 를 참조하는
+    //     store/plan ApiCall 의 InputSpec(우선)/OutputSpec ValueSpec case 를 metadata 출처로 삼는다.
+    //   * 숫자 token 의 hint 부재/충돌 시 임의 고정 대신 diagnostics 로 거부하고 typed `inputSpec`
+    //     사용을 안내한다 (박제 결정 — Int32/Float64 임의 고정 금지).
 
     /// raw ValueSpec DU (`{"Case":"BoolValue","Fields":[...]}`) deserialize 옵션 (STJ + FSharp DU 컨버터).
     let private valueSpecJsonOptions = JsonOptions.createProjectSerializationOptions ()
@@ -1202,67 +1203,95 @@ module ModelProtocol =
             | other -> Some (ValueSpecText.typeHintOf other)
         | other -> Some (ValueSpecText.typeHintOf other)
 
-    /// 주어진 ApiDefId 를 참조하는 *store* ApiCall 의 타입 hint. apply(parse) 측 hint 의 store 부분.
-    /// device sugar(cylinder 등)의 ApiCall 은 InputSpec=UndefinedValue 라 대부분 None.
-    let private apiDefValueSpecHintFromStore (store: DsStore) (apiDefId: Guid) : ValueSpec option =
+    let private formatValueSpecCase (spec: ValueSpec) : string =
+        match ValueSpecText.typeHintOf spec with
+        | BoolValue _    -> "BoolValue"
+        | Int8Value _    -> "Int8Value"
+        | Int16Value _   -> "Int16Value"
+        | Int32Value _   -> "Int32Value"
+        | Int64Value _   -> "Int64Value"
+        | UInt8Value _   -> "UInt8Value"
+        | UInt16Value _  -> "UInt16Value"
+        | UInt32Value _  -> "UInt32Value"
+        | UInt64Value _  -> "UInt64Value"
+        | Float32Value _ -> "Float32Value"
+        | Float64Value _ -> "Float64Value"
+        | StringValue _  -> "StringValue"
+        | UndefinedValue -> "UndefinedValue"
+
+    /// 주어진 ApiDefId 를 참조하는 *store* ApiCall 의 타입 hint 후보들. apply(parse) 측 hint 의 store 부분.
+    /// device sugar(cylinder 등)의 ApiCall 은 InputSpec=UndefinedValue 라 대부분 빈 list.
+    let private apiDefValueSpecHintsFromStore (store: DsStore) (apiDefId: Guid) : ValueSpec list =
         store.CallsReadOnly.Values
         |> Seq.collect (fun c -> c.ApiCalls :> seq<_>)
         |> Seq.filter (fun ac -> ac.ApiDefId = Some apiDefId)
-        |> Seq.tryPick apiCallTypeHint
+        |> Seq.choose apiCallTypeHint
+        |> Seq.distinct
+        |> Seq.toList
 
     /// 주어진 ApiDefId 를 참조하는 store/plan ApiCall 의 InputSpec(우선)/OutputSpec 중
-    /// non-Undefined ValueSpec 의 *타입 hint*. store 우선, 없으면 이번 turn plan 신규 Call 보강.
-    /// 없으면 None — 이 경우 숫자 eq 는 diagnostics 대상.
-    let private apiDefValueSpecHint (ctx: ApplyContext) (apiDefId: Guid) : ValueSpec option =
-        match apiDefValueSpecHintFromStore ctx.Store apiDefId with
-        | Some _ as fromStore -> fromStore
-        | None ->
+    /// non-Undefined ValueSpec 의 *타입 hint* 후보들. 숫자 eq parse 시 후보가 1개일 때만 사용한다.
+    /// 없으면 metadata 부재 diagnostics, 2개 이상이면 hint 충돌 diagnostics 대상.
+    let private apiDefValueSpecHints (ctx: ApplyContext) (apiDefId: Guid) : ValueSpec list =
+        let storeHints = apiDefValueSpecHintsFromStore ctx.Store apiDefId
+        let planHints =
             // 이번 turn plan operations 의 신규 Call.ApiCalls 도 metadata 출처.
             ctx.Plan.Operations
             |> Seq.choose (function ImportPlanOperation.AddCall c -> Some c | _ -> None)
             |> Seq.collect (fun c -> c.ApiCalls :> seq<_>)
             |> Seq.filter (fun ac -> ac.ApiDefId = Some apiDefId)
-            |> Seq.tryPick apiCallTypeHint
+            |> Seq.choose apiCallTypeHint
+            |> Seq.toList
+        Seq.append storeHints planHints
+        |> Seq.distinct
+        |> Seq.toList
 
     /// `eq` JsonElement → ValueSpec. 대상 ApiDef 타입 hint 기준으로 case 결정.
     /// - bool token: hint 무관 `BoolValue (Single b)` (token 자체로 타입 확정).
-    /// - string token: hint 가 비-string 타입이면 그 타입으로 텍스트 파싱, 아니면 `StringValue (Single s)`.
+    /// - string token: 명시 문자열이므로 hint 무관 `StringValue (Single s)`.
     /// - number token: hint(숫자 case) 필수. hint 없으면 None + diagnostics (숫자 폭 임의 고정 금지).
     let private parseEqValue
-        (ctx: ApplyContext) (hint: ValueSpec option) (eqEl: JsonElement) (path: string) : ValueSpec option =
+        (ctx: ApplyContext) (hints: ValueSpec list) (eqEl: JsonElement) (path: string) : ValueSpec option =
         match eqEl.ValueKind with
         | JsonValueKind.True  -> Some (ValueSpec.singleBool true)
         | JsonValueKind.False -> Some (ValueSpec.singleBool false)
         | JsonValueKind.String ->
             let s = eqEl.GetString()
-            match hint with
-            | Some h when not (h = ValueSpec.singleString "") ->
-                // hint 가 string 이외 타입 — 그 타입으로 텍스트 파싱 (실패 시 diagnostics).
-                // strict: tryParseAs 의 inferFromText fallback 이 hint 와 *다른* case 로 파싱한 결과
-                // (예: 범위 초과·타입 불일치) 가 eq 로 살아나는 것을 차단 — case 일치까지 확인.
-                match ValueSpecText.tryParseAs h s with
-                | Some spec when ValueSpecText.isSingleEquality spec && ValueSpecText.sameCase spec h -> Some spec
-                | _ ->
-                    ctx.Diagnostics.Add(path, sprintf "eq 값 '%s' 을(를) 대상 타입으로 해석할 수 없습니다." s)
-                    None
-            | _ -> Some (ValueSpec.singleString s)
+            Some (ValueSpec.singleString s)
         | JsonValueKind.Number ->
-            match hint with
-            | Some h ->
-                // 대상 ApiDef 의 숫자 타입 case 로 token 텍스트를 파싱 — 폭 보존.
-                // strict: tryParseAs 의 inferFromText fallback (UInt8 hint + "300" → Int64 등) 이
-                // hint 와 다른 case 로 살아나는 것을 차단 — case 일치까지 확인.
-                let raw = eqEl.GetRawText()
-                match ValueSpecText.tryParseAs h raw with
-                | Some spec when ValueSpecText.isSingleEquality spec && ValueSpecText.sameCase spec h -> Some spec
-                | _ ->
-                    ctx.Diagnostics.Add(path, sprintf "eq 숫자 값 '%s' 을(를) 대상 타입으로 해석할 수 없습니다." raw)
+            match hints with
+            | [ h ] ->
+                if not (ValueSpecText.isNumericCase h) then
+                    ctx.Diagnostics.Add(
+                        path,
+                        sprintf "eq 숫자 값에는 숫자 ValueSpec metadata 가 필요합니다 (실제 metadata: %s)." (formatValueSpecCase h),
+                        suggestion = "문자열 기대값이면 quote 를 사용하고, 숫자 기대값이면 typed inputSpec 으로 타입을 명시하세요.")
                     None
-            | None ->
+                else
+                    // 대상 ApiDef 의 숫자 타입 case 로 token 텍스트를 파싱 — 폭 보존.
+                    // strict: tryParseAs 의 inferFromText fallback (UInt8 hint + "300" → Int64 등) 이
+                    // hint 와 다른 case 로 살아나는 것을 차단 — case 일치까지 확인.
+                    let raw = eqEl.GetRawText()
+                    match ValueSpecText.tryParseAs h raw with
+                    | Some spec when ValueSpecText.isSingleEquality spec && ValueSpecText.sameCase spec h -> Some spec
+                    | _ ->
+                        ctx.Diagnostics.Add(path, sprintf "eq 숫자 값 '%s' 을(를) 대상 타입으로 해석할 수 없습니다." raw)
+                        None
+            | [] ->
                 ctx.Diagnostics.Add(
                     path,
                     "eq 숫자 값의 정수/실수 타입을 결정할 수 없습니다 (대상 ApiDef 의 InputSpec 타입 metadata 부재).",
                     suggestion = "typed inputSpec 포맷 사용 — 예: inputSpec: { Case: Int32Value, Fields: [ { Case: Single, Fields: [ 5 ] } ] }.")
+                None
+            | conflicting ->
+                let cases =
+                    conflicting
+                    |> List.map formatValueSpecCase
+                    |> String.concat ", "
+                ctx.Diagnostics.Add(
+                    path,
+                    sprintf "eq 숫자 값의 대상 타입 metadata 가 여러 종류입니다 (%s). 임의 선택하지 않습니다." cases,
+                    suggestion = "typed inputSpec 포맷으로 기대값 타입을 명시하세요.")
                 None
         | other ->
             ctx.Diagnostics.Add(path, sprintf "eq 는 bool/숫자/문자열 scalar 기대 (실제 %A)." other)
@@ -1271,12 +1300,55 @@ module ModelProtocol =
     /// typed `inputSpec` fallback — raw ValueSpec DU 를 STJ 로 deserialize.
     /// Multiple / Ranges / 명시 타입 비교 조건을 표현 (eq 로 환원 불가한 케이스, 박제 결정).
     let private parseTypedInputSpec (ctx: ApplyContext) (specEl: JsonElement) (path: string) : ValueSpec option =
-        // 외부 입력(잘못된 DU shape) 파싱 실패는 "예상되는 예외" — silent skip 금지 정책상 diagnostics 로 보고.
-        try
-            Some (JsonSerializer.Deserialize<ValueSpec>(specEl.GetRawText(), valueSpecJsonOptions))
-        with ex ->
-            ctx.Diagnostics.Add(path, sprintf "inputSpec 파싱 실패 (raw ValueSpec DU 기대): %s" ex.Message)
+        let rec hasDirectNullInFields (el: JsonElement) : bool =
+            match el.ValueKind with
+            | JsonValueKind.Object ->
+                el.EnumerateObject()
+                |> Seq.exists scanObjectProperty
+            | JsonValueKind.Array ->
+                el.EnumerateArray() |> Seq.exists hasDirectNullInFields
+            | _ -> false
+        and scanObjectProperty (prop: JsonProperty) : bool =
+            if prop.Name = "Fields" && prop.Value.ValueKind = JsonValueKind.Array then
+                prop.Value.EnumerateArray() |> Seq.exists hasNullFieldElement
+            elif
+                (prop.Name = "Lower" || prop.Name = "Upper")
+                && (prop.Value.ValueKind = JsonValueKind.Null || prop.Value.ValueKind = JsonValueKind.Undefined)
+            then
+                false
+            else
+                hasDirectNullInFields prop.Value
+        and hasNullFieldElement (fieldEl: JsonElement) : bool =
+            match fieldEl.ValueKind with
+            | JsonValueKind.Null
+            | JsonValueKind.Undefined -> true
+            | JsonValueKind.Object ->
+                fieldEl.EnumerateObject() |> Seq.exists scanObjectProperty
+            | JsonValueKind.Array ->
+                fieldEl.EnumerateArray() |> Seq.exists hasNullFieldElement
+            | _ -> false
+
+        if specEl.ValueKind <> JsonValueKind.Object then
+            ctx.Diagnostics.Add(path, sprintf "inputSpec object 기대 (실제 %A)." specEl.ValueKind)
             None
+        elif not (tryProp specEl "Case" |> Option.exists (fun el -> el.ValueKind = JsonValueKind.String)) then
+            ctx.Diagnostics.Add(path, "inputSpec.Case string 키가 필요합니다 (raw ValueSpec DU shape).")
+            None
+        elif hasDirectNullInFields specEl then
+            ctx.Diagnostics.Add(path, "inputSpec.Fields 배열의 직접 null 원소는 허용되지 않습니다.")
+            None
+        else
+            // 외부 입력(잘못된 DU shape) 파싱 실패는 "예상되는 예외" — silent skip 금지 정책상 diagnostics 로 보고.
+            try
+                let spec = JsonSerializer.Deserialize<ValueSpec>(specEl.GetRawText(), valueSpecJsonOptions)
+                if isNull (box spec) then
+                    ctx.Diagnostics.Add(path, "inputSpec 파싱 실패 (raw ValueSpec DU 기대): null 결과는 허용되지 않습니다.")
+                    None
+                else
+                    Some spec
+            with ex ->
+                ctx.Diagnostics.Add(path, sprintf "inputSpec 파싱 실패 (raw ValueSpec DU 기대): %s" ex.Message)
+                None
 
     // ─── Condition / ContactKind apply helpers (Phase 7 §4.2 C-3) ────────
     //
@@ -1436,11 +1508,14 @@ module ModelProtocol =
                             if hasEq && hasInputSpec then
                                 ctx.Diagnostics.Add(leafPath, "eq 와 inputSpec 은 동시 지정 불가 (eq = 단일 equality sugar, inputSpec = typed fallback). 하나만 사용.")
                             else
-                                // eq: 대상 ApiDef 타입 hint 기준 ValueSpec 결정.
+                                // eq: bool/string token 은 자체 case, numeric token 은 대상 ApiDef 타입 hint 기준.
                                 tryProp leafEl "eq"
                                 |> Option.iter (fun eqEl ->
-                                    let hint = apiCall.ApiDefId |> Option.bind (apiDefValueSpecHint ctx)
-                                    parseEqValue ctx hint eqEl (joinDiagKey leafPath "eq")
+                                    let hints =
+                                        apiCall.ApiDefId
+                                        |> Option.map (apiDefValueSpecHints ctx)
+                                        |> Option.defaultValue []
+                                    parseEqValue ctx hints eqEl (joinDiagKey leafPath "eq")
                                     |> Option.iter (fun spec -> apiCall.InputSpec <- spec))
                                 // inputSpec: raw ValueSpec DU fallback (Multiple/Ranges/명시 타입).
                                 tryProp leafEl "inputSpec"
@@ -2681,9 +2756,8 @@ module ModelProtocol =
     //                                 = And [convertOne r1; convertOne r2; ...] (원본과 정확히 동등).
     //   * 서로 다른 타입 root 가 동시에 존재하면 wire 의 condition 키 1개로는 1개 type 만 표현 가능
     //     (condition object 는 단일 type). 이는 정상 wire round-trip 경로 (parse 가 entity 당 1 root 만
-    //     생성) 에서는 발생하지 않으나, Editor 등 다른 경로로 store 에 혼재할 수 있다. export 경로엔
-    //     Diagnostics 객체가 없으므로 (`exportToJsonWithLevel` 미수신) 기존 export 측 `log.Warn` 패턴으로
-    //     forensic 단서를 남기고, 첫 등장 type 그룹을 보존해 emit 한다 (silent drop 회피 — SSOT 정책 정합).
+    //     생성) 에서는 발생하지 않으나, Editor 등 다른 경로로 store 에 혼재할 수 있다. 이 상태에서
+    //     첫 type 만 emit 하면 사용자 데이터가 손실되므로, schema 확장 전까지 export 는 fail-fast 한다.
 
     /// `Conditions` 컬렉션에서 emit 할 단일 Condition 을 SSOT 박제 결정 (같은 타입 implicit AND) 에
     /// 맞춰 산출. emit 대상 root 가 없으면 None.
@@ -2707,14 +2781,13 @@ module ModelProtocol =
             let chosenType, chosenPairs =
                 match groups with
                 | [ single ] -> single
-                | first :: _ ->
-                    // 다중 타입 혼재 — wire condition 1개로 1 type 만 표현 가능. 첫 type 그룹 보존 + forensic 로그.
-                    let lostTypes =
-                        groups |> List.skip 1 |> List.map (fst >> formatConditionType) |> String.concat ", "
-                    log.Warn(
-                        sprintf "[exportToJson] %s: 서로 다른 ConditionType 의 top-level root 혼재 — wire condition 은 단일 type 만 표현 가능. 첫 type '%s' 보존, '%s' 누락 (Editor 경로 등에서 생성된 혼재 store)."
-                            entityRefForLog (formatConditionType (fst first)) lostTypes)
-                    first
+                | _ :: _ ->
+                    // 다중 타입 혼재 — wire condition 1개로 1 type 만 표현 가능. 일부 누락 대신 export 중단.
+                    let types =
+                        groups |> List.map (fst >> formatConditionType) |> String.concat ", "
+                    invalidOp (
+                        sprintf "[exportToJson] %s: 서로 다른 ConditionType 의 top-level root 혼재 (%s). wire condition 은 단일 type 만 표현 가능하므로 데이터 손실 방지를 위해 export 를 중단합니다. schema 확장 전에는 타입별 root 혼재 store 를 YAML 로 저장할 수 없습니다."
+                            entityRefForLog types)
                 | [] -> failwith "unreachable: typed 가 비어있지 않으므로 groups 도 비어있지 않음."
             let roots = chosenPairs |> List.map snd
             match roots with

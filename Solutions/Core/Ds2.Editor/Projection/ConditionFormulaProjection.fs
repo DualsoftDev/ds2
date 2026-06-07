@@ -10,6 +10,12 @@ module ConditionFormulaProjection =
     /// (SSOT done-refactor-condition.md 박제 결정 — 빈 condition 은 Runtime 의미 그대로 표시.)
     let private emptyText (isOR: bool) = if isOR then "false" else "true"
 
+    let private isIdentityEmptyChild (parentIsOR: bool) (child: ConditionPanelItem) =
+        (not child.IsInverted)
+        && child.IsOR = parentIsOR
+        && Seq.isEmpty child.Items
+        && Seq.isEmpty child.Children
+
     /// leaf 의 ContactKind 를 수식 표기로 반영한다.
     /// NcContact(B접) 은 `/` 전위, RisingPulse 는 `(R)` 후위, FallingPulse 는 `(F)` 후위.
     /// NoContact(A접) 은 기본이라 표기 생략. Inverter 는 placeholder leaf 라 `*` 로 표기.
@@ -39,7 +45,7 @@ module ConditionFormulaProjection =
         for child in children do
             let childText = formatCondition child
             // 부모 op 의 항등원(And→true, Or→false)인 빈 자식은 의미 변화 없이 생략한다.
-            if childText <> emptyText isOR then
+            if not (isIdentityEmptyChild isOR child) then
                 parts.Add($"({childText})")
         if parts.Count = 0 then emptyText isOR else System.String.Join($" {op} ", parts)
 

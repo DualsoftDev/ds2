@@ -1,7 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Documents;
+using System.Windows.Media;
+using System.Windows.Media.Media3D;
 using Ds2.Core;
 using Ds2.Editor;
 using Microsoft.FSharp.Collections;
@@ -308,5 +312,104 @@ public sealed class ConditionFormulaColorizerTests
         var c = Cond(isOR: false, isInverted: false, item);
         Assert.Equal("A", ColorizedText(c));
         AssertMatchesProjection(c);
+    }
+
+    [Fact]
+    public void Leaf_named_true_is_not_dropped_as_empty_and_child()
+    {
+        var child = Cond(isOR: false, isInverted: false, Leaf("true", ContactKind.NoContact));
+        var c = Cond(isOR: false, isInverted: false,
+            new[] { Leaf("A", ContactKind.NoContact) }, new[] { child });
+
+        Assert.Equal("A & (true)", ColorizedText(c));
+        AssertMatchesProjection(c);
+    }
+
+    [Fact]
+    public void Leaf_named_false_is_not_dropped_as_empty_or_child()
+    {
+        var child = Cond(isOR: true, isInverted: false, Leaf("false", ContactKind.NoContact));
+        var c = Cond(isOR: true, isInverted: false,
+            new[] { Leaf("A", ContactKind.NoContact) }, new[] { child });
+
+        Assert.Equal("A | (false)", ColorizedText(c));
+        AssertMatchesProjection(c);
+    }
+
+    [Fact]
+    public void ConditionSectionControl_renders_formula_text_with_colorizer()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var child = Cond(isOR: true, isInverted: true,
+                Leaf("B", ContactKind.NoContact),
+                Leaf("C", ContactKind.RisingPulse, inputSpec: "true"));
+            var panel = Cond(isOR: false, isInverted: false,
+                new[] { Leaf("A", ContactKind.NcContact) }, new[] { child });
+            var item = new ConditionItem(Guid.NewGuid(), panel);
+            var control = new ConditionSectionControl
+            {
+                HeaderText = "AutoAux",
+                ItemsSource = new[] { item }
+            };
+
+            var host = new Window
+            {
+                Content = control,
+                Width = 420,
+                Height = 240,
+                WindowStyle = WindowStyle.None,
+                ShowInTaskbar = false
+            };
+
+            try
+            {
+                host.Show();
+                control.UpdateLayout();
+
+                var formulaBlock = FindFormulaTextBlock(control);
+                Assert.NotNull(formulaBlock);
+                Assert.NotEmpty(formulaBlock!.Inlines);
+                Assert.Equal(panel.FormulaText(), FlattenInlines(formulaBlock.Inlines));
+            }
+            finally
+            {
+                host.Close();
+            }
+        });
+    }
+
+    private static TextBlock? FindFormulaTextBlock(DependencyObject root)
+    {
+        if (root is TextBlock { DataContext: ConditionItem } tb)
+            return tb;
+
+        foreach (var child in GetVisualChildren(root))
+        {
+            var match = FindFormulaTextBlock(child);
+            if (match is not null)
+                return match;
+        }
+
+        foreach (var child in LogicalTreeHelper.GetChildren(root).OfType<DependencyObject>())
+        {
+            var match = FindFormulaTextBlock(child);
+            if (match is not null)
+                return match;
+        }
+
+        return null;
+    }
+
+    private static DependencyObject[] GetVisualChildren(DependencyObject root)
+    {
+        if (root is not Visual && root is not Visual3D)
+            return [];
+
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        var children = new DependencyObject[count];
+        for (var i = 0; i < count; i++)
+            children[i] = VisualTreeHelper.GetChild(root, i);
+        return children;
     }
 }

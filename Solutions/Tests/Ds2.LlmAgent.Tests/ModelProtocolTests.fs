@@ -1533,6 +1533,12 @@ let private findAdvCall (store: DsStore) : Call =
     let w = Queries.worksOf f.Id store |> List.find (fun w -> w.LocalName = "Adv")
     Queries.callsOf w.Id store |> List.head
 
+/// Cyl1.ADV / Cyl1.RET ApiDef 를 store 에서 찾아 ApiDefId 반환.
+let private cylApiDefId (store: DsStore) (apiName: string) : Guid =
+    let proj = (Queries.allProjects store).Head
+    let cyl = Queries.passiveSystemsOf proj.Id store |> List.find (fun s -> s.Name = "Cyl1")
+    (Queries.apiDefsOf cyl.Id store |> List.find (fun d -> d.Name = apiName)).Id
+
 let private nestedCallConditionYaml = """
 protocol: promaker/v0
 project: M1
@@ -2113,6 +2119,41 @@ let ``Phase 2 — string eq parse/emit/round-trip: StringValue(Single) 보존`` 
     Assert.Equal(StringValue (Single "OPEN"), (findAdvCall store2).Conditions.[0].ApiCalls.[0].InputSpec)
 
 [<Fact>]
+let ``Phase 2 — quoted numeric eq 는 타입 hint 가 있어도 StringValue 로 보존`` () =
+    // YAML quoted scalar 는 명시 문자열이다. 기존 구현은 non-string hint 가 있으면 "5" 를 Int32Value 5 로
+    // 재파싱해 기존 store/patch context 의 타입 hint 에 따라 문자열 기대값을 손실할 수 있었다.
+    let store = DsStore()
+    let _ = parseApplyCommit store eqBoolYaml
+    let advCall = findAdvCall store
+    advCall.ApiCalls.[0].InputSpec <- Int32Value (Single 0)
+
+    let patchYaml = """
+protocol: promaker/v0
+patch:
+  add:
+    - in: Controller
+      works:
+          ChkString:
+            flow: Run
+            calls:
+              - ref: Cyl1.RET
+                condition:
+                  conditions:
+                    - ref: Cyl1.ADV
+                      eq: "5"
+"""
+    let diag, _, plan = parseAndApply store patchYaml
+    Assert.False(diag.HasErrors, sprintf "quoted string eq diag: %s" (diag.Format()))
+    store.ApplyImportPlan("eq quoted string", plan.Build())
+
+    let proj = (Queries.allProjects store).Head
+    let ctrl = Queries.activeSystemsOf proj.Id store |> List.head
+    let f = Queries.flowsOf ctrl.Id store |> List.head
+    let chkWork = Queries.worksOf f.Id store |> List.find (fun w -> w.LocalName = "ChkString")
+    let chkCall = Queries.callsOf chkWork.Id store |> List.head
+    Assert.Equal(StringValue (Single "5"), chkCall.Conditions.[0].ApiCalls.[0].InputSpec)
+
+[<Fact>]
 let ``Phase 2 — 숫자 eq 는 ApiDef 타입 metadata 부재 시 diagnostics (Int32/Float64 임의 고정 금지)`` () =
     // device sugar 의 Call.ApiCalls[0].InputSpec = UndefinedValue → 숫자 eq 타입 결정 불가.
     let yaml = """
@@ -2180,6 +2221,45 @@ patch:
     let chkCall = Queries.callsOf chkWork.Id store |> List.head
     Assert.Equal(1, chkCall.Conditions.Count)
     Assert.Equal(Int32Value (Single 5), chkCall.Conditions.[0].ApiCalls.[0].InputSpec)
+
+[<Fact>]
+let ``Phase 2 — 숫자 eq 대상 ApiDef metadata case 충돌은 diagnostics`` () =
+    // 같은 ApiDef 를 참조하는 기존 ApiCall 들이 서로 다른 ValueSpec case hint 를 제공하면
+    // 첫 hint 를 임의 선택하지 않고 typed inputSpec 사용을 요구한다.
+    let store = DsStore()
+    let _ = parseApplyCommit store eqBoolYaml
+    let advCall = findAdvCall store
+    advCall.ApiCalls.[0].InputSpec <- Int32Value (Single 0)
+
+    let proj = (Queries.allProjects store).Head
+    let ctrl = Queries.activeSystemsOf proj.Id store |> List.head
+    let f = Queries.flowsOf ctrl.Id store |> List.head
+    let extraWorkId = store.AddWork("HintConflict", f.Id)
+    let extraCall = Call("HintConflict", "ADV", extraWorkId)
+    let extraApiCall = ApiCall("")
+    extraApiCall.ApiDefId <- Some (cylApiDefId store "ADV")
+    extraApiCall.InputSpec <- Float64Value (Single 0.0)
+    extraCall.ApiCalls.Add(extraApiCall)
+    store.Calls.[extraCall.Id] <- extraCall
+
+    let patchYaml = """
+protocol: promaker/v0
+patch:
+  add:
+    - in: Controller
+      works:
+          ChkConflict:
+            flow: Run
+            calls:
+              - ref: Cyl1.RET
+                condition:
+                  conditions:
+                    - ref: Cyl1.ADV
+                      eq: 5
+"""
+    let diag, _, _ = parseAndApply store patchYaml
+    Assert.True(diag.HasErrors)
+    Assert.Contains("metadata 가 여러 종류", diag.Format())
 
 [<Fact>]
 let ``Phase 2 — typed inputSpec fallback: Multiple parse/emit/round-trip`` () =
@@ -2506,9 +2586,8 @@ patch:
     Assert.Contains("대상 타입으로 해석할 수 없습니다", diag.Format())
 
 [<Fact>]
-let ``7rev Major — eq strict: UInt8 hint + 음수 string 거부 (Int64 fallback 생존 안 함)`` () =
-    // hint=UInt8, eq:"-5" (string token) → UInt8.TryParse 실패, inferFromText 가 Int64 로 fallback 하지만
-    // case 불일치 → 거부 (음수가 Int64Value 로 살아나지 못함).
+let ``7rev Major — quoted string eq 는 UInt8 hint 가 있어도 StringValue 로 보존`` () =
+    // quoted scalar 는 명시 문자열이다. hint=UInt8 이어도 eq:"-5" 를 숫자로 재파싱하지 않는다.
     let store = DsStore()
     let _ = parseApplyCommit store eqBoolYaml
     (findRetCall store).ApiCalls.[0].InputSpec <- UInt8Value (Single 0uy)
@@ -2527,9 +2606,15 @@ patch:
                     - ref: Cyl1.RET
                       eq: "-5"
 """
-    let diag, _, _ = parseAndApply store patchYaml
-    Assert.True(diag.HasErrors, "UInt8 hint + 음수 string 은 거부되어야 함")
-    Assert.Contains("대상 타입으로 해석할 수 없습니다", diag.Format())
+    let diag, _, plan = parseAndApply store patchYaml
+    Assert.False(diag.HasErrors, sprintf "quoted string eq diag: %s" (diag.Format()))
+    store.ApplyImportPlan("eq quoted string strict", plan.Build())
+    let proj = (Queries.allProjects store).Head
+    let ctrl = Queries.activeSystemsOf proj.Id store |> List.head
+    let f = Queries.flowsOf ctrl.Id store |> List.head
+    let chkWork = Queries.worksOf f.Id store |> List.find (fun w -> w.LocalName = "Chk")
+    let chkCall = Queries.callsOf chkWork.Id store |> List.head
+    Assert.Equal(StringValue (Single "-5"), chkCall.Conditions.[0].ApiCalls.[0].InputSpec)
 
 [<Fact>]
 let ``7rev Major — eq strict: Int32 hint + 정상 숫자는 통과 (회귀 0)`` () =
@@ -2594,6 +2679,139 @@ systems:
     let diag, _, _ = parseAndApply store yaml
     Assert.True(diag.HasErrors, "malformed inputSpec 는 거부되어야 함")
     Assert.Contains("inputSpec 파싱 실패", diag.Format())
+
+[<Fact>]
+let ``7rev Major — inputSpec null 은 object shape diagnostics`` () =
+    let yaml = """
+protocol: promaker/v0
+project: M1
+
+systems:
+  - system: Controller
+    kind: active
+    flows:
+      Run: {}
+    works:
+        Adv:
+          flow: Run
+          calls:
+            - ref: Cyl1.ADV
+              condition:
+                conditions:
+                  - ref: Cyl1.RET
+                    inputSpec: null
+
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+    let store = DsStore()
+    let diag, _, _ = parseAndApply store yaml
+    Assert.True(diag.HasErrors, "inputSpec null 은 거부되어야 함")
+    Assert.Contains("inputSpec object 기대", diag.Format())
+
+[<Fact>]
+let ``7rev Major — inputSpec Fields direct null 은 diagnostics`` () =
+    let yaml = """
+protocol: promaker/v0
+project: M1
+
+systems:
+  - system: Controller
+    kind: active
+    flows:
+      Run: {}
+    works:
+        Adv:
+          flow: Run
+          calls:
+            - ref: Cyl1.ADV
+              condition:
+                conditions:
+                  - ref: Cyl1.RET
+                    inputSpec:
+                      Case: Int32Value
+                      Fields: [ null ]
+
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+    let store = DsStore()
+    let diag, _, _ = parseAndApply store yaml
+    Assert.True(diag.HasErrors, "inputSpec Fields null 은 거부되어야 함")
+    Assert.Contains("inputSpec.Fields 배열의 직접 null 원소", diag.Format())
+
+[<Fact>]
+let ``7rev Major — inputSpec nested Fields null 은 diagnostics`` () =
+    let yaml = """
+protocol: promaker/v0
+project: M1
+
+systems:
+  - system: Controller
+    kind: active
+    flows:
+      Run: {}
+    works:
+        Adv:
+          flow: Run
+          calls:
+            - ref: Cyl1.ADV
+              condition:
+                conditions:
+                  - ref: Cyl1.RET
+                    inputSpec:
+                      Case: Int32Value
+                      Fields:
+                        - Case: Multiple
+                          Fields:
+                            - [ 1, null, 3 ]
+
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+    let store = DsStore()
+    let diag, _, _ = parseAndApply store yaml
+    Assert.True(diag.HasErrors, "inputSpec nested Fields null 은 거부되어야 함")
+    Assert.Contains("inputSpec.Fields 배열의 직접 null 원소", diag.Format())
+
+[<Fact>]
+let ``7rev Major — inputSpec RangeSegment Lower Upper null 은 option None 으로 허용`` () =
+    let yaml = """
+protocol: promaker/v0
+project: M1
+
+systems:
+  - system: Controller
+    kind: active
+    flows:
+      Run: {}
+    works:
+        Adv:
+          flow: Run
+          calls:
+            - ref: Cyl1.ADV
+              condition:
+                conditions:
+                  - ref: Cyl1.RET
+                    inputSpec:
+                      Case: Int32Value
+                      Fields:
+                        - Case: Ranges
+                          Fields:
+                            - - Lower: null
+                                Upper: null
+
+  - system: Cyl1
+    kind: passive
+    device: cylinder
+"""
+    let store = DsStore()
+    let _ = parseApplyCommit store yaml
+    let cond = (findAdvCall store).Conditions.[0]
+    Assert.Equal(Int32Value (Ranges [ { Lower = None; Upper = None } ]), cond.ApiCalls.[0].InputSpec)
 
 // ─── 외부 review M-F — shape 위반 7분기 진단 발행 (Phase 7 §4.2 후속) ───
 
@@ -4244,12 +4462,6 @@ let rec private leafSignatures (store: DsStore) (expr: Ds2.Runtime.Engine.Core.C
     | Ds2.Runtime.Engine.Core.Or xs -> xs |> List.collect (leafSignatures store)
     | Ds2.Runtime.Engine.Core.Not x -> leafSignatures store x
 
-/// Cyl1.ADV / Cyl1.RET ApiDef 를 store 에서 찾아 ApiDefId 반환.
-let private cylApiDefId (store: DsStore) (apiName: string) : Guid =
-    let proj = (Queries.allProjects store).Head
-    let cyl = Queries.passiveSystemsOf proj.Id store |> List.find (fun s -> s.Name = "Cyl1")
-    (Queries.apiDefsOf cyl.Id store |> List.find (fun d -> d.Name = apiName)).Id
-
 /// 주어진 ApiDefId 를 참조하는 leaf 1개짜리 top-level Condition root 생성 (leaf InputSpec 지정).
 let private mkRootWithSpec (condType: ConditionType) (apiDefId: Guid) (spec: ValueSpec) : Condition =
     let ac = ApiCall("")
@@ -4365,6 +4577,37 @@ let ``Phase 3 — Work SkipAction top-level root 2개도 round-trip 의미 보�
 
     Assert.Equal(2, List.length sig1)
     Assert.Equal<(string * ContactKind * ValueSpec) list>(sig1, sig2)
+
+[<Fact>]
+let ``7rev Critical — 서로 다른 ConditionType top-level root 혼재는 export fail-fast`` () =
+    // wire condition 은 단일 type 만 표현 가능하다. 기존 구현은 첫 type 만 emit 하고 나머지를 누락했으므로,
+    // schema 확장 전에는 데이터 손실 방지를 위해 export 자체를 중단한다.
+    let store = DsStore()
+    let _ = parseApplyCommit store singleCylinderYaml
+    let advCall = findAdvCall store
+    advCall.Conditions.Add(mkRoot ConditionType.AutoAux (cylApiDefId store "RET"))
+    advCall.Conditions.Add(mkRoot ConditionType.ComAux (cylApiDefId store "ADV"))
+
+    let ex =
+        Assert.Throws<InvalidOperationException>(fun () ->
+            use _ = ModelProtocol.exportToJson store
+            ())
+    Assert.Contains("서로 다른 ConditionType", ex.Message)
+    Assert.Contains("export 를 중단", ex.Message)
+
+[<Fact>]
+let ``7rev Critical — 서로 다른 ConditionType top-level root 혼재는 YAML save 도 fail-fast`` () =
+    // Promaker Save 는 ModelProtocolYamlIO.exportStoreToYamlText 를 타므로 YAML 경로도 같은 fail-fast 여야 한다.
+    let store = DsStore()
+    let _ = parseApplyCommit store singleCylinderYaml
+    let advCall = findAdvCall store
+    advCall.Conditions.Add(mkRoot ConditionType.AutoAux (cylApiDefId store "RET"))
+    advCall.Conditions.Add(mkRoot ConditionType.ComAux (cylApiDefId store "ADV"))
+
+    let ex =
+        Assert.Throws<InvalidOperationException>(fun () ->
+            ModelProtocolYamlIO.exportStoreToYamlText store |> ignore)
+    Assert.Contains("서로 다른 ConditionType", ex.Message)
 
 [<Fact>]
 let ``Phase 3 — eq 기대값을 가진 같은 타입 root 2개도 round-trip 후 InputSpec 보존`` () =
