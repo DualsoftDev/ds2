@@ -1,5 +1,11 @@
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using log4net;
+using log4net.Appender;
 using Promaker.Presentation;
 using Promaker.ViewModels.Logging;
 
@@ -12,6 +18,8 @@ namespace Promaker.Controls.Logging;
 /// </summary>
 public partial class AppLogView : UserControl
 {
+    private static readonly ILog Log = LogManager.GetLogger(typeof(AppLogView));
+
     public AppLogView()
     {
         InitializeComponent();
@@ -25,6 +33,43 @@ public partial class AppLogView : UserControl
         => ClipboardUtil.Copy(AppLogListBox.SelectedItems.Count > 0
             ? AppLogListBox.SelectedItems
             : AppLogListBox.Items);
+
+    /// <summary>현재 활성 로그 파일을 탐색기에서 선택한 채 폴더 열기.
+    /// 경로는 log4net RollingFileAppender.File (절대경로) 에서 직접 취득 — config 의 상대경로가
+    /// 어떤 작업 디렉터리로 해석됐든 실제 위치를 그대로 따라간다.</summary>
+    private void AppLogOpenFolder_Click(object sender, RoutedEventArgs e)
+    {
+        var file = LogManager.GetRepository(typeof(AppLogView).Assembly)
+            .GetAppenders()
+            .OfType<RollingFileAppender>()
+            .FirstOrDefault()?.File;
+
+        if (string.IsNullOrEmpty(file))
+        {
+            Log.Warn("로그 위치 열기 실패 — RollingFileAppender.File 미해석.");
+            return;
+        }
+
+        try
+        {
+            // 파일이 이미 있으면 선택한 채로, 없으면 폴더만 연다.
+            if (File.Exists(file))
+                Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{file}\"") { UseShellExecute = true });
+            else
+            {
+                var dir = Path.GetDirectoryName(file);
+                if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+                    Process.Start(new ProcessStartInfo("explorer.exe", $"\"{dir}\"") { UseShellExecute = true });
+                else
+                    Log.Warn($"로그 위치 열기 실패 — 경로 없음: {file}");
+            }
+        }
+        catch (Exception ex)
+        {
+            // explorer 실행은 외부 환경 의존 — 실패해도 앱 동작엔 영향 없음 (boundary catch, log 만 남김).
+            Log.Warn($"로그 위치 열기 실패: {file}", ex);
+        }
+    }
 
     private void AppLogClear_Click(object sender, RoutedEventArgs e)
         => AppLogState.Instance.Clear();

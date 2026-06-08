@@ -37,6 +37,7 @@
                     <MenuItem Header="전체 복사"   Click="AppLogCopyAll_Click"/>
                     <MenuItem Header="선택 복사"   Click="AppLogCopySelected_Click"/>
                     <Separator/>
+                    <MenuItem Header="로그 위치 열기" Click="AppLogOpenFolder_Click"/>
                     <MenuItem Header="로그 지우기" Click="AppLogClear_Click"/>
                 </ContextMenu>
             </ListBox.ContextMenu>

@@ -79,7 +79,7 @@ LH_PFX_PATH      ?= C:/ProgramData/Dualsoft/LightHouseService/service.pfx
 # RID(win-x64) + sc/fd 모드를 Setup.iss 와 정확히 일치시킨다 (Setup.iss default = publish-self-contained).
 LH_INSTALLER_PUBLISH := $(abspath $(LH_SERVICE_DIR)/bin/Release/net9.0/win-x64/$(PUBLISH_SUBDIR))
 
-.PHONY: help dist dist-installer publish publish-agent publish-agenttray publish-lighthouse iscc clean install light-house build run
+.PHONY: help dist dist-installer publish publish-agent publish-agenttray publish-lighthouse iscc clean install light-house build build-release run run-release
 
 help:
 	@echo "Promaker installer Makefile"
@@ -105,14 +105,14 @@ help:
 	@echo "                    to free the listen port."
 	@echo ""
 	@echo "Targets (build):"
-	@echo "  build           - Build Promaker apps (Promaker / Promaker.Agent / Promaker.AgentTray)"
+	@echo "  build           - Build Promaker apps in Debug (Promaker / Promaker.Agent / Promaker.AgentTray)"
 	@echo "                    + delegate to ../../Solutions/Tools/Makefile build target"
 	@echo "                    (Ds2.LightHouse.Cli / Ollama / LightHouseService)."
-	@echo "                    Override config: make build BUILD_CONFIG=Debug"
+	@echo "  build-release   - Same as 'build' but Release config."
 	@echo ""
 	@echo "Targets (run):"
-	@echo "  run             - Build + launch Promaker in background (shell returns immediately)."
-	@echo "                    Override config: make run RUN_CONFIG=Release"
+	@echo "  run             - Build + launch Promaker (Debug) in background (shell returns immediately)."
+	@echo "  run-release     - Same as 'run' but Release config."
 	@echo ""
 	@echo "Targets (meta):"
 	@echo "  help            - This message"
@@ -276,7 +276,8 @@ light-house:
 #   - (Promaker.Shared 는 본체가 참조 — transitively 빌드)
 # Tools/Makefile 의 build 가 Ds2.LightHouse.{Cli,Ollama,LightHouseService} 를 커버.
 TOOLS_DIR    := ../../Solutions/Tools
-BUILD_CONFIG ?= Release
+# build/run 의 기본 config 는 Debug — Release 산출물은 build-release / run-release 로 분리.
+BUILD_CONFIG ?= Debug
 
 PROMAKER_BUILD_PROJECTS := \
 	Promaker/Promaker.csproj \
@@ -292,6 +293,10 @@ build:
 	@echo "=== build Tools (CONFIG=$(BUILD_CONFIG)) — delegate to $(TOOLS_DIR)/Makefile ==="
 	$(MAKE) -C "$(TOOLS_DIR)" build CONFIG=$(BUILD_CONFIG)
 
+# build-release — build 를 Release config 로 재귀 호출 (installer -> dist-installer MODE=fd 패턴과 동일).
+build-release:
+	@$(MAKE) build BUILD_CONFIG=Release
+
 # ── run (Promaker 본체 실행) ──────────────────────────────
 # 개발/디버그용 빠른 실행. dotnet build 로 산출물 생성 후 exe 를 background 로 분리 실행
 # → 셸은 즉시 프롬프트 복귀, Promaker GUI 는 별도 프로세스로 잔존.
@@ -305,6 +310,10 @@ run:
 	@echo "=== Launching Promaker in background ==="
 	@"$(PROMAKER_EXE)" >/dev/null 2>&1 &
 	@echo "Promaker started (PID detached). Shell returns immediately."
+
+# run-release — run 을 Release config 로 재귀 호출.
+run-release:
+	@$(MAKE) run RUN_CONFIG=Release
 
 # 공용 dist-force 만 활성화. `make dist` 는 아래에서 notice-only 로 재정의하여
 # 우발적 배포(scp/bump) 를 방지하고 `/dist` skill 사용을 유도한다.
