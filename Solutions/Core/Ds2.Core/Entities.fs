@@ -53,6 +53,10 @@ type Flow [<JsonConstructor>] internal (name, parentId) =
     /// true 면 비활성화(숨김) — 트리/캔버스/런타임에서 제외되고 비활성화 섹션으로 이동한다.
     [<AasxField("IsDisabled")>] member val IsDisabled : bool = false with get, set
 
+    /// v12 abnormal §2.3 GATING — false(수동 모드)면 이 Flow 의 abnormal 평가 제외.
+    /// 기본 true(자동 운전). spec `call.Flow.IsAuto`.
+    [<AasxField("IsAuto")>] member val IsAuto : bool = true with get, set
+
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
 
@@ -158,6 +162,8 @@ type Call [<JsonConstructor>] internal (devicesAlias: string, apiName: string, p
     [<AasxField("Conditions")>]             member val Conditions = ResizeArray<Condition>()              with get, set
     [<AasxField("ReferenceOf")>]            member val ReferenceOf : Guid option         = None           with get, set
     [<AasxField("SequenceLabel")>]          member val SequenceLabel : SequenceLabel     = SequenceLabel.Body with get, set
+    /// v12 abnormal §2.3 GATING — true(인터락 중)면 이 Call 의 abnormal 평가 제외. 기본 false. spec `call.Interlocked`.
+    [<AasxField("Interlocked")>]            member val Interlocked : bool                = false          with get, set
 
     // ── Name 구성요소 (Name에서 파생 가능 → AASX 저장 불필요) ────────────────
     [<AasxField("DevicesAlias", Skip = true)>] member val DevicesAlias = devicesAlias with get, set

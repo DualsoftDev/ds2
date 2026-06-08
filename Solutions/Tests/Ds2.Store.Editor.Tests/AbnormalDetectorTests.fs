@@ -40,28 +40,41 @@ module ObservedClockTests =
         | Degraded _ -> ()
         | Reliable -> failwith "expected Degraded"
 
-module LatchTests =
+// v12 §6/§6.1 — ILatchPolicy 기본 구현(DefaultLatchPolicy): Kind별 latch 윈도우.
+//   spec 시그니처 ShouldEmit(previous, current) — previous=같은 (Kind,Target) 직전 발행.
+//   Action*=5000ms dedup window, Sensor*=0(즉시). timestamp 차로 판정.
+module LatchPolicyTests =
 
-    let private key : AbnormalLatchKey =
-        { Kind = AbnormalKind.ActionOver
-          Target = { CallId = Some(Guid.NewGuid()); ApiCallId = None; WorkId = None } }
-
-    [<Fact>]
-    let ``tryLatch allows first emit`` () =
-        let state = AbnormalDetectorState.Empty
-        Assert.True(AbnormalDetector.tryLatch state key 1000 5000)
+    let private t0 = DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+    let private target = Abnormal.target (Some(Guid.NewGuid())) None None
 
     [<Fact>]
-    let ``tryLatch suppresses duplicate within window`` () =
-        let state = AbnormalDetectorState.Empty
-        AbnormalDetector.tryLatch state key 1000 5000 |> ignore
-        Assert.False(AbnormalDetector.tryLatch state key 3000 5000)
+    let ``ShouldEmit true when no previous`` () =
+        let policy = DefaultLatchPolicy() :> ILatchPolicy
+        Assert.True(policy.ShouldEmit(None, Abnormal.actionOver target 1000 t0))
+
+    // timing(Action*) — 5000ms 윈도우 내 중복 억제 (Control OnTick + rising dedup).
+    [<Fact>]
+    let ``DefaultLatchPolicy dedups Action within 5s window`` () =
+        let policy = DefaultLatchPolicy() :> ILatchPolicy
+        let prev = Abnormal.actionOver target 1000 t0
+        let cur  = Abnormal.actionOver target 1000 (t0.AddMilliseconds 2000.0)   // 2s < 5s → 억제
+        Assert.False(policy.ShouldEmit(Some prev, cur))
 
     [<Fact>]
-    let ``tryLatch allows re-emit after window`` () =
-        let state = AbnormalDetectorState.Empty
-        AbnormalDetector.tryLatch state key 1000 5000 |> ignore
-        Assert.True(AbnormalDetector.tryLatch state key 6500 5000)
+    let ``DefaultLatchPolicy re-emits Action after 5s window`` () =
+        let policy = DefaultLatchPolicy() :> ILatchPolicy
+        let prev = Abnormal.actionOver target 1000 t0
+        let cur  = Abnormal.actionOver target 1000 (t0.AddMilliseconds 6000.0)   // 6s ≥ 5s → 발행
+        Assert.True(policy.ShouldEmit(Some prev, cur))
+
+    // sensor(Short/Open) — 윈도우 0 → 즉시 재발행. 판정 간격 없이 바로바로 떠야 함.
+    [<Fact>]
+    let ``DefaultLatchPolicy emits Sensor immediately (no gap)`` () =
+        let policy = DefaultLatchPolicy() :> ILatchPolicy
+        let prev = Abnormal.sensorShort target t0
+        let cur  = Abnormal.sensorShort target (t0.AddMilliseconds 1.0)
+        Assert.True(policy.ShouldEmit(Some prev, cur))
 
 module SensingGateTests =
 
@@ -117,6 +130,41 @@ module RangeResolverTests =
             Assert.Equal(250, range.MinMs)
             Assert.Equal(900, range.MaxMs)
         | None -> failwith "expected range"
+
+// v12 §2.3/§4 — canEvaluate gating: 자동 Flow(IsAuto) ∧ Real sensing ∧ 비인터락(Call.Interlocked).
+module GatingTests =
+
+    let private setup () =
+        let store = createStore ()
+        let project, _, flow, work = setupBasicHierarchy store
+        let deviceSystem = addSystem store "Device" project.Id false
+        let apiDef = addApiDef store "ADV" deviceSystem.Id
+        apiDef.SensingType <- SensingType.Real(Level, None)
+        let callId = store.AddCallWithLinkedApiDefs(work.Id, "Device", "ADV", [ apiDef.Id ])
+        store, store.Calls.[callId], apiDef, flow
+
+    [<Fact>]
+    let ``canEvaluate true for auto flow + Real + non-interlocked`` () =
+        let store, call, def, _ = setup ()
+        Assert.True(AbnormalDetector.canEvaluate store call.Id def)
+
+    [<Fact>]
+    let ``canEvaluate false when flow is manual (IsAuto=false)`` () =
+        let store, call, def, flow = setup ()
+        flow.IsAuto <- false
+        Assert.False(AbnormalDetector.canEvaluate store call.Id def)
+
+    [<Fact>]
+    let ``canEvaluate false when call interlocked`` () =
+        let store, call, def, _ = setup ()
+        call.Interlocked <- true
+        Assert.False(AbnormalDetector.canEvaluate store call.Id def)
+
+    [<Fact>]
+    let ``canEvaluate false for Virtual sensing`` () =
+        let store, call, def, _ = setup ()
+        def.SensingType <- SensingType.Virtual None
+        Assert.False(AbnormalDetector.canEvaluate store call.Id def)
 
 // v12 §P3b — Control adapter 4 케이스 + 오탐 방지 + latch dedup.
 module ControlAdapterTests =
@@ -175,12 +223,14 @@ module ControlAdapterTests =
         Assert.Single(emitted) |> ignore
         Assert.Equal(AbnormalKind.ActionUnder, emitted.[0].Kind)
 
+    // spec §3.1/§4/V10 — InTag rising 시 Finish ∧ elapsed>Max 면 ActionOver.
+    // (OnTick 과 중복은 ILatchPolicy 가 dedup. 여기선 rising 단독 호출이라 1회 발행.)
     [<Fact>]
     let ``rising above Max is ActionOver`` () =
         let adapter, emitted, states, _, callId, apiCallId = setup ()
         states.[callId] <- Status4.Going
         adapter.OnCallGoing(callId, 1000)
-        adapter.OnInputRising(apiCallId, 2000)   // elapsed 1000 > 900
+        adapter.OnInputRising(apiCallId, 2000)   // elapsed 1000 > 900 → ActionOver
         Assert.Single(emitted) |> ignore
         Assert.Equal(AbnormalKind.ActionOver, emitted.[0].Kind)
 
@@ -200,10 +250,20 @@ module ControlAdapterTests =
         Assert.Single(emitted) |> ignore
         Assert.Equal(AbnormalKind.SensorOpen, emitted.[0].Kind)
 
+    // v12 §3.2 — RxWork≠Ready(Going 포함) 중 level 센서 falling 도 SensorOpen (Finish 만이 아님).
     [<Fact>]
-    let ``falling when not Finish is not SensorOpen`` () =
+    let ``falling during Going level sensor is SensorOpen`` () =
         let adapter, emitted, states, _, callId, apiCallId = setup ()
-        states.[callId] <- Status4.Going      // Finish 아님 → Open 아님
+        states.[callId] <- Status4.Going
+        adapter.OnInputFalling(apiCallId, 1500)
+        Assert.Single(emitted) |> ignore
+        Assert.Equal(AbnormalKind.SensorOpen, emitted.[0].Kind)
+
+    // Ready(출발 전) falling 은 정상 — SensorOpen 아님.
+    [<Fact>]
+    let ``falling when Ready is not SensorOpen`` () =
+        let adapter, emitted, states, _, callId, apiCallId = setup ()
+        states.[callId] <- Status4.Ready
         adapter.OnInputFalling(apiCallId, 1500)
         Assert.Empty(emitted)
 
@@ -225,6 +285,21 @@ module ControlAdapterTests =
         adapter.OnInputRising(apiCallId, 1100)   // ActionUnder
         adapter.OnInputRising(apiCallId, 1150)   // 같은 (Kind,Target) 5000ms 내 → 억제
         Assert.Single(emitted) |> ignore
+
+    // OnTick over 는 사이클당 1회(latch)지만, OnCallReset 으로 latch 가 비면 다음 사이클에 다시 판정.
+    [<Fact>]
+    let ``tick over re-emits after OnCallReset (per-cycle latch clear)`` () =
+        let adapter, emitted, states, inputActive, callId, apiCallId = setup ()
+        states.[callId] <- Status4.Going
+        inputActive.[apiCallId] <- false
+        adapter.OnCallGoing(callId, 1000)
+        adapter.OnTick(2000)                       // over #1 (elapsed 1000 > 900)
+        adapter.OnTick(2100)                       // 같은 사이클 5000ms 내 → 억제
+        Assert.Single(emitted) |> ignore
+        adapter.OnCallReset(callId)                // 사이클 종료 → latch clear
+        adapter.OnCallGoing(callId, 3000)
+        adapter.OnTick(4000)                       // over #2: 4000-2000<5000 이지만 reset 으로 재판정
+        Assert.Equal(2, emitted.Count)
 
 // v12 §P3c — Monitoring adapter (IO-edge): OutTag On=going, InTag On=finish, elapsed vs device range.
 // cycle 학습(synced)과 독립. going off→on rising 기반이라 중간시작 사이클은 자동 배제.
@@ -525,3 +600,18 @@ module DeviceControlCycleTests =
 
         Assert.Single(emitted) |> ignore
         Assert.Equal(AbnormalKind.ActionOver, emitted.[0].Kind)
+
+// ── [임시 진단] project_260608.json Sim 2사이클 재현 — Conveyor2 reset/멈춤 추적 ──
+module Project260608ReproTests =
+
+    [<Fact>]
+    let ``project_260608 simulation runs past 2nd cycle Conveyor2`` () =
+        let store = createStore ()
+        store.LoadFromFile(@"C:\Users\Gamekun\Documents\Dualsoft\project_260608.json")
+        let index = SimIndex.build store 10
+        use engine = (new EventDrivenEngine(index, RuntimeMode.Simulation)) :> ISimulationEngine
+        engine.Start()
+        engine.AdvanceSimulationTo(60000L)   // 사이클 ~12s → 넉넉히 5사이클분
+        let conv2 = store.Works.Values |> Seq.find (fun w -> w.Name = "Conveyor2_Flow.MOVE")
+        let epoch = Ds2.Runtime.Model.SimState.getWorkEpoch conv2.Id engine.State
+        Assert.True(epoch >= 2, sprintf "Conveyor2_Flow.MOVE epoch=%d — 1이면 2nd 사이클 진입 못 하고 멈춤" epoch)

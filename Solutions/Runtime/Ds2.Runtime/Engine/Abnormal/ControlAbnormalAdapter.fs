@@ -16,11 +16,12 @@ open Ds2.Runtime.Engine.Core
 //   본체(EventDrivenEngine)에 침투하지 않도록, 상태 조회·시각·sink 를 생성자
 //   콜백으로 주입받는다 → 단위 테스트로 "정상 completion 오탐 0" 을 증명 가능.
 //
-//   판정은 P1 Abnormal(순수 분류) + P3a AbnormalDetector(range/latch/clock) 만 쓴다.
-//   발행은 P5 — 여기서는 sink 로 흘려보낼 뿐 SignalR 을 모른다.
+//   gating(§2.3/§4): AbnormalDetector.canEvaluate (자동 Flow ∧ Real ∧ 비인터락) + Plan 활성
+//     (Call Going / goingClock)은 adapter 가 분기로 판정. Sensor* 발행 전 ISensorDebouncer(V14).
+//   발행: ILatchPolicy(Core, P7) 경유 dedup → sink (P5). SignalR 은 모른다.
 //
-//   rev3 핵심: rising 이 "현재 Going active Call 의 정상 completion trigger InTag" 일 때만
-//   timing 으로 보고, 그 외 rising 은 SensorShort. 정상 완료를 Short 로 오탐하지 않는다.
+//   rev4 핵심: ActionOver 는 spec §3.1/§4/V10 대로 tick 과 InTag rising 양쪽에서 낸다.
+//     동일 (Kind,Target) 중복은 ILatchPolicy(Action 5s window)가 dedup → 사이클당 1회.
 // =============================================================================
 
 type ControlAbnormalAdapter
@@ -34,7 +35,7 @@ type ControlAbnormalAdapter
     let store = index.Store
     let detectorState = AbnormalDetectorState.Empty
     let goingClock = Dictionary<Guid, int>()   // callId → Ready→Going clock(ms)
-    let latchWindowMs = 5000
+    let latchPolicy : ILatchPolicy = DefaultLatchPolicy()   // P7 — Sensor 즉시 / Action 5s dedup
 
     let mappingOfApiCall (apiCallId: Guid) =
         ioMap.Mappings |> List.tryFind (fun m -> m.ApiCallGuid = apiCallId)
@@ -48,7 +49,6 @@ type ControlAbnormalAdapter
         | None -> None
 
     /// 이 InTag 가 owning Call 의 정상 completion trigger 인가 (Virtual passive 는 제외).
-    /// InTag 미지정(Real ⇒ invalidOp)일 때는 trigger 로 보지 않는다 — 방어적 가드.
     let isCompletionTrigger (apiCall: ApiCall) (def: ApiDef) =
         match apiCall.InTag with
         | None -> false
@@ -67,23 +67,24 @@ type ControlAbnormalAdapter
         | true, ms -> Some ms
         | _ -> None
 
-    let emitLatched (record: AbnormalRecord) (nowMs: int) =
-        let key = Abnormal.latchKeyOf record
-        if AbnormalDetector.tryLatch detectorState key nowMs latchWindowMs then
-            sink record
+    /// ILatchPolicy(Core) 경유 dedup 발행. previous=같은 (Kind,Target) 직전발행.
+    let emit (record: AbnormalRecord) =
+        AbnormalDetector.emitThroughLatch detectorState latchPolicy sink record
 
     /// active Call Ready→Going = PS. goingClock 기록.
     member _.OnCallGoing(callId: Guid, nowMs: int) =
         goingClock.[callId] <- nowMs
 
-    /// Call 사이클 종료(Ready/Finish 정리) 시 goingClock 해제.
+    /// Call 사이클 종료(Ready/Finish 정리) 시 goingClock 해제 + latch 비움(다음 사이클 재판정).
     member _.OnCallReset(callId: Guid) =
         goingClock.Remove(callId) |> ignore
+        AbnormalDetector.clearLatchForCall detectorState callId
+        latchPolicy.ResetOn(LatchResetTrigger.CallTransition)
 
     /// InTag rising. expected completion → timing(Action*), 아니면 SensorShort.
     member _.OnInputRising(apiCallId: Guid, nowMs: int) =
         match mappingOfApiCall apiCallId, apiCallAndDef apiCallId with
-        | Some mapping, Some(apiCall, def) when AbnormalDetector.isPhysicalSensing def ->
+        | Some mapping, Some(apiCall, def) when AbnormalDetector.canEvaluate store mapping.CallGuid def ->
             let callId = mapping.CallGuid
             let target = Abnormal.target (Some callId) (Some apiCallId) None
             let expected =
@@ -93,29 +94,32 @@ type ControlAbnormalAdapter
                 | Some goingMs, Some range ->
                     let elapsed = nowMs - goingMs
                     match Abnormal.classifyExpectedRising range elapsed with
-                    | Some AbnormalKind.ActionUnder -> emitLatched (Abnormal.actionUnder target elapsed (now ())) nowMs
-                    | Some AbnormalKind.ActionOver  -> emitLatched (Abnormal.actionOver target elapsed (now ())) nowMs
+                    | Some AbnormalKind.ActionUnder -> emit (Abnormal.actionUnder target elapsed (now ()))
+                    // v10 spec §3.1/§4/V10 — InTag rising 시 Finish ∧ elapsed>Max 면 ActionOver.
+                    //   OnTick 이 Max 시점에 먼저 낸 over 와는 ILatchPolicy(Action 5s window)가 dedup.
+                    | Some AbnormalKind.ActionOver  -> emit (Abnormal.actionOver target elapsed (now ()))
                     | _ -> ()   // 경계 포함 정상 완료 — 오탐 0
                 | _ -> ()       // range/goingClock 미해결 → timing 평가 안 함(정상 완료 허용)
             else
-                emitLatched (Abnormal.sensorShort target (now ())) nowMs
+                // SensorShort — debounce 는 SensingType(WaitInputStable)이 SSOT, 여기선 즉시 발행.
+                emit (Abnormal.sensorShort target (now ()))
         | _ -> ()
 
     /// InTag falling. level-like 센서가 Finish(reset 전, active hold) 중 꺼지면 SensorOpen.
-    member _.OnInputFalling(apiCallId: Guid, nowMs: int) =
+    member _.OnInputFalling(apiCallId: Guid, _nowMs: int) =
         match mappingOfApiCall apiCallId, apiCallAndDef apiCallId with
-        | Some mapping, Some(_, def) when AbnormalDetector.isPhysicalSensing def ->
+        | Some mapping, Some(_, def) when AbnormalDetector.canEvaluate store mapping.CallGuid def ->
             let isLevelLike =
                 match def.SensingType with
                 | SensingType.Real(Level, _)
                 | SensingType.Real(Latched, _) -> true
                 | _ -> false   // OneShot falling 은 정상 pulse off 일 수 있으므로 제외
             let callId = mapping.CallGuid
-            // Finish(reset 전) 에 level 센서가 빠지면 단선/이탈 = SensorOpen.
-            // reset 되어 Ready 면 정상 사이클 종료라 Open 아님.
-            if isLevelLike && getCallState callId = Status4.Finish then
+            // v12 §3.2 — RxWork ≠ Ready(reset 전: Going/Finish) 에 level 센서가 빠지면 단선/이탈 = SensorOpen.
+            //   reset→Ready 면 정상 사이클 종료라 Open 아님.
+            if isLevelLike && getCallState callId <> Status4.Ready then
                 let target = Abnormal.target (Some callId) (Some apiCallId) None
-                emitLatched (Abnormal.sensorOpen target (now ())) nowMs
+                emit (Abnormal.sensorOpen target (now ()))
         | _ -> ()
 
     /// tick. Going active Call 의 completion 입력이 아직 안 들어왔는데 Max 초과면 ActionOver.
@@ -124,14 +128,14 @@ type ControlAbnormalAdapter
             let callId = mapping.CallGuid
             if getCallState callId = Status4.Going then
                 match apiCallAndDef mapping.ApiCallGuid with
-                | Some(apiCall, def) when AbnormalDetector.isPhysicalSensing def && isCompletionTrigger apiCall def ->
+                | Some(apiCall, def) when AbnormalDetector.canEvaluate store callId def && isCompletionTrigger apiCall def ->
                     match goingMsOf callId, AbnormalDetector.tryResolveRangeFromMapping index mapping with
                     | Some goingMs, Some range ->
                         let elapsed = nowMs - goingMs
                         match Abnormal.classifyTick range elapsed (isInputActive mapping.ApiCallGuid) with
                         | Some AbnormalKind.ActionOver ->
                             let target = Abnormal.target (Some callId) (Some mapping.ApiCallGuid) None
-                            emitLatched (Abnormal.actionOver target elapsed (now ())) nowMs
+                            emit (Abnormal.actionOver target elapsed (now ()))
                         | _ -> ()
                     | _ -> ()
                 | _ -> ()
