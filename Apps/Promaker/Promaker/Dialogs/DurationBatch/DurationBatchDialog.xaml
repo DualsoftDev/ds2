@@ -236,17 +236,26 @@
                         Padding="8,6">
                     <Grid>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>   <!-- 0  선택: -->
+                            <ColumnDefinition Width="Auto"/>   <!-- 1  count -->
                             <ColumnDefinition Width="16"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="8"/>
-                            <ColumnDefinition Width="80"/>
+                            <ColumnDefinition Width="Auto"/>   <!-- 3  일괄 설정: -->
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="Auto"/>   <!-- 5  duration -->
                             <ColumnDefinition Width="4"/>
-                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="72"/>     <!-- 7  duration box -->
+                            <ColumnDefinition Width="14"/>
+                            <ColumnDefinition Width="Auto"/>   <!-- 9  min -->
+                            <ColumnDefinition Width="4"/>
+                            <ColumnDefinition Width="72"/>     <!-- 11 min box -->
+                            <ColumnDefinition Width="14"/>
+                            <ColumnDefinition Width="Auto"/>   <!-- 13 max -->
+                            <ColumnDefinition Width="4"/>
+                            <ColumnDefinition Width="72"/>     <!-- 15 max box -->
+                            <ColumnDefinition Width="4"/>
+                            <ColumnDefinition Width="Auto"/>   <!-- 17 ms -->
                             <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="8"/>
-                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>   <!-- 19 버튼 -->
                         </Grid.ColumnDefinitions>
 
                         <TextBlock Grid.Column="0" Text="선택: " VerticalAlignment="Center"
@@ -254,15 +263,34 @@
                         <TextBlock Grid.Column="1" x:Name="WorkSelectedCountText" Text="0"
                                    VerticalAlignment="Center" FontWeight="SemiBold"/>
 
-                        <TextBlock Grid.Column="3" Text="일괄 설정: duration =" VerticalAlignment="Center"
-                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
-                        <TextBox Grid.Column="5" x:Name="WorkBatchValueBox" Text="1000" Padding="8,6"
-                                 VerticalAlignment="Center"
-                                 PreviewTextInput="BatchValueBox_PreviewTextInput"/>
-                        <TextBlock Grid.Column="7" Text="ms" VerticalAlignment="Center"
+                        <TextBlock Grid.Column="3" Text="일괄 설정:" VerticalAlignment="Center"
                                    Foreground="{DynamicResource SecondaryTextBrush}"/>
 
-                        <Button Grid.Column="10"
+                        <TextBlock Grid.Column="5" Text="duration" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <TextBox Grid.Column="7" x:Name="WorkBatchValueBox" Text="1000" Padding="8,6"
+                                 VerticalAlignment="Center"
+                                 PreviewTextInput="BatchValueBox_PreviewTextInput"
+                                 ToolTip="비우면 duration 은 변경하지 않음"/>
+
+                        <TextBlock Grid.Column="9" Text="min" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <TextBox Grid.Column="11" x:Name="WorkBatchMinBox" Padding="8,6"
+                                 VerticalAlignment="Center"
+                                 PreviewTextInput="BatchValueBox_PreviewTextInput"
+                                 ToolTip="비우면 min 은 변경하지 않음"/>
+
+                        <TextBlock Grid.Column="13" Text="max" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <TextBox Grid.Column="15" x:Name="WorkBatchMaxBox" Padding="8,6"
+                                 VerticalAlignment="Center"
+                                 PreviewTextInput="BatchValueBox_PreviewTextInput"
+                                 ToolTip="비우면 max 는 변경하지 않음"/>
+
+                        <TextBlock Grid.Column="17" Text="ms" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
+
+                        <Button Grid.Column="19"
                                 MinWidth="120"
                                 Style="{StaticResource DarkButton}"
                                 Content="선택 항목에 적용"
