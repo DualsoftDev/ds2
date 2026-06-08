@@ -60,11 +60,12 @@ public partial class EditorCanvas
             if (!ctrlPressed && !shiftPressed)
             {
                 var canvasPos = e.GetPosition(MainCanvas);
+                var screenPos = e.GetPosition(RootGrid);
                 var dragItems = dragNodes
                     .Select(n => new DragItem(n, n.X, n.Y))
                     .ToList();
                 var arrowSnapshots = BuildArrowSnapshots(dragItems);
-                _drag = new DragState(canvasPos, dragItems, arrowSnapshots);
+                _drag = new DragState(canvasPos, screenPos, dragItems, arrowSnapshots);
                 _dragElement = border;
                 border.CaptureMouse();
             }
@@ -131,6 +132,17 @@ public partial class EditorCanvas
         var canvasPos = e.GetPosition(MainCanvas);
         var dx = canvasPos.X - _drag.StartPoint.X;
         var dy = canvasPos.Y - _drag.StartPoint.Y;
+
+        if (!_drag.IsActive)
+        {
+            var screenPos = e.GetPosition(RootGrid);
+            var screenDx = screenPos.X - _drag.StartScreenPoint.X;
+            var screenDy = screenPos.Y - _drag.StartScreenPoint.Y;
+            if (Math.Abs(screenDx) < ClickThreshold && Math.Abs(screenDy) < ClickThreshold)
+                return;
+
+            _drag.IsActive = true;
+        }
 
         // 좌상단(0,0)만 고정. 우/하단은 캔버스가 동적으로 확장되므로 상한 클램프 없음.
         // 드래그된 노드들의 max right/bottom만 추적해서 경계 도달 시에만 캔버스 확장.
@@ -223,7 +235,7 @@ public partial class EditorCanvas
 
         _dragElement?.ReleaseMouseCapture();
 
-        if (VM is not null)
+        if (VM is not null && _drag.IsActive)
         {
             var ctrlHeld = (Keyboard.Modifiers & ModifierKeys.Control) != ModifierKeys.None;
             var requests = new List<MoveEntityRequest>();
