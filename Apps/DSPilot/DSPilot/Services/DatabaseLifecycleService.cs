@@ -1,5 +1,6 @@
 using DSPilot.Adapters;
 using DSPilot.Hubs;
+using DSPilot.Repositories;
 using Microsoft.AspNetCore.SignalR;
 
 namespace DSPilot.Services;
@@ -20,6 +21,7 @@ public sealed class DatabaseLifecycleService
     private readonly BlueprintService _blueprint;
     private readonly IFlowMetricsService _flowMetricsService;
     private readonly IHubContext<MonitoringHub> _hubContext;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<DatabaseLifecycleService> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -34,6 +36,7 @@ public sealed class DatabaseLifecycleService
         BlueprintService blueprint,
         IFlowMetricsService flowMetricsService,
         IHubContext<MonitoringHub> hubContext,
+        IServiceScopeFactory scopeFactory,
         ILogger<DatabaseLifecycleService> logger)
     {
         _engineService = engineService;
@@ -46,6 +49,7 @@ public sealed class DatabaseLifecycleService
         _blueprint = blueprint;
         _flowMetricsService = flowMetricsService;
         _hubContext = hubContext;
+        _scopeFactory = scopeFactory;
         _logger = logger;
     }
 
@@ -145,6 +149,24 @@ public sealed class DatabaseLifecycleService
             var dbPath = _pathResolver.GetSharedDbPath();
             _settingsService.DeleteDatabase(dbPath);
 
+            // 3-b. oee.db 정지 이벤트도 동반 초기화 — plc.db 를 비웠는데 정지 로그(특히 '진행중' 박제)가
+            //      남는 문제 해소. 정지 이벤트(oeeDowntimeEvent) 만 비우고, 작업자가 입력한 불량/생산
+            //      (oeeProductionCount)·시프트 예외(oeeShiftException)는 보존한다(doc/21 §1 의도 유지).
+            //      IOeeRepository 는 scoped 라 scope 를 직접 연다(상태머신과 동일 패턴).
+            int downtimeCleared = 0;
+            try
+            {
+                using var oeeScope = _scopeFactory.CreateScope();
+                var oeeRepo = oeeScope.ServiceProvider.GetRequiredService<IOeeRepository>();
+                downtimeCleared = await oeeRepo.ClearDowntimeEventsAsync();
+                _logger.LogInformation("[DBLifecycle] oeeDowntimeEvent {N}건 초기화 (불량/시프트 보존)", downtimeCleared);
+            }
+            catch (Exception ex)
+            {
+                // 정지 로그 초기화 실패는 plc.db 재구축을 막지 않는다(비핵심).
+                _logger.LogWarning(ex, "[DBLifecycle] oeeDowntimeEvent 초기화 실패 (plc.db 재구축은 계속)");
+            }
+
             // 4. 스키마 + 현재 in-memory AASX → dspFlow/dspCall 재적재
             var ok = await _bootstrap.BootstrapAsync();
             if (!ok)
@@ -187,7 +209,8 @@ public sealed class DatabaseLifecycleService
             }
 
             _logger.LogInformation("[DBLifecycle] Rebuild complete");
-            return new RebuildResult(true, "데이터베이스가 재구축되었습니다.");
+            return new RebuildResult(true,
+                $"데이터베이스가 재구축되었습니다. (정지 이벤트 {downtimeCleared}건 초기화 · 불량/시프트 보존)");
         }
         catch (Exception ex)
         {

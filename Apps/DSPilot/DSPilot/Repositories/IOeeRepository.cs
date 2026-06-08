@@ -25,6 +25,13 @@ public interface IOeeRepository
     /// <summary>분류 PATCH — reasonCode/category, isFailure(category=unplanned 일 때 1). 영향 행 수 반환.</summary>
     Task<int> ClassifyDowntimeAsync(long id, string? reasonCode, string? category, bool isFailure, CancellationToken ct = default);
 
+    /// <summary>
+    /// oeeDowntimeEvent 전체 삭제 — plc.db 재구축 시 정지 이벤트도 동반 초기화하는 용도. 삭제 행 수 반환.
+    /// oeeProductionCount(불량/생산)·oeeShiftException(시프트 예외)는 보존된다(doc/21 §1 수동입력 자산 보존 유지).
+    /// 상태머신/폴러는 무상태(매 tick GetOpenEventsAsync 재조회)라 행 삭제만으로 안전(stale id 없음).
+    /// </summary>
+    Task<int> ClearDowntimeEventsAsync(CancellationToken ct = default);
+
     /// <summary>정지 로그 조회 (필터: 기간/status open|recovered/reason). 최신순.</summary>
     Task<IReadOnlyList<OeeDowntimeDto>> QueryDowntimeAsync(
         DateTime fromUtc, DateTime toUtc,
