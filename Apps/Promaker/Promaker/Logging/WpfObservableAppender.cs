@@ -1,6 +1,8 @@
 using System;
+using System.Globalization;
 using log4net.Appender;
 using log4net.Core;
+using log4net.Util;
 using Promaker.ViewModels.Logging;
 
 namespace Promaker.Logging;
@@ -43,4 +45,61 @@ public sealed class WpfObservableAppender : AppenderSkeleton
         var i = name.LastIndexOf('.');
         return i < 0 ? name : name.Substring(i + 1);
     }
+}
+
+/// <summary>
+/// Promaker 파일 로그용 RollingFileAppender.
+/// 날짜 rolling 직전/직후 marker 를 각 파일 본문에 남겨, sidecar 없이 파일 단위 경계를 판별한다.
+/// </summary>
+public sealed class PromakerRollingFileAppender : RollingFileAppender
+{
+    private DateTime _activeDate = DateTime.Now.Date;
+
+    public override void ActivateOptions()
+    {
+        _activeDate = DateTime.Now.Date;
+        base.ActivateOptions();
+    }
+
+    protected override void AdjustFileBeforeAppend()
+    {
+        var previousDate = _activeDate;
+        var currentDate = DateTime.Now.Date;
+        var dateRolled = currentDate > previousDate;
+
+        if (dateRolled)
+            WriteDateRollMarker("PROMAKER_LOG_DATE_ROLL_END", previousDate, currentDate);
+
+        base.AdjustFileBeforeAppend();
+
+        if (!dateRolled) return;
+
+        _activeDate = currentDate;
+        WriteDateRollMarker("PROMAKER_LOG_DATE_ROLL_BEGIN", previousDate, currentDate);
+    }
+
+    private void WriteDateRollMarker(string marker, DateTime previousDate, DateTime currentDate)
+    {
+        if (QuietWriter is null) return;
+
+        var properties = new PropertiesDictionary();
+        properties["PromakerRunId"] = App.RunId;
+        properties["PromakerLogPid"] = App.LogPid;
+
+        var data = new LoggingEventData
+        {
+            LoggerName   = typeof(PromakerRollingFileAppender).FullName ?? nameof(PromakerRollingFileAppender),
+            Level        = Level.Info,
+            Message      =
+                $"{marker} runId={App.RunId} pid={Environment.ProcessId} " +
+                $"previousDate={FormatDate(previousDate)} currentDate={FormatDate(currentDate)} reason=date",
+            TimeStampUtc = DateTime.UtcNow,
+            Properties   = properties,
+        };
+
+        RenderLoggingEvent(QuietWriter, new LoggingEvent(data));
+    }
+
+    private static string FormatDate(DateTime date) =>
+        date.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
 }

@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
@@ -12,6 +13,12 @@ namespace Promaker;
 public partial class App : Application
 {
     private static readonly ILog Log = LogManager.GetLogger(typeof(App));
+    private static readonly DateTimeOffset RunStartedAt = DateTimeOffset.Now;
+
+    internal static string RunId { get; } =
+        $"{RunStartedAt.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture)}-pid{Environment.ProcessId}";
+
+    internal static string LogPid { get; } = $"pid{Environment.ProcessId}";
 
     /// <summary>더블클릭 등으로 전달된 파일 경로 (첫 번째 인자).</summary>
     internal static string? StartupFilePath { get; set; }
@@ -96,11 +103,17 @@ public partial class App : Application
 
         // process working dir 가 exe 폴더가 아닐 수 있어 (단축키 / dotnet run / 다른 cwd 에서 실행)
         // AppContext.BaseDirectory (exe 폴더) 기준 절대 경로로 명시 — log4net Configure silent skip 회피.
+        GlobalContext.Properties["PromakerRunId"] = RunId;
+        GlobalContext.Properties["PromakerLogPid"] = LogPid;
         var configFile = new FileInfo(Path.Combine(AppContext.BaseDirectory, "log4net.config"));
         if (configFile.Exists)
             XmlConfigurator.Configure(configFile);
         else
             System.Diagnostics.Trace.TraceWarning($"log4net.config not found at {configFile.FullName}. Logging may be disabled.");
+
+        Log.Info(
+            $"PROMAKER_RUN_BEGIN runId={RunId} pid={Environment.ProcessId} " +
+            $"startedAt={RunStartedAt.ToString("O", CultureInfo.InvariantCulture)} baseDir=\"{AppContext.BaseDirectory}\"");
 
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
         {
@@ -151,8 +164,6 @@ public partial class App : Application
         // 파일 인코딩 추정 (`AttachmentClassifier.detectEncoding`) 의 CP949 fallback 분기 활성화 (review F3).
         System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
 
-        Log.Info("=== Promaker startup ===");
-
         base.OnStartup(e);
     }
 
@@ -178,7 +189,10 @@ public partial class App : Application
         try { Promaker.LlmAgent.LlmConfig.TryCleanupStaleLockFile(); }
         catch (Exception ex) { Log.Warn("LlmConfig.TryCleanupStaleLockFile 실패 (best-effort)", ex); }
 
-        Log.Info("=== Promaker shutdown ===");
+        var uptimeMs = (DateTimeOffset.Now - RunStartedAt).TotalMilliseconds;
+        Log.Info(
+            $"PROMAKER_RUN_END runId={RunId} pid={Environment.ProcessId} " +
+            $"exitCode={e.ApplicationExitCode} uptimeMs={uptimeMs:F0}");
         base.OnExit(e);
     }
 }
