@@ -33,6 +33,14 @@
 (function () {
     'use strict';
 
+    // 사이드바 너비(px). aside.width 와 main.margin-left 단일 소스. 인라인 style 이 w-60/ml-60 클래스를 덮음.
+    var SHELL_W = 300;
+    // 모바일/데스크톱 분기 기준(px). 미만이면 사이드바를 드로어로 전환.
+    var MOBILE_BP = 768;
+
+    // 이상코드 피드 레벨→색 (uptime.html 과 동일: Error 빨강 / Warning 주황 / Info 파랑)
+    var LEVEL_COLOR = { Error: '#ef4444', Warning: '#fb923c', Info: '#3b82f6' };
+
     // 사이드바 링크 클래스 (dashboard2 와 동일; 비활성에 dark:hover 보강)
     var LINK_ACTIVE = 'flex items-center gap-3 px-4 py-3 rounded bg-secondary-container dark:bg-secondary text-on-secondary-container dark:text-on-secondary border-l-4 border-secondary transition-colors';
     var LINK_IDLE = 'flex items-center gap-3 px-4 py-3 rounded text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-inverse-surface transition-colors';
@@ -79,6 +87,7 @@
             { label: '대시보드',    href: '/',                    icon: 'space_dashboard', match: 'all',    legacy: ['/app/dashboard.html', '/app/dashboard2.html'] },
             { label: '동작편차',    href: '/heatmap',             icon: 'gradient',        match: 'prefix', legacy: '/app/heatmap.html' },
             { label: '가동시간·이상', href: '/uptime',            icon: 'monitor_heart',   match: 'prefix', legacy: '/app/uptime.html' },
+            { label: 'OEE',         href: '/oee',                 icon: 'precision_manufacturing', match: 'prefix', legacy: '/app/oee.html' },
             { label: 'CCTV',        href: '/cctv',                icon: 'videocam',        match: 'prefix', legacy: '/app/cctv.html' }
         ];
         var PLC_DEBUG_ITEM = { label: 'PLC 디버그', href: '/plc-debug', icon: 'bug_report', match: 'prefix', legacy: '/app/plc-debug.html' };
@@ -106,9 +115,9 @@
         }
 
         // ── 4) 사이드바 (stitch 축소판) ──
-        var aside = el('aside', 'dsp-shell flex flex-col pt-gutter bg-surface-container-low dark:bg-inverse-surface border-r border-outline-variant dark:border-outline shadow-sm w-60 z-50');
-        // FOUC 방지: stitch-shell.css 페인트 전에도 위치/크기 고정(값은 fixed/w-60/z-50 과 동일 → 레이아웃 점프 없음). 색은 미지정.
-        aside.style.cssText = 'position:fixed;left:0;top:0;height:100%;width:240px;z-index:50;';
+        var aside = el('aside', 'dsp-shell flex flex-col pt-gutter bg-surface-container-low dark:bg-inverse-surface border-r border-outline-variant dark:border-outline shadow-sm z-50');
+        // FOUC 방지: stitch-shell.css 페인트 전에도 위치/크기 고정. 인라인 width 가 최종값(클래스 덮음) → SHELL_W 단일소스.
+        aside.style.cssText = 'position:fixed;left:0;top:0;height:100%;width:' + SHELL_W + 'px;z-index:50;';
 
         var brand = el('div', 'px-6 mb-8 flex flex-col items-center text-center');
         var brandLink = el('a', 'block');
@@ -173,8 +182,17 @@
             function reposition() {
                 if (!openPanel || !openRow) return;
                 var r = openRow.getBoundingClientRect();
-                openPanel.style.left = (r.right + 6) + 'px';
-                openPanel.style.top = Math.max(8, Math.min(r.top, window.innerHeight - 60)) + 'px';
+                if (window.innerWidth < MOBILE_BP) {
+                    openPanel.style.left = '8px';
+                    openPanel.style.right = '8px';
+                    openPanel.style.maxWidth = 'none';
+                    openPanel.style.top = Math.max(8, Math.min(r.bottom + 4, window.innerHeight - 120)) + 'px';
+                } else {
+                    openPanel.style.left = (r.right + 6) + 'px';
+                    openPanel.style.right = '';
+                    openPanel.style.maxWidth = '320px';
+                    openPanel.style.top = Math.max(8, Math.min(r.top, window.innerHeight - 60)) + 'px';
+                }
             }
             function onDocClick(e) {
                 if (openPanel && openPanel.contains(e.target)) return;
@@ -294,6 +312,52 @@
         lineSummaryBlock.appendChild(lsCard);
         navMenu.appendChild(lineSummaryBlock);
 
+        // ── 이상코드 실시간 피드 ── Line Summary 아래 빈 공간을 채움(flex-1+자체 스크롤).
+        //   데이터: /api/nav/summary 의 recentAnomalies (최신 N건, 레벨 무관). 4초 폴링 공유.
+        //   행 클릭 → /uptime?utSystem=&utLevel= (필터 적용). 출처(source) 무관 동일 렌더 → 추후 ds-error 4종 합류.
+        var anomalyBlock = el('div', 'mt-6 px-4 flex-1 flex flex-col min-h-0');
+        anomalyBlock.appendChild(el('div', 'text-[10px] uppercase font-bold tracking-wider text-outline mb-2', '알람'));
+        var anomalyList = el('div', 'flex flex-col gap-1 overflow-y-auto custom-scrollbar pr-1');
+        anomalyList.style.cssText = 'flex:1 1 0;min-height:0;';
+        anomalyBlock.appendChild(anomalyList);
+        navMenu.appendChild(anomalyBlock);
+
+        var anomalyEmpty = el('div', 'font-label-sm text-label-sm text-outline opacity-60 py-2', '이상 없음');
+
+        function renderAnomalies(items) {
+            anomalyList.innerHTML = '';
+            if (!items || !items.length) { anomalyList.appendChild(anomalyEmpty); return; }
+            items.forEach(function (a) {
+                var color = LEVEL_COLOR[a.level] || LEVEL_COLOR.Info;
+                var row = el('button', 'w-full flex items-start gap-2 px-2 py-2 rounded transition-colors text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-inverse-surface');
+                row.type = 'button';
+                row.style.cssText = 'text-align:left;appearance:none;-webkit-appearance:none;background:transparent;border:0;cursor:pointer;font:inherit;';
+
+                var d = el('span');
+                d.style.cssText = 'flex:0 0 auto;width:7px;height:7px;border-radius:50%;margin-top:5px;background:' + color + ';';
+                row.appendChild(d);
+
+                var body = el('div');
+                body.style.cssText = 'flex:1;min-width:0;';
+                var label = el('div', 'font-label-sm text-label-sm font-semibold', a.label || a.code || '(이름 없음)');
+                label.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                body.appendChild(label);
+                var sub = el('div', 'text-[10px] text-outline opacity-80', (a.system || '') + ' · ' + (a.occurredAtLocal || ''));
+                sub.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                body.appendChild(sub);
+                row.appendChild(body);
+
+                row.addEventListener('click', function () {
+                    var q = [];
+                    if (a.system) q.push('utSystem=' + encodeURIComponent(a.system));
+                    if (a.level) q.push('utLevel=' + encodeURIComponent(a.level));
+                    location.href = '/uptime' + (q.length ? '?' + q.join('&') : '');
+                });
+                anomalyList.appendChild(row);
+            });
+        }
+        renderAnomalies(null);
+
 
         // 푸터 (설정)
         var footer = el('div', 'p-4 border-t border-outline-variant dark:border-outline flex flex-col gap-1');
@@ -301,13 +365,19 @@
         aside.appendChild(footer);
 
         // ── 5) 메인 + 상단 헤더 ──
-        var main = el('main', 'ml-60 min-h-screen');
-        main.style.cssText = 'margin-left:240px;min-height:100vh;';
+        var main = el('main', 'min-h-screen');
+        main.style.cssText = 'margin-left:' + SHELL_W + 'px;min-height:100vh;';
 
         var header = el('header', 'dsp-shell h-16 flex justify-between items-center w-full px-container-margin bg-surface dark:bg-background border-b border-outline-variant dark:border-outline sticky top-0 z-40');
         header.style.cssText = 'position:sticky;top:0;z-index:40;height:64px;';
 
         var headLeft = el('div', 'flex items-center gap-4');
+        var menuBtn = el('button');
+        menuBtn.type = 'button';
+        menuBtn.setAttribute('aria-label', '메뉴 열기');
+        menuBtn.style.cssText = 'display:none;background:transparent;border:0;cursor:pointer;padding:6px;color:inherit;border-radius:6px;line-height:1;flex:0 0 auto;';
+        menuBtn.appendChild(icon('menu'));
+        headLeft.appendChild(menuBtn);
         headLeft.appendChild(el('h2', 'font-headline-lg text-headline-lg font-bold text-on-surface', pageTitle || 'DSPilot'));
         var crumb = el('div', 'flex items-center gap-2 text-on-surface-variant font-body-md text-body-md opacity-60');
         crumb.appendChild(el('span', null, 'Home'));
@@ -345,6 +415,15 @@
         agPopCard.appendChild(agData.row);
         agPopover.appendChild(agPopCard);
         document.body.appendChild(agPopover);
+
+        // ── 데모 모드 배지 (실시간 배지 왼쪽) — 데모(바이패스 OFF)일 때만 표시 ──
+        //   liveBadge 보다 먼저 headRight 에 추가 → flex 행에서 왼쪽에 위치.
+        var demoBadge = el('span', 'dash-live');
+        demoBadge.style.cssText = 'display:none;color:var(--color-warning);border-color:color-mix(in srgb, var(--color-warning) 50%, transparent);';
+        demoBadge.title = '데모 모드 — 제한 시간 동작 중';
+        demoBadge.appendChild(el('span', 'dash-live-dot'));
+        demoBadge.appendChild(el('span', null, 'DEMO'));
+        headRight.appendChild(demoBadge);
 
         var liveBadge = el('span', 'dash-live is-poll');
         liveBadge.style.cursor = 'pointer';
@@ -391,6 +470,54 @@
         main.appendChild(header);
         main.appendChild(page);
 
+        // ── 6.5) 모바일 드로어: 오버레이 + 햄버거 토글 ──
+        //   MOBILE_BP 미만에서 사이드바가 -SHELL_W 로 숨겨지고, 햄버거 클릭 시 슬라이드 인.
+        //   데스크톱으로 복귀 시 aside/main 원위치, 오버레이 제거.
+        var drawerOpen = false;
+        var overlay = document.createElement('div');
+        overlay.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:49;';
+        document.body.appendChild(overlay);
+
+        function openDrawer() {
+            drawerOpen = true;
+            aside.style.left = '0';
+            overlay.style.display = 'block';
+            var ic = menuBtn.querySelector('.material-icons');
+            if (ic) ic.textContent = 'close';
+            menuBtn.setAttribute('aria-label', '메뉴 닫기');
+        }
+        function closeDrawer() {
+            drawerOpen = false;
+            aside.style.left = '-' + SHELL_W + 'px';
+            overlay.style.display = 'none';
+            var ic = menuBtn.querySelector('.material-icons');
+            if (ic) ic.textContent = 'menu';
+            menuBtn.setAttribute('aria-label', '메뉴 열기');
+        }
+        overlay.addEventListener('click', closeDrawer);
+        menuBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            if (drawerOpen) closeDrawer(); else openDrawer();
+        });
+
+        function applyLayout() {
+            if (window.innerWidth < MOBILE_BP) {
+                menuBtn.style.display = '';
+                main.style.marginLeft = '0';
+                aside.style.transition = 'left 0.22s ease';
+                if (!drawerOpen) aside.style.left = '-' + SHELL_W + 'px';
+            } else {
+                menuBtn.style.display = 'none';
+                main.style.marginLeft = SHELL_W + 'px';
+                aside.style.left = '0';
+                aside.style.transition = '';
+                overlay.style.display = 'none';
+                drawerOpen = false;
+            }
+        }
+        window.addEventListener('resize', applyLayout);
+        applyLayout();
+
         // ── 7) 테마 동기화 (설정 페이지 변경 + 다른 탭 동기화) ──
         //  헤더 토글 버튼은 제거됨. 테마는 로드 시 localStorage 에서 적용되며, 설정 페이지/타 탭 변경은 storage 이벤트로 반영.
         function applyTheme(d) {
@@ -432,6 +559,9 @@
                 anomalyBadge.style.display = count > 0 ? '' : 'none';
             }
 
+            // 이상코드 피드 갱신
+            renderAnomalies(data.recentAnomalies);
+
             var agent = data.agent || {};
             var live = HUB_LIVE[agent.hub] || HUB_LIVE.disconnected;
             liveBadge.className = 'dash-live ' + live[0];
@@ -470,6 +600,19 @@
         }
         pollSummary();
         setInterval(pollSummary, 4000);
+
+        // ── 10) /api/demo/status: 데모(바이패스 OFF)면 DEMO 배지 표시, FULL(바이패스 ON)이면 숨김 ──
+        //   상태 변경은 잦지 않으므로 가벼운 30초 폴링(/pw 백도어 토글 후 복귀 시 반영).
+        function pollDemo() {
+            fetch('/api/demo/status', { headers: { 'Accept': 'application/json' } })
+                .then(function (res) { return res.ok ? res.json() : null; })
+                .then(function (data) {
+                    demoBadge.style.display = (data && !data.isBypassed) ? '' : 'none';
+                })
+                .catch(function () { /* 조회 실패 시 마지막 표시 유지 */ });
+        }
+        pollDemo();
+        setInterval(pollDemo, 30000);
 
     } catch (err) {
         try { console.error('[shell.js] failed to build app-shell', err); } catch (e) { /* ignore */ }

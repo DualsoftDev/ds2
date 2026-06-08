@@ -85,31 +85,37 @@ public class CctvMediaMtxService : BackgroundService
             var cctv = _settings.LoadSettings().Cctv;
             var apiBase = cctv.MediaMtxApiUrl.TrimEnd('/');
 
+            // 경로명(slug)을 결정한다 — 저장 안 된 구(舊)/수기편집 설정도 동일 규칙으로 채워(deterministic)
+            // GetConfig 가 내려보내는 slug 와 항상 일치하게 한다. 저장 경로(SaveSettings)는 이를 영속화한다.
+            AssignSlugs(cctv.Cameras);
+
             var desired = cctv.Cameras
-                .Where(c => c.Enabled && !string.IsNullOrWhiteSpace(c.Name) && !string.IsNullOrWhiteSpace(c.RtspUrl))
-                .GroupBy(c => SanitizeName(c.Name), StringComparer.OrdinalIgnoreCase)
+                .Where(c => c.Enabled && !string.IsNullOrWhiteSpace(c.Slug) && !string.IsNullOrWhiteSpace(c.RtspUrl))
+                .GroupBy(c => c.Slug, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
             var existing = await GetConfiguredPathNamesAsync(apiBase, ct);
 
-            // 추가/갱신
-            foreach (var (name, cam) in desired)
+            // 추가/갱신 (경로명 = slug). 매 동기화마다 현재 source 를 그대로 patch 한다 — RtspUrl 만 바꿔
+            // (slug 동일) 저장해도 새 주소가 반영된다. MediaMTX 는 config 가 동일하면 reload 를 생략하므로
+            // 변화 없는 카메라는 patch 해도 스트림이 끊기지 않고, 주소가 달라진 카메라만 재연결된다.
+            foreach (var (slug, cam) in desired)
             {
                 var body = JsonSerializer.Serialize(
                     new PathConfig { Source = cam.RtspUrl, SourceOnDemand = true }, JsonOptions);
-                var verb = existing.Contains(name) ? "patch" : "add";
+                var verb = existing.Contains(slug) ? "patch" : "add";
                 using var content = new StringContent(body, Encoding.UTF8, "application/json");
-                var res = await _http.PostAsync($"{apiBase}/v3/config/paths/{verb}/{Uri.EscapeDataString(name)}", content, ct);
+                var res = await _http.PostAsync($"{apiBase}/v3/config/paths/{verb}/{Uri.EscapeDataString(slug)}", content, ct);
                 if (!res.IsSuccessStatusCode)
-                    _logger.LogWarning("[CCTV] MediaMTX 경로 {Verb} 실패 {Name}: {Status}", verb, name, res.StatusCode);
+                    _logger.LogWarning("[CCTV] MediaMTX 경로 {Verb} 실패 {Slug}: {Status}", verb, slug, res.StatusCode);
             }
 
             // 설정에 없는 경로 제거 (MediaMTX 는 CCTV 전용 가정)
-            foreach (var name in existing.Where(n => !desired.ContainsKey(n)))
+            foreach (var slug in existing.Where(n => !desired.ContainsKey(n)))
             {
-                var res = await _http.DeleteAsync($"{apiBase}/v3/config/paths/delete/{Uri.EscapeDataString(name)}", ct);
+                var res = await _http.DeleteAsync($"{apiBase}/v3/config/paths/delete/{Uri.EscapeDataString(slug)}", ct);
                 if (!res.IsSuccessStatusCode)
-                    _logger.LogWarning("[CCTV] MediaMTX 경로 삭제 실패 {Name}: {Status}", name, res.StatusCode);
+                    _logger.LogWarning("[CCTV] MediaMTX 경로 삭제 실패 {Slug}: {Status}", slug, res.StatusCode);
             }
 
             // 외부(원격·클라우드) 접속용 전역 WebRTC 설정 반영(공인주소 광고 + TCP 폴백). best-effort.
@@ -209,16 +215,45 @@ public class CctvMediaMtxService : BackgroundService
         }
     }
 
-    /// <summary>MediaMTX 경로명/URL path 로 안전한 문자만 남긴다.</summary>
-    public static string SanitizeName(string name)
+    /// <summary>
+    /// MediaMTX 경로명/URL path 로 안전한 <b>ASCII</b> 문자만 남긴다(영숫자/`_`/`-`). MediaMTX 는 비-ASCII
+    /// 경로명을 거부하므로(한글 카메라명이 조용히 등록 실패하던 원인) 반드시 ASCII 로 환원한다.
+    /// 남는 게 없으면(예: 순수 한글명) 빈 문자열 — 호출부(<see cref="AssignSlugs"/>)가 "cam" 폴백/중복회피를 책임진다.
+    /// 주의: <see cref="char.IsLetterOrDigit(char)"/> 는 유니코드 기준이라 한글도 letter 로 통과시키므로 쓰지 않는다.
+    /// </summary>
+    public static string ToAsciiSlug(string name)
     {
         var sb = new StringBuilder(name.Length);
         foreach (var ch in name.Trim())
         {
-            if (char.IsLetterOrDigit(ch) || ch is '_' or '-')
+            if (ch is (>= 'a' and <= 'z') or (>= 'A' and <= 'Z') or (>= '0' and <= '9') or '_' or '-')
                 sb.Append(ch);
         }
-        return sb.Length > 0 ? sb.ToString() : "cam";
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// 카메라 목록에서 <see cref="CctvCamera.Slug"/>가 비어 있는 항목에만 "cam1", "cam2", … 형태의 안정 경로명을 부여한다(in-place).
+    /// 이미 slug 가 있는 카메라는 건드리지 않아 표시명/순서 변경에도 경로가 안정 유지된다(MediaMTX 재등록·오버레이 흔들림 방지).
+    /// </summary>
+    public static void AssignSlugs(List<CctvCamera> cameras)
+    {
+        if (cameras is null) return;
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // 1차: 이미 할당된 slug 를 예약
+        foreach (var cam in cameras)
+            if (!string.IsNullOrWhiteSpace(cam.Slug))
+                used.Add(cam.Slug);
+        // 2차: 빈 slug 에 cam1, cam2, … 부여
+        var n = 1;
+        foreach (var cam in cameras)
+        {
+            if (!string.IsNullOrWhiteSpace(cam.Slug)) continue;
+            string slug;
+            do { slug = $"cam{n++}"; } while (used.Contains(slug));
+            used.Add(slug);
+            cam.Slug = slug;
+        }
     }
 
     public override void Dispose()

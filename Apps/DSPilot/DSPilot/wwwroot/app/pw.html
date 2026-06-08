@@ -17,7 +17,7 @@
         그래야 데모 차단 후에도 status 조회/토글이 가능(미추가 시 영구 잠김).
       계산기 외 카드(System Info/Storage/Log/Flow/Chart 등)는 원래 서버 프로세스 내부 진단/샘플이었음.
         정적 standalone 에서는 프로세스 내부값에 접근 불가하므로:
-          · Demo Status = /api/demo/status 실데이터.
+          · Demo Status 카드는 제거됨(헤더 셸의 DEMO 배지로 일원화). /api/demo/status 는 백도어 토글 상태 판정에만 사용.
           · 프로세스 진단(Process/Runtime/Storage/Threads/LogTail) = .ds-empty 로 "정적 페이지 미수집" 정직 표기.
           · 결정적 시드 기반 샘플 차트/Flow/팔레트는 원본과 동일하게 데모 UI 프리뷰로 재현(가짜 실데이터 아님, 정적 데모 위젯).
     -->
@@ -122,57 +122,6 @@
 
             <div class="pw-grid">
 
-                <!-- ── 입력버튼테스트 (계산기 백도어) — 가장 중요, 맨 앞에 배치 ── -->
-                <div class="pw-card pw-card-wide">
-                    <div class="pw-card-title"><span class="material-icons">keyboard</span> 입력버튼테스트</div>
-                    <div class="pw-calc">
-                        <div class="pw-calc-display">
-                            <div class="pw-calc-expr" x-text="expression"></div>
-                            <div class="pw-calc-result" x-text="display"></div>
-                        </div>
-                        <div class="pw-calc-keys">
-                            <button class="pw-key pw-key-fn" @click="press('C')">C</button>
-                            <button class="pw-key pw-key-fn" @click="press('CE')">CE</button>
-                            <button class="pw-key pw-key-fn" @click="press('←')">←</button>
-                            <button class="pw-key pw-key-op" @click="press('/')">÷</button>
-
-                            <button class="pw-key" @click="press('7')">7</button>
-                            <button class="pw-key" @click="press('8')">8</button>
-                            <button class="pw-key" @click="press('9')">9</button>
-                            <button class="pw-key pw-key-op" @click="press('*')">×</button>
-
-                            <button class="pw-key" @click="press('4')">4</button>
-                            <button class="pw-key" @click="press('5')">5</button>
-                            <button class="pw-key" @click="press('6')">6</button>
-                            <button class="pw-key pw-key-op" @click="press('-')">−</button>
-
-                            <button class="pw-key" @click="press('1')">1</button>
-                            <button class="pw-key" @click="press('2')">2</button>
-                            <button class="pw-key" @click="press('3')">3</button>
-                            <button class="pw-key pw-key-op" @click="press('+')">+</button>
-
-                            <button class="pw-key" @click="press('0')" style="grid-column: span 2;">0</button>
-                            <button class="pw-key" @click="press('.')">.</button>
-                            <button class="pw-key pw-key-eq" @click="press('=')">=</button>
-                        </div>
-                        <div class="pw-calc-msg" x-show="calcMessage" x-text="calcMessage"></div>
-                    </div>
-                </div>
-
-                <!-- ── Demo Status (실데이터: /api/demo/status) ── -->
-                <div class="pw-card">
-                    <div class="pw-card-title"><span class="material-icons">verified</span> Demo Status</div>
-                    <dl class="pw-info">
-                        <dt>Mode</dt><dd x-text="demo ? (demo.isBypassed ? 'FULL (bypass on)' : 'DEMO') : '…'"></dd>
-                        <dt>Duration</dt><dd>03:00:00</dd>
-                        <dt>Remaining</dt><dd x-text="demo ? (demo.isBypassed ? '—' : fmtTs(demo.remainingSeconds)) : '…'"></dd>
-                        <dt>Blocked</dt><dd x-text="demo ? (demo.isBlocked ? 'yes' : 'no') : '…'"></dd>
-                    </dl>
-                    <div class="alert alert-error" x-show="demoError" style="margin-top:10px;">
-                        <span class="material-icons">error</span><span x-text="demoError"></span>
-                    </div>
-                </div>
-
                 <!-- ── System Info (프로세스 내부값 — 정적 페이지 미수집) ── -->
                 <div class="pw-card">
                     <div class="pw-card-title"><span class="material-icons">memory</span> System Info</div>
@@ -274,6 +223,43 @@
                         <div><span style="background:var(--color-error)"></span>error</div>
                         <div><span style="background:var(--color-secondary)"></span>secondary</div>
                         <div><span style="background:var(--color-tertiary, var(--color-secondary))"></span>tertiary</div>
+                    </div>
+                </div>
+
+                <!-- ── 입력버튼테스트 (계산기 백도어) — 맨 뒤로 이동 ── -->
+                <div class="pw-card pw-card-wide">
+                    <div class="pw-card-title"><span class="material-icons">keyboard</span> 입력버튼테스트</div>
+                    <div class="pw-calc">
+                        <div class="pw-calc-display">
+                            <div class="pw-calc-expr" x-text="expression"></div>
+                            <div class="pw-calc-result" x-text="display"></div>
+                        </div>
+                        <div class="pw-calc-keys">
+                            <button class="pw-key pw-key-fn" @click="press('C')">C</button>
+                            <button class="pw-key pw-key-fn" @click="press('CE')">CE</button>
+                            <button class="pw-key pw-key-fn" @click="press('←')">←</button>
+                            <button class="pw-key pw-key-op" @click="press('/')">÷</button>
+
+                            <button class="pw-key" @click="press('7')">7</button>
+                            <button class="pw-key" @click="press('8')">8</button>
+                            <button class="pw-key" @click="press('9')">9</button>
+                            <button class="pw-key pw-key-op" @click="press('*')">×</button>
+
+                            <button class="pw-key" @click="press('4')">4</button>
+                            <button class="pw-key" @click="press('5')">5</button>
+                            <button class="pw-key" @click="press('6')">6</button>
+                            <button class="pw-key pw-key-op" @click="press('-')">−</button>
+
+                            <button class="pw-key" @click="press('1')">1</button>
+                            <button class="pw-key" @click="press('2')">2</button>
+                            <button class="pw-key" @click="press('3')">3</button>
+                            <button class="pw-key pw-key-op" @click="press('+')">+</button>
+
+                            <button class="pw-key" @click="press('0')" style="grid-column: span 2;">0</button>
+                            <button class="pw-key" @click="press('.')">.</button>
+                            <button class="pw-key pw-key-eq" @click="press('=')">=</button>
+                        </div>
+                        <div class="pw-calc-msg" x-show="calcMessage" x-text="calcMessage"></div>
                     </div>
                 </div>
 

@@ -173,8 +173,16 @@ public class CctvSettings
 
 public class CctvCamera
 {
-    /// <summary>MediaMTX 경로명 겸 화면 표시명. 영숫자/하이픈/언더스코어만 (URL path 로 사용).</summary>
+    /// <summary>화면 표시명(자유 입력 — 한글 가능). MediaMTX 경로/URL 에는 쓰지 않는다(→ <see cref="Slug"/>).</summary>
     public string Name { get; set; } = "";
+
+    /// <summary>
+    /// MediaMTX 경로명 겸 WHEP URL path 세그먼트. ASCII 영숫자/하이픈/언더스코어만 — MediaMTX 가
+    /// 비-ASCII 경로명을 거부하므로 표시명(<see cref="Name"/>, 한글 허용)과 분리한다.
+    /// 카메라별로 안정(stable)해야 한다(표시명을 바꿔도 경로/오버레이가 흔들리지 않도록). 비우면
+    /// <see cref="Services.CctvMediaMtxService.AssignSlugs"/> 가 표시명에서 자동 생성(불가 시 "cam") + 중복 회피.
+    /// </summary>
+    public string Slug { get; set; } = "";
 
     /// <summary>원본 RTSP 주소. 예: rtsp://user:pass@192.168.0.10:554/stream1</summary>
     public string RtspUrl { get; set; } = "";
@@ -285,6 +293,13 @@ public class HistoryViewSettings
     /// 사이클 최소 시간(ms). CT가 이 값 미만이면 비가동 사이클로 판정. 0이면 비활성.
     /// </summary>
     public int MinCycleTimeMs { get; set; } = 0;
+
+    /// <summary>
+    /// 대시보드 Flow 평균(AvgMT/WT/CT) 산출 시 집계할 "최근 비가동-제외 사이클 수"(롤링 윈도우).
+    /// 요약 대시보드는 현재 거동을 반영해야 하므로 전(全)기간 누적 평균 대신 최근 N 사이클만 평균낸다.
+    /// 0(또는 음수)이면 전체 이력 평균(윈도우 비활성). 기본 20.
+    /// </summary>
+    public int CycleAverageWindow { get; set; } = 20;
 
     /// <summary>
     /// 주기적 전체-이력 자동 재계산 간격(분). 라이브 기록기가 tail 완료를 실시간에 놓쳐

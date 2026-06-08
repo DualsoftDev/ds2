@@ -23,6 +23,7 @@ public class NavController : ControllerBase
     private readonly PlcConnectionStatusTracker _plcStatus;
     private readonly HubSubscriberService _hub;
     private readonly IUserTagAlertRepository _alertRepo;
+    private readonly AbnormalEventService _abnormal;
     private readonly BlueprintService _blueprint;
 
     public NavController(
@@ -32,6 +33,7 @@ public class NavController : ControllerBase
         PlcConnectionStatusTracker plcStatus,
         HubSubscriberService hub,
         IUserTagAlertRepository alertRepo,
+        AbnormalEventService abnormal,
         BlueprintService blueprint)
     {
         _project = project;
@@ -40,6 +42,7 @@ public class NavController : ControllerBase
         _plcStatus = plcStatus;
         _hub = hub;
         _alertRepo = alertRepo;
+        _abnormal = abnormal;
         _blueprint = blueprint;
     }
 
@@ -111,11 +114,37 @@ public class NavController : ControllerBase
         var anomalyActiveCount = await _alertRepo.CountAlertsAsync(
             nowUtc - TimeSpan.FromMinutes(10), nowUtc, null, "Error", null, ct);
 
+        // ── recentAnomalies (이상코드 피드) ── 최신 N건(레벨 무관). 사이드바 '이상코드' 실시간 피드용.
+        //   두 출처를 시각 내림차순으로 합류(동일 형상 NavAnomalyDto):
+        //     - usertag        : UserTag 매칭 알림(userTagAlertLog)
+        //     - ds-error-0..3  : v12 경로이탈 이상감지(AbnormalEventService 인메모리 링버퍼)
+        const int FeedCount = 8;
+        var recent = await _alertRepo.GetLatestAlertsAsync(FeedCount, ct);
+        var userTagRows = recent.Select(a => (
+            Utc: a.OccurredAt,
+            Dto: new NavAnomalyDto(
+                "usertag", a.LogLevel, a.Name, a.SystemName,
+                a.OccurredAt.ToLocalTime().ToString("M/d HH:mm:ss"), a.TagAddress)));
+
+        var dsRows = _abnormal.GetRecent(FeedCount).Select(e => (
+            Utc: e.OccurredAtUtc,
+            Dto: new NavAnomalyDto(
+                e.Source, e.Level, e.Label,
+                string.IsNullOrEmpty(e.FlowName) ? e.WorkName : e.FlowName,
+                e.OccurredAtLocal, e.KindName)));
+
+        var recentAnomalies = userTagRows.Concat(dsRows)
+            .OrderByDescending(x => x.Utc)
+            .Take(FeedCount)
+            .Select(x => x.Dto)
+            .ToList();
+
         return new NavSummaryDto(
             new NavLinesDto(total, running, idle, efficiencyPct),
             agent,
             _db.HasData,
             anomalyActiveCount,
+            recentAnomalies,
             DateTimeOffset.UtcNow);
     }
 
@@ -140,7 +169,17 @@ public record NavSummaryDto(
     NavAgentDto Agent,
     bool HasData,
     int AnomalyActiveCount,
+    List<NavAnomalyDto> RecentAnomalies,
     DateTimeOffset ServerTimeUtc);
+
+// 사이드바 '이상코드' 피드 1행. Source = 출처("usertag" | 추후 "ds-error-1".."4").
+public record NavAnomalyDto(
+    string Source,
+    string Level,
+    string Label,
+    string System,
+    string OccurredAtLocal,
+    string Code);
 
 public record NavLinesDto(int Total, int Running, int Idle, int EfficiencyPct);
 

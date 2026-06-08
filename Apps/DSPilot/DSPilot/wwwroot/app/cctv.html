@@ -107,9 +107,26 @@
         .cctv-cell-empty span:last-child { font-size: 0.68rem; font-weight: 700; }
 
         /* 비디오 타일 */
-        .cctv-tile { position: relative; display: flex; flex-direction: column; background: #0A0F16; overflow: hidden; min-height: 0; min-width: 0; border: 1.5px solid var(--color-lines); border-radius: var(--radius-md); transition: border-color 0.12s ease, box-shadow 0.12s ease; aspect-ratio: 21 / 9; }
+        .cctv-tile { position: relative; display: flex; flex-direction: column; background: #0A0F16; overflow: hidden; min-height: 0; min-width: 0; border: 1.5px solid var(--color-lines); border-radius: var(--radius-md); transition: border-color 0.12s ease, box-shadow 0.12s ease; aspect-ratio: 21 / 9; container-type: inline-size; }
+        /* ① 그리드 수 기준(3개+): 이름 바 + 오버레이 칩/뱃지 생략 */
+        .cctv-grid.count-3 .cctv-tile-bar, .cctv-grid.count-4 .cctv-tile-bar,
+        .cctv-grid.count-5 .cctv-tile-bar, .cctv-grid.count-6 .cctv-tile-bar,
+        .cctv-grid.layout-2x2 .cctv-tile-bar, .cctv-grid.layout-2x3 .cctv-tile-bar { display: none !important; }
+        .cctv-grid.count-3 .cctv-ovl-chip, .cctv-grid.count-4 .cctv-ovl-chip,
+        .cctv-grid.count-5 .cctv-ovl-chip, .cctv-grid.count-6 .cctv-ovl-chip,
+        .cctv-grid.layout-2x2 .cctv-ovl-chip, .cctv-grid.layout-2x3 .cctv-ovl-chip { display: none !important; }
+        .cctv-grid.count-3 .cctv-kind-badge, .cctv-grid.count-4 .cctv-kind-badge,
+        .cctv-grid.count-5 .cctv-kind-badge, .cctv-grid.count-6 .cctv-kind-badge,
+        .cctv-grid.layout-2x2 .cctv-kind-badge, .cctv-grid.layout-2x3 .cctv-kind-badge { display: none !important; }
+        /* ② 타일 너비 기준(창 줄이기): 520px 이하 시 생략 */
+        @container (max-width: 520px) {
+            .cctv-tile-bar { display: none !important; }
+            .cctv-ovl-chip { display: none !important; }
+            .cctv-kind-badge { display: none !important; }
+        }
         .cctv-tile:hover { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.15); }
         .cctv-tile.is-dragging { opacity: 0.5; }
+        .cctv-tile.is-swap-target { border-color: var(--teal); box-shadow: inset 0 0 0 2px var(--teal), 0 0 0 3px rgba(var(--color-primary-rgb), 0.25); }
         .cctv-tile.is-editing { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.28); }
         .cctv-tile-bar { display: flex; align-items: center; gap: 6px; padding: 5px 8px; background: rgba(8, 13, 20, 0.92); color: #fff; flex-shrink: 0; }
         .cctv-tile-grip { cursor: grab; color: var(--teal-2); display: flex; align-items: center; }
@@ -346,7 +363,7 @@
                                 <template x-for="cam in filteredCameras" :key="cam.id">
                                     <div class="cctv-rail-item" :class="(inWall(cam.id) ? 'is-placed ' : '') + (layout==='solo' && soloId===cam.id ? 'is-solo' : '')"
                                          draggable="true" @dragstart="startDrag('rail', cam.id, $event)" @dragend="endDrag()"
-                                         @click="toggleWall(cam.id)" :title="inWall(cam.id) ? '영상벽에 표시 중 (클릭=제거)' : '클릭/드래그로 영상벽에 추가'">
+                                         @click="soloCamera(cam.id)" title="클릭 = 단독 보기 · 드래그 = 영상벽에 추가">
                                         <div class="cctv-rail-thumb">
                                             <span class="material-icons">videocam</span>
                                             <template x-if="inWall(cam.id)"><span class="material-icons placed-tick">check_circle</span></template>
@@ -363,24 +380,12 @@
                                         </div>
                                         <div class="cctv-rail-actions" :class="editTileId === cam.id ? 'has-active' : ''">
                                             <template x-if="inWall(cam.id)">
-                                                <button class="btn-icon btn-sm" @click.stop="soloCamera(cam.id)" title="단독 보기">
-                                                    <span class="material-icons"
-                                                          :style="layout==='solo' && soloId===cam.id ? 'color:var(--teal);' : 'color:var(--color-text-secondary);'">crop_free</span>
-                                                </button>
-                                            </template>
-                                            <template x-if="inWall(cam.id)">
                                                 <button class="btn-icon btn-sm" @click.stop="toggleTileEdit(cam.id)"
                                                         :title="editTileId === cam.id ? '오버레이 편집 종료' : '오버레이 편집'">
                                                     <span class="material-icons"
                                                           :style="editTileId === cam.id ? 'color:var(--teal);' : 'color:var(--color-text-secondary);'">edit_location_alt</span>
                                                 </button>
                                             </template>
-                                            <button class="btn-icon btn-sm" @click.stop="toggleWall(cam.id)"
-                                                    :title="inWall(cam.id) ? '영상벽에서 제거' : '영상벽에 추가'">
-                                                <span class="material-icons"
-                                                      :style="inWall(cam.id) ? 'color:var(--green);' : 'color:var(--teal-dark);'"
-                                                      x-text="inWall(cam.id) ? 'check_circle' : 'add_circle'"></span>
-                                            </button>
                                         </div>
                                     </div>
                                 </template>
@@ -447,8 +452,8 @@
                                     <div :class="'cctv-grid ' + gridClass" x-ref="wallGrid">
                                         <template x-for="(cam, idx) in wallCams" :key="cam.id">
                                             <div class="cctv-tile"
-                                                 :class="(dragCamId === cam.id ? 'is-dragging ' : '') + (editTileId === cam.id ? 'is-editing ' : '') + (isSoloTile(cam, idx) ? 'is-solo' : '')"
-                                                 @dragover="onTileDragOver($event)" @drop="onTileDrop($event, cam.id)">
+                                                 :class="(dragCamId === cam.id ? 'is-dragging ' : '') + (dragOverTileId === cam.id ? 'is-swap-target ' : '') + (editTileId === cam.id ? 'is-editing ' : '') + (isSoloTile(cam, idx) ? 'is-solo' : '')"
+                                                 @dragover="onTileDragOver($event, cam.id)" @drop="onTileDrop($event, cam.id)" @dragleave="onTileDragLeave(cam.id)">
 
                                                 <!-- 인라인 arm 바 (편집 중) -->
                                                 <template x-if="editTileId === cam.id">
@@ -490,6 +495,20 @@
                                                         </button>
                                                     </div>
                                                 </template>
+
+                                                <!-- 타일 바: 드래그 핸들(이동/위치 교체) + 이름 + 닫기(영상벽 내리기). 전체화면·편집 중엔 숨김. -->
+                                                <div class="cctv-tile-bar" x-show="!isFullscreen && editTileId !== cam.id">
+                                                    <span class="cctv-tile-grip" draggable="true"
+                                                          @dragstart="startDrag('tile', cam.id, $event)" @dragend="endDrag()"
+                                                          title="드래그해서 위치 이동 / 다른 화면과 교체">
+                                                        <span class="material-icons">drag_indicator</span>
+                                                    </span>
+                                                    <span class="cctv-tile-name" x-text="cam.name"></span>
+                                                    <button class="cctv-tile-btn is-danger" draggable="false"
+                                                            @click.stop="removeFromWall(cam.id)" title="영상벽에서 내리기">
+                                                        <span class="material-icons">close</span>
+                                                    </button>
+                                                </div>
 
                                                 <div class="cctv-tile-stage">
                                                     <video :id="'cctv-wall-' + cam.id" muted autoplay playsinline
@@ -607,7 +626,7 @@
                                     <div class="cctv-wall-empty" :class="dragOverWall ? 'is-dragover' : ''">
                                         <span class="material-icons">add_to_queue</span>
                                         <div style="font-weight:700;">시청할 카메라를 선택하세요</div>
-                                        <div style="font-size:0.74rem;">좌측 레일에서 카메라를 클릭하거나 끌어다 놓으면 영상벽에 표시됩니다 (최대 <span x-text="maxConcurrent"></span>대).</div>
+                                        <div style="font-size:0.74rem;">좌측 레일에서 카메라를 <strong>클릭</strong>하면 단독으로, <strong>끌어다 놓으면</strong> 영상벽에 추가됩니다 (최대 <span x-text="maxConcurrent"></span>대).</div>
                                     </div>
                                 </template>
                             </div>
@@ -656,6 +675,7 @@
                     <small>
                         RTSP 카메라를 등록하면 <strong>MediaMTX</strong>(별도 서비스)가 받아 WebRTC 로 재게시하고, 이 페이지에서 시청합니다.
                         저장 시 MediaMTX 에 자동 반영됩니다.
+                        이름은 한글도 됩니다. MediaMTX 내부 경로는 자동 생성됩니다.
                     </small>
                 </div>
 
@@ -686,7 +706,7 @@
                     <template x-for="(cam, i) in camSettings.cameras" :key="i">
                         <div class="cam-card">
                             <div class="cam-row1">
-                                <input class="form-field" x-model="cam.name" placeholder="이름 (예: line1-entry)" style="flex:1;" />
+                                <input class="form-field" x-model="cam.name" placeholder="이름 (예: 정문, 1라인 입구)" style="flex:1;" />
                                 <label class="switch" style="margin:0; white-space:nowrap;">
                                     <input type="checkbox" x-model="cam.enabled" /> 사용
                                 </label>
@@ -772,7 +792,9 @@
                 soloId: null,              // 단독 보기 대상 카메라 id
                 camFilter: '',
                 dragOverWall: false,
-                dragCamId: null,
+                dragCamId: null,           // 드래그 중인 타일 id
+                dragOverTileId: null,      // 드롭(교체) 대상 타일 id — 하이라이트용
+                isFullscreen: false,       // 브라우저 전체화면 여부 — 타일 바(이동/닫기) 숨김 토글
                 _drag: null,               // { kind:'rail'|'tile', id }
                 _wallStarted: {},          // id -> true (WHEP 시작 여부)
                 streamHealth: {},          // id -> WebRTC connectionState (per-stream 헬스)
@@ -820,6 +842,10 @@
                         else if (this.layout === 'solo') { this.exitSolo(); }
                     });
                     window.addEventListener('resize', () => this.recalcWallRects());
+                    // 전체화면 진입/이탈(ESC 포함) → 타일 바 숨김 토글 + 레이아웃 재계산.
+                    const onFsChange = () => { this.isFullscreen = !!document.fullscreenElement; this.$nextTick(() => this.recalcWallRects()); };
+                    document.addEventListener('fullscreenchange', onFsChange);
+                    document.addEventListener('webkitfullscreenchange', onFsChange);
                     // 리사이즈/이동 제스처는 stage 를 벗어나도 유지하고, 버튼 release(어디서든)로 마무리.
                     window.addEventListener('mouseup', () => {
                         if (this._resizing) this._onResizeUp();
@@ -945,6 +971,7 @@
                 soloCamera(id) {
                     if (!this.camById(id)) return;
                     if (!this.inWall(id)) this.addToWall(id);
+                    if (!this.inWall(id)) return;   // 영상벽이 가득 차 추가 실패(addToWall 이 토스트 표시) → 단독 진입 보류
                     this.soloId = id;
                     if (this.layout !== 'solo') { this._prevLayout = this.layout; this.layout = 'solo'; }
                     if (this.editTileId && this.editTileId !== id) this.editTileId = null;
@@ -993,12 +1020,12 @@
                     if (this.layout === 'solo') this.layout = this._prevLayout || 'auto';
                     this.persistWall(); this.persistLayout();
                 },
-                reorderWall(srcId, targetId) {
+                // 타일 위치 교환(서로 바꾸기). 그리드 셀은 wall 배열 순서를 따르므로 두 항목을 맞바꾸면 두 화면이 자리를 교체한다.
+                swapWall(srcId, targetId) {
                     const src = this.wall.indexOf(srcId), tgt = this.wall.indexOf(targetId);
                     if (src < 0 || tgt < 0 || src === tgt) return;
                     const next = this.wall.slice();
-                    next.splice(src, 1);
-                    next.splice(next.indexOf(targetId), 0, srcId);
+                    const tmp = next[src]; next[src] = next[tgt]; next[tgt] = tmp;
                     this.wall = next;
                     this.persistWall();
                     this.$nextTick(() => this.recalcWallRects());
@@ -1010,7 +1037,7 @@
                     if (kind === 'tile') this.dragCamId = id;
                     try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', id); } catch (_) {}
                 },
-                endDrag() { this._drag = null; this.dragCamId = null; this.dragOverWall = false; },
+                endDrag() { this._drag = null; this.dragCamId = null; this.dragOverWall = false; this.dragOverTileId = null; },
                 onWallDragOver(e) { if (this._drag) { e.preventDefault(); try { e.dataTransfer.dropEffect = 'move'; } catch (_) {} this.dragOverWall = true; } },
                 onWallDrop(e) {
                     e.preventDefault();
@@ -1018,13 +1045,19 @@
                     if (d && d.kind === 'rail') this.addToWall(d.id);
                     this.endDrag();
                 },
-                onTileDragOver(e) { if (this._drag) { e.preventDefault(); } },
+                onTileDragOver(e, camId) {
+                    if (!this._drag) return;
+                    e.preventDefault();
+                    // 다른 타일 위 = 교체 대상 하이라이트(자기 자신 제외).
+                    this.dragOverTileId = (this._drag.kind === 'tile' && this._drag.id !== camId) ? camId : null;
+                },
+                onTileDragLeave(camId) { if (this.dragOverTileId === camId) this.dragOverTileId = null; },
                 onTileDrop(e, targetId) {
                     e.preventDefault(); e.stopPropagation();
                     const d = this._drag; this.dragOverWall = false;
                     if (d) {
                         if (d.kind === 'rail') this.addToWall(d.id);
-                        else if (d.kind === 'tile' && d.id !== targetId) this.reorderWall(d.id, targetId);
+                        else if (d.kind === 'tile' && d.id !== targetId) this.swapWall(d.id, targetId);
                     }
                     this.endDrag();
                 },

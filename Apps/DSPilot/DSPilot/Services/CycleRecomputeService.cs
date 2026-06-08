@@ -348,7 +348,7 @@ public sealed class CycleRecomputeService
     {
         try
         {
-            await _dsp.RecomputeAveragesFromCurrentBoundaryAsync();
+            await _dsp.RecomputeAveragesFromCurrentBoundaryAsync(_settings.GetCycleAverageWindow());
             await _flowMetrics.ReseedCycleStatesFromCurrentBoundaryAsync();
             // Reset()(스냅샷 비움 → 다음 1초 폴링까지 대기) 대신 동기 재읽기로 제자리 교체.
             // DB 는 삭제되지 않고 평균만 바뀌었으므로 비울 필요가 없고, 비우면 그 빈 창에 대시보드가

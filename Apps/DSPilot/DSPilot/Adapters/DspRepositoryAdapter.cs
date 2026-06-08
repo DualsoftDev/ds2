@@ -10,6 +10,9 @@ namespace DSPilot.Adapters;
 /// <summary>dspCall.State='Going' 행의 식별 정보 — 상태 self-heal reconcile 용.</summary>
 public sealed record GoingCallInfo(Guid CallId, string CallName, string FlowName);
 
+/// <summary>비가동-제외 사이클 1건의 측정 삼중쌍(ms). 라이브 롤링 평균 윈도우(<c>FlowCycleState.Recent</c>) 단위.</summary>
+public readonly record struct CycleSample(int MT, int WT, int CT);
+
 /// <summary>
 /// DSP 실시간 DB 저장소 (pure C# Dapper 구현).
 /// 기존 F# DspRepository에서 이관. DI 등록 이름 유지를 위해 클래스명은 Adapter 유지.
@@ -1171,12 +1174,24 @@ public class DspRepositoryAdapter : IDspRepository
     /// </summary>
     /// <param name="maxCycleTimeMs">글로벌 기본 최대 CT(ms). per-flow override 가 없는 Flow 에 적용.</param>
     /// <param name="minCycleTimeMs">글로벌 기본 최소 CT(ms).</param>
+    /// <summary>
+    /// 상관 sub-select 로 "flowName 의 최근 <paramref name="lim"/>개 비가동 사이클 평균(<paramref name="col"/>)"을
+    /// 내는 SQL 조각. <paramref name="predicate"/> 는 바깥 dspFlow 행을 참조한다
+    /// (예: <c>h.flowName = dspFlow.flowName AND COALESCE(h.IsIdle,0)=0</c>).
+    /// <paramref name="lim"/> &lt; 0 이면 전체 이력(SQLite <c>LIMIT -1</c> = 무제한). AVG 는 NULL 을 무시한다.
+    /// </summary>
+    private static string WindowedAvg(string col, string predicate, int lim) =>
+        $@"(SELECT AVG(x.v) FROM (SELECT h.{col} AS v FROM {HistoryTable} h
+                WHERE {predicate} ORDER BY h.recordedAt DESC, h.id DESC LIMIT {lim}) x)";
+
     /// <param name="perFlowRangesMs">per-flow 유효범위(ms) override 맵 — 글로벌 재스탬프 위에 해당 Flow 만 덮어쓴다.</param>
+    /// <param name="averageWindow">Avg 산출 시 집계할 최근 비가동 사이클 수(롤링 윈도우). 0/음수 = 전체 이력.</param>
     /// <returns>(재평가된 히스토리 행 수, 재집계된 Flow 수)</returns>
     public async Task<(int HistoryRestamped, int FlowsRecomputed)> ReapplyIdleThresholdsAsync(
         int maxCycleTimeMs,
         int minCycleTimeMs,
-        IReadOnlyDictionary<string, (int MaxMs, int MinMs)>? perFlowRangesMs = null)
+        IReadOnlyDictionary<string, (int MaxMs, int MinMs)>? perFlowRangesMs = null,
+        int averageWindow = 0)
     {
         if (!_enabled) return (0, 0);
 
@@ -1219,12 +1234,15 @@ public class DspRepositoryAdapter : IDspRepository
                 }
             }
 
-            // 2. dspFlow 평균을 비가동 제외 후 재집계 (NULL = 가용 사이클 없음)
+            // 2. dspFlow 평균을 비가동 제외 후 재집계 (NULL = 가용 사이클 없음).
+            //    averageWindow>0 이면 최근 N 사이클만 평균(롤링 윈도우) — 요약 대시보드가 현재 거동을 반영.
+            int lim = averageWindow > 0 ? averageWindow : -1; // SQLite LIMIT -1 = 무제한(전체 이력)
+            string fullPred = $"h.flowName = {_flowTable}.flowName AND COALESCE(h.IsIdle,0)=0";
             var avgSql = $@"
                 UPDATE {_flowTable}
-                SET AvgMT = (SELECT AVG(mt) FROM {HistoryTable} h WHERE h.flowName = {_flowTable}.flowName AND COALESCE(h.IsIdle,0)=0),
-                    AvgWT = (SELECT AVG(wt) FROM {HistoryTable} h WHERE h.flowName = {_flowTable}.flowName AND COALESCE(h.IsIdle,0)=0),
-                    AvgCT = (SELECT AVG(ct) FROM {HistoryTable} h WHERE h.flowName = {_flowTable}.flowName AND COALESCE(h.IsIdle,0)=0),
+                SET AvgMT = {WindowedAvg("mt", fullPred, lim)},
+                    AvgWT = {WindowedAvg("wt", fullPred, lim)},
+                    AvgCT = {WindowedAvg("ct", fullPred, lim)},
                     UpdatedAt = datetime('now')";
             var flowsRecomputed = await conn.ExecuteAsync(avgSql, transaction: tx);
 
@@ -1256,45 +1274,77 @@ public class DspRepositoryAdapter : IDspRepository
     }
 
     /// <summary>
-    /// Flow 별 "비가동 제외" 누적 집계 (사이클 수, MT/WT/CT 합). in-memory 누적 평균 상태 재구성용.
+    /// Flow 별 "비가동 제외" 최근 사이클(MT/WT/CT, 오래된→최신 순) — in-memory 롤링 평균 상태 재시드용.
+    /// <paramref name="window"/> &gt; 0 이면 flow 당 최근 N 개만, 0/음수면 전체. MT/WT/CT 가 모두 채워진 행만
+    /// (라이브 누산기가 정수 삼중쌍으로 평균을 굴리므로). <paramref name="byCurrentBoundary"/> 가 true 면 현재
+    /// boundary 와 일치하는 행만(없으면 flow 별 전체로 폴백) — <see cref="RecomputeAveragesFromCurrentBoundaryAsync"/> 의
+    /// 평균 폴백과 동일 기준이라 누산기와 dspFlow.Avg* 가 정합.
     /// </summary>
-    public async Task<Dictionary<string, (int Count, double SumMT, double SumWT, double SumCT)>> GetNonIdleAggregatesAsync()
+    public async Task<Dictionary<string, List<CycleSample>>> GetRecentNonIdleCyclesAsync(int window, bool byCurrentBoundary)
     {
-        var result = new Dictionary<string, (int, double, double, double)>(StringComparer.Ordinal);
+        var result = new Dictionary<string, List<CycleSample>>(StringComparer.Ordinal);
         if (!_enabled) return result;
 
         await using var conn = await OpenAsync();
-        if (!await TableExistsAsync(conn, HistoryTable))
-            return result;
+        if (!await TableExistsAsync(conn, HistoryTable)) return result;
+        if (byCurrentBoundary && !await TableExistsAsync(conn, _flowTable)) return result;
 
         await EnsureIsIdleColumnAsync(conn);
 
-        var sql = $@"
-            SELECT flowName             AS FlowName,
-                   COUNT(*)             AS Cnt,
-                   COALESCE(SUM(mt), 0) AS SumMT,
-                   COALESCE(SUM(wt), 0) AS SumWT,
-                   COALESCE(SUM(ct), 0) AS SumCT
-            FROM {HistoryTable}
-            WHERE COALESCE(IsIdle, 0) = 0
-            GROUP BY flowName";
+        // ROW_NUMBER 로 flow 당 최신순 번호를 매겨 최근 N 개만 추린다(SQLite 3.25+ window function).
+        // 최종 정렬은 rn DESC → flow 별 오래된→최신 순(Queue 에 enqueue 하면 최신이 tail).
+        string boundaryJoin = byCurrentBoundary
+            ? $@"INNER JOIN {_flowTable} f ON f.flowName = h.flowName"
+            : "";
+        // boundary 매칭: head/tail 이 NULL 이면 일치로 간주(박제 이전). 매칭 0행 flow 는 아래 폴백으로 채운다.
+        string boundaryWhere = byCurrentBoundary
+            ? @" AND (h.headCallName IS NULL OR f.movingStartName = (f.flowName || '.' || h.headCallName))
+                 AND (h.tailCallName IS NULL OR f.movingEndName   = (f.flowName || '.' || h.tailCallName))"
+            : "";
 
-        var rows = await conn.QueryAsync<NonIdleAggregateRow>(sql);
-        foreach (var r in rows)
+        string Build(string join, string extraWhere) => $@"
+            SELECT FlowName, MT, WT, CT FROM (
+                SELECT h.flowName AS FlowName, h.mt AS MT, h.wt AS WT, h.ct AS CT,
+                       ROW_NUMBER() OVER (PARTITION BY h.flowName ORDER BY h.recordedAt DESC, h.id DESC) AS rn
+                FROM {HistoryTable} h {join}
+                WHERE COALESCE(h.IsIdle, 0) = 0
+                  AND h.mt IS NOT NULL AND h.wt IS NOT NULL AND h.ct IS NOT NULL{extraWhere}
+            )
+            WHERE (@Win <= 0 OR rn <= @Win)
+            ORDER BY FlowName, rn DESC";
+
+        void Fill(IEnumerable<RecentCycleRow> rows, Dictionary<string, List<CycleSample>> into)
         {
-            if (!string.IsNullOrEmpty(r.FlowName))
-                result[r.FlowName] = (r.Cnt, r.SumMT, r.SumWT, r.SumCT);
+            into.Clear();
+            foreach (var r in rows)
+            {
+                if (string.IsNullOrEmpty(r.FlowName)) continue;
+                if (!into.TryGetValue(r.FlowName, out var list))
+                    into[r.FlowName] = list = new List<CycleSample>();
+                list.Add(new CycleSample(r.MT, r.WT, r.CT));
+            }
+        }
+
+        // 전체(경계 무관) — 폴백 베이스.
+        Fill(await conn.QueryAsync<RecentCycleRow>(Build("", ""), new { Win = window }), result);
+
+        // 경계매칭 — 행이 있는 flow 만 override(경계변경 의미 보존). 0행 flow 는 위 전체집계 유지.
+        if (byCurrentBoundary)
+        {
+            var boundary = new Dictionary<string, List<CycleSample>>(StringComparer.Ordinal);
+            Fill(await conn.QueryAsync<RecentCycleRow>(Build(boundaryJoin, boundaryWhere), new { Win = window }), boundary);
+            foreach (var kv in boundary)
+                if (kv.Value.Count > 0) result[kv.Key] = kv.Value;
         }
         return result;
     }
 
-    private sealed class NonIdleAggregateRow
+    private sealed class RecentCycleRow
     {
         public string FlowName { get; set; } = string.Empty;
-        public int Cnt { get; set; }
-        public double SumMT { get; set; }
-        public double SumWT { get; set; }
-        public double SumCT { get; set; }
+        public int MT { get; set; }
+        public int WT { get; set; }
+        public int CT { get; set; }
     }
 
     private sealed class CallInfoRow
@@ -1493,7 +1543,8 @@ public class DspRepositoryAdapter : IDspRepository
     /// </para>
     /// InvalidateCachesAsync 끝에서 호출되어, NULL 로 비운 Avg* 를 boundary 박제 컬럼 기반으로 즉시 복원한다.
     /// </summary>
-    public async Task<(int FlowsRecomputed, int HistoryRowsUsed)> RecomputeAveragesFromCurrentBoundaryAsync()
+    /// <param name="averageWindow">Avg 산출 시 집계할 최근 비가동 사이클 수(롤링 윈도우). 0/음수 = 전체 이력.</param>
+    public async Task<(int FlowsRecomputed, int HistoryRowsUsed)> RecomputeAveragesFromCurrentBoundaryAsync(int averageWindow = 0)
     {
         if (!_enabled) return (0, 0);
 
@@ -1517,11 +1568,13 @@ public class DspRepositoryAdapter : IDspRepository
             // 경계조건을 떼고 전체 비가동 평균으로 폴백한다. → stale/오염된 평균(예: 라이브 누산기가 남긴 수십 분
             // 값)이 박제되지 않고, 항상 이상치(IsIdle) 필터만 적용한 평균을 보인다. 매칭 행이 1개라도 있으면 그
             // 부분집합을 그대로 사용해 경계변경 의미(새 경계로 측정된 사이클만 집계)를 보존한다.
+            // averageWindow>0 이면 경계매칭/전체 폴백 각각 "최근 N 사이클"만 평균(롤링 윈도우).
+            int lim = averageWindow > 0 ? averageWindow : -1; // SQLite LIMIT -1 = 무제한(전체 이력)
+            string boundaryPred = $"h.flowName = {_flowTable}.flowName AND COALESCE(h.IsIdle, 0) = 0 AND {boundaryMatch}";
+            string fullPred = $"h.flowName = {_flowTable}.flowName AND COALESCE(h.IsIdle, 0) = 0";
             string AvgFallback(string col) => $@"COALESCE(
-                        (SELECT AVG(h.{col}) FROM {HistoryTable} h
-                          WHERE h.flowName = {_flowTable}.flowName AND COALESCE(h.IsIdle, 0) = 0 AND {boundaryMatch}),
-                        (SELECT AVG(h.{col}) FROM {HistoryTable} h
-                          WHERE h.flowName = {_flowTable}.flowName AND COALESCE(h.IsIdle, 0) = 0))";
+                        {WindowedAvg(col, boundaryPred, lim)},
+                        {WindowedAvg(col, fullPred, lim)})";
             var avgMt = AvgFallback("mt");
             var avgWt = AvgFallback("wt");
             var avgCt = AvgFallback("ct");
@@ -1576,61 +1629,6 @@ public class DspRepositoryAdapter : IDspRepository
             _logger.LogError(ex, "RecomputeAveragesFromCurrentBoundaryAsync 실패");
             throw;
         }
-    }
-
-    /// <summary>
-    /// 현재 boundary 와 일치하는 비가동-제외 history 의 누적합 + 카운트 — in-memory Welford 상태 재시드용.
-    /// <see cref="GetNonIdleAggregatesAsync"/> 의 boundary-aware 버전.
-    /// <para>경계매칭 행이 0인 Flow(현재 boundary 가 history 의 head/tail 과 어긋난 경계 메타 불일치)는 전체
-    /// 비가동 집계로 폴백한다 — <see cref="RecomputeAveragesFromCurrentBoundaryAsync"/> 의 평균 폴백과 동일 기준이라
-    /// in-memory 누산기와 dspFlow.Avg* 가 항상 일치한다(누산기가 stale/오염 값을 잡지 않음).</para>
-    /// </summary>
-    public async Task<Dictionary<string, (int Count, double SumMT, double SumWT, double SumCT)>> GetNonIdleAggregatesByCurrentBoundaryAsync()
-    {
-        var result = new Dictionary<string, (int, double, double, double)>(StringComparer.Ordinal);
-        if (!_enabled) return result;
-
-        await using var conn = await OpenAsync();
-        if (!await TableExistsAsync(conn, HistoryTable)) return result;
-        if (!await TableExistsAsync(conn, _flowTable)) return result;
-
-        await EnsureIsIdleColumnAsync(conn);
-
-        // 1. 전체 비가동 집계(경계 무관) — 폴백 베이스.
-        var fullSql = $@"
-            SELECT flowName             AS FlowName,
-                   COUNT(*)             AS Cnt,
-                   COALESCE(SUM(mt), 0) AS SumMT,
-                   COALESCE(SUM(wt), 0) AS SumWT,
-                   COALESCE(SUM(ct), 0) AS SumCT
-            FROM {HistoryTable}
-            WHERE COALESCE(IsIdle, 0) = 0
-            GROUP BY flowName";
-        foreach (var r in await conn.QueryAsync<NonIdleAggregateRow>(fullSql))
-        {
-            if (!string.IsNullOrEmpty(r.FlowName))
-                result[r.FlowName] = (r.Cnt, r.SumMT, r.SumWT, r.SumCT);
-        }
-
-        // 2. 현재 boundary 매칭 집계 — 행이 있는 Flow 만 override(경계변경 의미 보존). 0행이면 1의 전체집계 유지.
-        var boundarySql = $@"
-            SELECT h.flowName             AS FlowName,
-                   COUNT(*)               AS Cnt,
-                   COALESCE(SUM(h.mt), 0) AS SumMT,
-                   COALESCE(SUM(h.wt), 0) AS SumWT,
-                   COALESCE(SUM(h.ct), 0) AS SumCT
-            FROM {HistoryTable} h
-            INNER JOIN {_flowTable} f ON f.flowName = h.flowName
-            WHERE COALESCE(h.IsIdle, 0) = 0
-              AND (h.headCallName IS NULL OR f.movingStartName = (f.flowName || '.' || h.headCallName))
-              AND (h.tailCallName IS NULL OR f.movingEndName = (f.flowName || '.' || h.tailCallName))
-            GROUP BY h.flowName";
-        foreach (var r in await conn.QueryAsync<NonIdleAggregateRow>(boundarySql))
-        {
-            if (!string.IsNullOrEmpty(r.FlowName) && r.Cnt > 0)
-                result[r.FlowName] = (r.Cnt, r.SumMT, r.SumWT, r.SumCT);
-        }
-        return result;
     }
 
     /// <summary>전체 dspFlow 의 FlowName 집합 — added/removed 계산용.</summary>

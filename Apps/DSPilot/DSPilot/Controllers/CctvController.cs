@@ -50,9 +50,11 @@ public class CctvController : ControllerBase
     public ActionResult<CctvConfigDto> GetConfig()
     {
         var cctv = _settings.LoadSettings().Cctv;
+        // 경로명(slug)을 전체 목록에서 먼저 결정(중복회피·안정) → 필터. SyncAsync 와 동일 규칙이라 WHEP path 일치.
+        CctvMediaMtxService.AssignSlugs(cctv.Cameras);
         var cameras = cctv.Cameras
-            .Where(c => c.Enabled && !string.IsNullOrWhiteSpace(c.Name) && !string.IsNullOrWhiteSpace(c.RtspUrl))
-            .Select(c => new CctvCameraDto(c.Name, CctvMediaMtxService.SanitizeName(c.Name)))
+            .Where(c => c.Enabled && !string.IsNullOrWhiteSpace(c.Slug) && !string.IsNullOrWhiteSpace(c.RtspUrl))
+            .Select(c => new CctvCameraDto(c.Name, c.Slug))
             .ToList();
         return new CctvConfigDto(cctv.WebRtcPort, cameras, cameras.Count, MaxConcurrentCameras);
     }
@@ -81,10 +83,12 @@ public class CctvController : ControllerBase
     public ActionResult<CctvDto> GetSettings()
     {
         var cctv = _settings.LoadSettings().Cctv;
+        // 편집기에 현재 경로명(slug)을 함께 내려보내 왕복(round-trip)시킨다 — 표시명을 바꿔도 경로가 안정 유지된다.
+        CctvMediaMtxService.AssignSlugs(cctv.Cameras);
         return new CctvDto(
             cctv.MediaMtxApiUrl,
             cctv.WebRtcPort,
-            cctv.Cameras.Select(c => new CameraDto(c.Name, c.RtspUrl, c.Enabled)).ToList(),
+            cctv.Cameras.Select(c => new CameraDto(c.Name, c.RtspUrl, c.Enabled, c.Slug)).ToList(),
             _mediaMtx.LastSyncOk,
             _mediaMtx.LastSyncMessage,
             cctv.WebRtcAdditionalHosts);
@@ -107,9 +111,20 @@ public class CctvController : ControllerBase
         if (req.WebRtcPort > 0) m.Cctv.WebRtcPort = req.WebRtcPort;
         // 공인주소: null 이면 미변경, 빈 문자열이면 LAN 전용으로 명시적 해제. (Trim 으로 입력 공백 정리)
         if (req.WebRtcAdditionalHosts is not null) m.Cctv.WebRtcAdditionalHosts = req.WebRtcAdditionalHosts.Trim();
+        // 경로명(slug)은 클라이언트가 보내지 않으므로 기존 저장값을 포지션 기준으로 이어받는다.
+        // 순서 변경 없이 이름만 바꿔도 경로가 안정 유지된다(MediaMTX 재등록·오버레이 흔들림 방지).
+        var prevSlugs = m.Cctv.Cameras.Select(c => c.Slug).ToList();
         m.Cctv.Cameras = (req.Cameras ?? new List<CameraDto>())
-            .Select(c => new CctvCamera { Name = c.Name ?? "", RtspUrl = c.RtspUrl ?? "", Enabled = c.Enabled })
+            .Select((c, i) => new CctvCamera
+            {
+                Name = c.Name ?? "",
+                Slug = i < prevSlugs.Count ? prevSlugs[i] : "",   // 기존 slug 이어받기; 초과분은 신규 → 빈값
+                RtspUrl = c.RtspUrl ?? "",
+                Enabled = c.Enabled
+            })
             .ToList();
+        // 빈 slug(신규 카메라)에만 cam1/cam2/… 부여; 기존 slug 는 그대로.
+        CctvMediaMtxService.AssignSlugs(m.Cctv.Cameras);
 
         _settings.SaveSettings(m);
 
@@ -130,7 +145,7 @@ public class CctvController : ControllerBase
         return new CctvDto(
             m.Cctv.MediaMtxApiUrl,
             m.Cctv.WebRtcPort,
-            m.Cctv.Cameras.Select(c => new CameraDto(c.Name, c.RtspUrl, c.Enabled)).ToList(),
+            m.Cctv.Cameras.Select(c => new CameraDto(c.Name, c.RtspUrl, c.Enabled, c.Slug)).ToList(),
             _mediaMtx.LastSyncOk,
             _mediaMtx.LastSyncMessage,
             m.Cctv.WebRtcAdditionalHosts);

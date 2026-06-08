@@ -26,6 +26,7 @@ public class DashboardController : ControllerBase
     private readonly AppSettingsService _settings;
     private readonly IFlowMetricsService _flowMetrics;
     private readonly IHubContext<MonitoringHub> _hub;
+    private readonly AbnormalEventService _abnormal;
     private readonly ILogger<DashboardController> _logger;
 
     public DashboardController(
@@ -35,6 +36,7 @@ public class DashboardController : ControllerBase
         AppSettingsService settings,
         IFlowMetricsService flowMetrics,
         IHubContext<MonitoringHub> hub,
+        AbnormalEventService abnormal,
         ILogger<DashboardController> logger)
     {
         _db = db;
@@ -43,6 +45,7 @@ public class DashboardController : ControllerBase
         _settings = settings;
         _flowMetrics = flowMetrics;
         _hub = hub;
+        _abnormal = abnormal;
         _logger = logger;
     }
 
@@ -70,6 +73,37 @@ public class DashboardController : ControllerBase
                 .ToList());
 
         return new DashboardSnapshotDto(flows, layoutDto, _db.HasData, snap.Timestamp);
+    }
+
+    /// <summary>
+    /// 최근 경로이탈 이상감지(DS 4종) N건 — 대시보드 라이브 피드 초기 적재용.
+    /// 실시간 갱신은 SignalR "AbnormalDetected" 트리거를 받아 이 엔드포인트를 재조회한다.
+    /// 인메모리 링버퍼(AbnormalEventService) 소스 — 프로세스 재시작 시 비고 새 신호부터 채워짐.
+    /// </summary>
+    [HttpGet("abnormals")]
+    public ActionResult<IReadOnlyList<AbnormalEventDto>> GetAbnormals([FromQuery] int limit = 20)
+        => Ok(_abnormal.GetRecent(limit));
+
+    /// <summary>
+    /// 데모용 이상감지 이벤트 주입 — 브라우저 콘솔에서 demoAlarm() 으로 호출.
+    /// kind: 0=센서단선(Error), 1=센서오감지(Warning), 2=동작지연(Error), 3=동작과속(Warning)
+    /// </summary>
+    [HttpPost("demo-alarm")]
+    public async Task<IActionResult> InjectDemoAlarm(
+        [FromQuery] int kind = 0,
+        [FromQuery] string flowName = "데모-Flow",
+        [FromQuery] string workName = "데모-Work")
+    {
+        await _abnormal.InjectDemoAsync(kind, flowName, workName);
+        return Ok(new { ok = true, kind, flowName, workName });
+    }
+
+    /// <summary>이상감지 피드 전체 초기화 — 데모 리셋용 (demoAlarm.clear()).</summary>
+    [HttpDelete("demo-alarm")]
+    public async Task<IActionResult> ClearDemoAlarms()
+    {
+        await _abnormal.ClearAsync();
+        return Ok(new { ok = true });
     }
 
     /// <summary>

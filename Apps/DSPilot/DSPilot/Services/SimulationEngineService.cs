@@ -34,6 +34,7 @@ public sealed class SimulationEngineService : IDisposable
     private readonly IDatabasePathResolver _pathResolver;
     private readonly PlcTagLogWriterService _logWriter;
     private readonly AppSettingsService _settings;
+    private readonly AbnormalEventService _abnormalEvents;
     private readonly ILogger<SimulationEngineService> _logger;
 
     private ISimulationEngine? _engine;
@@ -81,6 +82,7 @@ public sealed class SimulationEngineService : IDisposable
         IDatabasePathResolver pathResolver,
         PlcTagLogWriterService logWriter,
         AppSettingsService settings,
+        AbnormalEventService abnormalEvents,
         ILogger<SimulationEngineService> logger)
     {
         _projectService = projectService;
@@ -91,6 +93,7 @@ public sealed class SimulationEngineService : IDisposable
         _pathResolver = pathResolver;
         _logWriter = logWriter;
         _settings = settings;
+        _abnormalEvents = abnormalEvents;
         _logger = logger;
     }
 
@@ -134,11 +137,12 @@ public sealed class SimulationEngineService : IDisposable
                 if (runtimeSession.RequiresPassiveInference)
                 {
                     passive = new PassiveInferenceSession(engine.Index, engine.IOMap, RuntimeMode.Monitoring);
-                    // v12 P4 — Monitoring abnormal timing(cycle 학습과 독립). P5 에서 SignalHub 발행으로 sink 교체.
+                    // v12 P5 — Monitoring abnormal(4종) 싱크를 AbnormalEventService 로 교체:
+                    //   링버퍼 적재 + SignalR "AbnormalDetected" 트리거 발행 → 대시보드/사이드바 라이브 표시.
                     monitoringAbnormal = MonitoringAbnormalAdapter.FromDelegates(
                         engine.Index, engine.IOMap,
                         () => DateTime.UtcNow,
-                        rec => _logger.LogWarning("[Abnormal] kind={Kind} elapsedMs={Elapsed}", rec.Kind, rec.ElapsedMs));
+                        rec => _abnormalEvents.Record(rec));
                 }
 
                 _engine = engine;

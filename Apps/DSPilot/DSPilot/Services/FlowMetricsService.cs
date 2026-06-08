@@ -413,15 +413,16 @@ public class FlowMetricsService : IFlowMetricsService
 
             if (!isIdle)
             {
-                // 평균값 계산 (누적 평균) — 비가동 사이클은 평균에서 제외
+                // 평균값 계산 (롤링 윈도우 평균) — 비가동 사이클은 평균에서 제외.
+                // 전(全)기간 누적 대신 "최근 N 사이클"(N = CycleAverageWindow) 만 평균내 현재 거동을 반영한다.
+                // N<=0 이면 trim 하지 않음(세션 누적 = 윈도우 비활성).
                 state.CycleCount++;
-                state.SumMT += mt;
-                state.SumWT += wt;
-                state.SumCT += ct;
+                int window = _appSettingsService.GetCycleAverageWindow();
+                state.Recent.Enqueue(new Adapters.CycleSample(mt, wt, ct));
+                if (window > 0)
+                    while (state.Recent.Count > window) state.Recent.Dequeue();
 
-                double avgMT = state.SumMT / state.CycleCount;
-                double avgWT = state.SumWT / state.CycleCount;
-                double avgCT = state.SumCT / state.CycleCount;
+                var (avgMT, avgWT, avgCT) = AverageOf(state.Recent);
 
                 // FlowName.CallName 형식으로 고유하게 저장
                 var movingStartName = state.HeadCallName != null
@@ -477,6 +478,16 @@ public class FlowMetricsService : IFlowMetricsService
         }
     }
 
+    /// <summary>롤링 윈도우(최근 사이클 큐)의 MT/WT/CT 평균. 빈 큐면 (0,0,0).</summary>
+    private static (double AvgMT, double AvgWT, double AvgCT) AverageOf(IReadOnlyCollection<Adapters.CycleSample> recent)
+    {
+        if (recent.Count == 0) return (0, 0, 0);
+        double sumMT = 0, sumWT = 0, sumCT = 0;
+        foreach (var s in recent) { sumMT += s.MT; sumWT += s.WT; sumCT += s.CT; }
+        int n = recent.Count;
+        return (sumMT / n, sumWT / n, sumCT / n);
+    }
+
     /// <summary>
     /// 현재 설정의 비가동 임계값을 기존 히스토리/평균에 소급 적용.
     /// DB 재평가 후 in-memory 누적 평균 상태도 "비가동 제외" 기준으로 재구성하여,
@@ -490,37 +501,21 @@ public class FlowMetricsService : IFlowMetricsService
         // per-flow 이상치 제외 override(있으면)도 함께 박제 — "글로벌=기본, per-flow=override" 단일 유효범위.
         var perFlow = _appSettingsService.GetPerFlowEffectiveRangesMs();
 
-        var result = await _dspRepository.ReapplyIdleThresholdsAsync(maxCT, minCT, perFlow);
+        var window = settings.HistoryView.CycleAverageWindow;
+        var result = await _dspRepository.ReapplyIdleThresholdsAsync(maxCT, minCT, perFlow, window);
 
-        // in-memory 누적 평균 상태 재구성 → 다음 사이클이 DB 를 잘못된 값으로 덮어쓰지 않게 함
+        // in-memory 롤링 평균 윈도우 재구성(DB 최근 N 비가동 행) → 다음 사이클이 DB 를 stale 값으로 덮어쓰지 않게 함
         try
         {
-            var aggregates = await _dspRepository.GetNonIdleAggregatesAsync();
-            foreach (var kv in _flowCycleStates)
-            {
-                var state = kv.Value;
-                if (aggregates.TryGetValue(kv.Key, out var agg) && agg.Count > 0)
-                {
-                    state.CycleCount = agg.Count;
-                    state.SumMT = agg.SumMT;
-                    state.SumWT = agg.SumWT;
-                    state.SumCT = agg.SumCT;
-                }
-                else
-                {
-                    state.CycleCount = 0;
-                    state.SumMT = 0;
-                    state.SumWT = 0;
-                    state.SumCT = 0;
-                }
-            }
+            var recent = await _dspRepository.GetRecentNonIdleCyclesAsync(window, byCurrentBoundary: false);
+            SeedRecentWindowsInto(recent);
             _logger.LogInformation(
-                "Rebuilt in-memory running averages from non-idle history for {Count} active flow states",
-                _flowCycleStates.Count);
+                "Rebuilt rolling-average windows (last {Window}) from non-idle history for {Count} flow states",
+                window, _flowCycleStates.Count);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to rebuild in-memory running averages after reapplying idle thresholds");
+            _logger.LogWarning(ex, "Failed to rebuild rolling-average windows after reapplying idle thresholds");
         }
 
         return result;
@@ -530,32 +525,35 @@ public class FlowMetricsService : IFlowMetricsService
     {
         try
         {
-            var aggregates = await _dspRepository.GetNonIdleAggregatesByCurrentBoundaryAsync();
-            foreach (var kv in _flowCycleStates)
-            {
-                var state = kv.Value;
-                if (aggregates.TryGetValue(kv.Key, out var agg) && agg.Count > 0)
-                {
-                    state.CycleCount = agg.Count;
-                    state.SumMT = agg.SumMT;
-                    state.SumWT = agg.SumWT;
-                    state.SumCT = agg.SumCT;
-                }
-                else
-                {
-                    state.CycleCount = 0;
-                    state.SumMT = 0;
-                    state.SumWT = 0;
-                    state.SumCT = 0;
-                }
-            }
+            var window = _appSettingsService.GetCycleAverageWindow();
+            var recent = await _dspRepository.GetRecentNonIdleCyclesAsync(window, byCurrentBoundary: true);
+            SeedRecentWindowsInto(recent);
             _logger.LogInformation(
-                "Reseeded in-memory Welford accumulators from current-boundary history for {Count} flow states",
-                _flowCycleStates.Count);
+                "Reseeded rolling-average windows (last {Window}) from current-boundary history for {Count} flow states",
+                window, _flowCycleStates.Count);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "ReseedCycleStatesFromCurrentBoundaryAsync 실패");
+        }
+    }
+
+    /// <summary>DB 에서 읽은 flow 별 최근 사이클(오래된→최신)로 각 상태의 롤링 평균 큐를 교체. CycleCount=윈도우 크기.</summary>
+    private void SeedRecentWindowsInto(IReadOnlyDictionary<string, List<Adapters.CycleSample>> recent)
+    {
+        foreach (var kv in _flowCycleStates)
+        {
+            var state = kv.Value;
+            state.Recent.Clear();
+            if (recent.TryGetValue(kv.Key, out var list) && list.Count > 0)
+            {
+                foreach (var s in list) state.Recent.Enqueue(s);
+                state.CycleCount = list.Count;
+            }
+            else
+            {
+                state.CycleCount = 0;
+            }
         }
     }
 
@@ -638,8 +636,11 @@ public class FlowCycleState
     public int? CurrentCT { get; set; }
 
     // 평균 계산용 필드
+    // CycleCount = 비가동-제외 사이클의 누적 카운트(주로 history CycleNo 표시·로그용).
     public int CycleCount { get; set; } = 0;
-    public double SumMT { get; set; } = 0;
-    public double SumWT { get; set; } = 0;
-    public double SumCT { get; set; } = 0;
+
+    // 롤링 평균 윈도우 — 최근 비가동-제외 사이클(오래된→최신). 라이브 완료 때 enqueue 후 윈도우(N)로 trim 하고
+    // 큐 평균을 dspFlow.Avg* 에 쓴다. 전(全)기간 누적합 대신 "최근 N 사이클"만 보여 요약 대시보드가 현재 거동 반영.
+    // (윈도우 N = HistoryView.CycleAverageWindow, 0/음수면 trim 안 함 = 세션 누적). reseed 가 DB 최근행으로 채운다.
+    public Queue<Adapters.CycleSample> Recent { get; } = new();
 }
