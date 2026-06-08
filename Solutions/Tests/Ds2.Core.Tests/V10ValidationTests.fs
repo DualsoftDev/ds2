@@ -100,6 +100,27 @@ let ``V4 — Virtual ApiDef with Work.Duration is OK`` () =
     let ad = makeApiDef "ADV" systemId (ActionType.Virtual None) (SensingType.Virtual None)
     Assert.Empty(validateApiDefV4 ad (Some 1000) None)
 
+// V7 — Latched + TimePolicy(Append) 는 spec 정의 외 → reject (raw/import 방어).
+[<Fact>]
+let ``V7 — Latched + Append ActionType emits Error`` () =
+    let systemId = Guid.NewGuid()
+    let ad = makeApiDef "ADV" systemId (ActionType.Real (Latched, Some (Append 100))) (SensingType.Real (Level, None))
+    let issues = validateApiDefV7 ad
+    Assert.NotEmpty(issues)
+    Assert.Equal("V7", issues.Head.Rule)
+
+[<Fact>]
+let ``V7 — Latched + Append SensingType emits Error`` () =
+    let systemId = Guid.NewGuid()
+    let ad = makeApiDef "ADV" systemId (ActionType.Real (Level, None)) (SensingType.Real (Latched, Some (Append 50)))
+    Assert.NotEmpty(validateApiDefV7 ad)
+
+[<Fact>]
+let ``V7 — Latched without TimePolicy is OK`` () =
+    let systemId = Guid.NewGuid()
+    let ad = makeApiDef "ADV" systemId (ActionType.Real (Latched, None)) (SensingType.Real (Latched, None))
+    Assert.Empty(validateApiDefV7 ad)
+
 [<Fact>]
 let ``V4 — Real ApiDef without Work.Duration is OK`` () =
     let systemId = Guid.NewGuid()

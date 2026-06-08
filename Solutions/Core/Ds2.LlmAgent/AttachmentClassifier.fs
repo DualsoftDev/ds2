@@ -12,6 +12,8 @@ type Classification =
     | AcceptText
     /// PDF 첨부 가능 (provider capability 별도 검증 필요 — 정책 11).
     | AcceptPdf
+    /// XLSX 첨부 가능. Promaker UI 가 Excel COM 으로 PDF 변환 후 기존 PDF 첨부 경로에 태운다.
+    | AcceptXlsx
     /// 명시적으로 거부한 확장자 (e.g. .exe / .svg / .mp4 / .zip / .bmp). 거부 사유 안내용.
     /// `ext` 는 항상 소문자 + leading dot 포함 (`extOf` 의 `ToLowerInvariant` 결과).
     | RejectExtension of ext: string
@@ -102,6 +104,7 @@ module AttachmentClassifier =
             | Some fmt -> AcceptImage fmt
             | None ->
                 if ext = ".pdf" then AcceptPdf
+                elif ext = ".xlsx" then AcceptXlsx
                 elif Set.contains ext textExtensions then AcceptText
                 elif Set.contains ext rejectedExtensions then RejectExtension ext
                 elif String.IsNullOrEmpty ext then

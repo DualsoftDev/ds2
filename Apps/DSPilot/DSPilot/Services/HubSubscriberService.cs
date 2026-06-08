@@ -71,6 +71,9 @@ public sealed class HubSubscriberService : BackgroundService
     /// </summary>
     public event Action<HubConnectionState>? StatusChanged;
 
+    /// <summary>v12 abnormal(SensorOpen/Short/ActionOver/Under) 수신 시 발화. UI 알림/패널이 구독.</summary>
+    public event Action<AbnormalPayload>? AbnormalReceived;
+
     private void RaiseStatusChanged()
     {
         try { StatusChanged?.Invoke(CurrentStatus); }
@@ -135,7 +138,7 @@ public sealed class HubSubscriberService : BackgroundService
         // 이후엔 PlcGateway 의 connect/reconnect 전이마다 broadcast.
         _connection.On<PlcConnectionStatus>(HubMethod.OnPlcConnectionStatus, _plcStatusTracker.Apply);
         // Agent ControlAbnormalAdapter 감지 결과 — MonitoringAbnormalAdapter 로컬 감지 대체.
-        _connection.On<AbnormalPayload>(HubMethod.OnAbnormal, p => _engineService.HandleHubAbnormal(p));
+        _connection.On<AbnormalPayload>(HubMethod.OnAbnormal, OnHubAbnormal);
 
         _connection.Reconnecting += ex =>
         {
@@ -285,6 +288,17 @@ public sealed class HubSubscriberService : BackgroundService
             if (result == EnqueueResult.Ignored)
                 _logger.LogTrace("[Hub] Ignored {Address}={Value} from={Source}", it.Address, it.Value, it.Source);
         }
+    }
+
+    /// <summary>abnormal 이벤트 수신 — AbnormalEventService 적재 + AbnormalReceived 발화(UI 구독).</summary>
+    private void OnHubAbnormal(AbnormalPayload payload)
+    {
+        _logger.LogWarning(
+            "[Hub] Abnormal {Kind}({KindValue}) call={CallId} api={ApiCallId} elapsed={Elapsed} observed={Observed} mode={Mode}",
+            payload.Kind, payload.KindValue, payload.CallId, payload.ApiCallId, payload.ElapsedMs, payload.Observed, payload.Mode);
+        _engineService.HandleHubAbnormal(payload);
+        try { AbnormalReceived?.Invoke(payload); }
+        catch (Exception ex) { _logger.LogDebug(ex, "[Hub] AbnormalReceived subscriber threw"); }
     }
 
     /// <summary>Channel write 실패 시 호출 (HubSignalProcessor 의 onDrop 콜백).
