@@ -113,8 +113,27 @@ public partial class DurationBatchDialog : Window
             return;
         }
 
+        var dur = WorkBatchValueBox.Text;
+        var min = WorkBatchMinBox.Text;
+        var max = WorkBatchMaxBox.Text;
+
+        // 비어있지 않은 칸만 일괄 적용 — 빈 칸은 해당 필드 미변경 (개별 편집/기존 값 보존)
+        var hasDur = !string.IsNullOrWhiteSpace(dur);
+        var hasMin = !string.IsNullOrWhiteSpace(min);
+        var hasMax = !string.IsNullOrWhiteSpace(max);
+
+        if (!hasDur && !hasMin && !hasMax)
+        {
+            DialogHelpers.Info(this, "적용할 값(duration / min / max)을 하나 이상 입력하세요.", "Duration 일괄 편집");
+            return;
+        }
+
         foreach (var row in selected)
-            row.Duration = WorkBatchValueBox.Text;
+        {
+            if (hasDur) row.Duration = dur;
+            if (hasMin) row.MinDuration = min;
+            if (hasMax) row.MaxDuration = max;
+        }
     }
 
     private void CheckSelected_Click(object sender, RoutedEventArgs e) =>
