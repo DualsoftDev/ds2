@@ -25,6 +25,11 @@ let ``PDF accept`` () =
     Assert.Equal(AcceptPdf, AttachmentClassifier.classify "REPORT.PDF")
 
 [<Fact>]
+let ``XLSX accept — Excel COM PDF 변환 경로`` () =
+    Assert.Equal(AcceptXlsx, AttachmentClassifier.classify "io-list.xlsx")
+    Assert.Equal(AcceptXlsx, AttachmentClassifier.classify "REPORT.XLSX")
+
+[<Fact>]
 let ``텍스트 / 코드 화이트리스트 sample`` () =
     Assert.Equal(AcceptText, AttachmentClassifier.classify "x.txt")
     Assert.Equal(AcceptText, AttachmentClassifier.classify "x.md")
