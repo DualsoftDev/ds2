@@ -37,6 +37,7 @@ public partial class CanvasWorkspaceState : ObservableObject
     public Action<Guid>? CenterOnNodeRequested { get; set; }
     public Action? FitToViewZoomOutRequested { get; set; }
     public Action<double>? ApplyZoomCenteredRequested { get; set; }
+    public Action<double>? ApplyZoomTopLeftRequested { get; set; }
     public Func<Point?>? GetViewportCenterRequested { get; set; }
     public Func<(double Zoom, double PanX, double PanY)>? GetCurrentViewRequested { get; set; }
     public Action<double, double, double>? RestoreViewRequested { get; set; }

@@ -144,6 +144,7 @@ public partial class SplitCanvasContainer : UserControl
         pane.CenterOnNodeRequested = workspace.CenterOnNode;
         pane.FitToViewZoomOutRequested = workspace.FitToViewZoomOut;
         pane.ApplyZoomCenteredRequested = workspace.ApplyZoomCentered;
+        pane.ApplyZoomTopLeftRequested = workspace.ApplyZoomTopLeft;
         pane.GetViewportCenterRequested = workspace.GetViewportCenter;
         pane.GetCurrentViewRequested = workspace.GetCurrentView;
         pane.RestoreViewRequested = workspace.RestoreView;
@@ -156,6 +157,7 @@ public partial class SplitCanvasContainer : UserControl
         pane.CenterOnNodeRequested = null;
         pane.FitToViewZoomOutRequested = null;
         pane.ApplyZoomCenteredRequested = null;
+        pane.ApplyZoomTopLeftRequested = null;
         pane.GetViewportCenterRequested = null;
         pane.GetCurrentViewRequested = null;
         pane.RestoreViewRequested = null;
