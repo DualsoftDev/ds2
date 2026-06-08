@@ -35,8 +35,8 @@ Promaker 의 LLM Chat 패널에 **사용자 파일 첨부** 기능 추가. 입�
 | 7 | provider capability | record `Capabilities = { ImageFormats: Set<ImageFormat>; SupportsPdfNative: bool; MaxImageBytes: int64 option; MaxPdfBytes: int64 option; MaxPdfPages: int option; MaxAttachmentCount: int option }`. rev 15: `MaxPdfPages` field 추가 (Phase 3b — 정책 11). **CLI provider 의 이미지/PDF 지원 여부 + 포맷 set 은 spike S-1/S-2 결과로 확정**. Ollama 는 instance property 로 `EnsureCli` 시점 `/api/show` 조회 → 모델별 동적 capability (현재 정적 placeholder TextOnly, 별도 phase) |
 | 8 | 미지원 format drop | **즉시 거부 + chip 영역 상단 1줄 안내** (chip 생성 X) |
 | 9 | provider 전환 시 미지원 첨부 | **chip 영역 상단 1줄 안내 + 강제 제거**. paste image (disk 미존재) 손실 우려는 disabled 상태로 잠시 유지 후 다음 액션 시 제거 — UX detail 은 구현 시점 |
-| 10 | Office (docx/xlsx/pptx) | **별도 todo 항목** (Phase 외 deferred — C-1) |
-| 11 | PDF fallback (provider 별) | Anthropic API = **O 네이티브**. Claude CLI = spike S-1 결과 의존. Codex CLI = X. **OpenAI API = △ 미검증** (외부 검증 시 platform.openai.com 인증 차단으로 직접 확인 실패 — Phase 3b spike S-4 로 확정). Ollama = X. 미지원 provider 는 정책 8 에 따라 단순 거부. 자동 텍스트 추출 fallback 은 deferred (C-2) |
+| 10 | Office (docx/xlsx/pptx) | docx/pptx 및 Office 텍스트 추출은 **별도 todo 항목** (Phase 외 deferred — C-1). xlsx drag-drop 은 C-1a 에서 Excel COM PDF 변환 경로로 완료 |
+| 11 | PDF fallback (provider 별) | Anthropic API / OpenAI API / Claude CLI = **O 네이티브**. Codex CLI / Ollama = native wire X, UI 첨부 경로는 C-2 fallback D 완료 — PdfPig 텍스트 추출 후 `TextFile` chip 변환 + 1MB 텍스트 cap. 스캔 PDF / 이미지-only PDF 는 별도 OCR 없음 |
 | 12 | msg 시그니처 확장 | `LlmUserMessage = { Text: string; Attachments: Attachment[] }` 레코드. **컬렉션은 `Attachment[]` (불변 array)** — C# producer (LlmChatViewModel 등) 가 FSharpList 변환 부담 없도록. F# 측은 `List.toArray` / `Seq.toArray` 로 수용. helper `LlmUserMessage.OfText(text)` factory 제공 |
 | 13 | **CLI provider 첨부 채널** | **spike S-1/S-2 완료 (rev 4 / 2026-05-09)**. Claude CLI 2.1.136 = `--input-format stream-json` + JSON Lines stdin 으로 Anthropic API 와 동일한 multipart content block (image/document) wire (이미지/PDF 모두). Codex CLI 0.128.0 = `-i, --image <FILE>...` path 기반 (PDF 미지원). **DU 단일 `Image of name * bytes * mime` 유지** (`ImagePath` case 미추가) — Codex 어댑터가 bytes → 임시 파일 spool (`%TEMP%\Promaker.LlmAgent\<turn-id>\<n>.<ext>`) 후 path 전달 책임 보유. 임시 파일 lifetime = turn 종료 시 cleanup |
 | 14 | **Window drag-drop bubbling 회피** | `MainWindow.xaml.cs:188-218` 의 `Window_DragOver` / `Window_Drop` 가 length=1 단일 파일을 프로젝트 import 로 처리 중. LLM Chat panel 의 drop handler 는 **반드시 `e.Handled = true`** 처리 + 가능하면 `PreviewDragOver` / `PreviewDrop` 단계에서 흡수해 부모 bubble 자체 차단 |
@@ -94,7 +94,7 @@ clipboard CF 우선순위: CF_PNG > CF_DIB > CF_BITMAP. animated GIF 는 첫 fra
 ### 3.4 provider 전환 시 첨부 처리
 
 - 이미지 첨부 + Ollama (vision 미지원 모델) 전환 → 이미지 강제 제거
-- PDF 첨부 + non-Anthropic 전환 → PDF 강제 제거
+- PDF 첨부 + PDF native 미지원 provider 전환 → 이미 붙은 native PDF chip 은 강제 제거. PDF native 미지원 provider 상태에서 새로 추가한 PDF/XLSX 는 C-2 fallback 으로 TextFile chip 생성
 - 제거 안내는 **chip 영역 상단 1줄** (toast 와 이중 표기 통일 단일화)
 
 ### 3.5 확장자 없는 파일 처리 (Dockerfile / Makefile / .editorconfig 등)
@@ -185,12 +185,13 @@ clipboard CF 우선순위: CF_PNG > CF_DIB > CF_BITMAP. animated GIF 는 첫 fra
 - [x] OpenAI capability 갱신 — V-1 RESOLVED 결과로 `CapabilityPresets.OpenAiApiWire` = `ImagesAndPdf(20MB, 32MB, 100p)`. SDK 가 자체 wire (Microsoft.Extensions.AI.OpenAI 10.5.2 의 `application/pdf` → `CreateFilePart`). **raw HttpClient 우회 어댑터 = 불필요**
 - [x] Anthropic API 어댑터 — Phase 3a commit-6b 에서 이미 wire 완료 (`DataContent("application/pdf", bytes)` → `DocumentBlockParam` 자동, S-4 검증). capability `AnthropicWire` = `ImagesAndPdf(5MB, 32MB, 100p)` 로 페이지 cap 추가
 - [x] Claude CLI 어댑터 — Phase 3a commit-6b 에서 이미 wire 완료 (`ClaudeStreamJsonInput.encode` 의 document content block)
-- [x] PDF 미지원 provider (Codex/Ollama) — `EnforceCapabilityOrFail` strict 차단 + sync 단계 `!caps.SupportsPdfNative` notice. Phase 3a commit-6b 에서 이미 적용
+- [x] PDF 미지원 provider (Codex/Ollama) — rev 17 C-2 fallback D 적용. UI 첨부 경로는 PdfPig 텍스트 추출 후 `TextFile` chip 으로 변환하고, 송신 직전 strict 검증은 native PDF case 에만 적용
 - [x] 토큰 추정 = 페이지수 × 1,500~3,000 범위 (정책 5) — `TokenEstimator.pdfTokensRange` high 값을 chip token 추정에 사용 (`LoadAcceptedAttachments` PDF 분기)
 
 ### Phase 3 외 deferred TODO
 
 - [ ] **C-1**: Office 문서 (docx/xlsx/pptx) 텍스트 추출 첨부 (OpenXml SDK 의존성 추가 검토)
+- [x] **C-1a**: XLSX drag-drop 직접 첨부 — `AttachmentClassifier.AcceptXlsx` → Promaker UI `ExcelComPdfConverter` 가 Microsoft Excel COM 으로 임시 PDF 변환 → 기존 PDF 첨부 경로 재사용. Debug build 는 변환 PDF 를 `%TEMP%\Promaker.LlmAgent\xlsx-pdf-debug\` 에 유지, Release build 는 임시 PDF 삭제. 변환은 전용 STA thread + 180초 timeout 으로 제한하며, 변환된 PDF 는 bytes 로드 전 size cap 을 재검증한다. PDF 미지원 provider 에서는 PdfPig 텍스트 fallback 만 사용하므로 xlsx 내 이미지/차트/시각 레이아웃은 보존되지 않는다. docx/pptx 및 Office 텍스트 추출은 C-1 로 계속 보류.
 - [x] **C-2** (2026-05-09 closed, rev 17): PDF 미지원 provider 의 fallback 정책 — **fallback D 채택** (자동 텍스트 추출 + 1MB 가드). `LlmChatViewModel.Attachments.cs` 의 `ClassifyPathSync` PDF 분기에서 `!SupportsPdfNative` 거부 분기 제거 + `LoadAcceptedAttachments` 의 PDF 분기에 `caps.SupportsPdfNative` 분기 추가 (native = 기존 path / 미지원 = `ExtractPdfText(doc)` → TextFile chip + bgNotice). 1MB cap (`MaxTextBytes`) 로 토큰 폭증 차단. PdfPig `doc.GetPages().page.Text` concat. 스캔 PDF (vector text 부재) UX 안내는 별도 phase
 
 ## 5. 진입 순서 (commit 단위)
@@ -207,6 +208,7 @@ clipboard CF 우선순위: CF_PNG > CF_DIB > CF_BITMAP. animated GIF 는 첫 fra
 본 phase 의 핵심 흐름은 모두 완료. 다음 후보는 deferred / 별도 phase:
 
 - **deferred C-1**: Office 문서 (docx/xlsx/pptx) 텍스트 추출 첨부 — OpenXml SDK 의존성 검토
+- ~~**C-1a**: XLSX drag-drop 직접 첨부~~ — ✅ Excel COM PDF 변환 후 기존 PDF 첨부 경로 재사용. Debug build 는 변환 PDF 유지. PDF 미지원 provider 는 텍스트 fallback 이라 이미지/차트는 보존되지 않음.
 - ~~**deferred C-2**: PDF 미지원 provider (Codex) 의 fallback 정책~~ — ✅ rev 17 완료 (fallback D = 자동 텍스트 추출 + 1MB 가드)
 - **모델별 PDF 페이지 cap 분기**: 200K context = 100p / 그 외 = 600p — 현재 100p 단일 적용 (Anthropic / OpenAI 모두). 모델 분류 SSOT 결정 후 진입
 - ~~**m3 (commit-4 자가 검열 보류)**: `Image of name * bytes * mime` → `Image of name * bytes * format: ImageFormat` 일원화~~ — ✅ rev 18 완료 (`Attachment.mimeOf` SSOT + `tryGetImageFormat` + 7 파일 / +86/-66 line, dotnet test 227건 전수 통과)

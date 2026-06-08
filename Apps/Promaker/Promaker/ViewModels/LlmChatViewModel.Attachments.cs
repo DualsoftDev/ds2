@@ -10,6 +10,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.LightHouse;  // ImageFormat — done-lighthouse-kb-index.md §4.2a 이전
 using Ds2.LlmAgent;
+using Promaker.Services;
 
 namespace Promaker.ViewModels;
 
@@ -42,6 +43,9 @@ public partial class LlmChatViewModel
     /// None 일 때 적용. 32MB = Anthropic native 한도와 동일. 큰 파일 로드 + PdfPig 파싱 비용 차단용 sync 가드.
     /// 추출된 텍스트의 1MB 가드 (deferred C-2 fallback D) 는 background <see cref="LoadAcceptedAttachments"/> 단계에서 별도 적용.</summary>
     private const long DefaultPdfSizeCap = 32L * 1024L * 1024L;
+
+    /// <summary>XLSX 원본 파일 cap. 변환 후 PDF cap 은 기존 PDF 경로가 다시 검증한다.</summary>
+    private const long DefaultXlsxSizeCap = 32L * 1024L * 1024L;
 
     /// <summary>chip 영역 상단 1줄 안내 (거부 / cap / provider 전환 등 단일화 — 정책 8/9/MI-5).</summary>
     [ObservableProperty]
@@ -76,6 +80,7 @@ public partial class LlmChatViewModel
         if (paths == null || paths.Count == 0) return;
 
         var caps = _provider?.Capabilities ?? Capabilities.TextOnly;
+        var switchCounterAtStart = _switchCounter;
         var notices = new List<string>();
         var accepted = new List<(string Path, Classification Cls, long Size)>();
         var remainingSlots = Math.Max(0, MaxAttachmentCount - Attachments.Count);
@@ -98,6 +103,15 @@ public partial class LlmChatViewModel
         if (accepted.Count == 0) return;
 
         var (loaded, loadNotices) = await Task.Run(() => LoadAcceptedAttachments(accepted, caps)).ConfigureAwait(true);
+        if (switchCounterAtStart != _switchCounter)
+        {
+            var providerChangedNotice = "provider 변경 — 첨부를 다시 추가해 주세요";
+            var merged = string.IsNullOrEmpty(AttachmentNotice)
+                ? providerChangedNotice
+                : AttachmentNotice + " / " + providerChangedNotice;
+            AttachmentNotice = merged;
+            return;
+        }
 
         // race 재검증 (review F2): fire-and-forget AddPathsAsync 가 겹치면 sync 단계의 remainingSlots 가 stale 상태에서
         // 양쪽 다 통과 → cap 초과 가능. dispatcher thread (single-threaded) 에서 add 직전 재검증.
@@ -134,6 +148,7 @@ public partial class LlmChatViewModel
         if (bytes == null || bytes.Length == 0) return;
 
         var caps = _provider?.Capabilities ?? Capabilities.TextOnly;
+        var switchCounterAtStart = _switchCounter;
         if (caps.ImageFormats.IsEmpty)
         {
             AttachmentNotice = $"{suggestedName}: 현재 provider 가 이미지 미지원";
@@ -162,6 +177,11 @@ public partial class LlmChatViewModel
             var att = Attachment.NewImage(suggestedName, bytes, format);
             return new AttachmentChipVm(suggestedName, bytes.Length, tok.Item1, att);
         }).ConfigureAwait(true);
+        if (switchCounterAtStart != _switchCounter)
+        {
+            AttachmentNotice = $"{suggestedName}: provider 변경 — 첨부를 다시 추가해 주세요";
+            return;
+        }
 
         // race 재검증 (review F2): paste / drop 동시 발생 시 cap 초과 방어.
         if (Attachments.Count >= MaxAttachmentCount)
@@ -247,8 +267,8 @@ public partial class LlmChatViewModel
 
     /// <summary>
     /// 단일 path 에 대한 sync 검증 — 확장자 / capability / size cap. 통과 시 <paramref name="accepted"/> 에 push,
-    /// 거부 시 <paramref name="notices"/> 에 한 줄 추가. PDF 는 capability 통과해도 commit-4 단계 (Phase 3b 미구현)
-    /// 라 거부.
+    /// 거부 시 <paramref name="notices"/> 에 한 줄 추가. PDF 와 XLSX 는 background 단계에서 각각 PdfPig 검증과
+    /// Excel COM PDF 변환 후 기존 PDF 첨부 경로를 탄다.
     /// </summary>
     private static void ClassifyPathSync(
         string path,
@@ -318,6 +338,17 @@ public partial class LlmChatViewModel
             return;
         }
 
+        if (cls.IsAcceptXlsx)
+        {
+            if (size > DefaultXlsxSizeCap)
+            {
+                notices.Add($"{name}: XLSX 크기 cap {DefaultXlsxSizeCap / 1024 / 1024}MB 초과");
+                return;
+            }
+            accepted.Add((path, cls, size));
+            return;
+        }
+
         if (cls.IsRejectExtension)
         {
             // F# DU named field C# interop 회피 — 확장자 재추출이 단순.
@@ -367,48 +398,29 @@ public partial class LlmChatViewModel
                 }
                 else if (cls.IsAcceptPdf)
                 {
-                    var bytes = File.ReadAllBytes(path);
-                    UglyToad.PdfPig.PdfDocument doc;
-                    try { doc = UglyToad.PdfPig.PdfDocument.Open(bytes); }
+                    AddPdfAttachmentChip(path, name, caps, chips, bgNotices);
+                }
+                else if (cls.IsAcceptXlsx)
+                {
+                    ExcelComPdfConversion? conversion = null;
+                    try
+                    {
+                        conversion = ExcelComPdfConverter.Convert(path);
+                        var pdfName = Path.GetFileNameWithoutExtension(name) + ".pdf";
+                        if (AddPdfAttachmentChip(conversion.PdfPath, pdfName, caps, chips, bgNotices))
+                            bgNotices.Add(conversion.KeepForDebug
+                                ? $"{name}: XLSX → PDF 변환됨 (DEBUG PDF 유지)"
+                                : $"{name}: XLSX → PDF 변환됨");
+                    }
                     catch (Exception ex)
                     {
-                        Log.Warn($"PDF 파싱 실패: {path}", ex);
-                        bgNotices.Add($"{name}: PDF 파싱 실패 ({ex.GetType().Name})");
-                        continue;
+                        Log.Warn($"XLSX PDF 변환 실패: {path}", ex);
+                        bgNotices.Add($"{name}: XLSX PDF 변환 실패 ({ex.Message})");
                     }
-                    using (doc)
+                    finally
                     {
-                        var pages = doc.NumberOfPages;
-                        if (caps.SupportsPdfNative)
-                        {
-                            // native wire: PDF bytes 그대로 chip 에 보유 → 송신 시 multipart content block.
-                            if (caps.MaxPdfPages != null && pages > caps.MaxPdfPages.Value)
-                            {
-                                bgNotices.Add($"{name}: PDF 페이지 cap {caps.MaxPdfPages.Value}p 초과 ({pages}p)");
-                                continue;
-                            }
-                            var (_, tokHigh) = TokenEstimator.pdfTokensRange(pages);
-                            var att = Attachment.NewPdf(name, bytes);
-                            chips.Add(new AttachmentChipVm(name, size, tokHigh, att));
-                        }
-                        else
-                        {
-                            // deferred C-2 fallback D (rev 17): native 미지원 provider (Codex/Ollama) — PdfPig 로 텍스트
-                            // 추출 후 TextFile chip 으로 변환. 1MB 가드 (MaxTextBytes) 로 토큰 폭증 차단.
-                            // chip FileName 은 원본 PDF 이름 유지 → 사용자 인지 + bgNotice 1줄 안내로 변환 사실 노출.
-                            var text = ExtractPdfText(doc);
-                            var byteLen = Encoding.UTF8.GetByteCount(text);
-                            if (byteLen > MaxTextBytes)
-                            {
-                                bgNotices.Add($"{name}: PDF 추출 텍스트 {byteLen / 1024 / 1024}MB 가 {MaxTextBytes / 1024 / 1024}MB 초과 — 거부");
-                                continue;
-                            }
-                            var ratio = TokenEstimator.estimateKoreanRatio(text);
-                            var tok = TokenEstimator.textTokens(byteLen, ratio);
-                            var att = Attachment.NewTextFile(name, text);
-                            chips.Add(new AttachmentChipVm(name, size, tok, att));
-                            bgNotices.Add($"{name}: PDF 미지원 → 텍스트 {pages}페이지 추출됨");
-                        }
+                        if (conversion is not null)
+                            ExcelComPdfConverter.DeleteIfTemporary(conversion);
                     }
                 }
             }
@@ -421,6 +433,75 @@ public partial class LlmChatViewModel
             }
         }
         return (chips, bgNotices);
+    }
+
+    private static bool AddPdfAttachmentChip(
+        string pdfPath,
+        string displayName,
+        Capabilities caps,
+        List<AttachmentChipVm> chips,
+        List<string> bgNotices)
+    {
+        var pdfSizeCap = caps.SupportsPdfNative
+            ? (caps.MaxPdfBytes != null ? caps.MaxPdfBytes.Value : DefaultPdfSizeCap)
+            : DefaultPdfSizeCap;
+        var pdfInfo = new FileInfo(pdfPath);
+        if (!pdfInfo.Exists)
+        {
+            bgNotices.Add($"{displayName}: PDF 파일 없음");
+            return false;
+        }
+        if (pdfInfo.Length > pdfSizeCap)
+        {
+            bgNotices.Add($"{displayName}: PDF 크기 cap {pdfSizeCap / 1024 / 1024}MB 초과");
+            return false;
+        }
+
+        var bytes = File.ReadAllBytes(pdfPath);
+        UglyToad.PdfPig.PdfDocument doc;
+        try { doc = UglyToad.PdfPig.PdfDocument.Open(bytes); }
+        catch (Exception ex)
+        {
+            Log.Warn($"PDF 파싱 실패: {pdfPath}", ex);
+            bgNotices.Add($"{displayName}: PDF 파싱 실패 ({ex.GetType().Name})");
+            return false;
+        }
+
+        using (doc)
+        {
+            var pages = doc.NumberOfPages;
+            if (caps.SupportsPdfNative)
+            {
+                // native wire: PDF bytes 그대로 chip 에 보유 → 송신 시 multipart content block.
+                if (caps.MaxPdfPages != null && pages > caps.MaxPdfPages.Value)
+                {
+                    bgNotices.Add($"{displayName}: PDF 페이지 cap {caps.MaxPdfPages.Value}p 초과 ({pages}p)");
+                    return false;
+                }
+                var (_, tokHigh) = TokenEstimator.pdfTokensRange(pages);
+                var att = Attachment.NewPdf(displayName, bytes);
+                chips.Add(new AttachmentChipVm(displayName, bytes.LongLength, tokHigh, att));
+                return true;
+            }
+
+            // deferred C-2 fallback D (rev 17): native 미지원 provider (Codex/Ollama) — PdfPig 로 텍스트
+            // 추출 후 TextFile chip 으로 변환. PDF 내 이미지/차트는 보존되지 않는다.
+            // 1MB 가드 (MaxTextBytes) 로 토큰 폭증 차단.
+            // chip FileName 은 PDF 이름 유지 → 사용자 인지 + bgNotice 1줄 안내로 변환 사실 노출.
+            var text = ExtractPdfText(doc);
+            var byteLen = Encoding.UTF8.GetByteCount(text);
+            if (byteLen > MaxTextBytes)
+            {
+                bgNotices.Add($"{displayName}: PDF 추출 텍스트 {byteLen / 1024 / 1024}MB 가 {MaxTextBytes / 1024 / 1024}MB 초과 — 거부");
+                return false;
+            }
+            var ratio = TokenEstimator.estimateKoreanRatio(text);
+            var tok = TokenEstimator.textTokens(byteLen, ratio);
+            var textAtt = Attachment.NewTextFile(displayName, text);
+            chips.Add(new AttachmentChipVm(displayName, bytes.LongLength, tok, textAtt));
+            bgNotices.Add($"{displayName}: PDF 미지원 → 텍스트 {pages}페이지 추출됨");
+            return true;
+        }
     }
 
     /// <summary>

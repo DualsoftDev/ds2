@@ -2,6 +2,14 @@
 
 > `todo-llm-chat-attachment.md` 의 phase 별 산출물 누적. 본 문서는 *그 시점의 사실* 을 보존 — path / 식별자 갱신 안 함 (`git log --follow` 로 추적).
 
+## C-1a — XLSX drag-drop 직접 첨부 (Excel COM PDF 변환)
+
+- `AttachmentClassifier.fs` 에 `AcceptXlsx` 분류 추가. `.xlsx` 는 더 이상 `RejectUnknown` 이 아니며, UI Drop/Paste handler 는 기존처럼 `AttachmentClassifier.classify(path)` 한 함수만 호출.
+- `Promaker/Services/ExcelComPdfConverter.cs` 신설. Microsoft Excel COM 을 STA thread 에서 실행하여 xlsx 를 PDF 로 변환한다. Excel 미설치 / COM 등록 없음 / 파일 없음 / 변환 결과 없음 / 변환 timeout 은 실패로 보고 UI notice 에 노출한다.
+- `LlmChatViewModel.Attachments.cs` 는 xlsx 변환 PDF 를 기존 PDF 첨부 경로에 태운다. 즉 provider 가 PDF native 지원 시 `Attachment.NewPdf`, PDF 미지원 provider 는 기존 C-2 fallback 대로 PdfPig 텍스트 추출 후 `TextFile` chip 으로 변환한다. PDF 미지원 provider 에서는 xlsx 내 이미지/차트/시각 레이아웃이 텍스트로 보존되지 않는다.
+- 변환된 PDF 는 bytes 로드 전에 PDF size cap 을 다시 검사한다. xlsx 원본 cap 통과 후 생성 PDF 가 커지는 케이스를 별도로 거부한다.
+- Debug build 에서는 변환 PDF 를 `%TEMP%\Promaker.LlmAgent\xlsx-pdf-debug\` 에 유지한다. Release build 에서는 변환 직후 임시 PDF 를 삭제한다.
+
 ## Phase 3a-pre — Spike (rev 1, 2026-05-09)
 
 ### S-1 — Claude CLI 이미지/PDF 입력 채널 조사
