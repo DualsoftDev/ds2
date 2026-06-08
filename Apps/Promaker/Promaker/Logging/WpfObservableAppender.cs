@@ -68,31 +68,44 @@ public sealed class PromakerRollingFileAppender : RollingFileAppender
         var dateRolled = currentDate > previousDate;
 
         if (dateRolled)
-            WriteDateRollMarker("PROMAKER_LOG_DATE_ROLL_END", previousDate, currentDate);
+            WriteDateRollEndMarker(previousDate, currentDate);
 
         base.AdjustFileBeforeAppend();
 
         if (!dateRolled) return;
 
         _activeDate = currentDate;
-        WriteDateRollMarker("PROMAKER_LOG_DATE_ROLL_BEGIN", previousDate, currentDate);
+        WriteRunBeginMarker(previousDate, currentDate);
     }
 
-    private void WriteDateRollMarker(string marker, DateTime previousDate, DateTime currentDate)
+    private void WriteDateRollEndMarker(DateTime previousDate, DateTime currentDate)
+    {
+        WriteMarker(
+            $"PROMAKER_LOG_DATE_ROLL_END runId={App.RunId} pid={Environment.ProcessId} " +
+            $"previousDate={FormatDate(previousDate)} currentDate={FormatDate(currentDate)} reason=date");
+    }
+
+    private void WriteRunBeginMarker(DateTime previousDate, DateTime currentDate)
+    {
+        WriteMarker(
+            $"PROMAKER_RUN_BEGIN runId={App.RunId} pid={Environment.ProcessId} " +
+            $"startedAt={App.RunStartedAt.ToString("O", CultureInfo.InvariantCulture)} " +
+            $"baseDir=\"{AppContext.BaseDirectory}\" reason=date-roll " +
+            $"previousDate={FormatDate(previousDate)} currentDate={FormatDate(currentDate)}");
+    }
+
+    private void WriteMarker(string message)
     {
         if (QuietWriter is null) return;
 
         var properties = new PropertiesDictionary();
         properties["PromakerRunId"] = App.RunId;
-        properties["PromakerLogPid"] = App.LogPid;
 
         var data = new LoggingEventData
         {
             LoggerName   = typeof(PromakerRollingFileAppender).FullName ?? nameof(PromakerRollingFileAppender),
             Level        = Level.Info,
-            Message      =
-                $"{marker} runId={App.RunId} pid={Environment.ProcessId} " +
-                $"previousDate={FormatDate(previousDate)} currentDate={FormatDate(currentDate)} reason=date",
+            Message      = message,
             TimeStampUtc = DateTime.UtcNow,
             Properties   = properties,
         };
