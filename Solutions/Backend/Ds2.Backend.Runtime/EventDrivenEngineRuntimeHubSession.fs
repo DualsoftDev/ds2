@@ -34,21 +34,41 @@ type EventDrivenEngineRuntimeHubSession
     let simStatusVal (s: SimulationStatus) =
         match s with | Running -> 0 | Paused -> 1 | Stopped -> 2
 
+    // v12 V12 — Monitoring 은 abnormal 소스가 둘(engine onDeviceDurationExpired tick + MonitoringAbnormalAdapter
+    //   In rising)이고 각자 다른 latch 라 같은 (Kind,Target) ActionOver 가 중복 broadcast 될 수 있다. 합류점인
+    //   여기서 단일 dedup(DefaultLatchPolicy 5s window). Control 은 adapter 가 OnCallReset 으로 사이클별 정확히
+    //   관리하므로 추가 dedup 을 하지 않는다(사이클마다의 정상 over 가 5s window 에 억제되는 회귀 방지).
+    let abnormalIsMonitoring = identity.Mode.Equals("monitoring", StringComparison.OrdinalIgnoreCase)
+    let abnormalDedupPolicy : ILatchPolicy = DefaultLatchPolicy()
+    let abnormalDedupLock = obj ()
+    let mutable abnormalLastEmitted : Map<AbnormalLatchKey, AbnormalRecord> = Map.empty
+
     // v12 P5 — abnormal → OnAbnormal broadcast. Control engine 발행 / Monitoring adapter sink 공용.
     let broadcastAbnormal (record: AbnormalRecord) =
-        let gOpt (o: Guid option) = match o with | Some g -> string g | None -> ""
-        let p : AbnormalPayload =
-            { Kind = string record.Kind
-              KindValue = int record.Kind
-              CallId = gOpt record.Target.CallId
-              ApiCallId = gOpt record.Target.ApiCallId
-              WorkId = gOpt record.Target.WorkId
-              ElapsedMs = (match record.ElapsedMs with | Some n -> n | None -> -1)
-              Observed = (match record.Observed with | Some b -> b | None -> false)
-              Mode = identity.Mode.ToLowerInvariant()
-              Source = identity.Mode.ToLowerInvariant()
-              TimestampUtc = record.TimestampUtc }
-        hub.Clients.All.SendAsync(HubMethod.OnAbnormal, p) |> ignore
+        let pass =
+            if abnormalIsMonitoring then
+                lock abnormalDedupLock (fun () ->
+                    let key = Abnormal.latchKeyOf record
+                    let prev = abnormalLastEmitted |> Map.tryFind key
+                    if abnormalDedupPolicy.ShouldEmit(prev, record) then
+                        abnormalLastEmitted <- abnormalLastEmitted.Add(key, record)
+                        true
+                    else false)
+            else true
+        if pass then
+            let gOpt (o: Guid option) = match o with | Some g -> string g | None -> ""
+            let p : AbnormalPayload =
+                { Kind = string record.Kind
+                  KindValue = int record.Kind
+                  CallId = gOpt record.Target.CallId
+                  ApiCallId = gOpt record.Target.ApiCallId
+                  WorkId = gOpt record.Target.WorkId
+                  ElapsedMs = (match record.ElapsedMs with | Some n -> n | None -> -1)
+                  Observed = (match record.Observed with | Some b -> b | None -> false)
+                  Mode = identity.Mode.ToLowerInvariant()
+                  Source = identity.Mode.ToLowerInvariant()
+                  TimestampUtc = record.TimestampUtc }
+            hub.Clients.All.SendAsync(HubMethod.OnAbnormal, p) |> ignore
 
     // ── 이벤트 → 클라이언트 push (생성자에서 구독) ───────────────
     do

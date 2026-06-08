@@ -2,6 +2,7 @@ namespace Ds2.Backend.Common
 
 open System
 open System.Threading.Tasks
+open System.Text.Json.Serialization
 
 [<RequireQualifiedAccess>]
 module HubMethod =
@@ -184,16 +185,16 @@ type PlcConnectionStatus = {
 ///   Action* → ElapsedMs 유효(Sensor* 는 -1), Sensor* → Observed 유효(Action* 는 false).
 [<CLIMutable>]
 type AbnormalPayload = {
-    Kind: string          // "SensorOpen" | "SensorShort" | "ActionOver" | "ActionUnder"
-    KindValue: int        // 0~3
-    CallId: string
-    ApiCallId: string
-    WorkId: string
-    ElapsedMs: int        // Action* 유효, Sensor* 는 -1
-    Observed: bool        // Sensor* 유효
-    Mode: string          // "control" | "monitoring"
-    Source: string
-    TimestampUtc: System.DateTime
+    [<JsonPropertyName("kind")>]         Kind: string          // "SensorOpen" | "SensorShort" | "ActionOver" | "ActionUnder"
+    [<JsonPropertyName("kindValue")>]    KindValue: int        // 0~3
+    [<JsonPropertyName("callId")>]       CallId: string
+    [<JsonPropertyName("apiCallId")>]    ApiCallId: string
+    [<JsonPropertyName("workId")>]       WorkId: string
+    [<JsonPropertyName("elapsedMs")>]    ElapsedMs: int        // Action* 유효, Sensor* 는 -1
+    [<JsonPropertyName("observed")>]     Observed: bool        // Sensor* 유효
+    [<JsonPropertyName("mode")>]         Mode: string          // "control" | "monitoring"
+    [<JsonPropertyName("source")>]       Source: string
+    [<JsonPropertyName("timestampUtc")>] TimestampUtc: System.DateTime
 }
 
 /// Runtime session identity carried by every remote command/event/snapshot.

@@ -126,10 +126,15 @@ module internal EventDrivenEngineRuntime =
         let mutable draining = true
         while draining && shouldContinue() do
             // 1) Hub 큐 우선 — SignalR thread 가 enqueue 한 IO 신호를 한 항목씩 적용.
-            //    페어 broadcast(IN=true → IN=false) 사이에 ConditionEval 이 끼어들도록
-            //    한 번에 하나만 dequeue 하고 continue.
+            //    페어 broadcast(IN=true → IN=false) 사이에 ConditionEval 이 끼어들도록, dequeue 직후
+            //    due 이벤트(tryDrainHubInjectOnce 가 방금 scheduleNow 한 ConditionEval 포함)를 한 번 처리해
+            //    IN=true 가 적용된 시점의 평가를 보장한다. (이전: 큐를 다 비운 뒤에야 평가 → IN=false 가 먼저
+            //    덮여 Finish 를 놓칠 수 있었음.)
             if ctx.TryDrainHubInjectOnce() then
                 processed <- true
+                match ctx.Scheduler.TryDequeueDue(targetMs) with
+                | Some event -> if shouldContinue() then processEvent ctx event
+                | None -> ()
             else
                 // 2) Hub 큐 비면 scheduler 의 due event 처리.
                 match ctx.Scheduler.TryDequeueDue(targetMs) with

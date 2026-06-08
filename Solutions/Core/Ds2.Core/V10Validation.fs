@@ -51,6 +51,16 @@ module V10Validation =
           timePolicyMsCheck (sprintf "ApiDef '%s' SensingType" apiDef.Name) sensingT ]
         |> List.choose id
 
+    // V7: Latched + TimePolicy(Append) 조합 금지 — spec §3.2/§11 "정의 외"(런타임 emitOutput/completionTrigger
+    //     가 invalidOp 로 막음). UI 는 못 만들지만 raw/import 경로 방어용으로 validation 단계에서 reject. (Error)
+    let validateApiDefV7 (apiDef: ApiDef) : ValidationIssue list =
+        let issue ctx =
+            { Rule = "V7"; Severity = Error
+              Message = sprintf "ApiDef '%s' %s — Latched + TimePolicy(Append) 는 spec 정의 외 (§3.2)" apiDef.Name ctx }
+        [ (match apiDef.ActionType  with ActionType.Real (Latched, Some _)  -> Some (issue "ActionType")  | _ -> None)
+          (match apiDef.SensingType with SensingType.Real (Latched, Some _) -> Some (issue "SensingType") | _ -> None) ]
+        |> List.choose id
+
     // V4: Virtual(_) ⇒ Work.Duration defined (Error)
     let validateApiDefV4 (apiDef: ApiDef) (txWorkDuration: int option) (rxWorkDuration: int option) : ValidationIssue list =
         let isVirtual =
