@@ -294,7 +294,10 @@ public sealed class CycleRecomputeService
             if (recordedUtc < fromUtc || recordedUtc >= toUtc)
                 continue; // delete-range 와 정확히 일치하도록 경계 밖 행은 제외
 
-            bool isIdle = ct.HasValue && ((maxCT > 0 && ct > maxCT) || (minCT > 0 && ct < minCT));
+            // ct 가 없으면(주기 미검출 = 미완료 사이클) 유효 CT 가 없으므로 비가동으로 분류해 평균에서 제외.
+            // 행 자체는 보존되되 IsIdle=1 → AVG/누산기에서 빠진다. (과거엔 ct=NULL 이 비-idle 로 남아 누산기
+            // COUNT 만 부풀리고 boundary AVG 와 어긋나 평균을 끌어내렸다.)
+            bool isIdle = !ct.HasValue || (maxCT > 0 && ct > maxCT) || (minCT > 0 && ct < minCT);
 
             rows.Add(new DspFlowHistoryEntity
             {

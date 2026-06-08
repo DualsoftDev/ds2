@@ -594,7 +594,11 @@ public class FlowMetricsService : IFlowMetricsService
                 var lastFinishLocal = DateTime.SpecifyKind(lastHistory[0].RecordedAt, DateTimeKind.Utc).ToLocalTime();
                 state.CurrentMT = lastHistory[0].MT;
                 state.PreviousCycleFinish = lastFinishLocal;
-                state.CycleCount = 1;
+                // 누적 평균 상태(CycleCount/SumMT/SumWT/SumCT)는 여기서 건드리지 않는다 — 부트스트랩의 목적은
+                // 다음 사이클 시작 때 WT/CT 를 이어 계산할 CurrentMT/PreviousCycleFinish 복원뿐이다.
+                // (과거엔 CycleCount=1 만 세팅 → SumCT=0 과 불일치해 첫 평균이 ct/2 로 반토막났다. 누적 합/카운트는
+                //  reseed 경로(ReapplyIdleThresholds / ReseedCycleStatesFromCurrentBoundary)가 비가동-제외 history
+                //  전체로 시드하거나, 라이브 사이클이 0 에서 정확히 쌓는다.)
                 _logger.LogInformation("Flow '{FlowName}' bootstrapped from history: MT={MT}ms", flowName, lastHistory[0].MT);
             }
         }
