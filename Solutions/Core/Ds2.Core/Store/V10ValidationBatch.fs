@@ -41,6 +41,8 @@ module V10ValidationBatch =
             let apiDef = kv.Value
             for issue in validateApiDefV3 apiDef do
                 issues.Add issue
+            for issue in validateApiDefV7 apiDef do
+                issues.Add issue
             let txMs = workDurationMs store apiDef.TxGuid
             let rxMs = workDurationMs store apiDef.RxGuid
             for issue in validateApiDefV4 apiDef txMs rxMs do

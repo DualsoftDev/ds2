@@ -196,11 +196,15 @@ module WorkConditionChecker =
         | Some currentValue ->
             let inOk = ValueSpec.evaluate apiCall.InputSpec currentValue
             if isExternalIn then
-                // Control/Monitoring: InputSpec 평가가 통과해도 In 이 실제 활성(high)일 때만 완료.
-                //   InputSpec=UndefinedValue 면 ValueSpec.evaluate 가 io 값 무관 true(= In off "false" 도 통과)라
-                //   In 안 들어왔는데 즉시 Finish 되던 버그 → activeInputValue(In high 값)와 일치할 때만 인정.
-                //   In 미도착(off)이면 Call 은 Going 유지하며 외부 In high 를 기다린다.
-                inOk && String.Equals(currentValue, RuntimeSemantics.activeInputValue apiCall, StringComparison.OrdinalIgnoreCase)
+                // Control/Monitoring 완료 = In 평가.
+                //   InputSpec=UndefinedValue 면 ValueSpec.evaluate 가 io 값 무관 true(In off "false" 도 통과)라
+                //   In 안 들어왔는데 즉시 Finish 되던 버그 → In high(activeInputValue)와 일치할 때만 인정.
+                //   정의된 ValueSpec(Single/Multiple/Ranges/String)은 evaluate 가 정확히 평가하므로 추가 문자열
+                //   일치를 요구하지 않는다 — Range/Multiple 안의 허용값도 정상 완료해야(v10 ValueSpec 일반성).
+                match apiCall.InputSpec with
+                | UndefinedValue ->
+                    inOk && String.Equals(currentValue, RuntimeSemantics.activeInputValue apiCall, StringComparison.OrdinalIgnoreCase)
+                | _ -> inOk
             else inOk && rxCompletionSatisfied ()
         | None when not isExternalIn && hasRxWork -> rxCompletionSatisfied ()
         | None -> false
@@ -244,26 +248,28 @@ module WorkConditionChecker =
                 match RuntimeSemantics.completionTrigger apiDef apiCall with
                 | RuntimeSemantics.WaitPassiveDuration _
                 | RuntimeSemantics.WaitPassiveDurationPlus _ ->
-                    // Control/Monitoring(외부 In): device plan-duration 으로 Call 완료 금지.
-                    //   In(외부 신호) 들어올 때까지 Call Going 유지. (device duration 은 abnormal 판정자일 뿐)
-                    if isExternalIn then false
-                    else virtualWorkCompletion index state callGuid
+                    // v10 §10(NORMATIVE): SensingType=Virtual 은 종료 시점을 SensingType 이 단독 결정한다 →
+                    //   Duration(=WorkRx 종점) 완료. 물리 InTag 가 없어 In 을 기다릴 수 없으므로 Control/
+                    //   Monitoring 이라도 mode 무관하게 duration 으로 Finish 한다.
+                    //   ("device plan-duration 으로 Call 완료 금지(In-only)" 규칙은 실제 센서가 있는
+                    //    SensingType=Real 의 WaitInput* 분기(runtimeInputSatisfied)에만 적용된다.)
+                    virtualWorkCompletion index state callGuid
                 | RuntimeSemantics.WaitInput _
                 | RuntimeSemantics.WaitInputLatched _ ->
                     runtimeInputSatisfied index state callGuid apiCall isExternalIn
                 | RuntimeSemantics.WaitInputStable (_, ms) ->
-                    // v10 §5/§10/§11.2 — Real(Level, Append n) = "센서 ON 후 n ms 연속 유지" debounce.
-                    // Control/Monitoring(외부 In): device Going 이 이미 ActionType.Append(=같은 출력) 만큼 유지하므로
-                    //   여기서 또 stable n ms 를 기다리면 Append 가 이중(200+200) 적용된다 → In 들어오면 즉시 완료.
+                    // v10 §5/§10 — Real(Level, Append n) = "센서 ON 후 n ms 연속 유지" debounce. 종료는 SensingType 이
+                    //   단독 결정하므로 mode 무관하게 In 안정 n ms 를 적용한다. (ActionType.Append=출력 유지와는 직교
+                    //   축이라 이중 아님.) Control 도 Composition 이 debounce ms 후 ConditionEval 재평가를 schedule.
                     runtimeInputSatisfied index state callGuid apiCall isExternalIn
-                    && (isExternalIn || SimState.getIOStableMs apiCall.Id state >= ms)
+                    && SimState.getIOStableMs apiCall.Id state >= ms
                 | RuntimeSemantics.WaitInputEdge _ ->
                     runtimeInputEdgeSatisfied index state callGuid apiCall isExternalIn
                 | RuntimeSemantics.WaitInputEdgeStable (_, ms) ->
-                    // v10 §5/§10/§11.2 — Real(OneShot, Append n) = "edge 이후 n ms 안정".
-                    // Control/Monitoring(외부 In): device Going 의 ActionType.Append 와 이중이라 stable 생략 → In 즉시 완료.
+                    // v10 §5/§10 — Real(OneShot, Append n) = "edge 이후 n ms 안정". 종료는 SensingType 단독 결정이라
+                    //   mode 무관 적용(ActionType.Append 와는 직교 축).
                     runtimeInputEdgeSatisfied index state callGuid apiCall isExternalIn
-                    && (isExternalIn || SimState.getIOStableMs apiCall.Id state >= ms)
+                    && SimState.getIOStableMs apiCall.Id state >= ms
             with
             | _ ->
                 // Control/Monitoring(외부 In): completionTrigger 실패해도 device(rx) 로 Call 완료 금지 — In 만으로.

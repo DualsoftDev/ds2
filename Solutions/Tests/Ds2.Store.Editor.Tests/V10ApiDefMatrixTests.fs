@@ -282,6 +282,27 @@ let ``v10 ApiDef 7x7 matrix builds SimIndex and completion predicate accepts eac
 
     Assert.Equal(49, checkedCount)
 
+// v10 §10(NORMATIVE): ApiCall 종료 시점은 SensingType 이 단독 결정한다.
+//   SensingType=Virtual ⇒ Duration(WorkRx 종점) 으로 종료 — mode 와 무관.
+//   회귀 가드: Control/Monitoring(isExternalIn=true)에서 Virtual sensing Call 이
+//   물리 In 이 없는데도 In 을 기다려 영영 Going 에 박히던 버그(§10 위배)를 못박는다.
+[<Fact>]
+let ``v10 Virtual sensing completes in Control mode without external In (spec section 10)`` () =
+    let mutable checkedCount = 0
+    for sensing in sensingCases do
+        match sensing.Value with
+        | SensingType.Virtual _ ->
+            checkedCount <- checkedCount + 1
+            let testCase = createIndexCase (ActionType.Real (Level, None)) sensing.Value
+            let state = completionState testCase sensing.Value
+            // isSimulation=false, isExternalIn=true → Control/Monitoring 경로.
+            let actual = WorkConditionChecker.canCompleteCall testCase.Index state testCase.CallId false true
+            Assert.True(
+                actual,
+                sprintf "Virtual sensing=%s must complete by Duration in Control mode (spec §10)" sensing.Name)
+        | SensingType.Real _ -> ()
+    Assert.Equal(2, checkedCount)   // virt, virtPlus
+
 [<Fact>]
 let ``v10 Action pulse output resets after one millisecond`` () =
     let testCase = createEngineCase true (ActionType.Real (OneShot, None)) (SensingType.Real (Level, None))
