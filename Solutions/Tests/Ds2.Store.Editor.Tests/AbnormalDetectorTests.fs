@@ -334,6 +334,47 @@ module MonitoringAdapterTests =
         adapter.OnObservedIo("X0", "false", 600)
         Assert.Empty(emitted)
 
+    // 워치독: 완료(InTag rising)를 기다리지 않고 going 경과가 Max 를 넘으면 즉시 ActionOver.
+    [<Fact>]
+    let ``tick over Max before finish emits ActionOver once (watchdog)`` () =
+        let adapter, emitted, _, _, _ = setup ()
+        adapter.OnObservedIo("Y0", "false", 0)     // OUT baseline
+        adapter.OnObservedIo("Y0", "true", 0)      // OUT rising → going@0
+        adapter.OnObservedIo("X0", "false", 0)     // IN baseline (완료 미관측)
+        adapter.OnTick(500)                        // elapsed 500 ∈ [250,900] → 아직 정상
+        Assert.Empty(emitted)
+        adapter.OnTick(1000)                       // elapsed 1000 > 900 → ActionOver
+        Assert.Single(emitted) |> ignore
+        Assert.Equal(AbnormalKind.ActionOver, emitted.[0].Kind)
+        adapter.OnTick(2000)                       // 같은 going → 재발행 안 함(1회만)
+        Assert.Single(emitted) |> ignore
+
+    // 워치독 발행 후 뒤늦게 완료가 들어와도 재발행/SensorShort 오탐이 없어야 한다.
+    [<Fact>]
+    let ``late finish after watchdog timeout does not double-emit nor false SensorShort`` () =
+        let adapter, emitted, _, _, _ = setup ()
+        adapter.OnObservedIo("Y0", "false", 0)
+        adapter.OnObservedIo("Y0", "true", 0)      // going@0
+        adapter.OnObservedIo("X0", "false", 0)
+        adapter.OnTick(1000)                       // watchdog ActionOver (elapsed 1000 > 900)
+        Assert.Single(emitted) |> ignore
+        adapter.OnObservedIo("Y0", "false", 1100)  // OUT 이 off 로 떨어진 뒤
+        adapter.OnObservedIo("X0", "true", 1200)   // 뒤늦은 finish — 재발행/SensorShort 없음
+        Assert.Single(emitted) |> ignore
+        Assert.Equal(AbnormalKind.ActionOver, emitted.[0].Kind)
+
+    // 정상 완료가 제때 오면 워치독은 침묵해야 한다(오탐 0).
+    [<Fact>]
+    let ``tick within range stays silent and normal finish clears going`` () =
+        let adapter, emitted, _, _, _ = setup ()
+        adapter.OnObservedIo("Y0", "false", 0)
+        adapter.OnObservedIo("Y0", "true", 0)      // going@0
+        adapter.OnObservedIo("X0", "false", 0)
+        adapter.OnTick(400)                        // elapsed 400 ∈ [250,900] → 정상
+        adapter.OnObservedIo("X0", "true", 500)    // 정상 완료(elapsed 500)
+        adapter.OnTick(2000)                       // going 이미 정리됨 → 발행 없음
+        Assert.Empty(emitted)
+
 // device work = plan: In(실제 IO) 없이 duration plan 으로 Going→Finish 해야 한다 (사용자 확정).
 // "Control device Finish 안 됨" 회귀를 코드 레벨에서 못박는 통합테스트.
 module DeviceControlCycleTests =

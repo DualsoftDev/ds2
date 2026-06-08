@@ -97,6 +97,19 @@
         .pw-palette { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; font-size: 11px; color: var(--color-text-secondary); }
         .pw-palette > div { display: flex; align-items: center; gap: 6px; }
         .pw-palette span { width: 16px; height: 16px; border-radius: 4px; border: 1px solid var(--color-lines); flex-shrink: 0; }
+
+        /* CT 도넛 데모 */
+        .pw-donut-wrap { display: flex; gap: 16px; align-items: stretch; min-height: 240px; }
+        .pw-donut-area { position: relative; flex: 0 0 220px; min-height: 220px; }
+        .pw-donut-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; text-align: center; padding: 0 18%; }
+        .pw-donut-center-lbl { font-size: 0.6rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mono, 'Consolas', monospace); color: var(--color-text-secondary); }
+        .pw-donut-center-val { font-size: 1.3rem; font-weight: 800; color: var(--color-text-primary); font-family: var(--font-mono, 'Consolas', monospace); font-variant-numeric: tabular-nums; margin-top: 2px; }
+        .pw-ct-legend { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 3px 8px; align-content: center; padding: 4px 0; }
+        .pw-ct-legend-item { display: flex; align-items: center; gap: 7px; padding: 4px 6px; border-radius: 6px; min-width: 0; }
+        .pw-ct-legend-sw { width: 11px; height: 11px; border-radius: 4px; flex-shrink: 0; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.14); }
+        .pw-ct-legend-name { font-size: 0.72rem; font-weight: 600; color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+        .pw-ct-legend-val { font-family: var(--font-mono, 'Consolas', monospace); font-variant-numeric: tabular-nums; font-size: 0.7rem; font-weight: 700; color: var(--color-text-primary); flex-shrink: 0; }
+        @media (max-width: 560px) { .pw-donut-wrap { flex-direction: column; } .pw-donut-area { flex: 0 0 200px; } }
     </style>
 </head>
 
@@ -200,6 +213,29 @@
                     </div>
                 </div>
 
+                <!-- ── CT 도넛 (결정적 시드 데모 위젯) ── -->
+                <div class="pw-card pw-card-wide">
+                    <div class="pw-card-title"><span class="material-icons">donut_large</span> CT 도넛 (sample)</div>
+                    <div class="pw-donut-wrap">
+                        <div class="pw-donut-area">
+                            <canvas id="pwCtDonut" style="display:block;width:100%;height:100%;"></canvas>
+                            <div class="pw-donut-center">
+                                <span class="pw-donut-center-lbl">전체 CT</span>
+                                <span class="pw-donut-center-val" x-text="donutTotal"></span>
+                            </div>
+                        </div>
+                        <div class="pw-ct-legend">
+                            <template x-for="f in donutLegend" :key="f.name">
+                                <div class="pw-ct-legend-item">
+                                    <span class="pw-ct-legend-sw" :style="`background:${f.color}`"></span>
+                                    <span class="pw-ct-legend-name" x-text="f.name"></span>
+                                    <span class="pw-ct-legend-val" x-text="f.fmtCycle"></span>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- ── State Indicators (정적 칩) ── -->
                 <div class="pw-card">
                     <div class="pw-card-title"><span class="material-icons">label</span> State Indicators</div>
@@ -270,10 +306,13 @@
     <script>
         function pwApp() {
             const SECRET = '2747';
+            let pwDonutChart = null;
             return {
                 dark: false,
                 demo: null,
                 demoError: null,
+                donutLegend: [],
+                donutTotal: '',
 
                 // 계산기 상태 (PowerTools.razor 와 동치)
                 expression: '',
@@ -301,13 +340,21 @@
                     window.addEventListener('storage', (e) => { if (e.key === 'dspilot-theme') this.dark = e.newValue === 'dark'; });
                     this.buildChartSamples();
                     await this.loadStatus();
+                    this.$nextTick(() => this.buildDonut());
                     // status 는 allowlist 라 차단 상태에서도 응답 — 가벼운 폴링으로 잔여시간 갱신.
                     this._pollTimer = setInterval(() => this.loadStatus(), 30000);
                 },
 
-                destroy() { clearInterval(this._pollTimer); },
+                destroy() {
+                    clearInterval(this._pollTimer);
+                    if (pwDonutChart) { pwDonutChart.destroy(); pwDonutChart = null; }
+                },
 
-                toggleTheme() { this.dark = !this.dark; localStorage.setItem('dspilot-theme', this.dark ? 'dark' : 'light'); },
+                toggleTheme() {
+                    this.dark = !this.dark;
+                    localStorage.setItem('dspilot-theme', this.dark ? 'dark' : 'light');
+                    setTimeout(() => this.buildDonut(), 0);
+                },
 
                 async loadStatus() {
                     try {
@@ -318,6 +365,87 @@
                     } catch (e) {
                         this.demoError = '데모 상태를 불러오지 못했습니다: ' + e.message;
                     }
+                },
+
+                // ── CT 도넛 데모 (dashboard2.html renderCtDonut 의 정적 시드 버전) ──
+                buildDonut() {
+                    if (!window.Chart) return;
+                    const cv = document.getElementById('pwCtDonut');
+                    if (!cv) return;
+                    if (pwDonutChart) { pwDonutChart.destroy(); pwDonutChart = null; }
+
+                    const CT_PAL_LIGHT = ['#0058be', '#0e7490', '#3b5bdb', '#0b7fa6', '#1e40af', '#0e7c86', '#5145cd', '#1d6fc0'];
+                    const CT_PAL_DARK  = ['#4d9fff', '#22b8c9', '#7c8cf8', '#2dd4bf', '#6d9dff', '#38bdf8', '#a5b4fc', '#5ec5d6'];
+                    const dark = this.dark;
+                    const pal = dark ? CT_PAL_DARK : CT_PAL_LIGHT;
+                    const bottleneck = dark ? '#3b82f6' : '#1e3a8a';
+                    const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+                    const surface = css('--color-surface') || (dark ? '#192234' : '#ffffff');
+
+                    const flows = this.flowSamples;
+                    const maxName = flows.reduce((a, b) => b.cycle > a.cycle ? b : a).name;
+                    const labels = flows.map(f => f.name);
+                    const data = flows.map(f => f.cycle);
+                    const total = data.reduce((a, b) => a + b, 0);
+                    const bg = flows.map((f, i) => f.name === maxName ? bottleneck : pal[i]);
+
+                    const fmtMs = (ms) => {
+                        if (ms <= 0) return '0초';
+                        if (ms < 1000) return Math.round(ms) + 'ms';
+                        if (ms < 60000) return (ms / 1000).toFixed(1) + '초';
+                        return Math.floor(ms / 60000) + '분 ' + Math.floor(ms % 60000 / 1000) + '초';
+                    };
+
+                    this.donutTotal = fmtMs(total);
+                    this.donutLegend = flows.map((f, i) => ({
+                        name: f.name,
+                        color: f.name === maxName ? bottleneck : pal[i],
+                        fmtCycle: fmtMs(f.cycle),
+                    }));
+
+                    const clip = (s) => (s && s.length > 10) ? (s.slice(0, 9) + '…') : (s || '');
+                    const dyn = { labels, data, total, dark };
+
+                    const arcLabels = {
+                        id: 'pwCtArcLabels',
+                        afterDatasetsDraw(chart) {
+                            const ctx = chart.ctx, meta = chart.getDatasetMeta(0);
+                            meta.data.forEach((arc, i) => {
+                                if ((dyn.data[i] / dyn.total) < 0.05) return;
+                                const mid = (arc.startAngle + arc.endAngle) / 2;
+                                const r = (arc.innerRadius + arc.outerRadius) / 2;
+                                const x = arc.x + Math.cos(mid) * r, y = arc.y + Math.sin(mid) * r;
+                                ctx.save();
+                                ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+                                const draw = (txt, dy, font) => {
+                                    ctx.font = font; ctx.lineWidth = 3;
+                                    if (dyn.dark) { ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.strokeText(txt, x, y + dy); ctx.fillStyle = '#0b1220'; }
+                                    else { ctx.strokeStyle = 'rgba(8,17,33,0.6)'; ctx.strokeText(txt, x, y + dy); ctx.fillStyle = '#ffffff'; }
+                                    ctx.fillText(txt, x, y + dy);
+                                };
+                                draw(clip(dyn.labels[i]), -7, '700 11px Inter, system-ui, sans-serif');
+                                draw(fmtMs(dyn.data[i]), 8, '800 12px Inter, system-ui, sans-serif');
+                                ctx.restore();
+                            });
+                        },
+                    };
+
+                    pwDonutChart = new Chart(cv, {
+                        type: 'doughnut',
+                        data: { labels, datasets: [{ data, backgroundColor: bg, borderColor: surface, borderWidth: dark ? 3 : 2, borderAlign: 'inner', borderRadius: 3, spacing: 1, hoverOffset: 6 }] },
+                        plugins: [arcLabels],
+                        options: {
+                            responsive: true, maintainAspectRatio: false, animation: false, cutout: '64%',
+                            layout: { padding: 6 },
+                            plugins: {
+                                legend: { display: false },
+                                tooltip: { callbacks: { label: (c) => {
+                                    const t = c.chart.data.datasets[0].data.reduce((a, b) => a + b, 0) || 1;
+                                    return `${c.label}: ${fmtMs(c.parsed)} (${(c.parsed * 100 / t).toFixed(1)}%)`;
+                                } } },
+                            },
+                        },
+                    });
                 },
 
                 // ── 결정적 시드 차트 (PowerTools.BuildChartSamples 의 시각적 동치 — JS Mulberry32 PRNG) ──
@@ -507,6 +635,7 @@
             };
         }
     </script>
+    <script defer src="/lib/chart.umd.min.js"></script>
     <script defer src="/lib/alpine.min.js"></script>
 </body>
 

@@ -4,6 +4,7 @@ using Dapper;
 using DSPilot.Infrastructure;
 using DSPilot.Models;
 using DSPilot.Repositories;
+using Ds2.Backend.Common;
 using Ds2.Core;
 using Ds2.Editor;
 using Ds2.Runtime.Engine;
@@ -133,22 +134,16 @@ public sealed class SimulationEngineService : IDisposable
                 var runtimeSession = new RuntimeModeSession(engine.Index, engine.IOMap, RuntimeMode.Monitoring);
 
                 PassiveInferenceSession? passive = null;
-                MonitoringAbnormalAdapter? monitoringAbnormal = null;
                 if (runtimeSession.RequiresPassiveInference)
-                {
                     passive = new PassiveInferenceSession(engine.Index, engine.IOMap, RuntimeMode.Monitoring);
-                    // v12 P5 — Monitoring abnormal(4종) 싱크를 AbnormalEventService 로 교체:
-                    //   링버퍼 적재 + SignalR "AbnormalDetected" 트리거 발행 → 대시보드/사이드바 라이브 표시.
-                    monitoringAbnormal = MonitoringAbnormalAdapter.FromDelegates(
-                        engine.Index, engine.IOMap,
-                        () => DateTime.UtcNow,
-                        rec => _abnormalEvents.Record(rec));
-                }
+                // v12 P5 이상감지: 로컬 MonitoringAbnormalAdapter(IO-edge, 상태추론 한계) 대신
+                // Agent "OnAbnormal" SignalR 피드(ControlAbnormalAdapter, 실제 Going/Ready 기반) 사용.
+                // HubSubscriberService.OnAbnormal → HandleHubAbnormal → _abnormalEvents.Record 경로.
 
                 _engine = engine;
                 _runtimeSession = runtimeSession;
                 _passiveInference = passive;
-                _monitoringAbnormal = monitoringAbnormal;
+                _monitoringAbnormal = null;
 
                 // plcTag 행 부트스트랩 (CycleTimeAnalysis 데이터 소스 셋업)
                 BootstrapPlcTags(engine.IOMap);
@@ -550,6 +545,44 @@ public sealed class SimulationEngineService : IDisposable
         foreach (var log in _passiveInference.DrainLogs())
             _logger.LogDebug("[Engine] passive: {Msg}", log.Message);
     }
+
+    /// <summary>
+    /// 이상감지 timeout 워치독 틱 — MonitoringAbnormalAdapter 제거 후 no-op 유지(StateReconcileService 호출부 무변경).
+    public void TickAbnormalWatchdog() { }
+
+    /// <summary>
+    /// Agent "OnAbnormal" SignalR 핸들러 진입점.
+    /// Agent ControlAbnormalAdapter 가 실제 Going/Ready 상태 기반으로 정밀 감지한 결과를
+    /// AbnormalEventService 로 직접 전달 — 로컬 MonitoringAbnormalAdapter 를 대체한다.
+    /// </summary>
+    public void HandleHubAbnormal(AbnormalPayload payload)
+    {
+        if (_abnormalEvents is null) return;
+        try
+        {
+            var kind = (AbnormalKind)payload.KindValue;
+            var target = Abnormal.target(
+                ParseFsGuid(payload.CallId),
+                ParseFsGuid(payload.ApiCallId),
+                ParseFsGuid(payload.WorkId));
+            var record = kind switch
+            {
+                AbnormalKind.SensorOpen  => Abnormal.sensorOpen(target, payload.TimestampUtc),
+                AbnormalKind.SensorShort => Abnormal.sensorShort(target, payload.TimestampUtc),
+                AbnormalKind.ActionOver  => Abnormal.actionOver(target, payload.ElapsedMs, payload.TimestampUtc),
+                AbnormalKind.ActionUnder => Abnormal.actionUnder(target, payload.ElapsedMs, payload.TimestampUtc),
+                _ => Abnormal.sensorShort(target, payload.TimestampUtc)
+            };
+            _abnormalEvents.Record(record);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Abnormal] Agent payload 처리 실패 (kind={Kind})", payload.KindValue);
+        }
+    }
+
+    private static FSharpOption<Guid> ParseFsGuid(string s)
+        => Guid.TryParse(s, out var g) ? FSharpOption<Guid>.Some(g) : FSharpOption<Guid>.None;
 
     private Status4 GetWorkStateSafe(Guid g)
     {
