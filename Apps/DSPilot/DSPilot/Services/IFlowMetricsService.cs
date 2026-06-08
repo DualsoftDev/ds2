@@ -49,8 +49,9 @@ public interface IFlowMetricsService
     void OnCallFinished(string flowName, string callName, DateTime timestamp);
 
     /// <summary>
-    /// 현재 설정의 비가동 임계값(Max/MinCycleTimeMs)을 기존 히스토리/평균에 소급 적용.
-    /// 설정 저장 직후 호출하여, 임계값 변경이 대시보드·히스토리·평균에 즉시 반영되게 한다.
+    /// 현재 유효 비가동 범위(글로벌 HistoryView 기본 + per-flow CycleExclusion override)를 기존 히스토리/평균에
+    /// 소급 적용. 글로벌 설정 저장 또는 per-flow 이상치 제외 변경 직후 호출하여, 변경이 대시보드·히스토리·평균·
+    /// 시프트·OEE 에 즉시 일관 반영되게 한다(IsIdle 단일 소스 박제).
     /// </summary>
     /// <returns>(재평가된 히스토리 행 수, 재집계된 Flow 수)</returns>
     Task<(int HistoryRestamped, int FlowsRecomputed)> ReapplyIdleThresholdsAsync();

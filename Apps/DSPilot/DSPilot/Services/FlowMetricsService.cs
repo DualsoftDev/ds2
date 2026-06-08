@@ -404,10 +404,9 @@ public class FlowMetricsService : IFlowMetricsService
     {
         try
         {
-            // 비가동 판정: CT가 MaxCycleTimeMs 초과 또는 MinCycleTimeMs 미만이면 비가동 사이클
-            var settings = _appSettingsService.LoadSettings();
-            var maxCT = settings.HistoryView.MaxCycleTimeMs;
-            var minCT = settings.HistoryView.MinCycleTimeMs;
+            // 비가동 판정: CT가 유효 Max/Min 범위 밖이면 비가동 사이클.
+            // 유효범위 = per-flow 이상치 제외(있으면) > 글로벌 HistoryView (단일 소스 — AppSettingsService.GetEffectiveCycleRangeMs).
+            var (maxCT, minCT) = _appSettingsService.GetEffectiveCycleRangeMs(flowName);
             bool exceedsMax = maxCT > 0 && ct > maxCT;
             bool belowMin = minCT > 0 && ct < minCT;
             bool isIdle = exceedsMax || belowMin;
@@ -488,8 +487,10 @@ public class FlowMetricsService : IFlowMetricsService
         var settings = _appSettingsService.LoadSettings();
         var maxCT = settings.HistoryView.MaxCycleTimeMs;
         var minCT = settings.HistoryView.MinCycleTimeMs;
+        // per-flow 이상치 제외 override(있으면)도 함께 박제 — "글로벌=기본, per-flow=override" 단일 유효범위.
+        var perFlow = _appSettingsService.GetPerFlowEffectiveRangesMs();
 
-        var result = await _dspRepository.ReapplyIdleThresholdsAsync(maxCT, minCT);
+        var result = await _dspRepository.ReapplyIdleThresholdsAsync(maxCT, minCT, perFlow);
 
         // in-memory 누적 평균 상태 재구성 → 다음 사이클이 DB 를 잘못된 값으로 덮어쓰지 않게 함
         try

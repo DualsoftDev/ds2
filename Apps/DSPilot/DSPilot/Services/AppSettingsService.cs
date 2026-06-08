@@ -260,6 +260,47 @@ public class AppSettingsService
     }
 
     /// <summary>
+    /// Flow 의 "유효" 비가동 CT 범위(ms). per-flow 이상치 제외(CycleExclusion, 초)가 있으면 그것을, 없으면
+    /// 글로벌 비가동 임계(HistoryView, ms)를 쓴다 — 방향별 독립(예: max 만 per-flow 지정 시 min 은 글로벌 유지).
+    /// 0 = 해당 방향 제한 없음(기존 컨벤션 유지). 대시보드 평균/시프트/OEE/CallTest/사이클분석이 동일 기준을
+    /// 보도록 "글로벌=기본, per-flow=override" 단일 유효범위로 합치는 단일 소스.
+    /// </summary>
+    public (int MaxMs, int MinMs) GetEffectiveCycleRangeMs(string flowName)
+        => ResolveEffectiveCycleRangeMs(LoadSettings(), flowName);
+
+    /// <summary>이미 로드한 모델로 유효범위 계산(반복 호출 시 디스크 재로드 방지).</summary>
+    public static (int MaxMs, int MinMs) ResolveEffectiveCycleRangeMs(AppSettingsModel settings, string flowName)
+    {
+        int globalMax = settings.HistoryView.MaxCycleTimeMs;
+        int globalMin = settings.HistoryView.MinCycleTimeMs;
+
+        var ov = string.IsNullOrWhiteSpace(flowName)
+            ? null
+            : settings.CycleExclusion.Ranges
+                .FirstOrDefault(r => string.Equals(r.FlowName, flowName, StringComparison.OrdinalIgnoreCase));
+
+        int maxMs = ov?.MaxSec is double mx && mx > 0 ? (int)Math.Round(mx * 1000) : globalMax;
+        int minMs = ov?.MinSec is double mn && mn > 0 ? (int)Math.Round(mn * 1000) : globalMin;
+        return (maxMs, minMs);
+    }
+
+    /// <summary>
+    /// per-flow 이상치 제외가 명시된 Flow 들의 유효범위(ms) 맵. 소급 재스탬프(ReapplyIdleThresholds)가
+    /// 글로벌 기본 위에 flow 별 override 만 덮어쓰도록 전달한다(명시 안 된 Flow 는 글로벌 그대로).
+    /// </summary>
+    public Dictionary<string, (int MaxMs, int MinMs)> GetPerFlowEffectiveRangesMs()
+    {
+        var settings = LoadSettings();
+        var map = new Dictionary<string, (int, int)>(StringComparer.Ordinal);
+        foreach (var r in settings.CycleExclusion.Ranges)
+        {
+            if (string.IsNullOrWhiteSpace(r.FlowName)) continue;
+            map[r.FlowName] = ResolveEffectiveCycleRangeMs(settings, r.FlowName);
+        }
+        return map;
+    }
+
+    /// <summary>
     /// DSP 데이터베이스 삭제 (plc.db 및 관련 파일)
     /// </summary>
     public void DeleteDatabase(string dbPath)

@@ -637,6 +637,15 @@ public class DspDbService : IDisposable
         => _flowStateLockedUntil.TryGetValue(flowName, out var until) && DateTime.Now < until;
 
     /// <summary>
+    /// DB 에서 스냅샷을 동기적으로 즉시 재읽기 — 스냅샷을 비우지 않고 제자리(lock 내 atomic swap)에서 교체한다.
+    /// <para>사용처: 사이클 재계산 직후처럼 DB(특히 dspFlow.Avg*)는 바뀌었지만 라이브 행은 그대로일 때.
+    /// <see cref="Reset"/>(스냅샷을 빈 객체로 비우고 다음 1초 폴링까지 대기)을 쓰면 그 사이 클라이언트가
+    /// 빈 스냅샷을 읽어 대시보드 카드가 잠깐 "곧 시작"으로 깜빡인다(Flows=[] → isEmpty). 이 메서드는 그 빈 창
+    /// 없이 최신값을 즉시 반영한다. 변경이 없으면 <see cref="TryRefresh"/> 가 no-op(기존 스냅샷 유지).</para>
+    /// </summary>
+    public void RefreshNow() => TryRefresh();
+
+    /// <summary>
     /// 인메모리 스냅샷 / 진행률 캐시 클리어. plc.db 삭제 후 재로딩 시 stale 데이터 제거용.
     /// 다음 폴링/이벤트 시 fresh 데이터로 재구성됨.
     /// </summary>

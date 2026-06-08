@@ -1169,8 +1169,14 @@ public class DspRepositoryAdapter : IDspRepository
     /// </para>
     /// 임계값이 0(비활성)이면 해당 방향 판정은 적용하지 않으므로, 둘 다 0이면 모든 행이 가동(IsIdle=0)으로 복원된다.
     /// </summary>
+    /// <param name="maxCycleTimeMs">글로벌 기본 최대 CT(ms). per-flow override 가 없는 Flow 에 적용.</param>
+    /// <param name="minCycleTimeMs">글로벌 기본 최소 CT(ms).</param>
+    /// <param name="perFlowRangesMs">per-flow 유효범위(ms) override 맵 — 글로벌 재스탬프 위에 해당 Flow 만 덮어쓴다.</param>
     /// <returns>(재평가된 히스토리 행 수, 재집계된 Flow 수)</returns>
-    public async Task<(int HistoryRestamped, int FlowsRecomputed)> ReapplyIdleThresholdsAsync(int maxCycleTimeMs, int minCycleTimeMs)
+    public async Task<(int HistoryRestamped, int FlowsRecomputed)> ReapplyIdleThresholdsAsync(
+        int maxCycleTimeMs,
+        int minCycleTimeMs,
+        IReadOnlyDictionary<string, (int MaxMs, int MinMs)>? perFlowRangesMs = null)
     {
         if (!_enabled) return (0, 0);
 
@@ -1183,7 +1189,7 @@ public class DspRepositoryAdapter : IDspRepository
         using var tx = conn.BeginTransaction();
         try
         {
-            // 1. 모든 히스토리 행의 IsIdle 을 현재 임계값 기준으로 재계산
+            // 1. 모든 히스토리 행의 IsIdle 을 글로벌 임계값 기준으로 재계산 (기본).
             var restampSql = $@"
                 UPDATE {HistoryTable}
                 SET IsIdle = CASE
@@ -1192,6 +1198,26 @@ public class DspRepositoryAdapter : IDspRepository
                 END";
             var restamped = await conn.ExecuteAsync(
                 restampSql, new { MaxCT = maxCycleTimeMs, MinCT = minCycleTimeMs }, tx);
+
+            // 1-b. per-flow override 가 있는 Flow 는 그 유효범위로 다시 재계산(글로벌 위에 덮어쓰기).
+            //      → "글로벌=기본, per-flow=override" 단일 유효범위를 IsIdle 에 박제. 명시 안 된 Flow 는 1 의 글로벌 유지.
+            if (perFlowRangesMs is { Count: > 0 })
+            {
+                var overrideSql = $@"
+                    UPDATE {HistoryTable}
+                    SET IsIdle = CASE
+                        WHEN (@MaxCT > 0 AND ct > @MaxCT) OR (@MinCT > 0 AND ct < @MinCT) THEN 1
+                        ELSE 0
+                    END
+                    WHERE flowName = @FlowName";
+                foreach (var kv in perFlowRangesMs)
+                {
+                    await conn.ExecuteAsync(
+                        overrideSql,
+                        new { MaxCT = kv.Value.MaxMs, MinCT = kv.Value.MinMs, FlowName = kv.Key },
+                        tx);
+                }
+            }
 
             // 2. dspFlow 평균을 비가동 제외 후 재집계 (NULL = 가용 사이클 없음)
             var avgSql = $@"
@@ -1216,8 +1242,8 @@ public class DspRepositoryAdapter : IDspRepository
             tx.Commit();
 
             _logger.LogInformation(
-                "Reapplied idle thresholds (Max={MaxCT}ms, Min={MinCT}ms): {Rows} history rows restamped, {Flows} flows recomputed",
-                maxCycleTimeMs, minCycleTimeMs, restamped, flowsRecomputed);
+                "Reapplied idle thresholds (global Max={MaxCT}ms, Min={MinCT}ms, {Overrides} per-flow override(s)): {Rows} history rows restamped, {Flows} flows recomputed",
+                maxCycleTimeMs, minCycleTimeMs, perFlowRangesMs?.Count ?? 0, restamped, flowsRecomputed);
 
             return (restamped, flowsRecomputed);
         }
