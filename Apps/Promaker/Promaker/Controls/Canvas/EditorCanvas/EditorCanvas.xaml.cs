@@ -52,12 +52,15 @@ public partial class EditorCanvas : UserControl
 
     private sealed class DragState(
         Point startPoint,
+        Point startScreenPoint,
         IReadOnlyList<DragItem> items,
         IReadOnlyList<DragArrowSnapshot> arrowSnapshots)
     {
         public Point StartPoint { get; } = startPoint;
+        public Point StartScreenPoint { get; } = startScreenPoint;
         public IReadOnlyList<DragItem> Items { get; } = items;
         public IReadOnlyList<DragArrowSnapshot> ArrowSnapshots { get; } = arrowSnapshots;
+        public bool IsActive { get; set; }
     }
 
     private sealed class ArrowReconnectState(Guid arrowId, bool replaceSource, Point anchorPoint)
