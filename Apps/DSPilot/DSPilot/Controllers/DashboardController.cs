@@ -24,20 +24,26 @@ public class DashboardController : ControllerBase
     private readonly BlueprintService _blueprint;
     private readonly DspRepositoryAdapter _dspRepository;
     private readonly AppSettingsService _settings;
+    private readonly IFlowMetricsService _flowMetrics;
     private readonly IHubContext<MonitoringHub> _hub;
+    private readonly ILogger<DashboardController> _logger;
 
     public DashboardController(
         DspDbService db,
         BlueprintService blueprint,
         DspRepositoryAdapter dspRepository,
         AppSettingsService settings,
-        IHubContext<MonitoringHub> hub)
+        IFlowMetricsService flowMetrics,
+        IHubContext<MonitoringHub> hub,
+        ILogger<DashboardController> logger)
     {
         _db = db;
         _blueprint = blueprint;
         _dspRepository = dspRepository;
         _settings = settings;
+        _flowMetrics = flowMetrics;
         _hub = hub;
+        _logger = logger;
     }
 
     /// <summary>현재 Flow 상태 스냅샷 + 도면 레이아웃(셀 크기·배치·이미지 버전 포함).</summary>
@@ -136,8 +142,9 @@ public class DashboardController : ControllerBase
     }
 
     /// <summary>
-    /// Flow 의 이상치 제외 범위 저장(upsert) 또는 해제(min/max 둘 다 null). 저장 후 ExclusionsChanged 브로드캐스트로
-    /// 다른 작업자 화면 동기화. 정규화된 전체 목록을 반환.
+    /// Flow 의 이상치 제외 범위 저장(upsert) 또는 해제(min/max 둘 다 null). 저장 후 유효범위를 IsIdle 에 소급 박제
+    /// (ReapplyIdleThresholdsAsync)해 대시보드 평균·시프트·OEE 가 즉시 일관 반영되게 하고, ExclusionsChanged(화면
+    /// 필터 동기화) + DatabaseRebuilt(평균/미러 새로고침) 를 브로드캐스트. 정규화된 전체 목록을 반환.
     /// </summary>
     [HttpPost("exclusions")]
     public async Task<ActionResult<List<CycleExclusionDto>>> SaveExclusion([FromBody] CycleExclusionSaveDto req)
@@ -147,8 +154,14 @@ public class DashboardController : ControllerBase
 
         _settings.SaveCycleExclusion(req.FlowName.Trim(), req.MinSec, req.MaxSec);
 
+        // per-flow 제외 변경 = 유효 비가동 범위 변경 → 글로벌 설정 저장과 동일하게 소급 재집계(평균·IsIdle 단일 소스).
+        try { await _flowMetrics.ReapplyIdleThresholdsAsync(); }
+        catch (Exception ex) { _logger.LogWarning(ex, "[Dashboard] 이상치 제외 변경 후 소급 재집계 실패 (non-critical)"); }
+
         try { await _hub.Clients.All.SendAsync("ExclusionsChanged"); }
         catch { /* best effort — 브로드캐스트 실패해도 저장은 유효 */ }
+        try { await _hub.Clients.All.SendAsync("DatabaseRebuilt"); }
+        catch { /* best effort */ }
 
         return GetExclusions();
     }

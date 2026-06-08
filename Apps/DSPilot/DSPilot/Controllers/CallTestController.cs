@@ -167,7 +167,7 @@ public class CallTestController : ControllerBase
 
         var (cycleBoundaries, tailEdges) = await ResolveBoundariesAsync(req.FlowName, start, end, headId, tailId, lanes);
 
-        var stats = ComputeCycleStats(cycleBoundaries, tailEdges, chartEnd);
+        var stats = ComputeCycleStats(req.FlowName, cycleBoundaries, tailEdges, chartEnd);
 
         // 이 Flow 에 저장된 사용자 지정(override) 이 존재하는지 — UI 의 'CT 기준: 사용자 지정/AASX 기본' 표시용.
         var isOverride = _settings.GetFlowCycleOverride(req.FlowName) is not null;
@@ -256,7 +256,7 @@ public class CallTestController : ControllerBase
         tailEdges = tailEdges.OrderBy(t => t).ToList();
 
         var chartEnd = end;
-        var stats = ComputeCycleStats(cycleBoundaries, tailEdges, chartEnd);
+        var stats = ComputeCycleStats(req.FlowName, cycleBoundaries, tailEdges, chartEnd);
 
         return new CtOverlayDto(
             cycleBoundaries.Select(IsoLocal).ToList(),
@@ -418,14 +418,14 @@ public class CallTestController : ControllerBase
     /// <summary>
     /// 사이클 경계 간 CT 평균 + (Head OutTag↑ 시작 → 사이클 내 첫 Tail InTag↑ 완료) 활성구간 평균.
     /// 도출 로직은 <see cref="CycleDerivation"/> 로 추출되어 과거 history 재계산(CycleRecomputeService)과
-    /// 동일 코드를 공유하고, 대시보드와 동일한 Max/MinCycleTimeMs 비가동 필터를 적용한다 → 화면 ↔ 대시보드 1:1.
+    /// 동일 코드를 공유하고, 대시보드와 동일한 유효 비가동 범위(글로벌+per-flow override)를 적용한다 → 화면 ↔ 대시보드 1:1.
     /// </summary>
     private (double? AvgCycleMs, double? AvgActiveMs) ComputeCycleStats(
-        List<DateTime> cycleBoundaries, List<DateTime> tailEdges, DateTime chartEnd)
+        string flowName, List<DateTime> cycleBoundaries, List<DateTime> tailEdges, DateTime chartEnd)
     {
-        var hv = _settings.LoadSettings().HistoryView;
+        var (maxMs, minMs) = _settings.GetEffectiveCycleRangeMs(flowName);
         var cycles = CycleDerivation.BuildCycles(cycleBoundaries, tailEdges, chartEnd);
-        return CycleDerivation.Averages(cycles, hv.MaxCycleTimeMs, hv.MinCycleTimeMs);
+        return CycleDerivation.Averages(cycles, maxMs, minMs);
     }
 
     private static List<(DateTime Start, DateTime End)> MergeIntervals(List<(DateTime Start, DateTime End)> intervals)

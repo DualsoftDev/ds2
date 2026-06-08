@@ -98,7 +98,7 @@ public class CycleAnalysisController : ControllerBase
         var data = dataTask.Result;
         var idleEdges = idleEdgesTask.Result;
 
-        var idleRegions = BuildIdleRegionsFromEdges(idleEdges, start, end);
+        var idleRegions = BuildIdleRegionsFromEdges(req.FlowName, idleEdges, start, end);
 
         // 차트 x 축 기준 = ActualEvent* (CycleTimeChartRenderer 와 동일하게 narrow)
         var chartStart = data.ActualEventStartTime ?? data.StartTime;
@@ -164,8 +164,8 @@ public class CycleAnalysisController : ControllerBase
     // ─── Blazor LoadIdleEdgesAsync 와 동일 ────────────────────────────────────
     private async Task<List<DateTime>> LoadIdleEdgesAsync(string flowName, DateTime start, DateTime end)
     {
-        var s = _settings.LoadSettings();
-        if (s.HistoryView.MaxCycleTimeMs <= 0 && s.HistoryView.MinCycleTimeMs <= 0)
+        var (maxCT, minCT) = _settings.GetEffectiveCycleRangeMs(flowName);
+        if (maxCT <= 0 && minCT <= 0)
             return new List<DateTime>();
 
         var (headCallName, _) = _flowMetrics.GetCycleBoundaryCallNames(flowName);
@@ -183,16 +183,14 @@ public class CycleAnalysisController : ControllerBase
         return await _cycleAnalysis.GetCycleBoundaryTimesAsync(flowName, start, end);
     }
 
-    // ─── Blazor BuildIdleRegionsFromEdges 와 동일 ─────────────────────────────
+    // ─── Blazor BuildIdleRegionsFromEdges 와 동일 (유효 비가동 범위 = 글로벌 + per-flow override) ─────
     private List<(DateTime Start, DateTime End)> BuildIdleRegionsFromEdges(
-        List<DateTime> edges, DateTime chartStart, DateTime chartEnd)
+        string flowName, List<DateTime> edges, DateTime chartStart, DateTime chartEnd)
     {
         var regions = new List<(DateTime Start, DateTime End)>();
         if (edges.Count == 0) return regions;
 
-        var s = _settings.LoadSettings();
-        var maxCT = s.HistoryView.MaxCycleTimeMs;
-        var minCT = s.HistoryView.MinCycleTimeMs;
+        var (maxCT, minCT) = _settings.GetEffectiveCycleRangeMs(flowName);
         if (maxCT <= 0 && minCT <= 0) return regions;
 
         var sorted = edges.OrderBy(t => t).ToList();

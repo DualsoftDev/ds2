@@ -254,16 +254,14 @@ public sealed class CycleRecomputeService
     /// <summary>
     /// 사이클 분해 → dspFlowHistory 엔티티. MT=활성, CT=주기, WT=CT−MT(라이브 가산정의와 동일).
     /// RecordedAt 은 라이브 경로(UtcNow 저장)와 맞추기 위해 완료(없으면 사이클 끝) 시각을 UTC 로 변환해 저장한다.
-    /// IsIdle 은 현재 설정의 Max/MinCycleTimeMs 로 재판정(과거를 새 임계로 다시 가동/비가동 분류).
+    /// IsIdle 은 현재 유효 비가동 범위(글로벌 + per-flow override)로 재판정(과거를 새 기준으로 다시 가동/비가동 분류).
     /// 삽입 행은 반드시 [fromUtc, toUtc) 안에 들도록 clamp → delete-range 와 정확히 일치(중복/누락 방지).
     /// </summary>
     private List<DspFlowHistoryEntity> BuildRows(
         string flowName, string? headCallName, string? tailCallName,
         IReadOnlyList<CycleDerivation.CycleRecord> cycles, DateTime fromUtc, DateTime toUtc)
     {
-        var hv = _settings.LoadSettings().HistoryView;
-        int maxCT = hv.MaxCycleTimeMs;
-        int minCT = hv.MinCycleTimeMs;
+        var (maxCT, minCT) = _settings.GetEffectiveCycleRangeMs(flowName);
 
         var rows = new List<DspFlowHistoryEntity>(cycles.Count);
         int cycleNo = 0;
@@ -349,7 +347,10 @@ public sealed class CycleRecomputeService
         {
             await _dsp.RecomputeAveragesFromCurrentBoundaryAsync();
             await _flowMetrics.ReseedCycleStatesFromCurrentBoundaryAsync();
-            _dspDb.Reset();
+            // Reset()(스냅샷 비움 → 다음 1초 폴링까지 대기) 대신 동기 재읽기로 제자리 교체.
+            // DB 는 삭제되지 않고 평균만 바뀌었으므로 비울 필요가 없고, 비우면 그 빈 창에 대시보드가
+            // 빈 Flows 를 읽어 모든 카드가 잠깐 "곧 시작"으로 초기화되어 보인다(이 메서드는 그 깜빡임 제거).
+            _dspDb.RefreshNow();
         }
         catch (Exception ex)
         {
