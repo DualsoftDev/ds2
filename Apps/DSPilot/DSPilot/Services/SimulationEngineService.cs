@@ -33,6 +33,7 @@ public sealed class SimulationEngineService : IDisposable
     private readonly CallStateNotificationService _notificationService;
     private readonly IDatabasePathResolver _pathResolver;
     private readonly PlcTagLogWriterService _logWriter;
+    private readonly AppSettingsService _settings;
     private readonly ILogger<SimulationEngineService> _logger;
 
     private ISimulationEngine? _engine;
@@ -45,6 +46,10 @@ public sealed class SimulationEngineService : IDisposable
     // Welford 통계 — Going 시작 시각 + 누적 (count, mean, M2)
     private readonly Dictionary<Guid, (DateTime startedAt, int count, double mean, double m2)> _callStats = new();
     private readonly object _statsLock = new();
+
+    // 완료 타임아웃으로 강제 Ready 복귀 중인 Call — Going→Ready 이벤트가 finish 통계/사이클로
+    // 집계되지 않게(비정상 종료) 핸들러가 건너뛰도록 표시. _statsLock 으로 보호.
+    private readonly HashSet<Guid> _timeoutAbandoned = new();
 
     // 주소 → plcTag.id 캐시 (CycleTimeAnalysis 가 보는 plcTagLog INSERT 용).
     // AASX 재로딩 후 EnsureUserTagAddressesRegistered() 가 background thread 에서 갱신할 수 있으므로
@@ -75,6 +80,7 @@ public sealed class SimulationEngineService : IDisposable
         CallStateNotificationService notificationService,
         IDatabasePathResolver pathResolver,
         PlcTagLogWriterService logWriter,
+        AppSettingsService settings,
         ILogger<SimulationEngineService> logger)
     {
         _projectService = projectService;
@@ -84,6 +90,7 @@ public sealed class SimulationEngineService : IDisposable
         _notificationService = notificationService;
         _pathResolver = pathResolver;
         _logWriter = logWriter;
+        _settings = settings;
         _logger = logger;
     }
 
@@ -567,9 +574,13 @@ public sealed class SimulationEngineService : IDisposable
     /// 쓰기 유실/지연(예: 자동 재계산의 무거운 트랜잭션과 락 경합)으로 'Going'에 latch된 행을 교정한다.
     /// <para>보수적: <b>DB=Going 인데 엔진=non-Going</b> 인 발산만 교정한다. 엔진도 Going 이면 정상 진행 중이므로
     /// 건드리지 않고(=절대 Going 으로 강제하지 않음), 깜빡임/이벤트 경로와 충돌하지 않는다.
-    /// 엔진 자체가 Going 에 멈춘 경우(완료 신호 미수신)는 발산이 아니므로 여기서 다루지 않는다.</para>
+    /// 엔진 자체가 Going 에 멈춘 경우(완료 신호 미수신)는 발산이 아니므로 별도 'Going 고정 해제'로 다룬다.</para>
+    /// <para><b>Going 고정 해제</b>: 엔진도 Going(=발산 아님)이지만 경과가 해당 flow 의 유효 이상치 Max
+    /// (<see cref="AppSettingsService.ResolveEffectiveCycleRangeMs"/> — 전체 + flow별 비가동 임계, 사후 IsIdle
+    /// 분류와 동일 소스)를 넘으면, 지금 완료돼도 어차피 비가동으로 분류될 사이클이므로 'Going 고정'으로 보고
+    /// Ready 로 강제 복귀시킨다(통계/사이클 미기록). effective Max=0(제한 없음)인 flow 는 해제하지 않는다.</para>
     /// </summary>
-    /// <returns>교정한 Call 수(0 = 발산 없음).</returns>
+    /// <returns>교정한 Call 수(발산 self-heal + Going 고정 해제).</returns>
     public async Task<int> ReconcileStuckStatesAsync()
     {
         if (_engine is null) return 0;
@@ -580,14 +591,37 @@ public sealed class SimulationEngineService : IDisposable
         catch (Exception ex) { _logger.LogWarning(ex, "[Engine] reconcile: Going Call 조회 실패"); return 0; }
         if (goingCalls.Count == 0) return 0;
 
+        // flow별 유효 이상치 Max(전체+flow별, 사후 비가동 분류와 동일 소스)를 'Going 고정' 해제 임계로 재사용.
+        // 디스크 재로드를 줄이기 위해 tick 당 한 번만 로드.
+        var settings = _settings.LoadSettings();
+
         var affectedFlows = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var now = DateTime.Now;
         int corrected = 0;
+        int timedOut = 0;
 
         foreach (var gc in goingCalls)
         {
             if (gc.CallId == Guid.Empty) continue;
-            if (GetCallStateSafe(gc.CallId) == Status4.Going) continue; // 엔진도 Going → 발산 아님
+
+            if (GetCallStateSafe(gc.CallId) == Status4.Going)
+            {
+                // 엔진도 Going → 발산 아님(정상 진행 중). 단, 경과가 flow 유효 이상치 Max 를 넘으면
+                // Going 고정으로 보고 Ready 강제 복귀. ForceCallState 가 Going→Ready 이벤트를 발사 →
+                // HandleCallStateChangeAsync 의 abandon 경로가 DB 쓰기/flow 동기화/통지를 처리(통계·사이클
+                // 미기록). 여기선 엔진만 건드린다.
+                var maxMs = AppSettingsService.ResolveEffectiveCycleRangeMs(settings, gc.FlowName).MaxMs;
+                if (maxMs > 0 && IsGoingStuckBeyond(gc.CallId, maxMs, now))
+                {
+                    MarkGoingAbandoned(gc.CallId);
+                    _engine.ForceCallState(gc.CallId, Status4.Ready);
+                    timedOut++;
+                    _logger.LogInformation(
+                        "[Engine] reconcile: Going 고정 해제 — Call {Call}(flow {Flow}) 경과 > 이상치 Max {Max}ms → Ready 복귀(미기록)",
+                        gc.CallName, gc.FlowName, maxMs);
+                }
+                continue;
+            }
 
             var next = MapStatus4(GetCallStateSafe(gc.CallId)); // 엔진 정본 상태로 교정
             bool ok;
@@ -614,7 +648,35 @@ public sealed class SimulationEngineService : IDisposable
             _logger.LogInformation(
                 "[Engine] reconcile: {Count}개 stale-Going Call 교정(engine↔DB 발산) — flows={Flows}",
                 corrected, string.Join(",", affectedFlows));
-        return corrected;
+        return corrected + timedOut;
+    }
+
+    /// <summary>
+    /// 엔진이 Going 인 Call 의 경과시간이 ceilingMs(= flow 유효 이상치 Max)를 넘었는지. 넘었으면 지금
+    /// 완료돼도 비가동으로 분류될 사이클이므로 'Going 고정'으로 보고 해제 대상. 이 프로세스에서 Going
+    /// 시작 시각을 모르면(재시작 등) 판단 보류(false).
+    /// </summary>
+    private bool IsGoingStuckBeyond(Guid callGuid, int ceilingMs, DateTime now)
+    {
+        DateTime startedAt;
+        lock (_statsLock)
+        {
+            if (!_callStats.TryGetValue(callGuid, out var s) || s.startedAt == default)
+                return false;
+            startedAt = s.startedAt;
+        }
+        return (now - startedAt).TotalMilliseconds > ceilingMs;
+    }
+
+    /// <summary>Going 고정 해제 표시 + Going 시작 시각 리셋(통계 오염/재진입 방지).</summary>
+    private void MarkGoingAbandoned(Guid callGuid)
+    {
+        lock (_statsLock)
+        {
+            _timeoutAbandoned.Add(callGuid);
+            if (_callStats.TryGetValue(callGuid, out var s))
+                _callStats[callGuid] = (default, s.count, s.mean, s.m2);
+        }
     }
 
     // ===== Engine state events =====
@@ -676,6 +738,12 @@ public sealed class SimulationEngineService : IDisposable
         var enteringGoing = args.PreviousState != Status4.Going && args.NewState == Status4.Going;
         var leavingGoing  = args.PreviousState == Status4.Going && args.NewState != Status4.Going;
 
+        // Going 고정 해제(reconcile)로 강제된 Going 이탈은 정상 완료가 아니다 — finish 통계/사이클로 집계하지 않는다.
+        bool abandoned = false;
+        if (leavingGoing)
+            lock (_statsLock) { abandoned = _timeoutAbandoned.Remove(callGuid); }
+        bool finishingGoing = leavingGoing && !abandoned;
+
         // DB write 실패는 in-memory snapshot 과 divergence 를 만들 수 있으므로 명시적 Warn 로그.
         // (이후 1초 폴링이 snapshot 을 DB 값으로 덮어쓰면서 UI 깜빡임 가능 — 원인 추적 용이하게 기록.)
         bool dbOk;
@@ -684,7 +752,7 @@ public sealed class SimulationEngineService : IDisposable
             RecordGoingStart(callGuid, now);
             dbOk = await _dspRepository.UpdateCallStateAsync(callGuid, next);
         }
-        else if (leavingGoing)
+        else if (finishingGoing)
         {
             var (durMs, avg, stdDev) = RecordGoingFinish(callGuid, now);
             dbOk = await _dspRepository.UpdateCallWithStatisticsAsync(
@@ -710,7 +778,7 @@ public sealed class SimulationEngineService : IDisposable
             // Tail Call 의 Finish 가 사이클 1회 종료 — dspFlow.state="Finish" 를 250ms hold 로 표시
             //   실 PLC: cycle 사이의 자연스러운 idle gap 동안 폴링이 잡음
             //   시뮬:   gap 이 거의 0ms 라 hold 로 강제 표시
-            if (leavingGoing && _flowMetricsService.IsInitialized)
+            if (finishingGoing && _flowMetricsService.IsInitialized)
             {
                 var (_, tailCallName) = _flowMetricsService.GetCycleBoundaryCallNames(flowName);
                 if (!string.IsNullOrEmpty(tailCallName) && tailCallName == callName)
@@ -720,6 +788,7 @@ public sealed class SimulationEngineService : IDisposable
                 }
             }
 
+            // abandon(타임아웃 해제)도 Going 이탈이므로 flow 는 Ready 로 내려야 한다 → leavingGoing 그대로 전달.
             ScheduleFlowSync(repo, flowName, enteringGoing, leavingGoing);
         }
 
@@ -729,8 +798,8 @@ public sealed class SimulationEngineService : IDisposable
         {
             if (enteringGoing)
                 _flowMetricsService.OnCallGoingStarted(flowName, callName, now);
-            else if (leavingGoing)
-                _flowMetricsService.OnCallFinished(flowName, callName, now);
+            else if (finishingGoing)
+                _flowMetricsService.OnCallFinished(flowName, callName, now); // abandon 은 사이클 미기록
         }
 
         // 4. DspDbService EventWriter — 1초 폴링 대기 없이 UI 즉시 반영
@@ -836,7 +905,7 @@ public sealed class SimulationEngineService : IDisposable
             _passiveInference = null;
             _initFailed = false;
         }
-        lock (_statsLock) { _callStats.Clear(); }
+        lock (_statsLock) { _callStats.Clear(); _timeoutAbandoned.Clear(); }
         _plcTagIdByAddress.Clear();
 
         // 보류 중인 flow ready 디바운스 모두 취소
