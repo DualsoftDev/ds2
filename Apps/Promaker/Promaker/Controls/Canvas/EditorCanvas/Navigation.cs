@@ -6,6 +6,7 @@ namespace Promaker.Controls;
 public partial class EditorCanvas
 {
     private const double ContentVisibilityMargin = 80.0;
+    private const double InitialViewportMargin = 24.0;
 
     private void OnMouseWheel(object sender, MouseWheelEventArgs e)
     {
@@ -125,6 +126,25 @@ public partial class EditorCanvas
         var centerY = (minY + maxY) / 2;
         PanTransform.X = viewW / 2 - centerX * _zoom;
         PanTransform.Y = viewH / 2 - centerY * _zoom;
+        ZoomText.Text = $"{(int)(_zoom * 100)}%";
+    }
+
+    public void ApplyZoomTopLeft(double zoom)
+    {
+        if (ActiveCanvasState?.CanvasNodes is not { Count: > 0 } nodes) return;
+
+        double minX = double.MaxValue, minY = double.MaxValue;
+        foreach (var n in nodes)
+        {
+            minX = Math.Min(minX, n.X);
+            minY = Math.Min(minY, n.Y);
+        }
+
+        _zoom = Math.Clamp(zoom, MinZoom, MaxZoom);
+        ZoomTransform.ScaleX = _zoom;
+        ZoomTransform.ScaleY = _zoom;
+        PanTransform.X = InitialViewportMargin - minX * _zoom;
+        PanTransform.Y = InitialViewportMargin - minY * _zoom;
         ZoomText.Text = $"{(int)(_zoom * 100)}%";
     }
 

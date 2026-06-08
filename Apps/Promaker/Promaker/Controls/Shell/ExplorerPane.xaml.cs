@@ -324,7 +324,7 @@ public partial class ExplorerPane : UserControl
         {
             ViewModel.Canvas.OpenCanvasTab(node.Id, node.EntityType);
             Dispatcher.InvokeAsync(
-                () => ViewModel?.Canvas.ApplyZoomCenteredRequested?.Invoke(doubleClickZoom),
+                () => ViewModel?.Canvas.ApplyZoomTopLeftRequested?.Invoke(doubleClickZoom),
                 System.Windows.Threading.DispatcherPriority.Loaded);
         }
         else if (action.IsEditApiDef)

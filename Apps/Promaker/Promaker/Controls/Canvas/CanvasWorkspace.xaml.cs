@@ -40,6 +40,7 @@ public partial class CanvasWorkspace : UserControl, INotifyPropertyChanged
     public void CenterOnNode(Guid id) => EditorCanvasControl.CenterOnNode(id);
     public void FitToViewZoomOut() => EditorCanvasControl.FitToViewZoomOut();
     public void ApplyZoomCentered(double zoom) => EditorCanvasControl.ApplyZoomCentered(zoom);
+    public void ApplyZoomTopLeft(double zoom) => EditorCanvasControl.ApplyZoomTopLeft(zoom);
     public Point? GetViewportCenter() => EditorCanvasControl.GetViewportCenter();
     public (double Zoom, double PanX, double PanY) GetCurrentView() => EditorCanvasControl.GetCurrentView();
     public void RestoreView(double zoom, double panX, double panY) => EditorCanvasControl.RestoreView(zoom, panX, panY);
