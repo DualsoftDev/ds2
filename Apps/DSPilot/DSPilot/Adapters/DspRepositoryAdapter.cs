@@ -1506,67 +1506,50 @@ public class DspRepositoryAdapter : IDspRepository
         using var tx = conn.BeginTransaction();
         try
         {
-            // 매칭 조건을 inline 으로 두 번 쓰지 않게 view 대신 sub-select 두 번 (SQLite UPDATE FROM 미지원 환경 호환).
-            // boundary 매칭은 dspFlow.{MovingStartName,MovingEndName} == flowName||'.'||h.{headCallName,tailCallName}.
+            // boundary 매칭 predicate (h=history, 대상=dspFlow): dspFlow.{MovingStartName,MovingEndName}
+            // == flowName||'.'||h.{headCallName,tailCallName}. (SQLite UPDATE FROM 미지원 → 상관 sub-select.)
+            var boundaryMatch = $@"(h.headCallName IS NULL
+                               OR {_flowTable}.movingStartName = ({_flowTable}.flowName || '.' || h.headCallName))
+                          AND (h.tailCallName IS NULL
+                               OR {_flowTable}.movingEndName = ({_flowTable}.flowName || '.' || h.tailCallName))";
+
+            // 경계매칭 부분집합이 0행이면(현재 boundary 가 history 의 head/tail 과 어긋난 경우 — 경계 메타 불일치)
+            // 경계조건을 떼고 전체 비가동 평균으로 폴백한다. → stale/오염된 평균(예: 라이브 누산기가 남긴 수십 분
+            // 값)이 박제되지 않고, 항상 이상치(IsIdle) 필터만 적용한 평균을 보인다. 매칭 행이 1개라도 있으면 그
+            // 부분집합을 그대로 사용해 경계변경 의미(새 경계로 측정된 사이클만 집계)를 보존한다.
+            string AvgFallback(string col) => $@"COALESCE(
+                        (SELECT AVG(h.{col}) FROM {HistoryTable} h
+                          WHERE h.flowName = {_flowTable}.flowName AND COALESCE(h.IsIdle, 0) = 0 AND {boundaryMatch}),
+                        (SELECT AVG(h.{col}) FROM {HistoryTable} h
+                          WHERE h.flowName = {_flowTable}.flowName AND COALESCE(h.IsIdle, 0) = 0))";
+            var avgMt = AvgFallback("mt");
+            var avgWt = AvgFallback("wt");
+            var avgCt = AvgFallback("ct");
             var avgSql = $@"
                 UPDATE {_flowTable}
-                SET AvgMT = (
-                        SELECT AVG(h.mt) FROM {HistoryTable} h
-                        WHERE h.flowName = {_flowTable}.flowName
-                          AND COALESCE(h.IsIdle, 0) = 0
-                          AND (h.headCallName IS NULL
-                               OR {_flowTable}.movingStartName = ({_flowTable}.flowName || '.' || h.headCallName))
-                          AND (h.tailCallName IS NULL
-                               OR {_flowTable}.movingEndName = ({_flowTable}.flowName || '.' || h.tailCallName))
-                    ),
-                    AvgWT = (
-                        SELECT AVG(h.wt) FROM {HistoryTable} h
-                        WHERE h.flowName = {_flowTable}.flowName
-                          AND COALESCE(h.IsIdle, 0) = 0
-                          AND (h.headCallName IS NULL
-                               OR {_flowTable}.movingStartName = ({_flowTable}.flowName || '.' || h.headCallName))
-                          AND (h.tailCallName IS NULL
-                               OR {_flowTable}.movingEndName = ({_flowTable}.flowName || '.' || h.tailCallName))
-                    ),
-                    AvgCT = (
-                        SELECT AVG(h.ct) FROM {HistoryTable} h
-                        WHERE h.flowName = {_flowTable}.flowName
-                          AND COALESCE(h.IsIdle, 0) = 0
-                          AND (h.headCallName IS NULL
-                               OR {_flowTable}.movingStartName = ({_flowTable}.flowName || '.' || h.headCallName))
-                          AND (h.tailCallName IS NULL
-                               OR {_flowTable}.movingEndName = ({_flowTable}.flowName || '.' || h.tailCallName))
-                    ),
+                SET AvgMT = {avgMt},
+                    AvgWT = {avgWt},
+                    AvgCT = {avgCt},
                     UpdatedAt = datetime('now')";
             var flowsRecomputed = await conn.ExecuteAsync(avgSql, transaction: tx);
 
-            // 현재값(MT/WT/CT) 도 매칭되는 가장 최근 사이클로 복원. 매칭 행 없으면 NULL 유지.
+            // 현재값(MT/WT/CT) 도 매칭되는 가장 최근 사이클로 복원. 경계매칭이 0행이면 평균과 동일하게
+            // 경계조건 없이 가장 최근 비가동 사이클로 폴백(매칭 행 있으면 그 최근값 유지).
+            string LastFallback(string col) => $@"COALESCE(
+                        (SELECT h.{col} FROM {HistoryTable} h
+                          WHERE h.flowName = {_flowTable}.flowName AND COALESCE(h.IsIdle, 0) = 0 AND {boundaryMatch}
+                          ORDER BY h.recordedAt DESC, h.id DESC LIMIT 1),
+                        (SELECT h.{col} FROM {HistoryTable} h
+                          WHERE h.flowName = {_flowTable}.flowName AND COALESCE(h.IsIdle, 0) = 0
+                          ORDER BY h.recordedAt DESC, h.id DESC LIMIT 1))";
+            var lastMt = LastFallback("mt");
+            var lastWt = LastFallback("wt");
+            var lastCt = LastFallback("ct");
             var lastSql = $@"
                 UPDATE {_flowTable}
-                SET MT = (SELECT h.mt FROM {HistoryTable} h
-                          WHERE h.flowName = {_flowTable}.flowName
-                            AND COALESCE(h.IsIdle, 0) = 0
-                            AND (h.headCallName IS NULL
-                                 OR {_flowTable}.movingStartName = ({_flowTable}.flowName || '.' || h.headCallName))
-                            AND (h.tailCallName IS NULL
-                                 OR {_flowTable}.movingEndName = ({_flowTable}.flowName || '.' || h.tailCallName))
-                          ORDER BY h.recordedAt DESC, h.id DESC LIMIT 1),
-                    WT = (SELECT h.wt FROM {HistoryTable} h
-                          WHERE h.flowName = {_flowTable}.flowName
-                            AND COALESCE(h.IsIdle, 0) = 0
-                            AND (h.headCallName IS NULL
-                                 OR {_flowTable}.movingStartName = ({_flowTable}.flowName || '.' || h.headCallName))
-                            AND (h.tailCallName IS NULL
-                                 OR {_flowTable}.movingEndName = ({_flowTable}.flowName || '.' || h.tailCallName))
-                          ORDER BY h.recordedAt DESC, h.id DESC LIMIT 1),
-                    CT = (SELECT h.ct FROM {HistoryTable} h
-                          WHERE h.flowName = {_flowTable}.flowName
-                            AND COALESCE(h.IsIdle, 0) = 0
-                            AND (h.headCallName IS NULL
-                                 OR {_flowTable}.movingStartName = ({_flowTable}.flowName || '.' || h.headCallName))
-                            AND (h.tailCallName IS NULL
-                                 OR {_flowTable}.movingEndName = ({_flowTable}.flowName || '.' || h.tailCallName))
-                          ORDER BY h.recordedAt DESC, h.id DESC LIMIT 1)";
+                SET MT = {lastMt},
+                    WT = {lastWt},
+                    CT = {lastCt}";
             await conn.ExecuteAsync(lastSql, transaction: tx);
 
             // 사용된 history 행 수 — UI 메시지용. 같은 boundary 매칭 조건으로 COUNT.
@@ -1598,6 +1581,9 @@ public class DspRepositoryAdapter : IDspRepository
     /// <summary>
     /// 현재 boundary 와 일치하는 비가동-제외 history 의 누적합 + 카운트 — in-memory Welford 상태 재시드용.
     /// <see cref="GetNonIdleAggregatesAsync"/> 의 boundary-aware 버전.
+    /// <para>경계매칭 행이 0인 Flow(현재 boundary 가 history 의 head/tail 과 어긋난 경계 메타 불일치)는 전체
+    /// 비가동 집계로 폴백한다 — <see cref="RecomputeAveragesFromCurrentBoundaryAsync"/> 의 평균 폴백과 동일 기준이라
+    /// in-memory 누산기와 dspFlow.Avg* 가 항상 일치한다(누산기가 stale/오염 값을 잡지 않음).</para>
     /// </summary>
     public async Task<Dictionary<string, (int Count, double SumMT, double SumWT, double SumCT)>> GetNonIdleAggregatesByCurrentBoundaryAsync()
     {
@@ -1610,7 +1596,24 @@ public class DspRepositoryAdapter : IDspRepository
 
         await EnsureIsIdleColumnAsync(conn);
 
-        var sql = $@"
+        // 1. 전체 비가동 집계(경계 무관) — 폴백 베이스.
+        var fullSql = $@"
+            SELECT flowName             AS FlowName,
+                   COUNT(*)             AS Cnt,
+                   COALESCE(SUM(mt), 0) AS SumMT,
+                   COALESCE(SUM(wt), 0) AS SumWT,
+                   COALESCE(SUM(ct), 0) AS SumCT
+            FROM {HistoryTable}
+            WHERE COALESCE(IsIdle, 0) = 0
+            GROUP BY flowName";
+        foreach (var r in await conn.QueryAsync<NonIdleAggregateRow>(fullSql))
+        {
+            if (!string.IsNullOrEmpty(r.FlowName))
+                result[r.FlowName] = (r.Cnt, r.SumMT, r.SumWT, r.SumCT);
+        }
+
+        // 2. 현재 boundary 매칭 집계 — 행이 있는 Flow 만 override(경계변경 의미 보존). 0행이면 1의 전체집계 유지.
+        var boundarySql = $@"
             SELECT h.flowName             AS FlowName,
                    COUNT(*)               AS Cnt,
                    COALESCE(SUM(h.mt), 0) AS SumMT,
@@ -1622,11 +1625,9 @@ public class DspRepositoryAdapter : IDspRepository
               AND (h.headCallName IS NULL OR f.movingStartName = (f.flowName || '.' || h.headCallName))
               AND (h.tailCallName IS NULL OR f.movingEndName = (f.flowName || '.' || h.tailCallName))
             GROUP BY h.flowName";
-
-        var rows = await conn.QueryAsync<NonIdleAggregateRow>(sql);
-        foreach (var r in rows)
+        foreach (var r in await conn.QueryAsync<NonIdleAggregateRow>(boundarySql))
         {
-            if (!string.IsNullOrEmpty(r.FlowName))
+            if (!string.IsNullOrEmpty(r.FlowName) && r.Cnt > 0)
                 result[r.FlowName] = (r.Cnt, r.SumMT, r.SumWT, r.SumCT);
         }
         return result;
