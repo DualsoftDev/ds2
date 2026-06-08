@@ -1096,7 +1096,11 @@
                 const stateRaw = (this.flowStateLabel(fp.flowName) || '').toLowerCase();
                 const stateKey = ['ready', 'going', 'finish', 'error'].includes(stateRaw) ? stateRaw : 'ready';
                 const stateText = { ready: 'Ready', going: 'Going', finish: 'Finish', error: 'Error' }[stateKey];
-                const waitText = stateKey === 'going' ? '방금 시작' : stateKey === 'finish' ? '방금 완료' : '곧 시작';
+                // 빈 카드(사이클 데이터 없음) 문구 — 라인 정지/유휴를 '곧/방금'처럼 활동 중으로 오인시키지 않게 중립 표기.
+                const waitText = stateKey === 'going' ? '진행 중'
+                    : stateKey === 'finish' ? '완료'
+                    : stateKey === 'error' ? '정지'
+                    : '대기';
                 const mtFrac = total > 0 ? mt / total : 0;
                 const isBottleneck = fp.flowName === this.maxCtName && !isEmpty;
                 const isMaxWait = fp.flowName === this.maxWtName && !isEmpty;
