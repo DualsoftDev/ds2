@@ -198,6 +198,13 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         });
     }
 
+    public async Task<int> ClearDowntimeEventsAsync(CancellationToken ct = default)
+    {
+        // 정지 이벤트만 비운다 — oeeProductionCount / oeeShiftException(수동입력 자산)은 그대로 둔다.
+        await using var conn = await OpenAsync();
+        return await conn.ExecuteAsync("DELETE FROM oeeDowntimeEvent");
+    }
+
     private static (string Where, DynamicParameters Params) BuildDowntimeFilter(
         DateTime fromUtc, DateTime toUtc, string? status, string? reasonCode, string? flowName)
     {
