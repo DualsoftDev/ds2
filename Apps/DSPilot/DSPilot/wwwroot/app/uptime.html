@@ -107,6 +107,9 @@
         .up-dt-table td.unclassified { font-weight: 800; color: var(--amber); }
         .up-mini-select { padding: 3px 6px; font-size: 0.7rem; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-primary); }
         .up-row-act { display: inline-flex; gap: 5px; align-items: center; }
+        .up-mini-num { width: 110px; padding: 4px 7px; font-size: 0.78rem; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-primary); font-family: var(--font-mono); }
+        .up-ct-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+        .up-dt-table td.unset { font-weight: 700; color: var(--color-text-disabled); }
 
         /* ── 미분류 큐 배너 ── */
         .up-queue { display: flex; align-items: center; gap: 12px; padding: 11px 16px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--amber) 12%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent); margin-bottom: 14px; }
@@ -235,7 +238,7 @@
                     <div class="ds-card-h" style="margin-top:8px;">
                         <span class="ds-card-h-sub" x-show="oee">
                             기간 정지 <b x-text="oee ? (oee.downtimeCount + '건 · ' + durShort(oee.downtimeMs) + ' (가동 ' + pct(oee.availability) + ')') : ''"></b>
-                            · <span x-text="oee ? (oee.idealCycleTimeMs ? ('표준CT ' + oee.idealCycleTimeMs + 'ms') : '표준CT 미설정') : ''"></span>
+                            · <span x-text="oee ? (oee.idealCycleTimeMs ? ('표준CT ' + oee.idealCycleTimeMs + 'ms') : (oee.performance != null ? '표준CT Flow별 설정' : '표준CT 미설정')) : ''"></span>
                         </span>
                     </div>
                 </section>
@@ -394,11 +397,8 @@
                     </section>
                 </div>
 
-                <!-- ════ 신규 수동입력: 불량 수량 + 표준 CT ════ -->
-                <div class="up-grid up-2col">
-
-                    <!-- 불량 입력 -->
-                    <section class="card up-section">
+                <!-- ════ 불량 수량 입력 (품질 Quality 산출용) ════ -->
+                <section class="card up-section">
                         <div class="ds-card-h"><h4>불량 수량 입력</h4><span class="ds-card-h-sub">품질 Quality 산출용 (총량은 사이클 자동)</span></div>
                         <div class="up-form">
                             <div class="up-form-row">
@@ -432,29 +432,89 @@
                         </div>
                     </section>
 
-                    <!-- 표준 CT 입력 -->
-                    <section class="card up-section">
-                        <div class="ds-card-h"><h4>표준 사이클타임(idealCT) 입력</h4><span class="ds-card-h-sub">성능 Performance 산출용</span></div>
-                        <div class="up-form">
-                            <div class="up-field">
-                                <label>설비(Flow)</label>
-                                <input type="text" list="up-flow-list" x-model="ctForm.flow" placeholder="Flow 이름" />
-                            </div>
-                            <div class="up-field">
-                                <label>표준 사이클타임 (ms)</label>
-                                <input type="number" min="0" x-model.number="ctForm.idealCycleTimeMs" placeholder="예: 4500" />
-                            </div>
-                            <div style="display:flex; align-items:center; gap:10px;">
-                                <button class="btn btn-sm btn-primary" :disabled="!ctForm.flow || ctForm.busy" @click="submitIdealCt()">
-                                    <span class="material-icons" style="font-size:15px;">save</span> 표준CT 저장
-                                </button>
-                                <span class="up-form-ok" x-show="ctForm.msg" x-text="ctForm.msg"></span>
-                                <span class="up-form-err" x-show="ctForm.err" x-text="ctForm.err"></span>
-                            </div>
-                            <div class="up-form-hint">엔지니어 입력값(없거나 0 이면 해제). 표준CT 가 있어야 성능 지표가 산출되고, OEE 종합이 완성됩니다.</div>
+                <!-- ════ 표준 사이클타임(idealCT) — Flow 일괄 편집 테이블 ════ -->
+                <section class="card up-section">
+                    <div class="ds-card-h">
+                        <h4>표준 사이클타임(idealCT)</h4>
+                        <span class="ds-card-h-sub">성능 Performance 산출용 · Flow별 일괄 편집 · 실측(이상치 제외) 추천</span>
+                    </div>
+
+                    <div class="alert alert-error" x-show="ctError" style="margin-bottom:12px;"><span class="material-icons">error</span><span x-text="ctError"></span></div>
+
+                    <div class="up-ct-toolbar">
+                        <button class="btn btn-sm btn-primary" @click="applyAllIdealCt()" :disabled="ctApplying || ctTable.length === 0">
+                            <span class="material-icons" style="font-size:15px;">save</span> 일괄 적용
+                        </button>
+                        <button class="btn btn-sm btn-outlined" @click="loadCtTable()" :disabled="ctLoading">
+                            <span class="material-icons" style="font-size:15px;">refresh</span> 새로고침
+                        </button>
+                        <span class="ds-card-h-sub">추천값 = 이상치 제외 사이클 CT 의 <b>최속 반복가능치(하위 10%, p10)</b> · 평균 아님</span>
+                        <span style="flex:1;"></span>
+                        <span class="up-form-ok" x-show="ctMsg" x-text="ctMsg"></span>
+                    </div>
+
+                    <template x-if="ctTable.length > 0">
+                        <div style="overflow-x:auto;">
+                            <table class="ds-table up-dt-table">
+                                <thead>
+                                    <tr>
+                                        <th>설비(Flow)</th>
+                                        <th style="width:110px;">현재 표준CT</th>
+                                        <th>실측 (이상치 제외)</th>
+                                        <th style="width:130px;">추천 (p10)</th>
+                                        <th style="width:130px;">표준CT (ms)</th>
+                                        <th style="width:90px;">상태</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="row in ctTable" :key="row.flowName">
+                                        <tr>
+                                            <td><strong x-text="row.flowName"></strong></td>
+                                            <td class="num" :class="row.idealCycleTimeMs ? '' : 'unset'"
+                                                x-text="row.idealCycleTimeMs ? (row.idealCycleTimeMs + 'ms') : '미설정'"></td>
+                                            <td>
+                                                <template x-if="row.sampleCount > 0">
+                                                    <span class="up-rank-sub" x-text="'n=' + row.sampleCount + ' · min ' + row.minCt + ' · 중앙 ' + row.medianCt + ' · 평균 ' + row.avgCt + 'ms'"></span>
+                                                </template>
+                                                <template x-if="row.sampleCount === 0">
+                                                    <span class="up-rank-sub">데이터 없음</span>
+                                                </template>
+                                            </td>
+                                            <td>
+                                                <template x-if="row.recommendedMs">
+                                                    <button class="btn btn-sm btn-outlined" @click="row.draft = row.recommendedMs"
+                                                            :title="'추천값 ' + row.recommendedMs + 'ms 를 입력칸에 적용'">
+                                                        <span class="material-icons" style="font-size:14px;">auto_fix_high</span>
+                                                        <span x-text="row.recommendedMs + 'ms'"></span>
+                                                    </button>
+                                                </template>
+                                                <template x-if="!row.recommendedMs"><span class="up-rank-sub">—</span></template>
+                                            </td>
+                                            <td>
+                                                <input class="up-mini-num" type="number" min="0" x-model.number="row.draft" placeholder="미설정" />
+                                            </td>
+                                            <td>
+                                                <template x-if="rowChanged(row)"><span class="ds-status warn">변경됨</span></template>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
                         </div>
-                    </section>
-                </div>
+                    </template>
+                    <template x-if="ctTable.length === 0">
+                        <div class="ds-empty" style="border-style:solid;">
+                            <span class="material-icons">straighten</span>
+                            <div class="ds-empty-title">표시할 Flow 가 없습니다</div>
+                            <div class="ds-empty-desc">Promaker 에서 AASX 프로젝트를 로드하면 Flow 가 나타납니다.</div>
+                        </div>
+                    </template>
+
+                    <div class="up-form-hint" style="margin-top:10px;">
+                        엔지니어 입력값(없거나 0 이면 해제). 추천값은 <b>이상치 제외 사이클의 하위 10%(p10) = 최속 반복가능 CT</b> 로, 평균이 아닌 best-demonstrated 기준입니다 — 평균을 넣으면 성능이 자기 자신과 비교되어 무의미해집니다.
+                        표준CT 가 있어야 해당 Flow 의 성능이 산출됩니다. <span class="up-codeish">상단 'OEE 종합'의 성능은 라인 전체(합산)라 per-flow idealCT 가 반영되지 않습니다 — 설비별 순위에서 확인하세요.</span>
+                    </div>
+                </section>
                 <datalist id="up-flow-list">
                     <template x-for="f in flowNames" :key="f"><option :value="f"></option></template>
                 </datalist>
@@ -493,10 +553,10 @@
                     </template>
                 </section>
 
-                <!-- ════ 이상발생 (UserTag) — 실데이터 동작 (보존) ════ -->
-                <section class="card up-section">
+                <!-- ════ 사용자정의 알람 (UserTag) — 실데이터 동작 (보존) ════ -->
+                <section id="ut-section" class="card up-section">
                     <div class="ds-card-h">
-                        <h4>이상발생 (UserTag)</h4>
+                        <h4>사용자정의 알람 (UserTag)</h4>
                         <span class="ds-card-h-sub">AASX UserTag 조건 충족 이벤트 · 실시간 + 기간별 추이 (구 이상발생 관리 통합)</span>
                     </div>
 
@@ -655,9 +715,12 @@
                                                     <td><span class="ds-status" :class="levelStatus(a.logLevel)" x-text="a.logLevel"></span></td>
                                                     <td x-text="a.systemName"></td>
                                                     <td><strong x-text="a.name"></strong></td>
-                                                    <td><span class="up-codeish" x-text="a.tagAddress"></span></td>
+                                                    <!-- 주소: AbnormalDetect는 Flow 이름(일반 텍스트), 나머지는 코드 스타일 -->
+                                                    <td><span :class="a.matchOp !== 'AbnormalDetect' ? 'up-codeish' : ''" x-text="a.tagAddress || '-'"></span></td>
+                                                    <!-- 조건: describeOp가 AbnormalDetect → 한글 설명으로 변환 -->
                                                     <td x-text="describeOp(a.matchOp, a.matchValue)"></td>
-                                                    <td><span class="up-codeish" x-text="a.actualValue"></span></td>
+                                                    <!-- 값: Action* → 경과시간(num), Sensor* → InTag 주소(codeish), 나머지 → codeish -->
+                                                    <td><span :class="a.matchOp === 'AbnormalDetect' && a.matchValue && a.matchValue.startsWith('Action') ? 'num' : 'up-codeish'" x-text="abnVal(a)"></span></td>
                                                 </tr>
                                             </template>
                                         </tbody>
@@ -773,15 +836,25 @@
                 dtFilterStatus: 'all', dtFilterReason: 'all',
                 classifyDraft: {},
                 prodForm: { date: new Date().toISOString().slice(0, 10), shift: '', flow: '', reject: 0, busy: false, msg: '', err: '' },
-                ctForm: { flow: '', idealCycleTimeMs: null, busy: false, msg: '', err: '' },
+                // 표준CT(idealCT) Flow 일괄 편집 테이블 (편집값은 각 행 객체 draft 에 보관 — Alpine x-for 양방향 바인딩 안정)
+                ctTable: [], ctMsg: '', ctError: null, ctLoading: false, ctApplying: false,
 
                 async init() {
                     this.dark = localStorage.getItem('dspilot-theme') === 'dark';
                     window.addEventListener('storage', (e) => { if (e.key === 'dspilot-theme') this.dark = e.newValue === 'dark'; });
+                    // 사이드바 이상코드 피드에서 진입 시 필터 시드(/uptime?utSystem=&utLevel=&utSearch=).
+                    const qp = new URLSearchParams(location.search);
+                    if (qp.has('utSystem')) this.utSystem = qp.get('utSystem') || '';
+                    if (qp.has('utLevel')) this.utLevel = qp.get('utLevel') || '';
+                    if (qp.has('utSearch')) this.utSearch = qp.get('utSearch') || '';
+                    const seeded = qp.has('utSystem') || qp.has('utLevel') || qp.has('utSearch');
                     try { this._charts = await import('/js/user-tag-trend-chart.js'); } catch (e) { console.warn('chart module load failed', e); }
                     await this.load();
+                    await this.loadCtTable();
                     this.connectSignalR();
                     this._pollTimer = setInterval(() => this.load(true), 10000);
+                    // 필터 시드로 진입했으면 UserTag 카드로 스크롤.
+                    if (seeded) this.$nextTick(() => document.getElementById('ut-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
                 },
 
                 destroy() {
@@ -952,8 +1025,20 @@
                     switch (op) {
                         case 'RisingEdge': return '0 → 1'; case 'FallingEdge': return '1 → 0'; case 'Changed': return '값 변경';
                         case 'Eq': return '= ' + v; case 'Neq': return '≠ ' + v; case 'Gt': return '> ' + v; case 'Gte': return '≥ ' + v;
-                        case 'Lt': return '< ' + v; case 'Lte': return '≤ ' + v; default: return op || '?';
+                        case 'Lt': return '< ' + v; case 'Lte': return '≤ ' + v;
+                        case 'AbnormalDetect': {
+                            const m = { SensorShort: '예상치 않은 시점에 완료 신호 감지', SensorOpen: '유지돼야 할 센서 신호 끊김', ActionOver: '허용 시간 초과', ActionUnder: '허용 시간 미만' };
+                            return m[mv] || '이상 감지';
+                        }
+                        default: return op || '?';
                     }
+                },
+                // AbnormalDetect 행 전용 값 렌더링:
+                //   Action* → "Nms" (경과시간), Sensor* → InTag 주소(tagAddress와 다를 때), 동일/미해석 → '-'
+                abnVal(a) {
+                    if (a.matchOp !== 'AbnormalDetect') return a.actualValue;
+                    if (a.matchValue && a.matchValue.startsWith('Action')) return a.actualValue;
+                    return (a.actualValue && a.actualValue !== a.tagAddress) ? a.actualValue : '-';
                 },
 
                 // ── OEE 포맷터/톤 ──
@@ -1063,6 +1148,7 @@
                     const s = new Set();
                     for (const d of this.downtime) { if (d.flowName) s.add(d.flowName); }
                     for (const r of this.ranking) { if (r.flowName) s.add(r.flowName); }
+                    for (const r of this.ctTable) { if (r.flowName) s.add(r.flowName); }
                     return [...s].sort();
                 },
 
@@ -1139,19 +1225,39 @@
                         if (e.message !== 'demo-blocked') f.err = '저장 실패: ' + e.message;
                     } finally { f.busy = false; }
                 },
-                async submitIdealCt() {
-                    const f = this.ctForm;
-                    f.msg = ''; f.err = '';
-                    if (!f.flow) { f.err = '설비(Flow)를 입력하세요.'; return; }
-                    f.busy = true;
+                // ── 표준CT(idealCT) Flow 테이블 ──
+                async loadCtTable() {
+                    this.ctLoading = true;
                     try {
-                        const ms = (f.idealCycleTimeMs != null && f.idealCycleTimeMs > 0) ? Math.round(f.idealCycleTimeMs) : null;
-                        const res = await this.apiPost('/api/oee/ideal-cycle', { flow: f.flow.trim(), idealCycleTimeMs: ms });
-                        f.msg = res.idealCycleTimeMs ? `표준CT ${res.idealCycleTimeMs}ms 저장됨` : '표준CT 해제됨';
+                        const rows = await this.apiGet('/api/oee/ideal-cycle/table');
+                        // 편집값(draft)을 각 행에 직접 보관 → x-model="row.draft" 안정 바인딩.
+                        // draft 는 저장된 현재값으로 시드(편집 전 값 표시).
+                        this.ctTable = (Array.isArray(rows) ? rows : []).map(r => ({
+                            ...r, draft: r.idealCycleTimeMs ?? null
+                        }));
+                        this.ctError = null;
+                    } catch (e) {
+                        if (e.message !== 'demo-blocked') this.ctError = '표준CT 테이블을 불러오지 못했습니다: ' + e.message;
+                    } finally { this.ctLoading = false; }
+                },
+                // draft(입력) 정규화: 양수면 정수ms, 아니면 null(해제)
+                ctNorm(v) { return (v != null && v > 0) ? Math.round(v) : null; },
+                rowChanged(row) { return this.ctNorm(row.draft) !== (row.idealCycleTimeMs ?? null); },
+                async applyAllIdealCt() {
+                    this.ctMsg = ''; this.ctError = null;
+                    const items = this.ctTable
+                        .filter(r => this.rowChanged(r))
+                        .map(r => ({ flow: r.flowName, idealCycleTimeMs: this.ctNorm(r.draft) }));
+                    if (items.length === 0) { this.ctMsg = '변경된 항목이 없습니다.'; return; }
+                    this.ctApplying = true;
+                    try {
+                        const res = await this.apiPost('/api/oee/ideal-cycle/batch', { items });
+                        this.ctMsg = `${res.count}개 Flow 표준CT 일괄 적용됨`;
+                        await this.loadCtTable();
                         await this.loadOee();
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') f.err = '저장 실패: ' + e.message;
-                    } finally { f.busy = false; }
+                        if (e.message !== 'demo-blocked') this.ctError = '일괄 적용 실패: ' + e.message;
+                    } finally { this.ctApplying = false; }
                 }
             };
         }

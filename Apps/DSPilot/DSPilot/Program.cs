@@ -96,6 +96,8 @@ builder.Services.AddSingleton<IDspRepository>(sp => sp.GetRequiredService<DspRep
 // Tag → Call 매핑 + 상태 변경 알림
 builder.Services.AddSingleton<PlcToCallMapperService>();
 builder.Services.AddSingleton<CallStateNotificationService>();
+// v12 경로이탈 이상감지(4종) 싱크 + 라이브 피드 — SimulationEngineService 의 abnormal 어댑터가 흘려보냄.
+builder.Services.AddSingleton<AbnormalEventService>();
 builder.Services.AddSingleton<IFlowMetricsService, FlowMetricsService>();
 builder.Services.AddScoped<CycleAnalysisService>();
 // DspDatabaseServiceAdapter — Singleton 으로도 등록해서 Settings 페이지가 BootstrapAsync 를 다시 호출 가능
@@ -264,6 +266,7 @@ var canonicalStaticRoutes = new Dictionary<string, string>(StringComparer.Ordina
     ["/heatmap"] = "heatmap.html",
     ["/cycle-time-analysis"] = "cycle-time-analysis.html",
     ["/uptime"] = "uptime.html",
+    ["/oee"] = "oee.html",
     ["/cctv"] = "cctv.html",
     ["/plc-debug"] = "plc-debug.html",
     ["/settings"] = "settings.html",

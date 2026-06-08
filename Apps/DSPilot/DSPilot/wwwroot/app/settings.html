@@ -327,6 +327,12 @@
                                         <small class="settings-hint">오감지·노이즈로 인한 짧은 사이클 제외용. 모두 0이면 비활성.</small>
                                     </div>
 
+                                    <div class="form-group" style="margin-bottom:0;">
+                                        <label class="form-label">대시보드 평균 윈도우 (최근 N 사이클)</label>
+                                        <input type="number" class="form-field mono" x-model.number="s.historyView.cycleAverageWindow" min="0" max="1000" placeholder="20" />
+                                        <small class="settings-hint">대시보드 Flow 평균(MT/WT/CT)을 최근 N개 비가동-제외 사이클로만 산출 → 현재 거동 반영. 0이면 전체 이력 평균.</small>
+                                    </div>
+
                                     <hr class="divider" style="margin:16px 0;" />
 
                                     <h6 class="set-subhead">
@@ -496,7 +502,8 @@
                             maxCycleTimeMs: hv.maxCycleTimeMs | 0,
                             minCycleTimeMs: hv.minCycleTimeMs | 0,
                             maxCallGoingTimeMs: hv.maxCallGoingTimeMs | 0,
-                            minCallGoingTimeMs: hv.minCallGoingTimeMs | 0
+                            minCallGoingTimeMs: hv.minCallGoingTimeMs | 0,
+                            cycleAverageWindow: (hv.cycleAverageWindow ?? 20) | 0
                         };
                         const r = await this.apiPost('/api/settings/save', body);
                         this.showToast(r.message, r.ok ? 'success' : 'error');

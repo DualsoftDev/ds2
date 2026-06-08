@@ -74,7 +74,7 @@ public sealed class DatabaseLifecycleService
             var (flowsRecomputed, historyRowsUsed) = (0, 0);
             try
             {
-                (flowsRecomputed, historyRowsUsed) = await _dspRepository.RecomputeAveragesFromCurrentBoundaryAsync();
+                (flowsRecomputed, historyRowsUsed) = await _dspRepository.RecomputeAveragesFromCurrentBoundaryAsync(_settingsService.GetCycleAverageWindow());
                 // in-memory Welford 누적기도 같은 boundary 의 history 로 재시드 → 다음 사이클이 정합 유지
                 await _flowMetricsService.ReseedCycleStatesFromCurrentBoundaryAsync();
             }

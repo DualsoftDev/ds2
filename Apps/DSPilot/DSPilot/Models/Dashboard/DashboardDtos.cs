@@ -81,3 +81,26 @@ public record CycleExclusionSaveDto(
     string? FlowName,
     double? MinSec,
     double? MaxSec);
+
+// v12 경로이탈 이상감지(4종) 1건 — 엔진 AbnormalRecord(Ds2.Core)를 UI/SignalR 용으로 평탄화.
+//   Kind/KindName : AbnormalKind int 값(0..3) + enum 이름(SensorOpen/SensorShort/ActionOver/ActionUnder)
+//   Label/Level   : DSPilot severity 정책 적용본(한글 라벨 + Error/Warning/Info — shell.js LEVEL_COLOR 와 동일)
+//   Source        : NavController '이상코드' 사이드바 피드 합류용 형상("ds-error-0".."ds-error-3")
+//   FlowName/WorkName : Target.CallId → GetCallInfoAsync 로 해석(미해석 시 빈 문자열)
+//   SystemName    : FlowName 소속 시스템(AASX DsProjectService 로 해석, 미로드 시 빈 문자열)
+//   ElapsedMs     : Action* 에만(동작 소요 ms), Observed : Sensor* 에만(관측 상태)
+//   SensorTag     : Sensor* 에만 — 이상 감지 트리거가 된 실제 InTag PLC 주소 (PlcToCallMapperService 해석, 미해석 시 null)
+public record AbnormalEventDto(
+    int Kind,
+    string KindName,
+    string Label,
+    string Level,
+    string Source,
+    string FlowName,
+    string WorkName,
+    string SystemName,
+    int? ElapsedMs,
+    bool? Observed,
+    System.DateTime OccurredAtUtc,
+    string OccurredAtLocal,
+    string? SensorTag = null);

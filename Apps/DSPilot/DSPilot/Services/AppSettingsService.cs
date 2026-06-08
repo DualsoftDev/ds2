@@ -215,6 +215,66 @@ public class AppSettingsService
     }
 
     /// <summary>
+    /// idealCT(표준 사이클타임)가 설정(&gt;0)된 Flow 목록. 라인 전체 OEE 성능을 per-flow idealCT 로 집계할 때 사용.
+    /// </summary>
+    public IReadOnlyList<(string FlowName, int IdealCycleTimeMs)> GetFlowsWithIdealCycleTime()
+    {
+        return LoadSettings().FlowCycle.Overrides
+            .Where(o => !string.IsNullOrWhiteSpace(o.FlowName) && o.IdealCycleTimeMs is > 0)
+            .Select(o => (o.FlowName, o.IdealCycleTimeMs!.Value))
+            .ToList();
+    }
+
+    /// <summary>
+    /// 여러 Flow 의 표준(ideal) 사이클 시간을 한 번의 파일 쓰기로 일괄 갱신 (uptime 표준CT 일괄 적용용).
+    /// 각 항목의 의미는 <see cref="SaveFlowIdealCycleTime"/> 와 동일(null/0 → 해제, 다른 override 도 비면 항목 제거).
+    /// 호출당 settings 파일을 한 번만 저장한다(개별 호출 N회 = N회 쓰기를 회피).
+    /// </summary>
+    public void SaveFlowIdealCycleTimesBatch(IEnumerable<(string FlowName, int? IdealCycleTimeMs)> items)
+    {
+        if (items is null) return;
+
+        var settings = LoadSettings();
+        var overrides = settings.FlowCycle.Overrides;
+        var changed = false;
+
+        foreach (var (flowName, idealCycleTimeMs) in items)
+        {
+            if (string.IsNullOrWhiteSpace(flowName)) continue;
+            var normalized = idealCycleTimeMs is > 0 ? idealCycleTimeMs : null;
+
+            var existing = overrides
+                .FirstOrDefault(item => string.Equals(item.FlowName, flowName, StringComparison.OrdinalIgnoreCase));
+
+            if (existing is null)
+            {
+                if (normalized is null) continue; // 설정할 것도, 제거할 것도 없음
+                overrides.Add(new FlowCycleOverride { FlowName = flowName.Trim(), IdealCycleTimeMs = normalized });
+                changed = true;
+            }
+            else
+            {
+                if (existing.IdealCycleTimeMs == normalized) continue; // 변경 없음
+                existing.IdealCycleTimeMs = normalized;
+                if (normalized is null
+                    && string.IsNullOrWhiteSpace(existing.StartCallName)
+                    && string.IsNullOrWhiteSpace(existing.EndCallName))
+                {
+                    overrides.Remove(existing);
+                }
+                changed = true;
+            }
+        }
+
+        if (!changed) return;
+
+        settings.FlowCycle.Overrides = overrides
+            .OrderBy(item => item.FlowName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        SaveSettings(settings);
+    }
+
+    /// <summary>
     /// 대시보드 히스토리 이상치 제외 범위를 Flow별로 upsert/삭제 (단위 = 초). minSec/maxSec 둘 다 null 이면
     /// 해당 Flow 의 제외 규칙을 제거(전체 복원). 음수는 무시(null), min &gt; max 로 뒤집힌 입력은 자동 교정한다.
     /// (SaveFlowCycleOverride 와 같은 per-flow 리스트 정리 원칙 — 빈 항목은 남기지 않음.)
@@ -267,6 +327,12 @@ public class AppSettingsService
     /// </summary>
     public (int MaxMs, int MinMs) GetEffectiveCycleRangeMs(string flowName)
         => ResolveEffectiveCycleRangeMs(LoadSettings(), flowName);
+
+    /// <summary>
+    /// Flow 평균(AvgMT/WT/CT) 롤링 윈도우 크기 = 최근 비가동-제외 사이클 수. 0/음수 = 전체 이력(윈도우 비활성).
+    /// 라이브 누산기·SQL 재집계가 동일 N 을 쓰도록 하는 단일 소스.
+    /// </summary>
+    public int GetCycleAverageWindow() => LoadSettings().HistoryView.CycleAverageWindow;
 
     /// <summary>이미 로드한 모델로 유효범위 계산(반복 호출 시 디스크 재로드 방지).</summary>
     public static (int MaxMs, int MinMs) ResolveEffectiveCycleRangeMs(AppSettingsModel settings, string flowName)

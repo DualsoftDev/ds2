@@ -95,6 +95,7 @@ public class SettingsController : ControllerBase
             m.HistoryView.MinCycleTimeMs = req.MinCycleTimeMs;
             m.HistoryView.MaxCallGoingTimeMs = req.MaxCallGoingTimeMs;
             m.HistoryView.MinCallGoingTimeMs = req.MinCallGoingTimeMs;
+            m.HistoryView.CycleAverageWindow = req.CycleAverageWindow;
 
             // CCTV(RTSP) 카메라 설정은 CCTV 페이지(CctvController.SaveSettings)가 소유 — 여기서는 건드리지 않는다.
             // (Settings 저장이 카메라 목록을 덮어써 오버레이/카메라가 유실되는 것을 방지.)
@@ -178,7 +179,7 @@ public class SettingsController : ControllerBase
             m.Logging.LogLevel.Default,
             new[] { "Trace", "Debug", "Information", "Warning", "Error", "Critical", "None" },
             m.Ui.ShowPlcDebug,
-            new HistoryViewDto(hv.MaxCycleTimeMs, hv.MinCycleTimeMs, hv.MaxCallGoingTimeMs, hv.MinCallGoingTimeMs),
+            new HistoryViewDto(hv.MaxCycleTimeMs, hv.MinCycleTimeMs, hv.MaxCallGoingTimeMs, hv.MinCallGoingTimeMs, hv.CycleAverageWindow),
             new CctvDto(
                 m.Cctv.MediaMtxApiUrl,
                 m.Cctv.WebRtcPort,
@@ -297,7 +298,8 @@ public record HistoryViewDto(
     int MaxCycleTimeMs,
     int MinCycleTimeMs,
     int MaxCallGoingTimeMs,
-    int MinCallGoingTimeMs);
+    int MinCallGoingTimeMs,
+    int CycleAverageWindow = 20);
 
 public record CctvDto(
     string MediaMtxApiUrl,
@@ -308,7 +310,9 @@ public record CctvDto(
     // 외부(원격·클라우드) 접속용 공인 IP/도메인. 기본값으로 기존 호출부(SettingsController) 무손상.
     string WebRtcAdditionalHosts = "");
 
-public record CameraDto(string Name, string RtspUrl, bool Enabled);
+// Slug = MediaMTX 경로명(ASCII). GET 응답에만 포함(디버깅·참고용). 클라이언트는 slug 를 보내지 않으며,
+// 서버(CctvController.SaveSettings)가 포지션 기반 이어받기 + AssignSlugs(cam1/cam2/…) 로 관리.
+public record CameraDto(string Name, string RtspUrl, bool Enabled, string Slug = "");
 
 public record AasxStatusDto(
     bool Exists,
@@ -325,7 +329,8 @@ public record SaveRequestDto(
     int MaxCycleTimeMs,
     int MinCycleTimeMs,
     int MaxCallGoingTimeMs,
-    int MinCallGoingTimeMs);
+    int MinCallGoingTimeMs,
+    int CycleAverageWindow = 20);
 
 public record SaveResultDto(bool Ok, string Message);
 

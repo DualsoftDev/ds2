@@ -1,0 +1,1230 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OEE 설비종합효율 — DSPilot</title>
+
+    <!--
+      DSPilot 정적 호스팅 — OEE(설비종합효율) 전용 페이지.
+      서버/모델 = C#(/api/oee/*, /api/dashboard/*, /api/settings, /api/user-tags/*), 뷰 = 정적 HTML/CSS/JS(Alpine + SignalR).
+      디자인 시스템: /css/ds.css (Control Room 애저).
+
+      가용성 기준(uptime 과의 차별점):
+        uptime = '달력근사'(1 − 정지/기간). 이 페이지 = '시프트 기반 진짜 가용성'(doc/21 §8 Phase4):
+        계획생산시간(PPT) = 시프트 창(Start/End, 야간 자정넘김 포함) ∩ 기간 − 계획정지(시프트 예외),
+        가용성 = 가동시간(PPT − 비계획정지) / PPT. 신규 /api/oee/shift-summary 가 구간연산으로 정밀 산출.
+
+      활용 데이터: Flow 사이클(생산수·CT), call 태그 표준CT(추천 p10), 이상치 필터(전역 HistoryView + 개별 CycleExclusion),
+        시프트 설정(PPT 분모), 시프트 예외(계획정지), ds에러·UserTag(정지원인 자동수집·이상 신호).
+      정직성 원칙(doc/21 §10): 산출 불가 지표는 '—' + 사유(*Note)로 정직 표기 — 가짜 % 금지.
+
+      Chart.js 미사용: 모든 시각화는 인라인 SVG/CSS (Alpine 반응형 Chart.js update 폭주 함정 회피).
+    -->
+    <link href="/css/fonts.css" rel="stylesheet" />
+    <link href="/css/ds.css" rel="stylesheet" />
+
+    <style>
+        [x-cloak] { display: none !important; }
+
+        .dsp-page { min-height: 100vh; display: flex; flex-direction: column; background: var(--color-background); color: var(--color-text-primary); font-family: var(--font-family); }
+        .dsp-appbar { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 20px; background: var(--color-appbar-bg); color: var(--color-appbar-text); border-bottom: 1px solid var(--color-lines-strong); position: sticky; top: 0; z-index: 50; flex-shrink: 0; }
+        .dsp-appbar .dsp-title { font-size: 18px; font-weight: 700; }
+        .dsp-appbar .spacer { flex: 1; }
+        .dsp-main { flex: 1; min-height: 0; padding: 16px 20px 24px; max-width: 1500px; margin: 0 auto; width: 100%; }
+
+        .oee-grid { display: grid; gap: 16px; }
+        .oee-section { padding: 18px 20px; }
+        .oee-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        @media (max-width: 980px) { .oee-2col { grid-template-columns: 1fr; } }
+
+        /* ── 라인 OEE 히어로 ── */
+        .oee-hero { display: grid; grid-template-columns: 220px 1fr; gap: 24px; align-items: center; }
+        @media (max-width: 720px) { .oee-hero { grid-template-columns: 1fr; justify-items: center; } }
+        .oee-gauge { width: 200px; height: 200px; display: block; }
+        .oee-gauge-val { font-size: 26px; font-weight: 800; font-family: var(--font-mono); }
+        .oee-gauge-cap { font-size: 7px; fill: var(--color-text-secondary); letter-spacing: 0.1em; }
+        .oee-gauge-grade { font-size: 6px; font-weight: 700; }
+
+        .oee-apq { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+        @media (max-width: 560px) { .oee-apq { grid-template-columns: 1fr; } }
+        .oee-apq-cell { background: var(--color-surface-variant); border: 1px solid var(--color-lines); border-radius: var(--radius-md); padding: 13px 15px; border-left: 3px solid var(--color-lines-strong); }
+        .oee-apq-cell.is-good { border-left-color: var(--green); }
+        .oee-apq-cell.is-warn { border-left-color: var(--amber); }
+        .oee-apq-cell.is-bad  { border-left-color: var(--red); }
+        .oee-apq-cell.is-na   { border-style: dashed; background: var(--color-surface); }
+        .oee-apq-label { font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-secondary); display: flex; justify-content: space-between; }
+        .oee-apq-label .tgt { color: var(--color-text-disabled); font-weight: 600; }
+        .oee-apq-value { margin-top: 5px; font-size: 1.55rem; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+        .oee-apq-cell.is-na .oee-apq-value { color: var(--color-text-disabled); font-size: 1.1rem; }
+        .oee-bar { margin-top: 8px; height: 6px; border-radius: 3px; background: var(--color-surface); overflow: hidden; }
+        .oee-bar-fill { height: 100%; border-radius: 3px; transition: width 0.4s; }
+        .oee-bar-tgt { position: relative; }
+        .oee-apq-note { margin-top: 6px; font-size: 0.6rem; color: var(--color-text-secondary); line-height: 1.35; }
+
+        .oee-hero-foot { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 14px; font-size: 0.72rem; color: var(--color-text-secondary); }
+        .oee-hero-foot b { color: var(--color-text-primary); font-variant-numeric: tabular-nums; }
+
+        /* ── 손실 워터폴 ── */
+        .oee-wf-bar { display: flex; height: 30px; border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--color-lines); }
+        .oee-wf-seg { height: 100%; min-width: 0; }
+        .oee-wf-legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 18px; margin-top: 14px; }
+        .oee-wf-row { display: flex; align-items: center; gap: 9px; font-size: 0.74rem; }
+        .oee-wf-sw { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+        .oee-wf-name { font-weight: 700; flex: 1; }
+        .oee-wf-val { font-family: var(--font-mono); font-weight: 800; color: var(--color-text-secondary); }
+
+        /* ── 시프트 카드 ── */
+        .oee-shift-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+        @media (max-width: 720px) { .oee-shift-grid { grid-template-columns: 1fr; } }
+        .oee-stat-label { font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-secondary); }
+        .oee-stat-value { margin-top: 4px; font-size: 1.3rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+        .oee-stat-value.sm { font-size: 0.95rem; }
+        .oee-progress { margin-top: 8px; height: 10px; border-radius: 5px; background: var(--color-surface-variant); overflow: hidden; }
+        .oee-progress-fill { height: 100%; background: var(--green); border-radius: 5px; }
+
+        /* ── 설비별 OEE 순위 ── */
+        .oee-flow { border: 1px solid var(--color-lines); border-radius: var(--radius-md); margin-bottom: 10px; overflow: hidden; }
+        .oee-flow-head { display: grid; grid-template-columns: 30px 1fr 150px 78px; align-items: center; gap: 12px; padding: 11px 14px; cursor: pointer; border-left: 3px solid transparent; }
+        .oee-flow-head:hover { background: color-mix(in srgb, var(--color-primary) 4%, var(--color-surface)); }
+        .oee-flow.is-worst .oee-flow-head { background: color-mix(in srgb, var(--red) 7%, var(--color-surface)); border-left-color: var(--red); }
+        .oee-flow-medal { text-align: center; font-weight: 800; font-size: 1.05rem; }
+        .oee-flow-name { font-weight: 700; font-size: 0.86rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .oee-flow-sub { font-size: 0.64rem; color: var(--color-text-secondary); font-family: var(--font-mono); }
+        .oee-mini-apq { display: flex; gap: 4px; align-items: center; }
+        .oee-mini-bar { flex: 1; height: 18px; border-radius: 3px; background: var(--color-surface-variant); position: relative; overflow: hidden; }
+        .oee-mini-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; }
+        .oee-mini-tag { position: absolute; left: 4px; top: 50%; transform: translateY(-50%); font-size: 0.55rem; font-weight: 800; color: var(--color-text-primary); z-index: 1; }
+        .oee-flow-oee { font-family: var(--font-mono); font-weight: 800; font-size: 1.05rem; text-align: right; }
+        .oee-flow-oee.na { color: var(--color-text-disabled); font-size: 0.72rem; font-weight: 700; }
+        .oee-flow-detail { padding: 14px 16px; background: var(--color-surface-variant); border-top: 1px dashed var(--color-lines-strong); }
+        .oee-dd-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        @media (max-width: 760px) { .oee-dd-grid { grid-template-columns: 1fr; } }
+        .oee-dd-kv { display: flex; justify-content: space-between; padding: 4px 0; font-size: 0.74rem; border-bottom: 1px solid var(--color-lines); }
+        .oee-dd-kv b { font-family: var(--font-mono); }
+        .oee-spark { width: 100%; height: 46px; display: block; }
+        .oee-dd-links { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+
+        /* ── 정지원인 도넛 (uptime 톤) ── */
+        .oee-dist { display: grid; grid-template-columns: 150px 1fr; gap: 18px; align-items: center; }
+        @media (max-width: 560px) { .oee-dist { grid-template-columns: 1fr; justify-items: center; } }
+        .oee-donut { width: 150px; height: 150px; display: block; }
+        .oee-donut-total { font-size: 17px; font-weight: 800; fill: var(--color-text-primary); font-family: var(--font-mono); }
+        .oee-donut-cap { font-size: 7px; fill: var(--color-text-secondary); letter-spacing: 0.06em; }
+        .oee-legend { display: flex; flex-direction: column; gap: 8px; }
+        .oee-legend-row { display: flex; align-items: center; gap: 10px; font-size: 0.76rem; }
+        .oee-legend-sw { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+        .oee-legend-name { font-weight: 700; flex: 1; }
+        .oee-legend-share { font-family: var(--font-mono); font-weight: 700; color: var(--color-text-secondary); }
+        .oee-legend-val { width: 56px; text-align: right; font-family: var(--font-mono); font-weight: 800; }
+
+        /* ── 미분류 큐 배너 ── */
+        .oee-queue { display: flex; align-items: center; gap: 12px; padding: 11px 16px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--amber) 12%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent); margin-bottom: 14px; }
+        .oee-queue .material-icons { color: var(--amber); font-size: 24px; }
+        .oee-queue-n { font-size: 1.25rem; font-weight: 800; color: var(--amber); font-variant-numeric: tabular-nums; }
+
+        /* ── 인라인 편집 공통 ── */
+        .oee-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+        .oee-mini-num { width: 110px; padding: 4px 7px; font-size: 0.78rem; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-primary); font-family: var(--font-mono); }
+        .oee-mini-select { padding: 3px 6px; font-size: 0.7rem; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-primary); }
+        .oee-field { display: flex; flex-direction: column; gap: 3px; }
+        .oee-field label { font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-secondary); }
+        .oee-field input, .oee-field select { padding: 6px 9px; font-size: 0.82rem; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-primary); }
+        .oee-form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 9px; align-items: end; }
+        .oee-hint { font-size: 0.66rem; color: var(--color-text-secondary); line-height: 1.4; margin-top: 8px; }
+        .oee-ok { font-size: 0.72rem; font-weight: 700; color: var(--green); }
+        .oee-err { font-size: 0.72rem; font-weight: 700; color: var(--red); }
+        .oee-codeish { font-family: var(--font-mono); font-size: 0.72rem; background: color-mix(in srgb, var(--color-text-primary) 6%, transparent); padding: 1px 6px; border-radius: var(--radius-sm); }
+        td.unset { font-weight: 700; color: var(--color-text-disabled); }
+        td.unclassified { font-weight: 800; color: var(--amber); }
+        .oee-row-act { display: inline-flex; gap: 5px; align-items: center; }
+
+        /* ── ds-error / usertag 미니 ── */
+        .oee-anom-kpi { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; }
+        .oee-anom-cell { background: var(--color-surface-variant); border: 1px solid var(--color-lines); border-radius: var(--radius-sm); padding: 11px 14px; border-left: 3px solid var(--color-lines-strong); }
+        .oee-anom-cell.err { border-left-color: var(--red); }
+        .oee-anom-cell.warn { border-left-color: var(--amber); }
+        .oee-anom-cell.info { border-left-color: var(--color-info); }
+        .oee-anom-value { margin-top: 4px; font-size: 1.4rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+        .oee-anom-list { display: flex; flex-direction: column; gap: 4px; }
+        .oee-anom-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius-sm); background: var(--color-surface); font-size: 0.74rem; }
+        .oee-anom-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+
+        /* ── AI 인사이트 ── */
+        .oee-insight { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--purple) 8%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--purple) 35%, transparent); }
+        .oee-insight .material-icons { color: var(--purple); font-size: 26px; flex-shrink: 0; }
+        .oee-insight-text { font-size: 0.86rem; line-height: 1.5; }
+        .oee-insight-text b { color: var(--red); }
+    </style>
+</head>
+
+<body>
+    <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="oeeApp()" x-init="init()" x-cloak>
+
+        <!-- 데모 만료 -->
+        <div class="modal-overlay" x-show="demoBlocked" style="z-index:3000;">
+            <div class="modal-content demo-blocked-card" style="max-width:480px; text-align:center;">
+                <span class="material-icons demo-blocked-icon">hourglass_disabled</span>
+                <h3>DEMO 만료</h3>
+                <p>데모 사용 시간(3시간)이 종료되었습니다.</p>
+                <p>서비스 관리자에게 문의해 주세요.</p>
+            </div>
+        </div>
+
+        <!-- fallback 슬림 헤더 (shell.js 가 제거) -->
+        <header class="dsp-appbar">
+            <span class="dsp-title">OEE 설비종합효율</span>
+            <span class="dsp-badge">정적</span>
+            <div class="spacer"></div>
+            <button class="btn-icon" @click="toggleTheme()" title="테마 전환">
+                <span class="material-icons" x-text="dark ? 'light_mode' : 'dark_mode'"></span>
+            </button>
+        </header>
+
+        <main class="dsp-main">
+
+            <!-- 상단 툴바 -->
+            <div class="ds-topbar">
+                <div class="ds-topbar-actions">
+                    <button class="btn btn-sm" :class="period === 'today' ? 'btn-filled' : 'btn-outlined'" @click="setPeriod('today')">오늘</button>
+                    <button class="btn btn-sm" :class="period === '7d' ? 'btn-filled' : 'btn-outlined'" @click="setPeriod('7d')">7일</button>
+                    <button class="btn btn-sm" :class="period === '30d' ? 'btn-filled' : 'btn-outlined'" @click="setPeriod('30d')">30일</button>
+                    <button class="btn btn-sm" :class="period === '60d' ? 'btn-filled' : 'btn-outlined'" @click="setPeriod('60d')">60일</button>
+                    <span class="oee-codeish" x-show="shift" :title="'가용성 분모 = 시프트 계획생산시간(PPT)'">
+                        기준 시프트 <span x-text="shiftLabel()"></span>
+                    </span>
+                    <button class="btn btn-sm btn-outlined" @click="loadAll()" :disabled="loading">
+                        <span class="material-icons" style="font-size:15px;">refresh</span>
+                    </button>
+                    <span class="ds-live" :class="rt.connected ? 'is-live' : 'is-poll'"
+                          :title="rt.connected ? 'SignalR 실시간 연결됨' : '폴링(10초) 모드'">
+                        <span class="ds-live-dot"></span>
+                        <span x-text="rt.connected ? 'LIVE' : 'POLL'"></span>
+                    </span>
+                </div>
+            </div>
+
+            <div class="alert alert-error" x-show="error" style="margin-bottom:12px;"><span class="material-icons">error</span><span x-text="error"></span></div>
+
+            <div class="oee-grid">
+
+                <!-- ════ 라인 OEE 히어로 (시프트 기반) ════ -->
+                <section class="card oee-section">
+                    <div class="ds-card-h">
+                        <h4>라인 OEE — 시프트 기반</h4>
+                        <span class="ds-card-h-sub">가용성 × 성능 × 품질 · 분모 = 계획생산시간(PPT) · 전체 라인 합산</span>
+                    </div>
+
+                    <div class="oee-hero">
+                        <svg class="oee-gauge" viewBox="0 0 100 100" x-html="oeeGaugeSvg"></svg>
+
+                        <div>
+                            <div class="oee-apq">
+                                <!-- 가용성 -->
+                                <div class="oee-apq-cell" :class="apqTone('availability', 0.90)">
+                                    <div class="oee-apq-label"><span>가용성 A</span><span class="tgt">목표 90%</span></div>
+                                    <div class="oee-apq-value" x-text="line ? pct(line.availability) : '—'"></div>
+                                    <div class="oee-bar"><div class="oee-bar-fill" :style="barStyle(line && line.availability, 'availability', 0.90)"></div></div>
+                                    <div class="oee-apq-note" x-text="line ? (line.availability != null ? '가동 ' + durShort(line.runTimeMs) + ' / PPT ' + durShort(line.plannedProductionMs) : (line.availabilityNote || '산출 불가')) : '불러오는 중…'"></div>
+                                </div>
+                                <!-- 성능 -->
+                                <div class="oee-apq-cell" :class="apqTone('performance', 0.95)">
+                                    <div class="oee-apq-label"><span>성능 P</span><span class="tgt">목표 95%</span></div>
+                                    <div class="oee-apq-value" x-text="line ? pct(line.performance) : '—'"></div>
+                                    <div class="oee-bar"><div class="oee-bar-fill" :style="barStyle(line && line.performance, 'performance', 0.95)"></div></div>
+                                    <div class="oee-apq-note" x-text="line ? (line.performance != null ? '표준CT × 생산수 / 가동' : (line.performanceNote || '산출 불가')) : ''"></div>
+                                </div>
+                                <!-- 품질 -->
+                                <div class="oee-apq-cell" :class="apqTone('quality', 0.99)">
+                                    <div class="oee-apq-label"><span>품질 Q</span><span class="tgt">목표 99%</span></div>
+                                    <div class="oee-apq-value" x-text="line ? pct(line.quality) : '—'"></div>
+                                    <div class="oee-bar"><div class="oee-bar-fill" :style="barStyle(line && line.quality, 'quality', 0.99)"></div></div>
+                                    <div class="oee-apq-note" x-text="line ? (line.quality != null ? ('양품 ' + (line.goodCount ?? 0) + ' / 총 ' + (line.totalCount ?? 0)) : (line.qualityNote || '산출 불가')) : ''"></div>
+                                </div>
+                            </div>
+
+                            <div class="oee-hero-foot" x-show="line">
+                                <span>계획생산 PPT <b x-text="line ? durShort(line.plannedProductionMs) : ''"></b></span>
+                                <span>가동 <b x-text="line ? durShort(line.runTimeMs) : ''"></b></span>
+                                <span>비계획정지 <b x-text="line ? (line.downtimeCount + '건 · ' + durShort(line.downtimeMs)) : ''"></b></span>
+                                <span>계획정지 <b x-text="line ? durShort(line.plannedStopMs) : ''"></b></span>
+                                <span>생산수 <b x-text="line ? (line.totalCount ?? 0).toLocaleString() : ''"></b></span>
+                                <span>MTBF <b x-text="line ? durShort(line.mtbf) : ''"></b></span>
+                                <span>MTTR <b x-text="line ? durShort(line.mttr) : ''"></b></span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ════ 손실 워터폴 (TEEP 시간 구성) ════ -->
+                <section class="card oee-section">
+                    <div class="ds-card-h"><h4>시간 손실 워터폴</h4><span class="ds-card-h-sub">계획시간 → 계획정지 → 가용성·성능·품질 손실 → 완전생산</span></div>
+                    <template x-if="waterfall.length > 0">
+                        <div>
+                            <div class="oee-wf-bar">
+                                <template x-for="seg in waterfall" :key="seg.key">
+                                    <div class="oee-wf-seg" :style="`width:${seg.pct}%; background:${seg.color};`" :title="seg.name + ' ' + durShort(seg.ms) + ' (' + seg.pct.toFixed(1) + '%)'"></div>
+                                </template>
+                            </div>
+                            <div class="oee-wf-legend">
+                                <template x-for="seg in waterfall" :key="'lg-'+seg.key">
+                                    <div class="oee-wf-row">
+                                        <span class="oee-wf-sw" :style="`background:${seg.color};`"></span>
+                                        <span class="oee-wf-name" x-text="seg.name"></span>
+                                        <span class="oee-wf-val" x-text="durShort(seg.ms) + ' · ' + seg.pct.toFixed(1) + '%'"></span>
+                                    </div>
+                                </template>
+                            </div>
+                            <div class="oee-hint">막대 폭 = 계획시간(Scheduled) 대비 비율. 완전생산 = PPT × OEE. 계획정지(시프트 예외)는 PPT 에서 제외되어 가용성을 깎지 않습니다.</div>
+                        </div>
+                    </template>
+                    <template x-if="waterfall.length === 0">
+                        <div class="ds-empty"><span class="material-icons">stacked_bar_chart</span>
+                            <div class="ds-empty-title">시간 구성 데이터 없음</div>
+                            <div class="ds-empty-desc" x-text="line && line.scheduledMs <= 0 ? '조회기간이 시프트 창과 겹치지 않습니다 — 시프트 설정을 확인하세요.' : '가용성/성능/품질이 산출되면 손실 구성이 표시됩니다.'"></div>
+                        </div>
+                    </template>
+                </section>
+
+                <!-- ════ 시프트 컨텍스트 + 편집 ════ -->
+                <section class="card oee-section">
+                    <div class="ds-card-h">
+                        <h4>시프트 운영</h4>
+                        <button class="btn btn-sm btn-outlined" @click="shiftEdit = !shiftEdit">
+                            <span class="material-icons" style="font-size:15px;" x-text="shiftEdit ? 'close' : 'edit'"></span>
+                            <span x-text="shiftEdit ? '닫기' : '시프트 편집'"></span>
+                        </button>
+                    </div>
+
+                    <template x-if="shift && !shiftEdit">
+                        <div class="oee-shift-grid">
+                            <div>
+                                <div class="oee-stat-label">시프트 창</div>
+                                <div class="oee-stat-value" x-text="shiftLabel()"></div>
+                                <div class="oee-apq-note" x-text="shiftTypeLabel(shift.shiftType) + (isOvernight(shift) ? ' · 야간(자정넘김)' : '')"></div>
+                            </div>
+                            <div>
+                                <div class="oee-stat-label">목표 진행 (<span x-text="shift.targetFlow || '미설정'"></span>)</div>
+                                <div class="oee-stat-value" x-text="shift.targetFlow ? (shift.madeCount.toLocaleString() + ' / ' + shift.targetCount.toLocaleString()) : '—'"></div>
+                                <div class="oee-progress" x-show="shift.targetFlow && shift.targetCount > 0">
+                                    <div class="oee-progress-fill" :style="`width:${Math.min(100, shift.targetCount>0 ? shift.madeCount/shift.targetCount*100 : 0)}%;`"></div>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="oee-stat-label">기간 계획생산시간 (PPT)</div>
+                                <div class="oee-stat-value" x-text="line ? durShort(line.plannedProductionMs) : '—'"></div>
+                                <div class="oee-apq-note" x-text="line ? ('계획시간 ' + durShort(line.scheduledMs) + ' − 계획정지 ' + durShort(line.plannedStopMs)) : ''"></div>
+                            </div>
+                        </div>
+                    </template>
+
+                    <!-- 시프트 편집 -->
+                    <template x-if="shiftEdit && shiftForm">
+                        <div>
+                            <div class="oee-form-row">
+                                <div class="oee-field"><label>시작 (HH:mm)</label><input type="time" x-model="shiftForm.start" /></div>
+                                <div class="oee-field"><label>종료 (HH:mm)</label><input type="time" x-model="shiftForm.end" /></div>
+                                <div class="oee-field"><label>종류</label>
+                                    <select x-model="shiftForm.shiftType">
+                                        <option value="morning">주간</option>
+                                        <option value="afternoon">오후</option>
+                                        <option value="night">야간</option>
+                                    </select>
+                                </div>
+                                <div class="oee-field"><label>목표 Flow</label>
+                                    <input type="text" list="oee-flow-list" x-model="shiftForm.targetFlow" placeholder="(옵션)" />
+                                </div>
+                                <div class="oee-field"><label>목표 수량</label><input type="number" min="0" x-model.number="shiftForm.targetCount" /></div>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:10px; margin-top:10px;">
+                                <button class="btn btn-sm btn-primary" @click="saveShift()" :disabled="shiftBusy">
+                                    <span class="material-icons" style="font-size:15px;">save</span> 시프트 저장
+                                </button>
+                                <span class="oee-ok" x-show="shiftMsg" x-text="shiftMsg"></span>
+                            </div>
+                            <div class="oee-hint">종료 ≤ 시작 이면 자정을 넘기는 야간 시프트로 해석됩니다. 시작=종료 면 24시간 연속. 저장 시 모든 작업자 화면에 즉시 반영(ShiftChanged)되고 PPT·가용성이 재계산됩니다.</div>
+                        </div>
+                    </template>
+                </section>
+
+                <!-- ════ 설비별 OEE 순위 + 드릴다운 ════ -->
+                <section class="card oee-section">
+                    <div class="ds-card-h">
+                        <h4>설비별 OEE 순위</h4>
+                        <span class="ds-card-h-sub">시프트 기반 · 클릭하여 상세 펼치기 · 최하위 강조</span>
+                    </div>
+
+                    <template x-if="flows.length > 0">
+                        <div>
+                            <template x-for="(f, i) in rankedFlows" :key="f.flowName">
+                                <div class="oee-flow" :class="isWorst(f, i) ? 'is-worst' : ''">
+                                    <div class="oee-flow-head" @click="toggleFlow(f.flowName)">
+                                        <span class="oee-flow-medal" x-text="medal(f, i)"></span>
+                                        <div style="min-width:0;">
+                                            <div class="oee-flow-name" :title="f.flowName" x-text="f.flowName"></div>
+                                            <div class="oee-flow-sub" x-text="(systemOf(f.flowName) ? systemOf(f.flowName) + ' · ' : '') + '정지 ' + (f.s ? f.s.downtimeCount : 0) + '건 · 생산 ' + (f.s && f.s.totalCount != null ? f.s.totalCount : 0)"></div>
+                                        </div>
+                                        <div class="oee-mini-apq">
+                                            <div class="oee-mini-bar" :title="'가용성 ' + pct(f.s && f.s.availability)">
+                                                <span class="oee-mini-tag">A</span>
+                                                <div class="oee-mini-fill" :style="miniStyle(f.s && f.s.availability)"></div>
+                                            </div>
+                                            <div class="oee-mini-bar" :title="'성능 ' + pct(f.s && f.s.performance)">
+                                                <span class="oee-mini-tag">P</span>
+                                                <div class="oee-mini-fill" :style="miniStyle(f.s && f.s.performance)"></div>
+                                            </div>
+                                            <div class="oee-mini-bar" :title="'품질 ' + pct(f.s && f.s.quality)">
+                                                <span class="oee-mini-tag">Q</span>
+                                                <div class="oee-mini-fill" :style="miniStyle(f.s && f.s.quality)"></div>
+                                            </div>
+                                        </div>
+                                        <span class="oee-flow-oee" :class="(f.s && f.s.oee != null) ? '' : 'na'"
+                                              x-text="(f.s && f.s.oee != null) ? pct(f.s.oee) : '산출불가'"></span>
+                                    </div>
+
+                                    <!-- 드릴다운 상세 -->
+                                    <div class="oee-flow-detail" x-show="expanded === f.flowName" x-transition>
+                                        <div class="oee-dd-grid">
+                                            <div>
+                                                <div class="oee-stat-label" style="margin-bottom:6px;">OEE 분해 · 시간 구성</div>
+                                                <div class="oee-dd-kv"><span>OEE</span><b x-text="pct(f.s && f.s.oee)"></b></div>
+                                                <div class="oee-dd-kv"><span>가용성 A</span><b x-text="pct(f.s && f.s.availability)"></b></div>
+                                                <div class="oee-dd-kv"><span>성능 P</span><b x-text="pct(f.s && f.s.performance)"></b></div>
+                                                <div class="oee-dd-kv"><span>품질 Q</span><b x-text="pct(f.s && f.s.quality)"></b></div>
+                                                <div class="oee-dd-kv"><span>PPT / 가동</span><b x-text="f.s ? (durShort(f.s.plannedProductionMs) + ' / ' + durShort(f.s.runTimeMs)) : '—'"></b></div>
+                                                <div class="oee-dd-kv"><span>표준CT / 추천(p10)</span>
+                                                    <b x-text="ctInfo(f.flowName)"></b>
+                                                </div>
+                                                <div class="oee-dd-kv"><span>실측 CT (min·중앙·평균)</span><b x-text="ctStat(f.flowName)"></b></div>
+                                                <template x-if="f.s && f.s.performanceNote">
+                                                    <div class="oee-apq-note" x-text="'성능: ' + f.s.performanceNote"></div>
+                                                </template>
+                                            </div>
+                                            <div>
+                                                <div class="oee-stat-label" style="margin-bottom:6px;">최근 사이클 CT (이상치 제외)</div>
+                                                <svg class="oee-spark" viewBox="0 0 300 46" preserveAspectRatio="none" x-html="sparkSvg(f.flowName)"></svg>
+                                                <div class="oee-stat-label" style="margin:10px 0 6px;">정지 이벤트 (<span x-text="(flowDowntime(f.flowName)).length"></span>)</div>
+                                                <template x-if="flowDowntime(f.flowName).length > 0">
+                                                    <div style="display:flex; flex-direction:column; gap:3px;">
+                                                        <template x-for="d in flowDowntime(f.flowName).slice(0,4)" :key="d.id">
+                                                            <div style="display:flex; gap:8px; font-size:0.7rem; align-items:center;">
+                                                                <span class="ds-status" :class="d.status === 'open' ? 'bad' : 'ok'" x-text="d.status === 'open' ? '진행' : '복구'"></span>
+                                                                <span x-text="reasonLabel(d.reasonCode)" :class="d.reasonCode ? '' : 'unclassified'"></span>
+                                                                <span style="flex:1;"></span>
+                                                                <span class="oee-codeish" x-text="dur(d.durationMs, d)"></span>
+                                                            </div>
+                                                        </template>
+                                                    </div>
+                                                </template>
+                                                <template x-if="flowDowntime(f.flowName).length === 0">
+                                                    <div class="oee-apq-note">기간 내 정지 없음</div>
+                                                </template>
+                                                <div class="oee-dd-links">
+                                                    <a class="btn btn-sm btn-outlined" :href="'/heatmap?flow=' + encodeURIComponent(f.flowName)"><span class="material-icons" style="font-size:14px;">gradient</span> 동작편차</a>
+                                                    <a class="btn btn-sm btn-outlined" :href="'/flow?name=' + encodeURIComponent(f.flowName)"><span class="material-icons" style="font-size:14px;">timeline</span> 사이클</a>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+                    <template x-if="flows.length === 0">
+                        <div class="ds-empty"><span class="material-icons">leaderboard</span>
+                            <div class="ds-empty-title" x-text="loading ? '불러오는 중…' : '설비(Flow) 없음'"></div>
+                            <div class="ds-empty-desc">Promaker 에서 AASX 프로젝트를 로드하면 설비별 OEE 가 표시됩니다.</div>
+                        </div>
+                    </template>
+                </section>
+
+                <div class="oee-2col">
+                    <!-- ════ 정지 원인 분석 ════ -->
+                    <section class="card oee-section">
+                        <div class="ds-card-h"><h4>정지 원인 분석</h4><span class="ds-card-h-sub">분류된 이벤트만 (지속시간 기준)</span></div>
+                        <template x-if="reasonDist.total > 0">
+                            <div class="oee-dist">
+                                <svg class="oee-donut" viewBox="0 0 100 100" x-html="reasonDonutSvg"></svg>
+                                <div class="oee-legend">
+                                    <template x-for="seg in reasonDist.segs" :key="seg.code">
+                                        <div class="oee-legend-row">
+                                            <span class="oee-legend-sw" :style="`background:${seg.color};`"></span>
+                                            <span class="oee-legend-name" x-text="seg.label"></span>
+                                            <span class="oee-legend-share" x-text="seg.share + '%'"></span>
+                                            <span class="oee-legend-val" x-text="durShort(seg.ms)"></span>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+                        <template x-if="reasonDist.total === 0">
+                            <div class="ds-empty"><span class="material-icons">donut_large</span>
+                                <div class="ds-empty-title">분류된 정지 원인 없음</div>
+                                <div class="ds-empty-desc">아래 정지 로그에서 [분류]하면 지속시간 기준 비중이 표시됩니다.</div>
+                            </div>
+                        </template>
+                    </section>
+
+                    <!-- ════ ds에러 · UserTag ════ -->
+                    <section class="card oee-section">
+                        <div class="ds-card-h">
+                            <h4>이상 신호 (ds에러·UserTag)</h4>
+                            <a class="btn btn-sm btn-outlined" href="/uptime"><span class="material-icons" style="font-size:14px;">open_in_new</span> 전체</a>
+                        </div>
+                        <div class="oee-anom-kpi">
+                            <div class="oee-anom-cell err">
+                                <div class="oee-stat-label">Error</div>
+                                <div class="oee-anom-value" style="color:var(--red);" x-text="anom ? (anom.error||0).toLocaleString() : '—'"></div>
+                            </div>
+                            <div class="oee-anom-cell warn">
+                                <div class="oee-stat-label">Warning</div>
+                                <div class="oee-anom-value" style="color:var(--amber);" x-text="anom ? (anom.warning||0).toLocaleString() : '—'"></div>
+                            </div>
+                            <div class="oee-anom-cell info">
+                                <div class="oee-stat-label">Info</div>
+                                <div class="oee-anom-value" x-text="anom ? (anom.info||0).toLocaleString() : '—'"></div>
+                            </div>
+                        </div>
+                        <div class="oee-anom-list" x-show="anom && anom.recent && anom.recent.length">
+                            <template x-for="(a, i) in (anom ? anom.recent : [])" :key="i">
+                                <div class="oee-anom-item">
+                                    <span class="oee-anom-dot" :style="`background:${levelColor(a.logLevel)};`"></span>
+                                    <strong x-text="a.name"></strong>
+                                    <span class="oee-codeish" x-text="a.systemName"></span>
+                                    <span style="flex:1;"></span>
+                                    <span class="oee-flow-sub" x-text="(a.occurredAtLocal||'').slice(5,19)"></span>
+                                </div>
+                            </template>
+                        </div>
+                        <template x-if="anom && (!anom.recent || !anom.recent.length)">
+                            <div class="ds-empty" style="border-style:solid;"><span class="material-icons">notifications</span>
+                                <div class="ds-empty-title">기간 내 이상 신호 없음</div>
+                            </div>
+                        </template>
+                        <div class="oee-hint">UserTag onset(고장 비트 rising)은 OeeSignals 설정 시 정지 이벤트로 자동 수집되어 가용성에 반영됩니다.</div>
+                    </section>
+                </div>
+
+                <!-- ════ 정지 이벤트 로그 (분류/마감) ════ -->
+                <section class="card oee-section">
+                    <div class="ds-card-h"><h4>정지 이벤트 로그</h4><span class="ds-card-h-sub">발생 → 복구 · 원인 분류 · 수동 마감</span></div>
+
+                    <template x-if="unclassifiedCount > 0">
+                        <div class="oee-queue">
+                            <span class="material-icons">rule</span>
+                            <div style="flex:1;"><span class="oee-queue-n" x-text="unclassifiedCount"></span> 건의 <b>미분류</b> 정지 — 분류해야 원인 도넛/계획·비계획 구분이 정확해집니다.</div>
+                        </div>
+                    </template>
+
+                    <template x-if="downtime.length > 0">
+                        <div style="overflow-x:auto;">
+                            <table class="ds-table">
+                                <thead><tr>
+                                    <th style="width:140px;">발생</th><th style="width:140px;">복구</th><th style="width:80px;">지속</th>
+                                    <th>설비(Flow)</th><th>원인</th><th style="width:78px;">상태</th><th style="width:230px;">작업</th>
+                                </tr></thead>
+                                <tbody>
+                                    <template x-for="d in downtime" :key="d.id">
+                                        <tr>
+                                            <td class="num" x-text="dtTime(d.startAt)"></td>
+                                            <td class="num" x-text="d.endAt ? dtTime(d.endAt) : '—'"></td>
+                                            <td class="num" x-text="dur(d.durationMs, d)"></td>
+                                            <td><strong x-text="d.flowName || d.systemName || '—'"></strong>
+                                                <template x-if="d.detectSource"><span class="oee-flow-sub" x-text="' · ' + srcLabel(d.detectSource)"></span></template>
+                                            </td>
+                                            <td :class="d.reasonCode ? '' : 'unclassified'" x-text="reasonLabel(d.reasonCode)"></td>
+                                            <td><span class="ds-status" :class="d.status === 'open' ? 'bad' : 'ok'" x-text="d.status === 'open' ? '진행중' : '복구'"></span></td>
+                                            <td>
+                                                <div class="oee-row-act">
+                                                    <select class="oee-mini-select" x-model="classifyDraft[d.id]">
+                                                        <option value="">분류…</option>
+                                                        <template x-for="r in reasonOptions" :key="r.code"><option :value="r.code" x-text="r.label"></option></template>
+                                                    </select>
+                                                    <button class="btn btn-sm btn-outlined" :disabled="!classifyDraft[d.id]" @click="classify(d)">분류</button>
+                                                    <template x-if="d.status === 'open'">
+                                                        <button class="btn btn-sm btn-outlined" @click="closeEvent(d)" title="자동 복구 미감지 시 수동 마감">마감</button>
+                                                    </template>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </template>
+                    <template x-if="downtime.length === 0">
+                        <div class="ds-empty" style="border-style:solid;"><span class="material-icons">check_circle</span>
+                            <div class="ds-empty-title">해당 기간 정지 이벤트 없음</div>
+                            <div class="ds-empty-desc">무사이클 onset 자동 감지 / UserTag onset 가 기록되면 표시됩니다.</div>
+                        </div>
+                    </template>
+                </section>
+
+                <!-- ════ 계획정지 예외 관리 (PPT) ════ -->
+                <section class="card oee-section">
+                    <div class="ds-card-h"><h4>계획정지 예외</h4><span class="ds-card-h-sub">점검·계획정지·비생산 구간 → 계획생산시간(PPT)에서 차감</span></div>
+
+                    <div class="oee-form-row" style="margin-bottom:10px;">
+                        <div class="oee-field"><label>설비(Flow)</label><input type="text" list="oee-flow-list" x-model="excForm.flow" placeholder="(비우면 라인 전체)" /></div>
+                        <div class="oee-field"><label>시작</label><input type="datetime-local" x-model="excForm.start" /></div>
+                        <div class="oee-field"><label>종료</label><input type="datetime-local" x-model="excForm.end" /></div>
+                        <div class="oee-field"><label>종류</label>
+                            <select x-model="excForm.kind">
+                                <option value="planned_maint">계획정비</option>
+                                <option value="planned_stop">계획정지</option>
+                                <option value="non_production">비생산</option>
+                            </select>
+                        </div>
+                        <div class="oee-field"><label>&nbsp;</label>
+                            <button class="btn btn-sm btn-primary" @click="addException()" :disabled="excBusy || !excForm.start || !excForm.end">
+                                <span class="material-icons" style="font-size:15px;">add</span> 추가
+                            </button>
+                        </div>
+                    </div>
+                    <span class="oee-err" x-show="excErr" x-text="excErr"></span>
+
+                    <template x-if="exceptions.length > 0">
+                        <div style="overflow-x:auto;">
+                            <table class="ds-table">
+                                <thead><tr><th>설비</th><th>시작</th><th>종료</th><th>지속</th><th>종류</th><th style="width:70px;"></th></tr></thead>
+                                <tbody>
+                                    <template x-for="e in exceptions" :key="e.id">
+                                        <tr>
+                                            <td x-text="e.flowName || '라인 전체'"></td>
+                                            <td class="num" x-text="dtTime(e.startAt)"></td>
+                                            <td class="num" x-text="dtTime(e.endAt)"></td>
+                                            <td class="num" x-text="durShort(new Date(asUtc(e.endAt)) - new Date(asUtc(e.startAt)))"></td>
+                                            <td><span class="ds-pill" x-text="kindLabel(e.kind)"></span></td>
+                                            <td><button class="btn btn-sm btn-outlined" @click="deleteException(e.id)" title="삭제"><span class="material-icons" style="font-size:14px;">delete</span></button></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </template>
+                    <template x-if="exceptions.length === 0">
+                        <div class="ds-empty" style="border-style:solid;"><span class="material-icons">event_busy</span>
+                            <div class="ds-empty-title">기간 내 계획정지 예외 없음</div>
+                            <div class="ds-empty-desc">점검/계획정지 구간을 추가하면 PPT 에서 차감되어 가용성이 정확해집니다.</div>
+                        </div>
+                    </template>
+                </section>
+
+                <!-- ════ 이상치 필터 (전역 + 개별) ════ -->
+                <section class="card oee-section">
+                    <div class="ds-card-h"><h4>이상치 필터 (비가동 사이클 제외)</h4><span class="ds-card-h-sub">전역 기본 + Flow별 override · OEE 생산수/CT 에 직접 영향</span></div>
+                    <span class="oee-err" x-show="exclErr" x-text="exclErr"></span>
+
+                    <!-- 전역 -->
+                    <div class="oee-toolbar" style="align-items:end;">
+                        <div class="oee-field"><label>전역 최소 CT (ms)</label><input class="oee-mini-num" type="number" min="0" x-model.number="globalFilter.min" placeholder="0=제한없음" /></div>
+                        <div class="oee-field"><label>전역 최대 CT (ms)</label><input class="oee-mini-num" type="number" min="0" x-model.number="globalFilter.max" placeholder="0=제한없음" /></div>
+                        <button class="btn btn-sm btn-primary" @click="saveGlobalFilter()" :disabled="exclBusy">
+                            <span class="material-icons" style="font-size:15px;">save</span> 전역 저장
+                        </button>
+                        <span class="oee-ok" x-show="exclMsg" x-text="exclMsg"></span>
+                    </div>
+                    <div class="oee-hint">전역 임계는 per-flow override 가 없는 Flow 에 적용됩니다. 단위 = ms. 저장 시 IsIdle 을 소급 재평가하고 OEE/평균이 즉시 갱신됩니다.</div>
+
+                    <!-- 개별 -->
+                    <div style="overflow-x:auto; margin-top:14px;">
+                        <table class="ds-table">
+                            <thead><tr><th>설비(Flow)</th><th style="width:160px;">최소 CT (초)</th><th style="width:160px;">최대 CT (초)</th><th style="width:90px;"></th></tr></thead>
+                            <tbody>
+                                <template x-for="row in exclRows" :key="row.flowName">
+                                    <tr>
+                                        <td><strong x-text="row.flowName"></strong>
+                                            <template x-if="row.min == null && row.max == null"><span class="oee-flow-sub"> · 전역 사용</span></template>
+                                        </td>
+                                        <td><input class="oee-mini-num" type="number" min="0" step="0.1" x-model.number="row.min" placeholder="전역" /></td>
+                                        <td><input class="oee-mini-num" type="number" min="0" step="0.1" x-model.number="row.max" placeholder="전역" /></td>
+                                        <td><button class="btn btn-sm btn-outlined" @click="savePerFlowFilter(row)" :disabled="exclBusy">저장</button></td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- ════ 표준 사이클타임 (idealCT) ════ -->
+                <section class="card oee-section">
+                    <div class="ds-card-h"><h4>표준 사이클타임 (idealCT)</h4><span class="ds-card-h-sub">성능 Performance 산출용 · Flow별 일괄 편집 · 실측(이상치 제외) 추천 p10</span></div>
+                    <span class="oee-err" x-show="ctError" x-text="ctError"></span>
+
+                    <div class="oee-toolbar">
+                        <button class="btn btn-sm btn-primary" @click="applyAllIdealCt()" :disabled="ctApplying || ctTable.length === 0">
+                            <span class="material-icons" style="font-size:15px;">save</span> 일괄 적용
+                        </button>
+                        <button class="btn btn-sm btn-outlined" @click="loadCtTable()" :disabled="ctLoading"><span class="material-icons" style="font-size:15px;">refresh</span></button>
+                        <span class="ds-card-h-sub">추천 = 이상치 제외 사이클 CT 의 <b>최속 반복가능치(p10)</b> · 평균 아님</span>
+                        <span style="flex:1;"></span>
+                        <span class="oee-ok" x-show="ctMsg" x-text="ctMsg"></span>
+                    </div>
+
+                    <template x-if="ctTable.length > 0">
+                        <div style="overflow-x:auto;">
+                            <table class="ds-table">
+                                <thead><tr>
+                                    <th>설비(Flow)</th><th style="width:110px;">현재 표준CT</th><th>실측 (이상치 제외)</th>
+                                    <th style="width:120px;">추천 (p10)</th><th style="width:130px;">표준CT (ms)</th><th style="width:80px;">상태</th>
+                                </tr></thead>
+                                <tbody>
+                                    <template x-for="row in ctTable" :key="row.flowName">
+                                        <tr>
+                                            <td><strong x-text="row.flowName"></strong></td>
+                                            <td class="num" :class="row.idealCycleTimeMs ? '' : 'unset'" x-text="row.idealCycleTimeMs ? (row.idealCycleTimeMs + 'ms') : '미설정'"></td>
+                                            <td>
+                                                <template x-if="row.sampleCount > 0"><span class="oee-flow-sub" x-text="'n=' + row.sampleCount + ' · min ' + row.minCt + ' · 중앙 ' + row.medianCt + ' · 평균 ' + row.avgCt + 'ms'"></span></template>
+                                                <template x-if="row.sampleCount === 0"><span class="oee-flow-sub">데이터 없음</span></template>
+                                            </td>
+                                            <td>
+                                                <template x-if="row.recommendedMs"><button class="btn btn-sm btn-outlined" @click="row.draft = row.recommendedMs"><span class="material-icons" style="font-size:14px;">auto_fix_high</span> <span x-text="row.recommendedMs + 'ms'"></span></button></template>
+                                                <template x-if="!row.recommendedMs"><span class="oee-flow-sub">—</span></template>
+                                            </td>
+                                            <td><input class="oee-mini-num" type="number" min="0" x-model.number="row.draft" placeholder="미설정" /></td>
+                                            <td><template x-if="ctRowChanged(row)"><span class="ds-status warn">변경됨</span></template></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </template>
+                    <template x-if="ctTable.length === 0">
+                        <div class="ds-empty" style="border-style:solid;"><span class="material-icons">straighten</span>
+                            <div class="ds-empty-title">표시할 Flow 없음</div>
+                        </div>
+                    </template>
+                    <div class="oee-hint">표준CT 가 있어야 해당 Flow 의 성능이 산출됩니다. 추천값은 best-demonstrated(p10)이며 평균을 넣으면 성능이 자기 자신과 비교되어 무의미해집니다.</div>
+                </section>
+
+                <!-- ════ AI 인사이트 ════ -->
+                <section class="card oee-section">
+                    <div class="ds-card-h"><h4>AI 자동 인사이트</h4><span class="ds-card-h-sub">규칙기반 요약 (최대 손실 + 최하위 설비 + 주원인)</span></div>
+                    <template x-if="insight">
+                        <div class="oee-insight"><span class="material-icons">smart_toy</span><div class="oee-insight-text" x-html="insight"></div></div>
+                    </template>
+                    <template x-if="!insight">
+                        <div class="ds-empty"><span class="material-icons">smart_toy</span>
+                            <div class="ds-empty-title">요약할 OEE 데이터가 아직 없습니다</div>
+                        </div>
+                    </template>
+                </section>
+
+            </div>
+        </main>
+
+        <datalist id="oee-flow-list">
+            <template x-for="f in flatFlows" :key="f.flowName"><option :value="f.flowName"></option></template>
+        </datalist>
+    </div>
+
+    <script src="/lib/signalr.min.js"></script>
+    <script>
+        // 정지 원인 코드 ↔ 한글 라벨 + 도넛 색 (doc/21 §2.1, uptime.html 과 동일 집합)
+        const REASON_DEFS = [
+            { code: 'equipment_fault', label: '설비고장', category: 'unplanned', color: 'var(--red)' },
+            { code: 'material_wait',   label: '자재대기', category: 'unplanned', color: 'var(--amber)' },
+            { code: 'operator_wait',   label: '작업자대기', category: 'unplanned', color: 'var(--wt)' },
+            { code: 'tooling',         label: '금형·공구', category: 'unplanned', color: 'var(--purple)' },
+            { code: 'planned_maint',   label: '계획정비', category: 'planned',   color: 'var(--mt)' },
+            { code: 'etc',             label: '기타',     category: 'unplanned', color: 'var(--color-text-secondary)' },
+        ];
+        const LEVEL_COLOR = { Error: 'var(--red)', Warning: 'var(--amber)', Info: 'var(--color-info)' };
+
+        function oeeApp() {
+            return {
+                dark: false, demoBlocked: false, loading: true, error: null,
+                period: 'today',
+                rt: { connected: false },
+                _conn: null, _pollTimer: null, _dt: null,
+
+                line: null,                 // 라인 shift-summary (flow=null)
+                systems: [], flatFlows: [],  // /api/nav systems → flat flow list
+                flows: [],                   // [{flowName, s: shift-summary}]
+                expanded: null,
+                downtime: [], reasonDist: { total: 0, segs: [] },
+                classifyDraft: {},
+                flowHistory: {},             // flowName → [ct...] (sparkline)
+
+                shift: null, shiftEdit: false, shiftForm: null, shiftBusy: false, shiftMsg: '',
+                anom: null,
+                ctTable: [], ctMsg: '', ctError: null, ctLoading: false, ctApplying: false,
+                exceptions: [], excForm: { flow: '', start: '', end: '', kind: 'planned_maint' }, excBusy: false, excErr: '',
+                globalFilter: { min: 0, max: 0 }, exclRows: [], exclBusy: false, exclMsg: '', exclErr: '',
+                _settingsCache: null,
+                reasonOptions: REASON_DEFS,
+                insight: '',
+
+                async init() {
+                    this.dark = localStorage.getItem('dspilot-theme') === 'dark';
+                    window.addEventListener('storage', (e) => { if (e.key === 'dspilot-theme') this.dark = e.newValue === 'dark'; });
+                    const qp = new URLSearchParams(location.search);
+                    const f = qp.get('flow'); if (f) this.expanded = f;
+                    await this.loadNav();
+                    await this.loadAll();
+                    this.connectSignalR();
+                    this._pollTimer = setInterval(() => this.loadAll(true), 10000);
+                },
+                toggleTheme() { this.dark = !this.dark; localStorage.setItem('dspilot-theme', this.dark ? 'dark' : 'light'); },
+
+                setPeriod(p) { this.period = p; this.loadAll(); },
+                // 기간 → UTC ISO (Z). 서버 모델바인딩이 Local 로 파싱 후 ToUtc 로 되돌려 정합(없는 Z 는 Unspecified=UTC 오인 위험).
+                rangeIso() {
+                    const now = new Date();
+                    let from;
+                    if (this.period === 'today') { from = new Date(); from.setHours(0, 0, 0, 0); }
+                    else { const days = this.period === '7d' ? 7 : this.period === '30d' ? 30 : 60; from = new Date(now.getTime() - days * 86400000); }
+                    return { from: from.toISOString(), to: now.toISOString() };
+                },
+
+                async loadNav() {
+                    try {
+                        const nav = await this.apiGet('/api/nav');
+                        this.systems = nav.systems || [];
+                        const flat = [];
+                        for (const s of this.systems) for (const fn of (s.flows || [])) flat.push({ flowName: fn, system: s.name });
+                        this.flatFlows = flat;
+                    } catch (e) { /* nav 실패해도 라인 요약은 가능 */ }
+                },
+
+                async loadAll(silent) {
+                    if (!silent) this.loading = true;
+                    const { from, to } = this.rangeIso();
+                    try {
+                        // 라인/정지/시프트/이상신호 병렬, 설비별은 별도 함수.
+                        const [line, dt, shift, anom] = await Promise.all([
+                            this.apiGet(`/api/oee/shift-summary?from=${from}&to=${to}`),
+                            this.apiGet(`/api/oee/downtime?from=${from}&to=${to}`),
+                            this.apiGet('/api/dashboard/shift'),
+                            this.loadAnomalies(),
+                        ]);
+                        this.line = line;
+                        this.downtime = dt || [];
+                        this.computeReasonDist();
+                        this.shift = shift;
+                        if (!this.shiftEdit) this.seedShiftForm();
+                        this.anom = anom;
+                        await this.loadFlows(from, to);
+                        await Promise.all([this.loadCtTable(silent), this.loadExceptions(from, to), this.loadExclusions()]);
+                        this.computeInsight();
+                        this.error = null;
+                    } catch (e) {
+                        if (e.message !== 'demo-blocked') this.error = '데이터 조회 실패: ' + e.message;
+                    } finally { this.loading = false; }
+                },
+
+                async loadFlows(from, to) {
+                    if (!this.flatFlows.length) { this.flows = []; return; }
+                    const results = await Promise.all(this.flatFlows.map(async (f) => {
+                        try {
+                            const s = await this.apiGet(`/api/oee/shift-summary?from=${from}&to=${to}&flow=${encodeURIComponent(f.flowName)}`);
+                            return { flowName: f.flowName, s };
+                        } catch (e) { return { flowName: f.flowName, s: null }; }
+                    }));
+                    this.flows = results;
+                },
+
+                async loadAnomalies() {
+                    try {
+                        const snap = await this.apiGet(`/api/user-tags/snapshot?period=${this.period}&page=0`);
+                        const lc = snap.levelCounts || {};
+                        return {
+                            error: lc.Error || 0, warning: lc.Warning || 0, info: lc.Info || 0,
+                            recent: (snap.alerts || []).slice(0, 6),
+                        };
+                    } catch (e) { return null; }
+                },
+
+                async loadCtTable(silent) {
+                    if (!silent) this.ctLoading = true;
+                    try {
+                        const rows = await this.apiGet('/api/oee/ideal-cycle/table?percentile=10');
+                        this.ctTable = (rows || []).map(r => ({ ...r, draft: r.idealCycleTimeMs ?? null }));
+                        this.ctError = null;
+                    } catch (e) { if (e.message !== 'demo-blocked') this.ctError = 'CT 테이블 조회 실패'; }
+                    finally { this.ctLoading = false; }
+                },
+
+                async loadExceptions(from, to) {
+                    try { this.exceptions = await this.apiGet(`/api/oee/shift-exception?from=${from}&to=${to}`) || []; }
+                    catch (e) { /* keep */ }
+                },
+
+                async loadExclusions() {
+                    try {
+                        const [settings, perFlow] = await Promise.all([
+                            this.apiGet('/api/settings'),
+                            this.apiGet('/api/dashboard/exclusions'),
+                        ]);
+                        this._settingsCache = settings;
+                        this.globalFilter = { min: settings.historyView.minCycleTimeMs || 0, max: settings.historyView.maxCycleTimeMs || 0 };
+                        const byFlow = {};
+                        for (const r of (perFlow || [])) byFlow[r.flowName] = r;
+                        // 모든 flow 를 행으로(미설정=전역 사용), per-flow override 가 있으면 값 시드.
+                        this.exclRows = this.flatFlows.map(f => {
+                            const o = byFlow[f.flowName];
+                            return { flowName: f.flowName, min: o ? (o.minSec ?? null) : null, max: o ? (o.maxSec ?? null) : null };
+                        });
+                    } catch (e) { /* keep */ }
+                },
+
+                // ── 라인 게이지 SVG ──
+                get oeeGaugeSvg() {
+                    const oee = this.line ? this.line.oee : null;
+                    const color = this.toneColor(oee, 0.85);
+                    const ring = this.ring(oee, color, 42, 9);
+                    const valText = oee != null ? (oee * 100).toFixed(1) : '—';
+                    const grade = oee == null ? '' : (oee >= 0.85 ? 'WORLD CLASS' : oee >= 0.60 ? '개선 필요' : '저조');
+                    return ring +
+                        `<text class="oee-gauge-val" x="50" y="48" text-anchor="middle" fill="${oee == null ? 'var(--color-text-disabled)' : 'var(--color-text-primary)'}">${valText}<tspan font-size="10">%</tspan></text>` +
+                        `<text class="oee-gauge-cap" x="50" y="60" text-anchor="middle">OEE</text>` +
+                        `<text class="oee-gauge-grade" x="50" y="70" text-anchor="middle" fill="${color}">${grade}</text>`;
+                },
+                ring(frac, color, r, sw) {
+                    frac = Math.max(0, Math.min(1, frac || 0));
+                    const C = 2 * Math.PI * r;
+                    const len = frac * C;
+                    return `<circle cx="50" cy="50" r="${r}" fill="none" stroke="var(--color-surface-variant)" stroke-width="${sw}"></circle>` +
+                        `<circle cx="50" cy="50" r="${r}" fill="none" stroke="${color}" stroke-width="${sw}" stroke-linecap="round" stroke-dasharray="${len} ${C - len}" transform="rotate(-90 50 50)"></circle>`;
+                },
+
+                // ── 워터폴 ──
+                get waterfall() {
+                    const l = this.line;
+                    if (!l || l.scheduledMs <= 0) return [];
+                    const sched = l.scheduledMs, ppt = l.plannedProductionMs;
+                    const segs = [];
+                    const pushSeg = (key, name, ms, color) => { if (ms > 0.5) segs.push({ key, name, ms, color, pct: ms / sched * 100 }); };
+                    pushSeg('planned', '계획정지', l.plannedStopMs, 'var(--mt)');
+                    const A = l.availability, P = l.performance, Q = l.quality;
+                    if (A != null && P != null && Q != null) {
+                        pushSeg('avail', '가용성 손실', ppt * (1 - A), 'var(--red)');
+                        pushSeg('perf', '성능 손실', ppt * A * (1 - P), 'var(--amber)');
+                        pushSeg('qual', '품질 손실', ppt * A * P * (1 - Q), 'var(--purple)');
+                        pushSeg('prod', '완전생산', ppt * A * P * Q, 'var(--green)');
+                    } else {
+                        // A/P/Q 미산출 시 PPT 자체만(정지 분해 불가) — 정직 표기.
+                        pushSeg('avail', '비계획정지', l.downtimeMs, 'var(--red)');
+                        pushSeg('run', '가동(분해 불가)', Math.max(0, ppt - l.downtimeMs), 'var(--color-lines-strong)');
+                    }
+                    return segs;
+                },
+
+                // ── 정지원인 도넛 ──
+                computeReasonDist() {
+                    const byCode = {};
+                    let total = 0;
+                    const nowMs = Date.now();
+                    for (const d of this.downtime) {
+                        if (!d.reasonCode) continue;
+                        const ms = d.durationMs != null ? d.durationMs : (d.status === 'open' ? (nowMs - new Date(this.asUtc(d.startAt)).getTime()) : 0);
+                        if (ms <= 0) continue;
+                        byCode[d.reasonCode] = (byCode[d.reasonCode] || 0) + ms;
+                        total += ms;
+                    }
+                    const segs = Object.entries(byCode).map(([code, ms]) => {
+                        const def = REASON_DEFS.find(r => r.code === code) || { label: code, color: 'var(--color-text-secondary)' };
+                        return { code, label: def.label, color: def.color, ms, share: total > 0 ? Math.round(ms / total * 100) : 0 };
+                    }).sort((a, b) => b.ms - a.ms);
+                    this.reasonDist = { total, segs };
+                },
+                get reasonDonutSvg() {
+                    const d = this.reasonDist;
+                    if (!d.total) return '';
+                    const r = 38, C = 2 * Math.PI * r;
+                    let svg = `<circle cx="50" cy="50" r="${r}" fill="none" stroke="var(--color-surface-variant)" stroke-width="14"></circle>`;
+                    let prior = 0;
+                    for (const seg of d.segs) {
+                        const len = seg.ms / d.total * C;
+                        svg += `<circle cx="50" cy="50" r="${r}" fill="none" stroke="${seg.color}" stroke-width="14" stroke-dasharray="${len} ${C - len}" stroke-dashoffset="${-(prior / d.total * C)}" transform="rotate(-90 50 50)"></circle>`;
+                        prior += seg.ms;
+                    }
+                    svg += `<text class="oee-donut-total" x="50" y="49" text-anchor="middle">${this.durShort(d.total)}</text>`;
+                    svg += `<text class="oee-donut-cap" x="50" y="61" text-anchor="middle">총 정지</text>`;
+                    return svg;
+                },
+
+                // ── 설비별 ──
+                get rankedFlows() {
+                    return [...this.flows].sort((a, b) => {
+                        const ao = a.s && a.s.oee != null ? a.s.oee : null;
+                        const bo = b.s && b.s.oee != null ? b.s.oee : null;
+                        if (ao == null && bo == null) {
+                            const ad = a.s ? a.s.downtimeMs : 0, bd = b.s ? b.s.downtimeMs : 0;
+                            return bd - ad;
+                        }
+                        if (ao == null) return 1;
+                        if (bo == null) return -1;
+                        return bo - ao; // OEE 높은 순
+                    });
+                },
+                isWorst(f, i) {
+                    const arr = this.rankedFlows.filter(x => x.s && x.s.oee != null);
+                    if (arr.length < 2) return false;
+                    return f.s && f.s.oee != null && f.flowName === arr[arr.length - 1].flowName;
+                },
+                medal(f, i) { return i === 0 ? '①' : i === 1 ? '②' : i === 2 ? '③' : (i + 1); },
+                systemOf(flowName) { const x = this.flatFlows.find(f => f.flowName === flowName); return x ? x.system : ''; },
+                miniStyle(v) {
+                    if (v == null) return 'width:0;background:var(--color-lines-strong);';
+                    const tgt = 0.85;
+                    return `width:${Math.max(2, v * 100)}%;background:${this.toneColor(v, tgt)};`;
+                },
+                async toggleFlow(name) {
+                    this.expanded = this.expanded === name ? null : name;
+                    if (this.expanded === name && !this.flowHistory[name]) {
+                        try {
+                            const hist = await this.apiGet(`/api/dashboard/flows/${encodeURIComponent(name)}/history?limit=60`);
+                            this.flowHistory = { ...this.flowHistory, [name]: (hist || []).map(h => h.ct).filter(v => v != null) };
+                        } catch (e) { this.flowHistory = { ...this.flowHistory, [name]: [] }; }
+                    }
+                },
+                flowDowntime(name) { return this.downtime.filter(d => d.flowName === name); },
+                ctRowOf(name) { return this.ctTable.find(r => r.flowName === name); },
+                ctInfo(name) {
+                    const r = this.ctRowOf(name);
+                    const ideal = r && r.idealCycleTimeMs ? r.idealCycleTimeMs + 'ms' : '미설정';
+                    const rec = r && r.recommendedMs ? r.recommendedMs + 'ms' : '—';
+                    return ideal + ' / ' + rec;
+                },
+                ctStat(name) {
+                    const r = this.ctRowOf(name);
+                    if (!r || !r.sampleCount) return '데이터 없음';
+                    return `${r.minCt} · ${r.medianCt} · ${r.avgCt}ms`;
+                },
+                sparkSvg(name) {
+                    const data = this.flowHistory[name];
+                    if (!data || data.length < 2) return '<text x="150" y="26" text-anchor="middle" fill="var(--color-text-disabled)" font-size="10">사이클 데이터 부족</text>';
+                    const arr = [...data].reverse(); // 오래된→최신
+                    const max = Math.max(...arr), min = Math.min(...arr);
+                    const span = max - min || 1;
+                    const W = 300, H = 46, pad = 4;
+                    const pts = arr.map((v, i) => {
+                        const x = pad + i / (arr.length - 1) * (W - 2 * pad);
+                        const y = H - pad - (v - min) / span * (H - 2 * pad);
+                        return `${x.toFixed(1)},${y.toFixed(1)}`;
+                    }).join(' ');
+                    return `<polyline points="${pts}" fill="none" stroke="var(--color-primary)" stroke-width="1.5"></polyline>`;
+                },
+
+                // ── 정지 분류/마감 ──
+                get unclassifiedCount() { return this.downtime.filter(d => !d.reasonCode).length; },
+                async classify(d) {
+                    const code = this.classifyDraft[d.id]; if (!code) return;
+                    const def = REASON_DEFS.find(r => r.code === code);
+                    try {
+                        await this.apiPost(`/api/oee/downtime/${d.id}/classify`, { reasonCode: code, category: def ? def.category : 'unplanned' });
+                        this.classifyDraft[d.id] = '';
+                        this.loadAll(true);
+                    } catch (e) { if (e.message !== 'demo-blocked') this.error = '분류 실패'; }
+                },
+                async closeEvent(d) {
+                    try { await this.apiPost(`/api/oee/downtime/${d.id}/close`, {}); this.loadAll(true); }
+                    catch (e) { if (e.message !== 'demo-blocked') this.error = '마감 실패'; }
+                },
+
+                // ── 시프트 편집 ──
+                seedShiftForm() {
+                    if (!this.shift) return;
+                    this.shiftForm = { start: this.shift.start, end: this.shift.end, shiftType: this.shift.shiftType, targetFlow: this.shift.targetFlow || '', targetCount: this.shift.targetCount || 0 };
+                },
+                shiftLabel() { return this.shift ? (this.shift.start + '–' + this.shift.end) : (this.line ? this.line.shiftLabel : ''); },
+                isOvernight(s) { return s && s.end <= s.start; },
+                shiftTypeLabel(t) { return t === 'night' ? '야간' : t === 'afternoon' ? '오후' : '주간'; },
+                async saveShift() {
+                    this.shiftBusy = true; this.shiftMsg = '';
+                    try {
+                        await this.apiPost('/api/dashboard/shift', {
+                            start: this.shiftForm.start, end: this.shiftForm.end, shiftType: this.shiftForm.shiftType,
+                            targetFlow: this.shiftForm.targetFlow || null, targetCount: this.shiftForm.targetCount || 0,
+                        });
+                        this.shiftMsg = '저장됨';
+                        this.shiftEdit = false;
+                        this.loadAll(true);
+                    } catch (e) { if (e.message !== 'demo-blocked') this.shiftMsg = '저장 실패'; }
+                    finally { this.shiftBusy = false; setTimeout(() => this.shiftMsg = '', 2500); }
+                },
+
+                // ── 계획정지 예외 ──
+                async addException() {
+                    this.excErr = '';
+                    if (!this.excForm.start || !this.excForm.end) { this.excErr = '시작/종료를 입력하세요.'; return; }
+                    if (new Date(this.excForm.end) <= new Date(this.excForm.start)) { this.excErr = '종료는 시작 이후여야 합니다.'; return; }
+                    this.excBusy = true;
+                    try {
+                        await this.apiPost('/api/oee/shift-exception', {
+                            flow: this.excForm.flow || null,
+                            startAt: new Date(this.excForm.start).toISOString(),
+                            endAt: new Date(this.excForm.end).toISOString(),
+                            kind: this.excForm.kind,
+                        });
+                        this.excForm.start = ''; this.excForm.end = '';
+                        this.loadAll(true);
+                    } catch (e) { if (e.message !== 'demo-blocked') this.excErr = '추가 실패: ' + e.message; }
+                    finally { this.excBusy = false; }
+                },
+                async deleteException(id) {
+                    try { await this.apiPost(`/api/oee/shift-exception/${id}/delete`, {}); this.loadAll(true); }
+                    catch (e) { if (e.message !== 'demo-blocked') this.excErr = '삭제 실패'; }
+                },
+                kindLabel(k) { return k === 'planned_maint' ? '계획정비' : k === 'planned_stop' ? '계획정지' : k === 'non_production' ? '비생산' : k; },
+
+                // ── 이상치 필터 ──
+                async saveGlobalFilter() {
+                    if (!this._settingsCache) { this.exclErr = '설정 로드 전입니다.'; return; }
+                    this.exclBusy = true; this.exclErr = ''; this.exclMsg = '';
+                    const s = this._settingsCache; const hv = s.historyView;
+                    try {
+                        await this.apiPost('/api/settings/save', {
+                            dbDir: s.dbDir,
+                            logLevelDefault: s.logLevelDefault,
+                            maxCycleTimeMs: this.globalFilter.max || 0,
+                            minCycleTimeMs: this.globalFilter.min || 0,
+                            maxCallGoingTimeMs: hv.maxCallGoingTimeMs,
+                            minCallGoingTimeMs: hv.minCallGoingTimeMs,
+                            cycleAverageWindow: hv.cycleAverageWindow,
+                        });
+                        this.exclMsg = '전역 저장됨 — 재집계';
+                        this.loadAll(true);
+                    } catch (e) { if (e.message !== 'demo-blocked') this.exclErr = '전역 저장 실패'; }
+                    finally { this.exclBusy = false; setTimeout(() => this.exclMsg = '', 2500); }
+                },
+                async savePerFlowFilter(row) {
+                    this.exclBusy = true; this.exclErr = ''; this.exclMsg = '';
+                    try {
+                        await this.apiPost('/api/dashboard/exclusions', {
+                            flowName: row.flowName,
+                            minSec: (row.min === '' || row.min == null) ? null : row.min,
+                            maxSec: (row.max === '' || row.max == null) ? null : row.max,
+                        });
+                        this.exclMsg = row.flowName + ' 저장됨';
+                        this.loadAll(true);
+                    } catch (e) { if (e.message !== 'demo-blocked') this.exclErr = '저장 실패'; }
+                    finally { this.exclBusy = false; setTimeout(() => this.exclMsg = '', 2500); }
+                },
+
+                // ── idealCT ──
+                ctRowChanged(row) { return (row.draft || null) !== (row.idealCycleTimeMs ?? null); },
+                async applyAllIdealCt() {
+                    const items = this.ctTable.filter(r => this.ctRowChanged(r)).map(r => ({ flow: r.flowName, idealCycleTimeMs: r.draft || null }));
+                    if (!items.length) { this.ctMsg = '변경 없음'; setTimeout(() => this.ctMsg = '', 2000); return; }
+                    this.ctApplying = true; this.ctMsg = '';
+                    try {
+                        await this.apiPost('/api/oee/ideal-cycle/batch', { items });
+                        this.ctMsg = items.length + '개 적용됨';
+                        this.loadAll(true);
+                    } catch (e) { if (e.message !== 'demo-blocked') this.ctError = '적용 실패'; }
+                    finally { this.ctApplying = false; setTimeout(() => this.ctMsg = '', 2500); }
+                },
+
+                // ── AI 인사이트 (규칙기반) ──
+                computeInsight() {
+                    if (!this.line) { this.insight = ''; return; }
+                    const parts = [];
+                    if (this.line.oee != null) {
+                        const grade = this.line.oee >= 0.85 ? '월드클래스' : this.line.oee >= 0.6 ? '개선 여지' : '저조';
+                        parts.push(`라인 OEE <b>${(this.line.oee * 100).toFixed(1)}%</b> (${grade}).`);
+                        // 최대 손실 요소
+                        const losses = [
+                            { n: '가용성', v: 1 - (this.line.availability ?? 1) },
+                            { n: '성능', v: 1 - (this.line.performance ?? 1) },
+                            { n: '품질', v: 1 - (this.line.quality ?? 1) },
+                        ].sort((a, b) => b.v - a.v);
+                        if (losses[0].v > 0.01) parts.push(`최대 손실은 <b>${losses[0].n}</b> (${(losses[0].v * 100).toFixed(0)}%p).`);
+                    } else if (this.line.oeeNote) {
+                        parts.push(this.line.oeeNote);
+                    }
+                    // 최하위 설비
+                    const ranked = this.rankedFlows.filter(f => f.s && f.s.oee != null);
+                    if (ranked.length >= 2) {
+                        const worst = ranked[ranked.length - 1];
+                        parts.push(`최하위 설비 <b>${worst.flowName}</b> ${(worst.s.oee * 100).toFixed(1)}%.`);
+                    }
+                    // 주 정지원인
+                    if (this.reasonDist.total > 0 && this.reasonDist.segs.length) {
+                        const top = this.reasonDist.segs[0];
+                        parts.push(`주 정지원인 <b>${top.label}</b> (${top.share}%, ${this.durShort(top.ms)}).`);
+                    }
+                    if (this.unclassifiedCount > 0) parts.push(`미분류 정지 ${this.unclassifiedCount}건 — 분류 필요.`);
+                    this.insight = parts.length ? parts.join(' ') : '';
+                },
+
+                // ── SignalR ──
+                connectSignalR() {
+                    if (!window.signalR) return;
+                    try {
+                        const conn = new signalR.HubConnectionBuilder()
+                            .withUrl('/hubs/monitoring')
+                            .withAutomaticReconnect([0, 0, 1000, 3000, 5000, 10000])
+                            .build();
+                        const trigger = () => { clearTimeout(this._dt); this._dt = setTimeout(() => this.loadAll(true), 400); };
+                        ['CallStateChanged', 'CallStateChangedBatch', 'UserTagAlertsChanged', 'DatabaseRebuilt', 'ExclusionsChanged', 'ShiftChanged', 'FlowHistoryCleared'].forEach(ev => conn.on(ev, trigger));
+                        conn.onreconnected(() => { this.rt.connected = true; this.loadAll(true); });
+                        conn.onreconnecting(() => { this.rt.connected = false; });
+                        conn.onclose(() => { this.rt.connected = false; });
+                        conn.start().then(() => { this.rt.connected = true; }).catch(() => { this.rt.connected = false; });
+                        this._conn = conn;
+                    } catch (e) { /* 폴링이 처리 */ }
+                },
+
+                // ── helpers ──
+                pct(v) { return (v == null || isNaN(v)) ? '—' : (v * 100).toFixed(1) + '%'; },
+                durShort(ms) {
+                    if (ms == null || isNaN(ms) || ms < 0) return '—';
+                    const s = ms / 1000;
+                    if (s < 60) return s.toFixed(s < 10 ? 1 : 0) + '초';
+                    const m = s / 60; if (m < 60) return m.toFixed(0) + '분';
+                    const h = m / 60; if (h < 48) return h.toFixed(1) + '시간';
+                    return (h / 24).toFixed(1) + '일';
+                },
+                dur(durationMs, d) {
+                    if (durationMs != null) return this.durShort(durationMs);
+                    if (d && d.status === 'open') return '~' + this.durShort(Date.now() - new Date(this.asUtc(d.startAt)).getTime());
+                    return '—';
+                },
+                toneColor(v, tgt) {
+                    if (v == null) return 'var(--color-text-disabled)';
+                    if (v >= tgt) return 'var(--green)';
+                    if (v >= tgt * 0.75) return 'var(--amber)';
+                    return 'var(--red)';
+                },
+                apqTone(metric, tgt) {
+                    const v = this.line ? this.line[metric] : null;
+                    if (v == null) return 'is-na';
+                    if (v >= tgt) return 'is-good';
+                    if (v >= tgt * 0.75) return 'is-warn';
+                    return 'is-bad';
+                },
+                barStyle(v, metric, tgt) {
+                    if (v == null) return 'width:0;';
+                    return `width:${Math.max(2, v * 100)}%;background:${this.toneColor(v, tgt)};`;
+                },
+                reasonLabel(code) { if (!code) return '미분류'; const d = REASON_DEFS.find(r => r.code === code); return d ? d.label : code; },
+                srcLabel(s) { return s === 'nocycle' ? '무사이클' : s === 'usertag' ? 'UserTag' : s === 'manual' ? '수동' : s; },
+                levelColor(l) { return LEVEL_COLOR[l] || LEVEL_COLOR.Info; },
+                // 서버 datetime 이 Z 없이 와도 UTC 로 해석되도록 보정(브라우저 로컬 오인 방지).
+                asUtc(s) { if (!s) return s; return (/[zZ]|[+\-]\d\d:?\d\d$/.test(s)) ? s : (s + 'Z'); },
+                dtTime(s) { if (!s) return '—'; const d = new Date(this.asUtc(s)); return isNaN(d) ? '—' : d.toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }); },
+
+                async apiGet(url) {
+                    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    return await res.json();
+                },
+                async apiPost(url, body) {
+                    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify(body || {}) });
+                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    return res.headers.get('content-type')?.includes('json') ? await res.json() : null;
+                },
+            };
+        }
+    </script>
+
+    <script src="/app/shell.js" defer></script>
+    <script defer src="/lib/alpine.min.js"></script>
+</body>
+
+</html>
