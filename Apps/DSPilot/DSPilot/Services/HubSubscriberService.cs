@@ -134,6 +134,8 @@ public sealed class HubSubscriberService : BackgroundService
         // PLC 어댑터 연결 상태. 부팅 직후 OnConnectedAsync 가 현재 알려진 모든 어댑터 상태를 caller 전용 cast 로 push,
         // 이후엔 PlcGateway 의 connect/reconnect 전이마다 broadcast.
         _connection.On<PlcConnectionStatus>(HubMethod.OnPlcConnectionStatus, _plcStatusTracker.Apply);
+        // Agent ControlAbnormalAdapter 감지 결과 — MonitoringAbnormalAdapter 로컬 감지 대체.
+        _connection.On<AbnormalPayload>(HubMethod.OnAbnormal, p => _engineService.HandleHubAbnormal(p));
 
         _connection.Reconnecting += ex =>
         {

@@ -147,6 +147,8 @@
             --green: #16a34a;  --color-success: #16a34a;  --color-success-rgb: 22, 163, 74;
             --amber: #d97706;  --color-warning: #d97706;  --color-warning-rgb: 217, 119, 6;
             --red:   #dc2626;  --color-error: #dc2626;    --color-error-rgb: 220, 38, 38;
+            /* 병목(최대 CT) 강조 = 온브랜드 딥 애저. 빨강(에러)과 분리해 오인 방지. */
+            --ct-bottleneck: #1e3a8a;  --ct-bottleneck-rgb: 30, 58, 138;
             --color-info: #0058be;
             --ct: #16a34a;
 
@@ -184,6 +186,8 @@
             --green: #2bbf6a;  --color-success: #2bbf6a;  --color-success-rgb: 43, 191, 106;
             --amber: #f59e0b;  --color-warning: #f59e0b;  --color-warning-rgb: 245, 158, 11;
             --red:   #f26d6d;  --color-error: #f26d6d;    --color-error-rgb: 242, 109, 109;
+            /* 다크: 어두운 배경에서 묻히지 않도록 밝은 애저(같은 계열). */
+            --ct-bottleneck: #3b82f6;  --ct-bottleneck-rgb: 59, 130, 246;
             --color-info: #4d9fff;
             --ct: #2bbf6a;
             --dash-mt: #818cf8;
@@ -286,25 +290,6 @@
         .dash-live.is-poll { color: var(--color-text-secondary); }
         @keyframes dash-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-        /* ── UserTag 이상(Error) 배너 ── */
-        .err-banner { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; padding: 11px 14px; border-radius: var(--radius-md); flex-shrink: 0; color: var(--red); background: color-mix(in srgb, var(--red) 10%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--red) 45%, transparent); border-left: 4px solid var(--red); box-shadow: 0 0 0 3px rgba(var(--color-error-rgb), 0.08); }
-        .dark-theme .err-banner { background: color-mix(in srgb, var(--red) 16%, var(--color-surface)); }
-        .err-banner .eb-icon { font-size: 26px; flex-shrink: 0; animation: eb-blink 1.4s ease-in-out infinite; }
-        @keyframes eb-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-        .err-banner .eb-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-        .err-banner .eb-title { font-size: 0.92rem; font-weight: 800; letter-spacing: -0.01em; }
-        .err-banner .eb-title .eb-count { font-variant-numeric: tabular-nums; }
-        .err-banner .eb-title .eb-window { font-weight: 600; color: var(--color-text-secondary); }
-        .err-banner .eb-sub { font-size: 0.74rem; font-weight: 600; color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .err-banner .eb-sub .eb-tag { color: var(--red); font-weight: 800; }
-        .err-banner .eb-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-        .err-banner .eb-link { display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; border-radius: var(--radius-sm); background: var(--red); color: #fff; font-size: 0.74rem; font-weight: 800; text-decoration: none; white-space: nowrap; }
-        .err-banner .eb-link:hover { filter: brightness(1.08); }
-        .err-banner .eb-link .material-icons { font-size: 16px; }
-        .err-banner .eb-dismiss { width: 30px; height: 30px; flex-shrink: 0; border: 1px solid color-mix(in srgb, var(--red) 35%, transparent); border-radius: var(--radius-sm); background: transparent; color: var(--red); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
-        .err-banner .eb-dismiss:hover { background: color-mix(in srgb, var(--red) 14%, transparent); }
-        .err-banner .eb-dismiss .material-icons { font-size: 18px; }
-
         /* ── 경로이탈 이상감지(DS 4종) 라이브 피드 ── 레벨색은 shell.js LEVEL_COLOR 와 통일(Error #ef4444 / Warning #fb923c / Info #3b82f6) */
         .ds-abn { margin-bottom: 14px; padding: 12px 16px; border-radius: var(--radius-md); flex-shrink: 0; background: color-mix(in srgb, #fbbf24 12%, var(--color-surface)); border: 1px solid color-mix(in srgb, #fbbf24 40%, transparent); }
         .dark-theme .ds-abn { background: color-mix(in srgb, #fbbf24 16%, var(--color-surface)); border-color: color-mix(in srgb, #fbbf24 30%, transparent); }
@@ -328,6 +313,12 @@
         .ds-abn-row.lvl-warning .ds-abn-label { color: #fb923c; }
         .ds-abn-row.lvl-info    .ds-abn-dot { background: #3b82f6; }
         .ds-abn-row.lvl-info    .ds-abn-label { color: #3b82f6; }
+        /* 행 클릭 → /uptime 바로가기 (시스템·레벨 필터 시드) */
+        .ds-abn-row.is-link { cursor: pointer; border-radius: var(--radius-sm); transition: background 0.12s; }
+        .ds-abn-row.is-link:hover { background: color-mix(in srgb, #fbbf24 22%, transparent); }
+        .ds-abn-row.is-link:focus-visible { outline: 2px solid #fb923c; outline-offset: -2px; }
+        .ds-abn-row .ds-abn-go { font-size: 18px; flex-shrink: 0; color: var(--color-text-secondary); opacity: 0.55; margin-left: 4px; }
+        .ds-abn-row.is-link:hover .ds-abn-go { opacity: 1; color: var(--color-text-primary); }
 
         /* ── KPI 시프트 셀 상태색 (Tailwind 카드 셸 위 보조) ── */
         .kpi-shift .kp-pct { font-variant-numeric: tabular-nums; }
@@ -361,24 +352,24 @@
         .fl-card { --fc-accent: var(--color-primary); position: absolute; z-index: 2; border: 1.5px solid var(--color-lines-strong); border-radius: 8px; background: var(--color-surface); box-shadow: 0 2px 7px rgba(14,27,42,0.12); overflow: hidden; cursor: pointer; transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease; }
         /* 호버 강조 = 선택 강조(fl-card-selected)와 동일 톤 — 도넛 슬라이스 강조와 동기 */
         .fl-card:not(.is-editing):hover { border-color: var(--color-primary); box-shadow: 0 8px 20px rgba(var(--color-primary-rgb),0.24); transform: translateY(-1px); z-index: 11; }
-        .fl-card.is-bottleneck:not(.is-editing):hover { box-shadow: 0 0 0 4px rgba(var(--color-error-rgb),0.24), 0 8px 20px rgba(var(--color-error-rgb),0.20); }
+        .fl-card.is-bottleneck:not(.is-editing):hover { box-shadow: 0 0 0 4px rgba(var(--ct-bottleneck-rgb),0.24), 0 8px 20px rgba(var(--ct-bottleneck-rgb),0.20); }
         .fl-card.is-maxwait:not(.is-editing):hover { box-shadow: 0 0 0 4px rgba(var(--color-warning-rgb),0.26), 0 8px 20px rgba(var(--color-warning-rgb),0.18); }
         .fl-card:hover { border-color: var(--color-primary); box-shadow: 0 6px 16px rgba(var(--color-primary-rgb),0.20); }
         .fl-card.is-chart-focus:not(.is-editing) { border-color: var(--color-primary); box-shadow: 0 8px 20px rgba(var(--color-primary-rgb),0.24); transform: translateY(-1px); z-index: 11; }
         .fl-card-selected { border-color: var(--color-primary); border-width: 2px; box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 22%, transparent); transform: none; z-index: 10; animation: none; }
-        .fl-card.is-bottleneck { outline: none; border: 2px solid var(--red); box-shadow: 0 0 0 4px rgba(var(--color-error-rgb),0.16); background: color-mix(in srgb, var(--red) 8%, var(--color-surface)); z-index: 6; }
-        .fl-card.is-bottleneck.fl-card-selected { box-shadow: 0 0 0 4px rgba(var(--color-error-rgb),0.30); }
+        .fl-card.is-bottleneck { outline: none; border: 2px solid var(--ct-bottleneck); box-shadow: 0 0 0 4px rgba(var(--ct-bottleneck-rgb),0.16); background: color-mix(in srgb, var(--ct-bottleneck) 8%, var(--color-surface)); z-index: 6; }
+        .fl-card.is-bottleneck.fl-card-selected { box-shadow: 0 0 0 4px rgba(var(--ct-bottleneck-rgb),0.30); }
         .fl-card .fc-root { justify-content: flex-start; gap: 1.8cqmin; padding: clamp(6px,5cqmin,16px) clamp(9px,6cqmin,20px); }
         .fc-toprow { display: flex; align-items: center; justify-content: space-between; gap: 2cqmin; width: 100%; min-width: 0; }
         .fc-toprow .fc-name { flex: 1; min-width: 0; text-align: left; }
         .fc-toprow .fc-badges { flex-shrink: 1; justify-content: flex-end; overflow: hidden; }
         .fc-name { font-size: clamp(0.55rem, calc(8.13cqh + 4.38cqw), 3.2rem); font-weight: 800; color: var(--color-text-primary); line-height: 1.18; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .fl-card.is-bottleneck .fc-name { color: var(--red); }
+        .fl-card.is-bottleneck .fc-name { color: var(--ct-bottleneck); }
         .fc-main { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: clamp(3px, 2.6cqmin, 9px); width: 100%; min-width: 0; }
         .fc-ct-line { display: flex; align-items: baseline; gap: clamp(3px, 2cqmin, 7px); line-height: 1; min-width: 0; }
         .fc-ct-val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 800; font-size: clamp(0.6rem, calc(9.75cqh + 5.25cqw), 3.8rem); color: var(--color-primary); letter-spacing: -0.02em; white-space: nowrap; }
         .fc-ct-lbl { font-size: clamp(0.32rem, calc(2.21cqh + 1.19cqw), 1.05rem); font-weight: 800; letter-spacing: 0.12em; color: var(--color-text-disabled); }
-        .fl-card.is-bottleneck .fc-ct-val { color: var(--red); }
+        .fl-card.is-bottleneck .fc-ct-val { color: var(--ct-bottleneck); }
         .fc-rw { display: flex; flex-direction: column; gap: clamp(2px, 1.7cqmin, 6px); width: 100%; min-width: 0; }
         .fc-rw-row { display: flex; align-items: baseline; justify-content: space-between; gap: clamp(4px, 2.6cqmin, 9px); min-width: 0; }
         .fc-rw-lbl { font-size: clamp(0.5rem, calc(3.51cqh + 1.89cqw), 1.3rem); font-weight: 700; letter-spacing: 0.04em; white-space: nowrap; }
@@ -392,8 +383,8 @@
         .fl-card.is-maxwait .fc-seg.wt { background: var(--amber); }
         .fl-card.is-maxwait .fc-rw-row .wt { color: #8A6D1A; }
         .dark-theme .fl-card.is-maxwait .fc-rw-row .wt { color: var(--amber); }
-        .fl-card.is-bottleneck .fc-seg.wt { background: var(--red); }
-        .fl-card.is-bottleneck .fc-rw-row .wt { color: var(--red); }
+        .fl-card.is-bottleneck .fc-seg.wt { background: var(--ct-bottleneck); }
+        .fl-card.is-bottleneck .fc-rw-row .wt { color: var(--ct-bottleneck); }
         .fl-card.is-maxwait { border: 2px solid var(--amber); box-shadow: 0 0 0 4px rgba(var(--color-warning-rgb),0.18); background: color-mix(in srgb, var(--amber) 10%, var(--color-surface)); z-index: 5; }
         .fl-card.is-maxwait.fl-card-selected { box-shadow: 0 0 0 4px rgba(var(--color-warning-rgb),0.32); }
         .fc-badges { display: flex; flex-wrap: wrap; gap: 1.4cqmin; justify-content: center; }
@@ -537,26 +528,6 @@
             <div class="alert alert-error mb-4" x-show="error" x-cloak><span class="material-icons">error</span><span x-text="error"></span></div>
             <div class="alert alert-info mb-4" x-show="!loading && !error && !hasData" x-cloak><span class="material-icons">info</span><span>PLC 데이터가 수집되면 자동으로 표시됩니다.</span></div>
 
-            <!-- ── UserTag 이상(Error) 배너 ── -->
-            <div class="err-banner" x-show="showErrorBanner" x-cloak x-transition.opacity>
-                <span class="material-icons eb-icon">error</span>
-                <div class="eb-body">
-                    <div class="eb-title">
-                        UserTag 이상 발생 <span class="eb-count" x-text="errorStatus.active"></span>건
-                        <span class="eb-window">(최근 10분)</span>
-                    </div>
-                    <div class="eb-sub" x-show="errorStatus.latestName">
-                        최신 · <span x-text="errorStatus.latestAt"></span> ·
-                        <span class="eb-tag" x-text="(errorStatus.latestSystem ? errorStatus.latestSystem + ' / ' : '') + errorStatus.latestName"></span>
-                        <span x-show="errorStatus.today > errorStatus.active" x-text="'· 오늘 누적 ' + errorStatus.today + '건'"></span>
-                    </div>
-                </div>
-                <div class="eb-actions">
-                    <a class="eb-link" :href="userTagsHref" title="가동시간·이상 페이지에서 상세 확인"><span class="material-icons">open_in_new</span> 이상발생 관리</a>
-                    <button class="eb-dismiss" @click="dismissErrorBanner()" title="배너 닫기 (새 이상 발생 시 다시 표시)"><span class="material-icons">close</span></button>
-                </div>
-            </div>
-
             <!-- ── 경로이탈 이상감지 (DS 4종) 라이브 피드 ── 엔진 AbnormalDetected → /api/dashboard/abnormals -->
             <div class="ds-abn" x-show="abnormals.length" x-cloak x-transition.opacity>
                 <div class="ds-abn-head">
@@ -569,12 +540,15 @@
                 </div>
                 <div class="ds-abn-list">
                     <template x-for="(a, i) in abnormals.slice(0, 8)" :key="a.occurredAtUtc + '-' + i">
-                        <div class="ds-abn-row" :class="'lvl-' + (a.level || 'Info').toLowerCase()">
+                        <div class="ds-abn-row is-link" :class="'lvl-' + (a.level || 'Info').toLowerCase()"
+                             role="button" tabindex="0" title="가동시간·이상 페이지에서 상세 확인"
+                             @click="gotoAbnormal(a)" @keydown.enter="gotoAbnormal(a)" @keydown.space.prevent="gotoAbnormal(a)">
                             <span class="ds-abn-time" x-text="a.occurredAtLocal"></span>
                             <span class="ds-abn-dot"></span>
                             <span class="ds-abn-label" x-text="a.label"></span>
                             <span class="ds-abn-where" x-text="[a.flowName, a.workName].filter(Boolean).join(' · ')"></span>
                             <span class="ds-abn-meta" :class="a.elapsedMs != null ? '' : 'no-val'" x-text="a.elapsedMs != null ? a.elapsedMs + 'ms' : '-'"></span>
+                            <span class="ds-abn-go material-icons" aria-hidden="true">chevron_right</span>
                         </div>
                     </template>
                 </div>
@@ -885,7 +859,7 @@
                                     <span style="font-size:0.6rem; font-weight:800; letter-spacing:0.1em; text-transform:uppercase; font-family:var(--font-mono); color:var(--color-text-secondary); max-width:52%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"
                                           x-text="focusFlowName ? focusFlowName : '전체 CT'"></span>
                                     <span style="font-size:1.35rem; font-weight:800; color:var(--color-text-primary); font-family:var(--font-mono); font-variant-numeric:tabular-nums; margin-top:2px;"
-                                          :style="focusFlowName ? { color: (focusFlowName === maxCtName ? 'var(--red)' : ctPalette(chartData.findIndex(f => f.flowName === focusFlowName))) } : {}"
+                                          :style="focusFlowName ? { color: (focusFlowName === maxCtName ? 'var(--ct-bottleneck)' : ctPalette(chartData.findIndex(f => f.flowName === focusFlowName))) } : {}"
                                           x-text="fmt(focusFlowName ? (chartData.find(f => f.flowName === focusFlowName)?.ct || 0) : chartData.reduce((a, b) => a + b.ct, 0))"></span>
                                 </div>
                             </div>
@@ -894,7 +868,7 @@
                                     <button class="ct-legend-item" :class="focusFlowName === f.flowName ? 'is-sel' : ''"
                                             @click.stop="goFlow(f.flowName)"
                                             @mouseenter="hoverFlow(f.flowName)" @mouseleave="hoverFlow(null)" :title="f.flowName + ' · 상세 분석'">
-                                        <span class="ct-legend-sw" :style="`background:${f.flowName === maxCtName ? 'var(--red)' : ctPalette(i)}`"></span>
+                                        <span class="ct-legend-sw" :style="`background:${f.flowName === maxCtName ? 'var(--ct-bottleneck)' : ctPalette(i)}`"></span>
                                         <span class="ct-legend-name" x-text="f.flowName"></span>
                                         <span class="ct-legend-val" x-text="fmt(f.ct)"></span>
                                     </button>
@@ -996,7 +970,8 @@
         // CT 비교 도넛 팔레트 — "Ocean Steel": 쿨 계열(azure→ocean-cyan→slate-blue→indigo)만으로
         // 색상·명도를 지그재그해 인접 슬라이스 구분 + 사이트 azure 무드와 조화. 병목(최대 CT)만 단독 red.
         const CT_DONUT_COLORS_LIGHT = ['#0058be', '#0e7490', '#3b5bdb', '#0b7fa6', '#1e40af', '#0e7c86', '#5145cd', '#1d6fc0', '#15708f', '#4338ca', '#2563eb', '#0e6f9e'];
-        const CT_DONUT_COLORS_DARK  = ['#4d9fff', '#22b8c9', '#7c8cf8', '#2dd4bf', '#6d9dff', '#38bdf8', '#a5b4fc', '#5ec5d6', '#818cf8', '#3b82f6', '#67d6c4', '#93a8ff'];
+        // #3b82f6 은 병목(--ct-bottleneck dark)에 예약 → 일반 슬라이스 팔레트에선 #1d4ed8(딥블루)로 대체해 중복 회피.
+        const CT_DONUT_COLORS_DARK  = ['#4d9fff', '#22b8c9', '#7c8cf8', '#2dd4bf', '#6d9dff', '#38bdf8', '#a5b4fc', '#5ec5d6', '#818cf8', '#1d4ed8', '#67d6c4', '#93a8ff'];
         const CT_DONUT_COLORS = CT_DONUT_COLORS_LIGHT; // 레거시 참조용 별칭(라이트 기본)
         // CT 도넛 차트 상태는 Alpine 반응형 밖(팩토리 클로저)에 둔다 —
         //  · 거대한 Chart 객체를 deep-proxy 하지 않게 하고, x-effect 의 자기참조 재발화(읽고-쓰기)를 차단
@@ -1027,11 +1002,8 @@
             sortField: 'ct', sortDesc: true,
             flowProcessOrder: {},
             rt: { connected: false },
-            errorStatus: { active: 0, today: 0, latestId: null, latestAt: null, latestSystem: null, latestName: null },
-            _errDismissedId: 0,
             abnormals: [],          // v12 경로이탈 이상감지(DS 4종) 최근 피드 — 라이브 갱신
             _abnDt: null,
-            userTagsHref: '/uptime',
             shift: { start: '08:00', end: '17:00', shiftType: 'morning', targetFlow: null, targetCount: 0, madeCount: 0 },
             shiftForm: { start: '08:00', end: '17:00', shiftType: 'morning', targetFlow: '', targetCount: 0 },
             shiftModalOpen: false,
@@ -1107,7 +1079,6 @@
                         if (!stillPlaced) this.selectedFlowName = null;
                     }
                     this.loadShift();
-                    this.loadErrorStatus();
                 } catch (e) {
                     if (e.message !== 'demo-blocked') this.error = '데이터를 불러오지 못했습니다: ' + e.message;
                 } finally {
@@ -1115,24 +1086,14 @@
                 }
             },
 
-            get showErrorBanner() {
-                const e = this.errorStatus;
-                return e.active > 0 && !!e.latestId && e.latestId !== this._errDismissedId;
+            // 이상감지 행 클릭 → 가동시간·이상 페이지로 바로가기. 시스템/레벨 필터를 시드(사이드바 이상코드 피드와 동일 형상).
+            gotoAbnormal(a) {
+                if (!a) return;
+                const q = [];
+                if (a.systemName) q.push('utSystem=' + encodeURIComponent(a.systemName));
+                if (a.level) q.push('utLevel=' + encodeURIComponent(a.level));
+                location.href = '/uptime' + (q.length ? '?' + q.join('&') : '');
             },
-            async loadErrorStatus() {
-                try {
-                    const s = await this.apiGet('/api/user-tags/error-status');
-                    this.errorStatus = {
-                        active: s.activeErrorCount || 0,
-                        today: s.todayErrorCount || 0,
-                        latestId: s.latestErrorId || null,
-                        latestAt: s.latestErrorAtLocal || null,
-                        latestSystem: s.latestErrorSystem || null,
-                        latestName: s.latestErrorName || null,
-                    };
-                } catch (e) { /* 배너는 비핵심 — 조용히 무시 */ }
-            },
-            dismissErrorBanner() { this._errDismissedId = this.errorStatus.latestId || 0; },
 
             // ── 경로이탈 이상감지(DS 4종) 피드 ──
             //   /api/dashboard/abnormals (인메모리 링버퍼) 를 조회. 실시간 갱신은 SignalR "AbnormalDetected"
@@ -1250,7 +1211,7 @@
             },
             flowBadges(name) {
                 const b = [];
-                if (name === this.maxCtName) b.push({ label: '최대', color: 'var(--color-error)' });
+                if (name === this.maxCtName) b.push({ label: '최대', color: 'var(--ct-bottleneck)' });
                 if (name === this.minCtName) b.push({ label: '최소', color: 'var(--color-success)' });
                 if (name === this.maxWtName) b.push({ label: '대기', color: 'var(--color-warning)' });
                 return b;
@@ -1588,13 +1549,14 @@
                 if (!rows.length) { if (ctChart) { ctChart.destroy(); ctChart = null; ctSig = null; ctDyn = null; } return; }
 
                 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
-                const red = css('--red') || css('--color-error') || '#D8392B';
+                // 병목(최대 CT) 슬라이스 = 딥 애저(온브랜드). 빨강=에러 전용이라 도넛에서 배제.
+                const bottleneck = css('--ct-bottleneck') || '#1e3a8a';
                 const surface = css('--color-surface') || '#ffffff';
                 const dark = document.documentElement.classList.contains('dark-theme');
                 const labels = rows.map(r => r.flowName);
                 const data = rows.map(r => r.ct);
                 const total = data.reduce((a, b) => a + b, 0) || 1;
-                const baseOf = (name, i) => name === maxName ? red : this.ctPalette(i);
+                const baseOf = (name, i) => name === maxName ? bottleneck : this.ctPalette(i);
                 const bg = rows.map((r, i) => {
                     const c = baseOf(r.flowName, i);
                     return (sel && r.flowName !== sel) ? this._hexAlpha(c, 0.28) : c;

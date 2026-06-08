@@ -40,19 +40,22 @@ public sealed class StateReconcileService : BackgroundService
         while (!stoppingToken.IsCancellationRequested)
         {
             int sec = ReadIntervalSeconds();
+            bool reconcileEnabled = sec > 0;
 
-            if (sec <= 0)
-            {
-                if (!await DelayAsync(DisabledPollInterval, stoppingToken)) return;
-                continue;
-            }
-
-            if (!await DelayAsync(TimeSpan.FromSeconds(sec), stoppingToken)) return;
+            // reconcile 비활성(0)이라도 이상감지 timeout 워치독은 계속 펌프해야 하므로 루프는 멈추지 않는다.
+            var delay = reconcileEnabled ? TimeSpan.FromSeconds(sec) : DisabledPollInterval;
+            if (!await DelayAsync(delay, stoppingToken)) return;
 
             try
             {
                 if (_engine.IsInitialized)
-                    await _engine.ReconcileStuckStatesAsync();
+                {
+                    // 완료 신호가 늦거나 안 오는 동작의 timeout(ActionOver)을 능동 감지 — reconcile 여부와 무관.
+                    _engine.TickAbnormalWatchdog();
+
+                    if (reconcileEnabled)
+                        await _engine.ReconcileStuckStatesAsync();
+                }
             }
             catch (Exception ex)
             {
