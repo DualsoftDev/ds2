@@ -13,12 +13,10 @@ namespace Promaker;
 public partial class App : Application
 {
     private static readonly ILog Log = LogManager.GetLogger(typeof(App));
-    private static readonly DateTimeOffset RunStartedAt = DateTimeOffset.Now;
+    internal static DateTimeOffset RunStartedAt { get; } = DateTimeOffset.Now;
 
     internal static string RunId { get; } =
         $"{RunStartedAt.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture)}-pid{Environment.ProcessId}";
-
-    internal static string LogPid { get; } = $"pid{Environment.ProcessId}";
 
     /// <summary>더블클릭 등으로 전달된 파일 경로 (첫 번째 인자).</summary>
     internal static string? StartupFilePath { get; set; }
@@ -104,7 +102,6 @@ public partial class App : Application
         // process working dir 가 exe 폴더가 아닐 수 있어 (단축키 / dotnet run / 다른 cwd 에서 실행)
         // AppContext.BaseDirectory (exe 폴더) 기준 절대 경로로 명시 — log4net Configure silent skip 회피.
         GlobalContext.Properties["PromakerRunId"] = RunId;
-        GlobalContext.Properties["PromakerLogPid"] = LogPid;
         var configFile = new FileInfo(Path.Combine(AppContext.BaseDirectory, "log4net.config"));
         if (configFile.Exists)
             XmlConfigurator.Configure(configFile);
