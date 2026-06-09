@@ -169,7 +169,6 @@ public class FlowController : ControllerBase
 
         int callsCount = callRows.Count;
         int activeCalls = callRows.Count(r => string.Equals(r.State, "Going", StringComparison.OrdinalIgnoreCase));
-        int errorCalls = callRows.Count(r => string.Equals(r.State, "Error", StringComparison.OrdinalIgnoreCase));
 
         var avgSamples = callRows
             .Where(r => r.AverageGoingTime is > 0)
@@ -191,7 +190,6 @@ public class FlowController : ControllerBase
             runtimeFlow?.MT,
             runtimeFlow?.WT,
             activeCalls,
-            errorCalls,
             avgCallTimeMs);
 
         return new FlowDetailDto(
@@ -272,7 +270,6 @@ public record FlowKpiDto(
     int? CurrentMt,
     int? CurrentWt,
     int? ActiveCalls,
-    int? ErrorCalls,
     double? AvgCallTimeMs);
 
 public record CycleOverrideRequestDto(
