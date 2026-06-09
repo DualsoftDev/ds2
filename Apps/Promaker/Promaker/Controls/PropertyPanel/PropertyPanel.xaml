@@ -323,6 +323,42 @@
                                    Visibility="{Binding HasDeviceDuration, Converter={StaticResource BoolToVis}}"
                                    Margin="0,2,0,0"/>
 
+                        <!-- v12 자동 줄자: 이상감지 Min/Max(ms). 비우면 미사용(범위 판정 안 함). -->
+                        <TextBlock Text="이상감지 Min / Max (ms · 비우면 미사용)"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                   Margin="0,6,0,2"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0"
+                                     Text="{Binding WorkMinMs, UpdateSourceTrigger=PropertyChanged, TargetNullValue=''}"
+                                     Padding="6,4" FontSize="12" MaxLength="9"
+                                     ToolTip="Min (ms) — 비우면 미사용">
+                                <TextBox.InputBindings>
+                                    <KeyBinding Key="Enter" Command="{Binding ApplyWorkRangeCommand}"/>
+                                </TextBox.InputBindings>
+                            </TextBox>
+                            <TextBox Grid.Column="1"
+                                     Text="{Binding WorkMaxMs, UpdateSourceTrigger=PropertyChanged, TargetNullValue=''}"
+                                     Padding="6,4" FontSize="12" MaxLength="9" Margin="4,0,0,0"
+                                     ToolTip="Max (ms) — 비우면 미사용">
+                                <TextBox.InputBindings>
+                                    <KeyBinding Key="Enter" Command="{Binding ApplyWorkRangeCommand}"/>
+                                </TextBox.InputBindings>
+                            </TextBox>
+                            <Button Grid.Column="2"
+                                    Content="✓"
+                                    Style="{StaticResource DarkButton}"
+                                    Margin="4,0,0,0"
+                                    Padding="8,4"
+                                    IsEnabled="{Binding IsWorkRangeDirty}"
+                                    Command="{Binding ApplyWorkRangeCommand}"/>
+                        </Grid>
+
                         <Separator Margin="0,12"/>
                         <CheckBox Content="IsFinished (초기 Finish 상태)"
                                   IsThreeState="True"
