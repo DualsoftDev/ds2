@@ -96,38 +96,8 @@
                     </Border>
                 </Popup>
             </Grid>
-            <Button x:Name="ThemeButton" Style="{StaticResource RibbonFlatButton}" Command="{Binding ToggleThemeCommand}" ToolTip="{Binding ThemeButtonToolTip}">
-                <StackPanel Orientation="Vertical">
-                    <Grid Width="18" Height="18" HorizontalAlignment="Center" Margin="0,0,0,2">
-                        <iconPacks:PackIconMaterial Kind="WhiteBalanceSunny" Width="18" Height="18" Foreground="{DynamicResource IconGrayBrush}">
-                            <iconPacks:PackIconMaterial.Style>
-                                <Style TargetType="iconPacks:PackIconMaterial">
-                                    <Setter Property="Visibility" Value="Collapsed"/>
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsDarkTheme}" Value="True">
-                                            <Setter Property="Visibility" Value="Visible"/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </iconPacks:PackIconMaterial.Style>
-                        </iconPacks:PackIconMaterial>
-                        <iconPacks:PackIconMaterial Kind="WeatherNight" Width="18" Height="18" Foreground="{DynamicResource IconGrayBrush}">
-                            <iconPacks:PackIconMaterial.Style>
-                                <Style TargetType="iconPacks:PackIconMaterial">
-                                    <Setter Property="Visibility" Value="Visible"/>
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsDarkTheme}" Value="True">
-                                            <Setter Property="Visibility" Value="Collapsed"/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </iconPacks:PackIconMaterial.Style>
-                        </iconPacks:PackIconMaterial>
-                    </Grid>
-                    <TextBlock Text="{Binding ThemeButtonText}" Style="{StaticResource RibbonIconLabel}"/>
-                </StackPanel>
-            </Button>
-            <Button Style="{StaticResource RibbonFlatButton}" Command="{Binding ShowApplicationSettingsCommand}" ToolTip="환경 설정 (AASX/PLC/프리셋)">
+            <!-- PR-A3 — ThemeButton 은 설정 다이얼로그 '일반' 탭으로 이전. 리본 상단에서는 제거. -->
+            <Button Style="{StaticResource RibbonFlatButton}" Command="{Binding ShowApplicationSettingsCommand}" ToolTip="환경 설정 (일반/AASX/PLC/프리셋)">
                 <StackPanel Orientation="Vertical">
                     <iconPacks:PackIconMaterial Kind="Cog" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/>
                     <TextBlock Text="{x:Static res:Strings.Settings}" Style="{StaticResource RibbonIconLabel}"/>

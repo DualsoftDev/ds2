@@ -38,6 +38,28 @@
 
             <!-- 탭 컨트롤 -->
             <TabControl x:Name="SettingsTabControl" Grid.Row="0" Margin="0,0,0,10">
+                <!-- 탭 0: 일반 (앱 전반 설정 — 레이아웃 초기화 등) -->
+                <TabItem Header="일반">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="10">
+                        <StackPanel>
+                            <!-- Dock 레이아웃 초기화 -->
+                            <TextBlock Text="Dock 레이아웃"
+                                       FontSize="12" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource PrimaryTextBrush}"
+                                       Margin="0,0,0,6"/>
+                            <TextBlock TextWrapping="Wrap"
+                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Margin="0,0,0,8">
+                                저장된 dock 패널 배치를 삭제합니다. 다음 실행 시 기본 레이아웃으로 시작됩니다.
+                            </TextBlock>
+                            <Button Content="레이아웃 초기화"
+                                    Style="{StaticResource DarkButton}"
+                                    Padding="12,6" HorizontalAlignment="Left"
+                                    Click="ResetLayout_Click"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
                 <!-- 탭 1: AASX -->
                 <TabItem Header="AASX">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="10">

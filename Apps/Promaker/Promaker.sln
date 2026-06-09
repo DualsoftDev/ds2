@@ -35,8 +35,6 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Promaker.Agent", "Promaker.
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Promaker.AgentTray", "Promaker.AgentTray\Promaker.AgentTray.csproj", "{1EFEEB54-B175-4AE1-8EFD-F3A486460A8F}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Promaker.Dock", "Promaker.Dock\Promaker.Dock.csproj", "{71CB0BDF-0294-4725-AA35-AAE62D6DCF68}"
-EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.Backend.Runtime", "..\..\Solutions\Backend\Ds2.Backend.Runtime\Ds2.Backend.Runtime.fsproj", "{B93F8081-59A1-4A53-8B9F-ADEF7C99E3DE}"
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.Runtime.Remote", "..\..\Solutions\Runtime\Ds2.Runtime.Remote\Ds2.Runtime.Remote.fsproj", "{A5D9FF21-F10A-400D-B1D6-F72E73DE5CE8}"
@@ -207,18 +205,6 @@ Global
 		{1EFEEB54-B175-4AE1-8EFD-F3A486460A8F}.Release|x64.Build.0 = Release|Any CPU
 		{1EFEEB54-B175-4AE1-8EFD-F3A486460A8F}.Release|x86.ActiveCfg = Release|Any CPU
 		{1EFEEB54-B175-4AE1-8EFD-F3A486460A8F}.Release|x86.Build.0 = Release|Any CPU
-		{71CB0BDF-0294-4725-AA35-AAE62D6DCF68}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{71CB0BDF-0294-4725-AA35-AAE62D6DCF68}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{71CB0BDF-0294-4725-AA35-AAE62D6DCF68}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{71CB0BDF-0294-4725-AA35-AAE62D6DCF68}.Debug|x64.Build.0 = Debug|Any CPU
-		{71CB0BDF-0294-4725-AA35-AAE62D6DCF68}.Debug|x86.ActiveCfg = Debug|Any CPU
-		{71CB0BDF-0294-4725-AA35-AAE62D6DCF68}.Debug|x86.Build.0 = Debug|Any CPU
-		{71CB0BDF-0294-4725-AA35-AAE62D6DCF68}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{71CB0BDF-0294-4725-AA35-AAE62D6DCF68}.Release|Any CPU.Build.0 = Release|Any CPU
-		{71CB0BDF-0294-4725-AA35-AAE62D6DCF68}.Release|x64.ActiveCfg = Release|Any CPU
-		{71CB0BDF-0294-4725-AA35-AAE62D6DCF68}.Release|x64.Build.0 = Release|Any CPU
-		{71CB0BDF-0294-4725-AA35-AAE62D6DCF68}.Release|x86.ActiveCfg = Release|Any CPU
-		{71CB0BDF-0294-4725-AA35-AAE62D6DCF68}.Release|x86.Build.0 = Release|Any CPU
 		{B93F8081-59A1-4A53-8B9F-ADEF7C99E3DE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{B93F8081-59A1-4A53-8B9F-ADEF7C99E3DE}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B93F8081-59A1-4A53-8B9F-ADEF7C99E3DE}.Debug|x64.ActiveCfg = Debug|Any CPU

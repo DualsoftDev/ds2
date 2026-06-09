@@ -31,11 +31,15 @@ public partial class MainWindow : Window
     // 한쪽 방향 처리 중에 다른 방향 raise 가 와도 무시 (loop 차단).
     private bool _suppressAnchorSync;
 
-    // PR-D6 — dock layout 영속화 경로. `%LOCALAPPDATA%\Promaker\dock-layout.xml`.
-    // 사용자 의도 verbatim 박제 (todo-dock-devexpress.md §3 PR-D6): "%LOCALAPPDATA%\Promaker\dock-layout.xml".
+    // PR-A3 — AvalonDock 재교체에 따른 layout xml schema 변경. 구 `dock-layout.xml` (DX <XtraSerializer>
+    // 포맷) 과 충돌 회피 위해 파일명에 -v2 suffix 추가. 구 파일은 그대로 두고(touch 안 함) 새 파일을 별도 사용:
+    //   - 처음 실행: -v2 파일 없음 → XAML 박제 default layout 으로 시작 (안전한 fresh start).
+    //   - 종료 시: SaveLayout 이 -v2 파일에 AvalonDock 포맷으로 저장.
+    //   - 이후 실행: -v2 파일을 RestoreLayout 가 읽어 사용자 dock 변경 보존.
+    // 향후 layout schema 변경 시 -v3 등으로 bump.
     private static readonly string LayoutXmlPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "Promaker", "dock-layout.xml");
+        "Promaker", "dock-layout-v2.xml");
 
     // --review mn5 — 5 standard anchor (explorer/simulation/properties/history/log) 의 (contentId, vmProp, get, set)
     // 통합 table. Vm_PropertyChanged / DockHost_AnchorVisibilityChanged / RestoreDockLayoutAndSyncVm 의 switch+magic
@@ -190,16 +194,19 @@ public partial class MainWindow : Window
     /// </summary>
     private void RestoreDockLayoutAndSyncVm()
     {
+        // PR-A3 — RestoreLayout 복구. 단, layout xml 경로는 -v2 로 bump 되어(LayoutXmlPath 참조) 구 DX 포맷 파일은
+        // 자동으로 무시됨. 새 버전 (AvalonDock) 으로 저장한 -v2 파일만 복원 대상이라 schema 충돌이 발생하지 않음.
+        // 처음 실행 시는 -v2 파일이 없어 RestoreLayout 가 silent skip → XAML 박제 default layout 으로 시작.
         _suppressAnchorSync = true;
         try
         {
             dockHost.RestoreLayout(LayoutXmlPath);
 
-            // 5 anchor — Restore 결과를 VM property 로 강제 sync. mn5 table iterate (magic string 중복 제거).
+            // 5 anchor — Restore 결과를 VM property 로 강제 sync.
             foreach (var b in _anchorSyncs)
                 b.Set(dockHost.IsAnchorVisible(b.ContentId));
 
-            // Welcome / Canvas — HasProject SSOT 가 일방 관리. Restore 결과를 무시하고 현재 HasProject 로 재적용.
+            // Welcome / Canvas — HasProject SSOT 가 일방 관리. Restore 결과 무시 + 현재 HasProject 로 재적용.
             SyncWelcomeCanvasVisibilityNoGuard();
         }
         finally { _suppressAnchorSync = false; }
