@@ -124,7 +124,7 @@ public partial class MainViewModel
     [RelayCommand]
     private void ShowApplicationSettings()
     {
-        var dlg = new ApplicationSettingsDialog(ApplicationSettingsDialog.SettingsTab.Aasx);
+        var dlg = new ApplicationSettingsDialog(ApplicationSettingsDialog.SettingsTab.General);
         if (_dialogService.ShowDialog(dlg) != true) return;
 
         AppSettings.SetSplitDeviceAasx(dlg.ResultSplitDeviceAasx);

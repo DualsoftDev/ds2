@@ -1,0 +1,79 @@
+DSPilot — Proprietary Commercial License
+=========================================
+
+Copyright (c) 2026 Dualsoft Inc. All rights reserved.
+
+This software, including all source code, binaries, assets, configuration files,
+and documentation located under the directory `Apps/DSPilot/` (the "Software"),
+is the proprietary and confidential property of Dualsoft Inc. ("Dualsoft").
+
+NOTICE
+------
+The Apache License 2.0 that governs the rest of this repository
+(see `<repo root>/LICENSE`) does NOT apply to this directory. The Software
+located under `Apps/DSPilot/` is licensed exclusively under the terms set
+forth in this file.
+
+
+1. GRANT OF LICENSE
+-------------------
+No license, express or implied, is granted by Dualsoft to any party to use,
+copy, modify, merge, publish, distribute, sublicense, sell, or otherwise
+exploit the Software, except under a separate, written commercial license
+agreement signed by an authorized representative of Dualsoft.
+
+Mere viewing of the source code in this public repository does NOT confer
+any right to use, build, run, or distribute the Software.
+
+
+2. PERMITTED USES WITHOUT A SEPARATE AGREEMENT
+----------------------------------------------
+The following limited activities are permitted without a separate commercial
+license, solely for the purposes stated:
+
+  (a) Reading the source code for evaluation or educational reference only;
+  (b) Cloning the repository in order to build and run the OTHER (Apache 2.0)
+      components of this repository, provided that the Software is not built,
+      executed, redistributed, or incorporated into any derivative work.
+
+All other activities — including but not limited to running compiled binaries
+in production, redistributing source or binaries, embedding the Software in
+another product, providing the Software as a hosted service, or creating
+derivative works — require a separate commercial license from Dualsoft.
+
+
+3. CONTRIBUTIONS
+----------------
+Any contribution (pull request, patch, suggestion) intentionally submitted to
+this directory shall be deemed assigned to Dualsoft for inclusion under this
+commercial license, unless a separate written agreement states otherwise.
+By submitting a contribution you represent that you have the right to make
+such assignment.
+
+
+4. NO WARRANTY
+--------------
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+DUALSOFT BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+5. TRADEMARKS
+-------------
+"Dualsoft" and "DSPilot" are trademarks of Dualsoft Inc. This license does not
+grant permission to use these trademarks except as required for reasonable and
+customary description of the origin of the Software.
+
+
+6. CONTACT
+----------
+For commercial licensing inquiries, please contact:
+
+    Dualsoft Inc.
+    Email: ahn@dualsoft.com
+    Web:   https://dualsoft.com
+
+End of License.

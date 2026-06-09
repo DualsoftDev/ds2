@@ -20,7 +20,6 @@ public partial class GanttChartControl : UserControl
     private double _panStartHorizontalOffset;
     private bool _isSyncingScroll;
     private DateTime _lastRowClickTime = DateTime.MinValue;
-    private GanttTimelineEntry? _lastClickedEntry;
 
     public GanttChartControl()
     {

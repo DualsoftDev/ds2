@@ -1,7 +1,6 @@
 # Simulation 이벤트 로그 → 통합 Log 탭 병합 계획
 
 작성일: 2026-06-09
-대상 브랜치: `chore/remove-llm` (또는 후속 별 브랜치 권장)
 목적: Promaker 의 SimulationPanel 안 "이벤트 로그" 탭을 제거하고 MainWindow 하단 도크 anchor 인 통합 **Log** 탭으로 일원화한다.
 
 ## 1. 현재 구조

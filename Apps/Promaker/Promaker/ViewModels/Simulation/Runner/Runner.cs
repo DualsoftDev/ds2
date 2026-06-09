@@ -248,14 +248,12 @@ public partial class SimulationPanelState
         if (clearCollections)
         {
             SimNodes.Clear();
-            SimEventLog.Clear();
             SimWorkItems.Clear();
             TokenSourceWorks.Clear();
             SelectedTokenSource = null;
             return;
         }
 
-        SimEventLog.Clear();
         foreach (var row in SimNodes)
         {
             row.State = Status4.Ready;
