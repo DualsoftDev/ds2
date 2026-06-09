@@ -474,6 +474,47 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         return (row.Total, row.Good, row.Reject, row.Rows > 0);
     }
 
+    // ── 일자별/시간별 정지 버킷 ───────────────────────────────────────────
+
+    public async Task<IReadOnlyList<(string Slot, long PlannedMs, long UnplannedMs)>> GetDowntimeBySlotsAsync(
+        DateTime fromUtc, DateTime toUtc, string? flowName, bool hourly, CancellationToken ct = default)
+    {
+        await using var conn = await OpenAsync();
+        var fmt = hourly ? "%Y-%m-%d %H:00" : "%Y-%m-%d";
+        var p = new DynamicParameters();
+        p.Add("From", Iso(fromUtc));
+        p.Add("To", Iso(toUtc));
+        p.Add("Now", Iso(DateTime.UtcNow));
+        var flowClause = "";
+        if (!string.IsNullOrWhiteSpace(flowName))
+        {
+            flowClause = " AND flowName = @Flow ";
+            p.Add("Flow", flowName.Trim());
+        }
+        var sql = $@"
+            SELECT
+              strftime('{fmt}', startAt, 'localtime') AS Slot,
+              COALESCE(SUM(CASE WHEN category = 'planned'
+                THEN COALESCE(durationMs, CAST((julianday(@Now) - julianday(startAt)) * 86400000 AS INTEGER))
+                ELSE 0 END), 0) AS PlannedMs,
+              COALESCE(SUM(CASE WHEN category IS NULL OR category != 'planned'
+                THEN COALESCE(durationMs, CAST((julianday(@Now) - julianday(startAt)) * 86400000 AS INTEGER))
+                ELSE 0 END), 0) AS UnplannedMs
+            FROM oeeDowntimeEvent
+            WHERE startAt >= @From AND startAt <= @To {flowClause}
+            GROUP BY strftime('{fmt}', startAt, 'localtime')
+            ORDER BY Slot";
+        var rows = await conn.QueryAsync<SlotRow>(sql, p);
+        return rows.Select(r => (r.Slot ?? "", r.PlannedMs, r.UnplannedMs)).ToList();
+    }
+
+    private sealed class SlotRow
+    {
+        public string? Slot { get; set; }
+        public long PlannedMs { get; set; }
+        public long UnplannedMs { get; set; }
+    }
+
     // ── 시프트 예외 ───────────────────────────────────────────────────────
 
     public async Task<long> InsertShiftExceptionAsync(OeeShiftException r, CancellationToken ct = default)

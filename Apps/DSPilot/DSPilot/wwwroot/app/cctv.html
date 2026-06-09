@@ -664,7 +664,7 @@
         </main>
 
         <!-- ── 카메라 설정 모달 (RTSP 추가/편집 — Settings 에서 이관) ── -->
-        <div class="modal-overlay" x-show="camSettings.open" style="z-index:3500;" @click.self="closeCamSettings()" x-cloak>
+        <div class="modal-overlay" x-show="camSettings.open" style="z-index:3500;" @mousedown.self="closeCamSettings()" x-cloak>
             <div class="modal-content cctv-camset">
                 <div class="ds-card-h" style="margin-bottom:14px;">
                     <h4>카메라 설정 (RTSP)</h4>
@@ -740,7 +740,7 @@
         </div>
 
         <!-- ── 라벨 수정 모달 ── -->
-        <div class="modal-overlay" x-show="labelForm.open" style="z-index:3500;" @click.self="cancelLabel()" x-cloak>
+        <div class="modal-overlay" x-show="labelForm.open" style="z-index:3500;" @mousedown.self="cancelLabel()" x-cloak>
             <div class="modal-content" style="max-width:420px;">
                 <div class="ds-card-h" style="margin-bottom:14px;">
                     <h4>라벨 수정</h4>
