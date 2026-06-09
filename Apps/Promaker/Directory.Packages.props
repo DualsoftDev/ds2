@@ -50,12 +50,13 @@
   <ItemGroup>
     <PackageVersion Include="Microsoft.Web.WebView2" Version="1.0.2277.86" />
   </ItemGroup>
-  <!-- DevExpress.Wpf.Docking — PR-D4 spike D mechanism 적용: PackageReference 제거.
-       Promaker.Dock.csproj 에서 직접 <Reference HintPath> 로 binary link (DX 설치 폴더 + NuGet cache).
-       NuGet graph 자체에서 격리 → Promaker 본체 transitive 0건 (todo-dock-devexpress.md §2 PR-D4 D1).
-       PR-D8: AvalonDock (Dirkster.AvalonDock / Dirkster.AvalonDock.Themes.Metro) PackageVersion 제거.
-       빈 ItemGroup 무해 노이즈로 보존 (review mn8). -->
+  <!-- PR-A1 (DX 제거 + AvalonDock 복귀):
+       DevExpress.Wpf.Docking → Dirkster.AvalonDock (MIT) 재교체.
+       Promaker.Dock.csproj 가 PackageReference 로 직접 참조. AvalonDock type 외부 노출 차단은 IDockManager 표면으로 유지.
+       VS2013 테마 패키지로 light/dark 양쪽 (Promaker ThemeManager 연동) 지원. -->
   <ItemGroup>
+    <PackageVersion Include="Dirkster.AvalonDock" Version="4.74.1" />
+    <PackageVersion Include="Dirkster.AvalonDock.Themes.VS2013" Version="4.74.1" />
   </ItemGroup>
 
   <!-- 시스템 트레이 아이콘 (WPF 네이티브) — Monitoring 모드 백그라운드 전환용 -->
