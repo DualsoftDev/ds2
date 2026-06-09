@@ -274,8 +274,8 @@
         .fc-cq { width: 100%; height: 100%; box-sizing: border-box; container-type: size; container-name: card; }
         .fc-cq *, .fc-cq *::before, .fc-cq *::after { box-sizing: border-box; margin: 0; padding: 0; }
         .fc-root { width: 100%; height: 100%; display: flex; flex-direction: column; padding: 3cqmin 4cqmin; box-sizing: border-box; font-family: var(--font-family); color: var(--color-text-primary); pointer-events: none; overflow: hidden; }
-        .fl-blueprint { opacity: 0.22; filter: grayscale(0.85) contrast(0.92); }
-        .dark-theme .fl-blueprint { opacity: 0.32; filter: grayscale(0.85) brightness(1.35) contrast(0.85); }
+        /* 보기·편집 모두 도면을 또렷하게 (흐림/그레이스케일 처리 안 함) */
+        .fl-blueprint { opacity: 1; filter: none; }
 
         /* ════════════════════════════════════════════════════════════════════════
            ↓↓↓ dashboard.html <style> 이식 (KPI/도면 카드/CT도넛/히스토리/시프트·이상치
@@ -290,22 +290,24 @@
         .dash-live.is-poll { color: var(--color-text-secondary); }
         @keyframes dash-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-        /* ── 경로이탈 이상감지 알람 배너 (FLOWMES 참고: bg-yellow-400 px-6 py-4 + 경고 아이콘 + 마퀴 + 상세확인 버튼) ── 데이터는 abnormals[] */
+        /* ── 경로이탈 이상감지 알람 배너 (fliptext 참고: bg-yellow-400 px-6 py-4 + 경고 아이콘 + 세로 티커 + 분자/분모 인디케이터 + 상세확인 버튼) ── 데이터는 abnormals[] */
         .flow-alarm { display: flex; align-items: center; padding: 16px 24px; margin-bottom: 14px; flex-shrink: 0; overflow: hidden; border-radius: var(--radius-md); background: #facc15; box-shadow: 0 1px 2px 0 rgba(0,0,0,0.06); }
         .flow-alarm-icon { display: flex; align-items: center; gap: 8px; flex-shrink: 0; margin-right: 16px; padding-right: 12px; z-index: 10; background: #facc15; }
         .flow-alarm-icon svg { width: 34px; height: 34px; color: #000; flex-shrink: 0; }
         .flow-alarm-count { font-size: 1.05rem; font-weight: 800; color: #000; background: rgba(0,0,0,0.12); border-radius: 9999px; padding: 3px 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
         .flow-alarm-track { flex: 1; min-width: 0; position: relative; height: 42px; overflow: hidden; display: flex; align-items: center; }
-        /* 끊김 없는 마퀴: 같은 메시지 2벌을 이어 붙이고 -50% 까지만 이동 → 한 벌 폭만큼 흐른 뒤 정확히 겹쳐 리셋(빈 간격/대기 없음). inline-flex 라 두 span 사이 공백 없음. 속도는 abnMarqueeDur(JS, px/s 일정)로 제어 */
-        .flow-alarm-marquee { display: inline-flex; flex-wrap: nowrap; white-space: nowrap; animation: flow-alarm-scroll 40s linear infinite; will-change: transform; }
-        .flow-alarm-marquee > .flow-alarm-msg { flex: 0 0 auto; }
-        .flow-alarm-track:hover .flow-alarm-marquee { animation-play-state: paused; }
-        .flow-alarm-msg { font-size: 1.7rem; font-weight: 700; color: #dc2626; letter-spacing: -0.01em; }
+        /* 세로 티커 전환(fliptext 방식): 한 번에 한 건만 보이고, abnIndex 변경 시 :key 재생성으로 아래→위 슬라이드 인. 마퀴(가로 스크롤) 폐지 — 긴 메시지도 한 줄 ellipsis 로 끊고 건마다 또렷이 읽힌다. */
+        .flow-alarm-msg { display: block; width: 100%; font-size: 1.7rem; font-weight: 700; color: #dc2626; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; will-change: transform; }
+        .flow-alarm-msg-anim { animation: flow-alarm-flip 0.5s cubic-bezier(0.16, 1, 0.3, 1); }
+        @keyframes flow-alarm-flip { 0% { transform: translateY(108%); opacity: 0; } 60% { opacity: 1; } 100% { transform: translateY(0); opacity: 1; } }
+        @media (prefers-reduced-motion: reduce) { .flow-alarm-msg-anim { animation: none; } }
+        /* 분자/분모 인디케이터: 현재건 / 전체건 (fliptext 의 "1 / 3" sync pill) */
+        .flow-alarm-idx { flex-shrink: 0; margin-left: 16px; z-index: 10; font-size: 0.95rem; font-weight: 800; color: #000; background: rgba(0,0,0,0.14); border: 1px solid rgba(0,0,0,0.1); border-radius: 9999px; padding: 4px 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .flow-alarm-idx b { font-size: 1.1rem; }
         .flow-alarm-btn { flex-shrink: 0; margin-left: 16px; z-index: 10; padding: 7px 18px; border: none; border-radius: 9999px; background: #000; color: #fff; font-size: 0.85rem; font-weight: 700; cursor: pointer; white-space: nowrap; box-shadow: 0 8px 14px -4px rgba(0,0,0,0.35); transition: background 0.15s; }
         .flow-alarm-btn:hover { background: #1f2937; }
         .flow-alarm-close { flex-shrink: 0; margin-left: 8px; z-index: 10; width: 32px; height: 32px; border: none; border-radius: 9999px; background: rgba(0,0,0,0.18); color: #000; font-size: 1.1rem; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.15s; }
         .flow-alarm-close:hover { background: rgba(0,0,0,0.35); }
-        @keyframes flow-alarm-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 
         /* ── KPI 시프트 셀 상태색 (Tailwind 카드 셸 위 보조) ── */
         .kpi-shift .kp-pct { font-variant-numeric: tabular-nums; }
@@ -550,19 +552,19 @@
             <div class="alert alert-error mb-4" x-show="error" x-cloak><span class="material-icons">error</span><span x-text="error"></span></div>
             <div class="alert alert-info mb-4" x-show="!loading && !error && !hasData" x-cloak><span class="material-icons">info</span><span>PLC 데이터가 수집되면 자동으로 표시됩니다.</span></div>
 
-            <!-- ── 경로이탈 이상감지 알람 배너 (FLOWMES 참고) ── abnormals[] → 마퀴 스크롤, SignalR "AbnormalDetected" 라이브 갱신 -->
+            <!-- ── 경로이탈 이상감지 알람 배너 (fliptext 참고) ── abnormals[] → 세로 티커(한 건씩 전환) + 분자/분모 인디케이터, SignalR "AbnormalDetected" 라이브 갱신 -->
             <div class="flow-alarm" x-show="abnormals.length" x-cloak x-transition.opacity>
                 <div class="flow-alarm-icon">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
                     <span class="flow-alarm-count" x-text="(abnormalOverflow ? '10+' : abnormals.length) + '건'"></span>
                 </div>
-                <div class="flow-alarm-track">
-                    <div class="flow-alarm-marquee" :style="`animation-duration:${abnMarqueeDur}s`">
-                        <span class="flow-alarm-msg" x-text="abnMarquee"></span>
-                        <span class="flow-alarm-msg" x-text="abnMarquee" aria-hidden="true"></span>
-                    </div>
+                <div class="flow-alarm-track" @mouseenter="abnPause(true)" @mouseleave="abnPause(false)">
+                    <template x-for="m in [abnCurrent]" :key="abnIndex">
+                        <span class="flow-alarm-msg flow-alarm-msg-anim" x-text="m" :title="m"></span>
+                    </template>
                 </div>
-                <button type="button" class="flow-alarm-btn" @click="gotoAbnormal(abnormals[0])" title="가동시간·이상 페이지에서 상세 확인">상세 확인</button>
+                <span class="flow-alarm-idx" x-show="abnormals.length > 1" x-cloak><b x-text="abnIndex + 1"></b> / <span x-text="abnormalOverflow ? '10+' : abnormals.length"></span></span>
+                <button type="button" class="flow-alarm-btn" @click="gotoAbnormal(abnormals[abnIndex])" title="가동시간·이상 페이지에서 상세 확인">상세 확인</button>
                 <button type="button" class="flow-alarm-close" @click="dismissAlarmBanner()" title="알림 닫기 — 이 이후 새 알람부터 다시 표시">✕</button>
             </div>
 
@@ -826,19 +828,19 @@
                         </template>
                     </div>
 
-                    <!-- ── 전체화면 전용 알람 배너 ── .fl-fs:fullscreen 시 상단 풀폭으로 표시 (FLOWMES 참고) -->
+                    <!-- ── 전체화면 전용 알람 배너 ── .fl-fs:fullscreen 시 상단 풀폭으로 표시 (fliptext 참고: 세로 티커 + 분자/분모) -->
                     <div class="flow-alarm flow-alarm-fs" x-show="abnormals.length" x-cloak x-transition.opacity>
                         <div class="flow-alarm-icon">
                             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
                             <span class="flow-alarm-count" x-text="(abnormalOverflow ? '10+' : abnormals.length) + '건'"></span>
                         </div>
-                        <div class="flow-alarm-track">
-                            <div class="flow-alarm-marquee" :style="`animation-duration:${abnMarqueeDur}s`">
-                                <span class="flow-alarm-msg" x-text="abnMarquee"></span>
-                                <span class="flow-alarm-msg" x-text="abnMarquee" aria-hidden="true"></span>
-                            </div>
+                        <div class="flow-alarm-track" @mouseenter="abnPause(true)" @mouseleave="abnPause(false)">
+                            <template x-for="m in [abnCurrent]" :key="abnIndex">
+                                <span class="flow-alarm-msg flow-alarm-msg-anim" x-text="m" :title="m"></span>
+                            </template>
                         </div>
-                        <button type="button" class="flow-alarm-btn" @click="gotoAbnormal(abnormals[0])">상세 확인</button>
+                        <span class="flow-alarm-idx" x-show="abnormals.length > 1" x-cloak><b x-text="abnIndex + 1"></b> / <span x-text="abnormalOverflow ? '10+' : abnormals.length"></span></span>
+                        <button type="button" class="flow-alarm-btn" @click="gotoAbnormal(abnormals[abnIndex])">상세 확인</button>
                         <button type="button" class="flow-alarm-close" @click="dismissAlarmBanner()" title="알림 닫기">✕</button>
                     </div>
                 </div>
@@ -1054,10 +1056,12 @@
             sortField: 'ct', sortDesc: true,
             flowProcessOrder: {},
             rt: { connected: false },
-            abnormals: [],          // v12 경로이탈 이상감지(DS 4종) 최근 피드 — 라이브 갱신(알람 배너 abnMarquee 가 소비)
+            abnormals: [],          // v12 경로이탈 이상감지(DS 4종) 최근 피드 — 라이브 갱신(알람 배너 세로 티커가 한 건씩 소비)
             abnormalOverflow: false, // 10건 초과 여부 → 배지 "10+" 표시
+            abnIndex: 0,            // 세로 티커가 현재 표시 중인 알람 인덱스 (분자-1). 분모는 abnormals.length
+            _abnTicker: null, _abnPaused: false,
             _abnDt: null,
-            alarmSpeed: 250,        // 알람 배너 마퀴 흐름 속도(px/s) — 서버설정 Ui.AlarmMarqueeSpeedPxPerSec, 스냅샷으로 수신·즉시반영
+            alarmTickerSec: 3,      // 알람 배너 세로 티커 전환 간격(초) — 서버설정 Ui.AlarmTickerIntervalSec. 스냅샷으로 수신·즉시반영
 
             _tt: null,
             shift: { start: '08:00', end: '17:00', shiftType: 'morning', targetFlow: null, targetWork: null, targetCount: 0, madeCount: 0 },
@@ -1083,6 +1087,7 @@
                 await this.loadSnapshot();
                 await this.loadShift();
                 this.loadAbnormals();
+                this.abnStartTicker();
                 this.connectSignalR();
                 this._pollTimer = setInterval(() => this.loadSnapshot(), 5000);
                 // 시프트 카운트다운은 분 단위 표시라 1초 틱은 불필요한 reactivity churn — 15초면 충분히 라이브.
@@ -1095,6 +1100,7 @@
             destroy() {
                 clearInterval(this._pollTimer);
                 clearInterval(this._shiftTimer);
+                clearTimeout(this._abnTicker);
                 clearTimeout(this._dt);
                 if (ctChart) { ctChart.destroy(); ctChart = null; ctSig = null; ctDyn = null; }
                 this._conn?.stop();
@@ -1130,7 +1136,7 @@
                         if (this.layout && this.layout.cardScale > 0) this.cardScale = this.layout.cardScale;
                     }
                     this.hasData = data.hasData;
-                    if (data.alarmMarqueeSpeedPxPerSec > 0 && data.alarmMarqueeSpeedPxPerSec !== this.alarmSpeed) this.alarmSpeed = data.alarmMarqueeSpeedPxPerSec;
+                    if (data.alarmTickerIntervalSec > 0 && data.alarmTickerIntervalSec !== this.alarmTickerSec) this.alarmTickerSec = data.alarmTickerIntervalSec;
                     this.error = null;
                     this.rebuildProcessOrder();
                     if (this.selectedFlowName) {
@@ -1145,30 +1151,40 @@
                 }
             },
 
-            // Alarm marquee text - "location: error" form (no timestamp). abnormals[] joined into one line; wide gaps between messages.
-            get abnMarquee() {
-                // gap between messages: nbsp x8 + bullet + nbsp x8 (nbsp   resists white-space:nowrap collapse; regular spaces would collapse).
-                const sep = '        •        ';
-                const parts = this.abnormals.map(a => {
-                    // 경로 = Work / 대상(Call) — Work 이름이 이미 "flow.worklocal" 형태라 Flow 세그먼트 제거. 예: "투입.투입 / Conveyor1.MOVE"
-                    const loc = [a.workName, a.callName]
-                        .map(s => (s || '').trim()).filter(Boolean)
-                        .filter((s, i, arr) => i === 0 || s !== arr[i - 1])
-                        .join(' / ') || a.flowName || a.sensorTag || '위치미상';
-                    const content = a.label + (a.kindName ? ' (' + a.kindName + ')' : '');
-                    return loc + ': ' + content;
-                });
-                return parts.length ? parts.join(sep) + sep : '';
+            // 알람 한 건의 표시 문구 — "경로: 내용 (종류)" (타임스탬프 없음). 세로 티커가 한 건씩 소비한다.
+            abnMsgText(a) {
+                if (!a) return '';
+                // 경로 = Work / 대상(Call) — Work 이름이 이미 "flow.worklocal" 형태라 Flow 세그먼트 제거. 예: "투입.투입 / Conveyor1.MOVE"
+                const loc = [a.workName, a.callName]
+                    .map(s => (s || '').trim()).filter(Boolean)
+                    .filter((s, i, arr) => i === 0 || s !== arr[i - 1])
+                    .join(' / ') || a.flowName || a.sensorTag || '위치미상';
+                return loc + ': ' + a.label + (a.kindName ? ' (' + a.kindName + ')' : '');
             },
 
-            // 마퀴 지속시간(초) — 한 벌(=이동거리) 추정 폭을 일정 속도로 나눠 산출. 콘텐츠가 길수록 길게 → 길이와 무관하게 체감 속도 일정.
-            get abnMarqueeDur() {
-                let units = 0;                                          // CJK/한글=1, 그 외=0.55 (대략적 글자폭)
-                for (const ch of this.abnMarquee) units += /[　-鿿가-힣]/.test(ch) ? 1 : 0.55;
-                const widthPx = units * 27;                             // 1.7rem ≈ 27px (글자 크기와 맞춰야 속도 일정)
-                const pxPerSec = this.alarmSpeed || 250;                                   // 이동 속도(px/s, 값 ↑ = 빠름)
-                return Math.max(12, Math.round(widthPx / pxPerSec));
+            // 세로 티커가 현재 표시 중인 한 건 (abnIndex 가 가리키는 알람). :key="abnIndex" 로 묶여 전환 시 슬라이드 인 애니메이션이 재생된다.
+            get abnCurrent() {
+                if (!this.abnormals.length) return '';
+                return this.abnMsgText(this.abnormals[this.abnIndex % this.abnormals.length]);
             },
+
+            // 한 건이 머무는 시간(ms) = 전환 간격. 서버설정 alarmTickerSec(초)를 ms 로 환산. 1~30초 클램프. 기본 3초.
+            get abnDwellMs() {
+                return Math.max(1000, Math.min(30000, Math.round((this.alarmTickerSec || 3) * 1000)));
+            },
+
+            // 세로 티커 자동 전환 — abnormals 2건 이상일 때만 abnDwellMs 간격으로 다음 건으로 넘긴다. hover 시 일시정지.
+            // setTimeout 재귀로 매 틱 abnDwellMs 를 다시 읽어, 설정(alarmTickerSec) 라이브 변경이 즉시 반영된다.
+            abnStartTicker() {
+                clearTimeout(this._abnTicker);
+                const tick = () => {
+                    if (!this._abnPaused && this.abnormals.length >= 2)
+                        this.abnIndex = (this.abnIndex + 1) % this.abnormals.length;
+                    this._abnTicker = setTimeout(tick, this.abnDwellMs);
+                };
+                this._abnTicker = setTimeout(tick, this.abnDwellMs);
+            },
+            abnPause(on) { this._abnPaused = !!on; },
 
             // 알람 배너 [상세 확인] → 가동시간·이상 페이지로 바로가기. 시스템/레벨 필터를 시드(사이드바 이상코드 피드와 동일 형상).
             gotoAbnormal(a) {
@@ -1193,6 +1209,8 @@
                         : arr;
                     this.abnormalOverflow = filtered.length > 10;
                     this.abnormals = filtered.slice(0, 10);
+                    // 건수가 바뀌면 티커 인덱스를 범위 내로 클램프 (목록 축소 시 OOB 방지)
+                    if (this.abnIndex >= this.abnormals.length) this.abnIndex = 0;
                 } catch (e) { /* 피드는 비핵심 — 조용히 무시 */ }
             },
             dismissAlarmBanner() {
@@ -1202,6 +1220,7 @@
                 localStorage.setItem('abnDismissedAt', ts);
                 this.abnormals = [];
                 this.abnormalOverflow = false;
+                this.abnIndex = 0;
             },
             debouncedLoadAbnormals() {
                 clearTimeout(this._abnDt);

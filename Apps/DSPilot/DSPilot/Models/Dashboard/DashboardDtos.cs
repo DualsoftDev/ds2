@@ -11,8 +11,8 @@ public record DashboardSnapshotDto(
     LayoutDto Layout,
     bool HasData,
     DateTimeOffset Timestamp,
-    // 이상 알람 배너 마퀴 흐름 속도(px/초) — 서버설정 Ui.AlarmMarqueeSpeedPxPerSec. 클라가 스냅샷에서 읽어 사용.
-    int AlarmMarqueeSpeedPxPerSec = 250);
+    // 이상 알람 배너 세로 티커 전환 간격(초) — 서버설정 Ui.AlarmTickerIntervalSec. 클라가 스냅샷에서 읽어 사용.
+    int AlarmTickerIntervalSec = 3);
 
 public record FlowStateDto(
     string FlowName,

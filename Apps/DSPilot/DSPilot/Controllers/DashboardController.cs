@@ -76,7 +76,7 @@ public class DashboardController : ControllerBase
                 .ToList());
 
         return new DashboardSnapshotDto(flows, layoutDto, _db.HasData, snap.Timestamp,
-            _settings.LoadSettings().Ui.AlarmMarqueeSpeedPxPerSec);
+            _settings.LoadSettings().Ui.AlarmTickerIntervalSec);
     }
 
     /// <summary>
