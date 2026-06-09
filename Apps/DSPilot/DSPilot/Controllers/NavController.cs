@@ -124,7 +124,7 @@ public class NavController : ControllerBase
             Utc: a.OccurredAt,
             Dto: new NavAnomalyDto(
                 "usertag", a.LogLevel, a.Name, a.SystemName,
-                a.OccurredAt.ToLocalTime().ToString("M/d HH:mm:ss"), a.TagAddress)));
+                a.OccurredAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"), a.TagAddress)));
 
         var dsRows = _abnormal.GetRecent(FeedCount).Select(e => (
             Utc: e.OccurredAtUtc,

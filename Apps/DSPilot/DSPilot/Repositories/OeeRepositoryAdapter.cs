@@ -198,11 +198,50 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         });
     }
 
+    public async Task<int> BulkClassifyDowntimeAsync(IReadOnlyList<long> ids, string? reasonCode, string? category, bool isFailure, CancellationToken ct = default)
+    {
+        if (ids.Count == 0) return 0;
+        await using var conn = await OpenAsync();
+        const string sql = @"
+            UPDATE oeeDowntimeEvent
+            SET reasonCode = @ReasonCode,
+                category   = @Category,
+                isFailure  = @IsFailure
+            WHERE id IN @Ids";
+        return await conn.ExecuteAsync(sql, new
+        {
+            Ids = ids,
+            ReasonCode = reasonCode,
+            Category = category,
+            IsFailure = isFailure ? 1 : 0,
+        });
+    }
+
+    public async Task<int> BulkCloseDowntimeAsync(IReadOnlyList<long> ids, DateTime endAtUtc, CancellationToken ct = default)
+    {
+        if (ids.Count == 0) return 0;
+        await using var conn = await OpenAsync();
+        const string sql = @"
+            UPDATE oeeDowntimeEvent
+            SET endAt = @EndAt,
+                durationMs = CAST((julianday(@EndAt) - julianday(startAt)) * 86400000 AS INTEGER)
+            WHERE id IN @Ids AND endAt IS NULL";
+        return await conn.ExecuteAsync(sql, new { Ids = ids, EndAt = Iso(endAtUtc) });
+    }
+
     public async Task<int> ClearDowntimeEventsAsync(CancellationToken ct = default)
     {
         // 정지 이벤트만 비운다 — oeeProductionCount / oeeShiftException(수동입력 자산)은 그대로 둔다.
         await using var conn = await OpenAsync();
         return await conn.ExecuteAsync("DELETE FROM oeeDowntimeEvent");
+    }
+
+    public async Task<int> DeleteDowntimeEventsBeforeAsync(DateTime cutoffUtc, CancellationToken ct = default)
+    {
+        await using var conn = await OpenAsync();
+        return await conn.ExecuteAsync(
+            "DELETE FROM oeeDowntimeEvent WHERE startAt < @Cutoff",
+            new { Cutoff = Iso(cutoffUtc) });
     }
 
     private static (string Where, DynamicParameters Params) BuildDowntimeFilter(

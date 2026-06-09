@@ -103,7 +103,7 @@ public sealed class AbnormalEventService
                 ElapsedMs: FsInt(rec.ElapsedMs),
                 Observed: FsBool(rec.Observed),
                 OccurredAtUtc: rec.TimestampUtc,
-                OccurredAtLocal: rec.TimestampUtc.ToLocalTime().ToString("M/d HH:mm:ss"),
+                OccurredAtLocal: rec.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
                 SensorTag: sensorTag);
 
             lock (_lock)
@@ -162,7 +162,7 @@ public sealed class AbnormalEventService
                 ? Random.Shared.Next(500, 8000) : null,
             Observed: abnKind is AbnormalKind.SensorOpen or AbnormalKind.SensorShort ? false : null,
             OccurredAtUtc: now,
-            OccurredAtLocal: now.ToLocalTime().ToString("M/d HH:mm:ss"));
+            OccurredAtLocal: now.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"));
 
         lock (_lock)
         {

@@ -13,6 +13,9 @@ public sealed record GoingCallInfo(Guid CallId, string CallName, string FlowName
 /// <summary>비가동-제외 사이클 1건의 측정 삼중쌍(ms). 라이브 롤링 평균 윈도우(<c>FlowCycleState.Recent</c>) 단위.</summary>
 public readonly record struct CycleSample(int MT, int WT, int CT);
 
+/// <summary>AASX 변경 이력 항목. 연표 다이얼로그에서 선택 기준으로 사용.</summary>
+public sealed record AasxChangeLogEntry(long Id, DateTime ChangedAtLocal, string Source, string? Notes);
+
 /// <summary>
 /// DSP 실시간 DB 저장소 (pure C# Dapper 구현).
 /// 기존 F# DspRepository에서 이관. DI 등록 이름 유지를 위해 클래스명은 Adapter 유지.
@@ -1506,6 +1509,81 @@ public class DspRepositoryAdapter : IDspRepository
         {
             _logger.LogWarning(ex, "InsertFlowBoundaryChangeLogAsync 실패 (비중요)");
         }
+    }
+
+    /// <summary>AASX 변경 이력 조회 (최신순). 연표 다이얼로그용.</summary>
+    public async Task<IReadOnlyList<AasxChangeLogEntry>> GetAasxChangeLogAsync(int limit = 100)
+    {
+        if (!_enabled) return Array.Empty<AasxChangeLogEntry>();
+
+        await using var conn = await OpenAsync();
+        if (!await TableExistsAsync(conn, "aasxChangeLog"))
+            return Array.Empty<AasxChangeLogEntry>();
+
+        var rows = await conn.QueryAsync<AasxChangeLogRow>(
+            "SELECT id, changedAt, source, notes FROM aasxChangeLog ORDER BY changedAt DESC LIMIT @Limit",
+            new { Limit = limit });
+
+        return rows.Select(r =>
+        {
+            var dt = SqliteDateTimeHelpers.FromSqliteUtcString(r.ChangedAt) ?? DateTime.MinValue;
+            return new AasxChangeLogEntry(r.Id, dt, r.Source ?? "", r.Notes);
+        }).ToList();
+    }
+
+    /// <summary>
+    /// 지정 시각 이전 raw 데이터 삭제 (plcTagLog, userTagAlertLog, userTagAlertDaily, dspFlowHistory).
+    /// 해당 시각 이후 데이터는 보존. 반환: (plcTagLog삭제, userTagAlertLog삭제, flowHistory삭제) 건수.
+    /// </summary>
+    public async Task<(int PlcTagLog, int UserTagAlertLog, int FlowHistory)> DeleteRawDataBeforeAsync(DateTime cutoffUtc)
+    {
+        if (!_enabled) return (0, 0, 0);
+
+        var cutoffStr = SqliteDateTimeHelpers.ToSqliteUtcString(cutoffUtc);
+        var cutoffDate = cutoffUtc.ToString("yyyy-MM-dd");
+
+        await using var conn = await OpenAsync();
+        using var tx = conn.BeginTransaction();
+        try
+        {
+            var plcDeleted = await TableExistsAsync(conn, "plcTagLog")
+                ? await conn.ExecuteAsync("DELETE FROM plcTagLog WHERE dateTime < @Cutoff",
+                    new { Cutoff = cutoffStr }, tx)
+                : 0;
+
+            var alertDeleted = await TableExistsAsync(conn, "userTagAlertLog")
+                ? await conn.ExecuteAsync("DELETE FROM userTagAlertLog WHERE occurredAt < @Cutoff",
+                    new { Cutoff = cutoffStr }, tx)
+                : 0;
+
+            if (await TableExistsAsync(conn, "userTagAlertDaily"))
+                await conn.ExecuteAsync("DELETE FROM userTagAlertDaily WHERE bucketDate < @CutoffDate",
+                    new { CutoffDate = cutoffDate }, tx);
+
+            var histDeleted = await TableExistsAsync(conn, HistoryTable)
+                ? await conn.ExecuteAsync($"DELETE FROM {HistoryTable} WHERE recordedAt < @Cutoff",
+                    new { Cutoff = cutoffStr }, tx)
+                : 0;
+
+            tx.Commit();
+            _logger.LogInformation(
+                "[DeleteRawDataBefore] cutoff={Cutoff} plcTagLog={P} userTagAlertLog={A} history={H}",
+                cutoffStr, plcDeleted, alertDeleted, histDeleted);
+            return (plcDeleted, alertDeleted, histDeleted);
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
+        }
+    }
+
+    private sealed class AasxChangeLogRow
+    {
+        public long Id { get; set; }
+        public string? ChangedAt { get; set; }
+        public string? Source { get; set; }
+        public string? Notes { get; set; }
     }
 
     /// <summary>dspFlow 의 현재 boundary 조회 (변경 비교용).</summary>

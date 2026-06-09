@@ -298,10 +298,14 @@
         .ds-abn-title { font-weight: 700; font-size: 0.88rem; color: var(--color-text-primary); }
         .ds-abn-count { font-variant-numeric: tabular-nums; font-weight: 800; font-size: 0.88rem; color: #fb923c; }
         .ds-abn-sub { font-size: 0.72rem; font-weight: 500; color: var(--color-text-secondary); margin-left: auto; }
+        .ds-abn-close { margin-left: 10px; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-secondary); cursor: pointer; flex-shrink: 0; transition: background 0.12s, color 0.12s; }
+        .ds-abn-close:hover { background: color-mix(in srgb, #fb923c 22%, transparent); color: var(--color-text-primary); }
+        .ds-abn-close:focus-visible { outline: 2px solid #fb923c; outline-offset: 1px; }
+        .ds-abn-close .material-icons { font-size: 18px; }
         .ds-abn-list { display: flex; flex-direction: column; gap: 2px; }
         .ds-abn-row { display: flex; align-items: center; gap: 10px; padding: 5px 2px; font-size: 0.8rem; min-width: 0; border-bottom: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent); }
         .ds-abn-row:last-child { border-bottom: none; }
-        .ds-abn-row .ds-abn-time { font-variant-numeric: tabular-nums; color: var(--color-text-secondary); flex-shrink: 0; font-size: 0.75rem; min-width: 88px; }
+        .ds-abn-row .ds-abn-time { font-variant-numeric: tabular-nums; color: var(--color-text-secondary); flex-shrink: 0; font-size: 0.75rem; white-space: nowrap; }
         .ds-abn-row .ds-abn-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: #fb923c; }
         .ds-abn-row .ds-abn-label { font-weight: 700; flex-shrink: 0; }
         .ds-abn-row .ds-abn-where { color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.75rem; }
@@ -402,9 +406,39 @@
         .fc-waiting .fc-waiting-text { font-size: clamp(0.58rem, 5cqmin, 1rem); font-weight: 700; }
         /* 소형 카드: 세부 행 순차 숨김 */
         @container card (max-height: 68px) { .fc-rw { display: none; } }
-        /* 좁은 카드: 배지 순차 숨김 */
+        /* 좁은 카드: 배지 텍스트 → 색상 원 점으로 압축 */
+        @container card (max-width: 280px) {
+            .fc-badge { font-size: 0; line-height: 0; padding: 2.4cqmin; gap: 0; }
+            .fc-badge::before { width: clamp(6px, 2.8cqmin, 11px); height: clamp(6px, 2.8cqmin, 11px); }
+        }
         @container card (max-width: 140px) { .fc-badge.tag-maxtime, .fc-badge.tag-maxwait { display: none; } }
         @container card (max-width: 95px)  { .fc-badge { display: none; } }
+
+        /* ── 플로우 카드 호버 툴팁 ── */
+        .fc-tt { position: fixed; z-index: 1200; pointer-events: none;
+            background: var(--color-surface-raised, var(--color-surface));
+            border: 1px solid var(--color-lines-strong);
+            border-radius: var(--radius-md, 8px);
+            box-shadow: 0 8px 28px rgba(0,0,0,0.22), 0 2px 8px rgba(0,0,0,0.10);
+            padding: 10px 13px; min-width: 170px; max-width: 260px;
+            transition: opacity 0.12s; }
+        .fc-tt-name { font-size: 0.88rem; font-weight: 800; color: var(--color-text-primary); margin-bottom: 5px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .fc-tt-row { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+            padding: 2px 0; border-top: 1px solid var(--color-lines); font-size: 0.75rem; }
+        .fc-tt-row:first-of-type { border-top: none; padding-top: 3px; }
+        .fc-tt-lbl { color: var(--color-text-secondary); font-weight: 600; white-space: nowrap; }
+        .fc-tt-val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 700; color: var(--color-text-primary); }
+        .fc-tt-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--color-lines); }
+        .fc-tt-badge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px; border-radius: 999px; font-size: 0.68rem; font-weight: 800; }
+        .fc-tt-badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+        .fc-tt-badge.state-ready  { color: var(--green); background: color-mix(in srgb, var(--green) 16%, transparent); }
+        .fc-tt-badge.state-going  { color: #8A6D1A; background: color-mix(in srgb, var(--amber) 30%, transparent); }
+        .dark-theme .fc-tt-badge.state-going { color: var(--amber); }
+        .fc-tt-badge.state-finish { color: var(--color-info); background: color-mix(in srgb, var(--color-info) 16%, transparent); }
+        .fc-tt-badge.state-error  { color: var(--red); background: color-mix(in srgb, var(--red) 16%, transparent); }
+        .fc-tt-badge.tag-maxtime { color: var(--dash-mt); background: color-mix(in srgb, var(--dash-mt) 16%, transparent); }
+        .fc-tt-badge.tag-maxwait { color: var(--color-text-secondary); background: color-mix(in srgb, var(--color-text-secondary) 18%, transparent); }
 
         /* ── CT 비교 도넛 범례 ── */
         .ct-legend { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 10px; padding: 8px 14px 12px; border-top: 1px solid var(--color-lines); flex-shrink: 0; }
@@ -529,7 +563,7 @@
             <div class="alert alert-info mb-4" x-show="!loading && !error && !hasData" x-cloak><span class="material-icons">info</span><span>PLC 데이터가 수집되면 자동으로 표시됩니다.</span></div>
 
             <!-- ── 경로이탈 이상감지 (DS 4종) 라이브 피드 ── 엔진 AbnormalDetected → /api/dashboard/abnormals -->
-            <div class="ds-abn" x-show="abnormals.length" x-cloak x-transition.opacity>
+            <div class="ds-abn" x-show="abnormals.length && !abnDismissed" x-cloak x-transition.opacity>
                 <div class="ds-abn-head">
                     <template x-if="abnormals[0]?.systemName">
                         <span class="ds-abn-sysname" x-text="'&quot;' + abnormals[0].systemName + '&quot;'"></span>
@@ -537,6 +571,8 @@
                     <span class="ds-abn-title">경로이탈 이상감지</span>
                     <span class="ds-abn-count" x-text="abnormals.length + '건'"></span>
                     <span class="ds-abn-sub">최근 감지 · 실시간</span>
+                    <button type="button" class="ds-abn-close" title="닫기 (이 페이지에서 숨김)" aria-label="이상감지 패널 닫기"
+                            @click="abnDismissed = true"><span class="material-icons" aria-hidden="true">close</span></button>
                 </div>
                 <div class="ds-abn-list">
                     <template x-for="(a, i) in abnormals.slice(0, 8)" :key="a.occurredAtUtc + '-' + i">
@@ -545,9 +581,9 @@
                              @click="gotoAbnormal(a)" @keydown.enter="gotoAbnormal(a)" @keydown.space.prevent="gotoAbnormal(a)">
                             <span class="ds-abn-time" x-text="a.occurredAtLocal"></span>
                             <span class="ds-abn-dot"></span>
-                            <span class="ds-abn-label" x-text="a.label"></span>
-                            <span class="ds-abn-where" x-text="[a.flowName, a.workName].filter(Boolean).join(' · ')"></span>
-                            <span class="ds-abn-meta" :class="a.elapsedMs != null ? '' : 'no-val'" x-text="a.elapsedMs != null ? a.elapsedMs + 'ms' : '-'"></span>
+                            <span class="ds-abn-label" x-text="a.label + ' (' + a.kindName + ')'"></span>
+                            <span class="ds-abn-where" x-text="[a.systemName, a.flowName].filter(Boolean).join('/')"></span>
+                            <span class="ds-abn-meta" :class="a.elapsedMs == null && a.sensorTag ? '' : 'no-val'" x-text="a.elapsedMs != null ? '-' : (a.sensorTag || '-')"></span>
                             <span class="ds-abn-go material-icons" aria-hidden="true">chevron_right</span>
                         </div>
                     </template>
@@ -747,8 +783,8 @@
                                                  :style="`left:${c.leftPct}%; top:${c.topPct}%; width:${c.widthPct}%; height:${c.heightPct}%; --fc-edge:${c.edgeColor};`"
                                                  :draggable="editing ? 'false' : null"
                                                  @click.stop="editing || goFlow(c.flowName)"
-                                                 @mouseenter="hoverFlow(c.flowName)"
-                                                 @mouseleave="hoverFlow(null)"
+                                                 @mouseenter="hoverFlow(c.flowName); showTooltip(c, $el)"
+                                                 @mouseleave="hoverFlow(null); hideTooltip()"
                                                  @pointerdown="onCardPointerDown($event, c)">
                                                 <button class="fl-del" x-show="editing" x-cloak @click.stop="removePlacement(c.flowName)" @pointerdown.stop title="이 블럭 삭제">×</button>
                                                 <div class="fc-cq">
@@ -824,9 +860,9 @@
                                 <div class="ds-abn-row" :class="'lvl-' + (a.level || 'Info').toLowerCase()">
                                     <span class="ds-abn-time" x-text="a.occurredAtLocal"></span>
                                     <span class="ds-abn-dot"></span>
-                                    <span class="ds-abn-label" x-text="a.label"></span>
-                                    <span class="ds-abn-where" x-text="[a.flowName, a.workName].filter(Boolean).join(' · ')"></span>
-                                    <span class="ds-abn-meta" :class="a.elapsedMs != null ? '' : 'no-val'" x-text="a.elapsedMs != null ? a.elapsedMs + 'ms' : '-'"></span>
+                                    <span class="ds-abn-label" x-text="a.label + ' (' + a.kindName + ')'"></span>
+                                    <span class="ds-abn-where" x-text="[a.systemName, a.flowName].filter(Boolean).join('/')"></span>
+                                    <span class="ds-abn-meta" :class="a.elapsedMs == null && a.sensorTag ? '' : 'no-val'" x-text="a.elapsedMs != null ? '-' : (a.sensorTag || '-')"></span>
                                 </div>
                             </template>
                         </div>
@@ -960,6 +996,28 @@
 
     <!-- 인플레이스 편집 토스트 -->
     <div :class="'dash-toast ' + editToast.kind + (editToast.show ? ' show' : '')" x-text="editToast.msg" x-cloak></div>
+
+    <!-- 플로우 카드 호버 툴팁 -->
+    <div class="fc-tt"
+         :style="_tt ? `left:${_tt.left}px; top:${_tt.top}px; transform:${_tt.xform}; opacity:1` : 'opacity:0; left:-9999px; top:-9999px'">
+        <template x-if="_tt">
+            <div>
+                <div class="fc-tt-name" x-text="_tt.c.flowName"></div>
+                <template x-if="!_tt.c.isEmpty">
+                    <div>
+                        <div class="fc-tt-row"><span class="fc-tt-lbl">전체</span><span class="fc-tt-val" x-text="fmt(_tt.c.total)"></span></div>
+                        <div class="fc-tt-row"><span class="fc-tt-lbl" style="color:var(--dash-mt)">가동</span><span class="fc-tt-val" x-text="fmt(_tt.c.mt)"></span></div>
+                        <div class="fc-tt-row"><span class="fc-tt-lbl" style="color:var(--dash-wt)">대기</span><span class="fc-tt-val" x-text="fmt(_tt.c.wt)"></span></div>
+                    </div>
+                </template>
+                <div class="fc-tt-badges">
+                    <span class="fc-tt-badge" :class="'state-' + _tt.c.state" x-text="_tt.c.stateText"></span>
+                    <template x-if="_tt.c.isBottleneck"><span class="fc-tt-badge tag-maxtime">최대시간</span></template>
+                    <template x-if="_tt.c.isMaxWait"><span class="fc-tt-badge tag-maxwait">최대대기율</span></template>
+                </div>
+            </div>
+        </template>
+    </div>
 </div>
 
 <script src="/lib/signalr.min.js"></script>
@@ -1003,7 +1061,9 @@
             flowProcessOrder: {},
             rt: { connected: false },
             abnormals: [],          // v12 경로이탈 이상감지(DS 4종) 최근 피드 — 라이브 갱신
+            abnDismissed: false,    // X 닫기 — 이 페이지(세션) 한정 숨김(새로고침 시 복귀)
             _abnDt: null,
+            _tt: null,
             shift: { start: '08:00', end: '17:00', shiftType: 'morning', targetFlow: null, targetCount: 0, madeCount: 0 },
             shiftForm: { start: '08:00', end: '17:00', shiftType: 'morning', targetFlow: '', targetCount: 0 },
             shiftModalOpen: false,
@@ -1639,6 +1699,15 @@
             // 카드/범례 = 호버 강조(도넛 동기 강조) · 클릭 = 상세 페이지 이동
             get focusFlowName() { return this.chartHoverFlowName || this.hoverFlowName || this.selectedFlowName; },
             hoverFlow(name) { this.hoverFlowName = this.editing ? null : (name || null); },
+            showTooltip(c, el) {
+                if (this.editing) return;
+                const r = el.getBoundingClientRect();
+                const cx = r.left + r.width / 2;
+                const below = r.top < 170;
+                this._tt = { c, left: cx, top: below ? r.bottom + 8 : r.top - 8,
+                    xform: below ? 'translateX(-50%)' : 'translateX(-50%) translateY(-100%)' };
+            },
+            hideTooltip() { this._tt = null; },
             goFlow(name) { if (name) window.location.href = '/flow?name=' + encodeURIComponent(name); },
 
             toggleFullscreen() {

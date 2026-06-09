@@ -1,3 +1,4 @@
+using DSPilot.Adapters;
 using DSPilot.Models;
 using DSPilot.Hubs;
 using DSPilot.Services;
@@ -139,6 +140,29 @@ public class SettingsController : ControllerBase
     [HttpPost("clear-flow-history")]
     public async Task<ActionResult<RebuildResultDto>> ClearFlowHistory()
         => Result(await _lifecycle.ClearFlowHistoryAsync());
+
+    // ── GET: AASX 변경 이력 목록 (연표 다이얼로그용) ──
+    [HttpGet("aasx-changelog")]
+    public async Task<ActionResult<IReadOnlyList<AasxChangeLogDto>>> GetAasxChangeLog()
+    {
+        var entries = await _lifecycle.GetAasxChangeLogAsync(100);
+        var dtos = entries.Select(e => new AasxChangeLogDto(
+            e.Id,
+            e.ChangedAtLocal.ToString("yyyy-MM-dd HH:mm:ss"),
+            e.ChangedAtLocal.ToString("o"),
+            e.Source,
+            e.Notes)).ToList();
+        return Ok(dtos);
+    }
+
+    // ── POST: 기준 시각 이전 데이터 선택 삭제 ──
+    [HttpPost("delete-data-before")]
+    public async Task<ActionResult<RebuildResultDto>> DeleteDataBefore([FromBody] DeleteBeforeRequestDto req)
+    {
+        if (!DateTimeOffset.TryParse(req.CutoffIso, null, System.Globalization.DateTimeStyles.RoundtripKind, out var dto))
+            return BadRequest(new RebuildResultDto(false, "잘못된 시각 형식입니다."));
+        return Result(await _lifecycle.DeleteDataBeforeAsync(dto.UtcDateTime));
+    }
 
     // ── POST: 전체 초기화 (RebuildDatabaseAsync) — 가장 파괴적 (plcTagLog 포함 삭제) ──
     [HttpPost("rebuild-database")]
@@ -335,3 +359,7 @@ public record SaveRequestDto(
 public record SaveResultDto(bool Ok, string Message);
 
 public record RebuildResultDto(bool Success, string Message);
+
+public record AasxChangeLogDto(long Id, string ChangedAtLocal, string CutoffIso, string Source, string? Notes);
+
+public record DeleteBeforeRequestDto(string CutoffIso);
