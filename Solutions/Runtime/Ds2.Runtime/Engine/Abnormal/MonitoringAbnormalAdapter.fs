@@ -23,18 +23,65 @@ open Ds2.Runtime.Engine.Core
 //     · 발행: ILatchPolicy(Core, P7) 경유 dedup → sink.
 // =============================================================================
 
+/// v12 자동 줄자(학습) — device Work 별 OUT→IN 실측 elapsed(ms)를 minSamples 사이클 모아
+/// widened [Min,Max] + avg 를 산출한다. 모델 duration 은 참고/dead-reckoning 값일 뿐
+/// 실설비와 안 맞으므로 Under/Over 줄자로 쓰지 않고, 관측 실측에서 줄자를 만든다.
+///   band = avg ± max(k·σ, avg·floorRatio). 표본이 적어 σ 만으로는 band 가 0 으로 붕괴하는 것 방지.
+///   Min 은 0 하한(음수 금지). 학습 전(샘플 < minSamples)엔 TryGetRange = None → 판정 보류.
+type DeviceDurationLearner(minSamples: int, k: float, floorRatio: float) =
+    let samples = Dictionary<Guid, ResizeArray<int>>()
+    let learned = Dictionary<Guid, RxTimingRange * int>()   // workGuid → (range, avg ms)
+
+    member _.HasLearned(workGuid: Guid) = learned.ContainsKey workGuid
+
+    member _.TryGetRange(workGuid: Guid) : RxTimingRange option =
+        match learned.TryGetValue workGuid with
+        | true, (r, _) -> Some r
+        | _ -> None
+
+    /// elapsed(ms) 샘플 추가. 이번 호출로 학습이 *확정*되면 Some(range, avg), 아니면 None.
+    member _.Observe(workGuid: Guid, elapsedMs: int) : (RxTimingRange * int) option =
+        if learned.ContainsKey workGuid || elapsedMs < 0 then None
+        else
+            let arr =
+                match samples.TryGetValue workGuid with
+                | true, a -> a
+                | _ -> let a = ResizeArray<int>() in samples.[workGuid] <- a; a
+            arr.Add elapsedMs
+            if arr.Count >= minSamples then
+                let n = float arr.Count
+                let avg = (arr |> Seq.sumBy float) / n
+                let var = (arr |> Seq.sumBy (fun x -> let d = float x - avg in d * d)) / n
+                let sigma = sqrt var
+                let margin = max (k * sigma) (avg * floorRatio)
+                let range = { MinMs = max 0 (int (avg - margin)); MaxMs = int (avg + margin) }
+                learned.[workGuid] <- (range, int avg)
+                samples.Remove workGuid |> ignore
+                Some(range, int avg)
+            else None
+
+    member _.Clear() =
+        samples.Clear()
+        learned.Clear()
+
 type MonitoringAbnormalAdapter
     ( index: SimIndex,
       ioMap: SignalIOMap,
       getCallState: Guid -> Status4,   // SensorOpen 판정용: In falling 시점에 Call 이 Finish(reset 전) 인가.
       nowUtc: unit -> DateTime,
-      sink: AbnormalRecord -> unit ) =
+      sink: AbnormalRecord -> unit,
+      minActionUnderElapsedMs: int ) =
 
     let store = index.Store
     let detectorState = AbnormalDetectorState.Empty
     let goingClock = Dictionary<Guid, int>()      // apiCallId → OutTag On(going) 관측시각(ms)
     let prevActive = Dictionary<string, bool>()   // 방향+address → 직전 active (rising edge 판정)
     let latchPolicy : ILatchPolicy = DefaultLatchPolicy()   // P7 — Sensor 즉시 / Action 5s dedup
+    // 자동 줄자: device 실측 OUT→IN 을 3사이클 학습 → widened band(k=4, floor 30%, Min 0 하한).
+    // passive Synced 게이트 이후에만 OnObservedIo 가 호출되므로 표본은 수렴 후 값 = 신뢰 가능.
+    let durationLearner = DeviceDurationLearner(3, 4.0, 0.3)
+    // 학습 확정 시 (workGuid, avgMs, minMs, maxMs) 통지 — HubSession 이 client(Promaker) broadcast 로 연결.
+    let mutable onLearnedCb : Guid -> int -> int -> int -> unit = fun _ _ _ _ -> ()
 
     // ApiCall → ApiDef (SensorOpen level-like 판정 + gating 용).
     let apiDefOf (apiCallId: Guid) : ApiDef option =
@@ -61,6 +108,12 @@ type MonitoringAbnormalAdapter
             | _ -> active        // 첫 관측 = baseline → rising 으로 보지 않음
         prevActive.[key] <- active
         (not wasActive) && active
+
+    new(index: SimIndex, ioMap: SignalIOMap, getCallState: Guid -> Status4, nowUtc: unit -> DateTime, sink: AbnormalRecord -> unit) =
+        MonitoringAbnormalAdapter(index, ioMap, getCallState, nowUtc, sink, 0)
+
+    /// 자동 줄자 학습이 확정될 때마다 (workGuid, avgMs, minMs, maxMs) 통지받을 콜백.
+    member _.OnLearnedDuration with set (cb: Guid -> int -> int -> int -> unit) = onLearnedCb <- cb
 
     /// PLC scan 으로 관측된 IO 값. OutTag On=going 시작, InTag On=finish.
     member _.OnObservedIo(address: string, value: string, nowMs: int) =
@@ -100,15 +153,31 @@ type MonitoringAbnormalAdapter
                             let target = Abnormal.target (Some m.CallGuid) (Some m.ApiCallGuid) m.RxWorkGuid
                             match goingClock.TryGetValue m.ApiCallGuid with
                             | true, goingAt ->
-                                // going clock 있음 = going 을 거쳤다 → elapsed 로 Under/Over (정상 사이클).
-                                match AbnormalDetector.tryResolveRangeFromMapping index m with
-                                | Some range ->
-                                    let elapsed = nowMs - goingAt
-                                    match Abnormal.classifyExpectedRising range elapsed with
-                                    | Some AbnormalKind.ActionUnder -> emit (Abnormal.actionUnder target elapsed (nowUtc ()))
-                                    // Over 는 Max 시점 watchdog(engine onDeviceDurationExpired)이 SSOT — InTag 가 Max
-                                    //   이후 늦게 센싱될 때의 재발행은 의미 없어 안 낸다(사용자 확정). ActionOver/None 모두 무시.
-                                    | _ -> ()       // 경계 포함 정상 + 늦은 over — 오탐 0
+                                // going clock 있음 = going 을 거쳤다 → 실측 elapsed.
+                                let elapsed = nowMs - goingAt
+                                // 모델 duration(참고/dead-reckoning)이 아니라 *학습된 실측 줄자* 로 판정한다.
+                                match m.RxWorkGuid with
+                                | Some rxWork ->
+                                    // 실측 누적 → 3사이클 도달 시 학습 확정 + store Work duration 기록(AASX 저장이 소비).
+                                    match durationLearner.Observe(rxWork, elapsed) with
+                                    | Some(range, avg) ->
+                                        // 엔진(Agent) store 즉시 반영 — live dead-reckoning/검출에 사용.
+                                        match Queries.getWork rxWork store with
+                                        | Some w ->
+                                            w.Duration    <- Some(TimeSpan.FromMilliseconds(float avg))
+                                            w.MinDuration <- Some(TimeSpan.FromMilliseconds(float range.MinMs))
+                                            w.MaxDuration <- Some(TimeSpan.FromMilliseconds(float range.MaxMs))
+                                        | None -> ()
+                                        // client(Promaker)로 push — 정지 시 "업데이트" 선택 → 모델 dirty 반영.
+                                        onLearnedCb rxWork avg range.MinMs range.MaxMs
+                                    | None -> ()
+                                    // 학습 완료 후에만 Under 판정(학습 전엔 보류). Over 는 watchdog(engine) SSOT — change A 유지.
+                                    match durationLearner.TryGetRange rxWork with
+                                    | Some range ->
+                                        match Abnormal.classifyExpectedRising range elapsed with
+                                        | Some AbnormalKind.ActionUnder when elapsed >= minActionUnderElapsedMs -> emit (Abnormal.actionUnder target elapsed (nowUtc ()))
+                                        | _ -> ()
+                                    | None -> ()
                                 | None -> ()
                                 goingClock.Remove m.ApiCallGuid |> ignore
                             | false, _ ->
@@ -139,6 +208,7 @@ type MonitoringAbnormalAdapter
     /// observed cycle 재시작/연결 reload 등으로 going 관측을 무효화할 때.
     member _.Reset() =
         goingClock.Clear()
+        durationLearner.Clear()
         prevActive.Clear()
         detectorState.LastEmitted <- Map.empty
         latchPolicy.ResetOn(LatchResetTrigger.ManualClear)

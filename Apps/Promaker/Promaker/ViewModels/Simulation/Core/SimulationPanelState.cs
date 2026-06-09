@@ -33,6 +33,10 @@ public partial class SimulationPanelState : ObservableObject
     private static readonly ILog SimLog = LogManager.GetLogger("Simulation");
 
     private readonly Func<DsStore> _storeProvider;
+    // v12 자동 줄자 — Agent 가 push 한 학습 duration 누적(workGuid → ms). 정지 시 사용자 선택으로 모델 반영.
+    private readonly System.Collections.Generic.Dictionary<Guid, (int avg, int min, int max)> _learnedDurations = new();
+    /// <summary>모델을 dirty(미저장)로 표시 — MainViewModel 이 () => IsDirty=true 로 주입.</summary>
+    public Action? MarkDirty { get; set; }
     private readonly Dispatcher _dispatcher;
     private readonly Func<IEnumerable<EntityNode>> _allCanvasNodes;
     private readonly Func<IEnumerable<EntityNode>> _allTreeNodes;
@@ -214,6 +218,9 @@ public partial class SimulationPanelState : ObservableObject
             setStatusText:            setStatusText,
             setSimStatusText:         v => SimStatusText = v,
             applyRuntimeHubEffects:   ApplyRuntimeHubEffects);
+
+        // 자동 줄자 학습값 수신 → 누적(정지 시 사용자 선택으로 모델 반영).
+        Hub.LearnedDurationReceived += OnLearnedDurationReceived;
 
         // 간트 I/O 줄 — Hub 의 실제 Tag(Out·In) 변화를 ApiCall I/O 행 막대로 반영.
         //   Plan(Call 수명=계획) 과 I/O(실제 송수신) 를 위아래로 대조 → 어디서 어긋나는지(abnormal) 가시화.
