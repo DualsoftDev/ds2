@@ -24,6 +24,14 @@ public sealed class AbnormalEventService
     private const int Capacity = 100;
 
     private readonly LinkedList<AbnormalEventDto> _recent = new();
+
+    // 활성 abnormal 셋(대시보드/전체화면 배너용) — 해당 flow 가 다시 가동(Going)되면 그 flow 항목을 제거한다.
+    // _recent(사이드바·cctv 피드)와 별개: 배너는 _active 만 본다.
+    private readonly LinkedList<AbnormalEventDto> _active = new();
+
+    // 직전 스냅샷에서 가동(Going) 중이던 flow 집합 — Ready→Going 전이(재가동) 검출용.
+    private HashSet<string> _prevGoing = new(StringComparer.Ordinal);
+
     private readonly object _lock = new();
     private readonly IHubContext<MonitoringHub> _hub;
     private readonly IDspRepository _repo;
@@ -31,6 +39,7 @@ public sealed class AbnormalEventService
     private readonly PlcToCallMapperService _tagMapper;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly AppSettingsService _appSettings;
+    private readonly DspDbService _db;
     private readonly ILogger<AbnormalEventService> _logger;
 
     public AbnormalEventService(
@@ -40,6 +49,7 @@ public sealed class AbnormalEventService
         PlcToCallMapperService tagMapper,
         IServiceScopeFactory scopeFactory,
         AppSettingsService appSettings,
+        DspDbService db,
         ILogger<AbnormalEventService> logger)
     {
         _hub = hub;
@@ -48,7 +58,11 @@ public sealed class AbnormalEventService
         _tagMapper = tagMapper;
         _scopeFactory = scopeFactory;
         _appSettings = appSettings;
+        _db = db;
         _logger = logger;
+
+        // flow 가동 재개 시 그 flow 의 활성 abnormal 자동 해소 — 스냅샷 갱신마다 Going 전이 검사.
+        _db.OnDataChanged += OnSnapshotChanged;
     }
 
     /// <summary>
@@ -72,6 +86,78 @@ public sealed class AbnormalEventService
                 .OrderByDescending(e => e.OccurredAtUtc)
                 .Take(n)
                 .ToList();
+        }
+    }
+
+    /// <summary>
+    /// 활성 abnormal N건(시각 내림차순) — 대시보드/전체화면 배너용.
+    /// 해당 flow 가 다시 가동(Going)되면 OnSnapshotChanged 가 그 flow 항목을 제거한다.
+    /// ResetIntervalHours 컷오프는 backstop(가동이 영영 재개되지 않는 flow 안전망)으로 _recent 와 동일 적용.
+    /// </summary>
+    public IReadOnlyList<AbnormalEventDto> GetActive(int max)
+    {
+        var n = Math.Clamp(max, 1, Capacity);
+        var hours = _appSettings.LoadSettings().AbnormalAlarm.ResetIntervalHours;
+        var cutoff = hours > 0 ? DateTime.UtcNow - TimeSpan.FromHours(hours) : (DateTime?)null;
+        lock (_lock)
+        {
+            var query = _active.AsEnumerable();
+            if (cutoff.HasValue)
+                query = query.Where(e => e.OccurredAtUtc >= cutoff.Value);
+            return query
+                .OrderByDescending(e => e.OccurredAtUtc)
+                .Take(n)
+                .ToList();
+        }
+    }
+
+    /// <summary>
+    /// 스냅샷 갱신 콜백 — 직전 비-Going 이던 flow 가 Going 으로 전이(재가동)하면 그 flow 의 활성 abnormal 을 전부 제거.
+    /// 가동 중 발생한 abnormal 은 그 episode 동안 유지되고, 다음 Ready→Going 전이에서 해소된다(요구사항).
+    /// </summary>
+    private void OnSnapshotChanged()
+    {
+        try
+        {
+            var current = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var f in _db.Snapshot.Flows)
+                if (string.Equals(f.State, "Going", StringComparison.Ordinal) && !string.IsNullOrEmpty(f.FlowName))
+                    current.Add(f.FlowName);
+
+            var removedAny = false;
+            lock (_lock)
+            {
+                // 새로 Going 이 된 flow = current - _prevGoing.
+                var newGoing = new HashSet<string>(current, StringComparer.Ordinal);
+                newGoing.ExceptWith(_prevGoing);
+                _prevGoing = current;
+
+                if (newGoing.Count > 0 && _active.Count > 0)
+                {
+                    var node = _active.First;
+                    while (node is not null)
+                    {
+                        var next = node.Next;
+                        if (newGoing.Contains(node.Value.FlowName))
+                        {
+                            _active.Remove(node);
+                            removedAny = true;
+                        }
+                        node = next;
+                    }
+                }
+            }
+
+            if (removedAny)
+            {
+                // 코드베이스 관례: 페이로드 없는 트리거 → 클라이언트가 활성알람 재조회.
+                try { _ = _hub.Clients.All.SendAsync("AbnormalDetected"); }
+                catch (Exception ex) { _logger.LogDebug(ex, "[Abnormal] 가동 해소 SignalR 발행 실패 (non-critical)"); }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[Abnormal] 스냅샷 변경 처리 실패 (non-critical)");
         }
     }
 
@@ -131,6 +217,8 @@ public sealed class AbnormalEventService
             {
                 _recent.AddFirst(dto);
                 while (_recent.Count > Capacity) _recent.RemoveLast();
+                _active.AddFirst(dto);
+                while (_active.Count > Capacity) _active.RemoveLast();
             }
 
             await PersistToLogAsync(dto, systemId);
@@ -188,6 +276,8 @@ public sealed class AbnormalEventService
         {
             _recent.AddFirst(dto);
             while (_recent.Count > Capacity) _recent.RemoveLast();
+            _active.AddFirst(dto);
+            while (_active.Count > Capacity) _active.RemoveLast();
         }
 
         await PersistToLogAsync(dto, systemId);
@@ -199,7 +289,7 @@ public sealed class AbnormalEventService
     /// <summary>링버퍼 전체 초기화 후 AbnormalDetected 트리거 — 데모 리셋 전용.</summary>
     public async Task ClearAsync()
     {
-        lock (_lock) { _recent.Clear(); }
+        lock (_lock) { _recent.Clear(); _active.Clear(); }
         try { await _hub.Clients.All.SendAsync("AbnormalDetected"); }
         catch { }
     }
