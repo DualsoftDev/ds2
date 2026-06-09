@@ -29,6 +29,9 @@ module HubMethod =
     /// v12 — Control/Monitoring 경로이탈 이상감지. Server → Client.
     [<Literal>]
     let OnAbnormal = "OnAbnormal"
+    /// v12 자동 줄자 — Monitoring 이 device 별 OUT→In 실측을 학습해 산출한 duration(min/max/avg)을
+    /// client(Promaker)로 push. client 는 모아 두었다가 정지 시 "업데이트" 선택하면 모델에 반영(dirty).
+    let OnLearnedDuration = "OnLearnedDuration"
     /// Runtime remote command — session start.
     [<Literal>]
     let RuntimeStart = "RuntimeStart"
@@ -195,6 +198,17 @@ type AbnormalPayload = {
     [<JsonPropertyName("mode")>]         Mode: string          // "control" | "monitoring"
     [<JsonPropertyName("source")>]       Source: string
     [<JsonPropertyName("timestampUtc")>] TimestampUtc: System.DateTime
+}
+
+/// v12 자동 줄자 학습 결과 payload — device Work 의 실측 OUT→In duration(ms).
+/// client 가 모델 Work.Duration/Min/Max 갱신에 쓴다(정지 시 사용자 "업데이트" 선택 → dirty).
+[<CLIMutable>]
+type LearnedDurationPayload = {
+    [<JsonPropertyName("workId")>]    WorkId: string
+    [<JsonPropertyName("workName")>]  WorkName: string
+    [<JsonPropertyName("avgMs")>]     AvgMs: int
+    [<JsonPropertyName("minMs")>]     MinMs: int
+    [<JsonPropertyName("maxMs")>]     MaxMs: int
 }
 
 /// Runtime session identity carried by every remote command/event/snapshot.

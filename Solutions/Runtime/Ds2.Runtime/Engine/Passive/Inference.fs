@@ -7,7 +7,7 @@ open Ds2.Core
 open Ds2.Runtime.Engine.Core
 open Ds2.Runtime.IO
 
-type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: RuntimeMode) =
+type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: RuntimeMode, baselineFirstObservation: bool) =
     let pendingLogs = ResizeArray<PassiveInferenceLog>()
     let workLearning = Dictionary<Guid, WorkLearning>()
     let workUniqueAddresses = Dictionary<Guid, HashSet<string>>()
@@ -138,10 +138,39 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
         PassiveInferenceWorkCycle.computeWorkPositiveFamilyTokens workContext
         PassiveInferenceWorkCycle.buildPassiveResetTargetsByPred workContext
 
+    let tryGetWorkGuidFromCall callGuid =
+        index.CallWorkGuid |> Map.tryFind callGuid
+
+    let getRelatedWorkGuids address =
+        seq {
+            for mapping in ioMap.GetByOutAddress(address) do
+                match tryGetWorkGuidFromCall mapping.CallGuid with
+                | Some workGuid -> yield workGuid
+                | None -> ()
+            for mapping in ioMap.GetByInAddress(address) do
+                match tryGetWorkGuidFromCall mapping.CallGuid with
+                | Some workGuid -> yield workGuid
+                | None -> ()
+        }
+        |> Seq.distinct
+        |> Seq.toArray
+
+    new(index: SimIndex, ioMap: SignalIOMap, runtimeMode: RuntimeMode) =
+        PassiveInferenceSession(index, ioMap, runtimeMode, false)
+
     member _.DrainLogs() =
         let logs = pendingLogs.ToArray()
         pendingLogs.Clear()
         logs
+
+    member _.IsAbnormalReadyForAddress(address: string) =
+        let workGuids = getRelatedWorkGuids address
+        workGuids.Length > 0
+        && (workGuids
+            |> Array.exists (fun workGuid ->
+                match workLearning.TryGetValue(workGuid) with
+                | true, learning -> learning.Synced
+                | _ -> false))
 
     member _.Observe(
         address: string,
@@ -151,6 +180,9 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
     ) =
         match lastObservedValue.TryGetValue(address) with
         | true, previous when previous = value -> Array.empty
+        | false, _ when baselineFirstObservation ->
+            lastObservedValue[address] <- value
+            Array.empty
         | _ ->
             lastObservedValue[address] <- value
 

@@ -12,8 +12,8 @@ open Ds2.Runtime.Engine
 open Ds2.Runtime.Engine.Core
 open Ds2.Runtime.Engine.Abnormal
 
-// v12 §P3a — Control/Monitoring 공통 abnormal detector 자산 검증.
-// 적용 계획: samples/Abnormal-v12-Apply-Plan.md §6 P3a.
+// v12 §P3a ??Control/Monitoring 공통 abnormal detector ?�산 검�?
+// ?�용 계획: samples/Abnormal-v12-Apply-Plan.md §6 P3a.
 
 module ObservedClockTests =
 
@@ -40,9 +40,9 @@ module ObservedClockTests =
         | Degraded _ -> ()
         | Reliable -> failwith "expected Degraded"
 
-// v12 §6/§6.1 — ILatchPolicy 기본 구현(DefaultLatchPolicy): Kind별 latch 윈도우.
-//   spec 시그니처 ShouldEmit(previous, current) — previous=같은 (Kind,Target) 직전 발행.
-//   Action*=5000ms dedup window, Sensor*=0(즉시). timestamp 차로 판정.
+// v12 §6/§6.1 ??ILatchPolicy 기본 구현(DefaultLatchPolicy): Kind�?latch ?�도??
+//   spec ?�그?�처 ShouldEmit(previous, current) ??previous=같�? (Kind,Target) 직전 발행.
+//   Action*=5000ms dedup window, Sensor*=0(즉시). timestamp 차로 ?�정.
 module LatchPolicyTests =
 
     let private t0 = DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
@@ -53,22 +53,22 @@ module LatchPolicyTests =
         let policy = DefaultLatchPolicy() :> ILatchPolicy
         Assert.True(policy.ShouldEmit(None, Abnormal.actionOver target 1000 t0))
 
-    // timing(Action*) — 5000ms 윈도우 내 중복 억제 (Control OnTick + rising dedup).
+    // timing(Action*) ??5000ms ?�도????중복 ?�제 (Control OnTick + rising dedup).
     [<Fact>]
     let ``DefaultLatchPolicy dedups Action within 5s window`` () =
         let policy = DefaultLatchPolicy() :> ILatchPolicy
         let prev = Abnormal.actionOver target 1000 t0
-        let cur  = Abnormal.actionOver target 1000 (t0.AddMilliseconds 2000.0)   // 2s < 5s → 억제
+        let cur  = Abnormal.actionOver target 1000 (t0.AddMilliseconds 2000.0)   // 2s < 5s ???�제
         Assert.False(policy.ShouldEmit(Some prev, cur))
 
     [<Fact>]
     let ``DefaultLatchPolicy re-emits Action after 5s window`` () =
         let policy = DefaultLatchPolicy() :> ILatchPolicy
         let prev = Abnormal.actionOver target 1000 t0
-        let cur  = Abnormal.actionOver target 1000 (t0.AddMilliseconds 6000.0)   // 6s ≥ 5s → 발행
+        let cur  = Abnormal.actionOver target 1000 (t0.AddMilliseconds 6000.0)   // 6s ??5s ??발행
         Assert.True(policy.ShouldEmit(Some prev, cur))
 
-    // sensor(Short/Open) — 윈도우 0 → 즉시 재발행. 판정 간격 없이 바로바로 떠야 함.
+    // sensor(Short/Open) ???�도??0 ??즉시 ?�발?? ?�정 간격 ?�이 바로바로 ?�야 ??
     [<Fact>]
     let ``DefaultLatchPolicy emits Sensor immediately (no gap)`` () =
         let policy = DefaultLatchPolicy() :> ILatchPolicy
@@ -96,7 +96,7 @@ module SensingGateTests =
 
 module RangeResolverTests =
 
-    // P2 SimulationTests 의 검증된 device-range 셋업 재사용.
+    // P2 SimulationTests ??검증된 device-range ?�업 ?�사??
     let private setupDeviceRange () =
         let store = createStore ()
         let project, _, _, work = setupBasicHierarchy store
@@ -131,7 +131,7 @@ module RangeResolverTests =
             Assert.Equal(900, range.MaxMs)
         | None -> failwith "expected range"
 
-// v12 §2.3/§4 — canEvaluate gating: 자동 Flow(IsAuto) ∧ Real sensing ∧ 비인터락(Call.Interlocked).
+// v12 §2.3/§4 ??canEvaluate gating: ?�동 Flow(IsAuto) ??Real sensing ??비인?�락(Call.Interlocked).
 module GatingTests =
 
     let private setup () =
@@ -166,12 +166,12 @@ module GatingTests =
         def.SensingType <- SensingType.Virtual None
         Assert.False(AbnormalDetector.canEvaluate store call.Id def)
 
-// v12 §P3b — Control adapter 4 케이스 + 오탐 방지 + latch dedup.
+// v12 §P3b ??Control adapter 4 케?�스 + ?�탐 방�? + latch dedup.
 module ControlAdapterTests =
 
     let private t0 = DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
 
-    // active Call + device range(250~900) + 물리 InTag(Level completion trigger) 셋업.
+    // active Call + device range(250~900) + 물리 InTag(Level completion trigger) ?�업.
     let private setup () =
         let store = createStore ()
         let project, _, _, work = setupBasicHierarchy store
@@ -207,11 +207,11 @@ module ControlAdapterTests =
         adapter, emitted, states, inputActive, call.Id, apiCall.Id
 
     [<Fact>]
-    let ``rising in range is normal — no false positive`` () =
+    let ``rising in range is normal ??no false positive`` () =
         let adapter, emitted, states, _, callId, apiCallId = setup ()
         states.[callId] <- Status4.Going
         adapter.OnCallGoing(callId, 1000)
-        adapter.OnInputRising(apiCallId, 1500)   // elapsed 500 ∈ [250,900]
+        adapter.OnInputRising(apiCallId, 1500)   // elapsed 500 ??[250,900]
         Assert.Empty(emitted)
 
     [<Fact>]
@@ -223,15 +223,13 @@ module ControlAdapterTests =
         Assert.Single(emitted) |> ignore
         Assert.Equal(AbnormalKind.ActionUnder, emitted.[0].Kind)
 
-    // Over 는 Max 시점 OnTick 이 SSOT — InTag 가 Max 이후 늦게 rising 해도 over 를 내지 않는다
-    //   (늦은 센싱 over 는 의미 없어 제외, 사용자 확정). over 발행 자체는 아래 tick 테스트가 검증.
+    // Over ??Max ?�점 OnTick ??SSOT ??InTag 가 Max ?�후 ??�� rising ?�도 over �??��? ?�는??    //   (??? ?�싱 over ???��? ?�어 ?�외, ?�용???�정). over 발행 ?�체???�래 tick ?�스?��? 검�?
     [<Fact>]
     let ``rising above Max does not emit (over is tick-only)`` () =
         let adapter, emitted, states, _, callId, apiCallId = setup ()
         states.[callId] <- Status4.Going
         adapter.OnCallGoing(callId, 1000)
-        adapter.OnInputRising(apiCallId, 2000)   // elapsed 1000 > 900 — rising 경로는 over 안 냄
-        Assert.Empty(emitted)
+        adapter.OnInputRising(apiCallId, 2000)   // elapsed 1000 > 900 ??rising 경로??over ????        Assert.Empty(emitted)
 
     [<Fact>]
     let ``rising when call not Going is SensorShort`` () =
@@ -244,12 +242,12 @@ module ControlAdapterTests =
     [<Fact>]
     let ``falling during Finish level sensor is SensorOpen`` () =
         let adapter, emitted, states, _, callId, apiCallId = setup ()
-        states.[callId] <- Status4.Finish     // Finish 유지(reset 전)
+        states.[callId] <- Status4.Finish     // Finish ?��?(reset ??
         adapter.OnInputFalling(apiCallId, 1500)
         Assert.Single(emitted) |> ignore
         Assert.Equal(AbnormalKind.SensorOpen, emitted.[0].Kind)
 
-    // v12 §3.2 — RxWork≠Ready(Going 포함) 중 level 센서 falling 도 SensorOpen (Finish 만이 아님).
+    // v12 §3.2 ??RxWork?�Ready(Going ?�함) �?level ?�서 falling ??SensorOpen (Finish 만이 ?�님).
     [<Fact>]
     let ``falling during Going level sensor is SensorOpen`` () =
         let adapter, emitted, states, _, callId, apiCallId = setup ()
@@ -258,7 +256,7 @@ module ControlAdapterTests =
         Assert.Single(emitted) |> ignore
         Assert.Equal(AbnormalKind.SensorOpen, emitted.[0].Kind)
 
-    // Ready(출발 전) falling 은 정상 — SensorOpen 아님.
+    // Ready(출발 ?? falling ?� ?�상 ??SensorOpen ?�님.
     [<Fact>]
     let ``falling when Ready is not SensorOpen`` () =
         let adapter, emitted, states, _, callId, apiCallId = setup ()
@@ -272,8 +270,7 @@ module ControlAdapterTests =
         states.[callId] <- Status4.Going
         inputActive.[apiCallId] <- false
         adapter.OnCallGoing(callId, 1000)
-        adapter.OnTick(2000)   // elapsed 1000 > 900, 입력 미도달
-        Assert.Single(emitted) |> ignore
+        adapter.OnTick(2000)   // elapsed 1000 > 900, ?�력 미도??        Assert.Single(emitted) |> ignore
         Assert.Equal(AbnormalKind.ActionOver, emitted.[0].Kind)
 
     [<Fact>]
@@ -282,10 +279,10 @@ module ControlAdapterTests =
         states.[callId] <- Status4.Going
         adapter.OnCallGoing(callId, 1000)
         adapter.OnInputRising(apiCallId, 1100)   // ActionUnder
-        adapter.OnInputRising(apiCallId, 1150)   // 같은 (Kind,Target) 5000ms 내 → 억제
+        adapter.OnInputRising(apiCallId, 1150)   // 같�? (Kind,Target) 5000ms ?????�제
         Assert.Single(emitted) |> ignore
 
-    // OnTick over 는 사이클당 1회(latch)지만, OnCallReset 으로 latch 가 비면 다음 사이클에 다시 판정.
+    // OnTick over ???�이?�당 1??latch)지�? OnCallReset ?�로 latch 가 비면 ?�음 ?�이?�에 ?�시 ?�정.
     [<Fact>]
     let ``tick over re-emits after OnCallReset (per-cycle latch clear)`` () =
         let adapter, emitted, states, inputActive, callId, apiCallId = setup ()
@@ -293,20 +290,19 @@ module ControlAdapterTests =
         inputActive.[apiCallId] <- false
         adapter.OnCallGoing(callId, 1000)
         adapter.OnTick(2000)                       // over #1 (elapsed 1000 > 900)
-        adapter.OnTick(2100)                       // 같은 사이클 5000ms 내 → 억제
+        adapter.OnTick(2100)                       // 같�? ?�이??5000ms ?????�제
         Assert.Single(emitted) |> ignore
-        adapter.OnCallReset(callId)                // 사이클 종료 → latch clear
+        adapter.OnCallReset(callId)                // ?�이??종료 ??latch clear
         adapter.OnCallGoing(callId, 3000)
-        adapter.OnTick(4000)                       // over #2: 4000-2000<5000 이지만 reset 으로 재판정
-        Assert.Equal(2, emitted.Count)
+        adapter.OnTick(4000)                       // over #2: 4000-2000<5000 ?��?�?reset ?�로 ?�판??        Assert.Equal(2, emitted.Count)
 
-// v12 §P3c — Monitoring adapter (IO-edge): OutTag On=going, InTag On=finish, elapsed vs device range.
-// cycle 학습(synced)과 독립. going off→on rising 기반이라 중간시작 사이클은 자동 배제.
+// v12 §P3c ??Monitoring adapter (IO-edge): OutTag On=going, InTag On=finish, elapsed vs device range.
+// cycle ?�습(synced)�??�립. going off?�on rising 기반?�라 중간?�작 ?�이?��? ?�동 배제.
 module MonitoringAdapterTests =
 
     let private t0 = DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
 
-    // device range(250~900) + ApiCall 에 Out/In 주소 부여 + adapter.
+    // device range(250~900) + ApiCall ??Out/In 주소 부??+ adapter.
     let private setup () =
         let store = createStore ()
         let project, _, _, work = setupBasicHierarchy store
@@ -335,15 +331,15 @@ module MonitoringAdapterTests =
         let adapter = MonitoringAbnormalAdapter(index, ioMap, getCallState, (fun () -> t0), (fun r -> emitted.Add r))
         adapter, emitted, states, call.Id, apiCall.Id
 
-    // baseline(off) 한 번 깔고 off→on rising 으로 going/finish 을 만든다.
+    // baseline(off) ??�?깔고 off?�on rising ?�로 going/finish ??만든??
     let private goingThenFinish (adapter: MonitoringAbnormalAdapter) (goingMs: int) (finishMs: int) =
         adapter.OnObservedIo("Y0", "false", goingMs)   // OUT baseline
-        adapter.OnObservedIo("Y0", "true", goingMs)    // OUT rising → going
+        adapter.OnObservedIo("Y0", "true", goingMs)    // OUT rising ??going
         adapter.OnObservedIo("X0", "false", goingMs)   // IN baseline
-        adapter.OnObservedIo("X0", "true", finishMs)   // IN rising → finish
+        adapter.OnObservedIo("X0", "true", finishMs)   // IN rising ??finish
 
     [<Fact>]
-    let ``elapsed in range is normal — no false positive`` () =
+    let ``elapsed in range is normal ??no false positive`` () =
         let adapter, emitted, _, _, _ = setup ()
         goingThenFinish adapter 0 500          // elapsed 500 in [250,900]
         Assert.Empty(emitted)
@@ -351,40 +347,42 @@ module MonitoringAdapterTests =
     [<Fact>]
     let ``elapsed below Min is ActionUnder`` () =
         let adapter, emitted, _, _, _ = setup ()
-        goingThenFinish adapter 0 100          // elapsed 100 < 250
+        // 자동 줄자: 정상 ~500ms 3사이클로 학습(min≈350) → 100ms 는 학습 min 아래 → ActionUnder.
+        for _ in 1..3 do goingThenFinish adapter 0 500
+        emitted.Clear()
+        goingThenFinish adapter 0 100
         Assert.Single(emitted) |> ignore
         Assert.Equal(AbnormalKind.ActionUnder, emitted.[0].Kind)
 
-    // Over 는 engine watchdog(onDeviceDurationExpired)이 SSOT — In 이 Max 이후 늦게 rising 해도
-    //   adapter 는 over 를 내지 않는다(늦은 센싱 over 제외, 사용자 확정).
+    // Over ??engine watchdog(onDeviceDurationExpired)??SSOT ??In ??Max ?�후 ??�� rising ?�도
+    //   adapter ??over �??��? ?�는????? ?�싱 over ?�외, ?�용???�정).
     [<Fact>]
     let ``finish above Max does not emit (over is watchdog-only)`` () =
         let adapter, emitted, _, _, _ = setup ()
-        goingThenFinish adapter 0 1000         // elapsed 1000 > 900 — finish 경로는 over 안 냄
-        Assert.Empty(emitted)
+        goingThenFinish adapter 0 1000         // elapsed 1000 > 900 ??finish 경로??over ????        Assert.Empty(emitted)
 
     [<Fact>]
     let ``finish without observed going start is dropped (mid-cycle 1cycle)`` () =
         let adapter, emitted, _, _, _ = setup ()
-        // OUT 이 이미 on 인 상태로 관측 시작(baseline=on) → going rising 못 봄
-        adapter.OnObservedIo("Y0", "true", 0)  // baseline on, rising 아님 → going 기록 안 됨
-        adapter.OnObservedIo("X0", "false", 0)
+        // OUT ???��? on ???�태�?관�??�작(baseline=on) ??going rising �?�?        adapter.OnObservedIo("Y0", "true", 0)  // baseline on, rising ?�님 ??going 기록 ????        adapter.OnObservedIo("X0", "false", 0)
         adapter.OnObservedIo("X0", "true", 100)
-        Assert.Empty(emitted)                  // Out 현재 on(mid-cycle) → short 아님
+        Assert.Empty(emitted)                  // Out ?�재 on(mid-cycle) ??short ?�님
 
     [<Fact>]
     let ``finish without going and output off is SensorShort`` () =
         let adapter, emitted, _, _, _ = setup ()
-        adapter.OnObservedIo("Y0", "false", 0)   // OUT off — going 흔적 없음
+        adapter.OnObservedIo("Y0", "false", 0)   // OUT off ??going ?�적 ?�음
         adapter.OnObservedIo("X0", "false", 0)   // IN baseline
-        adapter.OnObservedIo("X0", "true", 100)  // IN rising → Going 없이 Finish
+        adapter.OnObservedIo("X0", "true", 100)  // IN rising ??Going ?�이 Finish
         Assert.Single(emitted) |> ignore
         Assert.Equal(AbnormalKind.SensorShort, emitted.[0].Kind)
 
     [<Fact>]
     let ``target carries Call ApiCall and Work ids`` () =
         let adapter, emitted, _, _, _ = setup ()
-        goingThenFinish adapter 0 100
+        for _ in 1..3 do goingThenFinish adapter 0 500   // 줄자 학습
+        emitted.Clear()
+        goingThenFinish adapter 0 100                     // 학습 min 아래 → ActionUnder 발행
         Assert.Single(emitted) |> ignore
         Assert.True(emitted.[0].Target.CallId.IsSome)
         Assert.True(emitted.[0].Target.ApiCallId.IsSome)
@@ -393,10 +391,10 @@ module MonitoringAdapterTests =
     [<Fact>]
     let ``in falling during Finish level sensor is SensorOpen`` () =
         let adapter, emitted, states, callId, _ = setup ()
-        goingThenFinish adapter 0 500              // 정상 going→finish (elapsed 500 ∈ [250,900])
+        goingThenFinish adapter 0 500              // ?�상 going?�finish (elapsed 500 ??[250,900])
         Assert.Empty(emitted)
-        states.[callId] <- Status4.Finish          // Call Finish(reset 전) 유지
-        adapter.OnObservedIo("X0", "false", 600)   // level 센서 In falling → 단선 = SensorOpen
+        states.[callId] <- Status4.Finish          // Call Finish(reset ?? ?��?
+        adapter.OnObservedIo("X0", "false", 600)   // level ?�서 In falling ???�선 = SensorOpen
         Assert.Single(emitted) |> ignore
         Assert.Equal(AbnormalKind.SensorOpen, emitted.[0].Kind)
 
@@ -405,12 +403,12 @@ module MonitoringAdapterTests =
         let adapter, emitted, states, callId, _ = setup ()
         goingThenFinish adapter 0 500
         Assert.Empty(emitted)
-        states.[callId] <- Status4.Ready           // reset→Ready = 정상 종료, Open 아님
+        states.[callId] <- Status4.Ready           // reset?�Ready = ?�상 종료, Open ?�님
         adapter.OnObservedIo("X0", "false", 600)
         Assert.Empty(emitted)
 
-// device work = plan: In(실제 IO) 없이 duration plan 으로 Going→Finish 해야 한다 (사용자 확정).
-// "Control device Finish 안 됨" 회귀를 코드 레벨에서 못박는 통합테스트.
+// device work = plan: In(?�제 IO) ?�이 duration plan ?�로 Going?�Finish ?�야 ?�다 (?�용???�정).
+// "Control device Finish ???? ?��?�?코드 ?�벨?�서 못박???�합?�스??
 module DeviceControlCycleTests =
 
     [<Fact>]
@@ -431,11 +429,11 @@ module DeviceControlCycleTests =
         let index = SimIndex.build store 10
         use engine = (new EventDrivenEngine(index, RuntimeMode.Control)) :> ISimulationEngine
 
-        // Call going → executeApiCall 이 device work 를 Going 으로 force.
+        // Call going ??executeApiCall ??device work �?Going ?�로 force.
         engine.ForceCallState(call.Id, Status4.Going)
         engine.AdvanceSimulationTo(engine.CurrentTimeMs)   // forced going drain
-        // In(actual) 은 절대 주입 안 함 — device 는 In 무관 duration plan 으로 Finish 해야.
-        engine.AdvanceSimulationTo(2000L)                  // device duration(<=900) 너머
+        // In(actual) ?� ?��? 주입 ??????device ??In 무�? duration plan ?�로 Finish ?�야.
+        engine.AdvanceSimulationTo(2000L)                  // device duration(<=900) ?�머
 
         Assert.Equal(Some Status4.Finish, engine.GetWorkState(deviceWork.Id))
 
@@ -484,8 +482,8 @@ module DeviceControlCycleTests =
         let apiDef = addApiDef store "ADV" deviceSystem.Id
         apiDef.TxGuid <- Some deviceWork.Id
         apiDef.RxGuid <- Some deviceWork.Id
-        // work.Duration 500 + ActionType timeAppend 200 → device Going 지속 = 500ms 만.
-        // timeAppend(출력 유지)는 Going 막대를 늘이지 않는다(간트에 빨간 점선 시각화로만 표기).
+        // work.Duration 500 + ActionType timeAppend 200 ??device Going 지??= 500ms �?
+        // timeAppend(출력 ?��?)??Going 막�?�??�이지 ?�는??간트??빨간 ?�선 ?�각?�로�??�기).
         apiDef.ActionType <- ActionType.Real(Level, Some(Append 200))
         apiDef.SensingType <- SensingType.Real(Level, None)
         store.AddCallWithLinkedApiDefs(work.Id, "Device", "ADV", [ apiDef.Id ]) |> ignore
@@ -495,15 +493,15 @@ module DeviceControlCycleTests =
 
         engine.ForceCallState(call.Id, Status4.Going)
         engine.AdvanceSimulationTo(engine.CurrentTimeMs)
-        engine.AdvanceSimulationTo(400L)   // duration 500 미만 → 아직 Going
+        engine.AdvanceSimulationTo(400L)   // duration 500 미만 ???�직 Going
         Assert.Equal(Some Status4.Going, engine.GetWorkState(deviceWork.Id))
-        engine.AdvanceSimulationTo(600L)   // duration 500 초과(timeAppend 무시) → Finish
+        engine.AdvanceSimulationTo(600L)   // duration 500 초과(timeAppend 무시) ??Finish
         Assert.Equal(Some Status4.Finish, engine.GetWorkState(deviceWork.Id))
 
     [<Fact>]
     let ``Monitoring device work finishes by duration plan (passive, forced going)`` () =
-        // Monitoring 도 device 는 plan(duration) 으로 Finish 해야 — passive 라도.
-        // 앱에서 Monitoring device 가 Going 에 박히는데, 코드 레벨에서 되는지(=앱 scheduler 문제인지) 가른다.
+        // Monitoring ??device ??plan(duration) ?�로 Finish ?�야 ??passive ?�도.
+        // ?�에??Monitoring device 가 Going ??박히?�데, 코드 ?�벨?�서 ?�는지(=??scheduler 문제?��?) 가른다.
         let store = createStore ()
         let project, _, _, work = setupBasicHierarchy store
         let deviceSystem = addSystem store "Device" project.Id false
@@ -518,10 +516,10 @@ module DeviceControlCycleTests =
         let index = SimIndex.build store 10
         use engine = (new EventDrivenEngine(index, RuntimeMode.Monitoring)) :> ISimulationEngine
 
-        // passive 모드라 HubSession 이 하던 device going force 를 직접 흉내 (Out On → device Going).
+        // passive 모드??HubSession ???�던 device going force �?직접 ?�내 (Out On ??device Going).
         engine.ForceWorkState(deviceWork.Id, Status4.Going)
         engine.AdvanceSimulationTo(engine.CurrentTimeMs)
-        engine.AdvanceSimulationTo(2000L)                  // plan duration(200) 너머
+        engine.AdvanceSimulationTo(2000L)                  // plan duration(200) ?�머
 
         Assert.Equal(Some Status4.Finish, engine.GetWorkState(deviceWork.Id))
 
@@ -559,18 +557,3 @@ module DeviceControlCycleTests =
 
         Assert.Single(emitted) |> ignore
         Assert.Equal(AbnormalKind.ActionOver, emitted.[0].Kind)
-
-// ── [임시 진단] project_260608.json Sim 2사이클 재현 — Conveyor2 reset/멈춤 추적 ──
-module Project260608ReproTests =
-
-    [<Fact>]
-    let ``project_260608 simulation runs past 2nd cycle Conveyor2`` () =
-        let store = createStore ()
-        store.LoadFromFile(@"C:\Users\Gamekun\Documents\Dualsoft\project_260608.json")
-        let index = SimIndex.build store 10
-        use engine = (new EventDrivenEngine(index, RuntimeMode.Simulation)) :> ISimulationEngine
-        engine.Start()
-        engine.AdvanceSimulationTo(60000L)   // 사이클 ~12s → 넉넉히 5사이클분
-        let conv2 = store.Works.Values |> Seq.find (fun w -> w.Name = "Conveyor2_Flow.MOVE")
-        let epoch = Ds2.Runtime.Model.SimState.getWorkEpoch conv2.Id engine.State
-        Assert.True(epoch >= 2, sprintf "Conveyor2_Flow.MOVE epoch=%d — 1이면 2nd 사이클 진입 못 하고 멈춤" epoch)

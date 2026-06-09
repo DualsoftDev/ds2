@@ -193,6 +193,16 @@ public sealed partial class SimulationHubBridge
         hubConnection.On<PlcConnectionStatus>(
             HubMethod.OnPlcConnectionStatus,
             status => OnPlcConnectionStatus(generation, status));
+        // v12 자동 줄자 — Agent 가 학습한 device duration(min/max/avg) push 수신.
+        //   UI 스레드로 dispatch 후 구독자(SimulationPanelState)에게 전달. 정지 시 사용자 선택으로 모델 반영.
+        hubConnection.On<LearnedDurationPayload>(
+            HubMethod.OnLearnedDuration,
+            payload => _dispatcher.BeginInvoke(() =>
+            {
+                if (!IsCurrentGeneration(generation)) return;
+                try { LearnedDurationReceived?.Invoke(payload); }
+                catch (Exception ex) { SimLog.Error("LearnedDurationReceived subscriber threw", ex); }
+            }));
     }
 
     private void OnPlcConnectionStatus(int generation, PlcConnectionStatus status)

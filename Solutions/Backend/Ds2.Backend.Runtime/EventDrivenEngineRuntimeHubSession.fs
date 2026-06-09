@@ -155,7 +155,7 @@ type EventDrivenEngineRuntimeHubSession
     let modeSession = RuntimeModeSession(engine.Index, engine.IOMap, runtimeMode)
     let passiveInference =
         if modeSession.RequiresPassiveInference then
-            Some(PassiveInferenceSession(engine.Index, engine.IOMap, runtimeMode))
+            Some(PassiveInferenceSession(engine.Index, engine.IOMap, runtimeMode, (runtimeMode = RuntimeMode.Monitoring)))
         else None
     // v12 P3c — Monitoring 만 abnormal adapter. observeAndInfer 의 IO 를 OnObservedIo 로도 흘려
     // "Going 없이 Finish" = SensorShort / Action* 판정 → broadcastAbnormal. (Control 은 engine 자체 adapter.)
@@ -163,7 +163,16 @@ type EventDrivenEngineRuntimeHubSession
         if runtimeMode = RuntimeMode.Monitoring then
             // SensorOpen 판정용 Call state — passive inference 가 engine 에 Force 한 현재 상태를 읽는다.
             let getCallStateForOpen g = match engine.GetCallState(g) with Some s -> s | None -> Status4.Ready
-            Some(MonitoringAbnormalAdapter(engine.Index, engine.IOMap, getCallStateForOpen, (fun () -> DateTime.UtcNow), broadcastAbnormal))
+            let ab = MonitoringAbnormalAdapter(engine.Index, engine.IOMap, getCallStateForOpen, (fun () -> DateTime.UtcNow), broadcastAbnormal, 250)
+            // 자동 줄자 학습 확정 → client(Promaker)로 push. 정지 시 "업데이트" 선택하면 모델 dirty 반영.
+            ab.OnLearnedDuration <- (fun workGuid avg minMs maxMs ->
+                let workName =
+                    Ds2.Core.Store.Queries.getWork workGuid engine.Index.Store
+                    |> Option.map (fun w -> w.Name) |> Option.defaultValue ""
+                let p : LearnedDurationPayload =
+                    { WorkId = string workGuid; WorkName = workName; AvgMs = avg; MinMs = minMs; MaxMs = maxMs }
+                hub.Clients.All.SendAsync(HubMethod.OnLearnedDuration, p) |> ignore)
+            Some ab
         else None
     // v12 — Monitoring abnormal 사이클별 재검출. Control 은 adapter 가 OnCallReset(callStateChanged)으로 사이클마다
     //   latch 를 비우지만, Monitoring 합류점(Layer B) latch 엔 그 hook 이 없어 DefaultLatchPolicy 5s window 가
@@ -187,9 +196,14 @@ type EventDrivenEngineRuntimeHubSession
         (engine.IOMap.TxWorkToOutAddresses |> Map.containsKey workGuid)
         || (engine.IOMap.RxWorkToInAddresses |> Map.containsKey workGuid)
     let observeAndInfer (address: string) (value: string) =
+        let abnormalReady =
+            match passiveInference with
+            | Some pi -> pi.IsAbnormalReadyForAddress(address)
+            | None -> true
         match monitoringAbnormal with
-        | Some ab -> ab.OnObservedIo(address, value, Environment.TickCount)
+        | Some ab when abnormalReady -> ab.OnObservedIo(address, value, Environment.TickCount)
         | None -> ()
+        | _ -> ()
         match passiveInference with
         | Some pi ->
             for action in pi.Observe(address, value, getWorkStateSafe, getCallStateSafe) do

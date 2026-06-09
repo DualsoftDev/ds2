@@ -249,6 +249,7 @@ public partial class SimulationPanelState
 
             _simStartTime = DateTime.Now;
             ResetPassiveGanttClockAnchor();
+            ResetGanttIoBaseline();
             Report.Clear();
             _suppressedWarnings.Clear();
             _stepPrimingDone = false;
