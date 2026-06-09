@@ -194,7 +194,11 @@ type RemoteSimulationEngine
 
     interface ISimulationEngine with
         // ── 상태 조회 (push-cache) ──
-        member _.State = lock stateLock (fun () -> state)
+        // SimState.create 의 Clock 은 Zero 이고 setWorkState/setCallState 는 Clock 을 갱신하지 않는다.
+        // 진행 시각은 server push 가 currentTimeMs 로만 누적하므로, State.Clock 을 currentTimeMs 로
+        // 투영해 노출한다. 이렇게 안 하면 proxy(Control+실PLC / Monitoring) 의 State.Clock 이 0 에 고정돼
+        // SimClock 표시·간트 I/O 타임스탬프가 모두 _simStartTime 한 점으로 붕괴한다.
+        member _.State = lock stateLock (fun () -> { state with Clock = clockOf currentTimeMs })
         member _.Status = status
         member _.Index = index
         member _.IOMap = ioMap

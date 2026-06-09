@@ -222,8 +222,15 @@ public partial class SimulationPanelState
     internal static TimeSpan ResolvePassiveEventBaseElapsed(TimeSpan eventElapsed, TimeSpan estimatedElapsed) =>
         eventElapsed > estimatedElapsed ? eventElapsed : estimatedElapsed;
 
+    /// <summary>
+    /// 간트 시간축을 "첫 신호 anchor 기준"으로 둘지 여부.
+    /// VP/Monitoring 은 외부 신호 owner 라 항상 anchor.
+    /// Control+실PLC(UsesAgentProxy) 도 Agent engine clock 의 원점이 WPF Start 가 아니라 Agent 시작
+    /// 시점이므로, anchor 없이 raw clock 을 쓰면 Start 누른 시점에 따라 막대가 빨간선(wall)과 어긋난다.
+    /// → proxy 도 anchor 대상에 포함해 첫 이벤트 기준 0 으로 정렬한다.
+    /// </summary>
     private bool IsSignalDrivenGanttTimeline =>
-        UsesSignalDrivenGanttTimeline(SelectedRuntimeMode);
+        UsesSignalDrivenGanttTimeline(SelectedRuntimeMode) || UsesAgentProxy;
 
     private void ResetPassiveGanttClockAnchor()
     {

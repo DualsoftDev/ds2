@@ -137,10 +137,54 @@ public partial class SimulationPanelState
         // 토큰 traversal 누적 초기화 — 다음 Run 이 이전 완주 카운트/이력 위에 누적되지 않도록.
         // (Capture 가 _completedTraversals 를 사용하므로 반드시 capture 이후에 reset.)
         TokenTraversal.Reset();
+
+        // 자동 줄자: 모니터링으로 학습된 device duration 이 있으면 정지 시 모델 반영 여부를 묻는다.
+        TryApplyLearnedDurationsOnStop();
     }
 
     private bool CanStopSimulation() =>
         SimulationCommandFacade.IsAccepted(SimulationCommandFacade.DecideStop(IsSimulating));
+
+    /// <summary>Agent 가 push 한 학습 duration 누적(UI 스레드). 정지 시 일괄 반영 대상.</summary>
+    private void OnLearnedDurationReceived(Ds2.Backend.Common.LearnedDurationPayload p)
+    {
+        if (Guid.TryParse(p.WorkId, out var workGuid))
+            _learnedDurations[workGuid] = (p.AvgMs, p.MinMs, p.MaxMs);
+    }
+
+    /// <summary>정지 시 학습 duration 을 모델 Work 에 반영할지 묻고, 동의 시 적용 + dirty.
+    /// 학습값이 없으면(모니터링 외 모드 등) 조용히 통과. 저장은 기존 Save 흐름이 AASX 로 영속.</summary>
+    private void TryApplyLearnedDurationsOnStop()
+    {
+        if (_learnedDurations.Count == 0) return;
+        var snapshot = System.Linq.Enumerable.ToArray(_learnedDurations);
+        _learnedDurations.Clear();
+
+        var ok = Promaker.Dialogs.DialogHelpers.Confirm(
+            System.Windows.Application.Current?.MainWindow,
+            $"모니터링으로 학습된 device duration {snapshot.Length}건을 모델에 반영할까요?\n반영 후 저장하면 AASX 에 기록됩니다.",
+            "학습 duration 반영");
+        if (!ok) return;
+
+        var store = _storeProvider();
+        var applied = 0;
+        foreach (var kv in snapshot)
+        {
+            if (store.Works.TryGetValue(kv.Key, out var w))
+            {
+                var (avg, min, max) = kv.Value;
+                w.Duration    = Microsoft.FSharp.Core.FSharpOption<TimeSpan>.Some(TimeSpan.FromMilliseconds(avg));
+                w.MinDuration = Microsoft.FSharp.Core.FSharpOption<TimeSpan>.Some(TimeSpan.FromMilliseconds(min));
+                w.MaxDuration = Microsoft.FSharp.Core.FSharpOption<TimeSpan>.Some(TimeSpan.FromMilliseconds(max));
+                applied++;
+            }
+        }
+        if (applied > 0)
+        {
+            MarkDirty?.Invoke();
+            AddSimLog($"학습 duration {applied}건 모델 반영 — 저장하면 AASX 에 기록됩니다.", LogSeverity.System);
+        }
+    }
 
     private void InitSceneEventHandler()
     {
