@@ -75,6 +75,10 @@ public partial class PropertyPanelState : ObservableObject
     [ObservableProperty] private bool _isNameEditHighlighted;
     [ObservableProperty] private bool _isWorkPeriodDirty;
     [ObservableProperty] private bool _isCallTimeoutDirty;
+    // v12 자동 줄자: abnormal Min/Max(ms). null = 미사용(범위 판정 안 함). 인라인 편집 + 정지 시 학습값 반영 공용.
+    [ObservableProperty] private bool _isWorkRangeDirty;
+    [ObservableProperty] private int? _workMinMs;
+    [ObservableProperty] private int? _workMaxMs;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasDeviceDuration))]
     private string _deviceDurationHint = "";
@@ -82,6 +86,8 @@ public partial class PropertyPanelState : ObservableObject
 
     private int? _originalWorkPeriodMs;
     private int? _deviceDurationMs;
+    private int? _originalWorkMinMs;
+    private int? _originalWorkMaxMs;
     private int? _originalCallTimeoutMs;
     private string _originalSystemType = string.Empty;
 
@@ -99,6 +105,11 @@ public partial class PropertyPanelState : ObservableObject
 
     partial void OnWorkPeriodMsChanged(int? value) =>
         IsWorkPeriodDirty = value != _originalWorkPeriodMs;
+
+    partial void OnWorkMinMsChanged(int? value) =>
+        IsWorkRangeDirty = value != _originalWorkMinMs || WorkMaxMs != _originalWorkMaxMs;
+    partial void OnWorkMaxMsChanged(int? value) =>
+        IsWorkRangeDirty = WorkMinMs != _originalWorkMinMs || value != _originalWorkMaxMs;
 
     partial void OnCallTimeoutMsChanged(int? value) =>
         IsCallTimeoutDirty = value != _originalCallTimeoutMs;
