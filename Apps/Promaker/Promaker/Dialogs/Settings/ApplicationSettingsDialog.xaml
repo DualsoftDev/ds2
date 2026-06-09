@@ -38,10 +38,32 @@
 
             <!-- 탭 컨트롤 -->
             <TabControl x:Name="SettingsTabControl" Grid.Row="0" Margin="0,0,0,10">
-                <!-- 탭 0: 일반 (앱 전반 설정 — 레이아웃 초기화 등) -->
+                <!-- 탭 0: 일반 (앱 전반 설정 — 테마 / 레이아웃 초기화) -->
                 <TabItem Header="일반">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="10">
                         <StackPanel>
+                            <!-- 테마 -->
+                            <TextBlock Text="테마"
+                                       FontSize="12" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource PrimaryTextBrush}"
+                                       Margin="0,0,0,6"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                <RadioButton x:Name="ThemeDarkRadio" Content="다크"
+                                             GroupName="Theme"
+                                             Foreground="{DynamicResource PrimaryTextBrush}"
+                                             VerticalContentAlignment="Center"
+                                             Margin="0,0,16,0"
+                                             Checked="ThemeRadio_Checked"/>
+                                <RadioButton x:Name="ThemeLightRadio" Content="라이트"
+                                             GroupName="Theme"
+                                             Foreground="{DynamicResource PrimaryTextBrush}"
+                                             VerticalContentAlignment="Center"
+                                             Checked="ThemeRadio_Checked"/>
+                            </StackPanel>
+                            <TextBlock Text="선택 즉시 적용됩니다."
+                                       FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Margin="0,0,0,20" FontStyle="Italic"/>
+
                             <!-- Dock 레이아웃 초기화 -->
                             <TextBlock Text="Dock 레이아웃"
                                        FontSize="12" FontWeight="SemiBold"

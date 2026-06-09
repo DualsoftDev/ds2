@@ -33,6 +33,20 @@ public interface IDockManager
     /// </summary>
     void RestoreLayout(string filepath);
 
+    /// <summary>
+    /// PR-A3 — 현재 layout 트리를 default 스냅샷으로 메모리에 기록. 모든 RegisterAnchor/RegisterDocument 호출이
+    /// 끝난 뒤 SetAnchorVisible 등 visibility 조작 이전에 한 번 호출. <see cref="ResetToDefaultLayout"/> 이 본 스냅샷
+    /// 으로 복원. 두 번째 호출은 무시 (idempotent).
+    /// </summary>
+    void CaptureDefaultLayout();
+
+    /// <summary>
+    /// PR-A3 — <see cref="CaptureDefaultLayout"/> 로 캡쳐된 default 스냅샷으로 현재 layout 즉시 복원.
+    /// 설정 다이얼로그의 '레이아웃 초기화' 버튼이 호출. 스냅샷 미캡쳐 상태에서는 no-op.
+    /// 복원 이후 호출자는 HasProject SSOT 등 visibility 재동기화 책임.
+    /// </summary>
+    void ResetToDefaultLayout();
+
     /// <summary>사용자가 X 버튼 등으로 anchor 를 hide 하면 발화. VM 의 SSOT 와 단방향 sync 용.</summary>
     event EventHandler<DockAnchorVisibilityChangedEventArgs>? AnchorVisibilityChanged;
 

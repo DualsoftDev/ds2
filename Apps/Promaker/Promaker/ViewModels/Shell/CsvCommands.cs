@@ -43,34 +43,15 @@ public partial class MainViewModel
             out store);
     }
 
-    /// <summary>"파일(PLC, CSV)로부터 모델만들기" 통합 진입점.
-    /// 사용자에게 모드 선택 (PLC 심볼 / 일반 CSV) 후 적절한 흐름으로 분기.
-    /// PLC 심볼: SymbolWizardDialog (Mitsubishi CSV / XG5000 XML 자동 추론 + dsev2 매칭 룰).
-    /// 일반 CSV: CsvImportDialog (기존 모델 데이터 import).</summary>
+    /// <summary>"CSV로부터 모델만들기" 진입점.
+    /// PR-A5 — PLC 심볼 import (SymbolWizard / Ds2.SymbolImport) 는 별도 툴로 분리 예정으로 본 진입점에서 제거.
+    /// 사용자는 바로 CsvImportDialog (모델 데이터 CSV) 흐름으로 진입.</summary>
     [RelayCommand]
     private void ImportCsv()
     {
         if (!ConfirmDiscardChanges())
             return;
 
-        // 모드 선택 launcher — 라디오 버튼 두 개 (PLC 심볼 / 일반 CSV).
-        var launcher = new FileImportLauncherDialog { Owner = Application.Current?.MainWindow };
-        if (launcher.ShowDialog() != true)
-            return;
-
-        if (launcher.SelectedMode == FileImportLauncherDialog.ImportMode.PlcSymbol)
-        {
-            if (!GuardSimulationSemanticEdit("PLC 심볼 → 모델 생성"))
-                return;
-
-            var importStore = new DsStore();
-            var wizard = new SymbolWizardDialog(importStore);
-            if (_dialogService.ShowDialog(wizard) == true)
-                ImportCsvStore(importStore, wizard.SourceDisplayName);
-            return;
-        }
-
-        // 일반 CSV (기존 흐름)
         TryRunFileOperation(
             "Import CSV",
             () =>

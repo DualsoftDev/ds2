@@ -44,14 +44,6 @@
     <Resource Include="Assets\Runtime\**\*.png" />
   </ItemGroup>
   <ItemGroup>
-    <EmbeddedResource Include="Dialogs\ConfigEditor\JsonHighlighting.xshd">
-      <LogicalName>JsonHighlighting.xshd</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="Dialogs\ConfigEditor\JsonHighlighting.Light.xshd">
-      <LogicalName>JsonHighlighting.Light.xshd</LogicalName>
-    </EmbeddedResource>
-  </ItemGroup>
-  <ItemGroup>
     <EmbeddedResource Update="Resources\Strings.resx">
       <Generator>PublicResXFileCodeGenerator</Generator>
       <LastGenOutput>Strings.Designer.cs</LastGenOutput>
@@ -87,7 +79,6 @@
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.Aasx\Ds2.Aasx.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.CSV\Ds2.CSV.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.Mermaid\Ds2.Mermaid.fsproj" />
-    <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.SymbolImport\Ds2.SymbolImport.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Core\Ds2.Editor\Ds2.Editor.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.Runtime.Remote\Ds2.Runtime.Remote.fsproj" />

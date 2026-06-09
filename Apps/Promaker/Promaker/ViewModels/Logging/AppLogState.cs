@@ -32,6 +32,10 @@ public sealed partial class AppLogState : ObservableObject
     [ObservableProperty]
     private LogLevelChoice _selectedLevel;
 
+    /// <summary>true 면 Logger=="Simulation" 항목만 표시. AppLogView 의 "Simulation 만" 체크박스 binding.</summary>
+    [ObservableProperty]
+    private bool _isSimulationOnly;
+
     // GUI 가용 ring buffer 한계 — 초과분은 FIFO trim (UI thread flush 안에서 일괄).
     private const int MaxEntries = 5000;
     // App.Current null 인 startup 극초기에 누적되는 in-memory cap. 초과 시 oldest drop.
@@ -52,6 +56,7 @@ public sealed partial class AppLogState : ObservableObject
 
         View = CollectionViewSource.GetDefaultView(Entries);
         View.Filter = o => Filter((AppLogEntry)o!, _selectedLevel);
+        // Filter 메소드가 instance 가 되면서 static 호환 안 됨 — 위 람다 그대로 유지.
 
         // dummy: 명시적 Change 호출 전엔 발화하지 않도록 Timeout.Infinite 로 시작.
         _flushTimer = new Timer(_ => OnTimerTick(), null, Timeout.Infinite, Timeout.Infinite);
@@ -59,6 +64,16 @@ public sealed partial class AppLogState : ObservableObject
 
     /// <summary>appender 가 호출 — Seq 단조 증가 보장.</summary>
     public long NextSeq() => Interlocked.Increment(ref _seqCounter);
+
+    /// <summary>
+    /// Simulation 등 코드 경로용 편의 overload — Seq 자동 증가, Timestamp=now 박제, Category 옵션.
+    /// log4net appender 는 본 overload 를 거치지 않고 기존 `Enqueue(AppLogEntry)` 직접 호출.
+    /// </summary>
+    public void Enqueue(Level level, string logger, string message, string? category = null)
+    {
+        var entry = new AppLogEntry(NextSeq(), DateTime.Now, level, logger, message, category);
+        Enqueue(entry);
+    }
 
     /// <summary>appender Append 진입점. 호출 thread 무관, _pending 누적 + 16ms coalesce.</summary>
     public void Enqueue(AppLogEntry entry)
@@ -145,12 +160,21 @@ public sealed partial class AppLogState : ObservableObject
         View.Refresh();
     }
 
+    partial void OnIsSimulationOnlyChanged(bool value)
+    {
+        View.Refresh();
+    }
+
     // log4net Level Value: DEBUG=30000, INFO=40000, WARN=60000, ERROR=70000, FATAL=110000.
     // 첫 항 (Error floor) 은 ERROR/FATAL 무조건 표시 의도 표명. SelectedLevel ∈ {Debug,Info,Warn} 한정에선
     // 둘째 항만으로도 포함되지만, 향후 후보 확장에 대비한 의도 고정.
-    private static bool Filter(AppLogEntry e, LogLevelChoice selected) =>
-        e.Level.Value >= Level.Error.Value
-        || e.Level.Value >= ChoiceToLog4Net(selected).Value;
+    private bool Filter(AppLogEntry e, LogLevelChoice selected)
+    {
+        if (IsSimulationOnly && !string.Equals(e.Logger, "Simulation", StringComparison.Ordinal))
+            return false;
+        return e.Level.Value >= Level.Error.Value
+            || e.Level.Value >= ChoiceToLog4Net(selected).Value;
+    }
 
     private static Level ChoiceToLog4Net(LogLevelChoice c) => c switch
     {

@@ -229,7 +229,8 @@ module ControlAdapterTests =
         let adapter, emitted, states, _, callId, apiCallId = setup ()
         states.[callId] <- Status4.Going
         adapter.OnCallGoing(callId, 1000)
-        adapter.OnInputRising(apiCallId, 2000)   // elapsed 1000 > 900 ??rising 경로??over ????        Assert.Empty(emitted)
+        adapter.OnInputRising(apiCallId, 2000)
+        Assert.Empty(emitted)
 
     [<Fact>]
     let ``rising when call not Going is SensorShort`` () =
@@ -359,7 +360,8 @@ module MonitoringAdapterTests =
     [<Fact>]
     let ``finish above Max does not emit (over is watchdog-only)`` () =
         let adapter, emitted, _, _, _ = setup ()
-        goingThenFinish adapter 0 1000         // elapsed 1000 > 900 ??finish 경로??over ????        Assert.Empty(emitted)
+        goingThenFinish adapter 0 1000
+        Assert.Empty(emitted)
 
     [<Fact>]
     let ``finish without observed going start is dropped (mid-cycle 1cycle)`` () =

@@ -71,17 +71,20 @@ public partial class MainWindow : Window
         var welcomeView = new WelcomeView();
         _workspacePane = new SplitCanvasContainer { MinHeight = 120 };
 
-        // PR-D9 (MJ2 복구) — baseline AvalonDock 의 explorer/properties/history 3 anchor caption Help 버튼 복구.
-        // HasHelp:true 시 DockHost 가 BaseLayoutItem.CaptionTemplate (AnchorCaptionWithHelp) 적용 + 클릭 시
-        // AnchorHelpRequested event 발화 → DockHost_AnchorHelpRequested 핸들러가 HelpNavigator 호출.
-        dockHost.RegisterAnchor(new DockAnchor("explorer",   "Explorer",   explorerPane,        DockAnchorPosition.Left,        HasHelp: true));
+        // PR-A4 — anchor caption 의 Help 뱃지(?) 삭제. 도움말은 리본 우상단 단일 '도움말' 버튼으로 통합.
+        dockHost.RegisterAnchor(new DockAnchor("explorer",   "Explorer",   explorerPane,        DockAnchorPosition.Left));
         dockHost.RegisterAnchor(new DockAnchor("simulation", "Simulation", simulationPanel,     DockAnchorPosition.BottomLeft));
         dockHost.RegisterAnchor(new DockAnchor("log",        "Log",        new AppLogView(),    DockAnchorPosition.BottomRight));
-        dockHost.RegisterAnchor(new DockAnchor("properties", "Properties", propertyPanel,       DockAnchorPosition.RightTop,    HasHelp: true));
-        dockHost.RegisterAnchor(new DockAnchor("history",    "History",    historyPanel,        DockAnchorPosition.RightMiddle, HasHelp: true));
+        dockHost.RegisterAnchor(new DockAnchor("properties", "Properties", propertyPanel,       DockAnchorPosition.RightTop));
+        dockHost.RegisterAnchor(new DockAnchor("history",    "History",    historyPanel,        DockAnchorPosition.RightMiddle));
 
         dockHost.RegisterDocument(new DockAnchor("welcome", "Welcome",   welcomeView,      DockAnchorPosition.Document));
         dockHost.RegisterDocument(new DockAnchor("canvas",  "Workspace", _workspacePane,   DockAnchorPosition.Document));
+
+        // PR-A3 — 모든 Register* 직후, 어떤 visibility 조작도 가하기 전에 default layout 스냅샷 캡쳐.
+        // 이후 설정 다이얼로그 '레이아웃 초기화' 버튼이 ResetDockLayoutToDefault() → dockHost.ResetToDefaultLayout()
+        // 로 본 스냅샷을 즉시 복원 (재시작 불요).
+        dockHost.CaptureDefaultLayout();
 
         // PR-D5 — VM SSOT ↔ DockHost 양방향 wiring.
         //   VM → DockHost : VM.PropertyChanged 의 IsXxxVisible / IsLlmChatVisible / HasProject 에 반응.
@@ -89,8 +92,7 @@ public partial class MainWindow : Window
         // 양방향 _suppressAnchorSync 가드로 loop 차단 (F3 박제).
         _vm.PropertyChanged += Vm_PropertyChanged;
         dockHost.AnchorVisibilityChanged += DockHost_AnchorVisibilityChanged;
-        // PR-D9 (MJ2 복구) — anchor caption Help 버튼 click → HelpNavigator hook.
-        dockHost.AnchorHelpRequested += DockHost_AnchorHelpRequested;
+        // PR-A4 — anchor caption Help 뱃지 삭제. AnchorHelpRequested 구독 제거 (도움말은 리본 버튼 → HelpNavigator 직접).
 
         // 초기 동기화 — HasProject 의 현재 값에 따라 Welcome ↔ Canvas 즉시 설정.
         // done-dock-devexpress.md §3 PR-D5 (HasProject 토글): HasProject=false → Welcome 보임 / Canvas 숨김, true → 역전.
@@ -243,6 +245,22 @@ public partial class MainWindow : Window
         _vm.IsToolbarSimulationVisible = hasProject;
     }
 
+    /// <summary>
+    /// PR-A3 — 설정 다이얼로그 '레이아웃 초기화' 진입점. dockHost 의 default 스냅샷으로 즉시 복원 +
+    /// 현재 HasProject 기준 visibility 재동기화. 재시작 불요. Window_Closing 의 SaveLayout 가 본 상태를 그대로 저장.
+    /// </summary>
+    public void ResetDockLayoutToDefault()
+    {
+        _suppressAnchorSync = true;
+        try
+        {
+            dockHost.ResetToDefaultLayout();
+            SyncWelcomeCanvasVisibilityNoGuard();
+            // LlmChat 은 RegisterAnchor 가 lazy/consent 흐름 (baseline §5) 으로 별도 처리되므로 본 reset 시 강제 토글 안 함.
+        }
+        finally { _suppressAnchorSync = false; }
+    }
+
     private bool _closeConfirmed;
 
     private void Window_Closing(object sender, CancelEventArgs e)
@@ -263,20 +281,9 @@ public partial class MainWindow : Window
     {
         _vm.PropertyChanged -= Vm_PropertyChanged;
         dockHost.AnchorVisibilityChanged -= DockHost_AnchorVisibilityChanged;
-        dockHost.AnchorHelpRequested -= DockHost_AnchorHelpRequested;
         ThemeManager.ThemeChanged -= ThemeManager_ThemeChanged;
     }
 
-    /// <summary>
-    /// PR-D9 (MJ2 복구) — DockHost 의 anchor caption Help 버튼 click → Promaker.Help.HelpNavigator 호출.
-    /// baseline AvalonDock 의 AnchorableHeaderTemplate/AnchorableTitleTemplate 의 Help Button 의
-    /// <c>Command={x:Static help:HelpNavigator.NavigateCommand}</c> /
-    /// <c>CommandParameter={Binding ContentId}</c> 박제 동작을 DX BaseLayoutItem.CaptionTemplate +
-    /// AnchorHelpRequested event 로 이식.
-    /// </summary>
-    private void DockHost_AnchorHelpRequested(object? sender, string contentId)
-    {
-        Promaker.Help.HelpNavigator.NavigateCommand.Execute(contentId);
-    }
+    // PR-A4 — DockHost_AnchorHelpRequested 핸들러 제거. 도움말은 리본 우상단 단일 버튼이 HelpNavigator.NavigateCommand 를 직접 실행.
 
 }
