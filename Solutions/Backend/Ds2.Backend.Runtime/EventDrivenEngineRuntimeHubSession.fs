@@ -155,7 +155,7 @@ type EventDrivenEngineRuntimeHubSession
     let modeSession = RuntimeModeSession(engine.Index, engine.IOMap, runtimeMode)
     let passiveInference =
         if modeSession.RequiresPassiveInference then
-            Some(PassiveInferenceSession(engine.Index, engine.IOMap, runtimeMode))
+            Some(PassiveInferenceSession(engine.Index, engine.IOMap, runtimeMode, (runtimeMode = RuntimeMode.Monitoring)))
         else None
     // v12 P3c — Monitoring 만 abnormal adapter. observeAndInfer 의 IO 를 OnObservedIo 로도 흘려
     // "Going 없이 Finish" = SensorShort / Action* 판정 → broadcastAbnormal. (Control 은 engine 자체 adapter.)
@@ -187,9 +187,14 @@ type EventDrivenEngineRuntimeHubSession
         (engine.IOMap.TxWorkToOutAddresses |> Map.containsKey workGuid)
         || (engine.IOMap.RxWorkToInAddresses |> Map.containsKey workGuid)
     let observeAndInfer (address: string) (value: string) =
+        let abnormalReady =
+            match passiveInference with
+            | Some pi -> pi.IsAbnormalReadyForAddress(address)
+            | None -> true
         match monitoringAbnormal with
-        | Some ab -> ab.OnObservedIo(address, value, Environment.TickCount)
+        | Some ab when abnormalReady -> ab.OnObservedIo(address, value, Environment.TickCount)
         | None -> ()
+        | _ -> ()
         match passiveInference with
         | Some pi ->
             for action in pi.Observe(address, value, getWorkStateSafe, getCallStateSafe) do

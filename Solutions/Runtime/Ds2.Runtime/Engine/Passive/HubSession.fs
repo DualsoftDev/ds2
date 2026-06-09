@@ -83,6 +83,11 @@ type RuntimeHubSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: Runtime
                                 index.WorkDuration
                                 |> Map.tryFind txWorkGuid
                                 |> Option.map int
+                                // Min/Max(또는 Duration) 미설정 device 는 WorkDuration 항목이 0 으로 들어온다
+                                // (Build 가 모든 Work 에 항목을 넣으므로 tryFind 는 Some 0 → defaultValue 가 안 탐).
+                                // 0ms echo 면 OUT 펄스가 0너비가 돼 100ms PLC scan·Gantt 가 O 를 놓친다 →
+                                // 0 은 "미설정" 과 동일하게 취급해 500ms floor 로 보정.
+                                |> Option.filter (fun d -> d > 0)
                                 |> Option.defaultValue 500
 
                             // InAddress echo 값 — InputSpec 의 active 대표값 (Bool="true" / Int8(Single 5)="5").

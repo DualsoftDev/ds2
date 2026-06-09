@@ -135,7 +135,7 @@ public sealed class SimulationEngineService : IDisposable
 
                 PassiveInferenceSession? passive = null;
                 if (runtimeSession.RequiresPassiveInference)
-                    passive = new PassiveInferenceSession(engine.Index, engine.IOMap, RuntimeMode.Monitoring);
+                    passive = new PassiveInferenceSession(engine.Index, engine.IOMap, RuntimeMode.Monitoring, true);
                 // v12 P5 이상감지: 로컬 MonitoringAbnormalAdapter(IO-edge, 상태추론 한계) 대신
                 // Agent "OnAbnormal" SignalR 피드(ControlAbnormalAdapter, 실제 Going/Ready 기반) 사용.
                 // HubSubscriberService.OnAbnormal → HandleHubAbnormal → _abnormalEvents.Record 경로.

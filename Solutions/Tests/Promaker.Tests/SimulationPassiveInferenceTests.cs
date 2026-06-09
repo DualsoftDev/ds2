@@ -534,6 +534,64 @@ public sealed class SimulationPassiveInferenceTests
     }
 
     [Fact]
+    public void Monitoring_passive_inference_can_baseline_first_observed_plc_snapshot()
+    {
+        var fixture = BuildSingleCallFixture();
+        var index = SimIndexModule.build(fixture.Store, 10);
+        using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.Monitoring);
+        var session = new PassiveInferenceSession(index, engine.IOMap, RuntimeMode.Monitoring, true);
+        var getReady = new Func<Guid, Status4>(_ => Status4.Ready);
+
+        var first = session.Observe(fixture.OutAddress, "true", getReady, getReady);
+        var duplicate = session.Observe(fixture.OutAddress, "true", getReady, getReady);
+        _ = session.Observe(fixture.OutAddress, "false", getReady, getReady);
+        var nextRising = session.Observe(fixture.OutAddress, "true", getReady, getReady);
+
+        Assert.Empty(first);
+        Assert.Empty(duplicate);
+        Assert.Contains(nextRising, action =>
+            action.TargetKind == PassiveInferenceTarget.Call &&
+            action.State == Status4.Going);
+    }
+
+    [Fact]
+    public void Monitoring_abnormal_is_not_ready_until_passive_cycle_learning_is_synced()
+    {
+        var fixture = BuildSingleCallFixture();
+        var index = SimIndexModule.build(fixture.Store, 10);
+        using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.Monitoring);
+        var session = new PassiveInferenceSession(index, engine.IOMap, RuntimeMode.Monitoring, true);
+        var getReady = new Func<Guid, Status4>(_ => Status4.Ready);
+
+        void Observe(string address, string value) =>
+            _ = session.Observe(address, value, getReady, getReady);
+
+        Observe(fixture.OutAddress, "false");
+        Observe(fixture.InAddress, "false");
+        Assert.False(session.IsAbnormalReadyForAddress(fixture.OutAddress));
+        Assert.False(session.IsAbnormalReadyForAddress(fixture.InAddress));
+
+        for (var i = 0; i < 2; i++)
+        {
+            Observe(fixture.OutAddress, "true");
+            Observe(fixture.InAddress, "true");
+            Observe(fixture.OutAddress, "false");
+            Observe(fixture.InAddress, "false");
+        }
+
+        Assert.False(session.IsAbnormalReadyForAddress(fixture.OutAddress));
+        Assert.False(session.IsAbnormalReadyForAddress(fixture.InAddress));
+
+        Observe(fixture.OutAddress, "true");
+        Observe(fixture.InAddress, "true");
+        Observe(fixture.OutAddress, "false");
+        Observe(fixture.InAddress, "false");
+
+        Assert.True(session.IsAbnormalReadyForAddress(fixture.OutAddress));
+        Assert.True(session.IsAbnormalReadyForAddress(fixture.InAddress));
+    }
+
+    [Fact]
     public void Monitoring_passive_inference_uses_repeating_gap_profile_to_rotate_cycle_head()
     {
         var fixture = BuildBatchedCleanupInterleaveFixture();
