@@ -40,6 +40,38 @@ public partial class MainViewModel
         });
     }
 
+    /// <summary>
+    /// 샘플 모델 경로 — build output 의 `Sample\NewProject.json`.
+    /// 원본 = `<repo>/Apps/Promaker/Sample/NewProject.json` (Promaker.csproj Content 등록).
+    /// 추가 샘플은 해당 폴더에 두고 향후 메뉴 분기로 확장.
+    /// </summary>
+    private static string SamplePath =>
+        System.IO.Path.Combine(AppContext.BaseDirectory, "Sample", "NewProject.json");
+
+    /// <summary>
+    /// 샘플 모델 즉시 로드 — <see cref="SamplePath"/> 파일을 OpenFilePath 로 위임.
+    /// 파일 부재 시 안내 메시지만 표시 (silent fail 회피).
+    /// </summary>
+    [RelayCommand]
+    private void CreateSampleProject()
+    {
+        if (!GuardSimulationSemanticEdit("샘플 만들기"))
+            return;
+
+        var path = SamplePath;
+        if (!System.IO.File.Exists(path))
+        {
+            _dialogService.ShowWarning($"샘플 파일을 찾을 수 없습니다:\n{path}");
+            return;
+        }
+
+        if (!ConfirmDiscardChanges())
+            return;
+
+        OpenFilePath(path);
+        StatusText = $"샘플 로드 완료 — {path}";
+    }
+
     private void Reset()
     {
         Simulation.ResetForNewStore();

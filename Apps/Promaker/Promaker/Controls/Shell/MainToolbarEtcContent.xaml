@@ -86,6 +86,15 @@
                     <TextBlock Text="도움말" Style="{StaticResource RibbonIconLabel}"/>
                 </StackPanel>
             </Button>
+            <!-- 샘플 — Apps/Promaker/Sample/NewProject.json (build output Sample\) 을 로드. -->
+            <Button Style="{StaticResource RibbonFlatButton}"
+                    Command="{Binding CreateSampleProjectCommand}"
+                    ToolTip="샘플 모델 만들기 (Sample\NewProject.json 로드)">
+                <StackPanel Orientation="Vertical">
+                    <iconPacks:PackIconMaterial Kind="LightbulbOnOutline" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/>
+                    <TextBlock Text="샘플" Style="{StaticResource RibbonIconLabel}"/>
+                </StackPanel>
+            </Button>
             <Button x:Name="AboutButton" Style="{StaticResource RibbonFlatButton}" Click="AboutButton_Click" ToolTip="프로그램 정보">
                 <StackPanel Orientation="Vertical">
                     <iconPacks:PackIconMaterial Kind="Information" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/>
