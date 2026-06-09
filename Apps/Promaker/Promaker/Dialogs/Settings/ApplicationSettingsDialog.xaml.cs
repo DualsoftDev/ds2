@@ -64,7 +64,20 @@ public partial class ApplicationSettingsDialog : Window
         LoadPresetMappings();
 
         PresetTextBox.Text = "FWD;BWD";
+
+        // 일반 탭 — 테마 라디오 초기 선택 (ThemeManager.CurrentTheme 기준).
+        // Checked 핸들러에서 _suppressThemeRadio 가드로 ApplyTheme 재호출 차단.
+        _suppressThemeRadio = true;
+        try
+        {
+            if (ThemeManager.CurrentTheme == AppTheme.Dark) ThemeDarkRadio.IsChecked = true;
+            else ThemeLightRadio.IsChecked = true;
+        }
+        finally { _suppressThemeRadio = false; }
     }
+
+    /// <summary>다이얼로그 열릴 때 테마 라디오 초기 선택이 ApplyTheme 를 트리거하는 것 차단.</summary>
+    private bool _suppressThemeRadio;
 
     private void LoadPresetMappings()
     {
@@ -218,49 +231,50 @@ public partial class ApplicationSettingsDialog : Window
     }
 
     /// <summary>
-    /// PR-A3 — dock 레이아웃 초기화. <c>%LOCALAPPDATA%\Promaker\dock-layout-v2.xml</c> 삭제 + 안내.
-    /// MainWindow.RestoreDockLayoutAndSyncVm 은 시작 시 한 번만 실행되므로 즉시 적용은 불가 — 재시작 후 default layout 적용.
-    /// 경로는 MainWindow.LayoutXmlPath 와 박제(SSOT). schema bump 시 양쪽 함께 갱신.
+    /// PR-A3 — dock 레이아웃 초기화. MainWindow 가 시작 시 캡쳐한 default 스냅샷으로 현재 layout 즉시 복원 (재시작 불요).
+    /// 파일 삭제 방식은 Window_Closing 의 SaveLayout 가 다시 쓰기 때문에 무효 — 메모리 상의 layout 자체를 reset.
+    /// 모든 알림은 DialogHelpers 의 themed message box 사용.
     /// </summary>
     private void ResetLayout_Click(object sender, RoutedEventArgs e)
     {
-        var confirm = MessageBox.Show(
-            this,
-            "저장된 dock 레이아웃을 삭제합니다.\n다음 실행 시 기본 레이아웃으로 시작됩니다.\n\n계속하시겠습니까?",
-            "레이아웃 초기화",
-            MessageBoxButton.OKCancel,
-            MessageBoxImage.Question,
-            MessageBoxResult.Cancel);
-        if (confirm != MessageBoxResult.OK) return;
+        if (!DialogHelpers.Confirm(this,
+                "Dock 패널 배치를 기본 상태로 즉시 복원합니다.\n\n계속하시겠습니까?",
+                "레이아웃 초기화"))
+            return;
 
-        var layoutPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Promaker", "dock-layout-v2.xml");
-
-        try
+        if (Application.Current.MainWindow is MainWindow mw)
         {
-            if (File.Exists(layoutPath))
+            try
             {
-                File.Delete(layoutPath);
-                MessageBox.Show(this,
-                    "레이아웃 파일이 삭제되었습니다.\n다음 실행 시 기본 레이아웃으로 시작됩니다.",
-                    "레이아웃 초기화 완료",
-                    MessageBoxButton.OK, MessageBoxImage.Information);
+                mw.ResetDockLayoutToDefault();
+                DialogHelpers.Info(this,
+                    "레이아웃이 기본 상태로 복원되었습니다.",
+                    "레이아웃 초기화 완료");
             }
-            else
+            catch (Exception ex)
             {
-                MessageBox.Show(this,
-                    "저장된 레이아웃 파일이 없습니다.\n현재 이미 기본 레이아웃 상태입니다.",
-                    "레이아웃 초기화",
-                    MessageBoxButton.OK, MessageBoxImage.Information);
+                DialogHelpers.Error(this,
+                    $"레이아웃 복원에 실패했습니다.\n\n{ex.Message}",
+                    "레이아웃 초기화 실패");
             }
         }
-        catch (Exception ex)
+        else
         {
-            MessageBox.Show(this,
-                $"레이아웃 파일 삭제에 실패했습니다.\n\n{ex.Message}",
-                "레이아웃 초기화 실패",
-                MessageBoxButton.OK, MessageBoxImage.Error);
+            DialogHelpers.Error(this,
+                "MainWindow 를 찾을 수 없습니다.",
+                "레이아웃 초기화 실패");
         }
+    }
+
+    /// <summary>
+    /// 테마 라디오 선택 시 즉시 <see cref="ThemeManager.ApplyTheme"/> 호출. ctor 초기 set 은 _suppressThemeRadio 로 차단.
+    /// </summary>
+    private void ThemeRadio_Checked(object sender, RoutedEventArgs e)
+    {
+        if (_suppressThemeRadio) return;
+        if (sender == ThemeDarkRadio && ThemeManager.CurrentTheme != AppTheme.Dark)
+            ThemeManager.ApplyTheme(AppTheme.Dark);
+        else if (sender == ThemeLightRadio && ThemeManager.CurrentTheme != AppTheme.Light)
+            ThemeManager.ApplyTheme(AppTheme.Light);
     }
 }

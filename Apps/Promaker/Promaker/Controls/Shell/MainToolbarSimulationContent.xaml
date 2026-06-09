@@ -580,6 +580,7 @@
                                FontSize="11" FontWeight="SemiBold"
                                Foreground="{DynamicResource PrimaryTextBrush}"
                                VerticalAlignment="Center"/>
+                    <!-- Hub 모드(Control/Monitoring/VP) status dot -->
                     <Ellipse Width="8" Height="8" Margin="6,0,0,0"
                              VerticalAlignment="Center"
                              Visibility="{Binding Simulation.NeedsHubConnection, Converter={StaticResource BoolToVis}}"
@@ -598,14 +599,54 @@
                             </Style>
                         </Ellipse.Style>
                     </Ellipse>
+                    <!-- PR-A4 — Simulation(In-Process) 모드 status dot. IsSimulating=true → 초록 / 일시정지 → 주황 / 정지 → 회색.
+                         Hub 가 없어 NeedsHubConnection 가 false 일 때만 표시 (Control/Monitoring 표시와 배타). -->
+                    <Ellipse Width="8" Height="8" Margin="6,0,0,0"
+                             VerticalAlignment="Center"
+                             ToolTip="{Binding Simulation.SimStatusText}">
+                        <Ellipse.Style>
+                            <Style TargetType="Ellipse">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Setter Property="Fill" Value="{DynamicResource IconGrayBrush}"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Simulation.NeedsHubConnection}" Value="False">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Simulation.IsSimulating}" Value="True">
+                                        <Setter Property="Fill" Value="{DynamicResource IconGreenBrush}"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Simulation.IsSimPaused}" Value="True">
+                                        <Setter Property="Fill" Value="{DynamicResource IconOrangeBrush}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Ellipse.Style>
+                    </Ellipse>
                 </StackPanel>
-                <!-- Self-host 배지 — Control/Monitoring 일 때만 노출, Monitoring 은 [읽기전용] 표시 -->
+                <!-- Hub 모드 — Self-Hosted 배지 (Control/Monitoring 일 때만 노출) -->
                 <TextBlock Text="{Binding Simulation.Hub.HostingLabel}"
                            FontSize="9"
                            Foreground="{DynamicResource SecondaryTextBrush}"
                            HorizontalAlignment="Center"
                            Margin="0,1,0,0"
                            Visibility="{Binding Simulation.Hub.IsHubHost, Converter={StaticResource BoolToVis}}"/>
+                <!-- PR-A4 — Simulation(In-Process) 모드 배지 — Hub 미사용임을 표시. 다른 모드의 Self-Hosted 배지와 시각 정합. -->
+                <TextBlock Text="In-Process"
+                           FontSize="9"
+                           Foreground="{DynamicResource SecondaryTextBrush}"
+                           HorizontalAlignment="Center"
+                           Margin="0,1,0,0">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Simulation.NeedsHubConnection}" Value="False">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
                 <TextBox Text="{Binding Simulation.Hub.EffectiveHubAddress, UpdateSourceTrigger=PropertyChanged}"
                          Width="130" MinHeight="24" FontSize="11"
                          Margin="0,3,0,0"
@@ -614,6 +655,28 @@
                          IsEnabled="{Binding Simulation.CanChangeMode}"
                          ToolTip="Hub 주소 (host:port) — Agent 단일 호스팅이라 Control/Monitoring/VP 모두 localhost:5051"
                          Visibility="{Binding Simulation.NeedsHubConnection, Converter={StaticResource BoolToVis}}"/>
+                <!-- PR-A4 — Simulation 모드 동작 시간 (SimClock: HH:mm:ss.fff). Hub 주소 textbox 와 동일 위치/높이.
+                     모드 전환 시 한쪽만 노출되어 라인 정렬 유지. SimStatusText (Stopped / Running / Paused) 는 dot ToolTip 으로 노출. -->
+                <TextBlock Text="{Binding Simulation.SimClock}"
+                           FontSize="12" FontFamily="Consolas"
+                           Foreground="{DynamicResource PrimaryTextBrush}"
+                           HorizontalAlignment="Center"
+                           Margin="0,3,0,0"
+                           MinHeight="24"
+                           TextAlignment="Center"
+                           VerticalAlignment="Center"
+                           ToolTip="시뮬레이션 동작 시간">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Simulation.NeedsHubConnection}" Value="False">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
                 <!-- issue #154: Monitoring(실 PLC) 시작 시 DSPilot 자동 오픈 여부 토글. IsAgentDelegationMode 일 때만 노출. -->
                 <CheckBox Content="DsPilot으로 실행"
                           IsChecked="{Binding Simulation.LaunchDspilotOnMonitoring, Mode=TwoWay}"

@@ -48,7 +48,6 @@ public partial class SimulationPanelState
         {
             var store = Store;
             var index = SimIndexModule.build(store, 10);
-            SimEventLog.Clear();
 
             var sections = RunGraphValidation(index);
 
