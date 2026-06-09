@@ -25,6 +25,9 @@
     <PackageReference Include="MdXaml" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
     <PackageReference Include="Microsoft.Web.WebView2" />
+    <!-- AvalonDock (MIT) — DockHost / DockAnchor / IDockManager 코드는 Promaker/Dock/ 폴더. -->
+    <PackageReference Include="Dirkster.AvalonDock" />
+    <PackageReference Include="Dirkster.AvalonDock.Themes.VS2013" />
   </ItemGroup>
   <ItemGroup>
     <None Update="log4net.config">
@@ -92,6 +95,5 @@
     <ProjectReference Include="..\..\..\Solutions\Backend\Ds2.Backend\Ds2.Backend.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Backend\Ds2.Backend.Common\Ds2.Backend.Common.fsproj" />
     <ProjectReference Include="..\Promaker.Shared\Promaker.Shared.csproj" />
-    <ProjectReference Include="..\Promaker.Dock\Promaker.Dock.csproj" />
   </ItemGroup>
 </Project>
