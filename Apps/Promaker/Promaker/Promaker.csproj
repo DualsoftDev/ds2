@@ -56,6 +56,8 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 샘플 모델 — "샘플" 버튼이 build output 의 Sample\ 폴더에서 로드. -->
+    <Content Include="..\Sample\**\*" Link="Sample\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\..\Solutions\View\Ds2.View3D\wwwroot\models\**\*" Link="wwwroot\models\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\..\Solutions\View\Ds2.View3D\wwwroot\device-preview.html" Link="wwwroot\device-preview.html" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\..\Solutions\View\Ds2.View3D\wwwroot\DEVICE_JSON_SPEC.md" Link="wwwroot\DEVICE_JSON_SPEC.md" CopyToOutputDirectory="PreserveNewest" />

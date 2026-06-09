@@ -250,11 +250,10 @@ public partial class DockHost : UserControl, IDockManager
         foreach (var item in _itemsByContentId.Values)
             DetachFromParent(item);
 
-        // 2단계 — XAML 박제와 동일한 layout 트리 재생성.
+        // 2단계 — XAML 박제와 동일한 layout 트리 재생성 (PR-A6: 하단 단일 pane).
         var newLeftPane         = new LayoutAnchorablePane { DockWidth = new GridLength(320) };
         var newDocumentPane     = new LayoutDocumentPane();
-        var newBottomLeftPane   = new LayoutAnchorablePane();
-        var newBottomRightPane  = new LayoutAnchorablePane();
+        var newBottomPane       = new LayoutAnchorablePane { DockHeight = new GridLength(200) };
         var newRightTopPane     = new LayoutAnchorablePane();
         var newRightMiddlePane  = new LayoutAnchorablePane { DockHeight = new GridLength(220) };
         var newRightBottomPane  = new LayoutAnchorablePane();
@@ -262,17 +261,9 @@ public partial class DockHost : UserControl, IDockManager
         var docGroup = new LayoutDocumentPaneGroup();
         docGroup.Children.Add(newDocumentPane);
 
-        var bottomGroup = new LayoutAnchorablePaneGroup
-        {
-            Orientation = System.Windows.Controls.Orientation.Horizontal,
-            DockHeight = new GridLength(200),
-        };
-        bottomGroup.Children.Add(newBottomLeftPane);
-        bottomGroup.Children.Add(newBottomRightPane);
-
         var centerPanel = new LayoutPanel { Orientation = System.Windows.Controls.Orientation.Vertical };
         centerPanel.Children.Add(docGroup);
-        centerPanel.Children.Add(bottomGroup);
+        centerPanel.Children.Add(newBottomPane);
 
         var rightGroup = new LayoutAnchorablePaneGroup
         {
@@ -291,8 +282,7 @@ public partial class DockHost : UserControl, IDockManager
         // 3단계 — x:Name 필드 + default mapping 을 새 pane 으로 갱신.
         _leftPane         = newLeftPane;
         _documentPane     = newDocumentPane;
-        _bottomLeftPane   = newBottomLeftPane;
-        _bottomRightPane  = newBottomRightPane;
+        _bottomPane       = newBottomPane;
         _rightTopPane     = newRightTopPane;
         _rightMiddlePane  = newRightMiddlePane;
         _rightBottomPane  = newRightBottomPane;
@@ -384,14 +374,13 @@ public partial class DockHost : UserControl, IDockManager
 
     /// <summary>
     /// <see cref="DockAnchorPosition"/> → XAML 박제 LayoutAnchorablePane 매핑.
-    /// post-D8 fix (Log 독립 anchor 승격) 매핑:
-    ///   Left=explorer / BottomLeft=simulation / BottomRight=log / RightTop=property / RightMiddle=history / RightBottom=llmchat.
+    /// PR-A6 — Bottom 단일화 (Log / Gantt / StatusMonitor tabbed).
+    ///   Left=Explorer / Bottom=Log·Gantt·StatusMonitor / RightTop=Properties / RightMiddle=History / RightBottom=LlmChat.
     /// </summary>
     private LayoutAnchorablePane ResolveAnchorPane(DockAnchorPosition position) => position switch
     {
         DockAnchorPosition.Left => _leftPane,
-        DockAnchorPosition.BottomLeft => _bottomLeftPane,
-        DockAnchorPosition.BottomRight => _bottomRightPane,
+        DockAnchorPosition.Bottom => _bottomPane,
         DockAnchorPosition.RightTop => _rightTopPane,
         DockAnchorPosition.RightMiddle => _rightMiddlePane,
         DockAnchorPosition.RightBottom => _rightBottomPane,

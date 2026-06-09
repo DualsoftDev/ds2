@@ -52,31 +52,34 @@ public partial class MainWindow : Window
         InitializeComponent();
         DataContext = _vm;
 
-        // --review mn5 — anchor sync table (5 standard anchor, LlmChat 별도). ContentId / VmProperty 의 단일 source.
+        // PR-A6 — anchor sync table. Simulation dock 삭제 + Gantt / StatusMonitor 독립화.
+        //   - Gantt + StatusMonitor 는 HasProject 게이트만 공유하므로 동일 VM 플래그(IsSimulationVisible)에 매핑.
         _anchorSyncs = new[]
         {
-            new AnchorSync("explorer",   nameof(MainViewModel.IsExplorerVisible),   () => _vm.IsExplorerVisible,   v => _vm.IsExplorerVisible   = v),
-            new AnchorSync("simulation", nameof(MainViewModel.IsSimulationVisible), () => _vm.IsSimulationVisible, v => _vm.IsSimulationVisible = v),
-            new AnchorSync("properties", nameof(MainViewModel.IsPropertiesVisible), () => _vm.IsPropertiesVisible, v => _vm.IsPropertiesVisible = v),
-            new AnchorSync("history",    nameof(MainViewModel.IsHistoryVisible),    () => _vm.IsHistoryVisible,    v => _vm.IsHistoryVisible    = v),
-            new AnchorSync("log",        nameof(MainViewModel.IsLogVisible),        () => _vm.IsLogVisible,        v => _vm.IsLogVisible        = v),
+            new AnchorSync("explorer",      nameof(MainViewModel.IsExplorerVisible),   () => _vm.IsExplorerVisible,   v => _vm.IsExplorerVisible   = v),
+            new AnchorSync("gantt",         nameof(MainViewModel.IsSimulationVisible), () => _vm.IsSimulationVisible, v => _vm.IsSimulationVisible = v),
+            new AnchorSync("statusMonitor", nameof(MainViewModel.IsSimulationVisible), () => _vm.IsSimulationVisible, v => _vm.IsSimulationVisible = v),
+            new AnchorSync("properties",    nameof(MainViewModel.IsPropertiesVisible), () => _vm.IsPropertiesVisible, v => _vm.IsPropertiesVisible = v),
+            new AnchorSync("history",       nameof(MainViewModel.IsHistoryVisible),    () => _vm.IsHistoryVisible,    v => _vm.IsHistoryVisible    = v),
+            new AnchorSync("log",           nameof(MainViewModel.IsLogVisible),        () => _vm.IsLogVisible,        v => _vm.IsLogVisible        = v),
         };
 
-        // PR-D4 — 5 anchor + 2 document 등록. PR-D3 의 IDockManager (DockHost) API 사용.
-        // ContentId / Title / Content / DefaultPosition 매핑은 done-dock-devexpress.md §3 PR-D3 + §9 PR-D3 spike API 박제.
+        // PR-A6 — Simulation dock 삭제. 하단 단일 pane 에 Log(첫 탭) / Gantt Chart / Status Monitor 3개를 tabbed 로 등록.
         var explorerPane = new ExplorerPane();
-        var simulationPanel = new SimulationPanel { DataContext = _vm.Simulation };
+        var ganttChart   = new GanttChartControl { DataContext = _vm.Simulation.GanttChart };
+        var statusMonitor = new StatusMonitorPanel { DataContext = _vm.Simulation };
         var propertyPanel = new PropertyPanel { DataContext = _vm.PropertyPanel };
         var historyPanel = new HistoryPanel();
         var welcomeView = new WelcomeView();
         _workspacePane = new SplitCanvasContainer { MinHeight = 120 };
 
-        // PR-A4 — anchor caption 의 Help 뱃지(?) 삭제. 도움말은 리본 우상단 단일 '도움말' 버튼으로 통합.
-        dockHost.RegisterAnchor(new DockAnchor("explorer",   "Explorer",   explorerPane,        DockAnchorPosition.Left));
-        dockHost.RegisterAnchor(new DockAnchor("simulation", "Simulation", simulationPanel,     DockAnchorPosition.BottomLeft));
-        dockHost.RegisterAnchor(new DockAnchor("log",        "Log",        new AppLogView(),    DockAnchorPosition.BottomRight));
-        dockHost.RegisterAnchor(new DockAnchor("properties", "Properties", propertyPanel,       DockAnchorPosition.RightTop));
-        dockHost.RegisterAnchor(new DockAnchor("history",    "History",    historyPanel,        DockAnchorPosition.RightMiddle));
+        dockHost.RegisterAnchor(new DockAnchor("explorer",      "Explorer",       explorerPane,    DockAnchorPosition.Left));
+        // 하단 tabbed 순서: Log → Gantt Chart → Status Monitor. 첫 등록 anchor 가 활성 탭 (Log).
+        dockHost.RegisterAnchor(new DockAnchor("log",           "Log",            new AppLogView(),DockAnchorPosition.Bottom));
+        dockHost.RegisterAnchor(new DockAnchor("gantt",         "Gantt Chart",    ganttChart,      DockAnchorPosition.Bottom));
+        dockHost.RegisterAnchor(new DockAnchor("statusMonitor", "Status Monitor", statusMonitor,   DockAnchorPosition.Bottom));
+        dockHost.RegisterAnchor(new DockAnchor("properties",    "Properties",     propertyPanel,   DockAnchorPosition.RightTop));
+        dockHost.RegisterAnchor(new DockAnchor("history",       "History",        historyPanel,    DockAnchorPosition.RightMiddle));
 
         dockHost.RegisterDocument(new DockAnchor("welcome", "Welcome",   welcomeView,      DockAnchorPosition.Document));
         dockHost.RegisterDocument(new DockAnchor("canvas",  "Workspace", _workspacePane,   DockAnchorPosition.Document));
@@ -227,11 +230,12 @@ public partial class MainWindow : Window
         dockHost.SetAnchorVisible("welcome", !hasProject);
         dockHost.SetAnchorVisible("canvas", hasProject);
 
-        // 4 anchor 도 HasProject 따라 자동 show/hide.
+        // 5 anchor 도 HasProject 따라 자동 show/hide. PR-A6 — simulation 단일 anchor → gantt + statusMonitor 분리.
         dockHost.SetAnchorVisible("explorer", hasProject);
         dockHost.SetAnchorVisible("properties", hasProject);
         dockHost.SetAnchorVisible("history", hasProject);
-        dockHost.SetAnchorVisible("simulation", hasProject);
+        dockHost.SetAnchorVisible("gantt", hasProject);
+        dockHost.SetAnchorVisible("statusMonitor", hasProject);
         _vm.IsExplorerVisible = hasProject;
         _vm.IsPropertiesVisible = hasProject;
         _vm.IsHistoryVisible = hasProject;
