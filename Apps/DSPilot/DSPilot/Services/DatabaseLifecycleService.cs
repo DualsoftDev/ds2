@@ -394,6 +394,67 @@ public sealed class DatabaseLifecycleService
         }
     }
 
+    /// <summary>AASX 변경 이력 목록 (연표 다이얼로그용).</summary>
+    public Task<IReadOnlyList<AasxChangeLogEntry>> GetAasxChangeLogAsync(int limit = 100)
+        => _dspRepository.GetAasxChangeLogAsync(limit);
+
+    /// <summary>
+    /// 지정 시각 이전 raw 데이터 선택 삭제 (plcTagLog, userTagAlertLog, dspFlowHistory, oeeDowntimeEvent).
+    /// 해당 시각 이후 데이터는 보존.
+    /// </summary>
+    public async Task<RebuildResult> DeleteDataBeforeAsync(DateTime cutoffUtc)
+    {
+        if (!await _gate.WaitAsync(0))
+            return new RebuildResult(false, "다른 재초기화 작업이 진행 중입니다.");
+
+        try
+        {
+            _logger.LogInformation("[DBLifecycle] DeleteDataBefore cutoff={Cutoff}...", cutoffUtc.ToString("o"));
+
+            var (plc, alert, hist) = await _dspRepository.DeleteRawDataBeforeAsync(cutoffUtc);
+
+            var oeeDeleted = 0;
+            try
+            {
+                using var oeeScope = _scopeFactory.CreateScope();
+                var oeeRepo = oeeScope.ServiceProvider.GetRequiredService<IOeeRepository>();
+                oeeDeleted = await oeeRepo.DeleteDowntimeEventsBeforeAsync(cutoffUtc);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[DBLifecycle] OEE downtime 삭제 실패 (비중요)");
+            }
+
+            // 삭제 후 집계 캐시 무효화 (평균이 달라질 수 있음)
+            try
+            {
+                await _dspRepository.InvalidateRunningStatsAsync();
+                _engineService.ResetCallStats();
+                _dspDbService.Reset();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[DBLifecycle] 캐시 재계산 실패 (비중요)");
+            }
+
+            try { await _hubContext.Clients.All.SendAsync("FlowHistoryCleared"); }
+            catch (Exception ex) { _logger.LogDebug(ex, "[DBLifecycle] SignalR broadcast 실패 (비중요)"); }
+
+            var msg = $"삭제 완료 — plcTagLog: {plc}건, 알림이력: {alert}건, FlowHistory: {hist}건, OEE정지: {oeeDeleted}건";
+            _logger.LogInformation("[DBLifecycle] DeleteDataBefore complete: {Msg}", msg);
+            return new RebuildResult(true, msg);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[DBLifecycle] DeleteDataBefore 실패");
+            return new RebuildResult(false, $"삭제 실패: {ex.Message}");
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     /// <summary>
     /// dspFlowHistory + dspCall 통계 컬럼만 reset.
     /// 사용자 의도: "Flow 히스토리 + 사이클 통계 처음부터 다시 측정".

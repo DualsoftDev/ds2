@@ -139,6 +139,16 @@
         .up-form-ok { font-size: 0.7rem; font-weight: 700; color: var(--green); }
         .up-form-err { font-size: 0.7rem; font-weight: 700; color: var(--red); }
 
+        /* ── 일괄 작업 툴바 ── */
+        .up-bulk-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 9px 14px; background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent); border-radius: var(--radius-md); margin-bottom: 10px; }
+        .up-bulk-count { font-size: 0.78rem; font-weight: 800; color: var(--color-primary); white-space: nowrap; }
+        .up-bulk-bar .up-mini-select { min-width: 130px; }
+        .up-bulk-clear { margin-left: auto; font-size: 0.72rem; color: var(--color-text-secondary); cursor: pointer; padding: 3px 8px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: none; }
+        .up-bulk-clear:hover { color: var(--color-text-primary); }
+        .up-dt-cb { width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer; }
+        .up-dt-table th.cb-col, .up-dt-table td.cb-col { width: 36px; padding: 0 8px; text-align: center; }
+        .ds-row-selected { background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)) !important; }
+
         /* ── AI 인사이트 한 줄 ── */
         .up-insight { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--purple) 8%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--purple) 35%, transparent); }
         .up-insight .material-icons { color: var(--purple); font-size: 26px; flex-shrink: 0; }
@@ -279,6 +289,29 @@
                         </select>
                     </div>
 
+                    <!-- 일괄 작업 툴바 (선택 항목 있을 때) -->
+                    <template x-if="selectedCount > 0">
+                        <div class="up-bulk-bar">
+                            <span class="material-icons" style="font-size:18px; color:var(--color-primary);">checklist</span>
+                            <span class="up-bulk-count" x-text="selectedCount + '건 선택됨'"></span>
+                            <select class="up-mini-select" x-model="bulkDraft">
+                                <option value="">일괄 분류 원인 선택…</option>
+                                <template x-for="r in reasonOptions" :key="r.code">
+                                    <option :value="r.code" x-text="r.label"></option>
+                                </template>
+                            </select>
+                            <button class="btn btn-sm btn-primary" :disabled="!bulkDraft || bulkBusy" @click="bulkClassify()">
+                                <span class="material-icons" style="font-size:14px;">check_circle</span> 일괄 분류
+                            </button>
+                            <template x-if="anySelectedOpen">
+                                <button class="btn btn-sm btn-outlined" :disabled="bulkBusy" @click="bulkClose()">
+                                    <span class="material-icons" style="font-size:14px;">handyman</span> 일괄 수리완료
+                                </button>
+                            </template>
+                            <button class="up-bulk-clear" @click="clearSel()">선택 해제</button>
+                        </div>
+                    </template>
+
                     <div class="alert alert-error" x-show="oeeError" style="margin-bottom:12px;"><span class="material-icons">error</span><span x-text="oeeError"></span></div>
 
                     <template x-if="filteredDowntime.length > 0">
@@ -286,6 +319,12 @@
                             <table class="ds-table up-dt-table">
                                 <thead>
                                     <tr>
+                                        <th class="cb-col">
+                                            <input type="checkbox" class="up-dt-cb"
+                                                   :checked="allFilteredSelected"
+                                                   :indeterminate.prop="someFilteredSelected && !allFilteredSelected"
+                                                   @change="toggleAll($event.target.checked)" />
+                                        </th>
                                         <th style="width:140px;">발생</th>
                                         <th style="width:140px;">복구</th>
                                         <th style="width:80px;">지속</th>
@@ -297,7 +336,12 @@
                                 </thead>
                                 <tbody>
                                     <template x-for="d in filteredDowntime" :key="d.id">
-                                        <tr>
+                                        <tr :class="selectedIds[d.id] ? 'ds-row-selected' : ''">
+                                            <td class="cb-col">
+                                                <input type="checkbox" class="up-dt-cb"
+                                                       :checked="!!selectedIds[d.id]"
+                                                       @change="toggleSel(d.id, $event.target.checked)" />
+                                            </td>
                                             <td class="num" x-text="dtTime(d.startAt)"></td>
                                             <td class="num" x-text="d.endAt ? dtTime(d.endAt) : '—'"></td>
                                             <td class="num" x-text="dur(d.durationMs, d)"></td>
@@ -707,20 +751,21 @@
                             <template x-if="ut.alerts && ut.alerts.length > 0">
                                 <div style="overflow-x:auto;">
                                     <table class="ds-table">
-                                        <thead><tr><th style="width:170px;">시각 ▼</th><th>레벨</th><th>System</th><th>이름</th><th>주소</th><th>조건</th><th>값</th></tr></thead>
+                                        <thead><tr><th style="width:170px;">시각 ▼</th><th>레벨</th><th>경로</th><th>이름</th><th>주소</th><th>조건</th><th>값</th></tr></thead>
                                         <tbody>
                                             <template x-for="(a, i) in ut.alerts" :key="i">
                                                 <tr>
                                                     <td class="num" x-text="(a.occurredAtLocal || '').slice(0,19)"></td>
                                                     <td><span class="ds-status" :class="levelStatus(a.logLevel)" x-text="a.logLevel"></span></td>
-                                                    <td x-text="a.systemName"></td>
+                                                    <!-- 경로: AbnormalDetect → SystemName/FlowName, 나머지 → SystemName -->
+                                                    <td x-text="abnPath(a)"></td>
                                                     <td><strong x-text="a.name"></strong></td>
-                                                    <!-- 주소: AbnormalDetect는 Flow 이름(일반 텍스트), 나머지는 코드 스타일 -->
-                                                    <td><span :class="a.matchOp !== 'AbnormalDetect' ? 'up-codeish' : ''" x-text="a.tagAddress || '-'"></span></td>
-                                                    <!-- 조건: describeOp가 AbnormalDetect → 한글 설명으로 변환 -->
+                                                    <!-- 주소: Sensor* → InTag 주소(actualValue), Action* → '-', 나머지 → tagAddress(코드) -->
+                                                    <td><span :class="abnAddrClass(a)" x-text="abnAddr(a)"></span></td>
+                                                    <!-- 조건 -->
                                                     <td x-text="describeOp(a.matchOp, a.matchValue)"></td>
-                                                    <!-- 값: Action* → 경과시간(num), Sensor* → InTag 주소(codeish), 나머지 → codeish -->
-                                                    <td><span :class="a.matchOp === 'AbnormalDetect' && a.matchValue && a.matchValue.startsWith('Action') ? 'num' : 'up-codeish'" x-text="abnVal(a)"></span></td>
+                                                    <!-- 값: AbnormalDetect 시간·주소값 숨김, 나머지 기존 -->
+                                                    <td><span :class="a.matchOp !== 'AbnormalDetect' ? 'up-codeish' : ''" x-text="abnVal(a)"></span></td>
                                                 </tr>
                                             </template>
                                         </tbody>
@@ -835,6 +880,8 @@
                 reasonOptions: REASON_DEFS,
                 dtFilterStatus: 'all', dtFilterReason: 'all',
                 classifyDraft: {},
+                // 일괄 선택 상태
+                selectedIds: {}, bulkDraft: '', bulkBusy: false,
                 prodForm: { date: new Date().toISOString().slice(0, 10), shift: '', flow: '', reject: 0, busy: false, msg: '', err: '' },
                 // 표준CT(idealCT) Flow 일괄 편집 테이블 (편집값은 각 행 객체 draft 에 보관 — Alpine x-for 양방향 바인딩 안정)
                 ctTable: [], ctMsg: '', ctError: null, ctLoading: false, ctApplying: false,
@@ -1033,12 +1080,29 @@
                         default: return op || '?';
                     }
                 },
-                // AbnormalDetect 행 전용 값 렌더링:
-                //   Action* → "Nms" (경과시간), Sensor* → InTag 주소(tagAddress와 다를 때), 동일/미해석 → '-'
+                // 경로 셀: AbnormalDetect → SystemName/FlowName(tagAddress=FlowName), 나머지 → SystemName
+                abnPath(a) {
+                    if (a.matchOp === 'AbnormalDetect')
+                        return [a.systemName, a.tagAddress].filter(Boolean).join('/') || '-';
+                    return a.systemName || '-';
+                },
+                // 주소 셀: Sensor* → InTag 주소(actualValue), Action* → '-', 나머지 → tagAddress
+                abnAddr(a) {
+                    if (a.matchOp !== 'AbnormalDetect') return a.tagAddress || '-';
+                    if (a.matchValue && a.matchValue.startsWith('Sensor'))
+                        return (a.actualValue && a.actualValue !== a.tagAddress) ? a.actualValue : '-';
+                    return '-';
+                },
+                abnAddrClass(a) {
+                    if (a.matchOp !== 'AbnormalDetect') return 'up-codeish';
+                    if (a.matchValue && a.matchValue.startsWith('Sensor'))
+                        return (a.actualValue && a.actualValue !== a.tagAddress) ? 'up-codeish' : '';
+                    return '';
+                },
+                // 값 셀: AbnormalDetect → '-'(시간·주소 이동/숨김), 나머지 기존
                 abnVal(a) {
                     if (a.matchOp !== 'AbnormalDetect') return a.actualValue;
-                    if (a.matchValue && a.matchValue.startsWith('Action')) return a.actualValue;
-                    return (a.actualValue && a.actualValue !== a.tagAddress) ? a.actualValue : '-';
+                    return '-';
                 },
 
                 // ── OEE 포맷터/톤 ──
@@ -1090,6 +1154,52 @@
                         else if (this.dtFilterReason !== 'all') { if (d.reasonCode !== this.dtFilterReason) return false; }
                         return true;
                     });
+                },
+
+                // ── 일괄 선택 computed ──
+                get selectedCount() { return Object.values(this.selectedIds).filter(Boolean).length; },
+                get allFilteredSelected() {
+                    const fd = this.filteredDowntime;
+                    return fd.length > 0 && fd.every(d => this.selectedIds[d.id]);
+                },
+                get someFilteredSelected() { return this.filteredDowntime.some(d => this.selectedIds[d.id]); },
+                get anySelectedOpen() {
+                    return this.downtime.some(d => this.selectedIds[d.id] && d.status === 'open');
+                },
+                toggleSel(id, checked) {
+                    this.selectedIds = { ...this.selectedIds, [id]: checked };
+                },
+                toggleAll(checked) {
+                    const patch = {};
+                    for (const d of this.filteredDowntime) patch[d.id] = checked;
+                    this.selectedIds = { ...this.selectedIds, ...patch };
+                },
+                clearSel() { this.selectedIds = {}; this.bulkDraft = ''; },
+                async bulkClassify() {
+                    const ids = Object.entries(this.selectedIds).filter(([, v]) => v).map(([k]) => Number(k));
+                    if (!ids.length || !this.bulkDraft) return;
+                    const def = REASON_DEFS.find(x => x.code === this.bulkDraft);
+                    const category = def ? def.category : 'unplanned';
+                    this.bulkBusy = true;
+                    try {
+                        await this.apiPost('/api/oee/downtime/bulk-classify', { ids, reasonCode: this.bulkDraft, category });
+                        this.clearSel();
+                        await this.loadOee();
+                    } catch (e) {
+                        if (e.message !== 'demo-blocked') this.oeeError = '일괄 분류 실패: ' + e.message;
+                    } finally { this.bulkBusy = false; }
+                },
+                async bulkClose() {
+                    const ids = Object.entries(this.selectedIds).filter(([, v]) => v).map(([k]) => Number(k));
+                    if (!ids.length) return;
+                    this.bulkBusy = true;
+                    try {
+                        await this.apiPost('/api/oee/downtime/bulk-close', { ids });
+                        this.clearSel();
+                        await this.loadOee();
+                    } catch (e) {
+                        if (e.message !== 'demo-blocked') this.oeeError = '일괄 수리완료 실패: ' + e.message;
+                    } finally { this.bulkBusy = false; }
                 },
 
                 // 정지 원인 도넛 (분류된 것만, 지속시간 가중)

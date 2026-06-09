@@ -96,6 +96,39 @@ public class OeeController : ControllerBase
         return new { ok = true, id, endAt = endAtUtc };
     }
 
+    // ── POST /api/oee/downtime/bulk-classify  {ids, reasonCode, category} ──
+    // 복수 id 일괄 분류. ids 최대 500개 제한.
+    [HttpPost("downtime/bulk-classify")]
+    public async Task<ActionResult<object>> BulkClassify([FromBody] BulkClassifyRequest req, CancellationToken ct)
+    {
+        if (req.Ids == null || req.Ids.Count == 0)
+            return BadRequest(new { error = "ids is required" });
+        if (req.Ids.Count > 500)
+            return BadRequest(new { error = "too many ids (max 500)" });
+
+        var category = string.IsNullOrWhiteSpace(req.Category) ? null : req.Category.Trim().ToLowerInvariant();
+        var reasonCode = string.IsNullOrWhiteSpace(req.ReasonCode) ? null : req.ReasonCode.Trim();
+        var isFailure = string.Equals(category, "unplanned", StringComparison.OrdinalIgnoreCase);
+
+        var n = await _repo.BulkClassifyDowntimeAsync(req.Ids, reasonCode, category, isFailure, ct);
+        return new { ok = true, count = n, reasonCode, category, isFailure };
+    }
+
+    // ── POST /api/oee/downtime/bulk-close  {ids, endAt?} ─────────────────
+    // open 상태인 항목만 수동 마감. endAt 미지정 시 now.
+    [HttpPost("downtime/bulk-close")]
+    public async Task<ActionResult<object>> BulkClose([FromBody] BulkCloseRequest req, CancellationToken ct)
+    {
+        if (req.Ids == null || req.Ids.Count == 0)
+            return BadRequest(new { error = "ids is required" });
+        if (req.Ids.Count > 500)
+            return BadRequest(new { error = "too many ids (max 500)" });
+
+        var endAtUtc = req.EndAt is DateTime e ? ToUtc(e) : DateTime.UtcNow;
+        var n = await _repo.BulkCloseDowntimeAsync(req.Ids, endAtUtc, ct);
+        return new { ok = true, count = n, endAt = endAtUtc };
+    }
+
     // ── POST /api/oee/production  {date, flow, shift, reject} ─────────────
     // total 은 dspFlowHistory 자동, reject 만 수동. good = total - reject (clamp >= 0).
     [HttpPost("production")]
@@ -878,6 +911,8 @@ public class OeeController : ControllerBase
 
 public record ClassifyRequest(string? ReasonCode, string? Category);
 public record CloseRequest(DateTime? EndAt);
+public record BulkClassifyRequest(List<long> Ids, string? ReasonCode, string? Category);
+public record BulkCloseRequest(List<long> Ids, DateTime? EndAt);
 public record ProductionRequest(DateTime? Date, string Flow, string? Shift, int Reject);
 public record ShiftExceptionRequest(string? Flow, DateTime? StartAt, DateTime? EndAt, string Kind, string? Note);
 public record IdealCycleRequest(string Flow, int? IdealCycleTimeMs);

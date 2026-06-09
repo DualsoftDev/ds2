@@ -340,7 +340,7 @@
 
                 var body = el('div');
                 body.style.cssText = 'flex:1;min-width:0;';
-                var label = el('div', 'font-label-sm text-label-sm font-semibold', a.label || a.code || '(이름 없음)');
+                var label = el('div', 'font-label-sm text-label-sm font-semibold', (a.label || a.code || '(이름 없음)') + (a.kindName ? ' (' + a.kindName + ')' : ''));
                 label.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
                 body.appendChild(label);
                 var sub = el('div', 'text-[10px] text-outline opacity-80', (a.system || '') + ' · ' + (a.occurredAtLocal || ''));

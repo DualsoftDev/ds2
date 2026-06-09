@@ -235,6 +235,14 @@
                                         dspFlowHistory + Call 통계 초기화. plcTagLog 는 보존. Flow/Call 정의와 AASX 도 유지.
                                     </small>
                                     <hr class="divider my-3" />
+                                    <button class="btn btn-outlined color-warning w-100" @click="openSelectiveDel()" :disabled="busy">
+                                        <span class="material-icons">event</span> 데이터 선택 삭제 (AASX 갱신일 기준)
+                                    </button>
+                                    <small class="settings-hint">
+                                        AASX 갱신일을 선택하면 해당 시점 이전의 plcTagLog · 알림이력 · FlowHistory · OEE정지 데이터를 삭제합니다.
+                                        선택 시각 이후 데이터는 보존됩니다.
+                                    </small>
+                                    <hr class="divider my-3" />
                                     <button class="btn btn-outlined color-error w-100" @click="rebuildDatabase()" :disabled="busy">
                                         <span class="material-icons">delete_forever</span> 전체 초기화 (plcTagLog 포함 삭제)
                                     </button>
@@ -380,6 +388,46 @@
             </template>
         </main>
 
+        <!-- AASX 갱신일 기준 선택 삭제 다이얼로그 -->
+        <div class="modal-overlay" x-show="selectiveDel.show" style="display:none; z-index:3000;" @click.self="selectiveDel.show = false">
+            <div class="modal-content" @click.stop style="max-width:480px;">
+                <h3 style="margin:0 0 6px; display:flex; align-items:center; gap:8px;">
+                    <span class="material-icons" style="color:var(--color-warning, #e67e22);">event</span>
+                    AASX 갱신일 기준 데이터 삭제
+                </h3>
+                <p class="settings-hint" style="margin:0 0 14px;">
+                    갱신일을 클릭하면 해당 시점 <strong>이전</strong>의 plcTagLog · 알림이력 · FlowHistory · OEE정지 데이터를 삭제합니다.<br>
+                    선택 시각 이후 데이터는 보존됩니다.
+                </p>
+                <div x-show="selectiveDel.loading" style="text-align:center; padding:24px 0; color:var(--color-text-secondary);">
+                    불러오는 중...
+                </div>
+                <div x-show="!selectiveDel.loading && selectiveDel.entries.length === 0" style="text-align:center; padding:24px 0; color:var(--color-text-secondary);">
+                    AASX 갱신 이력이 없습니다.
+                </div>
+                <div x-show="!selectiveDel.loading && selectiveDel.entries.length > 0"
+                     style="max-height:320px; overflow-y:auto; border:1px solid var(--color-border); border-radius:8px;">
+                    <template x-for="(e, i) in selectiveDel.entries" :key="e.id">
+                        <div @click="selectiveDelChoose(e)"
+                             style="cursor:pointer; padding:10px 14px; display:flex; align-items:center; gap:10px; transition:background 0.15s;"
+                             :style="i < selectiveDel.entries.length - 1 ? 'border-bottom:1px solid var(--color-border)' : ''"
+                             @mouseenter="$el.style.background='var(--color-surface-hover, rgba(0,0,0,0.04))'"
+                             @mouseleave="$el.style.background=''">
+                            <span class="material-icons" style="color:var(--color-azure, #0078d4); flex-shrink:0;">history</span>
+                            <div style="flex:1; min-width:0;">
+                                <div style="font-weight:600; font-size:14px;" x-text="e.changedAtLocal"></div>
+                                <div class="settings-hint" style="margin:0; font-size:12px;" x-text="e.source + (e.notes ? ' · ' + e.notes : '')"></div>
+                            </div>
+                            <span class="material-icons" style="color:var(--color-text-secondary); font-size:18px; flex-shrink:0;">chevron_right</span>
+                        </div>
+                    </template>
+                </div>
+                <div style="margin-top:16px; display:flex; justify-content:flex-end;">
+                    <button class="btn btn-outlined color-default" @click="selectiveDel.show = false">닫기</button>
+                </div>
+            </div>
+        </div>
+
         <!-- 확인 모달 (showConfirm 대체) -->
         <div class="modal-overlay" x-show="confirm.show" style="display:none; z-index:3000;" @click="confirmCancel()">
             <div class="modal-content modal-confirm" @click.stop>
@@ -403,6 +451,7 @@
                 s: null, aasx: {}, loading: true, busy: false, dark: false, demoBlocked: false,
                 toast: { show: false, msg: '', type: 'success' },
                 confirm: { show: false, title: '', message: '', okText: '확인', cancelText: '취소', _resolve: null },
+                selectiveDel: { show: false, loading: false, entries: [] },
                 rt: { connected: false },
                 _conn: null, _toastTimer: null,
 
@@ -579,6 +628,47 @@
                         '전체 삭제', '취소');
                     if (!ok) return;
                     await this.runLifecycle('/api/settings/rebuild-database', true);
+                },
+
+                // ── AASX 갱신일 기준 선택 삭제 ──
+                async openSelectiveDel() {
+                    this.selectiveDel.show = true;
+                    this.selectiveDel.loading = true;
+                    this.selectiveDel.entries = [];
+                    try {
+                        const data = await this.apiGet('/api/settings/aasx-changelog');
+                        this.selectiveDel.entries = data;
+                    } catch (e) {
+                        if (e.message !== 'demo-blocked') this.showToast('이력을 불러오지 못했습니다: ' + e.message, 'error');
+                        this.selectiveDel.show = false;
+                    } finally {
+                        this.selectiveDel.loading = false;
+                    }
+                },
+                async selectiveDelChoose(entry) {
+                    this.selectiveDel.show = false;
+                    const ok = await this.askConfirm(
+                        '⚠️ 데이터 선택 삭제',
+                        `선택 시각: ${entry.changedAtLocal}\n\n` +
+                        '해당 시각 이전의 다음 데이터를 삭제합니다:\n' +
+                        '• plcTagLog (PLC 신호 시계열)\n' +
+                        '• userTagAlertLog / userTagAlertDaily (알림 이력)\n' +
+                        '• dspFlowHistory (Flow 사이클 이력)\n' +
+                        '• oeeDowntimeEvent (OEE 정지 이벤트)\n\n' +
+                        '선택 시각 이후 데이터는 보존됩니다.\n' +
+                        '계속하시겠습니까?',
+                        '삭제', '취소');
+                    if (!ok) return;
+                    if (this.busy) return;
+                    this.busy = true;
+                    try {
+                        const r = await this.apiPost('/api/settings/delete-data-before', { cutoffIso: entry.cutoffIso });
+                        this.showToast(r.message, r.success ? 'success' : 'error');
+                    } catch (e) {
+                        if (e.message !== 'demo-blocked') this.showToast('삭제 실패: ' + e.message, 'error');
+                    } finally {
+                        this.busy = false;
+                    }
                 },
 
                 // ── 확인 모달 (Promise 기반 — Blazor showConfirm 대체) ──
