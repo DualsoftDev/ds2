@@ -33,8 +33,8 @@ public partial class ApplicationSettingsDialog : Window
     /// <summary>프리셋 SystemType 매핑 결과 (배열).</summary>
     public string[] ResultPresetSystemTypes { get; private set; } = Array.Empty<string>();
 
-    /// <summary>탭 SSOT — XAML 의 TabItem 순서와 일치 (Aasx=0, Plc=1, Preset=2).</summary>
-    public enum SettingsTab { Aasx = 0, Plc = 1, Preset = 2 }
+    /// <summary>탭 SSOT — XAML 의 TabItem 순서와 일치 (General=0, Aasx=1, Plc=2, Preset=3).</summary>
+    public enum SettingsTab { General = 0, Aasx = 1, Plc = 2, Preset = 3 }
 
     /// <summary>
     /// <paramref name="initialTab"/> 으로 특정 탭을 선택해서 열 수 있음. 유효 범위 밖이면 ArgumentOutOfRangeException
@@ -215,5 +215,52 @@ public partial class ApplicationSettingsDialog : Window
         };
         if (picker.ShowDialog(this) == true)
             PlcXg5000ExePathBox.Text = picker.FileName;
+    }
+
+    /// <summary>
+    /// PR-A3 — dock 레이아웃 초기화. <c>%LOCALAPPDATA%\Promaker\dock-layout-v2.xml</c> 삭제 + 안내.
+    /// MainWindow.RestoreDockLayoutAndSyncVm 은 시작 시 한 번만 실행되므로 즉시 적용은 불가 — 재시작 후 default layout 적용.
+    /// 경로는 MainWindow.LayoutXmlPath 와 박제(SSOT). schema bump 시 양쪽 함께 갱신.
+    /// </summary>
+    private void ResetLayout_Click(object sender, RoutedEventArgs e)
+    {
+        var confirm = MessageBox.Show(
+            this,
+            "저장된 dock 레이아웃을 삭제합니다.\n다음 실행 시 기본 레이아웃으로 시작됩니다.\n\n계속하시겠습니까?",
+            "레이아웃 초기화",
+            MessageBoxButton.OKCancel,
+            MessageBoxImage.Question,
+            MessageBoxResult.Cancel);
+        if (confirm != MessageBoxResult.OK) return;
+
+        var layoutPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Promaker", "dock-layout-v2.xml");
+
+        try
+        {
+            if (File.Exists(layoutPath))
+            {
+                File.Delete(layoutPath);
+                MessageBox.Show(this,
+                    "레이아웃 파일이 삭제되었습니다.\n다음 실행 시 기본 레이아웃으로 시작됩니다.",
+                    "레이아웃 초기화 완료",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            else
+            {
+                MessageBox.Show(this,
+                    "저장된 레이아웃 파일이 없습니다.\n현재 이미 기본 레이아웃 상태입니다.",
+                    "레이아웃 초기화",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this,
+                $"레이아웃 파일 삭제에 실패했습니다.\n\n{ex.Message}",
+                "레이아웃 초기화 실패",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 }
