@@ -30,6 +30,7 @@ public sealed class AbnormalEventService
     private readonly DsProjectService _project;
     private readonly PlcToCallMapperService _tagMapper;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly AppSettingsService _appSettings;
     private readonly ILogger<AbnormalEventService> _logger;
 
     public AbnormalEventService(
@@ -38,6 +39,7 @@ public sealed class AbnormalEventService
         DsProjectService project,
         PlcToCallMapperService tagMapper,
         IServiceScopeFactory scopeFactory,
+        AppSettingsService appSettings,
         ILogger<AbnormalEventService> logger)
     {
         _hub = hub;
@@ -45,6 +47,7 @@ public sealed class AbnormalEventService
         _project = project;
         _tagMapper = tagMapper;
         _scopeFactory = scopeFactory;
+        _appSettings = appSettings;
         _logger = logger;
     }
 
@@ -54,13 +57,18 @@ public sealed class AbnormalEventService
     /// </summary>
     public void Record(AbnormalRecord rec) => _ = ProcessAsync(rec);
 
-    /// <summary>최근 이상 N건(시각 내림차순). 대시보드/사이드바 REST 조회용.</summary>
+    /// <summary>최근 이상 N건(시각 내림차순). 대시보드/사이드바 REST 조회용. AbnormalAlarm.ResetIntervalHours 기준으로 오래된 항목 제외.</summary>
     public IReadOnlyList<AbnormalEventDto> GetRecent(int max)
     {
         var n = Math.Clamp(max, 1, Capacity);
+        var hours = _appSettings.LoadSettings().AbnormalAlarm.ResetIntervalHours;
+        var cutoff = hours > 0 ? DateTime.UtcNow - TimeSpan.FromHours(hours) : (DateTime?)null;
         lock (_lock)
         {
-            return _recent
+            var query = _recent.AsEnumerable();
+            if (cutoff.HasValue)
+                query = query.Where(e => e.OccurredAtUtc >= cutoff.Value);
+            return query
                 .OrderByDescending(e => e.OccurredAtUtc)
                 .Take(n)
                 .ToList();
@@ -73,16 +81,28 @@ public sealed class AbnormalEventService
         {
             var (level, label) = Classify(rec.Kind);
 
-            // Target.CallId → (WorkName, FlowName). IDspRepository/DspRepositoryAdapter 는 싱글톤이라 안전.
-            string flow = string.Empty, work = string.Empty;
+            // Target.CallId → 모델상 (FlowName, WorkName, CallName). 경로 표시(FLOW/WORK/CALL) 용.
+            string flow = string.Empty, work = string.Empty, callName = string.Empty;
             string? sensorTag = null;
             if (FsGuid(rec.Target.CallId) is Guid callId)
             {
-                var info = await _repo.GetCallInfoAsync(callId);
-                if (info.HasValue)
+                // AASX 프로젝트 모델에서 실제 이름 해석 (dspCall.WorkName 은 flow 명으로 채워지는 quirk 회피).
+                var path = _project.IsLoaded ? _project.GetCallPath(callId) : null;
+                if (path.HasValue)
                 {
-                    work = info.Value.WorkName ?? string.Empty;
-                    flow = info.Value.FlowName ?? string.Empty;
+                    flow = path.Value.FlowName ?? string.Empty;
+                    work = path.Value.WorkName ?? string.Empty;
+                    callName = path.Value.CallName ?? string.Empty;
+                }
+                else
+                {
+                    // 폴백: dspCall 조회(FlowName 만이라도). IDspRepository/DspRepositoryAdapter 는 싱글톤이라 안전.
+                    var info = await _repo.GetCallInfoAsync(callId);
+                    if (info.HasValue)
+                    {
+                        work = info.Value.WorkName ?? string.Empty;
+                        flow = info.Value.FlowName ?? string.Empty;
+                    }
                 }
                 // Sensor* 에만: 이상을 트리거한 실제 InTag PLC 주소 해석
                 if (rec.Kind is AbnormalKind.SensorShort or AbnormalKind.SensorOpen)
@@ -104,7 +124,8 @@ public sealed class AbnormalEventService
                 Observed: FsBool(rec.Observed),
                 OccurredAtUtc: rec.TimestampUtc,
                 OccurredAtLocal: rec.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
-                SensorTag: sensorTag);
+                SensorTag: sensorTag,
+                CallName: callName);
 
             lock (_lock)
             {
@@ -130,14 +151,13 @@ public sealed class AbnormalEventService
     }
 
     // v12 §1 Kind → (DSPilot Level, 한글 라벨). 코어는 정책 독립(AbnormalSeverity/Response 는 P7) 이라
-    // DSPilot 적용본을 여기서 정한다: Sensor*=알람 / Action*=정지 후보 매핑을 참고해
-    // 단선·지연을 Error, 오감지·과속을 Warning 으로(추후 설정화 가능).
+    // DSPilot 적용본을 여기서 정한다: 이상감지 4종 모두 Error 로 취급(운영 정책 — 오감지·과속도 즉시 조치 대상).
     private static (string Level, string Label) Classify(AbnormalKind kind) => kind switch
     {
-        AbnormalKind.SensorOpen  => ("Error",   "센서 단선/이탈"),
-        AbnormalKind.SensorShort => ("Warning", "센서 오감지"),
-        AbnormalKind.ActionOver  => ("Error",   "동작 지연(시간 초과)"),
-        AbnormalKind.ActionUnder => ("Warning", "동작 과속(시간 미만)"),
+        AbnormalKind.SensorOpen  => ("Error", "센서 단선/이탈"),
+        AbnormalKind.SensorShort => ("Error", "센서 오감지"),
+        AbnormalKind.ActionOver  => ("Error", "동작 지연(시간 초과)"),
+        AbnormalKind.ActionUnder => ("Error", "동작 과속(시간 미만)"),
         _ => ("Warning", "이상"),
     };
 
@@ -189,7 +209,7 @@ public sealed class AbnormalEventService
     /// /uptime · /oee 의 /api/user-tags/snapshot 조회 + 배지 anomalyActiveCount 에 자동 포함.
     /// 필드 매핑:
     ///   Name      = 한글 라벨 (검색/표시 기준)
-    ///   TagAddress = FlowName (발생 위치)
+    ///   TagAddress = 경로 "WORK / CALL" (발생 위치 — Work 가 flow.worklocal 형태라 Flow 생략, 미해석 세그먼트 생략)
     ///   ValueType  = "Abnormal" (UserTag 구분자)
     ///   MatchOp    = "AbnormalDetect"
     ///   MatchValue = KindName (SensorOpen 등 종류 식별)
@@ -211,7 +231,7 @@ public sealed class AbnormalEventService
                 SystemName: string.IsNullOrEmpty(dto.SystemName) ? dto.FlowName : dto.SystemName,
                 Name: dto.Label,
                 LogLevel: dto.Level,
-                TagAddress: dto.FlowName,
+                TagAddress: BuildPath(dto.WorkName, dto.CallName),
                 ValueType: "Abnormal",
                 MatchOp: "AbnormalDetect",
                 MatchValue: dto.KindName,
@@ -241,6 +261,20 @@ public sealed class AbnormalEventService
         }
         catch { /* 비핵심 — 실패 시 빈값 반환 */ }
         return (Guid.Empty, string.Empty);
+    }
+
+    /// <summary>경로 "FLOW / WORK / CALL" 구성 — 빈 세그먼트·직전과 동일한 세그먼트(예 Work==Flow)는 생략.</summary>
+    private static string BuildPath(params string?[] segments)
+    {
+        var parts = new List<string>();
+        foreach (var s in segments)
+        {
+            if (string.IsNullOrWhiteSpace(s)) continue;
+            var v = s.Trim();
+            if (parts.Count > 0 && string.Equals(parts[^1], v, StringComparison.Ordinal)) continue;
+            parts.Add(v);
+        }
+        return string.Join(" / ", parts);
     }
 
     private static Guid? FsGuid(FSharpOption<Guid> o) => FSharpOption<Guid>.get_IsSome(o) ? o.Value : null;

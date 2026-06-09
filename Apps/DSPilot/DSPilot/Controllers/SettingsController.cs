@@ -97,6 +97,8 @@ public class SettingsController : ControllerBase
             m.HistoryView.MaxCallGoingTimeMs = req.MaxCallGoingTimeMs;
             m.HistoryView.MinCallGoingTimeMs = req.MinCallGoingTimeMs;
             m.HistoryView.CycleAverageWindow = req.CycleAverageWindow;
+            m.Ui.AlarmMarqueeSpeedPxPerSec = Math.Clamp(req.AlarmMarqueeSpeedPxPerSec, 20, 2000);
+            m.AbnormalAlarm.ResetIntervalHours = Math.Max(0, req.AbnormalAlarmResetIntervalHours);
 
             // CCTV(RTSP) 카메라 설정은 CCTV 페이지(CctvController.SaveSettings)가 소유 — 여기서는 건드리지 않는다.
             // (Settings 저장이 카메라 목록을 덮어써 오버레이/카메라가 유실되는 것을 방지.)
@@ -189,6 +191,38 @@ public class SettingsController : ControllerBase
         }
     }
 
+    // ── POST: 앱 설정 전체를 코드 기본값으로 초기화 (구버전 stale 설정 복구용 escape hatch) ──
+    // 업그레이드 시 appsettings.Production.json(사용자 설정)을 보존하므로, 구버전 설정이 문제를 일으키면
+    // 사용자가 이 버튼으로 깨끗한 기본값으로 되돌린다. CCTV 카메라/이상치/시프트/OEE 등 모든 설정이 초기화된다.
+    // PLC 원시 데이터(plc.db)는 건드리지 않는다. DB 경로/포트 등 호스트 바인딩은 서비스 재시작 후 적용.
+    [HttpPost("reset-defaults")]
+    public async Task<ActionResult<RebuildResultDto>> ResetDefaults(CancellationToken ct)
+    {
+        try
+        {
+            _settings.ResetToDefaults();
+
+            // 새 임계값(기본값) 소급 적용 — 대시보드/히스토리 즉시 반영 (Save 와 동일 경로).
+            var (restamped, flows) = await _flowMetrics.ReapplyIdleThresholdsAsync();
+
+            // 카메라 목록이 비워졌으므로 MediaMTX 경로도 즉시 해제(실패해도 초기화 자체는 성공).
+            try { await _cctvSync.SyncAsync(ct); }
+            catch (Exception ex) { _logger.LogDebug(ex, "[Settings] CCTV resync after reset failed (non-critical)"); }
+
+            try { await _hub.Clients.All.SendAsync("DatabaseRebuilt", ct); }
+            catch (Exception ex) { _logger.LogDebug(ex, "[Settings] SignalR broadcast failed (non-critical)"); }
+
+            return new RebuildResultDto(true,
+                $"모든 설정을 기본값으로 초기화했습니다 (히스토리 {restamped}건 재평가, Flow {flows}개). " +
+                "DB 경로·포트 등 호스트 설정은 서비스 재시작 후 적용됩니다.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Settings] ResetDefaults failed");
+            return new RebuildResultDto(false, $"초기화 실패: {ex.Message}");
+        }
+    }
+
     // ── helpers ──
 
     private ActionResult<RebuildResultDto> Result(RebuildResult r)
@@ -211,7 +245,9 @@ public class SettingsController : ControllerBase
                 _cctvSync.LastSyncOk,
                 _cctvSync.LastSyncMessage),
             _project.AasxFilePath,
-            BuildAasxStatus());
+            BuildAasxStatus(),
+            m.Ui.AlarmMarqueeSpeedPxPerSec,
+            m.AbnormalAlarm.ResetIntervalHours);
     }
 
     // Settings.razor RefreshAasxStatus + SyncBadgeText/SyncBadgeColor.
@@ -316,7 +352,9 @@ public record SettingsDto(
     HistoryViewDto HistoryView,
     CctvDto Cctv,
     string AasxFilePath,
-    AasxStatusDto AasxStatus);
+    AasxStatusDto AasxStatus,
+    int AlarmMarqueeSpeedPxPerSec = 250,
+    int AbnormalAlarmResetIntervalHours = 24);
 
 public record HistoryViewDto(
     int MaxCycleTimeMs,
@@ -354,7 +392,9 @@ public record SaveRequestDto(
     int MinCycleTimeMs,
     int MaxCallGoingTimeMs,
     int MinCallGoingTimeMs,
-    int CycleAverageWindow = 20);
+    int CycleAverageWindow = 20,
+    int AlarmMarqueeSpeedPxPerSec = 250,
+    int AbnormalAlarmResetIntervalHours = 24);
 
 public record SaveResultDto(bool Ok, string Message);
 

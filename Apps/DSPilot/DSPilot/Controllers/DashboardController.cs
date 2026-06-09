@@ -25,6 +25,7 @@ public class DashboardController : ControllerBase
     private readonly DspRepositoryAdapter _dspRepository;
     private readonly AppSettingsService _settings;
     private readonly IFlowMetricsService _flowMetrics;
+    private readonly CycleAnalysisService _cycleAnalysis;
     private readonly IHubContext<MonitoringHub> _hub;
     private readonly AbnormalEventService _abnormal;
     private readonly ILogger<DashboardController> _logger;
@@ -35,6 +36,7 @@ public class DashboardController : ControllerBase
         DspRepositoryAdapter dspRepository,
         AppSettingsService settings,
         IFlowMetricsService flowMetrics,
+        CycleAnalysisService cycleAnalysis,
         IHubContext<MonitoringHub> hub,
         AbnormalEventService abnormal,
         ILogger<DashboardController> logger)
@@ -44,6 +46,7 @@ public class DashboardController : ControllerBase
         _dspRepository = dspRepository;
         _settings = settings;
         _flowMetrics = flowMetrics;
+        _cycleAnalysis = cycleAnalysis;
         _hub = hub;
         _abnormal = abnormal;
         _logger = logger;
@@ -72,7 +75,8 @@ public class DashboardController : ControllerBase
                 .Select(o => new FlowOrderDto(o.FlowName))
                 .ToList());
 
-        return new DashboardSnapshotDto(flows, layoutDto, _db.HasData, snap.Timestamp);
+        return new DashboardSnapshotDto(flows, layoutDto, _db.HasData, snap.Timestamp,
+            _settings.LoadSettings().Ui.AlarmMarqueeSpeedPxPerSec);
     }
 
     /// <summary>
@@ -128,8 +132,20 @@ public class DashboardController : ControllerBase
     }
 
     /// <summary>
+    /// 시프트 생산목표 Work 드롭다운(Flow→Work) 용 — 한 Flow 의 Work 이름 목록(정의 순서).
+    /// </summary>
+    [HttpGet("flows/{flowName}/works")]
+    public ActionResult<List<string>> GetFlowWorks(string flowName)
+    {
+        if (string.IsNullOrWhiteSpace(flowName))
+            return new List<string>();
+        return _cycleAnalysis.GetWorkNamesForFlow(flowName);
+    }
+
+    /// <summary>
     /// 시프트 운영 설정 + 실시간 진행. 여러 작업자 화면이 공유하도록 서버(appsettings) 에 보관.
-    /// MadeCount = TargetFlow 의 현재 시프트 시작 이후 완료(비가동 제외) 사이클 수.
+    /// MadeCount = 현재 시프트 시작 이후 만든 수 — TargetWork 설정 시 그 Work 의 완료(InTag↑) 횟수,
+    /// 미설정 시 TargetFlow 의 완료(비가동 제외) 사이클 수(구버전 폴백).
     /// </summary>
     [HttpGet("shift")]
     public async Task<ActionResult<ShiftDto>> GetShift()
@@ -139,10 +155,20 @@ public class DashboardController : ControllerBase
         if (!string.IsNullOrWhiteSpace(s.TargetFlow))
         {
             var startUtc = ResolveShiftStartUtc(s.Start, s.End);
-            var hist = await _dspRepository.GetFlowHistoryByStartTimeAsync(s.TargetFlow, startUtc);
-            made = hist.Count(h => !h.IsIdle);
+            if (!string.IsNullOrWhiteSpace(s.TargetWork))
+            {
+                // Work 단위 — 완료(InTag↑) rising edge 수. (윈도 끝 = 지금까지)
+                made = await _cycleAnalysis.CountWorkCompletionsAsync(
+                    s.TargetFlow, s.TargetWork, startUtc, DateTime.UtcNow);
+            }
+            else
+            {
+                // 폴백: Flow 사이클 수(비가동 제외).
+                var hist = await _dspRepository.GetFlowHistoryByStartTimeAsync(s.TargetFlow, startUtc);
+                made = hist.Count(h => !h.IsIdle);
+            }
         }
-        return new ShiftDto(s.Start, s.End, s.ShiftType, s.TargetFlow, s.TargetCount, made);
+        return new ShiftDto(s.Start, s.End, s.ShiftType, s.TargetFlow, s.TargetWork, s.TargetCount, made);
     }
 
     /// <summary>시프트 설정 저장 후 ShiftChanged 브로드캐스트(다른 작업자 화면 동기화). 저장 직후의 진행값을 반환.</summary>
@@ -155,6 +181,10 @@ public class DashboardController : ControllerBase
         sh.End = NormalizeTime(req.End, sh.End);
         sh.ShiftType = string.IsNullOrWhiteSpace(req.ShiftType) ? sh.ShiftType : req.ShiftType.Trim();
         sh.TargetFlow = string.IsNullOrWhiteSpace(req.TargetFlow) ? null : req.TargetFlow.Trim();
+        // Flow 가 비면 Work 도 무의미하므로 함께 비운다.
+        sh.TargetWork = string.IsNullOrWhiteSpace(req.TargetWork) || sh.TargetFlow is null
+            ? null
+            : req.TargetWork.Trim();
         sh.TargetCount = req.TargetCount < 0 ? 0 : req.TargetCount;
         _settings.SaveSettings(model);
 
