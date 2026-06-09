@@ -5,7 +5,7 @@
         Title="수동 컨트롤러"
         Width="780"
         Height="640"
-        ResizeMode="CanResize"
+        ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
         WindowStyle="None"
@@ -69,18 +69,24 @@
                     Padding="24,14"
                     MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
                 <Grid>
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                         <Ellipse Width="10" Height="10" Fill="#fbbf24" Margin="0,0,10,0"/>
                         <TextBlock Text="🔴 수동 운전 중 — 실 PLC 라인이 사용자 명령에 따라 동작합니다"
                                    Foreground="White"
                                    FontSize="14" FontWeight="SemiBold"
+                                   TextTrimming="CharacterEllipsis"
                                    VerticalAlignment="Center"/>
                     </StackPanel>
-                    <Button Content="✕" Click="Close_Click"
-                            HorizontalAlignment="Right"
+                    <Button Grid.Column="1" Content="✕" Click="Close_Click"
+                            HorizontalAlignment="Right" VerticalAlignment="Center"
                             Background="Transparent" Foreground="White"
-                            BorderThickness="0"
-                            Width="30" Height="30" FontSize="15"
+                            BorderThickness="0" Padding="0"
+                            Width="32" Height="32" FontSize="16"
+                            Margin="12,0,0,0"
                             Cursor="Hand" ToolTip="닫기 (수동 운전 종료)"/>
                 </Grid>
             </Border>
