@@ -55,9 +55,11 @@
         .dsp-toast.info { border-left-color: var(--color-info); }
 
         /* ── Settings 레이아웃 ── */
-        .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-        @media (max-width: 900px) { .settings-grid { grid-template-columns: 1fr; } }
-        .settings-col { display: flex; flex-direction: column; gap: 16px; }
+        /* minmax(0,1fr): 트랙 최소를 0 으로 고정 → 내부 nowrap 콘텐츠(.fa-demo-msg 등)가
+           1fr(=minmax(auto,1fr)) 트랙을 부풀려 우측 열이 폭주(가로 스크롤)하던 문제 방지. min-width:0 은 보강. */
+        .settings-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+        @media (max-width: 900px) { .settings-grid { grid-template-columns: minmax(0, 1fr); } }
+        .settings-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
         .settings-actions { display: flex; justify-content: flex-end; gap: 12px; margin-bottom: 16px; }
         .settings-note { padding: 10px 12px; margin-bottom: 12px; background: var(--color-surface-variant); border: 1px solid var(--color-lines); border-left: 3px solid var(--color-primary); border-radius: var(--radius-sm); }
         .settings-note small { color: var(--color-text-secondary); line-height: 1.55; }
@@ -79,6 +81,18 @@
         .modal-confirm h3 { margin: 0 0 12px; font-size: 1.05rem; font-weight: 700; color: var(--color-text-primary); }
         .modal-confirm .msg { white-space: pre-line; color: var(--color-text-secondary); line-height: 1.6; font-size: 0.85rem; max-height: 50vh; overflow-y: auto; }
         .modal-confirm .actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+
+        /* ── 이상 알람 배너 데모 미리보기 — 실제 .flow-alarm 룩 축소판, 설정 px/s 로 실시간 흐름 ── */
+        .fa-demo-cap { display: block; margin-bottom: 8px; font-size: 0.72rem; color: var(--color-text-secondary); }
+        .fa-demo { display: flex; align-items: center; padding: 10px 14px; margin-bottom: 12px; overflow: hidden; border-radius: var(--radius-sm); background: #facc15; box-shadow: 0 1px 2px 0 rgba(0,0,0,0.08); }
+        .fa-demo-icon { display: flex; align-items: center; flex-shrink: 0; margin-right: 10px; padding-right: 8px; z-index: 2; background: #facc15; }
+        .fa-demo-icon svg { width: 22px; height: 22px; color: #000; }
+        .fa-demo-track { flex: 1; min-width: 0; overflow: hidden; height: 28px; display: flex; align-items: center; }
+        .fa-demo-msg { display: block; width: 100%; font-size: 1.15rem; font-weight: 700; color: #dc2626; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; will-change: transform; }
+        .fa-demo-msg-anim { animation: fa-demo-flip 0.5s cubic-bezier(0.16, 1, 0.3, 1); }
+        @keyframes fa-demo-flip { 0% { transform: translateY(108%); opacity: 0; } 60% { opacity: 1; } 100% { transform: translateY(0); opacity: 1; } }
+        @media (prefers-reduced-motion: reduce) { .fa-demo-msg-anim { animation: none; } }
+        .fa-demo-idx { flex-shrink: 0; margin-left: 10px; font-size: 0.78rem; font-weight: 800; color: #000; background: rgba(0,0,0,0.14); border: 1px solid rgba(0,0,0,0.1); border-radius: 9999px; padding: 2px 9px; font-variant-numeric: tabular-nums; white-space: nowrap; }
     </style>
 </head>
 
@@ -293,6 +307,25 @@
                                     </small>
                                 </div>
                             </div>
+
+                            <!-- 설정 초기화 -->
+                            <div class="card">
+                                <div class="card-header">
+                                    <span class="material-icons">restart_alt</span>
+                                    <span>설정 초기화</span>
+                                </div>
+                                <div class="card-content">
+                                    <button class="btn btn-outlined color-error w-100" @click="resetSettings()" :disabled="busy">
+                                        <span class="material-icons">restart_alt</span> 모든 설정 기본값으로 초기화
+                                    </button>
+                                    <small class="settings-hint">
+                                        이상치 필터·대시보드 윈도우·시프트·OEE 신호·CCTV 카메라·DB 경로·로그 수준 등
+                                        <strong>모든 설정값</strong>을 기본값으로 되돌립니다. PLC 데이터(plc.db)는 삭제되지 않습니다.
+                                        업그레이드 시 이전 설정이 보존되므로, 구버전에서 넘어온 설정이 문제를 일으킬 때만 사용하세요.
+                                        DB 경로·포트 등 일부 항목은 <strong>서비스 재시작 후</strong> 적용됩니다.
+                                    </small>
+                                </div>
+                            </div>
                         </div>
 
                         <!-- 오른쪽 열 -->
@@ -359,6 +392,42 @@
                                         <label class="form-label">최소 실행시간 (ms, 미달 시 제외)</label>
                                         <input type="number" class="form-field mono" x-model.number="s.historyView.minCallGoingTimeMs" min="0" max="600000" placeholder="0" />
                                         <small class="settings-hint">오감지·노이즈로 인한 짧은 동작 제외용. 0이면 비활성.</small>
+                                    </div>
+
+                                    <hr class="divider" style="margin:16px 0;" />
+                                    <h6 class="set-subhead">
+                                        <span class="material-icons">speed</span>
+                                        이상 알람 배너
+                                    </h6>
+                                    <small class="fa-demo-cap">미리보기 — 아래 속도값으로 실제 배너처럼 한 건씩 전환됩니다 (값을 바꾸면 즉시 반영).</small>
+                                    <div class="fa-demo" aria-hidden="true">
+                                        <div class="fa-demo-icon">
+                                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+                                        </div>
+                                        <div class="fa-demo-track">
+                                            <template x-for="m in [demoCurrent]" :key="demoIndex">
+                                                <span class="fa-demo-msg fa-demo-msg-anim" x-text="m"></span>
+                                            </template>
+                                        </div>
+                                        <span class="fa-demo-idx"><b x-text="demoIndex + 1"></b> / <span x-text="demoMsgs.length"></span></span>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">텍스트 전환 간격 (초)</label>
+                                        <input type="number" class="form-field mono" x-model.number="s.alarmTickerIntervalSec" min="1" max="30" step="1" placeholder="3" />
+                                        <small class="settings-hint">대시보드·전체화면 이상 알람 배너에서 한 건이 머무는 시간(초). 작을수록 빠르게 다음 건으로 넘어감. 기본 3초.</small>
+                                    </div>
+                                    <div class="form-group" style="margin-bottom:0;">
+                                        <label class="form-label">알람 표시 유효 시간</label>
+                                        <select class="form-select" x-model.number="s.abnormalAlarmResetIntervalHours">
+                                            <option value="1">1시간</option>
+                                            <option value="4">4시간</option>
+                                            <option value="8">8시간</option>
+                                            <option value="12">12시간</option>
+                                            <option value="24">24시간 (기본 — 하루)</option>
+                                            <option value="48">48시간</option>
+                                            <option value="0">제한 없음</option>
+                                        </select>
+                                        <small class="settings-hint">이 시간보다 오래된 알람은 배너에서 자동으로 제외됩니다.</small>
                                     </div>
                                 </div>
                             </div>
@@ -460,9 +529,10 @@
                     window.addEventListener('storage', (e) => { if (e.key === 'dspilot-theme') this.dark = e.newValue === 'dark'; });
                     await this.load();
                     this.connectSignalR();
+                    this.demoStartTicker();
                 },
 
-                destroy() { this._conn?.stop(); },
+                destroy() { this._conn?.stop(); clearTimeout(this._demoTimer); },
 
                 // 테마 변경: .dsp-page(Alpine) + <html> + 셸 레이아웃 + 다른 탭까지 모두 반영.
                 // shell.js 는 storage 이벤트를 듣고 layout/<html> 에 dark-theme 를 토글한다.
@@ -519,6 +589,27 @@
                     a.remove();
                 },
 
+                // ── 이상 알람 배너 데모 미리보기 ── 설정 속도값으로 샘플 메시지를 실제 배너처럼 한 건씩 세로 티커 전환(값 변경 즉시 반영) ──
+                demoMsgs: [
+                    '투입.투입 / Conveyor1.MOVE: 동작 지연(시간 초과) (ActionOver)',
+                    '검사.검사 / Inspector2.CHECK: 센서 단선/이탈 (SensorOpen)',
+                    '이송.이송 / Transfer1.MOVE: 동작 과속(시간 미만) (ActionUnder)'
+                ],
+                demoIndex: 0, _demoTimer: null,
+                get demoCurrent() { return this.demoMsgs[this.demoIndex % this.demoMsgs.length]; },
+                // 대시보드와 동일: 전환 간격(초) → ms. 1~30초 클램프. 기본 3초.
+                get demoDwellMs() {
+                    return Math.max(1000, Math.min(30000, Math.round((this.s?.alarmTickerIntervalSec || 3) * 1000)));
+                },
+                demoStartTicker() {
+                    clearTimeout(this._demoTimer);
+                    const tick = () => {
+                        this.demoIndex = (this.demoIndex + 1) % this.demoMsgs.length;
+                        this._demoTimer = setTimeout(tick, this.demoDwellMs);
+                    };
+                    this._demoTimer = setTimeout(tick, this.demoDwellMs);
+                },
+
                 // ── H/M/S ↔ ms (Settings.razor 의 MaxCycle*/MinCycle* getter/setter 와 동일) ──
                 get maxCycleHours() { return Math.floor((this.s?.historyView.maxCycleTimeMs || 0) / 3600000); },
                 get maxCycleMinutes() { return Math.floor((this.s?.historyView.maxCycleTimeMs || 0) % 3600000 / 60000); },
@@ -552,7 +643,9 @@
                             minCycleTimeMs: hv.minCycleTimeMs | 0,
                             maxCallGoingTimeMs: hv.maxCallGoingTimeMs | 0,
                             minCallGoingTimeMs: hv.minCallGoingTimeMs | 0,
-                            cycleAverageWindow: (hv.cycleAverageWindow ?? 20) | 0
+                            cycleAverageWindow: (hv.cycleAverageWindow ?? 20) | 0,
+                            alarmTickerIntervalSec: (this.s.alarmTickerIntervalSec ?? 3) | 0,
+                            abnormalAlarmResetIntervalHours: (this.s.abnormalAlarmResetIntervalHours ?? 24) | 0
                         };
                         const r = await this.apiPost('/api/settings/save', body);
                         this.showToast(r.message, r.ok ? 'success' : 'error');
@@ -628,6 +721,20 @@
                         '전체 삭제', '취소');
                     if (!ok) return;
                     await this.runLifecycle('/api/settings/rebuild-database', true);
+                },
+                async resetSettings() {
+                    // appsettings 설정값을 코드 기본값으로 — 구버전 stale 설정 복구용. PLC 데이터는 보존.
+                    const ok = await this.askConfirm('모든 설정 기본값으로 초기화',
+                        '이상치 필터·대시보드 윈도우·시프트·OEE 신호·CCTV 카메라·DB 경로·로그 수준 등 모든 설정값을 기본값으로 되돌립니다.\n\n' +
+                        '• PLC 원시 데이터(plcTagLog 등)는 삭제되지 않습니다\n' +
+                        '• CCTV 카메라 목록이 비워집니다\n' +
+                        '• DB 경로·포트 등 호스트 설정은 서비스 재시작 후 적용\n\n' +
+                        '업그레이드 시 이전 설정이 보존되므로, 구버전 설정이 문제를 일으킬 때만 사용하세요.',
+                        '초기화', '취소');
+                    if (!ok) return;
+                    await this.runLifecycle('/api/settings/reset-defaults', false);
+                    // 초기화된 값으로 폼 갱신
+                    await this.load();
                 },
 
                 // ── AASX 갱신일 기준 선택 삭제 ──

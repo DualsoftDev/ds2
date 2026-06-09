@@ -23,6 +23,12 @@ AppSettingsService.EnsureSettingsFiles(Environment.CurrentDirectory);
 var builder = WebApplication.CreateBuilder(args);
 builder.Host.UseWindowsService();
 
+// 호스트 전용 설정(설치 스크립트가 기록하는 바인딩 포트 "Urls" 등)을 사용자 설정 저장소와 분리.
+// appsettings.Production.json 은 AppSettingsService 의 사용자 설정 영속 저장소이므로 재설치(업그레이드) 시
+// 보존되어야 한다 → 설치 스크립트는 더 이상 Production.json 에 포트를 쓰지 않고 이 파일에만 쓴다.
+// 마지막에 추가하므로 Production.json 의 (구버전) Urls 보다 우선한다. optional: 개발/직접 실행 시 없어도 무방.
+builder.Configuration.AddJsonFile("appsettings.Hosting.json", optional: true, reloadOnChange: false);
+
 // 진단 모드 체크
 if (args.Contains("--diagnose"))
 {

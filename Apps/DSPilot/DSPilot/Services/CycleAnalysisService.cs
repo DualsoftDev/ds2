@@ -75,6 +75,65 @@ public class CycleAnalysisService
     }
 
     /// <summary>
+    /// Flow 내 Work 이름 목록 (정의 순서, 중복 제거). 시프트 생산목표의 Work 드롭다운(Flow→Work) 용.
+    /// </summary>
+    public List<string> GetWorkNamesForFlow(string flowName)
+    {
+        var flow = GetFlowByName(flowName);
+        if (flow == null) return new();
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var result = new List<string>();
+        foreach (var work in _projectService.GetWorks(flow.Id))
+        {
+            if (!string.IsNullOrEmpty(work.Name) && seen.Add(work.Name))
+                result.Add(work.Name);
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// 한 Work 의 "완료" 신호 rising edge 수를 [<paramref name="startUtc"/>, <paramref name="endUtc"/>] 구간에서 센다.
+    /// 시프트 생산목표(만든 수)의 Work 단위 집계용. 완료 = InTag↑ 정본(엔진 규약, <see cref="PlcToCallMapperService"/> 참조).
+    /// 대표 신호 = Work 의 마지막(작업을 끝내는) Call 의 InTag, InTag 없으면 그 Call 의 OutTag.
+    /// 시각은 UTC(<paramref name="startUtc"/>/<paramref name="endUtc"/>) — plcTagLog 비교 포맷(ToSqliteUtcString)과 일치.
+    /// </summary>
+    public async Task<int> CountWorkCompletionsAsync(
+        string flowName, string workName, DateTime startUtc, DateTime endUtc)
+    {
+        var tag = ResolveWorkCompletionTag(flowName, workName);
+        if (string.IsNullOrEmpty(tag)) return 0;
+
+        var edges = await _plcRepository.FindRisingEdgesAsync(tag, startUtc, endUtc);
+        return edges.Count;
+    }
+
+    /// <summary>Work 의 완료 신호 주소(마지막 Call 의 InTag, 없으면 OutTag). 매핑 부재 시 null.</summary>
+    private string? ResolveWorkCompletionTag(string flowName, string workName)
+    {
+        var flow = GetFlowByName(flowName);
+        if (flow == null) return null;
+
+        var work = _projectService.GetWorks(flow.Id).FirstOrDefault(w => w.Name == workName);
+        if (work == null) return null;
+
+        var calls = _projectService.GetCalls(work.Id);
+        if (calls.Count == 0) return null;
+
+        // 완료 = InTag↑. 마지막 Call 부터 거슬러 올라가며 InTag 보유 Call 을 우선 채택.
+        for (int i = calls.Count - 1; i >= 0; i--)
+        {
+            var tags = _mapperService.GetCallTagsByCallId(calls[i].Id);
+            if (tags.HasValue && !string.IsNullOrEmpty(tags.Value.InTag))
+                return tags.Value.InTag;
+        }
+
+        // InTag 가 전혀 없는(OutOnly) Work 면 마지막 Call 의 OutTag 로 폴백.
+        var last = _mapperService.GetCallTagsByCallId(calls[^1].Id);
+        return last?.OutTag;
+    }
+
+    /// <summary>
     /// 시간 범위 내 사이클 경계(rising edge) 시각 목록 조회 (경량).
     /// Gantt 차트에서 비가동 사이클 구간 표시용.
     /// </summary>

@@ -16,6 +16,22 @@ public class AppSettingsModel
     public OeeSignalSettings OeeSignals { get; set; } = new();
     public ShiftSettings Shift { get; set; } = new();
     public CycleExclusionSettings CycleExclusion { get; set; } = new();
+    public AbnormalAlarmSettings AbnormalAlarm { get; set; } = new();
+}
+
+/// <summary>
+/// 대시보드 이상감지 알람 배너 동작 설정.
+/// </summary>
+public class AbnormalAlarmSettings
+{
+    /// <summary>
+    /// 알람 표시 유효 시간(시간). 이 시간보다 오래된 항목은 배너에서 제외.
+    /// 0이면 비활성(전체 표시). 기본 24시간(하루).
+    /// </summary>
+    public int ResetIntervalHours { get; set; } = 24;
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }
 
 /// <summary>
@@ -49,7 +65,8 @@ public class FlowCycleExclusion
 /// <summary>
 /// 작업자 시프트 운영 설정 (대시보드 "시프트 목표" 카드). 여러 작업자 화면이 같은 시프트를 보도록 서버에서 공유.
 /// Start/End 는 로컬 벽시계 "HH:mm". End ≤ Start 이면 자정을 넘기는 야간 시프트로 해석.
-/// 생산 목표는 (우선) 특정 Flow 1개 + 목표 카운트 — "만든 수" = 그 Flow 의 시프트 시작 이후 완료(비가동 제외) 사이클 수.
+/// 생산 목표는 특정 Flow 1개 + 그 안의 Work 1개 + 목표 카운트 — "만든 수" = 그 Work 의 시프트 시작 이후
+/// 완료(완료 신호 InTag↑ rising edge) 횟수. (<see cref="TargetWork"/> 미설정 시엔 Flow 사이클 수로 폴백 — 구버전 호환.)
 /// </summary>
 public class ShiftSettings
 {
@@ -62,8 +79,14 @@ public class ShiftSettings
     /// <summary>시프트 종류 라벨: morning | afternoon | night (프리셋 선택 표식, 집계와 무관).</summary>
     public string ShiftType { get; set; } = "morning";
 
-    /// <summary>생산 목표를 집계할 대상 Flow 명 (우선 단일 Flow). null/빈값이면 목표 미설정.</summary>
+    /// <summary>생산 목표를 집계할 대상 Flow 명 (Work 가 속한 Flow). null/빈값이면 목표 미설정.</summary>
     public string? TargetFlow { get; set; }
+
+    /// <summary>
+    /// 생산 목표를 집계할 대상 Work 명 (<see cref="TargetFlow"/> 안의 단일 Work). 설정 시 "만든 수" 는 이 Work 의
+    /// 완료(InTag↑) 횟수. null/빈값이면 Flow 사이클 수로 폴백(구버전 호환).
+    /// </summary>
+    public string? TargetWork { get; set; }
 
     /// <summary>시프트 동안 만들어야 할 목표 개수.</summary>
     public int TargetCount { get; set; } = 0;
@@ -277,6 +300,13 @@ public class LogLevelSettings
 public class UiSettings
 {
     public bool ShowPlcDebug { get; set; } = false;
+
+    /// <summary>
+    /// 대시보드 경로이탈 이상감지 알람 배너의 세로 티커 전환 간격(초). 한 건이 머무는 시간 — 작을수록 빠르게 넘어간다. 기본 3초.
+    /// 여러 작업자 화면이 같은 속도를 보도록 서버(appsettings)에 보관 — 설정 페이지에서 변경,
+    /// 저장 시 DatabaseRebuilt 브로드캐스트로 대시보드가 스냅샷을 재조회해 즉시 반영한다.
+    /// </summary>
+    public int AlarmTickerIntervalSec { get; set; } = 3;
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }

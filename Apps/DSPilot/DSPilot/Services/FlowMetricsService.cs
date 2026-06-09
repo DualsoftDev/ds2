@@ -298,45 +298,29 @@ public class FlowMetricsService : IFlowMetricsService
             // Head Call이 Going 시작한 경우
             if (state.HeadCallName == callName)
             {
-                // 단일 Call Flow의 경우: 바로 이전 Finish 시간과 비교하여 WT 계산
-                if (state.IsSingleCallFlow)
+                // 래치 필드(PreviousCycleFinish)는 워치독/교차검증과 공유 — 락으로 캡처.
+                DateTime? prevFinish;
+                lock (state.LatchLock) { prevFinish = state.PreviousCycleFinish; }
+
+                // 이전 사이클이 완료되었고 MT가 계산된 경우 WT/CT 계산 및 DB 업데이트.
+                // (단일/다중 Call Flow 공통 — 기존 로직과 동일. 락 밖에서 수행: 설정 디스크 읽기/누산기 갱신 포함.)
+                if (prevFinish.HasValue && state.CurrentMT.HasValue)
                 {
-                    if (state.PreviousCycleFinish.HasValue && state.CurrentMT.HasValue)
-                    {
-                        var prevMT = state.CurrentMT.Value;
-                        var wt = (int)(timestamp - state.PreviousCycleFinish.Value).TotalMilliseconds;
-                        var ct = prevMT + wt;
+                    var prevMT = state.CurrentMT.Value;
+                    var wt = (int)(timestamp - prevFinish.Value).TotalMilliseconds;
+                    var ct = prevMT + wt;
 
-                        state.CurrentWT = wt;
-                        state.CurrentCT = ct;
+                    state.CurrentWT = wt;
+                    state.CurrentCT = ct;
 
-                        // 평균 계산 및 DB 갱신
-                        _ = UpdateFlowMetricsWithAveragesAsync(state, flowName, prevMT, wt, ct);
-                    }
-
-                    // 새 사이클 시작
-                    state.CurrentCycleStart = timestamp;
-                    state.IsCycleActive = true;
+                    // 평균 계산 및 DB 갱신
+                    _ = UpdateFlowMetricsWithAveragesAsync(state, flowName, prevMT, wt, ct);
                 }
-                else
+
+                // 사이클 시작: 단일 Call Flow 는 항상, 다중 Call Flow 는 진행 중 사이클이 없을 때만(파이프라인 방어).
+                lock (state.LatchLock)
                 {
-                    // 다중 Call Flow: 기존 로직
-                    // 이전 사이클이 완료되었고 MT가 계산된 경우 WT/CT 계산 및 DB 업데이트
-                    if (state.PreviousCycleFinish.HasValue && state.CurrentMT.HasValue)
-                    {
-                        var prevMT = state.CurrentMT.Value;
-                        var wt = (int)(timestamp - state.PreviousCycleFinish.Value).TotalMilliseconds;
-                        var ct = prevMT + wt;
-
-                        state.CurrentWT = wt;
-                        state.CurrentCT = ct;
-
-                        // 평균 계산 및 DB 갱신
-                        _ = UpdateFlowMetricsWithAveragesAsync(state, flowName, prevMT, wt, ct);
-                    }
-
-                    // 사이클 시작: 진행 중인 사이클이 없을 때만 (파이프라인 방어)
-                    if (!state.IsCycleActive)
+                    if (state.IsSingleCallFlow || !state.IsCycleActive)
                     {
                         state.CurrentCycleStart = timestamp;
                         state.IsCycleActive = true;
@@ -363,26 +347,39 @@ public class FlowMetricsService : IFlowMetricsService
                 return;
             }
 
-            // Tail Call이 완료된 경우
-            if (state.TailCallName == callName && state.CurrentCycleStart.HasValue)
+            // Tail Call이 완료된 경우 — 사이클 기록 조건은 기존과 동일(CurrentCycleStart.HasValue).
+            // 래치 3-필드를 락으로 감싸 워치독/교차검증과의 교차 스레드 접근을 보호한다.
+            if (state.TailCallName == callName)
             {
-                // MT 계산 (Going 시작 → Finish 완료까지의 시간)
-                var mt = (int)(timestamp - state.CurrentCycleStart.Value).TotalMilliseconds;
-                state.CurrentMT = mt;
-                state.PreviousCycleFinish = timestamp;
-                state.IsCycleActive = false;
-
-                if (state.IsSingleCallFlow)
+                int mt = 0;
+                bool recorded = false;
+                lock (state.LatchLock)
                 {
-                    _logger.LogDebug(
-                        "Single-Call Flow '{FlowName}' cycle finished: Call '{CallName}', MT={MT}ms",
-                        flowName, callName, mt);
+                    if (state.CurrentCycleStart.HasValue)
+                    {
+                        // MT 계산 (Going 시작 → Finish 완료까지의 시간)
+                        mt = (int)(timestamp - state.CurrentCycleStart.Value).TotalMilliseconds;
+                        state.CurrentMT = mt;
+                        state.PreviousCycleFinish = timestamp;
+                        state.IsCycleActive = false;
+                        recorded = true;
+                    }
                 }
-                else
+
+                if (recorded)
                 {
-                    _logger.LogDebug(
-                        "Flow '{FlowName}' cycle finished: MT={MT}ms",
-                        flowName, mt);
+                    if (state.IsSingleCallFlow)
+                    {
+                        _logger.LogDebug(
+                            "Single-Call Flow '{FlowName}' cycle finished: Call '{CallName}', MT={MT}ms",
+                            flowName, callName, mt);
+                    }
+                    else
+                    {
+                        _logger.LogDebug(
+                            "Flow '{FlowName}' cycle finished: MT={MT}ms",
+                            flowName, mt);
+                    }
                 }
             }
         }
@@ -571,6 +568,7 @@ public class FlowMetricsService : IFlowMetricsService
             HeadCallName = startCallName,
             TailCallName = endCallName,
             IsSingleCallFlow = isSingleCallFlow,
+            LatchEligible = ComputeLatchEligibility(flowName, startCallName, endCallName),
             IsCycleActive = false,
             CurrentCycleStart = null,
             PreviousCycleFinish = null,
@@ -608,6 +606,130 @@ public class FlowMetricsService : IFlowMetricsService
         _flowCycleStates[flowName] = state;
     }
 
+    /// <summary>
+    /// Flow 가 head-start→tail-complete 엣지 래치로 배지를 도출할 자격이 있는지(순수 판정은 <see cref="FlowLatchBadge.IsEligible"/>).
+    /// effective head/tail 이 비면(경계 미정) 부적격. head/tail 과 동명인 Call 이 여러 Work 에 있으면 경계가 모호해 강등.
+    /// </summary>
+    private bool ComputeLatchEligibility(string flowName, string? effectiveStart, string? effectiveEnd)
+    {
+        if (string.IsNullOrEmpty(effectiveStart) || string.IsNullOrEmpty(effectiveEnd))
+            return false;
+
+        var flow = _projectService.GetFlowByName(flowName);
+        if (flow is null) return false;
+
+        try
+        {
+            var calls = _projectService.GetWorks(flow.Id)
+                .SelectMany(w => _projectService.GetCalls(w.Id))
+                .ToList();
+
+            // 동명 Call 다중 Work → 어느 Call 의 이벤트로 래치를 여닫을지 모호 → 강등.
+            bool headAmbiguous = calls.Count(c => c.Name == effectiveStart) > 1;
+            bool tailAmbiguous = calls.Count(c => c.Name == effectiveEnd) > 1;
+
+            var overrideConfig = _appSettingsService.GetFlowCycleOverride(flowName);
+            bool hasOverride = overrideConfig is not null
+                && !string.IsNullOrWhiteSpace(overrideConfig.StartCallName)
+                && !string.IsNullOrWhiteSpace(overrideConfig.EndCallName);
+
+            var (labelStart, labelEnd) = ResolveSequenceLabelBoundaries(flow);
+
+            var analysis = _flowAnalysisCache.GetOrAdd(flow.Name,
+                _ => FlowAnalyzer.AnalyzeFlow(flow, GetDsStore()));
+
+            return FlowLatchBadge.IsEligible(
+                hasExplicitOverride: hasOverride,
+                hasHeadLabel: labelStart is not null,
+                hasTailLabel: labelEnd is not null,
+                topologyHeadCount: analysis.HeadCount,
+                topologyTailCount: analysis.TailCount,
+                headAmbiguous: headAmbiguous,
+                tailAmbiguous: tailAmbiguous);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Flow '{FlowName}' 래치 적격 판정 실패 — going-any 폴백", flowName);
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public bool IsLatchEligible(string flowName)
+        => _flowCycleStates.TryGetValue(flowName, out var state) && state.LatchEligible;
+
+    /// <inheritdoc />
+    public bool IsLatchCycleActive(string flowName)
+    {
+        if (!_flowCycleStates.TryGetValue(flowName, out var state) || !state.LatchEligible) return false;
+        lock (state.LatchLock) return state.IsCycleActive;
+    }
+
+    /// <inheritdoc />
+    public string? GetLatchBadgeState(string flowName)
+    {
+        if (!_flowCycleStates.TryGetValue(flowName, out var state) || !state.LatchEligible)
+            return null;
+
+        bool active;
+        DateTime? prevFinish;
+        lock (state.LatchLock)
+        {
+            active = state.IsCycleActive;
+            prevFinish = state.PreviousCycleFinish;
+        }
+        return FlowLatchBadge.Compute(active, prevFinish, DateTime.Now);
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<(string FlowName, DateTime CycleStart)> GetActiveLatchedCycles()
+    {
+        var result = new List<(string, DateTime)>();
+        foreach (var kv in _flowCycleStates)
+        {
+            var state = kv.Value;
+            if (!state.LatchEligible) continue;
+            lock (state.LatchLock)
+            {
+                if (state.IsCycleActive && state.CurrentCycleStart.HasValue)
+                    result.Add((kv.Key, state.CurrentCycleStart.Value));
+            }
+        }
+        return result;
+    }
+
+    /// <inheritdoc />
+    public bool AbandonLatchedCycle(string flowName)
+    {
+        if (!_flowCycleStates.TryGetValue(flowName, out var state) || !state.LatchEligible)
+            return false;
+        lock (state.LatchLock)
+        {
+            if (!state.IsCycleActive) return false;
+            // 사이클/통계 미기록 — 기존 _timeoutAbandoned 의미와 동일. CurrentCycleStart 를 비워
+            // 이후 tail 완료가 폐기된 시작으로 사이클을 기록하지 못하게 한다(다음 head-start 가 새로 세팅).
+            state.IsCycleActive = false;
+            state.CurrentCycleStart = null;
+        }
+        return true;
+    }
+
+    /// <inheritdoc />
+    public bool TryForceOpenLatch(string flowName, DateTime cycleStart)
+    {
+        if (!_flowCycleStates.TryGetValue(flowName, out var state) || !state.LatchEligible)
+            return false;
+        lock (state.LatchLock)
+        {
+            if (state.IsCycleActive) return false;
+            // head-start 엣지 유실 복구 — 래치만 연다(WT/CT 계산 없음). 후속 tail 완료가 추정 시작으로 MT 를
+            // 기록하되, MaxMs 초과 시 워치독이 abandon 한다(배지는 래치를 읽기만, 메트릭 식 불변).
+            state.IsCycleActive = true;
+            state.CurrentCycleStart = cycleStart;
+        }
+        return true;
+    }
+
     private static string? NormalizeCallName(string? callName)
     {
         return string.IsNullOrWhiteSpace(callName) ? null : callName.Trim();
@@ -628,6 +750,20 @@ public class FlowCycleState
     public string? HeadCallName { get; set; }
     public string? TailCallName { get; set; }
     public bool IsSingleCallFlow { get; set; }
+
+    /// <summary>
+    /// 배지를 head-start→tail-complete 엣지 래치로 도출할지 여부. true 면 dspFlow.State 를 래치에서 직접 쓰고
+    /// (Body 구간 "가동중" 유지), false(미정의·복수 head/tail·동명 모호)면 기존 going-any 폴백을 쓴다.
+    /// <see cref="FlowAnalysis.FlowAnalyzer"/> 토폴로지/SequenceLabel/override 로 init·override 시 1회 산정.
+    /// </summary>
+    public bool LatchEligible { get; set; }
+
+    /// <summary>
+    /// 래치 3-필드(<see cref="IsCycleActive"/>/<see cref="CurrentCycleStart"/>/<see cref="PreviousCycleFinish"/>)의
+    /// 교차 스레드 접근(이벤트 컨슈머 ↔ StateReconcile 워치독/교차검증) 보호용. 사소한 필드 대입만 감싸므로 경합 무시 가능.
+    /// </summary>
+    internal readonly object LatchLock = new();
+
     public bool IsCycleActive { get; set; }
     public DateTime? CurrentCycleStart { get; set; }
     public DateTime? PreviousCycleFinish { get; set; }

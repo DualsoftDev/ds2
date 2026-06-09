@@ -84,6 +84,14 @@ public interface IOeeRepository
 
     // ── 시프트 예외 (계획정비/비가동) ─────────────────────────────────────
 
+    /// <summary>
+    /// 일자별/시간별 정지 합 버킷 (SQL GROUP BY). hourly=true → 시간별, false → 일자별.
+    /// 반환값: (Slot, PlannedMs, UnplannedMs) — Slot 은 'yyyy-MM-dd' 또는 'yyyy-MM-dd HH:00' (로컬).
+    /// SlotMs 는 컨트롤러에서 달력 기반으로 채운다.
+    /// </summary>
+    Task<IReadOnlyList<(string Slot, long PlannedMs, long UnplannedMs)>> GetDowntimeBySlotsAsync(
+        DateTime fromUtc, DateTime toUtc, string? flowName, bool hourly, CancellationToken ct = default);
+
     Task<long> InsertShiftExceptionAsync(OeeShiftException row, CancellationToken ct = default);
     Task<IReadOnlyList<OeeShiftException>> QueryShiftExceptionsAsync(
         DateTime fromUtc, DateTime toUtc, string? flowName, CancellationToken ct = default);

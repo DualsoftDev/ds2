@@ -10,7 +10,7 @@ public class AppSettingsService
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     private static readonly string[] ManagedSections =
-        ["Database", "FlowCycle", "DspTables", "Hub", "Logging", "Ui", "HistoryView", "Cctv", "OeeSignals", "Shift", "CycleExclusion"];
+        ["Database", "FlowCycle", "DspTables", "Hub", "Logging", "Ui", "HistoryView", "Cctv", "OeeSignals", "Shift", "CycleExclusion", "AbnormalAlarm"];
 
     private readonly string _filePath;
     private readonly string _productionFilePath;
@@ -69,6 +69,7 @@ public class AppSettingsService
             OeeSignals = Deserialize<OeeSignalSettings>(root["OeeSignals"]),
             Shift = Deserialize<ShiftSettings>(root["Shift"]),
             CycleExclusion = Deserialize<CycleExclusionSettings>(root["CycleExclusion"]),
+            AbnormalAlarm = Deserialize<AbnormalAlarmSettings>(root["AbnormalAlarm"]),
         };
     }
 
@@ -78,11 +79,25 @@ public class AppSettingsService
         WriteSections(root, model);
         SaveRaw(_filePath, root);
 
-        // Production.json에 사용자 설정 전체 동기화 (재설치 시 appsettings.json이 덮어씌워져도 유지)
+        // Production.json에 사용자 설정 전체 동기화 — 재설치(업그레이드) 시 보존되는 사용자 설정 영속 저장소.
+        // (설치 스크립트는 이 파일을 삭제/덮어쓰지 않고, 포트는 appsettings.Hosting.json 으로 분리한다.)
         var prod = File.Exists(_productionFilePath) ? LoadRaw(_productionFilePath) : new JsonObject();
         WriteSections(prod, model);
         SaveRaw(_productionFilePath, prod);
         _logger.LogInformation("appsettings.Production.json 전체 설정 동기화 완료");
+    }
+
+    /// <summary>
+    /// 모든 관리 설정을 코드 기본값(<see cref="AppSettingsModel"/>)으로 초기화하고 저장한다.
+    /// 업그레이드 시 Production.json 을 보존하므로, 구버전에서 넘어온 stale 설정이 문제를 일으킬 때
+    /// 사용자가 설정 페이지에서 명시적으로 깨끗한 기본값으로 되돌리는 escape hatch.
+    /// CCTV 카메라·이상치 임계·시프트·OEE 신호·DB 경로·로그 수준 등 전부 기본값으로 돌아간다.
+    /// (Database/Urls 등 호스트 바인딩 항목은 서비스 재시작 후 적용된다.)
+    /// </summary>
+    public void ResetToDefaults()
+    {
+        _logger.LogWarning("모든 설정을 코드 기본값으로 초기화합니다 (사용자 요청).");
+        SaveSettings(new AppSettingsModel());
     }
 
     private static void WriteSections(JsonObject target, AppSettingsModel model)
@@ -98,6 +113,7 @@ public class AppSettingsService
         target["OeeSignals"] = JsonSerializer.SerializeToNode(model.OeeSignals, JsonOptions);
         target["Shift"] = JsonSerializer.SerializeToNode(model.Shift, JsonOptions);
         target["CycleExclusion"] = JsonSerializer.SerializeToNode(model.CycleExclusion, JsonOptions);
+        target["AbnormalAlarm"] = JsonSerializer.SerializeToNode(model.AbnormalAlarm, JsonOptions);
     }
 
     public FlowCycleOverride? GetFlowCycleOverride(string flowName)
