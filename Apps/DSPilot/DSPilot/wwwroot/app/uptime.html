@@ -86,6 +86,10 @@
         .up-utkpi-value.sm { font-size: 0.92rem; font-weight: 700; word-break: break-all; }
         .up-utkpi-value.err { color: var(--red); }
         .up-utkpi-value.warn { color: var(--amber); }
+        /* 클릭 시 알람 필터 (레벨 토글 그룹 + 최빈 태그 검색) */
+        .up-utkpi.clickable { cursor: pointer; transition: border-color .12s, background .12s, box-shadow .12s; }
+        .up-utkpi.clickable:hover { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 5%, var(--color-surface-variant)); }
+        .up-utkpi.is-active { border-color: var(--color-primary); box-shadow: inset 0 0 0 1px var(--color-primary); background: color-mix(in srgb, var(--color-primary) 9%, var(--color-surface-variant)); }
 
         /* ── 이상발생 필터 행 + CSV ── */
         .up-ut-filter { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
@@ -154,6 +158,10 @@
         .up-insight .material-icons { color: var(--purple); font-size: 26px; flex-shrink: 0; }
         .up-insight-text { font-size: 0.86rem; line-height: 1.5; }
         .up-insight-text b { color: var(--red); }
+
+        /* ── 기간 직접 선택 ── */
+        .up-period-input { padding: 5px 8px; font-size: 0.78rem; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-primary); font-family: var(--font-mono); }
+        .up-custom-range { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
     </style>
 </head>
 
@@ -189,11 +197,17 @@
                     <button class="btn btn-sm" :class="period === '7d' ? 'btn-filled' : 'btn-outlined'" @click="setPeriod('7d')">7일</button>
                     <button class="btn btn-sm" :class="period === '30d' ? 'btn-filled' : 'btn-outlined'" @click="setPeriod('30d')">30일</button>
                     <button class="btn btn-sm" :class="period === '60d' ? 'btn-filled' : 'btn-outlined'" @click="setPeriod('60d')">60일</button>
-                    <span class="ds-live" :class="rt.connected ? 'is-live' : 'is-poll'"
-                          :title="rt.connected ? 'SignalR 실시간 연결됨' : '폴링(10초) 모드'">
-                        <span class="ds-live-dot"></span>
-                        <span x-text="rt.connected ? 'LIVE' : 'POLL'"></span>
-                    </span>
+                    <button class="btn btn-sm" :class="period === 'custom' ? 'btn-filled' : 'btn-outlined'" @click="toggleCustomPeriod()" title="날짜 직접 선택">
+                        <span class="material-icons" style="font-size:14px; vertical-align:middle; margin-right:2px;">calendar_today</span>기간
+                    </button>
+                    <template x-if="period === 'custom'">
+                        <div class="up-custom-range">
+                            <input type="datetime-local" class="up-period-input" x-model="customFrom" />
+                            <span style="color:var(--color-text-secondary); font-size:0.85rem;">~</span>
+                            <input type="datetime-local" class="up-period-input" x-model="customTo" />
+                            <button class="btn btn-sm btn-primary" @click="applyCustomPeriod()" :disabled="!customFrom || !customTo">적용</button>
+                        </div>
+                    </template>
                 </div>
             </div>
 
@@ -248,7 +262,7 @@
                     <div class="ds-card-h" style="margin-top:8px;">
                         <span class="ds-card-h-sub" x-show="oee">
                             기간 정지 <b x-text="oee ? (oee.downtimeCount + '건 · ' + durShort(oee.downtimeMs) + ' (가동 ' + pct(oee.availability) + ')') : ''"></b>
-                            · <span x-text="oee ? (oee.idealCycleTimeMs ? ('표준CT ' + oee.idealCycleTimeMs + 'ms') : (oee.performance != null ? '표준CT Flow별 설정' : '표준CT 미설정')) : ''"></span>
+                            · <span x-text="oee ? (oee.idealCycleTimeMs ? ('표준CT ' + durShort(oee.idealCycleTimeMs)) : (oee.performance != null ? '표준CT Flow별 설정' : '표준CT 미설정')) : ''"></span>
                         </span>
                     </div>
                 </section>
@@ -506,7 +520,7 @@
                                         <th style="width:110px;">현재 표준CT</th>
                                         <th>실측 (이상치 제외)</th>
                                         <th style="width:130px;">추천 (p10)</th>
-                                        <th style="width:130px;">표준CT (ms)</th>
+                                        <th style="width:130px;">표준CT (초)</th>
                                         <th style="width:90px;">상태</th>
                                     </tr>
                                 </thead>
@@ -515,10 +529,10 @@
                                         <tr>
                                             <td><strong x-text="row.flowName"></strong></td>
                                             <td class="num" :class="row.idealCycleTimeMs ? '' : 'unset'"
-                                                x-text="row.idealCycleTimeMs ? (row.idealCycleTimeMs + 'ms') : '미설정'"></td>
+                                                x-text="row.idealCycleTimeMs ? durShort(row.idealCycleTimeMs) : '미설정'"></td>
                                             <td>
                                                 <template x-if="row.sampleCount > 0">
-                                                    <span class="up-rank-sub" x-text="'n=' + row.sampleCount + ' · min ' + row.minCt + ' · 중앙 ' + row.medianCt + ' · 평균 ' + row.avgCt + 'ms'"></span>
+                                                    <span class="up-rank-sub" x-text="'n=' + row.sampleCount + ' · min ' + durShort(row.minCt) + ' · 중앙 ' + durShort(row.medianCt) + ' · 평균 ' + durShort(row.avgCt)"></span>
                                                 </template>
                                                 <template x-if="row.sampleCount === 0">
                                                     <span class="up-rank-sub">데이터 없음</span>
@@ -526,16 +540,16 @@
                                             </td>
                                             <td>
                                                 <template x-if="row.recommendedMs">
-                                                    <button class="btn btn-sm btn-outlined" @click="row.draft = row.recommendedMs"
-                                                            :title="'추천값 ' + row.recommendedMs + 'ms 를 입력칸에 적용'">
+                                                    <button class="btn btn-sm btn-outlined" @click="row.draft = Math.round(row.recommendedMs / 100) / 10"
+                                                            :title="'추천값 ' + durShort(row.recommendedMs) + ' 를 입력칸에 적용'">
                                                         <span class="material-icons" style="font-size:14px;">auto_fix_high</span>
-                                                        <span x-text="row.recommendedMs + 'ms'"></span>
+                                                        <span x-text="durShort(row.recommendedMs)"></span>
                                                     </button>
                                                 </template>
                                                 <template x-if="!row.recommendedMs"><span class="up-rank-sub">—</span></template>
                                             </td>
                                             <td>
-                                                <input class="up-mini-num" type="number" min="0" x-model.number="row.draft" placeholder="미설정" />
+                                                <input class="up-mini-num" type="number" min="0" step="0.1" x-model.number="row.draft" placeholder="미설정" />
                                             </td>
                                             <td>
                                                 <template x-if="rowChanged(row)"><span class="ds-status warn">변경됨</span></template>
@@ -565,18 +579,37 @@
 
                 <!-- ════ 일자별 시간 구성 (가동/정지 근사 + 점검=계획정비) ════ -->
                 <section class="card up-section">
-                    <div class="ds-card-h"><h4>기간 시간 구성</h4><span class="ds-card-h-sub">가동(근사) · 정지 · 계획정비(점검)</span></div>
+                    <div class="ds-card-h">
+                        <h4>시간 구성</h4>
+                        <span class="ds-card-h-sub" x-text="dailyData ? (dailyData.granularity === 'hour' ? '시간별' : '일자별') + ' 가동(근사) · 정지(고장) · 점검' : '가동(근사) · 정지 · 계획정비(점검)'"></span>
+                    </div>
+
+                    <!-- 일자별/시간별 스택 막대 차트 -->
+                    <template x-if="dailyData && dailyData.slots && dailyData.slots.length > 0">
+                        <div style="position:relative; height:220px; margin-bottom:16px;">
+                            <canvas id="up-daily-chart"></canvas>
+                        </div>
+                    </template>
+                    <template x-if="!dailyData || !dailyData.slots || dailyData.slots.length === 0">
+                        <div class="ds-empty" style="margin-bottom:16px;">
+                            <span class="material-icons">bar_chart</span>
+                            <div class="ds-empty-title">버킷 데이터 없음</div>
+                            <div class="ds-empty-desc">정지 이벤트가 누적되면 일자별 가동·정지 구성이 표시됩니다.</div>
+                        </div>
+                    </template>
+
+                    <!-- 기간 전체 단일 바 (기존) -->
                     <template x-if="oee && oee.periodMs > 0">
                         <div>
                             <div class="ds-legend" style="margin-bottom:10px;">
                                 <div class="lg-item"><span class="lg-swatch" style="background:var(--green);"></span> 가동(근사)</div>
                                 <div class="lg-item"><span class="lg-swatch" style="background:var(--red);"></span> 정지</div>
-                                <div class="lg-item"><span class="lg-swatch" style="background:var(--mt);"></span> 계획정비(점검)</div>
+                                <div class="lg-item"><span class="lg-swatch" style="background:var(--purple);"></span> 계획정비(점검)</div>
                             </div>
                             <div style="display:flex; height:26px; border-radius:var(--radius-sm); overflow:hidden; border:1px solid var(--color-lines);">
                                 <div :style="`width:${timeComp.runPct}%; background:var(--green);`" :title="'가동 ' + timeComp.runPct + '%'"></div>
                                 <div :style="`width:${timeComp.downPct}%; background:var(--red);`" :title="'정지 ' + timeComp.downPct + '%'"></div>
-                                <div :style="`width:${timeComp.maintPct}%; background:var(--mt);`" :title="'계획정비 ' + timeComp.maintPct + '%'"></div>
+                                <div :style="`width:${timeComp.maintPct}%; background:var(--purple);`" :title="'계획정비 ' + timeComp.maintPct + '%'"></div>
                             </div>
                             <div style="display:flex; gap:18px; margin-top:8px; font-size:0.72rem; color:var(--color-text-secondary);">
                                 <span>가동 <b x-text="durShort(timeComp.runMs)"></b> (<span x-text="timeComp.runPct + '%'"></span>)</span>
@@ -600,7 +633,7 @@
                 <!-- ════ 사용자정의 알람 (UserTag) — 실데이터 동작 (보존) ════ -->
                 <section id="ut-section" class="card up-section">
                     <div class="ds-card-h">
-                        <h4>사용자정의 알람 (UserTag)</h4>
+                        <h4>알람 조회</h4>
                         <span class="ds-card-h-sub">AASX UserTag 조건 충족 이벤트 · 실시간 + 기간별 추이 (구 이상발생 관리 통합)</span>
                     </div>
 
@@ -635,21 +668,25 @@
                                 </div>
                             </div>
 
-                            <!-- 집계 KPI (총 알림 / Error / Warning / 최빈 태그) -->
+                            <!-- 집계 KPI (총 알림 / Error / Warning / 최빈 태그) — 클릭 시 알람 필터 -->
                             <div class="up-utkpi-row">
-                                <div class="up-utkpi">
+                                <div class="up-utkpi clickable" :class="utLevel === '' ? 'is-active' : ''"
+                                     @click="filterAllLevels()" title="클릭: 전체 레벨 보기">
                                     <div class="up-utkpi-label">총 알림 (기간)</div>
                                     <div class="up-utkpi-value" x-text="ut.totalCount.toLocaleString()"></div>
                                 </div>
-                                <div class="up-utkpi">
+                                <div class="up-utkpi clickable" :class="utLevel === 'Error' ? 'is-active' : ''"
+                                     @click="filterByLevel('Error')" title="클릭: Error 만 보기">
                                     <div class="up-utkpi-label">Error</div>
                                     <div class="up-utkpi-value err" x-text="lc('Error').toLocaleString()"></div>
                                 </div>
-                                <div class="up-utkpi">
+                                <div class="up-utkpi clickable" :class="utLevel === 'Warning' ? 'is-active' : ''"
+                                     @click="filterByLevel('Warning')" title="클릭: Warning 만 보기">
                                     <div class="up-utkpi-label">Warning</div>
                                     <div class="up-utkpi-value warn" x-text="lc('Warning').toLocaleString()"></div>
                                 </div>
-                                <div class="up-utkpi">
+                                <div class="up-utkpi clickable" :class="(ut.topRows && ut.topRows.length && utSearch === ut.topRows[0].name) ? 'is-active' : ''"
+                                     @click="filterByTopTag()" :title="(ut.topRows && ut.topRows.length) ? ('클릭: ' + ut.topRows[0].name + ' 검색') : '데이터 없음'">
                                     <div class="up-utkpi-label">가장 빈번한 태그</div>
                                     <div class="up-utkpi-value sm" x-text="(ut.topRows && ut.topRows.length) ? (ut.topRows[0].name + ' (' + ut.topRows[0].count.toLocaleString() + ')') : '—'"></div>
                                 </div>
@@ -863,6 +900,9 @@
             { code: 'etc', label: '기타', category: 'unplanned', color: 'var(--color-text-secondary)' },
         ];
 
+        // 일자별 차트 인스턴스 — Alpine 반응형 밖에 보관(Proxy 크래시 방지)
+        let _dailyChart = null;
+
         function uptimeApp() {
             return {
                 // 기존 UserTag 상태 (+ 구 이상발생 관리 흡수: 필터/페이지/정의/차트)
@@ -873,6 +913,10 @@
                 utPage: 0, utSearch: '', utLevel: '', utSystem: '',
                 showDefinitions: false, definitionsPage: 0,
                 _charts: null,
+                dailyData: null,
+
+                // 기간 직접 선택
+                customFrom: '', customTo: '',
 
                 // 신규 OEE 상태
                 oee: null, oeeError: null,
@@ -935,6 +979,8 @@
 
                 // 현재 기간 → OEE 엔드포인트용 from/to (로컬 ISO, UserTagsController.ResolvePeriod 와 동일 의미)
                 rangeForPeriod() {
+                    if (this.period === 'custom' && this.customFrom && this.customTo)
+                        return { from: this.customFrom + ':00', to: this.customTo + ':00' };
                     const now = new Date();
                     const startOfDay = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
                     let from;
@@ -954,6 +1000,10 @@
                 // 이상발생 스냅샷 쿼리 (기간 + 페이지 + 검색/레벨/System 필터)
                 utQs() {
                     const p = new URLSearchParams({ period: this.period, page: this.utPage });
+                    if (this.period === 'custom' && this.customFrom && this.customTo) {
+                        p.set('from', this.customFrom + ':00');
+                        p.set('to', this.customTo + ':00');
+                    }
                     if (this.utSearch.trim()) p.set('search', this.utSearch.trim());
                     if (this.utLevel) p.set('level', this.utLevel);
                     if (this.utSystem) p.set('system', this.utSystem);
@@ -986,6 +1036,15 @@
 
                 // ── 이상발생 필터/페이지/CSV (구 관리페이지) ──
                 applyUtFilters() { this.utPage = 0; this.load(); },
+                // 집계 KPI 카드 클릭 → 알람 필터. 총알림/Error/Warning 은 레벨 토글 그룹, 최빈 태그는 검색.
+                filterAllLevels() { if (this.utLevel === '') return; this.utLevel = ''; this.applyUtFilters(); },
+                filterByLevel(level) { this.utLevel = (this.utLevel === level) ? '' : level; this.applyUtFilters(); },
+                filterByTopTag() {
+                    const name = (this.ut && this.ut.topRows && this.ut.topRows.length) ? this.ut.topRows[0].name : '';
+                    if (!name) return;
+                    this.utSearch = (this.utSearch === name) ? '' : name;
+                    this.applyUtFilters();
+                },
                 prevUtPage() { if (this.utPage === 0) return; this.utPage--; this.load(); },
                 nextUtPage() { if (!this.ut || this.utPage + 1 >= this.ut.maxPage) return; this.utPage++; this.load(); },
                 definitionsMaxPage() { return this.ut ? Math.max(1, Math.ceil((this.ut.definitions || []).length / 10)) : 1; },
@@ -1007,17 +1066,105 @@
                     const r = this.rangeForPeriod();
                     const qs = `from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}`;
                     try {
-                        const [summary, downtime, ranking] = await Promise.all([
+                        const [summary, downtime, ranking, daily] = await Promise.all([
                             this.apiGet('/api/oee/summary?' + qs),
                             this.apiGet('/api/oee/downtime?' + qs),
                             this.apiGet('/api/oee/ranking?' + qs),
+                            this.apiGet('/api/oee/daily?' + qs),
                         ]);
                         this.oee = summary;
                         this.downtime = Array.isArray(downtime) ? downtime : [];
                         this.ranking = Array.isArray(ranking) ? ranking : [];
+                        this.dailyData = daily;
                         this.oeeError = null;
                     } catch (e) {
                         if (e.message !== 'demo-blocked') this.oeeError = 'OEE 데이터를 불러오지 못했습니다: ' + e.message;
+                    }
+                    this.$nextTick(() => this.drawDailyChart());
+                },
+
+                drawDailyChart() {
+                    const d = this.dailyData;
+                    if (!d || !d.slots || d.slots.length === 0) return;
+                    const canvas = document.getElementById('up-daily-chart');
+                    if (!canvas) return;
+
+                    const MS = 3600000; // ms → 시간
+                    const labels = d.slots.map(s => {
+                        if (d.granularity === 'hour') return s.slot.slice(11, 16); // "HH:00"
+                        // "yyyy-MM-dd" → "M/D"
+                        const parts = s.slot.split('-');
+                        return parts.length === 3 ? (parseInt(parts[1]) + '/' + parseInt(parts[2])) : s.slot;
+                    });
+                    const runData = d.slots.map(s => Math.max(0, s.slotMs - s.unplannedMs - s.plannedMs) / MS);
+                    const unplannedData = d.slots.map(s => s.unplannedMs / MS);
+                    const plannedData = d.slots.map(s => s.plannedMs / MS);
+
+                    // 평균 가동시간 선
+                    const avgRun = runData.length > 0 ? runData.reduce((a, b) => a + b, 0) / runData.length : 0;
+
+                    const cs = getComputedStyle(document.documentElement);
+                    const cGreen = cs.getPropertyValue('--green').trim() || '#22c55e';
+                    const cRed   = cs.getPropertyValue('--red').trim()   || '#ef4444';
+                    const cPurple = cs.getPropertyValue('--purple').trim() || '#6E63C4';
+                    const cAvg   = cs.getPropertyValue('--color-azure').trim() || '#38bdf8';
+
+                    const datasets = [
+                        {
+                            label: '가동(근사)',
+                            data: runData,
+                            backgroundColor: cGreen,
+                            stack: 's',
+                            order: 2,
+                        },
+                        {
+                            label: '정지(고장)',
+                            data: unplannedData,
+                            backgroundColor: cRed,
+                            stack: 's',
+                            order: 2,
+                        },
+                        {
+                            label: '점검',
+                            data: plannedData,
+                            backgroundColor: cPurple,
+                            stack: 's',
+                            order: 2,
+                        },
+                        {
+                            label: `평균 ${avgRun.toFixed(1)}h`,
+                            type: 'line',
+                            data: d.slots.map(() => avgRun),
+                            borderColor: cAvg,
+                            borderWidth: 1.5,
+                            borderDash: [6, 4],
+                            pointRadius: 0,
+                            fill: false,
+                            stack: undefined,
+                            order: 1,
+                        },
+                    ];
+
+                    if (!_dailyChart) {
+                        _dailyChart = new Chart(canvas, {
+                            type: 'bar',
+                            data: { labels, datasets },
+                            options: _dailyChartOptions(d.granularity),
+                        });
+                    } else {
+                        _dailyChart.data.labels = labels;
+                        for (let i = 0; i < datasets.length; i++) {
+                            if (_dailyChart.data.datasets[i]) {
+                                _dailyChart.data.datasets[i].data = datasets[i].data;
+                                if (datasets[i].label) _dailyChart.data.datasets[i].label = datasets[i].label;
+                                if (datasets[i].backgroundColor) _dailyChart.data.datasets[i].backgroundColor = datasets[i].backgroundColor;
+                                if (datasets[i].borderColor) _dailyChart.data.datasets[i].borderColor = datasets[i].borderColor;
+                            } else {
+                                _dailyChart.data.datasets.push(datasets[i]);
+                            }
+                        }
+                        _dailyChart.options = _dailyChartOptions(d.granularity);
+                        _dailyChart.update('none');
                     }
                 },
 
@@ -1039,6 +1186,24 @@
                 },
 
                 setPeriod(p) { if (this.period === p) return; this.period = p; this.utPage = 0; this.load(); },
+
+                toggleCustomPeriod() {
+                    if (this.period === 'custom') { this.setPeriod('today'); return; }
+                    // 현재 기간 범위를 초기값으로 세팅
+                    const fmt = (d) => {
+                        const p = (x) => String(x).padStart(2, '0');
+                        return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+                    };
+                    const r = this.rangeForPeriod();
+                    this.customFrom = r.from.slice(0, 16);
+                    this.customTo = r.to.slice(0, 16);
+                    this.period = 'custom';
+                },
+                applyCustomPeriod() {
+                    if (!this.customFrom || !this.customTo) return;
+                    this.utPage = 0;
+                    this.load();
+                },
 
                 // ── 기존 UserTag 도넛/레벨 (보존) ──
                 lc(level) { return (this.ut && this.ut.levelCounts && this.ut.levelCounts[level]) || 0; },
@@ -1075,7 +1240,7 @@
                         case 'Lt': return '< ' + v; case 'Lte': return '≤ ' + v;
                         case 'AbnormalDetect': {
                             const m = { SensorShort: '예상치 않은 시점에 완료 신호 감지', SensorOpen: '유지돼야 할 센서 신호 끊김', ActionOver: '허용 시간 초과', ActionUnder: '허용 시간 미만' };
-                            return m[mv] || '이상 감지';
+                            return (m[mv] || '이상 감지') + (mv ? ' (' + mv + ')' : '');
                         }
                         default: return op || '?';
                     }
@@ -1343,15 +1508,15 @@
                         // 편집값(draft)을 각 행에 직접 보관 → x-model="row.draft" 안정 바인딩.
                         // draft 는 저장된 현재값으로 시드(편집 전 값 표시).
                         this.ctTable = (Array.isArray(rows) ? rows : []).map(r => ({
-                            ...r, draft: r.idealCycleTimeMs ?? null
+                            ...r, draft: r.idealCycleTimeMs != null ? r.idealCycleTimeMs / 1000 : null
                         }));
                         this.ctError = null;
                     } catch (e) {
                         if (e.message !== 'demo-blocked') this.ctError = '표준CT 테이블을 불러오지 못했습니다: ' + e.message;
                     } finally { this.ctLoading = false; }
                 },
-                // draft(입력) 정규화: 양수면 정수ms, 아니면 null(해제)
-                ctNorm(v) { return (v != null && v > 0) ? Math.round(v) : null; },
+                // draft(입력, 초) 정규화: 양수면 ms 정수(×1000), 아니면 null(해제)
+                ctNorm(v) { return (v != null && v > 0) ? Math.round(v * 1000) : null; },
                 rowChanged(row) { return this.ctNorm(row.draft) !== (row.idealCycleTimeMs ?? null); },
                 async applyAllIdealCt() {
                     this.ctMsg = ''; this.ctError = null;
@@ -1369,6 +1534,57 @@
                         if (e.message !== 'demo-blocked') this.ctError = '일괄 적용 실패: ' + e.message;
                     } finally { this.ctApplying = false; }
                 }
+            };
+        }
+
+        function _dailyChartOptions(granularity) {
+            const cs = getComputedStyle(document.documentElement);
+            const cText = cs.getPropertyValue('--color-text-secondary').trim() || '#888';
+            const cGrid = cs.getPropertyValue('--color-lines').trim() || '#e5e7eb';
+            return {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        align: 'end',
+                        labels: { color: cText, boxWidth: 12, boxHeight: 12, font: { size: 11 } },
+                        onClick(e, item, legend) {
+                            Chart.defaults.plugins.legend.onClick.call(legend.chart, e, item, legend);
+                        },
+                    },
+                    tooltip: {
+                        mode: 'index',
+                        callbacks: {
+                            label(ctx) {
+                                const v = ctx.parsed.y;
+                                if (v == null || v <= 0) return null;
+                                const h = Math.floor(v);
+                                const m = Math.round((v - h) * 60);
+                                const t = h > 0 ? `${h}h ${m}m` : `${m}m`;
+                                return `${ctx.dataset.label}: ${t}`;
+                            },
+                        },
+                    },
+                },
+                scales: {
+                    x: {
+                        stacked: true,
+                        ticks: { color: cText, font: { size: 11 }, maxRotation: granularity === 'hour' ? 45 : 0 },
+                        grid: { color: cGrid },
+                    },
+                    y: {
+                        stacked: true,
+                        min: 0,
+                        ticks: {
+                            color: cText,
+                            font: { size: 11 },
+                            callback: v => v + 'h',
+                        },
+                        grid: { color: cGrid },
+                    },
+                },
             };
         }
     </script>

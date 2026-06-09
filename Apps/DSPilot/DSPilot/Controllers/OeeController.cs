@@ -888,6 +888,68 @@ public class OeeController : ControllerBase
         }
     }
 
+    // ── GET /api/oee/daily?from&to&flow ──────────────────────────────────
+    // 일자별(스팬>2일) 또는 시간별(≤2일) 가동·정지·점검 버킷.
+    // 가동 = slotMs - unplannedMs - plannedMs (달력근사).
+    [HttpGet("daily")]
+    public async Task<ActionResult<OeeDailyResponse>> Daily(
+        [FromQuery] DateTime? from, [FromQuery] DateTime? to, [FromQuery] string? flow,
+        CancellationToken ct)
+    {
+        var (fromUtc, toUtc) = ResolveRange(from, to);
+        var flowName = string.IsNullOrWhiteSpace(flow) ? null : flow.Trim();
+        var spanDays = (toUtc - fromUtc).TotalDays;
+        var hourly = spanDays <= 2.0;
+        var gran = hourly ? "hour" : "day";
+
+        // DB에서 정지 이벤트를 버킷별로 집계
+        var dbBuckets = await _repo.GetDowntimeBySlotsAsync(fromUtc, toUtc, flowName, hourly, ct);
+        var lookup = dbBuckets.ToDictionary(r => r.Slot, r => r, StringComparer.Ordinal);
+
+        // 전체 슬롯 목록 생성 (달력 기준)
+        var slots = new List<OeeDailySlotDto>();
+        if (hourly)
+        {
+            var cur = fromUtc.ToLocalTime();
+            cur = new DateTime(cur.Year, cur.Month, cur.Day, cur.Hour, 0, 0, DateTimeKind.Local);
+            while (cur.ToUniversalTime() < toUtc)
+            {
+                var next = cur.AddHours(1);
+                var label = cur.ToString("yyyy-MM-dd HH:00");
+                var slotStart = cur.ToUniversalTime();
+                var slotEnd = next.ToUniversalTime();
+                var slotMs = (long)Math.Max(0, (Min(toUtc, slotEnd) - Max(fromUtc, slotStart)).TotalMilliseconds);
+                lookup.TryGetValue(label, out var b);
+                var unplanned = Math.Min(b.UnplannedMs, slotMs);
+                var planned = Math.Min(b.PlannedMs, Math.Max(0, slotMs - unplanned));
+                slots.Add(new OeeDailySlotDto(label, slotMs, unplanned, planned));
+                cur = next;
+            }
+        }
+        else
+        {
+            var curLocal = fromUtc.ToLocalTime().Date;
+            while (curLocal.ToUniversalTime() < toUtc)
+            {
+                var nextLocal = curLocal.AddDays(1);
+                var label = curLocal.ToString("yyyy-MM-dd");
+                var slotStart = curLocal.ToUniversalTime();
+                var slotEnd = nextLocal.ToUniversalTime();
+                var slotMs = (long)Math.Max(0, (Min(toUtc, slotEnd) - Max(fromUtc, slotStart)).TotalMilliseconds);
+                lookup.TryGetValue(label, out var b);
+                var unplanned = Math.Min(b.UnplannedMs, slotMs);
+                var planned = Math.Min(b.PlannedMs, Math.Max(0, slotMs - unplanned));
+                slots.Add(new OeeDailySlotDto(label, slotMs, unplanned, planned));
+                curLocal = nextLocal;
+            }
+        }
+
+        return new OeeDailyResponse(gran, slots);
+    }
+
+    private static DateTime Min(DateTime a, DateTime b) => a < b ? a : b;
+    private static DateTime Max(DateTime a, DateTime b) => a > b ? a : b;
+
     // ── helpers ───────────────────────────────────────────────────────────
 
     // 기본 기간: 미지정 시 최근 24h.
