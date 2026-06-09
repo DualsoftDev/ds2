@@ -2,9 +2,9 @@ using System.Windows.Controls;
 
 namespace Promaker.Controls;
 
-public partial class SimulationPanel : UserControl
+public partial class StatusMonitorPanel : UserControl
 {
-    public SimulationPanel()
+    public StatusMonitorPanel()
     {
         InitializeComponent();
     }
