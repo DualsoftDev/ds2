@@ -20,8 +20,8 @@ open Ds2.Runtime.Engine.Core
 //     (Call Going / goingClock)은 adapter 가 분기로 판정. Sensor* 발행 전 ISensorDebouncer(V14).
 //   발행: ILatchPolicy(Core, P7) 경유 dedup → sink (P5). SignalR 은 모른다.
 //
-//   rev4 핵심: ActionOver 는 spec §3.1/§4/V10 대로 tick 과 InTag rising 양쪽에서 낸다.
-//     동일 (Kind,Target) 중복은 ILatchPolicy(Action 5s window)가 dedup → 사이클당 1회.
+//   ActionOver 는 Max 시점 OnTick 에서만 낸다(SSOT). InTag 가 Max 이후 늦게 센싱될 때의
+//     재발행은 의미 없어 제외(사용자 확정) — InTag rising 경로는 ActionUnder 만 판정한다.
 // =============================================================================
 
 type ControlAbnormalAdapter
@@ -95,10 +95,9 @@ type ControlAbnormalAdapter
                     let elapsed = nowMs - goingMs
                     match Abnormal.classifyExpectedRising range elapsed with
                     | Some AbnormalKind.ActionUnder -> emit (Abnormal.actionUnder target elapsed (now ()))
-                    // v10 spec §3.1/§4/V10 — InTag rising 시 Finish ∧ elapsed>Max 면 ActionOver.
-                    //   OnTick 이 Max 시점에 먼저 낸 over 와는 ILatchPolicy(Action 5s window)가 dedup.
-                    | Some AbnormalKind.ActionOver  -> emit (Abnormal.actionOver target elapsed (now ()))
-                    | _ -> ()   // 경계 포함 정상 완료 — 오탐 0
+                    // Over 는 Max 시점 OnTick 이 SSOT — InTag 가 Max 이후 늦게 센싱될 때의 재발행은
+                    //   의미 없어 안 낸다(사용자 확정). ActionOver/None 모두 무시.
+                    | _ -> ()   // 경계 포함 정상 완료 + 늦은 over — 오탐 0
                 | _ -> ()       // range/goingClock 미해결 → timing 평가 안 함(정상 완료 허용)
             else
                 // SensorShort — debounce 는 SensingType(WaitInputStable)이 SSOT, 여기선 즉시 발행.

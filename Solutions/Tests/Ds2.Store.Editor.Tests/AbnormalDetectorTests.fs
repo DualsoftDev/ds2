@@ -223,16 +223,15 @@ module ControlAdapterTests =
         Assert.Single(emitted) |> ignore
         Assert.Equal(AbnormalKind.ActionUnder, emitted.[0].Kind)
 
-    // spec §3.1/§4/V10 — InTag rising 시 Finish ∧ elapsed>Max 면 ActionOver.
-    // (OnTick 과 중복은 ILatchPolicy 가 dedup. 여기선 rising 단독 호출이라 1회 발행.)
+    // Over 는 Max 시점 OnTick 이 SSOT — InTag 가 Max 이후 늦게 rising 해도 over 를 내지 않는다
+    //   (늦은 센싱 over 는 의미 없어 제외, 사용자 확정). over 발행 자체는 아래 tick 테스트가 검증.
     [<Fact>]
-    let ``rising above Max is ActionOver`` () =
+    let ``rising above Max does not emit (over is tick-only)`` () =
         let adapter, emitted, states, _, callId, apiCallId = setup ()
         states.[callId] <- Status4.Going
         adapter.OnCallGoing(callId, 1000)
-        adapter.OnInputRising(apiCallId, 2000)   // elapsed 1000 > 900 → ActionOver
-        Assert.Single(emitted) |> ignore
-        Assert.Equal(AbnormalKind.ActionOver, emitted.[0].Kind)
+        adapter.OnInputRising(apiCallId, 2000)   // elapsed 1000 > 900 — rising 경로는 over 안 냄
+        Assert.Empty(emitted)
 
     [<Fact>]
     let ``rising when call not Going is SensorShort`` () =
@@ -356,12 +355,13 @@ module MonitoringAdapterTests =
         Assert.Single(emitted) |> ignore
         Assert.Equal(AbnormalKind.ActionUnder, emitted.[0].Kind)
 
+    // Over 는 engine watchdog(onDeviceDurationExpired)이 SSOT — In 이 Max 이후 늦게 rising 해도
+    //   adapter 는 over 를 내지 않는다(늦은 센싱 over 제외, 사용자 확정).
     [<Fact>]
-    let ``elapsed above Max is ActionOver`` () =
+    let ``finish above Max does not emit (over is watchdog-only)`` () =
         let adapter, emitted, _, _, _ = setup ()
-        goingThenFinish adapter 0 1000         // elapsed 1000 > 900
-        Assert.Single(emitted) |> ignore
-        Assert.Equal(AbnormalKind.ActionOver, emitted.[0].Kind)
+        goingThenFinish adapter 0 1000         // elapsed 1000 > 900 — finish 경로는 over 안 냄
+        Assert.Empty(emitted)
 
     [<Fact>]
     let ``finish without observed going start is dropped (mid-cycle 1cycle)`` () =

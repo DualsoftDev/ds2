@@ -165,6 +165,20 @@ type EventDrivenEngineRuntimeHubSession
             let getCallStateForOpen g = match engine.GetCallState(g) with Some s -> s | None -> Status4.Ready
             Some(MonitoringAbnormalAdapter(engine.Index, engine.IOMap, getCallStateForOpen, (fun () -> DateTime.UtcNow), broadcastAbnormal))
         else None
+    // v12 — Monitoring abnormal 사이클별 재검출. Control 은 adapter 가 OnCallReset(callStateChanged)으로 사이클마다
+    //   latch 를 비우지만, Monitoring 합류점(Layer B) latch 엔 그 hook 이 없어 DefaultLatchPolicy 5s window 가
+    //   사이클간 같은 (Kind,Target) Under/Over 를 5초 억제했다(사이클<5s 면 매 사이클 누락). Call 이 새 사이클로
+    //   진입(Going)하면 그 Call 의 직전발행을 비워 다음 사이클이 즉시 재검출되게 한다. (adapter Layer A 는
+    //   OnObservedIo 의 OUT rising 에서 동일하게 비운다 — 양 layer 모두 사이클당 1회로 유지.)
+    do
+        match monitoringAbnormal with
+        | Some _ ->
+            engine.CallStateChanged.Add(fun args ->
+                if args.NewState = Status4.Going then
+                    lock abnormalDedupLock (fun () ->
+                        abnormalLastEmitted <-
+                            abnormalLastEmitted |> Map.filter (fun key _ -> key.Target.CallId <> Some args.CallGuid)))
+        | None -> ()
     let getWorkStateSafe =
         Func<Guid, Status4>(fun g -> match engine.GetWorkState(g) with Some s -> s | None -> Status4.Ready)
     let getCallStateSafe =

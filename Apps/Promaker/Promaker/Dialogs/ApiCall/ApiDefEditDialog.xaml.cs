@@ -71,16 +71,9 @@ public partial class ApiDefEditDialog : Window
         }
         else
         {
-            var virt = (ActionType.Virtual)action;
-            if (FSharpOption<TimePolicy>.get_IsSome(virt.Item))
-            {
-                ActionVirtPlusRadio.IsChecked = true;
-                ActionVirtPlusMsBox.Text = virt.Item.Value.Ms.ToString();
-            }
-            else
-            {
-                ActionVirtRadio.IsChecked = true;
-            }
+            // virtPlus(Virtual+Append) 제거됨 — Action Virtual 은 Append 유무와 무관하게 virt 로 표시.
+            //   구 모델의 Virtual(Some Append) 는 다음 저장 시 Virtual(None) 으로 정규화된다.
+            ActionVirtRadio.IsChecked = true;
         }
     }
 
@@ -121,7 +114,6 @@ public partial class ApiDefEditDialog : Window
         if (ActionTimeAppendRadio.IsChecked == true)    { if (!TryParsePositive(ActionTimeAppendMsBox.Text, out var ms))    { DialogHelpers.Warn("timeAppend ms 값은 양의 정수여야 합니다."); return false; } action = ActionType.NewReal(SignalMode.Level, FSharpOption<TimePolicy>.Some(TimePolicy.NewAppend(ms))); return true; }
         if (ActionPulseHoldRadio.IsChecked == true)     { if (!TryParsePositive(ActionPulseHoldMsBox.Text, out var ms))     { DialogHelpers.Warn("pulseHold ms 값은 양의 정수여야 합니다."); return false; } action = ActionType.NewReal(SignalMode.OneShot, FSharpOption<TimePolicy>.Some(TimePolicy.NewAppend(ms))); return true; }
         if (ActionVirtRadio.IsChecked == true)          { action = ActionType.NewVirtual(FSharpOption<TimePolicy>.None); return true; }
-        if (ActionVirtPlusRadio.IsChecked == true)      { if (!TryParsePositive(ActionVirtPlusMsBox.Text, out var ms))      { DialogHelpers.Warn("virtPlus ms 값은 양의 정수여야 합니다."); return false; } action = ActionType.NewVirtual(FSharpOption<TimePolicy>.Some(TimePolicy.NewAppend(ms))); return true; }
         return true;
     }
 
@@ -167,8 +159,6 @@ public partial class ApiDefEditDialog : Window
     private void ActionTimeAppendRadio_Unchecked(object sender, RoutedEventArgs e) => SetEnabled(ActionTimeAppendMsBox, false);
     private void ActionPulseHoldRadio_Checked(object sender, RoutedEventArgs e)    => SetEnabled(ActionPulseHoldMsBox, true);
     private void ActionPulseHoldRadio_Unchecked(object sender, RoutedEventArgs e)  => SetEnabled(ActionPulseHoldMsBox, false);
-    private void ActionVirtPlusRadio_Checked(object sender, RoutedEventArgs e)     => SetEnabled(ActionVirtPlusMsBox, true);
-    private void ActionVirtPlusRadio_Unchecked(object sender, RoutedEventArgs e)   => SetEnabled(ActionVirtPlusMsBox, false);
     private void SensingDebounceRadio_Checked(object sender, RoutedEventArgs e)    => SetEnabled(SensingDebounceMsBox, true);
     private void SensingDebounceRadio_Unchecked(object sender, RoutedEventArgs e)  => SetEnabled(SensingDebounceMsBox, false);
     private void SensingEdgeStableRadio_Checked(object sender, RoutedEventArgs e)  => SetEnabled(SensingEdgeStableMsBox, true);
