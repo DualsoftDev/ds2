@@ -28,7 +28,6 @@ public partial class MainViewModel
         _store.ClearHistory();
         IsDirty = false;
         HasProject = true;
-        LlmChatVm?.OnProjectOpened();
         UpdateTitle();
         StatusText = "New project created.";
 
@@ -48,7 +47,6 @@ public partial class MainViewModel
         _store = new DsStore();
         WireEvents();
         // Hot-fix-7: LLM Chat 의 _store reference 도 동기화. 새 프로젝트 추가가 LLM 측에 안 보이는 문제 회피.
-        LlmChatVm?.UpdateStore(_store);
 
         _currentFilePath = null;
         FileWatcher.ResetSignature();
@@ -82,7 +80,6 @@ public partial class MainViewModel
     private void InternalClose(string statusText)
     {
         var lastPath = _currentFilePath;
-        LlmChatVm?.OnProjectClosing(lastPath);
         Reset();
         StatusText = statusText;
         Log.Info($"Project closed (path={lastPath ?? "(unsaved)"}).");
