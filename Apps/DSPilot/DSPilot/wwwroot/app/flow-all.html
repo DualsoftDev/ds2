@@ -28,15 +28,21 @@
     <style>
         [x-cloak] { display: none !important; }
 
-        .dsp-page { min-height: 100vh; display: flex; flex-direction: column; background: var(--color-background); color: var(--color-text-primary); font-family: var(--font-family); }
+        .dsp-page { height: 100vh; display: flex; flex-direction: column; overflow: hidden; background: var(--color-background); color: var(--color-text-primary); font-family: var(--font-family); }
+        /* 공유 셸(shell.js)이 .dsp-page 를 64px 헤더 아래 main 으로 이동시킴 → 헤더 높이만큼 빼야 body 스크롤이 안 생김 */
+        .dsp-page.dsp-in-shell { height: calc(100vh - 64px); }
         .dsp-appbar { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 20px; background: var(--color-appbar-bg); color: var(--color-appbar-text); border-bottom: 1px solid var(--color-lines-strong); position: sticky; top: 0; z-index: 50; flex-shrink: 0; }
         .dsp-appbar .dsp-title { font-size: 18px; font-weight: 700; }
         .dsp-appbar .spacer { flex: 1; }
-        .dsp-main { flex: 1; min-height: 0; padding: 16px 20px 24px; max-width: 1500px; margin: 0 auto; width: 100%; }
+        .dsp-main { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px 20px 24px; max-width: 1500px; margin: 0 auto; width: 100%; }
+
+        /* 상단(공유 컨트롤 + 적용 바)은 고정, 그 아래 Flow 목록만 스크롤 */
+        .fa-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; padding: 2px 4px 4px 2px; margin: 0 -4px -4px -2px; }
+        .fa-scroll > * { flex: 0 0 auto; }
 
         /* ── 공유 컨트롤 + 일괄 적용 바 ── */
-        .fa-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; padding: 14px 16px; }
-        .fa-savebar { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 12px 14px; flex-wrap: wrap; padding: 11px 16px; background: var(--color-surface); border: 1px solid var(--color-lines-strong); border-radius: var(--radius-md); box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        .fa-controls { flex-shrink: 0; display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; padding: 14px 16px; }
+        .fa-savebar { flex-shrink: 0; z-index: 30; display: flex; align-items: center; gap: 12px 14px; flex-wrap: wrap; padding: 11px 16px; background: var(--color-surface); border: 1px solid var(--color-lines-strong); border-radius: var(--radius-md); box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
         .fa-savebar .spacer { flex: 1; min-width: 8px; }
         .fa-pending { display: inline-flex; align-items: center; gap: 8px; font-size: 0.78rem; font-weight: 700; color: var(--color-text-secondary); flex-wrap: wrap; }
         .fa-pchip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px; font-size: 0.72rem; font-weight: 700; border: 1px solid var(--color-lines-strong); color: var(--color-text-secondary); background: var(--color-surface); }
@@ -196,30 +202,13 @@
         </header>
 
         <main class="dsp-main">
-            <!-- 상단 타이틀 -->
-            <div class="ds-topbar">
-                <div class="ds-topbar-titles">
-                    <h2 x-text="systemName ? ('전체 편집 — ' + systemName) : '전체 편집'"></h2>
-                    <div class="ds-breadcrumb">
-                        <span x-text="flows.length + '개 Flow'"></span> · 사이클 분석 일괄 편집
-                    </div>
-                </div>
-                <div class="ds-topbar-actions">
-                    <span class="ds-live" :class="rt.connected ? 'is-live' : 'is-poll'"
-                          :title="rt.connected ? 'SignalR 실시간 연결됨' : '폴링 모드'">
-                        <span class="ds-live-dot"></span>
-                        <span x-text="rt.connected ? 'LIVE' : 'POLL'"></span>
-                    </span>
-                </div>
-            </div>
-
             <!-- 데모 차단 -->
             <div class="alert alert-error" x-show="demoBlocked" x-cloak style="margin-bottom:12px;">
                 <span class="material-icons">lock_clock</span>
                 <span>데모 사용 시간이 만료되어 데이터 API 가 차단되었습니다.</span>
             </div>
 
-            <div class="fw-grid" style="display:flex; flex-direction:column; gap:16px;">
+            <div class="fw-grid" style="display:flex; flex-direction:column; gap:16px; flex:1; min-height:0;">
 
                 <!-- ════ 공유 시간범위 컨트롤 ════ -->
                 <section class="card fa-controls">
@@ -271,9 +260,12 @@
                     <button class="btn btn-filled" @click="saveAll()" :disabled="saving || !hasPending"
                             title="모든 Flow 의 이상치·Head/Tail·실측 duration 변경을 한 번에 적용합니다. Head/Tail 변경은 과거 이력 재계산이 동반되어 변경된 Flow 를 순차 처리합니다.">
                         <span class="material-icons" style="font-size:17px; vertical-align:middle;" x-text="saving ? 'hourglass_top' : 'save'"></span>
-                        <span x-text="saving ? '적용 중…' : '일괄 적용'"></span>
+                        <span x-text="saving ? '적용 중…' : '적용'"></span>
                     </button>
                 </div>
+
+                <!-- ════ 스크롤 영역 (Flow 목록) ════ -->
+                <div class="fa-scroll">
 
                 <!-- 시스템에 Flow 없음 -->
                 <template x-if="!loadingAny && flows.length === 0">
@@ -336,14 +328,14 @@
                                     </div>
                                     <template x-if="slice.avgCycleMs !== null">
                                         <div class="kpi-cell tone-primary">
-                                            <div class="kp-label">CT 평균</div>
+                                            <div class="kp-label">사이클 평균</div>
                                             <div class="kp-value" x-text="fmtMs(slice.avgCycleMs)"></div>
                                             <div class="kp-sub">시작 → 다음 시작</div>
                                         </div>
                                     </template>
                                     <template x-if="slice.avgActiveMs !== null">
                                         <div class="kpi-cell">
-                                            <div class="kp-label">MT 평균</div>
+                                            <div class="kp-label">가동시간 평균</div>
                                             <div class="kp-value" x-text="fmtMs(slice.avgActiveMs)"></div>
                                             <div class="kp-sub">시작 → 완료</div>
                                         </div>
@@ -357,12 +349,12 @@
                                         </button>
                                     </template>
                                     <div class="kpi-cell ct-def ct-def-head">
-                                        <div class="kp-label"><span class="ct-dot"></span> HEAD</div>
+                                        <div class="kp-label"><span class="ct-dot"></span> 시작점(H)</div>
                                         <div class="ct-def-name" x-text="headName(slice) || '(기본)'" :title="headName(slice) || '(기본)'"></div>
                                         <div class="kp-sub" x-text="slice.cycleBoundaries.length + ' 회'"></div>
                                     </div>
                                     <div class="kpi-cell ct-def ct-def-tail">
-                                        <div class="kp-label"><span class="ct-dot"></span> TAIL</div>
+                                        <div class="kp-label"><span class="ct-dot"></span> 끝점(T)</div>
                                         <div class="ct-def-name" x-text="tailName(slice) || '-'" :title="tailName(slice) || '-'"></div>
                                         <div class="kp-sub" x-text="slice.tailEdges.length + ' 회'"></div>
                                     </div>
@@ -602,6 +594,8 @@
                         </template>
                     </section>
                 </template>
+
+                </div><!-- /.fa-scroll -->
 
             </div>
         </main>

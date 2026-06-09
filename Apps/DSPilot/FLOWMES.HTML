@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+
+<html lang="ko"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>DIAL Industrial Monitoring - Dashboard</title>
+<!-- Tailwind CSS v3 CDN -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<style data-purpose="custom-layout">
+    body {
+      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+      background-color: #f8fafc;
+    }
+    /* Scrollbar styling */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f1f1f1;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 3px;
+    }
+    .blueprint-bg {
+      background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
+      background-size: 20px 20px;
+    }
+    @keyframes marquee {
+      0% { transform: translateX(100%); }
+      100% { transform: translateX(-100%); }
+    }
+    .animate-marquee {
+      display: inline-block;
+      white-space: nowrap;
+      animation: marquee 20s linear infinite;
+    }
+  </style>
+</head>
+<body class="flex h-screen overflow-hidden">
+<!-- BEGIN: LeftSidebar -->
+<aside class="w-64 bg-[#f8fafc] border-r border-gray-200 flex flex-col h-full shrink-0" data-purpose="sidebar">
+<!-- Logo -->
+<div class="p-6">
+<div class="flex flex-col items-center">
+<h1 class="text-3xl font-bold text-[#4c51bf]">DIAL</h1>
+<p class="text-[10px] text-gray-400 uppercase tracking-widest">Industrial Monitoring</p>
+</div>
+</div>
+<!-- Navigation -->
+<nav class="flex-1 px-4 space-y-1">
+<a class="flex items-center px-4 py-3 bg-[#2563eb] text-white rounded-lg group" href="#">
+<svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<span>대시보드</span>
+</a>
+<a class="flex items-center px-4 py-3 text-gray-600 hover:bg-gray-100 rounded-lg group" href="#">
+<svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<span class="flex-1">kit</span>
+<svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M9 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</a>
+<a class="flex items-center px-4 py-3 text-gray-600 hover:bg-gray-100 rounded-lg" href="#">
+<svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<span>동작편차</span>
+</a>
+<a class="flex items-center px-4 py-3 text-gray-600 hover:bg-gray-100 rounded-lg relative" href="#">
+<svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<span>가동시간-이상</span>
+<span class="absolute right-4 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">221</span>
+</a>
+<a class="flex items-center px-4 py-3 text-gray-600 hover:bg-gray-100 rounded-lg" href="#">
+<svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<span>CCTV</span>
+</a>
+</nav>
+<!-- Line Summary -->
+<div class="px-4 py-4 border-t border-gray-200">
+<p class="text-[10px] text-gray-400 font-bold uppercase mb-2">Line Summary</p>
+<div class="bg-gray-50 border border-gray-100 rounded-lg p-3 text-xs">
+<div class="flex items-center mb-1">
+<span class="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+<span>가동: 1</span>
+</div>
+<div class="flex items-center">
+<span class="w-2 h-2 bg-orange-500 rounded-full mr-2"></span>
+<span>대기: 5</span>
+</div>
+</div>
+</div>
+<!-- Notifications List -->
+<div class="px-4 py-4 flex-grow overflow-y-auto">
+<p class="text-[10px] text-gray-400 font-bold uppercase mb-2">알람</p>
+<div class="space-y-4" data-purpose="alert-list">
+<!-- Alert Item -->
+<div class="text-[11px]">
+<div class="flex items-center text-orange-600 font-bold">
+<span class="w-1.5 h-1.5 bg-orange-500 rounded-full mr-2"></span>
+            센서 오감지
+          </div>
+<p class="text-gray-400 ml-3.5">kit • 2024-06-09 15:34:46</p>
+</div>
+<div class="text-[11px]">
+<div class="flex items-center text-orange-600 font-bold">
+<span class="w-1.5 h-1.5 bg-orange-500 rounded-full mr-2"></span>
+            센서 단선/이탈
+          </div>
+<p class="text-gray-400 ml-3.5">kit • 2024-06-09 15:34:46</p>
+</div>
+<div class="text-[11px]">
+<div class="flex items-center text-orange-600 font-bold">
+<span class="w-1.5 h-1.5 bg-orange-500 rounded-full mr-2"></span>
+            센서 단선/이탈
+          </div>
+<p class="text-gray-400 ml-3.5">kit • 2024-06-09 15:34:36</p>
+</div>
+</div>
+</div>
+<!-- Bottom Settings -->
+<div class="p-4 border-t border-gray-200">
+<button class="flex items-center text-gray-600 text-sm">
+<svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+        설정
+      </button>
+</div>
+</aside>
+<!-- END: LeftSidebar -->
+<!-- Main Content Wrapper -->
+<main class="flex-1 flex flex-col min-w-0 overflow-hidden">
+<!-- BEGIN: TopHeader -->
+<div class="bg-white border-b border-gray-200 px-6 py-2 flex items-center justify-between z-10">
+<div class="flex items-center space-x-2">
+<h2 class="text-xl font-bold text-gray-800">대시보드</h2>
+<nav class="flex text-xs text-gray-400 items-center">
+<span class="mx-2">Home</span>
+<svg class="w-3 h-3" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M9 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<span class="mx-2 font-medium">대시보드</span>
+</nav>
+</div>
+<div class="flex items-center space-x-4">
+<div class="flex items-center bg-green-100 text-green-600 px-2 py-1 rounded text-xs font-bold">
+<span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2"></span>
+          실시간
+          <svg class="w-3 h-3 ml-1" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</div>
+<div class="flex items-center space-x-2 text-gray-400">
+<!-- Icons Placeholder -->
+<svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+<div class="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xs">DI</div>
+</div>
+</div>
+</div>
+<!-- END: TopHeader -->
+<!-- BEGIN: FlowAlarmBanner -->
+<div class="bg-yellow-400 px-6 py-4 flex items-center shadow-sm overflow-hidden" data-purpose="flow-alarm-banner">
+<div class="flex items-center shrink-0 mr-4 z-10 bg-yellow-400 pr-2">
+<svg class="w-8 h-8 text-black" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</div>
+<div class="flex-1 overflow-hidden relative h-8 flex items-center">
+<div class="animate-marquee whitespace-nowrap">
+<span class="text-2xl font-bold text-black uppercase tracking-tight">
+          생산 라인 속도 저하 감지 - 현재 1번 라인 정체 발생 중이며 즉각적인 확인 및 조치가 필요합니다. 담당자는 현장 상황을 파악해 주세요.
+        </span>
+</div>
+</div>
+<button class="bg-black text-white px-4 py-1.5 rounded-full text-sm font-bold hover:bg-gray-800 transition-colors shrink-0 ml-4 z-10 shadow-lg">
+        상세 확인
+      </button>
+</div>
+<!-- END: FlowAlarmBanner -->
+<!-- Scrollable Body Content -->
+<div class="flex-1 overflow-y-auto p-6 space-y-6">
+<!-- BEGIN: TopMetricCards -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6" data-purpose="metrics-grid">
+<!-- Max Time Card -->
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex flex-col relative overflow-hidden">
+<p class="text-[10px] text-blue-500 font-bold mb-2">최대 시간 (전체시간)</p>
+<div class="text-4xl font-bold text-gray-800 mb-4">3분 10초</div>
+<a class="text-blue-500 text-xs font-bold flex items-center" href="#">
+<svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M14 5l7 7m0 0l-7 7m7-7H3" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+            검사
+          </a>
+<!-- Decorative Icon BG -->
+<div class="absolute -right-4 -bottom-4 opacity-[0.05]">
+<svg class="w-32 h-32" fill="currentColor" viewbox="0 0 24 24"><path d="M12 2C6.486 2 2 6.486 2 12s4.486 10 10 10 10-4.486 10-10S17.514 2 12 2zm0 18c-4.411 0-8-3.589-8-8s3.589-8 8-8 8 3.589 8 8-3.589 8-8 8z"></path><path d="M13 7h-2v5.414l3.293 3.293 1.414-1.414L13 11.586z"></path></svg>
+</div>
+</div>
+<!-- Wait Rate Card -->
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex flex-col relative overflow-hidden">
+<p class="text-[10px] text-gray-500 font-bold mb-2">최대 대기율 (대기시간/전체시간)</p>
+<div class="text-4xl font-bold text-gray-800 mb-4">89.5%</div>
+<a class="text-gray-500 text-xs font-bold flex items-center" href="#">
+<svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M14 5l7 7m0 0l-7 7m7-7H3" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+            이송
+          </a>
+<!-- Decorative Icon BG -->
+<div class="absolute -right-4 -bottom-4 opacity-[0.05]">
+<svg class="w-32 h-32" fill="currentColor" viewbox="0 0 24 24"><path d="M12 2C6.486 2 2 6.486 2 12s4.486 10 10 10 10-4.486 10-10S17.514 2 12 2zm0 18c-4.411 0-8-3.589-8-8s3.589-8 8-8 8 3.589 8 8-3.589 8-8 8z"></path><path d="M7 11h10v2H7z"></path></svg>
+</div>
+</div>
+<!-- Shift End Card -->
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex flex-col relative overflow-hidden">
+<div class="flex justify-between items-start mb-2">
+<p class="text-[10px] text-gray-500 font-bold">시프트 종료까지</p>
+<button class="text-gray-400 hover:text-gray-600">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</button>
+</div>
+<div class="text-3xl font-bold text-gray-800 mb-2">1시간 24분</div>
+<div class="flex justify-between text-[11px] text-gray-500 mb-1">
+<span>생산 54 / 100개</span>
+<span class="text-blue-500 font-bold">54%</span>
+</div>
+<div class="w-full bg-gray-100 h-2 rounded-full overflow-hidden">
+<div class="bg-blue-500 h-full" style="width: 54%"></div>
+</div>
+</div>
+</div>
+<!-- END: TopMetricCards -->
+<!-- BEGIN: LayoutAndComparisonSection -->
+<div class="grid grid-cols-1 xl:grid-cols-4 gap-6">
+<!-- Main Layout (Machine Status) -->
+<div class="xl:col-span-3 bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+<div class="flex items-center justify-between mb-6">
+<div class="flex items-center space-x-4">
+<h3 class="text-lg font-bold text-gray-800">레이아웃</h3>
+<span class="text-xs text-gray-400">실시간 사이클타임</span>
+</div>
+<div class="flex items-center space-x-6 text-[11px]">
+<div class="flex items-center"><span class="w-2 h-2 bg-blue-500 rounded-sm mr-1.5"></span>가동</div>
+<div class="flex items-center"><span class="w-2 h-2 bg-gray-300 rounded-sm mr-1.5"></span>대기</div>
+<button class="flex items-center text-gray-500"><svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg> 편집</button>
+<button class="text-gray-500"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg></button>
+</div>
+</div>
+<!-- Blueprint Area -->
+<div class="blueprint-bg bg-gray-200 rounded-lg p-8 relative min-h-[500px] border border-gray-300">
+<!-- Central Logo Overlay -->
+<div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+<span class="text-7xl font-bold text-gray-100 select-none">DUALSOFT<sup>®</sup></span>
+</div>
+<!-- Machine Grid Simulation -->
+<div class="grid grid-cols-4 gap-x-8 gap-y-12 relative z-10">
+<!-- Card: 투입 -->
+<div class="bg-white rounded-lg p-4 shadow-md border-t-4 border-blue-500" data-purpose="machine-card">
+<div class="flex justify-between items-start mb-2">
+<h4 class="text-sm font-bold text-gray-700">투입</h4>
+<div class="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
+</div>
+<div class="text-xl font-bold text-blue-600 mb-2">38.0초 <span class="text-[9px] text-gray-400 font-normal">전체</span></div>
+<div class="space-y-1.5">
+<div class="flex justify-between text-[9px]">
+<span class="text-gray-500">가동</span><span class="text-blue-500">13.2초</span>
+</div>
+<div class="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
+<div class="bg-blue-400 h-full" style="width: 35%"></div>
+</div>
+<div class="flex justify-between text-[9px]">
+<span class="text-gray-500">대기</span><span class="text-gray-600">24.8초</span>
+</div>
+</div>
+</div>
+<!-- Card: 이송 -->
+<div class="bg-white rounded-lg p-4 shadow-md border-t-4 border-gray-300">
+<div class="flex justify-between items-start mb-2">
+<h4 class="text-sm font-bold text-gray-700">이송</h4>
+<div class="flex space-x-1">
+<div class="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
+<div class="w-1.5 h-1.5 bg-gray-400 rounded-full"></div>
+</div>
+</div>
+<div class="text-xl font-bold text-blue-600 mb-2">38.1초 <span class="text-[9px] text-gray-400 font-normal">전체</span></div>
+<div class="space-y-1.5">
+<div class="flex justify-between text-[9px]">
+<span class="text-gray-500">가동</span><span class="text-blue-500">4.0초</span>
+</div>
+<div class="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
+<div class="bg-blue-400 h-full" style="width: 10%"></div>
+</div>
+<div class="flex justify-between text-[9px]">
+<span class="text-gray-500">대기</span><span class="text-gray-600">34.1초</span>
+</div>
+</div>
+</div>
+<!-- Card: 가공 -->
+<div class="bg-white rounded-lg p-4 shadow-md border-t-4 border-gray-300">
+<div class="flex justify-between items-start mb-2">
+<h4 class="text-sm font-bold text-gray-700">가공</h4>
+<div class="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
+</div>
+<div class="text-xl font-bold text-blue-600 mb-2">38.1초 <span class="text-[9px] text-gray-400 font-normal">전체</span></div>
+<div class="space-y-1.5">
+<div class="flex justify-between text-[9px]">
+<span class="text-gray-500">가동</span><span class="text-blue-500">4.5초</span>
+</div>
+<div class="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
+<div class="bg-blue-400 h-full" style="width: 12%"></div>
+</div>
+<div class="flex justify-between text-[9px]">
+<span class="text-gray-500">대기</span><span class="text-gray-600">33.7초</span>
+</div>
+</div>
+</div>
+<!-- Card: 조립 -->
+<div class="bg-white rounded-lg p-4 shadow-md border-t-4 border-gray-300">
+<div class="flex justify-between items-start mb-2">
+<h4 class="text-sm font-bold text-gray-700">조립</h4>
+<div class="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
+</div>
+<div class="text-xl font-bold text-blue-600 mb-2">1분 54초 <span class="text-[9px] text-gray-400 font-normal">전체</span></div>
+<div class="space-y-1.5">
+<div class="flex justify-between text-[9px]">
+<span class="text-gray-500">가동</span><span class="text-blue-500">42.5초</span>
+</div>
+<div class="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
+<div class="bg-blue-400 h-full" style="width: 37%"></div>
+</div>
+<div class="flex justify-between text-[9px]">
+<span class="text-gray-500">대기</span><span class="text-gray-600">1분 11초</span>
+</div>
+</div>
+</div>
+<!-- Spacer for second row -->
+<div></div>
+<!-- Card: 검사 (Highlighted) -->
+<div class="bg-white rounded-lg p-4 shadow-md border-t-4 border-blue-500">
+<div class="flex justify-between items-start mb-2">
+<h4 class="text-sm font-bold text-gray-700">검사</h4>
+<div class="flex space-x-1">
+<div class="w-1.5 h-1.5 bg-orange-300 rounded-full"></div>
+<div class="w-1.5 h-1.5 bg-blue-500 rounded-full"></div>
+</div>
+</div>
+<div class="text-xl font-bold text-blue-600 mb-2">3분 10초 <span class="text-[9px] text-gray-400 font-normal">전체</span></div>
+<div class="space-y-1.5">
+<div class="flex justify-between text-[9px]">
+<span class="text-gray-500">가동</span><span class="text-blue-500">1분 58초</span>
+</div>
+<div class="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
+<div class="bg-blue-600 h-full" style="width: 62%"></div>
+</div>
+<div class="flex justify-between text-[9px]">
+<span class="text-gray-500">대기</span><span class="text-gray-600">1분 11초</span>
+</div>
+</div>
+</div>
+<!-- Card: 배출 -->
+<div class="bg-white rounded-lg p-4 shadow-md border-t-4 border-gray-300">
+<div class="flex justify-between items-start mb-2">
+<h4 class="text-sm font-bold text-gray-700">배출</h4>
+<div class="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
+</div>
+<div class="text-xl font-bold text-blue-600 mb-2">38.0초 <span class="text-[9px] text-gray-400 font-normal">전체</span></div>
+<div class="space-y-1.5">
+<div class="flex justify-between text-[9px]">
+<span class="text-gray-500">가동</span><span class="text-blue-500">7.5초</span>
+</div>
+<div class="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
+<div class="bg-blue-400 h-full" style="width: 20%"></div>
+</div>
+<div class="flex justify-between text-[9px]">
+<span class="text-gray-500">대기</span><span class="text-gray-600">30.5초</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Right Panel: Cycle Comparison -->
+<div class="xl:col-span-1 bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex flex-col">
+<div class="flex items-center justify-between mb-8">
+<h3 class="text-lg font-bold text-gray-800">사이클 비교</h3>
+<div class="flex bg-gray-100 p-0.5 rounded-md">
+<button class="bg-white text-blue-600 text-[10px] px-2 py-1 rounded shadow-sm font-bold flex items-center">
+<svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+                최근
+              </button>
+<button class="text-gray-500 text-[10px] px-2 py-1 flex items-center">
+<svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+                평균
+              </button>
+</div>
+</div>
+<!-- Donut Chart Container -->
+<div class="flex-1 flex flex-col items-center justify-center relative py-10" data-purpose="cycle-chart">
+<div class="w-64 h-64 relative">
+<!-- SVG Donut Chart Mockup -->
+<svg class="w-full h-full transform -rotate-90" viewbox="0 0 36 36">
+<!-- Base circle -->
+<circle cx="18" cy="18" fill="transparent" r="16" stroke="#e2e8f0" stroke-width="3"></circle>
+<!-- 검사 (Dark Blue) -->
+<circle cx="18" cy="18" fill="transparent" r="16" stroke="#1e3a8a" stroke-dasharray="40 100" stroke-dashoffset="0" stroke-width="3"></circle>
+<!-- 조립 (Light Blue) -->
+<circle cx="18" cy="18" fill="transparent" r="16" stroke="#bfdbfe" stroke-dasharray="25 100" stroke-dashoffset="-40" stroke-width="3"></circle>
+<!-- 배출 (Medium Blue) -->
+<circle cx="18" cy="18" fill="transparent" r="16" stroke="#3b82f6" stroke-dasharray="15 100" stroke-dashoffset="-65" stroke-width="3"></circle>
+<!-- Others (Grey) -->
+<circle cx="18" cy="18" fill="transparent" r="16" stroke="#f1f5f9" stroke-dasharray="20 100" stroke-dashoffset="-80" stroke-width="3"></circle>
+</svg>
+<!-- Central Text -->
+<div class="absolute inset-0 flex flex-col items-center justify-center">
+<span class="text-xs text-gray-400">배출</span>
+<span class="text-2xl font-bold text-blue-700">38.0초</span>
+</div>
+</div>
+</div>
+<!-- Legend -->
+<div class="grid grid-cols-2 gap-y-3 mt-10" data-purpose="chart-legend">
+<div class="flex items-center justify-between pr-4 border-r border-gray-100">
+<div class="flex items-center">
+<span class="w-3 h-3 bg-[#1e3a8a] rounded-sm mr-2"></span>
+<span class="text-xs text-gray-500 font-medium">검사</span>
+</div>
+<span class="text-xs font-bold">3분 10초</span>
+</div>
+<div class="flex items-center justify-between pl-4">
+<div class="flex items-center">
+<span class="w-3 h-3 bg-[#bfdbfe] rounded-sm mr-2"></span>
+<span class="text-xs text-gray-500 font-medium">조립</span>
+</div>
+<span class="text-xs font-bold text-right">1분 54초</span>
+</div>
+<div class="flex items-center justify-between pr-4 border-r border-gray-100 bg-blue-50 py-1 rounded">
+<div class="flex items-center">
+<span class="w-3 h-3 bg-[#3b82f6] rounded-sm mr-2"></span>
+<span class="text-xs text-gray-500 font-medium">가공</span>
+</div>
+<span class="text-xs font-bold">38.1초</span>
+</div>
+<div class="flex items-center justify-between pl-4">
+<div class="flex items-center">
+<span class="w-3 h-3 bg-[#94a3b8] rounded-sm mr-2"></span>
+<span class="text-xs text-gray-500 font-medium">이송</span>
+</div>
+<span class="text-xs font-bold text-right">38.1초</span>
+</div>
+<div class="flex items-center justify-between pr-4 border-r border-gray-100">
+<div class="flex items-center">
+<span class="w-3 h-3 bg-[#2563eb] rounded-sm mr-2"></span>
+<span class="text-xs text-gray-500 font-medium">배출</span>
+</div>
+<span class="text-xs font-bold">38.0초</span>
+</div>
+<div class="flex items-center justify-between pl-4">
+<div class="flex items-center">
+<span class="w-3 h-3 bg-[#0d9488] rounded-sm mr-2"></span>
+<span class="text-xs text-gray-500 font-medium">투입</span>
+</div>
+<span class="text-xs font-bold text-right">38.0초</span>
+</div>
+</div>
+</div>
+</div>
+<!-- END: LayoutAndComparisonSection -->
+</div>
+</main>
+</body></html>

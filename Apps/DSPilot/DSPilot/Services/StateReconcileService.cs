@@ -53,6 +53,9 @@ public sealed class StateReconcileService : BackgroundService
                     // 완료 신호가 늦거나 안 오는 동작의 timeout(ActionOver)을 능동 감지 — reconcile 여부와 무관.
                     _engine.TickAbnormalWatchdog();
 
+                    // 래치 적격 Flow 의 박제(stuck-open) 사이클 해소 — reconcile 여부와 무관(라인 정지 시 "가동중" 박제 방지).
+                    await _engine.TickFlowLatchWatchdogAsync();
+
                     if (reconcileEnabled)
                         await _engine.ReconcileStuckStatesAsync();
                 }

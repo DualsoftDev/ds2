@@ -412,6 +412,24 @@ module LoggingHelpers =
                     n <= t && not prevSatisfies
                 | _ -> false
 
+        /// 현재 값이 매칭 조건을 (정상상태로) 만족하는가 — edge/전이가 아닌 "지금 조건이 걸려 있는가" 판정.
+        /// 라이브 활성알람 자동 해소(조건 풀림 → 표시 제거)에 사용: shouldResolve = not (isConditionActive ...).
+        /// edge 연산(RisingEdge/FallingEdge)은 정상상태 개념이 없어 "매칭된 레벨에 머물러 있는지"로 폴백,
+        /// Changed 는 정상상태가 없으므로 항상 false(다음 평가에 즉시 해소).
+        let isConditionActive (vt: PlcValueType) (op: UserTagMatchOp) (matchValue: string)
+                              (currentValue: string) : bool =
+            let num () = tryParseNumber currentValue, tryParseNumber matchValue
+            match op with
+            | UserTagMatchOp.RisingEdge -> normalizeBool currentValue = "1"
+            | UserTagMatchOp.FallingEdge -> normalizeBool currentValue = "0"
+            | UserTagMatchOp.Changed -> false
+            | UserTagMatchOp.Eq -> valueEquals vt currentValue matchValue
+            | UserTagMatchOp.Neq -> not (valueEquals vt currentValue matchValue)
+            | UserTagMatchOp.Gt -> match num () with Some n, Some t -> n > t | _ -> false
+            | UserTagMatchOp.Gte -> match num () with Some n, Some t -> n >= t | _ -> false
+            | UserTagMatchOp.Lt -> match num () with Some n, Some t -> n < t | _ -> false
+            | UserTagMatchOp.Lte -> match num () with Some n, Some t -> n <= t | _ -> false
+
         /// MatchOp + MatchValue 의 사람-친화 설명 — 정의 화면 / 알림 행에서 노출.
         /// vt 는 현재 메시지 표시 로직에서 분기에 쓰이지 않으나, 향후 타입별 단위 (예: "85 ℃") 표시 확장을 위해 시그니처에 유지.
         let describeCondition (_vt: PlcValueType) (op: UserTagMatchOp) (matchValue: string) : string =

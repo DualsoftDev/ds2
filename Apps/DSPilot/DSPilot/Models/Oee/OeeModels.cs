@@ -166,3 +166,15 @@ public sealed record OeeRankingDto(
     double? Performance,
     double? Quality,
     double? Oee);
+
+/// <summary>일자별/시간별 가동·정지·점검 버킷 (API 응답 컨테이너).</summary>
+public sealed record OeeDailyResponse(
+    string Granularity,                  // "day" | "hour"
+    IReadOnlyList<OeeDailySlotDto> Slots);
+
+/// <summary>단일 버킷: Slot 문자열·슬롯 지속시간·비계획정지·계획정비.</summary>
+public sealed record OeeDailySlotDto(
+    string Slot,        // "yyyy-MM-dd" 또는 "yyyy-MM-dd HH:00"
+    long SlotMs,        // 슬롯 달력 지속시간 (ms) — 가동 = SlotMs - UnplannedMs - PlannedMs
+    long UnplannedMs,   // 비계획 정지 (category != 'planned')
+    long PlannedMs);    // 계획정비 (category = 'planned')
