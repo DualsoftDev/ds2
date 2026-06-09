@@ -145,4 +145,36 @@ public partial class PropertyPanelState
             return value;
         return null;
     }
+
+    /// <summary>인라인 abnormal Min/Max(ms) 적용. duration 은 현재값 유지, Min/Max 만 갱신.
+    /// 공란(null)=미사용(None). batch 와 동일한 store API(UpdateWorkDurationRangesBatch) 로 undo/dirty 정합.</summary>
+    [RelayCommand]
+    private void ApplyWorkRange()
+    {
+        var selectedWorkIds = GetSelectedCanonicalWorkIds();
+        if (selectedWorkIds.Count == 0) return;
+
+        var changes = new System.Collections.Generic.List<(Guid, int?, int?, int?)>();
+        foreach (var id in selectedWorkIds)
+            changes.Add((id, WorkPeriodMs, WorkMinMs, WorkMaxMs));
+
+        if (!_host.TryAction(() => Store.UpdateWorkDurationRangesBatch(changes)))
+            return;
+
+        if (_host.IsSimulating)
+            _host.ReloadSimDurations();
+
+        _originalWorkMinMs = WorkMinMs;
+        _originalWorkMaxMs = WorkMaxMs;
+        IsWorkRangeDirty = false;
+        _host.SetStatusText(selectedWorkIds.Count > 1
+            ? $"Min/Max range updated for {selectedWorkIds.Count} items."
+            : "Min/Max range updated.");
+        Refresh();
+    }
+
+    private static int? MsOfTimeSpanOption(Microsoft.FSharp.Core.FSharpOption<System.TimeSpan> o) =>
+        Microsoft.FSharp.Core.FSharpOption<System.TimeSpan>.get_IsSome(o)
+            ? (int)o.Value.TotalMilliseconds
+            : (int?)null;
 }

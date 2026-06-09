@@ -68,6 +68,21 @@ public partial class PropertyPanelState
         WorkPeriodMs = _originalWorkPeriodMs;
         _deviceDurationMs = ws.DeviceDurationMs;
         DeviceDurationHint = ws.DeviceDurationHint;
+        // v12 자동 줄자: 인라인 Min/Max — 단일 work 선택 시 store Work 의 Min/MaxDuration 에서 로드(없으면 공란=미사용).
+        if (IsSingleWorkSelected && selected is not null
+            && Store.Works.TryGetValue(selected.Id, out var selWork))
+        {
+            _originalWorkMinMs = MsOfTimeSpanOption(selWork.MinDuration);
+            _originalWorkMaxMs = MsOfTimeSpanOption(selWork.MaxDuration);
+        }
+        else
+        {
+            _originalWorkMinMs = null;
+            _originalWorkMaxMs = null;
+        }
+        WorkMinMs = _originalWorkMinMs;
+        WorkMaxMs = _originalWorkMaxMs;
+        IsWorkRangeDirty = false;
         HasLinkedTokenSpec = ws.HasLinkedTokenSpec;
         LinkedTokenSpecLabel = ws.LinkedTokenSpecLabel;
         _suppressPropertySync = true;
