@@ -3,30 +3,17 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ad="https://github.com/Dirkster99/AvalonDock">
     <!--
-        PR-A1 — DevExpress.Wpf.Docking → Dirkster.AvalonDock 재교체.
-        AvalonDock 의 LayoutRoot/LayoutPanel/LayoutAnchorablePane(Group)/LayoutDocumentPane 으로 layout 트리 구성.
-
+        PR-A6 — Simulation dock 삭제 + 하단 단일 pane 통합.
         외곽: LayoutPanel(Horizontal)
           ├─ Left  : _leftPane (LayoutAnchorablePane, DockWidth=320) — Explorer
           ├─ Center: LayoutPanel(Vertical)
           │           ├─ LayoutDocumentPaneGroup
-          │           │   └─ _documentPane (LayoutDocumentPane) — Welcome / Canvas
-          │           └─ LayoutAnchorablePaneGroup(Horizontal, DockHeight=200)
-          │                ├─ _bottomLeftPane  — Simulation
-          │                └─ _bottomRightPane — Log
+          │           │   └─ _documentPane — Welcome / Canvas
+          │           └─ _bottomPane (LayoutAnchorablePane, DockHeight=200) — Log / Gantt Chart / Status Monitor (tabbed)
           └─ Right : LayoutAnchorablePaneGroup(Vertical, DockWidth=280)
                       ├─ _rightTopPane    — Properties
-                      ├─ _rightMiddlePane — History  (DockHeight=220)
-                      └─ _rightBottomPane — LlmChat (기본 Hide())
-
-        외부 노출 API = IDockManager. AvalonDock type 은 본 UserControl 안에서만 사용 — 격리 경계 유지.
-        size 보존 / drag-drop / floating / Save·Restore XML 은 AvalonDock 가 native 처리.
-
-        Help 뱃지(?) — DevExpress 시절 BaseLayoutItem.CaptionTemplate 으로 caption bar 에 표시했으나, AvalonDock 의
-        AnchorableHeaderTemplate 은 (1) tab caption 으로 합쳐졌을 때 조상 탐색이 동작하지 않는 알려진 한계가 있고,
-        (2) HelpNavigator 의존이 Promaker.Help → Promaker.Dock 역방향 의존을 유발해 격리 깨짐. 따라서 본 PR 에서는
-        **anchor content 안 상단에 얇은(20px) Help bar 를 wrap** 하는 방식으로 우회 — DockHost.WrapWithHelp(...) 에서
-        code-behind 로 Grid 합성. Help bar 의 click → AnchorHelpRequested event 발화 (contentId 매개).
+                      ├─ _rightMiddlePane — History (DockHeight=220)
+                      └─ _rightBottomPane — LlmChat
     -->
     <ad:DockingManager x:Name="_dockManager"
                        AllowMixedOrientation="True"
@@ -34,22 +21,16 @@
         <ad:LayoutRoot>
             <ad:LayoutPanel Orientation="Horizontal">
 
-                <!-- Left column: Explorer -->
                 <ad:LayoutAnchorablePane x:Name="_leftPane" DockWidth="320"/>
 
-                <!-- Center column: Document area + Bottom (Simulation | Log) -->
                 <ad:LayoutPanel Orientation="Vertical">
                     <ad:LayoutDocumentPaneGroup>
                         <ad:LayoutDocumentPane x:Name="_documentPane"/>
                     </ad:LayoutDocumentPaneGroup>
 
-                    <ad:LayoutAnchorablePaneGroup Orientation="Horizontal" DockHeight="200">
-                        <ad:LayoutAnchorablePane x:Name="_bottomLeftPane"/>
-                        <ad:LayoutAnchorablePane x:Name="_bottomRightPane"/>
-                    </ad:LayoutAnchorablePaneGroup>
+                    <ad:LayoutAnchorablePane x:Name="_bottomPane" DockHeight="200"/>
                 </ad:LayoutPanel>
 
-                <!-- Right column: Properties / History / LlmChat -->
                 <ad:LayoutAnchorablePaneGroup Orientation="Vertical" DockWidth="280">
                     <ad:LayoutAnchorablePane x:Name="_rightTopPane"/>
                     <ad:LayoutAnchorablePane x:Name="_rightMiddlePane" DockHeight="220"/>
