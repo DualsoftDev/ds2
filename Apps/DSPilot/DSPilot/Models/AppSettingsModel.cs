@@ -302,11 +302,11 @@ public class UiSettings
     public bool ShowPlcDebug { get; set; } = false;
 
     /// <summary>
-    /// 대시보드 경로이탈 이상감지 알람 배너의 마퀴 텍스트 흐름 속도(px/초). 클수록 빠름. 기본 250.
+    /// 대시보드 경로이탈 이상감지 알람 배너의 세로 티커 전환 간격(초). 한 건이 머무는 시간 — 작을수록 빠르게 넘어간다. 기본 3초.
     /// 여러 작업자 화면이 같은 속도를 보도록 서버(appsettings)에 보관 — 설정 페이지에서 변경,
     /// 저장 시 DatabaseRebuilt 브로드캐스트로 대시보드가 스냅샷을 재조회해 즉시 반영한다.
     /// </summary>
-    public int AlarmMarqueeSpeedPxPerSec { get; set; } = 250;
+    public int AlarmTickerIntervalSec { get; set; } = 3;
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }

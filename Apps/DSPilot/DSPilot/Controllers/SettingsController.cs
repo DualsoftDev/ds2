@@ -97,7 +97,7 @@ public class SettingsController : ControllerBase
             m.HistoryView.MaxCallGoingTimeMs = req.MaxCallGoingTimeMs;
             m.HistoryView.MinCallGoingTimeMs = req.MinCallGoingTimeMs;
             m.HistoryView.CycleAverageWindow = req.CycleAverageWindow;
-            m.Ui.AlarmMarqueeSpeedPxPerSec = Math.Clamp(req.AlarmMarqueeSpeedPxPerSec, 20, 2000);
+            m.Ui.AlarmTickerIntervalSec = Math.Clamp(req.AlarmTickerIntervalSec, 1, 30);
             m.AbnormalAlarm.ResetIntervalHours = Math.Max(0, req.AbnormalAlarmResetIntervalHours);
 
             // CCTV(RTSP) 카메라 설정은 CCTV 페이지(CctvController.SaveSettings)가 소유 — 여기서는 건드리지 않는다.
@@ -246,7 +246,7 @@ public class SettingsController : ControllerBase
                 _cctvSync.LastSyncMessage),
             _project.AasxFilePath,
             BuildAasxStatus(),
-            m.Ui.AlarmMarqueeSpeedPxPerSec,
+            m.Ui.AlarmTickerIntervalSec,
             m.AbnormalAlarm.ResetIntervalHours);
     }
 
@@ -353,7 +353,7 @@ public record SettingsDto(
     CctvDto Cctv,
     string AasxFilePath,
     AasxStatusDto AasxStatus,
-    int AlarmMarqueeSpeedPxPerSec = 250,
+    int AlarmTickerIntervalSec = 3,
     int AbnormalAlarmResetIntervalHours = 24);
 
 public record HistoryViewDto(
@@ -393,7 +393,7 @@ public record SaveRequestDto(
     int MaxCallGoingTimeMs,
     int MinCallGoingTimeMs,
     int CycleAverageWindow = 20,
-    int AlarmMarqueeSpeedPxPerSec = 250,
+    int AlarmTickerIntervalSec = 3,
     int AbnormalAlarmResetIntervalHours = 24);
 
 public record SaveResultDto(bool Ok, string Message);

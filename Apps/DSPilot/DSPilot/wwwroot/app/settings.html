@@ -55,7 +55,7 @@
         .dsp-toast.info { border-left-color: var(--color-info); }
 
         /* ── Settings 레이아웃 ── */
-        /* minmax(0,1fr): 트랙 최소를 0 으로 고정 → 내부 nowrap 마퀴(.fa-demo-marquee) 같은 비분할 콘텐츠가
+        /* minmax(0,1fr): 트랙 최소를 0 으로 고정 → 내부 nowrap 콘텐츠(.fa-demo-msg 등)가
            1fr(=minmax(auto,1fr)) 트랙을 부풀려 우측 열이 폭주(가로 스크롤)하던 문제 방지. min-width:0 은 보강. */
         .settings-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
         @media (max-width: 900px) { .settings-grid { grid-template-columns: minmax(0, 1fr); } }
@@ -88,10 +88,11 @@
         .fa-demo-icon { display: flex; align-items: center; flex-shrink: 0; margin-right: 10px; padding-right: 8px; z-index: 2; background: #facc15; }
         .fa-demo-icon svg { width: 22px; height: 22px; color: #000; }
         .fa-demo-track { flex: 1; min-width: 0; overflow: hidden; height: 28px; display: flex; align-items: center; }
-        .fa-demo-marquee { display: inline-flex; flex-wrap: nowrap; white-space: nowrap; animation: fa-demo-scroll 20s linear infinite; will-change: transform; }
-        .fa-demo-marquee > span { flex: 0 0 auto; font-size: 1.15rem; font-weight: 700; color: #dc2626; letter-spacing: -0.01em; }
-        .fa-demo-track:hover .fa-demo-marquee { animation-play-state: paused; }
-        @keyframes fa-demo-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+        .fa-demo-msg { display: block; width: 100%; font-size: 1.15rem; font-weight: 700; color: #dc2626; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; will-change: transform; }
+        .fa-demo-msg-anim { animation: fa-demo-flip 0.5s cubic-bezier(0.16, 1, 0.3, 1); }
+        @keyframes fa-demo-flip { 0% { transform: translateY(108%); opacity: 0; } 60% { opacity: 1; } 100% { transform: translateY(0); opacity: 1; } }
+        @media (prefers-reduced-motion: reduce) { .fa-demo-msg-anim { animation: none; } }
+        .fa-demo-idx { flex-shrink: 0; margin-left: 10px; font-size: 0.78rem; font-weight: 800; color: #000; background: rgba(0,0,0,0.14); border: 1px solid rgba(0,0,0,0.1); border-radius: 9999px; padding: 2px 9px; font-variant-numeric: tabular-nums; white-space: nowrap; }
     </style>
 </head>
 
@@ -398,22 +399,22 @@
                                         <span class="material-icons">speed</span>
                                         이상 알람 배너
                                     </h6>
-                                    <small class="fa-demo-cap">미리보기 — 아래 속도값으로 실제 배너처럼 흐릅니다 (값을 바꾸면 즉시 반영).</small>
+                                    <small class="fa-demo-cap">미리보기 — 아래 속도값으로 실제 배너처럼 한 건씩 전환됩니다 (값을 바꾸면 즉시 반영).</small>
                                     <div class="fa-demo" aria-hidden="true">
                                         <div class="fa-demo-icon">
                                             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
                                         </div>
                                         <div class="fa-demo-track">
-                                            <div class="fa-demo-marquee" :style="`animation-duration:${demoDur}s`">
-                                                <span x-text="demoMsg"></span>
-                                                <span x-text="demoMsg"></span>
-                                            </div>
+                                            <template x-for="m in [demoCurrent]" :key="demoIndex">
+                                                <span class="fa-demo-msg fa-demo-msg-anim" x-text="m"></span>
+                                            </template>
                                         </div>
+                                        <span class="fa-demo-idx"><b x-text="demoIndex + 1"></b> / <span x-text="demoMsgs.length"></span></span>
                                     </div>
                                     <div class="form-group">
-                                        <label class="form-label">텍스트 흐름 속도 (px/초)</label>
-                                        <input type="number" class="form-field mono" x-model.number="s.alarmMarqueeSpeedPxPerSec" min="20" max="2000" step="10" placeholder="250" />
-                                        <small class="settings-hint">대시보드·전체화면 이상 알람 배너의 텍스트가 흐르는 속도. 클수록 빠름. 기본 250.</small>
+                                        <label class="form-label">텍스트 전환 간격 (초)</label>
+                                        <input type="number" class="form-field mono" x-model.number="s.alarmTickerIntervalSec" min="1" max="30" step="1" placeholder="3" />
+                                        <small class="settings-hint">대시보드·전체화면 이상 알람 배너에서 한 건이 머무는 시간(초). 작을수록 빠르게 다음 건으로 넘어감. 기본 3초.</small>
                                     </div>
                                     <div class="form-group" style="margin-bottom:0;">
                                         <label class="form-label">알람 표시 유효 시간</label>
@@ -528,9 +529,10 @@
                     window.addEventListener('storage', (e) => { if (e.key === 'dspilot-theme') this.dark = e.newValue === 'dark'; });
                     await this.load();
                     this.connectSignalR();
+                    this.demoStartTicker();
                 },
 
-                destroy() { this._conn?.stop(); },
+                destroy() { this._conn?.stop(); clearTimeout(this._demoTimer); },
 
                 // 테마 변경: .dsp-page(Alpine) + <html> + 셸 레이아웃 + 다른 탭까지 모두 반영.
                 // shell.js 는 storage 이벤트를 듣고 layout/<html> 에 dark-theme 를 토글한다.
@@ -587,21 +589,25 @@
                     a.remove();
                 },
 
-                // ── 이상 알람 배너 데모 미리보기 ── 설정 속도(px/s)로 샘플 메시지를 실제 배너처럼 흐르게(값 변경 즉시 반영) ──
-                get demoMsg() {
-                    const gap = '        ';
-                    const sep = gap + '•' + gap;
-                    return [
-                        '투입.투입 / Conveyor1.MOVE: 동작 지연(시간 초과) (ActionOver)',
-                        '검사.검사 / Inspector2.CHECK: 센서 단선/이탈 (SensorOpen)',
-                        '이송.이송 / Transfer1.MOVE: 동작 과속(시간 미만) (ActionUnder)'
-                    ].join(sep) + sep;
+                // ── 이상 알람 배너 데모 미리보기 ── 설정 속도값으로 샘플 메시지를 실제 배너처럼 한 건씩 세로 티커 전환(값 변경 즉시 반영) ──
+                demoMsgs: [
+                    '투입.투입 / Conveyor1.MOVE: 동작 지연(시간 초과) (ActionOver)',
+                    '검사.검사 / Inspector2.CHECK: 센서 단선/이탈 (SensorOpen)',
+                    '이송.이송 / Transfer1.MOVE: 동작 과속(시간 미만) (ActionUnder)'
+                ],
+                demoIndex: 0, _demoTimer: null,
+                get demoCurrent() { return this.demoMsgs[this.demoIndex % this.demoMsgs.length]; },
+                // 대시보드와 동일: 전환 간격(초) → ms. 1~30초 클램프. 기본 3초.
+                get demoDwellMs() {
+                    return Math.max(1000, Math.min(30000, Math.round((this.s?.alarmTickerIntervalSec || 3) * 1000)));
                 },
-                get demoDur() {
-                    const sp = this.s?.alarmMarqueeSpeedPxPerSec || 250;   // 입력 속도(px/s)
-                    let units = 0;                                          // 한글/CJK=1, 그 외=0.55 (대략적 글자폭)
-                    for (const ch of this.demoMsg) units += /[　-鿿가-힣]/.test(ch) ? 1 : 0.55;
-                    return Math.max(6, Math.round(units * 18.4 / sp));      // 1.15rem≈18.4px → 실제 배너와 같은 px/s 체감
+                demoStartTicker() {
+                    clearTimeout(this._demoTimer);
+                    const tick = () => {
+                        this.demoIndex = (this.demoIndex + 1) % this.demoMsgs.length;
+                        this._demoTimer = setTimeout(tick, this.demoDwellMs);
+                    };
+                    this._demoTimer = setTimeout(tick, this.demoDwellMs);
                 },
 
                 // ── H/M/S ↔ ms (Settings.razor 의 MaxCycle*/MinCycle* getter/setter 와 동일) ──
@@ -638,7 +644,7 @@
                             maxCallGoingTimeMs: hv.maxCallGoingTimeMs | 0,
                             minCallGoingTimeMs: hv.minCallGoingTimeMs | 0,
                             cycleAverageWindow: (hv.cycleAverageWindow ?? 20) | 0,
-                            alarmMarqueeSpeedPxPerSec: (this.s.alarmMarqueeSpeedPxPerSec ?? 250) | 0,
+                            alarmTickerIntervalSec: (this.s.alarmTickerIntervalSec ?? 3) | 0,
                             abnormalAlarmResetIntervalHours: (this.s.abnormalAlarmResetIntervalHours ?? 24) | 0
                         };
                         const r = await this.apiPost('/api/settings/save', body);
