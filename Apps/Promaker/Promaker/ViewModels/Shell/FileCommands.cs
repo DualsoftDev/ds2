@@ -7,7 +7,6 @@ using CommunityToolkit.Mvvm.Input;
 using Ds2.Aasx;
 using Ds2.Core.Store;
 using Ds2.Editor;
-using Ds2.LlmAgent;
 using Microsoft.FSharp.Core;
 using Microsoft.Win32;
 using Promaker.Dialogs;
@@ -120,47 +119,17 @@ public partial class MainViewModel
     }
 
     /// <summary>
-    /// 환경(앱 전역) 설정 편집 — AASX / PLC / LLM / 프리셋. 프로젝트와 무관, 항상 활성.
+    /// 환경(앱 전역) 설정 편집 — AASX / PLC / 프리셋. 프로젝트와 무관, 항상 활성.
     /// </summary>
     [RelayCommand]
-    private void ShowApplicationSettings() => OpenApplicationSettings(ApplicationSettingsDialog.SettingsTab.Aasx);
-
-    /// <summary>
-    /// LLM Chat 패널 헤더의 ⚙ 버튼에서 호출. 같은 ApplicationSettingsDialog 를 LLM 탭으로 바로 열기.
-    /// (AS-2: 진입점 통일 + 별도 mini dialog 신설 회피)
-    /// </summary>
-    [RelayCommand]
-    private void ShowLlmSettings() => OpenApplicationSettings(ApplicationSettingsDialog.SettingsTab.Llm);
-
-    private void OpenApplicationSettings(ApplicationSettingsDialog.SettingsTab initialTab)
+    private void ShowApplicationSettings()
     {
-        var dlg = new ApplicationSettingsDialog(initialTab);
-        var accepted = _dialogService.ShowDialog(dlg) == true;
+        var dlg = new ApplicationSettingsDialog(ApplicationSettingsDialog.SettingsTab.Aasx);
+        if (_dialogService.ShowDialog(dlg) != true) return;
 
-        // UserPromptsTouched: 디스크 *.md 변경 가능성은 OK/Cancel 무관 — 사용자가 폴더에서 이미 편집했을 수 있음.
-        // 단, 작업 지침 변경이 함께 감지되면 Codex instructions.md 즉시 rewrite 를 피하고 재시작 path 로만 반영.
-        var instructionsPending =
-            dlg.LlmInstructionsChanged
-            || (LlmChatVm?.HasPendingInstructionPromptChange() == true);
-        if (dlg.UserPromptsTouched && !instructionsPending) LlmChatVm?.RefreshPrompts();
-
-        if (!accepted)
-        {
-            if (instructionsPending) LlmChatVm?.NotifyInstructionsRestartRequired();
-            return;
-        }
-
-        // PR-B: LLM 탭 변경 사항이 있으면 LlmChatVm 의 메모리 _config 즉시 reload (provider 재구성 포함).
-        if (dlg.LlmConfigChanged) LlmChatVm?.ReloadConfig();
-        else if (dlg.LlmInstructionsChanged) LlmChatVm?.ReloadConfigSnapshot();
-        if (instructionsPending && !dlg.LlmConfigChanged)
-            LlmChatVm?.NotifyInstructionsRestartRequired();
-
-        // 앱 설정으로 저장 (Editor mutation 없음 — 환경 설정은 Editor undo stack 무관)
         AppSettings.SetSplitDeviceAasx(dlg.ResultSplitDeviceAasx);
         AppSettings.SetCreateDefaultEntitiesOnEmptyAasx(dlg.ResultCreateDefaultEntities);
         AppSettings.SetIriPrefix(dlg.ResultIriPrefix);
-        // PresetSystemTypes / PlcConfig / LlmConfig 는 Dialog 내부에서 이미 파일에 저장됨
 
         StatusText = "환경 설정이 변경되었습니다.";
     }

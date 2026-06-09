@@ -6,59 +6,25 @@
     <UseWPF>true</UseWPF>
     <RootNamespace>Promaker</RootNamespace>
     <AssemblyName>Promaker</AssemblyName>
-    <!-- Version / AssemblyVersion / FileVersion 는 Directory.Build.props 가 BuildVersion.txt 에서 주입. -->
     <ApplicationIcon>Assets\Promaker.ico</ApplicationIcon>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <OtherFlags>
     </OtherFlags>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
-    <!-- CS9057: OllamaSharp 5.4.25 의 분석기 어셈블리 OllamaSharp.SourceGenerators.dll 이 Roslyn 5.0.0.0 을
-         요구하지만 현재 .NET SDK 9.0.301 의 Roslyn 은 4.14.0.0. 분석기가 로드되지 않을 뿐 본 코드는
-         [OllamaTool] attribute 미사용 (MCP 경유 tool 호출) — 런타임 무해.
-         **회수 조건** (R7 cross-check 2026-05-11 — Microsoft Learn Roslyn version mapping 기준): (a) .NET
-         SDK 가 Roslyn 5.0+ 포함 — Roslyn 5.0.0 은 **VS 2026 (18.0) / .NET 10 SDK** 부터 (VS 17.x 계열은
-         영원히 4.x 라인), 또는 (b) OllamaSharp 가 Roslyn 4.x 호환 분석기로 downgrade. 둘 다 미충족 시
-         NoWarn 유지. -->
-    <NoWarn>$(NoWarn);CS9057</NoWarn>
   </PropertyGroup>
   <ItemGroup>
-    <!-- review S5a-m4: Promaker.Tests 가 LightHouseClient 의 internal ctor 호출 (mock HttpClient 주입).
-         reflection 우회 대신 명시 InternalsVisibleTo — 향후 internal API 변경 시 compile-time 검출. -->
     <InternalsVisibleTo Include="Promaker.Tests" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" />
     <PackageReference Include="AvalonEdit" />
     <PackageReference Include="log4net" />
-    <!-- IsAgentAvailable 가 PromakerAgentService 등록 여부까지 검증 (시나리오 C 가드). -->
     <PackageReference Include="System.ServiceProcess.ServiceController" />
     <PackageReference Include="MahApps.Metro.IconPacks.Material" />
     <PackageReference Include="MdXaml" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
     <PackageReference Include="Microsoft.Web.WebView2" />
-    <!-- PR-D8: AvalonDock (Dirkster.AvalonDock / Themes.Metro) PackageReference 제거. DevExpress.Wpf.Docking 으로 swap. -->
-    <PackageReference Include="ModelContextProtocol" />
-    <PackageReference Include="ModelContextProtocol.AspNetCore" />
-    <!-- LLM Chat 첨부 (review F3) — App.xaml.cs RegisterProvider + Ds2.LlmAgent transitive. -->
-    <PackageReference Include="System.Text.Encoding.CodePages" />
-    <!-- Phase 2 — API providers (Anthropic / OpenAI / Ollama via Microsoft.Extensions.AI IChatClient) -->
-    <PackageReference Include="Anthropic" />
-    <PackageReference Include="OpenAI" />
-    <PackageReference Include="OllamaSharp" />
-    <PackageReference Include="Microsoft.Extensions.AI" />
-    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
-    <!-- LLM Chat 첨부 Phase 3b — PDF 페이지 수 추출 (LlmChatViewModel.Attachments.cs 의 LoadAcceptedAttachments). -->
-    <PackageReference Include="PdfPig" />
-    <!-- done-lighthouse-kb-index.md r11/s5e-r0 결정: PdfPig 0.1.14 의 OpenXml 3.1.1 transitive 와
-         Ds2.LightHouse 의 3.5.1 충돌 (MSB3277) 해소용 명시. CPM 의 3.5.1 적용. -->
-    <PackageReference Include="DocumentFormat.OpenXml" />
-    <!-- Phase 4 — sqlite-vec native binary (vec0 extension load 의무, lib 의 PrivateAssets=all 우회).
-         Promaker 가 AttachmentIngestService 안에서 lib 의 Indexer 호출 → lib 의 SqliteStore 가 LoadExtension("vec0")
-         → vec0.dll 이 Promaker publish output 에 있어야 함.
-         ExcludeAssets=contentFiles — sqlite-vec NuGet 의 Vector.cs C# wrapper (SqliteConnection 직접 의존) compile
-         차단. lib (F#) 가 raw LoadExtension + SQL string path 만 사용 — Vector.cs wrapper 미사용. -->
-    <PackageReference Include="sqlite-vec" ExcludeAssets="contentFiles" />
   </ItemGroup>
   <ItemGroup>
     <None Update="log4net.config">
@@ -92,31 +58,14 @@
       <DesignTime>True</DesignTime>
       <DependentUpon>Strings.resx</DependentUpon>
     </Compile>
-    <!-- LLM system prompt — LlmAgent/Prompts/*.md (자연 정렬 후 concat) + selected built-in instructions. PromptLoader 참고.
-         PR-S1: 옛 4.attachments / 5.knowledge-base / 9.environment 는 baseline 으로 분리 후 Llm.Shared/Prompts/baseline/
-         아래에서 1/2/3.*.md 로 rename. Promaker 잔류 overlay = 0.domain mandatory base.
-         promaker/v0 YAML 생성 규칙은 LlmAgent/Instructions/promaker-yaml built-in instruction 으로 이동.
-         baseline → overlay → selected instruction 합성 순서는 PromakerProfile SSOT. -->
-    <EmbeddedResource Include="LlmAgent\Prompts\*.md" />
-    <EmbeddedResource Remove="LlmAgent\Prompts\CLAUDE.md" />
-    <EmbeddedResource Remove="LlmAgent\Prompts\facts.md" />
-    <EmbeddedResource Include="LlmAgent\Instructions\promaker-yaml\instruction.json"
-                      LogicalName="Promaker.LlmAgent.Instructions.promaker-yaml.instruction.json" />
-    <EmbeddedResource Include="LlmAgent\Instructions\promaker-yaml\INSTRUCTION.md"
-                      LogicalName="Promaker.LlmAgent.Instructions.promaker-yaml.INSTRUCTION.md" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\..\Solutions\View\Ds2.View3D\wwwroot\models\**\*" Link="wwwroot\models\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
-    <!-- 커스텀 모델 프리뷰 도구 + 스펙 문서 -->
     <Content Include="..\..\..\Solutions\View\Ds2.View3D\wwwroot\device-preview.html" Link="wwwroot\device-preview.html" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\..\Solutions\View\Ds2.View3D\wwwroot\DEVICE_JSON_SPEC.md" Link="wwwroot\DEVICE_JSON_SPEC.md" CopyToOutputDirectory="PreserveNewest" />
-    <!-- AAStoXGI 산출물 — XGI_Template.xml / IECFunctionInfo.json 모두 AAStoPLC.dll 의
-         EmbeddedResource. 첫 실행 시 PlcConfig 가 AppData\PlcTemplate\ 로 추출. -->
   </ItemGroup>
   <ItemGroup>
-    <!-- AAStoPLC, AAStoPLC.LadderEditor 는 별도 저장소(dsev2cpu) 빌드 산출물.
-         빌드 시 ExternalDlls 로 게시되며, 여기서는 그 dll 만 파일 참조. -->
     <Reference Include="AAStoPLC">
       <HintPath>..\..\..\ExternalDlls\AAStoPLC.dll</HintPath>
       <Private>true</Private>
@@ -125,8 +74,6 @@
       <HintPath>..\..\..\ExternalDlls\AAStoPLC.LadderEditor.dll</HintPath>
       <Private>true</Private>
     </Reference>
-    <!-- PLC 게이트웨이가 Ev2.PLC.Common 의 PlcDataType 을 노출하므로,
-         PlcSettings 모델 빌드 시 C# 측에서도 동일 타입을 참조 가능해야 한다. -->
     <Reference Include="Ev2.PLC.Common.FS">
       <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Common.FS.dll</HintPath>
       <Private>true</Private>
@@ -139,28 +86,12 @@
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.Mermaid\Ds2.Mermaid.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.SymbolImport\Ds2.SymbolImport.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Core\Ds2.Editor\Ds2.Editor.fsproj" />
-    <ProjectReference Include="..\..\..\Solutions\Core\Ds2.LightHouse\Ds2.LightHouse.fsproj" />
-    <!-- A2 (K4 Protocol SSOT 통합, 2026-05-20) — wire 상수 (ServerEventNames / MetaJson schema / WireConstants)
-         단일 SSOT. server F# / client C# / cli F# 3중 박제 → 단일. -->
-    <ProjectReference Include="..\..\..\Solutions\Core\Ds2.LightHouse.Protocol\Ds2.LightHouse.Protocol.fsproj" />
-    <ProjectReference Include="..\..\..\Solutions\Tools\Ds2.LightHouse.Ollama\Ds2.LightHouse.Ollama.fsproj" />
-    <ProjectReference Include="..\..\..\Solutions\Core\Ds2.LlmAgent\Ds2.LlmAgent.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj" />
-    <!-- client-side ISimulationEngine proxy (Agent 호스팅 engine 의 SignalR client). Monitoring/Control proxy 전환용. -->
     <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.Runtime.Remote\Ds2.Runtime.Remote.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.Runtime.Report\Ds2.Runtime.Report.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Backend\Ds2.Backend\Ds2.Backend.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Backend\Ds2.Backend.Common\Ds2.Backend.Common.fsproj" />
-    <!-- Promaker WPF + Promaker.Agent 공유 — PlcConnectionSettings POCO, SharedPaths, PlcGatewayConfigBuilder -->
     <ProjectReference Include="..\Promaker.Shared\Promaker.Shared.csproj" />
-    <!-- PR-S1: Llm.Shared (LLM 인프라 공통 lib — McpHost / Api provider / PromptLoader / LlmTurnContext 등 16 파일).
-         HMI Designer 등 후속 App 도 본 lib 을 참조해 동일 인프라 공유. Promaker 측 잔류 = ModelTools / PromakerToolNames /
-         LlmConfig / LlmChatPanel + ViewModel / Behaviors / Presentation / Dialogs / Themes / Prompts overlay. -->
-    <ProjectReference Include="..\..\Shared\Llm.Shared\Llm.Shared.csproj" />
-    <!-- PR-D4 — Promaker.Dock (DevExpress.Wpf.Docking 캡슐화 격리 csproj).
-         Promaker.Dock 측이 mechanism D (Reference HintPath, PackageReference 제거) 로 NuGet graph 격리 보장 →
-         본 ProjectReference 에 PrivateAssets 불필요 (transitive 0건). DX 11종 + Themes.Office2019Black (PR-D7.3 fix)
-         은 Promaker.Dock 의 Reference Private=true + Content Include 로 Promaker bin 까지 carry. -->
     <ProjectReference Include="..\Promaker.Dock\Promaker.Dock.csproj" />
   </ItemGroup>
 </Project>

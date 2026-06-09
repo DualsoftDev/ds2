@@ -79,8 +79,6 @@ public partial class MainViewModel : ObservableObject
 
         // 외부 템플릿 폴더 초기화 제거 — AASX 내 FBTagMapPresets 가 단일 진실원이며,
         // 필요한 경우 TAG Wizard 가 일시 임시 디렉토리를 사용한다.
-
-        InitLlmAutostart();
     }
 
     /// <summary>

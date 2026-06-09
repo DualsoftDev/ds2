@@ -7,7 +7,6 @@ using System.Collections.Generic;
 using Ds2.Aasx;
 using Ds2.Core.Store;
 using Ds2.Editor;
-using Ds2.LlmAgent;
 using Microsoft.Win32;
 using Promaker.Presentation;
 using Promaker.Services;
@@ -23,7 +22,6 @@ public partial class MainViewModel
         FileWatcher.RecordSignature();
         IsDirty = false;
         HasProject = true;
-        LlmChatVm?.OnProjectOpened();
         UpdateTitle();
         Log.Info($"{kind} opened: {filePath}");
         StatusText = $"Opened: {Path.GetFileName(filePath)}";
@@ -103,30 +101,9 @@ public partial class MainViewModel
 
     private void OpenFilePathCore(string fileName)
     {
-        // _loadedAsLossy 는 yaml 분기에서만 set. 다른 분기 진입 직전 안전 reset.
         _loadedAsLossy = false;
 
-        if (FileTypeProbe.IsYaml(fileName))
-        {
-            TryRunFileOperation(
-                $"Open YAML '{fileName}'",
-                () =>
-                {
-                    var yamlText = File.ReadAllText(fileName, Encoding.UTF8);
-                    var result = ModelProtocolYamlIO.loadStoreFromYamlText(yamlText);
-                    if (!TryGetResult(
-                            result,
-                            err => $"YAML 불러오기 실패:\n\n{err}",
-                            out var store))
-                        return;
-
-                    PrepareForLoadedStore();
-                    _loadedAsLossy = true;
-                    ReplaceOpenedStore(fileName, store, "YAML");
-                },
-                ex => $"YAML 불러오기 실패: {ex.Message}");
-        }
-        else if (FileTypeProbe.IsMermaid(fileName))
+        if (FileTypeProbe.IsMermaid(fileName))
         {
             TryRunFileOperation(
                 $"Open Mermaid '{fileName}'",

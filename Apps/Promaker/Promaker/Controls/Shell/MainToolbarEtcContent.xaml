@@ -66,12 +66,7 @@
                     </Border>
                 </Popup>
             </Grid>
-            <!-- PR-D5 — 보기 메뉴 IDockManager 재wiring.
-                 5 체크박스 (Explorer/Properties/History/Simulation/Log) 가 VM 의 IsXxxVisible TwoWay binding.
-                 MainWindow.xaml.cs 의 Vm_PropertyChanged 가 dockHost.SetAnchorVisible 호출 + DockHost 의
-                 AnchorVisibilityChanged 가 VM property 역방향 set (양방향 _suppressAnchorSync 가드).
-                 Log 는 별 dock anchor 로 승격 (post-D8 fix) — HasProject 무관 (시스템 로그).
-                 LlmChat 은 별도 SSOT (IsLlmChatVisible, baseline 박제). -->
+            <!-- 보기 메뉴 — 5 체크박스 (Explorer/Properties/History/Simulation/Log) TwoWay binding. -->
             <Grid>
                 <ToggleButton x:Name="ViewMenuToggle" Style="{StaticResource RibbonFlatToggleButton}" ToolTip="패널 보기">
                     <StackPanel Orientation="Vertical">
@@ -97,14 +92,6 @@
                             <CheckBox Content="History"    IsChecked="{Binding IsHistoryVisible,    Mode=TwoWay}" Margin="8,4"/>
                             <CheckBox Content="Simulation" IsChecked="{Binding IsSimulationVisible, Mode=TwoWay}" Margin="8,4"/>
                             <CheckBox Content="Log"        IsChecked="{Binding IsLogVisible,        Mode=TwoWay}" Margin="8,4"/>
-                            <!-- LLM Chat — IsLlmChatVisible 이 SSOT, ToggleLlmChatCommand 가 consent 검사 + lazy 생성 +
-                                 visible 토글을 수행. IsChecked 를 TwoWay 로 직접 잡으면 setter 가 우회되어 vm null 노출
-                                 위험 → IsChecked=OneWay 표시 전용, Click 은 Command 에 위임. toolbar 의 별도 LLM 버튼과
-                                 동일한 진입 경로. baseline 박제 (todo §3 PR-D5 § "LlmChat.cs baseline 박제") 보존. -->
-                            <CheckBox Content="LLM Chat"
-                                      IsChecked="{Binding IsLlmChatVisible, Mode=OneWay}"
-                                      Command="{Binding ToggleLlmChatCommand}"
-                                      Margin="8,4"/>
                         </StackPanel>
                     </Border>
                 </Popup>
@@ -140,28 +127,7 @@
                     <TextBlock Text="{Binding ThemeButtonText}" Style="{StaticResource RibbonIconLabel}"/>
                 </StackPanel>
             </Button>
-            <!-- LLM 토글 (Phase 2 PR-C) — 라이트 버튼 패턴 (Command + DataTrigger 로 active 시 아이콘 색 강조).
-                 Click 시 ToggleLlmChatCommand 가 lazy 생성 + consent 검사 + IsLlmChatVisible 토글. -->
-            <Button Style="{StaticResource RibbonFlatButton}"
-                    Command="{Binding ToggleLlmChatCommand}"
-                    ToolTip="LLM Chat 패널 토글">
-                <StackPanel Orientation="Vertical">
-                    <iconPacks:PackIconMaterial Kind="Robot" Width="18" Height="18" HorizontalAlignment="Center">
-                        <iconPacks:PackIconMaterial.Style>
-                            <Style TargetType="iconPacks:PackIconMaterial">
-                                <Setter Property="Foreground" Value="{DynamicResource IconGrayBrush}"/>
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsLlmChatVisible}" Value="True">
-                                        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </iconPacks:PackIconMaterial.Style>
-                    </iconPacks:PackIconMaterial>
-                    <TextBlock Text="LLM" Style="{StaticResource RibbonIconLabel}"/>
-                </StackPanel>
-            </Button>
-            <Button Style="{StaticResource RibbonFlatButton}" Command="{Binding ShowApplicationSettingsCommand}" ToolTip="환경 설정 (AASX/PLC/LLM/프리셋)">
+            <Button Style="{StaticResource RibbonFlatButton}" Command="{Binding ShowApplicationSettingsCommand}" ToolTip="환경 설정 (AASX/PLC/프리셋)">
                 <StackPanel Orientation="Vertical">
                     <iconPacks:PackIconMaterial Kind="Cog" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/>
                     <TextBlock Text="{x:Static res:Strings.Settings}" Style="{StaticResource RibbonIconLabel}"/>
