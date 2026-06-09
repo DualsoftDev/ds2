@@ -43,6 +43,8 @@ public partial class SimulationPanelState : ObservableObject
     private TimeSpan? _passiveGanttClockAnchor;
     private DateTime _passiveGanttBaseWall = DateTime.Now;
     private TimeSpan _passiveGanttBaseElapsed = TimeSpan.Zero;
+    private readonly object _ganttIoBaselineLock = new();
+    private readonly HashSet<string> _ganttIoBaselineAddresses = new(StringComparer.OrdinalIgnoreCase);
     private readonly StateCache _stateCache = new();
 
     /// <summary>시뮬 결과 누적/박제/내보내기 collaborator. XAML 바인딩 path 는 Report.Xxx 로 노출.</summary>
@@ -215,20 +217,47 @@ public partial class SimulationPanelState : ObservableObject
 
         // 간트 I/O 줄 — Hub 의 실제 Tag(Out·In) 변화를 ApiCall I/O 행 막대로 반영.
         //   Plan(Call 수명=계획) 과 I/O(실제 송수신) 를 위아래로 대조 → 어디서 어긋나는지(abnormal) 가시화.
-        Hub.TagBroadcast += (address, value, _) =>
+        Hub.TagBroadcast += (address, value, source) =>
         {
             bool on = !string.IsNullOrEmpty(value)
                       && !string.Equals(value, "false", StringComparison.OrdinalIgnoreCase)
                       && value != "0";
-            // I/O 막대는 PLN(Call 상태)과 같은 engine clock 축으로 찍어야 한다.
-            // PLN = ResolveEventTimestamp(args.Clock) = _simStartTime + engineClock 인데
-            // I/O 가 AdjustedNow(wall) 면 같은 In 신호가 서로 다른 위치에 그려져
-            // "Call Finish 먼저, In/Out 나중"으로 어긋난다. 발생 시점(engine 스레드)의 engine clock 으로 캡처.
-            // I/O 막대는 PLN(Call 상태)과 같은 engine clock 축으로 찍는다(발생 시점 캡처).
-            // dispatch 시점 AdjustedNow 로 평가하면 burst dispatch 시 막대가 0너비로 붕괴된다.
-            var ts = _simEngine is null ? GanttChart.AdjustedNow : ToGanttTimestamp(_simEngine.State.Clock);
-            dispatcher.BeginInvoke(new Action(() => GanttChart.UpdateIoState(address, on, ts)));
+            if (ShouldAbsorbInitialMonitoringPlcIo(address, source))
+                return;
+            // I/O 막대는 PLN(Call 상태)과 같은 engine-clock 축 + 같은 anchor 로 찍어야 위아래가 정렬된다.
+            //   - 발생 시점(hub 스레드)의 engine clock 을 먼저 캡처한다. dispatch 시점에 읽으면 burst dispatch
+            //     중 같은 신호가 한 점으로 몰려 0너비로 붕괴한다.
+            //   - proxy(RemoteSimulationEngine) 의 State.Clock 은 CurrentTimeMs 기준으로 진행한다(원격 push).
+            //     예전엔 0 고정이라 실PLC Control 의 I/O 가 모두 _simStartTime 한 점에 찍혀 안 보였다.
+            //   - anchor 보정(ResolveEventTimestamp)은 PLN 과 같은 dispatcher 스레드에서 적용해
+            //     _passiveGanttClockAnchor 갱신을 단일 스레드로 유지(race 방지)하고, signal-driven 모드에서
+            //     I/O 가 PLN 과 동일하게 첫 신호 기준으로 정렬되도록 한다.
+            var clock = _simEngine?.State.Clock;
+            dispatcher.BeginInvoke(new Action(() =>
+            {
+                var ts = clock is { } c ? ResolveEventTimestamp(c) : GanttChart.AdjustedNow;
+                GanttChart.UpdateIoState(address, on, ts);
+            }));
         };
+    }
+
+    private bool ShouldAbsorbInitialMonitoringPlcIo(string address, string source)
+    {
+        if (string.IsNullOrWhiteSpace(address))
+            return false;
+        if (SelectedRuntimeMode != RuntimeMode.Monitoring || !IsRealPlcConnected)
+            return false;
+        if (!string.Equals(source, Ds2.Backend.Common.HubSource.Plc, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        lock (_ganttIoBaselineLock)
+            return _ganttIoBaselineAddresses.Add(address);
+    }
+
+    private void ResetGanttIoBaseline()
+    {
+        lock (_ganttIoBaselineLock)
+            _ganttIoBaselineAddresses.Clear();
     }
 
     private DsStore Store => _storeProvider();
@@ -435,7 +464,7 @@ public partial class SimulationPanelState : ObservableObject
     {
         if (IsSimulating && SelectedRuntimeMode == RuntimeMode.Simulation)
             GanttChart.NowOverride = _clockInterpolator.EstimateNow;
-        else if (IsSimulating && UsesSignalDrivenGanttTimeline(SelectedRuntimeMode))
+        else if (IsSimulating && IsSignalDrivenGanttTimeline)
             GanttChart.NowOverride = ResolveSignalDrivenGanttNow;
         else
             GanttChart.NowOverride = null;

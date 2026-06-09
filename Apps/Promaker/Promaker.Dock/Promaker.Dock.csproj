@@ -96,16 +96,18 @@
     </Reference>
     <!--
       System.Drawing.Common / Microsoft.Win32.SystemEvents — XAML compile pass (MC1000) 가 명시 reference
-      필요 (UseWPF=true 의 implicit 가 XAML pass 에서 visible 하지 않음). 4.7.2 reference 유지 + NoWarn
-      MSB3277 으로 6.0.0.0 vs 4.0.2.2 conflict 경고만 silence. runtime 은 .NET 9 9.0 platform assembly 로
-      정상 unify.
+      필요 (UseWPF=true 의 implicit 가 XAML pass 에서 visible 하지 않음). 버전은 .NET 9 런타임 platform
+      assembly(9.0)와 동일하게 9.0.0 으로 맞춘다.
+      과거 6.0.0 / 4.7.0 하드코딩은 그 버전이 (a) 중앙 패키지관리 핀(9.0.0)으로도, (b) 어떤 transitive
+      로도 복원되지 않아 새 환경 NuGet 캐시에 부재 → HintPath 파일 없음 → MC1000(VS/CLI 공통). 9.0.0 은
+      net9 앱들이 실제로 복원하므로 캐시에 존재하고, compile/runtime 버전이 일치해 MSB3277 충돌도 사라진다.
     -->
     <Reference Include="System.Drawing.Common">
-      <HintPath>$(UserProfile)\.nuget\packages\system.drawing.common\6.0.0\runtimes\win\lib\net6.0\System.Drawing.Common.dll</HintPath>
+      <HintPath>$(UserProfile)\.nuget\packages\system.drawing.common\9.0.0\lib\net9.0\System.Drawing.Common.dll</HintPath>
       <Private>true</Private>
     </Reference>
     <Reference Include="Microsoft.Win32.SystemEvents">
-      <HintPath>$(UserProfile)\.nuget\packages\microsoft.win32.systemevents\4.7.0\runtimes\win\lib\netcoreapp3.0\Microsoft.Win32.SystemEvents.dll</HintPath>
+      <HintPath>$(UserProfile)\.nuget\packages\microsoft.win32.systemevents\9.0.0\lib\net9.0\Microsoft.Win32.SystemEvents.dll</HintPath>
       <Private>true</Private>
     </Reference>
   </ItemGroup>
