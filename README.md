@@ -678,9 +678,19 @@ dotnet test Solutions/Ds2.sln -nologo
 
 ## License and Notices
 
+This repository is licensed under **Apache License 2.0**, **except** for the
+directory [`Apps/DSPilot/`](Apps/DSPilot/) which is licensed under a separate
+**proprietary commercial license** from Dualsoft Inc.
+
 | | |
 |:--|:--|
-| **License** | Apache License 2.0 — see [`LICENSE`](LICENSE) |
+| **Repository license** | Apache License 2.0 — see [`LICENSE`](LICENSE) |
+| **DSPilot license** | Proprietary, commercial — see [`Apps/DSPilot/LICENSE`](Apps/DSPilot/LICENSE) and [`Apps/DSPilot/NOTICE.md`](Apps/DSPilot/NOTICE.md) |
 | **Notice** | Project notices and attribution — see [`NOTICE`](NOTICE) |
 | **Patents** | See [`PATENTS.md`](PATENTS.md) and [dualsoft.co.kr/HelpDS/patents](http://dualsoft.co.kr/HelpDS/patents/patents.html) |
-| **Commercial** | Enterprise support — see [`COMMERCIAL.md`](COMMERCIAL.md) |
+| **Commercial inquiries** | Enterprise support — see [`COMMERCIAL.md`](COMMERCIAL.md) |
+
+> **Important**: Viewing the source code under `Apps/DSPilot/` does not grant
+> any right to build, run, redistribute, or embed the Software. A separate
+> written commercial license from Dualsoft is required for production use.
+> Contact: ahn@dualsoft.com

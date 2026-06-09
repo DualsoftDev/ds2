@@ -38,6 +38,12 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        // 3rd-party 테마 (AvalonDock / MahApps IconPacks) 내부의 GeometryDrawing.Brush={Binding Fill}
+        // 류는 DataContext 상속 불가 위치에서 raise 되어 무해한 BindingExpression 경고를 발생시킨다.
+        // Critical 만 유지하여 실 오류는 보존, severity 2 (Warning) 잡음만 제거.
+        System.Diagnostics.PresentationTraceSources.DataBindingSource.Switch.Level =
+            System.Diagnostics.SourceLevels.Critical;
+
         // AAStoPLC.TagWizard 의 모든 family preset 자동 등록 (idempotent).
         // 새 family 추가 시 Bootstrap.fs 의 ensureRegistered 안에서 처리 — startup 무수정.
         AAStoPLC.TagWizard.Bootstrap.EnsureRegistered();

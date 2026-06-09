@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+// Copyright (c) 2026 Dualsoft Inc. All rights reserved.
+// Commercial license required for use. See Apps/DSPilot/LICENSE.
 namespace DSPilot.Models.Dashboard;
 
 // 격리형 호스팅 Dashboard API 전송 DTO.
