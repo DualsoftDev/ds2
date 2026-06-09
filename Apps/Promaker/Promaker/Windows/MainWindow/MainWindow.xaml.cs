@@ -64,9 +64,6 @@ public partial class MainWindow : Window
         var simulationPanel = new SimulationPanel { DataContext = _vm.Simulation };
         var propertyPanel = new PropertyPanel { DataContext = _vm.PropertyPanel };
         var historyPanel = new HistoryPanel();
-        var llmChatPanel = new System.Windows.Controls.ContentControl();
-        llmChatPanel.SetBinding(System.Windows.Controls.ContentControl.ContentProperty,
-            new System.Windows.Data.Binding(nameof(MainViewModel.LlmChatVm)));
         var welcomeView = new WelcomeView();
         _workspacePane = new SplitCanvasContainer { MinHeight = 120 };
 
@@ -78,7 +75,6 @@ public partial class MainWindow : Window
         dockHost.RegisterAnchor(new DockAnchor("log",        "Log",        new AppLogView(),    DockAnchorPosition.BottomRight));
         dockHost.RegisterAnchor(new DockAnchor("properties", "Properties", propertyPanel,       DockAnchorPosition.RightTop,    HasHelp: true));
         dockHost.RegisterAnchor(new DockAnchor("history",    "History",    historyPanel,        DockAnchorPosition.RightMiddle, HasHelp: true));
-        dockHost.RegisterAnchor(new DockAnchor("llmchat",    "LLM Chat",   llmChatPanel,        DockAnchorPosition.RightBottom));
 
         dockHost.RegisterDocument(new DockAnchor("welcome", "Welcome",   welcomeView,      DockAnchorPosition.Document));
         dockHost.RegisterDocument(new DockAnchor("canvas",  "Workspace", _workspacePane,   DockAnchorPosition.Document));
@@ -112,9 +108,7 @@ public partial class MainWindow : Window
     {
         if (_suppressAnchorSync) return;
 
-        // HasProject / LlmChat 은 특수 처리 (baseline 박제 / Welcome↔Canvas swap), 나머지 5 anchor 는 table lookup.
         if (e.PropertyName == nameof(MainViewModel.HasProject)) { SyncWelcomeCanvasVisibility(); return; }
-        if (e.PropertyName == nameof(MainViewModel.IsLlmChatVisible)) { ApplyAnchorVisible("llmchat", _vm.IsLlmChatVisible); return; }
 
         foreach (var b in _anchorSyncs)
             if (b.VmPropertyName == e.PropertyName) { ApplyAnchorVisible(b.ContentId, b.Get()); return; }
@@ -137,8 +131,7 @@ public partial class MainWindow : Window
         _suppressAnchorSync = true;
         try
         {
-            // LlmChat 별도 (baseline §5), welcome/canvas 는 HasProject SSOT 일방 관리라 무시, 나머지 5 anchor table lookup.
-            if (e.ContentId == "llmchat") { _vm.IsLlmChatVisible = e.IsVisible; return; }
+            // welcome/canvas 는 HasProject SSOT 일방 관리라 무시, 나머지 5 anchor table lookup.
             foreach (var b in _anchorSyncs)
                 if (b.ContentId == e.ContentId) { b.Set(e.IsVisible); return; }
         }
@@ -206,12 +199,6 @@ public partial class MainWindow : Window
             foreach (var b in _anchorSyncs)
                 b.Set(dockHost.IsAnchorVisible(b.ContentId));
 
-            // LlmChat — baseline 박제 §5 (consent 흐름 + LlmChatVm lazy 생성) 보존 의무 → Restore 결과 무시.
-            // Restore 가 llmchat=Closed=false (visible) 로 복원했더라도 LlmChatVm 은 아직 null 일 수 있고,
-            // consent 검사도 통과 안 됨. 사용자 click 시 ToggleLlmChat 가 정상 흐름 (consent + lazy 생성) 진입.
-            dockHost.SetAnchorVisible("llmchat", false);
-            _vm.IsLlmChatVisible = false;
-
             // Welcome / Canvas — HasProject SSOT 가 일방 관리. Restore 결과를 무시하고 현재 HasProject 로 재적용.
             SyncWelcomeCanvasVisibilityNoGuard();
         }
@@ -249,53 +236,24 @@ public partial class MainWindow : Window
         _vm.IsToolbarSimulationVisible = hasProject;
     }
 
-    private bool _llmChatDisposed;
+    private bool _closeConfirmed;
 
-    /// <summary>
-    /// 1d-5/1d-4 D — 명시적 cleanup 패턴: 첫 진입 시 close cancel + Dispose 후 Close() 재호출,
-    /// 두 번째 진입 시 (`_llmChatDisposed=true`) 통과. async void Closed fire-and-forget 회피.
-    ///
-    /// Hot-fix-9 v2: 한 번 X 클릭만으로 발생하는 IsClosing race —
-    /// `e.Cancel = true` 후 await 이 끝난 시점에 같은 close 사이클의 `IsClosing` 가 아직 남아있어
-    /// `Close()` 가 `VerifyNotClosing` throw. v1 의 try/catch 는 throw 를 흡수만 해서 첫 X 무반응 → 두 번째 X
-    /// 시 _llmChatDisposed=true 분기로 close. 정확한 fix = `Dispatcher.BeginInvoke(Close, Background)` 로
-    /// 다음 message pump cycle 에 close 큐 → WPF 가 첫 close 사이클 정리 끝낸 후 background priority 로 실행.
-    /// </summary>
-    private async void Window_Closing(object sender, CancelEventArgs e)
+    private void Window_Closing(object sender, CancelEventArgs e)
     {
-        // 두 번째 진입(BeginInvoke 로 재큐된 Close)은 이미 confirm/dispose 완료 — 그대로 통과.
-        // 가드를 confirm 보다 앞에 두지 않으면 IsDirty 상태에 따라 저장 확인 다이얼로그가 2번 표시될 수 있음.
-        if (_llmChatDisposed) return;
+        if (_closeConfirmed) return;
 
-        // Monitoring + 실 PLC 상태로 동작 중이어도 Promaker WPF 는 그대로 닫는다 — 모니터링은
-        // Promaker.Agent (Windows Service) 가 별도 컨텍스트에서 계속 진행하고, 사용자에게는
-        // Promaker.AgentTray 가 상태/제어를 제공한다. WPF 창 = 편집 UI, 닫혀도 모니터링은 유지.
-
-        // --autostart-llm 측정 모드 = mutation 변경 자동 폐기 (Closing dialog skip).
-        // 측정 끝난 후 fsx 가 CloseMainWindow 보내면 dialog 없이 진행 → log4net flush + DisposeLlmChatAsync 정상.
-        if (!App.StartupAutoOpenLlm && !_vm.ConfirmDiscardChangesPublic())
+        if (!_vm.ConfirmDiscardChangesPublic())
         {
             e.Cancel = true;
             return;
         }
 
-        e.Cancel = true;
-        _llmChatDisposed = true;
-
-        // PR-D6 — 사용자 의도 verbatim: "`Window_Closing` 의 `_llmChatDisposed=true` 직후 Save".
-        // `%LOCALAPPDATA%\Promaker\dock-layout.xml` 박제. 상위 디렉토리는 DockHost.SaveLayout 안에서 자동 생성.
+        _closeConfirmed = true;
         dockHost.SaveLayout(LayoutXmlPath);
-
-        await _vm.DisposeLlmChatAsync();
-        // 다음 message pump cycle 에서 close. 같은 cycle 안 Close() 는 IsClosing race 로 throw 가능.
-        // fire-and-forget 의도 — DispatcherOperation 결과 무시.
-        _ = Dispatcher.BeginInvoke(new Action(Close), System.Windows.Threading.DispatcherPriority.Background);
     }
 
     private void MainWindow_Closed(object? sender, EventArgs e)
     {
-        // LlmChat dispose 는 Window_Closing 에서 await 완료됨 (1d-4 D 정석 패턴).
-        // 단일 메인 윈도우라 실 누수 0이나 ctor 의 += 대칭 해제 패턴 유지 (--review MJ4 박제).
         _vm.PropertyChanged -= Vm_PropertyChanged;
         dockHost.AnchorVisibilityChanged -= DockHost_AnchorVisibilityChanged;
         dockHost.AnchorHelpRequested -= DockHost_AnchorHelpRequested;

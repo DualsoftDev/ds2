@@ -7,7 +7,7 @@ using CommunityToolkit.Mvvm.Input;
 using Ds2.Aasx;
 using Ds2.Core.Store;
 using Ds2.Editor;
-using Ds2.LlmAgent;
+
 using Microsoft.Win32;
 using Promaker.Dialogs;
 using Promaker.Presentation;
@@ -220,36 +220,6 @@ public partial class MainViewModel
             }
         }
 
-        if (FileTypeProbe.IsYaml(filePath))
-        {
-            // 대형 store 의 yaml export 는 1-2초 소요 가능 → BusyOverlay.
-            // export 실패 시 ShowWarning (modal) 이 BusyOverlay 위에 겹치지 않도록, dialog 노출 직전
-            // BusyOverlay 복원. notice dialog (성공 분기) 도 같은 원칙 — overlay 해제 후 표시.
-            var prevBusy = IsBusy;
-            var prevMsg = BusyMessage;
-            BusyMessage = "YAML 저장 중...";
-            IsBusy = true;
-            try
-            {
-                var text = ModelProtocolYamlIO.exportStoreToYamlText(_store);
-                File.WriteAllText(filePath, text, new UTF8Encoding(false));
-            }
-            catch (Exception ex)
-            {
-                BusyMessage = prevMsg;
-                IsBusy = prevBusy;
-                Log.Error($"Save YAML '{filePath}' failed", ex);
-                _dialogService.ShowWarning($"YAML 저장 실패: {ex.Message}");
-                return false;
-            }
-            BusyMessage = prevMsg;
-            IsBusy = prevBusy;
-            if (!ShouldSuppressYamlSaveNotice())
-                ShowYamlSaveNoticeOnce();
-            CompleteSave(filePath, "YAML");
-            return true;
-        }
-
         try
         {
             _store.SaveToFile(filePath);
@@ -264,33 +234,4 @@ public partial class MainViewModel
         }
     }
 
-    private static bool ShouldSuppressYamlSaveNotice() =>
-        AppSettingStore.LoadBoolOrDefault(SettingsPaths.YamlSaveNoticeShown, defaultValue: false);
-
-    /// <summary>
-    /// 최초 Save(.yaml) 1회 lossy 안내 dialog. "다시 보지 않기" 체크 시 AppSettingStore 에 영구 persistence.
-    /// 메시지 톤: 위협 아닌 가치-기반 (AASX 안내 dialog 패턴).
-    /// lossy 4-set = GUID / position / alias / 시뮬 결과 — SSOT / dialog / title bar 모두 sync.
-    /// </summary>
-    private static void ShowYamlSaveNoticeOnce()
-    {
-        const string Message =
-            ".yaml 저장은 모델의 선언적 표현만 보존합니다.\n" +
-            "  • GUID · 위치 · alias · 시뮬 결과는 저장되지 않으며, 다시 열 때 자동 재발행됩니다.\n\n" +
-            "영구 보존 / 시뮬 결과 공유 / 위치 보존이 필요하면 .sdf 를 사용하세요.\n" +
-            "YAML 은 사람이 읽고 LLM 이 다루기 좋은 공유 포맷입니다.";
-
-        DialogHelpers.ShowThemedMessageBox(
-            Application.Current?.MainWindow,
-            Message,
-            "YAML 저장 안내",
-            MessageBoxButton.OK,
-            DialogHelpers.IconInfo,
-            showDontShowAgain: true,
-            out var dontShowAgain,
-            dontShowAgainLabel: "다시 보지 않기 (이 PC 영구)");
-
-        if (dontShowAgain)
-            AppSettingStore.SaveBool(SettingsPaths.YamlSaveNoticeShown, true);
-    }
 }
