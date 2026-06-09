@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
         xmlns:ctrl="clr-namespace:Promaker.Controls"
-        xmlns:promakerDock="clr-namespace:Promaker.Dock;assembly=Promaker.Dock"
+        xmlns:promakerDock="clr-namespace:Promaker.Dock"
         xmlns:vm="clr-namespace:Promaker.ViewModels"
         xmlns:conv="clr-namespace:Promaker.Presentation"
         xmlns:help="clr-namespace:Promaker.Help"
