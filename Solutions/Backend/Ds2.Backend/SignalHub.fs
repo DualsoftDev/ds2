@@ -162,7 +162,7 @@ type SignalHubBroadcaster(hubContext: IHubContext<SignalHub>, runtimeSession: IR
                 { Envelope = RuntimeHubDefaults.selfEnvelope runtimeSession.CurrentIdentity
                   Address = address
                   Value = value }
-            runtimeSession.InjectIOValueByAddressAsync(cmd) |> ignore
+            runtimeSession.InjectIOValueByAddressAsync(cmd).GetAwaiter().GetResult()
             hubContext.Clients.All.SendAsync(HubMethod.OnTagChanged, address, value, source)
 
         member _.BroadcastPlcConnectionStatus(status: PlcConnectionStatus) =

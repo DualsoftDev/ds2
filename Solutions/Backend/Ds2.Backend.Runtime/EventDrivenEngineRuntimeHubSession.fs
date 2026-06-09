@@ -163,7 +163,16 @@ type EventDrivenEngineRuntimeHubSession
         if runtimeMode = RuntimeMode.Monitoring then
             // SensorOpen 판정용 Call state — passive inference 가 engine 에 Force 한 현재 상태를 읽는다.
             let getCallStateForOpen g = match engine.GetCallState(g) with Some s -> s | None -> Status4.Ready
-            Some(MonitoringAbnormalAdapter(engine.Index, engine.IOMap, getCallStateForOpen, (fun () -> DateTime.UtcNow), broadcastAbnormal))
+            let ab = MonitoringAbnormalAdapter(engine.Index, engine.IOMap, getCallStateForOpen, (fun () -> DateTime.UtcNow), broadcastAbnormal, 250)
+            // 자동 줄자 학습 확정 → client(Promaker)로 push. 정지 시 "업데이트" 선택하면 모델 dirty 반영.
+            ab.OnLearnedDuration <- (fun workGuid avg minMs maxMs ->
+                let workName =
+                    Ds2.Core.Store.Queries.getWork workGuid engine.Index.Store
+                    |> Option.map (fun w -> w.Name) |> Option.defaultValue ""
+                let p : LearnedDurationPayload =
+                    { WorkId = string workGuid; WorkName = workName; AvgMs = avg; MinMs = minMs; MaxMs = maxMs }
+                hub.Clients.All.SendAsync(HubMethod.OnLearnedDuration, p) |> ignore)
+            Some ab
         else None
     // v12 — Monitoring abnormal 사이클별 재검출. Control 은 adapter 가 OnCallReset(callStateChanged)으로 사이클마다
     //   latch 를 비우지만, Monitoring 합류점(Layer B) latch 엔 그 hook 이 없어 DefaultLatchPolicy 5s window 가
