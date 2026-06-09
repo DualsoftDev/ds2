@@ -34,6 +34,39 @@ public interface IFlowMetricsService
     (string? HeadCallName, string? TailCallName) GetCycleBoundaryCallNames(string flowName);
 
     /// <summary>
+    /// Flow 가 head-start→tail-complete 엣지 래치로 배지를 도출할 자격이 있는지.
+    /// false 면 호출 측은 기존 going-any 폴백을 쓴다(미정의·복수 head/tail·동명 모호 Flow = 회귀 0).
+    /// </summary>
+    bool IsLatchEligible(string flowName);
+
+    /// <summary>래치 적격 Flow 의 사이클이 현재 열려 있는지(Going). 부적격/미추적이면 false.</summary>
+    bool IsLatchCycleActive(string flowName);
+
+    /// <summary>
+    /// 래치 적격 Flow 의 배지 상태("Going"/"Finish"/"Ready"). 부적격/미추적이면 null(→ going-any 폴백).
+    /// <see cref="FlowLatchBadge.Compute"/> 순수 함수로 도출.
+    /// </summary>
+    string? GetLatchBadgeState(string flowName);
+
+    /// <summary>
+    /// 현재 사이클이 열린(IsCycleActive) 래치 적격 Flow 들의 (FlowName, CurrentCycleStart) 스냅샷.
+    /// Phase 2 워치독이 경과 &gt; 유효 이상치 Max 인 박제 사이클을 찾는 데 쓴다.
+    /// </summary>
+    IReadOnlyList<(string FlowName, DateTime CycleStart)> GetActiveLatchedCycles();
+
+    /// <summary>
+    /// 워치독 timeout — 열린 래치를 사이클/통계 기록 없이 닫는다(기존 _timeoutAbandoned 와 동일 의미).
+    /// 닫을 활성 사이클이 있었으면 true.
+    /// </summary>
+    bool AbandonLatchedCycle(string flowName);
+
+    /// <summary>
+    /// head-start 엣지 유실 복구(Phase 3 교차검증) — 닫힌 래치를 추정 시작 시각으로 연다. WT/CT 계산은 하지 않는다.
+    /// 닫혀 있던 래치를 열었으면 true.
+    /// </summary>
+    bool TryForceOpenLatch(string flowName, DateTime cycleStart);
+
+    /// <summary>
     /// 사이클 경계가 설정되어 추적 중인 Flow 이름 목록 (주기적 자동 재계산 대상 열거용).
     /// </summary>
     IReadOnlyCollection<string> GetTrackedFlowNames();

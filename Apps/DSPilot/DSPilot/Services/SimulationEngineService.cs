@@ -67,6 +67,13 @@ public sealed class SimulationEngineService : IDisposable
     private readonly object _flowReadyLock = new();
     private const int FlowReadyDebounceMs = 600;
 
+    // Phase 3 — head-start 엣지 유실 교차검증용. 래치 적격 flow 가 래치 닫힘인데 정상 Going Call(엔진 Going·
+    // 이상치 Max 미초과)이 grace 이상 지속되면 head-start 누락으로 보고 래치를 연다(자가치유). 정상 진행 중인
+    // Going 만 후보로 삼아(stuck-beyond-Max 제외) 워치독 abandon 과의 플랩을 방지. ReconcileStuckStatesAsync
+    // (StateReconcile 단일 tick)에서만 접근 — 락 불요.
+    private readonly Dictionary<string, DateTime> _latchEdgeLossSince = new(StringComparer.OrdinalIgnoreCase);
+    private const int LatchEdgeLossGraceMs = 3000;
+
     // Engine 의 CallStateChanged 이벤트를 단일 컨슈머로 직렬화 — 같은 callGuid 의 빠른
     // Ready→Going / Going→Finish 가 fire-and-forget 으로 병렬 실행되어 Welford 통계가
     // (0,0,0) 으로 corruption 되던 race 차단. ResetAsync 에서 재생성 가능하도록 mutable.
@@ -470,6 +477,44 @@ public sealed class SimulationEngineService : IDisposable
         }, TaskScheduler.Default);
     }
 
+    /// <summary>
+    /// 래치 적격 Flow 의 dspFlow.state 를 head-start→tail-complete 엣지 래치에서 직접 도출해 쓴다(going-any 미사용).
+    /// <list type="bullet">
+    /// <item>"Going": DB="Going" + 스냅샷 즉시 "Going"(이전 Finish-hold 해제, holdMs=0). Body 구간 내내 유지.</item>
+    /// <item>"Finish": 스냅샷에 "Finish" 를 <see cref="FlowLatchBadge.FinishHoldMs"/> 동안 보장 표시, DB="Ready"
+    ///   → hold 만료 후 폴링이 "Ready" 로 정착(기존 Tail-Finish hold 와 동일 메커니즘).</item>
+    /// <item>"Ready": DB="Ready" + 스냅샷 "Ready".</item>
+    /// </list>
+    /// 적격인데 상태 미추적(예외)이면 going-any 로 안전 폴백.
+    /// </summary>
+    private async Task WriteLatchBadgeAsync(Adapters.DspRepositoryAdapter repo, string flowName)
+    {
+        var badge = _flowMetricsService.GetLatchBadgeState(flowName);
+        if (badge is null)
+        {
+            await repo.SyncFlowStateAsync(flowName);
+            return;
+        }
+
+        switch (badge)
+        {
+            case FlowLatchBadge.Going:
+                await repo.UpdateFlowStateAsync(flowName, FlowLatchBadge.Going);
+                _dspDbService.SetFlowStateWithHold(flowName, FlowLatchBadge.Going, 0);
+                break;
+
+            case FlowLatchBadge.Finish:
+                await repo.UpdateFlowStateAsync(flowName, FlowLatchBadge.Ready);
+                _dspDbService.SetFlowStateWithHold(flowName, FlowLatchBadge.Finish, FlowLatchBadge.FinishHoldMs);
+                break;
+
+            default: // Ready
+                await repo.UpdateFlowStateAsync(flowName, FlowLatchBadge.Ready);
+                _dspDbService.SetFlowStateWithHold(flowName, FlowLatchBadge.Ready, 0);
+                break;
+        }
+    }
+
     private sealed class CallStatsSeedRow
     {
         public Guid CallId { get; set; }
@@ -549,6 +594,42 @@ public sealed class SimulationEngineService : IDisposable
     /// <summary>
     /// 이상감지 timeout 워치독 틱 — MonitoringAbnormalAdapter 제거 후 no-op 유지(StateReconcileService 호출부 무변경).
     public void TickAbnormalWatchdog() { }
+
+    /// <summary>
+    /// Phase 2 — 래치 적격 Flow 의 박제(stuck-open) 사이클 워치독. StateReconcileService 가 매 tick 호출한다.
+    /// 열린 래치의 경과가 해당 flow 의 유효 이상치 Max(전체+flow별, 사후 IsIdle 분류와 동일 소스
+    /// <see cref="AppSettingsService.ResolveEffectiveCycleRangeMs"/>)를 넘으면 — 지금 완료돼도 비가동으로
+    /// 분류될 사이클이므로 — 래치를 abandon(사이클/통계 미기록)하고 "Ready" 로 복귀시킨다(라인 정지로 tail 미도달 시
+    /// 박제 해소). effective Max=0(제한 없음)인 flow 는 해제하지 않는다(기존 Going-고정 해제 규칙과 동일).
+    /// </summary>
+    public async Task TickFlowLatchWatchdogAsync()
+    {
+        if (_engine is null) return;
+        if (!_flowMetricsService.IsInitialized) return;
+        if (_dspRepository is not Adapters.DspRepositoryAdapter repo) return;
+
+        var active = _flowMetricsService.GetActiveLatchedCycles();
+        if (active.Count == 0) return;
+
+        var settings = _settings.LoadSettings();
+        var now = DateTime.Now;
+
+        foreach (var (flowName, cycleStart) in active)
+        {
+            var maxMs = AppSettingsService.ResolveEffectiveCycleRangeMs(settings, flowName).MaxMs;
+            if (!FlowLatchBadge.ShouldAbandon(true, cycleStart, maxMs, now)) continue;
+
+            if (_flowMetricsService.AbandonLatchedCycle(flowName))
+            {
+                try { await repo.UpdateFlowStateAsync(flowName, FlowLatchBadge.Ready); }
+                catch (Exception ex) { _logger.LogWarning(ex, "[Engine] latch watchdog: Flow {Flow} Ready 쓰기 실패", flowName); }
+                _dspDbService.SetFlowStateWithHold(flowName, FlowLatchBadge.Ready, 0);
+                _logger.LogInformation(
+                    "[Engine] latch watchdog: Flow {Flow} 사이클 경과 {Elapsed:F0}ms > 이상치 Max {Max}ms → abandon + Ready(미기록)",
+                    flowName, (now - cycleStart).TotalMilliseconds, maxMs);
+            }
+        }
+    }
 
     /// <summary>
     /// Agent "OnAbnormal" SignalR 핸들러 진입점.
@@ -633,6 +714,8 @@ public sealed class SimulationEngineService : IDisposable
         var settings = _settings.LoadSettings();
 
         var affectedFlows = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // 엔진 Going·이상치 Max 미초과(=정상 진행)인 Call 을 가진 flow — Phase 3 head-start 엣지 유실 교차검증 후보.
+        var flowsWithHealthyGoing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var now = DateTime.Now;
         int corrected = 0;
         int timedOut = 0;
@@ -657,6 +740,11 @@ public sealed class SimulationEngineService : IDisposable
                         "[Engine] reconcile: Going 고정 해제 — Call {Call}(flow {Flow}) 경과 > 이상치 Max {Max}ms → Ready 복귀(미기록)",
                         gc.CallName, gc.FlowName, maxMs);
                 }
+                else if (!string.IsNullOrEmpty(gc.FlowName))
+                {
+                    // 정상 진행 중인 Going Call(stuck 아님) — 래치 닫힘이면 head-start 엣지 유실 의심. Phase 3 에서 판정.
+                    flowsWithHealthyGoing.Add(gc.FlowName);
+                }
                 continue;
             }
 
@@ -675,9 +763,53 @@ public sealed class SimulationEngineService : IDisposable
             _notificationService.NotifyStateChanged(gc.CallName, "Going", next, now);
         }
 
+        // Phase 3 — head-start 엣지 유실 교차검증(래치 적격 한정 자가치유). 적격 flow 가 래치 닫힘인데 정상
+        // Going Call 이 grace(LatchEdgeLossGraceMs) 이상 지속되면 head-start 누락으로 보고 래치를 연다.
+        // stuck(이상치 Max 초과) Call 은 위에서 제외했으므로 워치독 abandon 과 플랩하지 않는다.
+        foreach (var flow in flowsWithHealthyGoing)
+        {
+            if (!_flowMetricsService.IsLatchEligible(flow) || _flowMetricsService.IsLatchCycleActive(flow))
+            {
+                _latchEdgeLossSince.Remove(flow);
+                continue;
+            }
+            if (!_latchEdgeLossSince.TryGetValue(flow, out var since))
+            {
+                _latchEdgeLossSince[flow] = now;
+                continue;
+            }
+            if ((now - since).TotalMilliseconds >= LatchEdgeLossGraceMs)
+            {
+                if (_flowMetricsService.TryForceOpenLatch(flow, since))
+                {
+                    try { await repo.UpdateFlowStateAsync(flow, FlowLatchBadge.Going); }
+                    catch (Exception ex) { _logger.LogWarning(ex, "[Engine] reconcile: latch 교차검증 Flow {Flow} Going 쓰기 실패", flow); }
+                    _dspDbService.SetFlowStateWithHold(flow, FlowLatchBadge.Going, 0);
+                    _logger.LogInformation(
+                        "[Engine] reconcile: latch 교차검증 — Flow {Flow} 정상 Going {Elapsed:F0}ms·래치 닫힘 → head-start 엣지 유실 추정, 래치 open",
+                        flow, (now - since).TotalMilliseconds);
+                }
+                _latchEdgeLossSince.Remove(flow);
+            }
+        }
+        // grace 타이머 정리 — 이번 tick 에 정상 Going 후보가 아닌 flow 는 리셋(지속성 추적).
+        if (_latchEdgeLossSince.Count > 0)
+        {
+            foreach (var k in _latchEdgeLossSince.Keys.Where(k => !flowsWithHealthyGoing.Contains(k)).ToList())
+                _latchEdgeLossSince.Remove(k);
+        }
+
+        // 발산 교정으로 영향받은 flow 의 dspFlow.state 재동기화 — 적격 flow 는 래치 기반 배지(going-any 가
+        // Body 구간 Going 을 덮어쓰지 않게), 미적격 flow 는 기존 going-any.
         foreach (var flow in affectedFlows)
         {
-            try { await repo.SyncFlowStateAsync(flow); }
+            try
+            {
+                if (_flowMetricsService.IsLatchEligible(flow))
+                    await WriteLatchBadgeAsync(repo, flow);
+                else
+                    await repo.SyncFlowStateAsync(flow);
+            }
             catch (Exception ex) { _logger.LogWarning(ex, "[Engine] reconcile: Flow {Flow} sync 실패", flow); }
         }
 
@@ -807,36 +939,47 @@ public sealed class SimulationEngineService : IDisposable
                 callName, prev, next);
         }
 
-        // 2. Flow 이름 조회 + dspFlow.state 동기화 (디바운스 — micro-gap 점멸 방지)
+        // 2. Flow 이름 조회.
         var info = await _dspRepository.GetCallInfoAsync(callGuid);
         var flowName = info?.FlowName ?? string.Empty;
-        if (!string.IsNullOrEmpty(flowName) && _dspRepository is Adapters.DspRepositoryAdapter repo)
-        {
-            // Tail Call 의 Finish 가 사이클 1회 종료 — dspFlow.state="Finish" 를 250ms hold 로 표시
-            //   실 PLC: cycle 사이의 자연스러운 idle gap 동안 폴링이 잡음
-            //   시뮬:   gap 이 거의 0ms 라 hold 로 강제 표시
-            if (finishingGoing && _flowMetricsService.IsInitialized)
-            {
-                var (_, tailCallName) = _flowMetricsService.GetCycleBoundaryCallNames(flowName);
-                if (!string.IsNullOrEmpty(tailCallName) && tailCallName == callName)
-                {
-                    _ = repo.UpdateFlowStateAsync(flowName, "Finish");
-                    _dspDbService.SetFlowStateWithHold(flowName, "Finish", 250);
-                }
-            }
 
-            // abandon(타임아웃 해제)도 Going 이탈이므로 flow 는 Ready 로 내려야 한다 → leavingGoing 그대로 전달.
-            ScheduleFlowSync(repo, flowName, enteringGoing, leavingGoing);
-        }
-
-        // 3. FlowMetrics 사이클 hook (AASX 로딩 실패로 미초기화 상태일 때 NRE 방지)
-        //    Going 진입/이탈 기준 — OutOnly 의 Going→Ready 도 finish 로 처리.
+        // 3. FlowMetrics 사이클 hook — dspFlow.state 동기화(4)보다 *먼저* 래치를 갱신해야 래치 기반 배지를 읽을 수 있다.
+        //    Going 진입/이탈 기준 — OutOnly 의 Going→Ready 도 finish 로 처리. abandon 은 사이클 미기록.
+        //    (AASX 로딩 실패로 미초기화 상태일 때 NRE 방지.) 메트릭(MT/WT/CT)은 적격 여부와 무관하게 래치로 추적.
         if (!string.IsNullOrEmpty(flowName) && _flowMetricsService.IsInitialized)
         {
             if (enteringGoing)
                 _flowMetricsService.OnCallGoingStarted(flowName, callName, now);
             else if (finishingGoing)
-                _flowMetricsService.OnCallFinished(flowName, callName, now); // abandon 은 사이클 미기록
+                _flowMetricsService.OnCallFinished(flowName, callName, now);
+        }
+
+        // 4. dspFlow.state 동기화.
+        if (!string.IsNullOrEmpty(flowName) && _dspRepository is Adapters.DspRepositoryAdapter repo)
+        {
+            if (_flowMetricsService.IsLatchEligible(flowName))
+            {
+                // 래치 적격(단일 head/tail): head-start→tail-complete 엣지 래치에서 배지를 직접 도출한다.
+                // Body 구간(어느 Call 도 Going 이 아닌 순간)에도 사이클이 열려 있어 "가동중"이 유지된다(깜빡임 없음).
+                await WriteLatchBadgeAsync(repo, flowName);
+            }
+            else
+            {
+                // 미적격(미정의·복수 head/tail·동명 모호): 기존 going-any 폴백 + Tail-Finish hold (회귀 0).
+                // Tail Call 의 Finish 가 사이클 1회 종료 — dspFlow.state="Finish" 를 250ms hold 로 표시
+                //   실 PLC: cycle 사이의 자연스러운 idle gap 동안 폴링이 잡음 / 시뮬: gap≈0ms 라 hold 로 강제 표시
+                if (finishingGoing && _flowMetricsService.IsInitialized)
+                {
+                    var (_, tailCallName) = _flowMetricsService.GetCycleBoundaryCallNames(flowName);
+                    if (!string.IsNullOrEmpty(tailCallName) && tailCallName == callName)
+                    {
+                        _ = repo.UpdateFlowStateAsync(flowName, "Finish");
+                        _dspDbService.SetFlowStateWithHold(flowName, "Finish", 250);
+                    }
+                }
+                // abandon(타임아웃 해제)도 Going 이탈이므로 flow 는 Ready 로 내려야 한다 → leavingGoing 그대로 전달.
+                ScheduleFlowSync(repo, flowName, enteringGoing, leavingGoing);
+            }
         }
 
         // 4. DspDbService EventWriter — 1초 폴링 대기 없이 UI 즉시 반영
