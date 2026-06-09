@@ -64,7 +64,7 @@ type MonitoringAbnormalAdapter
 
     /// PLC scan 으로 관측된 IO 값. OutTag On=going 시작, InTag On=finish.
     member _.OnObservedIo(address: string, value: string, nowMs: int) =
-        // 시작측: OutAddress rising → 매핑된 모든 ApiCall 의 going clock 기록.
+        // 시작측: OutAddress rising → 매핑된 모든 ApiCall 의 going clock 기록 + 직전 사이클 latch 비움.
         match ioMap.GetByOutAddress(address) with
         | [] -> ()
         | outMappings ->
@@ -74,6 +74,11 @@ type MonitoringAbnormalAdapter
                 if risingEdge ("OUT:" + address) active then
                     for m in outMappings do
                         goingClock.[m.ApiCallGuid] <- nowMs
+                        // v12 — OUT rising = 새 사이클 시작 → 직전 사이클 abnormal latch 제거. Control 의
+                        //   OnCallReset 과 동형. 이게 없으면 DefaultLatchPolicy 5s window 가 사이클간 같은
+                        //   (Kind,Target) Under/Over 를 5초 억제해(사이클<5s 면 매 사이클 누락) 즉시 재검출이 안 된다.
+                        //   사이클 내 중복(watchdog tick + In rising)은 5s window 가 그대로 coalesce → 1회 유지.
+                        AbnormalDetector.clearLatchForCall detectorState m.CallGuid
             | None -> ()
 
         // 완료측: InAddress rising → finish(elapsed vs range), falling → level 센서 단선 = SensorOpen.
@@ -101,8 +106,9 @@ type MonitoringAbnormalAdapter
                                     let elapsed = nowMs - goingAt
                                     match Abnormal.classifyExpectedRising range elapsed with
                                     | Some AbnormalKind.ActionUnder -> emit (Abnormal.actionUnder target elapsed (nowUtc ()))
-                                    | Some AbnormalKind.ActionOver  -> emit (Abnormal.actionOver target elapsed (nowUtc ()))
-                                    | _ -> ()       // 경계 포함 정상 — 오탐 0
+                                    // Over 는 Max 시점 watchdog(engine onDeviceDurationExpired)이 SSOT — InTag 가 Max
+                                    //   이후 늦게 센싱될 때의 재발행은 의미 없어 안 낸다(사용자 확정). ActionOver/None 모두 무시.
+                                    | _ -> ()       // 경계 포함 정상 + 늦은 over — 오탐 0
                                 | None -> ()
                                 goingClock.Remove m.ApiCallGuid |> ignore
                             | false, _ ->

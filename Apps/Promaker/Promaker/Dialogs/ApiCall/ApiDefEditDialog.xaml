@@ -72,18 +72,7 @@
                 <RadioButton x:Name="ActionVirtRadio" Content="virt — Virtual(None)"
                              Foreground="{DynamicResource PrimaryTextBrush}"
                              GroupName="ActionType" Margin="0,2,0,2"/>
-
-                <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
-                    <RadioButton x:Name="ActionVirtPlusRadio" Content="virtPlus"
-                                 Foreground="{DynamicResource PrimaryTextBrush}"
-                                 GroupName="ActionType" Width="110" VerticalAlignment="Center"
-                                 Checked="ActionVirtPlusRadio_Checked" Unchecked="ActionVirtPlusRadio_Unchecked"/>
-                    <TextBlock Text="ms" VerticalAlignment="Center" Margin="0,0,4,0"
-                               Foreground="{DynamicResource SecondaryTextBrush}"/>
-                    <TextBox x:Name="ActionVirtPlusMsBox" Width="60" Padding="4,2"
-                             VerticalAlignment="Center" IsEnabled="False"
-                             Text="200" PreviewTextInput="DigitOnly_PreviewTextInput"/>
-                </StackPanel>
+                <!-- virtPlus(Virtual+Append) 제거: 가상 출력엔 출력유지(Append)가 의미 없음. -->
             </StackPanel>
 
             <!-- SensingType (v10 D3 WHEN·IN) -->
