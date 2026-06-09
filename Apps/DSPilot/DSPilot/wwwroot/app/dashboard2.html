@@ -1195,12 +1195,12 @@
                 location.href = '/uptime' + (q.length ? '?' + q.join('&') : '');
             },
 
-            // ── 경로이탈 이상감지(DS 4종) 피드 ──
-            //   /api/dashboard/abnormals (인메모리 링버퍼) 를 조회. 실시간 갱신은 SignalR "AbnormalDetected"
-            //   트리거 → 재조회(코드베이스 관례: 이벤트=트리거, REST 단일 소스).
+            // ── 활성 알람 통합 피드(abnormal 4종 + usertag) ──
+            //   /api/dashboard/active-alarms 를 조회. abnormal=해당 flow 재가동 시, usertag=조건 풀림 시 서버가 자동 제외.
+            //   실시간 갱신은 SignalR "AbnormalDetected"·"UserTagAlertsChanged" 트리거 → 재조회(이벤트=트리거, REST 단일 소스).
             async loadAbnormals() {
                 try {
-                    const list = await this.apiGet('/api/dashboard/abnormals?limit=11');
+                    const list = await this.apiGet('/api/dashboard/active-alarms?limit=11');
                     const arr = Array.isArray(list) ? list : [];
                     // per-browser 닫기: dismissedAt 이후 발생한 알람만 표시
                     const dismissedAt = localStorage.getItem('abnDismissedAt');
@@ -1242,6 +1242,8 @@
                 });
                 conn.on('ShiftChanged', () => { this.loadShift(); });
                 conn.on('AbnormalDetected', () => { this.debouncedLoadAbnormals(); });
+                // usertag 활성 알람 발생/해소(조건 풀림) 시에도 배너 즉시 재조회 (REST 단일 소스).
+                conn.on('UserTagAlertsChanged', () => { this.debouncedLoadAbnormals(); });
                 conn.onreconnected(() => { this.rt.connected = true; this.loadSnapshot(); this.loadAbnormals(); });
                 conn.onreconnecting(() => { this.rt.connected = false; });
                 conn.onclose(() => { this.rt.connected = false; });

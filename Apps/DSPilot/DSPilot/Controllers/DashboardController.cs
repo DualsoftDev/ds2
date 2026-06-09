@@ -28,6 +28,7 @@ public class DashboardController : ControllerBase
     private readonly CycleAnalysisService _cycleAnalysis;
     private readonly IHubContext<MonitoringHub> _hub;
     private readonly AbnormalEventService _abnormal;
+    private readonly UserTagAlertService _userTags;
     private readonly ILogger<DashboardController> _logger;
 
     public DashboardController(
@@ -39,6 +40,7 @@ public class DashboardController : ControllerBase
         CycleAnalysisService cycleAnalysis,
         IHubContext<MonitoringHub> hub,
         AbnormalEventService abnormal,
+        UserTagAlertService userTags,
         ILogger<DashboardController> logger)
     {
         _db = db;
@@ -49,6 +51,7 @@ public class DashboardController : ControllerBase
         _cycleAnalysis = cycleAnalysis;
         _hub = hub;
         _abnormal = abnormal;
+        _userTags = userTags;
         _logger = logger;
     }
 
@@ -87,6 +90,49 @@ public class DashboardController : ControllerBase
     [HttpGet("abnormals")]
     public ActionResult<IReadOnlyList<AbnormalEventDto>> GetAbnormals([FromQuery] int limit = 20)
         => Ok(_abnormal.GetRecent(limit));
+
+    /// <summary>
+    /// 대시보드/전체화면 알람 배너용 "활성 알람" 통합 피드 — 조건 기반 자동 해소:
+    ///   - abnormal(경로이탈 4종): 해당 flow 가 다시 가동(Going)되면 제거 (AbnormalEventService.GetActive)
+    ///   - usertag: 현재 값이 매칭 조건을 더 이상 만족하지 않으면 제거 (UserTagAlertService.GetActiveAlarms)
+    /// 두 출처를 동일 형상(AbnormalEventDto)으로 병합·시각 내림차순. 실시간 갱신은 SignalR
+    /// "AbnormalDetected"(abnormal)·"UserTagAlertsChanged"(usertag) 트리거로 재조회.
+    /// 히스토리(사이드바 /api/nav/summary, cctv /api/dashboard/abnormals)는 별개로 유지된다.
+    /// </summary>
+    [HttpGet("active-alarms")]
+    public ActionResult<IReadOnlyList<AbnormalEventDto>> GetActiveAlarms([FromQuery] int limit = 20)
+    {
+        var n = Math.Clamp(limit, 1, 100);
+        var abn = _abnormal.GetActive(n);
+
+        // usertag 활성 알람 → AbnormalEventDto 형상 매핑.
+        //   Source="usertag", Label=태그명, KindName=매칭연산, WorkName=태그주소(경로 칸), FlowName="" (카드 강조 오인 방지)
+        var user = _userTags.GetActiveAlarms().Select(a =>
+        {
+            var utc = DateTime.SpecifyKind(a.OccurredAt, DateTimeKind.Utc);
+            return new AbnormalEventDto(
+                Kind: -1,
+                KindName: a.MatchOp,
+                Label: a.Name,
+                Level: a.LogLevel,
+                Source: "usertag",
+                FlowName: string.Empty,
+                WorkName: a.TagAddress,
+                SystemName: a.SystemName,
+                ElapsedMs: null,
+                Observed: null,
+                OccurredAtUtc: utc,
+                OccurredAtLocal: utc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
+                SensorTag: null,
+                CallName: string.Empty);
+        });
+
+        var merged = abn.Concat(user)
+            .OrderByDescending(e => e.OccurredAtUtc)
+            .Take(n)
+            .ToList();
+        return Ok(merged);
+    }
 
     /// <summary>
     /// 데모용 이상감지 이벤트 주입 — 브라우저 콘솔에서 demoAlarm() 으로 호출.

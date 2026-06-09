@@ -38,6 +38,11 @@ public sealed class UserTagAlertService : BackgroundService
     private readonly Dictionary<string, string> _lastValueByAddress =
         new(StringComparer.OrdinalIgnoreCase);
 
+    // 라이브 활성 알람(대시보드/전체화면 배너용) — 주소별 1건. fire 시 등록, 조건 풀림 시 제거.
+    // 히스토리 큐(_alerts)/DB 로그와 별개: 표시 목록에서 자동 해소되는 "현재 걸려 있는 알람" 집합.
+    private readonly Dictionary<string, ActiveUserAlarm> _activeUserAlarms =
+        new(StringComparer.OrdinalIgnoreCase);
+
     private readonly LinkedList<UserTagAlert> _alerts = new();
     private long _lastCheckedLogId;
     private bool _initialized;
@@ -75,9 +80,18 @@ public sealed class UserTagAlertService : BackgroundService
         }
     }
 
+    /// <summary>현재 조건이 걸려 있는 활성 알람(시각 내림차순). 대시보드/전체화면 배너용 — 조건 풀리면 자동 제외됨.</summary>
+    public IReadOnlyList<ActiveUserAlarm> GetActiveAlarms()
+    {
+        lock (_stateLock)
+            return _activeUserAlarms.Values
+                .OrderByDescending(a => a.OccurredAt)
+                .ToList();
+    }
+
     public void ClearAlerts()
     {
-        lock (_stateLock) _alerts.Clear();
+        lock (_stateLock) { _alerts.Clear(); _activeUserAlarms.Clear(); }
         AlertsChanged?.Invoke();
         // 정적 /uptime 페이지(SignalR 구독)에도 즉시 비움 반영 (issue #176).
         _ = BroadcastAlertsChangedAsync(0, CancellationToken.None);
@@ -294,6 +308,20 @@ public sealed class UserTagAlertService : BackgroundService
                 ActualValue: newValue,
                 SourceLogId: log.Id);
             newAlerts.Add(record);
+
+            // 라이브 활성 알람 등록/갱신 — 이 주소의 조건이 지금 걸렸다(배너 표시 대상).
+            // Changed 류는 정상상태가 없어 직후 해소 패스에서 곧 제거됨(배너 비표시).
+            var active = new ActiveUserAlarm(
+                OccurredAt: log.DateTime,
+                SystemName: def.SystemName,
+                Name: def.Name,
+                LogLevel: def.LogLevel,
+                TagAddress: def.TagAddress,
+                ValueType: def.ValueType,
+                MatchOp: LoggingHelpers.UserTagHelpers.matchOpToString(op),
+                MatchValue: def.MatchValue ?? string.Empty,
+                Value: newValue);
+            lock (_stateLock) _activeUserAlarms[def.TagAddress] = active;
         }
 
         // DB INSERT — 한 건씩 (트랜잭션 누적은 단순화. 폴링 1회 분량은 보통 ≤ 수십건).
@@ -331,12 +359,35 @@ public sealed class UserTagAlertService : BackgroundService
                 while (_alerts.Count > MaxAlerts) _alerts.RemoveLast();
             }
             AlertsChanged?.Invoke();
-
-            // 정적 /uptime 페이지(SignalR 구독)에 신규 UserTag 알림을 실시간 통지.
-            // 상단바 배지는 /api/nav/summary 4초 폴링으로 갱신되지만, 탭의 집계
-            // (총알림·시계열 추이)는 SignalR 신호가 없으면 10초 폴링까지 지연됨 (issue #176).
-            await BroadcastAlertsChangedAsync(newUiAlerts.Count, ct);
         }
+
+        // ── 활성 알람 조건 해소 — 현재 값이 더 이상 매칭 조건을 만족하지 않으면 배너 표시 목록에서 제거 ──
+        // 값이 정상으로 돌아오면 그 주소의 plcTagLog 행이 들어와 _lastValueByAddress 가 갱신되므로 여기서 잡힌다.
+        var resolvedCount = 0;
+        lock (_stateLock)
+        {
+            if (_activeUserAlarms.Count > 0)
+            {
+                var toRemove = new List<string>();
+                foreach (var (addr, a) in _activeUserAlarms)
+                {
+                    if (!_lastValueByAddress.TryGetValue(addr, out var cur)) continue;
+                    var vt = LoggingHelpers.UserTagHelpers.parseValueType(a.ValueType);
+                    var op = LoggingHelpers.UserTagHelpers.parseMatchOp(a.MatchOp);
+                    if (!LoggingHelpers.UserTagHelpers.isConditionActive(vt, op, a.MatchValue ?? string.Empty, cur))
+                        toRemove.Add(addr);
+                }
+                foreach (var addr in toRemove) _activeUserAlarms.Remove(addr);
+                resolvedCount = toRemove.Count;
+            }
+        }
+
+        // 신규 발화 또는 활성 알람 해소가 있으면 클라이언트에 통지(배너/uptime 재조회 트리거).
+        // 정적 /uptime 페이지(SignalR 구독)에 신규 UserTag 알림을 실시간 통지.
+        // 상단바 배지는 /api/nav/summary 4초 폴링으로 갱신되지만, 탭의 집계
+        // (총알림·시계열 추이)는 SignalR 신호가 없으면 10초 폴링까지 지연됨 (issue #176).
+        if (newUiAlerts.Count > 0 || resolvedCount > 0)
+            await BroadcastAlertsChangedAsync(newUiAlerts.Count, ct);
 
         // 진단 — newLogs 중 정의된 주소 행이 0 이면 plcTagLog INSERT 가 안 일어남 (A 케이스).
         if (newLogs.Count > 0)
@@ -376,6 +427,22 @@ public sealed record UserTagDefinition(
     string ValueType,
     string MatchOp,
     string MatchValue);
+
+/// <summary>
+/// 라이브 활성 UserTag 알람 한 건 (대시보드/전체화면 배너용).
+/// 조건이 걸려 있는 동안만 보유 — 현재 값이 매칭 조건을 더 이상 만족하지 않으면 제거된다.
+/// 해소 재평가를 위해 ValueType/MatchOp/MatchValue 를 함께 보관(폴링마다 isConditionActive 로 판정).
+/// </summary>
+public sealed record ActiveUserAlarm(
+    DateTime OccurredAt,
+    string SystemName,
+    string Name,
+    string LogLevel,
+    string TagAddress,
+    string ValueType,
+    string MatchOp,
+    string MatchValue,
+    string Value);
 
 /// <summary>UserTag 매칭 결과 알림 한 건 (UI 표시용).</summary>
 public sealed record UserTagAlert(
