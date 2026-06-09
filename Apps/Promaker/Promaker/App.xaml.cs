@@ -21,30 +21,6 @@ public partial class App : Application
     /// <summary>더블클릭 등으로 전달된 파일 경로 (첫 번째 인자).</summary>
     internal static string? StartupFilePath { get; set; }
 
-    /// <summary>
-    /// `--autostart-llm` 인자 — Pass 1.5 측정 자동화용. 시작 시 LLM Chat panel 자동 활성화 →
-    /// McpHostService 가 StartAsync 되어 mcp config 파일이 즉시 작성됨. 수동 모드에서는 사용 안 함.
-    /// </summary>
-    internal static bool StartupAutoOpenLlm { get; set; }
-
-    /// <summary>
-    /// `--measure-prompt <text>` 인자 — 측정용 prompt 자동 전송. IsReady 후 LlmChatVm.Input 에 set + SendCommand 자동 실행.
-    /// LlmTurnContext 가 정상 시작 → mutation tool 이 ImportPlanBuilder 누적 → turn end 시 ApplyImportPlan.
-    /// </summary>
-    internal static string? StartupMeasurePrompt { get; set; }
-
-    /// <summary>
-    /// `--measure-then-exit` 인자 — IsSending true→false transition (= turn 끝 + ApplyImportPlan 완료) 후 MainWindow 자동 close.
-    /// MainWindow.Closing 의 dirty check 도 autostart 모드에서 skip. log4net flush 보장 + 외부 fsx 의 process.WaitForExit 자연 완료.
-    /// </summary>
-    internal static bool StartupMeasureThenExit { get; set; }
-
-    // 측정 자동화 fail-fast exit codes — 외부 측정 스크립트(run-pass5.fsx 등)가 이 값으로 실패 원인을 분기 식별.
-    // 변경 시 측정 스크립트 측도 함께 갱신 필요.
-    internal const int MeasureExitSendCommandUnavailable = 2;
-    internal const int MeasureExitLlmVmMissing = 3;
-    internal const int MeasureExitInitTimeout = 4;
-
     [DllImport("winmm.dll", EntryPoint = "timeBeginPeriod")]
     private static extern uint TimeBeginPeriod(uint uPeriod);
 
@@ -69,16 +45,7 @@ public partial class App : Application
         for (int i = 0; i < e.Args.Length; i++)
         {
             var arg = e.Args[i];
-            if (arg == "--autostart-llm")
-                StartupAutoOpenLlm = true;
-            else if (arg == "--measure-then-exit")
-                StartupMeasureThenExit = true;
-            else if (arg == "--measure-prompt" && i + 1 < e.Args.Length)
-            {
-                StartupMeasurePrompt = e.Args[i + 1];
-                i++;   // skip next (consumed as prompt value)
-            }
-            else if (StartupFilePath == null && File.Exists(arg))
+            if (StartupFilePath == null && File.Exists(arg))
                 StartupFilePath = arg;
         }
 
@@ -148,18 +115,6 @@ public partial class App : Application
         // 에 묶여 이후 binding 시 NotSupportedException. fatal handler 등록 이후 시점이므로 ctor 예외 시 진단 가능.
         _ = Promaker.ViewModels.Logging.AppLogState.Instance;
 
-        // 1d-5 — 비정상 종료한 이전 Promaker 인스턴스가 남긴 stale .mcp-config 정리.
-        // 자기 sessionId + dead pid 또는 mtime > 5분 조건만 (자기 자신 / 다른 user session 보호).
-        Llm.Shared.Mcp.McpConfigWriter.SweepStale();
-
-        // M1 — Codex CLI 임시 이미지 spool stale 정리 (mtime > 30분).
-        // OnFinally cleanup 실패 / Promaker kill 등으로 남은 `%TEMP%\Promaker.LlmAgent\codex-img-*` 회수.
-        Ds2.LlmAgent.CodexCliProvider.SweepStale();
-
-        // CP949 (Windows-949) 등 legacy code page 활성화 — .NET Core/9 는 기본 미포함. LLM Chat 첨부 텍스트
-        // 파일 인코딩 추정 (`AttachmentClassifier.detectEncoding`) 의 CP949 fallback 분기 활성화 (review F3).
-        System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
-
         base.OnStartup(e);
     }
 
@@ -169,21 +124,6 @@ public partial class App : Application
         {
             try { TimeEndPeriod(TimerPeriodMs); } catch { }
         }
-
-        // Phase S5c — 살아있는 LightHouse session 일괄 DELETE + client Dispose (§3.8 L2-2).
-        // OnExit 는 sync 만 허용 → GetAwaiter().GetResult() 로 짧게 block (best-effort, timeout 3s).
-        try
-        {
-            var task = Promaker.Knowledge.LightHouseClientHolder.DisposeAllAsync();
-            if (!task.Wait(TimeSpan.FromSeconds(3)))
-                Log.Warn("LightHouseClientHolder.DisposeAllAsync 3초 timeout — process exit 진행 (session 일부 잔존 가능, server idle TTL backstop).");
-        }
-        catch (Exception ex) { Log.Warn("LightHouseClientHolder.DisposeAllAsync 실패 (best-effort)", ex); }
-
-        // s6-r25 (M1) — stale LlmConfig.lock 파일 best-effort cleanup.
-        // 정상 종료 시 본 instance 가 마지막 holder 면 lock file 삭제. 다른 instance 가 살아있으면 swallow.
-        try { Promaker.LlmAgent.LlmConfig.TryCleanupStaleLockFile(); }
-        catch (Exception ex) { Log.Warn("LlmConfig.TryCleanupStaleLockFile 실패 (best-effort)", ex); }
 
         var uptimeMs = (DateTimeOffset.Now - RunStartedAt).TotalMilliseconds;
         Log.Info(

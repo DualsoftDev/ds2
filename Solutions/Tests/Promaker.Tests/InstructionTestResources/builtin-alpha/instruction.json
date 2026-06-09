@@ -1,7 +1,0 @@
-{
-  "id": "builtin-alpha",
-  "displayName": "Builtin Alpha",
-  "entry": "INSTRUCTION.md",
-  "defaultEnabled": false,
-  "order": 20
-}
