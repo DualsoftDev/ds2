@@ -794,7 +794,7 @@
                                                 <tr>
                                                     <td class="num" x-text="(a.occurredAtLocal || '').slice(0,19)"></td>
                                                     <td><span class="ds-status" :class="levelStatus(a.logLevel)" x-text="a.logLevel"></span></td>
-                                                    <!-- 경로: AbnormalDetect → SystemName/FlowName, 나머지 → SystemName -->
+                                                    <!-- 경로: AbnormalDetect → "FLOW / WORK / CALL", 나머지 → SystemName -->
                                                     <td x-text="abnPath(a)"></td>
                                                     <td><strong x-text="a.name"></strong></td>
                                                     <!-- 주소: Sensor* → InTag 주소(actualValue), Action* → '-', 나머지 → tagAddress(코드) -->
@@ -1245,10 +1245,14 @@
                         default: return op || '?';
                     }
                 },
-                // 경로 셀: AbnormalDetect → SystemName/FlowName(tagAddress=FlowName), 나머지 → SystemName
+                // 경로 셀: AbnormalDetect → tagAddress = "FLOW / WORK / CALL" 경로(서버 BuildPath),
+                //          나머지(UserTag) → SystemName. (구 이력은 tagAddress=FlowName 만 → 그대로 폴백 표시)
                 abnPath(a) {
-                    if (a.matchOp === 'AbnormalDetect')
-                        return [a.systemName, a.tagAddress].filter(Boolean).join('/') || '-';
+                    if (a.matchOp === 'AbnormalDetect') {
+                        const p = a.tagAddress || '-';
+                        const idx = p.indexOf(' / ');
+                        return idx >= 0 ? p.slice(idx + 3) : p;
+                    }
                     return a.systemName || '-';
                 },
                 // 주소 셀: Sensor* → InTag 주소(actualValue), Action* → '-', 나머지 → tagAddress

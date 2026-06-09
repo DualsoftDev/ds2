@@ -151,7 +151,7 @@
 
         // ── 4.5) 시스템별 Flow(사이클 분석) 서브메뉴 컨테이너 ──
         //   구 '사이클 분석' 메뉴 항목은 제거됨 — 각 시스템 행(사이클 분석 아이콘)이 진입점.
-        //   시스템 행 클릭 → 사이드바 우측에 플라이아웃 패널로 Flow 목록 → Flow 클릭 시 /flow?name= 이동.
+        //   시스템 행 클릭 → 사이드바(NAVMENU) 내부에서 바로 아래로 Flow 목록을 펼침(아코디언) → Flow 클릭 시 /flow?name= 이동.
         //   데이터는 아래 /api/nav fetch 의 systems 트리로 채운다(이미 PLC 디버그용으로 호출 중).
         var cycleSubWrap = el('div', 'flex flex-col gap-0.5');
         if (flowsAnchor && flowsAnchor.parentNode === navMenu) {
@@ -168,37 +168,22 @@
             cycleSubWrap.innerHTML = '';
             if (!systems || !systems.length) return;
 
-            var openPanel = null, openRow = null, openChev = null;
+            // 인라인 아코디언: 한 번에 한 시스템만 펼침(다른 시스템을 펼치면 이전 것은 접힘).
+            var openRow = null, openChev = null, openSub = null;
             // preflight(전역 리셋) 꺼진 셸 빌드 → <button> 네이티브 테두리·배경 제거(nav 링크와 동일한 룩).
             var BTN_RESET = 'appearance:none;-webkit-appearance:none;background:transparent;border:0;cursor:pointer;font:inherit;';
 
-            function closeFlyout() {
-                if (openPanel) { openPanel.remove(); openPanel = null; }
+            function collapse() {
+                if (openSub) { openSub.style.display = 'none'; openSub = null; }
                 if (openChev) { openChev.style.transform = ''; openChev = null; }
                 if (openRow) { openRow.setAttribute('aria-expanded', 'false'); openRow = null; }
-                document.removeEventListener('click', onDocClick, true);
-                window.removeEventListener('resize', reposition);
-                navMenu.removeEventListener('scroll', reposition);
             }
-            function reposition() {
-                if (!openPanel || !openRow) return;
-                var r = openRow.getBoundingClientRect();
-                if (window.innerWidth < MOBILE_BP) {
-                    openPanel.style.left = '8px';
-                    openPanel.style.right = '8px';
-                    openPanel.style.maxWidth = 'none';
-                    openPanel.style.top = Math.max(8, Math.min(r.bottom + 4, window.innerHeight - 120)) + 'px';
-                } else {
-                    openPanel.style.left = (r.right + 6) + 'px';
-                    openPanel.style.right = '';
-                    openPanel.style.maxWidth = '320px';
-                    openPanel.style.top = Math.max(8, Math.min(r.top, window.innerHeight - 60)) + 'px';
-                }
-            }
-            function onDocClick(e) {
-                if (openPanel && openPanel.contains(e.target)) return;
-                if (openRow && openRow.contains(e.target)) return;
-                closeFlyout();
+            function expand(row, sub, chev) {
+                collapse();
+                sub.style.display = '';
+                openRow = row; openSub = sub; openChev = chev;
+                chev.style.transform = 'rotate(90deg)';
+                row.setAttribute('aria-expanded', 'true');
             }
             function dot(color, op) {
                 var d = el('span');
@@ -224,94 +209,65 @@
                 chev.style.cssText = 'flex:0 0 auto;font-size:18px;transition:transform 0.12s;';
                 row.appendChild(chev);
 
+                // ── 인라인 확장 컨테이너 — 시스템 행 바로 아래(NAVMENU 내부)에서 아코디언으로 펼침. ──
+                //   별도 플라이아웃/오버레이 없이 사이드바 콘텐츠를 밀어내며 펼쳐진다(nav 가 스크롤 처리).
+                var sub = el('div', 'flex flex-col gap-0.5');
+                // display:none = 접힘. padding-left 로 시스템 행 아래 들여쓰기(중첩 표시). pl-* 유틸은 빌드에 없어 인라인 지정.
+                sub.style.cssText = 'display:none;padding-left:18px;';
+
+                // ── 전체 편집 — 이 시스템의 모든 Flow 를 한 화면에서 일괄 조회·편집(사이클 분석/이상치/Head·Tail/duration). ──
+                //   확장 영역 맨 위. /flow-all?system= 으로 시스템 스코프 전달.
+                var editAll = el('button', 'w-full flex items-center gap-2 px-3 py-2 mb-1 rounded transition-colors text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-inverse-surface');
+                editAll.type = 'button';
+                editAll.style.cssText = 'text-align:left;font-weight:700;' + BTN_RESET;
+                var eaIcon = icon('edit_note');
+                eaIcon.style.cssText = 'flex:0 0 auto;font-size:18px;color:#2170e4;';
+                editAll.appendChild(eaIcon);
+                var eaLabel = el('span', 'font-label-sm text-label-sm', '전체 편집');
+                eaLabel.style.cssText = 'flex:1;min-width:0;color:#2170e4;';
+                editAll.appendChild(eaLabel);
+                editAll.addEventListener('click', function (ev) {
+                    ev.stopPropagation();
+                    location.href = '/flow-all?system=' + encodeURIComponent(sys.name || '');
+                });
+                sub.appendChild(editAll);
+
+                (sys.flows || []).forEach(function (flowName) {
+                    var isCur = onFlowPage && flowName === curFlowName;
+                    var fb = el('button', 'w-full flex items-center gap-2 px-3 py-2 rounded transition-colors text-on-surface-variant dark:text-surface-variant'
+                        + (isCur ? '' : ' hover:bg-surface-container-high dark:hover:bg-inverse-surface'));
+                    fb.type = 'button';
+                    fb.style.cssText = 'text-align:left;' + BTN_RESET;
+                    // BTN_RESET 의 background:transparent 가 Tailwind 활성 bg 클래스를 덮으므로 활성 색은 인라인으로 지정.
+                    if (isCur) { fb.style.backgroundColor = '#2170e4'; fb.style.color = '#fff'; }
+                    fb.appendChild(dot(isCur ? '#fff' : 'currentColor', isCur ? '1' : '0.55'));
+                    var fl = el('span', 'font-label-sm text-label-sm', flowName);
+                    fl.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                    fb.appendChild(fl);
+                    fb.addEventListener('click', function (ev) {
+                        ev.stopPropagation();
+                        location.href = '/flow?name=' + encodeURIComponent(flowName);
+                    });
+                    sub.appendChild(fb);
+                });
+
                 row.addEventListener('click', function (e) {
                     e.stopPropagation();
-                    var wasOpen = (openRow === row);
-                    closeFlyout();
-                    if (wasOpen) return;
-
-                    var panel = el('div', 'bg-surface-container-low dark:bg-inverse-surface border border-outline-variant dark:border-outline rounded-lg py-2');
-                    panel.style.cssText = 'position:fixed;z-index:60;min-width:200px;max-width:320px;max-height:70vh;overflow-y:auto;padding-left:6px;padding-right:6px;box-shadow:0 6px 20px rgba(0,0,0,0.12);';
-
-                    var head = el('div', 'px-3 pb-2 mb-1 border-b border-outline-variant dark:border-outline text-[10px] uppercase font-bold tracking-wider text-outline');
-                    head.textContent = sys.name || '';
-                    panel.appendChild(head);
-
-                    // ── 전체 편집 — 이 시스템의 모든 Flow 를 한 화면에서 일괄 조회·편집(사이클 분석/이상치/Head·Tail/duration). ──
-                    //   플라이아웃 맨 위(시스템 헤더 바로 아래). /flow-all?system= 으로 시스템 스코프 전달.
-                    var editAll = el('button', 'w-full flex items-center gap-2 px-3 py-2 mb-1 rounded transition-colors text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-inverse-surface');
-                    editAll.type = 'button';
-                    editAll.style.cssText = 'text-align:left;font-weight:700;' + BTN_RESET;
-                    var eaIcon = icon('edit_note');
-                    eaIcon.style.cssText = 'flex:0 0 auto;font-size:18px;color:#2170e4;';
-                    editAll.appendChild(eaIcon);
-                    var eaLabel = el('span', 'font-label-sm text-label-sm', '전체 편집');
-                    eaLabel.style.cssText = 'flex:1;min-width:0;color:#2170e4;';
-                    editAll.appendChild(eaLabel);
-                    editAll.addEventListener('click', function (ev) {
-                        ev.stopPropagation();
-                        location.href = '/flow-all?system=' + encodeURIComponent(sys.name || '');
-                    });
-                    panel.appendChild(editAll);
-
-                    (sys.flows || []).forEach(function (flowName) {
-                        var isCur = onFlowPage && flowName === curFlowName;
-                        var fb = el('button', 'w-full flex items-center gap-2 px-3 py-2 rounded transition-colors text-on-surface-variant dark:text-surface-variant'
-                            + (isCur ? '' : ' hover:bg-surface-container-high dark:hover:bg-inverse-surface'));
-                        fb.type = 'button';
-                        fb.style.cssText = 'text-align:left;' + BTN_RESET;
-                        // BTN_RESET 의 background:transparent 가 Tailwind 활성 bg 클래스를 덮으므로 활성 색은 인라인으로 지정.
-                        if (isCur) { fb.style.backgroundColor = '#2170e4'; fb.style.color = '#fff'; }
-                        fb.appendChild(dot(isCur ? '#fff' : 'currentColor', isCur ? '1' : '0.55'));
-                        var fl = el('span', 'font-label-sm text-label-sm', flowName);
-                        fl.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-                        fb.appendChild(fl);
-                        fb.addEventListener('click', function (ev) {
-                            ev.stopPropagation();
-                            location.href = '/flow?name=' + encodeURIComponent(flowName);
-                        });
-                        panel.appendChild(fb);
-                    });
-
-                    document.body.appendChild(panel);
-                    openPanel = panel; openRow = row; openChev = chev;
-                    chev.style.transform = 'rotate(90deg)';
-                    row.setAttribute('aria-expanded', 'true');
-                    reposition();
-                    // 같은 클릭 이벤트가 즉시 닫지 않도록 다음 틱에 바인딩.
-                    setTimeout(function () { document.addEventListener('click', onDocClick, true); }, 0);
-                    window.addEventListener('resize', reposition);
-                    navMenu.addEventListener('scroll', reposition);
+                    if (openRow === row) { collapse(); return; }
+                    expand(row, sub, chev);
                 });
 
                 cycleSubWrap.appendChild(row);
+                cycleSubWrap.appendChild(sub);
+
+                // 현재 보고 있는 Flow(/flow?name=)가 이 시스템에 속하면 자동으로 펼쳐 위치를 보여준다.
+                if (sysHasCurrent) expand(row, sub, chev);
             });
         }
 
-        // Line Summary 블록 (PLC 디버그 링크는 이 블록 앞에 삽입)
-        var lineSummaryBlock = el('div', 'mt-8 mb-4 px-4');
-        lineSummaryBlock.appendChild(el('div', 'text-[10px] uppercase font-bold tracking-wider text-outline mb-2', 'Line Summary'));
-        var lsCard = el('div', 'flex items-center justify-between p-3 bg-surface dark:bg-inverse-surface rounded-lg border border-outline-variant dark:border-outline');
-        var lsLeft = el('div');
-        var lsRunRow = el('div', 'flex items-center gap-2');
-        lsRunRow.appendChild(el('span', 'w-2 h-2 rounded-full bg-green-500'));
-        var lsRunLabel = el('span', 'font-label-sm text-label-sm');
-        lsRunLabel.appendChild(document.createTextNode('가동: '));
+        // Line Summary 변수 — 헤더 가동/대기 위젯에서 사용
         var lsRunning = el('b', null, '0');
-        lsRunLabel.appendChild(lsRunning);
-        lsRunRow.appendChild(lsRunLabel);
-        var lsIdleRow = el('div', 'flex items-center gap-2');
-        lsIdleRow.appendChild(el('span', 'w-2 h-2 rounded-full bg-orange-400'));
-        var lsIdleLabel = el('span', 'font-label-sm text-label-sm');
-        lsIdleLabel.appendChild(document.createTextNode('대기: '));
         var lsIdle = el('b', null, '0');
-        lsIdleLabel.appendChild(lsIdle);
-        lsIdleRow.appendChild(lsIdleLabel);
-        lsLeft.appendChild(lsRunRow);
-        lsLeft.appendChild(lsIdleRow);
-        lsCard.appendChild(lsLeft);
-        lineSummaryBlock.appendChild(lsCard);
-        navMenu.appendChild(lineSummaryBlock);
 
         // ── 이상코드 실시간 피드 ── Line Summary 아래 빈 공간을 채움(flex-1+자체 스크롤).
         //   데이터: /api/nav/summary 의 recentAnomalies (최신 N건, 레벨 무관). 4초 폴링 공유.
@@ -438,6 +394,31 @@
         liveBadge.appendChild(liveDot);
         liveBadge.appendChild(liveText);
         liveBadge.appendChild(liveChev);
+
+        // ── 가동/대기 헤더 위젯 (실시간 배지 왼쪽) ──
+        var headerLineStatus = el('span');
+        headerLineStatus.style.cssText = 'display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border:1px solid var(--color-lines-strong);border-radius:var(--radius-sm);font-size:.66rem;font-weight:700;letter-spacing:.05em;font-variant-numeric:tabular-nums;';
+        var hlsRunSpan = el('span');
+        hlsRunSpan.style.cssText = 'display:inline-flex;align-items:center;gap:5px;';
+        var hlsRunDot = el('span');
+        hlsRunDot.style.cssText = 'flex:0 0 auto;width:8px;height:8px;border-radius:50%;background:#22c55e;';
+        hlsRunSpan.appendChild(hlsRunDot);
+        hlsRunSpan.appendChild(document.createTextNode('가동 '));
+        hlsRunSpan.appendChild(lsRunning);
+        var hlsSep = el('span');
+        hlsSep.style.cssText = 'display:inline-block;width:1px;height:10px;background:currentColor;opacity:0.25;vertical-align:middle;';
+        var hlsIdleSpan = el('span');
+        hlsIdleSpan.style.cssText = 'display:inline-flex;align-items:center;gap:5px;';
+        var hlsIdleDot = el('span');
+        hlsIdleDot.style.cssText = 'flex:0 0 auto;width:8px;height:8px;border-radius:50%;background:#fb923c;';
+        hlsIdleSpan.appendChild(hlsIdleDot);
+        hlsIdleSpan.appendChild(document.createTextNode('대기 '));
+        hlsIdleSpan.appendChild(lsIdle);
+        headerLineStatus.appendChild(hlsRunSpan);
+        headerLineStatus.appendChild(hlsSep);
+        headerLineStatus.appendChild(hlsIdleSpan);
+        headRight.appendChild(headerLineStatus);
+
         headRight.appendChild(liveBadge);
 
         var _agPopOpen = false;
@@ -535,7 +516,7 @@
             .then(function (data) {
                 if (!data) return;
                 if (data.showPlcDebug) {
-                    navMenu.insertBefore(buildNavLink(PLC_DEBUG_ITEM, LINK_ACTIVE, LINK_IDLE), lineSummaryBlock);
+                    navMenu.insertBefore(buildNavLink(PLC_DEBUG_ITEM, LINK_ACTIVE, LINK_IDLE), anomalyBlock);
                 }
                 buildSystemSubmenu(data.systems);
             })

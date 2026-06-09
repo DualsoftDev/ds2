@@ -10,7 +10,9 @@ public record DashboardSnapshotDto(
     List<FlowStateDto> Flows,
     LayoutDto Layout,
     bool HasData,
-    DateTimeOffset Timestamp);
+    DateTimeOffset Timestamp,
+    // 이상 알람 배너 마퀴 흐름 속도(px/초) — 서버설정 Ui.AlarmMarqueeSpeedPxPerSec. 클라가 스냅샷에서 읽어 사용.
+    int AlarmMarqueeSpeedPxPerSec = 250);
 
 public record FlowStateDto(
     string FlowName,
@@ -51,13 +53,16 @@ public record FlowHistoryDto(
     bool IsIdle);
 
 // 시프트 운영 — 서버 공유 설정 + 실시간 진행(만든 수).
-// Start/End 는 로컬 "HH:mm". MadeCount = TargetFlow 의 현재 시프트 시작 이후 완료(비가동 제외) 사이클 수
+// Start/End 는 로컬 "HH:mm". MadeCount = 현재 시프트 시작 이후 만든 수
+//   · TargetWork 설정 시 → 그 Work 의 완료(InTag↑ rising edge) 횟수
+//   · TargetWork 미설정(Flow 만) 시 → TargetFlow 의 완료(비가동 제외) 사이클 수 (구버전 폴백)
 // (서버에서 시프트 윈도우 해석 후 집계). 미설정(TargetFlow 빈값)이면 0.
 public record ShiftDto(
     string Start,
     string End,
     string ShiftType,
     string? TargetFlow,
+    string? TargetWork,
     int TargetCount,
     int MadeCount);
 
@@ -67,6 +72,7 @@ public record ShiftSaveDto(
     string? End,
     string? ShiftType,
     string? TargetFlow,
+    string? TargetWork,
     int TargetCount);
 
 // 히스토리 이상치 제외 필터 — Flow별 최소·최대 CT 범위(초). 서버(appsettings) 공유.
@@ -86,10 +92,11 @@ public record CycleExclusionSaveDto(
 //   Kind/KindName : AbnormalKind int 값(0..3) + enum 이름(SensorOpen/SensorShort/ActionOver/ActionUnder)
 //   Label/Level   : DSPilot severity 정책 적용본(한글 라벨 + Error/Warning/Info — shell.js LEVEL_COLOR 와 동일)
 //   Source        : NavController '이상코드' 사이드바 피드 합류용 형상("ds-error-0".."ds-error-3")
-//   FlowName/WorkName : Target.CallId → GetCallInfoAsync 로 해석(미해석 시 빈 문자열)
+//   FlowName/WorkName/CallName : Target.CallId → DsProjectService.GetCallPath 로 모델상 실제 이름 해석(미해석 시 빈 문자열)
 //   SystemName    : FlowName 소속 시스템(AASX DsProjectService 로 해석, 미로드 시 빈 문자열)
 //   ElapsedMs     : Action* 에만(동작 소요 ms), Observed : Sensor* 에만(관측 상태)
 //   SensorTag     : Sensor* 에만 — 이상 감지 트리거가 된 실제 InTag PLC 주소 (PlcToCallMapperService 해석, 미해석 시 null)
+//   CallName      : "{DevicesAlias}.{ApiName}" — 경로(FLOW/WORK/CALL) 마지막 칸. 대상 디바이스 포함.
 public record AbnormalEventDto(
     int Kind,
     string KindName,
@@ -103,4 +110,5 @@ public record AbnormalEventDto(
     bool? Observed,
     System.DateTime OccurredAtUtc,
     string OccurredAtLocal,
-    string? SensorTag = null);
+    string? SensorTag = null,
+    string CallName = "");

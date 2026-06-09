@@ -48,10 +48,12 @@ Name: "{#MySharedDir}"; Permissions: users-modify
 
 [Files]
 ; Publish output (self-contained, all dependencies included)
-; uploads 폴더의 사용자 데이터(도면 이미지, 레이아웃 JSON)는 설치하지 않는다.
-; - 신규 설치: 도면 이미지 없이 백지로 시작. AASX 최초 import 시 Flow 들이 자동으로 격자에 채워짐.
+; uploads 폴더의 사용자 데이터(도면 이미지, 레이아웃 JSON, CCTV 설비 오버레이)는 설치하지 않는다.
+; - 신규 설치: 도면 이미지·오버레이 없이 백지로 시작. AASX 최초 import 시 Flow 들이 자동으로 격자에 채워짐.
 ; - 업그레이드: 기존 사용자 데이터 보존 (Excludes 로 덮어쓰기 방지).
-Source: "..\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "wwwroot\uploads\blueprint.*,wwwroot\uploads\layout-data.json,wwwroot\uploads\layout-data.json.*"
+; cctv-overlays.json 은 git 미추적 런타임 산출물이라 로컬 빌드 시 dev 의 파일이 publish 에 섞여
+; 들어가 타겟 PC 의 오버레이를 덮어쓰므로(layout-data.json 과 동일 케이스) 함께 제외한다.
+Source: "..\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "wwwroot\uploads\blueprint.*,wwwroot\uploads\layout-data.json,wwwroot\uploads\layout-data.json.*,wwwroot\uploads\cctv-overlays.json"
 ; Icon file for shortcuts
 Source: "..\DSPilot\DSPilot.ico"; DestDir: "{app}"; Flags: ignoreversion
 ; CCTV — MediaMTX 바이너리 + WinSW 래퍼. build-installer.bat 가 mediamtx 폴더를 채운다.
@@ -358,22 +360,22 @@ begin
   end;
 end;
 
-// Write port to appsettings.Production.json after files are installed
-// ASP.NET Core automatically loads this and overrides appsettings.json.
-// 매 설치마다 강제 갱신 — 옛 경로/옛 Hub 설정이 stale 하게 남아 문제 일으키는 것 방지.
-// Database/Hub 등 다른 섹션은 적지 않음: 코드 기본값(AppSettingsModel/HubSettings)이 단일 정답.
+// Write port to appsettings.Hosting.json after files are installed.
+// Program.cs 가 이 파일을 명시적으로 로드(AddJsonFile)하며, 매 설치마다 선택 포트로 강제 갱신한다.
+// 사용자 설정 저장소(appsettings.Production.json)는 건드리지 않는다 — 카메라/이상치/시프트 등 보존.
+// (포트만 분리 보관하므로 사용자 설정 보존과 포트 갱신이 충돌하지 않는다.)
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Port: String;
   UrlsValue: String;
-  ProdJsonPath: String;
+  HostingJsonPath: String;
 begin
   if CurStep = ssPostInstall then
   begin
     Port := GetPort('');
     UrlsValue := 'http://*:' + Port;
-    ProdJsonPath := ExpandConstant('{app}\appsettings.Production.json');
-    SaveStringToFile(ProdJsonPath,
+    HostingJsonPath := ExpandConstant('{app}\appsettings.Hosting.json');
+    SaveStringToFile(HostingJsonPath,
       '{' + #13#10 +
       '  "Urls": "' + UrlsValue + '"' + #13#10 +
       '}' + #13#10, False);
@@ -392,7 +394,6 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode: Integer;
   OldAppSettings: String;
-  OldProdSettings: String;
   PortNum: Integer;
 begin
   Exec(ExpandConstant('{sys}\sc.exe'), ExpandConstant('stop {#MyServiceName}'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
@@ -408,13 +409,15 @@ begin
   // Remove old firewall rule (re-created with new port after install)
   Exec(ExpandConstant('{sys}\netsh.exe'), 'advfirewall firewall delete rule name="DSPilot Web Service"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 
-  // 옛 appsettings 잔여물 제거 — 옛 plc.db 경로/옛 Hub 설정이 stale 하게 남아 신규 기본값을 가리는 사고 방지.
-  // appsettings.json 은 첫 부팅 시 AppSettingsService.EnsureSettingsFiles 가 현재 코드 기본값으로 재생성한다.
-  // appsettings.Production.json 은 CurStepChanged 에서 Urls 만 담아 새로 쓴다.
+  // appsettings.json(번들 기본값 베이스)만 제거 — [Files] 가 새 번들로 덮어쓰지만, 구버전의 stale 추가 키까지
+  // 확실히 정리하려고 먼저 지운다. 없으면 첫 부팅 시 AppSettingsService.EnsureSettingsFiles 가 코드 기본값으로 재생성.
+  //
+  // appsettings.Production.json 은 *보존*한다 — 사용자 설정(카메라/이상치/시프트/OEE 등) 영속 저장소이므로
+  //   업그레이드 때 날리면 안 된다(과거 이 파일 삭제가 카메라 등록 유실의 원인이었음).
+  // 포트(Urls)는 사용자 설정과 분리해 CurStepChanged 가 appsettings.Hosting.json 에 따로 기록한다.
+  // 구버전에서 넘어온 설정이 문제를 일으키면, 사용자가 설정 페이지의 "설정 초기화"로 직접 기본값 복원한다.
   OldAppSettings := ExpandConstant('{app}\appsettings.json');
   if FileExists(OldAppSettings) then DeleteFile(OldAppSettings);
-  OldProdSettings := ExpandConstant('{app}\appsettings.Production.json');
-  if FileExists(OldProdSettings) then DeleteFile(OldProdSettings);
 
   Sleep(1000);
 

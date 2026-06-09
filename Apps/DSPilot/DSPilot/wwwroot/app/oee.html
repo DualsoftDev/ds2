@@ -305,7 +305,7 @@
                                 <div class="oee-apq-note" x-text="shiftTypeLabel(shift.shiftType) + (isOvernight(shift) ? ' · 야간(자정넘김)' : '')"></div>
                             </div>
                             <div>
-                                <div class="oee-stat-label">목표 진행 (<span x-text="shift.targetFlow || '미설정'"></span>)</div>
+                                <div class="oee-stat-label">목표 진행 (<span x-text="shift.targetWork ? shortWorkName(shift.targetWork, shift.targetFlow) : (shift.targetFlow || '미설정')"></span>)</div>
                                 <div class="oee-stat-value" x-text="shift.targetFlow ? (shift.madeCount.toLocaleString() + ' / ' + shift.targetCount.toLocaleString()) : '—'"></div>
                                 <div class="oee-progress" x-show="shift.targetFlow && shift.targetCount > 0">
                                     <div class="oee-progress-fill" :style="`width:${Math.min(100, shift.targetCount>0 ? shift.madeCount/shift.targetCount*100 : 0)}%;`"></div>
@@ -333,7 +333,13 @@
                                     </select>
                                 </div>
                                 <div class="oee-field"><label>목표 Flow</label>
-                                    <input type="text" list="oee-flow-list" x-model="shiftForm.targetFlow" placeholder="(옵션)" />
+                                    <input type="text" list="oee-flow-list" x-model="shiftForm.targetFlow" @change="onTargetFlowChange()" placeholder="(옵션)" />
+                                </div>
+                                <div class="oee-field"><label>목표 Work</label>
+                                    <select x-model="shiftForm.targetWork" :disabled="!shiftForm.targetFlow">
+                                        <option value="">(전체 · Flow 사이클)</option>
+                                        <template x-for="w in targetWorks" :key="w"><option :value="w" x-text="shortWorkName(w, shiftForm.targetFlow)"></option></template>
+                                    </select>
                                 </div>
                                 <div class="oee-field"><label>목표 수량</label><input type="number" min="0" x-model.number="shiftForm.targetCount" /></div>
                             </div>
@@ -748,6 +754,8 @@
                 flowHistory: {},             // flowName → [ct...] (sparkline)
 
                 shift: null, shiftEdit: false, shiftForm: null, shiftBusy: false, shiftMsg: '',
+                targetWorks: [],            // 선택된 목표 Flow 의 Work 목록(Flow→Work 2단계)
+                _targetWorksFlow: null,     // targetWorks 가 어느 Flow 로 로드됐는지(중복 조회 가드)
                 anom: null,
                 ctTable: [], ctMsg: '', ctError: null, ctLoading: false, ctApplying: false,
                 exceptions: [], excForm: { flow: '', start: '', end: '', kind: 'planned_maint' }, excBusy: false, excErr: '',
@@ -1025,9 +1033,38 @@
                 },
 
                 // ── 시프트 편집 ──
+                // Work 정규화 이름("Flow.Work" 등)에서 Flow 접두를 떼어 짧은 Work 이름만.
+                shortWorkName(name, flow) {
+                    if (!name) return '';
+                    if (flow && name.startsWith(flow + '.')) return name.slice(flow.length + 1);
+                    const i = name.lastIndexOf('.');
+                    return i >= 0 ? name.slice(i + 1) : name;
+                },
                 seedShiftForm() {
                     if (!this.shift) return;
-                    this.shiftForm = { start: this.shift.start, end: this.shift.end, shiftType: this.shift.shiftType, targetFlow: this.shift.targetFlow || '', targetCount: this.shift.targetCount || 0 };
+                    this.shiftForm = { start: this.shift.start, end: this.shift.end, shiftType: this.shift.shiftType, targetFlow: this.shift.targetFlow || '', targetWork: this.shift.targetWork || '', targetCount: this.shift.targetCount || 0 };
+                    // targetWorks 는 loadTargetWorks 가 관리(동일 Flow 중복조회 가드와 충돌하지 않도록 여기서 비우지 않음).
+                    if (this.shiftForm.targetFlow) this.loadTargetWorks(this.shiftForm.targetFlow);
+                    else { this.targetWorks = []; this._targetWorksFlow = null; }
+                },
+                onTargetFlowChange() {
+                    if (!this.shiftForm) return;
+                    this.shiftForm.targetWork = '';
+                    this.targetWorks = [];
+                    this._targetWorksFlow = null;
+                    if (this.shiftForm.targetFlow) this.loadTargetWorks(this.shiftForm.targetFlow);
+                },
+                async loadTargetWorks(flowName) {
+                    if (this._targetWorksFlow === flowName) return; // 동일 Flow 중복 조회 방지(폴링)
+                    this._targetWorksFlow = flowName;
+                    try {
+                        const list = await this.apiGet('/api/dashboard/flows/' + encodeURIComponent(flowName) + '/works');
+                        if (!this.shiftForm || this.shiftForm.targetFlow !== flowName) return; // stale 무시
+                        this.targetWorks = Array.isArray(list) ? list : [];
+                    } catch (e) {
+                        this._targetWorksFlow = null; // 실패 시 재시도 허용
+                        if (this.shiftForm && this.shiftForm.targetFlow === flowName) this.targetWorks = [];
+                    }
                 },
                 shiftLabel() { return this.shift ? (this.shift.start + '–' + this.shift.end) : (this.line ? this.line.shiftLabel : ''); },
                 isOvernight(s) { return s && s.end <= s.start; },
@@ -1037,7 +1074,8 @@
                     try {
                         await this.apiPost('/api/dashboard/shift', {
                             start: this.shiftForm.start, end: this.shiftForm.end, shiftType: this.shiftForm.shiftType,
-                            targetFlow: this.shiftForm.targetFlow || null, targetCount: this.shiftForm.targetCount || 0,
+                            targetFlow: this.shiftForm.targetFlow || null, targetWork: this.shiftForm.targetWork || null,
+                            targetCount: this.shiftForm.targetCount || 0,
                         });
                         this.shiftMsg = '저장됨';
                         this.shiftEdit = false;

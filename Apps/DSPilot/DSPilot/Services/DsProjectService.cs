@@ -215,6 +215,31 @@ public class DsProjectService
     }
 
     /// <summary>
+    /// Call ID → 모델상 (FlowName, WorkName, CallName). 알람 경로(FLOW/WORK/CALL) 표시용.
+    /// CallName 은 "{DevicesAlias}.{ApiName}" 형태(대상 디바이스 포함). 미해석 시 null.
+    /// dspCall 테이블의 WorkName 은 flow 명으로 채워지는 quirk 가 있어, 실제 Work 이름은 store 에서 직접 해석한다.
+    /// </summary>
+    public (string FlowName, string WorkName, string CallName)? GetCallPath(Guid callId)
+    {
+        var callOpt = Queries.getCall(callId, _store);
+        if (!Microsoft.FSharp.Core.FSharpOption<Call>.get_IsSome(callOpt))
+            return null;
+        var call = callOpt.Value;
+
+        var workOpt = Queries.getWork(call.ParentId, _store);
+        if (!Microsoft.FSharp.Core.FSharpOption<Work>.get_IsSome(workOpt))
+            return null;
+        var work = workOpt.Value;
+
+        var flowOpt = Queries.getFlow(work.ParentId, _store);
+        if (!Microsoft.FSharp.Core.FSharpOption<Flow>.get_IsSome(flowOpt))
+            return null;
+        var flow = flowOpt.Value;
+
+        return (flow.Name, work.Name, call.Name);
+    }
+
+    /// <summary>
     /// 한 Call 에 소속된 ApiCall 목록 + 각 ApiCall 의 In/Out 태그와 보정 대상(Device Work)의 현재 AASX duration 값을 반환.
     /// cycle-analysis 의 Call lane 확장 UI 용(읽기 전용 — store 불변). 매핑 경로는
     /// ApiCall → ApiDefId → ApiDef → RxGuid → Device Work (Queries.callDeviceDurationRangeMs 와 동일) 이고,
