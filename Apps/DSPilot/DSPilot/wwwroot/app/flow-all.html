@@ -1235,13 +1235,17 @@
                     return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], m[6] ? +m[6] : 0);
                 },
 
-                // ── 실시간 (이상치 동기화 + DB 재빌드) ──
+                // ── 실시간 (이상치 동기화만) ──
+                // 전체 편집은 "사용자가 고정한 시간창" 위에서 편집하는 스냅샷 페이지다.
+                // DatabaseRebuilt/FlowHistoryCleared 로 loadAll() 을 자동 호출하면
+                // PLC 사이클이 도는 동안 주기 self-heal 재계산(PeriodicCycleRecomputeService)이
+                // 같은 DatabaseRebuilt 를 쏠 때마다 진행 중인 편집(head/tail·이상치·duration)이 통째로 풀린다.
+                // → 자동 재로드를 제거하고, 갱신은 새로고침 버튼/시간범위 변경/일괄 적용에만 맡긴다.
+                //   (자기 저장 후 갱신은 applyAll 이 loadSlice 로 직접 처리하므로 무관.)
                 connectSignalR() {
                     if (!window.signalR) return;
                     const conn = new signalR.HubConnectionBuilder().withUrl('/hubs/monitoring').withAutomaticReconnect([0, 0, 1000, 3000, 5000, 10000]).build();
-                    conn.on('ExclusionsChanged', () => { this.loadExclusions(); });
-                    conn.on('DatabaseRebuilt', () => { this.loadAll(); });
-                    conn.on('FlowHistoryCleared', () => { this.loadAll(); });
+                    conn.on('ExclusionsChanged', () => { this.loadExclusions(); });   // 서버 공유 이상치 동기화(가벼움)
                     conn.onreconnected(() => { this.rt.connected = true; });
                     conn.onreconnecting(() => { this.rt.connected = false; });
                     conn.onclose(() => { this.rt.connected = false; });

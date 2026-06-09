@@ -286,6 +286,9 @@
         .cctv-camset-divider { border: none; border-top: 1px solid var(--color-lines); margin: 14px 0; }
         .cctv-camset-list { max-height: 42vh; overflow-y: auto; margin-bottom: 8px; padding-right: 2px; }
         .cctv-camset-empty { color: var(--color-text-secondary); display: block; margin: 10px 0; font-size: 0.78rem; }
+        .cctv-camset-advtoggle { display: inline-flex; align-items: center; gap: 4px; background: none; border: none; padding: 4px 0; cursor: pointer; color: var(--color-text-secondary); font-size: 0.82rem; font-weight: 600; }
+        .cctv-camset-advtoggle:hover { color: var(--color-text); }
+        .cctv-camset-advtoggle .material-icons { font-size: 18px; }
         .cctv-camset-sync { color: var(--color-text-secondary); display: block; margin-top: 8px; font-size: 0.72rem; line-height: 1.5; }
         .cam-card { border: 1px solid var(--color-lines); border-radius: var(--radius-sm); padding: 10px; margin-bottom: 8px; background: var(--color-surface-variant); }
         .cam-row1 { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
@@ -725,26 +728,6 @@
                     </small>
                 </div>
 
-                <div class="form-group">
-                    <label class="form-label">MediaMTX 제어 API</label>
-                    <input class="form-field mono" x-model="camSettings.mediaMtxApiUrl" placeholder="http://localhost:9997" />
-                </div>
-                <div class="form-group">
-                    <label class="form-label">WebRTC 포트</label>
-                    <input type="number" class="form-field mono" x-model.number="camSettings.webRtcPort" min="1" max="65535" placeholder="8889" style="width:130px;" />
-                </div>
-                <div class="form-group">
-                    <label class="form-label">외부 접속 주소 (공인 IP/도메인) <span style="font-weight:400; color:var(--color-text-secondary);">— 내부망만 쓰면 비워두세요</span></label>
-                    <input class="form-field mono" x-model="camSettings.webRtcAdditionalHosts" placeholder="예: 203.0.113.10  또는  cctv.example.com" />
-                    <small class="cctv-camset-empty" style="margin:6px 0 0;">
-                        클라우드 PC·원격 접속 시 <strong>필수</strong>. 이 주소를 MediaMTX 가 영상 연결 후보로 광고하고(없으면 사설 IP만 광고돼 외부에서 영상이 안 붙음),
-                        UDP 차단망 대비 TCP 폴백도 함께 켜집니다. 쉼표로 여러 개 가능.
-                        <br>※ 별도로 방화벽/보안그룹(NSG)에서 <span class="mono">TCP 8889·UDP 8189·TCP 8189</span> 인바운드를 열어야 합니다.
-                    </small>
-                </div>
-
-                <hr class="cctv-camset-divider" />
-
                 <template x-if="camSettings.cameras.length === 0">
                     <small class="cctv-camset-empty">등록된 카메라가 없습니다. 아래 "카메라 추가" 로 시작하세요.</small>
                 </template>
@@ -768,6 +751,34 @@
                 <button class="btn btn-outlined btn-sm w-100" @click="addCamSetting()">
                     <span class="material-icons">add</span> 카메라 추가
                 </button>
+
+                <hr class="cctv-camset-divider" />
+
+                <button type="button" class="cctv-camset-advtoggle" @click="camSettings.advancedOpen = !camSettings.advancedOpen"
+                        :aria-expanded="camSettings.advancedOpen ? 'true' : 'false'">
+                    <span class="material-icons" x-text="camSettings.advancedOpen ? 'expand_more' : 'chevron_right'"></span>
+                    추가설정 (MediaMTX · 포트 · 외부 접속 주소)
+                </button>
+
+                <div x-show="camSettings.advancedOpen" x-cloak style="margin-top:12px;">
+                    <div class="form-group">
+                        <label class="form-label">MediaMTX 제어 API</label>
+                        <input class="form-field mono" x-model="camSettings.mediaMtxApiUrl" placeholder="http://localhost:9997" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">WebRTC 포트</label>
+                        <input type="number" class="form-field mono" x-model.number="camSettings.webRtcPort" min="1" max="65535" placeholder="8889" style="width:130px;" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">외부 접속 주소 (공인 IP/도메인) <span style="font-weight:400; color:var(--color-text-secondary);">— 내부망만 쓰면 비워두세요</span></label>
+                        <input class="form-field mono" x-model="camSettings.webRtcAdditionalHosts" placeholder="예: 203.0.113.10  또는  cctv.example.com" />
+                        <small class="cctv-camset-empty" style="margin:6px 0 0;">
+                            클라우드 PC·원격 접속 시 <strong>필수</strong>. 이 주소를 MediaMTX 가 영상 연결 후보로 광고하고(없으면 사설 IP만 광고돼 외부에서 영상이 안 붙음),
+                            UDP 차단망 대비 TCP 폴백도 함께 켜집니다. 쉼표로 여러 개 가능.
+                            <br>※ 별도로 방화벽/보안그룹(NSG)에서 <span class="mono">TCP 8889·UDP 8189·TCP 8189</span> 인바운드를 열어야 합니다.
+                        </small>
+                    </div>
+                </div>
 
                 <template x-if="camSettings.syncMessage">
                     <small class="cctv-camset-sync">
@@ -870,7 +881,7 @@
                 hoverOverlay: null,        // { id, camId, kind, color, pos:{left, top?|bottom?}, model:{...} }
 
                 labelForm: { open: false, id: null, label: '', saving: false },
-                camSettings: { open: false, mediaMtxApiUrl: '', webRtcPort: 8889, webRtcAdditionalHosts: '', cameras: [], saving: false, syncOk: false, syncMessage: '' },
+                camSettings: { open: false, advancedOpen: false, mediaMtxApiUrl: '', webRtcPort: 8889, webRtcAdditionalHosts: '', cameras: [], saving: false, syncOk: false, syncMessage: '' },
 
                 async init() {
                     this.dark = localStorage.getItem('dspilot-theme') === 'dark';
@@ -1684,6 +1695,7 @@
                         const c = await this.apiGet('/api/cctv/settings');
                         this.camSettings = {
                             open: true,
+                            advancedOpen: false,
                             mediaMtxApiUrl: c.mediaMtxApiUrl || '',
                             webRtcPort: c.webRtcPort || 8889,
                             webRtcAdditionalHosts: c.webRtcAdditionalHosts || '',
@@ -1696,7 +1708,7 @@
                 },
                 addCamSetting() { this.camSettings.cameras.push({ name: 'camera' + (this.camSettings.cameras.length + 1), rtspUrl: '', enabled: true }); },
                 removeCamSetting(i) { this.camSettings.cameras.splice(i, 1); },
-                closeCamSettings() { this.camSettings = { open: false, mediaMtxApiUrl: '', webRtcPort: 8889, webRtcAdditionalHosts: '', cameras: [], saving: false, syncOk: false, syncMessage: '' }; },
+                closeCamSettings() { this.camSettings = { open: false, advancedOpen: false, mediaMtxApiUrl: '', webRtcPort: 8889, webRtcAdditionalHosts: '', cameras: [], saving: false, syncOk: false, syncMessage: '' }; },
                 async saveCamSettings() {
                     if (this.camSettings.saving) return;
                     this.camSettings.saving = true;
