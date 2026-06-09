@@ -94,9 +94,8 @@ public partial class App : Application
                 // winmm 호출 실패해도 동작은 가능 (정밀도만 보장 안 됨)
             }
         }
-        // PR-D7.3 fix — DX dll 의 동적 로드 (Themes.Office2019Colorful 등) 가 .NET 9 AssemblyLoadContext
-        // strong-named entry 미등록으로 실패하는 것을 회피. 모든 DX type 참조 (MainWindow XAML parsing 포함)
-        // 이전에 1회 등록 필수 → OnStartup 의 가장 이른 시점.
+        // PR-A1 (DX → AvalonDock) — AvalonDock 은 일반 NuGet 어셈블리라 AppDomain.AssemblyResolve hook 불필요.
+        // 호출은 외부 API 호환을 위해 유지 (DockHost.RegisterAssemblyResolve 는 no-op 박제).
         Promaker.Dock.DockHost.RegisterAssemblyResolve();
 
         // process working dir 가 exe 폴더가 아닐 수 있어 (단축키 / dotnet run / 다른 cwd 에서 실행)
@@ -139,8 +138,8 @@ public partial class App : Application
 
         ThemeManager.ApplySavedTheme();
 
-        // DX 독 스킨 — Promaker 라이트/다크 테마에 연동 (dark=Office2019Black, light=Office2019Colorful).
-        // 격리 helper 호출 (DX type 외부 노출 0건 유지, §7 #4). 초기 1회 + 테마 전환 시 갱신.
+        // AvalonDock 테마 — Promaker 라이트/다크에 연동 (dark=Vs2013DarkTheme, light=Vs2013LightTheme).
+        // 격리 helper 호출 (AvalonDock type 외부 노출 0건 유지). 초기 1회 + 테마 전환 시 갱신.
         Promaker.Dock.DockHost.SetTheme(ThemeManager.CurrentTheme == AppTheme.Dark);
         ThemeManager.ThemeChanged += t => Promaker.Dock.DockHost.SetTheme(t == AppTheme.Dark);
 

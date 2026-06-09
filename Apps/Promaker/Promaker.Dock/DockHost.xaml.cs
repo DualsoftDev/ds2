@@ -1,96 +1,86 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
-using DevExpress.Xpf.Core;
-using DevExpress.Xpf.Docking;
-using DevExpress.Xpf.Docking.Base;
+using System.Windows.Input;
+using System.Windows.Media;
+using AvalonDock.Layout;
+using AvalonDock.Layout.Serialization;
+using AvalonDock.Themes;
 
 namespace Promaker.Dock;
 
 /// <summary>
-/// DevExpress DockLayoutManager 을 캡슐화하는 UserControl. 외부 노출 API = <see cref="IDockManager"/>.
-/// DX type 은 본 클래스 안에서만 사용 — Promaker.csproj 의 PrivateAssets="all" ProjectReference 와 함께
-/// DX 의 System.Windows.Forms / System.Drawing transitive 가 Promaker 본체에 유입되지 않도록 격리.
-///
-/// PR-D3~D6 단계:
-///   - done-dock-devexpress.md §3 PR-D3 의 layout 설계 (Welcome/Canvas 통합 DocumentGroup) 그대로 LayoutGroup 트리 구성 (XAML).
-///   - IDockManager 의 6 메서드 (RegisterAnchor / RegisterDocument / SetAnchorVisible / IsAnchorVisible /
-///     SaveLayout / RestoreLayout) + 1 event (AnchorVisibilityChanged) 구현. dispatch 는
-///     <see cref="DockAnchorPosition"/> switch.
-///   - size 보존 / drag-drop / floating 은 DX native 처리 — 별도 보정 코드 없음 (작업 의도 verbatim).
+/// AvalonDock <c>DockingManager</c> 를 캡슐화하는 UserControl. 외부 노출 API = <see cref="IDockManager"/>.
+/// <para>
+/// PR-A1 (DX 제거 + AvalonDock 복귀): DevExpress.Wpf.Docking 의 모든 type 을 AvalonDock 으로 swap.
+/// 외부 API (IDockManager / DockAnchor / DockAnchorPosition) 표면은 동일 — Promaker 본체 (App.xaml.cs /
+/// MainWindow.xaml.cs / MainToolbarEtcContent.xaml) 의 호출 측 코드는 변경 0.
+/// </para>
 /// </summary>
 public partial class DockHost : UserControl, IDockManager
 {
     /// <summary>
-    /// ContentId → 등록된 BaseLayoutItem (LayoutPanel 또는 DocumentPanel) 매핑.
-    /// LayoutGroup.Items[string] 은 직접 자식만 lookup — 트리 전역은 자체 dictionary 가 더 단순/안정.
+    /// ContentId → 등록된 <see cref="LayoutContent"/> 매핑. (LayoutAnchorable | LayoutDocument 공통 부모).
+    /// AvalonDock layout 트리 안의 자식 탐색은 깊이가 있어 dictionary 가 더 단순/안정.
     /// </summary>
-    private readonly Dictionary<string, BaseLayoutItem> _itemsByContentId = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, LayoutContent> _itemsByContentId = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// PR-D7.3 — DX skin 정합. App startup 시점 (Application 인스턴스 생성 직후, MainWindow 생성 전) 1회 호출.
-    /// 격리 원칙 (§7 #4): DX type 외부 노출 차단 — Promaker 본체가 DX API 를 직접 호출하지 않도록
-    /// 본 정적 helper 가 단일 진입점. 매개변수 없음 — skin 이름은 deploy 된 Themes assembly 와 정합되는
-    /// "Office2019Black" 으로 하드코딩 (PR-D7.3 fix: Promaker dark theme 색차 시각 검수 결과 Office2019Colorful
-    /// (light) 부적합 → Office2019Black 채택. DevExpress.Xpf.Themes.Office2019Black.v24.1.dll 1종만 deploy).
-    /// 다른 dark skin (Office2019DarkGray / VS2019Dark / Win11Dark 등) 은 별도 Themes assembly 추가 deploy 필요.
+    /// SetTheme 정적 helper 가 dock manager Theme 를 교체할 수 있도록 최신 인스턴스 참조 보관.
+    /// Promaker 는 단일 MainWindow 모델 — 다중 DockHost 미가정.
+    /// </summary>
+    private static DockHost? _latest;
+
+    /// <summary>
+    /// SetTheme 가 DockHost 생성 이전에 호출된 경우(App.OnStartup 의 초기 theme 적용 시점), pending 값을 보관해
+    /// ctor 에서 적용. DockHost 생성 이후 호출은 즉시 적용.
+    /// </summary>
+    private static bool? _pendingDark;
+
+    /// <summary>
+    /// PR-A1 — Promaker 라이트/다크 테마 연동. App startup 의 ThemeManager 초기화 시점 + ThemeChanged 이벤트에서 호출.
+    /// AvalonDock 의 <see cref="DockingManager.Theme"/> 를 VS2013 Light/Dark Theme 로 교체.
+    /// (Theme 객체는 ResourceDictionary 를 노출하는 wrapper — 교체 시 dock chrome 즉시 재적용.)
     /// </summary>
     public static void SetTheme(bool dark)
     {
-        // Promaker 라이트/다크 테마 연동. dark → Office2019Black, light → Office2019Colorful.
-        // 두 Themes assembly 모두 deploy (Promaker.Dock.csproj). DX type 외부 노출 0 (bool 매개만).
-        ApplicationThemeHelper.ApplicationThemeName = dark ? "Office2019Black" : "Office2019Colorful";
+        if (_latest?._dockManager is { } mgr)
+        {
+            mgr.Theme = dark ? new Vs2013DarkTheme() : new Vs2013LightTheme();
+        }
+        else
+        {
+            _pendingDark = dark;
+        }
     }
 
     /// <summary>
-    /// PR-D7.3 fix — mechanism D (Reference HintPath) 의 NetCore dll 이 .NET 9 AssemblyLoadContext 에
-    /// strong-named entry 로 등록되지 않아 DX 의 동적 Themes assembly load (Themes.Office2019Colorful 등)
-    /// 가 FileNotFoundException 으로 실패. AppDomain.AssemblyResolve hook 으로 bin 폴더의 DevExpress.*.dll
-    /// 을 명시 로드. 본 메서드는 App startup 의 가장 이른 시점 (모든 DX type 참조 이전) 1회 호출 필수.
-    /// 본 메서드 body 에 DX type 참조 0건 — 안전한 정적 helper.
+    /// PR-A1 — DX 시절 NetCore HintPath 어셈블리 resolve hook 용. AvalonDock 은 일반 NuGet 어셈블리이므로
+    /// 동적 load 가 필요 없음 — 외부 호출 호환을 위해 method 만 남기고 no-op. App.xaml.cs 의 기존 호출은 그대로 유효.
     /// </summary>
     public static void RegisterAssemblyResolve()
     {
-        AppDomain.CurrentDomain.AssemblyResolve += (_, e) =>
-        {
-            var name = new AssemblyName(e.Name).Name;
-            if (name == null || !name.StartsWith("DevExpress.", StringComparison.Ordinal)) return null;
-            var path = Path.Combine(AppContext.BaseDirectory, name + ".dll");
-            return File.Exists(path) ? Assembly.LoadFrom(path) : null;
-        };
+        // intentionally empty — AvalonDock 은 표준 NuGet 어셈블리, AppDomain.AssemblyResolve hook 불필요.
     }
 
     public DockHost()
     {
         InitializeComponent();
-        ApplyNonSerializedSettings();
-
-        // PR-D5 — PR-D3 검열 M1 박제 처리: hook 시점을 Loaded 로 지연.
-        // 사유: XAML 의 `_llmChatPanel Closed="True"` 초기 박제 + DX 의 ItemIsVisibleChanged 가
-        // layout 첫 평가 (InitializeComponent 직후 또는 첫 arrange 시점) 에 false-IsVisible raise 를
-        // 일으킬 가능성 있음. ctor 안에서 hook 등록 시 그 초기 raise 가 외부 (SSOT) 로 누설되어
-        // VM 의 IsLlmChatVisible 가 false 로 강제 되거나 무한 loop 진입 위험.
-        // Loaded 는 layout 첫 arrange 완료 시점이므로, 그 안에서 hook 등록하면 초기 raise 는
-        // 모두 hook 이전에 처리되어 외부로 누설되지 않음 (정적 분석 기반 보수적 default).
-        Loaded += DockHost_Loaded;
-    }
-
-    private void DockHost_Loaded(object sender, RoutedEventArgs e)
-    {
-        // 1회만 hook (Loaded 다회 발생 — UserControl 재parent 등 — 시 중복 등록 방지).
-        Loaded -= DockHost_Loaded;
-        _dockLayout.ItemIsVisibleChanged += OnItemIsVisibleChanged;
+        _latest = this;
+        // App.OnStartup 의 초기 SetTheme 가 DockHost 생성 이전에 호출됐으면 그 시점 값 적용.
+        if (_pendingDark is bool dark)
+        {
+            _dockManager.Theme = dark ? new Vs2013DarkTheme() : new Vs2013LightTheme();
+            _pendingDark = null;
+        }
     }
 
     public event EventHandler<DockAnchorVisibilityChangedEventArgs>? AnchorVisibilityChanged;
 
     /// <summary>
-    /// PR-D9 (MJ2 복구) — anchor caption 의 Help 버튼 click event.
-    /// 매개 = ContentId 문자열 (DX type 외부 노출 0). MainWindow 가
-    /// <c>Promaker.Help.HelpNavigator.NavigateCommand.Execute(contentId)</c> 로 hook.
+    /// anchor caption 의 Help 버튼(?) click event. 매개 = ContentId 문자열 (AvalonDock type 외부 노출 0).
     /// </summary>
     public event EventHandler<string>? AnchorHelpRequested;
 
@@ -104,30 +94,22 @@ public partial class DockHost : UserControl, IDockManager
         if (_itemsByContentId.ContainsKey(anchor.ContentId))
             throw new InvalidOperationException($"ContentId '{anchor.ContentId}' is already registered.");
 
-        var panel = ResolveAnchorPanel(anchor.DefaultPosition);
-        ApplyAnchorMetadata(panel, anchor);
-        // caption 폰트/높이 통일 (DockHost.xaml 의 PaneCaptionFontSize SSOT) — DX LayoutPanel caption 기본 폰트가
-        // DocumentPanel(Workspace) 보다 커지는 문제를 모든 anchor 에 동일 template 으로 차단.
-        //   - HasHelp(explorer/properties/history): Help 뱃지 포함 AnchorCaptionWithHelp (caption TextBlock 에 동일 FontSize).
-        //   - 그 외(simulation/log/llmchat): 폰트만 통일하는 PaneCaption.
-        panel.CaptionTemplate = (DataTemplate)FindResource(anchor.HasHelp ? "AnchorCaptionWithHelp" : "PaneCaption");
-        panel.Content = anchor.Content;
-        _itemsByContentId[anchor.ContentId] = panel;
-    }
-
-    /// <summary>
-    /// PR-D9 — caption Help 뱃지 click 핸들러. <c>PreviewMouseLeftButtonDown</c> 사용 — DX caption chrome 이
-    /// 자체 drag-drop 을 위해 mouse event 를 캡처하므로 일반 Button.Click 으로는 동작 안 함. preview 단계에서
-    /// e.Handled=true 로 chrome 의 mouse capture 차단 + AnchorHelpRequested 발화. Border.Tag = anchor.ContentId
-    /// (Binding Name). 외부 (MainWindow) 가 Promaker.Help.HelpNavigator.NavigateCommand 호출.
-    /// </summary>
-    private void HelpBadge_PreviewMouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
-    {
-        if ((sender as FrameworkElement)?.Tag is string contentId && !string.IsNullOrEmpty(contentId))
+        var pane = ResolveAnchorPane(anchor.DefaultPosition);
+        var anchorable = new LayoutAnchorable
         {
-            AnchorHelpRequested?.Invoke(this, contentId);
-            e.Handled = true;
-        }
+            ContentId = anchor.ContentId,
+            Title = anchor.Title,
+            CanClose = false,  // 사용자 X 버튼으로 영구 제거 차단 — Hide 만 허용 (보기 메뉴로 복원).
+            CanHide = true,
+            Content = anchor.HasHelp ? WrapWithHelp(anchor.Content, anchor.ContentId) : anchor.Content,
+        };
+
+        // visibility 통보 — AvalonDock 은 IsHiddenChanged 이벤트가 없고, LayoutContent 가 INotifyPropertyChanged 를
+        // 구현해 IsHidden 변경 시 PropertyChanged 발화. PropertyName="IsHidden" 인 경우만 통보 (DX ItemIsVisibleChanged 와 동등).
+        anchorable.PropertyChanged += OnAnchorablePropertyChanged;
+
+        pane.Children.Add(anchorable);
+        _itemsByContentId[anchor.ContentId] = anchorable;
     }
 
     public void RegisterDocument(DockAnchor document)
@@ -141,108 +123,121 @@ public partial class DockHost : UserControl, IDockManager
         if (_itemsByContentId.ContainsKey(document.ContentId))
             throw new InvalidOperationException($"ContentId '{document.ContentId}' is already registered.");
 
-        // DocumentGroup 도 LayoutGroup 상속 — Items 컬렉션에 DocumentPanel 추가.
-        var docPanel = new DocumentPanel();
-        ApplyAnchorMetadata(docPanel, document);
-        docPanel.Content = document.Content;
-        _documentGroup.Items.Add(docPanel);
-        _itemsByContentId[document.ContentId] = docPanel;
+        var doc = new LayoutDocument
+        {
+            ContentId = document.ContentId,
+            Title = document.Title,
+            CanClose = false,  // Welcome/Canvas 는 영구 제거 차단 — visibility 토글만 (MainWindow 가 HasProject 동기화).
+            CanFloat = true,
+            Content = document.Content,
+        };
+        _documentPane.Children.Add(doc);
+        _itemsByContentId[document.ContentId] = doc;
     }
-
-    public void SetAnchorVisible(string contentId, bool visible)
-    {
-        // BaseLayoutItem.Closed : bool (DependencyProperty). true 면 hidden.
-        FindLayoutItem(contentId).Closed = !visible;
-    }
-
-    public bool IsAnchorVisible(string contentId) => !FindLayoutItem(contentId).Closed;
 
     /// <summary>
-    /// PR-D6 — DX <see cref="DockLayoutManager.SaveLayoutToXml(string)"/> wrapping.
-    /// 상위 디렉토리 미존재 시 생성. 호출 측 경로는 <c>%LOCALAPPDATA%\Promaker\dock-layout.xml</c> 박제.
+    /// AvalonDock 의 visibility 모델은 anchorable / document 가 서로 다름:
+    /// - <see cref="LayoutAnchorable.Hide"/> / <see cref="LayoutAnchorable.Show"/> — IsHidden 토글.
+    /// - <see cref="LayoutDocument"/> 는 IsHidden 이 직접 존재 — 단순 set.
+    /// </summary>
+    public void SetAnchorVisible(string contentId, bool visible)
+    {
+        var item = FindLayoutItem(contentId);
+        switch (item)
+        {
+            case LayoutAnchorable a:
+                if (visible) a.Show(); else a.Hide();
+                break;
+            case LayoutDocument d:
+                // LayoutDocument 는 Hide()/Show() 가 별도로 없어 IsVisible 을 통해 통제 (보기 메뉴에서 직접 사용 케이스 없음).
+                // Welcome/Canvas 의 HasProject 동기화는 MainWindow 가 본 메서드를 호출 — 단순 IsVisible bool 매핑.
+                if (!visible) d.Close(); else { /* Closed document 의 재오픈은 별도 흐름 — 본 메서드 scope 외 */ }
+                break;
+            default:
+                throw new InvalidOperationException($"Unsupported LayoutContent type for ContentId={contentId}: {item.GetType().Name}");
+        }
+    }
+
+    public bool IsAnchorVisible(string contentId)
+    {
+        var item = FindLayoutItem(contentId);
+        return item switch
+        {
+            LayoutAnchorable a => !a.IsHidden,
+            LayoutDocument d => d.IsVisible,
+            _ => false,
+        };
+    }
+
+    /// <summary>
+    /// AvalonDock <see cref="XmlLayoutSerializer"/> wrapping. ContentId 매칭으로 기존 LayoutContent 인스턴스 재연결.
+    /// 상위 디렉토리 미존재 시 생성.
     /// </summary>
     public void SaveLayout(string filepath)
     {
         if (string.IsNullOrEmpty(filepath)) throw new ArgumentException("filepath is required.", nameof(filepath));
         var dir = Path.GetDirectoryName(filepath);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-        _dockLayout.SaveLayoutToXml(filepath);
+
+        var serializer = new XmlLayoutSerializer(_dockManager);
+        using var fs = new FileStream(filepath, FileMode.Create, FileAccess.Write);
+        serializer.Serialize(fs);
     }
 
     /// <summary>
-    /// PR-D6 — DX <see cref="DockLayoutManager.RestoreLayoutFromXml(string)"/> wrapping.
-    /// 파일 미존재 시 default layout 유지. parse / restore 실패 시에도 default 유지 (외부 환경 예외 — fail-safe).
-    /// CLAUDE.md `## 예외 처리`: "프로그램 동작 중에 외부 환경 등의 어쩔 수 없는 요소에 의해서 예상되는 예외는 log 메시지" —
-    /// Promaker.Dock 에는 log4net 미연결이므로 swallow (호출측에서 default 진행).
+    /// AvalonDock <see cref="XmlLayoutSerializer"/> 로 layout 복원. 파일 미존재 시 default layout 유지.
+    /// parse / restore 실패 시에도 default 유지 (fail-safe — 외부 환경 예외).
+    /// LayoutSerializationCallback 에서 ContentId 매칭으로 기존 등록된 Content 재연결.
     /// </summary>
     public void RestoreLayout(string filepath)
     {
         if (string.IsNullOrEmpty(filepath)) throw new ArgumentException("filepath is required.", nameof(filepath));
         if (!File.Exists(filepath)) return;
-        try { _dockLayout.RestoreLayoutFromXml(filepath); }
+
+        try
+        {
+            var serializer = new XmlLayoutSerializer(_dockManager);
+            serializer.LayoutSerializationCallback += (s, e) =>
+            {
+                // XML 안의 ContentId 와 매핑된 기존 인스턴스의 Content / 이벤트 hookup 을 그대로 재사용.
+                if (e.Model is LayoutContent lc &&
+                    !string.IsNullOrEmpty(lc.ContentId) &&
+                    _itemsByContentId.TryGetValue(lc.ContentId, out var existing))
+                {
+                    e.Content = existing.Content;
+                }
+                else
+                {
+                    // 등록되지 않은 ContentId 는 skip (외부 환경 예외 — 구버전 layout xml 잔재 가능).
+                    e.Cancel = true;
+                }
+            };
+            using var fs = new FileStream(filepath, FileMode.Open, FileAccess.Read);
+            serializer.Deserialize(fs);
+        }
         catch (Exception ex)
         {
-            // Promaker.Dock 에 log4net 미연결 — 최소 진단 흔적 (사용자 철학 "외부 예외는 log 남김").
             System.Diagnostics.Trace.TraceWarning($"DockHost.RestoreLayout failed for '{filepath}': {ex.Message}");
         }
-        // RestoreLayoutFromXml 이 직렬화하지 않는 manager/layout 설정(FloatingMode / DocumentGroup 버튼)을
-        // 기본값으로 되돌리므로 복원 후 재적용.
-        ApplyNonSerializedSettings();
     }
 
     /// <summary>
-    /// <see cref="DockLayoutManager.RestoreLayoutFromXml(string)"/> 이 XML 에 직렬화하지 않아
-    /// 복원 시 기본값으로 되돌아가는 manager/layout 설정을 (재)적용. ctor(초기) + <see cref="RestoreLayout"/>
-    /// 직후 양쪽에서 호출 필수 — XAML 선언으로는 복원에 덮어써져 무효이므로 코드로 일원화.
-    /// <list type="bullet">
-    /// <item><see cref="DockLayoutManager.FloatingMode"/> = <see cref="FloatingMode.Desktop"/>:
-    /// 부동 pane 을 main window 경계 밖으로 이동/resize 가능하게 함. 기본값(복원이 되돌리는 값)은
-    /// <see cref="FloatingMode.Window"/> — 부동 창을 DockLayoutManager(=main window 영역) 안으로 제한해
-    /// clip 됨. (진단으로 RestoreLayoutFromXml 이 Desktop→Window 로 되돌림을 확인.)
-    /// <para>한계: FloatingMode 는 '새로 부동시키는 시점' 에 적용되는 정책 속성이라, RestoreLayoutFromXml 이
-    /// 이미 Window 모드로 생성한 '복원된 기존 부동 창' 에는 본 재적용이 소급되지 않을 수 있음(부동 상태로 종료 후
-    /// 재시작 시 그 창은 여전히 clip 가능). 런타임에 새로 부동시키는 동작은 정상화됨.</para></item>
-    /// <item><see cref="DocumentGroup.ShowDropDownButton"/> ▼ 문서목록 / <see cref="DocumentGroup.ClosePageButtonShowMode"/>
-    /// ✕ 활성문서 닫기 버튼 표시 숨김: **동작은 보존하고 표시만 차단** — Close 는 API 로 여전히 가능. 복원 시 기본값(버튼 노출)으로 되돌아감.</item>
-    /// </list>
-    /// </summary>
-    private void ApplyNonSerializedSettings()
-    {
-        // FloatingMode 는 DevExpress.Xpf.Core / .Docking 양쪽에 동명 enum 존재 → Docking 으로 명시 한정.
-        _dockLayout.FloatingMode = DevExpress.Xpf.Docking.FloatingMode.Desktop;
-        _documentGroup.ShowDropDownButton = false;
-        _documentGroup.ClosePageButtonShowMode = ClosePageButtonShowMode.NoWhere;
-    }
-
-    /// <summary>
-    /// DockAnchorPosition → 미리 만든 LayoutPanel 매핑. enum 6 anchor 위치 + Document (별도 경로).
+    /// <see cref="DockAnchorPosition"/> → XAML 박제 LayoutAnchorablePane 매핑.
     /// post-D8 fix (Log 독립 anchor 승격) 매핑:
     ///   Left=explorer / BottomLeft=simulation / BottomRight=log / RightTop=property / RightMiddle=history / RightBottom=llmchat.
     /// </summary>
-    private LayoutPanel ResolveAnchorPanel(DockAnchorPosition position) => position switch
+    private LayoutAnchorablePane ResolveAnchorPane(DockAnchorPosition position) => position switch
     {
-        DockAnchorPosition.Left => _explorerPanel,
-        DockAnchorPosition.BottomLeft => _simulationPanel,
-        DockAnchorPosition.BottomRight => _logPanel,
-        DockAnchorPosition.RightTop => _propertyPanel,
-        DockAnchorPosition.RightMiddle => _historyPanel,
-        DockAnchorPosition.RightBottom => _llmChatPanel,
+        DockAnchorPosition.Left => _leftPane,
+        DockAnchorPosition.BottomLeft => _bottomLeftPane,
+        DockAnchorPosition.BottomRight => _bottomRightPane,
+        DockAnchorPosition.RightTop => _rightTopPane,
+        DockAnchorPosition.RightMiddle => _rightMiddlePane,
+        DockAnchorPosition.RightBottom => _rightBottomPane,
         _ => throw new ArgumentOutOfRangeException(nameof(position), position, "Unsupported anchor position."),
     };
 
-    /// <summary>
-    /// LayoutPanel / DocumentPanel 공통 메타 (Caption / Name / BindableName) 적용.
-    /// Name = ContentId — visibility 통보 event 에서 contentId 식별용.
-    /// BindableName 도 동일 — DX layout serializer (PR-D6) 용.
-    /// </summary>
-    private static void ApplyAnchorMetadata(BaseLayoutItem item, DockAnchor anchor)
-    {
-        item.Caption = anchor.Title;
-        item.Name = anchor.ContentId;
-        item.BindableName = anchor.ContentId;
-    }
-
-    private BaseLayoutItem FindLayoutItem(string contentId)
+    private LayoutContent FindLayoutItem(string contentId)
     {
         if (string.IsNullOrEmpty(contentId)) throw new ArgumentException("contentId is required.", nameof(contentId));
         if (!_itemsByContentId.TryGetValue(contentId, out var item))
@@ -250,29 +245,75 @@ public partial class DockHost : UserControl, IDockManager
         return item;
     }
 
-    private void OnItemIsVisibleChanged(object? sender, ItemIsVisibleChangedEventArgs e)
+    private void OnAnchorablePropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
-        // e.Item.Name = anchor.ContentId (RegisterAnchor 에서 set).
-        var contentId = e.Item?.Name;
-        if (string.IsNullOrEmpty(contentId)) return;
-        AnchorVisibilityChanged?.Invoke(this, new DockAnchorVisibilityChangedEventArgs(contentId, e.IsVisible));
+        if (e.PropertyName != nameof(LayoutAnchorable.IsHidden)) return;
+        if (sender is LayoutAnchorable a && !string.IsNullOrEmpty(a.ContentId))
+        {
+            AnchorVisibilityChanged?.Invoke(this, new DockAnchorVisibilityChangedEventArgs(a.ContentId, !a.IsHidden));
+        }
     }
-}
 
-/// <summary>
-/// AnchorCaptionWithHelp 의 Help(?) 뱃지를 'docked caption bar 일 때만' 표시하기 위한 converter.
-/// DX <see cref="BaseLayoutItem.CaptionTemplate"/> 은 docked caption bar 와 tab caption 양쪽 모두에 적용되는데,
-/// tab caption 으로 렌더될 때는 LayoutPanel visual 조상이 없음(tab strip 에서 그려짐). XAML 에서
-/// <c>{Binding RelativeSource={RelativeSource AncestorType=LayoutPanel}}</c> 를 source 로 주면:
-///   - caption bar: 조상(LayoutPanel) 발견 → value=LayoutPanel(non-null) → Visible.
-///   - tab caption: 조상 없음 → binding 미해결 → 호출 측에서 FallbackValue=Collapsed 적용(converter 미호출).
-/// converter 자체는 non-null → Visible / null → Collapsed 의 단순 매핑(자기문서화 목적).
-/// </summary>
-public sealed class AncestorPresenceToVisibilityConverter : System.Windows.Data.IValueConverter
-{
-    public object Convert(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
-        => value is null ? Visibility.Collapsed : Visibility.Visible;
+    /// <summary>
+    /// PR-A1 — Help 뱃지 우회 구현. anchor content 상단에 얇은 20px 의 Help bar 를 Grid 합성으로 wrap.
+    /// AvalonDock 의 AnchorableHeaderTemplate 은 tab caption 으로 합쳐졌을 때 binding 한계가 있고, Help 동작이
+    /// Promaker.Help 의존을 끌어와 격리 원칙(§7 #4)을 깨므로 본 PR 에서는 content body 안 상단 bar 방식으로 박제.
+    /// click 시 <see cref="AnchorHelpRequested"/> 발화 — MainWindow 가 HelpNavigator.NavigateCommand 로 hook.
+    /// </summary>
+    private FrameworkElement WrapWithHelp(FrameworkElement content, string contentId)
+    {
+        var grid = new Grid();
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-    public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
-        => throw new NotSupportedException();
+        var helpBar = new Border
+        {
+            Height = 20,
+            Background = Brushes.Transparent,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+
+        var helpBtn = new Button
+        {
+            Width = 16, Height = 16,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 4, 0),
+            Padding = new Thickness(0),
+            Cursor = Cursors.Hand,
+            ToolTip = "도움말",
+            Content = new TextBlock
+            {
+                Text = "?",
+                FontSize = 10,
+                FontWeight = FontWeights.Bold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            },
+            Tag = contentId,
+        };
+        // DynamicResource 로 Promaker AccentBrush 적용 — Promaker.Dock 격리상 직접 Style 참조 불가, runtime resource lookup 만.
+        // (Application.Resources 까지 도달 — 미발견 시 Button 기본 chrome).
+        helpBtn.SetResourceReference(Control.BackgroundProperty, "AccentBrush");
+        helpBtn.SetResourceReference(Control.ForegroundProperty, "AccentTextBrush");
+        helpBtn.Click += HelpButton_Click;
+
+        helpBar.Child = helpBtn;
+        Grid.SetRow(helpBar, 0);
+        grid.Children.Add(helpBar);
+
+        Grid.SetRow(content, 1);
+        grid.Children.Add(content);
+
+        return grid;
+    }
+
+    private void HelpButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe && fe.Tag is string contentId && !string.IsNullOrEmpty(contentId))
+        {
+            AnchorHelpRequested?.Invoke(this, contentId);
+            e.Handled = true;
+        }
+    }
 }

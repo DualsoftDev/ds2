@@ -4,127 +4,19 @@
     <TargetFramework>net9.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
     <Nullable>enable</Nullable>
-    <!--
-      ImplicitUsings disable — DevExpress.Wpf.Docking 의 transitive System.Windows.Forms / System.Drawing 가
-      ImplicitUsings 의 global using 과 충돌해 138 곳 CS0104 (Point/Brush/Rectangle/UserControl/Button/...) 발생.
-      본 격리 csproj 안에서만 명시 using 으로 처리하고, 외부 (Promaker.csproj) 는 Reference HintPath 방식으로
-      NuGet graph 자체에서 격리 (PR-D4 spike D mechanism).
-    -->
-    <ImplicitUsings>disable</ImplicitUsings>
     <RootNamespace>Promaker.Dock</RootNamespace>
     <AssemblyName>Promaker.Dock</AssemblyName>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
-    <!--
-      MSB3277 silence — System.Drawing.Common 4.7.2 (compile reference) vs NetCore DX dll 의 6.0.0.0 (요구)
-      충돌. runtime 에 .NET 9 의 9.0 platform assembly 로 정상 unify (Promaker 실행 OK 확인) — compile-time
-      경고만 silence. NoWarn 사용 — 본 csproj 한정.
-    -->
-    <NoWarn>$(NoWarn);MSB3277</NoWarn>
-    <!--
-      DXInstallRoot — review mn4 박제. DX 설치 폴더 hard-coded 의존 해소.
-      우선순위: 환경변수 DXInstallRoot > $(ProgramFiles)\DevExpress 24.1\Components fallback.
-      다른 개발자 / CI 환경에서 DX 설치 위치 다르면 환경변수 set 으로 override 가능. version upgrade 시는
-      $(DXVersion) 도 함께 property 화 권장 (후속 PR — 본 PR 은 install root 만).
-    -->
-    <DXInstallRoot Condition="'$(DXInstallRoot)'==''">$(ProgramFiles)\DevExpress 24.1\Components</DXInstallRoot>
   </PropertyGroup>
 
   <!--
-    PR-D4 spike D mechanism — DevExpress 11종 + System.Drawing.Common + Microsoft.Win32.SystemEvents 를
-    PackageReference 가 아닌 직접 binary Reference (HintPath + Private=true) 로 link.
-    이유: NuGet PackageReference 사용 시 PrivateAssets="all" 이어도 Promaker 본체 transitive graph 에
-    DevExpress.* / System.Drawing.Common 11종이 노출됨 (mechanism A 계열 spike 전부 FAIL — todo §2 박제).
-    Reference HintPath 방식은 NuGet graph 와 완전 독립 → Promaker 본체 transitive 0건 확보.
-    Private="true" 로 Promaker.Dock build output 에 dll copy, ProjectReference 통해 본체 bin 으로 전파.
-
-    DLL 출처:
-      - DevExpress 10종 → DX 설치 폴더 (`$(DXInstallRoot)\Bin\NetCore\`).
-      - System.Drawing.Common 4.7.2 / Microsoft.Win32.SystemEvents 4.7.0 → DX 설치 폴더 미존재 →
-        NuGet global cache (`%USERPROFILE%\.nuget\packages\...\runtimes\win\lib\netcoreapp3.0\`).
-    잔여 우려: HintPath 절대 경로 = environment 의존. 다른 개발자 / CI 호환성은 후속 PR 에서
-    `$(DXInstallRoot)` MSBuild property 도입으로 해소 권고 (본 spike scope 외).
+    PR-A1 — DevExpress 11종 Reference HintPath / DXInstallRoot / NoWarn(MSB3277) / ImplicitUsings=disable 모두 제거.
+    AvalonDock 은 일반 NuGet PackageReference 로 사용 (Promaker 본체에 transitive 노출되어도 무해 — MIT 단일 어셈블리).
+    Promaker.Dock 격리 경계는 IDockManager API 표면으로 유지 — AvalonDock type 은 본 csproj 안에서만 사용.
   -->
   <ItemGroup>
-    <Reference Include="DevExpress.Data.v24.1">
-      <HintPath>$(DXInstallRoot)\Bin\NetCore\DevExpress.Data.v24.1.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
-    <Reference Include="DevExpress.Data.Desktop.v24.1">
-      <HintPath>$(DXInstallRoot)\Bin\NetCore\DevExpress.Data.Desktop.v24.1.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
-    <Reference Include="DevExpress.Drawing.v24.1">
-      <HintPath>$(DXInstallRoot)\Bin\NetCore\DevExpress.Drawing.v24.1.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
-    <Reference Include="DevExpress.Mvvm.v24.1">
-      <HintPath>$(DXInstallRoot)\Bin\NetCore\DevExpress.Mvvm.v24.1.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
-    <Reference Include="DevExpress.Pdf.v24.1.Core">
-      <HintPath>$(DXInstallRoot)\Bin\NetCore\DevExpress.Pdf.v24.1.Core.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
-    <Reference Include="DevExpress.Pdf.v24.1.Drawing">
-      <HintPath>$(DXInstallRoot)\Bin\NetCore\DevExpress.Pdf.v24.1.Drawing.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
-    <Reference Include="DevExpress.Printing.v24.1.Core">
-      <HintPath>$(DXInstallRoot)\Bin\NetCore\DevExpress.Printing.v24.1.Core.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
-    <Reference Include="DevExpress.Xpf.Core.v24.1">
-      <HintPath>$(DXInstallRoot)\Bin\NetCore\DevExpress.Xpf.Core.v24.1.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
-    <Reference Include="DevExpress.Xpf.Docking.v24.1">
-      <HintPath>$(DXInstallRoot)\Bin\NetCore\DevExpress.Xpf.Docking.v24.1.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
-    <Reference Include="DevExpress.Xpf.Layout.v24.1.Core">
-      <HintPath>$(DXInstallRoot)\Bin\NetCore\DevExpress.Xpf.Layout.v24.1.Core.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
-    <Reference Include="DevExpress.Xpf.Themes.Office2019Black.v24.1">
-      <HintPath>$(DXInstallRoot)\Bin\NetCore\DevExpress.Xpf.Themes.Office2019Black.v24.1.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
-    <!-- 라이트 테마용 skin (Promaker 라이트 테마 연동 — DockHost.SetTheme). -->
-    <Reference Include="DevExpress.Xpf.Themes.Office2019Colorful.v24.1">
-      <HintPath>$(DXInstallRoot)\Bin\NetCore\DevExpress.Xpf.Themes.Office2019Colorful.v24.1.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
-    <!--
-      System.Drawing.Common / Microsoft.Win32.SystemEvents — XAML compile pass (MC1000) 가 명시 reference
-      필요 (UseWPF=true 의 implicit 가 XAML pass 에서 visible 하지 않음). 4.7.2 reference 유지 + NoWarn
-      MSB3277 으로 6.0.0.0 vs 4.0.2.2 conflict 경고만 silence. runtime 은 .NET 9 9.0 platform assembly 로
-      정상 unify.
-    -->
-    <Reference Include="System.Drawing.Common">
-      <HintPath>$(UserProfile)\.nuget\packages\system.drawing.common\6.0.0\runtimes\win\lib\net6.0\System.Drawing.Common.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
-    <Reference Include="Microsoft.Win32.SystemEvents">
-      <HintPath>$(UserProfile)\.nuget\packages\microsoft.win32.systemevents\4.7.0\runtimes\win\lib\netcoreapp3.0\Microsoft.Win32.SystemEvents.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
-  </ItemGroup>
-
-  <!--
-    Themes.Office2019Black 보강 — Reference Private=true 만으로는 본체 ProjectReference carry-over 가
-    deps.json runtime asset trim 에 걸려 누락 (compile graph 미연결 → Theme XAML 동적 load 만). Content + Link +
-    PreserveNewest 로 본체 bin 까지 carry. baseline 비교 결과 본체 bin 의 Themes.Office2019Black 부재 보완.
-    PR-D7.3 dark theme — Promaker 다크 테마와 색차 최소화 위해 Office2019Black 채택 (Colorful → Black 변경).
-  -->
-  <ItemGroup>
-    <Content Include="$(DXInstallRoot)\Bin\NetCore\DevExpress.Xpf.Themes.Office2019Black.v24.1.dll">
-      <Link>DevExpress.Xpf.Themes.Office2019Black.v24.1.dll</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="$(DXInstallRoot)\Bin\NetCore\DevExpress.Xpf.Themes.Office2019Colorful.v24.1.dll">
-      <Link>DevExpress.Xpf.Themes.Office2019Colorful.v24.1.dll</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
+    <PackageReference Include="Dirkster.AvalonDock" />
+    <PackageReference Include="Dirkster.AvalonDock.Themes.VS2013" />
   </ItemGroup>
 
 </Project>
