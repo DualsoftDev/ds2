@@ -25,6 +25,10 @@
 
     const OVL_SZ_DEFAULT = 32;
 
+    // PiP 합성 런타임(canvas/video/timer) — Alpine 반응형 밖(closure) 보관.
+    // DOM/Chart 류 객체를 반응형 상태에 넣으면 Proxy 화로 깨지는 전례(histCache 패턴) → 식별자(cctvPipId)만 상태에 둔다.
+    let pipRt = null;
+
     window.CctvWall = {
         // ── Alpine 반응형 상태(평면 데이터만 — 스프레드 안전) ──
         state() {
@@ -45,6 +49,7 @@
                 cctvOverlaySize: OVL_SZ_DEFAULT,
                 cctvHover: null,                  // { id, camId, kind, color, pos, model }
                 cctvSolo: null,                   // 단독 보기 대상 camId (null = 분할). CSS 로만 확대 → 추가 스트림 없음.
+                cctvPipId: null,                  // PiP(오버레이 합성 작은 창) 송출 중인 camId (null = 없음)
                 cctvFullscreen: false,
                 cctvRenderTick: 0,
                 cctvLoaded: false,
@@ -80,11 +85,14 @@
             },
             cctvStop() {
                 this._cctvActive = false;
-                this.cctvStopPolling();
                 this.cctvStatusStopPolling();
-                for (const id of (this.cctvWall || []).slice()) this.cctvStopStream(id);
-                this._cctvStarted = {};
-                this._cctvHealth = {};
+                // PiP 작은 창이 떠 있으면 그 카메라의 스트림·상태 폴링(오버레이 상태색)은 유지 — 마무리는 cctvPipStop 이.
+                if (!pipRt) this.cctvStopPolling();
+                for (const id of (this.cctvWall || []).slice()) {
+                    if (pipRt && pipRt.camId === id) continue;
+                    this.cctvStopStream(id);
+                }
+                if (!pipRt) { this._cctvStarted = {}; this._cctvHealth = {}; }
                 if (this._cctvResizeObs) { try { this._cctvResizeObs.disconnect(); } catch (e) {} this._cctvResizeObs = null; }
                 this.cctvClearHover();
             },
@@ -141,7 +149,7 @@
             },
             cctvStartPolling() {
                 this.cctvStopPolling();
-                this._cctvStateTimer = setInterval(() => { if (this._cctvActive) this.cctvLoadStates(); }, 3000);
+                this._cctvStateTimer = setInterval(() => { if (this._cctvActive || this.cctvPipId) this.cctvLoadStates(); }, 3000);
             },
             cctvStopPolling() { if (this._cctvStateTimer) { clearInterval(this._cctvStateTimer); this._cctvStateTimer = null; } },
             cctvStatusPolling() {
@@ -178,6 +186,133 @@
                 const h = { ...this._cctvHealth }; delete h[id]; this._cctvHealth = h;
             },
             cctvSyncStreams() { for (const id of this.cctvWall) if (!this._cctvStarted[id]) this.cctvStartStream(id); },
+
+            // ════════ PiP (오버레이 합성 작은 창) ════════
+            // 브라우저 기본 video PiP 는 영상 픽셀만 떼어가 DOM 오버레이가 빠짐(타일 video 는 disablepictureinpicture 로 차단).
+            // → canvas 에 영상 프레임+오버레이(박스/핀/상태색)를 합성한 captureStream 을 PiP 로 띄운다.
+            //   Document PiP API 가 더 깔끔하지만 secure context 전용이라 LAN HTTP 환경에선 불가 → canvas 합성이 정답.
+            cctvPipSupported() {
+                return !!(document.pictureInPictureEnabled && HTMLCanvasElement.prototype.captureStream);
+            },
+            async cctvTogglePip(camId) {
+                if (this.cctvPipId === camId) { await this.cctvPipStop(); return; }
+                await this.cctvPipStop();                                  // 다른 카메라 PiP → 교체
+                const src = document.getElementById('cctv-wall-' + camId);
+                const cam = this.cctvCamById(camId);
+                if (!src || !cam || !src.videoWidth) return;               // 스트림 미연결(첫 프레임 전) — 무시
+                const canvas = document.createElement('canvas');
+                canvas.width = src.videoWidth; canvas.height = src.videoHeight;
+                const out = document.createElement('video');               // DOM 미부착 — PiP 진입에 부착 불필요
+                out.muted = true; out.playsInline = true;
+                out.srcObject = canvas.captureStream();
+                const rt = { camId, cam, src, canvas, ctx: canvas.getContext('2d'), out, timer: null };
+                pipRt = rt;
+                this.cctvPipDraw(rt);
+                // rAF 는 탭 백그라운드에서 멈춰 PiP 가 얼어붙음 → setInterval ~15fps.
+                // (활성 WebRTC 연결이 있는 페이지는 크롬 백그라운드 타이머 집중제한 면제 대상)
+                rt.timer = setInterval(() => { if (pipRt === rt) this.cctvPipDraw(rt); }, 66);
+                out.addEventListener('leavepictureinpicture', () => { if (pipRt === rt) this.cctvPipStop(); });
+                try {
+                    await out.play();
+                    await out.requestPictureInPicture();
+                    this.cctvPipId = camId;
+                } catch (e) {
+                    console.warn('[cctv] PiP 시작 실패:', e && e.message);
+                    pipRt = pipRt || rt;
+                    await this.cctvPipStop();
+                }
+            },
+            async cctvPipStop() {
+                const rt = pipRt;
+                pipRt = null;
+                this.cctvPipId = null;
+                if (!rt) return;
+                if (rt.timer) { clearInterval(rt.timer); rt.timer = null; }
+                if (document.pictureInPictureElement === rt.out) {
+                    try { await document.exitPictureInPicture(); } catch (e) {}
+                }
+                try { rt.out.srcObject = null; } catch (e) {}
+                // CCTV 뷰 밖(도면 등)에서 PiP 만 보던 중이었다면, cctvStop 이 남겨둔 스트림·폴링을 여기서 정리.
+                if (!this._cctvActive) {
+                    this.cctvStopPolling();
+                    this.cctvStopStream(rt.camId);
+                }
+            },
+            // 합성 1프레임: 영상 → Flow 박스 → Call 핀 → 카메라 이름. 좌표는 화면과 동일한 정규화 모델(cctvBoxFrom)을
+            // 캔버스 전체 rect 에 적용(레터박스 없음 = 원본 해상도 그대로).
+            cctvPipDraw(rt) {
+                const { src, canvas, ctx, cam } = rt;
+                const vw = src.videoWidth, vh = src.videoHeight;
+                if (!vw || !vh) return;
+                if (canvas.width !== vw || canvas.height !== vh) { canvas.width = vw; canvas.height = vh; }
+                ctx.drawImage(src, 0, 0, vw, vh);
+                const s = Math.max(1, vh / 540);   // 1080p≈2배 — 화면 DOM 오버레이와 비슷한 체감 크기
+                const r = { left: 0, top: 0, width: vw, height: vh };
+                const n = (cam.name || '').toLowerCase();
+                const boxes = this.cctvOverlaysAll
+                    .filter(o => (o.cameraName || '').toLowerCase() === n)
+                    .map(o => this.cctvBoxFrom(o, r));
+                for (const b of boxes) if (b.kind !== 'Call') this.cctvPipDrawFlow(ctx, b, s);
+                for (const b of boxes) if (b.kind === 'Call') this.cctvPipDrawPin(ctx, b, s);
+                this.cctvPipChip(ctx, cam.name || '', 8 * s, 8 * s, 'rgba(8,13,20,0.78)', s, {});
+            },
+            // canvas 는 CSS 변수를 못 그림 → 'var(--x)' 를 :root 에서 해석(팔레트는 :root 단일소스 — 차트와 동일 규칙).
+            cctvPipColor(c) {
+                const m = /^var\((--[^)]+)\)/.exec((c || '').trim());
+                if (!m) return c || '#9aa3ad';
+                return getComputedStyle(document.documentElement).getPropertyValue(m[1]).trim() || '#9aa3ad';
+            },
+            cctvPipDrawFlow(ctx, b, s) {
+                const c = this.cctvPipColor(b.color);
+                const p = b.px;
+                ctx.save();
+                ctx.beginPath();
+                if (ctx.roundRect) ctx.roundRect(p.left, p.top, p.width, p.height, 8 * s); else ctx.rect(p.left, p.top, p.width, p.height);
+                ctx.globalAlpha = b.isAbnormal ? 0.30 : 0.12;   // DOM 의 color-mix 12% 틴트 근사(이상 시 강조)
+                ctx.fillStyle = c; ctx.fill();
+                ctx.globalAlpha = 1;
+                ctx.lineWidth = 2 * s; ctx.strokeStyle = c; ctx.stroke();
+                ctx.restore();
+                this.cctvPipChip(ctx, 'FLOW ' + b.label, p.left, b.tagBelow ? p.top + p.height + 3 * s : p.top - 3 * s, c, s, { bottom: !b.tagBelow });
+            },
+            cctvPipDrawPin(ctx, b, s) {
+                const c = this.cctvPipColor(b.color);
+                const R = (this.cctvOverlaySize / 2) * s;        // DOM --cctv-ovl-sz(32px) 과 동일 비율
+                const cx = b.px.cx, cy = b.px.cy;
+                ctx.save();
+                ctx.beginPath();                                  // 꼬리(stem)
+                ctx.moveTo(cx - R * 0.44, cy + R * 0.78);
+                ctx.lineTo(cx + R * 0.44, cy + R * 0.78);
+                ctx.lineTo(cx, cy + R * 1.6);
+                ctx.closePath();
+                ctx.fillStyle = c; ctx.fill();
+                ctx.beginPath();                                  // 머리
+                ctx.arc(cx, cy, R, 0, Math.PI * 2);
+                ctx.fillStyle = c; ctx.fill();
+                ctx.lineWidth = 2.5 * s; ctx.strokeStyle = 'rgba(255,255,255,0.45)'; ctx.stroke();
+                ctx.restore();
+                this.cctvPipChip(ctx, b.label, cx, cy + R * 1.6 + 4 * s, c, s, { center: true });
+            },
+            // 라벨 칩. opts: center=x 가 중심, bottom=y 가 칩 하단(기본은 x=좌측·y=상단). 캔버스 밖으로 나가지 않게 클램프.
+            cctvPipChip(ctx, text, x, y, bg, s, opts) {
+                if (!text) return;
+                const o = opts || {};
+                const fs = Math.round(11 * s);
+                ctx.save();
+                ctx.font = '700 ' + fs + 'px Inter, "Noto Sans KR", sans-serif';
+                const padX = Math.round(7 * s), h = Math.round(fs * 1.7);
+                const tw = Math.min(Math.ceil(ctx.measureText(text).width), Math.round(240 * s));
+                const w = tw + padX * 2;
+                const left = Math.max(2, Math.min(o.center ? x - w / 2 : x, ctx.canvas.width - w - 2));
+                const top = Math.max(2, Math.min(o.bottom ? y - h : y, ctx.canvas.height - h - 2));
+                ctx.beginPath();
+                if (ctx.roundRect) ctx.roundRect(left, top, w, h, 4 * s); else ctx.rect(left, top, w, h);
+                ctx.fillStyle = bg; ctx.fill();
+                ctx.beginPath(); ctx.rect(left + padX, top, tw, h); ctx.clip();   // 넘치는 라벨 잘라내기
+                ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle';
+                ctx.fillText(text, left + padX, top + h / 2 + s);
+                ctx.restore();
+            },
 
             // ════════ per-tile displayRect (object-fit:contain letterbox 보정) ════════
             cctvComputeRect(video) {

@@ -852,15 +852,25 @@
                                                 <span class="cctv-tile-name" x-text="cam.name"></span>
                                             </div>
                                             <div class="cctv-tile-stage">
-                                                <video :id="'cctv-wall-' + cam.id" muted autoplay playsinline
+                                                <!-- disablepictureinpicture: 브라우저 기본 PiP 는 영상 픽셀만 가져가 오버레이가 빠짐 → 차단하고 합성 PiP 버튼 사용 -->
+                                                <video :id="'cctv-wall-' + cam.id" muted autoplay playsinline disablepictureinpicture
                                                        @loadedmetadata="cctvRecalcRects()"></video>
 
-                                                <!-- 단독(확대) ⇄ 분할 토글 (카메라 2대 이상일 때만) -->
-                                                <button class="cctv-tile-zoom" @click.stop="cctvToggleSolo(cam.id)"
-                                                        x-show="cctvWallCams().length > 1"
-                                                        :title="cctvSolo === cam.id ? '분할 보기로 돌아가기' : '이 카메라만 크게 보기'">
-                                                    <span class="material-icons" x-text="cctvSolo === cam.id ? 'close_fullscreen' : 'open_in_full'"></span>
-                                                </button>
+                                                <div class="cctv-tile-btns">
+                                                    <!-- PiP 작은 창 — canvas 합성이라 오버레이(박스·핀·상태색)까지 함께 표시 -->
+                                                    <button class="cctv-tile-pip" @click.stop="cctvTogglePip(cam.id)"
+                                                            x-show="cctvPipSupported()"
+                                                            :class="cctvPipId === cam.id ? 'is-on' : ''"
+                                                            :title="cctvPipId === cam.id ? 'PiP 닫기' : 'PiP로 보기 (오버레이 포함 작은 창)'">
+                                                        <span class="material-icons" x-text="cctvPipId === cam.id ? 'close' : 'picture_in_picture_alt'"></span>
+                                                    </button>
+                                                    <!-- 단독(확대) ⇄ 분할 토글 (카메라 2대 이상일 때만) -->
+                                                    <button class="cctv-tile-zoom" @click.stop="cctvToggleSolo(cam.id)"
+                                                            x-show="cctvWallCams().length > 1"
+                                                            :title="cctvSolo === cam.id ? '분할 보기로 돌아가기' : '이 카메라만 크게 보기'">
+                                                        <span class="material-icons" x-text="cctvSolo === cam.id ? 'close_fullscreen' : 'open_in_full'"></span>
+                                                    </button>
+                                                </div>
 
                                                 <!-- 오버레이 레이어 (읽기 전용) -->
                                                 <div class="cctv-ovl-layer">

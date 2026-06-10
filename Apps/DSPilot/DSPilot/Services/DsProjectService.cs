@@ -429,6 +429,62 @@ public class DsProjectService
         }
     }
 
+    /// <summary>
+    /// 모든 Work 의 이상감지 임계 MinDuration/MaxDuration 을 전부 비우고(null=clear) 공유 project.aasx 로 재export 한다.
+    /// 자동 보정(<see cref="WriteWorkDurationCalibrationAndExport"/>)의 역연산 — 잘못 보정된 임계를 한 번에 초기화할 때 사용.
+    /// Duration(거동 구동 평균)은 <b>현재값을 그대로 다시 기록해 보존</b>한다(batch 의 null=clear 규칙 때문에 생략하면 Duration 도 지워진다).
+    /// 동일한 store 변경 → exportFromStore → LastLoadedSha256 갱신(자기-쓰기 재로드 억제) 패턴을 따른다.
+    /// </summary>
+    /// <returns>(임계가 초기화된 Work 건수, export 성공 여부). 미로드/예외 시 Exported=false, 비울 값이 없으면 (0, true).</returns>
+    public (int Cleared, bool Exported) ClearAllWorkDurationRangesAndExport()
+    {
+        if (!IsLoaded || GetProject() is null)
+        {
+            _logger.LogWarning("[DsProject] Min/Max 초기화 skip — 프로젝트 미로드");
+            return (0, false);
+        }
+
+        // Min 또는 Max 가 설정된 Work 만 대상. Duration 은 현재값을 다시 넘겨 보존.
+        var batch = new List<(Guid, int?, int?, int?)>();
+        foreach (var w in _store.WorksReadOnly.Values)
+        {
+            bool hasMin = Microsoft.FSharp.Core.FSharpOption<TimeSpan>.get_IsSome(w.MinDuration);
+            bool hasMax = Microsoft.FSharp.Core.FSharpOption<TimeSpan>.get_IsSome(w.MaxDuration);
+            if (!hasMin && !hasMax) continue;
+            int? dur = Microsoft.FSharp.Core.FSharpOption<TimeSpan>.get_IsSome(w.Duration)
+                ? (int)w.Duration.Value.TotalMilliseconds
+                : null;
+            batch.Add((w.Id, dur, null, null));
+        }
+
+        if (batch.Count == 0)
+            return (0, true); // 비울 게 없음 = 정상 no-op.
+
+        try
+        {
+            _store.UpdateWorkDurationRangesBatch(batch);
+
+            var ok = Ds2.Aasx.AasxExporter.exportFromStore(
+                _store, AasxFilePath, AasxIriPrefix, AasxSplitDevice, AasxAutoCreateEmptySubmodels);
+            if (!ok)
+            {
+                _logger.LogWarning("[DsProject] Min/Max 초기화 — exportFromStore 가 false 반환 (Project 없음?)");
+                return (batch.Count, false);
+            }
+
+            LastLoadedSha256 = ComputeFileSha256(AasxFilePath);
+            LastLoadedUtc = DateTime.UtcNow;
+
+            _logger.LogInformation("[DsProject] Min/Max 초기화 완료 — {Count}건 → {Path}", batch.Count, AasxFilePath);
+            return (batch.Count, true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[DsProject] Min/Max 초기화 실패");
+            return (0, false);
+        }
+    }
+
     public List<(double X, double Y)> ComputeArrowPath(Xywh source, Xywh target)
     {
         var visual = Ds2.Editor.ArrowPathCalculator.computePath(source, target);
