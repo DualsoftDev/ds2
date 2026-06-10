@@ -1,6 +1,7 @@
 ﻿<#
   gitlab-close.ps1  ( /fixed skill )
   단일 GitLab issue 에 comment(note) 를 추가한 뒤 issue 를 close 한다.
+  close 시 AddLabels(기본 'ByLLM') 를 add_labels 로 함께 붙인다(기존 label 보존·추가).
   comment/close 는 write 작업이므로 PAT 는 반드시 'api' scope 여야 한다(read_api 면 403).
 
   RepoRoot: 비우면 git common-dir(.bare) 의 부모로 자동 도출 (경로 하드코딩 없음).
@@ -16,7 +17,8 @@ param(
   [string]$ProjectPath = "",
   [string]$RepoRoot    = "",
   [string]$PatFile     = "",
-  [string]$GitLabBase  = "http://dualsoft.co.kr:8081/api/v4"
+  [string]$GitLabBase  = "http://dualsoft.co.kr:8081/api/v4",
+  [string]$AddLabels   = "ByLLM"   # 콤마 구분. 빈 문자열이면 label 추가 안 함
 )
 $ErrorActionPreference = "Stop"
 
@@ -94,15 +96,22 @@ if (-not (Test-Ok $r1)) {
   Write-Error "comment 추가 실패 (curl=$($r1.rc) http=$($r1.http) iid=$Iid): $($r1.body)"; exit 3
 }
 
-# 2) issue close
-$closeJson = @{ state_event = "close" } | ConvertTo-Json -Compress
+# 2) issue close (+ label) — issue update API 의 add_labels 는 기존 label 을 보존하며 추가,
+#    미존재 label 은 자동 생성(Reporter 이상)되므로 별도 호출 없이 close 와 한 번에 처리한다.
+$closeBody = @{ state_event = "close" }
+if ($AddLabels) { $closeBody.add_labels = $AddLabels }
+$closeJson = $closeBody | ConvertTo-Json -Compress
 $r2 = Invoke-GitLabWrite -Method PUT -Url "$GitLabBase/projects/$enc/issues/$Iid" -JsonBody $closeJson
 if (-not (Test-Ok $r2)) {
   Write-Error "issue close 실패 (curl=$($r2.rc) http=$($r2.http) iid=$Iid): $($r2.body)"; exit 4
 }
 
-$state = ""
-try { $state = ($r2.body | ConvertFrom-Json).state } catch {}
+$state = ""; $labels = @()
+try {
+  $resObj = $r2.body | ConvertFrom-Json
+  $state  = $resObj.state
+  if ($resObj.labels) { $labels = @($resObj.labels) }
+} catch {}
 
 [pscustomobject]@{
   iid           = $Iid
@@ -110,4 +119,5 @@ try { $state = ($r2.body | ConvertFrom-Json).state } catch {}
   commentPosted = $true
   closed        = ($state -eq "closed")
   state         = $state
+  labels        = ($labels -join ",")
 } | ConvertTo-Json -Compress
