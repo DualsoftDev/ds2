@@ -138,6 +138,36 @@ public sealed class SimulationPanelStateRuntimeTests
     }
 
     [Fact]
+    public void Abnormal_event_log_includes_target_call_context()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var store = BuildAbnormalTargetStore(out var callId, out var apiCallId, out var rxWorkId);
+            var index = SimIndexModule.build(store, 10);
+            var engine = new FakeSimulationEngine(index);
+            var state = CreateState(() => store);
+
+            SetSimEngine(state, engine);
+
+            var target = Abnormal.target(
+                FSharpOption<Guid>.Some(callId),
+                FSharpOption<Guid>.Some(apiCallId),
+                FSharpOption<Guid>.Some(rxWorkId));
+            var record = Abnormal.actionOver(target, 441, new DateTime(2026, 06, 10, 0, 0, 0, DateTimeKind.Utc));
+
+            InvokePrivate(state, "OnAbnormalDetected", record);
+
+            var line = state.SimEventLog[0].Message;
+            Assert.Contains("[ABNORMAL] ActionOver", line, StringComparison.Ordinal);
+            Assert.Contains("Call=Device.ADV#", line, StringComparison.Ordinal);
+            Assert.Contains("OwnerWork=ActiveFlow.Main#", line, StringComparison.Ordinal);
+            Assert.Contains("ApiCall=Device.ADV#", line, StringComparison.Ordinal);
+            Assert.Contains("RxWork=DeviceFlow.ADV#", line, StringComparison.Ordinal);
+            Assert.Contains("elapsed=441ms", line, StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
     public void Passive_runtime_gantt_is_signal_driven_and_anchors_first_signal_at_zero()
     {
         var start = new DateTime(2026, 05, 26, 12, 00, 00, DateTimeKind.Local);
@@ -213,6 +243,24 @@ public sealed class SimulationPanelStateRuntimeTests
         var flowId = store.AddFlow("F", systemId);
         sourceWorkId = store.AddWork("Source", flowId);
         store.UpdateWorkTokenRole(sourceWorkId, TokenRole.Source);
+        return store;
+    }
+
+    private static DsStore BuildAbnormalTargetStore(out Guid callId, out Guid apiCallId, out Guid rxWorkId)
+    {
+        var store = new DsStore();
+        var projectId = store.AddProject("P");
+        var activeSystemId = store.AddSystem("Active", projectId, true);
+        var activeFlowId = store.AddFlow("ActiveFlow", activeSystemId);
+        var ownerWorkId = store.AddWork("Main", activeFlowId);
+
+        var deviceSystemId = store.AddSystem("Device", projectId, false);
+        var deviceFlowId = store.AddFlow("DeviceFlow", deviceSystemId);
+        rxWorkId = store.AddWork("ADV", deviceFlowId);
+
+        var apiDefId = AddDeviceApiDef(store, deviceSystemId, "ADV", rxWorkId);
+        callId = store.AddCallWithLinkedApiDefs(ownerWorkId, "Device", "ADV", [apiDefId]);
+        apiCallId = store.Calls[callId].ApiCalls[0].Id;
         return store;
     }
 

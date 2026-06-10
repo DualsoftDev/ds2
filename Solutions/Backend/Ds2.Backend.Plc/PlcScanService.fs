@@ -11,6 +11,7 @@ open Ds2.Backend.Common
 /// 여기서 직접 import 하면 순환참조가 된다. broadcaster 람다를 DI 로 주입받는다.
 type IPlcHubBroadcaster =
     abstract member BroadcastTagChanged : address: string * value: string * source: string -> Task
+    abstract member BroadcastTagsChanged : changes: PlcTagChange list -> Task
     /// PLC 어댑터 1개의 연결 상태 변화. PlcScanService 가 IPlcGateway.ConnectionStatusChanged 를
     /// 받아 위임 호출 — SignalHub broadcaster 가 모든 클라이언트로 fan-out + 캐시 갱신.
     abstract member BroadcastPlcConnectionStatus : status: PlcConnectionStatus -> Task
@@ -69,12 +70,10 @@ type PlcScanService(gateway: IPlcGateway, broadcaster: IPlcHubBroadcaster) =
                 try
                     let! changes = gateway.ScanOnceAsync(ct)
                     log.Info($"PLC initial scan complete — {changes.Length} address(es) populated to hub cache")
-                    for change in changes do
-                        try
-                            do! broadcaster.BroadcastTagChanged(
-                                    change.HubAddress, change.Value, change.Source)
-                        with ex ->
-                            log.Warn($"Initial broadcast {change.HubAddress}={change.Value}: {ex.Message}")
+                    try
+                        do! broadcaster.BroadcastTagsChanged(changes)
+                    with ex ->
+                        log.Warn($"Initial batch broadcast failed: {ex.Message}")
                 with ex ->
                     log.Error($"Initial scan threw: {ex.Message}")
         }
@@ -91,21 +90,21 @@ type PlcScanService(gateway: IPlcGateway, broadcaster: IPlcHubBroadcaster) =
                 log.Info($"PLC scan loop entering (interval={interval.TotalMilliseconds}ms)")
 
                 while not stoppingToken.IsCancellationRequested do
-                    try do! Task.Delay(interval, stoppingToken)
-                    with :? OperationCanceledException -> ()
-
-                    if stoppingToken.IsCancellationRequested then () else
+                    let scanStartedAt = DateTime.UtcNow
                     try
                         let! changes = gateway.ScanOnceAsync(stoppingToken)
-                        for change in changes do
-                            try
-                                do! broadcaster.BroadcastTagChanged(
-                                        change.HubAddress, change.Value, change.Source)
-                            with ex ->
-                                log.Warn($"Broadcast failed {change.HubAddress}={change.Value}: {ex.Message}")
+                        try
+                            do! broadcaster.BroadcastTagsChanged(changes)
+                        with ex ->
+                            log.Warn($"Batch broadcast failed: {ex.Message}")
                     with
                     | :? OperationCanceledException -> ()
                     | ex -> log.Error($"Scan iteration threw: {ex.Message}")
+
+                    let remaining = interval - (DateTime.UtcNow - scanStartedAt)
+                    if remaining > TimeSpan.Zero && not stoppingToken.IsCancellationRequested then
+                        try do! Task.Delay(remaining, stoppingToken)
+                        with :? OperationCanceledException -> ()
 
                 try do! gateway.DisconnectAllAsync()
                 with ex -> log.Warn($"PLC disconnect on shutdown: {ex.Message}")

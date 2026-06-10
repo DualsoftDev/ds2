@@ -52,6 +52,8 @@ module internal WorkTransitions =
         | Some sysName -> not (ctx.Index.ActiveSystemNames.Contains sysName)
         | None -> false
 
+    let private monitoringObservationGraceMs = 250L
+
     let scheduleDuration (ctx: Context) (workGuid: Guid) =
         // device work 포함 모든 work 가 plan(duration) 으로 정상 Finish 진행한다(In 무관).
         // (device 의 In/actual 은 abnormal adapter 가 plan 과 대조할 뿐 Finish 스케줄엔 개입 안 함.)
@@ -70,9 +72,12 @@ module internal WorkTransitions =
                 match ctx.Index.WorkDurationRange |> Map.tryFind workGuid with
                 | Some range when range.MaxMs > 0 ->
                     let workEpoch = ctx.StateManager.GetWorkEpoch(workGuid)
+                    let graceMs =
+                        if ctx.RuntimeMode = RuntimeMode.Monitoring then monitoringObservationGraceMs
+                        else 0L
                     ctx.Scheduler.ScheduleAfter(
                         ScheduledEventType.DeviceOverdueCheck(workGuid, workEpoch),
-                        max 1L (int64 range.MaxMs + 1L),
+                        max 1L (int64 range.MaxMs + 1L + graceMs),
                         ScheduledEvent.PriorityDurationCheck)
                     |> ignore
                 | _ -> ()

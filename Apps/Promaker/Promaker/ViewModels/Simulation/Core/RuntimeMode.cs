@@ -45,6 +45,11 @@ public partial class SimulationPanelState
         DrainPassiveInferenceLogs();
     }
 
+    private void BaselinePassiveState(string address, string value)
+    {
+        _passiveInference?.Baseline(address, value);
+    }
+
     private void ObservePassiveSignalDirection(
         string address,
         string value,
@@ -227,6 +232,14 @@ public partial class SimulationPanelState
                 {
                     if (ReferenceEquals(_simEngine, engine) && Hub.IsCurrentGeneration(hubGeneration))
                         ObserveAndInferPassiveState(effect.Address, effect.Value);
+                });
+                return;
+
+            case RuntimeHubEffectKind.PassiveBaseline:
+                _dispatcher.BeginInvoke(() =>
+                {
+                    if (ReferenceEquals(_simEngine, engine) && Hub.IsCurrentGeneration(hubGeneration))
+                        BaselinePassiveState(effect.Address, effect.Value);
                 });
                 return;
         }

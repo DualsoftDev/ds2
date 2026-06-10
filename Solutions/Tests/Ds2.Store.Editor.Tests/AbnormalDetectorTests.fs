@@ -171,8 +171,8 @@ module ControlAdapterTests =
 
     let private t0 = DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
 
-    // active Call + device range(250~900) + 물리 InTag(Level completion trigger) ?�업.
-    let private setup () =
+    // active Call + device range(250~900) + physical InTag completion trigger setup.
+    let private setupWithSensing sensingType =
         let store = createStore ()
         let project, _, _, work = setupBasicHierarchy store
         let deviceSystem = addSystem store "Device" project.Id false
@@ -183,7 +183,7 @@ module ControlAdapterTests =
         let apiDef = addApiDef store "ADV" deviceSystem.Id
         apiDef.TxGuid <- Some deviceWork.Id
         apiDef.RxGuid <- Some deviceWork.Id
-        apiDef.SensingType <- SensingType.Real(Level, None)
+        apiDef.SensingType <- sensingType
         store.AddCallWithLinkedApiDefs(work.Id, "Device", "ADV", [ apiDef.Id ]) |> ignore
         let call = Queries.callsOf work.Id store |> List.head
         let apiCall = call.ApiCalls |> Seq.head
@@ -205,6 +205,12 @@ module ControlAdapterTests =
         let adapter =
             ControlAbnormalAdapter(index, ioMap, getCallState, isInputActive, (fun () -> t0), (fun r -> emitted.Add r))
         adapter, emitted, states, inputActive, call.Id, apiCall.Id
+
+    let private setup () =
+        setupWithSensing (SensingType.Real(Level, None))
+
+    let private setupLatched () =
+        setupWithSensing (SensingType.Real(Latched, None))
 
     [<Fact>]
     let ``rising in range is normal ??no false positive`` () =
@@ -229,7 +235,8 @@ module ControlAdapterTests =
         let adapter, emitted, states, _, callId, apiCallId = setup ()
         states.[callId] <- Status4.Going
         adapter.OnCallGoing(callId, 1000)
-        adapter.OnInputRising(apiCallId, 2000)   // elapsed 1000 > 900 ??rising 경로??over ????        Assert.Empty(emitted)
+        adapter.OnInputRising(apiCallId, 2000)
+        Assert.Empty(emitted)
 
     [<Fact>]
     let ``rising when call not Going is SensorShort`` () =
@@ -239,23 +246,6 @@ module ControlAdapterTests =
         Assert.Single(emitted) |> ignore
         Assert.Equal(AbnormalKind.SensorShort, emitted.[0].Kind)
 
-    [<Fact>]
-    let ``falling during Finish level sensor is SensorOpen`` () =
-        let adapter, emitted, states, _, callId, apiCallId = setup ()
-        states.[callId] <- Status4.Finish     // Finish ?��?(reset ??
-        adapter.OnInputFalling(apiCallId, 1500)
-        Assert.Single(emitted) |> ignore
-        Assert.Equal(AbnormalKind.SensorOpen, emitted.[0].Kind)
-
-    // v12 §3.2 ??RxWork?�Ready(Going ?�함) �?level ?�서 falling ??SensorOpen (Finish 만이 ?�님).
-    [<Fact>]
-    let ``falling during Going level sensor is SensorOpen`` () =
-        let adapter, emitted, states, _, callId, apiCallId = setup ()
-        states.[callId] <- Status4.Going
-        adapter.OnInputFalling(apiCallId, 1500)
-        Assert.Single(emitted) |> ignore
-        Assert.Equal(AbnormalKind.SensorOpen, emitted.[0].Kind)
-
     // Ready(출발 ?? falling ?� ?�상 ??SensorOpen ?�님.
     [<Fact>]
     let ``falling when Ready is not SensorOpen`` () =
@@ -263,6 +253,21 @@ module ControlAdapterTests =
         states.[callId] <- Status4.Ready
         adapter.OnInputFalling(apiCallId, 1500)
         Assert.Empty(emitted)
+
+    [<Fact>]
+    let ``falling during Finish level sensor is not SensorOpen`` () =
+        let adapter, emitted, states, _, callId, apiCallId = setup ()
+        states.[callId] <- Status4.Finish
+        adapter.OnInputFalling(apiCallId, 1500)
+        Assert.Empty(emitted)
+
+    [<Fact>]
+    let ``falling during Finish latched sensor is SensorOpen`` () =
+        let adapter, emitted, states, _, callId, apiCallId = setupLatched ()
+        states.[callId] <- Status4.Finish
+        adapter.OnInputFalling(apiCallId, 1500)
+        Assert.Single(emitted) |> ignore
+        Assert.Equal(AbnormalKind.SensorOpen, emitted.[0].Kind)
 
     [<Fact>]
     let ``tick over Max with inactive input is ActionOver`` () =
@@ -302,8 +307,8 @@ module MonitoringAdapterTests =
 
     let private t0 = DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
 
-    // device range(250~900) + ApiCall ??Out/In 주소 부??+ adapter.
-    let private setup () =
+    // device range(250~900) + ApiCall Out/In addresses + adapter.
+    let private setupWithSensing sensingType =
         let store = createStore ()
         let project, _, _, work = setupBasicHierarchy store
         let deviceSystem = addSystem store "Device" project.Id false
@@ -314,7 +319,7 @@ module MonitoringAdapterTests =
         let apiDef = addApiDef store "ADV" deviceSystem.Id
         apiDef.TxGuid <- Some deviceWork.Id
         apiDef.RxGuid <- Some deviceWork.Id
-        apiDef.SensingType <- SensingType.Real(Level, None)
+        apiDef.SensingType <- sensingType
         store.AddCallWithLinkedApiDefs(work.Id, "Device", "ADV", [ apiDef.Id ]) |> ignore
         let call = Queries.callsOf work.Id store |> List.head
         let apiCall = call.ApiCalls |> Seq.head
@@ -330,6 +335,12 @@ module MonitoringAdapterTests =
             | _ -> Status4.Ready
         let adapter = MonitoringAbnormalAdapter(index, ioMap, getCallState, (fun () -> t0), (fun r -> emitted.Add r))
         adapter, emitted, states, call.Id, apiCall.Id
+
+    let private setup () =
+        setupWithSensing (SensingType.Real(Level, None))
+
+    let private setupLatched () =
+        setupWithSensing (SensingType.Real(Latched, None))
 
     // baseline(off) ??�?깔고 off?�on rising ?�로 going/finish ??만든??
     let private goingThenFinish (adapter: MonitoringAbnormalAdapter) (goingMs: int) (finishMs: int) =
@@ -359,14 +370,25 @@ module MonitoringAdapterTests =
     [<Fact>]
     let ``finish above Max does not emit (over is watchdog-only)`` () =
         let adapter, emitted, _, _, _ = setup ()
-        goingThenFinish adapter 0 1000         // elapsed 1000 > 900 ??finish 경로??over ????        Assert.Empty(emitted)
+        goingThenFinish adapter 0 1000
+        Assert.Empty(emitted)
 
     [<Fact>]
     let ``finish without observed going start is dropped (mid-cycle 1cycle)`` () =
         let adapter, emitted, _, _, _ = setup ()
-        // OUT ???��? on ???�태�?관�??�작(baseline=on) ??going rising �?�?        adapter.OnObservedIo("Y0", "true", 0)  // baseline on, rising ?�님 ??going 기록 ????        adapter.OnObservedIo("X0", "false", 0)
+        // If OUT was already on before Monitoring attached, a later IN rise is
+        // not enough evidence to call a 1-cycle short.
+        adapter.OnObservedIo("Y0", "true", 0)
+        adapter.OnObservedIo("X0", "false", 0)
         adapter.OnObservedIo("X0", "true", 100)
-        Assert.Empty(emitted)                  // Out ?�재 on(mid-cycle) ??short ?�님
+        Assert.Empty(emitted)
+
+    [<Fact>]
+    let ``finish before any output observation is dropped (unknown baseline)`` () =
+        let adapter, emitted, _, _, _ = setup ()
+        adapter.OnObservedIo("X0", "false", 0)
+        adapter.OnObservedIo("X0", "true", 100)
+        Assert.Empty(emitted)
 
     [<Fact>]
     let ``finish without going and output off is SensorShort`` () =
@@ -389,21 +411,40 @@ module MonitoringAdapterTests =
         Assert.True(emitted.[0].Target.WorkId.IsSome)
 
     [<Fact>]
-    let ``in falling during Finish level sensor is SensorOpen`` () =
-        let adapter, emitted, states, callId, _ = setup ()
-        goingThenFinish adapter 0 500              // ?�상 going?�finish (elapsed 500 ??[250,900])
-        Assert.Empty(emitted)
-        states.[callId] <- Status4.Finish          // Call Finish(reset ?? ?��?
-        adapter.OnObservedIo("X0", "false", 600)   // level ?�서 In falling ???�선 = SensorOpen
-        Assert.Single(emitted) |> ignore
-        Assert.Equal(AbnormalKind.SensorOpen, emitted.[0].Kind)
-
-    [<Fact>]
     let ``in falling when not Finish is not SensorOpen`` () =
         let adapter, emitted, states, callId, _ = setup ()
         goingThenFinish adapter 0 500
         Assert.Empty(emitted)
         states.[callId] <- Status4.Ready           // reset?�Ready = ?�상 종료, Open ?�님
+        adapter.OnObservedIo("X0", "false", 600)
+        Assert.Empty(emitted)
+
+    [<Fact>]
+    let ``in falling during Finish level sensor is not SensorOpen`` () =
+        let adapter, emitted, states, callId, _ = setup ()
+        goingThenFinish adapter 0 500
+        Assert.Empty(emitted)
+        states.[callId] <- Status4.Finish
+        adapter.OnObservedIo("X0", "false", 600)
+        Assert.Empty(emitted)
+
+    [<Fact>]
+    let ``in falling during Finish latched sensor is SensorOpen while output active`` () =
+        let adapter, emitted, states, callId, _ = setupLatched ()
+        goingThenFinish adapter 0 500
+        Assert.Empty(emitted)
+        states.[callId] <- Status4.Finish
+        adapter.OnObservedIo("X0", "false", 600)
+        Assert.Single(emitted) |> ignore
+        Assert.Equal(AbnormalKind.SensorOpen, emitted.[0].Kind)
+
+    [<Fact>]
+    let ``in falling during Finish latched sensor is not SensorOpen after output off`` () =
+        let adapter, emitted, states, callId, _ = setupLatched ()
+        goingThenFinish adapter 0 500
+        Assert.Empty(emitted)
+        states.[callId] <- Status4.Finish
+        adapter.OnObservedIo("Y0", "false", 550)
         adapter.OnObservedIo("X0", "false", 600)
         Assert.Empty(emitted)
 
@@ -524,7 +565,7 @@ module DeviceControlCycleTests =
         Assert.Equal(Some Status4.Finish, engine.GetWorkState(deviceWork.Id))
 
     [<Fact>]
-    let ``Monitoring emits ActionOver at device Max while Call waits external In`` () =
+    let ``Monitoring delays ActionOver until PLC observation grace expires`` () =
         let store = createStore ()
         let project, _, _, work = setupBasicHierarchy store
         let deviceSystem = addSystem store "Device" project.Id false
@@ -554,6 +595,42 @@ module DeviceControlCycleTests =
         Assert.Equal(Some Status4.Finish, engine.GetWorkState(deviceWork.Id))
 
         engine.AdvanceSimulationTo(901L)
+        Assert.Empty(emitted)
+
+        engine.AdvanceSimulationTo(1151L)
 
         Assert.Single(emitted) |> ignore
         Assert.Equal(AbnormalKind.ActionOver, emitted.[0].Kind)
+
+    [<Fact>]
+    let ``Monitoring suppresses ActionOver when input arrives within PLC observation grace`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        let deviceSystem = addSystem store "Device" project.Id false
+        let deviceFlow = addFlow store "DeviceFlow" deviceSystem.Id
+        let deviceWork = addWork store "ADV" deviceFlow.Id
+        deviceWork.Duration <- Some(TimeSpan.FromMilliseconds 200.0)
+        deviceWork.MinDuration <- Some(TimeSpan.FromMilliseconds 250.0)
+        deviceWork.MaxDuration <- Some(TimeSpan.FromMilliseconds 900.0)
+        let apiDef = addApiDef store "ADV" deviceSystem.Id
+        apiDef.TxGuid <- Some deviceWork.Id
+        apiDef.RxGuid <- Some deviceWork.Id
+        apiDef.SensingType <- SensingType.Real(Level, None)
+        store.AddCallWithLinkedApiDefs(work.Id, "Device", "ADV", [ apiDef.Id ]) |> ignore
+        let call = Queries.callsOf work.Id store |> List.head
+        let apiCall = call.ApiCalls |> Seq.head
+        apiCall.OutTag <- Some(IOTag("OUT", "Y0", ""))
+        apiCall.InTag <- Some(IOTag("IN", "X0", ""))
+        let index = SimIndex.build store 10
+        use engine = (new EventDrivenEngine(index, RuntimeMode.Monitoring)) :> ISimulationEngine
+        let emitted = ResizeArray<AbnormalRecord>()
+        engine.AbnormalDetected.Add(fun record -> emitted.Add record)
+
+        engine.ForceCallState(call.Id, Status4.Going)
+        engine.ForceWorkState(deviceWork.Id, Status4.Going)
+        engine.AdvanceSimulationTo(engine.CurrentTimeMs)
+        engine.AdvanceSimulationTo(901L)
+        engine.InjectIOValue(apiCall.Id, "true")
+        engine.AdvanceSimulationTo(1151L)
+
+        Assert.Empty(emitted)

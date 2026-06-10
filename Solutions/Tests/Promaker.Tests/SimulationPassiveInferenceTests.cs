@@ -534,7 +534,25 @@ public sealed class SimulationPassiveInferenceTests
     }
 
     [Fact]
-    public void Monitoring_passive_inference_can_baseline_first_observed_plc_snapshot()
+    public void Monitoring_passive_inference_baselines_first_inactive_observed_plc_snapshot()
+    {
+        var fixture = BuildSingleCallFixture();
+        var index = SimIndexModule.build(fixture.Store, 10);
+        using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.Monitoring);
+        var session = new PassiveInferenceSession(index, engine.IOMap, RuntimeMode.Monitoring, true);
+        var getReady = new Func<Guid, Status4>(_ => Status4.Ready);
+
+        var first = session.Observe(fixture.OutAddress, "false", getReady, getReady);
+        var nextRising = session.Observe(fixture.OutAddress, "true", getReady, getReady);
+
+        Assert.Empty(first);
+        Assert.Contains(nextRising, action =>
+            action.TargetKind == PassiveInferenceTarget.Call &&
+            action.State == Status4.Going);
+    }
+
+    [Fact]
+    public void Monitoring_passive_inference_treats_first_active_output_as_going()
     {
         var fixture = BuildSingleCallFixture();
         var index = SimIndexModule.build(fixture.Store, 10);
@@ -544,14 +562,66 @@ public sealed class SimulationPassiveInferenceTests
 
         var first = session.Observe(fixture.OutAddress, "true", getReady, getReady);
         var duplicate = session.Observe(fixture.OutAddress, "true", getReady, getReady);
+
+        Assert.Contains(first, action =>
+            action.TargetKind == PassiveInferenceTarget.Call &&
+            action.State == Status4.Going);
+        Assert.Empty(duplicate);
+    }
+
+    [Fact]
+    public void Monitoring_passive_inference_baseline_snapshot_active_does_not_emit_going()
+    {
+        var fixture = BuildSingleCallFixture();
+        var index = SimIndexModule.build(fixture.Store, 10);
+        using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.Monitoring);
+        var session = new PassiveInferenceSession(index, engine.IOMap, RuntimeMode.Monitoring, true);
+        var getReady = new Func<Guid, Status4>(_ => Status4.Ready);
+
+        session.Baseline(fixture.OutAddress, "true");
+        var duplicateSnapshotValue = session.Observe(fixture.OutAddress, "true", getReady, getReady);
         _ = session.Observe(fixture.OutAddress, "false", getReady, getReady);
         var nextRising = session.Observe(fixture.OutAddress, "true", getReady, getReady);
 
-        Assert.Empty(first);
-        Assert.Empty(duplicate);
+        Assert.Empty(duplicateSnapshotValue);
         Assert.Contains(nextRising, action =>
             action.TargetKind == PassiveInferenceTarget.Call &&
             action.State == Status4.Going);
+    }
+
+    [Fact]
+    public void Monitoring_passive_inference_treats_first_active_input_after_output_as_finish()
+    {
+        var fixture = BuildSingleCallFixture();
+        var index = SimIndexModule.build(fixture.Store, 10);
+        using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.Monitoring);
+        var session = new PassiveInferenceSession(index, engine.IOMap, RuntimeMode.Monitoring, true);
+        var getReady = new Func<Guid, Status4>(_ => Status4.Ready);
+        var getGoingCall = new Func<Guid, Status4>(guid => guid == fixture.CallId ? Status4.Going : Status4.Ready);
+
+        var going = session.Observe(fixture.OutAddress, "true", getReady, getReady);
+        var finish = session.Observe(fixture.InAddress, "true", getReady, getGoingCall);
+
+        Assert.Contains(going, action =>
+            action.TargetKind == PassiveInferenceTarget.Call &&
+            action.State == Status4.Going);
+        Assert.Contains(finish, action =>
+            action.TargetKind == PassiveInferenceTarget.Call &&
+            action.State == Status4.Finish);
+
+        var reorderedSession = new PassiveInferenceSession(index, engine.IOMap, RuntimeMode.Monitoring, true);
+        var inputFirst = reorderedSession.Observe(fixture.InAddress, "true", getReady, getReady);
+        var outputAfterInput = reorderedSession.Observe(fixture.OutAddress, "true", getReady, getReady);
+
+        Assert.DoesNotContain(inputFirst, action =>
+            action.TargetKind == PassiveInferenceTarget.Call &&
+            action.State == Status4.Finish);
+        Assert.Contains(outputAfterInput, action =>
+            action.TargetKind == PassiveInferenceTarget.Call &&
+            action.State == Status4.Going);
+        Assert.Contains(outputAfterInput, action =>
+            action.TargetKind == PassiveInferenceTarget.Call &&
+            action.State == Status4.Finish);
     }
 
     [Fact]
@@ -948,7 +1018,7 @@ public sealed class SimulationPassiveInferenceTests
     }
 
     [Fact]
-    public void Monitoring_runtime_mode_session_exposes_monitoring_source_and_snapshot_policy()
+    public void Monitoring_runtime_mode_session_baselines_snapshot_without_replaying_state()
     {
         var fixture = BuildSingleCallFixture();
         var index = SimIndexModule.build(fixture.Store, 10);
@@ -966,12 +1036,21 @@ public sealed class SimulationPassiveInferenceTests
 
         var snapshotEffects = session.ResolveHubSnapshotEffects(new Dictionary<string, string>
         {
-            [fixture.OutAddress] = "true"
+            [fixture.OutAddress] = "true",
+            [fixture.InAddress] = "false"
         });
+
         Assert.Contains(snapshotEffects, effect =>
-            effect.Kind == RuntimeHubEffectKind.PassiveObserve
+            effect.Kind == RuntimeHubEffectKind.PassiveBaseline
             && effect.Address == fixture.OutAddress
             && effect.Value == "true");
+        Assert.Contains(snapshotEffects, effect =>
+            effect.Kind == RuntimeHubEffectKind.PassiveBaseline
+            && effect.Address == fixture.InAddress
+            && effect.Value == "false");
+        Assert.DoesNotContain(snapshotEffects, effect => effect.Kind == RuntimeHubEffectKind.PassiveObserve);
+        Assert.DoesNotContain(snapshotEffects, effect => effect.Kind == RuntimeHubEffectKind.ForceWorkStateIfReady);
+        Assert.DoesNotContain(snapshotEffects, effect => effect.Kind == RuntimeHubEffectKind.WriteTag);
     }
 
     [Fact]

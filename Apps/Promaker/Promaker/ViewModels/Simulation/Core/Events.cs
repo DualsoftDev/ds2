@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using Ds2.Core;
@@ -76,9 +77,87 @@ public partial class SimulationPanelState
     {
         var elapsed = Microsoft.FSharp.Core.FSharpOption<int>.get_IsSome(record.ElapsedMs)
             ? record.ElapsedMs.Value : -1;
-        var detail = elapsed >= 0 ? $"{record.Kind} (elapsed={elapsed}ms)" : record.Kind.ToString();
+        var target = FormatAbnormalTarget(record.Target);
+        var detail = elapsed >= 0
+            ? $"{record.Kind} {target} (elapsed={elapsed}ms)"
+            : $"{record.Kind} {target}";
         AddWarningLog("ABNORMAL", detail);
-        SimLog.Warn($"[Abnormal] {record.Kind} elapsed={elapsed} @{record.TimestampUtc:HH:mm:ss}");
+        SimLog.Warn($"[Abnormal] {record.Kind} {target} elapsed={elapsed} @{record.TimestampUtc:HH:mm:ss}");
+    }
+
+    private string FormatAbnormalTarget(AbnormalTarget target)
+    {
+        var store = Store;
+        var parts = new List<string>(capacity: 4);
+
+        var call = ResolveTargetCall(store, target);
+        if (Microsoft.FSharp.Core.FSharpOption<Guid>.get_IsSome(target.CallId))
+            parts.Add(FormatNamedId("Call", call?.Name, target.CallId.Value));
+
+        if (call is not null)
+        {
+            var ownerWork = OptionValue(Queries.getWork(call.ParentId, store));
+            parts.Add(FormatNamedId("OwnerWork", ownerWork?.Name, call.ParentId));
+        }
+
+        if (Microsoft.FSharp.Core.FSharpOption<Guid>.get_IsSome(target.ApiCallId))
+        {
+            var apiCallId = target.ApiCallId.Value;
+            var apiCall = call?.ApiCalls.FirstOrDefault(api => api.Id == apiCallId)
+                ?? FindApiCallById(store, apiCallId);
+            parts.Add(FormatNamedId("ApiCall", apiCall?.Name, apiCallId));
+        }
+
+        if (Microsoft.FSharp.Core.FSharpOption<Guid>.get_IsSome(target.WorkId))
+        {
+            var workId = target.WorkId.Value;
+            var work = OptionValue(Queries.getWork(workId, store));
+            parts.Add(FormatNamedId("RxWork", work?.Name, workId));
+        }
+
+        return parts.Count == 0 ? "Target=unknown" : string.Join(" ", parts);
+    }
+
+    private static Call? ResolveTargetCall(DsStore store, AbnormalTarget target)
+    {
+        if (!Microsoft.FSharp.Core.FSharpOption<Guid>.get_IsSome(target.CallId))
+            return null;
+
+        var callId = target.CallId.Value;
+        var call = OptionValue(Queries.getCall(callId, store));
+        if (call is not null)
+            return call;
+
+        var canonicalId = Queries.resolveOriginalCallId(callId, store);
+        return canonicalId == callId ? null : OptionValue(Queries.getCall(canonicalId, store));
+    }
+
+    private static ApiCall? FindApiCallById(DsStore store, Guid apiCallId)
+    {
+        foreach (var call in store.Calls.Values)
+        {
+            var apiCall = call.ApiCalls.FirstOrDefault(api => api.Id == apiCallId);
+            if (apiCall is not null)
+                return apiCall;
+        }
+
+        return null;
+    }
+
+    private static string FormatNamedId(string label, string? name, Guid id)
+    {
+        var resolved = string.IsNullOrWhiteSpace(name) ? "<missing>" : name;
+        return $"{label}={resolved}#{ShortGuid(id)}";
+    }
+
+    private static T? OptionValue<T>(Microsoft.FSharp.Core.FSharpOption<T> option)
+        where T : class =>
+        Microsoft.FSharp.Core.FSharpOption<T>.get_IsSome(option) ? option.Value : null;
+
+    private static string ShortGuid(Guid id)
+    {
+        var text = id.ToString("N");
+        return text[..8];
     }
 
     private static LogSeverity SeverityFromState(Status4 state) => state switch

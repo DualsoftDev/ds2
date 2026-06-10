@@ -37,12 +37,19 @@ type RuntimeModeSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: Runtim
 
     member _.ResolveHubSnapshotEffects(tagValues: IReadOnlyDictionary<string, string>) =
         match runtimeMode with
-        | RuntimeMode.VirtualPlant
-        | RuntimeMode.Monitoring ->
+        | RuntimeMode.VirtualPlant ->
             tagValues
             |> Seq.filter (fun (KeyValue(address, value)) -> not (System.String.IsNullOrWhiteSpace(address)) && value = "true")
             |> Seq.collect (fun (KeyValue(address, value)) -> hubSession.HandleHubTag(address, value, "snapshot"))
             |> Seq.toArray
+        | RuntimeMode.Monitoring ->
+            let effects = ResizeArray<RuntimeHubEffect>()
+            tagValues
+            |> Seq.filter (fun (KeyValue(address, value)) ->
+                not (System.String.IsNullOrWhiteSpace(address)) && not (isNull value) && value <> "")
+            |> Seq.iter (fun (KeyValue(address, value)) ->
+                RuntimeSessionEffects.addPassiveBaseline effects 0 address value)
+            effects.ToArray()
         | _ ->
             bootstrapSession.ResolveHubSnapshotEffects(tagValues)
 

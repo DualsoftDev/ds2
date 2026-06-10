@@ -9,6 +9,69 @@ open Ds2.Runtime.Engine
 open Ds2.Runtime.Engine.Core
 open Ds2.Runtime.IO
 
+[<RequireQualifiedAccess>]
+module RemoteSnapshotDiff =
+    let private tryGuid (value: string) =
+        match Guid.TryParse value with
+        | true, guid -> Some guid
+        | _ -> None
+
+    let private st4 (value: int) = enum<Status4> value
+    let private clockOf (ms: int64) = TimeSpan.FromMilliseconds(float ms)
+
+    let private workNameOf (index: SimIndex) guid =
+        index.WorkName
+        |> Map.tryFind guid
+        |> Option.defaultValue (string guid)
+
+    let private callNameOf (index: SimIndex) guid =
+        index.Store.Calls
+        |> fun calls ->
+            match calls.TryGetValue guid with
+            | true, call -> call.Name
+            | _ -> string guid
+
+    let workChanges (index: SimIndex) (previous: SimState) (snapshot: RuntimeStateSnapshot) =
+        snapshot.WorkStates
+        |> Array.choose (fun ws ->
+            match tryGuid ws.Id with
+            | None -> None
+            | Some guid ->
+                let next = st4 ws.StatusValue
+                let prev =
+                    previous.WorkStates
+                    |> Map.tryFind guid
+                    |> Option.defaultValue Status4.Ready
+                if prev = next then None
+                else
+                    Some
+                        { WorkGuid = guid
+                          WorkName = workNameOf index guid
+                          PreviousState = prev
+                          NewState = next
+                          Clock = clockOf snapshot.CurrentTimeMs })
+
+    let callChanges (index: SimIndex) (previous: SimState) (snapshot: RuntimeStateSnapshot) =
+        snapshot.CallStates
+        |> Array.choose (fun cs ->
+            match tryGuid cs.Id with
+            | None -> None
+            | Some guid ->
+                let next = st4 cs.StatusValue
+                let prev =
+                    previous.CallStates
+                    |> Map.tryFind guid
+                    |> Option.defaultValue Status4.Ready
+                if prev = next then None
+                else
+                    Some
+                        { CallGuid = guid
+                          CallName = callNameOf index guid
+                          PreviousState = prev
+                          NewState = next
+                          IsSkipped = false
+                          Clock = clockOf snapshot.CurrentTimeMs })
+
 /// Agent 가 단일 호스팅하는 server engine 의 client-side 원격 proxy.
 /// - 명령: SignalR Send/Invoke (RuntimeCommandEnvelope 동반 — stale guard).
 /// - 이벤트: On<Payload> 구독 → 로컬 SimState push-cache 갱신 + 로컬 Event 재발행 (UI 무수정).
@@ -115,20 +178,40 @@ type RemoteSimulationEngine
             if matches snap.ModelHash snap.Mode then
                 serverSessionId <- snap.SessionId
                 serverGeneration <- snap.Generation
-                lock stateLock (fun () ->
-                    let mutable s =
-                        SimState.create index.TickMs index.AllWorkGuids index.AllCallGuids index.AllFlowGuids
-                    for ws in snap.WorkStates do s <- SimState.setWorkState (pg ws.Id) (st4 ws.StatusValue) s
-                    for cs in snap.CallStates do s <- SimState.setCallState (pg cs.Id) (st4 cs.StatusValue) s
-                    for fs in snap.FlowStates do s <- SimState.setFlowState (pg fs.Id) (flowTagOf fs.FlowTagValue) s
-                    for io in snap.IOValues do s <- SimState.setIOValue (pg io.Id) io.Value s
-                    state <- s)
-                status <- simStatusOf snap.StatusName
-                currentTimeMs <- snap.CurrentTimeMs
-                nextEventTimeMs <- (if snap.NextEventTimeMs.HasValue then Some snap.NextEventTimeMs.Value else None)
-                isHomingPhase <- snap.IsHomingPhase
-                hasStartableWork <- snap.HasStartableWork
-                hasActiveDuration <- snap.HasActiveDuration)) |> ignore
+                let nextStatus = simStatusOf snap.StatusName
+                let workChanges, callChanges, statusChange =
+                    lock stateLock (fun () ->
+                        let previousState = state
+                        let previousStatus = status
+
+                        let workChanges = RemoteSnapshotDiff.workChanges index previousState snap
+                        let callChanges = RemoteSnapshotDiff.callChanges index previousState snap
+                        let statusChange =
+                            if previousStatus = nextStatus then None
+                            else Some { PreviousStatus = previousStatus; NewStatus = nextStatus }
+
+                        let mutable nextState =
+                            SimState.create index.TickMs index.AllWorkGuids index.AllCallGuids index.AllFlowGuids
+                        for ws in snap.WorkStates do nextState <- SimState.setWorkState (pg ws.Id) (st4 ws.StatusValue) nextState
+                        for cs in snap.CallStates do nextState <- SimState.setCallState (pg cs.Id) (st4 cs.StatusValue) nextState
+                        for fs in snap.FlowStates do nextState <- SimState.setFlowState (pg fs.Id) (flowTagOf fs.FlowTagValue) nextState
+                        for io in snap.IOValues do nextState <- SimState.setIOValue (pg io.Id) io.Value nextState
+
+                        state <- nextState
+                        currentTimeMs <- snap.CurrentTimeMs
+                        nextEventTimeMs <- (if snap.NextEventTimeMs.HasValue then Some snap.NextEventTimeMs.Value else None)
+                        isHomingPhase <- snap.IsHomingPhase
+                        hasStartableWork <- snap.HasStartableWork
+                        hasActiveDuration <- snap.HasActiveDuration
+                        status <- nextStatus
+
+                        workChanges, callChanges, statusChange)
+
+                for args in workChanges do workStateChangedEvent.Trigger(args)
+                for args in callChanges do callStateChangedEvent.Trigger(args)
+                match statusChange with
+                | Some args -> simulationStatusChangedEvent.Trigger(args)
+                | None -> ())) |> ignore
 
         hub.On(HubMethod.OnRuntimeWorkStateChanged, Action<RuntimeWorkStateChangedPayload>(fun p ->
             if matches p.ModelHash p.Mode then

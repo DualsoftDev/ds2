@@ -350,6 +350,12 @@ type RuntimeIOAddressCommand = {
 }
 
 [<CLIMutable>]
+type RuntimeIOAddressBatchCommand = {
+    Envelope: RuntimeCommandEnvelope
+    Items: TagWrite array
+}
+
+[<CLIMutable>]
 type RuntimeTokenCommand = {
     Envelope: RuntimeCommandEnvelope
     WorkId: string
@@ -590,6 +596,7 @@ type IRuntimeHubSession =
     abstract member DiscardTokenAsync : RuntimeTokenCommand -> Task
     abstract member InjectIOValueAsync : RuntimeIOValueCommand -> Task
     abstract member InjectIOValueByAddressAsync : RuntimeIOAddressCommand -> Task
+    abstract member InjectIOValuesByAddressAsync : RuntimeIOAddressBatchCommand -> Task
     abstract member SetAllFlowStatesAsync : RuntimeFlowTagCommand -> Task
     abstract member ReloadConnectionsAsync : RuntimeEmptyCommand -> Task
     abstract member ReloadDurationsAsync : RuntimeEmptyCommand -> Task

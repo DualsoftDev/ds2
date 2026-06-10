@@ -66,6 +66,14 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
         Ds2.Core.Store.Queries.getApiCall apiCallGuid index.Store
         |> Option.map (fun apiCall -> if isOut then apiCall.OutputSpec else apiCall.InputSpec)
 
+    let tryEnqueueCallFinishFromObservedInputs
+        (actions: ResizeArray<PassiveInferenceAction>)
+        (overlay: StateOverlay)
+        callGuid =
+        if hasAllObserved callInExpectedAddresses callInHighAddresses callGuid
+           && overlay.GetCallState(callGuid) = Status4.Going then
+            PassiveInferenceWorkCycle.enqueueCallState actions overlay callGuid Status4.Finish
+
     let observePassiveCallSignal
         (actions: ResizeArray<PassiveInferenceAction>)
         (overlay: StateOverlay)
@@ -97,10 +105,9 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
                 if overlay.GetCallState(callGuid) <> Status4.Ready then
                     PassiveInferenceWorkCycle.enqueueCallState actions overlay callGuid Status4.Ready
                 PassiveInferenceWorkCycle.enqueueCallState actions overlay callGuid Status4.Going
+                tryEnqueueCallFinishFromObservedInputs actions overlay callGuid
         else
-            if hasAllObserved callInExpectedAddresses callInHighAddresses callGuid
-               && overlay.GetCallState(callGuid) = Status4.Going then
-                PassiveInferenceWorkCycle.enqueueCallState actions overlay callGuid Status4.Finish
+            tryEnqueueCallFinishFromObservedInputs actions overlay callGuid
 
     let observePassiveSignalDirectionInternal
         (actions: ResizeArray<PassiveInferenceAction>)
@@ -180,24 +187,39 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
     ) =
         match lastObservedValue.TryGetValue(address) with
         | true, previous when previous = value -> Array.empty
-        | false, _ when baselineFirstObservation ->
-            lastObservedValue[address] <- value
-            Array.empty
         | _ ->
-            lastObservedValue[address] <- value
-
             let outMappings = ioMap.GetByOutAddress(address)
             let inMappings = ioMap.GetByInAddress(address)
             if List.isEmpty outMappings && List.isEmpty inMappings then
+                lastObservedValue[address] <- value
                 Array.empty
             else
-                let actions = ResizeArray<PassiveInferenceAction>()
-                let overlay = StateOverlay(getWorkState, getCallState)
-                if not (List.isEmpty outMappings) then
-                    observePassiveSignalDirectionInternal actions overlay address value true outMappings
-                if not (List.isEmpty inMappings) then
-                    observePassiveSignalDirectionInternal actions overlay address value false inMappings
-                actions.ToArray()
+                let isFirstObservation = not (lastObservedValue.ContainsKey(address))
+                let matchesAnySpec =
+                    let matchesMapping isOut (mapping: SignalMapping) =
+                        tryGetApiCallSpec mapping.ApiCallGuid isOut
+                        |> Option.map (fun valueSpec -> matchesPassiveSpec valueSpec value)
+                        |> Option.defaultValue (String.Equals(value, "true", StringComparison.OrdinalIgnoreCase))
+
+                    (outMappings |> List.exists (matchesMapping true))
+                    || (inMappings |> List.exists (matchesMapping false))
+
+                lastObservedValue[address] <- value
+
+                if baselineFirstObservation && isFirstObservation && not matchesAnySpec then
+                    Array.empty
+                else
+                    let actions = ResizeArray<PassiveInferenceAction>()
+                    let overlay = StateOverlay(getWorkState, getCallState)
+                    if not (List.isEmpty outMappings) then
+                        observePassiveSignalDirectionInternal actions overlay address value true outMappings
+                    if not (List.isEmpty inMappings) then
+                        observePassiveSignalDirectionInternal actions overlay address value false inMappings
+                    actions.ToArray()
+
+    member _.Baseline(address: string, value: string) =
+        if not (String.IsNullOrWhiteSpace(address)) then
+            lastObservedValue[address] <- value
 
     member _.ObserveDirection(
         address: string,
