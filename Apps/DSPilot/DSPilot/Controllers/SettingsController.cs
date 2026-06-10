@@ -32,6 +32,7 @@ public class SettingsController : ControllerBase
     private readonly DsProjectService _project;
     private readonly CctvMediaMtxService _cctvSync;
     private readonly IDatabasePathResolver _pathResolver;
+    private readonly AutoCalibrationService _autoCal;
     private readonly IHubContext<MonitoringHub> _hub;
     private readonly ILogger<SettingsController> _logger;
 
@@ -42,6 +43,7 @@ public class SettingsController : ControllerBase
         DsProjectService project,
         CctvMediaMtxService cctvSync,
         IDatabasePathResolver pathResolver,
+        AutoCalibrationService autoCal,
         IHubContext<MonitoringHub> hub,
         ILogger<SettingsController> logger)
     {
@@ -51,6 +53,7 @@ public class SettingsController : ControllerBase
         _project = project;
         _cctvSync = cctvSync;
         _pathResolver = pathResolver;
+        _autoCal = autoCal;
         _hub = hub;
         _logger = logger;
     }
@@ -88,25 +91,36 @@ public class SettingsController : ControllerBase
     {
         try
         {
-            // 현재 디스크 설정을 baseline 으로 로드 후 클라이언트 편집값을 덮어쓴다.
+            // 현재 디스크 설정을 baseline 으로 로드 후 클라이언트 편집값을 덮어쓴다(load-modify-save 를 단일 잠금으로 원자화 —
+            // 백그라운드 자동보정의 CompletedAt 박제와 경합해도 유실되지 않도록 AppSettingsService.Update 사용).
             // (UI 미노출 섹션 DspTables/Hub/Ui.ShowPlcDebug 등은 baseline 유지 — appsettings.json 으로만 관리)
-            var m = _settings.LoadSettings();
+            _settings.Update(m =>
+            {
+                m.Database.ConnectionString = BuildConnectionString(req.DbDir);
+                m.Logging.LogLevel.Default = string.IsNullOrWhiteSpace(req.LogLevelDefault) ? m.Logging.LogLevel.Default : req.LogLevelDefault;
 
-            m.Database.ConnectionString = BuildConnectionString(req.DbDir);
-            m.Logging.LogLevel.Default = string.IsNullOrWhiteSpace(req.LogLevelDefault) ? m.Logging.LogLevel.Default : req.LogLevelDefault;
+                m.HistoryView.MaxCycleTimeMs = req.MaxCycleTimeMs;
+                m.HistoryView.MinCycleTimeMs = req.MinCycleTimeMs;
+                m.HistoryView.MaxCallGoingTimeMs = req.MaxCallGoingTimeMs;
+                m.HistoryView.MinCallGoingTimeMs = req.MinCallGoingTimeMs;
+                m.HistoryView.CycleAverageWindow = req.CycleAverageWindow;
+                m.Ui.AlarmTickerIntervalSec = Math.Clamp(req.AlarmTickerIntervalSec, 1, 30);
+                m.AbnormalAlarm.ResetIntervalHours = Math.Max(0, req.AbnormalAlarmResetIntervalHours);
 
-            m.HistoryView.MaxCycleTimeMs = req.MaxCycleTimeMs;
-            m.HistoryView.MinCycleTimeMs = req.MinCycleTimeMs;
-            m.HistoryView.MaxCallGoingTimeMs = req.MaxCallGoingTimeMs;
-            m.HistoryView.MinCallGoingTimeMs = req.MinCallGoingTimeMs;
-            m.HistoryView.CycleAverageWindow = req.CycleAverageWindow;
-            m.Ui.AlarmTickerIntervalSec = Math.Clamp(req.AlarmTickerIntervalSec, 1, 30);
-            m.AbnormalAlarm.ResetIntervalHours = Math.Max(0, req.AbnormalAlarmResetIntervalHours);
+                // 자동 보정 파라미터. CompletedAt(1회성 플래그)은 baseline(m) 값을 보존 — 파라미터 변경만으로
+                // 자동 재실행을 재무장하지 않는다(재실행은 "지금 실측값 채우기" 버튼 = /auto-calibrate/run).
+                if (req.AutoCalibration is { } acReq)
+                {
+                    m.AutoCalibration.Enabled = acReq.Enabled;
+                    m.AutoCalibration.MinCleanCycles = Math.Max(1, acReq.MinCleanCycles);
+                    m.AutoCalibration.MarginMaxPct = Math.Clamp(acReq.MarginMaxPct, 0, 1);
+                    m.AutoCalibration.FillMin = acReq.FillMin;
+                    m.AutoCalibration.MarginMinPct = Math.Clamp(acReq.MarginMinPct, 0, 1);
+                }
 
-            // CCTV(RTSP) 카메라 설정은 CCTV 페이지(CctvController.SaveSettings)가 소유 — 여기서는 건드리지 않는다.
-            // (Settings 저장이 카메라 목록을 덮어써 오버레이/카메라가 유실되는 것을 방지.)
-
-            _settings.SaveSettings(m);
+                // CCTV(RTSP) 카메라 설정은 CCTV 페이지(CctvController.SaveSettings)가 소유 — 여기서는 건드리지 않는다.
+                // (Settings 저장이 카메라 목록을 덮어써 오버레이/카메라가 유실되는 것을 방지.)
+            });
 
             // 비가동 임계값 변경 소급 적용 (대시보드·히스토리 즉시 반영) — Blazor SaveSettings 와 동일.
             var (restamped, flows) = await _flowMetrics.ReapplyIdleThresholdsAsync();
@@ -226,6 +240,24 @@ public class SettingsController : ControllerBase
         }
     }
 
+    // ── POST: 실측 duration 자동 보정 즉시 실행 ("지금 실측값 채우기(재시도)") ──
+    // CompletedAt(1회성 플래그)을 무시하고 manual 로 즉시 보정한다. 적합 Flow 의 디바이스 duration/min/max 를
+    // 현재 실측값으로 재기록(공식 적용) 후, 성공하면 AutoCalibrationService 가 DatabaseRebuilt 를 브로드캐스트한다.
+    [HttpPost("auto-calibrate/run")]
+    public async Task<ActionResult<RebuildResultDto>> RunAutoCalibration(CancellationToken ct)
+    {
+        try
+        {
+            var r = await _autoCal.RunAsync(manual: true, ct);
+            return new RebuildResultDto(r.Success, r.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Settings] RunAutoCalibration failed");
+            return new RebuildResultDto(false, $"실측값 채우기 실패: {ex.Message}");
+        }
+    }
+
     // ── helpers ──
 
     private ActionResult<RebuildResultDto> Result(RebuildResult r)
@@ -250,8 +282,23 @@ public class SettingsController : ControllerBase
             _project.AasxFilePath,
             BuildAasxStatus(),
             m.Ui.AlarmTickerIntervalSec,
-            m.AbnormalAlarm.ResetIntervalHours);
+            m.AbnormalAlarm.ResetIntervalHours,
+            new AutoCalibrationDto(
+                m.AutoCalibration.Enabled,
+                m.AutoCalibration.MinCleanCycles,
+                m.AutoCalibration.MarginMaxPct,
+                m.AutoCalibration.FillMin,
+                m.AutoCalibration.MarginMinPct,
+                LocalStamp(m.AutoCalibration.CompletedAt),
+                LocalStamp(m.AutoCalibration.LastAppliedAt),
+                m.AutoCalibration.LastAppliedSummary));
     }
+
+    // UTC(또는 Unspecified=UTC 저장) DateTime? → 로컬 표시 문자열. null 이면 null.
+    private static string? LocalStamp(DateTime? utc)
+        => utc is DateTime d
+            ? DateTime.SpecifyKind(d, DateTimeKind.Utc).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
+            : null;
 
     // Settings.razor RefreshAasxStatus + SyncBadgeText/SyncBadgeColor.
     private AasxStatusDto BuildAasxStatus()
@@ -357,7 +404,29 @@ public record SettingsDto(
     string AasxFilePath,
     AasxStatusDto AasxStatus,
     int AlarmTickerIntervalSec = 3,
-    int AbnormalAlarmResetIntervalHours = 24);
+    int AbnormalAlarmResetIntervalHours = 24,
+    // 실측 duration 자동 보정 설정 + 1회성 완료 시각(표시용 로컬 문자열, 미실행이면 null). 기본값으로 기존 호출부 무손상.
+    AutoCalibrationDto? AutoCalibration = null);
+
+// CompletedAt = 자동 1회 실행 완료 시각(고정). LastAppliedAt = 마지막으로 AASX 에 기록한 시각(매 적용 갱신).
+// 둘 다 로컬 표시 문자열, null = 미실행. 마진은 분수(0.05=5%).
+public record AutoCalibrationDto(
+    bool Enabled,
+    int MinCleanCycles,
+    double MarginMaxPct,
+    bool FillMin,
+    double MarginMinPct,
+    string? CompletedAt,
+    string? LastAppliedAt,
+    string? LastAppliedSummary);
+
+// 자동 보정 저장 입력 — 편집 가능한 5개 필드만(CompletedAt 은 서버 관리, 저장으로 변경 불가).
+public record AutoCalibrationSaveDto(
+    bool Enabled,
+    int MinCleanCycles,
+    double MarginMaxPct,
+    bool FillMin,
+    double MarginMinPct);
 
 public record HistoryViewDto(
     int MaxCycleTimeMs,
@@ -397,7 +466,9 @@ public record SaveRequestDto(
     int MinCallGoingTimeMs,
     int CycleAverageWindow = 20,
     int AlarmTickerIntervalSec = 3,
-    int AbnormalAlarmResetIntervalHours = 24);
+    int AbnormalAlarmResetIntervalHours = 24,
+    // 자동 보정 파라미터(편집 5필드). null 이면 기존 값 보존 — 기존 호출부 무손상.
+    AutoCalibrationSaveDto? AutoCalibration = null);
 
 public record SaveResultDto(bool Ok, string Message);
 

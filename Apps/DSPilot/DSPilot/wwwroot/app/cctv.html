@@ -858,7 +858,7 @@
                 availableFlows: [],        // { flowId, flowName, systemName }
                 availableCalls: [],        // { callId, callName, flowId, flowName, workName }
                 overlayStates: {},         // overlayId -> { state, avgTimeMs, workName, device, goingCount, progressRate, errorText, currentCt, movingStartName, movingEndName }
-                abnFlowNames: new Set(),   // 최근 이상 발생 flowName Set — /api/dashboard/abnormals 3초 폴링마다 갱신
+                abnFlowNames: new Set(),   // 활성 이상 flowName Set — /api/dashboard/active-alarms 3초 폴링마다 갱신(재가동 시 자동 해제)
                 tileRects: {},             // camId -> displayRect (per-tile letterbox)
                 _renderTick: 0, _stateTimer: null, _statusTimer: null,
 
@@ -1204,7 +1204,8 @@
                     try {
                         const [list, abnList] = await Promise.all([
                             this.apiGet('/api/cctv/overlay-state'),
-                            this.apiGet('/api/dashboard/abnormals?limit=20').catch(() => [])
+                            // active-alarms: Flow 카드·알람 배너와 동일 소스(_active). 재가동(Going) 시 자동 해제 동일 적용.
+                            this.apiGet('/api/dashboard/active-alarms?limit=20').catch(() => [])
                         ]);
                         const map = {};
                         for (const s of (list || [])) map[s.id] = {
