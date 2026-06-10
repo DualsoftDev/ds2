@@ -448,45 +448,76 @@
         //   MOBILE_BP 미만에서 사이드바가 -SHELL_W 로 숨겨지고, 햄버거 클릭 시 슬라이드 인.
         //   데스크톱으로 복귀 시 aside/main 원위치, 오버레이 제거.
         var drawerOpen = false;
+        // 데스크톱(>=MOBILE_BP) 접힘 상태 — localStorage 영속(탭/페이지 공유). 모바일은 drawerOpen 사용.
+        var deskCollapsed = localStorage.getItem('dspilot-nav-collapsed') === '1';
         var overlay = document.createElement('div');
         overlay.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:49;';
         document.body.appendChild(overlay);
+
+        function setMenuIcon(name, labelOpen) {
+            var ic = menuBtn.querySelector('.material-icons');
+            if (ic) ic.textContent = name;
+            menuBtn.setAttribute('aria-label', labelOpen ? '메뉴 열기' : '메뉴 닫기');
+        }
 
         function openDrawer() {
             drawerOpen = true;
             aside.style.left = '0';
             overlay.style.display = 'block';
-            var ic = menuBtn.querySelector('.material-icons');
-            if (ic) ic.textContent = 'close';
-            menuBtn.setAttribute('aria-label', '메뉴 닫기');
+            setMenuIcon('close', false);
         }
         function closeDrawer() {
             drawerOpen = false;
             aside.style.left = '-' + SHELL_W + 'px';
             overlay.style.display = 'none';
-            var ic = menuBtn.querySelector('.material-icons');
-            if (ic) ic.textContent = 'menu';
-            menuBtn.setAttribute('aria-label', '메뉴 열기');
+            setMenuIcon('menu', true);
         }
         overlay.addEventListener('click', closeDrawer);
         menuBtn.addEventListener('click', function (e) {
             e.stopPropagation();
-            if (drawerOpen) closeDrawer(); else openDrawer();
+            if (window.innerWidth < MOBILE_BP) {
+                // 모바일: 드로어 열기/닫기
+                if (drawerOpen) closeDrawer(); else openDrawer();
+            } else {
+                // 데스크톱: 사이드바 접기/펼치기(영속)
+                deskCollapsed = !deskCollapsed;
+                localStorage.setItem('dspilot-nav-collapsed', deskCollapsed ? '1' : '0');
+                applyLayout();
+            }
         });
 
+        var _layoutInit = false;
         function applyLayout() {
+            // 부드러운 전환(접힘/펼침 모두). 초기 1회는 깜빡임 방지를 위해 transition 비활성.
+            if (_layoutInit) {
+                aside.style.transition = 'left 0.22s ease';
+                main.style.transition = 'margin-left 0.22s ease';
+            } else {
+                aside.style.transition = '';
+                main.style.transition = '';
+                _layoutInit = true;
+            }
             if (window.innerWidth < MOBILE_BP) {
+                // 모바일: 드로어 모드. menuBtn = 햄버거.
                 menuBtn.style.display = '';
                 main.style.marginLeft = '0';
-                aside.style.transition = 'left 0.22s ease';
                 if (!drawerOpen) aside.style.left = '-' + SHELL_W + 'px';
+                else aside.style.left = '0';
+                setMenuIcon(drawerOpen ? 'close' : 'menu', !drawerOpen);
             } else {
-                menuBtn.style.display = 'none';
-                main.style.marginLeft = SHELL_W + 'px';
-                aside.style.left = '0';
-                aside.style.transition = '';
+                // 데스크톱: 접힘 토글. menuBtn = 접기/펼치기.
+                menuBtn.style.display = '';
                 overlay.style.display = 'none';
                 drawerOpen = false;
+                if (deskCollapsed) {
+                    aside.style.left = '-' + SHELL_W + 'px';
+                    main.style.marginLeft = '0';
+                    setMenuIcon('menu', true);
+                } else {
+                    aside.style.left = '0';
+                    main.style.marginLeft = SHELL_W + 'px';
+                    setMenuIcon('menu_open', false);
+                }
             }
         }
         window.addEventListener('resize', applyLayout);
