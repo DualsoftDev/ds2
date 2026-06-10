@@ -23,7 +23,7 @@ public sealed class PlcVendorProfile
     public string IpAddress { get; set; } = "192.168.0.10";
     public int Port { get; set; } = 2004;
     public int TimeoutMs { get; set; } = 3000;
-    public int ScanIntervalMs { get; set; } = 100;
+    public int ScanIntervalMs { get; set; } = PlcConnectionSettings.DefaultScanIntervalMs;
     public bool LocalEthernet { get; set; } = true;
     public byte NetworkNumber { get; set; } = 0;
     public byte StationNumber { get; set; } = 0xFF;
@@ -65,12 +65,15 @@ public sealed class PlcVendorProfile
 /// </summary>
 public sealed class PlcConnectionSettings
 {
+    public const int DefaultScanIntervalMs = 50;
+    private const int PreviousDefaultScanIntervalMs = 100;
+
     public string Vendor { get; set; } = nameof(PlcVendorChoice.LsXgi);
     public string Name { get; set; } = "PLC#1";
     public string IpAddress { get; set; } = "192.168.0.10";
     public int Port { get; set; } = 2004;
     public int TimeoutMs { get; set; } = 3000;
-    public int ScanIntervalMs { get; set; } = 100;
+    public int ScanIntervalMs { get; set; } = DefaultScanIntervalMs;
     public bool LocalEthernet { get; set; } = true;
     public byte NetworkNumber { get; set; } = 0;
     public byte StationNumber { get; set; } = 0xFF;
@@ -106,8 +109,23 @@ public sealed class PlcConnectionSettings
             data = new PlcConnectionSettings();
         }
         data.EnsureProfiles();
+        data.UpgradeDefaultScanIntervals();
         return data;
     }
+
+    private void UpgradeDefaultScanIntervals()
+    {
+        ScanIntervalMs = UpgradeDefaultScanInterval(ScanIntervalMs);
+
+        if (Profiles == null)
+            return;
+
+        foreach (var profile in Profiles.Values)
+            profile.ScanIntervalMs = UpgradeDefaultScanInterval(profile.ScanIntervalMs);
+    }
+
+    private static int UpgradeDefaultScanInterval(int value) =>
+        value == PreviousDefaultScanIntervalMs ? DefaultScanIntervalMs : value;
 
     /// <summary>모든 벤더 키에 프로파일이 존재하도록 보장. 활성 벤더 프로파일은 현재 플랫 필드와
     /// 동기화 (저장 시점의 현재값이 SSOT).</summary>

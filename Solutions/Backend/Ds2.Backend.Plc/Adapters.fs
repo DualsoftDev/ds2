@@ -1,6 +1,7 @@
 namespace Ds2.Backend.Plc
 
 open System
+open System.Collections.Generic
 open System.Threading.Tasks
 open Ev2.PLC.Common
 open Ev2.PLC.Protocol.LS
@@ -46,6 +47,76 @@ module PlcValueIo =
             let parsed = CoreDataTypesModule.PlcValue.TryParse(s, dataType)
             if parsed.IsSome then Some parsed.Value else None
 
+[<RequireQualifiedAccess>]
+module PlcBatchReadBuffer =
+    let private sizeOf (dataType: CoreDataTypesModule.PlcDataType) =
+        Math.Max(1, dataType.SizeInBytes)
+
+    let chunkTags maxChunkSize (tags: PlcTagDef list) =
+        if maxChunkSize <= 0 then
+            invalidArg (nameof maxChunkSize) "Batch chunk size must be positive."
+
+        tags |> List.chunkBySize maxChunkSize
+
+    let private splitAddressTail (address: string) =
+        let s = if isNull address then "" else address.Trim().ToUpperInvariant()
+        if s = "" then
+            "", Int32.MaxValue
+        else
+            let mutable index = s.Length - 1
+            while index >= 0 && Char.IsDigit(s[index]) do
+                index <- index - 1
+
+            if index = s.Length - 1 then
+                s, Int32.MaxValue
+            else
+                let prefix = s.Substring(0, index + 1)
+                let suffix = s.Substring(index + 1)
+                match Int32.TryParse(suffix) with
+                | true, value -> prefix, value
+                | _ -> prefix, Int32.MaxValue
+
+    let chunkTagsByAddressGroup maxChunkSize (tags: PlcTagDef list) =
+        if maxChunkSize <= 0 then
+            invalidArg (nameof maxChunkSize) "Batch chunk size must be positive."
+
+        tags
+        |> List.groupBy (fun tag -> splitAddressTail tag.PlcAddress |> fst)
+        |> List.sortBy fst
+        |> List.collect (fun (_, group) ->
+            group
+            |> List.sortBy (fun tag ->
+                let prefix, ordinal = splitAddressTail tag.PlcAddress
+                prefix, ordinal, tag.PlcAddress)
+            |> List.chunkBySize maxChunkSize)
+
+    let decode (tags: PlcTagDef list) (buffer: byte array) =
+        let tagArray = tags |> List.toArray
+        let sizes = tagArray |> Array.map (fun tag -> sizeOf tag.DataType)
+        let expected = sizes |> Array.sum
+
+        if buffer.Length < expected then
+            Error $"Batch read buffer too short: expected={expected}, actual={buffer.Length}"
+        else
+            let results = ResizeArray<struct (PlcTagDef * CoreDataTypesModule.PlcValue)>()
+            let mutable offset = 0
+            let mutable error = None
+            for i = 0 to tagArray.Length - 1 do
+                match error with
+                | Some _ -> ()
+                | None ->
+                    let size = sizes.[i]
+                    let bytes = Array.zeroCreate<byte> size
+                    Buffer.BlockCopy(buffer, offset, bytes, 0, size)
+                    offset <- offset + size
+                    match CoreDataTypesModule.PlcValue.FromBytes(bytes, tagArray.[i].DataType) with
+                    | Ok value -> results.Add(struct (tagArray.[i], value))
+                    | Error msg -> error <- Some (sprintf "%A" msg)
+
+            match error with
+            | Some msg -> Error msg
+            | None -> Ok (List.ofSeq results)
+
 /// 한 PLC 인스턴스에 대한 어댑터. 게이트웨이는 이 인터페이스만 본다.
 type IPlcConnectorAdapter =
     abstract member Name : string
@@ -53,11 +124,13 @@ type IPlcConnectorAdapter =
     abstract member DisconnectAsync : unit -> Task
     abstract member IsConnected : bool
     abstract member ReadTag : tag: PlcTagDef -> Result<CoreDataTypesModule.PlcValue, string>
+    abstract member ReadTags : tags: PlcTagDef list -> Result<struct (PlcTagDef * CoreDataTypesModule.PlcValue) list, string> option
     abstract member WriteTag : tag: PlcTagDef * value: CoreDataTypesModule.PlcValue -> Result<unit, string>
 
 [<RequireQualifiedAccess>]
 module LsAdapter =
     let private log = log4net.LogManager.GetLogger("LsAdapter")
+    let private maxReadBatchSize = 16
 
     let create (cfg: PlcConnectionConfig) : IPlcConnectorAdapter =
         let connector =
@@ -67,6 +140,41 @@ module LsAdapter =
                 cfg.TimeoutMs,
                 cfg.LocalEthernet)
         let mutable connected = false
+        let readTagsChunk (chunk: PlcTagDef list) =
+            try
+                let addresses = chunk |> List.map _.PlcAddress |> Array.ofList
+                let dataTypes = chunk |> List.map _.DataType |> Array.ofList
+                let bufferSize =
+                    dataTypes
+                    |> Array.sumBy (fun dataType -> Math.Max(1, dataType.SizeInBytes))
+                let buffer = Array.zeroCreate<byte> bufferSize
+
+                connector.Reads(addresses, dataTypes, buffer)
+                PlcBatchReadBuffer.decode chunk buffer
+            with ex ->
+                Error ex.Message
+
+        let readTagsBatch (tags: PlcTagDef list) =
+            let chunks = PlcBatchReadBuffer.chunkTagsByAddressGroup maxReadBatchSize tags
+            let values = ResizeArray<struct (PlcTagDef * CoreDataTypesModule.PlcValue)>()
+            let mutable error = None
+
+            chunks
+            |> List.iteri (fun index chunk ->
+                match error with
+                | Some _ -> ()
+                | None ->
+                    match readTagsChunk chunk with
+                    | Ok chunkValues ->
+                        for value in chunkValues do
+                            values.Add value
+                    | Error msg ->
+                        error <- Some $"chunk={index + 1}/{chunks.Length} count={chunk.Length}: {msg}")
+
+            match error with
+            | Some msg -> Error msg
+            | None -> Ok (List.ofSeq values)
+
         { new IPlcConnectorAdapter with
             member _.Name = cfg.Name
             member _.IsConnected = connected
@@ -95,6 +203,8 @@ module LsAdapter =
                     | Ok v -> Ok v
                     | Error e -> Error (sprintf "%A" e)
                 with ex -> Error ex.Message
+            member _.ReadTags tags =
+                Some (readTagsBatch tags)
             member _.WriteTag (tag, value) =
                 try
                     if connector.WriteTag(tag.PlcAddress, tag.DataType, value) then Ok ()
@@ -184,6 +294,8 @@ module MxAdapter =
                     | Ok v -> Ok v
                     | Error e -> Error (sprintf "%A" e)
                 with ex -> Error ex.Message
+            member _.ReadTags _ =
+                None
             member _.WriteTag (tag, value) =
                 try
                     let r = connector.WriteTag(tag.PlcAddress, value)
