@@ -2,6 +2,12 @@ module Ds2.Store.Editor.Tests.AbnormalDetectorTests
 
 open System
 open System.Collections.Generic
+open System.Threading
+open System.Threading.Tasks
+open Microsoft.AspNetCore.SignalR
+open Ds2.Backend
+open Ds2.Backend.Common
+open Ds2.Backend.Runtime
 open Xunit
 open Ds2.Core
 open Ds2.Core.Store
@@ -11,6 +17,47 @@ open Ds2.Runtime.IO
 open Ds2.Runtime.Engine
 open Ds2.Runtime.Engine.Core
 open Ds2.Runtime.Engine.Abnormal
+
+type private NullClientProxy() =
+    interface IClientProxy with
+        member _.SendCoreAsync(_, _, _) = Task.CompletedTask
+
+type private NullSingleClientProxy() =
+    interface ISingleClientProxy with
+        member _.InvokeCoreAsync<'T>(_, _, _) = Task.FromResult(Unchecked.defaultof<'T>)
+
+    interface IClientProxy with
+        member _.SendCoreAsync(_, _, _) = Task.CompletedTask
+
+type private NullHubClients(proxy: IClientProxy, single: ISingleClientProxy) =
+    interface IHubClients<IClientProxy> with
+        member _.All = proxy
+        member _.AllExcept _ = proxy
+        member _.Client _ = proxy
+        member _.Clients _ = proxy
+        member _.Group _ = proxy
+        member _.GroupExcept(_, _) = proxy
+        member _.Groups _ = proxy
+        member _.User _ = proxy
+        member _.Users _ = proxy
+
+    interface IHubClients with
+        member _.Client _ = single
+
+type private NullGroupManager() =
+    interface IGroupManager with
+        member _.AddToGroupAsync(_, _, _: CancellationToken) = Task.CompletedTask
+        member _.RemoveFromGroupAsync(_, _, _: CancellationToken) = Task.CompletedTask
+
+type private NullSignalHubContext() =
+    let proxy = NullClientProxy() :> IClientProxy
+    let single = NullSingleClientProxy() :> ISingleClientProxy
+    let clients = NullHubClients(proxy, single) :> IHubClients
+    let groups = NullGroupManager() :> IGroupManager
+
+    interface IHubContext<SignalHub> with
+        member _.Clients = clients
+        member _.Groups = groups
 
 // v12 §P3a ??Control/Monitoring 공통 abnormal detector ?�산 검�?
 // ?�용 계획: samples/Abnormal-v12-Apply-Plan.md §6 P3a.
@@ -634,3 +681,45 @@ module DeviceControlCycleTests =
         engine.AdvanceSimulationTo(1151L)
 
         Assert.Empty(emitted)
+
+    [<Fact>]
+    let ``Monitoring batch finishes call when output falls before input rises in same PLC scan`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        let deviceSystem = addSystem store "Device" project.Id false
+        let deviceFlow = addFlow store "DeviceFlow" deviceSystem.Id
+        let deviceWork = addWork store "RET" deviceFlow.Id
+        deviceWork.Duration <- Some(TimeSpan.FromMilliseconds 100.0)
+        deviceWork.MinDuration <- Some(TimeSpan.FromMilliseconds 50.0)
+        deviceWork.MaxDuration <- Some(TimeSpan.FromMilliseconds 3000.0)
+        let apiDef = addApiDef store "RET" deviceSystem.Id
+        apiDef.TxGuid <- Some deviceWork.Id
+        apiDef.RxGuid <- Some deviceWork.Id
+        apiDef.ActionType <- ActionType.Real(Level, None)
+        apiDef.SensingType <- SensingType.Real(Level, None)
+        store.AddCallWithLinkedApiDefs(work.Id, "Device", "RET", [ apiDef.Id ]) |> ignore
+        let call = Queries.callsOf work.Id store |> List.head
+        let apiCall = call.ApiCalls |> Seq.head
+        apiCall.OutTag <- Some(IOTag("OUT", "%QX0.1.13", ""))
+        apiCall.InTag <- Some(IOTag("IN", "%IX0.0.13", ""))
+        let index = SimIndex.build store 10
+        use engine = (new EventDrivenEngine(index, RuntimeMode.Monitoring)) :> ISimulationEngine
+        let identity =
+            { SessionId = "test-session"
+              ModelHash = "test-model"
+              Generation = 1
+              Mode = "Monitoring" }
+        let session = EventDrivenEngineRuntimeHubSession(engine, NullSignalHubContext(), identity)
+        let command : RuntimeIOAddressBatchCommand =
+            { Envelope = RuntimeHubDefaults.selfEnvelope identity
+              Items =
+                [| { Address = "%QX0.1.13"; Value = "true"; Source = HubSource.Plc }
+                   { Address = "%QX0.1.13"; Value = "false"; Source = HubSource.Plc }
+                   { Address = "%IX0.0.13"; Value = "true"; Source = HubSource.Plc } |] }
+
+        (session :> IRuntimeHubSession)
+            .InjectIOValuesByAddressAsync(command)
+            .GetAwaiter()
+            .GetResult()
+
+        Assert.Equal(Some Status4.Finish, engine.GetCallState(call.Id))

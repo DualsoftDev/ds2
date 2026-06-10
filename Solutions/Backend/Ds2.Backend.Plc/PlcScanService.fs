@@ -1,6 +1,7 @@
 namespace Ds2.Backend.Plc
 
 open System
+open System.Diagnostics
 open System.Threading
 open System.Threading.Tasks
 open Microsoft.Extensions.Hosting
@@ -90,7 +91,7 @@ type PlcScanService(gateway: IPlcGateway, broadcaster: IPlcHubBroadcaster) =
                 log.Info($"PLC scan loop entering (interval={interval.TotalMilliseconds}ms)")
 
                 while not stoppingToken.IsCancellationRequested do
-                    let scanStartedAt = DateTime.UtcNow
+                    let scanStartedAt = Stopwatch.GetTimestamp()
                     try
                         let! changes = gateway.ScanOnceAsync(stoppingToken)
                         try
@@ -101,7 +102,8 @@ type PlcScanService(gateway: IPlcGateway, broadcaster: IPlcHubBroadcaster) =
                     | :? OperationCanceledException -> ()
                     | ex -> log.Error($"Scan iteration threw: {ex.Message}")
 
-                    let remaining = interval - (DateTime.UtcNow - scanStartedAt)
+                    let elapsed = Stopwatch.GetElapsedTime(scanStartedAt)
+                    let remaining = interval - elapsed
                     if remaining > TimeSpan.Zero && not stoppingToken.IsCancellationRequested then
                         try do! Task.Delay(remaining, stoppingToken)
                         with :? OperationCanceledException -> ()
