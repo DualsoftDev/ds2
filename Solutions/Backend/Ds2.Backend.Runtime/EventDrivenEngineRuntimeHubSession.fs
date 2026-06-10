@@ -193,22 +193,29 @@ type EventDrivenEngineRuntimeHubSession
         Func<Guid, Status4>(fun g -> match engine.GetWorkState(g) with Some s -> s | None -> Status4.Ready)
     let getCallStateSafe =
         Func<Guid, Status4>(fun g -> match engine.GetCallState(g) with Some s -> s | None -> Status4.Ready)
+    let drainCurrentTick () =
+        engine.AdvanceSimulationTo(engine.CurrentTimeMs)
     let isMappedDeviceWork workGuid =
         (engine.IOMap.TxWorkToOutAddresses |> Map.containsKey workGuid)
         || (engine.IOMap.RxWorkToInAddresses |> Map.containsKey workGuid)
     let observeAndInfer (address: string) (value: string) =
         match passiveInference with
         | Some pi ->
+            let mutable scheduledStateChange = false
             for action in pi.Observe(address, value, getWorkStateSafe, getCallStateSafe) do
                 match action.TargetKind with
                 | PassiveInferenceTarget.Work ->
                     if not (isMappedDeviceWork action.TargetGuid)
                        && getWorkStateSafe.Invoke(action.TargetGuid) <> action.State then
                         engine.ForceWorkState(action.TargetGuid, action.State)
+                        scheduledStateChange <- true
                 | PassiveInferenceTarget.Call ->
                     if getCallStateSafe.Invoke(action.TargetGuid) <> action.State then
                         engine.ForceCallState(action.TargetGuid, action.State)
+                        scheduledStateChange <- true
                 | _ -> ()
+            if scheduledStateChange then
+                drainCurrentTick ()
             for entry in pi.DrainLogs() do
                 match entry.Kind with
                 | PassiveInferenceLogKind.Warn -> passiveLog.Warn(entry.Message)
@@ -227,13 +234,19 @@ type EventDrivenEngineRuntimeHubSession
         match effect.Kind with
         | RuntimeHubEffectKind.InjectIoByAddress ->
             engine.InjectIOValueByAddress(effect.Address, effect.Value) |> ignore
-            engine.AdvanceSimulationTo(engine.CurrentTimeMs)
+            drainCurrentTick ()
         | RuntimeHubEffectKind.ForceWorkState ->
-            if effect.WorkGuid <> Guid.Empty then engine.ForceWorkState(effect.WorkGuid, effect.State)
+            if effect.WorkGuid <> Guid.Empty then
+                engine.ForceWorkState(effect.WorkGuid, effect.State)
+                drainCurrentTick ()
         | RuntimeHubEffectKind.ForceWorkStateIfGoing ->
-            if effect.WorkGuid <> Guid.Empty then engine.TryForceWorkStateIfGoing(effect.WorkGuid, effect.State)
+            if effect.WorkGuid <> Guid.Empty then
+                engine.TryForceWorkStateIfGoing(effect.WorkGuid, effect.State)
+                drainCurrentTick ()
         | RuntimeHubEffectKind.ForceWorkStateIfReady ->
-            if effect.WorkGuid <> Guid.Empty then engine.TryForceWorkStateIfReady(effect.WorkGuid, effect.State)
+            if effect.WorkGuid <> Guid.Empty then
+                engine.TryForceWorkStateIfReady(effect.WorkGuid, effect.State)
+                drainCurrentTick ()
         | RuntimeHubEffectKind.PassiveObserve -> observeAndInfer effect.Address effect.Value
         | RuntimeHubEffectKind.PassiveBaseline ->
             match passiveInference with
