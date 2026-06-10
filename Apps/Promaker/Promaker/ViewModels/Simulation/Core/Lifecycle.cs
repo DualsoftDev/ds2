@@ -33,8 +33,9 @@ public partial class SimulationPanelState
             activeEngine.TimeIgnore = false;
             activeEngine.SpeedMultiplier = value;
         }
-        // Speed 변경 시점부터 새 속도로 보간하도록 base 재설정 — 그 전 wall 경과 × 옛 speed 누적이 잘못 더해지는 점프 방지.
-        _clockInterpolator.ResetBase();
+        // #198: 여기서 ResetBase() 하면 표시가 직전 이벤트의 엔진 clock 으로 되돌아가(뒤로 점프),
+        // 속도 변경 시마다 값이 늘었다 줄었다 했다. 보간 연속성은 EstimateNow 가 '직전 속도로 적립' 방식으로
+        // 직접 처리하므로(과거 구간 재계산/되감기 없음) 여기서는 base 를 건드리지 않는다.
     }
 
     partial void OnSimTimeIgnoreChanged(bool value)
