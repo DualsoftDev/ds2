@@ -10,10 +10,11 @@
       DSPilot 정적 호스팅 — DS Pilot 리디자인 (P5 가동시간·이상 통합).
       서버/모델 = C#(/api/oee/*, /api/user-tags/*), 뷰 = 정적 HTML/CSS/JS(Alpine + SignalR).
       디자인 시스템: /css/ds.css (mockup 네이비/청록).
-      정직성 원칙(doc/21 §10): OEE/가용성/성능/품질/MTBF/MTTR 는 신규 /api/oee/summary 가
-        실제로 산출 가능한 값만 표시한다. 산출 불가 지표(planned 시간·idealCT·reject 미확보)는
-        '—' + *Note 사유로 정직 표기(가짜 % 금지). 정지원인 도넛은 분류된 것만.
-        "이상발생(UserTag)" 패널/도넛/SignalR/기간 토글은 기존 실데이터 동작 그대로 보존.
+      정직성 원칙(doc/21 §10, §12 개정): OEE/가용성/성능/품질/MTBF/MTTR 는 /api/oee/summary 가
+        실제로 산출 가능한 값만 표시한다. 산출 불가 지표는 '—' + *Note 사유로 정직 표기(가짜 % 금지).
+        §12 자동 OEE: idealCT 는 클린사이클 실측(p10)으로 자동 기입(출처 '자동' 칩), 품질은 불량 미입력 시
+        100% 가정을 값으로 제공하되 qualitySource='assumed' 로 명시('가정' 칩 + 톤 중립) — 불량 입력 시 실측 전환.
+        정지원인 도넛은 분류된 것만. "이상발생(UserTag)" 패널/도넛/SignalR/기간 토글은 기존 실데이터 동작 그대로 보존.
     -->
     <link href="/css/fonts.css" rel="stylesheet" />
     <link href="/css/ds.css" rel="stylesheet" />
@@ -45,6 +46,8 @@
         .up-oee.is-na .up-oee-value { color: var(--color-text-disabled); }
         .up-oee .up-oee-note { margin-top: 5px; font-size: 0.62rem; color: var(--color-text-secondary); line-height: 1.35; }
         .up-oee.is-na .up-oee-note { color: var(--color-text-disabled); }
+        /* 가정값/자동값 표식 칩 — 실측과 시각적으로 구분(정직성), 점선 보더로 "확정 아님" 뉘앙스 */
+        .up-oee-chip, .up-auto-chip { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; font-size: 0.56rem; font-weight: 700; letter-spacing: 0.04em; line-height: 1.5; vertical-align: 1px; color: var(--color-text-secondary); background: var(--color-surface-variant); border: 1px dashed var(--color-lines-strong); text-transform: none; }
 
         /* 이상발생 ops KPI */
         .up-ops-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
@@ -215,7 +218,7 @@
                         <div class="up-oee" :class="oeeTone('oee')">
                             <div class="up-oee-label">OEE 종합</div>
                             <div class="up-oee-value" x-text="oee ? pct(oee.oee) : '—'"></div>
-                            <div class="up-oee-note" x-text="oee ? (oee.oee != null ? 'A × P × Q' : (oee.oeeNote || '산출 불가')) : '불러오는 중…'"></div>
+                            <div class="up-oee-note" x-text="oee ? (oee.oee != null ? ('A × P × Q' + (oee.qualitySource === 'assumed' ? ' · 품질 100% 가정' : '')) : (oee.oeeNote || '산출 불가')) : '불러오는 중…'"></div>
                         </div>
                         <!-- 가용성 -->
                         <div class="up-oee" :class="oeeTone('availability')">
@@ -231,9 +234,9 @@
                         </div>
                         <!-- 품질 -->
                         <div class="up-oee" :class="oeeTone('quality')">
-                            <div class="up-oee-label">품질 Quality</div>
+                            <div class="up-oee-label">품질 Quality<span class="up-oee-chip" x-show="oee && oee.qualitySource === 'assumed'">가정</span></div>
                             <div class="up-oee-value" x-text="oee ? pct(oee.quality) : '—'"></div>
-                            <div class="up-oee-note" x-text="oee ? (oee.quality != null ? ('양품 ' + (oee.goodCount ?? 0) + ' / 총 ' + (oee.totalCount ?? 0)) : (oee.qualityNote || '산출 불가')) : ''"></div>
+                            <div class="up-oee-note" x-text="oee ? (oee.quality != null ? (oee.qualitySource === 'assumed' ? '불량 미입력 — 100% 가정 · 불량 입력 시 실측' : ('양품 ' + (oee.goodCount ?? 0) + ' / 총 ' + (oee.totalCount ?? 0))) : (oee.qualityNote || '산출 불가')) : ''"></div>
                         </div>
                         <!-- MTBF -->
                         <div class="up-oee" :class="oee && oee.mtbf != null ? '' : 'is-na'">
@@ -476,7 +479,7 @@
                                 <span class="up-form-ok" x-show="prodForm.msg" x-text="prodForm.msg"></span>
                                 <span class="up-form-err" x-show="prodForm.err" x-text="prodForm.err"></span>
                             </div>
-                            <div class="up-form-hint">총량(total)은 해당 일자 dspFlowHistory 사이클 수로 자동 산출되고, 양품 = 총량 − 불량. 불량만 입력합니다.</div>
+                            <div class="up-form-hint">총량(total)은 해당 일자 dspFlowHistory 사이클 수로 자동 산출되고, 양품 = 총량 − 불량. 불량만 입력합니다. 미입력 기간의 품질은 100% 가정으로 표시되며, 과거 날짜로 입력하면 해당 기간 OEE 가 재조회 시 즉시 소급 보정됩니다.</div>
                         </div>
                     </section>
 
@@ -518,8 +521,9 @@
                                     <template x-for="row in ctTable" :key="row.flowName">
                                         <tr>
                                             <td><strong x-text="row.flowName"></strong></td>
-                                            <td class="num" :class="row.idealCycleTimeMs ? '' : 'unset'"
-                                                x-text="row.idealCycleTimeMs ? durShort(row.idealCycleTimeMs) : '미설정'"></td>
+                                            <td class="num" :class="row.idealCycleTimeMs ? '' : 'unset'">
+                                                <span x-text="row.idealCycleTimeMs ? durShort(row.idealCycleTimeMs) : '미설정'"></span><span class="up-auto-chip" x-show="row.source === 'auto'" title="클린사이클 실측(p10)으로 자동 기입된 값 — 직접 저장하면 수동값이 됩니다">자동</span>
+                                            </td>
                                             <td>
                                                 <template x-if="row.sampleCount > 0">
                                                     <span class="up-rank-sub" x-text="'n=' + row.sampleCount + ' · min ' + durShort(row.minCt) + ' · 중앙 ' + durShort(row.medianCt) + ' · 평균 ' + durShort(row.avgCt)"></span>
@@ -560,7 +564,8 @@
 
                     <div class="up-form-hint" style="margin-top:10px;">
                         엔지니어 입력값(없거나 0 이면 해제). 추천값은 <b>이상치 제외 사이클의 하위 10%(p10) = 최속 반복가능 CT</b> 로, 평균이 아닌 best-demonstrated 기준입니다 — 평균을 넣으면 성능이 자기 자신과 비교되어 무의미해집니다.
-                        표준CT 가 있어야 해당 Flow 의 성능이 산출됩니다. <span class="up-codeish">상단 'OEE 종합'의 성능은 라인 전체(합산)라 per-flow idealCT 가 반영되지 않습니다 — 설비별 순위에서 확인하세요.</span>
+                        <b>비어 있는 Flow 는 클린사이클이 충분히(기본 30개) 모이면 추천값이 자동 기입됩니다</b>(<span class="up-codeish">자동</span> 표식). 직접 저장하면 수동값이 되어 자동이 덮지 않고, 해제(비움)하면 다음 주기에 다시 자동 기입됩니다.
+                        <span class="up-codeish">상단 'OEE 종합'의 성능은 라인 전체(합산)라 per-flow idealCT 가 반영되지 않습니다 — 설비별 순위에서 확인하세요.</span>
                     </div>
                 </section>
                 <datalist id="up-flow-list">
@@ -1287,11 +1292,13 @@
                     const p = (x) => String(x).padStart(2, '0');
                     return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
                 },
-                // null 지표는 'is-na'(흐림), 산출되면 값에 따라 good/warn/bad 톤
+                // null 지표는 'is-na'(흐림), 산출되면 값에 따라 good/warn/bad 톤.
+                // 품질 가정값(qualitySource='assumed')은 톤 미적용(중립) — 실측처럼 초록으로 보이지 않게.
                 oeeTone(key) {
                     if (!this.oee) return 'is-na';
                     const v = this.oee[key];
                     if (v == null) return 'is-na';
+                    if (key === 'quality' && this.oee.qualitySource === 'assumed') return '';
                     if (v >= 0.85) return 'is-good';
                     if (v >= 0.60) return 'is-warn';
                     return 'is-bad';

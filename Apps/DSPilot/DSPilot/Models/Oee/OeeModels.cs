@@ -111,9 +111,10 @@ public sealed class OeeShiftException
 // ─────────────────────────────────────────────────────────────────────────
 
 /// <summary>
-/// OEE 6지표 + 구성요소. 산출 불가 항목은 null + 사유(*Note) 정직 표기 (doc/21 §10).
-/// availability = 달력근사(Phase1), performance = idealCT 기반(미설정 시 null),
-/// quality = good/total(reject 입력 시), mtbf/mttr = isFailure 이벤트 기반.
+/// OEE 6지표 + 구성요소. 산출 불가 항목은 null + 사유(*Note) 정직 표기 (doc/21 §10, §12 개정).
+/// availability = 달력근사(Phase1), performance = idealCT 기반(수동 입력 또는 실측 자동기입),
+/// quality = (사이클수 − 입력불량) / 사이클수 — 불량 미입력이면 불량 0 으로 보아 100% 가정
+/// (QualitySource="assumed" 로 명시), mtbf/mttr = isFailure 이벤트 기반.
 /// </summary>
 public sealed record OeeSummaryDto(
     string? FlowName,                 // null = 전체(라인 합산)
@@ -123,16 +124,18 @@ public sealed record OeeSummaryDto(
     long DowntimeMs,                  // 기간 내 정지 합(ms)
     int DowntimeCount,                // 기간 내 정지 건수
     int? TotalCount,                  // dspFlowHistory row count (자동)
-    int? RejectCount,                 // 수동 입력 합 (없으면 null)
-    int? GoodCount,                   // total - reject (둘 다 있을 때)
+    int? RejectCount,                 // 입력 불량 합 (미입력 = 0 가정)
+    int? GoodCount,                   // total - reject
     int? IdealCycleTimeMs,            // FlowCycleOverride.IdealCycleTimeMs
+    string? IdealCycleTimeSource,     // "auto" = 실측 자동기입 / null = 수동(또는 미설정)
 
     double? Availability,             // 1 - downtime/period (달력근사)
     string? AvailabilityNote,         // 산출 방식/한계 사유
     double? Performance,              // (idealCT*total)/runtime, min(1.0). idealCT 없으면 null
     string? PerformanceNote,
-    double? Quality,                  // good/total. reject 미입력 시 null
+    double? Quality,                  // (total-reject)/total. 사이클 0 이면 null
     string? QualityNote,
+    string? QualitySource,            // "measured"(불량 데이터 있음) / "assumed"(불량 0 가정) / null(산출 불가)
     double? Oee,                      // A*P*Q. 한 요소라도 null 이면 null
     string? OeeNote,
 

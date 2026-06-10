@@ -2,8 +2,10 @@
   gitlab-issues.ps1  ( /fix skill )
   GitLab issue 를 조회해 처리 대상만 JSON 으로 stdout 출력한다.
 
-  - 기본(전체 스캔): open issue 중 이미 처리된 iid 와 assignee 가 할당된 issue 를 제외한 신규만.
-  - 특정 지정(-Iids): 지정한 iid 만 반환(assignee·처리 이력 무관, 강제).
+  - 기본(전체 스캔): open issue 중 이미 처리된 iid / assignee 할당 / ExcludeLabels(기본
+    'Human,SkippedByLLM') label 이 붙은 issue 를 제외한 신규만. merged 이력 issue 가 다시 open
+    으로 보이면(= close 후 reopen) 재픽업하되 reopen 사유 파악을 위해 notes 를 항상 포함한다.
+  - 특정 지정(-Iids): 지정한 iid 만 반환(assignee·처리 이력·label 무관, 강제).
 
   RepoRoot: 비우면 git common-dir(.bare) 의 부모로 자동 도출 (경로 하드코딩 없음).
   PAT 우선순위: env GITLAB_TOKEN -> file <RepoRoot>/.pat -> 없으면 exit 2.
@@ -25,6 +27,9 @@ param(
   [string]$RepoRoot    = "",
   [string]$PatFile     = "",
   [string]$GitLabBase  = "http://dualsoft.co.kr:8081/api/v4",
+  [string]$ExcludeLabels = "Human,SkippedByLLM",   # 콤마 구분(공백 포함 label 가능). 기본 모드에서 제외:
+                                      # Human=사람 전담, SkippedByLLM=unsolvable 보고됨(state 유실 시 중복 comment 2차 방어).
+                                      # 비활성: 공백 " " 전달 (powershell -File 은 빈 문자열 인자를 소실시킴)
   [switch]$IncludeNotes
 )
 $ErrorActionPreference = "Stop"
@@ -52,9 +57,11 @@ if (-not $ProjectPath) {
 }
 $skip = @("resolved","unsolvable","needs_review")
 $done = @{}
+$mergedIids = @{}   # merged 이력 — open 으로 다시 보이면 reopen 된 것: 재픽업 대상이되 notes 필수
 if ($state -and $state.issues) {
   foreach ($p in $state.issues.PSObject.Properties) {
-    if ($skip -contains $p.Value.status) { $done[[int]$p.Name] = $true }
+    if ($skip -contains $p.Value.status)  { $done[[int]$p.Name] = $true }
+    if ($p.Value.status -eq "merged")     { $mergedIids[[int]$p.Name] = $true }
   }
 }
 
@@ -153,19 +160,23 @@ if ($targets.Count -gt 0) {
   $all  = Get-Issues -Query $q
   $sel  = @($all) | Sort-Object { [int]$_.iid }
 } else {
-  # 기본: open 전체 중 처리이력 + assignee 할당 제외
+  # 기본: open 전체 중 처리이력 + assignee 할당 + 제외 label(기본 Human,SkippedByLLM) 제외
   $mode = "all"
+  # 콤마 전용 split + Trim: 공백 포함 label(예: 'Needs Triage') 지정 가능, " " 비활성 트릭 유지
+  $exclude = @($ExcludeLabels -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
   $all  = Get-Issues -Query "state=opened"
   $sel  = @($all) |
     Where-Object { -not $done.ContainsKey([int]$_.iid) } |
     Where-Object { @($_.assignees | Where-Object { $_ }).Count -eq 0 } |
+    Where-Object { -not (@($_.labels) | Where-Object { $exclude -contains $_ }) } |
     Sort-Object { [int]$_.iid }
 }
 
 # notes 포함 조건: 특정 모드는 항상 / 전체 모드는 -IncludeNotes 또는 본문 빈 issue (정보 누락 방지)
+#                 / merged 이력 issue (= close 후 reopen — 본문이 있어도 reopen 사유는 notes 에 있다)
 $out = @($sel) | ForEach-Object {
   $desc      = $_.description
-  $wantNotes = ($mode -eq "specific") -or $IncludeNotes -or [string]::IsNullOrWhiteSpace($desc)
+  $wantNotes = ($mode -eq "specific") -or $IncludeNotes -or [string]::IsNullOrWhiteSpace($desc) -or $mergedIids.ContainsKey([int]$_.iid)
   $notesOut  = @()
   if ($wantNotes) {
     $rawNotes = Get-Notes -Iid ([int]$_.iid)   # Get-Issues 와 동일하게 변수로 받아 ,$acc 언랩

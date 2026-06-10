@@ -18,7 +18,9 @@
 
       활용 데이터: Flow 사이클(생산수·CT), call 태그 표준CT(추천 p10), 이상치 필터(전역 HistoryView + 개별 CycleExclusion),
         시프트 설정(PPT 분모), 시프트 예외(계획정지), ds에러·UserTag(정지원인 자동수집·이상 신호).
-      정직성 원칙(doc/21 §10): 산출 불가 지표는 '—' + 사유(*Note)로 정직 표기 — 가짜 % 금지.
+      정직성 원칙(doc/21 §10, §12 개정): 산출 불가 지표는 '—' + 사유(*Note)로 정직 표기 — 가짜 % 금지.
+        §12 자동 OEE: idealCT 는 클린사이클 실측(p10) 자동 기입('자동' 칩), 품질은 불량 미입력 시 100% 가정을
+        값으로 제공하되 qualitySource='assumed' 명시(톤 중립, '가정' 라벨) — 불량 입력 시 실측 전환·소급 반영.
 
       Chart.js 미사용: 모든 시각화는 인라인 SVG/CSS (Alpine 반응형 Chart.js update 폭주 함정 회피).
     -->
@@ -133,6 +135,8 @@
         .oee-field input, .oee-field select { padding: 6px 9px; font-size: 0.82rem; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-primary); }
         .oee-form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 9px; align-items: end; }
         .oee-hint { font-size: 0.66rem; color: var(--color-text-secondary); line-height: 1.4; margin-top: 8px; }
+        /* 자동 기입 표식 칩 — 점선 보더로 "확정(수동) 아님" 뉘앙스 (uptime .up-auto-chip 과 동일 컨셉) */
+        .oee-auto-chip { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; font-size: 0.56rem; font-weight: 700; letter-spacing: 0.04em; line-height: 1.5; vertical-align: 1px; color: var(--color-text-secondary); background: var(--color-surface-variant); border: 1px dashed var(--color-lines-strong); }
         .oee-ok { font-size: 0.72rem; font-weight: 700; color: var(--green); }
         .oee-err { font-size: 0.72rem; font-weight: 700; color: var(--red); }
         .oee-codeish { font-family: var(--font-mono); font-size: 0.72rem; background: color-mix(in srgb, var(--color-text-primary) 6%, transparent); padding: 1px 6px; border-radius: var(--radius-sm); }
@@ -227,10 +231,10 @@
                                 </div>
                                 <!-- 품질 -->
                                 <div class="oee-apq-cell" :class="apqTone('quality', 0.99)">
-                                    <div class="oee-apq-label"><span>품질 Q</span><span class="tgt">목표 99%</span></div>
+                                    <div class="oee-apq-label"><span>품질 Q</span><span class="tgt" x-text="line && line.qualitySource === 'assumed' ? '가정' : '목표 99%'"></span></div>
                                     <div class="oee-apq-value" x-text="line ? pct(line.quality) : '—'"></div>
                                     <div class="oee-bar"><div class="oee-bar-fill" :style="barStyle(line && line.quality, 'quality', 0.99)"></div></div>
-                                    <div class="oee-apq-note" x-text="line ? (line.quality != null ? ('양품 ' + (line.goodCount ?? 0) + ' / 총 ' + (line.totalCount ?? 0)) : (line.qualityNote || '산출 불가')) : ''"></div>
+                                    <div class="oee-apq-note" x-text="line ? (line.quality != null ? (line.qualitySource === 'assumed' ? '불량 미입력 — 100% 가정 · 불량 입력 시 실측' : ('양품 ' + (line.goodCount ?? 0) + ' / 총 ' + (line.totalCount ?? 0))) : (line.qualityNote || '산출 불가')) : ''"></div>
                                 </div>
                             </div>
 
@@ -669,7 +673,9 @@
                                     <template x-for="row in ctTable" :key="row.flowName">
                                         <tr>
                                             <td><strong x-text="row.flowName"></strong></td>
-                                            <td class="num" :class="row.idealCycleTimeMs ? '' : 'unset'" x-text="row.idealCycleTimeMs ? (row.idealCycleTimeMs + 'ms') : '미설정'"></td>
+                                            <td class="num" :class="row.idealCycleTimeMs ? '' : 'unset'">
+                                                <span x-text="row.idealCycleTimeMs ? (row.idealCycleTimeMs + 'ms') : '미설정'"></span><span class="oee-auto-chip" x-show="row.source === 'auto'" title="클린사이클 실측(p10)으로 자동 기입된 값 — 직접 저장하면 수동값이 됩니다">자동</span>
+                                            </td>
                                             <td>
                                                 <template x-if="row.sampleCount > 0"><span class="oee-flow-sub" x-text="'n=' + row.sampleCount + ' · min ' + row.minCt + ' · 중앙 ' + row.medianCt + ' · 평균 ' + row.avgCt + 'ms'"></span></template>
                                                 <template x-if="row.sampleCount === 0"><span class="oee-flow-sub">데이터 없음</span></template>
@@ -691,7 +697,8 @@
                             <div class="ds-empty-title">표시할 Flow 없음</div>
                         </div>
                     </template>
-                    <div class="oee-hint">표준CT 가 있어야 해당 Flow 의 성능이 산출됩니다. 추천값은 best-demonstrated(p10)이며 평균을 넣으면 성능이 자기 자신과 비교되어 무의미해집니다.</div>
+                    <div class="oee-hint">표준CT 가 있어야 해당 Flow 의 성능이 산출됩니다. 추천값은 best-demonstrated(p10)이며 평균을 넣으면 성능이 자기 자신과 비교되어 무의미해집니다.
+                        비어 있는 Flow 는 클린사이클이 충분히(기본 30개) 모이면 추천값이 자동 기입됩니다('자동' 표식) — 직접 저장하면 수동값이 되어 자동이 덮지 않고, 해제(비움)하면 다음 주기에 다시 자동 기입됩니다.</div>
                 </section>
 
                 <!-- ════ AI 인사이트 ════ -->
@@ -982,7 +989,9 @@
                 ctRowOf(name) { return this.ctTable.find(r => r.flowName === name); },
                 ctInfo(name) {
                     const r = this.ctRowOf(name);
-                    const ideal = r && r.idealCycleTimeMs ? r.idealCycleTimeMs + 'ms' : '미설정';
+                    const ideal = r && r.idealCycleTimeMs
+                        ? r.idealCycleTimeMs + 'ms' + (r.source === 'auto' ? '(자동)' : '')
+                        : '미설정';
                     const rec = r && r.recommendedMs ? r.recommendedMs + 'ms' : '—';
                     return ideal + ' / ' + rec;
                 },
@@ -1220,13 +1229,19 @@
                 apqTone(metric, tgt) {
                     const v = this.line ? this.line[metric] : null;
                     if (v == null) return 'is-na';
+                    // 품질 가정값(불량 미입력 → 100%)은 실측처럼 '목표 달성(초록)' 으로 보이지 않게 중립 톤.
+                    if (metric === 'quality' && this.line.qualitySource === 'assumed') return '';
                     if (v >= tgt) return 'is-good';
                     if (v >= tgt * 0.75) return 'is-warn';
                     return 'is-bad';
                 },
                 barStyle(v, metric, tgt) {
                     if (v == null) return 'width:0;';
-                    return `width:${Math.max(2, v * 100)}%;background:${this.toneColor(v, tgt)};`;
+                    // 품질 가정값은 게이지 바도 중립(회색) — apqTone 과 동일 원칙.
+                    const color = (metric === 'quality' && this.line && this.line.qualitySource === 'assumed')
+                        ? 'var(--color-lines-strong)'
+                        : this.toneColor(v, tgt);
+                    return `width:${Math.max(2, v * 100)}%;background:${color};`;
                 },
                 reasonLabel(code) { if (!code) return '미분류'; const d = REASON_DEFS.find(r => r.code === code); return d ? d.label : code; },
                 srcLabel(s) { return s === 'nocycle' ? '무사이클' : s === 'usertag' ? 'UserTag' : s === 'manual' ? '수동' : s; },

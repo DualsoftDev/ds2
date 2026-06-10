@@ -450,9 +450,9 @@
                                     </div>
 
                                     <div class="form-group" style="margin-bottom:0;">
-                                        <label class="form-label">최대값 보정율 (Max)</label>
-                                        <input type="number" class="form-field mono" x-model.number="s.autoCalibration.marginMaxPct" min="0" max="1" step="0.01" placeholder="0.05" />
-                                        <small class="settings-hint">Max = 실측 최대 × (1 + 이 값). 예: 0.05 = +5%.</small>
+                                        <label class="form-label">최대값 계수 k (Max = mean + k·σ)</label>
+                                        <input type="number" class="form-field mono" x-model.number="s.autoCalibration.marginMaxSigmaK" @change="rememberMaxK()" min="0" max="20" step="0.5" placeholder="4" />
+                                        <small class="settings-hint">Max = max(실측 최대, 평균 + k × 표준편차). 클수록 느슨(오탐↓). 정규근사 k=3≈99.7%, k=4≈99.99%. 기본 4. 이 값은 이 브라우저에 기억됩니다.</small>
                                     </div>
 
                                     <hr class="divider" style="margin:16px 0;" />
@@ -484,6 +484,13 @@
                                         <span x-text="autoCal.running ? '채우는 중…' : '지금 실측값 채우기 (재시도)'"></span>
                                     </button>
                                     <small class="settings-hint">완료 여부와 무관하게 현재 실측값으로 적합 Flow 디바이스 duration 을 즉시 재기록합니다.</small>
+
+                                    <button class="btn btn-outlined w-100" style="margin-top:10px; color:var(--color-warning, #e67e22); border-color:var(--color-warning, #e67e22);"
+                                            @click="clearCalibrationRanges()" :disabled="busy || autoCal.running">
+                                        <span class="material-icons">restart_alt</span>
+                                        <span>Min/Max 전부 초기화 (null)</span>
+                                    </button>
+                                    <small class="settings-hint">모든 디바이스의 이상감지 Min/Max 를 전부 비웁니다(Duration 은 보존). 잘못 보정된 임계를 한 번에 되돌릴 때 사용.</small>
                                 </div>
                             </div>
 
@@ -579,6 +586,7 @@
                 rt: { connected: false },
                 autoCal: { running: false },
                 _conn: null, _toastTimer: null,
+                MAX_K_KEY: 'dspilot-autocal-margin-max-k', // 최대값 계수 k 브라우저 기억 키
 
                 async init() {
                     this.dark = localStorage.getItem('dspilot-theme') === 'dark';
@@ -619,6 +627,12 @@
                         const d = await this.apiGet('/api/settings');
                         this.s = d;
                         this.aasx = d.aasxStatus || {};
+                        // 최대값 계수 k 는 이 브라우저에 기억된 값을 우선 사용(저장 시 서버로도 반영됨).
+                        const savedK = localStorage.getItem(this.MAX_K_KEY);
+                        if (savedK !== null && this.s.autoCalibration) {
+                            const v = parseFloat(savedK);
+                            if (!isNaN(v)) this.s.autoCalibration.marginMaxSigmaK = v;
+                        }
                     } catch (e) {
                         this.showToast('설정을 불러오지 못했습니다: ' + e.message, 'error');
                     } finally { this.loading = false; }
@@ -703,7 +717,7 @@
                             autoCalibration: {
                                 enabled: !!this.s.autoCalibration?.enabled,
                                 minCleanCycles: (this.s.autoCalibration?.minCleanCycles ?? 10) | 0,
-                                marginMaxPct: +(this.s.autoCalibration?.marginMaxPct ?? 0.05),
+                                marginMaxSigmaK: +(this.s.autoCalibration?.marginMaxSigmaK ?? 4),
                                 fillMin: !!this.s.autoCalibration?.fillMin,
                                 marginMinPct: +(this.s.autoCalibration?.marginMinPct ?? 0.03)
                             }
@@ -815,6 +829,32 @@
                         if (r.success) await this.load();
                     } catch (e) {
                         this.showToast('실측값 채우기 실패: ' + e.message, 'error');
+                    } finally { this.autoCal.running = false; }
+                },
+
+                // ── 최대값 계수 k 를 이 브라우저에 기억 (load 시 복원) ──
+                rememberMaxK() {
+                    const v = +(this.s?.autoCalibration?.marginMaxSigmaK);
+                    if (!isNaN(v)) localStorage.setItem(this.MAX_K_KEY, String(v));
+                },
+
+                // ── 모든 디바이스 Min/Max 전부 초기화(null) — Duration 은 보존 ──
+                async clearCalibrationRanges() {
+                    if (this.busy || this.autoCal.running) return;
+                    const ok = await this.askConfirm('Min/Max 전부 초기화',
+                        '모든 디바이스의 이상감지 Min/Max(최소/최대 소요시간)를 project.aasx 에서 전부 비웁니다(null).\n\n' +
+                        '• Duration(거동 구동 평균)은 그대로 보존됩니다\n' +
+                        '• 잘못 보정된 임계값을 한 번에 초기화할 때 사용\n' +
+                        '• 다시 "지금 실측값 채우기" 로 재보정할 수 있습니다',
+                        '전부 초기화', '취소');
+                    if (!ok) return;
+                    this.autoCal.running = true;
+                    try {
+                        const r = await this.apiPost('/api/settings/auto-calibrate/clear-ranges');
+                        this.showToast(r.message, r.success ? 'success' : 'error');
+                        if (r.success) await this.load();
+                    } catch (e) {
+                        this.showToast('초기화 실패: ' + e.message, 'error');
                     } finally { this.autoCal.running = false; }
                 },
 

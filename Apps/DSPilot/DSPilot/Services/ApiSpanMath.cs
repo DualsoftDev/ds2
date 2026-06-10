@@ -36,10 +36,14 @@ public static class ApiSpanMath
         return spans;
     }
 
-    /// <summary>span 목록의 개수/최소/최대/평균(ms). 빈 입력은 (0, null, null, null) — JS apiMeasured 동일.</summary>
-    public static (int Count, double? Min, double? Max, double? Mean) Measured(IReadOnlyList<double> spans)
+    /// <summary>
+    /// span 목록의 개수/최소/최대/평균/표준편차(ms). 빈 입력은 (0, null, null, null, null).
+    /// <see cref="Std"/> 는 <b>표본 표준편차(n−1, 불편추정)</b> — n≤1 이면 0. min/max/mean 부분은 JS apiMeasured 동일.
+    /// 표준편차는 mean+k·σ 임계 산정(<see cref="AutoCalibrationService"/>)에서 단일 극값(max)보다 안정적인 퍼짐 척도로 쓴다.
+    /// </summary>
+    public static (int Count, double? Min, double? Max, double? Mean, double? Std) Measured(IReadOnlyList<double> spans)
     {
-        if (spans is null || spans.Count == 0) return (0, null, null, null);
+        if (spans is null || spans.Count == 0) return (0, null, null, null, null);
         double mn = double.PositiveInfinity, mx = double.NegativeInfinity, sum = 0;
         foreach (var x in spans)
         {
@@ -47,7 +51,16 @@ public static class ApiSpanMath
             if (x > mx) mx = x;
             sum += x;
         }
-        return (spans.Count, mn, mx, sum / spans.Count);
+        double mean = sum / spans.Count;
+
+        double std = 0;
+        if (spans.Count > 1)
+        {
+            double sq = 0;
+            foreach (var x in spans) { double d = x - mean; sq += d * d; }
+            std = Math.Sqrt(sq / (spans.Count - 1)); // 표본 표준편차(n−1).
+        }
+        return (spans.Count, mn, mx, mean, std);
     }
 
     /// <summary>
