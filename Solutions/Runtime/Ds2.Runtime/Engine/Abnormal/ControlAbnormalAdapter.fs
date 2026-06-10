@@ -104,19 +104,16 @@ type ControlAbnormalAdapter
                 emit (Abnormal.sensorShort target (now ()))
         | _ -> ()
 
-    /// InTag falling. level-like 센서가 Finish(reset 전, active hold) 중 꺼지면 SensorOpen.
+    /// InTag falling. Only latched sensing promises that the input must remain active.
     member _.OnInputFalling(apiCallId: Guid, _nowMs: int) =
         match mappingOfApiCall apiCallId, apiCallAndDef apiCallId with
         | Some mapping, Some(_, def) when AbnormalDetector.canEvaluate store mapping.CallGuid def ->
-            let isLevelLike =
+            let requiresHeldInput =
                 match def.SensingType with
-                | SensingType.Real(Level, _)
                 | SensingType.Real(Latched, _) -> true
-                | _ -> false   // OneShot falling 은 정상 pulse off 일 수 있으므로 제외
+                | _ -> false
             let callId = mapping.CallGuid
-            // v12 §3.2 — RxWork ≠ Ready(reset 전: Going/Finish) 에 level 센서가 빠지면 단선/이탈 = SensorOpen.
-            //   reset→Ready 면 정상 사이클 종료라 Open 아님.
-            if isLevelLike && getCallState callId <> Status4.Ready then
+            if requiresHeldInput && getCallState callId <> Status4.Ready then
                 let target = Abnormal.target (Some callId) (Some apiCallId) None
                 emit (Abnormal.sensorOpen target (now ()))
         | _ -> ()

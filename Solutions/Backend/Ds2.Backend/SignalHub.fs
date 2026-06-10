@@ -136,6 +136,7 @@ type NullRuntimeHubSession() =
         member _.DiscardTokenAsync _ = Task.CompletedTask
         member _.InjectIOValueAsync _ = Task.CompletedTask
         member _.InjectIOValueByAddressAsync _ = Task.CompletedTask
+        member _.InjectIOValuesByAddressAsync _ = Task.CompletedTask
         member _.SetAllFlowStatesAsync _ = Task.CompletedTask
         member _.ReloadConnectionsAsync _ = Task.CompletedTask
         member _.ReloadDurationsAsync _ = Task.CompletedTask
@@ -164,6 +165,27 @@ type SignalHubBroadcaster(hubContext: IHubContext<SignalHub>, runtimeSession: IR
                   Value = value }
             runtimeSession.InjectIOValueByAddressAsync(cmd).GetAwaiter().GetResult()
             hubContext.Clients.All.SendAsync(HubMethod.OnTagChanged, address, value, source)
+
+        member _.BroadcastTagsChanged(changes) =
+            if List.isEmpty changes then
+                Task.CompletedTask
+            else
+                let items =
+                    changes
+                    |> List.map (fun change ->
+                        { Address = change.HubAddress
+                          Value = change.Value
+                          Source = change.Source })
+                    |> List.toArray
+
+                for item in items do
+                    SignalHub.UpdateTagCache(item.Address, item.Value)
+
+                let cmd : RuntimeIOAddressBatchCommand =
+                    { Envelope = RuntimeHubDefaults.selfEnvelope runtimeSession.CurrentIdentity
+                      Items = items }
+                runtimeSession.InjectIOValuesByAddressAsync(cmd).GetAwaiter().GetResult()
+                hubContext.Clients.All.SendAsync(HubMethod.OnTagsChanged, items)
 
         member _.BroadcastPlcConnectionStatus(status: PlcConnectionStatus) =
             // 캐시도 갱신 — 신규 클라이언트가 OnConnectedAsync 단계에서 최신 스냅샷을 수신.

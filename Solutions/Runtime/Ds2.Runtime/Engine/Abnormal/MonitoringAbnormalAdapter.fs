@@ -89,10 +89,9 @@ type MonitoringAbnormalAdapter
         | Some apiCall -> apiCall.ApiDefId |> Option.bind (fun defId -> Queries.getApiDef defId store)
         | None -> None
 
-    // level/latched 센서만 SensorOpen 대상. OneShot falling 은 정상 pulse off 일 수 있어 제외.
-    let isLevelLike (def: ApiDef) =
+    // Only Latched sensing promises that the input must remain active after detection.
+    let requiresHeldInput (def: ApiDef) =
         match def.SensingType with
-        | SensingType.Real(Level, _)
         | SensingType.Real(Latched, _) -> true
         | _ -> false
 
@@ -181,27 +180,30 @@ type MonitoringAbnormalAdapter
                                 | None -> ()
                                 goingClock.Remove m.ApiCallGuid |> ignore
                             | false, _ ->
-                                // going clock 없음. 그 Out 이 현재도 off 면 "Going 없이 Finish" = SensorShort.
-                                // Out 이 현재 on 이면 going rising 만 놓친 사이클 중간 진입이므로 버림(오탐 방지).
-                                let outActive =
-                                    if System.String.IsNullOrEmpty m.OutAddress then false
-                                    else
-                                        match prevActive.TryGetValue("OUT:" + m.OutAddress) with
-                                        | true, b -> b
-                                        | _ -> false
-                                // SensorShort — debounce 는 SensingType 이 SSOT. 여기선 즉시 발행.
-                                if not outActive then
-                                    emit (Abnormal.sensorShort target (nowUtc ()))
+                                // No going clock. Emit SensorShort only after this adapter has an
+                                // observed OUT baseline. Without that, Monitoring may have attached
+                                // mid-cycle and an IN rising is not enough evidence for a short.
+                                if not (System.String.IsNullOrEmpty m.OutAddress) then
+                                    match prevActive.TryGetValue("OUT:" + m.OutAddress) with
+                                    | true, outActive when not outActive ->
+                                        emit (Abnormal.sensorShort target (nowUtc ()))
+                                    | _ -> ()
                         | _ -> ()
                 elif wasInActive && not active then
-                    // In falling: Finish(reset 전) + level/latched 센서면 단선/이탈 = SensorOpen.
+                    // In falling: normal Level inputs may reset during ordinary cycle changeover.
+                    // SensorOpen is reserved for held inputs while their own output is still active.
                     for m in inMappings do
                         match apiDefOf m.ApiCallGuid with
-                        | Some def when AbnormalDetector.canEvaluate store m.CallGuid def
-                                        && isLevelLike def
-                                        && getCallState m.CallGuid <> Status4.Ready ->   // v12 §3.2 RxWork≠Ready
-                            let target = Abnormal.target (Some m.CallGuid) (Some m.ApiCallGuid) m.RxWorkGuid
-                            emit (Abnormal.sensorOpen target (nowUtc ()))
+                        | Some def when AbnormalDetector.canEvaluate store m.CallGuid def && requiresHeldInput def ->
+                            let outActive =
+                                if System.String.IsNullOrEmpty m.OutAddress then false
+                                else
+                                    match prevActive.TryGetValue("OUT:" + m.OutAddress) with
+                                    | true, b -> b
+                                    | _ -> false
+                            if outActive && getCallState m.CallGuid <> Status4.Ready then
+                                let target = Abnormal.target (Some m.CallGuid) (Some m.ApiCallGuid) m.RxWorkGuid
+                                emit (Abnormal.sensorOpen target (nowUtc ()))
                         | _ -> ()
             | None -> ()
 

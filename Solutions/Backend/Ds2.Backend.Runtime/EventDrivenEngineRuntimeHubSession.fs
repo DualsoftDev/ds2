@@ -42,6 +42,7 @@ type EventDrivenEngineRuntimeHubSession
     let abnormalDedupPolicy : ILatchPolicy = DefaultLatchPolicy()
     let abnormalDedupLock = obj ()
     let mutable abnormalLastEmitted : Map<AbnormalLatchKey, AbnormalRecord> = Map.empty
+    let passiveLog = log4net.LogManager.GetLogger("PassiveInference")
 
     // v12 P5 — abnormal → OnAbnormal broadcast. Control engine 발행 / Monitoring adapter sink 공용.
     let broadcastAbnormal (record: AbnormalRecord) =
@@ -196,14 +197,6 @@ type EventDrivenEngineRuntimeHubSession
         (engine.IOMap.TxWorkToOutAddresses |> Map.containsKey workGuid)
         || (engine.IOMap.RxWorkToInAddresses |> Map.containsKey workGuid)
     let observeAndInfer (address: string) (value: string) =
-        let abnormalReady =
-            match passiveInference with
-            | Some pi -> pi.IsAbnormalReadyForAddress(address)
-            | None -> true
-        match monitoringAbnormal with
-        | Some ab when abnormalReady -> ab.OnObservedIo(address, value, Environment.TickCount)
-        | None -> ()
-        | _ -> ()
         match passiveInference with
         | Some pi ->
             for action in pi.Observe(address, value, getWorkStateSafe, getCallStateSafe) do
@@ -216,11 +209,25 @@ type EventDrivenEngineRuntimeHubSession
                     if getCallStateSafe.Invoke(action.TargetGuid) <> action.State then
                         engine.ForceCallState(action.TargetGuid, action.State)
                 | _ -> ()
-            pi.DrainLogs() |> ignore
+            for entry in pi.DrainLogs() do
+                match entry.Kind with
+                | PassiveInferenceLogKind.Warn -> passiveLog.Warn(entry.Message)
+                | _ -> passiveLog.Info(entry.Message)
         | None -> ()
+
+        let abnormalReady =
+            match passiveInference with
+            | Some pi -> pi.IsAbnormalReadyForAddress(address)
+            | None -> true
+        match monitoringAbnormal with
+        | Some ab when abnormalReady -> ab.OnObservedIo(address, value, Environment.TickCount)
+        | None -> ()
+        | _ -> ()
     let applyEffect (effect: RuntimeHubEffect) =
         match effect.Kind with
-        | RuntimeHubEffectKind.InjectIoByAddress -> engine.InjectIOValueByAddress(effect.Address, effect.Value) |> ignore
+        | RuntimeHubEffectKind.InjectIoByAddress ->
+            engine.InjectIOValueByAddress(effect.Address, effect.Value) |> ignore
+            engine.AdvanceSimulationTo(engine.CurrentTimeMs)
         | RuntimeHubEffectKind.ForceWorkState ->
             if effect.WorkGuid <> Guid.Empty then engine.ForceWorkState(effect.WorkGuid, effect.State)
         | RuntimeHubEffectKind.ForceWorkStateIfGoing ->
@@ -228,9 +235,48 @@ type EventDrivenEngineRuntimeHubSession
         | RuntimeHubEffectKind.ForceWorkStateIfReady ->
             if effect.WorkGuid <> Guid.Empty then engine.TryForceWorkStateIfReady(effect.WorkGuid, effect.State)
         | RuntimeHubEffectKind.PassiveObserve -> observeAndInfer effect.Address effect.Value
+        | RuntimeHubEffectKind.PassiveBaseline ->
+            match passiveInference with
+            | Some pi -> pi.Baseline(effect.Address, effect.Value)
+            | None -> ()
         | RuntimeHubEffectKind.Log -> ()       // 진단 로그 — Agent log4net 노이즈 회피로 생략
         | RuntimeHubEffectKind.WriteTag -> ()  // Monitoring read-only — PLC 재기록 안 함 (Control write 는 P4)
         | _ -> ()
+
+    let preApplyMonitoringInput (item: TagWrite) =
+        if runtimeMode = RuntimeMode.Monitoring
+           && not (isNull (box item))
+           && not (String.IsNullOrWhiteSpace item.Address) then
+            match engine.IOMap.InAddressToMappings |> Map.tryFind item.Address with
+            | Some mappings ->
+                for mapping in mappings do
+                    engine.InjectIOValue(mapping.ApiCallGuid, item.Value)
+            | None -> ()
+
+    let applyHubTag address value source =
+        for effect in modeSession.HandleHubTag(address, value, source) do
+            applyEffect effect
+
+    let applyHubTagBatch (items: TagWrite array) =
+        if not (isNull items) && items.Length > 0 then
+            if runtimeMode = RuntimeMode.Monitoring then
+                for item in items do
+                    preApplyMonitoringInput item
+
+            for item in items do
+                if not (isNull (box item))
+                   && not (String.IsNullOrWhiteSpace item.Address) then
+                    let source =
+                        if String.IsNullOrWhiteSpace item.Source then HubSource.Plc else item.Source
+                    for effect in modeSession.HandleHubTag(item.Address, item.Value, source) do
+                        if runtimeMode = RuntimeMode.Monitoring
+                           && effect.Kind = RuntimeHubEffectKind.InjectIoByAddress then
+                            ()
+                        else
+                            applyEffect effect
+
+            if runtimeMode = RuntimeMode.Monitoring then
+                engine.AdvanceSimulationTo(engine.CurrentTimeMs)
 
     // device=plan: engine plan-duration 이 device work 의 Finish 시점(=actual In 이 켜질 시점)을 정한다.
     //   VP 는 가상 plant 로서 바로 그 시점에 해당 device 의 In 을 자기 passive inference 에 observe 시킨다.
@@ -352,8 +398,11 @@ type EventDrivenEngineRuntimeHubSession
             if allow cmd.Envelope then
                 // PLC IN → mode session effect → engine 적용.
                 // Monitoring: passive 추론으로 Work/Call Force (engine 자체 조건평가는 OFF).
-                for effect in modeSession.HandleHubTag(cmd.Address, cmd.Value, "plc") do
-                    applyEffect effect
+                applyHubTag cmd.Address cmd.Value "plc"
+            Task.CompletedTask
+        member _.InjectIOValuesByAddressAsync cmd =
+            if allow cmd.Envelope then
+                applyHubTagBatch cmd.Items
             Task.CompletedTask
         member _.SetAllFlowStatesAsync cmd =
             if allow cmd.Envelope then engine.SetAllFlowStates(enum<FlowTag> cmd.FlowTagValue)

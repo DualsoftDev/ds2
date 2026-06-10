@@ -18,6 +18,9 @@ type RuntimeHubEffectKind =
     /// HubSession 은 device 가 Ready 일 때만 Going 으로 진입시킨다. Finish/Homing/Going 중엔 무시 —
     /// engine cycle 과 경합(Finish->Going 등 비정상 전이) 차단.
     | ForceWorkStateIfReady = 6
+    /// Snapshot/bootstrap 전용. 현재 tag 값을 passive inference 의 baseline 으로만 기록하고
+    /// Going/Finish/abnormal 추론은 하지 않는다.
+    | PassiveBaseline = 7
 
 type RuntimeHubLogSeverity =
     | Info = 0
@@ -83,3 +86,6 @@ module RuntimeSessionEffects =
 
     let addPassiveObserve effects delayMs address value =
         addEffect effects RuntimeHubEffectKind.PassiveObserve delayMs "" RuntimeHubLogSeverity.Info address value Guid.Empty Status4.Ready
+
+    let addPassiveBaseline effects delayMs address value =
+        addEffect effects RuntimeHubEffectKind.PassiveBaseline delayMs "" RuntimeHubLogSeverity.Info address value Guid.Empty Status4.Ready

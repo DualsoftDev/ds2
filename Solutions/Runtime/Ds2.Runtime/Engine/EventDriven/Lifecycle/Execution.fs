@@ -181,7 +181,9 @@ module EventDrivenExecution =
 
                 let callGuids = ctx.GetWorkCallGuids workGuid
 
-                if callGuids.IsEmpty then
+                if isDevice then
+                    ctx.ApplyWorkTransition workGuid Status4.Finish
+                elif callGuids.IsEmpty then
                     ctx.ApplyWorkTransition workGuid Status4.Finish
                 elif callGuids |> List.forall (fun callGuid -> ctx.GetCallState callGuid = Status4.Finish) then
                     ctx.ApplyWorkTransition workGuid Status4.Finish

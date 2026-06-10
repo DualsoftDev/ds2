@@ -30,6 +30,7 @@
     <Compile Include="TagWizardBaseAddressTests.fs" />
     <Compile Include="HubConnectionDiagnosticTests.fs" />
     <Compile Include="HubSourceTests.fs" />
+    <Compile Include="RemoteSimulationEngineSnapshotTests.fs" />
     <Compile Include="RuntimeModeTransitionTests.fs" />
     <Compile Include="StepPrimingPlanTests.fs" />
     <Compile Include="BasicMacroIoTests.fs" />
@@ -61,6 +62,7 @@
     <ProjectReference Include="..\..\Core\Ds2.Editor\Ds2.Editor.fsproj" />
     <ProjectReference Include="..\..\Convert\Ds2.CSV\Ds2.CSV.fsproj" />
     <ProjectReference Include="..\..\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj" />
+    <ProjectReference Include="..\..\Runtime\Ds2.Runtime.Remote\Ds2.Runtime.Remote.fsproj" />
     <ProjectReference Include="..\..\Runtime\Ds2.Runtime.Report\Ds2.Runtime.Report.fsproj" />
     <ProjectReference Include="..\..\Backend\Ds2.Backend.Common\Ds2.Backend.Common.fsproj" />
     <ProjectReference Include="..\..\Backend\Ds2.Backend\Ds2.Backend.fsproj" />
