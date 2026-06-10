@@ -35,6 +35,8 @@ GitLab 의 **open issue** 를 가져와, ds2 코드 repo 의 **격리된 worktre
 2. 파일 `<REPO>/.pat`
 3. 없음 → "PAT 없음: GITLAB_TOKEN 또는 <REPO>/.pat (scope read_api) 필요" 출력 후 종료.
 
+조회는 `read_api` 로 충분하다. 단 **unsolvable 보고(4-1절 — comment + label)는 `api`(write) scope 필요** — write 권한이 없으면 그 단계만 생략된다(전체 흐름은 계속).
+
 ## 2. issue 조회 + 선별
 
 > **GitLab 호스트 / 조회 방법 (반드시 준수)**: GitLab 인스턴스는 자체 호스팅 `http://dualsoft.co.kr:8081/api/v4` 이다. **호스트 값의 SSOT 는 아래 `gitlab-issues.ps1` 의 `-GitLabBase` 기본값**(스크립트 param 절) — 값이 바뀌면 스크립트가 기준이고 본 문서 병기값은 참고용. issue 데이터(title/description/labels/web_url)가 필요하면 **단건 본문 확인이라도 반드시 이 스크립트를 통해** 가져온다. `gitlab.com` 등 **임의 호스트로 직접 REST 호출 금지**(잘못된 호스트로 401). 특정 iid 만 빠르게 보려면 `-Iids <iid[,iid...]>` 를 쓰되, **PowerShell 5.1 에서는 호출 방식별 콤마 해석 차이를 피하기 위해 따옴표를 권장**: `-Iids "154,149"`.
@@ -47,14 +49,15 @@ powershell -NoProfile -File .claude/skills/fix/scripts/gitlab-issues.ps1 -Projec
 ```
 powershell -NoProfile -File .claude/skills/fix/scripts/gitlab-issues.ps1 -ProjectPath <path> -Iids <iid[,iid...]>
 ```
-- **기본 모드**: open issue 중 ① 이미 처리된(`resolved`/`unsolvable`/`needs_review`) iid, ② **assignee 가 할당된 issue** 를 제외한 신규만 반환.
-- **특정 모드(`-Iids`)**: 지정 iid 만. assignee·처리 이력 무관 강제 처리(닫힌 closed issue 포함).
+- **기본 모드**: open issue 중 ① 이미 처리된(`resolved`/`unsolvable`/`needs_review`) iid, ② **assignee 가 할당된 issue**, ③ **`Human` 또는 `SkippedByLLM` label 이 붙은 issue**(`Human`=사람 전담 표시, `SkippedByLLM`=unsolvable 보고됨(4-1절) — 스크립트 `-ExcludeLabels` 기본값, 콤마 구분·공백 포함 label 가능) 를 제외한 신규만 반환.
+- **reopen 재픽업**: `merged` 이력 issue 가 다시 open 으로 보이면(= `/fixed` close 후 사람이 reopen) 신규로 재픽업된다. 이때 본문이 있어도 **notes 를 항상 포함**하므로, reopen 사유·추가 요구 댓글을 보고 재처리한다.
+- **특정 모드(`-Iids`)**: 지정 iid 만. assignee·처리 이력·label 무관 강제 처리(닫힌 closed issue 포함).
 - 결과 JSON: `{ projectPath, mode, total, newCount, issues:[{ iid, title, description, labels, issue_type, web_url, notes:[{author,created_at,body}], attachments:[{secret,filename,markdownPath,apiUrl}] }] }`
 - `newCount == 0` → "처리할 issue 없음" 출력 후 종료.
 - 스크립트는 `--max` 를 적용하지 않는다(전량 반환). 상한 적용은 메인의 책임(3절).
 
 > **본문(description) 없음 ≠ 정보 없음 (필수 — #191 류 재발 방지)**: GitLab issue 는 본문이 비어도 **댓글(notes)·첨부 이미지**에 핵심 요구·합의가 있는 경우가 많다(실제 #191 "속성버튼 중복" 은 본문 null, 댓글+이미지에서 작업 대상·합의가 결정됨). 따라서:
-> - `gitlab-issues.ps1` 은 위 notes/attachments 를 함께 반환한다(특정 모드 항상 / 전체 모드는 `-IncludeNotes` 또는 본문 빈 issue 자동). **description 만 보고 `unsolvable`/`needs_review` 판정 금지** — notes 와 첨부 이미지를 먼저 확인한다.
+> - `gitlab-issues.ps1` 은 위 notes/attachments 를 함께 반환한다(특정 모드 항상 / 전체 모드는 `-IncludeNotes` 또는 본문 빈 issue 또는 merged 이력(reopen) issue 자동). **description 만 보고 `unsolvable`/`needs_review` 판정 금지** — notes 와 첨부 이미지를 먼저 확인한다.
 > - **첨부 이미지는 메인이 직접 본다**: 각 `attachments[].apiUrl` 을 아래 스크립트로 받아 로컬 경로를 얻고 **Read 도구로 열어** 화면/대상을 눈으로 확인한 뒤 판단·지시한다.
 >   ```
 >   powershell -NoProfile -File .claude/skills/fix/scripts/gitlab-fetch-upload.ps1 -ApiUrl "<attachments[].apiUrl>"
@@ -107,12 +110,30 @@ title/reason 에 따옴표·`$`·줄바꿈이 섞여도 안전하도록 **argv �
 - `branch`/`worktree` 의 SSOT 는 메인이 `fix-<iid>` / `<REPO>/fix-<iid>` 로 고정(subagent 반환값은 참고용).
 - commit 이 복수면 콤마로 결합한 문자열로 기록.
 
+### 4-1. unsolvable 보고 — issue 에 reason comment + `SkippedByLLM` label (close 안 함)
+
+`status == "unsolvable"` 인 iid 마다, 상태 기록 후 메인이 GitLab 에 보류 사유를 남긴다:
+1. comment 본문을 임시 `.md` 파일에 UTF-8 로 작성:
+   ```
+   ## 자동 처리 보류 (/fix)
+
+   LLM 자동 수정 대상이 아니라고 판단되어 보류합니다 (사람 판단 필요).
+
+   **사유**: <fix-state.json 의 reason>
+   ```
+2. `/fixed` 의 write 스크립트를 **`-NoClose` 로 재사용**(close 하지 않고 comment + label 만 — issue 는 사람이 봐야 하므로 open 유지):
+   `powershell -NoProfile -File <REPO>/auto-fix/.claude/skills/fixed/scripts/gitlab-close.ps1 -ProjectPath <pp> -Iid <iid> -BodyFile <md> -AddLabels "SkippedByLLM" -NoClose`
+3. 실패(예: 403 — PAT 가 `read_api` 뿐) → 그 iid 의 보고만 생략하고 5절 리포트에 "comment/label 실패 — PAT `api`(write) scope 필요" 명시. fix-state.json 기록·다른 issue 처리에는 영향 없다. (스크립트는 comment 후 label 순서라, label 만 실패한 경우 comment 는 이미 달려 있다 — 같은 iid 로 재실행하면 comment 가 중복되니 label 만 수동 추가)
+4. 임시 `.md` 삭제.
+
+> 멱등: `unsolvable` 로 기록된 iid 는 다음 회차 스캔에서 제외되고(2절), fix-state.json 이 유실돼도 issue 에 남은 `SkippedByLLM` label 이 기본 제외 대상이라 중복 comment 를 2차로 막는다. 단 `--issue` 강제 모드로 같은 iid 를 재실행해 다시 unsolvable 이 되면 comment 가 또 달린다(강제 처리의 의도된 결과). `needs_review` 는 보고 대상이 아니다(사람 검토 대기일 뿐).
+
 ## 5. 요약 리포트
 
 회차 종료 시 출력:
 - `resolved` / `needs_review` / `unsolvable` / `skipped(기존)` 건수
 - resolved 각각: `#iid  fix-<iid>  commit  한줄요약`
-- needs_review / unsolvable 각각: `#iid  reason`
+- needs_review / unsolvable 각각: `#iid  reason` (unsolvable 은 comment/label 게시 결과 포함 — 실패 시 사유 명시)
 - `--max` 로 잘린 잔여 건수(있으면)
 - 안내: "검토 후 사람이 직접 merge/push. resolved 브랜치는 `fix-<iid>`(worktree `<REPO>/fix-<iid>`)."
 
@@ -137,6 +158,6 @@ title/reason 에 따옴표·`$`·줄바꿈이 섞여도 안전하도록 **argv �
 - base(`main`) worktree 직접 수정 금지 — 반드시 `<REPO>/fix-<iid>` worktree 에서만.
 - 모든 git path 인자는 `<REPO>/...` 절대경로(cwd 의존 상대경로 금지).
 - 빌드 실패·빌드 대상 없음 시 자동 commit 금지.
-- **push / merge 금지** (사람 몫).
+- **push / merge 금지** (사람 몫). **issue close 금지** — `/fix` 의 GitLab write 는 unsolvable 보고(comment+label, `-NoClose`)뿐이다(close 는 `/fixed` 몫).
 - 한 회차 처리 상한 `--max`(기본 20). 초과분은 다음 회차로, 잘린 건수 명시.
 - PAT 값을 출력하거나 commit 에 포함하지 말 것.
