@@ -7,19 +7,14 @@
     <title>Power Tools — DSPilot</title>
 
     <!--
-      DSPilot 정적 호스팅 — /pw 백도어 (PowerTools.razor 정적 이전).
-      ★ STANDALONE ★ — 데모가 차단(IsBlocked)된 상태에서도 동작해야 하는 백도어이므로
-        /app/shell.js 를 포함하지 않는다(데모 차단 시 /app/ 자원이 막힘).
-        의존: /css/fonts.css, /css/ds.css, /lib/alpine.min.js, /api/demo/* 만.
-      백도어 동작: 계산기에 "2747" 입력 후 "=" → POST /api/demo/toggle 로 데모 바이패스 토글 →
-        FULL 활성화 시 / 로 리다이렉트(Blazor Nav.NavigateTo("/", forceLoad:true) 와 동일).
-      ★ 게이트: /api/demo 경로가 미들웨어 allowlist(IsAllowedDuringDemoBlock)에 추가되어 있어야 함.
-        그래야 데모 차단 후에도 status 조회/토글이 가능(미추가 시 영구 잠김).
-      계산기 외 카드(System Info/Storage/Log/Flow/Chart 등)는 원래 서버 프로세스 내부 진단/샘플이었음.
+      DSPilot 정적 호스팅 — /pw 내부 점검용 도구 페이지(Power Tools, PowerTools.razor 정적 이전).
+      ★ STANDALONE ★ — /app/shell.js 를 포함하지 않는다.
+        의존: /css/fonts.css, /css/ds.css, /lib/alpine.min.js, /lib/chart.umd.min.js.
+      카드(System Info/Storage/Log/Flow/Chart 등)는 원래 서버 프로세스 내부 진단/샘플이었음.
         정적 standalone 에서는 프로세스 내부값에 접근 불가하므로:
-          · Demo Status 카드는 제거됨(헤더 셸의 DEMO 배지로 일원화). /api/demo/status 는 백도어 토글 상태 판정에만 사용.
           · 프로세스 진단(Process/Runtime/Storage/Threads/LogTail) = .ds-empty 로 "정적 페이지 미수집" 정직 표기.
-          · 결정적 시드 기반 샘플 차트/Flow/팔레트는 원본과 동일하게 데모 UI 프리뷰로 재현(가짜 실데이터 아님, 정적 데모 위젯).
+          · 결정적 시드 기반 샘플 차트/Flow/팔레트는 UI 프리뷰로 재현(가짜 실데이터 아님, 정적 샘플 위젯).
+      입력버튼테스트 = 일반 계산기.
     -->
     <link href="/css/fonts.css" rel="stylesheet" />
     <link href="/css/ds.css" rel="stylesheet" />
@@ -305,12 +300,9 @@
 
     <script>
         function pwApp() {
-            const SECRET = '2747';
             let pwDonutChart = null;
             return {
                 dark: false,
-                demo: null,
-                demoError: null,
                 donutLegend: [],
                 donutTotal: '',
 
@@ -333,20 +325,14 @@
                 chartLine: '', chartArea: '', chartAvg: 0, chartPeak: 0,
                 bars: [], barMax: 0,
 
-                _pollTimer: null,
-
-                async init() {
+                init() {
                     this.dark = localStorage.getItem('dspilot-theme') === 'dark';
                     window.addEventListener('storage', (e) => { if (e.key === 'dspilot-theme') this.dark = e.newValue === 'dark'; });
                     this.buildChartSamples();
-                    await this.loadStatus();
                     this.$nextTick(() => this.buildDonut());
-                    // status 는 allowlist 라 차단 상태에서도 응답 — 가벼운 폴링으로 잔여시간 갱신.
-                    this._pollTimer = setInterval(() => this.loadStatus(), 30000);
                 },
 
                 destroy() {
-                    clearInterval(this._pollTimer);
                     if (pwDonutChart) { pwDonutChart.destroy(); pwDonutChart = null; }
                 },
 
@@ -354,17 +340,6 @@
                     this.dark = !this.dark;
                     localStorage.setItem('dspilot-theme', this.dark ? 'dark' : 'light');
                     setTimeout(() => this.buildDonut(), 0);
-                },
-
-                async loadStatus() {
-                    try {
-                        const res = await fetch('/api/demo/status', { headers: { 'Accept': 'application/json' } });
-                        if (!res.ok) throw new Error('HTTP ' + res.status);
-                        this.demo = await res.json();
-                        this.demoError = null;
-                    } catch (e) {
-                        this.demoError = '데모 상태를 불러오지 못했습니다: ' + e.message;
-                    }
                 },
 
                 // ── CT 도넛 데모 (dashboard2.html renderCtDonut 의 정적 시드 버전) ──
@@ -546,12 +521,7 @@
                     this.expression += ` ${this.opSymbol(op)}`;
                     this.pendingInput = '';
                 },
-                async evaluate() {
-                    // 백도어: 2747 = 입력 시 데모 바이패스 토글 후 대시보드로.
-                    if (this.pendingInput === SECRET && this.pendingOp === null && this.accumulator === null) {
-                        await this.triggerBackdoor();
-                        return;
-                    }
+                evaluate() {
                     if (this.pendingOp === null) {
                         this.display = this.pendingInput === '' ? this.display : this.pendingInput;
                         this.expression = this.display;
@@ -567,28 +537,6 @@
                     this.pendingInput = '';
                     this.pendingOp = null;
                     this.justEvaluated = true;
-                },
-                async triggerBackdoor() {
-                    const wasBypassed = this.demo ? this.demo.isBypassed : false;
-                    try {
-                        const res = await fetch('/api/demo/toggle', {
-                            method: 'POST',
-                            headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
-                            body: '{}'
-                        });
-                        if (!res.ok) throw new Error('HTTP ' + res.status);
-                        this.demo = await res.json();
-                    } catch (e) {
-                        this.calcMessage = '토글 실패: ' + e.message;
-                        this.resetCalc();
-                        return;
-                    }
-                    const nowBypassed = this.demo.isBypassed;
-                    this.calcMessage = wasBypassed ? 'DEMO 모드로 복귀합니다.' : 'FULL 모드 활성화. 대시보드로 이동합니다.';
-                    this.resetCalc();
-                    // 바이패스가 켜졌을 때만 이동(끄면 데모 차단 화면으로 가지 않게 /pw 유지) — 원본은 항상 이동하나
-                    // 원본 동작 패리티를 위해 켜짐/꺼짐 모두 / 로 이동.
-                    setTimeout(() => { window.location.href = '/'; }, 350);
                 },
                 resetCalc() {
                     this.pendingInput = '';
@@ -623,14 +571,6 @@
                         s = s.replace(/0+$/, '').replace(/\.$/, '');
                     }
                     return s;
-                },
-                fmtTs(totalSeconds) {
-                    const s = Math.max(0, Math.trunc(totalSeconds || 0));
-                    const h = Math.trunc(s / 3600);
-                    const m = Math.trunc((s % 3600) / 60);
-                    const sec = s % 60;
-                    const p = (x) => String(x).padStart(2, '0');
-                    return `${p(h)}:${p(m)}:${p(sec)}`;
                 }
             };
         }

@@ -1,7 +1,5 @@
 @page "/pw"
 @using System.Globalization
-@inject DemoModeService Demo
-@inject NavigationManager Nav
 
 <PageTitle>Power Tools - DSPilot</PageTitle>
 
@@ -18,19 +16,9 @@
             <dl class="pw-info">
                 <dt>Process</dt><dd>@_processName · PID @_pid</dd>
                 <dt>Runtime</dt><dd>@_runtime</dd>
-                <dt>Started (UTC)</dt><dd>@Demo.StartedAtUtc.ToString("u", CultureInfo.InvariantCulture)</dd>
-                <dt>Uptime</dt><dd>@FormatTs(Demo.Elapsed)</dd>
+                <dt>Started (UTC)</dt><dd>@_startedUtc.ToString("u", CultureInfo.InvariantCulture)</dd>
+                <dt>Uptime</dt><dd>@FormatTs(DateTime.UtcNow - _startedUtc)</dd>
                 <dt>Machine</dt><dd>@Environment.MachineName</dd>
-            </dl>
-        </div>
-
-        <div class="pw-card">
-            <div class="pw-card-title"><span class="material-icons">verified</span> Demo Status</div>
-            <dl class="pw-info">
-                <dt>Mode</dt><dd>@(Demo.IsBypassed ? "FULL (bypass on)" : "DEMO")</dd>
-                <dt>Duration</dt><dd>@FormatTs(DemoModeService.DemoDuration)</dd>
-                <dt>Remaining</dt><dd>@(Demo.IsBypassed ? "—" : FormatTs(Demo.Remaining))</dd>
-                <dt>Blocked</dt><dd>@(Demo.IsBlocked ? "yes" : "no")</dd>
             </dl>
         </div>
 
@@ -177,11 +165,10 @@
 </div>
 
 @code {
-    private const string SecretCode = "2747";
-
     private string _processName = "";
     private int _pid;
     private string _runtime = "";
+    private DateTime _startedUtc;
     private long _workingSet;
     private long _gcMemory;
     private int _threadCount;
@@ -217,6 +204,7 @@
         _processName = proc.ProcessName;
         _pid = proc.Id;
         _runtime = $".NET {Environment.Version}";
+        _startedUtc = proc.StartTime.ToUniversalTime();
         _workingSet = proc.WorkingSet64;
         _gcMemory = GC.GetTotalMemory(forceFullCollection: false);
         _threadCount = proc.Threads.Count;
@@ -352,17 +340,6 @@
 
     private void Evaluate()
     {
-        // 백도어: 2747 = 입력 시 데모 바이패스 토글 후 대시보드로.
-        if (_pendingInput == SecretCode && _pendingOp is null && _accumulator is null)
-        {
-            var wasBypassed = Demo.IsBypassed;
-            Demo.ToggleBypass();
-            _calcMessage = wasBypassed ? "DEMO 모드로 복귀합니다." : "FULL 모드 활성화. 대시보드로 이동합니다.";
-            ResetCalc();
-            Nav.NavigateTo("/", forceLoad: true);
-            return;
-        }
-
         if (_pendingOp is null)
         {
             _display = string.IsNullOrEmpty(_pendingInput) ? _display : _pendingInput;

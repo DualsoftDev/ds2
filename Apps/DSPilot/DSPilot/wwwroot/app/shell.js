@@ -374,15 +374,6 @@
         agPopover.appendChild(agPopCard);
         document.body.appendChild(agPopover);
 
-        // ── 데모 모드 배지 (실시간 배지 왼쪽) — 데모(바이패스 OFF)일 때만 표시 ──
-        //   liveBadge 보다 먼저 headRight 에 추가 → flex 행에서 왼쪽에 위치.
-        var demoBadge = el('span', 'dash-live');
-        demoBadge.style.cssText = 'display:none;color:var(--color-warning);border-color:color-mix(in srgb, var(--color-warning) 50%, transparent);';
-        demoBadge.title = '데모 모드 — 제한 시간 동작 중';
-        demoBadge.appendChild(el('span', 'dash-live-dot'));
-        demoBadge.appendChild(el('span', null, 'DEMO'));
-        headRight.appendChild(demoBadge);
-
         var liveBadge = el('span', 'dash-live is-poll');
         liveBadge.style.cursor = 'pointer';
         liveBadge.setAttribute('role', 'button');
@@ -584,20 +575,7 @@
         pollSummary();
         setInterval(pollSummary, 4000);
 
-        // ── 10) /api/demo/status: 데모(바이패스 OFF)면 DEMO 배지 표시, FULL(바이패스 ON)이면 숨김 ──
-        //   상태 변경은 잦지 않으므로 가벼운 30초 폴링(/pw 백도어 토글 후 복귀 시 반영).
-        function pollDemo() {
-            fetch('/api/demo/status', { headers: { 'Accept': 'application/json' } })
-                .then(function (res) { return res.ok ? res.json() : null; })
-                .then(function (data) {
-                    demoBadge.style.display = (data && !data.isBypassed) ? '' : 'none';
-                })
-                .catch(function () { /* 조회 실패 시 마지막 표시 유지 */ });
-        }
-        pollDemo();
-        setInterval(pollDemo, 30000);
-
-        // ── 11) 실측 duration 자동 보정 완료 토스트 (전역) ──
+        // ── 10) 실측 duration 자동 보정 완료 토스트 (전역) ──
         //   AutoCalibrationService 가 자동 실행으로 디바이스 duration 을 project.aasx 에 기록하면 SignalR
         //   "AutoCalibrationApplied"(요약 문자열)를 브로드캐스트한다. 어느 페이지에 있든 셸이 한 번 알림을 띄운다.
         //   (수동 "지금 실측값 채우기" 는 설정 페이지가 HTTP 응답으로 직접 토스트하므로 자동 실행만 브로드캐스트됨.)

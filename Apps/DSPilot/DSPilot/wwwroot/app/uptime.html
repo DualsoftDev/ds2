@@ -168,16 +168,6 @@
 <body>
     <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="uptimeApp()" x-init="init()" x-cloak>
 
-        <!-- 데모 만료 -->
-        <div class="modal-overlay" x-show="demoBlocked" style="z-index:3000;">
-            <div class="modal-content demo-blocked-card" style="max-width:480px; text-align:center;">
-                <span class="material-icons demo-blocked-icon">hourglass_disabled</span>
-                <h3>DEMO 만료</h3>
-                <p>데모 사용 시간(3시간)이 종료되었습니다.</p>
-                <p>서비스 관리자에게 문의해 주세요.</p>
-            </div>
-        </div>
-
         <!-- fallback 슬림 헤더 (shell.js 가 제거) -->
         <header class="dsp-appbar">
             <span class="dsp-title">가동시간·이상 분석</span>
@@ -906,7 +896,7 @@
         function uptimeApp() {
             return {
                 // 기존 UserTag 상태 (+ 구 이상발생 관리 흡수: 필터/페이지/정의/차트)
-                ut: null, loading: true, error: null, demoBlocked: false, dark: false,
+                ut: null, loading: true, error: null, dark: false,
                 period: 'today',
                 rt: { connected: false },
                 _conn: null, _dt: null, _pollTimer: null,
@@ -955,10 +945,9 @@
                 },
                 toggleTheme() { this.dark = !this.dark; localStorage.setItem('dspilot-theme', this.dark ? 'dark' : 'light'); },
 
-                // ── fetch 헬퍼 (503 demoBlocked 처리 유지) ──
+                // ── fetch 헬퍼 ──
                 async apiGet(url) {
                     const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     return await res.json();
                 },
@@ -968,7 +957,6 @@
                         headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
                         body: body == null ? null : JSON.stringify(body)
                     });
-                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
                     if (!res.ok) {
                         let msg = 'HTTP ' + res.status;
                         try { const j = await res.json(); if (j && j.error) msg = j.error; } catch (e) {}
@@ -1019,7 +1007,7 @@
                         this.error = null;
                         this.$nextTick(() => this.drawCharts());
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') this.error = '이상발생 데이터를 불러오지 못했습니다: ' + e.message;
+                        this.error = '이상발생 데이터를 불러오지 못했습니다: ' + e.message;
                     } finally { this.loading = false; }
 
                     // 신규 OEE 데이터
@@ -1053,7 +1041,7 @@
                     if (!this._charts || !this.ut) return;
                     let all;
                     try { all = await this.apiGet('/api/user-tags/alerts?' + this.utQs() + '&limit=100000'); }
-                    catch (e) { if (e.message !== 'demo-blocked') console.error(e); return; }
+                    catch (e) { console.error(e); return; }
                     const esc = (v) => { v = (v ?? '').toString(); return (v.includes(',') || v.includes('"') || v.includes('\n')) ? '"' + v.replace(/"/g, '""') + '"' : v; };
                     const lines = ['Timestamp,LogLevel,System,Name,TagAddress,ValueType,MatchOp,MatchValue,ActualValue'];
                     for (const a of all) lines.push([esc(a.occurredAtLocal), esc(a.logLevel), esc(a.systemName), esc(a.name), esc(a.tagAddress), esc(a.valueType), esc(a.matchOp), esc(a.matchValue || ''), esc(a.actualValue)].join(','));
@@ -1078,7 +1066,7 @@
                         this.dailyData = daily;
                         this.oeeError = null;
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') this.oeeError = 'OEE 데이터를 불러오지 못했습니다: ' + e.message;
+                        this.oeeError = 'OEE 데이터를 불러오지 못했습니다: ' + e.message;
                     }
                     this.$nextTick(() => this.drawDailyChart());
                 },
@@ -1355,7 +1343,7 @@
                         this.clearSel();
                         await this.loadOee();
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') this.oeeError = '일괄 분류 실패: ' + e.message;
+                        this.oeeError = '일괄 분류 실패: ' + e.message;
                     } finally { this.bulkBusy = false; }
                 },
                 async bulkClose() {
@@ -1367,7 +1355,7 @@
                         this.clearSel();
                         await this.loadOee();
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') this.oeeError = '일괄 수리완료 실패: ' + e.message;
+                        this.oeeError = '일괄 수리완료 실패: ' + e.message;
                     } finally { this.bulkBusy = false; }
                 },
 
@@ -1475,7 +1463,7 @@
                         await this.apiPost('/api/oee/downtime/' + d.id + '/classify', { reasonCode: code, category });
                         await this.loadOee();
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') this.oeeError = '분류 실패: ' + e.message;
+                        this.oeeError = '분류 실패: ' + e.message;
                     }
                 },
                 async closeEvent(d) {
@@ -1483,7 +1471,7 @@
                         await this.apiPost('/api/oee/downtime/' + d.id + '/close', {});
                         await this.loadOee();
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') this.oeeError = '수동 마감 실패: ' + e.message;
+                        this.oeeError = '수동 마감 실패: ' + e.message;
                     }
                 },
                 async submitProduction() {
@@ -1501,7 +1489,7 @@
                         f.msg = `저장됨 — 총 ${res.total} / 양품 ${res.good} / 불량 ${res.reject}`;
                         await this.loadOee();
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') f.err = '저장 실패: ' + e.message;
+                        f.err = '저장 실패: ' + e.message;
                     } finally { f.busy = false; }
                 },
                 // ── 표준CT(idealCT) Flow 테이블 ──
@@ -1516,7 +1504,7 @@
                         }));
                         this.ctError = null;
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') this.ctError = '표준CT 테이블을 불러오지 못했습니다: ' + e.message;
+                        this.ctError = '표준CT 테이블을 불러오지 못했습니다: ' + e.message;
                     } finally { this.ctLoading = false; }
                 },
                 // draft(입력, 초) 정규화: 양수면 ms 정수(×1000), 아니면 null(해제)
@@ -1535,7 +1523,7 @@
                         await this.loadCtTable();
                         await this.loadOee();
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') this.ctError = '일괄 적용 실패: ' + e.message;
+                        this.ctError = '일괄 적용 실패: ' + e.message;
                     } finally { this.ctApplying = false; }
                 }
             };

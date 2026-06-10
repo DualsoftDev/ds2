@@ -42,7 +42,7 @@
         .set-live.is-poll { color: var(--color-text-secondary); }
         @keyframes set-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-        /* 모달 (확인 / 데모만료) — swiss .modal-overlay / .modal-content 와 결 맞춤 */
+        /* 모달 (확인) — swiss .modal-overlay / .modal-content 와 결 맞춤 */
         .modal-overlay { position: fixed; inset: 0; background: rgba(10, 15, 22, 0.42); display: flex; align-items: center; justify-content: center; z-index: 2000; backdrop-filter: blur(2px); }
         .dark-theme .modal-overlay { background: rgba(4, 8, 14, 0.68); }
         .modal-content { background: var(--color-surface); border: 1px solid var(--color-lines-strong); border-radius: var(--radius-md); padding: 24px; box-shadow: var(--shadow-modal); }
@@ -98,15 +98,6 @@
 
 <body>
     <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="settingsApp()" x-init="init()" x-cloak>
-
-        <!-- 데모 만료 -->
-        <div class="modal-overlay" x-show="demoBlocked" style="z-index:4000;">
-            <div class="modal-content" style="max-width:480px; text-align:center;">
-                <h2 style="color:var(--color-warning); margin:0 0 12px;">DEMO 만료</h2>
-                <p>데모 사용 시간(3시간)이 종료되었습니다.</p>
-                <p>서비스 관리자에게 문의해 주세요.</p>
-            </div>
-        </div>
 
         <!-- fallback 슬림 헤더 (shell.js 가 제거) -->
         <header class="dsp-appbar">
@@ -581,7 +572,7 @@
     <script>
         function settingsApp() {
             return {
-                s: null, aasx: {}, loading: true, busy: false, dark: false, demoBlocked: false,
+                s: null, aasx: {}, loading: true, busy: false, dark: false,
                 toast: { show: false, msg: '', type: 'success' },
                 confirm: { show: false, title: '', message: '', okText: '확인', cancelText: '취소', _resolve: null },
                 selectiveDel: { show: false, loading: false, entries: [] },
@@ -611,7 +602,6 @@
 
                 async apiGet(url) {
                     const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     return await res.json();
                 },
@@ -619,7 +609,6 @@
                     const opts = { method: 'POST', headers: { 'Accept': 'application/json' } };
                     if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
                     const res = await fetch(url, opts);
-                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     return await res.json();
                 },
@@ -631,7 +620,7 @@
                         this.s = d;
                         this.aasx = d.aasxStatus || {};
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') this.showToast('설정을 불러오지 못했습니다: ' + e.message, 'error');
+                        this.showToast('설정을 불러오지 못했습니다: ' + e.message, 'error');
                     } finally { this.loading = false; }
                 },
                 async reload() {
@@ -724,7 +713,7 @@
                         // 저장이 ConnectionString 을 정규화하므로 재로딩.
                         if (r.ok) await this.load();
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') this.showToast('저장 실패: ' + e.message, 'error');
+                        this.showToast('저장 실패: ' + e.message, 'error');
                     } finally { this.busy = false; }
                 },
 
@@ -737,7 +726,7 @@
                         this.showToast(r.message, r.success ? 'success' : 'error');
                         if (refreshAasx) await this.refreshAasxStatus();
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') this.showToast('실패: ' + e.message, 'error');
+                        this.showToast('실패: ' + e.message, 'error');
                     } finally { this.busy = false; }
                 },
 
@@ -825,7 +814,7 @@
                         this.showToast(r.message, r.success ? 'success' : 'error');
                         if (r.success) await this.load();
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') this.showToast('실측값 채우기 실패: ' + e.message, 'error');
+                        this.showToast('실측값 채우기 실패: ' + e.message, 'error');
                     } finally { this.autoCal.running = false; }
                 },
 
@@ -838,7 +827,7 @@
                         const data = await this.apiGet('/api/settings/aasx-changelog');
                         this.selectiveDel.entries = data;
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') this.showToast('이력을 불러오지 못했습니다: ' + e.message, 'error');
+                        this.showToast('이력을 불러오지 못했습니다: ' + e.message, 'error');
                         this.selectiveDel.show = false;
                     } finally {
                         this.selectiveDel.loading = false;
@@ -864,7 +853,7 @@
                         const r = await this.apiPost('/api/settings/delete-data-before', { cutoffIso: entry.cutoffIso });
                         this.showToast(r.message, r.success ? 'success' : 'error');
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') this.showToast('삭제 실패: ' + e.message, 'error');
+                        this.showToast('삭제 실패: ' + e.message, 'error');
                     } finally {
                         this.busy = false;
                     }
