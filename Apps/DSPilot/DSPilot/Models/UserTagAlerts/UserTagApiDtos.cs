@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+// Copyright (c) 2026 Dualsoft Inc. All rights reserved.
+// Commercial license required for use. See Apps/DSPilot/LICENSE.
 namespace DSPilot.Models.UserTagAlerts;
 
 // 격리형 호스팅 UserTag(이상발생 관리) API DTO. 전역 camelCase 정책으로 직렬화.

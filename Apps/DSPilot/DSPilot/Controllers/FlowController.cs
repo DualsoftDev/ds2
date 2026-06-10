@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+// Copyright (c) 2026 Dualsoft Inc. All rights reserved.
+// Commercial license required for use. See Apps/DSPilot/LICENSE.
 using DSPilot.Services;
 using Microsoft.AspNetCore.Mvc;
 
@@ -13,7 +16,6 @@ namespace DSPilot.Controllers;
 /// 신규 데이터 로직 없음(직렬화 경계). 모든 서비스는 싱글톤이라 Blazor 와 동일 인스턴스를 공유한다.
 /// 기간별 추이(trend)는 클라이언트가 기존 GET /api/dashboard/flows/{name}/history 를 재사용해 집계하므로 여기서 다루지 않는다.
 /// 실시간은 /hubs/monitoring SignalR 이벤트를 트리거로 GET /api/flow/{name} 을 디바운스 refetch 한다.
-/// 데모 만료 시 전역 미들웨어가 /api/* 를 503 처리한다(대시보드와 동일, 별도 처리 불필요).
 /// </summary>
 [ApiController]
 [Route("api/flow")]

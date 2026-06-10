@@ -28,7 +28,6 @@ public partial class MainViewModel
         _store.ClearHistory();
         IsDirty = false;
         HasProject = true;
-        LlmChatVm?.OnProjectOpened();
         UpdateTitle();
         StatusText = "New project created.";
 
@@ -41,6 +40,38 @@ public partial class MainViewModel
         });
     }
 
+    /// <summary>
+    /// 샘플 모델 경로 — build output 의 `Sample\NewProject.json`.
+    /// 원본 = `<repo>/Apps/Promaker/Sample/NewProject.json` (Promaker.csproj Content 등록).
+    /// 추가 샘플은 해당 폴더에 두고 향후 메뉴 분기로 확장.
+    /// </summary>
+    private static string SamplePath =>
+        System.IO.Path.Combine(AppContext.BaseDirectory, "Sample", "NewProject.json");
+
+    /// <summary>
+    /// 샘플 모델 즉시 로드 — <see cref="SamplePath"/> 파일을 OpenFilePath 로 위임.
+    /// 파일 부재 시 안내 메시지만 표시 (silent fail 회피).
+    /// </summary>
+    [RelayCommand]
+    private void CreateSampleProject()
+    {
+        if (!GuardSimulationSemanticEdit("샘플 만들기"))
+            return;
+
+        var path = SamplePath;
+        if (!System.IO.File.Exists(path))
+        {
+            _dialogService.ShowWarning($"샘플 파일을 찾을 수 없습니다:\n{path}");
+            return;
+        }
+
+        if (!ConfirmDiscardChanges())
+            return;
+
+        OpenFilePath(path);
+        StatusText = $"샘플 로드 완료 — {path}";
+    }
+
     private void Reset()
     {
         Simulation.ResetForNewStore();
@@ -48,7 +79,6 @@ public partial class MainViewModel
         _store = new DsStore();
         WireEvents();
         // Hot-fix-7: LLM Chat 의 _store reference 도 동기화. 새 프로젝트 추가가 LLM 측에 안 보이는 문제 회피.
-        LlmChatVm?.UpdateStore(_store);
 
         _currentFilePath = null;
         FileWatcher.ResetSignature();
@@ -82,7 +112,6 @@ public partial class MainViewModel
     private void InternalClose(string statusText)
     {
         var lastPath = _currentFilePath;
-        LlmChatVm?.OnProjectClosing(lastPath);
         Reset();
         StatusText = statusText;
         Log.Info($"Project closed (path={lastPath ?? "(unsaved)"}).");

@@ -18,14 +18,11 @@ using log4net;
 
 namespace Promaker.ViewModels;
 
+/// <summary>
+/// 시뮬 이벤트 색상/카테고리 박제 — `AddSimLog` 호출 site 에서 사용. 통합 Log 탭 (AppLogState) 으로 routing 되며
+/// Category 필드를 통해 AppLogView 의 DataTrigger 가 색상 분기.
+/// </summary>
 public enum LogSeverity { Info, Warn, Error, Timeout, Ready, Going, Finish, Homing, System }
-
-public sealed class SimLogEntry(string message, LogSeverity severity = LogSeverity.Info)
-{
-    public string Message { get; } = message;
-    public LogSeverity Severity { get; } = severity;
-    public override string ToString() => Message;
-}
 
 /// <summary>시뮬레이션 패널과 툴바의 시뮬레이션 상태/명령을 담당합니다.</summary>
 public partial class SimulationPanelState : ObservableObject
@@ -498,7 +495,6 @@ public partial class SimulationPanelState : ObservableObject
     }
 
     public ObservableCollection<SimNodeRow> SimNodes { get; } = [];
-    public ObservableCollection<SimLogEntry> SimEventLog { get; } = [];
     public ObservableCollection<SimWorkItem> SimWorkItems { get; } = [];
     public GanttChartState GanttChart { get; } = new();
 

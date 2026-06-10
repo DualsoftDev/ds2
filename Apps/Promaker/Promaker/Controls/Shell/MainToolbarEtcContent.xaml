@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
              xmlns:res="clr-namespace:Promaker.Resources"
+             xmlns:help="clr-namespace:Promaker.Help"
              x:Name="ThisControl">
     <UserControl.Resources>
         <ResourceDictionary>
@@ -46,7 +47,7 @@
                             <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ShowSimulationScenariosCommand}" Click="CloseUtilPopup"><TextBlock Text="시뮬레이션 결과 보기"/></Button>
                             <Separator Margin="4,4"/>
                             <TextBlock Text="파일 가져오기" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
-                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ImportCsvCommand}" Click="CloseUtilPopup"><TextBlock Text="파일(PLC, CSV)로부터 모델만들기"/></Button>
+                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ImportCsvCommand}" Click="CloseUtilPopup"><TextBlock Text="CSV 로부터 모델만들기"/></Button>
                             <Separator Margin="4,4"/>
                             <TextBlock Text="PLC" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
                             <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenTagWizardCommand}" Click="CloseUtilPopup"><TextBlock Text="IO 생성"/></Button>
@@ -66,105 +67,32 @@
                     </Border>
                 </Popup>
             </Grid>
-            <!-- PR-D5 — 보기 메뉴 IDockManager 재wiring.
-                 5 체크박스 (Explorer/Properties/History/Simulation/Log) 가 VM 의 IsXxxVisible TwoWay binding.
-                 MainWindow.xaml.cs 의 Vm_PropertyChanged 가 dockHost.SetAnchorVisible 호출 + DockHost 의
-                 AnchorVisibilityChanged 가 VM property 역방향 set (양방향 _suppressAnchorSync 가드).
-                 Log 는 별 dock anchor 로 승격 (post-D8 fix) — HasProject 무관 (시스템 로그).
-                 LlmChat 은 별도 SSOT (IsLlmChatVisible, baseline 박제). -->
-            <Grid>
-                <ToggleButton x:Name="ViewMenuToggle" Style="{StaticResource RibbonFlatToggleButton}" ToolTip="패널 보기">
-                    <StackPanel Orientation="Vertical">
-                        <iconPacks:PackIconMaterial Kind="ViewDashboard" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/>
-                        <TextBlock Text="보기" Style="{StaticResource RibbonIconLabel}"/>
-                    </StackPanel>
-                </ToggleButton>
-                <Popup IsOpen="{Binding IsChecked, ElementName=ViewMenuToggle, Mode=TwoWay}"
-                       StaysOpen="False"
-                       Placement="Bottom"
-                       PlacementTarget="{Binding ElementName=ViewMenuToggle}"
-                       DataContext="{Binding DataContext, ElementName=ThisControl}">
-                    <Border Background="{DynamicResource SecondaryBackgroundBrush}"
-                            BorderBrush="{DynamicResource BorderBrush}"
-                            BorderThickness="1"
-                            CornerRadius="4"
-                            Padding="4"
-                            MinWidth="200">
-                        <StackPanel>
-                            <TextBlock Text="패널 보기/숨김" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,6" Foreground="{DynamicResource PrimaryTextBrush}"/>
-                            <CheckBox Content="Explorer"   IsChecked="{Binding IsExplorerVisible,   Mode=TwoWay}" Margin="8,4"/>
-                            <CheckBox Content="Properties" IsChecked="{Binding IsPropertiesVisible, Mode=TwoWay}" Margin="8,4"/>
-                            <CheckBox Content="History"    IsChecked="{Binding IsHistoryVisible,    Mode=TwoWay}" Margin="8,4"/>
-                            <CheckBox Content="Simulation" IsChecked="{Binding IsSimulationVisible, Mode=TwoWay}" Margin="8,4"/>
-                            <CheckBox Content="Log"        IsChecked="{Binding IsLogVisible,        Mode=TwoWay}" Margin="8,4"/>
-                            <!-- LLM Chat — IsLlmChatVisible 이 SSOT, ToggleLlmChatCommand 가 consent 검사 + lazy 생성 +
-                                 visible 토글을 수행. IsChecked 를 TwoWay 로 직접 잡으면 setter 가 우회되어 vm null 노출
-                                 위험 → IsChecked=OneWay 표시 전용, Click 은 Command 에 위임. toolbar 의 별도 LLM 버튼과
-                                 동일한 진입 경로. baseline 박제 (todo §3 PR-D5 § "LlmChat.cs baseline 박제") 보존. -->
-                            <CheckBox Content="LLM Chat"
-                                      IsChecked="{Binding IsLlmChatVisible, Mode=OneWay}"
-                                      Command="{Binding ToggleLlmChatCommand}"
-                                      Margin="8,4"/>
-                        </StackPanel>
-                    </Border>
-                </Popup>
-            </Grid>
-            <Button x:Name="ThemeButton" Style="{StaticResource RibbonFlatButton}" Command="{Binding ToggleThemeCommand}" ToolTip="{Binding ThemeButtonToolTip}">
-                <StackPanel Orientation="Vertical">
-                    <Grid Width="18" Height="18" HorizontalAlignment="Center" Margin="0,0,0,2">
-                        <iconPacks:PackIconMaterial Kind="WhiteBalanceSunny" Width="18" Height="18" Foreground="{DynamicResource IconGrayBrush}">
-                            <iconPacks:PackIconMaterial.Style>
-                                <Style TargetType="iconPacks:PackIconMaterial">
-                                    <Setter Property="Visibility" Value="Collapsed"/>
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsDarkTheme}" Value="True">
-                                            <Setter Property="Visibility" Value="Visible"/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </iconPacks:PackIconMaterial.Style>
-                        </iconPacks:PackIconMaterial>
-                        <iconPacks:PackIconMaterial Kind="WeatherNight" Width="18" Height="18" Foreground="{DynamicResource IconGrayBrush}">
-                            <iconPacks:PackIconMaterial.Style>
-                                <Style TargetType="iconPacks:PackIconMaterial">
-                                    <Setter Property="Visibility" Value="Visible"/>
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsDarkTheme}" Value="True">
-                                            <Setter Property="Visibility" Value="Collapsed"/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </iconPacks:PackIconMaterial.Style>
-                        </iconPacks:PackIconMaterial>
-                    </Grid>
-                    <TextBlock Text="{Binding ThemeButtonText}" Style="{StaticResource RibbonIconLabel}"/>
-                </StackPanel>
-            </Button>
-            <!-- LLM 토글 (Phase 2 PR-C) — 라이트 버튼 패턴 (Command + DataTrigger 로 active 시 아이콘 색 강조).
-                 Click 시 ToggleLlmChatCommand 가 lazy 생성 + consent 검사 + IsLlmChatVisible 토글. -->
-            <Button Style="{StaticResource RibbonFlatButton}"
-                    Command="{Binding ToggleLlmChatCommand}"
-                    ToolTip="LLM Chat 패널 토글">
-                <StackPanel Orientation="Vertical">
-                    <iconPacks:PackIconMaterial Kind="Robot" Width="18" Height="18" HorizontalAlignment="Center">
-                        <iconPacks:PackIconMaterial.Style>
-                            <Style TargetType="iconPacks:PackIconMaterial">
-                                <Setter Property="Foreground" Value="{DynamicResource IconGrayBrush}"/>
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsLlmChatVisible}" Value="True">
-                                        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </iconPacks:PackIconMaterial.Style>
-                    </iconPacks:PackIconMaterial>
-                    <TextBlock Text="LLM" Style="{StaticResource RibbonIconLabel}"/>
-                </StackPanel>
-            </Button>
-            <Button Style="{StaticResource RibbonFlatButton}" Command="{Binding ShowApplicationSettingsCommand}" ToolTip="환경 설정 (AASX/PLC/LLM/프리셋)">
+            <!-- PR-A3 — '보기' 메뉴 제거. 패널 임의 hide 는 더 이상 지원하지 않으며, dock 변경 후 원위치 복원은
+                 설정 다이얼로그 일반 탭의 '레이아웃 초기화' 로 일원화. ThemeButton 도 설정으로 이전. -->
+            <!-- PR-A3 — ThemeButton 은 설정 다이얼로그 '일반' 탭으로 이전. 리본 상단에서는 제거. -->
+            <Button Style="{StaticResource RibbonFlatButton}" Command="{Binding ShowApplicationSettingsCommand}" ToolTip="환경 설정 (일반/AASX/PLC/프리셋)">
                 <StackPanel Orientation="Vertical">
                     <iconPacks:PackIconMaterial Kind="Cog" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/>
                     <TextBlock Text="{x:Static res:Strings.Settings}" Style="{StaticResource RibbonIconLabel}"/>
+                </StackPanel>
+            </Button>
+            <!-- PR-A4 — 도움말 버튼. anchor caption 의 ? 뱃지를 본 단일 버튼으로 통합 (general 페이지). -->
+            <Button Style="{StaticResource RibbonFlatButton}"
+                    Command="{x:Static help:HelpNavigator.NavigateCommand}"
+                    CommandParameter="general"
+                    ToolTip="도움말 (F1)">
+                <StackPanel Orientation="Vertical">
+                    <iconPacks:PackIconMaterial Kind="HelpCircleOutline" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/>
+                    <TextBlock Text="도움말" Style="{StaticResource RibbonIconLabel}"/>
+                </StackPanel>
+            </Button>
+            <!-- 샘플 — Apps/Promaker/Sample/NewProject.json (build output Sample\) 을 로드. -->
+            <Button Style="{StaticResource RibbonFlatButton}"
+                    Command="{Binding CreateSampleProjectCommand}"
+                    ToolTip="샘플 모델 만들기 (Sample\NewProject.json 로드)">
+                <StackPanel Orientation="Vertical">
+                    <iconPacks:PackIconMaterial Kind="LightbulbOnOutline" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/>
+                    <TextBlock Text="샘플" Style="{StaticResource RibbonIconLabel}"/>
                 </StackPanel>
             </Button>
             <Button x:Name="AboutButton" Style="{StaticResource RibbonFlatButton}" Click="AboutButton_Click" ToolTip="프로그램 정보">

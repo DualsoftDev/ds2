@@ -102,16 +102,6 @@
 <body>
     <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="plcDebugApp()" x-init="init()" x-cloak>
 
-        <!-- 데모 만료 -->
-        <div class="modal-overlay" x-show="demoBlocked" style="z-index:3000;">
-            <div class="modal-content demo-blocked-card" style="max-width:480px;">
-                <span class="material-icons demo-blocked-icon">hourglass_disabled</span>
-                <h3>DEMO 만료</h3>
-                <p>데모 사용 시간(3시간)이 종료되었습니다.</p>
-                <p>서비스 관리자에게 문의해 주세요.</p>
-            </div>
-        </div>
-
         <!-- fallback 슬림 헤더 (shell.js 가 제거) -->
         <header class="dsp-appbar">
             <span class="dsp-title">PLC 디버그</span>
@@ -323,7 +313,7 @@
     <script>
         function plcDebugApp() {
             return {
-                dark: false, demoBlocked: false,
+                dark: false,
                 uploading: false, dbLoaded: false, loadingChart: false, chartLoaded: false,
                 currentDbFileName: '',
                 tags: [], flowNames: [],
@@ -346,10 +336,9 @@
                 },
                 toggleTheme() { this.dark = !this.dark; localStorage.setItem('dspilot-theme', this.dark ? 'dark' : 'light'); },
 
-                // ── 모든 GET/POST 는 demo-block(503) → 오버레이 ──
+                // ── fetch 헬퍼 ──
                 async apiGet(url) {
                     const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     return await res.json();
                 },
@@ -359,7 +348,6 @@
                         headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
                         body: JSON.stringify(body)
                     });
-                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     return await res.json();
                 },
@@ -396,7 +384,6 @@
                         const fd = new FormData();
                         fd.append('file', file, file.name);
                         const res = await fetch('/api/plc-debug/upload', { method: 'POST', body: fd });
-                        if (res.status === 503) { this.demoBlocked = true; return; }
                         if (!res.ok) {
                             let msg = 'HTTP ' + res.status;
                             try { const j = await res.json(); if (j && j.error) msg = j.error; } catch (e) {}
@@ -409,7 +396,7 @@
                     } catch (e) {
                         this.dbLoaded = false;
                         this.chartLoaded = false;
-                        if (e.message !== 'demo-blocked') this.showToast('파일 로드 실패: ' + e.message, 'error');
+                        this.showToast('파일 로드 실패: ' + e.message, 'error');
                     } finally {
                         this.uploading = false;
                         // 같은 파일 재선택 허용
@@ -437,7 +424,7 @@
                     // 로그 개수
                     if (this.tags.length > 0) {
                         try { this.tagLogCounts = await this.apiPost('/api/plc-debug/log-counts', { tagIds: this.tags.map(t => t.id) }); }
-                        catch (e) { if (e.message === 'demo-blocked') return; this.tagLogCounts = {}; }
+                        catch (e) { this.tagLogCounts = {}; }
                     } else {
                         this.tagLogCounts = {};
                     }
@@ -544,7 +531,7 @@
                         this.chartLoaded = true;
                     } catch (e) {
                         this.chartLoaded = false;
-                        if (e.message !== 'demo-blocked') this.showToast('차트 로드 실패: ' + e.message, 'error');
+                        this.showToast('차트 로드 실패: ' + e.message, 'error');
                     } finally {
                         this.loadingChart = false;
                         this.loadingProgress = '';

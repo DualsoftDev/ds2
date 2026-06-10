@@ -3,8 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
         xmlns:ctrl="clr-namespace:Promaker.Controls"
-        xmlns:llm="clr-namespace:Promaker.Controls.Llm"
-        xmlns:promakerDock="clr-namespace:Promaker.Dock;assembly=Promaker.Dock"
+        xmlns:promakerDock="clr-namespace:Promaker.Dock"
         xmlns:vm="clr-namespace:Promaker.ViewModels"
         xmlns:conv="clr-namespace:Promaker.Presentation"
         xmlns:help="clr-namespace:Promaker.Help"
@@ -23,11 +22,6 @@
 
     <Window.Resources>
         <conv:BoolToVisibilityConverter x:Key="BoolToVis"/>
-
-        <!-- 1d-4 D — LlmChatViewModel 을 LlmChatPanel 로 자동 매핑 (DataTemplate). -->
-        <DataTemplate DataType="{x:Type vm:LlmChatViewModel}">
-            <llm:LlmChatPanel/>
-        </DataTemplate>
     </Window.Resources>
 
     <Window.InputBindings>
@@ -56,9 +50,8 @@
 
         <ctrl:MainToolbar Grid.Row="0"/>
 
-        <!-- PR-D4 — Promaker.Dock.DockHost (DevExpress.Wpf.Docking 캡슐화 UserControl) embed.
-             5 anchor (Explorer / Simulation / Property / History / LlmChat) + 2 document (Welcome / Canvas) 의
-             Content UserControl 인스턴스 + RegisterAnchor / RegisterDocument 호출은 code-behind 의 ctor 에서 수행. -->
+        <!-- DockHost — 4 anchor (Explorer / Simulation / Property / History) + 2 document (Welcome / Canvas). -->
+
         <promakerDock:DockHost x:Name="dockHost" Grid.Row="1"/>
 
         <StatusBar Grid.Row="2">

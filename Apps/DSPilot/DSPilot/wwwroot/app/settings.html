@@ -42,7 +42,7 @@
         .set-live.is-poll { color: var(--color-text-secondary); }
         @keyframes set-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-        /* 모달 (확인 / 데모만료) — swiss .modal-overlay / .modal-content 와 결 맞춤 */
+        /* 모달 (확인) — swiss .modal-overlay / .modal-content 와 결 맞춤 */
         .modal-overlay { position: fixed; inset: 0; background: rgba(10, 15, 22, 0.42); display: flex; align-items: center; justify-content: center; z-index: 2000; backdrop-filter: blur(2px); }
         .dark-theme .modal-overlay { background: rgba(4, 8, 14, 0.68); }
         .modal-content { background: var(--color-surface); border: 1px solid var(--color-lines-strong); border-radius: var(--radius-md); padding: 24px; box-shadow: var(--shadow-modal); }
@@ -98,15 +98,6 @@
 
 <body>
     <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="settingsApp()" x-init="init()" x-cloak>
-
-        <!-- 데모 만료 -->
-        <div class="modal-overlay" x-show="demoBlocked" style="z-index:4000;">
-            <div class="modal-content" style="max-width:480px; text-align:center;">
-                <h2 style="color:var(--color-warning); margin:0 0 12px;">DEMO 만료</h2>
-                <p>데모 사용 시간(3시간)이 종료되었습니다.</p>
-                <p>서비스 관리자에게 문의해 주세요.</p>
-            </div>
-        </div>
 
         <!-- fallback 슬림 헤더 (shell.js 가 제거) -->
         <header class="dsp-appbar">
@@ -432,6 +423,70 @@
                                 </div>
                             </div>
 
+                            <!-- 실측 duration 자동 보정 -->
+                            <div class="card">
+                                <div class="card-header">
+                                    <span class="material-icons">speed</span>
+                                    <span>실측 duration 자동 보정</span>
+                                </div>
+                                <div class="card-content">
+                                    <div class="settings-note">
+                                        <small>
+                                            첫 설치 후 각 Flow 가 <strong>이상치 제외 클린사이클</strong>을 충분히 모으면, 그 Flow 디바이스의
+                                            Duration/Min/Max(project.aasx)를 실측값으로 <strong>1회 자동</strong>으로 채웁니다. 저장하면 즉시 적용됩니다.
+                                        </small>
+                                    </div>
+
+                                    <label class="switch mb-2">
+                                        <input type="checkbox" x-model="s.autoCalibration.enabled" />
+                                        자동 보정 사용
+                                    </label>
+                                    <small class="settings-hint">끄면 자동 실행만 멈춥니다. 아래 "지금 실측값 채우기" 는 항상 동작합니다.</small>
+
+                                    <div class="form-group" style="margin-top:14px;">
+                                        <label class="form-label">최소 클린사이클 수</label>
+                                        <input type="number" class="form-field mono" x-model.number="s.autoCalibration.minCleanCycles" min="1" max="1000" placeholder="10" />
+                                        <small class="settings-hint">Flow 가 이만큼(비가동 제외, CT 존재) 모이면 그 Flow 디바이스를 보정. 기본 10.</small>
+                                    </div>
+
+                                    <div class="form-group" style="margin-bottom:0;">
+                                        <label class="form-label">최대값 보정율 (Max)</label>
+                                        <input type="number" class="form-field mono" x-model.number="s.autoCalibration.marginMaxPct" min="0" max="1" step="0.01" placeholder="0.05" />
+                                        <small class="settings-hint">Max = 실측 최대 × (1 + 이 값). 예: 0.05 = +5%.</small>
+                                    </div>
+
+                                    <hr class="divider" style="margin:16px 0;" />
+
+                                    <label class="switch mb-2">
+                                        <input type="checkbox" x-model="s.autoCalibration.fillMin" />
+                                        최소값(Min)도 실측으로 기록
+                                    </label>
+                                    <small class="settings-hint">끄면 MinDuration 은 기존값을 보존합니다(기본). 켜면 실측 최소로 덮어씁니다.</small>
+
+                                    <div class="form-group" style="margin:14px 0 0;" x-show="s.autoCalibration.fillMin" x-cloak>
+                                        <label class="form-label">최소값 보정율 (Min)</label>
+                                        <input type="number" class="form-field mono" x-model.number="s.autoCalibration.marginMinPct" min="0" max="1" step="0.01" placeholder="0.03" />
+                                        <small class="settings-hint">Min = 실측 최소 × (1 − 이 값). 예: 0.03 = −3% (Max 보정율보다 작게 권장).</small>
+                                    </div>
+
+                                    <div class="settings-status-grid" style="margin:14px 0 0;">
+                                        <span class="lbl">마지막 실측 적용</span>
+                                        <span class="val" x-text="s.autoCalibration.lastAppliedAt || '없음'"></span>
+                                        <span class="lbl">자동 1회 완료</span>
+                                        <span class="val" x-text="s.autoCalibration.completedAt || '미실행 (대기 중)'"></span>
+                                    </div>
+                                    <small class="settings-hint" x-show="s.autoCalibration.lastAppliedSummary"
+                                           x-text="'최근 기록: ' + (s.autoCalibration.lastAppliedSummary || '')"></small>
+
+                                    <hr class="divider my-3" />
+                                    <button class="btn btn-outlined w-100" @click="fillAutoCalibration()" :disabled="busy || autoCal.running">
+                                        <span class="material-icons" x-text="autoCal.running ? 'refresh' : 'sync'"></span>
+                                        <span x-text="autoCal.running ? '채우는 중…' : '지금 실측값 채우기 (재시도)'"></span>
+                                    </button>
+                                    <small class="settings-hint">완료 여부와 무관하게 현재 실측값으로 적합 Flow 디바이스 duration 을 즉시 재기록합니다.</small>
+                                </div>
+                            </div>
+
                             <!-- CCTV -->
                             <div class="card">
                                 <div class="card-header">
@@ -517,11 +572,12 @@
     <script>
         function settingsApp() {
             return {
-                s: null, aasx: {}, loading: true, busy: false, dark: false, demoBlocked: false,
+                s: null, aasx: {}, loading: true, busy: false, dark: false,
                 toast: { show: false, msg: '', type: 'success' },
                 confirm: { show: false, title: '', message: '', okText: '확인', cancelText: '취소', _resolve: null },
                 selectiveDel: { show: false, loading: false, entries: [] },
                 rt: { connected: false },
+                autoCal: { running: false },
                 _conn: null, _toastTimer: null,
 
                 async init() {
@@ -546,7 +602,6 @@
 
                 async apiGet(url) {
                     const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     return await res.json();
                 },
@@ -554,7 +609,6 @@
                     const opts = { method: 'POST', headers: { 'Accept': 'application/json' } };
                     if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
                     const res = await fetch(url, opts);
-                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     return await res.json();
                 },
@@ -566,7 +620,7 @@
                         this.s = d;
                         this.aasx = d.aasxStatus || {};
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') this.showToast('설정을 불러오지 못했습니다: ' + e.message, 'error');
+                        this.showToast('설정을 불러오지 못했습니다: ' + e.message, 'error');
                     } finally { this.loading = false; }
                 },
                 async reload() {
@@ -645,14 +699,21 @@
                             minCallGoingTimeMs: hv.minCallGoingTimeMs | 0,
                             cycleAverageWindow: (hv.cycleAverageWindow ?? 20) | 0,
                             alarmTickerIntervalSec: (this.s.alarmTickerIntervalSec ?? 3) | 0,
-                            abnormalAlarmResetIntervalHours: (this.s.abnormalAlarmResetIntervalHours ?? 24) | 0
+                            abnormalAlarmResetIntervalHours: (this.s.abnormalAlarmResetIntervalHours ?? 24) | 0,
+                            autoCalibration: {
+                                enabled: !!this.s.autoCalibration?.enabled,
+                                minCleanCycles: (this.s.autoCalibration?.minCleanCycles ?? 10) | 0,
+                                marginMaxPct: +(this.s.autoCalibration?.marginMaxPct ?? 0.05),
+                                fillMin: !!this.s.autoCalibration?.fillMin,
+                                marginMinPct: +(this.s.autoCalibration?.marginMinPct ?? 0.03)
+                            }
                         };
                         const r = await this.apiPost('/api/settings/save', body);
                         this.showToast(r.message, r.ok ? 'success' : 'error');
                         // 저장이 ConnectionString 을 정규화하므로 재로딩.
                         if (r.ok) await this.load();
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') this.showToast('저장 실패: ' + e.message, 'error');
+                        this.showToast('저장 실패: ' + e.message, 'error');
                     } finally { this.busy = false; }
                 },
 
@@ -665,7 +726,7 @@
                         this.showToast(r.message, r.success ? 'success' : 'error');
                         if (refreshAasx) await this.refreshAasxStatus();
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') this.showToast('실패: ' + e.message, 'error');
+                        this.showToast('실패: ' + e.message, 'error');
                     } finally { this.busy = false; }
                 },
 
@@ -737,6 +798,26 @@
                     await this.load();
                 },
 
+                // ── 실측 duration 자동 보정 즉시 실행 ("지금 실측값 채우기") — CompletedAt 무시하고 재보정 ──
+                async fillAutoCalibration() {
+                    if (this.busy || this.autoCal.running) return;
+                    const ok = await this.askConfirm('지금 실측값 채우기',
+                        '현재까지 수집된 실측값으로 적합 Flow 디바이스의 Duration/Max(및 설정 시 Min)를 project.aasx 에 즉시 기록합니다.\n\n' +
+                        '• 클린사이클이 충분한 Flow 의 디바이스만 보정\n' +
+                        '• 측정 span 이 있는 디바이스만 덮어씁니다\n' +
+                        '• 완료 여부와 무관하게 다시 실행할 수 있습니다',
+                        '실측값 채우기', '취소');
+                    if (!ok) return;
+                    this.autoCal.running = true;
+                    try {
+                        const r = await this.apiPost('/api/settings/auto-calibrate/run');
+                        this.showToast(r.message, r.success ? 'success' : 'error');
+                        if (r.success) await this.load();
+                    } catch (e) {
+                        this.showToast('실측값 채우기 실패: ' + e.message, 'error');
+                    } finally { this.autoCal.running = false; }
+                },
+
                 // ── AASX 갱신일 기준 선택 삭제 ──
                 async openSelectiveDel() {
                     this.selectiveDel.show = true;
@@ -746,7 +827,7 @@
                         const data = await this.apiGet('/api/settings/aasx-changelog');
                         this.selectiveDel.entries = data;
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') this.showToast('이력을 불러오지 못했습니다: ' + e.message, 'error');
+                        this.showToast('이력을 불러오지 못했습니다: ' + e.message, 'error');
                         this.selectiveDel.show = false;
                     } finally {
                         this.selectiveDel.loading = false;
@@ -772,7 +853,7 @@
                         const r = await this.apiPost('/api/settings/delete-data-before', { cutoffIso: entry.cutoffIso });
                         this.showToast(r.message, r.success ? 'success' : 'error');
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') this.showToast('삭제 실패: ' + e.message, 'error');
+                        this.showToast('삭제 실패: ' + e.message, 'error');
                     } finally {
                         this.busy = false;
                     }
@@ -792,6 +873,8 @@
                     if (!window.signalR) return;
                     const conn = new signalR.HubConnectionBuilder().withUrl('/hubs/monitoring').withAutomaticReconnect([0, 0, 1000, 3000, 5000, 10000]).build();
                     conn.on('DatabaseRebuilt', () => this.refreshAasxStatus());
+                    // 자동 보정 적용 → 카드의 시각/요약 갱신(알림 토스트는 공용 셸 shell.js 가 표시).
+                    conn.on('AutoCalibrationApplied', () => this.load());
                     conn.onreconnected(() => { this.rt.connected = true; this.refreshAasxStatus(); });
                     conn.onreconnecting(() => { this.rt.connected = false; });
                     conn.onclose(() => { this.rt.connected = false; });

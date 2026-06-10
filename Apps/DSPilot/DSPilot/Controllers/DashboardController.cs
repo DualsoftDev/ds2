@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+// Copyright (c) 2026 Dualsoft Inc. All rights reserved.
+// Commercial license required for use. See Apps/DSPilot/LICENSE.
 using System.Globalization;
 using DSPilot.Adapters;
 using DSPilot.Hubs;
@@ -83,21 +86,13 @@ public class DashboardController : ControllerBase
     }
 
     /// <summary>
-    /// 최근 경로이탈 이상감지(DS 4종) N건 — 대시보드 라이브 피드 초기 적재용.
-    /// 실시간 갱신은 SignalR "AbnormalDetected" 트리거를 받아 이 엔드포인트를 재조회한다.
-    /// 인메모리 링버퍼(AbnormalEventService) 소스 — 프로세스 재시작 시 비고 새 신호부터 채워짐.
-    /// </summary>
-    [HttpGet("abnormals")]
-    public ActionResult<IReadOnlyList<AbnormalEventDto>> GetAbnormals([FromQuery] int limit = 20)
-        => Ok(_abnormal.GetRecent(limit));
-
-    /// <summary>
     /// 대시보드/전체화면 알람 배너용 "활성 알람" 통합 피드 — 조건 기반 자동 해소:
     ///   - abnormal(경로이탈 4종): 해당 flow 가 다시 가동(Going)되면 제거 (AbnormalEventService.GetActive)
     ///   - usertag: 현재 값이 매칭 조건을 더 이상 만족하지 않으면 제거 (UserTagAlertService.GetActiveAlarms)
     /// 두 출처를 동일 형상(AbnormalEventDto)으로 병합·시각 내림차순. 실시간 갱신은 SignalR
     /// "AbnormalDetected"(abnormal)·"UserTagAlertsChanged"(usertag) 트리거로 재조회.
-    /// 히스토리(사이드바 /api/nav/summary, cctv /api/dashboard/abnormals)는 별개로 유지된다.
+    /// Flow 카드(dashboard2)·알람 배너·CCTV 오버레이 모두 이 엔드포인트를 공유해 표시/해제가 통일된다.
+    /// 히스토리(사이드바 /api/nav/summary)는 별개로 유지된다.
     /// </summary>
     [HttpGet("active-alarms")]
     public ActionResult<IReadOnlyList<AbnormalEventDto>> GetActiveAlarms([FromQuery] int limit = 20)

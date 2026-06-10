@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+// Copyright (c) 2026 Dualsoft Inc. All rights reserved.
+// Commercial license required for use. See Apps/DSPilot/LICENSE.
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -17,6 +20,53 @@ public class AppSettingsModel
     public ShiftSettings Shift { get; set; } = new();
     public CycleExclusionSettings CycleExclusion { get; set; } = new();
     public AbnormalAlarmSettings AbnormalAlarm { get; set; } = new();
+    public AutoCalibrationSettings AutoCalibration { get; set; } = new();
+}
+
+/// <summary>
+/// 실측 duration 자동 보정(auto-calibration) 설정. 첫 설치 후 각 Flow 가 이상치 제외 클린사이클을
+/// <see cref="MinCleanCycles"/> 개 이상 모으면, 그 Flow 의 디바이스(Device Work) Duration/Min/MaxDuration 을
+/// 실측값으로 1회 자동 채운다(<see cref="Services.AutoCalibrationService"/>). 공식:
+///   Duration = round(mean), Max = round(measMax × (1 + <see cref="MarginMaxPct"/>)),
+///   Min(<see cref="FillMin"/>=true 일 때만) = round(measMin × (1 − <see cref="MarginMinPct"/>)).
+/// <see cref="CompletedAt"/> 가 1회성 플래그 — Production.json 에 영속되어 재설치/재시작 시 보존된다.
+/// </summary>
+public class AutoCalibrationSettings
+{
+    /// <summary>자동 보정 사용 여부. 끄면 백그라운드 자동 실행은 멈추지만 수동 "지금 실측값 채우기" 는 동작한다.</summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>이 개수 이상의 이상치 제외 클린사이클(IsIdle=0 AND CT NOT NULL)을 모은 Flow 만 보정한다. 기본 10.</summary>
+    public int MinCleanCycles { get; set; } = 10;
+
+    /// <summary>MaxDuration 보정율(분수). Max = round(실측 최대 × (1 + 이 값)). 기본 0.05(=+5%).</summary>
+    public double MarginMaxPct { get; set; } = 0.05;
+
+    /// <summary>true 일 때만 MinDuration 을 실측값으로 기록(false 면 기존값 보존). 기본 false.</summary>
+    public bool FillMin { get; set; } = false;
+
+    /// <summary>MinDuration 보정율(분수). Min = round(실측 최소 × (1 − 이 값)). 기본 0.03(=−3%, max 보다 작게).</summary>
+    public double MarginMinPct { get; set; } = 0.03;
+
+    /// <summary>
+    /// 자동 보정을 1회 실행 완료한 UTC 시각(1회성 트리거 플래그). null 이면 아직 미실행 — Enabled &amp;&amp; CompletedAt==null
+    /// 일 때만 자동 실행한다. 최초 성공 시 한 번만 채워져 재시작 시 재실행을 막는다(새 PC 는 Production.json 이 없어
+    /// null 이라 다시 실행). 이후 수동 재실행으로 다시 기록해도 이 값은 바뀌지 않는다(아래 <see cref="LastAppliedAt"/> 가 갱신).
+    /// </summary>
+    public DateTime? CompletedAt { get; set; } = null;
+
+    /// <summary>
+    /// 마지막으로 실제 project.aasx 에 실측 duration 을 기록한 UTC 시각. 자동/수동 무관히 적용될 때마다 갱신된다
+    /// (= AASX 가 실측값으로 수정된 시각). <see cref="CompletedAt"/>(최초 1회 고정)과 달리 매 적용마다 최신화 — 설정
+    /// 페이지가 "마지막 실측 적용" 으로 표시한다. null 이면 아직 한 번도 기록되지 않음.
+    /// </summary>
+    public DateTime? LastAppliedAt { get; set; } = null;
+
+    /// <summary>마지막 적용 요약(예: "Flow 2/3개 보정, 디바이스 5건 기록 [...]"). 표시용. 미기록이면 null.</summary>
+    public string? LastAppliedSummary { get; set; } = null;
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }
 
 /// <summary>

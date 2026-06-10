@@ -496,7 +496,7 @@ let ``AddCallsWithDevice rejects empty Call name`` () =
 [<Fact>]
 let ``AddCallWithLinkedApiDefs rejects empty DevicesAlias or ApiName`` () =
     let store = createStore()
-    let project, system, _, work = setupBasicHierarchy store
+    let _project, system, _, work = setupBasicHierarchy store
     let apiDef = addApiDef store "ADV" system.Id
     Assert.Throws<System.InvalidOperationException>(fun () ->
         store.AddCallWithLinkedApiDefs(work.Id, "", "ADV", [ apiDef.Id ]) |> ignore) |> ignore

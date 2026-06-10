@@ -1,0 +1,43 @@
+<UserControl x:Class="Promaker.Dock.DockHost"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ad="https://github.com/Dirkster99/AvalonDock">
+    <!--
+        PR-A6 — Simulation dock 삭제 + 하단 단일 pane 통합.
+        외곽: LayoutPanel(Horizontal)
+          ├─ Left  : _leftPane (LayoutAnchorablePane, DockWidth=320) — Explorer
+          ├─ Center: LayoutPanel(Vertical)
+          │           ├─ LayoutDocumentPaneGroup
+          │           │   └─ _documentPane — Welcome / Canvas
+          │           └─ _bottomPane (LayoutAnchorablePane, DockHeight=200) — Log / Gantt Chart / Status Monitor (tabbed)
+          └─ Right : LayoutAnchorablePaneGroup(Vertical, DockWidth=280)
+                      ├─ _rightTopPane    — Properties
+                      ├─ _rightMiddlePane — History (DockHeight=220)
+                      └─ _rightBottomPane — LlmChat
+    -->
+    <ad:DockingManager x:Name="_dockManager"
+                       AllowMixedOrientation="True"
+                       BorderThickness="0">
+        <ad:LayoutRoot>
+            <ad:LayoutPanel Orientation="Horizontal">
+
+                <ad:LayoutAnchorablePane x:Name="_leftPane" DockWidth="320"/>
+
+                <ad:LayoutPanel Orientation="Vertical">
+                    <ad:LayoutDocumentPaneGroup>
+                        <ad:LayoutDocumentPane x:Name="_documentPane"/>
+                    </ad:LayoutDocumentPaneGroup>
+
+                    <ad:LayoutAnchorablePane x:Name="_bottomPane" DockHeight="200"/>
+                </ad:LayoutPanel>
+
+                <ad:LayoutAnchorablePaneGroup Orientation="Vertical" DockWidth="280">
+                    <ad:LayoutAnchorablePane x:Name="_rightTopPane"/>
+                    <ad:LayoutAnchorablePane x:Name="_rightMiddlePane" DockHeight="220"/>
+                    <ad:LayoutAnchorablePane x:Name="_rightBottomPane"/>
+                </ad:LayoutAnchorablePaneGroup>
+
+            </ad:LayoutPanel>
+        </ad:LayoutRoot>
+    </ad:DockingManager>
+</UserControl>

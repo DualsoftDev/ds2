@@ -53,7 +53,6 @@ public sealed class SimulationPanelStateTests
                 SystemName = "SystemA",
                 State = Status4.Going
             });
-            state.SimEventLog.Add(new SimLogEntry("log"));
             state.SimWorkItems.Add(new SimWorkItem(workId, "Work1"));
             state.SelectedSimWork = state.SimWorkItems[0];
             state.GanttChart.AddEntry(workId, "Work1", EntityKind.Work);
@@ -66,7 +65,6 @@ public sealed class SimulationPanelStateTests
             Assert.Equal(1.0, state.SimSpeed);
             Assert.Null(state.SelectedSimWork);
             Assert.Empty(state.SimNodes);
-            Assert.Empty(state.SimEventLog);
             Assert.Empty(state.SimWorkItems);
             Assert.Empty(state.GanttChart.Entries);
         });

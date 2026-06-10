@@ -166,16 +166,6 @@
 <body>
     <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="callTestApp()" x-init="init()" x-cloak>
 
-        <!-- 데모 만료 -->
-        <div class="modal-overlay" x-show="demoBlocked" style="z-index:3000;">
-            <div class="modal-content demo-blocked-card" style="max-width:480px;">
-                <span class="material-icons demo-blocked-icon">hourglass_disabled</span>
-                <h3>DEMO 만료</h3>
-                <p>데모 사용 시간(3시간)이 종료되었습니다.</p>
-                <p>서비스 관리자에게 문의해 주세요.</p>
-            </div>
-        </div>
-
         <!-- fallback 슬림 헤더 (shell.js 가 제거) -->
         <header class="dsp-appbar">
             <span class="dsp-title">사이클 분석</span>
@@ -489,7 +479,7 @@
                 flows: [], selectedFlow: '',
                 startTime: '', endTime: '',
                 isLoading: false, overlayBusy: false, errorMessage: null,
-                dark: false, demoBlocked: false,
+                dark: false,
                 // 과거 history 재계산: 적용 시 항상 이 Flow 전체 이력을 새 경계로 재도출(백그라운드, 진행률 폴링).
                 recomputeBusy: false, recomputeMsg: '', recomputeError: false,
 
@@ -547,7 +537,7 @@
                             const flowParam = new URLSearchParams(location.search).get('flow');
                             this.selectedFlow = (flowParam && this.flows.includes(flowParam)) ? flowParam : this.flows[0];
                         }
-                    } catch (e) { if (e.message !== 'demo-blocked') this.errorMessage = 'Flow 목록 로딩 실패: ' + e.message; }
+                    } catch (e) { this.errorMessage = 'Flow 목록 로딩 실패: ' + e.message; }
 
                     // 기본 시간범위 (최신-5분 ~ 최신)
                     try {
@@ -617,13 +607,11 @@
 
                 async apiGet(url) {
                     const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     return await res.json();
                 },
                 async apiPost(url, body) {
                     const res = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     return await res.json();
                 },
@@ -723,7 +711,7 @@
                         await this.pollRecomputeStatus();    // 백그라운드 잡 완료까지 진행률 폴링
                         await this.load();                   // 화면 갱신 → 재계산된 history·대시보드와 1:1
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') this.errorMessage = failLabel + ': ' + e.message;
+                        this.errorMessage = failLabel + ': ' + e.message;
                         this.recomputeMsg = '';
                     } finally { this.overlayBusy = false; }
                 },
@@ -803,7 +791,6 @@
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(this.buildExportModel())
                         });
-                        if (res.status === 503) { this.demoBlocked = true; return; }
                         if (!res.ok) throw new Error('HTTP ' + res.status);
                         let fn = this.excelFileName();
                         const cd = res.headers.get('Content-Disposition');
@@ -845,7 +832,7 @@
                         const d = await this.apiPost('/api/call-test/load', body);
                         this.applyLoadResult(d);
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') this.errorMessage = '데이터 로딩 실패: ' + e.message;
+                        this.errorMessage = '데이터 로딩 실패: ' + e.message;
                     } finally {
                         this.isLoading = false;
                     }
@@ -1095,7 +1082,7 @@
                         this.avgActiveMs = d.avgActiveMs ?? null;
                         this.svgMarkup = this.buildSvg();
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') this.errorMessage = '오버레이 갱신 실패: ' + e.message;
+                        this.errorMessage = '오버레이 갱신 실패: ' + e.message;
                     } finally {
                         this.overlayBusy = false;
                     }

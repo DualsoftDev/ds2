@@ -253,7 +253,6 @@ public partial class SimulationPanelState
             Report.Clear();
             _suppressedWarnings.Clear();
             _stepPrimingDone = false;
-            SimEventLog.Clear();
 
             GanttChart.Reset(_simStartTime);
             InitGanttEntries();

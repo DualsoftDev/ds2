@@ -31,11 +31,15 @@ public partial class MainWindow : Window
     // 한쪽 방향 처리 중에 다른 방향 raise 가 와도 무시 (loop 차단).
     private bool _suppressAnchorSync;
 
-    // PR-D6 — dock layout 영속화 경로. `%LOCALAPPDATA%\Promaker\dock-layout.xml`.
-    // 사용자 의도 verbatim 박제 (todo-dock-devexpress.md §3 PR-D6): "%LOCALAPPDATA%\Promaker\dock-layout.xml".
+    // PR-A3 — AvalonDock 재교체에 따른 layout xml schema 변경. 구 `dock-layout.xml` (DX <XtraSerializer>
+    // 포맷) 과 충돌 회피 위해 파일명에 -v2 suffix 추가. 구 파일은 그대로 두고(touch 안 함) 새 파일을 별도 사용:
+    //   - 처음 실행: -v2 파일 없음 → XAML 박제 default layout 으로 시작 (안전한 fresh start).
+    //   - 종료 시: SaveLayout 이 -v2 파일에 AvalonDock 포맷으로 저장.
+    //   - 이후 실행: -v2 파일을 RestoreLayout 가 읽어 사용자 dock 변경 보존.
+    // 향후 layout schema 변경 시 -v3 등으로 bump.
     private static readonly string LayoutXmlPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "Promaker", "dock-layout.xml");
+        "Promaker", "dock-layout-v2.xml");
 
     // --review mn5 — 5 standard anchor (explorer/simulation/properties/history/log) 의 (contentId, vmProp, get, set)
     // 통합 table. Vm_PropertyChanged / DockHost_AnchorVisibilityChanged / RestoreDockLayoutAndSyncVm 의 switch+magic
@@ -48,40 +52,42 @@ public partial class MainWindow : Window
         InitializeComponent();
         DataContext = _vm;
 
-        // --review mn5 — anchor sync table (5 standard anchor, LlmChat 별도). ContentId / VmProperty 의 단일 source.
+        // PR-A6 — anchor sync table. Simulation dock 삭제 + Gantt / StatusMonitor 독립화.
+        //   - Gantt + StatusMonitor 는 HasProject 게이트만 공유하므로 동일 VM 플래그(IsSimulationVisible)에 매핑.
         _anchorSyncs = new[]
         {
-            new AnchorSync("explorer",   nameof(MainViewModel.IsExplorerVisible),   () => _vm.IsExplorerVisible,   v => _vm.IsExplorerVisible   = v),
-            new AnchorSync("simulation", nameof(MainViewModel.IsSimulationVisible), () => _vm.IsSimulationVisible, v => _vm.IsSimulationVisible = v),
-            new AnchorSync("properties", nameof(MainViewModel.IsPropertiesVisible), () => _vm.IsPropertiesVisible, v => _vm.IsPropertiesVisible = v),
-            new AnchorSync("history",    nameof(MainViewModel.IsHistoryVisible),    () => _vm.IsHistoryVisible,    v => _vm.IsHistoryVisible    = v),
-            new AnchorSync("log",        nameof(MainViewModel.IsLogVisible),        () => _vm.IsLogVisible,        v => _vm.IsLogVisible        = v),
+            new AnchorSync("explorer",      nameof(MainViewModel.IsExplorerVisible),   () => _vm.IsExplorerVisible,   v => _vm.IsExplorerVisible   = v),
+            new AnchorSync("gantt",         nameof(MainViewModel.IsSimulationVisible), () => _vm.IsSimulationVisible, v => _vm.IsSimulationVisible = v),
+            new AnchorSync("statusMonitor", nameof(MainViewModel.IsSimulationVisible), () => _vm.IsSimulationVisible, v => _vm.IsSimulationVisible = v),
+            new AnchorSync("properties",    nameof(MainViewModel.IsPropertiesVisible), () => _vm.IsPropertiesVisible, v => _vm.IsPropertiesVisible = v),
+            new AnchorSync("history",       nameof(MainViewModel.IsHistoryVisible),    () => _vm.IsHistoryVisible,    v => _vm.IsHistoryVisible    = v),
+            new AnchorSync("log",           nameof(MainViewModel.IsLogVisible),        () => _vm.IsLogVisible,        v => _vm.IsLogVisible        = v),
         };
 
-        // PR-D4 — 5 anchor + 2 document 등록. PR-D3 의 IDockManager (DockHost) API 사용.
-        // ContentId / Title / Content / DefaultPosition 매핑은 done-dock-devexpress.md §3 PR-D3 + §9 PR-D3 spike API 박제.
+        // PR-A6 — Simulation dock 삭제. 하단 단일 pane 에 Log(첫 탭) / Gantt Chart / Status Monitor 3개를 tabbed 로 등록.
         var explorerPane = new ExplorerPane();
-        var simulationPanel = new SimulationPanel { DataContext = _vm.Simulation };
+        var ganttChart   = new GanttChartControl { DataContext = _vm.Simulation.GanttChart };
+        var statusMonitor = new StatusMonitorPanel { DataContext = _vm.Simulation };
         var propertyPanel = new PropertyPanel { DataContext = _vm.PropertyPanel };
         var historyPanel = new HistoryPanel();
-        var llmChatPanel = new System.Windows.Controls.ContentControl();
-        llmChatPanel.SetBinding(System.Windows.Controls.ContentControl.ContentProperty,
-            new System.Windows.Data.Binding(nameof(MainViewModel.LlmChatVm)));
         var welcomeView = new WelcomeView();
         _workspacePane = new SplitCanvasContainer { MinHeight = 120 };
 
-        // PR-D9 (MJ2 복구) — baseline AvalonDock 의 explorer/properties/history 3 anchor caption Help 버튼 복구.
-        // HasHelp:true 시 DockHost 가 BaseLayoutItem.CaptionTemplate (AnchorCaptionWithHelp) 적용 + 클릭 시
-        // AnchorHelpRequested event 발화 → DockHost_AnchorHelpRequested 핸들러가 HelpNavigator 호출.
-        dockHost.RegisterAnchor(new DockAnchor("explorer",   "Explorer",   explorerPane,        DockAnchorPosition.Left,        HasHelp: true));
-        dockHost.RegisterAnchor(new DockAnchor("simulation", "Simulation", simulationPanel,     DockAnchorPosition.BottomLeft));
-        dockHost.RegisterAnchor(new DockAnchor("log",        "Log",        new AppLogView(),    DockAnchorPosition.BottomRight));
-        dockHost.RegisterAnchor(new DockAnchor("properties", "Properties", propertyPanel,       DockAnchorPosition.RightTop,    HasHelp: true));
-        dockHost.RegisterAnchor(new DockAnchor("history",    "History",    historyPanel,        DockAnchorPosition.RightMiddle, HasHelp: true));
-        dockHost.RegisterAnchor(new DockAnchor("llmchat",    "LLM Chat",   llmChatPanel,        DockAnchorPosition.RightBottom));
+        dockHost.RegisterAnchor(new DockAnchor("explorer",      "Explorer",       explorerPane,    DockAnchorPosition.Left));
+        // 하단 tabbed 순서: Log → Gantt Chart → Status Monitor. 첫 등록 anchor 가 활성 탭 (Log).
+        dockHost.RegisterAnchor(new DockAnchor("log",           "Log",            new AppLogView(),DockAnchorPosition.Bottom));
+        dockHost.RegisterAnchor(new DockAnchor("gantt",         "Gantt Chart",    ganttChart,      DockAnchorPosition.Bottom));
+        dockHost.RegisterAnchor(new DockAnchor("statusMonitor", "Status Monitor", statusMonitor,   DockAnchorPosition.Bottom));
+        dockHost.RegisterAnchor(new DockAnchor("properties",    "Properties",     propertyPanel,   DockAnchorPosition.RightTop));
+        dockHost.RegisterAnchor(new DockAnchor("history",       "History",        historyPanel,    DockAnchorPosition.RightMiddle));
 
         dockHost.RegisterDocument(new DockAnchor("welcome", "Welcome",   welcomeView,      DockAnchorPosition.Document));
         dockHost.RegisterDocument(new DockAnchor("canvas",  "Workspace", _workspacePane,   DockAnchorPosition.Document));
+
+        // PR-A3 — 모든 Register* 직후, 어떤 visibility 조작도 가하기 전에 default layout 스냅샷 캡쳐.
+        // 이후 설정 다이얼로그 '레이아웃 초기화' 버튼이 ResetDockLayoutToDefault() → dockHost.ResetToDefaultLayout()
+        // 로 본 스냅샷을 즉시 복원 (재시작 불요).
+        dockHost.CaptureDefaultLayout();
 
         // PR-D5 — VM SSOT ↔ DockHost 양방향 wiring.
         //   VM → DockHost : VM.PropertyChanged 의 IsXxxVisible / IsLlmChatVisible / HasProject 에 반응.
@@ -89,8 +95,7 @@ public partial class MainWindow : Window
         // 양방향 _suppressAnchorSync 가드로 loop 차단 (F3 박제).
         _vm.PropertyChanged += Vm_PropertyChanged;
         dockHost.AnchorVisibilityChanged += DockHost_AnchorVisibilityChanged;
-        // PR-D9 (MJ2 복구) — anchor caption Help 버튼 click → HelpNavigator hook.
-        dockHost.AnchorHelpRequested += DockHost_AnchorHelpRequested;
+        // PR-A4 — anchor caption Help 뱃지 삭제. AnchorHelpRequested 구독 제거 (도움말은 리본 버튼 → HelpNavigator 직접).
 
         // 초기 동기화 — HasProject 의 현재 값에 따라 Welcome ↔ Canvas 즉시 설정.
         // done-dock-devexpress.md §3 PR-D5 (HasProject 토글): HasProject=false → Welcome 보임 / Canvas 숨김, true → 역전.
@@ -112,9 +117,7 @@ public partial class MainWindow : Window
     {
         if (_suppressAnchorSync) return;
 
-        // HasProject / LlmChat 은 특수 처리 (baseline 박제 / Welcome↔Canvas swap), 나머지 5 anchor 는 table lookup.
         if (e.PropertyName == nameof(MainViewModel.HasProject)) { SyncWelcomeCanvasVisibility(); return; }
-        if (e.PropertyName == nameof(MainViewModel.IsLlmChatVisible)) { ApplyAnchorVisible("llmchat", _vm.IsLlmChatVisible); return; }
 
         foreach (var b in _anchorSyncs)
             if (b.VmPropertyName == e.PropertyName) { ApplyAnchorVisible(b.ContentId, b.Get()); return; }
@@ -137,8 +140,7 @@ public partial class MainWindow : Window
         _suppressAnchorSync = true;
         try
         {
-            // LlmChat 별도 (baseline §5), welcome/canvas 는 HasProject SSOT 일방 관리라 무시, 나머지 5 anchor table lookup.
-            if (e.ContentId == "llmchat") { _vm.IsLlmChatVisible = e.IsVisible; return; }
+            // welcome/canvas 는 HasProject SSOT 일방 관리라 무시, 나머지 5 anchor table lookup.
             foreach (var b in _anchorSyncs)
                 if (b.ContentId == e.ContentId) { b.Set(e.IsVisible); return; }
         }
@@ -197,22 +199,19 @@ public partial class MainWindow : Window
     /// </summary>
     private void RestoreDockLayoutAndSyncVm()
     {
+        // PR-A3 — RestoreLayout 복구. 단, layout xml 경로는 -v2 로 bump 되어(LayoutXmlPath 참조) 구 DX 포맷 파일은
+        // 자동으로 무시됨. 새 버전 (AvalonDock) 으로 저장한 -v2 파일만 복원 대상이라 schema 충돌이 발생하지 않음.
+        // 처음 실행 시는 -v2 파일이 없어 RestoreLayout 가 silent skip → XAML 박제 default layout 으로 시작.
         _suppressAnchorSync = true;
         try
         {
             dockHost.RestoreLayout(LayoutXmlPath);
 
-            // 5 anchor — Restore 결과를 VM property 로 강제 sync. mn5 table iterate (magic string 중복 제거).
+            // 5 anchor — Restore 결과를 VM property 로 강제 sync.
             foreach (var b in _anchorSyncs)
                 b.Set(dockHost.IsAnchorVisible(b.ContentId));
 
-            // LlmChat — baseline 박제 §5 (consent 흐름 + LlmChatVm lazy 생성) 보존 의무 → Restore 결과 무시.
-            // Restore 가 llmchat=Closed=false (visible) 로 복원했더라도 LlmChatVm 은 아직 null 일 수 있고,
-            // consent 검사도 통과 안 됨. 사용자 click 시 ToggleLlmChat 가 정상 흐름 (consent + lazy 생성) 진입.
-            dockHost.SetAnchorVisible("llmchat", false);
-            _vm.IsLlmChatVisible = false;
-
-            // Welcome / Canvas — HasProject SSOT 가 일방 관리. Restore 결과를 무시하고 현재 HasProject 로 재적용.
+            // Welcome / Canvas — HasProject SSOT 가 일방 관리. Restore 결과 무시 + 현재 HasProject 로 재적용.
             SyncWelcomeCanvasVisibilityNoGuard();
         }
         finally { _suppressAnchorSync = false; }
@@ -231,11 +230,12 @@ public partial class MainWindow : Window
         dockHost.SetAnchorVisible("welcome", !hasProject);
         dockHost.SetAnchorVisible("canvas", hasProject);
 
-        // 4 anchor 도 HasProject 따라 자동 show/hide.
+        // 5 anchor 도 HasProject 따라 자동 show/hide. PR-A6 — simulation 단일 anchor → gantt + statusMonitor 분리.
         dockHost.SetAnchorVisible("explorer", hasProject);
         dockHost.SetAnchorVisible("properties", hasProject);
         dockHost.SetAnchorVisible("history", hasProject);
-        dockHost.SetAnchorVisible("simulation", hasProject);
+        dockHost.SetAnchorVisible("gantt", hasProject);
+        dockHost.SetAnchorVisible("statusMonitor", hasProject);
         _vm.IsExplorerVisible = hasProject;
         _vm.IsPropertiesVisible = hasProject;
         _vm.IsHistoryVisible = hasProject;
@@ -249,69 +249,45 @@ public partial class MainWindow : Window
         _vm.IsToolbarSimulationVisible = hasProject;
     }
 
-    private bool _llmChatDisposed;
-
     /// <summary>
-    /// 1d-5/1d-4 D — 명시적 cleanup 패턴: 첫 진입 시 close cancel + Dispose 후 Close() 재호출,
-    /// 두 번째 진입 시 (`_llmChatDisposed=true`) 통과. async void Closed fire-and-forget 회피.
-    ///
-    /// Hot-fix-9 v2: 한 번 X 클릭만으로 발생하는 IsClosing race —
-    /// `e.Cancel = true` 후 await 이 끝난 시점에 같은 close 사이클의 `IsClosing` 가 아직 남아있어
-    /// `Close()` 가 `VerifyNotClosing` throw. v1 의 try/catch 는 throw 를 흡수만 해서 첫 X 무반응 → 두 번째 X
-    /// 시 _llmChatDisposed=true 분기로 close. 정확한 fix = `Dispatcher.BeginInvoke(Close, Background)` 로
-    /// 다음 message pump cycle 에 close 큐 → WPF 가 첫 close 사이클 정리 끝낸 후 background priority 로 실행.
+    /// PR-A3 — 설정 다이얼로그 '레이아웃 초기화' 진입점. dockHost 의 default 스냅샷으로 즉시 복원 +
+    /// 현재 HasProject 기준 visibility 재동기화. 재시작 불요. Window_Closing 의 SaveLayout 가 본 상태를 그대로 저장.
     /// </summary>
-    private async void Window_Closing(object sender, CancelEventArgs e)
+    public void ResetDockLayoutToDefault()
     {
-        // 두 번째 진입(BeginInvoke 로 재큐된 Close)은 이미 confirm/dispose 완료 — 그대로 통과.
-        // 가드를 confirm 보다 앞에 두지 않으면 IsDirty 상태에 따라 저장 확인 다이얼로그가 2번 표시될 수 있음.
-        if (_llmChatDisposed) return;
+        _suppressAnchorSync = true;
+        try
+        {
+            dockHost.ResetToDefaultLayout();
+            SyncWelcomeCanvasVisibilityNoGuard();
+            // LlmChat 은 RegisterAnchor 가 lazy/consent 흐름 (baseline §5) 으로 별도 처리되므로 본 reset 시 강제 토글 안 함.
+        }
+        finally { _suppressAnchorSync = false; }
+    }
 
-        // Monitoring + 실 PLC 상태로 동작 중이어도 Promaker WPF 는 그대로 닫는다 — 모니터링은
-        // Promaker.Agent (Windows Service) 가 별도 컨텍스트에서 계속 진행하고, 사용자에게는
-        // Promaker.AgentTray 가 상태/제어를 제공한다. WPF 창 = 편집 UI, 닫혀도 모니터링은 유지.
+    private bool _closeConfirmed;
 
-        // --autostart-llm 측정 모드 = mutation 변경 자동 폐기 (Closing dialog skip).
-        // 측정 끝난 후 fsx 가 CloseMainWindow 보내면 dialog 없이 진행 → log4net flush + DisposeLlmChatAsync 정상.
-        if (!App.StartupAutoOpenLlm && !_vm.ConfirmDiscardChangesPublic())
+    private void Window_Closing(object sender, CancelEventArgs e)
+    {
+        if (_closeConfirmed) return;
+
+        if (!_vm.ConfirmDiscardChangesPublic())
         {
             e.Cancel = true;
             return;
         }
 
-        e.Cancel = true;
-        _llmChatDisposed = true;
-
-        // PR-D6 — 사용자 의도 verbatim: "`Window_Closing` 의 `_llmChatDisposed=true` 직후 Save".
-        // `%LOCALAPPDATA%\Promaker\dock-layout.xml` 박제. 상위 디렉토리는 DockHost.SaveLayout 안에서 자동 생성.
+        _closeConfirmed = true;
         dockHost.SaveLayout(LayoutXmlPath);
-
-        await _vm.DisposeLlmChatAsync();
-        // 다음 message pump cycle 에서 close. 같은 cycle 안 Close() 는 IsClosing race 로 throw 가능.
-        // fire-and-forget 의도 — DispatcherOperation 결과 무시.
-        _ = Dispatcher.BeginInvoke(new Action(Close), System.Windows.Threading.DispatcherPriority.Background);
     }
 
     private void MainWindow_Closed(object? sender, EventArgs e)
     {
-        // LlmChat dispose 는 Window_Closing 에서 await 완료됨 (1d-4 D 정석 패턴).
-        // 단일 메인 윈도우라 실 누수 0이나 ctor 의 += 대칭 해제 패턴 유지 (--review MJ4 박제).
         _vm.PropertyChanged -= Vm_PropertyChanged;
         dockHost.AnchorVisibilityChanged -= DockHost_AnchorVisibilityChanged;
-        dockHost.AnchorHelpRequested -= DockHost_AnchorHelpRequested;
         ThemeManager.ThemeChanged -= ThemeManager_ThemeChanged;
     }
 
-    /// <summary>
-    /// PR-D9 (MJ2 복구) — DockHost 의 anchor caption Help 버튼 click → Promaker.Help.HelpNavigator 호출.
-    /// baseline AvalonDock 의 AnchorableHeaderTemplate/AnchorableTitleTemplate 의 Help Button 의
-    /// <c>Command={x:Static help:HelpNavigator.NavigateCommand}</c> /
-    /// <c>CommandParameter={Binding ContentId}</c> 박제 동작을 DX BaseLayoutItem.CaptionTemplate +
-    /// AnchorHelpRequested event 로 이식.
-    /// </summary>
-    private void DockHost_AnchorHelpRequested(object? sender, string contentId)
-    {
-        Promaker.Help.HelpNavigator.NavigateCommand.Execute(contentId);
-    }
+    // PR-A4 — DockHost_AnchorHelpRequested 핸들러 제거. 도움말은 리본 우상단 단일 버튼이 HelpNavigator.NavigateCommand 를 직접 실행.
 
 }

@@ -137,16 +137,6 @@
 <body>
     <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="heatmapApp()" x-init="init()" x-cloak>
 
-        <!-- 데모 만료 안내 (정적 셸은 demo 게이트 short-circuit 대상이지만, /api 는 503 → 그때 표시) -->
-        <div class="modal-overlay" x-show="demoBlocked" style="z-index:2000;">
-            <div class="modal-content demo-blocked-card" style="max-width:480px;">
-                <span class="material-icons demo-blocked-icon">hourglass_disabled</span>
-                <h3>DEMO 만료</h3>
-                <p>데모 사용 시간(3시간)이 종료되었습니다.</p>
-                <p>서비스 관리자에게 문의해 주세요.</p>
-            </div>
-        </div>
-
         <!-- fallback 슬림 헤더 (shell.js 가 제거) -->
         <header class="dsp-appbar">
             <span class="dsp-title">동작편차</span>
@@ -462,7 +452,6 @@
                 allGroups: [],
                 loading: true,
                 error: null,
-                demoBlocked: false,
                 flowFilter: '',
                 viewMode: 'matrix', // 'matrix'(flow-call 블럭 매트릭스) | 'table'(정렬 표) — 한 번에 하나만
                 sortField: 'cv',
@@ -489,7 +478,6 @@
 
                 async apiGet(url) {
                     const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     return await res.json();
                 },
@@ -513,7 +501,7 @@
                             await this.closeModal();
                         }
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') this.error = '데이터를 불러오지 못했습니다: ' + e.message;
+                        this.error = '데이터를 불러오지 못했습니다: ' + e.message;
                         this.allGroups = [];
                     } finally {
                         this.loading = false;
@@ -640,7 +628,7 @@
                         this.callHistory = await this.apiGet(`/api/heatmap/call-history?callId=${encodeURIComponent(this.selectedCall.callId)}&period=${this.historyPeriod}`);
                         await this.renderChart();
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') console.error('history load failed', e);
+                        console.error('history load failed', e);
                         this.callHistory = [];
                     } finally {
                         this.isChartLoading = false;

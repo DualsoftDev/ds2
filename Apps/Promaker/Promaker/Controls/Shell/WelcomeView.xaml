@@ -58,7 +58,7 @@
                 <StackPanel Orientation="Horizontal">
                     <iconPacks:PackIconMaterial Kind="FileImport" Width="16" Height="16" Margin="0,0,6,0"
                           Foreground="{DynamicResource AccentBrush}"/>
-                    <TextBlock Text="파일(PLC, CSV)로부터 모델 만들기" VerticalAlignment="Center"/>
+                    <TextBlock Text="CSV 로부터 모델 만들기" VerticalAlignment="Center"/>
                 </StackPanel>
             </Button>
         </StackPanel>

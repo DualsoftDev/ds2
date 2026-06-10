@@ -89,7 +89,8 @@
             { label: '가동시간·이상', href: '/uptime',            icon: 'monitor_heart',   match: 'prefix', legacy: '/app/uptime.html' },
             // OEE 메뉴 숨김 — 페이지(/oee)는 URL 로 접근 가능, 네비에서만 제외. 복구는 이 줄 주석 해제.
             // { label: 'OEE',         href: '/oee',                 icon: 'precision_manufacturing', match: 'prefix', legacy: '/app/oee.html' },
-            { label: 'CCTV',        href: '/cctv',                icon: 'videocam',        match: 'prefix', legacy: '/app/cctv.html' }
+            // CCTV 메뉴 숨김 — 실시간 시청은 대시보드 레이아웃 카드의 'CCTV' 토글에서 사용. /cctv 는 설정(카메라·오버레이 편집) 페이지로 URL/[설정] 버튼 접근. 복구는 이 줄 주석 해제.
+            // { label: 'CCTV',        href: '/cctv',                icon: 'videocam',        match: 'prefix', legacy: '/app/cctv.html' }
         ];
         var PLC_DEBUG_ITEM = { label: 'PLC 디버그', href: '/plc-debug', icon: 'bug_report', match: 'prefix', legacy: '/app/plc-debug.html' };
         var SETTINGS_ITEM = { label: '설정', href: '/settings', icon: 'settings', match: 'prefix', legacy: '/app/settings.html' };
@@ -373,15 +374,6 @@
         agPopover.appendChild(agPopCard);
         document.body.appendChild(agPopover);
 
-        // ── 데모 모드 배지 (실시간 배지 왼쪽) — 데모(바이패스 OFF)일 때만 표시 ──
-        //   liveBadge 보다 먼저 headRight 에 추가 → flex 행에서 왼쪽에 위치.
-        var demoBadge = el('span', 'dash-live');
-        demoBadge.style.cssText = 'display:none;color:var(--color-warning);border-color:color-mix(in srgb, var(--color-warning) 50%, transparent);';
-        demoBadge.title = '데모 모드 — 제한 시간 동작 중';
-        demoBadge.appendChild(el('span', 'dash-live-dot'));
-        demoBadge.appendChild(el('span', null, 'DEMO'));
-        headRight.appendChild(demoBadge);
-
         var liveBadge = el('span', 'dash-live is-poll');
         liveBadge.style.cursor = 'pointer';
         liveBadge.setAttribute('role', 'button');
@@ -456,45 +448,76 @@
         //   MOBILE_BP 미만에서 사이드바가 -SHELL_W 로 숨겨지고, 햄버거 클릭 시 슬라이드 인.
         //   데스크톱으로 복귀 시 aside/main 원위치, 오버레이 제거.
         var drawerOpen = false;
+        // 데스크톱(>=MOBILE_BP) 접힘 상태 — localStorage 영속(탭/페이지 공유). 모바일은 drawerOpen 사용.
+        var deskCollapsed = localStorage.getItem('dspilot-nav-collapsed') === '1';
         var overlay = document.createElement('div');
         overlay.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:49;';
         document.body.appendChild(overlay);
+
+        function setMenuIcon(name, labelOpen) {
+            var ic = menuBtn.querySelector('.material-icons');
+            if (ic) ic.textContent = name;
+            menuBtn.setAttribute('aria-label', labelOpen ? '메뉴 열기' : '메뉴 닫기');
+        }
 
         function openDrawer() {
             drawerOpen = true;
             aside.style.left = '0';
             overlay.style.display = 'block';
-            var ic = menuBtn.querySelector('.material-icons');
-            if (ic) ic.textContent = 'close';
-            menuBtn.setAttribute('aria-label', '메뉴 닫기');
+            setMenuIcon('close', false);
         }
         function closeDrawer() {
             drawerOpen = false;
             aside.style.left = '-' + SHELL_W + 'px';
             overlay.style.display = 'none';
-            var ic = menuBtn.querySelector('.material-icons');
-            if (ic) ic.textContent = 'menu';
-            menuBtn.setAttribute('aria-label', '메뉴 열기');
+            setMenuIcon('menu', true);
         }
         overlay.addEventListener('click', closeDrawer);
         menuBtn.addEventListener('click', function (e) {
             e.stopPropagation();
-            if (drawerOpen) closeDrawer(); else openDrawer();
+            if (window.innerWidth < MOBILE_BP) {
+                // 모바일: 드로어 열기/닫기
+                if (drawerOpen) closeDrawer(); else openDrawer();
+            } else {
+                // 데스크톱: 사이드바 접기/펼치기(영속)
+                deskCollapsed = !deskCollapsed;
+                localStorage.setItem('dspilot-nav-collapsed', deskCollapsed ? '1' : '0');
+                applyLayout();
+            }
         });
 
+        var _layoutInit = false;
         function applyLayout() {
+            // 부드러운 전환(접힘/펼침 모두). 초기 1회는 깜빡임 방지를 위해 transition 비활성.
+            if (_layoutInit) {
+                aside.style.transition = 'left 0.22s ease';
+                main.style.transition = 'margin-left 0.22s ease';
+            } else {
+                aside.style.transition = '';
+                main.style.transition = '';
+                _layoutInit = true;
+            }
             if (window.innerWidth < MOBILE_BP) {
+                // 모바일: 드로어 모드. menuBtn = 햄버거.
                 menuBtn.style.display = '';
                 main.style.marginLeft = '0';
-                aside.style.transition = 'left 0.22s ease';
                 if (!drawerOpen) aside.style.left = '-' + SHELL_W + 'px';
+                else aside.style.left = '0';
+                setMenuIcon(drawerOpen ? 'close' : 'menu', !drawerOpen);
             } else {
-                menuBtn.style.display = 'none';
-                main.style.marginLeft = SHELL_W + 'px';
-                aside.style.left = '0';
-                aside.style.transition = '';
+                // 데스크톱: 접힘 토글. menuBtn = 접기/펼치기.
+                menuBtn.style.display = '';
                 overlay.style.display = 'none';
                 drawerOpen = false;
+                if (deskCollapsed) {
+                    aside.style.left = '-' + SHELL_W + 'px';
+                    main.style.marginLeft = '0';
+                    setMenuIcon('menu', true);
+                } else {
+                    aside.style.left = '0';
+                    main.style.marginLeft = SHELL_W + 'px';
+                    setMenuIcon('menu_open', false);
+                }
             }
         }
         window.addEventListener('resize', applyLayout);
@@ -583,18 +606,43 @@
         pollSummary();
         setInterval(pollSummary, 4000);
 
-        // ── 10) /api/demo/status: 데모(바이패스 OFF)면 DEMO 배지 표시, FULL(바이패스 ON)이면 숨김 ──
-        //   상태 변경은 잦지 않으므로 가벼운 30초 폴링(/pw 백도어 토글 후 복귀 시 반영).
-        function pollDemo() {
-            fetch('/api/demo/status', { headers: { 'Accept': 'application/json' } })
-                .then(function (res) { return res.ok ? res.json() : null; })
-                .then(function (data) {
-                    demoBadge.style.display = (data && !data.isBypassed) ? '' : 'none';
-                })
-                .catch(function () { /* 조회 실패 시 마지막 표시 유지 */ });
+        // ── 10) 실측 duration 자동 보정 완료 토스트 (전역) ──
+        //   AutoCalibrationService 가 자동 실행으로 디바이스 duration 을 project.aasx 에 기록하면 SignalR
+        //   "AutoCalibrationApplied"(요약 문자열)를 브로드캐스트한다. 어느 페이지에 있든 셸이 한 번 알림을 띄운다.
+        //   (수동 "지금 실측값 채우기" 는 설정 페이지가 HTTP 응답으로 직접 토스트하므로 자동 실행만 브로드캐스트됨.)
+        function showShellToast(msg) {
+            var t = el('div', null, msg);
+            t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:3000;'
+                + 'max-width:90vw;padding:12px 18px;border-radius:8px;background:#16a34a;color:#fff;'
+                + 'font-size:0.86rem;font-weight:600;box-shadow:0 6px 20px rgba(0,0,0,0.25);';
+            document.body.appendChild(t);
+            setTimeout(function () {
+                t.style.transition = 'opacity 0.4s';
+                t.style.opacity = '0';
+                setTimeout(function () { t.remove(); }, 400);
+            }, 6000);
         }
-        pollDemo();
-        setInterval(pollDemo, 30000);
+        function connectAutoCalToast() {
+            if (!window.signalR) return;
+            try {
+                var conn = new signalR.HubConnectionBuilder()
+                    .withUrl('/hubs/monitoring').withAutomaticReconnect().build();
+                conn.on('AutoCalibrationApplied', function (summary) {
+                    showShellToast('실측 duration 자동 보정 완료 — ' + (summary || '디바이스 duration 기록됨'));
+                });
+                conn.start().catch(function () { /* 연결 실패 시 토스트만 비활성(치명 아님) */ });
+            } catch (e) { /* ignore */ }
+        }
+        if (window.signalR) {
+            connectAutoCalToast();
+        } else {
+            // signalr 미로드 페이지(일부 정적 페이지)에서도 알림 받도록 동적 로드 후 연결.
+            var sr = document.createElement('script');
+            sr.src = '/lib/signalr.min.js';
+            sr.onload = connectAutoCalToast;
+            sr.onerror = function () { /* 오프라인/미존재 — 비활성 */ };
+            document.head.appendChild(sr);
+        }
 
     } catch (err) {
         try { console.error('[shell.js] failed to build app-shell', err); } catch (e) { /* ignore */ }
