@@ -20,7 +20,7 @@ description: Finalize resolved /fix issues by rebasing fix worktrees onto main, 
 | 상태 대장 (SSOT) | `<REPO>/fix-state.json` (`/fix` 와 공유, git 비추적) |
 | issue worktree | `<REPO>/fix-<iid>` |
 | ProjectPath | `fix-state.json` 의 `issueRepo` (없으면 `dualsoft/helpds`) |
-| 보조 스크립트 | `<REPO>/auto-fix/.claude/skills/fixed/scripts/gitlab-close.ps1` (write), 상태갱신은 `/fix` 의 `.../fix/scripts/update-state.ps1` **재사용** |
+| 보조 스크립트 | `<REPO>/auto-fix/.claude/skills/fixed/scripts/gitlab-close.ps1` (write — `/fix` 4-1절도 `-NoClose` 로 재사용하므로 수정 시 양쪽 영향 주의), 상태갱신은 `/fix` 의 `.../fix/scripts/update-state.ps1` **재사용** |
 
 모든 git path 인자는 동적 도출한 `<REPO>` 절대값을 앞에 붙여 쓴다(`fix-<iid>` 단독 상대경로 금지 — cwd 기준으로 풀려 엉뚱한 위치를 가리킨다). git 은 진행 메시지를 **stderr** 로 내므로 stderr 존재를 실패로 보지 말고 **exit code 로만** 판정한다.
 
