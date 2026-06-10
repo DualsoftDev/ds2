@@ -67,17 +67,6 @@ type PlcGateway(config: PlcGatewayConfig) =
             skipSet.TryRemove(address, &removed) |> ignore
         | _ -> ()
 
-    let isInputAddress (address: string) =
-        if String.IsNullOrWhiteSpace address then false
-        else
-            let s = address.Trim()
-            s.StartsWith("%IX", StringComparison.OrdinalIgnoreCase)
-            || s.StartsWith("IX", StringComparison.OrdinalIgnoreCase)
-            || s.StartsWith("X", StringComparison.OrdinalIgnoreCase)
-
-    let shouldRescanInputTag (tag: PlcTagDef) =
-        isInputAddress tag.HubAddress || isInputAddress tag.PlcAddress
-
     /// adapter 별 재연결 백오프 상태 — 잘못된 PLC 설정일 때 ConnectAsync 가 매 sweep timeout 만큼 blocking
     /// 하는 걸 막기 위해 연속 실패 횟수에 따라 다음 시도까지 대기 시간을 키운다.
     let reconnectState =
@@ -236,72 +225,91 @@ type PlcGateway(config: PlcGatewayConfig) =
                         let mutable attempted = 0
                         let mutable failed = 0
                         let mutable lastReadError = ""
-                        let mutable primaryReads = 0
-                        let mutable inputRescanReads = 0
-                        let mutable primaryChanges = 0
-                        let mutable inputRescanChanges = 0
+                        let mutable batchReads = 0
+                        let mutable singleReads = 0
+                        let mutable batches = 0
+                        let mutable changesDetected = 0
                         let mutable protocolErrors = 0
                         let mutable skippedReads = 0
 
-                        let readTag passName countForHealth (tag: PlcTagDef) =
-                            if ct.IsCancellationRequested then () else
-                            // 이전에 PLC 가 "그 주소 없음" 으로 응답한 태그는 read 시도 자체를 생략.
-                            // attempted 에도 안 들어가서 all-fail 판정에서 빠진다(통신은 정상이므로).
-                            if isSkippedAddress skipSet tag.HubAddress then
-                                skippedReads <- skippedReads + 1
-                            else
-                                if countForHealth then attempted <- attempted + 1
-                                if passName = "primary" then primaryReads <- primaryReads + 1
-                                else inputRescanReads <- inputRescanReads + 1
-                                match adapter.ReadTag tag with
-                                | Error msg ->
-                                    // protocol error (0xC0xx 등) = PLC 가 응답한 신호. 통신은 정상이고
-                                    // 요청 자체가 부적합. 누적해 임계치 넘으면 skip-list 영구 등록.
-                                    // non-protocol error = 진짜 통신 실패. all-fail 판정에 카운트.
-                                    if not countForHealth then
-                                        log.Debug($"Input rescan ReadTag {tag.HubAddress}: {msg}")
-                                    elif PlcErrorClassifier.isProtocolError msg then
-                                        protocolErrors <- protocolErrors + 1
-                                        let cur =
-                                            skipSet.AddOrUpdate(
-                                                tag.HubAddress,
-                                                1,
-                                                fun _ old -> old + 1)
-                                        if cur = protocolErrorThreshold then
-                                            log.Warn($"PLC [{cfg.Name}] address {tag.HubAddress} ({tag.PlcAddress}) repeatedly returned protocol error '{msg}' — skipping until reconnect (likely missing in PLC device range)")
-                                        elif cur < protocolErrorThreshold then
-                                            log.Debug($"ReadTag {tag.HubAddress} protocol error #{cur}: {msg}")
-                                    else
-                                        failed <- failed + 1
-                                        lastReadError <- msg
-                                        log.Debug($"ReadTag {tag.HubAddress}: {msg}")
-                                | Ok value ->
-                                    clearTransientProtocolFailure skipSet tag.HubAddress
-                                    let s = PlcValueIo.toHubString value
-                                    let changed =
-                                        match lastValues.TryGetValue tag.HubAddress with
-                                        | true, prev -> prev <> s
-                                        | false, _ -> true
-                                    if changed then
-                                        lastValues.[tag.HubAddress] <- s
-                                        if passName = "primary" then primaryChanges <- primaryChanges + 1
-                                        else inputRescanChanges <- inputRescanChanges + 1
-                                        rawLog.Info($"scan-change plc={cfg.Name} pass={passName} hub={tag.HubAddress} plc={tag.PlcAddress} value={s}")
-                                        changes.Add({
-                                            HubAddress = tag.HubAddress
-                                            Value = s
-                                            Source = Ds2.Backend.Common.HubSource.Plc
-                                        })
+                        let recordRead (tag: PlcTagDef) (value: CoreDataTypesModule.PlcValue) =
+                            let s = PlcValueIo.toHubString value
+                            let changed =
+                                match lastValues.TryGetValue tag.HubAddress with
+                                | true, prev -> prev <> s
+                                | false, _ -> true
+                            if changed then
+                                lastValues.[tag.HubAddress] <- s
+                                changesDetected <- changesDetected + 1
+                                rawLog.Info($"scan-change plc={cfg.Name} hub={tag.HubAddress} plc={tag.PlcAddress} value={s}")
+                                changes.Add({
+                                    HubAddress = tag.HubAddress
+                                    Value = s
+                                    Source = Ds2.Backend.Common.HubSource.Plc
+                                })
 
-                        for tag in cfg.Tags do
-                            readTag "primary" true tag
-                        for tag in cfg.Tags do
-                            if shouldRescanInputTag tag then
-                                readTag "input-rescan" false tag
+                        let readTagNoSkip (tag: PlcTagDef) =
+                            attempted <- attempted + 1
+                            singleReads <- singleReads + 1
+                            match adapter.ReadTag tag with
+                            | Error msg ->
+                                // protocol error (0xC0xx 등) = PLC 가 응답한 신호. 통신은 정상이고
+                                // 요청 자체가 부적합. 누적해 임계치 넘으면 skip-list 영구 등록.
+                                // non-protocol error = 진짜 통신 실패. all-fail 판정에 카운트.
+                                if PlcErrorClassifier.isProtocolError msg then
+                                    protocolErrors <- protocolErrors + 1
+                                    let cur =
+                                        skipSet.AddOrUpdate(
+                                            tag.HubAddress,
+                                            1,
+                                            fun _ old -> old + 1)
+                                    if cur = protocolErrorThreshold then
+                                        log.Warn($"PLC [{cfg.Name}] address {tag.HubAddress} ({tag.PlcAddress}) repeatedly returned protocol error '{msg}' — skipping until reconnect (likely missing in PLC device range)")
+                                    elif cur < protocolErrorThreshold then
+                                        log.Debug($"ReadTag {tag.HubAddress} protocol error #{cur}: {msg}")
+                                else
+                                    failed <- failed + 1
+                                    lastReadError <- msg
+                                    log.Debug($"ReadTag {tag.HubAddress}: {msg}")
+                            | Ok value ->
+                                clearTransientProtocolFailure skipSet tag.HubAddress
+                                recordRead tag value
+
+                        let readTags (tags: PlcTagDef list) =
+                            if ct.IsCancellationRequested then () else
+                            let readable = ResizeArray<PlcTagDef>()
+                            for tag in tags do
+                                if isSkippedAddress skipSet tag.HubAddress then
+                                    skippedReads <- skippedReads + 1
+                                else
+                                    readable.Add(tag)
+
+                            let readableTags = List.ofSeq readable
+                            if not readableTags.IsEmpty then
+                                match adapter.ReadTags readableTags with
+                                | Some (Ok values) ->
+                                    attempted <- attempted + readableTags.Length
+                                    batchReads <- batchReads + readableTags.Length
+                                    batches <- batches + 1
+
+                                    for struct (tag, value) in values do
+                                        clearTransientProtocolFailure skipSet tag.HubAddress
+                                        recordRead tag value
+                                | Some (Error msg) ->
+                                    let batchError = $"PLC [{cfg.Name}] batch read count={readableTags.Length} failed: {msg}; falling back to single reads"
+                                    log.Warn(batchError)
+                                    rawLog.Warn(batchError)
+                                    for tag in readableTags do
+                                        readTagNoSkip tag
+                                | None ->
+                                    for tag in readableTags do
+                                        readTagNoSkip tag
+
+                        readTags cfg.Tags
 
                         let elapsedMs = (DateTime.UtcNow - adapterScanStartedAt).TotalMilliseconds
                         let elapsedText = elapsedMs.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)
-                        rawLog.Info($"scan-summary plc={cfg.Name} durationMs={elapsedText} primaryReads={primaryReads} inputRescanReads={inputRescanReads} primaryChanges={primaryChanges} inputRescanChanges={inputRescanChanges} failed={failed} protocolErrors={protocolErrors} skipped={skippedReads}")
+                        rawLog.Info($"scan-summary plc={cfg.Name} durationMs={elapsedText} batchReads={batchReads} singleReads={singleReads} batches={batches} changes={changesDetected} failed={failed} protocolErrors={protocolErrors} skipped={skippedReads}")
 
                         if attempted > 0 && failed = attempted then
                             log.Warn($"PLC [{cfg.Name}] all {attempted} tag reads failed — forcing disconnect for reconnect cycle")

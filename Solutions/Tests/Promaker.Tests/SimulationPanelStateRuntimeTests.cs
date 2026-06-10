@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Reflection;
 using System.Windows.Threading;
 using Ds2.Core;
@@ -13,6 +14,7 @@ using Ds2.Runtime.Model;
 using Microsoft.FSharp.Control;
 using Microsoft.FSharp.Core;
 using Promaker.ViewModels;
+using Promaker.ViewModels.Logging;
 using Xunit;
 
 namespace Promaker.Tests;
@@ -148,6 +150,7 @@ public sealed class SimulationPanelStateRuntimeTests
             var state = CreateState(() => store);
 
             SetSimEngine(state, engine);
+            AppLogState.Instance.Clear();
 
             var target = Abnormal.target(
                 FSharpOption<Guid>.Some(callId),
@@ -157,7 +160,18 @@ public sealed class SimulationPanelStateRuntimeTests
 
             InvokePrivate(state, "OnAbnormalDetected", record);
 
-            var line = state.SimEventLog[0].Message;
+            var ok = StaTestRunner.WaitUntil(
+                1000,
+                () => AppLogState.Instance.Entries.Any(entry =>
+                    entry.Logger == "Simulation"
+                    && entry.Message.Contains("[ABNORMAL] ActionOver", StringComparison.Ordinal)));
+            Assert.True(ok);
+
+            var line = AppLogState.Instance.Entries
+                .Last(entry =>
+                    entry.Logger == "Simulation"
+                    && entry.Message.Contains("[ABNORMAL] ActionOver", StringComparison.Ordinal))
+                .Message;
             Assert.Contains("[ABNORMAL] ActionOver", line, StringComparison.Ordinal);
             Assert.Contains("Call=Device.ADV#", line, StringComparison.Ordinal);
             Assert.Contains("OwnerWork=ActiveFlow.Main#", line, StringComparison.Ordinal);

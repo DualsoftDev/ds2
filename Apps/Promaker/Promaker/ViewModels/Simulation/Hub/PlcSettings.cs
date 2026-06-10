@@ -34,7 +34,7 @@ public partial class PlcSettings : ObservableObject
     [ObservableProperty] private string _ipAddress = "192.168.0.10";
     [ObservableProperty] private int _port = 2004;        // LS 기본 2004, MX 기본 5007
     [ObservableProperty] private int _timeoutMs = 3000;
-    [ObservableProperty] private int _scanIntervalMs = 100;
+    [ObservableProperty] private int _scanIntervalMs = PromakerShared.PlcConnectionSettings.DefaultScanIntervalMs;
     [ObservableProperty] private bool _localEthernet = true;     // LS only
     [ObservableProperty] private byte _networkNumber = 0;        // MX only
     [ObservableProperty] private byte _stationNumber = 0xFF;     // MX only
