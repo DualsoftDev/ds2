@@ -123,7 +123,8 @@
                 try {
                     const [list, abnList] = await Promise.all([
                         this.apiGet('/api/cctv/overlay-state'),
-                        this.apiGet('/api/dashboard/abnormals?limit=20').catch(() => [])
+                        // active-alarms: Flow 카드·알람 배너와 동일 소스(_active). 재가동(Going) 시 자동 해제 동일 적용.
+                        this.apiGet('/api/dashboard/active-alarms?limit=20').catch(() => [])
                     ]);
                     const map = {};
                     for (const s of (list || [])) map[s.id] = {

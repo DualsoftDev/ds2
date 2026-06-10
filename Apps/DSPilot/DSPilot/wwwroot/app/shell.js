@@ -597,6 +597,44 @@
         pollDemo();
         setInterval(pollDemo, 30000);
 
+        // ── 11) 실측 duration 자동 보정 완료 토스트 (전역) ──
+        //   AutoCalibrationService 가 자동 실행으로 디바이스 duration 을 project.aasx 에 기록하면 SignalR
+        //   "AutoCalibrationApplied"(요약 문자열)를 브로드캐스트한다. 어느 페이지에 있든 셸이 한 번 알림을 띄운다.
+        //   (수동 "지금 실측값 채우기" 는 설정 페이지가 HTTP 응답으로 직접 토스트하므로 자동 실행만 브로드캐스트됨.)
+        function showShellToast(msg) {
+            var t = el('div', null, msg);
+            t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:3000;'
+                + 'max-width:90vw;padding:12px 18px;border-radius:8px;background:#16a34a;color:#fff;'
+                + 'font-size:0.86rem;font-weight:600;box-shadow:0 6px 20px rgba(0,0,0,0.25);';
+            document.body.appendChild(t);
+            setTimeout(function () {
+                t.style.transition = 'opacity 0.4s';
+                t.style.opacity = '0';
+                setTimeout(function () { t.remove(); }, 400);
+            }, 6000);
+        }
+        function connectAutoCalToast() {
+            if (!window.signalR) return;
+            try {
+                var conn = new signalR.HubConnectionBuilder()
+                    .withUrl('/hubs/monitoring').withAutomaticReconnect().build();
+                conn.on('AutoCalibrationApplied', function (summary) {
+                    showShellToast('실측 duration 자동 보정 완료 — ' + (summary || '디바이스 duration 기록됨'));
+                });
+                conn.start().catch(function () { /* 연결 실패 시 토스트만 비활성(치명 아님) */ });
+            } catch (e) { /* ignore */ }
+        }
+        if (window.signalR) {
+            connectAutoCalToast();
+        } else {
+            // signalr 미로드 페이지(일부 정적 페이지)에서도 알림 받도록 동적 로드 후 연결.
+            var sr = document.createElement('script');
+            sr.src = '/lib/signalr.min.js';
+            sr.onload = connectAutoCalToast;
+            sr.onerror = function () { /* 오프라인/미존재 — 비활성 */ };
+            document.head.appendChild(sr);
+        }
+
     } catch (err) {
         try { console.error('[shell.js] failed to build app-shell', err); } catch (e) { /* ignore */ }
     }

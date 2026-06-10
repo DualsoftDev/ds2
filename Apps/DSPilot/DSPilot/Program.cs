@@ -109,6 +109,8 @@ builder.Services.AddSingleton<CallStateNotificationService>();
 builder.Services.AddSingleton<AbnormalEventService>();
 builder.Services.AddSingleton<IFlowMetricsService, FlowMetricsService>();
 builder.Services.AddScoped<CycleAnalysisService>();
+// Flow IO 세그먼트 → lane/interval 빌더 (CallTest 간트 + 자동 실측 보정 공유). CycleAnalysisService 가 Scoped 라 Scoped.
+builder.Services.AddScoped<CallLaneBuilderService>();
 // DspDatabaseServiceAdapter — Singleton 으로도 등록해서 Settings 페이지가 BootstrapAsync 를 다시 호출 가능
 builder.Services.AddSingleton<DspDatabaseServiceAdapter>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<DspDatabaseServiceAdapter>());
@@ -123,6 +125,12 @@ builder.Services.AddSingleton<CycleRecomputeService>();
 // 주기적 자동 재계산 — 라이브 기록기가 놓친 tail 완료로 부풀려진 WT 를 원시 엣지에서 self-heal(증분).
 // 간격은 HistoryView.AutoRecomputeIntervalMinutes(0=비활성).
 builder.Services.AddHostedService<PeriodicCycleRecomputeService>();
+
+// 실측 duration 자동 보정 — 첫 설치 후 각 Flow 가 클린사이클 N개 도달 시 디바이스 duration/min/max 를 1회 자동 채운다.
+// 1회성 플래그(AutoCalibration.CompletedAt, Production.json)로 재시작 시 스킵. Singleton + HostedService —
+// SettingsController 가 동일 인스턴스로 수동 "지금 실측값 채우기"(RunAsync(manual:true)) 호출.
+builder.Services.AddSingleton<AutoCalibrationService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<AutoCalibrationService>());
 
 // 라이브 상태 self-heal — 엔진 in-memory 정본과 DB 가 발산(DB=Going/엔진=non-Going)한 행을 주기 교정.
 // 재계산 락 경합 등으로 드롭된 Going→Ready 쓰기를 흡수. 간격은 HistoryView.StateReconcileIntervalSeconds(0=비활성).

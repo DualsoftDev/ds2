@@ -308,8 +308,6 @@
         .flow-alarm-idx b { font-size: 1.1rem; }
         .flow-alarm-btn { flex-shrink: 0; margin-left: 16px; z-index: 10; padding: 7px 18px; border: none; border-radius: 9999px; background: #000; color: #fff; font-size: 0.85rem; font-weight: 700; cursor: pointer; white-space: nowrap; box-shadow: 0 8px 14px -4px rgba(0,0,0,0.35); transition: background 0.15s; }
         .flow-alarm-btn:hover { background: #1f2937; }
-        .flow-alarm-close { flex-shrink: 0; margin-left: 8px; z-index: 10; width: 32px; height: 32px; border: none; border-radius: 9999px; background: rgba(0,0,0,0.18); color: #000; font-size: 1.1rem; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.15s; }
-        .flow-alarm-close:hover { background: rgba(0,0,0,0.35); }
 
         /* ── KPI 시프트 셀 상태색 (Tailwind 카드 셸 위 보조) ── */
         .kpi-shift .kp-pct { font-variant-numeric: tabular-nums; }
@@ -567,7 +565,6 @@
                 </div>
                 <span class="flow-alarm-idx" x-show="abnormals.length > 1" x-cloak><b x-text="abnIndex + 1"></b> / <span x-text="abnormalOverflow ? '10+' : abnormals.length"></span></span>
                 <button type="button" class="flow-alarm-btn" @click="gotoAbnormal(abnormals[abnIndex])" title="가동시간·이상 페이지에서 상세 확인">상세 확인</button>
-                <button type="button" class="flow-alarm-close" @click="dismissAlarmBanner()" title="알림 닫기 — 이 이후 새 알람부터 다시 표시">✕</button>
             </div>
 
             <!-- ════════════ Summary Row (3 KPI 카드) ════════════ -->
@@ -974,7 +971,6 @@
                         </div>
                         <span class="flow-alarm-idx" x-show="abnormals.length > 1" x-cloak><b x-text="abnIndex + 1"></b> / <span x-text="abnormalOverflow ? '10+' : abnormals.length"></span></span>
                         <button type="button" class="flow-alarm-btn" @click="gotoAbnormal(abnormals[abnIndex])">상세 확인</button>
-                        <button type="button" class="flow-alarm-close" @click="dismissAlarmBanner()" title="알림 닫기">✕</button>
                     </div>
                 </div>
 
@@ -1364,30 +1360,17 @@
 
             // ── 활성 알람 통합 피드(abnormal 4종 + usertag) ──
             //   /api/dashboard/active-alarms 를 조회. abnormal=해당 flow 재가동 시, usertag=조건 풀림 시 서버가 자동 제외.
+            //   수동 닫기 없음 — 표시/해제는 전적으로 서버 상태가 결정한다(Flow 카드·CCTV 오버레이와 동일 소스·동일 해제).
             //   실시간 갱신은 SignalR "AbnormalDetected"·"UserTagAlertsChanged" 트리거 → 재조회(이벤트=트리거, REST 단일 소스).
             async loadAbnormals() {
                 try {
                     const list = await this.apiGet('/api/dashboard/active-alarms?limit=11');
                     const arr = Array.isArray(list) ? list : [];
-                    // per-browser 닫기: dismissedAt 이후 발생한 알람만 표시
-                    const dismissedAt = localStorage.getItem('abnDismissedAt');
-                    const filtered = dismissedAt
-                        ? arr.filter(a => a.occurredAtUtc && new Date(a.occurredAtUtc) > new Date(dismissedAt))
-                        : arr;
-                    this.abnormalOverflow = filtered.length > 10;
-                    this.abnormals = filtered.slice(0, 10);
+                    this.abnormalOverflow = arr.length > 10;
+                    this.abnormals = arr.slice(0, 10);
                     // 건수가 바뀌면 티커 인덱스를 범위 내로 클램프 (목록 축소 시 OOB 방지)
                     if (this.abnIndex >= this.abnormals.length) this.abnIndex = 0;
                 } catch (e) { /* 피드는 비핵심 — 조용히 무시 */ }
-            },
-            dismissAlarmBanner() {
-                // 현재 알람 중 가장 최근 시각을 기준으로 기록 — 그 이후 도착하는 신규 알람만 다시 표시됨
-                const latest = this.abnormals.length > 0 ? this.abnormals[0].occurredAtUtc : null;
-                const ts = latest ? new Date(latest).toISOString() : new Date().toISOString();
-                localStorage.setItem('abnDismissedAt', ts);
-                this.abnormals = [];
-                this.abnormalOverflow = false;
-                this.abnIndex = 0;
             },
             debouncedLoadAbnormals() {
                 clearTimeout(this._abnDt);
