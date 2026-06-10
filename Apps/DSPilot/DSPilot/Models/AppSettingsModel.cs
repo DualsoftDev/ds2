@@ -27,7 +27,7 @@ public class AppSettingsModel
 /// 실측 duration 자동 보정(auto-calibration) 설정. 첫 설치 후 각 Flow 가 이상치 제외 클린사이클을
 /// <see cref="MinCleanCycles"/> 개 이상 모으면, 그 Flow 의 디바이스(Device Work) Duration/Min/MaxDuration 을
 /// 실측값으로 1회 자동 채운다(<see cref="Services.AutoCalibrationService"/>). 공식:
-///   Duration = round(mean), Max = round(measMax × (1 + <see cref="MarginMaxPct"/>)),
+///   Duration = round(mean), Max = round(max(measMax, mean + <see cref="MarginMaxSigmaK"/>·σ)),
 ///   Min(<see cref="FillMin"/>=true 일 때만) = round(measMin × (1 − <see cref="MarginMinPct"/>)).
 /// <see cref="CompletedAt"/> 가 1회성 플래그 — Production.json 에 영속되어 재설치/재시작 시 보존된다.
 /// </summary>
@@ -39,8 +39,13 @@ public class AutoCalibrationSettings
     /// <summary>이 개수 이상의 이상치 제외 클린사이클(IsIdle=0 AND CT NOT NULL)을 모은 Flow 만 보정한다. 기본 10.</summary>
     public int MinCleanCycles { get; set; } = 10;
 
-    /// <summary>MaxDuration 보정율(분수). Max = round(실측 최대 × (1 + 이 값)). 기본 0.05(=+5%).</summary>
-    public double MarginMaxPct { get; set; } = 0.05;
+    /// <summary>
+    /// MaxDuration 임계 계수 k. Max = round(max(실측 최대, mean + k·σ)). 기본 4.0.
+    /// σ 는 클린사이클 span 의 표본 표준편차 — 단일 극값보다 안정적이라 오탐(ActionOver)을 줄인다.
+    /// 정규근사 k=3≈99.7%, k=4≈99.99% 커버. floor=실측 최대 라 보정에 쓴 정상 사이클이 알람나지 않는다.
+    /// (구버전 키 MarginMaxPct(%) 는 더 이상 쓰지 않으며 ExtensionData 로 무시된다.)
+    /// </summary>
+    public double MarginMaxSigmaK { get; set; } = 4.0;
 
     /// <summary>true 일 때만 MinDuration 을 실측값으로 기록(false 면 기존값 보존). 기본 false.</summary>
     public bool FillMin { get; set; } = false;

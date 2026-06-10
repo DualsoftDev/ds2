@@ -113,7 +113,7 @@ public class SettingsController : ControllerBase
                 {
                     m.AutoCalibration.Enabled = acReq.Enabled;
                     m.AutoCalibration.MinCleanCycles = Math.Max(1, acReq.MinCleanCycles);
-                    m.AutoCalibration.MarginMaxPct = Math.Clamp(acReq.MarginMaxPct, 0, 1);
+                    m.AutoCalibration.MarginMaxSigmaK = Math.Clamp(acReq.MarginMaxSigmaK, 0, 20);
                     m.AutoCalibration.FillMin = acReq.FillMin;
                     m.AutoCalibration.MarginMinPct = Math.Clamp(acReq.MarginMinPct, 0, 1);
                 }
@@ -258,6 +258,24 @@ public class SettingsController : ControllerBase
         }
     }
 
+    // ── POST: 모든 디바이스 Min/Max 초기화 (null) — 자동 보정의 역연산 ──
+    // Duration(거동 구동 평균)은 보존하고 MinDuration/MaxDuration(이상감지 임계)만 전부 비운 뒤 project.aasx 재export.
+    // 성공하면 AutoCalibrationService 가 DatabaseRebuilt 를 브로드캐스트한다.
+    [HttpPost("auto-calibrate/clear-ranges")]
+    public async Task<ActionResult<RebuildResultDto>> ClearCalibrationRanges(CancellationToken ct)
+    {
+        try
+        {
+            var r = await _autoCal.ClearRangesAsync(ct);
+            return new RebuildResultDto(r.Success, r.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Settings] ClearCalibrationRanges failed");
+            return new RebuildResultDto(false, $"Min/Max 초기화 실패: {ex.Message}");
+        }
+    }
+
     // ── helpers ──
 
     private ActionResult<RebuildResultDto> Result(RebuildResult r)
@@ -286,7 +304,7 @@ public class SettingsController : ControllerBase
             new AutoCalibrationDto(
                 m.AutoCalibration.Enabled,
                 m.AutoCalibration.MinCleanCycles,
-                m.AutoCalibration.MarginMaxPct,
+                m.AutoCalibration.MarginMaxSigmaK,
                 m.AutoCalibration.FillMin,
                 m.AutoCalibration.MarginMinPct,
                 LocalStamp(m.AutoCalibration.CompletedAt),
@@ -409,11 +427,11 @@ public record SettingsDto(
     AutoCalibrationDto? AutoCalibration = null);
 
 // CompletedAt = 자동 1회 실행 완료 시각(고정). LastAppliedAt = 마지막으로 AASX 에 기록한 시각(매 적용 갱신).
-// 둘 다 로컬 표시 문자열, null = 미실행. 마진은 분수(0.05=5%).
+// 둘 다 로컬 표시 문자열, null = 미실행. MarginMaxSigmaK = mean+k·σ 의 계수 k(기본 4), MarginMinPct 는 분수(0.03=3%).
 public record AutoCalibrationDto(
     bool Enabled,
     int MinCleanCycles,
-    double MarginMaxPct,
+    double MarginMaxSigmaK,
     bool FillMin,
     double MarginMinPct,
     string? CompletedAt,
@@ -424,7 +442,7 @@ public record AutoCalibrationDto(
 public record AutoCalibrationSaveDto(
     bool Enabled,
     int MinCleanCycles,
-    double MarginMaxPct,
+    double MarginMaxSigmaK,
     bool FillMin,
     double MarginMinPct);
 
