@@ -310,10 +310,18 @@ public class FlowCycleOverride
 
     /// <summary>
     /// 표준(ideal) 사이클 시간(ms). P5 OEE Performance = (idealCT × totalCount) / runtime 의 단일 소스.
-    /// null = 미설정(엔지니어 입력 또는 추정 전) → Performance 산출 불가로 정직 표기.
+    /// null = 미설정(엔지니어 입력 또는 자동기입 전) → Performance 산출 불가로 정직 표기.
     /// doc/21 §2.4. (P2 표준편차 기준과 per-flow 차원에서만 공유 — §6 한정.)
     /// </summary>
     public int? IdealCycleTimeMs { get; set; }
+
+    /// <summary>
+    /// <see cref="IdealCycleTimeMs"/> 의 출처. "auto" = <see cref="Services.OeeIdealCycleAutoFillService"/> 가
+    /// 실측(best-demonstrated 분위수)으로 자동 기입한 값. null = 사람이 입력(또는 구버전 데이터 — 자동기입 도입 전
+    /// 값은 전부 수동이므로 null=manual 해석이 하위호환). 사용자가 값을 직접 저장/해제하면 null 로 돌아간다 —
+    /// 값을 비우면 자동기입이 다음 주기에 다시 채울 수 있다(재보정 경로).
+    /// </summary>
+    public string? IdealCycleTimeSource { get; set; }
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }

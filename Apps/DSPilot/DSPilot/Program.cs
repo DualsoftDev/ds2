@@ -169,6 +169,11 @@ builder.Services.AddHostedService<OeeDowntimeStateMachine>();
 // UserTag 기반 OEE 자동수집(detectSource='usertag') — raw plcTagLog 를 직접 쿼리해 고장 onset/clear·정지원인
 // 자동분류·생산/불량을 채운다. 무사이클 상태머신과 소스 구분으로 공존. OeeSignals 설정 없으면 무동작.
 builder.Services.AddHostedService<OeeUserTagPollerService>();
+// Flow별 실측 CT 통계(이상치 제외) 단일 소스 — 표준CT 추천 테이블 + 자동기입이 같은 공식을 공유.
+builder.Services.AddSingleton<OeeCtStatsService>();
+// 표준CT(idealCT) 실측 자동 1회 기입 — 비어 있는 Flow 만 best-demonstrated p10 으로 채워 성능/OEE 를
+// 수동 입력 없이 산출 가능하게 한다(수동값 절대 미덮음, Oee:AutoIdealCycle:* 로 튜닝).
+builder.Services.AddHostedService<OeeIdealCycleAutoFillService>();
 
 // CCTV — 카메라 목록을 별도 프로세스 MediaMTX(:9997) 로 동기화. WebRTC 재게시는 MediaMTX 담당.
 // Singleton + HostedService — Settings 페이지가 동일 인스턴스로 SyncAsync 직접 호출.
