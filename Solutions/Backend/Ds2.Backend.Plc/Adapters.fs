@@ -1,7 +1,6 @@
 namespace Ds2.Backend.Plc
 
 open System
-open System.Collections.Generic
 open System.Threading.Tasks
 open Ev2.PLC.Common
 open Ev2.PLC.Protocol.LS
@@ -48,74 +47,48 @@ module PlcValueIo =
             if parsed.IsSome then Some parsed.Value else None
 
 [<RequireQualifiedAccess>]
-module PlcBatchReadBuffer =
-    let private sizeOf (dataType: CoreDataTypesModule.PlcDataType) =
-        Math.Max(1, dataType.SizeInBytes)
+module LsPackRead =
+    let private tagName index (tag: PlcTagDef) =
+        if String.IsNullOrWhiteSpace tag.HubAddress then $"tag{index}"
+        else tag.HubAddress
 
-    let chunkTags maxChunkSize (tags: PlcTagDef list) =
-        if maxChunkSize <= 0 then
-            invalidArg (nameof maxChunkSize) "Batch chunk size must be positive."
-
-        tags |> List.chunkBySize maxChunkSize
-
-    let private splitAddressTail (address: string) =
-        let s = if isNull address then "" else address.Trim().ToUpperInvariant()
-        if s = "" then
-            "", Int32.MaxValue
-        else
-            let mutable index = s.Length - 1
-            while index >= 0 && Char.IsDigit(s[index]) do
-                index <- index - 1
-
-            if index = s.Length - 1 then
-                s, Int32.MaxValue
-            else
-                let prefix = s.Substring(0, index + 1)
-                let suffix = s.Substring(index + 1)
-                match Int32.TryParse(suffix) with
-                | true, value -> prefix, value
-                | _ -> prefix, Int32.MaxValue
-
-    let chunkTagsByAddressGroup maxChunkSize (tags: PlcTagDef list) =
-        if maxChunkSize <= 0 then
-            invalidArg (nameof maxChunkSize) "Batch chunk size must be positive."
-
+    let toTagSpecs (tags: PlcTagDef list) =
         tags
-        |> List.groupBy (fun tag -> splitAddressTail tag.PlcAddress |> fst)
-        |> List.sortBy fst
-        |> List.collect (fun (_, group) ->
-            group
-            |> List.sortBy (fun tag ->
-                let prefix, ordinal = splitAddressTail tag.PlcAddress
-                prefix, ordinal, tag.PlcAddress)
-            |> List.chunkBySize maxChunkSize)
+        |> List.mapi (fun index tag -> TagSpec(tagName index tag, tag.PlcAddress, tag.DataType))
+        |> Array.ofList
 
-    let decode (tags: PlcTagDef list) (buffer: byte array) =
-        let tagArray = tags |> List.toArray
-        let sizes = tagArray |> Array.map (fun tag -> sizeOf tag.DataType)
-        let expected = sizes |> Array.sum
+    let scanAddressesForTags isLocalEthernet plcModel (tags: PlcTagDef list) =
+        let tagSpecs = toTagSpecs tags
+        let packs = PackModule.packTagSpecsForType("LS", tagSpecs, isLocalEthernet, plcModel)
+        PackModule.getScanAddressesForPacks("LS", packs, isLocalEthernet, plcModel)
 
-        if buffer.Length < expected then
-            Error $"Batch read buffer too short: expected={expected}, actual={buffer.Length}"
-        else
-            let results = ResizeArray<struct (PlcTagDef * CoreDataTypesModule.PlcValue)>()
-            let mutable offset = 0
+    let readTags (connector: LsConnector) (tags: PlcTagDef list) =
+        try
+            let tagArray = tags |> List.toArray
+            let tagSpecs = toTagSpecs tags
+            let plcConnector = connector :> IPLCConnector
+            let packs = plcConnector.CompilePacks(tagSpecs)
+
+            for pack in packs do
+                plcConnector.ReadCompiledPack(pack)
+
+            let values = ResizeArray<struct (PlcTagDef * CoreDataTypesModule.PlcValue)>()
             let mutable error = None
-            for i = 0 to tagArray.Length - 1 do
-                match error with
-                | Some _ -> ()
-                | None ->
-                    let size = sizes.[i]
-                    let bytes = Array.zeroCreate<byte> size
-                    Buffer.BlockCopy(buffer, offset, bytes, 0, size)
-                    offset <- offset + size
-                    match CoreDataTypesModule.PlcValue.FromBytes(bytes, tagArray.[i].DataType) with
-                    | Ok value -> results.Add(struct (tagArray.[i], value))
-                    | Error msg -> error <- Some (sprintf "%A" msg)
+
+            for index = 0 to tagSpecs.Length - 1 do
+                match error, tagSpecs.[index].Value with
+                | Some _, _ -> ()
+                | None, Ok value ->
+                    values.Add(struct (tagArray.[index], value))
+                | None, Error msg ->
+                    let tag = tagArray.[index]
+                    error <- Some $"tag={tag.HubAddress} plc={tag.PlcAddress}: {msg}"
 
             match error with
             | Some msg -> Error msg
-            | None -> Ok (List.ofSeq results)
+            | None -> Ok (List.ofSeq values)
+        with ex ->
+            Error ex.Message
 
 /// 한 PLC 인스턴스에 대한 어댑터. 게이트웨이는 이 인터페이스만 본다.
 type IPlcConnectorAdapter =
@@ -130,7 +103,6 @@ type IPlcConnectorAdapter =
 [<RequireQualifiedAccess>]
 module LsAdapter =
     let private log = log4net.LogManager.GetLogger("LsAdapter")
-    let private maxReadBatchSize = 16
 
     let create (cfg: PlcConnectionConfig) : IPlcConnectorAdapter =
         let connector =
@@ -140,40 +112,6 @@ module LsAdapter =
                 cfg.TimeoutMs,
                 cfg.LocalEthernet)
         let mutable connected = false
-        let readTagsChunk (chunk: PlcTagDef list) =
-            try
-                let addresses = chunk |> List.map _.PlcAddress |> Array.ofList
-                let dataTypes = chunk |> List.map _.DataType |> Array.ofList
-                let bufferSize =
-                    dataTypes
-                    |> Array.sumBy (fun dataType -> Math.Max(1, dataType.SizeInBytes))
-                let buffer = Array.zeroCreate<byte> bufferSize
-
-                connector.Reads(addresses, dataTypes, buffer)
-                PlcBatchReadBuffer.decode chunk buffer
-            with ex ->
-                Error ex.Message
-
-        let readTagsBatch (tags: PlcTagDef list) =
-            let chunks = PlcBatchReadBuffer.chunkTagsByAddressGroup maxReadBatchSize tags
-            let values = ResizeArray<struct (PlcTagDef * CoreDataTypesModule.PlcValue)>()
-            let mutable error = None
-
-            chunks
-            |> List.iteri (fun index chunk ->
-                match error with
-                | Some _ -> ()
-                | None ->
-                    match readTagsChunk chunk with
-                    | Ok chunkValues ->
-                        for value in chunkValues do
-                            values.Add value
-                    | Error msg ->
-                        error <- Some $"chunk={index + 1}/{chunks.Length} count={chunk.Length}: {msg}")
-
-            match error with
-            | Some msg -> Error msg
-            | None -> Ok (List.ofSeq values)
 
         { new IPlcConnectorAdapter with
             member _.Name = cfg.Name
@@ -204,7 +142,7 @@ module LsAdapter =
                     | Error e -> Error (sprintf "%A" e)
                 with ex -> Error ex.Message
             member _.ReadTags tags =
-                Some (readTagsBatch tags)
+                Some (LsPackRead.readTags connector tags)
             member _.WriteTag (tag, value) =
                 try
                     if connector.WriteTag(tag.PlcAddress, tag.DataType, value) then Ok ()

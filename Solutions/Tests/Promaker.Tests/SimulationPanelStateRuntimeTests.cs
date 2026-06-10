@@ -387,6 +387,7 @@ public sealed class SimulationPanelStateRuntimeTests
         }
         public bool IsStepBatchActive(Guid[] batch) => false;
         public void AdvanceSimulationTo(long targetTimeMs) { }
+        public void AdvanceSimulationToRealTime() { }
         public void EndStep() => EndStepCalls++;
         public void ReloadConnections() => throw new NotSupportedException();
         public void ReloadDurations() => throw new NotSupportedException();
