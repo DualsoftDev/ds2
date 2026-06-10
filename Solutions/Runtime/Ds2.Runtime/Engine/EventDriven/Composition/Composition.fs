@@ -568,6 +568,15 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
             EngineFlowStep.isAnyBatchStillGoing stepBoundaryContext (Set.ofArray batch)
         member _.AdvanceSimulationTo(targetTimeMs) =
             lock processGate (fun () -> advanceStepRuntime targetTimeMs)
+        member _.AdvanceSimulationToRealTime() =
+            // Hub(SignalR) 스레드가 forced transition 을 drain 하기 전에 시계를 벽시계 타깃으로
+            // 당긴다 — 안 그러면 전이 ClockMs 가 마지막 loop wake 시각(stale)으로 찍혀
+            // 간트 막대 길이가 0~수초로 왜곡된다. RuntimeClock 호출은 processGate 아래로 직렬화.
+            lock processGate (fun () ->
+                if getStatus () = Running then
+                    EventDrivenEngineRuntime.syncClockToRealTimeWhileRunning runtimeContext
+                else
+                    advanceStepRuntime scheduler.CurrentTimeMs)
         member _.EndStep() =
             lock processGate (fun () ->
                 EngineFlowStep.endStep stepBoundaryContext)

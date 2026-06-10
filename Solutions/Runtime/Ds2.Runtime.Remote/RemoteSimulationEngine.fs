@@ -323,6 +323,8 @@ type RemoteSimulationEngine
         member _.IsStepBatchActive(batch) =
             invokeBool HubMethod.RuntimeIsStepBatchActive (stepBatchCmd batch)
         member _.AdvanceSimulationTo(t) = send HubMethod.RuntimeAdvanceSimulationTo (advanceCmd t)
+        // 시계 소유자는 server engine — proxy 는 no-op (server 측 HubSession 이 직접 호출).
+        member _.AdvanceSimulationToRealTime() = ()
         member _.EndStep() = send HubMethod.RuntimeEndStep (emptyCmd ())
 
         // ── 재계산 (명령) ──

@@ -194,7 +194,14 @@ type EventDrivenEngineRuntimeHubSession
     let getCallStateSafe =
         Func<Guid, Status4>(fun g -> match engine.GetCallState(g) with Some s -> s | None -> Status4.Ready)
     let drainCurrentTick () =
-        engine.AdvanceSimulationTo(engine.CurrentTimeMs)
+        // 벽시계 타깃까지 advance — 처진 시계(마지막 loop wake)로 전이가 stamp 되어
+        // 간트 막대가 0ms 로 붕괴하거나 늘어나던 왜곡 차단. 점프 폭이 크면 그동안
+        // 시계가 정지해 있었다는 뜻이라 진단 로그로 남긴다(수정 효과 실측용).
+        let before = engine.CurrentTimeMs
+        engine.AdvanceSimulationToRealTime()
+        let jumped = engine.CurrentTimeMs - before
+        if jumped > 500L then
+            passiveLog.Info($"[ClockSync] sim clock jumped {jumped}ms on hub-thread drain (stale stamp window)")
     let isMappedDeviceWork workGuid =
         (engine.IOMap.TxWorkToOutAddresses |> Map.containsKey workGuid)
         || (engine.IOMap.RxWorkToInAddresses |> Map.containsKey workGuid)
@@ -289,7 +296,7 @@ type EventDrivenEngineRuntimeHubSession
                             applyEffect effect
 
             if runtimeMode = RuntimeMode.Monitoring then
-                engine.AdvanceSimulationTo(engine.CurrentTimeMs)
+                drainCurrentTick ()
 
     // device=plan: engine plan-duration 이 device work 의 Finish 시점(=actual In 이 켜질 시점)을 정한다.
     //   VP 는 가상 plant 로서 바로 그 시점에 해당 device 의 In 을 자기 passive inference 에 observe 시킨다.

@@ -71,6 +71,11 @@ type ISimulationEngine =
     abstract IsStepBatchActive: batch: Guid[] -> bool
     /// sim clock 을 targetTimeMs 까지 advance + 그 시점까지 due 한 events 처리.
     abstract AdvanceSimulationTo: targetTimeMs: int64 -> unit
+    /// sim clock 을 실시간(벽시계) 페이싱 타깃까지 advance + due events 처리.
+    /// Running 이 아니면 시계 전진 없이 현재 시각까지의 due events 만 drain.
+    /// 외부 스레드(Hub inject 등)가 상태전이를 즉시 적용할 때 전이 timestamp 가
+    /// 마지막 loop wake 시각으로 stale 하게 찍히는 것을 막는다.
+    abstract AdvanceSimulationToRealTime: unit -> unit
     /// STEP 종료: FlowTag.Pause 복원.
     abstract EndStep: unit -> unit
 
