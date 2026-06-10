@@ -14,7 +14,8 @@
         실제로 산출 가능한 값만 표시한다. 산출 불가 지표는 '—' + *Note 사유로 정직 표기(가짜 % 금지).
         §12 자동 OEE: idealCT 는 클린사이클 실측(p10)으로 자동 기입(출처 '자동' 칩), 품질은 불량 미입력 시
         100% 가정을 값으로 제공하되 qualitySource='assumed' 로 명시('가정' 칩 + 톤 중립) — 불량 입력 시 실측 전환.
-        정지원인 도넛은 분류된 것만. "이상발생(UserTag)" 패널/도넛/SignalR/기간 토글은 기존 실데이터 동작 그대로 보존.
+        정지원인 도넛은 미분류 포함 전체(미분류=회색) — 합계가 상단 '기간 정지'와 일치(증발 없음).
+        "이상발생(UserTag)" 패널/도넛/SignalR/기간 토글은 기존 실데이터 동작 그대로 보존.
     -->
     <link href="/css/fonts.css" rel="stylesheet" />
     <link href="/css/ds.css" rel="stylesheet" />
@@ -234,7 +235,7 @@
                         </div>
                         <!-- 품질 -->
                         <div class="up-oee" :class="oeeTone('quality')">
-                            <div class="up-oee-label">품질 Quality<span class="up-oee-chip" x-show="oee && oee.qualitySource === 'assumed'">가정</span></div>
+                            <div class="up-oee-label">품질 Quality<span class="up-oee-chip" x-show="oee && oee.qualitySource === 'assumed'" title="불량 미입력 — 품질을 100% 로 가정해 계산 중. 아래 '불량 수량 입력'에 불량을 입력하면 실측으로 전환됩니다.">가정</span></div>
                             <div class="up-oee-value" x-text="oee ? pct(oee.quality) : '—'"></div>
                             <div class="up-oee-note" x-text="oee ? (oee.quality != null ? (oee.qualitySource === 'assumed' ? '불량 미입력 — 100% 가정 · 불량 입력 시 실측' : ('양품 ' + (oee.goodCount ?? 0) + ' / 총 ' + (oee.totalCount ?? 0))) : (oee.qualityNote || '산출 불가')) : ''"></div>
                         </div>
@@ -272,7 +273,7 @@
                         <div class="up-queue">
                             <span class="material-icons">rule</span>
                             <div style="flex:1;">
-                                <div><span class="up-queue-n" x-text="unclassifiedCount"></span> 건의 <b>미분류</b> 정지가 있습니다 — 원인을 분류해야 OEE 가 오염되지 않습니다.</div>
+                                <div><span class="up-queue-n" x-text="unclassifiedCount"></span> 건의 <b>미분류</b> 정지가 있습니다 — 분류하면 정지 원인 분석과 MTBF/MTTR 이 정확해집니다.</div>
                             </div>
                             <button class="btn btn-sm btn-outlined" @click="dtFilterReason = 'unclassified'; dtFilterStatus = 'all';">미분류만 보기</button>
                         </div>
@@ -294,6 +295,8 @@
                                 <option :value="r.code" x-text="r.label"></option>
                             </template>
                         </select>
+                        <span style="flex:1;"></span>
+                        <span class="up-form-ok" x-show="dtMsg" x-text="dtMsg"></span>
                     </div>
 
                     <!-- 일괄 작업 툴바 (선택 항목 있을 때) -->
@@ -418,9 +421,9 @@
                         </template>
                     </section>
 
-                    <!-- 정지 원인 분석 (분류된 것만 도넛) -->
+                    <!-- 정지 원인 분석 (미분류 포함 도넛 — 합계가 상단 '기간 정지'와 일치) -->
                     <section class="card up-section">
-                        <div class="ds-card-h"><h4>정지 원인 분석</h4><span class="ds-card-h-sub">분류된 이벤트만 (지속시간 기준)</span></div>
+                        <div class="ds-card-h"><h4>정지 원인 분석</h4><span class="ds-card-h-sub">원인별 비중 (지속시간 기준 · 미분류=회색)</span></div>
                         <template x-if="reasonDist.total > 0">
                             <div class="up-dist">
                                 <!-- segs: <svg> 안 <template x-for> 는 SVG-NS 라 .content 없어 cloneNode 크래시 → x-html 문자열 주입 -->
@@ -440,9 +443,8 @@
                         <template x-if="reasonDist.total === 0">
                             <div class="ds-empty">
                                 <span class="material-icons">donut_large</span>
-                                <div class="ds-empty-title">분류된 정지 원인 없음</div>
-                                <div class="ds-empty-desc">정지 이벤트를 분류(설비고장/자재대기/작업자대기/금형·공구 등)하면 지속시간 기준 비중이 도넛으로 표시됩니다. 위 로그의 [분류] 드롭다운을 사용하세요.</div>
-                                <span class="ds-empty-tag" x-show="unclassifiedCount > 0" x-text="'미분류 ' + unclassifiedCount + '건 대기'"></span>
+                                <div class="ds-empty-title">표시할 정지 데이터 없음</div>
+                                <div class="ds-empty-desc">정지 이벤트가 기록되면 원인별 비중이 도넛으로 표시됩니다. 미분류 정지는 회색으로 표시되며, 위 로그의 [분류] 드롭다운으로 원인을 지정할 수 있습니다.</div>
                             </div>
                         </template>
                     </section>
@@ -598,22 +600,22 @@
                         <div>
                             <div class="ds-legend" style="margin-bottom:10px;">
                                 <div class="lg-item"><span class="lg-swatch" style="background:var(--green);"></span> 가동(근사)</div>
-                                <div class="lg-item"><span class="lg-swatch" style="background:var(--red);"></span> 정지</div>
+                                <div class="lg-item"><span class="lg-swatch" style="background:var(--red);"></span> 정지(비계획)</div>
                                 <div class="lg-item"><span class="lg-swatch" style="background:var(--purple);"></span> 계획정비(점검)</div>
                             </div>
                             <div style="display:flex; height:26px; border-radius:var(--radius-sm); overflow:hidden; border:1px solid var(--color-lines);">
                                 <div :style="`width:${timeComp.runPct}%; background:var(--green);`" :title="'가동 ' + timeComp.runPct + '%'"></div>
-                                <div :style="`width:${timeComp.downPct}%; background:var(--red);`" :title="'정지 ' + timeComp.downPct + '%'"></div>
+                                <div :style="`width:${timeComp.downPct}%; background:var(--red);`" :title="'정지(비계획) ' + timeComp.downPct + '%'"></div>
                                 <div :style="`width:${timeComp.maintPct}%; background:var(--purple);`" :title="'계획정비 ' + timeComp.maintPct + '%'"></div>
                             </div>
                             <div style="display:flex; gap:18px; margin-top:8px; font-size:0.72rem; color:var(--color-text-secondary);">
                                 <span>가동 <b x-text="durShort(timeComp.runMs)"></b> (<span x-text="timeComp.runPct + '%'"></span>)</span>
-                                <span>정지 <b x-text="durShort(oee.downtimeMs)"></b> (<span x-text="timeComp.downPct + '%'"></span>)</span>
+                                <span>정지(비계획) <b x-text="durShort(timeComp.downMs)"></b> (<span x-text="timeComp.downPct + '%'"></span>)</span>
                                 <span>계획정비 <b x-text="durShort(timeComp.maintMs)"></b>
                                     <template x-if="timeComp.maintMs === 0"><span class="up-codeish" style="margin-left:4px;">미설정</span></template>
                                 </span>
                             </div>
-                            <div class="up-form-hint" style="margin-top:8px;">가동은 달력근사(기간 − 정지)이며 유휴와 분리되지 않습니다. 계획정비는 /api/oee/shift-exception(planned_maint) 입력 시 반영됩니다.</div>
+                            <div class="up-form-hint" style="margin-top:8px;">가동은 달력근사(기간 − 전체 정지)이며 유휴와 분리되지 않습니다. 계획정비는 <b>planned_maint(계획정비)로 분류된 정지의 합</b>으로, 정지(비계획)와 겹치지 않게 분리 표시됩니다.</div>
                         </div>
                     </template>
                     <template x-if="!oee || oee.periodMs <= 0">
@@ -894,6 +896,9 @@
             { code: 'planned_maint', label: '계획정비', category: 'planned', color: 'var(--mt)' },
             { code: 'etc', label: '기타', category: 'unplanned', color: 'var(--color-text-secondary)' },
         ];
+        // 미분류 도넛 조각 — 분류 전 정지도 회색으로 표시해 상단 '기간 정지' 합계와 일치시킴(시간 증발 방지).
+        // 분류 드롭다운 옵션(reasonOptions=REASON_DEFS)에는 포함되지 않는 표시 전용 의사 코드.
+        const UNCLASSIFIED_DEF = { code: '__unclassified', label: '미분류', color: 'var(--color-text-disabled)' };
 
         // 일자별 차트 인스턴스 — Alpine 반응형 밖에 보관(Proxy 크래시 방지)
         let _dailyChart = null;
@@ -905,6 +910,8 @@
                 period: 'today',
                 rt: { connected: false },
                 _conn: null, _dt: null, _pollTimer: null,
+                // stale 응답 가드 — 폴링/기간변경/페이지이동 응답이 뒤늦게 도착해 최신 상태를 덮어쓰는 경합 방지
+                _utSeq: 0, _oeeSeq: 0,
                 utPage: 0, utSearch: '', utLevel: '', utSystem: '',
                 showDefinitions: false, definitionsPage: 0,
                 _charts: null,
@@ -919,15 +926,17 @@
                 reasonOptions: REASON_DEFS,
                 dtFilterStatus: 'all', dtFilterReason: 'all',
                 classifyDraft: {},
+                dtMsg: '', _dtMsgTimer: null, _prodMsgTimer: null, _ctMsgTimer: null,
                 // 일괄 선택 상태
                 selectedIds: {}, bulkDraft: '', bulkBusy: false,
-                prodForm: { date: new Date().toISOString().slice(0, 10), shift: '', flow: '', reject: 0, busy: false, msg: '', err: '' },
+                // 일자 기본값은 로컬 날짜 — toISOString() 은 UTC 라 KST 오전 9시 전엔 어제로 채워짐
+                prodForm: { date: (() => { const d = new Date(), p = (x) => String(x).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; })(), shift: '', flow: '', reject: 0, busy: false, msg: '', err: '' },
                 // 표준CT(idealCT) Flow 일괄 편집 테이블 (편집값은 각 행 객체 draft 에 보관 — Alpine x-for 양방향 바인딩 안정)
                 ctTable: [], ctMsg: '', ctError: null, ctLoading: false, ctApplying: false,
 
                 async init() {
                     this.dark = localStorage.getItem('dspilot-theme') === 'dark';
-                    window.addEventListener('storage', (e) => { if (e.key === 'dspilot-theme') this.dark = e.newValue === 'dark'; });
+                    window.addEventListener('storage', (e) => { if (e.key === 'dspilot-theme') { this.dark = e.newValue === 'dark'; this.redrawForTheme(); } });
                     // 사이드바 이상코드 피드에서 진입 시 필터 시드(/uptime?utSystem=&utLevel=&utSearch=).
                     const qp = new URLSearchParams(location.search);
                     if (qp.has('utSystem')) this.utSystem = qp.get('utSystem') || '';
@@ -947,8 +956,11 @@
                     clearInterval(this._pollTimer);
                     clearTimeout(this._dt);
                     this._conn?.stop();
+                    if (_dailyChart) { try { _dailyChart.destroy(); } catch (e) {} _dailyChart = null; }
                 },
-                toggleTheme() { this.dark = !this.dark; localStorage.setItem('dspilot-theme', this.dark ? 'dark' : 'light'); },
+                toggleTheme() { this.dark = !this.dark; localStorage.setItem('dspilot-theme', this.dark ? 'dark' : 'light'); this.redrawForTheme(); },
+                // 테마 전환 직후 차트 색 재계산 — 없으면 다음 폴링(최대 10초)까지 이전 테마 색이 남음
+                redrawForTheme() { this.$nextTick(() => { this.drawCharts(); this.drawDailyChart(); }); },
 
                 // ── fetch 헬퍼 ──
                 async apiGet(url) {
@@ -1005,14 +1017,18 @@
 
                 async load(silent) {
                     if (!silent) this.loading = true;
+                    const seq = ++this._utSeq;
                     // 이상발생(UserTag) — 구 관리페이지 흡수(필터/페이지/차트)
                     try {
-                        this.ut = await this.apiGet('/api/user-tags/snapshot?' + this.utQs());
-                        this.utPage = this.ut.page; // 서버가 page 클램프할 수 있음
-                        this.error = null;
-                        this.$nextTick(() => this.drawCharts());
+                        const snap = await this.apiGet('/api/user-tags/snapshot?' + this.utQs());
+                        if (seq === this._utSeq) { // stale 응답(이후 요청이 이미 시작됨)은 폐기 — 페이지/기간 덮어쓰기 경합 방지
+                            this.ut = snap;
+                            this.utPage = snap.page; // 서버가 page 클램프할 수 있음
+                            this.error = null;
+                            this.$nextTick(() => this.drawCharts());
+                        }
                     } catch (e) {
-                        this.error = '이상발생 데이터를 불러오지 못했습니다: ' + e.message;
+                        if (seq === this._utSeq) this.error = '이상발생 데이터를 불러오지 못했습니다: ' + e.message;
                     } finally { this.loading = false; }
 
                     // 신규 OEE 데이터
@@ -1043,10 +1059,11 @@
                 definitionsMaxPage() { return this.ut ? Math.max(1, Math.ceil((this.ut.definitions || []).length / 10)) : 1; },
                 definitionsPageView() { return this.ut ? (this.ut.definitions || []).slice(this.definitionsPage * 10, this.definitionsPage * 10 + 10) : []; },
                 async exportUtCsv() {
-                    if (!this._charts || !this.ut) return;
+                    if (!this.ut) return;
+                    if (!this._charts) { this.error = 'CSV 모듈이 로드되지 않았습니다 — 페이지를 새로고침한 뒤 다시 시도하세요.'; return; }
                     let all;
                     try { all = await this.apiGet('/api/user-tags/alerts?' + this.utQs() + '&limit=100000'); }
-                    catch (e) { console.error(e); return; }
+                    catch (e) { console.error(e); this.error = 'CSV 내보내기 실패: ' + e.message; return; }
                     const esc = (v) => { v = (v ?? '').toString(); return (v.includes(',') || v.includes('"') || v.includes('\n')) ? '"' + v.replace(/"/g, '""') + '"' : v; };
                     const lines = ['Timestamp,LogLevel,System,Name,TagAddress,ValueType,MatchOp,MatchValue,ActualValue'];
                     for (const a of all) lines.push([esc(a.occurredAtLocal), esc(a.logLevel), esc(a.systemName), esc(a.name), esc(a.tagAddress), esc(a.valueType), esc(a.matchOp), esc(a.matchValue || ''), esc(a.actualValue)].join(','));
@@ -1058,6 +1075,7 @@
                 async loadOee() {
                     const r = this.rangeForPeriod();
                     const qs = `from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}`;
+                    const seq = ++this._oeeSeq;
                     try {
                         const [summary, downtime, ranking, daily] = await Promise.all([
                             this.apiGet('/api/oee/summary?' + qs),
@@ -1065,12 +1083,14 @@
                             this.apiGet('/api/oee/ranking?' + qs),
                             this.apiGet('/api/oee/daily?' + qs),
                         ]);
+                        if (seq !== this._oeeSeq) return; // stale 응답 폐기
                         this.oee = summary;
                         this.downtime = Array.isArray(downtime) ? downtime : [];
                         this.ranking = Array.isArray(ranking) ? ranking : [];
                         this.dailyData = daily;
                         this.oeeError = null;
                     } catch (e) {
+                        if (seq !== this._oeeSeq) return;
                         this.oeeError = 'OEE 데이터를 불러오지 못했습니다: ' + e.message;
                     }
                     this.$nextTick(() => this.drawDailyChart());
@@ -1081,6 +1101,12 @@
                     if (!d || !d.slots || d.slots.length === 0) return;
                     const canvas = document.getElementById('up-daily-chart');
                     if (!canvas) return;
+                    // x-if 가 canvas 를 제거했다 다시 만들면 기존 차트는 분리된 옛 canvas 에 묶여
+                    // update 가 화면에 안 그려짐(영구 공백) — canvas 가 바뀌었으면 파기 후 재생성
+                    if (_dailyChart && _dailyChart.canvas !== canvas) {
+                        try { _dailyChart.destroy(); } catch (e) {}
+                        _dailyChart = null;
+                    }
 
                     const MS = 3600000; // ms → 시간
                     const labels = d.slots.map(s => {
@@ -1321,14 +1347,17 @@
                 },
 
                 // ── 일괄 선택 computed ──
-                get selectedCount() { return Object.values(this.selectedIds).filter(Boolean).length; },
+                // 선택/일괄 작업 범위 = 현재 필터에 보이는 행만. 필터 변경으로 화면에서 사라진 행의
+                // 체크 상태는 메모리에 남지만 카운트/일괄 처리 대상에서 제외 — "N건 선택됨"이 항상 화면과 일치.
+                get selectedVisibleIds() { return this.filteredDowntime.filter(d => this.selectedIds[d.id]).map(d => d.id); },
+                get selectedCount() { return this.selectedVisibleIds.length; },
                 get allFilteredSelected() {
                     const fd = this.filteredDowntime;
                     return fd.length > 0 && fd.every(d => this.selectedIds[d.id]);
                 },
                 get someFilteredSelected() { return this.filteredDowntime.some(d => this.selectedIds[d.id]); },
                 get anySelectedOpen() {
-                    return this.downtime.some(d => this.selectedIds[d.id] && d.status === 'open');
+                    return this.filteredDowntime.some(d => this.selectedIds[d.id] && d.status === 'open');
                 },
                 toggleSel(id, checked) {
                     this.selectedIds = { ...this.selectedIds, [id]: checked };
@@ -1339,50 +1368,61 @@
                     this.selectedIds = { ...this.selectedIds, ...patch };
                 },
                 clearSel() { this.selectedIds = {}; this.bulkDraft = ''; },
+                // 분류/마감 성공 피드백 — 잠깐 표시 후 자동 소거 (실패는 기존 oeeError 경로)
+                flashDtMsg(msg) {
+                    this.dtMsg = msg;
+                    clearTimeout(this._dtMsgTimer);
+                    this._dtMsgTimer = setTimeout(() => { this.dtMsg = ''; }, 4000);
+                },
                 async bulkClassify() {
-                    const ids = Object.entries(this.selectedIds).filter(([, v]) => v).map(([k]) => Number(k));
+                    const ids = this.selectedVisibleIds;
                     if (!ids.length || !this.bulkDraft) return;
                     const def = REASON_DEFS.find(x => x.code === this.bulkDraft);
                     const category = def ? def.category : 'unplanned';
                     this.bulkBusy = true;
                     try {
                         await this.apiPost('/api/oee/downtime/bulk-classify', { ids, reasonCode: this.bulkDraft, category });
+                        const label = this.reasonLabel(this.bulkDraft);
                         this.clearSel();
                         await this.loadOee();
+                        this.flashDtMsg(`${ids.length}건 일괄 분류됨 → ${label}`);
                     } catch (e) {
                         this.oeeError = '일괄 분류 실패: ' + e.message;
                     } finally { this.bulkBusy = false; }
                 },
                 async bulkClose() {
-                    const ids = Object.entries(this.selectedIds).filter(([, v]) => v).map(([k]) => Number(k));
+                    const ids = this.filteredDowntime.filter(d => this.selectedIds[d.id] && d.status === 'open').map(d => d.id);
                     if (!ids.length) return;
+                    if (!confirm(ids.length + '건의 진행중 정지를 수리완료(마감) 처리할까요?\n마감 후에는 화면에서 되돌릴 수 없습니다.')) return;
                     this.bulkBusy = true;
                     try {
                         await this.apiPost('/api/oee/downtime/bulk-close', { ids });
                         this.clearSel();
                         await this.loadOee();
+                        this.flashDtMsg(`${ids.length}건 수리완료 처리됨`);
                     } catch (e) {
                         this.oeeError = '일괄 수리완료 실패: ' + e.message;
                     } finally { this.bulkBusy = false; }
                 },
 
-                // 정지 원인 도넛 (분류된 것만, 지속시간 가중)
+                // 정지 원인 도넛 (지속시간 가중, 미분류=회색 포함 — 합계가 상단 '기간 정지'와 일치)
                 get reasonDist() {
                     const byCode = {};
                     let totalMs = 0, count = 0;
                     for (const d of this.downtime) {
-                        if (!d.reasonCode) continue;
                         const ms = (d.durationMs && d.durationMs > 0)
                             ? d.durationMs
                             : (d.status === 'open' && d.startAt ? Math.max(0, Date.now() - new Date(d.startAt).getTime()) : 0);
-                        byCode[d.reasonCode] = (byCode[d.reasonCode] || 0) + ms;
+                        if (ms <= 0) continue;
+                        const code = d.reasonCode || UNCLASSIFIED_DEF.code;
+                        byCode[code] = (byCode[code] || 0) + ms;
                         totalMs += ms; count++;
                     }
                     const codes = Object.keys(byCode);
                     if (codes.length === 0 || totalMs <= 0) return { total: codes.length, count, segs: [] };
                     const C = 2 * Math.PI * 38;
                     let prior = 0;
-                    const segs = REASON_DEFS.filter(r => byCode[r.code] != null).map(r => {
+                    const segs = [...REASON_DEFS, UNCLASSIFIED_DEF].filter(r => byCode[r.code] != null).map(r => {
                         const ms = byCode[r.code];
                         const len = ms / totalMs * C;
                         const gap = C - len;
@@ -1401,7 +1441,7 @@
                         s += `<circle cx="50" cy="50" r="38" fill="none" stroke="${seg.color}" stroke-width="14" stroke-dasharray="${seg.dash}" stroke-dashoffset="${seg.offset}" transform="rotate(-90 50 50)"></circle>`;
                     }
                     s += `<text class="up-donut-total" x="50" y="49" text-anchor="middle">${d.count}</text>`;
-                    s += '<text class="up-donut-cap" x="50" y="61" text-anchor="middle">분류건수</text>';
+                    s += '<text class="up-donut-cap" x="50" y="61" text-anchor="middle">정지건수</text>';
                     return s;
                 },
 
@@ -1426,20 +1466,23 @@
                     return [...s].sort();
                 },
 
-                // ── 일자별 시간 구성 (가동 근사 / 정지 / 계획정비) ──
+                // ── 일자별 시간 구성 (가동 근사 / 정지(비계획) / 계획정비) ──
+                // 계획정비(planned_maint 분류 정지)는 전체 정지의 부분집합이라, 정지 조각에서 빼서
+                // 세 조각의 합이 100% 가 되게 한다 — 안 빼면 라벨 % 와 실제 폭이 어긋남(이중 계산).
                 get timeComp() {
                     const o = this.oee;
-                    if (!o || o.periodMs <= 0) return { runMs: 0, maintMs: 0, runPct: 0, downPct: 0, maintPct: 0 };
-                    const down = o.downtimeMs || 0;
-                    // 계획정비: 분류된 planned_maint 정지 지속시간 합 (shift-exception 미연동 시 근사)
+                    if (!o || o.periodMs <= 0) return { runMs: 0, downMs: 0, maintMs: 0, runPct: 0, downPct: 0, maintPct: 0 };
+                    const downTotal = o.downtimeMs || 0;
                     let maint = 0;
                     for (const d of this.downtime) {
                         if (d.reasonCode === 'planned_maint' && d.durationMs && d.durationMs > 0) maint += d.durationMs;
                     }
-                    const run = Math.max(0, o.periodMs - down);
+                    maint = Math.min(maint, downTotal);
+                    const down = downTotal - maint; // 비계획 정지
+                    const run = Math.max(0, o.periodMs - downTotal);
                     const total = o.periodMs;
                     const r1 = (x) => Math.max(0, Math.min(100, (x * 100 / total))).toFixed(1);
-                    return { runMs: run, maintMs: maint, runPct: r1(run), downPct: r1(down), maintPct: r1(maint) };
+                    return { runMs: run, downMs: down, maintMs: maint, runPct: r1(run), downPct: r1(down), maintPct: r1(maint) };
                 },
 
                 // ── 규칙기반 AI 인사이트 한 줄 ──
@@ -1450,8 +1493,8 @@
                     if (scored.length > 0) worst = scored.reduce((a, b) => b.oee < a.oee ? b : a);
                     else if (this.ranking.length > 0) worst = this.ranking.reduce((a, b) => b.downtimeMs > a.downtimeMs ? b : a);
                     if (!worst) return null;
-                    // 주원인 (분류된 것 중 지속시간 최대)
-                    const segs = this.reasonDist.segs;
+                    // 주원인 (분류된 것 중 지속시간 최대 — 미분류 조각은 후보 제외, 아래 미분류 안내문이 따로 처리)
+                    const segs = this.reasonDist.segs.filter(s => s.code !== UNCLASSIFIED_DEF.code);
                     const top = segs.length > 0 ? segs.reduce((a, b) => b.ms > a.ms ? b : a) : null;
                     const oeeTxt = worst.oee != null ? ('OEE ' + this.pct(worst.oee)) : ('정지 ' + this.durShort(worst.downtimeMs));
                     let s = `정지 기준 가장 취약한 설비는 <b>${worst.flowName}</b> (${oeeTxt}, 정지 ${worst.downtimeCount}건) 입니다.`;
@@ -1468,15 +1511,19 @@
                     const category = def ? def.category : 'unplanned';
                     try {
                         await this.apiPost('/api/oee/downtime/' + d.id + '/classify', { reasonCode: code, category });
+                        this.classifyDraft[d.id] = ''; // 처리 완료된 행의 드롭다운 비움 — 연속 분류 시 처리 여부 혼동 방지
                         await this.loadOee();
+                        this.flashDtMsg(`분류 저장됨 — ${d.flowName || d.systemName || ''} → ${this.reasonLabel(code)}`);
                     } catch (e) {
                         this.oeeError = '분류 실패: ' + e.message;
                     }
                 },
                 async closeEvent(d) {
+                    if (!confirm(`'${d.flowName || d.systemName || '이 이벤트'}' 정지를 수리완료(마감) 처리할까요?\n마감 후에는 화면에서 되돌릴 수 없습니다.`)) return;
                     try {
                         await this.apiPost('/api/oee/downtime/' + d.id + '/close', {});
                         await this.loadOee();
+                        this.flashDtMsg('수리완료 처리됨 — ' + (d.flowName || d.systemName || ''));
                     } catch (e) {
                         this.oeeError = '수동 마감 실패: ' + e.message;
                     }
@@ -1494,6 +1541,8 @@
                             reject: Math.max(0, Number(f.reject) || 0)
                         });
                         f.msg = `저장됨 — 총 ${res.total} / 양품 ${res.good} / 불량 ${res.reject}`;
+                        clearTimeout(this._prodMsgTimer);
+                        this._prodMsgTimer = setTimeout(() => { f.msg = ''; }, 6000);
                         await this.loadOee();
                     } catch (e) {
                         f.err = '저장 실패: ' + e.message;
@@ -1517,16 +1566,21 @@
                 // draft(입력, 초) 정규화: 양수면 ms 정수(×1000), 아니면 null(해제)
                 ctNorm(v) { return (v != null && v > 0) ? Math.round(v * 1000) : null; },
                 rowChanged(row) { return this.ctNorm(row.draft) !== (row.idealCycleTimeMs ?? null); },
+                flashCtMsg(msg) {
+                    this.ctMsg = msg;
+                    clearTimeout(this._ctMsgTimer);
+                    this._ctMsgTimer = setTimeout(() => { this.ctMsg = ''; }, 5000);
+                },
                 async applyAllIdealCt() {
                     this.ctMsg = ''; this.ctError = null;
                     const items = this.ctTable
                         .filter(r => this.rowChanged(r))
                         .map(r => ({ flow: r.flowName, idealCycleTimeMs: this.ctNorm(r.draft) }));
-                    if (items.length === 0) { this.ctMsg = '변경된 항목이 없습니다.'; return; }
+                    if (items.length === 0) { this.flashCtMsg('변경된 항목이 없습니다.'); return; }
                     this.ctApplying = true;
                     try {
                         const res = await this.apiPost('/api/oee/ideal-cycle/batch', { items });
-                        this.ctMsg = `${res.count}개 Flow 표준CT 일괄 적용됨`;
+                        this.flashCtMsg(`${res.count}개 Flow 표준CT 일괄 적용됨`);
                         await this.loadCtTable();
                         await this.loadOee();
                     } catch (e) {
