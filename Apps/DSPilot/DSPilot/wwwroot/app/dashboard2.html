@@ -855,8 +855,9 @@
                                                 <video :id="'cctv-wall-' + cam.id" muted autoplay playsinline
                                                        @loadedmetadata="cctvRecalcRects()"></video>
 
-                                                <!-- 단독(확대) ⇄ 분할 토글 -->
+                                                <!-- 단독(확대) ⇄ 분할 토글 (카메라 2대 이상일 때만) -->
                                                 <button class="cctv-tile-zoom" @click.stop="cctvToggleSolo(cam.id)"
+                                                        x-show="cctvWallCams().length > 1"
                                                         :title="cctvSolo === cam.id ? '분할 보기로 돌아가기' : '이 카메라만 크게 보기'">
                                                     <span class="material-icons" x-text="cctvSolo === cam.id ? 'close_fullscreen' : 'open_in_full'"></span>
                                                 </button>
