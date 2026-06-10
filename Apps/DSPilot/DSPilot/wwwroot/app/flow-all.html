@@ -202,12 +202,6 @@
         </header>
 
         <main class="dsp-main">
-            <!-- 데모 차단 -->
-            <div class="alert alert-error" x-show="demoBlocked" x-cloak style="margin-bottom:12px;">
-                <span class="material-icons">lock_clock</span>
-                <span>데모 사용 시간이 만료되어 데이터 API 가 차단되었습니다.</span>
-            </div>
-
             <div class="fw-grid" style="display:flex; flex-direction:column; gap:16px; flex:1; min-height:0;">
 
                 <!-- ════ 공유 시간범위 컨트롤 ════ -->
@@ -620,7 +614,6 @@
                 startTime: '', endTime: '',
                 excludeIncomplete: true,
                 rt: { connected: false },
-                demoBlocked: false,
                 saving: false, saveMsg: '', saveError: false,
                 _conn: null, _timer: null,
 
@@ -662,13 +655,11 @@
                 // ── API ──
                 async apiGet(url) {
                     const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     return await res.json();
                 },
                 async apiPost(url, body) {
                     const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify(body) });
-                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     return await res.json();
                 },
@@ -687,7 +678,7 @@
                             for (const sys of systems) for (const fn of (sys.flows || [])) names.push(fn);
                             names = Array.from(new Set(names));
                         }
-                    } catch (e) { /* demo-blocked 등 — 빈 목록 */ }
+                    } catch (e) { /* 실패 시 빈 목록 */ }
                     this.flows = names.map((n, i) => this.makeSlice(n, i));
                 },
 
@@ -736,7 +727,7 @@
                         const d = await this.apiPost('/api/call-test/load', body);
                         this.applyLoadResult(slice, d);
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') slice.error = '데이터 로딩 실패: ' + e.message;
+                        slice.error = '데이터 로딩 실패: ' + e.message;
                     } finally { slice.loading = false; }
                 },
 
@@ -863,7 +854,7 @@
                         slice.topGaps = CG.topGapsOf(slice);
                         slice.svgMarkup = CG.buildSvg(slice);
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') slice.error = '오버레이 갱신 실패: ' + e.message;
+                        slice.error = '오버레이 갱신 실패: ' + e.message;
                     } finally { slice.overlayBusy = false; }
                 },
 
@@ -1074,7 +1065,7 @@
                         await this.loadSlice(slice);   // '현재 AASX' 값 재조회
                         setTimeout(() => { slice.applyDurMsg = ''; }, 5000);
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') slice.error = '실측 적용 실패: ' + e.message;
+                        slice.error = '실측 적용 실패: ' + e.message;
                         slice.applyDurMsg = '';
                     } finally { slice.applyDurBusy = false; }
                 },
@@ -1144,7 +1135,7 @@
                         setTimeout(() => { if (!this.saving) this.saveMsg = ''; }, 6000);
                     } catch (e) {
                         this.saveError = true;
-                        this.saveMsg = (e.message === 'demo-blocked') ? '데모 만료로 적용이 차단되었습니다.' : ('일괄 적용 실패: ' + e.message);
+                        this.saveMsg = '일괄 적용 실패: ' + e.message;
                     } finally { this.saving = false; }
                 },
 
@@ -1192,7 +1183,6 @@
                         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                         body: JSON.stringify({ flowName, minSec, maxSec })
                     });
-                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                 },
 

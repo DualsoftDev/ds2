@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+// Copyright (c) 2026 Dualsoft Inc. All rights reserved.
+// Commercial license required for use. See Apps/DSPilot/LICENSE.
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using DSPilot.Models;
@@ -9,8 +12,12 @@ public class AppSettingsService
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
+    // 설정 파일 read-modify-write 직렬화 — 동시 저장(예: 백그라운드 자동보정 완료 플래그 박제 vs 설정 페이지 저장)의
+    // lost-update·torn-write 방지. AppSettingsService 는 싱글톤이라 프로세스당 1개의 lock 으로 충분(파일은 단일 writer).
+    private static readonly object _writeLock = new();
+
     private static readonly string[] ManagedSections =
-        ["Database", "FlowCycle", "DspTables", "Hub", "Logging", "Ui", "HistoryView", "Cctv", "OeeSignals", "Shift", "CycleExclusion", "AbnormalAlarm"];
+        ["Database", "FlowCycle", "DspTables", "Hub", "Logging", "Ui", "HistoryView", "Cctv", "OeeSignals", "Shift", "CycleExclusion", "AbnormalAlarm", "AutoCalibration"];
 
     private readonly string _filePath;
     private readonly string _productionFilePath;
@@ -70,21 +77,42 @@ public class AppSettingsService
             Shift = Deserialize<ShiftSettings>(root["Shift"]),
             CycleExclusion = Deserialize<CycleExclusionSettings>(root["CycleExclusion"]),
             AbnormalAlarm = Deserialize<AbnormalAlarmSettings>(root["AbnormalAlarm"]),
+            AutoCalibration = Deserialize<AutoCalibrationSettings>(root["AutoCalibration"]),
         };
     }
 
     public void SaveSettings(AppSettingsModel model)
     {
-        var root = LoadRaw(_filePath);
-        WriteSections(root, model);
-        SaveRaw(_filePath, root);
+        lock (_writeLock)
+        {
+            var root = LoadRaw(_filePath);
+            WriteSections(root, model);
+            SaveRaw(_filePath, root);
 
-        // Production.json에 사용자 설정 전체 동기화 — 재설치(업그레이드) 시 보존되는 사용자 설정 영속 저장소.
-        // (설치 스크립트는 이 파일을 삭제/덮어쓰지 않고, 포트는 appsettings.Hosting.json 으로 분리한다.)
-        var prod = File.Exists(_productionFilePath) ? LoadRaw(_productionFilePath) : new JsonObject();
-        WriteSections(prod, model);
-        SaveRaw(_productionFilePath, prod);
-        _logger.LogInformation("appsettings.Production.json 전체 설정 동기화 완료");
+            // Production.json에 사용자 설정 전체 동기화 — 재설치(업그레이드) 시 보존되는 사용자 설정 영속 저장소.
+            // (설치 스크립트는 이 파일을 삭제/덮어쓰지 않고, 포트는 appsettings.Hosting.json 으로 분리한다.)
+            var prod = File.Exists(_productionFilePath) ? LoadRaw(_productionFilePath) : new JsonObject();
+            WriteSections(prod, model);
+            SaveRaw(_productionFilePath, prod);
+            _logger.LogInformation("appsettings.Production.json 전체 설정 동기화 완료");
+        }
+    }
+
+    /// <summary>
+    /// 현재 설정을 로드→변경→저장을 한 잠금 구간에서 원자적으로 수행한다(load-modify-save 의 lost-update 방지).
+    /// 별도 경로의 mutator 가 같은 순간 서로의 변경을 덮어쓰는 것을 막는다 — 특히 백그라운드 자동보정 완료 플래그
+    /// (<see cref="RecordAutoCalibrationApplied"/>)와 설정 페이지 저장(SettingsController.Save)이 경합해도
+    /// CompletedAt 이 유실되지 않는다. <paramref name="mutate"/> 안에서는 await 하지 말 것(동기 잠금 구간).
+    /// </summary>
+    public void Update(Action<AppSettingsModel> mutate)
+    {
+        if (mutate is null) return;
+        lock (_writeLock)
+        {
+            var settings = LoadSettings();
+            mutate(settings);
+            SaveSettings(settings); // 같은 스레드 재진입(Monitor 는 재진입 허용).
+        }
     }
 
     /// <summary>
@@ -114,6 +142,7 @@ public class AppSettingsService
         target["Shift"] = JsonSerializer.SerializeToNode(model.Shift, JsonOptions);
         target["CycleExclusion"] = JsonSerializer.SerializeToNode(model.CycleExclusion, JsonOptions);
         target["AbnormalAlarm"] = JsonSerializer.SerializeToNode(model.AbnormalAlarm, JsonOptions);
+        target["AutoCalibration"] = JsonSerializer.SerializeToNode(model.AutoCalibration, JsonOptions);
     }
 
     public FlowCycleOverride? GetFlowCycleOverride(string flowName)
@@ -349,6 +378,30 @@ public class AppSettingsService
     /// 라이브 누산기·SQL 재집계가 동일 N 을 쓰도록 하는 단일 소스.
     /// </summary>
     public int GetCycleAverageWindow() => LoadSettings().HistoryView.CycleAverageWindow;
+
+    /// <summary>
+    /// 자동 보정 1회성 완료 플래그(<see cref="AutoCalibrationSettings.CompletedAt"/>)를 현재 UTC 시각으로 박제한다.
+    /// 이미 채워져 있으면 덮어쓰지 않는다(멱등) — 트리거 결정~저장 사이 재시작에도 안전. 다른 설정은 보존(load-modify-save).
+    /// 설정 파일의 단일 writer 경로(<see cref="SaveSettings"/>)를 통하므로 백그라운드/수동 호출과 무관히 일관 저장된다.
+    /// </summary>
+    /// <summary>
+    /// 실측 보정이 project.aasx 에 실제 기록된 직후 호출. <see cref="AutoCalibrationSettings.LastAppliedAt"/>/
+    /// <see cref="AutoCalibrationSettings.LastAppliedSummary"/> 를 항상 최신화(자동/수동 무관 — AASX 수정 시각)하고,
+    /// 1회성 트리거 플래그 <see cref="AutoCalibrationSettings.CompletedAt"/> 는 아직 비어 있을 때만 박제한다(멱등).
+    /// load-modify-save 전체를 <see cref="_writeLock"/> 으로 원자화 — 설정 페이지 저장과 경합해도 유실 없음.
+    /// </summary>
+    public void RecordAutoCalibrationApplied(string summary)
+    {
+        lock (_writeLock)
+        {
+            var settings = LoadSettings();
+            var now = DateTime.UtcNow;
+            settings.AutoCalibration.LastAppliedAt = now;
+            settings.AutoCalibration.LastAppliedSummary = summary;
+            settings.AutoCalibration.CompletedAt ??= now; // 최초 1회만 — 재시작 자동 재실행 차단.
+            SaveSettings(settings);
+        }
+    }
 
     /// <summary>이미 로드한 모델로 유효범위 계산(반복 호출 시 디스크 재로드 방지).</summary>
     public static (int MaxMs, int MinMs) ResolveEffectiveCycleRangeMs(AppSettingsModel settings, string flowName)

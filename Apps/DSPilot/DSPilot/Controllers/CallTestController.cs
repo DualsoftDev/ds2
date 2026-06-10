@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+// Copyright (c) 2026 Dualsoft Inc. All rights reserved.
+// Commercial license required for use. See Apps/DSPilot/LICENSE.
 using DSPilot.Models.Analysis;
 using DSPilot.Repositories;
 using DSPilot.Services;
@@ -23,6 +26,7 @@ public class CallTestController : ControllerBase
     private readonly IFlowMetricsService _flowMetrics;
     private readonly AppSettingsService _settings;
     private readonly DsProjectService _project;
+    private readonly CallLaneBuilderService _laneBuilder;
     private readonly ILogger<CallTestController> _logger;
 
     public CallTestController(
@@ -32,6 +36,7 @@ public class CallTestController : ControllerBase
         IFlowMetricsService flowMetrics,
         AppSettingsService settings,
         DsProjectService project,
+        CallLaneBuilderService laneBuilder,
         ILogger<CallTestController> logger)
     {
         _callMapper = callMapper;
@@ -40,6 +45,7 @@ public class CallTestController : ControllerBase
         _flowMetrics = flowMetrics;
         _settings = settings;
         _project = project;
+        _laneBuilder = laneBuilder;
         _logger = logger;
     }
 
@@ -97,9 +103,6 @@ public class CallTestController : ControllerBase
         if (end <= start)
             return BadRequest("종료 시각은 시작 시각보다 커야 합니다.");
 
-        // segment 데이터는 H/T 와 무관하게 먼저 가져온다.
-        var data = await _cycleAnalysis.GetActualIoSignalSegmentsInTimeRangeAsync(req.FlowName, start, end);
-
         // 간트 시간축 = 사용자가 요청한 날짜 범위 그대로(고정). 과거엔 실제 신호 발생 구간(min/max)에
         // 맞춰 자동 축소(fit-to-data)했으나, 그러면 윈도우를 넓혀도 축이 데이터 범위로 되돌아가
         // "날짜를 바꿔도 간트가 안 변한다"로 보였다(특히 신호가 드문/없는 구간). 이제 요청 [start,end] 를
@@ -107,49 +110,8 @@ public class CallTestController : ControllerBase
         var chartStart = start;
         var chartEnd = end > start ? end : start.AddSeconds(1);
 
-        // lane 단위 grouping + interval merge (Blazor 동일).
-        var lanes = data.Items
-            .GroupBy(i => i.Lane)
-            .Select(g =>
-            {
-                var first = g.First();
-                var intervals = MergeIntervals(
-                    g.Select(i => (i.GoingStartTime, i.FinishTime ?? i.GoingStartTime)).ToList());
-                // 태그별 ON 구간 분리 — Call 막대 안에 OutTag(명령)/InTag(응답) 라인 그래프로 그리기 위함.
-                var outIntervals = MergeIntervals(
-                    g.Where(i => i.EventType == IOEventType.OutTag)
-                     .Select(i => (i.GoingStartTime, i.FinishTime ?? i.GoingStartTime)).ToList());
-                var inIntervals = MergeIntervals(
-                    g.Where(i => i.EventType == IOEventType.InTag)
-                     .Select(i => (i.GoingStartTime, i.FinishTime ?? i.GoingStartTime)).ToList());
-                var tags = _callMapper.GetCallTagsByCallId(first.CallId);
-                return new CtLaneDto(
-                    first.CallId.ToString(),
-                    first.CallName,
-                    first.WorkName,
-                    first.Lane,
-                    intervals.Select(iv => new CtIntervalDto(IsoLocal(iv.Start), IsoLocal(iv.End))).ToList(),
-                    tags?.InTag,
-                    tags?.OutTag,
-                    outIntervals.Select(iv => new CtIntervalDto(IsoLocal(iv.Start), IsoLocal(iv.End))).ToList(),
-                    inIntervals.Select(iv => new CtIntervalDto(IsoLocal(iv.Start), IsoLocal(iv.End))).ToList(),
-                    ResolveApiCalls(first.CallId));
-            })
-            .OrderBy(l => l.LaneIndex)
-            .ToList();
-
-        // 시간 범위에 데이터가 없는 Call 도 표시 — 빈 인터벌로 추가.
-        var laneIds = lanes.Select(l => l.CallId).ToHashSet();
-        int nextLane = lanes.Count > 0 ? lanes.Max(l => l.LaneIndex) + 1 : 0;
-        foreach (var c in _callMapper.GetAllCallTagPairs()
-                     .Where(p => string.Equals(p.FlowName, req.FlowName, StringComparison.OrdinalIgnoreCase))
-                     .Where(c => !laneIds.Contains(c.CallId.ToString())))
-        {
-            lanes.Add(new CtLaneDto(c.CallId.ToString(), c.CallName, c.WorkName, nextLane++,
-                new List<CtIntervalDto>(), c.InTag, c.OutTag,
-                new List<CtIntervalDto>(), new List<CtIntervalDto>(),
-                ResolveApiCalls(c.CallId)));
-        }
+        // lane 단위 grouping + interval merge. 자동 실측 보정(AutoCalibrationService)과 동일 코드를 공유.
+        var lanes = await _laneBuilder.BuildLanesAsync(req.FlowName, start, end);
 
         // 유효(override 적용) Head/Tail — override 안 했을 때 적용할 기본값. 저장된 사용자 지정이 있으면
         // 그 값을, 없으면 AASX 기본값을 쓴다(GetCycleBoundaryCallNames = override 적용 후 런타임 경계).
@@ -292,23 +254,6 @@ public class CallTestController : ControllerBase
         return new CtApplyDurationsResult(applied, true);
     }
 
-    /// <summary>
-    /// Call lane 확장용 — 이 Call 에 소속된 ApiCall(들) + 보정 대상 Device Work 의 현재 AASX duration(ms).
-    /// 읽기 전용(store 불변). 현재 PoC 는 1:1 이라 보통 1개. 미로드/미해석 시 빈 리스트.
-    /// </summary>
-    private List<CtApiCallDto> ResolveApiCalls(Guid callId)
-        => _project.GetCallApiCallDetails(callId)
-            .Select(d => new CtApiCallDto(
-                d.ApiCallId.ToString(),
-                d.Name,
-                d.InTag,
-                d.OutTag,
-                d.TargetWorkId?.ToString(),
-                d.CurrentDurationMs,
-                d.CurrentMinMs,
-                d.CurrentMaxMs))
-            .ToList();
-
     // ── helpers (Blazor @code 1:1 이식) ───────────────────────────────────────
 
     /// <summary>프로젝트(AASX) 정의 Head/Tail 을 lane 매칭해서 CallId 로 변환. Blazor ApplyProjectHeadTail 동일.</summary>
@@ -426,32 +371,6 @@ public class CallTestController : ControllerBase
         var (maxMs, minMs) = _settings.GetEffectiveCycleRangeMs(flowName);
         var cycles = CycleDerivation.BuildCycles(cycleBoundaries, tailEdges, chartEnd);
         return CycleDerivation.Averages(cycles, maxMs, minMs);
-    }
-
-    private static List<(DateTime Start, DateTime End)> MergeIntervals(List<(DateTime Start, DateTime End)> intervals)
-    {
-        var merged = new List<(DateTime Start, DateTime End)>();
-        if (intervals.Count == 0) return merged;
-
-        intervals.Sort((a, b) => a.Start.CompareTo(b.Start));
-        var curS = intervals[0].Start;
-        var curE = intervals[0].End;
-        for (int i = 1; i < intervals.Count; i++)
-        {
-            var (s, e) = intervals[i];
-            if (s <= curE)
-            {
-                if (e > curE) curE = e;
-            }
-            else
-            {
-                if (curE > curS) merged.Add((curS, curE));
-                curS = s;
-                curE = e;
-            }
-        }
-        if (curE > curS) merged.Add((curS, curE));
-        return merged;
     }
 
     private static Guid? ParseGuid(string? s)

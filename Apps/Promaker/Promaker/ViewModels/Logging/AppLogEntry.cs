@@ -12,13 +12,14 @@ public sealed class AppLogEntry
     /// <summary>화면/clipboard 출력 SSOT. XAML 은 `Display` property 를 binding 하고, clipboard 는 ToString() 사용.</summary>
     public const string Format = "[{0:HH:mm:ss.fff}] {1,-5} {2} — {3}";
 
-    public AppLogEntry(long seq, DateTime timestamp, Level level, string logger, string message)
+    public AppLogEntry(long seq, DateTime timestamp, Level level, string logger, string message, string? category = null)
     {
         Seq = seq;
         Timestamp = timestamp;
         Level = level;
         Logger = logger;
         Message = message;
+        Category = category;
     }
 
     public long Seq { get; }
@@ -26,6 +27,12 @@ public sealed class AppLogEntry
     public Level Level { get; }
     public string Logger { get; }
     public string Message { get; }
+
+    /// <summary>
+    /// 도메인 카테고리 박제 — 색상 분기용. 예: Simulation 의 Ready/Going/Finish/Homing/Timeout/System.
+    /// null = Level 기반 표시 (DEBUG/WARN/ERROR/FATAL). XAML DataTrigger 가 Category 우선 매치 후 Level fallback.
+    /// </summary>
+    public string? Category { get; }
 
     /// <summary>화면 / clipboard 공통 표시 문자열. XAML 은 `Text="{Binding Display}"` 로 단순 binding.</summary>
     public string Display =>

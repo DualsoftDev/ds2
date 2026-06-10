@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+// Copyright (c) 2026 Dualsoft Inc. All rights reserved.
+// Commercial license required for use. See Apps/DSPilot/LICENSE.
 using DSPilot.Hubs;
 using DSPilot.Models.Dashboard;
 using DSPilot.Models.UserTagAlerts;
@@ -14,7 +17,7 @@ namespace DSPilot.Services;
 ///
 /// SimulationEngineService 의 MonitoringAbnormalAdapter 가 감지한 <see cref="AbnormalRecord"/> 를
 /// <see cref="Record"/> 로 흘려보내면:
-///   - 최근 N건 링버퍼에 적재 (대시보드 /api/dashboard/abnormals + 사이드바 /api/nav/summary 조회용)
+///   - 최근 N건 링버퍼에 적재 (사이드바 /api/nav/summary 피드 조회용)
 ///   - userTagAlertLog 에 INSERT (→ /uptime · /oee · 배지 카운트 자동 포함)
 ///   - SignalR "AbnormalDetected" 트리거 발행 → 화면이 REST 를 재조회 (코드베이스 관례: 이벤트=트리거)
 /// </summary>
@@ -26,7 +29,7 @@ public sealed class AbnormalEventService
     private readonly LinkedList<AbnormalEventDto> _recent = new();
 
     // 활성 abnormal 셋(대시보드/전체화면 배너용) — 해당 flow 가 다시 가동(Going)되면 그 flow 항목을 제거한다.
-    // _recent(사이드바·cctv 피드)와 별개: 배너는 _active 만 본다.
+    // _recent(사이드바 피드)와 별개: 배너·Flow 카드·CCTV 오버레이는 _active(active-alarms)만 본다.
     private readonly LinkedList<AbnormalEventDto> _active = new();
 
     // 직전 스냅샷에서 가동(Going) 중이던 flow 집합 — Ready→Going 전이(재가동) 검출용.
@@ -223,8 +226,9 @@ public sealed class AbnormalEventService
 
             await PersistToLogAsync(dto, systemId);
 
-            // 코드베이스 관례: 페이로드 없는 트리거 → 클라이언트가 /api/dashboard/abnormals 재조회
-            // (UserTagAlertsChanged 와 동일 패턴 — SignalR 직렬화 케이싱 차이 회피, REST 단일 소스).
+            // 코드베이스 관례: 페이로드 없는 트리거 → 클라이언트가 REST 재조회
+            // (배너·Flow 카드·CCTV=/api/dashboard/active-alarms, 사이드바=/api/nav/summary).
+            // UserTagAlertsChanged 와 동일 패턴 — SignalR 직렬화 케이싱 차이 회피, REST 단일 소스.
             try { await _hub.Clients.All.SendAsync("AbnormalDetected"); }
             catch (Exception ex) { _logger.LogDebug(ex, "[Abnormal] SignalR 발행 실패 (non-critical)"); }
 

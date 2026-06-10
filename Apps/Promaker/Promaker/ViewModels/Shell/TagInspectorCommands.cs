@@ -55,14 +55,5 @@ public partial class MainViewModel
         }
     }
 
-    /// <summary>PLC 심볼 → DS 모델 자동 생성 (Symbol Import Wizard).
-    /// DS1 mapper 의 룰 의미 ds2 도메인 적용 — LLM 땜빵 대체.</summary>
-    [RelayCommand]
-    private void OpenSymbolWizard()
-    {
-        if (!GuardSimulationSemanticEdit("PLC 심볼 → 모델 생성"))
-            return;
-
-        _dialogService.ShowDialog(new SymbolWizardDialog(_store));
-    }
+    // PR-A5 — OpenSymbolWizard / SymbolWizardDialog 제거. PLC 심볼 import 는 별도 툴로 분리 예정.
 }

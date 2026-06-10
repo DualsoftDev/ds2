@@ -1,0 +1,160 @@
+/* ════════════════════════════════════════════════════════════════════════
+   cctv-wall.css — 대시보드 임베드용 CCTV 영상벽 "읽기 전용 시청" 스타일.
+
+   · cctv.html <style> 의 시청부(그리드/타일/오버레이/툴팁/전체화면)만 추출.
+     편집 전용(레일/컴포저/핸들/드래프트/격자/암바/카메라설정/라벨폼/토스트)은 제외.
+   · 모든 규칙을 .cctv-wall-embed 래퍼 아래로 스코프 → dashboard2 토큰과 충돌 없음.
+   · dashboard2 에 없는 토큰(--teal*/--shadow-1·4/--navy)을 래퍼에 자체 정의
+     (ds.css 와 동일값, 라이트+다크) → 단독 /cctv 페이지와 동일한 룩.
+   · 실제 시청 로직은 /js/cctv-wall.js, 마크업은 dashboard2.html.
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ── dashboard2 에 없는 토큰 자체 정의 (ds.css :root / .dark-theme 와 동일값) ── */
+.cctv-wall-embed {
+    --teal: #0E7CCB;
+    --teal-2: #2E97E6;
+    --teal-dark: #0A5FA0;
+    --navy: #0E1B2A;
+    --navy-2: #16273A;
+    --shadow-1: 0 1px 2px rgba(14, 27, 42, 0.05);
+    --shadow-2: 0 2px 6px rgba(14, 27, 42, 0.06);
+    --shadow-4: 0 16px 44px rgba(14, 27, 42, 0.16);
+    --cctv-ovl-sz: 32px;
+
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+.dark-theme .cctv-wall-embed {
+    --teal: #36B5FF;
+    --teal-2: #5FC6FF;
+    --teal-dark: #1E8FE0;
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-2: 0 2px 8px rgba(0, 0, 0, 0.45);
+    --shadow-4: 0 18px 52px rgba(0, 0, 0, 0.6);
+}
+
+/* ── 영상벽 그리드 ── */
+.cctv-wall-embed .cctv-wall-area { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.cctv-wall-embed .cctv-grid { min-width: 0; display: grid; gap: 10px; }
+.cctv-wall-embed .cctv-grid.count-1 { grid-template-columns: 1fr; }
+.cctv-wall-embed .cctv-grid.count-2 { grid-template-columns: 1fr 1fr; }
+.cctv-wall-embed .cctv-grid.count-3, .cctv-wall-embed .cctv-grid.count-4 { grid-template-columns: 1fr 1fr; }
+.cctv-wall-embed .cctv-grid.count-5, .cctv-wall-embed .cctv-grid.count-6 { grid-template-columns: 1fr 1fr 1fr; }
+/* 단독(solo): 같은 타일을 CSS 로만 확대 — 다른 타일 숨김, 추가 스트림 없음 */
+.cctv-wall-embed .cctv-grid.layout-solo { grid-template-columns: 1fr; }
+.cctv-wall-embed .cctv-grid.layout-solo .cctv-tile { display: none; }
+.cctv-wall-embed .cctv-grid.layout-solo .cctv-tile.is-solo { display: flex; grid-column: 1 / -1; grid-row: 1 / -1; }
+
+/* 카메라 없음 안내 */
+.cctv-wall-embed .cctv-wall-empty { flex: 1; min-height: 220px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 2px dashed var(--color-lines-strong); border-radius: var(--radius-md); color: var(--color-text-secondary); text-align: center; padding: 24px; }
+.cctv-wall-embed .cctv-wall-empty .material-icons { font-size: 40px; opacity: 0.7; }
+
+/* ── 비디오 타일 ── */
+.cctv-wall-embed .cctv-tile { position: relative; display: flex; flex-direction: column; background: #0A0F16; overflow: hidden; min-height: 0; min-width: 0; border: 1.5px solid var(--color-lines); border-radius: var(--radius-md); transition: border-color 0.12s ease, box-shadow 0.12s ease; aspect-ratio: 21 / 9; container-type: inline-size; }
+.cctv-wall-embed .cctv-tile:hover { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.15); }
+
+/* 그리드 수(3개+) 기준: 이름 바 + 오버레이 칩/뱃지 생략 */
+.cctv-wall-embed .cctv-grid.count-3 .cctv-tile-bar, .cctv-wall-embed .cctv-grid.count-4 .cctv-tile-bar,
+.cctv-wall-embed .cctv-grid.count-5 .cctv-tile-bar, .cctv-wall-embed .cctv-grid.count-6 .cctv-tile-bar { display: none !important; }
+.cctv-wall-embed .cctv-grid.count-3 .cctv-ovl-chip, .cctv-wall-embed .cctv-grid.count-4 .cctv-ovl-chip,
+.cctv-wall-embed .cctv-grid.count-5 .cctv-ovl-chip, .cctv-wall-embed .cctv-grid.count-6 .cctv-ovl-chip { display: none !important; }
+.cctv-wall-embed .cctv-grid.count-3 .cctv-kind-badge, .cctv-wall-embed .cctv-grid.count-4 .cctv-kind-badge,
+.cctv-wall-embed .cctv-grid.count-5 .cctv-kind-badge, .cctv-wall-embed .cctv-grid.count-6 .cctv-kind-badge { display: none !important; }
+.cctv-wall-embed .cctv-grid.count-3 .cctv-pin-lbl, .cctv-wall-embed .cctv-grid.count-4 .cctv-pin-lbl,
+.cctv-wall-embed .cctv-grid.count-5 .cctv-pin-lbl, .cctv-wall-embed .cctv-grid.count-6 .cctv-pin-lbl { display: none !important; }
+/* 타일 너비 기준(좁아질 때): 520px 이하 시 생략 */
+@container (max-width: 520px) {
+    .cctv-wall-embed .cctv-tile-bar { display: none !important; }
+    .cctv-wall-embed .cctv-ovl-chip { display: none !important; }
+    .cctv-wall-embed .cctv-kind-badge { display: none !important; }
+    .cctv-wall-embed .cctv-pin-lbl { display: none !important; }
+}
+
+.cctv-wall-embed .cctv-tile-bar { display: flex; align-items: center; gap: 6px; padding: 5px 8px; background: rgba(8, 13, 20, 0.92); color: #fff; flex-shrink: 0; }
+.cctv-wall-embed .cctv-tile-name { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cctv-wall-embed .cctv-tile-stage { position: relative; flex: 1; min-height: 0; min-width: 0; }
+.cctv-wall-embed .cctv-tile-stage video { width: 100%; height: 100%; object-fit: contain; background: #0A0F16; display: block; }
+
+/* 단독(확대) ⇄ 분할 토글 버튼 — 타일 우상단 */
+.cctv-wall-embed .cctv-tile-zoom { position: absolute; top: 6px; right: 6px; z-index: 5; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: none; border-radius: var(--radius-sm); background: rgba(8, 13, 20, 0.62); color: #fff; cursor: pointer; opacity: 0.5; transition: opacity 0.12s ease, background 0.12s ease; }
+.cctv-wall-embed .cctv-tile:hover .cctv-tile-zoom { opacity: 1; }
+.cctv-wall-embed .cctv-grid.layout-solo .cctv-tile-zoom { opacity: 1; }   /* 단독 보기에선 항상 노출(분할 복귀 버튼) */
+.cctv-wall-embed .cctv-tile-zoom:hover { background: var(--teal); }
+.cctv-wall-embed .cctv-tile-zoom .material-icons { font-size: 16px; }
+
+/* 오버레이 개수 배지 */
+.cctv-wall-embed .cctv-tile-ovl { position: absolute; bottom: 6px; right: 6px; display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: var(--radius-lg); background: rgba(8, 13, 20, 0.82); color: #fff; font-size: 0.56rem; font-weight: 800; pointer-events: none; z-index: 3; }
+.cctv-wall-embed .cctv-tile-ovl .material-icons { font-size: 12px; }
+
+/* ── 오버레이 레이어 (영상 위 정확히 겹침, 읽기 전용 → pointer-events 없음) ── */
+.cctv-wall-embed .cctv-ovl-layer { position: absolute; inset: 0; pointer-events: none; overflow: visible; z-index: 2; }
+.cctv-wall-embed .cctv-ovl-layer.is-hidden { display: none !important; }
+
+/* Flow 영역 박스 */
+.cctv-wall-embed .cctv-ovl-box { position: absolute; box-sizing: border-box; border: 2px solid var(--ovl-color, var(--color-text-disabled)); background: color-mix(in srgb, var(--ovl-color, #888) 12%, transparent); box-shadow: inset 0 0 0 1px rgba(8, 13, 20, 0.5); pointer-events: auto; cursor: default; transition: box-shadow 0.12s ease; }
+.cctv-wall-embed .cctv-ovl-box::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; }
+.cctv-wall-embed .cctv-ovl-box.kind-flow { border-style: solid; border-radius: var(--radius-md); }
+.cctv-wall-embed .cctv-ovl-box.state-going::after { animation: cctv-ovl-pulse 1.8s ease-in-out infinite; }
+.cctv-wall-embed .cctv-ovl-box.state-error::after { animation: cctv-ovl-pulse 0.9s ease-in-out infinite; }
+.cctv-wall-embed .cctv-ovl-box.state-unknown { opacity: 0.7; }
+@keyframes cctv-ovl-pulse { 0% { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--ovl-color, #888) 78%, transparent); opacity: 1; } 70%, 100% { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--ovl-color, #888) 0%, transparent); opacity: 0; } }
+.cctv-wall-embed .cctv-ovl-box.has-abnormal { animation: cctv-box-abn-blink 0.85s ease-in-out infinite; }
+@keyframes cctv-box-abn-blink { 0%, 100% { background: color-mix(in srgb, var(--ovl-color, #d8392b) 32%, transparent); } 50% { background: color-mix(in srgb, var(--ovl-color, #d8392b) 6%, transparent); } }
+.cctv-wall-embed .cctv-ovl-box:hover { box-shadow: inset 0 0 0 1px rgba(8, 13, 20, 0.5), 0 0 0 2px color-mix(in srgb, var(--ovl-color, #888) 55%, transparent); }
+
+/* 종류 뱃지 (Flow 박스 안쪽) */
+.cctv-wall-embed .cctv-kind-badge { position: absolute; top: 3px; left: 3px; width: calc(var(--cctv-ovl-sz, 32px) * 0.5625); height: calc(var(--cctv-ovl-sz, 32px) * 0.5625); display: flex; align-items: center; justify-content: center; background: var(--ovl-color, var(--navy)); color: #fff; border-radius: 50%; box-shadow: var(--shadow-2); z-index: 2; }
+.cctv-wall-embed .cctv-kind-badge .material-icons { font-size: calc(var(--cctv-ovl-sz, 32px) * 0.375); }
+
+/* Call 아이콘 핀 */
+.cctv-wall-embed .cctv-ovl-pin { position: absolute; pointer-events: auto; cursor: default; transform: translate(-50%, -50%); z-index: 3; }
+.cctv-wall-embed .cctv-pin-head { width: var(--cctv-ovl-sz, 32px); height: var(--cctv-ovl-sz, 32px); border-radius: 50%; background: var(--ovl-color, var(--color-text-disabled)); color: #fff; display: flex; align-items: center; justify-content: center; border: 2.5px solid rgba(255,255,255,0.4); box-shadow: 0 3px 8px rgba(0,0,0,0.55); transition: transform 0.12s ease, box-shadow 0.12s ease; position: relative; }
+.cctv-wall-embed .cctv-pin-head .material-icons { font-size: calc(var(--cctv-ovl-sz, 32px) * 0.5); }
+.cctv-wall-embed .cctv-ovl-pin:hover .cctv-pin-head { transform: scale(1.12); box-shadow: 0 3px 8px rgba(0,0,0,0.55), 0 0 0 4px color-mix(in srgb, var(--ovl-color, #888) 35%, transparent); }
+.cctv-wall-embed .cctv-ovl-pin.state-going .cctv-pin-head { animation: cctv-pin-pulse 1.8s ease-in-out infinite; }
+.cctv-wall-embed .cctv-ovl-pin.state-error .cctv-pin-head { animation: cctv-pin-pulse 0.9s ease-in-out infinite; }
+.cctv-wall-embed .cctv-ovl-pin.has-abnormal .cctv-pin-head { animation: cctv-pin-pulse 0.85s ease-in-out infinite; }
+@keyframes cctv-pin-pulse { 0%, 100% { box-shadow: 0 3px 8px rgba(0,0,0,0.55), 0 0 0 0 color-mix(in srgb, var(--ovl-color, #888) 65%, transparent); } 50% { box-shadow: 0 3px 8px rgba(0,0,0,0.55), 0 0 0 10px transparent; } }
+.cctv-wall-embed .cctv-pin-stem { position: absolute; top: calc(var(--cctv-ovl-sz, 32px) - 3px); left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: calc(var(--cctv-ovl-sz, 32px) * 0.22) solid transparent; border-right: calc(var(--cctv-ovl-sz, 32px) * 0.22) solid transparent; border-top: calc(var(--cctv-ovl-sz, 32px) * 0.3) solid var(--ovl-color, var(--color-text-disabled)); pointer-events: none; }
+.cctv-wall-embed .cctv-pin-lbl { position: absolute; top: calc(var(--cctv-ovl-sz, 32px) * 1.3 + 6px); left: 50%; transform: translateX(-50%); white-space: nowrap; padding: 2px 7px; border-radius: var(--radius-sm); background: var(--ovl-color, var(--navy)); color: #fff; font-family: var(--font-mono); font-size: 0.6rem; font-weight: 800; letter-spacing: 0.02em; box-shadow: var(--shadow-2); max-width: 180px; overflow: hidden; text-overflow: ellipsis; display: inline-flex; align-items: center; gap: 4px; pointer-events: none; }
+
+/* 라벨 칩 (Flow 박스 위/아래) */
+.cctv-wall-embed .cctv-ovl-chip { position: absolute; left: -2px; top: -22px; display: inline-flex; align-items: center; gap: 5px; max-width: 230px; padding: 2px 8px; border-radius: var(--radius-sm); background: var(--ovl-color, var(--navy)); color: #fff; font-family: var(--font-mono); font-size: 0.62rem; font-weight: 800; letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: var(--shadow-2); }
+.cctv-wall-embed .cctv-ovl-chip .ovl-kind-tag { font-size: 0.5rem; font-weight: 800; letter-spacing: 0.06em; padding: 0 4px; border-radius: 3px; background: rgba(255, 255, 255, 0.24); flex-shrink: 0; }
+.cctv-wall-embed .cctv-ovl-chip .ovl-chip-label { overflow: hidden; text-overflow: ellipsis; }
+.cctv-wall-embed .cctv-ovl-box.tag-below .cctv-ovl-chip { top: auto; bottom: -22px; }
+.cctv-wall-embed .cctv-ovl-box.tag-inset-left .cctv-ovl-chip { left: 2px; }
+
+/* ── 호버 툴팁 — position:fixed 로 타일 overflow:hidden 클립 탈출 ── */
+.cctv-wall-embed .cctv-ovl-tip { position: fixed; z-index: 200; min-width: 178px; max-width: 270px; border-radius: var(--radius-md); background: rgba(8, 13, 20, 0.96); color: #fff; box-shadow: var(--shadow-4); pointer-events: none; overflow: hidden; border-left: 3px solid var(--ovl-color, var(--teal)); }
+.cctv-wall-embed .cctv-ovl-tip .tip-head { display: flex; align-items: center; gap: 6px; padding: 7px 10px 5px; }
+.cctv-wall-embed .cctv-ovl-tip .tip-head .material-icons { font-size: 14px; opacity: 0.95; }
+.cctv-wall-embed .cctv-ovl-tip .tip-kind { font-size: 0.56rem; font-weight: 800; letter-spacing: 0.08em; opacity: 0.85; }
+.cctv-wall-embed .cctv-ovl-tip .tip-state { margin-left: auto; font-size: 0.58rem; font-weight: 800; padding: 1px 7px; border-radius: var(--radius-lg); background: var(--ovl-color, var(--color-text-disabled)); color: #fff; }
+.cctv-wall-embed .cctv-ovl-tip .tip-title { padding: 0 10px 7px; font-family: var(--font-mono); font-size: 0.78rem; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cctv-wall-embed .cctv-ovl-tip .tip-rows { padding: 6px 10px 9px; border-top: 1px solid rgba(255, 255, 255, 0.12); display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; }
+.cctv-wall-embed .cctv-ovl-tip .tip-rows .tk { font-size: 0.6rem; color: rgba(255, 255, 255, 0.6); white-space: nowrap; }
+.cctv-wall-embed .cctv-ovl-tip .tip-rows .tv { font-size: 0.64rem; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; word-break: break-word; }
+.cctv-wall-embed .cctv-ovl-tip .tip-rows .tv.is-error { color: var(--color-error); }
+.cctv-wall-embed .cctv-ovl-tip .tip-rows .tv.mono { font-family: var(--font-mono); }
+/* 툴팁은 .cctv-ovl-tip 자체가 fixed 라 .cctv-wall-embed 스코프 밖에서도 토큰이 필요 → 색은 인라인(--ovl-color)·--color-error(전역) 사용 */
+
+/* ── 범례 ── */
+.cctv-wall-embed .cctv-legend { display: flex; align-items: center; gap: 8px 18px; flex-wrap: wrap; padding: 9px 12px; margin-top: 10px; border: 1px solid var(--color-lines); border-radius: var(--radius-md); background: var(--color-surface); font-size: 0.7rem; color: var(--color-text-secondary); flex-shrink: 0; }
+.cctv-wall-embed .cctv-legend .lg-cap { font-weight: 700; color: var(--color-text-primary); }
+.cctv-wall-embed .cctv-legend .lg-grp { display: inline-flex; align-items: center; gap: 11px; flex-wrap: wrap; }
+.cctv-wall-embed .cctv-legend .lg-item { display: inline-flex; align-items: center; gap: 6px; }
+.cctv-wall-embed .cctv-legend .lg-kind { width: 14px; height: 14px; display: inline-flex; align-items: center; justify-content: center; background: var(--color-text-secondary); color: #fff; flex-shrink: 0; }
+.cctv-wall-embed .cctv-legend .lg-kind .material-icons { font-size: 9px; }
+.cctv-wall-embed .cctv-legend .lg-kind.is-flow { border-radius: 50%; }
+.cctv-wall-embed .cctv-legend .lg-kind.is-call { border-radius: 2px; transform: rotate(45deg); }
+.cctv-wall-embed .cctv-legend .lg-kind.is-call .material-icons { transform: rotate(-45deg); }
+.cctv-wall-embed .cctv-legend .lg-swatch { width: 11px; height: 11px; border-radius: 3px; flex-shrink: 0; }
+
+/* ── 전체화면: 레이아웃 카드(.fl-fs)가 전체화면일 때 영상벽이 화면을 꽉 채움 ── */
+.fl-fs:fullscreen .cctv-wall-embed, .fl-fs:-webkit-full-screen .cctv-wall-embed { height: 100vh; }
+.fl-fs:fullscreen .cctv-wall-embed .cctv-wall-area, .fl-fs:-webkit-full-screen .cctv-wall-embed .cctv-wall-area { height: 100vh; background: #0A0F16; }
+.fl-fs:fullscreen .cctv-wall-embed .cctv-grid, .fl-fs:-webkit-full-screen .cctv-wall-embed .cctv-grid { height: 100vh; grid-auto-rows: 1fr; border-radius: 0; }
+.fl-fs:fullscreen .cctv-wall-embed .cctv-tile, .fl-fs:-webkit-full-screen .cctv-wall-embed .cctv-tile { aspect-ratio: auto; }

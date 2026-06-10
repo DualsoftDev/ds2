@@ -4,12 +4,12 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CCTV — DSPilot</title>
+    <title>CCTV 설정 — DSPilot</title>
 
     <!--
       DSPilot 정적 호스팅 — P4 CCTV 관제 (2026-06 개편: 단일 "영상벽" 워크스페이스).
       개편 목표(사용자 요구):
-        ① 더 직관적인 카메라 선택·배치 — 레이아웃 프리셋(단독/2/2×2/2×3/자동) 세그먼트 컨트롤 + 클릭 우선 카메라 레일 +
+        ① 더 직관적인 카메라 선택·배치 — 레이아웃(전체 분할=자동 / 단독) 세그먼트 컨트롤 + 클릭 우선 카메라 레일 +
            1클릭 단독(SOLO) 보기. 단독은 같은 <video> 를 CSS 로 확대(추가 WHEP 스트림 없음 → 6대 동시 상한 무관).
         ② 오버레이(Flow/Call) 를 라이브 타일 위에서 바로 배치/편집 — 별도 에디터 섹션 폐지(중복 스트림 제거).
         ③ Flow 와 Call 은 디자인으로 구분 — 색(hue)=상태 전용, 종류는 모양/글리프/뱃지/텍스처로 인코딩:
@@ -128,6 +128,9 @@
         .cctv-tile.is-dragging { opacity: 0.5; }
         .cctv-tile.is-swap-target { border-color: var(--teal); box-shadow: inset 0 0 0 2px var(--teal), 0 0 0 3px rgba(var(--color-primary-rgb), 0.25); }
         .cctv-tile.is-editing { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.28); }
+        /* 전체 분할에서 타일 전체가 드래그 소스 → 자리 교체. 비디오 위에서도 grab 커서. */
+        .cctv-tile.is-grabbable, .cctv-tile.is-grabbable video { cursor: grab; }
+        .cctv-tile.is-grabbable:active { cursor: grabbing; }
         .cctv-tile-bar { display: flex; align-items: center; gap: 6px; padding: 5px 8px; background: rgba(8, 13, 20, 0.92); color: #fff; flex-shrink: 0; }
         .cctv-tile-grip { cursor: grab; color: var(--teal-2); display: flex; align-items: center; }
         .cctv-tile-grip:active { cursor: grabbing; }
@@ -314,19 +317,9 @@
 <body>
     <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="cctvApp()" x-init="init()" x-cloak>
 
-        <!-- 데모 만료 -->
-        <div class="modal-overlay" x-show="demoBlocked" style="z-index:4000;">
-            <div class="modal-content demo-blocked-card" style="max-width:480px; text-align:center;">
-                <span class="material-icons demo-blocked-icon">hourglass_disabled</span>
-                <h3>DEMO 만료</h3>
-                <p>데모 사용 시간(3시간)이 종료되었습니다.</p>
-                <p>서비스 관리자에게 문의해 주세요.</p>
-            </div>
-        </div>
-
         <!-- fallback 슬림 헤더 (shell.js 가 제거) -->
         <header class="dsp-appbar">
-            <span class="dsp-title">CCTV</span>
+            <span class="dsp-title">CCTV 설정</span>
             <span class="dsp-badge">정적</span>
             <div class="spacer"></div>
             <button class="btn-icon" @click="toggleTheme()" title="테마 전환">
@@ -420,27 +413,18 @@
                             <div class="ds-card-h">
                                 <h4 x-text="wallTitle"></h4>
                                 <div class="cctv-head-right">
-                                    <!-- 레이아웃 프리셋 세그먼트 컨트롤 -->
+                                    <!-- 레이아웃: 전체 분할(자동) ⇄ 단독. 고정 분할(2/2×2/2×3) 폐지 — 분할은 표시 대수에 맞춰 자동. -->
                                     <div class="cctv-lay-group" role="group" aria-label="레이아웃">
-                                        <button class="cctv-lay-btn" :class="layout==='solo' ? 'is-active' : ''" @click="setLayout('solo')" title="단독">
+                                        <button class="cctv-lay-btn" :class="layout==='auto' ? 'is-active' : ''" @click="setLayout('auto')" title="전체 분할 (모든 카메라 · 대수에 맞춰 자동 배치)">
+                                            <span class="material-icons">grid_view</span>
+                                        </button>
+                                        <button class="cctv-lay-btn" :class="layout==='solo' ? 'is-active' : ''" @click="setLayout('solo')" title="단독 (하나만 크게)">
                                             <svg viewBox="0 0 16 12"><rect x="1" y="1" width="14" height="10" rx="0.8"/></svg>
-                                        </button>
-                                        <button class="cctv-lay-btn" :class="layout==='2' ? 'is-active' : ''" @click="setLayout('2')" title="2분할">
-                                            <svg viewBox="0 0 16 12"><rect x="1" y="1" width="6.5" height="10" rx="0.8"/><rect x="8.5" y="1" width="6.5" height="10" rx="0.8"/></svg>
-                                        </button>
-                                        <button class="cctv-lay-btn" :class="layout==='2x2' ? 'is-active' : ''" @click="setLayout('2x2')" title="2×2">
-                                            <svg viewBox="0 0 16 12"><rect x="1" y="1" width="6.5" height="4.5" rx="0.8"/><rect x="8.5" y="1" width="6.5" height="4.5" rx="0.8"/><rect x="1" y="6.5" width="6.5" height="4.5" rx="0.8"/><rect x="8.5" y="6.5" width="6.5" height="4.5" rx="0.8"/></svg>
-                                        </button>
-                                        <button class="cctv-lay-btn" :class="layout==='2x3' ? 'is-active' : ''" @click="setLayout('2x3')" title="2×3 (6분할)">
-                                            <svg viewBox="0 0 16 12"><rect x="1" y="1" width="4" height="4.5" rx="0.7"/><rect x="6" y="1" width="4" height="4.5" rx="0.7"/><rect x="11" y="1" width="4" height="4.5" rx="0.7"/><rect x="1" y="6.5" width="4" height="4.5" rx="0.7"/><rect x="6" y="6.5" width="4" height="4.5" rx="0.7"/><rect x="11" y="6.5" width="4" height="4.5" rx="0.7"/></svg>
-                                        </button>
-                                        <button class="cctv-lay-btn" :class="layout==='auto' ? 'is-active' : ''" @click="setLayout('auto')" title="자동 (표시 대수에 맞춤)">
-                                            <span class="material-icons">auto_awesome</span>
                                         </button>
                                     </div>
                                     <template x-if="layout==='solo'">
-                                        <button class="btn btn-outlined btn-sm" @click="exitSolo()" title="영상벽으로">
-                                            <span class="material-icons" style="font-size:16px;">grid_view</span> 영상벽
+                                        <button class="btn btn-outlined btn-sm" @click="exitSolo()" title="전체 분할로">
+                                            <span class="material-icons" style="font-size:16px;">grid_view</span> 분할
                                         </button>
                                     </template>
                                     <template x-if="wall.length > 0">
@@ -468,7 +452,9 @@
                                     <div :class="'cctv-grid ' + gridClass" x-ref="wallGrid">
                                         <template x-for="(cam, idx) in wallCams" :key="cam.id">
                                             <div class="cctv-tile"
-                                                 :class="(dragCamId === cam.id ? 'is-dragging ' : '') + (dragOverTileId === cam.id ? 'is-swap-target ' : '') + (editTileId === cam.id ? 'is-editing ' : '') + (isSoloTile(cam, idx) ? 'is-solo' : '')"
+                                                 :class="(dragCamId === cam.id ? 'is-dragging ' : '') + (dragOverTileId === cam.id ? 'is-swap-target ' : '') + (editTileId === cam.id ? 'is-editing ' : '') + (isSoloTile(cam, idx) ? 'is-solo ' : '') + ((layout !== 'solo' && editTileId !== cam.id) ? 'is-grabbable' : '')"
+                                                 :draggable="(layout !== 'solo' && editTileId !== cam.id) ? 'true' : 'false'"
+                                                 @dragstart="startDrag('tile', cam.id, $event)" @dragend="endDrag()"
                                                  @dragover="onTileDragOver($event, cam.id)" @drop="onTileDrop($event, cam.id)" @dragleave="onTileDragLeave(cam.id)">
 
                                                 <!-- 인라인 arm 바 (편집 중) -->
@@ -516,11 +502,9 @@
                                                     </div>
                                                 </template>
 
-                                                <!-- 타일 바: 드래그 핸들(이동/위치 교체) + 이름 + 닫기(영상벽 내리기). 전체화면·편집 중엔 숨김. -->
+                                                <!-- 타일 바: 드래그 핸들(이동/위치 교체) + 이름 + 닫기(영상벽 내리기). 전체화면·편집 중엔 숨김. 드래그는 타일 전체가 소스(3+분할서 바가 숨겨도 동작). -->
                                                 <div class="cctv-tile-bar" x-show="!isFullscreen && editTileId !== cam.id">
-                                                    <span class="cctv-tile-grip" draggable="true"
-                                                          @dragstart="startDrag('tile', cam.id, $event)" @dragend="endDrag()"
-                                                          title="드래그해서 위치 이동 / 다른 화면과 교체">
+                                                    <span class="cctv-tile-grip" title="드래그해서 위치 이동 / 다른 화면과 교체">
                                                         <span class="material-icons">drag_indicator</span>
                                                     </span>
                                                     <span class="cctv-tile-name" x-text="cam.name"></span>
@@ -830,7 +814,7 @@
         const CCTV_GRIDDIV_KEY = 'dspilot-cctv-griddiv';
         const CCTV_OVL_HIDDEN_KEY = 'dspilot-cctv-ovl-hidden';
         const CCTV_OVL_SZ_KEY = 'dspilot-cctv-ovl-sz';
-        const VALID_LAYOUTS = ['solo', '2', '2x2', '2x3', 'auto'];
+        const VALID_LAYOUTS = ['solo', 'auto'];   // 전체 분할(auto) / 단독(solo) 만. 고정 분할 프리셋 폐지(저장된 구값은 restoreLayout 에서 auto 로 마이그레이션).
         const GRID_DIV_MIN = 4, GRID_DIV_MAX = 40, GRID_DIV_DEFAULT = 16;
         const OVL_SZ_MIN = 16, OVL_SZ_MAX = 56, OVL_SZ_DEFAULT = 32;
 
@@ -840,7 +824,7 @@
             return {
                 cameras: [], webRtcPort: 8889, totalCount: 0, maxConcurrent: 6,
                 status: { ok: false, message: '동기화 전' },
-                dark: false, syncing: false, demoBlocked: false,
+                dark: false, syncing: false,
                 overlaysHidden: false, overlaySize: OVL_SZ_DEFAULT,
                 toast: { show: false, msg: '', type: 'success' },
 
@@ -864,7 +848,7 @@
                 availableFlows: [],        // { flowId, flowName, systemName }
                 availableCalls: [],        // { callId, callName, flowId, flowName, workName }
                 overlayStates: {},         // overlayId -> { state, avgTimeMs, workName, device, goingCount, progressRate, errorText, currentCt, movingStartName, movingEndName }
-                abnFlowNames: new Set(),   // 최근 이상 발생 flowName Set — /api/dashboard/abnormals 3초 폴링마다 갱신
+                abnFlowNames: new Set(),   // 활성 이상 flowName Set — /api/dashboard/active-alarms 3초 폴링마다 갱신(재가동 시 자동 해제)
                 tileRects: {},             // camId -> displayRect (per-tile letterbox)
                 _renderTick: 0, _stateTimer: null, _statusTimer: null,
 
@@ -926,7 +910,6 @@
 
                 async apiGet(url) {
                     const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     return await res.json();
                 },
@@ -936,7 +919,6 @@
                         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                         body: JSON.stringify(body)
                     });
-                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     return await res.json();
                 },
@@ -949,7 +931,7 @@
                         this.totalCount = c.totalCount;
                         this.maxConcurrent = c.maxConcurrent || 6;
                         this.restoreWall();
-                    } catch (e) { if (e.message !== 'demo-blocked') console.error(e); }
+                    } catch (e) { console.error(e); }
                 },
                 async loadStatus() {
                     try { this.status = await this.apiGet('/api/cctv/status'); }
@@ -994,10 +976,10 @@
                 get wallTitle() {
                     if (this.layout === 'solo') {
                         const cam = this.soloId ? this.camById(this.soloId) : null;
-                        return '영상벽 — 단독' + (cam ? ' · ' + cam.name : '');
+                        return '영상 — 단독' + (cam ? ' · ' + cam.name : '');
                     }
-                    const names = { '2': '2분할', '2x2': '2×2', '2x3': '2×3', 'auto': '자동' };
-                    return '영상벽 · ' + (names[this.layout] || '자동') + ' (' + this.wall.length + '대)';
+                    const base = '영상 · 전체 분할 (' + this.wall.length + '대)';
+                    return this.wall.length > 1 ? base + ' · 영상을 드래그해서 위치를 변경할 수 있습니다.' : base;
                 },
                 get gridCells() {
                     switch (this.layout) {
@@ -1196,21 +1178,22 @@
                 // ── 오버레이 데이터 로드 ──
                 async loadAllOverlays() {
                     try { this.overlaysAll = await this.apiGet('/api/cctv/overlays') || []; }
-                    catch (e) { if (e.message !== 'demo-blocked') console.error(e); this.overlaysAll = []; }
+                    catch (e) { console.error(e); this.overlaysAll = []; }
                 },
                 async loadAvailableFlows() {
                     try { this.availableFlows = await this.apiGet('/api/cctv/available-flows') || []; }
-                    catch (e) { if (e.message !== 'demo-blocked') console.error(e); this.availableFlows = []; }
+                    catch (e) { console.error(e); this.availableFlows = []; }
                 },
                 async loadAvailableCalls() {
                     try { this.availableCalls = await this.apiGet('/api/cctv/available-calls') || []; }
-                    catch (e) { if (e.message !== 'demo-blocked') console.error(e); this.availableCalls = []; }
+                    catch (e) { console.error(e); this.availableCalls = []; }
                 },
                 async loadAllOverlayState() {
                     try {
                         const [list, abnList] = await Promise.all([
                             this.apiGet('/api/cctv/overlay-state'),
-                            this.apiGet('/api/dashboard/abnormals?limit=20').catch(() => [])
+                            // active-alarms: Flow 카드·알람 배너와 동일 소스(_active). 재가동(Going) 시 자동 해제 동일 적용.
+                            this.apiGet('/api/dashboard/active-alarms?limit=20').catch(() => [])
                         ]);
                         const map = {};
                         for (const s of (list || [])) map[s.id] = {
@@ -1224,11 +1207,11 @@
                         this._renderTick++;
                         // 호버 중이면 툴팁 모델 새로고침(상태색/상세 동기)
                         if (this.hoverOverlay) this.hoverOverlay = { ...this.hoverOverlay, model: this.tooltipModel(this.hoverOverlay.id), color: this.colorOf(this.stateOf(this.hoverOverlay.id)) };
-                    } catch (e) { if (e.message !== 'demo-blocked') console.error(e); }
+                    } catch (e) { console.error(e); }
                 },
                 startStatePolling() {
                     this.stopStatePolling();
-                    this._stateTimer = setInterval(() => { if (!this.demoBlocked) this.loadAllOverlayState(); }, 3000);
+                    this._stateTimer = setInterval(() => this.loadAllOverlayState(), 3000);
                 },
                 stopStatePolling() { if (this._stateTimer) { clearInterval(this._stateTimer); this._stateTimer = null; } },
 
@@ -1369,8 +1352,13 @@
                 },
                 toggleTileEdit(camId) {
                     if (this.editTileId === camId) {
+                        // 완료: 편집 종료 + 전체 분할(이전 레이아웃)로 복귀
                         this.editTileId = null;
+                        if (this.layout === 'solo') this.exitSolo();
                     } else {
+                        // 편집 시작: 해당 카메라를 단독(큰 화면)으로 전환 + 편집 ON
+                        this.soloCamera(camId);            // 영상벽에 없으면 추가 + soloId/layout=solo 설정
+                        if (!this.inWall(camId)) return;   // 영상벽 가득참 → 보류(soloCamera 가 토스트 표시)
                         this.editTileId = camId;
                         this.clearHover();
                     }
@@ -1631,7 +1619,7 @@
                         this._renderTick++;
                         this.loadAllOverlayState();
                         this.showToast('오버레이 등록 — ' + this.labelText(saved), 'success');
-                    } catch (e) { if (e.message !== 'demo-blocked') this.showToast('등록 실패: ' + e.message, 'error'); }
+                    } catch (e) { this.showToast('등록 실패: ' + e.message, 'error'); }
                 },
                 async saveOverlay(ovl, silent) {
                     const payload = {
@@ -1647,7 +1635,7 @@
                         if (i >= 0) this.overlaysAll[i] = saved;
                         this._renderTick++;
                         if (!silent) this.showToast('저장됨', 'success');
-                    } catch (e) { if (e.message !== 'demo-blocked') this.showToast('저장 실패: ' + e.message, 'error'); }
+                    } catch (e) { this.showToast('저장 실패: ' + e.message, 'error'); }
                 },
                 async deleteOverlay(id) {
                     try {
@@ -1657,7 +1645,7 @@
                         if (this.hoverOverlay && this.hoverOverlay.id === id) this.clearHover();
                         this._renderTick++;
                         this.showToast('오버레이 삭제됨', 'success');
-                    } catch (e) { if (e.message !== 'demo-blocked') this.showToast('삭제 실패: ' + e.message, 'error'); }
+                    } catch (e) { this.showToast('삭제 실패: ' + e.message, 'error'); }
                 },
 
                 // ── KPI 요약 (등록 오버레이 카메라 수 / 진행 중 개수) ──
@@ -1703,7 +1691,7 @@
                             saving: false, syncOk: !!c.syncOk, syncMessage: c.syncMessage || ''
                         };
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') this.showToast('카메라 설정을 불러오지 못했습니다: ' + e.message, 'error');
+                        this.showToast('카메라 설정을 불러오지 못했습니다: ' + e.message, 'error');
                     }
                 },
                 addCamSetting() { this.camSettings.cameras.push({ name: 'camera' + (this.camSettings.cameras.length + 1), rtspUrl: '', enabled: true }); },
@@ -1735,7 +1723,7 @@
                         await this.loadAllOverlayState();
                     } catch (e) {
                         this.camSettings.saving = false;
-                        if (e.message !== 'demo-blocked') this.showToast('저장 실패: ' + e.message, 'error');
+                        this.showToast('저장 실패: ' + e.message, 'error');
                     }
                 },
 
@@ -1753,7 +1741,6 @@
                     this.syncing = true;
                     try {
                         const res = await fetch('/api/cctv/sync', { method: 'POST', headers: { 'Accept': 'application/json' } });
-                        if (res.status === 503) { this.demoBlocked = true; return; }
                         if (res.ok) { this.status = await res.json(); this.showToast(this.status.message, this.status.ok ? 'success' : 'error'); }
                     } catch (e) { this.showToast('재동기화 실패: ' + e.message, 'error'); }
                     finally { this.syncing = false; }

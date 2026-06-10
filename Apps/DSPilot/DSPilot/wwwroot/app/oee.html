@@ -162,16 +162,6 @@
 <body>
     <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="oeeApp()" x-init="init()" x-cloak>
 
-        <!-- 데모 만료 -->
-        <div class="modal-overlay" x-show="demoBlocked" style="z-index:3000;">
-            <div class="modal-content demo-blocked-card" style="max-width:480px; text-align:center;">
-                <span class="material-icons demo-blocked-icon">hourglass_disabled</span>
-                <h3>DEMO 만료</h3>
-                <p>데모 사용 시간(3시간)이 종료되었습니다.</p>
-                <p>서비스 관리자에게 문의해 주세요.</p>
-            </div>
-        </div>
-
         <!-- fallback 슬림 헤더 (shell.js 가 제거) -->
         <header class="dsp-appbar">
             <span class="dsp-title">OEE 설비종합효율</span>
@@ -740,7 +730,7 @@
 
         function oeeApp() {
             return {
-                dark: false, demoBlocked: false, loading: true, error: null,
+                dark: false, loading: true, error: null,
                 period: 'today',
                 rt: { connected: false },
                 _conn: null, _pollTimer: null, _dt: null,
@@ -818,7 +808,7 @@
                         this.computeInsight();
                         this.error = null;
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') this.error = '데이터 조회 실패: ' + e.message;
+                        this.error = '데이터 조회 실패: ' + e.message;
                     } finally { this.loading = false; }
                 },
 
@@ -850,7 +840,7 @@
                         const rows = await this.apiGet('/api/oee/ideal-cycle/table?percentile=10');
                         this.ctTable = (rows || []).map(r => ({ ...r, draft: r.idealCycleTimeMs ?? null }));
                         this.ctError = null;
-                    } catch (e) { if (e.message !== 'demo-blocked') this.ctError = 'CT 테이블 조회 실패'; }
+                    } catch (e) { this.ctError = 'CT 테이블 조회 실패'; }
                     finally { this.ctLoading = false; }
                 },
 
@@ -1025,11 +1015,11 @@
                         await this.apiPost(`/api/oee/downtime/${d.id}/classify`, { reasonCode: code, category: def ? def.category : 'unplanned' });
                         this.classifyDraft[d.id] = '';
                         this.loadAll(true);
-                    } catch (e) { if (e.message !== 'demo-blocked') this.error = '분류 실패'; }
+                    } catch (e) { this.error = '분류 실패'; }
                 },
                 async closeEvent(d) {
                     try { await this.apiPost(`/api/oee/downtime/${d.id}/close`, {}); this.loadAll(true); }
-                    catch (e) { if (e.message !== 'demo-blocked') this.error = '마감 실패'; }
+                    catch (e) { this.error = '마감 실패'; }
                 },
 
                 // ── 시프트 편집 ──
@@ -1080,7 +1070,7 @@
                         this.shiftMsg = '저장됨';
                         this.shiftEdit = false;
                         this.loadAll(true);
-                    } catch (e) { if (e.message !== 'demo-blocked') this.shiftMsg = '저장 실패'; }
+                    } catch (e) { this.shiftMsg = '저장 실패'; }
                     finally { this.shiftBusy = false; setTimeout(() => this.shiftMsg = '', 2500); }
                 },
 
@@ -1099,12 +1089,12 @@
                         });
                         this.excForm.start = ''; this.excForm.end = '';
                         this.loadAll(true);
-                    } catch (e) { if (e.message !== 'demo-blocked') this.excErr = '추가 실패: ' + e.message; }
+                    } catch (e) { this.excErr = '추가 실패: ' + e.message; }
                     finally { this.excBusy = false; }
                 },
                 async deleteException(id) {
                     try { await this.apiPost(`/api/oee/shift-exception/${id}/delete`, {}); this.loadAll(true); }
-                    catch (e) { if (e.message !== 'demo-blocked') this.excErr = '삭제 실패'; }
+                    catch (e) { this.excErr = '삭제 실패'; }
                 },
                 kindLabel(k) { return k === 'planned_maint' ? '계획정비' : k === 'planned_stop' ? '계획정지' : k === 'non_production' ? '비생산' : k; },
 
@@ -1125,7 +1115,7 @@
                         });
                         this.exclMsg = '전역 저장됨 — 재집계';
                         this.loadAll(true);
-                    } catch (e) { if (e.message !== 'demo-blocked') this.exclErr = '전역 저장 실패'; }
+                    } catch (e) { this.exclErr = '전역 저장 실패'; }
                     finally { this.exclBusy = false; setTimeout(() => this.exclMsg = '', 2500); }
                 },
                 async savePerFlowFilter(row) {
@@ -1138,7 +1128,7 @@
                         });
                         this.exclMsg = row.flowName + ' 저장됨';
                         this.loadAll(true);
-                    } catch (e) { if (e.message !== 'demo-blocked') this.exclErr = '저장 실패'; }
+                    } catch (e) { this.exclErr = '저장 실패'; }
                     finally { this.exclBusy = false; setTimeout(() => this.exclMsg = '', 2500); }
                 },
 
@@ -1152,7 +1142,7 @@
                         await this.apiPost('/api/oee/ideal-cycle/batch', { items });
                         this.ctMsg = items.length + '개 적용됨';
                         this.loadAll(true);
-                    } catch (e) { if (e.message !== 'demo-blocked') this.ctError = '적용 실패'; }
+                    } catch (e) { this.ctError = '적용 실패'; }
                     finally { this.ctApplying = false; setTimeout(() => this.ctMsg = '', 2500); }
                 },
 
@@ -1247,13 +1237,11 @@
 
                 async apiGet(url) {
                     const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     return await res.json();
                 },
                 async apiPost(url, body) {
                     const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify(body || {}) });
-                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     return res.headers.get('content-type')?.includes('json') ? await res.json() : null;
                 },

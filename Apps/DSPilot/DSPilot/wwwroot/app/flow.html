@@ -276,16 +276,6 @@
 <body>
     <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="flowApp()" x-init="init()" x-cloak>
 
-        <!-- 데모 만료 -->
-        <div class="modal-overlay" x-show="demoBlocked" style="z-index:3000;">
-            <div class="modal-content demo-blocked-card" style="max-width:480px; text-align:center;">
-                <span class="material-icons demo-blocked-icon">hourglass_disabled</span>
-                <h3>DEMO 만료</h3>
-                <p>데모 사용 시간(3시간)이 종료되었습니다.</p>
-                <p>서비스 관리자에게 문의해 주세요.</p>
-            </div>
-        </div>
-
         <!-- fallback 슬림 헤더 (shell.js 가 제거) -->
         <header class="dsp-appbar">
             <span class="dsp-title">Flow Workspace</span>
@@ -1066,7 +1056,7 @@
                 // ── Flow 워크스페이스 공통 ──
                 flowName: null,
                 flow: null,
-                loading: true, error: null, demoBlocked: false, dark: false,
+                loading: true, error: null, dark: false,
                 rt: { connected: false },
                 tab: 'trend',   // 'trend' | 'cycle' | 'history' — 콘텐츠 탭 전환
 
@@ -1178,14 +1168,12 @@
 
                 async apiGet(url) {
                     const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
                     if (res.status === 404) throw new Error('not-found');
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     return await res.json();
                 },
                 async apiPost(url, body) {
                     const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify(body) });
-                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     return await res.json();
                 },
@@ -1200,7 +1188,7 @@
                         if (!this.selectedFlow) this.selectedFlow = data.flowName;
                     } catch (e) {
                         if (e.message === 'not-found') this.error = "Flow '" + this.flowName + "' 을(를) 찾을 수 없습니다.";
-                        else if (e.message !== 'demo-blocked') this.error = 'Flow 데이터를 불러오지 못했습니다: ' + e.message;
+                        else this.error = 'Flow 데이터를 불러오지 못했습니다: ' + e.message;
                     } finally { this.loading = false; }
                 },
 
@@ -1288,7 +1276,7 @@
                         this.buckets = this.buildBuckets(rows);
                         this.$nextTick(() => this.drawCharts());
                     } catch (e) {
-                        if (seq === this._trendSeq && e.message !== 'demo-blocked') { this.resetStats(); this.buckets = []; }
+                        if (seq === this._trendSeq) { this.resetStats(); this.buckets = []; }
                     } finally { if (seq === this._trendSeq) this.trendLoading = false; }
                 },
 
@@ -1510,7 +1498,7 @@
                             rows = await this.apiGet('/api/dashboard/flows/' + encodeURIComponent(name) + '/history?limit=' + Math.max(n + 1, 50));
                             histCache[name] = rows;
                         } catch (e) {
-                            if (e.message !== 'demo-blocked') this.errorMessage = '사이클 히스토리 조회 실패: ' + e.message;
+                            this.errorMessage = '사이클 히스토리 조회 실패: ' + e.message;
                             return;
                         }
                     }
@@ -1570,7 +1558,7 @@
                         await this.reloadTrend();
                         this.syncHistory();
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') this.errorMessage = failLabel + ': ' + e.message;
+                        this.errorMessage = failLabel + ': ' + e.message;
                         this.recomputeMsg = '';
                     } finally { this.overlayBusy = false; }
                 },
@@ -1639,7 +1627,6 @@
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(this.buildExportModel())
                         });
-                        if (res.status === 503) { this.demoBlocked = true; return; }
                         if (!res.ok) throw new Error('HTTP ' + res.status);
                         let fn = this.excelFileName();
                         const cd = res.headers.get('Content-Disposition');
@@ -1679,7 +1666,7 @@
                         const d = await this.apiPost('/api/call-test/load', body);
                         this.applyLoadResult(d);
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') this.errorMessage = '데이터 로딩 실패: ' + e.message;
+                        this.errorMessage = '데이터 로딩 실패: ' + e.message;
                     } finally {
                         this.isLoading = false;
                     }
@@ -1966,7 +1953,7 @@
                         this.svgMarkup = this.buildSvg();
                         if (this.cycleView === 'chart') this.$nextTick(() => this.renderCycleChart());
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') this.errorMessage = '오버레이 갱신 실패: ' + e.message;
+                        this.errorMessage = '오버레이 갱신 실패: ' + e.message;
                     } finally {
                         this.overlayBusy = false;
                     }
@@ -2076,7 +2063,7 @@
                         await this.load();   // '현재 AASX' 값 재조회
                         setTimeout(() => { this.applyDurMsg = ''; }, 5000);
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') this.errorMessage = '실측 적용 실패: ' + e.message;
+                        this.errorMessage = '실측 적용 실패: ' + e.message;
                         this.applyDurMsg = '';
                     } finally { this.applyDurBusy = false; }
                 },
@@ -2449,7 +2436,7 @@
                         histCache[name] = rows;
                         if (this.histFlowName === name) this.setHistory(rows);
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') console.error('history failed', e);
+                        console.error('history failed', e);
                         if (this.histFlowName === name) this.setHistory([]);
                     }
                 },
@@ -2747,7 +2734,7 @@
                         this.rangeByFlow = this._exclusionsToMap(rows);
                         this.recomputeHist();
                         this._afterExclusionChange();
-                    } catch (e) { /* 미수신 시 기존값 유지 (demo-blocked 포함) */ }
+                    } catch (e) { /* 미수신 시 기존값 유지 */ }
                 },
                 async saveExclusion(flowName, minSec, maxSec) {
                     try {
@@ -2756,7 +2743,6 @@
                             headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                             body: JSON.stringify({ flowName, minSec, maxSec })
                         });
-                        if (res.status === 503) { this.demoBlocked = true; return; }
                         if (!res.ok) throw new Error('HTTP ' + res.status);
                         this.rangeByFlow = this._exclusionsToMap(await res.json());
                         this.recomputeHist();

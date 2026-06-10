@@ -82,92 +82,10 @@
                 </Grid>
             </Border>
 
-            <!-- Body -->
+            <!-- Body — PR-A4: 모드 선택 카드 4개를 상단 고정, 런타임 모드/Hub/실 PLC 연결 설정을 하단으로 이동. -->
             <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Disabled"
                           HorizontalScrollBarVisibility="Disabled">
                 <StackPanel Orientation="Vertical" Margin="24,20,24,16">
-                    <Border Background="{DynamicResource SecondaryBackgroundBrush}"
-                            BorderBrush="{DynamicResource BorderBrush}"
-                            BorderThickness="1"
-                            CornerRadius="8"
-                            Padding="22,12"
-                            HorizontalAlignment="Left"
-                            Margin="0,0,0,8">
-                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="런타임 모드"
-                                       Foreground="{DynamicResource SecondaryTextBrush}"
-                                       FontSize="13" FontWeight="SemiBold"
-                                       VerticalAlignment="Center"/>
-                            <Rectangle Width="1" Height="22"
-                                       Fill="{DynamicResource BorderBrush}"
-                                       Margin="20,0"
-                                       VerticalAlignment="Center"/>
-                            <TextBlock x:Name="SelectedModeText"
-                                       Width="200"
-                                       Foreground="{DynamicResource AccentBrush}"
-                                       FontSize="14" FontWeight="SemiBold"
-                                       VerticalAlignment="Center"/>
-                            <Rectangle Width="1" Height="22"
-                                       Fill="{DynamicResource BorderBrush}"
-                                       Margin="20,0"
-                                       VerticalAlignment="Center"/>
-                            <TextBlock Text="Hub 주소"
-                                       Foreground="{DynamicResource SecondaryTextBrush}"
-                                       FontSize="12"
-                                       VerticalAlignment="Center"
-                                       Margin="0,0,10,0"/>
-                            <TextBox x:Name="HubAddressBox"
-                                     Text="{Binding Hub.EffectiveHubAddress, UpdateSourceTrigger=PropertyChanged}"
-                                     Width="220" Height="28"
-                                     VerticalContentAlignment="Center"
-                                     Padding="8,0"
-                                     ToolTip="host:port — Agent 단일 호스팅이라 Control/Monitoring/VP 모두 localhost:5051"/>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Control/Monitoring 모드 선택 시 표시되는 PLC 연결 옵션 줄 -->
-                    <Border x:Name="PlcOptionRow"
-                            Background="{DynamicResource SecondaryBackgroundBrush}"
-                            BorderBrush="{DynamicResource BorderBrush}"
-                            BorderThickness="1"
-                            CornerRadius="8"
-                            Padding="22,12"
-                            HorizontalAlignment="Left"
-                            Margin="0,0,0,8"
-                            Visibility="Collapsed">
-                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="실 PLC 연결"
-                                       Foreground="{DynamicResource SecondaryTextBrush}"
-                                       FontSize="13" FontWeight="SemiBold"
-                                       VerticalAlignment="Center"/>
-                            <Rectangle Width="1" Height="22"
-                                       Fill="{DynamicResource BorderBrush}"
-                                       Margin="20,0"
-                                       VerticalAlignment="Center"/>
-                            <CheckBox x:Name="RealPlcCheckBox"
-                                      Content="실제 PLC 와 연결"
-                                      Foreground="{DynamicResource PrimaryTextBrush}"
-                                      VerticalAlignment="Center"
-                                      Margin="0,0,16,0"
-                                      Checked="RealPlcCheckBox_Toggled"
-                                      Unchecked="RealPlcCheckBox_Toggled"/>
-                            <Button x:Name="PlcSettingsButton"
-                                    Content="PLC 설정…"
-                                    Click="PlcSettings_Click"
-                                    Width="120" Height="28"
-                                    Background="{DynamicResource AccentBrush}"
-                                    Foreground="{DynamicResource AccentTextBrush}"
-                                    BorderThickness="0"
-                                    Cursor="Hand"
-                                    IsEnabled="False"/>
-                            <TextBlock x:Name="PlcSummaryText"
-                                       Foreground="{DynamicResource SecondaryTextBrush}"
-                                       FontSize="11"
-                                       VerticalAlignment="Center"
-                                       Margin="14,0,0,0"/>
-                        </StackPanel>
-                    </Border>
-
                     <ItemsControl x:Name="ModeList">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
@@ -307,6 +225,89 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
+
+                    <!-- PR-A4 — 런타임 모드 / Hub 주소 설정 줄 (카드 선택 후 하단에서 확인) -->
+                    <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="22,12"
+                            HorizontalAlignment="Left"
+                            Margin="0,12,0,0">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="런타임 모드"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       FontSize="13" FontWeight="SemiBold"
+                                       VerticalAlignment="Center"/>
+                            <Rectangle Width="1" Height="22"
+                                       Fill="{DynamicResource BorderBrush}"
+                                       Margin="20,0"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock x:Name="SelectedModeText"
+                                       Width="200"
+                                       Foreground="{DynamicResource AccentBrush}"
+                                       FontSize="14" FontWeight="SemiBold"
+                                       VerticalAlignment="Center"/>
+                            <Rectangle Width="1" Height="22"
+                                       Fill="{DynamicResource BorderBrush}"
+                                       Margin="20,0"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock Text="Hub 주소"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       FontSize="12"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,10,0"/>
+                            <TextBox x:Name="HubAddressBox"
+                                     Text="{Binding Hub.EffectiveHubAddress, UpdateSourceTrigger=PropertyChanged}"
+                                     Width="220" Height="28"
+                                     VerticalContentAlignment="Center"
+                                     Padding="8,0"
+                                     ToolTip="host:port — Agent 단일 호스팅이라 Control/Monitoring/VP 모두 localhost:5051"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Control/Monitoring 모드 선택 시 표시되는 PLC 연결 옵션 줄 -->
+                    <Border x:Name="PlcOptionRow"
+                            Background="{DynamicResource SecondaryBackgroundBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="22,12"
+                            HorizontalAlignment="Left"
+                            Margin="0,8,0,0"
+                            Visibility="Collapsed">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="실 PLC 연결"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       FontSize="13" FontWeight="SemiBold"
+                                       VerticalAlignment="Center"/>
+                            <Rectangle Width="1" Height="22"
+                                       Fill="{DynamicResource BorderBrush}"
+                                       Margin="20,0"
+                                       VerticalAlignment="Center"/>
+                            <CheckBox x:Name="RealPlcCheckBox"
+                                      Content="실제 PLC 와 연결"
+                                      Foreground="{DynamicResource PrimaryTextBrush}"
+                                      VerticalAlignment="Center"
+                                      Margin="0,0,16,0"
+                                      Checked="RealPlcCheckBox_Toggled"
+                                      Unchecked="RealPlcCheckBox_Toggled"/>
+                            <Button x:Name="PlcSettingsButton"
+                                    Content="PLC 설정…"
+                                    Click="PlcSettings_Click"
+                                    Width="120" Height="28"
+                                    Background="{DynamicResource AccentBrush}"
+                                    Foreground="{DynamicResource AccentTextBrush}"
+                                    BorderThickness="0"
+                                    Cursor="Hand"
+                                    IsEnabled="False"/>
+                            <TextBlock x:Name="PlcSummaryText"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       FontSize="11"
+                                       VerticalAlignment="Center"
+                                       Margin="14,0,0,0"/>
+                        </StackPanel>
+                    </Border>
 
                 </StackPanel>
             </ScrollViewer>

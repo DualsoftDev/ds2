@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+// Copyright (c) 2026 Dualsoft Inc. All rights reserved.
+// Commercial license required for use. See Apps/DSPilot/LICENSE.
 using DSPilot.Services;
 using DSPilot.Repositories;
 using DSPilot.Adapters;
@@ -83,7 +86,6 @@ builder.Services.AddSingleton<DspDbService>();
 builder.Services.AddSingleton<PlcDebugService>();
 builder.Services.AddScoped<ThemeService>();
 builder.Services.AddSingleton<PlcIoDataService>();
-builder.Services.AddSingleton<DemoModeService>();
 
 // PLC 데이터 읽기 서비스 (plcTag/plcTagLog 조회 — Hub 가 채운 데이터를 UI 에서 사용)
 builder.Services.AddSingleton<IPlcRepository, PlcRepository>();
@@ -106,6 +108,8 @@ builder.Services.AddSingleton<CallStateNotificationService>();
 builder.Services.AddSingleton<AbnormalEventService>();
 builder.Services.AddSingleton<IFlowMetricsService, FlowMetricsService>();
 builder.Services.AddScoped<CycleAnalysisService>();
+// Flow IO 세그먼트 → lane/interval 빌더 (CallTest 간트 + 자동 실측 보정 공유). CycleAnalysisService 가 Scoped 라 Scoped.
+builder.Services.AddScoped<CallLaneBuilderService>();
 // DspDatabaseServiceAdapter — Singleton 으로도 등록해서 Settings 페이지가 BootstrapAsync 를 다시 호출 가능
 builder.Services.AddSingleton<DspDatabaseServiceAdapter>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<DspDatabaseServiceAdapter>());
@@ -120,6 +124,12 @@ builder.Services.AddSingleton<CycleRecomputeService>();
 // 주기적 자동 재계산 — 라이브 기록기가 놓친 tail 완료로 부풀려진 WT 를 원시 엣지에서 self-heal(증분).
 // 간격은 HistoryView.AutoRecomputeIntervalMinutes(0=비활성).
 builder.Services.AddHostedService<PeriodicCycleRecomputeService>();
+
+// 실측 duration 자동 보정 — 첫 설치 후 각 Flow 가 클린사이클 N개 도달 시 디바이스 duration/min/max 를 1회 자동 채운다.
+// 1회성 플래그(AutoCalibration.CompletedAt, Production.json)로 재시작 시 스킵. Singleton + HostedService —
+// SettingsController 가 동일 인스턴스로 수동 "지금 실측값 채우기"(RunAsync(manual:true)) 호출.
+builder.Services.AddSingleton<AutoCalibrationService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<AutoCalibrationService>());
 
 // 라이브 상태 self-heal — 엔진 in-memory 정본과 DB 가 발산(DB=Going/엔진=non-Going)한 행을 주기 교정.
 // 재계산 락 경합 등으로 드롭된 Going→Ready 쓰기를 흡수. 간격은 HistoryView.StateReconcileIntervalSeconds(0=비활성).
@@ -234,34 +244,9 @@ app.UseStaticFiles(new StaticFileOptions
 app.UseStaticFiles();
 app.UseAntiforgery();
 
-// ── 데모 모드 차단 ──
-// DemoModeService.IsBlocked 인 경우 /pw 백도어/정적 자원/Blazor 회로 외 모든 요청을 정지 화면으로 응답.
-// MainLayout 에서도 동일 상태를 감지하여 회로 내 네비게이션을 차단한다.
-app.Use(async (context, next) =>
-{
-    var demo = context.RequestServices.GetRequiredService<DemoModeService>();
-    if (!demo.IsBlocked)
-    {
-        await next();
-        return;
-    }
-
-    var path = context.Request.Path.Value ?? string.Empty;
-    if (IsAllowedDuringDemoBlock(path))
-    {
-        await next();
-        return;
-    }
-
-    context.Response.StatusCode = 503;
-    context.Response.ContentType = "text/html; charset=utf-8";
-    await context.Response.WriteAsync(DemoBlockedHtml());
-});
-
 // ── 격리형 호스팅: 정식 라우트를 정적 /app/*.html 로 대체 ──
 // 이전 완료된 8개 Blazor 페이지를 정적 페이지로 "대체". 미들웨어로 short-circuit 하므로
 // (엔드포인트가 아님) Blazor @page 엔드포인트와 ambiguity 없음 — 이 줄을 지우면 즉시 원복.
-// 데모 게이트 뒤에 위치하므로 데모 차단 시 정식 라우트도 503(기존 Blazor 동작과 동일).
 // /flow·/pw 도 정적 페이지로 이전 완료 — 이제 모든 페이지가 정적(격리형 호스팅)이다.
 // /editor(레이아웃 편집기)는 폐지: 대시보드 도면 인플레이스 자유배치 편집으로 흡수(라우트·editor.html·Editor.razor 제거).
 // 기존 Blazor @page(.razor)는 폴백으로 남겨두며(딕셔너리에서 해당 줄 삭제 시 즉시 Blazor 로 원복).
@@ -302,7 +287,6 @@ app.Use(async (context, next) =>
 // /api/* 컨트롤러 — 반드시 Blazor SPA catch-all(MapRazorComponents) 보다 먼저 매핑해야
 // attribute 라우트가 Blazor 라우팅에 흡수되지 않는다.
 // 정적 페이지(wwwroot/app/*)는 기본 UseStaticFiles 가 서빙하므로 별도 매핑 불필요.
-// (데모 차단 시: 정적 셸은 short-circuit 으로 로드되지만 /api 는 데모 게이트에서 503 → 페이지가 자체 "데모 만료" 안내)
 app.MapControllers();
 
 app.MapRazorComponents<DSPilot.Components.App>()
@@ -312,49 +296,6 @@ app.MapRazorComponents<DSPilot.Components.App>()
 app.MapHub<DSPilot.Hubs.MonitoringHub>("/hubs/monitoring");
 
 app.Run();
-
-static bool IsAllowedDuringDemoBlock(string path)
-{
-    if (string.IsNullOrEmpty(path)) return true;
-    return path.StartsWith("/_blazor", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWith("/_framework", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWith("/css/", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWith("/js/", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWith("/lib/", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWith("/images/", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWith("/hubs/", StringComparison.OrdinalIgnoreCase)
-        || path.Equals("/favicon.ico", StringComparison.OrdinalIgnoreCase)
-        || path.Equals("/DSPilot.styles.css", StringComparison.OrdinalIgnoreCase)
-        || path.Equals("/pw", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWith("/pw/", StringComparison.OrdinalIgnoreCase)
-        // /pw 정적 백도어가 데모 차단 중에도 바이패스를 토글할 수 있도록 데모 API 만 예외 허용.
-        || path.StartsWith("/api/demo", StringComparison.OrdinalIgnoreCase);
-}
-
-static string DemoBlockedHtml() => """
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-<meta charset="utf-8" />
-<title>DEMO 만료 - DSPilot</title>
-<style>
-  html,body{margin:0;height:100%;background:#0f1419;color:#e6edf3;font-family:'Noto Sans KR',system-ui,sans-serif;}
-  .wrap{display:flex;align-items:center;justify-content:center;height:100%;}
-  .card{max-width:520px;padding:40px;border-radius:12px;background:#161b22;border:1px solid #30363d;text-align:center;}
-  h1{margin:0 0 12px;font-size:28px;color:#f0883e;}
-  p{margin:0 0 8px;line-height:1.6;color:#c9d1d9;}
-</style>
-</head>
-<body>
-<div class="wrap"><div class="card">
-  <h1>DEMO 만료</h1>
-  <p>데모 사용 시간(3시간)이 종료되었습니다.</p>
-  <p>서비스 관리자에게 문의해 주세요.</p>
-</div></div>
-</body>
-</html>
-""";
 
 static string? ResolveConfiguredDatabasePath(IConfiguration configuration)
 {
