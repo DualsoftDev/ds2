@@ -165,6 +165,14 @@ public partial class SimulationPanelState : ObservableObject
             isSimPaused:  () => IsSimPaused,
             simSpeed:     () => SimSpeed);
 
+        // #198: 리본 동작시간(SimClock, hh:mm:ss.fff) 을 간트 빨간선과 '같은' 보간 소스(_clockInterpolator)에
+        // 연결해 ~30fps 로 부드럽게 흐르게 한다. 엔진/이벤트 cadence 는 불변 — 순수 표시(View) 보간 갱신.
+        _simClockTimer = new DispatcherTimer(DispatcherPriority.Render, _dispatcher)
+        {
+            Interval = TimeSpan.FromMilliseconds(33)   // GanttChartControl 렌더 틱과 동일 간격(≈30fps)
+        };
+        _simClockTimer.Tick += (_, _) => TickSimClockInterpolated();
+
         TokenTraversal = new SimulationTokenTraversalTracker(
             storeProvider:         storeProvider,
             engineProvider:        () => _simEngine,
@@ -450,12 +458,29 @@ public partial class SimulationPanelState : ObservableObject
     {
         _clockInterpolator.ResetBase();
         RefreshGanttTimeSource();
+        // #198: 시뮬 실행 동안 SimClock 을 보간 갱신(부드럽게). 정지 시 멈추고, 직후 UpdateSimClock() 이 정확한 최종값 고정.
+        if (value) _simClockTimer.Start();
+        else       _simClockTimer.Stop();
     }
 
     // Pause 진입 시 base 가 그 시점 sim clock 으로 freeze. Resume 시 wall 새로 시작 — 누적 정지 시간을 보간에 더하지 않도록.
     partial void OnIsSimPausedChanged(bool value) => _clockInterpolator.ResetBase();
 
     private readonly SimulationClockInterpolator _clockInterpolator;
+    private readonly DispatcherTimer _simClockTimer;
+
+    /// <summary>
+    /// #198: SimClock(리본 동작시간) 텍스트를 보간 소스로 매 프레임 갱신 — 이벤트 사이에도 부드럽게 흐른다.
+    /// 간트 빨간선과 동일한 _clockInterpolator.EstimateNow 를 쓰며(같은 소스), 엔진/이벤트는 건드리지 않는다.
+    /// EstimateNow 는 _simStartTime + 보간 clock 을 돌려주므로 경과 = EstimateNow - _simStartTime.
+    /// </summary>
+    private void TickSimClockInterpolated()
+    {
+        if (_simEngine is null) return;
+        var elapsed = _clockInterpolator.EstimateNow() - _simStartTime;
+        if (elapsed < TimeSpan.Zero) elapsed = TimeSpan.Zero;
+        SimClock = elapsed.ToString(SimText.ClockFormat);
+    }
 
     /// <summary>
     /// Gantt 빨간선의 시간 source 를 현재 모드/시뮬 상태에 맞게 갱신.
