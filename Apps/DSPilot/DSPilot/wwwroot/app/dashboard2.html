@@ -20,6 +20,8 @@
 <link rel="stylesheet" href="/css/stitch.css"/>
 <!-- 폰트: Google Fonts CDN 대신 self-host(오프라인). Inter(라틴) + Material Symbols + Noto Sans KR(한글) = /css/fonts.css -->
 <link rel="stylesheet" href="/css/fonts.css"/>
+<!-- CCTV 영상벽(읽기 전용) 임베드 스타일 — .cctv-wall-embed 스코프. dashboard2 에 없는 토큰은 자체 정의(라이트+다크). -->
+<link rel="stylesheet" href="/css/cctv-wall.css"/>
 <script id="tailwind-config" type="text/plain" data-note="비활성(미실행): stitch 토큰은 tailwind.theme.js 로 이관, /css/stitch.css 로 빌드. 아래는 참고용.">
         tailwind.config = {
             darkMode: "class",
@@ -643,8 +645,9 @@
                 <div class="fl-fs col-span-12 lg:col-span-8 bg-surface-container-lowest border border-outline-variant rounded-xl shadow-sm overflow-hidden flex flex-col" x-ref="layoutCard" style="min-height:360px;">
                     <div class="fl-fs-chrome p-4 border-b border-outline-variant flex justify-between items-center bg-surface-container-low flex-wrap gap-3">
                         <div class="flex items-center gap-3">
-                            <span class="font-headline-md text-headline-md text-primary">레이아웃</span>
-                            <span class="text-on-surface-variant opacity-60 text-label-sm" x-show="!editing">실시간 사이클타임</span>
+                            <span class="font-headline-md text-headline-md text-primary" x-text="layoutView==='cctv' ? 'CCTV' : '레이아웃'"></span>
+                            <span class="text-on-surface-variant opacity-60 text-label-sm" x-show="!editing && layoutView!=='cctv'">실시간 사이클타임</span>
+                            <span class="text-on-surface-variant opacity-60 text-label-sm" x-show="layoutView==='cctv'">실시간 영상벽 · 오버레이 상태</span>
                             <template x-if="editing">
                                 <span class="flex items-center gap-2">
                                     <span class="ds-status" style="display:inline-flex;align-items:center;gap:4px;" x-show="saving"><span class="material-icons" style="font-size:13px;">sync</span> 저장 중…</span>
@@ -655,21 +658,37 @@
                             </template>
                         </div>
                         <div class="flex items-center gap-5 flex-wrap">
-                            <div class="flex items-center gap-2">
+                            <div class="flex items-center gap-2" x-show="layoutView!=='cctv'">
                                 <span class="w-2.5 h-2.5 rounded-sm" style="background:var(--dash-mt);"></span>
                                 <span class="text-[11px] font-bold text-on-surface-variant">가동시간</span>
                             </div>
-                            <div class="flex items-center gap-2 border-r pr-5 border-outline-variant">
+                            <div class="flex items-center gap-2 border-r pr-5 border-outline-variant" x-show="layoutView!=='cctv'">
                                 <span class="w-2.5 h-2.5 rounded-sm" style="background:var(--dash-wt);"></span>
                                 <span class="text-[11px] font-bold text-on-surface-variant">대기시간</span>
                             </div>
-                            <div class="flex gap-2">
+                            <div class="flex gap-2 items-center">
+                                <!-- 도면 ⇄ CCTV 뷰 전환 (사이클 비교 카드의 세그먼트 토글과 동일 패턴) -->
+                                <div class="flex bg-surface border border-outline-variant rounded p-0.5" title="레이아웃 도면 / CCTV 영상벽 전환">
+                                    <button class="px-2 py-1 text-[10px] font-bold rounded-sm transition-all flex items-center gap-1"
+                                            :class="layoutView!=='cctv' ? 'bg-secondary text-white shadow-sm' : 'text-on-surface-variant hover:bg-surface-container-high'"
+                                            @click="setLayoutView('diagram')" title="레이아웃 도면 보기">
+                                        <span class="material-icons text-[14px]">map</span> 도면
+                                    </button>
+                                    <button class="px-2 py-1 text-[10px] font-bold rounded-sm transition-all flex items-center gap-1"
+                                            :class="layoutView==='cctv' ? 'bg-secondary text-white shadow-sm' : 'text-on-surface-variant hover:bg-surface-container-high'"
+                                            @click="setLayoutView('cctv')" title="CCTV 영상벽 보기">
+                                        <span class="material-icons text-[14px]">videocam</span> CCTV
+                                    </button>
+                                </div>
+                                <!-- 편집(공용): 도면이면 인플레이스 편집, CCTV면 /cctv 설정 페이지로 이동 -->
                                 <button class="p-1.5 hover:bg-surface-container-highest rounded transition-colors text-on-surface-variant flex items-center gap-1 text-[12px] font-bold"
                                         :class="editing ? 'bg-secondary text-white hover:opacity-90' : ''"
-                                        @click="toggleEdit()" :title="editing ? '저장 (변경 저장 후 도면 보기로 복귀)' : '도면 편집 (블럭 이동·추가·삭제)'">
-                                    <span class="material-icons text-[20px]" x-text="editing ? 'save' : 'edit'"></span>
-                                    <span x-text="editing ? '저장' : '편집'"></span>
+                                        @click="layoutView==='cctv' ? goCctvSettings() : toggleEdit()"
+                                        :title="layoutView==='cctv' ? 'CCTV 설정 (카메라·오버레이 편집 페이지로 이동)' : (editing ? '저장 (변경 저장 후 도면 보기로 복귀)' : '도면 편집 (블럭 이동·추가·삭제)')">
+                                    <span class="material-icons text-[20px]" x-text="layoutView==='cctv' ? 'settings' : (editing ? 'save' : 'edit')"></span>
+                                    <span x-text="layoutView==='cctv' ? '설정' : (editing ? '저장' : '편집')"></span>
                                 </button>
+                                <!-- 전체화면(공용): 카드 전체를 전체화면 → CCTV 뷰도 그대로 적용 -->
                                 <button class="p-1.5 hover:bg-surface-container-highest rounded transition-colors text-on-surface-variant" @click="toggleFullscreen()" title="전체화면">
                                     <span class="material-icons text-[20px]">fullscreen</span>
                                 </button>
@@ -678,8 +697,8 @@
                     </div>
 
                     <div class="fl-fs-body flex-1 p-4 flex flex-col" style="min-height:0;">
-                        <!-- ── 편집 패널 ── -->
-                        <div class="fl-editpanel" x-show="editing" x-cloak>
+                        <!-- ── 편집 패널 (도면 뷰 전용) ── -->
+                        <div class="fl-editpanel" x-show="editing && layoutView==='diagram'" x-cloak>
                             <div class="fl-editbar">
                                 <div class="spacer"></div>
                                 <span class="fl-ctrl" title="모든 카드 공통 크기 (가로:세로 2:1 고정, 레이아웃에 저장)">
@@ -722,7 +741,7 @@
                             </div>
                         </div>
 
-                        <template x-if="layout && (layout.flowPlacements.length > 0 || editing)">
+                        <template x-if="layoutView==='diagram' && layout && (layout.flowPlacements.length > 0 || editing)">
                             <div class="fl-stage" style="flex:1; min-height:0; width:100%; display:flex; gap:12px; align-items:stretch; overflow:hidden;">
                                 <aside class="fl-order" x-show="editing && availableFlows.length" x-cloak>
                                     <div class="fl-order-head">
@@ -816,7 +835,7 @@
                                 </div>
                             </div>
                         </template>
-                        <template x-if="!editing && (!layout || layout.flowPlacements.length === 0)">
+                        <template x-if="layoutView==='diagram' && !editing && (!layout || layout.flowPlacements.length === 0)">
                             <div class="ds-empty" style="padding:40px 0; margin:auto;">
                                 <span class="material-icons">map</span>
                                 <span class="ds-empty-title">배치된 Flow 블럭이 없습니다</span>
@@ -826,6 +845,120 @@
                                 </button>
                             </div>
                         </template>
+
+                        <!-- ══════════ CCTV 영상벽 뷰 (읽기 전용) — /js/cctv-wall.js + /css/cctv-wall.css ══════════ -->
+                        <!-- 같은 카드(.fl-fs) 본문에 위치 → 전체화면(toggleFullscreen)·--fl-cap 사이징을 그대로 상속. 편집/카메라설정은 /cctv. -->
+                        <div class="cctv-wall-embed" x-show="layoutView==='cctv'" x-cloak>
+                            <!-- 카메라 없음 -->
+                            <template x-if="cctvLoaded && cctvWall.length === 0">
+                                <div class="cctv-wall-empty">
+                                    <span class="material-icons">videocam_off</span>
+                                    <div style="font-weight:700; color:var(--color-text-secondary);">등록된 카메라가 없습니다</div>
+                                    <div style="font-size:0.78rem;">상단 <b>[설정]</b> 을 눌러 CCTV 페이지에서 RTSP 카메라를 추가하세요.</div>
+                                    <button class="btn btn-sm btn-outlined" @click="goCctvSettings()">
+                                        <span class="material-icons" style="font-size:16px;">videocam</span> CCTV 설정 열기
+                                    </button>
+                                </div>
+                            </template>
+
+                            <!-- 영상벽 그리드 -->
+                            <div class="cctv-wall-area" x-show="cctvWall.length > 0">
+                                <div :class="'cctv-grid ' + cctvGridClass()" x-ref="cctvWallGrid">
+                                    <template x-for="cam in cctvWallCams()" :key="cam.id">
+                                        <div class="cctv-tile" :class="cctvSolo === cam.id ? 'is-solo' : ''">
+                                            <div class="cctv-tile-bar" x-show="!cctvFullscreen">
+                                                <span class="cctv-tile-name" x-text="cam.name"></span>
+                                            </div>
+                                            <div class="cctv-tile-stage">
+                                                <video :id="'cctv-wall-' + cam.id" muted autoplay playsinline
+                                                       @loadedmetadata="cctvRecalcRects()"></video>
+
+                                                <!-- 단독(확대) ⇄ 분할 토글 -->
+                                                <button class="cctv-tile-zoom" @click.stop="cctvToggleSolo(cam.id)"
+                                                        :title="cctvSolo === cam.id ? '분할 보기로 돌아가기' : '이 카메라만 크게 보기'">
+                                                    <span class="material-icons" x-text="cctvSolo === cam.id ? 'close_fullscreen' : 'open_in_full'"></span>
+                                                </button>
+
+                                                <!-- 오버레이 레이어 (읽기 전용) -->
+                                                <div class="cctv-ovl-layer">
+                                                    <template x-for="b in cctvBoxesForCam(cam)" :key="b.id">
+                                                        <span style="display:contents;">
+                                                            <!-- Flow 영역 박스 -->
+                                                            <template x-if="b.kind !== 'Call'">
+                                                                <div class="cctv-ovl-box kind-flow"
+                                                                     :class="'state-' + b.stateKey + (b.isAbnormal ? ' has-abnormal' : '') + (b.tagBelow ? ' tag-below' : '') + (b.tagInsetLeft ? ' tag-inset-left' : '')"
+                                                                     :style="`left:${b.px.left}px; top:${b.px.top}px; width:${b.px.width}px; height:${b.px.height}px; --ovl-color:${b.color};`"
+                                                                     @mouseenter="cctvSetHover(b, cam.id, $event)" @mouseleave="cctvClearHover()">
+                                                                    <span class="cctv-kind-badge"><span class="material-icons">account_tree</span></span>
+                                                                    <span class="cctv-ovl-chip">
+                                                                        <span class="ovl-kind-tag">FLOW</span>
+                                                                        <span class="ovl-chip-label" x-text="b.label"></span>
+                                                                    </span>
+                                                                </div>
+                                                            </template>
+                                                            <!-- Call 아이콘 핀 -->
+                                                            <template x-if="b.kind === 'Call'">
+                                                                <div class="cctv-ovl-pin"
+                                                                     :class="'state-' + b.stateKey + (b.isAbnormal ? ' has-abnormal' : '')"
+                                                                     :style="`left:${b.px.cx}px; top:${b.px.cy}px; --ovl-color:${b.color};`"
+                                                                     @mouseenter="cctvSetHover(b, cam.id, $event)" @mouseleave="cctvClearHover()">
+                                                                    <div class="cctv-pin-head"><span class="material-icons">memory</span></div>
+                                                                    <div class="cctv-pin-stem"></div>
+                                                                    <div class="cctv-pin-lbl"><span x-text="b.label"></span></div>
+                                                                </div>
+                                                            </template>
+                                                        </span>
+                                                    </template>
+                                                </div>
+
+                                                <!-- 호버 툴팁 (해당 타일에서만 마운트) -->
+                                                <template x-if="cctvHover && cctvHover.camId === cam.id">
+                                                    <div class="cctv-ovl-tip" :style="cctvTipStyle(cam)">
+                                                        <div class="tip-head">
+                                                            <span class="material-icons" x-text="cctvHover?.kind==='Call' ? 'memory' : 'account_tree'"></span>
+                                                            <span class="tip-kind" x-text="cctvHover?.kind==='Call' ? 'CALL · 설비' : 'FLOW'"></span>
+                                                            <span class="tip-state" x-text="cctvHover?.model?.stateLabel"></span>
+                                                        </div>
+                                                        <div class="tip-title" x-text="cctvHover?.model?.title"></div>
+                                                        <div class="tip-rows">
+                                                            <template x-if="cctvHover?.model?.flowName"><span class="tk">Flow</span></template>
+                                                            <template x-if="cctvHover?.model?.flowName"><span class="tv" x-text="cctvHover?.model?.flowName"></span></template>
+                                                            <template x-if="cctvHover?.model?.systemName"><span class="tk">시스템</span></template>
+                                                            <template x-if="cctvHover?.model?.systemName"><span class="tv" x-text="cctvHover?.model?.systemName"></span></template>
+                                                            <template x-if="cctvHover?.model?.callName"><span class="tk">Call</span></template>
+                                                            <template x-if="cctvHover?.model?.callName"><span class="tv mono" x-text="cctvHover?.model?.callName"></span></template>
+                                                            <template x-if="cctvHover?.model?.workName"><span class="tk">Work</span></template>
+                                                            <template x-if="cctvHover?.model?.workName"><span class="tv" x-text="cctvHover?.model?.workName"></span></template>
+                                                            <template x-if="cctvHover?.model?.device"><span class="tk">설비</span></template>
+                                                            <template x-if="cctvHover?.model?.device"><span class="tv mono" x-text="cctvHover?.model?.device"></span></template>
+                                                            <template x-if="cctvHover?.model?.avgMs != null"><span class="tk">평균 사이클</span></template>
+                                                            <template x-if="cctvHover?.model?.avgMs != null"><span class="tv" x-text="cctvFmtDuration(cctvHover?.model?.avgMs)"></span></template>
+                                                            <template x-if="cctvHover?.model?.currentCt != null"><span class="tk">현재 CT</span></template>
+                                                            <template x-if="cctvHover?.model?.currentCt != null"><span class="tv" x-text="cctvFmtDuration(cctvHover?.model?.currentCt)"></span></template>
+                                                            <template x-if="cctvHover?.model?.goingCount != null && cctvHover?.model?.goingCount > 0"><span class="tk">진행 횟수</span></template>
+                                                            <template x-if="cctvHover?.model?.goingCount != null && cctvHover?.model?.goingCount > 0"><span class="tv" x-text="cctvHover?.model?.goingCount + '회'"></span></template>
+                                                            <template x-if="cctvHover?.model?.progressRate != null && cctvHover?.model?.progressRate > 0"><span class="tk">진행률</span></template>
+                                                            <template x-if="cctvHover?.model?.progressRate != null && cctvHover?.model?.progressRate > 0"><span class="tv" x-text="cctvFmtPct(cctvHover?.model?.progressRate)"></span></template>
+                                                            <template x-if="cctvHover?.model?.movingStartName || cctvHover?.model?.movingEndName"><span class="tk">이동 구간</span></template>
+                                                            <template x-if="cctvHover?.model?.movingStartName || cctvHover?.model?.movingEndName"><span class="tv" x-text="(cctvHover?.model?.movingStartName || '?') + ' → ' + (cctvHover?.model?.movingEndName || '?')"></span></template>
+                                                            <template x-if="cctvHover?.model?.errorText"><span class="tk">이상</span></template>
+                                                            <template x-if="cctvHover?.model?.errorText"><span class="tv is-error" x-text="cctvHover?.model?.errorText"></span></template>
+                                                        </div>
+                                                    </div>
+                                                </template>
+
+                                                <template x-if="cctvOverlayCountFor(cam.name) > 0">
+                                                    <div class="cctv-tile-ovl">
+                                                        <span class="material-icons">label</span>
+                                                        <span x-text="cctvOverlayCountFor(cam.name)"></span>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- ── 전체화면 전용 알람 배너 ── .fl-fs:fullscreen 시 상단 풀폭으로 표시 (fliptext 참고: 세로 티커 + 분자/분모) -->
@@ -1018,6 +1151,9 @@
 
 <script src="/lib/signalr.min.js"></script>
 <script src="/lib/chart.umd.min.js"></script>
+<!-- CCTV: WHEP 플레이어 + 영상벽 시청 엔진(레이아웃 토글의 CCTV 뷰가 사용). dashboardApp() 정의 전에 동기 로드. -->
+<script src="/js/cctv-whep.js"></script>
+<script src="/js/cctv-wall.js"></script>
 <script>
     function dashboardApp() {
         const SYSTEM_COLORS = ['#2A3646', '#3A4A5E', '#4A5B70', '#5E7088', '#7889A0'];
@@ -1032,6 +1168,9 @@
         //  · ctChart=인스턴스, ctSig=마지막 렌더 시그니처(동일 시 redraw 생략), ctDyn=플러그인이 읽는 최신 동적상태
         let ctChart = null, ctSig = null, ctDyn = null;
         return {
+            // CCTV 영상벽(읽기 전용) 시청 엔진 — /js/cctv-wall.js. 모든 키는 cctv* 접두사라 충돌 없음.
+            ...window.CctvWall.state(),
+            ...window.CctvWall.methods,
             flows: [], layout: null, hasData: false, loading: true, error: null, demoBlocked: false, dark: false,
             cardScale: 0.15,
             selectedFlowName: null,
@@ -1084,6 +1223,8 @@
                 this.snapEnabled = localStorage.getItem('dspilot-dash-snap') === '1';
                 const ss = parseInt(localStorage.getItem('dspilot-dash-snapsize'), 10);
                 if (!isNaN(ss)) this.snapSize = Math.max(20, Math.min(240, Math.round(ss / 10) * 10));
+                // 레이아웃 카드 뷰(도면/CCTV) — 브라우저별 기억(개인 뷰 토글, 공유 데이터 아님). 기본 도면.
+                this.layoutView = localStorage.getItem('dspilot-dash-view') === 'cctv' ? 'cctv' : 'diagram';
                 await this.loadSnapshot();
                 await this.loadShift();
                 this.loadAbnormals();
@@ -1092,12 +1233,21 @@
                 this._pollTimer = setInterval(() => this.loadSnapshot(), 5000);
                 // 시프트 카운트다운은 분 단위 표시라 1초 틱은 불필요한 reactivity churn — 15초면 충분히 라이브.
                 this._shiftTimer = setInterval(() => { this.nowTick = Date.now(); }, 15000);
-                document.addEventListener('fullscreenchange', () => {});
+                // 전체화면 변화 → CCTV 타일 바 숨김 토글 + 레터박스 좌표 재계산(도면은 CSS 가 처리).
+                const onFsChange = () => {
+                    this.cctvFullscreen = !!document.fullscreenElement;
+                    if (this.layoutView === 'cctv') this.$nextTick(() => this.cctvRecalcRects());
+                };
+                document.addEventListener('fullscreenchange', onFsChange);
+                document.addEventListener('webkitfullscreenchange', onFsChange);
+                // 마지막 뷰가 CCTV 였으면 스트림 시작(DOM 마운트 후).
+                if (this.layoutView === 'cctv') this.$nextTick(() => this.cctvStart());
                 // 라인요약·연결배지·이상배지는 공통 셸(shell.js)이 /api/nav/summary 를 자체 폴링·렌더한다.
                 // dashboard2 가 같은 엔드포인트를 또 폴링하던 중복(_navTimer/loadNavSummary)은 제거했다.
             },
 
             destroy() {
+                this.cctvStop();
                 clearInterval(this._pollTimer);
                 clearInterval(this._shiftTimer);
                 clearTimeout(this._abnTicker);
@@ -1118,6 +1268,23 @@
                 this.$nextTick(() => { this.renderCtDonut(); });
             },
             persistSnap() { localStorage.setItem('dspilot-dash-snap', this.snapEnabled ? '1' : '0'); localStorage.setItem('dspilot-dash-snapsize', String(this.snapSize)); },
+
+            // ── 레이아웃 카드 뷰 전환(도면 ⇄ CCTV) ──
+            async setLayoutView(v) {
+                if ((v !== 'diagram' && v !== 'cctv') || v === this.layoutView) return;
+                if (v === 'cctv') {
+                    if (this.editing) await this.exitEdit();   // 편집 중이면 저장·종료(편집은 도면 전용)
+                    this.layoutView = 'cctv';
+                    try { localStorage.setItem('dspilot-dash-view', 'cctv'); } catch (e) {}
+                    this.$nextTick(() => this.cctvStart());      // DOM(영상벽) 마운트 후 스트림 시작
+                } else {
+                    this.layoutView = 'diagram';
+                    try { localStorage.setItem('dspilot-dash-view', 'diagram'); } catch (e) {}
+                    this.cctvStop();                             // 스트림·폴링 정리(누수 방지)
+                }
+            },
+            // CCTV 모드의 "편집" = 설정/오버레이 편집 페이지(/cctv)로 이동.
+            goCctvSettings() { location.href = '/cctv'; },
 
             async apiGet(url) {
                 const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
