@@ -1,11 +1,11 @@
 ---
 name: fixed
-description: Finalize resolved /fix issues by rebasing fix worktrees onto main, fast-forward merging, pushing main, commenting on GitLab issues, closing them, and updating fix-state.json. Use when the user runs /fixed with one or more issue iids after human approval.
+description: Finalize resolved /fix issues by rebasing fix worktrees onto main, fast-forward merging, pushing main, commenting on GitLab issues, closing them with the ByLLM label, and updating fix-state.json. Use when the user runs /fixed with one or more issue iids after human approval.
 ---
 
 # /fixed — resolved issue 를 main 에 반영하고 GitLab 에서 close
 
-`/fix` 가 격리 worktree 에 commit 까지 끝낸 **resolved** issue 를, 사람 검토 후 `main` 에 **rebase → fast-forward merge → push** 하고, GitLab issue 에 **작업 comment 를 남긴 뒤 close** 한다.
+`/fix` 가 격리 worktree 에 commit 까지 끝낸 **resolved** issue 를, 사람 검토 후 `main` 에 **rebase → fast-forward merge → push** 하고, GitLab issue 에 **작업 comment 를 남긴 뒤 `ByLLM` label 을 붙여 close** 한다.
 
 - **`/fix` 와 짝**: `/fix` = 자동 수정·빌드검증·커밋(push/merge 안 함), **`/fixed` = 사람 OK 후 merge·push·close**.
 - **1회 실행 = 인자로 준 iid(들)만 처리**. 멱등 — 이미 `merged` 인 iid 는 skip.
@@ -90,6 +90,7 @@ push 성공 후, 처리된 iid 마다:
    - ...
    ```
 2. `powershell -NoProfile -File <REPO>/auto-fix/.claude/skills/fixed/scripts/gitlab-close.ps1 -ProjectPath <pp> -Iid <iid> -BodyFile <md>`
+   - comment 추가 → **`ByLLM` label 을 붙이며 close** (label 은 close PUT 의 `add_labels` 로 한 번에 처리, 기본값 `ByLLM` — `-AddLabels` 로 변경 가능, 빈 문자열이면 label 생략).
    - 성공 → 다음 3번.
    - 실패(예: 403 scope 부족) → 그 iid 는 **"merged&pushed 됐으나 close 실패"** 로 보고하고 수동 close 안내. **merge/push 는 이미 반영됨**(되돌리지 않음). gitlab-close.ps1 은 comment 추가 **후** close 하므로, **close 만 실패한 경우 `/fixed` 를 재실행하지 말 것**(comment 가 중복으로 또 달린다). PAT scope(`api`) 를 고친 뒤 close 만 수동으로 처리한다.
 3. **상태 갱신** — `/fix` 의 `update-state.ps1` 재사용. 기존 entry 를 읽어 `status="merged"`, `commit=<이 iid 의 최종 hash 들 콤마결합>`(Phase 2-5 에서 빈 목록이었으면 **기존 commit 값 유지** — 빈 값으로 덮지 말 것), `branch=""`, `worktree=""`(이미 정리됐으므로 비움)로 바꾸고 나머지(title/reason/summary/touchedProjects)는 보존하여 InputJson 작성:
