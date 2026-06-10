@@ -27,7 +27,7 @@ public class AppSettingsModel
 /// 실측 duration 자동 보정(auto-calibration) 설정. 첫 설치 후 각 Flow 가 이상치 제외 클린사이클을
 /// <see cref="MinCleanCycles"/> 개 이상 모으면, 그 Flow 의 디바이스(Device Work) Duration/Min/MaxDuration 을
 /// 실측값으로 1회 자동 채운다(<see cref="Services.AutoCalibrationService"/>). 공식:
-///   Duration = round(mean), Max = round(measMax × (1 + <see cref="MarginMaxPct"/>)),
+///   Duration = round(mean), Max = round(max(measMax, mean + <see cref="MarginMaxSigmaK"/>·σ)),
 ///   Min(<see cref="FillMin"/>=true 일 때만) = round(measMin × (1 − <see cref="MarginMinPct"/>)).
 /// <see cref="CompletedAt"/> 가 1회성 플래그 — Production.json 에 영속되어 재설치/재시작 시 보존된다.
 /// </summary>
@@ -39,8 +39,13 @@ public class AutoCalibrationSettings
     /// <summary>이 개수 이상의 이상치 제외 클린사이클(IsIdle=0 AND CT NOT NULL)을 모은 Flow 만 보정한다. 기본 10.</summary>
     public int MinCleanCycles { get; set; } = 10;
 
-    /// <summary>MaxDuration 보정율(분수). Max = round(실측 최대 × (1 + 이 값)). 기본 0.05(=+5%).</summary>
-    public double MarginMaxPct { get; set; } = 0.05;
+    /// <summary>
+    /// MaxDuration 임계 계수 k. Max = round(max(실측 최대, mean + k·σ)). 기본 4.0.
+    /// σ 는 클린사이클 span 의 표본 표준편차 — 단일 극값보다 안정적이라 오탐(ActionOver)을 줄인다.
+    /// 정규근사 k=3≈99.7%, k=4≈99.99% 커버. floor=실측 최대 라 보정에 쓴 정상 사이클이 알람나지 않는다.
+    /// (구버전 키 MarginMaxPct(%) 는 더 이상 쓰지 않으며 ExtensionData 로 무시된다.)
+    /// </summary>
+    public double MarginMaxSigmaK { get; set; } = 4.0;
 
     /// <summary>true 일 때만 MinDuration 을 실측값으로 기록(false 면 기존값 보존). 기본 false.</summary>
     public bool FillMin { get; set; } = false;
@@ -305,10 +310,18 @@ public class FlowCycleOverride
 
     /// <summary>
     /// 표준(ideal) 사이클 시간(ms). P5 OEE Performance = (idealCT × totalCount) / runtime 의 단일 소스.
-    /// null = 미설정(엔지니어 입력 또는 추정 전) → Performance 산출 불가로 정직 표기.
+    /// null = 미설정(엔지니어 입력 또는 자동기입 전) → Performance 산출 불가로 정직 표기.
     /// doc/21 §2.4. (P2 표준편차 기준과 per-flow 차원에서만 공유 — §6 한정.)
     /// </summary>
     public int? IdealCycleTimeMs { get; set; }
+
+    /// <summary>
+    /// <see cref="IdealCycleTimeMs"/> 의 출처. "auto" = <see cref="Services.OeeIdealCycleAutoFillService"/> 가
+    /// 실측(best-demonstrated 분위수)으로 자동 기입한 값. null = 사람이 입력(또는 구버전 데이터 — 자동기입 도입 전
+    /// 값은 전부 수동이므로 null=manual 해석이 하위호환). 사용자가 값을 직접 저장/해제하면 null 로 돌아간다 —
+    /// 값을 비우면 자동기입이 다음 주기에 다시 채울 수 있다(재보정 경로).
+    /// </summary>
+    public string? IdealCycleTimeSource { get; set; }
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }

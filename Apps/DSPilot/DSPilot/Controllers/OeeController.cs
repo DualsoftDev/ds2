@@ -15,14 +15,14 @@ namespace DSPilot.Controllers;
 /// <summary>
 /// P5 OEE / 정지(다운타임) API (격리형 호스팅). 정적 페이지(/app/*.html)가 fetch 로 호출.
 ///
-/// OEE 는 on-demand 계산(별도 daily backfill 생략) — doc/21 §8.
-///   availability = 달력근사 (1 - downtime/period)        ⚠ Phase1: 계획시간 데이터 0 → 진짜 가용성은 Phase4
-///   performance  = (idealCT × total) / runtime, min(1.0)  idealCT 미설정 시 null
-///   quality      = good / total (reject 수동 입력 시)
+/// OEE 는 on-demand 계산(별도 daily backfill 생략) — doc/21 §8. 과거 날짜 불량/분류 입력은 재조회 시 즉시 소급 반영.
+///   availability = 달력근사 (1 - downtime/period)        ⚠ Phase1: 계획시간 데이터 0 → 진짜 가용성은 Phase4(/shift-summary)
+///   performance  = (idealCT × total) / runtime, min(1.0)  idealCT = 수동 입력 또는 실측 자동기입(OeeIdealCycleAutoFillService)
+///   quality      = (total − 입력불량) / total              불량 미입력 = 100% 가정(QualitySource="assumed" 명시) — §12
 ///   oee          = A × P × Q (한 요소라도 소스 없으면 null + 사유)
 ///   mtbf/mttr    = isFailure=1 이벤트 기반
-/// totalCount 는 dspFlowHistory row count 자동, rejectCount 는 수동, 분류는 수동 PATCH (isFailure 기본 0).
-/// 산출 불가 지표는 값 null + *Note 로 정직 표기 (doc/21 §10).
+/// totalCount 는 dspFlowHistory row count 자동, rejectCount 는 수동/PLC 불량신호, 분류는 수동 PATCH (isFailure 기본 0).
+/// 산출 불가 지표는 값 null + *Note 로 정직 표기, 가정값은 *Source 로 명시 (doc/21 §10·§12).
 /// </summary>
 [ApiController]
 [Route("api/oee")]
@@ -32,6 +32,7 @@ public class OeeController : ControllerBase
     private readonly AppSettingsService _settings;
     private readonly DsProjectService _project;
     private readonly IDatabasePathResolver _pathResolver;
+    private readonly OeeCtStatsService _ctStats;
     private readonly ILogger<OeeController> _logger;
 
     public OeeController(
@@ -39,12 +40,14 @@ public class OeeController : ControllerBase
         AppSettingsService settings,
         DsProjectService project,
         IDatabasePathResolver pathResolver,
+        OeeCtStatsService ctStats,
         ILogger<OeeController> logger)
     {
         _repo = repo;
         _settings = settings;
         _project = project;
         _pathResolver = pathResolver;
+        _ctStats = ctStats;
         _logger = logger;
     }
 
@@ -245,7 +248,14 @@ public class OeeController : ControllerBase
     {
         var p = Math.Clamp(percentile, 0, 100);
         var limit = sampleLimit <= 0 ? 2000 : Math.Min(sampleLimit, 100000);
-        var stats = await ComputeCtStatsAsync(limit, p);
+        var stats = await _ctStats.ComputeAsync(limit, p);
+
+        // 설정은 1회만 로드해 행마다 디스크 재로드를 피한다. Source = "auto"(자동기입) / null(수동 또는 미설정).
+        var settings = _settings.LoadSettings();
+        var overrideByFlow = settings.FlowCycle.Overrides
+            .Where(o => !string.IsNullOrWhiteSpace(o.FlowName))
+            .GroupBy(o => o.FlowName, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
         var rows = stats
             .OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
@@ -253,9 +263,12 @@ public class OeeController : ControllerBase
             {
                 var s = kv.Value;
                 var has = s.SampleCount > 0;
+                overrideByFlow.TryGetValue(kv.Key, out var ov);
+                var ideal = ov?.IdealCycleTimeMs is > 0 ? ov.IdealCycleTimeMs : null;
                 return new IdealCycleRowDto(
                     FlowName: kv.Key,
-                    IdealCycleTimeMs: ResolveIdealCycleTimeMs(kv.Key),
+                    IdealCycleTimeMs: ideal,
+                    Source: ideal is not null ? ov!.IdealCycleTimeSource : null,
                     RecommendedMs: has ? s.Recommended : null,
                     SampleCount: s.SampleCount,
                     MinCt: has ? s.Min : null,
@@ -317,7 +330,7 @@ public class OeeController : ControllerBase
         var av = await ComputeShiftAvailabilityAsync(flowName, fromUtc, toUtc, scheduled, ct);
         var (failureDurationMs, failureCount) = await _repo.GetFailureAggregateAsync(fromUtc, toUtc, flowName, ct);
         int? totalCount = await CountFlowHistoryAsync(flowName, fromUtc, toUtc);
-        var (prodTotal, _, prodReject, hasReject) =
+        var (_, _, prodReject, hasReject) =
             await _repo.QueryProductionAsync(fromUtc.ToLocalTime(), toUtc.ToLocalTime(), flowName, ct);
 
         // ── Availability (시프트 기반) ──
@@ -334,7 +347,7 @@ public class OeeController : ControllerBase
         }
 
         // ── Performance ((idealCT × total) / 시프트 가동시간) ──
-        int? idealCT = ResolveIdealCycleTimeMs(flowName);
+        var (idealCT, idealCtSource) = ResolveIdealCycle(flowName);
         double? performance = null;
         string? perfNote;
         if (string.IsNullOrWhiteSpace(flowName))
@@ -342,7 +355,7 @@ public class OeeController : ControllerBase
             (performance, perfNote) = await ComputeShiftLinePerformanceAsync(fromUtc, toUtc, scheduled, ct);
         }
         else if (idealCT is null || idealCT <= 0)
-            perfNote = "표준 사이클(idealCT) 미설정 — 성능 산출 불가. 표준CT 입력 필요.";
+            perfNote = "표준 사이클(idealCT) 미설정 — 성능 산출 불가. 클린사이클이 모이면 자동 기입됩니다(또는 표준CT 직접 입력).";
         else if (totalCount is null || totalCount <= 0)
             perfNote = "기간 내 생산 사이클 0 — 성능 산출 불가.";
         else if (av.RunTimeMs <= 0)
@@ -353,28 +366,19 @@ public class OeeController : ControllerBase
             perfNote = null;
         }
 
-        // ── Quality (good / total) ── Summary 와 동일
-        double? quality = null;
-        string? qualNote;
-        int? rejectOut = null;
-        int? goodOut = null;
-        if (!hasReject)
-            qualNote = "불량(reject) 데이터 없음 — 품질 산출 불가. 불량 입력 또는 OeeSignals 불량신호 설정 필요.";
-        else if (prodTotal <= 0)
-            qualNote = "생산수 0 — 품질 산출 불가.";
-        else
-        {
-            rejectOut = prodReject;
-            goodOut = Math.Max(0, prodTotal - prodReject);
-            quality = Math.Clamp((double)goodOut.Value / prodTotal, 0.0, 1.0);
-            qualNote = null;
-        }
+        // ── Quality ── Summary 와 동일: 기본 100% 가정, 불량 입력 시 실측 (§12 개정)
+        var (quality, qualNote, qualitySource, rejectOut, goodOut) =
+            OeeMath.ComputeQuality(totalCount, prodReject, hasReject);
 
         // ── OEE = A × P × Q ──
         double? oee = null;
         string? oeeNote = null;
         if (availability is double a && performance is double p && quality is double q)
+        {
             oee = a * p * q;
+            if (qualitySource == "assumed")
+                oeeNote = "품질 100% 가정 포함(불량 미입력).";
+        }
         else
         {
             var missing = new List<string>();
@@ -418,12 +422,14 @@ public class OeeController : ControllerBase
             RejectCount: rejectOut,
             GoodCount: goodOut,
             IdealCycleTimeMs: idealCT,
+            IdealCycleTimeSource: idealCtSource,
             Availability: availability,
             AvailabilityNote: availNote,
             Performance: performance,
             PerformanceNote: perfNote,
             Quality: quality,
             QualityNote: qualNote,
+            QualitySource: qualitySource,
             Oee: oee,
             OeeNote: oeeNote,
             ShiftStart: shift.Start,
@@ -608,8 +614,8 @@ public class OeeController : ControllerBase
         // totalCount 자동: dspFlowHistory row count (기간 내, flow 지정 시 그 flow).
         int? totalCount = await CountFlowHistoryAsync(flowName, fromUtc, toUtc);
 
-        // 생산/품질 (로컬일 버킷). reject 데이터(manual 입력 또는 plc 불량신호)가 있으면 quality 산출.
-        var (prodTotal, prodGood, prodReject, hasReject) =
+        // 생산/품질 (로컬일 버킷). 입력 불량(manual 또는 plc 불량신호) 합만 소비 — 품질 분모는 기간 사이클수(§12).
+        var (_, _, prodReject, hasReject) =
             await _repo.QueryProductionAsync(fromUtc.ToLocalTime(), toUtc.ToLocalTime(), flowName, ct);
 
         // runtime(달력근사) = period - downtime. 가용성 분모 = period(달력).
@@ -631,7 +637,7 @@ public class OeeController : ControllerBase
         // ── Performance ((idealCT × total) / runtime) ──
         // per-flow: 해당 flow 의 idealCT 사용. 라인 전체(flowName=null): idealCT 설정된 flow 들의
         //   per-flow 성능을 생산수 가중평균(각 flow 는 자기 정지/가동 기준) — 라인 전체에도 성능이 뜨도록.
-        int? idealCT = ResolveIdealCycleTimeMs(flowName);
+        var (idealCT, idealCtSource) = ResolveIdealCycle(flowName);
         double? performance = null;
         string? perfNote;
         if (string.IsNullOrWhiteSpace(flowName))
@@ -640,7 +646,7 @@ public class OeeController : ControllerBase
         }
         else if (idealCT is null || idealCT <= 0)
         {
-            perfNote = "표준 사이클(idealCT) 미설정 — 성능 산출 불가. /api/oee/ideal-cycle 로 입력 필요.";
+            perfNote = "표준 사이클(idealCT) 미설정 — 성능 산출 불가. 클린사이클이 모이면 자동 기입됩니다(또는 표준CT 직접 입력).";
         }
         else if (totalCount is null || totalCount <= 0)
         {
@@ -656,26 +662,9 @@ public class OeeController : ControllerBase
             perfNote = null;
         }
 
-        // ── Quality (good / total) ──
-        double? quality = null;
-        string? qualNote;
-        int? rejectOut = null;
-        int? goodOut = null;
-        if (!hasReject)
-        {
-            qualNote = "불량(reject) 데이터 없음 — 품질 산출 불가. /api/oee/production 입력 또는 OeeSignals 불량신호 설정 필요.";
-        }
-        else if (prodTotal <= 0)
-        {
-            qualNote = "생산수 0 — 품질 산출 불가.";
-        }
-        else
-        {
-            rejectOut = prodReject;
-            goodOut = Math.Max(0, prodTotal - prodReject);
-            quality = Math.Clamp((double)goodOut.Value / prodTotal, 0.0, 1.0);
-            qualNote = null;
-        }
+        // ── Quality ── 기본 100% 가정, 불량 입력 시 실측 (§12 개정)
+        var (quality, qualNote, qualitySource, rejectOut, goodOut) =
+            OeeMath.ComputeQuality(totalCount, prodReject, hasReject);
 
         // ── OEE (A × P × Q) ──
         double? oee = null;
@@ -683,6 +672,8 @@ public class OeeController : ControllerBase
         if (availability is double a && performance is double p && quality is double q)
         {
             oee = a * p * q;
+            if (qualitySource == "assumed")
+                oeeNote = "품질 100% 가정 포함(불량 미입력).";
         }
         else
         {
@@ -722,12 +713,14 @@ public class OeeController : ControllerBase
             RejectCount: rejectOut,
             GoodCount: goodOut,
             IdealCycleTimeMs: idealCT,
+            IdealCycleTimeSource: idealCtSource,
             Availability: availability,
             AvailabilityNote: availNote,
             Performance: performance,
             PerformanceNote: perfNote,
             Quality: quality,
             QualityNote: qualNote,
+            QualitySource: qualitySource,
             Oee: oee,
             OeeNote: oeeNote,
             FailureCount: failureCount,
@@ -737,11 +730,12 @@ public class OeeController : ControllerBase
             MttrNote: mttrNote);
     }
 
-    private int? ResolveIdealCycleTimeMs(string? flowName)
+    /// <summary>flow 의 유효 idealCT(ms)와 출처("auto"=실측 자동기입 / null=수동). 라인(flow=null)은 (null, null).</summary>
+    private (int? Ms, string? Source) ResolveIdealCycle(string? flowName)
     {
-        if (string.IsNullOrWhiteSpace(flowName)) return null;
+        if (string.IsNullOrWhiteSpace(flowName)) return (null, null);
         var ov = _settings.GetFlowCycleOverride(flowName);
-        return ov?.IdealCycleTimeMs;
+        return ov?.IdealCycleTimeMs is > 0 ? (ov.IdealCycleTimeMs, ov.IdealCycleTimeSource) : (null, null);
     }
 
     /// <summary>
@@ -773,81 +767,6 @@ public class OeeController : ControllerBase
         if (weight <= 0)
             return (null, "표준CT 설정된 Flow 의 기간 내 생산 사이클 0 — 성능 산출 불가.");
         return (weightedPerf / weight, $"Flow {usedFlows}개 성능의 생산수 가중평균 (per-flow idealCT 기반).");
-    }
-
-    private readonly record struct CtStat(int SampleCount, int Min, int Median, int Avg, int Recommended);
-
-    private sealed class CtRowRaw
-    {
-        public string? FlowName { get; set; }
-        public long Ct { get; set; }
-    }
-
-    /// <summary>
-    /// Flow별 CT 통계(이상치 제외 = IsIdle 0, ct>0). flow별 최근 <paramref name="sampleLimit"/> 사이클 기준.
-    /// dspFlow 의 전체 flow 를 0-샘플 항목으로라도 포함(사이클 없는 flow 도 테이블에 노출). 키는 flowName.
-    /// Recommended = <paramref name="percentile"/> 분위수(오름차순 → 작을수록 빠름 = best-demonstrated).
-    /// </summary>
-    private async Task<Dictionary<string, CtStat>> ComputeCtStatsAsync(int sampleLimit, double percentile)
-    {
-        var result = new Dictionary<string, CtStat>(StringComparer.OrdinalIgnoreCase);
-        var dbPath = _pathResolver.GetSharedDbPath();
-        if (!System.IO.File.Exists(dbPath)) return result;
-        try
-        {
-            await using var conn = new SqliteConnection(
-                $"Data Source={dbPath};Mode=ReadWriteCreate;Default Timeout=20");
-            await conn.OpenAsync();
-
-            // 전체 flow 목록 — 사이클이 없어도 행을 노출(미설정 표준CT 식별).
-            var dspFlowExists = await conn.ExecuteScalarAsync<long>(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlow'");
-            if (dspFlowExists > 0)
-            {
-                var names = await conn.QueryAsync<string>(
-                    "SELECT flowName FROM dspFlow WHERE flowName IS NOT NULL AND flowName <> ''");
-                foreach (var n in names) result[n] = new CtStat(0, 0, 0, 0, 0);
-            }
-
-            var histExists = await conn.ExecuteScalarAsync<long>(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlowHistory'");
-            if (histExists == 0) return result;
-
-            // flow별 최근 N 사이클 ct (이상치 제외). 윈도우 함수로 flow마다 최신 sampleLimit 행만.
-            const string sql = @"
-                SELECT flowName AS FlowName, ct AS Ct FROM (
-                    SELECT flowName, ct,
-                           ROW_NUMBER() OVER (PARTITION BY flowName ORDER BY recordedAt DESC) AS rn
-                    FROM dspFlowHistory
-                    WHERE COALESCE(IsIdle, 0) = 0 AND ct IS NOT NULL AND ct > 0
-                ) WHERE rn <= @Limit";
-            var raw = await conn.QueryAsync<CtRowRaw>(sql, new { Limit = sampleLimit });
-
-            var grouped = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
-            foreach (var r in raw)
-            {
-                if (string.IsNullOrEmpty(r.FlowName)) continue;
-                if (!grouped.TryGetValue(r.FlowName, out var list)) { list = new List<int>(); grouped[r.FlowName] = list; }
-                list.Add((int)r.Ct);
-            }
-
-            foreach (var (flowName, list) in grouped)
-            {
-                if (list.Count == 0) continue;
-                list.Sort();
-                var min = list[0];
-                var median = list[list.Count / 2];
-                var avg = (int)Math.Round(list.Average());
-                var idx = Math.Clamp((int)Math.Floor(percentile / 100.0 * (list.Count - 1)), 0, list.Count - 1);
-                result[flowName] = new CtStat(list.Count, min, median, avg, list[idx]);
-            }
-            return result;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[OEE] ideal-cycle table stats failed");
-            return result;
-        }
     }
 
     /// <summary>
@@ -983,10 +902,12 @@ public record ShiftExceptionRequest(string? Flow, DateTime? StartAt, DateTime? E
 public record IdealCycleRequest(string Flow, int? IdealCycleTimeMs);
 public record IdealCycleBatchRequest(List<IdealCycleRequest> Items);
 
-// idealCT 일괄 편집 테이블 1행: 현재 설정값 + 실측 추천/통계(이상치 제외).
+// idealCT 일괄 편집 테이블 1행: 현재 설정값(+출처) + 실측 추천/통계(이상치 제외).
+// Source: "auto" = 실측 자동기입(OeeIdealCycleAutoFillService) / null = 수동 입력(값 있을 때) 또는 미설정.
 public record IdealCycleRowDto(
     string FlowName,
     int? IdealCycleTimeMs,
+    string? Source,
     int? RecommendedMs,
     int SampleCount,
     int? MinCt,
@@ -1013,12 +934,14 @@ public sealed record OeeShiftSummaryDto(
     int? RejectCount,
     int? GoodCount,
     int? IdealCycleTimeMs,
+    string? IdealCycleTimeSource, // "auto" = 실측 자동기입 / null = 수동(또는 미설정)
     double? Availability,        // 가동시간 / PPT
     string? AvailabilityNote,
     double? Performance,
     string? PerformanceNote,
-    double? Quality,
+    double? Quality,             // (사이클수 − 입력불량) / 사이클수 — 불량 미입력 시 100% 가정(§12)
     string? QualityNote,
+    string? QualitySource,       // "measured" / "assumed"(불량 0 가정) / null(산출 불가)
     double? Oee,
     string? OeeNote,
     string ShiftStart,           // "HH:mm" 로컬

@@ -125,7 +125,7 @@
 
         /* 간트 layout (헤어라인 박스, 그림자 없음) */
         .ct-gantt-layout { display: flex; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); overflow: hidden; max-height: calc(100vh - 300px); }
-        .ct-lane-sidebar { flex: 0 0 280px; width: 280px; background: var(--color-surface); border-right: 1px solid var(--color-lines); overflow-y: auto; overflow-x: hidden; z-index: 1; }
+        .ct-lane-sidebar { flex: 0 0 330px; width: 330px; background: var(--color-surface); border-right: 1px solid var(--color-lines); overflow-y: auto; overflow-x: hidden; z-index: 1; }
         .ct-sidebar-header { display: flex; align-items: flex-end; padding: 0 12px 8px; font-size: 0.66rem; font-weight: 700; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.12em; border-bottom: 1.5px solid var(--color-text-primary); background: var(--color-surface-variant); position: sticky; top: 0; z-index: 2; }
         .ct-ribbon-side { display: flex; flex-direction: column; justify-content: center; gap: 1px; padding: 0 12px; background: #fafbfc; border-bottom: 1px solid var(--color-lines); }
         .ct-ribbon-side .rs-t { font-size: 0.7rem; font-weight: 800; color: var(--color-text-primary); }
@@ -159,7 +159,11 @@
         .ct-api-name { font-size: 0.72rem; font-weight: 700; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; }
         .ct-api-dot { width: 6px; height: 6px; border-radius: 50%; background: #607d8b; flex: 0 0 auto; }
         .ct-api-tags { font-size: 0.58rem; font-weight: 500; color: var(--color-text-secondary); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; }
-        .ct-api-stats { display: flex; flex-direction: column; gap: 1px; font-size: 0.64rem; color: var(--color-text-secondary); white-space: nowrap; }
+        .ct-api-stats { display: flex; flex-direction: column; gap: 2px; font-size: 0.64rem; color: var(--color-text-secondary); font-variant-numeric: tabular-nums; min-width: 0; }
+        /* 메트릭은 칩 단위(min 1.40초)로 줄바꿈 — 값이 절대 잘리지 않게 wrap */
+        .ct-api-meas, .ct-api-cur { display: flex; flex-wrap: wrap; align-items: baseline; gap: 1px 8px; }
+        .ct-api-meas .m, .ct-api-cur .m { white-space: nowrap; display: inline-flex; align-items: baseline; gap: 3px; }
+        .ct-api-meas .m i, .ct-api-cur .m i { font-style: normal; opacity: 0.68; }
         .ct-api-meas b { color: #1565c0; font-weight: 700; }
         .ct-api-nodata { font-style: italic; opacity: 0.75; }
         .ct-api-cur b { color: var(--color-text-primary); font-weight: 700; }
@@ -728,16 +732,17 @@
                                                                 </div>
                                                                 <div class="ct-api-stats">
                                                                     <span class="ct-api-meas" x-show="row.m.count > 0">
-                                                                        실측 <b x-text="row.m.count + '회'"></b> ·
-                                                                        min <b x-text="formatMs(row.m.min)"></b> ·
-                                                                        평균 <b x-text="formatMs(row.m.mean)"></b> ·
-                                                                        max <b x-text="formatMs(row.m.max)"></b>
+                                                                        <span class="m"><i>실측</i><b x-text="row.m.count + '회'"></b></span>
+                                                                        <span class="m"><i>min</i><b x-text="formatMs(row.m.min)"></b></span>
+                                                                        <span class="m"><i>평균</i><b x-text="formatMs(row.m.mean)"></b></span>
+                                                                        <span class="m"><i>max</i><b x-text="formatMs(row.m.max)"></b></span>
                                                                     </span>
                                                                     <span class="ct-api-meas ct-api-nodata" x-show="row.m.count === 0">이 구간 실측 없음(명령~응답 쌍 0)</span>
                                                                     <span class="ct-api-cur">
-                                                                        현재 AASX · D <b x-text="fmtAasx(row.ac.currentDurationMs)"></b>
-                                                                        · min <b x-text="fmtAasx(row.ac.currentMinMs)"></b>
-                                                                        · max <b x-text="fmtAasx(row.ac.currentMaxMs)"></b>
+                                                                        <span class="m"><i>현재 AASX</i></span>
+                                                                        <span class="m"><i>D</i><b x-text="fmtAasx(row.ac.currentDurationMs)"></b></span>
+                                                                        <span class="m"><i>min</i><b x-text="fmtAasx(row.ac.currentMinMs)"></b></span>
+                                                                        <span class="m"><i>max</i><b x-text="fmtAasx(row.ac.currentMaxMs)"></b></span>
                                                                     </span>
                                                                 </div>
                                                             </div>
@@ -1039,7 +1044,7 @@
         function flowApp() {
             // ── BuildSvg 레이아웃 상수 (cycle-time-analysis 와 동일) ──
             const TOP_MARGIN = 50, LANE_HEIGHT = 44, BAR_HEIGHT = 18, RIBBON_H = 48, LEFT_PAD = 12, RIGHT_PAD = 40, BOTTOM_PAD = 20, MIN_PLOT_WIDTH = 640, MAX_ZOOM = 24;
-            const API_ROW_HEIGHT = 52;   // Call lane 확장 시 끼어드는 ApiCall 서브행 높이(사이드바·SVG 공통)
+            const API_ROW_HEIGHT = 64;   // Call lane 확장 시 끼어드는 ApiCall 서브행 높이(사이드바·SVG 공통) — 실측/AASX 메트릭 wrap 여유
             const histCache = {};   // flowName → rows: 전환 시 즉시 표시(서버 왕복 대기 없이)
             // ── Chart.js 인스턴스는 Alpine 반응형 밖(클로저)에 보관 ──
             // 컴포넌트 프로퍼티(this._x)로 두면 Alpine 이 차트의 내부 config/_resolverCache/_fallback 까지

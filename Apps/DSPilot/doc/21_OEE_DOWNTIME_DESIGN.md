@@ -75,9 +75,9 @@ CREATE TABLE IF NOT EXISTS oeeShiftException (
 | 지표 | 공식 | 입력 | 비고 |
 |---|---|---|---|
 | 가용성 Availability | runtime / plannedTime | runtime=달력/시프트−다운타임, planned=시프트−계획정지 | ⚠ **Phase 1 은 planned 데이터 0 → "달력시간(24h) 근사 가용성"만**. 진짜 계획대비는 시프트 설정(Phase 4) 후 |
-| 성능 Performance | (idealCT × totalCount) / runtime | idealCT(2.4), totalCount(2.2) | min(1.0) 캡. idealCT 미설정 시 자동추정은 **P5분위수 금지 → 최빈/P50** |
-| 품질 Quality | good / total | (2.2) | total 자동, reject 수동 → good=total−reject |
-| OEE | A × P × Q | 위 | 한 요소라도 소스 없으면 "산출 불가" 정직 표기 |
+| 성능 Performance | (idealCT × totalCount) / runtime | idealCT(2.4), totalCount(2.2) | min(1.0) 캡. idealCT 미설정 시 자동기입 = **best-demonstrated p10** (§12 — 구판의 "최빈/P50" 지침 폐기: 평균/중앙을 표준으로 쓰면 성능이 자기 자신과 비교되는 순환정의) |
+| 품질 Quality | (total − 입력불량) / total | total=사이클수(자동), reject(2.2) | ~~total 자동, reject 수동 → good=total−reject~~ §12 개정: 분모=기간 사이클수, 불량 미입력 = **100% 가정**(QualitySource="assumed" 명시) |
+| OEE | A × P × Q | 위 | 가용성/성능 미산출 시 "산출 불가" 정직 표기. 품질은 §12 가정 정책 |
 | MTBF | Σ runtime / 고장건수 | runtime, `isFailure=1` 건수 | runtime 정의는 가용성과 동일(달력근사 or 계획대비) 명시 |
 | MTTR | Σ 고장 durationMs / 고장건수 | `isFailure=1` 이벤트 durationMs | 자동 clear 안 되면 수동 마감 의존(§5) |
 
@@ -103,11 +103,11 @@ CREATE TABLE IF NOT EXISTS oeeShiftException (
 |---|---|---|
 | 정지 onset(무사이클) | ✅ dspFlowHistory | — |
 | 정지 clear | ✅ 사이클 재개 / 태그 에지 | (미감지 시) 수동 마감 |
-| 정지원인 분류(reasonCode/category) | ✗ | ✅ **작업자 분류 입력**(금형교체/자재대기/캘리브레이션은 본질적 수동) |
+| 정지원인 분류(reasonCode/category) | ✗ (usertag 원인비트 설정 시 △) | ✅ **작업자 분류 입력**(금형교체/자재대기/캘리브레이션은 본질적 수동) |
 | totalCount | ✅ dspFlowHistory row count | — |
-| rejectCount(불량) | ✗ | ✅ 수동 |
+| rejectCount(불량) | ✗ (usertag 불량신호 설정 시 △) | ✅ 수동 — 미입력 시 §12 품질 100% 가정 |
 | 계획정비/시프트 | ✗ | ✅ 설정 |
-| idealCT(표준) | △ 최빈/P50 추정 | ✅ 엔지니어 입력 |
+| idealCT(표준) | ✅ **클린사이클≥30 시 p10 자동 1회 기입(§12)** | ✅ 엔지니어 입력(자동을 항상 우선 덮음) |
 
 ## 6. 표준시간 (P2 와의 관계)
 - `FlowCycleOverride.IdealCycleTimeMs` 단일 소스가 P2 편차기준 + P5 성능을 **per-flow 기본값 차원에서만** 공유.
@@ -183,3 +183,47 @@ mockup P5 에는 분류 입력·수동 마감·생산수 입력 UI 가 **전혀 
 신호가 현장 PLC 에 주소로 실재 + AASX UserTag 정의 + plcTag 등록돼야 동작. 100ms 폴링·변경분만 기록(<100ms
 펄스 누락 → 고속라인은 counter 권장), 타임스탬프=DSPilot 수신시각(+250ms flush 지터), flush 실패 silent drop.
 계획생산시간/시프트·idealCT 는 여전히 수동(§5.4) → 상대/추세 OEE 는 자동, 절대 OEE% 는 계획시간 입력 후.
+(idealCT 수동 전제는 §12 자동기입으로 완화 — 시프트/계획정지는 여전히 수동.)
+
+## 12. 개정 (2026-06-10) — 자동 OEE: 수동 입력 0 으로 OEE 산출
+
+uptime/OEE 페이지의 OEE 가 idealCT(수동)·reject(수동)에 묶여 사실상 항상 "산출 불가"였던 것을,
+**DSPilot 이 이미 수집하는 정보만으로 자동 산출**되도록 개정. 정직성 원칙(§10)은 "산출 불가 숨김 → null"에서
+"**가정/자동값은 값 + 출처 명시**"로 확장한다 — 데이터 계층 날조 금지(§11.1)는 그대로 유지.
+
+### 12.1 성능 — idealCT 실측 자동 1회 기입
+- `OeeIdealCycleAutoFillService`(BackgroundService, 5분 폴링, 시작 2분 지연): Flow 별로 **idealCT 비어 있음 &&
+  클린사이클(IsIdle=0, ct>0) ≥ MinCleanCycles(기본 30)** 이면 best-demonstrated **p10** 을 기입하고
+  `FlowCycleOverride.IdealCycleTimeSource="auto"` 스탬프. 기입 후 DatabaseRebuilt 브로드캐스트(열린 페이지 즉시 반영).
+- 공식 단일 소스: `OeeCtStatsService`(컨트롤러 ComputeCtStatsAsync 추출) — 추천 테이블(/ideal-cycle/table)과
+  자동기입이 같은 구현을 공유해 "추천값=자동기입값" 항상 일치.
+- 구판 §3 의 "자동추정 최빈/P50" 지침 폐기: 평균/중앙을 표준으로 쓰면 성능이 자기 자신과 비교돼 순환정의.
+  p10(최속 반복가능 CT)이 속도손실을 정직하게 잡는다(ideal-cycle/table 구현과 동일 근거).
+- 우선순위/라이프사이클: **수동 입력이 항상 우선**(자동은 빈 칸만 채움, `FillIdealCycleTimesAuto` 가
+  Update(원자 load-modify-save) 안에서 재검사 — 레이스 안전). 사용자가 직접 저장하면 출처가 수동(null)으로
+  환원되고, 값을 해제(비움)하면 다음 주기에 다시 자동 기입(재보정 경로). 한 번 채워진 값은 재기입하지 않는다
+  (1회성 — 값 드리프트로 추세가 흔들리지 않게).
+- ⚠ AutoCalibration(디바이스 duration)의 글로벌 CompletedAt 게이트를 **공유하지 않는다** — "idealCT 비어 있음"
+  자체가 게이트(기존 설치에서도 동작). 튜닝: `Oee:AutoIdealCycle:{Enabled(기본 true)|MinCleanCycles|Percentile}`
+  (IConfiguration "Oee" 섹션 — OeeSignalSettings 주석의 노브 분리 컨벤션).
+- UI: uptime/oee 표준CT 편집 테이블에 '자동' 칩(점선) + 자동기입 안내. 다품종 한계(§6)는 자동값도 동일.
+
+### 12.2 품질 — 기본 100% 가정, 불량 입력 시 실측(소급)
+- **공식 교체**: quality = clamp((totalCount − Σ입력불량) / totalCount). 분모 = **기간 dspFlowHistory 사이클수**
+  (자동·OEE 전반과 동일 분모). production 행의 스냅샷 totalCount 를 분모로 쓰지 않는다 — 일부 날만 불량을
+  입력하면 미입력일이 분모에서 통째로 빠져 기간 품질이 급락(예: 주간 700사이클 중 1일 100/불량5 → 구식 95%,
+  신식 99.3%)하는 왜곡 제거. "100%에서 시작해 입력된 불량만큼 깎인다"는 운영 모델과 일치.
+- 불량 데이터 전무(production 행 0) → quality=1.0 + `QualitySource="assumed"` + 노트 "불량 미입력 — 100% 가정".
+  행 ≥1 → `"measured"`. 기간 사이클 0 → 기존대로 null(무의미한 100% 금지).
+- §11.1 의 "가짜 100% 품질 방지"는 **데이터 계층 원칙으로 존속**: usertag 폴러의 "불량신호 없으면 행 미기록"
+  가드 유지 — 행이 생기면 "measured 100%"로 둔갑하므로 여전히 필요. 본 개정은 **계산 계층의 명시적 가정**이다.
+- 소급 보정: OEE 는 on-demand 계산(§8)이라 과거 날짜로 불량 입력(POST /production, date 지정) 후 재조회하면
+  해당 기간 OEE 가 즉시 보정된다(별도 재계산 잡 없음).
+- UI: 품질 카드 '가정' 칩 + 톤 중립(실측처럼 초록 금지), OEE 카드에 "품질 100% 가정" 주석. 워터폴 품질손실은
+  Q=1 이면 0 으로 자연 소멸(특수 분기 없음).
+
+### 12.3 효과/잔여
+- 효과: 설치 후 Flow 별 클린사이클 30개부터 **수동 입력 0** 으로 가용성·성능·품질(가정)·OEE·설비 순위 전부
+  자동 표시. 불량을 입력하는 현장만 실측 품질로 승격. ranking 도 같은 빌더라 자동 혜택.
+- 잔여(미개정): 무사이클 임계 per-flow 연동(ResolveEffectiveCycleRangeMs 재사용 — Phase 3 후보),
+  MTBF/MTTR 자동 분류(AbnormalEvent 영속화 선행 — Phase 4 후보), 시프트/계획정지는 여전히 수동(§5.4).
