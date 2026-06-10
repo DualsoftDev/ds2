@@ -242,6 +242,7 @@ public class AppSettingsService
         else
         {
             existing.IdealCycleTimeMs = normalized;
+            existing.IdealCycleTimeSource = null; // 사람이 직접 저장/해제 → 수동 출처로 환원
 
             // 모든 override 필드가 비면 항목 자체 제거 (SaveFlowCycleOverride 의 빈 항목 정리와 동일 원칙)
             if (normalized is null
@@ -268,6 +269,56 @@ public class AppSettingsService
             .Where(o => !string.IsNullOrWhiteSpace(o.FlowName) && o.IdealCycleTimeMs is > 0)
             .Select(o => (o.FlowName, o.IdealCycleTimeMs!.Value))
             .ToList();
+    }
+
+    /// <summary>
+    /// 실측 자동기입 전용(<see cref="OeeIdealCycleAutoFillService"/>): idealCT 가 **비어 있는** Flow 에만 값을
+    /// 채우고 출처를 "auto" 로 스탬프한다. 이미 값이 있는 Flow(수동이든 과거 자동이든)는 절대 덮지 않는다 —
+    /// 후보 선정~저장 사이에 사용자가 입력하는 레이스도 <see cref="Update"/>(load-modify-save 원자화) 안의
+    /// 재검사로 안전하다. 반환 = 실제 기입된 Flow 수(0 이면 파일 쓰기 없음).
+    /// </summary>
+    public int FillIdealCycleTimesAuto(IReadOnlyCollection<(string FlowName, int IdealCycleTimeMs)> items)
+    {
+        if (items is null || items.Count == 0) return 0;
+
+        var applied = 0;
+        Update(settings =>
+        {
+            applied = 0; // Update 재시도 대비 — 람다 안에서 셈
+            var overrides = settings.FlowCycle.Overrides;
+            foreach (var (flowName, idealCycleTimeMs) in items)
+            {
+                if (string.IsNullOrWhiteSpace(flowName) || idealCycleTimeMs <= 0) continue;
+
+                var existing = overrides
+                    .FirstOrDefault(item => string.Equals(item.FlowName, flowName, StringComparison.OrdinalIgnoreCase));
+                if (existing?.IdealCycleTimeMs is > 0) continue; // 기존값 보존 — 빈 칸만 채운다
+
+                if (existing is null)
+                {
+                    overrides.Add(new FlowCycleOverride
+                    {
+                        FlowName = flowName.Trim(),
+                        IdealCycleTimeMs = idealCycleTimeMs,
+                        IdealCycleTimeSource = "auto",
+                    });
+                }
+                else
+                {
+                    existing.IdealCycleTimeMs = idealCycleTimeMs;
+                    existing.IdealCycleTimeSource = "auto";
+                }
+                applied++;
+            }
+
+            if (applied > 0)
+            {
+                settings.FlowCycle.Overrides = overrides
+                    .OrderBy(item => item.FlowName, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+        });
+        return applied;
     }
 
     /// <summary>
@@ -299,8 +350,9 @@ public class AppSettingsService
             }
             else
             {
-                if (existing.IdealCycleTimeMs == normalized) continue; // 변경 없음
+                if (existing.IdealCycleTimeMs == normalized) continue; // 변경 없음(no-op 행은 자동 출처도 유지)
                 existing.IdealCycleTimeMs = normalized;
+                existing.IdealCycleTimeSource = null; // 사람이 값을 바꿔 저장 → 수동 출처로 환원
                 if (normalized is null
                     && string.IsNullOrWhiteSpace(existing.StartCallName)
                     && string.IsNullOrWhiteSpace(existing.EndCallName))

@@ -10,7 +10,7 @@ namespace DSPilot.Services;
 /// <summary>
 /// 실측 duration 자동 보정. 첫 설치 후 각 Flow 가 이상치 제외 클린사이클(IsIdle=0 AND CT NOT NULL)을
 /// <c>AutoCalibration.MinCleanCycles</c>(기본 10) 개 이상 모으면, 그 Flow 의 디바이스(Device Work) Duration/Min/MaxDuration 을
-/// 실측값으로 1회 자동 채운다. 공식: Duration=round(mean), Max=round(measMax×(1+MarginMaxPct)),
+/// 실측값으로 1회 자동 채운다. 공식: Duration=round(mean), Max=round(max(measMax, mean+MarginMaxSigmaK·σ)),
 /// Min(FillMin=true 일 때만)=round(measMin×(1−MarginMinPct)). 측정 span 있는 디바이스만 기록.
 ///
 /// <para>측정→조인→기록은 검증된 기존 자산을 재사용한다: <see cref="CallLaneBuilderService"/>(lane/interval 빌드,
@@ -197,6 +197,40 @@ public sealed class AutoCalibrationService : BackgroundService
     }
 
     /// <summary>
+    /// 모든 디바이스 Work 의 이상감지 MinDuration/MaxDuration 을 전부 비운다(Duration 은 보존). 자동 보정의 역연산.
+    /// 같은 AASX writer 경로를 쓰므로 재진입 가드(<see cref="_gate"/>)로 백그라운드 보정 tick / "지금 실측값 채우기" 와 직렬화한다.
+    /// 성공 시 DatabaseRebuilt 를 브로드캐스트해 대시보드/AASX 상태 미러를 새로고침한다.
+    /// </summary>
+    public async Task<AutoCalibrationRunResult> ClearRangesAsync(CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct);
+        try
+        {
+            if (!_project.IsLoaded) return Skip("프로젝트(AASX) 미로드 — 초기화할 수 없습니다", success: false);
+
+            var (cleared, exported) = _project.ClearAllWorkDurationRangesAndExport();
+            if (!exported)
+                return new AutoCalibrationRunResult(false, false, 0, 0, 0, "AASX export 실패 (프로젝트 미로드 또는 export 오류)");
+
+            if (cleared > 0)
+            {
+                try { await _hub.Clients.All.SendAsync("DatabaseRebuilt", ct); }
+                catch (Exception ex) { _logger.LogDebug(ex, "[AutoCal] Min/Max 초기화 broadcast 실패(비치명)"); }
+            }
+
+            var msg = cleared > 0
+                ? $"디바이스 Min/Max {cleared}건 초기화 완료 (Duration 은 보존)"
+                : "초기화할 Min/Max 값이 없습니다";
+            _logger.LogInformation("[AutoCal] {Msg}", msg);
+            return new AutoCalibrationRunResult(true, cleared > 0, 0, 0, cleared, msg);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
     /// 한 Flow 의 [startLocal,endLocal] 윈도우에서 디바이스별 command→response span 을 집계해 보정 변경 목록을 만든다.
     /// CycleAnalysisService 가 Scoped 라 스코프를 열어 <see cref="CallLaneBuilderService"/> 를 해석한다.
     /// 디바이스(=TargetWorkId)별로 span 을 모아 한 건씩 산출 — 같은 Work 를 여러 Call/ApiCall 이 구동해도 합쳐 집계.
@@ -234,11 +268,14 @@ public sealed class AutoCalibrationService : BackgroundService
         var changes = new List<(Guid, int?, int?, int?)>();
         foreach (var (wid, spans) in spansByWork)
         {
-            var (count, min, max, mean) = ApiSpanMath.Measured(spans);
+            var (count, min, max, mean, std) = ApiSpanMath.Measured(spans);
             if (count == 0 || mean is null || max is null || min is null) continue;
 
             int duration = (int)Math.Round(mean.Value);
-            int maxMs = (int)Math.Round(max.Value * (1 + ac.MarginMaxPct));
+            // Max = max(실측 최대, mean + k·σ). σ 기반은 단일 극값보다 안정적이라 오탐을 줄이고,
+            // floor=실측 최대 라 보정에 쓴 정상 사이클이 절대 알람나지 않는다(σ≈0 인 매우 일정한 장비 방어).
+            double sigmaBased = mean.Value + ac.MarginMaxSigmaK * (std ?? 0);
+            int maxMs = (int)Math.Round(Math.Max(max.Value, sigmaBased));
             int? minMs = ac.FillMin
                 ? (int)Math.Round(min.Value * (1 - ac.MarginMinPct))
                 : currentMinByWork[wid]; // FillMin=false → 기존 MinDuration 보존(null 은 store 에서 clear 되므로 현재값 재기록).
