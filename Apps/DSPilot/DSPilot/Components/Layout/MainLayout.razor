@@ -3,7 +3,6 @@
 @using DSPilot.Services
 @inject NavigationManager Nav
 @inject ThemeService ThemeService
-@inject DemoModeService Demo
 @inject IJSRuntime JS
 
 @* Swiss Technical 셸 — 정적 /app/*.html(shell.js)과 동일한 사이드바 + 슬림 앱바.
@@ -33,21 +32,7 @@
     <main class="main-content @(_drawerOpen ? "" : "drawer-closed")">
         <PlcConnectionBanner />
         <div class="container">
-            @if (Demo.IsBlocked && !IsOnPwPage)
-            {
-                <div class="demo-blocked-overlay">
-                    <div class="demo-blocked-card">
-                        <span class="material-icons demo-blocked-icon">lock_clock</span>
-                        <h3>DEMO 만료</h3>
-                        <p>데모 사용 시간(@FormatTs(DemoModeService.DemoDuration))이 종료되었습니다.</p>
-                        <p>서비스 관리자에게 문의해 주세요.</p>
-                    </div>
-                </div>
-            }
-            else
-            {
-                @Body
-            }
+            @Body
         </div>
     </main>
 </div>
@@ -60,25 +45,11 @@
     private bool _drawerOpen = true;
     private string _currentPath = "/";
 
-    private static readonly TimeSpan DemoTickInterval = TimeSpan.FromSeconds(30);
-    private System.Threading.Timer? _demoTickTimer;
-
-    private bool IsOnPwPage =>
-        _currentPath.Equals("/pw", StringComparison.OrdinalIgnoreCase)
-        || _currentPath.StartsWith("/pw/", StringComparison.OrdinalIgnoreCase);
-
     protected override void OnInitialized()
     {
         _currentPath = "/" + Nav.ToBaseRelativePath(Nav.Uri);
         Nav.LocationChanged += OnLocationChanged;
-
-        // 데모 모드 만료 시점에 자동으로 차단 오버레이가 떠야 하므로 주기적 재렌더링.
-        Demo.StateChanged += OnDemoStateChanged;
-        _demoTickTimer = new System.Threading.Timer(
-            _ => InvokeAsync(StateHasChanged), null, DemoTickInterval, DemoTickInterval);
     }
-
-    private void OnDemoStateChanged() => InvokeAsync(StateHasChanged);
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -126,14 +97,9 @@
 
     private void OnThemeChanged() => InvokeAsync(StateHasChanged);
 
-    private static string FormatTs(TimeSpan t)
-        => $"{(int)t.TotalHours:00}:{t.Minutes:00}:{t.Seconds:00}";
-
     public void Dispose()
     {
         Nav.LocationChanged -= OnLocationChanged;
         ThemeService.OnThemeChanged -= OnThemeChanged;
-        Demo.StateChanged -= OnDemoStateChanged;
-        _demoTickTimer?.Dispose();
     }
 }

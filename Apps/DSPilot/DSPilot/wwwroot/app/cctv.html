@@ -317,16 +317,6 @@
 <body>
     <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="cctvApp()" x-init="init()" x-cloak>
 
-        <!-- 데모 만료 -->
-        <div class="modal-overlay" x-show="demoBlocked" style="z-index:4000;">
-            <div class="modal-content demo-blocked-card" style="max-width:480px; text-align:center;">
-                <span class="material-icons demo-blocked-icon">hourglass_disabled</span>
-                <h3>DEMO 만료</h3>
-                <p>데모 사용 시간(3시간)이 종료되었습니다.</p>
-                <p>서비스 관리자에게 문의해 주세요.</p>
-            </div>
-        </div>
-
         <!-- fallback 슬림 헤더 (shell.js 가 제거) -->
         <header class="dsp-appbar">
             <span class="dsp-title">CCTV 설정</span>
@@ -834,7 +824,7 @@
             return {
                 cameras: [], webRtcPort: 8889, totalCount: 0, maxConcurrent: 6,
                 status: { ok: false, message: '동기화 전' },
-                dark: false, syncing: false, demoBlocked: false,
+                dark: false, syncing: false,
                 overlaysHidden: false, overlaySize: OVL_SZ_DEFAULT,
                 toast: { show: false, msg: '', type: 'success' },
 
@@ -920,7 +910,6 @@
 
                 async apiGet(url) {
                     const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     return await res.json();
                 },
@@ -930,7 +919,6 @@
                         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                         body: JSON.stringify(body)
                     });
-                    if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     return await res.json();
                 },
@@ -943,7 +931,7 @@
                         this.totalCount = c.totalCount;
                         this.maxConcurrent = c.maxConcurrent || 6;
                         this.restoreWall();
-                    } catch (e) { if (e.message !== 'demo-blocked') console.error(e); }
+                    } catch (e) { console.error(e); }
                 },
                 async loadStatus() {
                     try { this.status = await this.apiGet('/api/cctv/status'); }
@@ -1190,15 +1178,15 @@
                 // ── 오버레이 데이터 로드 ──
                 async loadAllOverlays() {
                     try { this.overlaysAll = await this.apiGet('/api/cctv/overlays') || []; }
-                    catch (e) { if (e.message !== 'demo-blocked') console.error(e); this.overlaysAll = []; }
+                    catch (e) { console.error(e); this.overlaysAll = []; }
                 },
                 async loadAvailableFlows() {
                     try { this.availableFlows = await this.apiGet('/api/cctv/available-flows') || []; }
-                    catch (e) { if (e.message !== 'demo-blocked') console.error(e); this.availableFlows = []; }
+                    catch (e) { console.error(e); this.availableFlows = []; }
                 },
                 async loadAvailableCalls() {
                     try { this.availableCalls = await this.apiGet('/api/cctv/available-calls') || []; }
-                    catch (e) { if (e.message !== 'demo-blocked') console.error(e); this.availableCalls = []; }
+                    catch (e) { console.error(e); this.availableCalls = []; }
                 },
                 async loadAllOverlayState() {
                     try {
@@ -1219,11 +1207,11 @@
                         this._renderTick++;
                         // 호버 중이면 툴팁 모델 새로고침(상태색/상세 동기)
                         if (this.hoverOverlay) this.hoverOverlay = { ...this.hoverOverlay, model: this.tooltipModel(this.hoverOverlay.id), color: this.colorOf(this.stateOf(this.hoverOverlay.id)) };
-                    } catch (e) { if (e.message !== 'demo-blocked') console.error(e); }
+                    } catch (e) { console.error(e); }
                 },
                 startStatePolling() {
                     this.stopStatePolling();
-                    this._stateTimer = setInterval(() => { if (!this.demoBlocked) this.loadAllOverlayState(); }, 3000);
+                    this._stateTimer = setInterval(() => this.loadAllOverlayState(), 3000);
                 },
                 stopStatePolling() { if (this._stateTimer) { clearInterval(this._stateTimer); this._stateTimer = null; } },
 
@@ -1631,7 +1619,7 @@
                         this._renderTick++;
                         this.loadAllOverlayState();
                         this.showToast('오버레이 등록 — ' + this.labelText(saved), 'success');
-                    } catch (e) { if (e.message !== 'demo-blocked') this.showToast('등록 실패: ' + e.message, 'error'); }
+                    } catch (e) { this.showToast('등록 실패: ' + e.message, 'error'); }
                 },
                 async saveOverlay(ovl, silent) {
                     const payload = {
@@ -1647,7 +1635,7 @@
                         if (i >= 0) this.overlaysAll[i] = saved;
                         this._renderTick++;
                         if (!silent) this.showToast('저장됨', 'success');
-                    } catch (e) { if (e.message !== 'demo-blocked') this.showToast('저장 실패: ' + e.message, 'error'); }
+                    } catch (e) { this.showToast('저장 실패: ' + e.message, 'error'); }
                 },
                 async deleteOverlay(id) {
                     try {
@@ -1657,7 +1645,7 @@
                         if (this.hoverOverlay && this.hoverOverlay.id === id) this.clearHover();
                         this._renderTick++;
                         this.showToast('오버레이 삭제됨', 'success');
-                    } catch (e) { if (e.message !== 'demo-blocked') this.showToast('삭제 실패: ' + e.message, 'error'); }
+                    } catch (e) { this.showToast('삭제 실패: ' + e.message, 'error'); }
                 },
 
                 // ── KPI 요약 (등록 오버레이 카메라 수 / 진행 중 개수) ──
@@ -1703,7 +1691,7 @@
                             saving: false, syncOk: !!c.syncOk, syncMessage: c.syncMessage || ''
                         };
                     } catch (e) {
-                        if (e.message !== 'demo-blocked') this.showToast('카메라 설정을 불러오지 못했습니다: ' + e.message, 'error');
+                        this.showToast('카메라 설정을 불러오지 못했습니다: ' + e.message, 'error');
                     }
                 },
                 addCamSetting() { this.camSettings.cameras.push({ name: 'camera' + (this.camSettings.cameras.length + 1), rtspUrl: '', enabled: true }); },
@@ -1735,7 +1723,7 @@
                         await this.loadAllOverlayState();
                     } catch (e) {
                         this.camSettings.saving = false;
-                        if (e.message !== 'demo-blocked') this.showToast('저장 실패: ' + e.message, 'error');
+                        this.showToast('저장 실패: ' + e.message, 'error');
                     }
                 },
 
@@ -1753,7 +1741,6 @@
                     this.syncing = true;
                     try {
                         const res = await fetch('/api/cctv/sync', { method: 'POST', headers: { 'Accept': 'application/json' } });
-                        if (res.status === 503) { this.demoBlocked = true; return; }
                         if (res.ok) { this.status = await res.json(); this.showToast(this.status.message, this.status.ok ? 'success' : 'error'); }
                     } catch (e) { this.showToast('재동기화 실패: ' + e.message, 'error'); }
                     finally { this.syncing = false; }

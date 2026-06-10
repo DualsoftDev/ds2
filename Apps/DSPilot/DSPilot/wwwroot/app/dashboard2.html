@@ -267,11 +267,6 @@
         .ds-card-h h4 { font-size: 0.95rem; font-weight: 700; color: var(--color-text-primary); letter-spacing: -0.01em; margin: 0; }
         .ds-card-h .ds-card-h-sub { font-size: 0.66rem; color: var(--color-text-disabled); font-family: var(--font-mono); }
 
-        .demo-blocked-card { max-width: 480px; padding: 36px 40px; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: 12px; box-shadow: var(--shadow-2); text-align: center; }
-        .demo-blocked-icon { font-size: 48px !important; color: #f0883e; margin-bottom: 8px; }
-        .demo-blocked-card h3 { margin: 0 0 12px; color: #f0883e; font-weight: 700; }
-        .demo-blocked-card p { margin: 4px 0; color: var(--color-text-secondary); line-height: 1.6; }
-
         /* flow 카드 컨테이너 베이스 (swiss.css 재현) — 컨테이너쿼리 단위(cqmin) 활성 */
         .fc-cq { width: 100%; height: 100%; box-sizing: border-box; container-type: size; container-name: card; }
         .fc-cq *, .fc-cq *::before, .fc-cq *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -533,16 +528,6 @@
 <body class="bg-background text-on-background">
 <!-- 공통 셸(shell.js)이 사이드바(DUAL 로고 navmenu)+상단 헤더를 생성하고 .dsp-page 를 그 안으로 이동시킨다. -->
 <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="dashboardApp()" x-init="init()" x-cloak>
-
-    <!-- ── 데모 만료 ── -->
-    <div class="modal-overlay" x-show="demoBlocked" x-cloak style="z-index:3000;">
-        <div class="modal-content demo-blocked-card" style="max-width:480px;">
-            <span class="material-icons demo-blocked-icon">hourglass_disabled</span>
-            <h3>DEMO 만료</h3>
-            <p>데모 사용 시간(3시간)이 종료되었습니다.</p>
-            <p>서비스 관리자에게 문의해 주세요.</p>
-        </div>
-    </div>
 
     <!-- 사이드바(navmenu)·상단 헤더는 공통 셸(shell.js)이 생성한다. (구 stitch 자체 사이드바/헤더 제거) -->
     <div class="p-container-margin space-y-gutter">
@@ -1167,7 +1152,7 @@
             // CCTV 영상벽(읽기 전용) 시청 엔진 — /js/cctv-wall.js. 모든 키는 cctv* 접두사라 충돌 없음.
             ...window.CctvWall.state(),
             ...window.CctvWall.methods,
-            flows: [], layout: null, hasData: false, loading: true, error: null, demoBlocked: false, dark: false,
+            flows: [], layout: null, hasData: false, loading: true, error: null, dark: false,
             cardScale: 0.15,
             selectedFlowName: null,
             hoverFlowName: null,
@@ -1284,7 +1269,6 @@
 
             async apiGet(url) {
                 const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-                if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
                 if (!res.ok) throw new Error('HTTP ' + res.status);
                 return await res.json();
             },
@@ -1308,7 +1292,7 @@
                     }
                     this.loadShift();
                 } catch (e) {
-                    if (e.message !== 'demo-blocked') this.error = '데이터를 불러오지 못했습니다: ' + e.message;
+                    this.error = '데이터를 불러오지 못했습니다: ' + e.message;
                 } finally {
                     this.loading = false;
                 }
@@ -1518,7 +1502,6 @@
 
             async bpApiPost(url, body) {
                 const res = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
-                if (res.status === 503) { this.demoBlocked = true; throw new Error('demo-blocked'); }
                 if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || ('HTTP ' + res.status)); }
                 return await res.json();
             },
@@ -1569,7 +1552,7 @@
                     await this.reloadBlueprint();
                 } catch (e) {
                     this.editing = false;
-                    if (e.message !== 'demo-blocked') this.editToastShow('편집 데이터를 불러오지 못했습니다: ' + e.message, 'error');
+                    this.editToastShow('편집 데이터를 불러오지 못했습니다: ' + e.message, 'error');
                     this.loadSnapshot();
                 }
             },
@@ -1723,7 +1706,7 @@
                     await this.reloadBlueprint();
                     this.editToastShow('마지막 저장 상태로 되돌렸습니다.', 'success');
                 } catch (e) {
-                    if (e.message !== 'demo-blocked') this.editToastShow('되돌리기 실패: ' + e.message, 'error');
+                    this.editToastShow('되돌리기 실패: ' + e.message, 'error');
                 }
             },
 
@@ -1734,7 +1717,6 @@
                     if (this.pendingImage) {
                         const fd = new FormData(); fd.append('file', this.pendingImage.file);
                         const res = await fetch('/api/blueprint/image', { method: 'POST', body: fd });
-                        if (res.status === 503) { this.demoBlocked = true; return; }
                         if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || ('HTTP ' + res.status)); }
                         const r = await res.json();
                         if (this.layout) {
@@ -1752,7 +1734,7 @@
                     this.dirty = false;
                     this.editToastShow('저장되었습니다.', 'success');
                 } catch (e) {
-                    if (e.message !== 'demo-blocked') this.editToastShow('저장 실패: ' + e.message, 'error');
+                    this.editToastShow('저장 실패: ' + e.message, 'error');
                 } finally { this.saving = false; }
             },
 
@@ -2072,7 +2054,6 @@
                         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                         body: JSON.stringify(body)
                     });
-                    if (res.status === 503) { this.demoBlocked = true; return; }
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     this.shift = await res.json();
                     this.shiftModalOpen = false;

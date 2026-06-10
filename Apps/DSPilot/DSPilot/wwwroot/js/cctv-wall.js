@@ -18,7 +18,7 @@
      · localStorage·서버 추가상태 없음 — /api/cctv/config 의 Enabled 카메라가 단일소스.
      · 단독/프리셋/드래그 없음(읽기 전용). 그리드는 항상 count-N 자동.
 
-   의존: window.cctvWhep(/js/cctv-whep.js), this.apiGet(대시보드 제공), this.demoBlocked.
+   의존: window.cctvWhep(/js/cctv-whep.js), this.apiGet(대시보드 제공).
    ════════════════════════════════════════════════════════════════════════ */
 (function () {
     'use strict';
@@ -101,23 +101,23 @@
                     this.cctvWall = this.cctvCameras.slice(0, this.cctvMaxConcurrent).map(c => c.id);
                     if (this.cctvSolo && !this.cctvWall.includes(this.cctvSolo)) this.cctvSolo = null;
                     this.cctvLoaded = true;
-                } catch (e) { if (e.message !== 'demo-blocked') console.error(e); this.cctvLoaded = true; }
+                } catch (e) { console.error(e); this.cctvLoaded = true; }
             },
             async cctvLoadStatus() {
                 try { this.cctvStatus = await this.apiGet('/api/cctv/status'); }
-                catch (e) { /* 503 already flagged */ }
+                catch (e) { /* 상태 조회 실패 시 무시 */ }
             },
             async cctvLoadOverlays() {
                 try { this.cctvOverlaysAll = await this.apiGet('/api/cctv/overlays') || []; }
-                catch (e) { if (e.message !== 'demo-blocked') console.error(e); this.cctvOverlaysAll = []; }
+                catch (e) { console.error(e); this.cctvOverlaysAll = []; }
             },
             async cctvLoadFlows() {
                 try { this.cctvFlows = await this.apiGet('/api/cctv/available-flows') || []; }
-                catch (e) { if (e.message !== 'demo-blocked') console.error(e); this.cctvFlows = []; }
+                catch (e) { console.error(e); this.cctvFlows = []; }
             },
             async cctvLoadCalls() {
                 try { this.cctvCalls = await this.apiGet('/api/cctv/available-calls') || []; }
-                catch (e) { if (e.message !== 'demo-blocked') console.error(e); this.cctvCalls = []; }
+                catch (e) { console.error(e); this.cctvCalls = []; }
             },
             async cctvLoadStates() {
                 try {
@@ -137,16 +137,16 @@
                     this.cctvAbnNames = new Set((Array.isArray(abnList) ? abnList : []).map(a => a.flowName).filter(Boolean));
                     this.cctvRenderTick++;
                     if (this.cctvHover) this.cctvHover = { ...this.cctvHover, model: this.cctvTooltipModel(this.cctvHover.id), color: this.cctvColorOf(this.cctvStateOf(this.cctvHover.id)) };
-                } catch (e) { if (e.message !== 'demo-blocked') console.error(e); }
+                } catch (e) { console.error(e); }
             },
             cctvStartPolling() {
                 this.cctvStopPolling();
-                this._cctvStateTimer = setInterval(() => { if (this._cctvActive && !this.demoBlocked) this.cctvLoadStates(); }, 3000);
+                this._cctvStateTimer = setInterval(() => { if (this._cctvActive) this.cctvLoadStates(); }, 3000);
             },
             cctvStopPolling() { if (this._cctvStateTimer) { clearInterval(this._cctvStateTimer); this._cctvStateTimer = null; } },
             cctvStatusPolling() {
                 this.cctvStatusStopPolling();
-                this._cctvStatusTimer = setInterval(() => { if (this._cctvActive && !this.demoBlocked) this.cctvLoadStatus(); }, 15000);
+                this._cctvStatusTimer = setInterval(() => { if (this._cctvActive) this.cctvLoadStatus(); }, 15000);
             },
             cctvStatusStopPolling() { if (this._cctvStatusTimer) { clearInterval(this._cctvStatusTimer); this._cctvStatusTimer = null; } },
 
