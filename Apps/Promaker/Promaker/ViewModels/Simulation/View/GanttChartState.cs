@@ -201,6 +201,30 @@ public class GanttChartState : INotifyPropertyChanged
     /// </summary>
     public Func<DateTime>? NowOverride { get; set; }
 
+    /// <summary>
+    /// plan vs actual overlay 표시 여부 — 비-Simulation 모드(Control/Monitoring/VP)에서 true.
+    /// Work/Call 행의 Going 구간에 plan(BaseDurationMs) 배경 바를 행 높이로 깔고,
+    /// actual 상태 막대는 얇게 가운데 그린다. actual 이 배경보다 짧으면 빠른 것, 뚫고 나가면 느린 것.
+    /// </summary>
+    private bool _showPlanOverlay;
+    public bool ShowPlanOverlay
+    {
+        get => _showPlanOverlay;
+        set { if (_showPlanOverlay == value) return; _showPlanOverlay = value; Notify(); }
+    }
+
+    /// <summary>
+    /// 신호 유추 모드(VP/Monitoring) — 워밍업 후 사이클 "중간"에 합류한 첫 Going 세그먼트는
+    /// 시작점이 실제 사이클 시작이 아니라 유추 확정 시점이라, plan 틀을 그리면 다음 사이클까지
+    /// 침범한다. true 면 entry 별 첫 Going 의 plan 틀을 생략하고 둘째 사이클부터 그린다.
+    /// </summary>
+    private bool _suppressFirstGoingPlanOverlay;
+    public bool SuppressFirstGoingPlanOverlay
+    {
+        get => _suppressFirstGoingPlanOverlay;
+        set { if (_suppressFirstGoingPlanOverlay == value) return; _suppressFirstGoingPlanOverlay = value; Notify(); }
+    }
+
     /// <summary>Pause 누적 시간을 보정한 현재 시각 (Pause 중이면 고정).
     /// NowOverride 가 set 되어 있으면 그 provider 가 우선 — sim clock 기반에서는
     /// engine.Pause 시 sim clock 자체가 멈추므로 별도 _pausedAt 보정 불필요.</summary>

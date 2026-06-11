@@ -1,6 +1,7 @@
 using System;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
+using Ds2.Core.Store;
 using Ds2.Runtime.Engine;
 using Ds2.Runtime.Engine.Core;
 
@@ -152,17 +153,49 @@ public partial class SimulationPanelState
             _learnedDurations[workGuid] = (p.AvgMs, p.MinMs, p.MaxMs);
     }
 
+    /// <summary>로컬 실측 duration 학습기 생성 — Simulation 모드는 plan 자체가 실행이라 학습 의미가 없어 제외.
+    /// call(원본·참조 모두) → device Work(RxGuid) 매핑을 PLAY 시점 모델에서 빌드.</summary>
+    private void InitDurationLearning()
+    {
+        if (SelectedRuntimeMode == RuntimeMode.Simulation)
+        {
+            _durationLearning = null;
+            return;
+        }
+
+        var store = _storeProvider();
+        var map = new System.Collections.Generic.Dictionary<Guid, Guid[]>();
+        var activeWorks = new System.Collections.Generic.HashSet<Guid>();
+        foreach (var call in store.Calls.Values)
+        {
+            var rxWorks = Queries.callRxWorkGuids(call.Id, store);
+            if (rxWorks.Length > 0)
+                map[call.Id] = System.Linq.Enumerable.ToArray(rxWorks);
+            activeWorks.Add(call.ParentId);   // Call 을 가진 Work = Active Work, 자체 실측 대상
+        }
+        _durationLearning = new CallDurationLearning(map, activeWorks);
+    }
+
     /// <summary>정지 시 학습 duration 을 모델 Work 에 반영할지 묻고, 동의 시 적용 + dirty.
-    /// 학습값이 없으면(모니터링 외 모드 등) 조용히 통과. 저장은 기존 Save 흐름이 AASX 로 영속.</summary>
+    /// 소스 = Agent push(_learnedDurations) + 로컬 실측 학습(_durationLearning, Control/VP/Monitoring 공통).
+    /// 둘 다 있으면 로컬 실측이 우선(최신 윈도우 기반). 학습값이 없으면 조용히 통과.
+    /// 저장은 기존 Save 흐름이 AASX 로 영속.</summary>
     private void TryApplyLearnedDurationsOnStop()
     {
+        if (_durationLearning is { HasSamples: true } learning)
+        {
+            foreach (var kv in learning.Snapshot())
+                _learnedDurations[kv.Key] = kv.Value;
+        }
+        _durationLearning = null;
+
         if (_learnedDurations.Count == 0) return;
         var snapshot = System.Linq.Enumerable.ToArray(_learnedDurations);
         _learnedDurations.Clear();
 
         var ok = Promaker.Dialogs.DialogHelpers.Confirm(
             System.Windows.Application.Current?.MainWindow,
-            $"모니터링으로 학습된 device duration {snapshot.Length}건을 모델에 반영할까요?\n반영 후 저장하면 AASX 에 기록됩니다.",
+            $"실측으로 학습된 device duration {snapshot.Length}건을 모델에 반영할까요?\n반영 후 저장하면 AASX 에 기록됩니다.",
             "학습 duration 반영");
         if (!ok) return;
 
@@ -203,6 +236,7 @@ public partial class SimulationPanelState
             return;
         _simStartTime = DateTime.Now;
         ResetPassiveGanttClockAnchor();
+        _durationLearning = null;   // 리셋 = 학습 폐기 (정지 시 반영 흐름을 안 탔으므로)
         ApplySimulationResetUiState(clearCollections: false);
         GanttChart.Reset(_simStartTime);
         InitGanttEntries();

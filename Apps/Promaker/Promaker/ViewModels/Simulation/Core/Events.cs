@@ -75,6 +75,22 @@ public partial class SimulationPanelState
     /// Action* 는 elapsedMs 동반, Sensor* 는 -1. 캔버스 하이라이트 등 상세 UI 는 P6.</summary>
     private void OnAbnormalDetected(AbnormalRecord record)
     {
+        // 학습 오염 차단 — abnormal 사이클의 진행 중 duration 측정은 폐기 (기준선이 비정상을 따라가면 안 됨).
+        if (_durationLearning is { } learning)
+        {
+            if (Microsoft.FSharp.Core.FSharpOption<Guid>.get_IsSome(record.Target.CallId))
+            {
+                var callId = record.Target.CallId.Value;
+                learning.Invalidate(callId);
+                // abnormal Call 이 속한 Active Work 의 이번 사이클 측정도 폐기.
+                var call = OptionValue(Queries.getCall(callId, Store));
+                if (call is not null)
+                    learning.InvalidateWork(call.ParentId);
+            }
+            if (Microsoft.FSharp.Core.FSharpOption<Guid>.get_IsSome(record.Target.WorkId))
+                learning.InvalidateWork(record.Target.WorkId.Value);
+        }
+
         var elapsed = Microsoft.FSharp.Core.FSharpOption<int>.get_IsSome(record.ElapsedMs)
             ? record.ElapsedMs.Value : -1;
         var target = FormatAbnormalTarget(record.Target);
@@ -171,6 +187,8 @@ public partial class SimulationPanelState
 
     private void OnWorkStateChanged(WorkStateChangedArgs args)
     {
+        // Active Work 자체 실측 학습 — device 합산에 안 잡히는 단계 간 전환 갭 포함 전체 사이클.
+        _durationLearning?.OnWorkStateChanged(args.WorkGuid, args.NewState, args.Clock.TotalMilliseconds);
         ApplyWorkStateChangeToVisibleNode(args);
 #if DEBUG
         AddSimLog($"W {args.WorkName}: {args.PreviousState}→{args.NewState} @{args.Clock}", SeverityFromState(args.NewState));
@@ -183,6 +201,8 @@ public partial class SimulationPanelState
 
     private void OnCallStateChanged(CallStateChangedArgs args)
     {
+        // 실측 duration 학습 — raw engine clock 으로 Going→Finish 구간 측정 (간트 표시 시계와 무관).
+        _durationLearning?.OnCallStateChanged(args.CallGuid, args.NewState, args.Clock.TotalMilliseconds);
         ApplyCallStateChangeToVisibleNode(args);
 #if DEBUG
         var skip = args.IsSkipped ? " (Skip)" : "";
@@ -304,12 +324,17 @@ public partial class SimulationPanelState
     /// <summary>
     /// 간트 시간축을 "첫 신호 anchor 기준"으로 둘지 여부.
     /// VP/Monitoring 은 외부 신호 owner 라 항상 anchor.
-    /// Control+실PLC(UsesAgentProxy) 도 Agent engine clock 의 원점이 WPF Start 가 아니라 Agent 시작
-    /// 시점이므로, anchor 없이 raw clock 을 쓰면 Start 누른 시점에 따라 막대가 빨간선(wall)과 어긋난다.
-    /// → proxy 도 anchor 대상에 포함해 첫 이벤트 기준 0 으로 정렬한다.
+    /// Control+실PLC(UsesAgentProxy) 는 Agent engine clock 의 원점이 WPF Start 가 아니라 Agent 시작 시점.
+    /// self-hosted Control 도 PLAY 처리에서 _simStartTime 설정(간트 원점) 과 engine.Start() 사이에
+    /// Hub 스냅샷 동기 대기(최대 ~8초) 가 끼므로 raw clock 은 그 소요시간만큼 wall 대비 과거로 어긋난다
+    /// — 진행 바가 빨간선까지 늘어지다 전이 때 과거 위치로 챡 붙는 왜곡의 원인.
+    /// → Simulation(보간 시계가 원점 공유) 을 제외한 모든 모드를 anchor 로 첫 이벤트 기준 0 정렬한다.
     /// </summary>
+    internal static bool UsesAnchoredGanttTimeline(RuntimeMode mode) =>
+        mode != RuntimeMode.Simulation;
+
     private bool IsSignalDrivenGanttTimeline =>
-        UsesSignalDrivenGanttTimeline(SelectedRuntimeMode) || UsesAgentProxy;
+        UsesAnchoredGanttTimeline(SelectedRuntimeMode);
 
     private void ResetPassiveGanttClockAnchor()
     {

@@ -97,8 +97,27 @@ type ControlAbnormalAdapter
                     | _ -> ()   // 경계 포함 정상 완료 + 늦은 over — 오탐 0
                 | _ -> ()       // range/goingClock 미해결 → timing 평가 안 함(정상 완료 허용)
             else
-                // SensorShort — debounce 는 SensingType(WaitInputStable)이 SSOT, 여기선 즉시 발행.
-                emit (Abnormal.sensorShort target (now ()))
+                // 디바이스 공유 — 같은 InTag 주소를 여러 Call 이 단계별로 호출하는 모델에선,
+                // 이 신호를 기대 중(Going + completion trigger)인 동거 Call 이 있으면 그 Call 의
+                // 정상 완료 신호다. Ready 인 동거 Call 마다 Short 를 내던 오탐(사이클당 공유 Call 수만큼) 차단.
+                // 아무 Call 도 기대하지 않을 때만 진짜 SensorShort.
+                let expectedElsewhere =
+                    match apiCall.InTag with
+                    | None -> false
+                    | Some tag ->
+                        match ioMap.InAddressToMappings |> Map.tryFind tag.Address with
+                        | None -> false
+                        | Some siblings ->
+                            siblings
+                            |> List.exists (fun sib ->
+                                sib.ApiCallGuid <> apiCallId
+                                && getCallState sib.CallGuid = Status4.Going
+                                && (match apiCallAndDef sib.ApiCallGuid with
+                                    | Some(sibCall, sibDef) -> isCompletionTrigger sibCall sibDef
+                                    | None -> false))
+                if not expectedElsewhere then
+                    // SensorShort — debounce 는 SensingType(WaitInputStable)이 SSOT, 여기선 즉시 발행.
+                    emit (Abnormal.sensorShort target (now ()))
         | _ -> ()
 
     /// InTag falling. Only latched sensing promises that the input must remain active.
