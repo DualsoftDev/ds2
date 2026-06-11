@@ -127,7 +127,8 @@
         .cctv-tile:hover { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.15); }
         .cctv-tile.is-dragging { opacity: 0.5; }
         .cctv-tile.is-swap-target { border-color: var(--teal); box-shadow: inset 0 0 0 2px var(--teal), 0 0 0 3px rgba(var(--color-primary-rgb), 0.25); }
-        .cctv-tile.is-editing { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.28); }
+        /* 편집 중: 텍스트 선택 금지 — 선택된 텍스트가 네이티브 드래그 소스가 돼 화면이 끌려가는 현상 방지 */
+        .cctv-tile.is-editing { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.28); user-select: none; -webkit-user-select: none; }
         /* 전체 분할에서 타일 전체가 드래그 소스 → 자리 교체. 비디오 위에서도 grab 커서. */
         .cctv-tile.is-grabbable, .cctv-tile.is-grabbable video { cursor: grab; }
         .cctv-tile.is-grabbable:active { cursor: grabbing; }
@@ -166,7 +167,7 @@
         /* ── 오버레이 레이어 (영상 위 정확히 겹침) ── */
         /* overflow:visible → 타일의 overflow:hidden 이 외곽 클립, 핀 헤드가 레이어 위로 안 잘림 */
         .cctv-ovl-layer { position: absolute; inset: 0; pointer-events: none; overflow: visible; z-index: 2; }
-        .cctv-ovl-layer.is-editing { pointer-events: auto; }
+        .cctv-ovl-layer.is-editing { pointer-events: auto; user-select: none; -webkit-user-select: none; }
         .cctv-ovl-layer.is-armed { cursor: crosshair; }
 
         /* 오버레이 박스 — Flow 영역 */
@@ -464,18 +465,19 @@
                                                         <select x-model="armedFlowId" @change="onArmFlowChange()">
                                                             <option value="">Flow 선택…</option>
                                                             <template x-for="f in availableFlows" :key="f.flowId">
-                                                                <option :value="f.flowId" x-text="f.flowName + ' · ' + f.systemName"></option>
+                                                                <option :value="f.flowId" x-text="f.flowName + ' · ' + f.systemName + (flowZoneExists(editTileId, f.flowId) ? ' (영역 배치됨)' : '')"></option>
                                                             </template>
                                                         </select>
                                                         <template x-if="armedFlowId">
-                                                            <select x-model="armedCallId">
-                                                                <option value="">Flow 전체</option>
+                                                            <select x-model="armedCallId" @change="onArmCallChange()">
+                                                                <option value="">Call 선택 = 핀 자동 배치…</option>
                                                                 <template x-for="c in armedFlowCalls" :key="c.callId">
-                                                                    <option :value="c.callId" x-text="c.callName"></option>
+                                                                    <option :value="c.callId" :disabled="callPinExists(editTileId, c.callId)"
+                                                                            x-text="c.callName + (callPinExists(editTileId, c.callId) ? ' (배치됨)' : '')"></option>
                                                                 </template>
                                                             </select>
                                                         </template>
-                                                        <span class="arm-hint" x-text="!armedFlowId ? 'Flow 를 먼저 선택' : (armedCallId ? '영상 위를 클릭해 핀 배치' : (gridSnap ? '격자에 맞춰 드래그' : '영상 위를 드래그해 영역 지정'))"></span>
+                                                        <span class="arm-hint" x-text="!armedFlowId ? 'Flow 를 먼저 선택' : (gridSnap ? '드래그=Flow 영역(격자) · Call 선택=핀 자동 배치' : '드래그=Flow 영역 · Call 선택=핀 자동 배치')"></span>
                                                         <span class="spacer"></span>
                                                         <template x-if="!armedCallId">
                                                             <span style="display:inline-flex; align-items:center; gap:4px;">
@@ -515,7 +517,7 @@
                                                 </div>
 
                                                 <div class="cctv-tile-stage">
-                                                    <video :id="'cctv-wall-' + cam.id" muted autoplay playsinline
+                                                    <video :id="'cctv-wall-' + cam.id" muted autoplay playsinline draggable="false"
                                                            @loadedmetadata="recalcWallRects()"></video>
 
                                                     <!-- 오버레이 레이어 -->
@@ -1082,6 +1084,8 @@
 
                 // ── 드래그앤드롭 ──
                 startDrag(kind, id, e) {
+                    // 편집 중에는 타일(영상)을 끌어 위치 교체하지 않는다 — 선택 텍스트 등에서 시작된 네이티브 드래그도 차단.
+                    if (kind === 'tile' && this.editTileId) { e.preventDefault(); return; }
                     this._drag = { kind, id };
                     if (kind === 'tile') this.dragCamId = id;
                     try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', id); } catch (_) {}
@@ -1292,6 +1296,9 @@
                     const n = (cam.name || '').toLowerCase();
                     return this.overlaysAll.filter(o => (o.cameraName || '').toLowerCase() === n);
                 },
+                // 화면(카메라)당 같은 Flow 영역 / 같은 Call 핀은 1개만 — 중복 배치 검사
+                flowZoneExists(camId, flowId) { return !!flowId && this.overlaysForCamId(camId).some(o => !o.callId && o.flowId === flowId); },
+                callPinExists(camId, callId) { return !!callId && this.overlaysForCamId(camId).some(o => o.callId === callId); },
 
                 // ── 호버 툴팁 ──
                 tooltipModel(id) {
@@ -1368,6 +1375,32 @@
                     this.$nextTick(() => this.recalcWallRects());
                 },
                 onArmFlowChange() { this.armedCallId = ''; },
+                // Call 선택 즉시 좌상단에 핀 자동 배치 — 클릭 설치 대체. 셀렉트는 다음 선택을 위해 바로 초기화.
+                onArmCallChange() {
+                    const callId = this.armedCallId;
+                    this.armedCallId = '';
+                    if (!callId || !this.editTileId) return;
+                    if (this.callPinExists(this.editTileId, callId)) { this.showToast('이미 이 화면에 배치된 Call 입니다 (화면당 1개).', 'error'); return; }
+                    this.autoPlaceCallPin(this.editTileId, callId);
+                },
+                // 좌상단부터 기존 핀과 겹치지 않는 첫 자리(가로→세로 캐스케이드)에 배치
+                async autoPlaceCallPin(camId, callId) {
+                    const call = this.availableCalls.find(c => c.callId === callId);
+                    if (!call) return;
+                    this.recalcWallRects();
+                    const pins = this.overlaysForCamId(camId).filter(o => o.callId)
+                        .map(o => ({ cx: o.x + o.w / 2, cy: o.y + o.h / 2 }));
+                    let cx = 0.07, cy = 0.12, found = false;
+                    for (let row = 0; row < 6 && !found; row++) {
+                        for (let col = 0; col < 10 && !found; col++) {
+                            const tx = 0.07 + col * 0.09, ty = 0.12 + row * 0.15;
+                            if (!pins.some(p => Math.abs(p.cx - tx) < 0.045 && Math.abs(p.cy - ty) < 0.075)) { cx = tx; cy = ty; found = true; }
+                        }
+                    }
+                    const s = 0.01;
+                    const saved = await this.createOverlay(camId, { x: cx - s / 2, y: cy - s / 2, w: s, h: s }, call);
+                    if (saved) this.showToast(this.labelText(saved) + ' 핀을 좌상단에 배치했습니다 — 드래그해서 옮기세요.', 'success');
+                },
 
                 // ── 격자 스냅 ──
                 toggleGridSnap() {
@@ -1442,7 +1475,9 @@
                 // ── 드래그로 새 영역 그리기 ──
                 onDrawStart(e, camId) {
                     if (this.editTileId !== camId || this._moving || this._resizing || e.button !== 0) return;
+                    e.preventDefault();   // 텍스트 선택·네이티브 드래그 차단 — 편집 중 화면이 끌려가는 현상 방지
                     if (!this.armedFlowId) { this.showToast('Flow 를 먼저 선택하세요.', 'error'); return; }
+                    if (this.flowZoneExists(camId, this.armedFlowId)) { this.showToast('이미 이 화면에 배치된 Flow 영역입니다 (화면당 1개).', 'error'); return; }
                     this.recalcWallRects();
                     const p = this._layerXY(e);
                     this._drawStart = p;
@@ -1467,17 +1502,8 @@
                     if (this._moving) { this._onBoxUp(); return; }
                     if (this.editTileId !== camId || !this.draft || !this._drawStart) { this._drawStart = null; return; }
                     const d = this.draft, r = this.tileRects[camId];
-                    const startPt = { ...this._drawStart };
                     this._drawStart = null;
-                    // Call 핀: 클릭(작은 드래그)으로 점 배치
-                    if (this.armedCallId && r && d.width < 8 && d.height < 8) {
-                        this.draft = null;
-                        const s = 0.01;
-                        const cx = Math.max(s / 2, Math.min(1 - s / 2, (startPt.x - r.left) / r.width));
-                        const cy = Math.max(s / 2, Math.min(1 - s / 2, (startPt.y - r.top) / r.height));
-                        this.createOverlay(camId, { x: cx - s / 2, y: cy - s / 2, w: s, h: s });
-                        return;
-                    }
+                    // Call 핀은 셀렉트 선택 시 자동 배치(onArmCallChange) — 드래그는 Flow 영역 전용
                     if (!r || d.width < 8 || d.height < 8) { this.draft = null; return; }
                     const clamp = (v) => Math.max(0, Math.min(1, v));
                     let nx = clamp((d.left - r.left) / r.width);
@@ -1498,6 +1524,7 @@
                 // ── 기존 박스 이동 ──
                 onBoxDown(e, b, camId) {
                     if (this.editTileId !== camId || e.button !== 0) return;
+                    e.preventDefault();
                     this._suppressClick = false;
                     const p = this._layerXY(e);
                     const ovl = this.overlaysForCamId(camId).find(x => x.id === b.id);
@@ -1542,6 +1569,7 @@
                 // ── 모서리 앵커로 크기 조절 (반대 모서리 고정) ──
                 onResizeDown(e, b, corner, camId) {
                     if (this.editTileId !== camId || e.button !== 0) return;
+                    e.preventDefault();
                     this._suppressClick = true;
                     this.recalcWallRects();
                     const ovl = this.overlaysForCamId(camId).find(x => x.id === b.id);
@@ -1596,11 +1624,16 @@
                 },
 
                 // ── 생성 / 저장 / 삭제 ──
-                async createOverlay(camId, coords) {
+                async createOverlay(camId, coords, callOverride) {
                     const cam = this.camById(camId);
-                    if (!cam || !this.armedFlowId) return;
-                    const flow = this.armedFlow;
-                    const call = this.armedCallId ? this.availableCalls.find(c => c.callId === this.armedCallId) : null;
+                    const call = callOverride || (this.armedCallId ? this.availableCalls.find(c => c.callId === this.armedCallId) : null);
+                    const flow = call ? (this.availableFlows.find(f => f.flowId === call.flowId) || this.armedFlow) : this.armedFlow;
+                    if (!cam || !flow) return null;
+                    // 화면당 1개 최종 가드 (그리기/자동배치 진입점에서 1차 검사)
+                    if (call ? this.callPinExists(camId, call.callId) : this.flowZoneExists(camId, flow.flowId)) {
+                        this.showToast(call ? '이미 이 화면에 배치된 Call 입니다 (화면당 1개).' : '이미 이 화면에 배치된 Flow 영역입니다 (화면당 1개).', 'error');
+                        return null;
+                    }
                     const payload = {
                         id: 'ovl_' + (crypto.randomUUID ? crypto.randomUUID() : (Date.now() + '-' + Math.random().toString(16).slice(2))),
                         cameraName: cam.name,
@@ -1619,7 +1652,8 @@
                         this._renderTick++;
                         this.loadAllOverlayState();
                         this.showToast('오버레이 등록 — ' + this.labelText(saved), 'success');
-                    } catch (e) { this.showToast('등록 실패: ' + e.message, 'error'); }
+                        return saved;
+                    } catch (e) { this.showToast('등록 실패: ' + e.message, 'error'); return null; }
                 },
                 async saveOverlay(ovl, silent) {
                     const payload = {

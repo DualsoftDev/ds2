@@ -87,9 +87,12 @@ public class NavController : ControllerBase
     ///   - lines  : DspDbService 스냅샷의 Flow.State 로 가동(Going)/대기(나머지)/가동률 계산
     ///   - agent  : HubSubscriberService(허브 연결 상태) + PlcConnectionStatusTracker(어댑터 연결)
     ///   - anomalyActiveCount : 최근 10분 내 Error 레벨 알림 수 (UserTagsController 의 activeError 와 동일 정의)
+    ///     anomalyAck(선택) = 클라이언트가 /uptime 을 마지막으로 본 시각(serverTimeUtc 에코백).
+    ///     ack 이전 Error 는 배지 카운트에서 제외(읽음 처리) — 이력 피드(recentAnomalies)는 영향 없음.
     /// </summary>
     [HttpGet("summary")]
-    public async Task<ActionResult<NavSummaryDto>> GetSummary(CancellationToken ct = default)
+    public async Task<ActionResult<NavSummaryDto>> GetSummary(
+        [FromQuery] DateTimeOffset? anomalyAck = null, CancellationToken ct = default)
     {
         // ── lines (라인요약) ──
         var flows = _db.Snapshot.Flows;
@@ -112,10 +115,13 @@ public class NavController : ControllerBase
 
         var agent = new NavAgentDto(hubState, plc.Count, plcConnected, plcDisconnected, adapters);
 
-        // ── anomalyActiveCount (이상발생 활성) ── 최근 10분 Error.
+        // ── anomalyActiveCount (이상발생 활성) ── 최근 10분 Error. ack 가 창 안이면 시작점을 ack 로 당김.
         var nowUtc = DateTime.UtcNow;
+        var anomalyFromUtc = nowUtc - TimeSpan.FromMinutes(10);
+        if (anomalyAck.HasValue && anomalyAck.Value.UtcDateTime > anomalyFromUtc)
+            anomalyFromUtc = anomalyAck.Value.UtcDateTime;
         var anomalyActiveCount = await _alertRepo.CountAlertsAsync(
-            nowUtc - TimeSpan.FromMinutes(10), nowUtc, null, "Error", null, ct);
+            anomalyFromUtc, nowUtc, null, "Error", null, ct);
 
         // ── recentAnomalies (이상코드 피드) ── 최신 N건(레벨 무관). 사이드바 '이상코드' 실시간 피드용.
         //   두 출처를 시각 내림차순으로 합류(동일 형상 NavAnomalyDto):
