@@ -6,6 +6,7 @@ using DSPilot.Repositories;
 using DSPilot.Adapters;
 using DSPilot.Infrastructure;
 using System.Data.Common;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Hosting.WindowsServices;
 using Dapper;
 
@@ -299,6 +300,15 @@ app.MapRazorComponents<DSPilot.Components.App>()
 
 // SignalR Hub endpoint
 app.MapHub<DSPilot.Hubs.MonitoringHub>("/hubs/monitoring");
+
+// PLC 스캔 주기 동기화 재방송 — Agent hub 의 OnScanIntervalChanged 를 브라우저(/hubs/monitoring)로
+// 흘려서 열려 있는 설정 페이지 슬라이더가 실시간 갱신되게 한다 (Promaker 쪽 변경도 반영).
+{
+    var hubSubscriber = app.Services.GetRequiredService<HubSubscriberService>();
+    var monitoringHub = app.Services.GetRequiredService<IHubContext<DSPilot.Hubs.MonitoringHub>>();
+    hubSubscriber.ScanIntervalChanged += ms =>
+        _ = monitoringHub.Clients.All.SendAsync("ScanIntervalChanged", ms);
+}
 
 app.Run();
 

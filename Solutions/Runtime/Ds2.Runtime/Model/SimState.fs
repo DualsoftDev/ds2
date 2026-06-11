@@ -77,6 +77,9 @@ type SimState = {
     /// WaitInputStable / WaitInputEdgeStable 의 n ms 안정 측정에 사용.
     IOValueChangedAt: Map<Guid, TimeSpan>
     CallInputEpochSnapshot: Map<Guid, Map<Guid, int>>
+    /// v16 — Call 이 Going(출력 발생)으로 진입한 sim clock 시점 — SensingType.Virtual(T) 의
+    /// "출력 발생 + T 후 완료" 판정 기준. Ready 복귀 시 제거.
+    CallGoingAt: Map<Guid, TimeSpan>
     OutputValues: Map<Guid, string>
     SkippedCalls: Set<Guid>
     // ── Token ──
@@ -107,6 +110,7 @@ module SimState =
         IOValueEpoch = Map.empty
         IOValueChangedAt = Map.empty
         CallInputEpochSnapshot = Map.empty
+        CallGoingAt = Map.empty
         OutputValues = Map.empty
         SkippedCalls = Set.empty
         WorkTokens = Map.empty
@@ -130,7 +134,24 @@ module SimState =
             WorkProgress = simState.WorkProgress.Add(guid, progress) }
 
     let setCallState (guid: Guid) state simState =
-        { simState with CallStates = simState.CallStates.Add(guid, state) }
+        // Going 진입 시각 기록 — SensingType.Virtual(T) "출력 발생 + T" 완료 기준.
+        // 재진입(다음 사이클 Going)이 덮어쓰고, Ready 복귀 시 제거.
+        let nextGoingAt =
+            match state with
+            | Status4.Going -> simState.CallGoingAt.Add(guid, simState.Clock)
+            | Status4.Ready -> simState.CallGoingAt.Remove(guid)
+            | _ -> simState.CallGoingAt
+        { simState with
+            CallStates = simState.CallStates.Add(guid, state)
+            CallGoingAt = nextGoingAt }
+
+    /// Call 이 Going 으로 진입한 후 경과 ms. Going 기록이 없으면 None.
+    let getCallGoingElapsedMs (callGuid: Guid) simState : int option =
+        simState.CallGoingAt
+        |> Map.tryFind callGuid
+        |> Option.map (fun goingAt ->
+            let elapsed = simState.Clock - goingAt
+            if elapsed < TimeSpan.Zero then 0 else int elapsed.TotalMilliseconds)
 
     let setIOValue (apiCallGuid: Guid) (value: string) simState =
         let previous = simState.IOValues |> Map.tryFind apiCallGuid
@@ -244,6 +265,7 @@ module SimState =
             IOValueEpoch = Map.empty
             IOValueChangedAt = Map.empty
             CallInputEpochSnapshot = Map.empty
+            CallGoingAt = Map.empty
             OutputValues = Map.empty
             SkippedCalls = Set.empty
             WorkTokens = Map.empty

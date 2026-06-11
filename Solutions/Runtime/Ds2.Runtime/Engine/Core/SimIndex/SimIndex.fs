@@ -63,7 +63,7 @@ module SimIndex =
                         match apiDef.SensingType with
                         | SensingType.Virtual _ ->
                             apiDef.RxGuid |> Option.orElse apiDef.TxGuid
-                        | SensingType.Real _ ->
+                        | _ ->
                             apiDef.RxGuid
                     | _ -> None)
             | _ -> None)
@@ -81,7 +81,25 @@ module SimIndex =
                 | _ -> None)
             |> Option.bind (fun def ->
                 match def.SensingType with
-                | SensingType.Real (_, Some (Append n)) -> Some n
+                | SensingType.Normal (Some n) -> Some n
+                | SensingType.Latch n -> Some n
+                | _ -> None)
+            |> Option.defaultValue 0
+        | _ -> 0
+
+    /// ApiCall 의 SensingType 이 Virtual T 면 T, 아니면 0 — Call Going 진입 시
+    /// "출력 발생 + T 후 완료" 재평가(ConditionEval) 스케줄에 사용.
+    let apiCallVirtualSensingMs (index: SimIndex) (apiCallGuid: Guid) : int =
+        match index.Store.ApiCalls.TryGetValue(apiCallGuid) with
+        | true, apiCall ->
+            apiCall.ApiDefId
+            |> Option.bind (fun id ->
+                match index.Store.ApiDefs.TryGetValue(id) with
+                | true, def -> Some def
+                | _ -> None)
+            |> Option.bind (fun def ->
+                match def.SensingType with
+                | SensingType.Virtual n -> Some n
                 | _ -> None)
             |> Option.defaultValue 0
         | _ -> 0

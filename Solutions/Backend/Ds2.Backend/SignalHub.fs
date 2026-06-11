@@ -231,6 +231,33 @@ and SignalHub(gateway: IPlcGateway, runtimeSession: IRuntimeHubSession) =
 
     static member IsReadOnly = readOnlyMode
 
+    /// 스캔 주기 영속화 훅 — 호스트(Promaker.Agent 등)가 PlcConnection.json 기록 람다를 주입.
+    /// null 이면 라이브 적용만 (재시작 시 파일값으로 복귀). readOnlyMode 와 무관 — 설정이지 태그 쓰기가 아님.
+    static member val PersistScanIntervalMs : Action<int> = null with get, set
+
+    /// 현재 유효 스캔 주기(ms) — override 우선, 없으면 config 의 최소 주기.
+    member _.GetScanIntervalMs() : Task<int> =
+        let ms =
+            match gateway.ScanIntervalOverrideMs with
+            | Some v -> v
+            | None ->
+                gateway.MinScanInterval
+                |> Option.map (fun t -> int t.TotalMilliseconds)
+                |> Option.defaultValue 100
+        Task.FromResult ms
+
+    /// 스캔 주기 변경 (10~500ms clamp) — 게이트웨이 라이브 적용 + 영속화 + 전체 클라이언트 동기화.
+    /// Promaker/DSPilot 슬라이더가 호출. 재시작 없음 — scan loop 가 다음 iteration 부터 새 주기 사용.
+    member this.SetScanIntervalMs(ms: int) : Task =
+        let clamped = max 10 (min 500 ms)
+        gateway.ScanIntervalOverrideMs <- Some clamped
+        let persist = SignalHub.PersistScanIntervalMs
+        if not (isNull persist) then
+            try persist.Invoke(clamped)
+            with ex -> log.Warn($"PersistScanIntervalMs threw: {ex.Message}")
+        log.Info($"Scan interval set to {clamped}ms (live, requested={ms})")
+        this.Clients.All.SendAsync(HubMethod.OnScanIntervalChanged, clamped)
+
     /// PLC 게이트웨이로 위임 — fire-and-forget.
     /// source = "plc" 인 경우(=PLC 가 우리에게 알려준 변화)는 다시 PLC 로 echo 하지 않는다.
     member private _.ForwardToPlc(address: string, value: string, source: string) =

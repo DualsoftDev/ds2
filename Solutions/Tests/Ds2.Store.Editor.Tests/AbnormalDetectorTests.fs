@@ -130,7 +130,7 @@ module SensingGateTests =
         let store = createStore ()
         let _, system, _, _ = setupBasicHierarchy store
         let apiDef = addApiDef store "ADV" system.Id
-        apiDef.SensingType <- SensingType.Real(Level, None)
+        apiDef.SensingType <- SensingType.Normal None
         Assert.True(AbnormalDetector.isPhysicalSensing apiDef)
 
     [<Fact>]
@@ -138,7 +138,7 @@ module SensingGateTests =
         let store = createStore ()
         let _, system, _, _ = setupBasicHierarchy store
         let apiDef = addApiDef store "ADV" system.Id
-        apiDef.SensingType <- SensingType.Virtual None
+        apiDef.SensingType <- SensingType.Virtual 200
         Assert.False(AbnormalDetector.isPhysicalSensing apiDef)
 
 module RangeResolverTests =
@@ -186,7 +186,7 @@ module GatingTests =
         let project, _, flow, work = setupBasicHierarchy store
         let deviceSystem = addSystem store "Device" project.Id false
         let apiDef = addApiDef store "ADV" deviceSystem.Id
-        apiDef.SensingType <- SensingType.Real(Level, None)
+        apiDef.SensingType <- SensingType.Normal None
         let callId = store.AddCallWithLinkedApiDefs(work.Id, "Device", "ADV", [ apiDef.Id ])
         store, store.Calls.[callId], apiDef, flow
 
@@ -210,7 +210,7 @@ module GatingTests =
     [<Fact>]
     let ``canEvaluate false for Virtual sensing`` () =
         let store, call, def, _ = setup ()
-        def.SensingType <- SensingType.Virtual None
+        def.SensingType <- SensingType.Virtual 200
         Assert.False(AbnormalDetector.canEvaluate store call.Id def)
 
 // v12 §P3b ??Control adapter 4 케?�스 + ?�탐 방�? + latch dedup.
@@ -254,10 +254,13 @@ module ControlAdapterTests =
         adapter, emitted, states, inputActive, call.Id, apiCall.Id
 
     let private setup () =
-        setupWithSensing (SensingType.Real(Level, None))
+        setupWithSensing (SensingType.Normal None)
 
     let private setupLatched () =
-        setupWithSensing (SensingType.Real(Latched, None))
+        setupWithSensing (SensingType.Latch 50)
+
+    let private setupStable () =
+        setupWithSensing (SensingType.Normal (Some 50))
 
     [<Fact>]
     let ``rising in range is normal ??no false positive`` () =
@@ -308,13 +311,22 @@ module ControlAdapterTests =
         adapter.OnInputFalling(apiCallId, 1500)
         Assert.Empty(emitted)
 
+    // Normal(Some T) = 감지 후 T 유지 약속 — Finish 중 falling 은 단선/이탈 = SensorOpen.
     [<Fact>]
-    let ``falling during Finish latched sensor is SensorOpen`` () =
-        let adapter, emitted, states, _, callId, apiCallId = setupLatched ()
+    let ``falling during Finish stable sensor is SensorOpen`` () =
+        let adapter, emitted, states, _, callId, apiCallId = setupStable ()
         states.[callId] <- Status4.Finish
         adapter.OnInputFalling(apiCallId, 1500)
         Assert.Single(emitted) |> ignore
         Assert.Equal(AbnormalKind.SensorOpen, emitted.[0].Kind)
+
+    // Latch(T) = 채터링 허용 — falling 은 abnormal 이 아니다.
+    [<Fact>]
+    let ``falling during Finish latch sensor is not SensorOpen`` () =
+        let adapter, emitted, states, _, callId, apiCallId = setupLatched ()
+        states.[callId] <- Status4.Finish
+        adapter.OnInputFalling(apiCallId, 1500)
+        Assert.Empty(emitted)
 
     [<Fact>]
     let ``tick over Max with inactive input is ActionOver`` () =
@@ -384,10 +396,13 @@ module MonitoringAdapterTests =
         adapter, emitted, states, call.Id, apiCall.Id
 
     let private setup () =
-        setupWithSensing (SensingType.Real(Level, None))
+        setupWithSensing (SensingType.Normal None)
 
     let private setupLatched () =
-        setupWithSensing (SensingType.Real(Latched, None))
+        setupWithSensing (SensingType.Latch 50)
+
+    let private setupStable () =
+        setupWithSensing (SensingType.Normal (Some 50))
 
     // baseline(off) ??�?깔고 off?�on rising ?�로 going/finish ??만든??
     let private goingThenFinish (adapter: MonitoringAbnormalAdapter) (goingMs: int) (finishMs: int) =
@@ -475,9 +490,10 @@ module MonitoringAdapterTests =
         adapter.OnObservedIo("X0", "false", 600)
         Assert.Empty(emitted)
 
+    // Normal(Some T) = 감지 후 T 유지 약속 — Finish 중 In falling = SensorOpen (출력 활성 중).
     [<Fact>]
-    let ``in falling during Finish latched sensor is SensorOpen while output active`` () =
-        let adapter, emitted, states, callId, _ = setupLatched ()
+    let ``in falling during Finish stable sensor is SensorOpen while output active`` () =
+        let adapter, emitted, states, callId, _ = setupStable ()
         goingThenFinish adapter 0 500
         Assert.Empty(emitted)
         states.[callId] <- Status4.Finish
@@ -485,9 +501,19 @@ module MonitoringAdapterTests =
         Assert.Single(emitted) |> ignore
         Assert.Equal(AbnormalKind.SensorOpen, emitted.[0].Kind)
 
+    // Latch(T) = 채터링 허용 — Finish 중 In falling 은 abnormal 이 아니다.
     [<Fact>]
-    let ``in falling during Finish latched sensor is not SensorOpen after output off`` () =
+    let ``in falling during Finish latch sensor is not SensorOpen`` () =
         let adapter, emitted, states, callId, _ = setupLatched ()
+        goingThenFinish adapter 0 500
+        Assert.Empty(emitted)
+        states.[callId] <- Status4.Finish
+        adapter.OnObservedIo("X0", "false", 600)
+        Assert.Empty(emitted)
+
+    [<Fact>]
+    let ``in falling during Finish stable sensor is not SensorOpen after output off`` () =
+        let adapter, emitted, states, callId, _ = setupStable ()
         goingThenFinish adapter 0 500
         Assert.Empty(emitted)
         states.[callId] <- Status4.Finish
@@ -511,7 +537,7 @@ module DeviceControlCycleTests =
         let apiDef = addApiDef store "ADV" deviceSystem.Id
         apiDef.TxGuid <- Some deviceWork.Id
         apiDef.RxGuid <- Some deviceWork.Id
-        apiDef.SensingType <- SensingType.Real(Level, None)
+        apiDef.SensingType <- SensingType.Normal None
         store.AddCallWithLinkedApiDefs(work.Id, "Device", "ADV", [ apiDef.Id ]) |> ignore
         let call = Queries.callsOf work.Id store |> List.head
         let index = SimIndex.build store 10
@@ -538,7 +564,7 @@ module DeviceControlCycleTests =
         let apiDef = addApiDef store "ADV" deviceSystem.Id
         apiDef.TxGuid <- Some deviceWork.Id
         apiDef.RxGuid <- Some deviceWork.Id
-        apiDef.SensingType <- SensingType.Real(Level, None)
+        apiDef.SensingType <- SensingType.Normal None
         store.AddCallWithLinkedApiDefs(work.Id, "Device", "ADV", [ apiDef.Id ]) |> ignore
         let call = Queries.callsOf work.Id store |> List.head
         let apiCall = call.ApiCalls |> Seq.head
@@ -572,8 +598,8 @@ module DeviceControlCycleTests =
         apiDef.RxGuid <- Some deviceWork.Id
         // work.Duration 500 + ActionType timeAppend 200 ??device Going 지??= 500ms �?
         // timeAppend(출력 ?��?)??Going 막�?�??�이지 ?�는??간트??빨간 ?�선 ?�각?�로�??�기).
-        apiDef.ActionType <- ActionType.Real(Level, Some(Append 200))
-        apiDef.SensingType <- SensingType.Real(Level, None)
+        apiDef.ActionType <- ActionType.Normal (Some 200)
+        apiDef.SensingType <- SensingType.Normal None
         store.AddCallWithLinkedApiDefs(work.Id, "Device", "ADV", [ apiDef.Id ]) |> ignore
         let call = Queries.callsOf work.Id store |> List.head
         let index = SimIndex.build store 10
@@ -598,8 +624,8 @@ module DeviceControlCycleTests =
         let apiDef = addApiDef store "ADV" deviceSystem.Id
         apiDef.TxGuid <- Some deviceWork.Id
         apiDef.RxGuid <- Some deviceWork.Id
-        apiDef.ActionType <- ActionType.Real(Level, Some(Append 200))
-        apiDef.SensingType <- SensingType.Real(Level, None)
+        apiDef.ActionType <- ActionType.Normal (Some 200)
+        apiDef.SensingType <- SensingType.Normal None
         store.AddCallWithLinkedApiDefs(work.Id, "Device", "ADV", [ apiDef.Id ]) |> ignore
         let index = SimIndex.build store 10
         use engine = (new EventDrivenEngine(index, RuntimeMode.Monitoring)) :> ISimulationEngine
@@ -624,7 +650,7 @@ module DeviceControlCycleTests =
         let apiDef = addApiDef store "ADV" deviceSystem.Id
         apiDef.TxGuid <- Some deviceWork.Id
         apiDef.RxGuid <- Some deviceWork.Id
-        apiDef.SensingType <- SensingType.Real(Level, None)
+        apiDef.SensingType <- SensingType.Normal None
         store.AddCallWithLinkedApiDefs(work.Id, "Device", "ADV", [ apiDef.Id ]) |> ignore
         let call = Queries.callsOf work.Id store |> List.head
         let apiCall = call.ApiCalls |> Seq.head
@@ -662,7 +688,7 @@ module DeviceControlCycleTests =
         let apiDef = addApiDef store "ADV" deviceSystem.Id
         apiDef.TxGuid <- Some deviceWork.Id
         apiDef.RxGuid <- Some deviceWork.Id
-        apiDef.SensingType <- SensingType.Real(Level, None)
+        apiDef.SensingType <- SensingType.Normal None
         store.AddCallWithLinkedApiDefs(work.Id, "Device", "ADV", [ apiDef.Id ]) |> ignore
         let call = Queries.callsOf work.Id store |> List.head
         let apiCall = call.ApiCalls |> Seq.head
@@ -695,8 +721,8 @@ module DeviceControlCycleTests =
         let apiDef = addApiDef store "RET" deviceSystem.Id
         apiDef.TxGuid <- Some deviceWork.Id
         apiDef.RxGuid <- Some deviceWork.Id
-        apiDef.ActionType <- ActionType.Real(Level, None)
-        apiDef.SensingType <- SensingType.Real(Level, None)
+        apiDef.ActionType <- ActionType.Normal None
+        apiDef.SensingType <- SensingType.Normal None
         store.AddCallWithLinkedApiDefs(work.Id, "Device", "RET", [ apiDef.Id ]) |> ignore
         let call = Queries.callsOf work.Id store |> List.head
         let apiCall = call.ApiCalls |> Seq.head

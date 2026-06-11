@@ -1,4 +1,4 @@
-﻿{
+{
   "projects": {
     "d3667f96-b817-4ac5-b8a0-ca4f25729190": {
       "activeSystemIds": [
@@ -414,7 +414,7 @@
             "estimatedGainIfResolved": 3733.3216119892613,
             "currentTocStep": "Identify",
             "recommendedActions": [
-              "\uAC80\uD1A0 \uAD8C\uC7A5: \uC0AC\uC774\uD074 \uD0C0\uC784 \uB2E8\uCD95 \uB610\uB294 \uBCD1\uB82C\uD654"
+              "검토 권장: 사이클 타임 단축 또는 병렬화"
             ]
           }
         ],
@@ -673,7 +673,7 @@
             "goodProductQty": 17,
             "defectQty": 0,
             "timeLoss_pct": 70.29098757163058,
-            "speedLoss_pct": -1.1819759154952192E-14,
+            "speedLoss_pct": -1.1819759154952192e-14,
             "qualityLoss_pct": 0,
             "targetOEE": 85,
             "oeeGap": 36.65021498213529,
@@ -694,7 +694,7 @@
             "goodProductQty": 17,
             "defectQty": 0,
             "timeLoss_pct": 70.38773535759469,
-            "speedLoss_pct": -1.1858376111226226E-14,
+            "speedLoss_pct": -1.1858376111226226e-14,
             "qualityLoss_pct": 0,
             "targetOEE": 85,
             "oeeGap": 34.962273641851105,
@@ -736,7 +736,7 @@
             "goodProductQty": 18,
             "defectQty": 0,
             "timeLoss_pct": 99.91441542010865,
-            "speedLoss_pct": -1.6970120960642678E-14,
+            "speedLoss_pct": -1.6970120960642678e-14,
             "qualityLoss_pct": 0,
             "targetOEE": 85,
             "oeeGap": 44.64912280701754,
@@ -757,7 +757,7 @@
             "goodProductQty": 16,
             "defectQty": 0,
             "timeLoss_pct": 6.8951406563965145,
-            "speedLoss_pct": -3.9966427407202084E-07,
+            "speedLoss_pct": -3.9966427407202084e-07,
             "qualityLoss_pct": 0,
             "targetOEE": 85,
             "oeeGap": -14.661435513423086,
@@ -820,7 +820,7 @@
             "goodProductQty": 15,
             "defectQty": 0,
             "timeLoss_pct": 12.56232827267991,
-            "speedLoss_pct": -4.255681279581156E-07,
+            "speedLoss_pct": -4.255681279581156e-07,
             "qualityLoss_pct": 0,
             "targetOEE": 85,
             "oeeGap": -14.306905587017141,
@@ -841,7 +841,7 @@
             "goodProductQty": 16,
             "defectQty": 0,
             "timeLoss_pct": 70.63704695988687,
-            "speedLoss_pct": -1.1255587627678688E-14,
+            "speedLoss_pct": -1.1255587627678688e-14,
             "qualityLoss_pct": 0,
             "targetOEE": 85,
             "oeeGap": 50.848697308058505,
@@ -862,7 +862,7 @@
             "goodProductQty": 16,
             "defectQty": 0,
             "timeLoss_pct": 70.38773535759469,
-            "speedLoss_pct": -1.1160824575271741E-14,
+            "speedLoss_pct": -1.1160824575271741e-14,
             "qualityLoss_pct": 0,
             "targetOEE": 85,
             "oeeGap": 50.55425702289745,
@@ -883,7 +883,7 @@
             "goodProductQty": 15,
             "defectQty": 0,
             "timeLoss_pct": 99.93302076356329,
-            "speedLoss_pct": -1.8070036208091743E-14,
+            "speedLoss_pct": -1.8070036208091743e-14,
             "qualityLoss_pct": 0,
             "targetOEE": 85,
             "oeeGap": 84.9142530487805,
@@ -3530,7 +3530,7 @@
                   }
                 },
                 "RobotWeldGrip": {
-                  "fbTagMapName": "FB496_Robot_Kawasaki_v3_260225_\uC6A9\uC811_\uADF8\uB9AC\uD37C",
+                  "fbTagMapName": "FB496_Robot_Kawasaki_v3_260225_용접_그리퍼",
                   "baseAddresses": {
                     "inputBase": "%IW10000",
                     "outputBase": "%QW10000",
@@ -6863,13 +6863,13 @@
                   ],
                   "isOperationModeFb": false,
                   "skippedFBPorts": [
-                    "\uB85C\uBCF4\uD2B8\uAE30\uB3D9\uC774\uC0C1",
-                    "\uB85C\uBCF4\uD2B8\uC791\uC5C5\uC644\uB8CC\uB9AC\uC14B\uC774\uC0C1"
+                    "로보트기동이상",
+                    "로보트작업완료리셋이상"
                   ],
                   "endPortMap": {}
                 },
                 "RobotWeldGripPallet": {
-                  "fbTagMapName": "FB496_Robot_Kawasaki_v3_260225_\uC885\uD569",
+                  "fbTagMapName": "FB496_Robot_Kawasaki_v3_260225_종합",
                   "baseAddresses": {
                     "inputBase": "",
                     "outputBase": "",
@@ -10442,8 +10442,8 @@
                   ],
                   "isOperationModeFb": false,
                   "skippedFBPorts": [
-                    "\uB85C\uBCF4\uD2B8\uAE30\uB3D9\uC774\uC0C1",
-                    "\uB85C\uBCF4\uD2B8\uC791\uC5C5\uC644\uB8CC\uB9AC\uC14B\uC774\uC0C1"
+                    "로보트기동이상",
+                    "로보트작업완료리셋이상"
                   ],
                   "endPortMap": {}
                 },
@@ -10734,7 +10734,7 @@
             {
               "designCycleTime": 0,
               "actualCycleTime": 0,
-              "minCycleTime": 1.7976931348623157E+308,
+              "minCycleTime": 1.7976931348623157e+308,
               "maxCycleTime": 0,
               "cycleTimeSum": 0,
               "cycleTimeSumOfSquares": 0,
@@ -10805,7 +10805,7 @@
             {
               "designCycleTime": 0,
               "actualCycleTime": 0,
-              "minCycleTime": 1.7976931348623157E+308,
+              "minCycleTime": 1.7976931348623157e+308,
               "maxCycleTime": 0,
               "cycleTimeSum": 0,
               "cycleTimeSumOfSquares": 0,
@@ -10893,7 +10893,7 @@
             {
               "designCycleTime": 0,
               "actualCycleTime": 0,
-              "minCycleTime": 1.7976931348623157E+308,
+              "minCycleTime": 1.7976931348623157e+308,
               "maxCycleTime": 0,
               "cycleTimeSum": 0,
               "cycleTimeSumOfSquares": 0,
@@ -10964,7 +10964,7 @@
             {
               "designCycleTime": 0,
               "actualCycleTime": 0,
-              "minCycleTime": 1.7976931348623157E+308,
+              "minCycleTime": 1.7976931348623157e+308,
               "maxCycleTime": 0,
               "cycleTimeSum": 0,
               "cycleTimeSumOfSquares": 0,
@@ -11502,20 +11502,14 @@
   "apiDefs": {
     "85c87f60-4458-471e-83e9-d1dd9bd5d22d": {
       "actionType": {
-        "Case": "Real",
+        "Case": "Normal",
         "Fields": [
-          {
-            "Case": "Level"
-          },
           null
         ]
       },
       "sensingType": {
-        "Case": "Real",
+        "Case": "Normal",
         "Fields": [
-          {
-            "Case": "Level"
-          },
           null
         ]
       },
@@ -11527,20 +11521,14 @@
     },
     "8b46f1e7-15a0-431c-b051-0e8a1918cae1": {
       "actionType": {
-        "Case": "Real",
+        "Case": "Normal",
         "Fields": [
-          {
-            "Case": "Level"
-          },
           null
         ]
       },
       "sensingType": {
-        "Case": "Real",
+        "Case": "Normal",
         "Fields": [
-          {
-            "Case": "Level"
-          },
           null
         ]
       },
@@ -11552,20 +11540,14 @@
     },
     "f9342b1b-a5ba-44b9-a009-cd07e3d50fca": {
       "actionType": {
-        "Case": "Real",
+        "Case": "Normal",
         "Fields": [
-          {
-            "Case": "Level"
-          },
           null
         ]
       },
       "sensingType": {
-        "Case": "Real",
+        "Case": "Normal",
         "Fields": [
-          {
-            "Case": "Level"
-          },
           null
         ]
       },
@@ -11577,20 +11559,14 @@
     },
     "5dec7c1e-dc99-47a4-bee3-01a79904e760": {
       "actionType": {
-        "Case": "Real",
+        "Case": "Normal",
         "Fields": [
-          {
-            "Case": "Level"
-          },
           null
         ]
       },
       "sensingType": {
-        "Case": "Real",
+        "Case": "Normal",
         "Fields": [
-          {
-            "Case": "Level"
-          },
           null
         ]
       },
@@ -11602,20 +11578,14 @@
     },
     "9002e8d0-a9fc-4f7f-85ed-b1efba1b9391": {
       "actionType": {
-        "Case": "Real",
+        "Case": "Normal",
         "Fields": [
-          {
-            "Case": "Level"
-          },
           null
         ]
       },
       "sensingType": {
-        "Case": "Real",
+        "Case": "Normal",
         "Fields": [
-          {
-            "Case": "Level"
-          },
           null
         ]
       },
@@ -11627,20 +11597,14 @@
     },
     "51426c5c-59c3-446d-bc0d-ecadccb3dbb2": {
       "actionType": {
-        "Case": "Real",
+        "Case": "Normal",
         "Fields": [
-          {
-            "Case": "Level"
-          },
           null
         ]
       },
       "sensingType": {
-        "Case": "Real",
+        "Case": "Normal",
         "Fields": [
-          {
-            "Case": "Level"
-          },
           null
         ]
       },
@@ -11652,20 +11616,14 @@
     },
     "490b90d5-59a9-46f0-a9df-17483af73abd": {
       "actionType": {
-        "Case": "Real",
+        "Case": "Normal",
         "Fields": [
-          {
-            "Case": "Level"
-          },
           null
         ]
       },
       "sensingType": {
-        "Case": "Real",
+        "Case": "Normal",
         "Fields": [
-          {
-            "Case": "Level"
-          },
           null
         ]
       },
@@ -11677,20 +11635,14 @@
     },
     "73c82bc9-6e91-4ea0-812e-800d6ee929ce": {
       "actionType": {
-        "Case": "Real",
+        "Case": "Normal",
         "Fields": [
-          {
-            "Case": "Level"
-          },
           null
         ]
       },
       "sensingType": {
-        "Case": "Real",
+        "Case": "Normal",
         "Fields": [
-          {
-            "Case": "Level"
-          },
           null
         ]
       },

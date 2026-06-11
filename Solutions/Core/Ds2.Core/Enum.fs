@@ -88,27 +88,20 @@ type RuntimeMode =
     | VirtualPlant = 3  // 외부 출력 받아서 외부로 입력값 써주기 (가상 플랜트)
 
 
-/// v10 §4 — 신호 모드 (cardinality 3).
-type SignalMode =
-    | Level                        // 조건 ON 동안 출력 ON / 신호 ON 동안 인정. coil / contact 매핑.
-    | OneShot                      // 1 scan rising edge / 0→1 transition 1 scan. R_TRIG / OS 매핑.
-    | Latched                      // 1샷 SET, 명시 RST 까지 hold / 0→1 transition 후 메모리 latch. -(S)- / SR flip-flop.
-
-/// v10 §5 — 시간 정책 (cardinality 1 · Append only).
-/// v9 의 TimeTotal 폐기 — "강제 시간 출력" 패턴은 Work.Duration 으로 표현.
-type TimePolicy =
-    | Append of ms: int            // 센서 도달 후 +ms 추가 출력 / 신호 안정 ms / Duration + ms 대기 (위치별 의미 분기).
-    member this.Ms = match this with Append n -> n
-
-/// v10 §3.2 — ApiDef 출력 인터페이스 특성 (D1 · WHEN · OUT).
-/// 디바이스 내부 동작 시간 (Work.Duration) 과 완전히 무관 (다른 차원).
-/// SensingType 과 동일 구조 대칭 (C-3.1).
+/// v16 — ApiDef 출력(Action) 인터페이스 특성. ApiDefType × TimeOption 매트릭스의 Action 측 유효 조합만 표현.
+/// 불법 조합(Latch+T, Virtual+T)은 타입으로 차단 — "설정시 예외발생" 상황 자체가 없다.
+/// 디바이스 내부 동작 시간(Work.Duration)과 무관한 별개 차원.
+[<RequireQualifiedAccess>]
 type ActionType =
-    | Real of SignalMode * TimePolicy option   // SignalMode 출력 + 선택적 TimePolicy.
-    | Virtual of TimePolicy option             // 출력 없음 (NoOp) + 선택적 Append 대기.
+    | Normal of timeMs: int option   // None: 센서 감지 완료까지 출력 유지 / Some T: 감지 후 T(ms) 연장 유지 후 off.
+    | Pulse of timeMs: int option    // None: 1 scan 펄스 / Some T: T(ms) 유지 후 off.
+    | Latch                          // SET — 같은 Device 의 다른 Api 호출 때까지 유지 (mutex 해제).
+    | Virtual                        // 출력 없음 (주로 Latch 출력의 상대 동작으로 사용).
 
-/// v10 §3.2 — ApiDef 감지 인터페이스 특성 (D3 · WHEN · IN).
-/// ActionType 과 동일 구조 — case 분기 시 dispatch만 다름 (C-3.1).
+/// v16 — ApiDef 감지(Sensing) 인터페이스 특성. 매트릭스의 Sensor 측 유효 조합만 표현.
+/// Pulse 감지는 존재하지 않음. Latch/Virtual 은 T 필수.
+[<RequireQualifiedAccess>]
 type SensingType =
-    | Real of SignalMode * TimePolicy option   // SignalMode 감지 + 선택적 TimePolicy.
-    | Virtual of TimePolicy option             // Duration 시점 대기 + 선택적 Append.
+    | Normal of timeMs: int option   // None: 감지 즉시 완료 / Some T: 감지 후 T(ms) 지연 완료 — T 중 off(채터링) = 완료 취소 + SensorOff abnormal.
+    | Latch of timeMs: int           // 감지 후 T(ms) 지연 완료 — T 구간 채터링 허용 (감지 latch).
+    | Virtual of timeMs: int         // 출력 발생 시점 + T(ms) 후 완료 — 설비에 센서가 없을 때 사용.

@@ -9,19 +9,19 @@ namespace Promaker.Tests;
 public sealed class PlcConnectionSettingsTests
 {
     [Fact]
-    public void Defaults_use_50ms_batch_scan_interval_for_monitoring()
+    public void Defaults_use_100ms_scan_interval()
     {
         var settings = new PromakerShared.PlcConnectionSettings();
         settings.EnsureProfiles();
 
-        Assert.Equal(50, PromakerShared.PlcConnectionSettings.DefaultScanIntervalMs);
-        Assert.Equal(50, settings.ScanIntervalMs);
-        Assert.All(settings.Profiles.Values, profile => Assert.Equal(50, profile.ScanIntervalMs));
-        Assert.Equal(50, new PlcSettings().ScanIntervalMs);
+        Assert.Equal(100, PromakerShared.PlcConnectionSettings.DefaultScanIntervalMs);
+        Assert.Equal(100, settings.ScanIntervalMs);
+        Assert.All(settings.Profiles.Values, profile => Assert.Equal(100, profile.ScanIntervalMs));
+        Assert.Equal(100, new PlcSettings().ScanIntervalMs);
     }
 
     [Fact]
-    public void LoadOrDefault_upgrades_previous_100ms_default_interval()
+    public void LoadOrDefault_upgrades_previous_50ms_default_interval()
     {
         var root = Path.Combine(
             Path.GetTempPath(),
@@ -40,7 +40,7 @@ public sealed class PlcConnectionSettingsTests
                   "ipAddress": "192.168.0.10",
                   "port": 2004,
                   "timeoutMs": 3000,
-                  "scanIntervalMs": 100,
+                  "scanIntervalMs": 50,
                   "localEthernet": true,
                   "networkNumber": 0,
                   "stationNumber": 255,
@@ -51,7 +51,7 @@ public sealed class PlcConnectionSettingsTests
                       "ipAddress": "192.168.0.10",
                       "port": 2004,
                       "timeoutMs": 3000,
-                      "scanIntervalMs": 100,
+                      "scanIntervalMs": 50,
                       "localEthernet": true,
                       "networkNumber": 0,
                       "stationNumber": 255,
@@ -62,7 +62,7 @@ public sealed class PlcConnectionSettingsTests
                       "ipAddress": "192.168.0.10",
                       "port": 5007,
                       "timeoutMs": 3000,
-                      "scanIntervalMs": 100,
+                      "scanIntervalMs": 50,
                       "localEthernet": true,
                       "networkNumber": 0,
                       "stationNumber": 255,
@@ -74,8 +74,34 @@ public sealed class PlcConnectionSettingsTests
 
             var settings = PromakerShared.PlcConnectionSettings.LoadOrDefault(path);
 
-            Assert.Equal(50, settings.ScanIntervalMs);
-            Assert.All(settings.Profiles.Values, profile => Assert.Equal(50, profile.ScanIntervalMs));
+            Assert.Equal(100, settings.ScanIntervalMs);
+            Assert.All(settings.Profiles.Values, profile => Assert.Equal(100, profile.ScanIntervalMs));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void LoadOrDefault_preserves_user_custom_interval()
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            "Promaker.Tests",
+            nameof(PlcConnectionSettingsTests),
+            Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(root, "PlcConnection.json");
+
+        try
+        {
+            Directory.CreateDirectory(root);
+            File.WriteAllText(path, """{ "vendor": "LsXgi", "scanIntervalMs": 200 }""");
+
+            var settings = PromakerShared.PlcConnectionSettings.LoadOrDefault(path);
+
+            Assert.Equal(200, settings.ScanIntervalMs);
         }
         finally
         {

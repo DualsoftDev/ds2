@@ -36,16 +36,11 @@ module V10ValidationBatch =
             for issue in validateApiCallV5 apiCall do
                 issues.Add issue
 
-        // V3/V4 — ApiDef 단위.
+        // V3 — ApiDef 단위. (V4 Duration 요건은 새 모델에서 소멸 — Virtual 감지는 T 가 완료 기준.
+        //  V7 Latched+Append 류 불법 조합은 타입으로 차단되어 검증 불필요.)
         for kv in store.ApiDefs do
             let apiDef = kv.Value
             for issue in validateApiDefV3 apiDef do
-                issues.Add issue
-            for issue in validateApiDefV7 apiDef do
-                issues.Add issue
-            let txMs = workDurationMs store apiDef.TxGuid
-            let rxMs = workDurationMs store apiDef.RxGuid
-            for issue in validateApiDefV4 apiDef txMs rxMs do
                 issues.Add issue
 
         // V6 — Device(ApiDef.ParentId) 단위 Latched collision.

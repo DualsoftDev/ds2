@@ -102,12 +102,12 @@ module SimulationProjection =
 
     let private virtualAppendMs sensingType =
         match sensingType with
-        | SensingType.Virtual (Some (Append n)) -> n
+        | SensingType.Virtual n -> n          // 출력 발생 + T 완료 — plan 길이에 T 반영
         | _ -> 0
 
     let private outputAppendMs actionType =
         match actionType with
-        | ActionType.Real (SignalMode.Level, Some (Append n)) -> n
+        | ActionType.Normal (Some n) -> n     // 완료(센서 감지) 후 T 연장 출력
         | _ -> 0
 
     let private workDurationMs (index: SimIndex) workGuid =

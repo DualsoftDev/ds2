@@ -102,6 +102,16 @@ module internal CallTransitions =
             if not completionWorkGuids.IsEmpty then
                 ctx.StateManager.SnapshotCallRxEpochs(callGuid, completionWorkGuids)
             ctx.ExecuteCallGoing callGuid
+            // v16 SensingType.Virtual(T): 출력 발생(Going 진입) + T 후 완료 — T 시점 ConditionEval 재평가 예약.
+            if not (ctx.TimeIgnore()) then
+                apiCallGuids
+                |> List.iter (fun apiCallId ->
+                    let virtMs = SimIndex.apiCallVirtualSensingMs ctx.Index apiCallId
+                    if virtMs > 0 then
+                        ctx.Scheduler.ScheduleAfter(
+                            ScheduledEventType.EvaluateConditions,
+                            int64 virtMs,
+                            ScheduledEvent.PriorityConditionEval) |> ignore)
             // Call Timeout 스케줄
             match ctx.Index.CallTimeoutMap |> Map.tryFind callGuid with
             | Some timeout when not (ctx.TimeIgnore()) ->

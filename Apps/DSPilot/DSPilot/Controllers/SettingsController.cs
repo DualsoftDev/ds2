@@ -36,6 +36,8 @@ public class SettingsController : ControllerBase
     private readonly IHubContext<MonitoringHub> _hub;
     private readonly ILogger<SettingsController> _logger;
 
+    private readonly HubSubscriberService _hubSubscriber;
+
     public SettingsController(
         AppSettingsService settings,
         DatabaseLifecycleService lifecycle,
@@ -45,6 +47,7 @@ public class SettingsController : ControllerBase
         IDatabasePathResolver pathResolver,
         AutoCalibrationService autoCal,
         IHubContext<MonitoringHub> hub,
+        HubSubscriberService hubSubscriber,
         ILogger<SettingsController> logger)
     {
         _settings = settings;
@@ -55,7 +58,29 @@ public class SettingsController : ControllerBase
         _pathResolver = pathResolver;
         _autoCal = autoCal;
         _hub = hub;
+        _hubSubscriber = hubSubscriber;
         _logger = logger;
+    }
+
+    // ── PLC 스캔 주기 (Agent 게이트웨이 설정 — 라이브 적용/전 클라이언트 동기화) ──
+    [HttpGet("plc-scan-interval")]
+    public async Task<IActionResult> GetPlcScanInterval()
+    {
+        var ms = await _hubSubscriber.GetScanIntervalMsAsync();
+        return Ok(new { ms, connected = ms.HasValue });
+    }
+
+    public sealed class ScanIntervalRequest { public int Ms { get; set; } }
+
+    [HttpPost("plc-scan-interval")]
+    public async Task<IActionResult> SetPlcScanInterval([FromBody] ScanIntervalRequest req)
+    {
+        var clamped = Math.Clamp(req.Ms, 10, 500);
+        var ok = await _hubSubscriber.SetScanIntervalMsAsync(clamped);
+        if (!ok)
+            return StatusCode(503, "Agent hub 미연결 — 모니터링이 활성 상태인지 확인하세요.");
+        _logger.LogInformation("PLC scan interval set via settings page: {Ms}ms", clamped);
+        return Ok(new { ms = clamped });
     }
 
     // ── GET: 전체 설정 + 파생 표시값 ──

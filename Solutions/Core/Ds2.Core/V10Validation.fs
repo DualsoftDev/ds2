@@ -2,8 +2,9 @@ namespace Ds2.Core
 
 open System
 
-/// <summary>v10 spec §12 — Validation V1~V6.
-/// V1~V4 Error, V5~V6 Warning.</summary>
+/// <summary>Validation V1~V6 — Action/Sensing Type v16 매트릭스 기준.
+/// (모듈명 V10Validation 은 호출부 호환으로 유지. 불법 조합은 v16 타입이 차단 — V4/V7 소멸.)
+/// V1~V3 Error, V5~V6 Warning.</summary>
 module V10Validation =
 
     type Severity = Error | Warning
@@ -14,67 +15,45 @@ module V10Validation =
         Message: string
     }
 
-    // V1: ActionType = Real(_, _) ⇒ OutTag required (Error)
+    // V1: ActionType ≠ Virtual ⇒ OutTag required (Error)
     let validateApiCallV1 (apiDef: ApiDef) (apiCall: ApiCall) : ValidationIssue option =
         match apiDef.ActionType with
-        | ActionType.Real _ when apiCall.OutTag.IsNone ->
+        | ActionType.Virtual -> None
+        | _ when apiCall.OutTag.IsNone ->
             Some { Rule = "V1"; Severity = Error
-                   Message = sprintf "ApiCall '%s' — ActionType=Real ⇒ OutTag 필수" apiCall.Name }
+                   Message = sprintf "ApiCall '%s' — ActionType≠Virtual ⇒ OutTag 필수" apiCall.Name }
         | _ -> None
 
-    // V2: SensingType = Real(_, _) ⇒ InTag required (Error)
+    // V2: SensingType ≠ Virtual ⇒ InTag required (Error)
     let validateApiCallV2 (apiDef: ApiDef) (apiCall: ApiCall) : ValidationIssue option =
         match apiDef.SensingType with
-        | SensingType.Real _ when apiCall.InTag.IsNone ->
+        | SensingType.Virtual _ -> None
+        | _ when apiCall.InTag.IsNone ->
             Some { Rule = "V2"; Severity = Error
-                   Message = sprintf "ApiCall '%s' — SensingType=Real ⇒ InTag 필수" apiCall.Name }
+                   Message = sprintf "ApiCall '%s' — SensingType≠Virtual ⇒ InTag 필수" apiCall.Name }
         | _ -> None
 
-    // V3: TimePolicy.Append ms > 0 (Error)
-    let private timePolicyMsCheck (ctx: string) (t: TimePolicy option) : ValidationIssue option =
-        match t with
-        | Some (Append ms) when ms <= 0 ->
+    // V3: TimeOption ms > 0 (Error) — 불법 조합(Pulse 감지, Latch+T 출력 등)은 타입이 차단하므로
+    //     검증 대상은 T 값 자체의 양수 여부뿐이다.
+    let private timeMsCheck (ctx: string) (ms: int option) : ValidationIssue option =
+        match ms with
+        | Some v when v <= 0 ->
             Some { Rule = "V3"; Severity = Error
-                   Message = sprintf "%s — TimePolicy.Append ms 는 양의 정수 (실제: %d)" ctx ms }
+                   Message = sprintf "%s — TimeOption ms 는 양의 정수 (실제: %d)" ctx v }
         | _ -> None
 
     let validateApiDefV3 (apiDef: ApiDef) : ValidationIssue list =
         let actionT =
             match apiDef.ActionType with
-            | ActionType.Real (_, t) -> t
-            | ActionType.Virtual t -> t
+            | ActionType.Normal t | ActionType.Pulse t -> t
+            | ActionType.Latch | ActionType.Virtual -> None
         let sensingT =
             match apiDef.SensingType with
-            | SensingType.Real (_, t) -> t
-            | SensingType.Virtual t -> t
-        [ timePolicyMsCheck (sprintf "ApiDef '%s' ActionType" apiDef.Name) actionT
-          timePolicyMsCheck (sprintf "ApiDef '%s' SensingType" apiDef.Name) sensingT ]
+            | SensingType.Normal t -> t
+            | SensingType.Latch t | SensingType.Virtual t -> Some t
+        [ timeMsCheck (sprintf "ApiDef '%s' ActionType" apiDef.Name) actionT
+          timeMsCheck (sprintf "ApiDef '%s' SensingType" apiDef.Name) sensingT ]
         |> List.choose id
-
-    // V7: Latched + TimePolicy(Append) 조합 금지 — spec §3.2/§11 "정의 외"(런타임 emitOutput/completionTrigger
-    //     가 invalidOp 로 막음). UI 는 못 만들지만 raw/import 경로 방어용으로 validation 단계에서 reject. (Error)
-    let validateApiDefV7 (apiDef: ApiDef) : ValidationIssue list =
-        let issue ctx =
-            { Rule = "V7"; Severity = Error
-              Message = sprintf "ApiDef '%s' %s — Latched + TimePolicy(Append) 는 spec 정의 외 (§3.2)" apiDef.Name ctx }
-        [ (match apiDef.ActionType  with ActionType.Real (Latched, Some _)  -> Some (issue "ActionType")  | _ -> None)
-          (match apiDef.SensingType with SensingType.Real (Latched, Some _) -> Some (issue "SensingType") | _ -> None) ]
-        |> List.choose id
-
-    // V4: Virtual(_) ⇒ Work.Duration defined (Error)
-    let validateApiDefV4 (apiDef: ApiDef) (txWorkDuration: int option) (rxWorkDuration: int option) : ValidationIssue list =
-        let isVirtual =
-            match apiDef.ActionType, apiDef.SensingType with
-            | ActionType.Virtual _, _ | _, SensingType.Virtual _ -> true
-            | _ -> false
-        if not isVirtual then []
-        else
-            let workOk = txWorkDuration |> Option.exists (fun d -> d > 0)
-                      || rxWorkDuration |> Option.exists (fun d -> d > 0)
-            if workOk then []
-            else
-                [{ Rule = "V4"; Severity = Error
-                   Message = sprintf "ApiDef '%s' — Virtual ⇒ Work.Duration 정의 필수" apiDef.Name }]
 
     // V5: ValueSpec type ≡ IOTag.DataType (Warning)
     let private valueSpecMatchesDataType (spec: ValueSpec) (dataType: IOTagDataType) : bool =
@@ -106,15 +85,15 @@ module V10Validation =
                              Message = sprintf "ApiCall '%s' — OutputSpec type ≢ OutTag.DataType (%A)" apiCall.Name tag.DataType })
         List.ofSeq issues
 
-    // V6: Latched ApiCall collision on same Device (Warning)
-    // 같은 Device(ApiDef.ParentId) 안에 Latched ActionType ApiDef 가 2개 이상이면 Warning.
+    // V6: Latch ApiCall collision on same Device (Warning)
+    // 같은 Device(ApiDef.ParentId) 안에 Latch ActionType ApiDef 가 2개 이상이면 Warning.
     let validateDeviceV6 (deviceId: System.Guid) (apiDefs: ApiDef list) : ValidationIssue list =
         let latched =
             apiDefs
             |> List.filter (fun ad ->
                 ad.ParentId = deviceId
                 && match ad.ActionType with
-                   | ActionType.Real (Latched, _) -> true
+                   | ActionType.Latch -> true
                    | _ -> false)
         if latched.Length < 2 then []
         else

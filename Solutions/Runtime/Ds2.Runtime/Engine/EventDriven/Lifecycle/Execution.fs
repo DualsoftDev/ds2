@@ -106,8 +106,6 @@ module EventDrivenExecution =
                 writeOut tag.Address (RuntimeSemantics.activeOutputValue apiCall)
             | Some RuntimeSemantics.NoOp ->
                 ()
-            | Some (RuntimeSemantics.NoOpAppend _) ->
-                ()
 
     let executeApiCall (ctx: ApiCallExecutionContext) deviceWorkGuid =
         let curSt = ctx.GetDeviceState deviceWorkGuid
@@ -126,7 +124,7 @@ module EventDrivenExecution =
                     ctx.ResetPriorLatchesOnDevice (deviceId, apiCall.Id)
                     applyOutputEffect ctx apiDef apiCall
                     match apiDef.ActionType, apiCall.OutTag with
-                    | ActionType.Real (Latched, _), Some tag ->
+                    | ActionType.Latch, Some tag ->
                         ctx.RegisterLatch (deviceId, apiCall.Id, tag)
                     | _ -> ()
                 ctx.ForceWorkState deviceWorkGuid Status4.Going

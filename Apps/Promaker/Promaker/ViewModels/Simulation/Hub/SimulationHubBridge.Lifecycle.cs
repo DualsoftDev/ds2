@@ -194,6 +194,35 @@ public sealed partial class SimulationHubBridge
                 try { LearnedDurationReceived?.Invoke(payload); }
                 catch (Exception ex) { SimLog.Error("LearnedDurationReceived subscriber threw", ex); }
             }));
+        // PLC 스캔 주기 동기화 — Agent/다른 클라이언트(DSPilot 등)가 바꾼 값을 수신해 로컬 설정 반영.
+        hubConnection.On<int>(
+            HubMethod.OnScanIntervalChanged,
+            ms => _dispatcher.BeginInvoke(() =>
+            {
+                if (!IsCurrentGeneration(generation)) return;
+                try { ScanIntervalChanged?.Invoke(ms); }
+                catch (Exception ex) { SimLog.Error("ScanIntervalChanged subscriber threw", ex); }
+            }));
+    }
+
+    /// <summary>연결 직후 현재 스캔 주기를 hub 에서 pull — "언제 연결되어도" 슬라이더가 Agent 실값과 동기화.</summary>
+    private async Task SyncScanIntervalFromHubAsync(HubConnection hubConnection, int generation)
+    {
+        try
+        {
+            var ms = await hubConnection.InvokeAsync<int>("GetScanIntervalMs");
+            _ = _dispatcher.BeginInvoke(() =>
+            {
+                if (!IsCurrentConnection(generation, hubConnection)) return;
+                try { ScanIntervalChanged?.Invoke(ms); }
+                catch (Exception ex) { SimLog.Error("ScanIntervalChanged subscriber threw", ex); }
+            });
+        }
+        catch (Exception ex)
+        {
+            // idle host / 구버전 hub 등 — 동기화 실패는 치명적이지 않음.
+            SimLog.Debug($"GetScanIntervalMs failed (non-fatal): {ex.Message}");
+        }
     }
 
     private void OnPlcConnectionStatus(int generation, PlcConnectionStatus status)
@@ -320,6 +349,7 @@ public sealed partial class SimulationHubBridge
                 _setSimStatusText(_isSimulating() ? "Hub 재연결 완료" : "시뮬레이션 정지 됨");
                 _addSimLog("Hub 재연결 완료", LogSeverity.System);
                 SetStatus(true, false);
+                _ = SyncScanIntervalFromHubAsync(hubConnection, generation);
             });
         });
         return Task.CompletedTask;
@@ -420,6 +450,7 @@ public sealed partial class SimulationHubBridge
                     _setSimStatusText(statusMsg);
                     _setStatusText(statusMsg);
                 });
+                _ = SyncScanIntervalFromHubAsync(hubConnection, generation);
                 return;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { return; }

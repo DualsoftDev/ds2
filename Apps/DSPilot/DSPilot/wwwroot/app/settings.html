@@ -283,6 +283,26 @@
                             </div>
 
                             <!-- UI -->
+                            <!-- PLC 스캔 주기 (Agent 동기화) -->
+                            <div class="card">
+                                <div class="card-header">
+                                    <span class="material-icons">speed</span>
+                                    <span>PLC 스캔 주기</span>
+                                </div>
+                                <div class="card-content">
+                                    <div style="display:flex; align-items:center; gap:10px;">
+                                        <input type="range" min="10" max="500" step="10" style="flex:1"
+                                               x-model.number="scanMs" @change="applyScanInterval()" :disabled="!scanConnected" />
+                                        <strong style="min-width:64px; text-align:right;" x-text="scanMs + ' ms'"></strong>
+                                    </div>
+                                    <small class="settings-hint">
+                                        Agent 의 PLC 폴링 주기입니다 (10~500ms, 10ms 단위, 기본 100ms).
+                                        변경은 재시작 없이 즉시 적용되고 Promaker 와도 자동 동기화됩니다.
+                                        <span x-show="!scanConnected"><strong> — 현재 Agent 미연결(모니터링 비활성)이라 변경할 수 없습니다.</strong></span>
+                                    </small>
+                                </div>
+                            </div>
+
                             <div class="card">
                                 <div class="card-header">
                                     <span class="material-icons">settings</span>
@@ -606,6 +626,7 @@
                 autoCal: { running: false },
                 _conn: null, _toastTimer: null,
                 MAX_K_KEY: 'dspilot-autocal-margin-max-k', // 최대값 계수 k 브라우저 기억 키
+                scanMs: 100, scanConnected: false, // PLC 스캔 주기 (Agent 동기화 — 기본 100ms)
 
                 async init() {
                     this.dark = localStorage.getItem('dspilot-theme') === 'dark';
@@ -613,6 +634,27 @@
                     await this.load();
                     this.connectSignalR();
                     this.demoStartTicker();
+                    this.loadScanInterval();
+                },
+
+                // ── PLC 스캔 주기 — Agent 게이트웨이 라이브 설정. 변경은 재시작 없이 즉시 적용되고
+                //    Promaker 등 모든 클라이언트와 SignalR 로 자동 동기화된다.
+                async loadScanInterval() {
+                    try {
+                        const d = await this.apiGet('/api/settings/plc-scan-interval');
+                        if (d.ms !== null && d.ms !== undefined) this.scanMs = d.ms;
+                        this.scanConnected = !!d.connected;
+                    } catch (e) { this.scanConnected = false; }
+                },
+                async applyScanInterval() {
+                    try {
+                        const d = await this.apiPost('/api/settings/plc-scan-interval', { ms: this.scanMs | 0 });
+                        this.scanMs = d.ms;
+                        this.showToast(`PLC 스캔 주기 ${d.ms}ms 적용됨 (재시작 없음)`, 'success');
+                    } catch (e) {
+                        this.showToast('스캔 주기 변경 실패 — Agent 연결 상태를 확인하세요.', 'error');
+                        this.loadScanInterval();
+                    }
                 },
 
                 destroy() { this._conn?.stop(); clearTimeout(this._demoTimer); },
@@ -934,6 +976,8 @@
                     conn.on('DatabaseRebuilt', () => this.refreshAasxStatus());
                     // 자동 보정 적용 → 카드의 시각/요약 갱신(알림 토스트는 공용 셸 shell.js 가 표시).
                     conn.on('AutoCalibrationApplied', () => this.load());
+                    // PLC 스캔 주기 동기화 — Promaker/다른 클라이언트가 바꾸면 슬라이더 실시간 갱신.
+                    conn.on('ScanIntervalChanged', (ms) => { this.scanMs = ms; this.scanConnected = true; });
                     conn.onreconnected(() => { this.rt.connected = true; this.refreshAasxStatus(); });
                     conn.onreconnecting(() => { this.rt.connected = false; });
                     conn.onclose(() => { this.rt.connected = false; });

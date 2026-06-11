@@ -467,10 +467,10 @@ module PanelTests =
         let system = addSystem store "S" project.Id false
         let id = store.AddApiDefWithProperties("Api1", system.Id)
         let apiDef = store.ApiDefs.[id]
-        apiDef.ActionType <- ActionType.Real (Latched, None)
+        apiDef.ActionType <- ActionType.Latch
         Assert.Equal("Api1", apiDef.Name)
         Assert.Equal(system.Id, apiDef.ParentId)
-        Assert.Equal(ActionType.Real (Latched, None), apiDef.ActionType)
+        Assert.Equal(ActionType.Latch, apiDef.ActionType)
 
     [<Fact>]
     let ``UpdateApiDef changes name atomically`` () =
@@ -478,11 +478,11 @@ module PanelTests =
         let project = addProject store "P"
         let system = addSystem store "S" project.Id false
         let apiDef = addApiDef store "Api1" system.Id
-        apiDef.ActionType <- ActionType.Real (Latched, None)
-        store.UpdateApiDef(apiDef.Id, "ApiRenamed", ActionType.Real (Latched, None), SensingType.Real (Level, None), None, None, "")
+        apiDef.ActionType <- ActionType.Latch
+        store.UpdateApiDef(apiDef.Id, "ApiRenamed", ActionType.Latch, SensingType.Normal None, None, None, "")
         let updated = store.ApiDefs.[apiDef.Id]
         Assert.Equal("ApiRenamed", updated.Name)
-        Assert.Equal(ActionType.Real (Latched, None), updated.ActionType)
+        Assert.Equal(ActionType.Latch, updated.ActionType)
 
     [<Fact>]
     let ``UpdateApiDef is single undo step`` () =

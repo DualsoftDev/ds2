@@ -239,37 +239,46 @@ module WorkConditionChecker =
         // 가상 시뮬레이션은 I/O 가 불필요하므로 Real 을 Virtual 처럼 Duration 기반 완료로 돌린다("Simulation = Real→Virtual").
         // Control/Monitoring 은 실 I/O 가 진실원이라 기존대로.
         let ioMissingReal =
-            (match apiDef.ActionType  with ActionType.Real _  -> apiCall.OutTag.IsNone | _ -> false)
-            || (match apiDef.SensingType with SensingType.Real _ -> apiCall.InTag.IsNone  | _ -> false)
+            (match apiDef.ActionType  with ActionType.Virtual -> false | _ -> apiCall.OutTag.IsNone)
+            || (match apiDef.SensingType with SensingType.Virtual _ -> false | _ -> apiCall.InTag.IsNone)
         if isSimulation && ioMissingReal then
             virtualWorkCompletion index state callGuid
         else
             try
                 match RuntimeSemantics.completionTrigger apiDef apiCall with
-                | RuntimeSemantics.WaitPassiveDuration _
-                | RuntimeSemantics.WaitPassiveDurationPlus _ ->
-                    // v10 §10(NORMATIVE): SensingType=Virtual 은 종료 시점을 SensingType 이 단독 결정한다 →
-                    //   Duration(=WorkRx 종점) 완료. 물리 InTag 가 없어 In 을 기다릴 수 없으므로 Control/
-                    //   Monitoring 이라도 mode 무관하게 duration 으로 Finish 한다.
-                    //   ("device plan-duration 으로 Call 완료 금지(In-only)" 규칙은 실제 센서가 있는
-                    //    SensingType=Real 의 WaitInput* 분기(runtimeInputSatisfied)에만 적용된다.)
-                    virtualWorkCompletion index state callGuid
-                | RuntimeSemantics.WaitInput _
-                | RuntimeSemantics.WaitInputLatched _ ->
+                | RuntimeSemantics.WaitOutputPlus (_, ms) ->
+                    // v16 SensingType.Virtual(T): 출력 발생(Call Going 진입) 시점 + T 후 완료 — 센서 없는 설비.
+                    //   종료는 SensingType 단독 결정 — Control/Monitoring 도 mode 무관 T 로 Finish.
+                    //   Simulation 은 가상 device 사이클과의 정합을 위해 device(rx) 완료도 함께 본다.
+                    let elapsedOk =
+                        match SimState.getCallGoingElapsedMs callGuid state with
+                        | Some elapsed -> elapsed >= ms
+                        | None -> false
+                    if isExternalIn then elapsedOk
+                    else elapsedOk || virtualWorkCompletion index state callGuid
+                | RuntimeSemantics.WaitInput _ ->
                     runtimeInputSatisfied index state callGuid apiCall isExternalIn
                 | RuntimeSemantics.WaitInputStable (_, ms) ->
-                    // v10 §5/§10 — Real(Level, Append n) = "센서 ON 후 n ms 연속 유지" debounce. 종료는 SensingType 이
-                    //   단독 결정하므로 mode 무관하게 In 안정 n ms 를 적용한다. (ActionType.Append=출력 유지와는 직교
-                    //   축이라 이중 아님.) Control 도 Composition 이 debounce ms 후 ConditionEval 재평가를 schedule.
+                    // Normal(T): 감지 후 T ms 유지 확인 — T 중 off(채터링)면 ChangedAt 이 리셋되어 완료가
+                    //   자연 취소되고(다시 감지 대기), abnormal adapter 가 SensorOff 를 발행한다.
                     runtimeInputSatisfied index state callGuid apiCall isExternalIn
                     && SimState.getIOStableMs apiCall.Id state >= ms
-                | RuntimeSemantics.WaitInputEdge _ ->
-                    runtimeInputEdgeSatisfied index state callGuid apiCall isExternalIn
-                | RuntimeSemantics.WaitInputEdgeStable (_, ms) ->
-                    // v10 §5/§10 — Real(OneShot, Append n) = "edge 이후 n ms 안정". 종료는 SensingType 단독 결정이라
-                    //   mode 무관 적용(ActionType.Append 와는 직교 축).
-                    runtimeInputEdgeSatisfied index state callGuid apiCall isExternalIn
-                    && SimState.getIOStableMs apiCall.Id state >= ms
+                | RuntimeSemantics.WaitInputLatched (_, ms) ->
+                    // Latch(T): 감지가 한 번 관측되면(latch) T ms 지연 후 완료 — T 구간 채터링 허용.
+                    //   현재 신호가 off 여도 무방(메모리 latch) — 감지 이력은 Call Going 스냅샷 대비
+                    //   epoch 증가로 판정하고, 마지막 신호 변화로부터 T 경과를 요구한다
+                    //   (채터링이 완료를 취소하지도, abnormal 을 만들지도 않는다).
+                    let savedEpoch =
+                        state.CallInputEpochSnapshot
+                        |> Map.tryFind callGuid
+                        |> Option.bind (Map.tryFind apiCall.Id)
+                        |> Option.defaultValue 0
+                    let currentEpoch =
+                        state.IOValueEpoch
+                        |> Map.tryFind apiCall.Id
+                        |> Option.defaultValue 0
+                    let sensed = currentEpoch > savedEpoch
+                    sensed && SimState.getIOStableMs apiCall.Id state >= ms
             with
             | _ ->
                 // Control/Monitoring(외부 In): completionTrigger 실패해도 device(rx) 로 Call 완료 금지 — In 만으로.

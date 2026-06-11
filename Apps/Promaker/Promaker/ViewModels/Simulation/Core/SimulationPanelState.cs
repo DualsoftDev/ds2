@@ -217,6 +217,13 @@ public partial class SimulationPanelState : ObservableObject
 
         // 자동 줄자 학습값 수신 → 누적(정지 시 사용자 선택으로 모델 반영).
         Hub.LearnedDurationReceived += OnLearnedDurationReceived;
+        // PLC 스캔 주기 동기화 — Agent/DSPilot 어느 쪽이 바꿔도 로컬 설정·슬라이더가 같은 값 유지.
+        Hub.ScanIntervalChanged += ms =>
+        {
+            if (PlcSettings.ScanIntervalMs == ms) return;
+            PlcSettings.ScanIntervalMs = ms;
+            AddSimLog($"PLC 스캔 주기 동기화: {ms}ms", LogSeverity.System);
+        };
 
         // 간트 I/O 줄 — Hub 의 실제 Tag(Out·In) 변화를 ApiCall I/O 행 막대로 반영.
         //   Plan(Call 수명=계획) 과 I/O(실제 송수신) 를 위아래로 대조 → 어디서 어긋나는지(abnormal) 가시화.

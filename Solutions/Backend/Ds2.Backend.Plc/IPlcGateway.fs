@@ -30,6 +30,9 @@ type IPlcGateway =
     abstract member ScanOnceAsync : CancellationToken -> Task<PlcTagChange list>
     /// 가장 짧은 ScanInterval 반환 (HostedService loop 이 사용).
     abstract member MinScanInterval : TimeSpan option
+    /// 런타임 스캔 주기 오버라이드(ms). Hub SetScanIntervalMs / Agent 설정 감시가 set —
+    /// scan loop 가 매 iteration 읽어 재시작 없이 즉시 반영한다. None 이면 MinScanInterval 사용.
+    abstract member ScanIntervalOverrideMs : int option with get, set
     /// 현재 등록된 모든 PLC 어댑터의 연결 헬스 스냅샷. 아직 connect 시도 전이면 IsConnected=false, FailedAttempts=0.
     abstract member GetConnectionStatuses : unit -> PlcConnectionStatus list
     /// 어댑터별 연결 상태 전이 이벤트. 동일 상태 유지 시 발화 안 함 — flap noise 차단.
