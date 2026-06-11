@@ -111,7 +111,7 @@ public partial class PlcSettingsDialog : Window
         IpBox.Text = p.IpAddress;
         PortBox.Text = p.Port.ToString(CultureInfo.InvariantCulture);
         TimeoutBox.Text = p.TimeoutMs.ToString(CultureInfo.InvariantCulture);
-        ScanBox.Text = p.ScanIntervalMs.ToString(CultureInfo.InvariantCulture);
+        ScanSlider.Value = Math.Clamp(p.ScanIntervalMs, 10, 500);
         LocalEthernetBox.IsChecked = p.LocalEthernet;
         NetworkNumberBox.Text = p.NetworkNumber.ToString(CultureInfo.InvariantCulture);
         StationNumberBox.Text = p.StationNumber.ToString(CultureInfo.InvariantCulture);
@@ -126,7 +126,7 @@ public partial class PlcSettingsDialog : Window
         IpAddress = IpBox.Text?.Trim() ?? fallback.IpAddress,
         Port = TryParseInt(PortBox.Text, fallback.Port),
         TimeoutMs = TryParseInt(TimeoutBox.Text, fallback.TimeoutMs),
-        ScanIntervalMs = TryParseInt(ScanBox.Text, fallback.ScanIntervalMs),
+        ScanIntervalMs = (int)ScanSlider.Value,
         LocalEthernet = LocalEthernetBox.IsChecked == true,
         NetworkNumber = TryParseByte(NetworkNumberBox.Text, fallback.NetworkNumber),
         StationNumber = TryParseByte(StationNumberBox.Text, fallback.StationNumber),
@@ -161,13 +161,8 @@ public partial class PlcSettingsDialog : Window
             TimeoutBox.Focus();
             return;
         }
-        if (!int.TryParse(ScanBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var scan)
-            || scan <= 0)
-        {
-            DialogHelpers.Warn("Scan interval(ms) 은 양의 정수여야 합니다.");
-            ScanBox.Focus();
-            return;
-        }
+        // 슬라이더가 10~500/10ms 단위를 보장 — 별도 검증 불필요.
+        var scan = (int)ScanSlider.Value;
         if (string.IsNullOrWhiteSpace(IpBox.Text))
         {
             DialogHelpers.Warn("IP 주소를 입력하세요.");

@@ -3,10 +3,28 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:core="clr-namespace:Ds2.Core.Store;assembly=Ds2.Core"
         Title="ApiDef 편집"
-        Width="460" Height="640"
+        Width="640" Height="640"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False">
+    <Window.Resources>
+        <!-- 시간 옵션 체크박스 — 비활성 시 흐림 없음(회색 톤 통일), 단 "체크된 채 비활성"은
+             활성 체크와 혼동되지 않게 글리프를 약화(0.45). 스타일 트리거 > 템플릿 트리거 우선순위 활용. -->
+        <Style x:Key="TimeOptionCheckBox" TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
+            <Style.Triggers>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Opacity" Value="1"/>
+                </Trigger>
+                <MultiTrigger>
+                    <MultiTrigger.Conditions>
+                        <Condition Property="IsEnabled" Value="False"/>
+                        <Condition Property="IsChecked" Value="True"/>
+                    </MultiTrigger.Conditions>
+                    <Setter Property="Opacity" Value="0.45"/>
+                </MultiTrigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
     <Border Background="{DynamicResource SecondaryBackgroundBrush}"
             BorderBrush="{DynamicResource BorderBrush}"
             BorderThickness="1">
@@ -29,107 +47,252 @@
                 <TextBox x:Name="NameBox" Padding="6,4"/>
             </StackPanel>
 
-            <!-- ActionType (v10 D1 WHEN·OUT) -->
+            <!-- v16 ActionType (Kind=Action) — 타입 라디오 + [체크박스][설명][박스]ms (T 지원 타입만). -->
             <StackPanel Grid.Row="1" Margin="0,0,0,8">
                 <TextBlock Text="ActionType (출력 시점 정책)"
                            FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
                            Margin="0,0,0,4"/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="90"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="26"/>
+                        <RowDefinition Height="26"/>
+                        <RowDefinition Height="26"/>
+                        <RowDefinition Height="26"/>
+                    </Grid.RowDefinitions>
 
-                <RadioButton x:Name="ActionNormalRadio" Content="normal — Real(Level, None)"
-                             Foreground="{DynamicResource PrimaryTextBrush}"
-                             GroupName="ActionType" IsChecked="True" Margin="0,2,0,2"/>
-                <RadioButton x:Name="ActionPulseRadio" Content="pulse — Real(OneShot, None)"
-                             Foreground="{DynamicResource PrimaryTextBrush}"
-                             GroupName="ActionType" Margin="0,2,0,2"/>
-                <RadioButton x:Name="ActionSetRadio" Content="set — Real(Latched, None)"
-                             Foreground="{DynamicResource PrimaryTextBrush}"
-                             GroupName="ActionType" Margin="0,2,0,2"/>
-
-                <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
-                    <RadioButton x:Name="ActionTimeAppendRadio" Content="timeAppend"
+                    <RadioButton Grid.Row="0" x:Name="ActionNormalRadio" Content="Normal"
                                  Foreground="{DynamicResource PrimaryTextBrush}"
-                                 GroupName="ActionType" Width="110" VerticalAlignment="Center"
-                                 Checked="ActionTimeAppendRadio_Checked" Unchecked="ActionTimeAppendRadio_Unchecked"/>
-                    <TextBlock Text="ms" VerticalAlignment="Center" Margin="0,0,4,0"
+                                 GroupName="ActionType" IsChecked="True" VerticalAlignment="Center"/>
+                    <StackPanel Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Margin="0,0,12,0" VerticalAlignment="Center" Text="센서 감지까지 출력 유지">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsChecked, ElementName=ActionNormalTimeCheck}" Value="True">
+                                            <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                        <CheckBox x:Name="ActionNormalTimeCheck" Style="{StaticResource TimeOptionCheckBox}" VerticalAlignment="Center"
+                                  IsEnabled="{Binding IsChecked, ElementName=ActionNormalRadio}">
+                            <!-- 테마의 암시적 TextBlock 스타일이 CheckBox Foreground 를 덮으므로
+                                 라벨을 명시 TextBlock 으로 두고 체크 상태에 직접 바인딩. -->
+                            <TextBlock Text="감지 후에도 출력 유지">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsChecked, RelativeSource={RelativeSource AncestorType=CheckBox}}" Value="True">
+                                                <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding IsEnabled, RelativeSource={RelativeSource AncestorType=CheckBox}}" Value="False">
+                                                <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </CheckBox>
+                    </StackPanel>
+                    <TextBox Grid.Row="0" Grid.Column="3" x:Name="ActionNormalMsBox" Width="60" Padding="4,2"
+                             VerticalAlignment="Center" Text="200" PreviewTextInput="DigitOnly_PreviewTextInput">
+                        <TextBox.Style>
+                            <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+                                <Setter Property="IsEnabled" Value="False"/>
+                                <Style.Triggers>
+                                    <MultiDataTrigger>
+                                        <MultiDataTrigger.Conditions>
+                                            <Condition Binding="{Binding IsChecked, ElementName=ActionNormalRadio}" Value="True"/>
+                                            <Condition Binding="{Binding IsChecked, ElementName=ActionNormalTimeCheck}" Value="True"/>
+                                        </MultiDataTrigger.Conditions>
+                                        <Setter Property="IsEnabled" Value="True"/>
+                                    </MultiDataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBox.Style>
+                    </TextBox>
+                    <TextBlock Grid.Row="0" Grid.Column="4" Text="ms" VerticalAlignment="Center" Margin="4,0,0,0"
                                Foreground="{DynamicResource SecondaryTextBrush}"/>
-                    <TextBox x:Name="ActionTimeAppendMsBox" Width="60" Padding="4,2"
-                             VerticalAlignment="Center" IsEnabled="False"
-                             Text="200" PreviewTextInput="DigitOnly_PreviewTextInput"/>
-                </StackPanel>
 
-                <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
-                    <RadioButton x:Name="ActionPulseHoldRadio" Content="pulseHold"
+                    <RadioButton Grid.Row="1" x:Name="ActionPulseRadio" Content="Pulse"
                                  Foreground="{DynamicResource PrimaryTextBrush}"
-                                 GroupName="ActionType" Width="110" VerticalAlignment="Center"
-                                 Checked="ActionPulseHoldRadio_Checked" Unchecked="ActionPulseHoldRadio_Unchecked"/>
-                    <TextBlock Text="ms" VerticalAlignment="Center" Margin="0,0,4,0"
+                                 GroupName="ActionType" VerticalAlignment="Center"/>
+                    <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Margin="0,0,12,0" VerticalAlignment="Center" Text="출력 후 바로 중지 (1스캔 펄스)">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsChecked, ElementName=ActionPulseTimeCheck}" Value="True">
+                                            <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                        <CheckBox x:Name="ActionPulseTimeCheck" Style="{StaticResource TimeOptionCheckBox}" VerticalAlignment="Center"
+                                  IsEnabled="{Binding IsChecked, ElementName=ActionPulseRadio}">
+                            <!-- 테마의 암시적 TextBlock 스타일이 CheckBox Foreground 를 덮으므로
+                                 라벨을 명시 TextBlock 으로 두고 체크 상태에 직접 바인딩. -->
+                            <TextBlock Text="출력 유지 후 off">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsChecked, RelativeSource={RelativeSource AncestorType=CheckBox}}" Value="True">
+                                                <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding IsEnabled, RelativeSource={RelativeSource AncestorType=CheckBox}}" Value="False">
+                                                <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </CheckBox>
+                    </StackPanel>
+                    <TextBox Grid.Row="1" Grid.Column="3" x:Name="ActionPulseMsBox" Width="60" Padding="4,2"
+                             VerticalAlignment="Center" Text="200" PreviewTextInput="DigitOnly_PreviewTextInput">
+                        <TextBox.Style>
+                            <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+                                <Setter Property="IsEnabled" Value="False"/>
+                                <Style.Triggers>
+                                    <MultiDataTrigger>
+                                        <MultiDataTrigger.Conditions>
+                                            <Condition Binding="{Binding IsChecked, ElementName=ActionPulseRadio}" Value="True"/>
+                                            <Condition Binding="{Binding IsChecked, ElementName=ActionPulseTimeCheck}" Value="True"/>
+                                        </MultiDataTrigger.Conditions>
+                                        <Setter Property="IsEnabled" Value="True"/>
+                                    </MultiDataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBox.Style>
+                    </TextBox>
+                    <TextBlock Grid.Row="1" Grid.Column="4" Text="ms" VerticalAlignment="Center" Margin="4,0,0,0"
                                Foreground="{DynamicResource SecondaryTextBrush}"/>
-                    <TextBox x:Name="ActionPulseHoldMsBox" Width="60" Padding="4,2"
-                             VerticalAlignment="Center" IsEnabled="False"
-                             Text="200" PreviewTextInput="DigitOnly_PreviewTextInput"/>
-                </StackPanel>
 
-                <RadioButton x:Name="ActionVirtRadio" Content="virt — Virtual(None)"
-                             Foreground="{DynamicResource PrimaryTextBrush}"
-                             GroupName="ActionType" Margin="0,2,0,2"/>
-                <!-- virtPlus(Virtual+Append) 제거: 가상 출력엔 출력유지(Append)가 의미 없음. -->
+                    <RadioButton Grid.Row="2" x:Name="ActionLatchRadio" Content="Latch"
+                                 Foreground="{DynamicResource PrimaryTextBrush}"
+                                 GroupName="ActionType" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Text="다른 Api 호출까지 출력 유지" Margin="0,0,8,0"
+                               VerticalAlignment="Center" Foreground="{DynamicResource PrimaryTextBrush}"/>
+
+                    <RadioButton Grid.Row="3" x:Name="ActionVirtRadio" Content="Virtual"
+                                 Foreground="{DynamicResource PrimaryTextBrush}"
+                                 GroupName="ActionType" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" Text="출력 없음 (주로 Latch 상대 동작)" Margin="0,0,8,0"
+                               VerticalAlignment="Center" Foreground="{DynamicResource PrimaryTextBrush}"/>
+                </Grid>
             </StackPanel>
 
-            <!-- SensingType (v10 D3 WHEN·IN) -->
+            <!-- v16 SensingType (Kind=Sensor) — Normal 만 시간 선택(체크박스), Latch/Virtual 은 T 필수. -->
             <StackPanel Grid.Row="2" Margin="0,0,0,8">
                 <TextBlock Text="SensingType (감지 시점 정책)"
                            FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
                            Margin="0,0,0,4"/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="90"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="26"/>
+                        <RowDefinition Height="26"/>
+                        <RowDefinition Height="26"/>
+                    </Grid.RowDefinitions>
 
-                <RadioButton x:Name="SensingNormalRadio" Content="normal — Real(Level, None)"
-                             Foreground="{DynamicResource PrimaryTextBrush}"
-                             GroupName="SensingType" IsChecked="True" Margin="0,2,0,2"/>
-                <RadioButton x:Name="SensingEdgeRadio" Content="edge — Real(OneShot, None)"
-                             Foreground="{DynamicResource PrimaryTextBrush}"
-                             GroupName="SensingType" Margin="0,2,0,2"/>
-                <RadioButton x:Name="SensingLatchedRadio" Content="latched — Real(Latched, None)"
-                             Foreground="{DynamicResource PrimaryTextBrush}"
-                             GroupName="SensingType" Margin="0,2,0,2"/>
-
-                <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
-                    <RadioButton x:Name="SensingDebounceRadio" Content="debounce"
+                    <RadioButton Grid.Row="0" x:Name="SensingNormalRadio" Content="Normal"
                                  Foreground="{DynamicResource PrimaryTextBrush}"
-                                 GroupName="SensingType" Width="110" VerticalAlignment="Center"
-                                 Checked="SensingDebounceRadio_Checked" Unchecked="SensingDebounceRadio_Unchecked"/>
-                    <TextBlock Text="ms" VerticalAlignment="Center" Margin="0,0,4,0"
+                                 GroupName="SensingType" IsChecked="True" VerticalAlignment="Center"/>
+                    <StackPanel Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Margin="0,0,12,0" VerticalAlignment="Center" Text="센서 감지 후 완료 처리">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsChecked, ElementName=SensingNormalTimeCheck}" Value="True">
+                                            <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                        <CheckBox x:Name="SensingNormalTimeCheck" Style="{StaticResource TimeOptionCheckBox}" VerticalAlignment="Center"
+                                  IsEnabled="{Binding IsChecked, ElementName=SensingNormalRadio}">
+                            <!-- 테마의 암시적 TextBlock 스타일이 CheckBox Foreground 를 덮으므로
+                                 라벨을 명시 TextBlock 으로 두고 체크 상태에 직접 바인딩. -->
+                            <TextBlock Text="일정 시간 유지 확인 (끊기면 Sensor Off 에러)">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsChecked, RelativeSource={RelativeSource AncestorType=CheckBox}}" Value="True">
+                                                <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding IsEnabled, RelativeSource={RelativeSource AncestorType=CheckBox}}" Value="False">
+                                                <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </CheckBox>
+                    </StackPanel>
+                    <TextBox Grid.Row="0" Grid.Column="3" x:Name="SensingNormalMsBox" Width="60" Padding="4,2"
+                             VerticalAlignment="Center" Text="50" PreviewTextInput="DigitOnly_PreviewTextInput">
+                        <TextBox.Style>
+                            <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+                                <Setter Property="IsEnabled" Value="False"/>
+                                <Style.Triggers>
+                                    <MultiDataTrigger>
+                                        <MultiDataTrigger.Conditions>
+                                            <Condition Binding="{Binding IsChecked, ElementName=SensingNormalRadio}" Value="True"/>
+                                            <Condition Binding="{Binding IsChecked, ElementName=SensingNormalTimeCheck}" Value="True"/>
+                                        </MultiDataTrigger.Conditions>
+                                        <Setter Property="IsEnabled" Value="True"/>
+                                    </MultiDataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBox.Style>
+                    </TextBox>
+                    <TextBlock Grid.Row="0" Grid.Column="4" Text="ms" VerticalAlignment="Center" Margin="4,0,0,0"
                                Foreground="{DynamicResource SecondaryTextBrush}"/>
-                    <TextBox x:Name="SensingDebounceMsBox" Width="60" Padding="4,2"
-                             VerticalAlignment="Center" IsEnabled="False"
-                             Text="50" PreviewTextInput="DigitOnly_PreviewTextInput"/>
-                </StackPanel>
 
-                <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
-                    <RadioButton x:Name="SensingEdgeStableRadio" Content="edgeStable"
+                    <RadioButton Grid.Row="1" x:Name="SensingLatchRadio" Content="Latch"
                                  Foreground="{DynamicResource PrimaryTextBrush}"
-                                 GroupName="SensingType" Width="110" VerticalAlignment="Center"
-                                 Checked="SensingEdgeStableRadio_Checked" Unchecked="SensingEdgeStableRadio_Unchecked"/>
-                    <TextBlock Text="ms" VerticalAlignment="Center" Margin="0,0,4,0"
+                                 GroupName="SensingType" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Text="감지 시점부터 일정 시간 대기 후 최종 상태 기준으로 완료 처리 (채터링 허용)" Margin="0,0,8,0"
+                               VerticalAlignment="Center" Foreground="{DynamicResource PrimaryTextBrush}"/>
+                    <TextBox Grid.Row="1" Grid.Column="3" x:Name="SensingLatchMsBox" Width="60" Padding="4,2"
+                             VerticalAlignment="Center" Text="50" PreviewTextInput="DigitOnly_PreviewTextInput"
+                             IsEnabled="{Binding IsChecked, ElementName=SensingLatchRadio}"/>
+                    <TextBlock Grid.Row="1" Grid.Column="4" Text="ms" VerticalAlignment="Center" Margin="4,0,0,0"
                                Foreground="{DynamicResource SecondaryTextBrush}"/>
-                    <TextBox x:Name="SensingEdgeStableMsBox" Width="60" Padding="4,2"
-                             VerticalAlignment="Center" IsEnabled="False"
-                             Text="50" PreviewTextInput="DigitOnly_PreviewTextInput"/>
-                </StackPanel>
 
-                <RadioButton x:Name="SensingVirtRadio" Content="virt — Virtual(None)"
-                             Foreground="{DynamicResource PrimaryTextBrush}"
-                             GroupName="SensingType" Margin="0,2,0,2"/>
-
-                <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
-                    <RadioButton x:Name="SensingVirtPlusRadio" Content="virtPlus"
+                    <RadioButton Grid.Row="2" x:Name="SensingVirtRadio" Content="Virtual"
                                  Foreground="{DynamicResource PrimaryTextBrush}"
-                                 GroupName="SensingType" Width="110" VerticalAlignment="Center"
-                                 Checked="SensingVirtPlusRadio_Checked" Unchecked="SensingVirtPlusRadio_Unchecked"/>
-                    <TextBlock Text="ms" VerticalAlignment="Center" Margin="0,0,4,0"
+                                 GroupName="SensingType" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Text="출력 시점부터 일정 시간 이후 자동 완료 (센서 없음)" Margin="0,0,8,0"
+                               VerticalAlignment="Center" Foreground="{DynamicResource PrimaryTextBrush}"/>
+                    <TextBox Grid.Row="2" Grid.Column="3" x:Name="SensingVirtMsBox" Width="60" Padding="4,2"
+                             VerticalAlignment="Center" Text="200" PreviewTextInput="DigitOnly_PreviewTextInput"
+                             IsEnabled="{Binding IsChecked, ElementName=SensingVirtRadio}"/>
+                    <TextBlock Grid.Row="2" Grid.Column="4" Text="ms" VerticalAlignment="Center" Margin="4,0,0,0"
                                Foreground="{DynamicResource SecondaryTextBrush}"/>
-                    <TextBox x:Name="SensingVirtPlusMsBox" Width="60" Padding="4,2"
-                             VerticalAlignment="Center" IsEnabled="False"
-                             Text="200" PreviewTextInput="DigitOnly_PreviewTextInput"/>
-                </StackPanel>
+                </Grid>
             </StackPanel>
 
             <!-- TX Work / RX Work -->

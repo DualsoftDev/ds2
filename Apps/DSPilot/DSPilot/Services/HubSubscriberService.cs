@@ -77,6 +77,64 @@ public sealed class HubSubscriberService : BackgroundService
     /// <summary>v12 abnormal(SensorOpen/Short/ActionOver/Under) 수신 시 발화. UI 알림/패널이 구독.</summary>
     public event Action<AbnormalPayload>? AbnormalReceived;
 
+    /// <summary>Agent 의 현재 PLC 스캔 주기(ms) — 연결 직후 pull + OnScanIntervalChanged push 로 갱신.
+    /// null = 아직 동기화 전 (미연결 등).</summary>
+    public int? CurrentScanIntervalMs { get; private set; }
+
+    /// <summary>스캔 주기 변경 수신 시 발화 — Promaker/다른 클라이언트가 바꾼 값도 들어온다.
+    /// Program.cs 가 구독해 브라우저(/hubs/monitoring)로 재방송.</summary>
+    public event Action<int>? ScanIntervalChanged;
+
+    /// <summary>Agent hub 에서 현재 스캔 주기 pull. 미연결이면 null.</summary>
+    public async Task<int?> GetScanIntervalMsAsync(CancellationToken ct = default)
+    {
+        var conn = _connection;
+        if (conn is null || conn.State != HubConnectionState.Connected) return CurrentScanIntervalMs;
+        try
+        {
+            var ms = await conn.InvokeAsync<int>("GetScanIntervalMs", ct);
+            CurrentScanIntervalMs = ms;
+            return ms;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[Hub] GetScanIntervalMs failed");
+            return CurrentScanIntervalMs;
+        }
+    }
+
+    /// <summary>스캔 주기 변경 요청 — Agent 가 라이브 적용 + 영속화 + 전 클라이언트 브로드캐스트.</summary>
+    public async Task<bool> SetScanIntervalMsAsync(int ms, CancellationToken ct = default)
+    {
+        var conn = _connection;
+        if (conn is null || conn.State != HubConnectionState.Connected) return false;
+        try
+        {
+            await conn.InvokeAsync("SetScanIntervalMs", ms, ct);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Hub] SetScanIntervalMs({Ms}) failed", ms);
+            return false;
+        }
+    }
+
+    private void OnHubScanIntervalChanged(int ms)
+    {
+        CurrentScanIntervalMs = ms;
+        try { ScanIntervalChanged?.Invoke(ms); }
+        catch (Exception ex) { _logger.LogDebug(ex, "[Hub] ScanIntervalChanged subscriber threw"); }
+    }
+
+    /// <summary>연결/재연결 직후 현재 스캔 주기 pull — "언제 연결되어도" 동기화 보장.</summary>
+    private async Task SyncScanIntervalAsync()
+    {
+        var ms = await GetScanIntervalMsAsync();
+        if (ms.HasValue)
+            OnHubScanIntervalChanged(ms.Value);
+    }
+
     private void RaiseStatusChanged()
     {
         try { StatusChanged?.Invoke(CurrentStatus); }
@@ -142,6 +200,8 @@ public sealed class HubSubscriberService : BackgroundService
         _connection.On<PlcConnectionStatus>(HubMethod.OnPlcConnectionStatus, _plcStatusTracker.Apply);
         // Agent ControlAbnormalAdapter 감지 결과 — MonitoringAbnormalAdapter 로컬 감지 대체.
         _connection.On<AbnormalPayload>(HubMethod.OnAbnormal, OnHubAbnormal);
+        // PLC 스캔 주기 동기화 — 어느 클라이언트가 바꿔도 push 수신.
+        _connection.On<int>(HubMethod.OnScanIntervalChanged, OnHubScanIntervalChanged);
 
         _connection.Reconnecting += ex =>
         {
@@ -149,10 +209,11 @@ public sealed class HubSubscriberService : BackgroundService
             RaiseStatusChanged();
             return Task.CompletedTask;
         };
-        _connection.Reconnected += _ =>
+        _connection.Reconnected += connectionId =>
         {
             _logger.LogInformation("[Hub] Reconnected");
             RaiseStatusChanged();
+            _ = SyncScanIntervalAsync();
             return Task.CompletedTask;
         };
         _connection.Closed += ex =>
@@ -208,6 +269,7 @@ public sealed class HubSubscriberService : BackgroundService
                 await connection.StartAsync(ct);
                 _logger.LogInformation("[Hub] Connected");
                 RaiseStatusChanged();
+                _ = SyncScanIntervalAsync();
                 return;
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)

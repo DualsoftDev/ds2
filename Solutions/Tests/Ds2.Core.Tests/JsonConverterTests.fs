@@ -230,8 +230,8 @@ module JsonRoundTripTests =
         let workId = Guid.NewGuid()
 
         let apiDef = ApiDef("ApiDef-Full", systemId)
-        apiDef.ActionType <- ActionType.Real (Latched, None)
-        apiDef.SensingType <- SensingType.Real (Level, None)
+        apiDef.ActionType <- ActionType.Latch
+        apiDef.SensingType <- SensingType.Normal None
         apiDef.TxGuid <- Some(Guid.NewGuid())
         apiDef.RxGuid <- Some(Guid.NewGuid())
 
@@ -450,60 +450,7 @@ module FileRoundTripTests =
             if File.Exists(filePath) then File.Delete(filePath)
 
 
-module V10ActionSensingTypeTests =
-
-    [<Fact>]
-    let ``JsonConverter should roundtrip SignalMode cases`` () =
-        for value in [ Level; OneShot; Latched ] do
-            Assert.Equal(value, roundTrip value)
-
-    [<Fact>]
-    let ``JsonConverter should roundtrip TimePolicy Append`` () =
-        let value = Append 1500
-        Assert.Equal(value, roundTrip value)
-
-    [<Fact>]
-    let ``JsonConverter should roundtrip ActionType Real Level None`` () =
-        let value = ActionType.Real (Level, None)
-        Assert.Equal(value, roundTrip value)
-
-    [<Fact>]
-    let ``JsonConverter should roundtrip ActionType Real OneShot None`` () =
-        let value = ActionType.Real (OneShot, None)
-        Assert.Equal(value, roundTrip value)
-
-    [<Fact>]
-    let ``JsonConverter should roundtrip ActionType Real Latched None`` () =
-        let value = ActionType.Real (Latched, None)
-        Assert.Equal(value, roundTrip value)
-
-    [<Fact>]
-    let ``JsonConverter should roundtrip ActionType Real Level Some Append`` () =
-        let value = ActionType.Real (Level, Some (Append 1500))
-        Assert.Equal(value, roundTrip value)
-
-    [<Fact>]
-    let ``JsonConverter should roundtrip ActionType Virtual None`` () =
-        let value = ActionType.Virtual None
-        Assert.Equal(value, roundTrip value)
-
-    [<Fact>]
-    let ``JsonConverter should roundtrip ActionType Virtual Some Append`` () =
-        let value = ActionType.Virtual (Some (Append 200))
-        Assert.Equal(value, roundTrip value)
-
-    [<Fact>]
-    let ``JsonConverter should roundtrip SensingType cases`` () =
-        let values: SensingType list = [
-            Real (Level,   None)
-            Real (OneShot, None)
-            Real (Latched, None)
-            Real (Level,   Some (Append 50))
-            Virtual None
-            Virtual (Some (Append 100))
-        ]
-        for value in values do
-            Assert.Equal(value, roundTrip value)
+module SystemTypeRoundTripTests =
 
     [<Fact>]
     let ``DsSystem should roundtrip SystemType option`` () =
@@ -515,57 +462,22 @@ module V10ActionSensingTypeTests =
         Assert.Equal(system.SystemType, actual.SystemType)
         Assert.Equal(Some "ConveyorBelt", actual.SystemType)
 
+module ApiDefTypeRoundTripTests =
+
+    // 새 ActionType/SensingType 전 케이스 직렬화 round-trip.
     [<Fact>]
-    let ``ApiDef should roundtrip with ActionType Real Level None default`` () =
-        let systemId = Guid.NewGuid()
-        let apiDef = ApiDef("TestApi", systemId)
-        apiDef.TxGuid <- Some (Guid.NewGuid())
-        apiDef.RxGuid <- Some (Guid.NewGuid())
-        let actual = roundTrip apiDef
-        Assert.Equal(apiDef.Id, actual.Id)
-        Assert.Equal(apiDef.Name, actual.Name)
-        Assert.Equal(apiDef.ParentId, actual.ParentId)
-        Assert.Equal(apiDef.ActionType, actual.ActionType)
-        Assert.Equal(ActionType.Real (Level, None), actual.ActionType)
-        Assert.Equal(apiDef.SensingType, actual.SensingType)
-        Assert.Equal(SensingType.Real (Level, None), actual.SensingType)
-        Assert.Equal(apiDef.TxGuid, actual.TxGuid)
-        Assert.Equal(apiDef.RxGuid, actual.RxGuid)
+    let ``ActionType all cases roundtrip`` () =
+        for value in [ ActionType.Normal None; ActionType.Normal (Some 200)
+                       ActionType.Pulse None; ActionType.Pulse (Some 150)
+                       ActionType.Latch; ActionType.Virtual ] do
+            let apiDef = ApiDef("A", Guid.NewGuid())
+            apiDef.ActionType <- value
+            Assert.Equal(value, (roundTrip apiDef).ActionType)
 
     [<Fact>]
-    let ``ApiDef should roundtrip with Latched ActionType`` () =
-        let systemId = Guid.NewGuid()
-        let apiDef = ApiDef("TestApi", systemId)
-        apiDef.ActionType <- ActionType.Real (Latched, None)
-        let actual = roundTrip apiDef
-        Assert.Equal(apiDef.ActionType, actual.ActionType)
-        Assert.Equal(ActionType.Real (Latched, None), actual.ActionType)
-
-    [<Fact>]
-    let ``ApiDef should roundtrip with OneShot ActionType`` () =
-        let systemId = Guid.NewGuid()
-        let apiDef = ApiDef("TestApi", systemId)
-        apiDef.ActionType <- ActionType.Real (OneShot, None)
-        let actual = roundTrip apiDef
-        Assert.Equal(apiDef.ActionType, actual.ActionType)
-        Assert.Equal(ActionType.Real (OneShot, None), actual.ActionType)
-
-    [<Fact>]
-    let ``ApiDef should roundtrip with timeAppend Action`` () =
-        let systemId = Guid.NewGuid()
-        let apiDef = ApiDef("TestApi", systemId)
-        apiDef.ActionType <- ActionType.Real (Level, Some (Append 2500))
-        let actual = roundTrip apiDef
-        Assert.Equal(apiDef.ActionType, actual.ActionType)
-        match actual.ActionType with
-        | ActionType.Real (Level, Some (Append ms)) -> Assert.Equal(2500, ms)
-        | _ -> Assert.Fail("Expected Real(Level, Some(Append 2500))")
-
-    [<Fact>]
-    let ``ApiDef should roundtrip with Virtual SensingType`` () =
-        let systemId = Guid.NewGuid()
-        let apiDef = ApiDef("TestApi", systemId)
-        apiDef.SensingType <- SensingType.Virtual None
-        let actual = roundTrip apiDef
-        Assert.Equal(apiDef.SensingType, actual.SensingType)
-        Assert.Equal(SensingType.Virtual None, actual.SensingType)
+    let ``SensingType all cases roundtrip`` () =
+        for value in [ SensingType.Normal None; SensingType.Normal (Some 50)
+                       SensingType.Latch 50; SensingType.Virtual 500 ] do
+            let apiDef = ApiDef("A", Guid.NewGuid())
+            apiDef.SensingType <- value
+            Assert.Equal(value, (roundTrip apiDef).SensingType)

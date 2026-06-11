@@ -143,9 +143,16 @@ type PlcGateway(config: PlcGatewayConfig) =
             if isTransition || failureOngoing then
                 connectionStatusEvent.Trigger(next)
 
+    // 런타임 스캔 주기 오버라이드(ms) — scan loop 가 매 iteration 읽어 재시작 없이 반영.
+    let mutable scanIntervalOverrideMs : int option = None
+
     interface IPlcGateway with
 
         member _.IsEnabled = not adapters.IsEmpty
+
+        member _.ScanIntervalOverrideMs
+            with get () = scanIntervalOverrideMs
+            and set value = scanIntervalOverrideMs <- value
 
         member _.ConnectAllAsync (ct: CancellationToken) =
             task {

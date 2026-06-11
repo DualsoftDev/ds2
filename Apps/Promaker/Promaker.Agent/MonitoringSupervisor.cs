@@ -192,12 +192,101 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
             Log.Debug("Config changed while idle — will be picked up on next activation.");
             return;
         }
+
+        // 스캔 주기만 바뀐 변경은 재시작 없이 라이브 적용 — Promaker/DSPilot 슬라이더가
+        // hub SetScanIntervalMs 로 영속화한 self-write, 또는 파일 직접 편집 모두 이 경로.
+        var (fingerprint, scanMs) = ComputeConfigFingerprint();
+        if (fingerprint == _appliedConfigFingerprint)
+        {
+            if (scanMs != _appliedScanIntervalMs)
+            {
+                ApplyScanIntervalLive(scanMs, broadcast: true);
+                return;
+            }
+            Log.Debug("Config change event with no effective difference — ignoring.");
+            return;
+        }
+
         Log.Info("Config changed while active → restart with new settings.");
         // 이전 구현: Deactivate → TryActivate 를 두 번의 gate scope 로 나눠 호출.
         // gate 사이 race 로 다른 task 가 BackendHost 를 다시 띄우면 TryActivate 의 skip 분기가
         // silent drop 됐던 사례 (2026-05-28 17:12). TryActivate 한 번 호출로 통합 — 내부에서
         // _app != null 이면 stop 한 뒤 새 설정으로 재시작 (한 gate scope 안 atomic).
         await TryActivateAsync().ConfigureAwait(false);
+    }
+
+    // ── 스캔 주기 라이브 적용 (재시작 없음) ─────────────────────────
+    // 활성 시점의 설정 지문(스캔 주기 제외 정규화). ConfigChanged 가 지문 동일 + 스캔만 다르면
+    // BackendHost 재시작 대신 게이트웨이 override 로 즉시 반영하고 전 클라이언트에 동기화한다.
+    private string _appliedConfigFingerprint = "";
+    private int _appliedScanIntervalMs;
+
+    private static (string Fingerprint, int ScanMs) ComputeConfigFingerprint()
+    {
+        var session = AgentSession.TryLoad() ?? AgentSession.ForCurrentDefaults(requestedBy: "agent");
+        var plcPath = string.IsNullOrWhiteSpace(session.PlcConnectionPath)
+            ? SharedPaths.PlcConnectionFilePath
+            : session.PlcConnectionPath;
+        var plc = PlcConnectionSettings.LoadOrDefault(plcPath);
+        var scanMs = plc.ScanIntervalMs;
+
+        // 스캔 주기를 0 으로 밀어 정규화 — 나머지 필드/프로파일이 같으면 "scan-only 변경" 판정.
+        plc.ScanIntervalMs = 0;
+        foreach (var profile in plc.Profiles.Values)
+            profile.ScanIntervalMs = 0;
+        var plcNormalized = System.Text.Json.JsonSerializer.Serialize(plc);
+
+        var aasxStamp = File.Exists(session.AasxPath)
+            ? $"{File.GetLastWriteTimeUtc(session.AasxPath).Ticks}:{new FileInfo(session.AasxPath).Length}"
+            : "none";
+        var sessionStamp = $"{session.AasxPath}|{session.PlcConnectionPath}|{session.RuntimeMode}";
+        return ($"{sessionStamp}\n{aasxStamp}\n{plcNormalized}", scanMs);
+    }
+
+    private void ApplyScanIntervalLive(int ms, bool broadcast)
+    {
+        var app = _app;
+        if (app is null) return;
+        var clamped = Math.Clamp(ms, 10, 500);   // SignalHub.SetScanIntervalMs 와 동일 clamp
+        var gateway = app.Services.GetService<IPlcGateway>();
+        if (gateway is null)
+        {
+            Log.Warn("ApplyScanIntervalLive: IPlcGateway not resolvable — skipped.");
+            return;
+        }
+        gateway.ScanIntervalOverrideMs = FSharpOption<int>.Some(clamped);
+        _appliedScanIntervalMs = ms;
+        Log.Info($"Scan interval live-applied: {clamped}ms (no restart).");
+        if (broadcast)
+        {
+            var hubCtx = app.Services.GetService<IHubContext<SignalHub>>();
+            hubCtx?.Clients.All.SendAsync(HubMethod.OnScanIntervalChanged, clamped);
+        }
+    }
+
+    /// <summary>SignalHub.SetScanIntervalMs 의 영속화 훅 — PlcConnection.json 의 플랫 + 활성 벤더
+    /// 프로파일 스캔 주기를 갱신 저장. _appliedScanIntervalMs 를 먼저 맞춰 self-write 로 발화하는
+    /// ConfigChanged 가 no-op 이 되게 한다 (이중 적용/브로드캐스트 방지).</summary>
+    private void PersistScanInterval(int ms)
+    {
+        try
+        {
+            var session = AgentSession.TryLoad();
+            var plcPath = string.IsNullOrWhiteSpace(session?.PlcConnectionPath)
+                ? SharedPaths.PlcConnectionFilePath
+                : session!.PlcConnectionPath;
+            var settings = PlcConnectionSettings.LoadOrDefault(plcPath);
+            settings.ScanIntervalMs = ms;
+            if (settings.Profiles.TryGetValue(settings.Vendor, out var profile))
+                profile.ScanIntervalMs = ms;
+            _appliedScanIntervalMs = ms;
+            if (!settings.TrySave(plcPath))
+                Log.Warn($"PersistScanInterval: TrySave failed ({plcPath}) — live value applied, file not updated.");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("PersistScanInterval threw — live value applied, file not updated.", ex);
+        }
     }
 
     private async Task TryActivateAsync()
@@ -320,6 +409,12 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
 
             // 6) engine 기동 — Monitoring 은 passive(조건평가 OFF)지만 IO 주입 처리 루프를 위해, Control 은 능동 구동을 위해 Start.
             engine.Start();
+
+            // 7) 스캔 주기 라이브 동기화 배선 — hub SetScanIntervalMs 영속화 훅 + 활성 설정 지문 박제.
+            //    이후 ConfigChanged 가 "스캔 주기만 변경" 이면 재시작 없이 ApplyScanIntervalLive 경로.
+            SignalHub.PersistScanIntervalMs = PersistScanInterval;
+            (_appliedConfigFingerprint, _appliedScanIntervalMs) = ComputeConfigFingerprint();
+
             Log.Info($"Hub active: {BackendHost.getHubUrl(Port)} — mode={runtimeMode} engine status={engine.Status}");
         }
         finally
@@ -335,6 +430,7 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
         {
             if (_app is null) return;
             Log.Info("Stopping BackendHost (deactivate)...");
+            SignalHub.PersistScanIntervalMs = null;
             try { BackendHost.stop(_app); }
             catch (Exception ex) { Log.Warn("Exception during BackendHost.stop — ignoring.", ex); }
             _app = null;

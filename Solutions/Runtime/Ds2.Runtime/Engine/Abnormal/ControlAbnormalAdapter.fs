@@ -56,11 +56,8 @@ type ControlAbnormalAdapter
             match RuntimeSemantics.completionTrigger def apiCall with
             | RuntimeSemantics.WaitInput _
             | RuntimeSemantics.WaitInputStable _
-            | RuntimeSemantics.WaitInputEdge _
-            | RuntimeSemantics.WaitInputEdgeStable _
             | RuntimeSemantics.WaitInputLatched _ -> true
-            | RuntimeSemantics.WaitPassiveDuration _
-            | RuntimeSemantics.WaitPassiveDurationPlus _ -> false
+            | RuntimeSemantics.WaitOutputPlus _ -> false
 
     let goingMsOf (callId: Guid) =
         match goingClock.TryGetValue callId with
@@ -108,9 +105,11 @@ type ControlAbnormalAdapter
     member _.OnInputFalling(apiCallId: Guid, _nowMs: int) =
         match mappingOfApiCall apiCallId, apiCallAndDef apiCallId with
         | Some mapping, Some(_, def) when AbnormalDetector.canEvaluate store mapping.CallGuid def ->
+            // Normal(T) 감지 진행 중 off(채터링) = SensorOff abnormal (완료 취소는 ConditionChecker 의
+            // stable 메커니즘이 담당). Latch(T) 는 채터링 허용이라 falling 을 abnormal 로 보지 않는다.
             let requiresHeldInput =
                 match def.SensingType with
-                | SensingType.Real(Latched, _) -> true
+                | SensingType.Normal (Some _) -> true
                 | _ -> false
             let callId = mapping.CallGuid
             if requiresHeldInput && getCallState callId <> Status4.Ready then

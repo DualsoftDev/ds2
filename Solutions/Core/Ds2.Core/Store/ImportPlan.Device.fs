@@ -147,9 +147,9 @@ module internal ImportPlanDeviceOps =
                 // PendingWorks에서 매칭되는 Work가 있으면 연결 설정
                 match Map.tryFind key state.PendingWorks with
                 | Some work ->
-                    // Work가 있으면 v10 default (Real(Level, None)) 로 설정
-                    apiDef.ActionType <- ActionType.Real (Level, None)
-                    apiDef.SensingType <- SensingType.Real (Level, None)
+                    // Work가 있으면 기본 조합 (Normal None) 으로 설정
+                    apiDef.ActionType <- ActionType.Normal None
+                    apiDef.SensingType <- SensingType.Normal None
                     apiDef.TxGuid <- Some work.Id
                     apiDef.RxGuid <- Some work.Id
                 | None ->

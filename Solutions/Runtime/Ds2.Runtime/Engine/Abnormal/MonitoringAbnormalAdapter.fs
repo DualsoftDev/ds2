@@ -89,10 +89,11 @@ type MonitoringAbnormalAdapter
         | Some apiCall -> apiCall.ApiDefId |> Option.bind (fun defId -> Queries.getApiDef defId store)
         | None -> None
 
-    // Only Latched sensing promises that the input must remain active after detection.
+    // Normal(T) 감지는 T 구간 신호 유지가 약속 — 그 사이 falling = SensorOff/Open.
+    // Latch(T) 는 채터링 허용이라 falling 을 abnormal 로 보지 않는다.
     let requiresHeldInput (def: ApiDef) =
         match def.SensingType with
-        | SensingType.Real(Latched, _) -> true
+        | SensingType.Normal (Some _) -> true
         | _ -> false
 
     /// ILatchPolicy(Core) 경유 dedup 발행.

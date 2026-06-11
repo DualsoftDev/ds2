@@ -245,6 +245,11 @@ public sealed partial class SimulationHubBridge : ObservableObject
     /// SimulationPanelState 가 구독해 누적했다가 정지 시 사용자 선택으로 모델에 반영(dirty).</summary>
     public event Action<Ds2.Backend.Common.LearnedDurationPayload>? LearnedDurationReceived;
 
+    /// <summary>PLC 스캔 주기 동기화 — 연결 직후 GetScanIntervalMs pull + OnScanIntervalChanged push 수신 시 발화.
+    /// SimulationPanelState 가 구독해 PlcSettings.ScanIntervalMs 를 갱신 — Promaker/DSPilot 어느 쪽이
+    /// 바꿔도 양쪽 슬라이더가 같은 값을 본다.</summary>
+    public event Action<int>? ScanIntervalChanged;
+
     /// <summary>Promaker.Agent 가 호스팅하는 SignalHub 로부터 어댑터별 PLC 연결 상태 변화를 받았을 때 발화.
     /// 툴바/상태바가 구독해 "PLC 통신 실패" 라벨/툴팁을 갱신할 수 있다.
     /// 첫 PLAY 직후 OnConnectedAsync snapshot 으로 모든 어댑터의 초기 상태가 한 번씩 전달된다.</summary>

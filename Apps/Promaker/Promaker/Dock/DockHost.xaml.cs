@@ -179,7 +179,9 @@ public partial class DockHost : UserControl, IDockManager
     public void SetAnchorVisible(string contentId, bool visible)
     {
         var item = FindLayoutItem(contentId);
-        bool wasVisible = item.Parent != null;
+        // "보임" = 라이브 트리에 붙어 있음. RestoreLayout 가 트리를 교체하면 등록 인스턴스가
+        // 고아가 된 옛 트리에 Parent 를 가진 채 남을 수 있어 Parent != null 만으론 오판한다.
+        bool wasVisible = IsInLiveLayout(item);
         if (wasVisible == visible) return;
 
         switch (item)
@@ -187,8 +189,15 @@ public partial class DockHost : UserControl, IDockManager
             case LayoutAnchorable a:
                 if (visible)
                 {
-                    if (_defaultAnchorablePanes.TryGetValue(contentId, out var pane))
-                        pane.Children.Add(a);
+                    // 고아 트리의 옛 parent 에 붙어 있으면 분리 후 라이브 pane 으로 (단일-parent 제약).
+                    DetachFromParent(a);
+                    // 라이브 트리에 없는 pane 이면 default position 에 pane 을 확보(검색/생성) 후 재매핑.
+                    if (!_defaultAnchorablePanes.TryGetValue(contentId, out var pane) || !IsInLiveLayout(pane))
+                    {
+                        pane = EnsureLivePaneAt(_defaultPositions.TryGetValue(contentId, out var pos) ? pos : DockAnchorPosition.Left);
+                        _defaultAnchorablePanes[contentId] = pane;
+                    }
+                    pane.Children.Add(a);
                 }
                 else
                 {
@@ -200,7 +209,8 @@ public partial class DockHost : UserControl, IDockManager
             case LayoutDocument d:
                 if (visible)
                 {
-                    _documentPane.Children.Add(d);
+                    DetachFromParent(d);
+                    LiveDocumentPane().Children.Add(d);
                 }
                 else
                 {
@@ -214,7 +224,91 @@ public partial class DockHost : UserControl, IDockManager
         }
     }
 
-    public bool IsAnchorVisible(string contentId) => FindLayoutItem(contentId).Parent != null;
+    /// <summary>요소가 현재 표시 중인 layout 트리(_dockManager.Layout)에 붙어 있는지.</summary>
+    private bool IsInLiveLayout(ILayoutElement element) =>
+        ReferenceEquals(element.Root, _dockManager.Layout);
+
+    /// <summary>라이브 트리의 document pane — RestoreLayout 가 트리를 교체했으면 필드를 재캡처.</summary>
+    private LayoutDocumentPane LiveDocumentPane()
+    {
+        if (!IsInLiveLayout(_documentPane))
+        {
+            var live = _dockManager.Layout.Descendents().OfType<LayoutDocumentPane>().FirstOrDefault();
+            if (live is not null)
+                _documentPane = live;
+        }
+        return _documentPane;
+    }
+
+    /// <summary>
+    /// 라이브 트리에서 해당 position 의 pane 을 확보. 같은 position 의 다른 anchorable 이 이미 라이브 pane 에
+    /// 있으면 그 pane 을 재사용하고, 없으면 새 pane 을 만들어 default 자리(Left=루트 맨 앞, Right*=루트 맨 뒤
+    /// 세로 그룹, Bottom=document 그룹이 속한 세로 패널 끝)에 삽입한다.
+    /// </summary>
+    private LayoutAnchorablePane EnsureLivePaneAt(DockAnchorPosition position)
+    {
+        // 1) 같은 position 의 형제가 이미 라이브 pane 에 있으면 재사용.
+        foreach (var kv in _defaultPositions)
+        {
+            if (kv.Value != position) continue;
+            if (_itemsByContentId.TryGetValue(kv.Key, out var sibling)
+                && sibling.Parent is LayoutAnchorablePane siblingPane
+                && IsInLiveLayout(siblingPane))
+                return siblingPane;
+        }
+
+        var root = _dockManager.Layout;
+
+        // 2) 새 pane 생성 후 default 위치에 삽입.
+        switch (position)
+        {
+            case DockAnchorPosition.Left:
+                {
+                    var pane = new LayoutAnchorablePane { DockWidth = new GridLength(320) };
+                    root.RootPanel.Children.Insert(0, pane);
+                    _leftPane = pane;
+                    return pane;
+                }
+            case DockAnchorPosition.Bottom:
+                {
+                    var pane = new LayoutAnchorablePane { DockHeight = new GridLength(200) };
+                    // document 그룹이 속한 세로 패널 끝에 — XAML 박제 구조와 동일한 자리.
+                    var docPane = LiveDocumentPane();
+                    var centerPanel = docPane.FindParent<LayoutPanel>();
+                    if (centerPanel is not null) centerPanel.Children.Add(pane);
+                    else root.RootPanel.Children.Add(pane);
+                    _bottomPane = pane;
+                    return pane;
+                }
+            default:
+                {
+                    // Right* 3 단 — 라이브 트리에 우측 세로 그룹이 없으면 새로 만들어 루트 끝에 부착.
+                    var group = root.RootPanel.Children.OfType<LayoutAnchorablePaneGroup>()
+                        .LastOrDefault(g => g.Orientation == System.Windows.Controls.Orientation.Vertical);
+                    if (group is null)
+                    {
+                        group = new LayoutAnchorablePaneGroup
+                        {
+                            Orientation = System.Windows.Controls.Orientation.Vertical,
+                            DockWidth = new GridLength(280),
+                        };
+                        root.RootPanel.Children.Add(group);
+                    }
+                    var pane = new LayoutAnchorablePane();
+                    if (position == DockAnchorPosition.RightMiddle) pane.DockHeight = new GridLength(220);
+                    group.Children.Add(pane);
+                    switch (position)
+                    {
+                        case DockAnchorPosition.RightTop: _rightTopPane = pane; break;
+                        case DockAnchorPosition.RightMiddle: _rightMiddlePane = pane; break;
+                        default: _rightBottomPane = pane; break;
+                    }
+                    return pane;
+                }
+        }
+    }
+
+    public bool IsAnchorVisible(string contentId) => IsInLiveLayout(FindLayoutItem(contentId));
 
     /// <summary>
     /// PR-A3 — default 상태 캡쳐. 본 구현은 XmlLayoutSerializer 사용 안 함 — serializer 가 deserialize 시 새
@@ -365,11 +459,71 @@ public partial class DockHost : UserControl, IDockManager
             };
             using var fs = new FileStream(filepath, FileMode.Open, FileAccess.Read);
             serializer.Deserialize(fs);
+
+            // Deserialize 는 layout 트리를 **새 인스턴스들로 교체**한다 (callback 은 Content 만 재연결).
+            // 내부 레지스트리가 교체 전 XAML 인스턴스(고아)를 계속 가리키면 이후 SetAnchorVisible 이
+            // 화면에 안 보이는 객체만 조작하게 된다(Welcome 박제 버그) — 새 트리 기준으로 재캡처.
+            RecaptureFromRestoredLayout();
         }
         catch (Exception ex)
         {
             System.Diagnostics.Trace.TraceWarning($"DockHost.RestoreLayout failed for '{filepath}': {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// RestoreLayout 직후 — 복원된 라이브 트리에서 ContentId 로 항목을 다시 찾아
+    /// <see cref="_itemsByContentId"/>/<see cref="_defaultAnchorablePanes"/>/pane 필드를 재캡처.
+    /// XML 에 없던 항목(저장 당시 hidden)은 기존 인스턴스를 유지 — show 시
+    /// <see cref="EnsureLivePaneAt"/> fallback 이 라이브 pane 을 확보한다.
+    /// </summary>
+    private void RecaptureFromRestoredLayout()
+    {
+        var root = _dockManager.Layout;
+
+        var liveById = root.Descendents()
+            .OfType<LayoutContent>()
+            .Concat(root.Hidden)
+            .Where(lc => !string.IsNullOrEmpty(lc.ContentId))
+            .GroupBy(lc => lc.ContentId!, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+
+        foreach (var contentId in _itemsByContentId.Keys.ToList())
+        {
+            if (!liveById.TryGetValue(contentId, out var live)) continue;
+
+            var old = _itemsByContentId[contentId];
+            _itemsByContentId[contentId] = live;
+
+            // document 재배치 순서 보존용 리스트도 새 인스턴스로 교체.
+            if (old is LayoutDocument oldDoc && live is LayoutDocument liveDoc)
+            {
+                var idx = _defaultDocumentOrder.IndexOf(oldDoc);
+                if (idx >= 0) _defaultDocumentOrder[idx] = liveDoc;
+            }
+
+            // anchorable 이 라이브 pane 에 붙어 있으면 default pane 매핑 + 위치 필드 재캡처.
+            if (live is LayoutAnchorable { Parent: LayoutAnchorablePane livePane })
+            {
+                _defaultAnchorablePanes[contentId] = livePane;
+                if (_defaultPositions.TryGetValue(contentId, out var pos))
+                {
+                    switch (pos)
+                    {
+                        case DockAnchorPosition.Left: _leftPane = livePane; break;
+                        case DockAnchorPosition.Bottom: _bottomPane = livePane; break;
+                        case DockAnchorPosition.RightTop: _rightTopPane = livePane; break;
+                        case DockAnchorPosition.RightMiddle: _rightMiddlePane = livePane; break;
+                        case DockAnchorPosition.RightBottom: _rightBottomPane = livePane; break;
+                    }
+                }
+            }
+        }
+
+        // document pane 필드도 라이브 트리 기준으로.
+        var liveDocPane = root.Descendents().OfType<LayoutDocumentPane>().FirstOrDefault();
+        if (liveDocPane is not null)
+            _documentPane = liveDocPane;
     }
 
     /// <summary>

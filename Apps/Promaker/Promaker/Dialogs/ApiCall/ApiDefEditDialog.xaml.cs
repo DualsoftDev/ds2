@@ -17,8 +17,8 @@ public partial class ApiDefEditDialog : Window
     private readonly List<WorkDropdownItem> _workItems;
 
     public string ApiDefName { get; private set; } = string.Empty;
-    public ActionType ActionType { get; private set; } = ActionType.NewReal(SignalMode.Level, FSharpOption<TimePolicy>.None);
-    public SensingType SensingType { get; private set; } = SensingType.NewReal(SignalMode.Level, FSharpOption<TimePolicy>.None);
+    public ActionType ActionType { get; private set; } = ActionType.NewNormal(FSharpOption<int>.None);
+    public SensingType SensingType { get; private set; } = SensingType.NewNormal(FSharpOption<int>.None);
     public Guid? TxGuid { get; private set; }
     public Guid? RxGuid { get; private set; }
     public string Description { get; private set; } = string.Empty;
@@ -58,75 +58,100 @@ public partial class ApiDefEditDialog : Window
 
     private void ApplyActionTypeToRadio(ActionType action)
     {
-        if (action.IsReal)
+        if (action.IsNormal)
         {
-            var real = (ActionType.Real)action;
-            var hasMs = FSharpOption<TimePolicy>.get_IsSome(real.Item2);
-            var ms = hasMs ? real.Item2.Value.Ms : 0;
-            if (real.Item1 == SignalMode.Level && !hasMs)        ActionNormalRadio.IsChecked = true;
-            else if (real.Item1 == SignalMode.OneShot && !hasMs) ActionPulseRadio.IsChecked = true;
-            else if (real.Item1 == SignalMode.Latched && !hasMs) ActionSetRadio.IsChecked = true;
-            else if (real.Item1 == SignalMode.Level && hasMs)   { ActionTimeAppendRadio.IsChecked = true; ActionTimeAppendMsBox.Text = ms.ToString(); }
-            else if (real.Item1 == SignalMode.OneShot && hasMs) { ActionPulseHoldRadio.IsChecked = true; ActionPulseHoldMsBox.Text = ms.ToString(); }
+            ActionNormalRadio.IsChecked = true;
+            var t = ((ActionType.Normal)action).timeMs;
+            ActionNormalTimeCheck.IsChecked = FSharpOption<int>.get_IsSome(t);
+            if (FSharpOption<int>.get_IsSome(t)) ActionNormalMsBox.Text = t.Value.ToString();
         }
-        else
+        else if (action.IsPulse)
         {
-            // virtPlus(Virtual+Append) 제거됨 — Action Virtual 은 Append 유무와 무관하게 virt 로 표시.
-            //   구 모델의 Virtual(Some Append) 는 다음 저장 시 Virtual(None) 으로 정규화된다.
-            ActionVirtRadio.IsChecked = true;
+            ActionPulseRadio.IsChecked = true;
+            var t = ((ActionType.Pulse)action).timeMs;
+            ActionPulseTimeCheck.IsChecked = FSharpOption<int>.get_IsSome(t);
+            if (FSharpOption<int>.get_IsSome(t)) ActionPulseMsBox.Text = t.Value.ToString();
         }
+        else if (action.IsLatch) ActionLatchRadio.IsChecked = true;
+        else ActionVirtRadio.IsChecked = true;
     }
 
     private void ApplySensingTypeToRadio(SensingType sensing)
     {
-        if (sensing.IsReal)
+        if (sensing.IsNormal)
         {
-            var real = (SensingType.Real)sensing;
-            var hasMs = FSharpOption<TimePolicy>.get_IsSome(real.Item2);
-            var ms = hasMs ? real.Item2.Value.Ms : 0;
-            if (real.Item1 == SignalMode.Level && !hasMs)        SensingNormalRadio.IsChecked = true;
-            else if (real.Item1 == SignalMode.OneShot && !hasMs) SensingEdgeRadio.IsChecked = true;
-            else if (real.Item1 == SignalMode.Latched && !hasMs) SensingLatchedRadio.IsChecked = true;
-            else if (real.Item1 == SignalMode.Level && hasMs)   { SensingDebounceRadio.IsChecked = true; SensingDebounceMsBox.Text = ms.ToString(); }
-            else if (real.Item1 == SignalMode.OneShot && hasMs) { SensingEdgeStableRadio.IsChecked = true; SensingEdgeStableMsBox.Text = ms.ToString(); }
+            SensingNormalRadio.IsChecked = true;
+            var t = ((SensingType.Normal)sensing).timeMs;
+            SensingNormalTimeCheck.IsChecked = FSharpOption<int>.get_IsSome(t);
+            if (FSharpOption<int>.get_IsSome(t)) SensingNormalMsBox.Text = t.Value.ToString();
+        }
+        else if (sensing.IsLatch)
+        {
+            SensingLatchRadio.IsChecked = true;
+            SensingLatchMsBox.Text = ((SensingType.Latch)sensing).timeMs.ToString();
         }
         else
         {
-            var virt = (SensingType.Virtual)sensing;
-            if (FSharpOption<TimePolicy>.get_IsSome(virt.Item))
-            {
-                SensingVirtPlusRadio.IsChecked = true;
-                SensingVirtPlusMsBox.Text = virt.Item.Value.Ms.ToString();
-            }
-            else
-            {
-                SensingVirtRadio.IsChecked = true;
-            }
+            SensingVirtRadio.IsChecked = true;
+            SensingVirtMsBox.Text = ((SensingType.Virtual)sensing).timeMs.ToString();
         }
+    }
+
+    /// <summary>시간 사용 체크박스가 켜져 있으면 Some(ms), 아니면 None. 파싱 실패 시 false.</summary>
+    private bool TryReadTimeOption(CheckBox timeCheck, TextBox msBox, string label, out FSharpOption<int> timeMs)
+    {
+        timeMs = FSharpOption<int>.None;
+        if (timeCheck.IsChecked != true) return true;
+        if (!TryParsePositive(msBox.Text, out var ms))
+        {
+            DialogHelpers.Warn($"{label} 시간(ms) 값은 양의 정수여야 합니다.");
+            return false;
+        }
+        timeMs = FSharpOption<int>.Some(ms);
+        return true;
     }
 
     private bool TryReadActionType(out ActionType action)
     {
-        action = ActionType.NewReal(SignalMode.Level, FSharpOption<TimePolicy>.None);
-        if (ActionNormalRadio.IsChecked == true)        { action = ActionType.NewReal(SignalMode.Level, FSharpOption<TimePolicy>.None); return true; }
-        if (ActionPulseRadio.IsChecked == true)         { action = ActionType.NewReal(SignalMode.OneShot, FSharpOption<TimePolicy>.None); return true; }
-        if (ActionSetRadio.IsChecked == true)           { action = ActionType.NewReal(SignalMode.Latched, FSharpOption<TimePolicy>.None); return true; }
-        if (ActionTimeAppendRadio.IsChecked == true)    { if (!TryParsePositive(ActionTimeAppendMsBox.Text, out var ms))    { DialogHelpers.Warn("timeAppend ms 값은 양의 정수여야 합니다."); return false; } action = ActionType.NewReal(SignalMode.Level, FSharpOption<TimePolicy>.Some(TimePolicy.NewAppend(ms))); return true; }
-        if (ActionPulseHoldRadio.IsChecked == true)     { if (!TryParsePositive(ActionPulseHoldMsBox.Text, out var ms))     { DialogHelpers.Warn("pulseHold ms 값은 양의 정수여야 합니다."); return false; } action = ActionType.NewReal(SignalMode.OneShot, FSharpOption<TimePolicy>.Some(TimePolicy.NewAppend(ms))); return true; }
-        if (ActionVirtRadio.IsChecked == true)          { action = ActionType.NewVirtual(FSharpOption<TimePolicy>.None); return true; }
+        action = ActionType.NewNormal(FSharpOption<int>.None);
+        if (ActionNormalRadio.IsChecked == true)
+        {
+            if (!TryReadTimeOption(ActionNormalTimeCheck, ActionNormalMsBox, "Normal", out var t)) return false;
+            action = ActionType.NewNormal(t);
+            return true;
+        }
+        if (ActionPulseRadio.IsChecked == true)
+        {
+            if (!TryReadTimeOption(ActionPulseTimeCheck, ActionPulseMsBox, "Pulse", out var t)) return false;
+            action = ActionType.NewPulse(t);
+            return true;
+        }
+        if (ActionLatchRadio.IsChecked == true) { action = ActionType.Latch; return true; }
+        if (ActionVirtRadio.IsChecked == true)  { action = ActionType.Virtual; return true; }
         return true;
     }
 
     private bool TryReadSensingType(out SensingType sensing)
     {
-        sensing = SensingType.NewReal(SignalMode.Level, FSharpOption<TimePolicy>.None);
-        if (SensingNormalRadio.IsChecked == true)       { sensing = SensingType.NewReal(SignalMode.Level, FSharpOption<TimePolicy>.None); return true; }
-        if (SensingEdgeRadio.IsChecked == true)         { sensing = SensingType.NewReal(SignalMode.OneShot, FSharpOption<TimePolicy>.None); return true; }
-        if (SensingLatchedRadio.IsChecked == true)      { sensing = SensingType.NewReal(SignalMode.Latched, FSharpOption<TimePolicy>.None); return true; }
-        if (SensingDebounceRadio.IsChecked == true)     { if (!TryParsePositive(SensingDebounceMsBox.Text, out var ms))     { DialogHelpers.Warn("debounce ms 값은 양의 정수여야 합니다."); return false; } sensing = SensingType.NewReal(SignalMode.Level, FSharpOption<TimePolicy>.Some(TimePolicy.NewAppend(ms))); return true; }
-        if (SensingEdgeStableRadio.IsChecked == true)   { if (!TryParsePositive(SensingEdgeStableMsBox.Text, out var ms))   { DialogHelpers.Warn("edgeStable ms 값은 양의 정수여야 합니다."); return false; } sensing = SensingType.NewReal(SignalMode.OneShot, FSharpOption<TimePolicy>.Some(TimePolicy.NewAppend(ms))); return true; }
-        if (SensingVirtRadio.IsChecked == true)         { sensing = SensingType.NewVirtual(FSharpOption<TimePolicy>.None); return true; }
-        if (SensingVirtPlusRadio.IsChecked == true)     { if (!TryParsePositive(SensingVirtPlusMsBox.Text, out var ms))     { DialogHelpers.Warn("virtPlus ms 값은 양의 정수여야 합니다."); return false; } sensing = SensingType.NewVirtual(FSharpOption<TimePolicy>.Some(TimePolicy.NewAppend(ms))); return true; }
+        sensing = SensingType.NewNormal(FSharpOption<int>.None);
+        if (SensingNormalRadio.IsChecked == true)
+        {
+            if (!TryReadTimeOption(SensingNormalTimeCheck, SensingNormalMsBox, "Normal", out var t)) return false;
+            sensing = SensingType.NewNormal(t);
+            return true;
+        }
+        if (SensingLatchRadio.IsChecked == true)
+        {
+            if (!TryParsePositive(SensingLatchMsBox.Text, out var ms)) { DialogHelpers.Warn("Latch 시간(ms) 값은 양의 정수여야 합니다."); return false; }
+            sensing = SensingType.NewLatch(ms);
+            return true;
+        }
+        if (SensingVirtRadio.IsChecked == true)
+        {
+            if (!TryParsePositive(SensingVirtMsBox.Text, out var ms)) { DialogHelpers.Warn("Virtual 시간(ms) 값은 양의 정수여야 합니다."); return false; }
+            sensing = SensingType.NewVirtual(ms);
+            return true;
+        }
         return true;
     }
 
@@ -155,21 +180,7 @@ public partial class ApiDefEditDialog : Window
     private static bool TryParsePositive(string text, out int value)
         => int.TryParse(text, out value) && value > 0;
 
-    private void ActionTimeAppendRadio_Checked(object sender, RoutedEventArgs e)   => SetEnabled(ActionTimeAppendMsBox, true);
-    private void ActionTimeAppendRadio_Unchecked(object sender, RoutedEventArgs e) => SetEnabled(ActionTimeAppendMsBox, false);
-    private void ActionPulseHoldRadio_Checked(object sender, RoutedEventArgs e)    => SetEnabled(ActionPulseHoldMsBox, true);
-    private void ActionPulseHoldRadio_Unchecked(object sender, RoutedEventArgs e)  => SetEnabled(ActionPulseHoldMsBox, false);
-    private void SensingDebounceRadio_Checked(object sender, RoutedEventArgs e)    => SetEnabled(SensingDebounceMsBox, true);
-    private void SensingDebounceRadio_Unchecked(object sender, RoutedEventArgs e)  => SetEnabled(SensingDebounceMsBox, false);
-    private void SensingEdgeStableRadio_Checked(object sender, RoutedEventArgs e)  => SetEnabled(SensingEdgeStableMsBox, true);
-    private void SensingEdgeStableRadio_Unchecked(object sender, RoutedEventArgs e)=> SetEnabled(SensingEdgeStableMsBox, false);
-    private void SensingVirtPlusRadio_Checked(object sender, RoutedEventArgs e)    => SetEnabled(SensingVirtPlusMsBox, true);
-    private void SensingVirtPlusRadio_Unchecked(object sender, RoutedEventArgs e)  => SetEnabled(SensingVirtPlusMsBox, false);
-
-    private static void SetEnabled(TextBox? box, bool enabled)
-    {
-        if (box is not null) box.IsEnabled = enabled;
-    }
+    // ms 박스/시간 라디오 enable 은 전부 XAML ElementName 바인딩으로 처리 — 코드비하인드 핸들러 불필요.
 
     private void DigitOnly_PreviewTextInput(object sender, TextCompositionEventArgs e)
     {

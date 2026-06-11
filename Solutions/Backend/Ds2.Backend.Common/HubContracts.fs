@@ -32,6 +32,10 @@ module HubMethod =
     /// v12 자동 줄자 — Monitoring 이 device 별 OUT→In 실측을 학습해 산출한 duration(min/max/avg)을
     /// client(Promaker)로 push. client 는 모아 두었다가 정지 시 "업데이트" 선택하면 모델에 반영(dirty).
     let OnLearnedDuration = "OnLearnedDuration"
+    /// PLC 스캔 주기(ms) 변경 알림 — Server → All clients. Promaker/DSPilot 슬라이더가
+    /// SetScanIntervalMs 호출 → 게이트웨이 라이브 적용 + 영속화 후 전체 동기화용으로 발화.
+    [<Literal>]
+    let OnScanIntervalChanged = "OnScanIntervalChanged"
     /// Runtime remote command — session start.
     [<Literal>]
     let RuntimeStart = "RuntimeStart"

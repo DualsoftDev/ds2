@@ -108,14 +108,19 @@
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="120"/>
                         <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="120"/>
-                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <TextBlock Grid.Column="0" Text="Timeout (ms)" Style="{StaticResource LabelStyle}"/>
                     <TextBox  Grid.Column="1" x:Name="TimeoutBox" Style="{StaticResource FieldBoxStyle}"/>
                     <TextBlock Grid.Column="2" Text="Scan (ms)" Style="{StaticResource LabelStyle}"/>
-                    <TextBox  Grid.Column="3" x:Name="ScanBox" Style="{StaticResource FieldBoxStyle}"/>
+                    <Slider   Grid.Column="3" x:Name="ScanSlider" VerticalAlignment="Center"
+                              Minimum="10" Maximum="500" TickFrequency="10" IsSnapToTickEnabled="True"
+                              SmallChange="10" LargeChange="50"
+                              ToolTip="PLC 스캔 주기 (10~500ms, 10ms 단위). 모니터링 중에도 변경 즉시 반영됩니다."/>
+                    <TextBlock Grid.Column="4" Margin="8,0,0,0" VerticalAlignment="Center" MinWidth="48"
+                               Foreground="{DynamicResource PrimaryTextBrush}"
+                               Text="{Binding ElementName=ScanSlider, Path=Value, StringFormat={}{0:0} ms}"/>
                 </Grid>
 
                 <!-- LS 전용 -->

@@ -81,10 +81,10 @@ type ApiCall [<JsonConstructor>] internal (name) =
 and ApiDef [<JsonConstructor>] internal (name, parentId) =
     inherit DsChild(name, parentId)
 
-    /// v10 §3.2 D1 (WHEN · OUT) — 출력 시점 정책. 기본값 Real(Level, None) = 일반 coil.
-    [<AasxField("ActionType")>]  member val ActionType  : ActionType  = ActionType.Real (Level, None) with get, set
-    /// v10 §3.2 D3 (WHEN · IN) — 감지 시점 정책. 기본값 Real(Level, None) = 일반 contact.
-    [<AasxField("SensingType")>] member val SensingType : SensingType = SensingType.Real (Level, None) with get, set
+    /// 출력 시점 정책. 기본값 Normal None = 일반 coil (센서 감지 완료까지 유지).
+    [<AasxField("ActionType")>]  member val ActionType  : ActionType  = ActionType.Normal None with get, set
+    /// 감지 시점 정책. 기본값 Normal None = 일반 contact (감지 즉시 완료).
+    [<AasxField("SensingType")>] member val SensingType : SensingType = SensingType.Normal None with get, set
     [<AasxField("TxGuid")>]      member val TxGuid : Guid option = None  with get, set
     [<AasxField("RxGuid")>]      member val RxGuid : Guid option = None  with get, set
     [<AasxField("Description")>] member val Description : string option = None  with get, set

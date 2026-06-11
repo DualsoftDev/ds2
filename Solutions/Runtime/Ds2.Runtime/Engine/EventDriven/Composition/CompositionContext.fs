@@ -203,7 +203,8 @@ module internal EventDrivenCompositionContext =
                 |> Option.bind (fun apiDefId -> Queries.getApiDef apiDefId store)
                 |> Option.bind (fun apiDef ->
                     match apiDef.SensingType with
-                    | SensingType.Real (_, Some (Append n)) -> Some n
+                    | SensingType.Normal (Some n) -> Some n
+                    | SensingType.Latch n -> Some n
                     | _ -> None))
             |> function
                | [] -> 0
@@ -252,11 +253,17 @@ module internal EventDrivenCompositionContext =
                     |> Option.bind (fun (apiCall, apiDef) ->
                         let resetValue = RuntimeSemantics.resetOutputValue apiCall
                         match apiDef.ActionType with
-                        | ActionType.Real (Level, None) ->
+                        | ActionType.Normal None ->
+                            // 완료(센서 감지) 시 즉시 off.
                             Some (ResetNow (mapping.OutAddress, resetValue))
-                        | ActionType.Real (Level, Some (Append n)) ->
+                        | ActionType.Normal (Some n) ->
+                            // 완료 후 T(ms) 연장 출력 뒤 off — 다음 Call 진행과 병행(백그라운드).
                             Some (ResetAfter (mapping.OutAddress, n, resetValue))
-                        | _ ->
+                        | ActionType.Pulse _ ->
+                            // Pulse 는 발사 시점에 자체 off 스케줄 — Call 완료 reset 불필요.
+                            None
+                        | ActionType.Latch | ActionType.Virtual ->
+                            // Latch 는 같은 Device 의 다른 Api 호출(mutex)이 해제. Virtual 은 출력 없음.
                             None))
         WriteTag = fun address value ->
             match runtimeMode with
@@ -373,56 +380,10 @@ module internal EventDrivenCompositionContext =
         GetWorkCallGuids = fun workGuid -> SimIndex.findOrEmpty workGuid index.WorkCallGuids
         GetCallState = stateManager.GetCallState
         ApplyWorkTransition = applyWorkTransition
-        GetMaxSensingAppendMs = fun workGuid ->
-            let virtualAppendMs (apiDef: ApiDef) =
-                [
-                    match apiDef.ActionType with
-                    | ActionType.Virtual (Some (Append n)) -> yield n
-                    | _ -> ()
-                    match apiDef.SensingType with
-                    | SensingType.Virtual (Some (Append n)) -> yield n
-                    | _ -> ()
-                ]
-
-            let maxVirtualAppendMs apiDef =
-                virtualAppendMs apiDef
-                |> List.sortDescending
-                |> List.tryHead
-
-            // v10: Virtual(Some Append ms) 는 해당 completion Work 의 Duration+n 이다.
-            // Action/Sensing 양쪽 모두 같은 시간 축에 표시되므로 중복 합산하지 않고 max 로 처리한다.
-            // 일반 Device ApiDef 는 Tx/Rx Work 에 적용하고, Tx/Rx 가 없는 pure virtual wait 은 parent Work 에 적용한다.
-            let boundAppend =
-                index.Store.ApiDefs.Values
-                |> Seq.choose (fun apiDef ->
-                    let isCompletionWork =
-                        apiDef.RxGuid = Some workGuid
-                        || (apiDef.RxGuid.IsNone && apiDef.TxGuid = Some workGuid)
-                    if isCompletionWork then
-                        maxVirtualAppendMs apiDef
-                    else
-                        None)
-                |> Seq.toList
-
-            let callGuids = SimIndex.findOrEmpty workGuid index.WorkCallGuids
-            let store = index.Store
-            let unboundAppend =
-                callGuids
-                |> List.collect (fun callGuid ->
-                    SimIndex.findOrEmpty callGuid index.CallApiCallGuids
-                    |> List.choose (fun apiCallId ->
-                        Queries.getApiCall apiCallId store
-                        |> Option.bind (fun apiCall -> apiCall.ApiDefId)
-                        |> Option.bind (fun apiDefId -> Queries.getApiDef apiDefId store)
-                        |> Option.bind (fun apiDef ->
-                            if apiDef.TxGuid.IsNone && apiDef.RxGuid.IsNone then
-                                maxVirtualAppendMs apiDef
-                            else
-                                None)))
-            boundAppend @ unboundAppend
-            |> function
-               | [] -> 0
-               | xs -> List.max xs
+        GetMaxSensingAppendMs = fun _ ->
+            // 구 v10 Virtual(Some Append) 의 Duration+T 연장 경로 — 새 모델에서 소멸.
+            // SensingType.Virtual(T) 는 WaitOutputPlus(출력 발생 + T) 가 완료를 직접 결정한다.
+            0
         IsSensingAppendApplied = fun workGuid ->
             match sensingAppendApplied.TryGetValue(workGuid) with
             | true, v -> v

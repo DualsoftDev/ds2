@@ -162,8 +162,8 @@ module internal DirectDeviceOps =
                 let apiDef = ApiDef(apiName, system.Id)
                 match Map.tryFind key state.PendingWorks with
                 | Some work ->
-                    apiDef.ActionType <- ActionType.Real (Level, None)
-                    apiDef.SensingType <- SensingType.Real (Level, None)
+                    apiDef.ActionType <- ActionType.Normal None
+                    apiDef.SensingType <- SensingType.Normal None
                     apiDef.TxGuid <- Some work.Id
                     apiDef.RxGuid <- Some work.Id
                 | None -> ()

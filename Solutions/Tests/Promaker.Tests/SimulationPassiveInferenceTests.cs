@@ -1426,8 +1426,8 @@ public sealed class SimulationPassiveInferenceTests
         store.UpdateApiDef(
             apiDefId,
             name,
-            ActionType.NewReal(SignalMode.Level, FSharpOption<TimePolicy>.None),
-            SensingType.NewReal(SignalMode.Level, FSharpOption<TimePolicy>.None),
+            ActionType.NewNormal(FSharpOption<int>.None),
+            SensingType.NewNormal(FSharpOption<int>.None),
             FSharpOption<Guid>.Some(deviceWorkId),
             FSharpOption<Guid>.Some(deviceWorkId),
             "");

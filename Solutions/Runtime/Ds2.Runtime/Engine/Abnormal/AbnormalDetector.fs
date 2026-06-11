@@ -67,8 +67,8 @@ module AbnormalDetector =
 
     let isPhysicalSensing (def: ApiDef) : bool =
         match def.SensingType with
-        | SensingType.Real _ -> true
         | SensingType.Virtual _ -> false
+        | _ -> true
 
     // --- observed clock / timing quality (R7) ---
 

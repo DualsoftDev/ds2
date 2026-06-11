@@ -65,8 +65,8 @@ public sealed class PlcVendorProfile
 /// </summary>
 public sealed class PlcConnectionSettings
 {
-    public const int DefaultScanIntervalMs = 50;
-    private const int PreviousDefaultScanIntervalMs = 100;
+    public const int DefaultScanIntervalMs = 100;
+    private const int PreviousDefaultScanIntervalMs = 50;
 
     public string Vendor { get; set; } = nameof(PlcVendorChoice.LsXgi);
     public string Name { get; set; } = "PLC#1";

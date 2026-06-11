@@ -84,11 +84,16 @@ type PlcScanService(gateway: IPlcGateway, broadcaster: IPlcHubBroadcaster) =
             if not gateway.IsEnabled then
                 return ()
             else
-                let interval =
-                    gateway.MinScanInterval
-                    |> Option.defaultValue (TimeSpan.FromMilliseconds 100.0)
+                // 매 iteration 재평가 — Hub SetScanIntervalMs / 설정 파일 변경의 라이브 오버라이드를
+                // 재시작 없이 즉시 반영한다.
+                let effectiveInterval () =
+                    match gateway.ScanIntervalOverrideMs with
+                    | Some ms when ms > 0 -> TimeSpan.FromMilliseconds(float ms)
+                    | _ ->
+                        gateway.MinScanInterval
+                        |> Option.defaultValue (TimeSpan.FromMilliseconds 100.0)
 
-                log.Info($"PLC scan loop entering (interval={interval.TotalMilliseconds}ms)")
+                log.Info($"PLC scan loop entering (interval={(effectiveInterval ()).TotalMilliseconds}ms)")
 
                 while not stoppingToken.IsCancellationRequested do
                     let scanStartedAt = Stopwatch.GetTimestamp()
@@ -103,7 +108,7 @@ type PlcScanService(gateway: IPlcGateway, broadcaster: IPlcHubBroadcaster) =
                     | ex -> log.Error($"Scan iteration threw: {ex.Message}")
 
                     let elapsed = Stopwatch.GetElapsedTime(scanStartedAt)
-                    let remaining = interval - elapsed
+                    let remaining = effectiveInterval () - elapsed
                     if remaining > TimeSpan.Zero && not stoppingToken.IsCancellationRequested then
                         try do! Task.Delay(remaining, stoppingToken)
                         with :? OperationCanceledException -> ()
