@@ -32,7 +32,8 @@
                 <StackPanel Orientation="Horizontal">
                     <!--
                         Monitoring + 실 PLC 모드(IsAgentDelegationMode) 에서는:
-                          - 시작 전: Play 아이콘 + "Agent 전송" (StartSimulationCommand) — active.flag 기록 + 모니터링 + DSPilot 대시보드.
+                          - 시작 전: Play 아이콘 + "모니터링 시작" (StartSimulationCommand) — Agent Hub 에 접속만 한다.
+                            모델/PLC 설정 업로드(active.flag 기록)는 '저장 ▸ Agent에 업로드' 가 전담.
                           - 시작 후: Stop 아이콘 + "정지" (StopSimulationCommand) 로 토글.
                             "정지" 는 Promaker 화면만 끄고 active.flag 유지 → Agent 는 계속 동작(sticky).
                         그 외 모드(Simulation / Control 등) 는 기존 Play↔Stop 토글 유지.
@@ -150,7 +151,7 @@
                                                 <Setter Property="Text" Value="STOP"/>
                                             </MultiDataTrigger>
                                             <DataTrigger Binding="{Binding Simulation.IsAgentDelegationMode}" Value="True">
-                                                <Setter Property="Text" Value="Agent 전송"/>
+                                                <Setter Property="Text" Value="모니터링 시작"/>
                                             </DataTrigger>
                                             <MultiDataTrigger>
                                                 <MultiDataTrigger.Conditions>
@@ -685,7 +686,7 @@
                           Margin="0,4,0,0"
                           HorizontalAlignment="Center"
                           Foreground="{DynamicResource PrimaryTextBrush}"
-                          ToolTip="모니터링 시작(Agent 전송) 시 DSPilot 웹 대시보드를 자동으로 엽니다. 끄면 모니터링만 시작합니다."/>
+                          ToolTip="모니터링 시작 시 DSPilot 웹 대시보드를 자동으로 엽니다. 끄면 모니터링만 시작합니다."/>
             </StackPanel>
         </StackPanel>
 

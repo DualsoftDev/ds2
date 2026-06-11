@@ -40,68 +40,90 @@ public partial class MainViewModel
     }
 
     /// <summary>
-    /// Promaker · DSPilot 공유 경로 (%ProgramData%\DualSoft\Shared\project.aasx) 로 AASX 저장.
-    /// DSPilot 서비스가 같은 경로를 읽으므로 별도 업로드/설정 없이 모델이 동기화된다.
+    /// 'Agent에 업로드' — 모델(AASX)을 Promaker · DSPilot 공유 경로
+    /// (%ProgramData%\DualSoft\Shared\project.aasx) 로 저장하고, PLC 설정과 함께 Promaker.Agent
+    /// 모니터링 세션(session.json + active.flag)을 기록한다. Agent 는 파일 변경을 감지해
+    /// 새 모델/설정으로 (재)시작하고, DSPilot 도 같은 경로를 읽어 동기화된다.
+    /// 모니터링 PLAY 는 업로드 없이 Agent Hub 접속만 한다 — 업로드는 이 명령이 유일한 경로.
     /// 폴더가 없으면 자동 생성 (인스톨러가 보장하지만 클린 환경 대비).
     /// </summary>
     [RelayCommand(CanExecute = nameof(HasProject))]
     private void SaveToSharedLocation()
     {
-        try
+        // 업로드 전 현재 파일 저장 선행 — 새 프로젝트(경로 없음)면 다른 이름으로 저장 다이얼로그가 뜨고,
+        // 취소하면 업로드도 중단. 업로드본과 사용자 파일이 어긋난 채 배포되는 것을 방지.
+        if (!TrySaveFile())
         {
-            Directory.CreateDirectory(SharedPaths.SharedDirectory);
-        }
-        catch (Exception ex)
-        {
-            Log.Error($"공유 폴더 생성 실패: {SharedPaths.SharedDirectory}", ex);
-            _dialogService.ShowWarning($"공유 폴더를 만들 수 없습니다:\n{SharedPaths.SharedDirectory}\n\n{ex.Message}");
+            StatusText = "Agent 업로드 취소 — 파일 저장이 선행되어야 합니다.";
             return;
         }
 
-        var ok = SaveToPath(SharedPaths.AasxFilePath);
-        if (ok)
+        // 대상 결정: ◎로컬(이 머신 공유폴더) ○네트워크(특정 IP — 구조만, 미구현 안내).
+        if (!AgentModelTransfer.TryResolveAasxPath(CurrentAgentTransferTarget, out var targetAasxPath, out var targetError))
         {
-            RecentFilesManager.AddRecentFile(SharedPaths.AasxFilePath);
-            _dispatcher.InvokeAsync(LoadRecentFiles);
-            StatusText = $"DSPilot 공유 경로에 저장됨: {SharedPaths.AasxFilePath}";
-        }
-    }
-
-    /// <summary>
-    /// Hub 모드(Control/VirtualPlant/Monitoring) 시뮬레이션 시작 직전에 호출되는 자동 publish.
-    /// 현재 store 를 DSPilot 공유 AASX 경로로 silent export — 다이얼로그/StatusText 변경 없음.
-    /// 호출자(SimulationPanelState)가 실패 로그를 sim event log 로 남긴다.
-    /// </summary>
-    internal bool TryPublishAasxToSharedForDspilot()
-    {
-        if (!HasProject)
-            return false;
-
-        try
-        {
-            Directory.CreateDirectory(SharedPaths.SharedDirectory);
-        }
-        catch (Exception ex)
-        {
-            Log.Error($"공유 폴더 생성 실패 (auto publish): {SharedPaths.SharedDirectory}", ex);
-            return false;
+            _dialogService.ShowWarning(targetError);
+            return;
         }
 
         try
         {
-            var exported = AasxExporter.exportFromStore(
-                _store, SharedPaths.AasxFilePath, AppSettings.IriPrefix, AppSettings.SplitDeviceAasx, AppSettings.CreateDefaultEntitiesOnEmptyAasx);
-            if (exported)
-                Log.Info($"AASX auto-published to DSPilot shared path: {SharedPaths.AasxFilePath}");
-            else
-                Log.Warn($"AASX auto-publish: no project to export ({SharedPaths.AasxFilePath})");
-            return exported;
+            Directory.CreateDirectory(Path.GetDirectoryName(targetAasxPath)!);
         }
         catch (Exception ex)
         {
-            Log.Error($"AASX auto-publish 실패: {SharedPaths.AasxFilePath}", ex);
-            return false;
+            Log.Error($"공유 폴더 생성 실패: {targetAasxPath}", ex);
+            _dialogService.ShowWarning($"공유 폴더를 만들 수 없습니다:\n{targetAasxPath}\n\n{ex.Message}");
+            return;
         }
+
+        // 조용한 export — SaveToPath/CompleteSave 를 타면 _currentFilePath 가 공유 경로로 바뀌어
+        // 이후 Ctrl+S 가 사용자의 원본 파일이 아닌 공유 AASX 로 가버린다. 업로드는 부수 내보내기일 뿐
+        // 작업 파일 전환이 아니므로 현재 열린 파일/타이틀/IsDirty 를 건드리지 않는다.
+        bool exported;
+        try
+        {
+            exported = AasxExporter.exportFromStore(
+                _store, targetAasxPath,
+                AppSettings.IriPrefix, AppSettings.SplitDeviceAasx, AppSettings.CreateDefaultEntitiesOnEmptyAasx);
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"Agent 업로드용 AASX export 실패: {targetAasxPath}", ex);
+            _dialogService.ShowWarning($"공유 경로 AASX 저장 실패:\n{ex.Message}");
+            return;
+        }
+        if (!exported)
+        {
+            _dialogService.ShowWarning("내보낼 프로젝트가 없습니다.");
+            return;
+        }
+
+        // PLC 설정 검증 + 공유 경로 저장 — Agent 가 같은 PlcConnection.json 을 읽어 게이트웨이를 구성한다.
+        // 검증 실패면 AASX 까지만 저장 (DSPilot 동기화는 유효) — Agent 세션은 기록하지 않는다.
+        var plcConfig = Simulation.BuildPlcGatewayConfig(out var errors);
+        if (plcConfig is null)
+        {
+            _dialogService.ShowWarning(
+                "PLC 설정 검증 실패 — 모델(AASX)은 저장됐지만 Agent 세션은 기록하지 않았습니다:\n  - "
+                + string.Join("\n  - ", errors));
+            StatusText = "Agent 업로드 실패 — PLC 설정 오류";
+            return;
+        }
+        Simulation.PlcSettings.Save();
+
+        // session.RuntimeMode 로 Agent 가 engine 모드를 결정 — Control 이면 read-write, 그 외 read-only.
+        var modeName = Simulation.SelectedRuntimeMode == Ds2.Core.RuntimeMode.Control ? "Control" : "Monitoring";
+        var session = Promaker.Shared.AgentSession.ForCurrentDefaults(requestedBy: "promaker", runtimeMode: modeName);
+        if (!session.TryWrite())
+        {
+            _dialogService.ShowWarning("Agent 세션 기록 실패 — 공유 폴더 권한을 확인하세요.");
+            StatusText = "Agent 업로드 실패 — 세션 기록 불가";
+            return;
+        }
+
+        StatusText = SimulationHubBridge.IsAgentAvailable
+            ? $"Agent에 업로드됨 ({modeName}): {targetAasxPath}"
+            : "Agent에 업로드됨 — Agent 서비스 미실행, 서비스 시작 시 자동 적용";
     }
 
     private bool TrySaveFileAs()

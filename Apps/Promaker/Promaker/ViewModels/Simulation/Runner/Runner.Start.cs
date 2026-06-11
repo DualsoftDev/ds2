@@ -34,38 +34,6 @@ public partial class SimulationPanelState
             return;
         }
 
-        // Agent 위임 모드 + 이미 모니터링 중 — "Agent 전송" 재누름을 설정 갱신 명령으로 해석.
-        // (CanStartSimulation 이 IsSimulating 중 이 경로를 막으므로 실제로는 도달하지 않지만 안전망으로 유지.)
-        // 자체 엔진/Hub 를 끊지 않고: AASX 재발행 + active.flag 재기록 → Agent 가 새 설정으로 재시작.
-        if (IsAgentDelegationMode && IsSimulating)
-        {
-            try
-            {
-                if (PublishAasxForHubMode is not null)
-                {
-                    try { PublishAasxForHubMode(); }
-                    catch (Exception ex)
-                    {
-                        AddSimLog($"DSPilot 공유 AASX 재발행 실패 (갱신 계속): {ex.Message}", LogSeverity.Warn);
-                    }
-                }
-
-                // PLC 설정 다이얼로그가 이미 저장하지만, 사용자가 우회로 PlcSettings 만 바꾼 케이스 보강.
-                PlcSettings.Save();
-
-                var session = AgentSession.ForCurrentDefaults(requestedBy: "promaker");
-                if (session.TryWrite())
-                    AddSimLog("Agent 모니터링 갱신 명령 전송 — 새 PLC/AASX 설정 적용 중", LogSeverity.System);
-                else
-                    AddSimLog("Agent 갱신 명령 기록 실패 — 공유 폴더 권한을 확인하세요.", LogSeverity.Error);
-            }
-            catch (Exception ex)
-            {
-                AddSimLog($"Agent 갱신 전송 중 예외: {ex.Message}", LogSeverity.Error);
-            }
-            return;
-        }
-
         try
         {
             var index = SimIndexModule.build(Store, 10);
@@ -118,27 +86,9 @@ public partial class SimulationPanelState
             if (!TryDisposeCurrentEngine("Simulation restart"))
                 return;
 
-            // Agent 위임 모드 (Monitoring + 실 PLC) 진입 직전 — 현재 store 를 DSPilot 공유 AASX 경로에 자동 export.
-            // Promaker.Agent (SYSTEM) 이 같은 파일을 IOMap 빌드용으로 읽고 DSPilot 이 dspFlow/dspCall 적재 →
-            // "Agent 전송" 한 번에 두 소비자가 같은 모델을 보게 된다.
-            // Control / VirtualPlant / Monitoring(가상 PLC) 에서는 BackendHost 가 없어 DSPilot 실시간 데이터가
-            // 비어 있으므로 publish 의 실효 가치 없음 — 광역 publish 는 false 외부변경 알림과 디스크 IO 만 유발.
-            // 실패해도 시뮬 시작은 막지 않음 — DSPilot 동기화는 부가 기능.
-            if (IsAgentDelegationMode && PublishAasxForHubMode is not null)
-            {
-                try
-                {
-                    var published = PublishAasxForHubMode();
-                    if (!published)
-                        AddSimLog("DSPilot 공유 경로 AASX 자동 저장 건너뜀 (프로젝트 없음/저장 실패)", LogSeverity.Warn);
-                }
-                catch (Exception ex)
-                {
-                    AddSimLog($"DSPilot 공유 경로 AASX 자동 저장 실패: {ex.Message}", LogSeverity.Warn);
-                }
-            }
-
             // Hub 시작/연결 (Simulation 모드 이외)
+            // Agent 위임 모드(Monitoring/Control + 실 PLC)에서 PLAY 는 업로드가 아니다 —
+            // 모델/설정 업로드는 '저장 ▸ Agent에 업로드' 가 전담하고, 여기서는 Agent Hub 에 접속만 한다.
             if (!Hub.TryStart())
                 return;
 

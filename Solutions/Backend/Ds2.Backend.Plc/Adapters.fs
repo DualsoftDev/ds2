@@ -119,21 +119,32 @@ module LsAdapter =
             member _.ConnectAsync () =
                 task {
                     try
-                        let! _ = connector.ConnectAsync()
-                        connected <- true
-                        return true
+                        // LsConnector.ConnectAsync 는 실패를 예외가 아니라 Result.Error 로 반환한다
+                        // (내부 establishConnection 이 소켓 예외를 흡수). Error 를 버리면 단절 상태가
+                        // "연결 성공"으로 둔갑해 가짜 연결됨/통신실패 플래핑이 생긴다 — 반드시 match.
+                        match! connector.ConnectAsync() with
+                        | Ok () ->
+                            connected <- true
+                            return true
+                        | Error msg ->
+                            log.Warn($"LS [{cfg.Name}] ConnectAsync failed: {msg}")
+                            connected <- false
+                            return false
                     with ex ->
-                        log.Error($"LS [{cfg.Name}] ConnectAsync failed: {ex.Message}")
+                        log.Error($"LS [{cfg.Name}] ConnectAsync threw: {ex.Message}")
                         connected <- false
                         return false
                 }
             member _.DisconnectAsync () =
                 task {
+                    // disconnect 는 실패해도 어댑터 상태는 단절로 본다 — 좀비 connected 방지.
+                    connected <- false
                     try
-                        let! _ = connector.DisconnectAsync()
-                        connected <- false
+                        match! connector.DisconnectAsync() with
+                        | Ok () -> ()
+                        | Error msg -> log.Warn($"LS [{cfg.Name}] DisconnectAsync: {msg}")
                     with ex ->
-                        log.Warn($"LS [{cfg.Name}] DisconnectAsync: {ex.Message}")
+                        log.Warn($"LS [{cfg.Name}] DisconnectAsync threw: {ex.Message}")
                 }
             member _.ReadTag (tag) =
                 try

@@ -88,7 +88,24 @@
                             <Popup IsOpen="{Binding IsChecked, ElementName=OpenMenuToggle, Mode=TwoWay}" StaysOpen="False" Placement="Bottom" PlacementTarget="{Binding ElementName=OpenMenuToggle}" DataContext="{Binding DataContext, ElementName=ThisControl}">
                                 <Border Background="{DynamicResource SecondaryBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="4" MinWidth="300" MaxWidth="500">
                                     <StackPanel>
-                                        <TextBlock Text="최근 파일" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,8" Foreground="{DynamicResource PrimaryTextBrush}"/>
+                                        <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenFromAgentCommand}" Click="CloseOpenPopup" ToolTip="Agent 공유폴더의 모델(AASX)을 불러옵니다."><TextBlock Text="Agent에서 가져오기"/></Button>
+                                        <TextBlock Text="Agent 대상" FontSize="10" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                        <RadioButton GroupName="OpenAgentTarget" Content="로컬" Margin="8,0,8,2"
+                                                     Foreground="{DynamicResource PrimaryTextBrush}"
+                                                     IsChecked="{Binding AgentTransferIsLocal, Mode=TwoWay}"
+                                                     ToolTip="이 머신의 공유폴더 (%ProgramData%\DualSoft\Shared)"/>
+                                        <StackPanel Orientation="Horizontal" Margin="8,0,8,4">
+                                            <RadioButton GroupName="OpenAgentTarget" Content="네트워크" VerticalAlignment="Center"
+                                                         Foreground="{DynamicResource PrimaryTextBrush}"
+                                                         IsChecked="{Binding AgentTransferIsNetwork, Mode=TwoWay}"
+                                                         ToolTip="특정 IP 의 원격 Agent 공유폴더 (준비 중)"/>
+                                            <TextBox Width="110" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                     Text="{Binding AgentTransferIp, UpdateSourceTrigger=PropertyChanged}"
+                                                     IsEnabled="{Binding AgentTransferIsNetwork}"
+                                                     ToolTip="원격 Agent IP 주소"/>
+                                        </StackPanel>
+                                        <Border Height="1" Background="{DynamicResource BorderBrush}" Margin="4,2,4,6"/>
+                                        <TextBlock Text="최근 파일" FontSize="11" FontWeight="SemiBold" Margin="8,0,8,8" Foreground="{DynamicResource PrimaryTextBrush}"/>
                                         <ItemsControl ItemsSource="{Binding RecentFiles}">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
@@ -136,7 +153,23 @@
                                 <Border Background="{DynamicResource SecondaryBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="4" MinWidth="220">
                                     <StackPanel>
                                         <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding SaveFileAsCommand}" Click="CloseSavePopup"><TextBlock Text="{x:Static res:Strings.SaveAs}"/></Button>
-                                        <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding SaveToSharedLocationCommand}" Click="CloseSavePopup" ToolTip="%ProgramData%\DualSoft\Shared\project.aasx 로 저장합니다. DSPilot 서비스가 같은 경로를 읽어 자동 동기화됩니다."><TextBlock Text="공유 위치에 저장 (DSPilot 동기화)"/></Button>
+                                        <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding SaveToSharedLocationCommand}" Click="CloseSavePopup" ToolTip="현재 파일을 저장한 뒤, 모델(AASX)을 공유폴더에 내보내고 PLC 설정과 함께 Promaker.Agent 모니터링 세션을 업로드합니다. Agent/DSPilot 이 새 모델·설정으로 동기화됩니다."><TextBlock Text="Agent에 업로드"/></Button>
+                                        <Border Height="1" Background="{DynamicResource BorderBrush}" Margin="4,4,4,4"/>
+                                        <TextBlock Text="Agent 대상" FontSize="10" FontWeight="SemiBold" Margin="8,0,8,4" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                        <RadioButton GroupName="SaveAgentTarget" Content="로컬" Margin="8,0,8,2"
+                                                     Foreground="{DynamicResource PrimaryTextBrush}"
+                                                     IsChecked="{Binding AgentTransferIsLocal, Mode=TwoWay}"
+                                                     ToolTip="이 머신의 공유폴더 (%ProgramData%\DualSoft\Shared)"/>
+                                        <StackPanel Orientation="Horizontal" Margin="8,0,8,4">
+                                            <RadioButton GroupName="SaveAgentTarget" Content="네트워크" VerticalAlignment="Center"
+                                                         Foreground="{DynamicResource PrimaryTextBrush}"
+                                                         IsChecked="{Binding AgentTransferIsNetwork, Mode=TwoWay}"
+                                                         ToolTip="특정 IP 의 원격 Agent 공유폴더 (준비 중)"/>
+                                            <TextBox Width="110" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                     Text="{Binding AgentTransferIp, UpdateSourceTrigger=PropertyChanged}"
+                                                     IsEnabled="{Binding AgentTransferIsNetwork}"
+                                                     ToolTip="원격 Agent IP 주소"/>
+                                        </StackPanel>
                                     </StackPanel>
                                 </Border>
                             </Popup>
