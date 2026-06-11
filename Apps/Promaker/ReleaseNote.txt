@@ -1,6 +1,41 @@
 # Promaker Release Notes
 
 --------------------------------------------------
+[v0.1.11] 2026-06-10 19:51:00
+Previous: vPromaker_0.1.10
+--------------------------------------------------
+Promaker v0.1.11 배포
+
+- 모니터링 (실 PLC)
+  - PLC 블록 batch read 도입 — 영역그룹 청크로 scan 시간 단축 + 동일시점 스냅샷 보장
+  - LWord pack read 전환 + 엔진시계 실시간 stamp — 신호 누락·간트 왜곡 해소
+  - IN 펄스 포착 + IN-before-OUT race 정합 — 실 PLC 신호 누락/오탐 수정
+  - passive Call 상태 전체 Out/In 판정 복원 + Call SequenceLabel(Head/Tail) 도입
+- 이상감지 (abnormal v12)
+  - v12 spec 정합 — SensorOpen/SensorShort/ActionUnder/ActionOver 판정 + 정책 훅/게이팅
+  - Under/Over 사이클별 즉시 재검출, 늦은 over 제거
+  - Work 속성 편집기에 abnormal Min/Max 인라인 입력 추가 (공란=미사용)
+  - 자동 줄자 — Monitoring 실측 duration 학습 → 모델 반영
+- 시뮬레이션/간트
+  - 속도 변경 시 동작시간 점프·끊김 해소 (SimClock 보간 갱신, #198)
+  - 간트 I/O 시각화 정비 + 시각축 정합
+  - I/O 미설정 모델도 Simulation 모드 시뮬 허용
+- 편집기 UI
+  - Add Call 고급 검색 ApiName 자동 채움 + 타이핑 중 강제 자동완성 제거 (#149)
+  - Flow rename 전파 — 2D 캔버스 라벨·3D 뷰·Undo/Redo·자식 탭 title 재동기화 (#124)
+  - Duration 일괄 편집에 min/max 일괄 설정 추가
+  - 수동 운전 다이얼로그 헤더 깨짐 수정 (#196), Properties 휠스크롤 예외 해소 (#195)
+  - 설정 다이얼로그 AASX·PLC·프리셋 탭 제거 (#191), 유틸 메뉴에 AASX 에디터 열기 추가 (#154)
+  - Ds 샘플 만들기 버튼 추가, 트리 더블클릭 캔버스 좌상단 정렬, 캔버스 클릭 시 이동 기록 방지
+- 입출력/변환
+  - XGK 슬롯 구성 JSON 내보내기/가져오기 + 비배열 입력 안전 처리 (#180)
+  - Mermaid import 지원 (기존 flow 에 system 단위 반입)
+  - UserTag 알림 실시간 통지 — 탭 총알림·시계열 추이 갱신 (#176)
+- 구성 변경
+  - LLM Chat 기능 제거 (별도 App 으로 분리 예정) — 이번 인스톨러는 AI(LightHouse) 컴포넌트 미포함
+  - PLC 통신 라이브러리(Ev2) 갱신 + S7/AB 프로토콜 어셈블리 참조 추가
+
+--------------------------------------------------
 [v0.1.10] 2026-06-03 16:20:05
 Previous: vPromaker_0.1.9
 --------------------------------------------------

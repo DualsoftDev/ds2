@@ -28,11 +28,13 @@
     <Compile Include="RuntimeCommandPolicyTests.fs" />
     <Compile Include="SimulationCommandFacadeTests.fs" />
     <Compile Include="TagWizardBaseAddressTests.fs" />
+    <Compile Include="LsPackReadTests.fs" />
     <Compile Include="HubConnectionDiagnosticTests.fs" />
     <Compile Include="HubSourceTests.fs" />
     <Compile Include="PlcBatchReadBufferTests.fs" />
     <Compile Include="RemoteSimulationEngineSnapshotTests.fs" />
     <Compile Include="RuntimeModeTransitionTests.fs" />
+    <Compile Include="EngineRealTimeClockTests.fs" />
     <Compile Include="StepPrimingPlanTests.fs" />
     <Compile Include="BasicMacroIoTests.fs" />
     <Compile Include="SystemTypePresetTests.fs" />
@@ -61,6 +63,9 @@
   <ItemGroup>
     <Reference Include="Ev2.PLC.Common.FS">
       <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Common.FS.dll</HintPath>
+    </Reference>
+    <Reference Include="Dual.Common.Base.FS">
+      <HintPath>..\..\..\ExternalDlls\Dual.Common.Base.FS.dll</HintPath>
     </Reference>
     <ProjectReference Include="..\..\Core\Ds2.Core\Ds2.Core.fsproj" />
     <ProjectReference Include="..\..\Core\Ds2.Editor\Ds2.Editor.fsproj" />
