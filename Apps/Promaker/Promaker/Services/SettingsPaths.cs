@@ -53,6 +53,12 @@ public static class SettingsPaths
     /// "다시 보지 않기" persistence. 파일 존재 = 다음부터 다이얼로그 생략 (SimLog 한 줄만).</summary>
     public static string AgentDelegationNoticeSuppress   => Of("agentDelegationNoticeSuppress.txt");
 
+    /// <summary>Agent 보내기/가져오기 대상 — "true" 면 네트워크(특정 IP 공유폴더), 아니면 로컬 공유폴더.</summary>
+    public static string AgentTransferUseNetwork         => Of("agentTransferUseNetwork.txt");
+
+    /// <summary>Agent 네트워크 대상 IP 주소 (네트워크 모드일 때만 사용).</summary>
+    public static string AgentTransferIp                 => Of("agentTransferIp.txt");
+
     /// <summary>Monitoring + 실 PLC PLAY 시 DSPilot 이 미설치라 브라우저 실행을 건너뛸 때 보여주는 안내
     /// 다이얼로그의 "다시 보지 않기" persistence. 파일 존재 = 다음부터 다이얼로그 생략.</summary>
     public static string DspilotMissingNoticeSuppress    => Of("dspilotMissingNoticeSuppress.txt");

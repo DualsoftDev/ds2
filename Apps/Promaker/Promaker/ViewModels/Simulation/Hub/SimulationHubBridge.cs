@@ -17,9 +17,6 @@ using Microsoft.AspNetCore.SignalR.Client;
 
 namespace Promaker.ViewModels;
 
-/// <summary>BuildPlcGatewayConfig 의 out 인자 시그니처 호환 delegate (Func 는 out 미지원).</summary>
-public delegate PlcGatewayConfig? PlcGatewayConfigBuilder(out List<string> errors);
-
 /// <summary>
 /// SignalR Hub + PLC gateway lifecycle collaborator. SimulationPanelState 의 partial 에서 분리.
 /// 보유 상태: hub host / connection / batch sender / generation token / reconnect stabilization cts +
@@ -105,8 +102,6 @@ public sealed partial class SimulationHubBridge : ObservableObject
     private readonly Func<bool>             _isSimulating;
     private readonly Func<string>           _hubAddress;
     private readonly Func<string>           _monitoringHubAddress;
-    private readonly Func<PlcSettings>      _plcSettings;
-    private readonly PlcGatewayConfigBuilder _buildPlcGatewayConfig;
     private readonly Func<bool>             _hasRuntimeSession;
     private readonly Func<string, string, string, bool> _shouldIgnoreHubSource;
     private readonly Func<string, string, string, IEnumerable<RuntimeHubEffect>> _handleHubTag;
@@ -198,8 +193,6 @@ public sealed partial class SimulationHubBridge : ObservableObject
         Func<string>           monitoringHubAddress,
         Action<string>         setHubAddress,
         Action<string>         setMonitoringHubAddress,
-        Func<PlcSettings>      plcSettings,
-        PlcGatewayConfigBuilder buildPlcGatewayConfig,
         Func<bool>             hasRuntimeSession,
         Func<string, string, string, bool> shouldIgnoreHubSource,
         Func<string, string, string, IEnumerable<RuntimeHubEffect>> handleHubTag,
@@ -219,8 +212,6 @@ public sealed partial class SimulationHubBridge : ObservableObject
         _monitoringHubAddress   = monitoringHubAddress;
         _setHubAddress          = setHubAddress;
         _setMonitoringHubAddress= setMonitoringHubAddress;
-        _plcSettings            = plcSettings;
-        _buildPlcGatewayConfig  = buildPlcGatewayConfig;
         _hasRuntimeSession      = hasRuntimeSession;
         _shouldIgnoreHubSource  = shouldIgnoreHubSource;
         _handleHubTag           = handleHubTag;

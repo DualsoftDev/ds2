@@ -91,13 +91,6 @@ public partial class SimulationPanelState : ObservableObject
     /// </summary>
     public Action<IReadOnlyDictionary<Guid, string>?>? RuntimeIoChanged { get; set; }
 
-    /// <summary>
-    /// Hub 모드(Control/VirtualPlant/Monitoring) 시뮬레이션이 시작되기 직전에 호출되는 후크.
-    /// MainViewModel 이 현재 store 를 DSPilot 공유 AASX 경로에 export 해 두 앱이 동일 모델로 동기화되도록 함.
-    /// 반환값: 성공 시 true, 프로젝트 미보유/실패 시 false. (실패해도 시뮬 시작은 계속.)
-    /// </summary>
-    public Func<bool>? PublishAasxForHubMode { get; set; }
-
     private void NotifyRuntimeIoChanged()
     {
         if (RuntimeIoChanged is null) return;
@@ -210,8 +203,6 @@ public partial class SimulationPanelState : ObservableObject
             monitoringHubAddress:     () => MonitoringHubAddress,
             setHubAddress:            v => HubAddress = v,
             setMonitoringHubAddress:  v => MonitoringHubAddress = v,
-            plcSettings:              () => PlcSettings,
-            buildPlcGatewayConfig:    BuildPlcGatewayConfig,
             hasRuntimeSession:        HasRuntimeSession,
             shouldIgnoreHubSource:    ShouldIgnoreHubSource,
             handleHubTag:             HandleHubTag,

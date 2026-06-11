@@ -128,34 +128,25 @@ public sealed partial class SimulationHubBridge
                 return false;
             }
 
-            var plcConfig = _buildPlcGatewayConfig(out var errors);
-            if (plcConfig is null)
+            // PLAY 는 업로드가 아니다 — 모델/PLC 설정/active.flag 기록은 '저장 ▸ Agent에 업로드' 가 전담.
+            // 여기서는 업로드된 세션이 있는지 확인하고 Agent Hub(5051) 에 클라이언트로 접속만 한다.
+            if (!System.IO.File.Exists(SharedPaths.AgentActiveFlagPath))
             {
-                var msg = "PLC 설정 검증 실패:\n  - " + string.Join("\n  - ", errors);
-                _addSimLog(msg, LogSeverity.Error);
-                _setStatusText("PLC 설정 오류 — Hub 시작 중단");
+                _addSimLog(
+                    "Agent 에 업로드된 모니터링 세션이 없습니다. " +
+                    "'저장 ▸ Agent에 업로드' 로 모델과 PLC 설정을 먼저 업로드하세요.",
+                    LogSeverity.Error);
+                _setStatusText("Agent 업로드 필요 — 시작 불가");
                 return false;
             }
 
-            // PLC 설정은 다이얼로그 OK 시점에 이미 저장됨. 첫 PLAY 누락 방지 차원에서 명시적 1회 더.
-            _plcSettings().Save();
-
-            // session.RuntimeMode 로 Agent 가 engine 모드를 결정 — Control 이면 read-write, Monitoring 이면 read-only.
             var modeName = isMonitoring ? "Monitoring" : "Control";
-            var session = AgentSession.ForCurrentDefaults(requestedBy: "promaker", runtimeMode: modeName);
-            if (!session.TryWrite())
-            {
-                _addSimLog("Agent active.flag 기록 실패 — 공유 폴더 권한을 확인하세요.", LogSeverity.Error);
-                _setStatusText("Agent 위임 실패");
-                return false;
-            }
             _delegatedToAgent = true;
             _hubHost = null;       // 우리가 host 가 아님 — Agent 가 5051 을 호스팅.
             IsHosting = false;
-            var ps = _plcSettings();
             _addSimLog(
-                $"Promaker.Agent 에 {modeName} 위임 (5051, vendor={ps.Vendor}, ip={ps.IpAddress}:{ps.Port}). " +
-                "상태는 트레이의 'Promaker Agent' 아이콘 참조.",
+                $"Promaker.Agent({modeName}) Hub 에 접속합니다 (5051). " +
+                "모델/설정 갱신은 '저장 ▸ Agent에 업로드' 사용. 상태는 트레이의 'Promaker Agent' 아이콘 참조.",
                 LogSeverity.System);
 
             // Monitoring 위임 안내 다이얼로그 (Control 은 라인 제어라 별도 안내 없이 진행).
@@ -336,6 +327,57 @@ public sealed partial class SimulationHubBridge
 
     // ── Connect (initial async retry loop) ───────────────────────
 
+    /// <summary>Hub 서버가 listen 을 시작할 때까지 조용히 대기 (최대 15초).
+    /// Agent 가 업로드 직후 재시작 중이거나 기동 중이면 첫 StartAsync 가 connection refused 로
+    /// 떨어져 "Hub 연결 실패/재연결 시도" 경고가 매번 떴다 — 포트가 열린 뒤에 접속을 시작한다.
+    /// 타임아웃이면 그냥 반환 — 이후 일반 재시도 루프가 사유를 로그로 남긴다.</summary>
+    private async Task WaitForHubListeningAsync(
+        HubConnection hubConnection,
+        string hubUrl,
+        int generation,
+        CancellationToken cancellationToken)
+    {
+        if (!Uri.TryCreate(hubUrl, UriKind.Absolute, out var uri))
+            return;
+
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        var notified = false;
+        while (DateTime.UtcNow < deadline
+               && !cancellationToken.IsCancellationRequested
+               && IsCurrentConnection(generation, hubConnection))
+        {
+            try
+            {
+                using var probeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                probeCts.CancelAfter(500);
+                using var tcp = new System.Net.Sockets.TcpClient();
+                await tcp.ConnectAsync(uri.Host, uri.Port, probeCts.Token);
+                return;   // listen 확인 — 바로 SignalR 접속 진행
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch
+            {
+                // refused/timeout — 서버 미기동. 조용히 재시도.
+            }
+
+            if (!notified)
+            {
+                notified = true;
+                _ = _dispatcher.BeginInvoke(() =>
+                {
+                    if (IsCurrentConnection(generation, hubConnection))
+                        _setSimStatusText("Hub 준비 대기 중...");
+                });
+            }
+
+            try { await Task.Delay(250, cancellationToken); }
+            catch (OperationCanceledException) { return; }
+        }
+    }
+
     private async Task ConnectAsync(
         HubConnection hubConnection,
         string hubUrl,
@@ -345,6 +387,9 @@ public sealed partial class SimulationHubBridge
         var retryDelayMs = 1000;
         const int maxDelayMs = 10000;
         var attempt = 0;
+
+        // Agent 재시작/기동 윈도우 흡수 — 포트가 열릴 때까지 조용히 대기 후 접속.
+        await WaitForHubListeningAsync(hubConnection, hubUrl, generation, cancellationToken);
 
         while (!cancellationToken.IsCancellationRequested
                && IsCurrentConnection(generation, hubConnection)

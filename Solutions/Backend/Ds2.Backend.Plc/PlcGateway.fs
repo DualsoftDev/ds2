@@ -224,7 +224,7 @@ type PlcGateway(config: PlcGatewayConfig) =
                         let skipSet = getUnreachable cfg.Name
                         let mutable attempted = 0
                         let mutable failed = 0
-                        let mutable lastReadError = ""
+                        let mutable firstReadError = ""
                         let mutable batchReads = 0
                         let mutable singleReads = 0
                         let mutable batches = 0
@@ -269,7 +269,9 @@ type PlcGateway(config: PlcGatewayConfig) =
                                         log.Debug($"ReadTag {tag.HubAddress} protocol error #{cur}: {msg}")
                                 else
                                     failed <- failed + 1
-                                    lastReadError <- msg
+                                    // 첫 에러만 보존 — 최초 단절 사유(타임아웃/connection lost)가
+                                    // 후속 가드 메시지("not established")에 덮이지 않게 한다.
+                                    if firstReadError = "" then firstReadError <- msg
                                     log.Debug($"ReadTag {tag.HubAddress}: {msg}")
                             | Ok value ->
                                 clearTransientProtocolFailure skipSet tag.HubAddress
@@ -314,7 +316,7 @@ type PlcGateway(config: PlcGatewayConfig) =
                         if attempted > 0 && failed = attempted then
                             log.Warn($"PLC [{cfg.Name}] all {attempted} tag reads failed — forcing disconnect for reconnect cycle")
                             try do! adapter.DisconnectAsync() with _ -> ()
-                            let err = $"all reads failed ({lastReadError})"
+                            let err = $"all reads failed ({firstReadError})"
                             markConnectResult cfg.Name false err
                 return List.ofSeq changes
             }

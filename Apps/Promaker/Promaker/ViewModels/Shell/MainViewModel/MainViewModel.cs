@@ -69,9 +69,6 @@ public partial class MainViewModel : ObservableObject
         Simulation.RuntimeIoChanged = ioValues => PropertyPanel.RefreshConditionRuntime(ioValues);
         // 자동 줄자: 정지 시 학습 duration 을 모델에 반영하면 미저장(dirty) 표시 → 사용자가 저장하면 AASX 기록.
         Simulation.MarkDirty = () => IsDirty = true;
-        // Hub 모드 시작 직전, 현재 store 를 DSPilot 공유 AASX 경로에 자동 export — 사용자가
-        // "공유 위치에 저장" 을 누르지 않아도 모니터링 시작과 동시에 DSPilot 이 같은 모델을 본다.
-        Simulation.PublishAasxForHubMode = TryPublishAasxToSharedForDspilot;
         WireEvents();
         LanguageManager.ApplySavedLanguage();
         RefreshThemeState();
