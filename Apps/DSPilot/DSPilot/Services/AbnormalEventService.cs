@@ -78,14 +78,16 @@ public sealed class AbnormalEventService
     public IReadOnlyList<AbnormalEventDto> GetRecent(int max)
     {
         var n = Math.Clamp(max, 1, Capacity);
-        var hours = _appSettings.LoadSettings().AbnormalAlarm.ResetIntervalHours;
-        var cutoff = hours > 0 ? DateTime.UtcNow - TimeSpan.FromHours(hours) : (DateTime?)null;
+        var alarm = _appSettings.LoadSettings().AbnormalAlarm;
+        var cutoff = alarm.ResetIntervalHours > 0 ? DateTime.UtcNow - TimeSpan.FromHours(alarm.ResetIntervalHours) : (DateTime?)null;
         lock (_lock)
         {
             var query = _recent.AsEnumerable();
             if (cutoff.HasValue)
                 query = query.Where(e => e.OccurredAtUtc >= cutoff.Value);
             return query
+                // 차단 규칙 추가 이전에 버퍼에 남아 있던 항목도 즉시 숨긴다(읽기 시 필터 — 해제하면 다시 표시).
+                .Where(e => !AbnormalDeviceFilterHelpers.IsSuppressed(alarm.DeviceFilters, e.Kind, e.CallName))
                 .OrderByDescending(e => e.OccurredAtUtc)
                 .Take(n)
                 .ToList();
@@ -100,14 +102,15 @@ public sealed class AbnormalEventService
     public IReadOnlyList<AbnormalEventDto> GetActive(int max)
     {
         var n = Math.Clamp(max, 1, Capacity);
-        var hours = _appSettings.LoadSettings().AbnormalAlarm.ResetIntervalHours;
-        var cutoff = hours > 0 ? DateTime.UtcNow - TimeSpan.FromHours(hours) : (DateTime?)null;
+        var alarm = _appSettings.LoadSettings().AbnormalAlarm;
+        var cutoff = alarm.ResetIntervalHours > 0 ? DateTime.UtcNow - TimeSpan.FromHours(alarm.ResetIntervalHours) : (DateTime?)null;
         lock (_lock)
         {
             var query = _active.AsEnumerable();
             if (cutoff.HasValue)
                 query = query.Where(e => e.OccurredAtUtc >= cutoff.Value);
             return query
+                .Where(e => !AbnormalDeviceFilterHelpers.IsSuppressed(alarm.DeviceFilters, e.Kind, e.CallName))
                 .OrderByDescending(e => e.OccurredAtUtc)
                 .Take(n)
                 .ToList();
@@ -198,6 +201,15 @@ public sealed class AbnormalEventService
                     sensorTag = _tagMapper.GetCallTagsByCallId(callId)?.InTag;
             }
 
+            // 디바이스별 차단 규칙 — 걸리면 어디에도 남기지 않는다(링버퍼/userTagAlertLog/SignalR 전부 생략).
+            // 차단 중 발생한 이상은 기록 자체가 없으므로 규칙을 해제해도 소급 복구되지 않는다.
+            var deviceFilters = _appSettings.LoadSettings().AbnormalAlarm.DeviceFilters;
+            if (AbnormalDeviceFilterHelpers.IsSuppressed(deviceFilters, (int)rec.Kind, callName))
+            {
+                _logger.LogDebug("[Abnormal] 디바이스 필터로 차단: {Kind} call={Call}", rec.Kind, callName);
+                return;
+            }
+
             var (systemId, systemName) = ResolveSystemInfo(flow);
 
             var dto = new AbnormalEventDto(
@@ -244,13 +256,12 @@ public sealed class AbnormalEventService
 
     // v12 §1 Kind → (DSPilot Level, 한글 라벨). 코어는 정책 독립(AbnormalSeverity/Response 는 P7) 이라
     // DSPilot 적용본을 여기서 정한다: 이상감지 4종 모두 Error 로 취급(운영 정책 — 오감지·과속도 즉시 조치 대상).
+    // 라벨은 AbnormalDeviceFilterHelpers.LabelOf 단일 소스(설정 페이지 차단 체크박스와 동일 문구).
     private static (string Level, string Label) Classify(AbnormalKind kind) => kind switch
     {
-        AbnormalKind.SensorOpen  => ("Error", "센서 단선/이탈"),
-        AbnormalKind.SensorShort => ("Error", "센서 오감지"),
-        AbnormalKind.ActionOver  => ("Error", "동작 지연(시간 초과)"),
-        AbnormalKind.ActionUnder => ("Error", "동작 과속(시간 미만)"),
-        _ => ("Warning", "이상"),
+        AbnormalKind.SensorOpen or AbnormalKind.SensorShort or AbnormalKind.ActionOver or AbnormalKind.ActionUnder
+            => ("Error", AbnormalDeviceFilterHelpers.LabelOf(kind)),
+        _ => ("Warning", AbnormalDeviceFilterHelpers.LabelOf(kind)),
     };
 
     /// <summary>데모용 이상감지 이벤트 직접 주입 — 콘솔 테스트 전용. 실제 엔진 없이 링버퍼+SignalR 경로 검증.</summary>
@@ -357,19 +368,10 @@ public sealed class AbnormalEventService
         return (Guid.Empty, string.Empty);
     }
 
-    /// <summary>경로 "FLOW / WORK / CALL" 구성 — 빈 세그먼트·직전과 동일한 세그먼트(예 Work==Flow)는 생략.</summary>
+    // 경로 "FLOW / WORK / CALL" 구성은 AbnormalDeviceFilterHelpers.BuildPath 단일 소스
+    // (tagAddress 기록 형식 = 차단 SQL LIKE 매칭 = 차단 관리 UI 경로 표시).
     private static string BuildPath(params string?[] segments)
-    {
-        var parts = new List<string>();
-        foreach (var s in segments)
-        {
-            if (string.IsNullOrWhiteSpace(s)) continue;
-            var v = s.Trim();
-            if (parts.Count > 0 && string.Equals(parts[^1], v, StringComparison.Ordinal)) continue;
-            parts.Add(v);
-        }
-        return string.Join(" / ", parts);
-    }
+        => AbnormalDeviceFilterHelpers.BuildPath(segments);
 
     private static Guid? FsGuid(FSharpOption<Guid> o) => FSharpOption<Guid>.get_IsSome(o) ? o.Value : null;
     private static int? FsInt(FSharpOption<int> o) => FSharpOption<int>.get_IsSome(o) ? o.Value : null;
