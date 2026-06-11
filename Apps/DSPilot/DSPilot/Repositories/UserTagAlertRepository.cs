@@ -14,15 +14,20 @@ namespace DSPilot.Repositories;
 /// <summary>
 /// UserTagAlert SQLite Dapper 저장소.
 /// 모든 시간은 plcTagLog 와 동일한 ISO8601 UTC 문자열 (yyyy-MM-dd HH:mm:ss.fffffffZ).
+/// 모든 조회(목록/카운트/버킷/Top/레벨/최신)는 디바이스별 이상감지 차단 규칙
+/// (AbnormalAlarm.DeviceFilters)에 걸린 Abnormal 행을 제외한다 — uptime/oee 통계·사이드바 피드·배지가
+/// 한 곳에서 일관되게 숨겨지도록 SQL WHERE 레벨에서 거른다(규칙 해제 시 다시 표시).
 /// </summary>
 public sealed class UserTagAlertRepository : IUserTagAlertRepository
 {
     private readonly IDatabasePathResolver _pathResolver;
+    private readonly AppSettingsService _appSettings;
     private readonly ILogger<UserTagAlertRepository> _logger;
 
-    public UserTagAlertRepository(IDatabasePathResolver pathResolver, ILogger<UserTagAlertRepository> logger)
+    public UserTagAlertRepository(IDatabasePathResolver pathResolver, AppSettingsService appSettings, ILogger<UserTagAlertRepository> logger)
     {
         _pathResolver = pathResolver;
+        _appSettings = appSettings;
         _logger = logger;
     }
 
@@ -64,7 +69,7 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         });
     }
 
-    private static (string Where, DynamicParameters Params) BuildFilter(
+    private (string Where, DynamicParameters Params) BuildFilter(
         DateTime startUtc, DateTime endUtc,
         string? name, string? level, string? system)
     {
@@ -87,8 +92,43 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
             sb.Append(" AND systemName = @System ");
             p.Add("System", system.Trim());
         }
+        AppendDeviceFilterExclusion(sb, p);
         return (sb.ToString(), p);
     }
+
+    /// <summary>
+    /// 디바이스별 이상감지 차단 규칙을 WHERE 절에 반영. Abnormal 행의 디바이스는 tagAddress 의
+    /// 마지막 경로 세그먼트("WORK / DEVICE.API" 또는 "DEVICE.API")의 "DEVICE." 접두로 식별한다
+    /// (AbnormalEventService.PersistToLogAsync 의 BuildPath(WorkName, CallName) 형식과 일치).
+    /// kind 매칭은 matchValue = AbnormalKind 이름(KindName) — usertag 행(valueType != 'Abnormal')은 건드리지 않는다.
+    /// </summary>
+    private void AppendDeviceFilterExclusion(StringBuilder sb, DynamicParameters p)
+    {
+        List<DSPilot.Models.AbnormalDeviceFilter> rules;
+        try { rules = _appSettings.LoadSettings().AbnormalAlarm.DeviceFilters; }
+        catch { return; } // 설정 로드 실패 시 필터 없이 진행(조회 자체를 막지 않는다)
+
+        var i = 0;
+        foreach (var rule in rules ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(rule.Device) || rule.Kinds is not { Count: > 0 }) continue;
+
+            var device = EscapeLike(rule.Device.Trim());
+            foreach (var kind in rule.Kinds.Distinct())
+            {
+                sb.Append($@" AND NOT (valueType = 'Abnormal' AND matchValue = @AbnFltKind{i}
+                    AND (tagAddress LIKE @AbnFltMid{i} ESCAPE '\'
+                         OR (instr(tagAddress, ' / ') = 0 AND tagAddress LIKE @AbnFltPre{i} ESCAPE '\'))) ");
+                p.Add($"AbnFltKind{i}", ((Ds2.Core.AbnormalKind)kind).ToString());
+                p.Add($"AbnFltMid{i}", "% / " + device + ".%");
+                p.Add($"AbnFltPre{i}", device + ".%");
+                i++;
+            }
+        }
+    }
+
+    // SQLite LIKE 패턴 이스케이프 (ESCAPE '\' 전제) — 디바이스명에 %/_ 가 섞여도 리터럴 매칭.
+    private static string EscapeLike(string s) => s.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
 
     public async Task<IReadOnlyList<UserTagAlertRecord>> QueryAlertsAsync(
         DateTime startUtc, DateTime endUtc,
@@ -200,12 +240,17 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
     public async Task<IReadOnlyList<UserTagAlertRecord>> GetLatestAlertsAsync(int maxCount, CancellationToken ct = default)
     {
         await using var conn = await OpenAsync();
-        var sql = @"
+        var sb = new StringBuilder(" WHERE 1 = 1 ");
+        var p = new DynamicParameters();
+        p.Add("Limit", maxCount);
+        AppendDeviceFilterExclusion(sb, p);
+        var sql = $@"
             SELECT id, occurredAt, systemId, systemName, name, logLevel, tagAddress, valueType, matchOp, matchValue, actualValue, sourceLogId
             FROM userTagAlertLog
+            {sb}
             ORDER BY id DESC
             LIMIT @Limit";
-        var rows = await conn.QueryAsync<Row>(sql, new { Limit = maxCount });
+        var rows = await conn.QueryAsync<Row>(sql, p);
         return rows.Select(MapRow).ToList();
     }
 

@@ -166,6 +166,49 @@
         /* ── 기간 직접 선택 ── */
         .up-period-input { padding: 5px 8px; font-size: 0.78rem; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-primary); font-family: var(--font-mono); }
         .up-custom-range { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+        /* ── 디바이스 알람 차단 (모달 + 알림 행 바로가기) ── */
+        .up-blk-overlay { position: fixed; inset: 0; background: rgba(10, 15, 22, 0.42); display: flex; align-items: center; justify-content: center; z-index: 2000; backdrop-filter: blur(2px); }
+        .dark-theme .up-blk-overlay { background: rgba(4, 8, 14, 0.68); }
+        .up-blk-modal { background: var(--color-surface); border: 1px solid var(--color-lines-strong); border-radius: var(--radius-md); padding: 20px 22px; width: min(860px, 94vw); max-height: 88vh; display: flex; flex-direction: column; box-shadow: var(--shadow-modal); }
+        .up-blk-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+        .up-blk-head h3 { margin: 0; font-size: 1.02rem; font-weight: 800; }
+        .up-blk-head .material-icons { color: var(--red); }
+        .up-blk-sub { font-size: 0.72rem; color: var(--color-text-secondary); line-height: 1.5; margin-bottom: 12px; }
+        .up-blk-kinds { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+        .up-blk-kind { display: inline-flex; align-items: center; gap: 5px; padding: 4px 11px; border: 1px solid var(--color-lines); border-radius: 999px; font-size: 0.74rem; cursor: pointer; color: var(--color-text-secondary); user-select: none; }
+        .up-blk-kind input { margin: 0; accent-color: var(--red); }
+        .up-blk-kind.on { border-color: color-mix(in srgb, var(--red) 55%, transparent); color: var(--red); background: color-mix(in srgb, var(--red) 8%, transparent); font-weight: 700; }
+        .up-blk-body { flex: 1; min-height: 0; overflow-y: auto; border: 1px solid var(--color-lines); border-radius: var(--radius-sm); }
+        .up-blk-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+        .up-blk-table th { position: sticky; top: 0; background: var(--color-surface-variant); z-index: 1; font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-secondary); padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--color-lines-strong); }
+        .up-blk-table td { padding: 7px 10px; border-bottom: 1px solid var(--color-lines); vertical-align: top; }
+        .up-blk-table tr:last-child td { border-bottom: none; }
+        .up-blk-table tr.sel { background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface)); }
+        .up-blk-dev { font-family: var(--font-mono); font-weight: 700; white-space: nowrap; }
+        .up-blk-path { font-family: var(--font-mono); font-size: 0.7rem; color: var(--color-text-secondary); line-height: 1.5; }
+        .up-blk-chip { display: inline-block; margin: 1px 3px 1px 0; padding: 1px 8px; border-radius: 999px; font-size: 0.64rem; font-weight: 700; color: var(--red); background: color-mix(in srgb, var(--red) 9%, transparent); border: 1px solid color-mix(in srgb, var(--red) 40%, transparent); white-space: nowrap; }
+        .up-blk-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+        .up-blk-msg { font-size: 0.72rem; font-weight: 700; }
+        .up-blk-msg.ok { color: var(--green); }
+        .up-blk-msg.err { color: var(--red); }
+        .up-blk-rowbtn { border: none; background: none; cursor: pointer; color: var(--color-text-secondary); padding: 2px; border-radius: var(--radius-sm); display: inline-flex; }
+        .up-blk-rowbtn:hover { color: var(--red); background: color-mix(in srgb, var(--red) 10%, transparent); }
+        .up-blk-rowbtn .material-icons { font-size: 17px; }
+        /* 필터 바 */
+        .up-blk-filter-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+        .up-blk-search { display: flex; align-items: center; gap: 4px; background: var(--color-surface-raised); border: 1px solid var(--color-lines); border-radius: var(--radius-sm); padding: 3px 8px; flex: 1; min-width: 180px; max-width: 300px; }
+        .up-blk-search-input { border: none; background: transparent; outline: none; font-size: 0.76rem; color: var(--color-text); width: 100%; }
+        .up-blk-search-input::placeholder { color: var(--color-text-disabled); }
+        .up-blk-toggle-blocked { display: inline-flex; align-items: center; gap: 5px; font-size: 0.73rem; color: var(--color-text-secondary); cursor: pointer; padding: 3px 10px; border: 1px solid var(--color-lines); border-radius: 999px; user-select: none; }
+        .up-blk-toggle-blocked input { margin: 0; accent-color: var(--red); }
+        .up-blk-filter-count { margin-left: auto; font-size: 0.7rem; color: var(--color-text-secondary); white-space: nowrap; }
+        /* 정렬 가능한 헤더 */
+        .up-blk-th-sort { cursor: pointer; user-select: none; }
+        .up-blk-th-sort:hover { color: var(--color-text); }
+        .up-blk-sort-icon { display: inline-flex; vertical-align: middle; margin-left: 3px; opacity: 0.3; }
+        .up-blk-sort-icon.active { opacity: 1; color: var(--color-primary); }
+        .up-blk-sort-icon .material-icons { font-size: 11px; }
     </style>
 </head>
 
@@ -705,6 +748,9 @@
                                 <button class="btn btn-sm btn-outlined" @click="exportUtCsv()" :disabled="!ut.alerts || ut.alerts.length === 0">
                                     <span class="material-icons" style="font-size:15px;">download</span> CSV 내보내기
                                 </button>
+                                <button class="btn btn-sm btn-outlined" @click="openBlockMgr()" title="디바이스를 선택해 이상감지 유형(4종)별로 알람·통계·기록을 차단합니다">
+                                    <span class="material-icons" style="font-size:15px;">notifications_off</span> 디바이스 알람 차단<span x-show="blockedDeviceCount > 0" x-text="' (' + blockedDeviceCount + ')'"></span>
+                                </button>
                                 <span style="flex:1;"></span>
                                 <span class="ds-card-h-sub">기간 <span x-text="ut.periodStartLocal"></span> ~ <span x-text="ut.periodEndLocal"></span> · 버킷 <span x-text="ut.bucketLabel"></span></span>
                             </div>
@@ -785,7 +831,7 @@
                             <template x-if="ut.alerts && ut.alerts.length > 0">
                                 <div style="overflow-x:auto;">
                                     <table class="ds-table">
-                                        <thead><tr><th style="width:170px;">시각 ▼</th><th>레벨</th><th>경로</th><th>이름</th><th>주소</th><th>조건</th><th>값</th></tr></thead>
+                                        <thead><tr><th style="width:170px;">시각 ▼</th><th>레벨</th><th>경로</th><th>이름</th><th>주소</th><th>조건</th><th>값</th><th style="width:40px;" title="디바이스 알람 차단 바로가기">차단</th></tr></thead>
                                         <tbody>
                                             <template x-for="(a, i) in ut.alerts" :key="i">
                                                 <tr>
@@ -800,6 +846,14 @@
                                                     <td x-text="describeOp(a.matchOp, a.matchValue)"></td>
                                                     <!-- 값: AbnormalDetect 시간·주소값 숨김, 나머지 기존 -->
                                                     <td><span :class="a.matchOp !== 'AbnormalDetect' ? 'up-codeish' : ''" x-text="abnVal(a)"></span></td>
+                                                    <!-- 차단 바로가기: Abnormal 행만 — 해당 디바이스+유형이 선택된 채 차단 관리가 열림 -->
+                                                    <td style="text-align:center;">
+                                                        <template x-if="a.matchOp === 'AbnormalDetect' && rowDevice(a)">
+                                                            <button class="up-blk-rowbtn" @click="openBlockMgr(rowDevice(a), a.matchValue)" :title="rowDevice(a) + ' 디바이스 알람 차단 관리'">
+                                                                <span class="material-icons">notifications_off</span>
+                                                            </button>
+                                                        </template>
+                                                    </td>
                                                 </tr>
                                             </template>
                                         </tbody>
@@ -881,6 +935,118 @@
 
             </div>
         </main>
+
+        <!-- ════ 디바이스 알람 차단 관리 모달 ════ -->
+        <div class="up-blk-overlay" x-show="blockMgr.show" style="display:none;" @click.self="blockMgr.show = false" @keydown.escape.window="blockMgr.show = false">
+            <div class="up-blk-modal" @click.stop>
+                <div class="up-blk-head">
+                    <span class="material-icons">notifications_off</span>
+                    <h3>디바이스 알람 차단</h3>
+                    <span style="flex:1;"></span>
+                    <button class="btn-icon" @click="blockMgr.show = false" title="닫기"><span class="material-icons">close</span></button>
+                </div>
+                <div class="up-blk-sub">
+                    디바이스를 선택하고 이상 유형을 골라 <b>차단 추가/해제</b>합니다. 차단된 유형은 알람 배너·사이드바·통계·기록에서 숨겨지고,
+                    <b>차단 중 새로 발생하는 이상은 기록 자체가 남지 않습니다</b>(해제해도 차단 기간 발생분은 복구되지 않음).
+                    차단 이전의 기존 기록은 해제하면 다시 표시됩니다. 적용은 즉시 반영됩니다.
+                </div>
+
+                <div class="up-blk-kinds">
+                    <span style="font-size:0.64rem; font-weight:700; color:var(--color-text-secondary); text-transform:uppercase; letter-spacing:0.06em; margin-right:4px;">유형</span>
+                    <template x-for="k in blockMgr.kindOptions" :key="k.kind">
+                        <label class="up-blk-kind" :class="{ on: blockMgr.selKinds.includes(k.kind) }">
+                            <input type="checkbox" :checked="blockMgr.selKinds.includes(k.kind)" @change="blkToggleKind(k.kind, $event.target.checked)" />
+                            <span x-text="k.label"></span>
+                        </label>
+                    </template>
+                </div>
+
+                <div x-show="blockMgr.loading" class="progress-bar progress-bar-indeterminate" style="margin-bottom:8px;"><div class="progress-bar-fill"></div></div>
+
+                <div class="up-blk-filter-row">
+                    <div class="up-blk-search">
+                        <span class="material-icons" style="font-size:15px; color:var(--color-text-secondary);">search</span>
+                        <input type="text" x-model="blockMgr.filter" placeholder="디바이스 · 경로 검색…" class="up-blk-search-input" />
+                        <button x-show="blockMgr.filter" @click="blockMgr.filter=''" class="btn-icon" style="padding:1px;" title="지우기"><span class="material-icons" style="font-size:14px;">close</span></button>
+                    </div>
+                    <label class="up-blk-toggle-blocked">
+                        <input type="checkbox" x-model="blockMgr.showBlockedOnly" />
+                        <span>차단된 것만</span>
+                    </label>
+                    <span class="up-blk-filter-count" x-text="blkFilteredDevices.length + ' / ' + blockMgr.devices.length + ' 개'"></span>
+                </div>
+
+                <div class="up-blk-body">
+                    <table class="up-blk-table">
+                        <thead>
+                            <tr>
+                                <th style="width:36px; text-align:center;"><input type="checkbox" class="up-dt-cb" :checked="blkAllSelected" @change="blkSelectAll($event.target.checked)" title="전체 선택" /></th>
+                                <th class="up-blk-th-sort" @click="blkSort('device')">
+                                    디바이스
+                                    <span class="up-blk-sort-icon" :class="{ active: blockMgr.sortCol === 'device' }">
+                                        <span class="material-icons" x-text="blockMgr.sortCol === 'device' ? (blockMgr.sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'"></span>
+                                    </span>
+                                </th>
+                                <th class="up-blk-th-sort" @click="blkSort('path')">
+                                    경로 (FLOW / WORK / CALL)
+                                    <span class="up-blk-sort-icon" :class="{ active: blockMgr.sortCol === 'path' }">
+                                        <span class="material-icons" x-text="blockMgr.sortCol === 'path' ? (blockMgr.sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'"></span>
+                                    </span>
+                                </th>
+                                <th style="width:230px;" class="up-blk-th-sort" @click="blkSort('blocked')">
+                                    현재 차단
+                                    <span class="up-blk-sort-icon" :class="{ active: blockMgr.sortCol === 'blocked' }">
+                                        <span class="material-icons" x-text="blockMgr.sortCol === 'blocked' ? (blockMgr.sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'"></span>
+                                    </span>
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="d in blkFilteredDevices" :key="d.device">
+                                <tr :class="{ sel: !!blockMgr.selected[d.device] }" @click="blockMgr.selected[d.device] = !blockMgr.selected[d.device]" style="cursor:pointer;">
+                                    <td style="text-align:center;">
+                                        <input type="checkbox" class="up-dt-cb" :checked="!!blockMgr.selected[d.device]" @click.stop @change="blockMgr.selected[d.device] = $event.target.checked" />
+                                    </td>
+                                    <td class="up-blk-dev">
+                                        <span x-text="d.device"></span>
+                                        <span x-show="!d.inModel" title="현재 AASX 모델에 없는 디바이스 (차단 규칙만 남음 — 해제 가능)" style="color:var(--amber); margin-left:4px;">⚠</span>
+                                    </td>
+                                    <td>
+                                        <div class="up-blk-path">
+                                            <template x-for="p in d.paths" :key="p"><div x-text="p"></div></template>
+                                            <span x-show="!d.paths.length" style="color:var(--color-text-disabled);">—</span>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <template x-for="k in d.blockedKinds" :key="k"><span class="up-blk-chip" x-text="blkKindLabel(k)"></span></template>
+                                        <span x-show="!d.blockedKinds.length" style="color:var(--color-text-disabled); font-size:0.7rem;">—</span>
+                                    </td>
+                                </tr>
+                            </template>
+                            <tr x-show="!blockMgr.loading && !blockMgr.devices.length">
+                                <td colspan="4" style="text-align:center; color:var(--color-text-secondary); padding:18px;">디바이스가 없습니다 — AASX 모델 로드 후 다시 시도하세요.</td>
+                            </tr>
+                            <tr x-show="!blockMgr.loading && blockMgr.devices.length > 0 && !blkFilteredDevices.length">
+                                <td colspan="4" style="text-align:center; color:var(--color-text-secondary); padding:18px;">검색 결과가 없습니다.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="up-blk-actions">
+                    <button class="btn btn-sm btn-filled" @click="applyBlock(true)" :disabled="blockMgr.busy || !blkSelectedCount || !blockMgr.selKinds.length">
+                        <span class="material-icons" style="font-size:15px;">block</span> 선택 유형 차단 추가
+                    </button>
+                    <button class="btn btn-sm btn-outlined" @click="applyBlock(false)" :disabled="blockMgr.busy || !blkSelectedCount || !blockMgr.selKinds.length">
+                        <span class="material-icons" style="font-size:15px;">notifications_active</span> 선택 유형 차단 해제
+                    </button>
+                    <span class="ds-card-h-sub" x-text="blkSelectedCount + '개 디바이스 · 유형 ' + blockMgr.selKinds.length + '개 선택'"></span>
+                    <span class="up-blk-msg" :class="blockMgr.err ? 'err' : 'ok'" x-text="blockMgr.err || blockMgr.msg"></span>
+                    <span style="flex:1;"></span>
+                    <button class="btn btn-sm btn-outlined" @click="blockMgr.show = false">닫기</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="/lib/chart.umd.min.js"></script>
@@ -933,6 +1099,8 @@
                 prodForm: { date: (() => { const d = new Date(), p = (x) => String(x).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; })(), shift: '', flow: '', reject: 0, busy: false, msg: '', err: '' },
                 // 표준CT(idealCT) Flow 일괄 편집 테이블 (편집값은 각 행 객체 draft 에 보관 — Alpine x-for 양방향 바인딩 안정)
                 ctTable: [], ctMsg: '', ctError: null, ctLoading: false, ctApplying: false,
+                // 디바이스 알람 차단 관리 모달 (selKinds=적용할 유형 int[], selected=디바이스 체크 맵)
+                blockMgr: { show: false, loading: false, busy: false, devices: [], kindOptions: [], selKinds: [], selected: {}, msg: '', err: '', filter: '', showBlockedOnly: false, sortCol: 'device', sortDir: 'asc' },
 
                 async init() {
                     this.dark = localStorage.getItem('dspilot-theme') === 'dark';
@@ -950,6 +1118,9 @@
                     this._pollTimer = setInterval(() => this.load(true), 10000);
                     // 필터 시드로 진입했으면 UserTag 카드로 스크롤.
                     if (seeded) this.$nextTick(() => document.getElementById('ut-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+                    // 차단 상태는 항상 로드(툴바 버튼의 차단 수 배지) — ?blockMgr=1 진입(설정 페이지 링크)이면 모달 자동 열기.
+                    if (qp.has('blockMgr')) this.openBlockMgr();
+                    else this.loadBlockState();
                 },
 
                 destroy() {
@@ -1291,6 +1462,94 @@
                 abnVal(a) {
                     if (a.matchOp !== 'AbnormalDetect') return a.actualValue;
                     return '-';
+                },
+
+                // ── 디바이스 알람 차단 관리 (모달) ──
+                blkKindLabel(kind) { const o = this.blockMgr.kindOptions.find(k => k.kind === kind); return o ? o.label : String(kind); },
+                get blkSelectedCount() { return Object.values(this.blockMgr.selected).filter(Boolean).length; },
+                get blkAllSelected() { const fd = this.blkFilteredDevices; return fd.length > 0 && fd.every(d => this.blockMgr.selected[d.device]); },
+                get blockedDeviceCount() { return this.blockMgr.devices.filter(d => (d.blockedKinds || []).length > 0).length; },
+                get blkFilteredDevices() {
+                    let list = this.blockMgr.devices;
+                    const q = (this.blockMgr.filter || '').toLowerCase().trim();
+                    if (q) list = list.filter(d => d.device.toLowerCase().includes(q) || (d.paths || []).some(p => p.toLowerCase().includes(q)));
+                    if (this.blockMgr.showBlockedOnly) list = list.filter(d => (d.blockedKinds || []).length > 0);
+                    const col = this.blockMgr.sortCol, dir = this.blockMgr.sortDir === 'asc' ? 1 : -1;
+                    return [...list].sort((a, b) => {
+                        if (col === 'device') return dir * a.device.localeCompare(b.device);
+                        if (col === 'path') return dir * ((a.paths[0] || '').localeCompare(b.paths[0] || ''));
+                        if (col === 'blocked') return dir * ((a.blockedKinds || []).length - (b.blockedKinds || []).length);
+                        return 0;
+                    });
+                },
+                blkSort(col) {
+                    if (this.blockMgr.sortCol === col) this.blockMgr.sortDir = this.blockMgr.sortDir === 'asc' ? 'desc' : 'asc';
+                    else { this.blockMgr.sortCol = col; this.blockMgr.sortDir = 'asc'; }
+                },
+                blkSelectAll(on) {
+                    const sel = { ...this.blockMgr.selected };
+                    for (const d of this.blkFilteredDevices) sel[d.device] = on;
+                    this.blockMgr.selected = sel;
+                },
+                blkToggleKind(kind, on) {
+                    const i = this.blockMgr.selKinds.indexOf(kind);
+                    if (on && i < 0) this.blockMgr.selKinds.push(kind);
+                    else if (!on && i >= 0) this.blockMgr.selKinds.splice(i, 1);
+                },
+                // 알림 이력 Abnormal 행 → 디바이스 추출 (tagAddress = "WORK / DEVICE.API" 의 마지막 세그먼트)
+                rowDevice(a) {
+                    if (a.matchOp !== 'AbnormalDetect') return '';
+                    const seg = (a.tagAddress || '').split(' / ').pop() || '';
+                    const i = seg.lastIndexOf('.');
+                    return i > 0 ? seg.slice(0, i) : '';
+                },
+                // presetDevice/presetKindName: 알림 행 바로가기 — 해당 디바이스+유형이 선택된 채 열림.
+                async openBlockMgr(presetDevice, presetKindName) {
+                    const m = this.blockMgr;
+                    m.show = true; m.msg = ''; m.err = '';
+                    await this.loadBlockState();
+                    if (presetDevice) {
+                        m.selected = { [presetDevice]: true };
+                        const opt = m.kindOptions.find(k => k.name === presetKindName);
+                        m.selKinds = opt ? [opt.kind] : m.kindOptions.map(k => k.kind);
+                    } else if (!m.selKinds.length) {
+                        m.selKinds = m.kindOptions.map(k => k.kind); // 기본 = 전체 유형
+                    }
+                },
+                async loadBlockState() {
+                    const m = this.blockMgr;
+                    m.loading = true;
+                    try {
+                        const st = await this.apiGet('/api/settings/abnormal-device-filters');
+                        m.devices = st.devices || [];
+                        m.kindOptions = st.kindOptions || [];
+                        m.err = '';
+                    } catch (e) { m.err = '차단 상태를 불러오지 못했습니다: ' + e.message; }
+                    finally { m.loading = false; }
+                },
+                // 일괄 적용: 선택 디바이스의 차단 유형에 selKinds 를 추가(add)/제거 후 전체 규칙을 교체 저장.
+                // 저장 즉시 알림 이력/통계를 재조회해 숨김·해제가 바로 반영된다(다른 화면은 AbnormalDetected 트리거로 갱신).
+                async applyBlock(add) {
+                    const m = this.blockMgr;
+                    if (m.busy) return;
+                    m.busy = true; m.msg = ''; m.err = '';
+                    try {
+                        const sel = new Set(Object.keys(m.selected).filter(d => m.selected[d]));
+                        const filters = m.devices.map(d => {
+                            let kinds = [...(d.blockedKinds || [])];
+                            if (sel.has(d.device)) {
+                                if (add) kinds = [...new Set([...kinds, ...m.selKinds])];
+                                else kinds = kinds.filter(k => !m.selKinds.includes(k));
+                            }
+                            return { device: d.device, kinds };
+                        }).filter(f => f.kinds.length > 0);
+                        const r = await this.apiPost('/api/settings/abnormal-device-filters', { filters });
+                        if (!r.ok) throw new Error(r.message || '저장 실패');
+                        m.msg = r.message;
+                        await this.loadBlockState();
+                        await this.load(true);
+                    } catch (e) { m.err = '적용 실패: ' + e.message; }
+                    finally { m.busy = false; }
                 },
 
                 // ── OEE 포맷터/톤 ──
