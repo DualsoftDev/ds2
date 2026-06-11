@@ -101,6 +101,70 @@ public sealed class GanttChartControlRenderingTests
     }
 
     [Fact]
+    public void ResolvePlanOverlayPart_returns_plan_span_for_going_segment_with_duration()
+    {
+        var start = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Local);
+        var entry = new GanttTimelineEntry
+        {
+            Id = Guid.NewGuid(),
+            Name = "WorkA",
+            Kind = EntityKind.Work,
+            BaseDurationMs = 1500
+        };
+        var segment = new GanttStateSegment { State = Status4.Going, StartTime = start };
+
+        var plan = GanttChartControl.ResolvePlanOverlayPart(entry, segment);
+
+        Assert.NotNull(plan);
+        Assert.Equal(start, plan.Value.StartTime);
+        Assert.Equal(start.AddMilliseconds(1500), plan.Value.EndTime);
+    }
+
+    [Fact]
+    public void ResolvePlanOverlayPart_skips_non_going_segments_and_missing_duration()
+    {
+        var start = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Local);
+        var withDuration = new GanttTimelineEntry
+        {
+            Id = Guid.NewGuid(),
+            Name = "WorkA",
+            Kind = EntityKind.Work,
+            BaseDurationMs = 1500
+        };
+        var withoutDuration = new GanttTimelineEntry
+        {
+            Id = Guid.NewGuid(),
+            Name = "WorkB",
+            Kind = EntityKind.Work
+        };
+        var ready = new GanttStateSegment { State = Status4.Ready, StartTime = start };
+        var finish = new GanttStateSegment { State = Status4.Finish, StartTime = start };
+        var going = new GanttStateSegment { State = Status4.Going, StartTime = start };
+
+        Assert.Null(GanttChartControl.ResolvePlanOverlayPart(withDuration, ready));
+        Assert.Null(GanttChartControl.ResolvePlanOverlayPart(withDuration, finish));
+        Assert.Null(GanttChartControl.ResolvePlanOverlayPart(withoutDuration, going));
+    }
+
+    [Fact]
+    public void ResolveBarHeight_thins_actual_bar_only_in_plan_overlay_mode()
+    {
+        Assert.Equal(18, GanttChartControl.ResolveBarHeight(22, planOverlay: false));
+        Assert.Equal(
+            GanttChartControl.PlanOverlayActualBarHeight,
+            GanttChartControl.ResolveBarHeight(22, planOverlay: true));
+    }
+
+    [Fact]
+    public void ResolveBarTop_centers_bar_within_row()
+    {
+        // 기존 모드: 높이 rowHeight-4 → top = y+2 (기존 배치와 동일).
+        Assert.Equal(102, GanttChartControl.ResolveBarTop(100, 22, 18));
+        // overlay 모드: 얇은 바가 행 세로 가운데.
+        Assert.Equal(107, GanttChartControl.ResolveBarTop(100, 22, 8));
+    }
+
+    [Fact]
     public void TimelineDuration_includes_output_append_tail_without_moving_current_time()
     {
         var start = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Local);

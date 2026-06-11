@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using log4net;
 using log4net.Appender;
 using Promaker.Presentation;
@@ -20,10 +21,47 @@ public partial class AppLogView : UserControl
 {
     private static readonly ILog Log = LogManager.GetLogger(typeof(AppLogView));
 
+    // 꼬리 따라가기 — 맨 아래에 있을 때만 새 로그를 따라 스크롤.
+    // 사용자가 위로 올리면(과거 조회) 해제, 다시 맨 아래로 내리면 재개.
+    private ScrollViewer? _scroll;
+    private bool _followTail = true;
+
     public AppLogView()
     {
         InitializeComponent();
         DataContext = AppLogState.Instance;
+        Loaded += (_, _) =>
+        {
+            if (_scroll is not null) return;
+            _scroll = FindScrollViewer(AppLogListBox);
+            if (_scroll is not null)
+                _scroll.ScrollChanged += OnLogScrollChanged;
+        };
+    }
+
+    private void OnLogScrollChanged(object sender, ScrollChangedEventArgs e)
+    {
+        if (_scroll is null) return;
+        if (e.ExtentHeightChange == 0)
+        {
+            // 콘텐츠 변화 없는 스크롤 = 사용자 조작 — 맨 아래 근처인지로 follow 여부 갱신.
+            _followTail = _scroll.VerticalOffset >= _scroll.ScrollableHeight - 1.0;
+        }
+        else if (_followTail)
+        {
+            _scroll.ScrollToEnd();
+        }
+    }
+
+    private static ScrollViewer? FindScrollViewer(DependencyObject root)
+    {
+        if (root is ScrollViewer viewer) return viewer;
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            if (FindScrollViewer(VisualTreeHelper.GetChild(root, i)) is { } found)
+                return found;
+        }
+        return null;
     }
 
     private void AppLogCopyAll_Click(object sender, RoutedEventArgs e)

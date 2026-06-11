@@ -32,6 +32,8 @@ public partial class SimulationPanelState : ObservableObject
     private readonly Func<DsStore> _storeProvider;
     // v12 자동 줄자 — Agent 가 push 한 학습 duration 누적(workGuid → ms). 정지 시 사용자 선택으로 모델 반영.
     private readonly System.Collections.Generic.Dictionary<Guid, (int avg, int min, int max)> _learnedDurations = new();
+    // 로컬 실측 duration 학습 — 비-Simulation 모드(Control/Monitoring/VP) PLAY 시 생성, 정지 시 _learnedDurations 에 병합.
+    private CallDurationLearning? _durationLearning;
     /// <summary>모델을 dirty(미저장)로 표시 — MainViewModel 이 () => IsDirty=true 로 주입.</summary>
     public Action? MarkDirty { get; set; }
     private readonly Dispatcher _dispatcher;
@@ -495,6 +497,12 @@ public partial class SimulationPanelState : ObservableObject
             GanttChart.NowOverride = ResolveSignalDrivenGanttNow;
         else
             GanttChart.NowOverride = null;
+
+        // plan overlay — 비-Simulation 모드(Control/Monitoring/VP)는 plan(BaseDurationMs) 배경 틀 + 얇은 actual 바.
+        // Simulation 은 시뮬 자체가 plan 이므로 기존 단일 바 그대로.
+        GanttChart.ShowPlanOverlay = SelectedRuntimeMode != RuntimeMode.Simulation;
+        // 신호 유추 모드(VP/Monitoring)는 워밍업 후 사이클 중간 합류라 첫 Going 의 plan 틀이 침범 — 생략.
+        GanttChart.SuppressFirstGoingPlanOverlay = UsesSignalDrivenGanttTimeline(SelectedRuntimeMode);
     }
 
     // PLC IO 헬퍼는 SimulationPanelState.PlcConfig.cs partial 참조.

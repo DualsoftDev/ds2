@@ -26,19 +26,49 @@ public partial class GanttChartControl
         DateTime StartTime,
         DateTime EndTime);
 
+    /// <summary>plan overlay 배경 바 구간 — Going 시작 시점부터 plan(BaseDurationMs) 만큼.</summary>
+    internal readonly record struct GanttPlanOverlayPart(DateTime StartTime, DateTime EndTime);
+
+    /// <summary>plan overlay (비-Simulation 모드) — Going 세그먼트의 plan 배경 바 구간. 대상 아니면 null.</summary>
+    internal static GanttPlanOverlayPart? ResolvePlanOverlayPart(GanttTimelineEntry entry, GanttStateSegment segment)
+    {
+        if (segment.State != Ds2.Core.Status4.Going) return null;
+        if (entry.BaseDurationMs is not { } durationMs || durationMs <= 0) return null;
+        return new GanttPlanOverlayPart(segment.StartTime, segment.StartTime.AddMilliseconds(durationMs));
+    }
+
+    /// <summary>plan overlay 모드에서 actual 상태 막대 높이 — 배경(plan) 바 안에 얇게 가운데.</summary>
+    internal const double PlanOverlayActualBarHeight = 8;
+
+    internal static double ResolveBarHeight(double rowHeight, bool planOverlay)
+        => planOverlay ? PlanOverlayActualBarHeight : rowHeight - 4;
+
+    internal static double ResolveBarTop(double rowY, double rowHeight, double barHeight)
+        => rowY + (rowHeight - barHeight) / 2.0;
+
     internal static string ResolveRowBackgroundResourceKey(GanttTimelineEntry entry)
         => entry.IsWork ? "GanttWorkRowBackgroundBrush" : "GanttCallRowBackgroundBrush";
     // ── 엘리먼트 풀 (Children.Clear() 대신 재사용) ──
     private readonly List<Rectangle> _rowBgPool = new();
     private readonly List<Line> _rowLinePool = new();
     private readonly List<Rectangle> _barPool = new();
+    private readonly List<Rectangle> _planBarPool = new();
     private readonly List<Border> _virtualAppendPool = new();
     private readonly List<Line> _outputAppendLinePool = new();
     private readonly List<Line> _outputAppendEndPool = new();
     private readonly List<Line> _rulerTickPool = new();
     private readonly List<TextBlock> _rulerLabelPool = new();
 
-    private void StartRendering() => _renderTimer.Start();
+    // 빨간선(현재 시각) 따라가기 — 사용자가 과거를 보러 수동 스크롤하면 해제,
+    // 빨간선이 보이는 위치로 돌아오면 재개. PLAY 시 재개.
+    private bool _followCurrentTime = true;
+    private bool _isAutoScrolling;
+
+    private void StartRendering()
+    {
+        _followCurrentTime = true;
+        _renderTimer.Start();
+    }
 
     private void StopRendering(bool clearVisuals = false)
     {
@@ -54,10 +84,12 @@ public partial class GanttChartControl
         RenderAll();
     }
 
-    /// <summary>현재 시간 빨간 라인이 뷰포트 안에 보이도록 자동 스크롤</summary>
+    /// <summary>현재 시간 빨간 라인이 뷰포트 안에 보이도록 자동 스크롤.
+    /// 사용자가 과거를 보러 수동 스크롤하면(_followCurrentTime=false) 따라가지 않는다 — 정지 없이 과거 조회 가능.</summary>
     private void AutoScrollToCurrentTime()
     {
         if (_viewModel is not { IsRunning: true }) return;
+        if (!_followCurrentTime) return;
 
         double currentTimeX = _viewModel.TotalDuration.TotalSeconds * _viewModel.PixelsPerSecond;
         double viewportWidth = TimelineScrollViewer.ViewportWidth;
@@ -69,7 +101,9 @@ public partial class GanttChartControl
         double lineScreenX = currentTimeX - TimelineScrollViewer.HorizontalOffset;
         if (lineScreenX < 0 || lineScreenX > viewportWidth)
         {
-            ApplyHorizontalOffset(targetOffset);
+            _isAutoScrolling = true;
+            try { ApplyHorizontalOffset(targetOffset); }
+            finally { _isAutoScrolling = false; }
         }
     }
 
@@ -115,7 +149,13 @@ public partial class GanttChartControl
     private Rectangle GetOrCreateBar(int index)
         => GetOrCreate(_barPool, TimelineCanvas, index,
             () => new Rectangle { RadiusX = 2, RadiusY = 2, Cursor = Cursors.Hand },
-            bar => { bar.MouseEnter += OnBarMouseEnter; bar.MouseLeave += OnBarMouseLeave; });
+            bar => { bar.MouseEnter += OnBarMouseEnter; bar.MouseLeave += OnBarMouseLeave; Panel.SetZIndex(bar, 10); });
+
+    /// plan overlay 배경 바 — actual 바(ZIndex 10) 아래, 행 배경 위.
+    private Rectangle GetOrCreatePlanBar(int index)
+        => GetOrCreate(_planBarPool, TimelineCanvas, index,
+            () => new Rectangle { RadiusX = 2, RadiusY = 2, Cursor = Cursors.Hand },
+            bar => { bar.MouseEnter += OnBarMouseEnter; bar.MouseLeave += OnBarMouseLeave; Panel.SetZIndex(bar, 5); });
 
     private Border GetOrCreateVirtualAppend(int index)
         => GetOrCreate(_virtualAppendPool, TimelineCanvas, index,
@@ -160,6 +200,7 @@ public partial class GanttChartControl
         _rowBgPool.Clear();
         _rowLinePool.Clear();
         _barPool.Clear();
+        _planBarPool.Clear();
         _virtualAppendPool.Clear();
         _outputAppendLinePool.Clear();
         _outputAppendEndPool.Clear();
@@ -220,6 +261,7 @@ public partial class GanttChartControl
             HideRemaining(_rowBgPool, 0);
             HideRemaining(_rowLinePool, 0);
             HideRemaining(_barPool, 0);
+            HideRemaining(_planBarPool, 0);
             HideRemaining(_virtualAppendPool, 0);
             HideRemaining(_outputAppendLinePool, 0);
             HideRemaining(_outputAppendEndPool, 0);
@@ -235,8 +277,11 @@ public partial class GanttChartControl
         TimelineCanvas.Height = Math.Max(totalHeight, TimelineScrollViewer.ActualHeight);
 
         var borderBrush = Application.Current.TryFindResource("BorderBrush") as Brush ?? Brushes.Gray;
-        int rowIdx = 0, lineIdx = 0, barIdx = 0, virtualAppendIdx = 0, outputAppendLineIdx = 0, outputAppendEndIdx = 0;
+        int rowIdx = 0, lineIdx = 0, barIdx = 0, planBarIdx = 0, virtualAppendIdx = 0, outputAppendLineIdx = 0, outputAppendEndIdx = 0;
         var outputAppendBrush = new SolidColorBrush(Color.FromRgb(242, 100, 43));
+        bool planOverlay = _viewModel.ShowPlanOverlay;
+        var planOverlayBrush = Application.Current.TryFindResource("GanttPlanOverlayBrush") as Brush
+            ?? new SolidColorBrush(Color.FromArgb(0x2E, 0xD4, 0x88, 0x3A));
 
         // viewport culling — 장시간 운전 시 segment 가 누적되어도 화면 밖은 Rectangle 안 만든다.
         double scrollOffset = TimelineScrollViewer.HorizontalOffset;
@@ -273,6 +318,28 @@ public partial class GanttChartControl
             {
                 // ApiCall — 한 행을 위(Plan=Segments)/아래(I/O=IoSegments) 2줄로.
                 double subH = entry.SubRowHeight;
+
+                // plan overlay — PLN 줄 Going 구간에 plan duration 배경 틀 (subrow 는 얇아서 actual 바 두께는 유지).
+                if (planOverlay)
+                {
+                    bool firstGoingSkipped = !_viewModel.SuppressFirstGoingPlanOverlay;
+                    foreach (var segment in entry.Segments)
+                    {
+                        if (ResolvePlanOverlayPart(entry, segment) is not { } plan) continue;
+                        if (!firstGoingSkipped) { firstGoingSkipped = true; continue; }   // 합류 사이클 — 시작점이 가짜
+                        double pStartX = (plan.StartTime - _viewModel.StartTime).TotalSeconds * _viewModel.PixelsPerSecond;
+                        double pWidth = (plan.EndTime - plan.StartTime).TotalSeconds * _viewModel.PixelsPerSecond;
+                        if (pWidth < 1 || pStartX + pWidth < cullLeft || pStartX > cullRight) continue;
+                        var planBar = GetOrCreatePlanBar(planBarIdx++);
+                        planBar.Width = pWidth;
+                        planBar.Height = subH - 2;
+                        planBar.Fill = planOverlayBrush;
+                        planBar.Tag = new BarTagInfo { Entry = entry, Segment = segment };
+                        Canvas.SetLeft(planBar, pStartX);
+                        Canvas.SetTop(planBar, y + 1);
+                    }
+                }
+
                 RenderApiCallSubRow(entry, entry.Segments, y, subH, ref barIdx, cullLeft, cullRight, showReady: true,
                     drawOutputAppend: false, ref outputAppendLineIdx, ref outputAppendEndIdx, outputAppendBrush);    // PLN: R/G/F/H 전부
                 RenderApiCallSubRow(entry, entry.OutSegments, y + subH, subH, ref barIdx, cullLeft, cullRight, showReady: false,
@@ -281,9 +348,40 @@ public partial class GanttChartControl
                     drawOutputAppend: true, ref outputAppendLineIdx, ref outputAppendEndIdx, outputAppendBrush);  // I/O In(파랑) + In 시작 timeAppend 점선
             }
             else
+            {
+            bool firstGoingPlanSkipped = !_viewModel.SuppressFirstGoingPlanOverlay;
             foreach (var segment in entry.Segments)
             {
                 var segmentEndTime = segment.EndTime ?? _viewModel.CurrentTime;
+
+                // plan overlay (비-Simulation): Going 시작부터 plan duration 만큼 행을 채우는 약한 배경 바.
+                // actual 바가 이 틀보다 짧으면 빨랐던 것, 뚫고 나가면 느린 것, 틀만 있고 actual 이 없으면 추정(coast) 구간.
+                if (planOverlay && ResolvePlanOverlayPart(entry, segment) is { } plan)
+                {
+                    if (!firstGoingPlanSkipped)
+                    {
+                        // 신호 유추 모드(VP/Monitoring)의 첫 Going = 사이클 중간 합류 — 시작점이 가짜라 틀 생략.
+                        firstGoingPlanSkipped = true;
+                    }
+                    else
+                    {
+                        double pStartX = (plan.StartTime - _viewModel.StartTime).TotalSeconds * _viewModel.PixelsPerSecond;
+                        double pWidth = (plan.EndTime - plan.StartTime).TotalSeconds * _viewModel.PixelsPerSecond;
+                        if (pWidth >= 1 && pStartX + pWidth >= cullLeft && pStartX <= cullRight)
+                        {
+                            var planBar = GetOrCreatePlanBar(planBarIdx++);
+                            planBar.Width = pWidth;
+                            planBar.Height = rowHeight - 4;
+                            planBar.Fill = planOverlayBrush;
+                            planBar.Tag = new BarTagInfo { Entry = entry, Segment = segment };
+                            Canvas.SetLeft(planBar, pStartX);
+                            Canvas.SetTop(planBar, y + 2);
+                        }
+                    }
+                }
+
+                double barHeight = ResolveBarHeight(rowHeight, planOverlay);
+                double barTop = ResolveBarTop(y, rowHeight, barHeight);
 
                 foreach (var part in ResolveSegmentRenderParts(entry, segment, segmentEndTime))
                 {
@@ -298,25 +396,26 @@ public partial class GanttChartControl
                     {
                         var border = GetOrCreateVirtualAppend(virtualAppendIdx++);
                         border.Width = width;
-                        border.Height = rowHeight - 4;
+                        border.Height = barHeight;
                         border.BorderBrush = segment.StateBrush;
                         border.Tag = new BarTagInfo { Entry = entry, Segment = segment };
                         Canvas.SetLeft(border, startX);
-                        Canvas.SetTop(border, y + 2);
+                        Canvas.SetTop(border, barTop);
                     }
                     else
                     {
                         var bar = GetOrCreateBar(barIdx++);
                         bar.Width = width;
-                        bar.Height = rowHeight - 4;
+                        bar.Height = barHeight;
                         bar.Fill = segment.StateBrush;
                         bar.Stroke = null;
                         bar.StrokeThickness = 0;
                         bar.Tag = new BarTagInfo { Entry = entry, Segment = segment };
                         Canvas.SetLeft(bar, startX);
-                        Canvas.SetTop(bar, y + 2);
+                        Canvas.SetTop(bar, barTop);
                     }
                 }
+            }
             }
 
             y += rowHeight + RowGap;
@@ -325,6 +424,7 @@ public partial class GanttChartControl
         HideRemaining(_rowBgPool, rowIdx);
         HideRemaining(_rowLinePool, lineIdx);
         HideRemaining(_barPool, barIdx);
+        HideRemaining(_planBarPool, planBarIdx);
         HideRemaining(_virtualAppendPool, virtualAppendIdx);
         HideRemaining(_outputAppendLinePool, outputAppendLineIdx);
         HideRemaining(_outputAppendEndPool, outputAppendEndIdx);

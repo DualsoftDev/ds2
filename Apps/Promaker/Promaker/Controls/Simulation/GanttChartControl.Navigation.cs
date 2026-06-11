@@ -90,6 +90,15 @@ public partial class GanttChartControl
     {
         if (_viewModel == null || _isSyncingScroll) return;
 
+        // 사용자 가로 스크롤(휠/팬/스크롤바) — 빨간선이 뷰포트 밖으로 나가면 따라가기 해제(과거 탐색),
+        // 빨간선이 보이는 위치로 돌아오면 재개. 자동 스크롤(_isAutoScrolling)은 판정 제외.
+        if (!_isAutoScrolling && e.HorizontalChange != 0 && _viewModel.IsRunning)
+        {
+            double lineScreenX =
+                _viewModel.TotalDuration.TotalSeconds * _viewModel.PixelsPerSecond - e.HorizontalOffset;
+            _followCurrentTime = lineScreenX >= 0 && lineScreenX <= e.ViewportWidth;
+        }
+
         try
         {
             _isSyncingScroll = true;

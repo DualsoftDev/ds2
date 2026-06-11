@@ -41,7 +41,20 @@ public partial class SimulationPanelState
             value,
             new Func<Guid, Status4>(GetWorkStateSafe),
             new Func<Guid, Status4>(GetCallStateSafe));
-        ApplyPassiveInferenceActions(actions);
+
+        // 진단 — 인퍼런스 관측·전이가 UI 로그에만 남아 파일에서 추적 불가했던 갭.
+        // Going 누락 사이클의 "신호는 왔는데 액션이 없었는지 / 신호 자체가 안 왔는지" 를 파일로 판별.
+        if (SimLog.IsDebugEnabled)
+        {
+            var applied = actions as ICollection<PassiveInferenceAction> ?? actions.ToList();
+            SimLog.Debug($"[Infer] obs {address}={value} → {applied.Count} action(s)");
+            ApplyPassiveInferenceActions(applied);
+        }
+        else
+        {
+            ApplyPassiveInferenceActions(actions);
+        }
+
         DrainPassiveInferenceLogs();
     }
 
@@ -66,7 +79,17 @@ public partial class SimulationPanelState
             mappings,
             new Func<Guid, Status4>(GetWorkStateSafe),
             new Func<Guid, Status4>(GetCallStateSafe));
-        ApplyPassiveInferenceActions(actions);
+
+        if (SimLog.IsDebugEnabled)
+        {
+            var applied = actions as ICollection<PassiveInferenceAction> ?? actions.ToList();
+            SimLog.Debug($"[Infer] obs{(isOut ? "Out" : "In")} {address}={value} → {applied.Count} action(s)");
+            ApplyPassiveInferenceActions(applied);
+        }
+        else
+        {
+            ApplyPassiveInferenceActions(actions);
+        }
         DrainPassiveInferenceLogs();
     }
 
@@ -75,21 +98,37 @@ public partial class SimulationPanelState
         if (_simEngine is null)
             return;
 
+        var scheduledStateChange = false;
         foreach (var action in actions)
         {
             switch (action.TargetKind)
             {
                 case PassiveInferenceTarget.Work:
                     if (!IsMappedDeviceWork(action.TargetGuid) && GetWorkStateSafe(action.TargetGuid) != action.State)
+                    {
                         _simEngine.ForceWorkState(action.TargetGuid, action.State);
+                        scheduledStateChange = true;
+                        if (SimLog.IsDebugEnabled)
+                            SimLog.Debug($"[Infer] Work {ResolveInferName(PassiveInferenceTarget.Work, action.TargetGuid)} → {action.State}");
+                    }
                     break;
 
                 case PassiveInferenceTarget.Call:
                     if (GetCallStateSafe(action.TargetGuid) != action.State)
+                    {
                         _simEngine.ForceCallState(action.TargetGuid, action.State);
+                        scheduledStateChange = true;
+                        if (SimLog.IsDebugEnabled)
+                            SimLog.Debug($"[Infer] Call {ResolveInferName(PassiveInferenceTarget.Call, action.TargetGuid)} → {action.State}");
+                    }
                     break;
             }
         }
+
+        // backend observeAndInfer 의 drainCurrentTick 과 동일 — 유추 전이가 stale 시계로 stamp 되어
+        // Monitoring 간트 Going 길이가 왜곡(늘어남/붕괴)되는 것 차단.
+        if (scheduledStateChange)
+            DrainEngineClockToWall(_simEngine);
     }
 
     private void DrainPassiveInferenceLogs()
@@ -197,11 +236,15 @@ public partial class SimulationPanelState
 
             case RuntimeHubEffectKind.InjectIoByAddress:
                 engine.InjectIOValueByAddress(effect.Address, effect.Value);
+                DrainEngineClockToWall(engine);
                 return;
 
             case RuntimeHubEffectKind.ForceWorkState:
                 if (effect.WorkGuid != Guid.Empty)
+                {
                     engine.ForceWorkState(effect.WorkGuid, effect.State);
+                    DrainEngineClockToWall(engine);
+                }
                 return;
 
             case RuntimeHubEffectKind.ForceWorkStateIfGoing:
@@ -209,12 +252,18 @@ public partial class SimulationPanelState
                 // currentState=Going 일 때만 Force — Reset 흐름 도중 stale 응답이 Homing→Finish
                 // 잘못 전이시키는 race 차단.
                 if (effect.WorkGuid != Guid.Empty)
+                {
                     engine.TryForceWorkStateIfGoing(effect.WorkGuid, effect.State);
+                    DrainEngineClockToWall(engine);
+                }
                 return;
 
             case RuntimeHubEffectKind.ForceWorkStateIfReady:
                 if (effect.WorkGuid != Guid.Empty)
+                {
                     engine.TryForceWorkStateIfReady(effect.WorkGuid, effect.State);
+                    DrainEngineClockToWall(engine);
+                }
                 return;
 
             case RuntimeHubEffectKind.WriteTag:
@@ -243,6 +292,31 @@ public partial class SimulationPanelState
                 });
                 return;
         }
+    }
+
+    /// <summary>
+    /// 엔진 시계를 벽시계 타깃까지 advance — self-hosted Control/VP 에서 hub effect 가 forced transition 을
+    /// 만들기 전에 호출. 안 하면 전이가 마지막 loop wake 시각(stale)으로 stamp 되어 간트 막대가
+    /// 빨간선(wall clock) 뒤로 늘어지다 끝에 챡 붙는 왜곡이 생긴다. (backend drainCurrentTick 과 동일 패턴)
+    /// </summary>
+    private static void DrainEngineClockToWall(ISimulationEngine engine)
+    {
+        var before = engine.CurrentTimeMs;
+        engine.AdvanceSimulationToRealTime();
+        var jumped = engine.CurrentTimeMs - before;
+        if (jumped > 500)
+            SimLog.Info($"[ClockSync] sim clock jumped {jumped}ms on hub effect (stale stamp window)");
+    }
+
+    private string ResolveInferName(PassiveInferenceTarget kind, Guid id)
+    {
+        var store = _storeProvider();
+        var name = kind switch
+        {
+            PassiveInferenceTarget.Call => OptionValue(Ds2.Core.Store.Queries.getCall(id, store))?.Name,
+            _ => OptionValue(Ds2.Core.Store.Queries.getWork(id, store))?.Name,
+        };
+        return name ?? id.ToString("N")[..8];
     }
 
     private string ResolveRuntimeHubSource() => _runtimeSession?.HubSource ?? "";

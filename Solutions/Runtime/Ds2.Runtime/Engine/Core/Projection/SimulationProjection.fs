@@ -157,16 +157,18 @@ module SimulationProjection =
 
         Seq.append boundAppend unboundAppend |> maxOrZero
 
+    /// Call 의 plan duration(ms) — 부르는 device Work(RxGuid, 없으면 TxGuid) duration 의 max.
+    /// 간트 plan overlay 배경 틀용 (v16 — SensingType 무관, 모든 Call 에 plan 표시).
+    /// device 참조가 없는 Virtual 은 소속 Work duration 으로 fallback.
     let private callBaseDurationMs (index: SimIndex) callGuid (parentWorkId: Nullable<Guid>) =
         apiDefsOfCall index callGuid
         |> Seq.choose (fun apiDef ->
-            match apiDef.SensingType with
-            | SensingType.Virtual _ ->
-                match apiDef.RxGuid |> Option.orElse apiDef.TxGuid with
-                | Some completionWorkGuid -> workDurationMs index completionWorkGuid
-                | None when parentWorkId.HasValue -> workDurationMs index parentWorkId.Value
-                | None -> None
-            | _ -> None)
+            match apiDef.RxGuid |> Option.orElse apiDef.TxGuid with
+            | Some completionWorkGuid -> workDurationMs index completionWorkGuid
+            | None ->
+                match apiDef.SensingType with
+                | SensingType.Virtual _ when parentWorkId.HasValue -> workDurationMs index parentWorkId.Value
+                | _ -> None)
         |> nullableMax
 
     let private callVirtualAppendMs (index: SimIndex) callGuid =

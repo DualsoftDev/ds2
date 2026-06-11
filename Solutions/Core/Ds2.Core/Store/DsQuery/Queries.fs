@@ -454,9 +454,88 @@ module Queries =
                 MaxMs = ranges |> List.map (fun r -> r.MaxMs) |> List.max
             }
 
+    /// Call 이 부르는 device Work(ApiDef.RxGuid) guid 목록 — 실측 duration 학습의 귀속 대상.
+    let callRxWorkGuids (callId: Guid) (store: DsStore) : Guid list =
+        match getCall callId store with
+        | None -> []
+        | Some call ->
+            call.ApiCalls
+            |> Seq.choose (fun apiCall ->
+                apiCall.ApiDefId
+                |> Option.bind (fun defId -> getApiDef defId store)
+                |> Option.bind (fun def -> def.RxGuid))
+            |> Seq.distinct
+            |> Seq.toList
+
+    /// 디바이스 자원 직렬화 하한(ms) — Call arrow 가 없어 critical path 상 병렬로 보이는 Call 들도
+    /// 같은 디바이스 자원(Reset 계열 인터락으로 상호 연결된 Device Work 그룹, 예: 한 실린더의 ADV↔RET)을
+    /// 쓰면 엔진이 mutex 로 직렬 실행하므로, 자원 그룹별 사용 시간 합이 Work duration 의 하한이 된다.
+    let private deviceResourceSerializationFloorMs (calls: Call list) (store: DsStore) : int =
+        // Call → 사용하는 Device Work(RxGuid) 목록
+        let callRxWorks =
+            calls
+            |> List.map (fun c ->
+                c.ApiCalls
+                |> Seq.choose (fun apiCall ->
+                    apiCall.ApiDefId
+                    |> Option.bind (fun defId -> getApiDef defId store)
+                    |> Option.bind (fun def -> def.RxGuid)
+                    |> Option.bind (fun rxId -> getWork rxId store))
+                |> Seq.toList)
+
+        let rxWorks =
+            callRxWorks |> List.collect id |> List.distinctBy (fun w -> w.Id)
+        if rxWorks.IsEmpty then 0
+        else
+            // Device Work 간 Reset 계열 화살표(상호 배타) union-find → 자원 그룹
+            let rxIds = rxWorks |> List.map (fun w -> w.Id) |> Set.ofList
+            let parent = System.Collections.Generic.Dictionary<Guid, Guid>()
+            for w in rxWorks do parent.[w.Id] <- w.Id
+            let rec find x =
+                if parent.[x] = x then x
+                else
+                    let root = find parent.[x]
+                    parent.[x] <- root
+                    root
+            let union a b =
+                let ra, rb = find a, find b
+                if ra <> rb then parent.[ra] <- rb
+
+            let isMutexArrow (t: ArrowType) =
+                t = ArrowType.Reset || t = ArrowType.StartReset || t = ArrowType.ResetReset
+
+            rxWorks
+            |> List.choose (fun w -> trySystemIdOfWork w.Id store)
+            |> List.distinct
+            |> List.iter (fun sysId ->
+                for a in arrowWorksOf sysId store do
+                    if isMutexArrow a.ArrowType
+                       && Set.contains a.SourceId rxIds
+                       && Set.contains a.TargetId rxIds then
+                        union a.SourceId a.TargetId)
+
+            // 그룹별 합: 각 Call 이 그 그룹 자원을 점유하는 시간(그룹 내 rxWork duration 의 max)을 합산
+            let durationOf (w: Work) =
+                w.Duration |> Option.map (fun ts -> int ts.TotalMilliseconds) |> Option.defaultValue 0
+
+            let groupTotals = System.Collections.Generic.Dictionary<Guid, int>()
+            for rxList in callRxWorks do
+                rxList
+                |> List.groupBy (fun w -> find w.Id)
+                |> List.iter (fun (root, ws) ->
+                    let usage = ws |> List.map durationOf |> List.max
+                    groupTotals.[root] <-
+                        (match groupTotals.TryGetValue root with
+                         | true, v -> v
+                         | _ -> 0) + usage)
+
+            if groupTotals.Count = 0 then 0
+            else groupTotals.Values |> Seq.max
+
     /// <summary>Work 내 Call들의 Critical Path Duration(ms)을 반환합니다.
     /// Call arrow topology(ArrowBetweenCalls Start)를 분석하여 병렬/직렬 실행을 고려한
-    /// 최장 경로(critical path)를 계산합니다. Device duration이 없으면 None.</summary>
+    /// 최장 경로(critical path)를 계산하고, 디바이스 자원(mutex) 직렬화 하한과의 max 를 취합니다.
+    /// Device duration이 없으면 None.</summary>
     let tryGetDeviceDurationMs (workId: Guid) (store: DsStore) : int option =
         let calls = callsOf workId store
         if calls.IsEmpty then None
@@ -497,7 +576,12 @@ module Queries =
                 | [] -> 0
                 | xs -> List.max xs
 
-            if criticalPath > 0 then Some criticalPath else None
+            // 디바이스 mutex 직렬화 하한 — arrow 없는 병렬 Call 들이 같은 자원을 공유하면
+            // 실제 실행은 순차이므로 critical path 보다 길어질 수 있다.
+            let resourceFloor = deviceResourceSerializationFloorMs calls store
+            let result = max criticalPath resourceFloor
+
+            if result > 0 then Some result else None
 
     /// <summary>Work 내 Call들의 Device abnormal duration range(ms)를 critical path 기준으로 반환합니다.
     /// MinDuration 미명시는 0ms 로 해석하지만, MaxDuration 이 없는 Device Work 는 range 계산에서 제외합니다.</summary>

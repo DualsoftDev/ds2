@@ -58,6 +58,8 @@
     <Color x:Key="GanttBarGoingColor">#D29344</Color>
     <Color x:Key="GanttBarFinishColor">#5A97D0</Color>
     <Color x:Key="GanttBarHomingColor">#8A8D92</Color>
+    <!-- plan overlay 배경 틀 (비-Simulation 모드) — Going 주황의 저알파 -->
+    <Color x:Key="GanttPlanOverlayColor">#33D29344</Color>
 
     <!-- Gantt Row Colors -->
     <Color x:Key="GanttWorkRowBackgroundColor">#33D0D7DE</Color>

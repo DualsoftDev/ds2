@@ -17,8 +17,11 @@ internal sealed class HubTagBatchSender : IAsyncDisposable
 {
     /// <summary>한 batch 에 묶이는 최대 tag 수. 초과분은 즉시 다음 batch 로.</summary>
     private const int MaxBatchSize = 200;
-    /// <summary>첫 enqueue 후 추가 tag 를 기다리는 최대 시간(ms). 짧을수록 latency↓ batch 효율↓.</summary>
-    private const int MaxWindowMs = 25;
+    /// <summary>첫 enqueue 후 추가 tag 를 기다리는 최대 시간(ms). 짧을수록 latency↓ batch 효율↓.
+    /// 같은 전이 버스트(한 tick 의 연쇄 쓰기)는 거의 동시에 enqueue 되므로 5ms 로도 묶인다.
+    /// 25ms 였을 때 Control↔VP 가 단계당 왕복 +50ms(양쪽 윈도우) 를 먹어 10단계 직렬 Work 에서
+    /// actual 이 plan 보다 +0.5s 길어 보이는 주범이었음 (간트 plan overlay 로 가시화되며 발견).</summary>
+    private const int MaxWindowMs = 5;
 
     private readonly HubConnection _hub;
     private readonly int _generation;

@@ -83,6 +83,7 @@
     <SolidColorBrush x:Key="GanttBarGoingBrush" Color="{StaticResource GanttBarGoingColor}" po:Freeze="False"/>
     <SolidColorBrush x:Key="GanttBarFinishBrush" Color="{StaticResource GanttBarFinishColor}" po:Freeze="False"/>
     <SolidColorBrush x:Key="GanttBarHomingBrush" Color="{StaticResource GanttBarHomingColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="GanttPlanOverlayBrush" Color="{StaticResource GanttPlanOverlayColor}" po:Freeze="False"/>
 
     <!-- Gantt Row Brushes -->
     <SolidColorBrush x:Key="GanttWorkRowBackgroundBrush" Color="{StaticResource GanttWorkRowBackgroundColor}" po:Freeze="False"/>

@@ -296,6 +296,54 @@ module ControlAdapterTests =
         Assert.Single(emitted) |> ignore
         Assert.Equal(AbnormalKind.SensorShort, emitted.[0].Kind)
 
+    // 디바이스 공유 — 같은 InTag 주소를 두 Call 이 단계별로 호출하는 모델.
+    // 한 Call 이 기대 중(Going)일 때 들어온 신호는 Ready 인 동거 Call 에 Short 가 아니다.
+    let private setupSharedAddress () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        let deviceSystem = addSystem store "Device" project.Id false
+        let deviceFlow = addFlow store "DeviceFlow" deviceSystem.Id
+        let deviceWork = addWork store "ADV" deviceFlow.Id
+        deviceWork.MinDuration <- Some(TimeSpan.FromMilliseconds 250.0)
+        deviceWork.MaxDuration <- Some(TimeSpan.FromMilliseconds 900.0)
+        let apiDef = addApiDef store "ADV" deviceSystem.Id
+        apiDef.TxGuid <- Some deviceWork.Id
+        apiDef.RxGuid <- Some deviceWork.Id
+        store.AddCallWithLinkedApiDefs(work.Id, "Device", "A", [ apiDef.Id ]) |> ignore
+        store.AddCallWithLinkedApiDefs(work.Id, "Device", "B", [ apiDef.Id ]) |> ignore
+        let calls = Queries.callsOf work.Id store
+        let callA, callB = calls.[0], calls.[1]
+        let apiCallA = callA.ApiCalls |> Seq.head
+        let apiCallB = callB.ApiCalls |> Seq.head
+        for ac in [ apiCallA; apiCallB ] do
+            ac.InTag <- Some(IOTag("IN", "X0", ""))    // 같은 주소 공유
+            ac.OutTag <- Some(IOTag("OUT", "Y0", ""))
+        let index = SimIndex.build store 10
+        let ioMap = SignalIOMap.build store
+        let emitted = ResizeArray<AbnormalRecord>()
+        let states = Dictionary<Guid, Status4>()
+        let getCallState cid =
+            match states.TryGetValue cid with
+            | true, s -> s
+            | _ -> Status4.Ready
+        let adapter =
+            ControlAbnormalAdapter(index, ioMap, getCallState, (fun _ -> false), (fun () -> t0), (fun r -> emitted.Add r))
+        adapter, emitted, states, callA.Id, apiCallB.Id
+
+    [<Fact>]
+    let ``shared address rising is not Short while sibling call expects it`` () =
+        let adapter, emitted, states, expectingCallId, readyApiCallId = setupSharedAddress ()
+        states.[expectingCallId] <- Status4.Going
+        adapter.OnCallGoing(expectingCallId, 1000)
+        adapter.OnInputRising(readyApiCallId, 1500)   // Ready 쪽 매핑에 도착한 신호 — Going 쪽의 정상 완료
+        Assert.DoesNotContain(emitted, fun r -> r.Kind = AbnormalKind.SensorShort)
+
+    [<Fact>]
+    let ``shared address rising is Short when nobody expects it`` () =
+        let adapter, emitted, _, _, readyApiCallId = setupSharedAddress ()
+        adapter.OnInputRising(readyApiCallId, 1500)   // 둘 다 Ready — 진짜 Short
+        Assert.Contains(emitted, fun r -> r.Kind = AbnormalKind.SensorShort)
+
     // Ready(출발 ?? falling ?� ?�상 ??SensorOpen ?�님.
     [<Fact>]
     let ``falling when Ready is not SensorOpen`` () =

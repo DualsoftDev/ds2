@@ -193,6 +193,7 @@ public partial class SimulationPanelState
             InitSimNodes();
             InitTokenSources();
             InitSceneEventHandler();
+            InitDurationLearning();
 
             // Passive 모드(VirtualPlant/Monitoring): Homing 없이 Start만, H 상태로 대기
             var isPassive = _runtimeSession?.StartsWithHomingPhase == false;
