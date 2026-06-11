@@ -25,6 +25,8 @@
  *   - .dsp-page(Alpine 루트) 를 main(ml-60) 안으로 이동, 슬림 헤더 제거.
  *   - /api/nav         : showPlcDebug (PLC 디버그 링크, 1회).
  *   - /api/nav/summary : Line Summary · 이상발생 배지 · 연결 배지 (4초 폴링).
+ *     이상발생 배지는 /uptime 방문 시 초기화 — serverTimeUtc 를 localStorage ack 로 박제,
+ *     이후 폴링이 ?anomalyAck= 로 보내 ack 이전 Error 는 카운트에서 제외.
  *
  * 스타일 의존성: /css/stitch-shell.css (Tailwind 빌드 산출물, self-host·오프라인).
  *   stitch 유틸리티 + 셸 스코프 리셋 + 연결배지 + 다크 리맵을 모두 담는다.
@@ -137,12 +139,17 @@
         aside.appendChild(navMenu);
 
         var anomalyBadge = null;
+        // /uptime 진입 = 배지 읽음 처리. serverTimeUtc 를 localStorage(전 페이지/탭 공유)에 ack 로 기록하고,
+        // 이후 폴링은 anomalyAck 파라미터로 보내 그 시각 이전 Error 를 배지에서 제외한다(알람 이력 피드는 영향 없음).
+        var ANOMALY_ACK_KEY = 'dspilot-anomaly-ack';
+        var onUptimePage = false;
         var flowsAnchor = null;   // 시스템→Flow 서브메뉴를 삽입할 앵커(동작편차 링크 다음 = 구 '사이클 분석' 자리).
         NAV_ITEMS.forEach(function (item) {
             var link = buildNavLink(item, LINK_ACTIVE, LINK_IDLE);
             if (item.href === '/uptime') {
+                onUptimePage = isActive(item);
                 anomalyBadge = el('span', 'ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-error text-white text-[10px] font-bold');
-                anomalyBadge.title = '최근 10분 내 Error 알림';
+                anomalyBadge.title = '최근 10분 내 Error 알림 (가동시간·이상 방문 시 초기화)';
                 anomalyBadge.style.display = 'none';
                 link.appendChild(anomalyBadge);
             }
@@ -274,7 +281,7 @@
         //   데이터: /api/nav/summary 의 recentAnomalies (최신 N건, 레벨 무관). 4초 폴링 공유.
         //   행 클릭 → /uptime?utSystem=&utLevel= (필터 적용). 출처(source) 무관 동일 렌더 → 추후 ds-error 4종 합류.
         var anomalyBlock = el('div', 'mt-6 px-4 flex-1 flex flex-col min-h-0');
-        anomalyBlock.appendChild(el('div', 'text-[10px] uppercase font-bold tracking-wider text-outline mb-2', '알람'));
+        anomalyBlock.appendChild(el('div', 'text-[10px] uppercase font-bold tracking-wider text-outline mb-2', '알람 이력'));
         var anomalyList = el('div', 'flex flex-col gap-1 overflow-y-auto custom-scrollbar pr-1');
         anomalyList.style.cssText = 'flex:1 1 0;min-height:0;';
         anomalyBlock.appendChild(anomalyList);
@@ -559,6 +566,14 @@
             lsIdle.textContent = lines.idle || 0;
 
             var count = data.anomalyActiveCount || 0;
+            // uptime 페이지를 보고 있는 동안은 화면에 이미 알림이 보이므로 배지를 0 으로 두고,
+            // 서버 시각을 ack 로 갱신해 다른 페이지로 나가도 지금까지의 Error 는 다시 안 뜨게 한다.
+            if (onUptimePage) {
+                count = 0;
+                if (data.serverTimeUtc) {
+                    try { localStorage.setItem(ANOMALY_ACK_KEY, data.serverTimeUtc); } catch (e) { /* ignore */ }
+                }
+            }
             if (anomalyBadge) {
                 anomalyBadge.textContent = count;
                 anomalyBadge.style.display = count > 0 ? '' : 'none';
@@ -598,7 +613,10 @@
         }
 
         function pollSummary() {
-            fetch('/api/nav/summary', { headers: { 'Accept': 'application/json' } })
+            var ack = null;
+            try { ack = localStorage.getItem(ANOMALY_ACK_KEY); } catch (e) { /* ignore */ }
+            var url = '/api/nav/summary' + (ack ? '?anomalyAck=' + encodeURIComponent(ack) : '');
+            fetch(url, { headers: { 'Accept': 'application/json' } })
                 .then(function (res) { return res.ok ? res.json() : null; })
                 .then(function (data) { if (data) applySummary(data); })
                 .catch(function () { /* 폴링 실패 시 마지막 값 유지 */ });

@@ -1637,7 +1637,8 @@
                 const dx = e.clientX - d.sx, dy = e.clientY - d.sy;
                 if (!d.moved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) d.moved = true;
                 if (!d.moved) return;
-                this.setPlacementLocal(d.flowId, this.clamp01(d.x + dx / d.w), this.clamp01(d.y + dy / d.h));
+                const [mx, my] = this.snapXY(this.clamp01(d.x + dx / d.w), this.clamp01(d.y + dy / d.h));
+                this.setPlacementLocal(d.flowId, this.clamp01(mx), this.clamp01(my));
             },
             onDragEnd(e) {
                 const d = this._drag; this._drag = null; this.dragName = null;
