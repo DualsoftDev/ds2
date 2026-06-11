@@ -39,6 +39,22 @@
       <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Protocol.MX.dll</HintPath>
       <Private>true</Private>
     </Reference>
+    <Reference Include="Ev2.PLC.Protocol.S7">
+      <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Protocol.S7.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Ev2.PLC.Protocol.AB">
+      <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Protocol.AB.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Ev2.PLC.TagParser.FS">
+      <HintPath>..\..\..\ExternalDlls\Ev2.PLC.TagParser.FS.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Ev2.Backend.Common">
+      <HintPath>..\..\..\ExternalDlls\Ev2.Backend.Common.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
     <Reference Include="Ev2.Backend.PLC">
       <HintPath>..\..\..\ExternalDlls\Ev2.Backend.PLC.dll</HintPath>
       <Private>true</Private>
