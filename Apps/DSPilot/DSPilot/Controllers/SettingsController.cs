@@ -107,6 +107,9 @@ public class SettingsController : ControllerBase
                 m.Ui.AlarmTickerIntervalSec = Math.Clamp(req.AlarmTickerIntervalSec, 1, 30);
                 m.AbnormalAlarm.ResetIntervalHours = Math.Max(0, req.AbnormalAlarmResetIntervalHours);
 
+                // 디바이스별 이상감지 차단 규칙(AbnormalAlarm.DeviceFilters)은 uptime 페이지의
+                // 차단 관리(POST abnormal-device-filters)가 소유 — 여기서는 건드리지 않는다(CCTV 카메라와 동일 원칙).
+
                 // 자동 보정 파라미터. CompletedAt(1회성 플래그)은 baseline(m) 값을 보존 — 파라미터 변경만으로
                 // 자동 재실행을 재무장하지 않는다(재실행은 "지금 실측값 채우기" 버튼 = /auto-calibrate/run).
                 if (req.AutoCalibration is { } acReq)
@@ -276,6 +279,79 @@ public class SettingsController : ControllerBase
         }
     }
 
+    // ── GET: 디바이스별 이상감지 차단 상태 (uptime 페이지 차단 관리 모달용) ──
+    // 디바이스 = AASX 모델 모든 Call 의 DevicesAlias. 경로(FLOW / WORK / CALL)별로 그룹해 내려주고,
+    // 현재 차단 규칙(AbnormalAlarm.DeviceFilters)을 병합. 규칙에만 남고 모델에서 사라진 디바이스도
+    // InModel=false 로 포함(해제 가능해야 하므로).
+    [HttpGet("abnormal-device-filters")]
+    public ActionResult<AbnormalDeviceFilterStateDto> GetAbnormalDeviceFilters()
+    {
+        var pathsByDevice = new Dictionary<string, SortedSet<string>>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            if (_project.IsLoaded)
+                foreach (var flow in _project.GetAllFlows())
+                    foreach (var work in _project.GetWorks(flow.Id))
+                        foreach (var call in _project.GetCalls(work.Id))
+                        {
+                            if (string.IsNullOrWhiteSpace(call.DevicesAlias)) continue;
+                            var device = call.DevicesAlias.Trim();
+                            if (!pathsByDevice.TryGetValue(device, out var paths))
+                                pathsByDevice[device] = paths = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+                            paths.Add(AbnormalDeviceFilterHelpers.BuildPath(flow.Name, work.Name, call.Name));
+                        }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[Settings] 디바이스 경로 수집 실패 (non-critical)");
+        }
+
+        var rules = AbnormalDeviceFilterHelpers.Normalize(_settings.LoadSettings().AbnormalAlarm.DeviceFilters)
+            .ToDictionary(r => r.Device, r => r.Kinds, StringComparer.OrdinalIgnoreCase);
+
+        var devices = pathsByDevice.Keys.Union(rules.Keys, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(d => d, StringComparer.OrdinalIgnoreCase)
+            .Select(d => new AbnormalDeviceInfoDto(
+                d,
+                pathsByDevice.TryGetValue(d, out var paths) ? [.. paths] : [],
+                rules.TryGetValue(d, out var kinds) ? [.. kinds] : [],
+                pathsByDevice.ContainsKey(d)))
+            .ToList();
+
+        var kindOptions = AbnormalDeviceFilterHelpers.KindOptions
+            .Select(o => new AbnormalKindOptionDto(o.Kind, o.Name, o.Label))
+            .ToList();
+
+        return new AbnormalDeviceFilterStateDto(devices, kindOptions);
+    }
+
+    // ── POST: 디바이스별 이상감지 차단 규칙 저장 (전체 교체) ──
+    // 적용 즉시: 신규 발생분은 소스에서 완전 차단(미기록), 기존 기록은 알람/통계/기록 조회에서 숨김(가역).
+    [HttpPost("abnormal-device-filters")]
+    public async Task<ActionResult<SaveResultDto>> SaveAbnormalDeviceFilters(
+        [FromBody] AbnormalDeviceFiltersSaveDto req, CancellationToken ct)
+    {
+        try
+        {
+            var normalized = AbnormalDeviceFilterHelpers.Normalize(
+                (req.Filters ?? []).Select(f => new AbnormalDeviceFilter { Device = f.Device, Kinds = f.Kinds ?? [] }));
+
+            _settings.Update(m => m.AbnormalAlarm.DeviceFilters = normalized);
+
+            // 알람 배너/사이드바가 REST 재조회하도록 트리거 — 숨김/해제가 모든 화면에 즉시 반영.
+            try { await _hub.Clients.All.SendAsync("AbnormalDetected", ct); }
+            catch (Exception ex) { _logger.LogDebug(ex, "[Settings] SignalR broadcast failed (non-critical)"); }
+
+            return new SaveResultDto(true,
+                normalized.Count == 0 ? "디바이스 차단이 모두 해제되었습니다." : $"디바이스 차단 규칙 {normalized.Count}건이 적용되었습니다.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Settings] SaveAbnormalDeviceFilters failed");
+            return new SaveResultDto(false, $"차단 규칙 저장 실패: {ex.Message}");
+        }
+    }
+
     // ── helpers ──
 
     private ActionResult<RebuildResultDto> Result(RebuildResult r)
@@ -425,6 +501,25 @@ public record SettingsDto(
     int AbnormalAlarmResetIntervalHours = 24,
     // 실측 duration 자동 보정 설정 + 1회성 완료 시각(표시용 로컬 문자열, 미실행이면 null). 기본값으로 기존 호출부 무손상.
     AutoCalibrationDto? AutoCalibration = null);
+
+// ── 디바이스별 이상감지 차단 (uptime 페이지 차단 관리 모달용) ──
+
+// 디바이스 1개의 차단 상태/입력. Kinds = 차단할 AbnormalKind int 값(0..3).
+public record AbnormalDeviceFilterDto(string Device, List<int>? Kinds);
+
+// 이상감지 유형 옵션 (Kind=int 값, Name=enum 이름, Label=한글 라벨) — 서버 enum 과 UI 체크박스 정합 보장.
+public record AbnormalKindOptionDto(int Kind, string Name, string Label);
+
+// 디바이스 1개의 통합 뷰 — 모델상 등장 경로(FLOW / WORK / CALL) + 현재 차단 유형.
+// InModel=false 는 규칙에만 남고 현재 AASX 모델에는 없는 디바이스(해제할 수 있도록 계속 노출).
+public record AbnormalDeviceInfoDto(string Device, List<string> Paths, List<int> BlockedKinds, bool InModel);
+
+public record AbnormalDeviceFilterStateDto(
+    List<AbnormalDeviceInfoDto> Devices,
+    List<AbnormalKindOptionDto> KindOptions);
+
+// POST 본문 — 전체 규칙 교체(PUT 의미). 클라이언트가 일괄 추가/해제를 계산해 최종 상태를 보낸다.
+public record AbnormalDeviceFiltersSaveDto(List<AbnormalDeviceFilterDto>? Filters);
 
 // CompletedAt = 자동 1회 실행 완료 시각(고정). LastAppliedAt = 마지막으로 AASX 에 기록한 시각(매 적용 갱신).
 // 둘 다 로컬 표시 문자열, null = 미실행. MarginMaxSigmaK = mean+k·σ 의 계수 k(기본 4), MarginMinPct 는 분수(0.03=3%).
