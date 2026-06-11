@@ -1,6 +1,7 @@
 namespace Ds2.Backend.Plc
 
 open System
+open System.Collections.Generic
 open System.Threading.Tasks
 open Ev2.PLC.Common
 open Ev2.PLC.Protocol.LS
@@ -45,6 +46,76 @@ module PlcValueIo =
         else
             let parsed = CoreDataTypesModule.PlcValue.TryParse(s, dataType)
             if parsed.IsSome then Some parsed.Value else None
+
+[<RequireQualifiedAccess>]
+module PlcBatchReadBuffer =
+    let private sizeOf (dataType: CoreDataTypesModule.PlcDataType) =
+        Math.Max(1, dataType.SizeInBytes)
+
+    let chunkTags maxChunkSize (tags: PlcTagDef list) =
+        if maxChunkSize <= 0 then
+            invalidArg (nameof maxChunkSize) "Batch chunk size must be positive."
+
+        tags |> List.chunkBySize maxChunkSize
+
+    let private splitAddressTail (address: string) =
+        let s = if isNull address then "" else address.Trim().ToUpperInvariant()
+        if s = "" then
+            "", Int32.MaxValue
+        else
+            let mutable index = s.Length - 1
+            while index >= 0 && Char.IsDigit(s[index]) do
+                index <- index - 1
+
+            if index = s.Length - 1 then
+                s, Int32.MaxValue
+            else
+                let prefix = s.Substring(0, index + 1)
+                let suffix = s.Substring(index + 1)
+                match Int32.TryParse(suffix) with
+                | true, value -> prefix, value
+                | _ -> prefix, Int32.MaxValue
+
+    let chunkTagsByAddressGroup maxChunkSize (tags: PlcTagDef list) =
+        if maxChunkSize <= 0 then
+            invalidArg (nameof maxChunkSize) "Batch chunk size must be positive."
+
+        tags
+        |> List.groupBy (fun tag -> splitAddressTail tag.PlcAddress |> fst)
+        |> List.sortBy fst
+        |> List.collect (fun (_, group) ->
+            group
+            |> List.sortBy (fun tag ->
+                let prefix, ordinal = splitAddressTail tag.PlcAddress
+                prefix, ordinal, tag.PlcAddress)
+            |> List.chunkBySize maxChunkSize)
+
+    let decode (tags: PlcTagDef list) (buffer: byte array) =
+        let tagArray = tags |> List.toArray
+        let sizes = tagArray |> Array.map (fun tag -> sizeOf tag.DataType)
+        let expected = sizes |> Array.sum
+
+        if buffer.Length < expected then
+            Error $"Batch read buffer too short: expected={expected}, actual={buffer.Length}"
+        else
+            let results = ResizeArray<struct (PlcTagDef * CoreDataTypesModule.PlcValue)>()
+            let mutable offset = 0
+            let mutable error = None
+            for i = 0 to tagArray.Length - 1 do
+                match error with
+                | Some _ -> ()
+                | None ->
+                    let size = sizes.[i]
+                    let bytes = Array.zeroCreate<byte> size
+                    Buffer.BlockCopy(buffer, offset, bytes, 0, size)
+                    offset <- offset + size
+                    match CoreDataTypesModule.PlcValue.FromBytes(bytes, tagArray.[i].DataType) with
+                    | Ok value -> results.Add(struct (tagArray.[i], value))
+                    | Error msg -> error <- Some (sprintf "%A" msg)
+
+            match error with
+            | Some msg -> Error msg
+            | None -> Ok (List.ofSeq results)
 
 [<RequireQualifiedAccess>]
 module LsPackRead =
@@ -103,6 +174,7 @@ type IPlcConnectorAdapter =
 [<RequireQualifiedAccess>]
 module LsAdapter =
     let private log = log4net.LogManager.GetLogger("LsAdapter")
+    let private maxReadBatchSize = 16
 
     let create (cfg: PlcConnectionConfig) : IPlcConnectorAdapter =
         let connector =

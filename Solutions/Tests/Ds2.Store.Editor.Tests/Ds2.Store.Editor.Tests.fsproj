@@ -31,6 +31,7 @@
     <Compile Include="LsPackReadTests.fs" />
     <Compile Include="HubConnectionDiagnosticTests.fs" />
     <Compile Include="HubSourceTests.fs" />
+    <Compile Include="PlcBatchReadBufferTests.fs" />
     <Compile Include="RemoteSimulationEngineSnapshotTests.fs" />
     <Compile Include="RuntimeModeTransitionTests.fs" />
     <Compile Include="EngineRealTimeClockTests.fs" />

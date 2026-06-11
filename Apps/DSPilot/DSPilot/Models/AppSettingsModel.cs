@@ -85,6 +85,27 @@ public class AbnormalAlarmSettings
     /// </summary>
     public int ResetIntervalHours { get; set; } = 24;
 
+    /// <summary>
+    /// 디바이스별 이상감지 차단 규칙. 규칙에 걸린 (디바이스, 유형) 이상은
+    /// 신규 발생 시 어디에도 기록되지 않고(링버퍼/userTagAlertLog/SignalR 생략),
+    /// 차단 이전의 기존 기록도 알람·사이드바·통계·기록 조회에서 숨겨진다(읽기 시 필터 — 해제하면 다시 표시).
+    /// </summary>
+    public List<AbnormalDeviceFilter> DeviceFilters { get; set; } = [];
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
+}
+
+/// <summary>
+/// 디바이스 1개의 이상감지 차단 규칙. 디바이스 = Call 이름 "{DevicesAlias}.{ApiName}" 의 DevicesAlias 부분.
+/// </summary>
+public class AbnormalDeviceFilter
+{
+    public string Device { get; set; } = "";
+
+    /// <summary>차단할 AbnormalKind int 값 목록 (SensorOpen=0, SensorShort=1, ActionOver=2, ActionUnder=3). 비면 규칙 무효(저장 시 제거).</summary>
+    public List<int> Kinds { get; set; } = [];
+
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }
