@@ -231,6 +231,11 @@ public partial class SimulationPanelState : ObservableObject
         //   Plan(Call 수명=계획) 과 I/O(실제 송수신) 를 위아래로 대조 → 어디서 어긋나는지(abnormal) 가시화.
         Hub.TagBroadcast += (address, value, source) =>
         {
+            // resync = PLC 재연결 직후의 전체 baseline 스냅샷 — 전이(edge)가 아니라 현재값이다.
+            // UpdateIoState 는 동일 상태 재수신에도 열린 high 구간을 닫고 새로 열기 때문에,
+            // 그리면 ON 유지 중이던 모든 막대에 재연결 시각의 가짜 이음새/거짓 전환이 생긴다 — 흡수.
+            if (string.Equals(source, Ds2.Backend.Common.HubSource.Resync, StringComparison.OrdinalIgnoreCase))
+                return;
             bool on = !string.IsNullOrEmpty(value)
                       && !string.Equals(value, "false", StringComparison.OrdinalIgnoreCase)
                       && value != "0";

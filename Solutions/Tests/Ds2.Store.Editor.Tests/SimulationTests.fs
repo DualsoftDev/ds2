@@ -2026,3 +2026,40 @@ module ApiDefTypeCompletionTests =
         engine.InjectIOValue(apiCallId, "true")    // 재감지 후 T 유지
         engine.AdvanceSimulationTo(engine.CurrentTimeMs + 150L)
         Assert.Equal(Some Status4.Finish, engine.GetCallState(callId))
+
+    // ── resync(PLC 재연결 baseline) 안전성 — 같은 값 재주입은 "변화"가 아니어야 한다 ──
+    // 게이트웨이가 재연결 직후 전체 태그를 Source=resync 로 재broadcast 하면 Control 엔진에는
+    // 무변화 값이 다시 주입된다. v10 §11.2: 같은 값 재set 은 epoch/ChangedAt 미갱신 —
+    // 안정 창 리셋도, 거짓 완료(가짜 edge)도 생기면 안 된다.
+
+    [<Fact>]
+    let ``Same-value reinjection preserves IO epoch and ChangedAt (resync safety)`` () =
+        let apiA = Guid.NewGuid()
+        let s0 = SimState.create 100 [] [] []
+        let s1 = SimState.setIOValue apiA "true" s0
+        let epoch1 = s1.IOValueEpoch |> Map.tryFind apiA
+        let changed1 = s1.IOValueChangedAt |> Map.tryFind apiA
+        // 시계가 흐른 뒤 같은 값 재set — 변화로 기록되면 안 된다.
+        let s2 = { s1 with Clock = TimeSpan.FromMilliseconds 500. }
+        let s3 = SimState.setIOValue apiA "true" s2
+        Assert.Equal(epoch1, s3.IOValueEpoch |> Map.tryFind apiA)
+        Assert.Equal(changed1, s3.IOValueChangedAt |> Map.tryFind apiA)
+        // 실제로 값이 바뀌면 둘 다 갱신된다.
+        let s4 = SimState.setIOValue apiA "false" s3
+        Assert.NotEqual(epoch1, s4.IOValueEpoch |> Map.tryFind apiA)
+        Assert.NotEqual(changed1, s4.IOValueChangedAt |> Map.tryFind apiA)
+
+    // Stable(안정 유지 T): T 창 중간에 같은 값이 재주입(resync 중복)돼도 창이 리셋되지 않고
+    // 첫 감지 기준 T 에서 완료된다. 재주입이 변화로 기록되면 120ms 시점에 Going 으로 남아 실패.
+    [<Fact>]
+    let ``Stable sensing ignores same-value reinjection (resync duplicate does not restart window)`` () =
+        let engine, callId, apiCallId = setupCall (ActionType.Normal None) (SensingType.Normal (Some 100))
+        engine.Start()
+        engine.ForceCallState(callId, Status4.Going)
+        drainNow engine
+        engine.InjectIOValue(apiCallId, "true")
+        engine.AdvanceSimulationTo(engine.CurrentTimeMs + 50L)
+        Assert.Equal(Some Status4.Going, engine.GetCallState(callId))   // T(100) 미경과
+        engine.InjectIOValue(apiCallId, "true")    // resync 중복 — 변화 아님, 창 리셋 금지
+        engine.AdvanceSimulationTo(engine.CurrentTimeMs + 70L)          // 첫 감지 기준 120ms 경과
+        Assert.Equal(Some Status4.Finish, engine.GetCallState(callId))
