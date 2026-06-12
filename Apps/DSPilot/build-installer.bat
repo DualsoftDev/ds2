@@ -17,7 +17,8 @@ set "ISCC=C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 set "ISS_FILE=%SOLUTION_DIR%Installer\DSPilot.iss"
 set "MTX_DIR=%SOLUTION_DIR%Installer\mediamtx"
 :: CCTV - bundled external binary versions (update as needed)
-set "MTX_VERSION=v1.9.3"
+:: v1.10.0+ required for H.265 over WebRTC (camera H.265 streams play in supporting browsers)
+set "MTX_VERSION=v1.19.1"
 set "WINSW_VERSION=v2.12.0"
 
 :: Check Inno Setup
@@ -52,7 +53,8 @@ if not exist "%MTX_DIR%" mkdir "%MTX_DIR%"
 
 if not exist "%MTX_DIR%\mediamtx.exe" (
     echo       Downloading MediaMTX %MTX_VERSION%...
-    powershell -NoProfile -Command "$ErrorActionPreference='Stop'; [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $u='https://github.com/bluenviron/mediamtx/releases/download/%MTX_VERSION%/mediamtx_%MTX_VERSION%_windows_amd64.zip'; $z='%MTX_DIR%\mtx.zip'; Invoke-WebRequest -Uri $u -OutFile $z; Expand-Archive -Path $z -DestinationPath '%MTX_DIR%' -Force; Remove-Item $z"
+    rem Extract only mediamtx.exe - the zip's stock mediamtx.yml must NOT clobber our customized (committed) yml.
+    powershell -NoProfile -Command "$ErrorActionPreference='Stop'; [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $u='https://github.com/bluenviron/mediamtx/releases/download/%MTX_VERSION%/mediamtx_%MTX_VERSION%_windows_amd64.zip'; $z='%MTX_DIR%\mtx.zip'; $d='%MTX_DIR%\mtx-tmp'; Invoke-WebRequest -Uri $u -OutFile $z; Expand-Archive -Path $z -DestinationPath $d -Force; Copy-Item (Join-Path $d 'mediamtx.exe') '%MTX_DIR%\mediamtx.exe' -Force; Remove-Item $d -Recurse -Force; Remove-Item $z"
     if !errorlevel! neq 0 goto :fail_cctv
 ) else (
     echo       MediaMTX already present, skipping.
