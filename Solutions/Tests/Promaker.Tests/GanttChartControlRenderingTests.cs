@@ -461,6 +461,26 @@ public sealed class GanttChartControlRenderingTests
     }
 
     [Fact]
+    public void AdaptiveSilenceThreshold_grows_with_observed_signal_gap()
+    {
+        // 고정 3s 임계는 실 PLC(신호 edge 간격 수 초)에서 진입/해제 루프를 돈다 —
+        // 임계 = max(바닥 3s, 관측 최대 간격 × 3).
+        Assert.Equal(3000, SimulationPanelState.ResolveAdaptiveSilenceThresholdMs(0));
+        Assert.Equal(3000, SimulationPanelState.ResolveAdaptiveSilenceThresholdMs(800));    // 800×3=2.4s < 바닥
+        Assert.Equal(15000, SimulationPanelState.ResolveAdaptiveSilenceThresholdMs(5000));  // 5s 간격 설비 → 15s
+    }
+
+    [Fact]
+    public void SignalGapLearning_accepts_resume_gap_only_when_near_threshold()
+    {
+        // 정상 운전 간격은 항상 학습. blackout 해제 간격은 "오탐 의심"(임계×3 이내)만 —
+        // 자연 간격이 임계보다 큰 설비가 영영 학습 못 하는 루프 차단 + 장기 두절 오염 차단.
+        Assert.True(SimulationPanelState.ShouldLearnSignalGap(inBlackout: false, gapMs: 60_000, thresholdMs: 3000));
+        Assert.True(SimulationPanelState.ShouldLearnSignalGap(inBlackout: true, gapMs: 5000, thresholdMs: 3000));    // 5s ≤ 9s — 자연 간격
+        Assert.False(SimulationPanelState.ShouldLearnSignalGap(inBlackout: true, gapMs: 60_000, thresholdMs: 3000)); // 진짜 두절
+    }
+
+    [Fact]
     public void ResolveOpenSegmentEnd_clips_open_bars_to_evidence_cap()
     {
         // 통신이 멎으면 blackout 확정(무소식 3s) 전에도 열린 바는 마지막 신호(증거)까지만 —

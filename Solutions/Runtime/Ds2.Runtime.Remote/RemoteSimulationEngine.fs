@@ -82,9 +82,18 @@ type RemoteSimulationEngine
     ( hub: HubConnection,
       index: SimIndex,
       ioMap: SignalIOMap,
-      identity: RuntimeSessionIdentity ) =
+      identity: RuntimeSessionIdentity,
+      ?suppressIncoming: Func<bool> ) =
 
     static let log = log4net.LogManager.GetLogger("RemoteSimulationEngine")
+
+    /// 수신 차단 게이트(테스트용 — Promaker "통신 차단" 토글이 주입). Agent 모드에선 GUI 가
+    /// 받는 것이 태그가 아니라 runtime push(상태 전이/snapshot)라, 토글이 push 까지 막아야
+    /// "장비는 도는데 나만 안 봄"(coast/재합류) 재현이 성립한다. 미주입이면 항상 수용.
+    let isIncomingSuppressed () =
+        match suppressIncoming with
+        | Some f -> f.Invoke()
+        | None -> false
 
     // ── push-cache 상태 ─────────────────────────────────────────
     let stateLock = obj()
@@ -129,8 +138,10 @@ type RemoteSimulationEngine
     let optName (s: string) = if String.IsNullOrEmpty s then None else Some s
 
     // push 수용 판정 — 같은 모델(ModelHash) + 같은 모드면 수용. SessionId/Generation 은 snapshot 으로 동기화.
+    // 수신 차단(테스트 토글) 중이면 전부 거부 — 모든 runtime push 가 이 관문을 지난다.
     let matches (modelHash: string) (mode: string) =
-        modelHash = identity.ModelHash && mode = identity.Mode
+        not (isIncomingSuppressed ())
+        && modelHash = identity.ModelHash && mode = identity.Mode
 
     // ── command envelope / 빌더 ─────────────────────────────────
     let envelope () : RuntimeCommandEnvelope =
@@ -159,8 +170,19 @@ type RemoteSimulationEngine
         { Envelope = envelope (); BatchIds = batch |> Array.map string }
 
     // ── SignalR 송신 (명령 fire-and-forget / 결과형 invoke) ──────
+    // fire-and-forget 이라도 Task 예외는 반드시 관찰 — 허브 미연결 중 send 실패가
+    // unobserved task exception 으로 GC 때 표면화되던 노이즈 차단(실기: PLAY 직후
+    // 허브 연결 완료 전 RuntimeStart 류 전송 2건이 ERROR 로 떴음).
     let send (m: string) (arg: obj) =
-        try hub.SendAsync(m, arg) |> ignore
+        try
+            hub.SendAsync(m, arg)
+               .ContinueWith(
+                   Action<System.Threading.Tasks.Task>(fun t ->
+                       match t.Exception with
+                       | null -> ()
+                       | ex -> log.Warn(sprintf "%s send 실패: %s" m (ex.GetBaseException().Message))),
+                   System.Threading.Tasks.TaskContinuationOptions.OnlyOnFaulted)
+            |> ignore
         with ex -> log.Warn(sprintf "%s send 실패: %s" m ex.Message)
     let invokeBool (m: string) (arg: obj) : bool =
         try hub.InvokeAsync<bool>(m, arg).GetAwaiter().GetResult()
@@ -263,6 +285,7 @@ type RemoteSimulationEngine
         // v12 P5 — Agent engine 이 단일 발행한 abnormal 을 받아 AbnormalRecord 로 재구성 → 로컬 AbnormalDetected 재발행.
         // 단일 Agent engine 발행이라 dedup 불필요. AbnormalPayload 엔 model/session 식별이 없어 mode 매칭 없이 수용.
         hub.On(HubMethod.OnAbnormal, Action<AbnormalPayload>(fun p ->
+            if isIncomingSuppressed () then () else
             let pgOpt (s: string) = if String.IsNullOrEmpty s then None else Some(pg s)
             let isSensor = p.KindValue <= 1   // SensorOpen=0 / SensorShort=1
             let target : AbnormalTarget =

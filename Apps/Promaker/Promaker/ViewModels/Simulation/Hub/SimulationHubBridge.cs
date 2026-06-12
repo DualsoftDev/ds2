@@ -260,6 +260,18 @@ public sealed partial class SimulationHubBridge : ObservableObject
     /// (발신은 DSPilot 설정 페이지 → hub FreezeHealthBaseline — Promaker 리본 버튼은 제거됨.)</summary>
     public event Action? HealthBaselineFreezeRequested;
 
+    /// <summary>PLC 스캔 생존 heartbeat(~1s) 수신 시 발화 — 태그 변화가 없어도 통신이 살아 있다는 증거.
+    /// SimulationPanelState 의 통신 두절 감지가 구독 — "무변화 침묵"(실 PLC 정상)을 두절로 오판하지 않게 한다.
+    /// TestSignalBlocked(통신 차단 토글) 중에는 발화하지 않는다 — 토글이 두절 재현이 되려면 heartbeat 도 막혀야 한다.</summary>
+    public event Action? ScanHeartbeat;
+
+    internal void RaiseScanHeartbeat()
+    {
+        if (TestSignalBlocked) return;
+        try { ScanHeartbeat?.Invoke(); }
+        catch (Exception ex) { SimLog.Error("ScanHeartbeat subscriber threw", ex); }
+    }
+
     /// <summary>테스트 전용 — 수신 신호 차단(통신 두절 시뮬레이션).
     /// SignalR 연결은 유지한 채 수신 태그만 무시해 "장비(신호원)는 계속 도는데 나만 안 보이는"
     /// PLC 단선 시나리오를 로컬에서 재현한다. 토글 해제 시 진행된 위치의 신호부터 다시 보임

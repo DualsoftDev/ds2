@@ -36,6 +36,11 @@ module HubMethod =
     /// SetScanIntervalMs 호출 → 게이트웨이 라이브 적용 + 영속화 후 전체 동기화용으로 발화.
     [<Literal>]
     let OnScanIntervalChanged = "OnScanIntervalChanged"
+    /// PLC 스캔 생존 heartbeat — Server → All clients (~1s 스로틀). 태그 변화가 없어도
+    /// 스캔이 살아 있음을 알린다. 클라이언트의 통신 두절 감지는 변화 이벤트가 아니라
+    /// 이 heartbeat 기준이어야 한다(실 PLC 는 무변화 침묵 수 초가 정상 — 오판 차단).
+    [<Literal>]
+    let OnScanHeartbeat = "OnScanHeartbeat"
     /// 건강 기준선 수동 동결 — Client → Server invoke. hub 는 상태 없는 릴레이로
     /// OnHealthBaselineFreeze 를 전 클라이언트에 fan-out 한다 (스캔 주기 패턴과 동형).
     [<Literal>]

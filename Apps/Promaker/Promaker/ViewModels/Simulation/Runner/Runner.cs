@@ -264,13 +264,15 @@ public partial class SimulationPanelState
     /// 저장은 기존 Save 흐름이 AASX 로 영속.</summary>
     private void TryApplyLearnedDurationsOnStop()
     {
-        // 건강 기준선 — 정지 시 work 별 드리프트/외삽 요약을 한 번 박고 세션 추적 종료.
+        // 건강 기준선 — 정지 시 work 별 드리프트/외삽 요약. 파일엔 전부, 화면 로그엔
+        // 유의미한 것(IQR 경보/큰 드리프트/정비 권고)만 — 정지마다 수십 줄 쏟아지는 노이즈 방지.
         if (_healthBaseline is { HasFrozenBaseline: true } health)
         {
-            foreach (var line in health.SummaryLines())
+            foreach (var (line, significant) in health.SummaryEntries())
             {
                 SimLog.Info($"[Health] {line}");
-                AddSimLog($"[건강 요약] {line}", LogSeverity.System);
+                if (significant)
+                    AddSimLog($"[건강 요약] {line}", LogSeverity.Warn);
             }
         }
         _healthBaseline = null;

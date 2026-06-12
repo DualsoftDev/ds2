@@ -219,6 +219,94 @@ public sealed class SimulationPassiveInferenceTests
                  && a.State == Status4.Going);
     }
 
+    [Fact]
+    public void Passive_call_inference_does_not_yield_for_exclusive_addresses_fired_simultaneously()
+    {
+        // 실 PLC — 독립 Call 두 개가 같은 스캔(같은 ms)에 동시 발사되면 사이클 학습이 멀티
+        // 그룹("Out#a|Out#b")으로 박제한다. 주소 공유가 없으면 오귀속 자체가 불가능한데도
+        // 진초집합 조건에 걸려 서로를 상위 묶음으로 오인, *둘 다* 영구 양보하던 회귀
+        // (실기: 동시 발사 4쌍 = 8개 Call 의 전이가 Synced 직후부터 소실).
+        // 독점 Out 주소 Call 은 차례 게이트 비활성 — Synced 후에도 정상 Going.
+        var fx = BuildExclusiveSimultaneousCallsFixture();
+        var index = SimIndexModule.build(fx.Store, 10);
+        using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.Monitoring);
+        var session = new PassiveInferenceSession(index, engine.IOMap, RuntimeMode.Monitoring);
+
+        var workStates = new Dictionary<Guid, Status4>();
+        var callStates = new Dictionary<Guid, Status4>();
+        Status4 GetW(Guid g) => workStates.TryGetValue(g, out var s) ? s : Status4.Ready;
+        Status4 GetC(Guid g) => callStates.TryGetValue(g, out var s) ? s : Status4.Ready;
+
+        List<PassiveInferenceAction> Observe(string addr, string val)
+        {
+            var actions = session.Observe(addr, val, GetW, GetC).ToList();
+            foreach (var a in actions)
+            {
+                if (a.TargetKind == PassiveInferenceTarget.Work) workStates[a.TargetGuid] = a.State;
+                else callStates[a.TargetGuid] = a.State;
+            }
+            return actions;
+        }
+
+        void RunCycle()
+        {
+            // 동시 발사(연속 관측 = 같은 키 → 한 그룹으로 학습) → 동시 In → 정리.
+            Observe(fx.OutA, "true"); Observe(fx.OutB, "true");
+            Observe(fx.InA, "true"); Observe(fx.InB, "true");
+            Observe(fx.OutA, "false"); Observe(fx.OutB, "false");
+            Observe(fx.InA, "false"); Observe(fx.InB, "false");
+        }
+
+        RunCycle();
+        RunCycle();
+        RunCycle();
+
+        // 4번째 사이클(Synced 후) — 독점 주소라 양보 없이 둘 다 정상 Going.
+        Observe(fx.OutA, "true");
+        Observe(fx.OutB, "true");
+        Assert.Equal(Status4.Going, GetC(fx.CallAId));
+        Assert.Equal(Status4.Going, GetC(fx.CallBId));
+    }
+
+    private sealed record ExclusiveSimultaneousFixture(
+        DsStore Store,
+        Guid CallAId,
+        Guid CallBId,
+        string OutA,
+        string InA,
+        string OutB,
+        string InB);
+
+    private static ExclusiveSimultaneousFixture BuildExclusiveSimultaneousCallsFixture()
+    {
+        var store = new DsStore();
+        var projectId = store.AddProject("P");
+        var activeSystemId = store.AddSystem("Active", projectId, true);
+        var activeFlowId = store.AddFlow("Flow", activeSystemId);
+        var activeWorkId = store.AddWork("Main", activeFlowId);
+
+        var passiveSystemId = store.AddSystem("Passive", projectId, false);
+        var passiveFlowId = store.AddFlow("DeviceFlow", passiveSystemId);
+        var deviceWorkA = store.AddWork("ADV_A", passiveFlowId);
+        var deviceWorkB = store.AddWork("ADV_B", passiveFlowId);
+
+        var apiDefA = AddDeviceApiDef(store, passiveSystemId, "ADV_A", deviceWorkA);
+        var apiDefB = AddDeviceApiDef(store, passiveSystemId, "ADV_B", deviceWorkB);
+
+        var callAId = store.AddCallWithLinkedApiDefs(activeWorkId, "Dev", "A", new[] { apiDefA });
+        var callBId = store.AddCallWithLinkedApiDefs(activeWorkId, "Dev", "B", new[] { apiDefB });
+
+        const string outA = "%Q3001";
+        const string inA = "%I3001";
+        const string outB = "%Q3002";
+        const string inB = "%I3002";
+
+        SetIoTags(store, callAId, store.Calls[callAId].ApiCalls.Single().Id, outA, inA);
+        SetIoTags(store, callBId, store.Calls[callBId].ApiCalls.Single().Id, outB, inB);
+
+        return new ExclusiveSimultaneousFixture(store, callAId, callBId, outA, inA, outB, inB);
+    }
+
     private sealed record PartiallySharedFixture(
         DsStore Store,
         Guid SingleCallId,

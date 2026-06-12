@@ -104,6 +104,20 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
                         match workPositiveFamilyTokens.TryGetValue(workGuid),
                               callOutExpectedAddresses.TryGetValue(callGuid) with
                         | (true, tokenMap), (true, myAddrs) when myAddrs.Count > 0 ->
+                            // 양보의 전제 = 주소 공유 실재(같은 Out 주소를 다른 Call 도 호출).
+                            // 멀티 그룹이 "공유 묶음의 차례"가 아니라 그냥 공정 타이밍일 수 있다 —
+                            // 실 PLC 에서 독립 Call 두 개가 같은 스캔에 동시 발사되면 멀티 그룹으로
+                            // 학습되고, 서로를 상위 묶음으로 오인해 *둘 다* 영구 양보(8개 Call 전이
+                            // 소실 실기). 내 Out 주소가 전부 독점이면 오귀속 자체가 불가능 — 게이트 비활성.
+                            let sharesAnyOutAddress =
+                                myAddrs
+                                |> Seq.exists (fun addr ->
+                                    match ioMap.OutAddressToMappings |> Map.tryFind addr with
+                                    | Some ms -> ms |> List.exists (fun m -> m.CallGuid <> callGuid)
+                                    | None -> false)
+                            if not sharesAnyOutAddress then false
+                            else
+
                             let myTokens = HashSet<string>(StringComparer.Ordinal)
                             let mutable allResolved = true
                             for addr in myAddrs do
@@ -112,12 +126,29 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
                                 | _ -> allResolved <- false
                             if not allResolved || myTokens.Count = 0 then false
                             else
-                                let expectedTokens =
+                                // 비교는 Out 토큰끼리만 — 실 PLC 는 이전 단계 In 도달과 다음 단계
+                                // Out 발사가 같은 스캔 배치(같은 ms)로 도착해, 사이클 학습이 둘을
+                                // 한 그룹("In#a|Out#b")으로 합성한다. In 토큰을 안 거르면 단독 Call
+                                // ({Out#b})의 *자기 차례*가 진초집합 조건에 걸려 영구 양보된다
+                                // (실기: Synced 직후부터 8개 Call 전이 소실). 진짜 묶음 차례
+                                // (Out 여러 개)는 Out 토큰만으로도 진초집합이라 양보가 유지된다.
+                                let expectedOutTokens =
                                     HashSet<string>(
-                                        wl.CycleSequence[expectedIdx].Split([| '|' |], StringSplitOptions.RemoveEmptyEntries),
+                                        wl.CycleSequence[expectedIdx].Split([| '|' |], StringSplitOptions.RemoveEmptyEntries)
+                                        |> Array.filter (fun t -> t.StartsWith("Out#", StringComparison.Ordinal)),
                                         StringComparer.Ordinal)
-                                expectedTokens.Count > myTokens.Count
-                                && expectedTokens.IsSupersetOf(myTokens)
+                                let yields =
+                                    expectedOutTokens.Count > myTokens.Count
+                                    && expectedOutTokens.IsSupersetOf(myTokens)
+                                if yields then
+                                    // 양보는 조용히 일어나면 추적 불가(전이 소실로만 보임) — 판단 근거를 남긴다.
+                                    addLog PassiveInferenceLogKind.System
+                                        (sprintf "[Mon] 차례 양보: call=%s my=[%s] expected[%d]=%s"
+                                            (callGuid.ToString("N").Substring(0, 8))
+                                            (String.Join(",", myTokens))
+                                            expectedIdx
+                                            wl.CycleSequence[expectedIdx])
+                                yields
                         | _ -> false
                 | _ -> false
             | _ -> false

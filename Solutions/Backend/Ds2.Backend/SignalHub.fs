@@ -199,6 +199,9 @@ type SignalHubBroadcaster(hubContext: IHubContext<SignalHub>, runtimeSession: IR
         member _.BroadcastAbnormal(payload: AbnormalPayload) =
             hubContext.Clients.All.SendAsync(HubMethod.OnAbnormal, payload)
 
+        member _.BroadcastScanHeartbeat() =
+            hubContext.Clients.All.SendAsync(HubMethod.OnScanHeartbeat)
+
 and SignalHub(gateway: IPlcGateway, runtimeSession: IRuntimeHubSession) =
     inherit Hub()
 

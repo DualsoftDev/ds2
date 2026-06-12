@@ -15,9 +15,21 @@ namespace Promaker.ViewModels;
 /// </summary>
 public partial class SimulationPanelState
 {
-    /// <summary>신호 무소식 → blackout 진입 임계(ms). 디바이스 신호 간 간격(수백 ms)과
-    /// 사이클 전환 갭(~1s)보다 충분히 큰 고정값 — 학습 기반 동적 임계는 후속.</summary>
+    /// <summary>신호 무소식 → blackout 진입 임계의 바닥(ms). 실 임계는 적응형 —
+    /// <see cref="ResolveAdaptiveSilenceThresholdMs"/> (관측 최대 신호 간격 × 마진, 바닥 이 값).
+    /// 고정 3s 만으로는 실 PLC(신호 edge 간격이 수 초인 설비)에서 "진입→신호→해제→진입"
+    /// 루프가 돈다(실기 확인) — 설비의 실제 신호 리듬을 보고 임계가 자란다.</summary>
     internal const int CommSilenceTimeoutMs = 3000;
+
+    /// <summary>적응 임계 마진 — 관측된 최대 신호 간격의 몇 배까지를 "정상 침묵"으로 볼지.
+    /// 가짜 blackout(관측·학습 무효화 부작용)이 늦은 감지보다 해롭다 — 보수적으로 3배.</summary>
+    internal const double SilenceGapMarginFactor = 3.0;
+
+    /// <summary>blackout 해제 간격의 학습 허용 배수 — 해제 시 간격이 (당시 임계 × 이 값) 이내면
+    /// 진짜 두절이 아니라 "그 설비의 자연 간격"으로 보고 임계 학습에 반영한다.
+    /// 이게 없으면 자연 간격이 항상 임계보다 큰 설비는 간격이 매번 blackout 중에 끝나
+    /// 영영 학습이 안 되고 진입/해제 루프가 멈추지 않는다. 장기 두절(배수 초과)은 오염이라 제외.</summary>
+    internal const double SilenceGapLearnableFactor = 3.0;
 
     /// <summary>열린 간트 바의 "증거 cap" 유예(ms) — 마지막 신호 후 이 시간까지는 바가 현재 시각을
     /// 따라가고, 넘으면 그 자리(마지막 신호+유예)에서 성장만 멈춘다(되감지 않음 — 아래 cap 주석).
@@ -29,12 +41,25 @@ public partial class SimulationPanelState
     private volatile bool _commBlackout;
     internal bool IsCommBlackout => _commBlackout;
     private long _lastSignalWallTicks;   // hub 스레드가 Interlocked 로 갱신
+    private double _maxObservedSignalGapMs;   // 정상 운전 중 관측된 최대 신호 간격 — 적응 임계의 근거
     private DispatcherTimer? _commWatchdogTimer;
+
+    /// <summary>적응 무소식 임계(ms) = max(바닥 3s, 관측 최대 간격 × 마진).</summary>
+    internal static double ResolveAdaptiveSilenceThresholdMs(double maxObservedGapMs) =>
+        Math.Max(CommSilenceTimeoutMs, maxObservedGapMs * SilenceGapMarginFactor);
+
+    /// <summary>이 신호 간격을 임계 학습에 반영해도 되는가 — 정상 운전 간격은 항상,
+    /// blackout 해제 간격은 "오탐 의심"(당시 임계 × 허용 배수 이내)일 때만(장기 두절 오염 차단).</summary>
+    internal static bool ShouldLearnSignalGap(bool inBlackout, double gapMs, double thresholdMs) =>
+        !inBlackout || gapMs <= thresholdMs * SilenceGapLearnableFactor;
 
     /// <summary>ctor 말미에서 1회 — Hub 신호/PLC 상태 구독 + 무소식 워치독 시작.</summary>
     private void InitCommBlackoutWatch()
     {
         Hub.TagBroadcast += (_, _, _) => OnCommSignalObserved();
+        // 스캔 생존 heartbeat(~1s) — 태그 변화가 없어도 통신 생존 신호로 취급. 실 PLC 는
+        // 무변화 침묵이 수 초씩 정상이라, 변화 이벤트만으로는 두절 감지가 사이클마다 오탐한다.
+        Hub.ScanHeartbeat += OnCommSignalObserved;
         Hub.PlcConnectionStatusChanged += OnCommPlcStatus;
         // 열린 간트 바는 증거(마지막 신호) 시각까지만 — blackout 확정 전 3초 동안 바가
         // 빨간 선에 붙어 자라다 동결 시 되감기는 왜곡 방지. 렌더가 매 프레임 호출.
@@ -50,11 +75,12 @@ public partial class SimulationPanelState
     /// <summary>재개 후 첫 실측 Going 으로 shadow 추정 위치와 대조 대기 중.</summary>
     private bool _shadowReconcilePending;
 
-    /// <summary>PLAY/RESET 시 — blackout 해제 + 신호 시각 초기화(첫 신호 전 무소식 오탐 방지).</summary>
+    /// <summary>PLAY/RESET 시 — blackout 해제 + 신호 시각/적응 임계 초기화(첫 신호 전 무소식 오탐 방지).</summary>
     private void ResetCommBlackout()
     {
         _commBlackout = false;
         _shadowReconcilePending = false;
+        _maxObservedSignalGapMs = 0;
         Interlocked.Exchange(ref _lastSignalWallTicks, 0);
     }
 
@@ -68,14 +94,34 @@ public partial class SimulationPanelState
         var last = Interlocked.Read(ref _lastSignalWallTicks);
         if (last == 0) return null;
         var sinceLast = TimeSpan.FromTicks(Math.Max(0, DateTime.Now.Ticks - last));
-        if (sinceLast.TotalMilliseconds <= OpenSegmentEvidenceGraceMs) return null;
+        // 유예도 적응 — 설비의 자연 신호 간격(관측 최대 × 1.2)보다 짧으면 바가 매 간격마다
+        // 멈칫거린다(실 PLC 는 edge 간격이 수 초). 바닥은 고정 유예.
+        var graceMs = Math.Max(OpenSegmentEvidenceGraceMs, _maxObservedSignalGapMs * 1.2);
+        if (sinceLast.TotalMilliseconds <= graceMs) return null;
         // wall 경과를 간트 시계(AdjustedNow) 좌표로 환산 — EnterCommBlackout 의 freezeAt 과 동일 방식.
-        return GanttChart.AdjustedNow - sinceLast + TimeSpan.FromMilliseconds(OpenSegmentEvidenceGraceMs);
+        return GanttChart.AdjustedNow - sinceLast + TimeSpan.FromMilliseconds(graceMs);
     }
 
     private void OnCommSignalObserved()
     {
-        Interlocked.Exchange(ref _lastSignalWallTicks, DateTime.Now.Ticks);
+        var nowTicks = DateTime.Now.Ticks;
+        var prevTicks = Interlocked.Exchange(ref _lastSignalWallTicks, nowTicks);
+
+        // 신호 간격 학습 — 설비의 실제 신호 리듬(관측 최대 간격)이 적응 임계의 근거.
+        // blackout 해제 간격도 "오탐 의심" 범위면 학습 — 자연 간격이 임계보다 큰 설비가
+        // 영영 학습 못 하고 진입/해제 루프를 도는 것(실 PLC 실기)을 한두 번 안에 수렴시킨다.
+        if (prevTicks > 0)
+        {
+            var gapMs = (nowTicks - prevTicks) / (double)TimeSpan.TicksPerMillisecond;
+            var threshold = ResolveAdaptiveSilenceThresholdMs(_maxObservedSignalGapMs);
+            if (ShouldLearnSignalGap(_commBlackout, gapMs, threshold) && gapMs > _maxObservedSignalGapMs)
+            {
+                _maxObservedSignalGapMs = gapMs;
+                if (gapMs * SilenceGapMarginFactor > CommSilenceTimeoutMs)
+                    SimLog.Info($"[CommBlackout] 신호 간격 학습 — 관측 최대 {gapMs / 1000.0:F1}s, 무소식 임계 {ResolveAdaptiveSilenceThresholdMs(gapMs) / 1000.0:F1}s");
+            }
+        }
+
         if (_commBlackout)
             _dispatcher.BeginInvoke(new Action(() => ExitCommBlackout("신호 재개")));
     }
@@ -96,8 +142,9 @@ public partial class SimulationPanelState
         var last = Interlocked.Read(ref _lastSignalWallTicks);
         if (last == 0) return;   // 아직 신호를 한 번도 못 받음 — 시작 대기는 두절이 아님
         var silenceMs = (DateTime.Now.Ticks - last) / TimeSpan.TicksPerMillisecond;
-        if (silenceMs > CommSilenceTimeoutMs)
-            EnterCommBlackout($"신호 무소식 {silenceMs / 1000.0:F1}s");
+        var thresholdMs = ResolveAdaptiveSilenceThresholdMs(_maxObservedSignalGapMs);
+        if (silenceMs > thresholdMs)
+            EnterCommBlackout($"신호 무소식 {silenceMs / 1000.0:F1}s (임계 {thresholdMs / 1000.0:F1}s)");
     }
 
     /// <summary>UI 스레드. actual 동결(마지막 신호 시각 기준) + 관측/학습 무효화 + abnormal 억제 시작.</summary>

@@ -243,22 +243,39 @@ type EventDrivenEngineRuntimeHubSession
     let isMappedDeviceWork workGuid =
         (engine.IOMap.TxWorkToOutAddresses |> Map.containsKey workGuid)
         || (engine.IOMap.RxWorkToInAddresses |> Map.containsKey workGuid)
+    /// 진단용 이름 — Work 는 Index 이름 맵, Call 은 이름 맵이 없어 guid 8자.
+    let inferName (kind: PassiveInferenceTarget) (guid: Guid) =
+        match kind with
+        | PassiveInferenceTarget.Work ->
+            match engine.Index.WorkName |> Map.tryFind guid with
+            | Some n -> n
+            | None -> guid.ToString("N").Substring(0, 8)
+        | _ -> guid.ToString("N").Substring(0, 8)
+
     let observeAndInfer (address: string) (value: string) =
         match passiveInference with
         | Some pi ->
             let mutable scheduledStateChange = false
+            let mutable actionCount = 0
             for action in pi.Observe(address, value, getWorkStateSafe, getCallStateSafe) do
+                actionCount <- actionCount + 1
                 match action.TargetKind with
                 | PassiveInferenceTarget.Work ->
                     if not (isMappedDeviceWork action.TargetGuid)
                        && getWorkStateSafe.Invoke(action.TargetGuid) <> action.State then
                         engine.ForceWorkState(action.TargetGuid, action.State)
                         scheduledStateChange <- true
+                        passiveLog.Info($"[Infer] Work {inferName PassiveInferenceTarget.Work action.TargetGuid} → {action.State}")
                 | PassiveInferenceTarget.Call ->
                     if getCallStateSafe.Invoke(action.TargetGuid) <> action.State then
                         engine.ForceCallState(action.TargetGuid, action.State)
                         scheduledStateChange <- true
+                        passiveLog.Info($"[Infer] Call {inferName PassiveInferenceTarget.Call action.TargetGuid} → {action.State}")
                 | _ -> ()
+            // obs 단위 진단 — self-hosted(Promaker RuntimeMode.cs)의 [Infer] obs 와 동형.
+            // "신호는 왔는데 액션이 0개였는지 / 신호 자체가 안 왔는지"를 Agent 파일에서 판별
+            // (실 PLC ADV 미반영류 현장 진단 — Agent root 레벨이 INFO 라 Info 로 발행).
+            passiveLog.Info($"[Infer] obs {address}={value} → {actionCount} action(s)")
             if scheduledStateChange then
                 drainCurrentTick ()
             for entry in pi.DrainLogs() do
@@ -297,7 +314,12 @@ type EventDrivenEngineRuntimeHubSession
             match passiveInference with
             | Some pi -> pi.Baseline(effect.Address, effect.Value)
             | None -> ()
-        | RuntimeHubEffectKind.Log -> ()       // 진단 로그 — Agent log4net 노이즈 회피로 생략
+        | RuntimeHubEffectKind.Log ->
+            // 세션 진단 로그 — 과거 "노이즈 회피"로 버리던 것을 파일로 노출(현장 진단 임시조치).
+            // 인퍼런스/세션이 남기는 판단 근거가 여기로 온다 — 버리면 미반영류 추적이 불가능.
+            match effect.Severity with
+            | RuntimeHubLogSeverity.Warn -> passiveLog.Warn($"[Session] {effect.Message}")
+            | _ -> passiveLog.Info($"[Session] {effect.Message}")
         | RuntimeHubEffectKind.WriteTag -> ()  // Monitoring read-only — PLC 재기록 안 함 (Control write 는 P4)
         | _ -> ()
 
