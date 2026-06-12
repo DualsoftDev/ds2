@@ -346,6 +346,28 @@ public class GanttChartState : INotifyPropertyChanged
         CurrentTime = timestamp;
     }
 
+    /// <summary>통신 blackout — 모든 행의 열린 세그먼트(상태·I/O)를 두절 시각으로 닫는다.
+    /// 두절 구간은 증거가 없는데 진행 중 막대가 현재 시각까지 계속 늘어나면
+    /// "마지막으로 알던 상태의 무한 연장" = 거짓 표시가 된다. actual 은 여기서 멈추고,
+    /// plan 틀(예측)만 남는 것이 coast 구간의 올바른 시각 언어다.</summary>
+    public void FreezeOpenSegments(DateTime at)
+    {
+        foreach (var entry in Entries)
+        {
+            CloseOpenSegment(entry.Segments, at);
+            CloseOpenSegment(entry.OutSegments, at);
+            CloseOpenSegment(entry.InSegments, at);
+        }
+    }
+
+    private static void CloseOpenSegment(ObservableCollection<GanttStateSegment> segments, DateTime at)
+    {
+        if (segments.Count == 0) return;
+        var last = segments[^1];
+        if (last.EndTime is null && at > last.StartTime)
+            last.EndTime = at;
+    }
+
     public GanttTimelineEntry? FindEntry(Guid nodeId)
     {
         foreach (var entry in Entries)

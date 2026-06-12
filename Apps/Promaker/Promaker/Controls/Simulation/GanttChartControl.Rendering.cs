@@ -37,6 +37,78 @@ public partial class GanttChartControl
         return new GanttPlanOverlayPart(segment.StartTime, segment.StartTime.AddMilliseconds(durationMs));
     }
 
+    /// <summary>
+    /// Work plan 틀의 동적 재예측 끝 시각 — 사이클 진행 중 이미 끝난 자식 Call 의 actual 을 반영해
+    /// "남은 구간"만 예측한다 (내비의 도착 예정 시간 갱신과 동일).
+    /// 고정 plan(중앙값)은 단계 전환 갭의 사이클별 지터가 직렬로 누적돼 수백 ms 잔차를 만들지만,
+    /// 단계가 끝날 때마다 anchor 를 actual 로 옮기면 잔차가 누적되지 않고 마지막 한 단계 변동만 남는다.
+    ///   틀 끝 = (진행 중 Call 의 Going 시작 + 그 Call plan | 마지막 완료 Call 의 actual 끝)
+    ///         + 미시작 Call plan 합 + 남은 전환 갭(학습된 총 갭 × 남은 비율)
+    /// 자식 Call 에 plan 이 없거나 자식이 없으면 null — 호출자가 고정 plan 으로 fallback.
+    /// (직렬 체인 가정의 근사 — 병렬 Call 모델에선 남은 합이 과대일 수 있으나 고정 plan 보다 나쁘지 않다.)
+    /// </summary>
+    internal static DateTime? ResolveDynamicPlanEnd(
+        GanttTimelineEntry workEntry,
+        GanttStateSegment workGoing,
+        IReadOnlyList<GanttTimelineEntry> allEntries,
+        DateTime currentTime)
+    {
+        if (!workEntry.IsWork) return null;
+        // 진행 중인 사이클만 — 완료된 사이클은 고정 plan(중앙값) 비교가 의미.
+        // (완료 사이클에 적용하면 자식 탐색이 "그 이후 시작" 조건만으로 최신 사이클의
+        //  자식을 오인해, 과거 틀이 현재까지 늘어나 겹치는 버그가 있었음.)
+        if (workGoing.EndTime is not null) return null;
+        if (workEntry.BaseDurationMs is not { } workPlanMs || workPlanMs <= 0) return null;
+
+        var cycleStart = workGoing.StartTime;
+
+        double childPlanTotal = 0, donePlan = 0, inProgressPlan = 0;
+        int totalChildren = 0, doneChildren = 0;
+        DateTime lastDoneEnd = cycleStart;
+        DateTime? inProgressStart = null;
+
+        foreach (var child in allEntries)
+        {
+            if (child.ParentWorkId != workEntry.Id || !child.IsCall) continue;
+            if (child.BaseDurationMs is not { } childPlanMs || childPlanMs <= 0) return null;
+
+            totalChildren++;
+            childPlanTotal += childPlanMs;
+
+            // 이 사이클의 Going 세그먼트 — 뒤에서부터 (장시간 누적 세그먼트 회피).
+            GanttStateSegment? going = null;
+            for (var i = child.Segments.Count - 1; i >= 0; i--)
+            {
+                var s = child.Segments[i];
+                if (s.StartTime < cycleStart) break;
+                if (s.State == Ds2.Core.Status4.Going) { going = s; break; }
+            }
+
+            if (going is null) continue;                  // 이 사이클에서 미시작
+            if (going.EndTime is { } doneEnd)
+            {
+                doneChildren++;
+                donePlan += childPlanMs;
+                if (doneEnd > lastDoneEnd) lastDoneEnd = doneEnd;
+            }
+            else
+            {
+                inProgressStart = going.StartTime;
+                inProgressPlan = childPlanMs;
+            }
+        }
+
+        if (totalChildren == 0) return null;
+
+        var gapTotal = Math.Max(0, workPlanMs - childPlanTotal);
+        var remainingGap = gapTotal * (totalChildren - doneChildren) / totalChildren;
+        var notStartedPlan = childPlanTotal - donePlan - inProgressPlan;
+
+        return inProgressStart is { } inProgress
+            ? inProgress.AddMilliseconds(inProgressPlan + notStartedPlan + remainingGap)
+            : lastDoneEnd.AddMilliseconds(notStartedPlan + remainingGap);
+    }
+
     /// <summary>plan overlay 모드에서 actual 상태 막대 높이 — 배경(plan) 바 안에 얇게 가운데.</summary>
     internal const double PlanOverlayActualBarHeight = 8;
 
@@ -365,8 +437,12 @@ public partial class GanttChartControl
                     }
                     else
                     {
+                        // Work 행은 동적 재예측 — 끝난 자식 Call 의 actual 을 anchor 로 남은 구간만 예측.
+                        var planEnd = entry.IsWork
+                            ? ResolveDynamicPlanEnd(entry, segment, _viewModel.Entries, _viewModel.CurrentTime) ?? plan.EndTime
+                            : plan.EndTime;
                         double pStartX = (plan.StartTime - _viewModel.StartTime).TotalSeconds * _viewModel.PixelsPerSecond;
-                        double pWidth = (plan.EndTime - plan.StartTime).TotalSeconds * _viewModel.PixelsPerSecond;
+                        double pWidth = (planEnd - plan.StartTime).TotalSeconds * _viewModel.PixelsPerSecond;
                         if (pWidth >= 1 && pStartX + pWidth >= cullLeft && pStartX <= cullRight)
                         {
                             var planBar = GetOrCreatePlanBar(planBarIdx++);

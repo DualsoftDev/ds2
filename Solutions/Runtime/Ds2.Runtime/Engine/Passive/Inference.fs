@@ -221,6 +221,16 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
         if not (String.IsNullOrWhiteSpace(address)) then
             lastObservedValue[address] <- value
 
+    /// 통신 blackout(PLC 단절/신호 두절) — 진행 중 관측만 무효화한다.
+    /// 단절 구간은 edge 순서를 신뢰할 수 없어, stale 한 high 집합/직전값으로 재개 신호를
+    /// 가짜 전이로 추론하는 것을 막는다. 사이클 학습(workLearning)은 보존 — 재개 시
+    /// 기존 Synced 패턴으로 재합류한다. 직전값(lastObservedValue)도 비워 재개 첫 신호가
+    /// 항상 관측되게 한다(같은 값 재수신 무시 가드 우회).
+    member _.InvalidateObservations() =
+        for kv in callOutHighAddresses do kv.Value.Clear()
+        for kv in callInHighAddresses do kv.Value.Clear()
+        lastObservedValue.Clear()
+
     member _.ObserveDirection(
         address: string,
         value: string,

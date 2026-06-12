@@ -237,6 +237,7 @@ public partial class SimulationPanelState
         _simStartTime = DateTime.Now;
         ResetPassiveGanttClockAnchor();
         _durationLearning = null;   // 리셋 = 학습 폐기 (정지 시 반영 흐름을 안 탔으므로)
+        ResetCommBlackout();
         ApplySimulationResetUiState(clearCollections: false);
         GanttChart.Reset(_simStartTime);
         InitGanttEntries();

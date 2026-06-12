@@ -79,6 +79,11 @@ type ISimulationEngine =
     /// STEP 종료: FlowTag.Pause 복원.
     abstract EndStep: unit -> unit
 
+    /// 통신 blackout(PLC 단절/신호 두절) — 엔진 내장 abnormal 어댑터(Control)의 진행 중
+    /// 관측(goingClock/latch)을 무효화한다. 단절 시간이 포함된 elapsed 로 Action* 오탐을
+    /// 내지 않게 한다. 어댑터 없는 모드(비 Control)는 no-op.
+    abstract InvalidateAbnormalObservations: unit -> unit
+
     /// 현재 Store 기준으로 연결 topology만 다시 계산합니다.
     abstract ReloadConnections: unit -> unit
 
