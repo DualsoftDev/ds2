@@ -156,6 +156,23 @@ public sealed class CallDurationLearningTests
     }
 
     [Fact]
+    public void Learned_durations_auto_apply_unless_range_is_abnormally_wide()
+    {
+        // 정상 설비 가정 — 정상 범위면 묻지 않고 자동 적용, 변동이 비정상(상한 2배/하한 절반)일 때만 확인.
+        var normal = new Dictionary<Guid, (int avg, int min, int max)>
+        {
+            [Guid.NewGuid()] = (520, 489, 612),
+            [Guid.NewGuid()] = (5268, 4998, 5542),
+        };
+        Assert.False(SimulationPanelState.ShouldConfirmLearnedDurations(normal));
+
+        var wideMax = new Dictionary<Guid, (int avg, int min, int max)> { [Guid.NewGuid()] = (500, 480, 1100) };
+        var wideMin = new Dictionary<Guid, (int avg, int min, int max)> { [Guid.NewGuid()] = (500, 200, 540) };
+        Assert.True(SimulationPanelState.ShouldConfirmLearnedDurations(wideMax));
+        Assert.True(SimulationPanelState.ShouldConfirmLearnedDurations(wideMin));
+    }
+
+    [Fact]
     public void Sliding_window_keeps_only_recent_samples()
     {
         var learning = Create();

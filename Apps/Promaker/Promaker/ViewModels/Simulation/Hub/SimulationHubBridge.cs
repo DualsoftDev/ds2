@@ -255,10 +255,18 @@ public sealed partial class SimulationHubBridge : ObservableObject
     /// 첫 PLAY 직후 OnConnectedAsync snapshot 으로 모든 어댑터의 초기 상태가 한 번씩 전달된다.</summary>
     public event Action<Ds2.Backend.Common.PlcConnectionStatus>? PlcConnectionStatusChanged;
 
+    /// <summary>테스트 전용 — 수신 신호 차단(통신 두절 시뮬레이션).
+    /// SignalR 연결은 유지한 채 수신 태그만 무시해 "장비(신호원)는 계속 도는데 나만 안 보이는"
+    /// PLC 단선 시나리오를 로컬에서 재현한다. 토글 해제 시 진행된 위치의 신호부터 다시 보임
+    /// (스킵 구간 발생) — coast/재합류 검증용.</summary>
+    public bool TestSignalBlocked { get; set; }
+
     // ── Tag routing ──────────────────────────────────────────────
 
     private void OnHubTagChanged(int generation, string address, string value, string source)
     {
+        if (TestSignalBlocked)
+            return;
         if (!IsCurrentGeneration(generation))
             return;
 

@@ -64,7 +64,8 @@ public class GanttTimelineEntry : INotifyPropertyChanged
     public Guid? ParentCallId { get; init; }
     public string SystemName { get; init; } = "";
     public int RowIndex { get; init; }
-    public double? BaseDurationMs { get; init; }
+    /// <summary>plan 길이(ms) — PLAY 시 모델값으로 초기화, 라이브 학습 반영 시 갱신(set).</summary>
+    public double? BaseDurationMs { get; set; }
     public int VirtualAppendMs { get; init; }
     public int OutputAppendMs { get; init; }
     /// <summary>ApiCall I/O \uc904 \u2014 \uc2e4\uc81c \uc1a1\uc2e0(Out)/\uc218\uc2e0(In) Tag \uc8fc\uc18c. OnHubTagChanged \ub9e4\ud551\uc6a9.</summary>

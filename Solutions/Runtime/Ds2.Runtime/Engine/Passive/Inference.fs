@@ -74,6 +74,54 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
            && overlay.GetCallState(callGuid) = Status4.Going then
             PassiveInferenceWorkCycle.enqueueCallState actions overlay callGuid Status4.Finish
 
+    /// 공유 Out 주소 오귀속 방지 — "차례" 게이트.
+    /// 같은 Out 주소를 여러 Call 이 단계별로 호출하는 모델(예: %Q2001 을 4-디바이스 동시 Call
+    /// Tester.RET{4주소}와 단독 Call Tester1.RET{1주소}가 공유)에서, 동시 묶음 차례의 rising 에
+    /// 단독 Call 도 자기 기대(1주소)가 충족돼 사이클마다 가짜 Going/Finish 1세트를 만들었다.
+    /// 사이클 학습(Synced)의 기대 그룹이 곧 "현재 차례"다 — 이 Call 의 기대 Out 토큰 집합이
+    /// 기대 그룹의 *진부분집합*이면 상위 묶음의 차례이므로 Going 을 양보한다.
+    /// (자기 차례엔 기대 그룹 = 자기 집합이라 정상 Going. 미동기화/기대 불일치/토큰 미해석은
+    /// 판단 보류 → 기존 동작 — 보수적.)
+    let yieldsToExpectedGroupTurn (callGuid: Guid) =
+        match index.CallWorkGuid |> Map.tryFind callGuid with
+        | None -> false
+        | Some workGuid ->
+            match workLearning.TryGetValue(workGuid) with
+            | true, wl when wl.Synced ->
+                match wl.DetectedPeriod with
+                | Some period when period > 0 ->
+                    // 이 rising 이 속할 그룹의 기대 idx.
+                    //   Out 그룹 진행 중(LiveCurrentKey=Out) → 현재 기대 그대로.
+                    //   다른 키 그룹 진행 중(In 등) → 이 신호가 새 그룹: 경계에서 ++ 예정이라 +1.
+                    //   None(Synced 직후 첫 신호) → NextExpectedGroupIdx 가 이미 "다음 올 그룹"
+                    //   으로 세팅돼 있음(detectWorkPeriod) — 그대로.
+                    let expectedIdx =
+                        match wl.LiveCurrentKey with
+                        | Some key when key <> ("Out", "true") -> (wl.NextExpectedGroupIdx + 1) % period
+                        | _ -> wl.NextExpectedGroupIdx
+                    if expectedIdx < 0 || expectedIdx >= wl.CycleSequence.Count then false
+                    else
+                        match workPositiveFamilyTokens.TryGetValue(workGuid),
+                              callOutExpectedAddresses.TryGetValue(callGuid) with
+                        | (true, tokenMap), (true, myAddrs) when myAddrs.Count > 0 ->
+                            let myTokens = HashSet<string>(StringComparer.Ordinal)
+                            let mutable allResolved = true
+                            for addr in myAddrs do
+                                match tokenMap.TryGetValue(PassiveInferenceWorkCycleAlignment.familyAddressKey "Out" addr) with
+                                | true, token -> myTokens.Add(token) |> ignore
+                                | _ -> allResolved <- false
+                            if not allResolved || myTokens.Count = 0 then false
+                            else
+                                let expectedTokens =
+                                    HashSet<string>(
+                                        wl.CycleSequence[expectedIdx].Split([| '|' |], StringSplitOptions.RemoveEmptyEntries),
+                                        StringComparer.Ordinal)
+                                expectedTokens.Count > myTokens.Count
+                                && expectedTokens.IsSupersetOf(myTokens)
+                        | _ -> false
+                | _ -> false
+            | _ -> false
+
     let observePassiveCallSignal
         (actions: ResizeArray<PassiveInferenceAction>)
         (overlay: StateOverlay)
@@ -101,7 +149,8 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
             ()
         elif isOut then
             if hasAllObserved callOutExpectedAddresses callOutHighAddresses callGuid
-               && overlay.GetCallState(callGuid) <> Status4.Going then
+               && overlay.GetCallState(callGuid) <> Status4.Going
+               && not (yieldsToExpectedGroupTurn callGuid) then
                 if overlay.GetCallState(callGuid) <> Status4.Ready then
                     PassiveInferenceWorkCycle.enqueueCallState actions overlay callGuid Status4.Ready
                 PassiveInferenceWorkCycle.enqueueCallState actions overlay callGuid Status4.Going

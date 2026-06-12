@@ -1,4 +1,5 @@
 using System;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
 using Ds2.Core.Store;
@@ -176,12 +177,52 @@ public partial class SimulationPanelState
         _durationLearning = new CallDurationLearning(map, activeWorks);
     }
 
-    /// <summary>정지 시 학습 duration 을 모델 Work 에 반영할지 묻고, 동의 시 적용 + dirty.
+    /// <summary>학습값 자동 반영 전 확인이 필요한가 — 정상 설비 가정(사용자 합의) 하에 조용히
+    /// 자동 적용하되, 어떤 항목의 학습 범위가 비정상적으로 넓으면(상한이 중앙값의 2배 초과
+    /// 또는 하한이 절반 미만) 워밍업 불안정/비정상 사이클 혼입 가능성이라 사용자에게 묻는다.</summary>
+    internal static bool ShouldConfirmLearnedDurations(
+        System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<Guid, (int avg, int min, int max)>> snapshot)
+    {
+        foreach (var kv in snapshot)
+        {
+            var (avg, min, max) = kv.Value;
+            if (avg <= 0) return true;
+            if (max > avg * 2 || min < avg / 2) return true;
+        }
+        return false;
+    }
+
+    // ── 라이브 학습 반영 (동작 중, 정지 불필요) ───────────────────────────
+
+    /// <summary>기준선 고정 — 운영자가 "지금 학습값을 기준으로 동결"을 지정하는 멈춤 지점.
+    /// ON 이면 학습 수집은 계속하되 반영(라이브·정지 시 모두)을 멈춘다 — 기준선이 노화/이상까지
+    /// 따라가는 것을 운영자 판단으로 차단. (건강 기준선 동결 설계의 1단계 — 동결 시점 기록과
+    /// 드리프트 추적은 후속.)</summary>
+    [ObservableProperty] private bool _learnedDurationFrozen;
+
+    partial void OnLearnedDurationFrozenChanged(bool value) =>
+        AddSimLog(value
+            ? "기준선 고정 — 학습 duration 반영을 중단합니다 (수집은 계속)."
+            : "기준선 고정 해제 — 학습 duration 반영을 재개합니다.", LogSeverity.System);
+
+    // ※ 라이브 반영(동작 중 store 갱신 + engine.ReloadDurations)은 제거됨 — 2회 실측(11:34, 12:19)에서
+    //   [Learn] 라이브 반영 직후 SensorShort 무더기 → 사이클 체인 단절 = 무개입 라인 정지를 유발.
+    //   ratchet(경계 완화만)으로도 재발 → 경계 값이 아니라 동작 중 ReloadDurations 호출 자체가
+    //   엔진 전이와 race 하는 것으로 추정. 동작 중 Reload 안전성이 규명되기 전까지 반영은 정지 시에만.
+
+    /// <summary>정지 시 학습 duration 을 모델 Work 에 반영 + dirty.
     /// 소스 = Agent push(_learnedDurations) + 로컬 실측 학습(_durationLearning, Control/VP/Monitoring 공통).
     /// 둘 다 있으면 로컬 실측이 우선(최신 윈도우 기반). 학습값이 없으면 조용히 통과.
+    /// 정상 범위면 묻지 않고 자동 적용(정상 설비 가정) — 학습값이 비정상적으로 흔들릴 때만 확인.
     /// 저장은 기존 Save 흐름이 AASX 로 영속.</summary>
     private void TryApplyLearnedDurationsOnStop()
     {
+        if (LearnedDurationFrozen)
+        {
+            _durationLearning = null;
+            _learnedDurations.Clear();
+            return;
+        }
         if (_durationLearning is { HasSamples: true } learning)
         {
             foreach (var kv in learning.Snapshot())
@@ -193,11 +234,14 @@ public partial class SimulationPanelState
         var snapshot = System.Linq.Enumerable.ToArray(_learnedDurations);
         _learnedDurations.Clear();
 
-        var ok = Promaker.Dialogs.DialogHelpers.Confirm(
-            System.Windows.Application.Current?.MainWindow,
-            $"실측으로 학습된 device duration {snapshot.Length}건을 모델에 반영할까요?\n반영 후 저장하면 AASX 에 기록됩니다.",
-            "학습 duration 반영");
-        if (!ok) return;
+        if (ShouldConfirmLearnedDurations(snapshot))
+        {
+            var ok = Promaker.Dialogs.DialogHelpers.Confirm(
+                System.Windows.Application.Current?.MainWindow,
+                $"학습된 device duration {snapshot.Length}건의 변동 폭이 비정상적으로 큽니다.\n(워밍업 불안정 또는 비정상 사이클 혼입 가능)\n그래도 모델에 반영할까요?",
+                "학습 duration 확인");
+            if (!ok) return;
+        }
 
         var store = _storeProvider();
         var applied = 0;
@@ -215,7 +259,7 @@ public partial class SimulationPanelState
         if (applied > 0)
         {
             MarkDirty?.Invoke();
-            AddSimLog($"학습 duration {applied}건 모델 반영 — 저장하면 AASX 에 기록됩니다.", LogSeverity.System);
+            AddSimLog($"학습 duration {applied}건 자동 반영 — 저장하면 파일에 기록됩니다.", LogSeverity.System);
         }
     }
 
