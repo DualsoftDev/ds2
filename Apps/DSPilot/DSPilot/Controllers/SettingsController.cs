@@ -591,7 +591,10 @@ public record CctvDto(
     bool SyncOk,
     string SyncMessage,
     // 외부(원격·클라우드) 접속용 공인 IP/도메인. 기본값으로 기존 호출부(SettingsController) 무손상.
-    string WebRtcAdditionalHosts = "");
+    string WebRtcAdditionalHosts = "",
+    // 무조작 일시정지(절전 가드, LTE 종량 회선 보호). 기본값으로 기존 호출부 무손상.
+    bool IdlePauseEnabled = true,
+    int IdlePauseMinutes = 60);
 
 // Slug = MediaMTX 경로명(ASCII). GET 응답에만 포함(디버깅·참고용). 클라이언트는 slug 를 보내지 않으며,
 // 서버(CctvController.SaveSettings)가 포지션 기반 이어받기 + AssignSlugs(cam1/cam2/…) 로 관리.
