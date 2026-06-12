@@ -30,12 +30,19 @@ type ControlAbnormalAdapter
       getCallState: Guid -> Status4,
       isInputActive: Guid -> bool,
       now: unit -> DateTime,
-      sink: AbnormalRecord -> unit ) =
+      sink: AbnormalRecord -> unit,
+      ?warmupCycles: int ) =
 
     let store = index.Store
     let detectorState = AbnormalDetectorState.Empty
     let goingClock = Dictionary<Guid, int>()   // callId → Ready→Going clock(ms)
     let latchPolicy : ILatchPolicy = DefaultLatchPolicy()   // P7 — Sensor 즉시 / Action 5s dedup
+
+    /// 워밍업 — Call 별 첫 N 완주 사이클은 판정하지 않는다(모드 합의: Control=1, VP=2, Monitoring=3).
+    /// 시작 직후는 신호 순서/초기 상태(이전 운전의 잔류 high 등)가 정착 전이라 첫 사이클 판정은 오탐.
+    /// 기본 0(게이트 없음) — 실전 배선(Composition)이 모드별 값을 명시한다.
+    let warmupCycles = defaultArg warmupCycles 0
+    let completedCycles = Dictionary<Guid, int>()   // callId → Going 을 거쳐 Ready 로 복귀한 횟수
 
     let mappingOfApiCall (apiCallId: Guid) =
         ioMap.Mappings |> List.tryFind (fun m -> m.ApiCallGuid = apiCallId)
@@ -64,17 +71,33 @@ type ControlAbnormalAdapter
         | true, ms -> Some ms
         | _ -> None
 
+    /// 워밍업 완료 여부 — Target.CallId 기준. Call 미지목 record 는 게이트 없이 발행.
+    let isWarmedUp (callId: Guid option) =
+        match callId with
+        | None -> true
+        | Some cid ->
+            match completedCycles.TryGetValue cid with
+            | true, n -> n >= warmupCycles
+            | _ -> warmupCycles <= 0
+
     /// ILatchPolicy(Core) 경유 dedup 발행. previous=같은 (Kind,Target) 직전발행.
+    /// 워밍업 미달 Call 의 판정은 버린다 — 첫 사이클 오탐 차단.
     let emit (record: AbnormalRecord) =
-        AbnormalDetector.emitThroughLatch detectorState latchPolicy sink record
+        if isWarmedUp record.Target.CallId then
+            AbnormalDetector.emitThroughLatch detectorState latchPolicy sink record
 
     /// active Call Ready→Going = PS. goingClock 기록.
     member _.OnCallGoing(callId: Guid, nowMs: int) =
         goingClock.[callId] <- nowMs
 
     /// Call 사이클 종료(Ready/Finish 정리) 시 goingClock 해제 + latch 비움(다음 사이클 재판정).
+    /// Going 을 거쳐 돌아온 경우만 완주 사이클로 집계 — 워밍업 게이트의 진행 카운터.
     member _.OnCallReset(callId: Guid) =
-        goingClock.Remove(callId) |> ignore
+        if goingClock.Remove(callId) then
+            completedCycles.[callId] <-
+                match completedCycles.TryGetValue callId with
+                | true, n -> n + 1
+                | _ -> 1
         AbnormalDetector.clearLatchForCall detectorState callId
         latchPolicy.ResetOn(LatchResetTrigger.CallTransition)
 
@@ -110,6 +133,10 @@ type ControlAbnormalAdapter
                 // 이 신호를 기대 중(Going + completion trigger)인 동거 Call 이 있으면 그 Call 의
                 // 정상 완료 신호다. Ready 인 동거 Call 마다 Short 를 내던 오탐(사이클당 공유 Call 수만큼) 차단.
                 // 아무 Call 도 기대하지 않을 때만 진짜 SensorShort.
+                // ※ 동거 판정은 Call 단위(CallGuid) — ds2 는 같은 ApiDef 를 링크한 Call 들이
+                //   ApiCall 인스턴스 자체를 공유한다(개별 Tester1.ADV 와 묶음 Tester.ADV 가 같은
+                //   ApiCall guid). ApiCallGuid 로 거르면 기대 중인 묶음 Call 의 매핑이 "자기 자신"
+                //   으로 오인 제외되어 억제가 무력화된다(실기 Control 사이클마다 4건 Short 의 원인).
                 let expectedElsewhere =
                     match apiCall.InTag with
                     | None -> false
@@ -119,7 +146,7 @@ type ControlAbnormalAdapter
                         | Some siblings ->
                             siblings
                             |> List.exists (fun sib ->
-                                sib.ApiCallGuid <> apiCallId
+                                sib.CallGuid <> callId
                                 && getCallState sib.CallGuid = Status4.Going
                                 && (match apiCallAndDef sib.ApiCallGuid with
                                     | Some(sibCall, sibDef) -> isCompletionTrigger sibCall sibDef

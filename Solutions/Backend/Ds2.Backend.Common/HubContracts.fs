@@ -36,6 +36,14 @@ module HubMethod =
     /// SetScanIntervalMs 호출 → 게이트웨이 라이브 적용 + 영속화 후 전체 동기화용으로 발화.
     [<Literal>]
     let OnScanIntervalChanged = "OnScanIntervalChanged"
+    /// 건강 기준선 수동 동결 — Client → Server invoke. hub 는 상태 없는 릴레이로
+    /// OnHealthBaselineFreeze 를 전 클라이언트에 fan-out 한다 (스캔 주기 패턴과 동형).
+    [<Literal>]
+    let FreezeHealthBaseline = "FreezeHealthBaseline"
+    /// 건강 기준선 수동 동결 브로드캐스트 — Server → All clients. 각 클라이언트(Promaker 등)가
+    /// 자기 duration 학습 추적기의 미동결 work 기준선을 동결한다 — 전 인스턴스 동시 동결.
+    [<Literal>]
+    let OnHealthBaselineFreeze = "OnHealthBaselineFreeze"
     /// Runtime remote command — session start.
     [<Literal>]
     let RuntimeStart = "RuntimeStart"

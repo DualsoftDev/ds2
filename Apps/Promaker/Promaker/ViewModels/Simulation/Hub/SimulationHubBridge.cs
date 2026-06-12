@@ -255,6 +255,11 @@ public sealed partial class SimulationHubBridge : ObservableObject
     /// 첫 PLAY 직후 OnConnectedAsync snapshot 으로 모든 어댑터의 초기 상태가 한 번씩 전달된다.</summary>
     public event Action<Ds2.Backend.Common.PlcConnectionStatus>? PlcConnectionStatusChanged;
 
+    /// <summary>건강 기준선 수동 동결 — hub 의 OnHealthBaselineFreeze 브로드캐스트 수신 시 발화.
+    /// SimulationPanelState 가 구독해 자기 추적기의 미동결 기준선을 동결한다.
+    /// (발신은 DSPilot 설정 페이지 → hub FreezeHealthBaseline — Promaker 리본 버튼은 제거됨.)</summary>
+    public event Action? HealthBaselineFreezeRequested;
+
     /// <summary>테스트 전용 — 수신 신호 차단(통신 두절 시뮬레이션).
     /// SignalR 연결은 유지한 채 수신 태그만 무시해 "장비(신호원)는 계속 도는데 나만 안 보이는"
     /// PLC 단선 시나리오를 로컬에서 재현한다. 토글 해제 시 진행된 위치의 신호부터 다시 보임

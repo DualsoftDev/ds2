@@ -34,6 +34,8 @@ public partial class SimulationPanelState : ObservableObject
     private readonly System.Collections.Generic.Dictionary<Guid, (int avg, int min, int max)> _learnedDurations = new();
     // 로컬 실측 duration 학습 — 비-Simulation 모드(Control/Monitoring/VP) PLAY 시 생성, 정지 시 _learnedDurations 에 병합.
     private CallDurationLearning? _durationLearning;
+    // 건강 기준선 동결 + 드리프트 수명 추적 — 학습기의 정상 샘플 스트림(SampleRecorded)을 구독.
+    private HealthBaselineTracker? _healthBaseline;
     /// <summary>모델을 dirty(미저장)로 표시 — MainViewModel 이 () => IsDirty=true 로 주입.</summary>
     public Action? MarkDirty { get; set; }
     private readonly Dispatcher _dispatcher;
@@ -219,6 +221,8 @@ public partial class SimulationPanelState : ObservableObject
 
         // 자동 줄자 학습값 수신 → 누적(정지 시 사용자 선택으로 모델 반영).
         Hub.LearnedDurationReceived += OnLearnedDurationReceived;
+        // 건강 기준선 수동 동결 — 어느 인스턴스(Promaker/DSPilot)의 버튼이든 hub 브로드캐스트로 동시 동결.
+        Hub.HealthBaselineFreezeRequested += () => FreezeHealthBaselineNow("허브 동기화");
         // PLC 스캔 주기 동기화 — Agent/DSPilot 어느 쪽이 바꿔도 로컬 설정·슬라이더가 같은 값 유지.
         Hub.ScanIntervalChanged += ms =>
         {
@@ -406,6 +410,15 @@ public partial class SimulationPanelState : ObservableObject
 
     public bool NeedsHubConnection => SelectedRuntimeMode != RuntimeMode.Simulation;
 
+    /// <summary>"통신 차단(테스트)" 토글 노출 — DEBUG 빌드 + 허브 모드 한정.
+    /// 릴리즈 현장에서 켜면 수신이 통째로 멎는 테스트 전용 장치라 배포 빌드에선 숨긴다.</summary>
+    public bool ShowCommBlockTestToggle =>
+#if DEBUG
+        NeedsHubConnection;
+#else
+        false;
+#endif
+
     public bool CanChangeMode => !IsSimulating && !IsHomingPhase;
 
     private RuntimeMode _previousRuntimeMode = RuntimeMode.Simulation;
@@ -439,6 +452,7 @@ public partial class SimulationPanelState : ObservableObject
 
         _previousRuntimeMode = value;
         OnPropertyChanged(nameof(NeedsHubConnection));
+        OnPropertyChanged(nameof(ShowCommBlockTestToggle));
         Hub.RaiseHostingDependentsChanged();
         Hub.SetStatus(connected: false, reconnecting: false);
         RefreshGanttTimeSource();

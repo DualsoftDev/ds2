@@ -33,6 +33,10 @@ internal sealed class CallDurationLearning
     private readonly Dictionary<Guid, double> _workGoingAtMs = new();
     private readonly Dictionary<Guid, Queue<double>> _samples = new();
 
+    /// <summary>정상 완료 실측 1건이 work 에 귀속될 때 발화 (workGuid, spanMs) — 건강 기준선
+    /// 추적기 등 2차 소비자용. 측정/오염 차단 로직은 여기가 SSOT 라 소비자는 거를 것이 없다.</summary>
+    public event Action<Guid, double>? SampleRecorded;
+
     /// <param name="callRxWorks">call guid(원본·참조 모두) → 그 Call 이 부르는 device Work guid 목록</param>
     /// <param name="activeWorkIds">Call 을 가진 Active Work guid 집합 — Work 자체의 Going→Finish 실측 대상.
     /// device 합산(critical path)에 안 잡히는 단계 간 전환 갭까지 포함한 전체 실측이라,
@@ -71,6 +75,7 @@ internal sealed class CallDurationLearning
             queue.Enqueue(spanMs);
             while (queue.Count > WindowSize)
                 queue.Dequeue();
+            SampleRecorded?.Invoke(work, spanMs);
         }
     }
 
@@ -102,6 +107,7 @@ internal sealed class CallDurationLearning
         queue.Enqueue(spanMs);
         while (queue.Count > WindowSize)
             queue.Dequeue();
+        SampleRecorded?.Invoke(workGuid, spanMs);
     }
 
     /// <summary>abnormal 발생 Call 의 진행 중 측정 폐기 — 비정상 사이클로 기준선을 오염시키지 않는다.</summary>

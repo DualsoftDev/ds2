@@ -262,6 +262,13 @@ and SignalHub(gateway: IPlcGateway, runtimeSession: IRuntimeHubSession) =
         log.Info($"Scan interval set to {clamped}ms (live, requested={ms})")
         this.Clients.All.SendAsync(HubMethod.OnScanIntervalChanged, clamped)
 
+    /// 건강 기준선 수동 동결 — 상태 없는 릴레이. duration 학습/기준선은 각 클라이언트(Promaker 등)가
+    /// 들고 있으므로 hub 는 동결 명령을 전 클라이언트에 fan-out 만 한다 (스캔 주기 동기화 패턴과 동형).
+    /// 호출자 자신도 브로드캐스트를 받아 동결한다 — 동결 경로 일원화.
+    member this.FreezeHealthBaseline() : Task =
+        log.Info("Health baseline freeze requested — broadcasting to all clients")
+        this.Clients.All.SendAsync(HubMethod.OnHealthBaselineFreeze)
+
     /// PLC 게이트웨이로 위임 — fire-and-forget.
     /// source = "plc" 인 경우(=PLC 가 우리에게 알려준 변화)는 다시 PLC 로 echo 하지 않는다.
     member private _.ForwardToPlc(address: string, value: string, source: string) =

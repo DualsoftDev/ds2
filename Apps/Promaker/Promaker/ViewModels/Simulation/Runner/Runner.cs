@@ -161,6 +161,7 @@ public partial class SimulationPanelState
         if (SelectedRuntimeMode == RuntimeMode.Simulation)
         {
             _durationLearning = null;
+            _healthBaseline = null;
             return;
         }
 
@@ -175,6 +176,65 @@ public partial class SimulationPanelState
             activeWorks.Add(call.ParentId);   // Call 을 가진 Work = Active Work, 자체 실측 대상
         }
         _durationLearning = new CallDurationLearning(map, activeWorks);
+
+        // 건강 기준선 추적 — 학습기의 정상 샘플 스트림에 업혀 work 단위로 동결/드리프트를 본다.
+        var workMaxMs = new System.Collections.Generic.Dictionary<Guid, double>();
+        var workNames = new System.Collections.Generic.Dictionary<Guid, string>();
+        foreach (var w in store.Works.Values)
+        {
+            workNames[w.Id] = w.Name;
+            if (w.MaxDuration is { } maxOpt)   // F# option — None 은 null
+                workMaxMs[w.Id] = maxOpt.Value.TotalMilliseconds;
+        }
+        _healthBaseline = new HealthBaselineTracker(workMaxMs, workNames);
+        _durationLearning.SampleRecorded += OnHealthBaselineSample;
+    }
+
+    /// <summary>학습 샘플 1건 → 건강 기준선 추적 + 전이(동결/IQR 경보)만 로그로 승격.
+    /// 드리프트 % 자체는 사이클마다 찍지 않는다 — 정지 시 요약과 경보가 사용자 접점.</summary>
+    private void OnHealthBaselineSample(Guid workGuid, double spanMs)
+    {
+        if (_healthBaseline is not { } health) return;
+        var r = health.OnSample(workGuid, spanMs, DateTime.Now);
+
+        if (r.JustFrozen is { } frozen)
+        {
+            var how = r.FrozenByCap ? "상한 도달(수렴 미달) 동결" : "수렴 자동 동결";
+            SimLog.Info($"[Health] {health.NameOf(workGuid)} 기준선 {how} — 중앙값 {frozen.MedianMs:F0}ms, IQR {frozen.IqrMs:F0}ms, 표본 {frozen.SampleCount}");
+            AddSimLog($"[건강 기준선] {health.NameOf(workGuid)} 동결 — 중앙값 {frozen.MedianMs:F0}ms ({how}). 이후 드리프트를 추적합니다.", LogSeverity.System);
+        }
+        if (r.IqrAlarmRaised)
+        {
+            SimLog.Warn($"[Health] {health.NameOf(workGuid)} IQR 확대 경보 — 드리프트 {r.DriftPct:+0.0;-0.0}%");
+            AddSimLog($"[건강 경보] {health.NameOf(workGuid)} 동작 변동 폭(IQR)이 기준선의 {HealthBaselineTracker.IqrAlarmRatio:F1}배를 넘었습니다 — 노화/이상 조기 신호일 수 있습니다.", LogSeverity.Warn);
+        }
+        else if (r.IqrAlarmCleared)
+        {
+            SimLog.Info($"[Health] {health.NameOf(workGuid)} IQR 경보 해제");
+            AddSimLog($"[건강 경보 해제] {health.NameOf(workGuid)} 동작 변동 폭이 정상 범위로 돌아왔습니다.", LogSeverity.System);
+        }
+    }
+
+    // 리본 "기준선 동결" 버튼은 제거됨(사용자 결정) — 동결의 본선은 자동 수렴이고,
+    // 수동 동결은 DSPilot 설정 페이지 → hub FreezeHealthBaseline 브로드캐스트 경로만 남긴다.
+
+    /// <summary>수동 "기준선 지금 동결" — 로컬 추적기 동결 + 로그. 허브 브로드캐스트(OnHealthBaselineFreeze) 수신용.</summary>
+    internal void FreezeHealthBaselineNow(string origin)
+    {
+        if (_healthBaseline is not { } health)
+        {
+            AddSimLog("[건강 기준선] 추적 중이 아닙니다 — 비-Simulation 모드 PLAY 중에만 동결할 수 있습니다.", LogSeverity.Warn);
+            return;
+        }
+        var frozen = health.FreezeNow(DateTime.Now);
+        if (frozen.Count == 0)
+        {
+            AddSimLog($"[건강 기준선] 동결할 항목이 없습니다 — 이미 동결됐거나 표본이 {HealthBaselineTracker.MinManualFreezeSamples}사이클 미만입니다. ({origin})", LogSeverity.Info);
+            return;
+        }
+        foreach (var (workId, b) in frozen)
+            SimLog.Info($"[Health] {health.NameOf(workId)} 기준선 수동 동결({origin}) — 중앙값 {b.MedianMs:F0}ms, IQR {b.IqrMs:F0}ms, 표본 {b.SampleCount}");
+        AddSimLog($"[건강 기준선] {frozen.Count}개 device 기준선을 수동 동결했습니다 ({origin}). 이후 드리프트를 추적합니다.", LogSeverity.System);
     }
 
     /// <summary>학습값 자동 반영 전 확인이 필요한가 — 정상 설비 가정(사용자 합의) 하에 조용히
@@ -192,19 +252,6 @@ public partial class SimulationPanelState
         return false;
     }
 
-    // ── 라이브 학습 반영 (동작 중, 정지 불필요) ───────────────────────────
-
-    /// <summary>기준선 고정 — 운영자가 "지금 학습값을 기준으로 동결"을 지정하는 멈춤 지점.
-    /// ON 이면 학습 수집은 계속하되 반영(라이브·정지 시 모두)을 멈춘다 — 기준선이 노화/이상까지
-    /// 따라가는 것을 운영자 판단으로 차단. (건강 기준선 동결 설계의 1단계 — 동결 시점 기록과
-    /// 드리프트 추적은 후속.)</summary>
-    [ObservableProperty] private bool _learnedDurationFrozen;
-
-    partial void OnLearnedDurationFrozenChanged(bool value) =>
-        AddSimLog(value
-            ? "기준선 고정 — 학습 duration 반영을 중단합니다 (수집은 계속)."
-            : "기준선 고정 해제 — 학습 duration 반영을 재개합니다.", LogSeverity.System);
-
     // ※ 라이브 반영(동작 중 store 갱신 + engine.ReloadDurations)은 제거됨 — 2회 실측(11:34, 12:19)에서
     //   [Learn] 라이브 반영 직후 SensorShort 무더기 → 사이클 체인 단절 = 무개입 라인 정지를 유발.
     //   ratchet(경계 완화만)으로도 재발 → 경계 값이 아니라 동작 중 ReloadDurations 호출 자체가
@@ -217,12 +264,17 @@ public partial class SimulationPanelState
     /// 저장은 기존 Save 흐름이 AASX 로 영속.</summary>
     private void TryApplyLearnedDurationsOnStop()
     {
-        if (LearnedDurationFrozen)
+        // 건강 기준선 — 정지 시 work 별 드리프트/외삽 요약을 한 번 박고 세션 추적 종료.
+        if (_healthBaseline is { HasFrozenBaseline: true } health)
         {
-            _durationLearning = null;
-            _learnedDurations.Clear();
-            return;
+            foreach (var line in health.SummaryLines())
+            {
+                SimLog.Info($"[Health] {line}");
+                AddSimLog($"[건강 요약] {line}", LogSeverity.System);
+            }
         }
+        _healthBaseline = null;
+
         if (_durationLearning is { HasSamples: true } learning)
         {
             foreach (var kv in learning.Snapshot())
@@ -281,6 +333,7 @@ public partial class SimulationPanelState
         _simStartTime = DateTime.Now;
         ResetPassiveGanttClockAnchor();
         _durationLearning = null;   // 리셋 = 학습 폐기 (정지 시 반영 흐름을 안 탔으므로)
+        _healthBaseline = null;
         ResetCommBlackout();
         ApplySimulationResetUiState(clearCollections: false);
         GanttChart.Reset(_simStartTime);

@@ -303,6 +303,25 @@
                                 </div>
                             </div>
 
+                            <!-- 건강 기준선 동결 (Agent 동기화) -->
+                            <div class="card">
+                                <div class="card-header">
+                                    <span class="material-icons">ac_unit</span>
+                                    <span>건강 기준선 동결</span>
+                                </div>
+                                <div class="card-content">
+                                    <button class="btn btn-outlined w-100" @click="freezeHealthBaseline()" :disabled="!scanConnected">
+                                        <span class="material-icons">pause_circle</span> 지금 동결
+                                    </button>
+                                    <small class="settings-hint">
+                                        device duration 의 건강 기준선을 현재 분포로 동결합니다. 이후 사이클은 이 기준 대비
+                                        드리프트(설비 노화)로 추적됩니다. 전 인스턴스(Promaker 등) 동시 적용 —
+                                        자동 수렴 동결 전에 수동으로 확정할 때 사용합니다.
+                                        <span x-show="!scanConnected"><strong> — 현재 Agent 미연결(모니터링 비활성)이라 요청할 수 없습니다.</strong></span>
+                                    </small>
+                                </div>
+                            </div>
+
                             <div class="card">
                                 <div class="card-header">
                                     <span class="material-icons">settings</span>
@@ -654,6 +673,19 @@
                     } catch (e) {
                         this.showToast('스캔 주기 변경 실패 — Agent 연결 상태를 확인하세요.', 'error');
                         this.loadScanInterval();
+                    }
+                },
+
+                // ── 건강 기준선 수동 동결 — hub 브로드캐스트로 전 인스턴스(Promaker 등) 동시 동결.
+                async freezeHealthBaseline() {
+                    const ok = await this.askConfirm('건강 기준선 동결',
+                        '학습 중인 device duration 기준선을 현재 분포로 동결합니다.\n이후 사이클은 이 기준 대비 드리프트(노화)로 추적됩니다. 진행할까요?');
+                    if (!ok) return;
+                    try {
+                        await this.apiPost('/api/settings/health-baseline-freeze', {});
+                        this.showToast('건강 기준선 동결 요청 전송됨 — 전 인스턴스 동시 적용', 'success');
+                    } catch (e) {
+                        this.showToast('동결 요청 실패 — Agent 연결 상태를 확인하세요.', 'error');
                     }
                 },
 

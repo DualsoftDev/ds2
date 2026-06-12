@@ -203,6 +203,15 @@ public sealed partial class SimulationHubBridge
                 try { ScanIntervalChanged?.Invoke(ms); }
                 catch (Exception ex) { SimLog.Error("ScanIntervalChanged subscriber threw", ex); }
             }));
+        // 건강 기준선 수동 동결 — 어느 클라이언트(Promaker/DSPilot)의 버튼이든 전 인스턴스 동시 동결.
+        hubConnection.On(
+            HubMethod.OnHealthBaselineFreeze,
+            () => _dispatcher.BeginInvoke(() =>
+            {
+                if (!IsCurrentGeneration(generation)) return;
+                try { HealthBaselineFreezeRequested?.Invoke(); }
+                catch (Exception ex) { SimLog.Error("HealthBaselineFreezeRequested subscriber threw", ex); }
+            }));
     }
 
     /// <summary>연결 직후 현재 스캔 주기를 hub 에서 pull — "언제 연결되어도" 슬라이더가 Agent 실값과 동기화.</summary>
