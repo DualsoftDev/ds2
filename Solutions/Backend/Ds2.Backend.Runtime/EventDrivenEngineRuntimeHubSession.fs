@@ -44,32 +44,70 @@ type EventDrivenEngineRuntimeHubSession
     let mutable abnormalLastEmitted : Map<AbnormalLatchKey, AbnormalRecord> = Map.empty
     let passiveLog = log4net.LogManager.GetLogger("PassiveInference")
 
+    // ── 통신 blackout (PLC 단절 → 사이클 무효화) ────────────────────────────
+    // PLC 단절~재연결 구간은 신호 순서/edge 신뢰가 없다(누락 edge 가 재연결 후 burst 로 보이면
+    // 가짜 SensorShort/ActionOver 발생). 상태머신:
+    //   NORMAL ─(down 전이)→ BLACKOUT(전면 억제+관측 무효화)
+    //          ─(게이트웨이 resync baseline 배치 도착)→ REARMING(Call 별 새 OUT rising 까지 억제)
+    //          ─(전 Call 재무장 또는 타임박스)→ NORMAL
+    // 어댑터 구분 없이 전역 blackout(현장 대부분 PLC 1대 — 부분화는 멀티 PLC 요구 시 후속).
+    // Monitoring 전용 — Control 은 단절 시 제어 불능이 더 큰 이슈라 후속(비범위).
+    let blackoutLock = obj ()
+    let mutable commBlackout = false
+    let mutable rearming = false
+    let mutable rearmStartedUtc = DateTime.MinValue
+    let rearmedCalls = System.Collections.Generic.HashSet<Guid>()
+    let rearmTimebox = TimeSpan.FromMinutes 5.0
+    let totalMappedCalls =
+        engine.IOMap.Mappings |> List.map (fun m -> m.CallGuid) |> List.distinct |> List.length
+
+    /// blackout/REARMING 중 발행 억제 여부. REARMING 은 타임박스 도달 시 자동 종료
+    /// (정지 라인의 Call 은 OUT rising 이 영영 없을 수 있다 — 억제 영구화 방지 겸 가시화).
+    let isSuppressedByBlackout (record: AbnormalRecord) =
+        if not commBlackout && not rearming then false
+        else
+            lock blackoutLock (fun () ->
+                if commBlackout then true
+                elif rearming then
+                    if DateTime.UtcNow - rearmStartedUtc > rearmTimebox then
+                        rearming <- false
+                        passiveLog.Info("[CommBlackout] re-arm timebox expired — abnormal evaluation fully resumed")
+                        false
+                    else
+                        match record.Target.CallId with
+                        | Some callId -> not (rearmedCalls.Contains callId)
+                        | None -> true   // 타깃 Call 미상 = 재무장 확인 불가 — REARMING 동안은 drop
+                else false)
+
     // v12 P5 — abnormal → OnAbnormal broadcast. Control engine 발행 / Monitoring adapter sink 공용.
     let broadcastAbnormal (record: AbnormalRecord) =
-        let pass =
-            if abnormalIsMonitoring then
-                lock abnormalDedupLock (fun () ->
-                    let key = Abnormal.latchKeyOf record
-                    let prev = abnormalLastEmitted |> Map.tryFind key
-                    if abnormalDedupPolicy.ShouldEmit(prev, record) then
-                        abnormalLastEmitted <- abnormalLastEmitted.Add(key, record)
-                        true
-                    else false)
-            else true
-        if pass then
-            let gOpt (o: Guid option) = match o with | Some g -> string g | None -> ""
-            let p : AbnormalPayload =
-                { Kind = string record.Kind
-                  KindValue = int record.Kind
-                  CallId = gOpt record.Target.CallId
-                  ApiCallId = gOpt record.Target.ApiCallId
-                  WorkId = gOpt record.Target.WorkId
-                  ElapsedMs = (match record.ElapsedMs with | Some n -> n | None -> -1)
-                  Observed = (match record.Observed with | Some b -> b | None -> false)
-                  Mode = identity.Mode.ToLowerInvariant()
-                  Source = identity.Mode.ToLowerInvariant()
-                  TimestampUtc = record.TimestampUtc }
-            hub.Clients.All.SendAsync(HubMethod.OnAbnormal, p) |> ignore
+        if isSuppressedByBlackout record then
+            passiveLog.Info($"[CommBlackout] abnormal suppressed: {record.Kind} call={record.Target.CallId}")
+        else
+            let pass =
+                if abnormalIsMonitoring then
+                    lock abnormalDedupLock (fun () ->
+                        let key = Abnormal.latchKeyOf record
+                        let prev = abnormalLastEmitted |> Map.tryFind key
+                        if abnormalDedupPolicy.ShouldEmit(prev, record) then
+                            abnormalLastEmitted <- abnormalLastEmitted.Add(key, record)
+                            true
+                        else false)
+                else true
+            if pass then
+                let gOpt (o: Guid option) = match o with | Some g -> string g | None -> ""
+                let p : AbnormalPayload =
+                    { Kind = string record.Kind
+                      KindValue = int record.Kind
+                      CallId = gOpt record.Target.CallId
+                      ApiCallId = gOpt record.Target.ApiCallId
+                      WorkId = gOpt record.Target.WorkId
+                      ElapsedMs = (match record.ElapsedMs with | Some n -> n | None -> -1)
+                      Observed = (match record.Observed with | Some b -> b | None -> false)
+                      Mode = identity.Mode.ToLowerInvariant()
+                      Source = identity.Mode.ToLowerInvariant()
+                      TimestampUtc = record.TimestampUtc }
+                hub.Clients.All.SendAsync(HubMethod.OnAbnormal, p) |> ignore
 
     // ── 이벤트 → 클라이언트 push (생성자에서 구독) ───────────────
     do
@@ -277,23 +315,85 @@ type EventDrivenEngineRuntimeHubSession
         for effect in modeSession.HandleHubTag(address, value, source) do
             applyEffect effect
 
+    // ── comm blackout: resync baseline + per-call 재무장 ──────────────────
+    let isResyncItem (item: TagWrite) =
+        not (isNull (box item))
+        && String.Equals(item.Source, HubSource.Resync, StringComparison.OrdinalIgnoreCase)
+
+    /// Resync(재연결 baseline) — edge 가 아니라 현재값 스냅샷. IO 현재값 + passive 추론 기준선 +
+    /// abnormal 어댑터 prevActive 만 갱신한다. 어댑터는 InvalidateObservations 직후라
+    /// "첫 관측 = baseline" 규칙을 타서 발행/edge 판정 없이 기준선만 세워진다.
+    let applyResyncBaseline (item: TagWrite) =
+        preApplyMonitoringInput item
+        match passiveInference with
+        | Some pi -> pi.Baseline(item.Address, item.Value)
+        | None -> ()
+        match monitoringAbnormal with
+        | Some ab -> ab.OnObservedIo(item.Address, item.Value, Environment.TickCount)
+        | None -> ()
+
+    /// resync 배치 수신 = blackout 해제 신호 → REARMING 진입. "연결됨" status 는 해제 신호로
+    /// 쓰지 않는다(connect 성공 직후 read 가 다시 전부 실패할 수 있다 — 첫 성공 스캔만 신뢰).
+    let exitBlackoutToRearming () =
+        lock blackoutLock (fun () ->
+            if commBlackout then
+                commBlackout <- false
+                rearming <- true
+                rearmStartedUtc <- DateTime.UtcNow
+                rearmedCalls.Clear()
+                passiveLog.Info("[CommBlackout] resync baseline received — REARMING (per-call until next OUT rising)"))
+
+    /// REARMING 중 OUT rising(새 사이클 시작) 관측 → 해당 Call 재무장. resync 가 전 태그의
+    /// 기준선을 세웠으므로 이후 도착하는 변화는 전부 진짜 edge — "OUT 주소가 active 값으로 도착"
+    /// = rising 으로 간주해도 안전하다. PLC 스캔 변화는 배치로만 오므로 본 hook 은 배치 경로에만 건다.
+    let tryRearmFromTag (address: string) (value: string) =
+        if rearming then
+            match engine.IOMap.OutAddressToMappings |> Map.tryFind address with
+            | Some mappings when not mappings.IsEmpty ->
+                match Ds2.Core.Store.Queries.getApiCall mappings.Head.ApiCallGuid engine.Index.Store with
+                | Some apiCall when RuntimeSemantics.isActiveOutputValue apiCall value ->
+                    lock blackoutLock (fun () ->
+                        if rearming then
+                            for m in mappings do rearmedCalls.Add m.CallGuid |> ignore
+                            if rearmedCalls.Count >= totalMappedCalls then
+                                rearming <- false
+                                passiveLog.Info("[CommBlackout] all mapped calls re-armed — abnormal evaluation fully resumed"))
+                | _ -> ()
+            | _ -> ()
+
     let applyHubTagBatch (items: TagWrite array) =
         if not (isNull items) && items.Length > 0 then
-            if runtimeMode = RuntimeMode.Monitoring then
-                for item in items do
-                    preApplyMonitoringInput item
+            // Resync(재연결 baseline)는 Monitoring 에서만 분리 처리 — edge 로 추론하면 안 된다.
+            // 다른 모드는 기존 경로 유지(Control 엔진은 자체 상태가 권위라 값 주입만으로 안전).
+            let resyncItems, normalItems =
+                if runtimeMode = RuntimeMode.Monitoring then
+                    items |> Array.partition isResyncItem
+                else
+                    Array.empty, items
 
-            for item in items do
-                if not (isNull (box item))
-                   && not (String.IsNullOrWhiteSpace item.Address) then
-                    let source =
-                        if String.IsNullOrWhiteSpace item.Source then HubSource.Plc else item.Source
-                    for effect in modeSession.HandleHubTag(item.Address, item.Value, source) do
-                        if runtimeMode = RuntimeMode.Monitoring
-                           && effect.Kind = RuntimeHubEffectKind.InjectIoByAddress then
-                            ()
-                        else
-                            applyEffect effect
+            if resyncItems.Length > 0 then
+                for item in resyncItems do
+                    if not (String.IsNullOrWhiteSpace item.Address) then
+                        applyResyncBaseline item
+                exitBlackoutToRearming ()
+
+            if normalItems.Length > 0 then
+                if runtimeMode = RuntimeMode.Monitoring then
+                    for item in normalItems do
+                        preApplyMonitoringInput item
+
+                for item in normalItems do
+                    if not (isNull (box item))
+                       && not (String.IsNullOrWhiteSpace item.Address) then
+                        tryRearmFromTag item.Address item.Value
+                        let source =
+                            if String.IsNullOrWhiteSpace item.Source then HubSource.Plc else item.Source
+                        for effect in modeSession.HandleHubTag(item.Address, item.Value, source) do
+                            if runtimeMode = RuntimeMode.Monitoring
+                               && effect.Kind = RuntimeHubEffectKind.InjectIoByAddress then
+                                ()
+                            else
+                                applyEffect effect
 
             if runtimeMode = RuntimeMode.Monitoring then
                 drainCurrentTick ()
@@ -492,3 +592,22 @@ type EventDrivenEngineRuntimeHubSession
                         RxWorkId = (match sm.RxWorkGuid with Some g -> gs g | None -> "")
                         OutAddress = sm.OutAddress; InAddress = sm.InAddress }) |> Array.ofList }
             Task.FromResult proj
+
+        member _.NotifyPlcConnectionAsync (status: PlcConnectionStatus) =
+            // down 전이 → blackout 진입(1회). 지속 실패의 반복 status 는 이미 blackout 이라 no-op.
+            // up 전이는 무시 — 해제는 resync 배치 도착(applyHubTagBatch)으로만 한다:
+            // connect 성공 직후 read 가 전부 실패할 수 있어 "연결됨" 신호는 신뢰하지 않는다.
+            if runtimeMode = RuntimeMode.Monitoring && not status.IsConnected then
+                lock blackoutLock (fun () ->
+                    if not commBlackout then
+                        commBlackout <- true
+                        rearming <- false
+                        rearmedCalls.Clear()
+                        // 관측 진행 상태 무효화(학습 줄자는 보존) — 단절 시간이 포함된 elapsed/
+                        // 누락 edge 의 가짜 rising 이 만들어지지 않게 goingClock/prevActive 를 비운다.
+                        match monitoringAbnormal with
+                        | Some ab -> ab.InvalidateObservations()
+                        | None -> ()
+                        lock abnormalDedupLock (fun () -> abnormalLastEmitted <- Map.empty)
+                        passiveLog.Warn($"[CommBlackout] PLC down ({status.Name}: {status.LastError}) — abnormal suppressed, observations invalidated"))
+            Task.CompletedTask

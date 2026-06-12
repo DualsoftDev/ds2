@@ -78,6 +78,15 @@ type ControlAbnormalAdapter
         AbnormalDetector.clearLatchForCall detectorState callId
         latchPolicy.ResetOn(LatchResetTrigger.CallTransition)
 
+    /// 통신 blackout(PLC 단절) — 진행 중 goingClock/latch 무효화. Monitoring 어댑터의
+    /// InvalidateObservations 와 동형. Control 모드 배선은 후속(단절 시 제어 불능이 더 큰 이슈) —
+    /// 메서드만 먼저 둔다. elapsed 에 단절 시간이 포함된 Action* 오탐을 차단하고,
+    /// 평가 재개는 Call 별 다음 Ready→Going(OnCallGoing)부터.
+    member _.InvalidateObservations() =
+        goingClock.Clear()
+        detectorState.LastEmitted <- Map.empty
+        latchPolicy.ResetOn(LatchResetTrigger.ManualClear)
+
     /// InTag rising. expected completion → timing(Action*), 아니면 SensorShort.
     member _.OnInputRising(apiCallId: Guid, nowMs: int) =
         match mappingOfApiCall apiCallId, apiCallAndDef apiCallId with
