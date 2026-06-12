@@ -59,7 +59,8 @@ public class CctvController : ControllerBase
             .Where(c => c.Enabled && !string.IsNullOrWhiteSpace(c.Slug) && !string.IsNullOrWhiteSpace(c.RtspUrl))
             .Select(c => new CctvCameraDto(c.Name, c.Slug))
             .ToList();
-        return new CctvConfigDto(cctv.WebRtcPort, cameras, cameras.Count, MaxConcurrentCameras);
+        return new CctvConfigDto(cctv.WebRtcPort, cameras, cameras.Count, MaxConcurrentCameras,
+            cctv.IdlePauseEnabled, cctv.IdlePauseMinutes);
     }
 
     /// <summary>마지막 MediaMTX 동기화 상태.</summary>
@@ -94,7 +95,9 @@ public class CctvController : ControllerBase
             cctv.Cameras.Select(c => new CameraDto(c.Name, c.RtspUrl, c.Enabled, c.Slug)).ToList(),
             _mediaMtx.LastSyncOk,
             _mediaMtx.LastSyncMessage,
-            cctv.WebRtcAdditionalHosts);
+            cctv.WebRtcAdditionalHosts,
+            cctv.IdlePauseEnabled,
+            cctv.IdlePauseMinutes);
     }
 
     /// <summary>
@@ -114,6 +117,9 @@ public class CctvController : ControllerBase
         if (req.WebRtcPort > 0) m.Cctv.WebRtcPort = req.WebRtcPort;
         // 공인주소: null 이면 미변경, 빈 문자열이면 LAN 전용으로 명시적 해제. (Trim 으로 입력 공백 정리)
         if (req.WebRtcAdditionalHosts is not null) m.Cctv.WebRtcAdditionalHosts = req.WebRtcAdditionalHosts.Trim();
+        // 무조작 일시정지(절전 가드): null 이면 미변경(구 클라이언트 호환). 시간은 1분~24시간 클램프.
+        if (req.IdlePauseEnabled is not null) m.Cctv.IdlePauseEnabled = req.IdlePauseEnabled.Value;
+        if (req.IdlePauseMinutes is not null) m.Cctv.IdlePauseMinutes = Math.Clamp(req.IdlePauseMinutes.Value, 1, 1440);
         // 경로명(slug)은 클라이언트가 보내지 않으므로 기존 저장값을 포지션 기준으로 이어받는다.
         // 순서 변경 없이 이름만 바꿔도 경로가 안정 유지된다(MediaMTX 재등록·오버레이 흔들림 방지).
         var prevSlugs = m.Cctv.Cameras.Select(c => c.Slug).ToList();
@@ -151,7 +157,9 @@ public class CctvController : ControllerBase
             m.Cctv.Cameras.Select(c => new CameraDto(c.Name, c.RtspUrl, c.Enabled, c.Slug)).ToList(),
             _mediaMtx.LastSyncOk,
             _mediaMtx.LastSyncMessage,
-            m.Cctv.WebRtcAdditionalHosts);
+            m.Cctv.WebRtcAdditionalHosts,
+            m.Cctv.IdlePauseEnabled,
+            m.Cctv.IdlePauseMinutes);
     }
 
     // ──────────────────────────── 설비 오버레이 (P4) ────────────────────────────
@@ -352,7 +360,9 @@ public class CctvController : ControllerBase
         o.X, o.Y, o.W, o.H, o.Label, o.AnchorX, o.AnchorY);
 }
 
-public record CctvConfigDto(int WebRtcPort, List<CctvCameraDto> Cameras, int TotalCount, int MaxConcurrent);
+// IdlePause* = 무조작 일시정지(절전 가드, LTE 종량 회선 보호) — cctv-whep.js configureSaver 가 소비.
+public record CctvConfigDto(int WebRtcPort, List<CctvCameraDto> Cameras, int TotalCount, int MaxConcurrent,
+    bool IdlePauseEnabled = true, int IdlePauseMinutes = 60);
 public record CctvCameraDto(string Name, string Id);
 public record CctvStatusDto(bool Ok, string Message);
 
@@ -360,7 +370,9 @@ public record CctvStatusDto(bool Ok, string Message);
 /// 카메라 설정 저장 요청. SettingsController.SaveRequestDto 의 CCTV 부분을 분리한 것.
 /// 응답은 <see cref="CctvDto"/> 재사용(MediaMtxApiUrl/WebRtcPort/Cameras + 동기화 상태).
 /// </summary>
-public record CctvSettingsSaveDto(string? MediaMtxApiUrl, int WebRtcPort, List<CameraDto>? Cameras, string? WebRtcAdditionalHosts = null);
+public record CctvSettingsSaveDto(string? MediaMtxApiUrl, int WebRtcPort, List<CameraDto>? Cameras, string? WebRtcAdditionalHosts = null,
+    // 무조작 일시정지(절전 가드): null = 미변경 (구 클라이언트 호환).
+    bool? IdlePauseEnabled = null, int? IdlePauseMinutes = null);
 
 // ── 오버레이 DTO (camelCase 자동: cameraName, flowId, callId, anchorX ...) ──
 

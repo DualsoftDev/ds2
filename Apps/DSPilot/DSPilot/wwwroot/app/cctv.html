@@ -740,6 +740,23 @@
 
                 <hr class="cctv-camset-divider" />
 
+                <!-- 무조작 일시정지(절전 가드) — LTE 등 종량제 회선 보호. 서버 공유 설정이라 모든 시청 화면에 적용. -->
+                <div class="form-group">
+                    <label class="switch" style="margin:0; white-space:nowrap;">
+                        <input type="checkbox" x-model="camSettings.idlePauseEnabled" /> 무조작 시 영상 일시정지 (데이터 절약)
+                    </label>
+                    <div x-show="camSettings.idlePauseEnabled" style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+                        <input type="number" class="form-field mono" x-model.number="camSettings.idlePauseMinutes" min="1" max="1440" style="width:110px;" />
+                        <span style="color:var(--color-text-secondary); font-size:13px;">분 동안 마우스·키보드 입력이 없으면 일시정지 (기본 60분)</span>
+                    </div>
+                    <small class="cctv-camset-empty" style="margin:6px 0 0;">
+                        카메라가 LTE 같은 종량제 회선으로 연결된 경우 켜두세요. 일시정지되면 화면에 안내가 뜨고, 마우스를 움직이면 바로 재생됩니다.
+                        대시보드 CCTV 화면에도 함께 적용됩니다. 다른 탭 이동/창 최소화 시 즉시 정지는 이 설정과 무관하게 항상 동작합니다.
+                    </small>
+                </div>
+
+                <hr class="cctv-camset-divider" />
+
                 <button type="button" class="cctv-camset-advtoggle" @click="camSettings.advancedOpen = !camSettings.advancedOpen"
                         :aria-expanded="camSettings.advancedOpen ? 'true' : 'false'">
                     <span class="material-icons" x-text="camSettings.advancedOpen ? 'expand_more' : 'chevron_right'"></span>
@@ -867,7 +884,7 @@
                 hoverOverlay: null,        // { id, camId, kind, color, pos:{left, top?|bottom?}, model:{...} }
 
                 labelForm: { open: false, id: null, label: '', saving: false },
-                camSettings: { open: false, advancedOpen: false, mediaMtxApiUrl: '', webRtcPort: 8889, webRtcAdditionalHosts: '', cameras: [], saving: false, syncOk: false, syncMessage: '' },
+                camSettings: { open: false, advancedOpen: false, mediaMtxApiUrl: '', webRtcPort: 8889, webRtcAdditionalHosts: '', idlePauseEnabled: true, idlePauseMinutes: 60, cameras: [], saving: false, syncOk: false, syncMessage: '' },
 
                 async init() {
                     this.dark = localStorage.getItem('dspilot-theme') === 'dark';
@@ -881,7 +898,7 @@
                     await this.loadAllOverlays();
                     await this.loadAllOverlayState();
                     this.startStatePolling();
-                    this._statusTimer = setInterval(() => this.loadStatus(), 15000);
+                    this._statusTimer = setInterval(() => { this.loadStatus(); this.syncSaverConfig(); }, 15000);
                     window.addEventListener('keydown', (e) => {
                         if (e.key !== 'Escape') return;
                         if (document.fullscreenElement) return;          // 브라우저 fullscreen 우선
@@ -932,12 +949,22 @@
                         this.webRtcPort = c.webRtcPort;
                         this.totalCount = c.totalCount;
                         this.maxConcurrent = c.maxConcurrent || 6;
+                        // 무조작 일시정지(절전 가드) 서버 공유 설정을 시청 엔진에 주입 — 저장 후 재로드 경로에서도 즉시 반영.
+                        try { window.cctvWhep?.configureSaver?.({ idleEnabled: c.idlePauseEnabled !== false, idleMinutes: c.idlePauseMinutes }); } catch (e) {}
                         this.restoreWall();
                     } catch (e) { console.error(e); }
                 },
                 async loadStatus() {
                     try { this.status = await this.apiGet('/api/cctv/status'); }
                     catch (e) { /* 503 already flagged */ }
+                },
+                // 무조작 일시정지 설정 재동기화 — 설정은 서버 공유라, 다른 탭/PC 에서 바꾼 값도
+                // 이미 열려 있는 시청 화면이 시청 중에 따라가야 한다(15초 상태 폴링에 피기백).
+                async syncSaverConfig() {
+                    try {
+                        const c = await this.apiGet('/api/cctv/config');
+                        window.cctvWhep?.configureSaver?.({ idleEnabled: c.idlePauseEnabled !== false, idleMinutes: c.idlePauseMinutes });
+                    } catch (e) { /* 다음 폴링에 재시도 */ }
                 },
 
                 // ── 카메라 식별 ──
@@ -1721,6 +1748,8 @@
                             mediaMtxApiUrl: c.mediaMtxApiUrl || '',
                             webRtcPort: c.webRtcPort || 8889,
                             webRtcAdditionalHosts: c.webRtcAdditionalHosts || '',
+                            idlePauseEnabled: c.idlePauseEnabled !== false,
+                            idlePauseMinutes: c.idlePauseMinutes || 60,
                             cameras: (c.cameras || []).map(x => ({ name: x.name || '', rtspUrl: x.rtspUrl || '', enabled: !!x.enabled })),
                             saving: false, syncOk: !!c.syncOk, syncMessage: c.syncMessage || ''
                         };
@@ -1730,7 +1759,7 @@
                 },
                 addCamSetting() { this.camSettings.cameras.push({ name: 'camera' + (this.camSettings.cameras.length + 1), rtspUrl: '', enabled: true }); },
                 removeCamSetting(i) { this.camSettings.cameras.splice(i, 1); },
-                closeCamSettings() { this.camSettings = { open: false, advancedOpen: false, mediaMtxApiUrl: '', webRtcPort: 8889, webRtcAdditionalHosts: '', cameras: [], saving: false, syncOk: false, syncMessage: '' }; },
+                closeCamSettings() { this.camSettings = { open: false, advancedOpen: false, mediaMtxApiUrl: '', webRtcPort: 8889, webRtcAdditionalHosts: '', idlePauseEnabled: true, idlePauseMinutes: 60, cameras: [], saving: false, syncOk: false, syncMessage: '' }; },
                 async saveCamSettings() {
                     if (this.camSettings.saving) return;
                     this.camSettings.saving = true;
@@ -1739,6 +1768,8 @@
                             mediaMtxApiUrl: this.camSettings.mediaMtxApiUrl,
                             webRtcPort: this.camSettings.webRtcPort | 0,
                             webRtcAdditionalHosts: (this.camSettings.webRtcAdditionalHosts || '').trim(),
+                            idlePauseEnabled: !!this.camSettings.idlePauseEnabled,
+                            idlePauseMinutes: Math.min(1440, Math.max(1, this.camSettings.idlePauseMinutes | 0 || 60)),
                             cameras: this.camSettings.cameras.map(c => ({ name: c.name, rtspUrl: c.rtspUrl, enabled: !!c.enabled }))
                         };
                         const r = await this.apiPost('/api/cctv/settings', body);

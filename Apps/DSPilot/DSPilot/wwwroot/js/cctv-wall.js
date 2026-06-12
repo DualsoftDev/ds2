@@ -105,6 +105,8 @@
                     this.cctvWebRtcPort = c.webRtcPort || 8889;
                     this.cctvTotalCount = c.totalCount || 0;
                     this.cctvMaxConcurrent = c.maxConcurrent || 6;
+                    // 무조작 일시정지(절전 가드) 서버 공유 설정 주입 — /cctv 의 카메라 설정과 동일하게 적용.
+                    try { window.cctvWhep?.configureSaver?.({ idleEnabled: c.idlePauseEnabled !== false, idleMinutes: c.idlePauseMinutes }); } catch (e) {}
                     // 대시보드 영상벽 = 활성 카메라 자동표시(config 순, 최대 N). localStorage 미사용.
                     this.cctvWall = this.cctvCameras.slice(0, this.cctvMaxConcurrent).map(c => c.id);
                     if (this.cctvSolo && !this.cctvWall.includes(this.cctvSolo)) this.cctvSolo = null;
@@ -154,7 +156,20 @@
             cctvStopPolling() { if (this._cctvStateTimer) { clearInterval(this._cctvStateTimer); this._cctvStateTimer = null; } },
             cctvStatusPolling() {
                 this.cctvStatusStopPolling();
-                this._cctvStatusTimer = setInterval(() => { if (this._cctvActive) this.cctvLoadStatus(); }, 15000);
+                this._cctvStatusTimer = setInterval(() => {
+                    if (!this._cctvActive) return;
+                    this.cctvLoadStatus();
+                    this.cctvSyncSaverConfig();
+                }, 15000);
+            },
+            // 무조작 일시정지 설정 재동기화 — /cctv 에서 바꾼 서버 공유 설정을 이미 떠 있는
+            // 대시보드 영상벽도 시청 중에 따라가게(15초 상태 폴링에 피기백).
+            async cctvSyncSaverConfig() {
+                try {
+                    const c = await this.apiGet('/api/cctv/config');
+                    if (window.cctvWhep && window.cctvWhep.configureSaver)
+                        window.cctvWhep.configureSaver({ idleEnabled: c.idlePauseEnabled !== false, idleMinutes: c.idlePauseMinutes });
+                } catch (e) { /* 다음 폴링에 재시도 */ }
             },
             cctvStatusStopPolling() { if (this._cctvStatusTimer) { clearInterval(this._cctvStatusTimer); this._cctvStatusTimer = null; } },
 
@@ -216,6 +231,8 @@
                     await out.play();
                     await out.requestPictureInPicture();
                     this.cctvPipId = camId;
+                    // PiP 는 탭이 숨겨져도 보는 중 — 절전 가드(탭 숨김/무입력 일시정지)에서 면제.
+                    if (window.cctvWhep && window.cctvWhep.setKeepAlive) window.cctvWhep.setKeepAlive('cctv-wall-' + camId, true);
                 } catch (e) {
                     console.warn('[cctv] PiP 시작 실패:', e && e.message);
                     pipRt = pipRt || rt;
@@ -228,6 +245,8 @@
                 this.cctvPipId = null;
                 if (!rt) return;
                 if (rt.timer) { clearInterval(rt.timer); rt.timer = null; }
+                // 절전 면제 해제 — 탭이 숨김/방치 상태면 whep 레이어가 이 스트림도 즉시 보류한다.
+                if (window.cctvWhep && window.cctvWhep.setKeepAlive) window.cctvWhep.setKeepAlive('cctv-wall-' + rt.camId, false);
                 if (document.pictureInPictureElement === rt.out) {
                     try { await document.exitPictureInPicture(); } catch (e) {}
                 }
