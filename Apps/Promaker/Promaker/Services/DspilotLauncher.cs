@@ -69,8 +69,18 @@ public static class DspilotLauncher
         try
         {
             using var client = new System.Net.Sockets.TcpClient();
-            var ok = client.ConnectAsync(address, port).Wait(500);
-            if (!ok) Log.Debug($"TCP probe {address}:{port} timeout (500ms)");
+            var connectTask = client.ConnectAsync(address, port);
+            var ok = connectTask.Wait(500);
+            if (!ok)
+            {
+                // 타임아웃으로 버려지는 connect Task — using dispose 가 소켓을 닫으면 그 Task 가
+                // fault 하는데, 예외를 관찰하지 않으면 GC 때 Unobserved task exception 으로 표면화
+                // (실기: DSPilot 미기동 probe 직후 ERROR 1건). 예외만 소비하고 버린다.
+                _ = connectTask.ContinueWith(
+                    t => _ = t.Exception,
+                    System.Threading.Tasks.TaskContinuationOptions.OnlyOnFaulted);
+                Log.Debug($"TCP probe {address}:{port} timeout (500ms)");
+            }
             return ok;
         }
         catch (Exception ex)
