@@ -616,12 +616,27 @@ module MonitoringAdapterTests =
 
     [<Fact>]
     let ``finish without going and output off is SensorShort`` () =
+        // Short 의 전제 = 이 OUT 의 rising 을 *edge 로 직접* 본 적이 있을 것 —
+        // OUT=off "값"만으로는(시작/주기 resync baseline 주입으로도 채워짐) 증거가 못 된다.
+        // 한 사이클을 정상 완주(OUT rising/falling 관측)한 뒤의 유령 IN 이 진짜 Short.
         let adapter, emitted, _, _, _ = setup ()
-        adapter.OnObservedIo("Y0", "false", 0)   // OUT off ??going ?�적 ?�음
-        adapter.OnObservedIo("X0", "false", 0)   // IN baseline
-        adapter.OnObservedIo("X0", "true", 100)  // IN rising ??Going ?�이 Finish
+        goingThenFinish adapter 0 500            // 정상 1사이클 — OUT rising 을 edge 로 관측
+        emitted.Clear()
+        adapter.OnObservedIo("Y0", "false", 1000)  // OUT off (사이클 종료)
+        adapter.OnObservedIo("X0", "false", 1000)
+        adapter.OnObservedIo("X0", "true", 1500)   // 유령 IN rising — Going 없이 Finish
         Assert.Single(emitted) |> ignore
         Assert.Equal(AbnormalKind.SensorShort, emitted.[0].Kind)
+
+    [<Fact>]
+    let ``finish with only baseline OUT off observation is dropped (resync attach)`` () =
+        // 시작/주기 resync 가 OUT=off 를 baseline 으로 주입한 직후(중간 합류) —
+        // rising 을 edge 로 본 적 없는 OUT 의 IN rising 은 Short 증거 불충분.
+        let adapter, emitted, _, _, _ = setup ()
+        adapter.OnObservedIo("Y0", "false", 0)   // baseline 주입과 동형 — edge 아님
+        adapter.OnObservedIo("X0", "false", 0)
+        adapter.OnObservedIo("X0", "true", 100)
+        Assert.Empty(emitted)
 
     [<Fact>]
     let ``target carries Call ApiCall and Work ids`` () =

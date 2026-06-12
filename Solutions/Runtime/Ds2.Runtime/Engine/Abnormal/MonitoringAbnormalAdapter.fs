@@ -76,6 +76,11 @@ type MonitoringAbnormalAdapter
     let detectorState = AbnormalDetectorState.Empty
     let goingClock = Dictionary<Guid, int>()      // apiCallId → OutTag On(going) 관측시각(ms)
     let prevActive = Dictionary<string, bool>()   // 방향+address → 직전 active (rising edge 판정)
+    // OUT rising 을 *edge 로 직접* 본 주소("OUT:"+addr) — SensorShort 의 전제 증거.
+    // prevActive 는 resync baseline 주입(시작/주기)으로도 채워지므로 "관측했다"의 증거가 못 된다 —
+    // baseline 을 신뢰하면 합류 직후(Synced 직전에 시작된 사이클)의 정상 완료 In 이
+    // goingClock 부재 + OUT=off(baseline) 조합으로 사이클마다 SensorShort 오판된다(실기).
+    let everOutRisingSeen = HashSet<string>(StringComparer.Ordinal)
     let latchPolicy : ILatchPolicy = DefaultLatchPolicy()   // P7 — Sensor 즉시 / Action 5s dedup
     // 자동 줄자: device 실측 OUT→IN 을 3사이클 학습 → widened band(k=4, floor 30%, Min 0 하한).
     // passive Synced 게이트 이후에만 OnObservedIo 가 호출되므로 표본은 수렴 후 값 = 신뢰 가능.
@@ -125,6 +130,7 @@ type MonitoringAbnormalAdapter
             | Some apiCall ->
                 let active = RuntimeSemantics.isActiveOutputValue apiCall value
                 if risingEdge ("OUT:" + address) active then
+                    everOutRisingSeen.Add("OUT:" + address) |> ignore
                     for m in outMappings do
                         goingClock.[m.ApiCallGuid] <- nowMs
                         // v12 — OUT rising = 새 사이클 시작 → 직전 사이클 abnormal latch 제거. Control 의
@@ -181,10 +187,12 @@ type MonitoringAbnormalAdapter
                                 | None -> ()
                                 goingClock.Remove m.ApiCallGuid |> ignore
                             | false, _ ->
-                                // No going clock. Emit SensorShort only after this adapter has an
-                                // observed OUT baseline. Without that, Monitoring may have attached
-                                // mid-cycle and an IN rising is not enough evidence for a short.
-                                if not (System.String.IsNullOrEmpty m.OutAddress) then
+                                // No going clock. Short 는 이 OUT 의 rising 을 *edge 로 직접* 본 적이
+                                // 있고(everOutRisingSeen — baseline 주입은 증거 아님), 현재 OUT 이
+                                // off 일 때만. 중간 합류(Synced 직전 시작된 사이클)의 정상 완료 In 이
+                                // resync baseline(OUT=off)을 "관측"으로 신뢰해 Short 오판되던 실기 수정.
+                                if not (System.String.IsNullOrEmpty m.OutAddress)
+                                   && everOutRisingSeen.Contains("OUT:" + m.OutAddress) then
                                     match prevActive.TryGetValue("OUT:" + m.OutAddress) with
                                     | true, outActive when not outActive ->
                                         emit (Abnormal.sensorShort target (nowUtc ()))
@@ -213,6 +221,7 @@ type MonitoringAbnormalAdapter
         goingClock.Clear()
         durationLearner.Clear()
         prevActive.Clear()
+        everOutRisingSeen.Clear()
         detectorState.LastEmitted <- Map.empty
         latchPolicy.ResetOn(LatchResetTrigger.ManualClear)
 
@@ -224,6 +233,10 @@ type MonitoringAbnormalAdapter
     member _.InvalidateObservations() =
         goingClock.Clear()
         prevActive.Clear()
+        // 단절 후 재합류도 시작 합류와 같은 미지 상태 — OUT rising 을 edge 로 다시 본 후에야
+        // Short 평가 재개(everOutRisingSeen 재수집). resync baseline 이 다시 채우는
+        // prevActive 만으로 Short 가드가 열리지 않게 한다.
+        everOutRisingSeen.Clear()
         detectorState.LastEmitted <- Map.empty
         latchPolicy.ResetOn(LatchResetTrigger.ManualClear)
 

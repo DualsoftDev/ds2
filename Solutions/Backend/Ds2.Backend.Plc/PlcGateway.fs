@@ -159,6 +159,16 @@ type PlcGateway(config: PlcGatewayConfig) =
     /// 마지막 성공 스캔(1개 이상 read 성공) 시각 — PlcScanService 의 heartbeat 발행 근거.
     let mutable lastSuccessfulScanUtc : DateTime option = None
 
+    /// 주기 resync baseline 간격(ms) — 재연결 때만 쏘던 전체 태그 스냅샷(Source=Resync)을
+    /// 평시에도 주기 재방송한다. 네트워크 마이크로 스파이크(1~3s 핑 단절 — 실기 하루 50회)로
+    /// 스캔이 한두 박자 늦으면 짧은 펄스(In ~220ms)가 diff 에서 통째로 증발하는데, 연결은
+    /// 살아 있어 blackout(3s+)에도 안 걸린다 → 인퍼런스 레벨이 어긋난 채 사이클 단위로 번짐
+    /// (실기: 펄스 1개 유실 → Work 1개 전이 2사이클 증발). baseline 이 최대 이 간격 안에
+    /// 레벨을 강제 정정해 여파를 한 사이클 안쪽으로 자른다. 컨슈머는 Resync source 를
+    /// edge 가 아닌 baseline 으로만 처리(HubSource.Resync 계약)하므로 가짜 전이는 없다.
+    let periodicResyncIntervalMs = 10_000.0
+    let lastPeriodicResyncUtc = System.Collections.Generic.Dictionary<string, DateTime>()
+
     interface IPlcGateway with
 
         member _.IsEnabled = not adapters.IsEmpty
@@ -244,10 +254,17 @@ type PlcGateway(config: PlcGatewayConfig) =
                         let skipSet = getUnreachable cfg.Name
                         // 재연결 직후 1회: diff 무시하고 전체 태그를 Source=Resync baseline 으로 내보낸다.
                         // 스캔이 또 실패할 수 있으므로 플래그 제거는 성공 확인 후(아래 epilogue).
-                        let isResync =
+                        let resyncRequested =
                             match resyncPending.TryGetValue cfg.Name with
                             | true, v -> v
                             | _ -> false
+                        // 주기 baseline 승격 — 마이크로 스파이크로 증발한 펄스의 레벨 어긋남을
+                        // 최대 periodicResyncIntervalMs 안에 정정 (위 필드 주석 참조).
+                        let periodicDue =
+                            match lastPeriodicResyncUtc.TryGetValue cfg.Name with
+                            | true, last -> (DateTime.UtcNow - last).TotalMilliseconds >= periodicResyncIntervalMs
+                            | _ -> true
+                        let isResync = resyncRequested || periodicDue
                         let mutable attempted = 0
                         let mutable failed = 0
                         let mutable firstReadError = ""
@@ -260,9 +277,10 @@ type PlcGateway(config: PlcGatewayConfig) =
 
                         let recordRead (tag: PlcTagDef) (value: CoreDataTypesModule.PlcValue) =
                             let s = PlcValueIo.toHubString value
-                            if isResync then
-                                // baseline 스냅샷: 변화 여부와 무관하게 전체 broadcast.
-                                // 컨슈머(HubSession/DSPilot)는 Resync source 를 edge 가 아닌 기준선으로 처리한다.
+                            if resyncRequested then
+                                // 재연결 baseline: 변화 여부와 무관하게 전체를 Resync 로 broadcast.
+                                // 단절 중 누락된 전이를 edge 로 재생하면 순서가 깨져 가짜 abnormal —
+                                // 컨슈머(HubSession/DSPilot)는 Resync source 를 기준선으로만 처리한다.
                                 lastValues.[tag.HubAddress] <- s
                                 changesDetected <- changesDetected + 1
                                 changes.Add({
@@ -276,6 +294,10 @@ type PlcGateway(config: PlcGatewayConfig) =
                                 | true, prev -> prev <> s
                                 | false, _ -> true
                             if changed then
+                                // 변화는 주기 resync 스캔에서도 *반드시 edge(Plc)* — 연결이 살아 있는
+                                // 스캔의 diff 는 직전 주기의 진짜 전이다. 주기 resync 가 전이를 baseline
+                                // 으로 삼키면(edge 미발행) 컨슈머 전이가 증발해 Going 누락→In 도착이
+                                // SensorShort 로 오판된다 (실기: true→true 연속 edge 지문으로 확정).
                                 lastValues.[tag.HubAddress] <- s
                                 changesDetected <- changesDetected + 1
                                 rawLog.Info($"scan-change plc={cfg.Name} hub={tag.HubAddress} plc={tag.PlcAddress} value={s}")
@@ -283,6 +305,15 @@ type PlcGateway(config: PlcGatewayConfig) =
                                     HubAddress = tag.HubAddress
                                     Value = s
                                     Source = Ds2.Backend.Common.HubSource.Plc
+                                })
+                            elif isResync then
+                                // 주기 resync — 무변화 레벨만 baseline 으로 재방송(마이크로 스파이크로
+                                // 증발한 펄스의 레벨 어긋남 정정용). lastValues 는 동일하므로 미갱신.
+                                changesDetected <- changesDetected + 1
+                                changes.Add({
+                                    HubAddress = tag.HubAddress
+                                    Value = s
+                                    Source = Ds2.Backend.Common.HubSource.Resync
                                 })
 
                         let readTagNoSkip (tag: PlcTagDef) =
@@ -360,10 +391,13 @@ type PlcGateway(config: PlcGatewayConfig) =
                             let err = $"all reads failed ({firstReadError})"
                             markConnectResult cfg.Name false err
                         elif isResync && attempted > 0 then
-                            // 1개 이상 성공 → baseline 스냅샷이 나갔다. resync 완료.
+                            // 1개 이상 성공 → baseline 스냅샷이 나갔다. resync 완료 + 주기 시각 갱신.
                             // (전부 실패면 위 분기에서 disconnect — 플래그 유지, 다음 재연결 때 재시도.)
-                            resyncPending.TryRemove(cfg.Name) |> ignore
-                            log.Info($"PLC [{cfg.Name}] resync scan complete — {changesDetected} tag(s) broadcast as baseline snapshot")
+                            lastPeriodicResyncUtc.[cfg.Name] <- DateTime.UtcNow
+                            if resyncRequested then
+                                resyncPending.TryRemove(cfg.Name) |> ignore
+                                log.Info($"PLC [{cfg.Name}] resync scan complete — {changesDetected} tag(s) broadcast as baseline snapshot")
+                            // 주기 resync 는 로그 생략 — 10초마다 Info 노이즈 방지(scan-summary 의 resync=True 로 추적 가능).
                 return List.ofSeq changes
             }
 
