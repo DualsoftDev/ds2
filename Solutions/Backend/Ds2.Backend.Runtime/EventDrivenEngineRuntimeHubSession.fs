@@ -96,6 +96,15 @@ type EventDrivenEngineRuntimeHubSession
                 else true
             if pass then
                 let gOpt (o: Guid option) = match o with | Some g -> string g | None -> ""
+                // 발행 자체를 Agent 파일에 남긴다 — 클라이언트(GUI/DSPilot)에만 가면 현장 진단 시
+                // "언제 어떤 kind 가 왜 발행됐는지"를 Agent 로그로 추적할 수 없다(실기에서 반복된 공백).
+                let shortGuid (o: Guid option) =
+                    match o with | Some g -> g.ToString("N").Substring(0, 8) | None -> "-"
+                passiveLog.Warn(
+                    sprintf "[Abnormal발행] %s call=%s apiCall=%s work=%s elapsed=%d"
+                        (string record.Kind) (shortGuid record.Target.CallId)
+                        (shortGuid record.Target.ApiCallId) (shortGuid record.Target.WorkId)
+                        (match record.ElapsedMs with | Some n -> n | None -> -1))
                 let p : AbnormalPayload =
                     { Kind = string record.Kind
                       KindValue = int record.Kind
@@ -342,16 +351,16 @@ type EventDrivenEngineRuntimeHubSession
         not (isNull (box item))
         && String.Equals(item.Source, HubSource.Resync, StringComparison.OrdinalIgnoreCase)
 
-    /// Resync(재연결 baseline) — edge 가 아니라 현재값 스냅샷. IO 현재값 + passive 추론 기준선 +
-    /// abnormal 어댑터 prevActive 만 갱신한다. 어댑터는 InvalidateObservations 직후라
-    /// "첫 관측 = baseline" 규칙을 타서 발행/edge 판정 없이 기준선만 세워진다.
+    /// Resync baseline — edge 가 아니라 현재값 스냅샷. IO 현재값 + passive 추론 기준선만 갱신.
+    /// ※ abnormal 어댑터(OnObservedIo)에는 주입하지 않는다 — 어댑터의 "첫 관측 = baseline"
+    ///   규칙이 (재연결 InvalidateObservations 후) 첫 edge 를 알아서 기준선으로 흡수하므로
+    ///   주입 없이도 동일 효과다. 반대로 주입하면 주기 resync(10s)가 Synced(abnormalReady)
+    ///   게이트까지 우회해 매번 들어가, edge 스트림과 어긋난 스냅샷 값이 risingEdge/goingClock/
+    ///   everOutRisingSeen 을 오염시켜 SensorShort 오탐의 통로가 된다(실기).
     let applyResyncBaseline (item: TagWrite) =
         preApplyMonitoringInput item
         match passiveInference with
         | Some pi -> pi.Baseline(item.Address, item.Value)
-        | None -> ()
-        match monitoringAbnormal with
-        | Some ab -> ab.OnObservedIo(item.Address, item.Value, Environment.TickCount)
         | None -> ()
 
     /// resync 배치 수신 = blackout 해제 신호 → REARMING 진입. "연결됨" status 는 해제 신호로
@@ -534,12 +543,17 @@ type EventDrivenEngineRuntimeHubSession
             Task.CompletedTask
 
         member _.InjectIOValueAsync cmd =
-            if allow cmd.Envelope then engine.InjectIOValue(pg cmd.ApiCallId, cmd.Value)
+            // Monitoring 의 신호 원천은 Agent 자신의 PLC 스캔(인프로세스 배치) — 클라이언트發
+            // 단건 주입은 GUI 가 hub 수신 태그를 proxy 로 되쏘는 echo 다. 받으면 같은 edge 가
+            // 이중 적용되고(중복 obs), 클라이언트가 받은 Resync baseline 까지 source="plc" 로
+            // 되돌아와 observe 를 타며(주기 resync 10s 간격 가짜 관측) 시점 어긋난 가짜 전이가
+            // SensorShort 로 번진다(실기 — plc-raw 1회 vs obs 2회 + resync 시각 일치로 확정). 무시.
+            if allow cmd.Envelope && runtimeMode <> RuntimeMode.Monitoring then
+                engine.InjectIOValue(pg cmd.ApiCallId, cmd.Value)
             Task.CompletedTask
         member _.InjectIOValueByAddressAsync cmd =
-            if allow cmd.Envelope then
-                // PLC IN → mode session effect → engine 적용.
-                // Monitoring: passive 추론으로 Work/Call Force (engine 자체 조건평가는 OFF).
+            if allow cmd.Envelope && runtimeMode <> RuntimeMode.Monitoring then
+                // PLC IN → mode session effect → engine 적용 (Control 등 — Monitoring 은 위 주석).
                 applyHubTag cmd.Address cmd.Value "plc"
             Task.CompletedTask
         member _.InjectIOValuesByAddressAsync cmd =
