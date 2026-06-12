@@ -149,6 +149,7 @@ type NullRuntimeHubSession() =
             Task.FromResult(RuntimeHubDefaults.emptyIndexProjection envelope)
         member _.GetIOMapProjectionAsync envelope =
             Task.FromResult(RuntimeHubDefaults.emptyIOMapProjection envelope)
+        member _.NotifyPlcConnectionAsync _ = Task.CompletedTask
 
 /// PlcScanService 가 외부 PLC 변화 → 모든 클라이언트로 OnTagChanged 송출 시 사용하는 broadcaster.
 /// SignalHub 인스턴스는 connection 단위로 transient 라 broadcaster 만 별도 DI 로 노출.
@@ -190,6 +191,9 @@ type SignalHubBroadcaster(hubContext: IHubContext<SignalHub>, runtimeSession: IR
         member _.BroadcastPlcConnectionStatus(status: PlcConnectionStatus) =
             // 캐시도 갱신 — 신규 클라이언트가 OnConnectedAsync 단계에서 최신 스냅샷을 수신.
             SignalHub.UpdatePlcStatusCache(status)
+            // server engine 에 in-proc 우선 통지 — SignalR 클라이언트보다 먼저 엔진이 통신 blackout
+            // (이상감지 억제 + 관측 무효화)에 진입한다. Null 세션이면 no-op.
+            runtimeSession.NotifyPlcConnectionAsync(status).GetAwaiter().GetResult()
             hubContext.Clients.All.SendAsync(HubMethod.OnPlcConnectionStatus, status)
 
         member _.BroadcastAbnormal(payload: AbnormalPayload) =

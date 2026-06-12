@@ -214,6 +214,23 @@ public sealed class SimulationEngineService : IDisposable
                 address, value, source, inCache, inCache ? tagId : -1);
         }
 
+        // 재연결 baseline(resync) — edge 가 아니라 PLC 재연결 직후의 현재값 스냅샷.
+        // 단절 중 누락된 edge 를 전이로 재생하면 passive 추론/사이클 head·tail 이 오염되므로,
+        // IO 현재값과 추론 기준선만 갱신하고 일반 observe 경로(HandleHubTag)는 타지 않는다.
+        if (string.Equals(source, HubSource.Resync, StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                _engine?.InjectIOValueByAddress(address, value);
+                _passiveInference?.Baseline(address, value);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Engine] resync baseline 적용 실패 {Addr}={Val}", address, value);
+            }
+            return;
+        }
+
         RuntimeHubEffect[] effects;
         try
         {
@@ -630,6 +647,36 @@ public sealed class SimulationEngineService : IDisposable
                 _logger.LogInformation(
                     "[Engine] latch watchdog: Flow {Flow} 사이클 경과 {Elapsed:F0}ms > 이상치 Max {Max}ms → abandon + Ready(미기록)",
                     flowName, (now - cycleStart).TotalMilliseconds, maxMs);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 통신 blackout — PLC 단절 전이 시 HubSubscriberService 가 호출. 진행 중이던 모든 래치 사이클을
+    /// 즉시 abandon(사이클/통계 미기록)한다. 단절 구간은 신호 순서/edge 신뢰가 없어, 그 사이클이
+    /// 나중에 완료돼도 head/tail 이 오염된 값이라 평균 CT·히스토리·클린사이클(자동보정)에 넣으면 안 된다.
+    /// 범위는 전체 flow — PLC 어댑터→flow 매핑이 없고 현장 구성이 대부분 PLC 1대(부분화는 후속).
+    /// latch watchdog(<see cref="TickFlowLatchWatchdogAsync"/>)의 abandon 경로와 동일 처리.
+    /// </summary>
+    public async Task AbandonActiveCyclesOnPlcBlackoutAsync(string adapterName, string lastError)
+    {
+        if (_engine is null) return;
+        if (!_flowMetricsService.IsInitialized) return;
+        if (_dspRepository is not Adapters.DspRepositoryAdapter repo) return;
+
+        var active = _flowMetricsService.GetActiveLatchedCycles();
+        if (active.Count == 0) return;
+
+        foreach (var (flowName, cycleStart) in active)
+        {
+            if (_flowMetricsService.AbandonLatchedCycle(flowName))
+            {
+                try { await repo.UpdateFlowStateAsync(flowName, FlowLatchBadge.Ready); }
+                catch (Exception ex) { _logger.LogWarning(ex, "[Engine] PLC blackout: Flow {Flow} Ready 쓰기 실패", flowName); }
+                _dspDbService.SetFlowStateWithHold(flowName, FlowLatchBadge.Ready, 0);
+                _logger.LogWarning(
+                    "[Engine] PLC blackout ({Adapter}: {Err}): Flow {Flow} 진행 사이클(시작 {Start:HH:mm:ss}) abandon + Ready(미기록)",
+                    adapterName, lastError, flowName, cycleStart);
             }
         }
     }

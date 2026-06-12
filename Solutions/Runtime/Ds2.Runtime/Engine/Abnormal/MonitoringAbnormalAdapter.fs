@@ -216,6 +216,17 @@ type MonitoringAbnormalAdapter
         detectorState.LastEmitted <- Map.empty
         latchPolicy.ResetOn(LatchResetTrigger.ManualClear)
 
+    /// 통신 blackout(PLC 단절) — 관측 *진행 상태* 만 무효화하고 학습된 줄자(durationLearner)는 보존.
+    /// goingClock 을 비우면 단절 시간이 포함된 elapsed 가 만들어지지 않아 ActionOver 오탐과
+    /// 줄자 오염이 동시에 차단되고, prevActive 를 비우면 재연결 후 첫 관측이 risingEdge 의
+    /// "첫 관측 = baseline" 규칙을 타서 누락 edge 가 가짜 rising/falling 으로 보이지 않는다.
+    /// 평가 재개는 디바이스별 다음 OUT rising(새 사이클 시작)부터 — 별도 재무장 상태 불필요.
+    member _.InvalidateObservations() =
+        goingClock.Clear()
+        prevActive.Clear()
+        detectorState.LastEmitted <- Map.empty
+        latchPolicy.ResetOn(LatchResetTrigger.ManualClear)
+
     /// C#(DSPilot) 에서 쓰기 위한 팩토리 — System.Func/Action 을 F# 함수로 래핑.
     static member FromDelegates(index: SimIndex, ioMap: SignalIOMap, nowUtc: System.Func<DateTime>, sink: System.Action<AbnormalRecord>) : MonitoringAbnormalAdapter =
         let nowFn () = nowUtc.Invoke()

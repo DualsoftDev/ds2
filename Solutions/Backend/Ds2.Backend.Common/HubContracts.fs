@@ -136,8 +136,14 @@ module HubSource =
     let Plc = "plc"
     [<Literal>]
     let Web = "web"
+    /// PLC 재연결 직후 게이트웨이가 1회 내보내는 전체 태그 baseline 스냅샷.
+    /// edge(변화)가 아니라 "현재값"이다 — 단절 중 누락된 전이를 edge 로 재생하면 순서가 깨져
+    /// 가짜 abnormal(SensorShort/ActionOver)이 발생하므로, 컨슈머는 이 source 를
+    /// passive baseline(추론/이상감지 기준선 갱신)으로만 처리해야 한다.
+    [<Literal>]
+    let Resync = "resync"
 
-    /// <summary>spec §SignalR — 알려진 source 전체 집합. literal 5개. 외부 source 는 *unknown* 으로 분류 (분류 외 차단 또는 별도 처리).
+    /// <summary>spec §SignalR — 알려진 source 전체 집합. literal 6개. 외부 source 는 *unknown* 으로 분류 (분류 외 차단 또는 별도 처리).
     /// 새 source 추가 시 본 set 갱신 → DSPilot 의 _acceptedSources default 검토 → 통합 테스트.</summary>
     let WellKnownSources : System.Collections.Generic.IReadOnlySet<string> =
         let s = System.Collections.Generic.HashSet<string>(System.StringComparer.OrdinalIgnoreCase)
@@ -146,6 +152,7 @@ module HubSource =
         s.Add(Monitoring)     |> ignore
         s.Add(Plc)            |> ignore
         s.Add(Web)            |> ignore
+        s.Add(Resync)         |> ignore
         s :> System.Collections.Generic.IReadOnlySet<string>
 
     /// <summary>임의 source 가 WellKnown 인지. unknown 은 통계/로그용으로 분리 처리하는 호출자 측 helper.</summary>
@@ -153,10 +160,10 @@ module HubSource =
         not (isNull source) && WellKnownSources.Contains(source)
 
     /// <summary>DSPilot consumer 기본 accept policy — Promaker host 가 broadcast 하는
-    /// 실 IO source (Control / VirtualPlant / Plc). Monitoring 은 자기 자신 echo 이므로 차단.
-    /// Web 은 외부 UI 직접 주입이라 검수 대상 — default 에선 차단.</summary>
+    /// 실 IO source (Control / VirtualPlant / Plc) + 재연결 baseline(Resync).
+    /// Monitoring 은 자기 자신 echo 이므로 차단. Web 은 외부 UI 직접 주입이라 검수 대상 — default 에선 차단.</summary>
     let DefaultAcceptedSources : string array =
-        [| Control; VirtualPlant; Plc |]
+        [| Control; VirtualPlant; Plc; Resync |]
 
 /// Batch payload for WriteTags / OnTagsChanged.
 /// [<CLIMutable>] 필수 — SignalR JsonHubProtocol(System.Text.Json, camelCase)이
@@ -610,3 +617,7 @@ type IRuntimeHubSession =
     abstract member GetSnapshotAsync : RuntimeCommandEnvelope -> Task<RuntimeStateSnapshot>
     abstract member GetIndexProjectionAsync : RuntimeCommandEnvelope -> Task<RuntimeIndexProjection>
     abstract member GetIOMapProjectionAsync : RuntimeCommandEnvelope -> Task<RuntimeIOMapProjection>
+    /// PLC 어댑터 연결 상태 전이 통지 — server-origin(게이트웨이) 이라 command envelope 없음.
+    /// SignalHubBroadcaster 가 SignalR fan-out *전에* in-proc 으로 호출해, 엔진이 클라이언트보다
+    /// 먼저 통신 blackout(이상감지 억제 + 관측 무효화)에 진입할 수 있게 한다.
+    abstract member NotifyPlcConnectionAsync : PlcConnectionStatus -> Task

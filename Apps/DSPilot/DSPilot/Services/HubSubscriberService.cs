@@ -179,6 +179,11 @@ public sealed class HubSubscriberService : BackgroundService
         // 엔진 미리 초기화
         _engineService.TryEnsureInitialized();
 
+        // 통신 blackout — PLC 단절 전이 시 진행 중 래치 사이클을 즉시 abandon(미기록).
+        // 단절 구간은 신호 신뢰가 없어 그 사이클이 나중에 완료돼도 통계/보정에 넣으면 안 된다.
+        _plcStatusTracker.AdapterDisconnected += status =>
+            _ = _engineService.AbandonActiveCyclesOnPlcBlackoutAsync(status.Name, status.LastError);
+
         // 단일 컨슈머 시작 — Hub 콜백이 어떤 동시성으로 호출되든 직렬화 보장
         var consumerTask = Task.Run(() => _processor.ConsumeAsync(stoppingToken), stoppingToken);
 

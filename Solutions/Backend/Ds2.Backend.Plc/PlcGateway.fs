@@ -72,6 +72,14 @@ type PlcGateway(config: PlcGatewayConfig) =
     let reconnectState =
         ConcurrentDictionary<string, struct (DateTime * int)>(StringComparer.OrdinalIgnoreCase)
 
+    /// adapter 별 resync 대기 플래그 — down→up 재연결 전이 시 set. 다음 성공 스캔이 diff 무시하고
+    /// *전체* 태그를 Source=Resync(baseline 스냅샷)로 1회 broadcast 한다. 단절 중 lastValues 는
+    /// 단절 전 값으로 박제돼 있어, diff 로 내보내면 그동안의 변화가 순서 깨진 edge burst 로 보이고
+    /// (가짜 SensorShort/ActionOver 의 원인) 짝수 번 토글된 태그는 아예 소실된다 — 전체 스냅샷이 정답.
+    /// 변화 0건이어도 resync 배치 자체가 컨슈머의 blackout 해제 신호라 항상 내보낸다.
+    let resyncPending =
+        ConcurrentDictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
+
     /// 어댑터별 현재 상태 스냅샷 — Promaker/DSPilot 가 "PLC 통신 실패" 를 표시하기 위한 contract.
     /// 전이(up↔down) 외에 실패가 *지속되는 동안에도* 매번 broadcast — 재시도 중임을 클라이언트가
     /// 인지할 수 있어야 한다(사용자 요구). 성공 지속은 noise 라 broadcast 안 함.
@@ -122,6 +130,9 @@ type PlcGateway(config: PlcGatewayConfig) =
             // down → up 재연결 전이 시점에 unreachable skip-list reset.
             // PLC parameter 가 바뀌어 디바이스 영역이 확장된 경우 자동 재검증되도록.
             if success && not prev.IsConnected then
+                // 같은 전이 시점에 resync 예약 — 같은 sweep 의 직후 read 부터 baseline 스냅샷 모드.
+                // (최초 부팅 connect 도 이 경로를 탄다 — 초기 populate 역시 edge 가 아닌 baseline 이 맞다.)
+                resyncPending.[name] <- true
                 match unreachableAddresses.TryGetValue name with
                 | true, m when not m.IsEmpty ->
                     log.Info($"PLC [{name}] reconnected — clearing {m.Count} address(es) from unreachable skip-list for revalidation")
@@ -229,6 +240,12 @@ type PlcGateway(config: PlcGatewayConfig) =
                     if adapter.IsConnected then
                         let adapterScanStartedAt = DateTime.UtcNow
                         let skipSet = getUnreachable cfg.Name
+                        // 재연결 직후 1회: diff 무시하고 전체 태그를 Source=Resync baseline 으로 내보낸다.
+                        // 스캔이 또 실패할 수 있으므로 플래그 제거는 성공 확인 후(아래 epilogue).
+                        let isResync =
+                            match resyncPending.TryGetValue cfg.Name with
+                            | true, v -> v
+                            | _ -> false
                         let mutable attempted = 0
                         let mutable failed = 0
                         let mutable firstReadError = ""
@@ -241,6 +258,17 @@ type PlcGateway(config: PlcGatewayConfig) =
 
                         let recordRead (tag: PlcTagDef) (value: CoreDataTypesModule.PlcValue) =
                             let s = PlcValueIo.toHubString value
+                            if isResync then
+                                // baseline 스냅샷: 변화 여부와 무관하게 전체 broadcast.
+                                // 컨슈머(HubSession/DSPilot)는 Resync source 를 edge 가 아닌 기준선으로 처리한다.
+                                lastValues.[tag.HubAddress] <- s
+                                changesDetected <- changesDetected + 1
+                                changes.Add({
+                                    HubAddress = tag.HubAddress
+                                    Value = s
+                                    Source = Ds2.Backend.Common.HubSource.Resync
+                                })
+                            else
                             let changed =
                                 match lastValues.TryGetValue tag.HubAddress with
                                 | true, prev -> prev <> s
@@ -318,13 +346,18 @@ type PlcGateway(config: PlcGatewayConfig) =
 
                         let elapsedMs = (DateTime.UtcNow - adapterScanStartedAt).TotalMilliseconds
                         let elapsedText = elapsedMs.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)
-                        rawLog.Info($"scan-summary plc={cfg.Name} durationMs={elapsedText} batchReads={batchReads} singleReads={singleReads} batches={batches} changes={changesDetected} failed={failed} protocolErrors={protocolErrors} skipped={skippedReads}")
+                        rawLog.Info($"scan-summary plc={cfg.Name} durationMs={elapsedText} batchReads={batchReads} singleReads={singleReads} batches={batches} changes={changesDetected} failed={failed} protocolErrors={protocolErrors} skipped={skippedReads} resync={isResync}")
 
                         if attempted > 0 && failed = attempted then
                             log.Warn($"PLC [{cfg.Name}] all {attempted} tag reads failed — forcing disconnect for reconnect cycle")
                             try do! adapter.DisconnectAsync() with _ -> ()
                             let err = $"all reads failed ({firstReadError})"
                             markConnectResult cfg.Name false err
+                        elif isResync && attempted > 0 then
+                            // 1개 이상 성공 → baseline 스냅샷이 나갔다. resync 완료.
+                            // (전부 실패면 위 분기에서 disconnect — 플래그 유지, 다음 재연결 때 재시도.)
+                            resyncPending.TryRemove(cfg.Name) |> ignore
+                            log.Info($"PLC [{cfg.Name}] resync scan complete — {changesDetected} tag(s) broadcast as baseline snapshot")
                 return List.ofSeq changes
             }
 

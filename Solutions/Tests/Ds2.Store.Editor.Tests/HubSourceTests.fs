@@ -18,12 +18,13 @@ let private assertHubMethod (name: string) (parameterType: Type) (returnType: Ty
     Assert.Equal(parameterType, parameters.[0].ParameterType)
 
 [<Fact>]
-let ``HubSource.WellKnownSources 는 literal 5개 모두 포함`` () =
+let ``HubSource.WellKnownSources 는 literal 6개 모두 포함`` () =
     Assert.True(HubSource.isWellKnown HubSource.Control)
     Assert.True(HubSource.isWellKnown HubSource.VirtualPlant)
     Assert.True(HubSource.isWellKnown HubSource.Monitoring)
     Assert.True(HubSource.isWellKnown HubSource.Plc)
     Assert.True(HubSource.isWellKnown HubSource.Web)
+    Assert.True(HubSource.isWellKnown HubSource.Resync)
 
 [<Fact>]
 let ``HubSource.isWellKnown 은 case-insensitive`` () =
@@ -38,12 +39,14 @@ let ``HubSource.isWellKnown 은 unknown 차단`` () =
     Assert.False(HubSource.isWellKnown null)
 
 [<Fact>]
-let ``HubSource.DefaultAcceptedSources 는 Control + VirtualPlant + Plc`` () =
+let ``HubSource.DefaultAcceptedSources 는 Control + VirtualPlant + Plc + Resync`` () =
     let defaults = HubSource.DefaultAcceptedSources |> Set.ofArray
-    Assert.Equal(3, defaults.Count)
+    Assert.Equal(4, defaults.Count)
     Assert.Contains(HubSource.Control, defaults)
     Assert.Contains(HubSource.VirtualPlant, defaults)
     Assert.Contains(HubSource.Plc, defaults)
+    // Resync = PLC 재연결 직후 1회 baseline 스냅샷 — DSPilot 이 받아 추론 기준선만 갱신(edge 처리 금지).
+    Assert.Contains(HubSource.Resync, defaults)
 
 [<Fact>]
 let ``HubSource.DefaultAcceptedSources 는 Monitoring/Web 차단 (echo / 외부 UI 주입 방지)`` () =
