@@ -57,9 +57,11 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
                     | Some v -> RuntimeSemantics.isActiveInputValue apiCall v
                     | None -> false
                 | None -> false
+            // warmupCycles=1 — Control 은 Call 별 첫 완주 사이클을 흘려보내고 판정(모드 합의:
+            // Control=1, VP=2, Monitoring=3. VP/Monitoring 은 인퍼런스 Synced 워밍업이 그 역할).
             Some(ControlAbnormalAdapter(
                     index, ioMap, stateManager.GetCallState, isInputActive,
-                    (fun () -> DateTime.UtcNow), abnormalDetectedEvent.Trigger))
+                    (fun () -> DateTime.UtcNow), abnormalDetectedEvent.Trigger, warmupCycles = 1))
         else None
     do match abnormalAdapter with
        | Some adapter ->

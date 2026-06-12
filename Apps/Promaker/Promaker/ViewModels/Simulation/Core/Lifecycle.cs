@@ -104,6 +104,7 @@ public partial class SimulationPanelState
                 SelectedRuntimeMode = RuntimeMode.Simulation;
                 _previousRuntimeMode = RuntimeMode.Simulation;
                 OnPropertyChanged(nameof(NeedsHubConnection));
+                OnPropertyChanged(nameof(ShowCommBlockTestToggle));
                 Hub.RaiseHostingDependentsChanged();
                 Hub.SetStatus(connected: false, reconnecting: false);
             }

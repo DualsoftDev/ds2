@@ -30,6 +30,10 @@ internal static class Status4Visuals
     public static Brush ResolveGanttBarBrush(Status4 status) =>
         Application.Current?.TryFindResource(GanttBarBrushKey(status)) as Brush ?? Brushes.Gray;
 
+    /// <summary>abnormal 판정된 사이클 바 경고색 — plan 틀 "벗어남"(참고)과 달리 색은 판정에만 쓴다.</summary>
+    public static Brush ResolveGanttBarAbnormalBrush() =>
+        Application.Current?.TryFindResource("GanttBarAbnormalBrush") as Brush ?? Brushes.Crimson;
+
     public static string ShortCode(Status4 status) => status.ToString()[..1];
 
     public static string DisplayName(Status4 status) => status.ToString();

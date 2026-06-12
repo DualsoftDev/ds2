@@ -98,6 +98,10 @@ public partial class SimulationPanelState
                 learning.InvalidateWork(record.Target.WorkId.Value);
         }
 
+        // 간트 경고색 — 판정된 Call 의 해당 사이클 바만 (RxWork=device Work 는 간트에 행이 없어 Call 단위가 전부).
+        if (Microsoft.FSharp.Core.FSharpOption<Guid>.get_IsSome(record.Target.CallId))
+            GanttChart.MarkAbnormal(Queries.resolveOriginalCallId(record.Target.CallId.Value, Store));
+
         var elapsed = Microsoft.FSharp.Core.FSharpOption<int>.get_IsSome(record.ElapsedMs)
             ? record.ElapsedMs.Value : -1;
         var target = FormatAbnormalTarget(record.Target);
@@ -235,6 +239,10 @@ public partial class SimulationPanelState
         _stateCache.Set(canonicalId, args.NewState);
         UpdateSimNodeState(canonicalId, args.NewState);
         GanttChart.UpdateNodeState(canonicalId, args.NewState, timestamp);
+
+        // 통신 재개 후 첫 실측 Going — shadow coast 추정 위치와 대조(무에러 합류 판정).
+        if (args.NewState == Status4.Going)
+            TryReconcileShadowCoastOnResume(canonicalId, timestamp);
 
         Report.RecordStateChange(args.CallGuid.ToString(), args.CallName + suffix, EntityKind.Call.ToString(), systemName, args.NewState);
         UpdateSimClock();

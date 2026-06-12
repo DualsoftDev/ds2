@@ -60,6 +60,11 @@
     <Color x:Key="GanttBarHomingColor">#55555C</Color>
     <!-- plan overlay 배경 틀 (비-Simulation 모드) — Going 주황의 저알파 -->
     <Color x:Key="GanttPlanOverlayColor">#2ED4883A</Color>
+    <!-- shadow coast 추정 틀 (통신 두절 구간) — 중립 회색조, plan 주황과 구분 -->
+    <Color x:Key="GanttShadowCoastColor">#269AA0A6</Color>
+    <Color x:Key="GanttShadowCoastStrokeColor">#669AA0A6</Color>
+    <!-- abnormal 판정된 사이클 바 경고색 — "벗어남=참고, 색=이상" -->
+    <Color x:Key="GanttBarAbnormalColor">#E05252</Color>
 
     <!-- Gantt Row Colors -->
     <Color x:Key="GanttWorkRowBackgroundColor">#242C2C31</Color>

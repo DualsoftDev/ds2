@@ -83,6 +83,17 @@ public class SettingsController : ControllerBase
         return Ok(new { ms = clamped });
     }
 
+    // ── POST: 건강 기준선 수동 동결 — hub 브로드캐스트로 전 인스턴스(Promaker 등) 동시 동결 ──
+    [HttpPost("health-baseline-freeze")]
+    public async Task<IActionResult> FreezeHealthBaseline()
+    {
+        var ok = await _hubSubscriber.FreezeHealthBaselineAsync();
+        if (!ok)
+            return StatusCode(503, "Agent hub 미연결 — 모니터링이 활성 상태인지 확인하세요.");
+        _logger.LogInformation("Health baseline freeze requested via settings page");
+        return Ok();
+    }
+
     // ── GET: 전체 설정 + 파생 표시값 ──
     [HttpGet]
     public ActionResult<SettingsDto> Get()

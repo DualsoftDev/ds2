@@ -120,6 +120,24 @@ public sealed class HubSubscriberService : BackgroundService
         }
     }
 
+    /// <summary>건강 기준선 수동 동결 요청 — hub 가 전 클라이언트(Promaker 등 학습 보유 인스턴스)에
+    /// 브로드캐스트해 동시 동결한다. DSPilot 자체는 학습기가 없어 수신 처리는 없음(명령 발신만).</summary>
+    public async Task<bool> FreezeHealthBaselineAsync(CancellationToken ct = default)
+    {
+        var conn = _connection;
+        if (conn is null || conn.State != HubConnectionState.Connected) return false;
+        try
+        {
+            await conn.InvokeAsync(HubMethod.FreezeHealthBaseline, ct);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Hub] FreezeHealthBaseline failed");
+            return false;
+        }
+    }
+
     private void OnHubScanIntervalChanged(int ms)
     {
         CurrentScanIntervalMs = ms;

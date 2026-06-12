@@ -344,6 +344,120 @@ module ControlAdapterTests =
         adapter.OnInputRising(readyApiCallId, 1500)   // 둘 다 Ready — 진짜 Short
         Assert.Contains(emitted, fun r -> r.Kind = AbnormalKind.SensorShort)
 
+    // 묶음(멀티 디바이스) Call — Tester3 실모델 동형: 개별 Call 4개(주소 1쌍씩) +
+    // 묶음 Call 1개(같은 디바이스 4개를 한 번에 = 같은 주소 4쌍). 묶음 차례(Going)에
+    // In 4개가 동시 rising — Ready 인 개별 Call 들에 Short 가 아니다
+    // (실기 Control 로그의 "사이클마다 ADV/RET 4개 일제 SensorShort" 재현 픽스처).
+    let private setupGroupedSharedAddress () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        let deviceSystem = addSystem store "Device" project.Id false
+        let deviceFlow = addFlow store "DeviceFlow" deviceSystem.Id
+        let defs =
+            [ for i in 1 .. 4 ->
+                let dw = addWork store $"ADV{i}" deviceFlow.Id
+                dw.MinDuration <- Some(TimeSpan.FromMilliseconds 250.0)
+                dw.MaxDuration <- Some(TimeSpan.FromMilliseconds 900.0)
+                let d = addApiDef store $"ADV{i}" deviceSystem.Id
+                d.TxGuid <- Some dw.Id
+                d.RxGuid <- Some dw.Id
+                d ]
+        let individualCallIds =
+            defs |> List.mapi (fun i d -> store.AddCallWithLinkedApiDefs(work.Id, "Device", $"ADV{i + 1}", [ d.Id ]))
+        let groupCallId = store.AddCallWithLinkedApiDefs(work.Id, "Device", "ADVALL", [ for d in defs -> d.Id ])
+        // 같은 디바이스의 ApiCall 은 개별/묶음 모두 같은 In/Out 주소 — ApiDefId 로 짝 맞춤.
+        let addressOf =
+            defs |> List.mapi (fun i d -> d.Id, ($"%%I110{i + 1}", $"%%Q100{i + 1}")) |> dict
+        for callId in groupCallId :: individualCallIds do
+            for ac in store.Calls.[callId].ApiCalls do
+                match ac.ApiDefId with
+                | Some defId ->
+                    let inAddr, outAddr = addressOf.[defId]
+                    ac.InTag <- Some(IOTag("IN", inAddr, ""))
+                    ac.OutTag <- Some(IOTag("OUT", outAddr, ""))
+                | None -> ()
+        let index = SimIndex.build store 10
+        let ioMap = SignalIOMap.build store
+        let emitted = ResizeArray<AbnormalRecord>()
+        let states = Dictionary<Guid, Status4>()
+        let getCallState cid =
+            match states.TryGetValue cid with
+            | true, s -> s
+            | _ -> Status4.Ready
+        let adapter =
+            ControlAbnormalAdapter(index, ioMap, getCallState, (fun _ -> false), (fun () -> t0), (fun r -> emitted.Add r))
+        let individualApiCallIds =
+            [ for cid in individualCallIds -> (store.Calls.[cid].ApiCalls |> Seq.head).Id ]
+        adapter, emitted, states, groupCallId, individualApiCallIds
+
+    [<Fact>]
+    let ``grouped call going suppresses Short on all individual sibling mappings`` () =
+        let adapter, emitted, states, groupCallId, individualApiCallIds = setupGroupedSharedAddress ()
+        states.[groupCallId] <- Status4.Going
+        adapter.OnCallGoing(groupCallId, 1000)
+        for apiCallId in individualApiCallIds do
+            adapter.OnInputRising(apiCallId, 1500)   // 묶음 차례의 In 4개 — 개별(Ready)에 Short 아님
+        Assert.DoesNotContain(emitted, fun r -> r.Kind = AbnormalKind.SensorShort)
+
+    [<Fact>]
+    let ``grouped fixture rising is Short when nobody is going`` () =
+        let adapter, emitted, _, _, individualApiCallIds = setupGroupedSharedAddress ()
+        adapter.OnInputRising(List.head individualApiCallIds, 1500)   // 전부 Ready — 진짜 Short
+        Assert.Contains(emitted, fun r -> r.Kind = AbnormalKind.SensorShort)
+
+    // 워밍업 게이트 — 시작 직후는 신호 순서/잔류 상태가 정착 전이라 Call 별 첫 N 완주
+    // 사이클은 판정하지 않는다 (Control=1. VP/Monitoring 은 인퍼런스 Synced 워밍업이 대신).
+    let private setupWithWarmup () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        let deviceSystem = addSystem store "Device" project.Id false
+        let deviceFlow = addFlow store "DeviceFlow" deviceSystem.Id
+        let deviceWork = addWork store "ADV" deviceFlow.Id
+        deviceWork.MinDuration <- Some(TimeSpan.FromMilliseconds 250.0)
+        deviceWork.MaxDuration <- Some(TimeSpan.FromMilliseconds 900.0)
+        let apiDef = addApiDef store "ADV" deviceSystem.Id
+        apiDef.TxGuid <- Some deviceWork.Id
+        apiDef.RxGuid <- Some deviceWork.Id
+        apiDef.SensingType <- SensingType.Normal None
+        store.AddCallWithLinkedApiDefs(work.Id, "Device", "ADV", [ apiDef.Id ]) |> ignore
+        let call = Queries.callsOf work.Id store |> List.head
+        let apiCall = call.ApiCalls |> Seq.head
+        apiCall.InTag <- Some(IOTag("IN", "X0", ""))
+        apiCall.OutTag <- Some(IOTag("OUT", "Y0", ""))
+        let index = SimIndex.build store 10
+        let ioMap = SignalIOMap.build store
+        let emitted = ResizeArray<AbnormalRecord>()
+        let states = Dictionary<Guid, Status4>()
+        let getCallState cid =
+            match states.TryGetValue cid with
+            | true, s -> s
+            | _ -> Status4.Ready
+        let adapter =
+            ControlAbnormalAdapter(
+                index, ioMap, getCallState, (fun _ -> false), (fun () -> t0),
+                (fun r -> emitted.Add r), warmupCycles = 1)
+        adapter, emitted, states, call.Id, apiCall.Id
+
+    [<Fact>]
+    let ``warmup first cycle suppresses judgement then second cycle judges`` () =
+        let adapter, emitted, states, callId, apiCallId = setupWithWarmup ()
+
+        // 첫 사이클 — Short 도 Under 도 억제.
+        adapter.OnInputRising(apiCallId, 100)        // Ready 중 rising — 워밍업이라 Short 아님
+        states.[callId] <- Status4.Going
+        adapter.OnCallGoing(callId, 1000)
+        adapter.OnInputRising(apiCallId, 1100)       // elapsed 100 < Min 250 — 워밍업이라 Under 아님
+        Assert.Empty(emitted)
+
+        // 첫 사이클 완주(Going 을 거쳐 Ready 복귀) → 둘째 사이클부터 판정.
+        states.[callId] <- Status4.Ready
+        adapter.OnCallReset(callId)
+        states.[callId] <- Status4.Going
+        adapter.OnCallGoing(callId, 5000)
+        adapter.OnInputRising(apiCallId, 5100)       // elapsed 100 < 250 — 이제 ActionUnder
+        Assert.Single(emitted) |> ignore
+        Assert.Equal(AbnormalKind.ActionUnder, emitted.[0].Kind)
+
     // Ready(출발 ?? falling ?� ?�상 ??SensorOpen ?�님.
     [<Fact>]
     let ``falling when Ready is not SensorOpen`` () =
@@ -628,7 +742,20 @@ module DeviceControlCycleTests =
         engine.AdvanceSimulationTo(200L)
         Assert.Equal(Some Status4.Finish, engine.GetWorkState(deviceWork.Id))
 
+        // 첫 사이클은 워밍업(Control=1) — Max 초과여도 판정 억제.
         engine.AdvanceSimulationTo(901L)
+        Assert.Empty(emitted)
+
+        // 첫 사이클 완주(Ready 복귀) 후 둘째 사이클 — 이제 Max 초과 시 ActionOver.
+        // device work 도 Ready 로 되돌려 재사이클(OnTick 은 device duration 만료 이벤트에서 돈다).
+        engine.ForceCallState(call.Id, Status4.Ready)
+        engine.ForceWorkState(deviceWork.Id, Status4.Ready)
+        engine.AdvanceSimulationTo(engine.CurrentTimeMs)
+        engine.ForceCallState(call.Id, Status4.Going)
+        engine.AdvanceSimulationTo(engine.CurrentTimeMs)
+        Assert.Equal(Some Status4.Going, engine.GetCallState(call.Id))
+        engine.AdvanceSimulationTo(engine.CurrentTimeMs + 901L)
+        Assert.Equal(Some Status4.Going, engine.GetCallState(call.Id))
 
         Assert.Single(emitted) |> ignore
         Assert.Equal(AbnormalKind.ActionOver, emitted.[0].Kind)
