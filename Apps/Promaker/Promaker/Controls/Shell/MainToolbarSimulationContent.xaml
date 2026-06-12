@@ -678,6 +678,26 @@
                         </Style>
                     </TextBlock.Style>
                 </TextBlock>
+                <!-- 기준선 고정 — 운영자가 지정하는 학습 반영 멈춤 지점. ON 이면 수집은 계속하되
+                     plan/abnormal 경계 갱신(라이브·정지 시)을 중단 — 노화/이상 추종 차단. -->
+                <CheckBox Content="기준선 고정"
+                          IsChecked="{Binding Simulation.LearnedDurationFrozen, Mode=TwoWay}"
+                          Visibility="{Binding Simulation.NeedsHubConnection, Converter={StaticResource BoolToVis}}"
+                          FontSize="10"
+                          Margin="0,4,0,0"
+                          HorizontalAlignment="Center"
+                          Foreground="{DynamicResource PrimaryTextBrush}"
+                          ToolTip="학습 duration 반영을 현재 기준선에서 멈춥니다 (수집은 계속). 해제하면 최신 학습값으로 반영을 재개합니다."/>
+                <!-- 임시(테스트 전용) — 수신 신호 차단 토글: 연결 유지한 채 태그 수신만 무시해
+                     "장비는 도는데 신호만 안 보이는" 통신 두절을 재현. coast/재합류 검증용. -->
+                <CheckBox Content="통신 차단(테스트)"
+                          IsChecked="{Binding Simulation.Hub.TestSignalBlocked, Mode=TwoWay}"
+                          Visibility="{Binding Simulation.NeedsHubConnection, Converter={StaticResource BoolToVis}}"
+                          FontSize="10"
+                          Margin="0,4,0,0"
+                          HorizontalAlignment="Center"
+                          Foreground="{DynamicResource PrimaryTextBrush}"
+                          ToolTip="[테스트] 수신 신호를 무시해 통신 두절을 재현합니다. 해제하면 현재 위치의 신호부터 다시 수신합니다."/>
                 <!-- issue #154: Monitoring(실 PLC) 시작 시 DSPilot 자동 오픈 여부 토글. IsAgentDelegationMode 일 때만 노출. -->
                 <CheckBox Content="DsPilot으로 실행"
                           IsChecked="{Binding Simulation.LaunchDspilotOnMonitoring, Mode=TwoWay}"

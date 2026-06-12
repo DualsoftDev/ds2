@@ -196,6 +196,9 @@ public partial class SimulationPanelState
     {
         // Active Work 자체 실측 학습 — device 합산에 안 잡히는 단계 간 전환 갭 포함 전체 사이클.
         _durationLearning?.OnWorkStateChanged(args.WorkGuid, args.NewState, args.Clock.TotalMilliseconds);
+        // 라이브 반영(사이클 경계마다 store 갱신 + ReloadDurations)은 2회 실측에서 라인 정지를
+        // 유발해 제거 — 동작 중 ReloadDurations 가 엔진 전이와 race(In 신호 미아) 하는 것으로 추정.
+        // 엔진의 동작 중 Reload 안전성이 규명되기 전까지 학습 반영은 정지 시에만.
         ApplyWorkStateChangeToVisibleNode(args);
 #if DEBUG
         AddSimLog($"W {args.WorkName}: {args.PreviousState}→{args.NewState} @{args.Clock}", SeverityFromState(args.NewState));

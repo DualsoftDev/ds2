@@ -149,6 +149,127 @@ public sealed class SimulationPassiveInferenceTests
     }
 
     [Fact]
+    public void Passive_call_inference_yields_shared_address_to_expected_group_turn_after_sync()
+    {
+        // 부분 공유 모델 — 멀티 Call{공유A, 전용B} 와 단독 Call{공유A}. 사이클 학습(Synced) 후엔
+        // 기대 그룹이 "차례"를 알므로, 멀티 차례의 공유주소 rising 에 단독 Call 은 Going 을 양보하고
+        // 자기 차례(기대 그룹 = 자기 집합)에만 Going 한다. (수정 전: 멀티 차례마다 단독 Call 에
+        // 가짜 Going/Finish 1세트 — 간트 Call 행이 사이클당 두 번 도는 것처럼 보이던 오귀속.)
+        var fx = BuildPartiallySharedCallsFixture();
+        var index = SimIndexModule.build(fx.Store, 10);
+        using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.Monitoring);
+        var session = new PassiveInferenceSession(index, engine.IOMap, RuntimeMode.Monitoring);
+
+        var workStates = new Dictionary<Guid, Status4>();
+        var callStates = new Dictionary<Guid, Status4>();
+        Status4 GetW(Guid g) => workStates.TryGetValue(g, out var s) ? s : Status4.Ready;
+        Status4 GetC(Guid g) => callStates.TryGetValue(g, out var s) ? s : Status4.Ready;
+
+        List<PassiveInferenceAction> Observe(string addr, string val)
+        {
+            var actions = session.Observe(addr, val, GetW, GetC).ToList();
+            foreach (var a in actions)
+            {
+                if (a.TargetKind == PassiveInferenceTarget.Work) workStates[a.TargetGuid] = a.State;
+                else callStates[a.TargetGuid] = a.State;
+            }
+            return actions;
+        }
+
+        void RunCycle()
+        {
+            // 멀티 차례(공유A + 전용B 동시) → 단독 차례(공유A 단독)
+            Observe(fx.SharedOut, "true"); Observe(fx.MultiOnlyOut, "true");
+            Observe(fx.SharedIn, "true"); Observe(fx.MultiOnlyIn, "true");
+            Observe(fx.SharedOut, "false"); Observe(fx.MultiOnlyOut, "false");
+            Observe(fx.SharedIn, "false"); Observe(fx.MultiOnlyIn, "false");
+            Observe(fx.SharedOut, "true");
+            Observe(fx.SharedIn, "true");
+            Observe(fx.SharedOut, "false");
+            Observe(fx.SharedIn, "false");
+        }
+
+        // Monitoring 은 3사이클 일치 후 Synced — 그 전엔 게이트 비활성(기존 동작).
+        RunCycle();
+        RunCycle();
+        RunCycle();
+
+        // 4번째 사이클, 멀티 차례 — 공유주소 rising 에 단독 Call 은 양보(가짜 Going 없음).
+        var atSharedRising = Observe(fx.SharedOut, "true");
+        Assert.DoesNotContain(
+            atSharedRising,
+            a => a.TargetKind == PassiveInferenceTarget.Call
+                 && a.TargetGuid == fx.SingleCallId
+                 && a.State == Status4.Going);
+
+        // 멀티는 자기 기대(2주소) 충족 시 정상 Going.
+        Observe(fx.MultiOnlyOut, "true");
+        Assert.Equal(Status4.Going, GetC(fx.MultiCallId));
+
+        Observe(fx.SharedIn, "true"); Observe(fx.MultiOnlyIn, "true");
+        Observe(fx.SharedOut, "false"); Observe(fx.MultiOnlyOut, "false");
+        Observe(fx.SharedIn, "false"); Observe(fx.MultiOnlyIn, "false");
+
+        // 단독 차례 — 기대 그룹 = 자기 집합이므로 정상 Going.
+        var atSingleTurn = Observe(fx.SharedOut, "true");
+        Assert.Contains(
+            atSingleTurn,
+            a => a.TargetKind == PassiveInferenceTarget.Call
+                 && a.TargetGuid == fx.SingleCallId
+                 && a.State == Status4.Going);
+    }
+
+    private sealed record PartiallySharedFixture(
+        DsStore Store,
+        Guid SingleCallId,
+        Guid MultiCallId,
+        string SharedOut,
+        string SharedIn,
+        string MultiOnlyOut,
+        string MultiOnlyIn);
+
+    private static PartiallySharedFixture BuildPartiallySharedCallsFixture()
+    {
+        var store = new DsStore();
+        var projectId = store.AddProject("P");
+        var activeSystemId = store.AddSystem("Active", projectId, true);
+        var activeFlowId = store.AddFlow("Flow", activeSystemId);
+        var activeWorkId = store.AddWork("Main", activeFlowId);
+
+        var passiveSystemId = store.AddSystem("Passive", projectId, false);
+        var passiveFlowId = store.AddFlow("DeviceFlow", passiveSystemId);
+        var deviceWorkA = store.AddWork("ADV_A", passiveFlowId);
+        var deviceWorkB = store.AddWork("ADV_B", passiveFlowId);
+
+        var apiDefA = AddDeviceApiDef(store, passiveSystemId, "ADV_A", deviceWorkA);
+        var apiDefB = AddDeviceApiDef(store, passiveSystemId, "ADV_B", deviceWorkB);
+
+        var multiCallId = store.AddCallWithLinkedApiDefs(activeWorkId, "Dev", "MULTI", new[] { apiDefA, apiDefB });
+        var singleCallId = store.AddCallWithLinkedApiDefs(activeWorkId, "Dev", "SINGLE", new[] { apiDefA });
+
+        const string sharedOut = "%Q2001";
+        const string sharedIn = "%I2001";
+        const string multiOnlyOut = "%Q2002";
+        const string multiOnlyIn = "%I2002";
+
+        var singleApiCallId = store.Calls[singleCallId].ApiCalls.Single().Id;
+        SetIoTags(store, singleCallId, singleApiCallId, sharedOut, sharedIn);
+
+        foreach (var apiCall in store.Calls[multiCallId].ApiCalls)
+        {
+            var isFirst = apiCall.ApiDefId is { } defId
+                          && FSharpOption<Guid>.get_IsSome(apiCall.ApiDefId)
+                          && apiCall.ApiDefId.Value == apiDefA;
+            if (isFirst)
+                SetIoTags(store, multiCallId, apiCall.Id, sharedOut, sharedIn);
+            else
+                SetIoTags(store, multiCallId, apiCall.Id, multiOnlyOut, multiOnlyIn);
+        }
+
+        return new PartiallySharedFixture(store, singleCallId, multiCallId, sharedOut, sharedIn, multiOnlyOut, multiOnlyIn);
+    }
+
+    [Fact]
     public void Passive_call_inference_does_not_reenter_going_from_input_cleanup_without_a_new_out_on()
     {
         StaTestRunner.Run(() =>
