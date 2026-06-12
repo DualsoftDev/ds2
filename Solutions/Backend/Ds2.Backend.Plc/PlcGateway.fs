@@ -156,6 +156,8 @@ type PlcGateway(config: PlcGatewayConfig) =
 
     // 런타임 스캔 주기 오버라이드(ms) — scan loop 가 매 iteration 읽어 재시작 없이 반영.
     let mutable scanIntervalOverrideMs : int option = None
+    /// 마지막 성공 스캔(1개 이상 read 성공) 시각 — PlcScanService 의 heartbeat 발행 근거.
+    let mutable lastSuccessfulScanUtc : DateTime option = None
 
     interface IPlcGateway with
 
@@ -348,6 +350,10 @@ type PlcGateway(config: PlcGatewayConfig) =
                         let elapsedText = elapsedMs.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)
                         rawLog.Info($"scan-summary plc={cfg.Name} durationMs={elapsedText} batchReads={batchReads} singleReads={singleReads} batches={batches} changes={changesDetected} failed={failed} protocolErrors={protocolErrors} skipped={skippedReads} resync={isResync}")
 
+                        if attempted > 0 && failed < attempted then
+                            // 1개 이상 read 성공 = 통신 생존 — heartbeat 근거 갱신(변화 유무와 무관).
+                            lastSuccessfulScanUtc <- Some DateTime.UtcNow
+
                         if attempted > 0 && failed = attempted then
                             log.Warn($"PLC [{cfg.Name}] all {attempted} tag reads failed — forcing disconnect for reconnect cycle")
                             try do! adapter.DisconnectAsync() with _ -> ()
@@ -360,6 +366,8 @@ type PlcGateway(config: PlcGatewayConfig) =
                             log.Info($"PLC [{cfg.Name}] resync scan complete — {changesDetected} tag(s) broadcast as baseline snapshot")
                 return List.ofSeq changes
             }
+
+        member _.LastSuccessfulScanUtc = lastSuccessfulScanUtc
 
         member _.MinScanInterval =
             adapters

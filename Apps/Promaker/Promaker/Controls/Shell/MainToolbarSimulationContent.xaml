@@ -678,8 +678,8 @@
                         </Style>
                     </TextBlock.Style>
                 </TextBlock>
-                <!-- 테스트 전용 — 수신 신호 차단 토글: 연결 유지한 채 태그 수신만 무시해
-                     "장비는 도는데 신호만 안 보이는" 통신 두절을 재현. coast/재합류 검증용.
+                <!-- 테스트 전용 — 수신 신호 차단 토글: 연결 유지한 채 태그/heartbeat/runtime push
+                     수신을 무시해 "장비는 도는데 신호만 안 보이는" 통신 두절을 재현. coast/재합류 검증용.
                      DEBUG 빌드 + 허브 모드에서만 노출(릴리즈 현장 오조작 방지). -->
                 <CheckBox Content="통신 차단(테스트)"
                           IsChecked="{Binding Simulation.Hub.TestSignalBlocked, Mode=TwoWay}"

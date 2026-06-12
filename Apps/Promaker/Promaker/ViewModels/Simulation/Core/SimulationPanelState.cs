@@ -411,7 +411,8 @@ public partial class SimulationPanelState : ObservableObject
     public bool NeedsHubConnection => SelectedRuntimeMode != RuntimeMode.Simulation;
 
     /// <summary>"통신 차단(테스트)" 토글 노출 — DEBUG 빌드 + 허브 모드 한정.
-    /// 릴리즈 현장에서 켜면 수신이 통째로 멎는 테스트 전용 장치라 배포 빌드에선 숨긴다.</summary>
+    /// 릴리즈 현장에서 켜면 수신이 통째로 멎는 테스트 전용 장치라 배포 빌드에선 숨긴다.
+    /// (실 PLC coast/재합류 검증 기간에 임시로 릴리즈 노출했다가 검증 완료 후 복귀 — 2026-06-12.)</summary>
     public bool ShowCommBlockTestToggle =>
 #if DEBUG
         NeedsHubConnection;

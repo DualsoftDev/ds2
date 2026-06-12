@@ -33,6 +33,10 @@ type IPlcGateway =
     /// 런타임 스캔 주기 오버라이드(ms). Hub SetScanIntervalMs / Agent 설정 감시가 set —
     /// scan loop 가 매 iteration 읽어 재시작 없이 즉시 반영한다. None 이면 MinScanInterval 사용.
     abstract member ScanIntervalOverrideMs : int option with get, set
+    /// 마지막으로 1개 이상 태그 read 에 성공한 스캔의 UTC 시각 — scan loop 의 heartbeat 근거.
+    /// 변화(OnTagsChanged)가 없어도 스캔이 살아 있음을 클라이언트에 알려야
+    /// "무변화 구간 = 통신 두절" 오판을 막는다 (실 PLC 는 태그 변화가 수 초씩 침묵하는 게 정상).
+    abstract member LastSuccessfulScanUtc : DateTime option
     /// 현재 등록된 모든 PLC 어댑터의 연결 헬스 스냅샷. 아직 connect 시도 전이면 IsConnected=false, FailedAttempts=0.
     abstract member GetConnectionStatuses : unit -> PlcConnectionStatus list
     /// 어댑터별 연결 상태 전이 이벤트. 동일 상태 유지 시 발화 안 함 — flap noise 차단.

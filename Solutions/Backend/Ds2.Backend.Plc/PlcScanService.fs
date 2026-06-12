@@ -18,6 +18,10 @@ type IPlcHubBroadcaster =
     abstract member BroadcastPlcConnectionStatus : status: PlcConnectionStatus -> Task
     /// v12 — Control/Monitoring abnormal 감지 결과를 모든 클라이언트로 fan-out (server-origin).
     abstract member BroadcastAbnormal : payload: AbnormalPayload -> Task
+    /// 스캔 생존 heartbeat — 태그 변화가 없어도 "스캔이 살아 있음"을 클라이언트에 알린다.
+    /// 클라이언트(Promaker)는 변화 이벤트만으로 통신 생존을 판단하면 무변화 구간(실 PLC 는
+    /// 수 초 침묵이 정상)을 두절로 오판한다 — heartbeat 가 그 판단의 근거를 분리한다.
+    abstract member BroadcastScanHeartbeat : unit -> Task
 
 /// 주기적으로 PlcGateway.ScanOnceAsync 를 호출해 OnTagChanged broadcast.
 /// StartAsync 에서 connect + first scan 을 *동기적으로* 완료시켜, BackendHost.start 가 반환되는 시점에
@@ -95,6 +99,12 @@ type PlcScanService(gateway: IPlcGateway, broadcaster: IPlcHubBroadcaster) =
 
                 log.Info($"PLC scan loop entering (interval={(effectiveInterval ()).TotalMilliseconds}ms)")
 
+                // heartbeat 발행 스로틀 — 스캔 성공이 직전 발행 이후에 있었을 때만, 최소 1s 간격.
+                // 스캔이 실패 중이면 LastSuccessfulScanUtc 가 멎어 heartbeat 도 멎는다 →
+                // 클라이언트의 무소식 감지가 "변화 없음"이 아니라 진짜 통신 두절만 잡게 된다.
+                let heartbeatIntervalMs = 1000.0
+                let mutable lastHeartbeatAt = DateTime.MinValue
+
                 while not stoppingToken.IsCancellationRequested do
                     let scanStartedAt = Stopwatch.GetTimestamp()
                     try
@@ -103,6 +113,15 @@ type PlcScanService(gateway: IPlcGateway, broadcaster: IPlcHubBroadcaster) =
                             do! broadcaster.BroadcastTagsChanged(changes)
                         with ex ->
                             log.Warn($"Batch broadcast failed: {ex.Message}")
+
+                        match gateway.LastSuccessfulScanUtc with
+                        | Some scanAt when
+                            scanAt > lastHeartbeatAt
+                            && (DateTime.UtcNow - lastHeartbeatAt).TotalMilliseconds >= heartbeatIntervalMs ->
+                            lastHeartbeatAt <- DateTime.UtcNow
+                            try do! broadcaster.BroadcastScanHeartbeat()
+                            with ex -> log.Debug($"Heartbeat broadcast failed: {ex.Message}")
+                        | _ -> ()
                     with
                     | :? OperationCanceledException -> ()
                     | ex -> log.Error($"Scan iteration threw: {ex.Message}")

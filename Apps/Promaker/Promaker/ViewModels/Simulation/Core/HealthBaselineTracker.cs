@@ -182,10 +182,15 @@ internal sealed class HealthBaselineTracker
         return new MaintenanceForecast(workId, NameOf(workId), frozen.MedianMs, current, driftPct, slope, hoursToMax);
     }
 
-    /// <summary>정지 시 요약 — work 별 동결 상태/드리프트/외삽 한 줄씩(로그용). 동결된 work 가 없으면 빈 목록.</summary>
-    public List<string> SummaryLines()
+    /// <summary>GUI 승격 기준 — 이 드리프트(%) 이상이어야 정지 요약이 사용자 로그에 올라간다.
+    /// 정지할 때마다 전 work 요약(수십 줄)이 화면에 쏟아지던 노이즈 방지(파일에는 전부 남음).</summary>
+    internal const double SignificantDriftPct = 5.0;
+
+    /// <summary>정지 시 요약 — work 별 동결 상태/드리프트/외삽 한 줄씩.
+    /// Significant = 사용자에게 보일 가치(IQR 경보 중 / |드리프트| ≥ 5% / 정비 권고 발생).</summary>
+    public List<(string Line, bool Significant)> SummaryEntries()
     {
-        var lines = new List<string>();
+        var lines = new List<(string, bool)>();
         foreach (var (workId, h) in _works)
         {
             if (h.Frozen is not { } frozen) continue;
@@ -193,7 +198,7 @@ internal sealed class HealthBaselineTracker
             var mode = frozen.Auto ? "자동" : "수동";
             if (h.DriftSeries.Count == 0)
             {
-                lines.Add($"{name}: 기준선 {frozen.MedianMs:F0}ms ({mode} 동결, 표본 {frozen.SampleCount}) — 드리프트 표본 없음");
+                lines.Add(($"{name}: 기준선 {frozen.MedianMs:F0}ms ({mode} 동결, 표본 {frozen.SampleCount}) — 드리프트 표본 없음", false));
                 continue;
             }
             var current = h.DriftSeries[^1].MedianMs;
@@ -203,8 +208,17 @@ internal sealed class HealthBaselineTracker
             var tail = forecast?.HoursToMaxDuration is { } hours
                 ? $", 추세 지속 시 약 {hours:F0}h 후 상한 도달 — 정비 권고"
                 : "";
-            lines.Add($"{name}: 기준선 {frozen.MedianMs:F0}ms ({mode}) → 현재 {current:F0}ms ({driftPct:+0.0;-0.0}%){alarm}{tail}");
+            var significant = h.IqrAlarmActive || Math.Abs(driftPct) >= SignificantDriftPct || tail.Length > 0;
+            lines.Add(($"{name}: 기준선 {frozen.MedianMs:F0}ms ({mode}) → 현재 {current:F0}ms ({driftPct:+0.0;-0.0}%){alarm}{tail}", significant));
         }
+        return lines;
+    }
+
+    /// <summary>정지 시 요약 전체 라인(파일 로그용 하위호환).</summary>
+    public List<string> SummaryLines()
+    {
+        var lines = new List<string>();
+        foreach (var (line, _) in SummaryEntries()) lines.Add(line);
         return lines;
     }
 

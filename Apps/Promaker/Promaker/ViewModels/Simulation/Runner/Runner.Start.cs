@@ -126,7 +126,11 @@ public partial class SimulationPanelState
                 var proxyMode = SelectedRuntimeMode == RuntimeMode.Control ? "Control" : "Monitoring";
                 var identity = new RuntimeSessionIdentity(
                     "", RuntimeModelHash.compute(SharedPaths.AasxFilePath), 0, proxyMode);
-                _simEngine = new RemoteSimulationEngine(Hub.Connection, index, proxyIoMap, identity);
+                // suppressIncoming = "통신 차단(테스트)" 토글 — Agent 모드의 GUI 는 태그가 아니라
+                // runtime push 로 그려지므로, 토글이 push 까지 막아야 두절 재현이 성립한다.
+                _simEngine = new RemoteSimulationEngine(
+                    Hub.Connection, index, proxyIoMap, identity,
+                    new Func<bool>(() => Hub.TestSignalBlocked));
             }
             else
             {

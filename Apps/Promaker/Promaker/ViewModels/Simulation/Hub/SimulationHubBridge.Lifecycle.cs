@@ -212,6 +212,15 @@ public sealed partial class SimulationHubBridge
                 try { HealthBaselineFreezeRequested?.Invoke(); }
                 catch (Exception ex) { SimLog.Error("HealthBaselineFreezeRequested subscriber threw", ex); }
             }));
+        // PLC 스캔 생존 heartbeat — 두절 감지의 근거(변화 이벤트가 아니라 스캔 생존).
+        // dispatcher 경유 없이 즉시 — 수신 시각 자체가 데이터라 UI 큐 지연이 끼면 안 된다.
+        hubConnection.On(
+            HubMethod.OnScanHeartbeat,
+            () =>
+            {
+                if (!IsCurrentGeneration(generation)) return;
+                RaiseScanHeartbeat();
+            });
     }
 
     /// <summary>연결 직후 현재 스캔 주기를 hub 에서 pull — "언제 연결되어도" 슬라이더가 Agent 실값과 동기화.</summary>
