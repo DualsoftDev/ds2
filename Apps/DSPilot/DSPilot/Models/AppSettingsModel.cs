@@ -266,6 +266,17 @@ public class CctvSettings
 
     public List<CctvCamera> Cameras { get; set; } = [];
 
+    /// <summary>
+    /// 무조작 일시정지(절전 가드) 사용 여부. 현장 카메라가 LTE 종량 회선으로 RTSP 를 올리는
+    /// 사이트 보호용 — 브라우저 입력이 <see cref="IdlePauseMinutes"/> 동안 없으면 시청을 멈춰
+    /// MediaMTX(sourceOnDemand)가 카메라 RTSP 연결을 닫게 한다. 적용은 클라이언트(cctv-whep.js).
+    /// 탭 숨김 시 정지는 이 설정과 무관하게 항상 동작한다(숨긴 탭의 시청은 항상 낭비).
+    /// </summary>
+    public bool IdlePauseEnabled { get; set; } = true;
+
+    /// <summary>무조작 일시정지까지의 시간(분). 기본 60분.</summary>
+    public int IdlePauseMinutes { get; set; } = 60;
+
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }

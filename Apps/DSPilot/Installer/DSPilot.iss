@@ -62,6 +62,9 @@ Source: "mediamtx\mediamtx.exe"; DestDir: "{app}\mediamtx"; Flags: ignoreversion
 Source: "mediamtx\{#MyMtxServiceExe}"; DestDir: "{app}\mediamtx"; Flags: ignoreversion
 Source: "mediamtx\mediamtx-service.xml"; DestDir: "{app}\mediamtx"; Flags: ignoreversion
 Source: "mediamtx\mediamtx.yml"; DestDir: "{app}\mediamtx"; Flags: onlyifdoesntexist
+; MIT 고지문 — 바이너리 재배포 시 저작권·허가 고지 동봉 의무 (MediaMTX / WinSW)
+Source: "mediamtx\LICENSE"; DestDir: "{app}\mediamtx"; Flags: ignoreversion
+Source: "mediamtx\LICENSE-winsw.txt"; DestDir: "{app}\mediamtx"; Flags: ignoreversion
 ; 초기 AASX 는 인스톨러에 번들하지 않음. Promaker 의 "공유 위치에 저장(DSPilot 동기화)" 메뉴로
 ; 운영 시점에 모델 파일이 생성/갱신됨. 파일이 없을 때 DSPilot 은 빈 상태로 부팅되며
 ; Settings 페이지에 "파일 없음 — Promaker 에서 먼저 저장하세요" 안내가 표시됨.
