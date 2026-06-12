@@ -164,6 +164,111 @@ public sealed class GanttChartControlRenderingTests
         Assert.Equal(107, GanttChartControl.ResolveBarTop(100, 22, 8));
     }
 
+    // ── 동적 재예측 — Work plan 틀 끝을 끝난 자식 Call 의 actual 기준으로 갱신 ──
+
+    private static (GanttTimelineEntry Work, GanttStateSegment Going, GanttTimelineEntry CallA, GanttTimelineEntry CallB, DateTime Start)
+        BuildDynamicPlanFixture()
+    {
+        var start = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Local);
+        var workId = Guid.NewGuid();
+        var work = new GanttTimelineEntry
+        {
+            Id = workId, Name = "W", Kind = EntityKind.Work, BaseDurationMs = 1100   // 자식 합 1000 + 갭 100
+        };
+        var callA = new GanttTimelineEntry
+        {
+            Id = Guid.NewGuid(), Name = "A", Kind = EntityKind.Call, RowKind = GanttRowKind.Call,
+            ParentWorkId = workId, BaseDurationMs = 500
+        };
+        var callB = new GanttTimelineEntry
+        {
+            Id = Guid.NewGuid(), Name = "B", Kind = EntityKind.Call, RowKind = GanttRowKind.Call,
+            ParentWorkId = workId, BaseDurationMs = 500
+        };
+        var going = new GanttStateSegment { State = Status4.Going, StartTime = start };
+        return (work, going, callA, callB, start);
+    }
+
+    [Fact]
+    public void DynamicPlanEnd_anchors_on_completed_child_actual_and_predicts_remainder()
+    {
+        var (work, going, callA, callB, start) = BuildDynamicPlanFixture();
+        // A: 0→520 완료(plan 500 대비 +20ms 지연) — anchor 가 actual 로 이동.
+        callA.Segments.Add(new GanttStateSegment { State = Status4.Going, StartTime = start, EndTime = start.AddMilliseconds(520) });
+
+        var end = GanttChartControl.ResolveDynamicPlanEnd(work, going, [work, callA, callB], start.AddMilliseconds(600));
+
+        // 520(actual) + 500(B plan) + 50(남은 갭 = 100 × 1/2) — 고정 plan(1100)이면 A 의 +20 이 잔차로 남았을 것.
+        Assert.Equal(start.AddMilliseconds(1070), end);
+    }
+
+    [Fact]
+    public void DynamicPlanEnd_uses_in_progress_child_going_start_as_anchor()
+    {
+        var (work, going, callA, callB, start) = BuildDynamicPlanFixture();
+        callA.Segments.Add(new GanttStateSegment { State = Status4.Going, StartTime = start, EndTime = start.AddMilliseconds(520) });
+        callB.Segments.Add(new GanttStateSegment { State = Status4.Going, StartTime = start.AddMilliseconds(530) });   // 진행 중
+
+        var end = GanttChartControl.ResolveDynamicPlanEnd(work, going, [work, callA, callB], start.AddMilliseconds(700));
+
+        // 530(B 시작) + 500(B plan) + 50(남은 갭) = 1080.
+        Assert.Equal(start.AddMilliseconds(1080), end);
+    }
+
+    [Fact]
+    public void DynamicPlanEnd_applies_only_to_in_progress_work_cycle()
+    {
+        // 완료된 사이클에 적용하면 자식 탐색이 최신 사이클의 자식 Going 을 오인해
+        // 과거 틀이 현재까지 늘어나 겹치는 회귀가 있었음 — 닫힌 Going 은 고정 plan.
+        var (work, going, callA, callB, start) = BuildDynamicPlanFixture();
+        going.EndTime = start.AddMilliseconds(1120);   // 완료된 과거 사이클
+        callA.Segments.Add(new GanttStateSegment { State = Status4.Going, StartTime = start.AddMilliseconds(20_000) });   // 최신 사이클 자식
+
+        Assert.Null(GanttChartControl.ResolveDynamicPlanEnd(work, going, [work, callA, callB], start.AddMilliseconds(21_000)));
+    }
+
+    [Fact]
+    public void DynamicPlanEnd_returns_null_without_children_or_child_plans()
+    {
+        var (work, going, callA, _, start) = BuildDynamicPlanFixture();
+
+        Assert.Null(GanttChartControl.ResolveDynamicPlanEnd(work, going, [work], start));   // 자식 없음
+
+        var noPlanChild = new GanttTimelineEntry
+        {
+            Id = Guid.NewGuid(), Name = "N", Kind = EntityKind.Call, RowKind = GanttRowKind.Call,
+            ParentWorkId = work.Id
+        };
+        Assert.Null(GanttChartControl.ResolveDynamicPlanEnd(work, going, [work, callA, noPlanChild], start));
+    }
+
+    [Fact]
+    public void FreezeOpenSegments_closes_only_open_segments_at_blackout_time()
+    {
+        // 통신 blackout — 열린 세그먼트(상태·I/O)는 두절 시각으로 닫혀 "무한 연장" 중단,
+        // 이미 닫힌 세그먼트는 불변.
+        var start = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Local);
+        var chart = new GanttChartState();
+        chart.Reset(start);
+        var workId = Guid.NewGuid();
+        chart.AddEntry(workId, "W", EntityKind.Work);
+        chart.UpdateNodeState(workId, Status4.Going, start.AddMilliseconds(100));   // 열린 Going
+
+        var apiCallId = Guid.NewGuid();
+        chart.AddApiCallEntry(apiCallId, "A", workId, Guid.NewGuid(), outAddress: "%Q1", inAddress: "%I1");
+        chart.UpdateIoState("%Q1", true, start.AddMilliseconds(150));               // 열린 Out high
+
+        var freezeAt = start.AddMilliseconds(2000);
+        chart.FreezeOpenSegments(freezeAt);
+
+        var work = chart.FindEntry(workId)!;
+        Assert.Equal(freezeAt, work.Segments[^1].EndTime);                          // Going 동결
+        Assert.Equal(start.AddMilliseconds(100), work.Segments[^2].EndTime);        // 직전(Ready→닫힘) 불변
+
+        var apiCall = chart.FindEntry(apiCallId)!;
+        Assert.Equal(freezeAt, apiCall.OutSegments[^1].EndTime);                    // I/O 줄도 동결
+    }
+
     [Fact]
     public void TimelineDuration_includes_output_append_tail_without_moving_current_time()
     {

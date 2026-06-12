@@ -136,6 +136,26 @@ public sealed class CallDurationLearningTests
     }
 
     [Fact]
+    public void InvalidateAll_discards_in_flight_measurements_but_keeps_window()
+    {
+        // 통신 blackout — 단절 시간이 포함될 진행 중 측정은 전부 폐기, 누적 샘플(줄자)은 보존.
+        var learning = Create();
+        for (var i = 0; i < 3; i++)
+            Cycle(learning, i * 10_000, 500);
+        learning.OnCallStateChanged(Call, Status4.Going, 30_000);
+        learning.OnWorkStateChanged(ActiveWork, Status4.Going, 30_000);
+
+        learning.InvalidateAll();
+
+        learning.OnCallStateChanged(Call, Status4.Finish, 99_000);          // 단절 시간 포함 — 무시돼야
+        learning.OnWorkStateChanged(ActiveWork, Status4.Finish, 99_000);
+
+        var snapshot = learning.Snapshot();
+        Assert.Equal(500, snapshot[DeviceWork].MaxMs);                       // 69초 샘플 미유입
+        Assert.False(snapshot.ContainsKey(ActiveWork));                      // Work 도 미유입 (표본 0)
+    }
+
+    [Fact]
     public void Sliding_window_keeps_only_recent_samples()
     {
         var learning = Create();

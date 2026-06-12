@@ -110,6 +110,15 @@ internal sealed class CallDurationLearning
     /// <summary>abnormal 이 속한 Work 의 진행 중 사이클 측정 폐기.</summary>
     public void InvalidateWork(Guid workGuid) => _workGoingAtMs.Remove(workGuid);
 
+    /// <summary>통신 blackout(PLC 단절/신호 두절) — 진행 중인 모든 측정 폐기.
+    /// 두절 시간이 포함된 span 이 윈도우에 들어가 기준선을 오염시키지 않게 한다.
+    /// 누적된 윈도우 샘플(학습 줄자)은 보존 — backend 어댑터의 InvalidateObservations 와 동형.</summary>
+    public void InvalidateAll()
+    {
+        _goingAtMs.Clear();
+        _workGoingAtMs.Clear();
+    }
+
     /// <summary>work 별 (중앙값, 하한, 상한) — 표본 <see cref="MinSamples"/> 미만인 work 는 제외.
     /// 경계는 abnormal 판정(Work.Min/MaxDuration)과 간트 plan 틀에 쓰이므로
     /// Max = max(관측max, 중앙값+3σ), Min = max(0, min(관측min, 중앙값−3σ)) — 변동 폭 비례 마진.</summary>

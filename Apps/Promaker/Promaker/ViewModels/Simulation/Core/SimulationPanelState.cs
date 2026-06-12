@@ -256,6 +256,9 @@ public partial class SimulationPanelState : ObservableObject
                 GanttChart.UpdateIoState(address, on, ts);
             }));
         };
+
+        // 통신 blackout 감시 — PLC down/신호 무소식 시 actual 동결 + abnormal 억제 (coast 1단계).
+        InitCommBlackoutWatch();
     }
 
     private bool ShouldAbsorbInitialMonitoringPlcIo(string address, string source)

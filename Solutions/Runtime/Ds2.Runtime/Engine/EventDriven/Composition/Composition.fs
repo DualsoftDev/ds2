@@ -580,6 +580,10 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
         member _.EndStep() =
             lock processGate (fun () ->
                 EngineFlowStep.endStep stepBoundaryContext)
+        member _.InvalidateAbnormalObservations() =
+            match abnormalAdapter with
+            | Some adapter -> adapter.InvalidateObservations()
+            | None -> ()
         member _.ReloadConnections() =
             runExternalMutation (fun () -> EngineFlowStep.reloadConnections reloadContext)
         member _.ReloadDurations() =

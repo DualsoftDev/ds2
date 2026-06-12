@@ -326,6 +326,8 @@ type RemoteSimulationEngine
         // 시계 소유자는 server engine — proxy 는 no-op (server 측 HubSession 이 직접 호출).
         member _.AdvanceSimulationToRealTime() = ()
         member _.EndStep() = send HubMethod.RuntimeEndStep (emptyCmd ())
+        // blackout 처리는 server 측 HubSession 이 자체 수행 (NotifyPlcConnectionAsync) — proxy no-op.
+        member _.InvalidateAbnormalObservations() = ()
 
         // ── 재계산 (명령) ──
         member _.ReloadConnections() = send HubMethod.RuntimeReloadConnections (emptyCmd ())

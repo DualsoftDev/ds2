@@ -18,10 +18,11 @@ internal sealed class HubTagBatchSender : IAsyncDisposable
     /// <summary>한 batch 에 묶이는 최대 tag 수. 초과분은 즉시 다음 batch 로.</summary>
     private const int MaxBatchSize = 200;
     /// <summary>첫 enqueue 후 추가 tag 를 기다리는 최대 시간(ms). 짧을수록 latency↓ batch 효율↓.
-    /// 같은 전이 버스트(한 tick 의 연쇄 쓰기)는 거의 동시에 enqueue 되므로 5ms 로도 묶인다.
-    /// 25ms 였을 때 Control↔VP 가 단계당 왕복 +50ms(양쪽 윈도우) 를 먹어 10단계 직렬 Work 에서
-    /// actual 이 plan 보다 +0.5s 길어 보이는 주범이었음 (간트 plan overlay 로 가시화되며 발견).</summary>
-    private const int MaxWindowMs = 5;
+    /// 0 = 대기 없이 즉시 송신 — 같은 전이 버스트(한 tick 의 연쇄 쓰기, PLC 스캔 변경분)는 거의
+    /// 동시에 enqueue 되어 첫 drain 에서 이미 묶이므로 배치 효율 손실이 거의 없다.
+    /// 25ms 시절 Control↔VP 단계당 왕복 +50ms(actual 이 plan 보다 +0.5s), 5ms 로 줄여도
+    /// 단계 전환 갭의 사이클별 변동(지터)이 plan 잔차의 주성분이라 0 으로 확정.</summary>
+    private const int MaxWindowMs = 0;
 
     private readonly HubConnection _hub;
     private readonly int _generation;
@@ -85,7 +86,7 @@ internal sealed class HubTagBatchSender : IAsyncDisposable
             {
                 DrainAvailable(reader, batch, pendingFlushes);
 
-                if (batch.Count > 0 && batch.Count < MaxBatchSize)
+                if (MaxWindowMs > 0 && batch.Count > 0 && batch.Count < MaxBatchSize)
                 {
                     try { await Task.Delay(MaxWindowMs, ct).ConfigureAwait(false); }
                     catch (OperationCanceledException) { break; }

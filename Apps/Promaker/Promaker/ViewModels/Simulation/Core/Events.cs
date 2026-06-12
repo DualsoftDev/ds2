@@ -75,6 +75,13 @@ public partial class SimulationPanelState
     /// Action* 는 elapsedMs 동반, Sensor* 는 -1. 캔버스 하이라이트 등 상세 UI 는 P6.</summary>
     private void OnAbnormalDetected(AbnormalRecord record)
     {
+        // 통신 blackout — 두절 구간의 abnormal 은 증거가 아니라 신호 부재의 산물 (backend 와 동형 억제).
+        if (_commBlackout)
+        {
+            SimLog.Info($"[CommBlackout] abnormal suppressed: {record.Kind}");
+            return;
+        }
+
         // 학습 오염 차단 — abnormal 사이클의 진행 중 duration 측정은 폐기 (기준선이 비정상을 따라가면 안 됨).
         if (_durationLearning is { } learning)
         {
