@@ -289,6 +289,27 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
         }
     }
 
+    /// <summary>SignalHub.SetAutoCalibrate 의 영속화 훅 — PlcConnection.json 에 자동정합 ON/OFF 저장.
+    /// 스캔주기와 동형. OFF 상태가 재시작 후에도 유지되게 한다.</summary>
+    private void PersistAutoCalibrate(bool on)
+    {
+        try
+        {
+            var session = AgentSession.TryLoad();
+            var plcPath = string.IsNullOrWhiteSpace(session?.PlcConnectionPath)
+                ? SharedPaths.PlcConnectionFilePath
+                : session!.PlcConnectionPath;
+            var settings = PlcConnectionSettings.LoadOrDefault(plcPath);
+            settings.AutoDurationCalibrate = on;
+            if (!settings.TrySave(plcPath))
+                Log.Warn($"PersistAutoCalibrate: TrySave failed ({plcPath}) — live value applied, file not updated.");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("PersistAutoCalibrate threw — live value applied, file not updated.", ex);
+        }
+    }
+
     private async Task TryActivateAsync()
     {
         await _gate.WaitAsync().ConfigureAwait(false);
@@ -417,7 +438,21 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
             // 7) 스캔 주기 라이브 동기화 배선 — hub SetScanIntervalMs 영속화 훅 + 활성 설정 지문 박제.
             //    이후 ConfigChanged 가 "스캔 주기만 변경" 이면 재시작 없이 ApplyScanIntervalLive 경로.
             SignalHub.PersistScanIntervalMs = PersistScanInterval;
+            SignalHub.PersistAutoCalibrate = PersistAutoCalibrate;
             (_appliedConfigFingerprint, _appliedScanIntervalMs) = ComputeConfigFingerprint();
+
+            // 저장된 자동정합 상태로 엔진 초기화 — OFF 영속 복원(정지 시 AASX 반영→OFF 결과 유지).
+            try
+            {
+                var sess = AgentSession.TryLoad();
+                var plcP = string.IsNullOrWhiteSpace(sess?.PlcConnectionPath)
+                    ? SharedPaths.PlcConnectionFilePath : sess!.PlcConnectionPath;
+                var savedAuto = PlcConnectionSettings.LoadOrDefault(plcP).AutoDurationCalibrate;
+                _app.Services.GetRequiredService<IRuntimeHubSession>().SetAutoCalibrate(savedAuto);
+                SignalHub.InitAutoCalibrate(savedAuto);   // hub 캐시도 — DSPilot 연결 직후 pull 정합
+                Log.Info($"AutoCalibrate restored from settings: {savedAuto}");
+            }
+            catch (Exception ex) { Log.Warn("AutoCalibrate restore failed — default ON.", ex); }
 
             Log.Info($"Hub active: {BackendHost.getHubUrl(Port)} — mode={runtimeMode} engine status={engine.Status}");
         }

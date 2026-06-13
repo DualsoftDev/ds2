@@ -79,6 +79,11 @@ public sealed class PlcConnectionSettings
     public byte StationNumber { get; set; } = 0xFF;
     public bool IsUdp { get; set; } = false;
 
+    /// <summary>자동 duration 정합 ON/OFF (모니터링 이상판정 기준 — 실측 학습 vs 모델 확정값).
+    /// 벤더별이 아니라 PLC 공통 정책이라 플랫 필드. 스캔주기와 동형으로 hub 토글 → 영속화.
+    /// 첫 설치 기본 ON(모델값 모름 → 학습부터). 정지 시 "AASX 반영" 선택하면 OFF 로 저장돼 유지된다.</summary>
+    public bool AutoDurationCalibrate { get; set; } = true;
+
     /// <summary>벤더 enum 이름 → 해당 벤더의 마지막 입력값. 빈 dict 로 저장된 옛 파일은
     /// <see cref="EnsureProfiles"/> 가 플랫 필드로부터 채워준다.</summary>
     public Dictionary<string, PlcVendorProfile> Profiles { get; set; } = new();

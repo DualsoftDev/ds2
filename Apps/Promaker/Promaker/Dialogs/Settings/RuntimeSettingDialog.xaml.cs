@@ -68,12 +68,16 @@ public partial class RuntimeSettingDialog : Window
     {
         // IO 매핑이 비어 있으면 사용자에게 즉시 알려준다 — 다이얼로그 안에서도 안내.
         var tagCount = _vm.Simulation.CountAutoImportablePlcAddresses();
-        var dialog = new PlcSettingsDialog(_vm.Simulation.PlcSettings, tagCount)
+        var dialog = new PlcSettingsDialog(_vm.Simulation.PlcSettings, tagCount, _vm.Simulation.AutoDurationCalibrate)
         {
             Owner = this
         };
         if (dialog.ShowDialog() == true)
+        {
+            // 자동 정합 토글 결과 적용 — set 시 OnChanged 가 hub 로 전파(전 인스턴스 동기 + 엔진 적용).
+            _vm.Simulation.AutoDurationCalibrate = dialog.AutoDurationCalibrate;
             UpdatePlcSummary();
+        }
     }
 
     private void UpdatePlcSummary()
