@@ -303,6 +303,26 @@
                                 </div>
                             </div>
 
+                            <!-- 자동 duration 정합 (Agent 동기화) -->
+                            <div class="card">
+                                <div class="card-header">
+                                    <span class="material-icons">tune</span>
+                                    <span>자동 duration 정합</span>
+                                </div>
+                                <div class="card-content">
+                                    <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                                        <input type="checkbox" x-model="autoCalibrate" @change="applyAutoCalibrate()" :disabled="!scanConnected" />
+                                        <span x-text="autoCalibrate ? 'ON (실측 학습 기준)' : 'OFF (모델 확정값 기준)'"></span>
+                                    </label>
+                                    <small class="settings-hint">
+                                        ON: device 동작시간을 실측 학습해 이상판정 기준으로 씁니다(스캔주기 양자화 마진 자동 포함).
+                                        Promaker 정지 시 모델(AASX) 반영을 선택하면 OFF 로 바뀌고 그 확정값으로 판정합니다.
+                                        전 인스턴스 동시 적용.
+                                        <span x-show="!scanConnected"><strong> — 현재 Agent 미연결(모니터링 비활성)이라 변경할 수 없습니다.</strong></span>
+                                    </small>
+                                </div>
+                            </div>
+
                             <!-- 건강 기준선 동결 (Agent 동기화) -->
                             <div class="card">
                                 <div class="card-header">
@@ -646,6 +666,7 @@
                 _conn: null, _toastTimer: null,
                 MAX_K_KEY: 'dspilot-autocal-margin-max-k', // 최대값 계수 k 브라우저 기억 키
                 scanMs: 100, scanConnected: false, // PLC 스캔 주기 (Agent 동기화 — 기본 100ms)
+                autoCalibrate: true, // 자동 duration 정합 ON/OFF (Agent 동기화)
 
                 async init() {
                     this.dark = localStorage.getItem('dspilot-theme') === 'dark';
@@ -654,6 +675,25 @@
                     this.connectSignalR();
                     this.demoStartTicker();
                     this.loadScanInterval();
+                    this.loadAutoCalibrate();
+                },
+
+                // ── 자동 duration 정합 — Agent abnormal 판정 기준(실측 학습 ↔ 모델 확정값) 전환. 전 인스턴스 동기화.
+                async loadAutoCalibrate() {
+                    try {
+                        const d = await this.apiGet('/api/settings/auto-calibrate');
+                        this.autoCalibrate = !!d.on;
+                        this.scanConnected = this.scanConnected || !!d.connected;
+                    } catch (e) { /* 미연결 — scanConnected 가 disable 처리 */ }
+                },
+                async applyAutoCalibrate() {
+                    try {
+                        await this.apiPost('/api/settings/auto-calibrate', { on: !!this.autoCalibrate });
+                        this.showToast(`자동 duration 정합 ${this.autoCalibrate ? 'ON' : 'OFF'}`, 'success');
+                    } catch (e) {
+                        this.showToast('자동 정합 변경 실패 — Agent 연결 상태를 확인하세요.', 'error');
+                        this.loadAutoCalibrate();
+                    }
                 },
 
                 // ── PLC 스캔 주기 — Agent 게이트웨이 라이브 설정. 변경은 재시작 없이 즉시 적용되고
@@ -1010,6 +1050,7 @@
                     conn.on('AutoCalibrationApplied', () => this.load());
                     // PLC 스캔 주기 동기화 — Promaker/다른 클라이언트가 바꾸면 슬라이더 실시간 갱신.
                     conn.on('ScanIntervalChanged', (ms) => { this.scanMs = ms; this.scanConnected = true; });
+                    conn.on('AutoCalibrateChanged', (on) => { this.autoCalibrate = !!on; this.scanConnected = true; });
                     conn.onreconnected(() => { this.rt.connected = true; this.refreshAasxStatus(); });
                     conn.onreconnecting(() => { this.rt.connected = false; });
                     conn.onclose(() => { this.rt.connected = false; });

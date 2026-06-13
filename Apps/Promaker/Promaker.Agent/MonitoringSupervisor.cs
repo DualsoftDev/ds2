@@ -390,11 +390,15 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
             {
                 if (sharedGateway is not null)
                     builder.Services.AddSingleton<IPlcGateway>(sharedGateway);
+                // scanPeriodMs — abnormal 어댑터의 폴링 양자화 마진(±스캔) 산정용. 현재 적용 스캔주기,
+                // 미상이면 100. (라이브 스캔주기 변경 시 정밀 동기는 재학습으로 수렴)
+                var scanForMargin = _appliedScanIntervalMs > 0 ? _appliedScanIntervalMs : 100;
                 builder.Services.AddSingleton<IRuntimeHubSession>(sp =>
                     new EventDrivenEngineRuntimeHubSession(
                         engine,
                         sp.GetRequiredService<IHubContext<SignalHub>>(),
-                        identity));
+                        identity,
+                        scanForMargin));
             });
             _engine = engine;
 

@@ -138,6 +138,36 @@ public sealed class HubSubscriberService : BackgroundService
         }
     }
 
+    /// <summary>Agent 의 현재 자동 duration 정합 ON/OFF — OnAutoCalibrateChanged push 로 갱신.</summary>
+    public bool CurrentAutoCalibrate { get; private set; } = true;
+
+    /// <summary>자동 정합 ON/OFF 변경 수신 시 발화 — settings 페이지가 구독해 체크박스 동기화.</summary>
+    public event Action<bool>? AutoCalibrateChanged;
+
+    private void OnHubAutoCalibrateChanged(bool on)
+    {
+        CurrentAutoCalibrate = on;
+        try { AutoCalibrateChanged?.Invoke(on); }
+        catch (Exception ex) { _logger.LogDebug(ex, "[Hub] AutoCalibrateChanged subscriber threw"); }
+    }
+
+    /// <summary>자동 정합 토글 요청 — hub 가 엔진 적용 + 전 클라이언트 broadcast.</summary>
+    public async Task<bool> SetAutoCalibrateAsync(bool on, CancellationToken ct = default)
+    {
+        var conn = _connection;
+        if (conn is null || conn.State != HubConnectionState.Connected) return false;
+        try
+        {
+            await conn.InvokeAsync(HubMethod.SetAutoCalibrate, on, ct);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Hub] SetAutoCalibrate({On}) failed", on);
+            return false;
+        }
+    }
+
     private void OnHubScanIntervalChanged(int ms)
     {
         CurrentScanIntervalMs = ms;
@@ -225,6 +255,8 @@ public sealed class HubSubscriberService : BackgroundService
         _connection.On<AbnormalPayload>(HubMethod.OnAbnormal, OnHubAbnormal);
         // PLC 스캔 주기 동기화 — 어느 클라이언트가 바꿔도 push 수신.
         _connection.On<int>(HubMethod.OnScanIntervalChanged, OnHubScanIntervalChanged);
+        // 자동 duration 정합 ON/OFF 동기화.
+        _connection.On<bool>(HubMethod.OnAutoCalibrateChanged, OnHubAutoCalibrateChanged);
 
         _connection.Reconnecting += ex =>
         {

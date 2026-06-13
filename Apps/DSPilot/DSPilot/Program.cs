@@ -308,6 +308,9 @@ app.MapHub<DSPilot.Hubs.MonitoringHub>("/hubs/monitoring");
     var monitoringHub = app.Services.GetRequiredService<IHubContext<DSPilot.Hubs.MonitoringHub>>();
     hubSubscriber.ScanIntervalChanged += ms =>
         _ = monitoringHub.Clients.All.SendAsync("ScanIntervalChanged", ms);
+    // 자동 duration 정합 ON/OFF 도 동일하게 재방송 — 설정 페이지 체크박스 실시간 동기화.
+    hubSubscriber.AutoCalibrateChanged += on =>
+        _ = monitoringHub.Clients.All.SendAsync("AutoCalibrateChanged", on);
 }
 
 app.Run();

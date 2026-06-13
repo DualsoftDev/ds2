@@ -260,6 +260,21 @@ public sealed partial class SimulationHubBridge : ObservableObject
     /// (발신은 DSPilot 설정 페이지 → hub FreezeHealthBaseline — Promaker 리본 버튼은 제거됨.)</summary>
     public event Action? HealthBaselineFreezeRequested;
 
+    /// <summary>자동 duration 정합 ON/OFF 동기화 — OnAutoCalibrateChanged 수신 시 발화(현재상태 push).
+    /// 어느 인스턴스가 토글하든 양쪽 체크박스가 같은 값. SimulationPanelState 가 구독.</summary>
+    public event Action<bool>? AutoCalibrateChanged;
+
+    /// <summary>자동 정합 토글 요청 — hub 가 엔진 적용 + 전 인스턴스 broadcast. 미연결이면 false.</summary>
+    public bool TrySetAutoCalibrate(bool on)
+    {
+        var hub = _hubConnection;
+        if (hub is null || hub.State != HubConnectionState.Connected) return false;
+        _ = hub.InvokeAsync(HubMethod.SetAutoCalibrate, on)
+            .ContinueWith(t => SimLog.Warn($"SetAutoCalibrate invoke failed: {t.Exception?.GetBaseException().Message}"),
+                TaskContinuationOptions.OnlyOnFaulted);
+        return true;
+    }
+
     /// <summary>PLC 스캔 생존 heartbeat(~1s) 수신 시 발화 — 태그 변화가 없어도 통신이 살아 있다는 증거.
     /// SimulationPanelState 의 통신 두절 감지가 구독 — "무변화 침묵"(실 PLC 정상)을 두절로 오판하지 않게 한다.
     /// TestSignalBlocked(통신 차단 토글) 중에는 발화하지 않는다 — 토글이 두절 재현이 되려면 heartbeat 도 막혀야 한다.</summary>

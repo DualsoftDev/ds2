@@ -150,6 +150,7 @@ type NullRuntimeHubSession() =
         member _.GetIOMapProjectionAsync envelope =
             Task.FromResult(RuntimeHubDefaults.emptyIOMapProjection envelope)
         member _.NotifyPlcConnectionAsync _ = Task.CompletedTask
+        member _.SetAutoCalibrate _ = ()
 
 /// PlcScanService 가 외부 PLC 변화 → 모든 클라이언트로 OnTagChanged 송출 시 사용하는 broadcaster.
 /// SignalHub 인스턴스는 connection 단위로 transient 라 broadcaster 만 별도 DI 로 노출.
@@ -264,6 +265,13 @@ and SignalHub(gateway: IPlcGateway, runtimeSession: IRuntimeHubSession) =
             with ex -> log.Warn($"PersistScanIntervalMs threw: {ex.Message}")
         log.Info($"Scan interval set to {clamped}ms (live, requested={ms})")
         this.Clients.All.SendAsync(HubMethod.OnScanIntervalChanged, clamped)
+
+    /// 자동 duration 정합 ON/OFF — server engine(abnormal 어댑터)에 즉시 적용 + 전 클라이언트 동기화.
+    /// ON=실측 학습값 기준 판정, OFF=모델(AASX 확정값) 기준. 정지 시 "AASX 반영" 선택하면 OFF 로 전환.
+    member this.SetAutoCalibrate(on: bool) : Task =
+        runtimeSession.SetAutoCalibrate(on)
+        log.Info($"AutoCalibrate set to {on} (live, broadcasting)")
+        this.Clients.All.SendAsync(HubMethod.OnAutoCalibrateChanged, on)
 
     /// 건강 기준선 수동 동결 — 상태 없는 릴레이. duration 학습/기준선은 각 클라이언트(Promaker 등)가
     /// 들고 있으므로 hub 는 동결 명령을 전 클라이언트에 fan-out 만 한다 (스캔 주기 동기화 패턴과 동형).

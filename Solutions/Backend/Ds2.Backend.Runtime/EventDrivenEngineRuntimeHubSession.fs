@@ -19,7 +19,10 @@ open Ds2.Runtime.IO
 type EventDrivenEngineRuntimeHubSession
     ( engine: ISimulationEngine,
       hub: IHubContext<SignalHub>,
-      identity: RuntimeSessionIdentity ) =
+      identity: RuntimeSessionIdentity,
+      // 폴링 양자화 마진(±스캔) 산정용 — Monitoring abnormal 어댑터의 DeviceDurationLearner 로 전달.
+      // C# 상호운용 위해 필수 인자(F# optional ctor param 은 C# 호출이 까다로움). 미상이면 호출부가 100 명시.
+      scanPeriodMs: int ) =
 
     // ── 변환 헬퍼 ───────────────────────────────────────────────
     let gs (g: Guid) = g.ToString()
@@ -211,7 +214,7 @@ type EventDrivenEngineRuntimeHubSession
         if runtimeMode = RuntimeMode.Monitoring then
             // SensorOpen 판정용 Call state — passive inference 가 engine 에 Force 한 현재 상태를 읽는다.
             let getCallStateForOpen g = match engine.GetCallState(g) with Some s -> s | None -> Status4.Ready
-            let ab = MonitoringAbnormalAdapter(engine.Index, engine.IOMap, getCallStateForOpen, (fun () -> DateTime.UtcNow), broadcastAbnormal, 250)
+            let ab = MonitoringAbnormalAdapter(engine.Index, engine.IOMap, getCallStateForOpen, (fun () -> DateTime.UtcNow), broadcastAbnormal, 250, scanPeriodMs)
             // 자동 줄자 학습 확정 → client(Promaker)로 push. 정지 시 "업데이트" 선택하면 모델 dirty 반영.
             ab.OnLearnedDuration <- (fun workGuid avg minMs maxMs ->
                 let workName =
@@ -647,3 +650,11 @@ type EventDrivenEngineRuntimeHubSession
                         lock abnormalDedupLock (fun () -> abnormalLastEmitted <- Map.empty)
                         passiveLog.Warn($"[CommBlackout] PLC down ({status.Name}: {status.LastError}) — abnormal suppressed, observations invalidated"))
             Task.CompletedTask
+
+        member _.SetAutoCalibrate(on: bool) =
+            match monitoringAbnormal with
+            | Some ab ->
+                ab.AutoCalibrate <- on
+                let mode = if on then "ON (실측 학습 기준)" else "OFF (모델 확정값 기준)"
+                passiveLog.Info($"[AutoCalibrate] {mode}")
+            | None -> ()

@@ -212,6 +212,15 @@ public sealed partial class SimulationHubBridge
                 try { HealthBaselineFreezeRequested?.Invoke(); }
                 catch (Exception ex) { SimLog.Error("HealthBaselineFreezeRequested subscriber threw", ex); }
             }));
+        // 자동 duration 정합 ON/OFF 동기화 — 어느 인스턴스가 토글하든 양쪽 체크박스 일치.
+        hubConnection.On<bool>(
+            HubMethod.OnAutoCalibrateChanged,
+            on => _dispatcher.BeginInvoke(() =>
+            {
+                if (!IsCurrentGeneration(generation)) return;
+                try { AutoCalibrateChanged?.Invoke(on); }
+                catch (Exception ex) { SimLog.Error("AutoCalibrateChanged subscriber threw", ex); }
+            }));
         // PLC 스캔 생존 heartbeat — 두절 감지의 근거(변화 이벤트가 아니라 스캔 생존).
         // dispatcher 경유 없이 즉시 — 수신 시각 자체가 데이터라 UI 큐 지연이 끼면 안 된다.
         hubConnection.On(

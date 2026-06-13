@@ -41,6 +41,12 @@ module HubMethod =
     /// 이 heartbeat 기준이어야 한다(실 PLC 는 무변화 침묵 수 초가 정상 — 오판 차단).
     [<Literal>]
     let OnScanHeartbeat = "OnScanHeartbeat"
+    /// 자동 duration 정합 ON/OFF — Client → Server invoke. server 가 엔진(abnormal 어댑터)에 적용 +
+    /// OnAutoCalibrateChanged 전 클라이언트 fan-out (스캔주기 패턴 동형). ON=실측학습 기준, OFF=모델 기준.
+    [<Literal>]
+    let SetAutoCalibrate = "SetAutoCalibrate"
+    [<Literal>]
+    let OnAutoCalibrateChanged = "OnAutoCalibrateChanged"
     /// 건강 기준선 수동 동결 — Client → Server invoke. hub 는 상태 없는 릴레이로
     /// OnHealthBaselineFreeze 를 전 클라이언트에 fan-out 한다 (스캔 주기 패턴과 동형).
     [<Literal>]
@@ -634,3 +640,6 @@ type IRuntimeHubSession =
     /// SignalHubBroadcaster 가 SignalR fan-out *전에* in-proc 으로 호출해, 엔진이 클라이언트보다
     /// 먼저 통신 blackout(이상감지 억제 + 관측 무효화)에 진입할 수 있게 한다.
     abstract member NotifyPlcConnectionAsync : PlcConnectionStatus -> Task
+    /// 자동 duration 정합 ON/OFF 적용 — Monitoring abnormal 어댑터의 학습/모델 판정 기준 전환.
+    /// 엔진 없는 세션은 no-op. server-origin(클라이언트 토글 → SignalHub → 여기)이라 envelope 없음.
+    abstract member SetAutoCalibrate : bool -> unit
