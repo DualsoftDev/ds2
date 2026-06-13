@@ -250,6 +250,18 @@ public sealed partial class SimulationHubBridge
             // idle host / 구버전 hub 등 — 동기화 실패는 치명적이지 않음.
             SimLog.Debug($"GetScanIntervalMs failed (non-fatal): {ex.Message}");
         }
+        // 자동정합 상태도 같이 pull — Agent SSOT(PlcConnection.json) 기준으로 체크박스 초기 동기.
+        try
+        {
+            var on = await hubConnection.InvokeAsync<bool>("GetAutoCalibrate");
+            _ = _dispatcher.BeginInvoke(() =>
+            {
+                if (!IsCurrentConnection(generation, hubConnection)) return;
+                try { AutoCalibrateChanged?.Invoke(on); }
+                catch (Exception ex) { SimLog.Error("AutoCalibrateChanged subscriber threw", ex); }
+            });
+        }
+        catch (Exception ex) { SimLog.Debug($"GetAutoCalibrate failed (non-fatal): {ex.Message}"); }
     }
 
     private void OnPlcConnectionStatus(int generation, PlcConnectionStatus status)

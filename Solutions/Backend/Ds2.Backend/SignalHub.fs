@@ -221,6 +221,14 @@ and SignalHub(gateway: IPlcGateway, runtimeSession: IRuntimeHubSession) =
     /// PlcScanService 의 PLC→Hub broadcast 는 영향 없음 (broadcaster 가 직접 SendAsync).
     static let mutable readOnlyMode = false
 
+    /// 자동 duration 정합 현재 상태 캐시 — 클라이언트(DSPilot)가 연결 직후 GetAutoCalibrate 로 pull.
+    /// SetAutoCalibrate(토글) + InitAutoCalibrate(Agent 시작 시 저장값 복원)가 갱신. SSOT 는 엔진이지만
+    /// hub 가 캐시를 둬 신규 클라이언트가 broadcast 를 놓쳐도 일관된 현재값을 받게 한다(스캔주기와 동형).
+    static let mutable autoCalibrateState = true
+
+    /// Agent 시작 시 저장값(PlcConnection.json)으로 hub 캐시 초기화 — broadcast 없이 캐시만.
+    static member InitAutoCalibrate(on: bool) = autoCalibrateState <- on
+
     static member ClearTagCache() =
         tagCache.Clear()
         plcStatusCache.Clear()
@@ -242,6 +250,10 @@ and SignalHub(gateway: IPlcGateway, runtimeSession: IRuntimeHubSession) =
     /// 스캔 주기 영속화 훅 — 호스트(Promaker.Agent 등)가 PlcConnection.json 기록 람다를 주입.
     /// null 이면 라이브 적용만 (재시작 시 파일값으로 복귀). readOnlyMode 와 무관 — 설정이지 태그 쓰기가 아님.
     static member val PersistScanIntervalMs : Action<int> = null with get, set
+
+    /// 자동 duration 정합 ON/OFF 영속화 훅 — 스캔주기와 동형. 호스트가 PlcConnection.json 기록 람다 주입.
+    /// OFF 상태가 재시작 후에도 유지되게 한다(정지 시 AASX 반영→OFF 의 결과 보존).
+    static member val PersistAutoCalibrate : Action<bool> = null with get, set
 
     /// 현재 유효 스캔 주기(ms) — override 우선, 없으면 config 의 최소 주기.
     member _.GetScanIntervalMs() : Task<int> =
@@ -268,9 +280,17 @@ and SignalHub(gateway: IPlcGateway, runtimeSession: IRuntimeHubSession) =
 
     /// 자동 duration 정합 ON/OFF — server engine(abnormal 어댑터)에 즉시 적용 + 전 클라이언트 동기화.
     /// ON=실측 학습값 기준 판정, OFF=모델(AASX 확정값) 기준. 정지 시 "AASX 반영" 선택하면 OFF 로 전환.
+    /// 현재 자동 duration 정합 상태 — 클라이언트 연결 직후 pull(스캔주기 GetScanIntervalMs 동형).
+    member _.GetAutoCalibrate() : Task<bool> = Task.FromResult autoCalibrateState
+
     member this.SetAutoCalibrate(on: bool) : Task =
+        autoCalibrateState <- on
         runtimeSession.SetAutoCalibrate(on)
-        log.Info($"AutoCalibrate set to {on} (live, broadcasting)")
+        let persist = SignalHub.PersistAutoCalibrate
+        if not (isNull persist) then
+            try persist.Invoke(on)
+            with ex -> log.Warn($"PersistAutoCalibrate threw: {ex.Message}")
+        log.Info($"AutoCalibrate set to {on} (live, broadcasting + persisted)")
         this.Clients.All.SendAsync(HubMethod.OnAutoCalibrateChanged, on)
 
     /// 건강 기준선 수동 동결 — 상태 없는 릴레이. duration 학습/기준선은 각 클라이언트(Promaker 등)가

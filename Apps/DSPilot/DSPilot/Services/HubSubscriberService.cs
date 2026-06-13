@@ -181,6 +181,21 @@ public sealed class HubSubscriberService : BackgroundService
         var ms = await GetScanIntervalMsAsync();
         if (ms.HasValue)
             OnHubScanIntervalChanged(ms.Value);
+        await SyncAutoCalibrateAsync();
+    }
+
+    /// <summary>연결/재연결 직후 Agent 의 현재 자동정합 상태 pull — 설정 페이지 체크박스 초기 동기.
+    /// (PlcConnection.json SSOT 는 Agent 가 들고, DSPilot 은 hub pull/push 로만 동기 — 파일 직접 안 봄.)</summary>
+    private async Task SyncAutoCalibrateAsync()
+    {
+        var conn = _connection;
+        if (conn is null || conn.State != HubConnectionState.Connected) return;
+        try
+        {
+            var on = await conn.InvokeAsync<bool>("GetAutoCalibrate");
+            OnHubAutoCalibrateChanged(on);
+        }
+        catch (Exception ex) { _logger.LogDebug(ex, "[Hub] GetAutoCalibrate failed"); }
     }
 
     private void RaiseStatusChanged()

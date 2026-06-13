@@ -123,6 +123,15 @@
                                Text="{Binding ElementName=ScanSlider, Path=Value, StringFormat={}{0:0} ms}"/>
                 </Grid>
 
+                <!-- 자동 duration 정합 — 스캔주기와 한 묶음(양자화 마진이 스캔주기 비례). ON: device 동작시간을
+                     실측 학습해 이상판정 기준으로(모델 설계/시뮬값 안 믿음). 정지 시 모델(AASX) 반영을 묻고,
+                     반영하면 OFF 로 바뀌어 그 확정값으로 판정. OFF 에서 특정 device 가 이상하면 Min/Max 직접 수정. -->
+                <CheckBox x:Name="AutoCalibrateBox" Margin="0,0,0,12"
+                          Content="자동 duration 정합 (실측 학습 — 끄면 모델 확정값으로 판정)"
+                          Foreground="{DynamicResource PrimaryTextBrush}"
+                          VerticalAlignment="Center"
+                          ToolTip="ON: device OUT→IN 동작시간을 실측 학습해 이상(ActionUnder/Over) 판정 기준으로 씁니다. 스캔주기 양자화 마진이 자동 포함됩니다. 모니터링 정지 시 '모델(AASX)에 반영?'을 묻고, 반영하면 OFF 로 전환되어 그 확정값으로 판정합니다."/>
+
                 <!-- LS 전용 -->
                 <Grid x:Name="LsOnlyPanel" Margin="0,0,0,12">
                     <Grid.ColumnDefinitions>

@@ -25,10 +25,17 @@ public partial class PlcSettingsDialog : Window
     /// <summary>다이얼로그 수명 동안 벤더 토글로 옮겨 다니는 작업본. Apply 에서만 VM 으로 commit.</summary>
     private readonly Dictionary<string, PromakerShared.PlcVendorProfile> _workingProfiles;
 
-    public PlcSettingsDialog(PlcSettings settings, int? autoImportedTagCount = null)
+    /// <summary>다이얼로그 결과 — 자동 duration 정합 체크 상태. 호출자가 닫힌 후 SimulationPanelState 에 적용
+    /// (hub 전파). PlcSettings(연결) 와 별개 축이라 VM 에 안 섞고 결과 property 로 노출한다.</summary>
+    public bool AutoDurationCalibrate { get; private set; }
+
+    public PlcSettingsDialog(PlcSettings settings, int? autoImportedTagCount = null, bool autoCalibrate = true)
     {
         _vm = settings;
         InitializeComponent();
+
+        AutoDurationCalibrate = autoCalibrate;
+        AutoCalibrateBox.IsChecked = autoCalibrate;
 
         // VM 의 벤더 프로파일을 복사 — Cancel 시 영향 없도록 작업본을 따로 관리.
         _workingProfiles = new Dictionary<string, PromakerShared.PlcVendorProfile>(
@@ -200,6 +207,9 @@ public partial class PlcSettingsDialog : Window
 
         // 다음 실행 시에도 같은 값이 채워지도록 영속화.
         _vm.Save();
+
+        // 자동 정합 토글 결과 — 호출자가 SimulationPanelState 에 반영(hub 전파). PlcSettings 와 별개 축.
+        AutoDurationCalibrate = AutoCalibrateBox.IsChecked == true;
 
         DialogResult = true;
         Close();
