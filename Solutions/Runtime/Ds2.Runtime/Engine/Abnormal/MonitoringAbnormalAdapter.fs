@@ -26,11 +26,22 @@ open Ds2.Runtime.Engine.Core
 /// v12 자동 줄자(학습) — device Work 별 OUT→IN 실측 elapsed(ms)를 minSamples 사이클 모아
 /// widened [Min,Max] + avg 를 산출한다. 모델 duration 은 참고/dead-reckoning 값일 뿐
 /// 실설비와 안 맞으므로 Under/Over 줄자로 쓰지 않고, 관측 실측에서 줄자를 만든다.
-///   band = avg ± max(k·σ, avg·floorRatio). 표본이 적어 σ 만으로는 band 가 0 으로 붕괴하는 것 방지.
-///   Min 은 0 하한(음수 금지). 학습 전(샘플 < minSamples)엔 TryGetRange = None → 판정 보류.
-type DeviceDurationLearner(minSamples: int, k: float, floorRatio: float) =
+///   band = avg ± (avg·marginRatio + scanPeriodMs·quantFactor).
+///   · avg·marginRatio(기본 5%) = 공정 자연변동 비례 여유.
+///   · scanPeriodMs·quantFactor(기본 1.5스캔) = **폴링 양자화 흡수**. 실 PLC 는 스캔주기(P) 격자로만
+///     OUT/IN 을 관측하므로 일정한 동작도 관측 elapsed 가 ±1스캔 흔들린다(실기: 386ms 동작이 100ms
+///     폴링에서 300/400 두 봉우리=가짜 bimodal). 이 항이 그 ±스캔을 정상 범위로 흡수 → 양자화 오탐 제거.
+///     스캔주기를 바꾸면 마진이 자동 추종(값 재저장 불필요). σ 항은 제거 — 폴링 환경 변동의 대부분이
+///     양자화라 scanPeriod 항이 덮는다(2026-06-13 양버전 28h+22h 실측 규명, 사용자 확정 설계).
+///   Min 은 0 하한. 학습 전(샘플 < minSamples)엔 TryGetRange = None → 판정 보류.
+type DeviceDurationLearner(minSamples: int, marginRatio: float, scanPeriodMs: int, quantFactor: float) =
     let samples = Dictionary<Guid, ResizeArray<int>>()
     let learned = Dictionary<Guid, RxTimingRange * int>()   // workGuid → (range, avg ms)
+
+    /// avg(중앙 추정) → 마진식 적용 range. 학습 확정/외부 prime 공용.
+    let rangeOf (avg: float) =
+        let margin = avg * marginRatio + float scanPeriodMs * quantFactor
+        { MinMs = max 0 (int (avg - margin)); MaxMs = int (avg + margin) }
 
     member _.HasLearned(workGuid: Guid) = learned.ContainsKey workGuid
 
@@ -38,6 +49,11 @@ type DeviceDurationLearner(minSamples: int, k: float, floorRatio: float) =
         match learned.TryGetValue workGuid with
         | true, (r, _) -> Some r
         | _ -> None
+
+    /// AASX 확정값(avg) 으로 학습을 미리 채운다 — 다음 세션 재학습 없이 첫 사이클부터 판정.
+    /// range 는 *현재* 스캔주기 마진식으로 재계산되므로 스캔주기 변경에도 정합.
+    member _.Prime(workGuid: Guid, avgMs: int) =
+        if avgMs > 0 then learned.[workGuid] <- (rangeOf (float avgMs), avgMs)
 
     /// elapsed(ms) 샘플 추가. 이번 호출로 학습이 *확정*되면 Some(range, avg), 아니면 None.
     member _.Observe(workGuid: Guid, elapsedMs: int) : (RxTimingRange * int) option =
@@ -49,12 +65,8 @@ type DeviceDurationLearner(minSamples: int, k: float, floorRatio: float) =
                 | _ -> let a = ResizeArray<int>() in samples.[workGuid] <- a; a
             arr.Add elapsedMs
             if arr.Count >= minSamples then
-                let n = float arr.Count
-                let avg = (arr |> Seq.sumBy float) / n
-                let var = (arr |> Seq.sumBy (fun x -> let d = float x - avg in d * d)) / n
-                let sigma = sqrt var
-                let margin = max (k * sigma) (avg * floorRatio)
-                let range = { MinMs = max 0 (int (avg - margin)); MaxMs = int (avg + margin) }
+                let avg = (arr |> Seq.sumBy float) / float arr.Count
+                let range = rangeOf avg
                 learned.[workGuid] <- (range, int avg)
                 samples.Remove workGuid |> ignore
                 Some(range, int avg)
@@ -70,7 +82,8 @@ type MonitoringAbnormalAdapter
       getCallState: Guid -> Status4,   // SensorOpen 판정용: In falling 시점에 Call 이 Finish(reset 전) 인가.
       nowUtc: unit -> DateTime,
       sink: AbnormalRecord -> unit,
-      minActionUnderElapsedMs: int ) =
+      minActionUnderElapsedMs: int,
+      scanPeriodMs: int ) =          // 폴링 양자화 마진(±스캔) 산정용 — DeviceDurationLearner 로 전달.
 
     let store = index.Store
     let detectorState = AbnormalDetectorState.Empty
@@ -82,11 +95,13 @@ type MonitoringAbnormalAdapter
     // goingClock 부재 + OUT=off(baseline) 조합으로 사이클마다 SensorShort 오판된다(실기).
     let everOutRisingSeen = HashSet<string>(StringComparer.Ordinal)
     let latchPolicy : ILatchPolicy = DefaultLatchPolicy()   // P7 — Sensor 즉시 / Action 5s dedup
-    // 자동 줄자: device 실측 OUT→IN 을 3사이클 학습 → widened band(k=4, floor 30%, Min 0 하한).
+    // 자동 줄자: device 실측 OUT→IN 을 3사이클 학습 → band = avg ± (5% + 스캔주기×1.5).
     // passive Synced 게이트 이후에만 OnObservedIo 가 호출되므로 표본은 수렴 후 값 = 신뢰 가능.
-    let durationLearner = DeviceDurationLearner(3, 4.0, 0.3)
+    let durationLearner = DeviceDurationLearner(3, 0.05, scanPeriodMs, 1.5)
     // 학습 확정 시 (workGuid, avgMs, minMs, maxMs) 통지 — HubSession 이 client(Promaker) broadcast 로 연결.
     let mutable onLearnedCb : Guid -> int -> int -> int -> unit = fun _ _ _ _ -> ()
+    // 자동 duration 정합 ON/OFF (런타임 토글, hub 동기화). mutable let — OnObservedIo 클로저에서 직접 읽음.
+    let mutable autoCalibrate = true
 
     // ApiCall → ApiDef (SensorOpen level-like 판정 + gating 용).
     let apiDefOf (apiCallId: Guid) : ApiDef option =
@@ -115,10 +130,18 @@ type MonitoringAbnormalAdapter
         (not wasActive) && active
 
     new(index: SimIndex, ioMap: SignalIOMap, getCallState: Guid -> Status4, nowUtc: unit -> DateTime, sink: AbnormalRecord -> unit) =
-        MonitoringAbnormalAdapter(index, ioMap, getCallState, nowUtc, sink, 0)
+        MonitoringAbnormalAdapter(index, ioMap, getCallState, nowUtc, sink, 0, 100)
 
     /// 자동 줄자 학습이 확정될 때마다 (workGuid, avgMs, minMs, maxMs) 통지받을 콜백.
     member _.OnLearnedDuration with set (cb: Guid -> int -> int -> int -> unit) = onLearnedCb <- cb
+
+    /// 자동 duration 정합 ON/OFF (런타임 토글, hub 동기화). HubSession 이 갱신.
+    ///   ON  = 실측 학습값(durationLearner)을 ActionUnder 판정 기준으로. 모델 Min/Max 무시.
+    ///   OFF = 모델 WorkDurationRange(AASX 확정값)를 기준으로(ActionOver 와 동일 SSOT). 학습 안 함.
+    member _.AutoCalibrate with get () = autoCalibrate and set v = autoCalibrate <- v
+
+    /// AASX 확정값(Duration=avg)으로 학습기를 prime — 다음 세션 재학습 없이 첫 사이클부터 판정.
+    member _.PrimeLearnedDuration(workGuid: Guid, avgMs: int) = durationLearner.Prime(workGuid, avgMs)
 
     /// PLC scan 으로 관측된 IO 값. OutTag On=going 시작, InTag On=finish.
     member _.OnObservedIo(address: string, value: string, nowMs: int) =
@@ -164,21 +187,28 @@ type MonitoringAbnormalAdapter
                                 // 모델 duration(참고/dead-reckoning)이 아니라 *학습된 실측 줄자* 로 판정한다.
                                 match m.RxWorkGuid with
                                 | Some rxWork ->
-                                    // 실측 누적 → 3사이클 도달 시 학습 확정 + store Work duration 기록(AASX 저장이 소비).
-                                    match durationLearner.Observe(rxWork, elapsed) with
-                                    | Some(range, avg) ->
-                                        // 엔진(Agent) store 즉시 반영 — live dead-reckoning/검출에 사용.
-                                        match Queries.getWork rxWork store with
-                                        | Some w ->
-                                            w.Duration    <- Some(TimeSpan.FromMilliseconds(float avg))
-                                            w.MinDuration <- Some(TimeSpan.FromMilliseconds(float range.MinMs))
-                                            w.MaxDuration <- Some(TimeSpan.FromMilliseconds(float range.MaxMs))
+                                    // 자동 정합 ON 일 때만 실측 학습 — 3사이클 확정 시 store 기록 + client push.
+                                    // OFF 는 모델값을 확정 기준으로 신뢰하므로 학습/덮어쓰기 안 함.
+                                    if autoCalibrate then
+                                        match durationLearner.Observe(rxWork, elapsed) with
+                                        | Some(range, avg) ->
+                                            match Queries.getWork rxWork store with
+                                            | Some w ->
+                                                w.Duration    <- Some(TimeSpan.FromMilliseconds(float avg))
+                                                w.MinDuration <- Some(TimeSpan.FromMilliseconds(float range.MinMs))
+                                                w.MaxDuration <- Some(TimeSpan.FromMilliseconds(float range.MaxMs))
+                                            | None -> ()
+                                            // client(Promaker)로 push — 정지 시 "AASX 반영" 선택 → 모델 dirty.
+                                            onLearnedCb rxWork avg range.MinMs range.MaxMs
                                         | None -> ()
-                                        // client(Promaker)로 push — 정지 시 "업데이트" 선택 → 모델 dirty 반영.
-                                        onLearnedCb rxWork avg range.MinMs range.MaxMs
-                                    | None -> ()
-                                    // 학습 완료 후에만 Under 판정(학습 전엔 보류). Over 는 watchdog(engine) SSOT — change A 유지.
-                                    match durationLearner.TryGetRange rxWork with
+                                    // ActionUnder 판정 range:
+                                    //   ON  = 학습 줄자(durationLearner) — 학습 전엔 None → 보류.
+                                    //   OFF = 모델 WorkDurationRange(AASX 확정값) — ActionOver 와 동일 SSOT(일관).
+                                    // 어느 경우든 range 는 스캔주기 양자화 마진을 이미 포함(ON: 마진식 / OFF: 모델 Min/Max).
+                                    let rangeOpt =
+                                        if autoCalibrate then durationLearner.TryGetRange rxWork
+                                        else index.WorkDurationRange |> Map.tryFind rxWork
+                                    match rangeOpt with
                                     | Some range ->
                                         match Abnormal.classifyExpectedRising range elapsed with
                                         | Some AbnormalKind.ActionUnder when elapsed >= minActionUnderElapsedMs -> emit (Abnormal.actionUnder target elapsed (nowUtc ()))

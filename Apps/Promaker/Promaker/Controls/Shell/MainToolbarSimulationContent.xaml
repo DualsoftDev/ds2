@@ -689,6 +689,17 @@
                           HorizontalAlignment="Center"
                           Foreground="{DynamicResource PrimaryTextBrush}"
                           ToolTip="[테스트] 수신 신호를 무시해 통신 두절을 재현합니다. 해제하면 현재 위치의 신호부터 다시 수신합니다."/>
+                <!-- 자동 duration 정합 — ON: 실측 학습값으로 이상판정(모델값 안 믿음, 첫 설치/미상 기본).
+                     정지 시 "AASX 반영" 선택하면 학습값이 모델에 박히고 OFF 로 전환(이후 모델 확정값 판정).
+                     OFF 에서 특정 device 가 이상하면 모델 Min/Max 를 직접 수정. -->
+                <CheckBox Content="자동 duration 정합"
+                          IsChecked="{Binding Simulation.AutoDurationCalibrate, Mode=TwoWay}"
+                          Visibility="{Binding Simulation.NeedsHubConnection, Converter={StaticResource BoolToVis}}"
+                          FontSize="10"
+                          Margin="0,4,0,0"
+                          HorizontalAlignment="Center"
+                          Foreground="{DynamicResource PrimaryTextBrush}"
+                          ToolTip="ON: device 동작시간을 실측 학습해 이상판정 기준으로 씁니다(스캔주기 양자화 마진 자동 포함). 정지 시 모델(AASX) 반영을 묻고, 반영하면 OFF 로 바뀌어 그 확정값으로 판정합니다."/>
                 <!-- issue #154: Monitoring(실 PLC) 시작 시 DSPilot 자동 오픈 여부 토글. IsAgentDelegationMode 일 때만 노출. -->
                 <CheckBox Content="DsPilot으로 실행"
                           IsChecked="{Binding Simulation.LaunchDspilotOnMonitoring, Mode=TwoWay}"

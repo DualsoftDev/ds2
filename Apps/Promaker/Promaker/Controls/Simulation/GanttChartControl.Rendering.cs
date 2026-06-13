@@ -144,6 +144,10 @@ public partial class GanttChartControl
     private bool _followCurrentTime = true;
     private bool _isAutoScrolling;
 
+    /// 렌더 프레임당 1회 계산하는 X축 origin(=잔존 데이터 시작). 링버퍼 트림으로 앞이 잘리면 전진.
+    /// 모든 막대/눈금/빨간선 X 가 이 기준 — 데이터 없는 앞 빈공간이 안 생긴다(ElapsedText 만 세션 시작 기준).
+    private DateTime _renderOrigin;
+
     private void StartRendering()
     {
         _followCurrentTime = true;
@@ -171,7 +175,8 @@ public partial class GanttChartControl
         if (_viewModel is not { IsRunning: true }) return;
         if (!_followCurrentTime) return;
 
-        double currentTimeX = _viewModel.TotalDuration.TotalSeconds * _viewModel.PixelsPerSecond;
+        // origin(잔존 데이터 시작) 기준 — 빨간선/막대 X 와 동일 좌표계.
+        double currentTimeX = (_viewModel.CurrentTime - _viewModel.RenderStartTime).TotalSeconds * _viewModel.PixelsPerSecond;
         double viewportWidth = TimelineScrollViewer.ViewportWidth;
         if (viewportWidth <= 0) return;
 
@@ -361,6 +366,9 @@ public partial class GanttChartControl
             return;
         }
 
+        // 프레임당 1회 — 모든 X변환/빨간선/스크롤이 이 origin 기준. 링버퍼 트림 시 전진.
+        _renderOrigin = _viewModel.RenderStartTime;
+
         double y = 0;
         double totalSeconds = Math.Max(_viewModel.TimelineDuration.TotalSeconds, 1);
         double totalWidth = totalSeconds * _viewModel.PixelsPerSecond;
@@ -422,7 +430,7 @@ public partial class GanttChartControl
                     {
                         if (ResolvePlanOverlayPart(entry, segment) is not { } plan) continue;
                         if (!firstGoingSkipped) { firstGoingSkipped = true; continue; }   // 합류 사이클 — 시작점이 가짜
-                        double pStartX = (plan.StartTime - _viewModel.StartTime).TotalSeconds * _viewModel.PixelsPerSecond;
+                        double pStartX = (plan.StartTime - _renderOrigin).TotalSeconds * _viewModel.PixelsPerSecond;
                         double pWidth = (plan.EndTime - plan.StartTime).TotalSeconds * _viewModel.PixelsPerSecond;
                         if (pWidth < 1 || pStartX + pWidth < cullLeft || pStartX > cullRight) continue;
                         var planBar = GetOrCreatePlanBar(planBarIdx++);
@@ -464,7 +472,7 @@ public partial class GanttChartControl
                         var planEnd = entry.IsWork
                             ? ResolveDynamicPlanEnd(entry, segment, _viewModel.Entries, _viewModel.CurrentTime) ?? plan.EndTime
                             : plan.EndTime;
-                        double pStartX = (plan.StartTime - _viewModel.StartTime).TotalSeconds * _viewModel.PixelsPerSecond;
+                        double pStartX = (plan.StartTime - _renderOrigin).TotalSeconds * _viewModel.PixelsPerSecond;
                         double pWidth = (planEnd - plan.StartTime).TotalSeconds * _viewModel.PixelsPerSecond;
                         if (pWidth >= 1 && pStartX + pWidth >= cullLeft && pStartX <= cullRight)
                         {
@@ -484,7 +492,7 @@ public partial class GanttChartControl
 
                 foreach (var part in ResolveSegmentRenderParts(entry, segment, segmentEndTime))
                 {
-                    double startX = (part.StartTime - _viewModel.StartTime).TotalSeconds * _viewModel.PixelsPerSecond;
+                    double startX = (part.StartTime - _renderOrigin).TotalSeconds * _viewModel.PixelsPerSecond;
                     double width = (part.EndTime - part.StartTime).TotalSeconds * _viewModel.PixelsPerSecond;
                     if (width < 2) width = 2;
 
@@ -555,7 +563,7 @@ public partial class GanttChartControl
                 var entry = _viewModel.FindEntry(shadow.EntryId);
                 if (entry is null || !entry.IsVisible) continue;
 
-                double startX = (shadow.StartTime - _viewModel.StartTime).TotalSeconds * _viewModel.PixelsPerSecond;
+                double startX = (shadow.StartTime - _renderOrigin).TotalSeconds * _viewModel.PixelsPerSecond;
                 double width = (shadow.EndTime - shadow.StartTime).TotalSeconds * _viewModel.PixelsPerSecond;
                 if (width < 1 || startX + width < cullLeft || startX > cullRight) continue;
 
@@ -590,7 +598,7 @@ public partial class GanttChartControl
         {
             if (!showReady && segment.State == Ds2.Core.Status4.Ready) continue;
             var endTime = segment.EndTime ?? openSegmentEnd;
-            double startX = (segment.StartTime - _viewModel.StartTime).TotalSeconds * _viewModel.PixelsPerSecond;
+            double startX = (segment.StartTime - _renderOrigin).TotalSeconds * _viewModel.PixelsPerSecond;
             double width = (endTime - segment.StartTime).TotalSeconds * _viewModel.PixelsPerSecond;
             if (width < 2) width = 2;
             if (startX + width < cullLeft || startX > cullRight) continue;
@@ -612,7 +620,7 @@ public partial class GanttChartControl
             {
                 var inOn = segment.StartTime;
                 var outputEnd = inOn.AddMilliseconds(entry.OutputAppendMs);
-                double oStartX = (inOn - _viewModel.StartTime).TotalSeconds * _viewModel.PixelsPerSecond;
+                double oStartX = (inOn - _renderOrigin).TotalSeconds * _viewModel.PixelsPerSecond;
                 double oWidth = (outputEnd - inOn).TotalSeconds * _viewModel.PixelsPerSecond;
                 if (oWidth >= 1 && oStartX + oWidth >= cullLeft && oStartX <= cullRight)
                 {
@@ -685,7 +693,7 @@ public partial class GanttChartControl
     private void UpdateCurrentTimeIndicator()
     {
         if (_viewModel == null) return;
-        double x = _viewModel.TotalDuration.TotalSeconds * _viewModel.PixelsPerSecond - TimelineScrollViewer.HorizontalOffset;
+        double x = (_viewModel.CurrentTime - _renderOrigin).TotalSeconds * _viewModel.PixelsPerSecond - TimelineScrollViewer.HorizontalOffset;
         Canvas.SetLeft(CurrentTimeLine, x);
         CurrentTimeLine.Y2 = CurrentTimeOverlay.ActualHeight;
         CurrentTimeLine.Visibility = x >= 0 && x <= CurrentTimeOverlay.ActualWidth

@@ -36,6 +36,16 @@ public partial class SimulationPanelState : ObservableObject
     private CallDurationLearning? _durationLearning;
     // 건강 기준선 동결 + 드리프트 수명 추적 — 학습기의 정상 샘플 스트림(SampleRecorded)을 구독.
     private HealthBaselineTracker? _healthBaseline;
+    // 자동 duration 정합 ON/OFF (hub 동기화). ON=실측 학습 기준 판정, OFF=모델 확정값 기준.
+    // 정지 시 "AASX 반영" Yes → OFF 전환. hub 수신으로 set 할 땐 push 재발 방지(_suppress).
+    [ObservableProperty] private bool _autoDurationCalibrate = true;
+    private bool _suppressAutoCalibratePush;
+
+    partial void OnAutoDurationCalibrateChanged(bool value)
+    {
+        if (_suppressAutoCalibratePush) return;
+        Hub.TrySetAutoCalibrate(value);   // 사용자 토글 → hub → 엔진 적용 + 전 인스턴스 broadcast
+    }
     /// <summary>모델을 dirty(미저장)로 표시 — MainViewModel 이 () => IsDirty=true 로 주입.</summary>
     public Action? MarkDirty { get; set; }
     private readonly Dispatcher _dispatcher;
@@ -229,6 +239,15 @@ public partial class SimulationPanelState : ObservableObject
             if (PlcSettings.ScanIntervalMs == ms) return;
             PlcSettings.ScanIntervalMs = ms;
             AddSimLog($"PLC 스캔 주기 동기화: {ms}ms", LogSeverity.System);
+        };
+        // 자동 duration 정합 ON/OFF 동기화 — 토글/정지반영(OFF)이 양쪽 체크박스에 반영.
+        Hub.AutoCalibrateChanged += on =>
+        {
+            if (AutoDurationCalibrate == on) return;
+            _suppressAutoCalibratePush = true;
+            try { AutoDurationCalibrate = on; }
+            finally { _suppressAutoCalibratePush = false; }
+            AddSimLog($"자동 duration 정합: {(on ? "ON (실측 학습)" : "OFF (모델 확정값)")}", LogSeverity.System);
         };
 
         // 간트 I/O 줄 — Hub 의 실제 Tag(Out·In) 변화를 ApiCall I/O 행 막대로 반영.

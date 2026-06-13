@@ -201,7 +201,30 @@ public class GanttChartState : INotifyPropertyChanged
 
     public TimeSpan TotalDuration => CurrentTime - StartTime;
     public string ElapsedText => TotalDuration.ToString(@"hh\:mm\:ss\.f");
-    public TimeSpan TimelineDuration => GetTimelineEndTime() - StartTime;
+
+    /// <summary>
+    /// 렌더 origin(X축 0 기준) — 링버퍼(MaxSegmentsPerEntry) 트림으로 앞에서 잘려나간 구간을 빼고,
+    /// 잔존하는 가장 오래된 세그먼트 시각부터 그린다. 트림 전(데이터 안 잘림)에는 StartTime 과 같다.
+    /// 이게 없으면 데이터는 앞에서 사라지는데 타임라인 origin 은 0s 고정이라 앞쪽이 빈 채로 스크롤만
+    /// 길어진다(사용자 혼란). 총 가동시간(ElapsedText)은 StartTime(세션 시작) 기준 그대로 — 분리.
+    /// </summary>
+    public DateTime RenderStartTime
+    {
+        get
+        {
+            var origin = DateTime.MaxValue;
+            foreach (var e in Entries)
+            {
+                if (e.Segments.Count == 0) continue;
+                var first = e.Segments[0].StartTime;
+                if (first < origin) origin = first;
+            }
+            // 잔존 최소가 세션 시작보다 뒤면(=앞부분 트림됨) 그 지점부터, 아니면 세션 시작부터.
+            return origin != DateTime.MaxValue && origin > StartTime ? origin : StartTime;
+        }
+    }
+
+    public TimeSpan TimelineDuration => GetTimelineEndTime() - RenderStartTime;
 
     private double _pixelsPerSecond = 50.0;
     public double PixelsPerSecond

@@ -288,14 +288,19 @@ public partial class SimulationPanelState
         var snapshot = System.Linq.Enumerable.ToArray(_learnedDurations);
         _learnedDurations.Clear();
 
-        if (ShouldConfirmLearnedDurations(snapshot))
-        {
-            var ok = Promaker.Dialogs.DialogHelpers.Confirm(
-                System.Windows.Application.Current?.MainWindow,
-                $"학습된 device duration {snapshot.Length}건의 변동 폭이 비정상적으로 큽니다.\n(워밍업 불안정 또는 비정상 사이클 혼입 가능)\n그래도 모델에 반영할까요?",
-                "학습 duration 확인");
-            if (!ok) return;
-        }
+        // 자동 정합 ON + 학습값 있음 → 항상 "AASX 반영?" 묻는다. (이전엔 정상 범위면 조용히 자동
+        // 반영해 다이얼로그가 안 떴고, 체크박스를 끌 기회도 없었음 — 실기 "다이얼로그 안 뜸" 원인.)
+        // 자동 정합 OFF 면 모델 확정값을 이미 기준으로 쓰므로 학습 반영 묻지 않는다.
+        if (!AutoDurationCalibrate) return;
+
+        var unstable = ShouldConfirmLearnedDurations(snapshot)
+            ? "\n(일부 항목의 변동 폭이 큽니다 — 워밍업 불안정/비정상 사이클 혼입 가능)" : "";
+        var apply = Promaker.Dialogs.DialogHelpers.Confirm(
+            System.Windows.Application.Current?.MainWindow,
+            $"학습된 device duration {snapshot.Length}건을 모델(AASX)에 반영할까요?{unstable}\n" +
+            "예: 모델에 기록하고 자동 정합을 끕니다(이후 이 값으로 판정).\n아니오: 반영하지 않고 다음 운전에서 계속 학습합니다.",
+            "duration 정합 반영");
+        if (!apply) return;
 
         var store = _storeProvider();
         var applied = 0;
@@ -313,7 +318,9 @@ public partial class SimulationPanelState
         if (applied > 0)
         {
             MarkDirty?.Invoke();
-            AddSimLog($"학습 duration {applied}건 자동 반영 — 저장하면 파일에 기록됩니다.", LogSeverity.System);
+            // 반영 = 모델 확정값으로 전환 → 자동 정합 OFF (hub 동기화로 Agent 판정도 모델 기준).
+            AutoDurationCalibrate = false;
+            AddSimLog($"duration {applied}건 모델 반영 + 자동 정합 OFF — 저장하면 파일에 기록됩니다.", LogSeverity.System);
         }
     }
 

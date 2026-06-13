@@ -582,9 +582,24 @@ module MonitoringAdapterTests =
     [<Fact>]
     let ``elapsed below Min is ActionUnder`` () =
         let adapter, emitted, _, _, _ = setup ()
-        // 자동 줄자: 정상 ~500ms 3사이클로 학습(min≈350) → 100ms 는 학습 min 아래 → ActionUnder.
+        // 자동 줄자: 정상 ~500ms 3사이클로 학습(Min = 500 - (500*0.05 + 100*1.5) = 325) → 100 < 325 → ActionUnder.
         for _ in 1..3 do goingThenFinish adapter 0 500
         emitted.Clear()
+        goingThenFinish adapter 0 100
+        Assert.Single(emitted) |> ignore
+        Assert.Equal(AbnormalKind.ActionUnder, emitted.[0].Kind)
+
+    // 자동 정합 OFF — 학습 줄자 무시, 모델 WorkDurationRange(setup: Min 250) 기준 판정.
+    // ON 이면 ~500 학습 → Min 325 라 300ms 가 Under 였겠지만, OFF 는 모델 Min 250 기준 → 300 정상.
+    // (모델 확정값을 신뢰하는 모드 — 양자화 빠른값이 학습 경계에 걸리던 오탐을 끄는 경로.)
+    [<Fact>]
+    let ``autoCalibrate OFF judges by model range not learned`` () =
+        let adapter, emitted, _, _, _ = setup ()
+        adapter.AutoCalibrate <- false
+        // 300ms — 모델 Min(250) 위라 정상. (학습 모드였으면 Min 325 라 Under)
+        goingThenFinish adapter 0 300
+        Assert.Empty(emitted)
+        // 100ms — 모델 Min(250) 아래 → 모델 기준 ActionUnder (학습 아님).
         goingThenFinish adapter 0 100
         Assert.Single(emitted) |> ignore
         Assert.Equal(AbnormalKind.ActionUnder, emitted.[0].Kind)
@@ -925,7 +940,7 @@ module DeviceControlCycleTests =
               ModelHash = "test-model"
               Generation = 1
               Mode = "Monitoring" }
-        let session = EventDrivenEngineRuntimeHubSession(engine, NullSignalHubContext(), identity)
+        let session = EventDrivenEngineRuntimeHubSession(engine, NullSignalHubContext(), identity, 100)
         let command : RuntimeIOAddressBatchCommand =
             { Envelope = RuntimeHubDefaults.selfEnvelope identity
               Items =

@@ -94,6 +94,23 @@ public class SettingsController : ControllerBase
         return Ok();
     }
 
+    // ── 자동 duration 정합 ON/OFF — Agent abnormal 판정 기준 전환(실측 학습 ↔ 모델 확정값) ──
+    [HttpGet("auto-calibrate")]
+    public IActionResult GetAutoCalibrate()
+        => Ok(new { on = _hubSubscriber.CurrentAutoCalibrate, connected = _hubSubscriber.CurrentStatus == Microsoft.AspNetCore.SignalR.Client.HubConnectionState.Connected });
+
+    public sealed class AutoCalibrateRequest { public bool On { get; set; } }
+
+    [HttpPost("auto-calibrate")]
+    public async Task<IActionResult> SetAutoCalibrate([FromBody] AutoCalibrateRequest req)
+    {
+        var ok = await _hubSubscriber.SetAutoCalibrateAsync(req.On);
+        if (!ok)
+            return StatusCode(503, "Agent hub 미연결 — 모니터링이 활성 상태인지 확인하세요.");
+        _logger.LogInformation("Auto-calibrate set to {On} via settings page", req.On);
+        return Ok(new { on = req.On });
+    }
+
     // ── GET: 전체 설정 + 파생 표시값 ──
     [HttpGet]
     public ActionResult<SettingsDto> Get()

@@ -573,6 +573,32 @@ public sealed class GanttChartControlRenderingTests
     }
 
     [Fact]
+    public void RenderStartTime_advances_to_oldest_surviving_segment_after_ringbuffer_trim()
+    {
+        // 링버퍼 트림으로 앞 세그먼트가 잘리면 렌더 origin 도 잔존 최소로 전진 —
+        // 데이터 없는 앞 빈공간 제거. 트림 전엔 StartTime 과 같다.
+        var start = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Local);
+        var chart = new GanttChartState();
+        chart.Reset(start);
+        var id = Guid.NewGuid();
+        chart.AddEntry(id, "W", EntityKind.Work);
+
+        // 트림 전 — origin = StartTime.
+        Assert.Equal(start, chart.RenderStartTime);
+
+        // 세그먼트를 상한 초과로 쌓아 앞부분 트림 유발.
+        for (int i = 1; i <= GanttChartState.MaxSegmentsPerEntry + 50; i++)
+            chart.UpdateNodeState(id, i % 2 == 0 ? Status4.Going : Status4.Finish, start.AddMilliseconds(i * 100));
+
+        var entry = chart.FindEntry(id)!;
+        // origin 은 잔존 최소 세그먼트 시작과 일치하고, StartTime 보다 전진해 있어야 한다.
+        Assert.Equal(entry.Segments[0].StartTime, chart.RenderStartTime);
+        Assert.True(chart.RenderStartTime > start);
+        // 총 가동시간(경과)은 세션 시작 기준 그대로 — origin 전진과 분리.
+        Assert.Equal(chart.CurrentTime - start, chart.TotalDuration);
+    }
+
+    [Fact]
     public void TimelineDuration_includes_output_append_tail_without_moving_current_time()
     {
         var start = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Local);
