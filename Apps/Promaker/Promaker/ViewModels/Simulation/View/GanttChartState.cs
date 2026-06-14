@@ -203,10 +203,13 @@ public class GanttChartState : INotifyPropertyChanged
     public string ElapsedText => TotalDuration.ToString(@"hh\:mm\:ss\.f");
 
     /// <summary>
-    /// 렌더 origin(X축 0 기준) — 링버퍼(MaxSegmentsPerEntry) 트림으로 앞에서 잘려나간 구간을 빼고,
-    /// 잔존하는 가장 오래된 세그먼트 시각부터 그린다. 트림 전(데이터 안 잘림)에는 StartTime 과 같다.
-    /// 이게 없으면 데이터는 앞에서 사라지는데 타임라인 origin 은 0s 고정이라 앞쪽이 빈 채로 스크롤만
-    /// 길어진다(사용자 혼란). 총 가동시간(ElapsedText)은 StartTime(세션 시작) 기준 그대로 — 분리.
+    /// 렌더 origin(X축 0 기준) — 링버퍼(MaxSegmentsPerEntry) 트림으로 앞이 잘려나간 구간을 빼고 그린다.
+    /// 기준은 "실제 PLC 신호가 있는 I/O 행(ApiCall, OutAddress/InAddress 가 실주소)의 가장 오래된
+    /// 실제 신호 세그먼트(OutSegments/InSegments)". Virtual I/O 행(주소 없음 — 추론으로 세그먼트가
+    /// 찍혀도 실제 신호 아님)과 상태 줄(Work/Call — ApiCall 신호에서 파생)은 origin 산정에서 제외한다.
+    /// 이걸 안 거르면 Virtual/한가한 행의 0s placeholder 가 origin 을 영영 0s 로 묶어 활발한 행 앞에
+    /// 빈 공간이 남는다(실기 13h "여전히 0s"). 실신호 세그먼트(Out/In)는 placeholder 가 없어 트림되면
+    /// 그대로 전진. 총 가동시간(ElapsedText)은 StartTime(세션 시작) 기준 — 분리.
     /// </summary>
     public DateTime RenderStartTime
     {
@@ -215,12 +218,12 @@ public class GanttChartState : INotifyPropertyChanged
             var origin = DateTime.MaxValue;
             foreach (var e in Entries)
             {
-                if (e.Segments.Count == 0) continue;
-                var first = e.Segments[0].StartTime;
-                if (first < origin) origin = first;
+                if (!e.IsApiCall) continue;                              // 상태 줄(Work/Call) — 파생, 제외
+                if (e.OutAddress.Length == 0 && e.InAddress.Length == 0) continue;  // Virtual I/O 행 — 제외
+                if (e.OutSegments.Count > 0 && e.OutSegments[0].StartTime < origin) origin = e.OutSegments[0].StartTime;
+                if (e.InSegments.Count > 0 && e.InSegments[0].StartTime < origin) origin = e.InSegments[0].StartTime;
             }
-            // 잔존 최소가 세션 시작보다 뒤면(=앞부분 트림됨) 그 지점부터, 아니면 세션 시작부터.
-            return origin != DateTime.MaxValue && origin > StartTime ? origin : StartTime;
+            return origin == DateTime.MaxValue ? StartTime : origin;
         }
     }
 
