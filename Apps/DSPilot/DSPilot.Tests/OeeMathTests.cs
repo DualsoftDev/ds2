@@ -200,6 +200,22 @@ public class OeeMathTests
         Assert.True(isFail);
     }
 
+    // ── MTBF 고장 판정 = 설비고장(equipment_fault)만 ───────────────────────
+
+    [Theory]
+    [InlineData("equipment_fault", true)]   // 설비고장 = 고장
+    [InlineData("EQUIPMENT_FAULT", true)]   // 대소문자 무시
+    [InlineData("material_wait", false)]    // 자재대기 = 계획외지만 고장 아님
+    [InlineData("operator_wait", false)]    // 작업자대기 = 고장 아님
+    [InlineData("tooling", false)]          // 금형·공구 = 고장 아님(설비고장만 정책)
+    [InlineData("planned_maint", false)]    // 계획정비 = 고장 아님
+    [InlineData("etc", false)]
+    [InlineData(null, false)]               // 미분류 = 고장 아님
+    public void IsFailureReason_only_equipment_fault(string? reasonCode, bool expected)
+    {
+        Assert.Equal(expected, OeeMath.IsFailureReason(reasonCode));
+    }
+
     [Fact]
     public void Classify_over_8h_is_planned_maint_not_failure()
     {
@@ -208,5 +224,43 @@ public class OeeMathTests
         Assert.Equal("planned_maint", rc);
         Assert.Equal("planned", cat);
         Assert.False(isFail); // 8h↑ = 계획정비 → MTBF 분모 제외
+    }
+
+    // ── 사용자 직접 설정 전반 품질 (manual override) ───────────────────────
+
+    [Fact]
+    public void ResolveQuality_manual_override_wins_over_reject_data()
+    {
+        // 불량이 입력돼 있어도(measured) 사용자가 99% 로 직접 설정하면 그 값을 쓴다.
+        var (q, _, source, reject, good) = OeeMath.ResolveQuality(99.0, totalCount: 1000, prodReject: 50, hasReject: true);
+        Assert.Equal(0.99, q!.Value, 10);
+        Assert.Equal("manual", source);
+        Assert.Equal(990, good);   // 1000 × 0.99
+        Assert.Equal(10, reject);  // 1000 − 990
+    }
+
+    [Fact]
+    public void ResolveQuality_null_manual_falls_back_to_compute()
+    {
+        // 미설정(null)이면 불량 입력 기반(measured), 불량 데이터 없으면 가정(assumed).
+        var (q1, _, s1, _, _) = OeeMath.ResolveQuality(null, 700, 7, hasReject: true);
+        Assert.Equal(693.0 / 700.0, q1!.Value, 10);
+        Assert.Equal("measured", s1);
+
+        var (q2, _, s2, _, _) = OeeMath.ResolveQuality(null, 700, 0, hasReject: false);
+        Assert.Equal(1.0, q2);
+        Assert.Equal("assumed", s2);
+    }
+
+    [Fact]
+    public void ResolveQuality_manual_clamps_and_handles_zero_cycles()
+    {
+        var (qHigh, _, _, _, _) = OeeMath.ResolveQuality(150.0, 100, 0, hasReject: false);
+        Assert.Equal(1.0, qHigh); // 150% → clamp 100%
+        var (qZero, _, src, reject, good) = OeeMath.ResolveQuality(95.0, totalCount: 0, prodReject: 0, hasReject: false);
+        Assert.Equal(0.95, qZero!.Value, 10); // 사이클 0 이어도 사용자 설정값은 유효(환산 good/reject 만 null)
+        Assert.Equal("manual", src);
+        Assert.Null(reject);
+        Assert.Null(good);
     }
 }

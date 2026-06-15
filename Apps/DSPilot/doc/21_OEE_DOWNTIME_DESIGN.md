@@ -298,7 +298,20 @@ uptime/OEE 페이지의 OEE 가 idealCT(수동)·reject(수동)에 묶여 사실
   수동=직접 값 입력(자동 미덮음). 모드는 **명시적**으로 백엔드에 전달: `IdealCycleRequest.Mode`(manual/auto/null) +
   `SaveFlowIdealCycleTimesBatch` 가 mode 별 처리 — manual 은 **값이 같아도 source=null 로 수동 잠금**(auto-median 자동 승급
   차단), auto 는 수동값만 비워 churn 없이 자동 관리로 환원. 구 "값 변경 시에만 수동" 휴리스틱 대체.
-- **스코핑 결정**: ① ~~라인/설비 토글 미도입~~ → **6/15 추가됨**(위 ③). uptime OEE 는 여전히 라인 합산 기본(전체)이며 설비 선택 시 per-flow.
-  ② 품질 다이얼로그는 품질%가 정본 UI 이고 내부적으로 불량 **수량**으로 환산해 선택 일자에 저장(기간 총량 기준 환산).
-  "가정(100%) 복귀"는 production 행 삭제 엔드포인트가 없어 미구현(미입력=가정 유지로 안내). ③ by-reason·insight 는
-  서버 이관 대신 **클라 단일 산출 유지**(open 진행분 규칙이 한 곳 — 서버/클라 이중 산출 없음). daily-composition 만 서버 확장.
+- **6/15 UI 후속 3차 — 품질 = 사용자 직접 설정(전역 단순화)**: 기존 "품질%→불량수 환산→선택 일자 production 저장"
+  방식을 폐기하고, **전반 품질(양품률) %를 사용자가 직접 지정하는 전역 오버라이드**로 단순화("이 생산의 전반 불량률은
+  대략 N%"). 저장 = `AppSettingsModel.OeeManual.QualityPercent`(신규 관리 섹션, 0~100, null=해제), `POST /api/oee/quality
+  {qualityPercent?}`. 우선순위 = **manual(전역) ▸ measured(불량 입력) ▸ assumed(100% 가정)** — `OeeMath.ResolveQuality`
+  순수함수 단일 소스(BuildSummary/BuildShiftSummary 공유, 테스트 3건 추가 → 총 25). QualitySource="manual" → KPI 칩 "사용자"+톤.
+  다이얼로그(Q 카드 클릭)는 설비·일자 picker 제거, **품질 % 단일 입력 + [가정으로 되돌리기](=null 해제)**. 전역이라 라인·전 설비·
+  ranking 품질에 동일 적용(설비 선택과 무관). 불량 카운트(production·PLC 폴러)는 measured 폴백으로 잔존.
+- **스코핑 결정**: ① ~~라인/설비 토글 미도입~~ → **6/15 추가됨**. uptime OEE 는 라인 합산 기본(전체)이며 설비 선택 시 per-flow(단, 품질은 전역).
+  ② 품질은 전역 manual 오버라이드(위 3차) — per-flow 품질이 필요해지면 FlowCycleOverride 에 per-flow 품질 추가 + 라인 가중평균이 향후 경로.
+  ③ by-reason·insight 는 서버 이관 대신 **클라 단일 산출 유지**(open 진행분 규칙이 한 곳). daily-composition 만 서버 확장.
+- **6/15 후속 4차 — MTBF '고장' 정의 = 설비고장만**(사용자 선택): 구 규칙 `isFailure=(category=='unplanned')`(계획외 전부=고장 →
+  자재대기·작업자대기까지 MTBF 고장으로 과대계상)을 폐기하고 `isFailure = (reasonCode=='equipment_fault')` 로 변경.
+  **단일 소스 `OeeMath.IsFailureReason`** — Classify/BulkClassify/CauseBit(poller)/ClassifyByDuration(휴리스틱) 공유(3중 복제 제거).
+  **category(계획/계획외)는 그대로** — 자재대기는 여전히 계획외 정지로 가용성(A)·일자스택 '기타'에 반영되지만 MTBF 고장은 아님.
+  고장비트 onset(detectSource='usertag', reasonCode NULL)은 감지기반 isFailure=1 유지(마이그레이션이 reasonCode NULL 은 건드리지 않음).
+  기존 데이터: `OeeRepositoryAdapter.CreateSchemaAsync` 에 **isFailure 재정렬 마이그레이션**(reasonCode 있는 행만, 멱등) 추가 →
+  재시작 시 기존 분류 이벤트가 새 규칙으로 자동 보정. 정의 변경 시 IsFailureReason + 마이그레이션 SQL 두 곳만 맞추면 됨. 테스트 총 33.

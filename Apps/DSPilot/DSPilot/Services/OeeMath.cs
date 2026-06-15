@@ -34,6 +34,28 @@ public static class OeeMath
     }
 
     /// <summary>
+    /// 품질 결정 — 사용자가 직접 설정한 전반 품질(%)이 있으면 그 값을 우선(measured/assumed 폴백 위에 덮음, source="manual").
+    /// 사용자가 "이 생산의 전반적 양품률은 대략 N%" 라고 직접 지정하는 단순 오버라이드(doc/21 §12). 미설정(null)이면
+    /// 불량 입력 기반 <see cref="ComputeQuality"/>(measured) 또는 100% 가정(assumed)으로 폴백. good/reject 는 표시용 환산값.
+    /// </summary>
+    public static (double? Quality, string? Note, string? Source, int? RejectOut, int? GoodOut) ResolveQuality(
+        double? manualQualityPercent, int? totalCount, int prodReject, bool hasReject)
+    {
+        if (manualQualityPercent is double pct)
+        {
+            var q = Math.Clamp(pct / 100.0, 0.0, 1.0);
+            if (totalCount is > 0)
+            {
+                var good = (int)Math.Round(totalCount.Value * q, MidpointRounding.AwayFromZero);
+                good = Math.Clamp(good, 0, totalCount.Value);
+                return (q, "사용자 직접 입력(전반 품질).", "manual", totalCount.Value - good, good);
+            }
+            return (q, "사용자 직접 입력(전반 품질).", "manual", null, null);
+        }
+        return ComputeQuality(totalCount, prodReject, hasReject);
+    }
+
+    /// <summary>
     /// OEE = 가용성 × 성능 × 품질. 한 요소라도 null 이면 산출 불가(null + 사유). 품질이 가정(assumed)이면 노트에 명시.
     /// </summary>
     public static (double? Oee, string? Note) ComputeOee(double? availability, double? performance, double? quality, string? qualitySource)
@@ -73,15 +95,24 @@ public static class OeeMath
     }
 
     /// <summary>
-    /// nocycle clear 시 지속시간 기반 자동 분류(doc/21 §12 E): ≥ 8h → 점검(planned), ≥ 5분 → 고장(unplanned),
-    /// 그 미만 → 미분류 유지(ShouldClassify=false). isFailure = (category == unplanned).
+    /// MTBF '고장' 판정 단일 소스 (2026-06-15 사용자 선택 = "설비고장만"). 진짜 설비 고장(reasonCode='equipment_fault')만
+    /// 고장으로 센다. 자재대기·작업자대기·금형공구·기타는 <b>계획외(unplanned) 정지</b>라 가용성(A)은 깎지만 MTBF 고장은
+    /// 아니다 — isFailure 를 category(계획/계획외)와 분리. Classify/BulkClassify/CauseBit/휴리스틱이 공유.
+    /// (정의 변경 시 여기 한 곳 + OeeRepositoryAdapter 의 isFailure 재정렬 마이그레이션 SQL 만 맞추면 됨.)
+    /// </summary>
+    public static bool IsFailureReason(string? reasonCode)
+        => string.Equals(reasonCode?.Trim(), "equipment_fault", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// nocycle clear 시 지속시간 기반 자동 분류(doc/21 §12 E): ≥ 8h → 점검(planned), ≥ 5분 → 설비고장(unplanned),
+    /// 그 미만 → 미분류 유지(ShouldClassify=false). isFailure 는 <see cref="IsFailureReason"/> 단일 규칙.
     /// </summary>
     public static (string? ReasonCode, string? Category, bool IsFailure, bool ShouldClassify) ClassifyByDuration(double durationMs)
     {
         const double failureMs = 5d * 60 * 1000;
         const double maintMs = 8d * 60 * 60 * 1000;
-        if (durationMs >= maintMs) return ("planned_maint", "planned", false, true);
-        if (durationMs >= failureMs) return ("equipment_fault", "unplanned", true, true);
+        if (durationMs >= maintMs) return ("planned_maint", "planned", IsFailureReason("planned_maint"), true);
+        if (durationMs >= failureMs) return ("equipment_fault", "unplanned", IsFailureReason("equipment_fault"), true);
         return (null, null, false, false);
     }
 }

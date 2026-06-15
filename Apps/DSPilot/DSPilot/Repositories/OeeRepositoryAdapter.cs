@@ -128,6 +128,17 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             // 없음). detectSource(감지 출처)와 의미 구분: 분류가 어떻게 정해졌는지(manual/auto-bit/auto-heuristic/NULL).
             await EnsureColumnAsync(conn, "oeeDowntimeEvent", "classifySource", "TEXT");
 
+            // 2026-06-15: MTBF '고장' 정의를 설비고장(reasonCode='equipment_fault')만으로 변경(OeeMath.IsFailureReason).
+            // 기존 분류 이벤트(reasonCode 있는)의 isFailure 를 새 규칙에 재정렬 — 자재대기·작업자대기 등 비-설비고장을 MTBF에서 제외.
+            // 미분류(reasonCode NULL) / 고장비트 onset(reasonCode NULL, 감지기반 isFailure=1)은 보존. 멱등(불일치 행만 갱신).
+            var realigned = await conn.ExecuteAsync(@"
+                UPDATE oeeDowntimeEvent
+                SET isFailure = CASE WHEN reasonCode = 'equipment_fault' THEN 1 ELSE 0 END
+                WHERE reasonCode IS NOT NULL
+                  AND isFailure <> CASE WHEN reasonCode = 'equipment_fault' THEN 1 ELSE 0 END");
+            if (realigned > 0)
+                _logger.LogInformation("[OEE] isFailure 재정렬(설비고장만): {N}건 — 비-설비고장 분류는 MTBF 고장에서 제외", realigned);
+
             _logger.LogInformation("OEE schema ensured (oeeDowntimeEvent / oeeProductionCount / oeeShiftException) at {Path}", OeeDbPath());
             return true;
         }

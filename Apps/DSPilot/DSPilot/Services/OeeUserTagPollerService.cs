@@ -227,9 +227,11 @@ public sealed class OeeUserTagPollerService : BackgroundService
         var category = string.IsNullOrWhiteSpace(chosen.Category)
             ? UnplannedCategory
             : chosen.Category.Trim().ToLowerInvariant();
-        // OeeController.Classify 와 동일 규칙: isFailure = (category == unplanned). 기본 unplanned → 고장 유지.
-        var isFailure = string.Equals(category, UnplannedCategory, StringComparison.OrdinalIgnoreCase);
-        await repo.ClassifyDowntimeAsync(eventId, chosen.ReasonCode.Trim(), category, isFailure, classifySource: "auto-bit", ct);
+        // OeeController.Classify 와 동일 규칙: isFailure(MTBF 고장) = 설비고장(equipment_fault)만 — OeeMath.IsFailureReason.
+        // category 는 가용성/계획정지 판정용으로 별도 유지(CauseBit.Category).
+        var reasonCode = chosen.ReasonCode.Trim();
+        var isFailure = OeeMath.IsFailureReason(reasonCode);
+        await repo.ClassifyDowntimeAsync(eventId, reasonCode, category, isFailure, classifySource: "auto-bit", ct);
     }
 
     // ── 생산/불량 자동 주입 ────────────────────────────────────────────────
