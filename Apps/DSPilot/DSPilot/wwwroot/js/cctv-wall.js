@@ -24,6 +24,9 @@
     'use strict';
 
     const OVL_SZ_DEFAULT = 32;
+    // 단독(solo) 보기 시 숨은 타일의 WHEP 스트림을 끊기까지의 지연. 빠른 토글에선 끊지 않아 재연결
+    // churn(검은 화면) 을 막고, 한 대만 오래 보면 안 보이는 카메라의 LTE 원본을 절약한다.
+    const SOLO_PAUSE_DELAY_MS = 4000;
 
     // PiP 합성 런타임(canvas/video/timer) — Alpine 반응형 밖(closure) 보관.
     // DOM/Chart 류 객체를 반응형 상태에 넣으면 Proxy 화로 깨지는 전례(histCache 패턴) → 식별자(cctvPipId)만 상태에 둔다.
@@ -55,6 +58,7 @@
                 cctvLoaded: false,
                 _cctvActive: false,
                 _cctvStarted: {},                 // id -> true (WHEP 시작 여부)
+                _cctvSoloPauseTimer: null,        // 단독 보기 시 숨은 타일 일시정지 디바운스 타이머
                 _cctvHealth: {},                  // id -> RTCPeerConnection.connectionState
                 _cctvResizeObs: null,
                 _cctvStateTimer: null,
@@ -75,7 +79,7 @@
                     this.cctvLoadStatus(),
                 ]);
                 this.$nextTick(() => {
-                    this.cctvSyncStreams();
+                    this.cctvApplySoloGating();   // 단독 상태 유지 채로 재진입하면 보이는 한 대만 시작
                     this.cctvSetupObserver();
                     this.cctvRecalcRects();
                 });
@@ -85,6 +89,7 @@
             },
             cctvStop() {
                 this._cctvActive = false;
+                if (this._cctvSoloPauseTimer) { clearTimeout(this._cctvSoloPauseTimer); this._cctvSoloPauseTimer = null; }
                 this.cctvStatusStopPolling();
                 // PiP 작은 창이 떠 있으면 그 카메라의 스트림·상태 폴링(오버레이 상태색)은 유지 — 마무리는 cctvPipStop 이.
                 if (!pipRt) this.cctvStopPolling();
@@ -180,11 +185,30 @@
                 return this.cctvWall.map(id => this.cctvCamById(id)).filter(Boolean);
             },
             cctvGridClass() { return this.cctvSolo ? 'layout-solo' : ('count-' + this.cctvWall.length); },
-            // 단독(확대) ⇄ 분할 토글. 같은 타일을 CSS 로만 확대 → 추가 WHEP 스트림 없음. 타일 크기 변화 → 좌표 재계산.
+            // 단독(확대) ⇄ 분할 토글. 같은 타일을 CSS 로만 확대 → 진입 시 추가 WHEP 스트림 없음. 타일 크기 변화 → 좌표 재계산.
             cctvToggleSolo(id) {
                 this.cctvSolo = (this.cctvSolo === id) ? null : id;
                 this.cctvClearHover();
+                this.cctvApplySoloGating();
                 this.$nextTick(() => this.cctvRecalcRects());
+            },
+            // 단독 보기 ⇄ 분할 전환 시 스트림 게이팅. 분할이면 전 타일 즉시 재개, 단독이면 보이는 한 대만
+            // 두고 나머지는 SOLO_PAUSE_DELAY_MS 뒤 일시정지(끊김 = MediaMTX sourceOnDemand 가 10초 뒤
+            // RTSP 원본까지 닫아 LTE 0). 디바운스로 빠른 토글 churn 방지. PiP 송출 중 카메라는 보던 중이라 제외.
+            cctvApplySoloGating() {
+                if (this._cctvSoloPauseTimer) { clearTimeout(this._cctvSoloPauseTimer); this._cctvSoloPauseTimer = null; }
+                const active = (this.cctvSolo && this.cctvWall.includes(this.cctvSolo)) ? this.cctvSolo : null;
+                if (!active) { this.cctvSyncStreams(); return; }   // 분할 복귀 — 멈췄던 스트림 즉시 재개
+                if (!this._cctvStarted[active]) this.cctvStartStream(active);
+                this._cctvSoloPauseTimer = setTimeout(() => {
+                    this._cctvSoloPauseTimer = null;
+                    if (!(this.cctvSolo === active && this.cctvWall.includes(active))) return;   // 그새 상태 바뀜
+                    for (const id of this.cctvWall) {
+                        if (id === active) continue;
+                        if (pipRt && pipRt.camId === id) continue;   // PiP 작은 창으로 보는 중 — 끊지 않음
+                        if (this._cctvStarted[id]) this.cctvStopStream(id);
+                    }
+                }, SOLO_PAUSE_DELAY_MS);
             },
 
             // ════════ WHEP 스트림 ════════

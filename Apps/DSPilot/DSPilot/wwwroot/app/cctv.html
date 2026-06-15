@@ -836,6 +836,9 @@
         const VALID_LAYOUTS = ['solo', 'auto'];   // 전체 분할(auto) / 단독(solo) 만. 고정 분할 프리셋 폐지(저장된 구값은 restoreLayout 에서 auto 로 마이그레이션).
         const GRID_DIV_MIN = 4, GRID_DIV_MAX = 40, GRID_DIV_DEFAULT = 16;
         const OVL_SZ_MIN = 16, OVL_SZ_MAX = 56, OVL_SZ_DEFAULT = 32;
+        // 단독(solo) 보기 시 숨은 타일의 WHEP 스트림을 끊기까지의 지연. 빠른 토글에선 끊지 않아 재연결
+        // churn(검은 화면) 을 막고, 한 대만 오래 보면 안 보이는 카메라의 LTE 원본을 절약한다.
+        const SOLO_PAUSE_DELAY_MS = 4000;
 
         function cctvApp() {
             // 렌더 캐시(비반응형): overlayCountFor 의 O(n) filter 제거
@@ -859,6 +862,7 @@
                 isFullscreen: false,       // 브라우저 전체화면 여부 — 타일 바(이동/닫기) 숨김 토글
                 _drag: null,               // { kind:'rail'|'tile', id }
                 _wallStarted: {},          // id -> true (WHEP 시작 여부)
+                _soloPauseTimer: null,     // 단독 보기 시 숨은 타일 일시정지 디바운스 타이머
                 streamHealth: {},          // id -> WebRTC connectionState (per-stream 헬스)
                 _wallResizeObs: null,
 
@@ -1039,11 +1043,13 @@
                     }
                     this.layout = l;
                     this.persistLayout();
+                    this.applySoloGating();
                     this.$nextTick(() => this.recalcWallRects());
                 },
                 exitSolo() {
                     this.layout = VALID_LAYOUTS.includes(this._prevLayout) && this._prevLayout !== 'solo' ? this._prevLayout : 'auto';
                     this.persistLayout();
+                    this.applySoloGating();
                     this.$nextTick(() => this.recalcWallRects());
                 },
                 soloCamera(id) {
@@ -1054,7 +1060,8 @@
                     if (this.layout !== 'solo') { this._prevLayout = this.layout; this.layout = 'solo'; }
                     if (this.editTileId && this.editTileId !== id) this.editTileId = null;
                     this.persistLayout();
-                    this.$nextTick(() => this.recalcWallRects());
+                    // 새로 추가된 카메라면 <video> 가 렌더된 뒤에 게이팅해야 startWallStream 이 연결을 잡는다.
+                    this.$nextTick(() => { this.applySoloGating(); this.recalcWallRects(); });
                 },
                 addNextCamera() {
                     const next = this.cameras.find(c => !this.inWall(c.id));
@@ -1070,7 +1077,7 @@
                     this.wall = valid.length > 0 ? valid : this.cameras.slice(0, Math.min(2, this.maxConcurrent)).map(c => c.id);
                     if (this.soloId && !this.inWall(this.soloId)) this.soloId = this.wall[0] || null;
                     this.persistWall();
-                    this.$nextTick(() => { this.syncWallStreams(); this.setupWallObserver(); this.recalcWallRects(); });
+                    this.$nextTick(() => { this.applySoloGating(); this.setupWallObserver(); this.recalcWallRects(); });
                 },
                 persistWall() { try { localStorage.setItem(CCTV_WALL_KEY, JSON.stringify(this.wall)); } catch (e) {} },
 
@@ -1080,7 +1087,8 @@
                     if (this.wall.length >= this.maxConcurrent) { this.showToast('동시 표시는 최대 ' + this.maxConcurrent + '대입니다.', 'error'); return; }
                     this.wall.push(id);
                     this.persistWall();
-                    this.$nextTick(() => { this.startWallStream(id); this.setupWallObserver(); this.recalcWallRects(); });
+                    // 분할이면 새 카메라를 바로 시작, 단독이면 보이지 않으므로 시작하지 않는다(applySoloGating 이 분기).
+                    this.$nextTick(() => { this.applySoloGating(); this.setupWallObserver(); this.recalcWallRects(); });
                 },
                 removeFromWall(id) {
                     if (!this.inWall(id)) return;
@@ -1089,9 +1097,11 @@
                     if (this.editTileId === id) this.editTileId = null;
                     if (this.soloId === id) { this.soloId = this.wall[0] || null; if (this.layout === 'solo' && !this.soloId) this.exitSolo(); }
                     this.persistWall();
+                    this.applySoloGating();   // 단독 대상이 바뀌었으면 새 대상만 남기고 나머지 재게이팅
                     this.$nextTick(() => this.recalcWallRects());
                 },
                 clearWall() {
+                    if (this._soloPauseTimer) { clearTimeout(this._soloPauseTimer); this._soloPauseTimer = null; }
                     for (const id of this.wall.slice()) this.stopWallStream(id);
                     this.wall = [];
                     this.editTileId = null; this.soloId = null;
@@ -1163,6 +1173,21 @@
                     const h = { ...this.streamHealth }; delete h[id]; this.streamHealth = h;
                 },
                 syncWallStreams() { for (const id of this.wall) if (!this._wallStarted[id]) this.startWallStream(id); },
+                // 단독 보기 ⇄ 분할 전환 시 스트림 게이팅. 분할이면 전 타일 즉시 재개, 단독이면 보이는 한 대만
+                // 두고 나머지는 SOLO_PAUSE_DELAY_MS 뒤 일시정지(끊김 = MediaMTX sourceOnDemand 가 10초 뒤
+                // RTSP 원본까지 닫아 LTE 0). 디바운스로 빠른 토글 churn 방지. 오버레이 상태색은 REST 폴링이라 무관.
+                applySoloGating() {
+                    if (this._soloPauseTimer) { clearTimeout(this._soloPauseTimer); this._soloPauseTimer = null; }
+                    const active = (this.layout === 'solo' && this.soloId && this.inWall(this.soloId)) ? this.soloId : null;
+                    if (!active) { this.syncWallStreams(); return; }   // 분할 복귀 — 멈췄던 스트림 즉시 재개
+                    if (!this._wallStarted[active]) this.startWallStream(active);
+                    this._soloPauseTimer = setTimeout(() => {
+                        this._soloPauseTimer = null;
+                        // 디바운스 동안 상태가 바뀌었으면(분할 복귀/대상 변경/제거) 개입하지 않는다.
+                        if (!(this.layout === 'solo' && this.soloId === active && this.inWall(active))) return;
+                        for (const id of this.wall) if (id !== active && this._wallStarted[id]) this.stopWallStream(id);
+                    }, SOLO_PAUSE_DELAY_MS);
+                },
                 streamClass(id) {
                     const st = this.streamHealth[id];
                     if (st === 'connected') return '';
@@ -1779,6 +1804,7 @@
                             r.syncOk ? 'success' : 'error');
                         this.closeCamSettings();
                         // 카메라 집합이 바뀌었으므로 영상벽 구성/상태를 다시 로드한다(스트림 깨끗이 재시작).
+                        if (this._soloPauseTimer) { clearTimeout(this._soloPauseTimer); this._soloPauseTimer = null; }
                         try { window.cctvWhep?.stopAll(); } catch (e) {}
                         this._wallStarted = {}; this.streamHealth = {};
                         await this.loadConfig();
