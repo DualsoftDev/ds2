@@ -17,9 +17,9 @@
 //   · 설정 시간(기본 60분) 무입력(마우스/키/휠/터치) → 일시정지, 입력 감지 시 자동 재생
 //     — 사용여부/시간은 서버 공유 설정(/api/cctv/config 의 idlePause*)을 configureSaver 로 주입
 // 보류는 이 레이어에서 투명하게 처리(세션 명세 보관 후 재협상) — 페이지 앱의 폴링/
-// 오버레이 렌더는 그대로 동작한다. PiP 송출 세션은 "탭 밖 시청"이라 setKeepAlive 로 면제.
+// 오버레이 렌더는 그대로 동작한다.
 window.cctvWhep = (function () {
-    const sessions = {}; // videoId -> { pc, pendingPc, port, name, closed, keepAlive, retryTimer, refreshTimer }
+    const sessions = {}; // videoId -> { pc, pendingPc, port, name, closed, retryTimer, refreshTimer }
 
     const REFRESH_BASE_MS = 3 * 60 * 1000;    // 갱신 주기 하한(3분)
     const REFRESH_JITTER_MS = 2 * 60 * 1000;  // +0~2분 랜덤 — 타일들이 같은 순간에 재협상하지 않게 분산
@@ -183,7 +183,6 @@ window.cctvWhep = (function () {
     function begin(videoId, desc) {
         const session = {
             videoId, port: desc.port, name: desc.name, onState: desc.onState || null,
-            keepAlive: false,
             closed: false, pc: null, pendingPc: null, retryTimer: null, refreshTimer: null,
         };
         sessions[videoId] = session;
@@ -274,7 +273,7 @@ window.cctvWhep = (function () {
 
     function suspendOne(videoId, reason) {
         const session = sessions[videoId];
-        if (!session || session.keepAlive) return;
+        if (!session) return;
         const desc = { port: session.port, name: session.name, onState: session.onState };
         closeSession(videoId);
         suspended[videoId] = desc;
@@ -320,7 +319,7 @@ window.cctvWhep = (function () {
     setInterval(() => {
         if (!idleEnabled || saverReason || document.hidden) return;
         if (Date.now() - lastInputAt < idleLimitMs) return;
-        if (!Object.keys(sessions).some((id) => !sessions[id].keepAlive)) return;
+        if (!Object.keys(sessions).length) return;   // 활성 세션 없으면 스킵(빈 idle 배너 방지)
         suspendAll('idle');
     }, IDLE_CHECK_MS);
 
@@ -366,15 +365,6 @@ window.cctvWhep = (function () {
                 activeSessions: Object.keys(sessions),
                 suspendedSessions: Object.keys(suspended),
             };
-        },
-
-        // 절전 가드 면제 토글 — PiP 처럼 탭이 안 보여도 계속 봐야 하는 세션이 켠다.
-        // 면제 해제 시 절전이 이미 발동 중이면 그 세션도 즉시 보류한다.
-        setKeepAlive(videoId, on) {
-            const session = sessions[videoId];
-            if (!session) return;
-            session.keepAlive = !!on;
-            if (!on && saverReason) suspendOne(videoId, saverReason);
         },
     };
 })();

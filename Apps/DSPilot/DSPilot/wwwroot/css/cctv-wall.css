@@ -77,14 +77,13 @@
 .cctv-wall-embed .cctv-tile-stage { position: relative; flex: 1; min-height: 0; min-width: 0; }
 .cctv-wall-embed .cctv-tile-stage video { width: 100%; height: 100%; object-fit: contain; background: #0A0F16; display: block; }
 
-/* 타일 우상단 버튼들 — PiP(오버레이 합성 작은 창) + 단독(확대) ⇄ 분할 토글 */
+/* 타일 우상단 버튼 — 단독(확대) ⇄ 분할 토글 */
 .cctv-wall-embed .cctv-tile-btns { position: absolute; top: 6px; right: 6px; z-index: 5; display: flex; gap: 4px; }
-.cctv-wall-embed .cctv-tile-zoom, .cctv-wall-embed .cctv-tile-pip { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: none; border-radius: var(--radius-sm); background: rgba(8, 13, 20, 0.62); color: #fff; cursor: pointer; opacity: 0.5; transition: opacity 0.12s ease, background 0.12s ease; }
-.cctv-wall-embed .cctv-tile:hover .cctv-tile-zoom, .cctv-wall-embed .cctv-tile:hover .cctv-tile-pip { opacity: 1; }
+.cctv-wall-embed .cctv-tile-zoom { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: none; border-radius: var(--radius-sm); background: rgba(8, 13, 20, 0.62); color: #fff; cursor: pointer; opacity: 0.5; transition: opacity 0.12s ease, background 0.12s ease; }
+.cctv-wall-embed .cctv-tile:hover .cctv-tile-zoom { opacity: 1; }
 .cctv-wall-embed .cctv-grid.layout-solo .cctv-tile-zoom { opacity: 1; }   /* 단독 보기에선 항상 노출(분할 복귀 버튼) */
-.cctv-wall-embed .cctv-tile-zoom:hover, .cctv-wall-embed .cctv-tile-pip:hover { background: var(--teal); }
-.cctv-wall-embed .cctv-tile-zoom .material-icons, .cctv-wall-embed .cctv-tile-pip .material-icons { font-size: 16px; }
-.cctv-wall-embed .cctv-tile-pip.is-on { opacity: 1; background: var(--teal); }   /* PiP 송출 중 표시 */
+.cctv-wall-embed .cctv-tile-zoom:hover { background: var(--teal); }
+.cctv-wall-embed .cctv-tile-zoom .material-icons { font-size: 16px; }
 
 /* 오버레이 개수 배지 */
 .cctv-wall-embed .cctv-tile-ovl { position: absolute; bottom: 6px; right: 6px; display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: var(--radius-lg); background: rgba(8, 13, 20, 0.82); color: #fff; font-size: 0.56rem; font-weight: 800; pointer-events: none; z-index: 3; }
