@@ -44,6 +44,10 @@ public partial class PlcSettings : ObservableObject
     /// 클라이언트가 그 모드로 붙어야 함 — 모니터링 통신용으로 UDP 를 쓰는 현장이 흔하다.</summary>
     [ObservableProperty] private bool _isUdp = false;
 
+    /// <summary>간트 표시 윈도우(분) — 빨간 타임라인 기준 최근 N분만 표시(5~300분). 벤더 무관 표시 설정이라
+    /// 프로파일이 아닌 단일 플랫 필드. PLC 설정 다이얼로그 슬라이더로 조정, PlcConnectionSettings 에 영속화.</summary>
+    [ObservableProperty] private int _ganttWindowMinutes = 300;
+
     /// <summary>벤더 enum 이름 → 해당 벤더에서 마지막으로 입력했던 프로파일. POCO 와 동일 dict 를
     /// 보유해 다이얼로그 / Save 시점에 동기화. 직접 노출돼 다이얼로그가 토글 중 swap 가능.</summary>
     public Dictionary<string, PromakerShared.PlcVendorProfile> VendorProfiles { get; private set; }
@@ -126,13 +130,14 @@ public partial class PlcSettings : ObservableObject
         NetworkNumber = NetworkNumber,
         StationNumber = StationNumber,
         IsUdp = IsUdp,
+        GanttWindowMinutes = GanttWindowMinutes,
         Profiles = VendorProfiles,
     };
 
     private static PlcSettings FromPoco(PromakerShared.PlcConnectionSettings d)
     {
         // POCO 의 EnsureProfiles 가 LoadOrDefault 안에서 호출돼 세 벤더 프로파일이 모두 채워져 있음.
-        var s = new PlcSettings { VendorProfiles = d.Profiles };
+        var s = new PlcSettings { VendorProfiles = d.Profiles, GanttWindowMinutes = d.GanttWindowMinutes };
 
         if (System.Enum.TryParse<PlcVendorChoice>(d.Vendor, ignoreCase: true, out var v))
             s.Vendor = v;

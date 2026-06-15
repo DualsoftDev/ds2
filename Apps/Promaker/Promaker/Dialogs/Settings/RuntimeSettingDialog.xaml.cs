@@ -76,6 +76,8 @@ public partial class RuntimeSettingDialog : Window
         {
             // 자동 정합 토글 결과 적용 — set 시 OnChanged 가 hub 로 전파(전 인스턴스 동기 + 엔진 적용).
             _vm.Simulation.AutoDurationCalibrate = dialog.AutoDurationCalibrate;
+            // 간트 표시 윈도우 결과 적용 — set 시 OnChanged 가 GanttChart.RenderWindowMinutes 갱신.
+            _vm.Simulation.GanttWindowMinutes = dialog.GanttWindowMinutes;
             UpdatePlcSummary();
         }
     }

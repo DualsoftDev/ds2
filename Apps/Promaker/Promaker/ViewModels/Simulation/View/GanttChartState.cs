@@ -202,28 +202,24 @@ public class GanttChartState : INotifyPropertyChanged
     public TimeSpan TotalDuration => CurrentTime - StartTime;
     public string ElapsedText => TotalDuration.ToString(@"hh\:mm\:ss\.f");
 
+    /// <summary>표시 윈도우 길이(분) — 빨간 타임라인(현재시각) 기준 최근 N분만 간트에 보인다. PLC 설정
+    /// 슬라이더로 5분~300분(5시간) 조정. 그보다 오래된 구간은 링버퍼 트림으로 스크롤해도 닿지 않는다.</summary>
+    public int RenderWindowMinutes { get; set; } = 300;
+
     /// <summary>
-    /// 렌더 origin(X축 0 기준) — 링버퍼(MaxSegmentsPerEntry) 트림으로 앞이 잘려나간 구간을 빼고 그린다.
-    /// 기준은 "실제 PLC 신호가 있는 I/O 행(ApiCall, OutAddress/InAddress 가 실주소)의 가장 오래된
-    /// 실제 신호 세그먼트(OutSegments/InSegments)". Virtual I/O 행(주소 없음 — 추론으로 세그먼트가
-    /// 찍혀도 실제 신호 아님)과 상태 줄(Work/Call — ApiCall 신호에서 파생)은 origin 산정에서 제외한다.
-    /// 이걸 안 거르면 Virtual/한가한 행의 0s placeholder 가 origin 을 영영 0s 로 묶어 활발한 행 앞에
-    /// 빈 공간이 남는다(실기 13h "여전히 0s"). 실신호 세그먼트(Out/In)는 placeholder 가 없어 트림되면
-    /// 그대로 전진. 총 가동시간(ElapsedText)은 StartTime(세션 시작) 기준 — 분리.
+    /// 렌더 origin(보이는 왼쪽 끝) — 빨간 타임라인(CurrentTime) 기준 최근 RenderWindowMinutes 분만 보이는
+    /// 슬라이딩 윈도우의 시작점. origin = max(StartTime, CurrentTime - N분). 운전이 N분 미만이면 세션
+    /// 시작부터(윈도우 아직 안 참), N분 넘으면 항상 최근 N분만 — 빨간선이 움직이면 윈도우도 같이 슬라이딩
+    /// (예: 빨간선 14:00:00·윈도우 5h → 왼쪽 끝 9:00:00, 0~9h 는 스크롤해도 안 보임). X축 라벨은
+    /// RenderTimeRuler 가 (origin - StartTime) 을 더해 세션 시작 기준 경과시각으로 표기(왼쪽 끝 9:00:00
+    /// 식 — 0s 아님). 총 가동시간(ElapsedText)은 StartTime 기준 — 분리.
     /// </summary>
     public DateTime RenderStartTime
     {
         get
         {
-            var origin = DateTime.MaxValue;
-            foreach (var e in Entries)
-            {
-                if (!e.IsApiCall) continue;                              // 상태 줄(Work/Call) — 파생, 제외
-                if (e.OutAddress.Length == 0 && e.InAddress.Length == 0) continue;  // Virtual I/O 행 — 제외
-                if (e.OutSegments.Count > 0 && e.OutSegments[0].StartTime < origin) origin = e.OutSegments[0].StartTime;
-                if (e.InSegments.Count > 0 && e.InSegments[0].StartTime < origin) origin = e.InSegments[0].StartTime;
-            }
-            return origin == DateTime.MaxValue ? StartTime : origin;
+            var cutoff = CurrentTime.AddMinutes(-RenderWindowMinutes);
+            return cutoff < StartTime ? StartTime : cutoff;
         }
     }
 

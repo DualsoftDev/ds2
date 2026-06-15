@@ -46,6 +46,15 @@ public partial class SimulationPanelState : ObservableObject
         if (_suppressAutoCalibratePush) return;
         Hub.TrySetAutoCalibrate(value);   // 사용자 토글 → hub → 엔진 적용 + 전 인스턴스 broadcast
     }
+
+    // 간트 표시 윈도우(분) — 빨간 타임라인 기준 최근 N분만 보임(5~300). 순수 로컬 표시 설정(hub 무관).
+    // PLC 설정 슬라이더로 조정 → 여기서 GanttChart 에 적용. 영속화는 PlcSettings(PlcConnection.json).
+    [ObservableProperty] private int _ganttWindowMinutes = 300;
+
+    partial void OnGanttWindowMinutesChanged(int value)
+    {
+        GanttChart.RenderWindowMinutes = value;
+    }
     /// <summary>모델을 dirty(미저장)로 표시 — MainViewModel 이 () => IsDirty=true 로 주입.</summary>
     public Action? MarkDirty { get; set; }
     private readonly Dispatcher _dispatcher;
@@ -164,6 +173,10 @@ public partial class SimulationPanelState : ObservableObject
         _allCanvasNodes = allCanvasNodes;
         _allTreeNodes = allTreeNodes;
         _setStatusText = setStatusText;
+
+        // 간트 표시 윈도우 복원 — 저장된 PLC 설정값으로(빨간선 기준 최근 N분만 표시).
+        GanttWindowMinutes = PlcSettings.GanttWindowMinutes;
+        GanttChart.RenderWindowMinutes = PlcSettings.GanttWindowMinutes;
 
         _clockInterpolator = new SimulationClockInterpolator(
             engine:       () => _simEngine,
