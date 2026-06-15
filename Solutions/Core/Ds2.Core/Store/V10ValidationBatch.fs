@@ -12,15 +12,10 @@ module V10ValidationBatch =
     let validateStore (store: DsStore) : ValidationIssue list =
         let issues = ResizeArray<ValidationIssue>()
 
-        let apiDefById id =
-            match store.ApiDefs.TryGetValue(id) with
-            | true, d -> Some d
-            | _ -> None
-
         // V1/V2/V5 — ApiCall 단위.
         for kv in store.ApiCalls do
             let apiCall = kv.Value
-            match apiCall.ApiDefId |> Option.bind apiDefById with
+            match apiCall.ApiDefId |> Option.bind (fun id -> Queries.getApiDef id store) with
             | Some apiDef ->
                 validateApiCallV1 apiDef apiCall |> Option.iter issues.Add
                 validateApiCallV2 apiDef apiCall |> Option.iter issues.Add
@@ -52,10 +47,7 @@ module V10ValidationBatch =
     /// 단일 ApiCall 단위 (ApiDef pair 룩업) — V1/V2/V5 만. ApiCall 편집 dialog 저장 시점용.
     let validateSingleApiCall (store: DsStore) (apiCall: ApiCall) : ValidationIssue list =
         let issues = ResizeArray<ValidationIssue>()
-        match apiCall.ApiDefId |> Option.bind (fun id ->
-                match store.ApiDefs.TryGetValue(id) with
-                | true, d -> Some d
-                | _ -> None) with
+        match apiCall.ApiDefId |> Option.bind (fun id -> Queries.getApiDef id store) with
         | Some apiDef ->
             validateApiCallV1 apiDef apiCall |> Option.iter issues.Add
             validateApiCallV2 apiDef apiCall |> Option.iter issues.Add

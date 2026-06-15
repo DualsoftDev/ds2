@@ -1,6 +1,7 @@
 namespace Ds2.Core
 
 open System
+open System.Globalization
 
 /// 범위 경계 타입 (열림/닫힘)
 type BoundType = Open | Closed
@@ -136,14 +137,14 @@ module ValueSpec =
         match valueSpec with
         | UndefinedValue   -> true
         | BoolValue    spec -> tryParse Boolean.TryParse spec
-        | Int8Value    spec -> tryParse SByte.TryParse   spec
-        | Int16Value   spec -> tryParse Int16.TryParse   spec
-        | Int32Value   spec -> tryParse Int32.TryParse   spec
-        | Int64Value   spec -> tryParse Int64.TryParse   spec
-        | UInt8Value   spec -> tryParse Byte.TryParse    spec
-        | UInt16Value  spec -> tryParse UInt16.TryParse  spec
-        | UInt32Value  spec -> tryParse UInt32.TryParse  spec
-        | UInt64Value  spec -> tryParse UInt64.TryParse  spec
-        | Float32Value spec -> tryParse Single.TryParse  spec
-        | Float64Value spec -> tryParse Double.TryParse  spec
+        | Int8Value    spec -> tryParse (fun s -> SByte.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture)) spec
+        | Int16Value   spec -> tryParse (fun s -> Int16.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture)) spec
+        | Int32Value   spec -> tryParse (fun s -> Int32.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture)) spec
+        | Int64Value   spec -> tryParse (fun s -> Int64.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture)) spec
+        | UInt8Value   spec -> tryParse (fun s -> Byte.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture)) spec
+        | UInt16Value  spec -> tryParse (fun s -> UInt16.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture)) spec
+        | UInt32Value  spec -> tryParse (fun s -> UInt32.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture)) spec
+        | UInt64Value  spec -> tryParse (fun s -> UInt64.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture)) spec
+        | Float32Value spec -> tryParse (fun s -> System.Single.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture)) spec
+        | Float64Value spec -> tryParse (fun s -> Double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture)) spec
         | StringValue  spec -> containsTyped currentValue spec

@@ -32,11 +32,8 @@ module internal ImportPlanDeviceOps =
     }
 
     let hasCreatableApiName (callName: string) =
-        if String.IsNullOrEmpty callName then false
-        else
-            let parts = callName.Split([| '.' |], 2)
-            let apiName = if parts.Length > 1 then parts.[1] else ""
-            not (String.IsNullOrEmpty apiName)
+        // M2: splitApiCallName(canonical, isNull/no-dot→None) 위임 — null/no-dot → false 정책 보존.
+        Queries.splitApiCallName callName |> Option.exists (snd >> String.IsNullOrEmpty >> not)
 
     let private queueOperation operation (operations: ResizeArray<ImportPlanOperation>) =
         operations.Add(operation)
@@ -54,10 +51,7 @@ module internal ImportPlanDeviceOps =
         match Map.tryFind systemName state.PendingSystems with
         | Some system -> system, systemName, state
         | None ->
-            // DeviceAlias fallback: systemNameHint가 없을 때만 (hint가 있으면 systemName이 고유 키)
-            match (if systemNameHint.IsNone then Map.tryFind devAlias state.PendingSystems else None) with
-            | Some system -> system, systemName, state
-            | None ->
+            // §6: PendingSystems 는 항상 systemName 키로만 add(아래 ensureSystem 분기) → bare devAlias 캐시조회는 미적중 dead branch 라 제거. store passive 조회는 passiveMatch 에서 별도 수행.
             let passiveSystems = Queries.passiveSystemsOf projectId store
             let passiveMatch =
                 if systemNameHint.IsNone then
