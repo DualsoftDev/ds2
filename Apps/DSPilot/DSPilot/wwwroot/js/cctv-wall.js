@@ -231,11 +231,16 @@
             // 첫 영상 프레임 수신(video 'playing') → 연결 중 → 연결됨. 멱등.
             cctvMarkFrameSeen(id) { if (!this._cctvFrameSeen[id]) this._cctvFrameSeen = { ...this._cctvFrameSeen, [id]: true }; },
             // 타일 연결 상태 오버레이용: 'off'(미시작/단독 일시정지) | 'loading'(연결 중) | 'failed' | 'live'(표시 안 함).
+            // 세 반응형 값을 항상 먼저 읽는다 — 조기 return 하면 x-if 이펙트가 _cctvStarted 새 키 추가만
+            // 의존성으로 잡아 (스프레드 병합 컴포넌트에서) 재평가가 누락될 수 있음. _cctvHealth 는 스트림
+            // 시작 시 통째로 재할당되므로 이걸 추적하면 'connecting' 전환이 확실히 반영된다.
             cctvTileStatus(id) {
-                if (!this._cctvStarted[id]) return 'off';
                 const st = this._cctvHealth[id];
+                const seen = this._cctvFrameSeen[id];
+                const started = this._cctvStarted[id];
+                if (!started) return 'off';
                 if (st === 'failed' || st === 'disconnected' || st === 'closed') return 'failed';
-                return this._cctvFrameSeen[id] ? 'live' : 'loading';
+                return seen ? 'live' : 'loading';
             },
 
             // ════════ PiP (오버레이 합성 작은 창) ════════
