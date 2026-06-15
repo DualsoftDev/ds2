@@ -124,6 +124,10 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             await conn.ExecuteAsync(createShift);
             await conn.ExecuteAsync(idxShiftTime);
 
+            // classifySource — 기존 oee.db 마이그레이션(이 어댑터는 CREATE TABLE IF NOT EXISTS 만 쓰고 ALTER 인프라가
+            // 없음). detectSource(감지 출처)와 의미 구분: 분류가 어떻게 정해졌는지(manual/auto-bit/auto-heuristic/NULL).
+            await EnsureColumnAsync(conn, "oeeDowntimeEvent", "classifySource", "TEXT");
+
             _logger.LogInformation("OEE schema ensured (oeeDowntimeEvent / oeeProductionCount / oeeShiftException) at {Path}", OeeDbPath());
             return true;
         }
@@ -132,6 +136,23 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             _logger.LogError(ex, "Failed to create OEE schema");
             return false;
         }
+    }
+
+    /// <summary>
+    /// 컬럼이 없으면 ALTER TABLE ADD COLUMN (기존 DB 마이그레이션). PRAGMA table_info 가드 — 이미 있으면 no-op.
+    /// SQLite ADD COLUMN 은 NULL 기본의 nullable 컬럼만 안전하게 추가(기존 행은 NULL).
+    /// </summary>
+    private static async Task EnsureColumnAsync(SqliteConnection conn, string table, string column, string type)
+    {
+        // PRAGMA table_info 는 (cid,name,type,...) 행을 돌려준다 — name 컬럼만 매핑해 존재 여부 확인.
+        var names = await conn.QueryAsync<PragmaCol>($"PRAGMA table_info({table})");
+        if (names.Any(c => string.Equals(c.Name, column, StringComparison.OrdinalIgnoreCase))) return;
+        await conn.ExecuteAsync($"ALTER TABLE {table} ADD COLUMN {column} {type}");
+    }
+
+    private sealed class PragmaCol
+    {
+        public string? Name { get; set; }
     }
 
     // ── 정지(다운타임) ────────────────────────────────────────────────────
@@ -183,14 +204,15 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         return await conn.ExecuteAsync(sql, new { Id = id, EndAt = Iso(endAtUtc) });
     }
 
-    public async Task<int> ClassifyDowntimeAsync(long id, string? reasonCode, string? category, bool isFailure, CancellationToken ct = default)
+    public async Task<int> ClassifyDowntimeAsync(long id, string? reasonCode, string? category, bool isFailure, string? classifySource = "manual", CancellationToken ct = default)
     {
         await using var conn = await OpenAsync();
         const string sql = @"
             UPDATE oeeDowntimeEvent
-            SET reasonCode = @ReasonCode,
-                category   = @Category,
-                isFailure  = @IsFailure
+            SET reasonCode     = @ReasonCode,
+                category       = @Category,
+                isFailure      = @IsFailure,
+                classifySource = @ClassifySource
             WHERE id = @Id";
         return await conn.ExecuteAsync(sql, new
         {
@@ -198,22 +220,48 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             ReasonCode = reasonCode,
             Category = category,
             IsFailure = isFailure ? 1 : 0,
+            ClassifySource = classifySource,
         });
     }
 
-    public async Task<int> BulkClassifyDowntimeAsync(IReadOnlyList<long> ids, string? reasonCode, string? category, bool isFailure, CancellationToken ct = default)
+    public async Task<int> BulkClassifyDowntimeAsync(IReadOnlyList<long> ids, string? reasonCode, string? category, bool isFailure, string? classifySource = "manual", CancellationToken ct = default)
     {
         if (ids.Count == 0) return 0;
         await using var conn = await OpenAsync();
         const string sql = @"
             UPDATE oeeDowntimeEvent
-            SET reasonCode = @ReasonCode,
-                category   = @Category,
-                isFailure  = @IsFailure
+            SET reasonCode     = @ReasonCode,
+                category       = @Category,
+                isFailure      = @IsFailure,
+                classifySource = @ClassifySource
             WHERE id IN @Ids";
         return await conn.ExecuteAsync(sql, new
         {
             Ids = ids,
+            ReasonCode = reasonCode,
+            Category = category,
+            IsFailure = isFailure ? 1 : 0,
+            ClassifySource = classifySource,
+        });
+    }
+
+    public async Task<int> AutoClassifyHeuristicAsync(long id, string? reasonCode, string? category, bool isFailure, CancellationToken ct = default)
+    {
+        await using var conn = await OpenAsync();
+        // 휴리스틱 자동분류 — 수동 분류는 절대 덮지 않는다(classifySource='manual' 가드 = 수동 우선, doc/21 §12).
+        // 미분류(category IS NULL) 인 행만 채운다 — 이미 분류된(수동·비트) 건은 건드리지 않음.
+        const string sql = @"
+            UPDATE oeeDowntimeEvent
+            SET reasonCode     = @ReasonCode,
+                category       = @Category,
+                isFailure      = @IsFailure,
+                classifySource = 'auto-heuristic'
+            WHERE id = @Id
+              AND category IS NULL
+              AND (classifySource IS NULL OR classifySource <> 'manual')";
+        return await conn.ExecuteAsync(sql, new
+        {
+            Id = id,
             ReasonCode = reasonCode,
             Category = category,
             IsFailure = isFailure ? 1 : 0,
@@ -284,7 +332,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         var (where, p) = BuildDowntimeFilter(fromUtc, toUtc, status, reasonCode, flowName);
         var sql = $@"
             SELECT id, systemName, flowName, deviceName, startAt, endAt, durationMs,
-                   reasonCode, category, isFailure, detectSource, sourceLogId, note
+                   reasonCode, category, isFailure, detectSource, classifySource, sourceLogId, note
             FROM oeeDowntimeEvent
             {where}
             ORDER BY startAt DESC, id DESC";
@@ -297,7 +345,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         await using var conn = await OpenAsync();
         var sql = @"
             SELECT id, systemName, flowName, deviceName, startAt, endAt, durationMs,
-                   reasonCode, category, isFailure, detectSource, sourceLogId, note
+                   reasonCode, category, isFailure, detectSource, classifySource, sourceLogId, note
             FROM oeeDowntimeEvent
             WHERE endAt IS NULL";
         if (!string.IsNullOrWhiteSpace(flowName))
@@ -479,7 +527,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
 
     // ── 일자별/시간별 정지 버킷 ───────────────────────────────────────────
 
-    public async Task<IReadOnlyList<(string Slot, long PlannedMs, long UnplannedMs)>> GetDowntimeBySlotsAsync(
+    public async Task<IReadOnlyList<(string Slot, long PlannedMs, long FailureMs, long OtherMs, long UnclassifiedMs)>> GetDowntimeBySlotsAsync(
         DateTime fromUtc, DateTime toUtc, string? flowName, bool hourly, CancellationToken ct = default)
     {
         await using var conn = await OpenAsync();
@@ -494,28 +542,31 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             flowClause = " AND flowName = @Flow ";
             p.Add("Flow", flowName.Trim());
         }
+        // 5분해(상호배타, 우선순위): planned ▸ 미분류(category NULL) ▸ 고장(isFailure=1) ▸ 그 외 비계획.
+        // open 이벤트는 durationMs NULL → now 까지 진행분 보정. 합(planned+failure+other+unclass)=기간 전체 정지.
+        const string dur = "COALESCE(durationMs, CAST((julianday(@Now) - julianday(startAt)) * 86400000 AS INTEGER))";
         var sql = $@"
             SELECT
               strftime('{fmt}', startAt, 'localtime') AS Slot,
-              COALESCE(SUM(CASE WHEN category = 'planned'
-                THEN COALESCE(durationMs, CAST((julianday(@Now) - julianday(startAt)) * 86400000 AS INTEGER))
-                ELSE 0 END), 0) AS PlannedMs,
-              COALESCE(SUM(CASE WHEN category IS NULL OR category != 'planned'
-                THEN COALESCE(durationMs, CAST((julianday(@Now) - julianday(startAt)) * 86400000 AS INTEGER))
-                ELSE 0 END), 0) AS UnplannedMs
+              COALESCE(SUM(CASE WHEN category = 'planned' THEN {dur} ELSE 0 END), 0) AS PlannedMs,
+              COALESCE(SUM(CASE WHEN category IS NOT NULL AND category <> 'planned' AND isFailure = 1 THEN {dur} ELSE 0 END), 0) AS FailureMs,
+              COALESCE(SUM(CASE WHEN category IS NOT NULL AND category <> 'planned' AND isFailure <> 1 THEN {dur} ELSE 0 END), 0) AS OtherMs,
+              COALESCE(SUM(CASE WHEN category IS NULL THEN {dur} ELSE 0 END), 0) AS UnclassifiedMs
             FROM oeeDowntimeEvent
             WHERE startAt >= @From AND startAt <= @To {flowClause}
             GROUP BY strftime('{fmt}', startAt, 'localtime')
             ORDER BY Slot";
         var rows = await conn.QueryAsync<SlotRow>(sql, p);
-        return rows.Select(r => (r.Slot ?? "", r.PlannedMs, r.UnplannedMs)).ToList();
+        return rows.Select(r => (r.Slot ?? "", r.PlannedMs, r.FailureMs, r.OtherMs, r.UnclassifiedMs)).ToList();
     }
 
     private sealed class SlotRow
     {
         public string? Slot { get; set; }
         public long PlannedMs { get; set; }
-        public long UnplannedMs { get; set; }
+        public long FailureMs { get; set; }
+        public long OtherMs { get; set; }
+        public long UnclassifiedMs { get; set; }
     }
 
     // ── 시프트 예외 ───────────────────────────────────────────────────────
@@ -590,7 +641,8 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         DetectSource: r.DetectSource ?? "nocycle",
         SourceLogId: r.SourceLogId,
         Note: r.Note,
-        Status: string.IsNullOrEmpty(r.EndAt) ? "open" : "recovered");
+        Status: string.IsNullOrEmpty(r.EndAt) ? "open" : "recovered",
+        ClassifySource: r.ClassifySource);
 
     private static OeeDowntimeEvent MapEntity(DowntimeRow r) => new()
     {
@@ -605,6 +657,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         Category = r.Category,
         IsFailure = r.IsFailure,
         DetectSource = r.DetectSource ?? "nocycle",
+        ClassifySource = r.ClassifySource,
         SourceLogId = r.SourceLogId,
         Note = r.Note,
     };
@@ -622,6 +675,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         public string? Category { get; set; }
         public int IsFailure { get; set; }
         public string? DetectSource { get; set; }
+        public string? ClassifySource { get; set; }
         public long? SourceLogId { get; set; }
         public string? Note { get; set; }
     }

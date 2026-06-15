@@ -33,6 +33,7 @@ public class OeeController : ControllerBase
     private readonly DsProjectService _project;
     private readonly IDatabasePathResolver _pathResolver;
     private readonly OeeCtStatsService _ctStats;
+    private readonly OeeAutoShiftInferenceService _shiftInfer;
     private readonly ILogger<OeeController> _logger;
 
     public OeeController(
@@ -41,6 +42,7 @@ public class OeeController : ControllerBase
         DsProjectService project,
         IDatabasePathResolver pathResolver,
         OeeCtStatsService ctStats,
+        OeeAutoShiftInferenceService shiftInfer,
         ILogger<OeeController> logger)
     {
         _repo = repo;
@@ -48,6 +50,7 @@ public class OeeController : ControllerBase
         _project = project;
         _pathResolver = pathResolver;
         _ctStats = ctStats;
+        _shiftInfer = shiftInfer;
         _logger = logger;
     }
 
@@ -74,7 +77,107 @@ public class OeeController : ControllerBase
         var (fromUtc, toUtc) = ResolveRange(from, to);
         var rows = await _repo.QueryDowntimeAsync(fromUtc, toUtc, status, reason,
             string.IsNullOrWhiteSpace(flow) ? null : flow.Trim(), ct);
-        return rows.ToList();
+        // abnormal/usertag 시간겹침 단서(읽기전용 표시 — 건수·MTBF 미반영, doc/21 §4) 부착.
+        return await AttachCluesAsync(rows, fromUtc, toUtc, ct);
+    }
+
+    /// <summary>
+    /// 정지 행 [startAt, endAt|now] 에 시간이 겹치는 abnormal/usertag 점 이벤트를 단서로 붙인다(표시 전용).
+    /// abnormal = valueType='Abnormal' AND matchOp='AbnormalDetect'(matchValue=Kind), usertag = logLevel='Error' 일반 행.
+    /// userTagAlertLog 는 flowName 컬럼이 없어 abnormal 은 tagAddress 첫 경로 세그먼트(FLOW), 그 외는 systemName 으로 스코프 매칭.
+    /// ★건수·길이·MTBF 에는 절대 반영하지 않는다 — Downtime/Summary 의 집계는 oeeDowntimeEvent 만 본다(doc/21 §4 정직성).
+    /// </summary>
+    private async Task<List<OeeDowntimeDto>> AttachCluesAsync(
+        IReadOnlyList<OeeDowntimeDto> rows, DateTime fromUtc, DateTime toUtc, CancellationToken ct)
+    {
+        var list = rows.ToList();
+        if (list.Count == 0) return list;
+        var dbPath = _pathResolver.GetSharedDbPath();
+        if (!System.IO.File.Exists(dbPath)) return list;
+
+        var clues = new List<(string? Flow, string? System, DateTime At, string Label, string Src)>();
+        try
+        {
+            await using var conn = new SqliteConnection($"Data Source={dbPath};Mode=ReadWriteCreate;Default Timeout=20");
+            await conn.OpenAsync();
+            var exists = await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='userTagAlertLog'");
+            if (exists == 0) return list;
+
+            var endBound = toUtc > DateTime.UtcNow ? toUtc : DateTime.UtcNow; // open 이벤트 진행분(now 까지) 포함
+            const string sql = @"
+                SELECT occurredAt AS OccurredAt, systemName AS SystemName, name AS Name,
+                       tagAddress AS TagAddress, valueType AS ValueType, matchOp AS MatchOp, matchValue AS MatchValue
+                FROM userTagAlertLog
+                WHERE occurredAt >= @From AND occurredAt <= @To
+                  AND ((matchOp = 'AbnormalDetect' AND valueType = 'Abnormal') OR logLevel = 'Error')";
+            var alerts = await conn.QueryAsync<AlertRow>(sql, new
+            {
+                From = SqliteDateTimeHelpers.ToSqliteUtcString(fromUtc),
+                To = SqliteDateTimeHelpers.ToSqliteUtcString(endBound),
+            });
+            foreach (var a in alerts)
+            {
+                var at = SqliteDateTimeHelpers.FromSqliteUtcString(a.OccurredAt);
+                if (at is null) continue;
+                var isAbn = string.Equals(a.MatchOp, "AbnormalDetect", StringComparison.OrdinalIgnoreCase)
+                            && string.Equals(a.ValueType, "Abnormal", StringComparison.OrdinalIgnoreCase);
+                string? cFlow = null;
+                if (isAbn && !string.IsNullOrEmpty(a.TagAddress))
+                {
+                    var ix = a.TagAddress.IndexOf(" / ", StringComparison.Ordinal); // "FLOW / WORK / CALL" → FLOW
+                    cFlow = ix > 0 ? a.TagAddress[..ix].Trim() : null;
+                }
+                var label = isAbn
+                    ? AbnormalKindLabel(a.MatchValue)
+                    : (string.IsNullOrWhiteSpace(a.Name) ? "이상 신호" : a.Name!.Trim());
+                clues.Add((cFlow, a.SystemName, at.Value, label, isAbn ? "abnormal" : "usertag"));
+            }
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "[OEE] downtime clue join failed"); return list; }
+
+        if (clues.Count == 0) return list;
+        var nowLocal = DateTime.Now; // d.StartAt/EndAt 는 FromSqliteUtcString → Kind=Local 벽시계 → 로컬끼리 비교.
+        for (var idx = 0; idx < list.Count; idx++)
+        {
+            var d = list[idx];
+            var spanEnd = d.EndAt ?? nowLocal;
+            (string Label, string Src)? best = null;
+            var bestAt = DateTime.MinValue;
+            foreach (var c in clues)
+            {
+                if (c.At < d.StartAt || c.At > spanEnd) continue;
+                var scope = c.Flow is not null
+                    ? string.Equals(c.Flow, d.FlowName, StringComparison.OrdinalIgnoreCase)
+                    : (string.Equals(c.System, d.SystemName, StringComparison.OrdinalIgnoreCase)
+                       || string.Equals(c.System, d.FlowName, StringComparison.OrdinalIgnoreCase));
+                if (!scope) continue;
+                if (c.At >= bestAt) { bestAt = c.At; best = (c.Label, c.Src); } // 가장 최근 신호를 단서로
+            }
+            if (best is not null)
+                list[idx] = d with { Clue = new OeeDowntimeClue(best.Value.Label, best.Value.Src) };
+        }
+        return list;
+    }
+
+    private static string AbnormalKindLabel(string? kind) => kind switch
+    {
+        "ActionOver" => "동작지연",
+        "ActionUnder" => "동작빠름",
+        "SensorShort" => "조기완료",
+        "SensorOpen" => "센서끊김",
+        _ => string.IsNullOrWhiteSpace(kind) ? "이상감지" : kind!,
+    };
+
+    private sealed class AlertRow
+    {
+        public string? OccurredAt { get; set; }
+        public string? SystemName { get; set; }
+        public string? Name { get; set; }
+        public string? TagAddress { get; set; }
+        public string? ValueType { get; set; }
+        public string? MatchOp { get; set; }
+        public string? MatchValue { get; set; }
     }
 
     // ── POST /api/oee/downtime/{id}/classify  {reasonCode, category} ──────
@@ -86,7 +189,7 @@ public class OeeController : ControllerBase
         var reasonCode = string.IsNullOrWhiteSpace(req.ReasonCode) ? null : req.ReasonCode.Trim();
         var isFailure = string.Equals(category, "unplanned", StringComparison.OrdinalIgnoreCase);
 
-        var n = await _repo.ClassifyDowntimeAsync(id, reasonCode, category, isFailure, ct);
+        var n = await _repo.ClassifyDowntimeAsync(id, reasonCode, category, isFailure, classifySource: "manual", ct);
         if (n == 0) return NotFound(new { error = "downtime event not found", id });
         return new { ok = true, id, reasonCode, category, isFailure };
     }
@@ -116,7 +219,7 @@ public class OeeController : ControllerBase
         var reasonCode = string.IsNullOrWhiteSpace(req.ReasonCode) ? null : req.ReasonCode.Trim();
         var isFailure = string.Equals(category, "unplanned", StringComparison.OrdinalIgnoreCase);
 
-        var n = await _repo.BulkClassifyDowntimeAsync(req.Ids, reasonCode, category, isFailure, ct);
+        var n = await _repo.BulkClassifyDowntimeAsync(req.Ids, reasonCode, category, isFailure, classifySource: "manual", ct);
         return new { ok = true, count = n, reasonCode, category, isFailure };
     }
 
@@ -229,7 +332,7 @@ public class OeeController : ControllerBase
     {
         var items = (req?.Items ?? new List<IdealCycleRequest>())
             .Where(i => !string.IsNullOrWhiteSpace(i.Flow))
-            .Select(i => (i.Flow.Trim(), i.IdealCycleTimeMs))
+            .Select(i => (i.Flow.Trim(), i.IdealCycleTimeMs, i.Mode))
             .ToList();
         if (items.Count == 0)
             return BadRequest(new { error = "items is empty" });
@@ -618,21 +721,13 @@ public class OeeController : ControllerBase
         var (_, _, prodReject, hasReject) =
             await _repo.QueryProductionAsync(fromUtc.ToLocalTime(), toUtc.ToLocalTime(), flowName, ct);
 
-        // runtime(달력근사) = period - downtime. 가용성 분모 = period(달력).
-        var runtimeMs = Math.Max(0, periodMs - downtimeMs);
-
-        // ── Availability (Phase1 달력근사) ──
-        double? availability = null;
-        string? availNote;
-        if (periodMs > 0)
-        {
-            availability = Math.Clamp(runtimeMs / periodMs, 0.0, 1.0);
-            availNote = "달력근사 (1 - 정지/기간). 계획시간 미반영 — 진짜 가용성은 시프트 설정(Phase4) 후.";
-        }
-        else
-        {
-            availNote = "기간이 0 — 가용성 산출 불가.";
-        }
+        // ── Availability (계획시간 폴백 체인: UserSet 시프트 ▸ 14일 자동추정 ▸ 달력근사 — doc/21 §12) ──
+        // runtime(가동시간)도 폴백 체인 산출값을 쓴다 → 성능/MTBF 분모가 가용성과 일관(혼합 분모 방지).
+        var av = await ResolveAvailabilityAsync(flowName, fromUtc, toUtc, downtimeMs, periodMs, ct);
+        double? availability = av.Availability;
+        string? availNote = av.Note;
+        string? availabilitySource = av.Source;
+        var runtimeMs = av.RuntimeMs;
 
         // ── Performance ((idealCT × total) / runtime) ──
         // per-flow: 해당 flow 의 idealCT 사용. 라인 전체(flowName=null): idealCT 설정된 flow 들의
@@ -666,38 +761,17 @@ public class OeeController : ControllerBase
         var (quality, qualNote, qualitySource, rejectOut, goodOut) =
             OeeMath.ComputeQuality(totalCount, prodReject, hasReject);
 
-        // ── OEE (A × P × Q) ──
-        double? oee = null;
-        string? oeeNote = null;
-        if (availability is double a && performance is double p && quality is double q)
-        {
-            oee = a * p * q;
-            if (qualitySource == "assumed")
-                oeeNote = "품질 100% 가정 포함(불량 미입력).";
-        }
-        else
-        {
-            var missing = new List<string>();
-            if (availability is null) missing.Add("가용성");
-            if (performance is null) missing.Add("성능");
-            if (quality is null) missing.Add("품질");
-            oeeNote = $"구성요소 미산출({string.Join(", ", missing)}) — OEE 산출 불가.";
-        }
+        // ── OEE (A × P × Q) — 순수 함수 단일 소스 ──
+        var (oee, oeeNote) = OeeMath.ComputeOee(availability, performance, quality, qualitySource);
 
-        // ── MTBF / MTTR ──
-        double? mtbf = null;
-        string? mtbfNote;
+        // ── MTBF (무고장=null+배지) / MTTR ──
+        var (mtbf, mtbfNote, _) = OeeMath.ComputeMtbf(runtimeMs, failureCount);
         double? mttr = null;
         string? mttrNote;
         if (failureCount <= 0)
-        {
-            mtbfNote = "고장(분류 unplanned) 건수 0 — MTBF 산출 불가.";
             mttrNote = "고장(분류 unplanned, 마감됨) 건수 0 — MTTR 산출 불가.";
-        }
         else
         {
-            mtbf = runtimeMs / failureCount;
-            mtbfNote = "Σ가동시간(달력근사) / 고장건수.";
             mttr = (double)failureDurationMs / failureCount;
             mttrNote = "Σ고장 지속시간(마감 이벤트만) / 고장건수.";
         }
@@ -716,6 +790,7 @@ public class OeeController : ControllerBase
             IdealCycleTimeSource: idealCtSource,
             Availability: availability,
             AvailabilityNote: availNote,
+            AvailabilitySource: availabilitySource,
             Performance: performance,
             PerformanceNote: perfNote,
             Quality: quality,
@@ -756,8 +831,10 @@ public class OeeController : ControllerBase
         {
             var count = await CountFlowHistoryAsync(flow, fromUtc, toUtc);
             if (count <= 0) continue;
-            var (downtimeMs, _) = await _repo.GetDowntimeAggregateAsync(fromUtc, toUtc, flow, ct);
-            var runtimeMs = Math.Max(0, periodMs - downtimeMs);
+            // 분모 = 그 flow 의 가동시간(가용성 폴백 체인과 동일 산출) → 성능이 가용성과 일관(혼합 분모 방지).
+            var (dMs, _) = await _repo.GetDowntimeAggregateAsync(fromUtc, toUtc, flow, ct);
+            var avf = await ResolveAvailabilityAsync(flow, fromUtc, toUtc, dMs, periodMs, ct);
+            var runtimeMs = avf.RuntimeMs;
             if (runtimeMs <= 0) continue;
             var perf = Math.Min(1.0, (ideal * (double)count) / runtimeMs);
             weightedPerf += perf * count;
@@ -810,6 +887,165 @@ public class OeeController : ControllerBase
         }
     }
 
+    // ── 가용성 분모 폴백 체인 (계획시간: UserSet 시프트 ▸ 14일 자동추정 ▸ 달력근사) ──────────────
+
+    private readonly record struct AvailabilityResult(double? Availability, string? Note, string Source, double PlannedMs, double RuntimeMs);
+
+    /// <summary>
+    /// 가용성 = 가동시간 / 계획시간. 계획시간을 폴백 체인으로 정한다(doc/21 §12):
+    ///   ① UserSet 시프트(권위적): 시프트 창 ∩ 기간 − 계획정지 = PPT.
+    ///   ② 14일 자동추정: 활동 시간창 × 조회기간 활동일수 − 계획정비(category='planned') = PPT.
+    ///   ③ 달력근사: 기간 전체 − 정지(최후 폴백).
+    /// RuntimeMs 도 함께 돌려줘 성능/MTBF 분모로 재사용(분모 일관).
+    /// </summary>
+    private async Task<AvailabilityResult> ResolveAvailabilityAsync(
+        string? flowName, DateTime fromUtc, DateTime toUtc, long downtimeMs, double periodMs, CancellationToken ct)
+    {
+        // ① UserSet 시프트
+        var shift = _settings.LoadSettings().Shift;
+        if (shift.UserSet)
+        {
+            var scheduled = BuildScheduledIntervals(shift, fromUtc, toUtc);
+            var sav = await ComputeShiftAvailabilityAsync(flowName, fromUtc, toUtc, scheduled, ct);
+            if (sav.PlannedProductionMs > 0)
+                return new AvailabilityResult(
+                    Math.Clamp(sav.RunTimeMs / sav.PlannedProductionMs, 0, 1),
+                    "가동시간 ÷ 계획생산시간(사용자 시프트 ∩ 기간 − 계획정지).", "shift", sav.PlannedProductionMs, sav.RunTimeMs);
+        }
+
+        // ② 14일 자동추정
+        var win = _shiftInfer.Get(flowName);
+        if (win is not null)
+        {
+            var (pptMs, runtimeMs, ok) = await ComputeAutoAvailabilityAsync(flowName, win, fromUtc, toUtc, ct);
+            if (ok && pptMs > 0)
+                return new AvailabilityResult(
+                    Math.Clamp(runtimeMs / pptMs, 0, 1),
+                    "가동시간 ÷ 자동추정 계획시간(14일 활동 시간창 × 활동일수 − 계획정비).", "auto", pptMs, runtimeMs);
+        }
+
+        // ③ 달력근사
+        if (periodMs > 0)
+        {
+            var rt = Math.Max(0, periodMs - downtimeMs);
+            return new AvailabilityResult(
+                Math.Clamp(rt / periodMs, 0, 1),
+                "달력근사 (1 − 정지/기간). 시프트 미설정·활동 데이터 부족 시 폴백.", "calendar", periodMs, rt);
+        }
+        return new AvailabilityResult(null, "기간이 0 — 가용성 산출 불가.", "calendar", 0, 0);
+    }
+
+    /// <summary>
+    /// 자동추정 가용성: 활동 시간창(win.InBand)을 조회기간 내 활동일마다 시간슬롯으로 펼쳐 계획시간을 만든다.
+    /// 계획정비(category='planned')는 계획시간에서 차감(가용성손실 아님), 비계획 정지는 가동시간에서 차감.
+    /// </summary>
+    private async Task<(double PptMs, double RuntimeMs, bool Ok)> ComputeAutoAvailabilityAsync(
+        string? flowName, ShiftWindow win, DateTime fromUtc, DateTime toUtc, CancellationToken ct)
+    {
+        var activeDates = await GetActiveLocalDatesAsync(flowName, fromUtc, toUtc);
+        if (activeDates.Count == 0) return (0, 0, false);
+
+        var fromMs = ToMs(fromUtc);
+        var toMs = ToMs(toUtc);
+        var segs = new List<(double S, double E)>();
+        foreach (var d in activeDates)
+        {
+            for (int h = 0; h < 24; h++)
+            {
+                if (!win.InBand[h]) continue;
+                var sLocal = d.AddHours(h);
+                var sUtc = DateTime.SpecifyKind(sLocal, DateTimeKind.Local).ToUniversalTime();
+                var eUtc = DateTime.SpecifyKind(sLocal.AddHours(1), DateTimeKind.Local).ToUniversalTime();
+                var s = Math.Max(ToMs(sUtc), fromMs);
+                var e = Math.Min(ToMs(eUtc), toMs);
+                if (e > s) segs.Add((s, e));
+            }
+        }
+        var planned = Intervals.Union(segs);
+        if (Intervals.Total(planned) <= 0) return (0, 0, false);
+
+        var dt = await _repo.QueryDowntimeAsync(fromUtc, toUtc, null, null, flowName, ct);
+        var nowMs = ToMs(DateTime.UtcNow);
+        var plannedStop = dt
+            .Where(e => string.Equals(e.Category, "planned", StringComparison.OrdinalIgnoreCase))
+            .Select(e => (ToMs(e.StartAt), e.EndAt.HasValue ? ToMs(e.EndAt.Value) : nowMs));
+        var ppt = Intervals.Subtract(planned, plannedStop);
+        var pptMs = Intervals.Total(ppt);
+        if (pptMs <= 0) return (0, 0, false);
+
+        var nonPlanned = dt
+            .Where(e => !string.Equals(e.Category, "planned", StringComparison.OrdinalIgnoreCase))
+            .Select(e => (ToMs(e.StartAt), e.EndAt.HasValue ? ToMs(e.EndAt.Value) : nowMs));
+        var downInPpt = Intervals.Total(Intervals.Intersect(ppt, nonPlanned));
+        var runtimeMs = Math.Max(0, pptMs - downInPpt);
+        return (pptMs, runtimeMs, true);
+    }
+
+    /// <summary>조회기간 [from,to] 안에서 사이클이 1건이라도 있은 로컬 날짜들(무활동일 제외). flowName=null → 전체.</summary>
+    private async Task<List<DateTime>> GetActiveLocalDatesAsync(string? flowName, DateTime fromUtc, DateTime toUtc)
+    {
+        var result = new List<DateTime>();
+        var dbPath = _pathResolver.GetSharedDbPath();
+        if (!System.IO.File.Exists(dbPath)) return result;
+        try
+        {
+            await using var conn = new SqliteConnection($"Data Source={dbPath};Mode=ReadWriteCreate;Default Timeout=20");
+            await conn.OpenAsync();
+            var exists = await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlowHistory'");
+            if (exists == 0) return result;
+
+            var p = new DynamicParameters();
+            p.Add("From", fromUtc.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture));
+            p.Add("To", toUtc.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture));
+            var flowClause = "";
+            if (!string.IsNullOrWhiteSpace(flowName)) { flowClause = " AND flowName = @Flow "; p.Add("Flow", flowName.Trim()); }
+            // substr(...,1,19): 7자리 소수 제거 후 localtime → 로컬 날짜. (recordedAt = UTC·Z없는 문자열)
+            var sql = $@"
+                SELECT DISTINCT strftime('%Y-%m-%d', substr(recordedAt,1,19), 'localtime') AS D
+                FROM dspFlowHistory
+                WHERE COALESCE(IsIdle,0) = 0 AND recordedAt >= @From AND recordedAt < @To {flowClause}";
+            var dates = await conn.QueryAsync<string>(sql, p);
+            foreach (var s in dates)
+                if (DateTime.TryParse(s, System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.None, out var d))
+                    result.Add(DateTime.SpecifyKind(d.Date, DateTimeKind.Local));
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "[OEE] active local dates query failed"); }
+        return result;
+    }
+
+    // ── GET /api/oee/plan-time?from&to&flow — 가용성 폴백 체인 + 14일 히스토그램 (목업 계획시간 카드용) ──
+    [HttpGet("plan-time")]
+    public async Task<ActionResult<OeePlanTimeDto>> PlanTime(
+        [FromQuery] DateTime? from, [FromQuery] DateTime? to, [FromQuery] string? flow, CancellationToken ct)
+    {
+        var (fromUtc, toUtc) = ResolveRange(from, to);
+        var flowName = string.IsNullOrWhiteSpace(flow) ? null : flow.Trim();
+        var periodMs = Math.Max(0, (toUtc - fromUtc).TotalMilliseconds);
+        var (downtimeMs, _) = await _repo.GetDowntimeAggregateAsync(fromUtc, toUtc, flowName, ct);
+
+        var avr = await ResolveAvailabilityAsync(flowName, fromUtc, toUtc, downtimeMs, periodMs, ct);
+        var shift = _settings.LoadSettings().Shift;
+        var win = _shiftInfer.Get(flowName);
+        var activeDays = (await GetActiveLocalDatesAsync(flowName, fromUtc, toUtc)).Count;
+
+        return new OeePlanTimeDto(
+            Source: avr.Source,
+            PlannedMs: avr.PlannedMs,
+            RuntimeMs: avr.RuntimeMs,
+            ShiftUserSet: shift.UserSet,
+            ShiftLabel: $"{shift.Start}–{shift.End}",
+            AutoAvailable: win is not null,
+            AutoStartHour: win?.StartHour,
+            AutoEndHour: win?.EndHour,
+            AutoCrosses: win?.Crosses ?? false,
+            AutoSampleCycles: win?.SampleCycles ?? 0,
+            AutoSampleDays: win?.SampleDays ?? 0,
+            ActiveDays: activeDays,
+            Histogram: win?.Histogram ?? new int[24]);
+    }
+
     // ── GET /api/oee/daily?from&to&flow ──────────────────────────────────
     // 일자별(스팬>2일) 또는 시간별(≤2일) 가동·정지·점검 버킷.
     // 가동 = slotMs - unplannedMs - plannedMs (달력근사).
@@ -842,9 +1078,7 @@ public class OeeController : ControllerBase
                 var slotEnd = next.ToUniversalTime();
                 var slotMs = (long)Math.Max(0, (Min(toUtc, slotEnd) - Max(fromUtc, slotStart)).TotalMilliseconds);
                 lookup.TryGetValue(label, out var b);
-                var unplanned = Math.Min(b.UnplannedMs, slotMs);
-                var planned = Math.Min(b.PlannedMs, Math.Max(0, slotMs - unplanned));
-                slots.Add(new OeeDailySlotDto(label, slotMs, unplanned, planned));
+                slots.Add(BuildDailySlot(label, slotMs, b));
                 cur = next;
             }
         }
@@ -859,9 +1093,7 @@ public class OeeController : ControllerBase
                 var slotEnd = nextLocal.ToUniversalTime();
                 var slotMs = (long)Math.Max(0, (Min(toUtc, slotEnd) - Max(fromUtc, slotStart)).TotalMilliseconds);
                 lookup.TryGetValue(label, out var b);
-                var unplanned = Math.Min(b.UnplannedMs, slotMs);
-                var planned = Math.Min(b.PlannedMs, Math.Max(0, slotMs - unplanned));
-                slots.Add(new OeeDailySlotDto(label, slotMs, unplanned, planned));
+                slots.Add(BuildDailySlot(label, slotMs, b));
                 curLocal = nextLocal;
             }
         }
@@ -871,6 +1103,24 @@ public class OeeController : ControllerBase
 
     private static DateTime Min(DateTime a, DateTime b) => a < b ? a : b;
     private static DateTime Max(DateTime a, DateTime b) => a > b ? a : b;
+
+    /// <summary>
+    /// 정지 5분해(failure/other/unclassified/planned)를 슬롯 달력시간(slotMs) 예산 안으로 캡해 가동이 음수가 되지 않게 한다.
+    /// 우선순위(비계획 먼저 ▸ 계획)는 구 동작과 동일. 가동 = SlotMs − (4분해 합)은 클라이언트가 차감.
+    /// </summary>
+    private static OeeDailySlotDto BuildDailySlot(
+        string label, long slotMs,
+        (string Slot, long PlannedMs, long FailureMs, long OtherMs, long UnclassifiedMs) b)
+    {
+        var budget = slotMs;
+        long Take(long v) { var t = Math.Min(Math.Max(0, v), Math.Max(0, budget)); budget -= t; return t; }
+        var failure = Take(b.FailureMs);
+        var other = Take(b.OtherMs);
+        var unclass = Take(b.UnclassifiedMs);
+        var planned = Take(b.PlannedMs);
+        var unplanned = failure + other + unclass;
+        return new OeeDailySlotDto(label, slotMs, unplanned, planned, failure, other, unclass);
+    }
 
     // ── helpers ───────────────────────────────────────────────────────────
 
@@ -899,7 +1149,8 @@ public record BulkClassifyRequest(List<long> Ids, string? ReasonCode, string? Ca
 public record BulkCloseRequest(List<long> Ids, DateTime? EndAt);
 public record ProductionRequest(DateTime? Date, string Flow, string? Shift, int Reject);
 public record ShiftExceptionRequest(string? Flow, DateTime? StartAt, DateTime? EndAt, string Kind, string? Note);
-public record IdealCycleRequest(string Flow, int? IdealCycleTimeMs);
+// Mode: "manual"=사용자 직접 입력(자동이 안 덮음, 값 동일해도 수동 잠금) / "auto"=자동 관리로 해제(수동값 비움→자동기입) / null=레거시(값 변경 시 수동).
+public record IdealCycleRequest(string Flow, int? IdealCycleTimeMs, string? Mode = null);
 public record IdealCycleBatchRequest(List<IdealCycleRequest> Items);
 
 // idealCT 일괄 편집 테이블 1행: 현재 설정값(+출처) + 실측 추천/통계(이상치 제외).
@@ -913,6 +1164,25 @@ public record IdealCycleRowDto(
     int? MinCt,
     int? MedianCt,
     int? AvgCt);
+
+/// <summary>
+/// 가용성 분모(계획시간) 폴백 체인 상태 + 14일 활동 히스토그램 (uptime 계획시간 카드용).
+/// Source = 현재 활성 단계(shift/auto/calendar). Histogram = 14일 시간대별(0~23) 사이클 수(표시용).
+/// </summary>
+public record OeePlanTimeDto(
+    string Source,
+    double PlannedMs,
+    double RuntimeMs,
+    bool ShiftUserSet,
+    string ShiftLabel,
+    bool AutoAvailable,
+    int? AutoStartHour,
+    int? AutoEndHour,
+    bool AutoCrosses,
+    int AutoSampleCycles,
+    int AutoSampleDays,
+    int ActiveDays,
+    int[] Histogram);
 
 /// <summary>
 /// 시프트 기반 OEE 요약 (Phase4 진짜 가용성). Summary 와 달리 분모가 계획생산시간(PPT)이다.

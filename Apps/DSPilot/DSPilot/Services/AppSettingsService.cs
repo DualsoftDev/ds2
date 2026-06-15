@@ -272,12 +272,14 @@ public class AppSettingsService
     }
 
     /// <summary>
-    /// 실측 자동기입 전용(<see cref="OeeIdealCycleAutoFillService"/>): idealCT 가 **비어 있는** Flow 에만 값을
-    /// 채우고 출처를 "auto" 로 스탬프한다. 이미 값이 있는 Flow(수동이든 과거 자동이든)는 절대 덮지 않는다 —
-    /// 후보 선정~저장 사이에 사용자가 입력하는 레이스도 <see cref="Update"/>(load-modify-save 원자화) 안의
-    /// 재검사로 안전하다. 반환 = 실제 기입된 Flow 수(0 이면 파일 쓰기 없음).
+    /// 실측 자동기입 전용(<see cref="OeeIdealCycleAutoFillService"/>): idealCT 가 **비어 있는** Flow 에 값을 채우고
+    /// 출처(<paramref name="items"/> 의 source: "auto"=확정 p10 / "auto-median"=임시 중앙값)를 스탬프한다.
+    /// 수동 입력값(source=null)·확정 자동값("auto")은 절대 덮지 않는다(수동/확정 우선). 단 <b>임시 중앙값
+    /// ("auto-median")은 확정 p10("auto")으로 승급(덮어쓰기) 허용</b> — 샘플이 30 도달 시 1회성 보정(doc/21 §12 D).
+    /// 후보 선정~저장 사이 레이스도 <see cref="Update"/>(load-modify-save 원자화) 안의 재검사로 안전.
+    /// 반환 = 실제 기입/승급된 Flow 수(0 이면 파일 쓰기 없음 — 람다 안에서 변경 없으면 저장 생략 위해 호출측이 후보를 선별).
     /// </summary>
-    public int FillIdealCycleTimesAuto(IReadOnlyCollection<(string FlowName, int IdealCycleTimeMs)> items)
+    public int FillIdealCycleTimesAuto(IReadOnlyCollection<(string FlowName, int IdealCycleTimeMs, string Source)> items)
     {
         if (items is null || items.Count == 0) return 0;
 
@@ -286,13 +288,13 @@ public class AppSettingsService
         {
             applied = 0; // Update 재시도 대비 — 람다 안에서 셈
             var overrides = settings.FlowCycle.Overrides;
-            foreach (var (flowName, idealCycleTimeMs) in items)
+            foreach (var (flowName, idealCycleTimeMs, source) in items)
             {
                 if (string.IsNullOrWhiteSpace(flowName) || idealCycleTimeMs <= 0) continue;
+                var src = string.IsNullOrWhiteSpace(source) ? "auto" : source;
 
                 var existing = overrides
                     .FirstOrDefault(item => string.Equals(item.FlowName, flowName, StringComparison.OrdinalIgnoreCase));
-                if (existing?.IdealCycleTimeMs is > 0) continue; // 기존값 보존 — 빈 칸만 채운다
 
                 if (existing is null)
                 {
@@ -300,15 +302,29 @@ public class AppSettingsService
                     {
                         FlowName = flowName.Trim(),
                         IdealCycleTimeMs = idealCycleTimeMs,
-                        IdealCycleTimeSource = "auto",
+                        IdealCycleTimeSource = src,
                     });
+                    applied++;
+                    continue;
+                }
+
+                if (existing.IdealCycleTimeMs is > 0)
+                {
+                    // 기존값 보존이 기본. 단 임시(auto-median)를 확정(auto)으로 승급하는 경우만 덮는다.
+                    var canUpgrade = src == "auto"
+                        && string.Equals(existing.IdealCycleTimeSource, "auto-median", StringComparison.OrdinalIgnoreCase)
+                        && existing.IdealCycleTimeMs != idealCycleTimeMs;
+                    if (!canUpgrade) continue; // 수동/확정 자동 보존
+                    existing.IdealCycleTimeMs = idealCycleTimeMs;
+                    existing.IdealCycleTimeSource = "auto";
+                    applied++;
                 }
                 else
                 {
                     existing.IdealCycleTimeMs = idealCycleTimeMs;
-                    existing.IdealCycleTimeSource = "auto";
+                    existing.IdealCycleTimeSource = src;
+                    applied++;
                 }
-                applied++;
             }
 
             if (applied > 0)
@@ -323,10 +339,15 @@ public class AppSettingsService
 
     /// <summary>
     /// 여러 Flow 의 표준(ideal) 사이클 시간을 한 번의 파일 쓰기로 일괄 갱신 (uptime 표준CT 일괄 적용용).
-    /// 각 항목의 의미는 <see cref="SaveFlowIdealCycleTime"/> 와 동일(null/0 → 해제, 다른 override 도 비면 항목 제거).
-    /// 호출당 settings 파일을 한 번만 저장한다(개별 호출 N회 = N회 쓰기를 회피).
+    /// per-flow <paramref name="items"/> 의 mode 로 자동/수동을 명시 선택한다(doc/21 §12.4):
+    ///   • mode="manual" : 값을 수동으로 고정(IdealCycleTimeSource=null) — <b>값이 같아도</b> 출처를 수동으로 잠근다
+    ///     (자동기입/승급이 더는 못 덮게). 값 null/0 이면 해제(다른 필드 없으면 항목 제거).
+    ///   • mode="auto"   : 자동 관리로 해제 — 기존 <b>수동값만</b> 비워 자동기입 서비스가 다시 채우게 한다
+    ///     (이미 자동/미설정이면 no-op — 자동값을 비웠다 다시 채우는 churn 방지).
+    ///   • mode=null(레거시): 값 변경 시에만 수동 저장(no-op 행은 자동 출처 유지).
+    /// 호출당 settings 파일을 한 번만 저장한다.
     /// </summary>
-    public void SaveFlowIdealCycleTimesBatch(IEnumerable<(string FlowName, int? IdealCycleTimeMs)> items)
+    public void SaveFlowIdealCycleTimesBatch(IEnumerable<(string FlowName, int? IdealCycleTimeMs, string? Mode)> items)
     {
         if (items is null) return;
 
@@ -334,33 +355,56 @@ public class AppSettingsService
         var overrides = settings.FlowCycle.Overrides;
         var changed = false;
 
-        foreach (var (flowName, idealCycleTimeMs) in items)
+        bool RemoveIfEmpty(FlowCycleOverride ov)
+        {
+            if (ov.IdealCycleTimeMs is null or <= 0
+                && string.IsNullOrWhiteSpace(ov.StartCallName)
+                && string.IsNullOrWhiteSpace(ov.EndCallName))
+            {
+                overrides.Remove(ov);
+                return true;
+            }
+            return false;
+        }
+
+        foreach (var (flowName, idealCycleTimeMs, mode) in items)
         {
             if (string.IsNullOrWhiteSpace(flowName)) continue;
             var normalized = idealCycleTimeMs is > 0 ? idealCycleTimeMs : null;
-
             var existing = overrides
                 .FirstOrDefault(item => string.Equals(item.FlowName, flowName, StringComparison.OrdinalIgnoreCase));
 
+            // ── mode="auto": 자동 관리로 해제. 수동값(source=null & 값 있음)만 비운다. ──
+            if (string.Equals(mode, "auto", StringComparison.OrdinalIgnoreCase))
+            {
+                if (existing?.IdealCycleTimeMs is > 0 && existing.IdealCycleTimeSource is null)
+                {
+                    existing.IdealCycleTimeMs = null;
+                    existing.IdealCycleTimeSource = null;
+                    RemoveIfEmpty(existing);
+                    changed = true;
+                }
+                continue; // 이미 자동/미설정이면 변경 없음
+            }
+
+            // ── mode="manual"(또는 레거시): 값을 수동으로 저장/고정. ──
+            var isManualMode = string.Equals(mode, "manual", StringComparison.OrdinalIgnoreCase);
+
             if (existing is null)
             {
-                if (normalized is null) continue; // 설정할 것도, 제거할 것도 없음
-                overrides.Add(new FlowCycleOverride { FlowName = flowName.Trim(), IdealCycleTimeMs = normalized });
+                if (normalized is null) continue;
+                overrides.Add(new FlowCycleOverride { FlowName = flowName.Trim(), IdealCycleTimeMs = normalized }); // source=null=수동
                 changed = true;
+                continue;
             }
-            else
-            {
-                if (existing.IdealCycleTimeMs == normalized) continue; // 변경 없음(no-op 행은 자동 출처도 유지)
-                existing.IdealCycleTimeMs = normalized;
-                existing.IdealCycleTimeSource = null; // 사람이 값을 바꿔 저장 → 수동 출처로 환원
-                if (normalized is null
-                    && string.IsNullOrWhiteSpace(existing.StartCallName)
-                    && string.IsNullOrWhiteSpace(existing.EndCallName))
-                {
-                    overrides.Remove(existing);
-                }
-                changed = true;
-            }
+
+            // 레거시(mode=null)는 값이 같으면 no-op(자동 출처 유지). manual 은 값이 같아도 수동으로 잠근다.
+            if (!isManualMode && existing.IdealCycleTimeMs == normalized) continue;
+
+            existing.IdealCycleTimeMs = normalized;
+            existing.IdealCycleTimeSource = null; // 수동 출처로 환원(고정)
+            if (normalized is null) RemoveIfEmpty(existing);
+            changed = true;
         }
 
         if (!changed) return;

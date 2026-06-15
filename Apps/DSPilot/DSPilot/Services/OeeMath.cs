@@ -32,4 +32,56 @@ public static class OeeMath
             ? (quality, "양품(사이클수 − 입력 불량) ÷ 사이클수.", "measured", reject, good)
             : (quality, "불량 미입력 — 100% 가정. 불량 입력 시 실측 반영됩니다.", "assumed", reject, good);
     }
+
+    /// <summary>
+    /// OEE = 가용성 × 성능 × 품질. 한 요소라도 null 이면 산출 불가(null + 사유). 품질이 가정(assumed)이면 노트에 명시.
+    /// </summary>
+    public static (double? Oee, string? Note) ComputeOee(double? availability, double? performance, double? quality, string? qualitySource)
+    {
+        if (availability is double a && performance is double p && quality is double q)
+            return (a * p * q, qualitySource == "assumed" ? "품질 100% 가정 포함(불량 미입력)." : null);
+
+        var missing = new List<string>();
+        if (availability is null) missing.Add("가용성");
+        if (performance is null) missing.Add("성능");
+        if (quality is null) missing.Add("품질");
+        return (null, $"구성요소 미산출({string.Join(", ", missing)}) — OEE 산출 불가.");
+    }
+
+    /// <summary>
+    /// MTBF = Σ가동시간 / 고장건수. 고장 0건이면 분모 0 → 가짜 수치(max(n,1)) 금지하고 null + 무고장 표기(doc/21 §10).
+    /// NoFault=true 면 UI 가 "🟢 무고장" 배지를 띄운다.
+    /// </summary>
+    public static (double? Mtbf, string? Note, bool NoFault) ComputeMtbf(double runtimeMs, int failureCount)
+    {
+        if (failureCount <= 0)
+            return (null, "고장(분류 unplanned) 건수 0 — MTBF 산출 불가(무고장).", true);
+        return (runtimeMs / failureCount, "Σ가동시간 / 고장건수 (가동시간 = 가용성 분모와 동일 폴백).", false);
+    }
+
+    /// <summary>
+    /// 표준CT 자동기입 후보 산출 (doc/21 §12 D): 클린샘플 ≥ minClean 이면 best-demonstrated p10(확정, "auto"),
+    /// 그보다 적지만 ≥ minMedian 이면 중앙값(임시, "auto-median"), 그 외엔 산출 안 함(null). 승급/덮어쓰기 규칙은
+    /// 호출측(AppSettingsService.FillIdealCycleTimesAuto)이 source 로 판단한다 — 이 함수는 "무엇을 기입할지"만 결정.
+    /// </summary>
+    public static (int? Ms, string? Source) PickAutoIdealCycle(
+        int sampleCount, int recommendedMs, int medianMs, int minClean, int minMedian)
+    {
+        if (sampleCount >= minClean && recommendedMs > 0) return (recommendedMs, "auto");
+        if (sampleCount >= minMedian && medianMs > 0) return (medianMs, "auto-median");
+        return (null, null);
+    }
+
+    /// <summary>
+    /// nocycle clear 시 지속시간 기반 자동 분류(doc/21 §12 E): ≥ 8h → 점검(planned), ≥ 5분 → 고장(unplanned),
+    /// 그 미만 → 미분류 유지(ShouldClassify=false). isFailure = (category == unplanned).
+    /// </summary>
+    public static (string? ReasonCode, string? Category, bool IsFailure, bool ShouldClassify) ClassifyByDuration(double durationMs)
+    {
+        const double failureMs = 5d * 60 * 1000;
+        const double maintMs = 8d * 60 * 60 * 1000;
+        if (durationMs >= maintMs) return ("planned_maint", "planned", false, true);
+        if (durationMs >= failureMs) return ("equipment_fault", "unplanned", true, true);
+        return (null, null, false, false);
+    }
 }
