@@ -655,6 +655,9 @@ public partial class GanttChartControl
         double pixelsPerSecond = _viewModel.PixelsPerSecond;
         double viewportWidth = TimeRulerCanvas.ActualWidth;
         double offset = TimelineScrollViewer.HorizontalOffset;
+        // X축 라벨은 세션 시작(StartTime) 기준 경과시각. 슬라이딩 윈도우로 origin 이 앞으로 밀린 만큼
+        // (originElapsed) 을 더해, 왼쪽 끝 라벨이 0s 가 아니라 그 경과시각부터 시작한다(빨간선 14h → 왼쪽 9h).
+        TimeSpan originElapsed = _viewModel.RenderStartTime - _viewModel.StartTime;
 
         double tickInterval = pixelsPerSecond >= 100 ? 1
             : pixelsPerSecond >= 50 ? 5
@@ -680,7 +683,7 @@ public partial class GanttChartControl
             tick.Stroke = tickBrush;
 
             var label = GetOrCreateRulerLabel(labelIdx++);
-            label.Text = FormatTime(TimeSpan.FromSeconds(sec));
+            label.Text = FormatTime(TimeSpan.FromSeconds(sec) + originElapsed);
             label.Foreground = tickBrush;
             Canvas.SetLeft(label, x + 3);
             Canvas.SetTop(label, 4);

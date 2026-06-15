@@ -29,6 +29,10 @@ public partial class PlcSettingsDialog : Window
     /// (hub 전파). PlcSettings(연결) 와 별개 축이라 VM 에 안 섞고 결과 property 로 노출한다.</summary>
     public bool AutoDurationCalibrate { get; private set; }
 
+    /// <summary>다이얼로그 결과 — 간트 표시 윈도우(분). 호출자가 닫힌 후 SimulationPanelState 에 적용
+    /// (GanttChart 갱신). 영속화는 Apply 에서 PlcSettings(_vm) 경유로 함께 저장된다.</summary>
+    public int GanttWindowMinutes { get; private set; }
+
     public PlcSettingsDialog(PlcSettings settings, int? autoImportedTagCount = null, bool autoCalibrate = true)
     {
         _vm = settings;
@@ -36,6 +40,10 @@ public partial class PlcSettingsDialog : Window
 
         AutoDurationCalibrate = autoCalibrate;
         AutoCalibrateBox.IsChecked = autoCalibrate;
+
+        // 간트 표시 윈도우 — 저장된 PlcSettings 값으로 슬라이더 초기화(5~300분).
+        GanttWindowMinutes = _vm.GanttWindowMinutes;
+        GanttWindowSlider.Value = Math.Clamp(_vm.GanttWindowMinutes, 5, 300);
 
         // VM 의 벤더 프로파일을 복사 — Cancel 시 영향 없도록 작업본을 따로 관리.
         _workingProfiles = new Dictionary<string, PromakerShared.PlcVendorProfile>(
@@ -204,6 +212,11 @@ public partial class PlcSettingsDialog : Window
             _vm.VendorProfiles[kv.Key] = kv.Value.Clone();
         _vm.Vendor = activeVendor;
         _vm.ApplyProfile(activeProfile);
+
+        // 간트 표시 윈도우 — 슬라이더 값을 PlcSettings 에 반영(저장 대상) + 결과 property 로 노출(호출자가
+        // SimulationPanelState 에 적용해 GanttChart 갱신). 슬라이더가 5~300/5 단위 보장 — 별도 검증 불필요.
+        _vm.GanttWindowMinutes = (int)GanttWindowSlider.Value;
+        GanttWindowMinutes = (int)GanttWindowSlider.Value;
 
         // 다음 실행 시에도 같은 값이 채워지도록 영속화.
         _vm.Save();

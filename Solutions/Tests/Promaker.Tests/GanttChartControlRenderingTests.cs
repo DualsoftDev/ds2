@@ -573,55 +573,37 @@ public sealed class GanttChartControlRenderingTests
     }
 
     [Fact]
-    public void RenderStartTime_advances_to_oldest_surviving_io_segment_after_ringbuffer_trim()
+    public void RenderStartTime_within_window_anchors_at_session_start()
     {
-        // 링버퍼(MaxSegmentsPerEntry) 트림으로 앞 IO 세그먼트가 잘리면 origin 도 잔존 최古(2000 밴드
-        // 안)로 전진 — 트림 경계 밖(StartTime)을 참조하지 않는다. 신호 없을 때만 StartTime fallback.
+        // 운전이 표시 윈도우(RenderWindowMinutes) 미만이면 origin = 세션 시작 — 처음부터 전부 보임.
         var start = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Local);
-        var chart = new GanttChartState();
+        var chart = new GanttChartState { RenderWindowMinutes = 300 };   // 5시간 윈도우
         chart.Reset(start);
         var id = Guid.NewGuid();
-        chart.AddApiCallEntry(id, "ADV", Guid.NewGuid(), Guid.NewGuid(), outAddress: "%QX0.0", inAddress: "%IX0.0");
+        chart.AddEntry(id, "W", EntityKind.Work);
 
-        // IO 신호 없음 → origin = StartTime fallback.
+        // 윈도우 절반(2.5h) 시점까지 진행 → 아직 윈도우 안 참.
+        chart.UpdateNodeState(id, Status4.Going, start.AddHours(2.5));
+
         Assert.Equal(start, chart.RenderStartTime);
-
-        // OUT 신호를 상한 초과로 쌓아 OutSegments 앞부분 트림 유발.
-        for (int i = 1; i <= GanttChartState.MaxSegmentsPerEntry + 50; i++)
-            chart.UpdateIoState("%QX0.0", true, start.AddMilliseconds(i * 100));
-
-        var entry = chart.FindEntry(id)!;
-        // origin 은 트림 후 잔존하는 OutSegments 최古와 일치하고, StartTime 보다 전진해 있어야 한다.
-        Assert.Equal(entry.OutSegments[0].StartTime, chart.RenderStartTime);
-        Assert.True(chart.RenderStartTime > start);
-        // 총 가동시간(경과)은 세션 시작 기준 그대로 — origin 전진과 분리.
-        Assert.Equal(chart.CurrentTime - start, chart.TotalDuration);
     }
 
     [Fact]
-    public void RenderStartTime_ignores_virtual_io_and_status_rows_uses_oldest_real_io()
+    public void RenderStartTime_beyond_window_slides_with_current_time()
     {
-        // origin 기준은 "실제 PLC 주소가 있는 IO 행(ApiCall)의 가장 오래된 실신호"뿐. Virtual I/O 행
-        // (주소 없음)과 상태줄(Work/Call — 파생)은 추론 세그먼트가 찍혀도 origin 산정에서 제외한다.
-        // (실기 13h: virt/한가 행 0s placeholder 때문에 origin 이 0s 로 묶이던 버그)
+        // 운전이 윈도우를 넘으면 origin = 빨간선(현재시각) - 윈도우. 그보다 오래된 구간은 잘려 안 보임.
+        // 빨간선이 움직이면 윈도우도 같이 슬라이딩(origin = CurrentTime - N분).
         var start = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Local);
-        var chart = new GanttChartState();
+        var chart = new GanttChartState { RenderWindowMinutes = 300 };   // 5시간 윈도우
         chart.Reset(start);
-        var statusRow = Guid.NewGuid();
-        var virt = Guid.NewGuid();
-        var real = Guid.NewGuid();
-        chart.AddEntry(statusRow, "Work", EntityKind.Work);                  // 상태줄 — 제외
-        chart.AddApiCallEntry(virt, "VirtCall", Guid.NewGuid(), statusRow);  // 주소 없음 → Virtual, 제외
-        chart.AddApiCallEntry(real, "RealCall", Guid.NewGuid(), statusRow, outAddress: "%QX0.0");
+        var id = Guid.NewGuid();
+        chart.AddEntry(id, "W", EntityKind.Work);
 
-        // 상태줄·Virtual 행에 이른(1분) 추론 세그먼트를 박아도 origin 에 영향 없어야 한다.
-        chart.UpdateNodeState(statusRow, Status4.Going, start.AddMinutes(1));
-        chart.UpdateNodeState(virt, Status4.Going, start.AddMinutes(1));
-        // Real IO 행의 OUT 신호는 10분 지점.
-        chart.UpdateIoState("%QX0.0", true, start.AddMinutes(10));
+        // 14h 시점까지 진행 → 최근 5h 만 보임 → origin = 14h - 5h = 9h.
+        chart.UpdateNodeState(id, Status4.Going, start.AddHours(14));
 
-        // origin = Real IO 행의 첫 실신호(10분). virt/상태줄의 1분 추론 세그먼트는 무시.
-        Assert.Equal(start.AddMinutes(10), chart.RenderStartTime);
+        Assert.Equal(start.AddHours(9), chart.RenderStartTime);
+        Assert.Equal(chart.CurrentTime.AddMinutes(-300), chart.RenderStartTime);
     }
 
     [Fact]
