@@ -140,7 +140,7 @@ type Work [<JsonConstructor>] internal (flowPrefix: string, localName: string, p
             if String.IsNullOrEmpty(this.FlowPrefix) then this.LocalName
             else $"{this.FlowPrefix}.{this.LocalName}"
         and set value =
-            match value.IndexOf('.') with
+            match (if String.IsNullOrEmpty value then -1 else value.IndexOf('.')) with
             | -1  -> this.LocalName <- value
             | idx ->
                 this.FlowPrefix <- value[..idx - 1]
@@ -172,7 +172,7 @@ type Call [<JsonConstructor>] internal (devicesAlias: string, apiName: string, p
     override this.Name
         with get() = $"{this.DevicesAlias}.{this.ApiName}"
         and  set value =
-            match value.IndexOf('.') with
+            match (if String.IsNullOrEmpty value then -1 else value.IndexOf('.')) with
             | -1  ->
                 invalidArg (nameof value)
                     $"Call 이름 형식 오류: '{value}'. 올바른 형식: 'DevicesAlias.ApiName'"

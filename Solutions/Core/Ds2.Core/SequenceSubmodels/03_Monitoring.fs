@@ -1,6 +1,7 @@
 namespace Ds2.Core
 
 open System
+open System.Text.Json.Serialization
 
 // =============================================================================
 // SEQUENCE MONITORING SUBMODEL
@@ -138,6 +139,7 @@ type MonitoringSystemProperties() =
     // ========== 데이터 저장 설정 ==========
     member val EnableAutoSave = true with get, set
     member val SaveInterval = 60 with get, set                      // 저장 주기 (초)
+    [<JsonIgnore>]                                                  // M6: 연결문자열(비밀) 평문 직렬화 방지
     member val DbConnectionString: string option = None with get, set
 
     // ========== 무결성 검증 설정 ==========

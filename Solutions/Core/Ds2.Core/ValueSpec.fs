@@ -131,7 +131,7 @@ module ValueSpec =
             | Single v -> v = value
             | Multiple vs -> vs |> List.contains value
             | Ranges segments -> segments |> List.exists (inRange value)
-        let inline tryParse parser spec = 
+        let inline tryParse parser spec =
             match parser currentValue with true, v -> containsTyped v spec | _ -> false
         match valueSpec with
         | UndefinedValue   -> true
