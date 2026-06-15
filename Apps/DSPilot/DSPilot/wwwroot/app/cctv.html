@@ -1201,11 +1201,14 @@
                 // 첫 영상 프레임 수신(video 'playing') → 연결 중 → 연결됨. 재협상 등으로 중복 발생해도 멱등.
                 markFrameSeen(id) { if (!this._frameSeen[id]) this._frameSeen = { ...this._frameSeen, [id]: true }; },
                 // 타일 연결 상태 오버레이용: 'off'(미시작/단독 일시정지) | 'loading'(연결 중·첫 프레임 전) | 'failed' | 'live'(표시 안 함).
+                // 세 반응형 값을 항상 먼저 읽는다(조기 return 시 의존성 누락 방지 — cctv-wall.js 와 동일 이유).
                 tileStreamStatus(id) {
-                    if (!this._wallStarted[id]) return 'off';
                     const st = this.streamHealth[id];
+                    const seen = this._frameSeen[id];
+                    const started = this._wallStarted[id];
+                    if (!started) return 'off';
                     if (st === 'failed' || st === 'disconnected' || st === 'closed') return 'failed';
-                    return this._frameSeen[id] ? 'live' : 'loading';
+                    return seen ? 'live' : 'loading';
                 },
                 syncWallStreams() { for (const id of this.wall) if (!this._wallStarted[id]) this.startWallStream(id); },
                 // 단독 보기 ⇄ 분할 전환 시 스트림 게이팅. 분할이면 전 타일 즉시 재개, 단독이면 보이는 한 대만
