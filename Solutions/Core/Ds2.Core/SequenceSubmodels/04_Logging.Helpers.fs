@@ -8,6 +8,12 @@ open System
 
 module LoggingHelpers =
 
+    // ⚠ 미연결(dead) 통계 함수군 — 아래 updateIncrementalStats ~ CallStatsCollector(통계/이동평균/병목/heatmap)
+    //   은 전 리포(F:/Git/ds2/auto-fix) 호출처 0 (inspect §1 확정).
+    //   ※ 같은 모듈의 UserTagHelpers(아래) 는 살아있음(UserTags.fs / UserTagAlertService.cs 사용) — 본 주석은 통계군에만 해당.
+    //   단 Properties 등 향후 Logging Runtime/Analytics 연결 의도로 삭제 보류.
+    //   연결(활성화) 시 §5 잠재버그 먼저 수정 요망:
+    //     - calculateWindowStatistics 중복연산(동일 truncate/평균 2회) (04_Logging.Helpers.fs:122-127)
     // -------------------------------------------------------------------------
     // Welford's Algorithm (Incremental Statistics - O(1))
     // -------------------------------------------------------------------------

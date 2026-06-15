@@ -133,6 +133,12 @@ type CostAnalysisCallProperties() =
 // HELPER FUNCTIONS - 원가 및 OEE 계산 함수
 // =============================================================================
 
+/// ⚠ 미연결(dead) — 본 모듈(CostAnalysisHelpers: 원가/OEE 계산)은 전 리포(F:/Git/ds2/auto-fix) 호출처 0 (inspect §1 확정).
+/// 단 Properties 타입(CostAnalysisWorkProperties / SimulationWorkProperties 의 OEE 필드 등)은 살아있어 향후 wiring 의도 → 삭제 보류.
+/// 향후 OEE Runtime/Analytics 계층 연결 예정.
+/// 연결(활성화) 시 §5 잠재버그 먼저 수정 요망:
+///   - calculateUnitCost 수율·불량률 이중차감 (08_CostAnalysis.fs:160-163)
+///   - OEE 손실 3분해(Time/Speed/Quality) 단위·기준 비정합 (08_CostAnalysis.fs:225-243)
 module CostAnalysisHelpers =
 
     // ========== 원가 계산 함수 ==========

@@ -237,6 +237,12 @@ type QualityCallProperties() =
 // QUALITY HELPERS
 // =============================================================================
 
+/// ⚠ 미연결(dead) — 본 모듈(QualityHelpers: SPC 관리도/공정능력 계산)은 전 리포(F:/Git/ds2/auto-fix) 호출처 0 (inspect §1 확정).
+/// 단 Properties 타입(QualityWorkProperties.CurrentCp/CurrentCpk 등)은 살아있어 향후 wiring 의도 → 삭제 보류.
+/// 향후 SPC Runtime/Analytics 계층 연결 예정.
+/// 연결(활성화) 시 §5 잠재버그 먼저 수정 요망:
+///   - calculateXbarRLimits 빈배열/미지원 n(키 2~10 외) 예외 (07_Quality.fs:300-302)
+///   - calculatePLimits NaN/0나눗셈(pBar&gt;1·nBar=0·빈배열) (07_Quality.fs:391-404)
 module QualityHelpers =
 
     // ========== 관리도 상수 (A2, D3, D4 등) ==========
