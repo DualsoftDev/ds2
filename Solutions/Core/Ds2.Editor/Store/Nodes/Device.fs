@@ -67,8 +67,9 @@ module internal DirectDeviceOps =
         parts.[0], (if parts.Length > 1 then parts.[1] else "")
 
     let hasCreatableApiName (callName: string) =
-        let _, apiName = parseCallName callName
-        not (String.IsNullOrEmpty apiName)
+        // SSOT: Ds2.Core 의 canonical splitApiCallName 위임 (null/no-dot→false 보존, NRE 회피).
+        //   parseCallName 은 alias 추출(아래 :209)에 no-dot→("x","") 의미가 필요해 유지.
+        Queries.splitApiCallName callName |> Option.exists (snd >> String.IsNullOrEmpty >> not)
 
     let private ensureSystem (store: DsStore) (projectId: Guid) (flowName: string) (devAlias: string) (systemType: string option) (state: DeviceBatchState) =
         let systemName = $"{flowName}_{devAlias}"
