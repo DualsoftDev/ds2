@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<title>P5 설비 가동시간 자동계산 — 1페이지 요약</title>
+<style>
+@page{size:A4 landscape; margin:8mm;}
+*{box-sizing:border-box;}
+body{margin:0; font-family:-apple-system,"Pretendard","Apple SD Gothic Neo",sans-serif;
+  background:#F5F7FA; color:#1A2433; font-size:11px; line-height:1.45;}
+.page{width:297mm; min-height:200mm; margin:8px auto; background:#fff; padding:14mm 14mm 10mm 14mm;
+  display:grid; grid-template-columns:1fr 1fr; gap:10px; box-shadow:0 0 6px rgba(0,0,0,0.08);}
+.hdr{grid-column:1/-1; display:flex; justify-content:space-between; align-items:flex-end;
+  border-bottom:2px solid #1FA8B8; padding-bottom:6px; margin-bottom:2px;}
+.hdr h1{margin:0; font-size:18px; color:#0A2540; letter-spacing:-0.3px;}
+.hdr .sub{font-size:10.5px; color:#5B6B7E;}
+.hdr .v{background:#1FA8B8; color:#fff; padding:2px 8px; border-radius:3px; font-size:10px; font-weight:700;}
+
+.box{border:1px solid #E1E6EB; border-radius:5px; padding:8px 10px; background:#fff;}
+.box.full{grid-column:1/-1;}
+.box h3{margin:0 0 6px 0; font-size:12px; color:#0A2540; border-left:3px solid #1FA8B8; padding-left:6px;}
+.box h3 .n{background:#1FA8B8; color:#fff; padding:1px 6px; border-radius:2px; font-size:10px; margin-right:4px;}
+
+.tag{display:inline-block; background:#0A2540; color:#fff; padding:1px 5px; border-radius:2px;
+  font-size:9.5px; font-weight:700; margin-right:3px;}
+.chip{display:inline-block; padding:0px 5px; border-radius:8px; font-size:9px; font-weight:700;}
+.cm{background:#E8F5E9; color:#1B5E20;}
+.ca{background:#FFF3E0; color:#7A5200;}
+.cp{background:#E3F2FD; color:#1565C0;}
+.cz{background:#E8F5E9; color:#1B5E20;}
+
+table{width:100%; border-collapse:collapse; font-size:10px;}
+table th{background:#0A2540; color:#fff; padding:3px 6px; text-align:left; font-weight:600; font-size:9.5px;}
+table td{padding:3px 6px; border-bottom:1px solid #EEE; vertical-align:top;}
+table td.k{font-weight:700; color:#0A2540; white-space:nowrap;}
+table .new{background:#FFF8E1; color:#7A5200; padding:0 4px; border-radius:2px; font-size:9px; font-weight:700;}
+table .keep{background:#E8F5E9; color:#1B5E20; padding:0 4px; border-radius:2px; font-size:9px; font-weight:700;}
+
+.k4{display:grid; grid-template-columns:repeat(3,1fr); gap:5px;}
+.kcell{border:1px solid #E1E6EB; border-left:3px solid #1FA8B8; border-radius:3px; padding:5px 7px; background:#fff;}
+.kcell .lbl{font-size:9px; color:#5B6B7E; font-weight:700; letter-spacing:0.3px;}
+.kcell .val{font-size:11.5px; color:#0A2540; font-weight:700; margin:1px 0; font-family:"JetBrains Mono",monospace;}
+.kcell .sub{font-size:9px; color:#8896A6;}
+
+.formula{background:#FAFBFC; border-left:3px solid #1FA8B8; padding:4px 8px; margin:3px 0; font-size:11px;
+  line-height:1.7;}
+.formula .ko{font-weight:700; color:#0A2540;}
+.frac{display:inline-block; vertical-align:middle; text-align:center; margin:0 3px;}
+.frac .num{display:block; border-bottom:1.2px solid #0A2540; padding:0 5px 1px 5px; font-size:10px;}
+.frac .den{display:block; padding:1px 5px 0 5px; font-size:10px;}
+.eq{margin:0 4px; color:#178899; font-weight:700;}
+.note{font-size:9.5px; color:#5B6B7E;}
+.std-tag{background:#90A4AE; color:#fff; padding:0 4px; border-radius:2px; font-size:9px; font-weight:700; margin-right:3px;}
+.v2-tag{background:#1FA8B8; color:#fff; padding:0 4px; border-radius:2px; font-size:9px; font-weight:700; margin-right:3px;}
+
+ul.tight{margin:3px 0; padding-left:14px;}
+ul.tight li{margin:1px 0;}
+
+.svg-row{grid-column:1/-1;}
+svg{width:100%; height:auto; display:block;}
+
+.foot{grid-column:1/-1; text-align:center; font-size:9px; color:#8896A6; margin-top:4px;}
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <div class="hdr">
+    <div>
+      <h1>P5 설비 가동시간 통합 분석 — 자동계산 설계 <span class="v">v3</span></h1>
+      <div class="sub">사용자 설정 0개 · 3대 지표 (가용성 · 성능 · MTBF) · 품질/MTTR 제외</div>
+    </div>
+    <div class="sub">DSPilot · 2026-06-12</div>
+  </div>
+
+  <!-- ===== 좌상: 핵심 원칙 + 비교 ===== -->
+  <div class="box">
+    <h3><span class="n">①</span>표준 OEE vs DSPilot v2 — 핵심 차이</h3>
+    <table>
+      <tr><th>항목</th><th>표준 (수동입력)</th><th>v2 (자동)</th></tr>
+      <tr><td class="k">계획시간</td><td>시프트 마스터 등록</td><td>14일 활동시간 자동추정 🤖</td></tr>
+      <tr><td class="k">표준사이클</td><td>카탈로그 수기입력</td><td>p10 자동기입 → 중앙값 폴백 🤖</td></tr>
+      <tr><td class="k">정지 시작</td><td>HMI 버튼 / 알람비트</td><td>무사이클 ∨ 고장비트↑ 🤖</td></tr>
+      <tr><td class="k">원인 분류</td><td>오퍼레이터 드롭다운</td><td>비트→5분→8시간 4단계 🤖</td></tr>
+      <tr><td class="k">점검시간</td><td>예외 캘린더 등록</td><td>시프트밖 + 8h↑ 자동라벨 🤖</td></tr>
+      <tr><td class="k">품질(Q)</td><td>불량 수기입력 (100% 가정)</td><td><b>완전 삭제</b> ✗</td></tr>
+      <tr><td class="k">MTBF</td><td>분모 0 → "N/A"</td><td>max(n,1) 보호 → 🟢 무고장</td></tr>
+      <tr><td class="k">입력 부담</td><td>~29건/주</td><td>~1건/주 (<b>95%↓</b>)</td></tr>
+    </table>
+  </div>
+
+  <!-- ===== 우상: 3 KPI ===== -->
+  <div class="box">
+    <h3><span class="n">②</span>3대 지표 — 모두 자동 산출</h3>
+    <div class="k4">
+      <div class="kcell">
+        <div class="lbl">가용성 A <span class="chip ca">🤖</span></div>
+        <div class="val">가동 / 계획</div>
+        <div class="sub">계획시간 자동추정</div>
+      </div>
+      <div class="kcell">
+        <div class="lbl">성능 P <span class="chip ca">🤖</span></div>
+        <div class="val">(CT·N) / 가동</div>
+        <div class="sub">표준CT 자동기입</div>
+      </div>
+      <div class="kcell">
+        <div class="lbl">MTBF <span class="chip cz">🟢</span></div>
+        <div class="val">가동 / max(n,1)</div>
+        <div class="sub">분모 0 보호</div>
+      </div>
+    </div>
+    <div style="margin-top:5px; padding:5px 8px; background:#FFEB3B; border-radius:3px; text-align:center; font-weight:700; color:#0A2540; font-size:12px;">
+      헤드라인 OEE = 가용성 × 성능 (양품률 제외 명시)
+    </div>
+    <div style="margin-top:4px; font-size:9.5px; color:#5B6B7E;">
+      칩 — <span class="chip cm">⚙ 측정</span> <span class="chip ca">🤖 자동추정</span> <span class="chip cz">🟢 무고장</span>
+      &nbsp;&nbsp;<b>제외:</b> 양품률 Q · MTTR (3대 지표만 유지)
+    </div>
+  </div>
+
+  <!-- ===== 좌중: 수식 비교 ===== -->
+  <div class="box">
+    <h3><span class="n">③</span>수식 — 한글 핵심</h3>
+
+    <div class="formula"><span class="std-tag">표준</span><span class="ko">가용성</span>
+      <span class="eq">=</span><span class="frac"><span class="num">가동시간</span><span class="den">계획실행시간</span></span>
+      <span class="note">계획 = 시프트 − 계획정지</span>
+    </div>
+    <div class="formula"><span class="v2-tag">v2</span><span class="ko">가용성</span>
+      <span class="eq">=</span><span class="frac"><span class="num">가동시간</span><span class="den">자동추정 계획실행시간</span></span>
+      <span class="note">= (상위95% − 하위5%) × 일수</span>
+    </div>
+
+    <div class="formula"><span class="std-tag">표준</span><span class="ko">성능</span>
+      <span class="eq">=</span><span class="frac"><span class="num">표준사이클 × 생산수</span><span class="den">가동시간</span></span>
+      <span class="note">표준사이클 = 카탈로그</span>
+    </div>
+    <div class="formula"><span class="v2-tag">v2</span><span class="ko">성능</span>
+      <span class="eq">=</span><span class="frac"><span class="num">표준사이클 × 생산수</span><span class="den">가동시간</span></span>
+      <span class="note">표준사이클 = 하위10% ?? 중앙값</span>
+    </div>
+
+    <div class="formula"><span class="std-tag">표준</span><span class="ko">MTBF</span>
+      <span class="eq">=</span><span class="frac"><span class="num">가동시간</span><span class="den">고장건수</span></span>
+      <span class="note">고장 0건 → 산출불가</span>
+    </div>
+    <div class="formula"><span class="v2-tag">v3</span><span class="ko">MTBF</span>
+      <span class="eq">=</span><span class="frac"><span class="num">가동시간</span><span class="den">max(고장건수, 1)</span></span>
+      <span class="note">분모 0 보호 → 무고장시 가동시간 그대로 🟢</span>
+    </div>
+
+    <div class="formula" style="background:#FFEB3B; border-left-color:#F57F17;">
+      <span class="std-tag">표준</span> OEE = 가용성 × 성능 × <span style="text-decoration:line-through;">양품률</span>
+      &nbsp;&nbsp;<span class="v2-tag">v2</span> <b>OEE = 가용성 × 성능</b>
+    </div>
+  </div>
+
+  <!-- ===== 우중: 자동 파이프라인 ===== -->
+  <div class="box">
+    <h3><span class="n">④</span>자동 파이프라인 4종</h3>
+    <table>
+      <tr><th>#</th><th>자동화</th><th>상태</th><th>알고리즘</th></tr>
+      <tr><td>①</td><td>표준사이클 자동기입</td><td><span class="keep">기존</span></td><td>p10 (샘플≥30) → median 폴백</td></tr>
+      <tr><td>②</td><td>정지 시작/마감</td><td><span class="keep">기존</span></td><td>무사이클 120s + 고장비트↑</td></tr>
+      <tr><td>③</td><td>원인 분류</td><td><span class="keep">기존</span>+<span class="new">확장</span></td><td>비트 → 5분↑ 자동:고장 → 8h↑ 자동:점검</td></tr>
+      <tr><td>④</td><td>계획시간 자동추정</td><td><span class="new">신규</span></td><td>14일 시간별 히스토그램 p5~p95</td></tr>
+    </table>
+    <div style="margin-top:5px; font-size:9.5px; color:#5B6B7E;">
+      <b>사용자 재분류시</b> → 출처=수동 영구고정, 자동화 OFF (정정값 항상 우선)
+    </div>
+  </div>
+
+  <!-- ===== 하단 전체: 시각 도식 + 운영단계 ===== -->
+  <div class="box svg-row">
+    <h3><span class="n">⑤</span>시간 계층 → 손실 → KPI · 운영단계별 변화</h3>
+    <svg viewBox="0 0 1100 230" xmlns="http://www.w3.org/2000/svg">
+      <!-- 시간 계층 (좌) -->
+      <rect x="10" y="10" width="180" height="180" fill="#fff" stroke="#37474F" stroke-width="1.2"/>
+      <text x="100" y="25" text-anchor="middle" font-size="10.5" font-weight="700" fill="#0A2540">계획실행시간 🤖</text>
+      <rect x="10" y="35" width="130" height="120" fill="#fff" stroke="#37474F"/>
+      <text x="75" y="50" text-anchor="middle" font-size="10" font-weight="700" fill="#0A2540">가동시간</text>
+      <rect x="140" y="35" width="50" height="120" fill="#FFCDD2" stroke="#B71C1C"/>
+      <text x="165" y="100" text-anchor="middle" font-size="9" font-weight="700" fill="#B71C1C">정지</text>
+      <rect x="10" y="75" width="90" height="80" fill="#FFEB3B" stroke="#F57F17" stroke-width="1.2"/>
+      <text x="55" y="115" text-anchor="middle" font-size="10" font-weight="800" fill="#0A2540">순가동</text>
+      <text x="55" y="128" text-anchor="middle" font-size="8" fill="#5B6B7E">= 계획 × A × P</text>
+      <rect x="100" y="75" width="40" height="80" fill="#FFE0B2" stroke="#E65100"/>
+      <text x="120" y="115" text-anchor="middle" font-size="8.5" fill="#E65100">속도</text>
+      <text x="120" y="127" text-anchor="middle" font-size="8.5" fill="#E65100">손실</text>
+
+      <!-- 4 손실 (중) -->
+      <g font-size="9.5">
+        <rect x="210" y="30" width="200" height="22" fill="#FFCDD2" stroke="#B71C1C"/>
+        <text x="220" y="46" font-weight="700" fill="#B71C1C">1. 장비 고장 🤖</text>
+        <rect x="210" y="56" width="200" height="22" fill="#E1BEE7" stroke="#6A1B9A"/>
+        <text x="220" y="72" font-weight="700" fill="#6A1B9A">2. 설치·교체·점검 🤖</text>
+        <rect x="210" y="82" width="200" height="22" fill="#FFF9C4" stroke="#F57F17"/>
+        <text x="220" y="98" font-weight="700" fill="#E65100">3. 비동작 (유휴)</text>
+        <rect x="210" y="108" width="200" height="22" fill="#FFE0B2" stroke="#E65100"/>
+        <text x="220" y="124" font-weight="700" fill="#E65100">4. 생산속도 감소</text>
+        <rect x="210" y="134" width="200" height="22" fill="#F5F5F5" stroke="#BDBDBD" stroke-dasharray="3,2"/>
+        <text x="220" y="150" fill="#9E9E9E" text-decoration="line-through">5·6 품질손실 — v2 제거</text>
+      </g>
+
+      <!-- 운영단계 (우) -->
+      <g font-size="9.5">
+        <rect x="430" y="10" width="220" height="180" fill="#fff" stroke="#37474F"/>
+        <text x="540" y="25" text-anchor="middle" font-weight="700" fill="#0A2540" font-size="10.5">운영단계별 KPI 변화 (STN1)</text>
+        <line x1="440" y1="35" x2="640" y2="35" stroke="#0A2540"/>
+        <text x="445" y="55" font-weight="700" fill="#5B6B7E">A. 1일차 (데이터 0)</text>
+        <text x="445" y="68" fill="#5B6B7E">OEE 0% · 정직한 "부족" 상태</text>
+        <line x1="440" y1="78" x2="640" y2="78" stroke="#EEE"/>
+        <text x="445" y="95" font-weight="700" fill="#0A2540">B. 5일차 (안정화중)</text>
+        <text x="445" y="108" fill="#5B6B7E">OEE 87.8% · CT=중앙값 폴백</text>
+        <line x1="440" y1="118" x2="640" y2="118" stroke="#EEE"/>
+        <text x="445" y="135" font-weight="700" fill="#178899">C. 30일차 (정상운영)</text>
+        <text x="445" y="148" fill="#5B6B7E">OEE 72.4% · CT=p10 진짜값</text>
+        <text x="445" y="172" fill="#8896A6" font-style="italic">→ 사용자 입력 0, 자동 안정화</text>
+      </g>
+
+      <!-- 계산 예시 (최우) -->
+      <g font-size="10">
+        <rect x="670" y="10" width="420" height="180" fill="#FAFBFC" stroke="#1FA8B8" stroke-width="1.2"/>
+        <text x="880" y="25" text-anchor="middle" font-weight="700" fill="#0A2540" font-size="10.5">자동계산 예시 (1일)</text>
+        <text x="685" y="50" fill="#0A2540"><tspan font-weight="700" fill="#178899">가용성</tspan> = (480 − 60) / 480 × 100 = <tspan font-weight="800" fill="#36C28A">87.5%</tspan></text>
+        <line x1="685" y1="58" x2="1080" y2="58" stroke="#EEE"/>
+        <text x="685" y="80" fill="#0A2540"><tspan font-weight="700" fill="#178899">성능</tspan> = (0.5 × 400) / 420 × 100 = <tspan font-weight="800" fill="#F8C545">47.6%</tspan></text>
+        <line x1="685" y1="88" x2="1080" y2="88" stroke="#EEE"/>
+        <text x="685" y="110" fill="#0A2540"><tspan font-weight="700" fill="#178899">MTBF</tspan> = 420분 / max(3, 1) = <tspan font-weight="800" fill="#1FA8B8">140분 (2h 20m)</tspan></text>
+        <line x1="685" y1="118" x2="1080" y2="118" stroke="#EEE"/>
+        <text x="685" y="140" fill="#5B6B7E" font-size="9.5" font-style="italic">※ MTTR 제외 — 3대 지표(가용성·성능·MTBF)만 유지</text>
+        <rect x="685" y="153" width="395" height="30" fill="#FFEB3B" stroke="#F57F17"/>
+        <text x="882" y="173" text-anchor="middle" font-weight="800" fill="#0A2540" font-size="12">OEE = 0.875 × 0.476 = 41.7%</text>
+      </g>
+    </svg>
+  </div>
+
+  <!-- ===== 상황 시나리오 (전체폭) ===== -->
+  <div class="box full" style="background:#FAFBFC;">
+    <h3><span class="n">⑥</span>예시 시나리오 — 자동계산 수치의 배경 (STN3 조립3 설비, 1일 운영)</h3>
+    <div style="display:grid; grid-template-columns:1.05fr 1fr 1.1fr; gap:10px;">
+
+      <!-- 상황 -->
+      <div>
+        <h4 style="margin:0 0 4px 0; font-size:10.5px; color:#0A2540;">📋 운영 상황 (자동 수집)</h4>
+        <table style="font-size:9.5px;">
+          <tr><td class="k">설비</td><td>STN3 조립3 (프레스 + 픽앤플레이스)</td></tr>
+          <tr><td class="k">일자</td><td>2026-05-27 (수)</td></tr>
+          <tr><td class="k">시프트</td><td>미설정 → <b>자동추정 08:00~16:00 (8h=480분)</b> 🤖</td></tr>
+          <tr><td class="k">표준CT</td><td>미입력 → <b>p10 자동기입 0.5분 (30s/cycle)</b> 🤖</td></tr>
+          <tr><td class="k">생산수</td><td>400개 (dspFlowHistory 자동집계)</td></tr>
+          <tr><td class="k">정지</td><td><b>3건 (총 60분)</b> — 모두 자동 onset/clear</td></tr>
+          <tr><td class="k">불량</td><td>측정 안함 (v2 양품률 제외)</td></tr>
+        </table>
+      </div>
+
+      <!-- 정지 이벤트 -->
+      <div>
+        <h4 style="margin:0 0 4px 0; font-size:10.5px; color:#0A2540;">🚨 정지 이벤트 3건 (자동 분류)</h4>
+        <table style="font-size:9.5px;">
+          <tr><th style="font-size:9px;">시각</th><th style="font-size:9px;">길이</th><th style="font-size:9px;">자동 분류</th></tr>
+          <tr><td>09:42</td><td>15분</td><td>고장비트↑ → <span class="chip ca" style="font-size:8.5px;">🤖 고장</span></td></tr>
+          <tr><td>11:08</td><td>20분</td><td>5분↑ 무사이클 → <span class="chip ca" style="font-size:8.5px;">🤖 자동:고장</span></td></tr>
+          <tr><td>14:30</td><td>25분</td><td>원인비트(자재) → <span class="chip cm" style="font-size:8.5px;">⚙ 자재대기</span></td></tr>
+        </table>
+        <div style="font-size:9px; color:#5B6B7E; margin-top:4px; padding:4px 6px; background:#FFF3E0; border-radius:3px;">
+          <b>가동시간</b> = 480 − 60 = <b>420분</b> (실제 사이클 발생)
+        </div>
+        <div style="font-size:9px; color:#5B6B7E; margin-top:3px;">
+          <b>고장 마감건수</b> = 3건 (15+20+25분, 모두 자동 clear)
+        </div>
+      </div>
+
+      <!-- 계산 상세 -->
+      <div>
+        <h4 style="margin:0 0 4px 0; font-size:10.5px; color:#0A2540;">🧮 KPI 산출 (모두 자동)</h4>
+
+        <div style="background:#fff; border-left:3px solid #36C28A; padding:4px 8px; margin-bottom:3px; font-size:9.5px;">
+          <b style="color:#1B5E20;">가용성 = 87.5%</b><br>
+          (480 − 60) / 480 = 420/480<br>
+          <span style="color:#5B6B7E;">→ 계획 480분 중 60분 정지, 가동률 87.5%</span>
+        </div>
+
+        <div style="background:#fff; border-left:3px solid #F8C545; padding:4px 8px; margin-bottom:3px; font-size:9.5px;">
+          <b style="color:#7A5200;">성능 = 47.6%</b><br>
+          (0.5분 × 400개) / 420분 = 200/420<br>
+          <span style="color:#5B6B7E;">→ 표준속도면 200분이면 됨. 실제 420분 → 속도손실 53%</span>
+        </div>
+
+        <div style="background:#fff; border-left:3px solid #1FA8B8; padding:4px 8px; margin-bottom:3px; font-size:9.5px;">
+          <b style="color:#178899;">MTBF = 140분 (2h 20m)</b><br>
+          420분 / max(3, 1) = 420/3<br>
+          <span style="color:#5B6B7E;">→ 평균 2시간 20분마다 1번 고장 — 신뢰성 낮음</span>
+        </div>
+
+        <div style="background:#FFEB3B; padding:5px 8px; border-radius:3px; font-size:10px; text-align:center; font-weight:800; color:#0A2540;">
+          OEE = 0.875 × 0.476 = <span style="color:#B71C1C;">41.7%</span>
+          <div style="font-size:8.5px; font-weight:500; color:#5B6B7E; margin-top:1px;">
+            → 가용성 양호, <b>성능이 발목</b>. 사이클 속도 개선 우선.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 의미 해석 -->
+    <div style="margin-top:6px; padding:6px 10px; background:#E8F6F8; border-left:3px solid #1FA8B8; border-radius:3px; font-size:10px; line-height:1.55;">
+      <b style="color:#0A2540;">🔍 자동 인사이트:</b>
+      이 설비는 <b>가용성(87.5%) 은 합격선</b>이지만 <b>성능(47.6%) 이 OEE 의 발목</b>을 잡는다. 가동시간 420분 중 절반 이상이 표준속도 미달로 흘러간 셈.
+      <b>MTBF 140분</b> 으로 평균 2시간 20분마다 고장 발생 → <b>마모/공구 점검 주기 단축</b>과 <b>사이클 속도 회복</b>이 핵심 개선점.
+      <b>모든 수치가 자동 산출</b> — 운영자가 입력한 것은 0건이며, 정지 분류 1건만 원인비트로 ⚙ 측정, 나머지 2건은 🤖 자동분류.
+    </div>
+  </div>
+
+  <!-- ===== 하단: 구현 + 비목표 ===== -->
+  <div class="box">
+    <h3><span class="n">⑦</span>구현 순서</h3>
+    <ul class="tight">
+      <li>① 스키마: <code>oeeDowntime.classifySource</code> 컬럼 추가</li>
+      <li>② <code>OeeAutoShiftInferenceService</code> 신규 (계획시간 자동추정)</li>
+      <li>③ <code>OeeController</code> 분기 — 우선순위 / 출처 칩 / 품질 코드 삭제</li>
+      <li>④ 5분 / 8시간 휴리스틱 분류기 확장</li>
+      <li>⑤ 신규 API 3종 — daily-composition / by-reason / insight</li>
+      <li>⑥ UI <code>/app/uptime.html</code> (Alpine.js)</li>
+    </ul>
+  </div>
+
+  <div class="box">
+    <h3><span class="n">⑧</span>비목표</h3>
+    <ul class="tight">
+      <li>품질(Q) 측정·표시 — 완전 제외</li>
+      <li>LLM 인사이트 — 룰기반만 (향후 옵트인)</li>
+      <li>계획시간 자동추정 → DB 영구기입 — 금지 (RAM only)</li>
+      <li>휴리스틱 분류의 과거 백필 — 신규에만 적용</li>
+      <li>CCTV / 품질자료 연계 — P5 외부</li>
+    </ul>
+  </div>
+
+  <div class="foot">
+    DSPilot — P5 Uptime 자동계산 설계 v2 · DualSoft · 상세본: <code>P5_UPTIME_DESIGN.html</code>
+  </div>
+
+</div>
+
+</body>
+</html>
