@@ -58,6 +58,7 @@
                 cctvLoaded: false,
                 _cctvActive: false,
                 _cctvStarted: {},                 // id -> true (WHEP 시작 여부)
+                _cctvFrameSeen: {},               // id -> true (첫 영상 프레임 수신 — 연결 중/연결됨 구분)
                 _cctvSoloPauseTimer: null,        // 단독 보기 시 숨은 타일 일시정지 디바운스 타이머
                 _cctvHealth: {},                  // id -> RTCPeerConnection.connectionState
                 _cctvResizeObs: null,
@@ -97,7 +98,7 @@
                     if (pipRt && pipRt.camId === id) continue;
                     this.cctvStopStream(id);
                 }
-                if (!pipRt) { this._cctvStarted = {}; this._cctvHealth = {}; }
+                if (!pipRt) { this._cctvStarted = {}; this._cctvHealth = {}; this._cctvFrameSeen = {}; }
                 if (this._cctvResizeObs) { try { this._cctvResizeObs.disconnect(); } catch (e) {} this._cctvResizeObs = null; }
                 this.cctvClearHover();
             },
@@ -215,6 +216,7 @@
             cctvStartStream(id) {
                 if (!window.cctvWhep) return;
                 this._cctvHealth = { ...this._cctvHealth, [id]: 'connecting' };
+                this._cctvFrameSeen = { ...this._cctvFrameSeen, [id]: false };
                 window.cctvWhep.start('cctv-wall-' + id, this.cctvWebRtcPort, id,
                     (st) => { this._cctvHealth = { ...this._cctvHealth, [id]: st }; });
                 this._cctvStarted[id] = true;
@@ -223,8 +225,18 @@
                 if (window.cctvWhep) window.cctvWhep.stop('cctv-wall-' + id);
                 delete this._cctvStarted[id];
                 const h = { ...this._cctvHealth }; delete h[id]; this._cctvHealth = h;
+                const f = { ...this._cctvFrameSeen }; delete f[id]; this._cctvFrameSeen = f;
             },
             cctvSyncStreams() { for (const id of this.cctvWall) if (!this._cctvStarted[id]) this.cctvStartStream(id); },
+            // 첫 영상 프레임 수신(video 'playing') → 연결 중 → 연결됨. 멱등.
+            cctvMarkFrameSeen(id) { if (!this._cctvFrameSeen[id]) this._cctvFrameSeen = { ...this._cctvFrameSeen, [id]: true }; },
+            // 타일 연결 상태 오버레이용: 'off'(미시작/단독 일시정지) | 'loading'(연결 중) | 'failed' | 'live'(표시 안 함).
+            cctvTileStatus(id) {
+                if (!this._cctvStarted[id]) return 'off';
+                const st = this._cctvHealth[id];
+                if (st === 'failed' || st === 'disconnected' || st === 'closed') return 'failed';
+                return this._cctvFrameSeen[id] ? 'live' : 'loading';
+            },
 
             // ════════ PiP (오버레이 합성 작은 창) ════════
             // 브라우저 기본 video PiP 는 영상 픽셀만 떼어가 DOM 오버레이가 빠짐(타일 video 는 disablepictureinpicture 로 차단).

@@ -156,6 +156,14 @@
         .cctv-tile-ovl { position: absolute; bottom: 6px; right: 6px; display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: var(--radius-lg); background: rgba(8, 13, 20, 0.82); color: #fff; font-size: 0.56rem; font-weight: 800; pointer-events: none; z-index: 3; }
         .cctv-tile-ovl .material-icons { font-size: 12px; }
         @keyframes cctv-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+        /* 연결 상태 오버레이 — 영상이 뜨기 전(연결 중)·끊겼을 때(연결 끊어짐) 타일 중앙에 표시. 버튼(z5)·절전안내(z6) 아래. */
+        .cctv-tile-status { position: absolute; inset: 0; z-index: 4; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; padding: 12px; text-align: center; pointer-events: none; background: rgba(10, 15, 22, 0.55); color: #e7edf5; font-size: 0.78rem; font-weight: 700; }
+        .cctv-tile-status .st-title { font-size: 0.84rem; font-weight: 800; }
+        .cctv-tile-status .st-sub { font-size: 0.66rem; font-weight: 600; opacity: 0.72; }
+        .cctv-tile-status.is-failed { background: rgba(10, 15, 22, 0.74); }
+        .cctv-tile-status.is-failed .material-icons { font-size: 34px; color: var(--red); }
+        .cctv-spin { width: 30px; height: 30px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, 0.22); border-top-color: var(--teal-2, #2E97E6); animation: cctv-spin-rot 0.8s linear infinite; }
+        @keyframes cctv-spin-rot { to { transform: rotate(360deg); } }
 
         /* 타일 내 인라인 arm 바 (편집 시) */
         .cctv-tile-armbar { display: flex; align-items: center; gap: 7px; padding: 7px 9px; background: color-mix(in srgb, var(--teal) 12%, var(--color-surface)); border-bottom: 1px solid var(--color-lines); flex-shrink: 0; flex-wrap: wrap; }
@@ -518,7 +526,22 @@
 
                                                 <div class="cctv-tile-stage">
                                                     <video :id="'cctv-wall-' + cam.id" muted autoplay playsinline draggable="false"
-                                                           @loadedmetadata="recalcWallRects()"></video>
+                                                           @loadedmetadata="recalcWallRects()" @playing="markFrameSeen(cam.id)"></video>
+
+                                                    <!-- 연결 상태 오버레이 (연결 중 / 연결 실패) -->
+                                                    <template x-if="tileStreamStatus(cam.id) === 'loading'">
+                                                        <div class="cctv-tile-status is-loading">
+                                                            <span class="cctv-spin"></span>
+                                                            <span>연결 중…</span>
+                                                        </div>
+                                                    </template>
+                                                    <template x-if="tileStreamStatus(cam.id) === 'failed'">
+                                                        <div class="cctv-tile-status is-failed">
+                                                            <span class="material-icons">videocam_off</span>
+                                                            <span class="st-title">연결 실패</span>
+                                                            <span class="st-sub">재연결을 시도하는 중…</span>
+                                                        </div>
+                                                    </template>
 
                                                     <!-- 오버레이 레이어 -->
                                                     <div class="cctv-ovl-layer"
@@ -862,6 +885,7 @@
                 isFullscreen: false,       // 브라우저 전체화면 여부 — 타일 바(이동/닫기) 숨김 토글
                 _drag: null,               // { kind:'rail'|'tile', id }
                 _wallStarted: {},          // id -> true (WHEP 시작 여부)
+                _frameSeen: {},            // id -> true (첫 영상 프레임 수신 — 연결 중/연결됨 구분)
                 _soloPauseTimer: null,     // 단독 보기 시 숨은 타일 일시정지 디바운스 타이머
                 streamHealth: {},          // id -> WebRTC connectionState (per-stream 헬스)
                 _wallResizeObs: null,
@@ -1163,6 +1187,7 @@
                 startWallStream(id) {
                     if (!window.cctvWhep) return;
                     this.streamHealth = { ...this.streamHealth, [id]: 'connecting' };
+                    this._frameSeen = { ...this._frameSeen, [id]: false };
                     window.cctvWhep.start('cctv-wall-' + id, this.webRtcPort, id,
                         (st) => { this.streamHealth = { ...this.streamHealth, [id]: st }; });
                     this._wallStarted[id] = true;
@@ -1171,6 +1196,16 @@
                     if (window.cctvWhep) window.cctvWhep.stop('cctv-wall-' + id);
                     delete this._wallStarted[id];
                     const h = { ...this.streamHealth }; delete h[id]; this.streamHealth = h;
+                    const f = { ...this._frameSeen }; delete f[id]; this._frameSeen = f;
+                },
+                // 첫 영상 프레임 수신(video 'playing') → 연결 중 → 연결됨. 재협상 등으로 중복 발생해도 멱등.
+                markFrameSeen(id) { if (!this._frameSeen[id]) this._frameSeen = { ...this._frameSeen, [id]: true }; },
+                // 타일 연결 상태 오버레이용: 'off'(미시작/단독 일시정지) | 'loading'(연결 중·첫 프레임 전) | 'failed' | 'live'(표시 안 함).
+                tileStreamStatus(id) {
+                    if (!this._wallStarted[id]) return 'off';
+                    const st = this.streamHealth[id];
+                    if (st === 'failed' || st === 'disconnected' || st === 'closed') return 'failed';
+                    return this._frameSeen[id] ? 'live' : 'loading';
                 },
                 syncWallStreams() { for (const id of this.wall) if (!this._wallStarted[id]) this.startWallStream(id); },
                 // 단독 보기 ⇄ 분할 전환 시 스트림 게이팅. 분할이면 전 타일 즉시 재개, 단독이면 보이는 한 대만
@@ -1806,7 +1841,7 @@
                         // 카메라 집합이 바뀌었으므로 영상벽 구성/상태를 다시 로드한다(스트림 깨끗이 재시작).
                         if (this._soloPauseTimer) { clearTimeout(this._soloPauseTimer); this._soloPauseTimer = null; }
                         try { window.cctvWhep?.stopAll(); } catch (e) {}
-                        this._wallStarted = {}; this.streamHealth = {};
+                        this._wallStarted = {}; this.streamHealth = {}; this._frameSeen = {};
                         await this.loadConfig();
                         await this.loadStatus();
                         // 카메라 rename 으로 오버레이 FK 가 옮겨졌을 수 있으니 오버레이/상태 재로딩 (Flow/Call 은 AASX 출처라 무관).

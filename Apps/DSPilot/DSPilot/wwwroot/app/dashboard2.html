@@ -854,7 +854,22 @@
                                             <div class="cctv-tile-stage">
                                                 <!-- disablepictureinpicture: 브라우저 기본 PiP 는 영상 픽셀만 가져가 오버레이가 빠짐 → 차단하고 합성 PiP 버튼 사용 -->
                                                 <video :id="'cctv-wall-' + cam.id" muted autoplay playsinline disablepictureinpicture
-                                                       @loadedmetadata="cctvRecalcRects()"></video>
+                                                       @loadedmetadata="cctvRecalcRects()" @playing="cctvMarkFrameSeen(cam.id)"></video>
+
+                                                <!-- 연결 상태 오버레이 (연결 중 / 연결 실패) -->
+                                                <template x-if="cctvTileStatus(cam.id) === 'loading'">
+                                                    <div class="cctv-tile-status is-loading">
+                                                        <span class="cctv-spin"></span>
+                                                        <span>연결 중…</span>
+                                                    </div>
+                                                </template>
+                                                <template x-if="cctvTileStatus(cam.id) === 'failed'">
+                                                    <div class="cctv-tile-status is-failed">
+                                                        <span class="material-icons">videocam_off</span>
+                                                        <span class="st-title">연결 실패</span>
+                                                        <span class="st-sub">재연결을 시도하는 중…</span>
+                                                    </div>
+                                                </template>
 
                                                 <div class="cctv-tile-btns">
                                                     <!-- PiP 작은 창 — canvas 합성이라 오버레이(박스·핀·상태색)까지 함께 표시 -->

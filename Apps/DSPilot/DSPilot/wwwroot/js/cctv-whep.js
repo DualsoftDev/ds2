@@ -119,6 +119,10 @@ window.cctvWhep = (function () {
             scheduleRefresh(session);
         } catch (err) {
             console.warn(`[cctv] ${session.name} 연결 실패:`, err.message);
+            // 협상 실패(오프라인 카메라=WHEP 404, 네트워크 오류 등)는 connectionstatechange 가 안 떠
+            // 페이지가 모른다 → onState('failed') 로 알려 로딩/실패 UI 가 '실패'로 전환되게 한다.
+            // (scheduleReconnect 가 3초 뒤 재시도하므로 성공하면 다시 connected 로 복구)
+            if (session.onState) { try { session.onState('failed'); } catch (e) { } }
             scheduleReconnect(session);
         }
     }
