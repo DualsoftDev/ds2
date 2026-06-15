@@ -27,23 +27,12 @@
 #ifndef AgentTrayPublishDir
   #define AgentTrayPublishDir "..\Promaker.AgentTray\bin\Release\net9.0-windows\win-x64\publish-self-contained"
 #endif
-; Ds2.LightHouseService publish 경로 — Setup.iss 가 [Components] ai 옵션 (default checked) 에서
-; {app}\LightHouseService\ 로 번들. Promaker UI 의 "로컬 LightHouse 활성화" 가 사후 호출 → cert/PSK/service 등록.
-#ifndef LightHousePublishDir
-  #define LightHousePublishDir "..\..\..\Solutions\Tools\Ds2.LightHouseService\bin\Release\net9.0\win-x64\publish-self-contained"
-#endif
-; LightHouseService scripts (install-ollama / generate-dev-cert / install-service ps1).
-#ifndef LightHouseScriptsDir
-  #define LightHouseScriptsDir "..\..\..\Solutions\Tools\Ds2.LightHouseService\scripts"
-#endif
 
 #define AppExePath AddBackslash(PublishDir) + "Promaker.exe"
 #define AgentExePath AddBackslash(AgentPublishDir) + "Promaker.Agent.exe"
 #define AgentTrayExePath AddBackslash(AgentTrayPublishDir) + "Promaker.AgentTray.exe"
-#define LightHouseExePath AddBackslash(LightHousePublishDir) + "Ds2.LightHouseService.exe"
 #define HasAgent FileExists(AgentExePath)
 #define HasAgentTray FileExists(AgentTrayExePath)
-#define HasLightHouse FileExists(LightHouseExePath)
 #define SetupIconPath "..\Promaker\Assets\Promaker.ico"
 #define MyAppName "Promaker"
 #define MyAppVersion GetVersionNumbersString(AppExePath)
@@ -93,15 +82,6 @@ UninstallDisplayIcon={app}\{#MyExeName}
 [Languages]
 Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
-
-; AI 기능 (LightHouse KB Service + Ollama 설치 스크립트) — default checked.
-; 인스톨러는 파일 배치만 수행. service 등록 / PSK 생성 / cert 발급 / Ollama 설치 / firewall rule
-; 일체는 Promaker UI 의 "로컬 LightHouse 서비스 활성화" 버튼이 사후 트리거한다.
-#if HasLightHouse
-[Components]
-Name: "ai"; Description: "AI 기능 활성화 (LightHouse KB Service + Ollama 설치 파일 — 사후 UI 에서 활성화)"; \
-  Types: full custom; Flags: checkablealone
-#endif
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
@@ -160,16 +140,6 @@ Type: files; Name: "{app}\AgentTray\Microsoft.WindowsDesktop.App.*"
 Type: filesandordirs; Name: "{app}\AgentTray\shared"
 #endif
 
-; LightHouseService subfolder — net9.0 console + Kestrel, WPF 미사용
-#if HasLightHouse
-Type: files; Name: "{app}\LightHouseService\hostfxr.dll"
-Type: files; Name: "{app}\LightHouseService\hostpolicy.dll"
-Type: files; Name: "{app}\LightHouseService\coreclr.dll"
-Type: files; Name: "{app}\LightHouseService\clrjit.dll"
-Type: files; Name: "{app}\LightHouseService\clrcompression.dll"
-Type: files; Name: "{app}\LightHouseService\Microsoft.DiaSymReader.Native.amd64.dll"
-Type: filesandordirs; Name: "{app}\LightHouseService\shared"
-#endif
 #endif
 
 [Dirs]
@@ -190,14 +160,6 @@ Source: "{#AgentPublishDir}\*"; DestDir: "{app}\Agent"; Flags: ignoreversion rec
 #if HasAgentTray
 ; Promaker.AgentTray — 사용자 컨텍스트 트레이. HKCU\Run 으로 사용자 로그온 시 자동 실행 (옵션 없음).
 Source: "{#AgentTrayPublishDir}\*"; DestDir: "{app}\AgentTray"; Flags: ignoreversion recursesubdirs createallsubdirs
-#endif
-#if HasLightHouse
-; Ds2.LightHouseService — Components ai (default checked) 일 때만 번들. {app}\LightHouseService\ 로 격리.
-; service 등록 / PSK 생성 / cert / Ollama 설치는 모두 Promaker UI 가 사후 트리거 (인스톨러 미수행).
-Source: "{#LightHousePublishDir}\*"; DestDir: "{app}\LightHouseService"; \
-  Components: ai; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "{#LightHouseScriptsDir}\*"; DestDir: "{app}\LightHouseService\scripts"; \
-  Components: ai; Flags: ignoreversion
 #endif
 
 [Icons]
@@ -243,16 +205,6 @@ Filename: "{sys}\sc.exe"; Parameters: "start {#MyAgentServiceName}"; \
   Flags: runhidden waituntilterminated; \
   StatusMsg: "Promaker Agent 서비스 시작 중..."
 #endif
-#if HasLightHouse
-; ── 설치 전 LightHouse 서비스가 RUNNING 이었으면 재시작. ──
-; LightHouseWasRunning Check = (설치 전 RUNNING) AND (이번 설치에서 ai 컴포넌트 선택). PrepareToInstall 이
-; [Files] 직전 stop 했으므로, 사용자가 켜 두었던 경우에만 설치 후 자동 복원한다. 미등록 / STOPPED 였으면
-; Check=False 로 미실행 → 현 상태 유지. service 등록 자체는 Promaker UI 'AI 활성화' 가 수행하며, 여기서는
-; 기존 등록분을 새 바이너리로 재기동만 한다 (start 가 비-0 이어도 runhidden 으로 무시 — best-effort).
-Filename: "{sys}\sc.exe"; Parameters: "start Ds2.LightHouseService"; \
-  Components: ai; Check: LightHouseWasRunning; Flags: runhidden waituntilterminated; \
-  StatusMsg: "LightHouse 서비스 재시작 중..."
-#endif
 #if HasAgentTray
 ; 설치 직후 한 번 트레이 띄움 — 체크박스 없이 무조건 실행. 다음 부팅부터는 HKCU\Run 이 자동 실행.
 ; runasoriginaluser: 인스톨러는 admin 으로 elevated 되어 있어도 트레이는 로그온한 사용자 컨텍스트로
@@ -274,32 +226,10 @@ Filename: "{sys}\sc.exe"; Parameters: "delete {#MyAgentServiceName}"; Flags: run
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Promaker Agent Monitoring"""; \
   Flags: runhidden; RunOnceId: "DeleteAgentFirewall"
 #endif
-#if HasLightHouse
-; LightHouseService best-effort cleanup — UI 가 sc create 한 적이 있을 수 있으니 stop+delete.
-; Components: ai 가드 — ai 미선택 install 에서는 service 미등록이라 cleanup 자체 불필요.
-; Ollama 설치 / bge-m3 모델 / service.pfx / %PROGRAMDATA% config.json 은 사용자 자산 → 보존.
-Filename: "{sys}\sc.exe"; Parameters: "stop Ds2.LightHouseService"; Components: ai; Flags: runhidden; RunOnceId: "StopLightHouse"
-Filename: "{sys}\sc.exe"; Parameters: "delete Ds2.LightHouseService"; Components: ai; Flags: runhidden; RunOnceId: "DeleteLightHouse"
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Ds2 LightHouse Service"""; \
-  Components: ai; Flags: runhidden; RunOnceId: "DeleteLightHouseFirewall"
-#endif
 
 ; ── [Code] 섹션 ──
 ; InnoDependencyInstaller (fd 모드에서 .NET 런타임 자동 설치). 헤더 `[Code]` 포함.
 #include "CodeDependencies.iss"
-
-// 설치 직전 LightHouseService 의 RUNNING 여부 — PrepareToInstall 이 stop 전에 기록하고,
-// 설치 후 [Run] 의 LightHouseWasRunning Check 가 이 값을 보고 service 재시작 여부를 결정한다.
-var
-  GLightHouseWasRunning: Boolean;
-
-// [Run] 의 'sc start Ds2.LightHouseService' Check. 설치 전 RUNNING 이었고 + 이번 설치에서 AI 컴포넌트를
-// 선택(= LightHouseService 파일 갱신)한 경우에만 재시작 → 사용자가 켜 두었던 서비스를 설치 후 자동 복원.
-// 설치 전 미등록 / STOPPED 였으면 False → 미실행으로 현 상태 유지.
-function LightHouseWasRunning: Boolean;
-begin
-  Result := GLightHouseWasRunning and WizardIsComponentSelected('ai');
-end;
 
 // install 진입 시 자동 stop — service / process 가 살아있으면 dll/exe file lock 으로 [Files] copy fail.
 // CloseApplications=yes 는 user-mode process 만 — Windows Service 미해당. 본 함수가 service stop 보완.
@@ -308,20 +238,11 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode: Integer;
 begin
-  // stop 으로 상태가 바뀌기 전에 RUNNING 여부를 먼저 포착 (설치 후 [Run] 이 조건부 재시작에 사용).
-  // cmd 의 findstr exit code 로 판정: 'sc query' 출력에 RUNNING 이 있으면 findstr=0,
-  // STOPPED / 미등록(1060) 이면 비-0. Exec 자체 실패(=cmd 미기동) 시에도 안전하게 False.
-  if Exec(ExpandConstant('{cmd}'), '/C sc query Ds2.LightHouseService | findstr /C:"RUNNING"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
-    GLightHouseWasRunning := (ResultCode = 0)
-  else
-    GLightHouseWasRunning := False;
-  Exec(ExpandConstant('{sys}\sc.exe'), 'stop Ds2.LightHouseService', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{sys}\sc.exe'), 'stop PromakerAgentService',  '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM Promaker.exe',           '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM Promaker.AgentTray.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM Promaker.Agent.exe',     '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM Ds2.LightHouseService.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  // SCM 의 stop 처리 + DLL handle close 시간 확보 (Kestrel + SQLite 정합). 1.5s = 경험적 최소.
+  // SCM 의 stop 처리 + DLL handle close 시간 확보. 1.5s = 경험적 최소.
   Sleep(1500);
   Result := '';
 end;

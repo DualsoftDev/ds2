@@ -66,20 +66,7 @@ ISCC ?= C:/Program Files (x86)/Inno Setup 6/ISCC.exe
 # scp 대상 — dist-common.mk default 와 동일하지만 override 시 명시.
 SCP_DEST ?= download@dualsoft.co.kr:/media/download/Dualsoft Software/Setup ProMaker(DS2_ProMaker) - Windows x64
 
-# ── LightHouse Service ─────────────────────────────────────
-# install 은 빌드 산출물을 *설치본* 폴더로 복사 후 등록 (설치본 기준 — 2026-05-30). console 구동(light-house)은 dotnet run.
-LH_SERVICE_DIR   := ../../Solutions/Tools/Ds2.LightHouseService
-LH_SERVICE_PROJ  := $(LH_SERVICE_DIR)/Ds2.LightHouseService.fsproj
-LH_SCRIPTS_DIR   := $(LH_SERVICE_DIR)/scripts
-LH_PFX_PATH      ?= C:/ProgramData/Dualsoft/LightHouseService/service.pfx
-
-# 인스톨러 번들 + make install 공용 산출물 — Promaker Setup.iss 의 [Components] ai (default checked) 가
-# {app}\LightHouseService\ 로 배치. make install 도 *동일* 산출물(LH_INSTALLER_PUBLISH)을 설치본에 복사
-# (setup-cert-and-service.ps1) → 설치본과 비트-동일 보장. self-contained/framework-dependent 혼합 방지를 위해
-# RID(win-x64) + sc/fd 모드를 Setup.iss 와 정확히 일치시킨다 (Setup.iss default = publish-self-contained).
-LH_INSTALLER_PUBLISH := $(abspath $(LH_SERVICE_DIR)/bin/Release/net9.0/win-x64/$(PUBLISH_SUBDIR))
-
-.PHONY: help dist dist-installer publish publish-agent publish-agenttray publish-lighthouse iscc clean install light-house build build-release run run-release
+.PHONY: help dist dist-installer publish publish-agent publish-agenttray iscc clean build build-release run run-release
 
 help:
 	@echo "Promaker installer Makefile"
@@ -92,17 +79,6 @@ help:
 	@echo "  publish         - dotnet publish only"
 	@echo "  iscc            - ISCC compile only (assumes publish output exists)"
 	@echo "  clean           - Remove bin/obj/Output"
-	@echo ""
-	@echo "Targets (LightHouse Service):"
-	@echo "  install         - Build + copy service into the INSTALLED Promaker dir, then register."
-	@echo "                    dotnet publish -> copy to {InstallLocation}\\LightHouseService ->"
-	@echo "                    setup-cert-and-service.ps1 (self-signed PFX + DPAPI PSK/cert pw +"
-	@echo "                    sc register, binPath = installed exe). Requires admin + Promaker"
-	@echo "                    installed with the 'AI' component."
-	@echo "  light-house     - Run LightHouse service in console (dotnet run, Ctrl+C to stop)."
-	@echo "                    Config must exist at %PROGRAMDATA%/Dualsoft/LightHouseService."
-	@echo "                    Stop the Windows Service first if registered (sc stop Ds2.LightHouseService)"
-	@echo "                    to free the listen port."
 	@echo ""
 	@echo "Targets (build):"
 	@echo "  build           - Build Promaker apps in Debug (Promaker / Promaker.Agent / Promaker.AgentTray)"
@@ -122,8 +98,6 @@ help:
 	@echo "  PROMAKER_VER    current: $(PROMAKER_VER)    ($(VERSION_FILE))"
 	@echo "  INSTALLER_EXE   $(INSTALLER_EXE)"
 	@echo "  SCP_DEST        $(SCP_DEST)"
-	@echo "  LH_PFX_PATH     $(LH_PFX_PATH)"
-	@echo "  LH_INSTALLER_PUBLISH  $(LH_INSTALLER_PUBLISH)"
 
 dist-installer: iscc
 	@echo "==========================================================="
@@ -171,19 +145,7 @@ publish-agenttray:
 		-o "$(AGENT_TRAY_PUBLISH)" \
 		-p:DebugType=none -p:DebugSymbols=false -m:1
 
-# Ds2.LightHouseService — Setup.iss [Components] ai 가 {app}\LightHouseService\ 로 번들.
-# Promaker UI 의 "로컬 LightHouse 활성화" 가 publish 결과 + scripts 를 호출하여 service 등록/시작.
-# 인스톨러는 파일 배치만, service 등록/PSK 생성/cert 발급은 UI 가 수행 (사후 트리거).
-publish-lighthouse:
-	@echo "=== dotnet restore (Ds2.LightHouseService) ==="
-	dotnet restore "$(LH_SERVICE_PROJ)" --verbosity quiet
-	@echo "=== dotnet publish Ds2.LightHouseService ($(MODE), self-contained=$(SELF_CONTAINED)) ==="
-	dotnet publish "$(LH_SERVICE_PROJ)" -c Release -r win-x64 \
-		--self-contained $(SELF_CONTAINED) \
-		-o "$(LH_INSTALLER_PUBLISH)" \
-		-p:DebugType=none -p:DebugSymbols=false -m:1
-
-iscc: publish publish-agent publish-agenttray publish-lighthouse
+iscc: publish publish-agent publish-agenttray
 	@if [ ! -f "$(ISCC)" ]; then \
 		echo "[ERROR] Inno Setup compiler not found: $(ISCC)" >&2; \
 		echo "        Install Inno Setup 6 or override ISCC=..."  >&2; \
@@ -197,8 +159,6 @@ iscc: publish publish-agent publish-agenttray publish-lighthouse
 	"$(ISCC)" /DPublishDir="$(PUBLISH_DIR)" \
 	          /DAgentPublishDir="$(AGENT_PUBLISH)" \
 	          /DAgentTrayPublishDir="$(AGENT_TRAY_PUBLISH)" \
-	          /DLightHousePublishDir="$(LH_INSTALLER_PUBLISH)" \
-	          /DLightHouseScriptsDir="$(abspath $(LH_SCRIPTS_DIR))" \
 	          /DSelfContainedMode="$(SELF_CONTAINED)" \
 	          /DOutputSuffix="$(OUTPUT_SUFFIX)" \
 	          /DOutputVersion="$(PROMAKER_VER)" \
@@ -211,61 +171,6 @@ clean:
 	-rm -rf Promaker.Agent/bin Promaker.Agent/obj
 	-rm -rf Promaker.AgentTray/bin Promaker.AgentTray/obj
 	-rm -rf Promaker.Shared/bin Promaker.Shared/obj
-
-# ── LightHouse Service ─────────────────────────────────────
-# install — 빌드 산출물을 *설치본* 폴더로 복사 + 인증서 + Service 등록 (설치본 기준 — 2026-05-30 사용자 결정).
-#   Promaker GUI 'AI 기능 활성화' 경로(LightHouseLocalInstaller.ResolveDeployment)와 동일하게 dev repo 빌드
-#   출력을 binPath 로 쓰지 않고, {InstallLocation}\LightHouseService\ 로 복사 후 그 exe 를 등록.
-#   → Promaker installer 의 'AI 기능 활성화' 컴포넌트가 먼저 설치돼 있어야 함 (미설치 시 ps1 throw).
-#   1) install-ollama.ps1 (embedding backend)
-#   2) publish-lighthouse 재사용 — Setup.iss 와 동일 RID(win-x64)+모드(MODE=sc/fd)로 publish.
-#      (framework-dependent 산출물을 self-contained 설치본 위에 덮으면 런타임 dll 혼합으로 부팅 실패 → 동일 모드 강제)
-#   3) setup-cert-and-service.ps1 — 빌드 산출물 설치본 복사(복사 전 service 자동 stop) + PFX 1회 입력 →
-#      generate-dev-cert + install-service (DPAPI 암호화 PSK/cert pw → config.json + sc.exe register, binPath=설치본 exe)
-#   4) sc.exe start — 등록(start= auto)만 된 service 를 즉시 기동 + RUNNING 검증 (실패 시 fail-hard).
-# 모두 관리자 권한 PowerShell 필요. install 마지막에 service 자동 start. 콘솔 디버그는 'make light-house' (service 정지 후).
-# 설치본을 fd 모드로 설치했다면 'make install MODE=fd' 로 모드를 맞출 것.
-install:
-	@echo "============================================================="
-	@echo "LightHouseService install (registers the INSTALLED copy, MODE=$(MODE))"
-	@echo "  Requires Administrator PowerShell + Promaker installed (AI component)."
-	@echo "  Steps: 1) Ollama + bge-m3  2) publish-lighthouse  3) copy to install dir + setup-cert-and-service.ps1  4) sc start"
-	@echo "         (build output is copied into {InstallLocation}\\LightHouseService, then registered & started)"
-	@echo "============================================================="
-	@echo ""
-	@echo "=== Step 1/4: install-ollama.ps1 (embedding backend) ==="
-	powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(LH_SCRIPTS_DIR)/install-ollama.ps1"
-	@echo ""
-	@echo "=== Step 2/4: publish-lighthouse ($(MODE)) — Setup.iss 와 동일 모드로 빌드 ==="
-	@$(MAKE) publish-lighthouse
-	@echo ""
-	@echo "=== Step 3/4: copy to install dir + setup-cert-and-service.ps1 (PFX password single prompt) ==="
-	powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(LH_SCRIPTS_DIR)/setup-cert-and-service.ps1" -PfxPath "$(LH_PFX_PATH)" -PublishDir "$(LH_INSTALLER_PUBLISH)"
-	@echo ""
-	@echo "=== Step 4/4: sc.exe start Ds2.LightHouseService ==="
-	@# 등록만 된 service (start= auto) 를 즉시 기동. `-` 로 'already running'(1056) 무시.
-	@# start 는 async (START_PENDING) → RUNNING 까지 polling 후 최종 상태 검증 (실패 시 fail-hard).
-	-sc.exe start Ds2.LightHouseService
-	@i=0; while [ $$i -lt 60 ]; do sc.exe query Ds2.LightHouseService 2>/dev/null | grep -q RUNNING && break; sleep 0.5; i=$$((i+1)); done
-	@sc.exe query Ds2.LightHouseService 2>/dev/null | grep -q RUNNING || { echo "[ERROR] Ds2.LightHouseService did not reach RUNNING within 30s -- check EventLog / config (cert/PSK)."; exit 1; }
-	@echo ""
-	@echo "============================================================="
-	@echo "Install complete -- service started (RUNNING)."
-	@echo "  sc query Ds2.LightHouseService   # status"
-	@echo "  sc stop  Ds2.LightHouseService   # stop"
-	@echo "  make light-house                 # console run (dev / debug; stop service first)"
-	@echo "============================================================="
-
-# light-house — 콘솔에서 service 실행 (개발/디버그용, dotnet run).
-#   Windows Service 정지 필요 (port 충돌 회피).
-#   config.json 은 install rule 이 작성한 것 그대로 사용 (DPAPI LocalMachine scope).
-light-house:
-	@echo "============================================================="
-	@echo "Running LightHouseService in console (Ctrl+C to stop)"
-	@echo "  Stop Windows Service first if registered:"
-	@echo "    sc stop Ds2.LightHouseService"
-	@echo "============================================================="
-	dotnet run --project "$(LH_SERVICE_PROJ)" -c Debug
 
 # ── build (Promaker apps + Tools gateway) ─────────────────
 # Promaker 작업 디렉터리에서 본체/Agent/AgentTray + LightHouse 솔루션을
