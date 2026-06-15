@@ -122,7 +122,11 @@ module internal AasxExportCore =
     /// 지원 타입: string, bool, int, float, TimeSpan, Guid, DateTime, Array, ResizeArray, Enum, Option
     let private propsToElements<'T> (props: 'T) : ISubmodelElement list =
         let t = typeof<'T>
-        let properties = t.GetProperties(System.Reflection.BindingFlags.Public ||| System.Reflection.BindingFlags.Instance)
+        let properties =
+            t.GetProperties(System.Reflection.BindingFlags.Public ||| System.Reflection.BindingFlags.Instance)
+            // [<JsonIgnore>] 멤버는 AASX 리플렉션 경로에서도 제외 — STJ·AASX 직렬화의 단일 SSOT.
+            //   (예: MonitoringSystemProperties.DbConnectionString 비밀 보호 — Ds2.Core M6 의 AASX 후속 보강.)
+            |> Array.filter (fun p -> not (p.IsDefined(typeof<System.Text.Json.Serialization.JsonIgnoreAttribute>, true)))
 
         properties
         |> Array.choose (fun prop ->
