@@ -32,9 +32,11 @@ module internal ImportPlanDeviceOps =
     }
 
     let hasCreatableApiName (callName: string) =
-        let parts = callName.Split([| '.' |], 2)
-        let apiName = if parts.Length > 1 then parts.[1] else ""
-        not (String.IsNullOrEmpty apiName)
+        if String.IsNullOrEmpty callName then false
+        else
+            let parts = callName.Split([| '.' |], 2)
+            let apiName = if parts.Length > 1 then parts.[1] else ""
+            not (String.IsNullOrEmpty apiName)
 
     let private queueOperation operation (operations: ResizeArray<ImportPlanOperation>) =
         operations.Add(operation)

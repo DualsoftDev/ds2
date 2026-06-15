@@ -532,6 +532,17 @@ module Queries =
             if groupTotals.Count = 0 then 0
             else groupTotals.Values |> Seq.max
 
+    /// Call critical-path 용 선행자 맵: TargetId → [SourceId].
+    /// Start/StartReset 화살표 중 workId 내부 Call 쌍만. (M8: 두 duration 함수 공용 — 동작 보존 추출)
+    let private predecessorsMap (callIds: Set<Guid>) (arrows: ArrowBetweenCalls list) : Map<Guid, Guid list> =
+        arrows
+        |> List.filter (fun a ->
+            a.ArrowType = ArrowType.Start || a.ArrowType = ArrowType.StartReset)
+        |> List.filter (fun a -> Set.contains a.SourceId callIds && Set.contains a.TargetId callIds)
+        |> List.groupBy (fun a -> a.TargetId)
+        |> List.map (fun (tgt, arr) -> tgt, arr |> List.map (fun a -> a.SourceId))
+        |> Map.ofList
+
     /// <summary>Work 내 Call들의 Critical Path Duration(ms)을 반환합니다.
     /// Call arrow topology(ArrowBetweenCalls Start)를 분석하여 병렬/직렬 실행을 고려한
     /// 최장 경로(critical path)를 계산하고, 디바이스 자원(mutex) 직렬화 하한과의 max 를 취합니다.
@@ -546,14 +557,7 @@ module Queries =
 
             // Call arrow topology: Start/StartReset 화살표만 사용
             let arrows = arrowCallsOf workId store
-            let predsMap =
-                arrows
-                |> List.filter (fun a ->
-                    a.ArrowType = ArrowType.Start || a.ArrowType = ArrowType.StartReset)
-                |> List.filter (fun a -> Set.contains a.SourceId callIds && Set.contains a.TargetId callIds)
-                |> List.groupBy (fun a -> a.TargetId)
-                |> List.map (fun (tgt, arr) -> tgt, arr |> List.map (fun a -> a.SourceId))
-                |> Map.ofList
+            let predsMap = predecessorsMap callIds arrows
 
             // Critical path: longestPath(c) = duration(c) + max(longestPath(pred))
             let mutable memo = Map.empty<Guid, int>
@@ -598,14 +602,7 @@ module Queries =
             if rangeMap.Count <> calls.Length then None
             else
                 let arrows = arrowCallsOf workId store
-                let predsMap =
-                    arrows
-                    |> List.filter (fun a ->
-                        a.ArrowType = ArrowType.Start || a.ArrowType = ArrowType.StartReset)
-                    |> List.filter (fun a -> Set.contains a.SourceId callIds && Set.contains a.TargetId callIds)
-                    |> List.groupBy (fun a -> a.TargetId)
-                    |> List.map (fun (tgt, arr) -> tgt, arr |> List.map (fun a -> a.SourceId))
-                    |> Map.ofList
+                let predsMap = predecessorsMap callIds arrows
 
                 let mutable memo = Map.empty<Guid, RxTimingRange>
                 let rec longestRangeTo (callId: Guid) =

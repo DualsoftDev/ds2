@@ -82,6 +82,9 @@ type FSharpUnionConverter<'T>() =
             | true, prop -> fieldsElement <- Some prop
             | _ -> ()
 
+            if String.IsNullOrEmpty caseName then
+                failwithf "DU 역직렬화: 'Case' 필드 누락/null (type %s)" unionType.Name
+
             let case =
                 match cases |> Array.tryFind (fun c -> c.Name = caseName) with
                 | Some c -> c
@@ -91,12 +94,18 @@ type FSharpUnionConverter<'T>() =
             if fieldInfos.Length = 0 then
                 FSharpValue.MakeUnion(case, [||]) :?> 'T
             else
-                let fields =
+                let elem =
                     match fieldsElement with
-                    | Some elem ->
-                        fieldInfos |> Array.mapi (fun i fi ->
-                            JsonSerializer.Deserialize(elem.[i].GetRawText(), fi.PropertyType, options))
-                    | None -> [||]
+                    | Some e -> e
+                    | None ->
+                        failwithf "DU 역직렬화: case '%s' 는 %d 개 필드가 필요하나 'Fields' 누락 (type %s)"
+                            caseName fieldInfos.Length unionType.Name
+                if elem.GetArrayLength() < fieldInfos.Length then
+                    failwithf "DU 역직렬화: case '%s' 는 %d 개 필드가 필요하나 'Fields' 길이 %d (type %s)"
+                        caseName fieldInfos.Length (elem.GetArrayLength()) unionType.Name
+                let fields =
+                    fieldInfos |> Array.mapi (fun i fi ->
+                        JsonSerializer.Deserialize(elem.[i].GetRawText(), fi.PropertyType, options))
                 FSharpValue.MakeUnion(case, fields) :?> 'T
         else
             failwithf "Expected StartObject for DU, got %A" reader.TokenType
@@ -137,6 +146,9 @@ type FSharpTupleConverter<'T>() =
     override _.Read(reader, _typeToConvert, options) =
         use doc = JsonDocument.ParseValue(&reader)
         let arr = doc.RootElement
+        if arr.GetArrayLength() < elementTypes.Length then
+            failwithf "Tuple 역직렬화: %d 개 원소가 필요하나 JSON 배열 길이 %d (type %s)"
+                elementTypes.Length (arr.GetArrayLength()) tupleType.Name
         let values =
             elementTypes |> Array.mapi (fun i t ->
                 JsonSerializer.Deserialize(arr.[i].GetRawText(), t, options))
@@ -186,6 +198,8 @@ type FSharpRecordConverter<'T>() =
                         if fi.PropertyType.IsGenericType
                            && fi.PropertyType.GetGenericTypeDefinition() = typedefof<_ option>
                         then null // option None
+                        elif fi.PropertyType.IsValueType
+                        then Activator.CreateInstance(fi.PropertyType) // M7: value-type 키 누락 → 타입 기본값 (option None 과 대칭)
                         else JsonSerializer.Deserialize("null", fi.PropertyType, options))
         FSharpValue.MakeRecord(recordType, values, true) :?> 'T
 

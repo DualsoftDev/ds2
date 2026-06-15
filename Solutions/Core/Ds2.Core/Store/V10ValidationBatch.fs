@@ -9,14 +9,6 @@ open Ds2.Core.V10Validation
 /// 시뮬레이션 시작 직전 / AASX 임포트 후에 호출.</summary>
 module V10ValidationBatch =
 
-    /// Work.Duration TimeSpan option → ms 로 환산.
-    let private workDurationMs (store: DsStore) (workIdOpt: Guid option) : int option =
-        workIdOpt
-        |> Option.bind (fun id ->
-            match store.Works.TryGetValue(id) with
-            | true, w -> w.Duration |> Option.map (fun ts -> int ts.TotalMilliseconds)
-            | _ -> None)
-
     let validateStore (store: DsStore) : ValidationIssue list =
         let issues = ResizeArray<ValidationIssue>()
 
