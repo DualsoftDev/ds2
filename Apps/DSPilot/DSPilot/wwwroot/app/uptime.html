@@ -393,14 +393,14 @@
                         <!-- 품질 Q (가정/사용자 칩 + 톤 중립) — 클릭 시 품질 직접 입력 다이얼로그 -->
                         <div class="up-oee" :class="oeeTone('quality')" @click="openQDialog()" style="cursor:pointer;" title="클릭하여 품질(양품률) 직접 입력">
                             <div class="up-oee-label">품질 Q
-                                <span class="up-oee-chip" :class="oee && oee.qualitySource === 'measured' ? 'solid' : ''"
+                                <span class="up-oee-chip" :class="oee && oee.quality != null && oee.qualitySource !== 'assumed' ? 'solid' : ''"
                                       x-show="oee && oee.quality != null"
-                                      :title="oee && oee.qualitySource === 'assumed' ? '불량 미입력 — 품질 100% 가정. 이 카드를 클릭해 품질을 입력하면 실측으로 전환됩니다.' : '불량 입력 반영(측정값)'"
-                                      x-text="oee && oee.qualitySource === 'measured' ? '사용자' : '가정'"></span>
-                                <span class="material-icons" style="font-size:13px; opacity:0.5; margin-left:auto;" title="클릭하여 품질 입력">edit</span>
+                                      :title="oee && oee.qualitySource === 'assumed' ? '불량 미입력 — 품질 100% 가정. 이 카드를 클릭해 전반 품질%를 직접 설정할 수 있습니다.' : (oee && oee.qualitySource === 'manual' ? '사용자가 직접 설정한 전반 품질' : '불량 입력 반영(측정값)')"
+                                      x-text="oee && oee.qualitySource === 'assumed' ? '가정' : '사용자'"></span>
+                                <span class="material-icons" style="font-size:13px; opacity:0.5; margin-left:auto;" title="클릭하여 품질 직접 입력">edit</span>
                             </div>
                             <div class="up-oee-value up-oee-mono" x-text="oee ? pct(oee.quality) : '—'"></div>
-                            <div class="up-oee-note" x-text="oee ? (oee.quality != null ? (oee.qualitySource === 'assumed' ? '불량 미입력 — 100% 가정 · 입력 시 실측' : ('양품 ' + (oee.goodCount ?? 0) + ' / 총 ' + (oee.totalCount ?? 0))) : (oee.qualityNote || '산출 불가')) : ''"></div>
+                            <div class="up-oee-note" x-text="oee ? (oee.quality != null ? (oee.qualitySource === 'assumed' ? '불량 미입력 — 100% 가정 · 클릭해 직접 입력' : (oee.qualitySource === 'manual' ? '사용자 직접 설정(전반 품질)' : ('양품 ' + (oee.goodCount ?? 0) + ' / 총 ' + (oee.totalCount ?? 0)))) : (oee.qualityNote || '산출 불가')) : ''"></div>
                         </div>
                         <!-- MTBF (무고장 = 가짜수치 대신 배지) -->
                         <div class="up-oee" :class="oee && oee.failureCount === 0 ? 'is-good' : (oee && oee.mtbf != null ? 'is-warn' : 'is-na')">
@@ -603,7 +603,7 @@
                             </button>
                             <template x-if="anySelectedOpen">
                                 <button class="btn btn-sm btn-outlined" :disabled="bulkBusy" @click="bulkClose()">
-                                    <span class="material-icons" style="font-size:14px;">handyman</span> 일괄 수리완료
+                                    <span class="material-icons" style="font-size:14px;">handyman</span> 일괄 마감
                                 </button>
                             </template>
                             <button class="up-bulk-clear" @click="clearSel()">선택 해제</button>
@@ -667,7 +667,7 @@
                                                     </select>
                                                     <button class="btn btn-sm btn-outlined" :disabled="!classifyDraft[d.id]" @click="classify(d)">분류</button>
                                                     <template x-if="d.status === 'open'">
-                                                        <button class="btn btn-sm btn-outlined" @click="closeEvent(d)" title="자동 복구 미감지 시 수동 마감">수리완료</button>
+                                                        <button class="btn btn-sm btn-outlined" @click="closeEvent(d)" title="자동 복구 미감지 시 수동 마감">마감</button>
                                                     </template>
                                                 </div>
                                             </td>
@@ -1237,28 +1237,23 @@
                     <span style="flex:1;"></span>
                     <button class="btn-icon" @click="qDialog.show=false" title="닫기"><span class="material-icons">close</span></button>
                 </div>
-                <div class="up-blk-sub">불량 미입력 시 품질은 <b>100% 가정</b>입니다. 설비·일자를 고르고 <b>품질(%)</b>을 입력하면 그 일자의 불량 수량으로 환산·저장되어 OEE 가 측정값으로 전환됩니다.</div>
+                <div class="up-blk-sub">
+                    이 생산의 <b>전반적인 양품률(%)</b>을 직접 설정합니다. 예: <code>99</code> = 불량률 약 1% 가정.
+                    설정하면 라인·전 설비 OEE 의 품질(Q)에 그대로 적용됩니다. 비우거나 <b>가정으로 되돌리기</b> 하면 불량 입력 기반(미입력 시 100% 가정)으로 돌아갑니다.
+                </div>
                 <div class="up-qedit-row" style="margin-bottom:6px;">
                     <div class="up-qfield">
-                        <label>설비(Flow)</label>
-                        <select x-model="qDialog.flow" @change="qDialogSync()">
-                            <option value="">설비 선택…</option>
-                            <template x-for="f in flowNames" :key="f"><option :value="f" x-text="f"></option></template>
-                        </select>
+                        <label>품질(양품률) %</label>
+                        <input type="number" min="0" max="100" step="0.1" x-model.number="qDialog.qualityPct" @keydown.enter="submitQuality()" />
                     </div>
-                    <div class="up-qfield">
-                        <label>일자</label>
-                        <input type="date" x-model="qDialog.date" style="font-family:var(--font-family); width:150px;" />
-                    </div>
-                    <div class="up-qfield">
-                        <label>품질 %</label>
-                        <input type="number" min="0" max="100" step="0.1" x-model.number="qDialog.qualityPct" :disabled="!qDialog.flow" />
-                    </div>
+                    <div class="up-qhint" style="align-self:flex-end; padding-bottom:5px;" x-text="qDialogHint"></div>
                 </div>
-                <div class="up-qhint" x-show="qDialog.flow" x-text="qDialogHint"></div>
                 <div class="up-blk-actions">
-                    <button class="btn btn-sm btn-filled" :disabled="!qDialog.flow || qDialog.busy" @click="submitQuality()">
+                    <button class="btn btn-sm btn-filled" :disabled="qDialog.busy" @click="submitQuality()">
                         <span class="material-icons" style="font-size:15px;">save</span> 적용
+                    </button>
+                    <button class="btn btn-sm btn-outlined" :disabled="qDialog.busy" @click="clearManualQuality()" title="사용자 설정 해제 → 불량 입력 기반/100% 가정으로 복귀">
+                        <span class="material-icons" style="font-size:15px;">restart_alt</span> 가정으로 되돌리기
                     </button>
                     <span class="up-blk-msg" :class="qDialog.err ? 'err' : 'ok'" x-text="qDialog.err || qDialog.msg"></span>
                     <span style="flex:1;"></span>
@@ -1317,8 +1312,8 @@
                 // 일괄 선택 상태
                 selectedIds: {}, bulkDraft: '', bulkBusy: false,
                 // 일자 기본값은 로컬 날짜 — toISOString() 은 UTC 라 KST 오전 9시 전엔 어제로 채워짐
-                // 품질(양품률) 직접 입력 다이얼로그 (품질 % → 불량수 환산 → POST production). 품질 Q 카드 클릭으로 염.
-                qDialog: { show: false, flow: '', date: (() => { const d = new Date(), p = (x) => String(x).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; })(), qualityPct: 100, total: 0, busy: false, msg: '', err: '' },
+                // 품질(양품률) 직접 입력 다이얼로그 — 전반 품질% 를 직접 설정(POST /api/oee/quality, 전역). 품질 Q 카드 클릭으로 염.
+                qDialog: { show: false, qualityPct: 100, busy: false, msg: '', err: '' },
                 // 정지 이벤트 로그 토글 — 기본 숨김, 정지 원인 구성(도넛)의 [로그 보기 및 설정] 버튼으로 토글
                 showDowntimeLog: false,
                 // 표준CT(idealCT) Flow 일괄 편집 테이블 (편집값은 각 행 객체 draft 에 보관 — Alpine x-for 양방향 바인딩 안정)
@@ -1938,44 +1933,43 @@
                         this.$nextTick(() => document.getElementById('downtime-log-section')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
                 },
 
-                // ── 품질(양품률) 직접 입력 다이얼로그 (품질 Q 카드 클릭) ──
+                // ── 품질(양품률) 직접 입력 다이얼로그 (품질 Q 카드 클릭) — 전반 품질% 직접 설정(전역) ──
                 openQDialog() {
                     const d = this.qDialog;
                     d.show = true; d.msg = ''; d.err = '';
-                    // 현재 선택된 설비(curFlow)를 기본값으로 — 라인 전체면 이전 선택/첫 설비.
-                    d.flow = this.curFlow || d.flow || (this.ranking[0] && this.ranking[0].flowName) || this.flowNames[0] || '';
-                    this.qDialogSync();
-                },
-                qDialogSync() {
-                    const r = this.ranking.find(x => x.flowName === this.qDialog.flow);
-                    const q = (r && r.quality != null) ? r.quality : 1;
-                    this.qDialog.total = (r && r.totalCount) ? r.totalCount : 0;
-                    this.qDialog.qualityPct = +(q * 100).toFixed(1);
+                    // 현재 적용 중인 품질을 입력칸 기본값으로(없으면 100).
+                    d.qualityPct = (this.oee && this.oee.quality != null) ? +(this.oee.quality * 100).toFixed(1) : 100;
                 },
                 get qDialogHint() {
-                    const d = this.qDialog;
-                    if (!d.total) return '이 설비의 기간 생산 사이클이 0 — 저장은 되지만 불량 환산 기준이 없습니다.';
-                    const rej = Math.max(0, Math.round((100 - (Number(d.qualityPct) || 0)) / 100 * d.total));
-                    return `기간 사이클 ${d.total} 기준 ≈ 불량 ${rej}개 → 선택 일자에 저장됩니다.`;
+                    const v = Math.min(100, Math.max(0, Number(this.qDialog.qualityPct) || 0));
+                    return `불량률 약 ${(100 - v).toFixed(1)}% · OEE = 가용성 × 성능 × ${v.toFixed(1)}%`;
                 },
                 async submitQuality() {
                     const d = this.qDialog;
                     d.msg = ''; d.err = '';
-                    if (!d.flow) { d.err = '설비(Flow)를 선택하세요.'; return; }
-                    const total = d.total || 0;
-                    const reject = Math.max(0, Math.round((100 - (Number(d.qualityPct) || 0)) / 100 * total));
+                    const pct = Math.min(100, Math.max(0, Number(d.qualityPct) || 0));
                     d.busy = true;
                     try {
-                        const res = await this.apiPost('/api/oee/production', {
-                            date: d.date ? d.date + 'T00:00:00' : null,
-                            flow: d.flow.trim(), shift: '', reject
-                        });
-                        d.msg = `저장됨 — ${d.flow}: 총 ${res.total} / 양품 ${res.good} / 불량 ${res.reject}`;
+                        await this.apiPost('/api/oee/quality', { qualityPercent: pct });
+                        d.msg = `적용됨 — 전반 품질 ${pct.toFixed(1)}%`;
                         clearTimeout(this._prodMsgTimer);
-                        this._prodMsgTimer = setTimeout(() => { d.msg = ''; }, 6000);
+                        this._prodMsgTimer = setTimeout(() => { d.msg = ''; }, 5000);
                         await this.loadOee();
-                        this.qDialogSync();
                     } catch (ex) { d.err = '저장 실패: ' + ex.message; }
+                    finally { d.busy = false; }
+                },
+                async clearManualQuality() {
+                    const d = this.qDialog;
+                    d.msg = ''; d.err = '';
+                    d.busy = true;
+                    try {
+                        await this.apiPost('/api/oee/quality', { qualityPercent: null });
+                        d.msg = '해제됨 — 불량 입력 기반(미입력 시 100% 가정)으로 복귀';
+                        clearTimeout(this._prodMsgTimer);
+                        this._prodMsgTimer = setTimeout(() => { d.msg = ''; }, 5000);
+                        await this.loadOee();
+                        d.qualityPct = (this.oee && this.oee.quality != null) ? +(this.oee.quality * 100).toFixed(1) : 100;
+                    } catch (ex) { d.err = '해제 실패: ' + ex.message; }
                     finally { d.busy = false; }
                 },
                 // 분류/마감 성공 피드백 — 잠깐 표시 후 자동 소거 (실패는 기존 oeeError 경로)
@@ -2003,15 +1997,15 @@
                 async bulkClose() {
                     const ids = this.filteredDowntime.filter(d => this.selectedIds[d.id] && d.status === 'open').map(d => d.id);
                     if (!ids.length) return;
-                    if (!confirm(ids.length + '건의 진행중 정지를 수리완료(마감) 처리할까요?\n마감 후에는 화면에서 되돌릴 수 없습니다.')) return;
+                    if (!confirm(ids.length + '건의 진행중 정지를 마감 처리할까요?\n마감 후에는 화면에서 되돌릴 수 없습니다.')) return;
                     this.bulkBusy = true;
                     try {
                         await this.apiPost('/api/oee/downtime/bulk-close', { ids });
                         this.clearSel();
                         await this.loadOee();
-                        this.flashDtMsg(`${ids.length}건 수리완료 처리됨`);
+                        this.flashDtMsg(`${ids.length}건 마감 처리됨`);
                     } catch (e) {
-                        this.oeeError = '일괄 수리완료 실패: ' + e.message;
+                        this.oeeError = '일괄 마감 실패: ' + e.message;
                     } finally { this.bulkBusy = false; }
                 },
 
@@ -2152,11 +2146,11 @@
                     }
                 },
                 async closeEvent(d) {
-                    if (!confirm(`'${d.flowName || d.systemName || '이 이벤트'}' 정지를 수리완료(마감) 처리할까요?\n마감 후에는 화면에서 되돌릴 수 없습니다.`)) return;
+                    if (!confirm(`'${d.flowName || d.systemName || '이 이벤트'}' 정지를 마감 처리할까요?\n마감 후에는 화면에서 되돌릴 수 없습니다.`)) return;
                     try {
                         await this.apiPost('/api/oee/downtime/' + d.id + '/close', {});
                         await this.loadOee();
-                        this.flashDtMsg('수리완료 처리됨 — ' + (d.flowName || d.systemName || ''));
+                        this.flashDtMsg('마감 처리됨 — ' + (d.flowName || d.systemName || ''));
                     } catch (e) {
                         this.oeeError = '수동 마감 실패: ' + e.message;
                     }

@@ -17,10 +17,27 @@ public class AppSettingsModel
     public HistoryViewSettings HistoryView { get; set; } = new();
     public CctvSettings Cctv { get; set; } = new();
     public OeeSignalSettings OeeSignals { get; set; } = new();
+    public OeeManualSettings OeeManual { get; set; } = new();
     public ShiftSettings Shift { get; set; } = new();
     public CycleExclusionSettings CycleExclusion { get; set; } = new();
     public AbnormalAlarmSettings AbnormalAlarm { get; set; } = new();
     public AutoCalibrationSettings AutoCalibration { get; set; } = new();
+}
+
+/// <summary>
+/// OEE 사용자 수동 입력값(불량 카운트 자동수집과 별개). doc/21 §12.
+/// 작은 라인에서 "이 생산의 전반적 양품률은 대략 N%" 를 직접 지정하는 단순 오버라이드.
+/// </summary>
+public class OeeManualSettings
+{
+    /// <summary>
+    /// 사용자가 직접 설정한 전반 품질(양품률) %. 0~100. null = 미설정 → 불량 입력 기반(measured) 또는 100% 가정(assumed)으로 폴백.
+    /// 설정 시 라인·전 설비 OEE 의 품질(Q)에 그대로 적용된다(QualitySource="manual").
+    /// </summary>
+    public double? QualityPercent { get; set; }
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }
 
 /// <summary>

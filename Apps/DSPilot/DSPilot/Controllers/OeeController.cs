@@ -181,13 +181,14 @@ public class OeeController : ControllerBase
     }
 
     // ── POST /api/oee/downtime/{id}/classify  {reasonCode, category} ──────
-    // category=unplanned 일 때만 isFailure=1 (MTBF/MTTR 분모 오염 방지 — doc/21 §2.1).
+    // isFailure(MTBF 고장) = 설비고장(reasonCode='equipment_fault')만 — OeeMath.IsFailureReason 단일 규칙(2026-06-15).
+    // category(계획/계획외)는 가용성·일자스택용으로 별도 유지(자재대기=계획외지만 고장 아님).
     [HttpPost("downtime/{id:long}/classify")]
     public async Task<ActionResult<object>> Classify(long id, [FromBody] ClassifyRequest req, CancellationToken ct)
     {
         var category = string.IsNullOrWhiteSpace(req.Category) ? null : req.Category.Trim().ToLowerInvariant();
         var reasonCode = string.IsNullOrWhiteSpace(req.ReasonCode) ? null : req.ReasonCode.Trim();
-        var isFailure = string.Equals(category, "unplanned", StringComparison.OrdinalIgnoreCase);
+        var isFailure = OeeMath.IsFailureReason(reasonCode); // MTBF 고장 = 설비고장(equipment_fault)만. category(계획외)와 분리.
 
         var n = await _repo.ClassifyDowntimeAsync(id, reasonCode, category, isFailure, classifySource: "manual", ct);
         if (n == 0) return NotFound(new { error = "downtime event not found", id });
@@ -217,7 +218,7 @@ public class OeeController : ControllerBase
 
         var category = string.IsNullOrWhiteSpace(req.Category) ? null : req.Category.Trim().ToLowerInvariant();
         var reasonCode = string.IsNullOrWhiteSpace(req.ReasonCode) ? null : req.ReasonCode.Trim();
-        var isFailure = string.Equals(category, "unplanned", StringComparison.OrdinalIgnoreCase);
+        var isFailure = OeeMath.IsFailureReason(reasonCode); // MTBF 고장 = 설비고장(equipment_fault)만. category(계획외)와 분리.
 
         var n = await _repo.BulkClassifyDowntimeAsync(req.Ids, reasonCode, category, isFailure, classifySource: "manual", ct);
         return new { ok = true, count = n, reasonCode, category, isFailure };
@@ -270,6 +271,17 @@ public class OeeController : ControllerBase
         }, ct);
 
         return new { ok = true, date = bucketStr, flow = req.Flow.Trim(), shift, total, good, reject };
+    }
+
+    // ── POST /api/oee/quality  {qualityPercent?} ─────────────────────────
+    // 사용자가 직접 설정하는 "전반 품질(양품률) %" (전역). null/빈값이면 해제 → 불량 입력 기반/100% 가정 폴백.
+    // 불량 카운트(production)와 별개의 단순 오버라이드 — 설정 시 라인·전 설비 OEE 품질에 그대로 적용(QualitySource="manual").
+    [HttpPost("quality")]
+    public ActionResult<object> SetManualQuality([FromBody] ManualQualityRequest req)
+    {
+        _settings.SaveManualQualityPercent(req?.QualityPercent);
+        var saved = _settings.LoadSettings().OeeManual.QualityPercent;
+        return new { ok = true, qualityPercent = saved };
     }
 
     // ── GET /api/oee/shift-exception?from&to&flow ─────────────────────────
@@ -469,9 +481,10 @@ public class OeeController : ControllerBase
             perfNote = null;
         }
 
-        // ── Quality ── Summary 와 동일: 기본 100% 가정, 불량 입력 시 실측 (§12 개정)
+        // ── Quality ── 사용자 직접 설정(전반 품질) 우선 ▸ 불량 입력(measured) ▸ 100% 가정(assumed). §12
+        var manualQualityPct = _settings.LoadSettings().OeeManual.QualityPercent;
         var (quality, qualNote, qualitySource, rejectOut, goodOut) =
-            OeeMath.ComputeQuality(totalCount, prodReject, hasReject);
+            OeeMath.ResolveQuality(manualQualityPct, totalCount, prodReject, hasReject);
 
         // ── OEE = A × P × Q ──
         double? oee = null;
@@ -757,9 +770,10 @@ public class OeeController : ControllerBase
             perfNote = null;
         }
 
-        // ── Quality ── 기본 100% 가정, 불량 입력 시 실측 (§12 개정)
+        // ── Quality ── 사용자 직접 설정(전반 품질) 우선 ▸ 불량 입력(measured) ▸ 100% 가정(assumed). §12
+        var manualQualityPct = _settings.LoadSettings().OeeManual.QualityPercent;
         var (quality, qualNote, qualitySource, rejectOut, goodOut) =
-            OeeMath.ComputeQuality(totalCount, prodReject, hasReject);
+            OeeMath.ResolveQuality(manualQualityPct, totalCount, prodReject, hasReject);
 
         // ── OEE (A × P × Q) — 순수 함수 단일 소스 ──
         var (oee, oeeNote) = OeeMath.ComputeOee(availability, performance, quality, qualitySource);
@@ -1148,6 +1162,7 @@ public record CloseRequest(DateTime? EndAt);
 public record BulkClassifyRequest(List<long> Ids, string? ReasonCode, string? Category);
 public record BulkCloseRequest(List<long> Ids, DateTime? EndAt);
 public record ProductionRequest(DateTime? Date, string Flow, string? Shift, int Reject);
+public record ManualQualityRequest(double? QualityPercent); // 전반 품질(양품률) % 직접 설정. null=해제.
 public record ShiftExceptionRequest(string? Flow, DateTime? StartAt, DateTime? EndAt, string Kind, string? Note);
 // Mode: "manual"=사용자 직접 입력(자동이 안 덮음, 값 동일해도 수동 잠금) / "auto"=자동 관리로 해제(수동값 비움→자동기입) / null=레거시(값 변경 시 수동).
 public record IdealCycleRequest(string Flow, int? IdealCycleTimeMs, string? Mode = null);

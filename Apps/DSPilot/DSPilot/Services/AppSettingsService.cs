@@ -17,7 +17,7 @@ public class AppSettingsService
     private static readonly object _writeLock = new();
 
     private static readonly string[] ManagedSections =
-        ["Database", "FlowCycle", "DspTables", "Hub", "Logging", "Ui", "HistoryView", "Cctv", "OeeSignals", "Shift", "CycleExclusion", "AbnormalAlarm", "AutoCalibration"];
+        ["Database", "FlowCycle", "DspTables", "Hub", "Logging", "Ui", "HistoryView", "Cctv", "OeeSignals", "OeeManual", "Shift", "CycleExclusion", "AbnormalAlarm", "AutoCalibration"];
 
     private readonly string _filePath;
     private readonly string _productionFilePath;
@@ -74,6 +74,7 @@ public class AppSettingsService
             HistoryView = Deserialize<HistoryViewSettings>(root["HistoryView"]),
             Cctv = Deserialize<CctvSettings>(root["Cctv"]),
             OeeSignals = Deserialize<OeeSignalSettings>(root["OeeSignals"]),
+            OeeManual = Deserialize<OeeManualSettings>(root["OeeManual"]),
             Shift = Deserialize<ShiftSettings>(root["Shift"]),
             CycleExclusion = Deserialize<CycleExclusionSettings>(root["CycleExclusion"]),
             AbnormalAlarm = Deserialize<AbnormalAlarmSettings>(root["AbnormalAlarm"]),
@@ -116,6 +117,16 @@ public class AppSettingsService
     }
 
     /// <summary>
+    /// 사용자가 직접 설정하는 전반 품질(양품률) %. null/범위밖이면 해제(→ 불량 입력 기반/100% 가정 폴백).
+    /// 0~100 으로 클램프. <see cref="Update"/> 로 원자적 저장(설정 페이지 저장과 경합해도 유실 없음).
+    /// </summary>
+    public void SaveManualQualityPercent(double? qualityPercent)
+    {
+        var normalized = qualityPercent is double p ? Math.Clamp(p, 0.0, 100.0) : (double?)null;
+        Update(settings => settings.OeeManual.QualityPercent = normalized);
+    }
+
+    /// <summary>
     /// 모든 관리 설정을 코드 기본값(<see cref="AppSettingsModel"/>)으로 초기화하고 저장한다.
     /// 업그레이드 시 Production.json 을 보존하므로, 구버전에서 넘어온 stale 설정이 문제를 일으킬 때
     /// 사용자가 설정 페이지에서 명시적으로 깨끗한 기본값으로 되돌리는 escape hatch.
@@ -139,6 +150,7 @@ public class AppSettingsService
         target["HistoryView"] = JsonSerializer.SerializeToNode(model.HistoryView, JsonOptions);
         target["Cctv"] = JsonSerializer.SerializeToNode(model.Cctv, JsonOptions);
         target["OeeSignals"] = JsonSerializer.SerializeToNode(model.OeeSignals, JsonOptions);
+        target["OeeManual"] = JsonSerializer.SerializeToNode(model.OeeManual, JsonOptions);
         target["Shift"] = JsonSerializer.SerializeToNode(model.Shift, JsonOptions);
         target["CycleExclusion"] = JsonSerializer.SerializeToNode(model.CycleExclusion, JsonOptions);
         target["AbnormalAlarm"] = JsonSerializer.SerializeToNode(model.AbnormalAlarm, JsonOptions);
