@@ -167,6 +167,14 @@ public class ShiftSettings
     /// <summary>시프트 동안 만들어야 할 목표 개수.</summary>
     public int TargetCount { get; set; } = 0;
 
+    /// <summary>
+    /// 사용자가 시프트(Start/End)를 명시적으로 설정했는지. 기본 false — 코드 기본값 08:00/17:00 이 파일에 박제돼도
+    /// "미설정"으로 구분하기 위함(<see cref="EnsureSettingsFiles"/>). OEE 가용성 분모 폴백 체인에서
+    /// true 일 때만 시프트를 권위적 계획시간으로 쓴다(false 면 14일 자동추정 ▸ 달력근사로 폴백). doc/21 §12.
+    /// 대시보드 시프트 목표 카드(TargetFlow/만든수)와는 무관 — 그쪽 동작은 이 플래그를 보지 않는다.
+    /// </summary>
+    public bool UserSet { get; set; } = false;
+
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }

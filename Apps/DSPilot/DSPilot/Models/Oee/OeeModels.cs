@@ -50,8 +50,15 @@ public sealed class OeeDowntimeEvent
     /// <summary>기본 0. 분류 확정 시에만 1 (MTBF/MTTR 분모 오염 방지).</summary>
     public int IsFailure { get; set; }
 
-    /// <summary>'nocycle' / 'usertag' / 'manual'.</summary>
+    /// <summary>'nocycle' / 'usertag' / 'manual'. (정지 구간을 만든 "감지" 출처 — 의미 고정.)</summary>
     public string DetectSource { get; set; } = "nocycle";
+
+    /// <summary>
+    /// 원인 "분류"가 어떻게 정해졌는지 (detectSource=감지 출처와 의미 구분):
+    /// NULL=미분류 / 'manual'(작업자 분류) / 'auto-bit'(CauseBit 자동분류) / 'auto-heuristic'(5분/8h 휴리스틱).
+    /// 'manual' 은 자동 휴리스틱이 덮지 않는다(수동 우선). doc/21 §12 개정.
+    /// </summary>
+    public string? ClassifySource { get; set; }
 
     /// <summary>plcTagLog.id (usertag onset dedupe 키). nocycle 은 NULL.</summary>
     public long? SourceLogId { get; set; }
@@ -129,8 +136,9 @@ public sealed record OeeSummaryDto(
     int? IdealCycleTimeMs,            // FlowCycleOverride.IdealCycleTimeMs
     string? IdealCycleTimeSource,     // "auto" = 실측 자동기입 / null = 수동(또는 미설정)
 
-    double? Availability,             // 1 - downtime/period (달력근사)
+    double? Availability,             // 가동 / 계획시간 (폴백 체인: 시프트 ▸ 자동추정 ▸ 달력근사)
     string? AvailabilityNote,         // 산출 방식/한계 사유
+    string? AvailabilitySource,       // "shift"(UserSet 시프트) / "auto"(14일 자동추정) / "calendar"(달력근사) / null
     double? Performance,              // (idealCT*total)/runtime, min(1.0). idealCT 없으면 null
     string? PerformanceNote,
     double? Quality,                  // (total-reject)/total. 사이클 0 이면 null
@@ -157,10 +165,20 @@ public sealed record OeeDowntimeDto(
     string? ReasonCode,
     string? Category,
     bool IsFailure,
-    string DetectSource,
+    string DetectSource,              // 감지 출처(정지 구간 소스): nocycle / usertag / manual
     long? SourceLogId,
     string? Note,
-    string Status);                   // "open" | "recovered"
+    string Status,                    // "open" | "recovered"
+    string? ClassifySource = null,    // 분류 출처: manual / auto-bit / auto-heuristic / null(미분류)
+    OeeDowntimeClue? Clue = null);    // abnormal/usertag 시간겹침 단서(표시 전용 — 건수·MTBF 미반영, doc/21 §4)
+
+/// <summary>
+/// 정지 구간에 시간이 겹친 abnormal/usertag 점 이벤트 단서 (읽기전용 표시 — 정지 소스 아님).
+/// 건수·길이·MTBF 산출에 절대 반영하지 않는다(doc/21 §4 정직성).
+/// </summary>
+public sealed record OeeDowntimeClue(
+    string Label,
+    string Src);                      // "abnormal" | "usertag"
 
 /// <summary>설비(Flow)별 OEE 순위 한 행.</summary>
 public sealed record OeeRankingDto(
@@ -178,9 +196,17 @@ public sealed record OeeDailyResponse(
     string Granularity,                  // "day" | "hour"
     IReadOnlyList<OeeDailySlotDto> Slots);
 
-/// <summary>단일 버킷: Slot 문자열·슬롯 지속시간·비계획정지·계획정비.</summary>
+/// <summary>
+/// 단일 버킷: Slot 문자열·슬롯 지속시간 + 정지 5분해(가동/고장/기타/미분류/점검).
+/// 가동 = SlotMs − FailureMs − OtherMs − UnclassifiedMs − PlannedMs. 4분해는 상호배타(category·isFailure 로 분기):
+///   PlannedMs=category 'planned' / UnclassifiedMs=category NULL / FailureMs=isFailure 1 / OtherMs=그 외 unplanned.
+/// UnplannedMs(= Failure+Other+Unclassified) 는 하위호환 합산값.
+/// </summary>
 public sealed record OeeDailySlotDto(
-    string Slot,        // "yyyy-MM-dd" 또는 "yyyy-MM-dd HH:00"
-    long SlotMs,        // 슬롯 달력 지속시간 (ms) — 가동 = SlotMs - UnplannedMs - PlannedMs
-    long UnplannedMs,   // 비계획 정지 (category != 'planned')
-    long PlannedMs);    // 계획정비 (category = 'planned')
+    string Slot,            // "yyyy-MM-dd" 또는 "yyyy-MM-dd HH:00"
+    long SlotMs,            // 슬롯 달력 지속시간 (ms)
+    long UnplannedMs,       // 비계획 정지 합 (Failure+Other+Unclassified) — 하위호환
+    long PlannedMs,         // 계획정비 (category = 'planned')
+    long FailureMs = 0,     // 고장 (isFailure=1, 비계획)
+    long OtherMs = 0,       // 기타 비계획 (category='unplanned' AND isFailure=0)
+    long UnclassifiedMs = 0); // 미분류 (category IS NULL)

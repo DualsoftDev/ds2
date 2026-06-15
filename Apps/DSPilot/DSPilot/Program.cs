@@ -175,6 +175,10 @@ builder.Services.AddSingleton<OeeCtStatsService>();
 // 표준CT(idealCT) 실측 자동 1회 기입 — 비어 있는 Flow 만 best-demonstrated p10 으로 채워 성능/OEE 를
 // 수동 입력 없이 산출 가능하게 한다(수동값 절대 미덮음, Oee:AutoIdealCycle:* 로 튜닝).
 builder.Services.AddHostedService<OeeIdealCycleAutoFillService>();
+// 계획시간(가용성 분모) 자동추정 — 14일 활동 히스토그램으로 "전형 가동 시간창"을 학습(RAM only). 가용성 폴백
+// 체인(UserSet 시프트 ▸ 자동추정 ▸ 달력근사)의 ② 단계. 싱글톤+HostedService 동일 인스턴스(컨트롤러가 읽음).
+builder.Services.AddSingleton<OeeAutoShiftInferenceService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<OeeAutoShiftInferenceService>());
 
 // CCTV — 카메라 목록을 별도 프로세스 MediaMTX(:9997) 로 동기화. WebRTC 재게시는 MediaMTX 담당.
 // Singleton + HostedService — Settings 페이지가 동일 인스턴스로 SyncAsync 직접 호출.
@@ -263,7 +267,9 @@ var canonicalStaticRoutes = new Dictionary<string, string>(StringComparer.Ordina
     ["/heatmap"] = "heatmap.html",
     ["/cycle-time-analysis"] = "cycle-time-analysis.html",
     ["/uptime"] = "uptime.html",
-    ["/oee"] = "oee.html",
+    // /oee 폐기(2026-06-15): 시프트 PPT 전용 페이지 제거 — 가용성 폴백 체인(시프트▸자동추정▸달력)이
+    //   uptime 의 /api/oee/summary 로 통합됨. 구 북마크 보존 위해 uptime 으로 매핑(soft redirect). oee.html 삭제됨.
+    ["/oee"] = "uptime.html",
     ["/cctv"] = "cctv.html",
     ["/plc-debug"] = "plc-debug.html",
     ["/settings"] = "settings.html",

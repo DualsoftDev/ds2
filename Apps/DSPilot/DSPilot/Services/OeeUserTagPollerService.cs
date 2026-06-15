@@ -229,7 +229,7 @@ public sealed class OeeUserTagPollerService : BackgroundService
             : chosen.Category.Trim().ToLowerInvariant();
         // OeeController.Classify 와 동일 규칙: isFailure = (category == unplanned). 기본 unplanned → 고장 유지.
         var isFailure = string.Equals(category, UnplannedCategory, StringComparison.OrdinalIgnoreCase);
-        await repo.ClassifyDowntimeAsync(eventId, chosen.ReasonCode.Trim(), category, isFailure, ct);
+        await repo.ClassifyDowntimeAsync(eventId, chosen.ReasonCode.Trim(), category, isFailure, classifySource: "auto-bit", ct);
     }
 
     // ── 생산/불량 자동 주입 ────────────────────────────────────────────────

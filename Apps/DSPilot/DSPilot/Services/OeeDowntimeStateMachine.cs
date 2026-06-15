@@ -27,6 +27,12 @@ public sealed class OeeDowntimeStateMachine : BackgroundService
     // detectSource = "nocycle" — clear 는 사이클 재개로만.
     private const string DetectSource = "nocycle";
     private const int DefaultNoCycleSeconds = 120;
+    // 분류 휴리스틱(doc/21 §12 E): nocycle clear 시 지속시간으로 자동 분류 — 작업자 미분류 부담 완화.
+    //   ≥ 5분  → 자동:고장(equipment_fault, unplanned, isFailure=1)
+    //   ≥ 8시간 → 자동:점검(planned_maint, planned) — 계획정지로 보아 MTBF 분모에서 빠짐(추세상 점프 가능).
+    //   < 5분  → 미분류 유지(짧은 정지 = 노이즈, 자동분류 안 함).
+    // 임계/매핑은 OeeMath.ClassifyByDuration 단일 소스(테스트 가능). 수동 분류는 절대 덮지 않는다
+    // (AutoClassifyHeuristicAsync 가 category NULL·classifySource≠'manual' 가드).
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(30);
 
@@ -143,9 +149,17 @@ public sealed class OeeDowntimeStateMachine : BackgroundService
                     // endAt = 사이클 재개(=마지막 사이클) 시점. durationMs 는 repo 가 계산.
                     var closed = await repo.CloseDowntimeAsync(open.Id, lastCycleUtc, ct);
                     if (closed > 0)
+                    {
                         _logger.LogInformation(
                             "[OEE] nocycle clear: flow='{Flow}' event#{Id} cycle resumed at {Last:u}",
                             flowName, open.Id, lastCycleUtc);
+
+                        // 분류 휴리스틱(신규 마감 건만 — 백필 금지). 수동 분류는 AutoClassifyHeuristicAsync 가드로 보존.
+                        var durMs = (lastCycleUtc - open!.StartAt).TotalMilliseconds;
+                        var (rc, cat, isFail, should) = OeeMath.ClassifyByDuration(durMs);
+                        if (should)
+                            await repo.AutoClassifyHeuristicAsync(open.Id, rc, cat, isFail, ct);
+                    }
                 }
             }
         }

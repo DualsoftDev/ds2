@@ -36,7 +36,8 @@
     .up-section { padding: 18px 20px; }
 
     /* ── OEE KPI (uptime.html 그대로, 4-그리드로) ── */
-    .up-oee-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .up-oee-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+    @media (max-width: 1100px) { .up-oee-row { grid-template-columns: repeat(3, 1fr); } }
     @media (max-width: 720px) { .up-oee-row { grid-template-columns: 1fr 1fr; } }
     .up-oee { position: relative; background: var(--color-surface); border: 1px solid var(--color-lines); border-left: 3px solid var(--color-lines-strong); border-radius: var(--radius-md); padding: 13px 15px; }
     .up-oee.is-na { background: var(--color-surface-variant); border-style: dashed; border-left-style: dashed; }
@@ -57,6 +58,16 @@
     /* MTBF 무고장 배지 */
     .up-nofault { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 1.05rem; font-weight: 800; color: var(--green); }
     .up-nofault .led { width: 9px; height: 9px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 4px color-mix(in srgb, var(--green) 22%, transparent); }
+
+    /* ── 품질(양품률) 입력 편집기 ── */
+    .up-qedit-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    .up-qedit-scope { font-size: 0.82rem; font-weight: 800; color: var(--color-text-primary); white-space: nowrap; }
+    .up-qfield { display: flex; flex-direction: column; gap: 3px; }
+    .up-qfield label { font-size: 0.58rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-secondary); }
+    .up-qfield input { width: 92px; padding: 6px 9px; font-size: 0.92rem; font-family: var(--font-mono); font-weight: 700; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-primary); }
+    .up-qfield input:focus { outline: none; border-color: var(--color-primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 22%, transparent); }
+    .up-qeq { font-size: 1.1rem; color: var(--color-text-secondary); align-self: flex-end; padding-bottom: 5px; }
+    .up-qhint { font-size: 0.66rem; color: var(--color-text-secondary); flex: 1; min-width: 180px; line-height: 1.5; }
 
     /* ── 자동화 파이프라인 상태 스트립 ── */
     .up-auto-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--color-lines); border: 1px solid var(--color-lines); border-radius: var(--radius-md); overflow: hidden; }
@@ -224,12 +235,21 @@
         <section class="card up-section">
           <div class="ds-card-h">
             <h4>OEE 종합 지표</h4>
-            <span class="ds-card-h-sub">OEE = 가용성 × 성능 · 양품률(Q) 제외 · 라인 합산</span>
+            <span class="ds-card-h-sub">OEE = 가용성 × 성능 × 품질 · 라인 합산</span>
           </div>
           <div class="up-oee-row" id="kpiRow"></div>
           <div class="ds-card-h" style="margin-top:10px;">
             <span class="ds-card-h-sub" id="kpiFoot"></span>
           </div>
+        </section>
+
+        <!-- ════ 품질(양품률) 입력 ════ -->
+        <section class="card up-section">
+          <div class="ds-card-h">
+            <h4>품질(양품률) 입력</h4>
+            <span class="ds-card-h-sub">기본 100% 가정 · 불량율 또는 품질을 직접 입력 → 측정값 전환 (OEE 즉시 반영)</span>
+          </div>
+          <div class="up-qedit-row" id="qEditRow"></div>
         </section>
 
         <!-- ════ 자동화 파이프라인 상태 ════ -->
@@ -354,8 +374,8 @@
           <div class="up-dn-body">
             <table class="up-tbl">
               <tbody>
-                <tr><td>OEE = A × P</td><td><span class="tag-v3">v3</span> 채택. Q 곱 제거 — "양품률 제외" 명시.</td></tr>
-                <tr><td>4 KPI</td><td><span class="tag-v3">v3</span> OEE·A·P·MTBF. Q·MTTR 카드 제거. <b>단</b> 데이터 계층(oeeProductionCount·불량입력)은 보존(자산보존, 표시/계산만 차단).</td></tr>
+                <tr><td>OEE = A × P × Q</td><td><span class="tag-fix">변경</span> v3 의 'Q 제거'를 <b>사용자 요청으로 복원</b> — Q 곱 부활. 기본 <b>100% 가정</b>(assumed), 불량율/품질 직접 입력 시 측정값(measured)으로 전환. (기존 6/10 구현과 동일 정책)</td></tr>
+                <tr><td>5 KPI</td><td><span class="tag-fix">변경</span> OEE·A·P·<b>Q</b>·MTBF. MTTR만 제거. Q 카드 = '가정/사용자' 칩 + 톤 중립(가정은 초록 금지). 데이터 계층(oeeProductionCount·불량입력) 활용.</td></tr>
                 <tr><td>MTBF 무고장</td><td><span class="tag-fix">보정</span> v3 의 <code>max(n,1)</code> 은 무고장 시 가짜 MTBF → 정직성 위배. FailureCount=0 이면 <b>"🟢 무고장" 배지</b>.</td></tr>
                 <tr><td>계획시간 분모</td><td><span class="tag-fix">보정</span> 분모가 이미 3중(달력/시프트/자동). <b>단일 폴백 체인</b>으로 통일. "시프트 미설정" 판별 위해 UserSet 마커 신설.</td></tr>
                 <tr><td>표준CT 중앙값</td><td><span class="tag-fix">보정</span> v3 "기존" 표기 오류 — 미구현. 신설하되 <b>"임시" 라벨</b> 후 30샘플서 p10 승급.</td></tr>
@@ -378,12 +398,13 @@
 
   <script>
     // ════════ MOCK 데이터 (실연결 시 /api/oee/* 응답으로 교체) ════════
+    // q=품질(양품률, 기본 1.0=100% 가정), qSrc='assumed'(불량 미입력)|'measured'(사용자 입력). OEE=a*p*q (oeeOf로 산출)
     const FLOWS = {
-      all:  { name: '라인 전체',   oee: 0.589, a: 0.882, p: 0.668, failures: 5, mtbfMin: 168, availSource: 'auto',     downTotalMin: 120, ctSummary: 'Flow별 자동 p10 · 1건 임시' },
-      STN1: { name: 'STN1 투입',   oee: 0.630, a: 0.921, p: 0.684, failures: 0, mtbfMin: null, availSource: 'auto',     downTotalMin: 18,  ctSummary: '0.50분 · 자동 p10' },
-      STN2: { name: 'STN2 프레스', oee: 0.417, a: 0.875, p: 0.476, failures: 3, mtbfMin: 140, availSource: 'auto',     downTotalMin: 60,  ctSummary: '0.50분 · 자동 p10' },
-      STN3: { name: 'STN3 조립',   oee: 0.633, a: 0.782, p: 0.810, failures: 2, mtbfMin: 210, availSource: 'shift',    downTotalMin: 28,  ctSummary: '0.80분 · 중앙값 임시' },
-      STN4: { name: 'STN4 검사',   oee: 0.684, a: 0.950, p: 0.720, failures: 0, mtbfMin: null, availSource: 'auto',     downTotalMin: 14,  ctSummary: '0.45분 · 수동' },
+      all:  { name: '라인 전체',   a: 0.882, p: 0.668, failures: 5, mtbfMin: 168, availSource: 'auto',  downTotalMin: 120, ctSummary: 'Flow별 자동 p10 · 1건 임시' },
+      STN1: { name: 'STN1 투입',   a: 0.921, p: 0.684, failures: 0, mtbfMin: null, availSource: 'auto',  downTotalMin: 18,  ctSummary: '0.50분 · 자동 p10', q: 1, qSrc: 'assumed' },
+      STN2: { name: 'STN2 프레스', a: 0.875, p: 0.476, failures: 3, mtbfMin: 140, availSource: 'auto',  downTotalMin: 60,  ctSummary: '0.50분 · 자동 p10', q: 1, qSrc: 'assumed' },
+      STN3: { name: 'STN3 조립',   a: 0.782, p: 0.810, failures: 2, mtbfMin: 210, availSource: 'shift', downTotalMin: 28,  ctSummary: '0.80분 · 중앙값 임시', q: 1, qSrc: 'assumed' },
+      STN4: { name: 'STN4 검사',   a: 0.950, p: 0.720, failures: 0, mtbfMin: null, availSource: 'auto',  downTotalMin: 14,  ctSummary: '0.45분 · 수동', q: 1, qSrc: 'assumed' },
     };
     const REASONS = [
       { name: '장비 고장',        min: 45, color: 'var(--red)',                 src: 'heur' },
@@ -425,12 +446,22 @@
     const fmtMin = m => { if (m == null) return '—'; const h = Math.floor(m / 60), r = Math.round(m % 60); return h ? `${h}시간 ${r}분` : `${r}분`; };
     const tone = (v, g, w) => (v == null ? '' : v >= g ? 'is-good' : v >= w ? 'is-warn' : 'is-bad');
 
+    // 품질 Q / OEE 산출 — 'all'은 설비별 q 평균(설비를 측정하면 라인도 측정으로 반영)
+    const STN_KEYS = ['STN1', 'STN2', 'STN3', 'STN4'];
+    const qOf = k => k === 'all' ? STN_KEYS.reduce((s, x) => s + FLOWS[x].q, 0) / STN_KEYS.length : FLOWS[k].q;
+    const qSrcOf = k => k === 'all' ? (STN_KEYS.some(x => FLOWS[x].qSrc === 'measured') ? 'measured' : 'assumed') : FLOWS[k].qSrc;
+    const oeeOf = k => FLOWS[k].a * FLOWS[k].p * qOf(k);
+    const clampPct = v => Math.min(100, Math.max(0, parseFloat(v) || 0));
+
     function renderKpi() {
       const f = FLOWS[curFlow];
       const srcLabel = { auto: '자동추정 계획시간', shift: '사용자 시프트', calendar: '달력근사' }[f.availSource];
       const srcChip = f.availSource === 'shift'
         ? '<span class="up-oee-chip solid">시프트</span>'
         : f.availSource === 'auto' ? '<span class="up-oee-chip auto">자동추정</span>' : '<span class="up-oee-chip">달력</span>';
+      const q = qOf(curFlow), qsrc = qSrcOf(curFlow), oee = oeeOf(curFlow);
+      const qChip = qsrc === 'assumed' ? '<span class="up-oee-chip">가정</span>' : '<span class="up-oee-chip solid">사용자</span>';
+      const qNote = qsrc === 'assumed' ? '불량 미입력 — 100% 가정' : ('불량율 ' + (100 - q * 100).toFixed(1) + '% 반영');
       const mtbf = (f.failures === 0)
         ? `<div class="up-nofault"><span class="led"></span>무고장</div>
            <div class="up-oee-note">기간 고장 0건 — 분모 0. 가짜수치 대신 정직 표기.</div>`
@@ -439,8 +470,8 @@
       $('#kpiRow').innerHTML = `
         <div class="up-oee is-hero">
           <div class="up-oee-label">OEE 종합</div>
-          <div class="up-oee-value up-oee-mono">${pct(f.oee)}<small>%</small></div>
-          <div class="up-oee-note">가용성 × 성능 · 양품률 제외</div>
+          <div class="up-oee-value up-oee-mono">${pct(oee)}<small>%</small></div>
+          <div class="up-oee-note">가용성 × 성능 × 품질${qsrc === 'assumed' ? ' · 품질 100% 가정' : ''}</div>
         </div>
         <div class="up-oee ${tone(f.a, .9, .8)}">
           <div class="up-oee-label">가용성 A ${srcChip}</div>
@@ -452,11 +483,42 @@
           <div class="up-oee-value up-oee-mono">${pct(f.p)}<small>%</small></div>
           <div class="up-oee-note">(표준CT × 생산수) / 가동</div>
         </div>
+        <div class="up-oee ${qsrc === 'assumed' ? '' : tone(q, .99, .95)}">
+          <div class="up-oee-label">품질 Q ${qChip}</div>
+          <div class="up-oee-value up-oee-mono">${pct(q)}<small>%</small></div>
+          <div class="up-oee-note">${qNote}</div>
+        </div>
         <div class="up-oee ${f.failures === 0 ? 'is-good' : 'is-warn'}">
           <div class="up-oee-label">MTBF</div>
           ${mtbf}
         </div>`;
-      $('#kpiFoot').innerHTML = `기간 정지 <b>${REASONS.reduce((s,r)=>s+r.min,0)}분 · 가동 ${pct(f.a)}%</b> · 표준CT ${f.ctSummary}`;
+      $('#kpiFoot').innerHTML = `기간 정지 <b>${REASONS.reduce((s, r) => s + r.min, 0)}분 · 가동 ${pct(f.a)}%</b> · 품질 ${pct(q)}% (${qsrc === 'assumed' ? '가정' : '측정'}) · 표준CT ${f.ctSummary}`;
+    }
+
+    function renderQEdit() {
+      const row = $('#qEditRow');
+      if (curFlow === 'all') {
+        row.innerHTML = `
+          <div class="up-qedit-scope">라인 전체</div>
+          <div class="up-qhint">설비별 품질의 평균입니다 (현재 <b>${pct(qOf('all'))}%</b> · ${qSrcOf('all') === 'assumed' ? '전부 가정' : '일부 측정'}).
+          <b>특정 설비를 선택</b>하면 불량율 또는 품질을 직접 입력할 수 있습니다.</div>`;
+        return;
+      }
+      const f = FLOWS[curFlow];
+      const qP = (f.q * 100), dP = (100 - f.q * 100);
+      row.innerHTML = `
+        <div class="up-qedit-scope">대상: ${f.name}</div>
+        <div class="up-qfield"><label>품질 %</label><input id="qIn" type="number" min="0" max="100" step="0.1" value="${qP.toFixed(1)}"></div>
+        <span class="up-qeq">⇄</span>
+        <div class="up-qfield"><label>불량율 %</label><input id="dIn" type="number" min="0" max="100" step="0.1" value="${dP.toFixed(1)}"></div>
+        <button class="btn btn-sm btn-filled" id="qApply">적용</button>
+        <button class="btn btn-sm btn-outlined" id="qReset">가정(100%) 복귀</button>
+        <div class="up-qhint">현재 <b>${pct(f.q)}%</b> · ${f.qSrc === 'assumed' ? '불량 미입력 → 100% 가정' : '사용자 입력(측정값)'} — OEE = A × P × Q 에 즉시 반영</div>`;
+      const qIn = $('#qIn'), dIn = $('#dIn');
+      qIn.addEventListener('input', () => { dIn.value = (100 - clampPct(qIn.value)).toFixed(1); });
+      dIn.addEventListener('input', () => { qIn.value = (100 - clampPct(dIn.value)).toFixed(1); });
+      $('#qApply').addEventListener('click', () => { f.q = clampPct(qIn.value) / 100; f.qSrc = 'measured'; renderAll(); });
+      $('#qReset').addEventListener('click', () => { f.q = 1; f.qSrc = 'assumed'; renderAll(); });
     }
 
     function renderAutoStrip() {
@@ -607,26 +669,28 @@
     }
 
     function renderRank() {
-      const rows = ['STN1', 'STN2', 'STN3', 'STN4'].map(k => FLOWS[k]).sort((a, b) => b.oee - a.oee);
-      $('#rankList').innerHTML = rows.map((f, i) => {
-        const c = f.oee >= .65 ? 'var(--green)' : f.oee >= .5 ? 'var(--amber)' : 'var(--red)';
+      const rows = STN_KEYS.map(k => ({ key: k, f: FLOWS[k], oee: oeeOf(k) })).sort((a, b) => b.oee - a.oee);
+      $('#rankList').innerHTML = rows.map((r, i) => {
+        const f = r.f, oee = r.oee;
+        const c = oee >= .65 ? 'var(--green)' : oee >= .5 ? 'var(--amber)' : 'var(--red)';
         const worst = i === rows.length - 1 ? ' is-worst' : '';
+        const qTag = f.qSrc === 'measured' ? ` · Q ${pct(f.q)}` : '';
         return `<div class="up-rank-row${worst}">
           <span class="up-rank-medal">${i + 1}</span>
           <div style="min-width:0;">
             <div class="up-rank-name">${f.name}</div>
-            <div class="up-rank-sub">A ${pct(f.a)} · P ${pct(f.p)}</div>
+            <div class="up-rank-sub">A ${pct(f.a)} · P ${pct(f.p)}${qTag}</div>
           </div>
           <div style="display:flex; align-items:center; gap:7px;">
-            <div class="up-minibar" style="width:54px;"><i style="width:${pct(f.oee)}%; background:${c};"></i></div>
+            <div class="up-minibar" style="width:54px;"><i style="width:${pct(oee)}%; background:${c};"></i></div>
           </div>
-          <span class="up-rank-oee" style="color:${c};">${pct(f.oee)}%</span>
+          <span class="up-rank-oee" style="color:${c};">${pct(oee)}%</span>
         </div>`;
       }).join('');
     }
 
     function renderInsight() {
-      const f = FLOWS[curFlow], out = [];
+      const f = FLOWS[curFlow], out = [], oee = oeeOf(curFlow), q = qOf(curFlow);
       if (curFlow === 'all') {
         out.push({ cls: 'crit', ic: 'build', tx: '<b>STN2 가 라인 OEE 의 발목</b> — 성능 47.6%(속도손실 과다) + MTBF 140분. 공구 점검 주기 단축 + 사이클 속도 회복이 1순위.' });
         out.push({ cls: '', ic: 'verified', tx: '<b>STN1·STN4 무고장</b> 7일 연속 — 신뢰성 양호. STN4 가용성 95%.' });
@@ -636,13 +700,18 @@
         out.push({ cls: f.p < .7 ? 'warn' : '', ic: 'speed', tx: `성능 ${pct(f.p)}% — ${f.p < .7 ? '속도손실 점검 권장.' : '양호.'} 가용성 ${pct(f.a)}%.` });
       } else {
         const bn = f.p < f.a ? '성능(속도손실)' : '가용성(정지)';
-        out.push({ cls: f.oee < .5 ? 'crit' : 'warn', ic: 'build', tx: `<b>${f.name}</b> OEE ${pct(f.oee)}% — <b>${bn}</b>이 주 손실. MTBF ${f.mtbfMin}분.` });
+        out.push({ cls: oee < .5 ? 'crit' : 'warn', ic: 'build', tx: `<b>${f.name}</b> OEE ${pct(oee)}% — <b>${bn}</b>이 주 손실. MTBF ${f.mtbfMin}분.` });
+      }
+      if (qSrcOf(curFlow) === 'measured' && q < .98) {
+        out.push({ cls: q < .95 ? 'crit' : 'warn', ic: 'fact_check', tx: `<b>품질 ${pct(q)}%</b>(불량율 ${(100 - q * 100).toFixed(1)}%) 입력 반영 — OEE 가 ${pct(1 - q)}p 만큼 추가 손실. 불량 원인 점검 권장.` });
+      } else if (qSrcOf(curFlow) === 'assumed') {
+        out.push({ cls: '', ic: 'fact_check', tx: `품질 <b>100% 가정</b> 중 — 불량율/품질을 입력하면 OEE 가 측정값으로 정밀화됩니다.` });
       }
       $('#insightBox').innerHTML = out.map(o => `
         <div class="up-insight ${o.cls}"><span class="material-icons">${o.ic}</span><div class="up-insight-text">${o.tx}</div></div>`).join('');
     }
 
-    function renderAll() { renderKpi(); renderAutoStrip(); renderDonut(); renderChain(); renderHist(); renderStack(); renderEvents(); renderCt(); renderRank(); renderInsight(); }
+    function renderAll() { renderKpi(); renderQEdit(); renderAutoStrip(); renderDonut(); renderChain(); renderHist(); renderStack(); renderEvents(); renderCt(); renderRank(); renderInsight(); }
 
     // 토글
     function bindSeg(id, attr, setter) {

@@ -27,6 +27,7 @@ namespace DSPilot.Services;
 public sealed class OeeIdealCycleAutoFillService : BackgroundService
 {
     private const int DefaultMinCleanCycles = 30;
+    private const int DefaultMinMedianCycles = 5; // 임시 중앙값 기입 최소 샘플(p10 확정 전 — 너무 적으면 무의미).
     private const double DefaultPercentile = 10.0;
     private const int SampleLimit = 2000; // 추천 테이블 기본과 동일 — flow별 최근 N 사이클 윈도.
 
@@ -61,6 +62,15 @@ public sealed class OeeIdealCycleAutoFillService : BackgroundService
         {
             var v = _configuration.GetValue<int?>("Oee:AutoIdealCycle:MinCleanCycles") ?? DefaultMinCleanCycles;
             return v > 0 ? v : DefaultMinCleanCycles;
+        }
+    }
+
+    private int MinMedianCycles
+    {
+        get
+        {
+            var v = _configuration.GetValue<int?>("Oee:AutoIdealCycle:MinMedianCycles") ?? DefaultMinMedianCycles;
+            return v > 0 ? v : DefaultMinMedianCycles;
         }
     }
 
@@ -99,29 +109,46 @@ public sealed class OeeIdealCycleAutoFillService : BackgroundService
     {
         if (!Enabled) return;
 
-        // 후보 사전 선별 — 이미 채워진 Flow 를 빼고, 채울 게 없으면 파일 쓰기 자체를 하지 않는다.
+        // 후보 사전 선별 — 빈 칸(기입) + 임시(auto-median) 승급만 후보로. 변경 없으면 파일 쓰기 자체를 하지 않는다.
         var settings = _settings.LoadSettings();
-        var alreadySet = settings.FlowCycle.Overrides
-            .Where(o => !string.IsNullOrWhiteSpace(o.FlowName) && o.IdealCycleTimeMs is > 0)
-            .Select(o => o.FlowName)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var existingByFlow = settings.FlowCycle.Overrides
+            .Where(o => !string.IsNullOrWhiteSpace(o.FlowName))
+            .GroupBy(o => o.FlowName, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
         var minClean = MinCleanCycles;
+        var minMedian = MinMedianCycles;
         var stats = await _ctStats.ComputeAsync(SampleLimit, Percentile);
-        var candidates = stats
-            .Where(kv => !alreadySet.Contains(kv.Key)
-                         && kv.Value.SampleCount >= minClean
-                         && kv.Value.Recommended > 0)
-            .Select(kv => (FlowName: kv.Key, IdealCycleTimeMs: kv.Value.Recommended))
-            .ToList();
+
+        var candidates = new List<(string FlowName, int IdealCycleTimeMs, string Source)>();
+        foreach (var (flow, s) in stats)
+        {
+            // 무엇을 기입할지(p10 확정 / 중앙값 임시 / 없음)는 순수 함수 단일 소스로 결정.
+            var (ms, src) = OeeMath.PickAutoIdealCycle(s.SampleCount, s.Recommended, s.Median, minClean, minMedian);
+            if (ms is null) continue;
+
+            existingByFlow.TryGetValue(flow, out var ov);
+            if (ov?.IdealCycleTimeMs is > 0)
+            {
+                // 기존값 보존이 기본. 임시(auto-median)를 확정(auto)으로 승급하는 경우만(값이 바뀔 때) 후보.
+                if (src == "auto"
+                    && string.Equals(ov.IdealCycleTimeSource, "auto-median", StringComparison.OrdinalIgnoreCase)
+                    && ov.IdealCycleTimeMs != ms.Value)
+                    candidates.Add((flow, ms.Value, "auto"));
+            }
+            else
+            {
+                candidates.Add((flow, ms.Value, src!));
+            }
+        }
         if (candidates.Count == 0) return;
 
         var applied = _settings.FillIdealCycleTimesAuto(candidates);
         if (applied <= 0) return; // 선별~기입 사이 사용자가 채운 경우 — 기입 없음.
 
-        var summary = string.Join(", ", candidates.Select(c => $"{c.FlowName}={c.IdealCycleTimeMs}ms"));
-        _logger.LogInformation("[OEE-idealCT] 표준CT 자동 기입 {Count}건 (p{P}, 클린샘플≥{Min}): {Summary}",
-            applied, Percentile, minClean, summary);
+        var summary = string.Join(", ", candidates.Select(c => $"{c.FlowName}={c.IdealCycleTimeMs}ms({c.Source})"));
+        _logger.LogInformation("[OEE-idealCT] 표준CT 자동 기입/승급 {Count}건 (p{P}, 확정≥{Min}/임시≥{Med}): {Summary}",
+            applied, Percentile, minClean, minMedian, summary);
 
         // 열려 있는 uptime/oee 페이지가 즉시 재조회하도록(uptime 은 DatabaseRebuilt 수신 시 reload).
         try { await _hub.Clients.All.SendAsync("DatabaseRebuilt", ct); }

@@ -101,4 +101,112 @@ public class OeeMathTests
         Assert.Null(good);
         Assert.Contains("산출 불가", note);
     }
+
+    // ── OEE = A × P × Q 합성 ───────────────────────────────────────────────
+
+    [Fact]
+    public void Oee_is_product_of_a_p_q()
+    {
+        var (oee, note) = OeeMath.ComputeOee(0.9, 0.8, 0.95, "measured");
+        Assert.NotNull(oee);
+        Assert.Equal(0.9 * 0.8 * 0.95, oee!.Value, 10);
+        Assert.Null(note); // measured → 가정 주석 없음
+    }
+
+    [Fact]
+    public void Oee_with_assumed_quality_notes_assumption()
+    {
+        var (oee, note) = OeeMath.ComputeOee(0.9, 0.8, 1.0, "assumed");
+        Assert.Equal(0.9 * 0.8 * 1.0, oee!.Value, 10);
+        Assert.Contains("가정", note);
+    }
+
+    [Theory]
+    [InlineData(null, 0.8, 0.9, "가용성")]
+    [InlineData(0.9, null, 0.9, "성능")]
+    [InlineData(0.9, 0.8, null, "품질")]
+    public void Oee_null_when_any_component_missing(double? a, double? p, double? q, string missingLabel)
+    {
+        var (oee, note) = OeeMath.ComputeOee(a, p, q, "measured");
+        Assert.Null(oee);
+        Assert.Contains("산출 불가", note);
+        Assert.Contains(missingLabel, note);
+    }
+
+    // ── MTBF / 무고장 배지 (가짜 max(n,1) 금지) ────────────────────────────
+
+    [Fact]
+    public void Mtbf_zero_failures_is_null_and_nofault()
+    {
+        var (mtbf, note, noFault) = OeeMath.ComputeMtbf(3_600_000, 0);
+        Assert.Null(mtbf);          // 가짜 수치 금지
+        Assert.True(noFault);       // UI 무고장 배지
+        Assert.Contains("무고장", note);
+    }
+
+    [Fact]
+    public void Mtbf_divides_runtime_by_failures()
+    {
+        var (mtbf, _, noFault) = OeeMath.ComputeMtbf(6_000_000, 3);
+        Assert.Equal(2_000_000.0, mtbf!.Value, 6);
+        Assert.False(noFault);
+    }
+
+    // ── 표준CT 자동기입 후보 (p10 확정 / 중앙값 임시 / 없음) ─────────────────
+
+    [Fact]
+    public void Pick_p10_when_samples_reach_min_clean()
+    {
+        var (ms, src) = OeeMath.PickAutoIdealCycle(sampleCount: 30, recommendedMs: 500, medianMs: 800, minClean: 30, minMedian: 5);
+        Assert.Equal(500, ms);
+        Assert.Equal("auto", src);
+    }
+
+    [Fact]
+    public void Pick_median_temporary_when_below_min_clean()
+    {
+        var (ms, src) = OeeMath.PickAutoIdealCycle(sampleCount: 18, recommendedMs: 500, medianMs: 800, minClean: 30, minMedian: 5);
+        Assert.Equal(800, ms);
+        Assert.Equal("auto-median", src);
+    }
+
+    [Fact]
+    public void Pick_none_when_too_few_samples()
+    {
+        var (ms, src) = OeeMath.PickAutoIdealCycle(sampleCount: 3, recommendedMs: 500, medianMs: 800, minClean: 30, minMedian: 5);
+        Assert.Null(ms);
+        Assert.Null(src);
+    }
+
+    // ── nocycle clear 분류 휴리스틱 (5분/8h) ───────────────────────────────
+
+    [Fact]
+    public void Classify_under_5min_stays_unclassified()
+    {
+        var (rc, cat, isFail, should) = OeeMath.ClassifyByDuration(4 * 60 * 1000);
+        Assert.False(should);
+        Assert.Null(rc);
+        Assert.Null(cat);
+        Assert.False(isFail);
+    }
+
+    [Fact]
+    public void Classify_5min_to_8h_is_failure()
+    {
+        var (rc, cat, isFail, should) = OeeMath.ClassifyByDuration(30 * 60 * 1000);
+        Assert.True(should);
+        Assert.Equal("equipment_fault", rc);
+        Assert.Equal("unplanned", cat);
+        Assert.True(isFail);
+    }
+
+    [Fact]
+    public void Classify_over_8h_is_planned_maint_not_failure()
+    {
+        var (rc, cat, isFail, should) = OeeMath.ClassifyByDuration(9L * 60 * 60 * 1000);
+        Assert.True(should);
+        Assert.Equal("planned_maint", rc);
+        Assert.Equal("planned", cat);
+        Assert.False(isFail); // 8h↑ = 계획정비 → MTBF 분모 제외
+    }
 }

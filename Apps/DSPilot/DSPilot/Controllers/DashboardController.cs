@@ -227,6 +227,7 @@ public class DashboardController : ControllerBase
             ? null
             : req.TargetWork.Trim();
         sh.TargetCount = req.TargetCount < 0 ? 0 : req.TargetCount;
+        sh.UserSet = true; // 사용자가 시프트를 명시 설정 → OEE 가용성 폴백 체인이 이 시프트를 권위적 계획시간으로 사용(doc/21 §12).
         _settings.SaveSettings(model);
 
         try { await _hub.Clients.All.SendAsync("ShiftChanged"); }

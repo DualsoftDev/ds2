@@ -227,3 +227,78 @@ uptime/OEE 페이지의 OEE 가 idealCT(수동)·reject(수동)에 묶여 사실
   자동 표시. 불량을 입력하는 현장만 실측 품질로 승격. ranking 도 같은 빌더라 자동 혜택.
 - 잔여(미개정): 무사이클 임계 per-flow 연동(ResolveEffectiveCycleRangeMs 재사용 — Phase 3 후보),
   MTBF/MTTR 자동 분류(AbnormalEvent 영속화 선행 — Phase 4 후보), 시프트/계획정지는 여전히 수동(§5.4).
+
+## 12.4 개정 (2026-06-15) — oee-test 목업 이식 + 가용성 폴백 체인 단일화 + 정직성 3계층
+
+`oee-test.html`(P5 v3 검토 목업)을 실제 `/app/uptime.html` + `OeeController`/서비스로 이식하며 가용성 분모를
+**단일 폴백 체인**으로 정본화하고, 정지 로그를 **감지·분류·단서 3계층**으로 분리했다(미결정 §2 확정:
+가용성=폴백 체인 채택, `/oee` 페이지=폐기).
+
+### A. 가용성 분모 = 계획시간 폴백 체인 (분모 2중화 해소)
+- **체인: `UserSet 시프트 ▸ 14일 자동추정 ▸ 달력근사`** (`OeeController.ResolveAvailabilityAsync`). 가동시간(runtime)도
+  같은 체인 산출값을 쓰므로 **성능·MTBF 분모가 가용성과 일관**(혼합 분모 방지). `OeeSummaryDto.AvailabilitySource`
+  = `shift|auto|calendar` 로 내려 A 카드 칩에 표시.
+- **`OeeAutoShiftInferenceService`**(신규, RAM-only 싱글톤 + HostedService 동일 인스턴스): `dspFlowHistory` 14일
+  시간대별(로컬 0~23시) 활동 히스토그램 → 가장 깊은 야간 lull(인접 2h 합 최소)을 분할점으로 회전 후 누적분포
+  **p5~p95 활동창**(야간 wrap·점심 dip 자연 처리). **DB 영구기입 금지(RAM 캐시)**. ⚠ `recordedAt`(UTC·Z없는
+  7자리 소수)는 `substr(recordedAt,1,19)` + `strftime(...,'localtime')` 로 파싱(소수 3자리 초과 strftime 실패 회피) —
+  실측 검증 완료(36k 사이클 집계, 활동창 17–13시).
+- **`ShiftSettings.UserSet`**(신규 bool, 기본 false): 코드 기본값 08:00/17:00 박제와 "사용자 설정"을 구분. `/oee` 폐기로
+  시프트 편집 UI 가 빠졌으므로 **`DashboardController.SaveShift`(시프트 목표 카드)에서만 true 로 마킹** — 평소 false →
+  자동추정/달력으로 폴백(사용자 수용). 대시보드 시프트 목표 카드 동작과는 분리(이 플래그를 그쪽이 보지 않음).
+- **`/api/oee/plan-time`**(신규): 폴백 체인 활성 단계 + 14일 히스토그램 + 활동창/활동일/계획시간 (목업 계획시간 카드용).
+- **`/oee` 폐기**: `oee.html` 삭제, `Program.cs` 에서 `/oee → uptime.html` 매핑(구 북마크 soft redirect). `shift-summary`
+  백엔드(`BuildShiftSummaryAsync`)·`oeeShiftException` API 는 잔존(미사용, 헬퍼 공유) — 추후 정리 가능.
+
+### B. 5 KPI + 정직성 배지
+- **MTTR 카드 제거**(UI). DTO `Mttr/MttrNote` 는 잔존(미표시). KPI = OEE·A·P·Q·MTBF.
+- **MTBF 무고장 배지**: `FailureCount=0` 이면 `max(n,1)` 같은 가짜 수치 금지 → "🟢 무고장" 배지(`OeeMath.ComputeMtbf`
+  가 null + NoFault 반환, 클라가 `failureCount===0` 분기). Q 카드는 가정/사용자 칩 + 톤 중립(가정은 초록 금지).
+
+### C. 정지 3계층 — 감지 / 분류 / 단서 (의미 분리)
+- **`classifySource` 신규 컬럼**(`oeeDowntimeEvent`, `PRAGMA table_info` 가드로 기존 DB ALTER 마이그레이션):
+  `detectSource`(감지=정지 구간 소스: nocycle/usertag/manual)와 **의미 구분**. 값 = `manual`(작업자) / `auto-bit`
+  (CauseBit) / `auto-heuristic`(5분/8h) / NULL. **수동 우선**: `AutoClassifyHeuristicAsync` 가 `category IS NULL AND
+  classifySource ≠ 'manual'` 가드로만 채워 작업자 분류를 자동이 덮지 않음(이 가드를 휴리스틱보다 먼저 도입).
+- **분류 휴리스틱(5분/8h)**: `OeeMath.ClassifyByDuration` — nocycle clear 시 ≥5분 → 고장(equipment_fault/unplanned/
+  isFailure=1), ≥8h → 점검(planned_maint/planned). **신규 마감 건만(백필 금지)**. ⚠ "8h→점검(planned)"은 이미 n 에
+  잡힌 고장을 사후 제외 → MTBF 추세 점프 가능.
+- **단서(clue) — abnormal/usertag 시간겹침 읽기전용 join**(§4 명세 그대로): `Downtime` 엔드포인트가 `userTagAlertLog`
+  (plc.db)에서 정지 행 `[startAt, endAt|now]` 와 겹치는 점 이벤트를 붙임(abnormal=`valueType='Abnormal' AND
+  matchOp='AbnormalDetect'`, usertag=`logLevel='Error'`; flowName 컬럼이 없어 abnormal 은 `tagAddress` 첫 세그먼트,
+  그 외 `systemName` 으로 스코프 매칭). `OeeDowntimeClue{label,src}` 로 내려 **표시 전용 — 건수·길이·MTBF 미반영**.
+
+### D. 표준CT median 임시 폴백 (1회성 1단계 추가)
+- `OeeMath.PickAutoIdealCycle`(단일 소스): 클린샘플 ≥30 → **p10 확정("auto")**, ≥5 && <30 → **중앙값 임시
+  ("auto-median")**. `FillIdealCycleTimesAuto` 가 빈 칸 기입 + **auto-median → auto(p10) 승급만 덮어쓰기**(수동/확정 보존).
+  CT 테이블 출처 칩: 자동 p10 / 중앙값 임시 / 수동.
+
+### E. daily-composition 5분해
+- `GetDowntimeBySlotsAsync` 가 슬롯별 정지를 **planned / failure / other / unclassified** 상호배타 분해(가동 = SlotMs −
+  4분해 합). uptime 일자별 스택이 가동/고장/기타/점검/미분류 5세그로 표시.
+
+### F. 순수 함수 단일 소스 + 테스트
+- `OeeMath.{ComputeOee, ComputeMtbf, PickAutoIdealCycle, ClassifyByDuration}` 추출 — 컨트롤러/상태머신/자동기입이
+  공유(이중 산출 방지). `OeeMathTests` 14건 추가(A×P×Q·무고장·median/p10 픽·5분/8h) — 총 22건 통과.
+
+### G. UI 이식 범위 + 스코핑 결정
+- uptime.html 에 목업 전 섹션 이식: 자동화 파이프라인 스트립 / 5 KPI / [정지 도넛(출처 칩) | 계획시간 폴백 체인 +
+  14일 히스토그램] / 일자별 5세그 스택 / 정지 로그(감지·분류·단서 컬럼 + 범례) / [표준CT(출처 칩) | 설비 순위] /
+  인사이트 / 설계 노트. 기존 동작 보존: UserTag 알람 패널·CSV·차트, 디바이스 알람 차단
+  모달, custom 기간, SignalR(`DatabaseRebuilt`/`AbnormalDetected`/`UserTagAlertsChanged`).
+- **6/15 UI 후속 조정**: ① **품질 직접 입력 = OEE 종합 'Q' 카드 클릭 → 다이얼로그**(설비·일자 + **품질 % 단일 입력**으로
+  간략화; 품질%→불량수 환산 후 POST production). 별도 "품질(양품률) 입력" 섹션은 제거(다이얼로그로 흡수, 구 불량수량
+  폼·prodForm/submitProduction 삭제). ② **정지 이벤트 로그는 기본 숨김** — 도넛(정지 원인 구성)의 **[로그 보기 및 설정]**
+  버튼으로 토글(열 때 해당 섹션으로 스크롤, 미분류 건수 배지). 도넛/순위/인사이트는 로그 표시와 무관하게 항상 산출
+  (downtime 는 가시성과 별개로 항상 로드).
+- **6/15 UI 후속 2차**: ③ **설비(Flow) 선택기** — 날짜 툴바와 같은 행 오른쪽(.ds-topbar space-between)에 `전체 + Flow버튼`.
+  `curFlow` → summary/downtime/daily/plan-time 에 `flow` 파라미터 전달(ranking 은 설비 비교용이라 항상 전체). KPI·도넛·
+  계획시간·5세그 스택이 선택 설비로 필터, 헤더/Q다이얼로그 기본값도 연동. ④ **표준CT per-flow 자동/수동 선택** — CT 테이블에
+  `[자동][수동]` 모드 토글 추가. 자동=클린사이클 실측 자동기입·관리(수동값 비움→OeeIdealCycleAutoFillService 가 채움),
+  수동=직접 값 입력(자동 미덮음). 모드는 **명시적**으로 백엔드에 전달: `IdealCycleRequest.Mode`(manual/auto/null) +
+  `SaveFlowIdealCycleTimesBatch` 가 mode 별 처리 — manual 은 **값이 같아도 source=null 로 수동 잠금**(auto-median 자동 승급
+  차단), auto 는 수동값만 비워 churn 없이 자동 관리로 환원. 구 "값 변경 시에만 수동" 휴리스틱 대체.
+- **스코핑 결정**: ① ~~라인/설비 토글 미도입~~ → **6/15 추가됨**(위 ③). uptime OEE 는 여전히 라인 합산 기본(전체)이며 설비 선택 시 per-flow.
+  ② 품질 다이얼로그는 품질%가 정본 UI 이고 내부적으로 불량 **수량**으로 환산해 선택 일자에 저장(기간 총량 기준 환산).
+  "가정(100%) 복귀"는 production 행 삭제 엔드포인트가 없어 미구현(미입력=가정 유지로 안내). ③ by-reason·insight 는
+  서버 이관 대신 **클라 단일 산출 유지**(open 진행분 규칙이 한 곳 — 서버/클라 이중 산출 없음). daily-composition 만 서버 확장.
