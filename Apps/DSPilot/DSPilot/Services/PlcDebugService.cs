@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
-using System.Data;
-using System.Data.SQLite;
 using System.Globalization;
+using Microsoft.Data.Sqlite;
 using DSPilot.Models.Plc;
 
 namespace DSPilot.Services;
@@ -89,8 +88,7 @@ public class PlcDebugService
 
         try
         {
-            using var conn = new SQLiteConnection($"Data Source={_currentDbPath};Read Only=True;BusyTimeout=5000");
-            await conn.OpenAsync();
+            using var conn = await OpenReadOnlyAsync();
 
             using var cmd = conn.CreateCommand();
             cmd.CommandText = "SELECT Id, PlcId, Address, Name, DataType FROM plcTag ORDER BY Address";
@@ -136,8 +134,7 @@ public class PlcDebugService
 
         try
         {
-            using var conn = new SQLiteConnection($"Data Source={_currentDbPath};Read Only=True;BusyTimeout=5000");
-            await conn.OpenAsync();
+            using var conn = await OpenReadOnlyAsync();
 
             foreach (var tagId in tagIds)
             {
@@ -176,7 +173,7 @@ public class PlcDebugService
     /// 로그 개수 조회
     /// </summary>
     private async Task<int> GetLogCountAsync(
-        SQLiteConnection conn,
+        SqliteConnection conn,
         int tagId,
         DateTime? startTime,
         DateTime? endTime)
@@ -206,7 +203,7 @@ public class PlcDebugService
     /// 샘플링된 태그 로그 조회
     /// </summary>
     private async Task<List<PlcTagLogEntity>> GetSampledTagLogsAsync(
-        SQLiteConnection conn,
+        SqliteConnection conn,
         int tagId,
         DateTime? startTime,
         DateTime? endTime,
@@ -262,6 +259,21 @@ public class PlcDebugService
         return logs;
     }
 
+    /// <summary>
+    /// 읽기 전용 SQLite 연결을 열고 반환한다(Microsoft.Data.Sqlite).
+    /// System.Data.SQLite 의 "Read Only=True;BusyTimeout=5000" 와 동등:
+    /// Mode=ReadOnly + 'PRAGMA busy_timeout'(이 드라이버는 연결 문자열에 BusyTimeout 키가 없음).
+    /// </summary>
+    private async Task<SqliteConnection> OpenReadOnlyAsync()
+    {
+        var conn = new SqliteConnection($"Data Source={_currentDbPath};Mode=ReadOnly");
+        await conn.OpenAsync();
+        using var pragma = conn.CreateCommand();
+        pragma.CommandText = "PRAGMA busy_timeout=5000;";
+        await pragma.ExecuteNonQueryAsync();
+        return conn;
+    }
+
     private static string ToSqliteDateTime(DateTime value)
     {
         var utcValue = value.Kind switch
@@ -294,8 +306,7 @@ public class PlcDebugService
 
         try
         {
-            using var conn = new SQLiteConnection($"Data Source={_currentDbPath};Read Only=True;BusyTimeout=5000");
-            await conn.OpenAsync();
+            using var conn = await OpenReadOnlyAsync();
 
             using var cmd = conn.CreateCommand();
             cmd.CommandText = @"
@@ -327,8 +338,7 @@ public class PlcDebugService
 
         try
         {
-            using var conn = new SQLiteConnection($"Data Source={_currentDbPath};Read Only=True;BusyTimeout=5000");
-            await conn.OpenAsync();
+            using var conn = await OpenReadOnlyAsync();
 
             using var cmd = conn.CreateCommand();
             cmd.CommandText = @"
@@ -365,8 +375,7 @@ public class PlcDebugService
 
         try
         {
-            using var conn = new SQLiteConnection($"Data Source={_currentDbPath};Read Only=True;BusyTimeout=5000");
-            await conn.OpenAsync();
+            using var conn = await OpenReadOnlyAsync();
 
             using var cmd = conn.CreateCommand();
             var tagIdParams = string.Join(",", tagIds.Select((_, i) => $"@tagId{i}"));
