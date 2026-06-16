@@ -141,6 +141,50 @@ public class HeatmapService
     }
 
     /// <summary>
+    /// 전체 Call 의 동작편차 누적 통계(실행수/평균/표준편차)를 원시 plcTagLog 엣지에서 다시 도출해
+    /// dspCall 에 절대값으로 덮어쓴다(self-heal). 라이브 누산기(Welford)가 캡 적용 전 누적한 이상치
+    /// (라인 정지·엣지 유실로 분 단위로 늘어진 Going) 때문에 매트릭스 편차가 수천 %로 부풀던 오염을 청소한다.
+    /// 상세 패널과 <b>동일한</b> <see cref="ComputeExecutionRecordsAsync"/>(= MaxCallGoingTimeMs/MinCallGoingTimeMs 캡)를
+    /// 재사용하므로, 정리 후 매트릭스(저장 통계)와 상세 패널(엣지 재계산)이 같은 필터 기준을 본다.
+    /// </summary>
+    /// <returns>dspCall 에 통계를 덮어쓴 Call 수(0 = 매핑/로그 미준비 → 호출부가 재시도 판단).</returns>
+    public async Task<int> RecomputeAllCallGoingStatisticsAsync(CancellationToken ct = default)
+    {
+        var pairs = _mapperService.GetAllCallTagPairs();
+        if (pairs.Count == 0) return 0;
+
+        var oldest = await _plcRepository.GetOldestLogDateTimeAsync();
+        var latest = await _plcRepository.GetLatestLogDateTimeAsync();
+        if (!oldest.HasValue || !latest.HasValue) return 0;
+
+        var stats = new List<(Guid CallId, int Count, double Avg, double StdDev)>(pairs.Count);
+        foreach (var p in pairs)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (string.IsNullOrEmpty(p.InTag) || string.IsNullOrEmpty(p.OutTag))
+                continue;
+
+            var records = await ComputeExecutionRecordsAsync(p.InTag!, p.OutTag!, oldest.Value, latest.Value, null);
+            if (records.Count == 0)
+            {
+                // 유효 표본 0(전부 캡 밖이거나 매칭 엣지 없음) → 0 으로 리셋해 과거 오염 제거(GoingCount=0 은 히트맵서 제외됨).
+                stats.Add((p.CallId, 0, 0.0, 0.0));
+                continue;
+            }
+
+            // 모집단 표준편차 σ = sqrt(Σ(x-μ)²/n) — Welford 의 sqrt(M2/n) 및 상세 차트 정의와 일치.
+            double mean = records.Average(r => r.GoingTimeMs);
+            double sumSq = records.Sum(r => (r.GoingTimeMs - mean) * (r.GoingTimeMs - mean));
+            stats.Add((p.CallId, records.Count, mean, Math.Sqrt(sumSq / records.Count)));
+        }
+
+        var written = await _dspRepository.SetCallGoingStatisticsAsync(stats);
+        _logger.LogInformation(
+            "[Heatmap] 동작편차 통계 self-heal(캡 재도출): {Written}/{Total} Call 갱신", written, stats.Count);
+        return written;
+    }
+
+    /// <summary>
     /// 메트릭 표시 이름 반환
     /// </summary>
     public static string GetMetricDisplayName(HeatmapMetric metric) =>

@@ -56,6 +56,15 @@ public sealed class SimulationEngineService : IDisposable
     // 집계되지 않게(비정상 종료) 핸들러가 건너뛰도록 표시. _statsLock 으로 보호.
     private readonly HashSet<Guid> _timeoutAbandoned = new();
 
+    // 동작편차 누적 통계 캡(MaxCallGoingTimeMs/MinCallGoingTimeMs) — 히스토리 재구성
+    // (HeatmapService.ComputeExecutionRecordsAsync)과 동일 기준을 라이브 Welford 누산기에도 적용해,
+    // 라인 정지·엣지 유실로 분 단위로 늘어진 Going 이 평균/표준편차를 오염(편차 수천 %)시키는 것을 차단.
+    // 매 finish 마다 설정 디스크 재로드를 피하려 5초 TTL 캐시(런타임 설정 변경은 5초 내 반영).
+    private readonly object _goingCapsLock = new();
+    private long _goingCapsLoadedTick = long.MinValue;
+    private int _maxCallGoingMs = 30000;
+    private int _minCallGoingMs = 0;
+
     // 주소 → plcTag.id 캐시 (CycleTimeAnalysis 가 보는 plcTagLog INSERT 용).
     // AASX 재로딩 후 EnsureUserTagAddressesRegistered() 가 background thread 에서 갱신할 수 있으므로
     // ConcurrentDictionary — HandleHubTagChanged 의 lock-free read 와 안전하게 공존.
@@ -973,9 +982,13 @@ public sealed class SimulationEngineService : IDisposable
         }
         else if (finishingGoing)
         {
-            var (durMs, avg, stdDev) = RecordGoingFinish(callGuid, now);
-            dbOk = await _dspRepository.UpdateCallWithStatisticsAsync(
-                callGuid, next, durMs, avg, stdDev);
+            // 동작편차 통계는 히스토리 재구성과 동일 캡으로 이상치를 제외하고 누산. 캡 밖(분 단위로 늘어진
+            // Going 등)이면 통계는 미반영하고 상태만 전이 — flow 사이클 hook(아래)은 finishingGoing 그대로 유지.
+            var (minMs, maxMs) = GetGoingTimeCaps();
+            var (recorded, durMs, avg, stdDev) = RecordGoingFinish(callGuid, now, minMs, maxMs);
+            dbOk = recorded
+                ? await _dspRepository.UpdateCallWithStatisticsAsync(callGuid, next, durMs, avg, stdDev)
+                : await _dspRepository.UpdateCallStateAsync(callGuid, next);
         }
         else
         {
@@ -1064,14 +1077,32 @@ public sealed class SimulationEngineService : IDisposable
         }
     }
 
-    private (int durMs, double mean, double stdDev) RecordGoingFinish(Guid callGuid, DateTime now)
+    /// <summary>
+    /// Going 종료 시 경과시간을 Welford 누적기에 반영. <paramref name="minMs"/>/<paramref name="maxMs"/>
+    /// (0=해당 방향 제한 없음) 캡을 벗어난 이상치는 누산하지 않고 <c>recorded=false</c> 를 반환 —
+    /// 히스토리 재구성(ComputeExecutionRecordsAsync)과 동일한 필터를 라이브 통계에도 적용해
+    /// 매트릭스/상세 패널 편차가 어긋나지 않게 한다. 어느 경우든 startedAt 은 클리어(다음 사이클 깨끗하게).
+    /// </summary>
+    private (bool recorded, int durMs, double mean, double stdDev) RecordGoingFinish(
+        Guid callGuid, DateTime now, int minMs, int maxMs)
     {
         lock (_statsLock)
         {
             if (!_callStats.TryGetValue(callGuid, out var s) || s.startedAt == default)
-                return (0, 0, 0);
+                return (false, 0, 0, 0);
 
             var durMs = (now - s.startedAt).TotalMilliseconds;
+
+            bool inRange = durMs > 0
+                && (maxMs <= 0 || durMs <= maxMs)
+                && (minMs <= 0 || durMs >= minMs);
+            if (!inRange)
+            {
+                // 통계는 보존하고 startedAt 만 클리어 — 이상치 표본을 누적 평균/표준편차에서 제외.
+                _callStats[callGuid] = (default, s.count, s.mean, s.m2);
+                return (false, 0, 0, 0);
+            }
+
             var newCount = s.count + 1;
             var delta = durMs - s.mean;
             var newMean = s.mean + delta / newCount;
@@ -1080,8 +1111,41 @@ public sealed class SimulationEngineService : IDisposable
             var newStdDev = newCount > 1 ? Math.Sqrt(newM2 / newCount) : 0.0;
 
             _callStats[callGuid] = (default, newCount, newMean, newM2);
-            return ((int)Math.Round(durMs), newMean, newStdDev);
+            return (true, (int)Math.Round(durMs), newMean, newStdDev);
         }
+    }
+
+    /// <summary>
+    /// 동작편차 통계 캡(min/max ms)을 5초 TTL 캐시로 반환 — finish 마다 설정 디스크 재로드 방지.
+    /// </summary>
+    private (int minMs, int maxMs) GetGoingTimeCaps()
+    {
+        lock (_goingCapsLock)
+        {
+            var nowTick = Environment.TickCount64;
+            if (nowTick - _goingCapsLoadedTick > 5000)
+            {
+                try
+                {
+                    var hv = _settings.LoadSettings().HistoryView;
+                    _maxCallGoingMs = hv.MaxCallGoingTimeMs;
+                    _minCallGoingMs = hv.MinCallGoingTimeMs;
+                }
+                catch { /* 설정 읽기 실패 시 직전 캐시 유지 */ }
+                _goingCapsLoadedTick = nowTick;
+            }
+            return (_minCallGoingMs, _maxCallGoingMs);
+        }
+    }
+
+    /// <summary>
+    /// dspCall 의 누적 통계를 다시 읽어 Welford 누적기를 재시드한다(외부 self-heal 재계산 직후 호출).
+    /// 기존 in-memory 통계를 비우고 DB 정본으로 교체 — 캡 재도출로 0 이 된 Call 은 누적기에서 제거된다.
+    /// </summary>
+    public void ReseedCallStatsFromDb()
+    {
+        lock (_statsLock) { _callStats.Clear(); }
+        SeedCallStatsFromDb();
     }
 
     private static string MapStatus4(Status4 s) => s switch

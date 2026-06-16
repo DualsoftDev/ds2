@@ -57,6 +57,14 @@ public interface IDspRepository
         double stdDevGoingTime);
 
     /// <summary>
+    /// 여러 Call 의 동작편차 누적 통계(실행수/평균/표준편차)를 <b>절대값</b>으로 일괄 덮어쓴다(상태는 미변경).
+    /// 라이브 누산기가 캡 적용 전 누적한 이상치 오염을 원시 엣지 재도출값으로 청소(self-heal)하는 배치 경로.
+    /// (단건 증분 <see cref="UpdateCallWithStatisticsAsync"/> 와 달리 GoingCount 를 +1 하지 않고 통째로 SET 한다.)
+    /// </summary>
+    Task<int> SetCallGoingStatisticsAsync(
+        IReadOnlyList<(Guid CallId, int Count, double Avg, double StdDev)> stats);
+
+    /// <summary>
     /// Flow 상태 업데이트
     /// </summary>
     Task<bool> UpdateFlowStateAsync(string flowName, string state);

@@ -20,7 +20,12 @@ public sealed class PeriodicCycleRecomputeService : BackgroundService
     private readonly IFlowMetricsService _flowMetrics;
     private readonly AppSettingsService _settings;
     private readonly IPlcRepository _plc;
+    private readonly HeatmapService _heatmap;
+    private readonly SimulationEngineService _engine;
     private readonly ILogger<PeriodicCycleRecomputeService> _logger;
+
+    // 동작편차 통계 1회성 self-heal 완료 여부 — 라이브 누산기가 캡 적용 전 누적한 오염을 부팅 후 한 번 청소.
+    private bool _callStatsHealed;
 
     // 비활성/설정 재확인 주기 — 간격을 0 으로 둔 동안 짧게 폴링해 켜짐을 감지.
     private static readonly TimeSpan DisabledPollInterval = TimeSpan.FromMinutes(1);
@@ -38,12 +43,16 @@ public sealed class PeriodicCycleRecomputeService : BackgroundService
         IFlowMetricsService flowMetrics,
         AppSettingsService settings,
         IPlcRepository plc,
+        HeatmapService heatmap,
+        SimulationEngineService engine,
         ILogger<PeriodicCycleRecomputeService> logger)
     {
         _recompute = recompute;
         _flowMetrics = flowMetrics;
         _settings = settings;
         _plc = plc;
+        _heatmap = heatmap;
+        _engine = engine;
         _logger = logger;
     }
 
@@ -53,6 +62,11 @@ public sealed class PeriodicCycleRecomputeService : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            // 동작편차 통계 1회성 self-heal — 모델/로그가 준비되면 한 번 청소(캡 재도출). AutoRecompute 간격
+            // 설정(0=비활성)과 무관하게 시도하며, 준비 전이면 다음 루프에서 재시도.
+            if (!_callStatsHealed)
+                _callStatsHealed = await TryHealCallGoingStatsAsync(stoppingToken);
+
             int intervalMin = ReadIntervalMinutes();
 
             if (intervalMin <= 0)
@@ -107,6 +121,30 @@ public sealed class PeriodicCycleRecomputeService : BackgroundService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "[AutoRecompute] 주기 재계산 중 오류");
+        }
+    }
+
+    /// <summary>
+    /// 라이브 누산기가 캡 적용 전 누적한 동작편차 통계 오염을 원시 엣지에서 캡 기준으로 재도출해 청소하고
+    /// 엔진 누산기를 재시드한다. 매핑/로그 미준비(반환 0)면 false 를 돌려 다음 루프에서 재시도.
+    /// </summary>
+    /// <returns>1회성 청소 완료 여부(true 면 재시도 중단).</returns>
+    private async Task<bool> TryHealCallGoingStatsAsync(CancellationToken ct)
+    {
+        try
+        {
+            var healed = await _heatmap.RecomputeAllCallGoingStatisticsAsync(ct);
+            if (healed <= 0) return false; // 매핑/로그 미준비 — 다음 주기 재시도.
+
+            _engine.ReseedCallStatsFromDb();
+            _logger.LogInformation("[AutoRecompute] 동작편차 통계 캡 재도출 self-heal 완료 — calls={Count}", healed);
+            return true;
+        }
+        catch (OperationCanceledException) { return false; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[AutoRecompute] 동작편차 통계 self-heal 실패 — 다음 주기 재시도");
+            return false;
         }
     }
 
