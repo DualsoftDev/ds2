@@ -49,7 +49,9 @@ done
 
 # ── 사전 점검 ──────────────────────────────────────────────────────────────
 [[ $EUID -eq 0 ]] || { echo "오류: root 권한이 필요합니다 (sudo ./install.sh)" >&2; exit 1; }
-[[ -x "$SCRIPT_DIR/app/DSPilot" ]] || { echo "오류: $SCRIPT_DIR/app/DSPilot 실행파일이 없습니다. build-linux.sh 로 만든 패키지에서 실행하세요." >&2; exit 1; }
+# 존재만 확인(-f). Windows 에서 만든 tarball 은 실행 비트(+x)가 보존되지 않을 수 있으므로 -x 로 보지 않는다.
+# 설치 단계에서 chmod +x 로 권한을 직접 부여한다.
+[[ -f "$SCRIPT_DIR/app/DSPilot" ]] || { echo "오류: $SCRIPT_DIR/app/DSPilot 파일이 없습니다. build-linux.sh 로 만든 패키지에서 실행하세요." >&2; exit 1; }
 command -v systemctl >/dev/null || { echo "오류: systemd(systemctl) 가 필요합니다." >&2; exit 1; }
 
 if [[ ! "$WEB_PORT" =~ ^[0-9]+$ ]] || (( WEB_PORT < 1 || WEB_PORT > 65535 )); then
@@ -107,7 +109,7 @@ EOF
 # ── 6) CCTV(MediaMTX) 파일 배치 ──────────────────────────────────────────────
 MTX_DIR="$INSTALL_DIR/mediamtx"
 if [[ $ENABLE_CCTV -eq 1 ]]; then
-  if [[ -x "$SCRIPT_DIR/mediamtx/mediamtx" ]]; then
+  if [[ -f "$SCRIPT_DIR/mediamtx/mediamtx" ]]; then
     echo "==> MediaMTX 파일 복사: $MTX_DIR"
     mkdir -p "$MTX_DIR"
     cp -a "$SCRIPT_DIR/mediamtx/mediamtx" "$MTX_DIR/"
