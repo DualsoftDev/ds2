@@ -8,8 +8,10 @@
     <Company>Dualsoft</Company>
     <Product>DS System</Product>
     <Copyright>Copyright © Dualsoft 2025</Copyright>
-    <RepositoryUrl>http://dualsoft.co.kr:8081/dualsoft/dsev2</RepositoryUrl>
-    <PackageProjectUrl>http://dualsoft.co.kr:8081/dualsoft/dsev2</PackageProjectUrl>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/DualsoftDev/ds2.git</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/DualsoftDev/ds2</PackageProjectUrl>
   </PropertyGroup>
 
   <!-- Release 빌드 설정 -->
