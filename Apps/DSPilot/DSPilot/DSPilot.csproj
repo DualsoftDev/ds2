@@ -14,16 +14,15 @@
   <ItemGroup>
     <PackageReference Include="ClosedXML" Version="0.104.2" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.3" />
-    <PackageReference Include="System.Data.SQLite.Core" Version="1.0.119" />
     <PackageReference Include="Dapper" Version="2.1.35" />
     <PackageReference Include="System.Threading.Channels" Version="9.0.0" />
     <PackageReference Include="System.Reactive" Version="6.1.0" />
-    <PackageReference Include="StackExchange.Redis" Version="2.8.16" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="log4net" Version="3.3.0" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="9.0.0" />
+    <!-- 서비스 호스팅: Windows(서비스)·Linux(systemd) 양쪽 라이프사이클 통합. 둘 다 해당 OS 에서만 활성. -->
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="9.0.0" />
-    <PackageReference Include="System.ServiceProcess.ServiceController" Version="9.0.5" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Systemd" Version="9.0.0" />
   </ItemGroup>
 
   <ItemGroup>
