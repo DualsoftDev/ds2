@@ -298,9 +298,22 @@ public sealed class HubSubscriberService : BackgroundService
 
         await ConnectWithRetryAsync(_connection, hubUrl, stoppingToken);
 
+        // 연결 자가복구 워치독 — ConnectWithRetryAsync 는 첫 연결 성공 시 1회성으로 끝나고,
+        // SignalR 의 WithAutomaticReconnect 캠페인은 terminal Disconnected/Closed 로 떨어지면
+        // 다시 살아나지 않는다. 특히 Agent 가 장시간 다운 후 재기동하는 순간은 negotiate(HTTP) 는
+        // 응답하나 hub 핸드셰이크는 미준비인 "반쯤 뜬" 창이 있어 reconnect 가 Closed 로 종료되기 쉽다.
+        // 그 박제 상태는 지금까지 브라우저가 모니터링 페이지에 접속해 NudgeConnectAsync 를 호출할 때만
+        // 풀렸다 — 헤드리스/무방문 구간이면 DSPilot 재시작 전까지 영구 Disconnected. 주기적으로
+        // Disconnected 를 감지해 같은 nudge 경로로 재시도하면 브라우저 방문과 무관하게 자가복구된다.
+        var watchdogInterval = TimeSpan.FromSeconds(20);
         try
         {
-            await Task.Delay(Timeout.Infinite, stoppingToken);
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                await Task.Delay(watchdogInterval, stoppingToken);
+                if (_connection.State == HubConnectionState.Disconnected)
+                    await NudgeConnectAsync(stoppingToken);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -364,9 +377,10 @@ public sealed class HubSubscriberService : BackgroundService
     }
 
     /// <summary>
-    /// 브라우저 클라이언트가 모니터링 페이지에 접속했을 때 호출 — 현재 Disconnected 상태면
-    /// 다음 주기 대기를 건너뛰고 즉시 StartAsync 한 번 시도. 이미 Connected/Connecting 이거나
-    /// SignalR auto-reconnect 가 백오프 중(Reconnecting)이면 no-op. 동시 호출은 게이트로 직렬화.
+    /// 현재 Disconnected 상태면 다음 주기 대기를 건너뛰고 즉시 StartAsync 한 번 시도.
+    /// 두 곳에서 호출 — (1) 브라우저가 모니터링 페이지에 접속한 시점(MonitoringHub), (2) ExecuteAsync
+    /// 의 자가복구 워치독(20s 주기). 이미 Connected/Connecting 이거나 SignalR auto-reconnect 가
+    /// 백오프 중(Reconnecting)이면 no-op. 동시 호출은 _startGate 로 직렬화.
     /// </summary>
     public async Task NudgeConnectAsync(CancellationToken ct = default)
     {
@@ -387,8 +401,11 @@ public sealed class HubSubscriberService : BackgroundService
             try
             {
                 await conn.StartAsync(ct);
-                _logger.LogInformation("[Hub] Connected (via client-visit nudge)");
+                _logger.LogInformation("[Hub] Connected (via nudge)");
                 RaiseStatusChanged();
+                // ConnectWithRetryAsync / Reconnected 와 동일하게 연결 직후 스캔 주기·자동정합 pull.
+                // 워치독/브라우저-방문 어느 경로로 다시 붙어도 동기화 보장.
+                _ = SyncScanIntervalAsync();
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
