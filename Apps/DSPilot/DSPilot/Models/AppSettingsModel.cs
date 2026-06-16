@@ -475,6 +475,17 @@ public class HistoryViewSettings
     /// </summary>
     public int MinCallGoingTimeMs { get; set; } = 0;
 
+    /// <summary>
+    /// 동작편차 색상 범례 "주의" 임계(편차 %, = CV×100). 편차가 이 값 이상이면 주의(노랑). 기본 10%.
+    /// </summary>
+    public double HeatmapCautionPct { get; set; } = 10.0;
+
+    /// <summary>
+    /// 동작편차 색상 범례 "위험" 임계(편차 %, = CV×100). 편차가 이 값 초과면 위험(빨강). 기본 30%.
+    /// 항상 <see cref="HeatmapCautionPct"/> 보다 커야 한다(저장 시 서버에서 보정).
+    /// </summary>
+    public double HeatmapDangerPct { get; set; } = 30.0;
+
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }

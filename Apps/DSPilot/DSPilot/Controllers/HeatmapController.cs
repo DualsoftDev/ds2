@@ -19,8 +19,24 @@ namespace DSPilot.Controllers;
 public class HeatmapController : ControllerBase
 {
     private readonly HeatmapService _heatmap;
+    private readonly AppSettingsService _settings;
 
-    public HeatmapController(HeatmapService heatmap) => _heatmap = heatmap;
+    public HeatmapController(HeatmapService heatmap, AppSettingsService settings)
+    {
+        _heatmap = heatmap;
+        _settings = settings;
+    }
+
+    /// <summary>
+    /// 동작편차 색상 범례 임계(편차 %, = CV×100). 설정 페이지에서 사용자가 조정 가능.
+    /// heatmap.html 이 init 시 fetch 하여 tier 판정/범례 텍스트를 동적 구성한다.
+    /// </summary>
+    [HttpGet("config")]
+    public ActionResult<object> GetConfig()
+    {
+        var hv = _settings.LoadSettings().HistoryView;
+        return Ok(new { cautionPct = hv.HeatmapCautionPct, dangerPct = hv.HeatmapDangerPct });
+    }
 
     /// <summary>
     /// Flow 별 매트릭스 Heatmap 데이터(전체 기간, 사전 계산 통계).

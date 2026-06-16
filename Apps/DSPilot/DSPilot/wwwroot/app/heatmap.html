@@ -202,7 +202,7 @@
                         <div>
                             <div class="hm-kpi-label">위험 Call (편차 평균대비)</div>
                             <div class="hm-kpi-value" :style="`color:${dangerCalls > 0 ? 'var(--color-error)' : 'var(--color-success)'};`" x-text="dangerCalls"></div>
-                            <div class="hm-kpi-sub" x-text="'CV ≥ 0.30 (편차 ±30% 초과)'"></div>
+                            <div class="hm-kpi-sub" x-text="'CV ≥ ' + dangerCv.toFixed(2) + ' (편차 ±' + dangerPct + '% 초과)'"></div>
                         </div>
                         <div>
                             <div class="hm-kpi-label">분석 N (총 실행)</div>
@@ -224,9 +224,9 @@
                             </span>
                         </div>
                         <div class="ds-legend" style="margin-top:4px;">
-                            <div class="lg-item"><span class="lg-swatch" style="background:rgba(var(--color-success-rgb),0.30); border:1px solid rgba(var(--color-success-rgb),0.6);"></span> 정상 (편차 ±10% 미만)</div>
-                            <div class="lg-item"><span class="lg-swatch" style="background:rgba(var(--color-warning-rgb),0.40); border:1px solid rgba(var(--color-warning-rgb),0.7);"></span> 주의 (±10~30%)</div>
-                            <div class="lg-item"><span class="lg-swatch" style="background:rgba(var(--color-error-rgb),0.30); border:1px solid rgba(var(--color-error-rgb),0.6);"></span> 위험 (±30% 초과)</div>
+                            <div class="lg-item"><span class="lg-swatch" style="background:rgba(var(--color-success-rgb),0.30); border:1px solid rgba(var(--color-success-rgb),0.6);"></span> <span x-text="'정상 (편차 ±' + cautionPct + '% 미만)'"></span></div>
+                            <div class="lg-item"><span class="lg-swatch" style="background:rgba(var(--color-warning-rgb),0.40); border:1px solid rgba(var(--color-warning-rgb),0.7);"></span> <span x-text="'주의 (±' + cautionPct + '~' + dangerPct + '%)'"></span></div>
+                            <div class="lg-item"><span class="lg-swatch" style="background:rgba(var(--color-error-rgb),0.30); border:1px solid rgba(var(--color-error-rgb),0.6);"></span> <span x-text="'위험 (±' + dangerPct + '% 초과)'"></span></div>
                             <template x-if="dangerCalls > 0">
                                 <span class="ds-status bad" style="margin-left:6px;" x-text="'위험 ' + dangerCalls + ' Call'"></span>
                             </template>
@@ -277,7 +277,7 @@
                                                  @keydown.space.prevent="selectCall(call)">
                                                 <div class="hm-b-name">
                                                     <span x-text="call.callName"></span>
-                                                    <span class="hm-b-warn material-icons" style="font-size:14px;" x-show="blockTier(call) === 'danger'" title="위험 — 평균 대비 편차 30% 초과">warning</span>
+                                                    <span class="hm-b-warn material-icons" style="font-size:14px;" x-show="blockTier(call) === 'danger'" :title="'위험 — 평균 대비 편차 ' + dangerPct + '% 초과'">warning</span>
                                                 </div>
                                                 <div class="hm-b-avg">
                                                     <span class="hm-b-val" x-text="fmtShortAvg(call.averageGoingTime)"></span>
@@ -326,7 +326,7 @@
                                                         <span title="실행 시간의 표준편차 (ms). 낮을수록 안정적입니다." class="hm-help">표준편차 <span x-html="sortIcon('stddev')"></span></span>
                                                     </th>
                                                     <th class="sortable heatmap-col-header" @click="sortBy('cv')">
-                                                        <span title="변동계수 (CV) = 표준편차/평균. 0.1 미만: 안정, 0.3 이상: 불안정" class="hm-help">변동계수 <span x-html="sortIcon('cv')"></span></span>
+                                                        <span :title="'변동계수 (CV) = 표준편차/평균. ' + cautionCv.toFixed(2) + ' 미만: 안정, ' + dangerCv.toFixed(2) + ' 이상: 불안정'" class="hm-help">변동계수 <span x-html="sortIcon('cv')"></span></span>
                                                     </th>
                                                     <th style="text-align:center;"><span title="Call이 Going 상태로 전환된 총 횟수" class="hm-help">실행횟수</span></th>
                                                 </tr>
@@ -463,6 +463,11 @@
                 isChartLoading: false,
                 dark: false,
 
+                // 색상 등급 임계(CV=σ/평균). 설정 페이지(동작편차 설정)에서 사용자가 조정 → /api/heatmap/config 로 로드.
+                // 기본 0.10/0.30(±10%/±30%). fetch 실패 시 이 기본값 유지.
+                cautionCv: 0.10,
+                dangerCv: 0.30,
+
                 async init() {
                     this.dark = localStorage.getItem('dspilot-theme') === 'dark';
                     window.addEventListener('storage', (e) => {
@@ -482,9 +487,20 @@
                     return await res.json();
                 },
 
+                // 색상 등급 임계 로드 — loadData 보다 먼저 호출해 precompute(_tier/_dev)가 최신 임계를 쓰게 한다.
+                async loadConfig() {
+                    try {
+                        const cfg = await this.apiGet('/api/heatmap/config');
+                        if (cfg && typeof cfg.cautionPct === 'number') this.cautionCv = cfg.cautionPct / 100;
+                        if (cfg && typeof cfg.dangerPct === 'number') this.dangerCv = cfg.dangerPct / 100;
+                    } catch (e) { /* 실패 시 기본 임계(0.10/0.30) 유지 */ }
+                },
+
                 async loadData() {
                     this.loading = true; this.error = null;
                     try {
+                        // 새로고침 때도 변경된 임계를 반영하도록 데이터보다 먼저 설정을 읽는다.
+                        await this.loadConfig();
                         const groups = await this.apiGet('/api/heatmap/data') || [];
                         // 렌더 비용 선계산(1회): 행마다 blockTier / flowDangerCount 재계산 방지(O(n²) 렉 회피)
                         for (const g of groups) {
@@ -525,10 +541,13 @@
                 // ── 3단계 진단 등급 파생 (CV=σ/평균 구간 → normal/caution/danger) ──
                 // 서버 ColorClassCV 클래스에 의존하지 않고 클라에서 평균 대비 편차(CV)로만 파생. takt/표준 미사용.
                 cvToTier(cv) {
-                    if (cv < 0.10) return 'normal';   // 편차 ±10% 미만
-                    if (cv < 0.30) return 'caution';  // 편차 ±10~30%
-                    return 'danger';                  // 편차 ±30% 초과
+                    if (cv < this.cautionCv) return 'normal';   // 편차 주의임계 미만
+                    if (cv < this.dangerCv) return 'caution';   // 편차 주의~위험
+                    return 'danger';                            // 편차 위험임계 이상
                 },
+                // 범례/KPI 텍스트용 임계(편차 %). cvToTier 와 동일 소스.
+                get cautionPct() { return Math.round(this.cautionCv * 100); },
+                get dangerPct() { return Math.round(this.dangerCv * 100); },
                 blockTier(call) { return call._tier != null ? call._tier : this.cvToTier(call.coefficientOfVariation); },
                 tierLabel(tier) {
                     return { normal: '정상', caution: '주의', danger: '위험' }[tier] || '정상';

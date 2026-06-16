@@ -428,20 +428,31 @@
 
                                     <h6 class="set-subhead">
                                         <span class="material-icons">speed</span>
-                                        개별 Call 실행시간 제한
+                                        동작편차 설정
                                     </h6>
                                     <small class="set-subnote">
-                                        GoingTime 이 최대 초과 또는 최소 미달이면 동작편차 통계에서 제외.
+                                        실행시간(GoingTime) 통계 제외 범위와 동작편차(평균 대비) 색상 등급 기준. 저장 시 동작편차 페이지에 즉시 반영됩니다.
                                     </small>
                                     <div class="form-group">
                                         <label class="form-label">최대 실행시간 (ms, 초과 시 제외)</label>
                                         <input type="number" class="form-field mono" x-model.number="s.historyView.maxCallGoingTimeMs" min="1000" max="600000" placeholder="30000" />
-                                        <small class="settings-hint">기본: 30,000ms (30초)</small>
+                                        <small class="settings-hint">기본: 30,000ms (30초). 라인 정지·엣지 유실로 늘어진 이상치를 통계에서 제외.</small>
                                     </div>
-                                    <div class="form-group" style="margin-bottom:0;">
+                                    <div class="form-group">
                                         <label class="form-label">최소 실행시간 (ms, 미달 시 제외)</label>
                                         <input type="number" class="form-field mono" x-model.number="s.historyView.minCallGoingTimeMs" min="0" max="600000" placeholder="0" />
                                         <small class="settings-hint">오감지·노이즈로 인한 짧은 동작 제외용. 0이면 비활성.</small>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label class="form-label">색상 등급 — 주의 임계 (편차 %)</label>
+                                        <input type="number" class="form-field mono" x-model.number="s.historyView.heatmapCautionPct" min="0" max="1000" step="1" placeholder="10" />
+                                        <small class="settings-hint">편차(CV×100)가 이 값 이상이면 <b>주의(노랑)</b>. 기본 10%.</small>
+                                    </div>
+                                    <div class="form-group" style="margin-bottom:0;">
+                                        <label class="form-label">색상 등급 — 위험 임계 (편차 %)</label>
+                                        <input type="number" class="form-field mono" x-model.number="s.historyView.heatmapDangerPct" min="1" max="2000" step="1" placeholder="30" />
+                                        <small class="settings-hint">편차가 이 값을 초과하면 <b>위험(빨강)</b>. 기본 30%. 주의 임계보다 커야 합니다(작으면 자동 보정).</small>
                                     </div>
 
                                     <hr class="divider" style="margin:16px 0;" />
@@ -845,6 +856,8 @@
                             maxCallGoingTimeMs: hv.maxCallGoingTimeMs | 0,
                             minCallGoingTimeMs: hv.minCallGoingTimeMs | 0,
                             cycleAverageWindow: (hv.cycleAverageWindow ?? 20) | 0,
+                            heatmapCautionPct: +(hv.heatmapCautionPct ?? 10),
+                            heatmapDangerPct: +(hv.heatmapDangerPct ?? 30),
                             alarmTickerIntervalSec: (this.s.alarmTickerIntervalSec ?? 3) | 0,
                             abnormalAlarmResetIntervalHours: (this.s.abnormalAlarmResetIntervalHours ?? 24) | 0,
                             autoCalibration: {
