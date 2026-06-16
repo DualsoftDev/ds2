@@ -32,6 +32,18 @@ dotnet publish "$PROJECT" -c Release -r "$RID" --self-contained true \
   -p:PublishSingleFile=false -o "$STAGE/app" --nologo
 chmod +x "$STAGE/app/DSPilot"
 
+# Promaker.Agent (헤드리스 PLC 모니터링 백엔드) 를 같은 RID 로 self-contained publish 해 패키지에 동봉.
+# install.sh 가 --with-agent(Linux 기본 ON) 일 때 배치/등록한다. csproj 미발견 시 경고만(Agent 없이 빌드 계속).
+AGENT_PROJECT="$DSPILOT_ROOT/../Promaker/Promaker.Agent/Promaker.Agent.csproj"
+if [[ -f "$AGENT_PROJECT" ]]; then
+  echo "[2b/4] Promaker.Agent publish ($RID, self-contained)..."
+  dotnet publish "$AGENT_PROJECT" -c Release -r "$RID" --self-contained true \
+    -p:PublishSingleFile=false -o "$STAGE/agent" --nologo
+  chmod +x "$STAGE/agent/Promaker.Agent"
+else
+  echo "[2b/4] 경고: Promaker.Agent.csproj 미발견 — Agent 없이 빌드 (install.sh 가 자동 스킵)."
+fi
+
 # 사용자 런타임 데이터는 패키지에서 제외(Windows Inno 'Excludes' 와 동일) — 업그레이드 시 타깃의
 # 도면/레이아웃/오버레이를 덮어쓰지 않도록. (publish 는 dev 의 wwwroot/uploads 를 끌어올 수 있음)
 rm -f "$STAGE"/app/wwwroot/uploads/blueprint.* \
@@ -60,6 +72,8 @@ fi
 
 echo "[4/4] 패키지 구성 및 압축..."
 cp "$SCRIPT_DIR/dspilot.service" "$SCRIPT_DIR/mediamtx.service" "$STAGE/systemd/"
+# Agent 가 publish 됐을 때만 그 유닛도 동봉 (없으면 install.sh 가 자동 스킵).
+[[ -d "$STAGE/agent" ]] && cp "$SCRIPT_DIR/promaker-agent.service" "$STAGE/systemd/"
 cp "$SCRIPT_DIR/install.sh" "$SCRIPT_DIR/uninstall.sh" "$STAGE/"
 [[ -f "$SCRIPT_DIR/README.md" ]] && cp "$SCRIPT_DIR/README.md" "$STAGE/"
 chmod +x "$STAGE/install.sh" "$STAGE/uninstall.sh"

@@ -13,12 +13,13 @@ INSTALL_DIR="/opt/dspilot"
 SHARED_DIR="/var/lib/dualsoft/Shared"
 SVC_DSPILOT="${APP_NAME}.service"
 SVC_MEDIAMTX="${APP_NAME}-mediamtx.service"
+SVC_AGENT="promaker-agent.service"
 PURGE=0
 
 [[ "${1:-}" == "--purge" ]] && PURGE=1
 [[ $EUID -eq 0 ]] || { echo "오류: root 권한이 필요합니다 (sudo ./uninstall.sh)" >&2; exit 1; }
 
-for svc in "$SVC_DSPILOT" "$SVC_MEDIAMTX"; do
+for svc in "$SVC_DSPILOT" "$SVC_MEDIAMTX" "$SVC_AGENT"; do
   if systemctl list-unit-files "$svc" >/dev/null 2>&1; then
     echo "==> 서비스 중지/비활성화: $svc"
     systemctl disable --now "$svc" >/dev/null 2>&1 || true

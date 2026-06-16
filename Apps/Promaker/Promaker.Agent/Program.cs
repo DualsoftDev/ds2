@@ -42,6 +42,9 @@ public static class Program
             // supervisor.DisposeAsync → BackendHost.stop 까지 정상 종료.
             builder.Services.AddSingleton(_ => new MonitoringSupervisor());
             builder.Services.AddHostedService<MonitoringHostedService>();
+            // 모델 업로드 수신구(5050) — 모니터링 on/off 와 무관하게 항상 listen. Promaker 'Agent에 업로드
+            // ▸ 네트워크' 가 보낸 zip 을 받아 공유 폴더에 풀고 active.flag 를 세운다(첫 활성화의 진입점).
+            builder.Services.AddHostedService<AgentUploadReceiver>();
 
             using var host = builder.Build();
             await host.RunAsync().ConfigureAwait(false);
