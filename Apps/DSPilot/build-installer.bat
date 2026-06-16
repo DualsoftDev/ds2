@@ -13,6 +13,11 @@ set "SOLUTION_DIR=%~dp0"
 set "PROJECT_DIR=%SOLUTION_DIR%DSPilot"
 set "PUBLISH_DIR=%SOLUTION_DIR%publish"
 set "OUTPUT_DIR=%SOLUTION_DIR%Output"
+:: Promaker.Agent (옵션 컴포넌트) — Promaker 없이 DSPilot 만 쓰는 환경용 헤드리스 모니터링 백엔드.
+:: 별도 솔루션(Apps\Promaker)의 프로젝트를 self-contained 로 publish-agent 폴더에 publish.
+:: 이 폴더가 비면 DSPilot.iss 의 #if HasAgent 가드가 Agent 옵션을 자동 생략한다.
+set "AGENT_PROJECT=%SOLUTION_DIR%..\Promaker\Promaker.Agent\Promaker.Agent.csproj"
+set "AGENT_PUBLISH_DIR=%SOLUTION_DIR%publish-agent"
 set "ISCC=C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 set "ISS_FILE=%SOLUTION_DIR%Installer\DSPilot.iss"
 set "MTX_DIR=%SOLUTION_DIR%Installer\mediamtx"
@@ -28,6 +33,7 @@ if not exist "%ISCC%" goto :no_iscc
 echo [1/4] Cleaning previous build...
 if exist "%PUBLISH_DIR%" rmdir /s /q "%PUBLISH_DIR%"
 if exist "%OUTPUT_DIR%" rmdir /s /q "%OUTPUT_DIR%"
+if exist "%AGENT_PUBLISH_DIR%" rmdir /s /q "%AGENT_PUBLISH_DIR%"
 echo       Done.
 echo.
 
@@ -70,6 +76,24 @@ if not exist "%MTX_DIR%\mediamtx-service.exe" (
     echo       WinSW already present, skipping.
 )
 echo       Done.
+echo.
+
+:: Step 3c: Publish Promaker.Agent (optional component, self-contained)
+:: Promaker 미설치 환경에서 DSPilot 가 접속할 5051 모니터링 Hub 백엔드. 별도 솔루션 프로젝트라
+:: DSPilot.sln 에 없고 csproj 를 직접 publish (자체 의존성 restore 포함). self-contained = 타겟 PC 에
+:: .NET 9 런타임이 없어도 동작. 실패해도 설치 빌드는 계속 — DSPilot.iss 가 Agent 옵션만 자동 생략한다.
+echo [3c] Publishing Promaker.Agent (optional, self-contained, win-x64)...
+if exist "%AGENT_PROJECT%" (
+    dotnet publish "%AGENT_PROJECT%" -c Release -r win-x64 --self-contained true -o "%AGENT_PUBLISH_DIR%" -p:PublishSingleFile=false -m:1
+    if !errorlevel! neq 0 (
+        echo       [WARN] Promaker.Agent publish FAILED — installer will be built WITHOUT the Agent option.
+        if exist "%AGENT_PUBLISH_DIR%" rmdir /s /q "%AGENT_PUBLISH_DIR%"
+    ) else (
+        echo       Done.
+    )
+) else (
+    echo       [WARN] Promaker.Agent project not found at "%AGENT_PROJECT%" — skipping Agent bundle.
+)
 echo.
 
 :: Step 4: Build installer with Inno Setup
