@@ -34,6 +34,8 @@ public class SettingsController : ControllerBase
     private readonly IDatabasePathResolver _pathResolver;
     private readonly AutoCalibrationService _autoCal;
     private readonly IHubContext<MonitoringHub> _hub;
+    private readonly HeatmapService _heatmap;
+    private readonly SimulationEngineService _engine;
     private readonly ILogger<SettingsController> _logger;
 
     private readonly HubSubscriberService _hubSubscriber;
@@ -47,6 +49,8 @@ public class SettingsController : ControllerBase
         IDatabasePathResolver pathResolver,
         AutoCalibrationService autoCal,
         IHubContext<MonitoringHub> hub,
+        HeatmapService heatmap,
+        SimulationEngineService engine,
         HubSubscriberService hubSubscriber,
         ILogger<SettingsController> logger)
     {
@@ -58,6 +62,8 @@ public class SettingsController : ControllerBase
         _pathResolver = pathResolver;
         _autoCal = autoCal;
         _hub = hub;
+        _heatmap = heatmap;
+        _engine = engine;
         _hubSubscriber = hubSubscriber;
         _logger = logger;
     }
@@ -144,6 +150,12 @@ public class SettingsController : ControllerBase
     {
         try
         {
+            // 동작편차 통계 캡 변경 여부 — 변경 시 저장 후 매트릭스 통계를 새 캡으로 즉시 재청소(재시작 불요).
+            var prevHv = _settings.LoadSettings().HistoryView;
+            bool goingCapsChanged =
+                prevHv.MaxCallGoingTimeMs != req.MaxCallGoingTimeMs ||
+                prevHv.MinCallGoingTimeMs != req.MinCallGoingTimeMs;
+
             // 현재 디스크 설정을 baseline 으로 로드 후 클라이언트 편집값을 덮어쓴다(load-modify-save 를 단일 잠금으로 원자화 —
             // 백그라운드 자동보정의 CompletedAt 박제와 경합해도 유실되지 않도록 AppSettingsService.Update 사용).
             // (UI 미노출 섹션 DspTables/Hub/Ui.ShowPlcDebug 등은 baseline 유지 — appsettings.json 으로만 관리)
@@ -157,6 +169,12 @@ public class SettingsController : ControllerBase
                 m.HistoryView.MaxCallGoingTimeMs = req.MaxCallGoingTimeMs;
                 m.HistoryView.MinCallGoingTimeMs = req.MinCallGoingTimeMs;
                 m.HistoryView.CycleAverageWindow = req.CycleAverageWindow;
+
+                // 동작편차 색상 임계(편차 %) — 주의 < 위험 보장(역전·동일 시 위험=주의+1 로 보정), 0 이상.
+                var caution = Math.Max(0, req.HeatmapCautionPct);
+                var danger = Math.Max(caution + 1, req.HeatmapDangerPct);
+                m.HistoryView.HeatmapCautionPct = caution;
+                m.HistoryView.HeatmapDangerPct = danger;
                 m.Ui.AlarmTickerIntervalSec = Math.Clamp(req.AlarmTickerIntervalSec, 1, 30);
                 m.AbnormalAlarm.ResetIntervalHours = Math.Max(0, req.AbnormalAlarmResetIntervalHours);
 
@@ -181,13 +199,27 @@ public class SettingsController : ControllerBase
             // 비가동 임계값 변경 소급 적용 (대시보드·히스토리 즉시 반영) — Blazor SaveSettings 와 동일.
             var (restamped, flows) = await _flowMetrics.ReapplyIdleThresholdsAsync();
 
+            // 동작편차 캡이 바뀌었으면 매트릭스 저장통계를 새 캡으로 원시 엣지에서 재도출 + 누산기 재시드
+            // → 재시작 없이 즉시 반영(상세 패널·새 캡과 동일 필터). 캡 미변경 시 무거운 전체 재스캔 생략.
+            int healedCalls = 0;
+            if (goingCapsChanged)
+            {
+                try
+                {
+                    healedCalls = await _heatmap.RecomputeAllCallGoingStatisticsAsync(ct);
+                    if (healedCalls > 0) _engine.ReseedCallStatsFromDb();
+                }
+                catch (Exception ex) { _logger.LogWarning(ex, "[Settings] 동작편차 통계 캡 재청소 실패(비치명적)"); }
+            }
+
             // 임계값 소급 적용 → 대시보드/히트맵 미러 새로고침.
             try { await _hub.Clients.All.SendAsync("DatabaseRebuilt", ct); }
             catch (Exception ex) { _logger.LogDebug(ex, "[Settings] SignalR broadcast failed (non-critical)"); }
 
+            var capMsg = goingCapsChanged ? $" 동작편차 캡 재적용: {healedCalls}개 Call 재계산." : "";
             return new SaveResultDto(
                 true,
-                $"설정이 저장되었습니다. 비가동 판정 소급 적용: 히스토리 {restamped}건 재평가, Flow {flows}개 평균 재집계.");
+                $"설정이 저장되었습니다. 비가동 판정 소급 적용: 히스토리 {restamped}건 재평가, Flow {flows}개 평균 재집계.{capMsg}");
         }
         catch (Exception ex)
         {
@@ -419,7 +451,8 @@ public class SettingsController : ControllerBase
             m.Logging.LogLevel.Default,
             new[] { "Trace", "Debug", "Information", "Warning", "Error", "Critical", "None" },
             m.Ui.ShowPlcDebug,
-            new HistoryViewDto(hv.MaxCycleTimeMs, hv.MinCycleTimeMs, hv.MaxCallGoingTimeMs, hv.MinCallGoingTimeMs, hv.CycleAverageWindow),
+            new HistoryViewDto(hv.MaxCycleTimeMs, hv.MinCycleTimeMs, hv.MaxCallGoingTimeMs, hv.MinCallGoingTimeMs,
+                hv.CycleAverageWindow, hv.HeatmapCautionPct, hv.HeatmapDangerPct),
             new CctvDto(
                 m.Cctv.MediaMtxApiUrl,
                 m.Cctv.WebRtcPort,
@@ -599,7 +632,10 @@ public record HistoryViewDto(
     int MinCycleTimeMs,
     int MaxCallGoingTimeMs,
     int MinCallGoingTimeMs,
-    int CycleAverageWindow = 20);
+    int CycleAverageWindow = 20,
+    // 동작편차 색상 범례 임계(편차 %). 기본값으로 기존 호출부 무손상.
+    double HeatmapCautionPct = 10.0,
+    double HeatmapDangerPct = 30.0);
 
 public record CctvDto(
     string MediaMtxApiUrl,
@@ -636,6 +672,9 @@ public record SaveRequestDto(
     int CycleAverageWindow = 20,
     int AlarmTickerIntervalSec = 3,
     int AbnormalAlarmResetIntervalHours = 24,
+    // 동작편차 색상 범례 임계(편차 %). 기본값으로 기존 호출부 무손상.
+    double HeatmapCautionPct = 10.0,
+    double HeatmapDangerPct = 30.0,
     // 자동 보정 파라미터(편집 5필드). null 이면 기존 값 보존 — 기존 호출부 무손상.
     AutoCalibrationSaveDto? AutoCalibration = null);
 
