@@ -810,6 +810,51 @@ public class DspRepositoryAdapter : IDspRepository
         return result > 0;
     }
 
+    public async Task<int> SetCallGoingStatisticsAsync(
+        IReadOnlyList<(Guid CallId, int Count, double Avg, double StdDev)> stats)
+    {
+        if (!_enabled || stats.Count == 0) return 0;
+
+        await using var conn = await OpenAsync();
+        if (!await FlowAndCallTablesExistAsync(conn, _flowTable, _callTable))
+        {
+            _logger.LogDebug("Tables do not exist yet, skipping going-stat overwrite");
+            return 0;
+        }
+
+        var sql = $@"
+            UPDATE {_callTable}
+            SET GoingCount = @Count,
+                AverageGoingTime = @Avg,
+                StdDevGoingTime = @StdDev,
+                UpdatedAt = datetime('now')
+            WHERE CallId = @CallId";
+
+        // Guid → SQLite 저장형식(다른 dspCall 쓰기와 동일하게 string 파라미터)으로 일괄 적용.
+        var rows = stats.Select(s => new
+        {
+            s.Count,
+            s.Avg,
+            s.StdDev,
+            CallId = s.CallId,
+        }).ToList();
+
+        using var tx = conn.BeginTransaction();
+        try
+        {
+            var count = await conn.ExecuteAsync(sql, rows, tx);
+            tx.Commit();
+            _logger.LogInformation("동작편차 통계 일괄 SET 완료: {Count} rows (Table: {Table})", count, _callTable);
+            return count;
+        }
+        catch (Exception ex)
+        {
+            tx.Rollback();
+            _logger.LogError(ex, "Failed to bulk-set call going statistics");
+            throw;
+        }
+    }
+
     // ===== Flow Metrics with Averages =====
 
     public async Task<bool> UpdateFlowWithAveragesAsync(
