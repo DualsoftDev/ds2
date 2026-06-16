@@ -11,11 +11,24 @@ namespace Promaker.Shared;
 /// </summary>
 public static class SharedPaths
 {
-    /// <summary>%ProgramData%\DualSoft\Shared — 일반 사용자가 modify 권한을 가진 공유 폴더.
-    /// 설치 스크립트가 Users 그룹 modify 권한을 부여한다.</summary>
-    public static string SharedDirectory { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-        "DualSoft", "Shared");
+    /// <summary>공유 루트. Windows = %ProgramData%\DualSoft\Shared (일반 사용자 modify 권한, 설치
+    /// 스크립트가 Users 그룹에 부여). Linux/macOS = /var/lib/dualsoft/shared (systemd 상태 디렉터리
+    /// 관례). 어느 OS든 DUALSOFT_SHARED_DIR 환경변수가 있으면 최우선 — 비-root 실행 시 쓰기 가능한
+    /// 경로(예: ~/dualsoft)를 지정하는 용도. (Linux 에서 CommonApplicationData=/usr/share 는 root 소유라
+    /// 일반 사용자 쓰기 불가 → OS 분기 필요.)</summary>
+    public static string SharedDirectory { get; } = ResolveSharedDirectory();
+
+    private static string ResolveSharedDirectory()
+    {
+        var overridePath = Environment.GetEnvironmentVariable("DUALSOFT_SHARED_DIR");
+        if (!string.IsNullOrWhiteSpace(overridePath))
+            return overridePath;
+        if (OperatingSystem.IsWindows())
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "DualSoft", "Shared");
+        return "/var/lib/dualsoft/shared";
+    }
 
     /// <summary>Promaker → DSPilot · Agent 가 공유하는 런타임 모델. Promaker 가 Hub 모드 진입
     /// 직전 publish, Agent 와 DSPilot 이 파일 변경 감지로 재구독.</summary>
