@@ -5,9 +5,10 @@
 #  - 멱등(idempotent): 재실행 시 업그레이드로 동작하며 사용자 설정/데이터를 보존한다.
 #
 #  사용법:
-#    sudo ./install.sh [--port N] [--shared-dir PATH] [--no-cctv] [--no-firewall]
+#    sudo ./install.sh [--port N] [--shared-dir PATH] [--no-cctv] [--no-firewall] [--no-agent|--with-agent]
 #
-#  기본값: 포트 8080, 공유 디렉터리 /var/lib/dualsoft/Shared, CCTV/방화벽 활성.
+#  기본값: 포트 8080, 공유 디렉터리 /var/lib/dualsoft/Shared, CCTV/방화벽/Agent 활성.
+#  --no-agent 로 Promaker.Agent(PLC 스캔 백엔드) 제외, --with-agent 로 명시 포함(기본값).
 # ============================================================================
 set -euo pipefail
 
@@ -20,12 +21,18 @@ WEB_PORT="8080"
 PORT_EXPLICIT=0
 ENABLE_CCTV=1
 ENABLE_FIREWALL=1
+# Agent = DSPilot 의 데이터 공급원(PLC 스캔 → 5051 SignalR Hub, DSPilot 가 구독). Linux 는 기본 ON.
+ENABLE_AGENT=1
+AGENT_EXPLICIT=0
 # CCTV WebRTC 포트 (mediamtx.yml 과 일치해야 함): 8889/tcp=WHEP·시그널링, 8189/udp=ICE 미디어, 8189/tcp=UDP 차단망 폴백.
 WEBRTC_TCP_PORT=8889
 WEBRTC_UDP_PORT=8189
+AGENT_PORT=5051          # Promaker.Agent SignalR Hub (모니터링 active 시, DSPilot 구독)
+AGENT_UPLOAD_PORT=5050   # 모델 업로드 수신 (항상 listen — Promaker '네트워크 업로드' 대상)
 
 SVC_DSPILOT="${APP_NAME}.service"
 SVC_MEDIAMTX="${APP_NAME}-mediamtx.service"
+SVC_AGENT="promaker-agent.service"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -42,6 +49,8 @@ while [[ $# -gt 0 ]]; do
     --shared-dir=*) SHARED_DIR="${1#*=}"; shift ;;
     --no-cctv)     ENABLE_CCTV=0; shift ;;
     --no-firewall) ENABLE_FIREWALL=0; shift ;;
+    --no-agent)    ENABLE_AGENT=0; AGENT_EXPLICIT=1; shift ;;
+    --with-agent)  ENABLE_AGENT=1; AGENT_EXPLICIT=1; shift ;;
     -h|--help)     usage; exit 0 ;;
     *) echo "알 수 없는 인자: $1" >&2; usage; exit 1 ;;
   esac
@@ -58,7 +67,13 @@ if [[ ! "$WEB_PORT" =~ ^[0-9]+$ ]] || (( WEB_PORT < 1 || WEB_PORT > 65535 )); th
   echo "오류: 포트는 1~65535 범위의 숫자여야 합니다 (입력: $WEB_PORT)" >&2; exit 1
 fi
 
-echo "==> DSPilot 설치 시작 (포트=$WEB_PORT, 공유=$SHARED_DIR, CCTV=$ENABLE_CCTV)"
+# Agent 옵션 정리 — 켜져 있으나 패키지에 Agent 바이너리가 없으면 자동 스킵(빌드 시 미동봉).
+if [[ $ENABLE_AGENT -eq 1 && ! -f "$SCRIPT_DIR/agent/Promaker.Agent" ]]; then
+  [[ $AGENT_EXPLICIT -eq 1 ]] && echo "경고: --with-agent 지정됐으나 패키지에 agent/Promaker.Agent 가 없어 Agent 를 건너뜁니다."
+  ENABLE_AGENT=0
+fi
+
+echo "==> DSPilot 설치 시작 (포트=$WEB_PORT, 공유=$SHARED_DIR, CCTV=$ENABLE_CCTV, Agent=$ENABLE_AGENT)"
 
 # ── libicu 안내(한글/문화권 정렬에 필요. self-contained 라도 ICU 자체는 시스템 의존) ──
 if ! ldconfig -p 2>/dev/null | grep -qi 'libicu'; then
@@ -73,7 +88,7 @@ if ! id -u "$APP_USER" >/dev/null 2>&1; then
 fi
 
 # ── 2) 기존 서비스 중지(업그레이드 시 파일 잠금/포트 해제) ────────────────────
-for svc in "$SVC_DSPILOT" "$SVC_MEDIAMTX"; do
+for svc in "$SVC_DSPILOT" "$SVC_MEDIAMTX" "$SVC_AGENT"; do
   if systemctl list-unit-files "$svc" >/dev/null 2>&1 && systemctl is-active --quiet "$svc"; then
     echo "==> 기존 서비스 중지: $svc"
     systemctl stop "$svc" || true
@@ -92,11 +107,22 @@ fi
 
 # ── 4) 디렉터리 + 앱 파일 배치 ───────────────────────────────────────────────
 echo "==> 앱 파일 복사: $INSTALL_DIR"
-mkdir -p "$INSTALL_DIR" "$SHARED_DIR" "$INSTALL_DIR/logs"
+# 공유 디렉터리 + Agent 하위(active.flag/session.json)까지 미리 생성 — 아래서 서비스 계정 소유권/권한 부여.
+mkdir -p "$INSTALL_DIR" "$SHARED_DIR" "$SHARED_DIR/agent" "$INSTALL_DIR/logs"
 # 앱 페이로드(자체 포함 런타임 + wwwroot). 기존 appsettings.Production.json(사용자 설정)·uploads(도면/오버레이)는
 # 덮어쓰지 않도록 app/ 에 포함하지 않는다(build-linux.sh 가 publish 산출물만 담음).
 cp -a "$SCRIPT_DIR/app/." "$INSTALL_DIR/"
 chmod +x "$INSTALL_DIR/DSPilot"
+
+# ── 4b) Promaker.Agent 파일 배치 (옵션, Linux 기본 ON) ───────────────────────
+# Agent 는 별도 폴더 {INSTALL_DIR}/agent 로 분리(DSPilot 바이너리와 충돌 방지 + 로그 격리).
+AGENT_DIR="$INSTALL_DIR/agent"
+if [[ $ENABLE_AGENT -eq 1 ]]; then
+  echo "==> Promaker.Agent 파일 복사: $AGENT_DIR"
+  mkdir -p "$AGENT_DIR"
+  cp -a "$SCRIPT_DIR/agent/." "$AGENT_DIR/"
+  chmod +x "$AGENT_DIR/Promaker.Agent"
+fi
 
 # ── 5) 포트 기록(appsettings.Hosting.json) — Program.cs 가 명시 로드(AddJsonFile, 최우선). ──
 #     사용자 설정 저장소(appsettings.Production.json)와 분리해 보존과 포트 갱신 충돌을 막는다.
@@ -123,8 +149,12 @@ if [[ $ENABLE_CCTV -eq 1 ]]; then
   fi
 fi
 
-# ── 7) 소유권(전용 서비스 계정) ──────────────────────────────────────────────
+# ── 7) 소유권 + 권한(전용 서비스 계정) ───────────────────────────────────────
+# SHARED_DIR 은 Agent·DSPilot(둘 다 $APP_USER 로 실행)이 함께 읽기/쓰기 한다. 소유권을 서비스 계정에
+# 주고 소유자 쓰기/디렉터리 traverse 권한을 명시(umask 영향 제거). 부모(/var/lib/dualsoft)는 root 755 라
+# 서비스 계정이 traverse 가능. (코드 SharedPaths 기본값과 동일 경로 → 환경변수 없이도 권한 정합.)
 chown -R "$APP_USER:$APP_USER" "$INSTALL_DIR" "$SHARED_DIR"
+chmod -R u+rwX "$SHARED_DIR"
 
 # ── 8) systemd 유닛 생성(템플릿 치환) ────────────────────────────────────────
 # 80 등 1024 미만 포트는 비-root 바인딩에 CAP_NET_BIND_SERVICE 가 필요하다.
@@ -154,11 +184,21 @@ else
   sed -i "s| $SVC_MEDIAMTX||" "/etc/systemd/system/$SVC_DSPILOT"
 fi
 
+if [[ $ENABLE_AGENT -eq 1 ]]; then
+  echo "==> systemd 유닛 설치: /etc/systemd/system/$SVC_AGENT"
+  sed -e "s|@USER@|$APP_USER|g" \
+      -e "s|@AGENT_WORKDIR@|$AGENT_DIR|g" \
+      -e "s|@AGENT_EXEC@|$AGENT_DIR/Promaker.Agent|g" \
+      -e "s|@SHARED_DIR@|$SHARED_DIR|g" \
+      "$SCRIPT_DIR/systemd/promaker-agent.service" > "/etc/systemd/system/$SVC_AGENT"
+fi
+
 # ── 9) 방화벽(ufw / firewalld 자동 감지, best-effort) ────────────────────────
 if [[ $ENABLE_FIREWALL -eq 1 ]]; then
   if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -qi active; then
     echo "==> ufw 방화벽 규칙 추가"
     ufw allow "${WEB_PORT}/tcp" >/dev/null || true
+    [[ $ENABLE_AGENT -eq 1 ]] && { ufw allow "${AGENT_PORT}/tcp" >/dev/null || true; ufw allow "${AGENT_UPLOAD_PORT}/tcp" >/dev/null || true; }
     if [[ $ENABLE_CCTV -eq 1 ]]; then
       ufw allow "${WEBRTC_TCP_PORT}/tcp" >/dev/null || true
       ufw allow "${WEBRTC_UDP_PORT}/udp" >/dev/null || true
@@ -167,6 +207,7 @@ if [[ $ENABLE_FIREWALL -eq 1 ]]; then
   elif command -v firewall-cmd >/dev/null && firewall-cmd --state >/dev/null 2>&1; then
     echo "==> firewalld 방화벽 규칙 추가"
     firewall-cmd --permanent --add-port="${WEB_PORT}/tcp" >/dev/null || true
+    [[ $ENABLE_AGENT -eq 1 ]] && { firewall-cmd --permanent --add-port="${AGENT_PORT}/tcp" >/dev/null || true; firewall-cmd --permanent --add-port="${AGENT_UPLOAD_PORT}/tcp" >/dev/null || true; }
     if [[ $ENABLE_CCTV -eq 1 ]]; then
       firewall-cmd --permanent --add-port="${WEBRTC_TCP_PORT}/tcp" >/dev/null || true
       firewall-cmd --permanent --add-port="${WEBRTC_UDP_PORT}/udp" >/dev/null || true
@@ -184,12 +225,16 @@ systemctl daemon-reload
 if [[ $ENABLE_CCTV -eq 1 ]]; then
   systemctl enable --now "$SVC_MEDIAMTX"
 fi
+if [[ $ENABLE_AGENT -eq 1 ]]; then
+  systemctl enable --now "$SVC_AGENT"
+fi
 systemctl enable --now "$SVC_DSPILOT"
 
 sleep 2
 echo ""
 echo "============================================================"
 systemctl --no-pager --lines=0 status "$SVC_DSPILOT" || true
+[[ $ENABLE_AGENT -eq 1 ]] && { echo "------------------------------------------------------------"; systemctl --no-pager --lines=0 status "$SVC_AGENT" || true; }
 echo "============================================================"
 IP_HINT="$(hostname -I 2>/dev/null | awk '{print $1}')"
 echo "설치 완료. 웹 대시보드:"
@@ -197,5 +242,6 @@ echo "    http://localhost:$WEB_PORT"
 [[ -n "${IP_HINT:-}" ]] && echo "    http://$IP_HINT:$WEB_PORT"
 echo ""
 echo "로그 보기:   journalctl -u $SVC_DSPILOT -f"
-echo "공유 폴더:   $SHARED_DIR  (project.aasx / plc.db / oee.db)"
+[[ $ENABLE_AGENT -eq 1 ]] && echo "Agent:       업로드 수신 :$AGENT_UPLOAD_PORT (항상) / Hub :$AGENT_PORT (모니터링 중) — 로그 journalctl -u $SVC_AGENT -f"
+echo "공유 폴더:   $SHARED_DIR  (project.aasx / plc.db / oee.db / PlcConnection.json / active.flag)"
 echo "제거:        sudo ./uninstall.sh"

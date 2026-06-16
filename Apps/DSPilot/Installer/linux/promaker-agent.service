@@ -1,0 +1,29 @@
+# Promaker.Agent systemd 유닛 템플릿. install.sh 가 @TOKEN@ 을 치환해
+# /etc/systemd/system/promaker-agent.service 로 설치한다.
+# 헤드리스 PLC 모니터링 백엔드 — 5051 SignalR Hub + PLC 스캔(read-only).
+# 공유 디렉터리의 active.flag / session.json / PlcConnection.json 변경에 반응해 모니터링 start/stop.
+# (Agent 는 UseSystemd 를 호출하지 않으므로 Type=notify 가 아닌 Type=simple. WindowsServiceHelpers
+#  .IsWindowsService() 가 Linux 에서 false → 일반 콘솔 호스트로 기동된다.)
+[Unit]
+Description=Promaker Agent - Headless PLC Monitoring (5051 SignalR Hub)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+Group=@USER@
+WorkingDirectory=@AGENT_WORKDIR@
+ExecStart=@AGENT_EXEC@
+# 공유 디렉터리 단일 소스 — DSPilot 과 동일 폴더(active.flag / session.json / PlcConnection.json /
+# project.aasx)를 보도록 정합(SharedPaths 가 이 환경변수를 최우선).
+Environment=DUALSOFT_SHARED_DIR=@SHARED_DIR@
+Restart=on-failure
+RestartSec=10
+# .NET Generic Host 는 SIGINT/SIGTERM 으로 graceful shutdown.
+KillSignal=SIGINT
+TimeoutStopSec=30
+SyslogIdentifier=promaker-agent
+
+[Install]
+WantedBy=multi-user.target

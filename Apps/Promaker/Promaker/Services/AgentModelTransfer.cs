@@ -37,11 +37,21 @@ public static class AgentModelTransfer
                 return true;
 
             case AgentTransferTargetKind.Network:
+                // 네트워크 전송도 일단 로컬 공유폴더에 모델/설정/세션을 만든 뒤(이 경로) zip 으로 원격 Agent
+                // (AgentUploadClient → http://ip:5050/upload)에 POST 한다. 그래서 경로는 Local 과 동일.
+                if (string.IsNullOrWhiteSpace(target.Ip))
+                {
+                    path = "";
+                    error = "네트워크 대상 IP 주소를 입력하세요.";
+                    return false;
+                }
+                path = SharedPaths.AasxFilePath;
+                error = "";
+                return true;
+
             default:
                 path = "";
-                error = string.IsNullOrWhiteSpace(target.Ip)
-                    ? "네트워크 대상 IP 주소를 입력하세요."
-                    : $"네트워크 Agent 전송은 준비 중입니다 (대상: {target.Ip}). 현재는 '로컬' 만 지원합니다.";
+                error = "알 수 없는 Agent 전송 대상입니다.";
                 return false;
         }
     }

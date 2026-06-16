@@ -28,8 +28,13 @@ public static class SharedPaths
         if (!string.IsNullOrWhiteSpace(overridePath))
             return overridePath.Trim();
 
-        return Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-            "DualSoft", "Shared");
+        if (OperatingSystem.IsWindows())
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "DualSoft", "Shared");
+        // Linux/macOS: CommonApplicationData(/usr/share)는 root 전용이라 서비스 계정이 못 쓴다.
+        // systemd 가변 상태 디렉터리 표준 위치 — install.sh 가 서비스 계정 소유로 생성·권한 부여.
+        // Promaker.Shared.SharedPaths 와 동일 경로여야 두 앱이 같은 폴더를 본다.
+        return "/var/lib/dualsoft/Shared";
     }
 }

@@ -48,7 +48,7 @@ public partial class MainViewModel
     /// 폴더가 없으면 자동 생성 (인스톨러가 보장하지만 클린 환경 대비).
     /// </summary>
     [RelayCommand(CanExecute = nameof(HasProject))]
-    private void SaveToSharedLocation()
+    private async System.Threading.Tasks.Task SaveToSharedLocation()
     {
         // 업로드 전 현재 파일 저장 선행 — 새 프로젝트(경로 없음)면 다른 이름으로 저장 다이얼로그가 뜨고,
         // 취소하면 업로드도 중단. 업로드본과 사용자 파일이 어긋난 채 배포되는 것을 방지.
@@ -118,6 +118,17 @@ public partial class MainViewModel
         {
             _dialogService.ShowWarning("Agent 세션 기록 실패 — 공유 폴더 권한을 확인하세요.");
             StatusText = "Agent 업로드 실패 — 세션 기록 불가";
+            return;
+        }
+
+        // 네트워크 대상이면 방금 로컬 공유폴더에 만든 모델/설정/세션을 원격 Agent 로 zip 전송.
+        // (원격 Agent 가 풀어서 자기 공유폴더 배치 + session 경로 로컬 교정 + active.flag → 모니터링 시작)
+        if (CurrentAgentTransferTarget.Kind == AgentTransferTargetKind.Network)
+        {
+            StatusText = $"원격 Agent({CurrentAgentTransferTarget.Ip}) 업로드 중...";
+            var (ok, msg) = await AgentUploadClient.UploadAsync(CurrentAgentTransferTarget.Ip);
+            StatusText = msg;
+            if (!ok) _dialogService.ShowWarning(msg);
             return;
         }
 
