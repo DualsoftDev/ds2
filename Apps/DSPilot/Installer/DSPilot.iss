@@ -19,6 +19,18 @@
 ; Promaker · DSPilot 공유 AASX 경로 (DSPilot/Infrastructure/SharedPaths.cs 와 동일)
 #define MySharedDir "{commonappdata}\DualSoft\Shared"
 #define MySharedAasxName "project.aasx"
+; ── Promaker.Agent (옵션 번들) ──
+; Promaker 를 따로 설치하지 않고 DSPilot 만 쓰는 환경을 위한 헤드리스 모니터링 백엔드.
+; 5051 SignalR Hub + PLC 스캔을 SYSTEM 서비스로 제공한다(= DSPilot 가 client 로 접속하는 hub).
+; build-installer.bat 의 [3c] 단계가 publish-agent 폴더를 self-contained 로 채운다.
+; AgentPublishDir 에 Promaker.Agent.exe 가 없으면(=에이전트 미publish) Tasks/Files/Run 전부 자동 스킵.
+#define AgentPublishDir "..\publish-agent"
+#define MyAgentExeName "Promaker.Agent.exe"
+#define MyAgentServiceName "PromakerAgentService"
+#define MyAgentServiceDisplay "Promaker Agent Service"
+#define MyAgentServiceDesc "Promaker headless monitoring agent (5051 SignalR Hub + PLC scan, read-only)"
+#define MyAgentPort "5051"
+#define HasAgent FileExists(AddBackslash(AgentPublishDir) + MyAgentExeName)
 
 [Setup]
 AppId={{E8A3F2B1-7C4D-4E5F-9A1B-3D6E8F0C2A4B}
@@ -40,6 +52,14 @@ MinVersion=10.0
 [Languages]
 Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
+
+[Tasks]
+#if HasAgent
+; Promaker.Agent 옵션 설치 — 기본 해제(unchecked). Promaker 를 별도로 설치하지 않고 DSPilot 만
+; 쓰는 PC 에서 PLC 스캔 + 5051 모니터링 Hub 백엔드를 함께 깔고 싶을 때만 체크한다.
+; Promaker 가 이미 설치된 PC 라면 Promaker 가 동일 서비스(PromakerAgentService)를 관리하므로 체크 불필요.
+Name: "installagent"; Description: "Promaker Agent 모니터링 서비스 함께 설치 (Promaker 미설치 환경용)"; Flags: unchecked
+#endif
 
 [Dirs]
 ; Promaker · DSPilot 공유 폴더. Users 그룹에 modify 권한 부여 →
@@ -65,6 +85,12 @@ Source: "mediamtx\mediamtx.yml"; DestDir: "{app}\mediamtx"; Flags: onlyifdoesnte
 ; MIT 고지문 — 바이너리 재배포 시 저작권·허가 고지 동봉 의무 (MediaMTX / WinSW)
 Source: "mediamtx\LICENSE"; DestDir: "{app}\mediamtx"; Flags: ignoreversion
 Source: "mediamtx\LICENSE-winsw.txt"; DestDir: "{app}\mediamtx"; Flags: ignoreversion
+#if HasAgent
+; Promaker.Agent — "installagent" 태스크 체크 시에만 {app}\Agent 로 번들(self-contained).
+; 별도 폴더로 분리해 DSPilot.exe 와 dll 충돌 방지 + Agent 로그(logs\promaker-agent.log) 격리.
+Source: "{#AgentPublishDir}\*"; DestDir: "{app}\Agent"; Tasks: installagent; \
+  Flags: ignoreversion recursesubdirs createallsubdirs
+#endif
 ; 초기 AASX 는 인스톨러에 번들하지 않음. Promaker 의 "공유 위치에 저장(DSPilot 동기화)" 메뉴로
 ; 운영 시점에 모델 파일이 생성/갱신됨. 파일이 없을 때 DSPilot 은 빈 상태로 부팅되며
 ; Settings 페이지에 "파일 없음 — Promaker 에서 먼저 저장하세요" 안내가 표시됨.
@@ -136,6 +162,37 @@ Filename: "{sys}\netsh.exe"; \
   Flags: runhidden waituntilterminated; \
   StatusMsg: "CCTV 방화벽 규칙 추가 중 (TCP 미디어 폴백)..."
 
+; ── Promaker.Agent 서비스 등록 + 시작 (installagent 태스크 체크 시에만) ──
+; 업그레이드 시 기존 서비스는 PrepareToInstall 이 미리 stop+delete 하므로 create 부터 진행.
+#if HasAgent
+Filename: "{sys}\sc.exe"; \
+  Parameters: "create {#MyAgentServiceName} binPath=""{app}\Agent\{#MyAgentExeName}"" start=auto DisplayName=""{#MyAgentServiceDisplay}"""; \
+  Flags: runhidden waituntilterminated; Tasks: installagent; \
+  StatusMsg: "Promaker Agent 서비스 등록 중..."
+
+Filename: "{sys}\sc.exe"; \
+  Parameters: "description {#MyAgentServiceName} ""{#MyAgentServiceDesc}"""; \
+  Flags: runhidden waituntilterminated; Tasks: installagent; \
+  StatusMsg: "Promaker Agent 서비스 설명 설정 중..."
+
+; 실패 복구: 10s, 10s, 30s 후 자동 재시작. 카운터는 1일 후 리셋. (DSPilot 본 서비스와 동일 정책)
+Filename: "{sys}\sc.exe"; \
+  Parameters: "failure {#MyAgentServiceName} reset=86400 actions=restart/10000/restart/10000/restart/30000"; \
+  Flags: runhidden waituntilterminated; Tasks: installagent; \
+  StatusMsg: "Promaker Agent 서비스 복구 옵션 설정 중..."
+
+; 방화벽 인바운드 5051 — DSPilot 가 같은 머신 localhost 로 접속하지만 원격 모니터링 확장 대비 허용.
+Filename: "{sys}\netsh.exe"; \
+  Parameters: "advfirewall firewall add rule name=""Promaker Agent Monitoring"" dir=in action=allow protocol=tcp localport={#MyAgentPort}"; \
+  Flags: runhidden waituntilterminated; Tasks: installagent; \
+  StatusMsg: "Promaker Agent 방화벽 규칙 추가 중..."
+
+Filename: "{sys}\sc.exe"; \
+  Parameters: "start {#MyAgentServiceName}"; \
+  Flags: runhidden waituntilterminated; Tasks: installagent; \
+  StatusMsg: "Promaker Agent 서비스 시작 중..."
+#endif
+
 ; Open browser after install (optional)
 Filename: "{code:GetAppURL}"; \
   Description: "DSPilot 웹 대시보드 열기"; \
@@ -145,6 +202,19 @@ Filename: "{code:GetAppURL}"; \
 Type: files; Name: "{autodesktop}\{#MyAppName}.url"
 
 [UninstallRun]
+#if HasAgent
+; ── Promaker.Agent 서비스 정리 ──
+; Check=ShouldRemoveAgent: 이 설치본이 {app}\Agent 에 Agent 를 실제로 깔았을 때만 stop/delete.
+; (Agent 옵션 미선택으로 {app}\Agent 가 없으면 건너뛴다 — 같은 PC 에 Promaker 가 설치돼 있어
+;  Promaker 가 등록한 PromakerAgentService 를 DSPilot 제거가 잘못 지우는 것을 막기 위함.)
+Filename: "{sys}\sc.exe"; Parameters: "stop {#MyAgentServiceName}"; \
+  Flags: runhidden waituntilterminated; Check: ShouldRemoveAgent; RunOnceId: "StopAgentService"
+Filename: "{sys}\sc.exe"; Parameters: "delete {#MyAgentServiceName}"; \
+  Flags: runhidden waituntilterminated; Check: ShouldRemoveAgent; RunOnceId: "DeleteAgentService"
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Promaker Agent Monitoring"""; \
+  Flags: runhidden waituntilterminated; Check: ShouldRemoveAgent; RunOnceId: "DeleteAgentFirewall"
+#endif
+
 ; ── CCTV: MediaMTX 서비스 정지 + 등록 해제 (WinSW) ──
 Filename: "{app}\mediamtx\{#MyMtxServiceExe}"; \
   Parameters: "stop"; \
@@ -283,6 +353,15 @@ begin
   Result := False;
 end;
 
+#if HasAgent
+// 이 설치본이 {app}\Agent 에 Promaker.Agent 를 실제로 깔았는지 — UninstallRun 의 Check.
+// 우리 Agent 폴더가 존재할 때만 PromakerAgentService 를 stop/delete 한다(코멘트는 [UninstallRun] 참조).
+function ShouldRemoveAgent: Boolean;
+begin
+  Result := FileExists(ExpandConstant('{app}\Agent\{#MyAgentExeName}'));
+end;
+#endif
+
 procedure InitializeWizard();
 var
   DefaultPort: String;
@@ -409,6 +488,18 @@ begin
   Exec(ExpandConstant('{sys}\sc.exe'), ExpandConstant('stop {#MyMtxServiceName}'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   WaitForServiceStopped('{#MyMtxServiceName}', 10);
   Exec(ExpandConstant('{sys}\sc.exe'), ExpandConstant('delete {#MyMtxServiceName}'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+#if HasAgent
+  // Promaker.Agent 옵션을 (재)설치하는 경우에만 기존 Agent 서비스를 정지/제거 — {app}\Agent\*.dll 파일
+  // 잠금 해제 + 새 바이너리로 재등록 준비. 태스크 미선택 시엔 건드리지 않아, 같은 PC 의 Promaker 가
+  // 등록·운영 중인 PromakerAgentService 를 DSPilot 설치가 끊지 않도록 한다.
+  if WizardIsTaskSelected('installagent') then
+  begin
+    Exec(ExpandConstant('{sys}\sc.exe'), ExpandConstant('stop {#MyAgentServiceName}'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    WaitForServiceStopped('{#MyAgentServiceName}', 10);
+    Exec(ExpandConstant('{sys}\sc.exe'), ExpandConstant('delete {#MyAgentServiceName}'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  end;
+#endif
   // Remove old firewall rule (re-created with new port after install)
   Exec(ExpandConstant('{sys}\netsh.exe'), 'advfirewall firewall delete rule name="DSPilot Web Service"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 
