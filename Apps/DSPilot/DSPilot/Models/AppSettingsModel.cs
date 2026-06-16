@@ -3,6 +3,7 @@
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DSPilot.Infrastructure;
 
 namespace DSPilot.Models;
 
@@ -344,8 +345,12 @@ public class HubSettings
 
 public class DatabaseSettings
 {
-    // Promaker 와 공유하는 ProgramData 경로 (SharedPaths.SharedDirectory 와 동일 폴더) — AASX/plc.db 공동 위치.
-    public string ConnectionString { get; set; } = "Data Source=%ProgramData%/DualSoft/Shared/plc.db;Version=3;BusyTimeout=20000";
+    // Promaker 와 공유하는 경로 (SharedPaths.SharedDirectory 와 동일 폴더) — AASX/plc.db 공동 위치.
+    // SharedPaths 단일 소스에서 유도해 Windows(%ProgramData%\DualSoft\Shared)·Linux(DUALSOFT_SHARED_DIR
+    // 오버라이드) 양쪽에서 project.aasx 와 항상 같은 디렉터리로 정합된다. Version/BusyTimeout 토큰은 과거
+    // 호환용 표기로, 실제 접근은 DatabaseConfigLoader 가 Data Source 만 추출해 재구성한다.
+    public string ConnectionString { get; set; } =
+        $"Data Source={Path.Combine(SharedPaths.SharedDirectory, "plc.db")};Version=3;BusyTimeout=20000";
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }

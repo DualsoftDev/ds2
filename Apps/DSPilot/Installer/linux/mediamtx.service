@@ -1,0 +1,20 @@
+# DSPilot CCTV 게이트웨이(MediaMTX) systemd 유닛 템플릿. WinSW(Windows) 대체.
+# install.sh 가 @TOKEN@ 을 치환해 /etc/systemd/system/dspilot-mediamtx.service 로 설치한다.
+# DSPilot 은 이 프로세스를 직접 띄우지 않고 제어 API(:9997)로 카메라 경로만 동기화한다(CctvMediaMtxService).
+[Unit]
+Description=DSPilot CCTV Gateway (MediaMTX) - RTSP to WebRTC
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+Group=@USER@
+WorkingDirectory=@MTX_WORKDIR@
+ExecStart=@MTX_EXEC@ @MTX_CONFIG@
+Restart=on-failure
+RestartSec=5
+SyslogIdentifier=dspilot-mediamtx
+
+[Install]
+WantedBy=multi-user.target

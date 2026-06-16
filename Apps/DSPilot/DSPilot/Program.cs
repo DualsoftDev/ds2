@@ -25,7 +25,10 @@ if (WindowsServiceHelpers.IsWindowsService())
 AppSettingsService.EnsureSettingsFiles(Environment.CurrentDirectory);
 
 var builder = WebApplication.CreateBuilder(args);
+// 서비스 라이프사이클: Windows 서비스 / Linux systemd 양쪽 통합.
+// 각 확장은 해당 OS(서비스/systemd) 로 기동됐을 때만 활성화되고 그 외에는 no-op 라 함께 호출해도 안전.
 builder.Host.UseWindowsService();
+builder.Host.UseSystemd();
 
 // 호스트 전용 설정(설치 스크립트가 기록하는 바인딩 포트 "Urls" 등)을 사용자 설정 저장소와 분리.
 // appsettings.Production.json 은 AppSettingsService 의 사용자 설정 영속 저장소이므로 재설치(업그레이드) 시
