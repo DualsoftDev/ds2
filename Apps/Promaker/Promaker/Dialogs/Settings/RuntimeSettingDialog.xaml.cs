@@ -20,6 +20,7 @@ public partial class RuntimeSettingDialog : Window
     private const string VariantKey = "C";
     private readonly MainViewModel _vm;
     private List<ModeItemVM> _items = new();
+    private bool _syncingSelection;   // ComboBox ↔ 카드 선택 동기화 중 재진입 방지
 
     public RuntimeSettingDialog(MainViewModel vm)
     {
@@ -29,39 +30,57 @@ public partial class RuntimeSettingDialog : Window
 
         _items = BuildItems(vm.Simulation.SelectedRuntimeMode);
         ModeList.ItemsSource = _items;
+        ModeCombo.ItemsSource = _items;                                  // 상단 드롭다운도 같은 선택 상태 공유
+        ModeCombo.SelectedItem = _items.FirstOrDefault(v => v.IsSelected);
         RefreshThumbnails();
-        UpdateSelectedModeText();
 
-        // PLC 옵션 행 — 현재 VM 의 IsRealPlcConnected 반영
+        // 현재 VM 의 실 PLC 연결 토글 반영 후, 선택 모드에 맞춰 활성/푸터 상태 갱신.
         RealPlcCheckBox.IsChecked = vm.Simulation.IsRealPlcConnected;
-        UpdatePlcRowVisibility();
-        UpdatePlcSummary();
+        UpdateModeDependentState();
     }
 
-    private void UpdateSelectedModeText()
+    /// <summary>ComboBox 또는 카드 클릭으로 모드를 선택 — 두 표시를 동기화하고 모드 의존 상태를 갱신.</summary>
+    private void SelectMode(ModeItemVM item)
     {
-        var selected = _items.FirstOrDefault(v => v.IsSelected);
-        SelectedModeText.Text = selected is null ? "" : $"{selected.Mode} ({selected.NameKr})";
-        // Sim 모드는 Hub 연결 불필요 → 주소 편집 불가
-        HubAddressBox.IsEnabled = selected is not null && selected.Mode != RuntimeMode.Simulation;
-        UpdatePlcRowVisibility();
+        foreach (var vm in _items)
+            vm.IsSelected = ReferenceEquals(vm, item);
+
+        _syncingSelection = true;
+        try { ModeCombo.SelectedItem = item; }
+        finally { _syncingSelection = false; }
+
+        UpdateModeDependentState();
     }
 
-    /// <summary>Control/Monitoring 모드에서 PLC 옵션 행 노출 — 둘 다 실 PLC 직접 연결.</summary>
-    private void UpdatePlcRowVisibility()
+    private void ModeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncingSelection) return;
+        if (ModeCombo.SelectedItem is ModeItemVM item)
+            SelectMode(item);
+    }
+
+    /// <summary>선택 모드에 따라 Hub 주소 / 실 PLC 옵션 활성 여부와 하단 PLC 상태 표시를 갱신.</summary>
+    private void UpdateModeDependentState()
     {
         var selected = _items.FirstOrDefault(v => v.IsSelected);
+        // Sim 모드는 Hub 연결 불필요 → 주소 편집 불가.
+        var isSim = selected is null || selected.Mode == RuntimeMode.Simulation;
+        // 실 PLC 옵션은 Control/Monitoring 에서만 의미 (둘 다 실 PLC 직접 연결).
         var requiresPlc = selected is not null
             && (selected.Mode == RuntimeMode.Control || selected.Mode == RuntimeMode.Monitoring);
-        PlcOptionRow.Visibility = requiresPlc ? System.Windows.Visibility.Visible
-                                              : System.Windows.Visibility.Collapsed;
+
+        HubAddressBox.IsEnabled = !isSim;
+        RealPlcCheckBox.IsEnabled = requiresPlc;
+        PlcSettingsButton.IsEnabled = requiresPlc && RealPlcCheckBox.IsChecked == true;
+
+        UpdatePlcFooter();
     }
 
     private void RealPlcCheckBox_Toggled(object sender, RoutedEventArgs e)
     {
-        // 체크박스 상태 → 설정 버튼 활성화
-        PlcSettingsButton.IsEnabled = RealPlcCheckBox.IsChecked == true;
-        UpdatePlcSummary();
+        // 체크박스 상태 → 설정 버튼 활성화 (실 PLC 가 의미 있는 모드에서만)
+        PlcSettingsButton.IsEnabled = RealPlcCheckBox.IsEnabled && RealPlcCheckBox.IsChecked == true;
+        UpdatePlcFooter();
     }
 
     private void PlcSettings_Click(object sender, RoutedEventArgs e)
@@ -78,20 +97,33 @@ public partial class RuntimeSettingDialog : Window
             _vm.Simulation.AutoDurationCalibrate = dialog.AutoDurationCalibrate;
             // 간트 표시 윈도우 결과 적용 — set 시 OnChanged 가 GanttChart.RenderWindowMinutes 갱신.
             _vm.Simulation.GanttWindowMinutes = dialog.GanttWindowMinutes;
-            UpdatePlcSummary();
+            UpdatePlcFooter();
         }
     }
 
-    private void UpdatePlcSummary()
+    /// <summary>하단 푸터의 PLC 연결 상태(점 색 + 텍스트)를 현재 모드/체크박스/PlcSettings 로 갱신.</summary>
+    private void UpdatePlcFooter()
     {
-        if (RealPlcCheckBox.IsChecked != true)
+        var selected = _items.FirstOrDefault(v => v.IsSelected);
+        var requiresPlc = selected is not null
+            && (selected.Mode == RuntimeMode.Control || selected.Mode == RuntimeMode.Monitoring);
+        var enabled = requiresPlc && RealPlcCheckBox.IsChecked == true;
+
+        if (enabled)
         {
-            PlcSummaryText.Text = "";
-            return;
+            var s = _vm.Simulation.PlcSettings;
+            var tagCount = _vm.Simulation.CountAutoImportablePlcAddresses();
+            PlcStatusDot.Fill = PlcOnBrush;
+            PlcStatusText.Text =
+                $"PLC 연결: 사용  ·  {s.Vendor}  {s.IpAddress}:{s.Port}  ·  IO 자동 import {tagCount}개";
         }
-        var s = _vm.Simulation.PlcSettings;
-        var tagCount = _vm.Simulation.CountAutoImportablePlcAddresses();
-        PlcSummaryText.Text = $"{s.Vendor}  {s.IpAddress}:{s.Port}  IO 자동 import {tagCount}개";
+        else
+        {
+            PlcStatusDot.Fill = PlcOffBrush;
+            PlcStatusText.Text = requiresPlc
+                ? "PLC 연결: 사용 안 함"
+                : "PLC 연결: 해당 없음 (시뮬레이션 / 가상 시운전 모드)";
+        }
     }
 
     /// <summary>
@@ -130,6 +162,10 @@ public partial class RuntimeSettingDialog : Window
     private static readonly SolidColorBrush OrangeBrush = FreezeBrush("#ff7b54");
     private static readonly SolidColorBrush GreenBrush  = FreezeBrush("#34d399");
     private static readonly SolidColorBrush PurpleBrush = FreezeBrush("#a78bfa");
+
+    // 하단 푸터 PLC 상태 점 — 사용(초록) / 미사용(회색)
+    private static readonly SolidColorBrush PlcOnBrush  = FreezeBrush("#34d399");
+    private static readonly SolidColorBrush PlcOffBrush = FreezeBrush("#6b7280");
 
     private static List<ModeItemVM> BuildItems(RuntimeMode currentMode)
     {
@@ -222,8 +258,10 @@ public partial class RuntimeSettingDialog : Window
 
     private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (e.ChangedButton == MouseButton.Left)
-            DragMove();
+        if (e.ChangedButton != MouseButton.Left) return;
+        // CanResize + Aero Snap 으로 최대화될 수 있는데, 최대화 상태에서 DragMove 호출 시 예외가 난다.
+        if (WindowState == WindowState.Maximized) return;
+        try { DragMove(); } catch { /* 드물게 발생하는 입력 레이스 무시 */ }
     }
 
     /// <summary>카드 전체 영역 클릭 → 해당 VM 선택 (나머지 선택 해제). 기존 RadioButton 을 대체.</summary>
@@ -231,10 +269,7 @@ public partial class RuntimeSettingDialog : Window
     {
         if (sender is not FrameworkElement fe) return;
         if (fe.DataContext is not ModeItemVM clicked) return;
-
-        foreach (var vm in _items)
-            vm.IsSelected = ReferenceEquals(vm, clicked);
-        UpdateSelectedModeText();
+        SelectMode(clicked);
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e)

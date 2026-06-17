@@ -3,9 +3,9 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:conv="clr-namespace:Promaker.Presentation"
         Title="런타임 세팅"
-        Width="1280"
-        SizeToContent="Height"
-        ResizeMode="NoResize"
+        Width="1200" Height="940"
+        MinWidth="1040" MinHeight="720"
+        ResizeMode="CanResize"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
         WindowStyle="None"
@@ -14,12 +14,12 @@
     <Window.Resources>
         <conv:BoolToVisibilityConverter x:Key="BoolToVis"/>
 
-        <!-- 좌/우 pill: 이미지 위, 라벨 아래 — mode-accent 테두리 -->
-        <Style x:Key="SidePillBorderStyle" TargetType="Border">
-            <Setter Property="CornerRadius" Value="8"/>
-            <Setter Property="Background" Value="{DynamicResource TertiaryBackgroundBrush}"/>
-            <Setter Property="BorderThickness" Value="1.5"/>
-            <Setter Property="Padding" Value="10,8"/>
+        <!-- 상단 설정 패널의 필드 라벨 (컨트롤 위에 작게) -->
+        <Style x:Key="FieldLabelStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="2,0,0,7"/>
         </Style>
 
         <!-- 라디오 카드 컨테이너 — 선택 시 accent 테두리로 강조 -->
@@ -40,9 +40,10 @@
     <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
         <Grid>
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>   <!-- 0: 제목줄 -->
+                <RowDefinition Height="Auto"/>   <!-- 1: 상단 설정 패널 -->
+                <RowDefinition Height="*"/>      <!-- 2: 모드 카드 (가변, 스크롤) -->
+                <RowDefinition Height="Auto"/>   <!-- 3: 하단 푸터 -->
             </Grid.RowDefinitions>
 
             <!-- Title Bar -->
@@ -57,279 +58,299 @@
                                Foreground="{DynamicResource PrimaryTextBrush}"
                                FontSize="17" FontWeight="SemiBold"
                                VerticalAlignment="Center"/>
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
-                                VerticalAlignment="Center">
-                        <Button Click="Cancel_Click"
-                                Background="Transparent" BorderThickness="0"
-                                Width="30" Height="30" MinWidth="0" Padding="0"
-                                Cursor="Hand" ToolTip="닫기">
-                            <Button.Template>
-                                <ControlTemplate TargetType="Button">
-                                    <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="3">
-                                        <TextBlock Text="✕" FontSize="15"
-                                                   Foreground="{DynamicResource SecondaryTextBrush}"
-                                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                    <ControlTemplate.Triggers>
-                                        <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource CloseButtonHoverBrush}"/>
-                                        </Trigger>
-                                    </ControlTemplate.Triggers>
-                                </ControlTemplate>
-                            </Button.Template>
-                        </Button>
-                    </StackPanel>
+                    <Button Click="Cancel_Click"
+                            HorizontalAlignment="Right" VerticalAlignment="Center"
+                            Background="Transparent" BorderThickness="0"
+                            Width="30" Height="30" MinWidth="0" Padding="0"
+                            Cursor="Hand" ToolTip="닫기">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="3">
+                                    <TextBlock Text="✕" FontSize="15"
+                                               Foreground="{DynamicResource SecondaryTextBrush}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="bd" Property="Background" Value="{DynamicResource CloseButtonHoverBrush}"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
                 </Grid>
             </Border>
 
-            <!-- Body — PR-A4: 모드 선택 카드 4개를 상단 고정, 런타임 모드/Hub/실 PLC 연결 설정을 하단으로 이동. -->
-            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Disabled"
-                          HorizontalScrollBarVisibility="Disabled">
-                <StackPanel Orientation="Vertical" Margin="24,20,24,16">
-                    <ItemsControl x:Name="ModeList">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <UniformGrid Columns="2" Rows="2"/>
-                            </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Style="{StaticResource ModeCardStyle}"
-                                        Cursor="Hand"
-                                        MouseLeftButtonUp="ModeCard_Click">
-                                    <!-- 카드 전체 클릭 영역으로 사용 : RadioButton 없이 Border.MouseLeftButtonUp 이 선택 커밋 -->
-                                    <StackPanel Orientation="Vertical" Margin="22,16,22,16">
-                                            <!-- Title row : NameEn (bold) + NameKr (dim) -->
-                                            <TextBlock FontSize="16" FontWeight="Bold"
-                                                       Foreground="{DynamicResource PrimaryTextBrush}">
-                                                <Run Text="{Binding Mode}"/><Run Text=" ("/><Run Text="{Binding NameKr}"/><Run Text=")"/>
-                                            </TextBlock>
-
-                                            <!-- Description -->
-                                            <TextBlock Text="{Binding Description}"
-                                                       Foreground="{DynamicResource SecondaryTextBrush}"
-                                                       FontSize="12"
-                                                       TextWrapping="Wrap"
-                                                       Margin="0,6,0,12"/>
-
-                                            <!-- Flow row : 외곽 박스 없이 콘텐츠만. IsInternalLoop 으로 두-박스 vs Sim 점선 박스 분기 -->
-                                            <Grid HorizontalAlignment="Center" Margin="0,4,0,0">
-                                                <!-- 두-박스 콘텐츠 : Ctrl/Mon/Vp — IsInternalLoop=false 시. 전체 영역 한 검정 액자 -->
-                                                <Border Background="{DynamicResource PrimaryBackgroundBrush}" CornerRadius="10" Padding="16" HorizontalAlignment="Center">
-                                                    <Border.Style>
-                                                        <Style TargetType="Border">
-                                                            <Setter Property="Visibility" Value="Visible"/>
-                                                            <Style.Triggers>
-                                                                <DataTrigger Binding="{Binding IsInternalLoop}" Value="True">
-                                                                    <Setter Property="Visibility" Value="Collapsed"/>
-                                                                </DataTrigger>
-                                                            </Style.Triggers>
-                                                        </Style>
-                                                    </Border.Style>
-                                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                                        <!-- Left : 이미지 + 라벨 -->
-                                                        <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                                                            <Image Source="{Binding LeftThumb}"
-                                                                   Width="170" Height="170"
-                                                                   Stretch="Uniform"/>
-                                                            <TextBlock Text="{Binding LeftLabel}"
-                                                                       Foreground="{Binding LeftAccent}"
-                                                                       FontSize="13" FontWeight="Bold"
-                                                                       HorizontalAlignment="Center"
-                                                                       Margin="0,8,0,0"/>
-                                                        </StackPanel>
-
-                                                        <!-- Arrow column : 입력(Green) + 출력(Orange) -->
-                                                        <StackPanel Orientation="Vertical"
-                                                                    VerticalAlignment="Center"
-                                                                    Margin="18,0" Width="112">
-                                                            <Grid Margin="0,5" Width="104" Height="26" HorizontalAlignment="Center">
-                                                                <Path Data="M 0 13 L 13 0 L 96 0 A 4 4 0 0 1 100 4 L 100 22 A 4 4 0 0 1 96 26 L 13 26 Z"
-                                                                      Fill="#34d399"/>
-                                                                <TextBlock Text="입력"
-                                                                           Foreground="#0f172a"
-                                                                           FontSize="11" FontWeight="Bold"
-                                                                           HorizontalAlignment="Center"
-                                                                           VerticalAlignment="Center"
-                                                                           Margin="8,0,0,0"/>
-                                                            </Grid>
-
-                                                            <Grid Margin="0,5" Width="104" Height="26" HorizontalAlignment="Center"
-                                                                  Visibility="{Binding ForwardVisibility}">
-                                                                <Path Data="M 104 13 L 91 0 L 8 0 A 4 4 0 0 0 4 4 L 4 22 A 4 4 0 0 0 8 26 L 91 26 Z"
-                                                                      Fill="#fbbf24"/>
-                                                                <TextBlock Text="출력"
-                                                                           Foreground="#0f172a"
-                                                                           FontSize="11" FontWeight="Bold"
-                                                                           HorizontalAlignment="Center"
-                                                                           VerticalAlignment="Center"
-                                                                           Margin="0,0,8,0"/>
-                                                            </Grid>
-                                                        </StackPanel>
-
-                                                        <!-- Right : 이미지 + 라벨 -->
-                                                        <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                                                            <Image Source="{Binding RightThumb}"
-                                                                   Width="170" Height="170"
-                                                                   Stretch="Uniform"/>
-                                                            <TextBlock Text="{Binding RightLabel}"
-                                                                       Foreground="{Binding RightAccent}"
-                                                                       FontSize="13" FontWeight="Bold"
-                                                                       HorizontalAlignment="Center"
-                                                                       Margin="0,8,0,0"/>
-                                                        </StackPanel>
-                                                    </StackPanel>
-                                                </Border>
-
-                                                <!-- Sim 전용 점선 박스 + 가로 [이미지 | 텍스트 2줄] + 우상단 "내부 순환" 칩 -->
-                                                <Grid HorizontalAlignment="Center">
-                                                    <Grid.Style>
-                                                        <Style TargetType="Grid">
-                                                            <Setter Property="Visibility" Value="Collapsed"/>
-                                                            <Style.Triggers>
-                                                                <DataTrigger Binding="{Binding IsInternalLoop}" Value="True">
-                                                                    <Setter Property="Visibility" Value="Visible"/>
-                                                                </DataTrigger>
-                                                            </Style.Triggers>
-                                                        </Style>
-                                                    </Grid.Style>
-
-                                                    <!-- 점선 외곽 + 검정 배경 -->
-                                                    <Rectangle Stroke="{Binding LeftAccent}"
-                                                               StrokeThickness="1.5"
-                                                               StrokeDashArray="3,2"
-                                                               Fill="{DynamicResource PrimaryBackgroundBrush}"
-                                                               RadiusX="10" RadiusY="10"
-                                                               Margin="8,8,8,0"/>
-
-                                                    <!-- 콘텐츠 : 이미지 + 텍스트 (점선 박스 안 가운데 정렬) -->
-                                                    <StackPanel Orientation="Horizontal" Margin="24,22,24,18"
-                                                                HorizontalAlignment="Center" VerticalAlignment="Center">
-                                                        <Image Source="{Binding LeftThumb}"
-                                                               Width="170" Height="170"
-                                                               Stretch="Uniform"
-                                                               VerticalAlignment="Center"/>
-                                                        <StackPanel Orientation="Vertical"
-                                                                    VerticalAlignment="Center"
-                                                                    Margin="24,0,0,0">
-                                                            <TextBlock Text="{Binding SoloHeading}"
-                                                                       Foreground="{Binding LeftAccent}"
-                                                                       FontSize="16" FontWeight="Bold"/>
-                                                        </StackPanel>
-                                                    </StackPanel>
-
-                                                </Grid>
-                                            </Grid>
-                                        </StackPanel>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-
-                    <!-- PR-A4 — 런타임 모드 / Hub 주소 설정 줄 (카드 선택 후 하단에서 확인) -->
-                    <Border Background="{DynamicResource SecondaryBackgroundBrush}"
-                            BorderBrush="{DynamicResource BorderBrush}"
-                            BorderThickness="1"
-                            CornerRadius="8"
-                            Padding="22,12"
-                            HorizontalAlignment="Left"
-                            Margin="0,12,0,0">
-                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="런타임 모드"
-                                       Foreground="{DynamicResource SecondaryTextBrush}"
-                                       FontSize="13" FontWeight="SemiBold"
-                                       VerticalAlignment="Center"/>
-                            <Rectangle Width="1" Height="22"
-                                       Fill="{DynamicResource BorderBrush}"
-                                       Margin="20,0"
-                                       VerticalAlignment="Center"/>
-                            <TextBlock x:Name="SelectedModeText"
-                                       Width="200"
-                                       Foreground="{DynamicResource AccentBrush}"
-                                       FontSize="14" FontWeight="SemiBold"
-                                       VerticalAlignment="Center"/>
-                            <Rectangle Width="1" Height="22"
-                                       Fill="{DynamicResource BorderBrush}"
-                                       Margin="20,0"
-                                       VerticalAlignment="Center"/>
-                            <TextBlock Text="Hub 주소"
-                                       Foreground="{DynamicResource SecondaryTextBrush}"
-                                       FontSize="12"
-                                       VerticalAlignment="Center"
-                                       Margin="0,0,10,0"/>
-                            <TextBox x:Name="HubAddressBox"
-                                     Text="{Binding Hub.EffectiveHubAddress, UpdateSourceTrigger=PropertyChanged}"
-                                     Width="220" Height="28"
-                                     VerticalContentAlignment="Center"
-                                     Padding="8,0"
-                                     ToolTip="host:port — Agent 단일 호스팅이라 Control/Monitoring/VP 모두 localhost:5051"/>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Control/Monitoring 모드 선택 시 표시되는 PLC 연결 옵션 줄 -->
-                    <Border x:Name="PlcOptionRow"
-                            Background="{DynamicResource SecondaryBackgroundBrush}"
-                            BorderBrush="{DynamicResource BorderBrush}"
-                            BorderThickness="1"
-                            CornerRadius="8"
-                            Padding="22,12"
-                            HorizontalAlignment="Left"
-                            Margin="0,8,0,0"
-                            Visibility="Collapsed">
-                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="실 PLC 연결"
-                                       Foreground="{DynamicResource SecondaryTextBrush}"
-                                       FontSize="13" FontWeight="SemiBold"
-                                       VerticalAlignment="Center"/>
-                            <Rectangle Width="1" Height="22"
-                                       Fill="{DynamicResource BorderBrush}"
-                                       Margin="20,0"
-                                       VerticalAlignment="Center"/>
-                            <CheckBox x:Name="RealPlcCheckBox"
-                                      Content="실제 PLC 와 연결"
-                                      Foreground="{DynamicResource PrimaryTextBrush}"
-                                      VerticalAlignment="Center"
-                                      Margin="0,0,16,0"
-                                      Checked="RealPlcCheckBox_Toggled"
-                                      Unchecked="RealPlcCheckBox_Toggled"/>
-                            <Button x:Name="PlcSettingsButton"
-                                    Content="PLC 설정…"
-                                    Click="PlcSettings_Click"
-                                    Width="120" Height="28"
-                                    Background="{DynamicResource AccentBrush}"
-                                    Foreground="{DynamicResource AccentTextBrush}"
-                                    BorderThickness="0"
-                                    Cursor="Hand"
-                                    IsEnabled="False"/>
-                            <TextBlock x:Name="PlcSummaryText"
-                                       Foreground="{DynamicResource SecondaryTextBrush}"
-                                       FontSize="11"
-                                       VerticalAlignment="Center"
-                                       Margin="14,0,0,0"/>
-                        </StackPanel>
-                    </Border>
-
-                </StackPanel>
-            </ScrollViewer>
-
-            <!-- Footer buttons -->
-            <Border Grid.Row="2"
-                    Background="{DynamicResource PrimaryBackgroundBrush}"
-                    Padding="24,14"
+            <!-- 상단 설정 패널 — 런타임 모드(드롭다운) / Hub 주소 / 실제 PLC 연결 / PLC 설정 -->
+            <Border Grid.Row="1"
+                    Background="{DynamicResource SecondaryBackgroundBrush}"
                     BorderBrush="{DynamicResource BorderBrush}"
-                    BorderThickness="0,1,0,0">
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button Content="적용" Click="Apply_Click" Width="96" Height="36"
+                    BorderThickness="1"
+                    CornerRadius="10"
+                    Padding="22,16"
+                    Margin="24,20,24,4">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>   <!-- 런타임 모드 -->
+                        <ColumnDefinition Width="34"/>
+                        <ColumnDefinition Width="Auto"/>   <!-- Hub 주소 -->
+                        <ColumnDefinition Width="34"/>
+                        <ColumnDefinition Width="Auto"/>   <!-- 실제 PLC 연결 -->
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>   <!-- PLC 설정 버튼 -->
+                    </Grid.ColumnDefinitions>
+
+                    <!-- 런타임 모드 -->
+                    <StackPanel Grid.Column="0" Orientation="Vertical">
+                        <TextBlock Text="런타임 모드" Style="{StaticResource FieldLabelStyle}"/>
+                        <ComboBox x:Name="ModeCombo"
+                                  Width="240" Height="34"
+                                  VerticalContentAlignment="Center"
+                                  SelectionChanged="ModeCombo_SelectionChanged">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock VerticalAlignment="Center"><Run Text="{Binding Mode}"/><Run Text=" ("/><Run Text="{Binding NameKr}"/><Run Text=")"/></TextBlock>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                    </StackPanel>
+
+                    <!-- Hub 주소 -->
+                    <StackPanel Grid.Column="2" Orientation="Vertical">
+                        <TextBlock Text="Hub 주소" Style="{StaticResource FieldLabelStyle}"/>
+                        <TextBox x:Name="HubAddressBox"
+                                 Text="{Binding Hub.EffectiveHubAddress, UpdateSourceTrigger=PropertyChanged}"
+                                 Width="240" Height="34"
+                                 VerticalContentAlignment="Center"
+                                 Padding="10,0"
+                                 ToolTip="host:port — Agent 단일 호스팅이라 Control/Monitoring/VP 모두 localhost:5051"/>
+                    </StackPanel>
+
+                    <!-- 실제 PLC 연결 -->
+                    <StackPanel Grid.Column="4" Orientation="Vertical">
+                        <TextBlock Text="실제 PLC 연결" Style="{StaticResource FieldLabelStyle}"/>
+                        <CheckBox x:Name="RealPlcCheckBox"
+                                  Content="실제 PLC 와 연결"
+                                  Foreground="{DynamicResource PrimaryTextBrush}"
+                                  Height="34"
+                                  VerticalContentAlignment="Center"
+                                  Checked="RealPlcCheckBox_Toggled"
+                                  Unchecked="RealPlcCheckBox_Toggled"/>
+                    </StackPanel>
+
+                    <!-- PLC 설정 버튼 -->
+                    <Button Grid.Column="6"
+                            x:Name="PlcSettingsButton"
+                            Content="PLC 설정…"
+                            Click="PlcSettings_Click"
+                            Width="120" Height="40"
+                            VerticalAlignment="Bottom"
                             Background="{DynamicResource AccentBrush}"
                             Foreground="{DynamicResource AccentTextBrush}"
-                            BorderThickness="0" FontSize="13" FontWeight="SemiBold"
+                            BorderThickness="0"
+                            FontWeight="SemiBold"
                             Cursor="Hand"
-                            Margin="0,0,10,0"/>
-                    <Button Content="취소" Click="Cancel_Click" Width="96" Height="36"
-                            Background="{DynamicResource TertiaryBackgroundBrush}"
-                            Foreground="{DynamicResource PrimaryTextBrush}"
-                            BorderThickness="0" FontSize="13" Cursor="Hand"/>
-                </StackPanel>
+                            IsEnabled="False"/>
+                </Grid>
+            </Border>
+
+            <!-- 모드 선택 카드 4개 (2x2) -->
+            <ScrollViewer Grid.Row="2"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          Padding="24,8,24,8">
+                <ItemsControl x:Name="ModeList">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <UniformGrid Columns="2" Rows="2"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Style="{StaticResource ModeCardStyle}"
+                                    Cursor="Hand"
+                                    MouseLeftButtonUp="ModeCard_Click">
+                                <!-- 카드 전체 클릭 영역으로 사용 : RadioButton 없이 Border.MouseLeftButtonUp 이 선택 커밋 -->
+                                <Grid>
+                                    <StackPanel Orientation="Vertical" Margin="22,16,22,16">
+                                        <!-- Title row : NameEn (bold) + NameKr (dim) -->
+                                        <TextBlock FontSize="16" FontWeight="Bold"
+                                                   Foreground="{DynamicResource PrimaryTextBrush}">
+                                            <Run Text="{Binding Mode}"/><Run Text=" ("/><Run Text="{Binding NameKr}"/><Run Text=")"/>
+                                        </TextBlock>
+
+                                        <!-- Description -->
+                                        <TextBlock Text="{Binding Description}"
+                                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                                   FontSize="12"
+                                                   TextWrapping="Wrap"
+                                                   Margin="0,6,0,12"/>
+
+                                        <!-- Flow row : 외곽 박스 없이 콘텐츠만. IsInternalLoop 으로 두-박스 vs Sim 점선 박스 분기 -->
+                                        <Grid HorizontalAlignment="Center" Margin="0,4,0,0">
+                                            <!-- 두-박스 콘텐츠 : Ctrl/Mon/Vp — IsInternalLoop=false 시. 전체 영역 한 검정 액자 -->
+                                            <Border Background="{DynamicResource PrimaryBackgroundBrush}" CornerRadius="10" Padding="16" HorizontalAlignment="Center">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsInternalLoop}" Value="True">
+                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                                    <!-- Left : 이미지 + 라벨 -->
+                                                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                                        <Image Source="{Binding LeftThumb}"
+                                                               Width="170" Height="170"
+                                                               Stretch="Uniform"/>
+                                                        <TextBlock Text="{Binding LeftLabel}"
+                                                                   Foreground="{Binding LeftAccent}"
+                                                                   FontSize="13" FontWeight="Bold"
+                                                                   HorizontalAlignment="Center"
+                                                                   Margin="0,8,0,0"/>
+                                                    </StackPanel>
+
+                                                    <!-- Arrow column : 입력(Green) + 출력(Orange) -->
+                                                    <StackPanel Orientation="Vertical"
+                                                                VerticalAlignment="Center"
+                                                                Margin="18,0" Width="112">
+                                                        <Grid Margin="0,5" Width="104" Height="26" HorizontalAlignment="Center">
+                                                            <Path Data="M 0 13 L 13 0 L 96 0 A 4 4 0 0 1 100 4 L 100 22 A 4 4 0 0 1 96 26 L 13 26 Z"
+                                                                  Fill="#34d399"/>
+                                                            <TextBlock Text="입력"
+                                                                       Foreground="#0f172a"
+                                                                       FontSize="11" FontWeight="Bold"
+                                                                       HorizontalAlignment="Center"
+                                                                       VerticalAlignment="Center"
+                                                                       Margin="8,0,0,0"/>
+                                                        </Grid>
+
+                                                        <Grid Margin="0,5" Width="104" Height="26" HorizontalAlignment="Center"
+                                                              Visibility="{Binding ForwardVisibility}">
+                                                            <Path Data="M 104 13 L 91 0 L 8 0 A 4 4 0 0 0 4 4 L 4 22 A 4 4 0 0 0 8 26 L 91 26 Z"
+                                                                  Fill="#fbbf24"/>
+                                                            <TextBlock Text="출력"
+                                                                       Foreground="#0f172a"
+                                                                       FontSize="11" FontWeight="Bold"
+                                                                       HorizontalAlignment="Center"
+                                                                       VerticalAlignment="Center"
+                                                                       Margin="0,0,8,0"/>
+                                                        </Grid>
+                                                    </StackPanel>
+
+                                                    <!-- Right : 이미지 + 라벨 -->
+                                                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                                        <Image Source="{Binding RightThumb}"
+                                                               Width="170" Height="170"
+                                                               Stretch="Uniform"/>
+                                                        <TextBlock Text="{Binding RightLabel}"
+                                                                   Foreground="{Binding RightAccent}"
+                                                                   FontSize="13" FontWeight="Bold"
+                                                                   HorizontalAlignment="Center"
+                                                                   Margin="0,8,0,0"/>
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <!-- Sim 전용 점선 박스 + 가로 [이미지 | 텍스트] -->
+                                            <Grid HorizontalAlignment="Center">
+                                                <Grid.Style>
+                                                    <Style TargetType="Grid">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsInternalLoop}" Value="True">
+                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Grid.Style>
+
+                                                <!-- 점선 외곽 + 검정 배경 -->
+                                                <Rectangle Stroke="{Binding LeftAccent}"
+                                                           StrokeThickness="1.5"
+                                                           StrokeDashArray="3,2"
+                                                           Fill="{DynamicResource PrimaryBackgroundBrush}"
+                                                           RadiusX="10" RadiusY="10"
+                                                           Margin="8,8,8,0"/>
+
+                                                <!-- 콘텐츠 : 이미지 + 텍스트 (점선 박스 안 가운데 정렬) -->
+                                                <StackPanel Orientation="Horizontal" Margin="24,22,24,18"
+                                                            HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                    <Image Source="{Binding LeftThumb}"
+                                                           Width="170" Height="170"
+                                                           Stretch="Uniform"
+                                                           VerticalAlignment="Center"/>
+                                                    <StackPanel Orientation="Vertical"
+                                                                VerticalAlignment="Center"
+                                                                Margin="24,0,0,0">
+                                                        <TextBlock Text="{Binding SoloHeading}"
+                                                                   Foreground="{Binding LeftAccent}"
+                                                                   FontSize="16" FontWeight="Bold"/>
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </Grid>
+                                        </Grid>
+                                    </StackPanel>
+
+                                    <!-- 선택 표시 배지 (우상단 ✓) — 선택된 카드에서만 노출 -->
+                                    <Border Visibility="{Binding IsSelected, Converter={StaticResource BoolToVis}}"
+                                            HorizontalAlignment="Right" VerticalAlignment="Top"
+                                            Margin="0,14,14,0"
+                                            Width="26" Height="26" CornerRadius="13"
+                                            Background="Transparent"
+                                            BorderBrush="{DynamicResource AccentBrush}"
+                                            BorderThickness="1.6">
+                                        <TextBlock Text="✓"
+                                                   Foreground="{DynamicResource AccentBrush}"
+                                                   FontSize="14" FontWeight="Bold"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+
+            <!-- 하단 푸터 — 좌: PLC 연결 상태 / 우: 확인·취소 -->
+            <Border Grid.Row="3"
+                    Background="{DynamicResource PrimaryBackgroundBrush}"
+                    Padding="24,12"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="0,1,0,0">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- 좌: PLC 연결 상태 -->
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Ellipse x:Name="PlcStatusDot" Width="9" Height="9" Margin="0,0,8,0"
+                                 Fill="{DynamicResource SecondaryTextBrush}"/>
+                        <TextBlock x:Name="PlcStatusText"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                   FontSize="12" VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <!-- 우: 확인 / 취소 -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="확인" Click="Apply_Click" Width="100" Height="38"
+                                Background="{DynamicResource AccentBrush}"
+                                Foreground="{DynamicResource AccentTextBrush}"
+                                BorderThickness="0" FontSize="13" FontWeight="SemiBold"
+                                Cursor="Hand" IsDefault="True"
+                                Margin="0,0,10,0"/>
+                        <Button Content="취소" Click="Cancel_Click" Width="100" Height="38"
+                                Background="{DynamicResource TertiaryBackgroundBrush}"
+                                Foreground="{DynamicResource PrimaryTextBrush}"
+                                BorderThickness="0" FontSize="13" Cursor="Hand"
+                                IsCancel="True"/>
+                    </StackPanel>
+                </Grid>
             </Border>
         </Grid>
     </Border>
