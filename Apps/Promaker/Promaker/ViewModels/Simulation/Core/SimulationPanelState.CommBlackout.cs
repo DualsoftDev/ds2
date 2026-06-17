@@ -40,6 +40,9 @@ public partial class SimulationPanelState
 
     private volatile bool _commBlackout;
     internal bool IsCommBlackout => _commBlackout;
+    // 실 PLC heartbeat(스캔 생존 신호)를 한 번이라도 받았는지 — 무소식 두절 판정의 게이트.
+    // 가상/오프라인 self-host 는 PLC 스캔 성공이 없어 heartbeat 가 안 오므로 "통신 두절"이 성립하지 않는다.
+    private volatile bool _hasReceivedHeartbeat;
     private long _lastSignalWallTicks;   // hub 스레드가 Interlocked 로 갱신
     private double _maxObservedSignalGapMs;   // 정상 운전 중 관측된 최대 신호 간격 — 적응 임계의 근거
     private DispatcherTimer? _commWatchdogTimer;
@@ -59,7 +62,8 @@ public partial class SimulationPanelState
         Hub.TagBroadcast += (_, _, _) => OnCommSignalObserved();
         // 스캔 생존 heartbeat(~1s) — 태그 변화가 없어도 통신 생존 신호로 취급. 실 PLC 는
         // 무변화 침묵이 수 초씩 정상이라, 변화 이벤트만으로는 두절 감지가 사이클마다 오탐한다.
-        Hub.ScanHeartbeat += OnCommSignalObserved;
+        // 전용 핸들러 — heartbeat 가 오는 세션(=실 PLC)에서만 무소식 두절 판정을 켠다.
+        Hub.ScanHeartbeat += OnCommHeartbeatObserved;
         Hub.PlcConnectionStatusChanged += OnCommPlcStatus;
         // 열린 간트 바는 증거(마지막 신호) 시각까지만 — blackout 확정 전 3초 동안 바가
         // 빨간 선에 붙어 자라다 동결 시 되감기는 왜곡 방지. 렌더가 매 프레임 호출.
@@ -81,6 +85,7 @@ public partial class SimulationPanelState
         _commBlackout = false;
         _shadowReconcilePending = false;
         _maxObservedSignalGapMs = 0;
+        _hasReceivedHeartbeat = false;
         Interlocked.Exchange(ref _lastSignalWallTicks, 0);
     }
 
@@ -91,6 +96,9 @@ public partial class SimulationPanelState
     private DateTime? ResolveOpenSegmentEvidenceCap()
     {
         if (!IsSimulating || SelectedRuntimeMode == RuntimeMode.Simulation) return null;
+        // heartbeat 가 없는 세션(가상/오프라인)은 edge 가 곧 증거 — cap 으로 바 성장을 막으면 edge 사이마다
+        // 멈칫거려 끊겨 보인다(통신 두절이 아니므로 "증거 없는 진행" 우려도 없음). cap 은 heartbeat 세션 한정.
+        if (!_hasReceivedHeartbeat) return null;
         var last = Interlocked.Read(ref _lastSignalWallTicks);
         if (last == 0) return null;
         var sinceLast = TimeSpan.FromTicks(Math.Max(0, DateTime.Now.Ticks - last));
@@ -100,6 +108,14 @@ public partial class SimulationPanelState
         if (sinceLast.TotalMilliseconds <= graceMs) return null;
         // wall 경과를 간트 시계(AdjustedNow) 좌표로 환산 — EnterCommBlackout 의 freezeAt 과 동일 방식.
         return GanttChart.AdjustedNow - sinceLast + TimeSpan.FromMilliseconds(graceMs);
+    }
+
+    /// <summary>스캔 생존 heartbeat 수신 — 실 PLC 통신 생존의 증거. heartbeat 가 오는 세션에서만
+    /// 무소식 두절 판정을 켠다(가상/오프라인은 heartbeat 가 없어 두절이 성립 안 함 — edge 간격 오탐 차단).</summary>
+    private void OnCommHeartbeatObserved()
+    {
+        _hasReceivedHeartbeat = true;
+        OnCommSignalObserved();
     }
 
     private void OnCommSignalObserved()
@@ -139,6 +155,9 @@ public partial class SimulationPanelState
     {
         if (_commBlackout || !IsSimulating || SelectedRuntimeMode == RuntimeMode.Simulation)
             return;
+        // heartbeat 가 없는 세션(가상/오프라인 self-host)은 통신 두절이 성립하지 않는다 — 신호원이 edge 뿐이라
+        // device 동작 간격(첫 사이클은 임계 바닥 3s)을 무소식으로 오판한다. 무소식 판정은 heartbeat 세션 한정.
+        if (!_hasReceivedHeartbeat) return;
         var last = Interlocked.Read(ref _lastSignalWallTicks);
         if (last == 0) return;   // 아직 신호를 한 번도 못 받음 — 시작 대기는 두절이 아님
         var silenceMs = (DateTime.Now.Ticks - last) / TimeSpan.TicksPerMillisecond;
