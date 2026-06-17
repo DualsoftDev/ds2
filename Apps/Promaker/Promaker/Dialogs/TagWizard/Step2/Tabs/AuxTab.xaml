@@ -22,24 +22,24 @@
                                                                 <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                                                                     <Button Content="➕ 행 추가" Padding="10,4" Margin="0,0,4,0"
                                                                             Background="{DynamicResource AccentBrush}"
-                                                                            Foreground="{DynamicResource ForegroundBrush}"
+                                                                            Foreground="{DynamicResource PrimaryTextBrush}"
                                                                             BorderBrush="{DynamicResource AccentBrush}"
                                                                             Click="AddAuxPortRow_Click"/>
                                                                     <Button Content="➖ 선택 행 삭제" Padding="10,4" Margin="0,0,5,0"
                                                                             Background="{DynamicResource SecondaryBackgroundBrush}"
-                                                                            Foreground="{DynamicResource ForegroundBrush}"
+                                                                            Foreground="{DynamicResource PrimaryTextBrush}"
                                                                             BorderBrush="{DynamicResource BorderBrush}"
                                                                             Click="RemoveAuxPortRow_Click"/>
                                                                     <Button Content="▲" Padding="8,4" Margin="0,0,2,0"
                                                                             ToolTip="선택 행 위로 이동"
                                                                             Background="{DynamicResource SecondaryBackgroundBrush}"
-                                                                            Foreground="{DynamicResource ForegroundBrush}"
+                                                                            Foreground="{DynamicResource PrimaryTextBrush}"
                                                                             BorderBrush="{DynamicResource BorderBrush}"
                                                                             Click="MoveAuxRowUp_Click"/>
                                                                     <Button Content="▼" Padding="8,4" Margin="0,0,15,0"
                                                                             ToolTip="선택 행 아래로 이동"
                                                                             Background="{DynamicResource SecondaryBackgroundBrush}"
-                                                                            Foreground="{DynamicResource ForegroundBrush}"
+                                                                            Foreground="{DynamicResource PrimaryTextBrush}"
                                                                             BorderBrush="{DynamicResource BorderBrush}"
                                                                             Click="MoveAuxRowDown_Click"/>
                                                                     <TextBlock Text="(행 선택 후 Ctrl+C / Ctrl+V — 동일 타입 그리드끼리)"

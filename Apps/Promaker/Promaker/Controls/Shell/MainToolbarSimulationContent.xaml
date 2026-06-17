@@ -336,7 +336,10 @@
                     </iconPacks:PackIconMaterial>
                     <TextBlock Text="{Binding Simulation.SimStatusText}"
                                FontSize="9"
-                               VerticalAlignment="Center">
+                               VerticalAlignment="Center"
+                               MaxWidth="300"
+                               TextTrimming="CharacterEllipsis"
+                               ToolTip="{Binding Simulation.SimStatusText}">
                         <TextBlock.Style>
                             <Style TargetType="TextBlock">
                                 <Setter Property="Foreground" Value="{DynamicResource IconRedBrush}"/>
