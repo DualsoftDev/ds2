@@ -13,8 +13,10 @@ WorkingDirectory=@WORKDIR@
 ExecStart=@EXEC@
 # Production 환경: appsettings.Production.json(사용자 설정 영속 저장소) 자동 로드 + 상세 오류 비노출.
 Environment=ASPNETCORE_ENVIRONMENT=Production
-# 공유 디렉터리 단일 소스 — plc.db / oee.db / project.aasx 가 모두 이 폴더로 정합된다(SharedPaths).
-Environment=DUALSOFT_SHARED_DIR=@SHARED_DIR@
+# 공유 디렉터리 단일 출처(SSOT) — DSPilot·Promaker.Agent 가 같은 파일을 읽어 동일 폴더로 정합.
+# plc.db / oee.db / project.aasx / PlcConnection.json / agent/active.flag 가 모두 이 폴더(SharedPaths).
+# install.sh 가 /etc/dualsoft/dualsoft.env 를 생성한다(DUALSOFT_SHARED_DIR=<공유경로>).
+EnvironmentFile=/etc/dualsoft/dualsoft.env
 Restart=on-failure
 RestartSec=10
 # ASP.NET Core 는 SIGINT 로 graceful shutdown 한다.
