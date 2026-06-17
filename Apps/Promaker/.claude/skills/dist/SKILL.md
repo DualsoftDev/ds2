@@ -47,7 +47,6 @@ git 추적 대상이며, 매 `/dist` 마다 파일 맨 위에 이번 배포 entr
    - Local: `git rev-parse --verify refs/tags/vPromaker_$CUR_VER` 성공
    - Remote: `git ls-remote --tags origin "refs/tags/vPromaker_$CUR_VER"` non-empty
 3. **빌드**: `make -C Apps/Promaker dist-installer` — Promaker installer `.exe` 생성. 실패 시 중단.
-3.5. **Paired-release drift check** — `powershell.exe -NoProfile -ExecutionPolicy Bypass -File Apps/Promaker/scripts/check-paired-release.ps1` 호출. Promaker 가 동봉하는 `Ds2.LightHouse.IndexerVersion.Current` literal ↔ LightHouseService `config.json.template` 의 `indexerVersionRange.[min,max]` 범위 정합 검증. drift 시 exit code 1 + stderr 안내 (어느 쪽 조정 필요한지) → **즉시 중단**. 사유: 범위 밖이면 사용자의 KB upload 가 service 415 (gate fail) 로 전부 차단되는 회귀를 dist 시점에 차단. (done-lighthouse-kb-server.md s5d-r0 박제 — s1-r0 결정 정정: AssemblyVersion 비교 → IndexerVersion.Current literal 비교. F# `[<Literal>]` const inline 으로 reflection 불가, source regex 추출이 SSOT.) 실패 시 working tree 변경 0 (검사 only) → 원인 수정 후 재시도.
 4. **Pull**: `git pull --ff-only` — upstream 존재 시 (`git rev-parse --abbrev-ref --symbolic-full-name @{u}` 로 판정). 실패 시 중단.
 5. **배포 대상 변경 유무 사전 검사** — ReleaseNote prepend **이전** 에 수행 (검사를 prepend 뒤에 두면 ReleaseNote 변경 자체가 항상 non-empty 로 잡혀 검사가 사문화됨):
    - `PREV_TAG=$(git describe --tags --match 'vPromaker_*' --abbrev=0 HEAD 2>/dev/null || true)`
@@ -119,7 +118,6 @@ Destructive 스텝(빌드 / ReleaseNote 파일 수정 / commit / zip / scp / tag
 | 실패 시점 | 남은 상태 | 복구 절차 |
 |---|---|---|
 | 1~3 (빌드까지) | 변경 없음 (빌드 산출물만) | 재시도 |
-| 3.5 paired-release drift | 변경 없음 (검사 only) | drift 원인 수정 (lib IndexerVersion 조정 또는 service config range 확장) → 재시도 |
 | 4~6 (pull / msg 준비) | 변경 없음 | 재시도 |
 | 7 ReleaseNote prepend 실패 | ReleaseNote.txt 만 부분 수정 가능 | `git checkout -- Apps/Promaker/ReleaseNote.txt` → 재시도 |
 | 8 staging 실패 | Staging 일부 존재 + ReleaseNote prepend 됨 | `git reset HEAD`<br>`git checkout -- Apps/Promaker/ReleaseNote.txt` → 재시도 |
