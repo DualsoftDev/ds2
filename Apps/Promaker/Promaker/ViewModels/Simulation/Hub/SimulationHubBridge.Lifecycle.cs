@@ -21,6 +21,7 @@ public sealed partial class SimulationHubBridge
 
     private int ParsePort()
     {
+        if (SelfHostPort > 0) return SelfHostPort;   // 가상 Hub: 동적 할당된 포트로 자체 호스팅
         var defaultPort = 5051;
         return ActiveAddress.Split(':') is { Length: >= 2 } parts && int.TryParse(parts[^1], out var p)
             ? p
@@ -111,6 +112,7 @@ public sealed partial class SimulationHubBridge
     private bool TryStartHost()
     {
         var isMonitoring = _runtimeMode() == RuntimeMode.Monitoring;
+        var isControl    = _runtimeMode() == RuntimeMode.Control;
 
         // ── 실 PLC (Control/Monitoring) → Agent 전담 ──
         // engine 을 Agent 한 곳(5051)에 모아 Control+Monitoring 이 같은 PLC 를 각자 물던 중복(이상감지/런타임)을 없앤다.
@@ -128,8 +130,8 @@ public sealed partial class SimulationHubBridge
                 return false;
             }
 
-            // PLAY 는 업로드가 아니다 — 모델/PLC 설정/active.flag 기록은 '저장 ▸ Agent에 업로드' 가 전담.
-            // 여기서는 업로드된 세션이 있는지 확인하고 Agent Hub(5051) 에 클라이언트로 접속만 한다.
+            // Agent 가 active(업로드된 세션) 상태가 아니면 — 공유 폴더에 AASX/PLC 설정이 보장되지 않아 Agent 가
+            // 5051 을 띄울 수 없다. '저장 ▸ Agent에 업로드' 를 먼저 요구한다 (기존 동작 유지).
             if (!System.IO.File.Exists(SharedPaths.AgentActiveFlagPath))
             {
                 _addSimLog(
@@ -138,6 +140,50 @@ public sealed partial class SimulationHubBridge
                     LogSeverity.Error);
                 _setStatusText("Agent 업로드 필요 — 시작 불가");
                 return false;
+            }
+
+            // Agent 가 이미 5051 을 'Control 이 아닌' 세션(=Monitoring, DSPilot 용)으로 점유 중인데 지금 Control 을
+            // 하려는 경우 → 사용자에게 선택을 받는다. 그냥 붙으면 Agent 가 read-only 라 제어가 안 되기 때문.
+            //   · 전환(SwitchToControl): session.RuntimeMode=Control 로 덮어써 Agent 가 Control 로 restart → 아래 위임 경로.
+            //   · 새 가상 Hub(NewVirtualHub): 실 PLC 는 Agent(5051)에 두고, 새 포트로 자체 idle Hub → 모델만 시험.
+            var agentMode = Promaker.Shared.AgentSession.TryLoad()?.RuntimeMode ?? "Monitoring";
+            if (isControl && !string.Equals(agentMode, "Control", StringComparison.OrdinalIgnoreCase))
+            {
+                switch (_askAgentBusyChoice())
+                {
+                    case Promaker.Dialogs.AgentBusyChoice.NewVirtualHub:
+                        // 실 PLC 미접속 가상 Hub — IsVirtualHubActive 로 UsesAgentProxy 가 제외되어
+                        // WPF 는 self EventDrivenEngine 으로 모델만 구동한다. Agent 모니터링(5051)은 그대로.
+                        SelfHostPort = FindFreePort();
+                        _delegatedToAgent = false;
+                        _hubHost = BackendHost.start(SelfHostPort);
+                        IsHosting = true;
+                        _addSimLog(
+                            $"가상 Hub 자체 호스팅 시작 (port={SelfHostPort}) — 실 PLC 미접속, 모델 로직만. " +
+                            "Agent 모니터링(5051)·DSPilot 은 그대로 유지됩니다.",
+                            LogSeverity.System);
+                        return true;
+
+                    case Promaker.Dialogs.AgentBusyChoice.SwitchToControl:
+                        // session 을 Control 로 덮어쓴다 → Agent 가 파일 변경을 감지해 Control engine 으로 restart.
+                        var sw = Promaker.Shared.AgentSession.TryLoad()
+                                 ?? Promaker.Shared.AgentSession.ForCurrentDefaults(requestedBy: "promaker", runtimeMode: "Control");
+                        sw.RuntimeMode = "Control";
+                        sw.RequestedBy = "promaker";
+                        sw.ActivatedAtUtc = DateTime.UtcNow.ToString("o");
+                        if (!sw.TryWrite())
+                        {
+                            _addSimLog("Agent 세션(Control 전환) 기록 실패 — 공유 폴더 권한을 확인하세요.", LogSeverity.Error);
+                            _setStatusText("Agent 전환 실패");
+                            return false;
+                        }
+                        _addSimLog("Agent 를 Control 모드로 전환 요청 — 재시작 후 5051 에 접속합니다.", LogSeverity.System);
+                        break;   // 아래 위임 경로로 진행
+
+                    default:     // Cancel
+                        _setStatusText("Control 시작 취소");
+                        return false;
+                }
             }
 
             var modeName = isMonitoring ? "Monitoring" : "Control";
@@ -159,8 +205,21 @@ public sealed partial class SimulationHubBridge
         // ── PLC 미연결 → 자체 호스팅 (idle) ──
         // 실 PLC 가 없으면 Agent 위임 의미가 없다(가상/오프라인). Promaker 가 직접 idle host 를 띄워
         // VirtualPlant·외부 client 가 붙을 수 있게 한다.
-        _hubHost = BackendHost.start(ParsePort());
-        _addSimLog($"SignalR Hub 호스팅 시작 (port={ParsePort()})", LogSeverity.System);
+        // 단 기본 포트(5051)가 Agent 모니터링 등으로 이미 점유 중이면 빈 포트로 옮겨 띄운다 — 가상 Control/VP 는
+        // 포트 무관(자기 client 도 이 포트로 붙음)이고, Agent 모니터링(5051)·DSPilot 은 그대로 유지된다.
+        var basePort = ParsePort();          // SelfHostPort=0 이므로 기본(5051 등)
+        var hostPort = basePort;
+        if (!IsPortFree(basePort))
+        {
+            SelfHostPort = FindFreePort();
+            hostPort = SelfHostPort;
+            _addSimLog(
+                $"기본 Hub 포트({basePort})가 사용 중(Agent 모니터링 등) — 가상 Hub 를 빈 포트(port={hostPort})로 띄웁니다. " +
+                "Agent 모니터링·DSPilot 은 그대로 유지됩니다.",
+                LogSeverity.System);
+        }
+        _hubHost = BackendHost.start(hostPort);
+        _addSimLog($"SignalR Hub 호스팅 시작 (port={hostPort})", LogSeverity.System);
         IsHosting = true;
         return true;
     }
@@ -576,6 +635,7 @@ public sealed partial class SimulationHubBridge
 
         var host = _hubHost;
         _hubHost = null;
+        SelfHostPort = 0;   // 가상 Hub 포트 override 해제 — 다음 PLAY 는 기본(5051) 경로
         if (host is not null)
             IsHosting = false;
 
