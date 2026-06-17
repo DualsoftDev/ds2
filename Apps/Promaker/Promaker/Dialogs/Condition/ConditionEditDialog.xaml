@@ -17,6 +17,10 @@
             <Setter Property="Margin" Value="0,0,4,0"/>
             <Setter Property="FontFamily" Value="Consolas"/>
             <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Background" Value="{DynamicResource TertiaryBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
         </Style>
     </Window.Resources>
     <Border Background="{DynamicResource SecondaryBackgroundBrush}"
@@ -83,7 +87,7 @@
                             Visibility="Collapsed"
                             Click="FormatBtn_Click"/>
                     <Button Grid.Column="5" x:Name="ApplyBtn" Content="✓ 적용 (Ctrl+Enter)"
-                            Padding="10,3" MinWidth="130"
+                            Style="{StaticResource TbBtn}" Padding="10,3" MinWidth="130"
                             IsEnabled="False" Visibility="Collapsed"
                             Click="ApplyBtn_Click"/>
                 </Grid>

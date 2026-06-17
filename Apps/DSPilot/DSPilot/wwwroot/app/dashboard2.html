@@ -232,6 +232,7 @@
 
         .alert { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border: 1px solid var(--color-lines); border-left: 3px solid var(--color-text-secondary); border-radius: var(--radius-sm); font-size: 0.82rem; background: var(--color-surface); }
         .alert .material-icons { font-size: 19px; flex-shrink: 0; }
+        .alert span:not(.material-icons) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .alert-info { border-left-color: var(--color-info); color: var(--color-info); background: color-mix(in srgb, var(--color-info) 7%, var(--color-surface)); }
         .alert-error { border-left-color: var(--color-error); color: var(--color-error); background: color-mix(in srgb, var(--color-error) 7%, var(--color-surface)); }
         .mb-4 { margin-bottom: 14px; }
@@ -534,7 +535,7 @@
 
             <!-- 로딩 / 오류 / 데이터 없음 -->
             <div class="mb-4 progress-bar progress-bar-indeterminate" x-show="loading"><div class="progress-bar-fill"></div></div>
-            <div class="alert alert-error mb-4" x-show="error" x-cloak><span class="material-icons">error</span><span x-text="error"></span></div>
+            <div class="alert alert-error mb-4" x-show="error" x-cloak><span class="material-icons">error</span><span x-text="error" :title="error"></span></div>
             <div class="alert alert-info mb-4" x-show="!loading && !error && !hasData" x-cloak><span class="material-icons">info</span><span>PLC 데이터가 수집되면 자동으로 표시됩니다.</span></div>
 
             <!-- ── 경로이탈 이상감지 알람 배너 (fliptext 참고) ── abnormals[] → 세로 티커(한 건씩 전환) + 분자/분모 인디케이터, SignalR "AbnormalDetected" 라이브 갱신 -->
