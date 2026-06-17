@@ -15,9 +15,10 @@ User=@USER@
 Group=@USER@
 WorkingDirectory=@AGENT_WORKDIR@
 ExecStart=@AGENT_EXEC@
-# 공유 디렉터리 단일 소스 — DSPilot 과 동일 폴더(active.flag / session.json / PlcConnection.json /
-# project.aasx)를 보도록 정합(SharedPaths 가 이 환경변수를 최우선).
-Environment=DUALSOFT_SHARED_DIR=@SHARED_DIR@
+# 공유 디렉터리 단일 출처(SSOT) — DSPilot 과 같은 파일을 읽어 동일 폴더(active.flag / session.json /
+# PlcConnection.json / project.aasx)를 보도록 정합(SharedPaths 가 이 환경변수를 최우선).
+# install.sh 가 /etc/dualsoft/dualsoft.env 를 생성한다(DSPilot 유닛과 동일 파일 → 항상 같은 경로).
+EnvironmentFile=/etc/dualsoft/dualsoft.env
 Restart=on-failure
 RestartSec=10
 # .NET Generic Host 는 SIGINT/SIGTERM 으로 graceful shutdown.

@@ -16,7 +16,13 @@ set -euo pipefail
 APP_NAME="dspilot"
 APP_USER="dspilot"
 INSTALL_DIR="/opt/dspilot"
+# 공유 디렉터리 기본값(대문자 Shared) — DSPilot/Promaker 양쪽 SharedPaths 의 Linux 기본값과
+# 대소문자까지 동일해야 한다. (Linux 는 경로 대소문자 구분 → 한 글자라도 다르면 다른 폴더가 되어 공유가 깨진다.)
 SHARED_DIR="/var/lib/dualsoft/Shared"
+SHARED_DIR_EXPLICIT=0
+# 공유 디렉터리 단일 출처(SSOT). DSPilot·Promaker.Agent 의 systemd 유닛이 이 파일을 EnvironmentFile 로
+# 함께 읽어 항상 같은 폴더를 본다 — 경로를 바꾸려면 이 값 한 줄만 고치고 install.sh 를 재실행한다.
+ENV_FILE="/etc/dualsoft/dualsoft.env"
 WEB_PORT="8080"
 PORT_EXPLICIT=0
 ENABLE_CCTV=1
@@ -45,8 +51,8 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --port)        WEB_PORT="${2:?--port 값 누락}"; PORT_EXPLICIT=1; shift 2 ;;
     --port=*)      WEB_PORT="${1#*=}"; PORT_EXPLICIT=1; shift ;;
-    --shared-dir)  SHARED_DIR="${2:?--shared-dir 값 누락}"; shift 2 ;;
-    --shared-dir=*) SHARED_DIR="${1#*=}"; shift ;;
+    --shared-dir)  SHARED_DIR="${2:?--shared-dir 값 누락}"; SHARED_DIR_EXPLICIT=1; shift 2 ;;
+    --shared-dir=*) SHARED_DIR="${1#*=}"; SHARED_DIR_EXPLICIT=1; shift ;;
     --no-cctv)     ENABLE_CCTV=0; shift ;;
     --no-firewall) ENABLE_FIREWALL=0; shift ;;
     --no-agent)    ENABLE_AGENT=0; AGENT_EXPLICIT=1; shift ;;
@@ -65,6 +71,17 @@ command -v systemctl >/dev/null || { echo "오류: systemd(systemctl) 가 필요
 
 if [[ ! "$WEB_PORT" =~ ^[0-9]+$ ]] || (( WEB_PORT < 1 || WEB_PORT > 65535 )); then
   echo "오류: 포트는 1~65535 범위의 숫자여야 합니다 (입력: $WEB_PORT)" >&2; exit 1
+fi
+
+# ── 업그레이드 시 기존 공유 디렉터리 보존(--shared-dir 미지정 시) ────────────
+# SSOT(env 파일)에 이전 설치가 기록한 경로가 있으면 그대로 사용 — 기본값(대소문자)이 바뀌어도
+# 기존 데이터 폴더를 그대로 가리켜 plc.db/oee.db/project.aasx 가 고아가 되지 않게 한다.
+if [[ $SHARED_DIR_EXPLICIT -eq 0 && -f "$ENV_FILE" ]]; then
+  EXIST_SHARED="$(grep -oE '^DUALSOFT_SHARED_DIR=.*' "$ENV_FILE" | head -n1 | cut -d= -f2- || true)"
+  if [[ -n "${EXIST_SHARED:-}" ]]; then
+    SHARED_DIR="$EXIST_SHARED"
+    echo "==> 기존 공유 디렉터리 보존: $SHARED_DIR (변경하려면 --shared-dir)"
+  fi
 fi
 
 # Agent 옵션 정리 — 켜져 있으나 패키지에 Agent 바이너리가 없으면 자동 스킵(빌드 시 미동봉).
@@ -156,6 +173,17 @@ fi
 chown -R "$APP_USER:$APP_USER" "$INSTALL_DIR" "$SHARED_DIR"
 chmod -R u+rwX "$SHARED_DIR"
 
+# ── 7b) 공유 디렉터리 단일 출처(SSOT) 기록 ───────────────────────────────────
+# DSPilot·Promaker.Agent 의 systemd 유닛이 EnvironmentFile 로 이 파일을 읽어 동일 폴더로 정합된다.
+mkdir -p "$(dirname "$ENV_FILE")"
+cat > "$ENV_FILE" <<EOF
+# DualSoft 공유 런타임 디렉터리(단일 출처). DSPilot·Promaker.Agent 가 project.aasx / plc.db / oee.db /
+# PlcConnection.json / agent/active.flag 를 주고받는 폴더. 두 서비스가 이 파일을 EnvironmentFile 로 읽어
+# 항상 같은 경로를 본다 — 경로를 바꾸려면 이 값 한 줄만 고치고 install.sh 를 재실행한다.
+DUALSOFT_SHARED_DIR=$SHARED_DIR
+EOF
+chmod 0644 "$ENV_FILE"
+
 # ── 8) systemd 유닛 생성(템플릿 치환) ────────────────────────────────────────
 # 80 등 1024 미만 포트는 비-root 바인딩에 CAP_NET_BIND_SERVICE 가 필요하다.
 if (( WEB_PORT < 1024 )); then
@@ -168,7 +196,6 @@ echo "==> systemd 유닛 설치: /etc/systemd/system/$SVC_DSPILOT"
 sed -e "s|@USER@|$APP_USER|g" \
     -e "s|@WORKDIR@|$INSTALL_DIR|g" \
     -e "s|@EXEC@|$INSTALL_DIR/DSPilot|g" \
-    -e "s|@SHARED_DIR@|$SHARED_DIR|g" \
     -e "s|@AMBIENT_CAP@|$CAP_BLOCK|g" \
     "$SCRIPT_DIR/systemd/dspilot.service" > "/etc/systemd/system/$SVC_DSPILOT"
 
@@ -186,10 +213,10 @@ fi
 
 if [[ $ENABLE_AGENT -eq 1 ]]; then
   echo "==> systemd 유닛 설치: /etc/systemd/system/$SVC_AGENT"
+  # Agent 유닛도 동일 SSOT(env 파일)를 EnvironmentFile 로 읽는다 → DSPilot 과 같은 공유 폴더 정합.
   sed -e "s|@USER@|$APP_USER|g" \
       -e "s|@AGENT_WORKDIR@|$AGENT_DIR|g" \
       -e "s|@AGENT_EXEC@|$AGENT_DIR/Promaker.Agent|g" \
-      -e "s|@SHARED_DIR@|$SHARED_DIR|g" \
       "$SCRIPT_DIR/systemd/promaker-agent.service" > "/etc/systemd/system/$SVC_AGENT"
 fi
 

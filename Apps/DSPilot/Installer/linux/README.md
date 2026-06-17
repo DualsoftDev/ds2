@@ -29,7 +29,9 @@ sudo ./install.sh                 # 포트 8080 기본
 
 ## 동작 개요
 - 앱: `/opt/dspilot`, 서비스 계정 `dspilot`, 웹 = `http://<host>:<port>`
-- 공유 데이터: `/var/lib/dualsoft/Shared` (`project.aasx` / `plc.db` / `oee.db`) — `DUALSOFT_SHARED_DIR` 환경변수로 단일화
+- 공유 데이터: `/var/lib/dualsoft/Shared` (`project.aasx` / `plc.db` / `oee.db` / `PlcConnection.json` / `agent/active.flag`)
+  - 경로 **단일 출처(SSOT)** = `/etc/dualsoft/dualsoft.env` 의 `DUALSOFT_SHARED_DIR`. DSPilot·Promaker.Agent 의 systemd 유닛이 이 파일을 `EnvironmentFile` 로 함께 읽어 **항상 같은 폴더**를 본다 — 경로를 바꾸려면 이 한 줄만 고치고 `install.sh` 재실행(또는 `--shared-dir`).
+  - 대문자 `Shared` 고정: Linux 는 경로 대소문자를 구분하므로 코드 기본값(`DSPilot.Infrastructure.SharedPaths` / `Promaker.Shared.SharedPaths`)과 글자까지 일치시켜, env 변수가 없어도 어긋나지 않게 한다.
 - CCTV: MediaMTX 가 별도 서비스(`dspilot-mediamtx`), DSPilot 은 제어 API(:9997)로 카메라만 동기화
 - 업그레이드: `install.sh` 재실행 — `appsettings.Production.json`(사용자 설정)·`uploads`·`mediamtx.yml`·공유 데이터 보존
 
