@@ -1,6 +1,7 @@
 using System;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 
 namespace Promaker.Dialogs;
 
@@ -24,16 +25,24 @@ internal static class AgentBusyDialog
     /// <summary>modal 표시 후 사용자의 선택 반환. 창을 닫거나 취소하면 <see cref="AgentBusyChoice.Cancel"/>.</summary>
     internal static AgentBusyChoice Ask()
     {
+        // 테마 — App.xaml 에 Window 전역 다크 스타일이 없어 코드 생성 Window 는 기본 흰 배경이 된다.
+        // DialogHelpers 패턴대로 SecondaryBackgroundBrush/PrimaryTextBrush 를 명시해 다크 테마 정합.
+        var bgBrush = (Brush?)Application.Current?.TryFindResource("SecondaryBackgroundBrush")
+                      ?? SystemColors.WindowBrush;
+        var fgBrush = (Brush?)Application.Current?.TryFindResource("PrimaryTextBrush")
+                      ?? SystemColors.ControlTextBrush;
+
         var dialog = new Window
         {
             Title = "Agent 모니터링 중 — Control 시작",
             Width = 560,
-            Height = 380,
-            SizeToContent = SizeToContent.Manual,
+            SizeToContent = SizeToContent.Height,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Owner = Application.Current?.MainWindow,
             ResizeMode = ResizeMode.NoResize,
             ShowInTaskbar = false,
+            Background = bgBrush,
+            Foreground = fgBrush,
         };
 
         var msg = new TextBlock
@@ -102,8 +111,9 @@ internal static class AgentBusyDialog
             Text = detail,
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
+            MaxWidth = 480,                  // DarkButton 템플릿이 콘텐츠 폭을 제한 안 함 → wrap 보장 (글자색은 버튼 Foreground 상속)
             Margin = new Thickness(0, 4, 0, 0),
-            Opacity = 0.85,
+            Opacity = 0.85,                  // PrimaryTextBrush 상속 + 약하게 — hover 시 AccentTextBrush 도 따라 흐려짐
         });
         btn.Content = sp;
         return btn;
