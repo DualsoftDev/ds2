@@ -9,23 +9,38 @@ namespace Promaker.Services;
 
 /// <summary>
 /// DSPilot 웹 대시보드를 기본 브라우저로 띄우는 헬퍼.
-/// URL 해석 우선순위:
-///   1. `{ProgramFiles}\DualSoft\DSPilot\appsettings.Production.json` 의 "Urls" 필드 (예: "http://*:80")
-///   2. `{ProgramFilesX86}\DualSoft\DSPilot\appsettings.Production.json` (32-bit 머신/잔여 설치)
-/// 두 경로 모두 누락이면 DSPilot 미설치로 판단 — fallback URL 없이 null 반환.
+///
+/// 설치 판정: `{ProgramFiles}\DualSoft\DSPilot\DSPilot.exe`(또는 x86 경로) 존재 여부.
+///   사용자 설정 파일(appsettings.Production.json)은 DSPilot 최초 부팅 전엔 없을 수 있어 설치 마커로 부적절하다.
+///
+/// 포트(Urls) 해석: DSPilot/Program.cs 의 AddJsonFile 로드 순서(base → Production → Hosting, 마지막이 우선)와
+///   동일하게 아래 순서로 "Urls" 첫 정의를 채택한다 — DSPilot 이 어떤 포트를 지정하든 그대로 따라간다.
+///     1. appsettings.Hosting.json   — 신버전 설치 스크립트가 사용자가 고른 포트를 기록 (예: "http://*:8080")
+///     2. appsettings.Production.json — 구버전 설치본이 Urls 를 보관하던 곳
+///     3. appsettings.json            — 번들 기본값(보통 Urls 없음)
+///   세 파일 모두에 Urls 가 없어도 DSPilot.exe 가 있으면 기본 포트(80, http://localhost)로 폴백한다.
 /// DSPilot 인스톨러가 `*` 와이드카드 호스트 + 포트로 Urls 를 기록하므로 host 는 localhost 로 치환한다.
 /// </summary>
 public static class DspilotLauncher
 {
     private static readonly ILog Log = LogManager.GetLogger("DspilotLauncher");
 
-    /// <summary>DSPilot 설치 여부 — Program Files 후보 경로 중 하나라도 appsettings.Production.json 존재 시 true.</summary>
+    /// <summary>DSPilot 설치 여부 — Program Files 후보 경로 중 하나라도 DSPilot.exe 존재 시 true.</summary>
     public static bool IsInstalled()
     {
-        foreach (var candidate in EnumerateConfigPaths())
-            if (File.Exists(candidate)) return true;
+        foreach (var dir in EnumerateInstallDirs())
+            if (File.Exists(Path.Combine(dir, "DSPilot.exe"))) return true;
         return false;
     }
+
+    /// <summary>DSPilot/Program.cs 의 AddJsonFile 순서상 마지막에 로드된 파일이 이긴다.
+    /// 따라서 Urls 는 역순(Hosting → Production → base)으로 첫 정의를 채택한다.</summary>
+    private static readonly string[] ConfigFileNamesByPrecedence =
+    {
+        "appsettings.Hosting.json",
+        "appsettings.Production.json",
+        "appsettings.json",
+    };
 
     /// <summary>VS dev 인스턴스가 사용하는 DSPilot 포트 — <c>Apps/DSPilot/DSPilot/Properties/launchSettings.json</c>
     /// 의 applicationUrl 과 동기 유지. 이 포트가 listening 이면 설치본보다 우선해서 browser 로 띄운다.</summary>
@@ -45,19 +60,34 @@ public static class DspilotLauncher
         }
         Log.Debug($"DSPilot dev 포트 {DevDspilotPort} 비활성 — 설치본 lookup");
 
-        foreach (var candidate in EnumerateConfigPaths())
+        foreach (var dir in EnumerateInstallDirs())
         {
-            try
+            foreach (var fileName in ConfigFileNamesByPrecedence)
             {
-                if (!File.Exists(candidate)) continue;
-                var url = TryReadUrlsField(candidate);
-                if (!string.IsNullOrWhiteSpace(url))
-                    return url;
+                var candidate = Path.Combine(dir, fileName);
+                try
+                {
+                    if (!File.Exists(candidate)) continue;
+                    var url = TryReadUrlsField(candidate);
+                    if (!string.IsNullOrWhiteSpace(url))
+                    {
+                        Log.Debug($"DSPilot Urls 채택: {candidate} → {url}");
+                        return url;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"DSPilot 설정 읽기 실패 ({candidate}): {ex.Message}");
+                }
             }
-            catch (Exception ex)
-            {
-                Log.Warn($"DSPilot 설정 읽기 실패 ({candidate}): {ex.Message}");
-            }
+        }
+
+        // 설정 파일 어디에도 Urls 가 없지만 DSPilot.exe 가 있으면 설치는 된 것 → 기본 포트(80) 폴백.
+        // (정상 설치본은 Hosting.json 에 Urls 가 있어 여기까지 오지 않는다. 손상/부분설치 안전망.)
+        if (IsInstalled())
+        {
+            Log.Info("DSPilot 설치 확인됨(설정에 Urls 없음) — 기본 http://localhost 폴백");
+            return "http://localhost";
         }
         return null;
     }
@@ -111,14 +141,15 @@ public static class DspilotLauncher
         }
     }
 
-    private static System.Collections.Generic.IEnumerable<string> EnumerateConfigPaths()
+    /// <summary>DSPilot 설치 후보 디렉터리 — `{ProgramFiles}\DualSoft\DSPilot` 및 (다르면) x86 경로.</summary>
+    private static System.Collections.Generic.IEnumerable<string> EnumerateInstallDirs()
     {
         var pf = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
         var pfx86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
         if (!string.IsNullOrEmpty(pf))
-            yield return Path.Combine(pf, "DualSoft", "DSPilot", "appsettings.Production.json");
+            yield return Path.Combine(pf, "DualSoft", "DSPilot");
         if (!string.IsNullOrEmpty(pfx86) && !string.Equals(pf, pfx86, StringComparison.OrdinalIgnoreCase))
-            yield return Path.Combine(pfx86, "DualSoft", "DSPilot", "appsettings.Production.json");
+            yield return Path.Combine(pfx86, "DualSoft", "DSPilot");
     }
 
     private static string? TryReadUrlsField(string jsonPath)
