@@ -10,6 +10,8 @@
     <SolidColorBrush x:Key="PrimaryBackgroundBrush" Color="{StaticResource PrimaryBackgroundColor}" po:Freeze="False"/>
     <SolidColorBrush x:Key="SecondaryBackgroundBrush" Color="{StaticResource SecondaryBackgroundColor}" po:Freeze="False"/>
     <SolidColorBrush x:Key="TertiaryBackgroundBrush" Color="{StaticResource TertiaryBackgroundColor}" po:Freeze="False"/>
+    <!-- 런타임 세팅 모드 카드의 이미지 뒤 "무대" 배경 — 다크에선 기존 어두운 프레임 그대로(가시성 OK). -->
+    <SolidColorBrush x:Key="ModeFlowBackdropBrush" Color="{StaticResource PrimaryBackgroundColor}" po:Freeze="False"/>
     <SolidColorBrush x:Key="PanelHeaderBrush" Color="{StaticResource PanelHeaderColor}" po:Freeze="False"/>
     <SolidColorBrush x:Key="BorderBrush" Color="{StaticResource BorderColor}" po:Freeze="False"/>
     <SolidColorBrush x:Key="PrimaryTextBrush" Color="{StaticResource PrimaryTextColor}" po:Freeze="False"/>

@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:conv="clr-namespace:Promaker.Presentation"
         Title="런타임 세팅"
-        Width="1200" Height="940"
+        Width="1200" Height="960"
         MinWidth="1040" MinHeight="720"
         ResizeMode="CanResize"
         WindowStartupLocation="CenterOwner"
@@ -187,9 +187,9 @@
                                                    Margin="0,6,0,12"/>
 
                                         <!-- Flow row : 외곽 박스 없이 콘텐츠만. IsInternalLoop 으로 두-박스 vs Sim 점선 박스 분기 -->
-                                        <Grid HorizontalAlignment="Center" Margin="0,4,0,0">
-                                            <!-- 두-박스 콘텐츠 : Ctrl/Mon/Vp — IsInternalLoop=false 시. 전체 영역 한 검정 액자 -->
-                                            <Border Background="{DynamicResource PrimaryBackgroundBrush}" CornerRadius="10" Padding="16" HorizontalAlignment="Center">
+                                        <Grid Margin="0,4,0,0">
+                                            <!-- 두-박스 콘텐츠 : Ctrl/Mon/Vp — IsInternalLoop=false 시. 카드 폭을 채워 좌우 잘림 방지 -->
+                                            <Border Background="{DynamicResource ModeFlowBackdropBrush}" CornerRadius="10" Padding="16" HorizontalAlignment="Stretch">
                                                 <Border.Style>
                                                     <Style TargetType="Border">
                                                         <Setter Property="Visibility" Value="Visible"/>
@@ -200,21 +200,31 @@
                                                         </Style.Triggers>
                                                     </Style>
                                                 </Border.Style>
-                                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                                <!-- 좌/우 이미지는 * 열로 카드 폭에 맞춰 축소·확대(가운데 화살표 열만 고정).
+                                                     MaxHeight 로 상한을 둬 두 줄(2x2)이 한 화면에 유지됨. -->
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+
                                                     <!-- Left : 이미지 + 라벨 -->
-                                                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                                    <StackPanel Grid.Column="0" Orientation="Vertical" VerticalAlignment="Center">
                                                         <Image Source="{Binding LeftThumb}"
-                                                               Width="170" Height="170"
-                                                               Stretch="Uniform"/>
+                                                               MaxHeight="180"
+                                                               Stretch="Uniform"
+                                                               HorizontalAlignment="Center"/>
                                                         <TextBlock Text="{Binding LeftLabel}"
                                                                    Foreground="{Binding LeftAccent}"
                                                                    FontSize="13" FontWeight="Bold"
                                                                    HorizontalAlignment="Center"
+                                                                   TextTrimming="CharacterEllipsis"
                                                                    Margin="0,8,0,0"/>
                                                     </StackPanel>
 
                                                     <!-- Arrow column : 입력(Green) + 출력(Orange) -->
-                                                    <StackPanel Orientation="Vertical"
+                                                    <StackPanel Grid.Column="1" Orientation="Vertical"
                                                                 VerticalAlignment="Center"
                                                                 Margin="18,0" Width="112">
                                                         <Grid Margin="0,5" Width="104" Height="26" HorizontalAlignment="Center">
@@ -242,17 +252,19 @@
                                                     </StackPanel>
 
                                                     <!-- Right : 이미지 + 라벨 -->
-                                                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                                    <StackPanel Grid.Column="2" Orientation="Vertical" VerticalAlignment="Center">
                                                         <Image Source="{Binding RightThumb}"
-                                                               Width="170" Height="170"
-                                                               Stretch="Uniform"/>
+                                                               MaxHeight="180"
+                                                               Stretch="Uniform"
+                                                               HorizontalAlignment="Center"/>
                                                         <TextBlock Text="{Binding RightLabel}"
                                                                    Foreground="{Binding RightAccent}"
                                                                    FontSize="13" FontWeight="Bold"
                                                                    HorizontalAlignment="Center"
+                                                                   TextTrimming="CharacterEllipsis"
                                                                    Margin="0,8,0,0"/>
                                                     </StackPanel>
-                                                </StackPanel>
+                                                </Grid>
                                             </Border>
 
                                             <!-- Sim 전용 점선 박스 + 가로 [이미지 | 텍스트] -->
@@ -272,7 +284,7 @@
                                                 <Rectangle Stroke="{Binding LeftAccent}"
                                                            StrokeThickness="1.5"
                                                            StrokeDashArray="3,2"
-                                                           Fill="{DynamicResource PrimaryBackgroundBrush}"
+                                                           Fill="{DynamicResource ModeFlowBackdropBrush}"
                                                            RadiusX="10" RadiusY="10"
                                                            Margin="8,8,8,0"/>
 
