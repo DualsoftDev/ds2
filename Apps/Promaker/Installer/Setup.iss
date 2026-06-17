@@ -51,6 +51,8 @@
 #define MyAgentServiceDisplay "Promaker Agent Service"
 #define MyAgentServiceDesc "Promaker headless monitoring agent (5051 SignalR Hub + PLC scan, read-only)"
 #define MyAgentPort "5051"
+; 모델 업로드 수신 포트 (AgentUploadReceiver, 항상 listen) — '저장 ▸ Agent에 업로드 ▸ 네트워크' 원격 전송 대상.
+#define MyAgentUploadPort "5050"
 
 [Setup]
 AppId={{7B74787E-6F09-4AB9-AE16-4C9D5F8B3D31}
@@ -201,6 +203,10 @@ Filename: "{sys}\sc.exe"; \
 Filename: "{sys}\netsh.exe"; \
   Parameters: "advfirewall firewall add rule name=""Promaker Agent Monitoring"" dir=in action=allow protocol=tcp localport={#MyAgentPort}"; \
   Flags: runhidden waituntilterminated
+; 방화벽 인바운드 5050 — 모델 업로드 수신(AgentUploadReceiver). 원격 Promaker 의 '네트워크 업로드' 대상.
+Filename: "{sys}\netsh.exe"; \
+  Parameters: "advfirewall firewall add rule name=""Promaker Agent Upload"" dir=in action=allow protocol=tcp localport={#MyAgentUploadPort}"; \
+  Flags: runhidden waituntilterminated
 Filename: "{sys}\sc.exe"; Parameters: "start {#MyAgentServiceName}"; \
   Flags: runhidden waituntilterminated; \
   StatusMsg: "Promaker Agent 서비스 시작 중..."
@@ -225,6 +231,8 @@ Filename: "{sys}\sc.exe"; Parameters: "stop {#MyAgentServiceName}"; Flags: runhi
 Filename: "{sys}\sc.exe"; Parameters: "delete {#MyAgentServiceName}"; Flags: runhidden; RunOnceId: "DeleteAgentService"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Promaker Agent Monitoring"""; \
   Flags: runhidden; RunOnceId: "DeleteAgentFirewall"
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Promaker Agent Upload"""; \
+  Flags: runhidden; RunOnceId: "DeleteAgentUploadFirewall"
 #endif
 
 ; ── [Code] 섹션 ──
