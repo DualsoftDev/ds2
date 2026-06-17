@@ -87,7 +87,7 @@
                             Visibility="Collapsed"
                             Click="FormatBtn_Click"/>
                     <Button Grid.Column="5" x:Name="ApplyBtn" Content="✓ 적용 (Ctrl+Enter)"
-                            Padding="10,3" MinWidth="130"
+                            Style="{StaticResource TbBtn}" Padding="10,3" MinWidth="130"
                             IsEnabled="False" Visibility="Collapsed"
                             Click="ApplyBtn_Click"/>
                 </Grid>
