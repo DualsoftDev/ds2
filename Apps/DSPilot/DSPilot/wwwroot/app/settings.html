@@ -93,6 +93,40 @@
         @keyframes fa-demo-flip { 0% { transform: translateY(108%); opacity: 0; } 60% { opacity: 1; } 100% { transform: translateY(0); opacity: 1; } }
         @media (prefers-reduced-motion: reduce) { .fa-demo-msg-anim { animation: none; } }
         .fa-demo-idx { flex-shrink: 0; margin-left: 10px; font-size: 0.78rem; font-weight: 800; color: #000; background: rgba(0,0,0,0.14); border: 1px solid rgba(0,0,0,0.1); border-radius: 9999px; padding: 2px 9px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+        /* ── 모바일(≤480px) ──
+           이 페이지는 .modal-content / .modal-confirm 를 자체 인라인 정의하므로(ds.css 오버라이드)
+           폰 화면용 폭/높이 규칙을 여기서 재현한다. 데스크톱 레이아웃은 그대로 둔다. */
+        @media (max-width: 480px) {
+            /* 메인 패딩 축소 → 360px 에서 카드가 가장자리에 붙지 않게 좌우 여백만 유지 */
+            .dsp-main { padding: 12px 12px 16px; }
+
+            /* settings-grid 는 900px 에서 이미 1열 — 폰에서 간격만 약간 좁힌다 */
+            .settings-grid { gap: 12px; }
+            .settings-col { gap: 12px; }
+
+            /* 상단 저장/되돌리기 액션 — 좁은 폭에서 줄바꿈 허용 */
+            .settings-actions { flex-wrap: wrap; gap: 8px; }
+
+            /* H/M/S 시간 입력 — 고정 72px 3개가 360px 에서 넘침 → 트랙을 균등 분배 */
+            .hms-row { gap: 6px; }
+            .hms-cell { flex: 1 1 0; min-width: 0; }
+            .hms-cell input { width: 100%; min-width: 0; }
+
+            /* 모달 — 화면폭에서 32px 빼되 최대 480px, 세로는 화면 안에 들어오게 */
+            .modal-content {
+                max-width: min(480px, calc(100vw - 32px));
+                width: 100%;
+                max-height: 90vh;
+                overflow-y: auto;
+                padding: 18px;
+            }
+            .modal-confirm { max-width: min(520px, calc(100vw - 32px)); }
+            /* 확인 메시지 본문은 모달이 이미 스크롤되므로 자체 cap 을 더 낮춰 버튼이 보이게 */
+            .modal-confirm .msg { max-height: 42vh; }
+            /* 선택 삭제 리스트 — 모달 내부 높이에 맞춰 축소 */
+            .modal-content [style*="max-height:320px"] { max-height: 50vh !important; }
+        }
     </style>
 </head>
 
@@ -610,7 +644,7 @@
 
         <!-- AASX 갱신일 기준 선택 삭제 다이얼로그 -->
         <div class="modal-overlay" x-show="selectiveDel.show" style="display:none; z-index:3000;" @click.self="selectiveDel.show = false">
-            <div class="modal-content" @click.stop style="max-width:480px;">
+            <div class="modal-content" @click.stop style="max-width:min(480px, calc(100vw - 32px));">
                 <h3 style="margin:0 0 6px; display:flex; align-items:center; gap:8px;">
                     <span class="material-icons" style="color:var(--color-warning, #e67e22);">event</span>
                     AASX 갱신일 기준 데이터 삭제

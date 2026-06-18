@@ -71,31 +71,51 @@ const wheelZoomPlugin = {
             chart.update('none');
         }, { passive: false });
 
-        // 드래그 패닝: 확대 상태에서 좌우 드래그로 이동
+        // 드래그 패닝: 확대 상태에서 좌우 드래그로 이동.
+        // 마우스/터치 통합 위해 Pointer Events 사용(pointerdown/move/up + setPointerCapture).
+        // 기존 마우스 동작 유지 + 손가락 드래그도 동작. 캔버스 offset 좌표는 이벤트 client - 캔버스 rect 로 계산.
         let dragStartX = null;
         let dragStartMin = null;
         let dragStartMax = null;
 
-        canvas.addEventListener('mousedown', function (e) {
+        // 캔버스 기준 X 오프셋(마우스/터치 공통). PointerEvent.offsetX 는 일부 브라우저서 부정확하므로 rect 로 계산.
+        function offsetXOf(e) {
+            const rect = canvas.getBoundingClientRect();
+            return e.clientX - rect.left;
+        }
+        function offsetYOf(e) {
+            const rect = canvas.getBoundingClientRect();
+            return e.clientY - rect.top;
+        }
+
+        function beginPan(e) {
             if (!chart.chartArea) return;
+            const ox = offsetXOf(e), oy = offsetYOf(e);
             const { left, right, top, bottom } = chart.chartArea;
-            if (e.offsetX < left || e.offsetX > right || e.offsetY < top || e.offsetY > bottom) return;
+            if (ox < left || ox > right || oy < top || oy > bottom) return;
             // 확대 상태가 아니면 패닝 불필요
             const xScale = chart.scales.x;
             if (xScale.min === 0 && xScale.max >= chart.data.labels.length - 1) return;
-            dragStartX = e.offsetX;
+            dragStartX = ox;
             dragStartMin = xScale.min;
             dragStartMax = xScale.max;
             canvas.style.cursor = 'grabbing';
-        });
+            // 터치/포인터 캡처 — 손가락이 캔버스를 벗어나도 드래그 유지
+            if (e.pointerId != null && canvas.setPointerCapture) {
+                try { canvas.setPointerCapture(e.pointerId); } catch (_) { }
+            }
+        }
 
-        canvas.addEventListener('mousemove', function (e) {
+        function movePan(e) {
             if (dragStartX == null) return;
+            // 손가락(터치/펜) 드래그 중에만 페이지 스크롤 방지. 마우스(데스크톱)는 기존처럼
+            // preventDefault 안 함 → 패닝 중 휠/페이지 스크롤 동작 보존(데스크톱 무변경).
+            if (e.pointerType && e.pointerType !== 'mouse' && e.cancelable) e.preventDefault();
             const { left, right } = chart.chartArea;
             const xScale = chart.scales.x;
             const pixelRange = right - left;
             const dataRange = dragStartMax - dragStartMin;
-            const dx = e.offsetX - dragStartX;
+            const dx = offsetXOf(e) - dragStartX;
             const dataShift = Math.round(-dx / pixelRange * dataRange);
 
             let newMin = dragStartMin + dataShift;
@@ -119,16 +139,35 @@ const wheelZoomPlugin = {
             yScale.options.max = Math.ceil(dataMax + yPad);
 
             chart.update('none');
-        });
+        }
 
-        function endDrag() {
+        function endDrag(e) {
             if (dragStartX != null) {
                 dragStartX = null;
                 canvas.style.cursor = '';
+                if (e && e.pointerId != null && canvas.releasePointerCapture) {
+                    try { canvas.releasePointerCapture(e.pointerId); } catch (_) { }
+                }
             }
         }
-        canvas.addEventListener('mouseup', endDrag);
-        canvas.addEventListener('mouseleave', endDrag);
+
+        // Pointer Events 가 있으면 마우스+터치 통합(중복 mouse 이벤트 방지). 없으면 마우스 폴백.
+        if (window.PointerEvent) {
+            // pan-y: 세로 스와이프는 페이지 스크롤로 통과(작은 차트 위에서도 스크롤 가능),
+            // 가로 드래그(확대 시 패닝)는 movePan 의 preventDefault 로 캡처. touch-action:none 은
+            // 비확대 상태에서도 스크롤을 막아 폰 UX 를 해쳐 부적합.
+            canvas.style.touchAction = 'pan-y';
+            canvas.addEventListener('pointerdown', beginPan);
+            canvas.addEventListener('pointermove', movePan);
+            canvas.addEventListener('pointerup', endDrag);
+            canvas.addEventListener('pointercancel', endDrag);
+            canvas.addEventListener('pointerleave', endDrag);
+        } else {
+            canvas.addEventListener('mousedown', beginPan);
+            canvas.addEventListener('mousemove', movePan);
+            canvas.addEventListener('mouseup', endDrag);
+            canvas.addEventListener('mouseleave', endDrag);
+        }
 
         canvas.addEventListener('dblclick', function () {
             chart.scales.x.options.min = undefined;

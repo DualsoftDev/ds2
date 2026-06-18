@@ -433,3 +433,36 @@
 
 /* 시그니처: 모든 계기 readout 은 등폭 수치 (swiss readout-value 보강) */
 .readout-value, .bottleneck-value, .kp-value { font-family: var(--font-mono); }
+
+/* ============================================================================
+   모바일(폰 ≤480px) 공용 보강 — 2026-06-18
+   ----------------------------------------------------------------------------
+   swiss.css(@import) 의 공용 프리미티브(.ds-table/.btn*/.form-field/.modal-content)를
+   폰에서 쓰기 좋게 보강한다. ds.css 가 swiss 보다 늦게 로드되므로 동일 특이성에서 우선.
+   ※ swiss.css 는 손대지 않음(되돌리기 = 이 블록 삭제). 페이지 인라인 <style> 로
+     같은 클래스를 재정의한 페이지(dashboard2/flow)는 각 페이지 블록에서 별도 처리.
+   ※ 최소 지원 폭 = 360px. 가로 스크롤 0, 터치 타깃 ≥40px, 입력 폰트 16px(iOS 줌 방지).
+   ============================================================================ */
+
+/* 가로로 넓은 표는 페이지를 밀지 않고 표 자체가 가로 스크롤되도록 감싸는 유틸. */
+.ds-table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
+
+@media (max-width: 480px) {
+    /* 표: 밀도 축소(글자/패딩) — 컬럼이 많아도 한 화면에서 가독. */
+    .ds-table { font-size: 0.68rem; }
+    .ds-table th, .ds-table td { padding: 6px 5px; }
+    .ds-table th { font-size: 0.58rem; letter-spacing: 0.03em; }
+
+    /* 터치 타깃: 아이콘/소형 버튼을 손가락으로 누를 수 있게 ≥40px. */
+    .btn-icon { min-width: 40px; min-height: 40px; }
+    .btn-icon.btn-sm { width: 40px; height: 40px; }
+    .btn.btn-sm { min-height: 36px; padding: 7px 12px; }
+    .btn { min-height: 40px; }
+
+    /* 입력류: 폭 100% + 16px(iOS 포커스 줌 방지) + 박스사이징. */
+    .form-field, .form-select { width: 100%; min-width: 0; font-size: 16px; box-sizing: border-box; }
+
+    /* 모달: 화면을 거의 채우되 좌우 여백 확보 + 세로 스크롤. */
+    .modal-content, .dialog { width: calc(100vw - 24px); max-width: calc(100vw - 24px); max-height: 88vh; overflow-y: auto; }
+    .modal-content { padding: 18px; }
+}

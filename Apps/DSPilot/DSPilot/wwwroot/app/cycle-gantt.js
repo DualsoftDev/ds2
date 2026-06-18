@@ -21,8 +21,12 @@
     'use strict';
 
     // ── 레이아웃 상수 (flow.html:1056-1057 동일) ──
+    // 모바일(≤480px): MIN_PLOT_WIDTH 640px 는 360px 폰에서 과도한 가로 스크롤을 강제한다.
+    //   좁은 화면에서는 플롯 최소 폭을 컨테이너에 맞춰 줄인다(데스크톱은 640 유지).
     var TOP_MARGIN = 50, LANE_HEIGHT = 44, BAR_HEIGHT = 18, RIBBON_H = 48,
-        LEFT_PAD = 12, RIGHT_PAD = 40, BOTTOM_PAD = 20, MIN_PLOT_WIDTH = 640, MAX_ZOOM = 24;
+        LEFT_PAD = 12, RIGHT_PAD = 40, BOTTOM_PAD = 20, MAX_ZOOM = 24;
+    var MIN_PLOT_WIDTH = (typeof window !== 'undefined' && window.matchMedia &&
+        window.matchMedia('(max-width: 480px)').matches) ? 300 : 640;
     var API_ROW_HEIGHT = 64;   // 실측/AASX 메트릭 칩이 좁은 사이드바에서 wrap 될 여유(사이드바·SVG 공통)
 
     // ════════════════════════════════════════════════════════════════════════

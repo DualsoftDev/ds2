@@ -131,6 +131,63 @@
 
         /* 정렬 가능 헤더의 도움말 점선 밑줄 (잉크 톤) */
         .hm-help { border-bottom: 1px dotted var(--color-lines-strong); cursor: help; }
+
+        /* ── 모바일(≤480px) ──
+           데스크톱 레이아웃은 그대로 유지하고, 폰 폭(360~480px)에서만 reflow.
+           ds.css 가 .btn/.btn-icon/.form-field/.modal 등 공통 터치 타깃은 이미 처리.
+           아래는 heatmap 고유 클래스(hm-*)와 swiss.css 매트릭스 표 오버라이드만. */
+        @media (max-width: 480px) {
+            /* 슬림 헤더/메인 패딩 축소 */
+            .dsp-appbar { padding: 0 12px; gap: 8px; }
+            .dsp-appbar .dsp-title { font-size: 16px; }
+            .dsp-main { padding: 12px 12px 20px; }
+
+            /* Flow 필터: 한 줄 전체폭 */
+            .hm-control-grid { gap: 10px; }
+            .hm-field-filter { min-width: auto; max-width: 100%; flex-basis: 100%; }
+            .hm-control-actions { flex-basis: 100%; }
+            .hm-control-actions .btn { flex: 1 1 auto; justify-content: center; }
+
+            /* KPI 계기판: 4-up 이 좁아서 값/라벨 축소 */
+            .hm-kpi-value { font-size: 1.25rem; }
+            .hm-kpi-label { font-size: 0.56rem; letter-spacing: 0.06em; }
+            .hm-kpi-sub { font-size: 0.6rem; }
+
+            /* 범례 행 간격 정리 (줄바꿈 시 촘촘하게) */
+            .hm-legend-bar { gap: 8px 12px; }
+            .ds-legend { gap: 6px 12px; }
+
+            /* 보기 전환 세그먼트: 두 버튼 꽉 채우고 힌트는 아래 줄 전체폭 */
+            .hm-view-switch { gap: 8px; }
+            .hm-seg { flex: 1 1 100%; }
+            .hm-seg button { flex: 1 1 50%; justify-content: center; padding: 9px 10px; font-size: 0.74rem; }
+            .hm-view-hint { flex-basis: 100%; font-size: 0.68rem; }
+
+            /* 진단 블럭 그리드: 1열 단일 컬럼 */
+            .hm-block-grid { grid-template-columns: 1fr; gap: 10px; }
+            .hm-block { min-height: auto; padding: 12px; }
+            .hm-block .hm-b-avg .hm-b-val { font-size: 1.3rem; }
+
+            /* 상세 패널: 컬럼은 hm-detail-cols 가 이미 820px 에서 1열로 떨어짐 */
+            .hm-detail-cols { gap: 14px; }
+
+            /* 상세 차트 박스: 280px → 200px (responsive 캔버스가 추종) */
+            .hm-chart-box { height: 200px; }
+
+            /* 기간 버튼(전체/오늘/7일/30일): 2열 그리드로 깔끔하게 줄바꿈 */
+            .hm-period-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; width: 100%; }
+            .hm-period-btns .btn { width: 100%; justify-content: center; }
+
+            /* 매트릭스 표(swiss.css) 오버라이드 — 클립 대신 가로 스크롤 + 폰트 축소.
+               .table-container 는 이미 overflow:auto 라 스크롤되므로 -webkit 관성 스크롤만 보강. */
+            .table-container { -webkit-overflow-scrolling: touch; }
+            .heatmap-matrix-table { font-size: 0.72rem; min-width: 520px; }
+            .heatmap-matrix-table th,
+            .heatmap-matrix-table td { padding-left: 4px; padding-right: 4px; }
+            .heatmap-matrix-label { max-width: 120px; }
+            .hm-table-head { padding: 10px 12px; }
+            .hm-flow-title { font-size: 0.88rem; }
+        }
     </style>
 </head>
 
@@ -405,7 +462,7 @@
                                             <span class="typo-subtitle2">실행 시간 추이</span>
                                             <span class="typo-caption" x-show="isChartLoading" style="color:var(--color-text-secondary);">로딩 중...</span>
                                             <div class="d-flex" style="align-items:center; gap:8px; margin-left:auto; flex-wrap:wrap;">
-                                                <div class="d-flex" style="gap:4px;" title="표시할 실행 이력의 기간을 선택합니다.">
+                                                <div class="d-flex hm-period-btns" style="gap:4px;" title="표시할 실행 이력의 기간을 선택합니다.">
                                                     <button class="btn btn-sm" :class="historyPeriod === 'all' ? 'btn-primary' : 'btn-outlined color-default'" @click="setHistoryPeriod('all')">전체</button>
                                                     <button class="btn btn-sm" :class="historyPeriod === 'today' ? 'btn-primary' : 'btn-outlined color-default'" @click="setHistoryPeriod('today')">오늘</button>
                                                     <button class="btn btn-sm" :class="historyPeriod === '7d' ? 'btn-primary' : 'btn-outlined color-default'" @click="setHistoryPeriod('7d')">지난 7일</button>

@@ -274,6 +274,83 @@
         .sm-hint { display: flex; gap: 9px; align-items: flex-start; margin-top: 6px; padding: 11px 13px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--color-primary) 22%, transparent); font-size: 0.78rem; line-height: 1.5; color: var(--color-text-secondary); }
         .sm-hint .material-icons { font-size: 17px; color: var(--color-primary); flex-shrink: 0; margin-top: 1px; }
         .sm-hint b { color: var(--color-primary-strong); font-weight: 800; }
+
+        /* ──────────────────────────────────────────────────────────────
+           모바일(≤480px) — 전체 리플로우 + 터치(드래그 선택). 360px 까지 동작.
+           데스크톱 레이아웃 영향 없음(전부 @media 안에서만).
+           ────────────────────────────────────────────────────────────── */
+        @media (max-width: 480px) {
+            .dsp-appbar { padding: 0 12px; }
+            .dsp-main { padding: 12px 12px 20px; }
+            .fw-grid { gap: 12px; }
+            .fw-section { padding: 14px 13px; }
+
+            /* 추이 KPI 행: 좁은 화면에서 1열 위험 → 2열 유지 */
+            .fw-trend-kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+
+            /* 탭 바: 가로 스크롤(줄바꿈 대신) — 라벨 잘림 방지 */
+            .fw-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+            .fw-tabs button { padding: 10px 12px; white-space: nowrap; flex: 0 0 auto; }
+            .fw-period-controls { justify-content: flex-start; }
+
+            /* 차트 컨테이너 높이 클램프(고정 px → 뷰포트 비례) */
+            .fw-chart-tall { height: 50vh; min-height: 220px; }
+            .fw-chart-md { height: 40vh; min-height: 200px; }
+            .hist-chart-wrap { height: clamp(200px, 44vh, 360px); }
+
+            /* 컨트롤/툴바: 세로 스택, 프리셋 버튼 줄바꿈 */
+            .call-test-controls { flex-direction: column; align-items: stretch; gap: 10px; padding: 12px 13px; }
+            .ct-field { min-width: 0; width: 100%; }
+            .ct-presets { margin-left: 0; gap: 6px; }
+            .ct-presets .btn { flex: 1 1 auto; }
+            .ct-preset-sep { margin-left: 0; padding-left: 0; border-left: none; flex-basis: 100%; }
+
+            .ct-gantt-toolbar { flex-direction: column; align-items: stretch; gap: 8px; padding: 8px 10px; }
+            .ct-gantt-toolbar .spacer { display: none; }
+            .ct-tb-field { justify-content: space-between; }
+            .ct-gantt-toolbar select.form-select { flex: 1 1 auto; }
+            .ct-gap-pick { max-width: none; width: 100%; }
+            .ct-seg { width: 100%; }
+            .ct-seg button { flex: 1 1 auto; padding: 7px 8px; }
+            .ct-zoom { justify-content: center; }
+
+            /* 액션 바: 버튼 줄바꿈, 풀폭 가능 */
+            .ct-action-bar { padding: 8px 10px; }
+            .ct-action-spacer { flex-basis: 100%; min-width: 0; }
+
+            /* KPI 그리드: 더 좁은 카드 허용(2열까지) */
+            .ct-kpi-grid { grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 8px; }
+            .ct-range-stats { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+
+            /* 간트 layout: 세로 스택(사이드바 위, 차트 아래) */
+            .ct-gantt-layout { flex-direction: column; max-height: none; }
+            .ct-lane-sidebar { flex: 0 0 auto; width: 100%; max-height: 200px; overflow-y: auto; border-right: none; border-bottom: 1px solid var(--color-lines); }
+            .ct-gantt-chart-area { min-height: 250px; overflow: auto; }
+
+            /* 작은 터치 타깃 ≥32px */
+            .ct-tag-btn { width: 32px; height: 32px; font-size: 0.8rem; }
+            .ct-expand-btn { width: 32px; height: 32px; font-size: 0.85rem; }
+            .ct-zoom button { width: 34px; height: 34px; font-size: 1rem; }
+            .ct-zoom button.ct-zoom-reset { width: auto; padding: 0 12px; height: 34px; }
+            .ct-api-apply { padding: 6px 11px; font-size: 0.66rem; }
+
+            /* 사이클/히스토리 테이블: 가로 스크롤 래퍼(고정 컬럼폭 overflow 방지) */
+            .ct-cycle-scroll, .hist-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+            .ct-cycle-scroll .ds-table, .hist-table-wrap .ds-table { min-width: 480px; }
+
+            /* 범례: 더 촘촘하게 */
+            .ct-legend { gap: 6px 12px; padding: 9px 12px; font-size: 0.68rem; }
+
+            /* 이상치 제외 모달: 거의 전체폭 + 시간입력 1열 */
+            .shift-modal { width: 98vw; }
+            .sm-times { grid-template-columns: 1fr; }
+        }
+        /* 간트 플롯 영역(SVG): 터치 드래그-구간선택을 브라우저가 스크롤/줌으로 가로채지 않게.
+           SVG 래퍼에만 touch-action:none 을 주고, 스크롤 컨테이너(.ct-gantt-chart-area)는
+           pan-x/pan-y 를 허용해 확대 후에도 한 손가락으로 간트를 스크롤할 수 있게 한다.
+           드래그가 실제 시작되면 _beginDrag 가 touchmove 를 preventDefault 해 스크롤을 멈춘다. */
+        .ct-gantt-chart-area { touch-action: pan-x pan-y; }
+        .ct-gantt-wrapper { touch-action: none; }
     </style>
 </head>
 
@@ -756,7 +833,7 @@
                                             </template>
                                         </div>
                                         <div class="ct-gantt-chart-area" x-ref="chartArea"
-                                             x-init="$el.addEventListener('wheel', (e) => onWheel(e), { passive: false })"
+                                             x-init="$el.addEventListener('wheel', (e) => onWheel(e), { passive: false }); $el.addEventListener('touchstart', (e) => onDragStartTouch(e), { passive: false })"
                                              @mousedown="onDragStart($event)">
                                             <div class="ct-gantt-wrapper" x-html="svgMarkup"></div>
                                         </div>
@@ -1044,6 +1121,8 @@
         function flowApp() {
             // ── BuildSvg 레이아웃 상수 (cycle-time-analysis 와 동일) ──
             const TOP_MARGIN = 50, LANE_HEIGHT = 44, BAR_HEIGHT = 18, RIBBON_H = 48, LEFT_PAD = 12, RIGHT_PAD = 40, BOTTOM_PAD = 20, MIN_PLOT_WIDTH = 640, MAX_ZOOM = 24;
+            // 모바일(≤480px) 에서는 최소 플롯 폭을 줄여 좁은 화면에 맞춤(불필요한 가로 overflow 방지).
+            const minPlotW = () => (typeof window !== 'undefined' && window.innerWidth < 480) ? 280 : MIN_PLOT_WIDTH;
             const API_ROW_HEIGHT = 64;   // Call lane 확장 시 끼어드는 ApiCall 서브행 높이(사이드바·SVG 공통) — 실측/AASX 메트릭 wrap 여유
             const histCache = {};   // flowName → rows: 전환 시 즉시 표시(서버 왕복 대기 없이)
             // ── Chart.js 인스턴스는 Alpine 반응형 밖(클로저)에 보관 ──
@@ -1405,8 +1484,9 @@
                 measurePlotWidth() {
                     const el = this.$refs.chartArea;
                     const avail = el ? el.clientWidth : 1100;
-                    this.baseWidth = Math.max(MIN_PLOT_WIDTH, Math.round(avail - LEFT_PAD - RIGHT_PAD - 4));
-                    this.plotWidth = Math.max(MIN_PLOT_WIDTH, Math.round(this.baseWidth * this.zoom));
+                    const minW = minPlotW();
+                    this.baseWidth = Math.max(minW, Math.round(avail - LEFT_PAD - RIGHT_PAD - 4));
+                    this.plotWidth = Math.max(minW, Math.round(this.baseWidth * this.zoom));
                 },
                 setView(mode) {
                     if (this.viewMode === mode) return;
@@ -1442,7 +1522,7 @@
                     const plotAreaX = Math.max(0, anchorX + el.scrollLeft - LEFT_PAD);
                     const frac = this.plotWidth > 0 ? Math.min(1, plotAreaX / this.plotWidth) : 0;
                     this.zoom = newZoom;
-                    this.plotWidth = Math.max(MIN_PLOT_WIDTH, Math.round(this.baseWidth * this.zoom));
+                    this.plotWidth = Math.max(minPlotW(), Math.round(this.baseWidth * this.zoom));
                     this.svgMarkup = this.buildSvg();
                     this.$nextTick(() => { el.scrollLeft = frac * this.plotWidth + LEFT_PAD - anchorX; });
                 },
@@ -1825,8 +1905,21 @@
                     return 'ct-ratio-low';
                 },
 
+                // 마우스 드래그 진입(기존 경로 유지) — 좌클릭만.
                 onDragStart(e) {
-                    if (e.button !== 0 || !this.callLanes.length) return;
+                    if (e.button !== 0) return;
+                    this._beginDrag(e, e.clientX, e.clientY, 'mouse');
+                },
+                // 터치 드래그 진입(추가) — 손가락 한 개. e.touches[0] 좌표로 동일 로직 실행.
+                // 핀치(손가락 2개) 는 무시해 브라우저 줌/스크롤에 양보.
+                onDragStartTouch(e) {
+                    if (!e.touches || e.touches.length !== 1) return;
+                    const t = e.touches[0];
+                    this._beginDrag(e, t.clientX, t.clientY, 'touch');
+                },
+                // 마우스/터치 공통 드래그 선택 코어. mode='mouse'|'touch'.
+                _beginDrag(e, clientX, clientY, mode) {
+                    if (!this.callLanes.length) return;
                     const area = this.$refs.chartArea;
                     const svg = area && area.querySelector('svg');
                     if (!svg || !this._geo) return;
@@ -1836,7 +1929,7 @@
                     const laneAreaH = this.laneLayout().totalH;
                     const laneBottom = laneTop + laneAreaH;
                     const r0 = rectOf();
-                    const x0 = e.clientX - r0.left, y0 = e.clientY - r0.top;
+                    const x0 = clientX - r0.left, y0 = clientY - r0.top;
                     if (x0 < LEFT_PAD || x0 > LEFT_PAD + this.plotWidth || y0 < laneTop - 8 || y0 > laneBottom + 8) return;
                     e.preventDefault();
                     const { cs, xScale } = this._geo;
@@ -1867,26 +1960,45 @@
                     live.setAttribute('pointer-events', 'none');
                     svg.appendChild(live);
                     let moved = false;
+                    // 이벤트(마우스/터치)에서 현재 X 좌표 추출 — touchmove 는 changedTouches/touches 사용.
+                    const eventX = (ev) => {
+                        if (ev.touches && ev.touches.length) return ev.touches[0].clientX;
+                        if (ev.changedTouches && ev.changedTouches.length) return ev.changedTouches[0].clientX;
+                        return ev.clientX;
+                    };
                     const onMove = (ev) => {
-                        const cur = clampX(snapCurX(ev.clientX - rectOf().left));
+                        if (mode === 'touch') ev.preventDefault();   // 드래그 중 페이지 스크롤 방지
+                        const cur = clampX(snapCurX(eventX(ev) - rectOf().left));
                         const x = Math.min(sx, cur), w = Math.abs(cur - sx);
                         live.setAttribute('x', this.f(x)); live.setAttribute('width', this.f(w));
                         if (w > 3) moved = true;
                     };
                     const onUp = (ev) => {
-                        document.removeEventListener('mousemove', onMove, true);
-                        document.removeEventListener('mouseup', onUp, true);
+                        if (mode === 'touch') {
+                            document.removeEventListener('touchmove', onMove, { capture: true });
+                            document.removeEventListener('touchend', onUp, true);
+                            document.removeEventListener('touchcancel', onUp, true);
+                        } else {
+                            document.removeEventListener('mousemove', onMove, true);
+                            document.removeEventListener('mouseup', onUp, true);
+                        }
                         if (live.parentNode) live.parentNode.removeChild(live);
                         this._drag = null;
                         if (!moved) { if (this.selectedRange) this.clearRangeSelection(); return; }
-                        const cur = clampX(snapCurX(ev.clientX - rectOf().left));
+                        const cur = clampX(snapCurX(eventX(ev) - rectOf().left));
                         const endMs = cs + (cur - LEFT_PAD) / xScale;
                         this.selectedRange = { startMs: Math.min(startMs, endMs), endMs: Math.max(startMs, endMs) };
                         this.svgMarkup = this.buildSvg();
                     };
                     this._drag = { onMove, onUp };
-                    document.addEventListener('mousemove', onMove, true);
-                    document.addEventListener('mouseup', onUp, true);
+                    if (mode === 'touch') {
+                        document.addEventListener('touchmove', onMove, { capture: true, passive: false });
+                        document.addEventListener('touchend', onUp, true);
+                        document.addEventListener('touchcancel', onUp, true);
+                    } else {
+                        document.addEventListener('mousemove', onMove, true);
+                        document.addEventListener('mouseup', onUp, true);
+                    }
                 },
                 clearRangeSelection() { this.selectedRange = null; this.svgMarkup = this.buildSvg(); },
 

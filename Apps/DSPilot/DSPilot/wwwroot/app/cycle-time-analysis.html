@@ -160,6 +160,73 @@
         /* 간트 SVG 내부는 buildSvg() 가 흰 배경/고정색을 그리므로 다크에서도 차트 캔버스는 밝게 유지(가독성).
            래퍼/레인 영역만 다크 토큰으로 감싼다. */
         .dark-theme .ct-gantt-chart-area { background: #ffffff; }
+
+        /* ───────────────────────── 모바일(≤480px) ─────────────────────────
+           ds.css 가 .btn/.form-field/.form-select/.ds-table/.modal 등 공통 컴포넌트의 폰 규칙을 이미 제공.
+           여기서는 ct-* 페이지 고유 레이아웃만 좁은 화면(360~480)에 맞춰 reflow + 터치 타깃 확대.
+           데스크톱 레이아웃은 일절 변경하지 않음(전부 이 미디어 쿼리 안에서만). */
+        @media (max-width: 480px) {
+            .dsp-main { padding: 12px 12px 16px; }
+            .dsp-appbar { padding: 0 12px; }
+
+            /* 페이지 헤더: 제목 축소 + 줄바꿈 허용 */
+            .ct-pagehead { gap: 8px; margin-bottom: 10px; padding-bottom: 10px; }
+            .ct-pagehead .ct-title { font-size: 1.1rem; }
+
+            /* 컨트롤 패널: 세로 스택, 각 필드 풀폭 */
+            .call-test-controls { flex-direction: column; align-items: stretch; gap: 10px; padding: 12px; }
+            .ct-field { min-width: 0; width: 100%; }
+            .ct-field .form-select, .ct-field .form-field { width: 100%; }
+            .ct-presets { margin-left: 0; width: 100%; }
+            .ct-presets .btn { flex: 1 1 auto; }
+
+            /* 정보 바: 더 촘촘한 간격/폰트, 항목 2열(절반씩) */
+            .ct-info-bar { gap: 6px 12px; padding: 10px 12px; font-size: 0.72rem; }
+            .ct-info-item, .ct-bottleneck { flex: 1 1 45%; min-width: 0; }
+            .ct-info-item[style*="margin-left:auto"] { margin-left: 0 !important; }
+            .ct-info-v { font-size: 0.8rem; }
+            /* info-bar 안의 액션 버튼들은 풀폭으로 떨어뜨려 탭하기 쉽게 */
+            .ct-info-bar > .btn { flex: 1 1 100%; }
+
+            /* 간트 툴바: 줄바꿈 + 풀폭 필드 */
+            .ct-gantt-toolbar { flex-wrap: wrap; gap: 8px; padding: 8px 10px; }
+            .ct-gantt-toolbar .spacer { display: none; }
+            .ct-tb-field { width: 100%; }
+            .ct-tb-field > select.form-select { flex: 1 1 auto; width: 100%; }
+            .ct-gap-pick { max-width: none; width: 100%; flex: 1 1 100%; }
+            .ct-seg { width: 100%; }
+            .ct-seg button { flex: 1 1 0; padding: 8px 10px; }
+            .ct-tb-hint { flex: 1 1 100%; }
+            .ct-zoom { width: 100%; justify-content: center; }
+
+            /* 줌 버튼 터치 타깃 ≥36px */
+            .ct-zoom button { width: 36px; height: 36px; font-size: 1rem; }
+            .ct-zoom button.ct-zoom-reset { width: auto; min-height: 36px; padding: 0 12px; }
+
+            /* 간트 layout: 사이드바를 차트 위로 스택(280px 고정 해제) */
+            .ct-gantt-layout { flex-direction: column; max-height: none; }
+            .ct-lane-sidebar { flex: 0 0 auto; width: 100%; max-height: 220px; border-right: 0; border-bottom: 1px solid var(--color-lines); overflow-y: auto; }
+            .ct-gantt-chart-area {
+                width: 100%;
+                /* 드래그-선택 중에는 onMove 의 preventDefault 가 스크롤을 차단; 평상시엔 가로/세로 팬 허용(넓은 간트). */
+                touch-action: pan-x pan-y;
+            }
+
+            /* H/T 태그 버튼 터치 타깃 ≥36px */
+            .ct-tag-btn { width: 36px; height: 36px; font-size: 0.85rem; }
+            .ct-lane-tags { gap: 6px; }
+
+            /* 구간 통계: 1열 */
+            .ct-range-stats { grid-template-columns: 1fr; gap: 10px; }
+
+            /* 사이클 목록 테이블: 가로 스크롤 래퍼 + 폰트 축소 */
+            .ct-cycle-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+            .ct-cycle-scroll .ds-table { font-size: 0.72rem; }
+            .ct-cycle-scroll .ds-table th, .ct-cycle-scroll .ds-table td { white-space: nowrap; }
+
+            /* 범례: 세로 스택 */
+            .ct-legend { flex-direction: column; align-items: flex-start; gap: 6px; padding: 10px 12px; font-size: 0.68rem; }
+        }
     </style>
 </head>
 
@@ -360,7 +427,8 @@
                             </div>
                             <div class="ct-gantt-chart-area" x-ref="chartArea"
                                  x-init="$el.addEventListener('wheel', (e) => onWheel(e), { passive: false })"
-                                 @mousedown="onDragStart($event)">
+                                 @mousedown="onDragStart($event)"
+                                 @touchstart="onTouchDragStart($event)">
                                 <div class="ct-gantt-wrapper" x-html="svgMarkup"></div>
                             </div>
                         </div>
@@ -472,6 +540,9 @@
             // RIBBON_H = 레인 위 '사이클 리본'(상단 요약 트랙) 높이. 사이클 경계가 없으면 동적으로 0 으로 접힌다.
             // 하단 #N/AT·CT 라벨은 리본으로 이관 → BOTTOM_PAD 축소.
             const TOP_MARGIN = 50, LANE_HEIGHT = 44, BAR_HEIGHT = 18, RIBBON_H = 48, LEFT_PAD = 12, RIGHT_PAD = 40, BOTTOM_PAD = 20, MIN_PLOT_WIDTH = 640, MAX_ZOOM = 24;
+            // 모바일(≤480px): 데스크톱 최소폭(640) 은 좁은 화면에서 SVG 가로 오버플로를 강제 → 폰에서는 ~280 으로 낮춰 컨테이너에 맞춤(줌으로 확대는 그대로).
+            const PHONE_MIN_PLOT_WIDTH = 280;
+            const effMinPlotWidth = () => (typeof window !== 'undefined' && window.innerWidth < 480) ? PHONE_MIN_PLOT_WIDTH : MIN_PLOT_WIDTH;
 
             return {
                 TOP_MARGIN, LANE_HEIGHT, RIBBON_H,
@@ -558,8 +629,9 @@
                 measurePlotWidth() {
                     const el = this.$refs.chartArea;
                     const avail = el ? el.clientWidth : 1100;
-                    this.baseWidth = Math.max(MIN_PLOT_WIDTH, Math.round(avail - LEFT_PAD - RIGHT_PAD - 4));
-                    this.plotWidth = Math.max(MIN_PLOT_WIDTH, Math.round(this.baseWidth * this.zoom));
+                    const minPW = effMinPlotWidth();   // 모바일에서는 280, 데스크톱 640
+                    this.baseWidth = Math.max(minPW, Math.round(avail - LEFT_PAD - RIGHT_PAD - 4));
+                    this.plotWidth = Math.max(minPW, Math.round(this.baseWidth * this.zoom));
                 },
                 // 막대 ↔ InOut 라인 보기 전환.
                 setView(mode) {
@@ -600,7 +672,7 @@
                     const plotAreaX = Math.max(0, anchorX + el.scrollLeft - LEFT_PAD);
                     const frac = this.plotWidth > 0 ? Math.min(1, plotAreaX / this.plotWidth) : 0;
                     this.zoom = newZoom;
-                    this.plotWidth = Math.max(MIN_PLOT_WIDTH, Math.round(this.baseWidth * this.zoom));
+                    this.plotWidth = Math.max(effMinPlotWidth(), Math.round(this.baseWidth * this.zoom));
                     this.svgMarkup = this.buildSvg();
                     this.$nextTick(() => { el.scrollLeft = frac * this.plotWidth + LEFT_PAD - anchorX; });
                 },
@@ -960,8 +1032,21 @@
                 },
 
                 // ── 드래그 구간 선택: 차트 위 좌버튼 가로 드래그 → selectedRange. 실시간 박스는 live SVG rect 직접 append ──
+                // 마우스 진입점 (@mousedown) — 기존 동작 유지.
                 onDragStart(e) {
                     if (e.button !== 0 || !this.callLanes.length) return;
+                    this.beginDrag(e, e.clientX, e.clientY, false);
+                },
+                // 모바일(터치) 진입점 (@touchstart) — 한 손가락 가로 드래그를 마우스와 동일하게 처리.
+                // e.touches[0] 좌표를 쓰고, touch* 리스너에 preventDefault 를 걸어 드래그 중 페이지 스크롤을 막는다.
+                onTouchDragStart(e) {
+                    if (!this.callLanes.length) return;
+                    if (!e.touches || e.touches.length !== 1) return;   // 멀티터치(핀치 등)는 무시 → 브라우저 기본
+                    const t = e.touches[0];
+                    this.beginDrag(e, t.clientX, t.clientY, true);
+                },
+                // 마우스/터치 공통 드래그 코어. startX/startY = 시작 좌표(clientX/Y), isTouch = 터치 여부.
+                beginDrag(e, startX, startY, isTouch) {
                     const area = this.$refs.chartArea;
                     const svg = area && area.querySelector('svg');
                     if (!svg || !this._geo) return;
@@ -970,10 +1055,10 @@
                     const laneTop = this.laneTopY;
                     const laneBottom = laneTop + this.callLanes.length * LANE_HEIGHT;
                     const r0 = rectOf();
-                    const x0 = e.clientX - r0.left, y0 = e.clientY - r0.top;
+                    const x0 = startX - r0.left, y0 = startY - r0.top;
                     // 플롯 영역(좌패딩~우끝, 레인 세로) 안에서 시작한 드래그만 — 그 외(축/스크롤바)는 통과시켜 기본 동작 보존.
                     if (x0 < LEFT_PAD || x0 > LEFT_PAD + this.plotWidth || y0 < laneTop - 8 || y0 > laneBottom + 8) return;
-                    e.preventDefault();   // 텍스트 선택 방지
+                    e.preventDefault();   // 텍스트 선택/터치 스크롤 방지
                     const { cs, xScale } = this._geo;
                     // 엣지 스냅: 모든 call 인터벌 start/end + 사이클 경계 → 픽셀 좌표 목록
                     const edgePx = [];
@@ -1003,8 +1088,15 @@
                     live.setAttribute('pointer-events', 'none');
                     svg.appendChild(live);
                     let moved = false;
+                    // 마우스/터치 공통 clientX 추출 (터치는 touches/changedTouches 의 첫 손가락).
+                    const clientXOf = (ev) => {
+                        if (ev.touches && ev.touches.length) return ev.touches[0].clientX;
+                        if (ev.changedTouches && ev.changedTouches.length) return ev.changedTouches[0].clientX;
+                        return ev.clientX;
+                    };
                     const onMove = (ev) => {
-                        const cur = clampX(snapCurX(ev.clientX - rectOf().left));
+                        if (isTouch && ev.cancelable) ev.preventDefault();   // 드래그 중 페이지 스크롤 방지(터치)
+                        const cur = clampX(snapCurX(clientXOf(ev) - rectOf().left));
                         const x = Math.min(sx, cur), w = Math.abs(cur - sx);
                         live.setAttribute('x', this.f(x)); live.setAttribute('width', this.f(w));
                         if (w > 3) moved = true;
@@ -1012,17 +1104,27 @@
                     const onUp = (ev) => {
                         document.removeEventListener('mousemove', onMove, true);
                         document.removeEventListener('mouseup', onUp, true);
+                        document.removeEventListener('touchmove', onMove, { capture: true });
+                        document.removeEventListener('touchend', onUp, { capture: true });
+                        document.removeEventListener('touchcancel', onUp, { capture: true });
                         if (live.parentNode) live.parentNode.removeChild(live);
                         this._drag = null;
-                        if (!moved) { if (this.selectedRange) this.clearRangeSelection(); return; }   // 클릭 → 선택 해제
-                        const cur = clampX(snapCurX(ev.clientX - rectOf().left));
+                        if (!moved) { if (this.selectedRange) this.clearRangeSelection(); return; }   // 클릭/탭 → 선택 해제
+                        const cur = clampX(snapCurX(clientXOf(ev) - rectOf().left));
                         const endMs = cs + (cur - LEFT_PAD) / xScale;
                         this.selectedRange = { startMs: Math.min(startMs, endMs), endMs: Math.max(startMs, endMs) };
                         this.svgMarkup = this.buildSvg();   // 영속 구간 rect 다시 그림
                     };
                     this._drag = { onMove, onUp };
-                    document.addEventListener('mousemove', onMove, true);
-                    document.addEventListener('mouseup', onUp, true);
+                    if (isTouch) {
+                        // touchmove 는 비-passive 로 등록해야 preventDefault 가 먹는다(스크롤 차단).
+                        document.addEventListener('touchmove', onMove, { capture: true, passive: false });
+                        document.addEventListener('touchend', onUp, { capture: true });
+                        document.addEventListener('touchcancel', onUp, { capture: true });
+                    } else {
+                        document.addEventListener('mousemove', onMove, true);
+                        document.addEventListener('mouseup', onUp, true);
+                    }
                 },
                 clearRangeSelection() { this.selectedRange = null; this.svgMarkup = this.buildSvg(); },
 

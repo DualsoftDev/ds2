@@ -64,6 +64,76 @@
             document.head.appendChild(shellCss);
         }
 
+        // ── 1.6) 모바일 셸 스타일(주입) — 폰(≤480px) 헤더 정리 + 드로어(≤768px) 폭 클램프/터치 타깃 ──
+        //   build 산출물(stitch-shell.css)을 손대지 않고 셸 전용 반응형 규칙을 주입한다(리사이즈/회전에 CSS 가 알아서 대응).
+        //   훅: aside/header 의 .dsp-shell, 그리고 아래에서 부여하는 .dsp-shell-crumb / .dsp-shell-live-text / .dsp-shell-linestatus.
+        if (!document.getElementById('dsp-shell-mobile-css')) {
+            var mcss = document.createElement('style');
+            mcss.id = 'dsp-shell-mobile-css';
+            mcss.textContent =
+                '@media (max-width:768px){' +
+                  /* 드로어 폭: 폰에서 300px 가 화면을 다 가리지 않도록 85vw 로 클램프(인라인 width 를 !important 로 덮음). 숨김 오프셋(-300px)은 항상 폭 이상이라 완전히 가려짐. */
+                  'aside.dsp-shell{width:min(300px,85vw)!important;}' +
+                  /* 터치 타깃: 네비 링크/시스템 행/Flow 버튼 최소 44px. */
+                  'aside.dsp-shell nav a,aside.dsp-shell nav button{min-height:44px;}' +
+                '}' +
+                '@media (max-width:480px){' +
+                  /* 헤더 정리: 브레드크럼 숨김(제목 중복/공간 경쟁 제거), 실시간 배지 텍스트 숨김(점+꺾쇠 유지), 좌우 패딩 축소. */
+                  '.dsp-shell-crumb{display:none!important;}' +
+                  '.dsp-shell-live-text{display:none!important;}' +
+                  'header.dsp-shell{padding-left:12px!important;padding-right:12px!important;}' +
+                  '.dsp-shell-linestatus{padding:4px 8px!important;letter-spacing:0!important;}' +
+                  /* 헤더 좌측 영역 간격 축소(햄버거↔제목). */
+                  'header.dsp-shell .dsp-shell-headleft{gap:10px!important;}' +
+                '}';
+            document.head.appendChild(mcss);
+        }
+
+        // ── 1.7) 전체화면 가로(landscape) 잠금 헬퍼 — CCTV 영상벽·도면 등 전체화면 진입 시 모바일에서 가로 고정 ──
+        //   전체화면(requestFullscreen)이 성공한 뒤에만 screen.orientation.lock('landscape') 가능.
+        //   데스크톱/미지원 브라우저는 lock 이 throw/reject → 조용히 무시(데스크톱 동작 무변경).
+        //   .dsp-page 유무와 무관하게 전 페이지에서 쓰도록 early-return 위에서 window 에 노출.
+        if (!window.dspFullscreen) {
+            window.dspFullscreen = {
+                _lock: function () {
+                    try {
+                        if (screen.orientation && screen.orientation.lock) {
+                            var p = screen.orientation.lock('landscape');
+                            if (p && p.catch) p.catch(function () { /* 데스크톱/미지원 무시 */ });
+                        }
+                    } catch (e) { /* ignore */ }
+                },
+                _unlock: function () {
+                    try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) { /* ignore */ }
+                },
+                enter: function (el) {
+                    el = el || document.documentElement;
+                    var req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+                    if (!req) return;
+                    var p;
+                    try { p = req.call(el); } catch (e) { return; }
+                    var self = this;
+                    if (p && p.then) p.then(function () { self._lock(); }, function () { /* 진입 실패 무시 */ });
+                    else setTimeout(function () { self._lock(); }, 60); // webkit(프로미스 미반환) 폴백
+                },
+                exit: function () {
+                    this._unlock();
+                    var ex = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+                    if (ex && (document.fullscreenElement || document.webkitFullscreenElement)) {
+                        try { ex.call(document); } catch (e) { /* ignore */ }
+                    }
+                },
+                toggle: function (el) {
+                    if (document.fullscreenElement || document.webkitFullscreenElement) this.exit();
+                    else this.enter(el);
+                }
+            };
+            // 어떤 경로로든 전체화면이 해제되면 방향 잠금도 해제(세로 복귀).
+            document.addEventListener('fullscreenchange', function () {
+                if (!document.fullscreenElement) window.dspFullscreen._unlock();
+            });
+        }
+
         // ── 2) Alpine 루트(.dsp-page) 탐색 ──
         var page = document.querySelector('.dsp-page');
         if (!page) return;
@@ -336,21 +406,28 @@
         var header = el('header', 'dsp-shell h-16 flex justify-between items-center w-full px-container-margin bg-surface dark:bg-background border-b border-outline-variant dark:border-outline sticky top-0 z-40');
         header.style.cssText = 'position:sticky;top:0;z-index:40;height:64px;';
 
-        var headLeft = el('div', 'flex items-center gap-4');
+        var headLeft = el('div', 'dsp-shell-headleft flex items-center gap-4');
+        // 헤더(justify-between)의 좌측 영역이 우측 위젯에 밀려 제목을 짓이기지 않도록 축소 허용(min-width:0 필수).
+        headLeft.style.cssText = 'flex:1 1 auto;min-width:0;';
         var menuBtn = el('button');
         menuBtn.type = 'button';
         menuBtn.setAttribute('aria-label', '메뉴 열기');
-        menuBtn.style.cssText = 'display:none;background:transparent;border:0;cursor:pointer;padding:6px;color:inherit;border-radius:6px;line-height:1;flex:0 0 auto;';
+        menuBtn.style.cssText = 'display:none;background:transparent;border:0;cursor:pointer;padding:8px;color:inherit;border-radius:6px;line-height:1;flex:0 0 auto;min-width:40px;min-height:40px;';
         menuBtn.appendChild(icon('menu'));
         headLeft.appendChild(menuBtn);
-        headLeft.appendChild(el('h2', 'font-headline-lg text-headline-lg font-bold text-on-surface', pageTitle || 'DSPilot'));
-        var crumb = el('div', 'flex items-center gap-2 text-on-surface-variant font-body-md text-body-md opacity-60');
+        // 제목: 폭이 부족하면 글자가 한 글자씩 세로로 접혀 "중복/세로 텍스트"로 보이던 버그 → nowrap+ellipsis+min-width:0 으로 한 줄 말줄임.
+        var headTitle = el('h2', 'font-headline-lg text-headline-lg font-bold text-on-surface', pageTitle || 'DSPilot');
+        headTitle.style.cssText = 'flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+        headLeft.appendChild(headTitle);
+        var crumb = el('div', 'dsp-shell-crumb flex items-center gap-2 text-on-surface-variant font-body-md text-body-md opacity-60');
         crumb.appendChild(el('span', null, 'Home'));
         crumb.appendChild(el('span', 'material-icons text-[16px]', 'chevron_right'));
         crumb.appendChild(el('span', 'text-primary font-semibold', pageTitle || 'DSPilot'));
         headLeft.appendChild(crumb);
 
         var headRight = el('div', 'flex items-center gap-3');
+        // 우측 위젯(가동/대기·실시간)은 축소 금지 — 좌측 제목이 먼저 말줄임되도록.
+        headRight.style.cssText = 'flex:0 0 auto;';
 
         // ── Agent 상태 팝오버 (헤더 배지 클릭 시 펼쳐짐) ──
         var AG_DOT = { green: '#22c55e', orange: '#fb923c', red: '#ef4444', gray: '#9ca3af' };
@@ -372,7 +449,7 @@
         agData.text.textContent = 'PLC 데이터 대기';
 
         var agPopover = el('div', 'bg-surface dark:bg-inverse-surface border border-outline-variant dark:border-outline rounded-lg');
-        agPopover.style.cssText = 'position:fixed;z-index:100;min-width:210px;display:none;box-shadow:0 6px 20px rgba(0,0,0,0.15);padding:10px 14px 12px;';
+        agPopover.style.cssText = 'position:fixed;z-index:100;min-width:210px;max-width:calc(100vw - 12px);display:none;box-shadow:0 6px 20px rgba(0,0,0,0.15);padding:10px 14px 12px;';
         agPopover.appendChild(el('div', 'text-[10px] uppercase font-bold tracking-wider text-outline mb-2', 'Agent 상태'));
         var agPopCard = el('div', 'flex flex-col gap-2');
         agPopCard.appendChild(agHub.row);
@@ -386,7 +463,7 @@
         liveBadge.setAttribute('role', 'button');
         liveBadge.setAttribute('aria-expanded', 'false');
         var liveDot = el('span', 'dash-live-dot');
-        var liveText = el('span', null, '연결 확인 중');
+        var liveText = el('span', 'dsp-shell-live-text', '연결 확인 중');
         var liveChev = el('span', 'material-icons');
         liveChev.style.cssText = 'font-size:15px;transition:transform 0.15s;margin-left:2px;';
         liveChev.textContent = 'expand_more';
@@ -395,8 +472,8 @@
         liveBadge.appendChild(liveChev);
 
         // ── 가동/대기 헤더 위젯 (실시간 배지 왼쪽) ──
-        var headerLineStatus = el('span');
-        headerLineStatus.style.cssText = 'display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border:1px solid var(--color-lines-strong);border-radius:var(--radius-sm);font-size:.66rem;font-weight:700;letter-spacing:.05em;font-variant-numeric:tabular-nums;';
+        var headerLineStatus = el('span', 'dsp-shell-linestatus');
+        headerLineStatus.style.cssText = 'display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border:1px solid var(--color-lines-strong);border-radius:var(--radius-sm);font-size:.66rem;font-weight:700;letter-spacing:.05em;font-variant-numeric:tabular-nums;flex:0 0 auto;';
         var hlsRunSpan = el('span');
         hlsRunSpan.style.cssText = 'display:inline-flex;align-items:center;gap:5px;';
         var hlsRunDot = el('span');
@@ -434,7 +511,15 @@
             _agPopOpen = true;
             var r = liveBadge.getBoundingClientRect();
             agPopover.style.top = (r.bottom + 6) + 'px';
-            agPopover.style.right = (window.innerWidth - r.right) + 'px';
+            // 우측 정렬이 화면 밖으로 넘치면(좁은 폰) 좌측 정렬로 뒤집어 화면 안에 고정.
+            var popW = agPopover.offsetWidth || 210;
+            if ((window.innerWidth - r.right) + popW > window.innerWidth - 6) {
+                agPopover.style.right = 'auto';
+                agPopover.style.left = Math.max(6, window.innerWidth - popW - 6) + 'px';
+            } else {
+                agPopover.style.left = 'auto';
+                agPopover.style.right = (window.innerWidth - r.right) + 'px';
+            }
             agPopover.style.display = 'block';
             liveChev.style.transform = 'rotate(180deg)';
             liveBadge.setAttribute('aria-expanded', 'true');
@@ -471,12 +556,15 @@
             drawerOpen = true;
             aside.style.left = '0';
             overlay.style.display = 'block';
+            // 드로어 뒤 페이지 스크롤 잠금(모달 패턴). closeDrawer/applyLayout 에서 해제.
+            document.body.style.overflow = 'hidden';
             setMenuIcon('close', false);
         }
         function closeDrawer() {
             drawerOpen = false;
             aside.style.left = '-' + SHELL_W + 'px';
             overlay.style.display = 'none';
+            document.body.style.overflow = '';
             setMenuIcon('menu', true);
         }
         overlay.addEventListener('click', closeDrawer);
@@ -516,6 +604,7 @@
                 menuBtn.style.display = '';
                 overlay.style.display = 'none';
                 drawerOpen = false;
+                document.body.style.overflow = '';
                 if (deskCollapsed) {
                     aside.style.left = '-' + SHELL_W + 'px';
                     main.style.marginLeft = '0';
@@ -528,6 +617,11 @@
             }
         }
         window.addEventListener('resize', applyLayout);
+        // 회전/주소창 표시·숨김으로 innerWidth 가 바뀌어도 모바일 분기가 갱신되도록 보강.
+        window.addEventListener('orientationchange', function () { setTimeout(applyLayout, 100); });
+        if (window.visualViewport) {
+            try { window.visualViewport.addEventListener('resize', applyLayout); } catch (e) { /* ignore */ }
+        }
         applyLayout();
 
         // ── 7) 테마 동기화 (설정 페이지 변경 + 다른 탭 동기화) ──

@@ -293,6 +293,179 @@
         .up-dn-body tr:last-child td { border-bottom: 0; }
         .up-dn-body td:first-child { font-weight: 700; white-space: nowrap; color: var(--color-text-primary); width: 150px; }
         .up-dn code { font-family: var(--font-mono); font-size: 0.92em; background: color-mix(in srgb, var(--color-text-primary) 7%, transparent); padding: 0 4px; border-radius: 3px; }
+
+        /* ─────────────────────────────────────────────────────────────
+           모바일 (≤480px) — 데이터테이블 = 카드 리스트 리플로우 + 전체 reflow.
+           360px 폭까지 동작 보장. 데스크톱(>480px) 규칙은 일절 건드리지 않음.
+           ───────────────────────────────────────────────────────────── */
+        @media (max-width: 480px) {
+            /* 본문 여백 축소 — 360px 에서 가로 공간 확보 */
+            .dsp-appbar { padding: 0 12px; gap: 8px; }
+            .dsp-appbar .dsp-title { font-size: 16px; }
+            .dsp-main { padding: 12px 12px 20px; }
+            .up-section { padding: 14px 13px; }
+            .up-grid { gap: 12px; }
+
+            /* OEE 5-KPI 그리드 + 자동화 파이프라인 + ops/utkpi → 1열, hero 폰트 축소 */
+            .up-oee-row { grid-template-columns: 1fr; gap: 10px; }
+            .up-oee.is-hero .up-oee-value { font-size: 1.5rem; }
+            .up-oee .up-oee-value { font-size: 1.5rem; }
+            .up-auto-strip { grid-template-columns: 1fr; }
+            .up-ops-row { grid-template-columns: 1fr; }
+            .up-utkpi-row { grid-template-columns: 1fr 1fr; }
+
+            /* 도넛 ~120px (정지원인 + 레벨분포 공용 .up-donut), 분포 1열 중앙정렬 */
+            .up-dist { grid-template-columns: 1fr; justify-items: center; }
+            .up-donut { width: 120px; height: 120px; }
+            .up-legend { width: 100%; }
+
+            /* 필터 행: 정지로그 필터 + UserTag 필터 → 세로 스택 */
+            .up-filter-row { flex-direction: column; align-items: stretch; }
+            .up-filter-row > span[style*="flex:1"], .up-filter-row > span[style*="flex: 1"] { display: none; }
+            .up-ut-filter { flex-direction: column; align-items: stretch; }
+            .up-ut-filter .form-field, .up-ut-filter .form-select { min-width: 0; width: 100%; }
+            .up-ut-filter > span[style*="flex:1"], .up-ut-filter > span[style*="flex: 1"] { display: none; }
+            .up-mini-select { width: 100%; }
+
+            /* 기간 직접 선택(datetime) → 세로, 입력 full-width */
+            .up-custom-range { flex-direction: column; align-items: stretch; width: 100%; }
+            .up-custom-range .up-period-input { width: 100%; }
+            .up-custom-range > span { text-align: center; }
+            .up-custom-range .btn { width: 100%; justify-content: center; }
+            /* 상단 툴바 기간 버튼 줄바꿈 허용 */
+            .ds-topbar-actions { flex-wrap: wrap; }
+
+            /* 일괄 작업 툴바 → 세로 스택 + 풀폭 컨트롤 */
+            .up-bulk-bar { flex-direction: column; align-items: stretch; }
+            .up-bulk-bar .up-mini-select { min-width: 0; width: 100%; }
+            .up-bulk-clear { margin-left: 0; text-align: center; }
+
+            /* idealCT 툴바 / CT 툴바 → 자연 줄바꿈 (이미 wrap) */
+            .up-ct-toolbar .ds-card-h-sub { width: 100%; }
+
+            /* 일괄 선택 체크박스 ~20px (터치 타깃) */
+            .up-dt-cb { width: 20px; height: 20px; }
+
+            /* ── 차트 컨테이너 phone 높이 ── */
+            .up-ut-chart-tall { height: 220px; }
+            .up-ut-chart-md { height: 200px; }
+
+            /* ════ 와이드 테이블 → 카드 리스트 리플로우 ════
+               대상: 정지 이벤트 로그(.up-dt-table), idealCT 표(.up-dt-table),
+                     UserTag 알림 이력 + 정의 표(.ds-table), 차단 모달(.up-blk-table).
+               각 <td> 의 data-label 을 ::before 로 좌측 라벨, 값은 우측 정렬. */
+            .up-dt-table thead,
+            #downtime-log-section .ds-table thead,
+            #ut-section .ds-table thead {
+                display: none;
+            }
+            .up-dt-table, .up-dt-table tbody, .up-dt-table tr, .up-dt-table td,
+            #ut-section .ds-table, #ut-section .ds-table tbody, #ut-section .ds-table tr, #ut-section .ds-table td {
+                display: block;
+                width: 100%;
+            }
+            .up-dt-table tr,
+            #ut-section .ds-table tr {
+                border: 1px solid var(--color-lines);
+                border-radius: var(--radius-md);
+                padding: 8px 10px;
+                margin-bottom: 10px;
+                background: var(--color-surface);
+            }
+            .up-dt-table td,
+            #ut-section .ds-table td {
+                display: flex;
+                justify-content: space-between;
+                align-items: baseline;
+                gap: 10px;
+                padding: 5px 0;
+                border: none;
+                text-align: right;
+                white-space: normal;
+                word-break: break-word;
+            }
+            .up-dt-table td:not(:last-child),
+            #ut-section .ds-table td:not(:last-child) {
+                border-bottom: 1px dashed var(--color-lines);
+            }
+            .up-dt-table td::before,
+            #ut-section .ds-table td::before {
+                content: attr(data-label);
+                font-weight: 700;
+                font-size: 0.66rem;
+                text-transform: uppercase;
+                letter-spacing: 0.04em;
+                color: var(--color-text-secondary);
+                text-align: left;
+                flex: 0 0 auto;
+                white-space: nowrap;
+            }
+            /* 빈 data-label 셀(라벨 없음)은 ::before 숨김 */
+            .up-dt-table td:not([data-label])::before,
+            #ut-section .ds-table td:not([data-label])::before { content: none; }
+            /* 긴 필드(경로/주소/실측)는 라벨 위, 값 아래로 줄 분리 — 가독성 */
+            .up-dt-table td[data-label="설비(Flow)"],
+            .up-dt-table td[data-label="실측 (이상치 제외)"],
+            #ut-section .ds-table td[data-label="경로"],
+            #ut-section .ds-table td[data-label="주소"],
+            #ut-section .ds-table td[data-label="이름"] {
+                flex-direction: column;
+                align-items: stretch;
+                text-align: left;
+            }
+            /* 작업/모드 셀의 인라인 컨트롤은 오른쪽 정렬 안 깨지게 wrap */
+            .up-dt-table td[data-label="작업"] .up-row-act,
+            .up-dt-table td[data-label="모드"] > div { flex-wrap: wrap; justify-content: flex-end; }
+            .up-dt-table td[data-label="작업"] { flex-direction: column; align-items: stretch; text-align: left; }
+            .up-dt-table td[data-label="작업"] .up-row-act { justify-content: flex-start; }
+            .up-mini-num { width: 100%; }
+            /* 선택 체크박스 셀: 라벨+체크박스 좌측 정렬 */
+            .up-dt-table td.cb-col { justify-content: flex-start; }
+            /* 빈 상태(.ds-empty)는 reflow 영향 받지 않게 — colspan 행 없음(템플릿 분리) */
+
+            /* ── 차단 모달: 98vw + 패딩 축소 + 내부 표 카드 리플로우 ── */
+            .up-blk-modal { width: 98vw; padding: 14px 13px; max-height: 92vh; }
+            .up-blk-actions { flex-direction: column; align-items: stretch; }
+            .up-blk-actions .btn { width: 100%; justify-content: center; }
+            .up-blk-actions > span[style*="flex:1"], .up-blk-actions > span[style*="flex: 1"] { display: none; }
+            .up-blk-filter-row { flex-direction: column; align-items: stretch; }
+            .up-blk-search { max-width: none; }
+            .up-blk-filter-count { margin-left: 0; }
+            .up-blk-table thead { display: none; }
+            .up-blk-table, .up-blk-table tbody, .up-blk-table tr, .up-blk-table td { display: block; width: 100%; }
+            .up-blk-table tr {
+                border: 1px solid var(--color-lines);
+                border-radius: var(--radius-sm);
+                padding: 8px 10px;
+                margin: 8px;
+            }
+            .up-blk-table td {
+                display: flex;
+                justify-content: space-between;
+                gap: 10px;
+                padding: 4px 0;
+                border: none;
+                text-align: right;
+            }
+            .up-blk-table td:not(:last-child) { border-bottom: 1px dashed var(--color-lines); }
+            .up-blk-table td::before {
+                content: attr(data-label);
+                font-weight: 700;
+                font-size: 0.62rem;
+                text-transform: uppercase;
+                color: var(--color-text-secondary);
+                text-align: left;
+                flex: 0 0 auto;
+            }
+            .up-blk-table td[data-label="경로"] { flex-direction: column; align-items: stretch; text-align: left; }
+            /* 모달 colspan 빈행은 라벨 없이 그대로 한 줄 */
+            .up-blk-table td[colspan] { text-align: center; }
+            .up-blk-table td[colspan]::before { content: none; }
+
+            /* 품질 입력 다이얼로그 폭 */
+            .up-qedit-row { flex-direction: column; align-items: stretch; }
+            .up-qfield input, .up-qfield select { width: 100%; }
+        }
     </style>
 </head>
 
@@ -637,27 +810,27 @@
                                 <tbody>
                                     <template x-for="d in filteredDowntime" :key="d.id">
                                         <tr :class="selectedIds[d.id] ? 'ds-row-selected' : ''">
-                                            <td class="cb-col">
+                                            <td class="cb-col" data-label="선택">
                                                 <input type="checkbox" class="up-dt-cb"
                                                        :checked="!!selectedIds[d.id]"
                                                        @change="toggleSel(d.id, $event.target.checked)" />
                                             </td>
-                                            <td class="num" x-text="dtTime(d.startAt)"></td>
-                                            <td class="num" x-text="d.endAt ? dtTime(d.endAt) : '—'"></td>
-                                            <td class="num" x-text="dur(d.durationMs, d)"></td>
-                                            <td><strong x-text="d.flowName || d.systemName || '—'"></strong>
+                                            <td class="num" data-label="발생" x-text="dtTime(d.startAt)"></td>
+                                            <td class="num" data-label="복구" x-text="d.endAt ? dtTime(d.endAt) : '—'"></td>
+                                            <td class="num" data-label="지속" x-text="dur(d.durationMs, d)"></td>
+                                            <td data-label="설비(Flow)"><strong x-text="d.flowName || d.systemName || '—'"></strong>
                                                 <template x-if="d.deviceName"><span class="up-rank-sub" x-text="' · ' + d.deviceName"></span></template>
                                             </td>
-                                            <td :class="d.reasonCode ? '' : 'unclassified'">
+                                            <td data-label="원인 (분류)" :class="d.reasonCode ? '' : 'unclassified'">
                                                 <span x-text="reasonLabel(d.reasonCode)"></span>
                                                 <span x-html="classifyChipHtml(d.classifySource)"></span>
                                             </td>
-                                            <td x-html="detectChipHtml(d.detectSource)"></td>
-                                            <td x-html="clueHtml(d.clue)"></td>
-                                            <td>
+                                            <td data-label="감지" x-html="detectChipHtml(d.detectSource)"></td>
+                                            <td data-label="겹친 신호 (단서)" x-html="clueHtml(d.clue)"></td>
+                                            <td data-label="상태">
                                                 <span class="ds-status" :class="d.status === 'open' ? 'bad' : 'ok'" x-text="d.status === 'open' ? '진행중' : '복구'"></span>
                                             </td>
-                                            <td>
+                                            <td data-label="작업">
                                                 <div class="up-row-act">
                                                     <select class="up-mini-select" x-model="classifyDraft[d.id]">
                                                         <option value="">분류…</option>
@@ -741,12 +914,12 @@
                                 <tbody>
                                     <template x-for="row in ctTable" :key="row.flowName">
                                         <tr>
-                                            <td><strong x-text="row.flowName"></strong></td>
-                                            <td class="num" :class="row.idealCycleTimeMs ? '' : 'unset'">
+                                            <td data-label="설비(Flow)"><strong x-text="row.flowName"></strong></td>
+                                            <td class="num" data-label="현재 표준CT" :class="row.idealCycleTimeMs ? '' : 'unset'">
                                                 <span x-text="row.idealCycleTimeMs ? durShort(row.idealCycleTimeMs) : '미설정'"></span>
                                                 <span x-html="ctSrcChip(row)"></span>
                                             </td>
-                                            <td>
+                                            <td data-label="실측 (이상치 제외)">
                                                 <template x-if="row.sampleCount > 0">
                                                     <span class="up-rank-sub" x-text="'n=' + row.sampleCount + ' · min ' + durShort(row.minCt) + ' · 중앙 ' + durShort(row.medianCt) + ' · 평균 ' + durShort(row.avgCt)"></span>
                                                 </template>
@@ -754,7 +927,7 @@
                                                     <span class="up-rank-sub">데이터 없음</span>
                                                 </template>
                                             </td>
-                                            <td>
+                                            <td data-label="추천 (p10)">
                                                 <template x-if="row.recommendedMs">
                                                     <button class="btn btn-sm btn-outlined" @click="row.mode = 'manual'; row.draft = Math.round(row.recommendedMs / 100) / 10"
                                                             :title="'추천값 ' + durShort(row.recommendedMs) + ' 를 수동값으로 적용'">
@@ -764,13 +937,13 @@
                                                 </template>
                                                 <template x-if="!row.recommendedMs"><span class="up-rank-sub">—</span></template>
                                             </td>
-                                            <td>
+                                            <td data-label="모드">
                                                 <div style="display:inline-flex; gap:4px;">
                                                     <button class="btn btn-sm" :class="row.mode === 'auto' ? 'btn-filled' : 'btn-outlined'" @click="ctSetMode(row, 'auto')" style="padding:3px 9px; font-size:0.72rem;" title="자동 관리(클린사이클 실측으로 자동 기입)">자동</button>
                                                     <button class="btn btn-sm" :class="row.mode === 'manual' ? 'btn-filled' : 'btn-outlined'" @click="ctSetMode(row, 'manual')" style="padding:3px 9px; font-size:0.72rem;" title="수동 입력(자동이 덮지 않음)">수동</button>
                                                 </div>
                                             </td>
-                                            <td>
+                                            <td data-label="표준CT (초)">
                                                 <template x-if="row.mode === 'manual'">
                                                     <input class="up-mini-num" type="number" min="0" step="0.1" x-model.number="row.draft" placeholder="값 입력(초)" />
                                                 </template>
@@ -778,7 +951,7 @@
                                                     <span class="up-rank-sub" x-text="row.idealCycleTimeMs ? (durShort(row.idealCycleTimeMs) + ' · 자동') : (row.recommendedMs ? '대기 · 곧 자동 기입' : '샘플 부족 — 누적 중')"></span>
                                                 </template>
                                             </td>
-                                            <td>
+                                            <td data-label="상태">
                                                 <template x-if="rowChanged(row)"><span class="ds-status warn">변경됨</span></template>
                                             </td>
                                         </tr>
@@ -998,19 +1171,19 @@
                                         <tbody>
                                             <template x-for="(a, i) in ut.alerts" :key="i">
                                                 <tr>
-                                                    <td class="num" x-text="(a.occurredAtLocal || '').slice(0,19)"></td>
-                                                    <td><span class="ds-status" :class="levelStatus(a.logLevel)" x-text="a.logLevel"></span></td>
+                                                    <td class="num" data-label="시각" x-text="(a.occurredAtLocal || '').slice(0,19)"></td>
+                                                    <td data-label="레벨"><span class="ds-status" :class="levelStatus(a.logLevel)" x-text="a.logLevel"></span></td>
                                                     <!-- 경로: AbnormalDetect → "FLOW / WORK / CALL", 나머지 → SystemName -->
-                                                    <td x-text="abnPath(a)"></td>
-                                                    <td><strong x-text="a.name"></strong></td>
+                                                    <td data-label="경로" x-text="abnPath(a)"></td>
+                                                    <td data-label="이름"><strong x-text="a.name"></strong></td>
                                                     <!-- 주소: Sensor* → InTag 주소(actualValue), Action* → '-', 나머지 → tagAddress(코드) -->
-                                                    <td><span :class="abnAddrClass(a)" x-text="abnAddr(a)"></span></td>
+                                                    <td data-label="주소"><span :class="abnAddrClass(a)" x-text="abnAddr(a)"></span></td>
                                                     <!-- 조건 -->
-                                                    <td x-text="describeOp(a.matchOp, a.matchValue)"></td>
+                                                    <td data-label="조건" x-text="describeOp(a.matchOp, a.matchValue)"></td>
                                                     <!-- 값: AbnormalDetect 시간·주소값 숨김, 나머지 기존 -->
-                                                    <td><span :class="a.matchOp !== 'AbnormalDetect' ? 'up-codeish' : ''" x-text="abnVal(a)"></span></td>
+                                                    <td data-label="값"><span :class="a.matchOp !== 'AbnormalDetect' ? 'up-codeish' : ''" x-text="abnVal(a)"></span></td>
                                                     <!-- 차단 바로가기: Abnormal 행만 — 해당 디바이스+유형이 선택된 채 차단 관리가 열림 -->
-                                                    <td style="text-align:center;">
+                                                    <td data-label="차단" style="text-align:center;">
                                                         <template x-if="a.matchOp === 'AbnormalDetect' && rowDevice(a)">
                                                             <button class="up-blk-rowbtn" @click="openBlockMgr(rowDevice(a), a.matchValue)" :title="rowDevice(a) + ' 디바이스 알람 차단 관리'">
                                                                 <span class="material-icons">notifications_off</span>
@@ -1048,12 +1221,12 @@
                                                 <tbody>
                                                     <template x-for="(d, i) in definitionsPageView()" :key="i">
                                                         <tr>
-                                                            <td x-text="d.systemName"></td>
-                                                            <td><strong x-text="d.name"></strong></td>
-                                                            <td><span class="ds-status" :class="levelStatus(d.logLevel)" x-text="d.logLevel"></span></td>
-                                                            <td><span class="up-codeish" x-text="d.tagAddress"></span></td>
-                                                            <td x-text="d.valueType"></td>
-                                                            <td x-text="describeOp(d.matchOp, d.matchValue)"></td>
+                                                            <td data-label="System" x-text="d.systemName"></td>
+                                                            <td data-label="이름"><strong x-text="d.name"></strong></td>
+                                                            <td data-label="레벨"><span class="ds-status" :class="levelStatus(d.logLevel)" x-text="d.logLevel"></span></td>
+                                                            <td data-label="주소"><span class="up-codeish" x-text="d.tagAddress"></span></td>
+                                                            <td data-label="타입" x-text="d.valueType"></td>
+                                                            <td data-label="매칭 조건" x-text="describeOp(d.matchOp, d.matchValue)"></td>
                                                         </tr>
                                                     </template>
                                                 </tbody>
@@ -1184,20 +1357,20 @@
                         <tbody>
                             <template x-for="d in blkFilteredDevices" :key="d.device">
                                 <tr :class="{ sel: !!blockMgr.selected[d.device] }" @click="blockMgr.selected[d.device] = !blockMgr.selected[d.device]" style="cursor:pointer;">
-                                    <td style="text-align:center;">
+                                    <td data-label="선택" style="text-align:center;">
                                         <input type="checkbox" class="up-dt-cb" :checked="!!blockMgr.selected[d.device]" @click.stop @change="blockMgr.selected[d.device] = $event.target.checked" />
                                     </td>
-                                    <td class="up-blk-dev">
+                                    <td class="up-blk-dev" data-label="디바이스">
                                         <span x-text="d.device"></span>
                                         <span x-show="!d.inModel" title="현재 AASX 모델에 없는 디바이스 (차단 규칙만 남음 — 해제 가능)" style="color:var(--amber); margin-left:4px;">⚠</span>
                                     </td>
-                                    <td>
+                                    <td data-label="경로">
                                         <div class="up-blk-path">
                                             <template x-for="p in d.paths" :key="p"><div x-text="p"></div></template>
                                             <span x-show="!d.paths.length" style="color:var(--color-text-disabled);">—</span>
                                         </div>
                                     </td>
-                                    <td>
+                                    <td data-label="현재 차단">
                                         <template x-for="k in d.blockedKinds" :key="k"><span class="up-blk-chip" x-text="blkKindLabel(k)"></span></template>
                                         <span x-show="!d.blockedKinds.length" style="color:var(--color-text-disabled); font-size:0.7rem;">—</span>
                                     </td>

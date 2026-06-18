@@ -523,6 +523,102 @@
         html.dark .border-outline-variant { border-color: rgba(148,178,214,0.16) !important; }
         html.dark .border-outline { border-color: rgba(148,178,214,0.26) !important; }
         html.dark .text-secondary { color: #4d9fff !important; }
+
+        /* ────────────────────────────────────────────────────────────────
+           ── 모바일(≤480px) ──
+           이 페이지는 ds.css 를 로드하지 않고 .btn/.form-field/.modal-content/
+           .ds-table/.fc-* 를 자체 정의하므로, 휴대폰용 규칙을 직접 둔다.
+           데스크톱 레이아웃은 그대로 두고 모든 신규 규칙은 미디어쿼리로만 적용.
+           최소 지원 폭 360px. (드래그 터치 지원은 마크업/JS 의 Pointer Events 로 처리)
+           ──────────────────────────────────────────────────────────────── */
+        @media (max-width: 480px) {
+            /* 컨테이너 여백/간격 축소 (좁은 화면에서 카드가 더 넓게) */
+            .p-container-margin { padding: 12px !important; }
+            .space-y-gutter > * + * { margin-top: 12px !important; }
+
+            /* KPI 거대 숫자 축소 (display-metrics 32px → 24px) */
+            .font-display-metrics { font-size: 24px !important; line-height: 30px !important; }
+            /* 시프트 KPI 헤드라인(24px → 20px) */
+            .kpi-shift .kp-value { font-size: 20px !important; line-height: 26px !important; }
+
+            /* 레이아웃/차트 카드 최소 높이 축소 + 휴대폰 도면 캡 */
+            .layout-card, .chart-card { min-height: 280px !important; }
+            .layout-card { --fl-cap: 40vh; }
+
+            /* 카드 본문 패딩 축소 */
+            .layout-card .p-4, .chart-card .p-4,
+            .layout-card .fl-fs-body, .chart-card .fl-fs-body { padding: 10px !important; }
+
+            /* ── 베이스 컴포넌트 휴대폰 보정 (ds.css 미로드분 자체 보강) ── */
+            /* 터치 타깃 ≥40px */
+            .btn { padding: 9px 16px; min-height: 40px; }
+            .btn-sm { padding: 7px 12px; min-height: 36px; }
+            .btn-icon { width: 42px; height: 42px; }
+            .btn-icon.btn-sm { width: 36px; height: 36px; }
+            /* 입력 16px → iOS 포커스 시 자동 줌 방지 */
+            .form-field, .form-select { font-size: 16px; padding: 11px 12px; }
+            /* 표(현재 마크업엔 미사용이나 자체정의분 보강): 밀도↓ */
+            .ds-table { font-size: 0.72rem; }
+            .ds-table th, .ds-table td { padding: 6px 8px; }
+            .ds-table th { font-size: 0.6rem; }
+
+            /* 모달: 거의 풀폭 + 스크롤 */
+            .modal-content { width: 95vw !important; max-width: 95vw; max-height: 90vh; padding: 16px; }
+
+            /* ── 시프트 모달 ── 폭 95vw, 시간/Work 2열 그리드·세그·스텝퍼 1열로 스택 */
+            .shift-modal { width: 95vw !important; }
+            .shift-modal .sm-head { padding: 14px 16px 12px; }
+            .shift-modal .sm-body { padding: 14px 16px 4px; }
+            .shift-modal .sm-foot { padding: 12px 16px 16px; flex-direction: column; }
+            .sm-times { grid-template-columns: 1fr; }
+            .sm-seg { grid-template-columns: 1fr; }
+            .sm-stepper button { width: 48px; height: 48px; }   /* 터치 타깃 확대 */
+
+            /* ── 도면 편집바 / 팔레트 ── 세로 스택, 컨트롤 풀폭 ── */
+            .fl-editbar { flex-direction: column; align-items: stretch; gap: 8px; }
+            .fl-editbar .spacer { display: none; }
+            .fl-editbar > .btn, .fl-editbar > label.btn { width: 100%; justify-content: center; }
+            .fl-ctrl { width: 100%; justify-content: space-between; box-sizing: border-box; }
+            .fl-ctrl input[type=range] { flex: 1; width: auto; min-width: 0; }
+            .fl-palette { flex-direction: column; align-items: stretch; }
+            .fl-palette .fp-hint { width: 100%; }
+            .fl-chip { width: 100%; justify-content: flex-start; padding: 9px 12px; }   /* 칩 풀폭 + 터치 타깃 */
+
+            /* ── 공정 순서 사이드바: 캔버스 옆에 못 끼면 아래로 풀폭 스택(숨기지 않음) ── */
+            .fl-stage { flex-direction: column !important; }
+            .fl-order { width: 100% !important; max-width: 100% !important; flex: 0 0 auto;
+                        max-height: 32vh; order: 2; }   /* 캔버스 아래로(order:2), 자체 스크롤 */
+            .fl-canvas-wrap { order: 1; min-height: 30vh; }
+            .fl-order-list { max-height: 24vh; }
+            .fl-order-row { padding: 8px; touch-action: none; }   /* 터치 재정렬 제스처 확보 */
+            .fl-order-handle { font-size: 22px; padding: 2px; }
+            /* 작은 터치 타깃 확대: ▲▼ 22px → 32px */
+            .fl-order-btn { width: 32px; height: 32px; }
+            .fl-order-btn .material-icons { font-size: 18px; }
+
+            /* 카드 삭제 버튼 20px → 32px (편집 중 터치) */
+            .fl-del { width: 32px; height: 32px; font-size: 20px; top: 4px; right: 4px; }
+
+            /* 호버 툴팁: 폭 클램프(좁은 화면 넘침 방지) */
+            .fc-tt { max-width: clamp(140px, 80vw, 260px); min-width: 0; }
+
+            /* 토스트: 폭 제한 + 노치 안전영역 */
+            .dash-toast { max-width: 90vw; bottom: max(12px, env(safe-area-inset-bottom)); }
+
+            /* 이상감지 알람 배너: 패딩/문구 크기 축소 (360px 에서 넘침 방지) */
+            .flow-alarm { padding: 12px 14px; }
+            .flow-alarm-icon { margin-right: 10px; padding-right: 8px; }
+            .flow-alarm-icon svg { width: 26px; height: 26px; }
+            .flow-alarm-count { font-size: 0.82rem; padding: 2px 8px; }
+            .flow-alarm-track { height: 32px; }
+            .flow-alarm-msg { font-size: 1.05rem; }
+            .flow-alarm-idx { margin-left: 8px; font-size: 0.78rem; padding: 3px 9px; }
+            .flow-alarm-idx b { font-size: 0.9rem; }
+            .flow-alarm-btn { margin-left: 8px; padding: 7px 12px; font-size: 0.78rem; }
+
+            /* CT 도넛: 휴대폰에서 캔버스 최소 높이 확보 + 범례 1열 */
+            .ct-legend { grid-template-columns: 1fr; }
+        }
 </style>
 </head>
 
@@ -625,7 +721,7 @@
             <div class="grid grid-cols-12 gap-gutter">
 
                 <!-- ── 레이아웃 (8/12) ── -->
-                <div class="fl-fs col-span-12 lg:col-span-8 bg-surface-container-lowest border border-outline-variant rounded-xl shadow-sm overflow-hidden flex flex-col" x-ref="layoutCard" style="min-height:360px;">
+                <div class="fl-fs layout-card col-span-12 md:col-span-12 lg:col-span-8 bg-surface-container-lowest border border-outline-variant rounded-xl shadow-sm overflow-hidden flex flex-col" x-ref="layoutCard" style="min-height:360px;">
                     <div class="fl-fs-chrome p-4 border-b border-outline-variant flex justify-between items-center bg-surface-container-low flex-wrap gap-3">
                         <div class="flex items-center gap-3">
                             <span class="font-headline-md text-headline-md text-primary" x-text="layoutView==='cctv' ? 'CCTV' : '레이아웃'"></span>
@@ -739,13 +835,17 @@
                                                  @dragstart="orderDragIdx = i"
                                                  @dragover.prevent="onOrderDragOver(i)"
                                                  @drop.prevent="orderDragIdx = null"
-                                                 @dragend="orderDragIdx = null">
+                                                 @dragend="orderDragIdx = null"
+                                                 @pointerdown="onOrderPointerDown($event, i)"
+                                                 @pointermove="onOrderPointerMove($event)"
+                                                 @pointerup="onOrderPointerUp($event)"
+                                                 @pointercancel="onOrderPointerUp($event)">
                                                 <span class="material-icons fl-order-handle" title="드래그하여 순서 변경">drag_indicator</span>
                                                 <span class="fl-order-num" x-text="i + 1"></span>
                                                 <span class="fl-order-name" :title="f.name + (f.system ? (' · ' + f.system) : '')" x-text="f.name"></span>
                                                 <span class="fl-order-btns">
-                                                    <button class="fl-order-btn" :disabled="i === 0" @click="orderNudge(i, -1)" title="위로"><span class="material-icons">keyboard_arrow_up</span></button>
-                                                    <button class="fl-order-btn" :disabled="i === availableFlows.length - 1" @click="orderNudge(i, 1)" title="아래로"><span class="material-icons">keyboard_arrow_down</span></button>
+                                                    <button class="fl-order-btn" :disabled="i === 0" @click="orderNudge(i, -1)" @pointerdown.stop title="위로"><span class="material-icons">keyboard_arrow_up</span></button>
+                                                    <button class="fl-order-btn" :disabled="i === availableFlows.length - 1" @click="orderNudge(i, 1)" @pointerdown.stop title="아래로"><span class="material-icons">keyboard_arrow_down</span></button>
                                                 </span>
                                             </div>
                                         </template>
@@ -980,7 +1080,7 @@
                 </div>
 
                 <!-- ── 사이클 비교 (4/12) — Chart.js 도넛 ── -->
-                <div class="col-span-12 lg:col-span-4 bg-surface-container-lowest border border-outline-variant rounded-xl shadow-sm overflow-hidden flex flex-col" style="min-height:360px;">
+                <div class="chart-card col-span-12 md:col-span-12 lg:col-span-4 bg-surface-container-lowest border border-outline-variant rounded-xl shadow-sm overflow-hidden flex flex-col" style="min-height:360px;">
                     <div class="p-4 border-b border-outline-variant flex justify-between items-center bg-surface-container-low">
                         <span class="font-headline-md text-headline-md text-primary">사이클 비교</span>
                         <div class="flex bg-surface border border-outline-variant rounded p-0.5">
@@ -1190,6 +1290,7 @@
             dragName: null,
             orderDragIdx: null,
             _drag: null,
+            _orderDrag: null,
             editToast: { show: false, msg: '', kind: 'info' },
             _editToastT: null,
             showAverage: false,
@@ -1519,6 +1620,44 @@
                 this.orderDragIdx = i;
             },
             orderNudge(i, dir) { this.moveOrderItem(i, i + dir); },
+
+            // ── 공정 순서 터치 재정렬 ──
+            //   HTML5 draggable(@dragstart/@dragover/@drop)은 터치에서 동작하지 않으므로
+            //   Pointer Events(mouse+touch 통합)로 동등한 드래그 재정렬을 추가한다(데스크톱 마우스 드래그도 함께 작동).
+            //   포인터를 손가락/마우스로 누른 뒤 위/아래로 끌면 끌고 있는 행의 화면 Y 가 들어간 위치로 즉시 재배치한다.
+            onOrderPointerDown(e, i) {
+                if (!this.editing) return;
+                // 버튼(▲▼)·핸들 외 영역도 잡을 수 있게: 위/아래 버튼은 @pointerdown.stop 으로 자체 처리(드래그 시작 안 함)
+                if (e.pointerType === 'mouse' && e.button !== 0) return;
+                this._orderDrag = { fromStart: i, listEl: e.currentTarget.parentElement };
+                this.orderDragIdx = i;
+                try { e.currentTarget.setPointerCapture && e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
+            },
+            onOrderPointerMove(e) {
+                const od = this._orderDrag; if (od == null) return;
+                if (this.orderDragIdx == null) return;
+                e.preventDefault();   // 드래그 중 페이지 스크롤 차단(touch-action:none 과 함께)
+                const listEl = od.listEl; if (!listEl) return;
+                const rows = Array.prototype.slice.call(listEl.querySelectorAll('.fl-order-row'));
+                if (!rows.length) return;
+                const y = e.clientY;
+                // 포인터 Y 가 위치한 행 인덱스를 산출(각 행 중앙 기준).
+                let target = rows.length - 1;
+                for (let k = 0; k < rows.length; k++) {
+                    const r = rows[k].getBoundingClientRect();
+                    if (y < r.top + r.height / 2) { target = k; break; }
+                }
+                if (target !== this.orderDragIdx) {
+                    this.moveOrderItem(this.orderDragIdx, target);
+                    this.orderDragIdx = target;
+                }
+            },
+            onOrderPointerUp(e) {
+                if (this._orderDrag == null) return;
+                try { e.currentTarget.releasePointerCapture && e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) {}
+                this._orderDrag = null;
+                this.orderDragIdx = null;
+            },
 
             async bpApiPost(url, body) {
                 const res = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
@@ -1928,6 +2067,8 @@
             toggleFullscreen() {
                 const el = this.$refs.layoutCard;
                 if (!el) return;
+                // 전체화면 진입 시 모바일에서 가로 고정(shell.js dspFullscreen). 미로드 시 기존 동작 폴백.
+                if (window.dspFullscreen) { window.dspFullscreen.toggle(el); return; }
                 if (!document.fullscreenElement) el.requestFullscreen && el.requestFullscreen();
                 else document.exitFullscreen && document.exitFullscreen();
             },

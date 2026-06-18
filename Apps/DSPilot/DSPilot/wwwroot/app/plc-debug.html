@@ -96,6 +96,56 @@
             .plc-debug-hero { flex-direction: column; align-items: stretch; }
             .plc-debug-time-range { grid-template-columns: 1fr; }
         }
+
+        /* ── 모바일(≤480px) — 360px 폭까지 정상 동작 ── */
+        @media (max-width: 480px) {
+            /* 셸 여백 축소 (shell.js 가 main 풀폭 처리) */
+            .dsp-main { padding: 12px; }
+
+            /* 페이지 헤더: 줄바꿈 허용 + 상태 칩 wrap */
+            .pd-pagehead { gap: 8px; margin-bottom: 12px; padding-bottom: 10px; }
+            .pd-pagehead .spacer { display: none; }
+            .pd-pagehead .pd-title { font-size: 1.1rem; }
+            .pd-state { font-size: 0.6rem; padding: 4px 9px; }
+
+            /* 히어로: 세로 적층 + 풀폭 업로드 버튼 */
+            .plc-debug-hero { flex-direction: column; align-items: stretch; padding: 16px; }
+            .plc-debug-title { font-size: 1.2rem; }
+            .plc-debug-upload { min-width: 0; width: 100%; min-height: 44px; }
+
+            /* 툴바: 6개 stat 카드가 65px 로 찌부러지는 문제 → 2열 */
+            .plc-debug-toolbar { padding: 14px; }
+            .plc-debug-toolbar-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+            .plc-debug-stat { padding: 10px 12px; }
+            .plc-debug-stat-value { font-size: 0.95rem; }
+
+            /* 액션 폼: 단일 열, 필드 풀폭 (ds.css form-field/select 16px·width:100% 와 정합) */
+            .plc-debug-actions { grid-template-columns: 1fr; gap: 10px; }
+            .plc-debug-actions .form-group { width: 100%; }
+            .plc-debug-actions .form-field,
+            .plc-debug-actions .form-select { width: 100%; box-sizing: border-box; }
+            /* 버튼 행: 줄바꿈 + 터치 타겟 44px */
+            .plc-debug-button-row { gap: 8px; }
+            .plc-debug-button-row .btn { flex: 1 1 calc(50% - 4px); min-height: 44px; justify-content: center; }
+
+            /* 시간 범위: 단일 열 + datetime 입력 풀폭·16px (줌 방지) */
+            .plc-debug-time-range { grid-template-columns: 1fr; gap: 10px; margin-top: 12px; }
+            .plc-debug-time-range .form-field {
+                width: 100%; box-sizing: border-box; font-size: 16px;
+            }
+
+            /* 태그 그리드: minmax 220→130 으로 오버플로 방지, 높이 축소 */
+            .plc-debug-tag-grid {
+                grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+                gap: 8px; max-height: 280px; padding: 0 12px 12px;
+            }
+            /* 태그 칩: 터치 타겟 44px */
+            .plc-debug-tag-chip { min-height: 44px; padding: 10px 12px 10px 14px; }
+
+            /* 차트 셸: 720px → 400px (모바일 가독 높이), 차트는 responsive 라 컨테이너 추종 */
+            .plc-debug-chart-shell { min-height: 400px; padding: 10px; }
+            .plc-debug-empty { min-height: 50vh; padding: 24px; }
+        }
     </style>
 </head>
 
@@ -515,7 +565,9 @@
                         // 서버가 산출한 실제 범위로 입력 동기화
                         this.startTime = this.isoToLocalInput(result.rangeStart);
                         this.endTime = this.isoToLocalInput(result.rangeEnd);
-                        this.chartHeightPx = result.chartHeight || 720;
+                        // 모바일(≤480px): 컨테이너 높이도 캔버스(plc-debug.js)와 동일하게 ~400px 로 캡
+                        const _h = result.chartHeight || 720;
+                        this.chartHeightPx = (window.innerWidth <= 480) ? Math.min(_h, 400) : _h;
 
                         this.loadingProgress = '전체 페이지 차트 렌더링 중...';
 

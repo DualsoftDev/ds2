@@ -320,6 +320,79 @@
         .dsp-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 2500; padding: 11px 18px; border-radius: var(--radius-sm); border: 1px solid var(--color-lines-strong); border-left: 3px solid var(--color-text-secondary); background: var(--color-text-primary); color: var(--color-surface); font-size: 0.82rem; font-weight: 600; box-shadow: var(--shadow-4); }
         .dsp-toast.success { border-left-color: var(--color-success); }
         .dsp-toast.error { border-left-color: var(--color-error); }
+
+        /* 터치 드래그 대상은 브라우저의 스크롤/제스처 가로채기를 막는다(오버레이 이동/리사이즈/그리기·타일 위치교체). */
+        .cctv-ovl-layer.is-editing,
+        .cctv-ovl-layer.is-editing .cctv-ovl-box,
+        .cctv-ovl-layer.is-editing .cctv-ovl-pin,
+        .cctv-ovl-layer.is-editing .cctv-ovl-handle,
+        .cctv-tile.is-grabbable,
+        .cctv-tile-grip { touch-action: none; }
+
+        /* ─────────────────────────  모바일(≤600px / ≤480px)  ───────────────────────── */
+        /* 데스크톱 레이아웃은 그대로. 아래 규칙은 좁은 화면(태블릿 세로~폰)에만 적용. 360px 까지 동작 목표. */
+
+        /* 컴포저: 900px 에서 1열로 쌓임(기존). 좁아지면 레일을 위쪽 가로 스크롤 패널로 축소. */
+        @media (max-width: 600px) {
+            .cctv-rail { max-height: 200px; overflow-y: auto; }
+            .cctv-rail-list { max-height: none; }   /* 부모(.cctv-rail)가 스크롤 — 거대한 clamp(360,66vh,820) 해제 */
+        }
+
+        @media (max-width: 480px) {
+            .cctv-page { padding: 12px 12px 22px; gap: 12px; }
+
+            /* 카드 패딩 축소(인라인 style="padding:14px" 보다 우선하도록 !important) */
+            .card.cctv-rail, .card.cctv-wall { padding: 10px !important; }
+
+            /* 영상벽 헤더 컨트롤: 간격 축소 + 줄바꿈 허용(2줄로 자연 스택). 제목과 컨트롤이 세로로. */
+            .cctv-wall .ds-card-h { flex-direction: column; align-items: stretch; gap: 8px; }
+            .cctv-head-right { gap: 6px; row-gap: 6px; width: 100%; justify-content: flex-start; }
+            .cctv-lay-btn { width: 38px; height: 34px; }   /* 터치 타깃 확대 */
+
+            /* 레일: 좁은 화면에서 더 짧게(영상에 자리 양보) + 검색/항목 터치감 */
+            .cctv-rail { max-height: 168px; }
+            .cctv-rail-item { padding: 9px 10px; }
+            .cctv-rail-actions { opacity: 1; }   /* hover 없는 터치: 편집 버튼 항상 노출 */
+            .cctv-rail-actions .btn-icon.btn-sm { width: 36px; height: 36px; }
+            .cctv-rail-actions .btn-icon.btn-sm .material-icons { font-size: 18px; }
+
+            /* 타일 그리드: 3~6분할이 폰에서 너무 작음 → 1열 강제(2x2/2x3 프리셋도). */
+            .cctv-grid.count-2, .cctv-grid.layout-2,
+            .cctv-grid.count-3, .cctv-grid.count-4, .cctv-grid.layout-2x2,
+            .cctv-grid.count-5, .cctv-grid.count-6, .cctv-grid.layout-2x3 {
+                grid-template-columns: 1fr;
+            }
+
+            /* 1열이라 타일이 충분히 넓다 → 숨겼던 타일 바(이름/닫기/그립)를 폰에선 되살림.
+               데스크톱 count-N 규칙(specificity 0,2,1)·@container(max-width:520px) 규칙(0,1,0,!important)을
+               둘 다 이기도록 0,2,1 + !important 로 재선언. 닫기 버튼이 없으면 카메라를 못 내림. */
+            .cctv-grid.count-1 .cctv-tile .cctv-tile-bar, .cctv-grid.count-2 .cctv-tile .cctv-tile-bar,
+            .cctv-grid.count-3 .cctv-tile .cctv-tile-bar, .cctv-grid.count-4 .cctv-tile .cctv-tile-bar,
+            .cctv-grid.count-5 .cctv-tile .cctv-tile-bar, .cctv-grid.count-6 .cctv-tile .cctv-tile-bar,
+            .cctv-grid.layout-solo .cctv-tile .cctv-tile-bar,
+            .cctv-grid.layout-2x2 .cctv-tile .cctv-tile-bar, .cctv-grid.layout-2x3 .cctv-tile .cctv-tile-bar { display: flex !important; }
+
+            /* 타일 내 인라인 arm 바: 세로 스택 + select 폭 100% */
+            .cctv-tile-armbar { flex-direction: column; align-items: stretch; gap: 6px; }
+            .cctv-tile-armbar select { max-width: 100%; width: 100%; }
+            .cctv-tile-armbar .spacer { display: none; }
+
+            /* 타일 헤더 버튼 터치 타깃 ≥36px */
+            .cctv-tile-btn { min-width: 32px; min-height: 32px; padding: 5px; }
+            .cctv-tile-btn.cctv-tile-edit { min-width: 0; }   /* 텍스트 버튼은 폭 자동 유지 */
+
+            /* 범례: 줄바꿈 + 슬라이더 전체폭(슬라이더는 한 줄을 다 차지) */
+            .cctv-legend { gap: 8px 12px; }
+            .cctv-legend input[type="range"] { width: 100% !important; flex: 1 1 100%; }
+
+            /* 카메라 설정 모달: RTSP/주소 입력의 긴 mono 문자열이 모달을 가로로 늘리지 않도록 줄바꿈 */
+            .cctv-camset { width: min(560px, 96vw); }
+            .cctv-camset .mono { word-break: break-all; }
+            .cctv-camset input.mono { word-break: break-all; }
+            .cam-row1 { flex-wrap: wrap; }
+
+            /* 핀/박스 편집 보조 버튼(15px) 은 작으나, 편집은 단독(큰)화면에서만 — 그대로 둠 */
+        }
     </style>
 </head>
 
@@ -514,7 +587,8 @@
 
                                                 <!-- 타일 바: 드래그 핸들(이동/위치 교체) + 이름 + 닫기(영상벽 내리기). 전체화면·편집 중엔 숨김. 드래그는 타일 전체가 소스(3+분할서 바가 숨겨도 동작). -->
                                                 <div class="cctv-tile-bar" x-show="!isFullscreen && editTileId !== cam.id">
-                                                    <span class="cctv-tile-grip" title="드래그해서 위치 이동 / 다른 화면과 교체">
+                                                    <span class="cctv-tile-grip" title="드래그해서 위치 이동 / 다른 화면과 교체"
+                                                          @touchstart.stop="onGripTouchStart($event, cam.id)">
                                                         <span class="material-icons">drag_indicator</span>
                                                     </span>
                                                     <span class="cctv-tile-name" x-text="cam.name"></span>
@@ -547,7 +621,9 @@
                                                     <div class="cctv-ovl-layer"
                                                          :class="(overlaysHidden && editTileId !== cam.id ? 'is-hidden ' : '') + (editTileId===cam.id ? 'is-editing ' : '') + (editTileId===cam.id && armedFlowId ? 'is-armed' : '')"
                                                          @mousedown="onDrawStart($event, cam.id)" @mousemove="onDrawMove($event)"
-                                                         @mouseup="onDrawEnd($event, cam.id)" @mouseleave="onDrawCancel()">
+                                                         @mouseup="onDrawEnd($event, cam.id)" @mouseleave="onDrawCancel()"
+                                                         @touchstart="onDrawStart($event, cam.id)" @touchmove="onDrawMove($event)"
+                                                         @touchend="onDrawEnd($event, cam.id)">
                                                         <template x-if="editTileId===cam.id && gridSnap">
                                                             <div class="cctv-ovl-grid" :style="gridStyle(cam.id)"></div>
                                                         </template>
@@ -559,7 +635,7 @@
                                                                          :class="'state-' + b.stateKey + (b.isAbnormal ? ' has-abnormal' : '') + (b.tagBelow ? ' tag-below' : '') + (b.tagInsetLeft ? ' tag-inset-left' : '') + (editTileId===cam.id && selectedOverlayId===b.id ? ' is-selected' : '')"
                                                                          :style="`left:${b.px.left}px; top:${b.px.top}px; width:${b.px.width}px; height:${b.px.height}px; --ovl-color:${b.color};`"
                                                                          @mouseenter="setHover(b, cam.id, $event)" @mouseleave="clearHover()"
-                                                                         @mousedown.stop="onBoxDown($event, b, cam.id)" @click.stop="onBoxClick(b, cam.id)">
+                                                                         @mousedown.stop="onBoxDown($event, b, cam.id)" @touchstart.stop="onBoxDown($event, b, cam.id)" @click.stop="onBoxClick(b, cam.id)">
                                                                         <span class="cctv-kind-badge">
                                                                             <span class="material-icons">account_tree</span>
                                                                         </span>
@@ -581,10 +657,10 @@
                                                                         </span>
                                                                         <template x-if="editTileId===cam.id">
                                                                             <span>
-                                                                                <span class="cctv-ovl-handle h-nw" @mousedown.stop="onResizeDown($event, b, 'nw', cam.id)"></span>
-                                                                                <span class="cctv-ovl-handle h-ne" @mousedown.stop="onResizeDown($event, b, 'ne', cam.id)"></span>
-                                                                                <span class="cctv-ovl-handle h-sw" @mousedown.stop="onResizeDown($event, b, 'sw', cam.id)"></span>
-                                                                                <span class="cctv-ovl-handle h-se" @mousedown.stop="onResizeDown($event, b, 'se', cam.id)"></span>
+                                                                                <span class="cctv-ovl-handle h-nw" @mousedown.stop="onResizeDown($event, b, 'nw', cam.id)" @touchstart.stop="onResizeDown($event, b, 'nw', cam.id)"></span>
+                                                                                <span class="cctv-ovl-handle h-ne" @mousedown.stop="onResizeDown($event, b, 'ne', cam.id)" @touchstart.stop="onResizeDown($event, b, 'ne', cam.id)"></span>
+                                                                                <span class="cctv-ovl-handle h-sw" @mousedown.stop="onResizeDown($event, b, 'sw', cam.id)" @touchstart.stop="onResizeDown($event, b, 'sw', cam.id)"></span>
+                                                                                <span class="cctv-ovl-handle h-se" @mousedown.stop="onResizeDown($event, b, 'se', cam.id)" @touchstart.stop="onResizeDown($event, b, 'se', cam.id)"></span>
                                                                             </span>
                                                                         </template>
                                                                     </div>
@@ -595,7 +671,7 @@
                                                                          :class="'state-' + b.stateKey + (b.isAbnormal ? ' has-abnormal' : '') + (editTileId===cam.id && selectedOverlayId===b.id ? ' is-selected' : '')"
                                                                          :style="`left:${b.px.cx}px; top:${b.px.cy}px; --ovl-color:${b.color};`"
                                                                          @mouseenter="setHover(b, cam.id, $event)" @mouseleave="clearHover()"
-                                                                         @mousedown.stop="onBoxDown($event, b, cam.id)" @click.stop="onBoxClick(b, cam.id)">
+                                                                         @mousedown.stop="onBoxDown($event, b, cam.id)" @touchstart.stop="onBoxDown($event, b, cam.id)" @click.stop="onBoxClick(b, cam.id)">
                                                                         <div class="cctv-pin-head">
                                                                             <span class="material-icons">memory</span>
                                                                         </div>
@@ -884,6 +960,7 @@
                 dragOverTileId: null,      // 드롭(교체) 대상 타일 id — 하이라이트용
                 isFullscreen: false,       // 브라우저 전체화면 여부 — 타일 바(이동/닫기) 숨김 토글
                 _drag: null,               // { kind:'rail'|'tile', id }
+                _touchDrag: null,          // 터치 타일 위치교체 진행 상태 { id }
                 _wallStarted: {},          // id -> true (WHEP 시작 여부)
                 _frameSeen: {},            // id -> true (첫 영상 프레임 수신 — 연결 중/연결됨 구분)
                 _soloPauseTimer: null,     // 단독 보기 시 숨은 타일 일시정지 디바운스 타이머
@@ -938,12 +1015,15 @@
                     const onFsChange = () => { this.isFullscreen = !!document.fullscreenElement; this.$nextTick(() => this.recalcWallRects()); };
                     document.addEventListener('fullscreenchange', onFsChange);
                     document.addEventListener('webkitfullscreenchange', onFsChange);
-                    // 리사이즈/이동 제스처는 stage 를 벗어나도 유지하고, 버튼 release(어디서든)로 마무리.
-                    window.addEventListener('mouseup', () => {
+                    // 리사이즈/이동 제스처는 stage 를 벗어나도 유지하고, release(어디서든)로 마무리. 마우스+터치 공용.
+                    const endGesture = () => {
                         if (this._resizing) this._onResizeUp();
                         else if (this._moving) this._onBoxUp();
                         else if (this._drawStart) { this._drawStart = null; this.draft = null; }   // 타일 밖 release → 드래프트 취소
-                    });
+                    };
+                    window.addEventListener('mouseup', endGesture);
+                    window.addEventListener('touchend', endGesture);
+                    window.addEventListener('touchcancel', endGesture);
                     window.addEventListener('beforeunload', () => { try { window.cctvWhep.stopAll(); } catch (e) {} });
                 },
 
@@ -1181,6 +1261,41 @@
                     const d = this._drag;
                     if (d && d.kind === 'tile') this.removeFromWall(d.id);
                     this.endDrag();
+                },
+
+                // ── 터치 타일 위치교체 (HTML5 DnD 는 터치 미지원 → 그립에서 손가락 드래그 폴백) ──
+                // 그립을 누른 채 다른 타일 위로 끌어 손을 떼면 두 타일이 자리를 맞바꾼다. 폰은 보통 1열이라
+                // 위/아래 타일과의 교체에 쓰인다. 핀치/스크롤과 충돌하지 않도록 touch-action:none(그립) 적용.
+                onGripTouchStart(e, camId) {
+                    if (this.editTileId || this.layout === 'solo') return;   // 편집/단독에선 위치교체 비활성(마우스 경로와 동일)
+                    if (e.touches && e.touches.length > 1) return;           // 멀티터치(핀치)는 무시
+                    e.preventDefault();
+                    this.dragCamId = camId;
+                    this._touchDrag = { id: camId };
+                    const move = (ev) => {
+                        if (ev.cancelable) ev.preventDefault();              // 드래그 중 페이지 스크롤 차단
+                        const t = (ev.touches && ev.touches[0]) || (ev.changedTouches && ev.changedTouches[0]);
+                        if (!t) return;
+                        const el = document.elementFromPoint(t.clientX, t.clientY);
+                        const tile = el ? el.closest('.cctv-tile') : null;
+                        let overId = null;
+                        if (tile) {
+                            const vid = tile.querySelector('video[id^="cctv-wall-"]');
+                            if (vid) overId = vid.id.replace('cctv-wall-', '');
+                        }
+                        this.dragOverTileId = (overId && overId !== camId) ? overId : null;
+                    };
+                    const end = (ev) => {
+                        window.removeEventListener('touchmove', move, { passive: false });
+                        window.removeEventListener('touchend', end);
+                        window.removeEventListener('touchcancel', end);
+                        const target = this.dragOverTileId;
+                        this.dragCamId = null; this.dragOverTileId = null; this._touchDrag = null;
+                        if (target && target !== camId) this.swapWall(camId, target);
+                    };
+                    window.addEventListener('touchmove', move, { passive: false });
+                    window.addEventListener('touchend', end);
+                    window.addEventListener('touchcancel', end);
                 },
 
                 // ── WHEP 스트림 (그리드) ──
@@ -1540,6 +1655,12 @@
                     return Math.max(0, Math.min(1, Math.round(v / step) * step));
                 },
 
+                // 마우스/터치 공용 좌표 추출. 터치 이벤트는 clientX/Y 가 없고 touches/changedTouches 에 들어 있다.
+                _evClient(e) {
+                    if (e && e.touches && e.touches.length) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                    if (e && e.changedTouches && e.changedTouches.length) return { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY };
+                    return { x: e.clientX, y: e.clientY };
+                },
                 _layerXY(e) {
                     // 이동/리사이즈 중 window 추적(e.currentTarget=window)일 때는 편집 타일의 레이어를 직접 찾는다.
                     let layer = (e.currentTarget && e.currentTarget.closest) ? e.currentTarget.closest('.cctv-ovl-layer') : null;
@@ -1550,21 +1671,33 @@
                     }
                     const host = layer || e.currentTarget;
                     const b = host.getBoundingClientRect();
-                    return { x: e.clientX - b.left, y: e.clientY - b.top };
+                    const c = this._evClient(e);
+                    return { x: c.x - b.left, y: c.y - b.top };
                 },
                 // 이동/리사이즈는 타일 레이어(overflow 클립) 밖에서도 좌표가 갱신되도록 window 레벨에서 추적.
+                // 마우스+터치 둘 다 등록. 터치는 passive:false 로 등록해야 preventDefault(페이지 스크롤 차단)가 먹는다.
                 _armWindowMove() {
                     if (this._winMove) return;
-                    this._winMove = (ev) => { if (this._resizing) this._onResizeMove(ev); else if (this._moving) this._onBoxMove(ev); };
+                    this._winMove = (ev) => {
+                        if (ev.cancelable && (ev.touches || ev.changedTouches)) ev.preventDefault();   // 드래그 중 페이지 스크롤 차단
+                        if (this._resizing) this._onResizeMove(ev); else if (this._moving) this._onBoxMove(ev);
+                    };
                     window.addEventListener('mousemove', this._winMove);
+                    window.addEventListener('touchmove', this._winMove, { passive: false });
                 },
                 _disarmWindowMove() {
-                    if (this._winMove) { window.removeEventListener('mousemove', this._winMove); this._winMove = null; }
+                    if (this._winMove) {
+                        window.removeEventListener('mousemove', this._winMove);
+                        window.removeEventListener('touchmove', this._winMove, { passive: false });
+                        this._winMove = null;
+                    }
                 },
 
                 // ── 드래그로 새 영역 그리기 ──
+                // 터치=button 없음(undefined). 마우스는 좌클릭(0)만. (e.button > 0)=우/중클릭 거름.
+                _primaryBtn(e) { return !(typeof e.button === 'number' && e.button !== 0); },
                 onDrawStart(e, camId) {
-                    if (this.editTileId !== camId || this._moving || this._resizing || e.button !== 0) return;
+                    if (this.editTileId !== camId || this._moving || this._resizing || !this._primaryBtn(e)) return;
                     e.preventDefault();   // 텍스트 선택·네이티브 드래그 차단 — 편집 중 화면이 끌려가는 현상 방지
                     if (!this.armedFlowId) { this.showToast('Flow 를 먼저 선택하세요.', 'error'); return; }
                     if (this.flowZoneExists(camId, this.armedFlowId)) { this.showToast('이미 이 화면에 배치된 Flow 영역입니다 (화면당 1개).', 'error'); return; }
@@ -1578,6 +1711,7 @@
                     if (this._resizing) { this._onResizeMove(e); return; }
                     if (this._moving) { this._onBoxMove(e); return; }
                     if (!this.editTileId || !this._drawStart) return;
+                    if (e.cancelable && (e.touches || e.changedTouches)) e.preventDefault();   // 터치 그리기 중 스크롤 차단
                     const p = this._layerXY(e);
                     let ax = this._drawStart.x, ay = this._drawStart.y, bx = p.x, by = p.y;
                     if (this.gridSnap) {
@@ -1613,13 +1747,14 @@
 
                 // ── 기존 박스 이동 ──
                 onBoxDown(e, b, camId) {
-                    if (this.editTileId !== camId || e.button !== 0) return;
+                    if (this.editTileId !== camId || !this._primaryBtn(e)) return;
                     e.preventDefault();
                     this._suppressClick = false;
+                    const isTouch = !!(e.touches || e.changedTouches);   // 터치는 emulated click 이 안 옴 → touchend 에서 선택 처리
                     const p = this._layerXY(e);
                     const ovl = this.overlaysForCamId(camId).find(x => x.id === b.id);
                     if (!ovl) return;
-                    this._moving = { id: b.id, camId, startX: p.x, startY: p.y, origX: ovl.x, origY: ovl.y, moved: false };
+                    this._moving = { id: b.id, camId, startX: p.x, startY: p.y, origX: ovl.x, origY: ovl.y, moved: false, isTouch };
                     this._armWindowMove();
                 },
                 onBoxClick(b, camId) {
@@ -1650,6 +1785,8 @@
                     this._disarmWindowMove();
                     if (!m) return;
                     if (m.moved) this._suppressClick = true;
+                    // 터치는 emulated click(onBoxClick)이 preventDefault 로 막혀 안 온다 → 탭(미이동)이면 여기서 선택 토글.
+                    if (m.isTouch && !m.moved) this.selectedOverlayId = (this.selectedOverlayId === m.id) ? null : m.id;
                     const ovl = this.overlaysForCamId(m.camId).find(x => x.id === m.id);
                     if (!ovl) return;
                     if (Math.abs(ovl.x - m.origX) < 0.0005 && Math.abs(ovl.y - m.origY) < 0.0005) return;
@@ -1658,7 +1795,7 @@
 
                 // ── 모서리 앵커로 크기 조절 (반대 모서리 고정) ──
                 onResizeDown(e, b, corner, camId) {
-                    if (this.editTileId !== camId || e.button !== 0) return;
+                    if (this.editTileId !== camId || !this._primaryBtn(e)) return;
                     e.preventDefault();
                     this._suppressClick = true;
                     this.recalcWallRects();
@@ -1859,7 +1996,9 @@
                 enterFullscreen() {
                     const el = this.$refs.wallArea;
                     if (!el) return;
-                    if (document.fullscreenElement) document.exitFullscreen();
+                    // 전체화면 진입 시 모바일에서 가로 고정(shell.js dspFullscreen). 미로드 시 기존 동작 폴백.
+                    if (window.dspFullscreen) { window.dspFullscreen.toggle(el); }
+                    else if (document.fullscreenElement) document.exitFullscreen();
                     else if (el.requestFullscreen) el.requestFullscreen();
                     else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
                     setTimeout(() => this.recalcWallRects(), 150);

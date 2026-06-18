@@ -57,7 +57,11 @@ window.plcDebug = {
         const tooltipBg = isDark ? '#0E1722' : textPrimary;
         const tooltipText = isDark ? '#DCE6F0' : surfaceColor;
 
-        canvas.style.height = `${options.chartHeight || 720}px`;
+        // 모바일(≤480px): 서버 산출 높이(레인 수 기반)가 과도할 수 있어 ~400px 로 캡
+        const isPhone = (typeof window !== 'undefined') && window.innerWidth <= 480;
+        const requestedHeight = options.chartHeight || 720;
+        const effectiveHeight = isPhone ? Math.min(requestedHeight, 400) : requestedHeight;
+        canvas.style.height = `${effectiveHeight}px`;
         canvas.style.width = '100%';
 
         let minTime = null;
@@ -180,7 +184,9 @@ window.plcDebug = {
                             axis.ticks = lanes.map(lane => ({ value: Number(lane.value) }));
                         },
                         afterFit: function (axis) {
-                            axis.width = Math.max(axis.width, 260);
+                            // 모바일(≤480px): 260px 고정폭이 화면 대부분을 차지 → ~100px 로 축소
+                            var minLaneWidth = (typeof window !== 'undefined' && window.innerWidth <= 480) ? 100 : 260;
+                            axis.width = Math.max(axis.width, minLaneWidth);
                         },
                         title: {
                             display: true,

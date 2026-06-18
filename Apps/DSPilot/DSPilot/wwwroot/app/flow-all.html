@@ -130,7 +130,7 @@
         .ct-api-nodata { font-style: italic; opacity: 0.75; }
         .ct-api-cur b { color: var(--color-text-primary); font-weight: 700; }
         .dark-theme .ct-api-meas b { color: #64b5f6; }
-        .ct-gantt-chart-area { flex: 1; overflow: auto; background: var(--color-surface); overscroll-behavior-x: contain; }
+        .ct-gantt-chart-area { flex: 1; overflow: auto; background: var(--color-surface); overscroll-behavior-x: contain; touch-action: pan-x pan-y; }
         .ct-gantt-wrapper { display: inline-block; }
 
         .ct-gantt-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -194,6 +194,79 @@
         .fa-dur-msg { font-size: 0.72rem; font-weight: 700; color: var(--color-primary); padding: 0 2px; }
         /* 추가: ct-sw-range (드래그 범례) */
         .ct-sw-range { background: rgba(126,87,194,0.16); border: 1px dashed #7e57c2; }
+
+        /* ════════════════════════════════════════════════════════════════
+           ── 모바일(≤480px) — 360px 폭까지 동작 ──
+           데스크톱 레이아웃은 그대로(모든 규칙은 이 media 블록 안에만). ds.css 가
+           .btn/.form-field/.form-select/.ds-table 의 터치타깃·밀도를 이미 처리하므로
+           여기서는 이 페이지 고유(.fa-*/.ct-*) 의 좁은 폭/스택만 보정한다.
+           ════════════════════════════════════════════════════════════════ */
+        @media (max-width: 480px) {
+            /* 본문 여백 회수 + 셸 헤더 높이 보정(셸이 64px 라도 본문 스크롤 영역 확보) */
+            .dsp-main { padding: 10px 10px 16px; }
+            .dsp-appbar { padding: 0 12px; gap: 8px; }
+            .dsp-appbar .dsp-title { font-size: 16px; }
+
+            /* 공유 컨트롤 바 → 세로 스택 */
+            .fa-controls { flex-direction: column; align-items: stretch; gap: 10px; padding: 12px; }
+            /* datetime 두 필드 min-width:170px → 풀폭 스택 */
+            .fa-controls .ct-field { min-width: 0 !important; width: 100%; }
+            .fa-controls .ct-field .form-field { width: 100%; }
+            /* 프리셋 버튼 묶음 margin-left:auto 해제 → 줄바꿈 가득 */
+            .fa-controls > div[style*="margin-left:auto"] { margin-left: 0 !important; width: 100%; }
+            .ct-preset-sep { margin-left: 0; padding-left: 0; border-left: 0; width: 100%; }
+
+            /* 일괄 적용 바 reflow */
+            .fa-savebar { padding: 10px 12px; gap: 8px 10px; }
+            .fa-savebar .spacer { display: none; }
+            .fa-pending { width: 100%; }
+            .fa-savemsg { width: 100%; }
+
+            /* Flow 카드 헤더: gap/폰트 축소, 패딩 회수 */
+            .fa-flow-head { gap: 6px 8px; padding: 10px 12px; }
+            .fa-flow-name { font-size: 0.95rem; }
+            .fa-flow-body { padding: 12px; gap: 10px; }
+
+            /* KPI 그리드: minmax(150→120) — 360px 에서 2열 유지 */
+            .ct-kpi-grid { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+            .ct-kpi-grid .kpi-cell { padding: 9px 11px; }
+            .ct-kpi-grid .kpi-cell .kp-value { font-size: 1.1rem; }
+            /* 드래그 구간 4-KPI: 1열(768 규칙의 2열을 폰에서 1열로 더 압축) */
+            .ct-range-stats { grid-template-columns: 1fr; gap: 8px; }
+
+            /* 이상치 인라인 편집: 입력/셀렉트 스택 */
+            .fa-outlier { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px; }
+            .fa-outlier .fa-min, .fa-outlier .fa-max { width: 100%; flex-wrap: wrap; }
+            .fa-outlier input[type="number"] { width: auto; flex: 1 1 90px; min-width: 0; }
+            .fa-outlier select { flex: 0 0 auto; }
+
+            /* 간트 툴바 → 세로 스택(정렬/뷰/체크/줌이 한 줄에 안 들어감) */
+            .ct-gantt-toolbar { flex-direction: column; align-items: stretch; gap: 8px; }
+            .ct-gantt-toolbar .ct-tb-field { width: 100%; justify-content: space-between; }
+            .ct-gantt-toolbar .ct-tb-field > select.form-select { flex: 1 1 auto; min-width: 0; }
+            .ct-gantt-toolbar .spacer { display: none; }
+            .ct-zoom { justify-content: flex-end; }
+            .ct-tb-hint { width: 100%; }
+
+            /* 간트 레이아웃: 사이드바(330px) ↔ 차트 가로 분할 → 세로 스택.
+               사이드바는 풀폭 + 높이 제한 스크롤, 차트가 그 아래 가로 스크롤. */
+            .ct-gantt-layout { flex-direction: column; max-height: none; }
+            .ct-lane-sidebar { flex: 0 0 auto; width: 100%; max-height: 220px; overflow-y: auto; overflow-x: hidden; border-right: 0; border-bottom: 1px solid var(--color-lines); }
+            .ct-gantt-chart-area { max-height: 55vh; }
+            /* 좁은 사이드바에서 한글 Call/Work 라벨이 …말줄임으로 사라지지 않게 줄바꿈 허용 */
+            .ct-lane-name { white-space: normal; word-break: break-word; }
+            .ct-lane-work { white-space: normal; word-break: break-word; }
+            .ct-api-name { white-space: normal; word-break: break-word; }
+            .ct-api-tags { white-space: normal; word-break: break-all; }
+
+            /* CRITICAL: 사이클 목록 가로 스크롤 차단 해제(overflow-x:hidden → auto) +
+               -webkit-overflow-scrolling 으로 관성 스크롤(.ds-table-scroll 동등) */
+            .ct-cycle-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+            .ct-cycle-scroll .ds-table { min-width: 460px; }
+
+            /* 범례 폰트 축소 */
+            .ct-legend { padding: 8px 10px; gap: 5px 10px; }
+        }
     </style>
 </head>
 
@@ -487,7 +560,7 @@
                                     </div>
                                     <div class="ct-gantt-chart-area" :id="'cta-' + slice.id"
                                          x-init="$el.addEventListener('wheel', (e) => onWheel(e, slice), { passive: false })"
-                                         @mousedown="onDragStart($event, slice)">
+                                         @pointerdown="onDragStart($event, slice)">
                                         <div class="ct-gantt-wrapper" x-html="slice.svgMarkup"></div>
                                     </div>
                                 </div>
@@ -920,8 +993,14 @@
                 canApplyApi(lane, ac) { return CG.canApplyApi(lane, ac); },
 
                 // ── 드래그 구간 선택 (flow.html:1841-1903 동일 — e.currentTarget 로 $refs 대체) ──
+                // 모바일(≤480px) 터치 지원: @mousedown → @pointerdown 으로 전환, Pointer Events 로
+                //   마우스·손가락을 단일 코드경로로 처리한다. setPointerCapture 로 드래그를 끝까지 캡처하고,
+                //   드래그가 시작되면 pointermove 에서 preventDefault() 로 그 동안의 스크롤만 막는다.
+                //   (.ct-gantt-chart-area 는 touch-action:pan-x pan-y — 평상시 가로 스크롤은 살려 둠.)
                 onDragStart(e, slice) {
-                    if (e.button !== 0 || !slice.callLanes.length) return;
+                    // 마우스는 왼쪽 버튼만(button 0). 터치/펜은 button 이 0 또는 -1 이므로 마우스의 보조 버튼만 제외.
+                    if (e.pointerType === 'mouse' && e.button !== 0) return;
+                    if (!slice.callLanes.length) return;
                     const area = e.currentTarget;
                     const svg = area && area.querySelector('svg');
                     if (!svg || !slice._geo) return;
@@ -934,6 +1013,9 @@
                     const x0 = e.clientX - r0.left, y0 = e.clientY - r0.top;
                     if (x0 < LEFT_PAD || x0 > LEFT_PAD + slice.plotWidth || y0 < laneTop - 8 || y0 > laneBottom + 8) return;
                     e.preventDefault();
+                    const pid = e.pointerId;
+                    // 손가락 이동을 이 요소가 끝까지 받도록 캡처(스크롤 컨테이너 밖으로 나가도 추적).
+                    try { area.setPointerCapture(pid); } catch (_) {}
                     const { cs, xScale } = slice._geo;
                     const edgePx = [];
                     for (const lane of slice.callLanes) {
@@ -964,14 +1046,20 @@
                     svg.appendChild(live);
                     let moved = false;
                     const onMove = (ev) => {
+                        if (ev.pointerId !== pid) return;
+                        // 터치 드래그 중 페이지 스크롤/줌 방지
+                        if (ev.cancelable) ev.preventDefault();
                         const cur = clampX(snapCurX(ev.clientX - rectOf().left));
                         const x = Math.min(sx, cur), w = Math.abs(cur - sx);
                         live.setAttribute('x', CG.f(x)); live.setAttribute('width', CG.f(w));
                         if (w > 3) moved = true;
                     };
                     const onUp = (ev) => {
-                        document.removeEventListener('mousemove', onMove, true);
-                        document.removeEventListener('mouseup', onUp, true);
+                        if (ev.pointerId !== pid) return;
+                        document.removeEventListener('pointermove', onMove, true);
+                        document.removeEventListener('pointerup', onUp, true);
+                        document.removeEventListener('pointercancel', onUp, true);
+                        try { area.releasePointerCapture(pid); } catch (_) {}
                         if (live.parentNode) live.parentNode.removeChild(live);
                         slice._drag = null;
                         if (!moved) { if (slice.selectedRange) this.clearRangeSelection(slice); return; }
@@ -981,8 +1069,9 @@
                         slice.svgMarkup = CG.buildSvg(slice);
                     };
                     slice._drag = { onMove, onUp };
-                    document.addEventListener('mousemove', onMove, true);
-                    document.addEventListener('mouseup', onUp, true);
+                    document.addEventListener('pointermove', onMove, true);
+                    document.addEventListener('pointerup', onUp, true);
+                    document.addEventListener('pointercancel', onUp, true);
                 },
                 clearRangeSelection(slice) { slice.selectedRange = null; slice.svgMarkup = CG.buildSvg(slice); },
                 async applyRangeAsPeriod(slice) {
