@@ -62,4 +62,33 @@ public static class AgentUploadClient
             try { File.Delete(tmpZip); } catch { /* 임시 파일 정리 실패 무시 */ }
         }
     }
+
+    /// <summary>'Agent에서 가져오기 ▸ 네트워크' — 원격 Agent(http://ip:5050/download)에서 project.aasx 를
+    /// GET 으로 받아 임시 파일로 저장하고 그 경로를 반환한다. 호출자가 그 파일을 열면 된다(임시 파일이므로
+    /// 사용자가 저장 시 다른 이름으로). 실패 시 ok=false + 사유.</summary>
+    public static async Task<(bool ok, string path, string message)> DownloadAsync(string ip)
+    {
+        if (string.IsNullOrWhiteSpace(ip))
+            return (false, "", "네트워크 대상 IP 주소를 입력하세요.");
+
+        var tmpAasx = Path.Combine(Path.GetTempPath(), $"agent-download-{Guid.NewGuid():N}.aasx");
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+            var resp = await http.GetAsync($"http://{ip}:{Port}/download").ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                return (false, "", $"원격 Agent 응답 오류 ({(int)resp.StatusCode}): {body}");
+            }
+            var bytes = await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+            await File.WriteAllBytesAsync(tmpAasx, bytes).ConfigureAwait(false);
+            return (true, tmpAasx, $"원격 Agent({ip})에서 모델을 가져왔습니다.");
+        }
+        catch (Exception ex)
+        {
+            try { if (File.Exists(tmpAasx)) File.Delete(tmpAasx); } catch { /* 정리 실패 무시 */ }
+            return (false, "", $"원격 Agent({ip}:{Port}) 다운로드 실패 — Agent 가 실행 중이고 {Port} 포트가 열렸는지 확인하세요.\n{ex.Message}");
+        }
+    }
 }

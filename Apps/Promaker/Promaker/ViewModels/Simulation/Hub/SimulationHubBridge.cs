@@ -96,6 +96,47 @@ public sealed partial class SimulationHubBridge : ObservableObject
     public static bool IsAgentAvailable =>
         IsAgentServiceRunning() || IsAgentProcessRunning();
 
+    /// <summary>가상 Hub(새 포트 자체 호스팅) 활성 시 그 포트. 0 이면 기본(5051 통일) 경로.
+    /// Agent 가 5051 을 점유한 채 Control PLAY → 사용자가 '새 포트 가상 Hub' 선택 시 설정된다.</summary>
+    private int _selfHostPort;
+    public int SelfHostPort
+    {
+        get => _selfHostPort;
+        private set
+        {
+            if (_selfHostPort == value) return;
+            _selfHostPort = value;
+            OnPropertyChanged(nameof(SelfHostPort));
+            OnPropertyChanged(nameof(IsVirtualHubActive));
+            OnPropertyChanged(nameof(EffectiveHubAddress));   // 리본 주소 표시(EffectiveHubAddress) 갱신
+        }
+    }
+
+    /// <summary>가상 Hub(실 PLC 미접속, 새 포트 자체 호스팅) 모드인지 — UsesAgentProxy 판정에서 제외용.
+    /// 이 모드면 WPF 는 Agent proxy 가 아니라 self EventDrivenEngine 으로 모델만 구동한다.</summary>
+    public bool IsVirtualHubActive => SelfHostPort > 0;
+
+    /// <summary>5052 부터 빈 TCP 포트 탐색 (5051=Agent Hub 회피). 가상 Hub 자체 호스팅 포트 선정.</summary>
+    private static int FindFreePort()
+    {
+        for (int p = 5052; p < 5100; p++)
+            if (IsPortFree(p)) return p;
+        return 5052;
+    }
+
+    /// <summary>해당 TCP 포트가 현재 비어 있는지 (loopback bind 시도). Agent 가 5051 을 점유했는지 판정용.</summary>
+    private static bool IsPortFree(int port)
+    {
+        try
+        {
+            var l = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, port);
+            l.Start();
+            l.Stop();
+            return true;
+        }
+        catch { return false; }
+    }
+
     // 본체에서 주입되는 read 의존
     private readonly Func<RuntimeMode>      _runtimeMode;
     private readonly Func<bool>             _isRealPlcConnected;
@@ -115,6 +156,9 @@ public sealed partial class SimulationHubBridge : ObservableObject
     private readonly Action<string>         _setStatusText;
     private readonly Action<string>         _setSimStatusText;
     private readonly Action<IEnumerable<RuntimeHubEffect>> _applyRuntimeHubEffects;
+
+    /// <summary>Agent 가 5051 을 Control 아닌 모드로 점유 중 Control PLAY 시 사용자 선택을 묻는 콜백.</summary>
+    private readonly Func<Promaker.Dialogs.AgentBusyChoice> _askAgentBusyChoice;
 
     // 본체 HubAddress / MonitoringHubAddress 의 setter — EffectiveHubAddress 의 set 처리용.
     private readonly Action<string> _setHubAddress;
@@ -162,7 +206,7 @@ public sealed partial class SimulationHubBridge : ObservableObject
     /// 같은 주소(_monitoringHubAddress, 기본 localhost:5051)를 공유한다.</summary>
     public string EffectiveHubAddress
     {
-        get => _monitoringHubAddress();
+        get => SelfHostPort > 0 ? $"localhost:{SelfHostPort}" : _monitoringHubAddress();
         set => _setMonitoringHubAddress(value);
     }
 
@@ -203,7 +247,8 @@ public sealed partial class SimulationHubBridge : ObservableObject
         Action<string, LogSeverity> addSimLog,
         Action<string>         setStatusText,
         Action<string>         setSimStatusText,
-        Action<IEnumerable<RuntimeHubEffect>> applyRuntimeHubEffects)
+        Action<IEnumerable<RuntimeHubEffect>> applyRuntimeHubEffects,
+        Func<Promaker.Dialogs.AgentBusyChoice> askAgentBusyChoice)
     {
         _runtimeMode            = runtimeMode;
         _isRealPlcConnected     = isRealPlcConnected;
@@ -223,6 +268,7 @@ public sealed partial class SimulationHubBridge : ObservableObject
         _setStatusText          = setStatusText;
         _setSimStatusText       = setSimStatusText;
         _applyRuntimeHubEffects = applyRuntimeHubEffects;
+        _askAgentBusyChoice     = askAgentBusyChoice;
     }
 
     // ── 노출 상태 ────────────────────────────────────────────────

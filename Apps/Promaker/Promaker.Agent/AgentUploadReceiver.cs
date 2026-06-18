@@ -87,6 +87,24 @@ public sealed class AgentUploadReceiver : BackgroundService
                 await WriteAsync(ctx, 200, "pong").ConfigureAwait(false);
                 return;
             }
+            // 모델 다운로드 — 'Agent에서 가져오기 ▸ 네트워크' 가 이 머신 공유폴더의 project.aasx 를 받아간다.
+            if (req.HttpMethod == "GET" && req.Url?.AbsolutePath == "/download")
+            {
+                var aasx = SharedPaths.AasxFilePath;
+                if (!File.Exists(aasx))
+                {
+                    await WriteAsync(ctx, 404, "공유 폴더에 모델(project.aasx)이 없습니다.").ConfigureAwait(false);
+                    return;
+                }
+                var bytes = await File.ReadAllBytesAsync(aasx).ConfigureAwait(false);
+                ctx.Response.StatusCode = 200;
+                ctx.Response.ContentType = "application/octet-stream";
+                ctx.Response.ContentLength64 = bytes.Length;
+                await ctx.Response.OutputStream.WriteAsync(bytes).ConfigureAwait(false);
+                ctx.Response.Close();
+                Log.Info($"모델 다운로드 응답 — project.aasx ({bytes.Length} bytes) 전송.");
+                return;
+            }
             if (req.HttpMethod != "POST" || req.Url?.AbsolutePath != "/upload")
             {
                 await WriteAsync(ctx, 404, "not found").ConfigureAwait(false);

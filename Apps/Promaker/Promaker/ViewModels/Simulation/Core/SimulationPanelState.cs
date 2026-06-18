@@ -240,7 +240,8 @@ public partial class SimulationPanelState : ObservableObject
             addSimLog:                AddSimLog,
             setStatusText:            setStatusText,
             setSimStatusText:         v => SimStatusText = v,
-            applyRuntimeHubEffects:   ApplyRuntimeHubEffects);
+            applyRuntimeHubEffects:   ApplyRuntimeHubEffects,
+            askAgentBusyChoice:       () => Promaker.Dialogs.AgentBusyDialog.Ask());
 
         // 자동 줄자 학습값 수신 → 누적(정지 시 사용자 선택으로 모델 반영).
         Hub.LearnedDurationReceived += OnLearnedDurationReceived;
@@ -407,7 +408,8 @@ public partial class SimulationPanelState : ObservableObject
     /// UI 토글(Pause/Step 숨김 등)은 Monitoring 전용 의미라 <see cref="IsAgentDelegationMode"/> 를 따로 유지한다.</summary>
     public bool UsesAgentProxy =>
         IsRealPlcConnected
-        && (SelectedRuntimeMode == RuntimeMode.Monitoring || SelectedRuntimeMode == RuntimeMode.Control);
+        && (SelectedRuntimeMode == RuntimeMode.Monitoring || SelectedRuntimeMode == RuntimeMode.Control)
+        && !Hub.IsVirtualHubActive;   // 가상 Hub(새 포트 자체 호스팅) 모드면 self engine 으로 모델만 구동
 
     /// <summary>Monitoring + 실 PLC(Agent 전송) 시작 시 DSPilot 웹 대시보드를 자동으로 띄울지 여부
     /// (issue #154 "모니터링 > DsPilot으로 실행 체크"). 기본 켜짐(기존 동작 보존) — 체크 해제 시

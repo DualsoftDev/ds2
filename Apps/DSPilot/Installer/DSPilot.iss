@@ -30,6 +30,8 @@
 #define MyAgentServiceDisplay "Promaker Agent Service"
 #define MyAgentServiceDesc "Promaker headless monitoring agent (5051 SignalR Hub + PLC scan, read-only)"
 #define MyAgentPort "5051"
+; 모델 업로드 수신 포트 (AgentUploadReceiver, 항상 listen) — 원격 Promaker '네트워크 업로드' 대상.
+#define MyAgentUploadPort "5050"
 #define HasAgent FileExists(AddBackslash(AgentPublishDir) + MyAgentExeName)
 
 [Setup]
@@ -187,6 +189,12 @@ Filename: "{sys}\netsh.exe"; \
   Flags: runhidden waituntilterminated; Tasks: installagent; \
   StatusMsg: "Promaker Agent 방화벽 규칙 추가 중..."
 
+; 방화벽 인바운드 5050 — 모델 업로드 수신(AgentUploadReceiver). 원격 Promaker 의 '네트워크 업로드' 대상.
+Filename: "{sys}\netsh.exe"; \
+  Parameters: "advfirewall firewall add rule name=""Promaker Agent Upload"" dir=in action=allow protocol=tcp localport={#MyAgentUploadPort}"; \
+  Flags: runhidden waituntilterminated; Tasks: installagent; \
+  StatusMsg: "Promaker Agent 업로드 방화벽 규칙 추가 중..."
+
 Filename: "{sys}\sc.exe"; \
   Parameters: "start {#MyAgentServiceName}"; \
   Flags: runhidden waituntilterminated; Tasks: installagent; \
@@ -213,6 +221,8 @@ Filename: "{sys}\sc.exe"; Parameters: "delete {#MyAgentServiceName}"; \
   Flags: runhidden waituntilterminated; Check: ShouldRemoveAgent; RunOnceId: "DeleteAgentService"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Promaker Agent Monitoring"""; \
   Flags: runhidden waituntilterminated; Check: ShouldRemoveAgent; RunOnceId: "DeleteAgentFirewall"
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Promaker Agent Upload"""; \
+  Flags: runhidden waituntilterminated; Check: ShouldRemoveAgent; RunOnceId: "DeleteAgentUploadFirewall"
 #endif
 
 ; ── CCTV: MediaMTX 서비스 정지 + 등록 해제 (WinSW) ──

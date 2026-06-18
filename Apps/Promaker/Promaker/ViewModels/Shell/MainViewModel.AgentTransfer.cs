@@ -42,20 +42,37 @@ public partial class MainViewModel
             ? AgentTransferTarget.Network(AgentTransferIp)
             : AgentTransferTarget.Local;
 
-    /// <summary>'Agent에서 가져오기' — 대상(로컬/네트워크) 공유폴더의 AASX 모델을 연다.</summary>
+    /// <summary>'Agent에서 가져오기' — 로컬은 공유폴더 AASX 를, 네트워크는 원격 Agent(5050)에서 다운로드해 연다.</summary>
     [RelayCommand]
-    private void OpenFromAgent()
+    private async System.Threading.Tasks.Task OpenFromAgent()
     {
-        if (!AgentModelTransfer.TryResolveAasxPath(CurrentAgentTransferTarget, out var path, out var error))
+        string path;
+        if (CurrentAgentTransferTarget.Kind == AgentTransferTargetKind.Network)
         {
-            _dialogService.ShowWarning(error);
-            return;
+            // 원격 Agent 에서 project.aasx 를 GET 으로 받아 임시 파일로 — 그 경로를 연다.
+            StatusText = $"원격 Agent({AgentTransferIp}) 모델 가져오는 중...";
+            var (ok, downloaded, msg) = await AgentUploadClient.DownloadAsync(AgentTransferIp);
+            StatusText = msg;
+            if (!ok)
+            {
+                _dialogService.ShowWarning(msg);
+                return;
+            }
+            path = downloaded;
         }
-
-        if (!File.Exists(path))
+        else
         {
-            _dialogService.ShowWarning($"Agent 공유 모델이 없습니다:\n{path}\n\n'저장 ▸ Agent에 업로드' 로 먼저 업로드하세요.");
-            return;
+            if (!AgentModelTransfer.TryResolveAasxPath(CurrentAgentTransferTarget, out var localPath, out var error))
+            {
+                _dialogService.ShowWarning(error);
+                return;
+            }
+            if (!File.Exists(localPath))
+            {
+                _dialogService.ShowWarning($"Agent 공유 모델이 없습니다:\n{localPath}\n\n'저장 ▸ Agent에 업로드' 로 먼저 업로드하세요.");
+                return;
+            }
+            path = localPath;
         }
 
         if (!GuardSimulationSemanticEdit("Agent에서 가져오기"))
