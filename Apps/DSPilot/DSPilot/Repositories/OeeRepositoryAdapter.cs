@@ -369,28 +369,30 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         DateTime fromUtc, DateTime toUtc, string? flowName, CancellationToken ct = default)
     {
         await using var conn = await OpenAsync();
+        var capUtc = DateTime.UtcNow < toUtc ? DateTime.UtcNow : toUtc;
         var p = new DynamicParameters();
         p.Add("From", Iso(fromUtc));
         p.Add("To", Iso(toUtc));
-        p.Add("Now", Iso(DateTime.UtcNow));
+        p.Add("Cap", Iso(capUtc));
         var flowClause = "";
         if (!string.IsNullOrWhiteSpace(flowName))
         {
             flowClause = " AND flowName = @Flow ";
             p.Add("Flow", flowName.Trim());
         }
-        // open 이벤트는 durationMs 가 NULL 이므로 now 까지 진행분을 보정해 합산.
+        // SUM 단순 합산 대신 Interval Union — 겹치는 open 이벤트가 같은 시간대를
+        // 이중 계상해 downtimeMs > periodMs 가 되는 문제를 방지.
         var sql = $@"
             SELECT
-              COALESCE(SUM(
-                CASE WHEN durationMs IS NOT NULL THEN durationMs
-                     ELSE CAST((julianday(@Now) - julianday(startAt)) * 86400000 AS INTEGER)
-                END), 0) AS DowntimeMs,
-              COUNT(*) AS Cnt
+              CAST((julianday(startAt)                      - julianday(@From)) * 86400000 AS INTEGER) AS S,
+              CAST((julianday(COALESCE(endAt, @Cap))        - julianday(@From)) * 86400000 AS INTEGER) AS E
             FROM oeeDowntimeEvent
             WHERE startAt >= @From AND startAt <= @To {flowClause}";
-        var row = await conn.QueryFirstAsync<AggRow>(sql, p);
-        return (row.DowntimeMs, row.Cnt);
+        var rows = await conn.QueryAsync<SegRow>(sql, p);
+        var list = rows.ToList();
+        var periodMs = (long)(toUtc - fromUtc).TotalMilliseconds;
+        var segs = list.Select(r => (S: Math.Max(0L, r.S), E: Math.Min(periodMs, r.E)));
+        return (UnionMs(segs), list.Count);
     }
 
     public async Task<(long FailureDurationMs, int FailureCount)> GetFailureAggregateAsync(
@@ -420,24 +422,29 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         DateTime fromUtc, DateTime toUtc, CancellationToken ct = default)
     {
         await using var conn = await OpenAsync();
+        var capUtc = DateTime.UtcNow < toUtc ? DateTime.UtcNow : toUtc;
         var sql = @"
             SELECT flowName AS FlowName,
-              COALESCE(SUM(
-                CASE WHEN durationMs IS NOT NULL THEN durationMs
-                     ELSE CAST((julianday(@Now) - julianday(startAt)) * 86400000 AS INTEGER)
-                END), 0) AS DowntimeMs,
-              COUNT(*) AS Cnt
+              CAST((julianday(startAt)                - julianday(@From)) * 86400000 AS INTEGER) AS S,
+              CAST((julianday(COALESCE(endAt, @Cap))  - julianday(@From)) * 86400000 AS INTEGER) AS E
             FROM oeeDowntimeEvent
-            WHERE startAt >= @From AND startAt <= @To AND flowName IS NOT NULL
-            GROUP BY flowName
-            ORDER BY DowntimeMs DESC";
-        var rows = await conn.QueryAsync<FlowAggRow>(sql, new
+            WHERE startAt >= @From AND startAt <= @To AND flowName IS NOT NULL";
+        var rows = await conn.QueryAsync<FlowSegRow>(sql, new
         {
             From = Iso(fromUtc),
             To = Iso(toUtc),
-            Now = Iso(DateTime.UtcNow),
+            Cap = Iso(capUtc),
         });
-        return rows.Select(r => (r.FlowName ?? "", r.DowntimeMs, r.Cnt)).ToList();
+        var periodMs = (long)(toUtc - fromUtc).TotalMilliseconds;
+        return rows
+            .GroupBy(r => r.FlowName ?? "")
+            .Select(g =>
+            {
+                var segs = g.Select(r => (S: Math.Max(0L, r.S), E: Math.Min(periodMs, r.E)));
+                return (g.Key, UnionMs(segs), g.Count());
+            })
+            .OrderByDescending(x => x.Item2)
+            .ToList();
     }
 
     // ── 생산/품질 ─────────────────────────────────────────────────────────
@@ -554,8 +561,8 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             p.Add("Flow", flowName.Trim());
         }
         // 5분해(상호배타, 우선순위): planned ▸ 미분류(category NULL) ▸ 고장(isFailure=1) ▸ 그 외 비계획.
-        // open 이벤트는 durationMs NULL → now 까지 진행분 보정. 합(planned+failure+other+unclass)=기간 전체 정지.
-        const string dur = "COALESCE(durationMs, CAST((julianday(@Now) - julianday(startAt)) * 86400000 AS INTEGER))";
+        // open 이벤트는 durationMs NULL → MIN(now, to) 까지 진행분 보정(to 캡핑으로 기간 초과 방지).
+        const string dur = "COALESCE(durationMs, CAST((julianday(MIN(@Now, @To)) - julianday(startAt)) * 86400000 AS INTEGER))";
         var sql = $@"
             SELECT
               strftime('{fmt}', startAt, 'localtime') AS Slot,
@@ -702,6 +709,23 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         public string? FlowName { get; set; }
         public long DowntimeMs { get; set; }
         public int Cnt { get; set; }
+    }
+
+    private sealed class SegRow { public long S { get; set; } public long E { get; set; } }
+    private sealed class FlowSegRow { public string? FlowName { get; set; } public long S { get; set; } public long E { get; set; } }
+
+    // 겹치는 구간을 병합한 뒤 합산 — downtimeMs > periodMs 이중계상 방지.
+    private static long UnionMs(IEnumerable<(long S, long E)> intervals)
+    {
+        var xs = intervals.Where(x => x.E > x.S).OrderBy(x => x.S).ToList();
+        if (xs.Count == 0) return 0;
+        long total = 0, s = xs[0].S, e = xs[0].E;
+        foreach (var seg in xs.Skip(1))
+        {
+            if (seg.S <= e) e = Math.Max(e, seg.E);
+            else { total += e - s; s = seg.S; e = seg.E; }
+        }
+        return total + (e - s);
     }
 
     private sealed class ProdRow

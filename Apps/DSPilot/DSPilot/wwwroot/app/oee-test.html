@@ -463,7 +463,7 @@
       const qChip = qsrc === 'assumed' ? '<span class="up-oee-chip">가정</span>' : '<span class="up-oee-chip solid">사용자</span>';
       const qNote = qsrc === 'assumed' ? '불량 미입력 — 100% 가정' : ('불량율 ' + (100 - q * 100).toFixed(1) + '% 반영');
       const mtbf = (f.failures === 0)
-        ? `<div class="up-nofault"><span class="led"></span>무고장</div>
+        ? `<div class="up-nofault"><span class="led"></span>고장 없음</div>
            <div class="up-oee-note">기간 고장 0건 — 분모 0. 가짜수치 대신 정직 표기.</div>`
         : `<div class="up-oee-value up-oee-mono">${f.mtbfMin}<small>분</small></div>
            <div class="up-oee-note">${fmtMin(f.mtbfMin)}마다 1회 · 고장 ${f.failures}건</div>`;

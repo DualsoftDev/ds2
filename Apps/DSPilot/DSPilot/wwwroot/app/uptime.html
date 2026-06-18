@@ -580,7 +580,7 @@
                             <div class="up-oee-label">MTBF</div>
                             <template x-if="oee && oee.failureCount === 0">
                                 <div>
-                                    <div class="up-nofault"><span class="led"></span>무고장</div>
+                                    <div class="up-nofault"><span class="led"></span>고장 없음</div>
                                     <div class="up-oee-note">기간 고장 0건 — 분모 0. 가짜수치 대신 정직 표기.</div>
                                 </div>
                             </template>
@@ -2265,9 +2265,14 @@
                     const o = this.oee;
                     if (!o || o.periodMs <= 0) return { runMs: 0, downMs: 0, maintMs: 0, runPct: 0, downPct: 0, maintPct: 0 };
                     const downTotal = o.downtimeMs || 0;
+                    // open 이벤트(durationMs=null)는 summary 집계와 동일하게 MIN(now, toUtc)까지 보정.
+                    const capMs = Math.min(Date.now(), new Date(o.toUtc).getTime());
                     let maint = 0;
                     for (const d of this.downtime) {
-                        if (d.reasonCode === 'planned_maint' && d.durationMs && d.durationMs > 0) maint += d.durationMs;
+                        if (d.reasonCode !== 'planned_maint') continue;
+                        const dur = d.durationMs != null ? d.durationMs
+                            : Math.max(0, capMs - new Date(d.startAt).getTime());
+                        if (dur > 0) maint += dur;
                     }
                     maint = Math.min(maint, downTotal);
                     const down = downTotal - maint; // 비계획 정지

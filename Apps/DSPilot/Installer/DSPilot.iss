@@ -129,11 +129,12 @@ Filename: "{sys}\netsh.exe"; \
   Flags: runhidden waituntilterminated; \
   StatusMsg: "방화벽 규칙 추가 중..."
 
-; Start the service
-Filename: "{sys}\sc.exe"; \
-  Parameters: "start {#MyServiceName}"; \
-  Flags: runhidden waituntilterminated; \
-  StatusMsg: "서비스 시작 중..."
+; 주의: DSPilot 본 서비스 시작은 여기(=[Run], 설치 순서 15단계)서 하지 않는다.
+; 바인딩 포트가 담긴 appsettings.Hosting.json 은 ssPostInstall(=[Run] 이후)에서 기록되므로,
+; [Run] 에서 시작하면 첫 부팅이 포트 파일 부재 상태로 떠 Kestrel 기본 포트(5000)에 바인딩되고
+; (reloadOnChange:false 라 이후 파일 생성도 반영 안 됨) 사용자가 고른 포트로 접속이 안 된다.
+; → 포트 파일을 먼저 쓴 뒤 CurStepChanged(ssPostInstall)에서 sc start 한다.
+; start=auto 는 "다음 부팅 시 자동시작"일 뿐 create 시점에 즉시 시작하지 않으므로, 이 사이 서비스는 뜨지 않는다.
 
 ; ── CCTV: MediaMTX 서비스 (WinSW 래퍼로 등록 + 시작) ──
 Filename: "{app}\mediamtx\{#MyMtxServiceExe}"; \
@@ -461,6 +462,7 @@ var
   Port: String;
   UrlsValue: String;
   HostingJsonPath: String;
+  ResultCode: Integer;
 begin
   if CurStep = ssPostInstall then
   begin
@@ -471,6 +473,10 @@ begin
       '{' + #13#10 +
       '  "Urls": "' + UrlsValue + '"' + #13#10 +
       '}' + #13#10, False);
+
+    // 포트 파일(appsettings.Hosting.json)을 기록한 *뒤에* 서비스를 시작한다 — 이 순서가 중요.
+    // [Run](설치 순서 15단계)에서 시작하면 포트 파일 부재 상태로 떠 기본 포트(5000)에 바인딩되는 버그가 있었다.
+    Exec(ExpandConstant('{sys}\sc.exe'), 'start {#MyServiceName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 
     // 바탕화면에 .url 바로가기 생성 (아이콘 포함)
     SaveStringToFile(ExpandConstant('{autodesktop}\{#MyAppName}.url'),
