@@ -78,6 +78,10 @@ cp "$SCRIPT_DIR/install.sh" "$SCRIPT_DIR/uninstall.sh" "$STAGE/"
 [[ -f "$SCRIPT_DIR/README.md" ]] && cp "$SCRIPT_DIR/README.md" "$STAGE/"
 chmod +x "$STAGE/install.sh" "$STAGE/uninstall.sh"
 
+# CRLF→LF 정규화 — Windows(Git autocrlf)에서 빌드 시 .sh/.service 가 CRLF 면 타깃 리눅스에서
+# shebang('bash\r')·systemd 유닛이 깨진다. 스크립트/유닛만 LF 로 강제(앱 바이너리는 제외).
+find "$STAGE" -type f \( -name '*.sh' -o -name '*.service' \) -exec sed -i 's/\r$//' {} +
+
 PKG_NAME="DSPilot_${RID}_${VERSION}"
 TARBALL="$OUTPUT_DIR/${PKG_NAME}.tar.gz"
 # tarball 최상위가 PKG_NAME/ 디렉터리가 되도록 staging 을 rename 후 묶음.
