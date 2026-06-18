@@ -59,8 +59,12 @@
         .fw-trend-kpi-sub { font-size: 0.74rem; color: var(--color-text-secondary); }
 
         .fw-chart-tall { position: relative; height: 320px; margin-bottom: 16px; overflow: hidden; }
-        .fw-chart-row { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
-        @media (max-width: 900px) { .fw-chart-row { grid-template-columns: 1fr; } }
+        /* minmax(0,…) 필수: 기본 1fr 은 minmax(auto,1fr) 라 트랙 최소폭이 셀 min-content
+           (Chart.js 가 가로모드에서 캔버스에 박아둔 인라인 width px)가 됨 → 세로 복귀 후
+           트랙이 줄지 않아 차트가 컨테이너보다 넓게 박제·오른쪽 잘림. 0 으로 내려 축소 허용. */
+        .fw-chart-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; }
+        .fw-chart-row > div { min-width: 0; }
+        @media (max-width: 900px) { .fw-chart-row { grid-template-columns: minmax(0, 1fr); } }
         .fw-chart-md { position: relative; height: 260px; overflow: hidden; }
 
         .fw-period-controls { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
