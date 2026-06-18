@@ -41,7 +41,17 @@
         .fa-scroll > * { flex: 0 0 auto; }
 
         /* ── 공유 컨트롤 + 일괄 적용 바 ── */
+        /* 접이식: 토글 바 + 그 아래 컨트롤 카드. 모바일 가로 편집 시 상단을 접어 공간 확보. */
+        .fa-controls-wrap { display: flex; flex-direction: column; gap: 8px; }
+        .fa-controls-toggle { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 14px; background: var(--color-surface); border: 1px solid var(--color-lines-strong); border-radius: var(--radius-md); cursor: pointer; font: inherit; color: var(--color-text-secondary); text-align: left; }
+        .fa-controls-toggle:hover { border-color: var(--color-primary); color: var(--color-primary); }
+        .fa-controls-toggle .material-icons { font-size: 20px; flex: 0 0 auto; }
+        .fa-controls-toggle .fa-ct-title { font-size: 0.78rem; font-weight: 800; letter-spacing: 0.02em; flex: 0 0 auto; }
+        .fa-controls-toggle .fa-ct-summary { font-size: 0.72rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; margin-left: auto; }
         .fa-controls { flex-shrink: 0; display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; padding: 14px 16px; }
+
+        /* ── 모바일 가로 안내(간트는 가로에서만 편집) — 기본 숨김, 세로·터치에서만 노출 ── */
+        .fa-rotate-hint { display: none; }
         .fa-savebar { flex-shrink: 0; z-index: 30; display: flex; align-items: center; gap: 12px 14px; flex-wrap: wrap; padding: 11px 16px; background: var(--color-surface); border: 1px solid var(--color-lines-strong); border-radius: var(--radius-md); box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
         .fa-savebar .spacer { flex: 1; min-width: 8px; }
         .fa-pending { display: inline-flex; align-items: center; gap: 8px; font-size: 0.78rem; font-weight: 700; color: var(--color-text-secondary); flex-wrap: wrap; }
@@ -267,6 +277,27 @@
             /* 범례 폰트 축소 */
             .ct-legend { padding: 8px 10px; gap: 5px 10px; }
         }
+
+        /* ════════════════════════════════════════════════════════════════
+           ── 터치 기기 세로 모드 — 간트는 가로에서만 ──
+           좁은 세로 화면에선 신호 간트(툴바·차트·범례) 편집이 사실상 불가하므로 숨기고
+           "가로로 돌려 주세요" 안내만 표시한다. 가로로 회전하면(이 쿼리 해제) 간트가 다시 나타나고
+           resize/orientationchange 핸들러가 폭을 재측정해 SVG 를 다시 그린다.
+           (pointer: coarse) 로 데스크톱(마우스) 세로 모니터는 영향 없음.
+           ════════════════════════════════════════════════════════════════ */
+        @media (orientation: portrait) and (pointer: coarse) {
+            .fa-rotate-hint {
+                display: flex; align-items: center; gap: 10px; padding: 16px;
+                background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
+                border: 1px dashed color-mix(in srgb, var(--color-primary) 40%, transparent);
+                border-radius: var(--radius-md); color: var(--color-text-secondary);
+                font-size: 0.8rem; font-weight: 700; line-height: 1.45;
+            }
+            .fa-rotate-hint .material-icons { font-size: 26px; color: var(--color-primary); flex: 0 0 auto; }
+            .fa-flow-body .ct-gantt-toolbar,
+            .fa-flow-body .ct-gantt-layout,
+            .fa-flow-body .ct-legend { display: none !important; }
+        }
     </style>
 </head>
 
@@ -281,8 +312,14 @@
         <main class="dsp-main">
             <div class="fw-grid" style="display:flex; flex-direction:column; gap:16px; flex:1; min-height:0;">
 
-                <!-- ════ 공유 시간범위 컨트롤 ════ -->
-                <section class="card fa-controls">
+                <!-- ════ 공유 시간범위 컨트롤 (접이식) ════ -->
+                <div class="fa-controls-wrap">
+                <button type="button" class="fa-controls-toggle" @click="toggleControls()" :aria-expanded="controlsOpen ? 'true' : 'false'">
+                    <span class="material-icons" x-text="controlsOpen ? 'expand_less' : 'expand_more'"></span>
+                    <span class="fa-ct-title">시간 범위 · 새로고침</span>
+                    <span class="fa-ct-summary" x-show="!controlsOpen" x-text="rangeSummary()"></span>
+                </button>
+                <section class="card fa-controls" x-show="controlsOpen" x-cloak>
                     <div class="ct-field" style="display:flex; flex-direction:column; gap:6px; min-width:170px;">
                         <label style="font-size:0.66rem; color:var(--color-text-secondary); font-weight:700; text-transform:uppercase; letter-spacing:0.1em;">시작 (모든 Flow 공통)</label>
                         <input type="datetime-local" step="1" class="form-field" x-model="startTime" @change="onTimeChanged()" />
@@ -311,6 +348,7 @@
                         </button>
                     </div>
                 </section>
+                </div><!-- /.fa-controls-wrap -->
 
                 <!-- ════ 일괄 적용 바 (sticky) ════ -->
                 <div class="fa-savebar">
@@ -450,6 +488,12 @@
                                     <button class="btn btn-sm btn-outlined" @click="resetRange(slice)"
                                             x-show="slice.rangeForm.min !== '' || slice.rangeForm.max !== ''"
                                             title="이 Flow 의 제외 범위 비우기">해제</button>
+                                </div>
+
+                                <!-- 모바일 세로: 간트 편집 곤란 → 가로 안내 (CSS 로 세로·터치에서만 표시) -->
+                                <div class="fa-rotate-hint">
+                                    <span class="material-icons">screen_rotation</span>
+                                    <span>신호 간트차트는 <b>가로 화면</b>에서 편집할 수 있어요. 휴대폰을 가로로 돌려 주세요.</span>
                                 </div>
 
                                 <!-- 간트 툴바 -->
@@ -691,6 +735,7 @@
                 flows: [],
                 startTime: '', endTime: '',
                 excludeIncomplete: true,
+                controlsOpen: true,
                 rt: { connected: false },
                 saving: false, saveMsg: '', saveError: false,
                 _conn: null, _timer: null,
@@ -698,6 +743,8 @@
                 async init() {
                     // 테마는 shell.js 가 <html> 에 적용. 미완료 제외 토글만 복원.
                     this.excludeIncomplete = localStorage.getItem('dspilot-flow-exclude-incomplete') !== '0';
+                    // 상단 컨트롤 접힘 상태 복원(영속). 미저장이면 펼침.
+                    this.controlsOpen = localStorage.getItem('dspilot-flowall-controls-open') !== '0';
                     this.systemName = new URLSearchParams(location.search).get('system') || '';
 
                     // 컨테이너 폭 변화 → 간트 폭맞춤(디바운스)
@@ -729,6 +776,25 @@
                 },
 
                 destroy() { clearTimeout(this._timer); if (this._conn) this._conn.stop(); },
+
+                // ── 상단 컨트롤 접기/펼치기 (영속) ──
+                toggleControls() {
+                    this.controlsOpen = !this.controlsOpen;
+                    try { localStorage.setItem('dspilot-flowall-controls-open', this.controlsOpen ? '1' : '0'); } catch (e) { /* ignore */ }
+                    // 펼침 복귀 시 숨어 있던 간트 폭을 다시 맞춰 그린다(레이아웃 변동 반영).
+                    if (this.controlsOpen) {
+                        this.$nextTick(() => {
+                            for (const s of this.flows) {
+                                if (s.callLanes.length) { this.measurePlotWidth(s); s.svgMarkup = CG.buildSvg(s); }
+                            }
+                        });
+                    }
+                },
+                // 접힘 상태 표시용 요약(시작 ~ 종료, MM-DD HH:MM:SS).
+                rangeSummary() {
+                    const f = (v) => v ? v.slice(5, 19).replace('T', ' ') : '—';
+                    return f(this.startTime) + ' ~ ' + f(this.endTime);
+                },
 
                 // ── API ──
                 async apiGet(url) {

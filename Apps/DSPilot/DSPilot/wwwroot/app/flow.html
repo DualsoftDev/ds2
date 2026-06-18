@@ -58,10 +58,10 @@
         .fw-trend-kpi-value { font-size: 1.35rem; font-weight: 800; color: var(--color-text-primary); line-height: 1.1; font-variant-numeric: tabular-nums; }
         .fw-trend-kpi-sub { font-size: 0.74rem; color: var(--color-text-secondary); }
 
-        .fw-chart-tall { position: relative; height: 320px; margin-bottom: 16px; }
+        .fw-chart-tall { position: relative; height: 320px; margin-bottom: 16px; overflow: hidden; }
         .fw-chart-row { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
         @media (max-width: 900px) { .fw-chart-row { grid-template-columns: 1fr; } }
-        .fw-chart-md { position: relative; height: 260px; }
+        .fw-chart-md { position: relative; height: 260px; overflow: hidden; }
 
         .fw-period-controls { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 
@@ -1207,15 +1207,26 @@
                     this.flowName = new URLSearchParams(location.search).get('name');
                     this.computePeriod('today');
 
-                    // 컨테이너 폭 변화 시 간트 폭맞춤(줌 대체) — 디바운스
+                    // 컨테이너 폭 변화 시 간트 폭맞춤(줌 대체) + Chart.js 차트 강제 리사이즈
+                    // Chart.js responsive:true 의 ResizeObserver 가 orientationchange 후 옛 폭을 잡아
+                    // 캔버스가 컨테이너보다 넓게 고정되는 문제를 chart.resize() 로 보정한다.
                     let _rt;
+                    const _resizeCharts = () => {
+                        if (_charts.trend) try { _charts.trend.resize(); } catch (e) {}
+                        if (_charts.count) try { _charts.count.resize(); } catch (e) {}
+                        if (_charts.dist) try { _charts.dist.resize(); } catch (e) {}
+                    };
                     window.addEventListener('resize', () => {
                         clearTimeout(_rt);
                         _rt = setTimeout(() => {
                             if (this._drag) return;
                             if (this.callLanes.length) { this.measurePlotWidth(); this.svgMarkup = this.buildSvg(); }
+                            _resizeCharts();
                         }, 150);
                     });
+                    // orientationchange 는 resize 보다 먼저 발화하고 뷰포트 갱신은 100-300ms 뒤에 확정.
+                    // resize 핸들러가 뒤따르지만 혹시 놓칠 경우를 대비해 300ms 후 한 번 더 강제 리사이즈.
+                    window.addEventListener('orientationchange', () => { setTimeout(_resizeCharts, 300); });
 
                     await this.loadFlow();
                     if (this.flow) {

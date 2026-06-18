@@ -541,7 +541,12 @@
         //   데스크톱으로 복귀 시 aside/main 원위치, 오버레이 제거.
         var drawerOpen = false;
         // 데스크톱(>=MOBILE_BP) 접힘 상태 — localStorage 영속(탭/페이지 공유). 모바일은 drawerOpen 사용.
-        var deskCollapsed = localStorage.getItem('dspilot-nav-collapsed') === '1';
+        // 터치(coarse pointer) 기기는 기본 접힘: 폰을 가로로 돌려 폭이 MOBILE_BP 를 넘어가도 사이드바가
+        // 자동으로 펼쳐져 편집 공간을 가리지 않게 한다. 사용자가 한 번이라도 명시적으로 토글하면(localStorage)
+        // 그 값을 우선한다(데스크톱은 종전대로 기본 펼침).
+        var _navPref = localStorage.getItem('dspilot-nav-collapsed');
+        var _isCoarse = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+        var deskCollapsed = _navPref === null ? _isCoarse : (_navPref === '1');
         var overlay = document.createElement('div');
         overlay.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:49;';
         document.body.appendChild(overlay);
