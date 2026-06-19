@@ -61,11 +61,13 @@ issue 수가 적고 `main` 이 순차로 전진(뒤 iid 는 앞 iid 가 반영�
 3. **ff merge**: `git -C <REPO>/main merge --ff-only fix-<iid>`
    - 실패(exit≠0) → 그 iid **skip**("ff merge 실패"), 다음 iid 계속.
 4. `after = git -C <REPO>/main rev-parse HEAD`
-5. 이 iid 가 `main` 에 올린 **최종 트리상의 commit** 수집:
-   `git -C <REPO>/main log --format="%H%x09%s" <before>..<after>`
-   → `(hash, subject)` 목록을 그 iid 에 보관(rebase 로 hash 가 바뀌므로 **이 시점 hash 가 최종**, comment 에 이 값을 쓴다).
+5. 이 iid 가 `main` 에 올린 **최종 트리상의 commit + 수정 파일** 수집:
+   - commit: `git -C <REPO>/main log --format="%H%x09%s" <before>..<after>` → `(hash, subject)` 목록
+   - 수정 파일: `git -C <REPO>/main diff --name-only <before> <after>` → 파일 경로 목록
+   → 둘 다 그 iid 에 보관(rebase 로 hash 가 바뀌므로 **이 시점 값이 최종**, comment 에 이 값을 쓴다).
    - **빈 목록(`before == after`)이면** 그 iid 의 변경이 **이미 `main` 에 반영돼 있다**는 뜻이다(rebase 가 중복 커밋을 drop). 이 경우:
      - hash 목록을 fix-state.json 의 **기존 `commit` 값으로 대체**하고 "이미 반영됨" 으로 표시한다.
+     - 수정 파일 목록도 비므로 comment 의 "수정 파일" 은 생략하거나 "(이미 main 에 반영됨)" 으로 적는다(best-effort — 기존 commit 이 reachable 하면 `git -C <REPO>/main show --name-only --pretty=format: <기존hash>` 로 도출 시도 가능, 실패하면 생략).
      - 이후 Phase 4 의 status 갱신에서 **`commit` 필드를 빈 값으로 덮지 말 것**(기존 hash 보존). comment 에는 "이미 main 에 반영된 변경(기존 커밋)" 으로 적고 close 만 수행한다.
 
 > 각 iid 의 hash 는 그 iid 가 merge 되는 순간 확정되고, 뒤 iid 가 `main` 을 더 전진시켜도 변하지 않는다 → push 될 `main` 의 실제 hash 와 일치한다.
@@ -85,10 +87,15 @@ push 성공 후, 처리된 iid 마다:
 
    **변경 프로젝트**: <touchedProjects>
 
+   **수정 파일**:
+   - <path>
+   - ...
+
    **반영 커밋** (main):
-   - `<hash>` <subject>
+   - <subject> — https://github.com/DualsoftDev/ds2/commit/<hash>
    - ...
    ```
+   (각 commit hash 는 위와 같이 `https://github.com/DualsoftDev/ds2/commit/<hash>` 링크 형태로 적는다. `<hash>` 는 Phase 2-5 에서 확정한 main 의 최종 full hash.)
 2. `powershell -NoProfile -File <REPO>/auto-fix/.claude/skills/fixed/scripts/gitlab-close.ps1 -ProjectPath <pp> -Iid <iid> -BodyFile <md>`
    - comment 추가 → **`ByLLM` label 을 붙이며 close** (label 은 close PUT 의 `add_labels` 로 한 번에 처리, 기본값 `ByLLM` — `-AddLabels` 로 변경 가능, 빈 문자열이면 label 생략).
    - 성공 → 다음 3번.
