@@ -25,6 +25,8 @@
 - [06_AGGREGATION.md](./06_AGGREGATION.md) - 집계 계산 규칙
 - [07_STATISTICS.md](./07_STATISTICS.md) - 통계 계산 알고리즘
 - [08_FOCUS_SCORE.md](./08_FOCUS_SCORE.md) - Focus Score 계산
+- [21_OEE_DOWNTIME_DESIGN.md](./21_OEE_DOWNTIME_DESIGN.md) - OEE·정지 이벤트 데이터 모델 & 수집 설계
+- [22_OEE_CALCULATION_SPEC.md](./22_OEE_CALCULATION_SPEC.md) - OEE 산출 규격 (6대 지표 계산 정의)
 
 ### 4. 리팩토링 계획
 

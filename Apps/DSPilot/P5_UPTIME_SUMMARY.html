@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8"/>
-<title>P5 설비 가동시간 자동계산 — 1페이지 요약</title>
+<title>P5 설비 OEE 자동계산 — 1페이지 요약 (CT/MT/WT 모델)</title>
 <style>
 @page{size:A4 landscape; margin:8mm;}
 *{box-sizing:border-box;}
@@ -28,6 +28,7 @@ body{margin:0; font-family:-apple-system,"Pretendard","Apple SD Gothic Neo",sans
 .ca{background:#FFF3E0; color:#7A5200;}
 .cp{background:#E3F2FD; color:#1565C0;}
 .cz{background:#E8F5E9; color:#1B5E20;}
+.cr{background:#FFEBEE; color:#B71C1C;}
 
 table{width:100%; border-collapse:collapse; font-size:10px;}
 table th{background:#0A2540; color:#fff; padding:3px 6px; text-align:left; font-weight:600; font-size:9.5px;}
@@ -68,236 +69,285 @@ svg{width:100%; height:auto; display:block;}
 
   <div class="hdr">
     <div>
-      <h1>P5 설비 가동시간 통합 분석 — 자동계산 설계 <span class="v">v3</span></h1>
-      <div class="sub">사용자 설정 0개 · 3대 지표 (가용성 · 성능 · MTBF) · 품질/MTTR 제외</div>
+      <h1>P5 설비 OEE 자동계산 설계 — CT/MT/WT 모델 <span class="v">v4</span></h1>
+      <div class="sub">사이클 단위 산출 · OEE = 가용성 × 성능 × 품질 · 신뢰성 동반지표 MTTR · MTBF</div>
     </div>
-    <div class="sub">DSPilot · 2026-06-12</div>
+    <div class="sub">DSPilot · 2026-06-19</div>
   </div>
 
-  <!-- ===== 좌상: 핵심 원칙 + 비교 ===== -->
+  <!-- ===== 좌상: 핵심 개념 CT=MT+WT, 비가동 판정 ===== -->
   <div class="box">
-    <h3><span class="n">①</span>표준 OEE vs DSPilot v2 — 핵심 차이</h3>
+    <h3><span class="n">①</span>핵심 개념 — 사이클 시간 분해 &amp; 비가동 판정</h3>
     <table>
-      <tr><th>항목</th><th>표준 (수동입력)</th><th>v2 (자동)</th></tr>
-      <tr><td class="k">계획시간</td><td>시프트 마스터 등록</td><td>14일 활동시간 자동추정 🤖</td></tr>
-      <tr><td class="k">표준사이클</td><td>카탈로그 수기입력</td><td>p10 자동기입 → 중앙값 폴백 🤖</td></tr>
-      <tr><td class="k">정지 시작</td><td>HMI 버튼 / 알람비트</td><td>무사이클 ∨ 고장비트↑ 🤖</td></tr>
-      <tr><td class="k">원인 분류</td><td>오퍼레이터 드롭다운</td><td>비트→5분→8시간 4단계 🤖</td></tr>
-      <tr><td class="k">점검시간</td><td>예외 캘린더 등록</td><td>시프트밖 + 8h↑ 자동라벨 🤖</td></tr>
-      <tr><td class="k">품질(Q)</td><td>불량 수기입력 (100% 가정)</td><td><b>완전 삭제</b> ✗</td></tr>
-      <tr><td class="k">MTBF</td><td>분모 0 → "N/A"</td><td>max(n,1) 보호 → 🟢 무고장</td></tr>
-      <tr><td class="k">입력 부담</td><td>~29건/주</td><td>~1건/주 (<b>95%↓</b>)</td></tr>
+      <tr><th>기호</th><th>의미</th><th>정의</th></tr>
+      <tr><td class="k">CT</td><td>가동시간 (사이클 타임)</td><td><b>CT = MT + WT</b></td></tr>
+      <tr><td class="k">MT</td><td>동작시간</td><td>실제로 디바이스가 움직인 시간</td></tr>
+      <tr><td class="k">WT</td><td>대기시간</td><td>다음 동작까지 기다린 시간</td></tr>
+      <tr><td class="k">CT이상치</td><td>표준 사이클 타임</td><td><b>14일 평균</b>으로 자동 산출 🤖</td></tr>
     </table>
+    <div style="margin-top:6px; padding:6px 8px; background:#FFEBEE; border-left:3px solid #B71C1C; border-radius:3px; font-size:10px;">
+      <b style="color:#B71C1C;">비가동 CT 판정</b> —
+      한 사이클의 <b>MT</b> 가 <b>CT이상치</b> 시간을 넘으면 그 사이클의 CT 전체를 <b>비가동 CT</b> 로 분류.
+      <div style="font-size:9px; color:#7A5200; margin-top:3px;">
+        <span class="chip cm">정상</span> MT ≤ CT이상치 → <b>실측 CT</b>
+        &nbsp;&nbsp;<span class="chip cr">비가동</span> MT &gt; CT이상치 → <b>비가동 CT</b>
+      </div>
+    </div>
   </div>
 
-  <!-- ===== 우상: 3 KPI ===== -->
+  <!-- ===== 우상: OEE 3대 지표 ===== -->
   <div class="box">
-    <h3><span class="n">②</span>3대 지표 — 모두 자동 산출</h3>
+    <h3><span class="n">②</span>OEE 3대 지표 — 모두 자동 산출</h3>
     <div class="k4">
       <div class="kcell">
         <div class="lbl">가용성 A <span class="chip ca">🤖</span></div>
-        <div class="val">가동 / 계획</div>
-        <div class="sub">계획시간 자동추정</div>
+        <div class="val">실측 / (실측+비가동)</div>
+        <div class="sub">비가동 CT 자동판정</div>
       </div>
       <div class="kcell">
         <div class="lbl">성능 P <span class="chip ca">🤖</span></div>
-        <div class="val">(CT·N) / 가동</div>
-        <div class="sub">표준CT 자동기입</div>
+        <div class="val">(N·CT이상치) / 실측</div>
+        <div class="sub">CT이상치 14일평균</div>
       </div>
       <div class="kcell">
-        <div class="lbl">MTBF <span class="chip cz">🟢</span></div>
-        <div class="val">가동 / max(n,1)</div>
-        <div class="sub">분모 0 보호</div>
+        <div class="lbl">품질 Q <span class="chip cp">✎</span></div>
+        <div class="val">기본 100%</div>
+        <div class="sub">사용자 조정 가능</div>
       </div>
     </div>
     <div style="margin-top:5px; padding:5px 8px; background:#FFEB3B; border-radius:3px; text-align:center; font-weight:700; color:#0A2540; font-size:12px;">
-      헤드라인 OEE = 가용성 × 성능 (양품률 제외 명시)
+      OEE = 가용성 × 성능 × 품질
     </div>
     <div style="margin-top:4px; font-size:9.5px; color:#5B6B7E;">
-      칩 — <span class="chip cm">⚙ 측정</span> <span class="chip ca">🤖 자동추정</span> <span class="chip cz">🟢 무고장</span>
-      &nbsp;&nbsp;<b>제외:</b> 양품률 Q · MTTR (3대 지표만 유지)
+      칩 — <span class="chip ca">🤖 자동산출</span> <span class="chip cp">✎ 사용자 조정</span>
+      &nbsp;&nbsp;<b>동반지표(별도):</b> MTTR · MTBF — 비가동 CT 이벤트에서 파생
     </div>
   </div>
 
-  <!-- ===== 좌중: 수식 비교 ===== -->
+  <!-- ===== 좌중: 수식 ===== -->
   <div class="box">
     <h3><span class="n">③</span>수식 — 한글 핵심</h3>
 
-    <div class="formula"><span class="std-tag">표준</span><span class="ko">가용성</span>
-      <span class="eq">=</span><span class="frac"><span class="num">가동시간</span><span class="den">계획실행시간</span></span>
-      <span class="note">계획 = 시프트 − 계획정지</span>
-    </div>
-    <div class="formula"><span class="v2-tag">v2</span><span class="ko">가용성</span>
-      <span class="eq">=</span><span class="frac"><span class="num">가동시간</span><span class="den">자동추정 계획실행시간</span></span>
-      <span class="note">= (상위95% − 하위5%) × 일수</span>
+    <div class="formula"><span class="v2-tag">기준</span><span class="ko">CT 분해</span>
+      <span class="eq">:</span> 가동시간(CT) = 동작시간(MT) + 대기시간(WT)
     </div>
 
-    <div class="formula"><span class="std-tag">표준</span><span class="ko">성능</span>
-      <span class="eq">=</span><span class="frac"><span class="num">표준사이클 × 생산수</span><span class="den">가동시간</span></span>
-      <span class="note">표준사이클 = 카탈로그</span>
-    </div>
-    <div class="formula"><span class="v2-tag">v2</span><span class="ko">성능</span>
-      <span class="eq">=</span><span class="frac"><span class="num">표준사이클 × 생산수</span><span class="den">가동시간</span></span>
-      <span class="note">표준사이클 = 하위10% ?? 중앙값</span>
+    <div class="formula"><span class="v2-tag">A</span><span class="ko">가용성</span>
+      <span class="eq">=</span><span class="frac"><span class="num">Σ 실측 CT</span><span class="den">Σ 실측 CT + Σ 비가동 CT</span></span>
+      <span class="note">비가동 CT = MT &gt; CT이상치 인 사이클</span>
     </div>
 
-    <div class="formula"><span class="std-tag">표준</span><span class="ko">MTBF</span>
-      <span class="eq">=</span><span class="frac"><span class="num">가동시간</span><span class="den">고장건수</span></span>
-      <span class="note">고장 0건 → 산출불가</span>
-    </div>
-    <div class="formula"><span class="v2-tag">v3</span><span class="ko">MTBF</span>
-      <span class="eq">=</span><span class="frac"><span class="num">가동시간</span><span class="den">max(고장건수, 1)</span></span>
-      <span class="note">분모 0 보호 → 무고장시 가동시간 그대로 🟢</span>
+    <div class="formula"><span class="v2-tag">P</span><span class="ko">성능</span>
+      <span class="eq">=</span><span class="frac"><span class="num">사이클 수 × CT이상치</span><span class="den">Σ 실측 CT</span></span>
+      <span class="note">CT이상치 = 14일 평균 표준CT</span>
     </div>
 
-    <div class="formula" style="background:#FFEB3B; border-left-color:#F57F17;">
-      <span class="std-tag">표준</span> OEE = 가용성 × 성능 × <span style="text-decoration:line-through;">양품률</span>
-      &nbsp;&nbsp;<span class="v2-tag">v2</span> <b>OEE = 가용성 × 성능</b>
+    <div class="formula"><span class="v2-tag">Q</span><span class="ko">품질</span>
+      <span class="eq">=</span> 양품수 / 총생산수
+      <span class="note">기본값 100% · 사용자 조정 가능 ✎</span>
+    </div>
+
+    <div class="formula" style="background:#FFEB3B; border-left-color:#F57F17; text-align:center;">
+      <b style="font-size:12px;">OEE = 가용성(A) × 성능(P) × 품질(Q)</b>
     </div>
   </div>
 
-  <!-- ===== 우중: 자동 파이프라인 ===== -->
+  <!-- ===== 우중: MTTR / MTBF 동반지표 ===== -->
   <div class="box">
-    <h3><span class="n">④</span>자동 파이프라인 4종</h3>
-    <table>
-      <tr><th>#</th><th>자동화</th><th>상태</th><th>알고리즘</th></tr>
-      <tr><td>①</td><td>표준사이클 자동기입</td><td><span class="keep">기존</span></td><td>p10 (샘플≥30) → median 폴백</td></tr>
-      <tr><td>②</td><td>정지 시작/마감</td><td><span class="keep">기존</span></td><td>무사이클 120s + 고장비트↑</td></tr>
-      <tr><td>③</td><td>원인 분류</td><td><span class="keep">기존</span>+<span class="new">확장</span></td><td>비트 → 5분↑ 자동:고장 → 8h↑ 자동:점검</td></tr>
-      <tr><td>④</td><td>계획시간 자동추정</td><td><span class="new">신규</span></td><td>14일 시간별 히스토그램 p5~p95</td></tr>
-    </table>
-    <div style="margin-top:5px; font-size:9.5px; color:#5B6B7E;">
-      <b>사용자 재분류시</b> → 출처=수동 영구고정, 자동화 OFF (정정값 항상 우선)
+    <h3><span class="n">④</span>신뢰성 동반지표 — MTTR · MTBF</h3>
+    <div style="font-size:9.5px; color:#B71C1C; margin:0 0 4px 0; padding:3px 6px; background:#FFEBEE; border-radius:3px;">
+      <b>고장 onset</b> = 사이클 시작 후 <b>CT이상치</b> 만큼 경과해 초과한 시점 (사이클 시작점 ✗)
+    </div>
+    <div class="formula"><span class="v2-tag">MTTR</span><span class="ko">평균 수리시간</span>
+      <div style="font-size:10px; margin-top:2px;">
+        고장 onset <span class="eq">→</span> 해당 flow 의 Call 에 <b>going 변화</b> 발생 시점
+      </div>
+      <span class="note">위 구간들의 평균 = 정지 1건당 평균 복구시간</span>
+    </div>
+    <div class="formula"><span class="v2-tag">MTBF</span><span class="ko">평균 고장간격</span>
+      <div style="font-size:10px; margin-top:2px;">
+        고장 onset <span class="eq">→</span> <b>다음 비가동 CT</b> 의 고장 onset
+      </div>
+      <span class="note">위 갭들의 평균 = 비가동 발생 평균 주기</span>
+    </div>
+    <div style="margin-top:5px; padding:5px 8px; background:#E8F6F8; border-left:3px solid #1FA8B8; border-radius:3px; font-size:9.5px; color:#0A2540;">
+      두 지표 모두 <b>비가동 CT 이벤트</b> 의 onset 시각에서 자동 파생 →
+      OEE 곱셈식과 <b>독립</b>인 신뢰성 동반지표로 대시보드에 함께 표시.
     </div>
   </div>
 
-  <!-- ===== 하단 전체: 시각 도식 + 운영단계 ===== -->
+  <!-- ===== 하단 전체: 시각 도식 ===== -->
   <div class="box svg-row">
-    <h3><span class="n">⑤</span>시간 계층 → 손실 → KPI · 운영단계별 변화</h3>
-    <svg viewBox="0 0 1100 230" xmlns="http://www.w3.org/2000/svg">
-      <!-- 시간 계층 (좌) -->
-      <rect x="10" y="10" width="180" height="180" fill="#fff" stroke="#37474F" stroke-width="1.2"/>
-      <text x="100" y="25" text-anchor="middle" font-size="10.5" font-weight="700" fill="#0A2540">계획실행시간 🤖</text>
-      <rect x="10" y="35" width="130" height="120" fill="#fff" stroke="#37474F"/>
-      <text x="75" y="50" text-anchor="middle" font-size="10" font-weight="700" fill="#0A2540">가동시간</text>
-      <rect x="140" y="35" width="50" height="120" fill="#FFCDD2" stroke="#B71C1C"/>
-      <text x="165" y="100" text-anchor="middle" font-size="9" font-weight="700" fill="#B71C1C">정지</text>
-      <rect x="10" y="75" width="90" height="80" fill="#FFEB3B" stroke="#F57F17" stroke-width="1.2"/>
-      <text x="55" y="115" text-anchor="middle" font-size="10" font-weight="800" fill="#0A2540">순가동</text>
-      <text x="55" y="128" text-anchor="middle" font-size="8" fill="#5B6B7E">= 계획 × A × P</text>
-      <rect x="100" y="75" width="40" height="80" fill="#FFE0B2" stroke="#E65100"/>
-      <text x="120" y="115" text-anchor="middle" font-size="8.5" fill="#E65100">속도</text>
-      <text x="120" y="127" text-anchor="middle" font-size="8.5" fill="#E65100">손실</text>
+    <h3><span class="n">⑤</span>사이클 시간 분해 → 비가동 판정 → MTTR · MTBF 구간</h3>
+    <svg viewBox="0 0 1100 245" xmlns="http://www.w3.org/2000/svg">
+      <!-- (좌) 단일 사이클 해부 -->
+      <text x="20" y="22" font-size="10.5" font-weight="700" fill="#0A2540">단일 사이클 = CT</text>
+      <rect x="20" y="32" width="150" height="34" fill="#90CAF9" stroke="#1565C0"/>
+      <text x="95" y="53" text-anchor="middle" font-size="10" font-weight="700" fill="#0A2540">동작 MT</text>
+      <rect x="170" y="32" width="80" height="34" fill="#ECEFF1" stroke="#90A4AE"/>
+      <text x="210" y="53" text-anchor="middle" font-size="10" font-weight="700" fill="#5B6B7E">대기 WT</text>
+      <line x1="20" y1="74" x2="250" y2="74" stroke="#0A2540"/>
+      <text x="135" y="86" text-anchor="middle" font-size="9" fill="#0A2540">CT = MT + WT</text>
+      <line x1="170" y1="28" x2="170" y2="78" stroke="#B71C1C" stroke-dasharray="3,2"/>
+      <text x="172" y="100" font-size="8.5" fill="#B71C1C">CT이상치 기준선 — MT가 넘으면 비가동</text>
 
-      <!-- 4 손실 (중) -->
-      <g font-size="9.5">
-        <rect x="210" y="30" width="200" height="22" fill="#FFCDD2" stroke="#B71C1C"/>
-        <text x="220" y="46" font-weight="700" fill="#B71C1C">1. 장비 고장 🤖</text>
-        <rect x="210" y="56" width="200" height="22" fill="#E1BEE7" stroke="#6A1B9A"/>
-        <text x="220" y="72" font-weight="700" fill="#6A1B9A">2. 설치·교체·점검 🤖</text>
-        <rect x="210" y="82" width="200" height="22" fill="#FFF9C4" stroke="#F57F17"/>
-        <text x="220" y="98" font-weight="700" fill="#E65100">3. 비동작 (유휴)</text>
-        <rect x="210" y="108" width="200" height="22" fill="#FFE0B2" stroke="#E65100"/>
-        <text x="220" y="124" font-weight="700" fill="#E65100">4. 생산속도 감소</text>
-        <rect x="210" y="134" width="200" height="22" fill="#F5F5F5" stroke="#BDBDBD" stroke-dasharray="3,2"/>
-        <text x="220" y="150" fill="#9E9E9E" text-decoration="line-through">5·6 품질손실 — v2 제거</text>
-      </g>
+      <!-- (우) 사이클 타임라인 -->
+      <text x="300" y="22" font-size="10.5" font-weight="700" fill="#0A2540">사이클 타임라인 (시간순)</text>
+      <!-- C1 정상 -->
+      <rect x="300" y="32" width="47" height="34" fill="#90CAF9" stroke="#1565C0"/>
+      <rect x="347" y="32" width="24" height="34" fill="#ECEFF1" stroke="#90A4AE"/>
+      <!-- C2 정상 -->
+      <rect x="371" y="32" width="43" height="34" fill="#90CAF9" stroke="#1565C0"/>
+      <rect x="414" y="32" width="24" height="34" fill="#ECEFF1" stroke="#90A4AE"/>
 
-      <!-- 운영단계 (우) -->
-      <g font-size="9.5">
-        <rect x="430" y="10" width="220" height="180" fill="#fff" stroke="#37474F"/>
-        <text x="540" y="25" text-anchor="middle" font-weight="700" fill="#0A2540" font-size="10.5">운영단계별 KPI 변화 (STN1)</text>
-        <line x1="440" y1="35" x2="640" y2="35" stroke="#0A2540"/>
-        <text x="445" y="55" font-weight="700" fill="#5B6B7E">A. 1일차 (데이터 0)</text>
-        <text x="445" y="68" fill="#5B6B7E">OEE 0% · 정직한 "부족" 상태</text>
-        <line x1="440" y1="78" x2="640" y2="78" stroke="#EEE"/>
-        <text x="445" y="95" font-weight="700" fill="#0A2540">B. 5일차 (안정화중)</text>
-        <text x="445" y="108" fill="#5B6B7E">OEE 87.8% · CT=중앙값 폴백</text>
-        <line x1="440" y1="118" x2="640" y2="118" stroke="#EEE"/>
-        <text x="445" y="135" font-weight="700" fill="#178899">C. 30일차 (정상운영)</text>
-        <text x="445" y="148" fill="#5B6B7E">OEE 72.4% · CT=p10 진짜값</text>
-        <text x="445" y="172" fill="#8896A6" font-style="italic">→ 사용자 입력 0, 자동 안정화</text>
-      </g>
+      <!-- C3 비가동: CT 전체가 비가동 = 인식지연(앞 CT이상치) + 고장(다운) + going후 정상회복 -->
+      <rect x="438" y="32" width="65" height="34" fill="#FFE0E0" stroke="#B71C1C"/>
+      <text x="470" y="53" text-anchor="middle" font-size="7.5" fill="#B71C1C">인식지연</text>
+      <rect x="503" y="32" width="117" height="34" fill="#EF9A9A" stroke="#B71C1C" stroke-width="1.3"/>
+      <text x="561" y="53" text-anchor="middle" font-size="9" font-weight="700" fill="#7F1410">고장(다운)</text>
+      <rect x="620" y="32" width="52" height="34" fill="#80CBC4" stroke="#00897B"/>
+      <rect x="672" y="32" width="25" height="34" fill="#E0F2F1" stroke="#4DB6AC"/>
+      <text x="646" y="53" text-anchor="middle" font-size="8" fill="#004D40">정상회복</text>
 
-      <!-- 계산 예시 (최우) -->
-      <g font-size="10">
-        <rect x="670" y="10" width="420" height="180" fill="#FAFBFC" stroke="#1FA8B8" stroke-width="1.2"/>
-        <text x="880" y="25" text-anchor="middle" font-weight="700" fill="#0A2540" font-size="10.5">자동계산 예시 (1일)</text>
-        <text x="685" y="50" fill="#0A2540"><tspan font-weight="700" fill="#178899">가용성</tspan> = (480 − 60) / 480 × 100 = <tspan font-weight="800" fill="#36C28A">87.5%</tspan></text>
-        <line x1="685" y1="58" x2="1080" y2="58" stroke="#EEE"/>
-        <text x="685" y="80" fill="#0A2540"><tspan font-weight="700" fill="#178899">성능</tspan> = (0.5 × 400) / 420 × 100 = <tspan font-weight="800" fill="#F8C545">47.6%</tspan></text>
-        <line x1="685" y1="88" x2="1080" y2="88" stroke="#EEE"/>
-        <text x="685" y="110" fill="#0A2540"><tspan font-weight="700" fill="#178899">MTBF</tspan> = 420분 / max(3, 1) = <tspan font-weight="800" fill="#1FA8B8">140분 (2h 20m)</tspan></text>
-        <line x1="685" y1="118" x2="1080" y2="118" stroke="#EEE"/>
-        <text x="685" y="140" fill="#5B6B7E" font-size="9.5" font-style="italic">※ MTTR 제외 — 3대 지표(가용성·성능·MTBF)만 유지</text>
-        <rect x="685" y="153" width="395" height="30" fill="#FFEB3B" stroke="#F57F17"/>
-        <text x="882" y="173" text-anchor="middle" font-weight="800" fill="#0A2540" font-size="12">OEE = 0.875 × 0.476 = 41.7%</text>
+      <!-- C4 정상 -->
+      <rect x="697" y="32" width="48" height="34" fill="#90CAF9" stroke="#1565C0"/>
+      <rect x="745" y="32" width="23" height="34" fill="#ECEFF1" stroke="#90A4AE"/>
+      <!-- C5 정상 -->
+      <rect x="768" y="32" width="50" height="34" fill="#90CAF9" stroke="#1565C0"/>
+      <rect x="818" y="32" width="25" height="34" fill="#ECEFF1" stroke="#90A4AE"/>
+
+      <!-- C6 비가동 -->
+      <rect x="843" y="32" width="65" height="34" fill="#FFE0E0" stroke="#B71C1C"/>
+      <text x="875" y="53" text-anchor="middle" font-size="7.5" fill="#B71C1C">인식지연</text>
+      <rect x="908" y="32" width="102" height="34" fill="#EF9A9A" stroke="#B71C1C" stroke-width="1.3"/>
+      <text x="959" y="53" text-anchor="middle" font-size="9" font-weight="700" fill="#7F1410">고장(다운)</text>
+      <rect x="1010" y="32" width="47" height="34" fill="#80CBC4" stroke="#00897B"/>
+      <rect x="1057" y="32" width="23" height="34" fill="#E0F2F1" stroke="#4DB6AC"/>
+      <text x="1033" y="53" text-anchor="middle" font-size="8" fill="#004D40">정상회복</text>
+
+      <!-- 비가동 CT 전체 = 가용성 분모 (각 비가동 사이클 CT 전체) -->
+      <line x1="438" y1="73" x2="697" y2="73" stroke="#B71C1C" stroke-width="1.2"/>
+      <line x1="438" y1="69" x2="438" y2="77" stroke="#B71C1C"/>
+      <line x1="697" y1="69" x2="697" y2="77" stroke="#B71C1C"/>
+      <text x="567" y="86" text-anchor="middle" font-size="8.5" font-weight="700" fill="#B71C1C">비가동 CT 전체 (가용성 분모)</text>
+      <line x1="843" y1="73" x2="1080" y2="73" stroke="#B71C1C" stroke-width="1.2"/>
+      <line x1="843" y1="69" x2="843" y2="77" stroke="#B71C1C"/>
+      <line x1="1080" y1="69" x2="1080" y2="77" stroke="#B71C1C"/>
+      <text x="961" y="86" text-anchor="middle" font-size="8.5" font-weight="700" fill="#B71C1C">비가동 CT 전체 (가용성 분모)</text>
+
+      <!-- CT이상치 lead (사이클 시작 → 고장 인식점) -->
+      <line x1="438" y1="28" x2="503" y2="28" stroke="#0A2540" stroke-width="1"/>
+      <line x1="438" y1="25" x2="438" y2="31" stroke="#0A2540"/>
+      <line x1="503" y1="25" x2="503" y2="31" stroke="#0A2540"/>
+      <text x="470" y="22" text-anchor="middle" font-size="7.5" fill="#0A2540">CT이상치</text>
+
+      <!-- onset 마커 = 사이클 시작 + CT이상치 (고장 시작 인식점) -->
+      <line x1="503" y1="30" x2="503" y2="205" stroke="#B71C1C" stroke-dasharray="4,3"/>
+      <line x1="908" y1="30" x2="908" y2="205" stroke="#B71C1C" stroke-dasharray="4,3"/>
+      <circle cx="503" cy="32" r="3.5" fill="#B71C1C"/>
+      <circle cx="908" cy="32" r="3.5" fill="#B71C1C"/>
+      <text x="503" y="100" text-anchor="middle" font-size="8.5" font-weight="700" fill="#B71C1C">고장 onset①</text>
+      <text x="908" y="100" text-anchor="middle" font-size="8.5" font-weight="700" fill="#B71C1C">고장 onset②</text>
+
+      <!-- going 회복 마커 (고장 종료 = MTTR 끝점, 이후 정상동작) -->
+      <line x1="620" y1="30" x2="620" y2="120" stroke="#178899" stroke-dasharray="4,3"/>
+      <circle cx="620" cy="32" r="3.5" fill="#178899"/>
+      <text x="628" y="114" text-anchor="start" font-size="8.5" font-weight="700" fill="#178899">Call going 변화 (고장 종료)</text>
+
+      <!-- MTTR 구간: 고장 onset → going 회복 -->
+      <line x1="503" y1="138" x2="620" y2="138" stroke="#178899" stroke-width="1.5"/>
+      <line x1="503" y1="134" x2="503" y2="142" stroke="#178899" stroke-width="1.5"/>
+      <line x1="620" y1="134" x2="620" y2="142" stroke="#178899" stroke-width="1.5"/>
+      <text x="561" y="153" text-anchor="middle" font-size="9" font-weight="700" fill="#178899">MTTR (고장 onset → going 회복)</text>
+
+      <!-- MTBF 구간: 고장 onset → 다음 고장 onset -->
+      <line x1="503" y1="183" x2="908" y2="183" stroke="#6A1B9A" stroke-width="1.5"/>
+      <line x1="503" y1="179" x2="503" y2="187" stroke="#6A1B9A" stroke-width="1.5"/>
+      <line x1="908" y1="179" x2="908" y2="187" stroke="#6A1B9A" stroke-width="1.5"/>
+      <text x="705" y="198" text-anchor="middle" font-size="9" font-weight="700" fill="#6A1B9A">MTBF (고장 onset① → 다음 onset②)</text>
+
+      <!-- 범례 -->
+      <g font-size="9">
+        <rect x="300" y="220" width="14" height="11" fill="#90CAF9" stroke="#1565C0"/>
+        <text x="318" y="229" fill="#5B6B7E">동작 MT</text>
+        <rect x="370" y="220" width="14" height="11" fill="#ECEFF1" stroke="#90A4AE"/>
+        <text x="388" y="229" fill="#5B6B7E">대기 WT</text>
+        <rect x="440" y="220" width="14" height="11" fill="#FFE0E0" stroke="#B71C1C"/>
+        <text x="458" y="229" fill="#5B6B7E">인식지연</text>
+        <rect x="520" y="220" width="14" height="11" fill="#EF9A9A" stroke="#B71C1C"/>
+        <text x="538" y="229" fill="#5B6B7E">고장(다운)</text>
+        <rect x="610" y="220" width="14" height="11" fill="#80CBC4" stroke="#00897B"/>
+        <text x="628" y="229" fill="#5B6B7E">정상회복(비가동 내 동작/대기)</text>
       </g>
     </svg>
+    <div class="note" style="margin-top:4px;">
+      ※ <b>비가동 사이클은 CT 전체가 비가동 CT</b>(가용성 분모) — 앞 <b>CT이상치(인식지연)</b> · <b>고장(다운)</b> · <b>going 회복 후 정상동작</b> 모두 포함.
+      <b>going 변화</b>는 고장 종료(MTTR 끝점)이며, 그 이후 사이클 끝까지는 정상 동작하지만 해당 사이클은 비가동으로 집계됨.
+      <br>※ 위 <b style="color:#178899;">MTTR</b> · <b style="color:#6A1B9A;">MTBF</b> 구간은 <b>1건 예시</b> — 실제 지표는 모든 비가동 이벤트의 해당 구간들을 <b>평균</b>한 값.
+    </div>
   </div>
 
-  <!-- ===== 상황 시나리오 (전체폭) ===== -->
+  <!-- ===== 예시 시나리오 (전체폭) ===== -->
   <div class="box full" style="background:#FAFBFC;">
-    <h3><span class="n">⑥</span>예시 시나리오 — 자동계산 수치의 배경 (STN3 조립3 설비, 1일 운영)</h3>
+    <h3><span class="n">⑥</span>예시 시나리오 — 사이클 단위 OEE 산출 (STN3 조립3 설비)</h3>
     <div style="display:grid; grid-template-columns:1.05fr 1fr 1.1fr; gap:10px;">
 
-      <!-- 상황 -->
+      <!-- 상황 / 집계 -->
       <div>
-        <h4 style="margin:0 0 4px 0; font-size:10.5px; color:#0A2540;">📋 운영 상황 (자동 수집)</h4>
+        <h4 style="margin:0 0 4px 0; font-size:10.5px; color:#0A2540;">📋 사이클 집계 (자동 수집)</h4>
         <table style="font-size:9.5px;">
-          <tr><td class="k">설비</td><td>STN3 조립3 (프레스 + 픽앤플레이스)</td></tr>
-          <tr><td class="k">일자</td><td>2026-05-27 (수)</td></tr>
-          <tr><td class="k">시프트</td><td>미설정 → <b>자동추정 08:00~16:00 (8h=480분)</b> 🤖</td></tr>
-          <tr><td class="k">표준CT</td><td>미입력 → <b>p10 자동기입 0.5분 (30s/cycle)</b> 🤖</td></tr>
-          <tr><td class="k">생산수</td><td>400개 (dspFlowHistory 자동집계)</td></tr>
-          <tr><td class="k">정지</td><td><b>3건 (총 60분)</b> — 모두 자동 onset/clear</td></tr>
-          <tr><td class="k">불량</td><td>측정 안함 (v2 양품률 제외)</td></tr>
+          <tr><td class="k">CT이상치</td><td><b>30s</b> (14일 평균 표준CT) 🤖</td></tr>
+          <tr><td class="k">총 사이클</td><td>100 개</td></tr>
+          <tr><td class="k">실측(정상)</td><td>90 개 · <b>Σ실측CT = 2,970s</b> (49.5분)</td></tr>
+          <tr><td class="k">비가동</td><td>10 개 · <b>Σ비가동CT = 1,200s</b> (20분)</td></tr>
+          <tr><td class="k">비가동 판정</td><td>MT &gt; 30s 인 사이클 10건 자동분류 🤖</td></tr>
+          <tr><td class="k">품질</td><td>기본 100% (사용자 조정 가능) ✎</td></tr>
         </table>
       </div>
 
-      <!-- 정지 이벤트 -->
+      <!-- 비가동 이벤트 -->
       <div>
-        <h4 style="margin:0 0 4px 0; font-size:10.5px; color:#0A2540;">🚨 정지 이벤트 3건 (자동 분류)</h4>
+        <h4 style="margin:0 0 4px 0; font-size:10.5px; color:#0A2540;">🚨 비가동 CT 이벤트 (onset 기준)</h4>
         <table style="font-size:9.5px;">
-          <tr><th style="font-size:9px;">시각</th><th style="font-size:9px;">길이</th><th style="font-size:9px;">자동 분류</th></tr>
-          <tr><td>09:42</td><td>15분</td><td>고장비트↑ → <span class="chip ca" style="font-size:8.5px;">🤖 고장</span></td></tr>
-          <tr><td>11:08</td><td>20분</td><td>5분↑ 무사이클 → <span class="chip ca" style="font-size:8.5px;">🤖 자동:고장</span></td></tr>
-          <tr><td>14:30</td><td>25분</td><td>원인비트(자재) → <span class="chip cm" style="font-size:8.5px;">⚙ 자재대기</span></td></tr>
+          <tr><th style="font-size:9px;">onset</th><th style="font-size:9px;">MT</th><th style="font-size:9px;">복구(going)</th></tr>
+          <tr><td>09:42</td><td>75s</td><td>+3.5분</td></tr>
+          <tr><td>10:14</td><td>62s</td><td>+4.2분</td></tr>
+          <tr><td>…</td><td>…</td><td>…</td></tr>
+          <tr><td>15:30</td><td>70s</td><td>+4.1분</td></tr>
         </table>
         <div style="font-size:9px; color:#5B6B7E; margin-top:4px; padding:4px 6px; background:#FFF3E0; border-radius:3px;">
-          <b>가동시간</b> = 480 − 60 = <b>420분</b> (실제 사이클 발생)
+          <b>MTTR</b> = onset→going 복구 10건 평균 = <b>4.0분</b>
         </div>
-        <div style="font-size:9px; color:#5B6B7E; margin-top:3px;">
-          <b>고장 마감건수</b> = 3건 (15+20+25분, 모두 자동 clear)
+        <div style="font-size:9px; color:#5B6B7E; margin-top:3px; padding:4px 6px; background:#F3E5F5; border-radius:3px;">
+          <b>MTBF</b> = 연속 onset 간격 평균 = <b>21.0분</b>
         </div>
       </div>
 
       <!-- 계산 상세 -->
       <div>
-        <h4 style="margin:0 0 4px 0; font-size:10.5px; color:#0A2540;">🧮 KPI 산출 (모두 자동)</h4>
+        <h4 style="margin:0 0 4px 0; font-size:10.5px; color:#0A2540;">🧮 OEE 산출 (모두 자동)</h4>
 
         <div style="background:#fff; border-left:3px solid #36C28A; padding:4px 8px; margin-bottom:3px; font-size:9.5px;">
-          <b style="color:#1B5E20;">가용성 = 87.5%</b><br>
-          (480 − 60) / 480 = 420/480<br>
-          <span style="color:#5B6B7E;">→ 계획 480분 중 60분 정지, 가동률 87.5%</span>
+          <b style="color:#1B5E20;">가용성 = 71.2%</b><br>
+          2,970 / (2,970 + 1,200) = 2970/4170<br>
+          <span style="color:#5B6B7E;">→ 비가동 CT 1,200s 만큼 가동 손실</span>
         </div>
 
         <div style="background:#fff; border-left:3px solid #F8C545; padding:4px 8px; margin-bottom:3px; font-size:9.5px;">
-          <b style="color:#7A5200;">성능 = 47.6%</b><br>
-          (0.5분 × 400개) / 420분 = 200/420<br>
-          <span style="color:#5B6B7E;">→ 표준속도면 200분이면 됨. 실제 420분 → 속도손실 53%</span>
+          <b style="color:#7A5200;">성능 = 90.9%</b><br>
+          (90 × 30s) / 2,970s = 2700/2970<br>
+          <span style="color:#5B6B7E;">→ 표준속도면 2,700s. 실제 2,970s → 속도손실 9%</span>
         </div>
 
-        <div style="background:#fff; border-left:3px solid #1FA8B8; padding:4px 8px; margin-bottom:3px; font-size:9.5px;">
-          <b style="color:#178899;">MTBF = 140분 (2h 20m)</b><br>
-          420분 / max(3, 1) = 420/3<br>
-          <span style="color:#5B6B7E;">→ 평균 2시간 20분마다 1번 고장 — 신뢰성 낮음</span>
+        <div style="background:#fff; border-left:3px solid #1565C0; padding:4px 8px; margin-bottom:3px; font-size:9.5px;">
+          <b style="color:#1565C0;">품질 = 100%</b><br>
+          기본값 (불량 미집계) · 사용자 조정 가능 ✎
         </div>
 
         <div style="background:#FFEB3B; padding:5px 8px; border-radius:3px; font-size:10px; text-align:center; font-weight:800; color:#0A2540;">
-          OEE = 0.875 × 0.476 = <span style="color:#B71C1C;">41.7%</span>
+          OEE = 0.712 × 0.909 × 1.0 = <span style="color:#B71C1C;">64.7%</span>
           <div style="font-size:8.5px; font-weight:500; color:#5B6B7E; margin-top:1px;">
-            → 가용성 양호, <b>성능이 발목</b>. 사이클 속도 개선 우선.
+            → 성능 양호, <b>가용성이 발목</b>. 비가동 빈도(MTBF 21분) 개선 우선.
           </div>
         </div>
       </div>
@@ -306,9 +356,11 @@ svg{width:100%; height:auto; display:block;}
     <!-- 의미 해석 -->
     <div style="margin-top:6px; padding:6px 10px; background:#E8F6F8; border-left:3px solid #1FA8B8; border-radius:3px; font-size:10px; line-height:1.55;">
       <b style="color:#0A2540;">🔍 자동 인사이트:</b>
-      이 설비는 <b>가용성(87.5%) 은 합격선</b>이지만 <b>성능(47.6%) 이 OEE 의 발목</b>을 잡는다. 가동시간 420분 중 절반 이상이 표준속도 미달로 흘러간 셈.
-      <b>MTBF 140분</b> 으로 평균 2시간 20분마다 고장 발생 → <b>마모/공구 점검 주기 단축</b>과 <b>사이클 속도 회복</b>이 핵심 개선점.
-      <b>모든 수치가 자동 산출</b> — 운영자가 입력한 것은 0건이며, 정지 분류 1건만 원인비트로 ⚙ 측정, 나머지 2건은 🤖 자동분류.
+      이 설비는 <b>성능(90.9%) 은 합격선</b>이지만 <b>가용성(71.2%) 이 OEE 의 발목</b>을 잡는다.
+      MT 가 표준 CT(30s) 를 넘긴 비가동 사이클이 10건 — 총 1,200s 의 손실.
+      <b>MTBF 21분</b> 으로 약 21분마다 비가동이 재발하고, <b>MTTR 4.0분</b> 으로 복구는 빠른 편 →
+      <b>잦은 짧은 정지(척찹·자재대기)</b> 가 핵심 손실. 발생빈도(MTBF) 를 늘리는 것이 우선 개선점.
+      모든 수치는 <b>사이클 단위로 자동 산출</b> — 품질만 기본 100% 에서 사용자가 보정.
     </div>
   </div>
 
@@ -316,28 +368,28 @@ svg{width:100%; height:auto; display:block;}
   <div class="box">
     <h3><span class="n">⑦</span>구현 순서</h3>
     <ul class="tight">
-      <li>① 스키마: <code>oeeDowntime.classifySource</code> 컬럼 추가</li>
-      <li>② <code>OeeAutoShiftInferenceService</code> 신규 (계획시간 자동추정)</li>
-      <li>③ <code>OeeController</code> 분기 — 우선순위 / 출처 칩 / 품질 코드 삭제</li>
-      <li>④ 5분 / 8시간 휴리스틱 분류기 확장</li>
-      <li>⑤ 신규 API 3종 — daily-composition / by-reason / insight</li>
-      <li>⑥ UI <code>/app/uptime.html</code> (Alpine.js)</li>
+      <li>① 사이클 적재시 <code>MT</code>(동작) / <code>WT</code>(대기) 분리 기록</li>
+      <li>② <code>CT이상치</code> = 14일 평균 표준CT 자동 산출 (<code>ResolveEffectiveCycleRangeMs</code> 재사용)</li>
+      <li>③ 비가동 판정 — <code>MT &gt; CT이상치</code> 사이클 플래깅 → 실측/비가동 CT 분리 집계</li>
+      <li>④ <code>OeeMath</code> — 가용성·성능·품질·OEE 순수함수 (사이클 단위)</li>
+      <li>⑤ MTTR/MTBF — 비가동 onset 시각 + Call going 변화 시점으로 구간 산출</li>
+      <li>⑥ UI <code>/app/uptime.html</code> — 3대 지표 + 동반지표 카드</li>
     </ul>
   </div>
 
   <div class="box">
-    <h3><span class="n">⑧</span>비목표</h3>
+    <h3><span class="n">⑧</span>비목표 · 가정</h3>
     <ul class="tight">
-      <li>품질(Q) 측정·표시 — 완전 제외</li>
-      <li>LLM 인사이트 — 룰기반만 (향후 옵트인)</li>
-      <li>계획시간 자동추정 → DB 영구기입 — 금지 (RAM only)</li>
-      <li>휴리스틱 분류의 과거 백필 — 신규에만 적용</li>
+      <li>품질(Q) — 기본 100%, 사용자 조정만 (불량 자동집계는 향후)</li>
+      <li>MTTR/MTBF 는 OEE 곱셈식에 미포함 (독립 동반지표)</li>
+      <li>CT이상치 14일 평균 — DB 영구기입 금지 (RAM only)</li>
+      <li>비가동 판정 기준은 <code>MT</code> (동작시간) 단독, WT 미포함</li>
       <li>CCTV / 품질자료 연계 — P5 외부</li>
     </ul>
   </div>
 
   <div class="foot">
-    DSPilot — P5 Uptime 자동계산 설계 v2 · DualSoft · 상세본: <code>P5_UPTIME_DESIGN.html</code>
+    DSPilot — P5 OEE 자동계산 설계 v4 (CT/MT/WT 모델) · DualSoft · doc/22_OEE_CALCULATION_SPEC
   </div>
 
 </div>
