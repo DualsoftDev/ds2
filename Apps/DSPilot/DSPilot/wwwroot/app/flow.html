@@ -69,12 +69,14 @@
 
         .fw-period-controls { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 
-        /* ── 탭 바 (기간별 추이 / 사이클 분석 / 최근 히스토리 전환) ── */
-        .fw-tabs { display: flex; gap: 2px; flex-wrap: wrap; border-bottom: 1px solid var(--color-lines-strong); }
-        .fw-tabs button { appearance: none; border: none; background: none; padding: 10px 18px; font-size: 0.9rem; font-weight: 700; color: var(--color-text-secondary); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; display: inline-flex; align-items: center; gap: 7px; transition: color 0.12s, border-color 0.12s; }
-        .fw-tabs button:hover { color: var(--color-text-primary); }
-        .fw-tabs button.is-active { color: var(--color-primary); border-bottom-color: var(--color-primary); }
+        /* ── 탭 바: 세그먼트 트랙 (회색 트랙 안 활성 탭 = 떠오른 카드) ── */
+        .fw-tabs { display: inline-flex; gap: 3px; flex-wrap: wrap; padding: 4px; background: var(--color-surface-variant); border: 1px solid var(--color-lines); border-radius: var(--radius-lg); }
+        .fw-tabs button { appearance: none; border: 1px solid transparent; background: transparent; padding: 8px 16px; font-size: 0.9rem; font-weight: 700; color: var(--color-text-secondary); cursor: pointer; border-radius: var(--radius-md); display: inline-flex; align-items: center; gap: 7px; transition: color 0.12s, background 0.12s, box-shadow 0.12s, border-color 0.12s; }
+        .fw-tabs button:hover { color: var(--color-text-primary); background: color-mix(in srgb, var(--color-text-primary) 8%, transparent); }
+        .fw-tabs button.is-active, .fw-tabs button.is-active:hover { color: var(--color-primary); background: var(--color-surface); border-color: var(--color-lines); box-shadow: 0 1px 3px rgba(14, 27, 42, 0.12); }
         .fw-tabs button .material-icons { font-size: 18px; }
+        .dark-theme .fw-tabs { background: var(--color-surface); }
+        .dark-theme .fw-tabs button.is-active, .dark-theme .fw-tabs button.is-active:hover { background: var(--color-surface-variant); border-color: var(--color-lines-strong); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5); }
         /* 공용 툴바 (이상치 제외 등 전 탭 공유 필터) */
         .fw-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 9px 2px 0; }
         .fw-toolbar-label { display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; font-weight: 800; color: var(--color-text-secondary); }
@@ -292,9 +294,9 @@
             /* 추이 KPI 행: 좁은 화면에서 1열 위험 → 2열 유지 */
             .fw-trend-kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 
-            /* 탭 바: 가로 스크롤(줄바꿈 대신) — 라벨 잘림 방지 */
-            .fw-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-            .fw-tabs button { padding: 10px 12px; white-space: nowrap; flex: 0 0 auto; }
+            /* 탭 바: 가로 스크롤(줄바꿈 대신) — 라벨 잘림 방지 (트랙은 화면폭 내로 제한) */
+            .fw-tabs { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; }
+            .fw-tabs button { padding: 9px 13px; white-space: nowrap; flex: 0 0 auto; }
             .fw-period-controls { justify-content: flex-start; }
 
             /* 차트 컨테이너 높이 클램프(고정 px → 뷰포트 비례) */

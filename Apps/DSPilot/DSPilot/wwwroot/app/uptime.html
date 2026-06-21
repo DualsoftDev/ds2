@@ -34,6 +34,16 @@
         @media (max-width: 900px) { .up-2col { grid-template-columns: 1fr; } }
         .up-section { padding: 18px 20px; }
 
+        /* ── 탭 (OEE 종합 | 이상·알람): 세그먼트 트랙 — URL ?tab= 와 동기화 ── */
+        .up-tabs { display: inline-flex; gap: 3px; flex-wrap: wrap; padding: 4px; background: var(--color-surface-variant); border: 1px solid var(--color-lines); border-radius: var(--radius-lg); margin-bottom: 14px; }
+        .up-tab { display: inline-flex; align-items: center; gap: 7px; padding: 8px 16px; border: 1px solid transparent; background: transparent; cursor: pointer; font-size: 0.86rem; font-weight: 700; color: var(--color-text-secondary); border-radius: var(--radius-md); font-family: inherit; transition: color 0.12s, background 0.12s, box-shadow 0.12s, border-color 0.12s; }
+        .up-tab .material-icons { font-size: 18px; }
+        .up-tab:hover { color: var(--color-text-primary); background: color-mix(in srgb, var(--color-text-primary) 8%, transparent); }
+        .up-tab.is-active, .up-tab.is-active:hover { color: var(--color-primary); background: var(--color-surface); border-color: var(--color-lines); box-shadow: 0 1px 3px rgba(14, 27, 42, 0.12); }
+        .dark-theme .up-tabs { background: var(--color-surface); }
+        .dark-theme .up-tab.is-active, .dark-theme .up-tab.is-active:hover { background: var(--color-surface-variant); border-color: var(--color-lines-strong); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5); }
+        .up-tab-badge { display: inline-flex; min-width: 18px; height: 18px; padding: 0 5px; align-items: center; justify-content: center; border-radius: 999px; background: var(--red); color: #fff; font-size: 0.62rem; font-weight: 800; line-height: 1; }
+
         /* ── OEE 5 KPI (OEE·A·P·Q·MTBF — MTTR 제거. 산출가능=강조, 산출불가=흐림+사유) ── */
         .up-oee-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
         @media (max-width: 1100px) { .up-oee-row { grid-template-columns: repeat(3, 1fr); } }
@@ -306,6 +316,10 @@
             .up-section { padding: 14px 13px; }
             .up-grid { gap: 12px; }
 
+            /* 탭: 패딩 축소 + 가로 스크롤 허용 (트랙은 화면폭 내로 제한) */
+            .up-tabs { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; }
+            .up-tab { padding: 8px 12px; font-size: 0.8rem; white-space: nowrap; flex: 0 0 auto; }
+
             /* OEE 5-KPI 그리드 + 자동화 파이프라인 + ops/utkpi → 1열, hero 폰트 축소 */
             .up-oee-row { grid-template-columns: 1fr; gap: 10px; }
             .up-oee.is-hero .up-oee-value { font-size: 1.5rem; }
@@ -484,6 +498,17 @@
 
         <main class="dsp-main">
 
+            <!-- 탭: OEE 종합 ⇆ 이상·알람 (URL ?tab=oee|anomaly 동기화) -->
+            <div class="up-tabs" role="tablist">
+                <button class="up-tab" :class="tab === 'oee' ? 'is-active' : ''" @click="setTab('oee')" role="tab" :aria-selected="tab === 'oee'">
+                    <span class="material-icons">speed</span> OEE 종합
+                </button>
+                <button class="up-tab" :class="tab === 'anomaly' ? 'is-active' : ''" @click="setTab('anomaly')" role="tab" :aria-selected="tab === 'anomaly'">
+                    <span class="material-icons">warning_amber</span> 이상·알람
+                    <span class="up-tab-badge" x-show="ut && ut.activeErrorCount > 0" x-text="ut ? ut.activeErrorCount : ''"></span>
+                </button>
+            </div>
+
             <!-- 상단 툴바 -->
             <div class="ds-topbar">
                 <div class="ds-topbar-actions">
@@ -506,7 +531,7 @@
 
                 <!-- 설비(Flow) 선택 — 날짜 UI 와 같은 행, 오른쪽 정렬(.ds-topbar space-between). 드롭다운(전체/특정 Flow).
                      기본 '전체'. 선택 시 OEE·정지·도넛·시간구성·계획시간을 그 설비로 필터(표준CT·설비순위는 전체 유지=비교/편집용). -->
-                <div class="ds-topbar-actions" style="justify-content:flex-end;">
+                <div class="ds-topbar-actions" style="justify-content:flex-end;" x-show="tab === 'oee'">
                     <label style="font-size:0.64rem; font-weight:700; color:var(--color-text-secondary); text-transform:uppercase; letter-spacing:0.06em;" for="up-flow-select">설비</label>
                     <select id="up-flow-select" class="form-select" style="width:auto; min-width:150px; padding:5px 8px; font-size:0.82rem;" x-model="curFlow" @change="loadOee()">
                         <option value="">전체</option>
@@ -515,7 +540,8 @@
                 </div>
             </div>
 
-            <div class="up-grid">
+            <!-- ═══════════════ 탭 1: OEE 종합 ═══════════════ -->
+            <div class="up-grid" x-show="tab === 'oee'">
 
                 <!-- ════ 자동화 파이프라인 상태 (수집 데이터 → 지표 자동 산출) ════ -->
                 <section class="card up-section">
@@ -1006,6 +1032,12 @@
                     <template x-for="f in flowNames" :key="f"><option :value="f"></option></template>
                 </datalist>
 
+            </div>
+            <!-- /탭 1 OEE -->
+
+            <!-- ═══════════════ 탭 2: 이상·알람 (abnormal / UserTag) ═══════════════ -->
+            <div class="up-grid" x-show="tab === 'anomaly'">
+
                 <!-- ════ 사용자정의 알람 (UserTag) — 실데이터 동작 (보존) ════ -->
                 <section id="ut-section" class="card up-section">
                     <div class="ds-card-h">
@@ -1251,6 +1283,12 @@
                     </template>
                 </section>
 
+            </div>
+            <!-- /탭 2 이상·알람 -->
+
+            <!-- ═══════════════ 탭 1(계속): OEE — AI 인사이트 + 설계 노트 ═══════════════ -->
+            <div class="up-grid" x-show="tab === 'oee'" style="margin-top:16px;">
+
                 <!-- ════ AI 인사이트 (규칙기반 한 줄) ════ -->
                 <section class="card up-section">
                     <div class="ds-card-h"><h4>AI 자동 인사이트</h4><span class="ds-card-h-sub">규칙기반 요약 (최하위 설비 + 주원인)</span></div>
@@ -1460,6 +1498,7 @@
             return {
                 // 기존 UserTag 상태 (+ 구 이상발생 관리 흡수: 필터/페이지/정의/차트)
                 ut: null, loading: true, error: null, dark: false,
+                tab: 'oee', // 'oee' | 'anomaly' — URL ?tab= 와 동기화
                 period: 'today',
                 curFlow: '', // '' = 라인 전체, 그 외 = 특정 Flow (OEE/정지/도넛/계획시간을 그 설비로 필터)
                 rt: { connected: false },
@@ -1503,6 +1542,11 @@
                     if (qp.has('utLevel')) this.utLevel = qp.get('utLevel') || '';
                     if (qp.has('utSearch')) this.utSearch = qp.get('utSearch') || '';
                     const seeded = qp.has('utSystem') || qp.has('utLevel') || qp.has('utSearch');
+                    // 활성 탭: ?tab=anomaly|oee. 이상 필터/차단 모달로 진입하면 이상·알람 탭을 강제 활성화.
+                    this.tab = (qp.get('tab') === 'anomaly' || seeded || qp.has('blockMgr')) ? 'anomaly' : 'oee';
+                    this.syncTabUrl();
+                    // 뒤로/앞으로 가기 시 탭 동기화
+                    window.addEventListener('popstate', () => { this.applyTabFromUrl(); });
                     try { this._charts = await import('/js/user-tag-trend-chart.js'); } catch (e) { console.warn('chart module load failed', e); }
                     await this.load();
                     await this.loadCtTable();
@@ -1524,6 +1568,28 @@
                 toggleTheme() { this.dark = !this.dark; localStorage.setItem('dspilot-theme', this.dark ? 'dark' : 'light'); this.redrawForTheme(); },
                 // 테마 전환 직후 차트 색 재계산 — 없으면 다음 폴링(최대 10초)까지 이전 테마 색이 남음
                 redrawForTheme() { this.$nextTick(() => { this.drawCharts(); this.drawDailyChart(); }); },
+
+                // ── 탭 전환 (OEE 종합 ⇆ 이상·알람) + URL ?tab= 동기화 ──
+                setTab(t) {
+                    if (this.tab === t) return;
+                    this.tab = t;
+                    this.syncTabUrl();
+                    // x-show(display:none) 으로 숨겨졌던 캔버스는 0 크기로 그려지므로, 표시되는 탭의 차트를 다시 렌더.
+                    this.$nextTick(() => { if (t === 'anomaly') this.drawCharts(); else this.drawDailyChart(); });
+                },
+                // 활성 탭을 URL 쿼리(?tab=)에 반영 — 새로고침/공유 시 같은 탭으로 진입. 기본(oee)은 파라미터 생략.
+                syncTabUrl() {
+                    const qp = new URLSearchParams(location.search);
+                    if (this.tab === 'oee') qp.delete('tab'); else qp.set('tab', this.tab);
+                    const qs = qp.toString();
+                    history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
+                },
+                applyTabFromUrl() {
+                    const t = new URLSearchParams(location.search).get('tab') === 'anomaly' ? 'anomaly' : 'oee';
+                    if (t === this.tab) return;
+                    this.tab = t;
+                    this.$nextTick(() => { if (t === 'anomaly') this.drawCharts(); else this.drawDailyChart(); });
+                },
 
                 // ── fetch 헬퍼 ──
                 async apiGet(url) {
