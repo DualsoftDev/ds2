@@ -44,8 +44,8 @@
         .dark-theme .up-tab.is-active, .dark-theme .up-tab.is-active:hover { background: var(--color-surface-variant); border-color: var(--color-lines-strong); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5); }
         .up-tab-badge { display: inline-flex; min-width: 18px; height: 18px; padding: 0 5px; align-items: center; justify-content: center; border-radius: 999px; background: var(--red); color: #fff; font-size: 0.62rem; font-weight: 800; line-height: 1; }
 
-        /* ── OEE 5 KPI (OEE·A·P·Q·MTBF — MTTR 제거. 산출가능=강조, 산출불가=흐림+사유) ── */
-        .up-oee-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+        /* ── OEE 6 KPI (OEE·A·P·Q·MTBF·MTTR — doc/22 사이클기반: MTTR 복원. 산출가능=강조, 산출불가=흐림+사유) ── */
+        .up-oee-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
         @media (max-width: 1100px) { .up-oee-row { grid-template-columns: repeat(3, 1fr); } }
         @media (max-width: 720px) { .up-oee-row { grid-template-columns: 1fr 1fr; } }
         .up-oee { position: relative; background: var(--color-surface); border: 1px solid var(--color-lines); border-left: 3px solid var(--color-lines-strong); border-radius: var(--radius-md); padding: 13px 15px; }
@@ -573,21 +573,21 @@
                             <div class="up-oee-value up-oee-mono" x-text="oee ? pct(oee.oee) : '—'"></div>
                             <div class="up-oee-note" x-text="oee ? (oee.oee != null ? ('가용성 × 성능 × 품질' + (oee.qualitySource === 'assumed' ? ' · 품질 100% 가정' : '')) : (oee.oeeNote || '산출 불가')) : '불러오는 중…'"></div>
                         </div>
-                        <!-- 가용성 A (+ 계획시간 출처 칩: 시프트/자동추정/달력) -->
+                        <!-- 가용성 A (사이클기반 1차=사이클 / 폴백 출처 칩: 시프트·자동추정·달력) -->
                         <div class="up-oee" :class="oeeTone('availability')">
                             <div class="up-oee-label">가용성 A
                                 <span class="up-oee-chip" x-show="oee && oee.availabilitySource"
-                                      :class="oee && oee.availabilitySource === 'auto' ? 'auto' : (oee && oee.availabilitySource === 'shift' ? 'solid' : '')"
-                                      x-text="oee ? ({ shift: '시프트', auto: '자동추정', calendar: '달력' }[oee.availabilitySource] || '') : ''"></span>
+                                      :class="oee && (oee.availabilitySource === 'cycle' || oee.availabilitySource === 'auto') ? 'auto' : (oee && oee.availabilitySource === 'shift' ? 'solid' : '')"
+                                      x-text="oee ? ({ cycle: '사이클', shift: '시프트', auto: '자동추정', calendar: '달력' }[oee.availabilitySource] || '') : ''"></span>
                             </div>
                             <div class="up-oee-value up-oee-mono" x-text="oee ? pct(oee.availability) : '—'"></div>
-                            <div class="up-oee-note" x-text="oee ? (oee.availability != null ? '가동 / 계획시간' : (oee.availabilityNote || '산출 불가')) : ''"></div>
+                            <div class="up-oee-note" x-text="oee ? (oee.availability != null ? (oee.availabilitySource === 'cycle' ? 'Σ실측CT / Σ전체CT' : '가동 / 계획시간') : (oee.availabilityNote || '산출 불가')) : ''"></div>
                         </div>
-                        <!-- 성능 P -->
+                        <!-- 성능 P (사이클기반: N × CT이상치 ÷ Σ실측CT) -->
                         <div class="up-oee" :class="oeeTone('performance')">
-                            <div class="up-oee-label">성능 P <span class="up-oee-chip auto" x-show="oee && oee.performance != null">CT p10</span></div>
+                            <div class="up-oee-label">성능 P <span class="up-oee-chip auto" x-show="oee && oee.performance != null">CT 14일평균</span></div>
                             <div class="up-oee-value up-oee-mono" x-text="oee ? pct(oee.performance) : '—'"></div>
-                            <div class="up-oee-note" x-text="oee ? (oee.performance != null ? '(표준CT × 생산수) / 가동' : (oee.performanceNote || '산출 불가')) : ''"></div>
+                            <div class="up-oee-note" x-text="oee ? (oee.performance != null ? '(N × CT이상치) / Σ실측CT' : (oee.performanceNote || '산출 불가')) : ''"></div>
                         </div>
                         <!-- 품질 Q (가정/사용자 칩 + 톤 중립) — 클릭 시 품질 직접 입력 다이얼로그 -->
                         <div class="up-oee" :class="oeeTone('quality')" @click="openQDialog()" style="cursor:pointer;" title="클릭하여 품질(양품률) 직접 입력">
@@ -601,19 +601,35 @@
                             <div class="up-oee-value up-oee-mono" x-text="oee ? pct(oee.quality) : '—'"></div>
                             <div class="up-oee-note" x-text="oee ? (oee.quality != null ? (oee.qualitySource === 'assumed' ? '불량 미입력 — 100% 가정 · 클릭해 직접 입력' : (oee.qualitySource === 'manual' ? '사용자 직접 설정(전반 품질)' : ('양품 ' + (oee.goodCount ?? 0) + ' / 총 ' + (oee.totalCount ?? 0)))) : (oee.qualityNote || '산출 불가')) : ''"></div>
                         </div>
-                        <!-- MTBF (무고장 = 가짜수치 대신 배지) -->
+                        <!-- MTBF (연속 비가동 onset 간격 평균; 무비가동 = 가짜수치 대신 배지) -->
                         <div class="up-oee" :class="oee && oee.failureCount === 0 ? 'is-good' : (oee && oee.mtbf != null ? 'is-warn' : 'is-na')">
                             <div class="up-oee-label">MTBF</div>
                             <template x-if="oee && oee.failureCount === 0">
                                 <div>
-                                    <div class="up-nofault"><span class="led"></span>고장 없음</div>
-                                    <div class="up-oee-note">기간 고장 0건 — 분모 0. 가짜수치 대신 정직 표기.</div>
+                                    <div class="up-nofault"><span class="led"></span>비가동 없음</div>
+                                    <div class="up-oee-note">기간 비가동 0건 — 분모 0. 가짜수치 대신 정직 표기.</div>
                                 </div>
                             </template>
                             <template x-if="!oee || oee.failureCount !== 0">
                                 <div>
                                     <div class="up-oee-value up-oee-mono" x-text="oee ? durShort(oee.mtbf) : '—'"></div>
-                                    <div class="up-oee-note" x-text="oee ? (oee.mtbf != null ? ('고장 ' + oee.failureCount + '건 · Σ가동/고장') : (oee.mtbfNote || '산출 불가')) : ''"></div>
+                                    <div class="up-oee-note" x-text="oee ? (oee.mtbf != null ? ('비가동 ' + oee.failureCount + '건 · onset 간격 평균') : (oee.mtbfNote || '산출 불가')) : ''"></div>
+                                </div>
+                            </template>
+                        </div>
+                        <!-- MTTR (비가동 onset → going 회복 평균; doc/22 §5 복원. 무비가동 = 배지) -->
+                        <div class="up-oee" :class="oee && oee.failureCount === 0 ? 'is-good' : (oee && oee.mttr != null ? 'is-warn' : 'is-na')">
+                            <div class="up-oee-label">MTTR</div>
+                            <template x-if="oee && oee.failureCount === 0">
+                                <div>
+                                    <div class="up-nofault"><span class="led"></span>비가동 없음</div>
+                                    <div class="up-oee-note">기간 비가동 0건 — 복구구간 없음. 가짜수치 대신 정직 표기.</div>
+                                </div>
+                            </template>
+                            <template x-if="!oee || oee.failureCount !== 0">
+                                <div>
+                                    <div class="up-oee-value up-oee-mono" x-text="oee ? durShort(oee.mttr) : '—'"></div>
+                                    <div class="up-oee-note" x-text="oee ? (oee.mttr != null ? ('비가동 ' + oee.failureCount + '건 · onset→회복 평균') : (oee.mttrNote || '산출 불가')) : ''"></div>
                                 </div>
                             </template>
                         </div>
@@ -622,9 +638,43 @@
                     <div class="ds-card-h" style="margin-top:8px;">
                         <span class="ds-card-h-sub" x-show="oee">
                             기간 정지 <b x-text="oee ? (oee.downtimeCount + '건 · ' + durShort(oee.downtimeMs) + ' (가동 ' + pct(oee.availability) + ')') : ''"></b>
-                            · <span x-text="oee ? (oee.idealCycleTimeMs ? ('표준CT ' + durShort(oee.idealCycleTimeMs)) : (oee.performance != null ? '표준CT Flow별 설정' : '표준CT 미설정')) : ''"></span>
+                            · <span x-text="oee ? (oee.ctThresholdMs ? ('CT이상치 ' + durShort(oee.ctThresholdMs) + ' · 14일 평균') : (oee.idealCycleTimeMs ? ('표준CT ' + durShort(oee.idealCycleTimeMs)) : '표준CT 미설정(클린샘플 누적 중)')) : ''"></span>
+                            <span x-show="oee && oee.normalCycleCount != null" x-text="oee ? (' · 정상 ' + (oee.normalCycleCount || 0) + ' 사이클') : ''"></span>
                         </span>
                     </div>
+                </section>
+
+                <!-- ════ 가용성 = 사이클 분해 (doc/22 §4) — Σ실측CT vs Σ비가동CT. 사이클기반(source='cycle') 일 때만 ════ -->
+                <section class="card up-section" x-show="oee && oee.availabilitySource === 'cycle'">
+                    <div class="ds-card-h">
+                        <h4>가용성 = 사이클 분해</h4>
+                        <span class="ds-card-h-sub">Σ실측CT ÷ (Σ실측CT + Σ비가동CT) · 비가동 = MT&gt;CT이상치 / 미완료 CT폭주 / 무사이클</span>
+                    </div>
+                    <template x-if="oee && (oee.normalCtMs + oee.idleCtMs) > 0">
+                        <div>
+                            <div class="ds-legend" style="margin-bottom:10px;">
+                                <div class="lg-item"><span class="lg-swatch" style="background:var(--green);"></span> 실측 CT (정상 사이클)</div>
+                                <div class="lg-item"><span class="lg-swatch" style="background:var(--red);"></span> 비가동 CT</div>
+                            </div>
+                            <div style="display:flex; height:26px; border-radius:var(--radius-sm); overflow:hidden; border:1px solid var(--color-lines);">
+                                <div :style="`width:${cycleComp.normalPct}%; background:var(--green);`" :title="'실측 ' + cycleComp.normalPct + '%'"></div>
+                                <div :style="`width:${cycleComp.idlePct}%; background:var(--red);`" :title="'비가동 ' + cycleComp.idlePct + '%'"></div>
+                            </div>
+                            <div style="display:flex; gap:18px; margin-top:8px; font-size:0.72rem; color:var(--color-text-secondary); flex-wrap:wrap;">
+                                <span>Σ실측CT <b x-text="durShort(oee.normalCtMs)"></b> (<span x-text="cycleComp.normalPct + '%'"></span>) · <span x-text="(oee.normalCycleCount || 0) + ' 사이클'"></span></span>
+                                <span>Σ비가동CT <b x-text="durShort(oee.idleCtMs)"></b> (<span x-text="cycleComp.idlePct + '%'"></span>) · <span x-text="oee.failureCount + '건'"></span></span>
+                                <span>CT이상치 <b x-text="durShort(oee.ctThresholdMs)"></b> <span class="up-codeish">14일 평균</span></span>
+                            </div>
+                            <div class="up-form-hint" style="margin-top:8px;">한 사이클의 <b>MT(동작)가 CT이상치를 넘으면</b> 그 사이클 CT 전체를 비가동으로 본다(인식지연 + 고장 + 회복 포함). 미완료(CT 폭주)·무사이클 정지도 비가동에 합산하되 겹친 구간은 1회만 계상한다(이중계상 방지).</div>
+                        </div>
+                    </template>
+                    <template x-if="!oee || (oee.normalCtMs + oee.idleCtMs) <= 0">
+                        <div class="ds-empty">
+                            <span class="material-icons">donut_small</span>
+                            <div class="ds-empty-title">사이클 데이터 없음</div>
+                            <div class="ds-empty-desc">최근 14일 클린사이클이 5개 이상 쌓이면 CT이상치(표준CT)가 산출되고 사이클기반 가용성이 표시됩니다. 그 전에는 계획시간 폴백으로 가용성을 근사합니다.</div>
+                        </div>
+                    </template>
                 </section>
 
                 <!-- ════ 일자별 시간 구성 (OEE 종합 아래 배치) — 가동/정지 근사 + 점검=계획정비 ════ -->
@@ -721,7 +771,10 @@
 
                     <!-- 가용성 분모 = 계획시간 (폴백 체인 + 14일 히스토그램) -->
                     <section class="card up-section">
-                        <div class="ds-card-h"><h4>가용성 분모 = 계획시간</h4><span class="ds-card-h-sub">우선순위 폴백 (단일화)</span></div>
+                        <div class="ds-card-h"><h4>가용성 분모 폴백 (계획시간)</h4><span class="ds-card-h-sub">사이클 표본 부족 시에만 사용 — 시프트 ▸ 자동추정 ▸ 달력</span></div>
+                        <details class="up-dn">
+                            <summary><span class="material-icons">expand_more</span> 계획시간 폴백 체인 · 14일 히스토그램 보기</summary>
+                            <div class="up-dn-body">
                         <div class="up-chain">
                             <template x-for="(s, i) in planChainSteps" :key="s.key">
                                 <div class="up-chain-step" :class="s.cls">
@@ -741,6 +794,8 @@
                         </div>
                         <div class="up-hist-axis"><span>00시</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
                         <div style="font-size:0.62rem; color:var(--color-text-secondary); margin-top:8px;" x-show="planTime" x-text="planChainFoot"></div>
+                            </div>
+                        </details>
                     </section>
                 </div>
 
@@ -1307,18 +1362,21 @@
                     </template>
                 </section>
 
-                <!-- ════ 설계 노트 (정직성 원칙 · doc/21 §10·§12) ════ -->
+                <!-- ════ 설계 노트 (사이클기반 OEE · doc/22 + 정직성 doc/21 §10) ════ -->
                 <details class="up-dn card up-section">
-                    <summary><span class="material-icons">tune</span> 설계 결정 — 자동 산출 & 정직성 원칙</summary>
+                    <summary><span class="material-icons">tune</span> 설계 결정 — 사이클기반 OEE (CT/MT/WT) & 정직성 원칙</summary>
                     <div class="up-dn-body">
                         <table>
                             <tbody>
-                                <tr><td>OEE = A × P × Q</td><td>가용성 × 성능 × 품질. 품질은 기본 <b>100% 가정</b>(assumed, 톤 중립·초록 금지), 불량율/불량수 입력 시 측정(measured)으로 전환.</td></tr>
-                                <tr><td>가용성 분모</td><td><b>단일 폴백 체인</b>: 사용자 시프트 ▸ 14일 자동추정(RAM only) ▸ 달력근사. 분모(계획시간)는 DB에 영구기입하지 않음. A 카드 칩으로 현재 출처 표시.</td></tr>
-                                <tr><td>MTBF 무고장</td><td><code>FailureCount=0</code> 이면 <code>max(n,1)</code> 같은 가짜 수치 대신 <b>"🟢 무고장" 배지</b>(정직성).</td></tr>
-                                <tr><td>표준CT</td><td><span class="src-chip auto">자동 p10</span> 클린사이클≥30 확정 · <span class="src-chip tmp">중앙값 임시</span> 샘플 부족(30 도달 시 p10 승급) · <span class="src-chip manual">수동</span> 엔지니어 입력(자동 미덮음).</td></tr>
-                                <tr><td>정지 3계층</td><td><b>감지</b>(무사이클/고장비트/수동 = 정지 구간 소스) · <b>분류</b>(자동·비트/자동·시간임계/수동 — 수동 우선) · <b>단서</b>(abnormal/usertag 시간겹침 = 표시 전용, 건수·MTBF 미반영).</td></tr>
-                                <tr><td>필수 입력 0개</td><td>비트매핑·CT편집·시프트 등 설정은 선택. 미설정이어도 수집 데이터로 자동 산출.</td></tr>
+                                <tr><td>모델 (doc/22)</td><td><b>사이클기반</b> OEE — CT(가동) = MT(동작) + WT(대기). 한 사이클의 <b>MT가 CT이상치를 넘으면</b> 그 사이클 CT 전체가 비가동. 시간기반(벽시계 계획시간)에서 전환.</td></tr>
+                                <tr><td>OEE = A × P × Q</td><td><b>A</b> = Σ실측CT ÷ (Σ실측CT + Σ비가동CT) · <b>P</b> = (N × CT이상치) ÷ Σ실측CT · <b>Q</b> = 양품/총생산(기본 100% 가정, 톤 중립). 한 요소라도 미산출이면 OEE = '—'.</td></tr>
+                                <tr><td>CT이상치 (표준CT)</td><td>최근 <b>14일 클린사이클 CT 평균</b>(flow별, RAM only — DB 미기입). 비가동 판정·성능 분자 <b>공용</b>. 표본 &lt; 5 면 A·P 산출 불가('—').</td></tr>
+                                <tr><td>성능 P 의 의미</td><td>14일 평균을 표준으로 쓰므로 정상상태 <b>P ≈ 100% 수렴</b> — "최속 대비 손실"이 아니라 <b>"14일 추세 대비 당기 저하"</b> 지표(저하 감지기). 90%대를 '거의 완벽'으로 오독 금지.</td></tr>
+                                <tr><td>비가동 dedup</td><td>① MT&gt;CT이상치 ② 미완료(complete=null) CT폭주 ③ 무사이클 정지. ③은 사이클 CT 구간과 안 겹치는 부분만 가산(구간 차집합) — <b>이중계상 방지</b>.</td></tr>
+                                <tr><td>MTTR / MTBF</td><td>비가동 <b>onset</b>(= 사이클 시작 + CT이상치)에서 파생. <b>MTTR</b> = onset→going 회복 평균 · <b>MTBF</b> = 연속 onset 간격 평균. OEE 곱셈식과 <b>독립</b> 동반지표. 0건이면 "🟢 무비가동" 배지(가짜수치 금지).</td></tr>
+                                <tr><td>폴백 보존</td><td>14일 표본 부족 시 가용성은 <b>시간기반 폴백 체인</b>(시프트 ▸ 자동추정 ▸ 달력)으로 근사. A 카드 칩으로 현재 출처(<span class="up-codeish">사이클</span>/시프트/자동추정/달력) 표시.</td></tr>
+                                <tr><td>정지 3계층 (존치)</td><td><b>감지</b>(무사이클/고장비트/수동) · <b>분류</b>(자동·비트/시간임계/수동 — 수동 우선) · <b>단서</b>(abnormal/usertag 겹침 = 표시 전용). 무사이클은 ③ 합산 소스 + 원인 라벨링 레이어.</td></tr>
+                                <tr><td>필수 입력 0개</td><td>CT이상치·비가동 판정·A·P·MTTR·MTBF 모두 수집 데이터로 자동. 품질%·표준CT 수동입력·정지 분류는 선택(보정).</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -2109,18 +2167,28 @@
                 },
                 // 자동화 파이프라인 4셀 (수집 데이터 → 지표 자동 산출 상태)
                 get autoStrip() {
-                    const ct = this.ctTable || [];
-                    const autoN = ct.filter(r => r.source === 'auto').length;
-                    const tmpN = ct.filter(r => r.source === 'auto-median').length;
                     const un = this.unclassifiedCount;
-                    const src = this.planTime ? this.planTime.source : null;
-                    const planSt = src === 'shift' ? '사용자 시프트' : src === 'auto' ? '14일 히스토그램 (RAM)' : '달력근사 (폴백)';
+                    const src = this.oee ? this.oee.availabilitySource : null;
+                    const isCycle = src === 'cycle';
+                    const ctThr = (this.oee && this.oee.ctThresholdMs) ? this.durShort(this.oee.ctThresholdMs) : null;
+                    const availSt = isCycle
+                        ? `사이클기반 · CT이상치 ${ctThr || '—'}`
+                        : (src === 'shift' ? '폴백: 사용자 시프트' : src === 'auto' ? '폴백: 14일 히스토그램' : '폴백: 달력근사');
                     return [
-                        { nm: '표준CT 자동기입', st: ct.length ? `p10 ${autoN} 확정 · 중앙값 ${tmpN} 임시` : '데이터 대기', cls: ct.length ? 'live' : 'off' },
-                        { nm: '정지 감지', st: `무사이클 + 고장비트 · ${this.downtime.length}건`, cls: 'live' },
+                        { nm: 'CT이상치 (14일 평균)', st: ctThr ? `표준CT ${ctThr} · 판정·성능 공용` : '클린샘플 누적 중 (≥5)', cls: ctThr ? 'live' : 'off' },
+                        { nm: '비가동 판정', st: `사이클(MT>CT이상치) + 무사이클 dedup`, cls: 'live' },
                         { nm: '원인 분류', st: un > 0 ? `5분/8h 휴리스틱 · 미분류 ${un}건` : '비트 + 5분/8h 휴리스틱', cls: un > 0 ? 'partial' : 'live' },
-                        { nm: '계획시간 추정', st: planSt, cls: (src === 'auto' || src === 'shift') ? 'live' : 'partial' },
+                        { nm: '가용성 분모', st: availSt, cls: isCycle ? 'live' : 'partial' },
                     ];
+                },
+                // 사이클 분해 비율 (Σ실측CT vs Σ비가동CT) — 가용성 분해 바.
+                get cycleComp() {
+                    const o = this.oee || {};
+                    const n = Math.max(0, o.normalCtMs || 0), i = Math.max(0, o.idleCtMs || 0);
+                    const tot = n + i;
+                    if (tot <= 0) return { normalPct: 0, idlePct: 0 };
+                    const normalPct = Math.round(n / tot * 1000) / 10;
+                    return { normalPct, idlePct: Math.round((100 - normalPct) * 10) / 10 };
                 },
                 // 계획시간 폴백 체인 3단계 (활성/건너뜀/대기)
                 get planChainSteps() {

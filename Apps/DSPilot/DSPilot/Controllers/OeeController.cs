@@ -402,10 +402,13 @@ public class OeeController : ControllerBase
         var (fromUtc, toUtc) = ResolveRange(from, to);
         var byFlow = await _repo.GetDowntimeByFlowAsync(fromUtc, toUtc, ct);
 
+        // CT이상치(14일 평균)는 조회기간과 무관 → 1회 산출해 flow별 BuildSummary 에 공유(중복 풀스캔 방지).
+        var thresholds = await ResolveCtThresholdsAsync();
+
         var result = new List<OeeRankingDto>(byFlow.Count);
         foreach (var (flowName, downtimeMs, count) in byFlow)
         {
-            var s = await BuildSummaryAsync(flowName, fromUtc, toUtc, ct);
+            var s = await BuildSummaryAsync(flowName, fromUtc, toUtc, ct, thresholds);
             result.Add(new OeeRankingDto(
                 flowName, downtimeMs, count, s.TotalCount,
                 s.Availability, s.Performance, s.Quality, s.Oee));
@@ -719,13 +722,14 @@ public class OeeController : ControllerBase
 
     // ── OEE 계산 코어 ─────────────────────────────────────────────────────
 
-    private async Task<OeeSummaryDto> BuildSummaryAsync(string? flowName, DateTime fromUtc, DateTime toUtc, CancellationToken ct)
+    private async Task<OeeSummaryDto> BuildSummaryAsync(
+        string? flowName, DateTime fromUtc, DateTime toUtc, CancellationToken ct,
+        IReadOnlyDictionary<string, (double AvgMs, int Sample)>? ctThresholds = null)
     {
         var periodMs = (toUtc - fromUtc).TotalMilliseconds;
         if (periodMs < 0) periodMs = 0;
 
         var (downtimeMs, downtimeCount) = await _repo.GetDowntimeAggregateAsync(fromUtc, toUtc, flowName, ct);
-        var (failureDurationMs, failureCount) = await _repo.GetFailureAggregateAsync(fromUtc, toUtc, flowName, ct);
 
         // totalCount 자동: dspFlowHistory row count (기간 내, flow 지정 시 그 flow).
         int? totalCount = await CountFlowHistoryAsync(flowName, fromUtc, toUtc);
@@ -734,41 +738,33 @@ public class OeeController : ControllerBase
         var (_, _, prodReject, hasReject) =
             await _repo.QueryProductionAsync(fromUtc.ToLocalTime(), toUtc.ToLocalTime(), flowName, ct);
 
-        // ── Availability (계획시간 폴백 체인: UserSet 시프트 ▸ 14일 자동추정 ▸ 달력근사 — doc/21 §12) ──
-        // runtime(가동시간)도 폴백 체인 산출값을 쓴다 → 성능/MTBF 분모가 가용성과 일관(혼합 분모 방지).
-        var av = await ResolveAvailabilityAsync(flowName, fromUtc, toUtc, downtimeMs, periodMs, ct);
-        double? availability = av.Availability;
-        string? availNote = av.Note;
-        string? availabilitySource = av.Source;
-        var runtimeMs = av.RuntimeMs;
+        // ── 사이클기반 집계 (doc/22): CT이상치(14일 평균) → 비가동 판정(MT>thr / 미완료 CT폭주 / 무사이클 dedup)
+        //    → Σ실측CT·Σ비가동CT·N·onset/repair. 시간기반 폴백 체인은 표본 부족 시에만 사용(보존). ──
+        var thresholds = ctThresholds ?? await ResolveCtThresholdsAsync();
+        var agg = await ComputeCycleAggregateAsync(flowName, fromUtc, toUtc, thresholds, ct);
 
-        // ── Performance ((idealCT × total) / runtime) ──
-        // per-flow: 해당 flow 의 idealCT 사용. 라인 전체(flowName=null): idealCT 설정된 flow 들의
-        //   per-flow 성능을 생산수 가중평균(각 flow 는 자기 정지/가동 기준) — 라인 전체에도 성능이 뜨도록.
-        var (idealCT, idealCtSource) = ResolveIdealCycle(flowName);
-        double? performance = null;
-        string? perfNote;
-        if (string.IsNullOrWhiteSpace(flowName))
+        // ── Availability — 사이클기반 1차(source='cycle'), 표본 부족 시 시간기반 폴백 체인 보존(doc/22 §7) ──
+        double? availability; string? availNote; string? availabilitySource; double runtimeMs;
+        var (cycleA, cycleANote) = OeeMath.ComputeCycleAvailability(agg.NormalCtMs, agg.IdleCtMs);
+        if (agg.HasThreshold && cycleA is not null)
         {
-            (performance, perfNote) = await ComputeLinePerformanceAsync(fromUtc, toUtc, periodMs, ct);
-        }
-        else if (idealCT is null || idealCT <= 0)
-        {
-            perfNote = "표준 사이클(idealCT) 미설정 — 성능 산출 불가. 클린사이클이 모이면 자동 기입됩니다(또는 표준CT 직접 입력).";
-        }
-        else if (totalCount is null || totalCount <= 0)
-        {
-            perfNote = "기간 내 생산 사이클 0 — 성능 산출 불가.";
-        }
-        else if (runtimeMs <= 0)
-        {
-            perfNote = "가동시간 0 — 성능 산출 불가.";
+            availability = cycleA;
+            availNote = cycleANote;
+            availabilitySource = "cycle";
+            runtimeMs = agg.NormalCtMs; // 가동시간 ≈ Σ실측CT (사이클기반)
         }
         else
         {
-            performance = Math.Min(1.0, (idealCT.Value * (double)totalCount.Value) / runtimeMs);
-            perfNote = null;
+            var av = await ResolveAvailabilityAsync(flowName, fromUtc, toUtc, downtimeMs, periodMs, ct);
+            availability = av.Availability;
+            availNote = (av.Note ?? "") + " (사이클 표본 부족 — 시간기반 폴백).";
+            availabilitySource = av.Source;
+            runtimeMs = av.RuntimeMs;
         }
+
+        // ── Performance — 사이클기반 (N × CT이상치) / Σ실측CT, min 1.0 (doc/22 §4) ──
+        var (performance, perfNote) = OeeMath.ComputeCyclePerformance(
+            agg.NormalCount, agg.CtThresholdMs, agg.NormalCtMs);
 
         // ── Quality ── 사용자 직접 설정(전반 품질) 우선 ▸ 불량 입력(measured) ▸ 100% 가정(assumed). §12
         var manualQualityPct = _settings.LoadSettings().OeeManual.QualityPercent;
@@ -778,17 +774,14 @@ public class OeeController : ControllerBase
         // ── OEE (A × P × Q) — 순수 함수 단일 소스 ──
         var (oee, oeeNote) = OeeMath.ComputeOee(availability, performance, quality, qualitySource);
 
-        // ── MTBF (무고장=null+배지) / MTTR ──
-        var (mtbf, mtbfNote, _) = OeeMath.ComputeMtbf(runtimeMs, failureCount);
-        double? mttr = null;
-        string? mttrNote;
-        if (failureCount <= 0)
-            mttrNote = "고장(분류 unplanned, 마감됨) 건수 0 — MTTR 산출 불가.";
-        else
-        {
-            mttr = (double)failureDurationMs / failureCount;
-            mttrNote = "Σ고장 지속시간(마감 이벤트만) / 고장건수.";
-        }
+        // ── MTBF / MTTR — 사이클 onset 기반 (doc/22 §5). 무고장=null+배지 ──
+        var sortedOnsets = agg.OnsetsMs.OrderBy(x => x).ToList();
+        var (mtbf, mtbfNote, _) = OeeMath.ComputeMtbf2(sortedOnsets);
+        var (mttr, mttrNote) = OeeMath.ComputeMttr(agg.RepairMsList);
+        var failureCount = agg.DowntimeEventCount;
+
+        // idealCT (표시용 — 기존 추천/자동기입 설정값). 사이클 모델의 1차 표준은 CtThresholdMs(14일 평균).
+        var (idealCT, idealCtSource) = ResolveIdealCycle(flowName);
 
         return new OeeSummaryDto(
             FlowName: flowName,
@@ -816,7 +809,215 @@ public class OeeController : ControllerBase
             Mtbf: mtbf,
             MtbfNote: mtbfNote,
             Mttr: mttr,
-            MttrNote: mttrNote);
+            MttrNote: mttrNote,
+            NormalCtMs: agg.NormalCtMs,
+            IdleCtMs: agg.IdleCtMs,
+            NormalCycleCount: agg.HasThreshold ? agg.NormalCount : (int?)null,
+            CtThresholdMs: agg.CtThresholdMs);
+    }
+
+    /// <summary>
+    /// 유효 CT이상치(ms) = flow별 14일 평균(<see cref="OeeCtStatsService.ComputeCtThresholdAsync"/>) 위에
+    /// <b>수동 표준CT 오버라이드를 덮어쓴다</b>(doc/22 §2·§7 — 사용자 권위). 자동기입(source='auto'/'auto-median')은
+    /// 14일 평균을 그대로 두고, 엔지니어가 직접 입력한 표준CT(그 외 source)만 임계로 승격한다.
+    /// </summary>
+    private async Task<Dictionary<string, (double AvgMs, int Sample)>> ResolveCtThresholdsAsync()
+    {
+        var thr = await _ctStats.ComputeCtThresholdAsync();
+        var settings = _settings.LoadSettings();
+        foreach (var ov in settings.FlowCycle.Overrides)
+        {
+            if (string.IsNullOrWhiteSpace(ov.FlowName)) continue;
+            var src = ov.IdealCycleTimeSource;
+            var isManual = ov.IdealCycleTimeMs is > 0 && src != "auto" && src != "auto-median";
+            if (isManual) thr[ov.FlowName] = (ov.IdealCycleTimeMs!.Value, int.MaxValue); // 수동값 = 권위적 임계
+        }
+        return thr;
+    }
+
+    // ── 사이클기반 집계 (doc/22 §3·§4·§5) ──────────────────────────────────
+
+    private readonly record struct CycleAgg(
+        double NormalCtMs, double IdleCtMs, int NormalCount, int DowntimeEventCount,
+        double? CtThresholdMs, List<double> OnsetsMs, List<double> RepairMsList, bool HasThreshold);
+
+    private sealed class CycleAggRow { public long IdleCt { get; set; } public long NormalCt { get; set; } public long NormalCount { get; set; } }
+    private sealed class DtCycleRaw { public string? RecordedAt { get; set; } public long? Ct { get; set; } public long? Mt { get; set; } }
+    private sealed class NocycleRaw { public string? StartAt { get; set; } public string? EndAt { get; set; } }
+
+    /// <summary>
+    /// 기간 내 사이클을 CT이상치(14일 평균, flow별)로 정상/비가동 분류해 Σ실측CT·Σ비가동CT·N 을 집계하고,
+    /// 비가동 사이클·무사이클 정지에서 onset/repair(MTBF/MTTR 원천)를 도출한다 (doc/22 §3·§5).
+    /// 무사이클 정지(③)는 비가동 사이클 구간과 안 겹치는 부분만 가산(dedup — 이중계상 방지, §3.1).
+    /// 라인(flowName=null)은 임계 보유 flow 전체를 합산하고 성능은 Σ(N_f×thr_f)/Σ실측CT 가중.
+    /// 임계 보유 flow 0 → HasThreshold=false → 상위가 시간기반 폴백.
+    /// </summary>
+    private async Task<CycleAgg> ComputeCycleAggregateAsync(
+        string? flowName, DateTime fromUtc, DateTime toUtc,
+        IReadOnlyDictionary<string, (double AvgMs, int Sample)> thresholds, CancellationToken ct)
+    {
+        var onsets = new List<double>();
+        var repairs = new List<double>();
+        var empty = new CycleAgg(0, 0, 0, 0, null, onsets, repairs, false);
+
+        List<string> targetFlows;
+        if (!string.IsNullOrWhiteSpace(flowName))
+            targetFlows = thresholds.ContainsKey(flowName) ? new List<string> { flowName } : new List<string>();
+        else
+            targetFlows = thresholds.Keys.ToList();
+        if (targetFlows.Count == 0) return empty;
+
+        var dbPath = _pathResolver.GetSharedDbPath();
+        if (!System.IO.File.Exists(dbPath)) return empty;
+
+        var fromStr = fromUtc.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+        var toStr = toUtc.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+
+        double normalCtMs = 0, idleCtMs = 0, perfNumerator = 0;
+        int normalCount = 0, dtEventCount = 0;
+        bool hasThreshold = false;
+        var cycleIdleIntervals = new List<(double S, double E)>();
+
+        // dspFlowHistory 비가동 조건 — ① MT>thr ② complete=null(mt null) AND CT>thr (IsIdle 무관, §3.2).
+        const string dtCond = "ct > 0 AND ((mt IS NOT NULL AND mt > @Thr) OR (mt IS NULL AND ct > @Thr))";
+
+        try
+        {
+            await using var conn = new SqliteConnection(
+                $"Data Source={dbPath};Mode=ReadWriteCreate;Default Timeout=20");
+            await conn.OpenAsync(ct);
+            var exists = await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlowHistory'");
+            if (exists == 0) return empty;
+
+            foreach (var f in targetFlows)
+            {
+                var thr = thresholds[f].AvgMs;
+                if (thr <= 0) continue;
+                hasThreshold = true;
+
+                var p = new DynamicParameters();
+                p.Add("From", fromStr); p.Add("To", toStr); p.Add("Flow", f); p.Add("Thr", thr);
+
+                var aggRow = await conn.QueryFirstOrDefaultAsync<CycleAggRow>($@"
+                    SELECT
+                      COALESCE(SUM(CASE WHEN {dtCond} THEN ct ELSE 0 END),0)            AS IdleCt,
+                      COALESCE(SUM(CASE WHEN ct>0 AND NOT ({dtCond}) THEN ct ELSE 0 END),0)  AS NormalCt,
+                      COALESCE(SUM(CASE WHEN ct>0 AND NOT ({dtCond}) THEN 1  ELSE 0 END),0)  AS NormalCount
+                    FROM dspFlowHistory
+                    WHERE recordedAt >= @From AND recordedAt < @To AND flowName = @Flow", p);
+                if (aggRow is not null)
+                {
+                    normalCtMs += aggRow.NormalCt;
+                    idleCtMs += aggRow.IdleCt;
+                    normalCount += (int)aggRow.NormalCount;
+                    perfNumerator += aggRow.NormalCount * thr;
+                }
+
+                // 비가동 사이클 row → onset(=start+thr)/repair(=going 회복까지) + dedup 구간([start, recordedAt)).
+                var rows = await conn.QueryAsync<DtCycleRaw>($@"
+                    SELECT recordedAt AS RecordedAt, ct AS Ct, mt AS Mt
+                    FROM dspFlowHistory
+                    WHERE recordedAt >= @From AND recordedAt < @To AND flowName = @Flow AND {dtCond}
+                    ORDER BY recordedAt", p);
+                foreach (var r in rows)
+                {
+                    if (r.Ct is not long ctMsL || ctMsL <= 0) continue;
+                    double cMs = ctMsL;
+                    var recMs = ParseUtcMs(r.RecordedAt);
+                    if (recMs is not double rec) continue;
+                    double startMs = rec - cMs;
+                    onsets.Add(startMs + thr);                                  // 고장 onset = 사이클 시작 + CT이상치
+                    double repair = r.Mt is long mtL ? (mtL - thr) : (cMs - thr); // going 회복: complete(MT) 또는 CT 종료
+                    if (repair >= 0) repairs.Add(repair);
+                    dtEventCount++;
+                    cycleIdleIntervals.Add((startMs, rec));
+                }
+            }
+
+            // ── 무사이클 정지 합산 (dedup) — 비가동 사이클 구간과 안 겹치는 부분만 (doc/22 §3.1) ──
+            var nocycle = await GetNocycleIntervalsMsAsync(flowName, fromUtc, toUtc);
+            if (nocycle.Count > 0)
+            {
+                foreach (var seg in Intervals.Subtract(nocycle, cycleIdleIntervals))
+                {
+                    var len = seg.E - seg.S;
+                    if (len <= 0) continue;
+                    idleCtMs += len;
+                    onsets.Add(seg.S);
+                    repairs.Add(len);
+                    dtEventCount++;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[OEE] cycle aggregate failed");
+            return empty;
+        }
+
+        if (!hasThreshold) return empty;
+
+        double? displayThr = normalCount > 0
+            ? perfNumerator / normalCount
+            : (targetFlows.Count == 1 ? thresholds[targetFlows[0]].AvgMs : (double?)null);
+        return new CycleAgg(normalCtMs, idleCtMs, normalCount, dtEventCount, displayThr, onsets, repairs, true);
+    }
+
+    /// <summary>
+    /// oee.db 의 무사이클 정지(detectSource='nocycle') 구간을 ms 로 (기간 클립). 사이클기반 dedup 소스(§3 ③).
+    /// open(endAt NULL) 은 toUtc 로 캡. 시각은 ISO8601 UTC 텍스트 — <see cref="ParseUtcMs"/> 로 파싱.
+    /// </summary>
+    private async Task<List<(double S, double E)>> GetNocycleIntervalsMsAsync(string? flowName, DateTime fromUtc, DateTime toUtc)
+    {
+        var result = new List<(double S, double E)>();
+        var sharedDb = _pathResolver.GetSharedDbPath();
+        var dir = System.IO.Path.GetDirectoryName(sharedDb);
+        if (string.IsNullOrEmpty(dir)) return result;
+        var oeeDb = System.IO.Path.Combine(dir, "oee.db");
+        if (!System.IO.File.Exists(oeeDb)) return result;
+
+        var fromMs = ToMs(fromUtc);
+        var toMs = ToMs(toUtc);
+        try
+        {
+            await using var conn = new SqliteConnection($"Data Source={oeeDb};Mode=ReadOnly;Default Timeout=20");
+            await conn.OpenAsync();
+            var exists = await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='oeeDowntimeEvent'");
+            if (exists == 0) return result;
+
+            var flowClause = string.IsNullOrWhiteSpace(flowName) ? "" : " AND flowName = @Flow ";
+            var rows = await conn.QueryAsync<NocycleRaw>(
+                $@"SELECT startAt AS StartAt, endAt AS EndAt FROM oeeDowntimeEvent
+                   WHERE detectSource = 'nocycle' {flowClause}",
+                new { Flow = flowName?.Trim() });
+            foreach (var r in rows)
+            {
+                var s = ParseUtcMs(r.StartAt);
+                if (s is not double sMs) continue;
+                var eMs = ParseUtcMs(r.EndAt) ?? toMs;     // open 이벤트는 기간 끝으로 캡
+                var clipS = Math.Max(sMs, fromMs);
+                var clipE = Math.Min(eMs, toMs);
+                if (clipE > clipS) result.Add((clipS, clipE));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[OEE] nocycle intervals query failed");
+        }
+        return result;
+    }
+
+    /// <summary>ISO8601/SQLite DATETIME 문자열(UTC, Z 유무 무관)을 epoch ms 로. 파싱 실패 시 null.</summary>
+    private static double? ParseUtcMs(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return null;
+        if (DateTime.TryParse(s, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
+                out var dt))
+            return (dt - _epochUtc).TotalMilliseconds;
+        return null;
     }
 
     /// <summary>flow 의 유효 idealCT(ms)와 출처("auto"=실측 자동기입 / null=수동). 라인(flow=null)은 (null, null).</summary>

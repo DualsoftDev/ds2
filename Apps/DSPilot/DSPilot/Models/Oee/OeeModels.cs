@@ -136,10 +136,10 @@ public sealed record OeeSummaryDto(
     int? IdealCycleTimeMs,            // FlowCycleOverride.IdealCycleTimeMs
     string? IdealCycleTimeSource,     // "auto" = 실측 자동기입 / null = 수동(또는 미설정)
 
-    double? Availability,             // 가동 / 계획시간 (폴백 체인: 시프트 ▸ 자동추정 ▸ 달력근사)
+    double? Availability,             // 사이클기반(doc/22): Σ실측CT / Σ전체CT. 표본 부족 시 시간기반 폴백 체인.
     string? AvailabilityNote,         // 산출 방식/한계 사유
-    string? AvailabilitySource,       // "shift"(UserSet 시프트) / "auto"(14일 자동추정) / "calendar"(달력근사) / null
-    double? Performance,              // (idealCT*total)/runtime, min(1.0). idealCT 없으면 null
+    string? AvailabilitySource,       // "cycle"(사이클기반 1차) / "shift" / "auto" / "calendar" / null
+    double? Performance,              // 사이클기반(doc/22): (N × CT이상치) / Σ실측CT, min(1.0). 표본 부족 시 null
     string? PerformanceNote,
     double? Quality,                  // (total-reject)/total. 사이클 0 이면 null
     string? QualityNote,
@@ -147,11 +147,17 @@ public sealed record OeeSummaryDto(
     double? Oee,                      // A*P*Q. 한 요소라도 null 이면 null
     string? OeeNote,
 
-    int FailureCount,                 // isFailure=1 이벤트 건수
-    double? Mtbf,                     // Σ runtime / 고장건수 (ms)
+    int FailureCount,                 // 비가동 이벤트(고장) 건수 — 사이클기반: 비가동 사이클 + 무사이클(dedup) 건수
+    double? Mtbf,                     // 연속 비가동 onset 간격 평균 (ms) — doc/22 §5
     string? MtbfNote,
-    double? Mttr,                     // Σ 고장 durationMs / 고장건수 (ms)
-    string? MttrNote);
+    double? Mttr,                     // 비가동 onset → going 회복 구간 평균 (ms) — doc/22 §5 (KPI 복원)
+    string? MttrNote,
+
+    // ── 사이클기반 OEE 구성요소 (doc/22 §7) — UI 사이클 분해 시각화/노트용 ──
+    double NormalCtMs = 0,            // Σ실측CT (정상 사이클 CT 합)
+    double IdleCtMs = 0,              // Σ비가동CT (비가동 사이클 CT + 무사이클 dedup 후 합)
+    int? NormalCycleCount = null,     // N (정상 사이클 수)
+    double? CtThresholdMs = null);    // CT이상치 (14일 평균 표준CT, flow별/라인 가중평균)
 
 /// <summary>정지 이벤트 로그 한 건 (필터 조회용). 시각은 로컬 변환된 DateTime.</summary>
 public sealed record OeeDowntimeDto(

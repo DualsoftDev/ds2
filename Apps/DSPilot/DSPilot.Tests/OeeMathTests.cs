@@ -263,4 +263,137 @@ public class OeeMathTests
         Assert.Null(reject);
         Assert.Null(good);
     }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  사이클기반 OEE (doc/22 — P5 v4 CT/MT/WT 모델)
+    // ════════════════════════════════════════════════════════════════════════
+
+    // ── 비가동 판정 (doc/22 §3 ①②) ────────────────────────────────────────
+
+    [Theory]
+    [InlineData(20000, 30000, 30000, OeeMath.CycleClass.Normal)]   // MT 20s ≤ thr 30s → 정상
+    [InlineData(45000, 50000, 30000, OeeMath.CycleClass.Downtime)] // ① MT 45s > thr → 비가동
+    [InlineData(null, 50000, 30000, OeeMath.CycleClass.Downtime)]  // ② complete=null, CT 50s > thr → 비가동
+    [InlineData(null, 20000, 30000, OeeMath.CycleClass.Normal)]    // complete=null 이지만 CT 20s ≤ thr → 정상
+    public void ClassifyCycle_marks_downtime_by_mt_or_ct_overrun(int? mt, int? ct, double thr, OeeMath.CycleClass expected)
+    {
+        Assert.Equal(expected, OeeMath.ClassifyCycle(mt, ct, thr));
+    }
+
+    [Fact]
+    public void ClassifyCycle_open_cycle_without_ct_is_ignored()
+    {
+        Assert.Equal(OeeMath.CycleClass.Ignore, OeeMath.ClassifyCycle(mt: 5000, ct: null, ctThresholdMs: 30000));
+        Assert.Equal(OeeMath.CycleClass.Ignore, OeeMath.ClassifyCycle(mt: 5000, ct: 0, ctThresholdMs: 30000));
+    }
+
+    [Fact]
+    public void ClassifyCycle_no_threshold_treats_as_normal()
+    {
+        // 표본 부족(thr=0) → 판정 불가 → Normal(상위에서 산출 게이트). 가짜 비가동 분류 금지.
+        Assert.Equal(OeeMath.CycleClass.Normal, OeeMath.ClassifyCycle(mt: 999999, ct: 999999, ctThresholdMs: 0));
+    }
+
+    // ── P5 §⑥ 검산 (STN3): CT이상치=30s, N=90, Σ실측CT=2970s, Σ비가동CT=1200s ──
+
+    [Fact]
+    public void P5_worked_example_availability_71_2_percent()
+    {
+        var (a, _) = OeeMath.ComputeCycleAvailability(normalCtMs: 2_970_000, idleCtMs: 1_200_000);
+        Assert.NotNull(a);
+        Assert.Equal(2970.0 / 4170.0, a!.Value, 10); // = 0.7122…
+        Assert.Equal(0.712, Math.Round(a.Value, 3));
+    }
+
+    [Fact]
+    public void P5_worked_example_performance_90_9_percent()
+    {
+        var (p, _) = OeeMath.ComputeCyclePerformance(normalCycleCount: 90, ctThresholdMs: 30_000, normalCtMs: 2_970_000);
+        Assert.NotNull(p);
+        Assert.Equal(2700.0 / 2970.0, p!.Value, 10); // = 0.9090…
+        Assert.Equal(0.909, Math.Round(p.Value, 3));
+    }
+
+    [Fact]
+    public void P5_worked_example_oee_64_7_percent()
+    {
+        var (a, _) = OeeMath.ComputeCycleAvailability(2_970_000, 1_200_000);
+        var (p, _) = OeeMath.ComputeCyclePerformance(90, 30_000, 2_970_000);
+        var (q, _) = (1.0, ""); // 품질 100% 가정
+        var (oee, _) = OeeMath.ComputeOee(a, p, q, "assumed");
+        Assert.NotNull(oee);
+        Assert.Equal(0.647, Math.Round(oee!.Value, 3)); // 0.712 × 0.909 × 1.0
+    }
+
+    // ── 사이클 가용성/성능 산출 불가 정직 표기 ──────────────────────────────
+
+    [Fact]
+    public void ComputeCycleAvailability_zero_cycles_is_null()
+    {
+        var (a, note) = OeeMath.ComputeCycleAvailability(0, 0);
+        Assert.Null(a);
+        Assert.Contains("산출 불가", note);
+    }
+
+    [Fact]
+    public void ComputeCyclePerformance_capped_at_one()
+    {
+        // N×thr > Σ실측CT (당기가 14일 평균보다 빠름) → 1.0 캡.
+        var (p, _) = OeeMath.ComputeCyclePerformance(100, 30_000, 2_500_000);
+        Assert.Equal(1.0, p!.Value);
+    }
+
+    [Theory]
+    [InlineData(0, 30000.0, 2970000.0)]   // 정상 사이클 0
+    [InlineData(90, null, 2970000.0)]     // CT이상치 없음(표본 부족)
+    [InlineData(90, 30000.0, 0.0)]        // Σ실측CT 0
+    public void ComputeCyclePerformance_null_when_inputs_insufficient(int n, double? thr, double normalCt)
+    {
+        var (p, note) = OeeMath.ComputeCyclePerformance(n, thr, normalCt);
+        Assert.Null(p);
+        Assert.Contains("산출 불가", note);
+    }
+
+    // ── MTBF (연속 onset 간격 평균) / MTTR ─────────────────────────────────
+
+    [Fact]
+    public void ComputeMtbf2_zero_failures_is_nofault()
+    {
+        var (mtbf, note, noFault) = OeeMath.ComputeMtbf2(new List<double>());
+        Assert.Null(mtbf);
+        Assert.True(noFault);
+        Assert.Contains("무고장", note);
+    }
+
+    [Fact]
+    public void ComputeMtbf2_single_onset_has_no_gap()
+    {
+        var (mtbf, _, noFault) = OeeMath.ComputeMtbf2(new List<double> { 1000 });
+        Assert.Null(mtbf);
+        Assert.False(noFault); // 고장은 있으나 간격 없음 (무고장 아님)
+    }
+
+    [Fact]
+    public void ComputeMtbf2_averages_consecutive_onset_gaps()
+    {
+        // onset @ 0, 10min, 30min → 갭 10min, 20min → 평균 15min.
+        var onsets = new List<double> { 0, 10 * 60_000, 30 * 60_000 };
+        var (mtbf, _, _) = OeeMath.ComputeMtbf2(onsets);
+        Assert.Equal(15 * 60_000.0, mtbf!.Value, 6);
+    }
+
+    [Fact]
+    public void ComputeMttr_averages_repair_durations()
+    {
+        var (mttr, _) = OeeMath.ComputeMttr(new List<double> { 3 * 60_000, 5 * 60_000, 4 * 60_000 });
+        Assert.Equal(4 * 60_000.0, mttr!.Value, 6); // 평균 4분
+    }
+
+    [Fact]
+    public void ComputeMttr_empty_is_null()
+    {
+        var (mttr, note) = OeeMath.ComputeMttr(new List<double>());
+        Assert.Null(mttr);
+        Assert.Contains("산출 불가", note);
+    }
 }

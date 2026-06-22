@@ -115,4 +115,98 @@ public static class OeeMath
         if (durationMs >= failureMs) return ("equipment_fault", "unplanned", IsFailureReason("equipment_fault"), true);
         return (null, null, false, false);
     }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  사이클기반 OEE (doc/22 — P5 v4 CT/MT/WT 모델). 시간기반(달력/시프트) 대신
+    //  관측된 사이클 CT 합을 분모로 쓴다. 모두 순수함수 — 입력은 컨트롤러가 사이클에서 집계.
+    // ════════════════════════════════════════════════════════════════════════
+
+    /// <summary>한 사이클의 비가동 판정 결과 (doc/22 §3).</summary>
+    public enum CycleClass
+    {
+        /// <summary>CT 없는(마지막 열린) 사이클 — 집계 제외.</summary>
+        Ignore,
+        /// <summary>정상 사이클 — CT 를 Σ실측CT 에 가산.</summary>
+        Normal,
+        /// <summary>비가동 사이클 — CT 전체를 Σ비가동CT 에 가산(인식지연+고장+회복 포함).</summary>
+        Downtime
+    }
+
+    /// <summary>
+    /// 한 사이클을 정상/비가동으로 분류 (doc/22 §3 ①②). thr = CT이상치(14일 평균, ms).
+    ///   ① MT &gt; thr (완료가 늦게 발화 = 정지를 머금은 과주행)
+    ///   ② complete=null(=mt null) AND CT &gt; thr (끝내 완료 못한 CT 폭주)
+    /// CT 없는 사이클(마지막 열린)은 Ignore. thr ≤ 0(표본 부족)이면 판정 불가 → 상위에서 산출 게이트.
+    /// IsIdle(아웃라이어 캡)과는 무관 — IsIdle 은 CT이상치 산출 시만 제외(§3.2).
+    /// </summary>
+    public static CycleClass ClassifyCycle(int? mt, int? ct, double ctThresholdMs)
+    {
+        if (ct is not int c || c <= 0) return CycleClass.Ignore;
+        if (ctThresholdMs <= 0) return CycleClass.Normal;
+        if (mt is int m)
+            return m > ctThresholdMs ? CycleClass.Downtime : CycleClass.Normal;   // ①
+        return c > ctThresholdMs ? CycleClass.Downtime : CycleClass.Normal;        // ② complete=null
+    }
+
+    /// <summary>
+    /// 사이클기반 가용성 A = Σ실측CT / (Σ실측CT + Σ비가동CT) (doc/22 §4). 분모 0 이면 null + 사유.
+    /// </summary>
+    public static (double? Availability, string? Note) ComputeCycleAvailability(double normalCtMs, double idleCtMs)
+    {
+        var denom = normalCtMs + idleCtMs;
+        if (denom <= 0)
+            return (null, "기간 내 사이클 CT 합 0 — 사이클기반 가용성 산출 불가.");
+        return (Math.Clamp(normalCtMs / denom, 0, 1),
+            "Σ실측CT ÷ (Σ실측CT + Σ비가동CT). 비가동 = MT>CT이상치 / 미완료 CT폭주 / 무사이클 정지.");
+    }
+
+    /// <summary>
+    /// 사이클기반 성능 P = (N × CT이상치) / Σ실측CT, min 1.0 (doc/22 §4). CT이상치=14일 평균.
+    /// 정상상태에서 P≈100% 로 수렴 — "최속 대비 손실"이 아니라 "14일 추세 대비 당기 저하" 지표(§6 ①).
+    /// CT이상치 미산출(표본 부족) 또는 정상 사이클 0 이면 null + 사유.
+    /// </summary>
+    public static (double? Performance, string? Note) ComputeCyclePerformance(
+        int normalCycleCount, double? ctThresholdMs, double normalCtMs)
+    {
+        if (ctThresholdMs is not double thr || thr <= 0)
+            return (null, "CT이상치(14일 평균) 미산출 — 성능 산출 불가(클린샘플 부족).");
+        if (normalCycleCount <= 0 || normalCtMs <= 0)
+            return (null, "정상 사이클 0 — 성능 산출 불가.");
+        return (Math.Min(1.0, normalCycleCount * thr / normalCtMs),
+            "(정상 사이클수 × CT이상치) ÷ Σ실측CT. 14일 추세 대비 당기 속도저하 지표.");
+    }
+
+    /// <summary>
+    /// MTBF (doc/22 §5 / P5 §④) = 연속 비가동 onset 간격 평균. onset 은 오름차순 ms.
+    /// doc/21 의 Σruntime/고장건수 를 대체. 0건이면 무고장 배지, 1건이면 간격 없음(산출 불가).
+    /// </summary>
+    public static (double? Mtbf, string? Note, bool NoFault) ComputeMtbf2(IReadOnlyList<double> onsetsAscMs)
+    {
+        if (onsetsAscMs is null || onsetsAscMs.Count == 0)
+            return (null, "비가동(고장) 0건 — MTBF 산출 불가(무고장).", true);
+        if (onsetsAscMs.Count < 2)
+            return (null, "비가동 1건 — 연속 onset 간격 없음(MTBF 산출 불가).", false);
+
+        double sum = 0; int gaps = 0;
+        for (int i = 1; i < onsetsAscMs.Count; i++)
+        {
+            var g = onsetsAscMs[i] - onsetsAscMs[i - 1];
+            if (g > 0) { sum += g; gaps++; }
+        }
+        if (gaps == 0) return (null, "유효 onset 간격 없음 — MTBF 산출 불가.", false);
+        return (sum / gaps, "연속 비가동 onset 간격 평균 (P5 §④).", false);
+    }
+
+    /// <summary>
+    /// MTTR (doc/22 §5 / P5 §④) = mean(고장 onset → going 회복). 입력은 각 비가동 이벤트의 복구구간 ms.
+    /// going 회복 = 사이클 complete(MT 종료) 시점, 미완료 사이클은 CT 종료(다음 start)/무사이클은 이벤트 EndAt.
+    /// 음수 구간은 방어적으로 제외. 빈 입력이면 산출 불가.
+    /// </summary>
+    public static (double? Mttr, string? Note) ComputeMttr(IReadOnlyList<double> repairMsList)
+    {
+        var valid = (repairMsList ?? new List<double>()).Where(x => x >= 0).ToList();
+        if (valid.Count == 0)
+            return (null, "비가동 복구 구간 없음 — MTTR 산출 불가.");
+        return (valid.Average(), "비가동 onset → going 회복 구간 평균 (P5 §④).");
+    }
 }

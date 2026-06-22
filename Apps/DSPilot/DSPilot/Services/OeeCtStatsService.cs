@@ -100,4 +100,58 @@ public sealed class OeeCtStatsService
             return result;
         }
     }
+
+    /// <summary>
+    /// CT이상치(표준 CT) = 최근 <paramref name="windowDays"/>일(기본 14) 클린사이클(IsIdle=0, ct&gt;0) CT의
+    /// <b>평균</b> (flow별, ms) — doc/22 §2. 사이클기반 비가동 판정(§3)·성능(§4) 공용 임계.
+    /// p10(추천 테이블)과 달리 <b>평균</b>을 쓰며 시간 윈도우로 자른다 — 드리프트 방지 위해 RAM 산출(DB 미기입).
+    /// 표본 &lt; <paramref name="minCleanCycles"/> 인 flow 는 맵에서 제외(산출 불가 → A·P 가 '—'+사유, 가짜 % 금지).
+    /// </summary>
+    public async Task<Dictionary<string, (double AvgMs, int Sample)>> ComputeCtThresholdAsync(
+        int windowDays = 14, int minCleanCycles = 5)
+    {
+        var result = new Dictionary<string, (double AvgMs, int Sample)>(StringComparer.OrdinalIgnoreCase);
+        var dbPath = _pathResolver.GetSharedDbPath();
+        if (!File.Exists(dbPath)) return result;
+        try
+        {
+            await using var conn = new SqliteConnection(
+                $"Data Source={dbPath};Mode=ReadWriteCreate;Default Timeout=20");
+            await conn.OpenAsync();
+
+            var histExists = await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlowHistory'");
+            if (histExists == 0) return result;
+
+            // recordedAt 은 UTC(Z 없는 DATETIME) 문자열 — 동일 포맷 since 문자열로 비교.
+            var since = DateTime.UtcNow.AddDays(-Math.Max(1, windowDays))
+                .ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+
+            const string sql = @"
+                SELECT flowName AS FlowName,
+                       AVG(CAST(ct AS REAL)) AS AvgMs,
+                       COUNT(*)              AS Sample
+                FROM dspFlowHistory
+                WHERE COALESCE(IsIdle,0) = 0 AND ct IS NOT NULL AND ct > 0
+                  AND recordedAt >= @Since
+                GROUP BY flowName";
+            var rows = await conn.QueryAsync(sql, new { Since = since });
+            foreach (var r in rows)
+            {
+                string? flow = r.FlowName;
+                if (string.IsNullOrEmpty(flow)) continue;
+                int sample = (int)(long)r.Sample;
+                if (sample < Math.Max(1, minCleanCycles)) continue; // 표본 부족 → 산출 불가(제외)
+                double avg = r.AvgMs is null ? 0 : (double)r.AvgMs;
+                if (avg <= 0) continue;
+                result[flow] = (avg, sample);
+            }
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[OEE] CT threshold (14d avg) compute failed");
+            return result;
+        }
+    }
 }
