@@ -142,78 +142,92 @@ public sealed class DatabaseLifecycleService
                 return new RebuildResult(false, "AASX 모델이 로드되지 않았습니다. 먼저 \"AASX 모델 다시 불러오기\" 를 실행하세요.");
             }
 
-            // 1. 엔진 teardown — DB 핸들 / 컨슈머 / 캐시 모두 해제
-            await _engineService.ResetAsync();
+            // 1. 엔진 teardown — DB 핸들 / 컨슈머 / 캐시 모두 해제.
+            //    suspendInit=true: 아래 ResumeInitializationAndStart() 까지 lazy init 을 보류한다.
+            //    재구축 창에서도 Hub 컨슈머는 계속 돌며 HandleHubTagChanged → TryEnsureInitialized() 를
+            //    호출하는데, 그때 삭제됐거나 절반만 만들어진 plc.db 를 상대로 엔진을 조기 재빌드하면
+            //    BootstrapPlcTags 가 빈/stale plcTag 를 캐시해 _plcTagIdByAddress 가 오염된다.
+            //    그 뒤엔 _engine!=null 이라 마지막 재초기화가 no-op 이 되어, 서비스 재시작 전까지
+            //    plcTagLog 기록이 silent skip 된다 — 이 게이트로 차단한다.
+            await _engineService.ResetAsync(suspendInit: true);
 
-            // 2. UI 스냅샷 클리어 — DspDbService 가 stale 값(GoingCount 등) 보호 로직으로 새 fresh 데이터 무시 못하게
-            _dspDbService.Reset();
-
-            // 3. plc.db 파일 삭제 (connection pool clear 포함)
-            var dbPath = _pathResolver.GetSharedDbPath();
-            _settingsService.DeleteDatabase(dbPath);
-
-            // 3-b. oee.db 정지 이벤트도 동반 초기화 — plc.db 를 비웠는데 정지 로그(특히 '진행중' 박제)가
-            //      남는 문제 해소. 정지 이벤트(oeeDowntimeEvent) 만 비우고, 작업자가 입력한 불량/생산
-            //      (oeeProductionCount)·시프트 예외(oeeShiftException)는 보존한다(doc/21 §1 의도 유지).
-            //      IOeeRepository 는 scoped 라 scope 를 직접 연다(상태머신과 동일 패턴).
-            int downtimeCleared = 0;
             try
             {
-                using var oeeScope = _scopeFactory.CreateScope();
-                var oeeRepo = oeeScope.ServiceProvider.GetRequiredService<IOeeRepository>();
-                downtimeCleared = await oeeRepo.ClearDowntimeEventsAsync();
-                _logger.LogInformation("[DBLifecycle] oeeDowntimeEvent {N}건 초기화 (불량/시프트 보존)", downtimeCleared);
+                // 2. UI 스냅샷 클리어 — DspDbService 가 stale 값(GoingCount 등) 보호 로직으로 새 fresh 데이터 무시 못하게
+                _dspDbService.Reset();
+
+                // 3. plc.db 파일 삭제 (connection pool clear 포함)
+                var dbPath = _pathResolver.GetSharedDbPath();
+                _settingsService.DeleteDatabase(dbPath);
+
+                // 3-b. oee.db 정지 이벤트도 동반 초기화 — plc.db 를 비웠는데 정지 로그(특히 '진행중' 박제)가
+                //      남는 문제 해소. 정지 이벤트(oeeDowntimeEvent) 만 비우고, 작업자가 입력한 불량/생산
+                //      (oeeProductionCount)·시프트 예외(oeeShiftException)는 보존한다(doc/21 §1 의도 유지).
+                //      IOeeRepository 는 scoped 라 scope 를 직접 연다(상태머신과 동일 패턴).
+                int downtimeCleared = 0;
+                try
+                {
+                    using var oeeScope = _scopeFactory.CreateScope();
+                    var oeeRepo = oeeScope.ServiceProvider.GetRequiredService<IOeeRepository>();
+                    downtimeCleared = await oeeRepo.ClearDowntimeEventsAsync();
+                    _logger.LogInformation("[DBLifecycle] oeeDowntimeEvent {N}건 초기화 (불량/시프트 보존)", downtimeCleared);
+                }
+                catch (Exception ex)
+                {
+                    // 정지 로그 초기화 실패는 plc.db 재구축을 막지 않는다(비핵심).
+                    _logger.LogWarning(ex, "[DBLifecycle] oeeDowntimeEvent 초기화 실패 (plc.db 재구축은 계속)");
+                }
+
+                // 4. 스키마 + 현재 in-memory AASX → dspFlow/dspCall 재적재
+                var ok = await _bootstrap.BootstrapAsync();
+                if (!ok)
+                {
+                    _logger.LogWarning("[DBLifecycle] Bootstrap failed after delete");
+                    return new RebuildResult(false, "DB 재구축 실패 — 로그 확인");
+                }
+
+                // 5. 새 DB 로딩 완료 시점에 OnDataChanged 한 번 더 발화 — step 2 의 Reset 은 DB
+                // 삭제 직전이라 그 시점에 페이지가 reload 해도 빈 결과. BootstrapAsync 가 끝나고
+                // 새 dspFlow / dspCall 이 채워진 지금 발화해야 Heatmap / Dashboard 등이 fresh 데이터로
+                // 자동 재구성된다. (CycleTimeAnalysis 도 OnDataChanged 구독 — 동일 경로)
+                _dspDbService.Reset();
+
+                // 6. audit log — 통째 재구축은 통계 단절점이라 명시적으로 박제
+                try
+                {
+                    await _dspRepository.InsertAasxChangeLogAsync(
+                        sha256Before: null,
+                        sha256After: _projectService.LastLoadedSha256 ?? "<unknown>",
+                        source: auditSource,
+                        flowsAdded: null,
+                        flowsRemoved: null,
+                        pruneFlows: 0, pruneCalls: 0, pruneHistory: 0,
+                        notes: "plc.db full rebuild — plcTagLog / dspFlowHistory 등 raw 데이터 모두 삭제됨");
+                }
+                catch (Exception ex) { _logger.LogDebug(ex, "[DBLifecycle] aasxChangeLog INSERT 실패 (비중요)"); }
+
+                // 7. 모든 클라이언트에 알림 (UI 페이지가 새로고침할 수 있도록)
+                try
+                {
+                    await _hubContext.Clients.All.SendAsync("DatabaseRebuilt");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "[DBLifecycle] SignalR broadcast failed (non-critical)");
+                }
+
+                _logger.LogInformation("[DBLifecycle] Rebuild complete");
+                return new RebuildResult(true,
+                    $"데이터베이스가 재구축되었습니다. (정지 이벤트 {downtimeCleared}건 초기화 · 불량/시프트 보존)");
             }
-            catch (Exception ex)
+            finally
             {
-                // 정지 로그 초기화 실패는 plc.db 재구축을 막지 않는다(비핵심).
-                _logger.LogWarning(ex, "[DBLifecycle] oeeDowntimeEvent 초기화 실패 (plc.db 재구축은 계속)");
+                // 8. 재구축 창 종료 — lazy init 재개 + valid plc.db·plcTag 기준으로 fresh 엔진 빌드.
+                //    plc.db 삭제/재생성이 모두 끝난 *지금* 빌드해야 BootstrapPlcTags 가 valid plcTag 를
+                //    캐시한다. 성공/실패/예외 어느 경로로 빠져나가도 반드시 호출 — 보류가 안 풀리면
+                //    서비스 재시작 전까지 모든 Hub 신호가 무시(plcTagLog 미기록)된다.
+                _engineService.ResumeInitializationAndStart();
             }
-
-            // 4. 스키마 + 현재 in-memory AASX → dspFlow/dspCall 재적재
-            var ok = await _bootstrap.BootstrapAsync();
-            if (!ok)
-            {
-                _logger.LogWarning("[DBLifecycle] Bootstrap failed after delete");
-                return new RebuildResult(false, "DB 재구축 실패 — 로그 확인");
-            }
-
-            // 5. 엔진 재시작 — 첫 Hub 신호 도착 시 자동 init 됨 (lazy) 또는 즉시 init
-            _engineService.TryEnsureInitialized();
-
-            // 6. 새 DB 로딩 완료 시점에 OnDataChanged 한 번 더 발화 — step 2 의 Reset 은 DB
-            // 삭제 직전이라 그 시점에 페이지가 reload 해도 빈 결과. BootstrapAsync 가 끝나고
-            // 새 dspFlow / dspCall 이 채워진 지금 발화해야 Heatmap / Dashboard 등이 fresh 데이터로
-            // 자동 재구성된다. (CycleTimeAnalysis 도 OnDataChanged 구독 — 동일 경로)
-            _dspDbService.Reset();
-
-            // 7. audit log — 통째 재구축은 통계 단절점이라 명시적으로 박제
-            try
-            {
-                await _dspRepository.InsertAasxChangeLogAsync(
-                    sha256Before: null,
-                    sha256After: _projectService.LastLoadedSha256 ?? "<unknown>",
-                    source: auditSource,
-                    flowsAdded: null,
-                    flowsRemoved: null,
-                    pruneFlows: 0, pruneCalls: 0, pruneHistory: 0,
-                    notes: "plc.db full rebuild — plcTagLog / dspFlowHistory 등 raw 데이터 모두 삭제됨");
-            }
-            catch (Exception ex) { _logger.LogDebug(ex, "[DBLifecycle] aasxChangeLog INSERT 실패 (비중요)"); }
-
-            // 8. 모든 클라이언트에 알림 (UI 페이지가 새로고침할 수 있도록)
-            try
-            {
-                await _hubContext.Clients.All.SendAsync("DatabaseRebuilt");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "[DBLifecycle] SignalR broadcast failed (non-critical)");
-            }
-
-            _logger.LogInformation("[DBLifecycle] Rebuild complete");
-            return new RebuildResult(true,
-                $"데이터베이스가 재구축되었습니다. (정지 이벤트 {downtimeCleared}건 초기화 · 불량/시프트 보존)");
         }
         catch (Exception ex)
         {

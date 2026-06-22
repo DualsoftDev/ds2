@@ -48,6 +48,14 @@ public sealed class SimulationEngineService : IDisposable
     private readonly object _initLock = new();
     private bool _initFailed;
 
+    // plc.db 삭제/재생성을 동반하는 파괴적 재구축(RebuildDatabaseAsync) 동안 lazy init 을 보류시키는 게이트.
+    // 재구축 창에서는 Hub 컨슈머가 계속 돌며 HandleHubTagChanged → TryEnsureInitialized() 를 호출하는데,
+    // 이때 엔진을 조기에 재빌드하면 BootstrapPlcTags 가 삭제됐거나 절반만 만들어진 plcTag 테이블을 만나
+    // _plcTagIdByAddress 캐시가 비거나 stale id 로 채워진다. 그 뒤엔 _engine!=null 이라 정작 재구축 끝의
+    // 재초기화가 no-op 이 되어, 서비스 재시작 전까지 plcTagLog 기록이 silent skip 된다. suspendInit=true 인
+    // ResetAsync 가 true 로 set, ResumeInitializationAndStart() 가 false 로 clear.
+    private volatile bool _initSuspended;
+
     // Welford 통계 — Going 시작 시각 + 누적 (count, mean, M2)
     private readonly Dictionary<Guid, (DateTime startedAt, int count, double mean, double m2)> _callStats = new();
     private readonly object _statsLock = new();
@@ -126,11 +134,13 @@ public sealed class SimulationEngineService : IDisposable
     {
         if (_engine is not null) return true;
         if (_initFailed) return false;
+        if (_initSuspended) return false;   // 파괴적 재구축 진행 중 — 조기 재빌드 차단(아래 _initSuspended 주석)
 
         lock (_initLock)
         {
             if (_engine is not null) return true;
             if (_initFailed) return false;
+            if (_initSuspended) return false;   // 락 안에서 재확인 (재구축 창 진입을 놓치지 않게)
 
             try
             {
@@ -1161,8 +1171,18 @@ public sealed class SimulationEngineService : IDisposable
     /// 엔진/컨슈머/캐시 전체 teardown. 호출 후 다음 TryEnsureInitialized() 호출 시 fresh 상태로 재시작.
     /// 사용 시나리오: plc.db 삭제 후 재로딩, AASX 변경 후 재초기화 등.
     /// </summary>
-    public async Task ResetAsync()
+    /// <param name="suspendInit">
+    /// true 면 teardown 후 lazy init 을 보류한다 — plc.db 를 삭제/재생성하는 파괴적 재구축 동안
+    /// Hub 컨슈머가 엔진을 조기에 재빌드(plcTag id 캐시 오염)하지 못하게 막는다. 재구축이 끝나면
+    /// 반드시 <see cref="ResumeInitializationAndStart"/> 로 해제해야 PLC 신호가 다시 들어온다.
+    /// </param>
+    public async Task ResetAsync(bool suspendInit = false)
     {
+        // 0. lazy init 보류를 *가장 먼저* set — 아래서 _engine 을 null 로 만든 뒤 consumerTask 를
+        //    최대 2초 await 하는 동안, Hub 컨슈머가 그 창을 비집고 엔진을 재빌드하지 못하게 한다.
+        //    (플래그를 teardown 끝에 set 하면 이 await 창이 그대로 race window 로 남는다.)
+        if (suspendInit) _initSuspended = true;
+
         // 1. 새 이벤트 차단
         try { _eventChannel?.Writer.TryComplete(); } catch { /* ignore */ }
         try { _consumerCts?.Cancel(); } catch { /* ignore */ }
@@ -1198,6 +1218,8 @@ public sealed class SimulationEngineService : IDisposable
             _runtimeSession = null;
             _passiveInference = null;
             _initFailed = false;
+            // _initSuspended 는 메서드 진입 즉시 set 했다(위 step 0). 여기서 다시 손대지 않는다 —
+            // ResumeInitializationAndStart() 가 재구축 종료 시 clear.
         }
         lock (_statsLock) { _callStats.Clear(); _timeoutAbandoned.Clear(); }
         _plcTagIdByAddress.Clear();
@@ -1213,6 +1235,18 @@ public sealed class SimulationEngineService : IDisposable
         }
 
         _logger.LogInformation("[Engine] Reset complete — ready for re-initialization");
+    }
+
+    /// <summary>
+    /// <see cref="ResetAsync"/>(suspendInit:true) 로 보류했던 lazy init 을 재개하고 즉시 fresh 엔진을 빌드한다.
+    /// plc.db 삭제/재생성이 모두 끝난 뒤에만 호출해야 <c>BootstrapPlcTags</c> 가 valid plcTag 테이블 기준으로
+    /// _plcTagIdByAddress 캐시를 채운다. 재구축이 성공/실패/예외 어느 경로로 끝나든 반드시 호출해야 한다 —
+    /// 보류가 풀리지 않으면 서비스 재시작 전까지 모든 Hub 신호가 무시(plcTagLog 미기록)된다.
+    /// </summary>
+    public void ResumeInitializationAndStart()
+    {
+        _initSuspended = false;
+        TryEnsureInitialized();
     }
 
     /// <summary>
