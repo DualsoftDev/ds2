@@ -162,7 +162,9 @@ public sealed class AutoCalibrationService : BackgroundService
                 return new AutoCalibrationRunResult(true, false, eligible, 0, 0, msg);
             }
 
-            var (applied, exported) = _project.WriteWorkDurationCalibrationAndExport(allChanges);
+            // FillMin=true 면 Min 을 실측값으로 채웠으므로(사용자가 '최소값도 실측으로 기록' 의사 확정),
+            // 그 Work 들을 calibration-state 에 'Min 실측 확정' 으로 박아 ActionUnder 게이트를 연다. FillMin=false 면 미기록.
+            var (applied, exported) = _project.WriteWorkDurationCalibrationAndExport(allChanges, markMinMeasured: ac.FillMin);
 
             var summary = $"Flow {calibrated}/{eligible}개 보정, 디바이스 {applied}건 기록 [{string.Join(", ", perFlowLog)}]";
 

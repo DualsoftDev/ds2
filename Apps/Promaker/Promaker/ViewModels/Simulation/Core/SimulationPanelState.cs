@@ -43,6 +43,9 @@ public partial class SimulationPanelState : ObservableObject
 
     partial void OnAutoDurationCalibrateChanged(bool value)
     {
+        // 영속 SSOT 동기화 — UI 토글이든 hub 수신이든 PlcSettings 에 반영해야 다음 Save/업로드 시
+        // PlcConnection.json 에 기록된다(이게 빠져 '보정 안함' 이 파일에 안 담겨 Agent 가 ON 으로 복원하던 버그).
+        PlcSettings.AutoDurationCalibrate = value;
         if (_suppressAutoCalibratePush) return;
         Hub.TrySetAutoCalibrate(value);   // 사용자 토글 → hub → 엔진 적용 + 전 인스턴스 broadcast
     }
@@ -177,6 +180,11 @@ public partial class SimulationPanelState : ObservableObject
         // 간트 표시 윈도우 복원 — 저장된 PLC 설정값으로(빨간선 기준 최근 N분만 표시).
         GanttWindowMinutes = PlcSettings.GanttWindowMinutes;
         GanttChart.RenderWindowMinutes = PlcSettings.GanttWindowMinutes;
+
+        // 자동 정합 ON/OFF 복원 — 저장된 PLC 설정값으로. hub 미연결 상태이므로 push 는 막는다.
+        _suppressAutoCalibratePush = true;
+        try { AutoDurationCalibrate = PlcSettings.AutoDurationCalibrate; }
+        finally { _suppressAutoCalibratePush = false; }
 
         _clockInterpolator = new SimulationClockInterpolator(
             engine:       () => _simEngine,

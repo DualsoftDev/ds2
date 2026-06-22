@@ -118,9 +118,19 @@ public sealed class AgentUploadReceiver : BackgroundService
             Directory.CreateDirectory(SharedPaths.SharedDirectory);
             Directory.CreateDirectory(SharedPaths.AgentDirectory);
 
-            bool sawSession = false;
-            using (var zip = new ZipArchive(ms, ZipArchiveMode.Read))
+            // 공유 폴더 쓰기 직렬화 — Promaker publish / DSPilot 실측 export 와 동시 쓰기 충돌 방지.
+            // 점유 중이면 503 으로 거절(클라이언트가 재시도) — 반쪽 추출로 모델/사이드카가 어긋나는 것을 막는다.
+            if (!SharedWriteLock.TryAcquire("Agent-Upload", out var holder))
             {
+                Log.Warn($"업로드 수신 보류 — 공유 쓰기 락 점유 중 (holder={holder.Holder}, pid={holder.Pid}).");
+                await WriteAsync(ctx, 503, $"공유 폴더 쓰기 잠금 중 (점유: {holder.Holder}). 잠시 후 재시도하세요.").ConfigureAwait(false);
+                return;
+            }
+
+            bool sawSession = false;
+            try
+            {
+                using var zip = new ZipArchive(ms, ZipArchiveMode.Read);
                 foreach (var entry in zip.Entries)
                 {
                     switch (entry.Name)
@@ -130,6 +140,10 @@ public sealed class AgentUploadReceiver : BackgroundService
                             break;
                         case "PlcConnection.json":
                             entry.ExtractToFile(SharedPaths.PlcConnectionFilePath, overwrite: true);
+                            break;
+                        case "calibration-state.json":
+                            // 실측 확정 사이드카 — 동봉된 project.aasx 와 hash 가 맞물려 ActionUnder 게이트를 연다.
+                            entry.ExtractToFile(SharedPaths.CalibrationStateJsonPath, overwrite: true);
                             break;
                         case "session.json":
                             using (var sr = new StreamReader(entry.Open()))
@@ -146,6 +160,10 @@ public sealed class AgentUploadReceiver : BackgroundService
                             break;
                     }
                 }
+            }
+            finally
+            {
+                SharedWriteLock.Release("Agent-Upload");
             }
 
             // session 이 없으면(모델만 보낸 경우) 모델 파일만 갱신하고 활성 신호는 세우지 않는다 —

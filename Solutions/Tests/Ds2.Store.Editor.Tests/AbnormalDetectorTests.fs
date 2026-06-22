@@ -251,6 +251,7 @@ module ControlAdapterTests =
             | _ -> false
         let adapter =
             ControlAbnormalAdapter(index, ioMap, getCallState, isInputActive, (fun () -> t0), (fun r -> emitted.Add r))
+        adapter.IsMinMeasured <- fun _ -> true   // ActionUnder 게이트 기본 통과(대다수 테스트 편의). 미확정 케이스는 전용 테스트.
         adapter, emitted, states, inputActive, call.Id, apiCall.Id
 
     let private setup () =
@@ -278,6 +279,16 @@ module ControlAdapterTests =
         adapter.OnInputRising(apiCallId, 1100)   // elapsed 100 < 250
         Assert.Single(emitted) |> ignore
         Assert.Equal(AbnormalKind.ActionUnder, emitted.[0].Kind)
+
+    [<Fact>]
+    let ``ActionUnder suppressed when Min not measured`` () =
+        // Min 이 실측 확정(calibration-state)되지 않은 Work 는 ActionUnder 비활성 — 게이트 false.
+        let adapter, emitted, states, _, callId, apiCallId = setup ()
+        adapter.IsMinMeasured <- fun _ -> false
+        states.[callId] <- Status4.Going
+        adapter.OnCallGoing(callId, 1000)
+        adapter.OnInputRising(apiCallId, 1100)   // elapsed 100 < 250 — 게이트 없으면 ActionUnder 였을 것
+        Assert.Empty(emitted)
 
     // Over ??Max ?�점 OnTick ??SSOT ??InTag 가 Max ?�후 ??�� rising ?�도 over �??��? ?�는??    //   (??? ?�싱 over ???��? ?�어 ?�외, ?�용???�정). over 발행 ?�체???�래 tick ?�스?��? 검�?
     [<Fact>]
@@ -436,6 +447,7 @@ module ControlAdapterTests =
             ControlAbnormalAdapter(
                 index, ioMap, getCallState, (fun _ -> false), (fun () -> t0),
                 (fun r -> emitted.Add r), warmupCycles = 1)
+        adapter.IsMinMeasured <- fun _ -> true   // ActionUnder 게이트 통과(이 테스트는 워밍업·발행 검증).
         adapter, emitted, states, call.Id, apiCall.Id
 
     [<Fact>]
@@ -555,6 +567,7 @@ module MonitoringAdapterTests =
             | true, s -> s
             | _ -> Status4.Ready
         let adapter = MonitoringAbnormalAdapter(index, ioMap, getCallState, (fun () -> t0), (fun r -> emitted.Add r))
+        adapter.IsMinMeasured <- fun _ -> true   // ActionUnder 게이트 기본 통과(대다수 테스트 편의). 미확정 케이스는 전용 테스트.
         adapter, emitted, states, call.Id, apiCall.Id
 
     let private setup () =
@@ -588,6 +601,16 @@ module MonitoringAdapterTests =
         goingThenFinish adapter 0 100
         Assert.Single(emitted) |> ignore
         Assert.Equal(AbnormalKind.ActionUnder, emitted.[0].Kind)
+
+    [<Fact>]
+    let ``ActionUnder suppressed when Min not measured`` () =
+        // Min 실측 미확정(calibration-state) Work 는 학습 Min 아래여도 ActionUnder 비활성 — 게이트 false.
+        let adapter, emitted, _, _, _ = setup ()
+        adapter.IsMinMeasured <- fun _ -> false
+        for _ in 1..3 do goingThenFinish adapter 0 500
+        emitted.Clear()
+        goingThenFinish adapter 0 100   // 학습 Min 아래지만 미확정 → 비발행
+        Assert.Empty(emitted)
 
     // 자동 정합 OFF — 학습 줄자 무시, 모델 WorkDurationRange(setup: Min 250) 기준 판정.
     // ON 이면 ~500 학습 → Min 325 라 300ms 가 Under 였겠지만, OFF 는 모델 Min 250 기준 → 300 정상.
@@ -940,7 +963,7 @@ module DeviceControlCycleTests =
               ModelHash = "test-model"
               Generation = 1
               Mode = "Monitoring" }
-        let session = EventDrivenEngineRuntimeHubSession(engine, NullSignalHubContext(), identity, 100)
+        let session = EventDrivenEngineRuntimeHubSession(engine, NullSignalHubContext(), identity, 100, System.Func<Guid, bool>(fun _ -> true))
         let command : RuntimeIOAddressBatchCommand =
             { Envelope = RuntimeHubDefaults.selfEnvelope identity
               Items =

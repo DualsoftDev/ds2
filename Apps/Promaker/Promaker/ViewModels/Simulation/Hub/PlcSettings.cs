@@ -48,6 +48,11 @@ public partial class PlcSettings : ObservableObject
     /// 프로파일이 아닌 단일 플랫 필드. PLC 설정 다이얼로그 슬라이더로 조정, PlcConnectionSettings 에 영속화.</summary>
     [ObservableProperty] private int _ganttWindowMinutes = 300;
 
+    /// <summary>자동 duration 정합 ON/OFF 의 영속 SSOT. OFF=모델 확정값 기준 판정(실측 학습 안 함).
+    /// PlcConnection.json 에 기록되어 업로드 시 Agent 가 같은 값으로 복원한다(없으면 Agent 가 기본 ON 으로 되돌려
+    /// '보정 안함' 이 반영 안 되던 버그). SimulationPanelState.AutoDurationCalibrate(UI/hub) 와 양방향 동기화. 기본 ON.</summary>
+    [ObservableProperty] private bool _autoDurationCalibrate = true;
+
     /// <summary>벤더 enum 이름 → 해당 벤더에서 마지막으로 입력했던 프로파일. POCO 와 동일 dict 를
     /// 보유해 다이얼로그 / Save 시점에 동기화. 직접 노출돼 다이얼로그가 토글 중 swap 가능.</summary>
     public Dictionary<string, PromakerShared.PlcVendorProfile> VendorProfiles { get; private set; }
@@ -131,13 +136,19 @@ public partial class PlcSettings : ObservableObject
         StationNumber = StationNumber,
         IsUdp = IsUdp,
         GanttWindowMinutes = GanttWindowMinutes,
+        AutoDurationCalibrate = AutoDurationCalibrate,
         Profiles = VendorProfiles,
     };
 
     private static PlcSettings FromPoco(PromakerShared.PlcConnectionSettings d)
     {
         // POCO 의 EnsureProfiles 가 LoadOrDefault 안에서 호출돼 세 벤더 프로파일이 모두 채워져 있음.
-        var s = new PlcSettings { VendorProfiles = d.Profiles, GanttWindowMinutes = d.GanttWindowMinutes };
+        var s = new PlcSettings
+        {
+            VendorProfiles = d.Profiles,
+            GanttWindowMinutes = d.GanttWindowMinutes,
+            AutoDurationCalibrate = d.AutoDurationCalibrate,
+        };
 
         if (System.Enum.TryParse<PlcVendorChoice>(d.Vendor, ignoreCase: true, out var v))
             s.Vendor = v;

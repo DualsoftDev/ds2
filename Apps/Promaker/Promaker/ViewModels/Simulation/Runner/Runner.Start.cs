@@ -134,11 +134,20 @@ public partial class SimulationPanelState
             }
             else
             {
-                _simEngine = writeTagAction is not null
+                var selfEngine = writeTagAction is not null
                     ? new EventDrivenEngine(index, SelectedRuntimeMode,
                         FSharpOption<FSharpFunc<string, FSharpFunc<string, Unit>>>.Some(
                             FuncConvert.FromAction<string, string>(writeTagAction)))
                     : new EventDrivenEngine(index, SelectedRuntimeMode);
+                // 로컬 Control 시뮬도 ActionUnder 게이트 적용 — calibration-state 가 비었거나 모델 해시가
+                // 어긋나면 IsMinMeasured 전부 false(기본 비활성). FillMin 확정된 같은 모델일 때만 게이트가 열린다.
+                if (SelectedRuntimeMode == RuntimeMode.Control)
+                {
+                    var calibState = CalibrationState.Load();
+                    var calibHash = RuntimeModelHash.compute(SharedPaths.AasxFilePath);
+                    selfEngine.SetMinMeasured(new Func<Guid, bool>(g => calibState.IsMinMeasured(g, calibHash)));
+                }
+                _simEngine = selfEngine;
             }
             _runtimeSession = SelectedRuntimeMode == RuntimeMode.Simulation
                 ? null

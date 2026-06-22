@@ -102,6 +102,10 @@ type MonitoringAbnormalAdapter
     let mutable onLearnedCb : Guid -> int -> int -> int -> unit = fun _ _ _ _ -> ()
     // 자동 duration 정합 ON/OFF (런타임 토글, hub 동기화). mutable let — OnObservedIo 클로저에서 직접 읽음.
     let mutable autoCalibrate = true
+    // ActionUnder(시간 미만) 게이트 — "이 Work 의 Min 이 실측으로 확정(사용자 FillMin 승인)" 일 때만 true.
+    // 호스트가 calibration-state 사이드카(+AASX 해시 stale 판정)를 읽어 주입한다.
+    // 기본 false → 미확정 Work 의 ActionUnder 는 발행 안 함(오탐 차단). ActionOver(Max)는 영향 없음.
+    let mutable isMinMeasured : Guid -> bool = fun _ -> false
 
     // ApiCall → ApiDef (SensorOpen level-like 판정 + gating 용).
     let apiDefOf (apiCallId: Guid) : ApiDef option =
@@ -139,6 +143,9 @@ type MonitoringAbnormalAdapter
     ///   ON  = 실측 학습값(durationLearner)을 ActionUnder 판정 기준으로. 모델 Min/Max 무시.
     ///   OFF = 모델 WorkDurationRange(AASX 확정값)를 기준으로(ActionOver 와 동일 SSOT). 학습 안 함.
     member _.AutoCalibrate with get () = autoCalibrate and set v = autoCalibrate <- v
+
+    /// ActionUnder 게이트 주입 — workGuid 의 Min 이 실측 확정(calibration-state)됐는지. 기본 false(비활성).
+    member _.IsMinMeasured with get () = isMinMeasured and set v = isMinMeasured <- v
 
     /// AASX 확정값(Duration=avg)으로 학습기를 prime — 다음 세션 재학습 없이 첫 사이클부터 판정.
     member _.PrimeLearnedDuration(workGuid: Guid, avgMs: int) = durationLearner.Prime(workGuid, avgMs)
@@ -211,7 +218,7 @@ type MonitoringAbnormalAdapter
                                     match rangeOpt with
                                     | Some range ->
                                         match Abnormal.classifyExpectedRising range elapsed with
-                                        | Some AbnormalKind.ActionUnder when elapsed >= minActionUnderElapsedMs -> emit (Abnormal.actionUnder target elapsed (nowUtc ()))
+                                        | Some AbnormalKind.ActionUnder when elapsed >= minActionUnderElapsedMs && isMinMeasured rxWork -> emit (Abnormal.actionUnder target elapsed (nowUtc ()))
                                         | _ -> ()
                                     | None -> ()
                                 | None -> ()

@@ -22,6 +22,20 @@ public static class SharedPaths
 
     public static string AasxFilePath { get; } = Path.Combine(SharedDirectory, "project.aasx");
 
+    /// <summary>Agent 전용 작업 디렉터리 — active.flag, session.json, calibration-state.json 등.
+    /// Promaker.Shared.SharedPaths.AgentDirectory 와 동일 경로(SharedDirectory/agent)여야 세 앱이 같은 사이드카를 본다.</summary>
+    public static string AgentDirectory { get; } = Path.Combine(SharedDirectory, "agent");
+
+    /// <summary>실측 duration 확정 상태 사이드카 — Work 별 "Min 실측 확정(minMeasured)" + 확정 시점 AASX 해시.
+    /// ActionUnder(시간 미만) 판정 게이트의 SSOT. DSPilot 실측 보정(FillMin)이 여기에 기록하면 Agent 어댑터가 읽어 게이트를 연다.
+    /// Promaker.Shared.SharedPaths.CalibrationStateJsonPath 와 동일 경로여야 한다.</summary>
+    public static string CalibrationStateJsonPath { get; } = Path.Combine(AgentDirectory, "calibration-state.json");
+
+    /// <summary>공유 AASX/사이드카 동시 쓰기 직렬화용 cross-process 락 파일. 저장 주체(Promaker 실측반영 /
+    /// DSPilot 실측반영 / Agent 업로드 수신)가 쓰기 전 원자적 생성으로 획득하고 끝나면 삭제한다.
+    /// Promaker.Shared.SharedPaths.SharedWriteLockPath 와 동일 경로여야 한다.</summary>
+    public static string SharedWriteLockPath { get; } = Path.Combine(AgentDirectory, ".shared-write.lock");
+
     private static string ResolveSharedDirectory()
     {
         var overridePath = Environment.GetEnvironmentVariable(SharedDirEnvVar);

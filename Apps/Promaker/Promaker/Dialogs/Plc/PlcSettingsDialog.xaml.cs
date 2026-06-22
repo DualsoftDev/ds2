@@ -218,11 +218,14 @@ public partial class PlcSettingsDialog : Window
         _vm.GanttWindowMinutes = (int)GanttWindowSlider.Value;
         GanttWindowMinutes = (int)GanttWindowSlider.Value;
 
+        // 자동 정합 토글 결과 — Save 전에 _vm(PlcSettings)에 반영해야 PlcConnection.json 에 담긴다(이게 빠져
+        // 다이얼로그로 끈 '보정 안함' 이 파일에 안 담겨 업로드 시 Agent 가 ON 으로 복원하던 버그).
+        // 결과 property 로도 노출 — 호출자가 SimulationPanelState 에 set 해 hub 로 전파한다.
+        AutoDurationCalibrate = AutoCalibrateBox.IsChecked == true;
+        _vm.AutoDurationCalibrate = AutoDurationCalibrate;
+
         // 다음 실행 시에도 같은 값이 채워지도록 영속화.
         _vm.Save();
-
-        // 자동 정합 토글 결과 — 호출자가 SimulationPanelState 에 반영(hub 전파). PlcSettings 와 별개 축.
-        AutoDurationCalibrate = AutoCalibrateBox.IsChecked == true;
 
         DialogResult = true;
         Close();

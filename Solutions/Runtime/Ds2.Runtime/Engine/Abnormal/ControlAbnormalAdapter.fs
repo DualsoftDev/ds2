@@ -43,6 +43,9 @@ type ControlAbnormalAdapter
     /// 기본 0(게이트 없음) — 실전 배선(Composition)이 모드별 값을 명시한다.
     let warmupCycles = defaultArg warmupCycles 0
     let completedCycles = Dictionary<Guid, int>()   // callId → Going 을 거쳐 Ready 로 복귀한 횟수
+    // ActionUnder(시간 미만) 게이트 — Work 의 Min 실측 확정 여부(호스트가 calibration-state 로 주입).
+    // 기본 false → 미확정 Work 의 ActionUnder 비활성(오탐 차단). ActionOver(Max)는 영향 없음.
+    let mutable isMinMeasured : Guid -> bool = fun _ -> false
 
     let mappingOfApiCall (apiCallId: Guid) =
         ioMap.Mappings |> List.tryFind (fun m -> m.ApiCallGuid = apiCallId)
@@ -86,6 +89,9 @@ type ControlAbnormalAdapter
         if isWarmedUp record.Target.CallId then
             AbnormalDetector.emitThroughLatch detectorState latchPolicy sink record
 
+    /// ActionUnder 게이트 주입 — workGuid 의 Min 이 실측 확정(calibration-state)됐는지. 기본 false(비활성).
+    member _.IsMinMeasured with get () = isMinMeasured and set v = isMinMeasured <- v
+
     /// active Call Ready→Going = PS. goingClock 기록.
     member _.OnCallGoing(callId: Guid, nowMs: int) =
         goingClock.[callId] <- nowMs
@@ -123,7 +129,11 @@ type ControlAbnormalAdapter
                 | Some goingMs, Some range ->
                     let elapsed = nowMs - goingMs
                     match Abnormal.classifyExpectedRising range elapsed with
-                    | Some AbnormalKind.ActionUnder -> emit (Abnormal.actionUnder target elapsed (now ()))
+                    | Some AbnormalKind.ActionUnder ->
+                        // Min 실측 확정(calibration-state)된 Work 만 ActionUnder 발행 — 미확정/모델임의 Min 오탐 차단.
+                        match mapping.RxWorkGuid with
+                        | Some w when isMinMeasured w -> emit (Abnormal.actionUnder target elapsed (now ()))
+                        | _ -> ()
                     // Over 는 Max 시점 OnTick 이 SSOT — InTag 가 Max 이후 늦게 센싱될 때의 재발행은
                     //   의미 없어 안 낸다(사용자 확정). ActionOver/None 모두 무시.
                     | _ -> ()   // 경계 포함 정상 완료 + 늦은 over — 오탐 0

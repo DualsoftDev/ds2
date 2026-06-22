@@ -30,6 +30,7 @@ public static class AgentUploadClient
         var aasx = SP.AasxFilePath;
         var plc  = SP.PlcConnectionFilePath;
         var sess = SP.AgentSessionJsonPath;
+        var calib = SP.CalibrationStateJsonPath;
         if (!File.Exists(aasx))
             return (false, "업로드할 모델(project.aasx)이 없습니다 — 저장이 선행되어야 합니다.");
 
@@ -41,6 +42,9 @@ public static class AgentUploadClient
                 zip.CreateEntryFromFile(aasx, "project.aasx");
                 if (File.Exists(plc))  zip.CreateEntryFromFile(plc,  "PlcConnection.json");
                 if (File.Exists(sess)) zip.CreateEntryFromFile(sess, "session.json");
+                // 실측 확정 사이드카 동봉 — 같은 project.aasx 와 함께 보내야 Agent 쪽 hash 와 일치해
+                // ActionUnder 게이트가 cross-machine 으로 일관되게 열린다(없으면 Agent 는 미확정=비활성으로 본다).
+                if (File.Exists(calib)) zip.CreateEntryFromFile(calib, "calibration-state.json");
             }
 
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };

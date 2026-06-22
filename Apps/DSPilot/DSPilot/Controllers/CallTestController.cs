@@ -249,7 +249,8 @@ public class CallTestController : ControllerBase
         if (parsed.Count == 0)
             return BadRequest("유효한 workId 가 없습니다.");
 
-        var (applied, exported) = _project.WriteWorkDurationCalibrationAndExport(parsed);
+        // 사용자가 실측 span 을 보고 직접 '실측 적용' 한 명시적 확정 — Min 을 넘긴 Work 는 ActionUnder 게이트를 연다.
+        var (applied, exported) = _project.WriteWorkDurationCalibrationAndExport(parsed, markMinMeasured: true);
         if (!exported)
             return StatusCode(500, new { message = "AASX 저장 실패 (프로젝트 미로드 또는 export 오류)." });
 

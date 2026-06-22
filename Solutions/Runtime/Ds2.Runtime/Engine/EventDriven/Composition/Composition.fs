@@ -520,6 +520,13 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
     let reloadDurations () =
         EventDrivenCompositionActions.reloadDurations index stateManager processGate
 
+    /// Control abnormal 어댑터의 ActionUnder 게이트 주입 — Min 실측 확정(calibration-state) 판정 함수.
+    /// 호스트(Agent)가 사이드카+AASX 해시로 만든 Func 를 전달한다. abnormalAdapter 없으면(비-Control) no-op.
+    member _.SetMinMeasured(f: System.Func<Guid, bool>) =
+        match abnormalAdapter with
+        | Some a -> a.IsMinMeasured <- (fun g -> f.Invoke g)
+        | None -> ()
+
     interface ISimulationEngine with
         member _.State = stateManager.GetState()
         member _.Status = getStatus ()
