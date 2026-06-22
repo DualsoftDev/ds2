@@ -125,9 +125,10 @@ public class CallTestController : ControllerBase
         // null(미전송)이면 유효(override 적용) 기본값을 적용.
         Guid? headId = ResolveRequestedId(req.HeadCallId, effHeadId, req.HeadSpecified);
         Guid? tailId = ResolveRequestedId(req.TailCallId, effTailId, req.TailSpecified);
-        if (headId == tailId) tailId = null;
+        // head==tail 허용 — 단일 신호 Call 1개를 자기 OutTag↑→완료(InTag↑/OutTag↓)로 분해(MT). null 강제 안 함.
 
-        var (cycleBoundaries, tailEdges) = await ResolveBoundariesAsync(req.FlowName, start, end, headId, tailId, lanes);
+        var (cycleBoundaries, tailEdges, tailCompletionSource) =
+            await ResolveBoundariesAsync(req.FlowName, start, end, headId, tailId, lanes);
 
         var stats = ComputeCycleStats(req.FlowName, cycleBoundaries, tailEdges, chartEnd);
 
@@ -147,7 +148,8 @@ public class CallTestController : ControllerBase
             tailEdges.Select(IsoLocal).ToList(),
             stats.AvgCycleMs,
             stats.AvgActiveMs,
-            isOverride);
+            isOverride,
+            tailCompletionSource);
     }
 
     /// <summary>
@@ -203,16 +205,15 @@ public class CallTestController : ControllerBase
             cycleBoundaries = await _cycleAnalysis.GetCycleBoundaryTimesAsync(req.FlowName, start, end);
         }
 
-        // Tail 완료 마커 = Tail InTag↑ (진영 B: InTag=PLC 입력=응답=동작 완료)
-        List<DateTime> tailEdges;
-        if (tailId.HasValue && !string.IsNullOrWhiteSpace(req.TailFinishTag))
-        {
-            tailEdges = await _plcRepository.FindRisingEdgesAsync(req.TailFinishTag!, start, end);
-        }
-        else
-        {
-            tailEdges = new List<DateTime>();
-        }
+        // Tail 완료 마커 = InTag↑(있으면) else OutTag↓(OutOnly 추정). 단일 규칙 = CycleCompletionResolver.
+        var tc = tailId.HasValue
+            ? CycleCompletionResolver.Resolve(req.TailFinishTag, req.TailOutTag)
+            : default;
+        List<DateTime> tailEdges = !string.IsNullOrWhiteSpace(tc.Tag)
+            ? (tc.Falling
+                ? await _plcRepository.FindFallingEdgesAsync(tc.Tag!, start, end)
+                : await _plcRepository.FindRisingEdgesAsync(tc.Tag!, start, end))
+            : new List<DateTime>();
 
         cycleBoundaries = cycleBoundaries.OrderBy(t => t).ToList();
         tailEdges = tailEdges.OrderBy(t => t).ToList();
@@ -224,7 +225,8 @@ public class CallTestController : ControllerBase
             cycleBoundaries.Select(IsoLocal).ToList(),
             tailEdges.Select(IsoLocal).ToList(),
             stats.AvgCycleMs,
-            stats.AvgActiveMs);
+            stats.AvgActiveMs,
+            CycleCompletionResolver.SourceLabel(tc.Source));
     }
 
     /// <summary>
@@ -294,7 +296,7 @@ public class CallTestController : ControllerBase
 
             Guid? headId = !string.IsNullOrEmpty(effHead) ? MatchLaneId(lanes, effHead) : null;
             Guid? tailId = !string.IsNullOrEmpty(effTail) ? MatchLaneId(lanes, effTail) : null;
-            if (headId == tailId) tailId = null;
+            // head==tail 허용(단일 신호 Call 자기분해). null 강제 안 함.
             return (headId, tailId);
         }
         catch (Exception ex)
@@ -311,8 +313,9 @@ public class CallTestController : ControllerBase
     }
 
     /// <summary>
-    /// Head/Tail 이 모두 존재하도록 보장 — 유효값이 없으면 첫 lane(Head)/마지막 lane(Tail, Head 와 다른) 으로 채운다.
+    /// Head/Tail 이 모두 존재하도록 보장 — 유효값이 없으면 첫 lane(Head)/마지막 lane(Tail) 으로 채운다.
     /// (Flow 별 사이클 경계는 무조건 존재해야 한다 — UI 에서 해제 불가.)
+    /// Call 이 하나뿐(단일 신호)이면 Tail=Head 로 채워 자기 OutTag↑→완료로 MT 분해한다(head==tail 허용).
     /// </summary>
     private static (Guid? headId, Guid? tailId) EnsureHeadTailDefaults(Guid? headId, Guid? tailId, List<CtLaneDto> lanes)
     {
@@ -323,7 +326,7 @@ public class CallTestController : ControllerBase
             var lastId = ParseGuid(lanes[^1].CallId);
             tailId = lastId != headId
                 ? lastId
-                : lanes.Select(l => ParseGuid(l.CallId)).FirstOrDefault(id => id != headId);
+                : lanes.Select(l => ParseGuid(l.CallId)).FirstOrDefault(id => id != headId) ?? headId;
         }
         return (headId, tailId);
     }
@@ -338,27 +341,33 @@ public class CallTestController : ControllerBase
         return ParseGuid(requested);
     }
 
-    private async Task<(List<DateTime> cycleBoundaries, List<DateTime> tailEdges)> ResolveBoundariesAsync(
+    private async Task<(List<DateTime> cycleBoundaries, List<DateTime> tailEdges, string? tailCompletionSource)> ResolveBoundariesAsync(
         string flowName, DateTime start, DateTime end, Guid? headId, Guid? tailId, List<CtLaneDto> lanes)
     {
         // 진영 B (PLC 기준): OutTag=출력(명령)=동작 시작, InTag=입력(응답)=동작 완료.
-        //   Head 사이클 경계(시작) = Head OutTag↑, Tail 완료 마커 = Tail InTag↑.
+        //   Head 사이클 경계(시작) = Head OutTag↑. Tail 완료 = InTag↑(있으면) else OutTag↓(OutOnly 추정).
         var headStartTag = headId.HasValue ? lanes.FirstOrDefault(l => l.CallId == headId.Value.ToString())?.OutTag : null;
-        var tailFinishTag = tailId.HasValue ? lanes.FirstOrDefault(l => l.CallId == tailId.Value.ToString())?.InTag : null;
+        var tailLane = tailId.HasValue ? lanes.FirstOrDefault(l => l.CallId == tailId.Value.ToString()) : null;
+        var tc = tailLane is not null
+            ? CycleCompletionResolver.Resolve(tailLane.InTag, tailLane.OutTag)
+            : default;
 
         Task<List<DateTime>> headTask = headId.HasValue && !string.IsNullOrWhiteSpace(headStartTag)
             ? _plcRepository.FindRisingEdgesAsync(headStartTag!, start, end)
             : _cycleAnalysis.GetCycleBoundaryTimesAsync(flowName, start, end);
 
-        Task<List<DateTime>> tailTask = tailId.HasValue && !string.IsNullOrWhiteSpace(tailFinishTag)
-            ? _plcRepository.FindRisingEdgesAsync(tailFinishTag!, start, end)
+        Task<List<DateTime>> tailTask = !string.IsNullOrWhiteSpace(tc.Tag)
+            ? (tc.Falling
+                ? _plcRepository.FindFallingEdgesAsync(tc.Tag!, start, end)
+                : _plcRepository.FindRisingEdgesAsync(tc.Tag!, start, end))
             : Task.FromResult(new List<DateTime>());
 
         await Task.WhenAll(headTask, tailTask);
 
         return (
             headTask.Result.OrderBy(t => t).ToList(),
-            tailTask.Result.OrderBy(t => t).ToList());
+            tailTask.Result.OrderBy(t => t).ToList(),
+            CycleCompletionResolver.SourceLabel(tc.Source));
     }
 
     /// <summary>
@@ -411,9 +420,11 @@ public record CtOverlayRequest(
     DateTime End,
     string? HeadCallId,
     string? TailCallId,
-    // 진영 B: Head 시작 = OutTag↑, Tail 완료 = InTag↑.
+    // 진영 B: Head 시작 = OutTag↑, Tail 완료 = InTag↑(있으면) else OutTag↓(OutOnly 추정).
     string? HeadStartTag,
-    string? TailFinishTag);
+    string? TailFinishTag,
+    // Tail 에 InTag 가 없을 때 완료(OutTag↓) 도출용. 클라가 tailLane.outTag 를 함께 보낸다.
+    string? TailOutTag);
 
 public record CtCycleBoundaryRequest(string FlowName, DateTime Start, DateTime End);
 
@@ -472,10 +483,14 @@ public record CtLoadDto(
     double? AvgCycleMs,
     double? AvgActiveMs,
     // 이 Flow 에 저장된 사용자 지정(FlowCycleOverride) 존재 여부.
-    bool IsOverride);
+    bool IsOverride,
+    // 완료 마커 소스: "InTag" | "OutTag"(명령 ON 추정) | null. UI 배지용.
+    string? TailCompletionSource = null);
 
 public record CtOverlayDto(
     List<string> CycleBoundaries,
     List<string> TailEdges,
     double? AvgCycleMs,
-    double? AvgActiveMs);
+    double? AvgActiveMs,
+    // 완료 마커 소스: "InTag"(응답=정통) | "OutTag"(명령 종료=추정) | null(완료 없음). UI 의 '명령 ON 추정' 배지용.
+    string? TailCompletionSource);

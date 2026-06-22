@@ -209,7 +209,7 @@ public sealed class CycleRecomputeService
         if (string.IsNullOrWhiteSpace(flowName) || toLocal <= fromLocal)
             return RecomputeOutcome.Skipped;
 
-        var (headOutTag, tailInTag) = ResolveTags(flowName, headCallName, tailCallName);
+        var (headOutTag, tailCompletion) = ResolveTags(flowName, headCallName, tailCallName);
         if (string.IsNullOrWhiteSpace(headOutTag))
         {
             // 시작 경계 태그를 못 찾으면 재도출 불가 — 기존 history 를 지우지 않고 안전하게 건너뛴다.
@@ -219,11 +219,7 @@ public sealed class CycleRecomputeService
             return RecomputeOutcome.Skipped;
         }
 
-        // 단일 Call Flow(head==tail): 화면(ResolveEffectiveHeadTail)은 tail 을 null 로 강제해 활성(MT)을 비운다.
-        // 재계산도 tail 엣지를 쓰지 않아야 화면과 일치(MT null, CT=주기만).
-        bool singleCall = headCallName != null
-            && string.Equals(headCallName, tailCallName, StringComparison.OrdinalIgnoreCase);
-        var effTailIn = singleCall ? null : tailInTag;
+        // head==tail(단일 신호 Call)도 자기 OutTag↑→완료(InTag↑/OutTag↓)로 분해 — 화면(CallTestController)과 동일 규칙.
 
         var starts = (await _plc.FindRisingEdgesAsync(headOutTag!, fromLocal, toLocal))
             .OrderBy(t => t).ToList();
@@ -240,8 +236,10 @@ public sealed class CycleRecomputeService
             return new RecomputeOutcome(true, 0, 0, 0);
         }
 
-        var tailEdges = !string.IsNullOrWhiteSpace(effTailIn)
-            ? (await _plc.FindRisingEdgesAsync(effTailIn!, fromLocal, toLocal)).OrderBy(t => t).ToList()
+        var tailEdges = !string.IsNullOrWhiteSpace(tailCompletion.Tag)
+            ? (tailCompletion.Falling
+                ? (await _plc.FindFallingEdgesAsync(tailCompletion.Tag!, fromLocal, toLocal)).OrderBy(t => t).ToList()
+                : (await _plc.FindRisingEdgesAsync(tailCompletion.Tag!, fromLocal, toLocal)).OrderBy(t => t).ToList())
             : new List<DateTime>();
 
         var cycles = CycleDerivation.BuildCycles(starts, tailEdges, toLocal);
@@ -322,8 +320,11 @@ public sealed class CycleRecomputeService
     private static int ClampMs(double ms)
         => ms <= 0 ? 0 : (ms >= int.MaxValue ? int.MaxValue : (int)ms);
 
-    /// <summary>flow + Call 이름 → (Head OutTag 주소, Tail InTag 주소). 진영 B 폴라리티.</summary>
-    private (string? HeadOutTag, string? TailInTag) ResolveTags(
+    /// <summary>
+    /// flow + Call 이름 → (Head OutTag 주소, Tail 완료 마커). 진영 B 폴라리티.
+    /// Tail 완료 = InTag↑(있으면) else OutTag↓(OutOnly 추정) — 화면(CallTestController)과 동일 규칙(CycleCompletionResolver).
+    /// </summary>
+    private (string? HeadOutTag, CycleCompletionResolver.TailCompletion TailCompletion) ResolveTags(
         string flowName, string? headCallName, string? tailCallName)
     {
         if (!_mapper.IsInitialized)
@@ -337,13 +338,18 @@ public sealed class CycleRecomputeService
             .Select(p => p.OutTag)
             .FirstOrDefault(t => !string.IsNullOrWhiteSpace(t));
 
-        string? tailIn = tailCallName is null ? null : pairs
-            .Where(p => string.Equals(p.FlowName, flowName, StringComparison.OrdinalIgnoreCase)
-                     && string.Equals(p.CallName, tailCallName, StringComparison.OrdinalIgnoreCase))
-            .Select(p => p.InTag)
-            .FirstOrDefault(t => !string.IsNullOrWhiteSpace(t));
+        string? tailIn = null, tailOut = null;
+        if (tailCallName is not null)
+        {
+            var tailPairs = pairs
+                .Where(p => string.Equals(p.FlowName, flowName, StringComparison.OrdinalIgnoreCase)
+                         && string.Equals(p.CallName, tailCallName, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            tailIn = tailPairs.Select(p => p.InTag).FirstOrDefault(t => !string.IsNullOrWhiteSpace(t));
+            tailOut = tailPairs.Select(p => p.OutTag).FirstOrDefault(t => !string.IsNullOrWhiteSpace(t));
+        }
 
-        return (headOut, tailIn);
+        return (headOut, CycleCompletionResolver.Resolve(tailIn, tailOut));
     }
 
     /// <summary>재기록 후 파생값/라이브 상태/UI 스냅샷 재정합 — InvalidateCachesAsync 의 평균-복원 단계 재사용.</summary>

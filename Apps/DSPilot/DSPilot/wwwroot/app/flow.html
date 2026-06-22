@@ -773,6 +773,7 @@
                                             <div class="ct-ribbon-side" x-show="cycleBoundaries.length" :style="`height:${RIBBON_H}px;`">
                                                 <span class="rs-t">사이클</span>
                                                 <span class="rs-sub">MT · WT · 가동률</span>
+                                                <span x-show="tailCompletionSource === 'OutTag'" class="rs-sub" style="margin-top:2px;color:#b26a00;background:#fff3e0;border:1px solid #ffcc80;border-radius:3px;padding:0 4px;font-size:9px;" title="이 Flow 의 Tail Call 에 응답(InTag)이 없어 명령 종료(OutTag↓)로 MT 를 추정합니다. 검증된 완료가 아니라 명령 ON 시간입니다.">명령 ON 추정</span>
                                             </div>
                                             <template x-for="row in laneRows" :key="row.key">
                                                 <div :class="rowClass(row)" :style="`height:${row.h}px;`">
@@ -1177,6 +1178,7 @@
                 isOverride: false,
                 exporting: false,
                 avgCycleMs: null, avgActiveMs: null,
+                tailCompletionSource: null,
                 svgMarkup: '',
                 cycleView: 'chart',   // 사이클 목록: 'table' | 'chart' (기본=차트)
                 cyclePreset: null,    // 활성 사이클-기준 프리셋(최근 N 사이클) — 시간 프리셋/수동 변경 시 해제
@@ -1624,17 +1626,16 @@
                     await this.load();
                 },
 
-                // H/T 토글 — Head/Tail 은 무조건 존재(이동/스왑만)
+                // H/T 토글 — Head/Tail 은 무조건 존재(이동만, 해제 없음). 같은 Call 에 둘 다 허용
+                // (단일 신호 Call 1개를 자기 OutTag↑→완료(InTag↑/OutTag↓)로 MT 분해 — head==tail).
                 async toggleHead(callId) {
                     if (this.headCallId === callId) return;
-                    if (this.tailCallId === callId) this.tailCallId = this.headCallId;
                     this.headCallId = callId;
                     this.userOverrodeHeadTail = true;
                     await this.resolveOverlays();
                 },
                 async toggleTail(callId) {
                     if (this.tailCallId === callId) return;
-                    if (this.headCallId === callId) this.headCallId = this.tailCallId;
                     this.tailCallId = callId;
                     this.userOverrodeHeadTail = true;
                     await this.resolveOverlays();
@@ -1785,6 +1786,7 @@
                     this.cycleBoundaries = (d.cycleBoundaries || []).map(s => new Date(s));
                     this.tailEdges = (d.tailEdges || []).map(s => new Date(s));
                     this.cycleBoundariesIso = d.cycleBoundaries || []; this.tailEdgesIso = d.tailEdges || [];
+                    this.tailCompletionSource = d.tailCompletionSource ?? null;
                     this.avgCycleMs = d.avgCycleMs ?? null;
                     this.avgActiveMs = d.avgActiveMs ?? null;
                     this.isOverride = !!d.isOverride;
@@ -2076,7 +2078,8 @@
                             start: this.startTime, end: this.endTime,
                             headCallId: this.headCallId, tailCallId: this.tailCallId,
                             headStartTag: headLane ? headLane.outTag : null,
-                            tailFinishTag: tailLane ? tailLane.inTag : null
+                            tailFinishTag: tailLane ? tailLane.inTag : null,
+                            tailOutTag: tailLane ? tailLane.outTag : null
                         };
                         const d = await this.apiPost('/api/call-test/resolve-overlays', body);
                         this.cycleBoundaries = (d.cycleBoundaries || []).map(s => new Date(s));
@@ -2084,6 +2087,7 @@
                         this.cycleBoundariesIso = d.cycleBoundaries || []; this.tailEdgesIso = d.tailEdges || [];
                         this.avgCycleMs = d.avgCycleMs ?? null;
                         this.avgActiveMs = d.avgActiveMs ?? null;
+                        this.tailCompletionSource = d.tailCompletionSource ?? null;
                         this.svgMarkup = this.buildSvg();
                         if (this.cycleView === 'chart') this.$nextTick(() => this.renderCycleChart());
                     } catch (e) {
