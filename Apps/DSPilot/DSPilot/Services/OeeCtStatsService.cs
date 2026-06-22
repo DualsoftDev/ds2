@@ -103,14 +103,17 @@ public sealed class OeeCtStatsService
 
     /// <summary>
     /// CT이상치(표준 CT) = 최근 <paramref name="windowDays"/>일(기본 14) 클린사이클(IsIdle=0, ct&gt;0) CT의
-    /// <b>평균</b> (flow별, ms) — doc/22 §2. 사이클기반 비가동 판정(§3)·성능(§4) 공용 임계.
-    /// p10(추천 테이블)과 달리 <b>평균</b>을 쓰며 시간 윈도우로 자른다 — 드리프트 방지 위해 RAM 산출(DB 미기입).
+    /// flow별 통계 — doc/22 §2. <b>AvgMs</b>=평균(비가동 판정·가용성 공용 임계, 정상상태 P≈100% 수렴),
+    /// <b>P10Ms</b>=p10 분위수(=best-demonstrated 최속, 성능 P 의 선택적 기준 — "잘 돌 때 대비 속도손실"을 잡음).
+    /// 둘 다 같은 14일 클린 윈도우에서 산출(apples-to-apples). 드리프트 방지 위해 RAM 산출(DB 미기입).
     /// 표본 &lt; <paramref name="minCleanCycles"/> 인 flow 는 맵에서 제외(산출 불가 → A·P 가 '—'+사유, 가짜 % 금지).
+    /// p10 분위 공식은 추천 테이블/자동기입(<see cref="ComputeAsync"/>, 기본 percentile=10)과 동일하다.
     /// </summary>
-    public async Task<Dictionary<string, (double AvgMs, int Sample)>> ComputeCtThresholdAsync(
+    public async Task<Dictionary<string, (double AvgMs, double P10Ms, int Sample)>> ComputeCtThresholdAsync(
         int windowDays = 14, int minCleanCycles = 5)
     {
-        var result = new Dictionary<string, (double AvgMs, int Sample)>(StringComparer.OrdinalIgnoreCase);
+        const double p10Percentile = 10.0; // best-demonstrated 분위수 (ComputeAsync 기본값과 동일)
+        var result = new Dictionary<string, (double AvgMs, double P10Ms, int Sample)>(StringComparer.OrdinalIgnoreCase);
         var dbPath = _pathResolver.GetSharedDbPath();
         if (!File.Exists(dbPath)) return result;
         try
@@ -127,30 +130,36 @@ public sealed class OeeCtStatsService
             var since = DateTime.UtcNow.AddDays(-Math.Max(1, windowDays))
                 .ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
 
+            // avg 와 p10 을 같은 모집단에서 뽑으려면 원시 ct 가 필요(SQLite 에 percentile 내장 없음) → C# 집계.
             const string sql = @"
-                SELECT flowName AS FlowName,
-                       AVG(CAST(ct AS REAL)) AS AvgMs,
-                       COUNT(*)              AS Sample
+                SELECT flowName AS FlowName, ct AS Ct
                 FROM dspFlowHistory
                 WHERE COALESCE(IsIdle,0) = 0 AND ct IS NOT NULL AND ct > 0
-                  AND recordedAt >= @Since
-                GROUP BY flowName";
-            var rows = await conn.QueryAsync(sql, new { Since = since });
-            foreach (var r in rows)
+                  AND recordedAt >= @Since";
+            var raw = await conn.QueryAsync<CtRowRaw>(sql, new { Since = since });
+
+            var grouped = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in raw)
             {
-                string? flow = r.FlowName;
-                if (string.IsNullOrEmpty(flow)) continue;
-                int sample = (int)(long)r.Sample;
-                if (sample < Math.Max(1, minCleanCycles)) continue; // 표본 부족 → 산출 불가(제외)
-                double avg = r.AvgMs is null ? 0 : (double)r.AvgMs;
+                if (string.IsNullOrEmpty(r.FlowName)) continue;
+                if (!grouped.TryGetValue(r.FlowName, out var list)) { list = new List<int>(); grouped[r.FlowName] = list; }
+                list.Add((int)r.Ct);
+            }
+
+            foreach (var (flow, list) in grouped)
+            {
+                if (list.Count < Math.Max(1, minCleanCycles)) continue; // 표본 부족 → 산출 불가(제외)
+                list.Sort();
+                double avg = list.Average();
                 if (avg <= 0) continue;
-                result[flow] = (avg, sample);
+                var idx = Math.Clamp((int)Math.Floor(p10Percentile / 100.0 * (list.Count - 1)), 0, list.Count - 1);
+                result[flow] = (avg, list[idx], list.Count);
             }
             return result;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "[OEE] CT threshold (14d avg) compute failed");
+            _logger.LogWarning(ex, "[OEE] CT threshold (14d avg/p10) compute failed");
             return result;
         }
     }

@@ -244,6 +244,14 @@
         .up-qeq { font-size: 1.1rem; color: var(--color-text-secondary); align-self: flex-end; padding-bottom: 5px; }
         .up-qhint { font-size: 0.66rem; color: var(--color-text-secondary); flex: 1; min-width: 180px; line-height: 1.5; }
 
+        /* 성능(P) 표준CT 기준 선택 (라디오 카드) */
+        .up-pbasis-opt { display: flex; gap: 10px; align-items: flex-start; padding: 11px 13px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); margin-bottom: 9px; cursor: pointer; transition: border-color .12s, background .12s; }
+        .up-pbasis-opt:hover { border-color: var(--color-primary); }
+        .up-pbasis-opt.sel { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 8%, transparent); }
+        .up-pbasis-opt input { margin-top: 3px; flex-shrink: 0; accent-color: var(--color-primary); }
+        .up-pbasis-t { font-weight: 700; font-size: 0.92rem; color: var(--color-text-primary); display: flex; align-items: center; gap: 6px; }
+        .up-pbasis-d { font-size: 0.78rem; color: var(--color-text-secondary); margin-top: 4px; line-height: 1.55; }
+
         /* 자동화 파이프라인 상태 스트립 */
         .up-auto-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--color-lines); border: 1px solid var(--color-lines); border-radius: var(--radius-md); overflow: hidden; }
         @media (max-width: 720px) { .up-auto-strip { grid-template-columns: 1fr 1fr; } }
@@ -419,7 +427,7 @@
             #ut-section .ds-table td:not([data-label])::before { content: none; }
             /* 긴 필드(경로/주소/실측)는 라벨 위, 값 아래로 줄 분리 — 가독성 */
             .up-dt-table td[data-label="설비(Flow)"],
-            .up-dt-table td[data-label="실측 (이상치 제외)"],
+            .up-dt-table td[data-label="실측 (이상치 제외 · 참고)"],
             #ut-section .ds-table td[data-label="경로"],
             #ut-section .ds-table td[data-label="주소"],
             #ut-section .ds-table td[data-label="이름"] {
@@ -583,11 +591,16 @@
                             <div class="up-oee-value up-oee-mono" x-text="oee ? pct(oee.availability) : '—'"></div>
                             <div class="up-oee-note" x-text="oee ? (oee.availability != null ? (oee.availabilitySource === 'cycle' ? 'Σ실측CT / Σ전체CT' : '가동 / 계획시간') : (oee.availabilityNote || '산출 불가')) : ''"></div>
                         </div>
-                        <!-- 성능 P (사이클기반: N × CT이상치 ÷ Σ실측CT) -->
-                        <div class="up-oee" :class="oeeTone('performance')">
-                            <div class="up-oee-label">성능 P <span class="up-oee-chip auto" x-show="oee && oee.performance != null">CT 14일평균</span></div>
+                        <!-- 성능 P (사이클기반: N × CT이상치 ÷ Σ실측CT) — 클릭 시 표준CT 기준(14일 평균 / p10) 선택 -->
+                        <div class="up-oee" :class="oeeTone('performance')" @click="openPDialog()" style="cursor:pointer;" title="클릭하여 성능 표준CT 기준(14일 평균 / p10 최속) 선택">
+                            <div class="up-oee-label">성능 P
+                                <span class="up-oee-chip auto" x-show="oee && oee.performance != null"
+                                      x-text="oee && oee.performanceBasis === 'p10' ? 'CT p10(최속)' : 'CT 14일평균'"
+                                      :title="oee && oee.performanceBasis === 'p10' ? 'p10(클린 최속) 기준 — 잘 돌 때 대비 속도손실 반영' : '14일 평균 기준 — 정상상태 P≈100% 수렴(추세 대비 저하 감지)'"></span>
+                                <span class="material-icons" style="font-size:13px; opacity:0.5; margin-left:auto;" title="클릭하여 기준 선택">edit</span>
+                            </div>
                             <div class="up-oee-value up-oee-mono" x-text="oee ? pct(oee.performance) : '—'"></div>
-                            <div class="up-oee-note" x-text="oee ? (oee.performance != null ? '(N × CT이상치) / Σ실측CT' : (oee.performanceNote || '산출 불가')) : ''"></div>
+                            <div class="up-oee-note" x-text="oee ? (oee.performance != null ? ((oee.performanceBasis === 'p10' ? 'p10 최속' : '14일평균') + ' 기준 · (N × 표준CT) / Σ실측CT') : (oee.performanceNote || '산출 불가')) : ''"></div>
                         </div>
                         <!-- 품질 Q (가정/사용자 칩 + 톤 중립) — 클릭 시 품질 직접 입력 다이얼로그 -->
                         <div class="up-oee" :class="oeeTone('quality')" @click="openQDialog()" style="cursor:pointer;" title="클릭하여 품질(양품률) 직접 입력">
@@ -663,6 +676,7 @@
                             <div style="display:flex; gap:18px; margin-top:8px; font-size:0.72rem; color:var(--color-text-secondary); flex-wrap:wrap;">
                                 <span>Σ실측CT <b x-text="durShort(oee.normalCtMs)"></b> (<span x-text="cycleComp.normalPct + '%'"></span>) · <span x-text="(oee.normalCycleCount || 0) + ' 사이클'"></span></span>
                                 <span>Σ비가동CT <b x-text="durShort(oee.idleCtMs)"></b> (<span x-text="cycleComp.idlePct + '%'"></span>) · <span x-text="oee.failureCount + '건'"></span></span>
+                                <span x-show="oee && oee.plannedDownMs > 0">계획정지 <b x-text="durShort(oee.plannedDownMs)"></b> <span class="up-codeish" x-text="(oee.plannedStopSource === 'manual' ? '수동' : '자동') + '·분모제외'"></span></span>
                                 <span>CT이상치 <b x-text="durShort(oee.ctThresholdMs)"></b> <span class="up-codeish">14일 평균</span></span>
                             </div>
                             <div class="up-form-hint" style="margin-top:8px;">한 사이클의 <b>MT(동작)가 CT이상치를 넘으면</b> 그 사이클 CT 전체를 비가동으로 본다(인식지연 + 고장 + 회복 포함). 미완료(CT 폭주)·무사이클 정지도 비가동에 합산하되 겹친 구간은 1회만 계상한다(이중계상 방지).</div>
@@ -675,6 +689,52 @@
                             <div class="ds-empty-desc">최근 14일 클린사이클이 5개 이상 쌓이면 CT이상치(표준CT)가 산출되고 사이클기반 가용성이 표시됩니다. 그 전에는 계획시간 폴백으로 가용성을 근사합니다.</div>
                         </div>
                     </template>
+                </section>
+
+                <!-- ════ 계획정지 시간대 (doc/22) — 자동 5일 패턴 ▸ 사용자 설정 시 수동 전환. 이 시간대 비가동은 A 분모서 제외 ════ -->
+                <section class="card up-section">
+                    <div class="ds-card-h">
+                        <h4>계획정지 시간대</h4>
+                        <span class="ds-card-h-sub">이 시간대의 비가동은 계획정지로 분류 → 가용성(A) 분모에서 제외 (점심·교대 등)</span>
+                        <span style="flex:1;"></span>
+                        <span class="up-oee-chip" :class="ps.source === 'manual' ? 'solid' : (ps.source === 'auto' ? 'auto' : '')"
+                              x-text="ps.source === 'manual' ? '수동' : (ps.source === 'auto' ? ('자동 · ' + ps.autoSampleDays + '일 패턴') : '미설정')"></span>
+                    </div>
+
+                    <!-- 현재 시간대 목록 (편집) -->
+                    <template x-if="ps.windows.length > 0">
+                        <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:10px;">
+                            <template x-for="(w, i) in ps.windows" :key="i">
+                                <div style="display:flex; align-items:center; gap:10px; padding:7px 10px; border:1px solid var(--color-lines); border-radius:var(--radius-sm); background:var(--color-surface-variant);">
+                                    <span class="material-icons" style="font-size:16px; color:var(--color-primary);">schedule</span>
+                                    <span class="up-oee-mono" style="font-weight:700; min-width:104px;" x-text="minToHHMM(w.startMinutes) + ' – ' + minToHHMM(w.endMinutes)"></span>
+                                    <input class="up-mini-num" style="flex:1; min-width:90px; font-family:var(--font-family);" type="text" x-model="w.label" placeholder="라벨(예: 점심)" />
+                                    <button class="up-blk-rowbtn" @click="psRemove(i)" title="삭제"><span class="material-icons">delete</span></button>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+                    <template x-if="ps.windows.length === 0">
+                        <div class="up-form-hint" style="margin-bottom:10px;">설정된 계획정지 시간대 없음 — <b>5일 패턴 자동감지</b>가 운영 중 규칙적 정지(점심·교대)를 추정해 적용합니다(표본 <span x-text="ps.autoSampleDays"></span>일, 부족하면 미적용). 아래에서 직접 추가하면 자동 → 수동으로 전환됩니다.</div>
+                    </template>
+
+                    <!-- 추가 폼 -->
+                    <div style="display:flex; align-items:flex-end; gap:8px; flex-wrap:wrap;">
+                        <div class="up-qfield"><label>시작</label><input type="time" x-model="ps.draftStart" /></div>
+                        <span class="up-qeq">–</span>
+                        <div class="up-qfield"><label>끝</label><input type="time" x-model="ps.draftEnd" /></div>
+                        <div class="up-qfield" style="flex:1; min-width:120px;"><label>라벨(선택)</label><input type="text" x-model="ps.draftLabel" placeholder="점심 / 정기정비" style="width:100%; font-family:var(--font-family);" /></div>
+                        <button class="btn btn-sm btn-outlined" @click="psAdd()" :disabled="!ps.draftStart || !ps.draftEnd"><span class="material-icons" style="font-size:15px;">add</span> 추가</button>
+                    </div>
+
+                    <div class="up-blk-actions" style="margin-top:12px;">
+                        <button class="btn btn-sm btn-primary" @click="psApply()" :disabled="ps.busy"><span class="material-icons" style="font-size:15px;">save</span> 적용 (수동 고정)</button>
+                        <button class="btn btn-sm btn-outlined" @click="psResetAuto()" :disabled="ps.busy" x-show="ps.source === 'manual'"><span class="material-icons" style="font-size:15px;">auto_mode</span> 자동(5일 패턴)으로 되돌리기</button>
+                        <span style="flex:1;"></span>
+                        <span class="up-blk-msg ok" x-show="ps.msg" x-text="ps.msg"></span>
+                        <span class="up-blk-msg err" x-show="ps.err" x-text="ps.err"></span>
+                    </div>
+                    <div class="up-form-hint" style="margin-top:8px;">계획정지(점심·교대·정기정비)는 가동률을 깎지 않아야 정직합니다 — 이 시간대 비가동은 OEE 가용성 분모에서 빠집니다(미계획 정지만 A 를 깎음). 자정을 넘기는 야간 정지는 두 칸으로 나눠 입력하세요(예: 22:00~23:59, 00:00~06:00).</div>
                 </section>
 
                 <!-- ════ 일자별 시간 구성 (OEE 종합 아래 배치) — 가동/정지 근사 + 점검=계획정비 ════ -->
@@ -803,23 +863,12 @@
                 <section class="card up-section" id="downtime-log-section" x-show="showDowntimeLog" x-cloak>
                     <div class="ds-card-h">
                         <h4>정지 이벤트 로그</h4>
-                        <span class="ds-card-h-sub">발생 → 복구 · 원인 분류 · 수동 마감</span>
+                        <span class="ds-card-h-sub">발생 → 복구 · 자동 원인 라벨 · 읽기 전용</span>
                         <span style="flex:1;"></span>
                         <button class="btn btn-sm btn-outlined" @click="toggleDowntimeLog()" title="로그 접기">
                             <span class="material-icons" style="font-size:15px;">close</span> 접기
                         </button>
                     </div>
-
-                    <!-- 미분류 큐 강조 배너 -->
-                    <template x-if="unclassifiedCount > 0">
-                        <div class="up-queue">
-                            <span class="material-icons">rule</span>
-                            <div style="flex:1;">
-                                <div><span class="up-queue-n" x-text="unclassifiedCount"></span> 건의 <b>미분류</b> 정지가 있습니다 — 분류하면 정지 원인 분석과 MTBF/MTTR 이 정확해집니다.</div>
-                            </div>
-                            <button class="btn btn-sm btn-outlined" @click="dtFilterReason = 'unclassified'; dtFilterStatus = 'all';">미분류만 보기</button>
-                        </div>
-                    </template>
 
                     <!-- 필터 -->
                     <div class="up-filter-row">
@@ -841,29 +890,6 @@
                         <span class="up-form-ok" x-show="dtMsg" x-text="dtMsg"></span>
                     </div>
 
-                    <!-- 일괄 작업 툴바 (선택 항목 있을 때) -->
-                    <template x-if="selectedCount > 0">
-                        <div class="up-bulk-bar">
-                            <span class="material-icons" style="font-size:18px; color:var(--color-primary);">checklist</span>
-                            <span class="up-bulk-count" x-text="selectedCount + '건 선택됨'"></span>
-                            <select class="up-mini-select" x-model="bulkDraft">
-                                <option value="">일괄 분류 원인 선택…</option>
-                                <template x-for="r in reasonOptions" :key="r.code">
-                                    <option :value="r.code" x-text="r.label"></option>
-                                </template>
-                            </select>
-                            <button class="btn btn-sm btn-primary" :disabled="!bulkDraft || bulkBusy" @click="bulkClassify()">
-                                <span class="material-icons" style="font-size:14px;">check_circle</span> 일괄 분류
-                            </button>
-                            <template x-if="anySelectedOpen">
-                                <button class="btn btn-sm btn-outlined" :disabled="bulkBusy" @click="bulkClose()">
-                                    <span class="material-icons" style="font-size:14px;">handyman</span> 일괄 마감
-                                </button>
-                            </template>
-                            <button class="up-bulk-clear" @click="clearSel()">선택 해제</button>
-                        </div>
-                    </template>
-
                     <div class="alert alert-error" x-show="oeeError" style="margin-bottom:12px;"><span class="material-icons">error</span><span x-text="oeeError"></span></div>
 
                     <template x-if="filteredDowntime.length > 0">
@@ -871,38 +897,26 @@
                             <table class="ds-table up-dt-table">
                                 <thead>
                                     <tr>
-                                        <th class="cb-col">
-                                            <input type="checkbox" class="up-dt-cb"
-                                                   :checked="allFilteredSelected"
-                                                   :indeterminate.prop="someFilteredSelected && !allFilteredSelected"
-                                                   @change="toggleAll($event.target.checked)" />
-                                        </th>
                                         <th style="width:140px;">발생</th>
                                         <th style="width:140px;">복구</th>
                                         <th style="width:80px;">지속</th>
                                         <th>설비(Flow)</th>
-                                        <th>원인 (분류)</th>
+                                        <th>원인 (자동 라벨)</th>
                                         <th style="width:90px;">감지</th>
                                         <th style="width:150px;">겹친 신호 (단서)</th>
                                         <th style="width:84px;">상태</th>
-                                        <th style="width:230px;">작업</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <template x-for="d in filteredDowntime" :key="d.id">
-                                        <tr :class="selectedIds[d.id] ? 'ds-row-selected' : ''">
-                                            <td class="cb-col" data-label="선택">
-                                                <input type="checkbox" class="up-dt-cb"
-                                                       :checked="!!selectedIds[d.id]"
-                                                       @change="toggleSel(d.id, $event.target.checked)" />
-                                            </td>
+                                        <tr>
                                             <td class="num" data-label="발생" x-text="dtTime(d.startAt)"></td>
                                             <td class="num" data-label="복구" x-text="d.endAt ? dtTime(d.endAt) : '—'"></td>
                                             <td class="num" data-label="지속" x-text="dur(d.durationMs, d)"></td>
                                             <td data-label="설비(Flow)"><strong x-text="d.flowName || d.systemName || '—'"></strong>
                                                 <template x-if="d.deviceName"><span class="up-rank-sub" x-text="' · ' + d.deviceName"></span></template>
                                             </td>
-                                            <td data-label="원인 (분류)" :class="d.reasonCode ? '' : 'unclassified'">
+                                            <td data-label="원인 (자동 라벨)" :class="d.reasonCode ? '' : 'unclassified'">
                                                 <span x-text="reasonLabel(d.reasonCode)"></span>
                                                 <span x-html="classifyChipHtml(d.classifySource)"></span>
                                             </td>
@@ -910,20 +924,6 @@
                                             <td data-label="겹친 신호 (단서)" x-html="clueHtml(d.clue)"></td>
                                             <td data-label="상태">
                                                 <span class="ds-status" :class="d.status === 'open' ? 'bad' : 'ok'" x-text="d.status === 'open' ? '진행중' : '복구'"></span>
-                                            </td>
-                                            <td data-label="작업">
-                                                <div class="up-row-act">
-                                                    <select class="up-mini-select" x-model="classifyDraft[d.id]">
-                                                        <option value="">분류…</option>
-                                                        <template x-for="r in reasonOptions" :key="r.code">
-                                                            <option :value="r.code" x-text="r.label"></option>
-                                                        </template>
-                                                    </select>
-                                                    <button class="btn btn-sm btn-outlined" :disabled="!classifyDraft[d.id]" @click="classify(d)">분류</button>
-                                                    <template x-if="d.status === 'open'">
-                                                        <button class="btn btn-sm btn-outlined" @click="closeEvent(d)" title="자동 복구 미감지 시 수동 마감">마감</button>
-                                                    </template>
-                                                </div>
                                             </td>
                                         </tr>
                                     </template>
@@ -944,8 +944,8 @@
                         <span class="src-chip detect">무사이클</span> 사이클 끊김
                         <span class="src-chip detect">고장비트</span> PLC 비트 rising/falling
                         <span class="src-chip detect">수동</span> 작업자 등록 &nbsp;—&nbsp; 여기서만 정지 건수·길이가 만들어집니다.<br>
-                        <b style="color:var(--color-text-primary);">분류:</b>
-                        <span class="src-chip heur">자동·비트</span> <span class="src-chip heur">자동·시간임계</span> <span class="src-chip manual">사용자</span> &nbsp;·&nbsp;
+                        <b style="color:var(--color-text-primary);">원인 라벨(자동):</b>
+                        <span class="src-chip heur">자동·비트</span> <span class="src-chip heur">자동·시간임계</span> 휴리스틱이 자동 부여(읽기 전용) &nbsp;·&nbsp;
                         <b style="color:var(--color-text-primary);">단서:</b>
                         <span class="clue-chip abn"><span class="material-icons">troubleshoot</span>abnormal</span>
                         <span class="clue-chip ut"><span class="material-icons">troubleshoot</span>usertag</span>
@@ -956,104 +956,8 @@
 
                 <!-- 품질(양품률) 직접 입력은 OEE 종합의 '품질 Q' 카드 클릭 → 다이얼로그로 이동(아래 #qDialog). -->
 
-                <!-- ════ 표준 사이클타임(idealCT) + 설비 순위 (2col) ════ -->
-                <div class="up-grid up-2col">
-                <section class="card up-section">
-                    <div class="ds-card-h">
-                        <h4>표준 사이클타임(idealCT)</h4>
-                        <span class="ds-card-h-sub">성능 Performance 산출용 · Flow별 일괄 편집 · 실측(이상치 제외) 추천</span>
-                    </div>
-
-                    <div class="alert alert-error" x-show="ctError" style="margin-bottom:12px;"><span class="material-icons">error</span><span x-text="ctError"></span></div>
-
-                    <div class="up-ct-toolbar">
-                        <button class="btn btn-sm btn-primary" @click="applyAllIdealCt()" :disabled="ctApplying || ctTable.length === 0">
-                            <span class="material-icons" style="font-size:15px;">save</span> 일괄 적용
-                        </button>
-                        <button class="btn btn-sm btn-outlined" @click="loadCtTable()" :disabled="ctLoading">
-                            <span class="material-icons" style="font-size:15px;">refresh</span> 새로고침
-                        </button>
-                        <span class="ds-card-h-sub">추천값 = 이상치 제외 사이클 CT 의 <b>최속 반복가능치(하위 10%, p10)</b> · 평균 아님</span>
-                        <span style="flex:1;"></span>
-                        <span class="up-form-ok" x-show="ctMsg" x-text="ctMsg"></span>
-                    </div>
-
-                    <template x-if="ctTable.length > 0">
-                        <div style="overflow-x:auto;">
-                            <table class="ds-table up-dt-table">
-                                <thead>
-                                    <tr>
-                                        <th>설비(Flow)</th>
-                                        <th style="width:110px;">현재 표준CT</th>
-                                        <th>실측 (이상치 제외)</th>
-                                        <th style="width:130px;">추천 (p10)</th>
-                                        <th style="width:130px;">모드</th>
-                                        <th style="width:130px;">표준CT (초)</th>
-                                        <th style="width:90px;">상태</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <template x-for="row in ctTable" :key="row.flowName">
-                                        <tr>
-                                            <td data-label="설비(Flow)"><strong x-text="row.flowName"></strong></td>
-                                            <td class="num" data-label="현재 표준CT" :class="row.idealCycleTimeMs ? '' : 'unset'">
-                                                <span x-text="row.idealCycleTimeMs ? durShort(row.idealCycleTimeMs) : '미설정'"></span>
-                                                <span x-html="ctSrcChip(row)"></span>
-                                            </td>
-                                            <td data-label="실측 (이상치 제외)">
-                                                <template x-if="row.sampleCount > 0">
-                                                    <span class="up-rank-sub" x-text="'n=' + row.sampleCount + ' · min ' + durShort(row.minCt) + ' · 중앙 ' + durShort(row.medianCt) + ' · 평균 ' + durShort(row.avgCt)"></span>
-                                                </template>
-                                                <template x-if="row.sampleCount === 0">
-                                                    <span class="up-rank-sub">데이터 없음</span>
-                                                </template>
-                                            </td>
-                                            <td data-label="추천 (p10)">
-                                                <template x-if="row.recommendedMs">
-                                                    <button class="btn btn-sm btn-outlined" @click="row.mode = 'manual'; row.draft = Math.round(row.recommendedMs / 100) / 10"
-                                                            :title="'추천값 ' + durShort(row.recommendedMs) + ' 를 수동값으로 적용'">
-                                                        <span class="material-icons" style="font-size:14px;">auto_fix_high</span>
-                                                        <span x-text="durShort(row.recommendedMs)"></span>
-                                                    </button>
-                                                </template>
-                                                <template x-if="!row.recommendedMs"><span class="up-rank-sub">—</span></template>
-                                            </td>
-                                            <td data-label="모드">
-                                                <div style="display:inline-flex; gap:4px;">
-                                                    <button class="btn btn-sm" :class="row.mode === 'auto' ? 'btn-filled' : 'btn-outlined'" @click="ctSetMode(row, 'auto')" style="padding:3px 9px; font-size:0.72rem;" title="자동 관리(클린사이클 실측으로 자동 기입)">자동</button>
-                                                    <button class="btn btn-sm" :class="row.mode === 'manual' ? 'btn-filled' : 'btn-outlined'" @click="ctSetMode(row, 'manual')" style="padding:3px 9px; font-size:0.72rem;" title="수동 입력(자동이 덮지 않음)">수동</button>
-                                                </div>
-                                            </td>
-                                            <td data-label="표준CT (초)">
-                                                <template x-if="row.mode === 'manual'">
-                                                    <input class="up-mini-num" type="number" min="0" step="0.1" x-model.number="row.draft" placeholder="값 입력(초)" />
-                                                </template>
-                                                <template x-if="row.mode === 'auto'">
-                                                    <span class="up-rank-sub" x-text="row.idealCycleTimeMs ? (durShort(row.idealCycleTimeMs) + ' · 자동') : (row.recommendedMs ? '대기 · 곧 자동 기입' : '샘플 부족 — 누적 중')"></span>
-                                                </template>
-                                            </td>
-                                            <td data-label="상태">
-                                                <template x-if="rowChanged(row)"><span class="ds-status warn">변경됨</span></template>
-                                            </td>
-                                        </tr>
-                                    </template>
-                                </tbody>
-                            </table>
-                        </div>
-                    </template>
-                    <template x-if="ctTable.length === 0">
-                        <div class="ds-empty" style="border-style:solid;">
-                            <span class="material-icons">straighten</span>
-                            <div class="ds-empty-title">표시할 Flow 가 없습니다</div>
-                            <div class="ds-empty-desc">Promaker 에서 AASX 프로젝트를 로드하면 Flow 가 나타납니다.</div>
-                        </div>
-                    </template>
-
-                    <div class="up-form-hint" style="margin-top:10px;">
-                        Flow별로 <b>자동/수동</b>을 선택하세요. <b>자동</b> = 클린사이클(기본 30개) 실측으로 표준CT를 자동 기입·관리(샘플 부족 시 중앙값 임시 → 30개 도달 시 p10 승급). <b>수동</b> = 엔지니어가 직접 값(초)을 입력하며 자동이 덮지 않습니다. 추천값은 <b>이상치 제외 사이클의 하위 10%(p10) = 최속 반복가능 CT</b>(평균 아님 — best-demonstrated). <b>[일괄 적용]</b>으로 변경분을 저장합니다(수동→자동 전환 시 다음 주기에 자동 재기입).
-                        <span class="up-codeish">상단 'OEE 종합'의 성능은 라인 전체(합산)라 per-flow idealCT 가 반영되지 않습니다 — 설비별 순위에서 확인하세요.</span>
-                    </div>
-                </section>
+                <!-- ════ 설비별 OEE 순위 (표준CT 수동 오버라이드 카드는 제거 — CT이상치=14일 평균 자동) ════ -->
+                <div class="up-grid">
 
                 <!-- 설비별 OEE 순위 -->
                 <section class="card up-section">
@@ -1371,7 +1275,7 @@
                                 <tr><td>모델 (doc/22)</td><td><b>사이클기반</b> OEE — CT(가동) = MT(동작) + WT(대기). 한 사이클의 <b>MT가 CT이상치를 넘으면</b> 그 사이클 CT 전체가 비가동. 시간기반(벽시계 계획시간)에서 전환.</td></tr>
                                 <tr><td>OEE = A × P × Q</td><td><b>A</b> = Σ실측CT ÷ (Σ실측CT + Σ비가동CT) · <b>P</b> = (N × CT이상치) ÷ Σ실측CT · <b>Q</b> = 양품/총생산(기본 100% 가정, 톤 중립). 한 요소라도 미산출이면 OEE = '—'.</td></tr>
                                 <tr><td>CT이상치 (표준CT)</td><td>최근 <b>14일 클린사이클 CT 평균</b>(flow별, RAM only — DB 미기입). 비가동 판정·성능 분자 <b>공용</b>. 표본 &lt; 5 면 A·P 산출 불가('—').</td></tr>
-                                <tr><td>성능 P 의 의미</td><td>14일 평균을 표준으로 쓰므로 정상상태 <b>P ≈ 100% 수렴</b> — "최속 대비 손실"이 아니라 <b>"14일 추세 대비 당기 저하"</b> 지표(저하 감지기). 90%대를 '거의 완벽'으로 오독 금지.</td></tr>
+                                <tr><td>성능 P 의 의미</td><td>표준CT 기준을 <b>성능 P 카드 클릭</b>으로 선택. <b>14일 평균</b>(기본): 표준=평균이라 정상상태 <b>P ≈ 100% 수렴</b> — "최속 대비 손실"이 아니라 <b>"14일 추세 대비 당기 저하"</b> 감지기(90%대를 '거의 완벽'으로 오독 금지). <b>p10(최속)</b>: "잘 돌 때" 대비 속도손실을 반영 → P 가 100% 밑으로. 어느 쪽이든 <b>비가동 판정·가용성(A) 임계는 14일 평균 불변</b>.</td></tr>
                                 <tr><td>비가동 dedup</td><td>① MT&gt;CT이상치 ② 미완료(complete=null) CT폭주 ③ 무사이클 정지. ③은 사이클 CT 구간과 안 겹치는 부분만 가산(구간 차집합) — <b>이중계상 방지</b>.</td></tr>
                                 <tr><td>MTTR / MTBF</td><td>비가동 <b>onset</b>(= 사이클 시작 + CT이상치)에서 파생. <b>MTTR</b> = onset→going 회복 평균 · <b>MTBF</b> = 연속 onset 간격 평균. OEE 곱셈식과 <b>독립</b> 동반지표. 0건이면 "🟢 무비가동" 배지(가짜수치 금지).</td></tr>
                                 <tr><td>폴백 보존</td><td>14일 표본 부족 시 가용성은 <b>시간기반 폴백 체인</b>(시프트 ▸ 자동추정 ▸ 달력)으로 근사. A 카드 칩으로 현재 출처(<span class="up-codeish">사이클</span>/시프트/자동추정/달력) 표시.</td></tr>
@@ -1498,7 +1402,11 @@
         </div>
 
         <!-- ════ 품질(양품률) 직접 입력 다이얼로그 (품질 Q 카드 클릭) ════ -->
-        <div class="up-blk-overlay" x-show="qDialog.show" style="display:none;" @click.self="qDialog.show=false" @keydown.escape.window="qDialog.show=false">
+        <!-- 닫힘은 mousedown 이 백드롭에서 시작 + 백드롭에서 release 일 때만(모달 안 클릭/드래그로 오닫힘 방지). -->
+        <div class="up-blk-overlay" x-show="qDialog.show" style="display:none;"
+             @mousedown="_qDown = ($event.target === $el)"
+             @mouseup="if (_qDown && $event.target === $el) qDialog.show=false; _qDown=false"
+             @keydown.escape.window="qDialog.show=false">
             <div class="up-blk-modal" @click.stop style="width:min(440px,94vw);">
                 <div class="up-blk-head">
                     <span class="material-icons">fact_check</span>
@@ -1527,6 +1435,48 @@
                     <span class="up-blk-msg" :class="qDialog.err ? 'err' : 'ok'" x-text="qDialog.err || qDialog.msg"></span>
                     <span style="flex:1;"></span>
                     <button class="btn btn-sm btn-outlined" @click="qDialog.show=false">닫기</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ════ 성능(P) 표준CT 기준 선택 다이얼로그 (성능 P 카드 클릭) ════ -->
+        <!-- 닫힘 가드는 품질 다이얼로그와 동일(모달 안 클릭/드래그로 오닫힘 방지). -->
+        <div class="up-blk-overlay" x-show="pDialog.show" style="display:none;"
+             @mousedown="_pDown = ($event.target === $el)"
+             @mouseup="if (_pDown && $event.target === $el) pDialog.show=false; _pDown=false"
+             @keydown.escape.window="pDialog.show=false">
+            <div class="up-blk-modal" @click.stop style="width:min(540px,94vw);">
+                <div class="up-blk-head">
+                    <span class="material-icons">speed</span>
+                    <h3>성능(P) 표준CT 기준</h3>
+                    <span style="flex:1;"></span>
+                    <button class="btn-icon" @click="pDialog.show=false" title="닫기"><span class="material-icons">close</span></button>
+                </div>
+                <div class="up-blk-sub">
+                    성능 P = <b>(정상 사이클수 × 표준CT) ÷ Σ실측CT</b>. 여기서 "표준CT"를 무엇으로 잡을지 고릅니다.
+                    <b>비가동 판정·가용성(A) 은 항상 14일 평균</b>을 쓰므로 이 선택의 영향을 받지 않습니다(성능 P 에만 적용).
+                </div>
+                <label class="up-pbasis-opt" :class="pDialog.basis==='avg' ? 'sel' : ''">
+                    <input type="radio" name="pbasis" value="avg" x-model="pDialog.basis" />
+                    <div>
+                        <div class="up-pbasis-t">14일 평균 CT <span class="up-oee-chip">기본</span></div>
+                        <div class="up-pbasis-d">표준 = 최근 14일 클린사이클 <b>평균</b>. 표준이 평균이라 정상상태에서 <b>P ≈ 100% 로 수렴</b> — "최속 대비 손실"이 아니라 <b>"14일 추세 대비 당기 저하"</b> 감지기입니다.</div>
+                    </div>
+                </label>
+                <label class="up-pbasis-opt" :class="pDialog.basis==='p10' ? 'sel' : ''">
+                    <input type="radio" name="pbasis" value="p10" x-model="pDialog.basis" />
+                    <div>
+                        <div class="up-pbasis-t">p10 (최속 기준)</div>
+                        <div class="up-pbasis-d">표준 = 클린사이클 <b>최속 p10</b>(best-demonstrated). "잘 돌 때" 대비 평균이 느린 만큼을 속도손실로 정직하게 반영 → <b>P 가 100% 밑으로</b> 내려옵니다. 단 14일보다 느린 장기 열화는 기준선도 함께 드리프트.</div>
+                    </div>
+                </label>
+                <div class="up-blk-actions">
+                    <button class="btn btn-sm btn-filled" :disabled="pDialog.busy" @click="submitPBasis()">
+                        <span class="material-icons" style="font-size:15px;">save</span> 적용
+                    </button>
+                    <span class="up-blk-msg" :class="pDialog.err ? 'err' : 'ok'" x-text="pDialog.err || pDialog.msg"></span>
+                    <span style="flex:1;"></span>
+                    <button class="btn btn-sm btn-outlined" @click="pDialog.show=false">닫기</button>
                 </div>
             </div>
         </div>
@@ -1584,6 +1534,12 @@
                 // 일자 기본값은 로컬 날짜 — toISOString() 은 UTC 라 KST 오전 9시 전엔 어제로 채워짐
                 // 품질(양품률) 직접 입력 다이얼로그 — 전반 품질% 를 직접 설정(POST /api/oee/quality, 전역). 품질 Q 카드 클릭으로 염.
                 qDialog: { show: false, qualityPct: 100, busy: false, msg: '', err: '' },
+                // 성능(P) 표준CT 기준 선택 다이얼로그 — avg(14일 평균)/p10(최속). 성능 P 카드 클릭으로 염(POST /api/oee/performance-basis, 전역).
+                pDialog: { show: false, basis: 'avg', busy: false, msg: '', err: '' },
+                // 오버레이 닫힘 가드 — mousedown 이 오버레이(백드롭)에서 시작했을 때만 닫는다(모달 안에서 시작→백드롭 release 드래그로 오닫힘 방지).
+                _qDown: false, _pDown: false,
+                // 계획정지 시간대 (doc/22) — source: manual(사용자) / auto(5일 패턴) / none. windows=편집용 사본.
+                ps: { source: 'none', windows: [], autoSuggested: [], autoSampleDays: 0, draftStart: '', draftEnd: '', draftLabel: '', msg: '', err: '', busy: false },
                 // 정지 이벤트 로그 토글 — 기본 숨김, 정지 원인 구성(도넛)의 [로그 보기 및 설정] 버튼으로 토글
                 showDowntimeLog: false,
                 // 표준CT(idealCT) Flow 일괄 편집 테이블 (편집값은 각 행 객체 draft 에 보관 — Alpine x-for 양방향 바인딩 안정)
@@ -1608,6 +1564,7 @@
                     try { this._charts = await import('/js/user-tag-trend-chart.js'); } catch (e) { console.warn('chart module load failed', e); }
                     await this.load();
                     await this.loadCtTable();
+                    await this.loadPlannedStops();
                     this.connectSignalR();
                     this._pollTimer = setInterval(() => this.load(true), 10000);
                     // 필터 시드로 진입했으면 UserTag 카드로 스크롤.
@@ -1667,6 +1624,63 @@
                         throw new Error(msg);
                     }
                     return await res.json();
+                },
+                async apiPut(url, body) {
+                    const res = await fetch(url, {
+                        method: 'PUT',
+                        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+                        body: body == null ? null : JSON.stringify(body)
+                    });
+                    if (!res.ok) {
+                        let msg = 'HTTP ' + res.status;
+                        try { const j = await res.json(); if (j && j.error) msg = j.error; } catch (e) {}
+                        throw new Error(msg);
+                    }
+                    return await res.json();
+                },
+
+                // ── 계획정지 시간대 (doc/22): 5일 자동감지 ▸ 사용자 설정 시 수동 전환 ──
+                minToHHMM(m) { const p = x => String(x).padStart(2, '0'); return p(Math.floor(m / 60)) + ':' + p(m % 60); },
+                hhmmToMin(s) { if (!s) return null; const a = s.split(':'); const h = +a[0], m = +a[1]; return (isNaN(h) || isNaN(m)) ? null : h * 60 + m; },
+                async loadPlannedStops() {
+                    try {
+                        const r = await this.apiGet('/api/oee/planned-stops');
+                        this.ps.source = r.source || 'none';
+                        this.ps.autoSampleDays = r.autoSampleDays || 0;
+                        this.ps.autoSuggested = (r.autoSuggested || []).map(w => ({ startMinutes: w.startMinutes, endMinutes: w.endMinutes }));
+                        this.ps.windows = (r.windows || []).map(w => ({ startMinutes: w.startMinutes, endMinutes: w.endMinutes, label: w.label || '' }));
+                    } catch (e) { this.ps.err = '계획정지 시간대를 불러오지 못했습니다: ' + e.message; }
+                },
+                psAdd() {
+                    const s = this.hhmmToMin(this.ps.draftStart), e = this.hhmmToMin(this.ps.draftEnd);
+                    if (s == null || e == null) { this.ps.err = '시작/끝 시각을 입력하세요.'; return; }
+                    if (e <= s) { this.ps.err = '끝 시각이 시작보다 뒤여야 합니다(자정 넘김은 두 칸으로 분리).'; return; }
+                    this.ps.err = '';
+                    this.ps.windows = [...this.ps.windows, { startMinutes: s, endMinutes: e, label: (this.ps.draftLabel || '').trim() }]
+                        .sort((a, b) => a.startMinutes - b.startMinutes);
+                    this.ps.draftStart = ''; this.ps.draftEnd = ''; this.ps.draftLabel = '';
+                },
+                psRemove(i) { this.ps.windows = this.ps.windows.filter((_, idx) => idx !== i); },
+                async psApply() {
+                    this.ps.busy = true; this.ps.msg = ''; this.ps.err = '';
+                    try {
+                        const windows = this.ps.windows.map(w => ({ startMinutes: w.startMinutes, endMinutes: w.endMinutes, label: (w.label || '').trim() || null }));
+                        await this.apiPut('/api/oee/planned-stops', { windows });
+                        this.ps.msg = windows.length ? `계획정지 ${windows.length}개 적용(수동 고정)` : '계획정지 해제 — 5일 자동감지로 전환';
+                        await this.loadPlannedStops();
+                        await this.loadOee();
+                    } catch (e) { this.ps.err = '적용 실패: ' + e.message; }
+                    finally { this.ps.busy = false; setTimeout(() => { this.ps.msg = ''; }, 5000); }
+                },
+                async psResetAuto() {
+                    this.ps.busy = true; this.ps.msg = ''; this.ps.err = '';
+                    try {
+                        await this.apiPut('/api/oee/planned-stops', { windows: [] });
+                        this.ps.msg = '5일 자동감지로 되돌림';
+                        await this.loadPlannedStops();
+                        await this.loadOee();
+                    } catch (e) { this.ps.err = '되돌리기 실패: ' + e.message; }
+                    finally { this.ps.busy = false; setTimeout(() => { this.ps.msg = ''; }, 5000); }
                 },
 
                 // 현재 기간 → OEE 엔드포인트용 from/to (로컬 ISO, UserTagsController.ResolvePeriod 와 동일 의미)
@@ -2158,12 +2172,11 @@
                     const tag = c.src === 'abnormal' ? 'ABN' : 'UT';
                     return `<span class="clue-chip ${cls}"><span class="material-icons">troubleshoot</span>${this.esc(c.label)}<span class="csrc">${tag}</span></span>`;
                 },
-                // 표준CT 출처 칩
+                // 표준CT(CT이상치) 출처 칩 — 수동 고정 vs 14일 평균(자동). p10/중앙값 자동기입은 사이클 OEE 미사용.
                 ctSrcChip(row) {
-                    if (!row.idealCycleTimeMs) return '';
-                    if (row.source === 'auto') return '<span class="src-chip auto">자동 p10</span>';
-                    if (row.source === 'auto-median') return '<span class="src-chip tmp">중앙값 임시</span>';
-                    return '<span class="src-chip manual">수동</span>';
+                    return row.isManual
+                        ? '<span class="src-chip manual">수동 고정</span>'
+                        : '<span class="src-chip auto">14일 평균</span>';
                 },
                 // 자동화 파이프라인 4셀 (수집 데이터 → 지표 자동 산출 상태)
                 get autoStrip() {
@@ -2277,6 +2290,27 @@
                         await this.loadOee();
                         d.qualityPct = (this.oee && this.oee.quality != null) ? +(this.oee.quality * 100).toFixed(1) : 100;
                     } catch (ex) { d.err = '해제 실패: ' + ex.message; }
+                    finally { d.busy = false; }
+                },
+                // ── 성능(P) 표준CT 기준 선택 다이얼로그 (성능 P 카드 클릭) — avg(14일 평균, 기본)/p10(최속), 전역 설정 ──
+                openPDialog() {
+                    const d = this.pDialog;
+                    d.show = true; d.msg = ''; d.err = '';
+                    // 현재 적용 중인 기준을 라디오 기본값으로(미설정/avg → 'avg').
+                    d.basis = (this.oee && this.oee.performanceBasis === 'p10') ? 'p10' : 'avg';
+                },
+                async submitPBasis() {
+                    const d = this.pDialog;
+                    d.msg = ''; d.err = '';
+                    const basis = d.basis === 'p10' ? 'p10' : 'avg';
+                    d.busy = true;
+                    try {
+                        await this.apiPost('/api/oee/performance-basis', { basis });
+                        d.msg = `적용됨 — 표준CT 기준: ${basis === 'p10' ? 'p10(최속)' : '14일 평균'}`;
+                        clearTimeout(this._prodMsgTimer);
+                        this._prodMsgTimer = setTimeout(() => { d.msg = ''; }, 5000);
+                        await this.loadOee();
+                    } catch (ex) { d.err = '저장 실패: ' + ex.message; }
                     finally { d.busy = false; }
                 },
                 // 분류/마감 성공 피드백 — 잠깐 표시 후 자동 소거 (실패는 기존 oeeError 경로)
@@ -2472,35 +2506,21 @@
                     this.ctLoading = true;
                     try {
                         const rows = await this.apiGet('/api/oee/ideal-cycle/table');
-                        // 편집값(draft)·모드(auto/manual)를 각 행에 보관 → x-model 안정 바인딩.
-                        // 모드 초기값: 자동기입값(auto/auto-median)이거나 미설정이면 'auto', 수동값(값+source=null)이면 'manual'.
+                        // 수동 오버라이드 전용(doc/22): 기본 CT이상치=14일 평균(자동). 수동값(source≠auto/auto-median)만 입력칸에 시드.
+                        // 자동기입(p10) 값은 사이클 OEE 가 쓰지 않으므로 '미설정(=14일 평균)'으로 표시하고 입력칸은 비운다.
                         this.ctTable = (Array.isArray(rows) ? rows : []).map(r => {
                             const isManual = r.idealCycleTimeMs != null && r.source !== 'auto' && r.source !== 'auto-median';
-                            const mode = isManual ? 'manual' : 'auto';
-                            return { ...r, draft: r.idealCycleTimeMs != null ? r.idealCycleTimeMs / 1000 : null, mode, _initMode: mode };
+                            return { ...r, isManual, draft: isManual ? r.idealCycleTimeMs / 1000 : null, _initMs: isManual ? r.idealCycleTimeMs : null };
                         });
                         this.ctError = null;
                     } catch (e) {
                         this.ctError = '표준CT 테이블을 불러오지 못했습니다: ' + e.message;
                     } finally { this.ctLoading = false; }
                 },
-                // draft(입력, 초) 정규화: 양수면 ms 정수(×1000), 아니면 null(해제)
+                // draft(입력, 초) 정규화: 양수면 ms 정수(×1000), 아니면 null(해제 → 14일 평균)
                 ctNorm(v) { return (v != null && v > 0) ? Math.round(v * 1000) : null; },
-                // 자동/수동 모드 전환. 수동 전환 시 입력칸 시드(현재값 ▸ 추천값).
-                ctSetMode(row, m) {
-                    if (row.mode === m) return;
-                    row.mode = m;
-                    if (m === 'manual' && (row.draft == null || row.draft <= 0))
-                        row.draft = row.idealCycleTimeMs ? row.idealCycleTimeMs / 1000
-                                  : (row.recommendedMs ? Math.round(row.recommendedMs / 100) / 10 : null);
-                },
-                rowChanged(row) {
-                    if (row.mode === 'manual')
-                        // 값이 바뀌었거나, 자동→수동 전환(같은 값이어도 수동 잠금)이면 변경.
-                        return this.ctNorm(row.draft) !== (row.idealCycleTimeMs ?? null) || row._initMode !== 'manual';
-                    // 자동 모드: 수동값을 자동으로 해제하는 경우(이전이 수동)만 변경. 이미 자동/미설정이면 변경 없음.
-                    return row._initMode === 'manual';
-                },
+                // 변경 = 정규화된 입력값이 초기 수동값과 다르면(값 입력/수정 또는 비워서 해제).
+                rowChanged(row) { return this.ctNorm(row.draft) !== (row._initMs ?? null); },
                 flashCtMsg(msg) {
                     this.ctMsg = msg;
                     clearTimeout(this._ctMsgTimer);
@@ -2510,9 +2530,12 @@
                     this.ctMsg = ''; this.ctError = null;
                     const items = this.ctTable
                         .filter(r => this.rowChanged(r))
-                        .map(r => r.mode === 'auto'
-                            ? { flow: r.flowName, idealCycleTimeMs: null, mode: 'auto' }   // 자동 관리로 해제 → 자동기입
-                            : { flow: r.flowName, idealCycleTimeMs: this.ctNorm(r.draft), mode: 'manual' }); // 수동 잠금
+                        .map(r => {
+                            const ms = this.ctNorm(r.draft);
+                            return ms != null
+                                ? { flow: r.flowName, idealCycleTimeMs: ms, mode: 'manual' }      // 값 입력 = 수동 고정
+                                : { flow: r.flowName, idealCycleTimeMs: null, mode: 'auto' };      // 비움 = 14일 평균(자동)으로 해제
+                        });
                     if (items.length === 0) { this.flashCtMsg('변경된 항목이 없습니다.'); return; }
                     this.ctApplying = true;
                     try {

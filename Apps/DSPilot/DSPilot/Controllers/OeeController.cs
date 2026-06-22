@@ -34,6 +34,7 @@ public class OeeController : ControllerBase
     private readonly IDatabasePathResolver _pathResolver;
     private readonly OeeCtStatsService _ctStats;
     private readonly OeeAutoShiftInferenceService _shiftInfer;
+    private readonly OeePlannedStopInferenceService _plannedInfer;
     private readonly ILogger<OeeController> _logger;
 
     public OeeController(
@@ -43,6 +44,7 @@ public class OeeController : ControllerBase
         IDatabasePathResolver pathResolver,
         OeeCtStatsService ctStats,
         OeeAutoShiftInferenceService shiftInfer,
+        OeePlannedStopInferenceService plannedInfer,
         ILogger<OeeController> logger)
     {
         _repo = repo;
@@ -51,6 +53,7 @@ public class OeeController : ControllerBase
         _pathResolver = pathResolver;
         _ctStats = ctStats;
         _shiftInfer = shiftInfer;
+        _plannedInfer = plannedInfer;
         _logger = logger;
     }
 
@@ -282,6 +285,46 @@ public class OeeController : ControllerBase
         _settings.SaveManualQualityPercent(req?.QualityPercent);
         var saved = _settings.LoadSettings().OeeManual.QualityPercent;
         return new { ok = true, qualityPercent = saved };
+    }
+
+    // ── POST /api/oee/performance-basis { basis: "avg"|"p10" } ────────────
+    // 성능(P) 표준CT 기준 전역 설정. avg=14일 평균(기본, P≈100% 수렴) / p10=클린 최속(속도손실 반영).
+    // 비가동 판정·가용성(A) 임계는 불변 — 성능 분자에만 적용.
+    [HttpPost("performance-basis")]
+    public ActionResult<object> SetPerformanceBasis([FromBody] PerformanceBasisRequest req)
+    {
+        _settings.SavePerformanceBasis(req?.Basis);
+        var saved = _settings.LoadSettings().OeeManual.PerformanceBasis;
+        return new { ok = true, basis = saved };
+    }
+
+    // ── GET /api/oee/planned-stops ────────────────────────────────────────
+    // 계획정지 시간대 상태(라인 전체). source=manual(사용자 설정) / auto(5일 자동감지) / none. AutoSuggested=자동감지 미리보기.
+    [HttpGet("planned-stops")]
+    public ActionResult<PlannedStopsDto> GetPlannedStops()
+    {
+        var manual = _settings.LoadSettings().OeeManual.PlannedStops ?? new List<PlannedStopWindow>();
+        var auto = _plannedInfer.Get();
+        var autoDto = auto.Windows.Select(w => new PlannedStopWindowDto(w.StartMinutes, w.EndMinutes, "자동")).ToList();
+
+        if (manual.Count > 0)
+        {
+            var windows = manual.Select(w => new PlannedStopWindowDto(w.StartMinutes, w.EndMinutes, w.Label)).ToList();
+            return new PlannedStopsDto("manual", windows, autoDto, auto.SampleDays);
+        }
+        return new PlannedStopsDto(autoDto.Count > 0 ? "auto" : "none", autoDto, autoDto, auto.SampleDays);
+    }
+
+    // ── PUT /api/oee/planned-stops  {windows:[{startMinutes,endMinutes,label?}]} ──
+    // 사용자가 계획정지 시간대를 직접 설정(수동) → 자동감지보다 우선. 빈 배열 = 해제(→ 5일 자동감지 폴백).
+    [HttpPut("planned-stops")]
+    public ActionResult<PlannedStopsDto> SetPlannedStops([FromBody] PlannedStopsRequest? req)
+    {
+        var windows = (req?.Windows ?? new List<PlannedStopWindowDto>())
+            .Select(w => new PlannedStopWindow { StartMinutes = w.StartMinutes, EndMinutes = w.EndMinutes, Label = w.Label })
+            .ToList();
+        _settings.SavePlannedStops(windows);
+        return GetPlannedStops();
     }
 
     // ── GET /api/oee/shift-exception?from&to&flow ─────────────────────────
@@ -724,7 +767,7 @@ public class OeeController : ControllerBase
 
     private async Task<OeeSummaryDto> BuildSummaryAsync(
         string? flowName, DateTime fromUtc, DateTime toUtc, CancellationToken ct,
-        IReadOnlyDictionary<string, (double AvgMs, int Sample)>? ctThresholds = null)
+        IReadOnlyDictionary<string, (double AvgMs, double P10Ms, int Sample)>? ctThresholds = null)
     {
         var periodMs = (toUtc - fromUtc).TotalMilliseconds;
         if (periodMs < 0) periodMs = 0;
@@ -741,7 +784,11 @@ public class OeeController : ControllerBase
         // ── 사이클기반 집계 (doc/22): CT이상치(14일 평균) → 비가동 판정(MT>thr / 미완료 CT폭주 / 무사이클 dedup)
         //    → Σ실측CT·Σ비가동CT·N·onset/repair. 시간기반 폴백 체인은 표본 부족 시에만 사용(보존). ──
         var thresholds = ctThresholds ?? await ResolveCtThresholdsAsync();
-        var agg = await ComputeCycleAggregateAsync(flowName, fromUtc, toUtc, thresholds, ct);
+        // 성능(P) 표준CT 기준 — "avg"(14일 평균, 기본) / "p10"(클린 최속). 비가동 판정·A 임계는 불변(항상 avg).
+        var perfBasis = _settings.LoadSettings().OeeManual.PerformanceBasis;
+        // 계획정지 시간대(수동 설정 ▸ 5일 자동감지)에 든 비가동은 계획정지로 분류해 A 분모서 제외(표준 OEE).
+        var (plannedWindows, plannedSource) = ResolvePlannedWindows();
+        var agg = await ComputeCycleAggregateAsync(flowName, fromUtc, toUtc, thresholds, plannedWindows, perfBasis, ct);
 
         // ── Availability — 사이클기반 1차(source='cycle'), 표본 부족 시 시간기반 폴백 체인 보존(doc/22 §7) ──
         double? availability; string? availNote; string? availabilitySource; double runtimeMs;
@@ -813,7 +860,62 @@ public class OeeController : ControllerBase
             NormalCtMs: agg.NormalCtMs,
             IdleCtMs: agg.IdleCtMs,
             NormalCycleCount: agg.HasThreshold ? agg.NormalCount : (int?)null,
-            CtThresholdMs: agg.CtThresholdMs);
+            CtThresholdMs: agg.CtThresholdMs,
+            PlannedDownMs: agg.PlannedCtMs,
+            PlannedStopSource: agg.HasThreshold ? plannedSource : null,
+            PerformanceBasis: perfBasis);
+    }
+
+    /// <summary>
+    /// 적용할 계획정지 시간대(라인 전체, 로컬 자정 기준 분 구간)와 출처를 결정한다(doc/22).
+    /// 사용자 수동 설정(<see cref="Models.OeeManualSettings.PlannedStops"/>)이 1개 이상이면 그 값(source="manual"),
+    /// 없으면 5일 자동감지(<see cref="OeePlannedStopInferenceService"/>, source="auto"), 둘 다 없으면 빈 목록(source="none").
+    /// </summary>
+    private (List<(int StartMin, int EndMin)> Windows, string Source) ResolvePlannedWindows()
+    {
+        var manual = _settings.LoadSettings().OeeManual.PlannedStops;
+        if (manual is { Count: > 0 })
+            return (manual.Select(w => (w.StartMinutes, w.EndMinutes)).ToList(), "manual");
+
+        var auto = _plannedInfer.Get();
+        if (auto.Available && auto.Windows.Count > 0)
+            return (auto.Windows.Select(w => (w.StartMinutes, w.EndMinutes)).ToList(), "auto");
+
+        return (new List<(int, int)>(), "none");
+    }
+
+    /// <summary>UTC epoch ms 가 계획정지 시간대(로컬 시각)에 드는지. 시간대 비면 항상 false.</summary>
+    private static bool IsPlannedTimeOfDay(double recMs, IReadOnlyList<(int StartMin, int EndMin)> windows)
+    {
+        if (windows.Count == 0) return false;
+        var local = _epochUtc.AddMilliseconds(recMs).ToLocalTime();
+        var min = local.Hour * 60 + local.Minute;
+        foreach (var w in windows)
+            if (min >= w.StartMin && min < w.EndMin) return true;
+        return false;
+    }
+
+    /// <summary>계획정지 시간대(반복 일일)를 조회기간 [from,to) 위 절대 UTC 구간(ms)으로 펼친다(무사이클 dedup 교집합용).</summary>
+    private static List<(double S, double E)> ExpandPlannedIntervalsMs(
+        IReadOnlyList<(int StartMin, int EndMin)> windows, DateTime fromUtc, DateTime toUtc)
+    {
+        var res = new List<(double S, double E)>();
+        if (windows.Count == 0) return res;
+        // 로컬 날짜 범위를 하루씩 돌며 각 window 를 절대 UTC 구간으로 변환.
+        var localFrom = fromUtc.ToLocalTime().Date.AddDays(-1);
+        var localToEnd = toUtc.ToLocalTime().Date.AddDays(1);
+        for (var d = localFrom; d <= localToEnd; d = d.AddDays(1))
+        {
+            foreach (var w in windows)
+            {
+                var sLocal = DateTime.SpecifyKind(d.AddMinutes(w.StartMin), DateTimeKind.Local);
+                var eLocal = DateTime.SpecifyKind(d.AddMinutes(w.EndMin), DateTimeKind.Local);
+                var s = ToMs(sLocal.ToUniversalTime());
+                var e = ToMs(eLocal.ToUniversalTime());
+                if (e > s) res.Add((s, e));
+            }
+        }
+        return res;
     }
 
     /// <summary>
@@ -821,7 +923,7 @@ public class OeeController : ControllerBase
     /// <b>수동 표준CT 오버라이드를 덮어쓴다</b>(doc/22 §2·§7 — 사용자 권위). 자동기입(source='auto'/'auto-median')은
     /// 14일 평균을 그대로 두고, 엔지니어가 직접 입력한 표준CT(그 외 source)만 임계로 승격한다.
     /// </summary>
-    private async Task<Dictionary<string, (double AvgMs, int Sample)>> ResolveCtThresholdsAsync()
+    private async Task<Dictionary<string, (double AvgMs, double P10Ms, int Sample)>> ResolveCtThresholdsAsync()
     {
         var thr = await _ctStats.ComputeCtThresholdAsync();
         var settings = _settings.LoadSettings();
@@ -830,7 +932,8 @@ public class OeeController : ControllerBase
             if (string.IsNullOrWhiteSpace(ov.FlowName)) continue;
             var src = ov.IdealCycleTimeSource;
             var isManual = ov.IdealCycleTimeMs is > 0 && src != "auto" && src != "auto-median";
-            if (isManual) thr[ov.FlowName] = (ov.IdealCycleTimeMs!.Value, int.MaxValue); // 수동값 = 권위적 임계
+            // 수동 표준CT 는 권위적 단일값 → avg/p10 양 기준 모두 이 값(성능 기준 토글이 무력화 = 의도).
+            if (isManual) thr[ov.FlowName] = (ov.IdealCycleTimeMs!.Value, ov.IdealCycleTimeMs!.Value, int.MaxValue);
         }
         return thr;
     }
@@ -839,9 +942,10 @@ public class OeeController : ControllerBase
 
     private readonly record struct CycleAgg(
         double NormalCtMs, double IdleCtMs, int NormalCount, int DowntimeEventCount,
-        double? CtThresholdMs, List<double> OnsetsMs, List<double> RepairMsList, bool HasThreshold);
+        double? CtThresholdMs, List<double> OnsetsMs, List<double> RepairMsList, bool HasThreshold,
+        double PlannedCtMs);
 
-    private sealed class CycleAggRow { public long IdleCt { get; set; } public long NormalCt { get; set; } public long NormalCount { get; set; } }
+    private sealed class CycleAggRow { public long NormalCt { get; set; } public long NormalCount { get; set; } }
     private sealed class DtCycleRaw { public string? RecordedAt { get; set; } public long? Ct { get; set; } public long? Mt { get; set; } }
     private sealed class NocycleRaw { public string? StartAt { get; set; } public string? EndAt { get; set; } }
 
@@ -854,11 +958,12 @@ public class OeeController : ControllerBase
     /// </summary>
     private async Task<CycleAgg> ComputeCycleAggregateAsync(
         string? flowName, DateTime fromUtc, DateTime toUtc,
-        IReadOnlyDictionary<string, (double AvgMs, int Sample)> thresholds, CancellationToken ct)
+        IReadOnlyDictionary<string, (double AvgMs, double P10Ms, int Sample)> thresholds,
+        IReadOnlyList<(int StartMin, int EndMin)> plannedWindows, string perfBasis, CancellationToken ct)
     {
         var onsets = new List<double>();
         var repairs = new List<double>();
-        var empty = new CycleAgg(0, 0, 0, 0, null, onsets, repairs, false);
+        var empty = new CycleAgg(0, 0, 0, 0, null, onsets, repairs, false, 0);
 
         List<string> targetFlows;
         if (!string.IsNullOrWhiteSpace(flowName))
@@ -873,10 +978,10 @@ public class OeeController : ControllerBase
         var fromStr = fromUtc.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
         var toStr = toUtc.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
 
-        double normalCtMs = 0, idleCtMs = 0, perfNumerator = 0;
+        double normalCtMs = 0, idleCtMs = 0, plannedCtMs = 0, perfNumerator = 0;
         int normalCount = 0, dtEventCount = 0;
         bool hasThreshold = false;
-        var cycleIdleIntervals = new List<(double S, double E)>();
+        var cycleIdleIntervals = new List<(double S, double E)>(); // 모든 비가동 사이클(계획+미계획) — nocycle dedup 용
 
         // dspFlowHistory 비가동 조건 — ① MT>thr ② complete=null(mt null) AND CT>thr (IsIdle 무관, §3.2).
         const string dtCond = "ct > 0 AND ((mt IS NOT NULL AND mt > @Thr) OR (mt IS NULL AND ct > @Thr))";
@@ -892,16 +997,19 @@ public class OeeController : ControllerBase
 
             foreach (var f in targetFlows)
             {
-                var thr = thresholds[f].AvgMs;
+                var thr = thresholds[f].AvgMs;          // 비가동 판정·가용성 임계 = 항상 14일 평균(불변)
                 if (thr <= 0) continue;
                 hasThreshold = true;
+                // 성능 분자 표준만 토글: p10(클린 최속) 선택 시 그 값, 아니면 평균. p10 결측 시 평균 폴백.
+                var p10 = thresholds[f].P10Ms;
+                var perfThr = (perfBasis == "p10" && p10 > 0) ? p10 : thr;
 
                 var p = new DynamicParameters();
                 p.Add("From", fromStr); p.Add("To", toStr); p.Add("Flow", f); p.Add("Thr", thr);
 
+                // 정상 사이클(Σ실측CT·N)은 SQL 집계. 비가동 CT 는 row 단위로 계획/미계획 분리(아래).
                 var aggRow = await conn.QueryFirstOrDefaultAsync<CycleAggRow>($@"
                     SELECT
-                      COALESCE(SUM(CASE WHEN {dtCond} THEN ct ELSE 0 END),0)            AS IdleCt,
                       COALESCE(SUM(CASE WHEN ct>0 AND NOT ({dtCond}) THEN ct ELSE 0 END),0)  AS NormalCt,
                       COALESCE(SUM(CASE WHEN ct>0 AND NOT ({dtCond}) THEN 1  ELSE 0 END),0)  AS NormalCount
                     FROM dspFlowHistory
@@ -909,12 +1017,12 @@ public class OeeController : ControllerBase
                 if (aggRow is not null)
                 {
                     normalCtMs += aggRow.NormalCt;
-                    idleCtMs += aggRow.IdleCt;
                     normalCount += (int)aggRow.NormalCount;
-                    perfNumerator += aggRow.NormalCount * thr;
+                    perfNumerator += aggRow.NormalCount * perfThr;   // 성능 기준(avg/p10) 적용 — 분모(Σ실측CT)·분류는 불변
                 }
 
-                // 비가동 사이클 row → onset(=start+thr)/repair(=going 회복까지) + dedup 구간([start, recordedAt)).
+                // 비가동 사이클 row → 계획정지 시간대면 계획(분모 제외), 아니면 미계획(Σ비가동CT + onset/repair).
+                // 모든 비가동 구간([start, recordedAt))은 nocycle dedup 용으로 모은다(계획 여부 무관).
                 var rows = await conn.QueryAsync<DtCycleRaw>($@"
                     SELECT recordedAt AS RecordedAt, ct AS Ct, mt AS Mt
                     FROM dspFlowHistory
@@ -927,26 +1035,42 @@ public class OeeController : ControllerBase
                     var recMs = ParseUtcMs(r.RecordedAt);
                     if (recMs is not double rec) continue;
                     double startMs = rec - cMs;
+                    cycleIdleIntervals.Add((startMs, rec));
+                    if (IsPlannedTimeOfDay(startMs, plannedWindows))
+                    {
+                        plannedCtMs += cMs;                                     // 계획정지 — A 분모서 제외, MTBF/MTTR 미반영
+                        continue;
+                    }
+                    idleCtMs += cMs;
                     onsets.Add(startMs + thr);                                  // 고장 onset = 사이클 시작 + CT이상치
                     double repair = r.Mt is long mtL ? (mtL - thr) : (cMs - thr); // going 회복: complete(MT) 또는 CT 종료
                     if (repair >= 0) repairs.Add(repair);
                     dtEventCount++;
-                    cycleIdleIntervals.Add((startMs, rec));
                 }
             }
 
-            // ── 무사이클 정지 합산 (dedup) — 비가동 사이클 구간과 안 겹치는 부분만 (doc/22 §3.1) ──
+            // ── 무사이클 정지 합산 (dedup) — 비가동 사이클과 안 겹치는 부분만, 다시 계획/미계획 분리 (doc/22 §3.1) ──
             var nocycle = await GetNocycleIntervalsMsAsync(flowName, fromUtc, toUtc);
             if (nocycle.Count > 0)
             {
+                var plannedIntervals = ExpandPlannedIntervalsMs(plannedWindows, fromUtc, toUtc);
                 foreach (var seg in Intervals.Subtract(nocycle, cycleIdleIntervals))
                 {
-                    var len = seg.E - seg.S;
-                    if (len <= 0) continue;
-                    idleCtMs += len;
-                    onsets.Add(seg.S);
-                    repairs.Add(len);
-                    dtEventCount++;
+                    var segList = new List<(double S, double E)> { seg };
+                    if (plannedIntervals.Count > 0)
+                    {
+                        plannedCtMs += Intervals.Total(Intervals.Intersect(segList, plannedIntervals));
+                        segList = Intervals.Subtract(segList, plannedIntervals); // 미계획 잔여만
+                    }
+                    foreach (var u in segList)
+                    {
+                        var len = u.E - u.S;
+                        if (len <= 0) continue;
+                        idleCtMs += len;
+                        onsets.Add(u.S);
+                        repairs.Add(len);
+                        dtEventCount++;
+                    }
                 }
             }
         }
@@ -960,8 +1084,11 @@ public class OeeController : ControllerBase
 
         double? displayThr = normalCount > 0
             ? perfNumerator / normalCount
-            : (targetFlows.Count == 1 ? thresholds[targetFlows[0]].AvgMs : (double?)null);
-        return new CycleAgg(normalCtMs, idleCtMs, normalCount, dtEventCount, displayThr, onsets, repairs, true);
+            : (targetFlows.Count == 1
+                ? ((perfBasis == "p10" && thresholds[targetFlows[0]].P10Ms > 0)
+                    ? thresholds[targetFlows[0]].P10Ms : thresholds[targetFlows[0]].AvgMs)
+                : (double?)null);
+        return new CycleAgg(normalCtMs, idleCtMs, normalCount, dtEventCount, displayThr, onsets, repairs, true, plannedCtMs);
     }
 
     /// <summary>
@@ -1364,6 +1491,8 @@ public record BulkClassifyRequest(List<long> Ids, string? ReasonCode, string? Ca
 public record BulkCloseRequest(List<long> Ids, DateTime? EndAt);
 public record ProductionRequest(DateTime? Date, string Flow, string? Shift, int Reject);
 public record ManualQualityRequest(double? QualityPercent); // 전반 품질(양품률) % 직접 설정. null=해제.
+public record PerformanceBasisRequest(string? Basis);       // 성능 P 표준CT 기준: "avg"(기본)|"p10".
+public record PlannedStopsRequest(List<PlannedStopWindowDto>? Windows); // 계획정지 시간대 수동 설정. 빈/null = 해제(→자동).
 public record ShiftExceptionRequest(string? Flow, DateTime? StartAt, DateTime? EndAt, string Kind, string? Note);
 // Mode: "manual"=사용자 직접 입력(자동이 안 덮음, 값 동일해도 수동 잠금) / "auto"=자동 관리로 해제(수동값 비움→자동기입) / null=레거시(값 변경 시 수동).
 public record IdealCycleRequest(string Flow, int? IdealCycleTimeMs, string? Mode = null);

@@ -37,8 +37,39 @@ public class OeeManualSettings
     /// </summary>
     public double? QualityPercent { get; set; }
 
+    /// <summary>
+    /// 사용자가 직접 설정한 <b>계획정지 시간대</b>(반복 일일, 라인 전체). 이 시간대에 발생한 비가동(사이클 비가동·무사이클)은
+    /// 계획정지로 분류되어 가용성(A) 분모에서 제외된다(표준 OEE — 계획정지는 가용성을 깎지 않음).
+    /// <b>비어있으면 5일 패턴 자동감지</b>(OeePlannedStopInferenceService)로 폴백, 1개 이상 설정 시 자동→수동 전환(자동 무시).
+    /// </summary>
+    public List<PlannedStopWindow> PlannedStops { get; set; } = [];
+
+    /// <summary>
+    /// 성능(P) 표준CT 기준 — "avg"(최근 14일 평균, 기본) / "p10"(클린사이클 최속 p10, best-demonstrated).
+    /// avg = 표준=평균이라 정상상태 P≈100% 수렴(14일 추세 대비 당기 저하 감지기). p10 = "잘 돌 때(최속)" 대비
+    /// 속도손실을 정직하게 반영(P 가 100% 밑으로 내려옴). 비가동 판정·가용성(A) 임계는 <b>항상 14일 평균</b> —
+    /// 이 설정은 성능(P) 분자의 표준CT 에만 적용된다(A·다운타임 분류 불변).
+    /// </summary>
+    public string PerformanceBasis { get; set; } = "avg";
+
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }
+}
+
+/// <summary>
+/// 계획정지 시간대 한 칸 — 반복 일일 로컬 시각 구간(자정 기준 분, [Start, End)). 라인 전체 적용.
+/// 예: 점심 12:00–13:00 = (720, 780). 자정 넘김은 두 칸으로 분리 입력.
+/// </summary>
+public class PlannedStopWindow
+{
+    /// <summary>시작(로컬 자정 기준 분, 0~1439).</summary>
+    public int StartMinutes { get; set; }
+
+    /// <summary>끝(로컬 자정 기준 분, 1~1440, Start &lt; End).</summary>
+    public int EndMinutes { get; set; }
+
+    /// <summary>표시용 라벨(예: "점심", "정기정비"). 선택.</summary>
+    public string? Label { get; set; }
 }
 
 /// <summary>

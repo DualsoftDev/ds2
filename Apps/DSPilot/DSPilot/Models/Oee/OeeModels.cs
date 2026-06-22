@@ -155,9 +155,26 @@ public sealed record OeeSummaryDto(
 
     // ── 사이클기반 OEE 구성요소 (doc/22 §7) — UI 사이클 분해 시각화/노트용 ──
     double NormalCtMs = 0,            // Σ실측CT (정상 사이클 CT 합)
-    double IdleCtMs = 0,              // Σ비가동CT (비가동 사이클 CT + 무사이클 dedup 후 합)
+    double IdleCtMs = 0,              // Σ비가동CT (미계획 비가동 — 계획정지 제외, dedup 후)
     int? NormalCycleCount = null,     // N (정상 사이클 수)
-    double? CtThresholdMs = null);    // CT이상치 (14일 평균 표준CT, flow별/라인 가중평균)
+    double? CtThresholdMs = null,     // CT이상치 (14일 평균 표준CT, flow별/라인 가중평균)
+    double PlannedDownMs = 0,         // 계획정지 시간대 비가동(가용성 분모서 제외 — 표준 OEE)
+    string? PlannedStopSource = null, // 계획정지 출처: "manual"(사용자 설정) / "auto"(5일 자동감지) / "none"(없음)
+    string? PerformanceBasis = null); // 성능 P 표준CT 기준: "avg"(14일 평균, 기본) / "p10"(클린 최속). CtThresholdMs 가 이 기준값.
+
+/// <summary>계획정지 시간대 한 칸 DTO (반복 일일, 로컬 자정 기준 분).</summary>
+public sealed record PlannedStopWindowDto(int StartMinutes, int EndMinutes, string? Label);
+
+/// <summary>
+/// 계획정지 시간대 설정 상태 — GET /api/oee/planned-stops 응답.
+/// Source="manual"(사용자 설정, Windows 권위) / "auto"(미설정 → AutoSuggested 적용) / "none"(둘 다 없음).
+/// Windows = 현재 적용 중. AutoSuggested = 5일 자동감지 미리보기(수동 설정 중에도 참고용). AutoSampleDays = 자동감지 표본일수.
+/// </summary>
+public sealed record PlannedStopsDto(
+    string Source,
+    IReadOnlyList<PlannedStopWindowDto> Windows,
+    IReadOnlyList<PlannedStopWindowDto> AutoSuggested,
+    int AutoSampleDays);
 
 /// <summary>정지 이벤트 로그 한 건 (필터 조회용). 시각은 로컬 변환된 DateTime.</summary>
 public sealed record OeeDowntimeDto(
