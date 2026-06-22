@@ -405,6 +405,15 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
             //    IPlcGateway(Control 공유 인스턴스)·IRuntimeHubSession 을 우선 등록. readOnly=false(Control) 면
             //    SignalHub.SetReadOnly(false) 로 client write 허용 + PlcScanService 초기 동기 스캔 활성.
             //    UseWindowsService 는 외부 Generic Host (Program.cs) 담당 — 여기서는 추가 안 함.
+            // ActionUnder 게이트 — calibration-state 사이드카 + 현재 AASX 해시로 "Min 실측 확정" 판정 함수 구성.
+            // 어댑터(F#)가 이 Func 로 미확정 Work 의 ActionUnder 를 거른다(모델 해시 불일치=변경 시 전부 false → stale).
+            var calibState = CalibrationState.Load();
+            var calibHash = RuntimeModelHash.compute(session.AasxPath);
+            Func<Guid, bool> isMinMeasured = g => calibState.IsMinMeasured(g, calibHash);
+            // Control engine 의 abnormal 어댑터에 게이트 주입 (Monitoring 은 아래 HubSession 이 주입).
+            if (isControl && engine is EventDrivenEngine controlEngine)
+                controlEngine.SetMinMeasured(isMinMeasured);
+
             Log.Info($"Starting BackendHost on port {Port} " +
                      $"({(readOnly ? "read-only / Monitoring" : "read-write / Control")}) with engine session {identity.SessionId}...");
             _app = BackendHost.startWithBuilderConfig(Port, gatewayConfig, readOnly, builder =>
@@ -419,7 +428,8 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
                         engine,
                         sp.GetRequiredService<IHubContext<SignalHub>>(),
                         identity,
-                        scanForMargin));
+                        scanForMargin,
+                        isMinMeasured));
             });
             _engine = engine;
 

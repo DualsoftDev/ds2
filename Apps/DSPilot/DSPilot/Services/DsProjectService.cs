@@ -378,9 +378,13 @@ public class DsProjectService
     /// Promaker DurationBatch 가 쓰는 <c>Store.UpdateWorkDurationRangesBatch</c> 와 동일 메서드를 사용한다(형상 호환).
     /// changes: (workId, durationMs?, minMs?, maxMs?) — ms. min ≤ duration ≤ max 로 정규화 후 기록(실측은 자연 성립하나 방어적).
     /// </summary>
-    /// <returns>(정규화/적용 시도 건수, export 성공 여부). 미로드·빈 입력·예외 시 Exported=false.</returns>
+    /// <param name="markMinMeasured">true 면(FillMin = 사용자가 '최소값도 실측으로 기록' 의사 확정) Min 을 실제로
+    /// 기록한 Work 를 calibration-state 사이드카에 'Min 실측 확정' 으로 박아 ActionUnder(시간 미만) 게이트를 연다.
+    /// false 면(Min 보존/단순 보정) 사이드카는 건드리지 않아 모델에 Min 값이 있어도 ActionUnder 는 비활성을 유지한다.</param>
+    /// <returns>(정규화/적용 시도 건수, export 성공 여부). 미로드·빈 입력·락 점유·예외 시 Exported=false.</returns>
     public (int Applied, bool Exported) WriteWorkDurationCalibrationAndExport(
-        IReadOnlyList<(Guid WorkId, int? DurationMs, int? MinMs, int? MaxMs)> changes)
+        IReadOnlyList<(Guid WorkId, int? DurationMs, int? MinMs, int? MaxMs)> changes,
+        bool markMinMeasured = false)
     {
         if (!IsLoaded || GetProject() is null)
         {
@@ -404,6 +408,14 @@ public class DsProjectService
             batch.Add((c.WorkId, dur, min, max));
         }
 
+        // cross-process 직렬화 — Promaker publish / Agent 업로드 / 다른 인스턴스의 동시 export·사이드카 쓰기 충돌 방지.
+        if (!SharedWriteLock.TryAcquire("DSPilot", out var holder))
+        {
+            _logger.LogWarning(
+                "[DsProject] duration 보정 skip — 공유 쓰기 락 점유 중 (holder={Holder}, pid={Pid}). 다음 기회에 재시도.",
+                holder.Holder, holder.Pid);
+            return (0, false);
+        }
         try
         {
             _store.UpdateWorkDurationRangesBatch(batch);
@@ -419,6 +431,18 @@ public class DsProjectService
             LastLoadedSha256 = ComputeFileSha256(AasxFilePath);
             LastLoadedUtc = DateTime.UtcNow;
 
+            // FillMin 실측 확정(markMinMeasured)일 때만 Min 기록 Work 를 사이드카에 확정 → ActionUnder 게이트 활성.
+            // 같은 락 안에서 read-modify-write 해야 Promaker/Agent 의 동시 갱신과 안전하게 직렬화된다.
+            if (markMinMeasured && LastLoadedSha256 is { Length: > 0 } sha)
+            {
+                var calib = CalibrationState.Load();
+                int marked = 0;
+                foreach (var item in batch)
+                    if (item.Item3.HasValue) { calib.SetMinMeasured(item.Item1, item.Item3.Value, sha); marked++; }
+                if (marked > 0 && calib.TrySave())
+                    _logger.LogInformation("[DsProject] ActionUnder 게이트 — Min 실측 확정 {Marked}건 기록 (calibration-state).", marked);
+            }
+
             _logger.LogInformation("[DsProject] duration 보정 완료 — {Count}건 → {Path}", batch.Count, AasxFilePath);
             return (batch.Count, true);
         }
@@ -426,6 +450,10 @@ public class DsProjectService
         {
             _logger.LogError(ex, "[DsProject] duration 보정 실패");
             return (0, false);
+        }
+        finally
+        {
+            SharedWriteLock.Release("DSPilot");
         }
     }
 
@@ -460,6 +488,13 @@ public class DsProjectService
         if (batch.Count == 0)
             return (0, true); // 비울 게 없음 = 정상 no-op.
 
+        if (!SharedWriteLock.TryAcquire("DSPilot", out var holder))
+        {
+            _logger.LogWarning(
+                "[DsProject] Min/Max 초기화 skip — 공유 쓰기 락 점유 중 (holder={Holder}, pid={Pid}).",
+                holder.Holder, holder.Pid);
+            return (0, false);
+        }
         try
         {
             _store.UpdateWorkDurationRangesBatch(batch);
@@ -475,6 +510,11 @@ public class DsProjectService
             LastLoadedSha256 = ComputeFileSha256(AasxFilePath);
             LastLoadedUtc = DateTime.UtcNow;
 
+            // Min 을 비웠으므로 해당 Work 의 'Min 실측 확정' 도 해제 — 사이드카가 모델과 어긋난 stale 게이트를 열지 않도록.
+            var calib = CalibrationState.Load();
+            foreach (var item in batch) calib.ClearMinMeasured(item.Item1);
+            calib.TrySave();
+
             _logger.LogInformation("[DsProject] Min/Max 초기화 완료 — {Count}건 → {Path}", batch.Count, AasxFilePath);
             return (batch.Count, true);
         }
@@ -482,6 +522,10 @@ public class DsProjectService
         {
             _logger.LogError(ex, "[DsProject] Min/Max 초기화 실패");
             return (0, false);
+        }
+        finally
+        {
+            SharedWriteLock.Release("DSPilot");
         }
     }
 

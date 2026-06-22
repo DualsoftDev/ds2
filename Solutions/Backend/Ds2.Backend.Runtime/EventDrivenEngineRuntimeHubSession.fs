@@ -22,7 +22,10 @@ type EventDrivenEngineRuntimeHubSession
       identity: RuntimeSessionIdentity,
       // 폴링 양자화 마진(±스캔) 산정용 — Monitoring abnormal 어댑터의 DeviceDurationLearner 로 전달.
       // C# 상호운용 위해 필수 인자(F# optional ctor param 은 C# 호출이 까다로움). 미상이면 호출부가 100 명시.
-      scanPeriodMs: int ) =
+      scanPeriodMs: int,
+      // ActionUnder 게이트 — workGuid 의 Min 이 실측 확정(calibration-state)됐는지. Agent(C#)가 사이드카+AASX
+      // 해시로 만든 판정 함수를 주입한다. F# 는 Promaker.Shared 를 모르므로 Func 만 받는다(의존성 분리).
+      isMinMeasured: System.Func<Guid, bool> ) =
 
     // ── 변환 헬퍼 ───────────────────────────────────────────────
     let gs (g: Guid) = g.ToString()
@@ -215,6 +218,8 @@ type EventDrivenEngineRuntimeHubSession
             // SensorOpen 판정용 Call state — passive inference 가 engine 에 Force 한 현재 상태를 읽는다.
             let getCallStateForOpen g = match engine.GetCallState(g) with Some s -> s | None -> Status4.Ready
             let ab = MonitoringAbnormalAdapter(engine.Index, engine.IOMap, getCallStateForOpen, (fun () -> DateTime.UtcNow), broadcastAbnormal, 250, scanPeriodMs)
+            // ActionUnder 게이트 주입 — Min 실측 확정(calibration-state)된 Work 만 발행하게 한다.
+            ab.IsMinMeasured <- (fun g -> isMinMeasured.Invoke g)
             // 자동 줄자 학습 확정 → client(Promaker)로 push. 정지 시 "업데이트" 선택하면 모델 dirty 반영.
             ab.OnLearnedDuration <- (fun workGuid avg minMs maxMs ->
                 let workName =

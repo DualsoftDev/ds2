@@ -55,4 +55,14 @@ public static class SharedPaths
     /// <summary>Agent active 세션 메타 — { aasxPath, plcConnectionPath, activatedAt, requestedBy }.
     /// active.flag 와 함께 갱신 (둘 다 있어야 Agent 가 부팅 후 자동 재개).</summary>
     public static string AgentSessionJsonPath { get; } = Path.Combine(AgentDirectory, "session.json");
+
+    /// <summary>실측 duration 확정 상태 사이드카 — Work 별 "Min 실측 확정(minMeasured)" + 확정 시점 AASX 해시.
+    /// AASX 모델은 건드리지 않고 런타임 확정 메타만 분리 보관한다. ActionUnder(시간 미만) 판정 게이트의 SSOT —
+    /// 해시가 현재 AASX 와 다르면(모델 변경) 그 확정은 stale 로 간주되어 재확정 전까지 ActionUnder 가 비활성.</summary>
+    public static string CalibrationStateJsonPath { get; } = Path.Combine(AgentDirectory, "calibration-state.json");
+
+    /// <summary>공유 AASX/사이드카 동시 쓰기 직렬화용 cross-process 락 파일. 저장 주체(Promaker 실측반영 /
+    /// DSPilot 실측반영 / Agent 업로드 수신)가 쓰기 전 원자적 생성으로 획득하고 끝나면 삭제한다.
+    /// named Mutex 는 머신 로컬이라 같은 공유 폴더를 보는 cross-machine/cross-process 동시 쓰기를 못 막는다.</summary>
+    public static string SharedWriteLockPath { get; } = Path.Combine(AgentDirectory, ".shared-write.lock");
 }

@@ -79,6 +79,14 @@ public partial class MainViewModel
         // 조용한 export — SaveToPath/CompleteSave 를 타면 _currentFilePath 가 공유 경로로 바뀌어
         // 이후 Ctrl+S 가 사용자의 원본 파일이 아닌 공유 AASX 로 가버린다. 업로드는 부수 내보내기일 뿐
         // 작업 파일 전환이 아니므로 현재 열린 파일/타이틀/IsDirty 를 건드리지 않는다.
+        // 공유 폴더 쓰기 직렬화 — DSPilot 실측 export / Agent 업로드 수신과 동시 쓰기 충돌 방지.
+        if (!Promaker.Shared.SharedWriteLock.TryAcquire("Promaker", out var lockHolder))
+        {
+            _dialogService.ShowWarning(
+                $"공유 폴더를 다른 프로그램이 쓰는 중입니다 (점유: {lockHolder.Holder}).\n잠시 후 다시 시도하세요.");
+            StatusText = "Agent 업로드 보류 — 공유 폴더 쓰기 잠금 중";
+            return;
+        }
         bool exported;
         try
         {
@@ -91,6 +99,10 @@ public partial class MainViewModel
             Log.Error($"Agent 업로드용 AASX export 실패: {targetAasxPath}", ex);
             _dialogService.ShowWarning($"공유 경로 AASX 저장 실패:\n{ex.Message}");
             return;
+        }
+        finally
+        {
+            Promaker.Shared.SharedWriteLock.Release("Promaker");
         }
         if (!exported)
         {
