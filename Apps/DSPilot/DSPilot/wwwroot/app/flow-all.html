@@ -541,6 +541,7 @@
                                         <div class="ct-ribbon-side" x-show="slice.cycleBoundaries.length" :style="`height:${RIBBON_H}px;`">
                                             <span class="rs-t">사이클</span>
                                             <span class="rs-sub">MT · WT · 가동률</span>
+                                            <span x-show="slice.tailCompletionSource === 'OutTag'" class="rs-sub" style="margin-top:2px;color:#b26a00;background:#fff3e0;border:1px solid #ffcc80;border-radius:3px;padding:0 4px;font-size:9px;" title="이 Flow 의 Tail Call 에 응답(InTag)이 없어 명령 종료(OutTag↓)로 MT 를 추정합니다. 검증된 완료가 아니라 명령 ON 시간입니다.">명령 ON 추정</span>
                                         </div>
                                         <template x-for="row in laneRows(slice)" :key="row.key">
                                             <div :class="rowClass(slice, row)" :style="`height:${row.h}px;`">
@@ -831,7 +832,7 @@
                         id: idx, flowName,
                         loading: true, error: null, overlayBusy: false,
                         callLanesRaw: [], callLanes: [],
-                        cycleBoundaries: [], tailEdges: [],
+                        cycleBoundaries: [], tailEdges: [], tailCompletionSource: null,
                         chartStart: null, chartEnd: null, chartStartIso: '', chartEndIso: '',
                         headCallId: null, tailCallId: null,
                         savedHeadCallId: null, savedTailCallId: null, userOverrodeHeadTail: false,
@@ -889,6 +890,7 @@
                     slice.projectTailId = d.projectTailCallId || null;
                     slice.cycleBoundaries = (d.cycleBoundaries || []).map(s => new Date(s));
                     slice.tailEdges = (d.tailEdges || []).map(s => new Date(s));
+                    slice.tailCompletionSource = d.tailCompletionSource ?? null;
                     slice.avgCycleMs = d.avgCycleMs ?? null;
                     slice.avgActiveMs = d.avgActiveMs ?? null;
                     slice.isOverride = !!d.isOverride;
@@ -959,14 +961,14 @@
                 // ── Head/Tail 토글 (스테이징 — 저장은 일괄 적용에서) ──
                 toggleHead(slice, callId) {
                     if (slice.headCallId === callId) return;
-                    if (slice.tailCallId === callId) slice.tailCallId = slice.headCallId;
+                    // head==tail 허용(단일 신호 Call 자기분해) — tail 을 밀어내지 않는다.
                     slice.headCallId = callId;
                     slice.userOverrodeHeadTail = true;
                     this.resolveOverlays(slice);
                 },
                 toggleTail(slice, callId) {
                     if (slice.tailCallId === callId) return;
-                    if (slice.headCallId === callId) slice.headCallId = slice.tailCallId;
+                    // head==tail 허용 — head 를 밀어내지 않는다.
                     slice.tailCallId = callId;
                     slice.userOverrodeHeadTail = true;
                     this.resolveOverlays(slice);
@@ -988,13 +990,15 @@
                             flowName: slice.flowName, start: this.startTime, end: this.endTime,
                             headCallId: slice.headCallId, tailCallId: slice.tailCallId,
                             headStartTag: headLane ? headLane.outTag : null,
-                            tailFinishTag: tailLane ? tailLane.inTag : null
+                            tailFinishTag: tailLane ? tailLane.inTag : null,
+                            tailOutTag: tailLane ? tailLane.outTag : null
                         };
                         const d = await this.apiPost('/api/call-test/resolve-overlays', body);
                         slice.cycleBoundaries = (d.cycleBoundaries || []).map(s => new Date(s));
                         slice.tailEdges = (d.tailEdges || []).map(s => new Date(s));
                         slice.avgCycleMs = d.avgCycleMs ?? null;
                         slice.avgActiveMs = d.avgActiveMs ?? null;
+                        slice.tailCompletionSource = d.tailCompletionSource ?? null;
                         slice.topGaps = CG.topGapsOf(slice);
                         slice.svgMarkup = CG.buildSvg(slice);
                     } catch (e) {
