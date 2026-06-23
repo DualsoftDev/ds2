@@ -863,7 +863,9 @@ public class OeeController : ControllerBase
             CtThresholdMs: agg.CtThresholdMs,
             PlannedDownMs: agg.PlannedCtMs,
             PlannedStopSource: agg.HasThreshold ? plannedSource : null,
-            PerformanceBasis: perfBasis);
+            PerformanceBasis: perfBasis,
+            CtSampleCount: agg.HasThreshold ? agg.CtSampleMin : (int?)null,
+            CtSampleLow: agg.HasThreshold && agg.CtSampleMin < OeeCtStatsService.ConfidentMinCleanCycles);
     }
 
     /// <summary>
@@ -943,7 +945,7 @@ public class OeeController : ControllerBase
     private readonly record struct CycleAgg(
         double NormalCtMs, double IdleCtMs, int NormalCount, int DowntimeEventCount,
         double? CtThresholdMs, List<double> OnsetsMs, List<double> RepairMsList, bool HasThreshold,
-        double PlannedCtMs);
+        double PlannedCtMs, int CtSampleMin = 0);
 
     private sealed class CycleAggRow { public long NormalCt { get; set; } public long NormalCount { get; set; } }
     private sealed class DtCycleRaw { public string? RecordedAt { get; set; } public long? Ct { get; set; } public long? Mt { get; set; } }
@@ -980,6 +982,7 @@ public class OeeController : ControllerBase
 
         double normalCtMs = 0, idleCtMs = 0, plannedCtMs = 0, perfNumerator = 0;
         int normalCount = 0, dtEventCount = 0;
+        int ctSampleMin = int.MaxValue;   // 임계 보유 flow 중 최소 클린샘플 — 신뢰선(<5) 미만이면 '샘플 부족' 표시
         bool hasThreshold = false;
         var cycleIdleIntervals = new List<(double S, double E)>(); // 모든 비가동 사이클(계획+미계획) — nocycle dedup 용
 
@@ -1000,6 +1003,7 @@ public class OeeController : ControllerBase
                 var thr = thresholds[f].AvgMs;          // 비가동 판정·가용성 임계 = 항상 14일 평균(불변)
                 if (thr <= 0) continue;
                 hasThreshold = true;
+                ctSampleMin = Math.Min(ctSampleMin, thresholds[f].Sample); // 수동 오버라이드=int.MaxValue(완전 신뢰)라 안 깎임
                 // 성능 분자 표준만 토글: p10(클린 최속) 선택 시 그 값, 아니면 평균. p10 결측 시 평균 폴백.
                 var p10 = thresholds[f].P10Ms;
                 var perfThr = (perfBasis == "p10" && p10 > 0) ? p10 : thr;
@@ -1082,13 +1086,20 @@ public class OeeController : ControllerBase
 
         if (!hasThreshold) return empty;
 
-        double? displayThr = normalCount > 0
-            ? perfNumerator / normalCount
-            : (targetFlows.Count == 1
-                ? ((perfBasis == "p10" && thresholds[targetFlows[0]].P10Ms > 0)
-                    ? thresholds[targetFlows[0]].P10Ms : thresholds[targetFlows[0]].AvgMs)
-                : (double?)null);
-        return new CycleAgg(normalCtMs, idleCtMs, normalCount, dtEventCount, displayThr, onsets, repairs, true, plannedCtMs);
+        // 표시용 CT이상치. 사이클이 있으면 생산수 가중평균, 0이어도 임계는 존재하므로 flow별 임계 평균을
+        // 노출한다(이전엔 라인 합산+사이클 0 → null 이라 '표준CT 미설정/클린샘플 0'으로 오인 표시됐음).
+        double PerfThrOf(string f) =>
+            (perfBasis == "p10" && thresholds[f].P10Ms > 0) ? thresholds[f].P10Ms : thresholds[f].AvgMs;
+        double? displayThr;
+        if (normalCount > 0)
+            displayThr = perfNumerator / normalCount;
+        else
+        {
+            var thrVals = targetFlows.Select(PerfThrOf).Where(v => v > 0).ToList();
+            displayThr = thrVals.Count > 0 ? thrVals.Average() : (double?)null;
+        }
+        return new CycleAgg(normalCtMs, idleCtMs, normalCount, dtEventCount, displayThr, onsets, repairs, true, plannedCtMs,
+            ctSampleMin == int.MaxValue ? 0 : ctSampleMin);
     }
 
     /// <summary>

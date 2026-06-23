@@ -168,6 +168,16 @@
         .up-dt-table th.cb-col, .up-dt-table td.cb-col { width: 36px; padding: 0 8px; text-align: center; }
         .ds-row-selected { background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)) !important; }
 
+        /* ── 피드 진입 시 해당 알람 행 강조 (스크롤 후 ~3s 페이드) ──
+           tr 배경은 td 위에 안 칠해지는 브라우저가 있어 td 에 애니메이션, 첫 칸에 좌측 강조바. */
+        @keyframes up-row-flash-bg {
+            0%   { background-color: color-mix(in srgb, var(--color-primary) 30%, transparent); }
+            70%  { background-color: color-mix(in srgb, var(--color-primary) 22%, transparent); }
+            100% { background-color: transparent; }
+        }
+        .ds-table tr.up-row-flash > td { animation: up-row-flash-bg 3.2s ease-out forwards; }
+        .ds-table tr.up-row-flash > td:first-child { box-shadow: inset 3px 0 0 0 var(--color-primary); }
+
         /* ── AI 인사이트 한 줄 ── */
         .up-insight { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--purple) 8%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--purple) 35%, transparent); }
         .up-insight .material-icons { color: var(--purple); font-size: 26px; flex-shrink: 0; }
@@ -230,6 +240,8 @@
         .up-oee-mono { font-family: var(--font-mono); }
         .up-oee-chip.auto { color: var(--color-primary); border-color: color-mix(in srgb, var(--color-primary) 55%, transparent); background: color-mix(in srgb, var(--color-primary) 10%, transparent); }
         .up-oee-chip.solid { color: var(--color-text-primary); background: var(--color-surface-variant); border-style: solid; }
+        /* '샘플 부족' — A·P 가 클린샘플 <5 로 산출된 잠정값(샘플 쌓이면 자동 정상화). 살짝만 경고. */
+        .up-oee-chip.warn { color: var(--amber, #b7791f); border-color: color-mix(in srgb, var(--amber, #b7791f) 55%, transparent); background: color-mix(in srgb, var(--amber, #b7791f) 12%, transparent); border-style: solid; }
         /* MTBF 무고장 배지 (가짜 max(n,1) 금지 — doc/21 §10) */
         .up-nofault { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 1.05rem; font-weight: 800; color: var(--green); }
         .up-nofault .led { width: 9px; height: 9px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 4px color-mix(in srgb, var(--green) 22%, transparent); }
@@ -587,6 +599,9 @@
                                 <span class="up-oee-chip" x-show="oee && oee.availabilitySource"
                                       :class="oee && (oee.availabilitySource === 'cycle' || oee.availabilitySource === 'auto') ? 'auto' : (oee && oee.availabilitySource === 'shift' ? 'solid' : '')"
                                       x-text="oee ? ({ cycle: '사이클', shift: '시프트', auto: '자동추정', calendar: '달력' }[oee.availabilitySource] || '') : ''"></span>
+                                <span class="up-oee-chip warn" x-show="oee && oee.ctSampleLow && oee.availabilitySource === 'cycle'"
+                                      x-text="'샘플 ' + (oee && oee.ctSampleCount != null ? oee.ctSampleCount : 0) + '/5'"
+                                      title="클린샘플 5개 미만으로 산출된 잠정값입니다. 사이클이 쌓이면 자동으로 정확해집니다."></span>
                             </div>
                             <div class="up-oee-value up-oee-mono" x-text="oee ? pct(oee.availability) : '—'"></div>
                             <div class="up-oee-note" x-text="oee ? (oee.availability != null ? (oee.availabilitySource === 'cycle' ? 'Σ실측CT / Σ전체CT' : '가동 / 계획시간') : (oee.availabilityNote || '산출 불가')) : ''"></div>
@@ -597,6 +612,9 @@
                                 <span class="up-oee-chip auto" x-show="oee && oee.performance != null"
                                       x-text="oee && oee.performanceBasis === 'p10' ? 'CT p10(최속)' : 'CT 14일평균'"
                                       :title="oee && oee.performanceBasis === 'p10' ? 'p10(클린 최속) 기준 — 잘 돌 때 대비 속도손실 반영' : '14일 평균 기준 — 정상상태 P≈100% 수렴(추세 대비 저하 감지)'"></span>
+                                <span class="up-oee-chip warn" x-show="oee && oee.ctSampleLow"
+                                      x-text="'샘플 ' + (oee && oee.ctSampleCount != null ? oee.ctSampleCount : 0) + '/5'"
+                                      title="클린샘플 5개 미만으로 산출된 잠정값입니다. 사이클이 쌓이면 자동으로 정확해집니다."></span>
                                 <span class="material-icons" style="font-size:13px; opacity:0.5; margin-left:auto;" title="클릭하여 기준 선택">edit</span>
                             </div>
                             <div class="up-oee-value up-oee-mono" x-text="oee ? pct(oee.performance) : '—'"></div>
@@ -651,7 +669,8 @@
                     <div class="ds-card-h" style="margin-top:8px;">
                         <span class="ds-card-h-sub" x-show="oee">
                             기간 정지 <b x-text="oee ? (oee.downtimeCount + '건 · ' + durShort(oee.downtimeMs) + ' (가동 ' + pct(oee.availability) + ')') : ''"></b>
-                            · <span x-text="oee ? (oee.ctThresholdMs ? ('CT이상치 ' + durShort(oee.ctThresholdMs) + ' · 14일 평균') : (oee.idealCycleTimeMs ? ('표준CT ' + durShort(oee.idealCycleTimeMs)) : '표준CT 미설정(클린샘플 누적 중)')) : ''"></span>
+                            · <span x-text="oee ? (oee.ctThresholdMs ? ('CT이상치 ' + durShort(oee.ctThresholdMs) + ' · 14일 평균') : (oee.idealCycleTimeMs ? ('표준CT ' + durShort(oee.idealCycleTimeMs)) : '표준CT 미설정(클린샘플 0)')) : ''"></span>
+                            <span x-show="oee && oee.ctSampleLow" style="color:var(--amber, #b7791f); font-weight:700;" x-text="oee ? (' · 클린샘플 ' + (oee.ctSampleCount != null ? oee.ctSampleCount : 0) + '/5(잠정)') : ''"></span>
                             <span x-show="oee && oee.normalCycleCount != null" x-text="oee ? (' · 정상 ' + (oee.normalCycleCount || 0) + ' 사이클') : ''"></span>
                         </span>
                     </div>
@@ -686,7 +705,7 @@
                         <div class="ds-empty">
                             <span class="material-icons">donut_small</span>
                             <div class="ds-empty-title">사이클 데이터 없음</div>
-                            <div class="ds-empty-desc">최근 14일 클린사이클이 5개 이상 쌓이면 CT이상치(표준CT)가 산출되고 사이클기반 가용성이 표시됩니다. 그 전에는 계획시간 폴백으로 가용성을 근사합니다.</div>
+                            <div class="ds-empty-desc">최근 14일 클린사이클이 1개라도 쌓이면 CT이상치(표준CT)가 산출되어 사이클기반 가용성·성능이 표시됩니다(5개 미만은 '샘플 부족' 잠정값, 쌓이면 자동 정상화). 클린사이클 0이면 계획시간 폴백으로 가용성을 근사합니다.</div>
                         </div>
                     </template>
                 </section>
@@ -1161,7 +1180,7 @@
                                         <thead><tr><th style="width:170px;">시각 ▼</th><th>레벨</th><th>경로</th><th>이름</th><th>주소</th><th>조건</th><th>값</th><th style="width:40px;" title="디바이스 알람 차단 바로가기">차단</th></tr></thead>
                                         <tbody>
                                             <template x-for="(a, i) in ut.alerts" :key="i">
-                                                <tr>
+                                                <tr :data-at="(a.occurredAtLocal || '').slice(0,19)">
                                                     <td class="num" data-label="시각" x-text="(a.occurredAtLocal || '').slice(0,19)"></td>
                                                     <td data-label="레벨"><span class="ds-status" :class="levelStatus(a.logLevel)" x-text="a.logLevel"></span></td>
                                                     <!-- 경로: AbnormalDetect → "FLOW / WORK / CALL", 나머지 → SystemName -->
@@ -1274,11 +1293,11 @@
                             <tbody>
                                 <tr><td>모델 (doc/22)</td><td><b>사이클기반</b> OEE — CT(가동) = MT(동작) + WT(대기). 한 사이클의 <b>MT가 CT이상치를 넘으면</b> 그 사이클 CT 전체가 비가동. 시간기반(벽시계 계획시간)에서 전환.</td></tr>
                                 <tr><td>OEE = A × P × Q</td><td><b>A</b> = Σ실측CT ÷ (Σ실측CT + Σ비가동CT) · <b>P</b> = (N × CT이상치) ÷ Σ실측CT · <b>Q</b> = 양품/총생산(기본 100% 가정, 톤 중립). 한 요소라도 미산출이면 OEE = '—'.</td></tr>
-                                <tr><td>CT이상치 (표준CT)</td><td>최근 <b>14일 클린사이클 CT 평균</b>(flow별, RAM only — DB 미기입). 비가동 판정·성능 분자 <b>공용</b>. 표본 &lt; 5 면 A·P 산출 불가('—').</td></tr>
+                                <tr><td>CT이상치 (표준CT)</td><td>최근 <b>14일 클린사이클 CT 평균</b>(flow별, RAM only — DB 미기입). 비가동 판정·성능 분자 <b>공용</b>. 클린샘플 <b>1개부터 A·P 산출</b>(5개 미만은 <b>'샘플 부족' 잠정값</b> — 쌓이면 자동 정상화), <b>0개</b>면 '—'.</td></tr>
                                 <tr><td>성능 P 의 의미</td><td>표준CT 기준을 <b>성능 P 카드 클릭</b>으로 선택. <b>14일 평균</b>(기본): 표준=평균이라 정상상태 <b>P ≈ 100% 수렴</b> — "최속 대비 손실"이 아니라 <b>"14일 추세 대비 당기 저하"</b> 감지기(90%대를 '거의 완벽'으로 오독 금지). <b>p10(최속)</b>: "잘 돌 때" 대비 속도손실을 반영 → P 가 100% 밑으로. 어느 쪽이든 <b>비가동 판정·가용성(A) 임계는 14일 평균 불변</b>.</td></tr>
                                 <tr><td>비가동 dedup</td><td>① MT&gt;CT이상치 ② 미완료(complete=null) CT폭주 ③ 무사이클 정지. ③은 사이클 CT 구간과 안 겹치는 부분만 가산(구간 차집합) — <b>이중계상 방지</b>.</td></tr>
                                 <tr><td>MTTR / MTBF</td><td>비가동 <b>onset</b>(= 사이클 시작 + CT이상치)에서 파생. <b>MTTR</b> = onset→going 회복 평균 · <b>MTBF</b> = 연속 onset 간격 평균. OEE 곱셈식과 <b>독립</b> 동반지표. 0건이면 "🟢 무비가동" 배지(가짜수치 금지).</td></tr>
-                                <tr><td>폴백 보존</td><td>14일 표본 부족 시 가용성은 <b>시간기반 폴백 체인</b>(시프트 ▸ 자동추정 ▸ 달력)으로 근사. A 카드 칩으로 현재 출처(<span class="up-codeish">사이클</span>/시프트/자동추정/달력) 표시.</td></tr>
+                                <tr><td>폴백 보존</td><td>14일 클린샘플 <b>0(임계 없음)</b>일 때만 가용성은 <b>시간기반 폴백 체인</b>(시프트 ▸ 자동추정 ▸ 달력)으로 근사. A 카드 칩으로 현재 출처(<span class="up-codeish">사이클</span>/시프트/자동추정/달력) 표시.</td></tr>
                                 <tr><td>정지 3계층 (존치)</td><td><b>감지</b>(무사이클/고장비트/수동) · <b>분류</b>(자동·비트/시간임계/수동 — 수동 우선) · <b>단서</b>(abnormal/usertag 겹침 = 표시 전용). 무사이클은 ③ 합산 소스 + 원인 라벨링 레이어.</td></tr>
                                 <tr><td>필수 입력 0개</td><td>CT이상치·비가동 판정·A·P·MTTR·MTBF 모두 수집 데이터로 자동. 품질%·표준CT 수동입력·정지 분류는 선택(보정).</td></tr>
                             </tbody>
@@ -1514,6 +1533,7 @@
                 // stale 응답 가드 — 폴링/기간변경/페이지이동 응답이 뒤늦게 도착해 최신 상태를 덮어쓰는 경합 방지
                 _utSeq: 0, _oeeSeq: 0,
                 utPage: 0, utSearch: '', utLevel: '', utSystem: '',
+                _focusAt: null, // 피드에서 at 으로 진입 시 스크롤·하이라이트할 알람 행 키(occurredAtLocal 초단위)
                 showDefinitions: false, definitionsPage: 0,
                 _charts: null,
                 dailyData: null,
@@ -1555,7 +1575,17 @@
                     if (qp.has('utSystem')) this.utSystem = qp.get('utSystem') || '';
                     if (qp.has('utLevel')) this.utLevel = qp.get('utLevel') || '';
                     if (qp.has('utSearch')) this.utSearch = qp.get('utSearch') || '';
-                    const seeded = qp.has('utSystem') || qp.has('utLevel') || qp.has('utSearch');
+                    // 피드에서 발생시각(at)을 받으면 그 '날' 하루를 custom 기간으로 맞춰 클릭한 알람이 조회 범위에 들어오게 한다.
+                    // (기본 '오늘'이라 과거 알람이면 0건이 되던 문제 해결.) _focusAt 은 로드 후 그 행을 스크롤·하이라이트하는 키.
+                    const at = qp.get('at'); // "yyyy-MM-dd HH:mm:ss" (초 단위) — 알림 이력 행의 occurredAtLocal.slice(0,19) 와 동일 형식
+                    if (at && at.length >= 19) {
+                        const day = at.slice(0, 10); // yyyy-MM-dd
+                        this.period = 'custom';
+                        this.customFrom = day + 'T00:00';
+                        this.customTo = day + 'T23:59';
+                        this._focusAt = at.slice(0, 19);
+                    }
+                    const seeded = qp.has('utSystem') || qp.has('utLevel') || qp.has('utSearch') || qp.has('at');
                     // 활성 탭: ?tab=anomaly|oee. 이상 필터/차단 모달로 진입하면 이상·알람 탭을 강제 활성화.
                     this.tab = (qp.get('tab') === 'anomaly' || seeded || qp.has('blockMgr')) ? 'anomaly' : 'oee';
                     this.syncTabUrl();
@@ -1567,8 +1597,9 @@
                     await this.loadPlannedStops();
                     this.connectSignalR();
                     this._pollTimer = setInterval(() => this.load(true), 10000);
-                    // 필터 시드로 진입했으면 UserTag 카드로 스크롤.
-                    if (seeded) this.$nextTick(() => document.getElementById('ut-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+                    // 필터 시드로 진입했으면 UserTag 카드로 스크롤(특정 알람 포커스가 있으면 그 행으로 직접 스크롤하므로 생략).
+                    if (seeded && !this._focusAt) this.$nextTick(() => document.getElementById('ut-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+                    if (this._focusAt) this.$nextTick(() => this.focusAlertRow());
                     // 차단 상태는 항상 로드(툴바 버튼의 차단 수 배지) — ?blockMgr=1 진입(설정 페이지 링크)이면 모달 자동 열기.
                     if (qp.has('blockMgr')) this.openBlockMgr();
                     else this.loadBlockState();
@@ -1734,6 +1765,33 @@
 
                     // 신규 OEE 데이터
                     await this.loadOee();
+                },
+
+                // 피드에서 at 으로 진입했을 때 해당 알람 행(data-at=occurredAtLocal 초단위)을 찾아 스크롤 + 잠깐 하이라이트.
+                // x-for 렌더가 끝난 직후 타이밍을 짧게 폴링(최대 ~2초)하고, 못 찾으면 목록 카드로라도 스크롤한다.
+                focusAlertRow() {
+                    const at = this._focusAt;
+                    if (!at) return;
+                    let tries = 0;
+                    const tick = () => {
+                        let hit = null;
+                        document.querySelectorAll('#ut-section tr[data-at]').forEach(r => {
+                            if (!hit && r.getAttribute('data-at') === at) hit = r;
+                        });
+                        if (hit) {
+                            hit.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            hit.classList.add('up-row-flash');
+                            setTimeout(() => hit.classList.remove('up-row-flash'), 3200);
+                            this._focusAt = null;
+                        } else if (++tries < 12) {
+                            setTimeout(tick, 180);
+                        } else {
+                            // 못 찾음(다른 페이지·필터 등) — 목록 카드로 폴백 스크롤.
+                            document.getElementById('ut-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            this._focusAt = null;
+                        }
+                    };
+                    tick();
                 },
 
                 drawCharts() {
@@ -2184,11 +2242,15 @@
                     const src = this.oee ? this.oee.availabilitySource : null;
                     const isCycle = src === 'cycle';
                     const ctThr = (this.oee && this.oee.ctThresholdMs) ? this.durShort(this.oee.ctThresholdMs) : null;
+                    const low = !!(this.oee && this.oee.ctSampleLow);
+                    const ctSt = ctThr
+                        ? (low ? `표준CT ${ctThr} · 샘플 ${this.oee.ctSampleCount ?? 0}/5(잠정)` : `표준CT ${ctThr} · 판정·성능 공용`)
+                        : '클린샘플 0 (누적 중)';
                     const availSt = isCycle
                         ? `사이클기반 · CT이상치 ${ctThr || '—'}`
                         : (src === 'shift' ? '폴백: 사용자 시프트' : src === 'auto' ? '폴백: 14일 히스토그램' : '폴백: 달력근사');
                     return [
-                        { nm: 'CT이상치 (14일 평균)', st: ctThr ? `표준CT ${ctThr} · 판정·성능 공용` : '클린샘플 누적 중 (≥5)', cls: ctThr ? 'live' : 'off' },
+                        { nm: 'CT이상치 (14일 평균)', st: ctSt, cls: ctThr ? (low ? 'partial' : 'live') : 'off' },
                         { nm: '비가동 판정', st: `사이클(MT>CT이상치) + 무사이클 dedup`, cls: 'live' },
                         { nm: '원인 분류', st: un > 0 ? `5분/8h 휴리스틱 · 미분류 ${un}건` : '비트 + 5분/8h 휴리스틱', cls: un > 0 ? 'partial' : 'live' },
                         { nm: '가용성 분모', st: availSt, cls: isCycle ? 'live' : 'partial' },

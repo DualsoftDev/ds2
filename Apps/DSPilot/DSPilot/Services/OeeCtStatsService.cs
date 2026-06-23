@@ -19,6 +19,13 @@ public readonly record struct OeeCtStat(int SampleCount, int Min, int Median, in
 /// </summary>
 public sealed class OeeCtStatsService
 {
+    /// <summary>
+    /// CT이상치(표준CT)가 "통계적으로 믿을 만한" 클린샘플 수의 신뢰선(doc/22 §2). 산출 자체는 ≥1 샘플이면
+    /// 하되(잠정값), 이 값 미만이면 호출측이 "샘플 부족" 표시를 띄운다 — 샘플이 쌓이면 자동으로 정상화.
+    /// UI 의 "≥5" 안내 문구와 단일 소스.
+    /// </summary>
+    public const int ConfidentMinCleanCycles = 5;
+
     private readonly IDatabasePathResolver _pathResolver;
     private readonly ILogger<OeeCtStatsService> _logger;
 
@@ -106,11 +113,13 @@ public sealed class OeeCtStatsService
     /// flow별 통계 — doc/22 §2. <b>AvgMs</b>=평균(비가동 판정·가용성 공용 임계, 정상상태 P≈100% 수렴),
     /// <b>P10Ms</b>=p10 분위수(=best-demonstrated 최속, 성능 P 의 선택적 기준 — "잘 돌 때 대비 속도손실"을 잡음).
     /// 둘 다 같은 14일 클린 윈도우에서 산출(apples-to-apples). 드리프트 방지 위해 RAM 산출(DB 미기입).
-    /// 표본 &lt; <paramref name="minCleanCycles"/> 인 flow 는 맵에서 제외(산출 불가 → A·P 가 '—'+사유, 가짜 % 금지).
+    /// 표본 &lt; <paramref name="minCleanCycles"/>(기본 1) 인 flow 만 맵에서 제외 = 클린샘플 0(=진짜 데이터 없음)일 때만
+    /// 산출 불가. 1개라도 있으면 잠정값을 내보내고, 신뢰선(<see cref="ConfidentMinCleanCycles"/>) 미만인지는
+    /// 반환 튜플의 <c>Sample</c> 로 호출측이 판단해 "샘플 부족"을 표시한다(샘플이 쌓이면 자동 정상화).
     /// p10 분위 공식은 추천 테이블/자동기입(<see cref="ComputeAsync"/>, 기본 percentile=10)과 동일하다.
     /// </summary>
     public async Task<Dictionary<string, (double AvgMs, double P10Ms, int Sample)>> ComputeCtThresholdAsync(
-        int windowDays = 14, int minCleanCycles = 5)
+        int windowDays = 14, int minCleanCycles = 1)
     {
         const double p10Percentile = 10.0; // best-demonstrated 분위수 (ComputeAsync 기본값과 동일)
         var result = new Dictionary<string, (double AvgMs, double P10Ms, int Sample)>(StringComparer.OrdinalIgnoreCase);
@@ -148,7 +157,7 @@ public sealed class OeeCtStatsService
 
             foreach (var (flow, list) in grouped)
             {
-                if (list.Count < Math.Max(1, minCleanCycles)) continue; // 표본 부족 → 산출 불가(제외)
+                if (list.Count < Math.Max(1, minCleanCycles)) continue; // 클린샘플 0(또는 minClean 미만) → 산출 불가(제외)
                 list.Sort();
                 double avg = list.Average();
                 if (avg <= 0) continue;

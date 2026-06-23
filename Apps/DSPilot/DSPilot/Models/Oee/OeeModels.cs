@@ -160,7 +160,9 @@ public sealed record OeeSummaryDto(
     double? CtThresholdMs = null,     // CT이상치 (14일 평균 표준CT, flow별/라인 가중평균)
     double PlannedDownMs = 0,         // 계획정지 시간대 비가동(가용성 분모서 제외 — 표준 OEE)
     string? PlannedStopSource = null, // 계획정지 출처: "manual"(사용자 설정) / "auto"(5일 자동감지) / "none"(없음)
-    string? PerformanceBasis = null); // 성능 P 표준CT 기준: "avg"(14일 평균, 기본) / "p10"(클린 최속). CtThresholdMs 가 이 기준값.
+    string? PerformanceBasis = null,  // 성능 P 표준CT 기준: "avg"(14일 평균, 기본) / "p10"(클린 최속). CtThresholdMs 가 이 기준값.
+    int? CtSampleCount = null,        // CT이상치 산출에 쓰인 클린샘플 수(라인=임계 보유 flow 중 최소). 임계 없으면 null
+    bool CtSampleLow = false);        // 클린샘플 < 신뢰선(5) — A·P 는 잠정값(샘플 쌓이면 자동 정상화). UI '샘플 부족' 표시용
 
 /// <summary>계획정지 시간대 한 칸 DTO (반복 일일, 로컬 자정 기준 분).</summary>
 public sealed record PlannedStopWindowDto(int StartMinutes, int EndMinutes, string? Label);

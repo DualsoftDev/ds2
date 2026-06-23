@@ -168,10 +168,13 @@ public static class OeeMath
     public static (double? Performance, string? Note) ComputeCyclePerformance(
         int normalCycleCount, double? ctThresholdMs, double normalCtMs)
     {
+        // 기간 내 완료된 정상 사이클이 없으면 측정 대상 자체가 없음 → "클린샘플 부족"과 구분.
+        // (이 순서가 중요: 라인 합산 시 사이클 0이면 표시 임계도 null 이라, 임계 체크를 먼저 두면
+        //  '오늘 사이클 0'을 '클린샘플 부족'으로 오인 표기했던 버그가 생긴다.)
+        if (normalCycleCount <= 0 || normalCtMs <= 0)
+            return (null, "이 기간에 완료된 사이클 0 — 성능 산출 불가(기간 내 끝난 사이클이 1개 이상 필요).");
         if (ctThresholdMs is not double thr || thr <= 0)
             return (null, "CT이상치(14일 평균) 미산출 — 성능 산출 불가(클린샘플 부족).");
-        if (normalCycleCount <= 0 || normalCtMs <= 0)
-            return (null, "정상 사이클 0 — 성능 산출 불가.");
         return (Math.Min(1.0, normalCycleCount * thr / normalCtMs),
             "(정상 사이클수 × CT이상치) ÷ Σ실측CT. 14일 추세 대비 당기 속도저하 지표.");
     }
