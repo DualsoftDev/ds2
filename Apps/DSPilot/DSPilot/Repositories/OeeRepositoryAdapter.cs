@@ -139,6 +139,15 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             if (realigned > 0)
                 _logger.LogInformation("[OEE] isFailure 재정렬(설비고장만): {N}건 — 비-설비고장 분류는 MTBF 고장에서 제외", realigned);
 
+            // 2026-06-23: 비가동 기본값 = 고장(isFailure=1). 기존 nocycle 미분류(reasonCode NULL, isFailure=0)를 고장으로 업그레이드.
+            // 고장비트 onset은 이미 1이므로 영향 없음. 사용자가 '유지보수'로 해제한 것(reasonCode='planned_maint')은 IS NOT NULL 가드로 보존.
+            var upgraded = await conn.ExecuteAsync(@"
+                UPDATE oeeDowntimeEvent
+                SET isFailure = 1
+                WHERE reasonCode IS NULL AND isFailure = 0");
+            if (upgraded > 0)
+                _logger.LogInformation("[OEE] isFailure 기본값 업그레이드(고장): {N}건 — nocycle 미분류 → isFailure=1", upgraded);
+
             _logger.LogInformation("OEE schema ensured (oeeDowntimeEvent / oeeProductionCount / oeeShiftException) at {Path}", OeeDbPath());
             return true;
         }

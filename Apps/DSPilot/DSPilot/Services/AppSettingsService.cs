@@ -137,7 +137,8 @@ public class AppSettingsService
     }
 
     /// <summary>
-    /// 계획정지 시간대(수동) 저장. 정규화: 분 클램프(0~1440)·End&gt;Start 만 유지·시작분 정렬. 빈 리스트 = 해제(→ 5일 자동감지 폴백).
+    /// 비생산 시간대(수동) 저장. 정규화: 분 클램프(0~1440)·End&gt;Start 만 유지·시작분 정렬.
+    /// <b>수동 적용은 자동 계산을 끈다</b>(PlannedStopsAuto=false) — 사용자가 직접 그린 시간대만 적용(요청 사양).
     /// <see cref="Update"/> 로 원자적 저장(설정 페이지 저장과 경합해도 유실 없음).
     /// </summary>
     public void SavePlannedStops(IReadOnlyList<PlannedStopWindow>? windows)
@@ -152,8 +153,27 @@ public class AppSettingsService
             .Where(w => w.EndMinutes > w.StartMinutes)
             .OrderBy(w => w.StartMinutes)
             .ToList();
-        Update(settings => settings.OeeManual.PlannedStops = normalized);
+        Update(settings =>
+        {
+            settings.OeeManual.PlannedStops = normalized;
+            settings.OeeManual.PlannedStopsAuto = false; // 수동 적용 = 자동 계산 OFF
+        });
     }
+
+    /// <summary>
+    /// 비생산 시간대 <b>자동 계산</b> on/off. true = 10×(14일 평균 CT) 장시간 무변화 정지를 비생산으로 자동 분류,
+    /// false = 사용자 수동 시간대만 적용. 수동 시간대(PlannedStops)는 보존하므로 토글만으로 자유롭게 전환된다.
+    /// <see cref="Update"/> 로 원자적 저장.
+    /// </summary>
+    public void SavePlannedStopsAuto(bool enabled)
+        => Update(settings => settings.OeeManual.PlannedStopsAuto = enabled);
+
+    /// <summary>
+    /// 자동 비생산 패턴 캐시를 저장한다. OeeController.ComputeAndCacheAutoPatternAsync 전용.
+    /// <see cref="Update"/> 로 원자적 저장(설정 페이지 저장과 경합해도 유실 없음).
+    /// </summary>
+    public void SavePlannedAutoPatternCache(PlannedAutoPatternCache cache)
+        => Update(settings => settings.OeeManual.AutoPatternCache = cache);
 
     /// <summary>
     /// 모든 관리 설정을 코드 기본값(<see cref="AppSettingsModel"/>)으로 초기화하고 저장한다.

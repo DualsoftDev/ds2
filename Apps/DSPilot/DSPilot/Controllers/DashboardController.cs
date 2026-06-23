@@ -5,6 +5,7 @@ using System.Globalization;
 using DSPilot.Adapters;
 using DSPilot.Hubs;
 using DSPilot.Models.Dashboard;
+using DSPilot.Models.Dsp;
 using DSPilot.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
@@ -83,6 +84,37 @@ public class DashboardController : ControllerBase
 
         return new DashboardSnapshotDto(flows, layoutDto, _db.HasData, snap.Timestamp,
             _settings.LoadSettings().Ui.AlarmTickerIntervalSec);
+    }
+
+    /// <summary>
+    /// N일 히스토리 기반 Flow별 평균 MT/WT/CT (비가동 사이클 제외).
+    /// 사이클 비교 카드의 "평균" 모드에서 사용자가 날짜 범위를 선택했을 때 호출.
+    /// </summary>
+    [HttpGet("average")]
+    public async Task<ActionResult<List<FlowAverageDto>>> GetHistoryAverage([FromQuery] int days = 1)
+    {
+        days = Math.Clamp(days, 1, 90);
+        var since = DateTime.UtcNow.AddDays(-days);
+
+        var flowNames = _db.Snapshot.Flows.Select(f => f.FlowName).ToList();
+        var result = new List<FlowAverageDto>(flowNames.Count);
+
+        foreach (var name in flowNames)
+        {
+            var history = await _dspRepository.GetFlowHistoryByDaysAsync(name, days);
+            var active = history.Where(h => !h.IsIdle && h.MT.HasValue).ToList();
+            if (active.Count == 0)
+            {
+                result.Add(new FlowAverageDto(name, null, null, null, 0));
+                continue;
+            }
+            double avgMT = active.Average(h => (double)(h.MT ?? 0));
+            double avgWT = active.Average(h => (double)(h.WT ?? 0));
+            double avgCT = active.Average(h => (double)(h.CT ?? 0));
+            result.Add(new FlowAverageDto(name, avgMT, avgWT, avgCT, active.Count));
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -270,6 +302,43 @@ public class DashboardController : ControllerBase
         catch { /* best effort */ }
 
         return GetExclusions();
+    }
+
+    /// <summary>오늘(자정 이후) 전체 Flow 비가동·비생산시간대 제외 사이클 수 합계.</summary>
+    [HttpGet("today-cycles")]
+    public async Task<ActionResult<int>> GetTodayCycles()
+    {
+        var midnightUtc = DateTime.Now.Date.ToUniversalTime();
+        var flowNames = _db.Snapshot.Flows.Select(f => f.FlowName).ToList();
+
+        // 수동 비생산 시간대(PlannedStops)만 적용 — 자동(10×CT)은 시각대 윈도 없음.
+        var oee = _settings.LoadSettings().OeeManual;
+        var plannedWindows = (!oee.PlannedStopsAutoEffective && oee.PlannedStops is { Count: > 0 })
+            ? oee.PlannedStops.Select(w => (w.StartMinutes, w.EndMinutes)).ToArray()
+            : Array.Empty<(int, int)>();
+
+        var total = 0;
+        foreach (var name in flowNames)
+        {
+            var hist = await _dspRepository.GetFlowHistoryByStartTimeAsync(name, midnightUtc);
+            total += hist.Count(h => !h.IsIdle && !IsInPlannedWindow(h, plannedWindows));
+        }
+        return total;
+    }
+
+    /// <summary>사이클 시작 시각(로컬 분)이 비생산 시간대 윈도에 드는지 판정.</summary>
+    private static bool IsInPlannedWindow(DspFlowHistoryEntity h, (int StartMin, int EndMin)[] windows)
+    {
+        if (windows.Length == 0) return false;
+        var startUtc = DateTime.SpecifyKind(h.RecordedAt, DateTimeKind.Utc)
+                       - TimeSpan.FromMilliseconds(h.CT ?? 0);
+        var min = startUtc.ToLocalTime().Hour * 60 + startUtc.ToLocalTime().Minute;
+        foreach (var (s, e) in windows)
+        {
+            if (s < e ? (min >= s && min < e) : (min >= s || min < e))
+                return true;
+        }
+        return false;
     }
 
     // 현재(또는 가장 최근) 시프트 시작을 UTC 로 해석. 클라이언트 _shiftWindow() 와 동일 규칙:

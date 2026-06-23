@@ -187,8 +187,9 @@ public class SettingsController : ControllerBase
                 {
                     m.AutoCalibration.Enabled = acReq.Enabled;
                     m.AutoCalibration.MinCleanCycles = Math.Max(1, acReq.MinCleanCycles);
-                    m.AutoCalibration.MarginMaxSigmaK = Math.Clamp(acReq.MarginMaxSigmaK, 0, 20);
+                    m.AutoCalibration.PercentileMax = Math.Clamp(acReq.PercentileMax, 50, 100);
                     m.AutoCalibration.FillMin = acReq.FillMin;
+                    m.AutoCalibration.PercentileMin = Math.Clamp(acReq.PercentileMin, 0, 50);
                     m.AutoCalibration.MarginMinPct = Math.Clamp(acReq.MarginMinPct, 0, 1);
                 }
 
@@ -466,8 +467,9 @@ public class SettingsController : ControllerBase
             new AutoCalibrationDto(
                 m.AutoCalibration.Enabled,
                 m.AutoCalibration.MinCleanCycles,
-                m.AutoCalibration.MarginMaxSigmaK,
+                m.AutoCalibration.PercentileMax,
                 m.AutoCalibration.FillMin,
+                m.AutoCalibration.PercentileMin,
                 m.AutoCalibration.MarginMinPct,
                 LocalStamp(m.AutoCalibration.CompletedAt),
                 LocalStamp(m.AutoCalibration.LastAppliedAt),
@@ -608,23 +610,25 @@ public record AbnormalDeviceFilterStateDto(
 public record AbnormalDeviceFiltersSaveDto(List<AbnormalDeviceFilterDto>? Filters);
 
 // CompletedAt = 자동 1회 실행 완료 시각(고정). LastAppliedAt = 마지막으로 AASX 에 기록한 시각(매 적용 갱신).
-// 둘 다 로컬 표시 문자열, null = 미실행. MarginMaxSigmaK = mean+k·σ 의 계수 k(기본 4), MarginMinPct 는 분수(0.03=3%).
+// 둘 다 로컬 표시 문자열, null = 미실행. PercentileMax/Min = 백분위수(기본 95/5).
 public record AutoCalibrationDto(
     bool Enabled,
     int MinCleanCycles,
-    double MarginMaxSigmaK,
+    double PercentileMax,
     bool FillMin,
+    double PercentileMin,
     double MarginMinPct,
     string? CompletedAt,
     string? LastAppliedAt,
     string? LastAppliedSummary);
 
-// 자동 보정 저장 입력 — 편집 가능한 5개 필드만(CompletedAt 은 서버 관리, 저장으로 변경 불가).
+// 자동 보정 저장 입력 — 편집 가능한 필드만(CompletedAt 은 서버 관리, 저장으로 변경 불가).
 public record AutoCalibrationSaveDto(
     bool Enabled,
     int MinCleanCycles,
-    double MarginMaxSigmaK,
+    double PercentileMax,
     bool FillMin,
+    double PercentileMin,
     double MarginMinPct);
 
 public record HistoryViewDto(
@@ -651,7 +655,9 @@ public record CctvDto(
 
 // Slug = MediaMTX 경로명(ASCII). GET 응답에만 포함(디버깅·참고용). 클라이언트는 slug 를 보내지 않으며,
 // 서버(CctvController.SaveSettings)가 포지션 기반 이어받기 + AssignSlugs(cam1/cam2/…) 로 관리.
-public record CameraDto(string Name, string RtspUrl, bool Enabled, string Slug = "");
+// FallbackImage = 대체(폴백) 이미지 URL. GET 에 포함되고, POST(CctvController.SaveSettings) 에서 라운드트립으로
+// 영속된다(없으면 null → 포지션 기준 기존값 유지, 구 클라이언트 호환).
+public record CameraDto(string Name, string RtspUrl, bool Enabled, string Slug = "", string? FallbackImage = null);
 
 public record AasxStatusDto(
     bool Exists,

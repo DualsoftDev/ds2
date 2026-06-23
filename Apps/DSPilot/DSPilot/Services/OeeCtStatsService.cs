@@ -39,6 +39,7 @@ public sealed class OeeCtStatsService
     {
         public string? FlowName { get; set; }
         public long Ct { get; set; }
+        public double AgeDays { get; set; } // julianday('now') - julianday(recordedAt), 가중 감쇠 산출용
     }
 
     /// <summary>
@@ -117,9 +118,14 @@ public sealed class OeeCtStatsService
     /// 산출 불가. 1개라도 있으면 잠정값을 내보내고, 신뢰선(<see cref="ConfidentMinCleanCycles"/>) 미만인지는
     /// 반환 튜플의 <c>Sample</c> 로 호출측이 판단해 "샘플 부족"을 표시한다(샘플이 쌓이면 자동 정상화).
     /// p10 분위 공식은 추천 테이블/자동기입(<see cref="ComputeAsync"/>, 기본 percentile=10)과 동일하다.
+    /// <paramref name="excludeUntilUtc"/>가 지정되면 기준 윈도우 상한을 해당 UTC 시각으로 제한해
+    /// 당일 사이클이 자기 기준에 포함되는 순환을 줄인다(오늘 제외 = DateTime.Today.ToUniversalTime() 전달).
+    /// <paramref name="decayHalfLifeDays"/>가 지정되면 오래된 사이클일수록 가중치를 높이는 감쇠 가중 평균을 적용한다.
+    /// weight(age) = exp(age × ln2 / halfLife) — age가 클수록(오래될수록) 가중치 증가 → 최근 자기참조순환 영향 감소.
+    /// 가중 p10 도 같은 가중치를 적용한 누적분위로 산출한다.
     /// </summary>
     public async Task<Dictionary<string, (double AvgMs, double P10Ms, int Sample)>> ComputeCtThresholdAsync(
-        int windowDays = 14, int minCleanCycles = 1)
+        int windowDays = 14, int minCleanCycles = 1, DateTime? excludeUntilUtc = null, double? decayHalfLifeDays = null)
     {
         const double p10Percentile = 10.0; // best-demonstrated 분위수 (ComputeAsync 기본값과 동일)
         var result = new Dictionary<string, (double AvgMs, double P10Ms, int Sample)>(StringComparer.OrdinalIgnoreCase);
@@ -135,34 +141,61 @@ public sealed class OeeCtStatsService
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlowHistory'");
             if (histExists == 0) return result;
 
-            // recordedAt 은 UTC(Z 없는 DATETIME) 문자열 — 동일 포맷 since 문자열로 비교.
+            // recordedAt 은 UTC(Z 없는 DATETIME) 문자열 — 동일 포맷 since/until 문자열로 비교.
             var since = DateTime.UtcNow.AddDays(-Math.Max(1, windowDays))
                 .ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+            string? until = excludeUntilUtc.HasValue
+                ? excludeUntilUtc.Value.ToUniversalTime()
+                    .ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture)
+                : null;
 
-            // avg 와 p10 을 같은 모집단에서 뽑으려면 원시 ct 가 필요(SQLite 에 percentile 내장 없음) → C# 집계.
+            // AgeDays: julianday 차이로 연령(일수) 계산 — 가중 감쇠 시 사용, 미사용 시에도 비용 미미.
             const string sql = @"
-                SELECT flowName AS FlowName, ct AS Ct
+                SELECT flowName AS FlowName, ct AS Ct,
+                       (julianday('now') - julianday(recordedAt)) AS AgeDays
                 FROM dspFlowHistory
                 WHERE COALESCE(IsIdle,0) = 0 AND ct IS NOT NULL AND ct > 0
-                  AND recordedAt >= @Since";
-            var raw = await conn.QueryAsync<CtRowRaw>(sql, new { Since = since });
+                  AND recordedAt >= @Since
+                  AND (@Until IS NULL OR recordedAt < @Until)";
+            var raw = await conn.QueryAsync<CtRowRaw>(sql, new { Since = since, Until = until });
 
-            var grouped = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
+            var ln2 = Math.Log(2);
+            var grouped = new Dictionary<string, List<(int Ct, double Weight)>>(StringComparer.OrdinalIgnoreCase);
             foreach (var r in raw)
             {
                 if (string.IsNullOrEmpty(r.FlowName)) continue;
-                if (!grouped.TryGetValue(r.FlowName, out var list)) { list = new List<int>(); grouped[r.FlowName] = list; }
-                list.Add((int)r.Ct);
+                // 감쇠 가중치: 오래될수록(AgeDays 클수록) weight 증가 → 최근 사이클의 기준 기여 감소.
+                double weight = decayHalfLifeDays is double half && half > 0
+                    ? Math.Exp(Math.Max(0, r.AgeDays) * ln2 / half)
+                    : 1.0;
+                if (!grouped.TryGetValue(r.FlowName, out var list)) { list = new(); grouped[r.FlowName] = list; }
+                list.Add(((int)r.Ct, weight));
             }
 
             foreach (var (flow, list) in grouped)
             {
                 if (list.Count < Math.Max(1, minCleanCycles)) continue; // 클린샘플 0(또는 minClean 미만) → 산출 불가(제외)
-                list.Sort();
-                double avg = list.Average();
+
+                double totalWeight = list.Sum(x => x.Weight);
+                if (totalWeight <= 0) continue;
+
+                // 가중 평균
+                double avg = list.Sum(x => x.Ct * x.Weight) / totalWeight;
                 if (avg <= 0) continue;
-                var idx = Math.Clamp((int)Math.Floor(p10Percentile / 100.0 * (list.Count - 1)), 0, list.Count - 1);
-                result[flow] = (avg, list[idx], list.Count);
+
+                // 가중 p10: CT 오름차순 정렬 후 누적 가중치가 10% 지점인 값
+                var sorted = list.OrderBy(x => x.Ct).ToList();
+                double target = totalWeight * (p10Percentile / 100.0);
+                double cum = 0;
+                int p10 = sorted[0].Ct;
+                foreach (var (ct, w) in sorted)
+                {
+                    cum += w;
+                    p10 = ct;
+                    if (cum >= target) break;
+                }
+
+                result[flow] = (avg, p10, list.Count);
             }
             return result;
         }

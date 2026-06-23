@@ -81,6 +81,22 @@ doc/21 §3·§12 은 "평균/중앙을 표준으로 쓰면 성능이 자기 자�
 CT이상치(14일 평균)보다 훨씬 크다. **본 판정과 별개**다 — IsIdle 은 통계 정제용, §3 판정은 OEE 비가동 분류용.
 혼동 금지: §4 의 Σ실측CT 는 "정상 사이클(§3 비가동 아님)" 의 CT 합이며, IsIdle 아웃라이어는 통계(CT이상치) 산출에서만 제외.
 
+### 3.3 비생산 자동 분류 — 10×CT 장시간 무변화 정지 (2026-06-23 추가, 5일 시각대 추정 대체)
+§3 의 비가동(①②③) 중 **"변화 없음" 정지가 14일 평균 CT 의 10배 이상**이면, 그건 짧은 고장·잼이 아니라 **애초에
+생산하던 시간이 아니다**(무오더·교대·주말·조퇴 등) — 그 시간을 **비생산**으로 보고 가용성(A) **분모에서 제외**한다(`PlannedDownMs`).
+이로써 시간기반 "계획시간 분모"를 따로 추정하지 않고도, 비생산 시간을 데이터에서 자동으로 떼어낼 수 있다.
+
+- **3단 분류**: CT ≤ 1×평균 = 정상 / 1× < (무변화 정지) < 10×평균 = 비가동(A 깎임) / ≥ 10×평균 = **비생산**(분모 밖).
+- **대상**: "변화 없음" 정지만 — 무사이클 갭(③)·미완료 멈춤(② `MT=null AND CT≥10×`). **완료된 느린 사이클(① `MT>thr` 이나 완료됨=움직였음)은 제외** — 다운타임 유지.
+- **판정 = 순수 CT**: 고장비트(usertag)·이상감지(abnormal)·분류(equipment_fault) **신호와 완전 독립**(가드 없음, 사용자 결정 2026-06-23).
+  진짜 장시간 고장도 ≥10× 면 비생산으로 빠진다 — 가용성은 "CT 흐름 연속성" 지표이고, 고장은 다운타임 목록·이상감지·MTBF 가 별도 레이어로 잡는다(doc/21 §4).
+- **임계**: 무변화 갭은 flow별 `10 × 14일평균CT`(라인=대표 평균). [OeeMath.IsLongStopNonProduction](../DSPilot/Services/OeeMath.cs) 단일 판정, 배수 `NonProductionCtMultiplier=10`.
+- **자동/수동 토글** (`OeeManualSettings.PlannedStopsAuto`):
+  - **자동(기본)**: 위 10× 규칙. 시각대 윈도 없음(지속시간만으로 판정). "2일차부터"는 14일 평균 baseline 이 있어야 작동하므로 자연 충족.
+  - **수동**: 사용자가 24시간 연표로 직접 그린 비생산 시각대(`PlannedStops`)만 적용(시작 시각이 윈도에 든 사이클 전부 제외). **수동 적용 시 자동 OFF**, '자동 계산' 재선택 시 ON.
+  - 결정: [OeeController.ResolvePlannedWindows](../DSPilot/Controllers/OeeController.cs) → `ComputeCycleAggregateAsync(applyLongStop)`. API `GET/PUT /api/oee/planned-stops`, `POST /api/oee/planned-stops/auto`.
+- **dedup**: 비생산으로 뺀 무변화 구간도 §3.1 차집합 대상(이중계상 방지)은 동일. 비생산은 onset/repair(MTBF/MTTR)에 미반영.
+
 ---
 
 ## 4. 지표 공식 — `OeeMath` 순수함수 단일 소스

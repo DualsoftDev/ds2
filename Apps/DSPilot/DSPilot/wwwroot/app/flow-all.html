@@ -167,8 +167,8 @@
         .ct-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 0.68rem; color: var(--color-text-secondary); padding: 9px 14px; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); align-items: center; }
         .ct-legend > span { display: inline-flex; align-items: center; }
         .ct-sw { display: inline-block; width: 12px; height: 12px; border-radius: 1px; margin-right: 6px; vertical-align: middle; }
-        .ct-sw-out { background: #1e88e5; }
-        .ct-sw-in { background: #fb8c00; }
+        .ct-sw-out { background: #fb8c00; }
+        .ct-sw-in { background: #1e88e5; }
         .ct-sw-going { background: #5b9bd5; }
         .ct-sw-head { background: #4caf50; }
         .ct-sw-tail { background: #ab47bc; }
@@ -610,6 +610,29 @@
                                     </div>
                                 </div>
 
+                                <!-- 간트 신호 범례 -->
+                                <div class="ct-legend">
+                                    <span><i class="ct-sw ct-sw-out"></i> OutTag (명령=시작)</span>
+                                    <span><i class="ct-sw ct-sw-in"></i> InTag (응답=완료)</span>
+                                    <span><i class="ct-sw ct-sw-head"></i> Head (시작)</span>
+                                    <span><i class="ct-sw ct-sw-tail"></i> Tail (끝)</span>
+                                    <span><i class="ct-sw ct-sw-cycle-edge"></i> 사이클 경계</span>
+                                    <template x-if="slice.showMaxGap && slice.topGaps.length">
+                                        <span><i class="ct-sw ct-sw-maxgap"></i> 최대 Gap</span>
+                                    </template>
+                                    <template x-if="slice.selectedRange">
+                                        <span><i class="ct-sw ct-sw-range"></i> 드래그 선택 구간</span>
+                                    </template>
+                                </div>
+                                <!-- 리본(MT·WT) 범례 — Tail 지정 시에만 표시 -->
+                                <template x-if="slice.tailCallId !== null">
+                                    <div class="ct-legend" style="margin-top:4px;">
+                                        <span style="color:var(--color-text-primary);font-weight:700;">상단 리본 = 사이클별 MT·WT 비율 + 가동률</span>
+                                        <span><i class="ct-sw ct-sw-active-band"></i> MT(가동)</span>
+                                        <span><i class="ct-sw ct-sw-idle-band"></i> WT(대기)</span>
+                                    </div>
+                                </template>
+
                                 <!-- 드래그 선택 구간 → 인라인 4-KPI 카드 (flow.html:776-816 동일) -->
                                 <template x-if="slice.selectedRange">
                                     <div class="card" style="border-color: var(--color-primary);">
@@ -691,22 +714,6 @@
                                     </div>
                                 </template>
 
-                                <!-- 범례 -->
-                                <div class="ct-legend">
-                                    <span><i class="ct-sw ct-sw-out"></i> OutTag (명령=시작)</span>
-                                    <span><i class="ct-sw ct-sw-in"></i> InTag (응답=완료)</span>
-                                    <span><i class="ct-sw ct-sw-head"></i> Head</span>
-                                    <span><i class="ct-sw ct-sw-tail"></i> Tail</span>
-                                    <span><i class="ct-sw ct-sw-cycle-edge"></i> 사이클 경계</span>
-                                    <span><i class="ct-sw ct-sw-active-band"></i> MT(가동)</span>
-                                    <span><i class="ct-sw ct-sw-idle-band"></i> WT(대기)</span>
-                                    <template x-if="slice.showMaxGap && slice.topGaps.length">
-                                        <span><i class="ct-sw ct-sw-maxgap"></i> 최대 Gap</span>
-                                    </template>
-                                    <template x-if="slice.selectedRange">
-                                        <span><i class="ct-sw ct-sw-range"></i> 드래그 선택 구간</span>
-                                    </template>
-                                </div>
                             </div>
                         </template>
                     </section>

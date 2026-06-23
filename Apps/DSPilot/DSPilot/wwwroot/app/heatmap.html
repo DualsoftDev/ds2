@@ -213,6 +213,9 @@
                             <label class="form-label">Flow 필터</label>
                             <input class="form-field" x-model="flowFilter" placeholder="Flow 이름 검색..." />
                         </div>
+                        <label class="switch" style="margin-bottom:8px;" title="동작편차 시간을 ms(밀리초) 단위로 표시합니다. 해제 시 초 단위로 표시.">
+                            <input type="checkbox" x-model="showMs" @change="onUnitChange()" /> ms로 보기
+                        </label>
                         <div class="hm-control-actions">
                             <button class="btn btn-filled" @click="loadData()">
                                 <span class="material-icons">refresh</span> 새로고침
@@ -360,8 +363,8 @@
                                             <span class="chip chip-error" x-show="flowDangerCount(group) > 0" x-text="'위험 ' + flowDangerCount(group)"></span>
                                         </div>
                                         <div class="d-flex" style="align-items:center; gap:4px;">
-                                            <div :class="'heatmap-cell-mini hm-tier-bg-' + flowTier(group)" :title="'평균: ' + Math.round(group.flowAverageTime) + ' ms'">Avg</div>
-                                            <div :class="'heatmap-cell-mini hm-tier-bg-' + flowTier(group)" :title="'표준편차: ' + Math.round(group.flowAverageStdDev) + ' ms'">SD</div>
+                                            <div :class="'heatmap-cell-mini hm-tier-bg-' + flowTier(group)" :title="'평균: ' + formatMs(group.flowAverageTime)">Avg</div>
+                                            <div :class="'heatmap-cell-mini hm-tier-bg-' + flowTier(group)" :title="'표준편차: ' + formatMs(group.flowAverageStdDev)">SD</div>
                                             <div :class="'heatmap-cell-mini hm-tier-bg-' + flowTier(group)" :title="'변동계수: ' + group.flowAverageCV.toFixed(2)">CV</div>
                                         </div>
                                     </div>
@@ -377,10 +380,10 @@
                                                     <th class="sortable" @click="sortBy('callName')">Call <span x-html="sortIcon('callName')"></span></th>
                                                     <th class="sortable" @click="sortBy('workName')">Work <span x-html="sortIcon('workName')"></span></th>
                                                     <th class="sortable heatmap-col-header" @click="sortBy('avg')">
-                                                        <span title="Call의 평균 실행 시간 (ms). 낮을수록 빠릅니다." class="hm-help">평균 <span x-html="sortIcon('avg')"></span></span>
+                                                        <span :title="'Call의 평균 실행 시간 (' + unitName + '). 낮을수록 빠릅니다.'" class="hm-help">평균 <span x-html="sortIcon('avg')"></span></span>
                                                     </th>
                                                     <th class="sortable heatmap-col-header" @click="sortBy('stddev')">
-                                                        <span title="실행 시간의 표준편차 (ms). 낮을수록 안정적입니다." class="hm-help">표준편차 <span x-html="sortIcon('stddev')"></span></span>
+                                                        <span :title="'실행 시간의 표준편차 (' + unitName + '). 낮을수록 안정적입니다.'" class="hm-help">표준편차 <span x-html="sortIcon('stddev')"></span></span>
                                                     </th>
                                                     <th class="sortable heatmap-col-header" @click="sortBy('cv')">
                                                         <span :title="'변동계수 (CV) = 표준편차/평균. ' + cautionCv.toFixed(2) + ' 미만: 안정, ' + dangerCv.toFixed(2) + ' 이상: 불안정'" class="hm-help">변동계수 <span x-html="sortIcon('cv')"></span></span>
@@ -519,6 +522,8 @@
                 historyPeriod: 'today',
                 isChartLoading: false,
                 dark: false,
+                // 시간 단위 표시: false=초(기본) / true=ms. Flow 필터란의 "ms로 보기" 토글로 전환(localStorage 영속).
+                showMs: false,
 
                 // 색상 등급 임계(CV=σ/평균). 설정 페이지(동작편차 설정)에서 사용자가 조정 → /api/heatmap/config 로 로드.
                 // 기본 0.10/0.30(±10%/±30%). fetch 실패 시 이 기본값 유지.
@@ -527,6 +532,7 @@
 
                 async init() {
                     this.dark = localStorage.getItem('dspilot-theme') === 'dark';
+                    this.showMs = localStorage.getItem('dspilot-heatmap-ms') === '1';
                     window.addEventListener('storage', (e) => {
                         if (e.key === 'dspilot-theme') this.dark = e.newValue === 'dark';
                     });
@@ -537,6 +543,13 @@
                     this.dark = !this.dark;
                     localStorage.setItem('dspilot-theme', this.dark ? 'dark' : 'light');
                 },
+
+                // 시간 단위 표시 전환. x-text 바인딩이 showMs 를 읽으므로 값 변경만으로 표·매트릭스·상세가 자동 갱신됨.
+                onUnitChange() {
+                    localStorage.setItem('dspilot-heatmap-ms', this.showMs ? '1' : '0');
+                },
+                // 헤더 도움말 등 단위 라벨 표기용
+                get unitName() { return this.showMs ? 'ms' : '초'; },
 
                 async apiGet(url) {
                     const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
@@ -587,10 +600,10 @@
                     return this.allGroups.filter(g => (g.flowName || '').toLowerCase().includes(f));
                 },
 
-                // FormatMetricValueShort(AverageTime/StdDeviation): <1000 → 정수ms, else 시분초
+                // FormatMetricValueShort(AverageTime/StdDeviation). 기본 초 단위, "ms로 보기" 시 정수 ms.
                 fmtShortAvg(v) {
-                    if (v < 1000) return Math.round(v) + 'ms';
-                    if (v < 60000) return (v / 1000).toFixed(1) + '초';
+                    if (this.showMs) return Math.round(v) + 'ms';
+                    if (v < 60000) return (v / 1000).toFixed(v < 10000 ? 2 : 1) + '초';
                     if (v < 3600000) return Math.floor(v / 60000) + '분 ' + Math.floor((v % 60000) / 1000) + '초';
                     return Math.floor(v / 3600000) + '시간 ' + Math.floor((v % 3600000) / 60000) + '분';
                 },
@@ -751,9 +764,9 @@
                 async closeModal() { await this.closeChart(); },
 
                 formatMs(ms) {
+                    if (this.showMs) return (ms <= 0 ? 0 : Math.round(ms)) + 'ms';
                     if (ms <= 0) return '0초';
-                    if (ms < 1000) return Math.round(ms) + 'ms';
-                    if (ms < 60000) return (ms / 1000).toFixed(1) + '초';
+                    if (ms < 60000) return (ms / 1000).toFixed(ms < 10000 ? 2 : 1) + '초';
                     if (ms < 3600000) return Math.floor(ms / 60000) + '분 ' + Math.floor((ms % 60000) / 1000) + '초';
                     return Math.floor(ms / 3600000) + '시간 ' + Math.floor((ms % 3600000) / 60000) + '분 ' + Math.floor((ms % 60000) / 1000) + '초';
                 },

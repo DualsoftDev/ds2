@@ -37,30 +37,25 @@ public static class ApiSpanMath
     }
 
     /// <summary>
-    /// span 목록의 개수/최소/최대/평균/표준편차(ms). 빈 입력은 (0, null, null, null, null).
-    /// <see cref="Std"/> 는 <b>표본 표준편차(n−1, 불편추정)</b> — n≤1 이면 0. min/max/mean 부분은 JS apiMeasured 동일.
-    /// 표준편차는 mean+k·σ 임계 산정(<see cref="AutoCalibrationService"/>)에서 단일 극값(max)보다 안정적인 퍼짐 척도로 쓴다.
+    /// span 목록의 개수/p05/p95/평균(ms). 빈 입력은 (0, null, null, null).
+    /// p05/p95 는 정렬 후 분위수(OeeCtStatsService 와 동일 공식) — 이상치 단 1개가 임계를 왜곡하는
+    /// measMax/mean+k·σ 방식보다 고변동(수작업·조립) 공정에서 안정적이다.
     /// </summary>
-    public static (int Count, double? Min, double? Max, double? Mean, double? Std) Measured(IReadOnlyList<double> spans)
+    public static (int Count, double? P05, double? P95, double? Mean) Measured(IReadOnlyList<double> spans)
     {
-        if (spans is null || spans.Count == 0) return (0, null, null, null, null);
-        double mn = double.PositiveInfinity, mx = double.NegativeInfinity, sum = 0;
-        foreach (var x in spans)
-        {
-            if (x < mn) mn = x;
-            if (x > mx) mx = x;
-            sum += x;
-        }
+        if (spans is null || spans.Count == 0) return (0, null, null, null);
+        double sum = 0;
+        foreach (var x in spans) sum += x;
         double mean = sum / spans.Count;
 
-        double std = 0;
-        if (spans.Count > 1)
-        {
-            double sq = 0;
-            foreach (var x in spans) { double d = x - mean; sq += d * d; }
-            std = Math.Sqrt(sq / (spans.Count - 1)); // 표본 표준편차(n−1).
-        }
-        return (spans.Count, mn, mx, mean, std);
+        var sorted = spans.OrderBy(x => x).ToList();
+        return (spans.Count, Percentile(sorted, 5.0), Percentile(sorted, 95.0), mean);
+    }
+
+    private static double Percentile(List<double> sorted, double pct)
+    {
+        int idx = Math.Clamp((int)Math.Floor(pct / 100.0 * (sorted.Count - 1)), 0, sorted.Count - 1);
+        return sorted[idx];
     }
 
     /// <summary>

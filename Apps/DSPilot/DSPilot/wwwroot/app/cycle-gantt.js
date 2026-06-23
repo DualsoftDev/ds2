@@ -286,8 +286,8 @@
                 sb += '<rect x="0" y="' + f(rowY) + '" width="' + chartW + '" height="' + API_ROW_HEIGHT + '" fill="#f5f7fa" opacity="0.7"/>';
                 sb += '<line x1="0" y1="' + f(rowY + API_ROW_HEIGHT) + '" x2="' + chartW + '" y2="' + f(rowY + API_ROW_HEIGHT) + '" stroke="#e3e6ea" stroke-width="1"/>';
                 sb += '<rect x="0" y="' + f(rowY) + '" width="3" height="' + API_ROW_HEIGHT + '" fill="#90a4ae" opacity="0.5"/>';
-                sb += appendSignalTrace(row.ac.outIntervals || lane.outIntervals, '#1e88e5', rowY + 22, rowY + 9, cs, xScale, plotRightX, row.ac.name, row.ac.outTag, 'OUT 명령');
-                sb += appendSignalTrace(row.ac.inIntervals || lane.inIntervals, '#fb8c00', rowY + API_ROW_HEIGHT - 8, rowY + 26, cs, xScale, plotRightX, row.ac.name, row.ac.inTag, 'IN 응답');
+                sb += appendSignalTrace(row.ac.outIntervals || lane.outIntervals, '#fb8c00', rowY + 22, rowY + 9, cs, xScale, plotRightX, row.ac.name, row.ac.outTag, 'OUT 명령');
+                sb += appendSignalTrace(row.ac.inIntervals || lane.inIntervals, '#1e88e5', rowY + API_ROW_HEIGHT - 8, rowY + 26, cs, xScale, plotRightX, row.ac.name, row.ac.inTag, 'IN 응답');
                 continue;
             }
 
@@ -327,8 +327,8 @@
                     var wU = Math.max(2, (eU.getTime() - sU.getTime()) * xScale);
                     sb += '<rect x="' + f(xU) + '" y="' + f(laneY + 6) + '" width="' + f(wU) + '" height="' + (LANE_HEIGHT - 12) + '" rx="2" fill="' + unionFill + '" opacity="0.10"/>';
                 }
-                sb += appendSignalTrace(lane.outIntervals, '#1e88e5', laneY + 20, laneY + 7, cs, xScale, plotRightX, lane.callName, lane.outTag, 'OUT 명령');
-                sb += appendSignalTrace(lane.inIntervals, '#fb8c00', laneY + 37, laneY + 24, cs, xScale, plotRightX, lane.callName, lane.inTag, 'IN 응답');
+                sb += appendSignalTrace(lane.outIntervals, '#fb8c00', laneY + 20, laneY + 7, cs, xScale, plotRightX, lane.callName, lane.outTag, 'OUT 명령');
+                sb += appendSignalTrace(lane.inIntervals, '#1e88e5', laneY + 37, laneY + 24, cs, xScale, plotRightX, lane.callName, lane.inTag, 'IN 응답');
             }
         }
 

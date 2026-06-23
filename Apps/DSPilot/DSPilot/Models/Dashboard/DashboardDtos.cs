@@ -100,6 +100,14 @@ public record CycleExclusionSaveDto(
 //   ElapsedMs     : Action* 에만(동작 소요 ms), Observed : Sensor* 에만(관측 상태)
 //   SensorTag     : Sensor* 에만 — 이상 감지 트리거가 된 실제 InTag PLC 주소 (PlcToCallMapperService 해석, 미해석 시 null)
 //   CallName      : "{DevicesAlias}.{ApiName}" — 경로(FLOW/WORK/CALL) 마지막 칸. 대상 디바이스 포함.
+/// <summary>N일 히스토리 기반 평균 MT/WT/CT (비가동 사이클 제외).</summary>
+public record FlowAverageDto(
+    string FlowName,
+    double? AvgMT,
+    double? AvgWT,
+    double? AvgCT,
+    int SampleCount);
+
 public record AbnormalEventDto(
     int Kind,
     string KindName,

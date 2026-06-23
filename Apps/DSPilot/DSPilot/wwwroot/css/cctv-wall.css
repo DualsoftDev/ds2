@@ -95,6 +95,12 @@
 .cctv-wall-embed .cctv-tile-status .st-sub { font-size: 0.66rem; font-weight: 600; opacity: 0.72; }
 .cctv-wall-embed .cctv-tile-status.is-failed { background: rgba(10, 15, 22, 0.74); }
 .cctv-wall-embed .cctv-tile-status.is-failed .material-icons { font-size: 34px; color: var(--red, #d8392b); }
+/* 대체(폴백) 이미지: 영상 위(z1)·오버레이 아래(z2) — 연결 실패/주소 없음/대기 시 정지 이미지로 채운다. */
+.cctv-wall-embed .cctv-tile-fallback { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #0A0F16; z-index: 1; }
+/* 장애로 대체 이미지가 표시 중임을 알리는 우하단 배지(연결 실패/연결 중/대기) */
+.cctv-wall-embed .cctv-fallback-badge { position: absolute; bottom: 6px; left: 6px; z-index: 3; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: var(--radius-lg); background: rgba(8, 13, 20, 0.82); color: #fff; font-size: 0.58rem; font-weight: 800; letter-spacing: 0.02em; pointer-events: none; }
+.cctv-wall-embed .cctv-fallback-badge .material-icons { font-size: 13px; }
+.cctv-wall-embed .cctv-fallback-badge.is-failed { background: rgba(184, 42, 32, 0.92); }
 .cctv-wall-embed .cctv-spin { width: 30px; height: 30px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, 0.22); border-top-color: var(--teal-2, #2E97E6); animation: cctv-spin-rot 0.8s linear infinite; }
 @keyframes cctv-spin-rot { to { transform: rotate(360deg); } }
 
@@ -138,7 +144,8 @@
 .cctv-wall-embed .cctv-ovl-box.tag-inset-left .cctv-ovl-chip { left: 2px; }
 
 /* ── 호버 툴팁 — position:fixed 로 타일 overflow:hidden 클립 탈출 ── */
-.cctv-wall-embed .cctv-ovl-tip { position: fixed; z-index: 200; min-width: 178px; max-width: 270px; border-radius: var(--radius-md); background: rgba(8, 13, 20, 0.96); color: #fff; box-shadow: var(--shadow-4); pointer-events: none; overflow: hidden; border-left: 3px solid var(--ovl-color, var(--teal)); }
+/* 반투명 + 블러: 툴팁 뒤의 오버레이/영상 상태가 비쳐 보이도록(블러로 가독성 유지) */
+.cctv-wall-embed .cctv-ovl-tip { position: fixed; z-index: 200; min-width: 178px; max-width: 270px; border-radius: var(--radius-md); background: rgba(8, 13, 20, 0.42); -webkit-backdrop-filter: blur(1.5px); backdrop-filter: blur(1.5px); color: #fff; box-shadow: var(--shadow-4); pointer-events: none; overflow: hidden; border-left: 3px solid var(--ovl-color, var(--teal)); }
 .cctv-wall-embed .cctv-ovl-tip .tip-head { display: flex; align-items: center; gap: 6px; padding: 7px 10px 5px; }
 .cctv-wall-embed .cctv-ovl-tip .tip-head .material-icons { font-size: 14px; opacity: 0.95; }
 .cctv-wall-embed .cctv-ovl-tip .tip-kind { font-size: 0.56rem; font-weight: 800; letter-spacing: 0.08em; opacity: 0.85; }

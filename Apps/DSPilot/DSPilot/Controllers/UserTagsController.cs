@@ -36,9 +36,11 @@ public class UserTagsController : ControllerBase
         [FromQuery] string? search = null,
         [FromQuery] string? level = null,
         [FromQuery] string? system = null,
+        [FromQuery] DateTime? from = null,
+        [FromQuery] DateTime? to = null,
         CancellationToken ct = default)
     {
-        var (startLocal, endLocal, gran) = ResolvePeriod(period);
+        var (startLocal, endLocal, gran) = ResolvePeriod(period, from, to);
         var startUtc = startLocal.ToUniversalTime();
         var endUtc = endLocal.ToUniversalTime();
         var name = Blank(search);
@@ -119,9 +121,11 @@ public class UserTagsController : ControllerBase
         [FromQuery] string? level = null,
         [FromQuery] string? system = null,
         [FromQuery] int limit = 100000,
+        [FromQuery] DateTime? from = null,
+        [FromQuery] DateTime? to = null,
         CancellationToken ct = default)
     {
-        var (startLocal, endLocal, _) = ResolvePeriod(period);
+        var (startLocal, endLocal, _) = ResolvePeriod(period, from, to);
         var all = await _repo.QueryAlertsAsync(
             startLocal.ToUniversalTime(), endLocal.ToUniversalTime(),
             Blank(search), Blank(level), Blank(system), limit, 0, ct);
@@ -135,9 +139,18 @@ public class UserTagsController : ControllerBase
     private static string? Blank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 
     // Blazor UserTags.SetPresetState 와 동일.
-    private static (DateTime startLocal, DateTime endLocal, string gran) ResolvePeriod(string preset)
+    // period="custom" 이면 from/to(로컬 벽시계)를 그대로 사용 — 기간 직접선택 + 피드 알람 진입(그 날 하루)이 이 경로.
+    // (없으면 today 로 폴백. 호출자는 startLocal.ToUniversalTime() 로 UTC 변환하므로 Kind=Unspecified 도 로컬로 해석됨.)
+    private static (DateTime startLocal, DateTime endLocal, string gran) ResolvePeriod(
+        string preset, DateTime? from = null, DateTime? to = null)
     {
         var now = DateTime.Now;
+        if (preset == "custom" && from.HasValue && to.HasValue && to.Value > from.Value)
+        {
+            var days = (to.Value - from.Value).TotalDays;
+            var gran = days > 45 ? "week" : days > 2 ? "day" : "hour";
+            return (from.Value, to.Value, gran);
+        }
         return preset switch
         {
             "7d" => (now.Date.AddDays(-6), now, "day"),

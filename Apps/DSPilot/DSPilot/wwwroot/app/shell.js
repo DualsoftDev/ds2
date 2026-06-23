@@ -386,6 +386,13 @@
                     var q = [];
                     if (a.system) q.push('utSystem=' + encodeURIComponent(a.system));
                     if (a.level) q.push('utLevel=' + encodeURIComponent(a.level));
+                    // 클릭한 알람을 콕 집어 보여주기 위해 이름(검색 시드)·발생시각(at)도 전달한다.
+                    //   utSearch : 그 태그로 좁혀 페이지당 10건 안에 들어오게 함(목록 페이징 한계 회피).
+                    //   at       : uptime 이 그 '날'을 기간으로 자동 맞추고(기본 '오늘'이라 과거 알람이면 0건이던 문제 해결) 해당 행을 스크롤·하이라이트.
+                    //   label(=usertag Name / ds-error Label)·occurredAtLocal('yyyy-MM-dd HH:mm:ss') 은 알림 이력 행과 동일 소스라 그대로 매칭됨.
+                    var nm = a.label || a.code;
+                    if (nm) q.push('utSearch=' + encodeURIComponent(nm));
+                    if (a.occurredAtLocal) q.push('at=' + encodeURIComponent(a.occurredAtLocal));
                     location.href = '/uptime' + (q.length ? '?' + q.join('&') : '');
                 });
                 anomalyList.appendChild(row);

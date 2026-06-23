@@ -16,8 +16,8 @@ namespace DSPilot.Models.Oee;
 
 /// <summary>
 /// oeeDowntimeEvent — 정지/다운타임 라이프사이클 (open → recovered).
-/// 자동 onset(detectSource='nocycle')은 category/reasonCode NULL, isFailure 0 으로 시작.
-/// 분류(PATCH)·수동 마감으로만 사람이 채운다.
+/// 자동 onset(detectSource='nocycle')은 category/reasonCode NULL, isFailure 1(고장 기본값)으로 시작.
+/// 사용자가 '유지보수'로 해제(isFailure=0, reasonCode='planned_maint')하거나 수동 마감으로만 사람이 채운다.
 /// </summary>
 public sealed class OeeDowntimeEvent
 {
@@ -158,25 +158,32 @@ public sealed record OeeSummaryDto(
     double IdleCtMs = 0,              // Σ비가동CT (미계획 비가동 — 계획정지 제외, dedup 후)
     int? NormalCycleCount = null,     // N (정상 사이클 수)
     double? CtThresholdMs = null,     // CT이상치 (14일 평균 표준CT, flow별/라인 가중평균)
-    double PlannedDownMs = 0,         // 계획정지 시간대 비가동(가용성 분모서 제외 — 표준 OEE)
-    string? PlannedStopSource = null, // 계획정지 출처: "manual"(사용자 설정) / "auto"(5일 자동감지) / "none"(없음)
+    double PlannedDownMs = 0,         // 비생산 시간 비가동(가용성 분모서 제외 — 표준 OEE)
+    string? PlannedStopSource = null, // 비생산 출처: "manual"(사용자 시각대) / "auto"(10×CT 장시간정지 자동) / "none"(없음)
     string? PerformanceBasis = null,  // 성능 P 표준CT 기준: "avg"(14일 평균, 기본) / "p10"(클린 최속). CtThresholdMs 가 이 기준값.
     int? CtSampleCount = null,        // CT이상치 산출에 쓰인 클린샘플 수(라인=임계 보유 flow 중 최소). 임계 없으면 null
     bool CtSampleLow = false);        // 클린샘플 < 신뢰선(5) — A·P 는 잠정값(샘플 쌓이면 자동 정상화). UI '샘플 부족' 표시용
 
-/// <summary>계획정지 시간대 한 칸 DTO (반복 일일, 로컬 자정 기준 분).</summary>
+/// <summary>비생산 시간대 한 칸 DTO (반복 일일, 로컬 자정 기준 분).</summary>
 public sealed record PlannedStopWindowDto(int StartMinutes, int EndMinutes, string? Label);
 
 /// <summary>
-/// 계획정지 시간대 설정 상태 — GET /api/oee/planned-stops 응답.
-/// Source="manual"(사용자 설정, Windows 권위) / "auto"(미설정 → AutoSuggested 적용) / "none"(둘 다 없음).
-/// Windows = 현재 적용 중. AutoSuggested = 5일 자동감지 미리보기(수동 설정 중에도 참고용). AutoSampleDays = 자동감지 표본일수.
+/// 비생산 시간대 설정 상태 — GET /api/oee/planned-stops 응답.
+/// Auto=true → 10×(14일 평균 CT) 장시간 무변화 정지 자동 비생산(Source="auto", Windows 미사용).
+/// Auto=false → 사용자 수동 시각대(Source="manual" Windows 권위, 또는 "none"). CtMultiplier = 자동판정 배수(10).
 /// </summary>
 public sealed record PlannedStopsDto(
     string Source,
     IReadOnlyList<PlannedStopWindowDto> Windows,
-    IReadOnlyList<PlannedStopWindowDto> AutoSuggested,
-    int AutoSampleDays);
+    bool Auto,
+    int CtMultiplier);
+
+/// <summary>자동 비생산 14일 시간대별 패턴 — 어제부터 최대 14일간 plannedMs > 0 시간대를 병합한 windows.</summary>
+public sealed record PlannedAutoPatternDto(
+    IReadOnlyList<PlannedStopWindowDto> Windows,
+    DateTime DataFrom,
+    DateTime DataTo,
+    int DaysAnalyzed);
 
 /// <summary>정지 이벤트 로그 한 건 (필터 조회용). 시각은 로컬 변환된 DateTime.</summary>
 public sealed record OeeDowntimeDto(

@@ -48,6 +48,7 @@
                 cctvOverlaySize: OVL_SZ_DEFAULT,
                 cctvHover: null,                  // { id, camId, kind, color, pos, model }
                 cctvSolo: null,                   // 단독 보기 대상 camId (null = 분할). CSS 로만 확대 → 추가 스트림 없음.
+                cctvImageMode: false,             // true = 라이브 영상 대신 등록한 대체 이미지 표시(WHEP 미연결). 헤더 토글.
                 cctvFullscreen: false,
                 cctvRenderTick: 0,
                 cctvLoaded: false,
@@ -67,6 +68,7 @@
             async cctvStart() {
                 if (this._cctvActive) { this.$nextTick(() => this.cctvRecalcRects()); return; }
                 this._cctvActive = true;
+                try { this.cctvImageMode = localStorage.getItem('dsp.dash.cctvImageMode') === '1'; } catch (e) {}
                 await this.cctvLoadConfig();
                 await Promise.all([
                     this.cctvLoadOverlays(),
@@ -184,6 +186,19 @@
                 this.cctvApplySoloGating();
                 this.$nextTick(() => this.cctvRecalcRects());
             },
+            // 라이브 CCTV ⇄ 대체 이미지 보기 전환(헤더 토글). 이미지 모드면 전 스트림 정지(대역 0), 해제 시 재개.
+            cctvSetImageMode(on) {
+                on = !!on;
+                if (this.cctvImageMode === on) return;
+                this.cctvImageMode = on;
+                try { localStorage.setItem('dsp.dash.cctvImageMode', on ? '1' : '0'); } catch (e) {}
+                if (on) {
+                    for (const id of (this.cctvWall || []).slice()) this.cctvStopStream(id);
+                } else {
+                    this.cctvApplySoloGating();   // 라이브 복귀 — 보이는 스트림 재개
+                }
+                this.$nextTick(() => this.cctvRecalcRects());
+            },
             // 단독 보기 ⇄ 분할 전환 시 스트림 게이팅. 분할이면 전 타일 즉시 재개, 단독이면 보이는 한 대만
             // 두고 나머지는 SOLO_PAUSE_DELAY_MS 뒤 일시정지(끊김 = MediaMTX sourceOnDemand 가 10초 뒤
             // RTSP 원본까지 닫아 LTE 0). 디바운스로 빠른 토글 churn 방지.
@@ -205,6 +220,10 @@
             // ════════ WHEP 스트림 ════════
             cctvStartStream(id) {
                 if (!window.cctvWhep) return;
+                if (this.cctvImageMode) return;   // 이미지 보기 모드 — 라이브 WHEP 미연결(대체 이미지만 표시)
+                // 주소 없는(대체 이미지 전용) 카메라는 WHEP 미시작 — 상태 'off' 로 남겨 대체 이미지가 표시되게 한다.
+                const c = this.cctvCamById(id);
+                if (c && c.hasStream === false) return;
                 this._cctvHealth = { ...this._cctvHealth, [id]: 'connecting' };
                 this._cctvFrameSeen = { ...this._cctvFrameSeen, [id]: false };
                 window.cctvWhep.start('cctv-wall-' + id, this.cctvWebRtcPort, id,
@@ -232,24 +251,42 @@
                 if (st === 'failed' || st === 'disconnected' || st === 'closed') return 'failed';
                 return seen ? 'live' : 'loading';
             },
+            // 장애(연결 실패/무응답/대기)로 대체 이미지가 표시 중일 때 우하단 배지 라벨. 그 외(라이브/수동 이미지보기/주소없는 이미지전용)는 null.
+            cctvFallbackBadge(cam) {
+                if (this.cctvImageMode || !cam || !cam.fallbackImage || cam.hasStream === false) return null;
+                const st = this.cctvTileStatus(cam.id);
+                if (st === 'failed') return '연결 실패';
+                if (st === 'loading') return '연결 중';
+                if (st === 'off') return '대기';
+                return null;   // live
+            },
 
             // ════════ per-tile displayRect (object-fit:contain letterbox 보정) ════════
-            cctvComputeRect(video) {
-                if (!video) return null;
-                const stage = video.parentElement;
+            // intrinsic 크기(iw×ih)를 stage 안에 contain 으로 맞춘 표시 영역. 영상/이미지 공통.
+            cctvComputeRect(stage, iw, ih) {
                 if (!stage) return null;
                 const cw = stage.clientWidth, ch = stage.clientHeight;
                 if (cw <= 0 || ch <= 0) return null;
-                const vw = video.videoWidth, vh = video.videoHeight;
-                if (!vw || !vh) return { left: 0, top: 0, width: cw, height: ch };
-                const scale = Math.min(cw / vw, ch / vh);
-                const dw = vw * scale, dh = vh * scale;
+                if (!iw || !ih) return { left: 0, top: 0, width: cw, height: ch };
+                const scale = Math.min(cw / iw, ch / ih);
+                const dw = iw * scale, dh = ih * scale;
                 return { left: (cw - dw) / 2, top: (ch - dh) / 2, width: dw, height: dh };
             },
             cctvRecalcRects() {
                 const map = {};
                 for (const id of this.cctvWall) {
-                    const r = this.cctvComputeRect(document.getElementById('cctv-wall-' + id));
+                    const video = document.getElementById('cctv-wall-' + id);
+                    const stage = video ? video.parentElement : null;
+                    if (!stage) continue;
+                    // 표시 중인 매체 기준 레터박스: 라이브 영상이 있으면 영상, 없으면(이미지 모드/실패/대기) 대체 이미지.
+                    // 영상·이미지 모두 object-fit:contain 이라 같은 식으로 정렬된다(오버레이가 둘 다에 맞음).
+                    let iw = 0, ih = 0;
+                    if (video && video.videoWidth) { iw = video.videoWidth; ih = video.videoHeight; }
+                    else {
+                        const img = stage.querySelector('img.cctv-tile-fallback');
+                        if (img && img.naturalWidth) { iw = img.naturalWidth; ih = img.naturalHeight; }
+                    }
+                    const r = this.cctvComputeRect(stage, iw, ih);
                     if (r) map[id] = r;
                 }
                 this.cctvTileRects = map;

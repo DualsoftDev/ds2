@@ -324,6 +324,79 @@
         .up-dn-body td:first-child { font-weight: 700; white-space: nowrap; color: var(--color-text-primary); width: 150px; }
         .up-dn code { font-family: var(--font-mono); font-size: 0.92em; background: color-mix(in srgb, var(--color-text-primary) 7%, transparent); padding: 0 4px; border-radius: 3px; }
 
+        /* ════ 비생산 시간대 — 24시간 연표(타임라인) 에디터 (doc/22) ════
+           트랙 = 하루 0~24시. 블록 = 비생산 윈도(보라=계획정비 색과 통일). 빈 곳 클릭=추가, 블록 클릭=선택→수정/삭제. */
+        .up-ptl { display: flex; flex-direction: column; }
+        .up-ptl-legend { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; font-size: 0.66rem; color: var(--color-text-secondary); }
+        .up-ptl-legend .lg { display: inline-flex; align-items: center; gap: 6px; }
+        .up-ptl-legend .lg b { font-family: var(--font-mono); color: var(--color-text-primary); }
+        .up-ptl-legend .sw { width: 15px; height: 11px; border-radius: 3px; flex-shrink: 0; }
+        .up-ptl-legend .sw.manual { background: var(--purple); }
+        .up-ptl-legend .sw.auto { background: color-mix(in srgb, var(--purple) 16%, transparent); border: 1.5px dashed var(--purple); }
+        .up-ptl-legend .sw.sug { background: transparent; border: 1.5px dashed var(--color-lines-strong); }
+        .up-ptl-legend .sw.now { width: 3px; height: 15px; border-radius: 1px; background: var(--color-primary); }
+
+        /* 24h 트랙: 1시간(연한선)·3시간(진한선) 격자를 repeating-linear-gradient 로 그림(DOM 노드 없음) */
+        .up-ptl-track {
+            position: relative; height: 64px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm);
+            background-color: var(--color-surface-variant);
+            background-image:
+                repeating-linear-gradient(to right, color-mix(in srgb, var(--color-lines-strong) 50%, transparent) 0 1px, transparent 1px calc(100% / 24)),
+                repeating-linear-gradient(to right, var(--color-lines-strong) 0 1px, transparent 1px calc(100% / 8));
+            cursor: copy; overflow: hidden; user-select: none;
+        }
+        .up-ptl-now { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--color-primary); z-index: 6; pointer-events: none; }
+        .up-ptl-now::before { content: ""; position: absolute; top: -3px; left: 50%; transform: translateX(-50%); width: 7px; height: 7px; border-radius: 50%; background: var(--color-primary); }
+        .up-ptl-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 0.72rem; color: var(--color-text-disabled); pointer-events: none; text-align: center; padding: 0 10px; }
+
+        .up-ptl-win {
+            position: absolute; top: 7px; bottom: 7px; min-width: 5px;
+            background: color-mix(in srgb, var(--purple) 85%, transparent); color: #fff;
+            border: 1px solid var(--purple); border-radius: var(--radius-sm);
+            display: flex; flex-direction: column; justify-content: center; align-items: flex-start;
+            padding: 2px 7px; overflow: hidden; cursor: grab; z-index: 4; transition: box-shadow 0.12s; touch-action: none;
+        }
+        .up-ptl-win.auto { background: color-mix(in srgb, var(--purple) 15%, var(--color-surface)); color: var(--purple); border-style: dashed; }
+        .up-ptl-win:hover { z-index: 7; box-shadow: 0 2px 9px rgba(0, 0, 0, 0.22); }
+        .up-ptl-win.sel { z-index: 8; box-shadow: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-primary); }
+        .up-ptl-win .wl { font-size: 0.68rem; font-weight: 800; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+        .up-ptl-win .wt { font-size: 0.6rem; font-family: var(--font-mono); opacity: 0.92; white-space: nowrap; }
+        .up-ptl-win .wx { position: absolute; top: 2px; right: 2px; width: 17px; height: 17px; border: none; border-radius: 50%; background: rgba(0, 0, 0, 0.3); color: #fff; cursor: pointer; display: none; align-items: center; justify-content: center; padding: 0; }
+        .up-ptl-win.sel .wx, .up-ptl-win:hover .wx { display: inline-flex; }
+        .up-ptl-win.auto .wx { background: var(--purple); }
+        .up-ptl-win .wx .material-icons { font-size: 12px; }
+
+        .up-ptl-hours { display: flex; justify-content: space-between; margin-top: 4px; font-size: 0.58rem; color: var(--color-text-secondary); font-family: var(--font-mono); }
+
+        /* 자동 추정 미리보기 레인 (수동 설정 중 참고용 — 클릭 시 불러오기) */
+        .up-ptl-suglane-cap { font-size: 0.6rem; color: var(--color-text-disabled); margin-bottom: 3px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+        .up-ptl-suglane-cap:hover { color: var(--purple); }
+        .up-ptl-suglane { position: relative; height: 15px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-text-secondary) 4%, transparent); }
+        .up-ptl-sug { position: absolute; top: 0; bottom: 0; min-width: 4px; border: 1.5px dashed var(--color-lines-strong); border-radius: 3px; background: color-mix(in srgb, var(--color-text-secondary) 7%, transparent); cursor: pointer; }
+        .up-ptl-sug:hover { border-color: var(--purple); background: color-mix(in srgb, var(--purple) 10%, transparent); }
+
+        /* 편집(블록 선택 시)/추가(미선택 시) 패널 — 한 줄을 모드에 따라 전환 */
+        .up-ptl-edit { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; margin-top: 14px; padding: 11px 13px; border: 1px solid var(--color-lines); border-radius: var(--radius-sm); background: var(--color-surface-variant); }
+        .up-ptl-edit.is-edit { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface)); }
+        .up-ptl-edit-tag { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; padding-bottom: 8px; color: var(--color-text-secondary); }
+        .up-ptl-edit.is-edit .up-ptl-edit-tag { color: var(--color-primary); }
+
+        /* 드래그 추가 모드: 트랙 무장(점선/크로스헤어) + 막대 클릭 통과(트랙이 드래그 캡처) */
+        .up-ptl-arm { display: flex; align-items: center; gap: 7px; margin: 9px 0 7px; padding: 8px 12px; font-size: 0.72rem; font-weight: 700; color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 9%, var(--color-surface)); border: 1px dashed color-mix(in srgb, var(--color-primary) 55%, transparent); border-radius: var(--radius-sm); }
+        .up-ptl-arm .material-icons { font-size: 16px; }
+        .up-ptl-arm b { font-weight: 800; }
+        .up-ptl-track.arming { cursor: crosshair; touch-action: none; box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--color-primary) 60%, transparent); }
+        .up-ptl-track.arming .up-ptl-win { pointer-events: none; }
+
+        /* 막대 양끝 리사이즈 핸들 (hover/선택 시 노출) — 가운데 그립선 */
+        .up-ptl-win .wx { z-index: 6; }
+        .up-ptl-handle { position: absolute; top: 0; bottom: 0; width: 9px; cursor: ew-resize; z-index: 5; touch-action: none; display: none; }
+        .up-ptl-handle.l { left: -1px; }
+        .up-ptl-handle.r { right: -1px; }
+        .up-ptl-handle::after { content: ""; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 2px; height: 48%; background: rgba(255, 255, 255, 0.9); border-radius: 2px; }
+        .up-ptl-win.auto .up-ptl-handle::after { background: var(--purple); }
+        .up-ptl-win:hover .up-ptl-handle, .up-ptl-win.sel .up-ptl-handle { display: block; }
+
         /* ─────────────────────────────────────────────────────────────
            모바일 (≤480px) — 데이터테이블 = 카드 리스트 리플로우 + 전체 reflow.
            360px 폭까지 동작 보장. 데스크톱(>480px) 규칙은 일절 건드리지 않음.
@@ -499,6 +572,14 @@
             /* 품질 입력 다이얼로그 폭 */
             .up-qedit-row { flex-direction: column; align-items: stretch; }
             .up-qfield input, .up-qfield select { width: 100%; }
+
+            /* 비생산 시간대 연표: 트랙 키우고(터치 타깃) 편집 패널 세로 스택 + 핸들 확대 */
+            .up-ptl-track { height: 84px; }
+            .up-ptl-win .wt { display: none; }
+            .up-ptl-handle { width: 16px; display: block; }   /* 터치: 핸들 상시 노출·확대 */
+            .up-ptl-edit { flex-direction: column; align-items: stretch; }
+            .up-ptl-edit .up-qeq { display: none; }
+            .up-ptl-edit .btn { width: 100%; justify-content: center; }
         }
     </style>
 </head>
@@ -695,7 +776,7 @@
                             <div style="display:flex; gap:18px; margin-top:8px; font-size:0.72rem; color:var(--color-text-secondary); flex-wrap:wrap;">
                                 <span>Σ실측CT <b x-text="durShort(oee.normalCtMs)"></b> (<span x-text="cycleComp.normalPct + '%'"></span>) · <span x-text="(oee.normalCycleCount || 0) + ' 사이클'"></span></span>
                                 <span>Σ비가동CT <b x-text="durShort(oee.idleCtMs)"></b> (<span x-text="cycleComp.idlePct + '%'"></span>) · <span x-text="oee.failureCount + '건'"></span></span>
-                                <span x-show="oee && oee.plannedDownMs > 0">계획정지 <b x-text="durShort(oee.plannedDownMs)"></b> <span class="up-codeish" x-text="(oee.plannedStopSource === 'manual' ? '수동' : '자동') + '·분모제외'"></span></span>
+                                <span x-show="oee && oee.plannedDownMs > 0">비생산 시간 <b x-text="durShort(oee.plannedDownMs)"></b> <span class="up-codeish" x-text="(oee.plannedStopSource === 'manual' ? '수동' : '자동(10×CT)') + '·전부제외'"></span></span>
                                 <span>CT이상치 <b x-text="durShort(oee.ctThresholdMs)"></b> <span class="up-codeish">14일 평균</span></span>
                             </div>
                             <div class="up-form-hint" style="margin-top:8px;">한 사이클의 <b>MT(동작)가 CT이상치를 넘으면</b> 그 사이클 CT 전체를 비가동으로 본다(인식지연 + 고장 + 회복 포함). 미완료(CT 폭주)·무사이클 정지도 비가동에 합산하되 겹친 구간은 1회만 계상한다(이중계상 방지).</div>
@@ -710,57 +791,11 @@
                     </template>
                 </section>
 
-                <!-- ════ 계획정지 시간대 (doc/22) — 자동 5일 패턴 ▸ 사용자 설정 시 수동 전환. 이 시간대 비가동은 A 분모서 제외 ════ -->
-                <section class="card up-section">
-                    <div class="ds-card-h">
-                        <h4>계획정지 시간대</h4>
-                        <span class="ds-card-h-sub">이 시간대의 비가동은 계획정지로 분류 → 가용성(A) 분모에서 제외 (점심·교대 등)</span>
-                        <span style="flex:1;"></span>
-                        <span class="up-oee-chip" :class="ps.source === 'manual' ? 'solid' : (ps.source === 'auto' ? 'auto' : '')"
-                              x-text="ps.source === 'manual' ? '수동' : (ps.source === 'auto' ? ('자동 · ' + ps.autoSampleDays + '일 패턴') : '미설정')"></span>
-                    </div>
-
-                    <!-- 현재 시간대 목록 (편집) -->
-                    <template x-if="ps.windows.length > 0">
-                        <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:10px;">
-                            <template x-for="(w, i) in ps.windows" :key="i">
-                                <div style="display:flex; align-items:center; gap:10px; padding:7px 10px; border:1px solid var(--color-lines); border-radius:var(--radius-sm); background:var(--color-surface-variant);">
-                                    <span class="material-icons" style="font-size:16px; color:var(--color-primary);">schedule</span>
-                                    <span class="up-oee-mono" style="font-weight:700; min-width:104px;" x-text="minToHHMM(w.startMinutes) + ' – ' + minToHHMM(w.endMinutes)"></span>
-                                    <input class="up-mini-num" style="flex:1; min-width:90px; font-family:var(--font-family);" type="text" x-model="w.label" placeholder="라벨(예: 점심)" />
-                                    <button class="up-blk-rowbtn" @click="psRemove(i)" title="삭제"><span class="material-icons">delete</span></button>
-                                </div>
-                            </template>
-                        </div>
-                    </template>
-                    <template x-if="ps.windows.length === 0">
-                        <div class="up-form-hint" style="margin-bottom:10px;">설정된 계획정지 시간대 없음 — <b>5일 패턴 자동감지</b>가 운영 중 규칙적 정지(점심·교대)를 추정해 적용합니다(표본 <span x-text="ps.autoSampleDays"></span>일, 부족하면 미적용). 아래에서 직접 추가하면 자동 → 수동으로 전환됩니다.</div>
-                    </template>
-
-                    <!-- 추가 폼 -->
-                    <div style="display:flex; align-items:flex-end; gap:8px; flex-wrap:wrap;">
-                        <div class="up-qfield"><label>시작</label><input type="time" x-model="ps.draftStart" /></div>
-                        <span class="up-qeq">–</span>
-                        <div class="up-qfield"><label>끝</label><input type="time" x-model="ps.draftEnd" /></div>
-                        <div class="up-qfield" style="flex:1; min-width:120px;"><label>라벨(선택)</label><input type="text" x-model="ps.draftLabel" placeholder="점심 / 정기정비" style="width:100%; font-family:var(--font-family);" /></div>
-                        <button class="btn btn-sm btn-outlined" @click="psAdd()" :disabled="!ps.draftStart || !ps.draftEnd"><span class="material-icons" style="font-size:15px;">add</span> 추가</button>
-                    </div>
-
-                    <div class="up-blk-actions" style="margin-top:12px;">
-                        <button class="btn btn-sm btn-primary" @click="psApply()" :disabled="ps.busy"><span class="material-icons" style="font-size:15px;">save</span> 적용 (수동 고정)</button>
-                        <button class="btn btn-sm btn-outlined" @click="psResetAuto()" :disabled="ps.busy" x-show="ps.source === 'manual'"><span class="material-icons" style="font-size:15px;">auto_mode</span> 자동(5일 패턴)으로 되돌리기</button>
-                        <span style="flex:1;"></span>
-                        <span class="up-blk-msg ok" x-show="ps.msg" x-text="ps.msg"></span>
-                        <span class="up-blk-msg err" x-show="ps.err" x-text="ps.err"></span>
-                    </div>
-                    <div class="up-form-hint" style="margin-top:8px;">계획정지(점심·교대·정기정비)는 가동률을 깎지 않아야 정직합니다 — 이 시간대 비가동은 OEE 가용성 분모에서 빠집니다(미계획 정지만 A 를 깎음). 자정을 넘기는 야간 정지는 두 칸으로 나눠 입력하세요(예: 22:00~23:59, 00:00~06:00).</div>
-                </section>
-
                 <!-- ════ 일자별 시간 구성 (OEE 종합 아래 배치) — 가동/정지 근사 + 점검=계획정비 ════ -->
                 <section class="card up-section">
                     <div class="ds-card-h">
                         <h4>시간 구성</h4>
-                        <span class="ds-card-h-sub" x-text="dailyData ? (dailyData.granularity === 'hour' ? '시간별' : '일자별') + ' 가동(근사) · 정지(고장) · 점검' : '가동(근사) · 정지 · 계획정비(점검)'"></span>
+                        <span class="ds-card-h-sub" x-text="dailyData ? (dailyData.granularity === 'hour' ? '시간별' : '일자별') + ' 가동(근사) · 고장 · 유지보수' : '가동(근사) · 고장 · 유지보수'"></span>
                     </div>
 
                     <!-- 일자별/시간별 스택 막대 차트 -->
@@ -782,22 +817,20 @@
                         <div>
                             <div class="ds-legend" style="margin-bottom:10px;">
                                 <div class="lg-item"><span class="lg-swatch" style="background:var(--green);"></span> 가동(근사)</div>
-                                <div class="lg-item"><span class="lg-swatch" style="background:var(--red);"></span> 정지(비계획)</div>
-                                <div class="lg-item"><span class="lg-swatch" style="background:var(--purple);"></span> 계획정비(점검)</div>
+                                <div class="lg-item"><span class="lg-swatch" style="background:var(--red);"></span> 고장</div>
+                                <div class="lg-item"><span class="lg-swatch" style="background:var(--mt);"></span> 유지보수</div>
                             </div>
                             <div style="display:flex; height:26px; border-radius:var(--radius-sm); overflow:hidden; border:1px solid var(--color-lines);">
                                 <div :style="`width:${timeComp.runPct}%; background:var(--green);`" :title="'가동 ' + timeComp.runPct + '%'"></div>
-                                <div :style="`width:${timeComp.downPct}%; background:var(--red);`" :title="'정지(비계획) ' + timeComp.downPct + '%'"></div>
-                                <div :style="`width:${timeComp.maintPct}%; background:var(--purple);`" :title="'계획정비 ' + timeComp.maintPct + '%'"></div>
+                                <div :style="`width:${timeComp.downPct}%; background:var(--red);`" :title="'고장 ' + timeComp.downPct + '%'"></div>
+                                <div :style="`width:${timeComp.maintPct}%; background:var(--mt);`" :title="'유지보수 ' + timeComp.maintPct + '%'"></div>
                             </div>
                             <div style="display:flex; gap:18px; margin-top:8px; font-size:0.72rem; color:var(--color-text-secondary);">
                                 <span>가동 <b x-text="durShort(timeComp.runMs)"></b> (<span x-text="timeComp.runPct + '%'"></span>)</span>
-                                <span>정지(비계획) <b x-text="durShort(timeComp.downMs)"></b> (<span x-text="timeComp.downPct + '%'"></span>)</span>
-                                <span>계획정비 <b x-text="durShort(timeComp.maintMs)"></b>
-                                    <template x-if="timeComp.maintMs === 0"><span class="up-codeish" style="margin-left:4px;">미설정</span></template>
-                                </span>
+                                <span>고장 <b x-text="durShort(timeComp.downMs)"></b> (<span x-text="timeComp.downPct + '%'"></span>)</span>
+                                <span>유지보수 <b x-text="durShort(timeComp.maintMs)"></b></span>
                             </div>
-                            <div class="up-form-hint" style="margin-top:8px;">가동은 달력근사(기간 − 전체 정지)이며 유휴와 분리되지 않습니다. 계획정비는 <b>planned_maint(계획정비)로 분류된 정지의 합</b>으로, 정지(비계획)와 겹치지 않게 분리 표시됩니다.</div>
+                            <div class="up-form-hint" style="margin-top:8px;">가동은 달력근사(기간 − 전체 정지)이며 유휴와 분리되지 않습니다. 유지보수는 <b>로그에서 유지보수로 해제된 정지의 합</b>으로, 고장과 겹치지 않게 분리 표시됩니다.</div>
                         </div>
                     </template>
                     <template x-if="!oee || oee.periodMs <= 0">
@@ -812,18 +845,17 @@
                 <!-- ════ 정지 원인 도넛 | 계획시간 폴백 체인 + 14일 히스토그램 (정지 로그 위로 이동 — 로그는 이 아래에서 토글) ════ -->
                 <div class="up-grid up-2col">
 
-                    <!-- 정지 원인 분석 (미분류 포함 도넛 — 합계가 상단 '기간 정지'와 일치) + 분류 출처 칩 -->
+                    <!-- 정지 고장/유지보수 도넛 — 합계가 상단 '기간 정지'와 일치 -->
                     <section class="card up-section">
-                        <div class="ds-card-h"><h4>정지 원인 구성</h4><span class="ds-card-h-sub">원인별 비중 (지속시간 기준 · 미분류=회색)</span></div>
-                        <template x-if="reasonDist.total > 0">
+                        <div class="ds-card-h"><h4>정지 구성</h4><span class="ds-card-h-sub">고장 · 유지보수 비중 (지속시간 기준)</span></div>
+                        <template x-if="faultDist.count > 0">
                             <div class="up-dist">
-                                <!-- segs: <svg> 안 <template x-for> 는 SVG-NS 라 .content 없어 cloneNode 크래시 → x-html 문자열 주입 -->
-                                <svg class="up-donut" viewBox="0 0 100 100" x-html="reasonDonutSvg"></svg>
+                                <svg class="up-donut" viewBox="0 0 100 100" x-html="faultDonutSvg"></svg>
                                 <div class="up-legend">
-                                    <template x-for="seg in reasonDist.segs" :key="seg.code">
+                                    <template x-for="seg in faultDist.segs" :key="seg.label">
                                         <div class="up-legend-row">
                                             <span class="up-legend-swatch" :style="`background:${seg.color};`"></span>
-                                            <span class="up-legend-name"><span x-text="seg.label"></span> <span x-html="seg.srcChip"></span></span>
+                                            <span class="up-legend-name" x-text="seg.label"></span>
                                             <span class="up-legend-share" x-text="seg.share + '%'"></span>
                                             <span class="up-legend-val" x-text="durShort(seg.ms)"></span>
                                         </div>
@@ -831,20 +863,19 @@
                                 </div>
                             </div>
                         </template>
-                        <template x-if="reasonDist.total === 0">
+                        <template x-if="faultDist.count === 0">
                             <div class="ds-empty">
                                 <span class="material-icons">donut_large</span>
                                 <div class="ds-empty-title">표시할 정지 데이터 없음</div>
-                                <div class="ds-empty-desc">정지 이벤트가 기록되면 원인별 비중이 도넛으로 표시됩니다. 미분류 정지는 회색으로 표시되며, 아래 [정지 이벤트 로그 보기 및 설정] 의 [분류] 드롭다운으로 원인을 지정할 수 있습니다.</div>
+                                <div class="ds-empty-desc">정지 이벤트가 기록되면 고장/유지보수 비중이 도넛으로 표시됩니다.</div>
                             </div>
                         </template>
                         <div style="font-size:0.62rem; color:var(--color-text-secondary); margin-top:10px;">
-                            미분류(회색)도 포함 — 도넛 합계 = 상단 기간 정지 (시간 증발 없음)
+                            기본 <b>고장</b> — 로그에서 체크 해제 시 유지보수로 변경(MTBF 고장 제외)
                         </div>
                         <button class="btn btn-sm btn-outlined" style="margin-top:12px; width:100%; justify-content:center;" @click="toggleDowntimeLog()">
                             <span class="material-icons" style="font-size:16px;">receipt_long</span>
                             <span x-text="showDowntimeLog ? '정지 이벤트 로그 접기' : '정지 이벤트 로그 보기 및 설정'"></span>
-                            <span class="src-chip unclass" x-show="unclassifiedCount > 0" style="margin-left:6px;" x-text="'미분류 ' + unclassifiedCount"></span>
                         </button>
                     </section>
 
@@ -882,7 +913,7 @@
                 <section class="card up-section" id="downtime-log-section" x-show="showDowntimeLog" x-cloak>
                     <div class="ds-card-h">
                         <h4>정지 이벤트 로그</h4>
-                        <span class="ds-card-h-sub">발생 → 복구 · 자동 원인 라벨 · 읽기 전용</span>
+                        <span class="ds-card-h-sub">발생 → 복구 · 고장(기본) / 유지보수 체크 해제로 변경</span>
                         <span style="flex:1;"></span>
                         <button class="btn btn-sm btn-outlined" @click="toggleDowntimeLog()" title="로그 접기">
                             <span class="material-icons" style="font-size:15px;">close</span> 접기
@@ -896,15 +927,10 @@
                         <span class="up-chip" :class="dtFilterStatus === 'open' ? 'is-on' : ''" @click="dtFilterStatus='open'">진행중</span>
                         <span class="up-chip" :class="dtFilterStatus === 'recovered' ? 'is-on' : ''" @click="dtFilterStatus='recovered'">복구</span>
                         <span style="width:10px;"></span>
-                        <span style="font-size:0.64rem; font-weight:700; color:var(--color-text-secondary); text-transform:uppercase; letter-spacing:0.06em; margin-right:4px;">원인</span>
-                        <span class="up-chip is-q" :class="dtFilterReason === 'unclassified' ? 'is-on' : ''" @click="dtFilterReason = dtFilterReason==='unclassified' ? 'all' : 'unclassified'">미분류만</span>
-                        <select class="up-mini-select" x-model="dtFilterReason">
-                            <option value="all">원인 전체</option>
-                            <option value="unclassified">미분류</option>
-                            <template x-for="r in reasonOptions" :key="r.code">
-                                <option :value="r.code" x-text="r.label"></option>
-                            </template>
-                        </select>
+                        <span style="font-size:0.64rem; font-weight:700; color:var(--color-text-secondary); text-transform:uppercase; letter-spacing:0.06em; margin-right:4px;">구분</span>
+                        <span class="up-chip" :class="dtFilterFault === 'all' ? 'is-on' : ''" @click="dtFilterFault='all'">전체</span>
+                        <span class="up-chip" :class="dtFilterFault === 'fault' ? 'is-on' : ''" @click="dtFilterFault='fault'" style="border-color:var(--red); color:var(--red);" :style="dtFilterFault==='fault'?'background:var(--red);color:#fff;':''">고장</span>
+                        <span class="up-chip" :class="dtFilterFault === 'maintenance' ? 'is-on' : ''" @click="dtFilterFault='maintenance'" style="border-color:var(--mt); color:var(--mt);" :style="dtFilterFault==='maintenance'?'background:var(--mt);color:#fff;':''">유지보수</span>
                         <span style="flex:1;"></span>
                         <span class="up-form-ok" x-show="dtMsg" x-text="dtMsg"></span>
                     </div>
@@ -920,7 +946,7 @@
                                         <th style="width:140px;">복구</th>
                                         <th style="width:80px;">지속</th>
                                         <th>설비(Flow)</th>
-                                        <th>원인 (자동 라벨)</th>
+                                        <th style="width:100px;">고장</th>
                                         <th style="width:90px;">감지</th>
                                         <th style="width:150px;">겹친 신호 (단서)</th>
                                         <th style="width:84px;">상태</th>
@@ -935,9 +961,11 @@
                                             <td data-label="설비(Flow)"><strong x-text="d.flowName || d.systemName || '—'"></strong>
                                                 <template x-if="d.deviceName"><span class="up-rank-sub" x-text="' · ' + d.deviceName"></span></template>
                                             </td>
-                                            <td data-label="원인 (자동 라벨)" :class="d.reasonCode ? '' : 'unclassified'">
-                                                <span x-text="reasonLabel(d.reasonCode)"></span>
-                                                <span x-html="classifyChipHtml(d.classifySource)"></span>
+                                            <td data-label="고장" style="white-space:nowrap;">
+                                                <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;" :title="d.isFailure ? '고장 — 클릭하면 유지보수로 변경' : '유지보수 — 클릭하면 고장으로 변경'">
+                                                    <input type="checkbox" class="up-dt-cb" :checked="d.isFailure" @change="setFault(d, $event.target.checked)">
+                                                    <span x-text="d.isFailure ? '고장' : '유지보수'" :style="d.isFailure ? 'color:var(--red);font-weight:700;' : 'color:var(--mt);font-weight:700;'"></span>
+                                                </label>
                                             </td>
                                             <td data-label="감지" x-html="detectChipHtml(d.detectSource)"></td>
                                             <td data-label="겹친 신호 (단서)" x-html="clueHtml(d.clue)"></td>
@@ -954,7 +982,7 @@
                         <div class="ds-empty" style="border-style:solid;">
                             <span class="material-icons">check_circle</span>
                             <div class="ds-empty-title" x-text="downtime.length === 0 ? '해당 기간 정지 이벤트 없음' : '필터에 해당하는 정지 이벤트 없음'"></div>
-                            <div class="ds-empty-desc" x-text="downtime.length === 0 ? '무사이클 onset 자동 감지 / UserTag onset 가 기록되면 여기에 표시됩니다.' : '상태·원인 필터를 변경해 보세요.'"></div>
+                            <div class="ds-empty-desc" x-text="downtime.length === 0 ? '무사이클 onset 자동 감지 / UserTag onset 가 기록되면 여기에 표시됩니다.' : '상태·구분 필터를 변경해 보세요.'"></div>
                         </div>
                     </template>
 
@@ -963,13 +991,12 @@
                         <span class="src-chip detect">무사이클</span> 사이클 끊김
                         <span class="src-chip detect">고장비트</span> PLC 비트 rising/falling
                         <span class="src-chip detect">수동</span> 작업자 등록 &nbsp;—&nbsp; 여기서만 정지 건수·길이가 만들어집니다.<br>
-                        <b style="color:var(--color-text-primary);">원인 라벨(자동):</b>
-                        <span class="src-chip heur">자동·비트</span> <span class="src-chip heur">자동·시간임계</span> 휴리스틱이 자동 부여(읽기 전용) &nbsp;·&nbsp;
+                        <b style="color:var(--color-text-primary);">고장/유지보수:</b>
+                        기본 <b>고장</b>으로 체크됨 — 체크 해제 시 <b>유지보수</b>(MTBF 고장 제외)로 변경됩니다. &nbsp;·&nbsp;
                         <b style="color:var(--color-text-primary);">단서:</b>
                         <span class="clue-chip abn"><span class="material-icons">troubleshoot</span>abnormal</span>
                         <span class="clue-chip ut"><span class="material-icons">troubleshoot</span>usertag</span>
-                        같은 설비·시간대에 겹친 이상신호를 <b>표시용</b>으로 붙입니다 — 점 이벤트라 정지 구간을 만들지 않고
-                        <b>건수·MTBF에 더해지지 않습니다</b>(정직성).
+                        같은 설비·시간대에 겹친 이상신호를 <b>표시용</b>으로 붙입니다 — <b>건수·MTBF에 더해지지 않습니다</b>(정직성).
                     </div>
                 </section>
 
@@ -1005,6 +1032,152 @@
                     </template>
                 </section>
                 </div>
+
+                <!-- ════ 비생산 시간대 (doc/22) — 24시간 연표 에디터. 자동 5일 패턴 ▸ 사용자 설정 시 수동 전환.
+                     이 시간대의 정상 CT·비가동은 모두 OEE 산출에서 제외(생산·비생산 가리지 않고 분모 밖). OEE 종합 탭 맨 아래 배치(설정 성격). ════ -->
+                <section class="card up-section" id="planned-stops-section">
+                    <div class="ds-card-h">
+                        <h4>비생산 시간대</h4>
+                        <span class="ds-card-h-sub">애초에 생산하지 않는 시간(점심·교대·정기정비·무오더 등)은 OEE 산출에서 통째로 제외 — 자동 계산하거나 24시간 연표로 직접 지정</span>
+                        <span style="flex:1;"></span>
+                        <span class="up-oee-chip" :class="ps.auto ? 'auto' : (ps.source === 'manual' ? 'solid' : '')"
+                              x-text="ps.auto ? ('자동 · ' + ps.ctMultiplier + '×CT 장시간정지') : (ps.source === 'manual' ? '수동' : '미설정')"></span>
+                        <button class="btn btn-sm" :class="ps.auto ? 'btn-outlined' : 'btn-filled'"
+                                :disabled="ps.busy"
+                                @click="psSetAuto(!ps.auto)"
+                                x-text="ps.auto ? '수동 설정하기' : '자동 전환하기'"></button>
+                    </div>
+
+                    <!-- 자동 계산 ON: 수동 편집 불필요 안내 + 읽기 전용 타임라인 -->
+                    <div x-show="ps.auto" x-cloak>
+                        <div style="display:flex; align-items:flex-start; gap:9px; padding:11px 13px; border:1px dashed var(--color-border); border-radius:8px; color:var(--color-text-secondary); font-size:0.78rem; line-height:1.5; margin-bottom:12px;">
+                            <span class="material-icons" style="font-size:18px; color:var(--teal,#1FA8B8);">auto_mode</span>
+                            <span>자동 계산이 켜져 있어 비생산 시간대를 직접 지정할 필요가 없습니다. 평균 CT의 <b x-text="ps.ctMultiplier"></b>배 이상 멈춘 구간이 실시간 비생산으로 분류됩니다. 아래는 이전에 설정한 수동 시간대(현재 미적용, 참고용)입니다. 직접 지정하려면 자동 계산을 끄세요.</span>
+                        </div>
+
+                        <!-- 읽기 전용 24h 타임라인 — 14일 자동 감지 비생산 패턴 + 수동 설정(참고) 동시 표시 -->
+                        <div class="up-ptl">
+                            <div class="up-ptl-legend">
+                                <span class="lg"><span class="sw auto"></span> 자동 감지 비생산 (어제~14일 이동평균)</span>
+                                <span class="lg" x-show="ps.windows.length > 0" style="opacity:0.55;">
+                                    <span class="sw manual" style="opacity:0.45;"></span> 수동 설정 (미적용)
+                                </span>
+                                <span class="lg"><span class="sw now"></span> 현재 <b x-text="minToHHMM(nowMin())"></b></span>
+                            </div>
+                            <div class="up-ptl-track" style="pointer-events:none; cursor:default;">
+                                <div class="up-ptl-now" :style="`left:${nowMin() / 1440 * 100}%`"></div>
+                                <!-- 자동 감지 비생산 블록 (14일 시간대 패턴) -->
+                                <template x-for="(w, i) in (ps.autoPattern ? ps.autoPattern.windows : [])" :key="'auto-' + i">
+                                    <div class="up-ptl-win auto" :style="psWinStyle(w)"
+                                         :title="minToHHMM(w.startMinutes) + ' – ' + minToHHMM(w.endMinutes) + ' · 자동 감지 비생산 (14일 기준)'">
+                                        <span class="wl">비생산</span>
+                                        <span class="wt" x-show="(w.endMinutes - w.startMinutes) >= 90" x-text="minToHHMM(w.startMinutes) + '–' + minToHHMM(w.endMinutes)"></span>
+                                    </div>
+                                </template>
+                                <!-- 수동 설정 범위 (반투명 참고용) -->
+                                <template x-for="(w, i) in ps.windows" :key="'ro-' + i">
+                                    <div class="up-ptl-win auto" :style="psWinStyle(w) + 'opacity:0.35;'"
+                                         :title="minToHHMM(w.startMinutes) + ' – ' + minToHHMM(w.endMinutes) + (w.label ? (' · ' + w.label) : '') + ' (수동 설정 · 현재 미적용)'">
+                                        <span class="wl" x-text="w.label || '비생산'"></span>
+                                    </div>
+                                </template>
+                                <!-- 빈 상태 -->
+                                <div class="up-ptl-empty"
+                                     x-show="(!ps.autoPattern || ps.autoPattern.windows.length === 0) && ps.windows.length === 0">
+                                    최근 14일 자동 감지된 비생산 없음 (10×CT 기준)
+                                </div>
+                            </div>
+                            <div class="up-ptl-hours">
+                                <span>00</span><span>03</span><span>06</span><span>09</span><span>12</span><span>15</span><span>18</span><span>21</span><span>24</span>
+                            </div>
+                            <div style="font-size:0.6rem; color:var(--color-text-secondary); margin-top:4px;" x-show="ps.autoPattern">
+                                최근 14일 중 해당 시간대에 10×CT 이상 정지가 1회 이상 있었던 구간을 표시합니다
+                                <template x-if="ps.autoPattern && ps.autoPattern.dataFrom">
+                                    <span x-text="' (' + (ps.autoPattern.dataFrom || '').slice(0,10) + ' ~ ' + (ps.autoPattern.dataTo || '').slice(0,10) + ')'"></span>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="up-ptl" x-show="!ps.auto" x-cloak>
+                        <!-- 자동 감지 시드 안내 (자동→수동 전환 직후, 적용 전까지 표시) -->
+                        <div x-show="ps.seededFromAuto" x-cloak
+                             style="display:flex; align-items:flex-start; gap:9px; padding:10px 13px; border:1px dashed var(--color-border); border-radius:8px; background:color-mix(in srgb,var(--teal,#1FA8B8) 7%,transparent); color:var(--color-text-secondary); font-size:0.78rem; line-height:1.5; margin-bottom:12px;">
+                            <span class="material-icons" style="font-size:18px; color:var(--teal,#1FA8B8); flex:none;">auto_mode</span>
+                            <span>자동 감지된 비생산 구간을 초기값으로 불러왔습니다. 아래 연표에서 직접 수정한 뒤 <b>[적용]</b>을 누르면 수동 고정됩니다.</span>
+                        </div>
+
+                        <!-- 범례 + [시간 추가] (드래그 추가 모드 토글) -->
+                        <div class="up-ptl-legend">
+                            <span class="lg"><span class="sw manual"></span> 비생산 시간 (수동)</span>
+                            <span class="lg"><span class="sw now"></span> 현재 <b x-text="minToHHMM(nowMin())"></b></span>
+                            <span style="flex:1;"></span>
+                            <button class="btn btn-sm" :class="ps.addMode ? 'btn-filled' : 'btn-outlined'"
+                                    @click="ps.addMode ? psCancelAdd() : psBeginAdd()">
+                                <span class="material-icons" style="font-size:15px;" x-text="ps.addMode ? 'close' : 'add'"></span>
+                                <span x-text="ps.addMode ? '추가 취소' : '시간 추가'"></span>
+                            </button>
+                        </div>
+
+                        <!-- 드래그 추가 안내 배너 (추가 모드일 때) -->
+                        <div class="up-ptl-arm" x-show="ps.addMode" x-cloak>
+                            <span class="material-icons">touch_app</span>
+                            차트에서 원하는 구간을 <b>드래그</b>하여 비생산 시간대를 그리세요 (5분 단위 스냅).
+                        </div>
+
+                        <!-- 24시간 트랙 — 추가 모드: 드래그하여 새 시간대 생성 / 평소: 막대 양끝 드래그=조절, ✕=삭제 -->
+                        <div class="up-ptl-track" :class="{ arming: ps.addMode }" x-ref="ptltrack"
+                             @pointerdown="psTrackPointerDown($event)"
+                             :title="ps.addMode ? '드래그하여 새 비생산 시간대를 그리세요' : '막대를 드래그해 이동, 양끝을 드래그해 시간 조절, ✕ 로 삭제'">
+                            <div class="up-ptl-now" :style="`left:${nowMin() / 1440 * 100}%`"></div>
+                            <template x-for="(w, i) in ps.windows" :key="i">
+                                <div class="up-ptl-win" :class="{ 'sel': ps.selected === i }"
+                                     :style="psWinStyle(w)" @pointerdown.stop.prevent="psMoveStart($event, i)"
+                                     :title="minToHHMM(w.startMinutes) + ' – ' + minToHHMM(w.endMinutes) + (w.label ? (' · ' + w.label) : '') + ' · 드래그하여 이동'">
+                                    <span class="up-ptl-handle l" @pointerdown.stop.prevent="psResizeStart($event, i, 'l')" title="시작 시각 조절"></span>
+                                    <span class="wl" x-text="w.label || '비생산'"></span>
+                                    <span class="wt" x-show="(w.endMinutes - w.startMinutes) >= 150" x-text="minToHHMM(w.startMinutes) + '–' + minToHHMM(w.endMinutes)"></span>
+                                    <button class="wx" @click.stop="psRemove(i)" @pointerdown.stop title="이 시간대 삭제"><span class="material-icons">close</span></button>
+                                    <span class="up-ptl-handle r" @pointerdown.stop.prevent="psResizeStart($event, i, 'r')" title="끝 시각 조절"></span>
+                                </div>
+                            </template>
+                            <div class="up-ptl-empty" x-show="ps.windows.length === 0" x-text="ps.addMode ? '차트에서 드래그하여 시간대를 그리세요' : '비생산 시간대 없음 — [시간 추가] 를 눌러 차트에 드래그하세요'"></div>
+                        </div>
+                        <!-- 시각 눈금 (3시간 간격, 격자선과 정렬) -->
+                        <div class="up-ptl-hours">
+                            <span>00</span><span>03</span><span>06</span><span>09</span><span>12</span><span>15</span><span>18</span><span>21</span><span>24</span>
+                        </div>
+                        <div style="font-size:0.6rem; color:var(--color-text-secondary); margin-top:5px;">막대를 드래그해 이동 · 양끝을 드래그해 길이 조절 · 막대 클릭 후 라벨 입력 · <span class="material-icons" style="font-size:11px; vertical-align:-1px;">close</span> 로 삭제</div>
+
+                        <!-- 선택된 막대 편집 — 라벨 입력 + 시각 미세조정(드래그 보조) + 삭제 -->
+                        <template x-if="ps.selected >= 0 && ps.windows[ps.selected]">
+                            <div class="up-ptl-edit is-edit">
+                                <span class="up-ptl-edit-tag">선택됨</span>
+                                <div class="up-qfield"><label>시작</label><input type="time" :value="minToTimeInput(ps.windows[ps.selected].startMinutes)" @input="psSetTime('start', $event.target.value)" /></div>
+                                <span class="up-qeq">–</span>
+                                <div class="up-qfield"><label>끝</label><input type="time" :value="minToTimeInput(ps.windows[ps.selected].endMinutes)" @input="psSetTime('end', $event.target.value)" /></div>
+                                <div class="up-qfield" style="flex:1; min-width:120px;"><label>라벨(선택)</label><input type="text" x-model="ps.windows[ps.selected].label" placeholder="점심 / 정기정비" style="width:100%; font-family:var(--font-family);" /></div>
+                                <button class="btn btn-sm btn-outlined" @click="psRemove(ps.selected)"><span class="material-icons" style="font-size:15px;">delete</span> 삭제</button>
+                                <button class="btn btn-sm btn-outlined" @click="psDeselect()">선택 해제</button>
+                            </div>
+                        </template>
+                    </div>
+
+                    <!-- 적용 (수동) / 자동 계산으로 전환 — 자동 ON 일 때는 숨김 -->
+                    <div class="up-blk-actions" style="margin-top:14px;" x-show="!ps.auto" x-cloak>
+                        <button class="btn btn-sm btn-primary" @click="psApply()" :disabled="ps.busy"><span class="material-icons" style="font-size:15px;">save</span> 적용 (수동 고정)</button>
+                        <button class="btn btn-sm btn-outlined" @click="psSetAuto(true)" :disabled="ps.busy"><span class="material-icons" style="font-size:15px;">auto_mode</span> 자동 계산으로 전환</button>
+                        <span style="flex:1;"></span>
+                        <span class="up-blk-msg ok" x-show="ps.msg" x-text="ps.msg"></span>
+                        <span class="up-blk-msg err" x-show="ps.err" x-text="ps.err"></span>
+                    </div>
+                    <!-- 자동 ON 일 때의 메시지(전환 직후 피드백) -->
+                    <div class="up-blk-actions" style="margin-top:14px;" x-show="ps.auto && (ps.msg || ps.err)" x-cloak>
+                        <span class="up-blk-msg ok" x-show="ps.msg" x-text="ps.msg"></span>
+                        <span class="up-blk-msg err" x-show="ps.err" x-text="ps.err"></span>
+                    </div>
+                    <div class="up-form-hint" style="margin-top:8px;">비생산 시간(점심·교대·정기정비·무오더 등)은 애초에 생산하지 않는 시간이라 OEE 산출에서 통째로 빠집니다 — 그 구간의 사이클은 <b>정상 CT·비가동을 가리지 않고</b> 모두 제외되어 가동률·성능을 깎지 않습니다(생산 시간 중의 미계획 정지만 A 를 깎음). <b>자동 계산</b>은 평균 CT의 <span x-text="ps.ctMultiplier"></span>배 이상 멈춘 구간을 비생산으로 보며, 직접 지정하려면 자동 계산을 끄고 연표에 시간대를 그리세요(자정 넘김은 두 칸으로 분리, 예: 22:00~23:59, 00:00~06:00).</div>
+                </section>
 
                 <datalist id="up-flow-list">
                     <template x-for="f in flowNames" :key="f"><option :value="f"></option></template>
@@ -1298,8 +1471,8 @@
                                 <tr><td>비가동 dedup</td><td>① MT&gt;CT이상치 ② 미완료(complete=null) CT폭주 ③ 무사이클 정지. ③은 사이클 CT 구간과 안 겹치는 부분만 가산(구간 차집합) — <b>이중계상 방지</b>.</td></tr>
                                 <tr><td>MTTR / MTBF</td><td>비가동 <b>onset</b>(= 사이클 시작 + CT이상치)에서 파생. <b>MTTR</b> = onset→going 회복 평균 · <b>MTBF</b> = 연속 onset 간격 평균. OEE 곱셈식과 <b>독립</b> 동반지표. 0건이면 "🟢 무비가동" 배지(가짜수치 금지).</td></tr>
                                 <tr><td>폴백 보존</td><td>14일 클린샘플 <b>0(임계 없음)</b>일 때만 가용성은 <b>시간기반 폴백 체인</b>(시프트 ▸ 자동추정 ▸ 달력)으로 근사. A 카드 칩으로 현재 출처(<span class="up-codeish">사이클</span>/시프트/자동추정/달력) 표시.</td></tr>
-                                <tr><td>정지 3계층 (존치)</td><td><b>감지</b>(무사이클/고장비트/수동) · <b>분류</b>(자동·비트/시간임계/수동 — 수동 우선) · <b>단서</b>(abnormal/usertag 겹침 = 표시 전용). 무사이클은 ③ 합산 소스 + 원인 라벨링 레이어.</td></tr>
-                                <tr><td>필수 입력 0개</td><td>CT이상치·비가동 판정·A·P·MTTR·MTBF 모두 수집 데이터로 자동. 품질%·표준CT 수동입력·정지 분류는 선택(보정).</td></tr>
+                                <tr><td>정지 2계층</td><td><b>감지</b>(무사이클/고장비트/수동) · <b>단서</b>(abnormal/usertag 겹침 = 표시 전용). 기본 고장 체크 — 로그에서 해제 시 유지보수(MTBF 분모 제외).</td></tr>
+                                <tr><td>필수 입력 0개</td><td>CT이상치·비가동 판정·A·P·MTTR·MTBF 모두 수집 데이터로 자동. 품질%·표준CT 수동입력·고장/유지보수 구분은 선택(보정).</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -1505,18 +1678,9 @@
     <script src="/lib/chartjs-adapter-date-fns.bundle.min.js"></script>
     <script src="/lib/signalr.min.js"></script>
     <script>
-        // 정지 원인 코드 ↔ 한글 라벨 + 도넛 색 (doc/21 §2.1 reasonCode 집합).
-        const REASON_DEFS = [
-            { code: 'equipment_fault', label: '설비고장', category: 'unplanned', color: 'var(--red)' },
-            { code: 'material_wait', label: '자재대기', category: 'unplanned', color: 'var(--amber)' },
-            { code: 'operator_wait', label: '작업자대기', category: 'unplanned', color: 'var(--wt)' },
-            { code: 'tooling', label: '금형·공구', category: 'unplanned', color: 'var(--purple)' },
-            { code: 'planned_maint', label: '계획정비', category: 'planned', color: 'var(--mt)' },
-            { code: 'etc', label: '기타', category: 'unplanned', color: 'var(--color-text-secondary)' },
-        ];
-        // 미분류 도넛 조각 — 분류 전 정지도 회색으로 표시해 상단 '기간 정지' 합계와 일치시킴(시간 증발 방지).
-        // 분류 드롭다운 옵션(reasonOptions=REASON_DEFS)에는 포함되지 않는 표시 전용 의사 코드.
-        const UNCLASSIFIED_DEF = { code: '__unclassified', label: '미분류', color: 'var(--color-text-disabled)' };
+        // 정지 2-상태: 고장(isFault=true) / 유지보수(isFault=false). isFailure 필드에 대응.
+        const FAULT_DEF = { label: '고장', color: 'var(--red)' };
+        const MAINT_DEF = { label: '유지보수', color: 'var(--mt)' };
 
         // 일자별 차트 인스턴스 — Alpine 반응형 밖에 보관(Proxy 크래시 방지)
         let _dailyChart = null;
@@ -1545,12 +1709,10 @@
                 oee: null, oeeError: null,
                 planTime: null, // /api/oee/plan-time — 계획시간 폴백 체인 + 14일 히스토그램
                 downtime: [], ranking: [],
-                reasonOptions: REASON_DEFS,
-                dtFilterStatus: 'all', dtFilterReason: 'all',
-                classifyDraft: {},
+                dtFilterStatus: 'all', dtFilterFault: 'all', // 'all'|'fault'|'maintenance'
                 dtMsg: '', _dtMsgTimer: null, _prodMsgTimer: null, _ctMsgTimer: null,
                 // 일괄 선택 상태
-                selectedIds: {}, bulkDraft: '', bulkBusy: false,
+                selectedIds: {}, bulkBusy: false,
                 // 일자 기본값은 로컬 날짜 — toISOString() 은 UTC 라 KST 오전 9시 전엔 어제로 채워짐
                 // 품질(양품률) 직접 입력 다이얼로그 — 전반 품질% 를 직접 설정(POST /api/oee/quality, 전역). 품질 Q 카드 클릭으로 염.
                 qDialog: { show: false, qualityPct: 100, busy: false, msg: '', err: '' },
@@ -1558,8 +1720,10 @@
                 pDialog: { show: false, basis: 'avg', busy: false, msg: '', err: '' },
                 // 오버레이 닫힘 가드 — mousedown 이 오버레이(백드롭)에서 시작했을 때만 닫는다(모달 안에서 시작→백드롭 release 드래그로 오닫힘 방지).
                 _qDown: false, _pDown: false,
-                // 계획정지 시간대 (doc/22) — source: manual(사용자) / auto(5일 패턴) / none. windows=편집용 사본.
-                ps: { source: 'none', windows: [], autoSuggested: [], autoSampleDays: 0, draftStart: '', draftEnd: '', draftLabel: '', msg: '', err: '', busy: false },
+                // 비생산 시간대 (doc/22 §3.3) — auto: 자동 계산(10×CT 장시간정지) on/off. source: auto/manual/none. ctMultiplier: 자동판정 배수(10).
+                // windows=수동 편집용 사본. selected=선택된 윈도 index(-1=미선택). addMode=드래그 추가 무장.
+                ps: { source: 'none', auto: true, ctMultiplier: 10, windows: [], selected: -1, addMode: false, msg: '', err: '', busy: false, autoPattern: null, seededFromAuto: false },
+                _psDrag: null, // 진행 중 드래그 상태 { mode:'create'|'resize-l'|'resize-r', index, anchor } (비반응형)
                 // 정지 이벤트 로그 토글 — 기본 숨김, 정지 원인 구성(도넛)의 [로그 보기 및 설정] 버튼으로 토글
                 showDowntimeLog: false,
                 // 표준CT(idealCT) Flow 일괄 편집 테이블 (편집값은 각 행 객체 draft 에 보관 — Alpine x-for 양방향 바인딩 안정)
@@ -1670,47 +1834,182 @@
                     return await res.json();
                 },
 
-                // ── 계획정지 시간대 (doc/22): 5일 자동감지 ▸ 사용자 설정 시 수동 전환 ──
-                minToHHMM(m) { const p = x => String(x).padStart(2, '0'); return p(Math.floor(m / 60)) + ':' + p(m % 60); },
+                // ── 비생산 시간대 (doc/22): 5일 자동감지 ▸ 사용자 설정 시 수동 전환. UI=24시간 연표 에디터 ──
+                minToHHMM(m) { const p = x => String(x).padStart(2, '0'); m = Math.max(0, Math.min(1440, Math.round(m || 0))); return p(Math.floor(m / 60)) + ':' + p(m % 60); },
+                // type=time 입력용 — 24:00(1440)은 표현 불가라 23:59 로 클램프(라벨/타이틀은 minToHHMM 의 '24:00' 유지)
+                minToTimeInput(m) { return this.minToHHMM(Math.min(1439, Math.max(0, Math.round(m || 0)))); },
                 hhmmToMin(s) { if (!s) return null; const a = s.split(':'); const h = +a[0], m = +a[1]; return (isNaN(h) || isNaN(m)) ? null : h * 60 + m; },
+                // 현재 시각의 분(0~1439) — 연표 'now' 라인. 10초 폴링이 oee 를 갱신할 때 함께 재평가됨.
+                nowMin() { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); },
+                // 윈도 → 트랙 위 절대 위치(left/width %). end<start(편집 중) 면 width 0 으로 클램프.
+                psWinStyle(w) {
+                    const s = Math.max(0, Math.min(1440, w.startMinutes || 0));
+                    const e = Math.max(0, Math.min(1440, w.endMinutes || 0));
+                    return `left:${s / 1440 * 100}%; width:${Math.max(0, (e - s) / 1440 * 100)}%;`;
+                },
                 async loadPlannedStops() {
                     try {
                         const r = await this.apiGet('/api/oee/planned-stops');
                         this.ps.source = r.source || 'none';
-                        this.ps.autoSampleDays = r.autoSampleDays || 0;
-                        this.ps.autoSuggested = (r.autoSuggested || []).map(w => ({ startMinutes: w.startMinutes, endMinutes: w.endMinutes }));
+                        this.ps.auto = !!r.auto;
+                        this.ps.ctMultiplier = r.ctMultiplier || 10;
                         this.ps.windows = (r.windows || []).map(w => ({ startMinutes: w.startMinutes, endMinutes: w.endMinutes, label: w.label || '' }));
-                    } catch (e) { this.ps.err = '계획정지 시간대를 불러오지 못했습니다: ' + e.message; }
+                        this.ps.selected = -1; this.ps.addMode = false; this.ps.seededFromAuto = false;
+                    } catch (e) { this.ps.err = '비생산 시간대를 불러오지 못했습니다: ' + e.message; }
+                    // 자동 모드일 때 14일 시간대 패턴 별도 조회 (curFlow 필터 반영)
+                    if (this.ps.auto) {
+                        try {
+                            const qs = this.curFlow ? `?flow=${encodeURIComponent(this.curFlow)}` : '';
+                            const p = await this.apiGet('/api/oee/planned-stops/auto-pattern' + qs);
+                            this.ps.autoPattern = p;
+                        } catch (e) { this.ps.autoPattern = null; }
+                    } else {
+                        this.ps.autoPattern = null;
+                    }
                 },
-                psAdd() {
-                    const s = this.hhmmToMin(this.ps.draftStart), e = this.hhmmToMin(this.ps.draftEnd);
-                    if (s == null || e == null) { this.ps.err = '시작/끝 시각을 입력하세요.'; return; }
-                    if (e <= s) { this.ps.err = '끝 시각이 시작보다 뒤여야 합니다(자정 넘김은 두 칸으로 분리).'; return; }
+                // 자동 계산 on/off — on=10×CT 장시간정지 자동 비생산, off=수동 시각대만. 수동 적용은 자동을 끈다(서버 SavePlannedStops).
+                async psSetAuto(enabled) {
+                    this.ps.busy = true; this.ps.msg = ''; this.ps.err = '';
+                    // 자동 → 수동 전환 시: loadPlannedStops 호출 전에 autoPattern 캡처 (이후 autoPattern=null 로 지워짐)
+                    const capturedAutoWins = !enabled && this.ps.autoPattern?.windows?.length
+                        ? this.ps.autoPattern.windows.map(w => ({ startMinutes: w.startMinutes, endMinutes: w.endMinutes, label: w.label || '' }))
+                        : null;
+                    try {
+                        await this.apiPost('/api/oee/planned-stops/auto', { enabled });
+                        await this.loadPlannedStops();
+                        // 수동 전환 시 자동 감지 구간을 수동 에디터 초기값으로 시드 (사용자가 바로 수정 가능)
+                        if (!enabled && capturedAutoWins && capturedAutoWins.length > 0) {
+                            this.ps.windows = capturedAutoWins;
+                            this.ps.seededFromAuto = true;
+                            this.ps.msg = `자동 감지된 비생산 ${capturedAutoWins.length}개 구간을 불러왔습니다 — 수정 후 [적용]을 누르세요`;
+                        } else {
+                            this.ps.seededFromAuto = false;
+                            this.ps.msg = enabled ? `자동 계산 켜짐 — 평균 CT의 ${this.ps.ctMultiplier}배 이상 장시간 정지를 비생산으로 분류` : '자동 계산 꺼짐 — 수동 시간대만 적용';
+                        }
+                        await this.loadOee();
+                    } catch (e) { this.ps.err = '변경 실패: ' + e.message; }
+                    finally { this.ps.busy = false; setTimeout(() => { this.ps.msg = ''; }, 8000); }
+                },
+                psSelect(i) { if (this.ps.addMode) return; this.ps.selected = i; this.ps.err = ''; },
+                psDeselect() { this.ps.selected = -1; },
+                // [시간 추가] 토글 — 무장 시 트랙 드래그로 새 시간대 생성. 다시 누르면 취소.
+                psBeginAdd() { this.ps.addMode = true; this.ps.selected = -1; this.ps.err = ''; this.ps.msg = ''; },
+                psCancelAdd() { this.ps.addMode = false; },
+                // clientX → 분(0~1440, 5분 스냅) — $refs.ptltrack 기준
+                _psMinFromEvent(ev) {
+                    const el = this.$refs.ptltrack; if (!el) return 0;
+                    const rect = el.getBoundingClientRect(); if (rect.width <= 0) return 0;
+                    let f = (ev.clientX - rect.left) / rect.width;
+                    f = Math.max(0, Math.min(1, f));
+                    return Math.round(f * 1440 / 5) * 5; // 5분 단위 스냅
+                },
+                // 트랙 pointerdown — 추가 모드: 드래그 생성 시작 / 평소: 빈 곳이면 선택 해제(막대는 @click.stop)
+                psTrackPointerDown(ev) {
+                    if (this.ps.addMode) {
+                        const m = this._psMinFromEvent(ev);
+                        this.ps.windows = [...this.ps.windows, { startMinutes: m, endMinutes: m, label: '' }];
+                        this._psDrag = { mode: 'create', index: this.ps.windows.length - 1, anchor: m };
+                        this._psStartDrag();
+                        ev.preventDefault();
+                    } else if (ev.target === ev.currentTarget) {
+                        this.ps.selected = -1;
+                    }
+                },
+                // 막대 본체 pointerdown → 선택 + 이동(전체 시간대 평행이동) 드래그 시작. 거의 안 움직이면 단순 선택(클릭)으로 처리.
+                psMoveStart(ev, i) {
+                    if (this.ps.addMode) return;
+                    this.ps.selected = i; this.ps.err = '';
+                    const w = this.ps.windows[i];
+                    this._psDrag = { mode: 'move', index: i, anchor: this._psMinFromEvent(ev), downX: ev.clientX, dur: w.endMinutes - w.startMinutes, origStart: w.startMinutes, moved: false };
+                    this._psStartDrag();
+                },
+                // 막대 양끝 핸들 pointerdown → 리사이즈 드래그 시작
+                psResizeStart(ev, i, side) {
+                    if (this.ps.addMode) return;
+                    this.ps.selected = i; this.ps.err = '';
+                    this._psDrag = { mode: side === 'l' ? 'resize-l' : 'resize-r', index: i, anchor: 0 };
+                    this._psStartDrag();
+                },
+                // 문서 레벨 move/up 바인딩 — 포인터가 트랙을 벗어나도 드래그 유지. 드래그 동안 커서 고정.
+                _psStartDrag() {
+                    const cur = this._psDrag.mode === 'move' ? 'grabbing' : (this._psDrag.mode === 'create' ? 'crosshair' : 'ew-resize');
+                    document.body.style.cursor = cur;
+                    this._psMoveBound = (e) => this._psDragMove(e);
+                    this._psUpBound = (e) => this._psDragEnd(e);
+                    document.addEventListener('pointermove', this._psMoveBound);
+                    document.addEventListener('pointerup', this._psUpBound);
+                    document.addEventListener('pointercancel', this._psUpBound);
+                },
+                _psDragMove(ev) {
+                    const d = this._psDrag; if (!d) return;
+                    const w = this.ps.windows[d.index]; if (!w) return;
+                    const m = this._psMinFromEvent(ev);
+                    if (d.mode === 'create') { w.startMinutes = Math.min(d.anchor, m); w.endMinutes = Math.max(d.anchor, m); }
+                    else if (d.mode === 'resize-l') { w.startMinutes = Math.max(0, Math.min(m, w.endMinutes - 5)); }
+                    else if (d.mode === 'resize-r') { w.endMinutes = Math.min(1440, Math.max(m, w.startMinutes + 5)); }
+                    else if (d.mode === 'move') {
+                        let ns = d.origStart + (m - d.anchor);           // 길이 유지한 채 평행이동
+                        ns = Math.max(0, Math.min(1440 - d.dur, ns));    // 0~24시 경계 클램프
+                        w.startMinutes = ns; w.endMinutes = ns + d.dur;
+                        if (Math.abs(ev.clientX - d.downX) >= 4) d.moved = true; // 픽셀 기준 드래그 판정(클릭과 구분)
+                    }
+                    ev.preventDefault();
+                },
+                _psDragEnd() {
+                    document.removeEventListener('pointermove', this._psMoveBound);
+                    document.removeEventListener('pointerup', this._psUpBound);
+                    document.removeEventListener('pointercancel', this._psUpBound);
+                    document.body.style.cursor = '';
+                    const d = this._psDrag; this._psDrag = null;
+                    if (!d) return;
+                    const w = this.ps.windows[d.index];
+                    // 거의 안 움직인 생성(<10분 ≈ 클릭/손떨림)은 폐기 — 추가 모드는 유지(다시 드래그 가능)
+                    if (d.mode === 'create' && (!w || (w.endMinutes - w.startMinutes) < 10)) {
+                        if (w) this.ps.windows = this.ps.windows.filter((_, i) => i !== d.index);
+                        return;
+                    }
+                    // 이동인데 거의 안 움직였으면 클릭으로 간주 → 원위치 복원(선택 상태는 유지)
+                    if (d.mode === 'move' && !d.moved) {
+                        if (w) { w.startMinutes = d.origStart; w.endMinutes = d.origStart + d.dur; }
+                        return;
+                    }
+                    const ref = w;                                       // 정렬 후 동일 객체로 선택 복원
+                    this.ps.windows = this.ps.windows.slice().sort((a, b) => a.startMinutes - b.startMinutes);
+                    this.ps.selected = this.ps.windows.indexOf(ref);
+                    if (d.mode === 'create') this.ps.addMode = false;    // 생성 완료 → 추가 모드 종료
+                },
+                // 선택된 윈도의 시작/끝 시각 인라인 수정(type=time → 분). 라이브 재배치(재정렬은 적용 시).
+                psSetTime(which, val) {
+                    const m = this.hhmmToMin(val);
+                    if (m == null || this.ps.selected < 0) return;
+                    const w = this.ps.windows[this.ps.selected];
+                    if (!w) return;
+                    if (which === 'start') w.startMinutes = m; else w.endMinutes = m;
                     this.ps.err = '';
-                    this.ps.windows = [...this.ps.windows, { startMinutes: s, endMinutes: e, label: (this.ps.draftLabel || '').trim() }]
-                        .sort((a, b) => a.startMinutes - b.startMinutes);
-                    this.ps.draftStart = ''; this.ps.draftEnd = ''; this.ps.draftLabel = '';
                 },
-                psRemove(i) { this.ps.windows = this.ps.windows.filter((_, idx) => idx !== i); },
+                psRemove(i) {
+                    this.ps.windows = this.ps.windows.filter((_, idx) => idx !== i);
+                    if (this.ps.selected === i) this.ps.selected = -1;
+                    else if (this.ps.selected > i) this.ps.selected -= 1;
+                },
                 async psApply() {
+                    // 검증: 모든 윈도 0~24시 범위 + 끝>시작(드래그 생성/리사이즈 결과를 적용 직전 재확인)
+                    for (const w of this.ps.windows) {
+                        if (w.startMinutes == null || w.endMinutes == null || w.endMinutes <= w.startMinutes || w.startMinutes < 0 || w.endMinutes > 1440) {
+                            this.ps.err = '시간대가 올바르지 않습니다 (끝 > 시작, 00:00~24:00). 자정을 넘기는 정지는 두 칸으로 분리하세요.';
+                            return;
+                        }
+                    }
                     this.ps.busy = true; this.ps.msg = ''; this.ps.err = '';
                     try {
-                        const windows = this.ps.windows.map(w => ({ startMinutes: w.startMinutes, endMinutes: w.endMinutes, label: (w.label || '').trim() || null }));
+                        const windows = this.ps.windows.slice()
+                            .sort((a, b) => a.startMinutes - b.startMinutes)
+                            .map(w => ({ startMinutes: w.startMinutes, endMinutes: w.endMinutes, label: (w.label || '').trim() || null }));
                         await this.apiPut('/api/oee/planned-stops', { windows });
-                        this.ps.msg = windows.length ? `계획정지 ${windows.length}개 적용(수동 고정)` : '계획정지 해제 — 5일 자동감지로 전환';
+                        this.ps.msg = windows.length ? `비생산 시간 ${windows.length}개 적용(수동) — 자동 계산 꺼짐` : '수동 적용(비생산 시간대 없음) — 자동 계산 꺼짐';
                         await this.loadPlannedStops();
                         await this.loadOee();
                     } catch (e) { this.ps.err = '적용 실패: ' + e.message; }
-                    finally { this.ps.busy = false; setTimeout(() => { this.ps.msg = ''; }, 5000); }
-                },
-                async psResetAuto() {
-                    this.ps.busy = true; this.ps.msg = ''; this.ps.err = '';
-                    try {
-                        await this.apiPut('/api/oee/planned-stops', { windows: [] });
-                        this.ps.msg = '5일 자동감지로 되돌림';
-                        await this.loadPlannedStops();
-                        await this.loadOee();
-                    } catch (e) { this.ps.err = '되돌리기 실패: ' + e.message; }
                     finally { this.ps.busy = false; setTimeout(() => { this.ps.msg = ''; }, 5000); }
                 },
 
@@ -1878,11 +2177,9 @@
                         const parts = s.slot.split('-');
                         return parts.length === 3 ? (parseInt(parts[1]) + '/' + parseInt(parts[2])) : s.slot;
                     });
-                    // 5분해: 가동 = slotMs − 고장 − 기타 − 미분류 − 점검 (서버 daily-composition 확장)
-                    const failureData = d.slots.map(s => (s.failureMs || 0) / MS);
-                    const otherData = d.slots.map(s => (s.otherMs || 0) / MS);
-                    const unclassData = d.slots.map(s => (s.unclassifiedMs || 0) / MS);
-                    const plannedData = d.slots.map(s => (s.plannedMs || 0) / MS);
+                    // 가동·고장·유지보수 3분해. 서버 슬롯: failureMs=isFailure 1, plannedMs=isFailure 0(유지보수), 나머지=가동근사.
+                    const failureData = d.slots.map(s => ((s.failureMs || 0) + (s.otherMs || 0) + (s.unclassifiedMs || 0)) / MS); // 고장(isFailure+기타+미분류 전부 포함)
+                    const plannedData = d.slots.map(s => (s.plannedMs || 0) / MS); // 유지보수(isFailure=0)
                     const runData = d.slots.map(s => Math.max(0, s.slotMs - (s.failureMs || 0) - (s.otherMs || 0) - (s.unclassifiedMs || 0) - (s.plannedMs || 0)) / MS);
 
                     // 평균 가동시간 선
@@ -1898,10 +2195,8 @@
 
                     const datasets = [
                         { label: '가동(근사)', data: runData, backgroundColor: cGreen, stack: 's', order: 2 },
-                        { label: '정지(고장)', data: failureData, backgroundColor: cRed, stack: 's', order: 2 },
-                        { label: '정지(기타)', data: otherData, backgroundColor: cAmber, stack: 's', order: 2 },
-                        { label: '점검', data: plannedData, backgroundColor: cPurple, stack: 's', order: 2 },
-                        { label: '미분류', data: unclassData, backgroundColor: cGray, stack: 's', order: 2 },
+                        { label: '고장', data: failureData, backgroundColor: cRed, stack: 's', order: 2 },
+                        { label: '유지보수', data: plannedData, backgroundColor: cPurple, stack: 's', order: 2 },
                         {
                             label: `평균 ${avgRun.toFixed(1)}h`,
                             type: 'line',
@@ -2170,18 +2465,12 @@
                     return 'is-bad';
                 },
 
-                // ── 정지원인 라벨/필터 ──
-                reasonLabel(code) {
-                    if (!code) return '미분류';
-                    const r = REASON_DEFS.find(x => x.code === code);
-                    return r ? r.label : code;
-                },
-                get unclassifiedCount() { return this.downtime.filter(d => !d.reasonCode).length; },
+                // ── 정지 필터 ──
                 get filteredDowntime() {
                     return this.downtime.filter(d => {
                         if (this.dtFilterStatus !== 'all' && d.status !== this.dtFilterStatus) return false;
-                        if (this.dtFilterReason === 'unclassified') { if (d.reasonCode) return false; }
-                        else if (this.dtFilterReason !== 'all') { if (d.reasonCode !== this.dtFilterReason) return false; }
+                        if (this.dtFilterFault === 'fault' && !d.isFailure) return false;
+                        if (this.dtFilterFault === 'maintenance' && d.isFailure) return false;
                         return true;
                     });
                 },
@@ -2207,7 +2496,7 @@
                     for (const d of this.filteredDowntime) patch[d.id] = checked;
                     this.selectedIds = { ...this.selectedIds, ...patch };
                 },
-                clearSel() { this.selectedIds = {}; this.bulkDraft = ''; },
+                clearSel() { this.selectedIds = {}; },
 
                 // ── P5 이식: 칩/단서/파이프라인/계획시간 체인/히스토그램 ──
                 esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); },
@@ -2215,13 +2504,6 @@
                 detectChipHtml(s) {
                     const m = { 'nocycle': '무사이클', 'fault-bit': '고장비트', 'usertag': '고장비트', 'manual': '수동' };
                     return `<span class="src-chip detect">${m[s] || this.esc(s) || '—'}</span>`;
-                },
-                // 분류 출처 칩 (원인 셀)
-                classifyChipHtml(s) {
-                    if (s === 'manual') return '<span class="src-chip manual">사용자</span>';
-                    if (s === 'auto-bit') return '<span class="src-chip heur">자동·비트</span>';
-                    if (s === 'auto-heuristic') return '<span class="src-chip heur">자동·시간임계</span>';
-                    return ''; // null/미분류 → 칩 없음(원인 셀이 '미분류' 텍스트로 표시)
                 },
                 // 단서 칩 (abnormal/usertag 시간겹침 — 표시 전용)
                 clueHtml(c) {
@@ -2238,7 +2520,6 @@
                 },
                 // 자동화 파이프라인 4셀 (수집 데이터 → 지표 자동 산출 상태)
                 get autoStrip() {
-                    const un = this.unclassifiedCount;
                     const src = this.oee ? this.oee.availabilitySource : null;
                     const isCycle = src === 'cycle';
                     const ctThr = (this.oee && this.oee.ctThresholdMs) ? this.durShort(this.oee.ctThresholdMs) : null;
@@ -2252,7 +2533,7 @@
                     return [
                         { nm: 'CT이상치 (14일 평균)', st: ctSt, cls: ctThr ? (low ? 'partial' : 'live') : 'off' },
                         { nm: '비가동 판정', st: `사이클(MT>CT이상치) + 무사이클 dedup`, cls: 'live' },
-                        { nm: '원인 분류', st: un > 0 ? `5분/8h 휴리스틱 · 미분류 ${un}건` : '비트 + 5분/8h 휴리스틱', cls: un > 0 ? 'partial' : 'live' },
+                        { nm: '고장/유지보수', st: '기본 고장 · 로그에서 유지보수 해제 가능', cls: 'live' },
                         { nm: '가용성 분모', st: availSt, cls: isCycle ? 'live' : 'partial' },
                     ];
                 },
@@ -2381,20 +2662,17 @@
                     clearTimeout(this._dtMsgTimer);
                     this._dtMsgTimer = setTimeout(() => { this.dtMsg = ''; }, 4000);
                 },
-                async bulkClassify() {
+                async bulkSetFault(isFault) {
                     const ids = this.selectedVisibleIds;
-                    if (!ids.length || !this.bulkDraft) return;
-                    const def = REASON_DEFS.find(x => x.code === this.bulkDraft);
-                    const category = def ? def.category : 'unplanned';
+                    if (!ids.length) return;
                     this.bulkBusy = true;
                     try {
-                        await this.apiPost('/api/oee/downtime/bulk-classify', { ids, reasonCode: this.bulkDraft, category });
-                        const label = this.reasonLabel(this.bulkDraft);
+                        await this.apiPost('/api/oee/downtime/bulk-set-fault', { ids, isFault });
                         this.clearSel();
                         await this.loadOee();
-                        this.flashDtMsg(`${ids.length}건 일괄 분류됨 → ${label}`);
+                        this.flashDtMsg(`${ids.length}건 → ${isFault ? '고장' : '유지보수'} 일괄 적용`);
                     } catch (e) {
-                        this.oeeError = '일괄 분류 실패: ' + e.message;
+                        this.oeeError = '일괄 변경 실패: ' + e.message;
                     } finally { this.bulkBusy = false; }
                 },
                 async bulkClose() {
@@ -2412,56 +2690,37 @@
                     } finally { this.bulkBusy = false; }
                 },
 
-                // 정지 원인 도넛 (지속시간 가중, 미분류=회색 포함 — 합계가 상단 '기간 정지'와 일치)
-                get reasonDist() {
-                    const byCode = {};
-                    const srcByCode = {}; // code → { classifySource: count } (대표 출처 칩용)
-                    let totalMs = 0, count = 0;
+                // 정지 도넛 (고장/유지보수 2-상태, 지속시간 가중 — 합계가 상단 '기간 정지'와 일치)
+                get faultDist() {
+                    let faultMs = 0, maintMs = 0, count = 0;
                     for (const d of this.downtime) {
                         const ms = (d.durationMs && d.durationMs > 0)
                             ? d.durationMs
                             : (d.status === 'open' && d.startAt ? Math.max(0, Date.now() - new Date(d.startAt).getTime()) : 0);
                         if (ms <= 0) continue;
-                        const code = d.reasonCode || UNCLASSIFIED_DEF.code;
-                        byCode[code] = (byCode[code] || 0) + ms;
-                        if (d.reasonCode) {
-                            const s = d.classifySource || '';
-                            (srcByCode[code] = srcByCode[code] || {});
-                            srcByCode[code][s] = (srcByCode[code][s] || 0) + 1;
-                        }
-                        totalMs += ms; count++;
+                        count++;
+                        if (d.isFailure) faultMs += ms; else maintMs += ms;
                     }
-                    const codes = Object.keys(byCode);
-                    if (codes.length === 0 || totalMs <= 0) return { total: codes.length, count, segs: [] };
+                    const totalMs = faultMs + maintMs;
+                    if (totalMs <= 0 || count === 0) return { count, segs: [] };
                     const C = 2 * Math.PI * 38;
+                    const segs = [];
+                    const defs = [{ def: FAULT_DEF, ms: faultMs }, { def: MAINT_DEF, ms: maintMs }].filter(x => x.ms > 0);
                     let prior = 0;
-                    const segs = [...REASON_DEFS, UNCLASSIFIED_DEF].filter(r => byCode[r.code] != null).map(r => {
-                        const ms = byCode[r.code];
-                        const len = ms / totalMs * C;
-                        const gap = C - len;
-                        const offset = -(prior / totalMs * C);
+                    for (const { def, ms } of defs) {
+                        const len = ms / totalMs * C, gap = C - len, offset = -(prior / totalMs * C);
                         prior += ms;
-                        return { code: r.code, label: r.label, color: r.color, ms, share: Math.round(ms * 100 / totalMs),
-                                 srcChip: this.reasonSrcChip(r.code, srcByCode[r.code]),
-                                 dash: len.toFixed(2) + ' ' + gap.toFixed(2), offset: offset.toFixed(2) };
-                    });
-                    return { total: codes.length, count, segs };
-                },
-                // 도넛 범례 출처 칩 — 코드별 분류 출처 중 최빈값(수동 > 자동) 을 대표로.
-                reasonSrcChip(code, srcCounts) {
-                    if (code === UNCLASSIFIED_DEF.code) return '<span class="src-chip unclass">미분류</span>';
-                    if (!srcCounts) return '';
-                    let best = null, bestN = -1;
-                    for (const [s, n] of Object.entries(srcCounts)) { if (n > bestN) { bestN = n; best = s; } }
-                    return this.classifyChipHtml(best);
-                },
-                // reasonDist → 도넛 내부 SVG 문자열 (x-html). <svg> 안 <template> 는 SVG-NS 가 되어 Alpine cloneNode 크래시 회피.
-                get reasonDonutSvg() {
-                    const d = this.reasonDist;
-                    let s = '<circle class="up-donut-track" cx="50" cy="50" r="38" fill="none" stroke-width="14"></circle>';
-                    for (const seg of d.segs) {
-                        s += `<circle cx="50" cy="50" r="38" fill="none" stroke="${seg.color}" stroke-width="14" stroke-dasharray="${seg.dash}" stroke-dashoffset="${seg.offset}" transform="rotate(-90 50 50)"></circle>`;
+                        segs.push({ label: def.label, color: def.color, ms, share: Math.round(ms * 100 / totalMs),
+                                    dash: len.toFixed(2) + ' ' + gap.toFixed(2), offset: offset.toFixed(2) });
                     }
+                    return { count, segs };
+                },
+                // faultDist → 도넛 내부 SVG 문자열 (x-html)
+                get faultDonutSvg() {
+                    const d = this.faultDist;
+                    let s = '<circle class="up-donut-track" cx="50" cy="50" r="38" fill="none" stroke-width="14"></circle>';
+                    for (const seg of d.segs)
+                        s += `<circle cx="50" cy="50" r="38" fill="none" stroke="${seg.color}" stroke-width="14" stroke-dasharray="${seg.dash}" stroke-dashoffset="${seg.offset}" transform="rotate(-90 50 50)"></circle>`;
                     s += `<text class="up-donut-total" x="50" y="49" text-anchor="middle">${d.count}</text>`;
                     s += '<text class="up-donut-cap" x="50" y="61" text-anchor="middle">정지건수</text>';
                     return s;
@@ -2488,24 +2747,22 @@
                     return [...s].sort();
                 },
 
-                // ── 일자별 시간 구성 (가동 근사 / 정지(비계획) / 계획정비) ──
-                // 계획정비(planned_maint 분류 정지)는 전체 정지의 부분집합이라, 정지 조각에서 빼서
-                // 세 조각의 합이 100% 가 되게 한다 — 안 빼면 라벨 % 와 실제 폭이 어긋남(이중 계산).
+                // ── 일자별 시간 구성 (가동 근사 / 고장 / 유지보수) ──
+                // 유지보수(isFailure=false) 정지는 전체 정지의 부분집합이라, 고장 정지에서 빼서 세 조각 합이 100%.
                 get timeComp() {
                     const o = this.oee;
                     if (!o || o.periodMs <= 0) return { runMs: 0, downMs: 0, maintMs: 0, runPct: 0, downPct: 0, maintPct: 0 };
                     const downTotal = o.downtimeMs || 0;
-                    // open 이벤트(durationMs=null)는 summary 집계와 동일하게 MIN(now, toUtc)까지 보정.
                     const capMs = Math.min(Date.now(), new Date(o.toUtc).getTime());
                     let maint = 0;
                     for (const d of this.downtime) {
-                        if (d.reasonCode !== 'planned_maint') continue;
+                        if (d.isFailure) continue; // 고장=true 는 제외, 유지보수=false 만 합산
                         const dur = d.durationMs != null ? d.durationMs
                             : Math.max(0, capMs - new Date(d.startAt).getTime());
                         if (dur > 0) maint += dur;
                     }
                     maint = Math.min(maint, downTotal);
-                    const down = downTotal - maint; // 비계획 정지
+                    const down = downTotal - maint;
                     const run = Math.max(0, o.periodMs - downTotal);
                     const total = o.periodMs;
                     const r1 = (x) => Math.max(0, Math.min(100, (x * 100 / total))).toFixed(1);
@@ -2515,22 +2772,17 @@
                 // ── 규칙기반 AI 인사이트 한 줄 ──
                 get insight() {
                     const scored = this.ranking.filter(x => x.oee != null);
-                    // 최하위 설비
                     let worst = null;
                     if (scored.length > 0) worst = scored.reduce((a, b) => b.oee < a.oee ? b : a);
                     else if (this.ranking.length > 0) worst = this.ranking.reduce((a, b) => b.downtimeMs > a.downtimeMs ? b : a);
                     if (!worst) return null;
-                    // 주원인 (분류된 것 중 지속시간 최대 — 미분류 조각은 후보 제외, 아래 미분류 안내문이 따로 처리)
-                    const segs = this.reasonDist.segs.filter(s => s.code !== UNCLASSIFIED_DEF.code);
-                    const top = segs.length > 0 ? segs.reduce((a, b) => b.ms > a.ms ? b : a) : null;
                     const oeeTxt = worst.oee != null ? ('OEE ' + this.pct(worst.oee)) : ('정지 ' + this.durShort(worst.downtimeMs));
                     let s = `정지 기준 가장 취약한 설비는 <b>${worst.flowName}</b> (${oeeTxt}, 정지 ${worst.downtimeCount}건) 입니다.`;
-                    if (top) s += ` 주된 정지 원인은 <b>${top.label}</b> (${top.share}%) 입니다.`;
-                    else if (this.unclassifiedCount > 0) s += ` 단, 미분류 정지가 ${this.unclassifiedCount}건 있어 원인 분류가 필요합니다.`;
-                    // 미분류에 단서(abnormal/usertag)가 겹친 경우 — 원인 추정 도움 안내(표시 전용 단서지 정지 소스 아님)
-                    const hintedUn = this.downtime.filter(d => !d.reasonCode && d.clue).length;
-                    if (hintedUn > 0) s += ` 미분류 ${hintedUn}건은 겹친 이상신호(단서)로 원인 추정이 가능합니다.`;
-                    // 품질 가정/측정 안내
+                    const d = this.faultDist;
+                    const faultSeg = d.segs.find(x => x.label === FAULT_DEF.label);
+                    const maintSeg = d.segs.find(x => x.label === MAINT_DEF.label);
+                    if (faultSeg && faultSeg.share > 0) s += ` 정지의 ${faultSeg.share}%가 고장입니다.`;
+                    if (maintSeg && maintSeg.share > 0) s += ` ${maintSeg.share}%는 유지보수입니다.`;
                     if (this.oee && this.oee.qualitySource === 'measured' && this.oee.quality != null && this.oee.quality < 0.98)
                         s += ` 품질 ${this.pct(this.oee.quality)}(불량 입력 반영) 가 OEE 손실에 기여합니다.`;
                     else if (this.oee && this.oee.qualitySource === 'assumed')
@@ -2538,19 +2790,14 @@
                     return s;
                 },
 
-                // ── 인터랙션: 분류 / 수동마감 / 불량 / 표준CT ──
-                async classify(d) {
-                    const code = this.classifyDraft[d.id];
-                    if (!code) return;
-                    const def = REASON_DEFS.find(x => x.code === code);
-                    const category = def ? def.category : 'unplanned';
+                // ── 인터랙션: 고장/유지보수 토글 / 수동마감 / 불량 / 표준CT ──
+                async setFault(d, isFault) {
                     try {
-                        await this.apiPost('/api/oee/downtime/' + d.id + '/classify', { reasonCode: code, category });
-                        this.classifyDraft[d.id] = ''; // 처리 완료된 행의 드롭다운 비움 — 연속 분류 시 처리 여부 혼동 방지
+                        await this.apiPost('/api/oee/downtime/' + d.id + '/set-fault', { isFault });
                         await this.loadOee();
-                        this.flashDtMsg(`분류 저장됨 — ${d.flowName || d.systemName || ''} → ${this.reasonLabel(code)}`);
+                        this.flashDtMsg(`${d.flowName || d.systemName || ''} → ${isFault ? '고장' : '유지보수'}`);
                     } catch (e) {
-                        this.oeeError = '분류 실패: ' + e.message;
+                        this.oeeError = '변경 실패: ' + e.message;
                     }
                 },
                 async closeEvent(d) {

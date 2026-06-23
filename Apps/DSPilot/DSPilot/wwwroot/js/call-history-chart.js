@@ -288,7 +288,9 @@ window.renderCallHistoryChart = function (canvasId, executionData, averageMs, st
 
     // ── 팔레트 토큰 (페인트 시점, 라이트/다크 자동 해결) ──
     const azure = _hmToken('--color-primary', '#0E7CCB');          // 주 계열 = azure 액센트
-    const errRgb = _hmToken('--color-error-rgb', '239, 68, 68');    // 이상치/평균/밴드 = 시맨틱 빨강 유지
+    const errRgb = _hmToken('--color-error-rgb', '239, 68, 68');    // 이상치 구간 = 시맨틱 빨강(경고)
+    const okRgb = _hmToken('--color-success-rgb', '31, 142, 90');   // 정상 범위 = 시맨틱 초록(양호) — 빨강과 구분
+    const avgLine = _hmToken('--color-text-secondary', '#5A6B7E');  // 평균 = 중립 점선(가이드)
     const azureFill = 'rgba(' + _hmToken('--color-primary-rgb', '14, 124, 203') + ', 0.10)';
     const gridColor = _hmToken('--color-lines', 'rgba(0, 0, 0, 0.05)');
     const axisText = _hmToken('--color-text-secondary', '#5A6B7E');
@@ -342,9 +344,10 @@ window.renderCallHistoryChart = function (canvasId, executionData, averageMs, st
                 {
                     label: '\ud3c9\uade0 (' + formatMs(Math.round(chartAvg)) + ')',
                     data: labels.map(() => chartAvg),
-                    borderColor: 'rgba(' + errRgb + ', 0.7)',
-                    borderWidth: 2,
-                    borderDash: [6, 4],
+                    borderColor: avgLine,
+                    borderWidth: 1.5,
+                    borderDash: [2, 3],
+                    borderCapStyle: 'round',
                     pointRadius: 0,
                     pointHitRadius: 0,
                     fill: false
@@ -352,18 +355,18 @@ window.renderCallHistoryChart = function (canvasId, executionData, averageMs, st
                 {
                     label: '\uc815\uc0c1 \ubc94\uc704 (' + formatMs(Math.round(Math.max(0, chartAvg - threshold))) + ' ~ ' + formatMs(Math.round(chartAvg + threshold)) + ')',
                     data: labels.map(() => chartAvg + threshold),
-                    borderColor: 'rgba(' + errRgb + ', 0.15)',
+                    borderColor: 'rgba(' + okRgb + ', 0.25)',
                     borderWidth: 1,
                     borderDash: [3, 3],
                     pointRadius: 0,
                     pointHitRadius: 0,
                     fill: '+1',
-                    backgroundColor: 'rgba(' + errRgb + ', 0.04)'
+                    backgroundColor: 'rgba(' + okRgb + ', 0.07)'
                 },
                 {
                     label: '\uc815\uc0c1\ubc94\uc704_\ud558\ud55c',
                     data: labels.map(() => Math.max(0, chartAvg - threshold)),
-                    borderColor: 'rgba(' + errRgb + ', 0.15)',
+                    borderColor: 'rgba(' + okRgb + ', 0.25)',
                     borderWidth: 1,
                     borderDash: [3, 3],
                     pointRadius: 0,
@@ -382,26 +385,53 @@ window.renderCallHistoryChart = function (canvasId, executionData, averageMs, st
                 legend: {
                     display: true,
                     position: 'top',
+                    // 참조선/구간 항목은 토글 의미가 없어 클릭 비활성(합성 '이상치' 항목 클릭 오류도 방지)
+                    onClick: function () { },
                     labels: {
                         usePointStyle: true,
                         padding: 12,
                         color: axisText,
                         font: { size: 11, weight: '600' },
-                        filter: function (item) {
-                            // GoingTime, 평균, 정상 범위(상한)만 표시. 하한은 숨김
-                            return item.datasetIndex <= 2;
-                        },
                         generateLabels: function (chart) {
-                            const defaultLabels = Chart.defaults.plugins.legend.labels.generateLabels(chart);
-                            return defaultLabels.map(label => {
-                                // 정상 범위 (index 2): 분홍색 사각형 스타일로 표시
-                                if (label.datasetIndex === 2) {
-                                    label.pointStyle = 'rectRounded';
-                                    label.fillStyle = 'rgba(' + errRgb + ', 0.12)';
-                                    label.strokeStyle = 'rgba(' + errRgb + ', 0.3)';
-                                }
-                                return label;
+                            const base = Chart.defaults.plugins.legend.labels.generateLabels(chart);
+                            const byIdx = {};
+                            base.forEach(label => { byIdx[label.datasetIndex] = label; });
+
+                            const items = [];
+                            // 1) GoingTime: 파란 실선(데이터 포인트는 원)
+                            if (byIdx[0]) items.push(byIdx[0]);
+                            // 2) 이상치: 빨간 원 — 차트에 찍히는 이상치 포인트. 합성 항목(실제 데이터셋 아님)
+                            items.push({
+                                text: '이상치',
+                                pointStyle: 'circle',
+                                fillStyle: 'rgb(' + errRgb + ')',
+                                strokeStyle: 'rgb(' + errRgb + ')',
+                                lineWidth: 0,
+                                hidden: false,
+                                datasetIndex: undefined
                             });
+                            // 3) 평균: 회색 점선 '선' 마커
+                            if (byIdx[1]) {
+                                const l = byIdx[1];
+                                l.pointStyle = 'line';
+                                l.strokeStyle = avgLine;
+                                l.fillStyle = avgLine;
+                                l.lineWidth = 1.5;
+                                l.lineDash = [2, 3];
+                                items.push(l);
+                            }
+                            // 4) 정상 범위: 초록 실선 '선' 마커 — 평균(점선)과 구분, 빨강 강조 박스와도 구분
+                            if (byIdx[2]) {
+                                const l = byIdx[2];
+                                l.pointStyle = 'line';
+                                l.strokeStyle = 'rgb(' + okRgb + ')';
+                                l.fillStyle = 'rgb(' + okRgb + ')';
+                                l.lineWidth = 2;
+                                l.lineDash = [];
+                                items.push(l);
+                            }
+                            // index 3(하한선)은 숨김
+                            return items;
                         }
                     }
                 },

@@ -7,9 +7,8 @@
 <!--
   DSPilot dashboard2 — stitch "Industrial Insight" 디자인(Tailwind self-host)을 보존하면서
   메인 대시보드(dashboard.html)의 기능을 전부 이식한 페이지.
-    · 기능 : KPI 띠 / 도면 자유배치 + 인플레이스 편집 / CT 비교 도넛(Chart.js) /
-             상시 히스토리(테이블·차트·이상치 제외) / 시프트 설정·카운트다운 /
-             UserTag 이상 배너 / SignalR 실시간 + 5초 폴링.
+    · 기능 : KPI 띠 / CCTV 영상벽(대체이미지) / CT 비교 도넛(Chart.js) /
+             시프트 설정·카운트다운 / UserTag 이상 배너 / SignalR 실시간 + 5초 폴링.
     · 셸: 공통 shell.js 가 사이드바(navmenu)+상단 헤더를 생성하고 .dsp-page 를 main 안으로 이동.
           (구 stitch 자체 사이드바/헤더 마크업 제거됨)
     · 라이브러리: 자체호스팅(/lib/*). Tailwind·폰트·아이콘도 self-host(/css/stitch.css, /css/fonts.css).
@@ -268,16 +267,9 @@
         .ds-card-h h4 { font-size: 0.95rem; font-weight: 700; color: var(--color-text-primary); letter-spacing: -0.01em; margin: 0; }
         .ds-card-h .ds-card-h-sub { font-size: 0.66rem; color: var(--color-text-disabled); font-family: var(--font-mono); }
 
-        /* flow 카드 컨테이너 베이스 (swiss.css 재현) — 컨테이너쿼리 단위(cqmin) 활성 */
-        .fc-cq { width: 100%; height: 100%; box-sizing: border-box; container-type: size; container-name: card; }
-        .fc-cq *, .fc-cq *::before, .fc-cq *::after { box-sizing: border-box; margin: 0; padding: 0; }
-        .fc-root { width: 100%; height: 100%; display: flex; flex-direction: column; padding: 3cqmin 4cqmin; box-sizing: border-box; font-family: var(--font-family); color: var(--color-text-primary); pointer-events: none; overflow: hidden; }
-        /* 보기·편집 모두 도면을 또렷하게 (흐림/그레이스케일 처리 안 함) */
-        .fl-blueprint { opacity: 1; filter: none; }
-
         /* ════════════════════════════════════════════════════════════════════════
-           ↓↓↓ dashboard.html <style> 이식 (KPI/도면 카드/CT도넛/히스토리/시프트·이상치
-                모달/편집/토스트/에러배너). stitch 토큰 var() 참조. ↓↓↓
+           ↓↓↓ dashboard.html <style> 이식 (KPI/CCTV 카드/CT도넛/시프트·이상치
+                모달/에러배너). stitch 토큰 var() 참조. ↓↓↓
            ════════════════════════════════════════════════════════════════════════ */
 
         /* ── 콘텐츠 상단 라이브 배지 ── */
@@ -304,6 +296,10 @@
         .flow-alarm-idx b { font-size: 1.1rem; }
         .flow-alarm-btn { flex-shrink: 0; margin-left: 16px; z-index: 10; padding: 7px 18px; border: none; border-radius: 9999px; background: #000; color: #fff; font-size: 0.85rem; font-weight: 700; cursor: pointer; white-space: nowrap; box-shadow: 0 8px 14px -4px rgba(0,0,0,0.35); transition: background 0.15s; }
         .flow-alarm-btn:hover { background: #1f2937; }
+        /* 알람 배너를 KPI 카드 위에 겹쳐 띄운다 — 아래 요소(최대시간/최대대기율/시프트)를 밀어내지 않고 그 위를 덮는다.
+           기준은 바로 위 .flow-alarm-overlay(position:relative) 래퍼. 전체화면 배너(.flow-alarm-fs)는 자체 규칙이 있어 제외. */
+        .flow-alarm-overlay { position: relative; }
+        .flow-alarm-overlay > .flow-alarm:not(.flow-alarm-fs) { position: absolute; top: -34px; left: 0; right: 0; z-index: 30; margin-bottom: 0; box-shadow: 0 8px 20px -6px rgba(0,0,0,0.32), 0 1px 2px 0 rgba(0,0,0,0.06); }
 
         /* ── KPI 시프트 셀 상태색 (Tailwind 카드 셸 위 보조) ── */
         .kpi-shift .kp-pct { font-variant-numeric: tabular-nums; }
@@ -333,99 +329,6 @@
         .sm-hint .material-icons { font-size: 17px; color: var(--color-primary); flex-shrink: 0; margin-top: 1px; }
         .sm-hint b { color: var(--color-primary-strong); font-weight: 800; }
 
-        /* ── 라인 도면 Flow 카드 ── */
-        .fl-card { --fc-accent: var(--color-primary); position: absolute; z-index: 2; border: 1.5px solid var(--color-lines-strong); border-radius: 8px; background: var(--color-surface); box-shadow: 0 2px 7px rgba(14,27,42,0.12); overflow: hidden; cursor: pointer; transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease; }
-        /* 호버 강조 = 선택 강조(fl-card-selected)와 동일 톤 — 도넛 슬라이스 강조와 동기 */
-        .fl-card:not(.is-editing):hover { border-color: var(--color-primary); box-shadow: 0 8px 20px rgba(var(--color-primary-rgb),0.24); transform: translateY(-1px); z-index: 11; }
-        .fl-card.is-bottleneck:not(.is-editing):hover { box-shadow: 0 0 0 4px rgba(var(--ct-bottleneck-rgb),0.24), 0 8px 20px rgba(var(--ct-bottleneck-rgb),0.20); }
-        .fl-card.is-maxwait:not(.is-editing):hover { box-shadow: 0 0 0 4px rgba(var(--color-warning-rgb),0.26), 0 8px 20px rgba(var(--color-warning-rgb),0.18); }
-        .fl-card:hover { border-color: var(--color-primary); box-shadow: 0 6px 16px rgba(var(--color-primary-rgb),0.20); }
-        .fl-card.is-chart-focus:not(.is-editing) { border-color: var(--color-primary); box-shadow: 0 8px 20px rgba(var(--color-primary-rgb),0.24); transform: translateY(-1px); z-index: 11; }
-        .fl-card-selected { border-color: var(--color-primary); border-width: 2px; box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 22%, transparent); transform: none; z-index: 10; animation: none; }
-        .fl-card.is-bottleneck { outline: none; border: 2px solid var(--ct-bottleneck); box-shadow: 0 0 0 4px rgba(var(--ct-bottleneck-rgb),0.16); background: color-mix(in srgb, var(--ct-bottleneck) 8%, var(--color-surface)); z-index: 6; }
-        .fl-card.is-bottleneck.fl-card-selected { box-shadow: 0 0 0 4px rgba(var(--ct-bottleneck-rgb),0.30); }
-        .fl-card .fc-root { justify-content: flex-start; gap: 1.8cqmin; padding: clamp(6px,5cqmin,16px) clamp(9px,6cqmin,20px); }
-        .fc-toprow { display: flex; align-items: center; justify-content: space-between; gap: 2cqmin; width: 100%; min-width: 0; }
-        .fc-toprow .fc-name { flex: 1; min-width: 0; text-align: left; }
-        .fc-toprow .fc-badges { flex-shrink: 1; justify-content: flex-end; overflow: hidden; }
-        .fc-name { font-size: clamp(0.55rem, calc(8.13cqh + 4.38cqw), 3.2rem); font-weight: 800; color: var(--color-text-primary); line-height: 1.18; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .fl-card.is-bottleneck .fc-name { color: var(--ct-bottleneck); }
-        .fc-main { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: clamp(3px, 2.6cqmin, 9px); width: 100%; min-width: 0; }
-        .fc-ct-line { display: flex; align-items: baseline; gap: clamp(3px, 2cqmin, 7px); line-height: 1; min-width: 0; }
-        .fc-ct-val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 800; font-size: clamp(0.6rem, calc(9.75cqh + 5.25cqw), 3.8rem); color: var(--color-primary); letter-spacing: -0.02em; white-space: nowrap; }
-        .fc-ct-lbl { font-size: clamp(0.32rem, calc(2.21cqh + 1.19cqw), 1.05rem); font-weight: 800; letter-spacing: 0.12em; color: var(--color-text-disabled); }
-        .fl-card.is-bottleneck .fc-ct-val { color: var(--ct-bottleneck); }
-        .fc-rw { display: flex; flex-direction: column; gap: clamp(2px, 1.7cqmin, 6px); width: 100%; min-width: 0; }
-        .fc-rw-row { display: flex; align-items: baseline; justify-content: space-between; gap: clamp(4px, 2.6cqmin, 9px); min-width: 0; }
-        .fc-rw-lbl { font-size: clamp(0.5rem, calc(3.51cqh + 1.89cqw), 1.3rem); font-weight: 700; letter-spacing: 0.04em; white-space: nowrap; }
-        .fc-rw-val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: clamp(0.55rem, calc(3.9cqh + 2.1cqw), 1.55rem); font-weight: 700; white-space: nowrap; text-align: right; }
-        .fc-rw-row .mt { color: var(--dash-mt); }
-        .fc-rw-row .wt { color: var(--color-text-secondary); }
-        .fc-segbar { display: flex; width: 100%; height: clamp(6px, 3.4cqmin, 12px); border-radius: 999px; overflow: hidden; background: color-mix(in srgb, var(--color-text-secondary) 14%, transparent); }
-        .fc-seg { height: 100%; transition: width 0.3s ease; }
-        .fc-seg.mt { background: var(--dash-mt); }
-        .fc-seg.wt { background: var(--dash-wt); }
-        .fl-card.is-maxwait .fc-seg.wt { background: var(--amber); }
-        .fl-card.is-maxwait .fc-rw-row .wt { color: #8A6D1A; }
-        .dark-theme .fl-card.is-maxwait .fc-rw-row .wt { color: var(--amber); }
-        .fl-card.is-bottleneck .fc-seg.wt { background: var(--ct-bottleneck); }
-        .fl-card.is-bottleneck .fc-rw-row .wt { color: var(--ct-bottleneck); }
-        .fl-card.is-maxwait { border: 2px solid var(--amber); box-shadow: 0 0 0 4px rgba(var(--color-warning-rgb),0.18); background: color-mix(in srgb, var(--amber) 10%, var(--color-surface)); z-index: 5; }
-        .fl-card.is-maxwait.fl-card-selected { box-shadow: 0 0 0 4px rgba(var(--color-warning-rgb),0.32); }
-        .fl-card.is-abnormal { border: 2px solid var(--red); box-shadow: 0 0 0 4px rgba(220,57,43,0.20); background: color-mix(in srgb, var(--red) 10%, var(--color-surface)); z-index: 7; animation: fl-abn-pulse 1.1s ease-in-out infinite; }
-        .fl-card.is-abnormal.fl-card-selected { box-shadow: 0 0 0 4px rgba(220,57,43,0.36); animation: none; }
-        .fl-card.is-abnormal:not(.is-editing):hover { box-shadow: 0 0 0 5px rgba(220,57,43,0.32), 0 8px 20px rgba(220,57,43,0.20); }
-        .fl-card.is-abnormal .fc-name { color: var(--red); }
-        @keyframes fl-abn-pulse { 0%, 100% { box-shadow: 0 0 0 4px rgba(220,57,43,0.20); } 55% { box-shadow: 0 0 0 7px rgba(220,57,43,0.06); } }
-        .fc-badges { display: flex; flex-wrap: wrap; gap: 1.4cqmin; justify-content: center; }
-        .fc-badge { display: inline-flex; align-items: center; gap: 1cqmin; padding: 0.8cqmin 2.4cqmin; border-radius: 999px; font-size: clamp(0.5rem, calc(3.6cqh + 1.95cqw), 1.55rem); font-weight: 800; line-height: 1.35; white-space: nowrap; }
-        .fc-badge::before { content: ''; width: clamp(4px, 1.9cqmin, 9px); height: clamp(4px, 1.9cqmin, 9px); border-radius: 50%; background: currentColor; flex-shrink: 0; }
-        .fc-badge.state-ready  { color: var(--green); background: color-mix(in srgb, var(--green) 16%, transparent); }
-        .fc-badge.state-going  { color: #8A6D1A; background: color-mix(in srgb, var(--amber) 30%, transparent); }
-        .fc-badge.state-finish { color: var(--color-info); background: color-mix(in srgb, var(--color-info) 16%, transparent); }
-        .fc-badge.state-error  { color: var(--red); background: color-mix(in srgb, var(--red) 16%, transparent); }
-        .dark-theme .fc-badge.state-going { color: var(--amber); }
-        .fc-badge.tag-maxtime { color: var(--dash-mt); background: color-mix(in srgb, var(--dash-mt) 16%, transparent); }
-        .fc-badge.tag-maxwait { color: var(--color-text-secondary); background: color-mix(in srgb, var(--color-text-secondary) 18%, transparent); }
-        .fc-waiting { flex: 1; min-height: 0; display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 1.6cqmin; color: var(--color-text-disabled); }
-        .fc-waiting .material-icons { font-size: clamp(16px, 9cqmin, 30px); opacity: 0.65; }
-        .fc-waiting .fc-waiting-text { font-size: clamp(0.58rem, 5cqmin, 1rem); font-weight: 700; }
-        /* 소형 카드: 세부 행 순차 숨김 */
-        @container card (max-height: 68px) { .fc-rw { display: none; } }
-        /* 좁은 카드: 배지 텍스트 → 색상 원 점으로 압축 */
-        @container card (max-width: 280px) {
-            .fc-badge { font-size: 0; line-height: 0; padding: 2.4cqmin; gap: 0; }
-            .fc-badge::before { width: clamp(6px, 2.8cqmin, 11px); height: clamp(6px, 2.8cqmin, 11px); }
-        }
-        @container card (max-width: 140px) { .fc-badge.tag-maxtime, .fc-badge.tag-maxwait { display: none; } }
-        @container card (max-width: 95px)  { .fc-badge { display: none; } }
-
-        /* ── 플로우 카드 호버 툴팁 ── */
-        .fc-tt { position: fixed; z-index: 1200; pointer-events: none;
-            background: var(--color-surface-raised, var(--color-surface));
-            border: 1px solid var(--color-lines-strong);
-            border-radius: var(--radius-md, 8px);
-            box-shadow: 0 8px 28px rgba(0,0,0,0.22), 0 2px 8px rgba(0,0,0,0.10);
-            padding: 10px 13px; min-width: 170px; max-width: 260px;
-            transition: opacity 0.12s; }
-        .fc-tt-name { font-size: 0.88rem; font-weight: 800; color: var(--color-text-primary); margin-bottom: 5px;
-            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .fc-tt-row { display: flex; align-items: center; justify-content: space-between; gap: 8px;
-            padding: 2px 0; border-top: 1px solid var(--color-lines); font-size: 0.75rem; }
-        .fc-tt-row:first-of-type { border-top: none; padding-top: 3px; }
-        .fc-tt-lbl { color: var(--color-text-secondary); font-weight: 600; white-space: nowrap; }
-        .fc-tt-val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 700; color: var(--color-text-primary); }
-        .fc-tt-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--color-lines); }
-        .fc-tt-badge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px; border-radius: 999px; font-size: 0.68rem; font-weight: 800; }
-        .fc-tt-badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
-        .fc-tt-badge.state-ready  { color: var(--green); background: color-mix(in srgb, var(--green) 16%, transparent); }
-        .fc-tt-badge.state-going  { color: #8A6D1A; background: color-mix(in srgb, var(--amber) 30%, transparent); }
-        .dark-theme .fc-tt-badge.state-going { color: var(--amber); }
-        .fc-tt-badge.state-finish { color: var(--color-info); background: color-mix(in srgb, var(--color-info) 16%, transparent); }
-        .fc-tt-badge.state-error  { color: var(--red); background: color-mix(in srgb, var(--red) 16%, transparent); }
-        .fc-tt-badge.tag-maxtime { color: var(--dash-mt); background: color-mix(in srgb, var(--dash-mt) 16%, transparent); }
-        .fc-tt-badge.tag-maxwait { color: var(--color-text-secondary); background: color-mix(in srgb, var(--color-text-secondary) 18%, transparent); }
-
         /* ── CT 비교 도넛 범례 ── */
         .ct-legend { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 10px; padding: 8px 14px 12px; border-top: 1px solid var(--color-lines); flex-shrink: 0; }
         .ct-legend-item { display: flex; align-items: center; gap: 7px; padding: 3px 6px; border: none; background: transparent; border-radius: var(--radius-sm); cursor: pointer; min-width: 0; text-align: left; }
@@ -436,76 +339,14 @@
         .ct-legend-name { font-size: 0.72rem; font-weight: 600; color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
         .ct-legend-val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 0.68rem; font-weight: 700; color: var(--color-text-primary); flex-shrink: 0; }
 
-        /* ── 편집바 슬라이더 컨트롤 ── */
-        .fl-ctrl { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); font-size: 0.72rem; font-weight: 700; color: var(--color-text-secondary); }
-        .fl-ctrl .material-icons { font-size: 16px; color: var(--color-text-disabled); }
-        .fl-ctrl input[type=range] { width: clamp(70px, 9vw, 130px); accent-color: var(--color-primary); cursor: pointer; vertical-align: middle; }
-        .fl-ctrl .fl-val { font-variant-numeric: tabular-nums; color: var(--color-primary-strong); min-width: 30px; text-align: right; }
-        .fl-ctrl.is-off { opacity: 0.5; }
-        .fl-snaptoggle { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; }
-        .fl-snaptoggle input { accent-color: var(--color-primary); width: 15px; height: 15px; cursor: pointer; margin: 0; }
-        .fl-editbar .ds-status { display: inline-flex; align-items: center; gap: 4px; }
-
-        /* ── 전체화면: 도면 카드를 화면에 꽉 (헤더 숨김) ── */
+        /* ── 전체화면: CCTV 카드를 화면에 꽉 (헤더 숨김) ── */
         .fl-fs:fullscreen, .fl-fs:-webkit-full-screen { --fl-cap: 100vh; background: var(--color-background); position: relative; overflow: visible; }
         .fl-fs:fullscreen .fl-fs-chrome, .fl-fs:-webkit-full-screen .fl-fs-chrome { display: none; }
         .fl-fs:fullscreen .fl-fs-body, .fl-fs:-webkit-full-screen .fl-fs-body { padding: 0; }
-        .fl-fs:fullscreen .fl-canvas, .fl-fs:-webkit-full-screen .fl-canvas { max-height: 100vh; }
-
         /* ── 전체화면 알람 배너: 평소 숨김 → .fl-fs:fullscreen 시 상단 풀폭으로 고정(FLOWMES 배너를 화면 최상단에) ── */
         .flow-alarm-fs { display: none; }
         .fl-fs:fullscreen .flow-alarm-fs,
         .fl-fs:-webkit-full-screen .flow-alarm-fs { display: flex; position: absolute; top: 0; left: 0; right: 0; z-index: 60; margin: 0; border-radius: 0; box-shadow: 0 4px 12px -2px rgba(0,0,0,0.3); }
-
-        /* ── 도면 인플레이스 편집 ── */
-        .fl-editpanel { width: 100%; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
-        .fl-editbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-        .fl-editbar .spacer { flex: 1; min-width: 8px; }
-        .fl-palette { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 8px 10px; border: 1px dashed var(--color-lines-strong); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-primary) 4%, var(--color-surface)); }
-        .fl-palette .fp-hint { font-size: 0.72rem; font-weight: 700; color: var(--color-text-secondary); display: inline-flex; align-items: center; gap: 4px; }
-        .fl-chip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border: 1px solid var(--color-lines-strong); border-radius: 999px; background: var(--color-surface); color: var(--color-text-primary); font-size: 0.74rem; font-weight: 700; cursor: pointer; transition: all 0.12s; }
-        .fl-chip:hover { border-color: var(--color-primary); color: var(--color-primary); }
-        .fl-chip.is-armed { background: var(--color-primary); border-color: var(--color-primary); color: #fff; box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 25%, transparent); }
-        .fl-chip.is-placed { opacity: 0.5; cursor: default; border-style: dashed; }
-        .fl-chip.is-placed:hover { border-color: var(--color-lines-strong); color: var(--color-text-disabled); }
-        .fl-chip .fp-num { width: 16px; height: 16px; border-radius: 8px; background: var(--color-primary); color: #fff; font-size: 0.6rem; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
-        .fl-chip.is-placed .fp-num { background: var(--color-lines-strong); }
-        .fl-chip .material-icons { font-size: 14px; }
-        .fl-grid-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
-        .fl-grid-overlay line { vector-effect: non-scaling-stroke; }
-        .fl-grid-overlay .gl-line { stroke: color-mix(in srgb, var(--color-primary) 26%, transparent); stroke-width: 1; stroke-dasharray: 4 4; }
-        .fl-canvas { background-color: var(--color-surface); background-image: radial-gradient(color-mix(in srgb, var(--color-text-primary) 13%, transparent) 1px, transparent 1px); background-size: 22px 22px; border: 1px solid var(--color-lines); border-radius: 6px; }
-        .fl-canvas.is-armed { cursor: crosshair; }
-        .fl-canvas.is-editing-canvas { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
-        .fl-card.is-editing { cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-user-drag: none; transition: none; }
-        .fl-card.is-editing * { -webkit-user-drag: none; user-select: none; -webkit-user-select: none; }
-        .fl-card.is-editing.is-dragging { cursor: grabbing; opacity: 0.82; box-shadow: 0 8px 20px rgba(14,27,42,0.28); z-index: 40; }
-        .fl-card.is-editsel { border-color: var(--color-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 28%, transparent); z-index: 12; }
-        .fl-del { position: absolute; top: 3px; right: 3px; z-index: 50; width: 20px; height: 20px; border: none; border-radius: 50%; background: rgba(14,27,42,0.55); color: #fff; font-size: 15px; line-height: 1; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
-        .fl-del:hover { background: var(--red); }
-        .fl-canvas-wrap { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-        .fl-order { display: flex; flex-direction: column; flex: 0 0 auto; width: 220px; max-width: 32%; min-height: 0; padding: 8px 10px; border: 1px dashed var(--color-lines-strong); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-primary) 4%, var(--color-surface)); }
-        .fl-order-head { display: flex; align-items: center; gap: 6px; font-size: 0.78rem; font-weight: 800; color: var(--color-text-secondary); margin-bottom: 4px; }
-        .fl-order-hint { font-weight: 600; color: var(--color-text-disabled); font-size: 0.66rem; line-height: 1.4; margin-bottom: 8px; }
-        .fl-order-list { display: flex; flex-direction: column; gap: 4px; flex: 1; min-height: 0; overflow-y: auto; }
-        .fl-order-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); cursor: grab; }
-        .fl-order-row.is-dragging { opacity: 0.55; border-style: dashed; border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); }
-        .fl-order-handle { color: var(--color-text-disabled); cursor: grab; font-size: 18px; flex-shrink: 0; }
-        .fl-order-num { width: 20px; height: 20px; flex-shrink: 0; border-radius: 6px; background: var(--color-primary); color: #fff; font-size: 0.66rem; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums; }
-        .fl-order-name { flex: 1; min-width: 0; font-size: 0.8rem; font-weight: 700; color: var(--color-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .fl-order-btns { display: inline-flex; gap: 2px; flex-shrink: 0; }
-        .fl-order-btn { width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-secondary); cursor: pointer; padding: 0; }
-        .fl-order-btn:hover:not(:disabled) { border-color: var(--color-primary); color: var(--color-primary); }
-        .fl-order-btn:disabled { opacity: 0.35; cursor: default; }
-        .fl-order-btn .material-icons { font-size: 16px; }
-
-        /* 편집 토스트 */
-        .dash-toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 4000; padding: 9px 16px; border-radius: var(--radius-md); font-size: 0.78rem; font-weight: 700; color: #fff; box-shadow: var(--shadow-modal); opacity: 0; transition: opacity 0.2s; pointer-events: none; }
-        .dash-toast.show { opacity: 1; }
-        .dash-toast.info { background: var(--color-info); }
-        .dash-toast.success { background: var(--color-success); }
-        .dash-toast.warning { background: var(--color-warning); }
-        .dash-toast.error { background: var(--color-error); }
 
         /* ════════════════════════════════════════════════════════════════════════
            stitch Tailwind 크롬의 다크 대응 — 목업은 사이드바에만 dark: 변형이 있어
@@ -541,9 +382,8 @@
             /* 시프트 KPI 헤드라인(24px → 20px) */
             .kpi-shift .kp-value { font-size: 20px !important; line-height: 26px !important; }
 
-            /* 레이아웃/차트 카드 최소 높이 축소 + 휴대폰 도면 캡 */
+            /* 레이아웃/차트 카드 최소 높이 축소 */
             .layout-card, .chart-card { min-height: 280px !important; }
-            .layout-card { --fl-cap: 40vh; }
 
             /* 카드 본문 패딩 축소 */
             .layout-card .p-4, .chart-card .p-4,
@@ -574,37 +414,6 @@
             .sm-seg { grid-template-columns: 1fr; }
             .sm-stepper button { width: 48px; height: 48px; }   /* 터치 타깃 확대 */
 
-            /* ── 도면 편집바 / 팔레트 ── 세로 스택, 컨트롤 풀폭 ── */
-            .fl-editbar { flex-direction: column; align-items: stretch; gap: 8px; }
-            .fl-editbar .spacer { display: none; }
-            .fl-editbar > .btn, .fl-editbar > label.btn { width: 100%; justify-content: center; }
-            .fl-ctrl { width: 100%; justify-content: space-between; box-sizing: border-box; }
-            .fl-ctrl input[type=range] { flex: 1; width: auto; min-width: 0; }
-            .fl-palette { flex-direction: column; align-items: stretch; }
-            .fl-palette .fp-hint { width: 100%; }
-            .fl-chip { width: 100%; justify-content: flex-start; padding: 9px 12px; }   /* 칩 풀폭 + 터치 타깃 */
-
-            /* ── 공정 순서 사이드바: 캔버스 옆에 못 끼면 아래로 풀폭 스택(숨기지 않음) ── */
-            .fl-stage { flex-direction: column !important; }
-            .fl-order { width: 100% !important; max-width: 100% !important; flex: 0 0 auto;
-                        max-height: 32vh; order: 2; }   /* 캔버스 아래로(order:2), 자체 스크롤 */
-            .fl-canvas-wrap { order: 1; min-height: 30vh; }
-            .fl-order-list { max-height: 24vh; }
-            .fl-order-row { padding: 8px; touch-action: none; }   /* 터치 재정렬 제스처 확보 */
-            .fl-order-handle { font-size: 22px; padding: 2px; }
-            /* 작은 터치 타깃 확대: ▲▼ 22px → 32px */
-            .fl-order-btn { width: 32px; height: 32px; }
-            .fl-order-btn .material-icons { font-size: 18px; }
-
-            /* 카드 삭제 버튼 20px → 32px (편집 중 터치) */
-            .fl-del { width: 32px; height: 32px; font-size: 20px; top: 4px; right: 4px; }
-
-            /* 호버 툴팁: 폭 클램프(좁은 화면 넘침 방지) */
-            .fc-tt { max-width: clamp(140px, 80vw, 260px); min-width: 0; }
-
-            /* 토스트: 폭 제한 + 노치 안전영역 */
-            .dash-toast { max-width: 90vw; bottom: max(12px, env(safe-area-inset-bottom)); }
-
             /* 이상감지 알람 배너: 패딩/문구 크기 축소 (360px 에서 넘침 방지) */
             .flow-alarm { padding: 12px 14px; }
             .flow-alarm-icon { margin-right: 10px; padding-right: 8px; }
@@ -618,6 +427,42 @@
 
             /* CT 도넛: 휴대폰에서 캔버스 최소 높이 확보 + 범례 1열 */
             .ct-legend { grid-template-columns: 1fr; }
+        }
+
+        /* ── Viewport-fill: lg+ 데스크톱·가로 태블릿에서 하단 카드를 화면 끝까지 ──
+           body.has-dash 는 dashboardApp init() 이 추가 (이 페이지 전용, 다른 페이지 무영향).
+           모바일·세로 긴 화면은 min-height + 자연 스크롤로 처리. */
+        @media (min-width: 1024px) {
+            /* .dsp-in-shell : shell.js 가 .dsp-page 에 추가하는 클래스. header 64px 제외 나머지 채움. */
+            body.has-dash .dsp-in-shell {
+                height: calc(100dvh - 64px);
+                height: calc(100vh - 64px); /* dvh 미지원 폴백 */
+                overflow-y: auto;
+                display: flex;
+                flex-direction: column;
+            }
+            /* padding:24px 컨테이너를 flex 컬럼으로 전환 */
+            body.has-dash .dsp-in-shell .p-container-margin {
+                flex: 1;
+                min-height: 0;
+                display: flex;
+                flex-direction: column;
+            }
+            /* KPI 행(flow-alarm-overlay)은 고정 크기 */
+            body.has-dash .dsp-in-shell .flow-alarm-overlay {
+                flex-shrink: 0;
+            }
+            /* 주 그리드: 남은 공간 모두 차지 + 단일 행을 그 높이로 늘림 */
+            body.has-dash .dsp-in-shell .dash-grid-main {
+                flex: 1;
+                min-height: 0;
+                grid-auto-rows: 1fr;
+            }
+            /* 카드 min-height: viewport-fill 이 실제 높이 결정 — 하한선만 유지 */
+            body.has-dash .dsp-in-shell .fl-fs.layout-card,
+            body.has-dash .dsp-in-shell .chart-card {
+                min-height: 320px;
+            }
         }
 </style>
 </head>
@@ -634,7 +479,11 @@
             <div class="alert alert-error mb-4" x-show="error" x-cloak><span class="material-icons">error</span><span x-text="error" :title="error"></span></div>
             <div class="alert alert-info mb-4" x-show="!loading && !error && !hasData" x-cloak><span class="material-icons">info</span><span>PLC 데이터가 수집되면 자동으로 표시됩니다.</span></div>
 
+            <!-- 알람 배너 + KPI 행 래퍼: 배너를 KPI 카드 위에 겹쳐 띄우기 위한 position:relative 기준(.flow-alarm-overlay) -->
+            <div class="flow-alarm-overlay">
+
             <!-- ── 경로이탈 이상감지 알람 배너 (fliptext 참고) ── abnormals[] → 세로 티커(한 건씩 전환) + 분자/분모 인디케이터, SignalR "AbnormalDetected" 라이브 갱신 -->
+            <!-- 평소 흐름에서 빠져 KPI 카드 위에 떠서 덮는다(아래 요소를 밀어내지 않음) -->
             <div class="flow-alarm" x-show="abnormals.length" x-cloak x-transition.opacity>
                 <div class="flow-alarm-icon">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
@@ -655,7 +504,7 @@
                 <!-- Max CT — 전체시간 색상(--color-primary) -->
                 <div class="border p-card-padding rounded-xl shadow-sm relative overflow-hidden group cursor-pointer transition-all"
                      :style="`background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); border-color: ${(maxCtName && selectedFlowName === maxCtName) ? 'var(--color-primary)' : 'color-mix(in srgb, var(--color-primary) 26%, transparent)'}; box-shadow: ${(maxCtName && selectedFlowName === maxCtName) ? '0 0 0 3px color-mix(in srgb, var(--color-primary) 30%, transparent)' : 'var(--shadow-card)'};`"
-                     @click="maxCtName && selectFlow(maxCtName)">
+                     @click="maxCtName && (selectedFlowName = maxCtName)">
                     <div class="flex justify-between items-start mb-4">
                         <div>
                             <span class="font-label-sm text-label-sm opacity-80 uppercase tracking-tighter" style="color:var(--color-primary-strong);">최대 시간</span>
@@ -674,7 +523,7 @@
                 <!-- Max Waiting Rate — 대기시간 색상(--color-text-secondary) -->
                 <div class="border p-card-padding rounded-xl shadow-sm relative overflow-hidden group cursor-pointer transition-all"
                      :style="`background: color-mix(in srgb, var(--color-text-secondary) 8%, var(--color-surface)); border-color: ${(maxWtName && selectedFlowName === maxWtName) ? 'var(--color-text-secondary)' : 'color-mix(in srgb, var(--color-text-secondary) 26%, transparent)'}; box-shadow: ${(maxWtName && selectedFlowName === maxWtName) ? '0 0 0 3px color-mix(in srgb, var(--color-text-secondary) 30%, transparent)' : 'var(--shadow-card)'};`"
-                     @click="maxWtName && selectFlow(maxWtName)">
+                     @click="maxWtName && (selectedFlowName = maxWtName)">
                     <div class="flex justify-between items-start mb-4">
                         <div>
                             <span class="font-label-sm text-label-sm opacity-80 uppercase tracking-tighter" style="color:var(--color-text-secondary);">최대 대기율 (대기시간/전체시간)</span>
@@ -690,248 +539,90 @@
                     </div>
                 </div>
 
-                <!-- Shift Progress -->
-                <div class="kpi-shift bg-surface-container-lowest border border-outline-variant p-card-padding rounded-xl shadow-sm flex flex-col justify-between relative overflow-hidden cursor-pointer"
-                     :class="'state-' + shiftState" @click="openShiftModal()" title="시프트 설정 열기">
-                    <div class="flex justify-between items-start">
-                        <div>
-                            <span class="font-label-sm text-label-sm text-on-surface-variant opacity-80 uppercase tracking-tighter" x-text="shiftLabel"></span>
-                            <h4 class="kp-value font-headline-lg text-headline-lg text-primary mt-2" x-text="shiftCountdownText"></h4>
+                <!-- 생산 현황 + 당일 사이클 -->
+                <div class="bg-surface-container-lowest border border-outline-variant p-card-padding rounded-xl shadow-sm flex flex-col justify-between relative overflow-hidden cursor-pointer hover:border-primary/40 transition-colors"
+                     @click="window.location='/app/uptime.html#planned-stops-section'"
+                     title="비생산 시간대 설정으로 이동">
+                    <div>
+                        <div class="flex justify-between items-start">
+                            <div class="flex items-center gap-2">
+                                <span class="font-label-sm text-label-sm text-on-surface-variant opacity-80 uppercase tracking-tighter" x-text="npStatusLabel"></span>
+                                <!-- 출처 뱃지: 자동/수동 -->
+                                <template x-if="nonprod.source === 'auto'">
+                                    <span class="px-1.5 py-px rounded text-[10px] font-bold bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">자동</span>
+                                </template>
+                                <template x-if="nonprod.source === 'manual'">
+                                    <span class="px-1.5 py-px rounded text-[10px] font-bold bg-surface-container-high text-on-surface-variant">수동</span>
+                                </template>
+                            </div>
+                            <span class="text-label-sm text-on-surface-variant opacity-60 font-mono tabular-nums" x-text="npNowText"></span>
                         </div>
-                        <button class="material-icons text-outline hover:text-secondary" @click.stop="openShiftModal()" title="시프트 설정">settings</button>
+                        <h4 class="kp-value font-headline-lg text-headline-lg text-primary mt-2" x-text="npCountdownText"></h4>
+                        <div class="flex flex-wrap gap-1 mt-3">
+                            <template x-if="nonprod.windows.length === 0 && nonprod.source === 'auto'">
+                                <span class="text-label-sm text-on-surface-variant opacity-50">자동 감지된 구간 없음</span>
+                            </template>
+                            <template x-if="nonprod.windows.length === 0 && nonprod.source !== 'auto'">
+                                <span class="text-label-sm text-on-surface-variant opacity-50">비생산 구간 미설정</span>
+                            </template>
+                            <template x-for="(w, idx) in nonprod.windows" :key="idx">
+                                <span class="px-2 py-0.5 rounded text-[11px] font-medium"
+                                      :class="npIsActive(w) ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' : 'bg-surface-container-high text-on-surface-variant'"
+                                      x-text="npWindowLabel(w)"></span>
+                            </template>
+                        </div>
                     </div>
-                    <template x-if="shift.targetFlow && shift.targetCount > 0">
-                        <div class="space-y-2 mt-4">
-                            <div class="flex justify-between text-label-sm font-label-sm">
-                                <span class="text-on-surface-variant truncate" :title="shiftTargetLabel" x-text="shiftTargetLabel + ' ' + (shift.madeCount || 0) + ' / ' + shift.targetCount + '개'"></span>
-                                <span class="text-secondary font-bold kp-pct" x-text="Math.round((shift.madeCount || 0) * 100 / Math.max(1, shift.targetCount)) + '%'"></span>
-                            </div>
-                            <div class="w-full bg-surface-container-high rounded-full h-2 overflow-hidden">
-                                <div class="bg-secondary h-full rounded-full transition-all" :style="`width:${Math.min(100, Math.round((shift.madeCount || 0) * 100 / Math.max(1, shift.targetCount)))}%`"></div>
-                            </div>
+                    <div>
+                        <div class="border-t border-outline-variant my-3"></div>
+                        <div class="flex justify-between items-center">
+                            <span class="font-label-sm text-label-sm text-on-surface-variant opacity-80">당일 사이클</span>
+                            <span class="font-headline-md text-headline-md text-primary" x-text="todayCycles.toLocaleString() + ' 사이클'"></span>
                         </div>
-                    </template>
-                    <template x-if="!(shift.targetFlow && shift.targetCount > 0)">
-                        <div class="mt-4 text-label-sm font-label-sm text-on-surface-variant" x-html="shiftSubText"></div>
-                    </template>
+                    </div>
                 </div>
             </div>
+            </div><!-- /flow-alarm-overlay -->
 
             <!-- ════════════ Main Layout Grid ════════════ -->
-            <div class="grid grid-cols-12 gap-gutter">
+            <div class="grid grid-cols-12 gap-gutter dash-grid-main">
 
                 <!-- ── 레이아웃 (8/12) ── -->
                 <div class="fl-fs layout-card col-span-12 md:col-span-12 lg:col-span-8 bg-surface-container-lowest border border-outline-variant rounded-xl shadow-sm overflow-hidden flex flex-col" x-ref="layoutCard" style="min-height:360px;">
                     <div class="fl-fs-chrome p-4 border-b border-outline-variant flex justify-between items-center bg-surface-container-low flex-wrap gap-3">
                         <div class="flex items-center gap-3">
-                            <span class="font-headline-md text-headline-md text-primary" x-text="layoutView==='cctv' ? 'CCTV' : '레이아웃'"></span>
-                            <span class="text-on-surface-variant opacity-60 text-label-sm" x-show="!editing && layoutView!=='cctv'">실시간 사이클타임</span>
-                            <span class="text-on-surface-variant opacity-60 text-label-sm" x-show="layoutView==='cctv'">실시간 영상벽 · 오버레이 상태</span>
-                            <template x-if="editing">
-                                <span class="flex items-center gap-2">
-                                    <span class="ds-status" style="display:inline-flex;align-items:center;gap:4px;" x-show="saving"><span class="material-icons" style="font-size:13px;">sync</span> 저장 중…</span>
-                                    <span class="ds-status warn" style="display:inline-flex;align-items:center;gap:4px;" x-show="!saving && dirty"><span class="material-icons" style="font-size:13px;">edit_note</span> 변경됨</span>
-                                    <span class="ds-status ok" style="display:inline-flex;align-items:center;gap:4px;" x-show="!saving && !dirty"><span class="material-icons" style="font-size:13px;">cloud_done</span> 저장됨</span>
-                                    <span class="ds-status warn" style="display:inline-flex;align-items:center;gap:4px;" x-show="isStale" title="AASX Flow 집합과 배치가 일치하지 않습니다 — [자동배치] 권장."><span class="material-icons" style="font-size:13px;">warning</span> Flow 불일치</span>
-                                </span>
-                            </template>
+                            <span class="font-headline-md text-headline-md text-primary">CCTV</span>
+                            <span class="text-on-surface-variant opacity-60 text-label-sm">실시간 영상벽 · 오버레이 상태</span>
                         </div>
-                        <div class="flex items-center gap-5 flex-wrap">
-                            <div class="flex items-center gap-2" x-show="layoutView!=='cctv'">
-                                <span class="w-2.5 h-2.5 rounded-sm" style="background:var(--dash-mt);"></span>
-                                <span class="text-[11px] font-bold text-on-surface-variant">가동시간</span>
-                            </div>
-                            <div class="flex items-center gap-2 border-r pr-5 border-outline-variant" x-show="layoutView!=='cctv'">
-                                <span class="w-2.5 h-2.5 rounded-sm" style="background:var(--dash-wt);"></span>
-                                <span class="text-[11px] font-bold text-on-surface-variant">대기시간</span>
-                            </div>
-                            <div class="flex gap-2 items-center">
-                                <!-- 도면 ⇄ CCTV 뷰 전환 (사이클 비교 카드의 세그먼트 토글과 동일 패턴) -->
-                                <div class="flex bg-surface border border-outline-variant rounded p-0.5" title="레이아웃 도면 / CCTV 영상벽 전환">
-                                    <button class="px-2 py-1 text-[10px] font-bold rounded-sm transition-all flex items-center gap-1"
-                                            :class="layoutView!=='cctv' ? 'bg-secondary text-white shadow-sm' : 'text-on-surface-variant hover:bg-surface-container-high'"
-                                            @click="setLayoutView('diagram')" title="레이아웃 도면 보기">
-                                        <span class="material-icons text-[14px]">map</span> 도면
-                                    </button>
-                                    <button class="px-2 py-1 text-[10px] font-bold rounded-sm transition-all flex items-center gap-1"
-                                            :class="layoutView==='cctv' ? 'bg-secondary text-white shadow-sm' : 'text-on-surface-variant hover:bg-surface-container-high'"
-                                            @click="setLayoutView('cctv')" title="CCTV 영상벽 보기">
-                                        <span class="material-icons text-[14px]">videocam</span> CCTV
-                                    </button>
-                                </div>
-                                <!-- 편집(공용): 도면이면 인플레이스 편집, CCTV면 /cctv 설정 페이지로 이동 -->
-                                <button class="p-1.5 hover:bg-surface-container-highest rounded transition-colors text-on-surface-variant flex items-center gap-1 text-[12px] font-bold"
-                                        :class="editing ? 'bg-secondary text-white hover:opacity-90' : ''"
-                                        @click="layoutView==='cctv' ? goCctvSettings() : toggleEdit()"
-                                        :title="layoutView==='cctv' ? 'CCTV 설정 (카메라·오버레이 편집 페이지로 이동)' : (editing ? '저장 (변경 저장 후 도면 보기로 복귀)' : '도면 편집 (블럭 이동·추가·삭제)')">
-                                    <span class="material-icons text-[20px]" x-text="layoutView==='cctv' ? 'settings' : (editing ? 'save' : 'edit')"></span>
-                                    <span x-text="layoutView==='cctv' ? '설정' : (editing ? '저장' : '편집')"></span>
+                        <div class="flex gap-2 items-center">
+                            <!-- 라이브 CCTV ⇄ 대체 이미지 보기 전환 -->
+                            <div class="flex bg-surface border border-outline-variant rounded p-0.5" title="라이브 CCTV / 등록한 대체 이미지 전환">
+                                <button class="px-2 py-1 text-[10px] font-bold rounded-sm transition-all flex items-center gap-1"
+                                        :class="!cctvImageMode ? 'bg-secondary text-white shadow-sm' : 'text-on-surface-variant hover:bg-surface-container-high'"
+                                        @click="cctvSetImageMode(false)" title="라이브 CCTV 영상 보기">
+                                    <span class="material-icons text-[14px]">videocam</span> CCTV
                                 </button>
-                                <!-- 전체화면(공용): 카드 전체를 전체화면 → CCTV 뷰도 그대로 적용 -->
-                                <button class="p-1.5 hover:bg-surface-container-highest rounded transition-colors text-on-surface-variant" @click="toggleFullscreen()" title="전체화면">
-                                    <span class="material-icons text-[20px]">fullscreen</span>
+                                <button class="px-2 py-1 text-[10px] font-bold rounded-sm transition-all flex items-center gap-1"
+                                        :class="cctvImageMode ? 'bg-secondary text-white shadow-sm' : 'text-on-surface-variant hover:bg-surface-container-high'"
+                                        @click="cctvSetImageMode(true)" title="등록한 대체 이미지 보기">
+                                    <span class="material-icons text-[14px]">image</span> 이미지
                                 </button>
                             </div>
+                            <!-- CCTV 설정 페이지로 이동 -->
+                            <button class="p-1.5 hover:bg-surface-container-highest rounded transition-colors text-on-surface-variant flex items-center gap-1 text-[12px] font-bold"
+                                    @click="goCctvSettings()" title="CCTV 설정 (카메라·오버레이 편집 페이지로 이동)">
+                                <span class="material-icons text-[20px]">settings</span>
+                                <span>설정</span>
+                            </button>
+                            <!-- 전체화면 -->
+                            <button class="p-1.5 hover:bg-surface-container-highest rounded transition-colors text-on-surface-variant" @click="toggleFullscreen()" title="전체화면">
+                                <span class="material-icons text-[20px]">fullscreen</span>
+                            </button>
                         </div>
                     </div>
 
                     <div class="fl-fs-body flex-1 p-4 flex flex-col" style="min-height:0;">
-                        <!-- ── 편집 패널 (도면 뷰 전용) ── -->
-                        <div class="fl-editpanel" x-show="editing && layoutView==='diagram'" x-cloak>
-                            <div class="fl-editbar">
-                                <div class="spacer"></div>
-                                <span class="fl-ctrl" title="모든 카드 공통 크기 (가로:세로 2:1 고정, 레이아웃에 저장)">
-                                    <span class="material-icons">photo_size_select_large</span>
-                                    <input type="range" min="0.05" max="0.4" step="0.005" x-model.number="cardScale" @input="onCardScaleInput()" />
-                                    <span class="fl-val" x-text="Math.round(cardScale * 100) + '%'"></span>
-                                </span>
-                                <span class="fl-ctrl" :class="snapEnabled ? '' : 'is-off'" title="스냅: 켜면 배치/이동이 격자 간격에 맞춰짐">
-                                    <label class="fl-snaptoggle"><input type="checkbox" x-model="snapEnabled" @change="persistSnap()" /> 스냅</label>
-                                    <input type="range" min="20" max="240" step="10" x-model.number="snapSize" @input="persistSnap()" :disabled="!snapEnabled" />
-                                    <span class="fl-val" x-text="snapSize + 'px'"></span>
-                                </span>
-                                <label class="btn btn-sm btn-outlined" style="cursor:pointer;">
-                                    <span class="material-icons" style="font-size:16px;">image</span> 이미지
-                                    <input type="file" accept=".png,.jpg,.jpeg" style="display:none;" @change="onImageSelected($event)" />
-                                </label>
-                                <button class="btn btn-sm btn-outlined color-success" @click="autofill()" :disabled="!availableFlows.length" title="모든 Flow 자동 배치"><span class="material-icons" style="font-size:16px;">auto_awesome_mosaic</span> 자동배치</button>
-                                <button class="btn btn-sm btn-outlined color-warning" @click="clearAll()" :disabled="!(layout && layout.flowPlacements.length)"><span class="material-icons" style="font-size:16px;">delete_sweep</span> 지우기</button>
-                                <button class="btn btn-sm btn-outlined" @click="cancelEdits()" :disabled="!dirty || saving" title="저장하지 않은 변경을 취소하고 마지막 저장 상태로 되돌리기"><span class="material-icons" style="font-size:16px;">undo</span> 취소</button>
-                            </div>
-                            <div class="fl-palette" x-show="!availableFlows.length" style="border-style:solid; border-color:var(--color-warning); background:color-mix(in srgb, var(--color-warning) 7%, var(--color-surface));">
-                                <span class="fp-hint" style="color:var(--color-warning);">
-                                    <span class="material-icons" style="font-size:15px;">info</span>
-                                    <span>배치 가능한 Flow 가 없습니다 — Promaker 에서 AASX 프로젝트를 로드하면 Flow 가 표시됩니다.</span>
-                                </span>
-                            </div>
-                            <div class="fl-palette" x-show="availableFlows.length">
-                                <span class="fp-hint">
-                                    <span class="material-icons" style="font-size:15px;" x-text="armedFlowId ? 'ads_click' : 'touch_app'"></span>
-                                    <span x-text="armedFlowId ? '도면의 원하는 위치를 클릭해 배치 (취소: 칩 재클릭)' : '미배치 Flow 클릭 → 도면 클릭하여 배치 · 배치 후 드래그로 이동'"></span>
-                                </span>
-                                <template x-for="(f, i) in availableFlows" :key="f.id">
-                                    <button :class="'fl-chip ' + (isPlaced(f.id) ? 'is-placed' : '') + (armedFlowId === f.id ? ' is-armed' : '')"
-                                            @click="!isPlaced(f.id) && armFlow(f.id)" :disabled="isPlaced(f.id)" :title="f.name + (f.system ? (' · ' + f.system) : '')">
-                                        <span class="fp-num" x-text="i + 1"></span>
-                                        <span x-text="f.name"></span>
-                                        <span class="material-icons" x-text="isPlaced(f.id) ? 'check_circle' : (armedFlowId === f.id ? 'ads_click' : 'add_box')"></span>
-                                    </button>
-                                </template>
-                            </div>
-                        </div>
-
-                        <template x-if="layoutView==='diagram' && layout && (layout.flowPlacements.length > 0 || editing)">
-                            <div class="fl-stage" style="flex:1; min-height:0; width:100%; display:flex; gap:12px; align-items:stretch; overflow:hidden;">
-                                <aside class="fl-order" x-show="editing && availableFlows.length" x-cloak>
-                                    <div class="fl-order-head">
-                                        <span class="material-icons" style="font-size:16px;">format_list_numbered</span>
-                                        <span>공정 순서</span>
-                                    </div>
-                                    <div class="fl-order-hint">드래그 또는 ▲▼ 로 순서 변경 · 우측 차트 번호가 즉시 반영</div>
-                                    <div class="fl-order-list">
-                                        <template x-for="(f, i) in availableFlows" :key="f.id">
-                                            <div class="fl-order-row" :class="orderDragIdx === i ? 'is-dragging' : ''"
-                                                 draggable="true"
-                                                 @dragstart="orderDragIdx = i"
-                                                 @dragover.prevent="onOrderDragOver(i)"
-                                                 @drop.prevent="orderDragIdx = null"
-                                                 @dragend="orderDragIdx = null"
-                                                 @pointerdown="onOrderPointerDown($event, i)"
-                                                 @pointermove="onOrderPointerMove($event)"
-                                                 @pointerup="onOrderPointerUp($event)"
-                                                 @pointercancel="onOrderPointerUp($event)">
-                                                <span class="material-icons fl-order-handle" title="드래그하여 순서 변경">drag_indicator</span>
-                                                <span class="fl-order-num" x-text="i + 1"></span>
-                                                <span class="fl-order-name" :title="f.name + (f.system ? (' · ' + f.system) : '')" x-text="f.name"></span>
-                                                <span class="fl-order-btns">
-                                                    <button class="fl-order-btn" :disabled="i === 0" @click="orderNudge(i, -1)" @pointerdown.stop title="위로"><span class="material-icons">keyboard_arrow_up</span></button>
-                                                    <button class="fl-order-btn" :disabled="i === availableFlows.length - 1" @click="orderNudge(i, 1)" @pointerdown.stop title="아래로"><span class="material-icons">keyboard_arrow_down</span></button>
-                                                </span>
-                                            </div>
-                                        </template>
-                                    </div>
-                                </aside>
-                                <div class="fl-canvas-wrap">
-                                    <div x-ref="svgArea" class="fl-canvas" :class="{ 'is-armed': editing && armedFlowId, 'is-editing-canvas': editing }"
-                                         :style="`position:relative; width:100%; max-width:calc(var(--fl-cap, 56vh) * ${renderCanvasW} / ${renderCanvasH}); margin:0 auto; aspect-ratio:${renderCanvasW}/${renderCanvasH}; overflow:hidden;`"
-                                         @click="onCanvasClick($event)" @dragstart.prevent
-                                         @pointermove="onDragMove($event)" @pointerup="onDragEnd($event)" @pointercancel="onDragEnd($event)">
-                                        <template x-if="(layout?.blueprintImagePath) || (editing && pendingImage)">
-                                            <img class="fl-blueprint" :src="blueprintSrc" draggable="false"
-                                                 style="position:absolute; inset:0; width:100%; height:100%; pointer-events:none; object-fit:fill;" />
-                                        </template>
-                                        <svg class="fl-grid-overlay" x-show="editing && snapEnabled" x-cloak xmlns="http://www.w3.org/2000/svg"
-                                             :viewBox="`0 0 ${layout.canvasWidth} ${layout.canvasHeight}`" preserveAspectRatio="none" x-html="gridOverlaySvg"></svg>
-                                        <template x-for="c in cards" :key="c.flowName">
-                                            <div :class="'fl-card ' + (c.isAbnormal ? 'is-abnormal ' : '') + (editing ? 'is-editing ' : '') + (editing && dragName === c.flowName ? 'is-dragging ' : '') + (c.editSelected ? 'is-editsel ' : '') + (c.selected ? 'fl-card-selected ' : '') + (chartHoverFlowName === c.flowName && !editing ? 'is-chart-focus ' : '')"
-                                                 :style="`left:${c.leftPct}%; top:${c.topPct}%; width:${c.widthPct}%; height:${c.heightPct}%; --fc-edge:${c.edgeColor};`"
-                                                 :draggable="editing ? 'false' : null"
-                                                 @click.stop="editing || goFlow(c.flowName)"
-                                                 @mouseenter="hoverFlow(c.flowName); showTooltip(c, $el)"
-                                                 @mouseleave="hoverFlow(null); hideTooltip()"
-                                                 @pointerdown="onCardPointerDown($event, c)">
-                                                <button class="fl-del" x-show="editing" x-cloak @click.stop="removePlacement(c.flowName)" @pointerdown.stop title="이 블럭 삭제">×</button>
-                                                <div class="fc-cq">
-                                                    <div class="fc-root">
-                                                        <div class="fc-toprow">
-                                                            <div class="fc-name" :title="c.flowName"><span x-text="c.flowName"></span></div>
-                                                            <div class="fc-badges">
-                                                                <template x-if="c.isAbnormal"><span class="fc-badge state-error">이상감지</span></template>
-                                                                <template x-if="c.isBottleneck"><span class="fc-badge tag-maxtime">최대시간</span></template>
-                                                                <template x-if="c.isMaxWait"><span class="fc-badge tag-maxwait">최대대기율</span></template>
-                                                                <span class="fc-badge" :class="'state-' + c.state" x-text="c.stateText"></span>
-                                                            </div>
-                                                        </div>
-                                                        <template x-if="!c.isEmpty">
-                                                            <div class="fc-main">
-                                                                <div class="fc-ct-line" :title="`전체 사이클타임 ${fmt(c.total)}`">
-                                                                    <span class="fc-ct-val" x-text="fmt(c.total)"></span>
-                                                                    <span class="fc-ct-lbl">전체</span>
-                                                                </div>
-                                                                <div class="fc-rw">
-                                                                    <div class="fc-rw-row top">
-                                                                        <span class="fc-rw-lbl mt">가동</span>
-                                                                        <span class="fc-rw-val mt" x-text="fmt(c.mt)"></span>
-                                                                    </div>
-                                                                    <div class="fc-segbar" :title="`가동 ${fmt(c.mt)} (${c.mtPercent}%) · 대기 ${fmt(c.wt)}`">
-                                                                        <div class="fc-seg mt" :style="`width:${c.mtPercent}%`"></div>
-                                                                        <div class="fc-seg wt" :style="`width:${(100 - c.mtFrac * 100).toFixed(1)}%`"></div>
-                                                                    </div>
-                                                                    <div class="fc-rw-row bot">
-                                                                        <span class="fc-rw-lbl wt">대기</span>
-                                                                        <span class="fc-rw-val wt" x-text="fmt(c.wt)"></span>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        </template>
-                                                        <template x-if="c.isEmpty">
-                                                            <div class="fc-waiting">
-                                                                <span class="material-icons">schedule</span>
-                                                                <span class="fc-waiting-text" x-text="c.waitText"></span>
-                                                            </div>
-                                                        </template>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </template>
-                                    </div>
-                                </div>
-                            </div>
-                        </template>
-                        <template x-if="layoutView==='diagram' && !editing && (!layout || layout.flowPlacements.length === 0)">
-                            <div class="ds-empty" style="padding:40px 0; margin:auto;">
-                                <span class="material-icons">map</span>
-                                <span class="ds-empty-title">배치된 Flow 블럭이 없습니다</span>
-                                <span class="ds-empty-desc">[편집] 을 눌러 도면에 Flow 블럭을 배치하면 실시간 사이클타임이 표시됩니다.</span>
-                                <button class="btn btn-sm btn-outlined" @click="enterEdit()">
-                                    <span class="material-icons" style="font-size:16px;">edit</span> 도면 편집 시작
-                                </button>
-                            </div>
-                        </template>
-
-                        <!-- ══════════ CCTV 영상벽 뷰 (읽기 전용) — /js/cctv-wall.js + /css/cctv-wall.css ══════════ -->
-                        <!-- 같은 카드(.fl-fs) 본문에 위치 → 전체화면(toggleFullscreen)·--fl-cap 사이징을 그대로 상속. 편집/카메라설정은 /cctv. -->
-                        <div class="cctv-wall-embed" x-show="layoutView==='cctv'" x-cloak>
+                        <!-- ══════════ CCTV 영상벽 — /js/cctv-wall.js + /css/cctv-wall.css ══════════ -->
+                        <div class="cctv-wall-embed">
                             <!-- 카메라 없음 -->
                             <template x-if="cctvLoaded && cctvWall.length === 0">
                                 <div class="cctv-wall-empty">
@@ -957,14 +648,35 @@
                                                 <video :id="'cctv-wall-' + cam.id" muted autoplay playsinline disablepictureinpicture
                                                        @loadedmetadata="cctvRecalcRects()" @playing="cctvMarkFrameSeen(cam.id)"></video>
 
-                                                <!-- 연결 상태 오버레이 (연결 중 / 연결 실패) -->
-                                                <template x-if="cctvTileStatus(cam.id) === 'loading'">
+                                                <!-- 대체 이미지: 이미지 보기 모드이거나, 영상 미표시(연결 실패 / 주소 없음 / 대기) 시 등록돼 있으면 이미지로 대체 -->
+                                                <template x-if="cam.fallbackImage && (cctvImageMode || cctvTileStatus(cam.id) !== 'live')">
+                                                    <img class="cctv-tile-fallback" :src="cam.fallbackImage" alt="" draggable="false" @load="cctvRecalcRects()">
+                                                </template>
+                                                <!-- 장애로 대체 이미지가 표시 중임을 알리는 우하단 배지 -->
+                                                <template x-if="cctvFallbackBadge(cam)">
+                                                    <span class="cctv-fallback-badge" :class="cctvTileStatus(cam.id)==='failed' ? 'is-failed' : ''">
+                                                        <span class="material-icons">videocam_off</span>
+                                                        <span x-text="cctvFallbackBadge(cam)"></span>
+                                                    </span>
+                                                </template>
+
+                                                <!-- 이미지 보기 모드인데 등록된 대체 이미지가 없는 카메라 안내 -->
+                                                <template x-if="cctvImageMode && !cam.fallbackImage">
+                                                    <div class="cctv-tile-status is-failed">
+                                                        <span class="material-icons">image_not_supported</span>
+                                                        <span class="st-title">등록된 이미지 없음</span>
+                                                        <span class="st-sub">CCTV 설정에서 대체 이미지를 등록하세요</span>
+                                                    </div>
+                                                </template>
+
+                                                <!-- 연결 상태 오버레이 (연결 중 / 연결 실패) — 라이브 모드 + 대체 이미지가 없을 때만 -->
+                                                <template x-if="!cctvImageMode && !cam.fallbackImage && cctvTileStatus(cam.id) === 'loading'">
                                                     <div class="cctv-tile-status is-loading">
                                                         <span class="cctv-spin"></span>
                                                         <span>연결 중…</span>
                                                     </div>
                                                 </template>
-                                                <template x-if="cctvTileStatus(cam.id) === 'failed'">
+                                                <template x-if="!cctvImageMode && !cam.fallbackImage && cctvTileStatus(cam.id) === 'failed'">
                                                     <div class="cctv-tile-status is-failed">
                                                         <span class="material-icons">videocam_off</span>
                                                         <span class="st-title">연결 실패</span>
@@ -1080,34 +792,31 @@
                 </div>
 
                 <!-- ── 사이클 비교 (4/12) — Chart.js 도넛 ── -->
-                <div class="chart-card col-span-12 md:col-span-12 lg:col-span-4 bg-surface-container-lowest border border-outline-variant rounded-xl shadow-sm overflow-hidden flex flex-col" style="min-height:360px;">
+                <div class="chart-card col-span-12 md:col-span-12 lg:col-span-4 bg-surface-container-lowest border border-outline-variant rounded-xl shadow-sm overflow-hidden flex flex-col" style="min-height:460px;">
                     <div class="p-4 border-b border-outline-variant flex justify-between items-center bg-surface-container-low">
                         <span class="font-headline-md text-headline-md text-primary">사이클 비교</span>
-                        <div class="flex bg-surface border border-outline-variant rounded p-0.5">
-                            <button class="px-2 py-1 text-[10px] font-bold rounded-sm transition-all flex items-center gap-1"
-                                    :class="!showAverage ? 'bg-secondary text-white shadow-sm' : 'text-on-surface-variant hover:bg-surface-container-high'"
-                                    @click="setDisplayMode(false)" title="최근 사이클 값 표시">
-                                <span class="material-icons text-[14px]">history</span> 최근
-                            </button>
-                            <button class="px-2 py-1 text-[10px] font-bold rounded-sm transition-all flex items-center gap-1"
-                                    :class="showAverage ? 'bg-secondary text-white shadow-sm' : 'text-on-surface-variant hover:bg-surface-container-high'"
-                                    @click="setDisplayMode(true)" title="평균값 표시">
-                                <span class="material-icons text-[14px]">analytics</span> 평균
-                            </button>
+                        <div class="flex items-center gap-1.5">
+                            <div class="flex bg-surface border border-outline-variant rounded p-0.5">
+                                <button class="px-2 py-1 text-[10px] font-bold rounded-sm transition-all flex items-center gap-1"
+                                        :class="!showAverage ? 'bg-secondary text-white shadow-sm' : 'text-on-surface-variant hover:bg-surface-container-high'"
+                                        @click="setDisplayMode(false)" title="최근 사이클 값 표시">
+                                    <span class="material-icons text-[14px]">history</span> 최근
+                                </button>
+                                <button class="px-2 py-1 text-[10px] font-bold rounded-sm transition-all flex items-center gap-1"
+                                        :class="showAverage ? 'bg-secondary text-white shadow-sm' : 'text-on-surface-variant hover:bg-surface-container-high'"
+                                        @click="showAverage ? openAvgModal() : setDisplayMode(true)"
+                                        :title="showAverage ? avgDays + '일 기준 평균 — 클릭하여 기간 변경' : '평균값 표시'">
+                                    <span class="material-icons text-[14px]">analytics</span>
+                                    <span x-text="showAverage ? '평균 · ' + avgDays + '일' : '평균'"></span>
+                                </button>
+                            </div>
                         </div>
                     </div>
 
                     <template x-if="chartData.length > 0">
                         <div style="flex:1; min-height:0; display:flex; flex-direction:column;">
-                            <div style="position:relative; flex:1; min-height:220px; padding:10px 4px 4px;" x-effect="renderCtDonut()" @click="selectFlow(null)" @mouseleave="chartHoverFlowName = null">
+                            <div style="position:relative; flex:1; min-height:220px; padding:10px 4px 4px;" x-effect="renderCtDonut()" @mouseleave="chartHoverFlowName = null">
                                 <canvas x-ref="ctDonut"></canvas>
-                                <div style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; pointer-events:none; text-align:center; padding:0 12px;">
-                                    <span style="font-size:0.6rem; font-weight:800; letter-spacing:0.1em; text-transform:uppercase; font-family:var(--font-mono); color:var(--color-text-secondary); max-width:52%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"
-                                          x-text="focusFlowName ? focusFlowName : '전체 CT'"></span>
-                                    <span style="font-size:1.35rem; font-weight:800; color:var(--color-text-primary); font-family:var(--font-mono); font-variant-numeric:tabular-nums; margin-top:2px;"
-                                          :style="focusFlowName ? { color: (focusFlowName === maxCtName ? 'var(--ct-bottleneck)' : ctPalette(chartData.findIndex(f => f.flowName === focusFlowName))) } : {}"
-                                          x-text="fmt(focusFlowName ? (chartData.find(f => f.flowName === focusFlowName)?.ct || 0) : chartData.reduce((a, b) => a + b.ct, 0))"></span>
-                                </div>
                             </div>
                             <div class="ct-legend">
                                 <template x-for="(f, i) in chartData" :key="f.flowName">
@@ -1116,7 +825,9 @@
                                             @mouseenter="hoverFlow(f.flowName)" @mouseleave="hoverFlow(null)" :title="f.flowName + ' · 상세 분석'">
                                         <span class="ct-legend-sw" :style="`background:${f.flowName === maxCtName ? 'var(--ct-bottleneck)' : ctPalette(i)}`"></span>
                                         <span class="ct-legend-name" x-text="f.flowName"></span>
-                                        <span class="ct-legend-val" x-text="fmt(f.ct)"></span>
+                                        <span class="ct-legend-val" style="color:var(--dash-mt)" x-text="fmt(f.mt) + ' (' + (f.ct>0 ? Math.round(f.mt*100/f.ct) : 0) + '%)'"></span>
+                                        <span style="font-size:0.6rem; color:var(--color-lines-strong); margin:0 2px;">|</span>
+                                        <span class="ct-legend-val" style="color:var(--color-text-secondary)" x-text="fmt(f.wt) + ' (' + (f.ct>0 ? Math.round(f.wt*100/f.ct) : 0) + '%)'"></span>
                                     </button>
                                 </template>
                             </div>
@@ -1138,116 +849,39 @@
                  사이드바 하단의 "Agent 상태" 블록으로 이관됨 → 전 페이지 공통 표시. -->
         </div>
 
-        <!-- ── 시프트 설정 팝업 ── -->
-        <div class="modal-overlay" x-show="shiftModalOpen" x-cloak style="z-index:2000;" @click="closeShiftModal()">
-            <div class="modal-content shift-modal" @click.stop>
+        <!-- ── 평균 기간 설정 다이얼로그 ── -->
+        <div class="modal-overlay" x-show="avgModalOpen" x-cloak style="z-index:2100;" @click="closeAvgModal()">
+            <div class="modal-content" style="max-width:320px;" @click.stop>
                 <div class="sm-head">
-                    <span class="sm-title">⏱ 시프트 설정</span>
-                    <button class="btn-icon" @click="closeShiftModal()" title="닫기"><span class="material-icons">close</span></button>
+                    <span class="sm-title">평균 기간 설정</span>
+                    <button class="btn-icon" @click="closeAvgModal()" title="닫기"><span class="material-icons">close</span></button>
                 </div>
                 <div class="sm-body">
                     <div class="form-group">
-                        <label class="form-label">시프트 시간</label>
-                        <div class="sm-times">
-                            <div>
-                                <div class="form-helper" style="margin:0 0 5px;">시작</div>
-                                <input type="time" class="form-field" x-model="shiftForm.start" @change="onShiftTimeEdited()" />
-                            </div>
-                            <div>
-                                <div class="form-helper" style="margin:0 0 5px;">종료</div>
-                                <input type="time" class="form-field" x-model="shiftForm.end" @change="onShiftTimeEdited()" />
-                            </div>
+                        <label class="form-label">기준 일수 (1~90일)</label>
+                        <div class="flex items-center gap-2">
+                            <input type="number" class="form-field" style="width:90px;"
+                                   min="1" max="90" step="1"
+                                   x-model.number="avgDaysForm"
+                                   @keydown.enter="saveAvgDays()"
+                                   @input="avgDaysForm = Math.max(1, Math.min(90, Math.round(avgDaysForm) || 1))" />
+                            <span class="text-label-sm text-on-surface-variant">일</span>
+                        </div>
+                        <div class="form-helper" style="margin-top:6px;">
+                            이 기간의 클린 사이클(비가동 제외)을 모두 평균냅니다.
                         </div>
                     </div>
-                    <div class="form-group">
-                        <label class="form-label">시프트 종류</label>
-                        <div class="sm-seg">
-                            <button :class="shiftForm.shiftType === 'morning' ? 'is-active' : ''" @click="applyShiftType('morning')">오전</button>
-                            <button :class="shiftForm.shiftType === 'afternoon' ? 'is-active' : ''" @click="applyShiftType('afternoon')">오후</button>
-                            <button :class="shiftForm.shiftType === 'night' ? 'is-active' : ''" @click="applyShiftType('night')">야간</button>
-                        </div>
+                    <div class="flex gap-2 justify-end" style="margin-top:16px;">
+                        <button class="btn btn-sm btn-outlined" @click="closeAvgModal()">취소</button>
+                        <button class="btn btn-sm btn-primary" @click="saveAvgDays()">
+                            <span class="material-icons" style="font-size:15px;">check</span> 적용
+                        </button>
                     </div>
-                    <div class="form-group">
-                        <label class="form-label">생산 목표 대상 (Flow → Work)</label>
-                        <div class="sm-times">
-                            <div>
-                                <div class="form-helper" style="margin:0 0 5px;">Flow</div>
-                                <select class="form-select" x-model="shiftForm.targetFlow" @change="onTargetFlowChange()">
-                                    <option value="">— Flow 선택 —</option>
-                                    <template x-for="name in flowNames" :key="name">
-                                        <option :value="name" x-text="name"></option>
-                                    </template>
-                                </select>
-                            </div>
-                            <div>
-                                <div class="form-helper" style="margin:0 0 5px;">Work</div>
-                                <select class="form-select" x-model="shiftForm.targetWork" :disabled="!shiftForm.targetFlow || shiftWorksLoading">
-                                    <option value="">— Work 선택 —</option>
-                                    <template x-for="name in shiftWorks" :key="name">
-                                        <option :value="name" x-text="workLabel(name)"></option>
-                                    </template>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="form-helper" x-show="!flowNames.length">배치된 Flow 가 없습니다 — 도면에서 Flow 를 배치하세요.</div>
-                        <div class="form-helper" x-show="shiftWorksLoading">Work 목록 불러오는 중…</div>
-                        <div class="form-helper" x-show="!shiftWorksLoading && shiftForm.targetFlow && !shiftWorks.length">이 Flow 에 Work 가 없습니다.</div>
-                        <div class="form-helper" x-show="!shiftWorksLoading && shiftWorks.length && !shiftForm.targetWork" style="color:var(--color-warning);">Work 를 선택해야 저장할 수 있습니다.</div>
-                        <div class="form-helper" x-show="!shiftWorksLoading && shiftForm.targetWork">만든 수 = 이 Work 의 완료(신호 ON) 횟수로 집계됩니다.</div>
-                    </div>
-                    <div class="form-group" x-show="shiftForm.targetFlow && shiftForm.targetWork">
-                        <label class="form-label">생산 목표 수량</label>
-                        <div class="sm-stepper">
-                            <button @click="bumpTarget(-10)" title="-10">−</button>
-                            <input type="number" class="form-field" min="0" step="1" x-model.number="shiftForm.targetCount" />
-                            <button @click="bumpTarget(10)" title="+10">+</button>
-                        </div>
-                    </div>
-                    <div class="form-group" x-show="shiftForm.targetFlow && shiftForm.targetWork && shiftForm.targetCount > 0">
-                        <label class="form-label">시프트 동안 만들어야 할 총 개수</label>
-                        <div class="sm-hint">
-                            <span class="material-icons">info</span>
-                            <span>
-                                <b x-text="shiftForm.targetCount + '개'"></b> 목표 ·
-                                균등 페이스 기준 시간당 <b x-text="'약 ' + shiftFormPerHour + '개'"></b> 만들면 목표를 달성합니다.
-                                <span x-show="shiftFormDurationHours > 0" x-text="'(시프트 ' + shiftFormDurationHours.toFixed(1) + '시간)'"></span>
-                            </span>
-                        </div>
-                    </div>
-                </div>
-                <div class="sm-foot">
-                    <button class="btn btn-outlined" @click="closeShiftModal()">취소</button>
-                    <button class="btn btn-filled" @click="saveShift()" :disabled="!canSaveShift"
-                            :title="canSaveShift ? '' : '생산 목표 대상 Work 를 선택하세요.'">
-                        <span class="material-icons" style="font-size:17px;">check</span> 저장</button>
                 </div>
             </div>
         </div>
 
-    <!-- 인플레이스 편집 토스트 -->
-    <div :class="'dash-toast ' + editToast.kind + (editToast.show ? ' show' : '')" x-text="editToast.msg" x-cloak></div>
 
-    <!-- 플로우 카드 호버 툴팁 -->
-    <div class="fc-tt"
-         :style="_tt ? `left:${_tt.left}px; top:${_tt.top}px; transform:${_tt.xform}; opacity:1` : 'opacity:0; left:-9999px; top:-9999px'">
-        <template x-if="_tt">
-            <div>
-                <div class="fc-tt-name" x-text="_tt?.c?.flowName"></div>
-                <template x-if="_tt && !_tt.c.isEmpty">
-                    <div>
-                        <div class="fc-tt-row"><span class="fc-tt-lbl">전체</span><span class="fc-tt-val" x-text="fmt(_tt?.c?.total)"></span></div>
-                        <div class="fc-tt-row"><span class="fc-tt-lbl" style="color:var(--dash-mt)">가동</span><span class="fc-tt-val" x-text="fmt(_tt?.c?.mt)"></span></div>
-                        <div class="fc-tt-row"><span class="fc-tt-lbl" style="color:var(--dash-wt)">대기</span><span class="fc-tt-val" x-text="fmt(_tt?.c?.wt)"></span></div>
-                    </div>
-                </template>
-                <div class="fc-tt-badges">
-                    <span class="fc-tt-badge" :class="'state-' + (_tt?.c?.state ?? '')" x-text="_tt?.c?.stateText"></span>
-                    <template x-if="_tt?.c?.isBottleneck"><span class="fc-tt-badge tag-maxtime">최대시간</span></template>
-                    <template x-if="_tt?.c?.isMaxWait"><span class="fc-tt-badge tag-maxwait">최대대기율</span></template>
-                </div>
-            </div>
-        </template>
-    </div>
 </div>
 
 <script src="/lib/signalr.min.js"></script>
@@ -1272,31 +906,17 @@
             // CCTV 영상벽(읽기 전용) 시청 엔진 — /js/cctv-wall.js. 모든 키는 cctv* 접두사라 충돌 없음.
             ...window.CctvWall.state(),
             ...window.CctvWall.methods,
-            flows: [], layout: null, hasData: false, loading: true, error: null, dark: false,
-            cardScale: 0.15,
+            flows: [], hasData: false, loading: true, error: null, dark: false,
             selectedFlowName: null,
             hoverFlowName: null,
             chartHoverFlowName: null,
-            editing: false,
-            availableFlows: [],
-            isStale: false,
-            armedFlowId: null,
-            selectedFlowId: null,
-            saving: false,
-            dirty: false,
-            pendingImage: null,
-            snapEnabled: false,
-            snapSize: 40,
-            dragName: null,
-            orderDragIdx: null,
-            _drag: null,
-            _orderDrag: null,
-            editToast: { show: false, msg: '', kind: 'info' },
-            _editToastT: null,
             showAverage: false,
+            avgDays: 1,
+            avgModalOpen: false,
+            avgDaysForm: 1,
+            histAvg: {},
             sortField: 'ct', sortDesc: true,
-            flowProcessOrder: {},
-            rt: { connected: false },
+            flowProcessOrder: {}, rt: { connected: false },
             abnormals: [],          // v12 경로이탈 이상감지(DS 4종) 최근 피드 — 라이브 갱신(알람 배너 세로 티커가 한 건씩 소비)
             abnormalOverflow: false, // 10건 초과 여부 → 배지 "10+" 표시
             abnIndex: 0,            // 세로 티커가 현재 표시 중인 알람 인덱스 (분자-1). 분모는 abnormals.length
@@ -1304,16 +924,13 @@
             _abnDt: null,
             alarmTickerSec: 3,      // 알람 배너 세로 티커 전환 간격(초) — 서버설정 Ui.AlarmTickerIntervalSec. 스냅샷으로 수신·즉시반영
 
-            _tt: null,
-            shift: { start: '08:00', end: '17:00', shiftType: 'morning', targetFlow: null, targetWork: null, targetCount: 0, madeCount: 0 },
-            shiftForm: { start: '08:00', end: '17:00', shiftType: 'morning', targetFlow: '', targetWork: '', targetCount: 0 },
-            shiftWorks: [],          // 선택된 targetFlow 의 Work 목록(드롭다운 2단계)
-            shiftWorksLoading: false,
-            shiftModalOpen: false,
+            nonprod: { windows: [], source: 'none' },
+            todayCycles: 0,
             nowTick: Date.now(),
-            _conn: null, _dt: null, _sysColorIdx: {}, _shiftTimer: null, _pollTimer: null,
+            _conn: null, _dt: null, _sysColorIdx: {}, _shiftTimer: null, _pollTimer: null, _avgTimer: null,
 
             async init() {
+                document.body.classList.add('has-dash');
                 this.dark = localStorage.getItem('dspilot-theme') === 'dark';
                 this._applyTheme();
                 window.addEventListener('storage', (e) => {
@@ -1322,28 +939,28 @@
                     this._applyTheme();
                     this.$nextTick(() => { this.renderCtDonut(); });
                 });
-                this.snapEnabled = localStorage.getItem('dspilot-dash-snap') === '1';
-                const ss = parseInt(localStorage.getItem('dspilot-dash-snapsize'), 10);
-                if (!isNaN(ss)) this.snapSize = Math.max(20, Math.min(240, Math.round(ss / 10) * 10));
-                // 레이아웃 카드 뷰(도면/CCTV) — 브라우저별 기억(개인 뷰 토글, 공유 데이터 아님). 기본 도면.
-                this.layoutView = localStorage.getItem('dspilot-dash-view') === 'cctv' ? 'cctv' : 'diagram';
+                // 사이클 비교 평균 기간 — 브라우저별 기억(1~90일, 기본 1일).
+                const savedAvgDays = parseInt(localStorage.getItem('dspilot-dash-avgdays'), 10);
+                if (!isNaN(savedAvgDays) && savedAvgDays >= 1) this.avgDays = Math.min(savedAvgDays, 90);
                 await this.loadSnapshot();
-                await this.loadShift();
+                this.loadNonprod();
+                this.loadTodayCycles();
                 this.loadAbnormals();
                 this.abnStartTicker();
                 this.connectSignalR();
                 this._pollTimer = setInterval(() => this.loadSnapshot(), 5000);
                 // 시프트 카운트다운은 분 단위 표시라 1초 틱은 불필요한 reactivity churn — 15초면 충분히 라이브.
                 this._shiftTimer = setInterval(() => { this.nowTick = Date.now(); }, 15000);
-                // 전체화면 변화 → CCTV 타일 바 숨김 토글 + 레터박스 좌표 재계산(도면은 CSS 가 처리).
+                // 히스토리 평균·비생산·당일사이클은 1분 주기 갱신 (5초 스냅샷과 분리 — DB집계라 비용 있음).
+                this._avgTimer = setInterval(() => { if (this.showAverage) this.loadHistAvg(); this.loadNonprod(); this.loadTodayCycles(); }, 60000);
+                // 전체화면 변화 → CCTV 타일 바 숨김 토글 + 레터박스 좌표 재계산.
                 const onFsChange = () => {
                     this.cctvFullscreen = !!document.fullscreenElement;
-                    if (this.layoutView === 'cctv') this.$nextTick(() => this.cctvRecalcRects());
+                    this.$nextTick(() => this.cctvRecalcRects());
                 };
                 document.addEventListener('fullscreenchange', onFsChange);
                 document.addEventListener('webkitfullscreenchange', onFsChange);
-                // 마지막 뷰가 CCTV 였으면 스트림 시작(DOM 마운트 후).
-                if (this.layoutView === 'cctv') this.$nextTick(() => this.cctvStart());
+                this.$nextTick(() => this.cctvStart());
                 // 라인요약·연결배지·이상배지는 공통 셸(shell.js)이 /api/nav/summary 를 자체 폴링·렌더한다.
                 // dashboard2 가 같은 엔드포인트를 또 폴링하던 중복(_navTimer/loadNavSummary)은 제거했다.
             },
@@ -1369,23 +986,6 @@
                 this._applyTheme();
                 this.$nextTick(() => { this.renderCtDonut(); });
             },
-            persistSnap() { localStorage.setItem('dspilot-dash-snap', this.snapEnabled ? '1' : '0'); localStorage.setItem('dspilot-dash-snapsize', String(this.snapSize)); },
-
-            // ── 레이아웃 카드 뷰 전환(도면 ⇄ CCTV) ──
-            async setLayoutView(v) {
-                if ((v !== 'diagram' && v !== 'cctv') || v === this.layoutView) return;
-                if (v === 'cctv') {
-                    if (this.editing) await this.exitEdit();   // 편집 중이면 저장·종료(편집은 도면 전용)
-                    this.layoutView = 'cctv';
-                    try { localStorage.setItem('dspilot-dash-view', 'cctv'); } catch (e) {}
-                    this.$nextTick(() => this.cctvStart());      // DOM(영상벽) 마운트 후 스트림 시작
-                } else {
-                    this.layoutView = 'diagram';
-                    try { localStorage.setItem('dspilot-dash-view', 'diagram'); } catch (e) {}
-                    this.cctvStop();                             // 스트림·폴링 정리(누수 방지)
-                }
-            },
-            // CCTV 모드의 "편집" = 설정/오버레이 편집 페이지(/cctv)로 이동.
             goCctvSettings() { location.href = '/cctv'; },
 
             async apiGet(url) {
@@ -1399,19 +999,11 @@
                 try {
                     const data = await this.apiGet('/api/dashboard/snapshot');
                     this.flows = data.flows || [];
-                    if (!this.editing) {
-                        this.layout = data.layout || null;
-                        if (this.layout && this.layout.cardScale > 0) this.cardScale = this.layout.cardScale;
-                    }
                     this.hasData = data.hasData;
                     if (data.alarmTickerIntervalSec > 0 && data.alarmTickerIntervalSec !== this.alarmTickerSec) this.alarmTickerSec = data.alarmTickerIntervalSec;
                     this.error = null;
                     this.rebuildProcessOrder();
-                    if (this.selectedFlowName) {
-                        const stillPlaced = this.layout && this.layout.flowPlacements.some(p => p.flowName === this.selectedFlowName);
-                        if (!stillPlaced) this.selectedFlowName = null;
-                    }
-                    this.loadShift();
+                    this.loadTodayCycles();
                 } catch (e) {
                     this.error = '데이터를 불러오지 못했습니다: ' + e.message;
                 } finally {
@@ -1491,11 +1083,7 @@
                 const trigger = () => this.debouncedLoad();
                 conn.on('CallStateChangedBatch', trigger);
                 conn.on('CallStateChanged', trigger);
-                conn.on('DatabaseRebuilt', () => {
-                    if (this.editing) this.reloadBlueprint().then(() => this.editToastShow('Flow 집합이 변경되어 편집 도면을 새로고침했습니다.', 'info')).catch(() => {});
-                    this.loadSnapshot();
-                });
-                conn.on('ShiftChanged', () => { this.loadShift(); });
+                conn.on('DatabaseRebuilt', () => { this.loadSnapshot(); });
                 conn.on('AbnormalDetected', () => { this.debouncedLoadAbnormals(); });
                 // usertag 활성 알람 발생/해소(조건 풀림) 시에도 배너 즉시 재조회 (REST 단일 소스).
                 conn.on('UserTagAlertsChanged', () => { this.debouncedLoadAbnormals(); });
@@ -1512,51 +1100,13 @@
                 }, 200);
             },
 
-            get renderCanvasW() { return this.layout ? this.layout.canvasWidth : 1; },
-            get renderCanvasH() { return this.layout ? this.layout.canvasHeight : 1; },
-            get cards() { return this.layout ? this.layout.flowPlacements.map(fp => this.cardFor(fp)) : []; },
             get abnFlowSet() { const s = new Set(); for (const a of this.abnormals) if (a.flowName) s.add(a.flowName); return s; },
-
-            cardFor(fp) {
-                const L = this.layout;
-                const canvasW = L.canvasWidth, canvasH = L.canvasHeight;
-                const cardW = canvasW * this.cardScale, cardH = cardW / 2;
-                const cx = (fp.x ?? 0.5) * canvasW, cy = (fp.y ?? 0.5) * canvasH;
-                const px = cx - cardW / 2, py = cy - cardH / 2;
-                const f4 = (x) => x.toFixed(4);
-                const mtwt = this.flowMtWt(fp.flowName);
-                const mt = mtwt ? mtwt.mt : 0, wt = mtwt ? mtwt.wt : 0, total = mt + wt;
-                const isEmpty = !mtwt || total <= 0;
-                const stateRaw = (this.flowStateLabel(fp.flowName) || '').toLowerCase();
-                const isAbnormal = this.abnFlowSet.has(fp.flowName);
-                const stateKey = isAbnormal ? 'error' : (['ready', 'going', 'finish', 'error'].includes(stateRaw) ? stateRaw : 'ready');
-                const stateText = { ready: 'Ready', going: 'Going', finish: 'Finish', error: '이상' }[stateKey];
-                // 빈 카드(사이클 데이터 없음) 문구 — 라인 정지/유휴를 '곧/방금'처럼 활동 중으로 오인시키지 않게 중립 표기.
-                const waitText = stateKey === 'going' ? '진행 중'
-                    : stateKey === 'finish' ? '완료'
-                    : stateKey === 'error' ? '이상감지'
-                    : '대기';
-                const mtFrac = total > 0 ? mt / total : 0;
-                const isBottleneck = fp.flowName === this.maxCtName && !isEmpty;
-                const isMaxWait = fp.flowName === this.maxWtName && !isEmpty;
-                const edgeColor = isEmpty ? 'var(--color-lines-strong)'
-                    : (mtFrac >= 0.5 ? 'var(--dash-mt)' : 'var(--dash-wt)');
-                return {
-                    flowName: fp.flowName,
-                    leftPct: f4(px / canvasW * 100), topPct: f4(py / canvasH * 100),
-                    widthPct: f4(cardW / canvasW * 100), heightPct: f4(cardH / canvasH * 100),
-                    state: stateKey, stateText, edgeColor, waitText, isEmpty,
-                    mt, wt, total, mtPercent: (mtFrac * 100).toFixed(1), mtFrac,
-                    wtRatio: total > 0 ? wt / total : 0,
-                    selected: this.selectedFlowName === fp.flowName,
-                    editSelected: this.editing && !!this.selectedFlowId && fp.flowId === this.selectedFlowId,
-                    isBottleneck, isMaxWait, isAbnormal
-                };
-            },
 
             flowMtWt(name) {
                 const s = this.flows.find(f => f.flowName === name);
                 if (this.showAverage) {
+                    const h = this.histAvg[name];
+                    if (h) return { mt: Math.trunc(h.avgMT ?? 0), wt: Math.trunc(h.avgWT ?? 0) };
                     if (s && (s.avgMT != null || s.avgWT != null))
                         return { mt: s.avgMT != null ? Math.trunc(s.avgMT) : 0, wt: s.avgWT != null ? Math.trunc(s.avgWT) : 0 };
                     if (!s || (s.mt == null && s.wt == null)) return null;
@@ -1596,328 +1146,26 @@
 
             rebuildProcessOrder() {
                 this.flowProcessOrder = {};
-                if (this.editing && this.availableFlows.length) {
-                    this.availableFlows.forEach((f, i) => { this.flowProcessOrder[f.name] = i; });
-                    return;
-                }
-                if (this.layout) {
-                    const order = this.layout.flowProcessOrder || [];
-                    const src = order.length ? order.map(o => o.flowName) : this.layout.flowPlacements.map(p => p.flowName);
-                    src.forEach((n, i) => { this.flowProcessOrder[n] = i; });
-                }
-            },
-            moveOrderItem(from, to) {
-                const arr = this.availableFlows;
-                if (!arr || from < 0 || from >= arr.length || to < 0 || to >= arr.length || from === to) return;
-                const [m] = arr.splice(from, 1);
-                arr.splice(to, 0, m);
-                this.rebuildProcessOrder();
-                this.markDirty();
-            },
-            onOrderDragOver(i) {
-                if (this.orderDragIdx === null || this.orderDragIdx === i) return;
-                this.moveOrderItem(this.orderDragIdx, i);
-                this.orderDragIdx = i;
-            },
-            orderNudge(i, dir) { this.moveOrderItem(i, i + dir); },
-
-            // ── 공정 순서 터치 재정렬 ──
-            //   HTML5 draggable(@dragstart/@dragover/@drop)은 터치에서 동작하지 않으므로
-            //   Pointer Events(mouse+touch 통합)로 동등한 드래그 재정렬을 추가한다(데스크톱 마우스 드래그도 함께 작동).
-            //   포인터를 손가락/마우스로 누른 뒤 위/아래로 끌면 끌고 있는 행의 화면 Y 가 들어간 위치로 즉시 재배치한다.
-            onOrderPointerDown(e, i) {
-                if (!this.editing) return;
-                // 버튼(▲▼)·핸들 외 영역도 잡을 수 있게: 위/아래 버튼은 @pointerdown.stop 으로 자체 처리(드래그 시작 안 함)
-                if (e.pointerType === 'mouse' && e.button !== 0) return;
-                this._orderDrag = { fromStart: i, listEl: e.currentTarget.parentElement };
-                this.orderDragIdx = i;
-                try { e.currentTarget.setPointerCapture && e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
-            },
-            onOrderPointerMove(e) {
-                const od = this._orderDrag; if (od == null) return;
-                if (this.orderDragIdx == null) return;
-                e.preventDefault();   // 드래그 중 페이지 스크롤 차단(touch-action:none 과 함께)
-                const listEl = od.listEl; if (!listEl) return;
-                const rows = Array.prototype.slice.call(listEl.querySelectorAll('.fl-order-row'));
-                if (!rows.length) return;
-                const y = e.clientY;
-                // 포인터 Y 가 위치한 행 인덱스를 산출(각 행 중앙 기준).
-                let target = rows.length - 1;
-                for (let k = 0; k < rows.length; k++) {
-                    const r = rows[k].getBoundingClientRect();
-                    if (y < r.top + r.height / 2) { target = k; break; }
-                }
-                if (target !== this.orderDragIdx) {
-                    this.moveOrderItem(this.orderDragIdx, target);
-                    this.orderDragIdx = target;
-                }
-            },
-            onOrderPointerUp(e) {
-                if (this._orderDrag == null) return;
-                try { e.currentTarget.releasePointerCapture && e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) {}
-                this._orderDrag = null;
-                this.orderDragIdx = null;
-            },
-
-            async bpApiPost(url, body) {
-                const res = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
-                if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || ('HTTP ' + res.status)); }
-                return await res.json();
-            },
-
-            applyBpState(data) {
-                if (!this.editing) return;
-                this.layout = data.layout || this.layout;
-                this.availableFlows = data.availableFlows || [];
-                this.isStale = !!data.isStale;
-                if (this.layout && this.layout.cardScale > 0) this.cardScale = this.layout.cardScale;
-                this.rebuildProcessOrder();
-                if (this.selectedFlowId && this.layout && !this.layout.flowPlacements.some(p => p.flowId === this.selectedFlowId)) this.selectedFlowId = null;
-            },
-            _clearPendingImage() {
-                if (this.pendingImage && this.pendingImage.url) { try { URL.revokeObjectURL(this.pendingImage.url); } catch (_) {} }
-                this.pendingImage = null;
-            },
-            async reloadBlueprint() {
-                const data = await this.apiGet('/api/blueprint');
-                this.layout = data.layout || null;
-                this.availableFlows = data.availableFlows || [];
-                this.isStale = !!data.isStale;
-                if (this.layout && this.layout.cardScale > 0) this.cardScale = this.layout.cardScale;
-                this.rebuildProcessOrder();
-                if (this.selectedFlowId && this.layout && !this.layout.flowPlacements.some(p => p.flowId === this.selectedFlowId)) this.selectedFlowId = null;
-                this._clearPendingImage();
-                this.dirty = false;
-            },
-
-            markDirty() { this.dirty = true; },
-            setPlacementLocal(flowId, x, y) {
-                if (!this.layout) return;
-                const f = this.availableFlows.find(a => a.id === flowId);
-                if (!f) return;
-                const list = this.layout.flowPlacements;
-                const existing = list.find(p => p.flowId === flowId);
-                if (existing) { existing.x = x; existing.y = y; }
-                else list.push({ flowId, flowName: f.name, systemId: f.systemId, systemName: f.system, x, y });
-                this.markDirty();
-            },
-
-            toggleEdit() { this.editing ? this.exitEdit() : this.enterEdit(); },
-            async enterEdit() {
-                this.editing = true; this.dirty = false;
-                this.armedFlowId = null; this.selectedFlowId = null;
-                this._clearPendingImage();
-                try {
-                    await this.reloadBlueprint();
-                } catch (e) {
-                    this.editing = false;
-                    this.editToastShow('편집 데이터를 불러오지 못했습니다: ' + e.message, 'error');
-                    this.loadSnapshot();
-                }
-            },
-            async exitEdit() {
-                if (this.dirty) {
-                    await this.saveLayout();
-                    if (this.dirty) return;
-                }
-                this.editing = false; this.armedFlowId = null; this.selectedFlowId = null;
-                this._drag = null; this.dragName = null; this.dirty = false;
-                this._clearPendingImage();
-                this.loadSnapshot();
-            },
-
-            isPlaced(flowId) { return (this.layout?.flowPlacements || []).some(p => p.flowId === flowId); },
-            armFlow(flowId) { this.armedFlowId = (this.armedFlowId === flowId) ? null : flowId; },
-            placementFor(flowName) { return (this.layout?.flowPlacements || []).find(p => p.flowName === flowName) || null; },
-
-            get gridOverlaySvg() {
-                const L = this.layout; if (!L || !this.editing || !this.snapEnabled) return '';
-                const s = this.snapSize; if (s <= 0) return '';
-                const w = L.canvasWidth, h = L.canvasHeight, parts = [];
-                for (let x = 0; x <= w + 0.5; x += s) parts.push(`<line class="gl-line" x1="${x}" y1="0" x2="${x}" y2="${h}" />`);
-                for (let y = 0; y <= h + 0.5; y += s) parts.push(`<line class="gl-line" x1="0" y1="${y}" x2="${w}" y2="${y}" />`);
-                return parts.join('');
-            },
-            snapXY(xf, yf) {
-                if (!this.snapEnabled || !this.layout) return [xf, yf];
-                const s = this.snapSize, w = this.layout.canvasWidth, h = this.layout.canvasHeight;
-                if (s <= 0 || w <= 0 || h <= 0) return [xf, yf];
-                return [Math.round(xf * w / s) * s / w, Math.round(yf * h / s) * s / h];
-            },
-            clamp01(v) { return Math.min(1, Math.max(0, v)); },
-            onCanvasClick(e) {
-                if (!this.editing) { this.selectFlow(null); return; }
-                if (this.armedFlowId) this.placeAtPoint(e.clientX, e.clientY);
-            },
-            placeAtPoint(clientX, clientY) {
-                const flowId = this.armedFlowId; if (!flowId) return;
-                const area = this.$refs.svgArea; if (!area) return;
-                const rect = area.getBoundingClientRect(); if (rect.width <= 0 || rect.height <= 0) return;
-                let xf = (clientX - rect.left) / rect.width, yf = (clientY - rect.top) / rect.height;
-                [xf, yf] = this.snapXY(this.clamp01(xf), this.clamp01(yf));
-                this.setPlacementLocal(flowId, this.clamp01(xf), this.clamp01(yf));
-                this.armedFlowId = null;
-                this.selectedFlowId = flowId;
-            },
-            removePlacement(flowName) {
-                const fp = this.placementFor(flowName); if (!fp || !this.layout) return;
-                this.layout.flowPlacements = this.layout.flowPlacements.filter(p => p.flowId !== fp.flowId);
-                if (this.selectedFlowId === fp.flowId) this.selectedFlowId = null;
-                this.markDirty();
-            },
-
-            onCardPointerDown(e, c) {
-                if (!this.editing) return;
-                e.preventDefault();
-                const fp = this.placementFor(c.flowName); if (!fp) return;
-                this.selectedFlowId = fp.flowId; this.armedFlowId = null;
-                const area = this.$refs.svgArea;
-                const rect = area ? area.getBoundingClientRect() : null;
-                this._drag = { name: c.flowName, flowId: fp.flowId, sx: e.clientX, sy: e.clientY,
-                               x: fp.x ?? 0.5, y: fp.y ?? 0.5,
-                               w: (rect && rect.width > 0) ? rect.width : 1, h: (rect && rect.height > 0) ? rect.height : 1,
-                               moved: false };
-                this.dragName = c.flowName;
-                try { area && area.setPointerCapture && area.setPointerCapture(e.pointerId); } catch (_) {}
-            },
-            onDragMove(e) {
-                const d = this._drag; if (!d) return;
-                const dx = e.clientX - d.sx, dy = e.clientY - d.sy;
-                if (!d.moved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) d.moved = true;
-                if (!d.moved) return;
-                const [mx, my] = this.snapXY(this.clamp01(d.x + dx / d.w), this.clamp01(d.y + dy / d.h));
-                this.setPlacementLocal(d.flowId, this.clamp01(mx), this.clamp01(my));
-            },
-            onDragEnd(e) {
-                const d = this._drag; this._drag = null; this.dragName = null;
-                const area = this.$refs.svgArea;
-                try { area && area.releasePointerCapture && area.releasePointerCapture(e.pointerId); } catch (_) {}
-                if (!d || !d.moved) return;
-                let nx = this.clamp01(d.x + (e.clientX - d.sx) / d.w);
-                let ny = this.clamp01(d.y + (e.clientY - d.sy) / d.h);
-                [nx, ny] = this.snapXY(nx, ny);
-                this.setPlacementLocal(d.flowId, this.clamp01(nx), this.clamp01(ny));
-            },
-
-            onCardScaleInput() { this.markDirty(); },
-
-            onImageSelected(e) {
-                const file = e.target.files && e.target.files[0]; e.target.value = '';
-                if (!file) return;
-                const url = URL.createObjectURL(file);
-                const img = new Image();
-                img.onload = () => {
-                    this._clearPendingImage();
-                    this.pendingImage = { file, url, width: img.naturalWidth, height: img.naturalHeight };
-                    if (this.layout && img.naturalWidth > 0 && img.naturalHeight > 0) {
-                        this.layout.canvasWidth = img.naturalWidth;
-                        this.layout.canvasHeight = img.naturalHeight;
-                    }
-                    this.markDirty();
-                    this.editToastShow(`이미지 선택됨 (${img.naturalWidth}×${img.naturalHeight}) · [저장] 시 적용`, 'info');
-                };
-                img.onerror = () => { try { URL.revokeObjectURL(url); } catch (_) {} this.editToastShow('이미지를 읽지 못했습니다.', 'error'); };
-                img.src = url;
-            },
-            get blueprintSrc() {
-                if (this.editing && this.pendingImage) return this.pendingImage.url;
-                const p = this.layout?.blueprintImagePath; if (!p) return '';
-                return '/' + p.replace(/^\/+/, '') + '?v=' + (this.layout?.imageVersion ?? '');
-            },
-
-            clearAll() {
-                const n = this.layout?.flowPlacements?.length || 0;
-                if (!n || !confirm(`배치된 블럭 ${n}개를 모두 삭제하시겠습니까?`)) return;
-                this.armedFlowId = null; this.selectedFlowId = null;
-                this.layout.flowPlacements = [];
-                this.markDirty();
-                this.editToastShow('모든 블럭을 삭제했습니다 (저장 전).', 'info');
-            },
-            autofillLocal() {
-                const L = this.layout; if (!L) return 0;
-                const ordered = this.availableFlows; const n = ordered.length;
-                L.flowPlacements = [];
-                if (n === 0) return 0;
-                const usableW = Math.max(1, L.canvasWidth), usableH = Math.max(1, L.canvasHeight);
-                const aspect = usableW / usableH;
-                const cols = Math.max(1, Math.ceil(Math.sqrt(n * aspect)));
-                let rows = Math.ceil(n / cols);
-                while (cols * rows < n) rows++;
-                this.cardScale = Math.min(0.35, Math.max(0.06, 0.82 / cols));
-                L.flowPlacements = ordered.map((f, i) => {
-                    const col = i % cols, row = Math.floor(i / cols);
-                    return { flowId: f.id, flowName: f.name, systemId: f.systemId, systemName: f.system, x: (col + 0.5) / cols, y: (row + 0.5) / rows };
-                });
-                this.markDirty();
-                return n;
-            },
-            autofill() {
-                if (!this.availableFlows.length) return;
-                if ((this.layout?.flowPlacements?.length || 0) > 0 && !confirm(`기존 배치를 제거하고 Flow ${this.availableFlows.length}개를 자동 배치합니다. 계속하시겠습니까?`)) return;
-                this.armedFlowId = null; this.selectedFlowId = null;
-                const n = this.autofillLocal();
-                this.editToastShow(`Flow ${n}개를 자동 배치했습니다 (저장 전).`, 'success');
-            },
-            async cancelEdits() {
-                if (!this.dirty || this.saving) return;
-                if (!confirm('저장하지 않은 변경사항을 모두 취소하고 마지막 저장 상태로 되돌립니다. 계속하시겠습니까?')) return;
-                this.armedFlowId = null; this.selectedFlowId = null;
-                try {
-                    await this.reloadBlueprint();
-                    this.editToastShow('마지막 저장 상태로 되돌렸습니다.', 'success');
-                } catch (e) {
-                    this.editToastShow('되돌리기 실패: ' + e.message, 'error');
-                }
-            },
-
-            async saveLayout() {
-                if (!this.editing || !this.dirty || this.saving) return;
-                this.saving = true;
-                try {
-                    if (this.pendingImage) {
-                        const fd = new FormData(); fd.append('file', this.pendingImage.file);
-                        const res = await fetch('/api/blueprint/image', { method: 'POST', body: fd });
-                        if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || ('HTTP ' + res.status)); }
-                        const r = await res.json();
-                        if (this.layout) {
-                            this.layout.blueprintImagePath = r.imagePath;
-                            this.layout.imageVersion = r.imageVersion;
-                            this.layout.canvasWidth = r.canvasWidth;
-                            this.layout.canvasHeight = r.canvasHeight;
-                        }
-                        this._clearPendingImage();
-                    }
-                    const placements = (this.layout?.flowPlacements || []).map(p => ({ flowId: p.flowId, x: p.x, y: p.y }));
-                    const flowProcessOrder = (this.availableFlows || []).map(f => f.id);
-                    const data = await this.bpApiPost('/api/blueprint/replace', { cardScale: this.cardScale, placements, flowProcessOrder });
-                    this.applyBpState(data);
-                    this.dirty = false;
-                    this.editToastShow('저장되었습니다.', 'success');
-                } catch (e) {
-                    this.editToastShow('저장 실패: ' + e.message, 'error');
-                } finally { this.saving = false; }
-            },
-
-            editToastShow(msg, kind) {
-                this.editToast = { show: true, msg, kind: kind || 'info' };
-                clearTimeout(this._editToastT);
-                this._editToastT = setTimeout(() => { this.editToast.show = false; }, 2600);
+                this.flows.forEach((f, i) => { this.flowProcessOrder[f.flowName] = i; });
             },
 
             get metricRows() {
-                if (!this.layout) return [];
-                return this.layout.flowPlacements.map((fp, idx) => {
-                    const s = this.flows.find(f => f.flowName === fp.flowName);
+                return this.flows.map((s, idx) => {
                     let mt, wt, ct;
                     if (this.showAverage) {
-                        mt = (s && s.avgMT != null) ? Math.trunc(s.avgMT) : 0;
-                        wt = (s && s.avgWT != null) ? Math.trunc(s.avgWT) : 0;
-                        ct = (s && s.avgCT != null) ? Math.trunc(s.avgCT) : 0;
-                        if (ct === 0) { mt = (s && s.mt != null) ? s.mt : 0; wt = (s && s.wt != null) ? s.wt : 0; ct = mt + wt; }
+                        const h = this.histAvg[s.flowName];
+                        if (h) {
+                            mt = Math.trunc(h.avgMT ?? 0); wt = Math.trunc(h.avgWT ?? 0); ct = Math.trunc(h.avgCT ?? 0);
+                        } else {
+                            mt = s.avgMT != null ? Math.trunc(s.avgMT) : 0;
+                            wt = s.avgWT != null ? Math.trunc(s.avgWT) : 0;
+                            ct = s.avgCT != null ? Math.trunc(s.avgCT) : 0;
+                        }
+                        if (ct === 0) { mt = s.mt != null ? s.mt : 0; wt = s.wt != null ? s.wt : 0; ct = mt + wt; }
                     } else {
-                        mt = (s && s.mt != null) ? s.mt : 0; wt = (s && s.wt != null) ? s.wt : 0; ct = mt + wt;
+                        mt = s.mt != null ? s.mt : 0; wt = s.wt != null ? s.wt : 0; ct = mt + wt;
                     }
-                    return { flowName: fp.flowName, mt, wt, ct, wtRatio: ct > 0 ? wt / ct : 0, idx };
+                    return { flowName: s.flowName, mt, wt, ct, wtRatio: ct > 0 ? wt / ct : 0, idx };
                 }).filter(r => r.ct > 0);
             },
             get maxCtName() { const r = this.metricRows; return r.length ? r.reduce((a, b) => b.ct > a.ct ? b : a).flowName : null; },
@@ -1950,118 +1198,268 @@
                 }
                 return hex;
             },
-            // CT 도넛: x-effect 로 데이터/hover/테마 변화 때마다 호출된다. 예전엔 매번 destroy()+new Chart() 로
-            // 차트를 통째 재생성(5초 폴링·SignalR·hover 마다) → JS 힙은 평탄해도 canvas/GPU 메모리·detached DOM 이
-            // 장시간 누적되어 브라우저 OOM 을 유발했다. 이제는 인스턴스를 1개만 유지하고 update('none') 로 in-place 갱신한다.
+            // 선버스트: 내부 링(flow별 CT 비중 항상 표시) + 외부 링(강조된 flow의 MT·WT만 뻗어남).
+            // 외부 링의 backgroundColor·borderColor·offset 을 scriptable 함수로 정의해
+            // ctDyn 을 참조하므로 in-place update('none') 만으로 즉시 반영된다(OOM 방지).
             renderCtDonut() {
                 const rows = this.chartData;
-                const sel = this.hoverFlowName || this.selectedFlowName;
+                const sel = this.chartHoverFlowName || this.hoverFlowName || this.selectedFlowName;
                 const maxName = this.maxCtName;
                 const cv = this.$refs.ctDonut;
                 if (!cv || !window.Chart) return;
-                // 데이터 없음: 남은 차트가 detached canvas 에 그리지 않도록 정리하고 종료.
                 if (!rows.length) { if (ctChart) { ctChart.destroy(); ctChart = null; ctSig = null; ctDyn = null; } return; }
 
                 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
-                // 병목(최대 CT) 슬라이스 = 딥 애저(온브랜드). 빨강=에러 전용이라 도넛에서 배제.
                 const bottleneck = css('--ct-bottleneck') || '#1e3a8a';
                 const surface = css('--color-surface') || '#ffffff';
                 const dark = document.documentElement.classList.contains('dark-theme');
-                const labels = rows.map(r => r.flowName);
-                const data = rows.map(r => r.ct);
-                const total = data.reduce((a, b) => a + b, 0) || 1;
                 const baseOf = (name, i) => name === maxName ? bottleneck : this.ctPalette(i);
-                const bg = rows.map((r, i) => {
+
+                // 내부 링: flow 당 CT 1슬라이스 (항상 표시, sel 에 따라 dimming)
+                const innerData = rows.map(r => r.ct);
+                const innerBg = rows.map((r, i) => {
                     const c = baseOf(r.flowName, i);
                     return (sel && r.flowName !== sel) ? this._hexAlpha(c, 0.28) : c;
                 });
-                // 플러그인이 클로저로 읽는 최신 동적상태(인스턴스에 박지 않아 stale 없음).
-                ctDyn = { labels, data, total, sel, dark };
-                // 시그니처: 시각적으로 의미있는 입력이 모두 동일하면 redraw 생략(데이터 동일한 5초 폴링 중복 방지).
-                const sig = labels.join('|') + '#' + data.join(',') + '#' + (sel || '') + '#' + (dark ? 1 : 0) + '#' + (maxName || '');
 
-                // (A) 같은 canvas 에 살아있는 차트 → 파괴 없이 in-place 갱신 (canvas/GPU churn 제거).
-                if (ctChart && ctChart.canvas === cv) {
-                    if (sig === ctSig) return;            // 바뀐 게 없으면 update 조차 생략
-                    const ds = ctChart.data.datasets[0];
-                    ctChart.data.labels = labels;
-                    ds.data = data; ds.backgroundColor = bg; ds.borderColor = surface; ds.borderWidth = dark ? 3 : 2;
+                // 외부 링: 데이터만 준비, 색상·offset 은 scriptable 로 sel 기반 처리
+                const outerData = [], outerLabels = [];
+                const outerSolidBg = [], outerAlphaBg = [];  // sel flow 노출용 색상 캐시
+                rows.forEach((r, i) => {
+                    const base = baseOf(r.flowName, i);
+                    outerLabels.push(r.flowName + ' 동작', r.flowName + ' 대기');
+                    outerData.push(r.mt, r.wt);
+                    outerSolidBg.push(base);
+                    outerAlphaBg.push(this._hexAlpha(base, 0.45));
+                });
+
+                const total = innerData.reduce((a, b) => a + b, 0) || 1;
+                ctDyn = { innerData, outerData, total, sel, dark, rows, outerSolidBg, outerAlphaBg, surface };
+                const sig = rows.map(r => r.flowName + ':' + r.mt + ':' + r.wt).join('|') + '#' + (sel || '') + '#' + (dark ? 1 : 0) + '#' + (maxName || '');
+
+                // (A) in-place 갱신: ctDyn 업데이트 후 update('none') 만 호출.
+                //     scriptable callbacks 가 최신 ctDyn 을 읽으므로 외부 링도 자동 반영.
+                if (ctChart && ctChart.canvas === cv && ctChart.data.datasets.length === 2) {
+                    if (sig === ctSig) return;
+                    const [ds0, ds1] = ctChart.data.datasets;
+                    ctChart.data.labels = outerLabels;
+                    ds0.data = outerData;
+                    ds1.data = innerData; ds1.backgroundColor = innerBg; ds1.borderColor = surface; ds1.borderWidth = dark ? 2 : 1;
                     ctChart.update('none');
                     ctSig = sig;
                     return;
                 }
 
-                // (B) 최초 1회 또는 x-if 가 canvas 를 새로 mount 한 경우 → (옛 차트 파괴 후) 단 1회 생성.
+                // (B) 최초 생성 (또는 구조 변경)
                 if (ctChart) { ctChart.destroy(); ctChart = null; }
+                // 툴팁을 차트 영역 상단에 고정하는 포지셔너 (1회 등록)
+                if (!Chart.Tooltip.positioners.chartTop) {
+                    Chart.Tooltip.positioners.chartTop = function(_items, _pos) {
+                        const ca = this.chart.chartArea;
+                        return { x: ca.left + ca.width / 2, y: ca.top + 2, xAlign: 'center', yAlign: 'top' };
+                    };
+                }
                 const self = this;
                 const fmt = (ms) => self.fmt(ms);
-                const clip = (s) => (s && s.length > 10) ? (s.slice(0, 9) + '…') : (s || '');
+                const clip = (s) => (s && s.length > 9) ? (s.slice(0, 8) + '…') : (s || '');
+
+                // 외부 링 scriptable helpers (ctDyn 클로저 참조 → 항상 최신값)
+                const outerBgFn = (ctx) => {
+                    const d = ctDyn; if (!d || !d.sel) return 'rgba(0,0,0,0)';
+                    const fi = Math.floor(ctx.dataIndex / 2);
+                    if (d.rows[fi]?.flowName !== d.sel) return 'rgba(0,0,0,0)';
+                    return ctx.dataIndex % 2 === 0 ? d.outerSolidBg[fi] : d.outerAlphaBg[fi];
+                };
+                const outerBorderFn = (ctx) => {
+                    const d = ctDyn; if (!d || !d.sel) return 'rgba(0,0,0,0)';
+                    const fi = Math.floor(ctx.dataIndex / 2);
+                    return d.rows[fi]?.flowName === d.sel ? d.surface : 'rgba(0,0,0,0)';
+                };
+                const outerOffsetFn = (ctx) => {
+                    const d = ctDyn; if (!d || !d.sel) return 0;
+                    const fi = Math.floor(ctx.dataIndex / 2);
+                    return d.rows[fi]?.flowName === d.sel ? 14 : 0;
+                };
+
                 const arcLabels = {
                     id: 'ctArcLabels',
-                    afterDatasetsDraw(chart) {
-                        const d = ctDyn; if (!d) return;   // 클로저로 최신 데이터/sel/dark 를 읽는다(매 update 갱신).
-                        const ctx = chart.ctx, meta = chart.getDatasetMeta(0);
-                        meta.data.forEach((arc, i) => {
-                            if ((d.data[i] / d.total) < 0.05) return;
-                            const mid = (arc.startAngle + arc.endAngle) / 2;
-                            const r = (arc.innerRadius + arc.outerRadius) / 2;
-                            const x = arc.x + Math.cos(mid) * r, y = arc.y + Math.sin(mid) * r;
-                            ctx.save();
-                            ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
-                            ctx.globalAlpha = (d.sel && d.labels[i] !== d.sel) ? 0.45 : 1;
-                            const draw = (txt, dy, font) => {
-                                ctx.font = font; ctx.lineWidth = 3;
-                                // 라이트=흰 글자/진한 외곽선, 다크=네이비 잉크 글자/밝은 후광 (밝은 다크 슬라이스·살몬 병목 가독성 확보)
-                                if (d.dark) { ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.strokeText(txt, x, y + dy); ctx.fillStyle = '#0b1220'; }
-                                else { ctx.strokeStyle = 'rgba(8,17,33,0.6)'; ctx.strokeText(txt, x, y + dy); ctx.fillStyle = '#ffffff'; }
-                                ctx.fillText(txt, x, y + dy);
-                            };
-                            draw(clip(d.labels[i]), -7, '700 11px Inter, system-ui, sans-serif');
-                            draw(fmt(d.data[i]), 8, '800 12px Inter, system-ui, sans-serif');
-                            ctx.restore();
+                    afterDraw(chart) {
+                        const d = ctDyn; if (!d) return;
+                        const ctx = chart.ctx;
+                        chart.data.datasets.forEach((dataset, dsIdx) => {
+                            const meta = chart.getDatasetMeta(dsIdx);
+                            if (meta.hidden) return;
+                            const isOuter = dsIdx === 0;
+                            const dArr = isOuter ? d.outerData : d.innerData;
+                            const t = dArr.reduce((a, b) => a + b, 0) || 1;
+                            meta.data.forEach((arc, i) => {
+                                const fi = isOuter ? Math.floor(i / 2) : i;
+                                // 외부 링: sel 인 flow 슬라이스만 라벨
+                                if (isOuter && (!d.sel || d.rows[fi]?.flowName !== d.sel)) return;
+                                const mid = (arc.startAngle + arc.endAngle) / 2;
+                                const isThin = (dArr[i] / t) < 0.04;
+                                if (isThin) {
+                                    if (isOuter) return;
+                                    const cx = arc.x, cy = arc.y, outerR = arc.outerRadius;
+                                    const ax = cx + Math.cos(mid) * outerR, ay = cy + Math.sin(mid) * outerR;
+                                    const lx = cx + Math.cos(mid) * (outerR + 11), ly = cy + Math.sin(mid) * (outerR + 11);
+                                    const goRight = Math.cos(mid) >= 0;
+                                    const alpha = (d.sel && d.rows[i]?.flowName !== d.sel) ? 0.35 : 1;
+                                    ctx.save();
+                                    ctx.globalAlpha = alpha;
+                                    ctx.strokeStyle = d.dark ? 'rgba(180,200,220,0.5)' : 'rgba(20,40,70,0.35)';
+                                    ctx.lineWidth = 1;
+                                    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(lx, ly); ctx.stroke();
+                                    ctx.textAlign = goRight ? 'left' : 'right';
+                                    ctx.textBaseline = 'middle';
+                                    ctx.font = '600 9px Inter, system-ui, sans-serif';
+                                    const tx = lx + (goRight ? 2 : -2);
+                                    const lbl = clip(d.rows[i]?.flowName) + ' ' + fmt(dArr[i]);
+                                    ctx.lineWidth = 2.5;
+                                    ctx.strokeStyle = d.dark ? 'rgba(0,0,0,0.72)' : 'rgba(255,255,255,0.86)';
+                                    ctx.strokeText(lbl, tx, ly);
+                                    ctx.fillStyle = d.dark ? '#c8d8e8' : '#1e3050';
+                                    ctx.fillText(lbl, tx, ly);
+                                    ctx.restore();
+                                    return;
+                                }
+                                const rMid = (arc.innerRadius + arc.outerRadius) / 2;
+                                const x = arc.x + Math.cos(mid) * rMid, y = arc.y + Math.sin(mid) * rMid;
+                                ctx.save();
+                                ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+                                ctx.globalAlpha = isOuter ? 1 : ((d.sel && d.rows[i]?.flowName !== d.sel) ? 0.35 : 1);
+                                const draw = (txt, dy, font) => {
+                                    ctx.font = font; ctx.lineWidth = 3;
+                                    if (d.dark) { ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.strokeText(txt, x, y + dy); ctx.fillStyle = '#0b1220'; }
+                                    else { ctx.strokeStyle = 'rgba(8,17,33,0.55)'; ctx.strokeText(txt, x, y + dy); ctx.fillStyle = '#ffffff'; }
+                                    ctx.fillText(txt, x, y + dy);
+                                };
+                                if (isOuter) {
+                                    draw(fmt(dArr[i]), 0, '700 11px Inter, system-ui, sans-serif');
+                                } else {
+                                    draw(clip(d.rows[i]?.flowName), -7, '700 11px Inter, system-ui, sans-serif');
+                                    draw(fmt(dArr[i]), 7, '800 12px Inter, system-ui, sans-serif');
+                                }
+                                ctx.restore();
+                            });
                         });
                     },
                 };
                 ctChart = new Chart(cv, {
                     type: 'doughnut',
-                    data: { labels, datasets: [{ data, backgroundColor: bg, borderColor: surface, borderWidth: dark ? 3 : 2, borderAlign: 'inner', borderRadius: 3, spacing: 1, hoverOffset: 6 }] },
+                    data: {
+                        labels: outerLabels,
+                        datasets: [
+                            {
+                                data: outerData,
+                                backgroundColor: outerBgFn,
+                                borderColor: outerBorderFn,
+                                borderWidth: 1,
+                                offset: outerOffsetFn,
+                                hoverOffset: 0,
+                            },
+                            {
+                                data: innerData,
+                                backgroundColor: innerBg,
+                                borderColor: surface,
+                                borderWidth: dark ? 2 : 1,
+                                hoverOffset: 0,
+                            },
+                        ]
+                    },
                     plugins: [arcLabels],
                     options: {
-                        responsive: true, maintainAspectRatio: false, animation: false, cutout: '64%',
-                        layout: { padding: 6 },
+                        responsive: true, maintainAspectRatio: false, animation: false, cutout: '20%',
+                        layout: { padding: 28 },
                         plugins: {
                             legend: { display: false },
-                            // total/labels 는 매 update 로 바뀌므로 콜백은 closure 가 아니라 chart 인자에서 읽는다(stale 방지).
-                            tooltip: { callbacks: { label: (c) => {
-                                const t = c.chart.data.datasets[0].data.reduce((a, b) => a + b, 0) || 1;
-                                return `${c.label}: ${fmt(c.parsed)} (${(c.parsed * 100 / t).toFixed(1)}%)`;
-                            } } },
+                            tooltip: {
+                                position: 'chartTop',
+                                caretSize: 0,
+                                // 투명한 외부 링(비강조 flow) 슬라이스는 툴팁 억제
+                                filter: (item) => {
+                                    const d = ctDyn; if (!d) return false;
+                                    if (item.datasetIndex === 0) {
+                                        const fi = Math.floor(item.dataIndex / 2);
+                                        return !!(d.sel && d.rows[fi]?.flowName === d.sel);
+                                    }
+                                    return true;
+                                },
+                                callbacks: {
+                                    title: (items) => {
+                                        const item = items[0]; if (!item) return '';
+                                        const d = ctDyn; if (!d) return '';
+                                        if (item.datasetIndex === 0) {
+                                            const fi = Math.floor(item.dataIndex / 2);
+                                            const kind = item.dataIndex % 2 === 0 ? '동작' : '대기';
+                                            return (d.rows[fi]?.flowName || '') + ' ' + kind;
+                                        }
+                                        return d.rows[item.dataIndex]?.flowName || '';
+                                    },
+                                    label: (c) => {
+                                        const d = ctDyn; if (!d) return '';
+                                        if (c.datasetIndex === 0) {
+                                            const t = d.outerData.reduce((a, b) => a + b, 0) || 1;
+                                            const kind = c.dataIndex % 2 === 0 ? '동작' : '대기';
+                                            return `${kind}: ${fmt(c.parsed)} (${(c.parsed * 100 / t).toFixed(1)}%)`;
+                                        } else {
+                                            const t = d.innerData.reduce((a, b) => a + b, 0) || 1;
+                                            return `CT: ${fmt(c.parsed)} (${(c.parsed * 100 / t).toFixed(1)}%)`;
+                                        }
+                                    },
+                                },
+                            },
                         },
-                        onClick: (e, els, chart) => { if (els && els.length) self.goFlow(chart.data.labels[els[0].index]); },
-                        onHover: (e, els, chart) => { self.chartHoverFlowName = (els && els.length) ? chart.data.labels[els[0].index] : null; },
+                        onClick: (e, els, chart) => {
+                            if (els && els.length) {
+                                const el = els[0];
+                                const d = ctDyn; if (!d) return;
+                                const fi = el.datasetIndex === 0 ? Math.floor(el.index / 2) : el.index;
+                                self.goFlow(d.rows[fi]?.flowName);
+                            }
+                        },
+                        onHover: (e, els, chart) => {
+                            if (els && els.length) {
+                                // ctDyn.rows 사용 — in-place 갱신 후 stale 클로저 rows 방지
+                                const el = els[0];
+                                const d = ctDyn; if (!d) return;
+                                const fi = el.datasetIndex === 0 ? Math.floor(el.index / 2) : el.index;
+                                self.chartHoverFlowName = d.rows[fi]?.flowName || null;
+                            }
+                            // els=[] 일 때 업데이트 생략: offset gap(14px) 진입 시 붕괴-팽창 루프 방지.
+                            // 마우스가 차트 영역을 완전히 벗어나면 @mouseleave 가 null 로 리셋한다.
+                        },
                     },
                 });
                 ctSig = sig;
             },
 
-            setDisplayMode(avg) { this.showAverage = avg; },
+            setDisplayMode(avg) {
+                this.showAverage = avg;
+                if (avg) this.loadHistAvg();
+            },
 
-            selectFlow(name) {
-                const next = (name && this.selectedFlowName === name) ? null : (name || null);
-                this.selectedFlowName = next;
+            async loadHistAvg() {
+                try {
+                    const data = await this.apiGet('/api/dashboard/average?days=' + this.avgDays);
+                    const map = {};
+                    for (const d of data) if (d.avgCT != null) map[d.flowName] = d;
+                    this.histAvg = map;
+                } catch (_) {}
             },
-            // 카드/범례 = 호버 강조(도넛 동기 강조) · 클릭 = 상세 페이지 이동
+
+            openAvgModal() { this.avgDaysForm = this.avgDays; this.avgModalOpen = true; },
+            closeAvgModal() { this.avgModalOpen = false; },
+            saveAvgDays() {
+                const v = Math.max(1, Math.min(90, Math.round(Number(this.avgDaysForm) || 1)));
+                this.avgDays = v;
+                localStorage.setItem('dspilot-dash-avgdays', String(v));
+                this.avgModalOpen = false;
+                if (this.showAverage) this.loadHistAvg();
+            },
+
             get focusFlowName() { return this.chartHoverFlowName || this.hoverFlowName || this.selectedFlowName; },
-            hoverFlow(name) { this.hoverFlowName = this.editing ? null : (name || null); },
-            showTooltip(c, el) {
-                if (this.editing) return;
-                const r = el.getBoundingClientRect();
-                const cx = r.left + r.width / 2;
-                const below = r.top < 170;
-                this._tt = { c, left: cx, top: below ? r.bottom + 8 : r.top - 8,
-                    xform: below ? 'translateX(-50%)' : 'translateX(-50%) translateY(-100%)' };
-            },
-            hideTooltip() { this._tt = null; },
+            hoverFlow(name) { this.hoverFlowName = name || null; },
             goFlow(name) { if (name) window.location.href = '/flow?name=' + encodeURIComponent(name); },
 
             toggleFullscreen() {
@@ -2074,154 +1472,78 @@
             },
 
             get flowNames() {
-                if (!this.layout) return [];
                 const order = this.flowProcessOrder || {};
-                return this.layout.flowPlacements.map(p => p.flowName)
+                return this.flows.map(f => f.flowName)
                     .sort((a, b) => (order[a] ?? 0) - (order[b] ?? 0));
             },
-            _shiftWindow() {
-                const now = new Date(this.nowTick);
-                const [sh, sm] = (this.shift.start || '08:00').split(':').map(Number);
-                const [eh, em] = (this.shift.end || '17:00').split(':').map(Number);
-                const crosses = ((eh || 0) * 60 + (em || 0)) <= ((sh || 0) * 60 + (sm || 0));
-                const start = new Date(now); start.setHours(sh || 0, sm || 0, 0, 0);
-                const end = new Date(now); end.setHours(eh || 0, em || 0, 0, 0);
-                if (crosses) {
-                    if (now >= start) end.setDate(end.getDate() + 1);
-                    else start.setDate(start.getDate() - 1);
+            _npMinToTime(m) {
+                const h = Math.floor(m / 60), mn = m % 60;
+                return h.toString().padStart(2, '0') + ':' + mn.toString().padStart(2, '0');
+            },
+            _npMinOfDay(now) {
+                return now.getHours() * 60 + now.getMinutes();
+            },
+            npIsActive(w) {
+                const min = this._npMinOfDay(new Date(this.nowTick));
+                const s = w.startMinutes, e = w.endMinutes;
+                if (e > s) return min >= s && min < e;
+                return min >= s || min < e; // 자정 넘김
+            },
+            npWindowLabel(w) {
+                const t = this._npMinToTime(w.startMinutes) + ' – ' + this._npMinToTime(w.endMinutes);
+                return w.label ? t + ' · ' + w.label : t;
+            },
+            get npNowText() {
+                const d = new Date(this.nowTick);
+                return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
+            },
+            get npStatusLabel() {
+                return this.nonprod.windows.some(w => this.npIsActive(w)) ? '비생산 시간 중' : '생산 현황';
+            },
+            get npCountdownText() {
+                const wins = this.nonprod.windows;
+                if (!wins.length) return '구간 미설정';
+                const min = this._npMinOfDay(new Date(this.nowTick));
+                for (const w of wins) {
+                    if (this.npIsActive(w)) {
+                        let diff = w.endMinutes - min;
+                        if (diff <= 0) diff += 1440;
+                        const h = Math.floor(diff / 60), m = diff % 60;
+                        return h > 0 ? (h + '시간 ' + m + '분 후 가동') : (m + '분 후 가동');
+                    }
                 }
-                return { start, end, now };
-            },
-            get shiftState() {
-                const { start, end, now } = this._shiftWindow();
-                if (now < start) return 'pending';
-                if (now >= end) return 'ended';
-                return 'running';
-            },
-            get shiftLabel() {
-                const s = this.shiftState;
-                return s === 'pending' ? '시프트 시작까지' : s === 'ended' ? '시프트 종료' : '시프트 종료까지';
-            },
-            get shiftCountdownText() {
-                const st = this.shiftState;
-                if (st === 'ended') return '종료됨';
-                const { start, end, now } = this._shiftWindow();
-                const diff = Math.max(0, (st === 'pending' ? start : end) - now);
-                const h = Math.floor(diff / 3600000), m = Math.floor((diff % 3600000) / 60000);
-                return h > 0 ? (h + '시간 ' + m + '분') : (m + '분');
-            },
-            // Work 정규화 이름("Flow.Work" 등)에서 Flow 접두를 떼어 짧은 Work 이름만.
-            shortWorkName(name, flow) {
-                if (!name) return '';
-                if (flow && name.startsWith(flow + '.')) return name.slice(flow.length + 1);
-                const i = name.lastIndexOf('.');
-                return i >= 0 ? name.slice(i + 1) : name;
-            },
-            workLabel(name) { return this.shortWorkName(name, this.shiftForm.targetFlow); },
-            // Flow 를 골랐으면 Work 도 선택해야 저장 가능. Flow 미선택(목표 미설정)이면 시프트 시간만 저장 허용.
-            get canSaveShift() {
-                return !this.shiftForm.targetFlow || !!this.shiftForm.targetWork;
-            },
-            get shiftTargetLabel() {
-                // 진행 표시 라벨 — Work 단위 목표면 Work 짧은 이름, 아니면 Flow 명(구버전 폴백).
-                const s = this.shift;
-                return s.targetWork ? this.shortWorkName(s.targetWork, s.targetFlow) : (s.targetFlow || '생산');
-            },
-            get shiftSubText() {
-                const s = this.shift;
-                if (s.targetFlow && s.targetCount > 0) {
-                    const made = s.madeCount || 0, tgt = s.targetCount;
-                    const pct = tgt > 0 ? Math.round(made * 100 / tgt) : 0;
-                    const cls = made >= tgt ? 'is-over' : (pct < 50 ? 'is-under' : '');
-                    return '📦 ' + made + ' / ' + tgt + '개 · <span class="sh-pct ' + cls + '">' + pct + '%</span>';
+                let minDiff = Infinity;
+                for (const w of wins) {
+                    let diff = w.startMinutes - min;
+                    if (diff <= 0) diff += 1440;
+                    if (diff < minDiff) minDiff = diff;
                 }
-                return (s.start || '08:00') + ' → ' + (s.end || '17:00') + ' · 목표 미설정 (클릭)';
+                const h = Math.floor(minDiff / 60), m = minDiff % 60;
+                return h > 0 ? (h + '시간 ' + m + '분 후 비생산 시간') : (m + '분 후 비생산 시간');
             },
-            get shiftFormDurationHours() {
-                const [sh, sm] = (this.shiftForm.start || '08:00').split(':').map(Number);
-                const [eh, em] = (this.shiftForm.end || '17:00').split(':').map(Number);
-                let mins = ((eh || 0) * 60 + (em || 0)) - ((sh || 0) * 60 + (sm || 0));
-                if (mins <= 0) mins += 24 * 60;
-                return mins / 60;
-            },
-            get shiftFormPerHour() {
-                const h = this.shiftFormDurationHours;
-                const t = Math.max(0, parseInt(this.shiftForm.targetCount) || 0);
-                return h > 0 ? Math.ceil(t / h) : 0;
-            },
-            async loadShift() {
-                try { const s = await this.apiGet('/api/dashboard/shift'); if (s) this.shift = s; }
-                catch (e) { /* 미수신 시 기존값 유지 */ }
-            },
-            openShiftModal() {
-                const s = this.shift;
-                this.shiftForm = {
-                    start: s.start || '08:00', end: s.end || '17:00',
-                    shiftType: s.shiftType || 'morning',
-                    targetFlow: s.targetFlow || '', targetWork: s.targetWork || '',
-                    targetCount: s.targetCount || 0
-                };
-                this.shiftWorks = [];
-                if (this.shiftForm.targetFlow) this.loadShiftWorks(this.shiftForm.targetFlow);
-                this.shiftModalOpen = true;
-            },
-            closeShiftModal() { this.shiftModalOpen = false; },
-            onTargetFlowChange() {
-                // Flow 변경 시 Work 선택 초기화 후 새 Work 목록 로드.
-                this.shiftForm.targetWork = '';
-                this.shiftWorks = [];
-                if (this.shiftForm.targetFlow) this.loadShiftWorks(this.shiftForm.targetFlow);
-            },
-            async loadShiftWorks(flowName) {
-                this.shiftWorksLoading = true;
+            async loadNonprod() {
                 try {
-                    const list = await this.apiGet('/api/dashboard/flows/' + encodeURIComponent(flowName) + '/works');
-                    // 비동기 응답 사이 Flow 가 바뀌었으면 무시(stale 방지).
-                    if (this.shiftForm.targetFlow !== flowName) return;
-                    this.shiftWorks = Array.isArray(list) ? list : [];
-                } catch (e) {
-                    if (this.shiftForm.targetFlow === flowName) this.shiftWorks = [];
-                } finally {
-                    this.shiftWorksLoading = false;
-                }
+                    const data = await this.apiGet('/api/oee/planned-stops');
+                    if (!data) return;
+                    if (data.auto) {
+                        // 자동 모드: 실효 윈도는 auto-pattern(14일 이동평균 감지)에서 가져옴.
+                        // planned-stops 의 windows 는 미적용 수동 참고용이라 무시.
+                        try {
+                            const pattern = await this.apiGet('/api/oee/planned-stops/auto-pattern');
+                            this.nonprod = { windows: pattern?.windows || [], source: 'auto' };
+                        } catch {
+                            this.nonprod = { windows: [], source: 'auto' };
+                        }
+                    } else {
+                        this.nonprod = { windows: data.windows || [], source: data.windows?.length ? 'manual' : 'none' };
+                    }
+                } catch (e) { /* 미수신 시 기존값 유지 */ }
             },
-            _shiftPresets: { morning: ['08:00', '17:00'], afternoon: ['14:00', '22:00'], night: ['22:00', '06:00'] },
-            applyShiftType(type) {
-                this.shiftForm.shiftType = type;
-                const p = this._shiftPresets[type];
-                if (p) { this.shiftForm.start = p[0]; this.shiftForm.end = p[1]; }
-            },
-            onShiftTimeEdited() {
-                const p = this._shiftPresets;
-                const match = Object.keys(p).find(k => p[k][0] === this.shiftForm.start && p[k][1] === this.shiftForm.end);
-                this.shiftForm.shiftType = match || 'custom';
-            },
-            bumpTarget(delta) {
-                const cur = Math.max(0, parseInt(this.shiftForm.targetCount) || 0);
-                this.shiftForm.targetCount = Math.max(0, cur + delta);
-            },
-            async saveShift() {
-                if (!this.canSaveShift) return; // Flow 선택 시 Work 미선택이면 저장 차단(버튼도 비활성)
+            async loadTodayCycles() {
                 try {
-                    const body = {
-                        start: this.shiftForm.start || '08:00',
-                        end: this.shiftForm.end || '17:00',
-                        shiftType: this.shiftForm.shiftType || 'morning',
-                        targetFlow: this.shiftForm.targetFlow || null,
-                        targetWork: this.shiftForm.targetWork || null,
-                        targetCount: Math.max(0, parseInt(this.shiftForm.targetCount) || 0)
-                    };
-                    const res = await fetch('/api/dashboard/shift', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                        body: JSON.stringify(body)
-                    });
-                    if (!res.ok) throw new Error('HTTP ' + res.status);
-                    this.shift = await res.json();
-                    this.shiftModalOpen = false;
-                } catch (e) {
-                    this.error = '시프트 저장 실패: ' + e.message;
-                }
+                    const count = await this.apiGet('/api/dashboard/today-cycles');
+                    if (typeof count === 'number') this.todayCycles = count;
+                } catch (e) { /* 미수신 시 기존값 유지 */ }
             },
 
             fmt(ms) {

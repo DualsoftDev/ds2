@@ -131,7 +131,7 @@ public sealed class OeeDowntimeStateMachine : BackgroundService
                         EndAt = null,
                         ReasonCode = null,
                         Category = null,
-                        IsFailure = 0,
+                        IsFailure = 1, // 기본 고장 — 사용자가 해제하면 유지보수(planned_maint)로 변경
                         DetectSource = DetectSource,
                         SourceLogId = null,
                         Note = null,

@@ -85,6 +85,7 @@ builder.Services.AddSingleton<DsProjectService>();
 builder.Services.AddScoped<DashboardEditService>();
 builder.Services.AddSingleton<BlueprintService>();
 builder.Services.AddSingleton<CctvOverlayService>(); // CCTV 설비 오버레이 영속(WebRoot/uploads/cctv-overlays.json)
+builder.Services.AddSingleton<CctvFallbackImageService>(); // CCTV 대체 이미지 파일 영속(WebRoot/uploads/cctv-fallbacks/)
 builder.Services.AddSingleton<HeatmapService>();
 builder.Services.AddSingleton<DspDbService>();
 builder.Services.AddSingleton<PlcDebugService>();
@@ -183,10 +184,8 @@ builder.Services.AddHostedService<OeeIdealCycleAutoFillService>();
 builder.Services.AddSingleton<OeeAutoShiftInferenceService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<OeeAutoShiftInferenceService>());
 
-// 계획정지 시간대 자동감지(doc/22) — 사용자 미설정 시 최근 5일 패턴으로 "규칙적 운영중 공백"(점심·교대)을 추정.
-// 싱글톤+HostedService 동일 인스턴스(컨트롤러가 읽어 가용성 분모서 계획정지 비가동 제외).
-builder.Services.AddSingleton<OeePlannedStopInferenceService>();
-builder.Services.AddHostedService(sp => sp.GetRequiredService<OeePlannedStopInferenceService>());
+// 비생산 시간대 자동계산(doc/22 §3.3)은 별도 백그라운드 서비스가 필요 없다 — 14일 평균 CT(OeeCtStatsService) 위에
+// "무변화 정지 ≥ 10×평균CT = 비생산" 규칙을 OeeController 가 조회 시 온디맨드로 적용한다(고장신호와 무관, 순수 CT).
 
 // CCTV — 카메라 목록을 별도 프로세스 MediaMTX(:9997) 로 동기화. WebRTC 재게시는 MediaMTX 담당.
 // Singleton + HostedService — Settings 페이지가 동일 인스턴스로 SyncAsync 직접 호출.

@@ -200,6 +200,27 @@ public class OeeMathTests
         Assert.True(isFail);
     }
 
+    // ── 비생산 자동판정 (10×CT 장시간 무변화 정지) doc/22 §3.3 ─────────────
+
+    [Fact]
+    public void LongStop_multiplier_is_ten()
+        => Assert.Equal(10.0, OeeMath.NonProductionCtMultiplier);
+
+    [Theory]
+    [InlineData(1000, 10000, true)]   // 정확히 10× → 비생산
+    [InlineData(1000, 9999, false)]   // 10× 직전 → 다운타임 유지
+    [InlineData(1000, 50000, true)]   // 50× → 비생산
+    [InlineData(2000, 19999, false)]  // 9.99× → 다운타임
+    [InlineData(2000, 20000, true)]   // 10× → 비생산
+    public void IsLongStopNonProduction_threshold(double thrMs, double durMs, bool expected)
+        => Assert.Equal(expected, OeeMath.IsLongStopNonProduction(durMs, thrMs));
+
+    [Theory]
+    [InlineData(0)]      // 표본 부족(임계 0) → 판정 불가
+    [InlineData(-5)]     // 음수 방어
+    public void IsLongStopNonProduction_no_threshold_is_false(double thrMs)
+        => Assert.False(OeeMath.IsLongStopNonProduction(1_000_000, thrMs));
+
     // ── MTBF 고장 판정 = 설비고장(equipment_fault)만 ───────────────────────
 
     [Theory]
@@ -217,13 +238,13 @@ public class OeeMathTests
     }
 
     [Fact]
-    public void Classify_over_8h_is_planned_maint_not_failure()
+    public void Classify_over_8h_is_fault() // 8h↑ 도 고장(비생산 시간대 에디터가 planned 분리 — 단순 2-상태)
     {
         var (rc, cat, isFail, should) = OeeMath.ClassifyByDuration(9L * 60 * 60 * 1000);
         Assert.True(should);
-        Assert.Equal("planned_maint", rc);
-        Assert.Equal("planned", cat);
-        Assert.False(isFail); // 8h↑ = 계획정비 → MTBF 분모 제외
+        Assert.Equal("equipment_fault", rc);
+        Assert.Equal("unplanned", cat);
+        Assert.True(isFail);
     }
 
     // ── 사용자 직접 설정 전반 품질 (manual override) ───────────────────────

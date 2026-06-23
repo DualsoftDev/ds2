@@ -9,6 +9,20 @@ namespace DSPilot.Services;
 public static class OeeMath
 {
     /// <summary>
+    /// 비생산 자동판정 배수 — 무변화 정지 길이가 14일 평균 CT 의 이 배수 이상이면 "비생산"(분모 밖)으로 본다(doc/22 §3.3).
+    /// "라인이 평균 사이클의 10배를 넘게 멈춰 있었으면 그 시간은 애초에 생산하던 시간이 아니다"는 가정. 고장신호와 무관(순수 CT).
+    /// </summary>
+    public const double NonProductionCtMultiplier = 10.0;
+
+    /// <summary>
+    /// 무변화 정지 지속시간(ms)이 비생산(≥ <see cref="NonProductionCtMultiplier"/>×CT이상치)인지 판정(doc/22 §3.3).
+    /// thr ≤ 0(표본 부족)이면 판정 불가 → false(=다운타임 유지). 대상은 "변화 없음" 정지뿐(무사이클 갭·미완료 멈춤),
+    /// 완료된 느린 사이클(움직였음)은 호출측에서 제외한다.
+    /// </summary>
+    public static bool IsLongStopNonProduction(double idleDurationMs, double ctThresholdMs)
+        => ctThresholdMs > 0 && idleDurationMs >= NonProductionCtMultiplier * ctThresholdMs;
+
+    /// <summary>
     /// 품질 = (기간 사이클수 − 입력 불량) / 기간 사이클수 (doc/21 §12 개정).
     /// 분모는 항상 dspFlowHistory 기간 사이클수(자동) — production 행의 스냅샷 totalCount 를 분모로 쓰지 않는다.
     /// 일부 날만 불량을 입력해도 미입력일이 분모에서 빠지지 않아(미입력일 = 불량 0) 기간 품질이 왜곡되지 않고,
@@ -104,15 +118,14 @@ public static class OeeMath
         => string.Equals(reasonCode?.Trim(), "equipment_fault", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// nocycle clear 시 지속시간 기반 자동 분류(doc/21 §12 E): ≥ 8h → 점검(planned), ≥ 5분 → 설비고장(unplanned),
-    /// 그 미만 → 미분류 유지(ShouldClassify=false). isFailure 는 <see cref="IsFailureReason"/> 단일 규칙.
+    /// nocycle clear 시 지속시간 기반 자동 분류: ≥ 5분 → 설비고장(unplanned, isFailure=true),
+    /// 그 미만 → 분류 불필요(onset 이 이미 isFailure=1 기본값). ShouldClassify=false 시 호출부가 skip.
+    /// (8h→planned_maint 휴리스틱 제거 — 비생산 시간대 에디터가 대체)
     /// </summary>
     public static (string? ReasonCode, string? Category, bool IsFailure, bool ShouldClassify) ClassifyByDuration(double durationMs)
     {
         const double failureMs = 5d * 60 * 1000;
-        const double maintMs = 8d * 60 * 60 * 1000;
-        if (durationMs >= maintMs) return ("planned_maint", "planned", IsFailureReason("planned_maint"), true);
-        if (durationMs >= failureMs) return ("equipment_fault", "unplanned", IsFailureReason("equipment_fault"), true);
+        if (durationMs >= failureMs) return ("equipment_fault", "unplanned", true, true);
         return (null, null, false, false);
     }
 

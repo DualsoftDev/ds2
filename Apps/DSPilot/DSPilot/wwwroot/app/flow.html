@@ -143,6 +143,13 @@
         .ct-lane-name-block { flex: 1; min-width: 0; overflow: hidden; }
         .ct-lane-name { font-size: 0.78rem; font-weight: 700; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 5px; }
         .ct-lane-work { font-size: 0.66rem; color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+        .ct-lane-row-leg { display: flex; flex-wrap: wrap; gap: 1px 8px; margin-top: 2px; }
+        .ct-lane-row-leg span { display: inline-flex; align-items: center; gap: 3px; font-size: 0.6rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 110px; }
+        .ct-lane-row-leg i { display: inline-block; width: 10px; height: 2px; border-radius: 1px; flex-shrink: 0; }
+        .ct-lane-row-leg .leg-out { color: #fb8c00; }
+        .ct-lane-row-leg .leg-out i { background: #fb8c00; }
+        .ct-lane-row-leg .leg-in  { color: #1e88e5; }
+        .ct-lane-row-leg .leg-in  i { background: #1e88e5; }
         .ct-badge { display: inline-block; font-size: 0.56rem; font-weight: 800; letter-spacing: 0.08em; padding: 1px 5px; border-radius: var(--radius-sm); color: #fff; line-height: 1.5; }
         .ct-badge.head { background: #4caf50; }
         .ct-badge.tail { background: #ab47bc; }
@@ -198,8 +205,8 @@
         .ct-legend > span { display: inline-flex; align-items: center; }
         .ct-sw { display: inline-block; width: 12px; height: 12px; border-radius: 1px; margin-right: 6px; vertical-align: middle; }
         .ct-sw-going { background: #5b9bd5; }
-        .ct-sw-out { background: #1e88e5; }
-        .ct-sw-in { background: #fb8c00; }
+        .ct-sw-out { background: #fb8c00; }
+        .ct-sw-in { background: #1e88e5; }
         .ct-sw-head { background: #4caf50; }
         .ct-sw-tail { background: #ab47bc; }
         .ct-sw-cycle-edge { background: transparent; border-left: 2px solid #ff9800; border-radius: 0; width: 6px; }
@@ -791,6 +798,10 @@
                                                                 <template x-if="tailCallId === row.lane.callId"><span class="ct-badge tail">TAIL</span></template>
                                                             </div>
                                                             <div class="ct-lane-work" x-text="row.lane.workName"></div>
+                                                            <div class="ct-lane-row-leg" x-show="row.lane.outTag || row.lane.inTag">
+                                                                <span class="leg-out" x-show="row.lane.outTag"><i></i><span x-text="row.lane.outTag"></span></span>
+                                                                <span class="leg-in"  x-show="row.lane.inTag"><i></i><span x-text="row.lane.inTag"></span></span>
+                                                            </div>
                                                         </div>
                                                     </template>
                                                     <template x-if="row.kind === 'call'">
@@ -845,6 +856,30 @@
                                             <div class="ct-gantt-wrapper" x-html="svgMarkup"></div>
                                         </div>
                                     </div>
+
+                                    <!-- 간트 신호 범례 -->
+                                    <div class="ct-legend">
+                                        <span><i class="ct-sw ct-sw-out"></i> OutTag (명령 = 시작)</span>
+                                        <span><i class="ct-sw ct-sw-in"></i> InTag (응답 = 완료)</span>
+                                        <span><i class="ct-sw ct-sw-going"></i> 실행 배경</span>
+                                        <span><i class="ct-sw ct-sw-head"></i> Head (시작)</span>
+                                        <span><i class="ct-sw ct-sw-tail"></i> Tail (끝)</span>
+                                        <span><i class="ct-sw ct-sw-cycle-edge"></i> 사이클 경계</span>
+                                        <template x-if="showMaxGap && topGaps.length">
+                                            <span><i class="ct-sw ct-sw-maxgap"></i> 최대/상위 Gap</span>
+                                        </template>
+                                        <template x-if="selectedRange">
+                                            <span><i class="ct-sw ct-sw-range"></i> 드래그 선택 구간</span>
+                                        </template>
+                                    </div>
+                                    <!-- 리본(MT·WT) 범례 — Tail 지정 시에만 표시 -->
+                                    <template x-if="tailCallId !== null">
+                                        <div class="ct-legend" style="margin-top:4px;">
+                                            <span style="color:var(--color-text-primary);font-weight:700;">상단 리본 = 사이클별 MT·WT 비율 + 가동률</span>
+                                            <span><i class="ct-sw ct-sw-active-band"></i> MT(가동)</span>
+                                            <span><i class="ct-sw ct-sw-idle-band"></i> WT(대기)</span>
+                                        </div>
+                                    </template>
 
                                     <!-- 간트 가로 드래그 선택 구간 → 인라인 카드 (간트 ↔ 사이클 목록 사이, 4-KPI + 사이클 기간 설정, 전부 로컬 파생) -->
                                     <template x-if="selectedRange">
@@ -945,34 +980,6 @@
                                         </div>
                                     </template>
 
-                                    <!-- 범례 -->
-                                    <div class="ct-legend">
-                                        <span><i class="ct-sw ct-sw-out"></i> OutTag (명령 = 시작)</span>
-                                        <span><i class="ct-sw ct-sw-in"></i> InTag (응답 = 완료)</span>
-                                        <span><i class="ct-sw ct-sw-going"></i> 실행 (InTag ∪ OutTag 합집합 · 배경)</span>
-                                        <span><i class="ct-sw ct-sw-head"></i> Head 마크 lane</span>
-                                        <span><i class="ct-sw ct-sw-tail"></i> Tail 마크 lane</span>
-                                        <span><i class="ct-sw ct-sw-cycle-edge"></i> 사이클 경계 (Head OutTag↑ = 시작)</span>
-                                        <template x-if="tailCallId !== null">
-                                            <span style="display:contents;">
-                                                <span style="color:var(--color-text-primary);font-weight:700;">▭ 상단 리본 = 사이클별 MT|WT 비율 + 가동률(MT/CT)</span>
-                                                <span><i class="ct-sw ct-sw-active-band"></i> MT(가동) = 시작(Head OutTag↑) → 완료(Tail InTag↑)</span>
-                                                <span><i class="ct-sw ct-sw-idle-band"></i> WT(대기) = 완료 → 다음 시작</span>
-                                            </span>
-                                        </template>
-                                        <template x-if="tailCallId === null">
-                                            <span style="display:contents;">
-                                                <span><i class="ct-sw ct-sw-band-a"></i> 사이클 칸 (홀수)</span>
-                                                <span><i class="ct-sw ct-sw-band-b"></i> 사이클 칸 (짝수)</span>
-                                            </span>
-                                        </template>
-                                        <template x-if="showMaxGap && topGaps.length">
-                                            <span><i class="ct-sw ct-sw-maxgap"></i> 최대/상위 Gap (병목)</span>
-                                        </template>
-                                        <template x-if="selectedRange">
-                                            <span><i class="ct-sw ct-sw-range"></i> 드래그 선택 구간</span>
-                                        </template>
-                                    </div>
                                 </div>
                             </template>
                         </div>
@@ -2240,8 +2247,8 @@
                             sb += `<rect x="0" y="${this.f(rowY)}" width="${chartW}" height="${API_ROW_HEIGHT}" fill="#f5f7fa" opacity="0.7"/>`;
                             sb += `<line x1="0" y1="${this.f(rowY + API_ROW_HEIGHT)}" x2="${chartW}" y2="${this.f(rowY + API_ROW_HEIGHT)}" stroke="#e3e6ea" stroke-width="1"/>`;
                             sb += `<rect x="0" y="${this.f(rowY)}" width="3" height="${API_ROW_HEIGHT}" fill="#90a4ae" opacity="0.5"/>`;
-                            sb += this.appendSignalTrace(row.ac.outIntervals || lane.outIntervals, '#1e88e5', rowY + 22, rowY + 9, cs, xScale, plotRightX, row.ac.name, row.ac.outTag, 'OUT 명령');
-                            sb += this.appendSignalTrace(row.ac.inIntervals || lane.inIntervals, '#fb8c00', rowY + API_ROW_HEIGHT - 8, rowY + 26, cs, xScale, plotRightX, row.ac.name, row.ac.inTag, 'IN 응답');
+                            sb += this.appendSignalTrace(row.ac.outIntervals || lane.outIntervals, '#fb8c00', rowY + 22, rowY + 9, cs, xScale, plotRightX, row.ac.name, row.ac.outTag, 'OUT 명령');
+                            sb += this.appendSignalTrace(row.ac.inIntervals || lane.inIntervals, '#1e88e5', rowY + API_ROW_HEIGHT - 8, rowY + 26, cs, xScale, plotRightX, row.ac.name, row.ac.inTag, 'IN 응답');
                             continue;
                         }
 
@@ -2277,8 +2284,8 @@
                                 const w = Math.max(2, (e.getTime() - s.getTime()) * xScale);
                                 sb += `<rect x="${this.f(x)}" y="${this.f(laneY + 6)}" width="${this.f(w)}" height="${LANE_HEIGHT - 12}" rx="2" fill="${unionFill}" opacity="0.10"/>`;
                             }
-                            sb += this.appendSignalTrace(lane.outIntervals, '#1e88e5', laneY + 20, laneY + 7, cs, xScale, plotRightX, lane.callName, lane.outTag, 'OUT 명령');
-                            sb += this.appendSignalTrace(lane.inIntervals, '#fb8c00', laneY + 37, laneY + 24, cs, xScale, plotRightX, lane.callName, lane.inTag, 'IN 응답');
+                            sb += this.appendSignalTrace(lane.outIntervals, '#fb8c00', laneY + 20, laneY + 7, cs, xScale, plotRightX, lane.callName, lane.outTag, 'OUT 명령');
+                            sb += this.appendSignalTrace(lane.inIntervals, '#1e88e5', laneY + 37, laneY + 24, cs, xScale, plotRightX, lane.callName, lane.inTag, 'IN 응답');
                         }
                     }
 

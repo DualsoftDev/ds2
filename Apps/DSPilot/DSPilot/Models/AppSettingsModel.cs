@@ -38,11 +38,24 @@ public class OeeManualSettings
     public double? QualityPercent { get; set; }
 
     /// <summary>
-    /// 사용자가 직접 설정한 <b>계획정지 시간대</b>(반복 일일, 라인 전체). 이 시간대에 발생한 비가동(사이클 비가동·무사이클)은
-    /// 계획정지로 분류되어 가용성(A) 분모에서 제외된다(표준 OEE — 계획정지는 가용성을 깎지 않음).
-    /// <b>비어있으면 5일 패턴 자동감지</b>(OeePlannedStopInferenceService)로 폴백, 1개 이상 설정 시 자동→수동 전환(자동 무시).
+    /// 사용자가 직접 설정한 <b>비생산 시간대</b>(반복 일일, 라인 전체). 이 시간대에 발생한 비가동(사이클 비가동·무사이클)은
+    /// 비생산으로 분류되어 가용성(A) 분모에서 제외된다(표준 OEE — 비생산은 가용성을 깎지 않음).
+    /// <see cref="PlannedStopsAuto"/> 가 꺼졌을(수동) 때만 적용된다.
     /// </summary>
     public List<PlannedStopWindow> PlannedStops { get; set; } = [];
+
+    /// <summary>
+    /// 비생산 시간대 <b>자동 계산</b> on/off. true = 무변화 정지 길이 ≥ 10×(14일 평균 CT) 인 구간을 비생산으로 자동 분류
+    /// (시각대 윈도 없이 지속시간만으로 판정 — 고장신호·이상감지와 무관한 순수 CT 기반, doc/22 §3.3). false = 사용자가
+    /// 직접 그린 <see cref="PlannedStops"/> 시각대만 적용. <b>수동 적용(시간대 저장) 시 자동으로 false 로 내려가고</b>,
+    /// 사용자가 '자동 계산'을 다시 켜면 true 로 복귀한다.
+    /// null = 레거시(미설정) → <see cref="PlannedStops"/> 유무로 추론(있으면 수동=false, 없으면 자동=true) — 기존 설치 호환.
+    /// </summary>
+    public bool? PlannedStopsAuto { get; set; }
+
+    /// <summary>현재 비생산 자동계산이 켜져 있는지(레거시 null 은 시간대 유무로 추론). 단일 판정 소스.</summary>
+    [JsonIgnore]
+    public bool PlannedStopsAutoEffective => PlannedStopsAuto ?? (PlannedStops is not { Count: > 0 });
 
     /// <summary>
     /// 성능(P) 표준CT 기준 — "avg"(최근 14일 평균, 기본) / "p10"(클린사이클 최속 p10, best-demonstrated).
@@ -51,6 +64,24 @@ public class OeeManualSettings
     /// 이 설정은 성능(P) 분자의 표준CT 에만 적용된다(A·다운타임 분류 불변).
     /// </summary>
     public string PerformanceBasis { get; set; } = "avg";
+
+    /// <summary>자동 비생산 패턴 캐시 (자동 모드 전환 또는 24h 만료 시 갱신). null = 아직 미계산.</summary>
+    public PlannedAutoPatternCache? AutoPatternCache { get; set; }
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
+}
+
+/// <summary>
+/// 자동 비생산 시간대 패턴 캐시. 자동 모드 전환 시 또는 24h 만료 후 재계산.
+/// dspFlowHistory 14일 스캔: mt IS NULL AND ct ≥ 10×avgCT 사이클의 시작 시각(hour-of-day) 집계 → 윈도 병합.
+/// </summary>
+public class PlannedAutoPatternCache
+{
+    public List<PlannedStopWindow> Windows { get; set; } = [];
+    public DateTime ComputedAt { get; set; }
+    public DateTime DataFrom { get; set; }
+    public DateTime DataTo { get; set; }
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }
@@ -76,8 +107,8 @@ public class PlannedStopWindow
 /// 실측 duration 자동 보정(auto-calibration) 설정. 첫 설치 후 각 Flow 가 이상치 제외 클린사이클을
 /// <see cref="MinCleanCycles"/> 개 이상 모으면, 그 Flow 의 디바이스(Device Work) Duration/Min/MaxDuration 을
 /// 실측값으로 1회 자동 채운다(<see cref="Services.AutoCalibrationService"/>). 공식:
-///   Duration = round(mean), Max = round(max(measMax, mean + <see cref="MarginMaxSigmaK"/>·σ)),
-///   Min(<see cref="FillMin"/>=true 일 때만) = round(measMin × (1 − <see cref="MarginMinPct"/>)).
+///   Duration = round(mean), Max = round(p<see cref="PercentileMax"/>),
+///   Min(<see cref="FillMin"/>=true 일 때만) = round(p<see cref="PercentileMin"/> × (1 − <see cref="MarginMinPct"/>)).
 /// <see cref="CompletedAt"/> 가 1회성 플래그 — Production.json 에 영속되어 재설치/재시작 시 보존된다.
 /// </summary>
 public class AutoCalibrationSettings
@@ -88,18 +119,16 @@ public class AutoCalibrationSettings
     /// <summary>이 개수 이상의 이상치 제외 클린사이클(IsIdle=0 AND CT NOT NULL)을 모은 Flow 만 보정한다. 기본 10.</summary>
     public int MinCleanCycles { get; set; } = 10;
 
-    /// <summary>
-    /// MaxDuration 임계 계수 k. Max = round(max(실측 최대, mean + k·σ)). 기본 4.0.
-    /// σ 는 클린사이클 span 의 표본 표준편차 — 단일 극값보다 안정적이라 오탐(ActionOver)을 줄인다.
-    /// 정규근사 k=3≈99.7%, k=4≈99.99% 커버. floor=실측 최대 라 보정에 쓴 정상 사이클이 알람나지 않는다.
-    /// (구버전 키 MarginMaxPct(%) 는 더 이상 쓰지 않으며 ExtensionData 로 무시된다.)
-    /// </summary>
-    public double MarginMaxSigmaK { get; set; } = 4.0;
+    /// <summary>MaxDuration 기준 백분위수(0-100). Max = round(p95 기본). 클수록 느슨(오탐↓).</summary>
+    public double PercentileMax { get; set; } = 95.0;
 
     /// <summary>true 일 때만 MinDuration 을 실측값으로 기록(false 면 기존값 보존). 기본 false.</summary>
     public bool FillMin { get; set; } = false;
 
-    /// <summary>MinDuration 보정율(분수). Min = round(실측 최소 × (1 − 이 값)). 기본 0.03(=−3%, max 보다 작게).</summary>
+    /// <summary>MinDuration 기준 백분위수(0-100). Min = round(p5 × (1−MarginMinPct)) 기본.</summary>
+    public double PercentileMin { get; set; } = 5.0;
+
+    /// <summary>MinDuration 추가 여유율(분수). Min = round(pN × (1 − 이 값)). 기본 0.03(=−3%).</summary>
     public double MarginMinPct { get; set; } = 0.03;
 
     /// <summary>
@@ -355,6 +384,14 @@ public class CctvCamera
     public string RtspUrl { get; set; } = "";
 
     public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// 대체(폴백) 이미지의 서빙 URL (예 "/uploads/cctv-fallbacks/cam1.jpg?v=...").
+    /// CCTV 연결 실패·주소 없음·대기 시 대시보드/영상벽이 라이브 영상 대신 이 정지 이미지를 표시한다.
+    /// 비우면 대체 이미지 없음(기존 "연결 실패/연결 중" 안내를 그대로 표시). 파일 입출력은
+    /// <see cref="Services.CctvFallbackImageService"/> 가, 이 연결값의 영속은 설정 저장 라운드트립이 담당한다.
+    /// </summary>
+    public string FallbackImage { get; set; } = "";
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }

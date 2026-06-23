@@ -49,6 +49,7 @@ fi
 rm -f "$STAGE"/app/wwwroot/uploads/blueprint.* \
       "$STAGE"/app/wwwroot/uploads/layout-data.json* \
       "$STAGE"/app/wwwroot/uploads/cctv-overlays.json 2>/dev/null || true
+rm -rf "$STAGE"/app/wwwroot/uploads/cctv-fallbacks 2>/dev/null || true
 
 VERSION="$(grep -oE '<Version>[^<]+' "$PROJECT" | head -n1 | sed 's/<Version>//')"
 [[ -n "$VERSION" ]] || VERSION="0.0.0"

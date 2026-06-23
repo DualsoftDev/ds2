@@ -24,6 +24,7 @@ public class CctvController : ControllerBase
     private readonly AppSettingsService _settings;
     private readonly CctvMediaMtxService _mediaMtx;
     private readonly CctvOverlayService _overlays;
+    private readonly CctvFallbackImageService _fallback;
     private readonly PlcToCallMapperService _callMapper;
     private readonly DspDbService _dspDb;
     private readonly DsProjectService _project;
@@ -32,6 +33,7 @@ public class CctvController : ControllerBase
         AppSettingsService settings,
         CctvMediaMtxService mediaMtx,
         CctvOverlayService overlays,
+        CctvFallbackImageService fallback,
         PlcToCallMapperService callMapper,
         DspDbService dspDb,
         DsProjectService project)
@@ -39,6 +41,7 @@ public class CctvController : ControllerBase
         _settings = settings;
         _mediaMtx = mediaMtx;
         _overlays = overlays;
+        _fallback = fallback;
         _callMapper = callMapper;
         _dspDb = dspDb;
         _project = project;
@@ -55,9 +58,12 @@ public class CctvController : ControllerBase
         var cctv = _settings.LoadSettings().Cctv;
         // 경로명(slug)을 전체 목록에서 먼저 결정(중복회피·안정) → 필터. SyncAsync 와 동일 규칙이라 WHEP path 일치.
         CctvMediaMtxService.AssignSlugs(cctv.Cameras);
+        // RTSP 가 있거나(라이브) 대체 이미지가 있는(주소 없는 정지 표시용) 카메라를 모두 노출 —
+        // 대체 이미지 전용 카메라는 HasStream=false 로 내려 클라이언트가 WHEP 를 시작하지 않고 이미지만 띄운다.
         var cameras = cctv.Cameras
-            .Where(c => c.Enabled && !string.IsNullOrWhiteSpace(c.Slug) && !string.IsNullOrWhiteSpace(c.RtspUrl))
-            .Select(c => new CctvCameraDto(c.Name, c.Slug))
+            .Where(c => c.Enabled && !string.IsNullOrWhiteSpace(c.Slug)
+                && (!string.IsNullOrWhiteSpace(c.RtspUrl) || !string.IsNullOrWhiteSpace(c.FallbackImage)))
+            .Select(c => new CctvCameraDto(c.Name, c.Slug, c.FallbackImage, !string.IsNullOrWhiteSpace(c.RtspUrl)))
             .ToList();
         return new CctvConfigDto(cctv.WebRtcPort, cameras, cameras.Count, MaxConcurrentCameras,
             cctv.IdlePauseEnabled, cctv.IdlePauseMinutes);
@@ -92,7 +98,7 @@ public class CctvController : ControllerBase
         return new CctvDto(
             cctv.MediaMtxApiUrl,
             cctv.WebRtcPort,
-            cctv.Cameras.Select(c => new CameraDto(c.Name, c.RtspUrl, c.Enabled, c.Slug)).ToList(),
+            cctv.Cameras.Select(c => new CameraDto(c.Name, c.RtspUrl, c.Enabled, c.Slug, c.FallbackImage)).ToList(),
             _mediaMtx.LastSyncOk,
             _mediaMtx.LastSyncMessage,
             cctv.WebRtcAdditionalHosts,
@@ -123,19 +129,26 @@ public class CctvController : ControllerBase
         // 경로명(slug)은 클라이언트가 보내지 않으므로 기존 저장값을 포지션 기준으로 이어받는다.
         // 순서 변경 없이 이름만 바꿔도 경로가 안정 유지된다(MediaMTX 재등록·오버레이 흔들림 방지).
         var prevSlugs = m.Cctv.Cameras.Select(c => c.Slug).ToList();
+        var prevFallbacks = m.Cctv.Cameras.Select(c => c.FallbackImage).ToList();
         m.Cctv.Cameras = (req.Cameras ?? new List<CameraDto>())
             .Select((c, i) => new CctvCamera
             {
                 Name = c.Name ?? "",
                 Slug = i < prevSlugs.Count ? prevSlugs[i] : "",   // 기존 slug 이어받기; 초과분은 신규 → 빈값
                 RtspUrl = c.RtspUrl ?? "",
-                Enabled = c.Enabled
+                Enabled = c.Enabled,
+                // 대체 이미지: 클라이언트가 보낸 값 우선(업로드/캡쳐 후 라운드트립; ""=명시적 해제),
+                // null(구 클라이언트)이면 포지션 기준 기존값 유지.
+                FallbackImage = c.FallbackImage ?? (i < prevFallbacks.Count ? prevFallbacks[i] : "")
             })
             .ToList();
         // 빈 slug(신규 카메라)에만 cam1/cam2/… 부여; 기존 slug 는 그대로.
         CctvMediaMtxService.AssignSlugs(m.Cctv.Cameras);
 
         _settings.SaveSettings(m);
+
+        // 더 이상 참조되지 않는 대체 이미지 파일 정리(카메라 삭제/이미지 해제/저장 안 한 캡쳐).
+        try { _fallback.Prune(m.Cctv.Cameras); } catch { /* 비치명 — 저장은 성공 처리 */ }
 
         // 단일 카메라 개명 감지 → 오버레이 FK 이전(삭제 아님).
         var newCameraNames = m.Cctv.Cameras
@@ -154,12 +167,44 @@ public class CctvController : ControllerBase
         return new CctvDto(
             m.Cctv.MediaMtxApiUrl,
             m.Cctv.WebRtcPort,
-            m.Cctv.Cameras.Select(c => new CameraDto(c.Name, c.RtspUrl, c.Enabled, c.Slug)).ToList(),
+            m.Cctv.Cameras.Select(c => new CameraDto(c.Name, c.RtspUrl, c.Enabled, c.Slug, c.FallbackImage)).ToList(),
             _mediaMtx.LastSyncOk,
             _mediaMtx.LastSyncMessage,
             m.Cctv.WebRtcAdditionalHosts,
             m.Cctv.IdlePauseEnabled,
             m.Cctv.IdlePauseMinutes);
+    }
+
+    // ──────────────────────────── 대체(폴백) 이미지 ────────────────────────────
+
+    /// <summary>
+    /// 카메라 대체 이미지 등록(직접 업로드/CCTV 캡쳐 공용). body.imageDataUrl = data:image/...;base64,... .
+    /// 파일만 저장하고 서빙 URL 을 반환 — 카메라-이미지 연결(FallbackImage)의 영속은 설정 저장(POST settings)
+    /// 라운드트립으로 처리한다(이중 저장/경합 회피). slug 가 있어야 함(미저장 신규 카메라는 먼저 저장).
+    /// antiforgery 미적용 — 평범한 JSON POST.
+    /// </summary>
+    [HttpPost("fallback")]
+    public ActionResult<object> SaveFallback([FromBody] CctvFallbackSaveDto req)
+    {
+        if (string.IsNullOrWhiteSpace(req.Slug))
+            return BadRequest(new { error = "카메라를 먼저 저장한 뒤 이미지를 등록할 수 있습니다." });
+        try
+        {
+            var url = _fallback.Save(req.Slug, req.ImageDataUrl ?? "");
+            return new { url };
+        }
+        catch (ArgumentException ex) { return BadRequest(new { error = ex.Message }); }
+        catch (FormatException) { return BadRequest(new { error = "이미지 데이터를 해석할 수 없습니다." }); }
+    }
+
+    /// <summary>카메라 대체 이미지 파일 삭제. 연결 해제(FallbackImage="")의 영속은 설정 저장으로 처리.</summary>
+    [HttpPost("fallback/delete")]
+    public ActionResult<object> DeleteFallback([FromBody] CctvFallbackDeleteDto req)
+    {
+        if (string.IsNullOrWhiteSpace(req.Slug))
+            return BadRequest(new { error = "slug 가 비어 있습니다." });
+        _fallback.Delete(req.Slug);
+        return new { removed = true };
     }
 
     // ──────────────────────────── 설비 오버레이 (P4) ────────────────────────────
@@ -363,8 +408,14 @@ public class CctvController : ControllerBase
 // IdlePause* = 무조작 일시정지(절전 가드, LTE 종량 회선 보호) — cctv-whep.js configureSaver 가 소비.
 public record CctvConfigDto(int WebRtcPort, List<CctvCameraDto> Cameras, int TotalCount, int MaxConcurrent,
     bool IdlePauseEnabled = true, int IdlePauseMinutes = 60);
-public record CctvCameraDto(string Name, string Id);
+// FallbackImage = 영상 미표시(실패/주소없음/대기) 시 띄울 정지 이미지 URL(없으면 빈 문자열).
+// HasStream = RTSP 주소가 있어 WHEP 라이브 연결을 시도해야 하는지(false = 대체 이미지 전용 카메라).
+public record CctvCameraDto(string Name, string Id, string FallbackImage = "", bool HasStream = true);
 public record CctvStatusDto(bool Ok, string Message);
+
+// 대체(폴백) 이미지 등록/삭제 요청. ImageDataUrl = data:image/...;base64,... (업로드·캡쳐 공용).
+public record CctvFallbackSaveDto(string Slug, string ImageDataUrl);
+public record CctvFallbackDeleteDto(string Slug);
 
 /// <summary>
 /// 카메라 설정 저장 요청. SettingsController.SaveRequestDto 의 CCTV 부분을 분리한 것.
