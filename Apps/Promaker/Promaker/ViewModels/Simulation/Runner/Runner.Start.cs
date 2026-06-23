@@ -139,13 +139,17 @@ public partial class SimulationPanelState
                         FSharpOption<FSharpFunc<string, FSharpFunc<string, Unit>>>.Some(
                             FuncConvert.FromAction<string, string>(writeTagAction)))
                     : new EventDrivenEngine(index, SelectedRuntimeMode);
-                // 로컬 Control 시뮬도 ActionUnder 게이트 적용 — calibration-state 가 비었거나 모델 해시가
-                // 어긋나면 IsMinMeasured 전부 false(기본 비활성). FillMin 확정된 같은 모델일 때만 게이트가 열린다.
-                if (SelectedRuntimeMode == RuntimeMode.Control)
+                // 로컬 Control 시뮬도 ActionUnder/ActionOver 게이트 적용 — calibration-state 가 비었거나 모델 해시가
+                // 어긋나면 IsMin/MaxMeasured 전부 false(기본 비활성). 실측 확정된 같은 모델일 때만 게이트가 열린다.
+                //  - ActionOver(Max): Control(adapter)·Monitoring(engine watchdog) 양쪽 경로 → 둘 다 주입.
+                //  - ActionUnder(Min): Control adapter 경로만(self Monitoring under 경로는 없음).
+                if (SelectedRuntimeMode == RuntimeMode.Control || SelectedRuntimeMode == RuntimeMode.Monitoring)
                 {
                     var calibState = CalibrationState.Load();
                     var calibHash = RuntimeModelHash.compute(SharedPaths.AasxFilePath);
-                    selfEngine.SetMinMeasured(new Func<Guid, bool>(g => calibState.IsMinMeasured(g, calibHash)));
+                    selfEngine.SetMaxMeasured(new Func<Guid, bool>(g => calibState.IsMaxMeasured(g, calibHash)));
+                    if (SelectedRuntimeMode == RuntimeMode.Control)
+                        selfEngine.SetMinMeasured(new Func<Guid, bool>(g => calibState.IsMinMeasured(g, calibHash)));
                 }
                 _simEngine = selfEngine;
             }

@@ -44,8 +44,10 @@ type ControlAbnormalAdapter
     let warmupCycles = defaultArg warmupCycles 0
     let completedCycles = Dictionary<Guid, int>()   // callId → Going 을 거쳐 Ready 로 복귀한 횟수
     // ActionUnder(시간 미만) 게이트 — Work 의 Min 실측 확정 여부(호스트가 calibration-state 로 주입).
-    // 기본 false → 미확정 Work 의 ActionUnder 비활성(오탐 차단). ActionOver(Max)는 영향 없음.
+    // 기본 false → 미확정 Work 의 ActionUnder 비활성(오탐 차단).
     let mutable isMinMeasured : Guid -> bool = fun _ -> false
+    // ActionOver(시간 초과) 게이트 — Work 의 Max 실측 확정 여부. 기본 false → 미확정 Work 의 ActionOver 비활성.
+    let mutable isMaxMeasured : Guid -> bool = fun _ -> false
 
     let mappingOfApiCall (apiCallId: Guid) =
         ioMap.Mappings |> List.tryFind (fun m -> m.ApiCallGuid = apiCallId)
@@ -91,6 +93,9 @@ type ControlAbnormalAdapter
 
     /// ActionUnder 게이트 주입 — workGuid 의 Min 이 실측 확정(calibration-state)됐는지. 기본 false(비활성).
     member _.IsMinMeasured with get () = isMinMeasured and set v = isMinMeasured <- v
+
+    /// ActionOver 게이트 주입 — workGuid 의 Max 가 실측 확정(calibration-state)됐는지. 기본 false(비활성).
+    member _.IsMaxMeasured with get () = isMaxMeasured and set v = isMaxMeasured <- v
 
     /// active Call Ready→Going = PS. goingClock 기록.
     member _.OnCallGoing(callId: Guid, nowMs: int) =
@@ -194,8 +199,12 @@ type ControlAbnormalAdapter
                         let elapsed = nowMs - goingMs
                         match Abnormal.classifyTick range elapsed (isInputActive mapping.ApiCallGuid) with
                         | Some AbnormalKind.ActionOver ->
-                            let target = Abnormal.target (Some callId) (Some mapping.ApiCallGuid) None
-                            emit (Abnormal.actionOver target elapsed (now ()))
+                            // Max 실측 확정(calibration-state)된 Work 만 ActionOver 발행 — 미확정/모델임의 Max 오탐 차단.
+                            match mapping.RxWorkGuid with
+                            | Some w when isMaxMeasured w ->
+                                let target = Abnormal.target (Some callId) (Some mapping.ApiCallGuid) None
+                                emit (Abnormal.actionOver target elapsed (now ()))
+                            | _ -> ()
                         | _ -> ()
                     | _ -> ()
                 | _ -> ()

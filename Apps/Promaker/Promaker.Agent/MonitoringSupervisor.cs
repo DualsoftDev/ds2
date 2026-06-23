@@ -410,9 +410,16 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
             var calibState = CalibrationState.Load();
             var calibHash = RuntimeModelHash.compute(session.AasxPath);
             Func<Guid, bool> isMinMeasured = g => calibState.IsMinMeasured(g, calibHash);
-            // Control engine 의 abnormal 어댑터에 게이트 주입 (Monitoring 은 아래 HubSession 이 주입).
-            if (isControl && engine is EventDrivenEngine controlEngine)
-                controlEngine.SetMinMeasured(isMinMeasured);
+            Func<Guid, bool> isMaxMeasured = g => calibState.IsMaxMeasured(g, calibHash);
+            // 게이트 주입.
+            //  - ActionOver(Max): Control(adapter.OnTick)·Monitoring(engine device-watchdog) 양쪽 경로 → engine 에 항상 주입.
+            //  - ActionUnder(Min): Control 은 engine adapter, Monitoring 은 아래 HubSession(MonitoringAbnormalAdapter) 이 주입.
+            if (engine is EventDrivenEngine edEngine)
+            {
+                edEngine.SetMaxMeasured(isMaxMeasured);
+                if (isControl)
+                    edEngine.SetMinMeasured(isMinMeasured);
+            }
 
             Log.Info($"Starting BackendHost on port {Port} " +
                      $"({(readOnly ? "read-only / Monitoring" : "read-write / Control")}) with engine session {identity.SessionId}...");
