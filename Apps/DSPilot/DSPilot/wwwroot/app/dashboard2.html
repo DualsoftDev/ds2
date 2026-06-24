@@ -1519,7 +1519,7 @@
                     if (diff < minDiff) minDiff = diff;
                 }
                 const h = Math.floor(minDiff / 60), m = minDiff % 60;
-                return h > 0 ? (h + '시간 ' + m + '분 후 비생산 시간') : (m + '분 후 비생산 시간');
+                return h > 0 ? (h + '시간 ' + m + '분 후 휴식') : (m + '분 후 휴식');
             },
             async loadNonprod() {
                 try {
