@@ -48,6 +48,9 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
     let tokenEventEvent = Event<TokenEventArgs>()
     // v12 P3b — Control 모드만 abnormal adapter 활성. 다른 모드/구독자 없으면 noop (기존 동작 무영향).
     let abnormalDetectedEvent = Event<AbnormalRecord>()
+    // Monitoring device-watchdog ActionOver 게이트 — Max 실측 확정(calibration-state)된 Work 만 발행.
+    // Control 은 abnormalAdapter.IsMaxMeasured 가 담당(이 watchdog 는 adapter.OnTick 경유). 기본 false=비활성(오탐 차단).
+    let mutable engineIsMaxMeasured : Guid -> bool = fun _ -> false
     let abnormalAdapter =
         if runtimeMode = RuntimeMode.Control then
             let isInputActive apiCallId =
@@ -336,7 +339,8 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
                                     | Some v -> RuntimeSemantics.isActiveInputValue ac v
                                     | None -> false
                                 | None -> false
-                            if not inActive then
+                            // Max 실측 확정(calibration-state)된 Work 만 ActionOver 발행 — 미확정/모델임의 Max 오탐 차단.
+                            if not inActive && engineIsMaxMeasured workGuid then
                                 let target = Abnormal.target (Some m.CallGuid) (Some m.ApiCallGuid) (Some workGuid)
                                 abnormalDetectedEvent.Trigger(Abnormal.actionOver target (range.MaxMs + 1) nowUtc)
                 | None -> ()
@@ -525,6 +529,14 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
     member _.SetMinMeasured(f: System.Func<Guid, bool>) =
         match abnormalAdapter with
         | Some a -> a.IsMinMeasured <- (fun g -> f.Invoke g)
+        | None -> ()
+
+    /// ActionOver 게이트 주입 — Max 실측 확정(calibration-state) 판정 함수.
+    /// Control(abnormalAdapter.OnTick) 과 Monitoring(engine device-watchdog) 양쪽 over 경로에 모두 적용한다.
+    member _.SetMaxMeasured(f: System.Func<Guid, bool>) =
+        engineIsMaxMeasured <- (fun g -> f.Invoke g)   // Monitoring device-watchdog 경로
+        match abnormalAdapter with
+        | Some a -> a.IsMaxMeasured <- (fun g -> f.Invoke g)   // Control adapter 경로
         | None -> ()
 
     interface ISimulationEngine with

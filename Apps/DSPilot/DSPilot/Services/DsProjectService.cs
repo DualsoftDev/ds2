@@ -381,10 +381,13 @@ public class DsProjectService
     /// <param name="markMinMeasured">true 면(FillMin = 사용자가 '최소값도 실측으로 기록' 의사 확정) Min 을 실제로
     /// 기록한 Work 를 calibration-state 사이드카에 'Min 실측 확정' 으로 박아 ActionUnder(시간 미만) 게이트를 연다.
     /// false 면(Min 보존/단순 보정) 사이드카는 건드리지 않아 모델에 Min 값이 있어도 ActionUnder 는 비활성을 유지한다.</param>
+    /// <param name="markMaxMeasured">true 면 Max 를 기록한 Work 를 'Max 실측 확정' 으로 박아 ActionOver(시간 초과) 게이트를 연다.
+    /// 자동 보정/실측 적용은 Max 를 항상 실측으로 채우므로 보통 true 로 전달한다.</param>
     /// <returns>(정규화/적용 시도 건수, export 성공 여부). 미로드·빈 입력·락 점유·예외 시 Exported=false.</returns>
     public (int Applied, bool Exported) WriteWorkDurationCalibrationAndExport(
         IReadOnlyList<(Guid WorkId, int? DurationMs, int? MinMs, int? MaxMs)> changes,
-        bool markMinMeasured = false)
+        bool markMinMeasured = false,
+        bool markMaxMeasured = false)
     {
         if (!IsLoaded || GetProject() is null)
         {
@@ -431,16 +434,19 @@ public class DsProjectService
             LastLoadedSha256 = ComputeFileSha256(AasxFilePath);
             LastLoadedUtc = DateTime.UtcNow;
 
-            // FillMin 실측 확정(markMinMeasured)일 때만 Min 기록 Work 를 사이드카에 확정 → ActionUnder 게이트 활성.
+            // 실측 확정 — Min(ActionUnder 게이트) / Max(ActionOver 게이트) 를 사이드카에 박는다.
             // 같은 락 안에서 read-modify-write 해야 Promaker/Agent 의 동시 갱신과 안전하게 직렬화된다.
-            if (markMinMeasured && LastLoadedSha256 is { Length: > 0 } sha)
+            if ((markMinMeasured || markMaxMeasured) && LastLoadedSha256 is { Length: > 0 } sha)
             {
                 var calib = CalibrationState.Load();
                 int marked = 0;
                 foreach (var item in batch)
-                    if (item.Item3.HasValue) { calib.SetMinMeasured(item.Item1, item.Item3.Value, sha); marked++; }
+                {
+                    if (markMinMeasured && item.Item3.HasValue) { calib.SetMinMeasured(item.Item1, item.Item3.Value, sha); marked++; }
+                    if (markMaxMeasured && item.Item4.HasValue) { calib.SetMaxMeasured(item.Item1, item.Item4.Value, sha); marked++; }
+                }
                 if (marked > 0 && calib.TrySave())
-                    _logger.LogInformation("[DsProject] ActionUnder 게이트 — Min 실측 확정 {Marked}건 기록 (calibration-state).", marked);
+                    _logger.LogInformation("[DsProject] 실측 확정 {Marked}건 기록 (calibration-state, ActionUnder/Over 게이트).", marked);
             }
 
             _logger.LogInformation("[DsProject] duration 보정 완료 — {Count}건 → {Path}", batch.Count, AasxFilePath);
@@ -510,9 +516,9 @@ public class DsProjectService
             LastLoadedSha256 = ComputeFileSha256(AasxFilePath);
             LastLoadedUtc = DateTime.UtcNow;
 
-            // Min 을 비웠으므로 해당 Work 의 'Min 실측 확정' 도 해제 — 사이드카가 모델과 어긋난 stale 게이트를 열지 않도록.
+            // Min/Max 를 비웠으므로 해당 Work 의 실측 확정도 모두 해제 — 사이드카가 모델과 어긋난 stale 게이트를 열지 않도록.
             var calib = CalibrationState.Load();
-            foreach (var item in batch) calib.ClearMinMeasured(item.Item1);
+            foreach (var item in batch) calib.ClearWork(item.Item1);
             calib.TrySave();
 
             _logger.LogInformation("[DsProject] Min/Max 초기화 완료 — {Count}건 → {Path}", batch.Count, AasxFilePath);

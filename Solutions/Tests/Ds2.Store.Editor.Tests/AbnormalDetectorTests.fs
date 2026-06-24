@@ -252,6 +252,7 @@ module ControlAdapterTests =
         let adapter =
             ControlAbnormalAdapter(index, ioMap, getCallState, isInputActive, (fun () -> t0), (fun r -> emitted.Add r))
         adapter.IsMinMeasured <- fun _ -> true   // ActionUnder 게이트 기본 통과(대다수 테스트 편의). 미확정 케이스는 전용 테스트.
+        adapter.IsMaxMeasured <- fun _ -> true   // ActionOver 게이트 기본 통과(대다수 테스트 편의).
         adapter, emitted, states, inputActive, call.Id, apiCall.Id
 
     let private setup () =
@@ -786,7 +787,9 @@ module DeviceControlCycleTests =
         apiCall.OutTag <- Some(IOTag("OUT", "Y0", ""))
         apiCall.InTag <- Some(IOTag("IN", "X0", ""))
         let index = SimIndex.build store 10
-        use engine = (new EventDrivenEngine(index, RuntimeMode.Control)) :> ISimulationEngine
+        use edEngine = new EventDrivenEngine(index, RuntimeMode.Control)
+        edEngine.SetMaxMeasured(System.Func<Guid, bool>(fun _ -> true))   // ActionOver 게이트 통과
+        let engine = edEngine :> ISimulationEngine
         let emitted = ResizeArray<AbnormalRecord>()
         engine.AbnormalDetected.Add(fun record -> emitted.Add record)
 
@@ -885,7 +888,9 @@ module DeviceControlCycleTests =
         apiCall.OutTag <- Some(IOTag("OUT", "Y0", ""))
         apiCall.InTag <- Some(IOTag("IN", "X0", ""))
         let index = SimIndex.build store 10
-        use engine = (new EventDrivenEngine(index, RuntimeMode.Monitoring)) :> ISimulationEngine
+        use edEngine = new EventDrivenEngine(index, RuntimeMode.Monitoring)
+        edEngine.SetMaxMeasured(System.Func<Guid, bool>(fun _ -> true))   // ActionOver 게이트 통과
+        let engine = edEngine :> ISimulationEngine
         let emitted = ResizeArray<AbnormalRecord>()
         engine.AbnormalDetected.Add(fun record -> emitted.Add record)
 
@@ -923,7 +928,9 @@ module DeviceControlCycleTests =
         apiCall.OutTag <- Some(IOTag("OUT", "Y0", ""))
         apiCall.InTag <- Some(IOTag("IN", "X0", ""))
         let index = SimIndex.build store 10
-        use engine = (new EventDrivenEngine(index, RuntimeMode.Monitoring)) :> ISimulationEngine
+        use edEngine = new EventDrivenEngine(index, RuntimeMode.Monitoring)
+        edEngine.SetMaxMeasured(System.Func<Guid, bool>(fun _ -> true))   // 게이트는 통과시켜 'input 도착 억제' 로직 자체를 검증
+        let engine = edEngine :> ISimulationEngine
         let emitted = ResizeArray<AbnormalRecord>()
         engine.AbnormalDetected.Add(fun record -> emitted.Add record)
 
