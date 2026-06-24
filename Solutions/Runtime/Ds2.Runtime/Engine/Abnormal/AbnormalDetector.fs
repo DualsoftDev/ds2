@@ -70,6 +70,13 @@ module AbnormalDetector =
         | SensingType.Virtual _ -> false
         | _ -> true
 
+    // ActionType.Virtual = 실제 출력(OUT) 없음(주로 Latch 상대 동작). OUT 없이 IN 이 들어오는 게 정상이라
+    // SensorShort/Action* 판정 대상이 아니다 — 제외하지 않으면 OUT rising 부재로 매 IN 마다 Short 오탐.
+    let isPhysicalAction (def: ApiDef) : bool =
+        match def.ActionType with
+        | ActionType.Virtual -> false
+        | _ -> true
+
     // --- observed clock / timing quality (R7) ---
 
     /// Control: 관측 latency 없음 → 항상 Reliable.
@@ -111,6 +118,7 @@ module AbnormalDetector =
     /// SensorShort 는 Ready 에서도(spec EX-02 case A) 평가해야 해서 여기에 묶지 않는다.
     let canEvaluate (store: DsStore) (callId: Guid) (def: ApiDef) : bool =
         isPhysicalSensing def
+        && isPhysicalAction def
         && flowIsAutoOfCall store callId
         && not (callInterlocked store callId)
 

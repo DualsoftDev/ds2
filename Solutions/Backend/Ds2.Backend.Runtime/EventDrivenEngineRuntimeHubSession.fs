@@ -418,7 +418,20 @@ type EventDrivenEngineRuntimeHubSession
 
             if normalItems.Length > 0 then
                 if runtimeMode = RuntimeMode.Monitoring then
-                    for item in normalItems do
+                    // 같은 스캔 배치에 OUT(동작 시작)·IN(완료)이 동시에 오면(동작이 스캔보다 빠른 경우),
+                    // IN 을 먼저 처리하면 goingClock 부재로 SensorShort 오탐이 난다. OUT 을 IN 보다 먼저
+                    // 처리하도록 안정 정렬(그룹 내 원순서 보존) — "시작이 완료보다 먼저"를 보장한다.
+                    let outFirst =
+                        normalItems
+                        |> Array.mapi (fun i item -> struct (i, item))
+                        |> Array.sortBy (fun struct (i, item) ->
+                            let isOut =
+                                not (isNull (box item))
+                                && not (String.IsNullOrWhiteSpace item.Address)
+                                && engine.IOMap.OutAddressToMappings.ContainsKey item.Address
+                            struct ((if isOut then 0 else 1), i))
+                        |> Array.map (fun struct (_, item) -> item)
+                    for item in outFirst do
                         preApplyMonitoringInput item
 
                 for item in normalItems do

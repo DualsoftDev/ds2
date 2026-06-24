@@ -35,13 +35,28 @@ open Ds2.Runtime.Engine.Core
 ///     양자화라 scanPeriod 항이 덮는다(2026-06-13 양버전 28h+22h 실측 규명, 사용자 확정 설계).
 ///   Min 은 0 하한. 학습 전(샘플 < minSamples)엔 TryGetRange = None → 판정 보류.
 type DeviceDurationLearner(minSamples: int, marginRatio: float, scanPeriodMs: int, quantFactor: float) =
-    let samples = Dictionary<Guid, ResizeArray<int>>()
+    // workGuid → 최근 실측 elapsed(ms) rolling 윈도우. confirmed 후에도 계속 누적해 range 를 추종한다.
+    let window = Dictionary<Guid, ResizeArray<int>>()
     let learned = Dictionary<Guid, RxTimingRange * int>()   // workGuid → (range, avg ms)
+    // prime(모델 Duration) 으로만 채워진 잠정 상태 — 실측이 minSamples 모이면 실측이 덮어쓴다.
+    let provisional = HashSet<Guid>()
+    // 실측으로 한 번이라도 확정된 work — Prime 이 이걸 덮지 않는다(엉터리 모델값이 실측을 못 밀어냄).
+    let confirmed = HashSet<Guid>()
+    // rolling 윈도우 상한 — 최근 N 사이클로만 range 산정(설비 변화 추종 + 메모리 상한).
+    let windowCap = max 12 (minSamples * 4)
 
     /// avg(중앙 추정) → 마진식 적용 range. 학습 확정/외부 prime 공용.
     let rangeOf (avg: float) =
         let margin = avg * marginRatio + float scanPeriodMs * quantFactor
         { MinMs = max 0 (int (avg - margin)); MaxMs = int (avg + margin) }
+
+    /// 이상치(통신 지연으로 부풀려진 elapsed 등) 제외 평균 — median 기준 [1/3×, 3×] 밖은 표본에서 뺀다.
+    /// range 가 한 건의 14초짜리 통신오염으로 망가지는 것을 막는다(그 14초는 판정 시점에 over 로는 잡힘).
+    let robustAvg (arr: ResizeArray<int>) =
+        let sorted = arr |> Seq.sort |> Seq.toArray
+        let med = float sorted.[sorted.Length / 2]
+        let clean = sorted |> Array.filter (fun e -> float e <= med * 3.0 && float e >= med / 3.0)
+        if clean.Length = 0 then med else (clean |> Array.averageBy float)
 
     member _.HasLearned(workGuid: Guid) = learned.ContainsKey workGuid
 
@@ -50,31 +65,41 @@ type DeviceDurationLearner(minSamples: int, marginRatio: float, scanPeriodMs: in
         | true, (r, _) -> Some r
         | _ -> None
 
-    /// AASX 확정값(avg) 으로 학습을 미리 채운다 — 다음 세션 재학습 없이 첫 사이클부터 판정.
-    /// range 는 *현재* 스캔주기 마진식으로 재계산되므로 스캔주기 변경에도 정합.
+    /// AASX 확정값(avg) 으로 학습을 *잠정* prime — 학습 전 첫 사이클부터 판정하기 위한 임시값.
+    /// 실측이 확정(confirmed)된 work 는 덮지 않는다 — 엉터리 모델 duration 이 실측을 밀어내지 못하게.
+    /// range 는 현재 스캔주기 마진식으로 재계산되므로 스캔주기 변경에도 정합.
     member _.Prime(workGuid: Guid, avgMs: int) =
-        if avgMs > 0 then learned.[workGuid] <- (rangeOf (float avgMs), avgMs)
+        if avgMs > 0 && not (confirmed.Contains workGuid) then
+            learned.[workGuid] <- (rangeOf (float avgMs), avgMs)
+            provisional.Add workGuid |> ignore
 
-    /// elapsed(ms) 샘플 추가. 이번 호출로 학습이 *확정*되면 Some(range, avg), 아니면 None.
+    /// elapsed(ms) 실측 샘플 추가. rolling 윈도우 + 이상치 제외로 range 를 매 사이클 갱신한다.
+    /// prime(provisional) 상태는 실측이 minSamples 모이면 실측 range 로 교체되고, confirmed 후에도
+    /// rolling 으로 계속 추종한다(한 번 굳으면 안 바뀌던 결함 제거). 첫 확정 때만 통지(이후 갱신은 조용히).
     member _.Observe(workGuid: Guid, elapsedMs: int) : (RxTimingRange * int) option =
-        if learned.ContainsKey workGuid || elapsedMs < 0 then None
+        if elapsedMs < 0 then None
         else
             let arr =
-                match samples.TryGetValue workGuid with
+                match window.TryGetValue workGuid with
                 | true, a -> a
-                | _ -> let a = ResizeArray<int>() in samples.[workGuid] <- a; a
+                | _ -> let a = ResizeArray<int>() in window.[workGuid] <- a; a
             arr.Add elapsedMs
+            if arr.Count > windowCap then arr.RemoveAt 0
             if arr.Count >= minSamples then
-                let avg = (arr |> Seq.sumBy float) / float arr.Count
+                let avg = robustAvg arr
                 let range = rangeOf avg
+                let wasConfirmed = confirmed.Contains workGuid
                 learned.[workGuid] <- (range, int avg)
-                samples.Remove workGuid |> ignore
-                Some(range, int avg)
+                provisional.Remove workGuid |> ignore
+                confirmed.Add workGuid |> ignore
+                if wasConfirmed then None else Some(range, int avg)   // 첫 확정만 client push
             else None
 
     member _.Clear() =
-        samples.Clear()
+        window.Clear()
         learned.Clear()
+        provisional.Clear()
+        confirmed.Clear()
 
 type MonitoringAbnormalAdapter
     ( index: SimIndex,
