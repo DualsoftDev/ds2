@@ -417,11 +417,15 @@ type EventDrivenEngineRuntimeHubSession
                 exitBlackoutToRearming ()
 
             if normalItems.Length > 0 then
-                if runtimeMode = RuntimeMode.Monitoring then
-                    // 같은 스캔 배치에 OUT(동작 시작)·IN(완료)이 동시에 오면(동작이 스캔보다 빠른 경우),
-                    // IN 을 먼저 처리하면 goingClock 부재로 SensorShort 오탐이 난다. OUT 을 IN 보다 먼저
-                    // 처리하도록 안정 정렬(그룹 내 원순서 보존) — "시작이 완료보다 먼저"를 보장한다.
-                    let outFirst =
+                // 같은 스캔 배치에 OUT(동작 시작)·IN(완료)이 동시에 오면(동작이 스캔보다 빠른 경우),
+                // IN 을 먼저 처리하면 goingClock 부재로 SensorShort 오탐이 난다(실기 60%). OUT 을 IN
+                // 보다 먼저 처리하도록 안정 정렬(그룹 내 원순서 보존) — "시작이 완료보다 먼저"를 보장한다.
+                // ※ 정렬은 반드시 *OnObservedIo 를 호출하는 루프*(아래 HandleHubTag→PassiveObserve→
+                //   observeAndInfer→OnObservedIo)에 걸어야 한다. preApplyMonitoringInput 은 IN 주소만
+                //   처리하고 OnObservedIo 를 부르지 않으므로 그 루프에 정렬을 걸면 goingClock 순서에
+                //   아무 영향이 없다(과거 결함 — SensorShort 오탐이 그대로였다).
+                let ordered =
+                    if runtimeMode = RuntimeMode.Monitoring then
                         normalItems
                         |> Array.mapi (fun i item -> struct (i, item))
                         |> Array.sortBy (fun struct (i, item) ->
@@ -431,10 +435,13 @@ type EventDrivenEngineRuntimeHubSession
                                 && engine.IOMap.OutAddressToMappings.ContainsKey item.Address
                             struct ((if isOut then 0 else 1), i))
                         |> Array.map (fun struct (_, item) -> item)
-                    for item in outFirst do
+                    else normalItems
+
+                if runtimeMode = RuntimeMode.Monitoring then
+                    for item in ordered do
                         preApplyMonitoringInput item
 
-                for item in normalItems do
+                for item in ordered do
                     if not (isNull (box item))
                        && not (String.IsNullOrWhiteSpace item.Address) then
                         tryRearmFromTag item.Address item.Value
