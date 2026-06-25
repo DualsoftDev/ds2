@@ -37,19 +37,22 @@ public static class ApiSpanMath
     }
 
     /// <summary>
-    /// span 목록의 개수/p05/p95/평균(ms). 빈 입력은 (0, null, null, null).
-    /// p05/p95 는 정렬 후 분위수(OeeCtStatsService 와 동일 공식) — 이상치 단 1개가 임계를 왜곡하는
+    /// span 목록의 개수/pMin/pMax/평균/실측최솟값/실측최댓값(ms). 빈 입력은 (0, null, null, null, null, null).
+    /// pMin/pMax 는 정렬 후 분위수(OeeCtStatsService 와 동일 공식) — 이상치 단 1개가 임계를 왜곡하는
     /// measMax/mean+k·σ 방식보다 고변동(수작업·조립) 공정에서 안정적이다.
+    /// percentileMax/percentileMin 을 지정하면 p95/p05 대신 해당 백분위수를 계산한다(기본값 95/5).
+    /// RawMin/RawMax 는 sorted 첫/마지막 값(백분위수 무관한 순수 최솟값/최댓값) — "RawMax" 모드 전용.
     /// </summary>
-    public static (int Count, double? P05, double? P95, double? Mean) Measured(IReadOnlyList<double> spans)
+    public static (int Count, double? PMin, double? PMax, double? Mean, double? RawMin, double? RawMax) Measured(
+        IReadOnlyList<double> spans, double percentileMax = 95.0, double percentileMin = 5.0)
     {
-        if (spans is null || spans.Count == 0) return (0, null, null, null);
+        if (spans is null || spans.Count == 0) return (0, null, null, null, null, null);
         double sum = 0;
         foreach (var x in spans) sum += x;
         double mean = sum / spans.Count;
 
         var sorted = spans.OrderBy(x => x).ToList();
-        return (spans.Count, Percentile(sorted, 5.0), Percentile(sorted, 95.0), mean);
+        return (spans.Count, Percentile(sorted, percentileMin), Percentile(sorted, percentileMax), mean, sorted[0], sorted[^1]);
     }
 
     private static double Percentile(List<double> sorted, double pct)

@@ -187,7 +187,9 @@ public class SettingsController : ControllerBase
                 {
                     m.AutoCalibration.Enabled = acReq.Enabled;
                     m.AutoCalibration.MinCleanCycles = Math.Max(1, acReq.MinCleanCycles);
+                    m.AutoCalibration.MaxMode = acReq.MaxMode is "RawMax" ? "RawMax" : "Percentile";
                     m.AutoCalibration.PercentileMax = Math.Clamp(acReq.PercentileMax, 50, 100);
+                    m.AutoCalibration.MarginMaxPct = Math.Clamp(acReq.MarginMaxPct, 0, 5);
                     m.AutoCalibration.FillMin = acReq.FillMin;
                     m.AutoCalibration.PercentileMin = Math.Clamp(acReq.PercentileMin, 0, 50);
                     m.AutoCalibration.MarginMinPct = Math.Clamp(acReq.MarginMinPct, 0, 1);
@@ -467,7 +469,9 @@ public class SettingsController : ControllerBase
             new AutoCalibrationDto(
                 m.AutoCalibration.Enabled,
                 m.AutoCalibration.MinCleanCycles,
+                m.AutoCalibration.MaxMode,
                 m.AutoCalibration.PercentileMax,
+                m.AutoCalibration.MarginMaxPct,
                 m.AutoCalibration.FillMin,
                 m.AutoCalibration.PercentileMin,
                 m.AutoCalibration.MarginMinPct,
@@ -610,11 +614,13 @@ public record AbnormalDeviceFilterStateDto(
 public record AbnormalDeviceFiltersSaveDto(List<AbnormalDeviceFilterDto>? Filters);
 
 // CompletedAt = 자동 1회 실행 완료 시각(고정). LastAppliedAt = 마지막으로 AASX 에 기록한 시각(매 적용 갱신).
-// 둘 다 로컬 표시 문자열, null = 미실행. PercentileMax/Min = 백분위수(기본 95/5).
+// 둘 다 로컬 표시 문자열, null = 미실행. MaxMode = "Percentile"|"RawMax". PercentileMax/Min = 백분위수(기본 95/5).
 public record AutoCalibrationDto(
     bool Enabled,
     int MinCleanCycles,
+    string MaxMode,
     double PercentileMax,
+    double MarginMaxPct,
     bool FillMin,
     double PercentileMin,
     double MarginMinPct,
@@ -626,7 +632,9 @@ public record AutoCalibrationDto(
 public record AutoCalibrationSaveDto(
     bool Enabled,
     int MinCleanCycles,
+    string MaxMode,
     double PercentileMax,
+    double MarginMaxPct,
     bool FillMin,
     double PercentileMin,
     double MarginMinPct);

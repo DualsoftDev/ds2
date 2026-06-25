@@ -107,7 +107,8 @@ public class PlannedStopWindow
 /// 실측 duration 자동 보정(auto-calibration) 설정. 첫 설치 후 각 Flow 가 이상치 제외 클린사이클을
 /// <see cref="MinCleanCycles"/> 개 이상 모으면, 그 Flow 의 디바이스(Device Work) Duration/Min/MaxDuration 을
 /// 실측값으로 1회 자동 채운다(<see cref="Services.AutoCalibrationService"/>). 공식:
-///   Duration = round(mean), Max = round(p<see cref="PercentileMax"/>),
+///   Duration = round(mean),
+///   Max = <see cref="MaxMode"/>="Percentile" → round(p<see cref="PercentileMax"/>), "RawMax" → round(실측최대 × (1+<see cref="MarginMaxPct"/>)),
 ///   Min(<see cref="FillMin"/>=true 일 때만) = round(p<see cref="PercentileMin"/> × (1 − <see cref="MarginMinPct"/>)).
 /// <see cref="CompletedAt"/> 가 1회성 플래그 — Production.json 에 영속되어 재설치/재시작 시 보존된다.
 /// </summary>
@@ -119,8 +120,14 @@ public class AutoCalibrationSettings
     /// <summary>이 개수 이상의 이상치 제외 클린사이클(IsIdle=0 AND CT NOT NULL)을 모은 Flow 만 보정한다. 기본 10.</summary>
     public int MinCleanCycles { get; set; } = 10;
 
-    /// <summary>MaxDuration 기준 백분위수(0-100). Max = round(p95 기본). 클수록 느슨(오탐↓).</summary>
+    /// <summary>MaxDuration 산출 방식. "Percentile"(기본) = round(p<see cref="PercentileMax"/>), "RawMax" = round(실측최대 × (1 + <see cref="MarginMaxPct"/>)).</summary>
+    public string MaxMode { get; set; } = "Percentile";
+
+    /// <summary>MaxDuration 기준 백분위수(0-100). MaxMode="Percentile" 일 때만 사용. 기본 95.</summary>
     public double PercentileMax { get; set; } = 95.0;
+
+    /// <summary>실측 최대값 여유율(분수). MaxMode="RawMax" 일 때 Max = round(rawMax × (1 + 이 값)). 기본 0.20(=+20%).</summary>
+    public double MarginMaxPct { get; set; } = 0.20;
 
     /// <summary>true 일 때만 MinDuration 을 실측값으로 기록(false 면 기존값 보존). 기본 false.</summary>
     public bool FillMin { get; set; } = false;
