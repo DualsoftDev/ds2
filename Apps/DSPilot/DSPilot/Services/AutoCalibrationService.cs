@@ -10,8 +10,9 @@ namespace DSPilot.Services;
 /// <summary>
 /// 실측 duration 자동 보정. 첫 설치 후 각 Flow 가 이상치 제외 클린사이클(IsIdle=0 AND CT NOT NULL)을
 /// <c>AutoCalibration.MinCleanCycles</c>(기본 10) 개 이상 모으면, 그 Flow 의 디바이스(Device Work) Duration/Min/MaxDuration 을
-/// 실측값으로 1회 자동 채운다. 공식: Duration=round(mean), Max=round(p95),
-/// Min(FillMin=true 일 때만)=round(p05×(1−MarginMinPct)). 측정 span 있는 디바이스만 기록.
+/// 실측값으로 1회 자동 채운다. 공식: Duration=round(mean),
+/// Max=MaxMode="Percentile"→round(pPercentileMax), "RawMax"→round(실측최대×(1+MarginMaxPct)),
+/// Min(FillMin=true 일 때만)=round(pPercentileMin×(1−MarginMinPct)). 측정 span 있는 디바이스만 기록.
 ///
 /// <para>측정→조인→기록은 검증된 기존 자산을 재사용한다: <see cref="CallLaneBuilderService"/>(lane/interval 빌드,
 /// CallTest 와 공유) + <see cref="ApiSpanMath"/>(apiSpans/apiMeasured 포팅) + <see cref="DsProjectService.WriteWorkDurationCalibrationAndExport"/>
@@ -271,13 +272,18 @@ public sealed class AutoCalibrationService : BackgroundService
         var changes = new List<(Guid, int?, int?, int?)>();
         foreach (var (wid, spans) in spansByWork)
         {
-            var (count, p05, p95, mean) = ApiSpanMath.Measured(spans);
-            if (count == 0 || mean is null || p95 is null || p05 is null) continue;
+            var (count, pMin, pMax, mean, rawMin, rawMax) = ApiSpanMath.Measured(spans, ac.PercentileMax, ac.PercentileMin);
+            if (count == 0 || mean is null || pMax is null || pMin is null) continue;
 
             int duration = (int)Math.Round(mean.Value);
-            int maxMs = (int)Math.Round(p95.Value);
+            bool useRaw = ac.MaxMode == "RawMax";
+            int maxMs = useRaw && rawMax.HasValue
+                ? (int)Math.Round(rawMax.Value * (1 + ac.MarginMaxPct))
+                : (int)Math.Round(pMax.Value);
             int? minMs = ac.FillMin
-                ? (int)Math.Round(p05.Value * (1 - ac.MarginMinPct))
+                ? useRaw && rawMin.HasValue
+                    ? (int)Math.Round(rawMin.Value * (1 - ac.MarginMinPct))
+                    : (int)Math.Round(pMin.Value * (1 - ac.MarginMinPct))
                 : currentMinByWork[wid]; // FillMin=false → 기존 MinDuration 보존(null 은 store 에서 clear 되므로 현재값 재기록).
 
             changes.Add((wid, duration, minMs, maxMs));
