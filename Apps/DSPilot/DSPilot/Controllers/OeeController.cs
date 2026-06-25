@@ -1697,7 +1697,7 @@ public class OeeController : ControllerBase
     {
         DateTimeKind.Utc => dt,
         DateTimeKind.Local => dt.ToUniversalTime(),
-        _ => DateTime.SpecifyKind(dt, DateTimeKind.Utc),
+        _ => DateTime.SpecifyKind(dt, DateTimeKind.Local).ToUniversalTime(),
     };
 }
 
