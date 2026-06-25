@@ -295,6 +295,18 @@ type EventDrivenEngineRuntimeHubSession
             passiveLog.Info($"[Infer] obs {address}={value} → {actionCount} action(s)")
             if scheduledStateChange then
                 drainCurrentTick ()
+            // v16 Virtual 센싱: 출력+T 경과한 Virtual call 셀프 finish. passive 는 scheduler 가 없어
+            //   능동의 ScheduleAfter(T) 대신 매 관측 틱에 elapsed 를 확인한다(IO 빈번한 Monitoring 에서 T 에 근접).
+            //   ※ drainCurrentTick(device-work cycle 구동) *이후*에 적용한다 — 앞서 적용하면 drain 의
+            //     work cycle 이 call 을 Going 으로 되돌려 finish 가 묻힌다(실측 단위/통합 테스트로 확인).
+            let mutable virtFinished = false
+            for action in pi.TickVirtualFinish(getCallStateSafe) do
+                if getCallStateSafe.Invoke(action.TargetGuid) <> action.State then
+                    engine.ForceCallState(action.TargetGuid, action.State)
+                    virtFinished <- true
+                    passiveLog.Info($"[Infer] Call {inferName PassiveInferenceTarget.Call action.TargetGuid} → {action.State} (virtual T)")
+            if virtFinished then
+                drainCurrentTick ()
             for entry in pi.DrainLogs() do
                 match entry.Kind with
                 | PassiveInferenceLogKind.Warn -> passiveLog.Warn(entry.Message)

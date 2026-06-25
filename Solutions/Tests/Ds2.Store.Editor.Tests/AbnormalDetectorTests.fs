@@ -17,6 +17,7 @@ open Ds2.Runtime.IO
 open Ds2.Runtime.Engine
 open Ds2.Runtime.Engine.Core
 open Ds2.Runtime.Engine.Abnormal
+open Ds2.Runtime.Engine.Passive
 
 type private NullClientProxy() =
     interface IClientProxy with
@@ -984,3 +985,78 @@ module DeviceControlCycleTests =
             .GetResult()
 
         Assert.Equal(Some Status4.Finish, engine.GetCallState(call.Id))
+
+    [<Fact>]
+    let ``Monitoring Virtual sensing call self-finishes at output plus T without input`` () =
+        // v16 Virtual 센싱(Monitoring passive): IN 이 없는 Virtual call 은 출력 관측 + T 경과 시 셀프 finish.
+        //   능동 엔진(Call Going 진입 시 ScheduleAfter T)과 동형. passive 는 scheduler 가 없어
+        //   다음 IO 관측 틱에 elapsed(실시간)≥T 로 finish 시킨다.
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        let deviceSystem = addSystem store "Device" project.Id false
+        let deviceFlow = addFlow store "DeviceFlow" deviceSystem.Id
+        let deviceWork = addWork store "VIRT" deviceFlow.Id
+        deviceWork.Duration <- Some(TimeSpan.FromMilliseconds 50.0)
+        let apiDef = addApiDef store "VIRT" deviceSystem.Id
+        apiDef.TxGuid <- Some deviceWork.Id
+        apiDef.RxGuid <- Some deviceWork.Id
+        apiDef.ActionType <- ActionType.Normal None
+        apiDef.SensingType <- SensingType.Virtual 50      // IN 없는 가상 센싱, T=50ms
+        store.AddCallWithLinkedApiDefs(work.Id, "Device", "VIRT", [ apiDef.Id ]) |> ignore
+        let call = Queries.callsOf work.Id store |> List.head
+        let apiCall = call.ApiCalls |> Seq.head
+        apiCall.OutTag <- Some(IOTag("OUT", "%QX0.1.20", ""))
+        // IN 없음 — Virtual
+        let index = SimIndex.build store 10
+        use engine = (new EventDrivenEngine(index, RuntimeMode.Monitoring)) :> ISimulationEngine
+        let identity =
+            { SessionId = "test-session"
+              ModelHash = "test-model"
+              Generation = 1
+              Mode = "Monitoring" }
+        let session = EventDrivenEngineRuntimeHubSession(engine, NullSignalHubContext(), identity, 100, System.Func<Guid, bool>(fun _ -> true))
+        let inject addr v =
+            let cmd : RuntimeIOAddressBatchCommand =
+                { Envelope = RuntimeHubDefaults.selfEnvelope identity
+                  Items = [| { Address = addr; Value = v; Source = HubSource.Plc } |] }
+            (session :> IRuntimeHubSession).InjectIOValuesByAddressAsync(cmd).GetAwaiter().GetResult()
+
+        // 출력 관측 → Going
+        inject "%QX0.1.20" "true"
+        Assert.Equal(Some Status4.Going, engine.GetCallState(call.Id))
+
+        // T(50ms) 경과 후 다음 관측 틱 → 셀프 finish (IN 없이)
+        System.Threading.Thread.Sleep 150
+        inject "%QX0.1.20" "false"
+        Assert.Equal(Some Status4.Finish, engine.GetCallState(call.Id))
+
+    [<Fact>]
+    let ``PassiveInference Virtual call records going and self-finishes after T (unit)`` () =
+        // 로직 격리: drain/work-cycle 없이 PassiveInferenceSession 단독으로 going 기록 + T 후 finish 확인.
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        let deviceSystem = addSystem store "Device" project.Id false
+        let deviceFlow = addFlow store "DeviceFlow" deviceSystem.Id
+        let deviceWork = addWork store "VIRT2" deviceFlow.Id
+        let apiDef = addApiDef store "VIRT2" deviceSystem.Id
+        apiDef.TxGuid <- Some deviceWork.Id
+        apiDef.RxGuid <- Some deviceWork.Id
+        apiDef.ActionType <- ActionType.Normal None
+        apiDef.SensingType <- SensingType.Virtual 50
+        store.AddCallWithLinkedApiDefs(work.Id, "Device", "VIRT2", [ apiDef.Id ]) |> ignore
+        let call = Queries.callsOf work.Id store |> List.head
+        let apiCall = call.ApiCalls |> Seq.head
+        apiCall.OutTag <- Some(IOTag("OUT", "%QX0.2.0", ""))
+        let index = SimIndex.build store 10
+        use engine = (new EventDrivenEngine(index, RuntimeMode.Monitoring)) :> ISimulationEngine
+        let session = PassiveInferenceSession(index, engine.IOMap, RuntimeMode.Monitoring)
+        let mutable cs = Status4.Ready
+        let getC = System.Func<Guid, Status4>(fun _ -> cs)
+        let getW = System.Func<Guid, Status4>(fun _ -> Status4.Ready)
+
+        let a1 = session.Observe("%QX0.2.0", "true", getW, getC)
+        Assert.Contains(Status4.Going, a1 |> Array.map (fun x -> x.State))
+        cs <- Status4.Going
+        System.Threading.Thread.Sleep 120
+        let a2 = session.TickVirtualFinish(getC)
+        Assert.Contains(Status4.Finish, a2 |> Array.map (fun x -> x.State))

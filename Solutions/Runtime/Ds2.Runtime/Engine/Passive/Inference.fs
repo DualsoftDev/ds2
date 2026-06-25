@@ -20,6 +20,11 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
     let callOutExpectedAddresses = Dictionary<Guid, HashSet<string>>()
     let callInExpectedAddresses = Dictionary<Guid, HashSet<string>>()
     let lastObservedValue = Dictionary<string, string>(StringComparer.Ordinal)
+    // v16 Virtual 센싱(Monitoring passive): IN 없는 Virtual call 은 출력 관측 + T 후 셀프 finish.
+    //   능동 엔진의 ScheduleAfter(T) 와 동형이나, passive 는 scheduler 가 없어 going 시각(Stopwatch
+    //   tick)을 기록해 두고 다음 IO 관측(TickVirtualFinish) 때 elapsed≥T 를 확인해 finish 시킨다.
+    //   value = struct(goingTick, virtMs).
+    let callGoingTick = Dictionary<Guid, struct (int64 * int)>()
 
     let addLog kind message =
         pendingLogs.Add({ Kind = kind; Message = message })
@@ -186,6 +191,12 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
                     PassiveInferenceWorkCycle.enqueueCallState actions overlay callGuid Status4.Ready
                 PassiveInferenceWorkCycle.enqueueCallState actions overlay callGuid Status4.Going
                 tryEnqueueCallFinishFromObservedInputs actions overlay callGuid
+                // v16 Virtual 센싱: 출력(모든 Out high)으로 Going 진입 → T 후 셀프 finish 예약.
+                //   IN 이 없는 Virtual call 은 tryEnqueueCallFinish 가 finish 못 시키므로(In expected 없음)
+                //   going 시각을 기록해 TickVirtualFinish 가 elapsed≥T 시점에 finish 시킨다.
+                let virtMs = SimIndex.apiCallVirtualSensingMs index mapping.ApiCallGuid
+                if virtMs > 0 then
+                    callGoingTick.[callGuid] <- struct (Stopwatch.GetTimestamp(), virtMs)
         else
             tryEnqueueCallFinishFromObservedInputs actions overlay callGuid
 
@@ -297,6 +308,35 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
                         observePassiveSignalDirectionInternal actions overlay address value false inMappings
                     actions.ToArray()
 
+    /// v16 Virtual 센싱(Monitoring passive) — going 중인 Virtual call 중 출력+T 경과분을 finish action 으로 낸다.
+    ///   능동 엔진의 ScheduleAfter(T)→ConditionEval 대응. passive 는 scheduler 가 없어, 매 IO 관측
+    ///   (observeAndInfer) 후 호출돼 elapsed(실시간 Stopwatch)≥T 인 Virtual call 을 finish 시킨다.
+    ///   현재 Going 이 아니면(이미 finish/reset) 추적만 종료한다.
+    member _.TickVirtualFinish(getCallState: Func<Guid, Status4>) : PassiveInferenceAction[] =
+        if callGoingTick.Count = 0 then
+            Array.empty
+        else
+            let now = Stopwatch.GetTimestamp()
+            let freq = float Stopwatch.Frequency
+            let actions = ResizeArray<PassiveInferenceAction>()
+            let toRemove = ResizeArray<Guid>()
+            for kvp in callGoingTick do
+                let callGuid = kvp.Key
+                let struct (goingTick, virtMs) = kvp.Value
+                if getCallState.Invoke(callGuid) <> Status4.Going then
+                    toRemove.Add(callGuid)
+                else
+                    let elapsedMs = (float (now - goingTick)) * 1000.0 / freq
+                    if elapsedMs >= float virtMs then
+                        actions.Add(
+                            { TargetKind = PassiveInferenceTarget.Call
+                              TargetGuid = callGuid
+                              State = Status4.Finish })
+                        toRemove.Add(callGuid)
+            for g in toRemove do
+                callGoingTick.Remove(g) |> ignore
+            actions.ToArray()
+
     member _.Baseline(address: string, value: string) =
         if not (String.IsNullOrWhiteSpace(address)) then
             lastObservedValue[address] <- value
@@ -310,6 +350,7 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
         for kv in callOutHighAddresses do kv.Value.Clear()
         for kv in callInHighAddresses do kv.Value.Clear()
         lastObservedValue.Clear()
+        callGoingTick.Clear()   // 단절 구간 going 추적 폐기 — 재개 후 새 OUT rising 으로 다시 건다.
 
     member _.ObserveDirection(
         address: string,
