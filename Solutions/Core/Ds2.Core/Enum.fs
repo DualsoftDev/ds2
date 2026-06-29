@@ -17,13 +17,6 @@ type ConditionType =
     | ComAux     = 1
     | SkipAction = 2
 
-/// 외부 DLL(AAStoPLC) binary 호환용 — int 값은 `ConditionType` 과 동일.
-/// 신규 코드에서는 `ConditionType` 사용. 외부 DLL 재빌드 시 제거 예정.
-type CallConditionType =
-    | AutoAux    = 0
-    | ComAux     = 1
-    | SkipAction = 2
-
 /// Per-leaf contact kind in CallCondition (LadderEditor visual ↔ store round-trip).
 type ContactKind =
     | NoContact    = 0   // ─┤├─
