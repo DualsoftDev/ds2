@@ -132,12 +132,11 @@ begin
     '■ DSPilot  —  웹 기반 PLC 모니터링/분석' + #13#10 +
     '    · DSPilot 웹 서비스 (Windows 서비스, 시스템 시작 시 자동 실행)' + #13#10 +
     '    · CCTV 중계 게이트웨이 (MediaMTX, Windows 서비스)' + #13#10 +
-    '    · 설치 경로: C:\Program Files\Dualsoft\DSPilot' + #13#10#13#10 +
+    '    · 설치 경로: C:\Program Files\DualSoft\DSPilot' + #13#10#13#10 +
     '■ Promaker  —  설비 모델 저작 데스크톱 앱' + #13#10 +
-    '    · Promaker 본체' + #13#10 +
-    '    · Promaker Agent (헤드리스 모니터링 서비스, 자동 실행)' + #13#10 +
-    '    · Promaker Agent Tray (알림 영역 상태 표시)' + #13#10 +
-    '    · 설치 경로: C:\Program Files\Promaker' + #13#10#13#10 +
+    '    · Promaker 본체  (C:\Program Files\Promaker)' + #13#10 +
+    '    · Promaker Agent (헤드리스 모니터링 서비스, 자동 실행 · ...\Promaker\Agent)' + #13#10 +
+    '    · Promaker Agent Tray (알림 영역 상태 표시 · ...\Promaker\AgentTray)' + #13#10 +
     '■ 공통' + #13#10 +
     '    · 공유 폴더: %ProgramData%\DualSoft\Shared (모델 파일 공유)' + #13#10 +
     '    · 필요한 Windows 방화벽 인바운드 규칙 자동 등록');

@@ -58,8 +58,9 @@ NOPAUSE=1 cmd //c "$DSPILOT_BAT_WIN"
 # ── [3/4] 갓 만든 산출물 경로 확보 (mtime 최신) ──
 echo ""
 echo "[3/4] Locating freshly built sub-installers..."
-PROMAKER_EXE="$(ls -t "$PROMAKER_OUT"/Promaker_Setup_*_sc.exe 2>/dev/null | head -n1 || true)"
-DSPILOT_EXE="$(ls -t "$DSPILOT_OUT"/DSPilot_Setup_*.exe 2>/dev/null | head -n1 || true)"
+# command ls = 사용자 프로파일의 `ls -F`(classify, 파일명 끝에 '*' 부착) alias 우회.
+PROMAKER_EXE="$(command ls -1t "$PROMAKER_OUT"/Promaker_Setup_*_sc.exe 2>/dev/null | head -n1 || true)"
+DSPILOT_EXE="$(command ls -1t "$DSPILOT_OUT"/DSPilot_Setup_*.exe 2>/dev/null | head -n1 || true)"
 
 if [ -z "$PROMAKER_EXE" ] || [ ! -f "$PROMAKER_EXE" ]; then
   echo "[ERROR] Promaker installer not found in $PROMAKER_OUT" >&2
