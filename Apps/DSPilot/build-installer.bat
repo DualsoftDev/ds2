@@ -142,9 +142,10 @@ echo ============================================
 echo   Build FAILED. See errors above.
 echo ============================================
 echo.
-pause
+:: NOPAUSE=1 (통합 빌드 build-suite.sh 등 비대화형 호출) 면 멈추지 않는다.
+if not defined NOPAUSE pause
 exit /b 1
 
 :end
-pause
+if not defined NOPAUSE pause
 exit /b 0

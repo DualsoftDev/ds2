@@ -377,7 +377,26 @@ procedure InitializeWizard();
 var
   DefaultPort: String;
   PortHint: String;
+  NoticePage: TOutputMsgMemoWizardPage;
 begin
+  // ── 설치 안내 / 오픈소스 고지 페이지 (서비스·방화벽·MediaMTX 등) ──
+  NoticePage := CreateOutputMsgMemoPage(wpWelcome,
+    '설치 안내', '설치 전 확인해 주세요.',
+    '서비스 자동 실행 · 방화벽 · 오픈소스 고지 안내입니다.',
+    '[Windows 서비스]' + #13#10 +
+    '  · DSPilot 웹 서비스와 CCTV 중계(MediaMTX) 서비스가 시스템 시작 시 자동 실행됩니다.' + #13#10 +
+    '  · ''Promaker Agent'' 옵션을 선택하면 모니터링 서비스도 함께 등록됩니다.' + #13#10#13#10 +
+    '[방화벽 — 아래 인바운드 규칙이 자동 등록됩니다]' + #13#10 +
+    '  · DSPilot 웹: TCP (다음 단계에서 선택한 포트, 기본 80)' + #13#10 +
+    '  · CCTV(WebRTC): TCP 8889, UDP 8189' + #13#10 +
+    '  · Promaker Agent 옵션 선택 시: TCP 5051(모니터링) / 5050(모델 업로드)' + #13#10#13#10 +
+    '[오픈소스 고지]' + #13#10 +
+    '  본 제품은 CCTV 영상 중계를 위해 아래 오픈소스를 포함/재배포합니다.' + #13#10 +
+    '  · MediaMTX (MIT License)  https://github.com/bluenviron/mediamtx' + #13#10 +
+    '  · WinSW (MIT License)     https://github.com/winsw/winsw' + #13#10 +
+    '  라이선스 전문은 설치 폴더의 mediamtx\LICENSE,' + #13#10 +
+    '  mediamtx\LICENSE-winsw.txt 에서 확인할 수 있습니다.');
+
   DefaultPort := '{#MyDefaultPort}';
   PortHint := '기본값: {#MyDefaultPort} (포트 80은 URL에서 포트 번호 생략 가능)';
   // 80이 점유중인데 그게 구버전 우리 서비스가 아니라면 8080을 권장.
@@ -401,7 +420,11 @@ end;
 
 function GetPort(Param: String): String;
 begin
-  Result := PortPage.Values[0];
+  // 통합 설치(Setup Dualsoft)가 사일런트로 /Port=<n> 를 전달하면 그 값을 우선 사용.
+  // 명령행 인자가 없으면(=대화형/단독 사일런트) 기존 동작: 포트 페이지 값 → 기본값.
+  Result := ExpandConstant('{param:Port|}');
+  if Result = '' then
+    Result := PortPage.Values[0];
   if Result = '' then
     Result := '{#MyDefaultPort}';
 end;
