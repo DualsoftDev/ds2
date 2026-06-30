@@ -24,7 +24,10 @@ public record UserTagSnapshotDto(
     int TodayErrorCount,
     string? LastAlertAtLocal,
     List<UtDefinitionDto> Definitions,
-    List<string> SystemOptions);
+    List<string> SystemOptions,
+    // 이상 띠(진행중/오늘 최근) 세로 티커 전환 간격(초) — 서버설정 Ui.AlarmTickerIntervalSec.
+    // 대시보드 알람 배너와 동일 속도를 쓰도록 클라가 스냅샷에서 읽어 사용한다.
+    int AlarmTickerIntervalSec = 3);
 
 public record UtAlertDto(
     string OccurredAtLocal,   // "yyyy-MM-dd HH:mm:ss.fff" (테이블은 앞 19자, CSV 는 전체)

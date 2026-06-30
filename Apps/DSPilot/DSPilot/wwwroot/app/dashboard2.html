@@ -284,13 +284,24 @@
         .flow-alarm { display: flex; align-items: center; padding: 16px 24px; margin-bottom: 14px; flex-shrink: 0; overflow: hidden; border-radius: var(--radius-md); background: #facc15; box-shadow: 0 1px 2px 0 rgba(0,0,0,0.06); }
         .flow-alarm-icon { display: flex; align-items: center; gap: 8px; flex-shrink: 0; margin-right: 16px; padding-right: 12px; z-index: 10; background: #facc15; }
         .flow-alarm-icon svg { width: 34px; height: 34px; color: #000; flex-shrink: 0; }
-        .flow-alarm-count { font-size: 1.05rem; font-weight: 800; color: #000; background: rgba(0,0,0,0.12); border-radius: 9999px; padding: 3px 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
         .flow-alarm-track { flex: 1; min-width: 0; position: relative; height: 42px; overflow: hidden; display: flex; align-items: center; }
-        /* 세로 티커 전환(fliptext 방식): 한 번에 한 건만 보이고, abnIndex 변경 시 :key 재생성으로 아래→위 슬라이드 인. 마퀴(가로 스크롤) 폐지 — 긴 메시지도 한 줄 ellipsis 로 끊고 건마다 또렷이 읽힌다. */
-        .flow-alarm-msg { display: block; width: 100%; font-size: 1.7rem; font-weight: 700; color: #dc2626; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; will-change: transform; }
+        /* 세로 티커 전환(fliptext 방식): 한 번에 한 건만 보이고, abnIndex 변경 시 :key 재생성으로 아래→위 슬라이드 인. outer(.flow-alarm-msg)가 클립+세로 플립(translateY). */
+        .flow-alarm-msg { display: block; width: 100%; font-size: 1.7rem; font-weight: 700; color: #dc2626; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; will-change: transform; }
         .flow-alarm-msg-anim { animation: flow-alarm-flip 0.5s cubic-bezier(0.16, 1, 0.3, 1); }
         @keyframes flow-alarm-flip { 0% { transform: translateY(108%); opacity: 0; } 60% { opacity: 1; } 100% { transform: translateY(0); opacity: 1; } }
         @media (prefers-reduced-motion: reduce) { .flow-alarm-msg-anim { animation: none; } }
+        /* 가로 루프(한 방향 연속): 같은 문구 2벌(원본 seg + 복제 dup)을 한 줄로 두고 한 세그먼트(텍스트+gap)만큼 왼쪽으로 흘린 뒤 0 으로 되돌린다.
+           되돌아온 순간 복제본이 원본 자리에 와 있어 끊김 없이 이어진다(좌우 왕복 아님). 잘릴 때만 JS(abnMeasure)가 is-marquee + --marquee-shift/-gap/-dur 주입.
+           flip(translateY, outer)·loop(translateX, inner) 은 서로 다른 요소라 겹쳐 동작. 평소엔 복제본 숨김 + 첫 세그먼트만 ellipsis(모션축소 폴백). */
+        .flow-alarm-loop { display: flex; width: max-content; align-items: center; }
+        .flow-alarm-seg { white-space: nowrap; }
+        .flow-alarm-dup { display: none; }
+        .flow-alarm-msg:not(.is-marquee) .flow-alarm-loop { width: 100%; }
+        .flow-alarm-msg:not(.is-marquee) .flow-alarm-seg { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+        .flow-alarm-msg.is-marquee .flow-alarm-seg { flex: 0 0 auto; padding-right: var(--marquee-gap, 56px); }
+        .flow-alarm-msg.is-marquee .flow-alarm-dup { display: block; }
+        .flow-alarm-msg.is-marquee .flow-alarm-loop { animation: flow-alarm-loop var(--marquee-dur, 12s) linear infinite; }
+        @keyframes flow-alarm-loop { from { transform: translateX(0); } to { transform: translateX(var(--marquee-shift, 0)); } }
         /* 분자/분모 인디케이터: 현재건 / 전체건 (fliptext 의 "1 / 3" sync pill) */
         .flow-alarm-idx { flex-shrink: 0; margin-left: 16px; z-index: 10; font-size: 0.95rem; font-weight: 800; color: #000; background: rgba(0,0,0,0.14); border: 1px solid rgba(0,0,0,0.1); border-radius: 9999px; padding: 4px 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
         .flow-alarm-idx b { font-size: 1.1rem; }
@@ -418,7 +429,6 @@
             .flow-alarm { padding: 12px 14px; }
             .flow-alarm-icon { margin-right: 10px; padding-right: 8px; }
             .flow-alarm-icon svg { width: 26px; height: 26px; }
-            .flow-alarm-count { font-size: 0.82rem; padding: 2px 8px; }
             .flow-alarm-track { height: 32px; }
             .flow-alarm-msg { font-size: 1.05rem; }
             .flow-alarm-idx { margin-left: 8px; font-size: 0.78rem; padding: 3px 9px; }
@@ -487,11 +497,12 @@
             <div class="flow-alarm" x-show="abnormals.length" x-cloak x-transition.opacity>
                 <div class="flow-alarm-icon">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
-                    <span class="flow-alarm-count" x-text="(abnormalOverflow ? '10+' : abnormals.length) + '건'"></span>
                 </div>
                 <div class="flow-alarm-track" @mouseenter="abnPause(true)" @mouseleave="abnPause(false)">
                     <template x-for="m in [abnCurrent]" :key="abnIndex">
-                        <span class="flow-alarm-msg flow-alarm-msg-anim" x-text="m" :title="m"></span>
+                        <span class="flow-alarm-msg flow-alarm-msg-anim" :title="m">
+                            <span class="flow-alarm-loop"><span class="flow-alarm-seg" x-text="m"></span><span class="flow-alarm-seg flow-alarm-dup" x-text="m" aria-hidden="true"></span></span>
+                        </span>
                     </template>
                 </div>
                 <span class="flow-alarm-idx" x-show="abnormals.length > 1" x-cloak><b x-text="abnIndex + 1"></b> / <span x-text="abnormalOverflow ? '10+' : abnormals.length"></span></span>
@@ -779,11 +790,12 @@
                     <div class="flow-alarm flow-alarm-fs" x-show="abnormals.length" x-cloak x-transition.opacity>
                         <div class="flow-alarm-icon">
                             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
-                            <span class="flow-alarm-count" x-text="(abnormalOverflow ? '10+' : abnormals.length) + '건'"></span>
                         </div>
                         <div class="flow-alarm-track" @mouseenter="abnPause(true)" @mouseleave="abnPause(false)">
                             <template x-for="m in [abnCurrent]" :key="abnIndex">
-                                <span class="flow-alarm-msg flow-alarm-msg-anim" x-text="m" :title="m"></span>
+                                <span class="flow-alarm-msg flow-alarm-msg-anim" :title="m">
+                                    <span class="flow-alarm-loop"><span class="flow-alarm-seg" x-text="m"></span><span class="flow-alarm-seg flow-alarm-dup" x-text="m" aria-hidden="true"></span></span>
+                                </span>
                             </template>
                         </div>
                         <span class="flow-alarm-idx" x-show="abnormals.length > 1" x-cloak><b x-text="abnIndex + 1"></b> / <span x-text="abnormalOverflow ? '10+' : abnormals.length"></span></span>
@@ -956,10 +968,13 @@
                 // 전체화면 변화 → CCTV 타일 바 숨김 토글 + 레터박스 좌표 재계산.
                 const onFsChange = () => {
                     this.cctvFullscreen = !!document.fullscreenElement;
-                    this.$nextTick(() => this.cctvRecalcRects());
+                    this.$nextTick(() => { this.cctvRecalcRects(); this.abnMeasure(); }); // 전체화면 ⇄ 평소: 보이는 배너 폭이 바뀌니 잘림 재측정
                 };
                 document.addEventListener('fullscreenchange', onFsChange);
                 document.addEventListener('webkitfullscreenchange', onFsChange);
+                // 창 크기 변경 시 잘림 여부가 바뀌니 마퀴 재측정(디바운스).
+                this._abnResize = () => { clearTimeout(this._abnRzT); this._abnRzT = setTimeout(() => this.abnMeasure(), 150); };
+                window.addEventListener('resize', this._abnResize);
                 this.$nextTick(() => this.cctvStart());
                 // 라인요약·연결배지·이상배지는 공통 셸(shell.js)이 /api/nav/summary 를 자체 폴링·렌더한다.
                 // dashboard2 가 같은 엔드포인트를 또 폴링하던 중복(_navTimer/loadNavSummary)은 제거했다.
@@ -970,6 +985,8 @@
                 clearInterval(this._pollTimer);
                 clearInterval(this._shiftTimer);
                 clearTimeout(this._abnTicker);
+                clearTimeout(this._abnRzT);
+                if (this._abnResize) window.removeEventListener('resize', this._abnResize);
                 clearTimeout(this._dt);
                 if (ctChart) { ctChart.destroy(); ctChart = null; ctSig = null; ctDyn = null; }
                 this._conn?.stop();
@@ -1011,7 +1028,16 @@
                 }
             },
 
-            // 알람 한 건의 표시 문구 — "경로: 내용 (종류)" (타임스탬프 없음). 세로 티커가 한 건씩 소비한다.
+            // 서버 "yyyy-MM-dd HH:mm:ss"(occurredAtLocal) → "M월 D일 H시 M분" (앞자리 0 제거, 연·초 생략 — 노란 띠는 월·일·시·분만). 파싱 실패 시 원본 그대로.
+            fmtKoTime(s) {
+                if (!s) return '';
+                const m = /^\d{4}-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(String(s).trim());
+                if (!m) return s;
+                const n = i => parseInt(m[i], 10);
+                return n(1) + '월 ' + n(2) + '일 ' + n(3) + '시 ' + n(4) + '분';
+            },
+
+            // 알람 한 건의 표시 문구 — "M월 D일 H시 M분 · 경로: 내용 (종류)" (시간을 맨 앞에). 세로 티커가 한 건씩 소비한다.
             abnMsgText(a) {
                 if (!a) return '';
                 // 경로 = Work / 대상(Call) — Work 이름이 이미 "flow.worklocal" 형태라 Flow 세그먼트 제거. 예: "투입.투입 / Conveyor1.MOVE"
@@ -1019,7 +1045,9 @@
                     .map(s => (s || '').trim()).filter(Boolean)
                     .filter((s, i, arr) => i === 0 || s !== arr[i - 1])
                     .join(' / ') || a.flowName || a.sensorTag || '위치미상';
-                return loc + ': ' + a.label + (a.kindName ? ' (' + a.kindName + ')' : '');
+                const ts = this.fmtKoTime(a.occurredAtLocal);
+                const body = loc + ': ' + a.label + (a.kindName ? ' (' + a.kindName + ')' : '');
+                return (ts ? ts + ' · ' : '') + body;
             },
 
             // 세로 티커가 현재 표시 중인 한 건 (abnIndex 가 가리키는 알람). :key="abnIndex" 로 묶여 전환 시 슬라이드 인 애니메이션이 재생된다.
@@ -1029,22 +1057,55 @@
             },
 
             // 한 건이 머무는 시간(ms) = 전환 간격. 서버설정 alarmTickerSec(초)를 ms 로 환산. 1~30초 클램프. 기본 3초.
+            // 전환은 항상 이 간격을 그대로 따른다 — 문구가 길어 마퀴(가로 스크롤) 중이어도 간격을 늘리지 않는다(스크롤은 부가 기능).
             get abnDwellMs() {
                 return Math.max(1000, Math.min(30000, Math.round((this.alarmTickerSec || 3) * 1000)));
             },
 
             // 세로 티커 자동 전환 — abnormals 2건 이상일 때만 abnDwellMs 간격으로 다음 건으로 넘긴다. hover 시 일시정지.
+            // 전환 직후 $nextTick 에서 abnMeasure() 로 새 문구를 측정(잘리면 마퀴 부여)한 뒤 다음 틱을 예약한다.
             // setTimeout 재귀로 매 틱 abnDwellMs 를 다시 읽어, 설정(alarmTickerSec) 라이브 변경이 즉시 반영된다.
             abnStartTicker() {
                 clearTimeout(this._abnTicker);
+                const schedule = () => this.$nextTick(() => {
+                    this.abnMeasure();
+                    this._abnTicker = setTimeout(tick, this.abnDwellMs);
+                });
                 const tick = () => {
                     if (!this._abnPaused && this.abnormals.length >= 2)
                         this.abnIndex = (this.abnIndex + 1) % this.abnormals.length;
-                    this._abnTicker = setTimeout(tick, this.abnDwellMs);
+                    schedule();
                 };
-                this._abnTicker = setTimeout(tick, this.abnDwellMs);
+                schedule();
             },
             abnPause(on) { this._abnPaused = !!on; },
+
+            // 잘린 알람 문구를 측정해 가로 루프(한 방향 연속 스크롤)를 켜고 끈다 — 전환 간격과 무관한 '부가' 기능.
+            //   x-for(:key=abnIndex)가 매 틱 span 을 새로 만들므로 전환·목록변경·리사이즈·전체화면 전환 후 $nextTick 으로 재측정. 두 배너 모두 훑되 보이는 것만 처리.
+            //   측정: is-marquee 해제(width:100%+첫 세그먼트 ellipsis 복귀) → seg.scrollWidth(글자 전체 폭) vs el.clientWidth 비교.
+            //   넘치면 shift=텍스트폭+gap(=한 세그먼트 전진폭, 흘리면 복제본이 원본 자리)·속도 ~80px/s 의 --marquee-* 주입 후 is-marquee 부여.
+            abnMeasure() {
+                const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+                const GAP = 56; // 원본 끝 ~ 복제본 시작 간격(px) = 한 바퀴 시각적 구분
+                document.querySelectorAll('.flow-alarm-track .flow-alarm-msg').forEach(el => {
+                    el.classList.remove('is-marquee');
+                    el.style.removeProperty('--marquee-shift');
+                    el.style.removeProperty('--marquee-dur');
+                    el.style.removeProperty('--marquee-gap');
+                    if (reduce || (!el.offsetParent && el.offsetWidth === 0)) return; // 숨김(전체화면 배너 평소 display:none)·모션축소 시 건너뜀
+                    const seg = el.querySelector('.flow-alarm-seg');
+                    const avail = el.clientWidth;
+                    const textW = seg ? seg.scrollWidth : 0;             // is-marquee 해제 상태(첫 세그먼트 flex 수축+ellipsis)의 글자 전체 폭
+                    if (avail > 0 && textW - avail > 6) {
+                        const shift = textW + GAP;                        // 한 세그먼트 전진폭 → 이만큼 흘리면 복제본이 원본 자리(끊김 없는 루프)
+                        const durS = Math.max(4, Math.min(40, shift / 80)); // 약 80px/s 연속 스크롤(거리에 비례)
+                        el.style.setProperty('--marquee-gap', GAP + 'px');
+                        el.style.setProperty('--marquee-shift', '-' + shift + 'px');
+                        el.style.setProperty('--marquee-dur', durS.toFixed(1) + 's');
+                        el.classList.add('is-marquee');
+                    }
+                });
+            },
 
             // 알람 배너 [상세 확인] → 가동시간·이상 페이지로 바로가기. 시스템/레벨 필터를 시드(사이드바 이상코드 피드와 동일 형상).
             gotoAbnormal(a) {
@@ -1067,6 +1128,7 @@
                     this.abnormals = arr.slice(0, 10);
                     // 건수가 바뀌면 티커 인덱스를 범위 내로 클램프 (목록 축소 시 OOB 방지)
                     if (this.abnIndex >= this.abnormals.length) this.abnIndex = 0;
+                    this.$nextTick(() => this.abnMeasure()); // 문구가 바뀌었을 수 있으니 잘림 재측정
                 } catch (e) { /* 피드는 비핵심 — 조용히 무시 */ }
             },
             debouncedLoadAbnormals() {

@@ -61,19 +61,36 @@
         /* 가정값/자동값 표식 칩 — 실측과 시각적으로 구분(정직성), 점선 보더로 "확정 아님" 뉘앙스 */
         .up-oee-chip, .up-auto-chip { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; font-size: 0.56rem; font-weight: 700; letter-spacing: 0.04em; line-height: 1.5; vertical-align: 1px; color: var(--color-text-secondary); background: var(--color-surface-variant); border: 1px dashed var(--color-lines-strong); text-transform: none; }
 
-        /* 이상발생 ops KPI */
-        .up-ops-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
-        @media (max-width: 720px) { .up-ops-row { grid-template-columns: 1fr; } }
-        .up-ops { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--color-surface); border: 1px solid var(--color-lines); border-left: 3px solid var(--color-lines-strong); border-radius: var(--radius-sm); }
-        .up-ops.is-error { border-left-color: var(--red); background: color-mix(in srgb, var(--red) 6%, var(--color-surface)); }
-        .up-ops.is-ok { border-left-color: var(--green); }
-        .up-ops .material-icons { font-size: 28px; color: var(--color-text-secondary); }
-        .up-ops.is-error .material-icons { color: var(--red); }
-        .up-ops.is-ok .material-icons { color: var(--green); }
-        .up-ops-label { font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-secondary); }
-        .up-ops-value { margin-top: 3px; font-size: 1.5rem; font-weight: 800; color: var(--color-text-primary); font-variant-numeric: tabular-nums; line-height: 1; }
-        .up-ops-value.sm { font-size: 1rem; }
-        .up-ops.is-error .up-ops-value { color: var(--red); }
+        /* 이상 띠 — 대시보드 알람 배너(.flow-alarm) 와 동일 동작/형상.
+           진행중인 이상이 있으면 노란(is-active) 띠로 한 건씩 세로 티커, 모두 해소되면 흰(is-resolved) 띠로 오늘 최근 이상을 전환 표시. */
+        .up-alarm { display: flex; align-items: center; padding: 14px 20px; margin-bottom: 16px; flex-shrink: 0; overflow: hidden; border-radius: var(--radius-md); box-shadow: 0 1px 2px 0 rgba(0,0,0,0.06); }
+        .up-alarm.is-active { background: #facc15; }
+        .up-alarm.is-resolved { background: var(--color-surface); border: 1px solid var(--color-lines); }
+        .up-alarm-icon { display: flex; align-items: center; gap: 8px; flex-shrink: 0; margin-right: 14px; padding-right: 12px; z-index: 10; }
+        .up-alarm.is-active .up-alarm-icon { background: #facc15; }
+        .up-alarm.is-resolved .up-alarm-icon { background: var(--color-surface); }
+        .up-alarm-ico { font-size: 26px; flex-shrink: 0; }
+        .up-alarm.is-active .up-alarm-ico { color: #000; }
+        .up-alarm.is-resolved .up-alarm-ico { color: var(--green); }
+        .up-alarm-count { font-size: 0.9rem; font-weight: 800; border-radius: 9999px; padding: 3px 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .up-alarm.is-active .up-alarm-count { color: #000; background: rgba(0,0,0,0.12); }
+        .up-alarm.is-resolved .up-alarm-count { color: var(--color-text-secondary); background: color-mix(in srgb, var(--color-text-secondary) 12%, transparent); }
+        .up-alarm-track { flex: 1; min-width: 0; position: relative; height: 36px; overflow: hidden; display: flex; align-items: center; }
+        /* 세로 티커: 한 번에 한 건만, bandIndex 변경 시 :key 재생성으로 아래→위 슬라이드 인. 짧은 문구는 ellipsis. */
+        .up-alarm-msg { display: block; width: 100%; font-size: 1.25rem; font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; will-change: transform; }
+        .up-alarm.is-active .up-alarm-msg { color: #b91c1c; }
+        .up-alarm.is-resolved .up-alarm-msg { color: var(--color-text-primary); }
+        .up-alarm.is-resolved .up-alarm-msg.up-alarm-empty { color: var(--color-text-secondary); font-weight: 600; }
+        .up-alarm-msg-anim { animation: up-alarm-flip 0.5s cubic-bezier(0.16, 1, 0.3, 1); }
+        @keyframes up-alarm-flip { 0% { transform: translateY(108%); opacity: 0; } 60% { opacity: 1; } 100% { transform: translateY(0); opacity: 1; } }
+        @media (prefers-reduced-motion: reduce) { .up-alarm-msg-anim { animation: none; } }
+        /* 좁아 잘릴 때만(JS bandMeasure 가 측정) 좌우 왕복 마퀴로 전문을 읽게 한다(대시보드와 동일). */
+        .up-alarm-msg.is-marquee { width: max-content; max-width: none; flex-shrink: 0; overflow: visible; text-overflow: clip; animation: up-alarm-marquee var(--marquee-dur, 12s) ease-in-out infinite; }
+        @keyframes up-alarm-marquee { 0%, 14% { transform: translateX(0); } 46%, 58% { transform: translateX(var(--marquee-shift, 0)); } 90%, 100% { transform: translateX(0); } }
+        .up-alarm-idx { flex-shrink: 0; margin-left: 14px; z-index: 10; font-size: 0.85rem; font-weight: 800; border-radius: 9999px; padding: 4px 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .up-alarm.is-active .up-alarm-idx { color: #000; background: rgba(0,0,0,0.14); border: 1px solid rgba(0,0,0,0.1); }
+        .up-alarm.is-resolved .up-alarm-idx { color: var(--color-text-secondary); background: color-mix(in srgb, var(--color-text-secondary) 10%, transparent); border: 1px solid var(--color-lines); }
+        .up-alarm-idx b { font-size: 1.05rem; }
 
         /* 레벨 분포 — 도넛 + 범례 (mockup #p7 정지원인 도넛 톤) */
         .up-dist { display: grid; grid-template-columns: 150px 1fr; gap: 18px; align-items: center; margin-bottom: 16px; }
@@ -418,8 +435,11 @@
             .up-oee.is-hero .up-oee-value { font-size: 1.5rem; }
             .up-oee .up-oee-value { font-size: 1.5rem; }
             .up-auto-strip { grid-template-columns: 1fr; }
-            .up-ops-row { grid-template-columns: 1fr; }
             .up-utkpi-row { grid-template-columns: 1fr 1fr; }
+            /* 이상 띠: 좁은 화면에서 패딩/문구 축소 */
+            .up-alarm { padding: 11px 14px; }
+            .up-alarm-msg { font-size: 1.02rem; }
+            .up-alarm-ico { font-size: 22px; }
 
             /* 도넛 ~120px (정지원인 + 레벨분포 공용 .up-donut), 분포 1열 중앙정렬 */
             .up-dist { grid-template-columns: 1fr; justify-items: center; }
@@ -1200,33 +1220,25 @@
                     <div x-show="loading && !ut" class="progress-bar progress-bar-indeterminate" style="margin-bottom:12px;"><div class="progress-bar-fill"></div></div>
                     <div class="alert alert-error" x-show="error" style="margin-bottom:12px;"><span class="material-icons">error</span><span x-text="error"></span></div>
 
+                    <!-- ── 진행중/해결 이상 띠 ── 대시보드 알람 배너와 동일 동작.
+                         진행중인 이상(active-alarms)이 있으면 노란 띠로 한 건씩 세로 티커, 모두 해소되면 흰 띠로 '오늘 최근 이상'을 전환 표시.
+                         전환 속도는 대시보드와 같은 서버설정(alarmTickerSec)을 사용. -->
+                    <div class="up-alarm" :class="bandIsActive ? 'is-active' : 'is-resolved'" x-show="bandLoaded" x-cloak x-transition.opacity>
+                        <div class="up-alarm-icon">
+                            <span class="material-icons up-alarm-ico" x-text="bandIsActive ? 'crisis_alert' : (bandCount > 0 ? 'history' : 'check_circle')"></span>
+                            <span class="up-alarm-count" x-show="bandCount > 0" x-text="bandBadge"></span>
+                        </div>
+                        <div class="up-alarm-track" @mouseenter="bandPause(true)" @mouseleave="bandPause(false)">
+                            <template x-for="m in (bandCount > 0 ? [bandCurrent] : [])" :key="bandIndex">
+                                <span class="up-alarm-msg up-alarm-msg-anim" x-text="m" :title="m"></span>
+                            </template>
+                            <span class="up-alarm-msg up-alarm-empty" x-show="bandCount === 0" x-cloak>오늘 발생한 이상이 없습니다</span>
+                        </div>
+                        <span class="up-alarm-idx" x-show="bandCount > 1" x-cloak><b x-text="bandIndex + 1"></b> / <span x-text="bandOverflow ? '10+' : bandCount"></span></span>
+                    </div>
+
                     <template x-if="ut">
                         <div>
-                            <!-- ops KPI -->
-                            <div class="up-ops-row">
-                                <div class="up-ops" :class="ut.activeErrorCount > 0 ? 'is-error' : 'is-ok'">
-                                    <span class="material-icons" x-text="ut.activeErrorCount > 0 ? 'crisis_alert' : 'check_circle'"></span>
-                                    <div>
-                                        <div class="up-ops-label">진행중 이상 (최근 10분 Error)</div>
-                                        <div class="up-ops-value"><span x-text="ut.activeErrorCount"></span> 건</div>
-                                    </div>
-                                </div>
-                                <div class="up-ops">
-                                    <span class="material-icons">today</span>
-                                    <div>
-                                        <div class="up-ops-label">오늘 신규 Error</div>
-                                        <div class="up-ops-value"><span x-text="ut.todayErrorCount"></span> 건</div>
-                                    </div>
-                                </div>
-                                <div class="up-ops">
-                                    <span class="material-icons">history</span>
-                                    <div>
-                                        <div class="up-ops-label">마지막 이상 발생</div>
-                                        <div class="up-ops-value sm" x-text="ut.lastAlertAtLocal || '-'"></div>
-                                    </div>
-                                </div>
-                            </div>
-
                             <!-- 집계 KPI (총 알림 / Error / Warning / 최빈 태그) — 클릭 시 알람 필터 -->
                             <div class="up-utkpi-row">
                                 <div class="up-utkpi clickable" :class="utLevel === '' ? 'is-active' : ''"
@@ -1709,6 +1721,13 @@
                 curFlow: '', // '' = 라인 전체, 그 외 = 특정 Flow (OEE/정지/도넛/계획시간을 그 설비로 필터)
                 rt: { connected: false },
                 _conn: null, _dt: null, _pollTimer: null,
+                // ── 진행중/해결 이상 띠 (대시보드 알람 배너와 동일) ──
+                // bandActive=현재 진행중(자동 해소) 이상(active-alarms, 노란 띠), bandToday=오늘 발생한 이상 최신순(흰 띠 폴백).
+                // 둘 다 [{ msg, level }] 로 정규화해 세로 티커가 한 건씩 소비. bandIndex=현재 표시 인덱스.
+                bandActive: [], bandToday: [], bandActiveOverflow: false, bandTodayOverflow: false,
+                bandIndex: 0, bandLoaded: false,
+                alarmTickerSec: 3,          // 띠 티커 전환 간격(초) — 서버설정(스냅샷 alarmTickerIntervalSec)을 읽어 대시보드와 동일 속도.
+                _bandTicker: null, _bandPaused: false, _bandDt: null, _bandMarqueeMs: 0,
                 // stale 응답 가드 — 폴링/기간변경/페이지이동 응답이 뒤늦게 도착해 최신 상태를 덮어쓰는 경합 방지
                 _utSeq: 0, _oeeSeq: 0,
                 utPage: 0, utSearch: '', utLevel: '', utSystem: '', actionOverHint: [],
@@ -1774,8 +1793,13 @@
                     await this.load();
                     await this.loadCtTable();
                     await this.loadPlannedStops();
+                    this.loadBand();
+                    this.bandStartTicker();
                     this.connectSignalR();
-                    this._pollTimer = setInterval(() => this.load(true), 10000);
+                    this._pollTimer = setInterval(() => { this.load(true); this.loadBand(); }, 10000);
+                    // 창 크기 변화 시 잘림 여부가 바뀌니 마퀴 재측정(디바운스).
+                    this._bandResize = () => { clearTimeout(this._bandRzT); this._bandRzT = setTimeout(() => this.bandMeasure(), 150); };
+                    window.addEventListener('resize', this._bandResize);
                     // 필터 시드로 진입했으면 UserTag 카드로 스크롤(특정 알람 포커스가 있으면 그 행으로 직접 스크롤하므로 생략).
                     if (seeded && !this._focusAt) this.$nextTick(() => document.getElementById('ut-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
                     if (this._focusAt) this.$nextTick(() => this.focusAlertRow());
@@ -1787,6 +1811,10 @@
                 destroy() {
                     clearInterval(this._pollTimer);
                     clearTimeout(this._dt);
+                    clearTimeout(this._bandTicker);
+                    clearTimeout(this._bandDt);
+                    clearTimeout(this._bandRzT);
+                    if (this._bandResize) window.removeEventListener('resize', this._bandResize);
                     this._conn?.stop();
                     if (_dailyChart) { try { _dailyChart.destroy(); } catch (e) {} _dailyChart = null; }
                 },
@@ -2069,6 +2097,8 @@
                         const snap = await this.apiGet('/api/user-tags/snapshot?' + this.utQs());
                         if (seq === this._utSeq) { // stale 응답(이후 요청이 이미 시작됨)은 폐기 — 페이지/기간 덮어쓰기 경합 방지
                             this.ut = snap;
+                            // 띠 티커 간격을 대시보드와 동일한 서버설정으로 맞춘다(라이브 반영).
+                            if (snap.alarmTickerIntervalSec > 0) this.alarmTickerSec = snap.alarmTickerIntervalSec;
                             this.utPage = snap.page; // 서버가 page 클램프할 수 있음
                             // ActionOver 반복 디바이스 집계 — 같은 tagAddress 에서 2건 이상이면 힌트 표시
                             const _aoCounts = {};
@@ -2261,15 +2291,127 @@
                     const trigger = () => { clearTimeout(this._dt); this._dt = setTimeout(() => this.load(true), 300); };
                     conn.on('CallStateChangedBatch', trigger);
                     conn.on('CallStateChanged', trigger);
-                    conn.on('DatabaseRebuilt', () => this.load(true));
+                    conn.on('DatabaseRebuilt', () => { this.load(true); this.loadBand(); });
                     conn.on('FlowHistoryCleared', trigger);
                     // 신규 UserTag 알림 — 총알림·시계열 추이를 상단바 배지와 동일하게 실시간 갱신 (issue #176).
                     conn.on('UserTagAlertsChanged', trigger);
-                    conn.onreconnected(() => { this.rt.connected = true; this.load(true); });
+                    // 이상 띠는 대시보드 알람 배너와 동일하게 abnormal 4종/usertag 활성 변화에 즉시 재조회(진행중→해소 전환 포함).
+                    conn.on('AbnormalDetected', () => this.debouncedLoadBand());
+                    conn.on('UserTagAlertsChanged', () => this.debouncedLoadBand());
+                    conn.onreconnected(() => { this.rt.connected = true; this.load(true); this.loadBand(); });
                     conn.onreconnecting(() => { this.rt.connected = false; });
                     conn.onclose(() => { this.rt.connected = false; });
                     conn.start().then(() => { this.rt.connected = true; }).catch(() => { this.rt.connected = false; });
                     this._conn = conn;
+                },
+
+                // ══════════════ 진행중/해결 이상 띠 (대시보드 알람 배너와 동일 동작) ══════════════
+                // 진행중(active-alarms)이 있으면 노란 띠로 한 건씩, 모두 해소되면 흰 띠로 '오늘 최근 이상' 을 전환 표시.
+                // 데이터는 대시보드와 같은 출처(active-alarms)를 쓰고, 폴백 목록은 오늘 발생한 전체 이상(필터 무관) 최신순이다.
+
+                // 서버 "yyyy-MM-dd HH:mm:ss(.fff)" → "M월 D일 H시 M분" (앞자리 0 제거 — 대시보드 fmtKoTime 과 동일).
+                fmtKoTime(s) {
+                    if (!s) return '';
+                    const m = /^\d{4}-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(String(s).trim());
+                    if (!m) return s;
+                    const n = i => parseInt(m[i], 10);
+                    return n(1) + '월 ' + n(2) + '일 ' + n(3) + '시 ' + n(4) + '분';
+                },
+                // active-alarms 한 건(AbnormalEventDto) → 표시 문구 (대시보드 abnMsgText 와 동일).
+                abnBandMsg(a) {
+                    if (!a) return '';
+                    const loc = [a.workName, a.callName]
+                        .map(s => (s || '').trim()).filter(Boolean)
+                        .filter((s, i, arr) => i === 0 || s !== arr[i - 1])
+                        .join(' / ') || a.flowName || a.sensorTag || '위치미상';
+                    const ts = this.fmtKoTime(a.occurredAtLocal);
+                    const body = loc + ': ' + a.label + (a.kindName ? ' (' + a.kindName + ')' : '');
+                    return (ts ? ts + ' · ' : '') + body;
+                },
+                // 오늘 알림 한 건(UtAlertDto) → 표시 문구. "M월 D일 H시 M분 · System / Name (MatchOp MatchValue)".
+                utBandMsg(a) {
+                    if (!a) return '';
+                    const loc = [a.systemName, a.name].map(s => (s || '').trim()).filter(Boolean).join(' / ') || '위치미상';
+                    const ts = this.fmtKoTime(a.occurredAtLocal);
+                    const cond = a.matchOp ? (a.matchOp + (a.matchValue != null && a.matchValue !== '' ? ' ' + a.matchValue : '')) : '';
+                    return (ts ? ts + ' · ' : '') + loc + (cond ? ' (' + cond + ')' : '');
+                },
+
+                // 진행중(active-alarms) + 오늘 최근 이상을 병렬 조회해 정규화. 둘 다 비핵심이라 실패는 조용히 무시.
+                async loadBand() {
+                    try {
+                        const [active, today] = await Promise.all([
+                            this.apiGet('/api/dashboard/active-alarms?limit=11').catch(() => []),
+                            this.apiGet('/api/user-tags/alerts?period=today&limit=11').catch(() => [])
+                        ]);
+                        const a = Array.isArray(active) ? active : [];
+                        this.bandActiveOverflow = a.length > 10;
+                        this.bandActive = a.slice(0, 10).map(x => ({ msg: this.abnBandMsg(x), level: (x.level || '').toLowerCase() }));
+                        const t = Array.isArray(today) ? today : [];
+                        this.bandTodayOverflow = t.length > 10;
+                        this.bandToday = t.slice(0, 10).map(x => ({ msg: this.utBandMsg(x), level: (x.logLevel || '').toLowerCase() }));
+                        if (this.bandIndex >= this.bandList.length) this.bandIndex = 0;
+                        this.bandLoaded = true;
+                        this.$nextTick(() => this.bandMeasure());
+                    } catch (e) { /* 비핵심 — 조용히 무시 */ }
+                },
+                debouncedLoadBand() { clearTimeout(this._bandDt); this._bandDt = setTimeout(() => this.loadBand(), 250); },
+
+                // 표시 대상 목록 — 진행중이 있으면 그것(노란), 없으면 오늘 최근(흰).
+                get bandList() { return this.bandActive.length ? this.bandActive : this.bandToday; },
+                get bandIsActive() { return this.bandActive.length > 0; },
+                get bandOverflow() { return this.bandIsActive ? this.bandActiveOverflow : this.bandTodayOverflow; },
+                get bandCount() { return this.bandList.length; },
+                get bandCurrent() { const L = this.bandList; return L.length ? L[this.bandIndex % L.length].msg : ''; },
+                get bandBadge() {
+                    const n = this.bandOverflow ? '10+' : this.bandCount;
+                    return (this.bandIsActive ? '진행중 ' : '오늘 ') + n + '건';
+                },
+                // 한 건 체류 시간(ms) = 전환 간격. 대시보드와 동일하게 서버설정 alarmTickerSec(초)를 1~30초로 클램프.
+                get bandDwellMs() { return Math.max(1000, Math.min(30000, Math.round((this.alarmTickerSec || 3) * 1000))); },
+                bandTickMs() { return Math.max(this.bandDwellMs, this._bandMarqueeMs || 0); },
+
+                // 세로 티커 자동 전환 — 2건 이상일 때만. hover 시 일시정지. setTimeout 재귀로 매 틱 간격을 다시 읽어 설정 변경이 즉시 반영.
+                bandStartTicker() {
+                    clearTimeout(this._bandTicker);
+                    const schedule = () => this.$nextTick(() => {
+                        this.bandMeasure();
+                        this._bandTicker = setTimeout(tick, this.bandTickMs());
+                    });
+                    const tick = () => {
+                        if (!this._bandPaused && this.bandList.length >= 2)
+                            this.bandIndex = (this.bandIndex + 1) % this.bandList.length;
+                        schedule();
+                    };
+                    schedule();
+                },
+                bandPause(on) { this._bandPaused = !!on; },
+
+                // 잘린 문구를 측정해 마퀴(좌우 왕복)를 켜고 끈다 — 대시보드 abnMeasure 와 동일 로직.
+                bandMeasure() {
+                    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+                    let maxMs = 0;
+                    document.querySelectorAll('.up-alarm-track .up-alarm-msg').forEach(el => {
+                        el.classList.remove('is-marquee');
+                        el.style.removeProperty('--marquee-shift');
+                        el.style.removeProperty('--marquee-dur');
+                        if (el.classList.contains('up-alarm-empty')) return;            // 빈 상태 문구는 마퀴 대상 아님
+                        if (reduce || (!el.offsetParent && el.offsetWidth === 0)) return; // 숨김·모션축소 시 건너뜀
+                        const track = el.parentElement;
+                        const avail = track ? track.clientWidth : 0;
+                        const over = el.scrollWidth - avail;
+                        if (avail > 0 && over > 6) {
+                            const shift = over + 16;
+                            const oneWayMs = Math.max(2500, shift / 90 * 1000);
+                            const naturalMs = oneWayMs / 0.32;
+                            const cycleMs = Math.min(45000, Math.max(this.bandDwellMs, naturalMs));
+                            el.style.setProperty('--marquee-shift', '-' + shift + 'px');
+                            el.style.setProperty('--marquee-dur', (cycleMs / 1000).toFixed(1) + 's');
+                            el.classList.add('is-marquee');
+                            maxMs = Math.max(maxMs, cycleMs);
+                        }
+                    });
+                    this._bandMarqueeMs = maxMs;
                 },
 
                 setPeriod(p) { if (this.period === p) return; this.period = p; this.utPage = 0; this.load(); },

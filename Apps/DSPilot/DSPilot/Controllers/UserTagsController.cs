@@ -22,11 +22,13 @@ public class UserTagsController : ControllerBase
 
     private readonly UserTagAlertService _alertService;
     private readonly IUserTagAlertRepository _repo;
+    private readonly AppSettingsService _settings;
 
-    public UserTagsController(UserTagAlertService alertService, IUserTagAlertRepository repo)
+    public UserTagsController(UserTagAlertService alertService, IUserTagAlertRepository repo, AppSettingsService settings)
     {
         _alertService = alertService;
         _repo = repo;
+        _settings = settings;
     }
 
     [HttpGet("snapshot")]
@@ -79,7 +81,8 @@ public class UserTagsController : ControllerBase
             top.Select(t => new UtTopDto(t.Name, t.LogLevel, t.Count)).ToList(),
             new Dictionary<string, int>(levelCounts),
             activeError, todayError, lastAlertAtLocal,
-            defDtos, systemOptions);
+            defDtos, systemOptions,
+            _settings.LoadSettings().Ui.AlarmTickerIntervalSec);
     }
 
     /// <summary>
