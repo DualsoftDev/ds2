@@ -24,6 +24,7 @@ public class NavController : ControllerBase
     private readonly AppSettingsService _settings;
     private readonly DspDbService _db;
     private readonly PlcConnectionStatusTracker _plcStatus;
+    private readonly PlcPingService _ping;
     private readonly HubSubscriberService _hub;
     private readonly IUserTagAlertRepository _alertRepo;
     private readonly AbnormalEventService _abnormal;
@@ -34,6 +35,7 @@ public class NavController : ControllerBase
         AppSettingsService settings,
         DspDbService db,
         PlcConnectionStatusTracker plcStatus,
+        PlcPingService ping,
         HubSubscriberService hub,
         IUserTagAlertRepository alertRepo,
         AbnormalEventService abnormal,
@@ -43,6 +45,7 @@ public class NavController : ControllerBase
         _settings = settings;
         _db = db;
         _plcStatus = plcStatus;
+        _ping = ping;
         _hub = hub;
         _alertRepo = alertRepo;
         _abnormal = abnormal;
@@ -101,19 +104,54 @@ public class NavController : ControllerBase
         var idle = total - running;
         var efficiencyPct = total > 0 ? (int)Math.Round(running * 100.0 / total) : 0;
 
-        // ── agent (통신 상태) ── 허브가 끊겨 있으면 PlcConnectionStatusTracker 캐시는 이미 비워진 상태.
+        // ── agent (통신 상태) ──
         var hubState = HubStateString(_hub.CurrentStatus);
-        var plc = _plcStatus.CurrentStatuses;
-        var plcConnected = plc.Count(s => s.IsConnected);
-        var plcDisconnected = plc.Count(s => !s.IsConnected);
-        var adapters = plc
-            .OrderBy(s => s.IsConnected) // 끊긴 어댑터를 위로
-            .ThenBy(s => s.Name, StringComparer.OrdinalIgnoreCase)
-            .Select(s => new NavPlcAdapterDto(
-                s.Name, s.Vendor, s.IpAddress, s.Port, s.IsConnected, s.LastError))
-            .ToList();
 
-        var agent = new NavAgentDto(hubState, plc.Count, plcConnected, plcDisconnected, adapters);
+        // PLC 어댑터 상태 — 1순위: Promaker.Agent 가 Hub 로 보고한 상태(IP 포함). 보고가 없으면
+        // (허브 끊김 또는 모니터링 비활성으로 PlcConnectionStatusTracker 캐시가 비어 있으면)
+        // 2순위로 DSPilot 이 PlcConnection.json 의 대상 IP 에 직접 핑(TCP)을 던져 상태를 만든다.
+        var plc = _plcStatus.CurrentStatuses;
+        string plcSource;
+        int plcTotal, plcConnected, plcDisconnected;
+        List<NavPlcAdapterDto> adapters;
+
+        if (plc.Count > 0)
+        {
+            plcSource = "agent";
+            plcTotal = plc.Count;
+            plcConnected = plc.Count(s => s.IsConnected);
+            plcDisconnected = plcTotal - plcConnected;
+            adapters = plc
+                .OrderBy(s => s.IsConnected) // 끊긴 어댑터를 위로
+                .ThenBy(s => s.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(s => new NavPlcAdapterDto(
+                    s.Name, s.Vendor, s.IpAddress, s.Port, s.IsConnected, s.LastError))
+                .ToList();
+        }
+        else
+        {
+            var pings = await _ping.ProbeAsync(ct);
+            if (pings.Count > 0)
+            {
+                plcSource = "ping";
+                plcTotal = pings.Count;
+                plcConnected = pings.Count(p => p.Connected);
+                plcDisconnected = plcTotal - plcConnected;
+                adapters = pings
+                    .OrderBy(p => p.Connected) // 끊긴 어댑터를 위로
+                    .ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+                    .Select(p => new NavPlcAdapterDto(p.Name, p.Vendor, p.Ip, p.Port, p.Connected, p.Error))
+                    .ToList();
+            }
+            else
+            {
+                plcSource = "none"; // 대상 PLC 미설정 — 핑할 곳이 없음.
+                plcTotal = plcConnected = plcDisconnected = 0;
+                adapters = new List<NavPlcAdapterDto>();
+            }
+        }
+
+        var agent = new NavAgentDto(hubState, plcTotal, plcConnected, plcDisconnected, plcSource, adapters);
 
         // ── anomalyActiveCount (이상발생 활성) ── 최근 10분 Error. ack 가 창 안이면 시작점을 ack 로 당김.
         var nowUtc = DateTime.UtcNow;
@@ -197,6 +235,8 @@ public record NavAgentDto(
     int PlcTotal,
     int PlcConnected,
     int PlcDisconnected,
+    /// <summary>PLC 어댑터 상태 출처 — "agent"(Promaker.Agent 보고) | "ping"(DSPilot 직접 TCP 핑) | "none"(대상 미설정).</summary>
+    string PlcSource,
     List<NavPlcAdapterDto> Adapters);
 
 public record NavPlcAdapterDto(

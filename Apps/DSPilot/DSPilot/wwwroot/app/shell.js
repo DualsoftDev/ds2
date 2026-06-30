@@ -455,15 +455,73 @@
         agPlc.text.textContent = 'PLC 어댑터: —';
         agData.text.textContent = 'PLC 데이터 대기';
 
+        // PLC 어댑터 행 우측에 '상세' 토글 — 누르면 대상 PLC 의 IP/Port·상태·출처를 펼쳐 보여준다.
+        var agPlcDetailBtn = el('button', null, '상세');
+        agPlcDetailBtn.type = 'button';
+        agPlcDetailBtn.style.cssText = 'flex:0 0 auto;margin-left:auto;font-size:10px;line-height:1;'
+            + 'padding:2px 7px;border:1px solid var(--color-lines-strong,#cbd5e1);border-radius:5px;'
+            + 'background:transparent;color:inherit;cursor:pointer;opacity:0.75;';
+        agPlc.text.style.flex = '0 1 auto'; // '상세' 버튼이 우측으로 밀리도록 텍스트가 남는 폭을 차지하지 않게.
+        agPlc.row.appendChild(agPlcDetailBtn);
+
+        // 어댑터 IP 상세 패널 (PLC 어댑터 행 바로 아래, 기본 접힘).
+        var agPlcDetail = el('div');
+        agPlcDetail.style.cssText = 'display:none;margin:-2px 0 0 16px;padding-left:9px;'
+            + 'border-left:2px solid var(--color-lines,#e2e8f0);font-size:11px;line-height:1.5;';
+
         var agPopover = el('div', 'bg-surface dark:bg-inverse-surface border border-outline-variant dark:border-outline rounded-lg');
         agPopover.style.cssText = 'position:fixed;z-index:100;min-width:210px;max-width:calc(100vw - 12px);display:none;box-shadow:0 6px 20px rgba(0,0,0,0.15);padding:10px 14px 12px;';
         agPopover.appendChild(el('div', 'text-[10px] uppercase font-bold tracking-wider text-outline mb-2', 'Agent 상태'));
         var agPopCard = el('div', 'flex flex-col gap-2');
         agPopCard.appendChild(agHub.row);
         agPopCard.appendChild(agPlc.row);
+        agPopCard.appendChild(agPlcDetail);
         agPopCard.appendChild(agData.row);
         agPopover.appendChild(agPopCard);
         document.body.appendChild(agPopover);
+
+        // ── PLC 어댑터 상세(IP) 렌더 — applySummary 가 채우는 최신 어댑터/출처를 사용. ──
+        var _agAdapters = [];   // [{name, ip, port, connected, error, vendor}]
+        var _agPlcSource = '';  // 'agent' | 'ping' | 'none'
+        var _plcDetailOpen = false;
+        function renderPlcDetail() {
+            agPlcDetail.innerHTML = '';
+            if (!_agAdapters.length) {
+                var none = el('div', null, _agPlcSource === 'none'
+                    ? '대상 PLC 가 설정되어 있지 않습니다.'
+                    : 'PLC 정보 없음');
+                none.style.opacity = '0.7';
+                agPlcDetail.appendChild(none);
+                return;
+            }
+            var srcNote = el('div', null, _agPlcSource === 'ping'
+                ? '출처: DSPilot 직접 핑(TCP)'
+                : '출처: Promaker 에이전트');
+            srcNote.style.cssText = 'opacity:0.6;margin-bottom:3px;';
+            agPlcDetail.appendChild(srcNote);
+            _agAdapters.forEach(function (a) {
+                var line = el('div');
+                line.style.cssText = 'display:flex;align-items:center;gap:6px;';
+                var d = el('span');
+                d.style.cssText = 'flex:0 0 auto;width:7px;height:7px;border-radius:50%;background:'
+                    + (a.connected ? AG_DOT.green : AG_DOT.red) + ';';
+                var label = (a.name || 'PLC') + ' · ' + (a.ip || '?') + ':' + (a.port || 0);
+                var nm = el('span', null, label);
+                nm.style.cssText = 'font-variant-numeric:tabular-nums;';
+                line.appendChild(d);
+                line.appendChild(nm);
+                if (a.error) { line.title = a.error; }
+                agPlcDetail.appendChild(line);
+            });
+        }
+        agPlcDetailBtn.addEventListener('click', function (e) {
+            // 팝오버 내부 클릭이라 닫히지 않도록(closeAgPopover 가 contains 로 무시) — 토글만.
+            e.stopPropagation();
+            _plcDetailOpen = !_plcDetailOpen;
+            agPlcDetail.style.display = _plcDetailOpen ? 'block' : 'none';
+            agPlcDetailBtn.style.opacity = _plcDetailOpen ? '1' : '0.75';
+            if (_plcDetailOpen) renderPlcDetail();
+        });
 
         var liveBadge = el('span', 'dash-live is-poll');
         liveBadge.style.cursor = 'pointer';
@@ -505,7 +563,9 @@
         headRight.appendChild(liveBadge);
 
         var _agPopOpen = false;
-        function closeAgPopover() {
+        function closeAgPopover(e) {
+            // 팝오버 내부 클릭('상세' 토글 등)은 닫지 않는다 — 바깥 클릭에서만 닫힘.
+            if (e && agPopover.contains(e.target)) return;
             _agPopOpen = false;
             agPopover.style.display = 'none';
             liveChev.style.transform = '';
@@ -693,10 +753,11 @@
             liveBadge.className = 'dash-live ' + live[0];
             liveText.textContent = live[1];
 
-            // ── Agent 상태 블록 (dashboard2 footer 와 동일 로직) ──
+            // ── Agent 상태 블록 ──
             var hub = agent.hub || 'disconnected';
             var plcTotal = agent.plcTotal || 0;
             var plcDown = agent.plcDisconnected || 0;
+            var plcSource = agent.plcSource || '';
             var hasData = !!data.hasData;
 
             var hubLabel = hub === 'connected' ? '정상'
@@ -706,13 +767,29 @@
             agHub.dot.style.background = hub === 'connected' ? AG_DOT.green
                 : ((hub === 'connecting' || hub === 'reconnecting') ? AG_DOT.orange : AG_DOT.gray);
 
-            var plcLabel = hub !== 'connected' ? 'PLC 어댑터: —'
-                : (plcTotal === 0 ? 'PLC 어댑터: 보고 없음'
-                : (plcDown > 0 ? 'PLC 어댑터: ' + plcDown + '대 끊김'
-                : 'PLC 어댑터: ' + plcTotal + '대 연결'));
+            // PLC 어댑터: agent=에이전트 보고 / ping=DSPilot 직접 핑 폴백 / none=대상 미설정.
+            var plcLabel, plcColor;
+            if (plcSource === 'ping') {
+                if (plcTotal === 0) { plcLabel = 'PLC 어댑터: 대상 미설정'; plcColor = AG_DOT.gray; }
+                else if (plcDown > 0) { plcLabel = 'PLC 어댑터: 응답 없음 (직접확인)'; plcColor = AG_DOT.red; }
+                else { plcLabel = 'PLC 어댑터: 연결됨 (직접확인)'; plcColor = AG_DOT.green; }
+            } else if (plcSource === 'agent') {
+                plcLabel = plcTotal === 0 ? 'PLC 어댑터: 보고 없음'
+                    : (plcDown > 0 ? 'PLC 어댑터: ' + plcDown + '대 끊김'
+                    : 'PLC 어댑터: ' + plcTotal + '대 연결');
+                plcColor = (plcDown === 0 && plcTotal > 0) ? AG_DOT.green
+                    : (plcDown > 0 ? AG_DOT.red : AG_DOT.gray);
+            } else {
+                plcLabel = 'PLC 어댑터: 대상 미설정';
+                plcColor = AG_DOT.gray;
+            }
             agPlc.text.textContent = plcLabel;
-            agPlc.dot.style.background = (hub === 'connected' && plcDown === 0 && plcTotal > 0) ? AG_DOT.green
-                : (plcDown > 0 ? AG_DOT.red : AG_DOT.gray);
+            agPlc.dot.style.background = plcColor;
+
+            // 상세(IP) 패널 데이터 갱신 — 열려 있으면 즉시 다시 렌더.
+            _agAdapters = agent.adapters || [];
+            _agPlcSource = plcSource;
+            if (_plcDetailOpen) renderPlcDetail();
 
             agData.text.textContent = hasData ? 'PLC 데이터 수신중' : 'PLC 데이터 대기';
             agData.dot.style.background = hasData ? AG_DOT.green : AG_DOT.gray;

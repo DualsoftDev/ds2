@@ -22,6 +22,12 @@ public static class SharedPaths
 
     public static string AasxFilePath { get; } = Path.Combine(SharedDirectory, "project.aasx");
 
+    /// <summary>실 PLC 연결 설정(SSOT) — Promaker WPF/Agent 가 쓰고, DSPilot 은 읽기 전용으로 본다.
+    /// 평소 PLC 상태는 Agent 가 Hub 로 push 하지만, Agent/Hub 가 끊겨 보고가 없을 때 DSPilot 이 직접
+    /// 핑(TCP) 으로 확인할 대상 IP/Port 를 여기서 얻는다(<see cref="Services.PlcPingService"/>).
+    /// Promaker.Shared.SharedPaths.PlcConnectionFilePath 와 동일 경로여야 한다.</summary>
+    public static string PlcConnectionFilePath { get; } = Path.Combine(SharedDirectory, "PlcConnection.json");
+
     /// <summary>Agent 전용 작업 디렉터리 — active.flag, session.json, calibration-state.json 등.
     /// Promaker.Shared.SharedPaths.AgentDirectory 와 동일 경로(SharedDirectory/agent)여야 세 앱이 같은 사이드카를 본다.</summary>
     public static string AgentDirectory { get; } = Path.Combine(SharedDirectory, "agent");
