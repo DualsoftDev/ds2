@@ -93,7 +93,30 @@ public partial class DeviceRenameDialog : Window
         ImpactSummaryText.Text = $"영향 미리보기 — Call/ApiCall 외 총 {preview.TotalCount}건";
     }
 
-    private void Accept_Click(object sender, RoutedEventArgs e) => DialogResult = true;
+    private void Accept_Click(object sender, RoutedEventArgs e)
+    {
+        // 배치 내 중복 새 이름 차단(#213): 같은 디바이스 안에서 둘 이상의 Action 이 동일한
+        // 결과 이름으로 수렴하면 차단한다. RenameDeviceBatch 의 isApiDefNameUniqueInSystem 은
+        // *기존* ApiDef 와의 충돌만(자기 자신 제외) 검사하므로, 배치 내에서 새로 입력한 동일 이름끼리의
+        // 충돌(예: ADV·RET 둘 다 "전진")은 그쪽에서 못 걸러 중복이 허용되던 누락을 여기서 막는다.
+        // 결과 이름 = 변경 행은 NewName.Trim()(BuildApiRenames 와 동일), 미변경 행은 CurrentName.
+        // 비교는 store(isApiDefNameUniqueInSystem) 와 동일하게 대소문자 구분 ordinal.
+        var firstDuplicate = _apiRows
+            .Select(r => r.IsChanged ? r.NewName.Trim() : r.CurrentName)
+            .GroupBy(name => name, StringComparer.Ordinal)
+            .FirstOrDefault(g => g.Count() > 1);
+
+        if (firstDuplicate is not null)
+        {
+            DialogHelpers.Warn(
+                this,
+                $"디바이스 내에 이미 '{firstDuplicate.Key}' Action 이 존재합니다. 서로 다른 이름을 입력하세요.",
+                "디바이스 일괄 이름 변경");
+            return;
+        }
+
+        DialogResult = true;
+    }
 
     private void Close_Click(object sender, RoutedEventArgs e) => Close();
 }
