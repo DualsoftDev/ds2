@@ -572,6 +572,21 @@
                                         <input type="number" class="form-field mono" x-model.number="s.alarmTickerIntervalSec" min="1" max="30" step="1" placeholder="3" />
                                         <small class="settings-hint">대시보드·전체화면 이상 알람 배너에서 한 건이 머무는 시간(초). 작을수록 빠르게 다음 건으로 넘어감. 기본 3초.</small>
                                     </div>
+                                    <div class="form-group">
+                                        <label class="form-label">표시 레벨</label>
+                                        <div style="display:flex; flex-wrap:wrap; gap:8px 18px; align-items:center;">
+                                            <label style="display:flex; align-items:center; gap:7px; cursor:pointer;">
+                                                <input type="checkbox" value="Error" x-model="s.abnormalAlarmDisplayLevels" /> 위험 (Error)
+                                            </label>
+                                            <label style="display:flex; align-items:center; gap:7px; cursor:pointer;">
+                                                <input type="checkbox" value="Warning" x-model="s.abnormalAlarmDisplayLevels" /> 경고 (Warning)
+                                            </label>
+                                            <label style="display:flex; align-items:center; gap:7px; cursor:pointer;">
+                                                <input type="checkbox" value="Info" x-model="s.abnormalAlarmDisplayLevels" /> 정보 (Info)
+                                            </label>
+                                        </div>
+                                        <small class="settings-hint">배너에 표시할 알람 레벨을 고릅니다. 기본은 <b>위험(Error)</b>만 — usertag 알람이 모든 레벨로 쏟아지는 것을 막습니다. 경로이탈 이상감지 4종은 모두 위험(Error)이라 그대로 표시됩니다. 모두 해제하면 전체 표시.</small>
+                                    </div>
                                     <div class="form-group" style="margin-bottom:0;">
                                         <label class="form-label">알람 표시 유효 시간</label>
                                         <select class="form-select" x-model.number="s.abnormalAlarmResetIntervalHours">
@@ -857,6 +872,8 @@
                     try {
                         const d = await this.apiGet('/api/settings');
                         this.s = d;
+                        // 배너 표시 레벨은 체크박스 배열 바인딩이라 항상 배열이어야 함(서버 null/구버전 방어). 기본 Error.
+                        if (!Array.isArray(this.s.abnormalAlarmDisplayLevels)) this.s.abnormalAlarmDisplayLevels = ['Error'];
                         this.settingsDirty = false;
                         this.aasx = d.aasxStatus || {};
                     } catch (e) {
@@ -942,6 +959,7 @@
                             heatmapDangerPct: +(hv.heatmapDangerPct ?? 30),
                             alarmTickerIntervalSec: (this.s.alarmTickerIntervalSec ?? 3) | 0,
                             abnormalAlarmResetIntervalHours: (this.s.abnormalAlarmResetIntervalHours ?? 24) | 0,
+                            abnormalAlarmDisplayLevels: Array.isArray(this.s.abnormalAlarmDisplayLevels) ? this.s.abnormalAlarmDisplayLevels : [],
                             autoCalibration: {
                                 enabled: !!this.s.autoCalibration?.enabled,
                                 minCleanCycles: (this.s.autoCalibration?.minCleanCycles ?? 10) | 0,

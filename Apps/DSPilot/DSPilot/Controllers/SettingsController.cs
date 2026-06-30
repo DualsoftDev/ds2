@@ -177,6 +177,9 @@ public class SettingsController : ControllerBase
                 m.HistoryView.HeatmapDangerPct = danger;
                 m.Ui.AlarmTickerIntervalSec = Math.Clamp(req.AlarmTickerIntervalSec, 1, 30);
                 m.AbnormalAlarm.ResetIntervalHours = Math.Max(0, req.AbnormalAlarmResetIntervalHours);
+                // 배너 표시 레벨 — null(구 클라이언트)이면 기존 값 보존, 보내면 정규화 후 교체(빈 배열=전체 표시).
+                if (req.AbnormalAlarmDisplayLevels is not null)
+                    m.AbnormalAlarm.DisplayLevels = NormalizeDisplayLevels(req.AbnormalAlarmDisplayLevels);
 
                 // 디바이스별 이상감지 차단 규칙(AbnormalAlarm.DeviceFilters)은 uptime 페이지의
                 // 차단 관리(POST abnormal-device-filters)가 소유 — 여기서는 건드리지 않는다(CCTV 카메라와 동일 원칙).
@@ -477,8 +480,16 @@ public class SettingsController : ControllerBase
                 m.AutoCalibration.MarginMinPct,
                 LocalStamp(m.AutoCalibration.CompletedAt),
                 LocalStamp(m.AutoCalibration.LastAppliedAt),
-                m.AutoCalibration.LastAppliedSummary));
+                m.AutoCalibration.LastAppliedSummary),
+            m.AbnormalAlarm.DisplayLevels.ToArray());
     }
+
+    // 배너 표시 레벨 정규화 — 유효값(Info/Warning/Error)만, 표준 표기·순서로, 중복 제거. 빈 결과 허용(=전체 표시).
+    private static readonly string[] ValidAlarmLevels = { "Info", "Warning", "Error" };
+    private static List<string> NormalizeDisplayLevels(string[]? input)
+        => input is null
+            ? new List<string>()
+            : ValidAlarmLevels.Where(v => input.Any(i => string.Equals(i, v, StringComparison.OrdinalIgnoreCase))).ToList();
 
     // UTC(또는 Unspecified=UTC 저장) DateTime? → 로컬 표시 문자열. null 이면 null.
     private static string? LocalStamp(DateTime? utc)
@@ -592,7 +603,9 @@ public record SettingsDto(
     int AlarmTickerIntervalSec = 3,
     int AbnormalAlarmResetIntervalHours = 24,
     // 실측 duration 자동 보정 설정 + 1회성 완료 시각(표시용 로컬 문자열, 미실행이면 null). 기본값으로 기존 호출부 무손상.
-    AutoCalibrationDto? AutoCalibration = null);
+    AutoCalibrationDto? AutoCalibration = null,
+    // 배너 표시 레벨(Info/Warning/Error). 기본값으로 기존 호출부 무손상.
+    string[]? AbnormalAlarmDisplayLevels = null);
 
 // ── 디바이스별 이상감지 차단 (uptime 페이지 차단 관리 모달용) ──
 
@@ -690,7 +703,9 @@ public record SaveRequestDto(
     double HeatmapCautionPct = 10.0,
     double HeatmapDangerPct = 30.0,
     // 자동 보정 파라미터(편집 5필드). null 이면 기존 값 보존 — 기존 호출부 무손상.
-    AutoCalibrationSaveDto? AutoCalibration = null);
+    AutoCalibrationSaveDto? AutoCalibration = null,
+    // 배너 표시 레벨(Info/Warning/Error). null 이면 기존 값 보존 — 기존 호출부 무손상.
+    string[]? AbnormalAlarmDisplayLevels = null);
 
 public record SaveResultDto(bool Ok, string Message);
 

@@ -1145,7 +1145,7 @@
                 const trigger = () => this.debouncedLoad();
                 conn.on('CallStateChangedBatch', trigger);
                 conn.on('CallStateChanged', trigger);
-                conn.on('DatabaseRebuilt', () => { this.loadSnapshot(); });
+                conn.on('DatabaseRebuilt', () => { this.loadSnapshot(); this.loadAbnormals(); }); // 설정 저장(표시 레벨 등) 시 배너도 재조회
                 conn.on('AbnormalDetected', () => { this.debouncedLoadAbnormals(); });
                 // usertag 활성 알람 발생/해소(조건 풀림) 시에도 배너 즉시 재조회 (REST 단일 소스).
                 conn.on('UserTagAlertsChanged', () => { this.debouncedLoadAbnormals(); });

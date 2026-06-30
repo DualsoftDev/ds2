@@ -171,6 +171,13 @@ public class AbnormalAlarmSettings
     public int ResetIntervalHours { get; set; } = 24;
 
     /// <summary>
+    /// 배너에 표시할 알람 레벨 집합(Info/Warning/Error 중). 비어 있으면 전체 표시.
+    /// usertag 알람이 모든 레벨로 쏟아지는 것을 막기 위해 기본은 Error 만 — 경로이탈 4종은 전부 Error 라 기본값에서도 그대로 보인다.
+    /// 설정 페이지(이상 알람 배너)에서 선택, active-alarms 피드(배너·uptime 띠)에서 읽기 시 필터.
+    /// </summary>
+    public List<string> DisplayLevels { get; set; } = ["Error"];
+
+    /// <summary>
     /// 디바이스별 이상감지 차단 규칙. 규칙에 걸린 (디바이스, 유형) 이상은
     /// 신규 발생 시 어디에도 기록되지 않고(링버퍼/userTagAlertLog/SignalR 생략),
     /// 차단 이전의 기존 기록도 알람·사이드바·통계·기록 조회에서 숨겨진다(읽기 시 필터 — 해제하면 다시 표시).

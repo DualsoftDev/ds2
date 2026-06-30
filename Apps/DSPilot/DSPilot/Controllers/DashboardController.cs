@@ -132,6 +132,14 @@ public class DashboardController : ControllerBase
         var n = Math.Clamp(limit, 1, 100);
         var abn = _abnormal.GetActive(n);
 
+        // 표시 레벨 필터(설정 페이지 "이상 알람 배너" — 기본 Error 만). 비어 있으면 전체 표시.
+        //   usertag 가 모든 레벨로 쏟아지는 것을 막는 용도. 경로이탈 4종은 전부 Error 라 기본값에서도 그대로 보인다.
+        //   usertag 는 FlowName 이 비어 Flow 카드·CCTV 강조에 영향 없음 → 사실상 배너/uptime 띠 표시만 줄인다.
+        var levels = _settings.LoadSettings().AbnormalAlarm.DisplayLevels;
+        bool LevelAllowed(string? lvl) =>
+            levels is null || levels.Count == 0 ||
+            levels.Any(l => string.Equals(l, lvl, StringComparison.OrdinalIgnoreCase));
+
         // usertag 활성 알람 → AbnormalEventDto 형상 매핑.
         //   Source="usertag", Label=태그명, KindName=매칭연산, WorkName=태그주소(경로 칸), FlowName="" (카드 강조 오인 방지)
         var user = _userTags.GetActiveAlarms().Select(a =>
@@ -155,6 +163,7 @@ public class DashboardController : ControllerBase
         });
 
         var merged = abn.Concat(user)
+            .Where(e => LevelAllowed(e.Level))
             .OrderByDescending(e => e.OccurredAtUtc)
             .Take(n)
             .ToList();
