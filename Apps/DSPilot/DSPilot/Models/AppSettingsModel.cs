@@ -57,14 +57,6 @@ public class OeeManualSettings
     [JsonIgnore]
     public bool PlannedStopsAutoEffective => PlannedStopsAuto ?? (PlannedStops is not { Count: > 0 });
 
-    /// <summary>
-    /// 성능(P) 표준CT 기준 — "avg"(최근 14일 평균, 기본) / "p10"(클린사이클 최속 p10, best-demonstrated).
-    /// avg = 표준=평균이라 정상상태 P≈100% 수렴(14일 추세 대비 당기 저하 감지기). p10 = "잘 돌 때(최속)" 대비
-    /// 속도손실을 정직하게 반영(P 가 100% 밑으로 내려옴). 비가동 판정·가용성(A) 임계는 <b>항상 14일 평균</b> —
-    /// 이 설정은 성능(P) 분자의 표준CT 에만 적용된다(A·다운타임 분류 불변).
-    /// </summary>
-    public string PerformanceBasis { get; set; } = "avg";
-
     /// <summary>자동 비생산 패턴 캐시 (자동 모드 전환 또는 24h 만료 시 갱신). null = 아직 미계산.</summary>
     public PlannedAutoPatternCache? AutoPatternCache { get; set; }
 

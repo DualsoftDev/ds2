@@ -310,17 +310,6 @@ public class OeeController : ControllerBase
         return new { ok = true, qualityPercent = saved };
     }
 
-    // ── POST /api/oee/performance-basis { basis: "avg"|"p10" } ────────────
-    // 성능(P) 표준CT 기준 전역 설정. avg=14일 평균(기본, P≈100% 수렴) / p10=클린 최속(속도손실 반영).
-    // 비가동 판정·가용성(A) 임계는 불변 — 성능 분자에만 적용.
-    [HttpPost("performance-basis")]
-    public ActionResult<object> SetPerformanceBasis([FromBody] PerformanceBasisRequest req)
-    {
-        _settings.SavePerformanceBasis(req?.Basis);
-        var saved = _settings.LoadSettings().OeeManual.PerformanceBasis;
-        return new { ok = true, basis = saved };
-    }
-
     // ── GET /api/oee/planned-stops ────────────────────────────────────────
     // 비생산 시간대 상태(라인 전체). auto=true → 10×(14일 평균 CT) 장시간 무변화 정지를 비생산으로 자동 분류(시각대 윈도 없음).
     // auto=false → 사용자 수동 시간대(windows)만 적용. source = auto / manual / none. ctMultiplier = 자동판정 배수(10).
@@ -944,11 +933,9 @@ public class OeeController : ControllerBase
         // ── 사이클기반 집계 (doc/22): CT이상치(14일 평균) → 비가동 판정(MT>thr / 미완료 CT폭주 / 무사이클 dedup)
         //    → Σ실측CT·Σ비가동CT·N·onset/repair. 시간기반 폴백 체인은 표본 부족 시에만 사용(보존). ──
         var thresholds = ctThresholds ?? await ResolveCtThresholdsAsync();
-        // 성능(P) 표준CT 기준 — "avg"(14일 평균, 기본) / "p10"(클린 최속). 비가동 판정·A 임계는 불변(항상 avg).
-        var perfBasis = _settings.LoadSettings().OeeManual.PerformanceBasis;
         // 비생산 시간대에 든 비가동은 비생산으로 분류해 A 분모서 제외(표준 OEE). 자동(10× 장시간정지)/수동(시각대 윈도).
         var (plannedWindows, plannedSource, applyLongStop) = ResolvePlannedWindows();
-        var agg = await ComputeCycleAggregateAsync(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, perfBasis, ct);
+        var agg = await ComputeCycleAggregateAsync(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct);
 
         // ── Availability — 사이클기반 1차(source='cycle'), 표본 부족 시 시간기반 폴백 체인 보존(doc/22 §7) ──
         double? availability; string? availNote; string? availabilitySource; double runtimeMs;
@@ -1023,7 +1010,6 @@ public class OeeController : ControllerBase
             CtThresholdMs: agg.CtThresholdMs,
             PlannedDownMs: agg.PlannedCtMs,
             PlannedStopSource: agg.HasThreshold ? plannedSource : null,
-            PerformanceBasis: perfBasis,
             CtSampleCount: agg.HasThreshold ? agg.CtSampleMin : (int?)null,
             CtSampleLow: agg.HasThreshold && agg.CtSampleMin < OeeCtStatsService.ConfidentMinCleanCycles);
     }
@@ -1145,7 +1131,7 @@ public class OeeController : ControllerBase
     private async Task<CycleAgg> ComputeCycleAggregateAsync(
         string? flowName, DateTime fromUtc, DateTime toUtc,
         IReadOnlyDictionary<string, (double AvgMs, double P10Ms, int Sample)> thresholds,
-        IReadOnlyList<(int StartMin, int EndMin)> plannedWindows, bool applyLongStop, string perfBasis, CancellationToken ct)
+        IReadOnlyList<(int StartMin, int EndMin)> plannedWindows, bool applyLongStop, CancellationToken ct)
     {
         var onsets = new List<double>();
         var repairs = new List<double>();
@@ -1193,9 +1179,6 @@ public class OeeController : ControllerBase
                 hasThreshold = true;
                 thrSum += thr; thrCount++;              // 무사이클 갭 10× 판정용 라인 대표 임계 누적
                 ctSampleMin = Math.Min(ctSampleMin, thresholds[f].Sample); // 수동 오버라이드=int.MaxValue(완전 신뢰)라 안 깎임
-                // 성능 분자 표준만 토글: p10(클린 최속) 선택 시 그 값, 아니면 평균. p10 결측 시 평균 폴백.
-                var p10 = thresholds[f].P10Ms;
-                var perfThr = (perfBasis == "p10" && p10 > 0) ? p10 : thr;
 
                 var p = new DynamicParameters();
                 p.Add("From", fromStr); p.Add("To", toStr); p.Add("Flow", f); p.Add("Thr", thr);
@@ -1213,7 +1196,7 @@ public class OeeController : ControllerBase
                 {
                     normalCtMs += aggRow.NormalCt;
                     normalCount += (int)aggRow.NormalCount;
-                    perfNumerator += aggRow.NormalCount * perfThr;   // 성능 기준(avg/p10) 적용 — 분모(Σ실측CT)·분류는 불변
+                    perfNumerator += aggRow.NormalCount * thr;       // 성능 표준 = 14일 평균(불변) — 분모(Σ실측CT)·분류와 동일 소스
                     plannedCtMs += aggRow.NonProdNormalCt;           // 비생산 시간대 정상 CT — A 분모서 제외(정상/비가동 모두 필터)
                 }
 
@@ -1295,14 +1278,12 @@ public class OeeController : ControllerBase
 
         // 표시용 CT이상치. 사이클이 있으면 생산수 가중평균, 0이어도 임계는 존재하므로 flow별 임계 평균을
         // 노출한다(이전엔 라인 합산+사이클 0 → null 이라 '표준CT 미설정/클린샘플 0'으로 오인 표시됐음).
-        double PerfThrOf(string f) =>
-            (perfBasis == "p10" && thresholds[f].P10Ms > 0) ? thresholds[f].P10Ms : thresholds[f].AvgMs;
         double? displayThr;
         if (normalCount > 0)
             displayThr = perfNumerator / normalCount;
         else
         {
-            var thrVals = targetFlows.Select(PerfThrOf).Where(v => v > 0).ToList();
+            var thrVals = targetFlows.Select(f => thresholds[f].AvgMs).Where(v => v > 0).ToList();
             displayThr = thrVals.Count > 0 ? thrVals.Average() : (double?)null;
         }
         return new CycleAgg(normalCtMs, idleCtMs, normalCount, dtEventCount, displayThr, onsets, repairs, true, plannedCtMs,
@@ -1711,7 +1692,6 @@ public record SetFaultRequest(bool IsFault);
 public record BulkSetFaultRequest(List<long> Ids, bool IsFault);
 public record ProductionRequest(DateTime? Date, string Flow, string? Shift, int Reject);
 public record ManualQualityRequest(double? QualityPercent); // 전반 품질(양품률) % 직접 설정. null=해제.
-public record PerformanceBasisRequest(string? Basis);       // 성능 P 표준CT 기준: "avg"(기본)|"p10".
 public record PlannedStopsRequest(List<PlannedStopWindowDto>? Windows); // 비생산 시간대 수동 설정(수동 적용=자동 OFF). 빈/null=시간대 없음.
 public record PlannedStopsAutoRequest(bool Enabled);                    // 비생산 자동 계산 on/off (10× 장시간정지 규칙).
 public record ShiftExceptionRequest(string? Flow, DateTime? StartAt, DateTime? EndAt, string Kind, string? Note);

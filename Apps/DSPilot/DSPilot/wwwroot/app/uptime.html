@@ -268,14 +268,6 @@
         .up-qeq { font-size: 1.1rem; color: var(--color-text-secondary); align-self: flex-end; padding-bottom: 5px; }
         .up-qhint { font-size: 0.66rem; color: var(--color-text-secondary); flex: 1; min-width: 180px; line-height: 1.5; }
 
-        /* 성능(P) 표준 가동시간 기준 선택 (라디오 카드) */
-        .up-pbasis-opt { display: flex; gap: 10px; align-items: flex-start; padding: 11px 13px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); margin-bottom: 9px; cursor: pointer; transition: border-color .12s, background .12s; }
-        .up-pbasis-opt:hover { border-color: var(--color-primary); }
-        .up-pbasis-opt.sel { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 8%, transparent); }
-        .up-pbasis-opt input { margin-top: 3px; flex-shrink: 0; accent-color: var(--color-primary); }
-        .up-pbasis-t { font-weight: 700; font-size: 0.92rem; color: var(--color-text-primary); display: flex; align-items: center; gap: 6px; }
-        .up-pbasis-d { font-size: 0.78rem; color: var(--color-text-secondary); margin-top: 4px; line-height: 1.55; }
-
         /* 자동화 파이프라인 상태 스트립 */
         .up-auto-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--color-lines); border: 1px solid var(--color-lines); border-radius: var(--radius-md); overflow: hidden; }
         @media (max-width: 720px) { .up-auto-strip { grid-template-columns: 1fr 1fr; } }
@@ -704,19 +696,18 @@
                             <div class="up-oee-value up-oee-mono" x-text="oee ? pct(oee.availability) : '—'"></div>
                             <div class="up-oee-note" x-text="oee ? (oee.availability != null ? (oee.availabilitySource === 'cycle' ? 'Σ실측 가동시간 / Σ전체 가동시간' : '가동 / 계획시간') : (oee.availabilityNote || '산출 불가')) : ''"></div>
                         </div>
-                        <!-- 성능 P (사이클기반: N × 가동시간 이상치 ÷ Σ실측 가동시간) — 클릭 시 표준 가동시간 기준(14일 평균 / p10) 선택 -->
-                        <div class="up-oee" :class="oeeTone('performance')" @click="openPDialog()" style="cursor:pointer;" title="클릭하여 성능 표준 가동시간 기준(14일 평균 / p10 최속) 선택">
+                        <!-- 성능 P (사이클기반: N × 가동시간 이상치 ÷ Σ실측 가동시간) — 표준 가동시간 = 최근 14일 평균(고정) -->
+                        <div class="up-oee" :class="oeeTone('performance')" title="표준 가동시간 = 최근 14일 평균 — 정상상태 P≈100% 수렴(추세 대비 당기 저하 감지)">
                             <div class="up-oee-label">성능 P
                                 <span class="up-oee-chip auto" x-show="oee && oee.performance != null"
-                                      x-text="oee && oee.performanceBasis === 'p10' ? '가동시간 p10(최속)' : '가동시간 14일평균'"
-                                      :title="oee && oee.performanceBasis === 'p10' ? 'p10(클린 최속) 기준 — 잘 돌 때 대비 속도손실 반영' : '14일 평균 기준 — 정상상태 P≈100% 수렴(추세 대비 저하 감지)'"></span>
+                                      x-text="'가동시간 14일평균'"
+                                      title="14일 평균 기준 — 정상상태 P≈100% 수렴(추세 대비 저하 감지)"></span>
                                 <span class="up-oee-chip warn" x-show="oee && oee.ctSampleLow"
                                       x-text="'샘플 ' + (oee && oee.ctSampleCount != null ? oee.ctSampleCount : 0) + '/5'"
                                       title="클린샘플 5개 미만으로 산출된 잠정값입니다. 사이클이 쌓이면 자동으로 정확해집니다."></span>
-                                <span class="material-icons" style="font-size:13px; opacity:0.5; margin-left:auto;" title="클릭하여 기준 선택">edit</span>
                             </div>
                             <div class="up-oee-value up-oee-mono" x-text="oee ? pct(oee.performance) : '—'"></div>
-                            <div class="up-oee-note" x-text="oee ? (oee.performance != null ? ((oee.performanceBasis === 'p10' ? 'p10 최속' : '14일평균') + ' 기준 · (N × 표준 가동시간) / Σ실측 가동시간') : (oee.performanceNote || '산출 불가')) : ''"></div>
+                            <div class="up-oee-note" x-text="oee ? (oee.performance != null ? '14일평균 기준 · (N × 표준 가동시간) / Σ실측 가동시간' : (oee.performanceNote || '산출 불가')) : ''"></div>
                         </div>
                         <!-- 품질 Q (가정/사용자 칩 + 톤 중립) — 클릭 시 품질 직접 입력 다이얼로그 -->
                         <div class="up-oee" :class="oeeTone('quality')" @click="openQDialog()" style="cursor:pointer;" title="클릭하여 품질(양품률) 직접 입력">
@@ -1491,7 +1482,7 @@
                                 <tr><td>모델 (doc/22)</td><td><b>사이클기반</b> OEE — 가동시간 = 동작시간 + 대기시간. 한 사이클의 <b>동작시간이 가동시간 이상치를 넘으면</b> 그 사이클 가동시간 전체가 비가동. 시간기반(벽시계 계획시간)에서 전환.</td></tr>
                                 <tr><td>OEE = A × P × Q</td><td><b>A</b> = Σ실측 가동시간 ÷ (Σ실측 가동시간 + Σ비가동 가동시간) · <b>P</b> = (N × 가동시간 이상치) ÷ Σ실측 가동시간 · <b>Q</b> = 양품/총생산(기본 100% 가정, 톤 중립). 한 요소라도 미산출이면 OEE = '—'.</td></tr>
                                 <tr><td>가동시간 이상치 (표준 가동시간)</td><td>최근 <b>14일 클린사이클 가동시간 평균</b>(flow별, RAM only — DB 미기입). 비가동 판정·성능 분자 <b>공용</b>. 클린샘플 <b>1개부터 A·P 산출</b>(5개 미만은 <b>'샘플 부족' 잠정값</b> — 쌓이면 자동 정상화), <b>0개</b>면 '—'.</td></tr>
-                                <tr><td>성능 P 의 의미</td><td>표준 가동시간 기준을 <b>성능 P 카드 클릭</b>으로 선택. <b>14일 평균</b>(기본): 표준=평균이라 정상상태 <b>P ≈ 100% 수렴</b> — "최속 대비 손실"이 아니라 <b>"14일 추세 대비 당기 저하"</b> 감지기(90%대를 '거의 완벽'으로 오독 금지). <b>p10(최속)</b>: "잘 돌 때" 대비 속도손실을 반영 → P 가 100% 밑으로. 어느 쪽이든 <b>비가동 판정·가용성(A) 임계는 14일 평균 불변</b>.</td></tr>
+                                <tr><td>성능 P 의 의미</td><td>표준 가동시간 = <b>최근 14일 평균</b>(고정). 표준=평균이라 정상상태 <b>P ≈ 100% 수렴</b> — "최속 대비 손실"이 아니라 <b>"14일 추세 대비 당기 저하"</b> 감지기(90%대를 '거의 완벽'으로 오독 금지). <b>비가동 판정·가용성(A) 임계도 동일한 14일 평균</b>을 공용.</td></tr>
                                 <tr><td>비가동 dedup</td><td>① 동작시간&gt;가동시간 이상치 ② 미완료(complete=null) 가동시간 폭주 ③ 무사이클 정지. ③은 사이클 가동시간 구간과 안 겹치는 부분만 가산(구간 차집합) — <b>이중계상 방지</b>.</td></tr>
                                 <tr><td>MTTR / MTBF</td><td>비가동 <b>onset</b>(= 사이클 시작 + 가동시간 이상치)에서 파생. <b>MTTR</b> = onset→going 회복 평균 · <b>MTBF</b> = 연속 onset 간격 평균. OEE 곱셈식과 <b>독립</b> 동반지표. 0건이면 "🟢 무비가동" 배지(가짜수치 금지).</td></tr>
                                 <tr><td>폴백 보존</td><td>14일 클린샘플 <b>0(임계 없음)</b>일 때만 가용성은 <b>시간기반 폴백 체인</b>(시프트 ▸ 자동추정 ▸ 달력)으로 근사. A 카드 칩으로 현재 출처(<span class="up-codeish">사이클</span>/시프트/자동추정/달력) 표시.</td></tr>
@@ -1655,47 +1646,6 @@
             </div>
         </div>
 
-        <!-- ════ 성능(P) 표준 가동시간 기준 선택 다이얼로그 (성능 P 카드 클릭) ════ -->
-        <!-- 닫힘 가드는 품질 다이얼로그와 동일(모달 안 클릭/드래그로 오닫힘 방지). -->
-        <div class="up-blk-overlay" x-show="pDialog.show" style="display:none;"
-             @mousedown="_pDown = ($event.target === $el)"
-             @mouseup="if (_pDown && $event.target === $el) pDialog.show=false; _pDown=false"
-             @keydown.escape.window="pDialog.show=false">
-            <div class="up-blk-modal" @click.stop style="width:min(540px,94vw);">
-                <div class="up-blk-head">
-                    <span class="material-icons">speed</span>
-                    <h3>성능(P) 표준 가동시간 기준</h3>
-                    <span style="flex:1;"></span>
-                    <button class="btn-icon" @click="pDialog.show=false" title="닫기"><span class="material-icons">close</span></button>
-                </div>
-                <div class="up-blk-sub">
-                    성능 P = <b>(정상 사이클수 × 표준 가동시간) ÷ Σ실측 가동시간</b>. 여기서 "표준 가동시간"를 무엇으로 잡을지 고릅니다.
-                    <b>비가동 판정·가용성(A) 은 항상 14일 평균</b>을 쓰므로 이 선택의 영향을 받지 않습니다(성능 P 에만 적용).
-                </div>
-                <label class="up-pbasis-opt" :class="pDialog.basis==='avg' ? 'sel' : ''">
-                    <input type="radio" name="pbasis" value="avg" x-model="pDialog.basis" />
-                    <div>
-                        <div class="up-pbasis-t">14일 평균 가동시간<span class="up-oee-chip">기본</span></div>
-                        <div class="up-pbasis-d">표준 = 최근 14일 클린사이클 <b>평균</b>. 표준이 평균이라 정상상태에서 <b>P ≈ 100% 로 수렴</b> — "최속 대비 손실"이 아니라 <b>"14일 추세 대비 당기 저하"</b> 감지기입니다.</div>
-                    </div>
-                </label>
-                <label class="up-pbasis-opt" :class="pDialog.basis==='p10' ? 'sel' : ''">
-                    <input type="radio" name="pbasis" value="p10" x-model="pDialog.basis" />
-                    <div>
-                        <div class="up-pbasis-t">p10 (최속 기준)</div>
-                        <div class="up-pbasis-d">표준 = 클린사이클 <b>최속 p10</b>(best-demonstrated). "잘 돌 때" 대비 평균이 느린 만큼을 속도손실로 정직하게 반영 → <b>P 가 100% 밑으로</b> 내려옵니다. 단 14일보다 느린 장기 열화는 기준선도 함께 드리프트.</div>
-                    </div>
-                </label>
-                <div class="up-blk-actions">
-                    <button class="btn btn-sm btn-filled" :disabled="pDialog.busy" @click="submitPBasis()">
-                        <span class="material-icons" style="font-size:15px;">save</span> 적용
-                    </button>
-                    <span class="up-blk-msg" :class="pDialog.err ? 'err' : 'ok'" x-text="pDialog.err || pDialog.msg"></span>
-                    <span style="flex:1;"></span>
-                    <button class="btn btn-sm btn-outlined" @click="pDialog.show=false">닫기</button>
-                </div>
-            </div>
-        </div>
     </div>
 
     <script src="/lib/chart.umd.min.js"></script>
@@ -1747,10 +1697,8 @@
                 // 일자 기본값은 로컬 날짜 — toISOString() 은 UTC 라 KST 오전 9시 전엔 어제로 채워짐
                 // 품질(양품률) 직접 입력 다이얼로그 — 전반 품질% 를 직접 설정(POST /api/oee/quality, 전역). 품질 Q 카드 클릭으로 염.
                 qDialog: { show: false, qualityPct: 100, busy: false, msg: '', err: '' },
-                // 성능(P) 표준 가동시간 기준 선택 다이얼로그 — avg(14일 평균)/p10(최속). 성능 P 카드 클릭으로 염(POST /api/oee/performance-basis, 전역).
-                pDialog: { show: false, basis: 'avg', busy: false, msg: '', err: '' },
                 // 오버레이 닫힘 가드 — mousedown 이 오버레이(백드롭)에서 시작했을 때만 닫는다(모달 안에서 시작→백드롭 release 드래그로 오닫힘 방지).
-                _qDown: false, _pDown: false,
+                _qDown: false,
                 // 비생산 시간대 (doc/22 §3.3) — auto: 자동 계산(10×가동시간 장시간정지) on/off. source: auto/manual/none. ctMultiplier: 자동판정 배수(10).
                 // windows=수동 편집용 사본. selected=선택된 윈도 index(-1=미선택). addMode=드래그 추가 무장.
                 ps: { source: 'none', auto: true, ctMultiplier: 10, windows: [], selected: -1, addMode: false, msg: '', err: '', busy: false, autoPattern: null, seededFromAuto: false },
@@ -2795,27 +2743,6 @@
                         await this.loadOee();
                         d.qualityPct = (this.oee && this.oee.quality != null) ? +(this.oee.quality * 100).toFixed(1) : 100;
                     } catch (ex) { d.err = '해제 실패: ' + ex.message; }
-                    finally { d.busy = false; }
-                },
-                // ── 성능(P) 표준 가동시간 기준 선택 다이얼로그 (성능 P 카드 클릭) — avg(14일 평균, 기본)/p10(최속), 전역 설정 ──
-                openPDialog() {
-                    const d = this.pDialog;
-                    d.show = true; d.msg = ''; d.err = '';
-                    // 현재 적용 중인 기준을 라디오 기본값으로(미설정/avg → 'avg').
-                    d.basis = (this.oee && this.oee.performanceBasis === 'p10') ? 'p10' : 'avg';
-                },
-                async submitPBasis() {
-                    const d = this.pDialog;
-                    d.msg = ''; d.err = '';
-                    const basis = d.basis === 'p10' ? 'p10' : 'avg';
-                    d.busy = true;
-                    try {
-                        await this.apiPost('/api/oee/performance-basis', { basis });
-                        d.msg = `적용됨 — 표준 가동시간 기준: ${basis === 'p10' ? 'p10(최속)' : '14일 평균'}`;
-                        clearTimeout(this._prodMsgTimer);
-                        this._prodMsgTimer = setTimeout(() => { d.msg = ''; }, 5000);
-                        await this.loadOee();
-                    } catch (ex) { d.err = '저장 실패: ' + ex.message; }
                     finally { d.busy = false; }
                 },
                 // 분류/마감 성공 피드백 — 잠깐 표시 후 자동 소거 (실패는 기존 oeeError 경로)

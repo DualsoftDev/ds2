@@ -127,16 +127,6 @@ public class AppSettingsService
     }
 
     /// <summary>
-    /// 성능(P) 표준CT 기준 저장. "p10"(대소문자 무관)만 p10, 그 외/null 은 "avg"(기본)로 정규화.
-    /// 비가동 판정·가용성 임계는 불변 — 성능 분자에만 영향. <see cref="Update"/> 로 원자적 저장.
-    /// </summary>
-    public void SavePerformanceBasis(string? basis)
-    {
-        var normalized = string.Equals(basis?.Trim(), "p10", StringComparison.OrdinalIgnoreCase) ? "p10" : "avg";
-        Update(settings => settings.OeeManual.PerformanceBasis = normalized);
-    }
-
-    /// <summary>
     /// 비생산 시간대(수동) 저장. 정규화: 분 클램프(0~1440)·End&gt;Start 만 유지·시작분 정렬.
     /// <b>수동 적용은 자동 계산을 끈다</b>(PlannedStopsAuto=false) — 사용자가 직접 그린 시간대만 적용(요청 사양).
     /// <see cref="Update"/> 로 원자적 저장(설정 페이지 저장과 경합해도 유실 없음).
