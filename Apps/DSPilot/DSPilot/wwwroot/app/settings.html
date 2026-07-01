@@ -180,8 +180,8 @@
                         <button class="btn btn-outlined color-default" @click="reload()" :disabled="busy">
                             <span class="material-icons">refresh</span> 되돌리기
                         </button>
-                        <button class="btn btn-filled" @click="save()" :disabled="busy">
-                            <span class="material-icons">save</span> 저장
+                        <button class="btn" :class="settingsDirty ? 'btn-filled' : ''" @click="save()" :disabled="busy">
+                            <span class="material-icons">save</span> <span x-text="settingsDirty ? '저장*' : '저장'"></span>
                         </button>
                     </div>
 

@@ -363,10 +363,10 @@
                         <span class="material-icons" style="font-size:15px; vertical-align:middle;">undo</span>
                         변경 취소
                     </button>
-                    <button class="btn btn-filled" @click="saveAll()" :disabled="saving || !hasPending"
+                    <button class="btn" :class="hasPending ? 'btn-filled' : ''" @click="saveAll()" :disabled="saving || !hasPending"
                             title="모든 Flow 의 이상치·Head/Tail·실측 duration 변경을 한 번에 적용합니다. Head/Tail 변경은 과거 이력 재계산이 동반되어 변경된 Flow 를 순차 처리합니다.">
                         <span class="material-icons" style="font-size:17px; vertical-align:middle;" x-text="saving ? 'hourglass_top' : 'save'"></span>
-                        <span x-text="saving ? '적용 중…' : '적용'"></span>
+                        <span x-text="saving ? '적용 중…' : (hasPending ? '적용*' : '적용')"></span>
                     </button>
                 </div>
 

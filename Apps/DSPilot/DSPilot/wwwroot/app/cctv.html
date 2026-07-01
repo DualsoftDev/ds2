@@ -954,9 +954,9 @@
 
                 <div class="cctv-camset-actions">
                     <button class="btn btn-outlined" @click="closeCamSettings()">취소</button>
-                    <button class="btn btn-primary" :disabled="camSettings.saving" @click="saveCamSettings()">
+                    <button class="btn" :class="camSettingsDirty ? 'btn-primary' : ''" :disabled="camSettings.saving" @click="saveCamSettings()">
                         <span class="material-icons" style="font-size:16px;">save</span>
-                        <span x-text="camSettings.saving ? '저장 중...' : '저장 후 동기화'"></span>
+                        <span x-text="camSettings.saving ? '저장 중...' : (camSettingsDirty ? '저장 후 동기화*' : '저장 후 동기화')"></span>
                     </button>
                 </div>
             </div>
@@ -975,9 +975,9 @@
                 </div>
                 <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:8px;">
                     <button class="btn btn-outlined" @click="cancelLabel()">취소</button>
-                    <button class="btn btn-primary" :disabled="labelForm.saving" @click="submitLabel()">
+                    <button class="btn" :class="labelFormDirty ? 'btn-primary' : ''" :disabled="labelForm.saving" @click="submitLabel()">
                         <span class="material-icons" style="font-size:16px;">save</span>
-                        <span x-text="labelForm.saving ? '저장 중...' : '저장'"></span>
+                        <span x-text="labelForm.saving ? '저장 중...' : (labelFormDirty ? '저장*' : '저장')"></span>
                     </button>
                 </div>
             </div>
@@ -1052,8 +1052,9 @@
                 // 호버 툴팁
                 hoverOverlay: null,        // { id, camId, kind, color, pos:{left, top?|bottom?}, model:{...} }
 
-                labelForm: { open: false, id: null, label: '', saving: false },
+                labelForm: { open: false, id: null, label: '', orig: '', saving: false },
                 camSettings: { open: false, advancedOpen: false, mediaMtxApiUrl: '', webRtcPort: 8889, webRtcAdditionalHosts: '', idlePauseEnabled: true, idlePauseMinutes: 60, cameras: [], saving: false, syncOk: false, syncMessage: '' },
+                _camBaseline: null,   // 카메라 설정 모달 열 때의 스냅샷 — 저장 버튼 dirty(수정됨) 판정용
 
                 async init() {
                     this.dark = localStorage.getItem('dspilot-theme') === 'dark';
@@ -2009,9 +2010,11 @@
                 openLabelEdit(id) {
                     const o = this.overlaysAll.find(x => x.id === id);
                     if (!o) return;
-                    this.labelForm = { open: true, id, label: o.label || '', saving: false };
+                    this.labelForm = { open: true, id, label: o.label || '', orig: o.label || '', saving: false };
                 },
-                cancelLabel() { this.labelForm = { open: false, id: null, label: '', saving: false }; },
+                cancelLabel() { this.labelForm = { open: false, id: null, label: '', orig: '', saving: false }; },
+                // 라벨 저장 버튼 dirty: 입력값이 원래 라벨과 다르면 수정됨(저장* + PRIMARY)
+                get labelFormDirty() { return this.labelForm.open && (this.labelForm.label || '').trim() !== (this.labelForm.orig || ''); },
                 async submitLabel() {
                     const o = this.overlaysAll.find(x => x.id === this.labelForm.id);
                     if (!o) { this.cancelLabel(); return; }
@@ -2023,6 +2026,17 @@
                 },
 
                 // ── 카메라 설정 (RTSP 추가/편집 — Settings 에서 이관) ──
+                // 저장 버튼 dirty 판정용 스냅샷 — 저장에 영향 없는 필드(open/saving/sync·_capturing 등)는 제외.
+                _camSnapshot() {
+                    const c = this.camSettings;
+                    return JSON.stringify({
+                        mediaMtxApiUrl: c.mediaMtxApiUrl, webRtcPort: c.webRtcPort,
+                        webRtcAdditionalHosts: c.webRtcAdditionalHosts,
+                        idlePauseEnabled: c.idlePauseEnabled, idlePauseMinutes: c.idlePauseMinutes,
+                        cameras: (c.cameras || []).map(x => ({ name: x.name, rtspUrl: x.rtspUrl, enabled: x.enabled, slug: x.slug, fallbackImage: x.fallbackImage }))
+                    });
+                },
+                get camSettingsDirty() { return this.camSettings.open && this._camBaseline !== null && this._camSnapshot() !== this._camBaseline; },
                 async openCamSettings() {
                     try {
                         const c = await this.apiGet('/api/cctv/settings');
@@ -2037,13 +2051,14 @@
                             cameras: (c.cameras || []).map(x => ({ name: x.name || '', rtspUrl: x.rtspUrl || '', enabled: !!x.enabled, slug: x.slug || '', fallbackImage: x.fallbackImage || '', _capturing: false })),
                             saving: false, syncOk: !!c.syncOk, syncMessage: c.syncMessage || ''
                         };
+                        this._camBaseline = this._camSnapshot();   // 방금 로드한 상태 = 기준선(수정 없음)
                     } catch (e) {
                         this.showToast('카메라 설정을 불러오지 못했습니다: ' + e.message, 'error');
                     }
                 },
                 addCamSetting() { this.camSettings.cameras.push({ name: 'camera' + (this.camSettings.cameras.length + 1), rtspUrl: '', enabled: true, slug: '', fallbackImage: '', _capturing: false }); },
                 removeCamSetting(i) { this.camSettings.cameras.splice(i, 1); },
-                closeCamSettings() { this.camSettings = { open: false, advancedOpen: false, mediaMtxApiUrl: '', webRtcPort: 8889, webRtcAdditionalHosts: '', idlePauseEnabled: true, idlePauseMinutes: 60, cameras: [], saving: false, syncOk: false, syncMessage: '' }; },
+                closeCamSettings() { this._camBaseline = null; this.camSettings = { open: false, advancedOpen: false, mediaMtxApiUrl: '', webRtcPort: 8889, webRtcAdditionalHosts: '', idlePauseEnabled: true, idlePauseMinutes: 60, cameras: [], saving: false, syncOk: false, syncMessage: '' }; },
                 async saveCamSettings() {
                     if (this.camSettings.saving) return;
                     this.camSettings.saving = true;

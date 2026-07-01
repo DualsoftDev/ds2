@@ -364,20 +364,24 @@
             }
         });
 
-        // ── 4.5) 시스템별 Flow(사이클 분석) 서브메뉴 컨테이너 ──
-        //   구 '사이클 분석' 메뉴 항목은 제거됨 — 각 시스템 행(사이클 분석 아이콘)이 진입점.
-        //   시스템 행 클릭 → 사이드바(NAVMENU) 내부에서 바로 아래로 Flow 목록을 펼침(아코디언) → Flow 클릭 시 /flow?name= 이동.
+        // ── 4.5) 시스템별 Flow 분석 서브메뉴 컨테이너 ──
+        //   시스템 행("○○ 관리") 클릭 → 사이드바(NAVMENU) 내부 아코디언으로 펼침 → 그 아래 2개 분석 그룹:
+        //     · 추이 분석  → 시스템의 FLOW 리스트 → 클릭 시 /flow-trend?name= 이동
+        //     · 사이클 분석 → 시스템의 FLOW 리스트 → 클릭 시 /flow-cycle?name= 이동
+        //   (구: 시스템 행이 바로 Flow 목록을 펼치고 /flow?name= 로 이동 — 추이/사이클 페이지 분리로 2단계화.)
         //   데이터는 아래 /api/nav fetch 의 systems 트리로 채운다(이미 PLC 디버그용으로 호출 중).
         var cycleSubWrap = el('div', 'flex flex-col gap-0.5');
         if (flowsAnchor && flowsAnchor.parentNode === navMenu) {
             navMenu.insertBefore(cycleSubWrap, flowsAnchor);
         }
 
-        // /flow 페이지에 있을 때: 해당 시스템/Flow 행을 강조(아래 buildSystemSubmenu 에서 처리).
-        var onFlowPage = path === '/flow';
+        // Flow 분석 페이지(/flow-trend·/flow-cycle, 구 통합 /flow)에 있을 때: 해당 시스템/분석/Flow 행을 강조.
+        var onFlowPage = path === '/flow' || path === '/flow-trend' || path === '/flow-cycle';
         var curFlowName = onFlowPage
             ? ((new URLSearchParams(location.search)).get('name') || '')
             : '';
+        // 현재 페이지의 분석 유형: 'trend'(추이 분석) | 'cycle'(사이클 분석) | ''(구 /flow — 특정 분석 아님).
+        var curFlowView = path === '/flow-trend' ? 'trend' : (path === '/flow-cycle' ? 'cycle' : '');
 
         function buildSystemSubmenu(systems) {
             cycleSubWrap.innerHTML = '';
@@ -406,36 +410,33 @@
                 return d;
             }
 
-            systems.forEach(function (sys) {
-                var sysHasCurrent = onFlowPage && (sys.flows || []).indexOf(curFlowName) !== -1;
+            // ── 분석 그룹(추이 분석 / 사이클 분석) 빌더 — 시스템 sub 안의 2차 아코디언(그룹끼리 독립 토글). ──
+            //   header 클릭 → 이 그룹의 FLOW 목록만 펼침/접힘. Flow 클릭 → base?name= 이동.
+            //   base='/flow-trend'|'/flow-cycle', view='trend'|'cycle'(현재 페이지 강조 판정).
+            function buildAnalysisGroup(sysFlows, label, iconName, base, view) {
+                var wrap = el('div', 'flex flex-col gap-0.5');
 
-                var row = el('button', 'w-full flex items-center gap-3 px-4 py-3 rounded text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-inverse-surface transition-colors');
-                row.type = 'button';
-                row.style.cssText = 'text-align:left;' + BTN_RESET;
-                row.setAttribute('aria-expanded', 'false');
-                // 구 '사이클 분석' 항목을 대체 — 시스템 행 아이콘 = 사이클 분석 아이콘(equalizer)
-                var sysIcon = icon('equalizer');
-                sysIcon.style.cssText = 'flex:0 0 auto;font-size:20px;' + (sysHasCurrent ? 'color:#2170e4;' : 'opacity:0.75;');
-                row.appendChild(sysIcon);
-                var sysLabel = el('span', 'font-label-sm text-label-sm', (sys.name || '(이름 없음)') + ' 관리');
-                sysLabel.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-                row.appendChild(sysLabel);
-                var chev = icon('chevron_right');
-                chev.style.cssText = 'flex:0 0 auto;font-size:18px;transition:transform 0.12s;';
-                row.appendChild(chev);
+                var head = el('button', 'w-full flex items-center gap-2 px-3 py-2 rounded text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-inverse-surface transition-colors');
+                head.type = 'button';
+                head.style.cssText = 'text-align:left;' + BTN_RESET;
+                head.setAttribute('aria-expanded', 'false');
+                var hIcon = icon(iconName);
+                hIcon.style.cssText = 'flex:0 0 auto;font-size:17px;opacity:0.8;';
+                head.appendChild(hIcon);
+                var hLabel = el('span', 'font-label-sm text-label-sm', label);
+                hLabel.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                head.appendChild(hLabel);
+                var hChev = icon('chevron_right');
+                hChev.style.cssText = 'flex:0 0 auto;font-size:16px;transition:transform 0.12s;';
+                head.appendChild(hChev);
 
-                // ── 인라인 확장 컨테이너 — 시스템 행 바로 아래(NAVMENU 내부)에서 아코디언으로 펼침. ──
-                //   별도 플라이아웃/오버레이 없이 사이드바 콘텐츠를 밀어내며 펼쳐진다(nav 가 스크롤 처리).
-                var sub = el('div', 'flex flex-col gap-0.5');
-                // display:none = 접힘. padding-left 로 시스템 행 아래 들여쓰기(중첩 표시). pl-* 유틸은 빌드에 없어 인라인 지정.
-                sub.style.cssText = 'display:none;padding-left:18px;';
+                var list = el('div', 'flex flex-col gap-0.5');
+                list.style.cssText = 'display:none;padding-left:16px;';
 
-                // ── '전체 편집'(/flow-all) 진입점은 NAVMENU 에서 제거됨(2026-07-01). ──
-                //   개별 Flow(/flow) 와 구조·용어가 일관되지 않아 사이드바에서 뺌. 페이지 자체는 유지 —
-                //   추후 다른 메뉴로 재배치하거나 삭제 결정. 재배치 시 여기 sub 상단에 다시 붙이면 됨.
-
-                (sys.flows || []).forEach(function (flowName) {
-                    var isCur = onFlowPage && flowName === curFlowName;
+                var groupHasCurrent = false;
+                (sysFlows || []).forEach(function (flowName) {
+                    var isCur = onFlowPage && curFlowView === view && flowName === curFlowName;
+                    if (isCur) groupHasCurrent = true;
                     var fb = el('button', 'w-full flex items-center gap-2 px-3 py-2 rounded transition-colors text-on-surface-variant dark:text-surface-variant'
                         + (isCur ? '' : ' hover:bg-surface-container-high dark:hover:bg-inverse-surface'));
                     fb.type = 'button';
@@ -448,10 +449,55 @@
                     fb.appendChild(fl);
                     fb.addEventListener('click', function (ev) {
                         ev.stopPropagation();
-                        location.href = '/flow?name=' + encodeURIComponent(flowName);
+                        location.href = base + '?name=' + encodeURIComponent(flowName);
                     });
-                    sub.appendChild(fb);
+                    list.appendChild(fb);
                 });
+
+                var expanded = false;
+                function toggle() {
+                    expanded = !expanded;
+                    list.style.display = expanded ? '' : 'none';
+                    hChev.style.transform = expanded ? 'rotate(90deg)' : '';
+                    head.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+                }
+                head.addEventListener('click', function (e) { e.stopPropagation(); toggle(); });
+
+                // 현재 이 그룹의 Flow 를 보고 있으면 자동 펼침.
+                if (groupHasCurrent) toggle();
+
+                wrap.appendChild(head);
+                wrap.appendChild(list);
+                return { wrap: wrap, hasCurrent: groupHasCurrent };
+            }
+
+            systems.forEach(function (sys) {
+                var flows = sys.flows || [];
+                var sysHasCurrent = onFlowPage && flows.indexOf(curFlowName) !== -1;
+
+                var row = el('button', 'w-full flex items-center gap-3 px-4 py-3 rounded text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-inverse-surface transition-colors');
+                row.type = 'button';
+                row.style.cssText = 'text-align:left;' + BTN_RESET;
+                row.setAttribute('aria-expanded', 'false');
+                var sysIcon = icon('equalizer');
+                sysIcon.style.cssText = 'flex:0 0 auto;font-size:20px;' + (sysHasCurrent ? 'color:#2170e4;' : 'opacity:0.75;');
+                row.appendChild(sysIcon);
+                var sysLabel = el('span', 'font-label-sm text-label-sm', (sys.name || '(이름 없음)') + ' 관리');
+                sysLabel.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                row.appendChild(sysLabel);
+                var chev = icon('chevron_right');
+                chev.style.cssText = 'flex:0 0 auto;font-size:18px;transition:transform 0.12s;';
+                row.appendChild(chev);
+
+                // ── 인라인 확장 컨테이너 — 시스템 행 바로 아래(NAVMENU 내부)에서 아코디언으로 펼침. ──
+                var sub = el('div', 'flex flex-col gap-0.5');
+                sub.style.cssText = 'display:none;padding-left:18px;';
+
+                // 2개 분석 그룹 — 각각 이 시스템의 FLOW 리스트.
+                var gTrend = buildAnalysisGroup(flows, '추이 분석', 'timeline', '/flow-trend', 'trend');
+                var gCycle = buildAnalysisGroup(flows, '사이클 분석', 'account_tree', '/flow-cycle', 'cycle');
+                sub.appendChild(gTrend.wrap);
+                sub.appendChild(gCycle.wrap);
 
                 row.addEventListener('click', function (e) {
                     e.stopPropagation();
@@ -462,7 +508,7 @@
                 cycleSubWrap.appendChild(row);
                 cycleSubWrap.appendChild(sub);
 
-                // 현재 보고 있는 Flow(/flow?name=)가 이 시스템에 속하면 자동으로 펼쳐 위치를 보여준다.
+                // 현재 보고 있는 Flow 가 이 시스템에 속하면 시스템 행 자동 펼침(그룹 자동펼침은 buildAnalysisGroup 내부).
                 if (sysHasCurrent) expand(row, sub, chev);
             });
         }

@@ -97,12 +97,12 @@ public interface IOeeRepository
     // ── 시프트 예외 (계획정비/비가동) ─────────────────────────────────────
 
     /// <summary>
-    /// 일자별/시간별 정지 합 버킷 (SQL GROUP BY). hourly=true → 시간별, false → 일자별.
-    /// 반환값: (Slot, PlannedMs, FailureMs, OtherMs, UnclassifiedMs) — 상호배타 5분해(가동은 컨트롤러가 SlotMs 에서 차감).
-    /// Slot 은 'yyyy-MM-dd' 또는 'yyyy-MM-dd HH:00' (로컬). SlotMs 는 컨트롤러에서 달력 기반으로 채운다.
+    /// 기간 [from,to] 과 겹치는 정지 이벤트를 raw 구간(UTC epoch ms)+종류로 반환. 슬롯 분배는 컨트롤러가 overlap 으로 수행.
+    /// Kind: 0=계획정비(category='planned') / 1=고장(isFailure=1) / 2=기타 비계획 / 3=미분류(category NULL) — 상호배타.
+    /// open(endAt NULL) 은 min(now, to) 로 캡. startAt 이 from 이전이라도 겹치면 포함(장시간·다일 정지 정확 분배).
     /// </summary>
-    Task<IReadOnlyList<(string Slot, long PlannedMs, long FailureMs, long OtherMs, long UnclassifiedMs)>> GetDowntimeBySlotsAsync(
-        DateTime fromUtc, DateTime toUtc, string? flowName, bool hourly, CancellationToken ct = default);
+    Task<IReadOnlyList<(long StartMs, long EndMs, int Kind)>> GetDowntimeIntervalsAsync(
+        DateTime fromUtc, DateTime toUtc, string? flowName, CancellationToken ct = default);
 
     Task<long> InsertShiftExceptionAsync(OeeShiftException row, CancellationToken ct = default);
     Task<IReadOnlyList<OeeShiftException>> QueryShiftExceptionsAsync(

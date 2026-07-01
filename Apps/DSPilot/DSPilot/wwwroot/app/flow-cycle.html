@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Flow Workspace — DSPilot</title>
+    <title>사이클 분석 — DSPilot</title>
 
     <!--
       DSPilot 정적 호스팅 — Flow Workspace (FlowWorkspace.razor 이전).
@@ -30,7 +30,7 @@
 
         <!-- fallback 슬림 헤더 (shell.js 가 제거) -->
         <header class="dsp-appbar">
-            <span class="dsp-title">Flow Workspace</span>
+            <span class="dsp-title">사이클 분석</span>
             <span class="dsp-badge">정적</span>
             <div class="spacer"></div>
             <button class="btn-icon" @click="toggleTheme()" title="테마 전환">
@@ -45,7 +45,7 @@
                 <div class="ds-topbar-titles">
                     <h2 x-text="flow ? flow.flowName : (flowName || 'Flow')"></h2>
                     <div class="ds-breadcrumb">
-                        <span x-text="flow && flow.systemName ? flow.systemName : '-'"></span> · Flow Workspace
+                        <span x-text="flow && flow.systemName ? flow.systemName : '-'"></span> · 사이클 분석
                     </div>
                 </div>
             </div>
@@ -67,17 +67,6 @@
 
             <template x-if="flow">
                 <div class="fw-grid">
-
-                    <!-- ════ 탭 바 ════ -->
-                    <div class="fw-tabs">
-                        <button :class="tab === 'trend' ? 'is-active' : ''" @click="setTab('trend')">
-                            <span class="material-icons">timeline</span> 기간별 추이
-                        </button>
-                        <button :class="tab === 'cycle' ? 'is-active' : ''" @click="setTab('cycle')">
-                            <span class="material-icons">account_tree</span> 사이클 분석
-                        </button>
-                    </div>
-
                     <!-- ════ 공용 툴바: 이상치 제외 필터 (이 Flow · 서버 공유 · 사이클분석·히스토리 전 탭 적용) ════ -->
                     <div class="fw-toolbar" x-show="flow" x-cloak>
                         <span class="fw-toolbar-label">
@@ -103,55 +92,6 @@
                             <span class="fw-tb-badge" x-show="incompleteCount > 0" x-text="incompleteCount"></span>
                         </label>
                     </div>
-
-                    <!-- ════ 기간별 추이 ════ -->
-                    <section class="card fw-section" x-show="tab === 'trend'">
-                        <div class="ds-card-h">
-                            <div>
-                                <h4>기간별 추이</h4>
-                                <span class="ds-card-h-sub" x-text="trendSubtitle"></span>
-                            </div>
-                            <div class="fw-period-controls">
-                                <div class="segmented">
-                                    <button :class="period === 'today' ? 'is-active' : ''" @click="setPeriod('today')">오늘</button>
-                                    <button :class="period === '7d' ? 'is-active' : ''" @click="setPeriod('7d')">지난 7일</button>
-                                    <button :class="period === '30d' ? 'is-active' : ''" @click="setPeriod('30d')">지난 30일</button>
-                                    <button :class="period === '60d' ? 'is-active' : ''" @click="setPeriod('60d')">지난 60일</button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div x-show="trendLoading" class="ds-empty">
-                            <span class="material-icons">hourglass_top</span>
-                            <div class="ds-empty-title">히스토리 데이터를 불러오는 중...</div>
-                        </div>
-
-                        <template x-if="!trendLoading && trend.cycleCount === 0">
-                            <div class="ds-empty">
-                                <span class="material-icons">timeline</span>
-                                <div class="ds-empty-title">선택 기간에 기록된 사이클이 없습니다</div>
-                                <div class="ds-empty-desc">기간을 넓히거나, 사이클이 기록될 때까지 기다려 주세요.</div>
-                            </div>
-                        </template>
-
-                        <template x-if="!trendLoading && trend.cycleCount > 0">
-                            <div>
-                                <div class="fw-chart-tall"><canvas x-ref="trendChart"></canvas></div>
-
-                                <div class="fw-chart-row">
-                                    <div>
-                                        <div class="ds-card-h"><h4 style="font-size:0.78rem;">사이클 수</h4></div>
-                                        <div class="fw-chart-md"><canvas x-ref="countChart"></canvas></div>
-                                    </div>
-                                    <div>
-                                        <div class="ds-card-h"><h4 style="font-size:0.78rem;">시간 구성</h4></div>
-                                        <div class="fw-chart-md"><canvas x-ref="distChart"></canvas></div>
-                                    </div>
-                                </div>
-                            </div>
-                        </template>
-                    </section>
-
                     <!-- ════ 사이클 분석 (구 cycle-time-analysis 전체 기능, 이 Flow 스코프) ════ -->
                     <section class="card fw-section" x-show="tab === 'cycle'">
                         <div class="ds-card-h" style="margin-bottom:12px;">
@@ -446,10 +386,8 @@
                             </template>
                         </div>
                     </section>
-
                 </div>
             </template>
-
             <!-- ── 이상치 제외 범위 팝업 (이 Flow 의 최소·최대 CT) ── -->
             <div class="modal-overlay" x-show="rangeModalOpen" x-cloak style="z-index:2000;" @click="closeRangeModal()">
                 <div class="modal-content shift-modal" @click.stop>
@@ -520,6 +458,7 @@
 
     <script src="/lib/signalr.min.js"></script>
     <script src="/lib/chart.umd.min.js"></script>
+    <script>window.DSP_FLOW_VIEW = "cycle";</script>
     <script src="/app/flow-workspace.js"></script>
     <script src="/app/shell.js" defer></script>
     <script defer src="/lib/alpine.min.js"></script>

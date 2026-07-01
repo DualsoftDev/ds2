@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>기간별 추이 — DSPilot</title>
+
+    <!--
+      DSPilot 정적 호스팅 — Flow Workspace (FlowWorkspace.razor 이전).
+      서버/모델 = C#(/api/flow/*, /api/dashboard/flows/*, /api/call-test/*, /api/cycle-analysis/export-excel),
+      뷰 = 정적 HTML/CSS/JS(Alpine + Chart.js + vanilla SVG + SignalR). 디자인 시스템: /css/ds.css.
+      진입: ?name=<flowName> (이 Flow 1개에 스코프됨 — Flow 선택 드롭다운 없음).
+      구성: 헤더 카드 + KPI 6셀 + 기간별 추이(클라 집계)
+            + 사이클 분석(구 cycle-time-analysis 전체 기능: 간트/Head·Tail 적용·저장/Excel/정렬/최대Gap/드래그 구간통계)
+            + 최근 히스토리(구 대시보드 하단: 테이블↔차트 + 이상치 제외 범위 필터, 서버 공유).
+      구 'Flow CT 기준' override 패널은 제거 — 사이클 분석의 'Head/Tail 적용(저장)' 이 동일 엔드포인트
+      (/api/flow/{name}/cycle-override) 로 더 풍부하게 대체한다.
+      실시간: /hubs/monitoring SignalR 이벤트 → /api/flow/{name} + 히스토리 디바운스 refetch.
+              사이클 분석(간트)은 줌/선택 보존을 위해 수동 새로고침(프리셋/새로고침 버튼).
+    -->
+    <link href="/css/fonts.css" rel="stylesheet" />
+    <link href="/css/ds.css" rel="stylesheet" />
+
+    <link href="/css/flow-workspace.css" rel="stylesheet" />
+</head>
+
+<body>
+    <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="flowApp()" x-init="init()" x-cloak>
+
+        <!-- fallback 슬림 헤더 (shell.js 가 제거) -->
+        <header class="dsp-appbar">
+            <span class="dsp-title">기간별 추이</span>
+            <span class="dsp-badge">정적</span>
+            <div class="spacer"></div>
+            <button class="btn-icon" @click="toggleTheme()" title="테마 전환">
+                <span class="material-icons" x-text="dark ? 'light_mode' : 'dark_mode'"></span>
+            </button>
+        </header>
+
+        <main class="dsp-main">
+
+            <!-- 상단 툴바 -->
+            <div class="ds-topbar">
+                <div class="ds-topbar-titles">
+                    <h2 x-text="flow ? flow.flowName : (flowName || 'Flow')"></h2>
+                    <div class="ds-breadcrumb">
+                        <span x-text="flow && flow.systemName ? flow.systemName : '-'"></span> · 기간별 추이
+                    </div>
+                </div>
+            </div>
+
+            <!-- 로딩/오류 -->
+            <div x-show="loading && !flow" class="progress-bar progress-bar-indeterminate" style="margin-bottom:12px;"><div class="progress-bar-fill"></div></div>
+            <div class="alert alert-error" x-show="error" style="margin-bottom:12px;"><span class="material-icons">error</span><span x-text="error"></span></div>
+
+            <!-- Flow 없음 -->
+            <template x-if="!loading && !error && !flow">
+                <div class="card fw-section">
+                    <div class="ds-empty">
+                        <span class="material-icons">account_tree</span>
+                        <div class="ds-empty-title">선택 가능한 Flow가 없습니다</div>
+                        <div class="ds-empty-desc">URL 에 <span style="font-family:var(--font-mono);">?name=&lt;Flow이름&gt;</span> 으로 Flow 를 지정하세요. AASX 프로젝트가 로드되어 있어야 합니다.</div>
+                    </div>
+                </div>
+            </template>
+
+            <template x-if="flow">
+                <div class="fw-grid">
+                    <!-- ════ 기간별 추이 ════ -->
+                    <section class="card fw-section" x-show="tab === 'trend'">
+                        <div class="ds-card-h">
+                            <div>
+                                <h4>기간별 추이</h4>
+                                <span class="ds-card-h-sub" x-text="trendSubtitle"></span>
+                            </div>
+                            <div class="fw-period-controls">
+                                <div class="segmented">
+                                    <button :class="period === 'today' ? 'is-active' : ''" @click="setPeriod('today')">오늘</button>
+                                    <button :class="period === '7d' ? 'is-active' : ''" @click="setPeriod('7d')">지난 7일</button>
+                                    <button :class="period === '30d' ? 'is-active' : ''" @click="setPeriod('30d')">지난 30일</button>
+                                    <button :class="period === '60d' ? 'is-active' : ''" @click="setPeriod('60d')">지난 60일</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div x-show="trendLoading" class="ds-empty">
+                            <span class="material-icons">hourglass_top</span>
+                            <div class="ds-empty-title">히스토리 데이터를 불러오는 중...</div>
+                        </div>
+
+                        <template x-if="!trendLoading && trend.cycleCount === 0">
+                            <div class="ds-empty">
+                                <span class="material-icons">timeline</span>
+                                <div class="ds-empty-title">선택 기간에 기록된 사이클이 없습니다</div>
+                                <div class="ds-empty-desc">기간을 넓히거나, 사이클이 기록될 때까지 기다려 주세요.</div>
+                            </div>
+                        </template>
+
+                        <template x-if="!trendLoading && trend.cycleCount > 0">
+                            <div>
+                                <div class="fw-chart-tall"><canvas x-ref="trendChart"></canvas></div>
+
+                                <div class="fw-chart-row">
+                                    <div>
+                                        <div class="ds-card-h"><h4 style="font-size:0.78rem;">사이클 수</h4></div>
+                                        <div class="fw-chart-md"><canvas x-ref="countChart"></canvas></div>
+                                    </div>
+                                    <div>
+                                        <div class="ds-card-h"><h4 style="font-size:0.78rem;">시간 구성</h4></div>
+                                        <div class="fw-chart-md"><canvas x-ref="distChart"></canvas></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </section>
+                </div>
+            </template>
+        </main>
+    </div>
+
+    <script src="/lib/signalr.min.js"></script>
+    <script src="/lib/chart.umd.min.js"></script>
+    <script>window.DSP_FLOW_VIEW = "trend";</script>
+    <script src="/app/flow-workspace.js"></script>
+    <script src="/app/shell.js" defer></script>
+    <script defer src="/lib/alpine.min.js"></script>
+</body>
+
+</html>

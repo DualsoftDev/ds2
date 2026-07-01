@@ -346,7 +346,7 @@
 
         /* ── CT 비교 도넛 범례 ── */
         .ct-legend { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 10px; padding: 8px 14px 12px; border-top: 1px solid var(--color-lines); flex-shrink: 0; }
-        .ct-legend-item { display: flex; align-items: center; gap: 7px; padding: 3px 6px; border: none; background: transparent; border-radius: var(--radius-sm); cursor: pointer; min-width: 0; text-align: left; }
+        .ct-legend-item { display: flex; align-items: center; gap: 7px; padding: 3px 6px; border: none; background: transparent; border-radius: var(--radius-sm); cursor: default; min-width: 0; text-align: left; }
         .ct-legend-item:hover { background: color-mix(in srgb, var(--color-primary) 7%, transparent); }
         .ct-legend-item.is-sel { background: color-mix(in srgb, var(--color-primary) 13%, transparent); }
         .ct-legend-sw { width: 11px; height: 11px; border-radius: 4px; flex-shrink: 0; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-text-primary) 14%, transparent); }
@@ -882,8 +882,7 @@
                             <div class="ct-legend">
                                 <template x-for="(f, i) in chartData" :key="f.flowName">
                                     <button class="ct-legend-item" :class="focusFlowName === f.flowName ? 'is-sel' : ''"
-                                            @click.stop="goFlow(f.flowName)"
-                                            @mouseenter="hoverFlow(f.flowName)" @mouseleave="hoverFlow(null)" :title="f.flowName + ' · 상세 분석'">
+                                            @mouseenter="hoverFlow(f.flowName)" @mouseleave="hoverFlow(null)" :title="f.flowName">
                                         <span class="ct-legend-sw" :style="`background:${f.flowName === maxCtName ? 'var(--ct-bottleneck)' : ctPalette(i)}`"></span>
                                         <span class="ct-legend-name" x-text="f.flowName"></span>
                                         <span class="ct-legend-val" style="color:var(--dash-mt)" x-text="fmt(f.mt) + ' (' + (f.ct>0 ? Math.round(f.mt*100/f.ct) : 0) + '%)'"></span>
@@ -934,8 +933,8 @@
                     </div>
                     <div class="flex gap-2 justify-end" style="margin-top:16px;">
                         <button class="btn btn-sm btn-outlined" @click="closeAvgModal()">취소</button>
-                        <button class="btn btn-sm btn-primary" @click="saveAvgDays()">
-                            <span class="material-icons" style="font-size:15px;">check</span> 적용
+                        <button class="btn btn-sm" :class="(avgDaysForm !== avgDays) ? 'btn-primary' : ''" @click="saveAvgDays()">
+                            <span class="material-icons" style="font-size:15px;">check</span> <span x-text="(avgDaysForm !== avgDays) ? '적용*' : '적용'"></span>
                         </button>
                     </div>
                 </div>
@@ -1431,13 +1430,6 @@
                             // 툴팁 제거 — 강조 flow 의 CT·동작·대기는 도넛 아래 가로 막대(ct-focusbar)가 표시.
                             tooltip: { enabled: false },
                         },
-                        onClick: (e, els, chart) => {
-                            if (els && els.length) {
-                                const el = els[0];
-                                const d = ctDyn; if (!d) return;
-                                self.goFlow(d.rows[el.index]?.flowName);
-                            }
-                        },
                         onHover: (e, els, chart) => {
                             if (els && els.length) {
                                 // ctDyn.rows 사용 — in-place 갱신 후 stale 클로저 rows 방지
@@ -1480,7 +1472,6 @@
             // 강조 flow 의 지표 행(동작·대기 막대용). 없으면 null → 안내문 표시.
             get focusRow() { const n = this.focusFlowName; return n ? (this.chartData.find(r => r.flowName === n) || null) : null; },
             hoverFlow(name) { this.hoverFlowName = name || null; },
-            goFlow(name) { if (name) window.location.href = '/flow?name=' + encodeURIComponent(name); },
 
             toggleFullscreen() {
                 const el = this.$refs.layoutCard;

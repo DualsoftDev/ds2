@@ -268,17 +268,6 @@
         .up-qeq { font-size: 1.1rem; color: var(--color-text-secondary); align-self: flex-end; padding-bottom: 5px; }
         .up-qhint { font-size: 0.66rem; color: var(--color-text-secondary); flex: 1; min-width: 180px; line-height: 1.5; }
 
-        /* 자동화 파이프라인 상태 스트립 */
-        .up-auto-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--color-lines); border: 1px solid var(--color-lines); border-radius: var(--radius-md); overflow: hidden; }
-        @media (max-width: 720px) { .up-auto-strip { grid-template-columns: 1fr 1fr; } }
-        .up-auto-cell { background: var(--color-surface); padding: 11px 14px; display: flex; align-items: center; gap: 10px; }
-        .up-auto-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 16%, transparent); }
-        .up-auto-dot.live { color: var(--green); background: var(--green); }
-        .up-auto-dot.partial { color: var(--amber); background: var(--amber); }
-        .up-auto-dot.off { color: var(--color-text-disabled); background: var(--color-text-disabled); }
-        .up-auto-cell .nm { font-size: 0.74rem; font-weight: 700; color: var(--color-text-primary); }
-        .up-auto-cell .st { font-size: 0.62rem; color: var(--color-text-secondary); }
-
         /* 출처 칩 (도넛 범례/로그/CT 공용) */
         .src-chip { display: inline-flex; align-items: center; padding: 0 7px; border-radius: 999px; font-size: 0.56rem; font-weight: 700; line-height: 1.7; letter-spacing: 0.02em; white-space: nowrap; }
         .src-chip.manual { color: var(--color-text-primary); background: var(--color-surface-variant); border: 1px solid var(--color-lines-strong); }
@@ -417,11 +406,10 @@
             .up-tabs { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; }
             .up-tab { padding: 8px 12px; font-size: 0.8rem; white-space: nowrap; flex: 0 0 auto; }
 
-            /* OEE 5-KPI 그리드 + 자동화 파이프라인 + ops/utkpi → 1열, hero 폰트 축소 */
+            /* OEE 5-KPI 그리드 + ops/utkpi → 1열, hero 폰트 축소 */
             .up-oee-row { grid-template-columns: 1fr; gap: 10px; }
             .up-oee.is-hero .up-oee-value { font-size: 1.5rem; }
             .up-oee .up-oee-value { font-size: 1.5rem; }
-            .up-auto-strip { grid-template-columns: 1fr; }
             .up-utkpi-row { grid-template-columns: 1fr 1fr; }
             /* 이상 띠: 좁은 화면에서 패딩/문구 축소 */
             .up-alarm { padding: 11px 14px; }
@@ -653,22 +641,6 @@
             <!-- ═══════════════ 탭 1: OEE 종합 ═══════════════ -->
             <div class="up-grid" x-show="tab === 'oee'">
 
-                <!-- ════ 자동화 파이프라인 상태 (수집 데이터 → 지표 자동 산출) ════ -->
-                <section class="card up-section">
-                    <div class="ds-card-h">
-                        <h4>자동화 파이프라인</h4>
-                        <span class="ds-card-h-sub">수집 데이터 → 지표 자동 산출 (필수 입력 0개)</span>
-                    </div>
-                    <div class="up-auto-strip">
-                        <template x-for="c in autoStrip" :key="c.nm">
-                            <div class="up-auto-cell">
-                                <span class="up-auto-dot" :class="c.cls"></span>
-                                <div><div class="nm" x-text="c.nm"></div><div class="st" x-text="c.st"></div></div>
-                            </div>
-                        </template>
-                    </div>
-                </section>
-
                 <!-- ════ OEE 종합 (실데이터: /api/oee/summary) — 5 KPI: OEE·A·P·Q·MTBF ════ -->
                 <section class="card up-section">
                     <div class="ds-card-h">
@@ -765,89 +737,59 @@
                     </div>
                 </section>
 
-                <!-- ════ 가용성 = 사이클 분해 (doc/22 §4) — Σ실측 가동시간 vs Σ비가동 가동시간. 사이클기반(source='cycle') 일 때만 ════ -->
-                <section class="card up-section" x-show="oee && oee.availabilitySource === 'cycle'">
-                    <div class="ds-card-h">
-                        <h4>가용성 = 사이클 분해</h4>
-                        <span class="ds-card-h-sub">Σ실측 가동시간 ÷ (Σ실측 가동시간 + Σ비가동 가동시간) · 비가동 = 동작시간&gt;가동시간 이상치 / 미완료 가동시간 폭주 / 무사이클</span>
-                    </div>
-                    <template x-if="oee && (oee.normalCtMs + oee.idleCtMs) > 0">
-                        <div>
-                            <div class="ds-legend" style="margin-bottom:10px;">
-                                <div class="lg-item"><span class="lg-swatch" style="background:var(--green);"></span> 실측 가동시간 (정상 사이클)</div>
-                                <div class="lg-item"><span class="lg-swatch" style="background:var(--red);"></span> 비가동 가동시간</div>
-                            </div>
-                            <div style="display:flex; height:26px; border-radius:var(--radius-sm); overflow:hidden; border:1px solid var(--color-lines);">
-                                <div :style="`width:${cycleComp.normalPct}%; background:var(--green);`" :title="'실측 ' + cycleComp.normalPct + '%'"></div>
-                                <div :style="`width:${cycleComp.idlePct}%; background:var(--red);`" :title="'비가동 ' + cycleComp.idlePct + '%'"></div>
-                            </div>
-                            <div style="display:flex; gap:18px; margin-top:8px; font-size:0.72rem; color:var(--color-text-secondary); flex-wrap:wrap;">
-                                <span>Σ실측 가동시간 <b x-text="durShort(oee.normalCtMs)"></b> (<span x-text="cycleComp.normalPct + '%'"></span>) · <span x-text="(oee.normalCycleCount || 0) + ' 사이클'"></span></span>
-                                <span>Σ비가동 가동시간 <b x-text="durShort(oee.idleCtMs)"></b> (<span x-text="cycleComp.idlePct + '%'"></span>) · <span x-text="oee.failureCount + '건'"></span></span>
-                                <span x-show="oee && oee.plannedDownMs > 0">비생산 시간 <b x-text="durShort(oee.plannedDownMs)"></b> <span class="up-codeish" x-text="(oee.plannedStopSource === 'manual' ? '수동' : '자동(10×가동시간)') + '·전부제외'"></span></span>
-                                <span>가동시간 이상치 <b x-text="durShort(oee.ctThresholdMs)"></b> <span class="up-codeish">14일 평균</span></span>
-                            </div>
-                            <div class="up-form-hint" style="margin-top:8px;">한 사이클의 <b>동작시간이 가동시간 이상치를 넘으면</b> 그 사이클 가동시간 전체를 비가동으로 본다(인식지연 + 고장 + 회복 포함). 미완료(가동시간 폭주)·무사이클 정지도 비가동에 합산하되 겹친 구간은 1회만 계상한다(이중계상 방지).</div>
-                        </div>
-                    </template>
-                    <template x-if="!oee || (oee.normalCtMs + oee.idleCtMs) <= 0">
-                        <div class="ds-empty">
-                            <span class="material-icons">donut_small</span>
-                            <div class="ds-empty-title">사이클 데이터 없음</div>
-                            <div class="ds-empty-desc">최근 14일 클린사이클이 1개라도 쌓이면 가동시간 이상치(표준 가동시간)가 산출되어 사이클기반 가용성·성능이 표시됩니다(5개 미만은 '샘플 부족' 잠정값, 쌓이면 자동 정상화). 클린사이클 0이면 계획시간 폴백으로 가용성을 근사합니다.</div>
-                        </div>
-                    </template>
-                </section>
-
-                <!-- ════ 일자별 시간 구성 (OEE 종합 아래 배치) — 가동/정지 근사 + 점검=계획정비 ════ -->
+                <!-- ════ 가용성 시간 구성 (통합) — 활성 모드의 A 분해(cycle: Σ실측CT vs Σ비가동CT / 폴백: 가동 vs 정지, 계획시간 분모) + 일자별 추이. KPI(A)와 항상 일치 ════ -->
                 <section class="card up-section">
                     <div class="ds-card-h">
-                        <h4>시간 구성</h4>
-                        <span class="ds-card-h-sub" x-text="dailyData ? (dailyData.granularity === 'hour' ? '시간별' : '일자별') + ' 가동(근사) · 고장 · 유지보수' : '가동(근사) · 고장 · 유지보수'"></span>
+                        <h4>가용성 시간 구성</h4>
+                        <span class="ds-card-h-sub" x-text="availComp.subtitle"></span>
                     </div>
 
-                    <!-- 일자별/시간별 스택 막대 차트 -->
-                    <template x-if="dailyData && dailyData.slots && dailyData.slots.length > 0">
-                        <div style="position:relative; height:220px; margin-bottom:16px;">
-                            <canvas id="up-daily-chart"></canvas>
+                    <!-- ① 가용성 분해 바 (활성 모드 — 상단 A KPI와 일치) -->
+                    <template x-if="availComp.hasData">
+                        <div style="margin-bottom:18px;">
+                            <div class="ds-legend" style="margin-bottom:10px;">
+                                <div class="lg-item"><span class="lg-swatch" style="background:var(--green);"></span> <span x-text="availComp.runLabel"></span></div>
+                                <div class="lg-item"><span class="lg-swatch" style="background:var(--red);"></span> <span x-text="availComp.stopLabel"></span></div>
+                            </div>
+                            <div style="display:flex; height:26px; border-radius:var(--radius-sm); overflow:hidden; border:1px solid var(--color-lines);">
+                                <div :style="`width:${availComp.runPct}%; background:var(--green);`" :title="availComp.runLabel + ' ' + availComp.runPct + '%'"></div>
+                                <div :style="`width:${availComp.stopPct}%; background:var(--red);`" :title="availComp.stopLabel + ' ' + availComp.stopPct + '%'"></div>
+                            </div>
+                            <div style="display:flex; gap:18px; margin-top:8px; font-size:0.72rem; color:var(--color-text-secondary); flex-wrap:wrap;">
+                                <span><span x-text="availComp.runLabel"></span> <b x-text="durShort(availComp.runMs)"></b> (<span x-text="availComp.runPct + '%'"></span>)<template x-if="availComp.runNote"><span x-text="' · ' + availComp.runNote"></span></template></span>
+                                <span><span x-text="availComp.stopLabel"></span> <b x-text="durShort(availComp.stopMs)"></b> (<span x-text="availComp.stopPct + '%'"></span>)<template x-if="availComp.stopNote"><span x-text="' · ' + availComp.stopNote"></span></template></span>
+                                <span x-show="availComp.mode === 'cycle' && oee && oee.plannedDownMs > 0">비생산 시간 <b x-text="durShort(oee.plannedDownMs)"></b> <span class="up-codeish" x-text="(oee.plannedStopSource === 'manual' ? '수동' : '자동(10×가동시간)') + '·전부제외'"></span></span>
+                                <span x-show="availComp.mode === 'cycle'">가동시간 이상치 <b x-text="durShort(oee.ctThresholdMs)"></b> <span class="up-codeish">14일 평균</span></span>
+                                <span x-show="availComp.mode === 'fallback'">계획시간 기준 <span class="up-codeish" x-text="availComp.sourceLabel"></span></span>
+                            </div>
+                            <div class="up-form-hint" style="margin-top:8px;" x-html="availComp.hint"></div>
                         </div>
                     </template>
-                    <template x-if="!dailyData || !dailyData.slots || dailyData.slots.length === 0">
-                        <div class="ds-empty" style="margin-bottom:16px;">
-                            <span class="material-icons">bar_chart</span>
-                            <div class="ds-empty-title">버킷 데이터 없음</div>
-                            <div class="ds-empty-desc">정지 이벤트가 누적되면 일자별 가동·정지 구성이 표시됩니다.</div>
+                    <template x-if="!availComp.hasData">
+                        <div class="ds-empty" style="margin-bottom:18px;">
+                            <span class="material-icons">donut_small</span>
+                            <div class="ds-empty-title">가용성 데이터 없음</div>
+                            <div class="ds-empty-desc">최근 14일 클린사이클이 1개라도 쌓이면 사이클기반 가용성이 표시됩니다(5개 미만은 '샘플 부족' 잠정값, 쌓이면 자동 정상화). 클린사이클 0이면 계획시간 폴백(시프트 ▸ 14일 자동추정 ▸ 달력)으로 가용성을 근사합니다.</div>
                         </div>
                     </template>
 
-                    <!-- 기간 전체 단일 바 (기존) -->
-                    <template x-if="oee && oee.periodMs > 0">
-                        <div>
-                            <div class="ds-legend" style="margin-bottom:10px;">
-                                <div class="lg-item"><span class="lg-swatch" style="background:var(--green);"></span> 가동(근사)</div>
-                                <div class="lg-item"><span class="lg-swatch" style="background:var(--red);"></span> 고장</div>
-                                <div class="lg-item"><span class="lg-swatch" style="background:var(--mt);"></span> 유지보수</div>
+                    <!-- ② 일자별/시간별 추이 (달력근사 · 고장/유지보수 상세는 아래 '정지 구성' 도넛) — 차트 자체 범례 사용 -->
+                    <div style="border-top:1px solid var(--color-lines); padding-top:12px;">
+                        <div style="font-size:0.72rem; font-weight:700; color:var(--color-text-primary); margin-bottom:8px;" x-text="dailyData && dailyData.granularity === 'hour' ? '시간별 추이 (가동 근사 · 고장 · 유지보수)' : '일자별 추이 (가동 근사 · 고장 · 유지보수)'"></div>
+                        <template x-if="dailyData && dailyData.slots && dailyData.slots.length > 0">
+                            <div style="position:relative; height:220px;">
+                                <canvas id="up-daily-chart"></canvas>
                             </div>
-                            <div style="display:flex; height:26px; border-radius:var(--radius-sm); overflow:hidden; border:1px solid var(--color-lines);">
-                                <div :style="`width:${timeComp.runPct}%; background:var(--green);`" :title="'가동 ' + timeComp.runPct + '%'"></div>
-                                <div :style="`width:${timeComp.downPct}%; background:var(--red);`" :title="'고장 ' + timeComp.downPct + '%'"></div>
-                                <div :style="`width:${timeComp.maintPct}%; background:var(--mt);`" :title="'유지보수 ' + timeComp.maintPct + '%'"></div>
+                        </template>
+                        <template x-if="!dailyData || !dailyData.slots || dailyData.slots.length === 0">
+                            <div class="ds-empty">
+                                <span class="material-icons">bar_chart</span>
+                                <div class="ds-empty-title">추이 데이터 없음</div>
+                                <div class="ds-empty-desc">정지 이벤트가 누적되면 일자별 가동·정지 추이가 표시됩니다.</div>
                             </div>
-                            <div style="display:flex; gap:18px; margin-top:8px; font-size:0.72rem; color:var(--color-text-secondary);">
-                                <span>가동 <b x-text="durShort(timeComp.runMs)"></b> (<span x-text="timeComp.runPct + '%'"></span>)</span>
-                                <span>고장 <b x-text="durShort(timeComp.downMs)"></b> (<span x-text="timeComp.downPct + '%'"></span>)</span>
-                                <span>유지보수 <b x-text="durShort(timeComp.maintMs)"></b></span>
-                            </div>
-                            <div class="up-form-hint" style="margin-top:8px;">가동은 달력근사(기간 − 전체 정지)이며 유휴와 분리되지 않습니다. 유지보수는 <b>로그에서 유지보수로 해제된 정지의 합</b>으로, 고장과 겹치지 않게 분리 표시됩니다.</div>
-                        </div>
-                    </template>
-                    <template x-if="!oee || oee.periodMs <= 0">
-                        <div class="ds-empty">
-                            <span class="material-icons">stacked_bar_chart</span>
-                            <div class="ds-empty-title">시간 구성 데이터 없음</div>
-                            <div class="ds-empty-desc">기간 정보가 산출되면 가동/정지/점검 구성이 표시됩니다.</div>
-                        </div>
-                    </template>
+                        </template>
+                        <div class="up-form-hint" style="margin-top:8px;">추이의 가동은 달력근사(슬롯시간 − 정지)라 유휴와 분리되지 않습니다 — 정본은 상단 가용성 분해(KPI A와 일치)입니다. 고장·유지보수 비중은 아래 <b>정지 구성</b> 도넛 참조.</div>
+                    </div>
                 </section>
 
                 <!-- ════ 정지 원인 도넛 | 계획시간 폴백 체인 + 14일 히스토그램 (정지 로그 위로 이동 — 로그는 이 아래에서 토글) ════ -->
@@ -1658,6 +1600,27 @@
 
         // 일자별 차트 인스턴스 — Alpine 반응형 밖에 보관(Proxy 크래시 방지)
         let _dailyChart = null;
+        let _nightPattern = null; // 비생산(제외) 세그먼트용 밤하늘 빗금 패턴 (캐시)
+
+        // 밤하늘 같은 어두운 푸른 빗금 CanvasPattern — 비생산(A 분모 밖) 시간 표시용.
+        function _nightHatchPattern(canvas) {
+            if (_nightPattern) return _nightPattern;
+            const size = 8;
+            const tile = document.createElement('canvas');
+            tile.width = size; tile.height = size;
+            const t = tile.getContext('2d');
+            t.fillStyle = '#0b1b38';                     // 밤하늘 바탕(어두운 남색)
+            t.fillRect(0, 0, size, size);
+            t.strokeStyle = 'rgba(96,140,210,0.55)';     // 어두운 푸른 빗금
+            t.lineWidth = 1.3;
+            t.beginPath();                               // 대각선(코너-투-코너 → 이음새 없이 타일링)
+            t.moveTo(0, size); t.lineTo(size, 0);
+            t.moveTo(-1, 1); t.lineTo(1, -1);
+            t.moveTo(size - 1, size + 1); t.lineTo(size + 1, size - 1);
+            t.stroke();
+            _nightPattern = canvas.getContext('2d').createPattern(tile, 'repeat');
+            return _nightPattern;
+        }
 
         function uptimeApp() {
             return {
@@ -2175,12 +2138,14 @@
                         const parts = s.slot.split('-');
                         return parts.length === 3 ? (parseInt(parts[1]) + '/' + parseInt(parts[2])) : s.slot;
                     });
-                    // 가동·고장·유지보수 3분해. 서버 슬롯: failureMs=isFailure 1, plannedMs=isFailure 0(유지보수), 나머지=가동근사.
+                    // 가동·고장·유지보수·비생산 4분해. 서버 슬롯: failureMs=isFailure 1, plannedMs=isFailure 0(유지보수),
+                    //   nonProdMs=비생산(A 분모 밖 — 가동에서 카빙), 나머지=가동근사.
                     const failureData = d.slots.map(s => ((s.failureMs || 0) + (s.otherMs || 0) + (s.unclassifiedMs || 0)) / MS); // 고장(isFailure+기타+미분류 전부 포함)
                     const plannedData = d.slots.map(s => (s.plannedMs || 0) / MS); // 유지보수(isFailure=0)
-                    const runData = d.slots.map(s => Math.max(0, s.slotMs - (s.failureMs || 0) - (s.otherMs || 0) - (s.unclassifiedMs || 0) - (s.plannedMs || 0)) / MS);
+                    const nonProdData = d.slots.map(s => (s.nonProdMs || 0) / MS); // 비생산(제외) — A 분모 밖
+                    const runData = d.slots.map(s => Math.max(0, s.slotMs - (s.failureMs || 0) - (s.otherMs || 0) - (s.unclassifiedMs || 0) - (s.plannedMs || 0) - (s.nonProdMs || 0)) / MS);
 
-                    // 평균 가동시간 선
+                    // 평균 가동시간 선 (비생산 카빙 후 실가동 기준)
                     const avgRun = runData.length > 0 ? runData.reduce((a, b) => a + b, 0) / runData.length : 0;
 
                     const cs = getComputedStyle(document.documentElement);
@@ -2190,11 +2155,13 @@
                     const cPurple = cs.getPropertyValue('--purple').trim() || '#6E63C4';
                     const cGray  = cs.getPropertyValue('--color-text-secondary').trim() || '#888';
                     const cAvg   = cs.getPropertyValue('--color-azure').trim() || '#38bdf8';
+                    const nightHatch = _nightHatchPattern(canvas); // 비생산: 밤하늘 어두운 파랑 빗금
 
                     const datasets = [
                         { label: '가동(근사)', data: runData, backgroundColor: cGreen, stack: 's', order: 2 },
                         { label: '고장', data: failureData, backgroundColor: cRed, stack: 's', order: 2 },
                         { label: '유지보수', data: plannedData, backgroundColor: cPurple, stack: 's', order: 2 },
+                        { label: '비생산(제외)', data: nonProdData, backgroundColor: nightHatch, stack: 's', order: 2 },
                         {
                             label: `평균 ${avgRun.toFixed(1)}h`,
                             type: 'line',
@@ -2628,33 +2595,41 @@
                         ? '<span class="src-chip manual">수동 고정</span>'
                         : '<span class="src-chip auto">14일 평균</span>';
                 },
-                // 자동화 파이프라인 4셀 (수집 데이터 → 지표 자동 산출 상태)
-                get autoStrip() {
-                    const src = this.oee ? this.oee.availabilitySource : null;
-                    const isCycle = src === 'cycle';
-                    const ctThr = (this.oee && this.oee.ctThresholdMs) ? this.durShort(this.oee.ctThresholdMs) : null;
-                    const low = !!(this.oee && this.oee.ctSampleLow);
-                    const ctSt = ctThr
-                        ? (low ? `표준 가동시간 ${ctThr} · 샘플 ${this.oee.ctSampleCount ?? 0}/5(잠정)` : `표준 가동시간 ${ctThr} · 판정·성능 공용`)
-                        : '클린샘플 0 (누적 중)';
-                    const availSt = isCycle
-                        ? `사이클기반 · 가동시간 이상치 ${ctThr || '—'}`
-                        : (src === 'shift' ? '폴백: 사용자 시프트' : src === 'auto' ? '폴백: 14일 히스토그램' : '폴백: 달력근사');
-                    return [
-                        { nm: '가동시간 이상치 (14일 평균)', st: ctSt, cls: ctThr ? (low ? 'partial' : 'live') : 'off' },
-                        { nm: '비가동 판정', st: `사이클(동작시간>가동시간 이상치) + 무사이클 dedup`, cls: 'live' },
-                        { nm: '고장/유지보수', st: '기본 고장 · 로그에서 유지보수 해제 가능', cls: 'live' },
-                        { nm: '가용성 분모', st: availSt, cls: isCycle ? 'live' : 'partial' },
-                    ];
-                },
-                // 사이클 분해 비율 (Σ실측 가동시간 vs Σ비가동 가동시간) — 가용성 분해 바.
-                get cycleComp() {
+                // 가용성 분해 (활성 모드 통합) — 상단 A KPI와 항상 일치.
+                //  cycle : Σ실측CT(정상 사이클) vs Σ비가동CT  (A = 실측/(실측+비가동))
+                //  폴백  : 가동시간 vs 정지  (A = 가동 ÷ 계획생산시간, 분모=planTime.plannedMs)
+                get availComp() {
                     const o = this.oee || {};
-                    const n = Math.max(0, o.normalCtMs || 0), i = Math.max(0, o.idleCtMs || 0);
-                    const tot = n + i;
-                    if (tot <= 0) return { normalPct: 0, idlePct: 0 };
-                    const normalPct = Math.round(n / tot * 1000) / 10;
-                    return { normalPct, idlePct: Math.round((100 - normalPct) * 10) / 10 };
+                    const r1 = (x) => Math.round(x * 10) / 10;
+                    if (o.availabilitySource === 'cycle') {
+                        const n = Math.max(0, o.normalCtMs || 0), i = Math.max(0, o.idleCtMs || 0);
+                        const tot = n + i;
+                        const runPct = tot > 0 ? r1(n / tot * 100) : 0;
+                        return {
+                            mode: 'cycle', hasData: tot > 0,
+                            runMs: n, stopMs: i, runPct, stopPct: tot > 0 ? r1(100 - runPct) : 0,
+                            runLabel: '실측 가동시간 (정상 사이클)', stopLabel: '비가동 가동시간',
+                            runNote: (o.normalCycleCount || 0) + ' 사이클', stopNote: (o.failureCount || 0) + '건',
+                            subtitle: 'Σ실측 가동시간 ÷ (Σ실측 + Σ비가동) · 비가동 = 동작시간>이상치 / 미완료 폭주 / 무사이클',
+                            hint: '한 사이클의 <b>동작시간이 가동시간 이상치를 넘으면</b> 그 사이클 가동시간 전체를 비가동으로 본다(인식지연 + 고장 + 회복 포함). 미완료(가동시간 폭주)·무사이클 정지도 비가동에 합산하되 겹친 구간은 1회만 계상한다(이중계상 방지).',
+                        };
+                    }
+                    // 폴백(shift/auto/calendar): 계획시간 분모 기준 — planTime 사용.
+                    const pt = this.planTime || {};
+                    const planned = Math.max(0, pt.plannedMs || 0);
+                    const run = Math.max(0, Math.min(planned, pt.runtimeMs || 0));
+                    const stop = Math.max(0, planned - run);
+                    const runPct = planned > 0 ? r1(run / planned * 100) : 0;
+                    const srcMap = { shift: '사용자 시프트', auto: '14일 자동추정', calendar: '달력근사' };
+                    const srcLabel = srcMap[o.availabilitySource] || '달력근사';
+                    return {
+                        mode: 'fallback', hasData: planned > 0,
+                        runMs: run, stopMs: stop, runPct, stopPct: planned > 0 ? r1(100 - runPct) : 0,
+                        runLabel: '가동시간', stopLabel: '정지 (비계획)',
+                        runNote: null, stopNote: null, sourceLabel: srcLabel,
+                        subtitle: '가동시간 ÷ 계획생산시간 · 계획시간 폴백(' + srcLabel + ') — 사이클 표본 부족',
+                        hint: '클린사이클 표본이 부족해 <b>계획시간 폴백</b>으로 가용성을 산출한다(계획시간 = ' + srcLabel + '). 가동시간에는 유휴가 포함될 수 있어 사이클기반보다 느슨한 근사다. 클린사이클이 쌓이면 자동으로 사이클기반으로 전환된다.',
+                    };
                 },
                 // 계획시간 폴백 체인 3단계 (활성/건너뜀/대기)
                 get planChainSteps() {
@@ -2834,28 +2809,6 @@
                     for (const r of this.ranking) { if (r.flowName) s.add(r.flowName); }
                     for (const r of this.ctTable) { if (r.flowName) s.add(r.flowName); }
                     return [...s].sort();
-                },
-
-                // ── 일자별 시간 구성 (가동 근사 / 고장 / 유지보수) ──
-                // 유지보수(isFailure=false) 정지는 전체 정지의 부분집합이라, 고장 정지에서 빼서 세 조각 합이 100%.
-                get timeComp() {
-                    const o = this.oee;
-                    if (!o || o.periodMs <= 0) return { runMs: 0, downMs: 0, maintMs: 0, runPct: 0, downPct: 0, maintPct: 0 };
-                    const downTotal = o.downtimeMs || 0;
-                    const capMs = Math.min(Date.now(), new Date(o.toUtc).getTime());
-                    let maint = 0;
-                    for (const d of this.downtime) {
-                        if (d.isFailure) continue; // 고장=true 는 제외, 유지보수=false 만 합산
-                        const dur = d.durationMs != null ? d.durationMs
-                            : Math.max(0, capMs - new Date(d.startAt).getTime());
-                        if (dur > 0) maint += dur;
-                    }
-                    maint = Math.min(maint, downTotal);
-                    const down = downTotal - maint;
-                    const run = Math.max(0, o.periodMs - downTotal);
-                    const total = o.periodMs;
-                    const r1 = (x) => Math.max(0, Math.min(100, (x * 100 / total))).toFixed(1);
-                    return { runMs: run, downMs: down, maintMs: maint, runPct: r1(run), downPct: r1(down), maintPct: r1(maint) };
                 },
 
                 // ── 규칙기반 AI 인사이트 한 줄 ──

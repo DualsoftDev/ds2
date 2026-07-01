@@ -284,6 +284,8 @@ var canonicalStaticRoutes = new Dictionary<string, string>(StringComparer.Ordina
     ["/plc-debug"] = "plc-debug.html",
     ["/settings"] = "settings.html",
     ["/flow"] = "flow.html",
+    ["/flow-trend"] = "flow-trend.html",
+    ["/flow-cycle"] = "flow-cycle.html",
     ["/flow-all"] = "flow-all.html",
     ["/pw"] = "pw.html",
 };

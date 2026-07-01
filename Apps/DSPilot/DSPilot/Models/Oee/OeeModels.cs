@@ -228,10 +228,10 @@ public sealed record OeeDailyResponse(
     IReadOnlyList<OeeDailySlotDto> Slots);
 
 /// <summary>
-/// 단일 버킷: Slot 문자열·슬롯 지속시간 + 정지 5분해(가동/고장/기타/미분류/점검).
-/// 가동 = SlotMs − FailureMs − OtherMs − UnclassifiedMs − PlannedMs. 4분해는 상호배타(category·isFailure 로 분기):
+/// 단일 버킷: Slot 문자열·슬롯 지속시간 + 정지 분해(가동/고장/기타/미분류/점검/비생산).
+/// 가동 = SlotMs − FailureMs − OtherMs − UnclassifiedMs − PlannedMs − NonProdMs. 분해는 상호배타(정지 이벤트 = category·isFailure 분기):
 ///   PlannedMs=category 'planned' / UnclassifiedMs=category NULL / FailureMs=isFailure 1 / OtherMs=그 외 unplanned.
-/// UnplannedMs(= Failure+Other+Unclassified) 는 하위호환 합산값.
+/// NonProdMs=비생산(사이클 10×CT/수동 시각대 — A 분모 밖) 을 가동(초록)에서 카빙한 시간. UnplannedMs=하위호환 합산.
 /// </summary>
 public sealed record OeeDailySlotDto(
     string Slot,            // "yyyy-MM-dd" 또는 "yyyy-MM-dd HH:00"
@@ -240,4 +240,5 @@ public sealed record OeeDailySlotDto(
     long PlannedMs,         // 계획정비 (category = 'planned')
     long FailureMs = 0,     // 고장 (isFailure=1, 비계획)
     long OtherMs = 0,       // 기타 비계획 (category='unplanned' AND isFailure=0)
-    long UnclassifiedMs = 0); // 미분류 (category IS NULL)
+    long UnclassifiedMs = 0, // 미분류 (category IS NULL)
+    long NonProdMs = 0);    // 비생산(제외) — 가동에서 카빙, A 분모 밖 (사이클 10×CT / 수동 시각대)

@@ -1115,7 +1115,7 @@ public class OeeController : ControllerBase
     private readonly record struct CycleAgg(
         double NormalCtMs, double IdleCtMs, int NormalCount, int DowntimeEventCount,
         double? CtThresholdMs, List<double> OnsetsMs, List<double> RepairMsList, bool HasThreshold,
-        double PlannedCtMs, int CtSampleMin = 0);
+        double PlannedCtMs, int CtSampleMin = 0, List<(double S, double E)>? NonProdIntervals = null);
 
     private sealed class CycleAggRow { public long NormalCt { get; set; } public long NormalCount { get; set; } public long NonProdNormalCt { get; set; } }
     private sealed class DtCycleRaw { public string? RecordedAt { get; set; } public long? Ct { get; set; } public long? Mt { get; set; } }
@@ -1156,6 +1156,9 @@ public class OeeController : ControllerBase
         bool hasThreshold = false;
         double thrSum = 0; int thrCount = 0; // 자동(10×) 무사이클 갭 판정용 라인 대표 임계(flow별 thr 평균)
         var cycleIdleIntervals = new List<(double S, double E)>(); // 모든 비가동 사이클(계획+미계획) — nocycle dedup 용
+        // 비생산(제외) 구간 수집 — 일자별 추이 차트의 '비생산(제외)' 세그먼트용(A 분모 밖 시간 시각화). 수동 윈도는 전 구간,
+        //  자동(10×)은 판정된 유휴 사이클/무사이클 갭 구간을 모은다. 마지막에 Union 으로 병합(이중계상 방지).
+        var nonProdIntervals = new List<(double S, double E)>(ExpandPlannedIntervalsMs(plannedWindows, fromUtc, toUtc));
 
         // dspFlowHistory 비가동 조건 — ① MT>thr ② complete=null(mt null) AND CT>thr (IsIdle 무관, §3.2).
         const string dtCond = "ct > 0 AND ((mt IS NOT NULL AND mt > @Thr) OR (mt IS NULL AND ct > @Thr))";
@@ -1225,6 +1228,7 @@ public class OeeController : ControllerBase
                     if (applyLongStop && r.Mt is null && OeeMath.IsLongStopNonProduction(cMs, thr))
                     {
                         plannedCtMs += cMs;
+                        nonProdIntervals.Add((startMs, rec));       // 자동(10×) 유휴 사이클 → 비생산(제외) 시각화
                         continue;
                     }
                     idleCtMs += cMs;
@@ -1258,6 +1262,7 @@ public class OeeController : ControllerBase
                         if (applyLongStop && OeeMath.IsLongStopNonProduction(len, avgThr))
                         {
                             plannedCtMs += len;
+                            nonProdIntervals.Add((u.S, u.E));       // 자동(10×) 무사이클 갭 → 비생산(제외) 시각화
                             continue;
                         }
                         idleCtMs += len;
@@ -1287,7 +1292,7 @@ public class OeeController : ControllerBase
             displayThr = thrVals.Count > 0 ? thrVals.Average() : (double?)null;
         }
         return new CycleAgg(normalCtMs, idleCtMs, normalCount, dtEventCount, displayThr, onsets, repairs, true, plannedCtMs,
-            ctSampleMin == int.MaxValue ? 0 : ctSampleMin);
+            ctSampleMin == int.MaxValue ? 0 : ctSampleMin, Intervals.Union(nonProdIntervals));
     }
 
     /// <summary>
@@ -1601,12 +1606,41 @@ public class OeeController : ControllerBase
         var hourly = spanDays <= 2.0;
         var gran = hourly ? "hour" : "day";
 
-        // DB에서 정지 이벤트를 버킷별로 집계
-        var dbBuckets = await _repo.GetDowntimeBySlotsAsync(fromUtc, toUtc, flowName, hourly, ct);
-        var lookup = dbBuckets.ToDictionary(r => r.Slot, r => r, StringComparer.Ordinal);
+        // ① 정지 이벤트 raw 구간(kind별). 시작일 몰빵 대신 각 이벤트를 실제 겹친 슬롯에 overlap 분배(다일·장시간 정지 정확).
+        var intervals = await _repo.GetDowntimeIntervalsAsync(fromUtc, toUtc, flowName, ct);
+        var byKind = new[] { new List<(long S, long E)>(), new List<(long S, long E)>(), new List<(long S, long E)>(), new List<(long S, long E)>() };
+        foreach (var (s, e, kind) in intervals)
+            if (e > s && kind is >= 0 and <= 3) byKind[kind].Add((s, e));
 
-        // 전체 슬롯 목록 생성 (달력 기준)
+        // ② 비생산(제외) 구간 — 사이클 모델(10×CT/수동 시각대, A 분모 밖). 가동(초록)에서 카빙해 별도 세그먼트로 표시.
+        //    daily 는 저빈도라 사이클 집계 1회 추가 호출 허용. Union 된 구간이라 자체 겹침 없음(슬롯 overlap 이중계상 없음).
+        var thresholds = await ResolveCtThresholdsAsync();
+        var (plannedWindows, _, applyLongStop) = ResolvePlannedWindows();
+        var agg = await ComputeCycleAggregateAsync(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct);
+        var nonProd = (agg.NonProdIntervals ?? new List<(double S, double E)>())
+            .Select(x => ((long)x.S, (long)x.E)).Where(x => x.Item2 > x.Item1).ToList();
+
+        static long SumOverlap(List<(long S, long E)> segs, long slotS, long slotE)
+        {
+            long sum = 0;
+            foreach (var (s, e) in segs) { var o = Math.Min(e, slotE) - Math.Max(s, slotS); if (o > 0) sum += o; }
+            return sum;
+        }
+
+        // 전체 슬롯 목록 생성 (달력 기준) — 각 슬롯 [slotStart,slotEnd) 을 [from,to] 로 클립 후 overlap 합산.
         var slots = new List<OeeDailySlotDto>();
+        void AddSlot(string label, DateTime slotStartUtc, DateTime slotEndUtc)
+        {
+            var sS = (long)ToMs(Max(fromUtc, slotStartUtc));
+            var sE = (long)ToMs(Min(toUtc, slotEndUtc));
+            var slotMs = Math.Max(0, sE - sS);
+            slots.Add(BuildDailySlot(label, slotMs,
+                failureMs: SumOverlap(byKind[1], sS, sE),
+                otherMs: SumOverlap(byKind[2], sS, sE),
+                unclassMs: SumOverlap(byKind[3], sS, sE),
+                plannedMs: SumOverlap(byKind[0], sS, sE),
+                nonProdMs: SumOverlap(nonProd, sS, sE)));
+        }
         if (hourly)
         {
             var cur = fromUtc.ToLocalTime();
@@ -1614,12 +1648,7 @@ public class OeeController : ControllerBase
             while (cur.ToUniversalTime() < toUtc)
             {
                 var next = cur.AddHours(1);
-                var label = cur.ToString("yyyy-MM-dd HH:00");
-                var slotStart = cur.ToUniversalTime();
-                var slotEnd = next.ToUniversalTime();
-                var slotMs = (long)Math.Max(0, (Min(toUtc, slotEnd) - Max(fromUtc, slotStart)).TotalMilliseconds);
-                lookup.TryGetValue(label, out var b);
-                slots.Add(BuildDailySlot(label, slotMs, b));
+                AddSlot(cur.ToString("yyyy-MM-dd HH:00"), cur.ToUniversalTime(), next.ToUniversalTime());
                 cur = next;
             }
         }
@@ -1629,12 +1658,7 @@ public class OeeController : ControllerBase
             while (curLocal.ToUniversalTime() < toUtc)
             {
                 var nextLocal = curLocal.AddDays(1);
-                var label = curLocal.ToString("yyyy-MM-dd");
-                var slotStart = curLocal.ToUniversalTime();
-                var slotEnd = nextLocal.ToUniversalTime();
-                var slotMs = (long)Math.Max(0, (Min(toUtc, slotEnd) - Max(fromUtc, slotStart)).TotalMilliseconds);
-                lookup.TryGetValue(label, out var b);
-                slots.Add(BuildDailySlot(label, slotMs, b));
+                AddSlot(curLocal.ToString("yyyy-MM-dd"), curLocal.ToUniversalTime(), nextLocal.ToUniversalTime());
                 curLocal = nextLocal;
             }
         }
@@ -1646,21 +1670,23 @@ public class OeeController : ControllerBase
     private static DateTime Max(DateTime a, DateTime b) => a > b ? a : b;
 
     /// <summary>
-    /// 정지 5분해(failure/other/unclassified/planned)를 슬롯 달력시간(slotMs) 예산 안으로 캡해 가동이 음수가 되지 않게 한다.
-    /// 우선순위(비계획 먼저 ▸ 계획)는 구 동작과 동일. 가동 = SlotMs − (4분해 합)은 클라이언트가 차감.
+    /// 정지 분해(failure/other/unclassified/planned)를 슬롯 예산(slotMs) 안에 캡한 뒤, 남은 예산(=가동 초록)에서
+    /// 비생산(제외, nonProdMs)을 카빙한다 → 가동이 A 분모 밖 시간을 과대표시하지 않게 함. 세그먼트 합 ≤ slotMs.
+    /// 가동 = slotMs − (failure+other+unclass+planned+nonprod) 은 클라이언트가 차감.
     /// </summary>
     private static OeeDailySlotDto BuildDailySlot(
         string label, long slotMs,
-        (string Slot, long PlannedMs, long FailureMs, long OtherMs, long UnclassifiedMs) b)
+        long failureMs, long otherMs, long unclassMs, long plannedMs, long nonProdMs)
     {
         var budget = slotMs;
         long Take(long v) { var t = Math.Min(Math.Max(0, v), Math.Max(0, budget)); budget -= t; return t; }
-        var failure = Take(b.FailureMs);
-        var other = Take(b.OtherMs);
-        var unclass = Take(b.UnclassifiedMs);
-        var planned = Take(b.PlannedMs);
+        var failure = Take(failureMs);   // 실제 기록된 정지 이벤트 우선(빨강/보라)
+        var other = Take(otherMs);
+        var unclass = Take(unclassMs);
+        var planned = Take(plannedMs);
+        var nonProd = Take(nonProdMs);   // 그다음 비생산을 가동(남은 예산)에서 카빙
         var unplanned = failure + other + unclass;
-        return new OeeDailySlotDto(label, slotMs, unplanned, planned, failure, other, unclass);
+        return new OeeDailySlotDto(label, slotMs, unplanned, planned, failure, other, unclass, nonProd);
     }
 
     // ── helpers ───────────────────────────────────────────────────────────

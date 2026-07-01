@@ -334,11 +334,11 @@
                                       :style="isOverride ? 'color:var(--color-primary)' : ''"
                                       :title="isOverride ? '이 Flow 의 사이클 경계가 사용자 지정(저장됨)으로 적용 중' : 'AASX 프로젝트 정의 Head/Tail 적용 중'"></span>
                             </div>
-                            <button class="btn btn-sm btn-filled" @click="applyHeadTail()"
+                            <button class="btn btn-sm" :class="userOverrodeHeadTail ? 'btn-filled' : ''" @click="applyHeadTail()"
                                     :disabled="overlayBusy || recomputeBusy || !headCallId || !tailCallId"
                                     title="현재 Head/Tail 을 이 Flow 의 사이클 경계로 저장하고, 이 Flow 의 과거 이력 전체를 새 경계로 재계산합니다(백그라운드, 진행률 표시) — 라이브 가동시간·대시보드에 과거 포함 반영">
                                 <span class="material-icons" style="font-size:15px; vertical-align:middle;">save</span>
-                                적용(저장)
+                                <span x-text="userOverrodeHeadTail ? '적용(저장)*' : '적용(저장)'"></span>
                             </button>
                             <button class="btn btn-sm btn-outlined" @click="restoreAasxDefault()"
                                     :disabled="overlayBusy || recomputeBusy || !projectHeadId || !projectTailId"

@@ -554,46 +554,48 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
 
     // ── 일자별/시간별 정지 버킷 ───────────────────────────────────────────
 
-    public async Task<IReadOnlyList<(string Slot, long PlannedMs, long FailureMs, long OtherMs, long UnclassifiedMs)>> GetDowntimeBySlotsAsync(
-        DateTime fromUtc, DateTime toUtc, string? flowName, bool hourly, CancellationToken ct = default)
+    public async Task<IReadOnlyList<(long StartMs, long EndMs, int Kind)>> GetDowntimeIntervalsAsync(
+        DateTime fromUtc, DateTime toUtc, string? flowName, CancellationToken ct = default)
     {
         await using var conn = await OpenAsync();
-        var fmt = hourly ? "%Y-%m-%d %H:00" : "%Y-%m-%d";
+        var capUtc = DateTime.UtcNow < toUtc ? DateTime.UtcNow : toUtc;
         var p = new DynamicParameters();
         p.Add("From", Iso(fromUtc));
         p.Add("To", Iso(toUtc));
-        p.Add("Now", Iso(DateTime.UtcNow));
+        p.Add("Cap", Iso(capUtc));
         var flowClause = "";
         if (!string.IsNullOrWhiteSpace(flowName))
         {
             flowClause = " AND flowName = @Flow ";
             p.Add("Flow", flowName.Trim());
         }
-        // 5분해(상호배타, 우선순위): planned ▸ 미분류(category NULL) ▸ 고장(isFailure=1) ▸ 그 외 비계획.
-        // open 이벤트는 durationMs NULL → MIN(now, to) 까지 진행분 보정(to 캡핑으로 기간 초과 방지).
-        const string dur = "COALESCE(durationMs, CAST((julianday(MIN(@Now, @To)) - julianday(startAt)) * 86400000 AS INTEGER))";
+        // UTC epoch ms 로 반환(로컬 변환/파싱 모호성 회피): (julianday(x) - 2440587.5) * 86400000.
+        // open(endAt NULL) 은 @Cap(min(now,to)) 로 마감. 기간과 겹치는 이벤트 전부 포함(startAt < to AND effEnd > from)
+        //   → 시작일 몰빵 대신 컨트롤러가 실제 겹친 슬롯마다 분배(다일·장시간 정지 정확 표현).
+        // Kind(상호배타): 0=계획정비 / 1=고장 / 2=기타 비계획 / 3=미분류.
+        const string startMs = "CAST((julianday(startAt) - 2440587.5) * 86400000 AS INTEGER)";
+        const string endMs = "CAST((julianday(COALESCE(endAt, @Cap)) - 2440587.5) * 86400000 AS INTEGER)";
         var sql = $@"
             SELECT
-              strftime('{fmt}', startAt, 'localtime') AS Slot,
-              COALESCE(SUM(CASE WHEN category = 'planned' THEN {dur} ELSE 0 END), 0) AS PlannedMs,
-              COALESCE(SUM(CASE WHEN category IS NOT NULL AND category <> 'planned' AND isFailure = 1 THEN {dur} ELSE 0 END), 0) AS FailureMs,
-              COALESCE(SUM(CASE WHEN category IS NOT NULL AND category <> 'planned' AND isFailure <> 1 THEN {dur} ELSE 0 END), 0) AS OtherMs,
-              COALESCE(SUM(CASE WHEN category IS NULL THEN {dur} ELSE 0 END), 0) AS UnclassifiedMs
+              {startMs} AS StartMs,
+              {endMs}   AS EndMs,
+              CASE
+                WHEN category = 'planned' THEN 0
+                WHEN category IS NULL THEN 3
+                WHEN isFailure = 1 THEN 1
+                ELSE 2
+              END AS Kind
             FROM oeeDowntimeEvent
-            WHERE startAt >= @From AND startAt <= @To {flowClause}
-            GROUP BY strftime('{fmt}', startAt, 'localtime')
-            ORDER BY Slot";
-        var rows = await conn.QueryAsync<SlotRow>(sql, p);
-        return rows.Select(r => (r.Slot ?? "", r.PlannedMs, r.FailureMs, r.OtherMs, r.UnclassifiedMs)).ToList();
+            WHERE startAt <= @To AND COALESCE(endAt, @Cap) >= @From {flowClause}";
+        var rows = await conn.QueryAsync<IntervalRow>(sql, p);
+        return rows.Select(r => (r.StartMs, r.EndMs, r.Kind)).ToList();
     }
 
-    private sealed class SlotRow
+    private sealed class IntervalRow
     {
-        public string? Slot { get; set; }
-        public long PlannedMs { get; set; }
-        public long FailureMs { get; set; }
-        public long OtherMs { get; set; }
-        public long UnclassifiedMs { get; set; }
+        public long StartMs { get; set; }
+        public long EndMs { get; set; }
+        public int Kind { get; set; }
     }
 
     // ── 시프트 예외 ───────────────────────────────────────────────────────
