@@ -390,16 +390,6 @@
                         <span x-text="flow && flow.systemName ? flow.systemName : '-'"></span> · Flow Workspace
                     </div>
                 </div>
-                <div class="ds-topbar-actions">
-                    <span class="ds-live" :class="rt.connected ? 'is-live' : 'is-poll'"
-                          :title="rt.connected ? 'SignalR 실시간 연결됨' : '폴링(10초) 모드'">
-                        <span class="ds-live-dot"></span>
-                        <span x-text="rt.connected ? 'LIVE' : 'POLL'"></span>
-                    </span>
-                    <button class="btn btn-sm btn-outlined" @click="refreshAll()">
-                        <span class="material-icons" style="font-size:16px;">refresh</span> 새로고침
-                    </button>
-                </div>
             </div>
 
             <!-- 로딩/오류 -->
@@ -420,58 +410,6 @@
             <template x-if="flow">
                 <div class="fw-grid">
 
-                    <!-- ════ 헤더 카드 ════ -->
-                    <section class="card fw-section">
-                        <div class="fw-hero">
-                            <div style="flex:1; min-width:0;">
-                                <div class="fw-hero-meta">
-                                    <span>System <b x-text="flow.systemName || '-'"></b></span>
-                                    <span>Works <b x-text="flow.worksCount"></b></span>
-                                    <span>Calls <b x-text="flow.callsCount"></b></span>
-                                    <span>업데이트 <b x-text="updateTime"></b></span>
-                                </div>
-                                <div class="fw-chips">
-                                    <span class="ds-status" :class="stateClass(flow.state)" x-text="flow.state || 'No Data'"></span>
-                                    <template x-if="flow.currentStartCall">
-                                        <span class="fw-info-chip">Start: <span x-text="flow.currentStartCall"></span></span>
-                                    </template>
-                                    <template x-if="flow.currentEndCall">
-                                        <span class="fw-info-chip">End: <span x-text="flow.currentEndCall"></span></span>
-                                    </template>
-                                </div>
-                            </div>
-                        </div>
-                    </section>
-
-                    <!-- ════ KPI 6셀 ════ -->
-                    <div class="fw-kpi-grid">
-                        <article class="card fw-kpi">
-                            <span class="fw-kpi-label">Current CT</span>
-                            <strong class="fw-kpi-value" x-text="fmtDur(kpi('currentCt'))"></strong>
-                            <span class="fw-kpi-sub">Flow 총 시간</span>
-                        </article>
-                        <article class="card fw-kpi">
-                            <span class="fw-kpi-label">MT</span>
-                            <strong class="fw-kpi-value" x-text="fmtDur(kpi('currentMt'))"></strong>
-                            <span class="fw-kpi-sub">가동 시간</span>
-                        </article>
-                        <article class="card fw-kpi">
-                            <span class="fw-kpi-label">WT</span>
-                            <strong class="fw-kpi-value" x-text="fmtDur(kpi('currentWt'))"></strong>
-                            <span class="fw-kpi-sub">대기 시간</span>
-                        </article>
-                        <article class="card fw-kpi">
-                            <span class="fw-kpi-label">Active Calls</span>
-                            <strong class="fw-kpi-value" x-text="kpi('activeCalls') ?? '—'"></strong>
-                            <span class="fw-kpi-sub">현재 Going 상태</span>
-                        </article>
-                        <article class="card fw-kpi">
-                            <span class="fw-kpi-label">Avg Call Time</span>
-                            <strong class="fw-kpi-value" x-text="fmtDur(kpi('avgCallTimeMs'))"></strong>
-                            <span class="fw-kpi-sub">평균 Going 시간</span>
-                        </article>
-                    </div>
-
                     <!-- ════ 탭 바 ════ -->
                     <div class="fw-tabs">
                         <button :class="tab === 'trend' ? 'is-active' : ''" @click="setTab('trend')">
@@ -480,20 +418,17 @@
                         <button :class="tab === 'cycle' ? 'is-active' : ''" @click="setTab('cycle')">
                             <span class="material-icons">account_tree</span> 사이클 분석
                         </button>
-                        <button :class="tab === 'history' ? 'is-active' : ''" @click="setTab('history')">
-                            <span class="material-icons">history</span> 최근 히스토리
-                        </button>
                     </div>
 
                     <!-- ════ 공용 툴바: 이상치 제외 필터 (이 Flow · 서버 공유 · 사이클분석·히스토리 전 탭 적용) ════ -->
                     <div class="fw-toolbar" x-show="flow" x-cloak>
                         <span class="fw-toolbar-label">
                             <span class="material-icons">filter_alt</span> 이상치 제외
-                            <span class="fw-toolbar-hint">CT 범위 밖 사이클 제외 · 이 Flow 서버 공유</span>
+                            <span class="fw-toolbar-hint">가동시간 범위 밖 사이클 제외 · 이 Flow 서버 공유</span>
                         </span>
                         <button class="btn btn-sm" :class="_exRange ? 'btn-filled' : 'btn-outlined'"
                                 @click="openRangeModal()"
-                                title="최소·최대 CT 를 지정해 그 범위를 벗어난 사이클(이상치)을 사이클 목록·차트·히스토리에서 제외합니다 — 이 Flow 에 적용·서버 공유">
+                                title="최소·최대 가동시간을 지정해 그 범위를 벗어난 사이클(이상치)을 사이클 목록·차트·히스토리에서 제외합니다 — 이 Flow 에 적용·서버 공유">
                             <span class="material-icons" style="font-size:16px;">tune</span>
                             <span x-text="_exRange ? ('범위 ' + rangeLabel) : '범위 설정'"></span>
                         </button>
@@ -504,7 +439,7 @@
                             </button>
                         </span>
                         <label class="fw-tb-check" :class="{ 'is-on': excludeIncomplete }"
-                               title="완료신호(Tail InTag↑)가 없는 미완료 사이클을 사이클 목록·차트·히스토리·평균에서 제외합니다. 보통 로깅/서비스 중단으로 완료신호가 누락된 구간이라 CT 가 부정확합니다. 해제하면 어두운 회색 막대로 표시하되 평균·가동률 집계에는 계속 포함하지 않습니다.">
+                               title="완료신호(Tail InTag↑)가 없는 미완료 사이클을 사이클 목록·차트·히스토리·평균에서 제외합니다. 보통 로깅/서비스 중단으로 완료신호가 누락된 구간이라 가동시간이 부정확합니다. 해제하면 어두운 회색 막대로 표시하되 평균·가동률 집계에는 계속 포함하지 않습니다.">
                             <input type="checkbox" x-model="excludeIncomplete" @change="onExcludeIncompleteChanged()" />
                             미완료 제외
                             <span class="fw-tb-badge" x-show="incompleteCount > 0" x-text="incompleteCount"></span>
@@ -541,34 +476,6 @@
 
                         <template x-if="!trendLoading && trend.cycleCount > 0">
                             <div>
-                                <div class="fw-trend-kpi-row">
-                                    <article class="fw-trend-kpi">
-                                        <span class="fw-trend-kpi-label">사이클 수</span>
-                                        <strong class="fw-trend-kpi-value" x-text="trend.cycleCount.toLocaleString()"></strong>
-                                        <span class="fw-trend-kpi-sub">비가동 <span x-text="trend.idleCount.toLocaleString()"></span> 건</span>
-                                    </article>
-                                    <article class="fw-trend-kpi">
-                                        <span class="fw-trend-kpi-label">평균 CT</span>
-                                        <strong class="fw-trend-kpi-value" x-text="fmtDur(trend.avgCT)"></strong>
-                                        <span class="fw-trend-kpi-sub">최소 <span x-text="fmtDur(trend.minCT)"></span> · 최대 <span x-text="fmtDur(trend.maxCT)"></span></span>
-                                    </article>
-                                    <article class="fw-trend-kpi">
-                                        <span class="fw-trend-kpi-label">평균 MT</span>
-                                        <strong class="fw-trend-kpi-value" x-text="fmtDur(trend.avgMT)"></strong>
-                                        <span class="fw-trend-kpi-sub">가동 시간</span>
-                                    </article>
-                                    <article class="fw-trend-kpi">
-                                        <span class="fw-trend-kpi-label">평균 WT</span>
-                                        <strong class="fw-trend-kpi-value" x-text="fmtDur(trend.avgWT)"></strong>
-                                        <span class="fw-trend-kpi-sub">대기 시간</span>
-                                    </article>
-                                    <article class="fw-trend-kpi">
-                                        <span class="fw-trend-kpi-label">가동률</span>
-                                        <strong class="fw-trend-kpi-value" x-text="(trend.utilization * 100).toFixed(1) + '%'"></strong>
-                                        <span class="fw-trend-kpi-sub">MT / (MT + WT)</span>
-                                    </article>
-                                </div>
-
                                 <div class="fw-chart-tall"><canvas x-ref="trendChart"></canvas></div>
 
                                 <div class="fw-chart-row">
@@ -663,14 +570,14 @@
                                             </div>
                                             <template x-if="avgCycleMs !== null">
                                                 <div class="kpi-cell tone-primary">
-                                                    <div class="kp-label">CT 평균</div>
+                                                    <div class="kp-label">가동시간 평균</div>
                                                     <div class="kp-value" x-text="formatMs(avgCycleMs)"></div>
                                                     <div class="kp-sub">시작 → 다음 시작</div>
                                                 </div>
                                             </template>
                                             <template x-if="avgActiveMs !== null">
                                                 <div class="kpi-cell">
-                                                    <div class="kp-label">MT 평균</div>
+                                                    <div class="kp-label">동작시간 평균</div>
                                                     <div class="kp-value" x-text="formatMs(avgActiveMs)"></div>
                                                     <div class="kp-sub">시작 → 완료</div>
                                                 </div>
@@ -700,7 +607,7 @@
                                         <!-- 상태 + 액션 -->
                                         <div class="ct-action-bar">
                                             <div class="ct-ctbasis">
-                                                <span class="ct-ctbasis-k">CT 기준</span>
+                                                <span class="ct-ctbasis-k">가동시간 기준</span>
                                                 <span class="ct-chip" :class="isOverride ? 'is-custom' : ''"
                                                       x-text="isOverride ? '사용자 지정' : 'AASX 기본'"
                                                       :title="isOverride ? '이 Flow 의 사이클 경계가 사용자 지정(저장됨)으로 적용 중' : 'AASX 프로젝트 정의 Head/Tail 적용 중'"></span>
@@ -717,7 +624,7 @@
                                             </button>
                                             <button class="btn btn-sm btn-filled" @click="applyHeadTail()"
                                                     :disabled="overlayBusy || recomputeBusy || !headCallId || !tailCallId"
-                                                    title="현재 Head/Tail 을 이 Flow 의 사이클 경계로 저장하고, 이 Flow 의 과거 이력 전체를 새 경계로 재계산합니다(백그라운드, 진행률 표시) — 라이브 CT·대시보드에 과거 포함 반영">
+                                                    title="현재 Head/Tail 을 이 Flow 의 사이클 경계로 저장하고, 이 Flow 의 과거 이력 전체를 새 경계로 재계산합니다(백그라운드, 진행률 표시) — 라이브 가동시간·대시보드에 과거 포함 반영">
                                                 <span class="material-icons" style="font-size:15px; vertical-align:middle;">save</span>
                                                 적용(저장)
                                             </button>
@@ -779,8 +686,8 @@
                                             <div class="ct-sidebar-header" :style="`height:${TOP_MARGIN}px;`">Call</div>
                                             <div class="ct-ribbon-side" x-show="cycleBoundaries.length" :style="`height:${RIBBON_H}px;`">
                                                 <span class="rs-t">사이클</span>
-                                                <span class="rs-sub">MT · WT · 가동률</span>
-                                                <span x-show="tailCompletionSource === 'OutTag'" class="rs-sub" style="margin-top:2px;color:#b26a00;background:#fff3e0;border:1px solid #ffcc80;border-radius:3px;padding:0 4px;font-size:9px;" title="이 Flow 의 Tail Call 에 응답(InTag)이 없어 명령 종료(OutTag↓)로 MT 를 추정합니다. 검증된 완료가 아니라 명령 ON 시간입니다.">명령 ON 추정</span>
+                                                <span class="rs-sub">동작시간 · 대기시간 · 가동률</span>
+                                                <span x-show="tailCompletionSource === 'OutTag'" class="rs-sub" style="margin-top:2px;color:#b26a00;background:#fff3e0;border:1px solid #ffcc80;border-radius:3px;padding:0 4px;font-size:9px;" title="이 Flow 의 Tail Call 에 응답(InTag)이 없어 명령 종료(OutTag↓)로 동작시간을 추정합니다. 검증된 완료가 아니라 명령 ON 시간입니다.">명령 ON 추정</span>
                                             </div>
                                             <template x-for="row in laneRows" :key="row.key">
                                                 <div :class="rowClass(row)" :style="`height:${row.h}px;`">
@@ -875,9 +782,9 @@
                                     <!-- 리본(MT·WT) 범례 — Tail 지정 시에만 표시 -->
                                     <template x-if="tailCallId !== null">
                                         <div class="ct-legend" style="margin-top:4px;">
-                                            <span style="color:var(--color-text-primary);font-weight:700;">상단 리본 = 사이클별 MT·WT 비율 + 가동률</span>
-                                            <span><i class="ct-sw ct-sw-active-band"></i> MT(가동)</span>
-                                            <span><i class="ct-sw ct-sw-idle-band"></i> WT(대기)</span>
+                                            <span style="color:var(--color-text-primary);font-weight:700;">상단 리본 = 사이클별 동작시간·대기시간 비율 + 가동률</span>
+                                            <span><i class="ct-sw ct-sw-active-band"></i> 동작시간</span>
+                                            <span><i class="ct-sw ct-sw-idle-band"></i> 대기시간</span>
                                         </div>
                                     </template>
 
@@ -940,7 +847,7 @@
                                                         <button :class="cycleView === 'table' ? 'is-active' : ''" @click="setCycleView('table')" title="데이터 테이블로 보기">
                                                             <span class="material-icons">table_rows</span> 테이블
                                                         </button>
-                                                        <button :class="cycleView === 'chart' ? 'is-active' : ''" @click="setCycleView('chart')" title="차트로 보기 (MT/WT 스택 + 평균 CT)">
+                                                        <button :class="cycleView === 'chart' ? 'is-active' : ''" @click="setCycleView('chart')" title="차트로 보기 (동작시간/대기시간 스택 + 평균 가동시간)">
                                                             <span class="material-icons">bar_chart</span> 차트
                                                         </button>
                                                     </div>
@@ -957,10 +864,10 @@
                                                         <tr>
                                                             <th style="width:52px;">#</th>
                                                             <th style="width:140px;">시작 시각</th>
-                                                            <th title="가동 시간 = 시작(Head OutTag↑) → 완료(Tail InTag↑)">MT</th>
-                                                            <th title="대기 시간 = 완료 → 다음 시작 = CT − MT">WT</th>
-                                                            <th title="사이클 시간 = 시작 → 다음 시작">CT</th>
-                                                            <th style="width:76px;" title="가동률 = MT / CT">가동률</th>
+                                                            <th title="동작 시간 = 시작(Head OutTag↑) → 완료(Tail InTag↑)">동작시간</th>
+                                                            <th title="대기 시간 = 완료 → 다음 시작 = 가동시간 − 동작시간">대기시간</th>
+                                                            <th title="가동 시간 = 시작 → 다음 시작">가동시간</th>
+                                                            <th style="width:76px;" title="가동률 = 동작시간 / 가동시간">가동률</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
@@ -985,79 +892,6 @@
                         </div>
                     </section>
 
-                    <!-- ════ 최근 히스토리 (구 대시보드 하단, 이 Flow 스코프) ════ -->
-                    <section class="card fw-section" x-show="tab === 'history'">
-                        <div class="ds-card-h">
-                            <h4>
-                                <span x-text="histFlowName ? ('최근 히스토리 — ' + histFlowName) : '최근 히스토리'"></span>
-                            </h4>
-                            <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
-                                <span class="ds-card-h-sub" x-show="histFlowName && flowHistory.length > 0"
-                                      :title="'최근 발생순으로 최대 ' + histLimit + '개 사이클을 조회합니다. 더 과거 데이터는 위 사이클 분석에서 확인하세요.'"
-                                      x-text="'총 ' + visibleHistory.length + '개' + (excludedCount > 0 ? (' / 제외 ' + excludedCount) : '') + ' · 최근 최대 ' + histLimit + ' · 평균 CT ' + (histAvgCt > 0 ? fmt(histAvgCt) : '--') + (histStdCt > 0 ? (' ±' + fmt(histStdCt)) : '')"></span>
-                                <!-- 이상치 제외 컨트롤은 페이지 상단 공용 툴바로 이동됨 -->
-                                <div class="hist-toggle" x-show="histFlowName && flowHistory.length > 0">
-                                    <button :class="histView === 'table' ? 'is-active' : ''" @click="setHistView('table')" title="데이터 테이블로 보기">
-                                        <span class="material-icons">table_rows</span> 테이블
-                                    </button>
-                                    <button :class="histView === 'chart' ? 'is-active' : ''" @click="setHistView('chart')" title="차트로 보기">
-                                        <span class="material-icons">bar_chart</span> 차트
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- 히스토리 0건 -->
-                        <template x-if="flowHistory.length === 0">
-                            <div class="ds-empty" style="padding:28px 0;">
-                                <span class="material-icons">history_toggle_off</span>
-                                <span class="ds-empty-title" x-text="'기록된 사이클이 없습니다 — ' + (histFlowName || '')"></span>
-                                <span class="ds-empty-desc">사이클이 완료되면 시작시각·MT·WT·CT 가 누적되어 표시됩니다.</span>
-                            </div>
-                        </template>
-
-                        <!-- 히스토리: 테이블 ↔ 차트 전환 -->
-                        <template x-if="flowHistory.length > 0">
-                            <div>
-                                <!-- 차트 뷰 (사이클별 MT/WT 스택 + 평균 CT 기준선) -->
-                                <div class="hist-chart-wrap" x-show="histView === 'chart'">
-                                    <canvas x-ref="histChart"></canvas>
-                                </div>
-                                <!-- 테이블 뷰 -->
-                                <div class="hist-table-wrap" x-show="histView === 'table'">
-                                <table class="ds-table">
-                                    <thead>
-                                        <tr>
-                                            <th style="width:150px;">시작 시각</th>
-                                            <th>MT</th><th>WT</th><th>CT</th>
-                                            <th>WT/CT</th><th style="width:64px;">상태</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <template x-for="h in visibleHistory" :key="h._key">
-                                            <tr>
-                                                <td class="num" x-text="h._time"></td>
-                                                <td class="num hist-mt" x-text="fmt(h.mt ?? 0)"></td>
-                                                <td class="num hist-wt" x-text="fmt(h.wt ?? 0)"></td>
-                                                <td class="num hist-ct" x-text="fmt(h.ct ?? 0)"></td>
-                                                <td class="num" x-text="h._wt"></td>
-                                                <td>
-                                                    <template x-if="h._status">
-                                                        <span class="ds-status" :class="h._status?.cls" x-text="h._status?.label"></span>
-                                                    </template>
-                                                    <template x-if="!h._status">
-                                                        <span class="ds-status info" title="표본<2 — 편차 기준 산출 불가">–</span>
-                                                    </template>
-                                                </td>
-                                            </tr>
-                                        </template>
-                                    </tbody>
-                                </table>
-                                </div>
-                            </div>
-                        </template>
-                    </section>
-
                 </div>
             </template>
 
@@ -1074,14 +908,14 @@
                         <div class="sm-hint" style="margin-bottom:14px;">
                             <span class="material-icons">info</span>
                             <span>
-                                설정한 <b>최소 ~ 최대</b> CT 범위를 벗어난 사이클을 차트·테이블·평균에서 제외합니다.
+                                설정한 <b>최소 ~ 최대</b> 가동시간 범위를 벗어난 사이클을 차트·테이블·평균에서 제외합니다.
                                 한쪽만 입력해도 됩니다 (예: <b>최대</b>만 입력 = 그보다 긴 사이클만 제외). 새 사이클이 들어와도 범위가 유지됩니다.
                             </span>
                         </div>
 
                         <!-- 현재 데이터 범위 안내 -->
                         <div class="form-group" x-show="flowHistory.length > 0">
-                            <label class="form-label">현재 CT 범위 (참고)</label>
+                            <label class="form-label">현재 가동시간 범위 (참고)</label>
                             <div class="form-helper" style="margin:0;">
                                 최소 <b x-text="fmt(histCtMinMs)"></b> · 최대 <b x-text="fmt(histCtMaxMs)"></b> · 평균 <b x-text="histAvgCt > 0 ? fmt(histAvgCt) : '--'"></b>
                             </div>
@@ -1470,15 +1304,54 @@
                     const tickColor = css('--color-text-secondary') || '#5A6B7E';
 
                     if (trendCv) {
+                        // 최근 히스토리와 동일한 차트 스타일: 버킷별 MT/WT 스택 막대 + 평균 CT 기준선
+                        const cssRaw = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+                        const cMtBar = cssRaw('--dash-mt') || cssRaw('--color-primary') || '#12A594';
+                        const cWtBar = cssRaw('--dash-wt') || '#AEB9C6';
+                        const cRed = cssRaw('--red') || cssRaw('--color-error') || '#D8392B';
+                        const mtData = this.buckets.map(b => toSec(b.avgMT));
+                        const wtData = this.buckets.map(b => toSec(b.avgWT));
+                        const avg = this.trend.avgCT > 0 ? toSec(this.trend.avgCT) : null;
+                        const datasets = [
+                            { label: '동작시간', data: mtData, backgroundColor: cMtBar, stack: 'ct', borderWidth: 0 },
+                            { label: '대기시간', data: wtData, backgroundColor: cWtBar, stack: 'ct', borderWidth: 0 },
+                        ];
+                        if (avg != null) {
+                            datasets.push({ type: 'line', label: '평균 가동시간', data: labels.map(() => avg),
+                                borderColor: cRed, borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0, fill: false });
+                        }
+                        const self = this;
+                        const fmtMs = (s) => self.fmt(s * 1000);
                         _charts.trend = new Chart(trendCv, {
-                            type: 'line',
-                            data: { labels, datasets: [
-                                { label: '평균 CT (s)', data: this.buckets.map(b => toSec(b.avgCT)), borderColor: cCt, backgroundColor: 'transparent', tension: 0.25, borderWidth: 2 },
-                                { label: '평균 MT (s)', data: this.buckets.map(b => toSec(b.avgMT)), borderColor: cMt, backgroundColor: 'transparent', tension: 0.25, borderWidth: 2 },
-                                { label: '평균 WT (s)', data: this.buckets.map(b => toSec(b.avgWT)), borderColor: cWt, backgroundColor: 'transparent', tension: 0.25, borderWidth: 2 },
-                            ]},
-                            options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'top', labels: { color: tickColor } } }, scales: { x: { grid: { color: grid }, ticks: { color: tickColor } }, y: { beginAtZero: true, grid: { color: grid }, ticks: { color: tickColor }, title: { display: true, text: '초', color: tickColor } } } }
+                            type: 'bar',
+                            data: { labels, datasets },
+                            options: {
+                                responsive: true, maintainAspectRatio: false, animation: false,
+                                interaction: { mode: 'index', intersect: false },
+                                plugins: {
+                                    legend: { position: 'top', labels: { color: tickColor, boxWidth: 12, font: { size: 11 } } },
+                                    tooltip: {
+                                        filter: (it) => it.dataset.type !== 'line',
+                                        callbacks: {
+                                            title: (items) => items[0].chart.$ctx.labels[items[0].dataIndex] || '',
+                                            label: (c) => `${c.dataset.label}: ${fmtMs(c.parsed.y || 0)}`,
+                                            afterBody: (items) => {
+                                                const x = items[0].chart.$ctx, idx = items[0].dataIndex;
+                                                const ctVal = (x.mt[idx] ?? 0) + (x.wt[idx] ?? 0);
+                                                const lines = ['가동시간 (전체): ' + fmtMs(ctVal)];
+                                                if (x.avg != null) lines.push('평균 가동시간: ' + fmtMs(x.avg));
+                                                return lines;
+                                            },
+                                        }
+                                    },
+                                },
+                                scales: {
+                                    x: { stacked: true, grid: { display: false }, ticks: { color: tickColor, font: { size: 10 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 12 } },
+                                    y: { stacked: true, beginAtZero: true, min: 0, grid: { color: grid }, ticks: { color: tickColor, font: { size: 10 }, callback: (v) => fmtMs(v) }, title: { display: true, text: '시간', color: tickColor } },
+                                },
+                            }
                         });
+                        _charts.trend.$ctx = { labels, mt: mtData, wt: wtData, avg };
                     }
                     if (countCv) {
                         _charts.count = new Chart(countCv, {
@@ -1490,7 +1363,7 @@
                     if (distCv) {
                         _charts.dist = new Chart(distCv, {
                             type: 'doughnut',
-                            data: { labels: ['가동(MT)', '대기(WT)'], datasets: [{ data: [this.trend.totalMt, this.trend.totalWt], backgroundColor: [cMt, cWt] }] },
+                            data: { labels: ['동작시간', '대기시간'], datasets: [{ data: [this.trend.totalMt, this.trend.totalWt], backgroundColor: [cMt, cWt] }] },
                             options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: tickColor } } } }
                         });
                     }
@@ -2381,8 +2254,8 @@
                         const ratio = (atMs !== null && ctMs > 0) ? Math.round(atMs / ctMs * 100) : null;
 
                         const tip = tailIn !== null
-                            ? `사이클 #${span.number}${span.isOpen ? ' (진행중)' : ''} · MT ${this.formatMs(atMs)} · WT ${this.formatMs(idleMs)} / CT ${this.formatMs(ctMs)} · 가동률 ${ratio}%`
-                            : `사이클 #${span.number}${span.isOpen ? ' (진행중)' : ''} · CT ${this.formatMs(ctMs)}`;
+                            ? `사이클 #${span.number}${span.isOpen ? ' (진행중)' : ''} · 동작시간 ${this.formatMs(atMs)} · 대기시간 ${this.formatMs(idleMs)} / 가동시간 ${this.formatMs(ctMs)} · 가동률 ${ratio}%`
+                            : `사이클 #${span.number}${span.isOpen ? ' (진행중)' : ''} · 가동시간 ${this.formatMs(ctMs)}`;
                         let g = `<g><title>${this.esc(tip)}</title>`;
 
                         if (tailX !== null) {
@@ -2395,7 +2268,7 @@
                         } else {
                             const fill = isEven ? '#9fa8da' : '#ce93d8';
                             g += `<rect x="${this.f(sx)}" y="${barY}" width="${this.f(bandW)}" height="${barH}" fill="${fill}" opacity="${0.85 * dim}"/>`;
-                            if (bandW > 54) g += `<text x="${this.f(sx + bandW / 2.0)}" y="${this.f(barCY)}" text-anchor="middle" dominant-baseline="central" font-size="9.5" fill="#37474f" font-family="Inter,ui-monospace,Cascadia Code,Consolas,monospace">CT ${this.esc(this.formatMs(ctMs))}</text>`;
+                            if (bandW > 54) g += `<text x="${this.f(sx + bandW / 2.0)}" y="${this.f(barCY)}" text-anchor="middle" dominant-baseline="central" font-size="9.5" fill="#37474f" font-family="Inter,ui-monospace,Cascadia Code,Consolas,monospace">가동시간 ${this.esc(this.formatMs(ctMs))}</text>`;
                         }
                         g += `<rect x="${this.f(sx)}" y="${barY}" width="${this.f(bandW)}" height="${barH}" fill="none" stroke="#90a4ae" stroke-width="0.75"/>`;
                         if (span.isOpen) g += `<line x1="${this.f(ex)}" y1="${barY}" x2="${this.f(ex)}" y2="${this.f(barY + barH)}" stroke="#90a4ae" stroke-width="1" stroke-dasharray="3 2"/>`;
@@ -2660,16 +2533,16 @@
                     const txt = css('--color-text-secondary') || '#51637A';
                     const datasets = [];
                     if (hasTail) {
-                        datasets.push({ label: 'MT (가동)', data: at, backgroundColor: cAt, stack: 'ct', borderWidth: 0 });
-                        datasets.push({ label: 'WT (대기)', data: idle, backgroundColor: cIdle, stack: 'ct', borderWidth: 0 });
+                        datasets.push({ label: '동작시간', data: at, backgroundColor: cAt, stack: 'ct', borderWidth: 0 });
+                        datasets.push({ label: '대기시간', data: idle, backgroundColor: cIdle, stack: 'ct', borderWidth: 0 });
                     }
                     // 완료신호 없는 사이클: Tail 지정 Flow 면 '미완료'(회색), Tail 미지정 Flow 면 'CT (사이클)' 단일막대
                     if (ctOnly.some(v => v !== null)) {
-                        datasets.push({ label: incompleteFallback ? '미완료 (완료신호 없음)' : 'CT (사이클)',
+                        datasets.push({ label: incompleteFallback ? '미완료 (완료신호 없음)' : '가동시간 (사이클)',
                             data: ctOnly, backgroundColor: incompleteFallback ? cIncomplete : cAt, stack: 'ct', borderWidth: 0 });
                     }
                     if (avg != null) {
-                        datasets.push({ type: 'line', label: '평균 CT', data: labels.map(() => avg),
+                        datasets.push({ type: 'line', label: '평균 가동시간', data: labels.map(() => avg),
                             borderColor: cRed, borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0, fill: false });
                     }
                     // 차트 1개만 유지하고 update('none') 로 갱신 — destroy()+new Chart() canvas/GPU churn 제거.
@@ -2706,8 +2579,8 @@
                                         const idleVal = x.idle[idx] ?? 0;
                                         const ctVal = atVal + idleVal;
                                         const r = x.ratios[idx];
-                                        const lines = ['CT (전체): ' + fmtMs(ctVal)];
-                                        if (x.avg != null) lines.push('평균 CT: ' + fmtMs(x.avg));
+                                        const lines = ['가동시간 (전체): ' + fmtMs(ctVal)];
+                                        if (x.avg != null) lines.push('평균 가동시간: ' + fmtMs(x.avg));
                                         if (r !== null) lines.push('가동률: ' + r + '%');
                                         return lines;
                                     },
@@ -2741,11 +2614,11 @@
                     const grid = css('--color-lines') || 'rgba(14,27,42,0.10)';
                     const txt = css('--color-text-secondary') || '#51637A';
                     const datasets = [
-                        { label: 'MT (가동)', data: mt, backgroundColor: cMt, stack: 'ct', borderWidth: 0 },
-                        { label: 'WT (대기)', data: wt, backgroundColor: cWt, stack: 'ct', borderWidth: 0 },
+                        { label: '동작시간', data: mt, backgroundColor: cMt, stack: 'ct', borderWidth: 0 },
+                        { label: '대기시간', data: wt, backgroundColor: cWt, stack: 'ct', borderWidth: 0 },
                     ];
                     if (avg != null) {
-                        datasets.push({ type: 'line', label: '평균 CT', data: labels.map(() => avg),
+                        datasets.push({ type: 'line', label: '평균 가동시간', data: labels.map(() => avg),
                             borderColor: cRed, borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0, fill: false });
                     }
                     // 차트 1개만 유지하고 update('none') 로 갱신 — destroy()+new Chart() 의 canvas/GPU churn 제거(dashboard2 와 동일 정책).
@@ -2779,8 +2652,8 @@
                                         afterBody: (items) => {
                                             const x = items[0].chart.$ctx, idx = items[0].dataIndex;
                                             const ctVal = (x.mt[idx] ?? 0) + (x.wt[idx] ?? 0);
-                                            const lines = ['CT (전체): ' + fmtMs(ctVal)];
-                                            if (x.avg != null) lines.push('평균 CT: ' + fmtMs(x.avg));
+                                            const lines = ['가동시간 (전체): ' + fmtMs(ctVal)];
+                                            if (x.avg != null) lines.push('평균 가동시간: ' + fmtMs(x.avg));
                                             return lines;
                                         },
                                     }

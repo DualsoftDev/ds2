@@ -46,12 +46,7 @@
 
         /* ── 보기 전환 세그먼트 (flow-call 매트릭스 ⇄ 테이블 나열) ── */
         .hm-view-switch { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-        .hm-seg { display: inline-flex; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-lg); overflow: hidden; background: var(--color-surface); }
-        .hm-seg button { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border: none; background: transparent; color: var(--color-text-secondary); font-size: 0.78rem; font-weight: 700; cursor: pointer; transition: background .14s ease, color .14s ease; }
-        .hm-seg button .material-icons { font-size: 18px; }
-        .hm-seg button + button { border-left: 1px solid var(--color-lines); }
-        .hm-seg button.is-active { background: var(--color-primary); color: #fff; }
-        .hm-seg button:not(.is-active):hover { background: var(--color-surface-variant); color: var(--color-text-primary); }
+        /* .hm-seg 룩은 swiss.css 공용 세그먼트 컨트롤(.segmented/.ct-seg/.hm-seg 통일)로 이관 */
         .hm-view-hint { font-size: 0.72rem; color: var(--color-text-secondary); font-weight: 600; }
 
         /* ── Call 블럭 그리드(디바이스 카드) — mockup p3(P2) "색으로 즉시 진단" UX ──

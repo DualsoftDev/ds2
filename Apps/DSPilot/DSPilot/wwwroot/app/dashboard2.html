@@ -209,16 +209,20 @@
         }
 
         /* ── 베이스 컴포넌트 (ds.css/swiss.css 재현, stitch 팔레트) ── */
-        .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 16px; border-radius: var(--radius-sm); font-size: 0.875rem; font-weight: 600; font-family: var(--font-family); cursor: pointer; border: none; transition: background 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease; white-space: nowrap; text-decoration: none; line-height: 1.6; }
-        .btn:disabled { opacity: 0.5; cursor: default; }
-        .btn .material-icons { font-size: 17px; }
-        .btn-filled { background: var(--color-primary); color: #fff; }
-        .btn-filled:hover { filter: brightness(1.1); }
-        .btn-filled.color-warning { background: var(--color-warning); } .btn-filled.color-success { background: var(--color-success); } .btn-filled.color-error { background: var(--color-error); }
-        .btn-outlined { background: var(--color-surface); border: 1px solid var(--color-primary); color: var(--color-primary); }
-        .btn-outlined:hover { background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); }
-        .btn-outlined.color-warning { border-color: var(--color-warning); color: var(--color-warning); } .btn-outlined.color-success { border-color: var(--color-success); color: var(--color-success); } .btn-outlined.color-error { border-color: var(--color-error); color: var(--color-error); }
-        .btn-sm { padding: 4px 10px; font-size: 0.8125rem; } .btn-sm .material-icons { font-size: 15px; }
+        /* 통일 버튼(swiss.css 와 동일 스펙) — 채움+그림자+볼드+8px. stitch 팔레트 토큰 사용. */
+        .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 16px; border-radius: 8px; font-size: 0.875rem; font-weight: 700; font-family: var(--font-family); cursor: pointer; background: var(--color-surface-variant); border: 1px solid var(--color-lines-strong); color: var(--color-text-primary); box-shadow: 0 1px 2px rgba(15,30,50,0.10); transition: background 0.14s ease, box-shadow 0.14s ease, border-color 0.14s ease, transform 0.1s ease; white-space: nowrap; text-decoration: none; line-height: 1.6; }
+        .btn:hover { background: color-mix(in srgb, var(--color-text-primary) 8%, var(--color-surface-variant)); box-shadow: 0 2px 6px rgba(15,30,50,0.15); }
+        .btn:active:not(:disabled) { transform: translateY(1px); box-shadow: 0 1px 1px rgba(15,30,50,0.12); }
+        .btn:disabled { opacity: 0.45; cursor: default; box-shadow: none; transform: none; }
+        .btn .material-icons { font-size: 18px; }
+        .btn-filled, .btn.btn-primary { background: var(--color-primary); color: #fff; border-color: transparent; box-shadow: 0 2px 5px color-mix(in srgb, var(--color-primary) 45%, transparent); }
+        .btn-filled:hover, .btn.btn-primary:hover { background: var(--color-primary-strong); border-color: transparent; box-shadow: 0 4px 10px color-mix(in srgb, var(--color-primary) 50%, transparent); }
+        .btn-filled.color-warning { background: var(--color-warning); border-color: transparent; box-shadow: 0 2px 5px rgba(0,0,0,.16); } .btn-filled.color-success { background: var(--color-success); border-color: transparent; box-shadow: 0 2px 5px rgba(0,0,0,.16); } .btn-filled.color-error { background: var(--color-error); border-color: transparent; box-shadow: 0 2px 5px rgba(0,0,0,.16); }
+        .btn-outlined { background: var(--color-surface); border: 1px solid var(--color-primary); color: var(--color-primary); box-shadow: 0 1px 2px rgba(15,30,50,0.06); }
+        .btn-outlined:hover { background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface)); }
+        .btn-outlined.color-warning { background: color-mix(in srgb, var(--color-warning) 12%, var(--color-surface)); border-color: var(--color-warning); color: var(--color-warning); } .btn-outlined.color-success { background: color-mix(in srgb, var(--color-success) 10%, var(--color-surface)); border-color: var(--color-success); color: var(--color-success); } .btn-outlined.color-error { background: color-mix(in srgb, var(--color-error) 10%, var(--color-surface)); border-color: var(--color-error); color: var(--color-error); }
+        .btn-sm { padding: 5px 12px; font-size: 0.8125rem; border-radius: 7px; } .btn-sm .material-icons { font-size: 15px; }
+        .dark-theme .btn { box-shadow: 0 1px 2px rgba(0,0,0,0.4); } .dark-theme .btn:hover { box-shadow: 0 2px 6px rgba(0,0,0,0.5); }
         .btn-icon { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0; border-radius: 50%; background: transparent; border: none; cursor: pointer; color: inherit; transition: background 0.15s ease; } .btn-icon:hover { background: color-mix(in srgb, var(--color-text-primary) 8%, transparent); } .btn-icon .material-icons { font-size: 22px; } .btn-icon.btn-sm { width: 32px; height: 32px; } .btn-icon.btn-sm .material-icons { font-size: 19px; }
 
         .form-group { margin-bottom: 16px; }
@@ -349,6 +353,26 @@
         .dark-theme .ct-legend-sw { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-text-primary) 8%, transparent); }
         .ct-legend-name { font-size: 0.72rem; font-weight: 600; color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
         .ct-legend-val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 0.68rem; font-weight: 700; color: var(--color-text-primary); flex-shrink: 0; }
+
+        /* 도넛 아래 가로 막대 — 강조(hover) flow 의 동작(MT)·대기(WT) 시간. 도넛 펼침을 대체. */
+        .ct-focusbar { padding: 2px 14px 6px; min-height: 60px; display: flex; flex-direction: column; justify-content: center; flex-shrink: 0; }
+        .ct-fb-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
+        .ct-fb-name { font-size: 0.78rem; font-weight: 700; color: var(--color-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+        .ct-fb-ct { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 0.68rem; font-weight: 600; color: var(--color-text-secondary); flex-shrink: 0; }
+        .ct-fb-ct b { color: var(--color-text-primary); font-weight: 800; }
+        .ct-fb-track { display: flex; height: 15px; border-radius: 5px; overflow: hidden; background: var(--color-surface-variant); box-shadow: inset 0 0 0 1px var(--color-lines); }
+        .ct-fb-seg { height: 100%; transition: width 0.22s ease; min-width: 0; }
+        .ct-fb-mt { background: var(--dash-mt); }
+        .ct-fb-wt { background: var(--dash-wt); }
+        .ct-fb-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 5px; }
+        .ct-fb-li { display: inline-flex; align-items: center; gap: 5px; font-size: 0.68rem; font-weight: 600; color: var(--color-text-secondary); }
+        .ct-fb-li b { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 800; color: var(--color-text-primary); }
+        .ct-fb-li em { font-style: normal; opacity: 0.7; }
+        .ct-fb-dot { width: 9px; height: 9px; border-radius: 3px; flex-shrink: 0; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-text-primary) 12%, transparent); }
+        .ct-fb-dot-mt { background: var(--dash-mt); }
+        .ct-fb-dot-wt { background: var(--dash-wt); }
+        .ct-fb-hint { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 0.7rem; color: var(--color-text-disabled); text-align: center; }
+        .ct-fb-hint .material-icons { font-size: 16px; }
 
         /* ── 전체화면: CCTV 카드를 화면에 꽉 (헤더 숨김) ── */
         .fl-fs:fullscreen, .fl-fs:-webkit-full-screen { --fl-cap: 100vh; background: var(--color-background); position: relative; overflow: visible; }
@@ -518,7 +542,7 @@
                      @click="maxCtName && (selectedFlowName = maxCtName)">
                     <div class="flex justify-between items-start mb-4">
                         <div>
-                            <span class="font-label-sm text-label-sm opacity-80 uppercase tracking-tighter" style="color:var(--color-primary-strong);">최대 시간</span>
+                            <span class="font-label-sm text-label-sm opacity-80 uppercase tracking-tighter" style="color:var(--color-primary-strong);">최대 가동시간</span>
                             <h4 class="font-display-metrics text-display-metrics leading-none mt-2" style="color:var(--color-primary);" x-text="maxCtName ? fmt(maxCtVal) : '--'"></h4>
                         </div>
                     </div>
@@ -758,7 +782,7 @@
                                                             <template x-if="cctvHover?.model?.device"><span class="tv mono" x-text="cctvHover?.model?.device"></span></template>
                                                             <template x-if="cctvHover?.model?.avgMs != null"><span class="tk">평균 사이클</span></template>
                                                             <template x-if="cctvHover?.model?.avgMs != null"><span class="tv" x-text="cctvFmtDuration(cctvHover?.model?.avgMs)"></span></template>
-                                                            <template x-if="cctvHover?.model?.currentCt != null"><span class="tk">현재 CT</span></template>
+                                                            <template x-if="cctvHover?.model?.currentCt != null"><span class="tk">현재 가동시간</span></template>
                                                             <template x-if="cctvHover?.model?.currentCt != null"><span class="tv" x-text="cctvFmtDuration(cctvHover?.model?.currentCt)"></span></template>
                                                             <template x-if="cctvHover?.model?.goingCount != null && cctvHover?.model?.goingCount > 0"><span class="tk">진행 횟수</span></template>
                                                             <template x-if="cctvHover?.model?.goingCount != null && cctvHover?.model?.goingCount > 0"><span class="tv" x-text="cctvHover?.model?.goingCount + '회'"></span></template>
@@ -830,6 +854,31 @@
                             <div style="position:relative; flex:1; min-height:220px; padding:10px 4px 4px;" x-effect="renderCtDonut()" @mouseleave="chartHoverFlowName = null">
                                 <canvas x-ref="ctDonut"></canvas>
                             </div>
+                            <!-- 도넛 아래 가로 막대: 강조(hover) flow 의 동작(MT)·대기(WT) 시간. 마우스를 떼면 안내문. -->
+                            <div class="ct-focusbar">
+                                <template x-if="focusRow">
+                                    <div>
+                                        <div class="ct-fb-head">
+                                            <span class="ct-fb-name" x-text="focusRow.flowName"></span>
+                                            <span class="ct-fb-ct">가동시간 <b x-text="fmt(focusRow.ct)"></b></span>
+                                        </div>
+                                        <div class="ct-fb-track" role="img" :aria-label="focusRow.flowName + ' 동작 ' + fmt(focusRow.mt) + ' 대기 ' + fmt(focusRow.wt)">
+                                            <div class="ct-fb-seg ct-fb-mt" :style="`width:${focusRow.ct>0 ? focusRow.mt*100/focusRow.ct : 0}%`" :title="'동작 ' + fmt(focusRow.mt)"></div>
+                                            <div class="ct-fb-seg ct-fb-wt" :style="`width:${focusRow.ct>0 ? focusRow.wt*100/focusRow.ct : 0}%`" :title="'대기 ' + fmt(focusRow.wt)"></div>
+                                        </div>
+                                        <div class="ct-fb-legend">
+                                            <span class="ct-fb-li"><span class="ct-fb-dot ct-fb-dot-mt"></span>동작 <b x-text="fmt(focusRow.mt)"></b> <em x-text="'(' + (focusRow.ct>0 ? Math.round(focusRow.mt*100/focusRow.ct) : 0) + '%)'"></em></span>
+                                            <span class="ct-fb-li"><span class="ct-fb-dot ct-fb-dot-wt"></span>대기 <b x-text="fmt(focusRow.wt)"></b> <em x-text="'(' + (focusRow.ct>0 ? Math.round(focusRow.wt*100/focusRow.ct) : 0) + '%)'"></em></span>
+                                        </div>
+                                    </div>
+                                </template>
+                                <template x-if="!focusRow">
+                                    <div class="ct-fb-hint">
+                                        <span class="material-icons">touch_app</span>
+                                        Flow 에 마우스를 올리면 동작·대기 시간이 표시됩니다
+                                    </div>
+                                </template>
+                            </div>
                             <div class="ct-legend">
                                 <template x-for="(f, i) in chartData" :key="f.flowName">
                                     <button class="ct-legend-item" :class="focusFlowName === f.flowName ? 'is-sel' : ''"
@@ -850,7 +899,7 @@
                             <div class="ds-empty" style="padding:32px 0;">
                                 <span class="material-icons">donut_large</span>
                                 <span class="ds-empty-title">Time 데이터가 없습니다</span>
-                                <span class="ds-empty-desc">사이클이 수집되면 Flow별 CT 가 도넛으로 표시됩니다.</span>
+                                <span class="ds-empty-desc">사이클이 수집되면 Flow별 가동시간이 도넛으로 표시됩니다.</span>
                             </div>
                         </div>
                     </template>
@@ -1260,9 +1309,9 @@
                 }
                 return hex;
             },
-            // 선버스트: 내부 링(flow별 CT 비중 항상 표시) + 외부 링(강조된 flow의 MT·WT만 뻗어남).
-            // 외부 링의 backgroundColor·borderColor·offset 을 scriptable 함수로 정의해
-            // ctDyn 을 참조하므로 in-place update('none') 만으로 즉시 반영된다(OOM 방지).
+            // 단일 링 도넛: flow 당 CT 1슬라이스만 그린다(항상 표시, 강조 flow 외에는 dimming).
+            // 동작(MT)·대기(WT) 상세는 도넛 아래 가로 막대(ct-focusbar)가 담당 → 예전 외부 링 펼침(offset)은 제거.
+            // backgroundColor 는 innerBg 배열로 직접 지정, in-place update('none') 로 dimming 만 갱신(OOM 방지).
             renderCtDonut() {
                 const rows = this.chartData;
                 const sel = this.chartHoverFlowName || this.hoverFlowName || this.selectedFlowName;
@@ -1277,36 +1326,24 @@
                 const dark = document.documentElement.classList.contains('dark-theme');
                 const baseOf = (name, i) => name === maxName ? bottleneck : this.ctPalette(i);
 
-                // 내부 링: flow 당 CT 1슬라이스 (항상 표시, sel 에 따라 dimming)
+                // flow 당 CT 1슬라이스 — sel 이 있으면 다른 슬라이스는 dimming.
                 const innerData = rows.map(r => r.ct);
+                const labels = rows.map(r => r.flowName);
                 const innerBg = rows.map((r, i) => {
                     const c = baseOf(r.flowName, i);
                     return (sel && r.flowName !== sel) ? this._hexAlpha(c, 0.28) : c;
                 });
 
-                // 외부 링: 데이터만 준비, 색상·offset 은 scriptable 로 sel 기반 처리
-                const outerData = [], outerLabels = [];
-                const outerSolidBg = [], outerAlphaBg = [];  // sel flow 노출용 색상 캐시
-                rows.forEach((r, i) => {
-                    const base = baseOf(r.flowName, i);
-                    outerLabels.push(r.flowName + ' 동작', r.flowName + ' 대기');
-                    outerData.push(r.mt, r.wt);
-                    outerSolidBg.push(base);
-                    outerAlphaBg.push(this._hexAlpha(base, 0.45));
-                });
-
                 const total = innerData.reduce((a, b) => a + b, 0) || 1;
-                ctDyn = { innerData, outerData, total, sel, dark, rows, outerSolidBg, outerAlphaBg, surface };
-                const sig = rows.map(r => r.flowName + ':' + r.mt + ':' + r.wt).join('|') + '#' + (sel || '') + '#' + (dark ? 1 : 0) + '#' + (maxName || '');
+                ctDyn = { innerData, total, sel, dark, rows, surface };
+                const sig = rows.map(r => r.flowName + ':' + r.ct).join('|') + '#' + (sel || '') + '#' + (dark ? 1 : 0) + '#' + (maxName || '');
 
-                // (A) in-place 갱신: ctDyn 업데이트 후 update('none') 만 호출.
-                //     scriptable callbacks 가 최신 ctDyn 을 읽으므로 외부 링도 자동 반영.
-                if (ctChart && ctChart.canvas === cv && ctChart.data.datasets.length === 2) {
+                // (A) in-place 갱신: 색/보더만 갱신 후 update('none').
+                if (ctChart && ctChart.canvas === cv && ctChart.data.datasets.length === 1) {
                     if (sig === ctSig) return;
-                    const [ds0, ds1] = ctChart.data.datasets;
-                    ctChart.data.labels = outerLabels;
-                    ds0.data = outerData;
-                    ds1.data = innerData; ds1.backgroundColor = innerBg; ds1.borderColor = surface; ds1.borderWidth = dark ? 2 : 1;
+                    const ds0 = ctChart.data.datasets[0];
+                    ctChart.data.labels = labels;
+                    ds0.data = innerData; ds0.backgroundColor = innerBg; ds0.borderColor = surface; ds0.borderWidth = dark ? 2 : 1;
                     ctChart.update('none');
                     ctSig = sig;
                     return;
@@ -1314,112 +1351,68 @@
 
                 // (B) 최초 생성 (또는 구조 변경)
                 if (ctChart) { ctChart.destroy(); ctChart = null; }
-                // 툴팁을 차트 영역 상단에 고정하는 포지셔너 (1회 등록)
-                if (!Chart.Tooltip.positioners.chartTop) {
-                    Chart.Tooltip.positioners.chartTop = function(_items, _pos) {
-                        const ca = this.chart.chartArea;
-                        return { x: ca.left + ca.width / 2, y: ca.top + 2, xAlign: 'center', yAlign: 'top' };
-                    };
-                }
                 const self = this;
                 const fmt = (ms) => self.fmt(ms);
                 const clip = (s) => (s && s.length > 9) ? (s.slice(0, 8) + '…') : (s || '');
-
-                // 외부 링 scriptable helpers (ctDyn 클로저 참조 → 항상 최신값)
-                const outerBgFn = (ctx) => {
-                    const d = ctDyn; if (!d || !d.sel) return 'rgba(0,0,0,0)';
-                    const fi = Math.floor(ctx.dataIndex / 2);
-                    if (d.rows[fi]?.flowName !== d.sel) return 'rgba(0,0,0,0)';
-                    return ctx.dataIndex % 2 === 0 ? d.outerSolidBg[fi] : d.outerAlphaBg[fi];
-                };
-                const outerBorderFn = (ctx) => {
-                    const d = ctDyn; if (!d || !d.sel) return 'rgba(0,0,0,0)';
-                    const fi = Math.floor(ctx.dataIndex / 2);
-                    return d.rows[fi]?.flowName === d.sel ? d.surface : 'rgba(0,0,0,0)';
-                };
-                const outerOffsetFn = (ctx) => {
-                    const d = ctDyn; if (!d || !d.sel) return 0;
-                    const fi = Math.floor(ctx.dataIndex / 2);
-                    return d.rows[fi]?.flowName === d.sel ? 14 : 0;
-                };
 
                 const arcLabels = {
                     id: 'ctArcLabels',
                     afterDraw(chart) {
                         const d = ctDyn; if (!d) return;
                         const ctx = chart.ctx;
-                        chart.data.datasets.forEach((dataset, dsIdx) => {
-                            const meta = chart.getDatasetMeta(dsIdx);
-                            if (meta.hidden) return;
-                            const isOuter = dsIdx === 0;
-                            const dArr = isOuter ? d.outerData : d.innerData;
-                            const t = dArr.reduce((a, b) => a + b, 0) || 1;
-                            meta.data.forEach((arc, i) => {
-                                const fi = isOuter ? Math.floor(i / 2) : i;
-                                // 외부 링: sel 인 flow 슬라이스만 라벨
-                                if (isOuter && (!d.sel || d.rows[fi]?.flowName !== d.sel)) return;
-                                const mid = (arc.startAngle + arc.endAngle) / 2;
-                                const isThin = (dArr[i] / t) < 0.04;
-                                if (isThin) {
-                                    if (isOuter) return;
-                                    const cx = arc.x, cy = arc.y, outerR = arc.outerRadius;
-                                    const ax = cx + Math.cos(mid) * outerR, ay = cy + Math.sin(mid) * outerR;
-                                    const lx = cx + Math.cos(mid) * (outerR + 11), ly = cy + Math.sin(mid) * (outerR + 11);
-                                    const goRight = Math.cos(mid) >= 0;
-                                    const alpha = (d.sel && d.rows[i]?.flowName !== d.sel) ? 0.35 : 1;
-                                    ctx.save();
-                                    ctx.globalAlpha = alpha;
-                                    ctx.strokeStyle = d.dark ? 'rgba(180,200,220,0.5)' : 'rgba(20,40,70,0.35)';
-                                    ctx.lineWidth = 1;
-                                    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(lx, ly); ctx.stroke();
-                                    ctx.textAlign = goRight ? 'left' : 'right';
-                                    ctx.textBaseline = 'middle';
-                                    ctx.font = '600 9px Inter, system-ui, sans-serif';
-                                    const tx = lx + (goRight ? 2 : -2);
-                                    const lbl = clip(d.rows[i]?.flowName) + ' ' + fmt(dArr[i]);
-                                    ctx.lineWidth = 2.5;
-                                    ctx.strokeStyle = d.dark ? 'rgba(0,0,0,0.72)' : 'rgba(255,255,255,0.86)';
-                                    ctx.strokeText(lbl, tx, ly);
-                                    ctx.fillStyle = d.dark ? '#c8d8e8' : '#1e3050';
-                                    ctx.fillText(lbl, tx, ly);
-                                    ctx.restore();
-                                    return;
-                                }
-                                const rMid = (arc.innerRadius + arc.outerRadius) / 2;
-                                const x = arc.x + Math.cos(mid) * rMid, y = arc.y + Math.sin(mid) * rMid;
+                        const meta = chart.getDatasetMeta(0);
+                        if (meta.hidden) return;
+                        const dArr = d.innerData;
+                        const t = dArr.reduce((a, b) => a + b, 0) || 1;
+                        meta.data.forEach((arc, i) => {
+                            const mid = (arc.startAngle + arc.endAngle) / 2;
+                            const isThin = (dArr[i] / t) < 0.04;
+                            const alpha = (d.sel && d.rows[i]?.flowName !== d.sel) ? 0.35 : 1;
+                            if (isThin) {
+                                const cx = arc.x, cy = arc.y, outerR = arc.outerRadius;
+                                const ax = cx + Math.cos(mid) * outerR, ay = cy + Math.sin(mid) * outerR;
+                                const lx = cx + Math.cos(mid) * (outerR + 11), ly = cy + Math.sin(mid) * (outerR + 11);
+                                const goRight = Math.cos(mid) >= 0;
                                 ctx.save();
-                                ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
-                                ctx.globalAlpha = isOuter ? 1 : ((d.sel && d.rows[i]?.flowName !== d.sel) ? 0.35 : 1);
-                                const draw = (txt, dy, font) => {
-                                    ctx.font = font; ctx.lineWidth = 3;
-                                    if (d.dark) { ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.strokeText(txt, x, y + dy); ctx.fillStyle = '#0b1220'; }
-                                    else { ctx.strokeStyle = 'rgba(8,17,33,0.55)'; ctx.strokeText(txt, x, y + dy); ctx.fillStyle = '#ffffff'; }
-                                    ctx.fillText(txt, x, y + dy);
-                                };
-                                if (isOuter) {
-                                    draw(fmt(dArr[i]), 0, '700 11px Inter, system-ui, sans-serif');
-                                } else {
-                                    draw(clip(d.rows[i]?.flowName), -7, '700 11px Inter, system-ui, sans-serif');
-                                    draw(fmt(dArr[i]), 7, '800 12px Inter, system-ui, sans-serif');
-                                }
+                                ctx.globalAlpha = alpha;
+                                ctx.strokeStyle = d.dark ? 'rgba(180,200,220,0.5)' : 'rgba(20,40,70,0.35)';
+                                ctx.lineWidth = 1;
+                                ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(lx, ly); ctx.stroke();
+                                ctx.textAlign = goRight ? 'left' : 'right';
+                                ctx.textBaseline = 'middle';
+                                ctx.font = '600 9px Inter, system-ui, sans-serif';
+                                const tx = lx + (goRight ? 2 : -2);
+                                const lbl = clip(d.rows[i]?.flowName) + ' ' + fmt(dArr[i]);
+                                ctx.lineWidth = 2.5;
+                                ctx.strokeStyle = d.dark ? 'rgba(0,0,0,0.72)' : 'rgba(255,255,255,0.86)';
+                                ctx.strokeText(lbl, tx, ly);
+                                ctx.fillStyle = d.dark ? '#c8d8e8' : '#1e3050';
+                                ctx.fillText(lbl, tx, ly);
                                 ctx.restore();
-                            });
+                                return;
+                            }
+                            const rMid = (arc.innerRadius + arc.outerRadius) / 2;
+                            const x = arc.x + Math.cos(mid) * rMid, y = arc.y + Math.sin(mid) * rMid;
+                            ctx.save();
+                            ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+                            ctx.globalAlpha = alpha;
+                            const draw = (txt, dy, font) => {
+                                ctx.font = font; ctx.lineWidth = 3;
+                                if (d.dark) { ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.strokeText(txt, x, y + dy); ctx.fillStyle = '#0b1220'; }
+                                else { ctx.strokeStyle = 'rgba(8,17,33,0.55)'; ctx.strokeText(txt, x, y + dy); ctx.fillStyle = '#ffffff'; }
+                                ctx.fillText(txt, x, y + dy);
+                            };
+                            draw(clip(d.rows[i]?.flowName), -7, '700 11px Inter, system-ui, sans-serif');
+                            draw(fmt(dArr[i]), 7, '800 12px Inter, system-ui, sans-serif');
+                            ctx.restore();
                         });
                     },
                 };
                 ctChart = new Chart(cv, {
                     type: 'doughnut',
                     data: {
-                        labels: outerLabels,
+                        labels: labels,
                         datasets: [
-                            {
-                                data: outerData,
-                                backgroundColor: outerBgFn,
-                                borderColor: outerBorderFn,
-                                borderWidth: 1,
-                                offset: outerOffsetFn,
-                                hoverOffset: 0,
-                            },
                             {
                                 data: innerData,
                                 backgroundColor: innerBg,
@@ -1431,53 +1424,18 @@
                     },
                     plugins: [arcLabels],
                     options: {
-                        responsive: true, maintainAspectRatio: false, animation: false, cutout: '20%',
+                        responsive: true, maintainAspectRatio: false, animation: false, cutout: '50%',
                         layout: { padding: 28 },
                         plugins: {
                             legend: { display: false },
-                            tooltip: {
-                                position: 'chartTop',
-                                caretSize: 0,
-                                // 투명한 외부 링(비강조 flow) 슬라이스는 툴팁 억제
-                                filter: (item) => {
-                                    const d = ctDyn; if (!d) return false;
-                                    if (item.datasetIndex === 0) {
-                                        const fi = Math.floor(item.dataIndex / 2);
-                                        return !!(d.sel && d.rows[fi]?.flowName === d.sel);
-                                    }
-                                    return true;
-                                },
-                                callbacks: {
-                                    title: (items) => {
-                                        const item = items[0]; if (!item) return '';
-                                        const d = ctDyn; if (!d) return '';
-                                        if (item.datasetIndex === 0) {
-                                            const fi = Math.floor(item.dataIndex / 2);
-                                            const kind = item.dataIndex % 2 === 0 ? '동작' : '대기';
-                                            return (d.rows[fi]?.flowName || '') + ' ' + kind;
-                                        }
-                                        return d.rows[item.dataIndex]?.flowName || '';
-                                    },
-                                    label: (c) => {
-                                        const d = ctDyn; if (!d) return '';
-                                        if (c.datasetIndex === 0) {
-                                            const t = d.outerData.reduce((a, b) => a + b, 0) || 1;
-                                            const kind = c.dataIndex % 2 === 0 ? '동작' : '대기';
-                                            return `${kind}: ${fmt(c.parsed)} (${(c.parsed * 100 / t).toFixed(1)}%)`;
-                                        } else {
-                                            const t = d.innerData.reduce((a, b) => a + b, 0) || 1;
-                                            return `CT: ${fmt(c.parsed)} (${(c.parsed * 100 / t).toFixed(1)}%)`;
-                                        }
-                                    },
-                                },
-                            },
+                            // 툴팁 제거 — 강조 flow 의 CT·동작·대기는 도넛 아래 가로 막대(ct-focusbar)가 표시.
+                            tooltip: { enabled: false },
                         },
                         onClick: (e, els, chart) => {
                             if (els && els.length) {
                                 const el = els[0];
                                 const d = ctDyn; if (!d) return;
-                                const fi = el.datasetIndex === 0 ? Math.floor(el.index / 2) : el.index;
-                                self.goFlow(d.rows[fi]?.flowName);
+                                self.goFlow(d.rows[el.index]?.flowName);
                             }
                         },
                         onHover: (e, els, chart) => {
@@ -1485,11 +1443,9 @@
                                 // ctDyn.rows 사용 — in-place 갱신 후 stale 클로저 rows 방지
                                 const el = els[0];
                                 const d = ctDyn; if (!d) return;
-                                const fi = el.datasetIndex === 0 ? Math.floor(el.index / 2) : el.index;
-                                self.chartHoverFlowName = d.rows[fi]?.flowName || null;
+                                self.chartHoverFlowName = d.rows[el.index]?.flowName || null;
                             }
-                            // els=[] 일 때 업데이트 생략: offset gap(14px) 진입 시 붕괴-팽창 루프 방지.
-                            // 마우스가 차트 영역을 완전히 벗어나면 @mouseleave 가 null 로 리셋한다.
+                            // els=[] 일 때는 갱신 생략 — @mouseleave 가 차트를 벗어날 때 null 로 리셋한다.
                         },
                     },
                 });
@@ -1521,6 +1477,8 @@
             },
 
             get focusFlowName() { return this.chartHoverFlowName || this.hoverFlowName || this.selectedFlowName; },
+            // 강조 flow 의 지표 행(동작·대기 막대용). 없으면 null → 안내문 표시.
+            get focusRow() { const n = this.focusFlowName; return n ? (this.chartData.find(r => r.flowName === n) || null) : null; },
             hoverFlow(name) { this.hoverFlowName = name || null; },
             goFlow(name) { if (name) window.location.href = '/flow?name=' + encodeURIComponent(name); },
 

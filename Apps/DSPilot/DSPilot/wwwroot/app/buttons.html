@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>버튼·컨트롤 템플릿 — DSPilot</title>
+    <!-- 실제 앱과 동일한 공용 스타일을 로드 → 여기 보이는 그대로가 각 페이지에서 렌더됨 -->
+    <link rel="stylesheet" href="/css/fonts.css" />
+    <link rel="stylesheet" href="/css/ds.css" />
+    <style>
+        /* ── 갤러리 전용 레이아웃 (컴포넌트 스타일 아님) ── */
+        body { margin: 0; background: var(--color-background); color: var(--color-text-primary); font-family: var(--font-family); }
+        .gal-head { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 14px; padding: 16px 24px; background: var(--color-surface); border-bottom: 1px solid var(--color-lines); }
+        .gal-head h1 { font-size: 1.05rem; font-weight: 800; margin: 0; letter-spacing: 0.01em; }
+        .gal-head .sub { font-size: 0.76rem; color: var(--color-text-secondary); }
+        .gal-head .spacer { margin-left: auto; }
+        .gal-wrap { max-width: 1100px; margin: 0 auto; padding: 28px 24px 80px; }
+        .gal-sec { margin-bottom: 40px; }
+        .gal-sec > h2 { font-size: 0.86rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-text-primary); margin: 0 0 4px; }
+        .gal-sec > p { font-size: 0.76rem; color: var(--color-text-secondary); margin: 0 0 16px; }
+        .gal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
+        .gal-card { border: 1px solid var(--color-lines); border-radius: var(--radius-md); background: var(--color-surface); padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+        .gal-demo { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-height: 40px; }
+        .gal-code { font-family: var(--font-mono, monospace); font-size: 0.68rem; color: var(--color-text-secondary); background: var(--color-surface-variant); border-radius: var(--radius-sm); padding: 4px 8px; word-break: break-all; line-height: 1.5; }
+        .gal-note { font-size: 0.72rem; color: var(--color-text-secondary); }
+        .gal-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; }
+        code.k { font-family: var(--font-mono, monospace); font-size: 0.72rem; background: color-mix(in srgb, var(--color-primary) 12%, transparent); color: var(--color-primary); padding: 1px 6px; border-radius: 3px; }
+
+        /* ── flow-all 페이지 전용 버튼 스타일 복사 (공용 CSS 아님 — 참고용) ── */
+        .ct-tag-btn { width: 24px; height: 24px; border-radius: var(--radius-sm); border: 1px solid var(--color-lines-strong); background: var(--color-surface); font-size: 0.7rem; font-weight: 800; cursor: pointer; padding: 0; color: var(--color-text-primary); font-family: var(--font-mono); transition: background-color 0.12s, color 0.12s, border-color 0.12s; }
+        .ct-tag-btn:hover:not(:disabled) { border-color: var(--color-primary); color: var(--color-primary); }
+        .ct-tag-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+        .ct-tag-btn.head.active { background: #4caf50; color: #fff; border-color: #2e7d32; }
+        .ct-tag-btn.tail.active { background: #ab47bc; color: #fff; border-color: #7b1fa2; }
+        .dark-theme .ct-tag-btn { background: var(--color-surface-variant); }
+        .ct-zoom { display: inline-flex; align-items: center; gap: 6px; }
+        .ct-zoom button { width: 26px; height: 26px; border: 1px solid var(--color-lines-strong); background: var(--color-surface); border-radius: var(--radius-sm); cursor: pointer; font-weight: 800; font-size: 0.85rem; color: var(--color-text-primary); padding: 0; line-height: 1; }
+        .ct-zoom button.ct-zoom-reset { width: auto; padding: 0 10px; font-size: 0.7rem; font-weight: 700; }
+        .ct-zoom button:hover:not(:disabled) { border-color: var(--color-primary); color: var(--color-primary); }
+        .ct-zoom button:disabled { opacity: 0.4; cursor: not-allowed; }
+        .ct-zoom-val { font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700; min-width: 44px; text-align: center; }
+        .dark-theme .ct-zoom button { background: var(--color-surface-variant); }
+        .fa-controls-toggle { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 14px; background: var(--color-surface); border: 1px solid var(--color-lines-strong); border-radius: var(--radius-md); cursor: pointer; font: inherit; color: var(--color-text-secondary); text-align: left; }
+        .fa-controls-toggle:hover { border-color: var(--color-primary); color: var(--color-primary); }
+        .fa-controls-toggle .material-icons { font-size: 20px; flex: 0 0 auto; }
+        .fa-controls-toggle .fa-ct-title { font-size: 0.78rem; font-weight: 800; letter-spacing: 0.02em; flex: 0 0 auto; }
+        .fa-controls-toggle .fa-ct-summary { font-size: 0.72rem; font-weight: 700; color: var(--color-text-secondary); margin-left: auto; }
+        /* pw-chip 은 components.css / pw.html 전용(공용 아님) — 참고용 복사 */
+        .pw-chip { padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+        .pw-chip-ok   { background: rgba(56, 142, 60, 0.15); color: #2e7d32; }
+        .pw-chip-run  { background: rgba(25, 118, 210, 0.15); color: #1565c0; }
+        .pw-chip-warn { background: rgba(240, 136, 62, 0.18); color: #ef6c00; }
+        .pw-chip-err  { background: rgba(211, 47, 47, 0.15); color: #c62828; }
+        .pw-chip-idle { background: rgba(126, 87, 194, 0.15); color: #5e35b1; }
+        .pw-chip-stop { background: rgba(69, 90, 100, 0.15); color: #37474f; }
+        /* 버튼 룩은 swiss.css 공용 .btn (대시보드 기준 통일 스펙)에서 상속 — 여기 오버라이드 없음 */
+    </style>
+</head>
+<body>
+    <header class="gal-head">
+        <div>
+            <h1>버튼·컨트롤 템플릿</h1>
+            <div class="sub">DSPilot 공용 스타일(<code class="k">ds.css → swiss.css</code>) 실제 렌더 · 클래스명 함께 표기</div>
+        </div>
+        <div class="spacer"></div>
+        <button class="btn btn-sm" onclick="location.href='/'"><span class="material-icons">arrow_back</span>대시보드</button>
+        <button class="btn btn-sm btn-outlined" id="themeBtn"><span class="material-icons">dark_mode</span><span id="themeLbl">다크</span></button>
+    </header>
+
+    <main class="gal-wrap">
+
+        <!-- 1. 기본 버튼 -->
+        <section class="gal-sec">
+            <h2>1 · 기본 버튼</h2>
+            <p>베이스 클래스 <code class="k">.btn</code> + 스타일 변형. 아이콘은 <code class="k">.material-icons</code>.</p>
+            <div class="gal-grid">
+                <div class="gal-card">
+                    <div class="gal-demo"><button class="btn btn-filled"><span class="material-icons">save</span>저장</button></div>
+                    <div class="gal-code">.btn .btn-filled</div>
+                    <div class="gal-note">주 액션(Primary). <code class="k">.btn-primary</code> 도 동일.</div>
+                </div>
+                <div class="gal-card">
+                    <div class="gal-demo"><button class="btn btn-outlined">되돌리기</button></div>
+                    <div class="gal-code">.btn .btn-outlined</div>
+                    <div class="gal-note">보조 액션. 테두리 = 액센트.</div>
+                </div>
+                <div class="gal-card">
+                    <div class="gal-demo"><button class="btn">기본 버튼</button></div>
+                    <div class="gal-code">.btn</div>
+                    <div class="gal-note">중립(default) 테두리·텍스트.</div>
+                </div>
+                <div class="gal-card">
+                    <div class="gal-demo"><button class="btn btn-outlined color-default">중립 아웃라인</button></div>
+                    <div class="gal-code">.btn .btn-outlined .color-default</div>
+                    <div class="gal-note">액센트 대신 회색 테두리.</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 2. 색상 변형 -->
+        <section class="gal-sec">
+            <h2>2 · 색상 변형 (.color-*)</h2>
+            <p>의미 색상. filled/outlined 에 <code class="k">.color-warning / success / error / info / secondary</code> 조합.</p>
+            <div class="gal-grid">
+                <div class="gal-card">
+                    <div class="gal-demo">
+                        <button class="btn btn-filled color-success">성공</button>
+                        <button class="btn btn-filled color-warning">주의</button>
+                        <button class="btn btn-filled color-error">위험</button>
+                    </div>
+                    <div class="gal-code">.btn-filled .color-success / .color-warning / .color-error</div>
+                </div>
+                <div class="gal-card">
+                    <div class="gal-demo">
+                        <button class="btn btn-filled color-info">정보</button>
+                        <button class="btn btn-filled color-secondary">보조</button>
+                    </div>
+                    <div class="gal-code">.btn-filled .color-info / .color-secondary</div>
+                </div>
+                <div class="gal-card">
+                    <div class="gal-demo">
+                        <button class="btn btn-outlined color-success">성공</button>
+                        <button class="btn btn-outlined color-warning">주의</button>
+                        <button class="btn btn-outlined color-error">위험</button>
+                    </div>
+                    <div class="gal-code">.btn-outlined .color-*</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 3. 크기 -->
+        <section class="gal-sec">
+            <h2>3 · 크기</h2>
+            <p>기본 vs <code class="k">.btn-sm</code>. 아이콘 전용은 <code class="k">.btn-icon</code>.</p>
+            <div class="gal-grid">
+                <div class="gal-card">
+                    <div class="gal-demo">
+                        <button class="btn btn-filled">기본</button>
+                        <button class="btn btn-filled btn-sm">작게(sm)</button>
+                    </div>
+                    <div class="gal-code">.btn-filled / .btn-filled.btn-sm</div>
+                </div>
+                <div class="gal-card">
+                    <div class="gal-demo">
+                        <button class="btn-icon"><span class="material-icons">settings</span></button>
+                        <button class="btn-icon"><span class="material-icons">refresh</span></button>
+                        <button class="btn-icon btn-sm"><span class="material-icons">close</span></button>
+                    </div>
+                    <div class="gal-code">.btn-icon / .btn-icon.btn-sm</div>
+                    <div class="gal-note">정사각 아이콘 버튼(38px / 30px).</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 4. 상태 -->
+        <section class="gal-sec">
+            <h2>4 · 상태 (hover / active / disabled / focus)</h2>
+            <p>실제 CSS 상태 — 마우스를 올리거나 <b>Tab</b> 키로 포커스 이동해 확인하세요. 비활성은 <code class="k">disabled</code> 속성.</p>
+            <div class="gal-grid">
+                <div class="gal-card">
+                    <div class="gal-demo"><button class="btn btn-filled">호버해 보세요</button></div>
+                    <div class="gal-code">:hover — 배경 진해짐</div>
+                </div>
+                <div class="gal-card">
+                    <div class="gal-demo"><button class="btn btn-filled" disabled>비활성 (filled)</button></div>
+                    <div class="gal-code">.btn-filled[disabled] — opacity .45</div>
+                    <div class="gal-note">이번 통일로 추가된 상태.</div>
+                </div>
+                <div class="gal-card">
+                    <div class="gal-demo"><button class="btn btn-outlined" disabled>비활성 (outlined)</button></div>
+                    <div class="gal-code">.btn-outlined[disabled]</div>
+                </div>
+                <div class="gal-card">
+                    <div class="gal-demo"><button class="btn btn-filled">Tab 으로 포커스</button></div>
+                    <div class="gal-code">:focus-visible — 액센트 아웃라인 링</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 5. 세그먼트 컨트롤 -->
+        <section class="gal-sec">
+            <h2>5 · 세그먼트 컨트롤 (토글 버튼 그룹)</h2>
+            <p>공용 <code class="k">.segmented</code> + 별칭 <code class="k">.ct-seg</code>(flow-all) · <code class="k">.hm-seg</code>(heatmap) — 모두 동일 룩으로 통일됨. 클릭해 보세요.</p>
+            <div class="gal-grid">
+                <div class="gal-card">
+                    <div class="gal-demo">
+                        <div class="segmented" data-seg>
+                            <button class="active">막대</button>
+                            <button>InOut 라인</button>
+                        </div>
+                    </div>
+                    <div class="gal-code">.segmented &gt; button.active</div>
+                </div>
+                <div class="gal-card">
+                    <div class="gal-demo">
+                        <div class="segmented" data-seg>
+                            <button class="active"><span class="material-icons">grid_view</span>매트릭스</button>
+                            <button><span class="material-icons">table_rows</span>테이블</button>
+                        </div>
+                    </div>
+                    <div class="gal-code">.segmented (아이콘 포함)</div>
+                </div>
+                <div class="gal-card">
+                    <div class="gal-demo">
+                        <div class="segmented" data-seg>
+                            <button class="active">오늘</button>
+                            <button>7일</button>
+                            <button>30일</button>
+                            <button>60일</button>
+                        </div>
+                    </div>
+                    <div class="gal-code">.segmented (3개 이상)</div>
+                    <div class="gal-note">uptime 은 <code class="k">.btn-filled/.btn-outlined</code> 토글 방식도 사용.</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 6. 토글 스위치 -->
+        <section class="gal-sec">
+            <h2>6 · 토글 스위치 (.switch)</h2>
+            <p>on/off 설정용. 이번 통일로 확대(42×22)·노브 그림자·포커스 링 추가.</p>
+            <div class="gal-grid">
+                <div class="gal-card">
+                    <div class="gal-demo"><label class="switch"><input type="checkbox" checked> 켜짐</label></div>
+                    <div class="gal-code">.switch &gt; input[checkbox]:checked</div>
+                </div>
+                <div class="gal-card">
+                    <div class="gal-demo"><label class="switch"><input type="checkbox"> 꺼짐</label></div>
+                    <div class="gal-code">.switch (off)</div>
+                </div>
+                <div class="gal-card">
+                    <div class="gal-demo"><label class="switch color-warning"><input type="checkbox" checked> 주의색</label></div>
+                    <div class="gal-code">.switch.color-warning</div>
+                </div>
+                <div class="gal-card">
+                    <div class="gal-demo"><label class="switch"><input type="checkbox" checked disabled> 비활성</label></div>
+                    <div class="gal-code">.switch input:disabled</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 7. 체크박스·라디오 -->
+        <section class="gal-sec">
+            <h2>7 · 체크박스 · 라디오</h2>
+            <p>네이티브 입력 — 전역 <code class="k">accent-color: var(--color-primary)</code> 로 애저 통일.</p>
+            <div class="gal-grid">
+                <div class="gal-card">
+                    <div class="gal-demo">
+                        <label style="display:flex;gap:6px;align-items:center;font-size:.82rem;"><input type="checkbox" checked> 선택됨</label>
+                        <label style="display:flex;gap:6px;align-items:center;font-size:.82rem;"><input type="checkbox"> 미선택</label>
+                    </div>
+                    <div class="gal-code">input[type=checkbox]</div>
+                </div>
+                <div class="gal-card">
+                    <div class="gal-demo">
+                        <label style="display:flex;gap:6px;align-items:center;font-size:.82rem;"><input type="radio" name="r" checked> 옵션 A</label>
+                        <label style="display:flex;gap:6px;align-items:center;font-size:.82rem;"><input type="radio" name="r"> 옵션 B</label>
+                    </div>
+                    <div class="gal-code">input[type=radio]</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 8. 칩 · 필 -->
+        <section class="gal-sec">
+            <h2>8 · 칩 · 필 · 상태 태그</h2>
+            <p>비버튼 라벨. <code class="k">.chip*</code> (테두리형) · <code class="k">.ds-pill</code> (미니 라벨) · <code class="k">.pw-chip*</code> (상태).</p>
+            <div class="gal-grid">
+                <div class="gal-card">
+                    <div class="gal-demo">
+                        <span class="chip chip-primary">기본</span>
+                        <span class="chip chip-success">정상</span>
+                        <span class="chip chip-warning">주의</span>
+                        <span class="chip chip-error">오류</span>
+                        <span class="chip chip-info">정보</span>
+                    </div>
+                    <div class="gal-code">.chip .chip-primary/success/warning/error/info</div>
+                </div>
+                <div class="gal-card">
+                    <div class="gal-demo">
+                        <span class="ds-pill">가동시간 14일평균</span>
+                        <span class="ds-pill">사용자</span>
+                    </div>
+                    <div class="gal-code">.ds-pill</div>
+                </div>
+                <div class="gal-card">
+                    <div class="gal-demo">
+                        <span class="pw-chip pw-chip-ok">OK</span>
+                        <span class="pw-chip pw-chip-run">RUN</span>
+                        <span class="pw-chip pw-chip-warn">WARN</span>
+                        <span class="pw-chip pw-chip-err">ERR</span>
+                        <span class="pw-chip pw-chip-idle">IDLE</span>
+                        <span class="pw-chip pw-chip-stop">STOP</span>
+                    </div>
+                    <div class="gal-code">.pw-chip .pw-chip-ok/run/warn/err/idle/stop</div>
+                    <div class="gal-note">components.css / pw.html 전용(공용 아님).</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 9. 폼 컨트롤 -->
+        <section class="gal-sec">
+            <h2>9 · 폼 컨트롤</h2>
+            <p>입력·선택. <code class="k">.form-field</code> · <code class="k">.form-select</code>.</p>
+            <div class="gal-grid">
+                <div class="gal-card">
+                    <div class="gal-demo"><input class="form-field" placeholder="텍스트 입력..." style="width:100%"></div>
+                    <div class="gal-code">.form-field</div>
+                </div>
+                <div class="gal-card">
+                    <div class="gal-demo"><select class="form-field form-select" style="width:100%"><option>선택 A</option><option>선택 B</option></select></div>
+                    <div class="gal-code">.form-field.form-select</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 10. 페이지 전용 특수 버튼 -->
+        <section class="gal-sec">
+            <h2>10 · 페이지 전용 특수 버튼</h2>
+            <p>공용 CSS 가 아니라 각 페이지 인라인 스타일에 정의됨(참고용으로 복사 표시).</p>
+            <div class="gal-grid">
+                <div class="gal-card">
+                    <div class="gal-demo">
+                        <button class="ct-tag-btn head active">H</button>
+                        <button class="ct-tag-btn tail active">T</button>
+                        <button class="ct-tag-btn">H</button>
+                    </div>
+                    <div class="gal-code">.ct-tag-btn.head.active / .tail.active — flow-all</div>
+                    <div class="gal-note">Head=초록 · Tail=보라 (의미색, 통일 대상 아님).</div>
+                </div>
+                <div class="gal-card">
+                    <div class="gal-demo">
+                        <div class="ct-zoom">
+                            <button>−</button>
+                            <span class="ct-zoom-val">100%</span>
+                            <button>+</button>
+                            <button class="ct-zoom-reset">전체</button>
+                        </div>
+                    </div>
+                    <div class="gal-code">.ct-zoom — flow-all 줌 스테퍼</div>
+                </div>
+                <div class="gal-card" style="grid-column: 1 / -1;">
+                    <div class="gal-demo" style="display:block;">
+                        <button class="fa-controls-toggle"><span class="material-icons">tune</span><span class="fa-ct-title">시간 범위 · 새로고침</span><span class="fa-ct-summary">최근 20 사이클</span></button>
+                    </div>
+                    <div class="gal-code">.fa-controls-toggle — flow-all 접이식 헤더</div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <script>
+        // 세그먼트 컨트롤 클릭 데모
+        document.querySelectorAll('[data-seg]').forEach(function (seg) {
+            seg.addEventListener('click', function (e) {
+                var b = e.target.closest('button'); if (!b) return;
+                seg.querySelectorAll('button').forEach(function (x) { x.classList.remove('active'); });
+                b.classList.add('active');
+            });
+        });
+        // 라이트/다크 토글
+        var themeBtn = document.getElementById('themeBtn');
+        var themeLbl = document.getElementById('themeLbl');
+        themeBtn.addEventListener('click', function () {
+            var on = document.documentElement.classList.toggle('dark');
+            document.documentElement.classList.toggle('dark-theme', on);
+            document.body.classList.toggle('dark', on);
+            document.body.classList.toggle('dark-theme', on);
+            themeLbl.textContent = on ? '라이트' : '다크';
+            themeBtn.querySelector('.material-icons').textContent = on ? 'light_mode' : 'dark_mode';
+        });
+    </script>
+</body>
+</html>

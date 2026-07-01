@@ -11,9 +11,9 @@
  * 사이드바 구성(dashboard2 와 동일 — 축소판):
  *   · 브랜드 (DUAL 로고 이미지 /images/logo.png + Industrial Monitoring)
  *   · 페이지 링크 (대시보드/동작편차/사이클분석/가동시간·이상/CCTV [+PLC 디버그])
- *   · Line Summary (가동/대기)  — /api/nav/summary 폴링
  *   · Settings (푸터)
  *   ※ 구 shell.js 의 "시스템 flow 트리 · agent 통신 상태 · 마지막 갱신" 섹션은 제거됨.
+ *   ※ 사이드바 "알람 이력" 피드와 헤더 "가동/대기" 위젯은 제거됨.
  *
  * 상단 헤더(main 내부, sticky):
  *   · 페이지 제목 + 브레드크럼(Home › 제목)
@@ -24,7 +24,7 @@
  *     localStorage 'dspilot-theme'. 로드 시 적용 + 설정 페이지/다른 탭 storage 동기화(헤더 토글 버튼 제거됨).
  *   - .dsp-page(Alpine 루트) 를 main(ml-60) 안으로 이동, 슬림 헤더 제거.
  *   - /api/nav         : showPlcDebug (PLC 디버그 링크, 1회).
- *   - /api/nav/summary : Line Summary · 이상발생 배지 · 연결 배지 (4초 폴링).
+ *   - /api/nav/summary : 이상발생 배지 · 연결 배지 · Agent 상태 (4초 폴링).
  *     이상발생 배지는 /uptime 방문 시 초기화 — serverTimeUtc 를 localStorage ack 로 박제,
  *     이후 폴링이 ?anomalyAck= 로 보내 ack 이전 Error 는 카운트에서 제외.
  *
@@ -39,9 +39,6 @@
     var SHELL_W = 300;
     // 모바일/데스크톱 분기 기준(px). 미만이면 사이드바를 드로어로 전환.
     var MOBILE_BP = 768;
-
-    // 이상코드 피드 레벨→색 (uptime.html 과 동일: Error 빨강 / Warning 주황 / Info 파랑)
-    var LEVEL_COLOR = { Error: '#ef4444', Warning: '#fb923c', Info: '#3b82f6' };
 
     // 사이드바 링크 클래스 (dashboard2 와 동일; 비활성에 dark:hover 보강)
     var LINK_ACTIVE = 'flex items-center gap-3 px-4 py-3 rounded bg-secondary-container dark:bg-secondary text-on-secondary-container dark:text-on-secondary border-l-4 border-secondary transition-colors';
@@ -66,7 +63,7 @@
 
         // ── 1.6) 모바일 셸 스타일(주입) — 폰(≤480px) 헤더 정리 + 드로어(≤768px) 폭 클램프/터치 타깃 ──
         //   build 산출물(stitch-shell.css)을 손대지 않고 셸 전용 반응형 규칙을 주입한다(리사이즈/회전에 CSS 가 알아서 대응).
-        //   훅: aside/header 의 .dsp-shell, 그리고 아래에서 부여하는 .dsp-shell-crumb / .dsp-shell-live-text / .dsp-shell-linestatus.
+        //   훅: aside/header 의 .dsp-shell, 그리고 아래에서 부여하는 .dsp-shell-crumb / .dsp-shell-live-text.
         if (!document.getElementById('dsp-shell-mobile-css')) {
             var mcss = document.createElement('style');
             mcss.id = 'dsp-shell-mobile-css';
@@ -82,7 +79,6 @@
                   '.dsp-shell-crumb{display:none!important;}' +
                   '.dsp-shell-live-text{display:none!important;}' +
                   'header.dsp-shell{padding-left:12px!important;padding-right:12px!important;}' +
-                  '.dsp-shell-linestatus{padding:4px 8px!important;letter-spacing:0!important;}' +
                   /* 헤더 좌측 영역 간격 축소(햄버거↔제목). */
                   'header.dsp-shell .dsp-shell-headleft{gap:10px!important;}' +
                 '}';
@@ -210,7 +206,7 @@
 
         var anomalyBadge = null;
         // /uptime 진입 = 배지 읽음 처리. serverTimeUtc 를 localStorage(전 페이지/탭 공유)에 ack 로 기록하고,
-        // 이후 폴링은 anomalyAck 파라미터로 보내 그 시각 이전 Error 를 배지에서 제외한다(알람 이력 피드는 영향 없음).
+        // 이후 폴링은 anomalyAck 파라미터로 보내 그 시각 이전 Error 를 배지 카운트에서 제외한다.
         var ANOMALY_ACK_KEY = 'dspilot-anomaly-ack';
         var onUptimePage = false;
         var flowsAnchor = null;   // 시스템→Flow 서브메뉴를 삽입할 앵커(동작편차 링크 다음 = 구 '사이클 분석' 자리).
@@ -280,7 +276,7 @@
                 var sysIcon = icon('equalizer');
                 sysIcon.style.cssText = 'flex:0 0 auto;font-size:20px;' + (sysHasCurrent ? 'color:#2170e4;' : 'opacity:0.75;');
                 row.appendChild(sysIcon);
-                var sysLabel = el('span', 'font-label-sm text-label-sm', sys.name || '(이름 없음)');
+                var sysLabel = el('span', 'font-label-sm text-label-sm', (sys.name || '(이름 없음)') + ' 관리');
                 sysLabel.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
                 row.appendChild(sysLabel);
                 var chev = icon('chevron_right');
@@ -343,64 +339,6 @@
             });
         }
 
-        // Line Summary 변수 — 헤더 가동/대기 위젯에서 사용
-        var lsRunning = el('b', null, '0');
-        var lsIdle = el('b', null, '0');
-
-        // ── 이상코드 실시간 피드 ── Line Summary 아래 빈 공간을 채움(flex-1+자체 스크롤).
-        //   데이터: /api/nav/summary 의 recentAnomalies (최신 N건, 레벨 무관). 4초 폴링 공유.
-        //   행 클릭 → /uptime?utSystem=&utLevel= (필터 적용). 출처(source) 무관 동일 렌더 → 추후 ds-error 4종 합류.
-        var anomalyBlock = el('div', 'mt-6 px-4 flex-1 flex flex-col min-h-0');
-        anomalyBlock.appendChild(el('div', 'text-[10px] uppercase font-bold tracking-wider text-outline mb-2', '알람 이력'));
-        var anomalyList = el('div', 'flex flex-col gap-1 overflow-y-auto custom-scrollbar pr-1');
-        anomalyList.style.cssText = 'flex:1 1 0;min-height:0;';
-        anomalyBlock.appendChild(anomalyList);
-        navMenu.appendChild(anomalyBlock);
-
-        var anomalyEmpty = el('div', 'font-label-sm text-label-sm text-outline opacity-60 py-2', '이상 없음');
-
-        function renderAnomalies(items) {
-            anomalyList.innerHTML = '';
-            if (!items || !items.length) { anomalyList.appendChild(anomalyEmpty); return; }
-            items.forEach(function (a) {
-                var color = LEVEL_COLOR[a.level] || LEVEL_COLOR.Info;
-                var row = el('button', 'w-full flex items-start gap-2 px-2 py-2 rounded transition-colors text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-inverse-surface');
-                row.type = 'button';
-                row.style.cssText = 'text-align:left;appearance:none;-webkit-appearance:none;background:transparent;border:0;cursor:pointer;font:inherit;';
-
-                var d = el('span');
-                d.style.cssText = 'flex:0 0 auto;width:7px;height:7px;border-radius:50%;margin-top:5px;background:' + color + ';';
-                row.appendChild(d);
-
-                var body = el('div');
-                body.style.cssText = 'flex:1;min-width:0;';
-                var label = el('div', 'font-label-sm text-label-sm font-semibold', (a.label || a.code || '(이름 없음)') + (a.source && a.source.startsWith('ds-error') && a.code ? ' (' + a.code + ')' : ''));
-                label.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-                body.appendChild(label);
-                var sub = el('div', 'text-[10px] text-outline opacity-80', (a.system || '') + ' · ' + (a.occurredAtLocal || ''));
-                sub.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-                body.appendChild(sub);
-                row.appendChild(body);
-
-                row.addEventListener('click', function () {
-                    var q = [];
-                    if (a.system) q.push('utSystem=' + encodeURIComponent(a.system));
-                    if (a.level) q.push('utLevel=' + encodeURIComponent(a.level));
-                    // 클릭한 알람을 콕 집어 보여주기 위해 이름(검색 시드)·발생시각(at)도 전달한다.
-                    //   utSearch : 그 태그로 좁혀 페이지당 10건 안에 들어오게 함(목록 페이징 한계 회피).
-                    //   at       : uptime 이 그 '날'을 기간으로 자동 맞추고(기본 '오늘'이라 과거 알람이면 0건이던 문제 해결) 해당 행을 스크롤·하이라이트.
-                    //   label(=usertag Name / ds-error Label)·occurredAtLocal('yyyy-MM-dd HH:mm:ss') 은 알림 이력 행과 동일 소스라 그대로 매칭됨.
-                    var nm = a.label || a.code;
-                    if (nm) q.push('utSearch=' + encodeURIComponent(nm));
-                    if (a.occurredAtLocal) q.push('at=' + encodeURIComponent(a.occurredAtLocal));
-                    location.href = '/uptime' + (q.length ? '?' + q.join('&') : '');
-                });
-                anomalyList.appendChild(row);
-            });
-        }
-        renderAnomalies(null);
-
-
         // 푸터 (설정)
         var footer = el('div', 'p-4 border-t border-outline-variant dark:border-outline flex flex-col gap-1');
         footer.appendChild(buildNavLink(SETTINGS_ITEM, SET_ACTIVE, SET_IDLE));
@@ -433,7 +371,7 @@
         headLeft.appendChild(crumb);
 
         var headRight = el('div', 'flex items-center gap-3');
-        // 우측 위젯(가동/대기·실시간)은 축소 금지 — 좌측 제목이 먼저 말줄임되도록.
+        // 우측 위젯(실시간 배지)은 축소 금지 — 좌측 제목이 먼저 말줄임되도록.
         headRight.style.cssText = 'flex:0 0 auto;';
 
         // ── Agent 상태 팝오버 (헤더 배지 클릭 시 펼쳐짐) ──
@@ -494,11 +432,6 @@
                 agPlcDetail.appendChild(none);
                 return;
             }
-            var srcNote = el('div', null, _agPlcSource === 'ping'
-                ? '출처: DSPilot 직접 핑(TCP)'
-                : '출처: Promaker 에이전트');
-            srcNote.style.cssText = 'opacity:0.6;margin-bottom:3px;';
-            agPlcDetail.appendChild(srcNote);
             _agAdapters.forEach(function (a) {
                 var line = el('div');
                 line.style.cssText = 'display:flex;align-items:center;gap:6px;';
@@ -535,30 +468,6 @@
         liveBadge.appendChild(liveDot);
         liveBadge.appendChild(liveText);
         liveBadge.appendChild(liveChev);
-
-        // ── 가동/대기 헤더 위젯 (실시간 배지 왼쪽) ──
-        var headerLineStatus = el('span', 'dsp-shell-linestatus');
-        headerLineStatus.style.cssText = 'display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border:1px solid var(--color-lines-strong);border-radius:var(--radius-sm);font-size:.66rem;font-weight:700;letter-spacing:.05em;font-variant-numeric:tabular-nums;flex:0 0 auto;';
-        var hlsRunSpan = el('span');
-        hlsRunSpan.style.cssText = 'display:inline-flex;align-items:center;gap:5px;';
-        var hlsRunDot = el('span');
-        hlsRunDot.style.cssText = 'flex:0 0 auto;width:8px;height:8px;border-radius:50%;background:#22c55e;';
-        hlsRunSpan.appendChild(hlsRunDot);
-        hlsRunSpan.appendChild(document.createTextNode('가동 '));
-        hlsRunSpan.appendChild(lsRunning);
-        var hlsSep = el('span');
-        hlsSep.style.cssText = 'display:inline-block;width:1px;height:10px;background:currentColor;opacity:0.25;vertical-align:middle;';
-        var hlsIdleSpan = el('span');
-        hlsIdleSpan.style.cssText = 'display:inline-flex;align-items:center;gap:5px;';
-        var hlsIdleDot = el('span');
-        hlsIdleDot.style.cssText = 'flex:0 0 auto;width:8px;height:8px;border-radius:50%;background:#fb923c;';
-        hlsIdleSpan.appendChild(hlsIdleDot);
-        hlsIdleSpan.appendChild(document.createTextNode('대기 '));
-        hlsIdleSpan.appendChild(lsIdle);
-        headerLineStatus.appendChild(hlsRunSpan);
-        headerLineStatus.appendChild(hlsSep);
-        headerLineStatus.appendChild(hlsIdleSpan);
-        headRight.appendChild(headerLineStatus);
 
         headRight.appendChild(liveBadge);
 
@@ -712,13 +621,13 @@
             .then(function (data) {
                 if (!data) return;
                 if (data.showPlcDebug) {
-                    navMenu.insertBefore(buildNavLink(PLC_DEBUG_ITEM, LINK_ACTIVE, LINK_IDLE), anomalyBlock);
+                    navMenu.appendChild(buildNavLink(PLC_DEBUG_ITEM, LINK_ACTIVE, LINK_IDLE));
                 }
                 buildSystemSubmenu(data.systems);
             })
             .catch(function () { /* ignore */ });
 
-        // ── 9) /api/nav/summary: Line Summary + 이상발생 배지 + 연결 배지 (주기 폴링) ──
+        // ── 9) /api/nav/summary: 이상발생 배지 + 연결 배지 + Agent 상태 (주기 폴링) ──
         var HUB_LIVE = {
             connected:    ['is-live', '실시간'],
             connecting:   ['is-poll', '연결 중'],
@@ -727,10 +636,6 @@
         };
 
         function applySummary(data) {
-            var lines = data.lines || {};
-            lsRunning.textContent = lines.running || 0;
-            lsIdle.textContent = lines.idle || 0;
-
             var count = data.anomalyActiveCount || 0;
             // uptime 페이지를 보고 있는 동안은 화면에 이미 알림이 보이므로 배지를 0 으로 두고,
             // 서버 시각을 ack 로 갱신해 다른 페이지로 나가도 지금까지의 Error 는 다시 안 뜨게 한다.
@@ -744,9 +649,6 @@
                 anomalyBadge.textContent = count;
                 anomalyBadge.style.display = count > 0 ? '' : 'none';
             }
-
-            // 이상코드 피드 갱신
-            renderAnomalies(data.recentAnomalies);
 
             var agent = data.agent || {};
             var live = HUB_LIVE[agent.hub] || HUB_LIVE.disconnected;

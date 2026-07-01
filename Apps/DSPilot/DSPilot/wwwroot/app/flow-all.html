@@ -148,10 +148,7 @@
         .ct-tb-field { display: inline-flex; align-items: center; gap: 6px; }
         .ct-tb-field > label { font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--color-text-secondary); }
         .ct-gantt-toolbar select.form-select { font-size: 0.72rem; padding: 4px 8px; min-width: auto; height: auto; }
-        .ct-seg { display: inline-flex; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); overflow: hidden; }
-        .ct-seg button { border: 0; background: var(--color-surface); color: var(--color-text-secondary); font-size: 0.72rem; font-weight: 700; padding: 5px 12px; cursor: pointer; }
-        .ct-seg button + button { border-left: 1px solid var(--color-lines); }
-        .ct-seg button.active { background: var(--color-primary); color: #fff; }
+        /* .ct-seg 룩은 swiss.css 공용 세그먼트 컨트롤(.segmented/.ct-seg/.hm-seg 통일)로 이관 */
         .ct-zoom { display: inline-flex; align-items: center; gap: 6px; }
         .ct-zoom button { width: 26px; height: 26px; border: 1px solid var(--color-lines-strong); background: var(--color-surface); border-radius: var(--radius-sm); cursor: pointer; font-weight: 800; font-size: 0.85rem; color: var(--color-text-primary); padding: 0; line-height: 1; }
         .ct-zoom button.ct-zoom-reset { width: auto; padding: 0 10px; font-size: 0.7rem; font-weight: 700; }
@@ -394,7 +391,7 @@
                         <div class="fa-flow-head">
                             <span class="fa-flow-name" x-text="slice.flowName"></span>
                             <div class="ct-ctbasis">
-                                <span class="ct-ctbasis-k">CT 기준</span>
+                                <span class="ct-ctbasis-k">가동시간 기준</span>
                                 <span class="ct-chip" :class="slice.isOverride ? 'is-custom' : ''"
                                       x-text="slice.isOverride ? '사용자 지정' : 'AASX 기본'"></span>
                             </div>
@@ -437,14 +434,14 @@
                                     </div>
                                     <template x-if="slice.avgCycleMs !== null">
                                         <div class="kpi-cell tone-primary">
-                                            <div class="kp-label">사이클 평균</div>
+                                            <div class="kp-label">가동시간 평균</div>
                                             <div class="kp-value" x-text="fmtMs(slice.avgCycleMs)"></div>
                                             <div class="kp-sub">시작 → 다음 시작</div>
                                         </div>
                                     </template>
                                     <template x-if="slice.avgActiveMs !== null">
                                         <div class="kpi-cell">
-                                            <div class="kp-label">가동시간 평균</div>
+                                            <div class="kp-label">동작시간 평균</div>
                                             <div class="kp-value" x-text="fmtMs(slice.avgActiveMs)"></div>
                                             <div class="kp-sub">시작 → 완료</div>
                                         </div>
@@ -471,7 +468,7 @@
 
                                 <!-- 이상치 인라인 편집 -->
                                 <div class="fa-outlier">
-                                    <span class="fa-outlier-label"><span class="material-icons">filter_alt</span> 이상치 제외 (CT 범위)</span>
+                                    <span class="fa-outlier-label"><span class="material-icons">filter_alt</span> 이상치 제외 (가동시간 범위)</span>
                                     <span class="fa-min">최소
                                         <input type="number" class="form-field" min="0" step="any" placeholder="제한 없음" x-model="slice.rangeForm.min" />
                                         <select class="form-select" :value="slice.rangeForm.minUnit" @change="changeUnit(slice, 'min', $event.target.value)">
@@ -540,8 +537,8 @@
                                         <div class="ct-sidebar-header" :style="`height:${TOP_MARGIN}px;`">Call</div>
                                         <div class="ct-ribbon-side" x-show="slice.cycleBoundaries.length" :style="`height:${RIBBON_H}px;`">
                                             <span class="rs-t">사이클</span>
-                                            <span class="rs-sub">MT · WT · 가동률</span>
-                                            <span x-show="slice.tailCompletionSource === 'OutTag'" class="rs-sub" style="margin-top:2px;color:#b26a00;background:#fff3e0;border:1px solid #ffcc80;border-radius:3px;padding:0 4px;font-size:9px;" title="이 Flow 의 Tail Call 에 응답(InTag)이 없어 명령 종료(OutTag↓)로 MT 를 추정합니다. 검증된 완료가 아니라 명령 ON 시간입니다.">명령 ON 추정</span>
+                                            <span class="rs-sub">동작시간 · 대기시간 · 가동률</span>
+                                            <span x-show="slice.tailCompletionSource === 'OutTag'" class="rs-sub" style="margin-top:2px;color:#b26a00;background:#fff3e0;border:1px solid #ffcc80;border-radius:3px;padding:0 4px;font-size:9px;" title="이 Flow 의 Tail Call 에 응답(InTag)이 없어 명령 종료(OutTag↓)로 동작시간을 추정합니다. 검증된 완료가 아니라 명령 ON 시간입니다.">명령 ON 추정</span>
                                         </div>
                                         <template x-for="row in laneRows(slice)" :key="row.key">
                                             <div :class="rowClass(slice, row)" :style="`height:${row.h}px;`">
@@ -627,9 +624,9 @@
                                 <!-- 리본(MT·WT) 범례 — Tail 지정 시에만 표시 -->
                                 <template x-if="slice.tailCallId !== null">
                                     <div class="ct-legend" style="margin-top:4px;">
-                                        <span style="color:var(--color-text-primary);font-weight:700;">상단 리본 = 사이클별 MT·WT 비율 + 가동률</span>
-                                        <span><i class="ct-sw ct-sw-active-band"></i> MT(가동)</span>
-                                        <span><i class="ct-sw ct-sw-idle-band"></i> WT(대기)</span>
+                                        <span style="color:var(--color-text-primary);font-weight:700;">상단 리본 = 사이클별 동작시간·대기시간 비율 + 가동률</span>
+                                        <span><i class="ct-sw ct-sw-active-band"></i> 동작시간</span>
+                                        <span><i class="ct-sw ct-sw-idle-band"></i> 대기시간</span>
                                     </div>
                                 </template>
 
@@ -691,10 +688,10 @@
                                                     <tr>
                                                         <th style="width:48px;">#</th>
                                                         <th style="width:130px;">시작 시각</th>
-                                                        <th title="가동 시간 = 시작 → 완료">MT</th>
-                                                        <th title="대기 시간 = CT − MT">WT</th>
-                                                        <th title="사이클 시간 = 시작 → 다음 시작">CT</th>
-                                                        <th style="width:72px;" title="가동률 = MT / CT">가동률</th>
+                                                        <th title="동작 시간 = 시작 → 완료">동작시간</th>
+                                                        <th title="대기 시간 = 가동시간 − 동작시간">대기시간</th>
+                                                        <th title="가동 시간 = 시작 → 다음 시작">가동시간</th>
+                                                        <th style="width:72px;" title="가동률 = 동작시간 / 가동시간">가동률</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>

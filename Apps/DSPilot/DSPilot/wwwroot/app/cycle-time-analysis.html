@@ -316,10 +316,10 @@
                             <div class="ct-info-item"><span class="ct-info-k">사이클 경계 기준</span><span class="ct-info-v" x-text="(headName || '(기본 Head)') + ' · ' + cycleBoundaries.length + ' 회'"></span></div>
                             <div class="ct-info-item"><span class="ct-info-k">Tail 마커</span><span class="ct-info-v" x-text="(tailName || '-') + ' · ' + tailEdges.length + ' 회'"></span></div>
                             <template x-if="avgCycleMs !== null">
-                                <div class="ct-info-item"><span class="ct-info-k">CT 평균 (시작→다음 시작)</span><span class="ct-info-v ct-mono" x-text="formatMs(avgCycleMs)"></span></div>
+                                <div class="ct-info-item"><span class="ct-info-k">가동시간 평균 (시작→다음 시작)</span><span class="ct-info-v ct-mono" x-text="formatMs(avgCycleMs)"></span></div>
                             </template>
                             <template x-if="avgActiveMs !== null">
-                                <div class="ct-info-item"><span class="ct-info-k">활성 평균 (시작→완료)</span><span class="ct-info-v ct-mono" x-text="formatMs(avgActiveMs)"></span></div>
+                                <div class="ct-info-item"><span class="ct-info-k">동작시간 평균 (시작→완료)</span><span class="ct-info-v ct-mono" x-text="formatMs(avgActiveMs)"></span></div>
                             </template>
                             <template x-if="topGaps.length">
                                 <button type="button" class="ct-bottleneck" @click="focusMaxGap()"
@@ -329,14 +329,14 @@
                                 </button>
                             </template>
                             <div class="ct-info-item" style="margin-left:auto;">
-                                <span class="ct-info-k">CT 기준</span>
+                                <span class="ct-info-k">가동시간 기준</span>
                                 <span class="ct-info-v" x-text="isOverride ? '사용자 지정' : 'AASX 기본'"
                                       :style="isOverride ? 'color:var(--color-primary)' : ''"
                                       :title="isOverride ? '이 Flow 의 사이클 경계가 사용자 지정(저장됨)으로 적용 중' : 'AASX 프로젝트 정의 Head/Tail 적용 중'"></span>
                             </div>
                             <button class="btn btn-sm btn-filled" @click="applyHeadTail()"
                                     :disabled="overlayBusy || recomputeBusy || !headCallId || !tailCallId"
-                                    title="현재 Head/Tail 을 이 Flow 의 사이클 경계로 저장하고, 이 Flow 의 과거 이력 전체를 새 경계로 재계산합니다(백그라운드, 진행률 표시) — 라이브 CT·대시보드에 과거 포함 반영">
+                                    title="현재 Head/Tail 을 이 Flow 의 사이클 경계로 저장하고, 이 Flow 의 과거 이력 전체를 새 경계로 재계산합니다(백그라운드, 진행률 표시) — 라이브 가동시간·대시보드에 과거 포함 반영">
                                 <span class="material-icons" style="font-size:15px; vertical-align:middle;">save</span>
                                 적용(저장)
                             </button>
@@ -400,7 +400,7 @@
                                 <div class="ct-sidebar-header" :style="`height:${TOP_MARGIN}px;`">Call</div>
                                 <div class="ct-ribbon-side" x-show="cycleBoundaries.length" :style="`height:${RIBBON_H}px;`">
                                     <span class="rs-t">사이클</span>
-                                    <span class="rs-sub">활성 · 유휴 · 가동률</span>
+                                    <span class="rs-sub">동작시간 · 대기시간 · 가동률</span>
                                 </div>
                                 <template x-for="lane in callLanes" :key="lane.callId">
                                     <div :class="laneRowClass(lane)" :style="`height:${LANE_HEIGHT}px;`">
@@ -451,8 +451,8 @@
                                             <tr>
                                                 <th style="width:52px;">#</th>
                                                 <th style="width:140px;">시작 시각</th>
-                                                <th>AT (활성)</th>
-                                                <th>CT (사이클)</th>
+                                                <th>동작시간</th>
+                                                <th>가동시간</th>
                                                 <th style="width:76px;">가동률</th>
                                             </tr>
                                         </thead>
@@ -510,9 +510,9 @@
                             <span><i class="ct-sw ct-sw-cycle-edge"></i> 사이클 경계 (Head OutTag↑ = 시작)</span>
                             <template x-if="tailCallId !== null">
                                 <span style="display:contents;">
-                                    <span style="color:var(--color-text-primary);font-weight:700;">▭ 상단 리본 = 사이클별 활성|유휴 비율 + 가동률(AT/CT)</span>
-                                    <span><i class="ct-sw ct-sw-active-band"></i> 활성 = 시작(Head OutTag↑) → 완료(Tail InTag↑)</span>
-                                    <span><i class="ct-sw ct-sw-idle-band"></i> 유휴 = 완료 → 다음 시작</span>
+                                    <span style="color:var(--color-text-primary);font-weight:700;">▭ 상단 리본 = 사이클별 동작시간|대기시간 비율 + 가동률(동작시간/가동시간)</span>
+                                    <span><i class="ct-sw ct-sw-active-band"></i> 동작시간 = 시작(Head OutTag↑) → 완료(Tail InTag↑)</span>
+                                    <span><i class="ct-sw ct-sw-idle-band"></i> 대기시간 = 완료 → 다음 시작</span>
                                 </span>
                             </template>
                             <template x-if="tailCallId === null">
@@ -1373,8 +1373,8 @@
                         const ratio = (atMs !== null && ctMs > 0) ? Math.round(atMs / ctMs * 100) : null;
 
                         const tip = tailIn !== null
-                            ? `사이클 #${span.number}${span.isOpen ? ' (진행중)' : ''} · 활성 ${this.formatMs(atMs)} / 전체 ${this.formatMs(ctMs)} · 가동 ${ratio}%`
-                            : `사이클 #${span.number}${span.isOpen ? ' (진행중)' : ''} · 전체 ${this.formatMs(ctMs)}`;
+                            ? `사이클 #${span.number}${span.isOpen ? ' (진행중)' : ''} · 동작시간 ${this.formatMs(atMs)} / 가동시간 ${this.formatMs(ctMs)} · 가동률 ${ratio}%`
+                            : `사이클 #${span.number}${span.isOpen ? ' (진행중)' : ''} · 가동시간 ${this.formatMs(ctMs)}`;
                         let g = `<g><title>${this.esc(tip)}</title>`;
 
                         // 2색 막대 (활성 초록 + 유휴 회청) 또는 단일(Tail 없음 → 홀짝 교대색)
@@ -1388,7 +1388,7 @@
                         } else {
                             const fill = isEven ? '#9fa8da' : '#ce93d8';
                             g += `<rect x="${this.f(sx)}" y="${barY}" width="${this.f(bandW)}" height="${barH}" fill="${fill}" opacity="${0.85 * dim}"/>`;
-                            if (bandW > 54) g += `<text x="${this.f(sx + bandW / 2.0)}" y="${this.f(barCY)}" text-anchor="middle" dominant-baseline="central" font-size="9.5" fill="#37474f" font-family="ui-monospace,Consolas,monospace">CT ${this.esc(this.formatMs(ctMs))}</text>`;
+                            if (bandW > 54) g += `<text x="${this.f(sx + bandW / 2.0)}" y="${this.f(barCY)}" text-anchor="middle" dominant-baseline="central" font-size="9.5" fill="#37474f" font-family="ui-monospace,Consolas,monospace">가동시간 ${this.esc(this.formatMs(ctMs))}</text>`;
                         }
                         // 막대 외곽 (사이클 칸 명확화) + 진행중이면 우측 점선
                         g += `<rect x="${this.f(sx)}" y="${barY}" width="${this.f(bandW)}" height="${barH}" fill="none" stroke="#90a4ae" stroke-width="0.75"/>`;

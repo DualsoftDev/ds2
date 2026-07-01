@@ -244,6 +244,42 @@ begin
            mbError, MB_OK);
 end;
 
+// Promaker 서브설치본이 _is1 키에 기록한 InstallLocation(설치 경로)을 읽어 반환.
+// 못 읽으면 Promaker 기본 설치 경로로 폴백. 항상 트레일링 백슬래시 포함.
+function GetPromakerInstallLocation(): String;
+var
+  KeyPath, S: String;
+begin
+  Result := '';
+  KeyPath := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#PromakerAppId}_is1';
+  if RegQueryStringValue(HKLM64, KeyPath, 'InstallLocation', S) then
+    Result := RemoveQuotes(S)
+  else if RegQueryStringValue(HKLM32, KeyPath, 'InstallLocation', S) then
+    Result := RemoveQuotes(S);
+  if Result = '' then
+    Result := ExpandConstant('{commonpf}\Promaker');
+  Result := AddBackslash(Result);
+end;
+
+// Promaker Agent Tray 를 알림 영역에 띄운다.
+// 통합본은 Promaker 를 /SILENT 로 체이닝하므로 Promaker.iss 의 트레이 즉시실행 [Run]
+// (skipifsilent) 이 건너뛰어져 설치 직후 트레이가 안 보인다 → 여기서 직접 실행해 보완.
+// 통합본은 admin 으로 상승돼 있으므로 ExecAsOriginalUser 로 로그온(비상승) 사용자
+// 세션에 띄워야 알림 영역에 표시된다. 다음 부팅부터는 Promaker.iss 의 HKCU\Run 이 담당.
+procedure LaunchPromakerTray();
+var
+  TrayDir, TrayExe: String;
+  ResultCode: Integer;
+begin
+  // 통합본 자체가 사일런트면 트레이도 띄우지 않음(standalone 의 skipifsilent 와 동일 의미).
+  if WizardSilent() then
+    Exit;
+  TrayDir := GetPromakerInstallLocation() + 'AgentTray';
+  TrayExe := AddBackslash(TrayDir) + 'Promaker.AgentTray.exe';
+  if FileExists(TrayExe) then
+    ExecAsOriginalUser(TrayExe, '', TrayDir, SW_SHOW, ewNoWait, ResultCode);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   // ssPostInstall = 번들된 서브 설치본이 {tmp} 로 풀린 뒤 단계. 여기서 순차 체이닝한다.
@@ -259,6 +295,10 @@ begin
     RunChildInstaller('{#PromakerSetupName}',
       '',
       'Promaker 설치 중... (Promaker + Agent + Tray)');
+
+    // 3) Promaker 트레이 즉시 실행 — 자식이 /SILENT 라 자식의 트레이 즉시실행 [Run]
+    //    (skipifsilent) 이 건너뛰어졌으므로 여기서 원래 사용자 컨텍스트로 띄운다.
+    LaunchPromakerTray();
   end;
 end;
 

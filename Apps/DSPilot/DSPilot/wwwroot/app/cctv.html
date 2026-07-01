@@ -754,7 +754,7 @@
                                                                 <template x-if="hoverOverlay?.model?.device"><span class="tv mono" x-text="hoverOverlay?.model?.device"></span></template>
                                                                 <template x-if="hoverOverlay?.model?.avgMs != null"><span class="tk">평균 사이클</span></template>
                                                                 <template x-if="hoverOverlay?.model?.avgMs != null"><span class="tv" x-text="fmtDuration(hoverOverlay?.model?.avgMs)"></span></template>
-                                                                <template x-if="hoverOverlay?.model?.currentCt != null"><span class="tk">현재 CT</span></template>
+                                                                <template x-if="hoverOverlay?.model?.currentCt != null"><span class="tk">현재 가동시간</span></template>
                                                                 <template x-if="hoverOverlay?.model?.currentCt != null"><span class="tv" x-text="fmtDuration(hoverOverlay?.model?.currentCt)"></span></template>
                                                                 <template x-if="hoverOverlay?.model?.goingCount != null && hoverOverlay?.model?.goingCount > 0"><span class="tk">진행 횟수</span></template>
                                                                 <template x-if="hoverOverlay?.model?.goingCount != null && hoverOverlay?.model?.goingCount > 0"><span class="tv" x-text="hoverOverlay?.model?.goingCount + '회'"></span></template>

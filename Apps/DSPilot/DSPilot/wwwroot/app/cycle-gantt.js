@@ -426,8 +426,8 @@
             var ratio = (atMs !== null && ctMs > 0) ? Math.round(atMs / ctMs * 100) : null;
 
             var tip = tailIn !== null
-                ? '사이클 #' + span.number + (span.isOpen ? ' (진행중)' : '') + ' · MT ' + formatMs(atMs) + ' · WT ' + formatMs(idleMs) + ' / CT ' + formatMs(ctMs) + ' · 가동률 ' + ratio + '%'
-                : '사이클 #' + span.number + (span.isOpen ? ' (진행중)' : '') + ' · CT ' + formatMs(ctMs);
+                ? '사이클 #' + span.number + (span.isOpen ? ' (진행중)' : '') + ' · 동작시간 ' + formatMs(atMs) + ' · 대기시간 ' + formatMs(idleMs) + ' / 가동시간 ' + formatMs(ctMs) + ' · 가동률 ' + ratio + '%'
+                : '사이클 #' + span.number + (span.isOpen ? ' (진행중)' : '') + ' · 가동시간 ' + formatMs(ctMs);
             var g = '<g><title>' + esc(tip) + '</title>';
 
             if (tailX !== null) {
@@ -440,7 +440,7 @@
             } else {
                 var bfill = isEven ? '#9fa8da' : '#ce93d8';
                 g += '<rect x="' + f(sx) + '" y="' + barY + '" width="' + f(bandW) + '" height="' + barH + '" fill="' + bfill + '" opacity="' + (0.85 * dim) + '"/>';
-                if (bandW > 54) g += '<text x="' + f(sx + bandW / 2.0) + '" y="' + f(barCY) + '" text-anchor="middle" dominant-baseline="central" font-size="9.5" fill="#37474f" font-family="Inter,ui-monospace,Cascadia Code,Consolas,monospace">CT ' + esc(formatMs(ctMs)) + '</text>';
+                if (bandW > 54) g += '<text x="' + f(sx + bandW / 2.0) + '" y="' + f(barCY) + '" text-anchor="middle" dominant-baseline="central" font-size="9.5" fill="#37474f" font-family="Inter,ui-monospace,Cascadia Code,Consolas,monospace">가동시간 ' + esc(formatMs(ctMs)) + '</text>';
             }
             g += '<rect x="' + f(sx) + '" y="' + barY + '" width="' + f(bandW) + '" height="' + barH + '" fill="none" stroke="#90a4ae" stroke-width="0.75"/>';
             if (span.isOpen) g += '<line x1="' + f(ex) + '" y1="' + barY + '" x2="' + f(ex) + '" y2="' + f(barY + barH) + '" stroke="#90a4ae" stroke-width="1" stroke-dasharray="3 2"/>';

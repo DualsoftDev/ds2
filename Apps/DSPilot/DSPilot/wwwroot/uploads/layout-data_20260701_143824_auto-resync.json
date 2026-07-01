@@ -1,0 +1,112 @@
+{
+  "BlueprintImagePath": null,
+  "CanvasWidth": 1200,
+  "CanvasHeight": 800,
+  "CardScale": 0.2733333333333333,
+  "GridColumns": 3,
+  "GridRows": 2,
+  "OffsetX": 0,
+  "OffsetY": 0,
+  "OffsetRight": 0,
+  "OffsetBottom": 0,
+  "FlowPlacements": [
+    {
+      "FlowId": "1e1843af-4cbe-4fe8-a0a5-593624b602c4",
+      "SystemId": "accfd538-5887-498b-988d-dc98fce8ffd5",
+      "FlowName": "\uD22C\uC785",
+      "SystemName": "kit",
+      "X": 0.16666666666666666,
+      "Y": 0.25,
+      "Col": 0,
+      "Row": 0,
+      "ColSpan": 1,
+      "RowSpan": 1
+    },
+    {
+      "FlowId": "27fbeb54-aa92-42c8-a3cb-b8dd387bacd8",
+      "SystemId": "accfd538-5887-498b-988d-dc98fce8ffd5",
+      "FlowName": "\uC774\uC1A1",
+      "SystemName": "kit",
+      "X": 0.5,
+      "Y": 0.25,
+      "Col": 1,
+      "Row": 0,
+      "ColSpan": 1,
+      "RowSpan": 1
+    },
+    {
+      "FlowId": "d4cdfca2-3f3c-4557-84cb-b9e6257fc76d",
+      "SystemId": "accfd538-5887-498b-988d-dc98fce8ffd5",
+      "FlowName": "\uAC00\uACF5",
+      "SystemName": "kit",
+      "X": 0.8333333333333334,
+      "Y": 0.25,
+      "Col": 2,
+      "Row": 0,
+      "ColSpan": 1,
+      "RowSpan": 1
+    },
+    {
+      "FlowId": "80a1355d-9b8f-4ac6-bebe-529bde39c382",
+      "SystemId": "accfd538-5887-498b-988d-dc98fce8ffd5",
+      "FlowName": "\uC870\uB9BD",
+      "SystemName": "kit",
+      "X": 0.16666666666666666,
+      "Y": 0.75,
+      "Col": 0,
+      "Row": 1,
+      "ColSpan": 1,
+      "RowSpan": 1
+    },
+    {
+      "FlowId": "0bbef7a2-4a2c-4075-ad56-bcf265469619",
+      "SystemId": "accfd538-5887-498b-988d-dc98fce8ffd5",
+      "FlowName": "\uAC80\uC0AC",
+      "SystemName": "kit",
+      "X": 0.5,
+      "Y": 0.75,
+      "Col": 1,
+      "Row": 1,
+      "ColSpan": 1,
+      "RowSpan": 1
+    },
+    {
+      "FlowId": "cc9ca9c3-1d46-4131-953a-fc96d08efe20",
+      "SystemId": "accfd538-5887-498b-988d-dc98fce8ffd5",
+      "FlowName": "\uBC30\uCD9C",
+      "SystemName": "kit",
+      "X": 0.8333333333333334,
+      "Y": 0.75,
+      "Col": 2,
+      "Row": 1,
+      "ColSpan": 1,
+      "RowSpan": 1
+    }
+  ],
+  "FlowProcessOrder": [
+    {
+      "FlowId": "1e1843af-4cbe-4fe8-a0a5-593624b602c4",
+      "FlowName": "\uD22C\uC785"
+    },
+    {
+      "FlowId": "27fbeb54-aa92-42c8-a3cb-b8dd387bacd8",
+      "FlowName": "\uC774\uC1A1"
+    },
+    {
+      "FlowId": "d4cdfca2-3f3c-4557-84cb-b9e6257fc76d",
+      "FlowName": "\uAC00\uACF5"
+    },
+    {
+      "FlowId": "80a1355d-9b8f-4ac6-bebe-529bde39c382",
+      "FlowName": "\uC870\uB9BD"
+    },
+    {
+      "FlowId": "0bbef7a2-4a2c-4075-ad56-bcf265469619",
+      "FlowName": "\uAC80\uC0AC"
+    },
+    {
+      "FlowId": "cc9ca9c3-1d46-4131-953a-fc96d08efe20",
+      "FlowName": "\uBC30\uCD9C"
+    }
+  ]
+}

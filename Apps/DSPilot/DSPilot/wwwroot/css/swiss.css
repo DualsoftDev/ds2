@@ -405,39 +405,42 @@ select:focus-visible {
 }
 
 /* ───────────────────────────── 5. Buttons ────────────────────────────────── */
+/* 통일 버튼(대시보드 기준) — 채움(fill) + 그림자 + 볼드 + 8px 로 "버튼임"을 명확히. 2026-07-01 */
 .btn {
     display: inline-flex; align-items: center; justify-content: center; gap: 7px;
-    padding: 8px 16px;
+    padding: 9px 17px;
     border: 1px solid var(--color-lines-strong);
-    border-radius: var(--radius-sm);
-    background: transparent;
+    border-radius: 8px;
+    background: var(--color-surface-variant);
     color: var(--color-text-primary);
-    font-family: var(--font-family); font-size: 0.8rem; font-weight: 600;
+    font-family: var(--font-family); font-size: 0.8rem; font-weight: 700;
     letter-spacing: 0.01em;
     line-height: 1.2; white-space: nowrap; text-decoration: none; cursor: pointer;
-    transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+    box-shadow: 0 1px 2px rgba(15, 30, 50, 0.10);
+    transition: background 0.13s ease, color 0.13s ease, border-color 0.13s ease, box-shadow 0.13s ease, transform 0.1s ease;
 }
-.btn:hover { background: color-mix(in srgb, var(--color-text-primary) 6%, transparent); }
-.btn .material-icons { font-size: 17px; }
+.btn:hover { background: color-mix(in srgb, var(--color-text-primary) 8%, var(--color-surface-variant)); box-shadow: 0 2px 6px rgba(15, 30, 50, 0.15); }
+.btn .material-icons { font-size: 18px; }
 
 .btn-filled, .btn.btn-primary {
-    background: var(--color-primary); color: #fff; border-color: var(--color-primary);
+    background: var(--color-primary); color: #fff; border-color: transparent;
+    box-shadow: 0 2px 5px color-mix(in srgb, var(--color-primary) 45%, transparent);
 }
-.btn-filled:hover, .btn.btn-primary:hover { background: var(--color-primary-strong); border-color: var(--color-primary-strong); }
-.dark-theme .btn-filled, .dark-theme .btn.btn-primary { color: #1A0F0C; }
+.btn-filled:hover, .btn.btn-primary:hover { background: var(--color-primary-strong); border-color: transparent; box-shadow: 0 4px 10px color-mix(in srgb, var(--color-primary) 50%, transparent); }
+.dark-theme .btn-filled, .dark-theme .btn.btn-primary { color: #06111F; }
 
-.btn-filled.color-warning { background: var(--color-warning); border-color: var(--color-warning); color: #fff; }
-.btn-filled.color-success { background: var(--color-success); border-color: var(--color-success); color: #fff; }
-.btn-filled.color-error   { background: var(--color-error);   border-color: var(--color-error);   color: #fff; }
-.btn-filled.color-info    { background: var(--color-info);    border-color: var(--color-info);    color: #fff; }
-.btn-filled.color-secondary { background: var(--color-tertiary); border-color: var(--color-tertiary); color: #fff; }
+.btn-filled.color-warning { background: var(--color-warning); border-color: transparent; color: #fff; box-shadow: 0 2px 5px rgba(0,0,0,.16); }
+.btn-filled.color-success { background: var(--color-success); border-color: transparent; color: #fff; box-shadow: 0 2px 5px rgba(0,0,0,.16); }
+.btn-filled.color-error   { background: var(--color-error);   border-color: transparent; color: #fff; box-shadow: 0 2px 5px rgba(0,0,0,.16); }
+.btn-filled.color-info    { background: var(--color-info);    border-color: transparent; color: #fff; box-shadow: 0 2px 5px rgba(0,0,0,.16); }
+.btn-filled.color-secondary { background: var(--color-tertiary); border-color: transparent; color: #fff; box-shadow: 0 2px 5px rgba(0,0,0,.16); }
 
-.btn-outlined { background: transparent; border: 1px solid var(--color-primary); color: var(--color-primary); }
-.btn-outlined:hover { background: color-mix(in srgb, var(--color-primary) 8%, transparent); }
-.btn-outlined.color-warning { border-color: var(--color-warning); color: var(--color-warning); }
-.btn-outlined.color-success { border-color: var(--color-success); color: var(--color-success); }
-.btn-outlined.color-error   { border-color: var(--color-error);   color: var(--color-error); }
-.btn-outlined.color-default { border-color: var(--color-lines-strong); color: var(--color-text-primary); }
+.btn-outlined { background: var(--color-surface); border: 1px solid var(--color-primary); color: var(--color-primary); box-shadow: 0 1px 2px rgba(15, 30, 50, 0.06); }
+.btn-outlined:hover { background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface)); }
+.btn-outlined.color-warning { background: color-mix(in srgb, var(--color-warning) 12%, var(--color-surface)); border-color: var(--color-warning); color: var(--color-warning); }
+.btn-outlined.color-success { background: color-mix(in srgb, var(--color-success) 10%, var(--color-surface)); border-color: var(--color-success); color: var(--color-success); }
+.btn-outlined.color-error   { background: color-mix(in srgb, var(--color-error) 10%, var(--color-surface));   border-color: var(--color-error);   color: var(--color-error); }
+.btn-outlined.color-default { background: var(--color-surface); border-color: var(--color-lines-strong); color: var(--color-text-primary); }
 .dark-theme .btn-outlined.color-default { border-color: var(--color-lines-strong); color: var(--color-text-primary); }
 
 .btn-icon {
@@ -451,10 +454,65 @@ select:focus-visible {
 .dark-theme .btn-icon:hover { background: rgba(255, 255, 255, 0.08); }
 .btn-icon .material-icons { font-size: 22px; }
 
-.btn-sm { padding: 5px 11px; font-size: 0.74rem; }
+.btn-sm { padding: 6px 12px; font-size: 0.74rem; border-radius: 7px; }
 .btn-sm .material-icons { font-size: 15px; }
 .btn-icon.btn-sm { width: 30px; height: 30px; }
 .btn-icon.btn-sm .material-icons { font-size: 19px; }
+
+/* ── 5b. 버튼 상태 통일 — focus / active / disabled (전 페이지 공용 가시성) ── */
+.btn:focus-visible,
+.btn-icon:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+}
+.btn:active:not(:disabled):not([disabled]) { transform: translateY(1px); box-shadow: 0 1px 1px rgba(15, 30, 50, 0.12); }
+.btn:disabled, .btn[disabled],
+.btn-icon:disabled, .btn-icon[disabled] {
+    opacity: 0.45; cursor: not-allowed; box-shadow: none; transform: none;
+}
+.btn:disabled:hover, .btn[disabled]:hover { background: var(--color-surface-variant); box-shadow: none; }
+.btn-filled:disabled:hover, .btn-filled[disabled]:hover,
+.btn.btn-primary:disabled:hover { background: var(--color-primary); border-color: transparent; }
+.dark-theme .btn { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4); }
+.dark-theme .btn:hover { box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5); }
+
+/* ── 5c. 세그먼트 컨트롤 통일 — 토글 버튼 그룹 단일 룩 (.ct-seg/.hm-seg 도 동일 스펙) ── */
+.segmented, .ct-seg, .hm-seg {
+    display: inline-flex;
+    border: 1px solid var(--color-lines-strong);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    background: var(--color-surface);
+}
+.segmented > button, .segmented > a,
+.ct-seg > button, .hm-seg > button {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 7px 14px; margin: 0; border: none; background: transparent;
+    color: var(--color-text-secondary);
+    font-family: var(--font-family); font-size: 0.76rem; font-weight: 700;
+    letter-spacing: 0.01em; line-height: 1.2; white-space: nowrap;
+    text-decoration: none; cursor: pointer;
+    transition: background 0.13s ease, color 0.13s ease;
+}
+.segmented > button + button, .segmented > a + a,
+.ct-seg > button + button, .hm-seg > button + button { border-left: 1px solid var(--color-lines); }
+.segmented > button .material-icons, .segmented > a .material-icons,
+.ct-seg > button .material-icons, .hm-seg > button .material-icons { font-size: 17px; }
+.segmented > button:not(.active):not(.is-active):hover,
+.segmented > a:not(.active):not(.is-active):hover,
+.ct-seg > button:not(.active):hover,
+.hm-seg > button:not(.is-active):hover { background: var(--color-surface-variant); color: var(--color-text-primary); }
+.segmented > .active, .segmented > .is-active,
+.ct-seg > button.active, .hm-seg > button.is-active { background: var(--color-primary); color: #fff; }
+.dark-theme .segmented > .active, .dark-theme .segmented > .is-active,
+.dark-theme .ct-seg > button.active, .dark-theme .hm-seg > button.is-active { color: #0E1420; }
+.segmented > button:focus-visible, .segmented > a:focus-visible,
+.ct-seg > button:focus-visible, .hm-seg > button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
+.segmented > button:disabled, .segmented > button[disabled],
+.ct-seg > button:disabled, .hm-seg > button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ── 5d. 네이티브 체크박스·라디오 accent 통일 (전 페이지 azure) ── */
+input[type="checkbox"], input[type="radio"] { accent-color: var(--color-primary); cursor: pointer; }
 
 /* ───────────────────────────── 6. Panels / cards ─────────────────────────── */
 .card, .paper {
@@ -615,17 +673,21 @@ select:focus-visible {
 .switch { display: inline-flex; align-items: center; gap: 9px; cursor: pointer; font-size: 0.82rem; user-select: none; }
 .switch input[type="checkbox"] {
     appearance: none; -webkit-appearance: none;
-    width: 38px; height: 20px; border-radius: 2px;
+    width: 42px; height: 22px; border-radius: 3px;
     background: var(--color-lines-strong); position: relative; cursor: pointer;
-    transition: background 0.18s; flex-shrink: 0; border: 1px solid transparent;
+    transition: background 0.18s; flex-shrink: 0;
+    border: 1px solid color-mix(in srgb, var(--color-text-primary) 14%, transparent);
 }
 .switch input[type="checkbox"]::after {
-    content: ''; position: absolute; width: 14px; height: 14px; border-radius: 1px;
+    content: ''; position: absolute; width: 16px; height: 16px; border-radius: 2px;
     background: #fff; top: 2px; left: 2px; transition: transform 0.18s;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
 }
-.switch input[type="checkbox"]:checked { background: var(--color-primary); }
-.switch input[type="checkbox"]:checked::after { transform: translateX(18px); }
-.switch.color-warning input[type="checkbox"]:checked { background: var(--color-warning); }
+.switch input[type="checkbox"]:checked { background: var(--color-primary); border-color: var(--color-primary); }
+.switch input[type="checkbox"]:checked::after { transform: translateX(20px); }
+.switch input[type="checkbox"]:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.switch input[type="checkbox"]:disabled { opacity: 0.45; cursor: not-allowed; }
+.switch.color-warning input[type="checkbox"]:checked { background: var(--color-warning); border-color: var(--color-warning); }
 
 /* ───────────────────────────── 10. Alerts ────────────────────────────────── */
 .alert {

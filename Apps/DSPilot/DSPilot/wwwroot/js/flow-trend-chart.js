@@ -1,8 +1,8 @@
 // Flow 추이 차트 (Chart.js)
 // /flow?name= 페이지가 .NET interop 으로 호출.
-// - renderTrendChart : CT/MT/WT 시계열 라인
+// - renderTrendChart : 가동시간/동작시간/대기시간 시계열 라인
 // - renderCycleCountChart : 버킷별 사이클 수 + 비가동 사이클 stacked bar
-// - renderTimeDistribution : MT vs WT 비중 도넛
+// - renderTimeDistribution : 동작시간 vs 대기시간 비중 도넛
 
 const charts = {};
 
@@ -59,9 +59,9 @@ export function renderTrendChart(chartId, buckets, granularity) {
         data: {
             labels,
             datasets: [
-                ds('CT (사이클 시간)', ct, COLORS.CT),
-                ds('MT (가동)',       mt, COLORS.MT),
-                ds('WT (대기)',       wt, COLORS.WT),
+                ds('가동시간',        ct, COLORS.CT),
+                ds('동작시간',        mt, COLORS.MT),
+                ds('대기시간',        wt, COLORS.WT),
             ],
         },
         options: {
@@ -161,7 +161,7 @@ export function renderTimeDistribution(chartId, shares) {
     charts[chartId] = new Chart(canvas.getContext('2d'), {
         type: 'doughnut',
         data: {
-            labels: ['MT (가동)', 'WT (대기)'],
+            labels: ['동작시간', '대기시간'],
             datasets: [{
                 data,
                 backgroundColor: [COLORS.MT.border, COLORS.WT.border],
