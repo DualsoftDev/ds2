@@ -167,8 +167,10 @@ public class NavController : ControllerBase
         //     - ds-error-0..3  : v12 경로이탈 이상감지(AbnormalEventService 인메모리 링버퍼)
         const int FeedCount = 8;
         var recent = await _alertRepo.GetLatestAlertsAsync(FeedCount, ct);
+        // a.OccurredAt = FromSqliteUtcString → Kind=Local(로컬 벽시계). 표시는 그대로(ToLocalTime no-op)지만
+        // 정렬 키는 진짜 UTC 로 맞춰야 dsRows(OccurredAtUtc=진짜 UTC)와 뒤섞일 때 offset 만큼 밀리지 않는다.
         var userTagRows = recent.Select(a => (
-            Utc: a.OccurredAt,
+            Utc: a.OccurredAt.ToUniversalTime(),
             Dto: new NavAnomalyDto(
                 "usertag", a.LogLevel, a.Name, a.SystemName,
                 a.OccurredAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"), a.TagAddress)));
