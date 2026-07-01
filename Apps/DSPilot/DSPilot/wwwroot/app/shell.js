@@ -141,9 +141,13 @@
             var lcss = document.createElement('style');
             lcss.id = 'dsp-loading-css';
             lcss.textContent =
+                /* 로딩 중이 아닐 때: 완전 투명 + 클릭 통과(pointer-events:none). 활성 시에만 화면 차단. */
                 '#dsp-loading-host{position:fixed;inset:0;z-index:3000;pointer-events:none;opacity:0;' +
                   'transition:opacity .15s ease;}' +
-                '#dsp-loading-host.is-active{opacity:1;}' +
+                '#dsp-loading-host.is-active{opacity:1;pointer-events:auto;cursor:progress;}' +
+                /* 전체 화면 스크림 — 로딩 중 날짜선택/버튼 등 모든 조작을 차단(모달처럼). 은은한 딤. */
+                '#dsp-loading-host .dsp-load-scrim{position:fixed;inset:0;background:rgba(28,38,54,.08);cursor:progress;}' +
+                '.dark-theme #dsp-loading-host .dsp-load-scrim{background:rgba(0,0,0,.42);}' +
                 /* 상단 진행바 */
                 '#dsp-loading-host .dsp-load-bar{position:fixed;top:0;left:0;right:0;height:3px;overflow:hidden;' +
                   'background:rgba(14,124,203,.18);}' +
@@ -187,6 +191,7 @@
                         host.setAttribute('role', 'status');
                         host.setAttribute('aria-live', 'polite');
                         host.innerHTML =
+                            '<div class="dsp-load-scrim"></div>' +
                             '<div class="dsp-load-bar"></div>' +
                             '<div class="dsp-load-pill"><span class="dsp-load-spin"></span>' +
                             '<span class="dsp-load-text">불러오는 중…</span></div>';
@@ -202,11 +207,15 @@
                         var h = ensure();
                         if (textEl) textEl.textContent = msg || '불러오는 중…';
                         h.classList.add('is-active');
+                        try { document.documentElement.setAttribute('aria-busy', 'true'); } catch (e) { /* ignore */ }
                     },
-                    // 로딩 표시 종료(참조 카운트 -1). 0 이 되면 감춘다.
+                    // 로딩 표시 종료(참조 카운트 -1). 0 이 되면 감추고 조작 차단 해제.
                     end: function () {
                         count = Math.max(0, count - 1);
-                        if (count === 0 && host) host.classList.remove('is-active');
+                        if (count === 0 && host) {
+                            host.classList.remove('is-active');
+                            try { document.documentElement.removeAttribute('aria-busy'); } catch (e) { /* ignore */ }
+                        }
                     },
                     // 약속(또는 함수)이 끝날 때까지 로딩 표시. 예외가 나도 반드시 end 한다.
                     wrap: function (fnOrPromise, msg) {
@@ -223,7 +232,7 @@
                         } catch (e) { done(); throw e; }
                     },
                     // 안전 초기화(카운트 꼬임 방지용). 페이지 전환 등에서 강제 숨김.
-                    reset: function () { count = 0; if (host) host.classList.remove('is-active'); }
+                    reset: function () { count = 0; if (host) host.classList.remove('is-active'); try { document.documentElement.removeAttribute('aria-busy'); } catch (e) { /* ignore */ } }
                 };
             })();
         }
