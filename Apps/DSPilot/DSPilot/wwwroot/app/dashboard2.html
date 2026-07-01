@@ -576,7 +576,7 @@
 
                 <!-- 생산 현황 + 당일 사이클 -->
                 <div class="bg-surface-container-lowest border border-outline-variant p-card-padding rounded-xl shadow-sm flex flex-col justify-between relative overflow-hidden cursor-pointer hover:border-primary/40 transition-colors"
-                     @click="window.location='/app/uptime.html#planned-stops-section'"
+                     @click="window.location='/uptime-oee#planned-stops-section'"
                      title="비생산 시간대 설정으로 이동">
                     <div>
                         <div class="flex justify-between items-start">
@@ -1161,7 +1161,7 @@
                 const q = [];
                 if (a.systemName) q.push('utSystem=' + encodeURIComponent(a.systemName));
                 if (a.level) q.push('utLevel=' + encodeURIComponent(a.level));
-                location.href = '/uptime' + (q.length ? '?' + q.join('&') : '');
+                location.href = '/uptime-alarm' + (q.length ? '?' + q.join('&') : '');
             },
 
             // ── 활성 알람 통합 피드(abnormal 4종 + usertag) ──

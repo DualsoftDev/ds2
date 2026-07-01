@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OEE 종합 — DSPilot</title>
+
+    <!--
+      DSPilot 정적 호스팅 — 가동시간·이상 물리 분리: OEE 종합 페이지 (view=oee).
+      공용 스타일/스크립트 = /css/uptime-workspace.css · /app/uptime-workspace.js
+        (이상·알람 페이지 uptime-alarm.html 과 SSOT 1벌 공유 — window.DSP_UPTIME_VIEW 로 도메인 분기).
+      서버/모델 = C#(/api/oee/*), 뷰 = 정적 HTML/CSS/JS(Alpine + SignalR).
+    -->
+    <link href="/css/fonts.css" rel="stylesheet" />
+    <link href="/css/ds.css" rel="stylesheet" />
+    <link href="/css/uptime-workspace.css" rel="stylesheet" />
+</head>
+
+<body>
+    <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="uptimeApp()" x-init="init()" x-cloak>
+
+        <!-- fallback 슬림 헤더 (shell.js 가 제거) -->
+        <header class="dsp-appbar">
+            <span class="dsp-title">OEE 종합</span>
+            <span class="dsp-badge">정적</span>
+            <div class="spacer"></div>
+            <button class="btn-icon" @click="toggleTheme()" title="테마 전환">
+                <span class="material-icons" x-text="dark ? 'light_mode' : 'dark_mode'"></span>
+            </button>
+        </header>
+
+        <main class="dsp-main">
+
+            <!-- 상단 툴바 -->
+            <div class="ds-topbar">
+                <div class="ds-topbar-actions">
+                    <div class="segmented">
+                        <button :class="period === 'today' ? 'is-active' : ''" @click="setPeriod('today')">오늘</button>
+                        <button :class="period === '7d' ? 'is-active' : ''" @click="setPeriod('7d')">7일</button>
+                        <button :class="period === '30d' ? 'is-active' : ''" @click="setPeriod('30d')">30일</button>
+                        <button :class="period === '60d' ? 'is-active' : ''" @click="setPeriod('60d')">60일</button>
+                        <button :class="period === 'custom' ? 'is-active' : ''" @click="toggleCustomPeriod()" title="날짜 직접 선택">
+                            <span class="material-icons">calendar_today</span>기간
+                        </button>
+                    </div>
+                    <template x-if="period === 'custom'">
+                        <div class="up-custom-range">
+                            <input type="datetime-local" class="up-period-input" x-model="customFrom" />
+                            <span style="color:var(--color-text-secondary); font-size:0.85rem;">~</span>
+                            <input type="datetime-local" class="up-period-input" x-model="customTo" />
+                            <button class="btn btn-sm btn-primary" @click="applyCustomPeriod()" :disabled="!customFrom || !customTo">적용</button>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- 설비(Flow) 선택 — 날짜 UI 와 같은 행, 오른쪽 정렬(.ds-topbar space-between). 드롭다운(전체/특정 Flow).
+                     기본 '전체'. 선택 시 OEE·정지·도넛·시간구성·계획시간을 그 설비로 필터(표준 가동시간·설비순위는 전체 유지=비교/편집용). -->
+                <!-- 설비(Flow) 선택은 좌측 메뉴 '가동시간·이상' 트리에서 수행(/uptime?flow=이름) → 여기서는 현재 필터 상태만 표시. -->
+                <div class="ds-topbar-actions" style="justify-content:flex-end;" x-show="tab === 'oee' && curFlow">
+                    <span class="chip chip-info">설비: <b x-text="curFlow"></b></span>
+                    <a class="btn btn-sm btn-outlined" href="/uptime-oee">
+                        <span class="material-icons" style="font-size:15px;">clear</span> 전체 보기
+                    </a>
+                </div>
+            </div>
+            <!-- ═══════════════ 탭 1: OEE 종합 ═══════════════ -->
+            <div class="up-grid" x-show="tab === 'oee'">
+
+                <!-- ════ OEE 종합 (실데이터: /api/oee/summary) — 5 KPI: OEE·A·P·Q·MTBF ════ -->
+                <section class="card up-section">
+                    <div class="ds-card-h">
+                        <h4>OEE 종합 지표</h4>
+                        <span class="ds-card-h-sub" x-text="'가용성 × 성능 × 품질 · ' + (curFlow ? ('설비: ' + curFlow) : '라인 전체 합산')"></span>
+                    </div>
+
+                    <div class="up-oee-row">
+                        <!-- OEE (hero) -->
+                        <div class="up-oee is-hero">
+                            <div class="up-oee-label">OEE 종합</div>
+                            <div class="up-oee-value up-oee-mono" x-text="oee ? pct(oee.oee) : '—'"></div>
+                            <div class="up-oee-note" x-text="oee ? (oee.oee != null ? ('가용성 × 성능 × 품질' + (oee.qualitySource === 'assumed' ? ' · 품질 100% 가정' : '')) : (oee.oeeNote || '산출 불가')) : '불러오는 중…'"></div>
+                        </div>
+                        <!-- 가용성 A (사이클기반 1차=사이클 / 폴백 출처 칩: 시프트·자동추정·달력) -->
+                        <div class="up-oee" :class="oeeTone('availability')">
+                            <div class="up-oee-label">가용성 A
+                                <span class="up-oee-chip" x-show="oee && oee.availabilitySource"
+                                      :class="oee && (oee.availabilitySource === 'cycle' || oee.availabilitySource === 'auto') ? 'auto' : (oee && oee.availabilitySource === 'shift' ? 'solid' : '')"
+                                      x-text="oee ? ({ cycle: '사이클', shift: '시프트', auto: '자동추정', calendar: '달력' }[oee.availabilitySource] || '') : ''"></span>
+                                <span class="up-oee-chip warn" x-show="oee && oee.ctSampleLow && oee.availabilitySource === 'cycle'"
+                                      x-text="'샘플 ' + (oee && oee.ctSampleCount != null ? oee.ctSampleCount : 0) + '/5'"
+                                      title="클린샘플 5개 미만으로 산출된 잠정값입니다. 사이클이 쌓이면 자동으로 정확해집니다."></span>
+                            </div>
+                            <div class="up-oee-value up-oee-mono" x-text="oee ? pct(oee.availability) : '—'"></div>
+                            <div class="up-oee-note" x-text="oee ? (oee.availability != null ? (oee.availabilitySource === 'cycle' ? 'Σ실측 가동시간 / Σ전체 가동시간' : '가동 / 계획시간') : (oee.availabilityNote || '산출 불가')) : ''"></div>
+                        </div>
+                        <!-- 성능 P (사이클기반: N × 가동시간 이상치 ÷ Σ실측 가동시간) — 표준 가동시간 = 최근 14일 평균(고정) -->
+                        <div class="up-oee" :class="oeeTone('performance')" title="표준 가동시간 = 최근 14일 평균 — 정상상태 P≈100% 수렴(추세 대비 당기 저하 감지)">
+                            <div class="up-oee-label">성능 P
+                                <span class="up-oee-chip auto" x-show="oee && oee.performance != null"
+                                      x-text="'가동시간 14일평균'"
+                                      title="14일 평균 기준 — 정상상태 P≈100% 수렴(추세 대비 저하 감지)"></span>
+                                <span class="up-oee-chip warn" x-show="oee && oee.ctSampleLow"
+                                      x-text="'샘플 ' + (oee && oee.ctSampleCount != null ? oee.ctSampleCount : 0) + '/5'"
+                                      title="클린샘플 5개 미만으로 산출된 잠정값입니다. 사이클이 쌓이면 자동으로 정확해집니다."></span>
+                            </div>
+                            <div class="up-oee-value up-oee-mono" x-text="oee ? pct(oee.performance) : '—'"></div>
+                            <div class="up-oee-note" x-text="oee ? (oee.performance != null ? '14일평균 기준 · (N × 표준 가동시간) / Σ실측 가동시간' : (oee.performanceNote || '산출 불가')) : ''"></div>
+                        </div>
+                        <!-- 품질 Q (가정/사용자 칩 + 톤 중립) — 클릭 시 품질 직접 입력 다이얼로그 -->
+                        <div class="up-oee" :class="oeeTone('quality')" @click="openQDialog()" style="cursor:pointer;" title="클릭하여 품질(양품률) 직접 입력">
+                            <div class="up-oee-label">품질 Q
+                                <span class="up-oee-chip" :class="oee && oee.quality != null && oee.qualitySource !== 'assumed' ? 'solid' : ''"
+                                      x-show="oee && oee.quality != null"
+                                      :title="oee && oee.qualitySource === 'assumed' ? '불량 미입력 — 품질 100% 가정. 이 카드를 클릭해 전반 품질%를 직접 설정할 수 있습니다.' : (oee && oee.qualitySource === 'manual' ? '사용자가 직접 설정한 전반 품질' : '불량 입력 반영(측정값)')"
+                                      x-text="oee && oee.qualitySource === 'assumed' ? '가정' : '사용자'"></span>
+                                <span class="material-icons" style="font-size:13px; opacity:0.5; margin-left:auto;" title="클릭하여 품질 직접 입력">edit</span>
+                            </div>
+                            <div class="up-oee-value up-oee-mono" x-text="oee ? pct(oee.quality) : '—'"></div>
+                            <div class="up-oee-note" x-text="oee ? (oee.quality != null ? (oee.qualitySource === 'assumed' ? '불량 미입력 — 100% 가정 · 클릭해 직접 입력' : (oee.qualitySource === 'manual' ? '사용자 직접 설정(전반 품질)' : ('양품 ' + (oee.goodCount ?? 0) + ' / 총 ' + (oee.totalCount ?? 0)))) : (oee.qualityNote || '산출 불가')) : ''"></div>
+                        </div>
+                        <!-- MTBF (연속 비가동 onset 간격 평균; 무비가동 = 가짜수치 대신 배지) -->
+                        <div class="up-oee" :class="oee && oee.failureCount === 0 ? 'is-good' : (oee && oee.mtbf != null ? 'is-warn' : 'is-na')">
+                            <div class="up-oee-label">MTBF</div>
+                            <template x-if="oee && oee.failureCount === 0">
+                                <div>
+                                    <div class="up-nofault"><span class="led"></span>비가동 없음</div>
+                                    <div class="up-oee-note">기간 비가동 0건 — 분모 0. 가짜수치 대신 정직 표기.</div>
+                                </div>
+                            </template>
+                            <template x-if="!oee || oee.failureCount !== 0">
+                                <div>
+                                    <div class="up-oee-value up-oee-mono" x-text="oee ? durShort(oee.mtbf) : '—'"></div>
+                                    <div class="up-oee-note" x-text="oee ? (oee.mtbf != null ? ('비가동 ' + oee.failureCount + '건 · onset 간격 평균') : (oee.mtbfNote || '산출 불가')) : ''"></div>
+                                </div>
+                            </template>
+                        </div>
+                        <!-- MTTR (비가동 onset → going 회복 평균; doc/22 §5 복원. 무비가동 = 배지) -->
+                        <div class="up-oee" :class="oee && oee.failureCount === 0 ? 'is-good' : (oee && oee.mttr != null ? 'is-warn' : 'is-na')">
+                            <div class="up-oee-label">MTTR</div>
+                            <template x-if="oee && oee.failureCount === 0">
+                                <div>
+                                    <div class="up-nofault"><span class="led"></span>비가동 없음</div>
+                                    <div class="up-oee-note">기간 비가동 0건 — 복구구간 없음. 가짜수치 대신 정직 표기.</div>
+                                </div>
+                            </template>
+                            <template x-if="!oee || oee.failureCount !== 0">
+                                <div>
+                                    <div class="up-oee-value up-oee-mono" x-text="oee ? durShort(oee.mttr) : '—'"></div>
+                                    <div class="up-oee-note" x-text="oee ? (oee.mttr != null ? ('비가동 ' + oee.failureCount + '건 · onset→회복 평균') : (oee.mttrNote || '산출 불가')) : ''"></div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+
+                    <div class="ds-card-h" style="margin-top:8px;">
+                        <span class="ds-card-h-sub" x-show="oee">
+                            기간 정지 <b x-text="oee ? (oee.downtimeCount + '건 · ' + durShort(oee.downtimeMs) + ' (가동 ' + pct(oee.availability) + ')') : ''"></b>
+                            · <span x-text="oee ? (oee.ctThresholdMs ? ('가동시간 이상치 ' + durShort(oee.ctThresholdMs) + ' · 14일 평균') : (oee.idealCycleTimeMs ? ('표준 가동시간 ' + durShort(oee.idealCycleTimeMs)) : '표준 가동시간 미설정(클린샘플 0)')) : ''"></span>
+                            <span x-show="oee && oee.ctSampleLow" style="color:var(--amber, #b7791f); font-weight:700;" x-text="oee ? (' · 클린샘플 ' + (oee.ctSampleCount != null ? oee.ctSampleCount : 0) + '/5(잠정)') : ''"></span>
+                            <span x-show="oee && oee.normalCycleCount != null" x-text="oee ? (' · 정상 ' + (oee.normalCycleCount || 0) + ' 사이클') : ''"></span>
+                        </span>
+                    </div>
+                </section>
+
+                <!-- ════ 가용성 시간 구성 (통합) — 활성 모드의 A 분해(cycle: Σ실측CT vs Σ비가동CT / 폴백: 가동 vs 정지, 계획시간 분모) + 일자별 추이. KPI(A)와 항상 일치 ════ -->
+                <section class="card up-section">
+                    <div class="ds-card-h">
+                        <h4>가용성 시간 구성</h4>
+                        <span class="ds-card-h-sub" x-text="availComp.subtitle"></span>
+                    </div>
+
+                    <!-- ① 가용성 분해 바 (활성 모드 — 상단 A KPI와 일치) -->
+                    <template x-if="availComp.hasData">
+                        <div style="margin-bottom:18px;">
+                            <div class="ds-legend" style="margin-bottom:10px;">
+                                <div class="lg-item"><span class="lg-swatch" style="background:var(--green);"></span> <span x-text="availComp.runLabel"></span></div>
+                                <div class="lg-item"><span class="lg-swatch" style="background:var(--red);"></span> <span x-text="availComp.stopLabel"></span></div>
+                            </div>
+                            <div style="display:flex; height:26px; border-radius:var(--radius-sm); overflow:hidden; border:1px solid var(--color-lines);">
+                                <div :style="`width:${availComp.runPct}%; background:var(--green);`" :title="availComp.runLabel + ' ' + availComp.runPct + '%'"></div>
+                                <div :style="`width:${availComp.stopPct}%; background:var(--red);`" :title="availComp.stopLabel + ' ' + availComp.stopPct + '%'"></div>
+                            </div>
+                            <div style="display:flex; gap:18px; margin-top:8px; font-size:0.72rem; color:var(--color-text-secondary); flex-wrap:wrap;">
+                                <span><span x-text="availComp.runLabel"></span> <b x-text="durShort(availComp.runMs)"></b> (<span x-text="availComp.runPct + '%'"></span>)<template x-if="availComp.runNote"><span x-text="' · ' + availComp.runNote"></span></template></span>
+                                <span><span x-text="availComp.stopLabel"></span> <b x-text="durShort(availComp.stopMs)"></b> (<span x-text="availComp.stopPct + '%'"></span>)<template x-if="availComp.stopNote"><span x-text="' · ' + availComp.stopNote"></span></template></span>
+                                <span x-show="availComp.mode === 'cycle' && oee && oee.plannedDownMs > 0">비생산 시간 <b x-text="durShort(oee.plannedDownMs)"></b> <span class="up-codeish" x-text="(oee.plannedStopSource === 'manual' ? '수동' : '자동(10×가동시간)') + '·전부제외'"></span></span>
+                                <span x-show="availComp.mode === 'cycle'">가동시간 이상치 <b x-text="durShort(oee.ctThresholdMs)"></b> <span class="up-codeish">14일 평균</span></span>
+                                <span x-show="availComp.mode === 'fallback'">계획시간 기준 <span class="up-codeish" x-text="availComp.sourceLabel"></span></span>
+                            </div>
+                            <div class="up-form-hint" style="margin-top:8px;" x-html="availComp.hint"></div>
+                        </div>
+                    </template>
+                    <template x-if="!availComp.hasData">
+                        <div class="ds-empty" style="margin-bottom:18px;">
+                            <span class="material-icons">donut_small</span>
+                            <div class="ds-empty-title">가용성 데이터 없음</div>
+                            <div class="ds-empty-desc">최근 14일 클린사이클이 1개라도 쌓이면 사이클기반 가용성이 표시됩니다(5개 미만은 '샘플 부족' 잠정값, 쌓이면 자동 정상화). 클린사이클 0이면 계획시간 폴백(시프트 ▸ 14일 자동추정 ▸ 달력)으로 가용성을 근사합니다.</div>
+                        </div>
+                    </template>
+
+                    <!-- ② 일자별/시간별 추이 (달력근사 · 고장/유지보수 상세는 아래 '정지 구성' 도넛) — 차트 자체 범례 사용 -->
+                    <div style="border-top:1px solid var(--color-lines); padding-top:12px;">
+                        <div style="font-size:0.72rem; font-weight:700; color:var(--color-text-primary); margin-bottom:8px;" x-text="dailyData && dailyData.granularity === 'hour' ? '시간별 추이 (가동 근사 · 고장 · 유지보수)' : '일자별 추이 (가동 근사 · 고장 · 유지보수)'"></div>
+                        <template x-if="dailyData && dailyData.slots && dailyData.slots.length > 0">
+                            <div style="position:relative; height:220px;">
+                                <canvas id="up-daily-chart"></canvas>
+                            </div>
+                        </template>
+                        <template x-if="!dailyData || !dailyData.slots || dailyData.slots.length === 0">
+                            <div class="ds-empty">
+                                <span class="material-icons">bar_chart</span>
+                                <div class="ds-empty-title">추이 데이터 없음</div>
+                                <div class="ds-empty-desc">정지 이벤트가 누적되면 일자별 가동·정지 추이가 표시됩니다.</div>
+                            </div>
+                        </template>
+                        <div class="up-form-hint" style="margin-top:8px;">추이의 가동은 달력근사(슬롯시간 − 정지)라 유휴와 분리되지 않습니다 — 정본은 상단 가용성 분해(KPI A와 일치)입니다. 고장·유지보수 비중은 아래 <b>정지 구성</b> 도넛 참조.</div>
+                    </div>
+                </section>
+
+                <!-- ════ 정지 원인 도넛 | 계획시간 폴백 체인 + 14일 히스토그램 (정지 로그 위로 이동 — 로그는 이 아래에서 토글) ════ -->
+                <div class="up-grid up-2col">
+
+                    <!-- 정지 고장/유지보수 도넛 — 합계가 상단 '기간 정지'와 일치 -->
+                    <section class="card up-section">
+                        <div class="ds-card-h"><h4>정지 구성</h4><span class="ds-card-h-sub">고장 · 유지보수 비중 (지속시간 기준)</span></div>
+                        <template x-if="faultDist.count > 0">
+                            <div class="up-dist">
+                                <svg class="up-donut" viewBox="0 0 100 100" x-html="faultDonutSvg"></svg>
+                                <div class="up-legend">
+                                    <template x-for="seg in faultDist.segs" :key="seg.label">
+                                        <div class="up-legend-row">
+                                            <span class="up-legend-swatch" :style="`background:${seg.color};`"></span>
+                                            <span class="up-legend-name" x-text="seg.label"></span>
+                                            <span class="up-legend-share" x-text="seg.share + '%'"></span>
+                                            <span class="up-legend-val" x-text="durShort(seg.ms)"></span>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+                        <template x-if="faultDist.count === 0">
+                            <div class="ds-empty">
+                                <span class="material-icons">donut_large</span>
+                                <div class="ds-empty-title">표시할 정지 데이터 없음</div>
+                                <div class="ds-empty-desc">정지 이벤트가 기록되면 고장/유지보수 비중이 도넛으로 표시됩니다.</div>
+                            </div>
+                        </template>
+                        <div style="font-size:0.62rem; color:var(--color-text-secondary); margin-top:10px;">
+                            기본 <b>고장</b> — 로그에서 체크 해제 시 유지보수로 변경(MTBF 고장 제외)
+                        </div>
+                        <button class="btn btn-sm btn-outlined" style="margin-top:12px; width:100%; justify-content:center;" @click="toggleDowntimeLog()">
+                            <span class="material-icons" style="font-size:16px;">receipt_long</span>
+                            <span x-text="showDowntimeLog ? '정지 이벤트 로그 접기' : '정지 이벤트 로그 보기 및 설정'"></span>
+                        </button>
+                    </section>
+
+                    <!-- 가용성 분모 = 계획시간 (폴백 체인 + 14일 히스토그램) -->
+                    <section class="card up-section">
+                        <div class="ds-card-h"><h4>가용성 분모 폴백 (계획시간)</h4><span class="ds-card-h-sub">사이클 표본 부족 시에만 사용 — 시프트 ▸ 자동추정 ▸ 달력</span></div>
+                        <details class="up-dn">
+                            <summary><span class="material-icons">expand_more</span> 계획시간 폴백 체인 · 14일 히스토그램 보기</summary>
+                            <div class="up-dn-body">
+                        <div class="up-chain">
+                            <template x-for="(s, i) in planChainSteps" :key="s.key">
+                                <div class="up-chain-step" :class="s.cls">
+                                    <span class="up-chain-rank" x-text="i + 1"></span>
+                                    <div class="up-chain-body"><div class="t" x-text="s.t"></div><div class="d" x-text="s.d"></div></div>
+                                    <span class="up-chain-badge" x-text="s.badge"></span>
+                                </div>
+                            </template>
+                        </div>
+                        <div style="font-size:0.66rem; color:var(--color-text-secondary); margin:13px 0 4px;">
+                            <b>14일 시간대별 활동 히스토그램</b> — 활동 구간(p5~p95)을 계획실행시간으로 추정
+                        </div>
+                        <div class="up-hist">
+                            <template x-for="(b, h) in histBars" :key="h">
+                                <div class="b" :class="b.cls" :style="`height:${b.h}%`" :title="h + '시'"></div>
+                            </template>
+                        </div>
+                        <div class="up-hist-axis"><span>00시</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
+                        <div style="font-size:0.62rem; color:var(--color-text-secondary); margin-top:8px;" x-show="planTime" x-text="planChainFoot"></div>
+                            </div>
+                        </details>
+                    </section>
+                </div>
+
+                <!-- ════ 정지 이벤트 로그 (실데이터: /api/oee/downtime) + 미분류 큐 — 기본 숨김, 정지 원인 구성의 [로그 보기 및 설정] 토글(이 아래 표시) ════ -->
+                <section class="card up-section" id="downtime-log-section" x-show="showDowntimeLog" x-cloak>
+                    <div class="ds-card-h">
+                        <h4>정지 이벤트 로그</h4>
+                        <span class="ds-card-h-sub">발생 → 복구 · 고장(기본) / 유지보수 체크 해제로 변경</span>
+                        <span style="flex:1;"></span>
+                        <button class="btn btn-sm btn-outlined" @click="toggleDowntimeLog()" title="로그 접기">
+                            <span class="material-icons" style="font-size:15px;">close</span> 접기
+                        </button>
+                    </div>
+
+                    <!-- 필터 -->
+                    <div class="up-filter-row">
+                        <span style="font-size:0.64rem; font-weight:700; color:var(--color-text-secondary); text-transform:uppercase; letter-spacing:0.06em; margin-right:4px;">상태</span>
+                        <span class="up-chip" :class="dtFilterStatus === 'all' ? 'is-on' : ''" @click="dtFilterStatus='all'">전체</span>
+                        <span class="up-chip" :class="dtFilterStatus === 'open' ? 'is-on' : ''" @click="dtFilterStatus='open'">진행중</span>
+                        <span class="up-chip" :class="dtFilterStatus === 'recovered' ? 'is-on' : ''" @click="dtFilterStatus='recovered'">복구</span>
+                        <span style="width:10px;"></span>
+                        <span style="font-size:0.64rem; font-weight:700; color:var(--color-text-secondary); text-transform:uppercase; letter-spacing:0.06em; margin-right:4px;">구분</span>
+                        <span class="up-chip" :class="dtFilterFault === 'all' ? 'is-on' : ''" @click="dtFilterFault='all'">전체</span>
+                        <span class="up-chip" :class="dtFilterFault === 'fault' ? 'is-on' : ''" @click="dtFilterFault='fault'" style="border-color:var(--red); color:var(--red);" :style="dtFilterFault==='fault'?'background:var(--red);color:#fff;':''">고장</span>
+                        <span class="up-chip" :class="dtFilterFault === 'maintenance' ? 'is-on' : ''" @click="dtFilterFault='maintenance'" style="border-color:var(--mt); color:var(--mt);" :style="dtFilterFault==='maintenance'?'background:var(--mt);color:#fff;':''">유지보수</span>
+                        <span style="flex:1;"></span>
+                        <span class="up-form-ok" x-show="dtMsg" x-text="dtMsg"></span>
+                    </div>
+
+                    <div class="alert alert-error" x-show="oeeError" style="margin-bottom:12px;"><span class="material-icons">error</span><span x-text="oeeError"></span></div>
+
+                    <template x-if="filteredDowntime.length > 0">
+                        <div style="overflow-x:auto;">
+                            <table class="ds-table up-dt-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width:140px;">발생</th>
+                                        <th style="width:140px;">복구</th>
+                                        <th style="width:80px;">지속</th>
+                                        <th>설비(Flow)</th>
+                                        <th style="width:100px;">고장</th>
+                                        <th style="width:90px;">감지</th>
+                                        <th style="width:150px;">겹친 신호 (단서)</th>
+                                        <th style="width:84px;">상태</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="d in filteredDowntime" :key="d.id">
+                                        <tr>
+                                            <td class="num" data-label="발생" x-text="dtTime(d.startAt)"></td>
+                                            <td class="num" data-label="복구" x-text="d.endAt ? dtTime(d.endAt) : '—'"></td>
+                                            <td class="num" data-label="지속" x-text="dur(d.durationMs, d)"></td>
+                                            <td data-label="설비(Flow)"><strong x-text="d.flowName || d.systemName || '—'"></strong>
+                                                <template x-if="d.deviceName"><span class="up-rank-sub" x-text="' · ' + d.deviceName"></span></template>
+                                            </td>
+                                            <td data-label="고장" style="white-space:nowrap;">
+                                                <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;" :title="d.isFailure ? '고장 — 클릭하면 유지보수로 변경' : '유지보수 — 클릭하면 고장으로 변경'">
+                                                    <input type="checkbox" class="up-dt-cb" :checked="d.isFailure" @change="setFault(d, $event.target.checked)">
+                                                    <span x-text="d.isFailure ? '고장' : '유지보수'" :style="d.isFailure ? 'color:var(--red);font-weight:700;' : 'color:var(--mt);font-weight:700;'"></span>
+                                                </label>
+                                            </td>
+                                            <td data-label="감지" x-html="detectChipHtml(d.detectSource)"></td>
+                                            <td data-label="겹친 신호 (단서)" x-html="clueHtml(d.clue)"></td>
+                                            <td data-label="상태">
+                                                <span class="ds-status" :class="d.status === 'open' ? 'bad' : 'ok'" x-text="d.status === 'open' ? '진행중' : '복구'"></span>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </template>
+                    <template x-if="filteredDowntime.length === 0">
+                        <div class="ds-empty" style="border-style:solid;">
+                            <span class="material-icons">check_circle</span>
+                            <div class="ds-empty-title" x-text="downtime.length === 0 ? '해당 기간 정지 이벤트 없음' : '필터에 해당하는 정지 이벤트 없음'"></div>
+                            <div class="ds-empty-desc" x-text="downtime.length === 0 ? '무사이클 onset 자동 감지 / UserTag onset 가 기록되면 여기에 표시됩니다.' : '상태·구분 필터를 변경해 보세요.'"></div>
+                        </div>
+                    </template>
+
+                    <div style="font-size:0.62rem; color:var(--color-text-secondary); margin-top:12px; line-height:1.9;">
+                        <b style="color:var(--color-text-primary);">감지(정지 구간):</b>
+                        <span class="src-chip detect">무사이클</span> 사이클 끊김
+                        <span class="src-chip detect">고장비트</span> PLC 비트 rising/falling
+                        <span class="src-chip detect">수동</span> 작업자 등록 &nbsp;—&nbsp; 여기서만 정지 건수·길이가 만들어집니다.<br>
+                        <b style="color:var(--color-text-primary);">고장/유지보수:</b>
+                        기본 <b>고장</b>으로 체크됨 — 체크 해제 시 <b>유지보수</b>(MTBF 고장 제외)로 변경됩니다. &nbsp;·&nbsp;
+                        <b style="color:var(--color-text-primary);">단서:</b>
+                        <span class="clue-chip abn"><span class="material-icons">troubleshoot</span>abnormal</span>
+                        <span class="clue-chip ut"><span class="material-icons">troubleshoot</span>usertag</span>
+                        같은 설비·시간대에 겹친 이상신호를 <b>표시용</b>으로 붙입니다 — <b>건수·MTBF에 더해지지 않습니다</b>(정직성).
+                    </div>
+                </section>
+
+                <!-- 품질(양품률) 직접 입력은 OEE 종합의 '품질 Q' 카드 클릭 → 다이얼로그로 이동(아래 #qDialog). -->
+
+                <!-- ════ 설비별 OEE 순위 (표준 가동시간 수동 오버라이드 카드는 제거 — 가동시간 이상치=14일 평균 자동) ════ -->
+                <div class="up-grid">
+
+                <!-- 설비별 OEE 순위 -->
+                <section class="card up-section">
+                    <div class="ds-card-h"><h4>설비별 OEE 순위</h4><span class="ds-card-h-sub">OEE = A × P × Q · 최하위 강조 · 클릭→히트맵</span></div>
+                    <template x-if="ranking.length > 0">
+                        <div>
+                            <template x-for="(r, i) in ranking" :key="r.flowName">
+                                <a class="up-rank-row" :class="isWorst(r, i) ? 'is-worst' : ''"
+                                   :href="'/heatmap?flow=' + encodeURIComponent(r.flowName)">
+                                    <span class="up-rank-medal" x-text="medal(i)"></span>
+                                    <div style="min-width:0;">
+                                        <div class="up-rank-name" :title="r.flowName" x-text="r.flowName"></div>
+                                        <div class="up-rank-sub" x-text="'정지 ' + r.downtimeCount + '건 · ' + durShort(r.downtimeMs) + ' · 생산 ' + (r.totalCount ?? 0)"></div>
+                                    </div>
+                                    <span class="up-rank-oee" :class="r.oee == null ? 'na' : ''" x-text="r.oee != null ? pct(r.oee) : '산출불가'"></span>
+                                </a>
+                            </template>
+                        </div>
+                    </template>
+                    <template x-if="ranking.length === 0">
+                        <div class="ds-empty">
+                            <span class="material-icons">leaderboard</span>
+                            <div class="ds-empty-title">순위를 매길 정지 데이터 없음</div>
+                            <div class="ds-empty-desc">설비(Flow)별 정지 이벤트가 누적되면 OEE 순위가 표시됩니다. OEE 산출 불가 설비는 정지시간 기준으로 정렬됩니다.</div>
+                        </div>
+                    </template>
+                </section>
+                </div>
+
+                <!-- ════ 비생산 시간대 (doc/22) — 24시간 연표 에디터. 자동 5일 패턴 ▸ 사용자 설정 시 수동 전환.
+                     이 시간대의 정상 가동시간·비가동은 모두 OEE 산출에서 제외(생산·비생산 가리지 않고 분모 밖). OEE 종합 탭 맨 아래 배치(설정 성격). ════ -->
+                <section class="card up-section" id="planned-stops-section">
+                    <div class="ds-card-h">
+                        <h4>비생산 시간대</h4>
+                        <span class="ds-card-h-sub">애초에 생산하지 않는 시간(점심·교대·정기정비·무오더 등)은 OEE 산출에서 통째로 제외 — 자동 계산하거나 24시간 연표로 직접 지정</span>
+                        <span style="flex:1;"></span>
+                        <span class="up-oee-chip" :class="ps.auto ? 'auto' : (ps.source === 'manual' ? 'solid' : '')"
+                              x-text="ps.auto ? ('자동 · ' + ps.ctMultiplier + '×가동시간 장시간정지') : (ps.source === 'manual' ? '수동' : '미설정')"></span>
+                        <button class="btn btn-sm" :class="ps.auto ? 'btn-outlined' : 'btn-filled'"
+                                :disabled="ps.busy"
+                                @click="psSetAuto(!ps.auto)"
+                                x-text="ps.auto ? '수동 설정하기' : '자동 전환하기'"></button>
+                    </div>
+
+                    <!-- 자동 계산 ON: 수동 편집 불필요 안내 + 읽기 전용 타임라인 -->
+                    <div x-show="ps.auto" x-cloak>
+                        <div style="display:flex; align-items:flex-start; gap:9px; padding:11px 13px; border:1px dashed var(--color-border); border-radius:8px; color:var(--color-text-secondary); font-size:0.78rem; line-height:1.5; margin-bottom:12px;">
+                            <span class="material-icons" style="font-size:18px; color:var(--teal,#1FA8B8);">auto_mode</span>
+                            <span>자동 계산이 켜져 있어 비생산 시간대를 직접 지정할 필요가 없습니다. 평균 가동시간의 <b x-text="ps.ctMultiplier"></b>배 이상 멈춘 구간이 실시간 비생산으로 분류됩니다. 아래는 이전에 설정한 수동 시간대(현재 미적용, 참고용)입니다. 직접 지정하려면 자동 계산을 끄세요.</span>
+                        </div>
+
+                        <!-- 읽기 전용 24h 타임라인 — 14일 자동 감지 비생산 패턴 + 수동 설정(참고) 동시 표시 -->
+                        <div class="up-ptl">
+                            <div class="up-ptl-legend">
+                                <span class="lg"><span class="sw auto"></span> 자동 감지 비생산 (어제~14일 이동평균)</span>
+                                <span class="lg" x-show="ps.windows.length > 0" style="opacity:0.55;">
+                                    <span class="sw manual" style="opacity:0.45;"></span> 수동 설정 (미적용)
+                                </span>
+                                <span class="lg"><span class="sw now"></span> 현재 <b x-text="minToHHMM(nowMin())"></b></span>
+                            </div>
+                            <div class="up-ptl-track" style="pointer-events:none; cursor:default;">
+                                <div class="up-ptl-now" :style="`left:${nowMin() / 1440 * 100}%`"></div>
+                                <!-- 자동 감지 비생산 블록 (14일 시간대 패턴) -->
+                                <template x-for="(w, i) in (ps.autoPattern ? ps.autoPattern.windows : [])" :key="'auto-' + i">
+                                    <div class="up-ptl-win auto" :style="psWinStyle(w)"
+                                         :title="minToHHMM(w.startMinutes) + ' – ' + minToHHMM(w.endMinutes) + ' · 자동 감지 비생산 (14일 기준)'">
+                                        <span class="wl">비생산</span>
+                                        <span class="wt" x-show="(w.endMinutes - w.startMinutes) >= 90" x-text="minToHHMM(w.startMinutes) + '–' + minToHHMM(w.endMinutes)"></span>
+                                    </div>
+                                </template>
+                                <!-- 수동 설정 범위 (반투명 참고용) -->
+                                <template x-for="(w, i) in ps.windows" :key="'ro-' + i">
+                                    <div class="up-ptl-win auto" :style="psWinStyle(w) + 'opacity:0.35;'"
+                                         :title="minToHHMM(w.startMinutes) + ' – ' + minToHHMM(w.endMinutes) + (w.label ? (' · ' + w.label) : '') + ' (수동 설정 · 현재 미적용)'">
+                                        <span class="wl" x-text="w.label || '비생산'"></span>
+                                    </div>
+                                </template>
+                                <!-- 빈 상태 -->
+                                <div class="up-ptl-empty"
+                                     x-show="(!ps.autoPattern || ps.autoPattern.windows.length === 0) && ps.windows.length === 0">
+                                    최근 14일 자동 감지된 비생산 없음 (10×가동시간 기준)
+                                </div>
+                            </div>
+                            <div class="up-ptl-hours">
+                                <span>00</span><span>03</span><span>06</span><span>09</span><span>12</span><span>15</span><span>18</span><span>21</span><span>24</span>
+                            </div>
+                            <div style="font-size:0.6rem; color:var(--color-text-secondary); margin-top:4px;" x-show="ps.autoPattern">
+                                최근 14일 중 해당 시간대에 10×가동시간 이상 정지가 1회 이상 있었던 구간을 표시합니다
+                                <template x-if="ps.autoPattern && ps.autoPattern.dataFrom">
+                                    <span x-text="' (' + (ps.autoPattern.dataFrom || '').slice(0,10) + ' ~ ' + (ps.autoPattern.dataTo || '').slice(0,10) + ')'"></span>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="up-ptl" x-show="!ps.auto" x-cloak>
+                        <!-- 자동 감지 시드 안내 (자동→수동 전환 직후, 적용 전까지 표시) -->
+                        <div x-show="ps.seededFromAuto" x-cloak
+                             style="display:flex; align-items:flex-start; gap:9px; padding:10px 13px; border:1px dashed var(--color-border); border-radius:8px; background:color-mix(in srgb,var(--teal,#1FA8B8) 7%,transparent); color:var(--color-text-secondary); font-size:0.78rem; line-height:1.5; margin-bottom:12px;">
+                            <span class="material-icons" style="font-size:18px; color:var(--teal,#1FA8B8); flex:none;">auto_mode</span>
+                            <span>자동 감지된 비생산 구간을 초기값으로 불러왔습니다. 아래 연표에서 직접 수정한 뒤 <b>[적용]</b>을 누르면 수동 고정됩니다.</span>
+                        </div>
+
+                        <!-- 범례 + [시간 추가] (드래그 추가 모드 토글) -->
+                        <div class="up-ptl-legend">
+                            <span class="lg"><span class="sw manual"></span> 비생산 시간 (수동)</span>
+                            <span class="lg"><span class="sw now"></span> 현재 <b x-text="minToHHMM(nowMin())"></b></span>
+                            <span style="flex:1;"></span>
+                            <button class="btn btn-sm" :class="ps.addMode ? 'btn-filled' : 'btn-outlined'"
+                                    @click="ps.addMode ? psCancelAdd() : psBeginAdd()">
+                                <span class="material-icons" style="font-size:15px;" x-text="ps.addMode ? 'close' : 'add'"></span>
+                                <span x-text="ps.addMode ? '추가 취소' : '시간 추가'"></span>
+                            </button>
+                        </div>
+
+                        <!-- 드래그 추가 안내 배너 (추가 모드일 때) -->
+                        <div class="up-ptl-arm" x-show="ps.addMode" x-cloak>
+                            <span class="material-icons">touch_app</span>
+                            차트에서 원하는 구간을 <b>드래그</b>하여 비생산 시간대를 그리세요 (5분 단위 스냅).
+                        </div>
+
+                        <!-- 24시간 트랙 — 추가 모드: 드래그하여 새 시간대 생성 / 평소: 막대 양끝 드래그=조절, ✕=삭제 -->
+                        <div class="up-ptl-track" :class="{ arming: ps.addMode }" x-ref="ptltrack"
+                             @pointerdown="psTrackPointerDown($event)"
+                             :title="ps.addMode ? '드래그하여 새 비생산 시간대를 그리세요' : '막대를 드래그해 이동, 양끝을 드래그해 시간 조절, ✕ 로 삭제'">
+                            <div class="up-ptl-now" :style="`left:${nowMin() / 1440 * 100}%`"></div>
+                            <template x-for="(w, i) in ps.windows" :key="i">
+                                <div class="up-ptl-win" :class="{ 'sel': ps.selected === i }"
+                                     :style="psWinStyle(w)" @pointerdown.stop.prevent="psMoveStart($event, i)"
+                                     :title="minToHHMM(w.startMinutes) + ' – ' + minToHHMM(w.endMinutes) + (w.label ? (' · ' + w.label) : '') + ' · 드래그하여 이동'">
+                                    <span class="up-ptl-handle l" @pointerdown.stop.prevent="psResizeStart($event, i, 'l')" title="시작 시각 조절"></span>
+                                    <span class="wl" x-text="w.label || '비생산'"></span>
+                                    <span class="wt" x-show="(w.endMinutes - w.startMinutes) >= 150" x-text="minToHHMM(w.startMinutes) + '–' + minToHHMM(w.endMinutes)"></span>
+                                    <button class="wx" @click.stop="psRemove(i)" @pointerdown.stop title="이 시간대 삭제"><span class="material-icons">close</span></button>
+                                    <span class="up-ptl-handle r" @pointerdown.stop.prevent="psResizeStart($event, i, 'r')" title="끝 시각 조절"></span>
+                                </div>
+                            </template>
+                            <div class="up-ptl-empty" x-show="ps.windows.length === 0" x-text="ps.addMode ? '차트에서 드래그하여 시간대를 그리세요' : '비생산 시간대 없음 — [시간 추가] 를 눌러 차트에 드래그하세요'"></div>
+                        </div>
+                        <!-- 시각 눈금 (3시간 간격, 격자선과 정렬) -->
+                        <div class="up-ptl-hours">
+                            <span>00</span><span>03</span><span>06</span><span>09</span><span>12</span><span>15</span><span>18</span><span>21</span><span>24</span>
+                        </div>
+                        <div style="font-size:0.6rem; color:var(--color-text-secondary); margin-top:5px;">막대를 드래그해 이동 · 양끝을 드래그해 길이 조절 · 막대 클릭 후 라벨 입력 · <span class="material-icons" style="font-size:11px; vertical-align:-1px;">close</span> 로 삭제</div>
+
+                        <!-- 선택된 막대 편집 — 라벨 입력 + 시각 미세조정(드래그 보조) + 삭제 -->
+                        <template x-if="ps.selected >= 0 && ps.windows[ps.selected]">
+                            <div class="up-ptl-edit is-edit">
+                                <span class="up-ptl-edit-tag">선택됨</span>
+                                <div class="up-qfield"><label>시작</label><input type="time" :value="minToTimeInput(ps.windows[ps.selected].startMinutes)" @input="psSetTime('start', $event.target.value)" /></div>
+                                <span class="up-qeq">–</span>
+                                <div class="up-qfield"><label>끝</label><input type="time" :value="minToTimeInput(ps.windows[ps.selected].endMinutes)" @input="psSetTime('end', $event.target.value)" /></div>
+                                <div class="up-qfield" style="flex:1; min-width:120px;"><label>라벨(선택)</label><input type="text" x-model="ps.windows[ps.selected].label" placeholder="점심 / 정기정비" style="width:100%; font-family:var(--font-family);" /></div>
+                                <button class="btn btn-sm btn-outlined" @click="psRemove(ps.selected)"><span class="material-icons" style="font-size:15px;">delete</span> 삭제</button>
+                                <button class="btn btn-sm btn-outlined" @click="psDeselect()">선택 해제</button>
+                            </div>
+                        </template>
+                    </div>
+
+                    <!-- 적용 (수동) / 자동 계산으로 전환 — 자동 ON 일 때는 숨김 -->
+                    <div class="up-blk-actions" style="margin-top:14px;" x-show="!ps.auto" x-cloak>
+                        <button class="btn btn-sm btn-primary" @click="psApply()" :disabled="ps.busy"><span class="material-icons" style="font-size:15px;">save</span> 적용 (수동 고정)</button>
+                        <button class="btn btn-sm btn-outlined" @click="psSetAuto(true)" :disabled="ps.busy"><span class="material-icons" style="font-size:15px;">auto_mode</span> 자동 계산으로 전환</button>
+                        <span style="flex:1;"></span>
+                        <span class="up-blk-msg ok" x-show="ps.msg" x-text="ps.msg"></span>
+                        <span class="up-blk-msg err" x-show="ps.err" x-text="ps.err"></span>
+                    </div>
+                    <!-- 자동 ON 일 때의 메시지(전환 직후 피드백) -->
+                    <div class="up-blk-actions" style="margin-top:14px;" x-show="ps.auto && (ps.msg || ps.err)" x-cloak>
+                        <span class="up-blk-msg ok" x-show="ps.msg" x-text="ps.msg"></span>
+                        <span class="up-blk-msg err" x-show="ps.err" x-text="ps.err"></span>
+                    </div>
+                    <div class="up-form-hint" style="margin-top:8px;">비생산 시간(점심·교대·정기정비·무오더 등)은 애초에 생산하지 않는 시간이라 OEE 산출에서 통째로 빠집니다 — 그 구간의 사이클은 <b>정상 가동시간·비가동을 가리지 않고</b> 모두 제외되어 가동률·성능을 깎지 않습니다(생산 시간 중의 미계획 정지만 A 를 깎음). <b>자동 계산</b>은 평균 가동시간의 <span x-text="ps.ctMultiplier"></span>배 이상 멈춘 구간을 비생산으로 보며, 직접 지정하려면 자동 계산을 끄고 연표에 시간대를 그리세요(자정 넘김은 두 칸으로 분리, 예: 22:00~23:59, 00:00~06:00).</div>
+                </section>
+
+                <datalist id="up-flow-list">
+                    <template x-for="f in flowNames" :key="f"><option :value="f"></option></template>
+                </datalist>
+
+            </div>
+            <!-- ═══════════════ 탭 1(계속): OEE — AI 인사이트 + 설계 노트 ═══════════════ -->
+            <div class="up-grid" x-show="tab === 'oee'" style="margin-top:16px;">
+
+                <!-- ════ AI 인사이트 (규칙기반 한 줄) ════ -->
+                <section class="card up-section">
+                    <div class="ds-card-h"><h4>AI 자동 인사이트</h4><span class="ds-card-h-sub">규칙기반 요약 (최하위 설비 + 주원인)</span></div>
+                    <template x-if="insight">
+                        <div class="up-insight">
+                            <span class="material-icons">smart_toy</span>
+                            <div class="up-insight-text" x-html="insight"></div>
+                        </div>
+                    </template>
+                    <template x-if="!insight">
+                        <div class="ds-empty">
+                            <span class="material-icons">smart_toy</span>
+                            <div class="ds-empty-title">요약할 정지·OEE 데이터가 아직 없습니다</div>
+                            <div class="ds-empty-desc">정지 이벤트와 설비 순위가 누적되면 최하위 설비·주원인 한 줄 요약이 자동 생성됩니다.</div>
+                        </div>
+                    </template>
+                </section>
+
+                <!-- ════ 설계 노트 (사이클기반 OEE · doc/22 + 정직성 doc/21 §10) ════ -->
+                <details class="up-dn card up-section">
+                    <summary><span class="material-icons">tune</span> 설계 결정 — 사이클기반 OEE (가동시간/동작시간/대기시간) & 정직성 원칙</summary>
+                    <div class="up-dn-body">
+                        <table>
+                            <tbody>
+                                <tr><td>모델 (doc/22)</td><td><b>사이클기반</b> OEE — 가동시간 = 동작시간 + 대기시간. 한 사이클의 <b>동작시간이 가동시간 이상치를 넘으면</b> 그 사이클 가동시간 전체가 비가동. 시간기반(벽시계 계획시간)에서 전환.</td></tr>
+                                <tr><td>OEE = A × P × Q</td><td><b>A</b> = Σ실측 가동시간 ÷ (Σ실측 가동시간 + Σ비가동 가동시간) · <b>P</b> = (N × 가동시간 이상치) ÷ Σ실측 가동시간 · <b>Q</b> = 양품/총생산(기본 100% 가정, 톤 중립). 한 요소라도 미산출이면 OEE = '—'.</td></tr>
+                                <tr><td>가동시간 이상치 (표준 가동시간)</td><td>최근 <b>14일 클린사이클 가동시간 평균</b>(flow별, RAM only — DB 미기입). 비가동 판정·성능 분자 <b>공용</b>. 클린샘플 <b>1개부터 A·P 산출</b>(5개 미만은 <b>'샘플 부족' 잠정값</b> — 쌓이면 자동 정상화), <b>0개</b>면 '—'.</td></tr>
+                                <tr><td>성능 P 의 의미</td><td>표준 가동시간 = <b>최근 14일 평균</b>(고정). 표준=평균이라 정상상태 <b>P ≈ 100% 수렴</b> — "최속 대비 손실"이 아니라 <b>"14일 추세 대비 당기 저하"</b> 감지기(90%대를 '거의 완벽'으로 오독 금지). <b>비가동 판정·가용성(A) 임계도 동일한 14일 평균</b>을 공용.</td></tr>
+                                <tr><td>비가동 dedup</td><td>① 동작시간&gt;가동시간 이상치 ② 미완료(complete=null) 가동시간 폭주 ③ 무사이클 정지. ③은 사이클 가동시간 구간과 안 겹치는 부분만 가산(구간 차집합) — <b>이중계상 방지</b>.</td></tr>
+                                <tr><td>MTTR / MTBF</td><td>비가동 <b>onset</b>(= 사이클 시작 + 가동시간 이상치)에서 파생. <b>MTTR</b> = onset→going 회복 평균 · <b>MTBF</b> = 연속 onset 간격 평균. OEE 곱셈식과 <b>독립</b> 동반지표. 0건이면 "🟢 무비가동" 배지(가짜수치 금지).</td></tr>
+                                <tr><td>폴백 보존</td><td>14일 클린샘플 <b>0(임계 없음)</b>일 때만 가용성은 <b>시간기반 폴백 체인</b>(시프트 ▸ 자동추정 ▸ 달력)으로 근사. A 카드 칩으로 현재 출처(<span class="up-codeish">사이클</span>/시프트/자동추정/달력) 표시.</td></tr>
+                                <tr><td>정지 2계층</td><td><b>감지</b>(무사이클/고장비트/수동) · <b>단서</b>(abnormal/usertag 겹침 = 표시 전용). 기본 고장 체크 — 로그에서 해제 시 유지보수(MTBF 분모 제외).</td></tr>
+                                <tr><td>필수 입력 0개</td><td>가동시간 이상치·비가동 판정·A·P·MTTR·MTBF 모두 수집 데이터로 자동. 품질%·표준 가동시간 수동입력·고장/유지보수 구분은 선택(보정).</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </details>
+
+            </div>
+        </main>
+
+        <!-- ════ 품질(양품률) 직접 입력 다이얼로그 (품질 Q 카드 클릭) ════ -->
+        <!-- 닫힘은 mousedown 이 백드롭에서 시작 + 백드롭에서 release 일 때만(모달 안 클릭/드래그로 오닫힘 방지). -->
+        <div class="up-blk-overlay" x-show="qDialog.show" style="display:none;"
+             @mousedown="_qDown = ($event.target === $el)"
+             @mouseup="if (_qDown && $event.target === $el) qDialog.show=false; _qDown=false"
+             @keydown.escape.window="qDialog.show=false">
+            <div class="up-blk-modal" @click.stop style="width:min(440px,94vw);">
+                <div class="up-blk-head">
+                    <span class="material-icons">fact_check</span>
+                    <h3>품질(양품률) 직접 입력</h3>
+                    <span style="flex:1;"></span>
+                    <button class="btn-icon" @click="qDialog.show=false" title="닫기"><span class="material-icons">close</span></button>
+                </div>
+                <div class="up-blk-sub">
+                    이 생산의 <b>전반적인 양품률(%)</b>을 직접 설정합니다. 예: <code>99</code> = 불량률 약 1% 가정.
+                    설정하면 라인·전 설비 OEE 의 품질(Q)에 그대로 적용됩니다. 비우거나 <b>가정으로 되돌리기</b> 하면 불량 입력 기반(미입력 시 100% 가정)으로 돌아갑니다.
+                </div>
+                <div class="up-qedit-row" style="margin-bottom:6px;">
+                    <div class="up-qfield">
+                        <label>품질(양품률) %</label>
+                        <input type="number" min="0" max="100" step="0.1" x-model.number="qDialog.qualityPct" @keydown.enter="submitQuality()" />
+                    </div>
+                    <div class="up-qhint" style="align-self:flex-end; padding-bottom:5px;" x-text="qDialogHint"></div>
+                </div>
+                <div class="up-blk-actions">
+                    <button class="btn btn-sm btn-filled" :disabled="qDialog.busy" @click="submitQuality()">
+                        <span class="material-icons" style="font-size:15px;">save</span> 적용
+                    </button>
+                    <button class="btn btn-sm btn-outlined" :disabled="qDialog.busy" @click="clearManualQuality()" title="사용자 설정 해제 → 불량 입력 기반/100% 가정으로 복귀">
+                        <span class="material-icons" style="font-size:15px;">restart_alt</span> 가정으로 되돌리기
+                    </button>
+                    <span class="up-blk-msg" :class="qDialog.err ? 'err' : 'ok'" x-text="qDialog.err || qDialog.msg"></span>
+                    <span style="flex:1;"></span>
+                    <button class="btn btn-sm btn-outlined" @click="qDialog.show=false">닫기</button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="/lib/chart.umd.min.js"></script>
+    <script src="/lib/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="/lib/signalr.min.js"></script>
+    <script>window.DSP_UPTIME_VIEW = "oee";</script>
+    <script src="/app/uptime-workspace.js"></script>
+    <script src="/app/shell.js" defer></script>
+    <script defer src="/lib/alpine.min.js"></script>
+</body>
+
+</html>

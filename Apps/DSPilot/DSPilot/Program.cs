@@ -276,10 +276,10 @@ var canonicalStaticRoutes = new Dictionary<string, string>(StringComparer.Ordina
     ["/dashboard"] = "dashboard2.html",
     ["/heatmap"] = "heatmap.html",
     ["/cycle-time-analysis"] = "cycle-time-analysis.html",
-    ["/uptime"] = "uptime.html",
-    // /oee 폐기(2026-06-15): 시프트 PPT 전용 페이지 제거 — 가용성 폴백 체인(시프트▸자동추정▸달력)이
-    //   uptime 의 /api/oee/summary 로 통합됨. 구 북마크 보존 위해 uptime 으로 매핑(soft redirect). oee.html 삭제됨.
-    ["/oee"] = "uptime.html",
+    // 가동시간·이상 물리 분리(2026-07-01): OEE 종합 / 이상·알람 2페이지. 공용 JS/CSS(uptime-workspace) SSOT 공유.
+    ["/uptime-oee"] = "uptime-oee.html",
+    ["/uptime-alarm"] = "uptime-alarm.html",
+    // 구 통합 /uptime, /oee 는 아래 legacyRedirects 에서 /uptime-oee 로 302(쿼리 보존).
     ["/cctv"] = "cctv.html",
     ["/plc-debug"] = "plc-debug.html",
     ["/settings"] = "settings.html",
@@ -289,8 +289,21 @@ var canonicalStaticRoutes = new Dictionary<string, string>(StringComparer.Ordina
     ["/flow-all"] = "flow-all.html",
     ["/pw"] = "pw.html",
 };
+// 구 통합 경로 → 물리 분리 페이지 리다이렉트(가동시간·이상 분리, 2026-07-01). 쿼리스트링 보존.
+//   /uptime, /oee 는 이제 OEE 종합(/uptime-oee)으로 302. 이상·알람은 좌측 나브/링크가 /uptime-alarm 직접 이동.
+var legacyRedirects = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+{
+    ["/uptime"] = "/uptime-oee",
+    ["/oee"] = "/uptime-oee",
+};
 app.Use(async (context, next) =>
 {
+    if (HttpMethods.IsGet(context.Request.Method)
+        && legacyRedirects.TryGetValue(context.Request.Path.Value ?? string.Empty, out var redirectTarget))
+    {
+        context.Response.Redirect(redirectTarget + context.Request.QueryString, permanent: false);
+        return;
+    }
     if (HttpMethods.IsGet(context.Request.Method)
         && canonicalStaticRoutes.TryGetValue(context.Request.Path.Value ?? string.Empty, out var file))
     {

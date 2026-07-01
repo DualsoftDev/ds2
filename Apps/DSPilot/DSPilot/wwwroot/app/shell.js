@@ -261,7 +261,7 @@
         var NAV_ITEMS = [
             { label: '대시보드',    href: '/',                    icon: 'space_dashboard', match: 'all',    legacy: ['/app/dashboard.html', '/app/dashboard2.html'] },
             { label: '동작편차',    href: '/heatmap',             icon: 'gradient',        match: 'prefix', legacy: '/app/heatmap.html' },
-            { label: '가동시간·이상', href: '/uptime',            icon: 'monitor_heart',   match: 'prefix', legacy: '/app/uptime.html' },
+            { label: '가동시간·이상', href: '/uptime',            icon: 'monitor_heart',   match: 'prefix', legacy: ['/app/uptime.html', '/uptime-oee', '/uptime-alarm'] },
             // OEE 메뉴 숨김 — 페이지(/oee)는 URL 로 접근 가능, 네비에서만 제외. 복구는 이 줄 주석 해제.
             // { label: 'OEE',         href: '/oee',                 icon: 'precision_manufacturing', match: 'prefix', legacy: '/app/oee.html' },
             // CCTV 메뉴 숨김 — 실시간 시청은 대시보드 레이아웃 카드의 'CCTV' 토글에서 사용. /cctv 는 설정(카메라·오버레이 편집) 페이지로 URL/[설정] 버튼 접근. 복구는 이 줄 주석 해제.
@@ -312,10 +312,12 @@
         aside.appendChild(navMenu);
 
         var anomalyBadge = null;
-        // /uptime 진입 = 배지 읽음 처리. serverTimeUtc 를 localStorage(전 페이지/탭 공유)에 ack 로 기록하고,
+        // 이상·알람 페이지 진입 = 배지 읽음 처리. serverTimeUtc 를 localStorage(전 페이지/탭 공유)에 ack 로 기록하고,
         // 이후 폴링은 anomalyAck 파라미터로 보내 그 시각 이전 Error 를 배지 카운트에서 제외한다.
+        // (물리 분리 2026-07-01: 알람은 /uptime-alarm 에만 표시되므로 ack 은 그 페이지에서만.)
         var ANOMALY_ACK_KEY = 'dspilot-anomaly-ack';
         var onUptimePage = false;
+        var onAlarmPage = (path === '/uptime-alarm');
         var flowsAnchor = null;   // 시스템→Flow 서브메뉴를 삽입할 앵커(동작편차 링크 다음 = 구 '사이클 분석' 자리).
         // ── 페이지별(동작편차/가동시간·이상) 인라인 Flow 트리 ──
         //   각 nav 링크 바로 아래에 접힘 상태로 트리를 붙이고, 링크 우측 chevron 으로 펼침/접힘.
@@ -347,7 +349,10 @@
 
                 var isOnPage = isActive(item);
                 var curFlow = isOnPage ? ((new URLSearchParams(location.search)).get('flow') || '') : '';
-                var entry = { base: item.href, wrap: wrap, chev: chev, isOnPage: isOnPage, curFlow: curFlow, expanded: false };
+                // 가동시간·이상 트리는 시스템→[OEE 종합/이상·알람]→Flow 2단(buildUptimeFlowTree). 현재 페이지 뷰로 강조 판정.
+                var isUptime = (item.href === '/uptime');
+                var curView = isUptime ? (path === '/uptime-oee' ? 'oee' : (path === '/uptime-alarm' ? 'alarm' : '')) : '';
+                var entry = { base: item.href, wrap: wrap, chev: chev, isOnPage: isOnPage, curFlow: curFlow, isUptime: isUptime, curView: curView, expanded: false };
                 chev.addEventListener('click', function (e) {
                     // chevron 은 앵커 내부라 기본 이동을 막고 토글만 수행(라벨 클릭 = 전체 보기 이동은 유지).
                     e.preventDefault();
@@ -588,6 +593,129 @@
                 wrap.appendChild(sub);
 
                 // 현재 이 페이지에서 보고 있는 Flow 가 이 시스템에 속하면 자동으로 펼쳐 선택을 보여준다.
+                if (sysHasCurrent) expand(row, sub, chev);
+            });
+        }
+
+        // ── 4.7) 가동시간·이상 인라인 트리: 시스템 → [OEE 종합 / 이상·알람] → 그 시스템 FLOW 리스트 ──
+        //   (물리 분리 2026-07-01) Flow 클릭 → /uptime-oee?flow= | /uptime-alarm?flow= 이동(그 페이지가 해당 설비로 필터).
+        //   구조는 시스템 분석 서브메뉴(buildAnalysisGroup)와 동일한 2단 아코디언. base 쿼리는 ?flow=(?name= 아님).
+        function buildUptimeFlowTree(wrap, systems, curFlowName, curUptimeView, isOnPage) {
+            wrap.innerHTML = '';
+            if (!systems || !systems.length) return;
+            var BTN_RESET = 'appearance:none;-webkit-appearance:none;background:transparent;border:0;cursor:pointer;font:inherit;';
+            var openRow = null, openChev = null, openSub = null;
+
+            function collapse() {
+                if (openSub) { openSub.style.display = 'none'; openSub = null; }
+                if (openChev) { openChev.style.transform = ''; openChev = null; }
+                if (openRow) { openRow.setAttribute('aria-expanded', 'false'); openRow = null; }
+            }
+            function expand(row, sub, chev) {
+                collapse();
+                sub.style.display = '';
+                openRow = row; openSub = sub; openChev = chev;
+                chev.style.transform = 'rotate(90deg)';
+                row.setAttribute('aria-expanded', 'true');
+            }
+            function dot(color, op) {
+                var d = el('span');
+                d.style.cssText = 'flex:0 0 auto;width:5px;height:5px;border-radius:50%;background:' + color + ';opacity:' + op + ';';
+                return d;
+            }
+
+            // 페이지 그룹(OEE 종합 / 이상·알람) — 시스템 sub 안의 2차 아코디언(그룹끼리 독립 토글).
+            function buildPageGroup(sysFlows, label, iconName, base, view) {
+                var gwrap = el('div', 'flex flex-col gap-0.5');
+                var head = el('button', 'w-full flex items-center gap-2 px-3 py-2 rounded text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-inverse-surface transition-colors');
+                head.type = 'button';
+                head.style.cssText = 'text-align:left;' + BTN_RESET;
+                head.setAttribute('aria-expanded', 'false');
+                var hIcon = icon(iconName);
+                hIcon.style.cssText = 'flex:0 0 auto;font-size:17px;opacity:0.8;';
+                head.appendChild(hIcon);
+                var hLabel = el('span', 'font-label-sm text-label-sm', label);
+                hLabel.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                head.appendChild(hLabel);
+                var hChev = icon('chevron_right');
+                hChev.style.cssText = 'flex:0 0 auto;font-size:16px;transition:transform 0.12s;';
+                head.appendChild(hChev);
+
+                var list = el('div', 'flex flex-col gap-0.5');
+                list.style.cssText = 'display:none;padding-left:16px;';
+
+                var groupHasCurrent = false;
+                (sysFlows || []).forEach(function (flowName) {
+                    var isCur = isOnPage && curUptimeView === view && flowName === curFlowName;
+                    if (isCur) groupHasCurrent = true;
+                    var fb = el('button', 'w-full flex items-center gap-2 px-3 py-2 rounded transition-colors text-on-surface-variant dark:text-surface-variant'
+                        + (isCur ? '' : ' hover:bg-surface-container-high dark:hover:bg-inverse-surface'));
+                    fb.type = 'button';
+                    fb.style.cssText = 'text-align:left;' + BTN_RESET;
+                    if (isCur) { fb.style.backgroundColor = '#2170e4'; fb.style.color = '#fff'; }
+                    fb.appendChild(dot(isCur ? '#fff' : 'currentColor', isCur ? '1' : '0.55'));
+                    var fl = el('span', 'font-label-sm text-label-sm', flowName);
+                    fl.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                    fb.appendChild(fl);
+                    fb.addEventListener('click', function (ev) {
+                        ev.stopPropagation();
+                        location.href = base + '?flow=' + encodeURIComponent(flowName);
+                    });
+                    list.appendChild(fb);
+                });
+
+                var expanded = false;
+                function toggle() {
+                    expanded = !expanded;
+                    list.style.display = expanded ? '' : 'none';
+                    hChev.style.transform = expanded ? 'rotate(90deg)' : '';
+                    head.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+                }
+                head.addEventListener('click', function (e) { e.stopPropagation(); toggle(); });
+                // 현재 이 그룹(뷰)의 Flow 를 보고 있으면 자동 펼침.
+                if (groupHasCurrent) toggle();
+
+                gwrap.appendChild(head);
+                gwrap.appendChild(list);
+                return { wrap: gwrap, hasCurrent: groupHasCurrent };
+            }
+
+            systems.forEach(function (sys) {
+                var flows = sys.flows || [];
+                var sysHasCurrent = isOnPage && flows.indexOf(curFlowName) !== -1;
+
+                var row = el('button', 'w-full flex items-center gap-2 px-3 py-2 rounded text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-inverse-surface transition-colors');
+                row.type = 'button';
+                row.style.cssText = 'text-align:left;' + BTN_RESET;
+                row.setAttribute('aria-expanded', 'false');
+                var sysIcon = icon('lan');
+                sysIcon.style.cssText = 'flex:0 0 auto;font-size:17px;' + (sysHasCurrent ? 'color:#2170e4;' : 'opacity:0.7;');
+                row.appendChild(sysIcon);
+                var sysLabel = el('span', 'font-label-sm text-label-sm', (sys.name || '(이름 없음)') + ' 관리');
+                sysLabel.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                row.appendChild(sysLabel);
+                var chev = icon('chevron_right');
+                chev.style.cssText = 'flex:0 0 auto;font-size:16px;transition:transform 0.12s;';
+                row.appendChild(chev);
+
+                var sub = el('div', 'flex flex-col gap-0.5');
+                sub.style.cssText = 'display:none;padding-left:16px;';
+
+                var gOee = buildPageGroup(flows, 'OEE 종합', 'speed', '/uptime-oee', 'oee');
+                var gAlarm = buildPageGroup(flows, '이상·알람', 'warning_amber', '/uptime-alarm', 'alarm');
+                sub.appendChild(gOee.wrap);
+                sub.appendChild(gAlarm.wrap);
+
+                row.addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    if (openRow === row) { collapse(); return; }
+                    expand(row, sub, chev);
+                });
+
+                wrap.appendChild(row);
+                wrap.appendChild(sub);
+
+                // 현재 보고 있는 Flow 가 이 시스템에 속하면 시스템 행 자동 펼침(그룹 자동펼침은 buildPageGroup 내부).
                 if (sysHasCurrent) expand(row, sub, chev);
             });
         }
@@ -879,7 +1007,8 @@
                 buildSystemSubmenu(data.systems);
                 // 동작편차/가동시간·이상 인라인 Flow 트리 채우기 + 현재 페이지 트리는 자동 펼침.
                 pageTrees.forEach(function (t) {
-                    buildPageFlowTree(t.wrap, data.systems, t.base, t.curFlow, t.isOnPage);
+                    if (t.isUptime) buildUptimeFlowTree(t.wrap, data.systems, t.curFlow, t.curView, t.isOnPage);
+                    else buildPageFlowTree(t.wrap, data.systems, t.base, t.curFlow, t.isOnPage);
                     if (t.isOnPage && data.systems && data.systems.length) {
                         t.expanded = true;
                         t.wrap.style.display = '';
@@ -899,9 +1028,9 @@
 
         function applySummary(data) {
             var count = data.anomalyActiveCount || 0;
-            // uptime 페이지를 보고 있는 동안은 화면에 이미 알림이 보이므로 배지를 0 으로 두고,
+            // 이상·알람 페이지를 보고 있는 동안은 화면에 이미 알림이 보이므로 배지를 0 으로 두고,
             // 서버 시각을 ack 로 갱신해 다른 페이지로 나가도 지금까지의 Error 는 다시 안 뜨게 한다.
-            if (onUptimePage) {
+            if (onAlarmPage) {
                 count = 0;
                 if (data.serverTimeUtc) {
                     try { localStorage.setItem(ANOMALY_ACK_KEY, data.serverTimeUtc); } catch (e) { /* ignore */ }
