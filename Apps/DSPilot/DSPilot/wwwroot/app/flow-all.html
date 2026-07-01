@@ -487,15 +487,6 @@
 
                                 <!-- 간트 툴바 -->
                                 <div class="ct-gantt-toolbar">
-                                    <div class="ct-tb-field">
-                                        <label>정렬</label>
-                                        <select class="form-select" x-model="slice.chartSort" @change="onSortChanged(slice)">
-                                            <option value="ByLane">Lane순</option>
-                                            <option value="ByTime">시간순</option>
-                                            <option value="ByCallName">Call 이름순</option>
-                                            <option value="ByGapSize">GAP 크기순</option>
-                                        </select>
-                                    </div>
                                     <div class="ct-seg">
                                         <button :class="slice.viewMode === 'bar' ? 'active' : ''" @click="setView(slice, 'bar')" title="실행 막대그래프">막대</button>
                                         <button :class="slice.viewMode === 'line' ? 'active' : ''" @click="setView(slice, 'line')" title="OutTag·InTag 신호 라인">InOut 라인</button>
@@ -789,7 +780,7 @@
                         savedHeadCallId: null, savedTailCallId: null, userOverrodeHeadTail: false,
                         projectHeadId: null, projectTailId: null,
                         isOverride: false, avgCycleMs: null, avgActiveMs: null,
-                        plotWidth: 1200, baseWidth: 1200, zoom: 1, viewMode: 'line', chartSort: 'ByLane',
+                        plotWidth: 1200, baseWidth: 1200, zoom: 1, viewMode: 'line',
                         expandedCalls: {}, topGaps: [], showMaxGap: false, selectedGapIndex: 0,
                         svgMarkup: '', selectedRange: null, _geo: null, _drag: null,
                         rangeForm: { min: '', max: '', minUnit: 's', maxUnit: 's' }, savedRange: null,
@@ -805,9 +796,14 @@
                     const CONC = 4;
                     let idx = 0;
                     const worker = async () => { while (idx < list.length) { const s = list[idx++]; await this.loadSlice(s); } };
-                    const workers = [];
-                    for (let i = 0; i < Math.min(CONC, list.length); i++) workers.push(worker());
-                    await Promise.all(workers);
+                    if (window.dspLoading) window.dspLoading.begin('전체 Flow 불러오는 중…');
+                    try {
+                        const workers = [];
+                        for (let i = 0; i < Math.min(CONC, list.length); i++) workers.push(worker());
+                        await Promise.all(workers);
+                    } finally {
+                        if (window.dspLoading) window.dspLoading.end();
+                    }
                 },
 
                 async loadSlice(slice) {
@@ -846,7 +842,7 @@
                     slice.avgActiveMs = d.avgActiveMs ?? null;
                     slice.isOverride = !!d.isOverride;
                     slice.selectedRange = null;
-                    slice.callLanes = CG.sortLanes(slice.callLanesRaw, slice.chartSort);
+                    slice.callLanes = CG.sortLanes(slice.callLanesRaw, slice.headCallId, slice.tailCallId);
                     slice.topGaps = CG.topGapsOf(slice);
                     if (slice.selectedGapIndex >= slice.topGaps.length) slice.selectedGapIndex = 0;
                     slice.svgMarkup = CG.buildSvg(slice);
@@ -863,7 +859,6 @@
                 },
                 rebuild(slice) { slice.svgMarkup = CG.buildSvg(slice); },
                 setView(slice, mode) { if (slice.viewMode === mode) return; slice.viewMode = mode; slice.svgMarkup = CG.buildSvg(slice); },
-                onSortChanged(slice) { slice.callLanes = CG.sortLanes(slice.callLanesRaw, slice.chartSort); slice.svgMarkup = CG.buildSvg(slice); },
                 toggleExpand(slice, callId) {
                     slice.expandedCalls = { ...slice.expandedCalls, [callId]: !slice.expandedCalls[callId] };
                     slice.svgMarkup = CG.buildSvg(slice);
@@ -950,6 +945,7 @@
                         slice.avgCycleMs = d.avgCycleMs ?? null;
                         slice.avgActiveMs = d.avgActiveMs ?? null;
                         slice.tailCompletionSource = d.tailCompletionSource ?? null;
+                        slice.callLanes = CG.sortLanes(slice.callLanesRaw, slice.headCallId, slice.tailCallId);  // head/tail 변경 → 순서 반영
                         slice.topGaps = CG.topGapsOf(slice);
                         slice.svgMarkup = CG.buildSvg(slice);
                     } catch (e) {

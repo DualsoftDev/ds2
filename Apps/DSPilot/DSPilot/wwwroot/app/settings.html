@@ -43,11 +43,8 @@
         @keyframes set-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
         /* ── 유형별 탭 ── */
-        .set-tabs { display: flex; gap: 2px; margin-bottom: 18px; border-bottom: 1px solid var(--color-lines-strong); overflow-x: auto; -webkit-overflow-scrolling: touch; }
-        .set-tab { display: inline-flex; align-items: center; gap: 7px; flex-shrink: 0; padding: 10px 16px; background: transparent; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px; font-family: var(--font-family); font-size: 0.82rem; font-weight: 600; color: var(--color-text-secondary); cursor: pointer; white-space: nowrap; transition: color 0.15s, border-color 0.15s; }
-        .set-tab .material-icons { font-size: 18px; }
-        .set-tab:hover { color: var(--color-text-primary); }
-        .set-tab.is-active { color: var(--color-primary); border-bottom-color: var(--color-primary); }
+        .set-tabs { margin-bottom: 18px; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        /* .set-tabs/.set-tab 룩은 swiss.css 공용 세그먼트/탭 표준(inset+애저)으로 이관 */
         @media (max-width: 480px) {
             .set-tabs { gap: 0; }
             .set-tab { padding: 9px 12px; font-size: 0.76rem; gap: 5px; }

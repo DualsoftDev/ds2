@@ -476,38 +476,53 @@ select:focus-visible {
 .dark-theme .btn { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4); }
 .dark-theme .btn:hover { box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5); }
 
-/* ── 5c. 세그먼트 컨트롤 통일 — 토글 버튼 그룹 단일 룩 (.ct-seg/.hm-seg 도 동일 스펙) ── */
-.segmented, .ct-seg, .hm-seg {
-    display: inline-flex;
+/* ── 5c. 세그먼트/탭 통일 — inset 트랙 + 애저 채움 액티브 (대시보드 기준 단일 표준). 2026-07-01
+   흡수: .segmented(공용)·.ct-seg(flow-all)·.hm-seg(heatmap)·.set-tabs(설정)·.up-tabs(가동시간)·.fw-tabs(flow)·.hist-toggle(flow).
+   각 페이지 인라인 정의는 제거 → 이 규칙이 단일 소스. */
+.segmented, .ct-seg, .hm-seg, .set-tabs, .up-tabs, .fw-tabs, .hist-toggle {
+    display: inline-flex; align-items: center; gap: 3px;
+    padding: 3px; margin: 0;
     border: 1px solid var(--color-lines-strong);
-    border-radius: var(--radius-sm);
-    overflow: hidden;
-    background: var(--color-surface);
+    border-radius: 10px;
+    background: var(--color-surface-variant);
+    overflow: visible;
 }
-.segmented > button, .segmented > a,
-.ct-seg > button, .hm-seg > button {
+.segmented > button, .segmented > a, .ct-seg > button, .hm-seg > button,
+.set-tab, .up-tab, .fw-tabs > button, .hist-toggle > button {
     display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-    padding: 7px 14px; margin: 0; border: none; background: transparent;
-    color: var(--color-text-secondary);
-    font-family: var(--font-family); font-size: 0.76rem; font-weight: 700;
+    padding: 7px 15px; margin: 0; border: none; border-radius: 7px;
+    background: transparent; color: var(--color-text-secondary);
+    font-family: var(--font-family); font-size: 0.78rem; font-weight: 700;
     letter-spacing: 0.01em; line-height: 1.2; white-space: nowrap;
-    text-decoration: none; cursor: pointer;
-    transition: background 0.13s ease, color 0.13s ease;
+    text-decoration: none; cursor: pointer; box-shadow: none;
+    transition: background 0.13s ease, color 0.13s ease, box-shadow 0.13s ease;
 }
-.segmented > button + button, .segmented > a + a,
-.ct-seg > button + button, .hm-seg > button + button { border-left: 1px solid var(--color-lines); }
 .segmented > button .material-icons, .segmented > a .material-icons,
-.ct-seg > button .material-icons, .hm-seg > button .material-icons { font-size: 17px; }
-.segmented > button:not(.active):not(.is-active):hover,
-.segmented > a:not(.active):not(.is-active):hover,
-.ct-seg > button:not(.active):hover,
-.hm-seg > button:not(.is-active):hover { background: var(--color-surface-variant); color: var(--color-text-primary); }
+.ct-seg > button .material-icons, .hm-seg > button .material-icons,
+.set-tab .material-icons, .up-tab .material-icons,
+.fw-tabs > button .material-icons, .hist-toggle > button .material-icons { font-size: 17px; }
+.segmented > button:not(.active):not(.is-active):hover, .segmented > a:not(.active):not(.is-active):hover,
+.ct-seg > button:not(.active):hover, .hm-seg > button:not(.is-active):hover,
+.set-tab:not(.is-active):hover, .up-tab:not(.is-active):hover,
+.fw-tabs > button:not(.is-active):hover, .hist-toggle > button:not(.is-active):hover {
+    background: color-mix(in srgb, var(--color-text-primary) 7%, transparent);
+    color: var(--color-text-primary);
+}
 .segmented > .active, .segmented > .is-active,
-.ct-seg > button.active, .hm-seg > button.is-active { background: var(--color-primary); color: #fff; }
+.ct-seg > button.active, .hm-seg > button.is-active,
+.set-tab.is-active, .up-tab.is-active, .up-tab.is-active:hover,
+.fw-tabs > button.is-active, .fw-tabs > button.is-active:hover, .hist-toggle > button.is-active {
+    background: var(--color-primary); color: #fff; border-color: transparent;
+    box-shadow: 0 1px 3px color-mix(in srgb, var(--color-primary) 40%, transparent);
+}
 .dark-theme .segmented > .active, .dark-theme .segmented > .is-active,
-.dark-theme .ct-seg > button.active, .dark-theme .hm-seg > button.is-active { color: #0E1420; }
+.dark-theme .ct-seg > button.active, .dark-theme .hm-seg > button.is-active,
+.dark-theme .set-tab.is-active, .dark-theme .up-tab.is-active,
+.dark-theme .fw-tabs > button.is-active, .dark-theme .hist-toggle > button.is-active { color: #06111F; }
 .segmented > button:focus-visible, .segmented > a:focus-visible,
-.ct-seg > button:focus-visible, .hm-seg > button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
+.ct-seg > button:focus-visible, .hm-seg > button:focus-visible,
+.set-tab:focus-visible, .up-tab:focus-visible,
+.fw-tabs > button:focus-visible, .hist-toggle > button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
 .segmented > button:disabled, .segmented > button[disabled],
 .ct-seg > button:disabled, .hm-seg > button:disabled { opacity: 0.45; cursor: not-allowed; }
 

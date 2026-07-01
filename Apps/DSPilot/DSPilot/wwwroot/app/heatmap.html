@@ -734,7 +734,7 @@
                 async setHistoryPeriod(p) {
                     if (this.historyPeriod === p) return;
                     this.historyPeriod = p;
-                    await this.loadHistory();
+                    await (window.dspLoading ? window.dspLoading.wrap(() => this.loadHistory(), '기간 이력 불러오는 중…') : this.loadHistory());
                 },
                 async onExcludeDeviationChange() { await this.renderChart(); },
                 async renderChart() {

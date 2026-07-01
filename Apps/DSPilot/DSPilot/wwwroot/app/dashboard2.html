@@ -1454,7 +1454,7 @@
 
             setDisplayMode(avg) {
                 this.showAverage = avg;
-                if (avg) this.loadHistAvg();
+                if (avg) { if (window.dspLoading) window.dspLoading.wrap(() => this.loadHistAvg(), '평균 데이터 불러오는 중…'); else this.loadHistAvg(); }
             },
 
             async loadHistAvg() {
@@ -1473,7 +1473,7 @@
                 this.avgDays = v;
                 localStorage.setItem('dspilot-dash-avgdays', String(v));
                 this.avgModalOpen = false;
-                if (this.showAverage) this.loadHistAvg();
+                if (this.showAverage) { if (window.dspLoading) window.dspLoading.wrap(() => this.loadHistAvg(), '평균 기간 다시 계산 중…'); else this.loadHistAvg(); }
             },
 
             get focusFlowName() { return this.chartHoverFlowName || this.hoverFlowName || this.selectedFlowName; },

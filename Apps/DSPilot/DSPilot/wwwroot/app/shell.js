@@ -130,6 +130,104 @@
             });
         }
 
+        // ── 1.8) 공용 로딩 인디케이터 ─────────────────────────────────────────────
+        //   기간/시간 범위를 바꿔 데이터를 다시 로드·렌더하는 동안 "로딩 중" 을 알린다.
+        //   상단 부정형(indeterminate) 진행바 + 상단 중앙 스피너 pill 두 가지를 함께 표시.
+        //   .dsp-page 유무와 무관하게 전 페이지에서 쓰도록 early-return 위에서 window 에 노출.
+        //   사용: dspLoading.begin('메시지') / dspLoading.end() (참조 카운트) 또는
+        //         await dspLoading.wrap(() => this.load(), '메시지') (권장 — 예외에도 항상 end).
+        //   폴링(자동 4/10/60초 갱신)에는 붙이지 말 것 — 사용자가 기간을 바꾼 명시적 재로드에만.
+        if (!document.getElementById('dsp-loading-css')) {
+            var lcss = document.createElement('style');
+            lcss.id = 'dsp-loading-css';
+            lcss.textContent =
+                '#dsp-loading-host{position:fixed;inset:0;z-index:3000;pointer-events:none;opacity:0;' +
+                  'transition:opacity .15s ease;}' +
+                '#dsp-loading-host.is-active{opacity:1;}' +
+                /* 상단 진행바 */
+                '#dsp-loading-host .dsp-load-bar{position:fixed;top:0;left:0;right:0;height:3px;overflow:hidden;' +
+                  'background:rgba(14,124,203,.18);}' +
+                '#dsp-loading-host .dsp-load-bar::before{content:"";position:absolute;top:0;bottom:0;left:-40%;width:40%;' +
+                  'background:#0E7CCB;border-radius:2px;animation:dsp-load-slide 1.1s infinite cubic-bezier(.4,0,.2,1);}' +
+                /* 상단 중앙 pill */
+                '#dsp-loading-host .dsp-load-pill{position:fixed;top:78px;left:50%;transform:translateX(-50%);' +
+                  'display:flex;align-items:center;gap:10px;padding:9px 16px;border-radius:999px;' +
+                  'background:rgba(255,255,255,.97);border:1px solid rgba(20,30,50,.10);' +
+                  'box-shadow:0 6px 22px rgba(20,30,50,.16);' +
+                  'font:600 13px/1.2 "Pretendard",system-ui,sans-serif;color:#1b2430;white-space:nowrap;}' +
+                '#dsp-loading-host .dsp-load-spin{width:16px;height:16px;border-radius:50%;flex:0 0 auto;' +
+                  'border:2px solid rgba(14,124,203,.25);border-top-color:#0E7CCB;' +
+                  'animation:dsp-load-spin .7s linear infinite;}' +
+                /* 다크 (html.dark-theme) */
+                '.dark-theme #dsp-loading-host .dsp-load-bar{background:rgba(54,181,255,.20);}' +
+                '.dark-theme #dsp-loading-host .dsp-load-bar::before{background:#36B5FF;}' +
+                '.dark-theme #dsp-loading-host .dsp-load-pill{background:rgba(28,33,42,.97);' +
+                  'border-color:rgba(255,255,255,.10);color:#e8eef6;box-shadow:0 6px 22px rgba(0,0,0,.45);}' +
+                '.dark-theme #dsp-loading-host .dsp-load-spin{border-color:rgba(54,181,255,.28);border-top-color:#36B5FF;}' +
+                /* 폰: pill 을 헤더 바로 아래로 살짝 올림 */
+                '@media (max-width:480px){#dsp-loading-host .dsp-load-pill{top:64px;font-size:12px;padding:8px 14px;}}' +
+                '@keyframes dsp-load-slide{0%{left:-40%;}100%{left:100%;}}' +
+                '@keyframes dsp-load-spin{to{transform:rotate(360deg);}}' +
+                /* 모션 최소화 선호 시 스피너/슬라이드 정지(투명도 표시는 유지) */
+                '@media (prefers-reduced-motion:reduce){#dsp-loading-host .dsp-load-spin,' +
+                  '#dsp-loading-host .dsp-load-bar::before{animation:none;}' +
+                  '#dsp-loading-host .dsp-load-bar::before{left:0;width:100%;}}';
+            document.head.appendChild(lcss);
+        }
+
+        if (!window.dspLoading) {
+            window.dspLoading = (function () {
+                var count = 0, host = null, textEl = null;
+                function ensure() {
+                    if (host && document.body && document.body.contains(host)) return host;
+                    host = document.getElementById('dsp-loading-host');
+                    if (!host) {
+                        host = document.createElement('div');
+                        host.id = 'dsp-loading-host';
+                        host.setAttribute('role', 'status');
+                        host.setAttribute('aria-live', 'polite');
+                        host.innerHTML =
+                            '<div class="dsp-load-bar"></div>' +
+                            '<div class="dsp-load-pill"><span class="dsp-load-spin"></span>' +
+                            '<span class="dsp-load-text">불러오는 중…</span></div>';
+                        (document.body || document.documentElement).appendChild(host);
+                    }
+                    textEl = host.querySelector('.dsp-load-text');
+                    return host;
+                }
+                return {
+                    // 로딩 표시 시작(참조 카운트 +1). 겹친 호출은 하나로 합쳐진다.
+                    begin: function (msg) {
+                        count++;
+                        var h = ensure();
+                        if (textEl) textEl.textContent = msg || '불러오는 중…';
+                        h.classList.add('is-active');
+                    },
+                    // 로딩 표시 종료(참조 카운트 -1). 0 이 되면 감춘다.
+                    end: function () {
+                        count = Math.max(0, count - 1);
+                        if (count === 0 && host) host.classList.remove('is-active');
+                    },
+                    // 약속(또는 함수)이 끝날 때까지 로딩 표시. 예외가 나도 반드시 end 한다.
+                    wrap: function (fnOrPromise, msg) {
+                        this.begin(msg);
+                        var self = this;
+                        var done = function () { self.end(); };
+                        try {
+                            var r = (typeof fnOrPromise === 'function') ? fnOrPromise() : fnOrPromise;
+                            if (r && typeof r.then === 'function') return r.then(
+                                function (v) { done(); return v; },
+                                function (e) { done(); throw e; });
+                            done();
+                            return r;
+                        } catch (e) { done(); throw e; }
+                    },
+                    // 안전 초기화(카운트 꼬임 방지용). 페이지 전환 등에서 강제 숨김.
+                    reset: function () { count = 0; if (host) host.classList.remove('is-active'); }
+                };
+            })();
+        }
+
         // ── 2) Alpine 루트(.dsp-page) 탐색 ──
         var page = document.querySelector('.dsp-page');
         if (!page) return;
@@ -323,22 +421,9 @@
                 // display:none = 접힘. padding-left 로 시스템 행 아래 들여쓰기(중첩 표시). pl-* 유틸은 빌드에 없어 인라인 지정.
                 sub.style.cssText = 'display:none;padding-left:18px;';
 
-                // ── 전체 편집 — 이 시스템의 모든 Flow 를 한 화면에서 일괄 조회·편집(사이클 분석/이상치/Head·Tail/duration). ──
-                //   확장 영역 맨 위. /flow-all?system= 으로 시스템 스코프 전달.
-                var editAll = el('button', 'w-full flex items-center gap-2 px-3 py-2 mb-1 rounded transition-colors text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-inverse-surface');
-                editAll.type = 'button';
-                editAll.style.cssText = 'text-align:left;font-weight:700;' + BTN_RESET;
-                var eaIcon = icon('edit_note');
-                eaIcon.style.cssText = 'flex:0 0 auto;font-size:18px;color:#2170e4;';
-                editAll.appendChild(eaIcon);
-                var eaLabel = el('span', 'font-label-sm text-label-sm', '전체 편집');
-                eaLabel.style.cssText = 'flex:1;min-width:0;color:#2170e4;';
-                editAll.appendChild(eaLabel);
-                editAll.addEventListener('click', function (ev) {
-                    ev.stopPropagation();
-                    location.href = '/flow-all?system=' + encodeURIComponent(sys.name || '');
-                });
-                sub.appendChild(editAll);
+                // ── '전체 편집'(/flow-all) 진입점은 NAVMENU 에서 제거됨(2026-07-01). ──
+                //   개별 Flow(/flow) 와 구조·용어가 일관되지 않아 사이드바에서 뺌. 페이지 자체는 유지 —
+                //   추후 다른 메뉴로 재배치하거나 삭제 결정. 재배치 시 여기 sub 상단에 다시 붙이면 됨.
 
                 (sys.flows || []).forEach(function (flowName) {
                     var isCur = onFlowPage && flowName === curFlowName;

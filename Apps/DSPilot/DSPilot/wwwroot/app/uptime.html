@@ -35,13 +35,8 @@
         .up-section { padding: 18px 20px; }
 
         /* ── 탭 (OEE 종합 | 이상·알람): 세그먼트 트랙 — URL ?tab= 와 동기화 ── */
-        .up-tabs { display: inline-flex; gap: 3px; flex-wrap: wrap; padding: 4px; background: var(--color-surface-variant); border: 1px solid var(--color-lines); border-radius: var(--radius-lg); margin-bottom: 14px; }
-        .up-tab { display: inline-flex; align-items: center; gap: 7px; padding: 8px 16px; border: 1px solid transparent; background: transparent; cursor: pointer; font-size: 0.86rem; font-weight: 700; color: var(--color-text-secondary); border-radius: var(--radius-md); font-family: inherit; transition: color 0.12s, background 0.12s, box-shadow 0.12s, border-color 0.12s; }
-        .up-tab .material-icons { font-size: 18px; }
-        .up-tab:hover { color: var(--color-text-primary); background: color-mix(in srgb, var(--color-text-primary) 8%, transparent); }
-        .up-tab.is-active, .up-tab.is-active:hover { color: var(--color-primary); background: var(--color-surface); border-color: var(--color-lines); box-shadow: 0 1px 3px rgba(14, 27, 42, 0.12); }
-        .dark-theme .up-tabs { background: var(--color-surface); }
-        .dark-theme .up-tab.is-active, .dark-theme .up-tab.is-active:hover { background: var(--color-surface-variant); border-color: var(--color-lines-strong); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5); }
+        .up-tabs { margin-bottom: 14px; flex-wrap: wrap; }
+        /* .up-tabs/.up-tab 룩은 swiss.css 공용 세그먼트/탭 표준(inset+애저)으로 이관 */
         .up-tab-badge { display: inline-flex; min-width: 18px; height: 18px; padding: 0 5px; align-items: center; justify-content: center; border-radius: 999px; background: var(--red); color: #fff; font-size: 0.62rem; font-weight: 800; line-height: 1; }
 
         /* ── OEE 6 KPI (OEE·A·P·Q·MTBF·MTTR — doc/22 사이클기반: MTTR 복원. 산출가능=강조, 산출불가=흐림+사유) ── */
@@ -633,13 +628,15 @@
             <!-- 상단 툴바 -->
             <div class="ds-topbar">
                 <div class="ds-topbar-actions">
-                    <button class="btn btn-sm" :class="period === 'today' ? 'btn-filled' : 'btn-outlined'" @click="setPeriod('today')">오늘</button>
-                    <button class="btn btn-sm" :class="period === '7d' ? 'btn-filled' : 'btn-outlined'" @click="setPeriod('7d')">7일</button>
-                    <button class="btn btn-sm" :class="period === '30d' ? 'btn-filled' : 'btn-outlined'" @click="setPeriod('30d')">30일</button>
-                    <button class="btn btn-sm" :class="period === '60d' ? 'btn-filled' : 'btn-outlined'" @click="setPeriod('60d')">60일</button>
-                    <button class="btn btn-sm" :class="period === 'custom' ? 'btn-filled' : 'btn-outlined'" @click="toggleCustomPeriod()" title="날짜 직접 선택">
-                        <span class="material-icons" style="font-size:14px; vertical-align:middle; margin-right:2px;">calendar_today</span>기간
-                    </button>
+                    <div class="segmented">
+                        <button :class="period === 'today' ? 'is-active' : ''" @click="setPeriod('today')">오늘</button>
+                        <button :class="period === '7d' ? 'is-active' : ''" @click="setPeriod('7d')">7일</button>
+                        <button :class="period === '30d' ? 'is-active' : ''" @click="setPeriod('30d')">30일</button>
+                        <button :class="period === '60d' ? 'is-active' : ''" @click="setPeriod('60d')">60일</button>
+                        <button :class="period === 'custom' ? 'is-active' : ''" @click="toggleCustomPeriod()" title="날짜 직접 선택">
+                            <span class="material-icons">calendar_today</span>기간
+                        </button>
+                    </div>
                     <template x-if="period === 'custom'">
                         <div class="up-custom-range">
                             <input type="datetime-local" class="up-period-input" x-model="customFrom" />
@@ -2416,7 +2413,7 @@
                     this._bandMarqueeMs = maxMs;
                 },
 
-                setPeriod(p) { if (this.period === p) return; this.period = p; this.utPage = 0; this.load(); },
+                setPeriod(p) { if (this.period === p) return; this.period = p; this.utPage = 0; if (window.dspLoading) window.dspLoading.wrap(() => this.load(), '기간 데이터 불러오는 중…'); else this.load(); },
 
                 toggleCustomPeriod() {
                     if (this.period === 'custom') { this.setPeriod('today'); return; }
@@ -2433,7 +2430,7 @@
                 applyCustomPeriod() {
                     if (!this.customFrom || !this.customTo) return;
                     this.utPage = 0;
-                    this.load();
+                    if (window.dspLoading) window.dspLoading.wrap(() => this.load(), '기간 데이터 불러오는 중…'); else this.load();
                 },
 
                 // ── 기존 UserTag 도넛/레벨 (보존) ──

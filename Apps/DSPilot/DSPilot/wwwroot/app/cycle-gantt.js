@@ -167,29 +167,28 @@
     }
 
     // ════════════════════════════════════════════════════════════════════════
-    //  정렬 — flow.html:1715-1736 (callLanesRaw → callLanes)
+    //  정렬 — Head 맨 위, Tail 맨 아래로 고정. 그 사이 Call 은 첫 신호(InTag/OutTag)
+    //  시각 순으로 배열해 신호 흐름(head→tail)이 위→아래로 흐르게 한다.
+    //  정렬 선택기 제거(2026-07-01) — head/tail 지정이 유일한 순서 기준.
     // ════════════════════════════════════════════════════════════════════════
-    function sortLanes(rawLanes, chartSort) {
+    function sortLanes(rawLanes, headCallId, tailCallId) {
         var lanes = (rawLanes || []).slice();
         var firstStart = function (l) {
             var m = Infinity;
             (l.intervals || []).forEach(function (iv) { var st = new Date(iv.start).getTime(); if (st < m) m = st; });
             return m;
         };
-        var maxGap = function (l) {
-            var ivs = (l.intervals || []).map(function (iv) { return { s: new Date(iv.start).getTime(), e: new Date(iv.end).getTime() }; }).sort(function (a, b) { return a.s - b.s; });
-            var g = 0;
-            for (var i = 0; i < ivs.length - 1; i++) g = Math.max(g, ivs[i + 1].s - ivs[i].e);
-            return g;
-        };
         var li = function (l) { return (typeof l.laneIndex === 'number' ? l.laneIndex : 0); };
-        switch (chartSort) {
-            case 'ByTime': lanes.sort(function (a, b) { return (firstStart(a) - firstStart(b)) || (li(a) - li(b)); }); break;
-            case 'ByCallName': lanes.sort(function (a, b) { return (a.callName || '').toLowerCase().localeCompare((b.callName || '').toLowerCase()) || (li(a) - li(b)); }); break;
-            case 'ByGapSize': lanes.sort(function (a, b) { return (maxGap(b) - maxGap(a)) || (firstStart(a) - firstStart(b)) || (li(a) - li(b)); }); break;
-            default: lanes.sort(function (a, b) { return li(a) - li(b); }); break;
-        }
-        return lanes;
+        // 신호 순서(첫 신호 시각 → laneIndex) 기본 배열.
+        lanes.sort(function (a, b) { return (firstStart(a) - firstStart(b)) || (li(a) - li(b)); });
+        // Head 는 맨 위, Tail 은 맨 아래로 끌어낸다(head==tail 이면 맨 위 1행).
+        var head = [], mid = [], tail = [];
+        lanes.forEach(function (l) {
+            if (headCallId && l.callId === headCallId) head.push(l);
+            else if (tailCallId && l.callId === tailCallId) tail.push(l);
+            else mid.push(l);
+        });
+        return head.concat(mid, tail);
     }
 
     // ════════════════════════════════════════════════════════════════════════
@@ -303,8 +302,10 @@
             sb += '<line x1="0" y1="' + (laneY + LANE_HEIGHT) + '" x2="' + chartW + '" y2="' + (laneY + LANE_HEIGHT) + '" stroke="#e3e6ea" stroke-width="1"/>';
 
             if (s.viewMode === 'bar') {
-                var fill = isHead ? '#4caf50' : isTail ? '#ab47bc' : '#5b9bd5';
-                var stroke = isHead ? '#2e7d32' : isTail ? '#7b1fa2' : '#3478b8';
+                // OUTTAG/INTAG 기준 2색 분할(프로메이커 간트와 동일 색언어) — head/tail 역할색 대신
+                // 합집합 막대를 OUT(명령=주황) 베이스로 깔고 IN(응답=파랑) 구간을 덮는다.
+                // 보이는 주황 = OUT-only(union\IN) = 명령 후 응답 전 구간, 파랑 = IN(응답) 구간.
+                var barTopB = laneCY - BAR_HEIGHT / 2.0;
                 var ivArr = (lane.intervals || []);
                 for (var bi = 0; bi < ivArr.length; bi++) {
                     var ivb = ivArr[bi];
@@ -312,9 +313,21 @@
                     var xB = LEFT_PAD + msOf(sB) * xScale;
                     var wB = Math.max(2, (eB.getTime() - sB.getTime()) * xScale);
                     var durMsB = eB.getTime() - sB.getTime();
-                    var tipB = lane.callName + '  ' + hms(sB) + ' ~ ' + hms(eB) + '  (' + formatMs(durMsB) + ')';
+                    var tipB = lane.callName + ' · OUT 명령' + (lane.outTag ? ' (' + lane.outTag + ')' : '') + '  ' + hms(sB) + ' ~ ' + hms(eB) + '  (' + formatMs(durMsB) + ')';
                     sb += '<g><title>' + esc(tipB) + '</title>';
-                    sb += '<rect x="' + f(xB) + '" y="' + f(laneCY - BAR_HEIGHT / 2.0) + '" width="' + f(wB) + '" height="' + BAR_HEIGHT + '" rx="2" fill="' + fill + '" stroke="' + stroke + '" stroke-width="0.5"/>';
+                    sb += '<rect x="' + f(xB) + '" y="' + f(barTopB) + '" width="' + f(wB) + '" height="' + BAR_HEIGHT + '" rx="2" fill="#fb8c00" stroke="#e65100" stroke-width="0.5"/>';
+                    sb += '</g>';
+                }
+                var inArr = (lane.inIntervals || []);
+                for (var iii = 0; iii < inArr.length; iii++) {
+                    var ivi = inArr[iii];
+                    var sI = new Date(ivi.start), eI = new Date(ivi.end);
+                    var xI = LEFT_PAD + msOf(sI) * xScale;
+                    var wI = Math.max(2, (eI.getTime() - sI.getTime()) * xScale);
+                    var durMsI = eI.getTime() - sI.getTime();
+                    var tipI = lane.callName + ' · IN 응답' + (lane.inTag ? ' (' + lane.inTag + ')' : '') + '  ' + hms(sI) + ' ~ ' + hms(eI) + '  (' + formatMs(durMsI) + ')';
+                    sb += '<g><title>' + esc(tipI) + '</title>';
+                    sb += '<rect x="' + f(xI) + '" y="' + f(barTopB) + '" width="' + f(wI) + '" height="' + BAR_HEIGHT + '" rx="2" fill="#1e88e5"/>';
                     sb += '</g>';
                 }
             } else {
