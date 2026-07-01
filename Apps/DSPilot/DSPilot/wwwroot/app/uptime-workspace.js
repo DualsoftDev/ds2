@@ -419,6 +419,12 @@
 
                 async load(silent) {
                     if (!silent) this.loading = true;
+                    // OEE 데이터는 스냅샷과 독립적이므로 여기서 즉시(동기) dispatch 해 스냅샷 fetch 뒤로 미루지 않는다.
+                    // 뒤로 미루면(특히 스냅샷이 느릴 때) 이미 dispatch 된 옛 기간의 loadOee 가 최신 _oeeSeq 를 차지한 채
+                    // 먼저 도착해, 방금 선택한 기간과 화면이 어긋나거나(범위 불일치) 새 기간이 스냅샷 완료 후에야
+                    // 뒤늦게 적용되던 경합이 생긴다. 동기 호출하면 rangeForPeriod()·++_oeeSeq 가 방금 바뀐 period 로
+                    // 즉시 실행돼 loadOee 의 dispatch 순서가 기간 선택 순서와 정확히 일치한다(최신 선택이 항상 승리).
+                    const oeePromise = this.loadOee();
                     const seq = ++this._utSeq;
                     // 이상발생(UserTag) — 구 관리페이지 흡수(필터/페이지/차트)
                     try {
@@ -441,8 +447,8 @@
                         if (seq === this._utSeq) this.error = '이상발생 데이터를 불러오지 못했습니다: ' + e.message;
                     } finally { this.loading = false; }
 
-                    // 신규 OEE 데이터
-                    await this.loadOee();
+                    // 신규 OEE 데이터 — 위에서 이미 dispatch 됨(스냅샷과 병렬). 완료만 대기.
+                    await oeePromise;
                 },
 
                 // 피드에서 at 으로 진입했을 때 해당 알람 행(data-at=occurredAtLocal 초단위)을 찾아 스크롤 + 잠깐 하이라이트.

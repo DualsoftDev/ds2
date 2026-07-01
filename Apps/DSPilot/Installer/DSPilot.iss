@@ -10,7 +10,7 @@
 #define MyServiceName "DSPilotService"
 #define MyServiceDisplayName "DSPilot Service"
 #define MyServiceDescription "DSPilot - PLC Monitoring & Analysis Service"
-#define MyDefaultPort "80"
+#define MyDefaultPort "8080"
 ; CCTV — MediaMTX(WinSW 래퍼) 서비스. RTSP→WebRTC 게이트웨이. DSPilot 과 별 프로세스로 격리.
 #define MyMtxServiceName "DSPilotMediaMtx"
 #define MyMtxServiceExe "mediamtx-service.exe"
@@ -387,7 +387,7 @@ begin
     '  · DSPilot 웹 서비스와 CCTV 중계(MediaMTX) 서비스가 시스템 시작 시 자동 실행됩니다.' + #13#10 +
     '  · ''Promaker Agent'' 옵션을 선택하면 모니터링 서비스도 함께 등록됩니다.' + #13#10#13#10 +
     '[방화벽 — 아래 인바운드 규칙이 자동 등록됩니다]' + #13#10 +
-    '  · DSPilot 웹: TCP (다음 단계에서 선택한 포트, 기본 80)' + #13#10 +
+    '  · DSPilot 웹: TCP (다음 단계에서 선택한 포트, 기본 8080)' + #13#10 +
     '  · CCTV(WebRTC): TCP 8889, UDP 8189' + #13#10 +
     '  · Promaker Agent 옵션 선택 시: TCP 5051(모니터링) / 5050(모델 업로드)' + #13#10#13#10 +
     '[오픈소스 고지]' + #13#10 +
@@ -398,17 +398,16 @@ begin
     '  mediamtx\LICENSE-winsw.txt 에서 확인할 수 있습니다.');
 
   DefaultPort := '{#MyDefaultPort}';
-  PortHint := '기본값: {#MyDefaultPort} (포트 80은 URL에서 포트 번호 생략 가능)';
-  // 80이 점유중인데 그게 구버전 우리 서비스가 아니라면 8080을 권장.
-  // 구버전 우리 서비스라면 PrepareToInstall 에서 stop 후 정리되므로 80 그대로 두어도 됨.
+  PortHint := '기본값: {#MyDefaultPort}';
+  // 기본 포트가 점유중인데 그게 구버전 우리 서비스가 아니라면 사용자에게 변경을 안내.
+  // 구버전 우리 서비스라면 PrepareToInstall 에서 stop 후 정리되므로 기본값 그대로 두어도 됨.
   if (not IsServiceStopped('{#MyServiceName}')) then
   begin
-    // 우리 구버전이 잡고 있음 → 80 유지
+    // 우리 구버전이 잡고 있음 → 기본값 유지
   end
-  else if IsPortInUse(80) then
+  else if IsPortInUse(StrToIntDef('{#MyDefaultPort}', 8080)) then
   begin
-    DefaultPort := '8080';
-    PortHint := '포트 80 이 다른 프로세스에 의해 사용 중이라 기본값을 8080 으로 변경했습니다.';
+    PortHint := '기본 포트 {#MyDefaultPort} 이 다른 프로세스에 의해 사용 중입니다. 다른 포트를 입력하세요.';
   end;
 
   PortPage := CreateInputQueryPage(wpSelectDir,
