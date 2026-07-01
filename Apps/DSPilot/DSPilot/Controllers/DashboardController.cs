@@ -144,7 +144,10 @@ public class DashboardController : ControllerBase
         //   Source="usertag", Label=태그명, KindName=매칭연산, WorkName=태그주소(경로 칸), FlowName="" (카드 강조 오인 방지)
         var user = _userTags.GetActiveAlarms().Select(a =>
         {
-            var utc = DateTime.SpecifyKind(a.OccurredAt, DateTimeKind.Utc);
+            // a.OccurredAt = log.DateTime → ParseSqliteDateTime → FromSqliteUtcString → .ToLocalTime()
+            // 이미 Kind=Local(로컬 벽시계)이다. SpecifyKind(Utc) 로 UTC 재라벨 후 ToLocalTime 하면
+            // 로컬값을 다시 +offset 해 두 번 변환된다(배너가 알람 페이지보다 9h 앞섬). 그대로 로컬로 쓴다.
+            var local = a.OccurredAt;
             return new AbnormalEventDto(
                 Kind: -1,
                 KindName: a.MatchOp,
@@ -156,8 +159,8 @@ public class DashboardController : ControllerBase
                 SystemName: a.SystemName,
                 ElapsedMs: null,
                 Observed: null,
-                OccurredAtUtc: utc,
-                OccurredAtLocal: utc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
+                OccurredAtUtc: local.ToUniversalTime(),
+                OccurredAtLocal: local.ToString("yyyy-MM-dd HH:mm:ss"),
                 SensorTag: null,
                 CallName: string.Empty);
         });
