@@ -210,17 +210,51 @@
         var ANOMALY_ACK_KEY = 'dspilot-anomaly-ack';
         var onUptimePage = false;
         var flowsAnchor = null;   // 시스템→Flow 서브메뉴를 삽입할 앵커(동작편차 링크 다음 = 구 '사이클 분석' 자리).
+        // ── 페이지별(동작편차/가동시간·이상) 인라인 Flow 트리 ──
+        //   각 nav 링크 바로 아래에 접힘 상태로 트리를 붙이고, 링크 우측 chevron 으로 펼침/접힘.
+        //   Flow 클릭 → base?flow=이름 이동(동작편차=/heatmap, 가동시간·이상=/uptime) → 그 페이지가 해당 설비로 필터.
+        //   데이터는 아래 /api/nav 의 systems 트리로 채운다(buildPageFlowTree).
+        var pageTrees = [];   // [{ base, wrap, chev, isOnPage, curFlow, expanded }]
         NAV_ITEMS.forEach(function (item) {
             var link = buildNavLink(item, LINK_ACTIVE, LINK_IDLE);
             if (item.href === '/uptime') {
                 onUptimePage = isActive(item);
-                anomalyBadge = el('span', 'ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-error text-white text-[10px] font-bold');
+                anomalyBadge = el('span', 'inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-error text-white text-[10px] font-bold');
                 anomalyBadge.title = '최근 10분 내 Error 알림 (가동시간·이상 방문 시 초기화)';
                 anomalyBadge.style.display = 'none';
                 link.appendChild(anomalyBadge);
             }
             if (item.href === '/heatmap') flowsAnchor = link;
-            navMenu.appendChild(link);
+
+            // 동작편차·가동시간·이상: 인라인 Flow 트리(펼침) 부착
+            if (item.href === '/heatmap' || item.href === '/uptime') {
+                // 링크 라벨이 남는 폭을 차지하도록(배지·chevron 우측 정렬).
+                var lbl = link.querySelector('span.font-label-sm');
+                if (lbl) lbl.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                var chev = icon('expand_more');
+                chev.style.cssText = 'flex:0 0 auto;margin-left:6px;font-size:18px;opacity:0.75;transition:transform 0.15s;';
+                link.appendChild(chev);
+
+                var wrap = el('div', 'flex flex-col gap-0.5');
+                wrap.style.cssText = 'display:none;padding-left:8px;margin:1px 0 4px;';
+
+                var isOnPage = isActive(item);
+                var curFlow = isOnPage ? ((new URLSearchParams(location.search)).get('flow') || '') : '';
+                var entry = { base: item.href, wrap: wrap, chev: chev, isOnPage: isOnPage, curFlow: curFlow, expanded: false };
+                chev.addEventListener('click', function (e) {
+                    // chevron 은 앵커 내부라 기본 이동을 막고 토글만 수행(라벨 클릭 = 전체 보기 이동은 유지).
+                    e.preventDefault();
+                    e.stopPropagation();
+                    entry.expanded = !entry.expanded;
+                    wrap.style.display = entry.expanded ? '' : 'none';
+                    chev.style.transform = entry.expanded ? 'rotate(180deg)' : '';
+                });
+                navMenu.appendChild(link);
+                navMenu.appendChild(wrap);
+                pageTrees.push(entry);
+            } else {
+                navMenu.appendChild(link);
+            }
         });
 
         // ── 4.5) 시스템별 Flow(사이클 분석) 서브메뉴 컨테이너 ──
@@ -335,6 +369,85 @@
                 cycleSubWrap.appendChild(sub);
 
                 // 현재 보고 있는 Flow(/flow?name=)가 이 시스템에 속하면 자동으로 펼쳐 위치를 보여준다.
+                if (sysHasCurrent) expand(row, sub, chev);
+            });
+        }
+
+        // ── 4.6) 페이지별(동작편차/가동시간·이상) 인라인 Flow 트리 빌더 ──
+        //   시스템 아코디언(한 번에 한 시스템만 펼침) → Flow 버튼. Flow 클릭 시 base?flow=이름 으로 이동.
+        //   현재 그 페이지(isOnPage)에서 보고 있는 Flow(curFlowName)면 해당 시스템을 자동 펼침 + Flow 강조.
+        function buildPageFlowTree(wrap, systems, base, curFlowName, isOnPage) {
+            wrap.innerHTML = '';
+            if (!systems || !systems.length) return;
+            var BTN_RESET = 'appearance:none;-webkit-appearance:none;background:transparent;border:0;cursor:pointer;font:inherit;';
+            var openRow = null, openChev = null, openSub = null;
+
+            function collapse() {
+                if (openSub) { openSub.style.display = 'none'; openSub = null; }
+                if (openChev) { openChev.style.transform = ''; openChev = null; }
+                if (openRow) { openRow.setAttribute('aria-expanded', 'false'); openRow = null; }
+            }
+            function expand(row, sub, chev) {
+                collapse();
+                sub.style.display = '';
+                openRow = row; openSub = sub; openChev = chev;
+                chev.style.transform = 'rotate(90deg)';
+                row.setAttribute('aria-expanded', 'true');
+            }
+            function dot(color, op) {
+                var d = el('span');
+                d.style.cssText = 'flex:0 0 auto;width:5px;height:5px;border-radius:50%;background:' + color + ';opacity:' + op + ';';
+                return d;
+            }
+
+            systems.forEach(function (sys) {
+                var sysHasCurrent = isOnPage && (sys.flows || []).indexOf(curFlowName) !== -1;
+
+                var row = el('button', 'w-full flex items-center gap-2 px-3 py-2 rounded text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-inverse-surface transition-colors');
+                row.type = 'button';
+                row.style.cssText = 'text-align:left;' + BTN_RESET;
+                row.setAttribute('aria-expanded', 'false');
+                var sysIcon = icon('lan');
+                sysIcon.style.cssText = 'flex:0 0 auto;font-size:17px;' + (sysHasCurrent ? 'color:#2170e4;' : 'opacity:0.7;');
+                row.appendChild(sysIcon);
+                var sysLabel = el('span', 'font-label-sm text-label-sm', sys.name || '(이름 없음)');
+                sysLabel.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                row.appendChild(sysLabel);
+                var chev = icon('chevron_right');
+                chev.style.cssText = 'flex:0 0 auto;font-size:16px;transition:transform 0.12s;';
+                row.appendChild(chev);
+
+                var sub = el('div', 'flex flex-col gap-0.5');
+                sub.style.cssText = 'display:none;padding-left:16px;';
+
+                (sys.flows || []).forEach(function (flowName) {
+                    var isCur = isOnPage && flowName === curFlowName;
+                    var fb = el('button', 'w-full flex items-center gap-2 px-3 py-2 rounded transition-colors text-on-surface-variant dark:text-surface-variant'
+                        + (isCur ? '' : ' hover:bg-surface-container-high dark:hover:bg-inverse-surface'));
+                    fb.type = 'button';
+                    fb.style.cssText = 'text-align:left;' + BTN_RESET;
+                    if (isCur) { fb.style.backgroundColor = '#2170e4'; fb.style.color = '#fff'; }
+                    fb.appendChild(dot(isCur ? '#fff' : 'currentColor', isCur ? '1' : '0.55'));
+                    var fl = el('span', 'font-label-sm text-label-sm', flowName);
+                    fl.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                    fb.appendChild(fl);
+                    fb.addEventListener('click', function (ev) {
+                        ev.stopPropagation();
+                        location.href = base + '?flow=' + encodeURIComponent(flowName);
+                    });
+                    sub.appendChild(fb);
+                });
+
+                row.addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    if (openRow === row) { collapse(); return; }
+                    expand(row, sub, chev);
+                });
+
+                wrap.appendChild(row);
+                wrap.appendChild(sub);
+
+                // 현재 이 페이지에서 보고 있는 Flow 가 이 시스템에 속하면 자동으로 펼쳐 선택을 보여준다.
                 if (sysHasCurrent) expand(row, sub, chev);
             });
         }
@@ -624,6 +737,15 @@
                     navMenu.appendChild(buildNavLink(PLC_DEBUG_ITEM, LINK_ACTIVE, LINK_IDLE));
                 }
                 buildSystemSubmenu(data.systems);
+                // 동작편차/가동시간·이상 인라인 Flow 트리 채우기 + 현재 페이지 트리는 자동 펼침.
+                pageTrees.forEach(function (t) {
+                    buildPageFlowTree(t.wrap, data.systems, t.base, t.curFlow, t.isOnPage);
+                    if (t.isOnPage && data.systems && data.systems.length) {
+                        t.expanded = true;
+                        t.wrap.style.display = '';
+                        t.chev.style.transform = 'rotate(180deg)';
+                    }
+                });
             })
             .catch(function () { /* ignore */ });
 

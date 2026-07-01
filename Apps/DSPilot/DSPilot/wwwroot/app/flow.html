@@ -497,7 +497,7 @@
                         <div class="ds-card-h" style="margin-bottom:12px;">
                             <div>
                                 <h4>사이클 분석</h4>
-                                <span class="ds-card-h-sub">신호 간트 · Head/Tail 사이클 경계 적용(저장) · 최대 Gap(병목) · 드래그 구간통계 · Excel</span>
+                                <span class="ds-card-h-sub">신호 간트 · Head/Tail 사이클 경계 적용(저장) · 드래그 구간통계 · Excel</span>
                             </div>
                             <span class="ct-live" :class="(isLoading || overlayBusy) ? 'is-busy' : ''"
                                   :title="(isLoading || overlayBusy) ? '데이터/오버레이 갱신 중' : '읽기 전용 분석'"
@@ -582,15 +582,6 @@
                                                     <div class="kp-sub">시작 → 완료</div>
                                                 </div>
                                             </template>
-                                            <template x-if="topGaps.length">
-                                                <button type="button" class="kpi-cell tone-max is-clickable" @click="focusMaxGap()"
-                                                        title="최대 Gap(병목) 으로 스크롤 + 간트에서 강조">
-                                                    <span class="kp-click-hint">병목</span>
-                                                    <div class="kp-label">최대 GAP</div>
-                                                    <div class="kp-value" x-text="formatMs(topGaps[0].durMs)"></div>
-                                                    <div class="kp-sub" x-text="topGaps[0].callName"></div>
-                                                </button>
-                                            </template>
                                             <!-- 사이클 정의 (Head / Tail) -->
                                             <div class="kpi-cell ct-def ct-def-head">
                                                 <div class="kp-label"><span class="ct-dot"></span> 사이클 경계 · HEAD</div>
@@ -641,7 +632,7 @@
                                         </div>
                                     </div>
 
-                                    <!-- 간트 툴바: 정렬 + 보기 전환 + 최대 Gap + 휠 확대/축소 -->
+                                    <!-- 간트 툴바: 정렬 + 보기 전환 + 휠 확대/축소 -->
                                     <div class="ct-gantt-toolbar">
                                         <div class="ct-tb-field">
                                             <label>정렬</label>
@@ -659,17 +650,6 @@
                                             <button :class="viewMode === 'line' ? 'active' : ''" @click="setView('line')"
                                                     title="OutTag(명령=시작)·InTag(응답=완료) 신호 라인 그래프">InOut 라인</button>
                                         </div>
-                                        <label class="ct-tb-check" :title="topGaps.length ? '최대/상위 Gap 을 간트에 강조' : '표시할 Gap 없음'">
-                                            <input type="checkbox" x-model="showMaxGap" @change="svgMarkup = buildSvg()" :disabled="!topGaps.length" />
-                                            최대 Gap
-                                        </label>
-                                        <select class="form-select ct-gap-pick" x-model.number="selectedGapIndex" @change="onGapPicked()"
-                                                x-show="topGaps.length" :disabled="!showMaxGap || !topGaps.length"
-                                                title="강조할 Gap 선택 (#1 = 최대 병목)">
-                                            <template x-for="(g, i) in topGaps" :key="i">
-                                                <option :value="i" x-text="'#' + (i+1) + ': ' + formatMs(g.durMs) + ' · ' + g.callName"></option>
-                                            </template>
-                                        </select>
                                         <span class="ct-tb-hint">휠 = 확대/축소 · 간트 가로 드래그 = 구간 선택</span>
                                         <div class="spacer"></div>
                                         <div class="ct-zoom">
@@ -772,9 +752,6 @@
                                         <span><i class="ct-sw ct-sw-head"></i> Head (시작)</span>
                                         <span><i class="ct-sw ct-sw-tail"></i> Tail (끝)</span>
                                         <span><i class="ct-sw ct-sw-cycle-edge"></i> 사이클 경계</span>
-                                        <template x-if="showMaxGap && topGaps.length">
-                                            <span><i class="ct-sw ct-sw-maxgap"></i> 최대/상위 Gap</span>
-                                        </template>
                                         <template x-if="selectedRange">
                                             <span><i class="ct-sw ct-sw-range"></i> 드래그 선택 구간</span>
                                         </template>
@@ -827,62 +804,6 @@
                                                     <div class="kp-label">활성 Call</div>
                                                     <div class="kp-value" x-text="selActiveDevices + ' / ' + callLanes.length"></div>
                                                 </div>
-                                            </div>
-                                        </div>
-                                    </template>
-
-                                    <!-- 사이클 목록 (Head/Tail 기반 감지된 사이클 상세) -->
-                                    <template x-if="cycleList.length > 0">
-                                        <div class="card">
-                                            <div class="ds-card-h">
-                                                <h4>
-                                                    사이클 목록
-                                                    <span style="font-weight:400; font-size:0.82em; color:var(--color-text-secondary);"
-                                                          x-text="' — ' + (headName || '(Head)') + (tailCallId ? (' → ' + (tailName || '(Tail)')) : '')"></span>
-                                                </h4>
-                                                <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
-                                                    <span class="ds-card-h-sub"
-                                                          x-text="visibleCycleList.filter(c => !c.isOpen).length + '개 완료' + (visibleCycleList.some(c => c.isOpen) ? ' + 1개 진행중' : '') + (excludedCycleCount > 0 ? (' · 제외 ' + excludedCycleCount) : '')"></span>
-                                                    <div class="hist-toggle">
-                                                        <button :class="cycleView === 'table' ? 'is-active' : ''" @click="setCycleView('table')" title="데이터 테이블로 보기">
-                                                            <span class="material-icons">table_rows</span> 테이블
-                                                        </button>
-                                                        <button :class="cycleView === 'chart' ? 'is-active' : ''" @click="setCycleView('chart')" title="차트로 보기 (동작시간/대기시간 스택 + 평균 가동시간)">
-                                                            <span class="material-icons">bar_chart</span> 차트
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <!-- 차트 뷰 (사이클별 활성/유휴 스택 + 평균 CT 기준선) -->
-                                            <div class="hist-chart-wrap" x-show="cycleView === 'chart'">
-                                                <canvas x-ref="cycleChart"></canvas>
-                                            </div>
-                                            <!-- 테이블 뷰 -->
-                                            <div class="ct-cycle-scroll" x-show="cycleView === 'table'">
-                                                <table class="ds-table">
-                                                    <thead>
-                                                        <tr>
-                                                            <th style="width:52px;">#</th>
-                                                            <th style="width:140px;">시작 시각</th>
-                                                            <th title="동작 시간 = 시작(Head OutTag↑) → 완료(Tail InTag↑)">동작시간</th>
-                                                            <th title="대기 시간 = 완료 → 다음 시작 = 가동시간 − 동작시간">대기시간</th>
-                                                            <th title="가동 시간 = 시작 → 다음 시작">가동시간</th>
-                                                            <th style="width:76px;" title="가동률 = 동작시간 / 가동시간">가동률</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        <template x-for="c in visibleCycleList" :key="c.number">
-                                                            <tr :class="c.isOpen ? 'ct-cycle-open' : (isIncompleteCycle(c) ? 'ct-cycle-incomplete' : '')">
-                                                                <td class="num ct-mono" x-text="'#' + c.number + (c.isOpen ? ' ↻' : '')"></td>
-                                                                <td class="num ct-mono" x-text="hms(new Date(c.startMs))"></td>
-                                                                <td class="num ct-mono hist-mt" x-text="c.atMs !== null ? formatMs(c.atMs) : '—'"></td>
-                                                                <td class="num ct-mono hist-wt" x-text="c.wtMs !== null ? formatMs(c.wtMs) : '—'"></td>
-                                                                <td class="num ct-mono hist-ct" x-text="(c.isOpen ? '≥' : '') + formatMs(c.ctMs)"></td>
-                                                                <td class="num" :class="ratioCls(c.ratio)" x-text="c.ratio !== null ? c.ratio + '%' : '—'"></td>
-                                                            </tr>
-                                                        </template>
-                                                    </tbody>
-                                                </table>
                                             </div>
                                         </div>
                                     </template>
@@ -1027,7 +948,7 @@
                 callLanesRaw: [],
                 expandedCalls: {},   // callId → bool : Call lane 행 확장(소속 ApiCall + 실측 duration 표시) 상태
                 applyDurBusy: false, applyDurMsg: '',   // 실측 → AASX duration 적용 진행/피드백
-                showMaxGap: true,
+                showMaxGap: false,
                 topGaps: [],
                 selectedGapIndex: 0,
                 selectedRange: null,

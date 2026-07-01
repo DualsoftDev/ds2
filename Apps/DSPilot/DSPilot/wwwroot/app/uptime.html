@@ -652,12 +652,12 @@
 
                 <!-- 설비(Flow) 선택 — 날짜 UI 와 같은 행, 오른쪽 정렬(.ds-topbar space-between). 드롭다운(전체/특정 Flow).
                      기본 '전체'. 선택 시 OEE·정지·도넛·시간구성·계획시간을 그 설비로 필터(표준 가동시간·설비순위는 전체 유지=비교/편집용). -->
-                <div class="ds-topbar-actions" style="justify-content:flex-end;" x-show="tab === 'oee'">
-                    <label style="font-size:0.64rem; font-weight:700; color:var(--color-text-secondary); text-transform:uppercase; letter-spacing:0.06em;" for="up-flow-select">설비</label>
-                    <select id="up-flow-select" class="form-select" style="width:auto; min-width:150px; padding:5px 8px; font-size:0.82rem;" x-model="curFlow" @change="loadOee()">
-                        <option value="">전체</option>
-                        <template x-for="f in flowNames" :key="f"><option :value="f" x-text="f"></option></template>
-                    </select>
+                <!-- 설비(Flow) 선택은 좌측 메뉴 '가동시간·이상' 트리에서 수행(/uptime?flow=이름) → 여기서는 현재 필터 상태만 표시. -->
+                <div class="ds-topbar-actions" style="justify-content:flex-end;" x-show="tab === 'oee' && curFlow">
+                    <span class="chip chip-info">설비: <b x-text="curFlow"></b></span>
+                    <a class="btn btn-sm btn-outlined" href="/uptime">
+                        <span class="material-icons" style="font-size:15px;">clear</span> 전체 보기
+                    </a>
                 </div>
             </div>
 
@@ -1770,6 +1770,8 @@
                     window.addEventListener('storage', (e) => { if (e.key === 'dspilot-theme') { this.dark = e.newValue === 'dark'; this.redrawForTheme(); } });
                     // 사이드바 이상코드 피드에서 진입 시 필터 시드(/uptime?utSystem=&utLevel=&utSearch=).
                     const qp = new URLSearchParams(location.search);
+                    // 설비(Flow) 필터는 URL(?flow=)에서만 온다(좌측 메뉴 '가동시간·이상' 트리). 없으면 라인 전체.
+                    if (qp.has('flow')) this.curFlow = qp.get('flow') || '';
                     if (qp.has('utSystem')) this.utSystem = qp.get('utSystem') || '';
                     if (qp.has('utLevel')) this.utLevel = qp.get('utLevel') || '';
                     if (qp.has('utSearch')) this.utSearch = qp.get('utSearch') || '';

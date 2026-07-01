@@ -446,14 +446,6 @@
                                             <div class="kp-sub">시작 → 완료</div>
                                         </div>
                                     </template>
-                                    <template x-if="slice.topGaps.length">
-                                        <button type="button" class="kpi-cell tone-max" @click="focusMaxGap(slice)"
-                                                title="최대 Gap(병목) 으로 스크롤 + 간트 강조">
-                                            <div class="kp-label">최대 GAP</div>
-                                            <div class="kp-value" x-text="fmtMs(slice.topGaps[0].durMs)"></div>
-                                            <div class="kp-sub" x-text="slice.topGaps[0].callName"></div>
-                                        </button>
-                                    </template>
                                     <div class="kpi-cell ct-def ct-def-head">
                                         <div class="kp-label"><span class="ct-dot"></span> 시작점(H)</div>
                                         <div class="ct-def-name" x-text="headName(slice) || '(기본)'" :title="headName(slice) || '(기본)'"></div>
@@ -508,10 +500,6 @@
                                         <button :class="slice.viewMode === 'bar' ? 'active' : ''" @click="setView(slice, 'bar')" title="실행 막대그래프">막대</button>
                                         <button :class="slice.viewMode === 'line' ? 'active' : ''" @click="setView(slice, 'line')" title="OutTag·InTag 신호 라인">InOut 라인</button>
                                     </div>
-                                    <label class="ct-tb-check" :title="slice.topGaps.length ? '최대 Gap 강조' : '표시할 Gap 없음'">
-                                        <input type="checkbox" x-model="slice.showMaxGap" @change="rebuild(slice)" :disabled="!slice.topGaps.length" />
-                                        최대 Gap
-                                    </label>
                                     <label class="ct-tb-check" :class="slice.stageDurations ? '' : ''"
                                            :title="durCount(slice) ? ('일괄 적용 시 이 Flow 의 실측 ' + durCount(slice) + '건을 AASX Work 에 기록') : '적용 가능한 실측 없음'">
                                         <input type="checkbox" x-model="slice.stageDurations" :disabled="!durCount(slice)" />
@@ -614,9 +602,6 @@
                                     <span><i class="ct-sw ct-sw-head"></i> Head (시작)</span>
                                     <span><i class="ct-sw ct-sw-tail"></i> Tail (끝)</span>
                                     <span><i class="ct-sw ct-sw-cycle-edge"></i> 사이클 경계</span>
-                                    <template x-if="slice.showMaxGap && slice.topGaps.length">
-                                        <span><i class="ct-sw ct-sw-maxgap"></i> 최대 Gap</span>
-                                    </template>
                                     <template x-if="slice.selectedRange">
                                         <span><i class="ct-sw ct-sw-range"></i> 드래그 선택 구간</span>
                                     </template>
@@ -669,44 +654,6 @@
                                                 <div class="kp-label">활성 Call</div>
                                                 <div class="kp-value" x-text="selActiveDevices(slice) + ' / ' + slice.callLanes.length"></div>
                                             </div>
-                                        </div>
-                                    </div>
-                                </template>
-
-                                <!-- 사이클 목록 (접이식) -->
-                                <template x-if="visibleCycles(slice).length > 0">
-                                    <div>
-                                        <button class="btn btn-sm btn-outlined" @click="slice.showCycles = !slice.showCycles">
-                                            <span class="material-icons" style="font-size:16px; vertical-align:middle;" x-text="slice.showCycles ? 'expand_less' : 'expand_more'"></span>
-                                            사이클 목록
-                                            <span style="font-weight:400; color:var(--color-text-secondary);"
-                                                  x-text="' (' + visibleCycles(slice).filter(c => !c.isOpen).length + '개 완료' + (excludedCount(slice) > 0 ? (' · 제외 ' + excludedCount(slice)) : '') + ')'"></span>
-                                        </button>
-                                        <div class="ct-cycle-scroll" x-show="slice.showCycles" x-cloak style="margin-top:8px;">
-                                            <table class="ds-table">
-                                                <thead>
-                                                    <tr>
-                                                        <th style="width:48px;">#</th>
-                                                        <th style="width:130px;">시작 시각</th>
-                                                        <th title="동작 시간 = 시작 → 완료">동작시간</th>
-                                                        <th title="대기 시간 = 가동시간 − 동작시간">대기시간</th>
-                                                        <th title="가동 시간 = 시작 → 다음 시작">가동시간</th>
-                                                        <th style="width:72px;" title="가동률 = 동작시간 / 가동시간">가동률</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    <template x-for="c in visibleCycles(slice)" :key="c.number">
-                                                        <tr :class="c.isOpen ? 'ct-cycle-open' : ''">
-                                                            <td class="num ct-mono" x-text="'#' + c.number + (c.isOpen ? ' ↻' : '')"></td>
-                                                            <td class="num ct-mono" x-text="hms(new Date(c.startMs))"></td>
-                                                            <td class="num ct-mono" x-text="c.atMs !== null ? fmtMs(c.atMs) : '—'"></td>
-                                                            <td class="num ct-mono" x-text="c.wtMs !== null ? fmtMs(c.wtMs) : '—'"></td>
-                                                            <td class="num ct-mono" x-text="(c.isOpen ? '≥' : '') + fmtMs(c.ctMs)"></td>
-                                                            <td class="num" :class="ratioCls(c.ratio)" x-text="c.ratio !== null ? c.ratio + '%' : '—'"></td>
-                                                        </tr>
-                                                    </template>
-                                                </tbody>
-                                            </table>
                                         </div>
                                     </div>
                                 </template>

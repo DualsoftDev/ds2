@@ -204,9 +204,19 @@
             <div class="card mb-4">
                 <div class="dsp-panel-body">
                     <div class="hm-control-grid">
-                        <div class="hm-field-filter">
-                            <label class="form-label">Flow 필터</label>
-                            <input class="form-field" x-model="flowFilter" placeholder="Flow 이름 검색..." />
+                        <!-- 설비(Flow) 선택은 좌측 메뉴 '동작편차' 트리에서 수행 → 여기서는 현재 필터 상태만 표시. -->
+                        <div class="hm-field-filter" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                            <template x-if="flowParam">
+                                <span class="chip chip-info">설비: <b x-text="flowParam"></b></span>
+                            </template>
+                            <template x-if="flowParam">
+                                <a class="btn btn-sm btn-outlined color-default" href="/heatmap">
+                                    <span class="material-icons">clear</span> 전체 보기
+                                </a>
+                            </template>
+                            <template x-if="!flowParam">
+                                <span class="typo-caption" style="color:var(--color-text-secondary);">전체 설비 · 좌측 메뉴 '동작편차'에서 설비를 선택하세요</span>
+                            </template>
                         </div>
                         <label class="switch" style="margin-bottom:8px;" title="동작편차 시간을 ms(밀리초) 단위로 표시합니다. 해제 시 초 단위로 표시.">
                             <input type="checkbox" x-model="showMs" @change="onUnitChange()" /> ms로 보기
@@ -507,7 +517,8 @@
                 allGroups: [],
                 loading: true,
                 error: null,
-                flowFilter: '',
+                // 설비(Flow) 필터 — 좌측 메뉴 '동작편차' 트리에서 /heatmap?flow=이름 으로 진입. '' = 전체.
+                flowParam: '',
                 viewMode: 'matrix', // 'matrix'(flow-call 블럭 매트릭스) | 'table'(정렬 표) — 한 번에 하나만
                 sortField: 'cv',
                 sortAsc: false,
@@ -528,6 +539,8 @@
                 async init() {
                     this.dark = localStorage.getItem('dspilot-theme') === 'dark';
                     this.showMs = localStorage.getItem('dspilot-heatmap-ms') === '1';
+                    // 설비 필터는 URL(?flow=)에서만 온다(좌측 메뉴 트리). 없으면 전체.
+                    this.flowParam = new URLSearchParams(location.search).get('flow') || '';
                     window.addEventListener('storage', (e) => {
                         if (e.key === 'dspilot-theme') this.dark = e.newValue === 'dark';
                     });
@@ -590,9 +603,9 @@
                 },
 
                 get filteredGroups() {
-                    const f = this.flowFilter.trim().toLowerCase();
-                    if (!f) return this.allGroups;
-                    return this.allGroups.filter(g => (g.flowName || '').toLowerCase().includes(f));
+                    // 설비 필터(URL ?flow=)가 있으면 정확히 그 Flow 만, 없으면 전체.
+                    if (!this.flowParam) return this.allGroups;
+                    return this.allGroups.filter(g => (g.flowName || '') === this.flowParam);
                 },
 
                 // FormatMetricValueShort(AverageTime/StdDeviation). 기본 초 단위, "ms로 보기" 시 정수 ms.
