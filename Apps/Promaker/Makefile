@@ -64,7 +64,7 @@ INSTALLER_EXE  := $(OUTPUT_DIR)/Promaker_Setup_$(PROMAKER_VER)$(OUTPUT_SUFFIX).e
 ISCC ?= C:/Program Files (x86)/Inno Setup 6/ISCC.exe
 
 # scp 대상 — dist-common.mk default 와 동일하지만 override 시 명시.
-SCP_DEST ?= download@dualsoft.co.kr:/media/download/Dualsoft Software/Setup ProMaker(DS2_ProMaker) - Windows x64
+SCP_DEST ?= download@dualsoft.co.kr:/media/download/ETC/Setup ProMaker(DS2_ProMaker) - Windows x64
 
 .PHONY: help dist dist-installer publish publish-agent publish-agenttray iscc clean build build-release run run-release
 

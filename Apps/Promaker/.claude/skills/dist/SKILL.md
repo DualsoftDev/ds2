@@ -36,7 +36,7 @@ git 추적 대상이며, 매 `/dist` 마다 파일 맨 위에 이번 배포 entr
 - Zip 산출물: `Apps/Promaker/Installer/Output/Promaker_Setup_<VER>_sc.zip`
 - SCP: `Apps/Promaker/scripts/scp-installer.sh <zip> <DEST>` (zip 만 업로드, exe 는 로컬 보존)
 - Bump: `Apps/Promaker/scripts/bump-buildversion.sh <BuildVersion.txt>` — 마지막 슬롯 +1
-- SCP 기본 대상: `download@dualsoft.co.kr:/media/download/Dualsoft Software/Setup ProMaker(DS2_ProMaker) - Windows x64`
+- SCP 기본 대상: `download@dualsoft.co.kr:/media/download/ETC/Setup ProMaker(DS2_ProMaker) - Windows x64`
 
 ## 수행 순서 (`/dist`) — A안: commit 을 scp 보다 먼저
 

@@ -32,7 +32,7 @@ endif
 DIST_COMMON_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
 # scp 대상 — 필요 시 호출 측 Makefile 에서 override 가능.
-SCP_DEST ?= download@dualsoft.co.kr:/media/download/Dualsoft Software/Setup ProMaker(DS2_ProMaker) - Windows x64
+SCP_DEST ?= download@dualsoft.co.kr:/media/download/ETC/Setup ProMaker(DS2_ProMaker) - Windows x64
 
 .PHONY: dist-force
 dist-force: dist-installer
