@@ -19,6 +19,19 @@ function levelColors() {
     };
 }
 
+// 구분(ABNORMAL/USERTAG) 색 — 레벨이 Error 단일로 통일된 뒤 시계열/버킷은 구분으로 스택한다.
+// 둘 다 Error 알람이라 빨강 계열로 통일하되, 스택/도넛에서 구분되도록 톤을 다르게 둔다.
+// ABNORMAL(자동감지)=밝은 빨강, USERTAG(사용자지정)=진한 로즈레드.
+function categoryColors() {
+    return {
+        'ABNORMAL': { fill: 'rgba(239, 68, 68, 0.85)', border: 'rgb(239, 68, 68)' },
+        'USERTAG':  { fill: 'rgba(190, 18, 60, 0.85)',  border: 'rgb(190, 18, 60)' },
+    };
+}
+
+// 범례 표시용 한글 라벨(데이터 키는 서버가 주는 ABNORMAL/USERTAG 코드 유지).
+const CATEGORY_LABELS = { 'ABNORMAL': '자동감지', 'USERTAG': '사용자지정' };
+
 // 축/범례/툴팁 텍스트·격자선을 테마 가변으로 (다크 캔버스에서 가독성 확보).
 function themeChartColors() {
     return {
@@ -42,8 +55,7 @@ function isDark() {
     return document.documentElement.classList.contains('dark-theme');
 }
 
-// timeBuckets: [{ bucketStartIso, level, count }]
-// levels: ["Info","Warning","Error"]
+// timeBuckets: [{ bucketStartIso, level, count }] — level 슬롯은 이제 구분(ABNORMAL/USERTAG)을 담는다.
 export function renderTrendChart(chartId, timeBuckets, granularity) {
     const canvas = document.getElementById(chartId);
     if (!canvas) return;
@@ -56,25 +68,25 @@ export function renderTrendChart(chartId, timeBuckets, granularity) {
     const labels = Array.from(seen.keys());
     const labelToIdx = new Map(labels.map((l, i) => [l, i]));
 
-    const LEVEL_COLORS = levelColors();
+    const CAT_COLORS = categoryColors();
     const tc = themeChartColors();
-    const levels = ['Info', 'Warning', 'Error'];
-    const datasets = levels.map(lvl => {
+    const cats = ['ABNORMAL', 'USERTAG'];
+    const datasets = cats.map(cat => {
         const data = new Array(labels.length).fill(0);
         for (const b of timeBuckets) {
-            if (b.level === lvl) {
+            if (b.level === cat) {
                 const idx = labelToIdx.get(b.bucketStartIso);
                 if (idx !== undefined) data[idx] = b.count;
             }
         }
-        const color = LEVEL_COLORS[lvl] || LEVEL_COLORS.Info;
+        const color = CAT_COLORS[cat] || CAT_COLORS.USERTAG;
         return {
-            label: lvl,
+            label: CATEGORY_LABELS[cat] || cat,
             data,
             backgroundColor: color.fill,
             borderColor: color.border,
             borderWidth: 1,
-            stack: 'level',
+            stack: 'category',
         };
     });
 

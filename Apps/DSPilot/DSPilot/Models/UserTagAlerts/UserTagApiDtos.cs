@@ -18,8 +18,9 @@ public record UserTagSnapshotDto(
     int PageSize,
     List<UtAlertDto> Alerts,
     List<UtBucketDto> Buckets,
-    List<UtTopDto> TopRows,
-    Dictionary<string, int> LevelCounts,   // 키(Info/Warning/Error)는 그대로 — DictionaryKeyPolicy 미설정
+    List<UtTopDto> TopRows,          // 태그별 Top N — 이름(name) 기준(abnormal 은 4개 유형으로 묶임)
+    List<UtTopDto> TopRowsByPath,    // 태그별 Top N — 경로(tagAddress) 기준(abnormal 을 경로별로 펼침)
+    Dictionary<string, int> CategoryCounts,   // 키 = "ABNORMAL" | "USERTAG" (구분 도넛용) — DictionaryKeyPolicy 미설정
     int ActiveErrorCount,
     int TodayErrorCount,
     string? LastAlertAtLocal,
@@ -40,6 +41,7 @@ public record UtAlertDto(
     string? MatchValue,
     string ActualValue);
 
+// Level 슬롯은 이제 구분(ABNORMAL/USERTAG)을 담는다 — 시계열 스택 막대의 스택 키(레벨 통일 후 구분 스택).
 public record UtBucketDto(string BucketStartIso, string Level, int Count);
 
 public record UtTopDto(string Name, string Level, int Count);

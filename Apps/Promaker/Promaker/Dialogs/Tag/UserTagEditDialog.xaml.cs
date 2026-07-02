@@ -44,7 +44,8 @@ public partial class UserTagEditDialog : Window
     private bool _initializing = true;
 
     public string TagName { get; private set; } = string.Empty;
-    public string LogLevel { get; private set; } = "Info";
+    // 사용자 태그는 모두 Error 로 취급(운영 정책). Warning/Info 는 타입엔 존재하나 편집기에서 설정 불가.
+    public string LogLevel { get; private set; } = "Error";
     public string TagAddress { get; private set; } = string.Empty;
     public string ValueType { get; private set; } = "Bit";
     public string MatchOp { get; private set; } = "RisingEdge";
@@ -65,13 +66,7 @@ public partial class UserTagEditDialog : Window
         {
             NameBox.Text = existing.Name;
             AddressBox.Text = existing.TagAddress;
-
-            switch (existing.LogLevel)
-            {
-                case "Warning": WarningRadio.IsChecked = true; break;
-                case "Error":   ErrorRadio.IsChecked = true;   break;
-                default:        InfoRadio.IsChecked = true;    break;
-            }
+            // 레벨은 Error 로 고정(레거시 Warning/Info 태그도 저장 시 Error 로 승격).
 
             ValueTypeCombo.SelectedItem = PlcValueTypes.Contains(existing.ValueType)
                 ? existing.ValueType
@@ -159,9 +154,7 @@ public partial class UserTagEditDialog : Window
         var name = string.IsNullOrWhiteSpace(NameBox.Text) ? "(이름)" : NameBox.Text.Trim();
         var op = CurrentMatchOp();
         var mv = MatchValueBox.Text?.Trim() ?? string.Empty;
-        var levelText = WarningRadio.IsChecked == true ? "Warning"
-                      : ErrorRadio.IsChecked == true ? "Error"
-                      : "Info";
+        const string levelText = "Error"; // 사용자 태그는 모두 Error 취급
 
         var condition = op switch
         {
@@ -221,9 +214,7 @@ public partial class UserTagEditDialog : Window
         TagName = name;
         TagAddress = addr;
 
-        if (WarningRadio.IsChecked == true) LogLevel = "Warning";
-        else if (ErrorRadio.IsChecked == true) LogLevel = "Error";
-        else LogLevel = "Info";
+        LogLevel = "Error"; // 사용자 태그는 모두 Error 취급(Warning/Info 미사용)
 
         ValueType = SelectedValueType();
         MatchOp = op;

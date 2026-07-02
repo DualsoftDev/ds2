@@ -69,9 +69,13 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         });
     }
 
+    // 구분(카테고리) 판별 SSOT — abnormal 행은 valueType='Abnormal'(AbnormalEventService.PersistToLogAsync),
+    // 그 외는 사용자정의(usertag). 스택 막대 그룹키로도 쓴다.
+    private const string CategoryCase = "CASE WHEN valueType = 'Abnormal' THEN 'ABNORMAL' ELSE 'USERTAG' END";
+
     private (string Where, DynamicParameters Params) BuildFilter(
         DateTime startUtc, DateTime endUtc,
-        string? name, string? level, string? system)
+        string? name, string? level, string? system, string? category = null)
     {
         var sb = new StringBuilder(" WHERE occurredAt >= @Start AND occurredAt <= @End ");
         var p = new DynamicParameters();
@@ -92,6 +96,12 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
             sb.Append(" AND systemName = @System ");
             p.Add("System", system.Trim());
         }
+        // 구분 필터 — abnormal: valueType='Abnormal', usertag: 그 외(포함 NULL).
+        var cat = category?.Trim().ToLowerInvariant();
+        if (cat == "abnormal")
+            sb.Append(" AND valueType = 'Abnormal' ");
+        else if (cat == "usertag")
+            sb.Append(" AND (valueType IS NULL OR valueType <> 'Abnormal') ");
         AppendDeviceFilterExclusion(sb, p);
         return (sb.ToString(), p);
     }
@@ -132,12 +142,12 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
 
     public async Task<IReadOnlyList<UserTagAlertRecord>> QueryAlertsAsync(
         DateTime startUtc, DateTime endUtc,
-        string? nameFilter, string? levelFilter, string? systemFilter,
+        string? nameFilter, string? levelFilter, string? systemFilter, string? categoryFilter,
         int limit, int offset,
         CancellationToken ct = default)
     {
         await using var conn = await OpenAsync();
-        var (where, p) = BuildFilter(startUtc, endUtc, nameFilter, levelFilter, systemFilter);
+        var (where, p) = BuildFilter(startUtc, endUtc, nameFilter, levelFilter, systemFilter, categoryFilter);
         p.Add("Limit", limit);
         p.Add("Offset", offset);
 
@@ -154,11 +164,11 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
 
     public async Task<int> CountAlertsAsync(
         DateTime startUtc, DateTime endUtc,
-        string? nameFilter, string? levelFilter, string? systemFilter,
+        string? nameFilter, string? levelFilter, string? systemFilter, string? categoryFilter = null,
         CancellationToken ct = default)
     {
         await using var conn = await OpenAsync();
-        var (where, p) = BuildFilter(startUtc, endUtc, nameFilter, levelFilter, systemFilter);
+        var (where, p) = BuildFilter(startUtc, endUtc, nameFilter, levelFilter, systemFilter, categoryFilter);
         var sql = $"SELECT COUNT(*) FROM userTagAlertLog {where}";
         return await conn.ExecuteScalarAsync<int>(sql, p);
     }
@@ -166,11 +176,11 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
     public async Task<IReadOnlyList<UserTagAlertBucket>> GetBucketCountsAsync(
         DateTime startUtc, DateTime endUtc,
         string bucketGranularity,
-        string? nameFilter, string? levelFilter, string? systemFilter,
+        string? nameFilter, string? levelFilter, string? systemFilter, string? categoryFilter,
         CancellationToken ct = default)
     {
         await using var conn = await OpenAsync();
-        var (where, p) = BuildFilter(startUtc, endUtc, nameFilter, levelFilter, systemFilter);
+        var (where, p) = BuildFilter(startUtc, endUtc, nameFilter, levelFilter, systemFilter, categoryFilter);
 
         // SQLite strftime — UTC 기반 버킷 시작 시각 문자열 (UI 측에서 다시 DateTime 으로 파싱).
         // occurredAt 은 "yyyy-MM-dd HH:mm:ss.fffffffZ" 형식. strftime 은 'T' 없는 형식도 인식.
@@ -185,55 +195,61 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
             _        => "strftime('%Y-%m-%d 00:00:00', occurredAt)",
         };
 
+        // 스택 키 = 구분(ABNORMAL/USERTAG). 레벨이 Error 단일로 통일돼 레벨 스택은 무의미하므로 구분으로 스택한다.
+        // (UserTagAlertBucket.LogLevel 슬롯에 구분 문자열을 담아 DTO 형상 유지.)
         var sql = $@"
-            SELECT {bucketSql} AS BucketStartStr, logLevel AS LogLevel, COUNT(*) AS Count
+            SELECT {bucketSql} AS BucketStartStr, {CategoryCase} AS LogLevel, COUNT(*) AS Count
             FROM userTagAlertLog
             {where}
-            GROUP BY BucketStartStr, logLevel
+            GROUP BY BucketStartStr, LogLevel
             ORDER BY BucketStartStr ASC";
 
         var rows = await conn.QueryAsync<BucketRow>(sql, p);
         return rows.Select(r => new UserTagAlertBucket(
             DateTime.SpecifyKind(DateTime.Parse(r.BucketStartStr ?? "1970-01-01", System.Globalization.CultureInfo.InvariantCulture), DateTimeKind.Utc),
-            r.LogLevel ?? "Info",
+            r.LogLevel ?? "USERTAG",
             r.Count)).ToList();
     }
 
     public async Task<IReadOnlyList<UserTagAlertTopRow>> GetTopByNameAsync(
         DateTime startUtc, DateTime endUtc,
         int topN,
-        string? levelFilter, string? systemFilter,
+        string? levelFilter, string? systemFilter, string? categoryFilter,
+        string groupBy = "name",
         CancellationToken ct = default)
     {
         await using var conn = await OpenAsync();
-        var (where, p) = BuildFilter(startUtc, endUtc, null, levelFilter, systemFilter);
+        var (where, p) = BuildFilter(startUtc, endUtc, null, levelFilter, systemFilter, categoryFilter);
         p.Add("TopN", topN);
+        // 그룹키: name(기본) | tagAddress(경로). SQL 삽입값이라 화이트리스트로만 결정(주입 방지).
+        var keyCol = string.Equals(groupBy, "path", StringComparison.OrdinalIgnoreCase) ? "tagAddress" : "name";
         var sql = $@"
-            SELECT name AS Name, logLevel AS LogLevel, COUNT(*) AS Count
+            SELECT {keyCol} AS Name, logLevel AS LogLevel, COUNT(*) AS Count
             FROM userTagAlertLog
             {where}
-            GROUP BY name, logLevel
+            GROUP BY {keyCol}, logLevel
             ORDER BY Count DESC
             LIMIT @TopN";
         var rows = await conn.QueryAsync<TopRow>(sql, p);
         return rows.Select(r => new UserTagAlertTopRow(r.Name ?? "", r.LogLevel ?? "Info", r.Count)).ToList();
     }
 
-    public async Task<IReadOnlyDictionary<string, int>> GetLevelCountsAsync(
+    public async Task<IReadOnlyDictionary<string, int>> GetCategoryCountsAsync(
         DateTime startUtc, DateTime endUtc,
-        string? nameFilter, string? systemFilter,
+        string? nameFilter, string? levelFilter, string? systemFilter,
         CancellationToken ct = default)
     {
         await using var conn = await OpenAsync();
-        var (where, p) = BuildFilter(startUtc, endUtc, nameFilter, null, systemFilter);
+        // 구분 도넛은 항상 두 구분을 함께 보여준다 → category 필터는 걸지 않는다(name/level/system 만).
+        var (where, p) = BuildFilter(startUtc, endUtc, nameFilter, levelFilter, systemFilter);
         var sql = $@"
-            SELECT logLevel AS LogLevel, COUNT(*) AS Count
+            SELECT {CategoryCase} AS Category, COUNT(*) AS Count
             FROM userTagAlertLog
             {where}
-            GROUP BY logLevel";
-        var rows = await conn.QueryAsync<LevelCountRow>(sql, p);
+            GROUP BY Category";
+        var rows = await conn.QueryAsync<CategoryCountRow>(sql, p);
         var d = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (var r in rows) d[r.LogLevel ?? "Info"] = r.Count;
+        foreach (var r in rows) d[r.Category ?? "USERTAG"] = r.Count;
         return d;
     }
 
@@ -354,9 +370,9 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         public int Count { get; set; }
     }
 
-    private sealed class LevelCountRow
+    private sealed class CategoryCountRow
     {
-        public string? LogLevel { get; set; }
+        public string? Category { get; set; }
         public int Count { get; set; }
     }
 }

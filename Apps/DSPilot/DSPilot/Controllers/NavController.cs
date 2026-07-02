@@ -159,7 +159,7 @@ public class NavController : ControllerBase
         if (anomalyAck.HasValue && anomalyAck.Value.UtcDateTime > anomalyFromUtc)
             anomalyFromUtc = anomalyAck.Value.UtcDateTime;
         var anomalyActiveCount = await _alertRepo.CountAlertsAsync(
-            anomalyFromUtc, nowUtc, null, "Error", null, ct);
+            anomalyFromUtc, nowUtc, null, "Error", null, null, ct);
 
         // ── recentAnomalies (이상코드 피드) ── 최신 N건(레벨 무관). 사이드바 '이상코드' 실시간 피드용.
         //   두 출처를 시각 내림차순으로 합류(동일 형상 NavAnomalyDto):

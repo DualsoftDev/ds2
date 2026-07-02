@@ -36,6 +36,10 @@
                 periodStart: null, periodEnd: null,
                 _trendSeq: 0,
                 _drawRetry: 0,
+                // 전체 추이 모드 — /flow-trend 에 ?name= 없이 진입하면 라인 전체(모든 Flow) 사이클을 합산해 추이를 본다.
+                //   nav 트리(/api/nav)로 Flow 이름을 모아 각 Flow 히스토리를 병렬 조회 후 병합. 추이 페이지 전용.
+                allMode: false,
+                allFlowNames: [],
 
                 // ── 사이클 분석 (구 cycle-time-analysis, 이 Flow 스코프) ──
                 selectedFlow: '',
@@ -63,6 +67,10 @@
                 callLanesRaw: [],
                 expandedCalls: {},   // callId → bool : Call lane 행 확장(소속 ApiCall + 실측 duration 표시) 상태
                 applyDurBusy: false, applyDurMsg: '',   // 실측 → AASX duration 적용 진행/피드백
+                // ── 디바이스 Duration/Min/Max 직접 편집 다이얼로그 (초 단위 입력, 빈칸=null) ──
+                durEditOpen: false,
+                durEditCtx: null,               // { workId, name, m, curDurMs, curMinMs, curMaxMs }
+                durEditForm: { dur: '', min: '', max: '' },   // 초 단위 문자열, '' = null(미설정)
                 showMaxGap: false,
                 topGaps: [],
                 selectedGapIndex: 0,
@@ -94,6 +102,8 @@
                     this.view = window.DSP_FLOW_VIEW || new URLSearchParams(location.search).get('view') || 'both';
                     if (this.view === 'trend') this.tab = 'trend';
                     else if (this.view === 'cycle') this.tab = 'cycle';
+                    // 추이 페이지에 ?name= 없이 진입 → 전체 추이(라인 전체 합산) 모드.
+                    this.allMode = (this.view === 'trend' && !this.flowName);
                     this.computePeriod('today');
 
                     // 컨테이너 폭 변화 시 간트 폭맞춤(줌 대체) + Chart.js 차트 강제 리사이즈
@@ -117,28 +127,26 @@
                     // resize 핸들러가 뒤따르지만 혹시 놓칠 경우를 대비해 300ms 후 한 번 더 강제 리사이즈.
                     window.addEventListener('orientationchange', () => { setTimeout(_resizeCharts, 300); });
 
-                    await this.loadFlow();
-                    if (this.flow) {
-                        this.selectedFlow = this.flow.flowName;
+                    if (this.allMode) {
+                        // 전체 추이 — 특정 Flow 로드 없이 nav 트리에서 Flow 이름을 모아 히스토리를 합산.
+                        await this.loadAllFlowNames();
                         await this.reloadTrend();
-                        await this.loadExclusions();
-                        this.syncHistory();
-                        // 사이클 분석 기본 시간범위 (최신-5분 ~ 최신) — 추이 전용 페이지에서는 불필요하므로 건너뜀.
-                        if (this.view !== 'trend') {
-                            try {
-                                const t = await this.apiGet('/api/call-test/latest-time');
-                                this.startTime = this.toInputValue(t.start);
-                                this.endTime = this.toInputValue(t.end);
-                            } catch (e) {
-                                const now = new Date();
-                                this.endTime = this.dateToInput(now);
-                                this.startTime = this.dateToInput(new Date(now.getTime() - 5 * 60000));
+                    } else {
+                        await this.loadFlow();
+                        if (this.flow) {
+                            this.selectedFlow = this.flow.flowName;
+                            await this.reloadTrend();
+                            await this.loadExclusions();
+                            this.syncHistory();
+                            // 사이클 분석 기본 = 최근 5분 (사이클타임 기본값과 일치 → 5분 프리셋 활성).
+                            // 추이 전용 페이지에서는 불필요하므로 건너뜀.
+                            if (this.view !== 'trend') {
+                                await this.setRecentMinutes(5);
                             }
-                            await this.load();
                         }
                     }
                     this.connectSignalR();
-                    this._pollTimer = setInterval(() => this.loadFlow(true), 10000);
+                    if (!this.allMode) this._pollTimer = setInterval(() => this.loadFlow(true), 10000);
                 },
 
                 destroy() {
@@ -178,7 +186,25 @@
                     } finally { this.loading = false; }
                 },
 
-                async refreshAll() { await this.loadFlow(); if (this.flow) { await this.reloadTrend(); this.syncHistory(); } },
+                // 전체 추이 모드: nav 트리에서 모든 시스템의 Flow 이름을 모은다(설비 필터 없이 라인 전체).
+                async loadAllFlowNames() {
+                    this.loading = true;
+                    try {
+                        const nav = await this.apiGet('/api/nav');
+                        const names = [];
+                        (nav && nav.systems || []).forEach(s => (s.flows || []).forEach(n => { if (n && names.indexOf(n) === -1) names.push(n); }));
+                        this.allFlowNames = names;
+                        this.error = null;
+                    } catch (e) {
+                        this.allFlowNames = [];
+                        this.error = 'Flow 목록을 불러오지 못했습니다: ' + e.message;
+                    } finally { this.loading = false; }
+                },
+
+                async refreshAll() {
+                    if (this.allMode) { await this.reloadTrend(); return; }
+                    await this.loadFlow(); if (this.flow) { await this.reloadTrend(); this.syncHistory(); }
+                },
 
                 // 탭 전환 — 숨겨진 탭(display:none)에서 0 크기로 렌더된 차트/간트를 보일 때 다시 맞춘다.
                 setTab(t) {
@@ -237,7 +263,7 @@
                     if (preset === 'today') { this.periodStart = startOfDay; this.granularity = 'hour'; }
                     else if (preset === '7d') { this.periodStart = new Date(startOfDay.getTime() - 6 * 864e5); this.granularity = 'day'; }
                     else if (preset === '30d') { this.periodStart = new Date(startOfDay.getTime() - 29 * 864e5); this.granularity = 'day'; }
-                    else if (preset === '60d') { this.periodStart = new Date(startOfDay.getTime() - 59 * 864e5); this.granularity = 'week'; }
+                    else if (preset === '60d') { this.periodStart = new Date(startOfDay.getTime() - 59 * 864e5); this.granularity = 'day'; }
                     else { this.periodStart = startOfDay; this.granularity = 'hour'; this.period = 'today'; }
                     this.periodEnd = now;
                 },
@@ -251,11 +277,19 @@
 
                 async reloadTrend() {
                     if (this.view === 'cycle') return;   // 사이클 전용 페이지 — 추이 로드 건너뜀
-                    if (!this.flow) return;
+                    if (!this.flow && !this.allMode) return;
                     const seq = ++this._trendSeq;
                     this.trendLoading = true;
                     try {
-                        const hist = await this.apiGet('/api/dashboard/flows/' + encodeURIComponent(this.flow.flowName) + '/history?limit=2000');
+                        let hist;
+                        if (this.allMode) {
+                            // 라인 전체(모든 Flow) 히스토리를 병렬 조회 후 하나의 사이클 목록으로 병합.
+                            const lists = await Promise.all(this.allFlowNames.map(n =>
+                                this.apiGet('/api/dashboard/flows/' + encodeURIComponent(n) + '/history?limit=2000').catch(() => [])));
+                            hist = lists.flat();
+                        } else {
+                            hist = await this.apiGet('/api/dashboard/flows/' + encodeURIComponent(this.flow.flowName) + '/history?limit=2000');
+                        }
                         if (seq !== this._trendSeq) return;
                         const startMs = this.periodStart.getTime(), endMs = this.periodEnd.getTime();
                         const rows = (hist || []).filter(h => { const t = new Date(h.recordedAt).getTime(); return t >= startMs && t <= endMs; });
@@ -292,8 +326,15 @@
                     if (this.granularity === 'week') { const wd = new Date(d.getFullYear(), d.getMonth(), d.getDate()); wd.setDate(wd.getDate() - wd.getDay()); return wd; }
                     return new Date(d.getFullYear(), d.getMonth(), d.getDate()); // day
                 },
+                nextBucket(d) {
+                    const n = new Date(d);
+                    if (this.granularity === 'hour') n.setHours(n.getHours() + 1);
+                    else if (this.granularity === 'week') n.setDate(n.getDate() + 7);
+                    else if (this.granularity === 'month') n.setMonth(n.getMonth() + 1);
+                    else n.setDate(n.getDate() + 1); // day
+                    return n;
+                },
                 buildBuckets(rows) {
-                    if (rows.length === 0) return [];
                     const map = new Map();
                     for (const r of rows) {
                         const key = this.truncBucket(new Date(r.recordedAt)).getTime();
@@ -304,13 +345,29 @@
                         if (r.mt != null) { a.sMt += r.mt; a.nMt++; }
                         if (r.wt != null) { a.sWt += r.wt; a.nWt++; }
                     }
-                    return [...map.values()].sort((x, y) => x.key - y.key).map(a => ({
-                        ts: a.key,
-                        avgCT: a.nCt > 0 ? a.sCt / a.nCt : 0,
-                        avgMT: a.nMt > 0 ? a.sMt / a.nMt : 0,
-                        avgWT: a.nWt > 0 ? a.sWt / a.nWt : 0,
-                        count: a.count, idle: a.idle,
-                    }));
+                    const emit = (a, key) => ({
+                        ts: key,
+                        avgCT: a && a.nCt > 0 ? a.sCt / a.nCt : 0,
+                        avgMT: a && a.nMt > 0 ? a.sMt / a.nMt : 0,
+                        avgWT: a && a.nWt > 0 ? a.sWt / a.nWt : 0,
+                        count: a ? a.count : 0, idle: a ? a.idle : 0,
+                    });
+                    // 기간 내 모든 단위시간 버킷을 빠짐없이 생성(데이터 없으면 0). — 시계열 연속성 규약
+                    const out = [];
+                    if (this.periodStart && this.periodEnd) {
+                        let d = this.truncBucket(this.periodStart);
+                        const endMs = this.periodEnd.getTime();
+                        let guard = 0;
+                        while (d.getTime() <= endMs && guard++ < 10000) {
+                            const key = d.getTime();
+                            out.push(emit(map.get(key), key));
+                            map.delete(key);
+                            d = this.nextBucket(d);
+                        }
+                    }
+                    // 경계 절삭 오차 등으로 범위 밖에 남은 버킷도 유실 없이 편입.
+                    for (const a of [...map.values()]) out.push(emit(a, a.key));
+                    return out.sort((x, y) => x.ts - y.ts);
                 },
 
                 drawCharts() {
@@ -341,8 +398,8 @@
                     const toSec = (ms) => Math.round(ms / 1000 * 10) / 10;
                     const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim() || '#888';
                     const cCt = css('--color-primary') || '#0E7CCB';
-                    const cMt = css('--mt') || '#12A594';
-                    const cWt = css('--wt') || '#C07A10';
+                    const cMt = css('--dash-mt') || '#fb8c00';   // 동작 = 주황 (신호색 통일)
+                    const cWt = css('--dash-wt') || '#AEB9C6';    // 대기 = 회색 (신호색 통일)
                     const grid = css('--color-lines') || 'rgba(14,27,42,0.10)';
                     const tickColor = css('--color-text-secondary') || '#5A6B7E';
 
@@ -377,7 +434,13 @@
                                         filter: (it) => it.dataset.type !== 'line',
                                         callbacks: {
                                             title: (items) => items[0].chart.$ctx.labels[items[0].dataIndex] || '',
-                                            label: (c) => `${c.dataset.label}: ${fmtMs(c.parsed.y || 0)}`,
+                                            label: (c) => {
+                                                const x = c.chart.$ctx, idx = c.dataIndex;
+                                                const ct = (x.mt[idx] ?? 0) + (x.wt[idx] ?? 0);
+                                                const v = c.parsed.y || 0;
+                                                const pct = ct > 0 ? Math.round(v / ct * 100) : 0;
+                                                return `${c.dataset.label}: ${fmtMs(v)} (${pct}%)`;
+                                            },
                                             afterBody: (items) => {
                                                 const x = items[0].chart.$ctx, idx = items[0].dataIndex;
                                                 const ctVal = (x.mt[idx] ?? 0) + (x.wt[idx] ?? 0);
@@ -398,16 +461,32 @@
                     }
                     if (countCv) {
                         _charts.count = new Chart(countCv, {
-                            type: 'bar',
-                            data: { labels, datasets: [{ label: '사이클 수', data: this.buckets.map(b => b.count), backgroundColor: cCt }] },
-                            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: grid }, ticks: { color: tickColor } }, y: { beginAtZero: true, grid: { color: grid }, ticks: { color: tickColor } } } }
+                            type: 'line',
+                            data: { labels, datasets: [{ label: '사이클 수', data: this.buckets.map(b => b.count), borderColor: cCt, backgroundColor: cCt, borderWidth: 2, tension: 0.3, pointRadius: 2, pointHoverRadius: 4, fill: false, spanGaps: true }] },
+                            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: grid }, ticks: { color: tickColor, font: { size: 10 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 12 } }, y: { beginAtZero: true, grid: { color: grid }, ticks: { color: tickColor, precision: 0 } } } }
                         });
                     }
                     if (distCv) {
+                        const self = this;
                         _charts.dist = new Chart(distCv, {
                             type: 'doughnut',
                             data: { labels: ['동작시간', '대기시간'], datasets: [{ data: [this.trend.totalMt, this.trend.totalWt], backgroundColor: [cMt, cWt] }] },
-                            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: tickColor } } } }
+                            options: {
+                                responsive: true, maintainAspectRatio: false,
+                                plugins: {
+                                    legend: { position: 'bottom', labels: { color: tickColor } },
+                                    tooltip: {
+                                        callbacks: {
+                                            label: (c) => {
+                                                const total = c.dataset.data.reduce((s, v) => s + (v || 0), 0);
+                                                const v = c.parsed || 0;
+                                                const pct = total > 0 ? Math.round(v / total * 100) : 0;
+                                                return `${c.label}: ${self.fmt(v)} (${pct}%)`;
+                                            },
+                                        }
+                                    },
+                                }
+                            }
                         });
                     }
                 },
@@ -963,36 +1042,43 @@
                 },
 
                 get selRangeLenMs() { return this.selectedRange ? Math.max(0, this.selectedRange.endMs - this.selectedRange.startMs) : 0; },
-                get selRunMs() {
+                // 이 구간에 걸치는(겹치는) 사이클 수. Tail 미지정(경계 없음) Flow 는 산출 불가 → selHasCycles=false.
+                get selHasCycles() { return this.cycleBoundaries.length > 0; },
+                get selCycleCount() {
                     const r = this.selectedRange; if (!r) return 0;
-                    let sum = 0;
-                    for (const lane of this.callLanes) for (const iv of (lane.intervals || [])) {
-                        const s = new Date(iv.start).getTime(), e = new Date(iv.end).getTime();
-                        const lo = Math.max(s, r.startMs), hi = Math.min(e, r.endMs);
-                        if (hi > lo) sum += (hi - lo);
+                    let n = 0;
+                    for (const c of this.cycleList) {
+                        const s = c.startMs, e = c.startMs + (c.ctMs || 0);
+                        if (Math.min(e, r.endMs) > Math.max(s, r.startMs)) n++;
                     }
-                    return sum;
+                    return n;
                 },
-                get selGapMs() {
-                    const r = this.selectedRange; if (!r) return 0;
-                    let sum = 0;
-                    for (const g of this.computeAllGaps()) {
-                        const lo = Math.max(g.startMs, r.startMs), hi = Math.min(g.endMs, r.endMs);
-                        if (hi > lo) sum += (hi - lo);
+                // 동작/대기 = 이 구간에 걸친 사이클들의 동작시간(MT=Head→Tail) 합 / 대기시간(WT=CT−MT) 합.
+                // 상단 리본·OEE 와 동일 정의. 진행중(isOpen)·미완료(atMs=null) 사이클은 CT 미확정이라 제외.
+                get _selCycleAgg() {
+                    const r = this.selectedRange;
+                    const out = { mt: 0, wt: 0 };
+                    if (!r) return out;
+                    for (const c of this.cycleList) {
+                        if (c.isOpen || c.atMs == null) continue;
+                        const s = c.startMs, e = c.startMs + (c.ctMs || 0);
+                        if (Math.min(e, r.endMs) > Math.max(s, r.startMs)) { out.mt += c.atMs; out.wt += (c.wtMs || 0); }
                     }
-                    return sum;
+                    return out;
                 },
-                get selActiveDevices() {
-                    const r = this.selectedRange; if (!r) return 0;
-                    const set = new Set();
-                    for (const lane of this.callLanes) {
-                        for (const iv of (lane.intervals || [])) {
-                            const s = new Date(iv.start).getTime(), e = new Date(iv.end).getTime();
-                            if (Math.min(e, r.endMs) > Math.max(s, r.startMs)) { set.add(lane.callId); break; }
-                        }
-                    }
-                    return set.size;
+                get selActiveMs() { return this._selCycleAgg.mt; },
+                get selWaitMs() { return this._selCycleAgg.wt; },
+
+                // 선택 구간 플로팅 툴팁의 앵커 좌표(스크롤 컨테이너 콘텐츠=SVG 픽셀 좌표계).
+                // 가로: 선택 구간의 중앙(양 끝 근처면 툴팁이 잘리지 않게 클램프). 세로: 레인 영역 상단.
+                get selTipCenterPx() {
+                    const r = this.selectedRange; if (!r || !this._geo) return 0;
+                    const { cs, xScale } = this._geo;
+                    const raw = LEFT_PAD + ((r.startMs + r.endMs) / 2 - cs) * xScale;
+                    const chartW = LEFT_PAD + this.plotWidth + RIGHT_PAD;
+                    return Math.round(Math.max(170, Math.min(chartW - 170, raw)));
                 },
+                get selTipTopPx() { return this.laneTopY + 6; },
 
                 async resolveOverlays() {
                     if (!this.selectedFlow) return;
@@ -1114,23 +1200,93 @@
                     if (!ch) return;
                     await this._applyDurations([ch], `'${row.ac.name}' 실측 duration 을 AASX 에 적용`);
                 },
+
+                // ── 디바이스 Duration/Min/Max 직접 편집 다이얼로그 ─────────────────
+                // 대상 Work(targetWorkId) 를 해석할 수 있는 ApiCall 만 편집 가능.
+                canEditApi(ac) { return !!(ac && ac.targetWorkId); },
+                // ms ↔ 초 변환 (입력/표시는 초, 저장은 ms). 빈칸/null 은 서로 '' ↔ null.
+                _msToSecStr(ms) {
+                    if (ms === null || ms === undefined) return '';
+                    return String(Math.round(ms / 10) / 100);   // 소수 2자리(초)
+                },
+                _secStrToMs(s) {
+                    if (s === null || s === undefined) return null;
+                    const t = String(s).trim();
+                    if (t === '') return null;
+                    const v = Number(t);
+                    if (!isFinite(v) || v < 0) return null;
+                    return Math.round(v * 1000);
+                },
+                openDurEdit(row) {
+                    const ac = row.ac;
+                    if (!this.canEditApi(ac)) return;
+                    this.durEditCtx = {
+                        workId: ac.targetWorkId,
+                        name: ac.name,
+                        m: row.m || { count: 0, min: null, max: null, mean: null },
+                        curDurMs: ac.currentDurationMs ?? null,
+                        curMinMs: ac.currentMinMs ?? null,
+                        curMaxMs: ac.currentMaxMs ?? null,
+                    };
+                    this.durEditForm = {
+                        dur: this._msToSecStr(this.durEditCtx.curDurMs),
+                        min: this._msToSecStr(this.durEditCtx.curMinMs),
+                        max: this._msToSecStr(this.durEditCtx.curMaxMs),
+                    };
+                    this.durEditOpen = true;
+                },
+                closeDurEdit() { this.durEditOpen = false; this.durEditCtx = null; },
+                // '실측 적용' — 이 구간 실측 mean/min/max 를 폼에 자동 채움(초).
+                fillDurEditFromMeasured() {
+                    const m = this.durEditCtx && this.durEditCtx.m;
+                    if (!m || m.count === 0) return;
+                    this.durEditForm = {
+                        dur: this._msToSecStr(Math.round(m.mean)),
+                        min: this._msToSecStr(Math.round(m.min)),
+                        max: this._msToSecStr(Math.round(m.max)),
+                    };
+                },
+                get durEditHasMeasured() { return !!(this.durEditCtx && this.durEditCtx.m && this.durEditCtx.m.count > 0); },
+                async saveDurEdit() {
+                    if (!this.durEditCtx) return;
+                    const dur = this._secStrToMs(this.durEditForm.dur);
+                    let min = this._secStrToMs(this.durEditForm.min);
+                    let max = this._secStrToMs(this.durEditForm.max);
+                    if (min !== null && max !== null && min > max) { const t = min; min = max; max = t; }
+                    const change = { workId: this.durEditCtx.workId, durationMs: dur, minMs: min, maxMs: max };
+                    const ok = await this._applyDurations(
+                        [change],
+                        `'${this.durEditCtx.name}' 의 Duration/Min/Max 를 직접 입력값으로 AASX 에 적용`,
+                        { min, max });
+                    if (ok) this.closeDurEdit();
+                },
                 async applyAllDurations() {
                     const changes = this.collectAllDurationChanges();
                     if (!changes.length) return;
                     await this._applyDurations(changes, `실측 duration ${changes.length}건을 AASX 에 일괄 적용`);
                 },
-                async _applyDurations(changes, label) {
-                    if (!changes.length) return;
-                    if (!window.confirm(`${label}합니다.\n\n공유 project.aasx 의 Device Work(Duration/Min/Max)를 덮어씁니다 — Promaker 와 공유되는 파일입니다. 계속할까요?`)) return;
+                // returns true on success (커밋됨), false on cancel/error. min/max=null 은 해당 임계 해제(clear).
+                async _applyDurations(changes, label, cleared) {
+                    if (!changes.length) return false;
+                    let note = '';
+                    if (cleared) {
+                        const c = [];
+                        if (cleared.min === null) c.push('min');
+                        if (cleared.max === null) c.push('max');
+                        if (c.length) note = `\n\n비워둔 ${c.join('·')} 값은 해제(미설정)됩니다.`;
+                    }
+                    if (!window.confirm(`${label}합니다.${note}\n\n공유 project.aasx 의 Device Work(Duration/Min/Max)를 덮어씁니다 — Promaker 와 공유되는 파일입니다. 계속할까요?`)) return false;
                     this.applyDurBusy = true; this.applyDurMsg = 'AASX 적용 중…'; this.errorMessage = null;
                     try {
                         const r = await this.apiPost('/api/call-test/apply-durations', { changes });
                         this.applyDurMsg = `AASX 적용 완료 (${r.applied}건)`;
                         await this.load();   // '현재 AASX' 값 재조회
                         setTimeout(() => { this.applyDurMsg = ''; }, 5000);
+                        return true;
                     } catch (e) {
                         this.errorMessage = '실측 적용 실패: ' + e.message;
                         this.applyDurMsg = '';
+                        return false;
                     } finally { this.applyDurBusy = false; }
                 },
 
@@ -1321,9 +1477,9 @@
                         if (tailX !== null) {
                             const aw = Math.max(0, tailX - sx);
                             const iw = Math.max(0, ex - tailX);
-                            g += `<rect x="${this.f(sx)}" y="${barY}" width="${this.f(aw)}" height="${barH}" fill="#4caf50" opacity="${0.9 * dim}"/>`;
-                            g += `<rect x="${this.f(tailX)}" y="${barY}" width="${this.f(iw)}" height="${barH}" fill="#b0bec5" opacity="${0.9 * dim}"/>`;
-                            if (aw > 54) g += `<text x="${this.f(sx + aw / 2.0)}" y="${this.f(barCY)}" text-anchor="middle" dominant-baseline="central" font-size="9.5" font-weight="700" fill="#1b5e20" font-family="Inter,ui-monospace,Cascadia Code,Consolas,monospace">${this.esc(this.formatMs(atMs))}</text>`;
+                            g += `<rect x="${this.f(sx)}" y="${barY}" width="${this.f(aw)}" height="${barH}" fill="#fb8c00" opacity="${0.9 * dim}"/>`;
+                            g += `<rect x="${this.f(tailX)}" y="${barY}" width="${this.f(iw)}" height="${barH}" fill="#AEB9C6" opacity="${0.9 * dim}"/>`;
+                            if (aw > 54) g += `<text x="${this.f(sx + aw / 2.0)}" y="${this.f(barCY)}" text-anchor="middle" dominant-baseline="central" font-size="9.5" font-weight="700" fill="#5a3200" font-family="Inter,ui-monospace,Cascadia Code,Consolas,monospace">${this.esc(this.formatMs(atMs))}</text>`;
                             if (iw > 54) g += `<text x="${this.f(tailX + iw / 2.0)}" y="${this.f(barCY)}" text-anchor="middle" dominant-baseline="central" font-size="9.5" fill="#37474f" font-family="Inter,ui-monospace,Cascadia Code,Consolas,monospace">${this.esc(this.formatMs(idleMs))}</text>`;
                         } else {
                             const fill = isEven ? '#9fa8da' : '#ce93d8';
@@ -1374,14 +1530,14 @@
                         const tailX = tailIn !== null ? LEFT_PAD + ms(tailIn) * xScale : null;
 
                         if (tailX !== null) {
-                            sb += `<rect x="${this.f(sx)}" y="${laneAreaTop}" width="${this.f(tailX - sx)}" height="${laneAreaH}" fill="#4caf50" opacity="${0.10 * dim}"/>`;
-                            sb += `<rect x="${this.f(tailX)}" y="${laneAreaTop}" width="${this.f(ex - tailX)}" height="${laneAreaH}" fill="#607d8b" opacity="${0.08 * dim}"/>`;
+                            sb += `<rect x="${this.f(sx)}" y="${laneAreaTop}" width="${this.f(tailX - sx)}" height="${laneAreaH}" fill="#fb8c00" opacity="${0.10 * dim}"/>`;
+                            sb += `<rect x="${this.f(tailX)}" y="${laneAreaTop}" width="${this.f(ex - tailX)}" height="${laneAreaH}" fill="#AEB9C6" opacity="${0.08 * dim}"/>`;
                         } else {
                             const bandFill = isEven ? '#5c6bc0' : '#8e24aa';
                             sb += `<rect x="${this.f(sx)}" y="${laneAreaTop}" width="${this.f(bandW)}" height="${laneAreaH}" fill="${bandFill}" opacity="${0.07 * dim}"/>`;
                         }
 
-                        sb += `<line x1="${this.f(sx)}" y1="${TOP_MARGIN}" x2="${this.f(sx)}" y2="${laneAreaBottom}" stroke="#ff9800" stroke-width="1.8" opacity="0.9"/>`;
+                        sb += `<line x1="${this.f(sx)}" y1="${TOP_MARGIN}" x2="${this.f(sx)}" y2="${laneAreaBottom}" stroke="#455a64" stroke-width="1.8" opacity="0.9"/>`;
                         if (tailX !== null) {
                             sb += `<line x1="${this.f(tailX)}" y1="${laneAreaTop}" x2="${this.f(tailX)}" y2="${laneAreaBottom}" stroke="#ab47bc" stroke-width="1.2" stroke-dasharray="3 2" opacity="0.85"/>`;
                         }
@@ -1390,7 +1546,7 @@
                     const lastEdge = bnd[bnd.length - 1];
                     if (lastEdge >= cs && lastEdge <= ce) {
                         const lx = LEFT_PAD + ms(lastEdge) * xScale;
-                        sb += `<line x1="${this.f(lx)}" y1="${TOP_MARGIN}" x2="${this.f(lx)}" y2="${laneAreaBottom}" stroke="#ff9800" stroke-width="1.8" opacity="0.9"/>`;
+                        sb += `<line x1="${this.f(lx)}" y1="${TOP_MARGIN}" x2="${this.f(lx)}" y2="${laneAreaBottom}" stroke="#455a64" stroke-width="1.8" opacity="0.9"/>`;
                     }
                     return sb;
                 },

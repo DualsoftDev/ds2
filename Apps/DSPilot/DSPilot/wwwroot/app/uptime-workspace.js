@@ -38,18 +38,13 @@
                 curFlow: '', // '' = 라인 전체, 그 외 = 특정 Flow (OEE/정지/도넛/계획시간을 그 설비로 필터)
                 rt: { connected: false },
                 _conn: null, _dt: null, _pollTimer: null,
-                // ── 진행중/해결 이상 띠 (대시보드 알람 배너와 동일) ──
-                // bandActive=현재 진행중(자동 해소) 이상(active-alarms, 노란 띠), bandToday=오늘 발생한 이상 최신순(흰 띠 폴백).
-                // 둘 다 [{ msg, level }] 로 정규화해 세로 티커가 한 건씩 소비. bandIndex=현재 표시 인덱스.
-                bandActive: [], bandToday: [], bandActiveOverflow: false, bandTodayOverflow: false,
-                bandIndex: 0, bandLoaded: false,
-                alarmTickerSec: 3,          // 띠 티커 전환 간격(초) — 서버설정(스냅샷 alarmTickerIntervalSec)을 읽어 대시보드와 동일 속도.
-                _bandTicker: null, _bandPaused: false, _bandDt: null, _bandMarqueeMs: 0,
                 // stale 응답 가드 — 폴링/기간변경/페이지이동 응답이 뒤늦게 도착해 최신 상태를 덮어쓰는 경합 방지
                 _utSeq: 0, _oeeSeq: 0,
-                utPage: 0, utSearch: '', utLevel: '', utSystem: '', actionOverHint: [],
+                // utCategory = 구분 필터 ('' 전체 | 'abnormal' | 'usertag'). 레벨은 서버가 Error 로 통일(클라 미노출).
+                utPage: 0, utSearch: '', utCategory: '', utSystem: '', actionOverHint: [],
+                // 태그별 Top 10 그룹 기준: 'name'(유형/이름별 — abnormal 은 4종으로 묶임) | 'path'(경로별로 펼침).
+                topGroupBy: 'name',
                 _focusAt: null, // 피드에서 at 으로 진입 시 스크롤·하이라이트할 알람 행 키(occurredAtLocal 초단위)
-                showDefinitions: false, definitionsPage: 0,
                 _charts: null,
                 dailyData: null,
 
@@ -83,12 +78,12 @@
                 async init() {
                     this.dark = localStorage.getItem('dspilot-theme') === 'dark';
                     window.addEventListener('storage', (e) => { if (e.key === 'dspilot-theme') { this.dark = e.newValue === 'dark'; this.redrawForTheme(); } });
-                    // 사이드바 이상코드 피드에서 진입 시 필터 시드(/uptime?utSystem=&utLevel=&utSearch=).
+                    // 사이드바 이상코드 피드에서 진입 시 필터 시드(/uptime?utSystem=&category=&utSearch=).
                     const qp = new URLSearchParams(location.search);
                     // 설비(Flow) 필터는 URL(?flow=)에서만 온다(좌측 메뉴 '가동시간·이상' 트리). 없으면 라인 전체.
                     if (qp.has('flow')) this.curFlow = qp.get('flow') || '';
                     if (qp.has('utSystem')) this.utSystem = qp.get('utSystem') || '';
-                    if (qp.has('utLevel')) this.utLevel = qp.get('utLevel') || '';
+                    if (qp.has('category')) this.utCategory = qp.get('category') || '';
                     if (qp.has('utSearch')) this.utSearch = qp.get('utSearch') || '';
                     // 피드에서 발생시각(at)을 받으면 그 '날' 하루를 custom 기간으로 맞춰 클릭한 알람이 조회 범위에 들어오게 한다.
                     // (기본 '오늘'이라 과거 알람이면 0건이 되던 문제 해결.) _focusAt 은 로드 후 그 행을 스크롤·하이라이트하는 키.
@@ -100,7 +95,7 @@
                         this.customTo = day + 'T23:59';
                         this._focusAt = at.slice(0, 19);
                     }
-                    const seeded = qp.has('utSystem') || qp.has('utLevel') || qp.has('utSearch') || qp.has('at');
+                    const seeded = qp.has('utSystem') || qp.has('category') || qp.has('utSearch') || qp.has('at');
                     // 활성 탭: 물리 분리 페이지는 view 가 결정(탭바 없음). 구 통합(both)만 URL ?tab=/시드로 분기.
                     this.tab = this.view === 'oee' ? 'oee'
                         : this.view === 'alarm' ? 'anomaly'
@@ -112,16 +107,8 @@
                     await this.load();
                     // OEE 도메인 로드(CT 표·비생산 시간대)는 알람 전용 페이지에서 스킵.
                     if (this.view !== 'alarm') { await this.loadCtTable(); await this.loadPlannedStops(); }
-                    // 알람 도메인(이상 띠·차단 관리)은 OEE 전용 페이지에서 스킵.
-                    if (this.view !== 'oee') {
-                        this.loadBand();
-                        this.bandStartTicker();
-                        // 창 크기 변화 시 잘림 여부가 바뀌니 마퀴 재측정(디바운스).
-                        this._bandResize = () => { clearTimeout(this._bandRzT); this._bandRzT = setTimeout(() => this.bandMeasure(), 150); };
-                        window.addEventListener('resize', this._bandResize);
-                    }
                     this.connectSignalR();
-                    this._pollTimer = setInterval(() => { this.load(true); if (this.view !== 'oee') this.loadBand(); }, 10000);
+                    this._pollTimer = setInterval(() => { this.load(true); }, 10000);
                     // 알람 페이지 진입 시드(필터 스크롤·포커스·차단 모달) — OEE 전용 페이지에서는 무의미하므로 스킵.
                     if (this.view !== 'oee') {
                         // 필터 시드로 진입했으면 UserTag 카드로 스크롤(특정 알람 포커스가 있으면 그 행으로 직접 스크롤하므로 생략).
@@ -136,10 +123,6 @@
                 destroy() {
                     clearInterval(this._pollTimer);
                     clearTimeout(this._dt);
-                    clearTimeout(this._bandTicker);
-                    clearTimeout(this._bandDt);
-                    clearTimeout(this._bandRzT);
-                    if (this._bandResize) window.removeEventListener('resize', this._bandResize);
                     this._conn?.stop();
                     if (_dailyChart) { try { _dailyChart.destroy(); } catch (e) {} _dailyChart = null; }
                 },
@@ -412,7 +395,7 @@
                         p.set('to', this.customTo + ':00');
                     }
                     if (this.utSearch.trim()) p.set('search', this.utSearch.trim());
-                    if (this.utLevel) p.set('level', this.utLevel);
+                    if (this.utCategory) p.set('category', this.utCategory);
                     if (this.utSystem) p.set('system', this.utSystem);
                     return p.toString();
                 },
@@ -431,8 +414,6 @@
                         const snap = await this.apiGet('/api/user-tags/snapshot?' + this.utQs());
                         if (seq === this._utSeq) { // stale 응답(이후 요청이 이미 시작됨)은 폐기 — 페이지/기간 덮어쓰기 경합 방지
                             this.ut = snap;
-                            // 띠 티커 간격을 대시보드와 동일한 서버설정으로 맞춘다(라이브 반영).
-                            if (snap.alarmTickerIntervalSec > 0) this.alarmTickerSec = snap.alarmTickerIntervalSec;
                             this.utPage = snap.page; // 서버가 page 클램프할 수 있음
                             // ActionOver 반복 디바이스 집계 — 같은 tagAddress 에서 2건 이상이면 힌트 표시
                             const _aoCounts = {};
@@ -483,25 +464,22 @@
                     if (!this._charts || !this.ut) return;
                     try {
                         this._charts.renderTrendChart('ut-trend-chart', this.ut.buckets || [], this.ut.granularity);
-                        this._charts.renderTopChart('ut-top-chart', (this.ut.topRows || []).slice(0, 10));
+                        const topSrc = this.topGroupBy === 'path' ? this.ut.topRowsByPath : this.ut.topRows;
+                        this._charts.renderTopChart('ut-top-chart', (topSrc || []).slice(0, 10));
                     } catch (e) { console.warn('chart draw failed', e); }
+                },
+
+                // 태그별 Top 10 그룹 기준 전환(유형별 ↔ 경로별) — 스냅샷은 두 집계를 모두 담고 있어 재조회 없이 즉시 다시 그림.
+                setTopGroupBy(mode) {
+                    if (this.topGroupBy === mode) return;
+                    this.topGroupBy = mode;
+                    this.$nextTick(() => this.drawCharts());
                 },
 
                 // ── 이상발생 필터/페이지/CSV (구 관리페이지) ──
                 applyUtFilters() { this.utPage = 0; this.load(); },
-                // 집계 KPI 카드 클릭 → 알람 필터. 총알림/Error/Warning 은 레벨 토글 그룹, 최빈 태그는 검색.
-                filterAllLevels() { if (this.utLevel === '') return; this.utLevel = ''; this.applyUtFilters(); },
-                filterByLevel(level) { this.utLevel = (this.utLevel === level) ? '' : level; this.applyUtFilters(); },
-                filterByTopTag() {
-                    const name = (this.ut && this.ut.topRows && this.ut.topRows.length) ? this.ut.topRows[0].name : '';
-                    if (!name) return;
-                    this.utSearch = (this.utSearch === name) ? '' : name;
-                    this.applyUtFilters();
-                },
                 prevUtPage() { if (this.utPage === 0) return; this.utPage--; this.load(); },
                 nextUtPage() { if (!this.ut || this.utPage + 1 >= this.ut.maxPage) return; this.utPage++; this.load(); },
-                definitionsMaxPage() { return this.ut ? Math.max(1, Math.ceil((this.ut.definitions || []).length / 10)) : 1; },
-                definitionsPageView() { return this.ut ? (this.ut.definitions || []).slice(this.definitionsPage * 10, this.definitionsPage * 10 + 10) : []; },
                 async exportUtCsv() {
                     if (!this.ut) return;
                     if (!this._charts) { this.error = 'CSV 모듈이 로드되지 않았습니다 — 페이지를 새로고침한 뒤 다시 시도하세요.'; return; }
@@ -632,127 +610,17 @@
                     const trigger = () => { clearTimeout(this._dt); this._dt = setTimeout(() => this.load(true), 300); };
                     conn.on('CallStateChangedBatch', trigger);
                     conn.on('CallStateChanged', trigger);
-                    conn.on('DatabaseRebuilt', () => { this.load(true); this.loadBand(); });
+                    conn.on('DatabaseRebuilt', () => { this.load(true); });
                     conn.on('FlowHistoryCleared', trigger);
                     // 신규 UserTag 알림 — 총알림·시계열 추이를 상단바 배지와 동일하게 실시간 갱신 (issue #176).
                     conn.on('UserTagAlertsChanged', trigger);
-                    // 이상 띠는 대시보드 알람 배너와 동일하게 abnormal 4종/usertag 활성 변화에 즉시 재조회(진행중→해소 전환 포함).
-                    conn.on('AbnormalDetected', () => this.debouncedLoadBand());
-                    conn.on('UserTagAlertsChanged', () => this.debouncedLoadBand());
-                    conn.onreconnected(() => { this.rt.connected = true; this.load(true); this.loadBand(); });
+                    // 신규 이상감지도 알림 이력/추이를 즉시 갱신.
+                    conn.on('AbnormalDetected', trigger);
+                    conn.onreconnected(() => { this.rt.connected = true; this.load(true); });
                     conn.onreconnecting(() => { this.rt.connected = false; });
                     conn.onclose(() => { this.rt.connected = false; });
                     conn.start().then(() => { this.rt.connected = true; }).catch(() => { this.rt.connected = false; });
                     this._conn = conn;
-                },
-
-                // ══════════════ 진행중/해결 이상 띠 (대시보드 알람 배너와 동일 동작) ══════════════
-                // 진행중(active-alarms)이 있으면 노란 띠로 한 건씩, 모두 해소되면 흰 띠로 '오늘 최근 이상' 을 전환 표시.
-                // 데이터는 대시보드와 같은 출처(active-alarms)를 쓰고, 폴백 목록은 오늘 발생한 전체 이상(필터 무관) 최신순이다.
-
-                // 서버 "yyyy-MM-dd HH:mm:ss(.fff)" → "M월 D일 H시 M분" (앞자리 0 제거 — 대시보드 fmtKoTime 과 동일).
-                fmtKoTime(s) {
-                    if (!s) return '';
-                    const m = /^\d{4}-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(String(s).trim());
-                    if (!m) return s;
-                    const n = i => parseInt(m[i], 10);
-                    return n(1) + '월 ' + n(2) + '일 ' + n(3) + '시 ' + n(4) + '분';
-                },
-                // active-alarms 한 건(AbnormalEventDto) → 표시 문구 (대시보드 abnMsgText 와 동일).
-                abnBandMsg(a) {
-                    if (!a) return '';
-                    const loc = [a.workName, a.callName]
-                        .map(s => (s || '').trim()).filter(Boolean)
-                        .filter((s, i, arr) => i === 0 || s !== arr[i - 1])
-                        .join(' / ') || a.flowName || a.sensorTag || '위치미상';
-                    const ts = this.fmtKoTime(a.occurredAtLocal);
-                    const body = loc + ': ' + a.label + (a.kindName ? ' (' + a.kindName + ')' : '');
-                    return (ts ? ts + ' · ' : '') + body;
-                },
-                // 오늘 알림 한 건(UtAlertDto) → 표시 문구. "M월 D일 H시 M분 · System / Name (MatchOp MatchValue)".
-                utBandMsg(a) {
-                    if (!a) return '';
-                    const loc = [a.systemName, a.name].map(s => (s || '').trim()).filter(Boolean).join(' / ') || '위치미상';
-                    const ts = this.fmtKoTime(a.occurredAtLocal);
-                    const cond = a.matchOp ? (a.matchOp + (a.matchValue != null && a.matchValue !== '' ? ' ' + a.matchValue : '')) : '';
-                    return (ts ? ts + ' · ' : '') + loc + (cond ? ' (' + cond + ')' : '');
-                },
-
-                // 진행중(active-alarms) + 오늘 최근 이상을 병렬 조회해 정규화. 둘 다 비핵심이라 실패는 조용히 무시.
-                async loadBand() {
-                    try {
-                        const [active, today] = await Promise.all([
-                            this.apiGet('/api/dashboard/active-alarms?limit=11').catch(() => []),
-                            this.apiGet('/api/user-tags/alerts?period=today&limit=11').catch(() => [])
-                        ]);
-                        const a = Array.isArray(active) ? active : [];
-                        this.bandActiveOverflow = a.length > 10;
-                        this.bandActive = a.slice(0, 10).map(x => ({ msg: this.abnBandMsg(x), level: (x.level || '').toLowerCase() }));
-                        const t = Array.isArray(today) ? today : [];
-                        this.bandTodayOverflow = t.length > 10;
-                        this.bandToday = t.slice(0, 10).map(x => ({ msg: this.utBandMsg(x), level: (x.logLevel || '').toLowerCase() }));
-                        if (this.bandIndex >= this.bandList.length) this.bandIndex = 0;
-                        this.bandLoaded = true;
-                        this.$nextTick(() => this.bandMeasure());
-                    } catch (e) { /* 비핵심 — 조용히 무시 */ }
-                },
-                debouncedLoadBand() { clearTimeout(this._bandDt); this._bandDt = setTimeout(() => this.loadBand(), 250); },
-
-                // 표시 대상 목록 — 진행중이 있으면 그것(노란), 없으면 오늘 최근(흰).
-                get bandList() { return this.bandActive.length ? this.bandActive : this.bandToday; },
-                get bandIsActive() { return this.bandActive.length > 0; },
-                get bandOverflow() { return this.bandIsActive ? this.bandActiveOverflow : this.bandTodayOverflow; },
-                get bandCount() { return this.bandList.length; },
-                get bandCurrent() { const L = this.bandList; return L.length ? L[this.bandIndex % L.length].msg : ''; },
-                get bandBadge() {
-                    const n = this.bandOverflow ? '10+' : this.bandCount;
-                    return (this.bandIsActive ? '진행중 ' : '오늘 ') + n + '건';
-                },
-                // 한 건 체류 시간(ms) = 전환 간격. 대시보드와 동일하게 서버설정 alarmTickerSec(초)를 1~30초로 클램프.
-                get bandDwellMs() { return Math.max(1000, Math.min(30000, Math.round((this.alarmTickerSec || 3) * 1000))); },
-                bandTickMs() { return Math.max(this.bandDwellMs, this._bandMarqueeMs || 0); },
-
-                // 세로 티커 자동 전환 — 2건 이상일 때만. hover 시 일시정지. setTimeout 재귀로 매 틱 간격을 다시 읽어 설정 변경이 즉시 반영.
-                bandStartTicker() {
-                    clearTimeout(this._bandTicker);
-                    const schedule = () => this.$nextTick(() => {
-                        this.bandMeasure();
-                        this._bandTicker = setTimeout(tick, this.bandTickMs());
-                    });
-                    const tick = () => {
-                        if (!this._bandPaused && this.bandList.length >= 2)
-                            this.bandIndex = (this.bandIndex + 1) % this.bandList.length;
-                        schedule();
-                    };
-                    schedule();
-                },
-                bandPause(on) { this._bandPaused = !!on; },
-
-                // 잘린 문구를 측정해 마퀴(좌우 왕복)를 켜고 끈다 — 대시보드 abnMeasure 와 동일 로직.
-                bandMeasure() {
-                    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-                    let maxMs = 0;
-                    document.querySelectorAll('.up-alarm-track .up-alarm-msg').forEach(el => {
-                        el.classList.remove('is-marquee');
-                        el.style.removeProperty('--marquee-shift');
-                        el.style.removeProperty('--marquee-dur');
-                        if (el.classList.contains('up-alarm-empty')) return;            // 빈 상태 문구는 마퀴 대상 아님
-                        if (reduce || (!el.offsetParent && el.offsetWidth === 0)) return; // 숨김·모션축소 시 건너뜀
-                        const track = el.parentElement;
-                        const avail = track ? track.clientWidth : 0;
-                        const over = el.scrollWidth - avail;
-                        if (avail > 0 && over > 6) {
-                            const shift = over + 16;
-                            const oneWayMs = Math.max(2500, shift / 90 * 1000);
-                            const naturalMs = oneWayMs / 0.32;
-                            const cycleMs = Math.min(45000, Math.max(this.bandDwellMs, naturalMs));
-                            el.style.setProperty('--marquee-shift', '-' + shift + 'px');
-                            el.style.setProperty('--marquee-dur', (cycleMs / 1000).toFixed(1) + 's');
-                            el.classList.add('is-marquee');
-                            maxMs = Math.max(maxMs, cycleMs);
-                        }
-                    });
-                    this._bandMarqueeMs = maxMs;
                 },
 
                 setPeriod(p) { if (this.period === p) return; this.period = p; this.utPage = 0; if (window.dspLoading) window.dspLoading.wrap(() => this.load(), '기간 데이터 불러오는 중…'); else this.load(); },
@@ -775,22 +643,28 @@
                     if (window.dspLoading) window.dspLoading.wrap(() => this.load(), '기간 데이터 불러오는 중…'); else this.load();
                 },
 
-                // ── 기존 UserTag 도넛/레벨 (보존) ──
-                lc(level) { return (this.ut && this.ut.levelCounts && this.ut.levelCounts[level]) || 0; },
-                get levelTotal() { return this.lc('Error') + this.lc('Warning') + this.lc('Info'); },
-                levelShare(level) {
-                    const total = this.levelTotal;
+                // ── 구분(ABNORMAL/USERTAG) 도넛/배지 ──
+                // 구분 판별 SSOT(클라) — abnormal 행은 matchOp='AbnormalDetect'(서버 valueType='Abnormal' 과 대응).
+                categoryOf(a) { return (a && a.matchOp === 'AbnormalDetect') ? 'ABNORMAL' : 'USERTAG'; },
+                // 표시 라벨: ABNORMAL=자동감지(엔진 자동), USERTAG=사용자지정(사용자 정의 태그).
+                categoryLabel(a) { return this.categoryOf(a) === 'ABNORMAL' ? '자동감지' : '사용자지정'; },
+                // ds-status 톤: 둘 다 Error 알람이라 bad(빨강)로 통일, 구분은 라벨로만.
+                categoryStatus(a) { return 'bad'; },
+                cc(cat) { return (this.ut && this.ut.categoryCounts && this.ut.categoryCounts[cat]) || 0; },
+                get categoryTotal() { return this.cc('ABNORMAL') + this.cc('USERTAG'); },
+                categoryShare(cat) {
+                    const total = this.categoryTotal;
                     if (total <= 0) return 0;
-                    return Math.round(this.lc(level) * 100 / total);
+                    return Math.round(this.cc(cat) * 100 / total);
                 },
-                donutSeg(level) {
+                catDonutSeg(cat) {
                     const C = 2 * Math.PI * 38;
-                    const total = this.levelTotal;
+                    const total = this.categoryTotal;
                     if (total <= 0) return { dash: '0 ' + C.toFixed(2), offset: 0 };
-                    const order = ['Error', 'Warning', 'Info'];
+                    const order = ['ABNORMAL', 'USERTAG'];
                     let prior = 0;
-                    for (const l of order) { if (l === level) break; prior += this.lc(l); }
-                    const len = this.lc(level) / total * C;
+                    for (const c of order) { if (c === cat) break; prior += this.cc(c); }
+                    const len = this.cc(cat) / total * C;
                     const gap = C - len;
                     const offset = -(prior / total * C);
                     return { dash: len.toFixed(2) + ' ' + gap.toFixed(2), offset: offset.toFixed(2) };
@@ -801,7 +675,6 @@
                         .sort((a, b) => String(b.occurredAtLocal || '').localeCompare(String(a.occurredAtLocal || '')))
                         .slice(0, 10);
                 },
-                levelStatus(l) { return l === 'Error' ? 'bad' : l === 'Warning' ? 'warn' : 'info'; },
                 describeOp(op, mv) {
                     const v = (mv == null || mv === '') ? '?' : mv;
                     switch (op) {

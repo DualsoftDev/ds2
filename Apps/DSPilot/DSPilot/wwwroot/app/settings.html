@@ -84,6 +84,18 @@
         .hms-cell span { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-secondary); }
         .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 0.78rem; }
         .divider { border: none; border-top: 1px solid var(--color-lines); }
+        /* 테마 선택 — 스위치 대신 직관적 2택 카드 */
+        .theme-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 6px 0 4px; }
+        .theme-opt { position: relative; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 10px; background: var(--color-surface); border: 2px solid var(--color-lines); border-radius: var(--radius-md, 10px); cursor: pointer; transition: border-color .15s, background .15s, box-shadow .15s; color: var(--color-text-primary); }
+        .theme-opt:hover { border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-lines)); }
+        .theme-opt.is-active { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); box-shadow: 0 0 0 1px var(--color-primary) inset; }
+        .theme-opt-label { font-size: 0.82rem; font-weight: 600; }
+        .theme-swatch { display: inline-flex; align-items: center; justify-content: center; width: 46px; height: 46px; border-radius: 50%; border: 1px solid var(--color-lines); }
+        .theme-swatch .material-icons { font-size: 24px; }
+        .theme-swatch-light { background: #f4f6fb; color: #f2a72e; }
+        .theme-swatch-dark { background: #1c2333; color: #9fb4ff; border-color: #2c3550; }
+        .theme-check { position: absolute; top: 8px; right: 8px; font-size: 18px; color: var(--color-primary); opacity: 0; transition: opacity .15s; }
+        .theme-opt.is-active .theme-check { opacity: 1; }
         .settings-page code { background: color-mix(in srgb, var(--color-text-primary) 7%, transparent); padding: 1px 6px; border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: 0.8rem; }
         .set-subhead { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--color-text-secondary); }
         .set-subhead .material-icons { font-size: 16px; color: var(--color-primary); }
@@ -187,6 +199,9 @@
 
                     <!-- 유형별 탭 — 카드는 activeTab 으로 표시/숨김, 멀티컬럼이 보이는 카드만 균형 배치 -->
                     <nav class="set-tabs" role="tablist">
+                        <button class="set-tab" :class="{ 'is-active': activeTab === 'general' }" @click="setTab('general')" role="tab">
+                            <span class="material-icons">settings</span> 일반
+                        </button>
                         <button class="set-tab" :class="{ 'is-active': activeTab === 'monitoring' }" @click="setTab('monitoring')" role="tab">
                             <span class="material-icons">speed</span> 모니터링·정합
                         </button>
@@ -195,9 +210,6 @@
                         </button>
                         <button class="set-tab" :class="{ 'is-active': activeTab === 'data' }" @click="setTab('data')" role="tab">
                             <span class="material-icons">storage</span> 모델·데이터
-                        </button>
-                        <button class="set-tab" :class="{ 'is-active': activeTab === 'general' }" @click="setTab('general')" role="tab">
-                            <span class="material-icons">settings</span> 일반
                         </button>
                     </nav>
 
@@ -319,27 +331,6 @@
                                 </div>
                             </div>
 
-                            <!-- 로깅 -->
-                            <div class="card" x-show="activeTab === 'general'">
-                                <div class="card-header">
-                                    <span class="material-icons">bug_report</span>
-                                    <span>로깅</span>
-                                </div>
-                                <div class="card-content">
-                                    <div class="form-group" style="margin-bottom:0;">
-                                        <label class="form-label">로그 수준</label>
-                                        <select class="form-select" x-model="s.logLevelDefault">
-                                            <template x-for="level in s.logLevels" :key="level">
-                                                <option :value="level" x-text="level"></option>
-                                            </template>
-                                        </select>
-                                        <small class="settings-hint">
-                                            세부 카테고리별 로그 수준은 <code>appsettings.json</code> 에서 직접 편집.
-                                        </small>
-                                    </div>
-                                </div>
-                            </div>
-
                             <!-- UI -->
                             <!-- PLC 스캔 주기 (Agent 동기화) -->
                             <div class="card" x-show="activeTab === 'monitoring'">
@@ -445,34 +436,76 @@
                                     <span>사용자 인터페이스</span>
                                 </div>
                                 <div class="card-content">
-                                    <label class="switch mb-2">
-                                        <input type="checkbox" :checked="dark" @change="toggleTheme()" />
-                                        다크 모드
-                                    </label>
+                                    <label class="form-label">테마</label>
+                                    <div class="theme-choice">
+                                        <button type="button" class="theme-opt" :class="{ 'is-active': !dark }"
+                                                @click="setTheme(false)" :aria-pressed="!dark">
+                                            <span class="theme-swatch theme-swatch-light">
+                                                <span class="material-icons">light_mode</span>
+                                            </span>
+                                            <span class="theme-opt-label">라이트 모드</span>
+                                            <span class="material-icons theme-check">check_circle</span>
+                                        </button>
+                                        <button type="button" class="theme-opt" :class="{ 'is-active': dark }"
+                                                @click="setTheme(true)" :aria-pressed="dark">
+                                            <span class="theme-swatch theme-swatch-dark">
+                                                <span class="material-icons">dark_mode</span>
+                                            </span>
+                                            <span class="theme-opt-label">다크 모드</span>
+                                            <span class="material-icons theme-check">check_circle</span>
+                                        </button>
+                                    </div>
                                     <small class="settings-hint">
-                                        화면을 어두운 테마로 전환합니다. 선택은 이 브라우저에 저장되어 모든 페이지에 즉시 적용됩니다.
+                                        선택은 이 브라우저에 저장되어 모든 페이지에 즉시 적용됩니다.
                                     </small>
                                 </div>
                             </div>
 
-                            <!-- 설정 초기화 -->
+                            <!-- 사용자 정의 에러 (읽기전용) — Promaker/AASX 에서 정의된 UserTag 조건 목록 조회 -->
                             <div class="card" x-show="activeTab === 'general'">
                                 <div class="card-header">
-                                    <span class="material-icons">restart_alt</span>
-                                    <span>설정 초기화</span>
+                                    <span class="material-icons">rule</span>
+                                    <span>사용자 정의 에러</span>
                                 </div>
                                 <div class="card-content">
-                                    <button class="btn btn-outlined color-error w-100" @click="resetSettings()" :disabled="busy">
-                                        <span class="material-icons">restart_alt</span> 모든 설정 기본값으로 초기화
+                                    <div class="settings-note">
+                                        <small>
+                                            Promaker 의 사용자 태그 패널에서 정의한 <strong>사용자 정의 에러(UserTag)</strong> 조건 목록입니다.
+                                            여기서는 <strong>조회만</strong> 가능하며 추가·수정은 Promaker 에서 합니다.
+                                            발생 이력·추이는 <a href="/uptime-alarm" style="color:var(--color-primary);">이상·알람 분석</a> 페이지에서 확인하세요.
+                                        </small>
+                                    </div>
+                                    <div x-show="ude.loading" class="progress-bar progress-bar-indeterminate" style="margin-bottom:8px;"><div class="progress-bar-fill"></div></div>
+                                    <template x-if="!ude.loading && ude.items.length > 0">
+                                        <div style="overflow-x:auto;">
+                                            <table class="ds-table">
+                                                <thead><tr><th>System</th><th>이름</th><th>주소</th><th>타입</th><th>매칭 조건</th></tr></thead>
+                                                <tbody>
+                                                    <template x-for="(d, i) in ude.items" :key="i">
+                                                        <tr>
+                                                            <td data-label="System" x-text="d.systemName"></td>
+                                                            <td data-label="이름"><strong x-text="d.name"></strong></td>
+                                                            <td data-label="주소"><span style="font-family:var(--font-mono);" x-text="d.tagAddress"></span></td>
+                                                            <td data-label="타입" x-text="d.valueType"></td>
+                                                            <td data-label="매칭 조건" x-text="describeUdeOp(d.matchOp, d.matchValue)"></td>
+                                                        </tr>
+                                                    </template>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </template>
+                                    <template x-if="!ude.loading && ude.items.length === 0 && !ude.error">
+                                        <div class="settings-note" style="margin-top:0;">
+                                            <small>정의된 사용자 정의 에러가 없습니다. Promaker 의 사용자 태그 패널에서 추가하세요.</small>
+                                        </div>
+                                    </template>
+                                    <div x-show="ude.error" class="alert alert-error" style="margin-bottom:8px;"><span class="material-icons">error</span><span x-text="ude.error"></span></div>
+                                    <button class="btn btn-outlined w-100" style="margin-top:10px;" @click="loadUserDefinedErrors()" :disabled="ude.loading">
+                                        <span class="material-icons">refresh</span> 새로고침 (<span x-text="ude.items.length"></span>건)
                                     </button>
-                                    <small class="settings-hint">
-                                        이상치 필터·대시보드 윈도우·시프트·OEE 신호·CCTV 카메라·DB 경로·로그 수준 등
-                                        <strong>모든 설정값</strong>을 기본값으로 되돌립니다. PLC 데이터(plc.db)는 삭제되지 않습니다.
-                                        업그레이드 시 이전 설정이 보존되므로, 구버전에서 넘어온 설정이 문제를 일으킬 때만 사용하세요.
-                                        DB 경로·포트 등 일부 항목은 <strong>서비스 재시작 후</strong> 적용됩니다.
-                                    </small>
                                 </div>
                             </div>
+
                             <!-- 이상치 필터 -->
                             <div class="card" x-show="activeTab === 'anomaly'">
                                 <div class="card-header">
@@ -690,6 +723,46 @@
                                 </div>
                             </div>
 
+                            <!-- 로깅 -->
+                            <div class="card" x-show="activeTab === 'general'">
+                                <div class="card-header">
+                                    <span class="material-icons">bug_report</span>
+                                    <span>로깅</span>
+                                </div>
+                                <div class="card-content">
+                                    <div class="form-group" style="margin-bottom:0;">
+                                        <label class="form-label">로그 수준</label>
+                                        <select class="form-select" x-model="s.logLevelDefault">
+                                            <template x-for="level in s.logLevels" :key="level">
+                                                <option :value="level" x-text="level"></option>
+                                            </template>
+                                        </select>
+                                        <small class="settings-hint">
+                                            세부 카테고리별 로그 수준은 <code>appsettings.json</code> 에서 직접 편집.
+                                        </small>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 설정 초기화 -->
+                            <div class="card" x-show="activeTab === 'general'">
+                                <div class="card-header">
+                                    <span class="material-icons">restart_alt</span>
+                                    <span>설정 초기화</span>
+                                </div>
+                                <div class="card-content">
+                                    <button class="btn btn-outlined color-error w-100" @click="resetSettings()" :disabled="busy">
+                                        <span class="material-icons">restart_alt</span> 모든 설정 기본값으로 초기화
+                                    </button>
+                                    <small class="settings-hint">
+                                        이상치 필터·대시보드 윈도우·시프트·OEE 신호·CCTV 카메라·DB 경로·로그 수준 등
+                                        <strong>모든 설정값</strong>을 기본값으로 되돌립니다. PLC 데이터(plc.db)는 삭제되지 않습니다.
+                                        업그레이드 시 이전 설정이 보존되므로, 구버전에서 넘어온 설정이 문제를 일으킬 때만 사용하세요.
+                                        DB 경로·포트 등 일부 항목은 <strong>서비스 재시작 후</strong> 적용됩니다.
+                                    </small>
+                                </div>
+                            </div>
+
                     </div>
                 </div>
             </template>
@@ -764,9 +837,10 @@
                 autoCal: { running: false },
                 _conn: null, _toastTimer: null,
                 TAB_KEY: 'dspilot-settings-tab', // 마지막 선택 탭 브라우저 기억 키
-                activeTab: 'monitoring', // 유형별 탭: monitoring | anomaly | data | general
+                activeTab: 'general', // 유형별 탭: general | monitoring | anomaly | data (기본=일반)
                 scanMs: 100, scanConnected: false, // PLC 스캔 주기 (Agent 동기화 — 기본 100ms)
                 autoCalibrate: true, // 자동 duration 정합 ON/OFF (Agent 동기화)
+                ude: { loading: false, items: [], error: '' }, // 사용자 정의 에러(UserTag 정의) 읽기전용 목록
 
                 async init() {
                     const savedTab = localStorage.getItem(this.TAB_KEY);
@@ -780,6 +854,29 @@
                     this.demoStartTicker();
                     this.loadScanInterval();
                     this.loadAutoCalibrate();
+                    this.loadUserDefinedErrors();
+                },
+
+                // ── 사용자 정의 에러(UserTag 정의) 읽기전용 조회 — Promaker/AASX 정의를 경량 엔드포인트로 가져온다.
+                async loadUserDefinedErrors() {
+                    this.ude.loading = true; this.ude.error = '';
+                    try {
+                        this.ude.items = await this.apiGet('/api/user-tags/definitions');
+                    } catch (e) {
+                        this.ude.error = '사용자 정의 에러 목록을 불러오지 못했습니다: ' + e.message;
+                        this.ude.items = [];
+                    } finally { this.ude.loading = false; }
+                },
+                // 매칭 조건 표기 — 사용자 정의 에러(UserTag)는 AbnormalDetect 가 아닌 값/엣지 조건.
+                describeUdeOp(op, mv) {
+                    const v = (mv == null || mv === '') ? '?' : mv;
+                    switch (op) {
+                        case 'RisingEdge': return '0 → 1'; case 'FallingEdge': return '1 → 0'; case 'Changed': return '값 변경';
+                        case 'Eq': return '= ' + v; case 'Neq': return '≠ ' + v;
+                        case 'Gt': return '> ' + v; case 'Gte': return '≥ ' + v;
+                        case 'Lt': return '< ' + v; case 'Lte': return '≤ ' + v;
+                        default: return op || '?';
+                    }
                 },
 
                 // ── 자동 duration 정합 — Agent abnormal 판정 기준(실측 학습 ↔ 모델 확정값) 전환. 전 인스턴스 동기화.
@@ -843,8 +940,9 @@
 
                 // 테마 변경: .dsp-page(Alpine) + <html> + 셸 레이아웃 + 다른 탭까지 모두 반영.
                 // shell.js 는 storage 이벤트를 듣고 layout/<html> 에 dark-theme 를 토글한다.
-                toggleTheme() {
-                    this.dark = !this.dark;
+                toggleTheme() { this.setTheme(!this.dark); },
+                setTheme(dark) {
+                    this.dark = dark;
                     const val = this.dark ? 'dark' : 'light';
                     localStorage.setItem('dspilot-theme', val);
                     document.documentElement.classList.toggle('dark-theme', this.dark);

@@ -79,57 +79,15 @@
                     <div x-show="loading && !ut" class="progress-bar progress-bar-indeterminate" style="margin-bottom:12px;"><div class="progress-bar-fill"></div></div>
                     <div class="alert alert-error" x-show="error" style="margin-bottom:12px;"><span class="material-icons">error</span><span x-text="error"></span></div>
 
-                    <!-- ── 진행중/해결 이상 띠 ── 대시보드 알람 배너와 동일 동작.
-                         진행중인 이상(active-alarms)이 있으면 노란 띠로 한 건씩 세로 티커, 모두 해소되면 흰 띠로 '오늘 최근 이상'을 전환 표시.
-                         전환 속도는 대시보드와 같은 서버설정(alarmTickerSec)을 사용. -->
-                    <div class="up-alarm" :class="bandIsActive ? 'is-active' : 'is-resolved'" x-show="bandLoaded" x-cloak x-transition.opacity>
-                        <div class="up-alarm-icon">
-                            <span class="material-icons up-alarm-ico" x-text="bandIsActive ? 'crisis_alert' : (bandCount > 0 ? 'history' : 'check_circle')"></span>
-                            <span class="up-alarm-count" x-show="bandCount > 0" x-text="bandBadge"></span>
-                        </div>
-                        <div class="up-alarm-track" @mouseenter="bandPause(true)" @mouseleave="bandPause(false)">
-                            <template x-for="m in (bandCount > 0 ? [bandCurrent] : [])" :key="bandIndex">
-                                <span class="up-alarm-msg up-alarm-msg-anim" x-text="m" :title="m"></span>
-                            </template>
-                            <span class="up-alarm-msg up-alarm-empty" x-show="bandCount === 0" x-cloak>오늘 발생한 이상이 없습니다</span>
-                        </div>
-                        <span class="up-alarm-idx" x-show="bandCount > 1" x-cloak><b x-text="bandIndex + 1"></b> / <span x-text="bandOverflow ? '10+' : bandCount"></span></span>
-                    </div>
-
                     <template x-if="ut">
                         <div>
-                            <!-- 집계 KPI (총 알림 / Error / Warning / 최빈 태그) — 클릭 시 알람 필터 -->
-                            <div class="up-utkpi-row">
-                                <div class="up-utkpi clickable" :class="utLevel === '' ? 'is-active' : ''"
-                                     @click="filterAllLevels()" title="클릭: 전체 레벨 보기">
-                                    <div class="up-utkpi-label">총 알림 (기간)</div>
-                                    <div class="up-utkpi-value" x-text="ut.totalCount.toLocaleString()"></div>
-                                </div>
-                                <div class="up-utkpi clickable" :class="utLevel === 'Error' ? 'is-active' : ''"
-                                     @click="filterByLevel('Error')" title="클릭: Error 만 보기">
-                                    <div class="up-utkpi-label">Error</div>
-                                    <div class="up-utkpi-value err" x-text="lc('Error').toLocaleString()"></div>
-                                </div>
-                                <div class="up-utkpi clickable" :class="utLevel === 'Warning' ? 'is-active' : ''"
-                                     @click="filterByLevel('Warning')" title="클릭: Warning 만 보기">
-                                    <div class="up-utkpi-label">Warning</div>
-                                    <div class="up-utkpi-value warn" x-text="lc('Warning').toLocaleString()"></div>
-                                </div>
-                                <div class="up-utkpi clickable" :class="(ut.topRows && ut.topRows.length && utSearch === ut.topRows[0].name) ? 'is-active' : ''"
-                                     @click="filterByTopTag()" :title="(ut.topRows && ut.topRows.length) ? ('클릭: ' + ut.topRows[0].name + ' 검색') : '데이터 없음'">
-                                    <div class="up-utkpi-label">가장 빈번한 태그</div>
-                                    <div class="up-utkpi-value sm" x-text="(ut.topRows && ut.topRows.length) ? (ut.topRows[0].name + ' (' + ut.topRows[0].count.toLocaleString() + ')') : '—'"></div>
-                                </div>
-                            </div>
-
                             <!-- 필터 + CSV 내보내기 -->
                             <div class="up-ut-filter">
                                 <input class="form-field" x-model="utSearch" @input.debounce.300ms="applyUtFilters()" placeholder="이름 / 주소 검색..." />
-                                <select class="form-select" x-model="utLevel" @change="applyUtFilters()">
-                                    <option value="">전체 레벨</option>
-                                    <option value="Info">Info</option>
-                                    <option value="Warning">Warning</option>
-                                    <option value="Error">Error</option>
+                                <select class="form-select" x-model="utCategory" @change="applyUtFilters()" title="구분(자동감지/사용자지정) 필터">
+                                    <option value="">전체 구분</option>
+                                    <option value="abnormal">자동감지 (이상감지)</option>
+                                    <option value="usertag">사용자지정 (사용자 정의)</option>
                                 </select>
                                 <select class="form-select" x-model="utSystem" @change="applyUtFilters()">
                                     <option value="">전체 System</option>
@@ -148,62 +106,59 @@
                             <!-- 시계열 추이 (Chart.js 스택 막대) -->
                             <div class="ds-card-h" style="margin-bottom:10px;">
                                 <h4 style="font-size:0.74rem;">시계열 추이</h4>
-                                <span class="ds-card-h-sub">레벨별 스택 막대 (Error 빨강 / Warning 주황 / Info 파랑)</span>
+                                <span class="ds-card-h-sub">구분별 스택 막대 (자동감지 · 사용자지정)</span>
                             </div>
                             <div class="up-ut-chart-tall" style="margin-bottom:16px;"><canvas id="ut-trend-chart"></canvas></div>
 
                             <!-- 태그별 Top 10 + 레벨 분포 -->
                             <div class="up-ut-chart-row">
                                 <div>
-                                    <div class="ds-card-h" style="margin-bottom:10px;"><h4 style="font-size:0.74rem;">태그별 Top 10</h4><span class="ds-card-h-sub">알림 수 기준</span></div>
+                                    <div class="ds-card-h" style="margin-bottom:10px;">
+                                        <h4 style="font-size:0.74rem;">태그별 Top 10</h4>
+                                        <div class="segmented" style="margin-left:auto;">
+                                            <button :class="topGroupBy === 'name' ? 'is-active' : ''" @click="setTopGroupBy('name')" title="자동감지 이상은 4개 유형으로 묶어 표시">유형별</button>
+                                            <button :class="topGroupBy === 'path' ? 'is-active' : ''" @click="setTopGroupBy('path')" title="자동감지 이상을 경로(FLOW / WORK / CALL)별로 펼쳐 표시">경로별</button>
+                                        </div>
+                                    </div>
                                     <div class="up-ut-chart-md"><canvas id="ut-top-chart"></canvas></div>
                                 </div>
                                 <div>
-                                    <div class="ds-card-h" style="margin-bottom:10px;"><h4 style="font-size:0.74rem;">이상 레벨 분포</h4><span class="ds-card-h-sub">Error · Warning · Info 비율</span></div>
+                                    <div class="ds-card-h" style="margin-bottom:10px;"><h4 style="font-size:0.74rem;">구분 분포</h4><span class="ds-card-h-sub">자동감지 · 사용자지정 비율</span></div>
                                     <div class="up-dist">
-                                        <template x-if="levelTotal > 0">
+                                        <template x-if="categoryTotal > 0">
                                             <svg class="up-donut" viewBox="0 0 100 100">
                                                 <circle class="up-donut-track" cx="50" cy="50" r="38" fill="none" stroke-width="14"></circle>
                                                 <circle cx="50" cy="50" r="38" fill="none" stroke="var(--red)" stroke-width="14"
-                                                        :stroke-dasharray="donutSeg('Error').dash" :stroke-dashoffset="donutSeg('Error').offset"
+                                                        :stroke-dasharray="catDonutSeg('ABNORMAL').dash" :stroke-dashoffset="catDonutSeg('ABNORMAL').offset"
                                                         transform="rotate(-90 50 50)"></circle>
-                                                <circle cx="50" cy="50" r="38" fill="none" stroke="var(--amber)" stroke-width="14"
-                                                        :stroke-dasharray="donutSeg('Warning').dash" :stroke-dashoffset="donutSeg('Warning').offset"
+                                                <circle cx="50" cy="50" r="38" fill="none" stroke="rgb(190, 18, 60)" stroke-width="14"
+                                                        :stroke-dasharray="catDonutSeg('USERTAG').dash" :stroke-dashoffset="catDonutSeg('USERTAG').offset"
                                                         transform="rotate(-90 50 50)"></circle>
-                                                <circle cx="50" cy="50" r="38" fill="none" stroke="var(--color-info)" stroke-width="14"
-                                                        :stroke-dasharray="donutSeg('Info').dash" :stroke-dashoffset="donutSeg('Info').offset"
-                                                        transform="rotate(-90 50 50)"></circle>
-                                                <text class="up-donut-total" x="50" y="49" text-anchor="middle" x-text="levelTotal.toLocaleString()"></text>
-                                                <text class="up-donut-cap" x="50" y="61" text-anchor="middle">총 이상</text>
+                                                <text class="up-donut-total" x="50" y="49" text-anchor="middle" x-text="categoryTotal.toLocaleString()"></text>
+                                                <text class="up-donut-cap" x="50" y="61" text-anchor="middle">총 알림</text>
                                             </svg>
                                         </template>
-                                        <template x-if="levelTotal > 0">
+                                        <template x-if="categoryTotal > 0">
                                             <div class="up-legend">
                                                 <div class="up-legend-row">
                                                     <span class="up-legend-swatch" style="background:var(--red);"></span>
-                                                    <span class="up-legend-name">Error</span>
-                                                    <span class="up-legend-share" x-text="levelShare('Error') + '%'"></span>
-                                                    <span class="up-legend-val" x-text="lc('Error').toLocaleString() + '건'"></span>
+                                                    <span class="up-legend-name">자동감지</span>
+                                                    <span class="up-legend-share" x-text="categoryShare('ABNORMAL') + '%'"></span>
+                                                    <span class="up-legend-val" x-text="cc('ABNORMAL').toLocaleString() + '건'"></span>
                                                 </div>
                                                 <div class="up-legend-row">
-                                                    <span class="up-legend-swatch" style="background:var(--amber);"></span>
-                                                    <span class="up-legend-name">Warning</span>
-                                                    <span class="up-legend-share" x-text="levelShare('Warning') + '%'"></span>
-                                                    <span class="up-legend-val" x-text="lc('Warning').toLocaleString() + '건'"></span>
-                                                </div>
-                                                <div class="up-legend-row">
-                                                    <span class="up-legend-swatch" style="background:var(--color-info);"></span>
-                                                    <span class="up-legend-name">Info</span>
-                                                    <span class="up-legend-share" x-text="levelShare('Info') + '%'"></span>
-                                                    <span class="up-legend-val" x-text="lc('Info').toLocaleString() + '건'"></span>
+                                                    <span class="up-legend-swatch" style="background:rgb(190, 18, 60);"></span>
+                                                    <span class="up-legend-name">사용자지정</span>
+                                                    <span class="up-legend-share" x-text="categoryShare('USERTAG') + '%'"></span>
+                                                    <span class="up-legend-val" x-text="cc('USERTAG').toLocaleString() + '건'"></span>
                                                 </div>
                                             </div>
                                         </template>
-                                        <template x-if="levelTotal === 0">
+                                        <template x-if="categoryTotal === 0">
                                             <div class="ds-empty up-dist-empty" style="border-style:solid;">
                                                 <span class="material-icons">donut_large</span>
-                                                <div class="ds-empty-title">해당 기간 이상 이벤트 없음</div>
-                                                <div class="ds-empty-desc">선택한 기간에 집계된 Error/Warning/Info 가 없습니다.</div>
+                                                <div class="ds-empty-title">해당 기간 알림 없음</div>
+                                                <div class="ds-empty-desc">선택한 기간에 집계된 자동감지/사용자지정 알림이 없습니다.</div>
                                             </div>
                                         </template>
                                     </div>
@@ -236,12 +191,12 @@
                             <template x-if="ut.alerts && ut.alerts.length > 0">
                                 <div style="overflow-x:auto;">
                                     <table class="ds-table">
-                                        <thead><tr><th style="width:170px;">시각 ▼</th><th>레벨</th><th>경로</th><th>이름</th><th>주소</th><th>조건</th><th>값</th><th style="width:40px;" title="디바이스 알람 차단 바로가기">차단</th></tr></thead>
+                                        <thead><tr><th style="width:170px;">시각 ▼</th><th style="width:96px;">구분</th><th>경로</th><th>이름</th><th>주소</th><th>조건</th><th>값</th><th style="width:40px;" title="디바이스 알람 차단 바로가기">차단</th></tr></thead>
                                         <tbody>
                                             <template x-for="(a, i) in ut.alerts" :key="i">
                                                 <tr :data-at="(a.occurredAtLocal || '').slice(0,19)">
                                                     <td class="num" data-label="시각" x-text="(a.occurredAtLocal || '').slice(0,19)"></td>
-                                                    <td data-label="레벨"><span class="ds-status" :class="levelStatus(a.logLevel)" x-text="a.logLevel"></span></td>
+                                                    <td data-label="구분"><span class="ds-status" :class="categoryStatus(a)" x-text="categoryLabel(a)"></span></td>
                                                     <!-- 경로: AbnormalDetect → "FLOW / WORK / CALL", 나머지 → SystemName -->
                                                     <td data-label="경로" x-text="abnPath(a)"></td>
                                                     <td data-label="이름"><strong x-text="a.name"></strong></td>
@@ -272,50 +227,7 @@
                                     <div class="ds-empty-desc">기간·검색·레벨·System 필터를 변경해 보세요.</div>
                                 </div>
                             </template>
-
-                            <!-- 정의된 UserTag (접이식) -->
-                            <div class="ds-card-h" style="margin-top:16px; cursor:pointer;" @click="showDefinitions = !showDefinitions">
-                                <h4 style="font-size:0.74rem; display:flex; align-items:center; gap:6px;">
-                                    <span class="material-icons" style="font-size:18px; color:var(--color-primary);" x-text="showDefinitions ? 'expand_more' : 'chevron_right'"></span>
-                                    정의된 UserTag (<span x-text="(ut.definitions || []).length"></span>)
-                                </h4>
-                                <span class="ds-card-h-sub">AASX System 정의 기반 모니터링 태그 · 페이지당 10건</span>
-                            </div>
-                            <div x-show="showDefinitions">
-                                <template x-if="(ut.definitions || []).length > 0">
-                                    <div>
-                                        <div style="overflow-x:auto;">
-                                            <table class="ds-table">
-                                                <thead><tr><th>System</th><th>이름</th><th>레벨</th><th>주소</th><th>타입</th><th>매칭 조건</th></tr></thead>
-                                                <tbody>
-                                                    <template x-for="(d, i) in definitionsPageView()" :key="i">
-                                                        <tr>
-                                                            <td data-label="System" x-text="d.systemName"></td>
-                                                            <td data-label="이름"><strong x-text="d.name"></strong></td>
-                                                            <td data-label="레벨"><span class="ds-status" :class="levelStatus(d.logLevel)" x-text="d.logLevel"></span></td>
-                                                            <td data-label="주소"><span class="up-codeish" x-text="d.tagAddress"></span></td>
-                                                            <td data-label="타입" x-text="d.valueType"></td>
-                                                            <td data-label="매칭 조건" x-text="describeOp(d.matchOp, d.matchValue)"></td>
-                                                        </tr>
-                                                    </template>
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                        <div class="up-ut-toolrow" style="margin-top:10px; justify-content:flex-end;" x-show="(ut.definitions || []).length > 10">
-                                            <button class="btn btn-sm btn-outlined" @click="definitionsPage = Math.max(0, definitionsPage - 1)" :disabled="definitionsPage === 0">이전</button>
-                                            <span class="ds-card-h-sub" x-text="(definitionsPage + 1) + ' / ' + definitionsMaxPage()"></span>
-                                            <button class="btn btn-sm btn-outlined" @click="definitionsPage = Math.min(definitionsMaxPage() - 1, definitionsPage + 1)" :disabled="definitionsPage + 1 >= definitionsMaxPage()">다음</button>
-                                        </div>
-                                    </div>
-                                </template>
-                                <template x-if="(ut.definitions || []).length === 0">
-                                    <div class="ds-empty" style="border-style:solid;">
-                                        <span class="material-icons">info</span>
-                                        <div class="ds-empty-title">정의된 UserTag 없음</div>
-                                        <div class="ds-empty-desc">Promaker 의 사용자 태그 패널에서 추가하세요.</div>
-                                    </div>
-                                </template>
-                            </div>
+                            <!-- 정의된 UserTag(사용자 정의 에러) 목록은 설정 > 일반 탭에서 읽기전용으로 조회 -->
                         </div>
                     </template>
                 </section>

@@ -367,7 +367,9 @@
             //   queryParam='name'(추이/사이클) | 'flow'(동작편차/OEE/이상·알람).
             //   isActivePage=현재 페이지가 이 그룹의 페이지인지, activeFlowName=그 페이지에서 선택된 Flow('' 가능).
             //   withBadge=true 면 header 우측에 이상 알람 배지를 붙여 anomalyBadges 에 등록.
-            function buildAnalysisGroup(sysFlows, label, iconName, base, queryParam, isActivePage, activeFlowName, withBadge) {
+            //   withAll=true 면 FLOW 목록 맨 위에 '전체' 버튼을 추가 — 클릭 시 설비 필터 없이(base 로) 이동해
+            //     전체 설비(라인 전체)를 본다. ?flow= 로 설비를 거르는 페이지(동작편차/OEE/이상·알람)만 사용.
+            function buildAnalysisGroup(sysFlows, label, iconName, base, queryParam, isActivePage, activeFlowName, withBadge, withAll) {
                 var wrap = el('div', 'flex flex-col gap-0.5');
 
                 var head = el('button', 'w-full flex items-center gap-2 px-3 py-2 rounded text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-inverse-surface transition-colors');
@@ -400,6 +402,25 @@
                 list.style.cssText = 'display:none;padding-left:16px;';
 
                 var groupHasCurrent = false;
+
+                // '전체' 버튼 — FLOW 목록 맨 위. 설비 필터를 걸지 않고(base 로) 이동해 라인 전체를 본다.
+                //   활성(파랑 강조) 조건 = 이 그룹의 페이지에 있으면서 선택된 설비가 없는 상태(activeFlowName='').
+                if (withAll) {
+                    var allActive = isActivePage && !activeFlowName;
+                    var ab = el('button', 'w-full flex items-center gap-2 px-3 py-2 rounded transition-colors text-on-surface-variant dark:text-surface-variant'
+                        + (allActive ? '' : ' hover:bg-surface-container-high dark:hover:bg-inverse-surface'));
+                    ab.type = 'button';
+                    ab.style.cssText = 'text-align:left;' + BTN_RESET;
+                    if (allActive) { ab.style.backgroundColor = '#2170e4'; ab.style.color = '#fff'; }
+                    ab.appendChild(dot(allActive ? '#fff' : 'currentColor', allActive ? '1' : '0.7'));
+                    var al = el('span', 'font-label-sm text-label-sm', '전체');
+                    al.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700;font-size:0.9rem;';
+                    ab.appendChild(al);
+                    ab.title = base + ' — 설비 필터 없이 라인 전체 보기';
+                    ab.addEventListener('click', function (ev) { ev.stopPropagation(); location.href = base; });
+                    list.appendChild(ab);
+                }
+
                 (sysFlows || []).forEach(function (flowName) {
                     var isCur = isActivePage && flowName === activeFlowName;
                     if (isCur) groupHasCurrent = true;
@@ -460,11 +481,11 @@
 
                 // 5개 분석/페이지 그룹 — 각각 이 시스템의 FLOW 리스트. Flow 클릭 → 해당 페이지?쿼리= 이동.
                 //   추이/사이클 = ?name= (/flow-trend·/flow-cycle), 동작편차/OEE/이상·알람 = ?flow= (해당 페이지가 설비 필터).
-                var gTrend = buildAnalysisGroup(flows, '추이 분석',  'timeline',      '/flow-trend',   'name', onFlowPage && curFlowView === 'trend', curFlowName, false);
-                var gCycle = buildAnalysisGroup(flows, '사이클 분석', 'account_tree',  '/flow-cycle',   'name', onFlowPage && curFlowView === 'cycle', curFlowName, false);
-                var gHeat  = buildAnalysisGroup(flows, '동작편차',    'gradient',      '/heatmap',      'flow', onHeatmapPage, heatmapFlow, false);
-                var gOee   = buildAnalysisGroup(flows, 'OEE 종합',    'speed',         '/uptime-oee',   'flow', onOeePage,     oeeFlow,     false);
-                var gAlarm = buildAnalysisGroup(flows, '이상·알람',   'warning_amber', '/uptime-alarm', 'flow', onAlarmPage,   alarmFlow,   true);
+                var gTrend = buildAnalysisGroup(flows, '추이 분석',  'timeline',      '/flow-trend',   'name', onFlowPage && curFlowView === 'trend', curFlowName, false, true);
+                var gCycle = buildAnalysisGroup(flows, '사이클 분석.설정', 'account_tree',  '/flow-cycle',   'name', onFlowPage && curFlowView === 'cycle', curFlowName, false);
+                var gHeat  = buildAnalysisGroup(flows, '동작편차',    'gradient',      '/heatmap',      'flow', onHeatmapPage, heatmapFlow, false, true);
+                var gOee   = buildAnalysisGroup(flows, 'OEE 종합',    'speed',         '/uptime-oee',   'flow', onOeePage,     oeeFlow,     false, true);
+                var gAlarm = buildAnalysisGroup(flows, '이상·알람',   'warning_amber', '/uptime-alarm', 'flow', onAlarmPage,   alarmFlow,   true,  true);
                 sub.appendChild(gTrend.wrap);
                 sub.appendChild(gCycle.wrap);
                 sub.appendChild(gHeat.wrap);

@@ -221,7 +221,6 @@ public partial class PropertyPanelState
             if (parts.Count < 4) continue;
 
             var name = parts[0].Trim();
-            var level = parts[1].Trim();
             var addr = parts[2].Trim();
             var vt = parts[3].Trim();
             // 매칭 컬럼은 옵션 — 비어있으면 빈 문자열 (F# 측에서 ValueType 기반 기본 op 할당)
@@ -229,7 +228,8 @@ public partial class PropertyPanelState
             var mv = parts.Count >= 6 ? parts[5].Trim() : string.Empty;
 
             if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(addr)) continue;
-            if (string.IsNullOrWhiteSpace(level)) level = "Info";
+            // 로그 레벨 컬럼(parts[1])은 무시 — 사용자 태그는 모두 Error 로 취급(Warning/Info 미사용).
+            var level = "Error";
             if (string.IsNullOrWhiteSpace(vt)) vt = "Bit";
 
             result.Add((name, level, addr, vt, op, mv));

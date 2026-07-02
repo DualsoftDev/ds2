@@ -117,7 +117,7 @@
         .ct-badge.head { background: #4caf50; }
         .ct-badge.tail { background: #ab47bc; }
         .ct-lane-tags { display: flex; gap: 4px; flex: 0 0 auto; }
-        .ct-tag-btn { width: 24px; height: 24px; border-radius: var(--radius-sm); border: 1px solid var(--color-lines-strong); background: var(--color-surface); font-size: 0.7rem; font-weight: 800; cursor: pointer; padding: 0; color: var(--color-text-primary); font-family: var(--font-mono); transition: background-color 0.12s, color 0.12s, border-color 0.12s; }
+        .ct-tag-btn { min-width: 24px; height: 24px; border-radius: var(--radius-sm); border: 1px solid var(--color-lines-strong); background: var(--color-surface); font-size: 0.7rem; font-weight: 800; cursor: pointer; padding: 0 6px; color: var(--color-text-primary); white-space: nowrap; transition: background-color 0.12s, color 0.12s, border-color 0.12s; }
         .ct-tag-btn:hover:not(:disabled) { border-color: var(--color-primary); color: var(--color-primary); }
         .ct-tag-btn:disabled { opacity: 0.45; cursor: not-allowed; }
         .ct-tag-btn.head.active { background: #4caf50; color: #fff; border-color: #2e7d32; }
@@ -530,8 +530,8 @@
                                                     <div class="ct-lane-name-block">
                                                         <div class="ct-lane-name">
                                                             <span x-text="row.lane.callName"></span>
-                                                            <template x-if="slice.headCallId === row.lane.callId"><span class="ct-badge head">HEAD</span></template>
-                                                            <template x-if="slice.tailCallId === row.lane.callId"><span class="ct-badge tail">TAIL</span></template>
+                                                            <template x-if="slice.headCallId === row.lane.callId"><span class="ct-badge head">시작</span></template>
+                                                            <template x-if="slice.tailCallId === row.lane.callId"><span class="ct-badge tail">끝</span></template>
                                                         </div>
                                                         <div class="ct-lane-work" x-text="row.lane.workName"></div>
                                                     </div>
@@ -540,10 +540,10 @@
                                                     <div class="ct-lane-tags">
                                                         <button :class="'ct-tag-btn head ' + (slice.headCallId === row.lane.callId ? 'active' : '')"
                                                                 @click="toggleHead(slice, row.lane.callId)" :disabled="slice.overlayBusy"
-                                                                title="Head 지정: 이 Call 의 OutTag↑ 가 사이클 시작 경계">H</button>
+                                                                title="시작 지정: 이 Call 의 OutTag↑ 가 사이클 시작 경계">시작</button>
                                                         <button :class="'ct-tag-btn tail ' + (slice.tailCallId === row.lane.callId ? 'active' : '')"
                                                                 @click="toggleTail(slice, row.lane.callId)" :disabled="slice.overlayBusy"
-                                                                title="Tail 지정: 이 Call 의 InTag↑ 가 사이클 완료 마커">T</button>
+                                                                title="끝 지정: 이 Call 의 InTag↑ 가 사이클 완료 마커">끝</button>
                                                     </div>
                                                 </template>
                                                 <template x-if="row.kind === 'api'">
@@ -590,8 +590,8 @@
                                 <div class="ct-legend">
                                     <span><i class="ct-sw ct-sw-out"></i> OutTag (명령=시작)</span>
                                     <span><i class="ct-sw ct-sw-in"></i> InTag (응답=완료)</span>
-                                    <span><i class="ct-sw ct-sw-head"></i> Head (시작)</span>
-                                    <span><i class="ct-sw ct-sw-tail"></i> Tail (끝)</span>
+                                    <span><i class="ct-sw ct-sw-head"></i> 시작</span>
+                                    <span><i class="ct-sw ct-sw-tail"></i> 끝</span>
                                     <span><i class="ct-sw ct-sw-cycle-edge"></i> 사이클 경계</span>
                                     <template x-if="slice.selectedRange">
                                         <span><i class="ct-sw ct-sw-range"></i> 드래그 선택 구간</span>

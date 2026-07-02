@@ -153,8 +153,8 @@
             --color-info: #0058be;
             --ct: #16a34a;
 
-            --dash-mt: #4f46e5;   /* 가동시간 = 인디고 (이미지 도넛/범례 색) */
-            --dash-wt: #cbd5e1;   /* 대기시간 = 쿨그레이 */
+            --dash-mt: #fb8c00;   /* 동작(가동)시간 = 주황 (OutTag 시작 계열, 신호색 통일) */
+            --dash-wt: #AEB9C6;   /* 대기시간 = 쿨그레이 */
 
             /* 폰트 / 라운드 / 그림자 */
             --font-family: 'Inter', 'Noto Sans KR', sans-serif;
@@ -191,8 +191,8 @@
             --ct-bottleneck: #3b82f6;  --ct-bottleneck-rgb: 59, 130, 246;
             --color-info: #4d9fff;
             --ct: #2bbf6a;
-            --dash-mt: #818cf8;
-            --dash-wt: #46566b;
+            --dash-mt: #FFA726;   /* 동작(가동)시간 = 밝은 주황 */
+            --dash-wt: #64748B;   /* 대기시간 = 슬레이트 그레이 */
             --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.45);
             --shadow-card-hover: 0 6px 20px rgba(0, 0, 0, 0.5);
         }
@@ -951,7 +951,6 @@
 <script src="/js/cctv-wall.js"></script>
 <script>
     function dashboardApp() {
-        const SYSTEM_COLORS = ['#2A3646', '#3A4A5E', '#4A5B70', '#5E7088', '#7889A0'];
         // CT 비교 도넛 팔레트 — "Ocean Steel": 쿨 계열(azure→ocean-cyan→slate-blue→indigo)만으로
         // 색상·명도를 지그재그해 인접 슬라이스 구분 + 사이트 azure 무드와 조화. 병목(최대 CT)만 단독 red.
         const CT_DONUT_COLORS_LIGHT = ['#0058be', '#0e7490', '#3b5bdb', '#0b7fa6', '#1e40af', '#0e7c86', '#5145cd', '#1d6fc0', '#15708f', '#4338ca', '#2563eb', '#0e6f9e'];
@@ -987,7 +986,7 @@
             nonprod: { windows: [], source: 'none' },
             todayCycles: 0,
             nowTick: Date.now(),
-            _conn: null, _dt: null, _sysColorIdx: {}, _shiftTimer: null, _pollTimer: null, _avgTimer: null,
+            _conn: null, _dt: null, _shiftTimer: null, _pollTimer: null, _avgTimer: null,
 
             async init() {
                 document.body.classList.add('has-dash');
@@ -1155,12 +1154,13 @@
                 });
             },
 
-            // 알람 배너 [상세 확인] → 가동시간·이상 페이지로 바로가기. 시스템/레벨 필터를 시드(사이드바 이상코드 피드와 동일 형상).
+            // 알람 배너 [상세 확인] → 가동시간·이상 페이지로 바로가기. 시스템/구분 필터를 시드(사이드바 이상코드 피드와 동일 형상).
+            // 레벨은 알람 페이지가 Error 로 통일했으므로 시드하지 않는다. 구분(ABNORMAL/USERTAG)은 kindName 유무로 판별.
             gotoAbnormal(a) {
                 if (!a) return;
                 const q = [];
                 if (a.systemName) q.push('utSystem=' + encodeURIComponent(a.systemName));
-                if (a.level) q.push('utLevel=' + encodeURIComponent(a.level));
+                q.push('category=' + (a.kindName ? 'abnormal' : 'usertag'));
                 location.href = '/uptime-alarm' + (q.length ? '?' + q.join('&') : '');
             },
 
@@ -1224,27 +1224,6 @@
                 }
                 if (!s || (s.mt == null && s.wt == null)) return null;
                 return { mt: s.mt ?? 0, wt: s.wt ?? 0 };
-            },
-            flowColor(name, systemId) {
-                const s = this.flows.find(f => f.flowName === name);
-                if (!s) return this.systemColor(systemId);
-                switch ((s.state || '').toLowerCase()) {
-                    case 'ready': return '#9FB0C2'; case 'going': return '#0E7CCB';
-                    case 'finish': return '#2FA968'; case 'error': return '#D8392B';
-                    default: return '#9FB0C2';
-                }
-            },
-            systemColor(systemId) {
-                if (!(systemId in this._sysColorIdx)) this._sysColorIdx[systemId] = Object.keys(this._sysColorIdx).length % SYSTEM_COLORS.length;
-                return SYSTEM_COLORS[this._sysColorIdx[systemId]];
-            },
-            flowStateLabel(name) { const s = this.flows.find(f => f.flowName === name); return (s && s.state) ? s.state : ''; },
-            stateColor(name) {
-                switch ((this.flowStateLabel(name) || '').toLowerCase()) {
-                    case 'ready': return '#9FB0C2'; case 'going': return '#0E7CCB';
-                    case 'finish': return '#2FA968'; case 'error': return '#D8392B';
-                    default: return '#9FB0C2';
-                }
             },
             flowBadges(name) {
                 const b = [];

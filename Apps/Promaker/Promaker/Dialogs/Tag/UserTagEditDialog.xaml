@@ -29,25 +29,17 @@
                 <TextBox x:Name="NameBox" Padding="6,4"/>
             </StackPanel>
 
-            <!-- 로그 레벨 -->
+            <!-- 로그 레벨 — 사용자 태그는 모두 Error 로 취급(운영 정책). Warning/Info 는 존재하지만 미사용. -->
             <StackPanel Grid.Row="1" Margin="0,0,0,8">
                 <TextBlock Text="로그 레벨"
                            FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
                            Margin="0,0,0,4"/>
-                <StackPanel Orientation="Horizontal">
-                    <RadioButton x:Name="InfoRadio" Content="Info"
-                                 Foreground="{DynamicResource PrimaryTextBrush}"
-                                 GroupName="LogLevel" IsChecked="True"
-                                 Margin="0,0,16,0" VerticalAlignment="Center"/>
-                    <RadioButton x:Name="WarningRadio" Content="Warning"
-                                 Foreground="{DynamicResource PrimaryTextBrush}"
-                                 GroupName="LogLevel"
-                                 Margin="0,0,16,0" VerticalAlignment="Center"/>
-                    <RadioButton x:Name="ErrorRadio" Content="Error"
-                                 Foreground="{DynamicResource PrimaryTextBrush}"
-                                 GroupName="LogLevel"
-                                 VerticalAlignment="Center"/>
-                </StackPanel>
+                <Border Background="{DynamicResource TertiaryBackgroundBrush}"
+                        Padding="8,4" CornerRadius="3" HorizontalAlignment="Left">
+                    <TextBlock Text="Error (고정 — 사용자 태그는 모두 Error 로 취급)"
+                               Foreground="{DynamicResource PrimaryTextBrush}"
+                               FontSize="11" VerticalAlignment="Center"/>
+                </Border>
             </StackPanel>
 
             <!-- 태그 주소 -->

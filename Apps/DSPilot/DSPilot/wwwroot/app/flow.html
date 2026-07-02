@@ -80,15 +80,11 @@
 
                     <!-- ════ 공용 툴바: 이상치 제외 필터 (이 Flow · 서버 공유 · 사이클분석·히스토리 전 탭 적용) ════ -->
                     <div class="fw-toolbar" x-show="flow" x-cloak>
-                        <span class="fw-toolbar-label">
-                            <span class="material-icons">filter_alt</span> 이상치 제외
-                            <span class="fw-toolbar-hint">가동시간 범위 밖 사이클 제외 · 이 Flow 서버 공유</span>
-                        </span>
-                        <button class="btn btn-sm" :class="_exRange ? 'btn-filled' : 'btn-outlined'"
+                        <button class="btn" :class="_exRange ? 'btn-filled' : 'btn-outlined color-default'"
                                 @click="openRangeModal()"
                                 title="최소·최대 가동시간을 지정해 그 범위를 벗어난 사이클(이상치)을 사이클 목록·차트·히스토리에서 제외합니다 — 이 Flow 에 적용·서버 공유">
-                            <span class="material-icons" style="font-size:16px;">tune</span>
-                            <span x-text="_exRange ? ('범위 ' + rangeLabel) : '범위 설정'"></span>
+                            <span class="material-icons" style="font-size:18px; vertical-align:middle;">tune</span>
+                            <span x-text="_exRange ? ('이상치 범위 ' + rangeLabel) : '이상치 범위 설정'"></span>
                         </button>
                         <span class="hist-filter-chip" x-show="_exRange && (excludedCount > 0 || excludedCycleCount > 0)" x-cloak>
                             <span x-text="(tab === 'cycle' ? excludedCycleCount : excludedCount) + '개 제외됨 · 평균 재계산'"></span>
@@ -169,13 +165,19 @@
                         <div class="call-test-page">
                             <!-- 컨트롤 (Flow 는 이 페이지로 고정 → 시간 범위만) -->
                             <div class="call-test-controls">
-                                <div class="ct-field ct-range-field">
-                                    <button class="btn btn-sm" :class="rangePopupOpen ? 'btn-filled' : 'btn-outlined'"
-                                            @click="rangePopupOpen = !rangePopupOpen"
-                                            title="분석할 시작·종료 시각을 직접 지정">
-                                        <span class="material-icons" style="font-size:15px; vertical-align:middle;">date_range</span>
-                                        시간 범위 설정
-                                    </button>
+                                <!-- 시간 프리셋 + 직접 지정(기간) — 세그먼트 통일 (가동시간 페이지 스타일과 동일) -->
+                                <div class="ct-range-field">
+                                    <div class="segmented">
+                                        <button :class="timePreset === 'm1' ? 'is-active' : ''" @click="setRecentMinutes(1)">1분</button>
+                                        <button :class="timePreset === 'm5' ? 'is-active' : ''" @click="setRecentMinutes(5)">5분</button>
+                                        <button :class="timePreset === 'm30' ? 'is-active' : ''" @click="setRecentMinutes(30)">30분</button>
+                                        <button :class="timePreset === 'h1' ? 'is-active' : ''" @click="setRecentHours(1)">1시간</button>
+                                        <button :class="timePreset === 'h24' ? 'is-active' : ''" @click="setRecentHours(24)">24시간</button>
+                                        <button :class="rangePopupOpen ? 'is-active' : ''" @click="rangePopupOpen = !rangePopupOpen"
+                                                title="분석할 시작·종료 시각을 직접 지정">
+                                            <span class="material-icons">calendar_today</span>기간
+                                        </button>
+                                    </div>
                                     <div class="ct-range-popup" x-show="rangePopupOpen" x-transition
                                          @click.outside="rangePopupOpen = false">
                                         <div class="ct-field">
@@ -188,16 +190,14 @@
                                         </div>
                                     </div>
                                 </div>
-                                <div class="ct-presets">
-                                    <button class="btn btn-sm" :class="timePreset === 'm1' ? 'btn-filled' : ''" @click="setRecentMinutes(1)">최근 1분</button>
-                                    <button class="btn btn-sm" :class="timePreset === 'm5' ? 'btn-filled' : ''" @click="setRecentMinutes(5)">최근 5분</button>
-                                    <button class="btn btn-sm" :class="timePreset === 'm30' ? 'btn-filled' : ''" @click="setRecentMinutes(30)">최근 30분</button>
-                                    <button class="btn btn-sm" :class="timePreset === 'h1' ? 'btn-filled' : ''" @click="setRecentHours(1)">최근 1시간</button>
-                                    <button class="btn btn-sm" :class="timePreset === 'h24' ? 'btn-filled' : ''" @click="setRecentHours(24)">최근 24시간</button>
+                                <!-- 사이클 개수 프리셋 -->
+                                <div class="ct-cycle-presets">
                                     <span class="ct-preset-sep" title="사이클 개수 기준 — 최근 발생한 N개 사이클이 들어오도록 시간 범위를 자동 설정">사이클</span>
-                                    <button class="btn btn-sm" :class="cyclePreset === 20 ? 'btn-filled' : ''" @click="setRecentCycles(20)" :disabled="isLoading || !selectedFlow">최근 20</button>
-                                    <button class="btn btn-sm" :class="cyclePreset === 50 ? 'btn-filled' : ''" @click="setRecentCycles(50)" :disabled="isLoading || !selectedFlow">최근 50</button>
-                                    <button class="btn btn-sm" :class="cyclePreset === 100 ? 'btn-filled' : ''" @click="setRecentCycles(100)" :disabled="isLoading || !selectedFlow">최근 100</button>
+                                    <div class="segmented">
+                                        <button :class="cyclePreset === 20 ? 'is-active' : ''" @click="setRecentCycles(20)" :disabled="isLoading || !selectedFlow">최근 20</button>
+                                        <button :class="cyclePreset === 50 ? 'is-active' : ''" @click="setRecentCycles(50)" :disabled="isLoading || !selectedFlow">최근 50</button>
+                                        <button :class="cyclePreset === 100 ? 'is-active' : ''" @click="setRecentCycles(100)" :disabled="isLoading || !selectedFlow">최근 100</button>
+                                    </div>
                                 </div>
                             </div>
 
@@ -247,21 +247,22 @@
                                                 <span class="material-icons" style="font-size:15px; vertical-align:middle;">timer</span>
                                                 실측 적용
                                             </button>
-                                            <button class="btn btn-sm" :class="userOverrodeHeadTail ? 'btn-filled' : ''" @click="applyHeadTail()"
+                                            <button class="btn" :class="userOverrodeHeadTail ? 'btn-primary' : 'btn-outlined color-default'" @click="applyHeadTail()"
                                                     :disabled="overlayBusy || recomputeBusy || !headCallId || !tailCallId"
                                                     title="현재 Head/Tail 을 이 Flow 의 사이클 경계로 저장하고, 이 Flow 의 과거 이력 전체를 새 경계로 재계산합니다(백그라운드, 진행률 표시) — 라이브 가동시간·대시보드에 과거 포함 반영">
-                                                <span class="material-icons" style="font-size:15px; vertical-align:middle;">save</span>
+                                                <span class="material-icons" style="font-size:18px; vertical-align:middle;">save</span>
                                                 <span x-text="userOverrodeHeadTail ? '적용(저장)*' : '적용(저장)'"></span>
                                             </button>
-                                            <button class="btn btn-sm btn-outlined" @click="restoreAasxDefault()"
+                                            <button class="btn btn-outlined" @click="restoreAasxDefault()"
                                                     :disabled="overlayBusy || recomputeBusy || !projectHeadId || !projectTailId"
                                                     title="AASX 프로젝트 기본 Head/Tail 로 되돌리고 저장된 사용자 지정을 제거합니다">
                                                 AASX 기본값 복원
                                             </button>
-                                            <button class="btn btn-sm btn-outlined color-default" @click="exportExcel()"
+                                            <button class="btn btn-outlined color-default" @click="exportExcel()"
                                                     :disabled="exporting || !selectedFlow"
                                                     title="현재 Flow·시간범위의 IO 세그먼트를 Excel(.xlsx) 로 내보냅니다">
-                                                <span x-text="exporting ? 'Excel 생성 중…' : 'Excel'"></span>
+                                                <span class="material-icons" style="font-size:18px; vertical-align:middle;">download</span>
+                                                <span x-text="exporting ? 'Excel 생성 중…' : 'Excel 다운로드'"></span>
                                             </button>
                                         </div>
                                     </div>
@@ -315,8 +316,8 @@
                                                         <div class="ct-lane-name-block">
                                                             <div class="ct-lane-name">
                                                                 <span x-text="row.lane.callName"></span>
-                                                                <template x-if="headCallId === row.lane.callId"><span class="ct-badge head">HEAD</span></template>
-                                                                <template x-if="tailCallId === row.lane.callId"><span class="ct-badge tail">TAIL</span></template>
+                                                                <template x-if="headCallId === row.lane.callId"><span class="ct-badge head">시작</span></template>
+                                                                <template x-if="tailCallId === row.lane.callId"><span class="ct-badge tail">끝</span></template>
                                                             </div>
                                                             <div class="ct-lane-work" x-text="row.lane.workName"></div>
                                                             <div class="ct-lane-row-leg" x-show="row.lane.outTag || row.lane.inTag">
@@ -330,11 +331,11 @@
                                                             <button :class="'ct-tag-btn head ' + (headCallId === row.lane.callId ? 'active' : '')"
                                                                     @click="toggleHead(row.lane.callId)"
                                                                     :disabled="overlayBusy"
-                                                                    title="Head 로 지정: 이 Call 의 OutTag↑(PLC 명령) 가 사이클 시작 경계가 됩니다">H</button>
+                                                                    title="시작으로 지정: 이 Call 의 OutTag↑(PLC 명령) 가 사이클 시작 경계가 됩니다">시작</button>
                                                             <button :class="'ct-tag-btn tail ' + (tailCallId === row.lane.callId ? 'active' : '')"
                                                                     @click="toggleTail(row.lane.callId)"
                                                                     :disabled="overlayBusy"
-                                                                    title="Tail 로 지정: 이 Call 의 InTag↑(PLC 응답) 가 사이클 완료 마커가 됩니다">T</button>
+                                                                    title="끝으로 지정: 이 Call 의 InTag↑(PLC 응답) 가 사이클 완료 마커가 됩니다">끝</button>
                                                         </div>
                                                     </template>
                                                     <!-- ── ApiCall 서브행 (실측 vs 현재 AASX) ── -->
@@ -375,6 +376,29 @@
                                              x-init="$el.addEventListener('wheel', (e) => onWheel(e), { passive: false }); $el.addEventListener('touchstart', (e) => onDragStartTouch(e), { passive: false })"
                                              @mousedown="onDragStart($event)">
                                             <div class="ct-gantt-wrapper" x-html="svgMarkup"></div>
+                                            <!-- 드래그 선택 구간 플로팅 툴팁 (간트 위 겹침) — 통계 + 해당 영역 보기 -->
+                                            <template x-if="selectedRange">
+                                                <div class="ct-sel-tip" @mousedown.stop @touchstart.stop
+                                                     :style="`left:${selTipCenterPx}px; top:${selTipTopPx}px;`">
+                                                    <div class="ct-sel-tip-head">
+                                                        <span class="ct-sel-tip-title">선택 구간</span>
+                                                        <span class="ct-sel-tip-time"
+                                                              x-text="hms2k(new Date(selectedRange.startMs)) + ' ~ ' + hms2k(new Date(selectedRange.endMs))"></span>
+                                                        <button class="ct-sel-tip-x" @click="clearRangeSelection()" title="선택 구간 해제">✕</button>
+                                                    </div>
+                                                    <div class="ct-sel-tip-stats">
+                                                        <div><i>구간 길이</i><b x-text="formatMs(selRangeLenMs)"></b></div>
+                                                        <div><i>사이클 수</i><b x-text="selHasCycles ? (selCycleCount + '개') : '–'"></b></div>
+                                                        <div class="run"><i>동작</i><b x-text="selHasCycles ? formatMs(selActiveMs) : '–'"></b></div>
+                                                        <div class="idle"><i>대기</i><b x-text="selHasCycles ? formatMs(selWaitMs) : '–'"></b></div>
+                                                    </div>
+                                                    <button class="btn btn-sm btn-filled ct-sel-tip-apply" @click="applyRangeAsPeriod()" :disabled="isLoading"
+                                                            title="선택 구간을 분석 시작·종료 시간으로 설정하고 다시 로드">
+                                                        <span class="material-icons" style="font-size:15px; vertical-align:middle;">search</span>
+                                                        해당 영역 보기
+                                                    </button>
+                                                </div>
+                                            </template>
                                         </div>
                                     </div>
 
@@ -383,8 +407,8 @@
                                         <span><i class="ct-sw ct-sw-out"></i> OutTag (명령 = 시작)</span>
                                         <span><i class="ct-sw ct-sw-in"></i> InTag (응답 = 완료)</span>
                                         <span><i class="ct-sw ct-sw-going"></i> 실행 배경</span>
-                                        <span><i class="ct-sw ct-sw-head"></i> Head (시작)</span>
-                                        <span><i class="ct-sw ct-sw-tail"></i> Tail (끝)</span>
+                                        <span><i class="ct-sw ct-sw-head"></i> 시작</span>
+                                        <span><i class="ct-sw ct-sw-tail"></i> 끝</span>
                                         <span><i class="ct-sw ct-sw-cycle-edge"></i> 사이클 경계</span>
                                         <template x-if="selectedRange">
                                             <span><i class="ct-sw ct-sw-range"></i> 드래그 선택 구간</span>
@@ -396,49 +420,6 @@
                                             <span style="color:var(--color-text-primary);font-weight:700;">상단 리본 = 사이클별 동작시간·대기시간 비율 + 가동률</span>
                                             <span><i class="ct-sw ct-sw-active-band"></i> 동작시간</span>
                                             <span><i class="ct-sw ct-sw-idle-band"></i> 대기시간</span>
-                                        </div>
-                                    </template>
-
-                                    <!-- 간트 가로 드래그 선택 구간 → 인라인 카드 (간트 ↔ 사이클 목록 사이, 4-KPI + 사이클 기간 설정, 전부 로컬 파생) -->
-                                    <template x-if="selectedRange">
-                                        <div class="card" style="border-color: var(--color-primary);">
-                                            <div class="ds-card-h">
-                                                <h4>
-                                                    선택 구간
-                                                    <span style="font-weight:400; font-size:0.82em; color:var(--color-text-secondary);"
-                                                          x-text="' · ' + hms2k(new Date(selectedRange.startMs)) + ' ~ ' + hms2k(new Date(selectedRange.endMs))"></span>
-                                                </h4>
-                                                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-                                                    <button class="btn btn-sm btn-filled" @click="applyRangeAsPeriod()" :disabled="isLoading"
-                                                            title="선택 구간을 분석 시작·종료 시간으로 설정하고 다시 로드">
-                                                        <span class="material-icons" style="font-size:16px; vertical-align:middle;">schedule</span>
-                                                        사이클 기간으로 설정
-                                                    </button>
-                                                    <button class="btn btn-sm btn-outlined" @click="clearRangeSelection()" style="white-space:nowrap;" title="선택 구간 해제">✕ 해제</button>
-                                                </div>
-                                            </div>
-                                            <div class="sm-hint" style="margin-bottom:14px;">
-                                                <span class="material-icons">info</span>
-                                                <span>간트에서 드래그한 구간의 통계입니다. 이 범위를 분석 기간으로 적용하려면 <b>사이클 기간으로 설정</b> 을 누르세요 — 시작·종료 시간이 이 구간으로 바뀌고 다시 로드됩니다.</span>
-                                            </div>
-                                            <div class="ct-range-stats">
-                                                <div class="kpi-cell">
-                                                    <div class="kp-label">선택 구간 길이</div>
-                                                    <div class="kp-value" x-text="formatMs(selRangeLenMs)"></div>
-                                                </div>
-                                                <div class="kpi-cell tone-primary">
-                                                    <div class="kp-label">동작 (Run) 합</div>
-                                                    <div class="kp-value" x-text="formatMs(selRunMs)"></div>
-                                                </div>
-                                                <div class="kpi-cell tone-max">
-                                                    <div class="kp-label">병목 (Gap) 합</div>
-                                                    <div class="kp-value" x-text="formatMs(selGapMs)"></div>
-                                                </div>
-                                                <div class="kpi-cell">
-                                                    <div class="kp-label">활성 Call</div>
-                                                    <div class="kp-value" x-text="selActiveDevices + ' / ' + callLanes.length"></div>
-                                                </div>
-                                            </div>
                                         </div>
                                     </template>
 

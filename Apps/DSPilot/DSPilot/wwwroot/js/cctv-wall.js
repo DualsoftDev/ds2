@@ -307,26 +307,31 @@
                 return this.cctvOverlaysAll.filter(o => (o.cameraName || '').toLowerCase() === n).length;
             },
             cctvStateOf(overlayId) { const s = this.cctvOverlayStates[overlayId]; return s ? (s.state || '') : ''; },
+            // 신호 의미색 통일: 주황=동작/진행(OutTag 시작 계열), 파랑=완료(InTag 응답 계열),
+            // 회색=대기, 빨강=이상. 초록 제거로 Ready↔동작 혼동 소멸.
             cctvColorOf(state) {
                 switch ((state || '').toLowerCase()) {
-                    case 'going': return 'var(--color-warning)';
+                    case 'going': return 'var(--dash-mt)';   // 주황 = 진행중(동작)
+                    case 'finish': return '#1e88e5';         // 파랑 = 완료(InTag echo)
                     case 'error': return 'var(--red)';
-                    case 'ready': case 'finish': return 'var(--green)';
+                    case 'ready': return 'var(--dash-wt)';    // 회색 = 대기중
                     default: return 'var(--color-text-disabled)';
                 }
             },
             cctvStateKeyOf(state) {
                 const k = (state || '').toLowerCase();
                 if (k === 'going') return 'going';
+                if (k === 'finish') return 'finish';
                 if (k === 'error') return 'error';
-                if (k === 'ready' || k === 'finish') return 'ready';
+                if (k === 'ready') return 'ready';
                 return 'unknown';
             },
             cctvStateLabelFor(state) {
                 switch ((state || '').toLowerCase()) {
                     case 'going': return '진행중';
+                    case 'finish': return '완료';
                     case 'error': return '이상';
-                    case 'ready': case 'finish': return '대기중';
+                    case 'ready': return '대기중';
                     default: return '—';
                 }
             },

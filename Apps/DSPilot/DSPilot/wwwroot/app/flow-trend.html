@@ -11,6 +11,7 @@
       서버/모델 = C#(/api/flow/*, /api/dashboard/flows/*, /api/call-test/*, /api/cycle-analysis/export-excel),
       뷰 = 정적 HTML/CSS/JS(Alpine + Chart.js + vanilla SVG + SignalR). 디자인 시스템: /css/ds.css.
       진입: ?name=<flowName> (이 Flow 1개에 스코프됨 — Flow 선택 드롭다운 없음).
+            ?name= 없이 진입하면 전체 추이(allMode) — nav 트리의 모든 Flow 히스토리를 합산해 라인 전체 추이를 본다.
       구성: 헤더 카드 + KPI 6셀 + 기간별 추이(클라 집계)
             + 사이클 분석(구 cycle-time-analysis 전체 기능: 간트/Head·Tail 적용·저장/Excel/정렬/최대Gap/드래그 구간통계)
             + 최근 히스토리(구 대시보드 하단: 테이블↔차트 + 이상치 제외 범위 필터, 서버 공유).
@@ -43,9 +44,9 @@
             <!-- 상단 툴바 -->
             <div class="ds-topbar">
                 <div class="ds-topbar-titles">
-                    <h2 x-text="flow ? flow.flowName : (flowName || 'Flow')"></h2>
+                    <h2 x-text="allMode ? '전체 추이' : (flow ? flow.flowName : (flowName || 'Flow'))"></h2>
                     <div class="ds-breadcrumb">
-                        <span x-text="flow && flow.systemName ? flow.systemName : '-'"></span> · 기간별 추이
+                        <span x-text="allMode ? '라인 전체' : (flow && flow.systemName ? flow.systemName : '-')"></span> · 기간별 추이
                     </div>
                 </div>
             </div>
@@ -54,8 +55,8 @@
             <div x-show="loading && !flow" class="progress-bar progress-bar-indeterminate" style="margin-bottom:12px;"><div class="progress-bar-fill"></div></div>
             <div class="alert alert-error" x-show="error" style="margin-bottom:12px;"><span class="material-icons">error</span><span x-text="error"></span></div>
 
-            <!-- Flow 없음 -->
-            <template x-if="!loading && !error && !flow">
+            <!-- Flow 없음 (전체 추이 모드에서는 숨김) -->
+            <template x-if="!loading && !error && !flow && !allMode">
                 <div class="card fw-section">
                     <div class="ds-empty">
                         <span class="material-icons">account_tree</span>
@@ -65,7 +66,7 @@
                 </div>
             </template>
 
-            <template x-if="flow">
+            <template x-if="flow || allMode">
                 <div class="fw-grid">
                     <!-- ════ 기간별 추이 ════ -->
                     <section class="card fw-section" x-show="tab === 'trend'">
@@ -103,12 +104,12 @@
 
                                 <div class="fw-chart-row">
                                     <div>
-                                        <div class="ds-card-h"><h4 style="font-size:0.78rem;">사이클 수</h4></div>
-                                        <div class="fw-chart-md"><canvas x-ref="countChart"></canvas></div>
-                                    </div>
-                                    <div>
                                         <div class="ds-card-h"><h4 style="font-size:0.78rem;">시간 구성</h4></div>
                                         <div class="fw-chart-md"><canvas x-ref="distChart"></canvas></div>
+                                    </div>
+                                    <div>
+                                        <div class="ds-card-h"><h4 style="font-size:0.78rem;">사이클 수</h4></div>
+                                        <div class="fw-chart-md"><canvas x-ref="countChart"></canvas></div>
                                     </div>
                                 </div>
                             </div>

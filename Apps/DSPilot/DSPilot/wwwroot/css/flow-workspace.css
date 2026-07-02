@@ -37,7 +37,7 @@
         /* minmax(0,…) 필수: 기본 1fr 은 minmax(auto,1fr) 라 트랙 최소폭이 셀 min-content
            (Chart.js 가 가로모드에서 캔버스에 박아둔 인라인 width px)가 됨 → 세로 복귀 후
            트랙이 줄지 않아 차트가 컨테이너보다 넓게 박제·오른쪽 잘림. 0 으로 내려 축소 허용. */
-        .fw-chart-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; }
+        .fw-chart-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 16px; }
         .fw-chart-row > div { min-width: 0; }
         @media (max-width: 900px) { .fw-chart-row { grid-template-columns: minmax(0, 1fr); } }
         .fw-chart-md { position: relative; height: 260px; overflow: hidden; }
@@ -51,6 +51,7 @@
         .fw-toolbar-label { display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; font-weight: 800; color: var(--color-text-secondary); }
         .fw-toolbar-label .material-icons { font-size: 17px; }
         .fw-toolbar-hint { font-size: 0.68rem; font-weight: 600; color: var(--color-text-tertiary, var(--color-text-secondary)); opacity: 0.85; }
+        .fw-toolbar-actions { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; }
 
         /* ════════════════════════════════════════════════════════════════
            사이클 분석 (구 cycle-time-analysis 에서 이식) — ct-* 페이지 고유 클래스
@@ -58,11 +59,13 @@
         .call-test-page { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 
         /* 컨트롤 패널 (헤어라인 박스, 플랫) */
-        .call-test-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; padding: 14px 16px; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); }
+        .call-test-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 14px 16px; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); }
         .ct-field { display: flex; flex-direction: column; gap: 6px; min-width: 180px; }
         .ct-field label { font-size: 0.66rem; color: var(--color-text-secondary); font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; }
         .ct-presets { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-left: auto; }
-        .ct-preset-sep { margin-left: 6px; padding-left: 10px; border-left: 1px solid var(--color-lines-strong); font-size: 0.68rem; font-weight: 800; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.06em; }
+        /* 사이클 개수 프리셋 (세그먼트 앞 라벨 + .segmented) — 오른쪽 정렬 */
+        .ct-cycle-presets { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
+        .ct-preset-sep { padding-left: 10px; border-left: 1px solid var(--color-lines-strong); font-size: 0.68rem; font-weight: 800; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.06em; }
         /* 시작·종료 직접 지정 팝업 */
         .ct-range-field { position: relative; min-width: 0; }
         .ct-range-popup { position: absolute; top: calc(100% + 6px); left: 0; z-index: 40; display: flex; gap: 12px; padding: 14px 16px; background: var(--color-surface); border: 1px solid var(--color-lines-strong); border-radius: var(--radius-md); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16); }
@@ -110,7 +113,8 @@
         .ct-sh-stat { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.15; }
         .ct-sh-stat i { font-style: normal; font-size: 0.56rem; font-weight: 600; color: var(--color-text-secondary); }
         .ct-sh-stat b { font-size: 0.86rem; font-weight: 800; color: var(--color-text-primary); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-        .ct-sh-stat.is-primary b { color: var(--color-primary); }
+        .ct-sh-stat.is-primary i { color: var(--color-primary); }
+        .ct-sh-stat.is-active i { color: #f57c00; }
         .ct-ribbon-side { display: flex; flex-direction: column; justify-content: center; gap: 1px; padding: 0 12px; background: #fafbfc; border-bottom: 1px solid var(--color-lines); }
         .ct-ribbon-side .rs-t { font-size: 0.7rem; font-weight: 800; color: var(--color-text-primary); }
         .ct-ribbon-side .rs-sub { font-size: 0.58rem; color: var(--color-text-secondary); white-space: nowrap; }
@@ -132,7 +136,7 @@
         .ct-badge.head { background: #4caf50; }
         .ct-badge.tail { background: #ab47bc; }
         .ct-lane-tags { display: flex; gap: 4px; flex: 0 0 auto; }
-        .ct-tag-btn { width: 24px; height: 24px; border-radius: var(--radius-sm); border: 1px solid var(--color-lines-strong); background: var(--color-surface); font-size: 0.7rem; font-weight: 800; cursor: pointer; padding: 0; color: var(--color-text-primary); font-family: var(--font-mono); transition: background-color 0.12s, color 0.12s, border-color 0.12s; }
+        .ct-tag-btn { min-width: 24px; height: 24px; border-radius: var(--radius-sm); border: 1px solid var(--color-lines-strong); background: var(--color-surface); font-size: 0.7rem; font-weight: 800; cursor: pointer; padding: 0 6px; color: var(--color-text-primary); white-space: nowrap; transition: background-color 0.12s, color 0.12s, border-color 0.12s; }
         .ct-tag-btn:hover:not(:disabled) { border-color: var(--color-primary); color: var(--color-primary); }
         .ct-tag-btn:disabled { opacity: 0.45; cursor: not-allowed; }
         .ct-tag-btn.head.active { background: #4caf50; color: #fff; border-color: #2e7d32; }
@@ -159,24 +163,23 @@
         .ct-api-nodata { font-style: italic; opacity: 0.75; }
         .ct-api-cur b { color: var(--color-text-primary); font-weight: 700; }
         .dark-theme .ct-api-meas b { color: #64b5f6; }
-        .ct-gantt-chart-area { flex: 1; overflow: auto; background: var(--color-surface); overscroll-behavior-x: contain; }
+        .ct-gantt-chart-area { flex: 1; overflow: auto; background: var(--color-surface); overscroll-behavior-x: contain; position: relative; }
         .ct-gantt-wrapper { display: inline-block; }
 
         /* 간트 툴바 (보기 전환 + 줌) */
         .ct-gantt-toolbar { display: flex; align-items: center; gap: 12px; padding: 6px 10px; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); flex-wrap: wrap; }
         .ct-gantt-toolbar .spacer { flex: 1; }
         .ct-tb-hint { font-size: 0.66rem; color: var(--color-text-secondary); }
-        .ct-seg { display: inline-flex; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); overflow: hidden; }
-        .ct-seg button { border: 0; background: var(--color-surface); color: var(--color-text-secondary); font-size: 0.72rem; font-weight: 700; padding: 5px 12px; cursor: pointer; }
-        .ct-seg button + button { border-left: 1px solid var(--color-lines); }
-        .ct-seg button.active { background: var(--color-primary); color: #fff; }
+        /* ── 세그먼트 컨트롤(.segmented / .ct-seg): swiss.css 공용 규칙이 단일 소스.
+           (ds.css 가 swiss.css 를 @import → 프리셋·막대/InOut 토글 모두 통일된 룩 상속)
+           기존의 로컬 .ct-seg 오버라이드는 swiss 표준과 통일하기 위해 제거함. */
         .ct-zoom { display: inline-flex; align-items: center; gap: 6px; }
         .ct-zoom button { width: 26px; height: 26px; border: 1px solid var(--color-lines-strong); background: var(--color-surface); border-radius: var(--radius-sm); cursor: pointer; font-weight: 800; font-size: 0.85rem; color: var(--color-text-primary); padding: 0; line-height: 1; }
         .ct-zoom button.ct-zoom-reset { width: auto; padding: 0 10px; font-size: 0.7rem; font-weight: 700; }
         .ct-zoom button:hover:not(:disabled) { border-color: var(--color-primary); color: var(--color-primary); }
         .ct-zoom button:disabled { opacity: 0.4; cursor: not-allowed; }
         .ct-zoom-val { font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700; min-width: 44px; text-align: center; }
-        .dark-theme .ct-seg button, .dark-theme .ct-zoom button { background: var(--color-surface-variant); }
+        .dark-theme .ct-zoom button { background: var(--color-surface-variant); }
 
         /* 범례 (헤어라인 박스) */
         .ct-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 0.72rem; color: var(--color-text-secondary); padding: 10px 16px; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); align-items: center; }
@@ -204,10 +207,26 @@
         .ct-tb-check input[type="checkbox"] { accent-color: var(--color-primary); width: 15px; height: 15px; cursor: pointer; }
         .ct-tb-check:has(input:disabled) { opacity: 0.45; cursor: not-allowed; }
 
-        /* 간트 가로 드래그 → 구간 통계 4-KPI */
-        .ct-range-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
-        @media (max-width: 768px) { .ct-range-stats { grid-template-columns: repeat(2, 1fr); } }
-        .ct-range-stats .kpi-cell .kp-value { font-size: 1.15rem; }
+        /* 간트 가로 드래그 → 구간 통계: 간트 위에 겹쳐 뜨는 플로팅 툴팁 (아래 별도 카드 대체) */
+        .ct-sel-tip {
+            position: absolute; transform: translateX(-50%); z-index: 30;
+            min-width: 260px; max-width: 340px;
+            background: #ffffff; border: 1px solid #7e57c2; border-radius: 10px;
+            box-shadow: 0 8px 26px rgba(0,0,0,0.22);
+            padding: 10px 12px 12px; font-size: 0.75rem; color: #1f2733;
+        }
+        .ct-sel-tip-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+        .ct-sel-tip-title { font-weight: 800; color: #7e57c2; font-size: 0.78rem; white-space: nowrap; }
+        .ct-sel-tip-time { flex: 1; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 0.72rem; color: #556; white-space: nowrap; }
+        .ct-sel-tip-x { border: 0; background: transparent; cursor: pointer; font-size: 0.9rem; line-height: 1; color: #889; padding: 2px 5px; border-radius: 4px; }
+        .ct-sel-tip-x:hover { background: #f0eef7; color: #333; }
+        .ct-sel-tip-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; margin-bottom: 10px; }
+        .ct-sel-tip-stats > div { display: flex; flex-direction: column; }
+        .ct-sel-tip-stats i { font-style: normal; font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.04em; color: #7a8496; }
+        .ct-sel-tip-stats b { font-size: 0.98rem; font-weight: 800; color: #1f2733; font-variant-numeric: tabular-nums; }
+        .ct-sel-tip-stats .run b { color: var(--color-primary); }
+        .ct-sel-tip-stats .idle b { color: #607d8b; }
+        .ct-sel-tip-apply { width: 100%; justify-content: center; }
 
         /* 사이클 목록 테이블 */
         .ct-cycle-scroll { max-height: 260px; overflow-y: auto; overflow-x: hidden; }
@@ -256,6 +275,7 @@
         .shift-modal .sm-foot { display: flex; gap: 10px; padding: 14px 22px 20px; }
         .shift-modal .sm-foot .btn { flex: 1; justify-content: center; }
         .sm-times { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .sm-times.is-triple { grid-template-columns: 1fr 1fr 1fr; }
         .range-row { display: flex; gap: 6px; align-items: center; }
         .range-row .form-field { flex: 1 1 auto; min-width: 0; }
         .range-row .range-unit { flex: 0 0 auto; width: auto; padding: 10px 8px; }
@@ -291,7 +311,11 @@
             .ct-field { min-width: 0; width: 100%; }
             .ct-presets { margin-left: 0; gap: 6px; }
             .ct-presets .btn { flex: 1 1 auto; }
+            .ct-cycle-presets { margin-left: 0; gap: 6px; flex-wrap: wrap; }
             .ct-preset-sep { margin-left: 0; padding-left: 0; border-left: none; flex-basis: 100%; }
+            /* 세그먼트: 풀폭 + 버튼 균등 분할 */
+            .call-test-controls .segmented { width: 100%; flex-wrap: wrap; }
+            .call-test-controls .segmented > button { flex: 1 1 auto; padding: 7px 8px; }
 
             .ct-gantt-toolbar { flex-direction: column; align-items: stretch; gap: 8px; padding: 8px 10px; }
             .ct-gantt-toolbar .spacer { display: none; }
@@ -299,7 +323,7 @@
             .ct-gantt-toolbar select.form-select { flex: 1 1 auto; }
             .ct-gap-pick { max-width: none; width: 100%; }
             .ct-seg { width: 100%; }
-            .ct-seg button { flex: 1 1 auto; padding: 7px 8px; }
+            .ct-seg > button { flex: 1 1 auto; padding: 7px 8px; }
             .ct-zoom { justify-content: center; }
 
             /* 액션 바: 버튼 줄바꿈, 풀폭 가능 */
@@ -308,7 +332,7 @@
 
             /* KPI 그리드: 더 좁은 카드 허용(2열까지) */
             .ct-kpi-grid { grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 8px; }
-            .ct-range-stats { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+            .ct-sel-tip { min-width: 220px; max-width: min(300px, 88vw); }
 
             /* 간트 layout: 세로 스택(사이드바 위, 차트 아래) */
             .ct-gantt-layout { flex-direction: column; max-height: none; }
@@ -316,7 +340,7 @@
             .ct-gantt-chart-area { min-height: 250px; overflow: auto; }
 
             /* 작은 터치 타깃 ≥32px */
-            .ct-tag-btn { width: 32px; height: 32px; font-size: 0.8rem; }
+            .ct-tag-btn { min-width: 32px; height: 32px; font-size: 0.8rem; }
             .ct-expand-btn { width: 32px; height: 32px; font-size: 0.85rem; }
             .ct-zoom button { width: 34px; height: 34px; font-size: 1rem; }
             .ct-zoom button.ct-zoom-reset { width: auto; padding: 0 12px; height: 34px; }
@@ -331,7 +355,7 @@
 
             /* 이상치 제외 모달: 거의 전체폭 + 시간입력 1열 */
             .shift-modal { width: 98vw; }
-            .sm-times { grid-template-columns: 1fr; }
+            .sm-times, .sm-times.is-triple { grid-template-columns: 1fr; }
         }
         /* 간트 플롯 영역(SVG): 터치 드래그-구간선택을 브라우저가 스크롤/줌으로 가로채지 않게.
            SVG 래퍼에만 touch-action:none 을 주고, 스크롤 컨테이너(.ct-gantt-chart-area)는
