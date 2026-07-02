@@ -284,6 +284,13 @@
         .dash-live.is-poll { color: var(--color-text-secondary); }
         @keyframes dash-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
+        /* ── 상단 일간 KPI 카드 그리드 (가동횟수·OEE·MTBF·MTTR) ──
+           stitch.css self-host 빌드에 grid-cols-2/4 유틸이 없어(원본은 grid-cols-3만) Tailwind 대신 자체 CSS 로 4열 그리드 정의.
+           데스크톱 4열 → 태블릿 2열 → 폰 1열. gap = gutter(16px). */
+        .dash-kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+        @media (max-width: 1024px) { .dash-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+        @media (max-width: 480px)  { .dash-kpi-grid { grid-template-columns: 1fr; } }
+
         /* ── 경로이탈 이상감지 알람 배너 (fliptext 참고: bg-yellow-400 px-6 py-4 + 경고 아이콘 + 세로 티커 + 분자/분모 인디케이터 + 상세확인 버튼) ── 데이터는 abnormals[] */
         .flow-alarm { display: flex; align-items: center; padding: 16px 24px; margin-bottom: 14px; flex-shrink: 0; overflow: hidden; border-radius: var(--radius-md); background: #facc15; box-shadow: 0 1px 2px 0 rgba(0,0,0,0.06); }
         .flow-alarm-icon { display: flex; align-items: center; gap: 8px; flex-shrink: 0; margin-right: 16px; padding-right: 12px; z-index: 10; background: #facc15; }
@@ -533,86 +540,74 @@
                 <button type="button" class="flow-alarm-btn" @click="gotoAbnormal(abnormals[abnIndex])" title="가동시간·이상 페이지에서 상세 확인">상세 확인</button>
             </div>
 
-            <!-- ════════════ Summary Row (3 KPI 카드) ════════════ -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-gutter">
+            <!-- ════════════ Summary Row — 일간 지표 (어제 대비 등락) ════════════ -->
+            <!-- 4개 카드: 가동횟수 · OEE 종합 · MTBF · MTTR. 각 카드는 하루 단위로 오늘(00:00~현재)을
+                 어제 같은 시각(어제 00:00~24시간 전)과 공정 비교해 등락(▲/▼·%·시간차)을 표시한다.
+                 데이터 = /api/oee/summary 를 오늘/어제 2회 호출 → cmp.today / cmp.yesterday (loadCompare).
+                 색 규칙: 개선=초록 / 악화=빨강 (MTTR 만 낮을수록 개선이라 방향 반대). 카드 클릭 → OEE 종합 페이지. -->
+            <div class="dash-kpi-grid">
 
-                <!-- Max CT — 전체시간 색상(--color-primary) -->
+                <!-- ① 가동횟수 (오늘 vs 어제 같은 시각) — azure -->
                 <div class="border p-card-padding rounded-xl shadow-sm relative overflow-hidden group cursor-pointer transition-all"
-                     :style="`background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); border-color: ${(maxCtName && selectedFlowName === maxCtName) ? 'var(--color-primary)' : 'color-mix(in srgb, var(--color-primary) 26%, transparent)'}; box-shadow: ${(maxCtName && selectedFlowName === maxCtName) ? '0 0 0 3px color-mix(in srgb, var(--color-primary) 30%, transparent)' : 'var(--shadow-card)'};`"
-                     @click="maxCtName && (selectedFlowName = maxCtName)">
-                    <div class="flex justify-between items-start mb-4">
-                        <div>
-                            <span class="font-label-sm text-label-sm opacity-80 uppercase tracking-tighter" style="color:var(--color-primary-strong);">최대 가동시간</span>
-                            <h4 class="font-display-metrics text-display-metrics leading-none mt-2" style="color:var(--color-primary);" x-text="maxCtName ? fmt(maxCtVal) : '--'"></h4>
-                        </div>
+                     style="background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); border-color: color-mix(in srgb, var(--color-primary) 26%, transparent);"
+                     @click="window.location='/uptime-oee'" title="OEE 종합 페이지로 이동">
+                    <div class="flex items-center gap-2 mb-1">
+                        <span class="font-label-sm text-label-sm opacity-80 uppercase tracking-tighter" style="color:var(--color-primary-strong);">가동횟수</span>
+                        <span class="px-1.5 py-px rounded text-[10px] font-bold bg-surface-container-high text-on-surface-variant">일간</span>
                     </div>
-                    <div class="flex items-center gap-2 font-mono-data text-mono-data" style="color:var(--color-primary-strong);" :title="maxCtName">
-                        <span class="material-icons" style="font-size:16px;">arrow_forward</span>
-                        <span class="truncate" x-text="maxCtName || '데이터 없음'"></span>
-                    </div>
+                    <h4 class="font-display-metrics text-display-metrics leading-none mt-2" style="color:var(--color-primary);"
+                        x-text="cmp.today ? (cmp.today.totalCount ?? 0).toLocaleString() + '회' : '—'"></h4>
+                    <div class="mt-3 flex items-center gap-1.5 flex-wrap" x-html="cmpBadge('count')"></div>
                     <div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity" style="color:var(--color-primary);">
+                        <span class="material-icons" style="font-size:120px; line-height:1;">autorenew</span>
+                    </div>
+                </div>
+
+                <!-- ② OEE 종합 — green -->
+                <div class="border p-card-padding rounded-xl shadow-sm relative overflow-hidden group cursor-pointer transition-all"
+                     style="background: color-mix(in srgb, var(--green) 9%, var(--color-surface)); border-color: color-mix(in srgb, var(--green) 26%, transparent);"
+                     @click="window.location='/uptime-oee'" title="OEE 종합 페이지로 이동">
+                    <div class="flex items-center gap-2 mb-1">
+                        <span class="font-label-sm text-label-sm opacity-90 uppercase tracking-tighter" style="color:var(--green);">OEE 종합</span>
+                        <span class="px-1.5 py-px rounded text-[10px] font-bold bg-surface-container-high text-on-surface-variant">일간</span>
+                    </div>
+                    <h4 class="font-display-metrics text-display-metrics leading-none mt-2" style="color:var(--green);"
+                        x-text="(cmp.today && cmp.today.oee != null) ? (cmp.today.oee * 100).toFixed(1) + '%' : '—'"></h4>
+                    <div class="mt-3 flex items-center gap-1.5 flex-wrap" x-html="cmpBadge('oee')"></div>
+                    <div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity" style="color:var(--green);">
+                        <span class="material-icons" style="font-size:120px; line-height:1;">insights</span>
+                    </div>
+                </div>
+
+                <!-- ③ MTBF (평균 무고장 시간 — 높을수록 좋음) — amber -->
+                <div class="border p-card-padding rounded-xl shadow-sm relative overflow-hidden group cursor-pointer transition-all"
+                     style="background: color-mix(in srgb, var(--amber) 9%, var(--color-surface)); border-color: color-mix(in srgb, var(--amber) 26%, transparent);"
+                     @click="window.location='/uptime-oee'" title="OEE 종합 페이지로 이동 · MTBF = 연속 비가동 onset 간격 평균">
+                    <div class="flex items-center gap-2 mb-1">
+                        <span class="font-label-sm text-label-sm opacity-90 uppercase tracking-tighter" style="color:var(--amber);">MTBF</span>
+                        <span class="px-1.5 py-px rounded text-[10px] font-bold bg-surface-container-high text-on-surface-variant">일간</span>
+                    </div>
+                    <h4 class="font-display-metrics text-display-metrics leading-none mt-2" style="color:var(--amber);"
+                        x-text="cmp.today ? (cmp.today.failureCount === 0 ? '무고장' : durShort(cmp.today.mtbf)) : '—'"></h4>
+                    <div class="mt-3 flex items-center gap-1.5 flex-wrap" x-html="cmpBadge('mtbf')"></div>
+                    <div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity" style="color:var(--amber);">
                         <span class="material-icons" style="font-size:120px; line-height:1;">timer</span>
                     </div>
                 </div>
 
-                <!-- Max Waiting Rate — 대기시간 색상(--color-text-secondary) -->
+                <!-- ④ MTTR (평균 복구 시간 — 낮을수록 좋음) — amber -->
                 <div class="border p-card-padding rounded-xl shadow-sm relative overflow-hidden group cursor-pointer transition-all"
-                     :style="`background: color-mix(in srgb, var(--color-text-secondary) 8%, var(--color-surface)); border-color: ${(maxWtName && selectedFlowName === maxWtName) ? 'var(--color-text-secondary)' : 'color-mix(in srgb, var(--color-text-secondary) 26%, transparent)'}; box-shadow: ${(maxWtName && selectedFlowName === maxWtName) ? '0 0 0 3px color-mix(in srgb, var(--color-text-secondary) 30%, transparent)' : 'var(--shadow-card)'};`"
-                     @click="maxWtName && (selectedFlowName = maxWtName)">
-                    <div class="flex justify-between items-start mb-4">
-                        <div>
-                            <span class="font-label-sm text-label-sm opacity-80 uppercase tracking-tighter" style="color:var(--color-text-secondary);">최대 대기율 (대기시간/전체시간)</span>
-                            <h4 class="font-display-metrics text-display-metrics leading-none mt-2" style="color:var(--color-text-secondary);" x-text="maxWtName ? (maxWtRatio * 100).toFixed(1) + '%' : '--'"></h4>
-                        </div>
+                     style="background: color-mix(in srgb, var(--amber) 9%, var(--color-surface)); border-color: color-mix(in srgb, var(--amber) 26%, transparent);"
+                     @click="window.location='/uptime-oee'" title="OEE 종합 페이지로 이동 · MTTR = 비가동 onset→회복 평균">
+                    <div class="flex items-center gap-2 mb-1">
+                        <span class="font-label-sm text-label-sm opacity-90 uppercase tracking-tighter" style="color:var(--amber);">MTTR</span>
+                        <span class="px-1.5 py-px rounded text-[10px] font-bold bg-surface-container-high text-on-surface-variant">일간</span>
                     </div>
-                    <div class="flex items-center gap-2 font-mono-data text-mono-data" style="color:var(--color-text-secondary);" :title="maxWtName">
-                        <span class="material-icons" style="font-size:16px;">arrow_forward</span>
-                        <span class="truncate" x-text="maxWtName || '데이터 없음'"></span>
-                    </div>
-                    <div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity" style="color:var(--color-text-secondary);">
-                        <span class="material-icons" style="font-size:120px; line-height:1;">pause_circle</span>
-                    </div>
-                </div>
-
-                <!-- 생산 현황 + 당일 사이클 -->
-                <div class="bg-surface-container-lowest border border-outline-variant p-card-padding rounded-xl shadow-sm flex flex-col justify-between relative overflow-hidden cursor-pointer hover:border-primary/40 transition-colors"
-                     @click="window.location='/uptime-oee#planned-stops-section'"
-                     title="비생산 시간대 설정으로 이동">
-                    <div>
-                        <div class="flex justify-between items-start">
-                            <div class="flex items-center gap-2">
-                                <span class="font-label-sm text-label-sm text-on-surface-variant opacity-80 uppercase tracking-tighter" x-text="npStatusLabel"></span>
-                                <!-- 출처 뱃지: 자동/수동 -->
-                                <template x-if="nonprod.source === 'auto'">
-                                    <span class="px-1.5 py-px rounded text-[10px] font-bold bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">자동</span>
-                                </template>
-                                <template x-if="nonprod.source === 'manual'">
-                                    <span class="px-1.5 py-px rounded text-[10px] font-bold bg-surface-container-high text-on-surface-variant">수동</span>
-                                </template>
-                            </div>
-                            <span class="text-label-sm text-on-surface-variant opacity-60 font-mono tabular-nums" x-text="npNowText"></span>
-                        </div>
-                        <h4 class="kp-value font-headline-lg text-headline-lg text-primary mt-2" x-text="npCountdownText"></h4>
-                        <div class="flex flex-wrap gap-1 mt-3">
-                            <template x-if="nonprod.windows.length === 0 && nonprod.source === 'auto'">
-                                <span class="text-label-sm text-on-surface-variant opacity-50">자동 감지된 구간 없음</span>
-                            </template>
-                            <template x-if="nonprod.windows.length === 0 && nonprod.source !== 'auto'">
-                                <span class="text-label-sm text-on-surface-variant opacity-50">비생산 구간 미설정</span>
-                            </template>
-                            <template x-for="(w, idx) in nonprod.windows" :key="idx">
-                                <span class="px-2 py-0.5 rounded text-[11px] font-medium"
-                                      :class="npIsActive(w) ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' : 'bg-surface-container-high text-on-surface-variant'"
-                                      x-text="npWindowLabel(w)"></span>
-                            </template>
-                        </div>
-                    </div>
-                    <div>
-                        <div class="border-t border-outline-variant my-3"></div>
-                        <div class="flex justify-between items-center">
-                            <span class="font-label-sm text-label-sm text-on-surface-variant opacity-80">당일 가동횟수</span>
-                            <span class="font-headline-md text-headline-md text-primary" x-text="todayCycles.toLocaleString() + '회'"></span>
-                        </div>
+                    <h4 class="font-display-metrics text-display-metrics leading-none mt-2" style="color:var(--amber);"
+                        x-text="cmp.today ? (cmp.today.failureCount === 0 ? '무고장' : durShort(cmp.today.mttr)) : '—'"></h4>
+                    <div class="mt-3 flex items-center gap-1.5 flex-wrap" x-html="cmpBadge('mttr')"></div>
+                    <div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity" style="color:var(--amber);">
+                        <span class="material-icons" style="font-size:120px; line-height:1;">build</span>
                     </div>
                 </div>
             </div>
@@ -985,6 +980,8 @@
 
             nonprod: { windows: [], source: 'none' },
             todayCycles: 0,
+            // 상단 일간 비교 카드(가동횟수·OEE·MTBF·MTTR) — /api/oee/summary 오늘/어제 응답. loadCompare() 가 채운다.
+            cmp: { today: null, yesterday: null },
             nowTick: Date.now(),
             _conn: null, _dt: null, _shiftTimer: null, _pollTimer: null, _avgTimer: null,
 
@@ -1004,6 +1001,7 @@
                 await this.loadSnapshot();
                 this.loadNonprod();
                 this.loadTodayCycles();
+                this.loadCompare();
                 this.loadAbnormals();
                 this.abnStartTicker();
                 this.connectSignalR();
@@ -1011,7 +1009,7 @@
                 // 시프트 카운트다운은 분 단위 표시라 1초 틱은 불필요한 reactivity churn — 15초면 충분히 라이브.
                 this._shiftTimer = setInterval(() => { this.nowTick = Date.now(); }, 15000);
                 // 히스토리 평균·비생산·당일사이클은 1분 주기 갱신 (5초 스냅샷과 분리 — DB집계라 비용 있음).
-                this._avgTimer = setInterval(() => { if (this.showAverage) this.loadHistAvg(); this.loadNonprod(); this.loadTodayCycles(); }, 60000);
+                this._avgTimer = setInterval(() => { if (this.showAverage) this.loadHistAvg(); this.loadNonprod(); this.loadTodayCycles(); this.loadCompare(); }, 60000);
                 // 전체화면 변화 → CCTV 타일 바 숨김 토글 + 레터박스 좌표 재계산.
                 const onFsChange = () => {
                     this.cctvFullscreen = !!document.fullscreenElement;
@@ -1534,6 +1532,77 @@
                     const count = await this.apiGet('/api/dashboard/today-cycles');
                     if (typeof count === 'number') this.todayCycles = count;
                 } catch (e) { /* 미수신 시 기존값 유지 */ }
+            },
+
+            // ── 상단 일간 비교 카드 데이터 로드 ──
+            // 오늘(자정~현재)과 "어제 같은 시각"(어제 자정~24시간 전)을 같은 길이 창으로 비교(공정한 등락).
+            // /api/oee/summary 는 로컬시각 ISO(타임존 접미 없음)를 서버 로컬로 해석하므로 uptime 페이지와 동일 포맷 사용.
+            async loadCompare() {
+                try {
+                    const p = (x) => String(x).padStart(2, '0');
+                    const iso = (d) => `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+                    const now = new Date();
+                    const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
+                    const yStart = new Date(todayStart); yStart.setDate(yStart.getDate() - 1);
+                    const yNow = new Date(now); yNow.setDate(yNow.getDate() - 1);
+                    const [today, yesterday] = await Promise.all([
+                        this.apiGet(`/api/oee/summary?from=${encodeURIComponent(iso(todayStart))}&to=${encodeURIComponent(iso(now))}`),
+                        this.apiGet(`/api/oee/summary?from=${encodeURIComponent(iso(yStart))}&to=${encodeURIComponent(iso(yNow))}`),
+                    ]);
+                    this.cmp = { today, yesterday };
+                } catch (e) { /* 미수신 시 기존값 유지 */ }
+            },
+            // 지표별 원시값 추출 (null = 산출 불가)
+            _cmpVal(row, metric) {
+                if (!row) return null;
+                switch (metric) {
+                    case 'count': return row.totalCount != null ? row.totalCount : 0;
+                    case 'oee': return row.oee;    // 0..1 (fraction) or null
+                    case 'mtbf': return row.mtbf;  // ms or null
+                    case 'mttr': return row.mttr;  // ms or null
+                }
+                return null;
+            },
+            // 어제 대비 등락 배지(HTML) — x-html 로 삽입. ▲/▼ + 증감량 + "어제 대비".
+            // 개선=초록/악화=빨강(방향과 별개로 좋음/나쁨으로 색 결정). MTTR 만 낮을수록 개선.
+            cmpBadge(metric) {
+                const note = '<span class="text-label-sm text-on-surface-variant opacity-70" style="margin-left:5px;">어제 대비</span>';
+                const gray = (txt) => '<span style="font-weight:700;font-size:0.82rem;color:var(--color-text-disabled);">' + txt + '</span>' + note;
+                // MTBF/MTTR: 비가동 0건이면 시간값이 없음 — "무고장 유지"로 정직 표기
+                if (metric === 'mtbf' || metric === 'mttr') {
+                    const tf = this.cmp.today ? this.cmp.today.failureCount : null;
+                    const yf = this.cmp.yesterday ? this.cmp.yesterday.failureCount : null;
+                    if (tf === 0 && (yf === 0 || yf == null))
+                        return '<span style="display:inline-flex;align-items:center;gap:4px;font-weight:800;font-size:0.8rem;color:var(--green);"><span style="font-size:0.6rem;">●</span>무고장 유지</span>';
+                }
+                const t = this._cmpVal(this.cmp.today, metric);
+                const y = this._cmpVal(this.cmp.yesterday, metric);
+                if (t == null || y == null) return gray('—');
+                const diff = t - y;
+                const eps = metric === 'oee' ? 0.0005 : (metric === 'count' ? 0.5 : 1000);
+                let color, arrow;
+                if (Math.abs(diff) < eps) { color = 'var(--color-text-disabled)'; arrow = '—'; }
+                else {
+                    const up = diff > 0;
+                    const good = metric === 'mttr' ? !up : up;   // MTTR 은 감소가 개선
+                    color = good ? 'var(--green)' : 'var(--red)';
+                    arrow = up ? '▲' : '▼';
+                }
+                const a = Math.abs(diff);
+                let txt;
+                if (metric === 'count') { txt = a.toLocaleString() + '회'; if (y > 0) txt += ' · ' + (a / y * 100).toFixed(1) + '%'; }
+                else if (metric === 'oee') txt = (a * 100).toFixed(1) + '%p';
+                else txt = this.durShort(a);
+                return '<span style="display:inline-flex;align-items:center;gap:3px;font-weight:800;font-size:0.82rem;color:' + color + ';font-variant-numeric:tabular-nums;"><span style="font-size:0.8rem;line-height:1;">' + arrow + '</span>' + txt + '</span>' + note;
+            },
+            // 짧은 지속시간 포맷 (uptime durShort 와 동일) — MTBF/MTTR·증감량 표기용
+            durShort(ms) {
+                if (ms == null || ms <= 0) return '—';
+                if (ms < 1000) return Math.round(ms) + 'ms';
+                if (ms < 60000) return (ms / 1000).toFixed(1) + 's';
+                if (ms < 3600000) return Math.floor(ms / 60000) + 'm ' + Math.floor(ms % 60000 / 1000) + 's';
+                if (ms < 86400000) return Math.floor(ms / 3600000) + 'h ' + Math.floor(ms % 3600000 / 60000) + 'm';
+                return Math.floor(ms / 86400000) + 'd ' + Math.floor(ms % 86400000 / 3600000) + 'h';
             },
 
             fmt(ms) {
