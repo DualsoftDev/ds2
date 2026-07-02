@@ -1,4 +1,4 @@
-; DSPilot Inno Setup Script
+﻿; DSPilot Inno Setup Script
 ; Self-contained installer with Windows Service registration
 
 #define MyAppName "DSPilot"
@@ -377,12 +377,38 @@ procedure InitializeWizard();
 var
   DefaultPort: String;
   PortHint: String;
-  NoticePage: TOutputMsgMemoWizardPage;
+  NoticePage: TWizardPage;
+  NoticeCaption: TNewStaticText;
+  NoticeMemo: TNewMemo;
 begin
   // ── 설치 안내 / 오픈소스 고지 페이지 (서비스·방화벽·MediaMTX 등) ──
-  NoticePage := CreateOutputMsgMemoPage(wpWelcome,
-    '설치 안내', '설치 전 확인해 주세요.',
-    '서비스 자동 실행 · 방화벽 · 오픈소스 고지 안내입니다.',
+  //
+  // ⚠ CreateOutputMsgMemoPage 를 쓰지 않는다: 그 함수의 마지막 인자(AMsg)는 유니코드 String 이 아니라
+  //   AnsiString 이라, 한글 본문이 "실행되는 타겟 PC 의 비유니코드 프로그램 언어(system locale)" 코드페이지로
+  //   변환된다. 타겟 PC 의 시스템 로캘이 한국어(CP949)가 아니면 모든 한글이 '?' 로 깨진다
+  //   (제목·부제는 유니코드 String 이라 멀쩡한데 메모 본문만 깨지던 "일부 PC 한글 깨짐"의 원인).
+  //   → CreateCustomPage + TNewMemo(.Text 는 유니코드 String)로 직접 채워 모든 PC 에서 정상 표시되게 한다.
+  NoticePage := CreateCustomPage(wpWelcome, '설치 안내', '설치 전 확인해 주세요.');
+
+  NoticeCaption := TNewStaticText.Create(NoticePage);
+  NoticeCaption.Parent := NoticePage.Surface;
+  NoticeCaption.Left := 0;
+  NoticeCaption.Top := 0;
+  NoticeCaption.Width := NoticePage.SurfaceWidth;
+  NoticeCaption.AutoSize := True;
+  NoticeCaption.WordWrap := True;
+  NoticeCaption.Caption := '서비스 자동 실행 · 방화벽 · 오픈소스 고지 안내입니다.';
+
+  NoticeMemo := TNewMemo.Create(NoticePage);
+  NoticeMemo.Parent := NoticePage.Surface;
+  NoticeMemo.Left := 0;
+  NoticeMemo.Top := NoticeCaption.Top + NoticeCaption.Height + ScaleY(8);
+  NoticeMemo.Width := NoticePage.SurfaceWidth;
+  NoticeMemo.Height := NoticePage.SurfaceHeight - NoticeMemo.Top;
+  NoticeMemo.ReadOnly := True;
+  NoticeMemo.WantReturns := False;
+  NoticeMemo.ScrollBars := ssVertical;
+  NoticeMemo.Text :=
     '[Windows 서비스]' + #13#10 +
     '  · DSPilot 웹 서비스와 CCTV 중계(MediaMTX) 서비스가 시스템 시작 시 자동 실행됩니다.' + #13#10 +
     '  · ''Promaker Agent'' 옵션을 선택하면 모니터링 서비스도 함께 등록됩니다.' + #13#10#13#10 +
@@ -395,7 +421,7 @@ begin
     '  · MediaMTX (MIT License)  https://github.com/bluenviron/mediamtx' + #13#10 +
     '  · WinSW (MIT License)     https://github.com/winsw/winsw' + #13#10 +
     '  라이선스 전문은 설치 폴더의 mediamtx\LICENSE,' + #13#10 +
-    '  mediamtx\LICENSE-winsw.txt 에서 확인할 수 있습니다.');
+    '  mediamtx\LICENSE-winsw.txt 에서 확인할 수 있습니다.';
 
   DefaultPort := '{#MyDefaultPort}';
   PortHint := '기본값: {#MyDefaultPort}';

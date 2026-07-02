@@ -147,5 +147,13 @@ if not defined NOPAUSE pause
 exit /b 1
 
 :end
+:: 빌드 성공 후 산출물 폴더를 연다(설치 exe 선택 상태로). 통합 빌드(NOPAUSE) 시엔 열지 않는다.
+if not defined NOPAUSE (
+    if exist "%OUTPUT_DIR%\DSPilot_Setup_%APP_VER%.exe" (
+        start "" explorer.exe /select,"%OUTPUT_DIR%\DSPilot_Setup_%APP_VER%.exe"
+    ) else if exist "%OUTPUT_DIR%" (
+        start "" explorer.exe "%OUTPUT_DIR%"
+    )
+)
 if not defined NOPAUSE pause
 exit /b 0
