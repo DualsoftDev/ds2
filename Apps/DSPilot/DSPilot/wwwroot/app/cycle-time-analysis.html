@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>사이클 분석 — DSPilot</title>
+    <title>가동시간 분석 — DSPilot</title>
 
     <!--
       DSPilot 정적 호스팅 — 사이클 분석. 이 페이지가 /cycle-time-analysis 를 서빙하며
@@ -235,7 +235,7 @@
 
         <!-- fallback 슬림 헤더 (shell.js 가 제거) -->
         <header class="dsp-appbar">
-            <span class="dsp-title">사이클 분석</span>
+            <span class="dsp-title">가동시간 분석</span>
             <span class="dsp-badge">정적</span>
             <div class="spacer"></div>
             <button class="btn-icon" @click="toggleTheme()" title="테마 전환">
@@ -313,7 +313,7 @@
                         <div class="ct-info-bar">
                             <div class="ct-info-item"><span class="ct-info-k">Flow</span><span class="ct-info-v" x-text="selectedFlow"></span></div>
                             <div class="ct-info-item"><span class="ct-info-k">Call 수</span><span class="ct-info-v" x-text="callLanes.length"></span></div>
-                            <div class="ct-info-item"><span class="ct-info-k">사이클 경계 기준</span><span class="ct-info-v" x-text="(headName || '(기본 Head)') + ' · ' + cycleBoundaries.length + ' 회'"></span></div>
+                            <div class="ct-info-item"><span class="ct-info-k">가동 경계 기준</span><span class="ct-info-v" x-text="(headName || '(기본 Head)') + ' · ' + cycleBoundaries.length + ' 회'"></span></div>
                             <div class="ct-info-item"><span class="ct-info-k">Tail 마커</span><span class="ct-info-v" x-text="(tailName || '-') + ' · ' + tailEdges.length + ' 회'"></span></div>
                             <template x-if="avgCycleMs !== null">
                                 <div class="ct-info-item"><span class="ct-info-k">가동시간 평균 (시작→다음 시작)</span><span class="ct-info-v ct-mono" x-text="formatMs(avgCycleMs)"></span></div>
@@ -332,11 +332,11 @@
                                 <span class="ct-info-k">가동시간 기준</span>
                                 <span class="ct-info-v" x-text="isOverride ? '사용자 지정' : 'AASX 기본'"
                                       :style="isOverride ? 'color:var(--color-primary)' : ''"
-                                      :title="isOverride ? '이 Flow 의 사이클 경계가 사용자 지정(저장됨)으로 적용 중' : 'AASX 프로젝트 정의 Head/Tail 적용 중'"></span>
+                                      :title="isOverride ? '이 Flow 의 가동 경계가 사용자 지정(저장됨)으로 적용 중' : 'AASX 프로젝트 정의 Head/Tail 적용 중'"></span>
                             </div>
                             <button class="btn btn-sm" :class="userOverrodeHeadTail ? 'btn-filled' : ''" @click="applyHeadTail()"
                                     :disabled="overlayBusy || recomputeBusy || !headCallId || !tailCallId"
-                                    title="현재 Head/Tail 을 이 Flow 의 사이클 경계로 저장하고, 이 Flow 의 과거 이력 전체를 새 경계로 재계산합니다(백그라운드, 진행률 표시) — 라이브 가동시간·대시보드에 과거 포함 반영">
+                                    title="현재 Head/Tail 을 이 Flow 의 가동 경계로 저장하고, 이 Flow 의 과거 이력 전체를 새 경계로 재계산합니다(백그라운드, 진행률 표시) — 라이브 가동시간·대시보드에 과거 포함 반영">
                                 <span class="material-icons" style="font-size:15px; vertical-align:middle;">save</span>
                                 <span x-text="userOverrodeHeadTail ? '적용(저장)*' : '적용(저장)'"></span>
                             </button>
@@ -399,7 +399,7 @@
                             <div class="ct-lane-sidebar">
                                 <div class="ct-sidebar-header" :style="`height:${TOP_MARGIN}px;`">Call</div>
                                 <div class="ct-ribbon-side" x-show="cycleBoundaries.length" :style="`height:${RIBBON_H}px;`">
-                                    <span class="rs-t">사이클</span>
+                                    <span class="rs-t">가동</span>
                                     <span class="rs-sub">동작시간 · 대기시간 · 가동률</span>
                                 </div>
                                 <template x-for="lane in callLanes" :key="lane.callId">
@@ -416,11 +416,11 @@
                                             <button :class="'ct-tag-btn head ' + (headCallId === lane.callId ? 'active' : '')"
                                                     @click="toggleHead(lane.callId)"
                                                     :disabled="overlayBusy"
-                                                    title="Head 로 지정: 이 Call 의 OutTag↑(PLC 명령) 가 사이클 시작 경계가 됩니다">H</button>
+                                                    title="Head 로 지정: 이 Call 의 OutTag↑(PLC 명령) 가 가동 시작 경계가 됩니다">H</button>
                                             <button :class="'ct-tag-btn tail ' + (tailCallId === lane.callId ? 'active' : '')"
                                                     @click="toggleTail(lane.callId)"
                                                     :disabled="overlayBusy"
-                                                    title="Tail 로 지정: 이 Call 의 InTag↑(PLC 응답) 가 사이클 완료 마커가 됩니다">T</button>
+                                                    title="Tail 로 지정: 이 Call 의 InTag↑(PLC 응답) 가 가동 완료 마커가 됩니다">T</button>
                                         </div>
                                     </div>
                                 </template>
@@ -438,7 +438,7 @@
                             <div class="card">
                                 <div class="ds-card-h">
                                     <h4>
-                                        사이클 목록
+                                        가동 목록
                                         <span style="font-weight:400; font-size:0.82em; color:var(--color-text-secondary);"
                                               x-text="' — ' + (headName || '(Head)') + (tailCallId ? (' → ' + (tailName || '(Tail)')) : '')"></span>
                                     </h4>
@@ -507,18 +507,18 @@
                             <span><i class="ct-sw ct-sw-going"></i> 실행 (InTag ∪ OutTag 합집합 · 배경)</span>
                             <span><i class="ct-sw ct-sw-head"></i> Head 마크 lane</span>
                             <span><i class="ct-sw ct-sw-tail"></i> Tail 마크 lane</span>
-                            <span><i class="ct-sw ct-sw-cycle-edge"></i> 사이클 경계 (Head OutTag↑ = 시작)</span>
+                            <span><i class="ct-sw ct-sw-cycle-edge"></i> 가동 경계 (Head OutTag↑ = 시작)</span>
                             <template x-if="tailCallId !== null">
                                 <span style="display:contents;">
-                                    <span style="color:var(--color-text-primary);font-weight:700;">▭ 상단 리본 = 사이클별 동작시간|대기시간 비율 + 가동률(동작시간/가동시간)</span>
+                                    <span style="color:var(--color-text-primary);font-weight:700;">▭ 상단 리본 = 가동별 동작시간|대기시간 비율 + 가동률(동작시간/가동시간)</span>
                                     <span><i class="ct-sw ct-sw-active-band"></i> 동작시간 = 시작(Head OutTag↑) → 완료(Tail InTag↑)</span>
                                     <span><i class="ct-sw ct-sw-idle-band"></i> 대기시간 = 완료 → 다음 시작</span>
                                 </span>
                             </template>
                             <template x-if="tailCallId === null">
                                 <span style="display:contents;">
-                                    <span><i class="ct-sw ct-sw-band-a"></i> 사이클 칸 (홀수)</span>
-                                    <span><i class="ct-sw ct-sw-band-b"></i> 사이클 칸 (짝수)</span>
+                                    <span><i class="ct-sw ct-sw-band-a"></i> 가동 칸 (홀수)</span>
+                                    <span><i class="ct-sw ct-sw-band-b"></i> 가동 칸 (짝수)</span>
                                 </span>
                             </template>
                             <template x-if="showMaxGap && topGaps.length">
@@ -801,7 +801,7 @@
                             if (s && s.flow === flow) {
                                 if (s.running) {
                                     sawMineRunning = true;
-                                    this.recomputeMsg = '전체 이력 재계산 중… (' + (s.phase || '') + (s.cyclesFound ? ', ' + s.cyclesFound + ' 사이클' : '') + ')';
+                                    this.recomputeMsg = '전체 이력 재계산 중… (' + (s.phase || '') + (s.cyclesFound ? ', ' + s.cyclesFound + '회' : '') + ')';
                                 } else if (s.done && (sawMineRunning || i === 0)) {  // 내 잡 진행을 봤거나, 첫 폴 전에 이미 빠르게 끝난 경우
                                     if (s.phase === 'error') { this.recomputeError = true; this.recomputeMsg = '전체 이력 재계산 실패: ' + (s.error || ''); }
                                     else { this.recomputeMsg = '전체 이력 재계산 완료 (' + (s.inserted || 0) + '건 재기록)'; }
@@ -1375,8 +1375,8 @@
                         const ratio = (atMs !== null && ctMs > 0) ? Math.round(atMs / ctMs * 100) : null;
 
                         const tip = tailIn !== null
-                            ? `사이클 #${span.number}${span.isOpen ? ' (진행중)' : ''} · 동작시간 ${this.formatMs(atMs)} / 가동시간 ${this.formatMs(ctMs)} · 가동률 ${ratio}%`
-                            : `사이클 #${span.number}${span.isOpen ? ' (진행중)' : ''} · 가동시간 ${this.formatMs(ctMs)}`;
+                            ? `가동 #${span.number}${span.isOpen ? ' (진행중)' : ''} · 동작시간 ${this.formatMs(atMs)} / 가동시간 ${this.formatMs(ctMs)} · 가동률 ${ratio}%`
+                            : `가동 #${span.number}${span.isOpen ? ' (진행중)' : ''} · 가동시간 ${this.formatMs(ctMs)}`;
                         let g = `<g><title>${this.esc(tip)}</title>`;
 
                         // 2색 막대 (활성 초록 + 유휴 회청) 또는 단일(Tail 없음 → 홀짝 교대색)

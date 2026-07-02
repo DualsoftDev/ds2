@@ -439,14 +439,14 @@
             var ratio = (atMs !== null && ctMs > 0) ? Math.round(atMs / ctMs * 100) : null;
 
             var tip = tailIn !== null
-                ? '사이클 #' + span.number + (span.isOpen ? ' (진행중)' : '') + ' · 동작시간 ' + formatMs(atMs) + ' · 대기시간 ' + formatMs(idleMs) + ' / 가동시간 ' + formatMs(ctMs) + ' · 가동률 ' + ratio + '%'
-                : '사이클 #' + span.number + (span.isOpen ? ' (진행중)' : '') + ' · 가동시간 ' + formatMs(ctMs);
+                ? '가동 #' + span.number + (span.isOpen ? ' (진행중)' : '') + ' · 동작시간 ' + formatMs(atMs) + ' · 대기시간 ' + formatMs(idleMs) + ' / 가동시간 ' + formatMs(ctMs) + ' · 동작률 ' + ratio + '%'
+                : '가동 #' + span.number + (span.isOpen ? ' (진행중)' : '') + ' · 가동시간 ' + formatMs(ctMs);
             var g = '<g><title>' + esc(tip) + '</title>';
 
             if (tailX !== null) {
                 var aw = Math.max(0, tailX - sx);
                 var iw = Math.max(0, ex - tailX);
-                g += '<rect x="' + f(sx) + '" y="' + barY + '" width="' + f(aw) + '" height="' + barH + '" fill="#fb8c00" opacity="' + (0.9 * dim) + '"/>';
+                g += '<rect x="' + f(sx) + '" y="' + barY + '" width="' + f(aw) + '" height="' + barH + '" fill="#ffa726" opacity="' + (0.95 * dim) + '"/>';
                 g += '<rect x="' + f(tailX) + '" y="' + barY + '" width="' + f(iw) + '" height="' + barH + '" fill="#AEB9C6" opacity="' + (0.9 * dim) + '"/>';
                 if (aw > 54) g += '<text x="' + f(sx + aw / 2.0) + '" y="' + f(barCY) + '" text-anchor="middle" dominant-baseline="central" font-size="9.5" font-weight="700" fill="#5a3200" font-family="Inter,ui-monospace,Cascadia Code,Consolas,monospace">' + esc(formatMs(atMs)) + '</text>';
                 if (iw > 54) g += '<text x="' + f(tailX + iw / 2.0) + '" y="' + f(barCY) + '" text-anchor="middle" dominant-baseline="central" font-size="9.5" fill="#37474f" font-family="Inter,ui-monospace,Cascadia Code,Consolas,monospace">' + esc(formatMs(idleMs)) + '</text>';
@@ -464,7 +464,7 @@
             }
             if (ratio !== null && bandW > 86) {
                 var rc = ratio >= 80 ? '#2e7d32' : ratio >= 50 ? '#e65100' : '#c62828';
-                g += '<text x="' + f(ex - 4) + '" y="' + f(ribbonTop + 12) + '" text-anchor="end" font-size="10" font-weight="700" fill="' + rc + '">가동 ' + ratio + '%</text>';
+                g += '<text x="' + f(ex - 4) + '" y="' + f(ribbonTop + 12) + '" text-anchor="end" font-size="10" font-weight="700" fill="' + rc + '">동작 ' + ratio + '%</text>';
             }
             g += '</g>';
             sb += g;

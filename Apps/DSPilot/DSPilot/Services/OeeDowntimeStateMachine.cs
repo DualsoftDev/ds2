@@ -144,10 +144,14 @@ public sealed class OeeDowntimeStateMachine : BackgroundService
             else
             {
                 // 사이클 정상 진행 중. open 이벤트가 있고, 그 후로 새 사이클이 돌았으면 마감.
-                if (hasOpen && open!.StartAt <= lastCycleUtc)
+                // ★StartAt 은 저장소가 UTC→로컬(Kind=Local)로 되돌려 준다(SqliteDateTimeHelpers.FromSqliteUtcString).
+                //   lastCycleUtc(Kind=Utc)와 직접 비교하면 DateTime 이 Kind 무시하고 Ticks 만 비교 → KST(+9h) 만큼
+                //   StartAt 이 '미래'로 보여 조건이 9시간 동안 거짓 → 사이클 재개해도 정지가 안 닫힘. UTC 로 정규화한다.
+                var openStartUtc = ToUtc(open?.StartAt ?? default);
+                if (hasOpen && openStartUtc <= lastCycleUtc)
                 {
                     // endAt = 사이클 재개(=마지막 사이클) 시점. durationMs 는 repo 가 계산.
-                    var closed = await repo.CloseDowntimeAsync(open.Id, lastCycleUtc, ct);
+                    var closed = await repo.CloseDowntimeAsync(open!.Id, lastCycleUtc, ct);
                     if (closed > 0)
                     {
                         _logger.LogInformation(
@@ -155,7 +159,7 @@ public sealed class OeeDowntimeStateMachine : BackgroundService
                             flowName, open.Id, lastCycleUtc);
 
                         // 분류 휴리스틱(신규 마감 건만 — 백필 금지). 수동 분류는 AutoClassifyHeuristicAsync 가드로 보존.
-                        var durMs = (lastCycleUtc - open!.StartAt).TotalMilliseconds;
+                        var durMs = (lastCycleUtc - openStartUtc).TotalMilliseconds;
                         var (rc, cat, isFail, should) = OeeMath.ClassifyByDuration(durMs);
                         if (should)
                             await repo.AutoClassifyHeuristicAsync(open.Id, rc, cat, isFail, ct);
@@ -164,6 +168,18 @@ public sealed class OeeDowntimeStateMachine : BackgroundService
             }
         }
     }
+
+    /// <summary>
+    /// DateTime 을 UTC 순간으로 정규화. 저장소 read-back(FromSqliteUtcString)은 Kind=Local 을 준다
+    /// (UTC 저장값을 ToLocalTime 으로 되돌림) → lastCycleUtc(Kind=Utc)와 비교 전 반드시 UTC 로 맞춰야 한다.
+    /// Local=ToUniversalTime, Unspecified=이미 UTC 로 가정.
+    /// </summary>
+    private static DateTime ToUtc(DateTime dt) => dt.Kind switch
+    {
+        DateTimeKind.Utc => dt,
+        DateTimeKind.Local => dt.ToUniversalTime(),
+        _ => DateTime.SpecifyKind(dt, DateTimeKind.Utc),
+    };
 
     /// <summary>
     /// plc.db dspFlowHistory 에서 flow별 가장 최근 RecordedAt(UTC) 조회.

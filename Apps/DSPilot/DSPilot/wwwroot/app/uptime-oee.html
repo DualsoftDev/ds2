@@ -98,10 +98,10 @@
                             <div class="up-oee-label">가용성 A
                                 <span class="up-oee-chip" x-show="oee && oee.availabilitySource"
                                       :class="oee && (oee.availabilitySource === 'cycle' || oee.availabilitySource === 'auto') ? 'auto' : (oee && oee.availabilitySource === 'shift' ? 'solid' : '')"
-                                      x-text="oee ? ({ cycle: '사이클', shift: '시프트', auto: '자동추정', calendar: '달력' }[oee.availabilitySource] || '') : ''"></span>
+                                      x-text="oee ? ({ cycle: '가동시간', shift: '시프트', auto: '자동추정', calendar: '달력' }[oee.availabilitySource] || '') : ''"></span>
                                 <span class="up-oee-chip warn" x-show="oee && oee.ctSampleLow && oee.availabilitySource === 'cycle'"
                                       x-text="'샘플 ' + (oee && oee.ctSampleCount != null ? oee.ctSampleCount : 0) + '/5'"
-                                      title="클린샘플 5개 미만으로 산출된 잠정값입니다. 사이클이 쌓이면 자동으로 정확해집니다."></span>
+                                      title="클린샘플 5개 미만으로 산출된 잠정값입니다. 가동이 쌓이면 자동으로 정확해집니다."></span>
                             </div>
                             <div class="up-oee-value up-oee-mono" x-text="oee ? pct(oee.availability) : '—'"></div>
                             <div class="up-oee-note" x-text="oee ? (oee.availability != null ? (oee.availabilitySource === 'cycle' ? 'Σ실측 가동시간 / Σ전체 가동시간' : '가동 / 계획시간') : (oee.availabilityNote || '산출 불가')) : ''"></div>
@@ -114,7 +114,7 @@
                                       title="14일 평균 기준 — 정상상태 P≈100% 수렴(추세 대비 저하 감지)"></span>
                                 <span class="up-oee-chip warn" x-show="oee && oee.ctSampleLow"
                                       x-text="'샘플 ' + (oee && oee.ctSampleCount != null ? oee.ctSampleCount : 0) + '/5'"
-                                      title="클린샘플 5개 미만으로 산출된 잠정값입니다. 사이클이 쌓이면 자동으로 정확해집니다."></span>
+                                      title="클린샘플 5개 미만으로 산출된 잠정값입니다. 가동이 쌓이면 자동으로 정확해집니다."></span>
                             </div>
                             <div class="up-oee-value up-oee-mono" x-text="oee ? pct(oee.performance) : '—'"></div>
                             <div class="up-oee-note" x-text="oee ? (oee.performance != null ? '14일평균 기준 · (N × 표준 가동시간) / Σ실측 가동시간' : (oee.performanceNote || '산출 불가')) : ''"></div>
@@ -170,7 +170,7 @@
                             기간 정지 <b x-text="oee ? (oee.downtimeCount + '건 · ' + durShort(oee.downtimeMs) + ' (가동 ' + pct(oee.availability) + ')') : ''"></b>
                             · <span x-text="oee ? (oee.ctThresholdMs ? ('가동시간 이상치 ' + durShort(oee.ctThresholdMs) + ' · 14일 평균') : (oee.idealCycleTimeMs ? ('표준 가동시간 ' + durShort(oee.idealCycleTimeMs)) : '표준 가동시간 미설정(클린샘플 0)')) : ''"></span>
                             <span x-show="oee && oee.ctSampleLow" style="color:var(--amber, #b7791f); font-weight:700;" x-text="oee ? (' · 클린샘플 ' + (oee.ctSampleCount != null ? oee.ctSampleCount : 0) + '/5(잠정)') : ''"></span>
-                            <span x-show="oee && oee.normalCycleCount != null" x-text="oee ? (' · 정상 ' + (oee.normalCycleCount || 0) + ' 사이클') : ''"></span>
+                            <span x-show="oee && oee.normalCycleCount != null" x-text="oee ? (' · 정상 ' + (oee.normalCycleCount || 0) + '회') : ''"></span>
                         </span>
                     </div>
                 </section>
@@ -207,7 +207,7 @@
                         <div class="ds-empty" style="margin-bottom:18px;">
                             <span class="material-icons">donut_small</span>
                             <div class="ds-empty-title">가용성 데이터 없음</div>
-                            <div class="ds-empty-desc">최근 14일 클린사이클이 1개라도 쌓이면 사이클기반 가용성이 표시됩니다(5개 미만은 '샘플 부족' 잠정값, 쌓이면 자동 정상화). 클린사이클 0이면 계획시간 폴백(시프트 ▸ 14일 자동추정 ▸ 달력)으로 가용성을 근사합니다.</div>
+                            <div class="ds-empty-desc">최근 14일 클린 가동이 1개라도 쌓이면 가동시간 기반 가용성이 표시됩니다(5개 미만은 '샘플 부족' 잠정값, 쌓이면 자동 정상화). 클린 가동 0이면 계획시간 폴백(시프트 ▸ 14일 자동추정 ▸ 달력)으로 가용성을 근사합니다.</div>
                         </div>
                     </template>
 
@@ -368,13 +368,13 @@
                         <div class="ds-empty" style="border-style:solid;">
                             <span class="material-icons">check_circle</span>
                             <div class="ds-empty-title" x-text="downtime.length === 0 ? '해당 기간 정지 이벤트 없음' : '필터에 해당하는 정지 이벤트 없음'"></div>
-                            <div class="ds-empty-desc" x-text="downtime.length === 0 ? '무사이클 onset 자동 감지 / UserTag onset 가 기록되면 여기에 표시됩니다.' : '상태·구분 필터를 변경해 보세요.'"></div>
+                            <div class="ds-empty-desc" x-text="downtime.length === 0 ? '무가동 onset 자동 감지 / UserTag onset 가 기록되면 여기에 표시됩니다.' : '상태·구분 필터를 변경해 보세요.'"></div>
                         </div>
                     </template>
 
                     <div style="font-size:0.62rem; color:var(--color-text-secondary); margin-top:12px; line-height:1.9;">
                         <b style="color:var(--color-text-primary);">감지(정지 구간):</b>
-                        <span class="src-chip detect">무사이클</span> 사이클 끊김
+                        <span class="src-chip detect">무가동</span> 가동 끊김
                         <span class="src-chip detect">고장비트</span> PLC 비트 rising/falling
                         <span class="src-chip detect">수동</span> 작업자 등록 &nbsp;—&nbsp; 여기서만 정지 건수·길이가 만들어집니다.<br>
                         <b style="color:var(--color-text-primary);">고장/유지보수:</b>
@@ -532,7 +532,7 @@
                         <span class="up-blk-msg ok" x-show="ps.msg" x-text="ps.msg"></span>
                         <span class="up-blk-msg err" x-show="ps.err" x-text="ps.err"></span>
                     </div>
-                    <div class="up-form-hint" style="margin-top:8px;">비생산 시간(점심·교대·정기정비·무오더 등)은 애초에 생산하지 않는 시간이라 OEE 산출에서 통째로 빠집니다 — 그 구간의 사이클은 <b>정상 가동시간·비가동을 가리지 않고</b> 모두 제외되어 가동률·성능을 깎지 않습니다(생산 시간 중의 미계획 정지만 A 를 깎음). <b>자동 계산</b>은 평균 가동시간의 <span x-text="ps.ctMultiplier"></span>배 이상 멈춘 구간을 비생산으로 보며, 직접 지정하려면 자동 계산을 끄고 연표에 시간대를 그리세요(자정 넘김은 두 칸으로 분리, 예: 22:00~23:59, 00:00~06:00).</div>
+                    <div class="up-form-hint" style="margin-top:8px;">비생산 시간(점심·교대·정기정비·무오더 등)은 애초에 생산하지 않는 시간이라 OEE 산출에서 통째로 빠집니다 — 그 구간의 가동은 <b>정상 가동시간·비가동을 가리지 않고</b> 모두 제외되어 가동률·성능을 깎지 않습니다(생산 시간 중의 미계획 정지만 A 를 깎음). <b>자동 계산</b>은 평균 가동시간의 <span x-text="ps.ctMultiplier"></span>배 이상 멈춘 구간을 비생산으로 보며, 직접 지정하려면 자동 계산을 끄고 연표에 시간대를 그리세요(자정 넘김은 두 칸으로 분리, 예: 22:00~23:59, 00:00~06:00).</div>
                 </section>
 
                 <datalist id="up-flow-list">
@@ -563,18 +563,18 @@
 
                 <!-- ════ 설계 노트 (사이클기반 OEE · doc/22 + 정직성 doc/21 §10) ════ -->
                 <details class="up-dn card up-section">
-                    <summary><span class="material-icons">tune</span> 설계 결정 — 사이클기반 OEE (가동시간/동작시간/대기시간) & 정직성 원칙</summary>
+                    <summary><span class="material-icons">tune</span> 설계 결정 — 가동시간 기반 OEE (가동시간/동작시간/대기시간) & 정직성 원칙</summary>
                     <div class="up-dn-body">
                         <table>
                             <tbody>
-                                <tr><td>모델 (doc/22)</td><td><b>사이클기반</b> OEE — 가동시간 = 동작시간 + 대기시간. 한 사이클의 <b>동작시간이 가동시간 이상치를 넘으면</b> 그 사이클 가동시간 전체가 비가동. 시간기반(벽시계 계획시간)에서 전환.</td></tr>
+                                <tr><td>모델 (doc/22)</td><td><b>가동시간 기반</b> OEE — 가동시간 = 동작시간 + 대기시간. 한 번의 가동에서 <b>동작시간이 가동시간 이상치를 넘으면</b> 그 가동의 가동시간 전체가 비가동. 시간기반(벽시계 계획시간)에서 전환.</td></tr>
                                 <tr><td>OEE = A × P × Q</td><td><b>A</b> = Σ실측 가동시간 ÷ (Σ실측 가동시간 + Σ비가동 가동시간) · <b>P</b> = (N × 가동시간 이상치) ÷ Σ실측 가동시간 · <b>Q</b> = 양품/총생산(기본 100% 가정, 톤 중립). 한 요소라도 미산출이면 OEE = '—'.</td></tr>
-                                <tr><td>가동시간 이상치 (표준 가동시간)</td><td>최근 <b>14일 클린사이클 가동시간 평균</b>(flow별, RAM only — DB 미기입). 비가동 판정·성능 분자 <b>공용</b>. 클린샘플 <b>1개부터 A·P 산출</b>(5개 미만은 <b>'샘플 부족' 잠정값</b> — 쌓이면 자동 정상화), <b>0개</b>면 '—'.</td></tr>
+                                <tr><td>가동시간 이상치 (표준 가동시간)</td><td>최근 <b>14일 클린 가동 가동시간 평균</b>(flow별, RAM only — DB 미기입). 비가동 판정·성능 분자 <b>공용</b>. 클린샘플 <b>1개부터 A·P 산출</b>(5개 미만은 <b>'샘플 부족' 잠정값</b> — 쌓이면 자동 정상화), <b>0개</b>면 '—'.</td></tr>
                                 <tr><td>성능 P 의 의미</td><td>표준 가동시간 = <b>최근 14일 평균</b>(고정). 표준=평균이라 정상상태 <b>P ≈ 100% 수렴</b> — "최속 대비 손실"이 아니라 <b>"14일 추세 대비 당기 저하"</b> 감지기(90%대를 '거의 완벽'으로 오독 금지). <b>비가동 판정·가용성(A) 임계도 동일한 14일 평균</b>을 공용.</td></tr>
-                                <tr><td>비가동 dedup</td><td>① 동작시간&gt;가동시간 이상치 ② 미완료(complete=null) 가동시간 폭주 ③ 무사이클 정지. ③은 사이클 가동시간 구간과 안 겹치는 부분만 가산(구간 차집합) — <b>이중계상 방지</b>.</td></tr>
-                                <tr><td>MTTR / MTBF</td><td>비가동 <b>onset</b>(= 사이클 시작 + 가동시간 이상치)에서 파생. <b>MTTR</b> = onset→going 회복 평균 · <b>MTBF</b> = 연속 onset 간격 평균. OEE 곱셈식과 <b>독립</b> 동반지표. 0건이면 "🟢 무비가동" 배지(가짜수치 금지).</td></tr>
-                                <tr><td>폴백 보존</td><td>14일 클린샘플 <b>0(임계 없음)</b>일 때만 가용성은 <b>시간기반 폴백 체인</b>(시프트 ▸ 자동추정 ▸ 달력)으로 근사. A 카드 칩으로 현재 출처(<span class="up-codeish">사이클</span>/시프트/자동추정/달력) 표시.</td></tr>
-                                <tr><td>정지 2계층</td><td><b>감지</b>(무사이클/고장비트/수동) · <b>단서</b>(abnormal/usertag 겹침 = 표시 전용). 기본 고장 체크 — 로그에서 해제 시 유지보수(MTBF 분모 제외).</td></tr>
+                                <tr><td>비가동 dedup</td><td>① 동작시간&gt;가동시간 이상치 ② 미완료(complete=null) 가동시간 폭주 ③ 무가동 정지. ③은 가동 가동시간 구간과 안 겹치는 부분만 가산(구간 차집합) — <b>이중계상 방지</b>.</td></tr>
+                                <tr><td>MTTR / MTBF</td><td>비가동 <b>onset</b>(= 가동 시작 + 가동시간 이상치)에서 파생. <b>MTTR</b> = onset→going 회복 평균 · <b>MTBF</b> = 연속 onset 간격 평균. OEE 곱셈식과 <b>독립</b> 동반지표. 0건이면 "🟢 무비가동" 배지(가짜수치 금지).</td></tr>
+                                <tr><td>폴백 보존</td><td>14일 클린샘플 <b>0(임계 없음)</b>일 때만 가용성은 <b>시간기반 폴백 체인</b>(시프트 ▸ 자동추정 ▸ 달력)으로 근사. A 카드 칩으로 현재 출처(<span class="up-codeish">가동시간</span>/시프트/자동추정/달력) 표시.</td></tr>
+                                <tr><td>정지 2계층</td><td><b>감지</b>(무가동/고장비트/수동) · <b>단서</b>(abnormal/usertag 겹침 = 표시 전용). 기본 고장 체크 — 로그에서 해제 시 유지보수(MTBF 분모 제외).</td></tr>
                                 <tr><td>필수 입력 0개</td><td>가동시간 이상치·비가동 판정·A·P·MTTR·MTBF 모두 수집 데이터로 자동. 품질%·표준 가동시간 수동입력·고장/유지보수 구분은 선택(보정).</td></tr>
                             </tbody>
                         </table>

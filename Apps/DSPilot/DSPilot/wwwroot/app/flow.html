@@ -74,7 +74,7 @@
                             <span class="material-icons">timeline</span> 기간별 추이
                         </button>
                         <button :class="tab === 'cycle' ? 'is-active' : ''" @click="setTab('cycle')">
-                            <span class="material-icons">account_tree</span> 사이클 분석
+                            <span class="material-icons">account_tree</span> 가동시간 분석
                         </button>
                     </div>
 
@@ -82,7 +82,7 @@
                     <div class="fw-toolbar" x-show="flow" x-cloak>
                         <button class="btn" :class="_exRange ? 'btn-filled' : 'btn-outlined color-default'"
                                 @click="openRangeModal()"
-                                title="최소·최대 가동시간을 지정해 그 범위를 벗어난 사이클(이상치)을 사이클 목록·차트·히스토리에서 제외합니다 — 이 Flow 에 적용·서버 공유">
+                                title="최소·최대 가동시간을 지정해 그 범위를 벗어난 가동(이상치)을 가동 목록·차트·히스토리에서 제외합니다 — 이 Flow 에 적용·서버 공유">
                             <span class="material-icons" style="font-size:18px; vertical-align:middle;">tune</span>
                             <span x-text="_exRange ? ('이상치 범위 ' + rangeLabel) : '이상치 범위 설정'"></span>
                         </button>
@@ -93,7 +93,7 @@
                             </button>
                         </span>
                         <label class="fw-tb-check" :class="{ 'is-on': excludeIncomplete }"
-                               title="완료신호(Tail InTag↑)가 없는 미완료 사이클을 사이클 목록·차트·히스토리·평균에서 제외합니다. 보통 로깅/서비스 중단으로 완료신호가 누락된 구간이라 가동시간이 부정확합니다. 해제하면 어두운 회색 막대로 표시하되 평균·가동률 집계에는 계속 포함하지 않습니다.">
+                               title="완료신호(Tail InTag↑)가 없는 미완료 가동을 가동 목록·차트·히스토리·평균에서 제외합니다. 보통 로깅/서비스 중단으로 완료신호가 누락된 구간이라 가동시간이 부정확합니다. 해제하면 어두운 회색 막대로 표시하되 평균·가동률 집계에는 계속 포함하지 않습니다.">
                             <input type="checkbox" x-model="excludeIncomplete" @change="onExcludeIncompleteChanged()" />
                             미완료 제외
                             <span class="fw-tb-badge" x-show="incompleteCount > 0" x-text="incompleteCount"></span>
@@ -125,8 +125,8 @@
                         <template x-if="!trendLoading && trend.cycleCount === 0">
                             <div class="ds-empty">
                                 <span class="material-icons">timeline</span>
-                                <div class="ds-empty-title">선택 기간에 기록된 사이클이 없습니다</div>
-                                <div class="ds-empty-desc">기간을 넓히거나, 사이클이 기록될 때까지 기다려 주세요.</div>
+                                <div class="ds-empty-title">선택 기간에 기록된 가동이 없습니다</div>
+                                <div class="ds-empty-desc">기간을 넓히거나, 가동이 기록될 때까지 기다려 주세요.</div>
                             </div>
                         </template>
 
@@ -136,7 +136,7 @@
 
                                 <div class="fw-chart-row">
                                     <div>
-                                        <div class="ds-card-h"><h4 style="font-size:0.78rem;">사이클 수</h4></div>
+                                        <div class="ds-card-h"><h4 style="font-size:0.78rem;">가동횟수</h4></div>
                                         <div class="fw-chart-md"><canvas x-ref="countChart"></canvas></div>
                                     </div>
                                     <div>
@@ -152,8 +152,8 @@
                     <section class="card fw-section" x-show="tab === 'cycle'">
                         <div class="ds-card-h" style="margin-bottom:12px;">
                             <div>
-                                <h4>사이클 분석</h4>
-                                <span class="ds-card-h-sub">신호 간트 · Head/Tail 사이클 경계 적용(저장) · 드래그 구간통계 · Excel</span>
+                                <h4>가동시간 분석</h4>
+                                <span class="ds-card-h-sub">신호 간트 · Head/Tail 가동 경계 적용(저장) · 드래그 구간통계 · Excel</span>
                             </div>
                             <span class="ct-live" x-show="isLoading || overlayBusy"
                                   title="데이터/오버레이 갱신 중"
@@ -192,7 +192,7 @@
                                 </div>
                                 <!-- 사이클 개수 프리셋 -->
                                 <div class="ct-cycle-presets">
-                                    <span class="ct-preset-sep" title="사이클 개수 기준 — 최근 발생한 N개 사이클이 들어오도록 시간 범위를 자동 설정">사이클</span>
+                                    <span class="ct-preset-sep" title="가동 횟수 기준 — 최근 발생한 N회 가동이 들어오도록 시간 범위를 자동 설정">가동</span>
                                     <div class="segmented">
                                         <button :class="cyclePreset === 20 ? 'is-active' : ''" @click="setRecentCycles(20)" :disabled="isLoading || !selectedFlow">최근 20</button>
                                         <button :class="cyclePreset === 50 ? 'is-active' : ''" @click="setRecentCycles(50)" :disabled="isLoading || !selectedFlow">최근 50</button>
@@ -235,7 +235,7 @@
                                                 <span class="ct-ctbasis-k">가동시간 기준</span>
                                                 <span class="ct-chip" :class="isOverride ? 'is-custom' : ''"
                                                       x-text="isOverride ? '사용자 지정' : 'AASX 기본'"
-                                                      :title="isOverride ? '이 Flow 의 사이클 경계가 사용자 지정(저장됨)으로 적용 중' : 'AASX 프로젝트 정의 Head/Tail 적용 중'"></span>
+                                                      :title="isOverride ? '이 Flow 의 가동 경계가 사용자 지정(저장됨)으로 적용 중' : 'AASX 프로젝트 정의 Head/Tail 적용 중'"></span>
                                             </div>
                                             <span class="ct-action-spacer"></span>
                                             <span x-show="recomputeBusy || recomputeMsg" class="ct-recompute"
@@ -249,7 +249,7 @@
                                             </button>
                                             <button class="btn" :class="userOverrodeHeadTail ? 'btn-primary' : 'btn-outlined color-default'" @click="applyHeadTail()"
                                                     :disabled="overlayBusy || recomputeBusy || !headCallId || !tailCallId"
-                                                    title="현재 Head/Tail 을 이 Flow 의 사이클 경계로 저장하고, 이 Flow 의 과거 이력 전체를 새 경계로 재계산합니다(백그라운드, 진행률 표시) — 라이브 가동시간·대시보드에 과거 포함 반영">
+                                                    title="현재 Head/Tail 을 이 Flow 의 가동 경계로 저장하고, 이 Flow 의 과거 이력 전체를 새 경계로 재계산합니다(백그라운드, 진행률 표시) — 라이브 가동시간·대시보드에 과거 포함 반영">
                                                 <span class="material-icons" style="font-size:18px; vertical-align:middle;">save</span>
                                                 <span x-text="userOverrodeHeadTail ? '적용(저장)*' : '적용(저장)'"></span>
                                             </button>
@@ -300,7 +300,7 @@
                                                 </span>
                                             </div>
                                             <div class="ct-ribbon-side" x-show="cycleBoundaries.length" :style="`height:${RIBBON_H}px;`">
-                                                <span class="rs-t">사이클</span>
+                                                <span class="rs-t">가동</span>
                                                 <span class="rs-sub">동작시간 · 대기시간 · 가동률</span>
                                                 <span x-show="tailCompletionSource === 'OutTag'" class="rs-sub" style="margin-top:2px;color:#b26a00;background:#fff3e0;border:1px solid #ffcc80;border-radius:3px;padding:0 4px;font-size:9px;" title="이 Flow 의 Tail Call 에 응답(InTag)이 없어 명령 종료(OutTag↓)로 동작시간을 추정합니다. 검증된 완료가 아니라 명령 ON 시간입니다.">명령 ON 추정</span>
                                             </div>
@@ -331,11 +331,11 @@
                                                             <button :class="'ct-tag-btn head ' + (headCallId === row.lane.callId ? 'active' : '')"
                                                                     @click="toggleHead(row.lane.callId)"
                                                                     :disabled="overlayBusy"
-                                                                    title="시작으로 지정: 이 Call 의 OutTag↑(PLC 명령) 가 사이클 시작 경계가 됩니다">시작</button>
+                                                                    title="시작으로 지정: 이 Call 의 OutTag↑(PLC 명령) 가 가동 시작 경계가 됩니다">시작</button>
                                                             <button :class="'ct-tag-btn tail ' + (tailCallId === row.lane.callId ? 'active' : '')"
                                                                     @click="toggleTail(row.lane.callId)"
                                                                     :disabled="overlayBusy"
-                                                                    title="끝으로 지정: 이 Call 의 InTag↑(PLC 응답) 가 사이클 완료 마커가 됩니다">끝</button>
+                                                                    title="끝으로 지정: 이 Call 의 InTag↑(PLC 응답) 가 가동 완료 마커가 됩니다">끝</button>
                                                         </div>
                                                     </template>
                                                     <!-- ── ApiCall 서브행 (실측 vs 현재 AASX) ── -->
@@ -388,7 +388,7 @@
                                                     </div>
                                                     <div class="ct-sel-tip-stats">
                                                         <div><i>구간 길이</i><b x-text="formatMs(selRangeLenMs)"></b></div>
-                                                        <div><i>사이클 수</i><b x-text="selHasCycles ? (selCycleCount + '개') : '–'"></b></div>
+                                                        <div><i>가동횟수</i><b x-text="selHasCycles ? (selCycleCount + '회') : '–'"></b></div>
                                                         <div class="run"><i>동작</i><b x-text="selHasCycles ? formatMs(selActiveMs) : '–'"></b></div>
                                                         <div class="idle"><i>대기</i><b x-text="selHasCycles ? formatMs(selWaitMs) : '–'"></b></div>
                                                     </div>
@@ -409,7 +409,7 @@
                                         <span><i class="ct-sw ct-sw-going"></i> 실행 배경</span>
                                         <span><i class="ct-sw ct-sw-head"></i> 시작</span>
                                         <span><i class="ct-sw ct-sw-tail"></i> 끝</span>
-                                        <span><i class="ct-sw ct-sw-cycle-edge"></i> 사이클 경계</span>
+                                        <span><i class="ct-sw ct-sw-cycle-edge"></i> 가동 경계</span>
                                         <template x-if="selectedRange">
                                             <span><i class="ct-sw ct-sw-range"></i> 드래그 선택 구간</span>
                                         </template>
@@ -417,7 +417,7 @@
                                     <!-- 리본(MT·WT) 범례 — Tail 지정 시에만 표시 -->
                                     <template x-if="tailCallId !== null">
                                         <div class="ct-legend" style="margin-top:4px;">
-                                            <span style="color:var(--color-text-primary);font-weight:700;">상단 리본 = 사이클별 동작시간·대기시간 비율 + 가동률</span>
+                                            <span style="color:var(--color-text-primary);font-weight:700;">상단 리본 = 가동별 동작시간·대기시간 비율 + 가동률</span>
                                             <span><i class="ct-sw ct-sw-active-band"></i> 동작시간</span>
                                             <span><i class="ct-sw ct-sw-idle-band"></i> 대기시간</span>
                                         </div>
@@ -444,8 +444,8 @@
                         <div class="sm-hint" style="margin-bottom:14px;">
                             <span class="material-icons">info</span>
                             <span>
-                                설정한 <b>최소 ~ 최대</b> 가동시간 범위를 벗어난 사이클을 차트·테이블·평균에서 제외합니다.
-                                한쪽만 입력해도 됩니다 (예: <b>최대</b>만 입력 = 그보다 긴 사이클만 제외). 새 사이클이 들어와도 범위가 유지됩니다.
+                                설정한 <b>최소 ~ 최대</b> 가동시간 범위를 벗어난 가동을 차트·테이블·평균에서 제외합니다.
+                                한쪽만 입력해도 됩니다 (예: <b>최대</b>만 입력 = 그보다 긴 가동만 제외). 새 가동이 들어와도 범위가 유지됩니다.
                             </span>
                         </div>
 

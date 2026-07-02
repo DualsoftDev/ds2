@@ -610,8 +610,8 @@
                     <div>
                         <div class="border-t border-outline-variant my-3"></div>
                         <div class="flex justify-between items-center">
-                            <span class="font-label-sm text-label-sm text-on-surface-variant opacity-80">당일 사이클</span>
-                            <span class="font-headline-md text-headline-md text-primary" x-text="todayCycles.toLocaleString() + ' 사이클'"></span>
+                            <span class="font-label-sm text-label-sm text-on-surface-variant opacity-80">당일 가동횟수</span>
+                            <span class="font-headline-md text-headline-md text-primary" x-text="todayCycles.toLocaleString() + '회'"></span>
                         </div>
                     </div>
                 </div>
@@ -780,7 +780,7 @@
                                                             <template x-if="cctvHover?.model?.workName"><span class="tv" x-text="cctvHover?.model?.workName"></span></template>
                                                             <template x-if="cctvHover?.model?.device"><span class="tk">설비</span></template>
                                                             <template x-if="cctvHover?.model?.device"><span class="tv mono" x-text="cctvHover?.model?.device"></span></template>
-                                                            <template x-if="cctvHover?.model?.avgMs != null"><span class="tk">평균 사이클</span></template>
+                                                            <template x-if="cctvHover?.model?.avgMs != null"><span class="tk">평균 가동시간</span></template>
                                                             <template x-if="cctvHover?.model?.avgMs != null"><span class="tv" x-text="cctvFmtDuration(cctvHover?.model?.avgMs)"></span></template>
                                                             <template x-if="cctvHover?.model?.currentCt != null"><span class="tk">현재 가동시간</span></template>
                                                             <template x-if="cctvHover?.model?.currentCt != null"><span class="tv" x-text="cctvFmtDuration(cctvHover?.model?.currentCt)"></span></template>
@@ -830,12 +830,12 @@
                 <!-- ── 사이클 비교 (4/12) — Chart.js 도넛 ── -->
                 <div class="chart-card col-span-12 md:col-span-12 lg:col-span-4 bg-surface-container-lowest border border-outline-variant rounded-xl shadow-sm overflow-hidden flex flex-col" style="min-height:460px;">
                     <div class="p-4 border-b border-outline-variant flex justify-between items-center bg-surface-container-low">
-                        <span class="font-headline-md text-headline-md text-primary">사이클 비교</span>
+                        <span class="font-headline-md text-headline-md text-primary">가동시간 비교</span>
                         <div class="flex items-center gap-1.5">
                             <div class="flex bg-surface border border-outline-variant rounded p-0.5">
                                 <button class="px-2 py-1 text-[10px] font-bold rounded-sm transition-all flex items-center gap-1"
                                         :class="!showAverage ? 'bg-secondary text-white shadow-sm' : 'text-on-surface-variant hover:bg-surface-container-high'"
-                                        @click="setDisplayMode(false)" title="최근 사이클 값 표시">
+                                        @click="setDisplayMode(false)" title="최근 가동시간 값 표시">
                                     <span class="material-icons text-[14px]">history</span> 최근
                                 </button>
                                 <button class="px-2 py-1 text-[10px] font-bold rounded-sm transition-all flex items-center gap-1"
@@ -898,7 +898,7 @@
                             <div class="ds-empty" style="padding:32px 0;">
                                 <span class="material-icons">donut_large</span>
                                 <span class="ds-empty-title">Time 데이터가 없습니다</span>
-                                <span class="ds-empty-desc">사이클이 수집되면 Flow별 가동시간이 도넛으로 표시됩니다.</span>
+                                <span class="ds-empty-desc">가동이 수집되면 Flow별 가동시간이 도넛으로 표시됩니다.</span>
                             </div>
                         </div>
                     </template>
@@ -928,7 +928,7 @@
                             <span class="text-label-sm text-on-surface-variant">일</span>
                         </div>
                         <div class="form-helper" style="margin-top:6px;">
-                            이 기간의 클린 사이클(비가동 제외)을 모두 평균냅니다.
+                            이 기간의 클린 가동(비가동 제외)을 모두 평균냅니다.
                         </div>
                     </div>
                     <div class="flex gap-2 justify-end" style="margin-top:16px;">

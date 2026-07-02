@@ -300,7 +300,7 @@
                                     <small class="settings-hint">
                                         dspFlow / dspCall 의 평균/누적 통계만 NULL 초기화. plcTagLog · dspFlowHistory · userTagAlertLog 는 그대로 보존.
                                         head/tail 이 바뀌었거나 모델이 크게 바뀌어 새 baseline 으로 평균을 다시 누적하고 싶을 때 사용.
-                                        다음 사이클부터 자연스럽게 누적 시작.
+                                        다음 가동부터 자연스럽게 누적 시작.
                                     </small>
                                     <hr class="divider my-3" />
                                     <button class="btn btn-outlined color-warning w-100" @click="clearFlowHistory()" :disabled="busy">
@@ -365,7 +365,7 @@
                                         <span x-text="autoCalibrate ? 'ON — 실시간 학습 (Agent 자동)' : 'OFF — AASX 확정값 (p95 기반)'"></span>
                                     </label>
                                     <small class="settings-hint">
-                                        ON: 3사이클 관측 후 avg ± 마진으로 즉시 적용. OFF: 아래 보정 설정으로 기록된 p95 값을 기준으로 사용.
+                                        ON: 3회 가동 관측 후 avg ± 마진으로 즉시 적용. OFF: 아래 보정 설정으로 기록된 p95 값을 기준으로 사용.
                                         전 인스턴스 동시 적용.
                                         <span x-show="!scanConnected"><strong> — Agent 미연결 상태입니다.</strong></span>
                                     </small>
@@ -378,14 +378,14 @@
 
                                         <label class="switch mb-2">
                                             <input type="checkbox" x-model="s.autoCalibration.enabled" />
-                                            클린사이클 누적 시 자동 실행
+                                            클린 가동 누적 시 자동 실행
                                         </label>
-                                        <small class="settings-hint">Flow 가 아래 클린사이클 수를 채우면 1회 자동 보정. 끄면 수동("지금 실측값 채우기")만 동작합니다.</small>
+                                        <small class="settings-hint">Flow 가 아래 클린 가동 횟수를 채우면 1회 자동 보정. 끄면 수동("지금 실측값 채우기")만 동작합니다.</small>
 
                                         <div class="form-group" style="margin-top:12px;">
-                                            <label class="form-label">최소 클린사이클 수</label>
+                                            <label class="form-label">최소 클린 가동 횟수</label>
                                             <input type="number" class="form-field mono" x-model.number="s.autoCalibration.minCleanCycles" min="1" max="1000" placeholder="10" />
-                                            <small class="settings-hint">이상치 제외 가동시간 존재 사이클 기준. 기본 10.</small>
+                                            <small class="settings-hint">이상치 제외 가동시간 존재 가동 기준. 기본 10.</small>
                                         </div>
 
                                         <div class="form-group" style="margin-bottom:0;">
@@ -423,7 +423,7 @@
                                             <span class="material-icons">ac_unit</span> 지금 동결
                                         </button>
                                         <small class="settings-hint">
-                                            현재 학습된 분포를 건강 기준선으로 고정합니다. 이후 사이클은 이 기준 대비 드리프트(설비 노화)로 추적됩니다.
+                                            현재 학습된 분포를 건강 기준선으로 고정합니다. 이후 가동은 이 기준 대비 드리프트(설비 노화)로 추적됩니다.
                                             <span x-show="!scanConnected"><strong> — Agent 미연결 상태입니다.</strong></span>
                                         </small>
                                     </div>
@@ -519,13 +519,13 @@
 
                                     <h6 class="set-subhead">
                                         <span class="material-icons">timer_off</span>
-                                        비가동 사이클 판정
+                                        비가동 판정
                                     </h6>
                                     <small class="set-subnote">
-                                        가동시간이 최대 제한을 초과하거나 최소 제한에 미달하면 비가동 사이클로 판정. 대시보드·동작편차·Flow 평균에서 제외, 사이클 분석에서 회색 배경 표시.
+                                        가동시간이 최대 제한을 초과하거나 최소 제한에 미달하면 비가동으로 판정. 대시보드·동작편차·Flow 평균에서 제외, 가동시간 분석에서 회색 배경 표시.
                                     </small>
                                     <div class="form-group">
-                                        <label class="form-label">사이클 시간 최대 제한 (초과 시 제외)</label>
+                                        <label class="form-label">가동시간 최대 제한 (초과 시 제외)</label>
                                         <div class="hms-row">
                                             <div class="hms-cell"><input type="number" class="form-field" :value="maxCycleHours" @input="setMaxCycle('h', $event.target.value)" min="0" max="99" /><span>시</span></div>
                                             <div class="hms-cell"><input type="number" class="form-field" :value="maxCycleMinutes" @input="setMaxCycle('m', $event.target.value)" min="0" max="59" /><span>분</span></div>
@@ -534,19 +534,19 @@
                                         <small class="settings-hint">가장 긴 Flow 의 평균 가동시간 + 여유시간 권장. 모두 0이면 비활성.</small>
                                     </div>
                                     <div class="form-group">
-                                        <label class="form-label">사이클 시간 최소 제한 (미달 시 제외)</label>
+                                        <label class="form-label">가동시간 최소 제한 (미달 시 제외)</label>
                                         <div class="hms-row">
                                             <div class="hms-cell"><input type="number" class="form-field" :value="minCycleHours" @input="setMinCycle('h', $event.target.value)" min="0" max="99" /><span>시</span></div>
                                             <div class="hms-cell"><input type="number" class="form-field" :value="minCycleMinutes" @input="setMinCycle('m', $event.target.value)" min="0" max="59" /><span>분</span></div>
                                             <div class="hms-cell"><input type="number" class="form-field" :value="minCycleSeconds" @input="setMinCycle('s', $event.target.value)" min="0" max="59" /><span>초</span></div>
                                         </div>
-                                        <small class="settings-hint">오감지·노이즈로 인한 짧은 사이클 제외용. 모두 0이면 비활성.</small>
+                                        <small class="settings-hint">오감지·노이즈로 인한 짧은 가동 제외용. 모두 0이면 비활성.</small>
                                     </div>
 
                                     <div class="form-group" style="margin-bottom:0;">
-                                        <label class="form-label">대시보드 평균 윈도우 (최근 N 사이클)</label>
+                                        <label class="form-label">대시보드 평균 윈도우 (최근 N회 가동)</label>
                                         <input type="number" class="form-field mono" x-model.number="s.historyView.cycleAverageWindow" min="0" max="1000" placeholder="20" />
-                                        <small class="settings-hint">대시보드 Flow 평균(동작시간/대기시간/가동시간)을 최근 N개 비가동-제외 사이클로만 산출 → 현재 거동 반영. 0이면 전체 이력 평균.</small>
+                                        <small class="settings-hint">대시보드 Flow 평균(동작시간/대기시간/가동시간)을 최근 N회 비가동-제외 가동으로만 산출 → 현재 거동 반영. 0이면 전체 이력 평균.</small>
                                     </div>
 
                                     <hr class="divider" style="margin:16px 0;" />
@@ -920,7 +920,7 @@
                 // ── 건강 기준선 수동 동결 — hub 브로드캐스트로 전 인스턴스(Promaker 등) 동시 동결.
                 async freezeHealthBaseline() {
                     const ok = await this.askConfirm('건강 기준선 동결',
-                        '학습 중인 device duration 기준선을 현재 분포로 동결합니다.\n이후 사이클은 이 기준 대비 드리프트(노화)로 추적됩니다. 진행할까요?');
+                        '학습 중인 device duration 기준선을 현재 분포로 동결합니다.\n이후 가동은 이 기준 대비 드리프트(노화)로 추적됩니다. 진행할까요?');
                     if (!ok) return;
                     try {
                         await this.apiPost('/api/settings/health-baseline-freeze', {});
@@ -1109,7 +1109,7 @@
                         'dspFlow / dspCall 의 평균과 누적 통계를 NULL 로 초기화합니다.\n\n' +
                         '• plcTagLog, dspFlowHistory, userTagAlertLog 등 raw 데이터는 그대로 보존\n' +
                         '• 엔진 in-memory Welford 누적기 reset\n' +
-                        '• 다음 사이클 완료 시점부터 새 평균이 자연스럽게 누적\n' +
+                        '• 다음 가동 완료 시점부터 새 평균이 자연스럽게 누적\n' +
                         '• 서비스 재시작 불필요\n\n' +
                         'head/tail 이 바뀌었거나 모델이 크게 변경되어 평균을 새 baseline 으로 다시 측정하고 싶을 때 사용하세요.',
                         '재계산', '취소');
@@ -1119,8 +1119,8 @@
                 async clearFlowHistory() {
                     // 파괴적 — confirm 가드 필수.
                     const ok = await this.askConfirm('Flow 히스토리 삭제',
-                        'dspFlowHistory 와 Call 통계(평균/표준편차/사이클 카운트) 를 모두 초기화합니다.\n\n' +
-                        'Flow/Call 정의는 유지되며, 즉시 새 사이클부터 다시 측정됩니다. 서버 재시작 불필요.',
+                        'dspFlowHistory 와 Call 통계(평균/표준편차/가동횟수) 를 모두 초기화합니다.\n\n' +
+                        'Flow/Call 정의는 유지되며, 즉시 새 가동부터 다시 측정됩니다. 서버 재시작 불필요.',
                         '초기화', '취소');
                     if (!ok) return;
                     await this.runLifecycle('/api/settings/clear-flow-history', false);
@@ -1131,7 +1131,7 @@
                         'plc.db 파일을 완전히 삭제하고 스키마부터 재생성합니다.\n\n' +
                         '다음 데이터가 영구히 사라집니다:\n' +
                         '• plcTagLog (PLC 신호 시계열 — 수 GB 단위 가능)\n' +
-                        '• dspFlowHistory (Flow 사이클 히스토리 전체)\n' +
+                        '• dspFlowHistory (Flow 가동 히스토리 전체)\n' +
                         '• userTagAlertLog / userTagAlertDaily (알림 이력)\n' +
                         '• aasxChangeLog / flowBoundaryChangeLog (변경 이력)\n' +
                         '• 모든 통계 / 평균\n\n' +
@@ -1161,7 +1161,7 @@
                     if (this.busy || this.autoCal.running) return;
                     const baseMsg =
                         '현재까지 수집된 실측값으로 적합 Flow 디바이스의 Duration/Max(및 설정 시 Min)를 project.aasx 에 즉시 기록합니다.\n\n' +
-                        '• 클린사이클이 충분한 Flow 의 디바이스만 보정\n' +
+                        '• 클린 가동이 충분한 Flow 의 디바이스만 보정\n' +
                         '• 측정 span 이 있는 디바이스만 덮어씁니다\n' +
                         '• 완료 여부와 무관하게 다시 실행할 수 있습니다';
                     if (this.settingsDirty) {
@@ -1230,7 +1230,7 @@
                         '해당 시각 이전의 다음 데이터를 삭제합니다:\n' +
                         '• plcTagLog (PLC 신호 시계열)\n' +
                         '• userTagAlertLog / userTagAlertDaily (알림 이력)\n' +
-                        '• dspFlowHistory (Flow 사이클 이력)\n' +
+                        '• dspFlowHistory (Flow 가동 이력)\n' +
                         '• oeeDowntimeEvent (OEE 정지 이벤트)\n\n' +
                         '선택 시각 이후 데이터는 보존됩니다.\n' +
                         '계속하시겠습니까?',

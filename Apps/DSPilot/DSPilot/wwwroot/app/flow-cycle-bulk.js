@@ -504,6 +504,31 @@ function bulkCycleApp() {
             }
             return set.size;
         },
+        // ── 선택 구간 플로팅 툴팁 (개별 페이지 ct-sel-tip 과 동일 지표/위치) ──
+        selHasCycles(slice) { return slice.cycleBoundaries.length > 0; },
+        _selCycleAgg(slice) {
+            const r = slice.selectedRange; const out = { mt: 0, wt: 0, n: 0 };
+            if (!r) return out;
+            for (const c of CG.cycleRows(slice)) {
+                const s = c.startMs, e = c.startMs + (c.ctMs || 0);
+                if (Math.min(e, r.endMs) > Math.max(s, r.startMs)) {
+                    out.n++;
+                    if (!c.isOpen && c.atMs != null) { out.mt += c.atMs; out.wt += (c.wtMs || 0); }
+                }
+            }
+            return out;
+        },
+        selCycleCount(slice) { return this._selCycleAgg(slice).n; },
+        selActiveMs(slice) { return this._selCycleAgg(slice).mt; },
+        selWaitMs(slice) { return this._selCycleAgg(slice).wt; },
+        selTipCenterPx(slice) {
+            const r = slice.selectedRange; if (!r || !slice._geo) return 0;
+            const cs = slice._geo.cs, xScale = slice._geo.xScale;
+            const raw = LEFT_PAD + ((r.startMs + r.endMs) / 2 - cs) * xScale;
+            const chartW = LEFT_PAD + slice.plotWidth + RIGHT_PAD;
+            return Math.round(Math.max(170, Math.min(chartW - 170, raw)));
+        },
+        selTipTopPx(slice) { return CG.TOP_MARGIN + (slice.cycleBoundaries.length ? CG.RIBBON_H : 0) + 6; },
 
         // ── 사이클 기준 프리셋 (첫 번째 Flow 히스토리로 역산) ──
         async setRecentCycles(n) {
@@ -632,7 +657,7 @@ function bulkCycleApp() {
                 if (st && st.flow === flow) {
                     if (st.running) {
                         sawRunning = true;
-                        this.saveMsg = '[' + idx + '/' + total + '] ' + flow + ' 재계산 중… (' + (st.phase || '') + (st.cyclesFound ? ', ' + st.cyclesFound + ' 사이클' : '') + ')';
+                        this.saveMsg = '[' + idx + '/' + total + '] ' + flow + ' 재계산 중… (' + (st.phase || '') + (st.cyclesFound ? ', ' + st.cyclesFound + '회' : '') + ')';
                     } else if (st.done && (sawRunning || i === 0)) {
                         break;
                     }
@@ -667,6 +692,32 @@ function bulkCycleApp() {
             };
         },
         _stamp() { const t = new Date(); const p = (x) => String(x).padStart(2, '0'); return `${t.getFullYear()}${p(t.getMonth() + 1)}${p(t.getDate())}_${p(t.getHours())}${p(t.getMinutes())}${p(t.getSeconds())}`; },
+        _csvEscape(v) { if (v == null) return ''; const s = String(v); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; },
+        // 전체 CSV — 로드된 모든 Flow 의 IO 신호 세그먼트(단일 페이지 exportCycleCsv 와 동일 컬럼 + Flow 열).
+        exportAllCsv() {
+            const slices = this.flows.filter(s => !s.loading && !s.error && s.callLanes.length);
+            if (!slices.length) { this.saveMsg = '내보낼 데이터가 없습니다.'; this.saveError = true; setTimeout(() => { this.saveMsg = ''; }, 3000); return; }
+            const wall = (iso) => iso ? String(iso).replace('T', ' ').slice(0, 23) : '';
+            const dur = (s, e) => Math.max(0, Math.round(new Date(e).getTime() - new Date(s).getTime()));
+            const out = ['Flow,Call,Work,신호,Tag,시작,종료,지속(ms)'];
+            for (const slice of slices) {
+                const rows = [];
+                for (const l of slice.callLanes) {
+                    for (const iv of (l.outIntervals || [])) rows.push({ call: l.callName, work: l.workName || '', kind: 'OUT', tag: l.outTag || '', s: iv.start, e: iv.end });
+                    for (const iv of (l.inIntervals || [])) rows.push({ call: l.callName, work: l.workName || '', kind: 'IN', tag: l.inTag || '', s: iv.start, e: iv.end });
+                }
+                rows.sort((a, b) => new Date(a.s) - new Date(b.s));
+                for (const r of rows)
+                    out.push([this._csvEscape(slice.flowName), this._csvEscape(r.call), this._csvEscape(r.work), r.kind, this._csvEscape(r.tag), this._csvEscape(wall(r.s)), this._csvEscape(wall(r.e)), dur(r.s, r.e)].join(','));
+            }
+            const text = '﻿' + out.join('\r\n');
+            const blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = 'CycleAnalysis_ALL_' + this._stamp() + '.csv';
+            document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+            this.saveMsg = '전체 CSV 다운로드 완료 (' + slices.length + '개 Flow)';
+            setTimeout(() => { this.saveMsg = ''; }, 4000);
+        },
         async exportAllExcel() {
             if (this.exportingAll) return;
             const models = this.flows

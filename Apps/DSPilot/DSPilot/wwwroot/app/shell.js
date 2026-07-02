@@ -494,11 +494,11 @@
                 // 사이클 분석.설정: base(/flow-cycle?name=) 는 단일 Flow. '전체' 는 /flow-cycle?system= (그 시스템 모든
                 //   Flow 간트 일괄 편집)로 보낸다. 그룹은 단일(?name=)이든 전체(bulk)이든 이 시스템이면 활성/자동펼침.
                 var cycleActive = (onFlowPage && curFlowView === 'cycle') || (onFlowCycleBulk && flowCycleSystem === sys.name);
-                var gCycle = buildAnalysisGroup(flows, '사이클 분석.설정', 'account_tree',  '/flow-cycle',   'name', cycleActive, curFlowName, false, true, {
+                var gCycle = buildAnalysisGroup(flows, '가동시간 분석.설정', 'account_tree',  '/flow-cycle',   'name', cycleActive, curFlowName, false, true, {
                     href: '/flow-cycle?system=' + encodeURIComponent(sys.name),
                     active: onFlowCycleBulk && flowCycleSystem === sys.name,
                     label: '전체',
-                    title: '이 시스템의 모든 Flow 사이클 간트를 한 화면에서 일괄 조회·편집'
+                    title: '이 시스템의 모든 Flow 가동 간트를 한 화면에서 일괄 조회·편집'
                 });
                 var gHeat  = buildAnalysisGroup(flows, '동작편차',    'gradient',      '/heatmap',      'flow', onHeatmapPage, heatmapFlow, false, true);
                 var gOee   = buildAnalysisGroup(flows, 'OEE 종합',    'speed',         '/uptime-oee',   'flow', onOeePage,     oeeFlow,     false, true);

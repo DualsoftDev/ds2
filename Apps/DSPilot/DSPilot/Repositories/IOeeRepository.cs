@@ -99,9 +99,11 @@ public interface IOeeRepository
     /// <summary>
     /// 기간 [from,to] 과 겹치는 정지 이벤트를 raw 구간(UTC epoch ms)+종류로 반환. 슬롯 분배는 컨트롤러가 overlap 으로 수행.
     /// Kind: 0=계획정비(category='planned') / 1=고장(isFailure=1) / 2=기타 비계획 / 3=미분류(category NULL) — 상호배타.
+    /// IsAuto: detectSource='nocycle' 여부 — 자동 파생 무사이클 정지(=사이클 모델의 비생산과 같은 유휴)면 true.
+    ///   컨트롤러가 비생산 카빙을 이 자동 정지보다 우선 적용해 상단 KPI A(정본)와 추이를 일치시킨다(고장비트/수동 정지는 그대로 우선).
     /// open(endAt NULL) 은 min(now, to) 로 캡. startAt 이 from 이전이라도 겹치면 포함(장시간·다일 정지 정확 분배).
     /// </summary>
-    Task<IReadOnlyList<(long StartMs, long EndMs, int Kind)>> GetDowntimeIntervalsAsync(
+    Task<IReadOnlyList<(long StartMs, long EndMs, int Kind, bool IsAuto)>> GetDowntimeIntervalsAsync(
         DateTime fromUtc, DateTime toUtc, string? flowName, CancellationToken ct = default);
 
     Task<long> InsertShiftExceptionAsync(OeeShiftException row, CancellationToken ct = default);

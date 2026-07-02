@@ -1026,7 +1026,7 @@
                 esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); },
                 // 감지 출처 칩 (정지 구간 소스)
                 detectChipHtml(s) {
-                    const m = { 'nocycle': '무사이클', 'fault-bit': '고장비트', 'usertag': '고장비트', 'manual': '수동' };
+                    const m = { 'nocycle': '무가동', 'fault-bit': '고장비트', 'usertag': '고장비트', 'manual': '수동' };
                     return `<span class="src-chip detect">${m[s] || this.esc(s) || '—'}</span>`;
                 },
                 // 단서 칩 (abnormal/usertag 시간겹침 — 표시 전용)
@@ -1055,10 +1055,10 @@
                         return {
                             mode: 'cycle', hasData: tot > 0,
                             runMs: n, stopMs: i, runPct, stopPct: tot > 0 ? r1(100 - runPct) : 0,
-                            runLabel: '실측 가동시간 (정상 사이클)', stopLabel: '비가동 가동시간',
-                            runNote: (o.normalCycleCount || 0) + ' 사이클', stopNote: (o.failureCount || 0) + '건',
-                            subtitle: 'Σ실측 가동시간 ÷ (Σ실측 + Σ비가동) · 비가동 = 동작시간>이상치 / 미완료 폭주 / 무사이클',
-                            hint: '한 사이클의 <b>동작시간이 가동시간 이상치를 넘으면</b> 그 사이클 가동시간 전체를 비가동으로 본다(인식지연 + 고장 + 회복 포함). 미완료(가동시간 폭주)·무사이클 정지도 비가동에 합산하되 겹친 구간은 1회만 계상한다(이중계상 방지).',
+                            runLabel: '실측 가동시간 (정상 가동)', stopLabel: '비가동 가동시간',
+                            runNote: (o.normalCycleCount || 0) + '회', stopNote: (o.failureCount || 0) + '건',
+                            subtitle: 'Σ실측 가동시간 ÷ (Σ실측 + Σ비가동) · 비가동 = 동작시간>이상치 / 미완료 폭주 / 무가동',
+                            hint: '한 번의 가동에서 <b>동작시간이 가동시간 이상치를 넘으면</b> 그 가동의 가동시간 전체를 비가동으로 본다(인식지연 + 고장 + 회복 포함). 미완료(가동시간 폭주)·무가동 정지도 비가동에 합산하되 겹친 구간은 1회만 계상한다(이중계상 방지).',
                         };
                     }
                     // 폴백(shift/auto/calendar): 계획시간 분모 기준 — planTime 사용.
@@ -1074,8 +1074,8 @@
                         runMs: run, stopMs: stop, runPct, stopPct: planned > 0 ? r1(100 - runPct) : 0,
                         runLabel: '가동시간', stopLabel: '정지 (비계획)',
                         runNote: null, stopNote: null, sourceLabel: srcLabel,
-                        subtitle: '가동시간 ÷ 계획생산시간 · 계획시간 폴백(' + srcLabel + ') — 사이클 표본 부족',
-                        hint: '클린사이클 표본이 부족해 <b>계획시간 폴백</b>으로 가용성을 산출한다(계획시간 = ' + srcLabel + '). 가동시간에는 유휴가 포함될 수 있어 사이클기반보다 느슨한 근사다. 클린사이클이 쌓이면 자동으로 사이클기반으로 전환된다.',
+                        subtitle: '가동시간 ÷ 계획생산시간 · 계획시간 폴백(' + srcLabel + ') — 가동 표본 부족',
+                        hint: '클린 가동 표본이 부족해 <b>계획시간 폴백</b>으로 가용성을 산출한다(계획시간 = ' + srcLabel + '). 가동시간에는 유휴가 포함될 수 있어 가동시간 기반보다 느슨한 근사다. 클린 가동이 쌓이면 자동으로 가동시간 기반으로 전환된다.',
                     };
                 },
                 // 계획시간 폴백 체인 3단계 (활성/건너뜀/대기)

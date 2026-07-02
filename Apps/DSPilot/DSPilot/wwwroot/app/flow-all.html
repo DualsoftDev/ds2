@@ -330,12 +330,12 @@
                         <button class="btn btn-sm" @click="setRecentMinutes(30)" :disabled="loadingAny">최근 30분</button>
                         <button class="btn btn-sm" @click="setRecentHours(1)" :disabled="loadingAny">최근 1시간</button>
                         <button class="btn btn-sm" @click="setRecentHours(24)" :disabled="loadingAny">최근 24시간</button>
-                        <span class="ct-preset-sep" title="사이클 개수 기준 — 최근 N개 사이클이 들어오도록 시간 범위를 자동 설정 (첫 번째 Flow 히스토리 기준)">사이클</span>
+                        <span class="ct-preset-sep" title="가동 횟수 기준 — 최근 N회 가동이 들어오도록 시간 범위를 자동 설정 (첫 번째 Flow 히스토리 기준)">가동</span>
                         <button class="btn btn-sm" @click="setRecentCycles(20)" :disabled="loadingAny">최근 20</button>
                         <button class="btn btn-sm" @click="setRecentCycles(50)" :disabled="loadingAny">최근 50</button>
                         <button class="btn btn-sm" @click="setRecentCycles(100)" :disabled="loadingAny">최근 100</button>
                         <label class="ct-tb-check" style="margin-left:6px;"
-                               title="완료신호(Tail InTag↑)가 없는 미완료 사이클을 사이클 목록·평균에서 제외 (로컬 표시 토글)">
+                               title="완료신호(Tail InTag↑)가 없는 미완료 가동을 가동 목록·평균에서 제외 (로컬 표시 토글)">
                             <input type="checkbox" x-model="excludeIncomplete" @change="onExcludeIncompleteChanged()" />
                             미완료 제외
                         </label>
@@ -515,7 +515,7 @@
                                     <div class="ct-lane-sidebar">
                                         <div class="ct-sidebar-header" :style="`height:${TOP_MARGIN}px;`">Call</div>
                                         <div class="ct-ribbon-side" x-show="slice.cycleBoundaries.length" :style="`height:${RIBBON_H}px;`">
-                                            <span class="rs-t">사이클</span>
+                                            <span class="rs-t">가동</span>
                                             <span class="rs-sub">동작시간 · 대기시간 · 가동률</span>
                                             <span x-show="slice.tailCompletionSource === 'OutTag'" class="rs-sub" style="margin-top:2px;color:#b26a00;background:#fff3e0;border:1px solid #ffcc80;border-radius:3px;padding:0 4px;font-size:9px;" title="이 Flow 의 Tail Call 에 응답(InTag)이 없어 명령 종료(OutTag↓)로 동작시간을 추정합니다. 검증된 완료가 아니라 명령 ON 시간입니다.">명령 ON 추정</span>
                                         </div>
@@ -540,10 +540,10 @@
                                                     <div class="ct-lane-tags">
                                                         <button :class="'ct-tag-btn head ' + (slice.headCallId === row.lane.callId ? 'active' : '')"
                                                                 @click="toggleHead(slice, row.lane.callId)" :disabled="slice.overlayBusy"
-                                                                title="시작 지정: 이 Call 의 OutTag↑ 가 사이클 시작 경계">시작</button>
+                                                                title="시작 지정: 이 Call 의 OutTag↑ 가 가동 시작 경계">시작</button>
                                                         <button :class="'ct-tag-btn tail ' + (slice.tailCallId === row.lane.callId ? 'active' : '')"
                                                                 @click="toggleTail(slice, row.lane.callId)" :disabled="slice.overlayBusy"
-                                                                title="끝 지정: 이 Call 의 InTag↑ 가 사이클 완료 마커">끝</button>
+                                                                title="끝 지정: 이 Call 의 InTag↑ 가 가동 완료 마커">끝</button>
                                                     </div>
                                                 </template>
                                                 <template x-if="row.kind === 'api'">
@@ -592,7 +592,7 @@
                                     <span><i class="ct-sw ct-sw-in"></i> InTag (응답=완료)</span>
                                     <span><i class="ct-sw ct-sw-head"></i> 시작</span>
                                     <span><i class="ct-sw ct-sw-tail"></i> 끝</span>
-                                    <span><i class="ct-sw ct-sw-cycle-edge"></i> 사이클 경계</span>
+                                    <span><i class="ct-sw ct-sw-cycle-edge"></i> 가동 경계</span>
                                     <template x-if="slice.selectedRange">
                                         <span><i class="ct-sw ct-sw-range"></i> 드래그 선택 구간</span>
                                     </template>
@@ -600,7 +600,7 @@
                                 <!-- 리본(MT·WT) 범례 — Tail 지정 시에만 표시 -->
                                 <template x-if="slice.tailCallId !== null">
                                     <div class="ct-legend" style="margin-top:4px;">
-                                        <span style="color:var(--color-text-primary);font-weight:700;">상단 리본 = 사이클별 동작시간·대기시간 비율 + 가동률</span>
+                                        <span style="color:var(--color-text-primary);font-weight:700;">상단 리본 = 가동별 동작시간·대기시간 비율 + 가동률</span>
                                         <span><i class="ct-sw ct-sw-active-band"></i> 동작시간</span>
                                         <span><i class="ct-sw ct-sw-idle-band"></i> 대기시간</span>
                                     </div>
@@ -619,14 +619,14 @@
                                                 <button class="btn btn-sm btn-filled" @click="applyRangeAsPeriod(slice)" :disabled="loadingAny"
                                                         title="선택 구간을 모든 Flow 의 분석 시간으로 설정하고 다시 로드 (공유 시간범위가 바뀝니다)">
                                                     <span class="material-icons" style="font-size:16px; vertical-align:middle;">schedule</span>
-                                                    사이클 기간으로 설정
+                                                    가동 기간으로 설정
                                                 </button>
                                                 <button class="btn btn-sm btn-outlined" @click="clearRangeSelection(slice)" title="선택 구간 해제">✕ 해제</button>
                                             </div>
                                         </div>
                                         <div class="sm-hint" style="margin-bottom:14px;">
                                             <span class="material-icons">info</span>
-                                            <span>드래그한 구간의 통계입니다. <b>사이클 기간으로 설정</b>을 누르면 모든 Flow 의 분석 시간이 이 구간으로 바뀌고 전체 새로고침합니다.</span>
+                                            <span>드래그한 구간의 통계입니다. <b>가동 기간으로 설정</b>을 누르면 모든 Flow 의 분석 시간이 이 구간으로 바뀌고 전체 새로고침합니다.</span>
                                         </div>
                                         <div class="ct-range-stats">
                                             <div class="kpi-cell">
@@ -1258,7 +1258,7 @@
                         if (st && st.flow === flow) {
                             if (st.running) {
                                 sawRunning = true;
-                                this.saveMsg = '[' + idx + '/' + total + '] ' + flow + ' 재계산 중… (' + (st.phase || '') + (st.cyclesFound ? ', ' + st.cyclesFound + ' 사이클' : '') + ')';
+                                this.saveMsg = '[' + idx + '/' + total + '] ' + flow + ' 재계산 중… (' + (st.phase || '') + (st.cyclesFound ? ', ' + st.cyclesFound + '회' : '') + ')';
                             } else if (st.done && (sawRunning || i === 0)) {
                                 break;
                             }

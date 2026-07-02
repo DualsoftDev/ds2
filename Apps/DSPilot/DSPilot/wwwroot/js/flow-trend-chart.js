@@ -110,7 +110,7 @@ export function renderCycleCountChart(chartId, buckets, granularity) {
             labels,
             datasets: [
                 {
-                    label: '정상 사이클',
+                    label: '정상 가동횟수',
                     data: active,
                     backgroundColor: COLORS.Active.fill,
                     borderColor: COLORS.Active.border,
@@ -142,7 +142,7 @@ export function renderCycleCountChart(chartId, buckets, granularity) {
                     stacked: true,
                     beginAtZero: true,
                     ticks: { precision: 0 },
-                    title: { display: true, text: '사이클 수' },
+                    title: { display: true, text: '가동횟수' },
                     grid: { color: 'rgba(127, 127, 127, 0.12)' },
                 },
             },

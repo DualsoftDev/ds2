@@ -1634,10 +1634,12 @@ public class OeeController : ControllerBase
         var gran = hourly ? "hour" : "day";
 
         // ① 정지 이벤트 raw 구간(kind별). 시작일 몰빵 대신 각 이벤트를 실제 겹친 슬롯에 overlap 분배(다일·장시간 정지 정확).
+        //    자동(nocycle) vs 비자동(고장비트/수동) 분리 — 비생산 카빙 우선순위가 다름(아래 BuildDailySlot 참조).
         var intervals = await _repo.GetDowntimeIntervalsAsync(fromUtc, toUtc, flowName, ct);
-        var byKind = new[] { new List<(long S, long E)>(), new List<(long S, long E)>(), new List<(long S, long E)>(), new List<(long S, long E)>() };
-        foreach (var (s, e, kind) in intervals)
-            if (e > s && kind is >= 0 and <= 3) byKind[kind].Add((s, e));
+        var delibKind = new[] { new List<(long S, long E)>(), new List<(long S, long E)>(), new List<(long S, long E)>(), new List<(long S, long E)>() };
+        var autoKind = new[] { new List<(long S, long E)>(), new List<(long S, long E)>(), new List<(long S, long E)>(), new List<(long S, long E)>() };
+        foreach (var (s, e, kind, isAuto) in intervals)
+            if (e > s && kind is >= 0 and <= 3) (isAuto ? autoKind : delibKind)[kind].Add((s, e));
 
         // ② 비생산(제외) 구간 — 사이클 모델(10×CT/수동 시각대, A 분모 밖). 가동(초록)에서 카빙해 별도 세그먼트로 표시.
         //    daily 는 저빈도라 사이클 집계 1회 추가 호출 허용. Union 된 구간이라 자체 겹침 없음(슬롯 overlap 이중계상 없음).
@@ -1661,12 +1663,14 @@ public class OeeController : ControllerBase
             var sS = (long)ToMs(Max(fromUtc, slotStartUtc));
             var sE = (long)ToMs(Min(toUtc, slotEndUtc));
             var slotMs = Math.Max(0, sE - sS);
-            slots.Add(BuildDailySlot(label, slotMs,
-                failureMs: SumOverlap(byKind[1], sS, sE),
-                otherMs: SumOverlap(byKind[2], sS, sE),
-                unclassMs: SumOverlap(byKind[3], sS, sE),
-                plannedMs: SumOverlap(byKind[0], sS, sE),
-                nonProdMs: SumOverlap(nonProd, sS, sE)));
+            var delib = new long[4];
+            var auto = new long[4];
+            for (int k = 0; k < 4; k++)
+            {
+                delib[k] = SumOverlap(delibKind[k], sS, sE);
+                auto[k] = SumOverlap(autoKind[k], sS, sE);
+            }
+            slots.Add(BuildDailySlot(label, slotMs, delib, auto, SumOverlap(nonProd, sS, sE)));
         }
         if (hourly)
         {
@@ -1697,21 +1701,36 @@ public class OeeController : ControllerBase
     private static DateTime Max(DateTime a, DateTime b) => a > b ? a : b;
 
     /// <summary>
-    /// 정지 분해(failure/other/unclassified/planned)를 슬롯 예산(slotMs) 안에 캡한 뒤, 남은 예산(=가동 초록)에서
-    /// 비생산(제외, nonProdMs)을 카빙한다 → 가동이 A 분모 밖 시간을 과대표시하지 않게 함. 세그먼트 합 ≤ slotMs.
+    /// 정지 분해를 슬롯 예산(slotMs) 안에 캡한다. 예산 소진 순서가 곧 우선순위(세그먼트 합 ≤ slotMs).
     /// 가동 = slotMs − (failure+other+unclass+planned+nonprod) 은 클라이언트가 차감.
+    ///
+    /// 우선순위(핵심): ① 실제 기록된 정지(비자동 = 고장비트/수동) → ② 비생산(제외) → ③ 자동(nocycle) 정지 잔여.
+    /// 이유: 자동 nocycle 정지는 사이클 모델이 "비생산(10×CT 장기유휴, A 분모 밖)"으로 빼는 유휴와 동일 구간이다.
+    ///   비생산을 자동정지보다 먼저 카빙해 그 시간을 고장(빨강)이 아닌 비생산으로 흡수 → 상단 KPI A(정본)와 추이가 일치.
+    ///   단 고장비트/수동 정지(비자동)는 진짜 정지이므로 비생산에 가려지지 않게 맨 앞에서 우선 확보한다.
+    /// delib/auto 배열 인덱스 = Kind: [0]=계획정비 [1]=고장 [2]=기타 [3]=미분류.
     /// </summary>
     private static OeeDailySlotDto BuildDailySlot(
-        string label, long slotMs,
-        long failureMs, long otherMs, long unclassMs, long plannedMs, long nonProdMs)
+        string label, long slotMs, long[] delib, long[] auto, long nonProdMs)
     {
         var budget = slotMs;
         long Take(long v) { var t = Math.Min(Math.Max(0, v), Math.Max(0, budget)); budget -= t; return t; }
-        var failure = Take(failureMs);   // 실제 기록된 정지 이벤트 우선(빨강/보라)
-        var other = Take(otherMs);
-        var unclass = Take(unclassMs);
-        var planned = Take(plannedMs);
-        var nonProd = Take(nonProdMs);   // 그다음 비생산을 가동(남은 예산)에서 카빙
+
+        // ① 실제 기록된 정지(비자동) 우선 — 진짜 정지는 비생산에 가려지면 안 됨.
+        var failure = Take(delib[1]);
+        var other = Take(delib[2]);
+        var unclass = Take(delib[3]);
+        var planned = Take(delib[0]);
+
+        // ② 비생산(제외) 카빙 — 자동 nocycle 정지보다 먼저(같은 유휴를 비생산으로 흡수).
+        var nonProd = Take(nonProdMs);
+
+        // ③ 자동(nocycle) 정지 잔여 — 비생산에 흡수되지 않은 부분만 종류대로 표시.
+        failure += Take(auto[1]);
+        other += Take(auto[2]);
+        unclass += Take(auto[3]);
+        planned += Take(auto[0]);
+
         var unplanned = failure + other + unclass;
         return new OeeDailySlotDto(label, slotMs, unplanned, planned, failure, other, unclass, nonProd);
     }

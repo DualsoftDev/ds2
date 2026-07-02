@@ -130,13 +130,6 @@
                     // resize 핸들러가 뒤따르지만 혹시 놓칠 경우를 대비해 300ms 후 한 번 더 강제 리사이즈.
                     window.addEventListener('orientationchange', () => { setTimeout(_resizeCharts, 300); });
 
-                    // 사이클 전용 '전체' 진입(/flow-cycle?system= 또는 매개변수 없음, ?name= 없음) →
-                    //   해당 시스템(없으면 전체)의 "첫 Flow" 를 자동 선택해 단일 페이지와 동일한 UI 로 표시.
-                    //   (?name= 진입 경로는 전혀 영향 없음.)
-                    if (this.view === 'cycle' && !this.flowName) {
-                        await this.pickFirstFlow();
-                    }
-
                     if (this.allMode) {
                         // 전체 추이 — 특정 Flow 로드 없이 nav 트리에서 Flow 이름을 모아 히스토리를 합산.
                         await this.loadAllFlowNames();
@@ -195,23 +188,6 @@
                         if (e.message === 'not-found') this.error = "Flow '" + this.flowName + "' 을(를) 찾을 수 없습니다.";
                         else this.error = 'Flow 데이터를 불러오지 못했습니다: ' + e.message;
                     } finally { this.loading = false; }
-                },
-
-                // 사이클 '전체' 진입: ?system= 의 첫 Flow(없으면 전 시스템 첫 Flow)를 골라 this.flowName 에 설정.
-                async pickFirstFlow() {
-                    const sysName = new URLSearchParams(location.search).get('system') || '';
-                    try {
-                        const nav = await this.apiGet('/api/nav');
-                        const systems = (nav && nav.systems) || [];
-                        let names = [];
-                        if (sysName) {
-                            const s = systems.find(x => x.name === sysName);
-                            names = s ? (s.flows || []) : [];
-                        } else {
-                            for (const s of systems) for (const fn of (s.flows || [])) if (names.indexOf(fn) === -1) names.push(fn);
-                        }
-                        if (names.length) this.flowName = names[0];
-                    } catch (e) { /* 실패 시 flowName 없음 → 빈 상태 */ }
                 },
 
                 // 전체 추이 모드: nav 트리에서 모든 시스템의 Flow 이름을 모은다(설비 필터 없이 라인 전체).
@@ -335,7 +311,7 @@
                     const p = (x) => String(x).padStart(2, '0');
                     const fmtTs = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
                     const sec = (ms) => (ms == null ? '' : (ms / 1000).toFixed(2));
-                    const out = ['버킷시각,사이클수,비가동수,평균 CT(초),평균 동작(초),평균 대기(초)'];
+                    const out = ['버킷시각,가동횟수,비가동수,평균 CT(초),평균 동작(초),평균 대기(초)'];
                     for (const b of this.buckets)
                         out.push([this._csvEscape(fmtTs(b.ts)), b.count, b.idle, sec(b.avgCT), sec(b.avgMT), sec(b.avgWT)].join(','));
                     const text = '﻿' + out.join('\r\n');
@@ -359,7 +335,7 @@
                         const images = [
                             grab('trendChart', '기간별 가동시간 (동작·대기)'),
                             grab('distChart', '시간 구성'),
-                            grab('countChart', '사이클 수'),
+                            grab('countChart', '가동횟수'),
                         ].filter(Boolean);
                         const model = {
                             title: this.trendName(),
@@ -399,7 +375,7 @@
                 get trendSubtitle() {
                     const fmt = (d) => { if (!d) return '-'; const p = (x) => String(x).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
                     const g = this.granularity === 'hour' ? '1시간' : this.granularity === 'day' ? '1일' : this.granularity === 'week' ? '1주' : this.granularity;
-                    return `현재 기간: ${fmt(this.periodStart)} ~ ${fmt(this.periodEnd)} (버킷: ${g}, 사이클 ${this.trend.cycleCount.toLocaleString()} 건)`;
+                    return `현재 기간: ${fmt(this.periodStart)} ~ ${fmt(this.periodEnd)} (버킷: ${g}, 가동 ${this.trend.cycleCount.toLocaleString()}회)`;
                 },
 
                 async reloadTrend() {
@@ -589,7 +565,7 @@
                     if (countCv) {
                         _charts.count = new Chart(countCv, {
                             type: 'line',
-                            data: { labels, datasets: [{ label: '사이클 수', data: this.buckets.map(b => b.count), borderColor: cCt, backgroundColor: cCt, borderWidth: 2, tension: 0.3, pointRadius: 2, pointHoverRadius: 4, fill: false, spanGaps: true }] },
+                            data: { labels, datasets: [{ label: '가동횟수', data: this.buckets.map(b => b.count), borderColor: cCt, backgroundColor: cCt, borderWidth: 2, tension: 0.3, pointRadius: 2, pointHoverRadius: 4, fill: false, spanGaps: true }] },
                             options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: grid }, ticks: { color: tickColor, font: { size: 10 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 12 } }, y: { beginAtZero: true, grid: { color: grid }, ticks: { color: tickColor, precision: 0 } } } }
                         });
                     }
@@ -734,12 +710,12 @@
                             rows = await this.apiGet('/api/dashboard/flows/' + encodeURIComponent(name) + '/history?limit=' + Math.max(n + 1, 50));
                             histCache[name] = rows;
                         } catch (e) {
-                            this.errorMessage = '사이클 히스토리 조회 실패: ' + e.message;
+                            this.errorMessage = '가동 히스토리 조회 실패: ' + e.message;
                             return;
                         }
                     }
                     rows = Array.isArray(rows) ? rows : [];
-                    if (rows.length === 0) { this.errorMessage = '기록된 사이클이 없어 사이클-기준 범위를 만들 수 없습니다.'; return; }
+                    if (rows.length === 0) { this.errorMessage = '기록된 가동이 없어 가동 기준 범위를 만들 수 없습니다.'; return; }
 
                     const end = await this.effectiveLatest();
                     let startDate;
@@ -809,7 +785,7 @@
                             if (s && s.flow === flow) {
                                 if (s.running) {
                                     sawMineRunning = true;
-                                    this.recomputeMsg = '전체 이력 재계산 중… (' + (s.phase || '') + (s.cyclesFound ? ', ' + s.cyclesFound + ' 사이클' : '') + ')';
+                                    this.recomputeMsg = '전체 이력 재계산 중… (' + (s.phase || '') + (s.cyclesFound ? ', ' + s.cyclesFound + '회' : '') + ')';
                                 } else if (s.done && (sawMineRunning || i === 0)) {
                                     if (s.phase === 'error') { this.recomputeError = true; this.recomputeMsg = '전체 이력 재계산 실패: ' + (s.error || ''); }
                                     else { this.recomputeMsg = '전체 이력 재계산 완료 (' + (s.inserted || 0) + '건 재기록)'; }
@@ -911,7 +887,7 @@
                     if (end <= start) { this.errorMessage = '종료 시각은 시작 시각보다 커야 합니다.'; return; }
 
                     this.isLoading = true; this.errorMessage = null;
-                    if (window.dspLoading) window.dspLoading.begin('사이클 분석 데이터 불러오는 중…');
+                    if (window.dspLoading) window.dspLoading.begin('가동시간 분석 데이터 불러오는 중…');
                     try {
                         const body = {
                             flowName: this.selectedFlow,
@@ -1437,6 +1413,16 @@
 
                 // ── BuildSvg() ──
                 buildSvg() {
+                    // ── 단일 소스 렌더 ──
+                    // 개별(?name=)·전체(?system=) 사이클 간트가 "같은 코드"를 쓰도록 cycle-gantt.js(window.CycleGantt)
+                    // 로 위임한다. flow-cycle.html 이 cycle-gantt.js 를 로드하므로 개별 페이지도 이 경로를 탄다.
+                    // (cycle-gantt.js 미로드 페이지 — 구 flow.html 등 — 는 아래 원본 구현으로 폴백.)
+                    // flowApp 인스턴스(this)가 CycleGantt.buildSvg(s) 가 읽는 필드를 100% 보유(callLanes/chartStart/
+                    // chartEnd/plotWidth/viewMode/headCallId/tailCallId/cycleBoundaries/tailEdges/expandedCalls/
+                    // topGaps/showMaxGap/selectedGapIndex/selectedRange) + _geo 도 동일하게 세팅됨.
+                    if (window.CycleGantt && typeof window.CycleGantt.buildSvg === 'function') {
+                        return window.CycleGantt.buildSvg(this);
+                    }
                     if (this.callLanes.length === 0) return '';
                     const cs = this.chartStart.getTime(), ce = this.chartEnd.getTime();
                     const totalMs = Math.max(1.0, ce - cs);
@@ -1615,8 +1601,8 @@
                         const ratio = (atMs !== null && ctMs > 0) ? Math.round(atMs / ctMs * 100) : null;
 
                         const tip = tailIn !== null
-                            ? `사이클 #${span.number}${span.isOpen ? ' (진행중)' : ''} · 동작시간 ${this.formatMs(atMs)} · 대기시간 ${this.formatMs(idleMs)} / 가동시간 ${this.formatMs(ctMs)} · 가동률 ${ratio}%`
-                            : `사이클 #${span.number}${span.isOpen ? ' (진행중)' : ''} · 가동시간 ${this.formatMs(ctMs)}`;
+                            ? `가동 #${span.number}${span.isOpen ? ' (진행중)' : ''} · 동작시간 ${this.formatMs(atMs)} · 대기시간 ${this.formatMs(idleMs)} / 가동시간 ${this.formatMs(ctMs)} · 동작률 ${ratio}%`
+                            : `가동 #${span.number}${span.isOpen ? ' (진행중)' : ''} · 가동시간 ${this.formatMs(ctMs)}`;
                         let g = `<g><title>${this.esc(tip)}</title>`;
 
                         if (tailX !== null) {
@@ -1640,7 +1626,7 @@
                         }
                         if (ratio !== null && bandW > 86) {
                             const rc = ratio >= 80 ? '#2e7d32' : ratio >= 50 ? '#e65100' : '#c62828';
-                            g += `<text x="${this.f(ex - 4)}" y="${this.f(ribbonTop + 12)}" text-anchor="end" font-size="10" font-weight="700" fill="${rc}">가동 ${ratio}%</text>`;
+                            g += `<text x="${this.f(ex - 4)}" y="${this.f(ribbonTop + 12)}" text-anchor="end" font-size="10" font-weight="700" fill="${rc}">동작 ${ratio}%</text>`;
                         }
                         g += `</g>`;
                         sb += g;
@@ -1900,7 +1886,7 @@
                     }
                     // 완료신호 없는 사이클: Tail 지정 Flow 면 '미완료'(회색), Tail 미지정 Flow 면 'CT (사이클)' 단일막대
                     if (ctOnly.some(v => v !== null)) {
-                        datasets.push({ label: incompleteFallback ? '미완료 (완료신호 없음)' : '가동시간 (사이클)',
+                        datasets.push({ label: incompleteFallback ? '미완료 (완료신호 없음)' : '가동시간',
                             data: ctOnly, backgroundColor: incompleteFallback ? cIncomplete : cAt, stack: 'ct', borderWidth: 0 });
                     }
                     if (avg != null) {
@@ -1949,7 +1935,7 @@
                                 } },
                             },
                             scales: {
-                                x: { stacked: true, grid: { display: false }, title: { display: true, text: '사이클', color: txt }, ticks: { color: txt, font: { size: 10 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 12 } },
+                                x: { stacked: true, grid: { display: false }, title: { display: true, text: '가동', color: txt }, ticks: { color: txt, font: { size: 10 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 12 } },
                                 y: { stacked: true, beginAtZero: true, min: 0, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, callback: (v) => fmtMs(v) }, title: { display: true, text: '시간', color: txt } },
                             },
                         },
@@ -2022,7 +2008,7 @@
                                 },
                             },
                             scales: {
-                                x: { stacked: true, grid: { display: false }, title: { display: true, text: '사이클 발생 시각', color: txt }, ticks: { color: txt, font: { size: 10 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 12 } },
+                                x: { stacked: true, grid: { display: false }, title: { display: true, text: '가동 발생 시각', color: txt }, ticks: { color: txt, font: { size: 10 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 12 } },
                                 y: { stacked: true, beginAtZero: true, min: 0, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, callback: (v) => fmtMs(v) }, title: { display: true, text: '시간', color: txt } },
                             },
                         },
