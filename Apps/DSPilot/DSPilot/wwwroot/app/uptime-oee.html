@@ -186,12 +186,12 @@
                     <template x-if="availComp.hasData">
                         <div style="margin-bottom:18px;">
                             <div class="ds-legend" style="margin-bottom:10px;">
-                                <div class="lg-item"><span class="lg-swatch" style="background:var(--green);"></span> <span x-text="availComp.runLabel"></span></div>
-                                <div class="lg-item"><span class="lg-swatch" style="background:var(--red);"></span> <span x-text="availComp.stopLabel"></span></div>
+                                <div class="lg-item"><span class="lg-swatch" style="background:var(--color-primary);"></span> <span x-text="availComp.runLabel"></span></div>
+                                <div class="lg-item"><span class="lg-swatch hatch-fault"></span> <span x-text="availComp.stopLabel"></span></div>
                             </div>
                             <div style="display:flex; height:26px; border-radius:var(--radius-sm); overflow:hidden; border:1px solid var(--color-lines);">
-                                <div :style="`width:${availComp.runPct}%; background:var(--green);`" :title="availComp.runLabel + ' ' + availComp.runPct + '%'"></div>
-                                <div :style="`width:${availComp.stopPct}%; background:var(--red);`" :title="availComp.stopLabel + ' ' + availComp.stopPct + '%'"></div>
+                                <div :style="`width:${availComp.runPct}%; background:var(--color-primary);`" :title="availComp.runLabel + ' ' + availComp.runPct + '%'"></div>
+                                <div class="hatch-fault" :style="`width:${availComp.stopPct}%;`" :title="availComp.stopLabel + ' ' + availComp.stopPct + '%'"></div>
                             </div>
                             <div style="display:flex; gap:18px; margin-top:8px; font-size:0.72rem; color:var(--color-text-secondary); flex-wrap:wrap;">
                                 <span><span x-text="availComp.runLabel"></span> <b x-text="durShort(availComp.runMs)"></b> (<span x-text="availComp.runPct + '%'"></span>)<template x-if="availComp.runNote"><span x-text="' · ' + availComp.runNote"></span></template></span>
@@ -242,7 +242,7 @@
                                 <div class="up-legend">
                                     <template x-for="seg in faultDist.segs" :key="seg.label">
                                         <div class="up-legend-row">
-                                            <span class="up-legend-swatch" :style="`background:${seg.color};`"></span>
+                                            <span class="up-legend-swatch" :class="seg.cls"></span>
                                             <span class="up-legend-name" x-text="seg.label"></span>
                                             <span class="up-legend-share" x-text="seg.share + '%'"></span>
                                             <span class="up-legend-val" x-text="durShort(seg.ms)"></span>
@@ -267,33 +267,31 @@
                         </button>
                     </section>
 
-                    <!-- 가용성 분모 = 계획시간 (폴백 체인 + 14일 히스토그램) -->
+                    <!-- 설비별 OEE 순위 (정지 구성 옆으로 이동 — 가용성 분모 폴백 카드 제거) -->
                     <section class="card up-section">
-                        <div class="ds-card-h"><h4>가용성 분모 폴백 (계획시간)</h4><span class="ds-card-h-sub">사이클 표본 부족 시에만 사용 — 시프트 ▸ 자동추정 ▸ 달력</span></div>
-                        <details class="up-dn">
-                            <summary><span class="material-icons">expand_more</span> 계획시간 폴백 체인 · 14일 히스토그램 보기</summary>
-                            <div class="up-dn-body">
-                        <div class="up-chain">
-                            <template x-for="(s, i) in planChainSteps" :key="s.key">
-                                <div class="up-chain-step" :class="s.cls">
-                                    <span class="up-chain-rank" x-text="i + 1"></span>
-                                    <div class="up-chain-body"><div class="t" x-text="s.t"></div><div class="d" x-text="s.d"></div></div>
-                                    <span class="up-chain-badge" x-text="s.badge"></span>
-                                </div>
-                            </template>
-                        </div>
-                        <div style="font-size:0.66rem; color:var(--color-text-secondary); margin:13px 0 4px;">
-                            <b>14일 시간대별 활동 히스토그램</b> — 활동 구간(p5~p95)을 계획실행시간으로 추정
-                        </div>
-                        <div class="up-hist">
-                            <template x-for="(b, h) in histBars" :key="h">
-                                <div class="b" :class="b.cls" :style="`height:${b.h}%`" :title="h + '시'"></div>
-                            </template>
-                        </div>
-                        <div class="up-hist-axis"><span>00시</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
-                        <div style="font-size:0.62rem; color:var(--color-text-secondary); margin-top:8px;" x-show="planTime" x-text="planChainFoot"></div>
+                        <div class="ds-card-h"><h4>설비별 OEE 순위</h4><span class="ds-card-h-sub">OEE = A × P × Q · 최하위 강조 · 클릭→히트맵</span></div>
+                        <template x-if="ranking.length > 0">
+                            <div>
+                                <template x-for="(r, i) in ranking" :key="r.flowName">
+                                    <a class="up-rank-row" :class="isWorst(r, i) ? 'is-worst' : ''"
+                                       :href="'/heatmap?flow=' + encodeURIComponent(r.flowName)">
+                                        <span class="up-rank-medal" x-text="medal(i)"></span>
+                                        <div style="min-width:0;">
+                                            <div class="up-rank-name" :title="r.flowName" x-text="r.flowName"></div>
+                                            <div class="up-rank-sub" x-text="'정지 ' + r.downtimeCount + '건 · ' + durShort(r.downtimeMs) + ' · 생산 ' + (r.totalCount ?? 0)"></div>
+                                        </div>
+                                        <span class="up-rank-oee" :class="r.oee == null ? 'na' : ''" x-text="r.oee != null ? pct(r.oee) : '산출불가'"></span>
+                                    </a>
+                                </template>
                             </div>
-                        </details>
+                        </template>
+                        <template x-if="ranking.length === 0">
+                            <div class="ds-empty">
+                                <span class="material-icons">leaderboard</span>
+                                <div class="ds-empty-title">순위를 매길 정지 데이터 없음</div>
+                                <div class="ds-empty-desc">설비(Flow)별 정지 이벤트가 누적되면 OEE 순위가 표시됩니다. OEE 산출 불가 설비는 정지시간 기준으로 정렬됩니다.</div>
+                            </div>
+                        </template>
                     </section>
                 </div>
 
@@ -318,7 +316,7 @@
                         <span style="font-size:0.64rem; font-weight:700; color:var(--color-text-secondary); text-transform:uppercase; letter-spacing:0.06em; margin-right:4px;">구분</span>
                         <span class="up-chip" :class="dtFilterFault === 'all' ? 'is-on' : ''" @click="dtFilterFault='all'">전체</span>
                         <span class="up-chip" :class="dtFilterFault === 'fault' ? 'is-on' : ''" @click="dtFilterFault='fault'" style="border-color:var(--red); color:var(--red);" :style="dtFilterFault==='fault'?'background:var(--red);color:#fff;':''">고장</span>
-                        <span class="up-chip" :class="dtFilterFault === 'maintenance' ? 'is-on' : ''" @click="dtFilterFault='maintenance'" style="border-color:var(--mt); color:var(--mt);" :style="dtFilterFault==='maintenance'?'background:var(--mt);color:#fff;':''">유지보수</span>
+                        <span class="up-chip" :class="dtFilterFault === 'maintenance' ? 'is-on' : ''" @click="dtFilterFault='maintenance'" style="border-color:var(--green); color:var(--green);" :style="dtFilterFault==='maintenance'?'background:var(--green);color:#fff;':''">유지보수</span>
                         <span style="flex:1;"></span>
                         <span class="up-form-ok" x-show="dtMsg" x-text="dtMsg"></span>
                     </div>
@@ -352,7 +350,7 @@
                                             <td data-label="고장" style="white-space:nowrap;">
                                                 <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;" :title="d.isFailure ? '고장 — 클릭하면 유지보수로 변경' : '유지보수 — 클릭하면 고장으로 변경'">
                                                     <input type="checkbox" class="up-dt-cb" :checked="d.isFailure" @change="setFault(d, $event.target.checked)">
-                                                    <span x-text="d.isFailure ? '고장' : '유지보수'" :style="d.isFailure ? 'color:var(--red);font-weight:700;' : 'color:var(--mt);font-weight:700;'"></span>
+                                                    <span x-text="d.isFailure ? '고장' : '유지보수'" :style="d.isFailure ? 'color:var(--red);font-weight:700;' : 'color:var(--green);font-weight:700;'"></span>
                                                 </label>
                                             </td>
                                             <td data-label="감지" x-html="detectChipHtml(d.detectSource)"></td>
@@ -389,37 +387,7 @@
                 </section>
 
                 <!-- 품질(양품률) 직접 입력은 OEE 종합의 '품질 Q' 카드 클릭 → 다이얼로그로 이동(아래 #qDialog). -->
-
-                <!-- ════ 설비별 OEE 순위 (표준 가동시간 수동 오버라이드 카드는 제거 — 가동시간 이상치=14일 평균 자동) ════ -->
-                <div class="up-grid">
-
-                <!-- 설비별 OEE 순위 -->
-                <section class="card up-section">
-                    <div class="ds-card-h"><h4>설비별 OEE 순위</h4><span class="ds-card-h-sub">OEE = A × P × Q · 최하위 강조 · 클릭→히트맵</span></div>
-                    <template x-if="ranking.length > 0">
-                        <div>
-                            <template x-for="(r, i) in ranking" :key="r.flowName">
-                                <a class="up-rank-row" :class="isWorst(r, i) ? 'is-worst' : ''"
-                                   :href="'/heatmap?flow=' + encodeURIComponent(r.flowName)">
-                                    <span class="up-rank-medal" x-text="medal(i)"></span>
-                                    <div style="min-width:0;">
-                                        <div class="up-rank-name" :title="r.flowName" x-text="r.flowName"></div>
-                                        <div class="up-rank-sub" x-text="'정지 ' + r.downtimeCount + '건 · ' + durShort(r.downtimeMs) + ' · 생산 ' + (r.totalCount ?? 0)"></div>
-                                    </div>
-                                    <span class="up-rank-oee" :class="r.oee == null ? 'na' : ''" x-text="r.oee != null ? pct(r.oee) : '산출불가'"></span>
-                                </a>
-                            </template>
-                        </div>
-                    </template>
-                    <template x-if="ranking.length === 0">
-                        <div class="ds-empty">
-                            <span class="material-icons">leaderboard</span>
-                            <div class="ds-empty-title">순위를 매길 정지 데이터 없음</div>
-                            <div class="ds-empty-desc">설비(Flow)별 정지 이벤트가 누적되면 OEE 순위가 표시됩니다. OEE 산출 불가 설비는 정지시간 기준으로 정렬됩니다.</div>
-                        </div>
-                    </template>
-                </section>
-                </div>
+                <!-- 설비별 OEE 순위는 상단 '정지 구성' 옆(2열 그리드)으로 이동 — 여기 있던 전폭 순위 카드 제거. -->
 
                 <!-- ════ 비생산 시간대 (doc/22) — 24시간 연표 에디터. 자동 5일 패턴 ▸ 사용자 설정 시 수동 전환.
                      이 시간대의 정상 가동시간·비가동은 모두 OEE 산출에서 제외(생산·비생산 가리지 않고 분모 밖). OEE 종합 탭 맨 아래 배치(설정 성격). ════ -->

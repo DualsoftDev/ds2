@@ -1,6 +1,6 @@
         // 정지 2-상태: 고장(isFault=true) / 유지보수(isFault=false). isFailure 필드에 대응.
-        const FAULT_DEF = { label: '고장', color: 'var(--red)' };
-        const MAINT_DEF = { label: '유지보수', color: 'var(--mt)' };
+        const FAULT_DEF = { label: '고장', color: 'var(--red)', cls: 'hatch-fault', pat: 'up-pat-fault' };
+        const MAINT_DEF = { label: '유지보수', color: 'var(--green)', cls: 'hatch-maint', pat: 'up-pat-maint' };
 
         // 일자별 차트 인스턴스 — Alpine 반응형 밖에 보관(Proxy 크래시 방지)
         let _dailyChart = null;
@@ -24,6 +24,25 @@
             t.stroke();
             _nightPattern = canvas.getContext('2d').createPattern(tile, 'repeat');
             return _nightPattern;
+        }
+
+        // 정지 유형 대각선 빗금 CanvasPattern (색 위 흰 빗금) — 고장/유지보수용. 가동(솔리드)과 대비.
+        // 매 렌더마다 새로 생성(캔버스 재생성 시 stale context 방지) — 8×8 타일이라 비용 무시 수준.
+        function _stripePattern(canvas, base) {
+            const size = 8;
+            const tile = document.createElement('canvas');
+            tile.width = size; tile.height = size;
+            const t = tile.getContext('2d');
+            t.fillStyle = base;
+            t.fillRect(0, 0, size, size);
+            t.strokeStyle = 'rgba(255,255,255,0.55)';
+            t.lineWidth = 1.3;
+            t.beginPath();
+            t.moveTo(0, size); t.lineTo(size, 0);
+            t.moveTo(-1, 1); t.lineTo(1, -1);
+            t.moveTo(size - 1, size + 1); t.lineTo(size + 1, size - 1);
+            t.stroke();
+            return canvas.getContext('2d').createPattern(tile, 'repeat');
         }
 
         function uptimeApp() {
@@ -683,22 +702,23 @@
                     const cs = getComputedStyle(document.documentElement);
                     const cGreen = cs.getPropertyValue('--green').trim() || '#22c55e';
                     const cRed   = cs.getPropertyValue('--red').trim()   || '#ef4444';
-                    const cAmber = cs.getPropertyValue('--amber').trim() || '#f59e0b';
-                    const cPurple = cs.getPropertyValue('--purple').trim() || '#6E63C4';
+                    const cRun   = cs.getPropertyValue('--color-primary').trim() || '#0E7CCB'; // 가동 = 브랜드 애저
                     const cGray  = cs.getPropertyValue('--color-text-secondary').trim() || '#888';
-                    const cAvg   = cs.getPropertyValue('--color-azure').trim() || '#38bdf8';
                     const nightHatch = _nightHatchPattern(canvas); // 비생산: 밤하늘 어두운 파랑 빗금
+                    const faultHatch = _stripePattern(canvas, cRed);   // 고장: 빨강 위 빗금
+                    const maintHatch = _stripePattern(canvas, cGreen); // 유지보수: 녹색 위 빗금
 
                     const datasets = [
-                        { label: '가동(근사)', data: runData, backgroundColor: cGreen, stack: 's', order: 2 },
-                        { label: '고장', data: failureData, backgroundColor: cRed, stack: 's', order: 2 },
-                        { label: '유지보수', data: plannedData, backgroundColor: cPurple, stack: 's', order: 2 },
+                        // 가동 = 솔리드(파랑) / 정지 3종(고장·유지보수·비생산) = 빗금 → "가동이 아님"을 직관적으로 표시
+                        { label: '가동(근사)', data: runData, backgroundColor: cRun, stack: 's', order: 2 },
+                        { label: '고장', data: failureData, backgroundColor: faultHatch, stack: 's', order: 2 },
+                        { label: '유지보수', data: plannedData, backgroundColor: maintHatch, stack: 's', order: 2 },
                         { label: '비생산(제외)', data: nonProdData, backgroundColor: nightHatch, stack: 's', order: 2 },
                         {
                             label: `평균 ${avgRun.toFixed(1)}h`,
                             type: 'line',
                             data: d.slots.map(() => avgRun),
-                            borderColor: cAvg,
+                            borderColor: cGray,
                             borderWidth: 1.5,
                             borderDash: [6, 4],
                             pointRadius: 0,
@@ -1201,7 +1221,7 @@
                     for (const { def, ms } of defs) {
                         const len = ms / totalMs * C, gap = C - len, offset = -(prior / totalMs * C);
                         prior += ms;
-                        segs.push({ label: def.label, color: def.color, ms, share: Math.round(ms * 100 / totalMs),
+                        segs.push({ label: def.label, color: def.color, cls: def.cls, pat: def.pat, ms, share: Math.round(ms * 100 / totalMs),
                                     dash: len.toFixed(2) + ' ' + gap.toFixed(2), offset: offset.toFixed(2) });
                     }
                     return { count, segs };
@@ -1209,9 +1229,14 @@
                 // faultDist → 도넛 내부 SVG 문자열 (x-html)
                 get faultDonutSvg() {
                     const d = this.faultDist;
-                    let s = '<circle class="up-donut-track" cx="50" cy="50" r="38" fill="none" stroke-width="14"></circle>';
+                    // 정지 유형 대각선 빗금 패턴(색=유형, 빗금=정지 신호 — 가동 솔리드와 대비). userSpaceOnUse 로 링 전체에 타일링.
+                    const pat = (id, color) => `<pattern id="${id}" patternUnits="userSpaceOnUse" width="7" height="7">`
+                        + `<rect width="7" height="7" fill="${color}"></rect>`
+                        + `<path d="M0,7 L7,0 M-1.5,1.5 L1.5,-1.5 M5.5,8.5 L8.5,5.5" stroke="rgba(255,255,255,0.55)" stroke-width="1.3"></path></pattern>`;
+                    let s = `<defs>${pat('up-pat-fault', 'var(--red)')}${pat('up-pat-maint', 'var(--green)')}</defs>`;
+                    s += '<circle class="up-donut-track" cx="50" cy="50" r="38" fill="none" stroke-width="14"></circle>';
                     for (const seg of d.segs)
-                        s += `<circle cx="50" cy="50" r="38" fill="none" stroke="${seg.color}" stroke-width="14" stroke-dasharray="${seg.dash}" stroke-dashoffset="${seg.offset}" transform="rotate(-90 50 50)"></circle>`;
+                        s += `<circle cx="50" cy="50" r="38" fill="none" stroke="url(#${seg.pat})" stroke-width="14" stroke-dasharray="${seg.dash}" stroke-dashoffset="${seg.offset}" transform="rotate(-90 50 50)"></circle>`;
                     s += `<text class="up-donut-total" x="50" y="49" text-anchor="middle">${d.count}</text>`;
                     s += '<text class="up-donut-cap" x="50" y="61" text-anchor="middle">정지건수</text>';
                     return s;

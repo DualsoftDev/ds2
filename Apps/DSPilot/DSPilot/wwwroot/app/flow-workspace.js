@@ -130,6 +130,13 @@
                     // resize 핸들러가 뒤따르지만 혹시 놓칠 경우를 대비해 300ms 후 한 번 더 강제 리사이즈.
                     window.addEventListener('orientationchange', () => { setTimeout(_resizeCharts, 300); });
 
+                    // 사이클 전용 '전체' 진입(/flow-cycle?system= 또는 매개변수 없음, ?name= 없음) →
+                    //   해당 시스템(없으면 전체)의 "첫 Flow" 를 자동 선택해 단일 페이지와 동일한 UI 로 표시.
+                    //   (?name= 진입 경로는 전혀 영향 없음.)
+                    if (this.view === 'cycle' && !this.flowName) {
+                        await this.pickFirstFlow();
+                    }
+
                     if (this.allMode) {
                         // 전체 추이 — 특정 Flow 로드 없이 nav 트리에서 Flow 이름을 모아 히스토리를 합산.
                         await this.loadAllFlowNames();
@@ -188,6 +195,23 @@
                         if (e.message === 'not-found') this.error = "Flow '" + this.flowName + "' 을(를) 찾을 수 없습니다.";
                         else this.error = 'Flow 데이터를 불러오지 못했습니다: ' + e.message;
                     } finally { this.loading = false; }
+                },
+
+                // 사이클 '전체' 진입: ?system= 의 첫 Flow(없으면 전 시스템 첫 Flow)를 골라 this.flowName 에 설정.
+                async pickFirstFlow() {
+                    const sysName = new URLSearchParams(location.search).get('system') || '';
+                    try {
+                        const nav = await this.apiGet('/api/nav');
+                        const systems = (nav && nav.systems) || [];
+                        let names = [];
+                        if (sysName) {
+                            const s = systems.find(x => x.name === sysName);
+                            names = s ? (s.flows || []) : [];
+                        } else {
+                            for (const s of systems) for (const fn of (s.flows || [])) if (names.indexOf(fn) === -1) names.push(fn);
+                        }
+                        if (names.length) this.flowName = names[0];
+                    } catch (e) { /* 실패 시 flowName 없음 → 빈 상태 */ }
                 },
 
                 // 전체 추이 모드: nav 트리에서 모든 시스템의 Flow 이름을 모은다(설비 필터 없이 라인 전체).

@@ -74,6 +74,10 @@
         .up-legend { display: flex; flex-direction: column; gap: 8px; }
         .up-legend-row { display: flex; align-items: center; gap: 10px; font-size: 0.76rem; }
         .up-legend-swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+
+        /* 정지 유형 = 대각선 빗금(가동=솔리드와 직관적 대비). 색=유형, 빗금=정지 신호. 스와치·바 공용 */
+        .hatch-fault { background-color: var(--red); background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.55) 0 1.4px, transparent 1.4px 6px); }
+        .hatch-maint { background-color: var(--green); background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.55) 0 1.4px, transparent 1.4px 6px); }
         .up-legend-name { font-weight: 700; flex: 1; }
         .up-legend-share { font-family: var(--font-mono); font-weight: 700; color: var(--color-text-secondary); }
         .up-legend-val { width: 56px; text-align: right; font-family: var(--font-mono); font-weight: 800; }
@@ -303,8 +307,8 @@
         .up-ptl-legend .lg { display: inline-flex; align-items: center; gap: 6px; }
         .up-ptl-legend .lg b { font-family: var(--font-mono); color: var(--color-text-primary); }
         .up-ptl-legend .sw { width: 15px; height: 11px; border-radius: 3px; flex-shrink: 0; }
-        .up-ptl-legend .sw.manual { background: var(--purple); }
-        .up-ptl-legend .sw.auto { background: color-mix(in srgb, var(--purple) 16%, transparent); border: 1.5px dashed var(--purple); }
+        .up-ptl-legend .sw.manual { background: var(--nonprod); }
+        .up-ptl-legend .sw.auto { background: color-mix(in srgb, var(--nonprod) 16%, transparent); border: 1.5px dashed var(--nonprod); }
         .up-ptl-legend .sw.sug { background: transparent; border: 1.5px dashed var(--color-lines-strong); }
         .up-ptl-legend .sw.now { width: 3px; height: 15px; border-radius: 1px; background: var(--color-primary); }
 
@@ -323,19 +327,19 @@
 
         .up-ptl-win {
             position: absolute; top: 7px; bottom: 7px; min-width: 5px;
-            background: color-mix(in srgb, var(--purple) 85%, transparent); color: #fff;
-            border: 1px solid var(--purple); border-radius: var(--radius-sm);
+            background: color-mix(in srgb, var(--nonprod) 92%, transparent); color: #fff;
+            border: 1px solid var(--nonprod); border-radius: var(--radius-sm);
             display: flex; flex-direction: column; justify-content: center; align-items: flex-start;
             padding: 2px 7px; overflow: hidden; cursor: grab; z-index: 4; transition: box-shadow 0.12s; touch-action: none;
         }
-        .up-ptl-win.auto { background: color-mix(in srgb, var(--purple) 15%, var(--color-surface)); color: var(--purple); border-style: dashed; }
+        .up-ptl-win.auto { background: color-mix(in srgb, var(--nonprod) 15%, var(--color-surface)); color: var(--nonprod); border-style: dashed; }
         .up-ptl-win:hover { z-index: 7; box-shadow: 0 2px 9px rgba(0, 0, 0, 0.22); }
         .up-ptl-win.sel { z-index: 8; box-shadow: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-primary); }
         .up-ptl-win .wl { font-size: 0.68rem; font-weight: 800; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
         .up-ptl-win .wt { font-size: 0.6rem; font-family: var(--font-mono); opacity: 0.92; white-space: nowrap; }
         .up-ptl-win .wx { position: absolute; top: 2px; right: 2px; width: 17px; height: 17px; border: none; border-radius: 50%; background: rgba(0, 0, 0, 0.3); color: #fff; cursor: pointer; display: none; align-items: center; justify-content: center; padding: 0; }
         .up-ptl-win.sel .wx, .up-ptl-win:hover .wx { display: inline-flex; }
-        .up-ptl-win.auto .wx { background: var(--purple); }
+        .up-ptl-win.auto .wx { background: var(--nonprod); }
         .up-ptl-win .wx .material-icons { font-size: 12px; }
 
         .up-ptl-hours { display: flex; justify-content: space-between; margin-top: 4px; font-size: 0.58rem; color: var(--color-text-secondary); font-family: var(--font-mono); }
@@ -366,7 +370,7 @@
         .up-ptl-handle.l { left: -1px; }
         .up-ptl-handle.r { right: -1px; }
         .up-ptl-handle::after { content: ""; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 2px; height: 48%; background: rgba(255, 255, 255, 0.9); border-radius: 2px; }
-        .up-ptl-win.auto .up-ptl-handle::after { background: var(--purple); }
+        .up-ptl-win.auto .up-ptl-handle::after { background: var(--nonprod); }
         .up-ptl-win:hover .up-ptl-handle, .up-ptl-win.sel .up-ptl-handle { display: block; }
 
         /* ─────────────────────────────────────────────────────────────
