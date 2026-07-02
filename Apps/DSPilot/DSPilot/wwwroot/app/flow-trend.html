@@ -76,11 +76,39 @@
                                 <span class="ds-card-h-sub" x-text="trendSubtitle"></span>
                             </div>
                             <div class="fw-period-controls">
-                                <div class="segmented">
-                                    <button :class="period === 'today' ? 'is-active' : ''" @click="setPeriod('today')">오늘</button>
-                                    <button :class="period === '7d' ? 'is-active' : ''" @click="setPeriod('7d')">지난 7일</button>
-                                    <button :class="period === '30d' ? 'is-active' : ''" @click="setPeriod('30d')">지난 30일</button>
-                                    <button :class="period === '60d' ? 'is-active' : ''" @click="setPeriod('60d')">지난 60일</button>
+                                <div class="ct-range-field">
+                                    <div class="segmented">
+                                        <button :class="period === 'today' ? 'is-active' : ''" @click="setPeriod('today')">오늘</button>
+                                        <button :class="period === '7d' ? 'is-active' : ''" @click="setPeriod('7d')">지난 7일</button>
+                                        <button :class="period === '30d' ? 'is-active' : ''" @click="setPeriod('30d')">지난 30일</button>
+                                        <button :class="period === '60d' ? 'is-active' : ''" @click="setPeriod('60d')">지난 60일</button>
+                                        <button :class="(period === 'custom' || trendRangeOpen) ? 'is-active' : ''" @click="openTrendRange()"
+                                                title="조회할 시작·종료 날짜를 직접 지정">
+                                            <span class="material-icons">calendar_today</span>기간
+                                        </button>
+                                    </div>
+                                    <div class="ct-range-popup" x-show="trendRangeOpen" x-transition @click.outside="trendRangeOpen = false">
+                                        <div class="ct-field">
+                                            <label>시작</label>
+                                            <input type="datetime-local" step="1" class="form-field" x-model="customStart" @change="onTrendRangeChanged()" />
+                                        </div>
+                                        <div class="ct-field">
+                                            <label>종료</label>
+                                            <input type="datetime-local" step="1" class="form-field" x-model="customEnd" @change="onTrendRangeChanged()" />
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="fw-dl-group" x-show="!trendLoading && trend.cycleCount > 0" x-cloak>
+                                    <button class="btn btn-outlined color-default" @click="exportTrendExcel()" :disabled="trendExporting"
+                                            title="차트와 데이터를 Excel(.xlsx) 로 내보냅니다">
+                                        <span class="material-icons" style="font-size:18px; vertical-align:middle;">download</span>
+                                        <span x-text="trendExporting ? 'Excel 생성 중…' : 'Excel 다운로드'"></span>
+                                    </button>
+                                    <button class="btn btn-outlined color-default" @click="exportTrendCsv()"
+                                            title="데이터(버킷별 집계)만 CSV 로 내보냅니다">
+                                        <span class="material-icons" style="font-size:18px; vertical-align:middle;">description</span>
+                                        CSV 다운로드
+                                    </button>
                                 </div>
                             </div>
                         </div>

@@ -42,6 +42,7 @@ public class UserTagsController : ControllerBase
         [FromQuery] string? search = null,
         [FromQuery] string? category = null,   // "abnormal" | "usertag" | null(전체 구분)
         [FromQuery] string? system = null,
+        [FromQuery] string? flow = null,        // 설비(Flow)명 — 자동감지(Abnormal)만 그 Flow 로 필터(UserTag 자동 제외)
         [FromQuery] DateTime? from = null,
         [FromQuery] DateTime? to = null,
         CancellationToken ct = default)
@@ -52,20 +53,23 @@ public class UserTagsController : ControllerBase
         var name = Blank(search);
         var lvl = DisplayLevel;               // Error 고정
         var sys = Blank(system);
-        var cat = Blank(category);
+        var flw = Blank(flow);
+        // flow 필터가 걸리면 자동감지(Abnormal)만 남으므로 구분 필터는 무의미 → 무시(모순 방지: flow+usertag=0건).
+        var cat = flw is null ? Blank(category) : null;
 
-        var total = await _repo.CountAlertsAsync(startUtc, endUtc, name, lvl, sys, cat, ct);
+        var total = await _repo.CountAlertsAsync(startUtc, endUtc, name, lvl, sys, cat, ct, flowFilter: flw);
         var maxPage = Math.Max(1, (int)Math.Ceiling(total / (double)PageSize));
         if (page * PageSize >= total) page = 0;
 
-        var dataPage = await _repo.QueryAlertsAsync(startUtc, endUtc, name, lvl, sys, cat, PageSize, page * PageSize, ct);
+        var dataPage = await _repo.QueryAlertsAsync(startUtc, endUtc, name, lvl, sys, cat, PageSize, page * PageSize, ct, flowFilter: flw);
         var buckets = FillBucketGaps(
-            await _repo.GetBucketCountsAsync(startUtc, endUtc, gran, name, lvl, sys, cat, ct),
+            await _repo.GetBucketCountsAsync(startUtc, endUtc, gran, name, lvl, sys, cat, ct, flowFilter: flw),
             startUtc, endUtc, gran);
-        var top = await _repo.GetTopByNameAsync(startUtc, endUtc, 10, lvl, sys, cat, "name", ct);
-        var topByPath = await _repo.GetTopByNameAsync(startUtc, endUtc, 10, lvl, sys, cat, "path", ct);
+        var top = await _repo.GetTopByNameAsync(startUtc, endUtc, 10, lvl, sys, cat, "name", ct, flowFilter: flw);
+        var topByPath = await _repo.GetTopByNameAsync(startUtc, endUtc, 10, lvl, sys, cat, "path", ct, flowFilter: flw);
         // 구분(ABNORMAL/USERTAG) 도넛 — 구분 필터와 무관하게 항상 두 구분을 함께 집계(Error 레벨 한정).
-        var categoryCounts = await _repo.GetCategoryCountsAsync(startUtc, endUtc, name, lvl, sys, ct);
+        // flow 선택 시엔 자동감지만 남아 도넛도 ABNORMAL 단일이 된다(프런트에서 도넛 UI 숨김).
+        var categoryCounts = await _repo.GetCategoryCountsAsync(startUtc, endUtc, name, lvl, sys, ct, flowFilter: flw);
 
         // 히어로 운영지표 — 사용자 필터와 무관하게 "지금 관제 상황".
         var nowUtc = DateTime.UtcNow;
@@ -147,15 +151,18 @@ public class UserTagsController : ControllerBase
         [FromQuery] string? search = null,
         [FromQuery] string? category = null,   // "abnormal" | "usertag" | null(전체 구분)
         [FromQuery] string? system = null,
+        [FromQuery] string? flow = null,        // 설비(Flow)명 — 자동감지(Abnormal)만 그 Flow 로 필터
         [FromQuery] int limit = 100000,
         [FromQuery] DateTime? from = null,
         [FromQuery] DateTime? to = null,
         CancellationToken ct = default)
     {
         var (startLocal, endLocal, _) = ResolvePeriod(period, from, to);
+        var flw = Blank(flow);
+        var cat = flw is null ? Blank(category) : null; // flow 필터 시 구분 필터 무시(snapshot 과 동일)
         var all = await _repo.QueryAlertsAsync(
             startLocal.ToUniversalTime(), endLocal.ToUniversalTime(),
-            Blank(search), DisplayLevel, Blank(system), Blank(category), limit, 0, ct);
+            Blank(search), DisplayLevel, Blank(system), cat, limit, 0, ct, flowFilter: flw);
         return all.Select(ToAlertDto).ToList();
     }
 

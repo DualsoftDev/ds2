@@ -103,6 +103,12 @@
                                 <span class="material-icons" style="font-size:18px; vertical-align:middle;">download</span>
                                 <span x-text="exporting ? 'Excel 생성 중…' : 'Excel 다운로드'"></span>
                             </button>
+                            <button class="btn btn-outlined color-default" @click="exportCycleCsv()"
+                                    :disabled="!callLanes.length"
+                                    title="현재 Flow·시간범위의 IO 세그먼트를 CSV(데이터 전용) 로 내보냅니다">
+                                <span class="material-icons" style="font-size:18px; vertical-align:middle;">description</span>
+                                CSV 다운로드
+                            </button>
                         </div>
                     </div>
                     <!-- ════ 사이클 분석 (구 cycle-time-analysis 전체 기능, 이 Flow 스코프) ════ -->

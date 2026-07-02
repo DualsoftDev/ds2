@@ -395,7 +395,10 @@
                         p.set('to', this.customTo + ':00');
                     }
                     if (this.utSearch.trim()) p.set('search', this.utSearch.trim());
-                    if (this.utCategory) p.set('category', this.utCategory);
+                    // 설비(Flow)별 보기(?flow=)면 자동감지(Abnormal)만 남으므로 구분 필터는 보내지 않는다
+                    // (서버에서 flow+usertag 는 0건이 되는 모순 방지 — flow 가 곧 abnormal-only 를 함의).
+                    if (this.curFlow) p.set('flow', this.curFlow);
+                    else if (this.utCategory) p.set('category', this.utCategory);
                     if (this.utSystem) p.set('system', this.utSystem);
                     return p.toString();
                 },

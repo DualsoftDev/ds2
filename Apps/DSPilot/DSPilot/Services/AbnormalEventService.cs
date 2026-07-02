@@ -314,7 +314,9 @@ public sealed class AbnormalEventService
     /// /uptime · /oee 의 /api/user-tags/snapshot 조회 + 배지 anomalyActiveCount 에 자동 포함.
     /// 필드 매핑:
     ///   Name      = 한글 라벨 (검색/표시 기준)
-    ///   TagAddress = 경로 "WORK / CALL" (발생 위치 — Work 가 flow.worklocal 형태라 Flow 생략, 미해석 세그먼트 생략)
+    ///   TagAddress = 경로 "FLOW / WORK / CALL" (발생 위치 — 미해석·중복 세그먼트는 BuildPath 가 생략).
+    ///                맨 앞 FLOW 세그먼트로 이상·알람 페이지의 설비(Flow)별 필터(?flow=)를 건다
+    ///                (UserTag 는 Flow 에 속하지 않아 flow 필터 시 자동으로 제외됨).
     ///   ValueType  = "Abnormal" (UserTag 구분자)
     ///   MatchOp    = "AbnormalDetect"
     ///   MatchValue = KindName (SensorOpen 등 종류 식별)
@@ -336,7 +338,7 @@ public sealed class AbnormalEventService
                 SystemName: string.IsNullOrEmpty(dto.SystemName) ? dto.FlowName : dto.SystemName,
                 Name: dto.Label,
                 LogLevel: dto.Level,
-                TagAddress: BuildPath(dto.WorkName, dto.CallName),
+                TagAddress: BuildPath(dto.FlowName, dto.WorkName, dto.CallName),
                 ValueType: "Abnormal",
                 MatchOp: "AbnormalDetect",
                 MatchValue: dto.KindName,

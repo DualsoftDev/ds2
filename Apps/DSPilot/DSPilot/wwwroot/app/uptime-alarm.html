@@ -55,11 +55,11 @@
                     </template>
                 </div>
 
-                <!-- 설비(Flow) 선택 — 날짜 UI 와 같은 행, 오른쪽 정렬(.ds-topbar space-between). 드롭다운(전체/특정 Flow).
-                     기본 '전체'. 선택 시 OEE·정지·도넛·시간구성·계획시간을 그 설비로 필터(표준 가동시간·설비순위는 전체 유지=비교/편집용). -->
-                <!-- 설비(Flow) 선택은 좌측 메뉴 '가동시간·이상' 트리에서 수행(/uptime?flow=이름) → 여기서는 현재 필터 상태만 표시. -->
-                <div class="ds-topbar-actions" style="justify-content:flex-end;" x-show="tab === 'oee' && curFlow">
-                    <span class="chip chip-info">설비: <b x-text="curFlow"></b></span>
+                <!-- 설비(Flow) 선택은 좌측 메뉴 '이상·알람' 트리에서 수행(/uptime-alarm?flow=이름) → 여기서는 현재 필터 상태만 표시.
+                     설비별 보기는 그 Flow 의 자동감지(이상감지)만 조회한다. 사용자정의(UserTag) 알람은 Flow 에 속하지 않아
+                     설비별 보기에서는 제외되며, 관련 '구분' UI(필터/도넛/구분 열)도 숨긴다. '전체 보기'로 라인 전체(+UserTag)로 복귀. -->
+                <div class="ds-topbar-actions" style="justify-content:flex-end;" x-show="curFlow">
+                    <span class="chip chip-info">설비: <b x-text="curFlow"></b> · 자동감지만</span>
                     <a class="btn btn-sm btn-outlined" href="/uptime-alarm">
                         <span class="material-icons" style="font-size:15px;">clear</span> 전체 보기
                     </a>
@@ -71,8 +71,9 @@
                 <!-- ════ 사용자정의 알람 (UserTag) — 실데이터 동작 (보존) ════ -->
                 <section id="ut-section" class="card up-section">
                     <div class="ds-card-h">
-                        <h4>알람 조회</h4>
-                        <span class="ds-card-h-sub">AASX UserTag 조건 충족 이벤트 · 실시간 + 기간별 추이 (구 이상발생 관리 통합)</span>
+                        <h4>알람 조회<span x-show="curFlow" style="font-weight:600;color:var(--color-text-secondary);"> · 설비 <span x-text="curFlow"></span></span></h4>
+                        <span class="ds-card-h-sub" x-show="!curFlow">AASX UserTag 조건 충족 이벤트 · 실시간 + 기간별 추이 (구 이상발생 관리 통합)</span>
+                        <span class="ds-card-h-sub" x-show="curFlow">이 설비의 <b>자동감지(이상감지)</b> 알람만 표시 — 사용자정의(UserTag) 알람은 설비에 속하지 않아 제외됩니다.</span>
                     </div>
 
                     <!-- 로딩/오류 -->
@@ -84,7 +85,7 @@
                             <!-- 필터 + CSV 내보내기 -->
                             <div class="up-ut-filter">
                                 <input class="form-field" x-model="utSearch" @input.debounce.300ms="applyUtFilters()" placeholder="이름 / 주소 검색..." />
-                                <select class="form-select" x-model="utCategory" @change="applyUtFilters()" title="구분(자동감지/사용자지정) 필터">
+                                <select class="form-select" x-show="!curFlow" x-model="utCategory" @change="applyUtFilters()" title="구분(자동감지/사용자지정) 필터">
                                     <option value="">전체 구분</option>
                                     <option value="abnormal">자동감지 (이상감지)</option>
                                     <option value="usertag">사용자지정 (사용자 정의)</option>
@@ -106,12 +107,12 @@
                             <!-- 시계열 추이 (Chart.js 스택 막대) -->
                             <div class="ds-card-h" style="margin-bottom:10px;">
                                 <h4 style="font-size:0.74rem;">시계열 추이</h4>
-                                <span class="ds-card-h-sub">구분별 스택 막대 (자동감지 · 사용자지정)</span>
+                                <span class="ds-card-h-sub" x-text="curFlow ? '자동감지(이상감지) 시계열 막대' : '구분별 스택 막대 (자동감지 · 사용자지정)'"></span>
                             </div>
                             <div class="up-ut-chart-tall" style="margin-bottom:16px;"><canvas id="ut-trend-chart"></canvas></div>
 
-                            <!-- 태그별 Top 10 + 레벨 분포 -->
-                            <div class="up-ut-chart-row">
+                            <!-- 태그별 Top 10 + 구분 분포. 설비별 보기(curFlow)면 자동감지만 남아 '구분 분포' 도넛은 무의미 → 숨기고 Top 10 을 전폭으로. -->
+                            <div class="up-ut-chart-row" :style="curFlow ? 'grid-template-columns:1fr;' : ''">
                                 <div>
                                     <div class="ds-card-h" style="margin-bottom:10px;">
                                         <h4 style="font-size:0.74rem;">태그별 Top 10</h4>
@@ -122,7 +123,7 @@
                                     </div>
                                     <div class="up-ut-chart-md"><canvas id="ut-top-chart"></canvas></div>
                                 </div>
-                                <div>
+                                <div x-show="!curFlow">
                                     <div class="ds-card-h" style="margin-bottom:10px;"><h4 style="font-size:0.74rem;">구분 분포</h4><span class="ds-card-h-sub">자동감지 · 사용자지정 비율</span></div>
                                     <div class="up-dist">
                                         <template x-if="categoryTotal > 0">
@@ -191,12 +192,12 @@
                             <template x-if="ut.alerts && ut.alerts.length > 0">
                                 <div style="overflow-x:auto;">
                                     <table class="ds-table">
-                                        <thead><tr><th style="width:170px;">시각 ▼</th><th style="width:96px;">구분</th><th>경로</th><th>이름</th><th>주소</th><th>조건</th><th>값</th><th style="width:40px;" title="디바이스 알람 차단 바로가기">차단</th></tr></thead>
+                                        <thead><tr><th style="width:170px;">시각 ▼</th><th style="width:96px;" x-show="!curFlow">구분</th><th>경로</th><th>이름</th><th>주소</th><th>조건</th><th>값</th><th style="width:40px;" title="디바이스 알람 차단 바로가기">차단</th></tr></thead>
                                         <tbody>
                                             <template x-for="(a, i) in ut.alerts" :key="i">
                                                 <tr :data-at="(a.occurredAtLocal || '').slice(0,19)">
                                                     <td class="num" data-label="시각" x-text="(a.occurredAtLocal || '').slice(0,19)"></td>
-                                                    <td data-label="구분"><span class="ds-status" :class="categoryStatus(a)" x-text="categoryLabel(a)"></span></td>
+                                                    <td data-label="구분" x-show="!curFlow"><span class="ds-status" :class="categoryStatus(a)" x-text="categoryLabel(a)"></span></td>
                                                     <!-- 경로: AbnormalDetect → "FLOW / WORK / CALL", 나머지 → SystemName -->
                                                     <td data-label="경로" x-text="abnPath(a)"></td>
                                                     <td data-label="이름"><strong x-text="a.name"></strong></td>

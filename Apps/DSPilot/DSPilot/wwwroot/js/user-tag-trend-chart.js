@@ -88,7 +88,9 @@ export function renderTrendChart(chartId, timeBuckets, granularity) {
             borderWidth: 1,
             stack: 'category',
         };
-    });
+    // 데이터가 하나도 없는 구분은 시리즈에서 제외 — 설비별 보기(자동감지만)에서 빈 '사용자지정' 범례가 뜨지 않게,
+    // 그리고 전체 보기에서도 해당 기간에 없는 구분의 빈 범례를 없앤다(0-채움 버킷만 있는 경우 포함).
+    }).filter(ds => ds.data.some(v => v > 0));
 
     const timeUnit = ({
         'hour':  'hour',

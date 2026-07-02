@@ -339,6 +339,10 @@
         var curFlowName = onFlowPage ? (qs.get('name') || '') : '';
         // 현재 페이지의 분석 유형: 'trend'(추이 분석) | 'cycle'(사이클 분석) | ''(구 /flow — 특정 분석 아님).
         var curFlowView = path === '/flow-trend' ? 'trend' : (path === '/flow-cycle' ? 'cycle' : '');
+        // 사이클 분석 '전체 편집'(/flow-all) — 한 시스템의 모든 Flow 사이클 간트 일괄 편집.
+        //   사이클 분석 그룹의 '전체' 버튼이 진입점(?system=<시스템명>). 그 시스템 행/그룹을 강조·자동펼침.
+        var onFlowAllPage = path === '/flow-all';
+        var flowAllSystem = onFlowAllPage ? (qs.get('system') || '') : '';
 
         // 동작편차/OEE 종합/이상·알람 페이지 — 그룹은 ?flow= 로 이동. 현재 페이지+선택 Flow 로 강조/자동펼침.
         var onHeatmapPage = (path === '/heatmap');
@@ -369,7 +373,9 @@
             //   withBadge=true 면 header 우측에 이상 알람 배지를 붙여 anomalyBadges 에 등록.
             //   withAll=true 면 FLOW 목록 맨 위에 '전체' 버튼을 추가 — 클릭 시 설비 필터 없이(base 로) 이동해
             //     전체 설비(라인 전체)를 본다. ?flow= 로 설비를 거르는 페이지(동작편차/OEE/이상·알람)만 사용.
-            function buildAnalysisGroup(sysFlows, label, iconName, base, queryParam, isActivePage, activeFlowName, withBadge, withAll) {
+            //   allOpts(선택) = '전체' 버튼을 base 가 아닌 다른 페이지로 보낼 때: { href, active, label, title }.
+            //     사이클 분석은 base(/flow-cycle) 가 단일 Flow 전용이라 '전체'를 /flow-all(일괄 편집)로 보낸다.
+            function buildAnalysisGroup(sysFlows, label, iconName, base, queryParam, isActivePage, activeFlowName, withBadge, withAll, allOpts) {
                 var wrap = el('div', 'flex flex-col gap-0.5');
 
                 var head = el('button', 'w-full flex items-center gap-2 px-3 py-2 rounded text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-inverse-surface transition-colors');
@@ -406,18 +412,19 @@
                 // '전체' 버튼 — FLOW 목록 맨 위. 설비 필터를 걸지 않고(base 로) 이동해 라인 전체를 본다.
                 //   활성(파랑 강조) 조건 = 이 그룹의 페이지에 있으면서 선택된 설비가 없는 상태(activeFlowName='').
                 if (withAll) {
-                    var allActive = isActivePage && !activeFlowName;
+                    var allHref = (allOpts && allOpts.href) || base;
+                    var allActive = allOpts ? !!allOpts.active : (isActivePage && !activeFlowName);
                     var ab = el('button', 'w-full flex items-center gap-2 px-3 py-2 rounded transition-colors text-on-surface-variant dark:text-surface-variant'
                         + (allActive ? '' : ' hover:bg-surface-container-high dark:hover:bg-inverse-surface'));
                     ab.type = 'button';
                     ab.style.cssText = 'text-align:left;' + BTN_RESET;
                     if (allActive) { ab.style.backgroundColor = '#2170e4'; ab.style.color = '#fff'; }
                     ab.appendChild(dot(allActive ? '#fff' : 'currentColor', allActive ? '1' : '0.7'));
-                    var al = el('span', 'font-label-sm text-label-sm', '전체');
+                    var al = el('span', 'font-label-sm text-label-sm', (allOpts && allOpts.label) || '전체');
                     al.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700;font-size:0.9rem;';
                     ab.appendChild(al);
-                    ab.title = base + ' — 설비 필터 없이 라인 전체 보기';
-                    ab.addEventListener('click', function (ev) { ev.stopPropagation(); location.href = base; });
+                    ab.title = (allOpts && allOpts.title) || (base + ' — 설비 필터 없이 라인 전체 보기');
+                    ab.addEventListener('click', function (ev) { ev.stopPropagation(); location.href = allHref; });
                     list.appendChild(ab);
                 }
 
@@ -462,6 +469,7 @@
                 var flows = sys.flows || [];
                 var sysHasCurrent =
                        (onFlowPage    && flows.indexOf(curFlowName) !== -1)
+                    || (onFlowAllPage && flowAllSystem === sys.name)
                     || (onHeatmapPage && flows.indexOf(heatmapFlow) !== -1)
                     || (onOeePage     && flows.indexOf(oeeFlow)     !== -1)
                     || (onAlarmPage   && flows.indexOf(alarmFlow)   !== -1);
@@ -482,7 +490,15 @@
                 // 5개 분석/페이지 그룹 — 각각 이 시스템의 FLOW 리스트. Flow 클릭 → 해당 페이지?쿼리= 이동.
                 //   추이/사이클 = ?name= (/flow-trend·/flow-cycle), 동작편차/OEE/이상·알람 = ?flow= (해당 페이지가 설비 필터).
                 var gTrend = buildAnalysisGroup(flows, '추이 분석',  'timeline',      '/flow-trend',   'name', onFlowPage && curFlowView === 'trend', curFlowName, false, true);
-                var gCycle = buildAnalysisGroup(flows, '사이클 분석.설정', 'account_tree',  '/flow-cycle',   'name', onFlowPage && curFlowView === 'cycle', curFlowName, false);
+                // 사이클 분석: base(/flow-cycle) 는 단일 Flow. '전체' 는 /flow-all?system= (모든 Flow 간트 일괄 편집)로 보낸다.
+                //   그룹은 /flow-cycle(단일) 이든 /flow-all(전체) 이든 이 시스템에 속하면 활성/자동펼침.
+                var cycleActive = (onFlowPage && curFlowView === 'cycle') || (onFlowAllPage && flowAllSystem === sys.name);
+                var gCycle = buildAnalysisGroup(flows, '사이클 분석', 'account_tree',  '/flow-cycle',   'name', cycleActive, curFlowName, false, true, {
+                    href: '/flow-all?system=' + encodeURIComponent(sys.name),
+                    active: onFlowAllPage && flowAllSystem === sys.name,
+                    label: '전체 편집',
+                    title: '이 시스템의 모든 Flow 사이클 간트를 한 화면에서 일괄 조회·편집'
+                });
                 var gHeat  = buildAnalysisGroup(flows, '동작편차',    'gradient',      '/heatmap',      'flow', onHeatmapPage, heatmapFlow, false, true);
                 var gOee   = buildAnalysisGroup(flows, 'OEE 종합',    'speed',         '/uptime-oee',   'flow', onOeePage,     oeeFlow,     false, true);
                 var gAlarm = buildAnalysisGroup(flows, '이상·알람',   'warning_amber', '/uptime-alarm', 'flow', onAlarmPage,   alarmFlow,   true,  true);

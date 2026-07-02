@@ -36,6 +36,9 @@
                 periodStart: null, periodEnd: null,
                 _trendSeq: 0,
                 _drawRetry: 0,
+                // 날짜 직접 지정(기간) — 프리셋(오늘/7·30·60일) 외에 시작·종료를 직접 골라 조회.
+                trendRangeOpen: false, customStart: '', customEnd: '', _trendRangeTimer: null,
+                trendExporting: false,   // 추이 Excel 내보내기 진행
                 // 전체 추이 모드 — /flow-trend 에 ?name= 없이 진입하면 라인 전체(모든 Flow) 사이클을 합산해 추이를 본다.
                 //   nav 트리(/api/nav)로 Flow 이름을 모아 각 Flow 히스토리를 병렬 조회 후 병합. 추이 페이지 전용.
                 allMode: false,
@@ -153,6 +156,7 @@
                     clearInterval(this._pollTimer);
                     clearTimeout(this._dt);
                     clearTimeout(this._timeReloadTimer);
+                    clearTimeout(this._trendRangeTimer);
                     this._conn?.stop();
                     Object.values(_charts).forEach(c => { if (c) c.destroy(); });
                     if (_histChart) _histChart.destroy();
@@ -267,7 +271,106 @@
                     else { this.periodStart = startOfDay; this.granularity = 'hour'; this.period = 'today'; }
                     this.periodEnd = now;
                 },
-                async setPeriod(preset) { this.computePeriod(preset); await (window.dspLoading ? window.dspLoading.wrap(() => this.reloadTrend(), '기간 데이터 불러오는 중…') : this.reloadTrend()); },
+                async setPeriod(preset) { this.trendRangeOpen = false; this.computePeriod(preset); await (window.dspLoading ? window.dspLoading.wrap(() => this.reloadTrend(), '기간 데이터 불러오는 중…') : this.reloadTrend()); },
+
+                // ── 날짜 직접 지정(기간) ──
+                openTrendRange() {
+                    // 현재 기간을 입력칸 기본값으로 채우고 팝업 토글.
+                    if (!this.customStart && this.periodStart) this.customStart = this.dateToInput(this.periodStart);
+                    if (!this.customEnd && this.periodEnd) this.customEnd = this.dateToInput(this.periodEnd);
+                    this.trendRangeOpen = !this.trendRangeOpen;
+                },
+                onTrendRangeChanged() {
+                    if (!this.customStart || !this.customEnd) return;
+                    const s = this.inputToDate(this.customStart), e = this.inputToDate(this.customEnd);
+                    if (isNaN(s) || isNaN(e) || e.getTime() <= s.getTime()) return;
+                    clearTimeout(this._trendRangeTimer);
+                    this._trendRangeTimer = setTimeout(async () => {
+                        this.period = 'custom';
+                        this.periodStart = s; this.periodEnd = e;
+                        // 버킷 단위 = 범위 길이에 맞춤: ≤2일→1시간, ≤92일→1일, 그 이상→1주.
+                        const days = (e.getTime() - s.getTime()) / 864e5;
+                        this.granularity = days <= 2 ? 'hour' : (days <= 92 ? 'day' : 'week');
+                        await (window.dspLoading ? window.dspLoading.wrap(() => this.reloadTrend(), '기간 데이터 불러오는 중…') : this.reloadTrend());
+                    }, 350);
+                },
+
+                // ── 내보내기 (기간별 추이) ─────────────────────────────────────────────
+                trendName() { return this.allMode ? '전체추이' : (this.flow ? this.flow.flowName : (this.flowName || 'Flow')); },
+                _stamp() { const t = new Date(); const p = (x) => String(x).padStart(2, '0'); return `${t.getFullYear()}${p(t.getMonth() + 1)}${p(t.getDate())}_${p(t.getHours())}${p(t.getMinutes())}${p(t.getSeconds())}`; },
+                _csvEscape(v) { if (v == null) return ''; const s = String(v); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; },
+                _downloadBlob(filename, blob) {
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a'); a.href = url; a.download = filename;
+                    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+                },
+
+                // CSV = 데이터 전용(버킷별 집계). 서버 미경유 — 클라이언트에서 즉시 빌드.
+                exportTrendCsv() {
+                    if (!this.buckets.length) return;
+                    const p = (x) => String(x).padStart(2, '0');
+                    const fmtTs = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+                    const sec = (ms) => (ms == null ? '' : (ms / 1000).toFixed(2));
+                    const out = ['버킷시각,사이클수,비가동수,평균 CT(초),평균 동작(초),평균 대기(초)'];
+                    for (const b of this.buckets)
+                        out.push([this._csvEscape(fmtTs(b.ts)), b.count, b.idle, sec(b.avgCT), sec(b.avgMT), sec(b.avgWT)].join(','));
+                    const text = '﻿' + out.join('\r\n');
+                    this._downloadBlob(`Trend_${this.trendName()}_${this._stamp()}.csv`, new Blob([text], { type: 'text/csv;charset=utf-8' }));
+                },
+
+                // Excel = 차트(화면 캔버스 캡처) + 데이터. 서버(TrendExcelExporter)가 렌더.
+                async exportTrendExcel() {
+                    if (!this.buckets.length || this.trendExporting) return;
+                    this.trendExporting = true; this.error = null;
+                    try {
+                        const root = this.$root || document;
+                        const grab = (ref, label) => {
+                            const cv = root.querySelector(`canvas[x-ref="${ref}"]`);
+                            if (!cv) return null;
+                            try {
+                                const rc = cv.getBoundingClientRect();
+                                return { name: label, dataUrl: cv.toDataURL('image/png'), width: Math.round(rc.width), height: Math.round(rc.height) };
+                            } catch (e) { return null; }
+                        };
+                        const images = [
+                            grab('trendChart', '기간별 가동시간 (동작·대기)'),
+                            grab('distChart', '시간 구성'),
+                            grab('countChart', '사이클 수'),
+                        ].filter(Boolean);
+                        const model = {
+                            title: this.trendName(),
+                            systemName: (this.flow && this.flow.systemName) ? this.flow.systemName : (this.allMode ? '라인 전체' : null),
+                            periodStart: this.periodStart ? this.dateToInput(this.periodStart) : '',
+                            periodEnd: this.periodEnd ? this.dateToInput(this.periodEnd) : '',
+                            granularity: this.granularity,
+                            stats: {
+                                cycleCount: this.trend.cycleCount, idleCount: this.trend.idleCount,
+                                avgCT: this.trend.avgCT, avgMT: this.trend.avgMT, avgWT: this.trend.avgWT,
+                                minCT: this.trend.minCT, maxCT: this.trend.maxCT,
+                                utilization: this.trend.utilization, totalMt: this.trend.totalMt, totalWt: this.trend.totalWt
+                            },
+                            buckets: this.buckets.map(b => ({ ts: this.dateToInput(new Date(b.ts)), count: b.count, idle: b.idle, avgCT: b.avgCT, avgMT: b.avgMT, avgWT: b.avgWT })),
+                            images
+                        };
+                        const res = await fetch('/api/flow-trend/export-excel', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(model)
+                        });
+                        if (!res.ok) throw new Error('HTTP ' + res.status);
+                        let fn = `Trend_${this.trendName()}_${this._stamp()}.xlsx`;
+                        const cd = res.headers.get('Content-Disposition');
+                        if (cd) {
+                            const star = cd.match(/filename\*=(?:UTF-8'')?([^;]+)/i);
+                            const plain = cd.match(/filename="?([^";]+)"?/i);
+                            if (star) { try { fn = decodeURIComponent(star[1].trim()); } catch (_) {} }
+                            else if (plain) { fn = plain[1].trim(); }
+                        }
+                        this._downloadBlob(fn, await res.blob());
+                    } catch (e) {
+                        this.error = 'Excel 내보내기 실패: ' + e.message;
+                    } finally { this.trendExporting = false; }
+                },
 
                 get trendSubtitle() {
                     const fmt = (d) => { if (!d) return '-'; const p = (x) => String(x).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
@@ -756,6 +859,24 @@
                 excelFileName() {
                     const t = new Date(); const p = (x) => String(x).padStart(2, '0');
                     return `CycleTime_${this.selectedFlow}_${t.getFullYear()}${p(t.getMonth()+1)}${p(t.getDate())}_${p(t.getHours())}${p(t.getMinutes())}${p(t.getSeconds())}.xlsx`;
+                },
+                // CSV(데이터 전용) — 화면에 로드된 IO 신호 세그먼트(callLanes)를 그대로 내보낸다(Excel Sheet2 와 동일 컬럼).
+                // 서버 미경유 — 클라이언트에서 즉시 빌드. exportExcel 과 달리 차트/오버레이 없이 데이터만.
+                exportCycleCsv() {
+                    if (!this.callLanes || !this.callLanes.length) return;
+                    const rows = [];
+                    for (const l of this.callLanes) {
+                        for (const iv of (l.outIntervals || [])) rows.push({ call: l.callName, work: l.workName || '', kind: 'OUT', tag: l.outTag || '', s: iv.start, e: iv.end });
+                        for (const iv of (l.inIntervals || [])) rows.push({ call: l.callName, work: l.workName || '', kind: 'IN', tag: l.inTag || '', s: iv.start, e: iv.end });
+                    }
+                    rows.sort((a, b) => new Date(a.s) - new Date(b.s));
+                    const wall = (iso) => iso ? String(iso).replace('T', ' ').slice(0, 23) : '';
+                    const dur = (s, e) => Math.max(0, Math.round(new Date(e).getTime() - new Date(s).getTime()));
+                    const out = ['Call,Work,신호,Tag,시작,종료,지속(ms)'];
+                    for (const r of rows)
+                        out.push([this._csvEscape(r.call), this._csvEscape(r.work), r.kind, this._csvEscape(r.tag), this._csvEscape(wall(r.s)), this._csvEscape(wall(r.e)), dur(r.s, r.e)].join(','));
+                    const text = '﻿' + out.join('\r\n');
+                    this._downloadBlob(`CycleAnalysis_${this.selectedFlow || 'Flow'}_${this._stamp()}.csv`, new Blob([text], { type: 'text/csv;charset=utf-8' }));
                 },
 
                 async load() {

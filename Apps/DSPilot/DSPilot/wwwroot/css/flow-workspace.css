@@ -42,7 +42,8 @@
         @media (max-width: 900px) { .fw-chart-row { grid-template-columns: minmax(0, 1fr); } }
         .fw-chart-md { position: relative; height: 260px; overflow: hidden; }
 
-        .fw-period-controls { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+        .fw-period-controls { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; align-items: flex-start; }
+        .fw-dl-group { display: flex; gap: 6px; flex-wrap: wrap; }
 
         /* ── 탭 바: 세그먼트 트랙 (회색 트랙 안 활성 탭 = 떠오른 카드) ── */
         /* .fw-tabs 룩은 swiss.css 공용 세그먼트/탭 표준(inset+애저)으로 이관 */

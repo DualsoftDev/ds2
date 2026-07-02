@@ -75,7 +75,7 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
 
     private (string Where, DynamicParameters Params) BuildFilter(
         DateTime startUtc, DateTime endUtc,
-        string? name, string? level, string? system, string? category = null)
+        string? name, string? level, string? system, string? category = null, string? flow = null)
     {
         var sb = new StringBuilder(" WHERE occurredAt >= @Start AND occurredAt <= @End ");
         var p = new DynamicParameters();
@@ -95,6 +95,16 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         {
             sb.Append(" AND systemName = @System ");
             p.Add("System", system.Trim());
+        }
+        // 설비(Flow)별 필터 — tagAddress 의 맨 앞 세그먼트가 FLOW(AbnormalEventService.PersistToLogAsync).
+        // UserTag 는 Flow 에 속하지 않으므로 이 필터는 자동감지(valueType='Abnormal') 행만 남긴다
+        // (= flow 선택 시 사용자정의 알람은 자연히 제외). 구 이력("WORK / CALL", Flow 누락)은 매칭되지 않는다.
+        if (!string.IsNullOrWhiteSpace(flow))
+        {
+            var f = flow.Trim();
+            sb.Append(@" AND valueType = 'Abnormal' AND (tagAddress = @Flow OR tagAddress LIKE @FlowPre ESCAPE '\') ");
+            p.Add("Flow", f);
+            p.Add("FlowPre", EscapeLike(f) + " / %");
         }
         // 구분 필터 — abnormal: valueType='Abnormal', usertag: 그 외(포함 NULL).
         var cat = category?.Trim().ToLowerInvariant();
@@ -144,10 +154,10 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         DateTime startUtc, DateTime endUtc,
         string? nameFilter, string? levelFilter, string? systemFilter, string? categoryFilter,
         int limit, int offset,
-        CancellationToken ct = default)
+        CancellationToken ct = default, string? flowFilter = null)
     {
         await using var conn = await OpenAsync();
-        var (where, p) = BuildFilter(startUtc, endUtc, nameFilter, levelFilter, systemFilter, categoryFilter);
+        var (where, p) = BuildFilter(startUtc, endUtc, nameFilter, levelFilter, systemFilter, categoryFilter, flowFilter);
         p.Add("Limit", limit);
         p.Add("Offset", offset);
 
@@ -165,10 +175,10 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
     public async Task<int> CountAlertsAsync(
         DateTime startUtc, DateTime endUtc,
         string? nameFilter, string? levelFilter, string? systemFilter, string? categoryFilter = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default, string? flowFilter = null)
     {
         await using var conn = await OpenAsync();
-        var (where, p) = BuildFilter(startUtc, endUtc, nameFilter, levelFilter, systemFilter, categoryFilter);
+        var (where, p) = BuildFilter(startUtc, endUtc, nameFilter, levelFilter, systemFilter, categoryFilter, flowFilter);
         var sql = $"SELECT COUNT(*) FROM userTagAlertLog {where}";
         return await conn.ExecuteScalarAsync<int>(sql, p);
     }
@@ -177,10 +187,10 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         DateTime startUtc, DateTime endUtc,
         string bucketGranularity,
         string? nameFilter, string? levelFilter, string? systemFilter, string? categoryFilter,
-        CancellationToken ct = default)
+        CancellationToken ct = default, string? flowFilter = null)
     {
         await using var conn = await OpenAsync();
-        var (where, p) = BuildFilter(startUtc, endUtc, nameFilter, levelFilter, systemFilter, categoryFilter);
+        var (where, p) = BuildFilter(startUtc, endUtc, nameFilter, levelFilter, systemFilter, categoryFilter, flowFilter);
 
         // SQLite strftime — UTC 기반 버킷 시작 시각 문자열 (UI 측에서 다시 DateTime 으로 파싱).
         // occurredAt 은 "yyyy-MM-dd HH:mm:ss.fffffffZ" 형식. strftime 은 'T' 없는 형식도 인식.
@@ -216,10 +226,10 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         int topN,
         string? levelFilter, string? systemFilter, string? categoryFilter,
         string groupBy = "name",
-        CancellationToken ct = default)
+        CancellationToken ct = default, string? flowFilter = null)
     {
         await using var conn = await OpenAsync();
-        var (where, p) = BuildFilter(startUtc, endUtc, null, levelFilter, systemFilter, categoryFilter);
+        var (where, p) = BuildFilter(startUtc, endUtc, null, levelFilter, systemFilter, categoryFilter, flowFilter);
         p.Add("TopN", topN);
         // 그룹키: name(기본) | tagAddress(경로). SQL 삽입값이라 화이트리스트로만 결정(주입 방지).
         var keyCol = string.Equals(groupBy, "path", StringComparison.OrdinalIgnoreCase) ? "tagAddress" : "name";
@@ -237,11 +247,12 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
     public async Task<IReadOnlyDictionary<string, int>> GetCategoryCountsAsync(
         DateTime startUtc, DateTime endUtc,
         string? nameFilter, string? levelFilter, string? systemFilter,
-        CancellationToken ct = default)
+        CancellationToken ct = default, string? flowFilter = null)
     {
         await using var conn = await OpenAsync();
         // 구분 도넛은 항상 두 구분을 함께 보여준다 → category 필터는 걸지 않는다(name/level/system 만).
-        var (where, p) = BuildFilter(startUtc, endUtc, nameFilter, levelFilter, systemFilter);
+        // 단 flow 필터가 걸리면(설비별 보기) tagAddress 로 자동감지만 남으므로 도넛도 ABNORMAL 단일이 된다.
+        var (where, p) = BuildFilter(startUtc, endUtc, nameFilter, levelFilter, systemFilter, null, flowFilter);
         var sql = $@"
             SELECT {CategoryCase} AS Category, COUNT(*) AS Count
             FROM userTagAlertLog
