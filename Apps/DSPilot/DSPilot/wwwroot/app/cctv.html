@@ -873,10 +873,10 @@
                                 </div>
                                 <div class="cam-fallback-actions">
                                     <div class="cam-fallback-btns">
-                                        <button type="button" class="btn btn-outlined btn-sm" :disabled="!cam.slug" @click="triggerFallbackUpload(i)" title="이미지 파일을 직접 등록">
+                                        <button type="button" class="btn btn-outlined btn-sm" @click="triggerFallbackUpload(i)" title="이미지 파일을 직접 등록 (저장 전에도 가능 — 저장 시 함께 반영)">
                                             <span class="material-icons" style="font-size:15px;">upload</span> 이미지 등록
                                         </button>
-                                        <button type="button" class="btn btn-outlined btn-sm" :disabled="!cam.slug || cam._capturing || !(cam.rtspUrl || '').trim()" @click="captureFallback(cam)" title="RTSP 영상에 연결해 첫 프레임을 캡쳐 (이미지 전용 카메라는 사용 불가)">
+                                        <button type="button" class="btn btn-outlined btn-sm" :disabled="!cam.slug || cam._capturing || !(cam.rtspUrl || '').trim()" @click="captureFallback(cam)" title="저장된 RTSP 영상에 연결해 첫 프레임을 캡쳐 (먼저 저장 후 동기화 필요 · 이미지 전용 카메라는 사용 불가)">
                                             <span class="material-icons" style="font-size:15px;" x-text="cam._capturing ? 'hourglass_top' : 'photo_camera'"></span>
                                             <span x-text="cam._capturing ? '캡쳐 중…' : 'CCTV 캡쳐'"></span>
                                         </button>
@@ -887,7 +887,7 @@
                                         </template>
                                     </div>
                                     <small class="cam-fallback-hint"
-                                           x-text="cam.slug ? 'CCTV 캡쳐 = 저장된 RTSP 영상에 연결해 들어온 첫 프레임을 이미지로 사용합니다. 연결 실패·주소 없음·대기 시 대시보드/영상벽이 이 이미지를 대신 표시합니다. 변경 후 아래 \'저장 후 동기화\' 를 눌러야 적용됩니다.' : '먼저 \'저장 후 동기화\' 를 한 뒤 이미지 등록·캡쳐를 사용할 수 있습니다.'"></small>
+                                           x-text="cam.slug ? 'CCTV 캡쳐 = 저장된 RTSP 영상에 연결해 들어온 첫 프레임을 이미지로 사용합니다. 연결 실패·주소 없음·대기 시 대시보드/영상벽이 이 이미지를 대신 표시합니다. 변경 후 아래 \'저장 후 동기화\' 를 눌러야 적용됩니다.' : '이미지 등록은 지금 바로 가능하며 \'저장 후 동기화\' 시 함께 반영됩니다. CCTV 캡쳐는 먼저 저장해 영상이 연결된 뒤 사용할 수 있습니다. (RTSP 저장 후 영상이 들어오면 등록된 이미지가 없을 때 자동으로 한 컷 캡쳐됩니다.)'"></small>
                                 </div>
                             </div>
                         </div>
@@ -1027,6 +1027,7 @@
                 _touchDrag: null,          // 터치 타일 위치교체 진행 상태 { id }
                 _wallStarted: {},          // id -> true (WHEP 시작 여부)
                 _frameSeen: {},            // id -> true (첫 영상 프레임 수신 — 연결 중/연결됨 구분)
+                _autoCaptured: {},         // id -> true (첫 프레임 자동 캡쳐 시도함 — 카메라당 1회, 재진입 방지)
                 _soloPauseTimer: null,     // 단독 보기 시 숨은 타일 일시정지 디바운스 타이머
                 streamHealth: {},          // id -> WebRTC connectionState (per-stream 헬스)
                 _wallResizeObs: null,
@@ -1378,11 +1379,46 @@
                 stopWallStream(id) {
                     if (window.cctvWhep) window.cctvWhep.stop('cctv-wall-' + id);
                     delete this._wallStarted[id];
+                    delete this._autoCaptured[id];   // 다음에 다시 붙으면 (이미지 없을 때) 자동 캡쳐 재시도
                     const h = { ...this.streamHealth }; delete h[id]; this.streamHealth = h;
                     const f = { ...this._frameSeen }; delete f[id]; this._frameSeen = f;
                 },
                 // 첫 영상 프레임 수신(video 'playing') → 연결 중 → 연결됨. 재협상 등으로 중복 발생해도 멱등.
-                markFrameSeen(id) { if (!this._frameSeen[id]) this._frameSeen = { ...this._frameSeen, [id]: true }; },
+                markFrameSeen(id) {
+                    if (!this._frameSeen[id]) this._frameSeen = { ...this._frameSeen, [id]: true };
+                    this.maybeAutoCapture(id);   // 등록된 이미지가 없으면 첫 프레임을 자동으로 한 컷 캡쳐(사용자 요구)
+                },
+                // RTSP 저장 후 스트림이 들어왔는데 대체 이미지가 없으면, 첫 프레임을 자동 캡쳐해 등록한다.
+                // 카메라당 세션 1회(_autoCaptured 가드). 'playing' 시 dimensions 미확정 대비 짧게 재시도.
+                maybeAutoCapture(id) {
+                    if (this._autoCaptured[id]) return;
+                    const cam = this.camById(id);
+                    if (!cam || cam.hasStream === false || cam.fallbackImage) return;
+                    this._autoCaptured[id] = true;   // 재진입 방지 — 먼저 세팅(실패 시 아래에서 해제)
+                    let tries = 0;
+                    const attempt = () => {
+                        // 사이 상태 변화(영상벽에서 내림 / 이미지 생김) 시 중단.
+                        if (!this.inWall(id) || (this.camById(id)?.fallbackImage)) return;
+                        const video = document.getElementById('cctv-wall-' + id);
+                        if (video && video.videoWidth && video.videoHeight) {
+                            const dataUrl = this._frameToDataUrl(video);
+                            if (dataUrl) { this._autoUploadFallback(cam, dataUrl); return; }
+                        }
+                        if (++tries < 10) setTimeout(attempt, 400);
+                        else this._autoCaptured[id] = false;   // 프레임 못 얻음 — 다음 재생/재연결 때 재시도 허용
+                    };
+                    setTimeout(attempt, 600);
+                },
+                _autoUploadFallback(cam, dataUrl) {
+                    this.apiPost('/api/cctv/fallback/auto', { slug: cam.id, imageDataUrl: dataUrl })
+                        .then(r => {
+                            if (r && r.url) {
+                                cam.fallbackImage = r.url;   // 라이브 반영 — 이후 연결 끊김/대기 시 이 이미지 표시
+                                if (!r.skipped) this.showToast('“' + (cam.name || '카메라') + '” 자동 캡쳐 이미지 등록됨', 'success');
+                            }
+                        })
+                        .catch(() => { this._autoCaptured[cam.id] = false; /* 다음 기회에 재시도 */ });
+                },
                 // 타일 연결 상태 오버레이용: 'off'(미시작/단독 일시정지) | 'loading'(연결 중·첫 프레임 전) | 'failed' | 'live'(표시 안 함).
                 // 세 반응형 값을 항상 먼저 읽는다(조기 return 시 의존성 누락 방지 — cctv-wall.js 와 동일 이유).
                 tileStreamStatus(id) {
@@ -2081,7 +2117,7 @@
                         // 카메라 집합이 바뀌었으므로 영상벽 구성/상태를 다시 로드한다(스트림 깨끗이 재시작).
                         if (this._soloPauseTimer) { clearTimeout(this._soloPauseTimer); this._soloPauseTimer = null; }
                         try { window.cctvWhep?.stopAll(); } catch (e) {}
-                        this._wallStarted = {}; this.streamHealth = {}; this._frameSeen = {};
+                        this._wallStarted = {}; this.streamHealth = {}; this._frameSeen = {}; this._autoCaptured = {};
                         await this.loadConfig();
                         await this.loadStatus();
                         // 카메라 rename 으로 오버레이 FK 가 옮겨졌을 수 있으니 오버레이/상태 재로딩 (Flow/Call 은 AASX 출처라 무관).
@@ -2094,10 +2130,11 @@
                 },
 
                 // ── 대체(폴백) 이미지: 직접 업로드 / CCTV 캡쳐 ──
-                // 캡쳐/업로드는 slug(저장된 카메라)가 있어야 한다 — 파일이 slug 로 키잉되고, 캡쳐는 live <video> 가 필요.
+                // 이미지 등록(파일 업로드)은 slug 없이도 가능 — 저장 전 카메라는 data URL 로 들고 있다가 저장 시 서버가 파일로 영속.
+                // CCTV 캡쳐는 저장된 카메라(slug + MediaMTX 경로 동기화)가 있어야 한다 — live <video> 연결이 필요.
                 triggerFallbackUpload(i) {
                     const cam = this.camSettings.cameras[i];
-                    if (!cam || !cam.slug) { this.showToast('카메라를 먼저 저장한 뒤 이미지를 등록할 수 있습니다.', 'error'); return; }
+                    if (!cam) return;
                     this._fallbackTargetIdx = i;
                     if (this.$refs.fallbackFile) this.$refs.fallbackFile.click();
                 },
@@ -2183,6 +2220,12 @@
                     } catch (e) { return null; }
                 },
                 async _uploadFallback(cam, dataUrl) {
+                    // 저장 전(slug 없음) 카메라는 data URL 을 그대로 미리보기 겸 대기값으로 들고 있다가, 저장 시 서버가 파일로 영속한다.
+                    if (!cam.slug) {
+                        cam.fallbackImage = dataUrl;
+                        this.showToast('이미지 준비됨 · "저장 후 동기화" 를 눌러야 적용됩니다.', 'success');
+                        return;
+                    }
                     try {
                         const r = await this.apiPost('/api/cctv/fallback', { slug: cam.slug, imageDataUrl: dataUrl });
                         cam.fallbackImage = r.url || '';

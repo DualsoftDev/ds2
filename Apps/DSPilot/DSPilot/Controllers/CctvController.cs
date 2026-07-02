@@ -145,6 +145,19 @@ public class CctvController : ControllerBase
         // 빈 slug(신규 카메라)에만 cam1/cam2/… 부여; 기존 slug 는 그대로.
         CctvMediaMtxService.AssignSlugs(m.Cctv.Cameras);
 
+        // 신규 카메라의 대기(pending) 대체 이미지: 저장 전에는 slug 가 없어 파일로 못 넣고 클라이언트가
+        // data URL 로 들고 있다가 이 저장에 함께 실어 보낸다(카메라 추가 직후 이미지 등록 지원, 사용자 요구).
+        // slug 가 확정된 지금 파일로 영속하고 FallbackImage 를 서빙 URL 로 치환한다. 실패 시 연결 해제("").
+        foreach (var cam in m.Cctv.Cameras)
+        {
+            if (!string.IsNullOrWhiteSpace(cam.Slug)
+                && cam.FallbackImage.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+            {
+                try { cam.FallbackImage = _fallback.Save(cam.Slug, cam.FallbackImage); }
+                catch { cam.FallbackImage = ""; /* 비치명 — 이미지만 누락, 저장은 성공 처리 */ }
+            }
+        }
+
         _settings.SaveSettings(m);
 
         // 더 이상 참조되지 않는 대체 이미지 파일 정리(카메라 삭제/이미지 해제/저장 안 한 캡쳐).
@@ -195,6 +208,43 @@ public class CctvController : ControllerBase
         }
         catch (ArgumentException ex) { return BadRequest(new { error = ex.Message }); }
         catch (FormatException) { return BadRequest(new { error = "이미지 데이터를 해석할 수 없습니다." }); }
+    }
+
+    /// <summary>
+    /// 자동 캡쳐 등록: 라이브 스트림 첫 프레임을 대체 이미지로 자동 저장 — 단, 등록된 이미지가 없을 때만(사용자 요구).
+    /// 영상벽에서 스트림이 들어오면 클라이언트가 호출한다. 이미 대체 이미지가 있으면 덮어쓰지 않고 skipped 로 응답.
+    /// 파일 저장과 카메라의 FallbackImage 연결 영속을 <see cref="AppSettingsService.Update"/> 로 원자화해
+    /// (설정 페이지 저장과 경합해도 유실 없음, 중복 자동캡쳐 방지) 설정 모달 왕복 없이 자족적으로 처리한다.
+    /// antiforgery 미적용 — 평범한 JSON POST.
+    /// </summary>
+    [HttpPost("fallback/auto")]
+    public ActionResult<object> SaveFallbackAuto([FromBody] CctvFallbackSaveDto req)
+    {
+        if (string.IsNullOrWhiteSpace(req.Slug))
+            return BadRequest(new { error = "slug 가 비어 있습니다." });
+
+        string? savedUrl = null, error = null;
+        bool skipped = false;
+        try
+        {
+            _settings.Update(m =>
+            {
+                // slug 는 GET 응답에만 실려 나가고 저장 시 재부여되므로, 조회 시점에도 동일 규칙으로 확정한다.
+                CctvMediaMtxService.AssignSlugs(m.Cctv.Cameras);
+                var cam = m.Cctv.Cameras.FirstOrDefault(
+                    c => string.Equals(c.Slug, req.Slug, StringComparison.OrdinalIgnoreCase));
+                if (cam is null) { error = "카메라를 찾을 수 없습니다."; return; }
+                // 사용자 등록/기존 자동캡쳐 이미지가 있으면 보존 — 저장하지 않고 현재 값 반환.
+                if (!string.IsNullOrWhiteSpace(cam.FallbackImage)) { savedUrl = cam.FallbackImage; skipped = true; return; }
+                savedUrl = _fallback.Save(req.Slug, req.ImageDataUrl ?? "");
+                cam.FallbackImage = savedUrl;
+            });
+        }
+        catch (ArgumentException ex) { return BadRequest(new { error = ex.Message }); }
+        catch (FormatException) { return BadRequest(new { error = "이미지 데이터를 해석할 수 없습니다." }); }
+
+        if (error is not null) return NotFound(new { error });
+        return new { url = savedUrl ?? "", skipped };
     }
 
     /// <summary>카메라 대체 이미지 파일 삭제. 연결 해제(FallbackImage="")의 영속은 설정 저장으로 처리.</summary>
