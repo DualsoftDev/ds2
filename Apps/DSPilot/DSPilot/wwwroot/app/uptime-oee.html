@@ -396,6 +396,15 @@
                         <h4>비생산 시간대</h4>
                         <span class="ds-card-h-sub">애초에 생산하지 않는 시간(점심·교대·정기정비·무오더 등)은 OEE 산출에서 통째로 제외 — 자동 계산하거나 24시간 연표로 직접 지정</span>
                         <span style="flex:1;"></span>
+                        <!-- 현재 비생산 상태 실시간 배지 (시스템 단위) — 실시간 조회(오늘/N일)일 때만 -->
+                        <span x-show="ps.auto && ps.actualNonProd && period !== 'custom'" x-cloak
+                              class="up-oee-chip"
+                              :style="(ps.actualNonProd && ps.actualNonProd.currentlyNonProd)
+                                        ? 'background:#334155;color:#fff;border-color:transparent;'
+                                        : 'background:var(--color-primary);color:#fff;border-color:transparent;'"
+                              :title="(ps.actualNonProd && ps.actualNonProd.currentlyNonProd) ? '현재 시스템이 비생산(제외) 구간입니다' : '현재 시스템이 가동 중입니다'">
+                            <span x-text="(ps.actualNonProd && ps.actualNonProd.currentlyNonProd) ? '● 현재: 비생산 중' : '● 현재: 가동 중'"></span>
+                        </span>
                         <span class="up-oee-chip" :class="ps.auto ? 'auto' : (ps.source === 'manual' ? 'solid' : '')"
                               x-text="ps.auto ? ('자동 · ' + ps.ctMultiplier + '×가동시간 장시간정지') : (ps.source === 'manual' ? '수동' : '미설정')"></span>
                         <button class="btn btn-sm" :class="ps.auto ? 'btn-outlined' : 'btn-filled'"

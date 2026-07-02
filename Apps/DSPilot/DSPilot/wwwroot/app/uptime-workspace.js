@@ -125,11 +125,16 @@
                     // 뒤로/앞으로 가기 시 탭 동기화
                     window.addEventListener('popstate', () => { this.applyTabFromUrl(); });
                     try { this._charts = await import('/js/user-tag-trend-chart.js'); } catch (e) { console.warn('chart module load failed', e); }
-                    await this.load();
-                    // OEE 도메인 로드(CT 표·비생산 시간대)는 알람 전용 페이지에서 스킵.
-                    if (this.view !== 'alarm') { await this.loadCtTable(); await this.loadPlannedStops(); }
+                    // 최초 진입 로드도 로딩 인디케이터로 감싼다(기간 변경 setPeriod 와 동일 UX). 폴링(load(true))은 무표시.
+                    const initLoad = async () => {
+                        await this.load();
+                        // OEE 도메인 로드(CT 표·비생산 시간대)는 알람 전용 페이지에서 스킵.
+                        if (this.view !== 'alarm') { await this.loadCtTable(); await this.loadPlannedStops(); }
+                    };
+                    if (window.dspLoading) await window.dspLoading.wrap(initLoad, '불러오는 중…');
+                    else await initLoad();
                     this.connectSignalR();
-                    this._pollTimer = setInterval(() => { this.load(true); }, 10000);
+                    this._pollTimer = setInterval(() => { this.load(true); if (this.view !== 'alarm') this.refreshActualNonProd(); }, 10000);
                     // 알람 페이지 진입 시드(필터 스크롤·포커스·차단 모달) — OEE 전용 페이지에서는 무의미하므로 스킵.
                     if (this.view !== 'oee') {
                         // 필터 시드로 진입했으면 UserTag 카드로 스크롤(특정 알람 포커스가 있으면 그 행으로 직접 스크롤하므로 생략).
@@ -231,22 +236,31 @@
                         this.ps.windows = (r.windows || []).map(w => ({ startMinutes: w.startMinutes, endMinutes: w.endMinutes, label: w.label || '' }));
                         this.ps.selected = -1; this.ps.addMode = false; this.ps.seededFromAuto = false;
                     } catch (e) { this.ps.err = '비생산 시간대를 불러오지 못했습니다: ' + e.message; }
-                    // 자동 모드일 때: ① 이번 기간 실제 제외 비생산(메인) ② 14일 평균 패턴(참고) 조회. (curFlow 필터 반영)
+                    // 자동 모드일 때: ① 이번 기간 실제 제외 비생산(메인) ② 14일 평균 패턴(참고) 조회.
+                    // 비생산 시간대는 시스템(전역) 단위 — flow별 페이지에서도 curFlow 필터 없이 항상 시스템 전체로 표시.
                     if (this.ps.auto) {
-                        const flowQs = this.curFlow ? `&flow=${encodeURIComponent(this.curFlow)}` : '';
                         try {
                             const r = this.rangeForPeriod();
-                            const aqs = `from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}` + flowQs;
+                            const aqs = `from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}`;
                             this.ps.actualNonProd = await this.apiGet('/api/oee/planned-stops/actual?' + aqs);
                         } catch (e) { this.ps.actualNonProd = null; }
                         try {
-                            const qs = this.curFlow ? `?flow=${encodeURIComponent(this.curFlow)}` : '';
-                            this.ps.autoPattern = await this.apiGet('/api/oee/planned-stops/auto-pattern' + qs);
+                            this.ps.autoPattern = await this.apiGet('/api/oee/planned-stops/auto-pattern');
                         } catch (e) { this.ps.autoPattern = null; }
                     } else {
                         this.ps.autoPattern = null;
                         this.ps.actualNonProd = null;
                     }
+                },
+                // 폴링용 경량 갱신 — 자동 모드에서 '실제 제외 비생산'(+현재 상태 배지)만 다시 읽는다.
+                // 수동 편집 상태(ps.windows/selected/addMode)·autoPattern(14일·저빈도)은 건드리지 않아 편집 중 클로버 방지.
+                async refreshActualNonProd() {
+                    if (!this.ps.auto) return;
+                    try {
+                        const r = this.rangeForPeriod();
+                        this.ps.actualNonProd = await this.apiGet(
+                            `/api/oee/planned-stops/actual?from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}`);
+                    } catch (e) { /* 이전 값 유지 */ }
                 },
                 // 자동 계산 on/off — on=10×가동시간 장시간정지 자동 비생산, off=수동 시각대만. 수동 적용은 자동을 끈다(서버 SavePlannedStops).
                 async psSetAuto(enabled) {

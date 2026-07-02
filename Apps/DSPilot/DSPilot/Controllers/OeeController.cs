@@ -513,7 +513,15 @@ public class OeeController : ControllerBase
             if (has && wStart == null) wStart = m;
             else if (!has && wStart != null) { windows.Add(new PlannedStopWindowDto(wStart.Value, m, null)); wStart = null; }
         }
-        return new PlannedAutoPatternDto(windows, fromUtc.ToLocalTime(), toUtc.ToLocalTime(), 0);
+
+        // 현재 비생산 상태 — 조회범위가 실시간(현재 포함)이고 지금 이 순간이 비생산 raw 구간에 속하는가.
+        // 진행 중 정지는 구간 끝이 now 근처까지 이어지므로 [S, E) 에 now(1분 여유) 포함 여부로 판정.
+        var nowUtc = DateTime.UtcNow;
+        var isLive = toUtc >= nowUtc.AddMinutes(-5);
+        var probeMs = ToMs(nowUtc);
+        var currentlyNonProd = isLive && intervals.Any(iv => iv.S <= probeMs && iv.E >= probeMs - 60000);
+
+        return new PlannedAutoPatternDto(windows, fromUtc.ToLocalTime(), toUtc.ToLocalTime(), 0, currentlyNonProd);
     }
 
     // ── PUT /api/oee/planned-stops  {windows:[{startMinutes,endMinutes,label?}]} ──

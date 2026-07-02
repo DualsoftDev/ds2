@@ -177,12 +177,16 @@ public sealed record PlannedStopsDto(
     bool Auto,
     int CtMultiplier);
 
-/// <summary>자동 비생산 14일 시간대별 패턴 — 어제부터 최대 14일간 plannedMs > 0 시간대를 병합한 windows.</summary>
+/// <summary>
+/// 자동 비생산 시간대 windows. 14일 평균 패턴(auto-pattern, DaysAnalyzed=14) 또는 이번 기간 실제 제외분(actual, DaysAnalyzed=0).
+/// CurrentlyNonProd = 조회범위가 실시간(현재 포함)이고 지금 이 순간이 비생산 구간에 속하면 true(actual 전용, 패턴은 항상 false).
+/// </summary>
 public sealed record PlannedAutoPatternDto(
     IReadOnlyList<PlannedStopWindowDto> Windows,
     DateTime DataFrom,
     DateTime DataTo,
-    int DaysAnalyzed);
+    int DaysAnalyzed,
+    bool CurrentlyNonProd = false);
 
 /// <summary>정지 이벤트 로그 한 건 (필터 조회용). 시각은 로컬 변환된 DateTime.</summary>
 public sealed record OeeDowntimeDto(
