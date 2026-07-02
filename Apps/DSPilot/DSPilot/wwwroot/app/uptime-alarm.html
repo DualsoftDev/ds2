@@ -160,12 +160,21 @@
                                 </div>
                             </div>
 
-                            <!-- 알림 이력 (전체, 페이지네이션) -->
+                            <!-- 알림 이력 (전체, 검색·정렬·페이지네이션 — 서버 처리) -->
                             <div class="ds-card-h" style="margin-top:6px;">
-                                <h4 style="font-size:0.74rem;">알림 이력 (<span x-text="ut.totalCount.toLocaleString()"></span>건 · 페이지 <span x-text="ut.page + 1"></span> / <span x-text="ut.maxPage"></span>)</h4>
-                                <div class="up-ut-toolrow">
-                                    <button class="btn btn-sm btn-outlined" @click="prevUtPage()" :disabled="ut.page === 0">이전</button>
-                                    <button class="btn btn-sm btn-outlined" @click="nextUtPage()" :disabled="ut.page + 1 >= ut.maxPage">다음</button>
+                                <h4 style="font-size:0.74rem;">알림 이력 (<span x-text="ut.totalCount.toLocaleString()"></span>건)</h4>
+                                <div class="ut-toolbar">
+                                    <div class="ut-search">
+                                        <span class="material-icons">search</span>
+                                        <input type="text" class="form-field" placeholder="이름·주소·조건 검색" x-model="utSearch" @input="onUtSearchInput()" />
+                                        <button x-show="utSearch" class="btn-icon" @click="clearUtSearch()" title="지우기"><span class="material-icons">close</span></button>
+                                    </div>
+                                    <select class="form-field ut-sel" x-model.number="utPageSize" @change="setUtPageSize($event.target.value)">
+                                        <option :value="10">10개씩</option>
+                                        <option :value="20">20개씩</option>
+                                        <option :value="50">50개씩</option>
+                                        <option :value="100">100개씩</option>
+                                    </select>
                                 </div>
                             </div>
                             <!-- ActionOver 반복 힌트 배너 -->
@@ -185,8 +194,17 @@
 
                             <template x-if="ut.alerts && ut.alerts.length > 0">
                                 <div style="overflow-x:auto;">
-                                    <table class="ds-table">
-                                        <thead><tr><th style="width:170px;">시각 ▼</th><th style="width:96px;" x-show="!curFlow">구분</th><th>경로</th><th>이름</th><th>주소</th><th>조건</th><th>값</th><th style="width:40px;" title="디바이스 알람 차단 바로가기">차단</th></tr></thead>
+                                    <table class="ds-table ut-table">
+                                        <thead><tr>
+                                            <th style="width:170px;" class="ut-th-sort" @click="setUtSort('occurredAt')">시각 <span class="material-icons ut-sort" x-text="utSortIcon('occurredAt')"></span></th>
+                                            <th style="width:96px;" x-show="!curFlow">구분</th>
+                                            <th class="ut-th-sort" @click="setUtSort('systemName')">경로 <span class="material-icons ut-sort" x-text="utSortIcon('systemName')"></span></th>
+                                            <th class="ut-th-sort" @click="setUtSort('name')">이름 <span class="material-icons ut-sort" x-text="utSortIcon('name')"></span></th>
+                                            <th>주소</th>
+                                            <th class="ut-th-sort" @click="setUtSort('matchOp')">조건 <span class="material-icons ut-sort" x-text="utSortIcon('matchOp')"></span></th>
+                                            <th>값</th>
+                                            <th style="width:40px;" title="디바이스 알람 차단 바로가기">차단</th>
+                                        </tr></thead>
                                         <tbody>
                                             <template x-for="(a, i) in ut.alerts" :key="i">
                                                 <tr :data-at="(a.occurredAtLocal || '').slice(0,19)">
@@ -220,6 +238,20 @@
                                     </table>
                                 </div>
                             </template>
+                            <!-- 페이징 (서버 페이지네이션) -->
+                            <div class="ut-pager" x-show="ut.alerts && ut.alerts.length > 0">
+                                <span class="ut-pager-info">
+                                    총 <strong x-text="ut.totalCount.toLocaleString()"></strong>건 ·
+                                    <span x-text="(ut.page * ut.pageSize + 1).toLocaleString()"></span>–<span x-text="Math.min((ut.page + 1) * ut.pageSize, ut.totalCount).toLocaleString()"></span>
+                                </span>
+                                <div class="ut-pager-nav">
+                                    <button class="btn btn-sm btn-outlined" @click="firstUtPage()" :disabled="ut.page === 0" title="처음"><span class="material-icons">first_page</span></button>
+                                    <button class="btn btn-sm btn-outlined" @click="prevUtPage()" :disabled="ut.page === 0">이전</button>
+                                    <span class="ut-pager-page"><span x-text="ut.page + 1"></span> / <span x-text="ut.maxPage"></span></span>
+                                    <button class="btn btn-sm btn-outlined" @click="nextUtPage()" :disabled="ut.page + 1 >= ut.maxPage">다음</button>
+                                    <button class="btn btn-sm btn-outlined" @click="lastUtPage()" :disabled="ut.page + 1 >= ut.maxPage" title="마지막"><span class="material-icons">last_page</span></button>
+                                </div>
+                            </div>
                             <template x-if="!ut.alerts || ut.alerts.length === 0">
                                 <div class="ds-empty" style="border-style:solid;">
                                     <span class="material-icons">notifications</span>

@@ -39,10 +39,13 @@ public class UserTagsController : ControllerBase
     public async Task<ActionResult<UserTagSnapshotDto>> GetSnapshot(
         [FromQuery] string period = "today",
         [FromQuery] int page = 0,
+        [FromQuery] int pageSize = PageSize, // 페이지 크기 — 기본 10, 클라이언트가 선택(허용 목록으로 클램프)
         [FromQuery] string? search = null,
         [FromQuery] string? category = null,   // "abnormal" | "usertag" | null(전체 구분)
         [FromQuery] string? system = null,
         [FromQuery] string? flow = null,        // 설비(Flow)명 — 자동감지(Abnormal)만 그 Flow 로 필터(UserTag 자동 제외)
+        [FromQuery] string? sort = null,        // 정렬 컬럼 키(occurredAt|name|systemName|matchOp|valueType), 기본 occurredAt
+        [FromQuery] string? sortDir = null,     // "asc" | "desc"(기본)
         [FromQuery] DateTime? from = null,
         [FromQuery] DateTime? to = null,
         CancellationToken ct = default)
@@ -56,12 +59,14 @@ public class UserTagsController : ControllerBase
         var flw = Blank(flow);
         // flow 필터가 걸리면 자동감지(Abnormal)만 남으므로 구분 필터는 무의미 → 무시(모순 방지: flow+usertag=0건).
         var cat = flw is null ? Blank(category) : null;
+        var size = Math.Clamp(pageSize, 5, 200);
+        var sortDesc = !string.Equals(sortDir, "asc", StringComparison.OrdinalIgnoreCase);
 
         var total = await _repo.CountAlertsAsync(startUtc, endUtc, name, lvl, sys, cat, ct, flowFilter: flw);
-        var maxPage = Math.Max(1, (int)Math.Ceiling(total / (double)PageSize));
-        if (page * PageSize >= total) page = 0;
+        var maxPage = Math.Max(1, (int)Math.Ceiling(total / (double)size));
+        if (page * size >= total) page = 0;
 
-        var dataPage = await _repo.QueryAlertsAsync(startUtc, endUtc, name, lvl, sys, cat, PageSize, page * PageSize, ct, flowFilter: flw);
+        var dataPage = await _repo.QueryAlertsAsync(startUtc, endUtc, name, lvl, sys, cat, size, page * size, ct, flowFilter: flw, sortColumn: Blank(sort), sortDesc: sortDesc);
         var buckets = FillBucketGaps(
             await _repo.GetBucketCountsAsync(startUtc, endUtc, gran, name, lvl, sys, cat, ct, flowFilter: flw),
             startUtc, endUtc, gran);
@@ -88,7 +93,7 @@ public class UserTagsController : ControllerBase
         return new UserTagSnapshotDto(
             period, startLocal.ToString("yyyy-MM-dd HH:mm"), endLocal.ToString("yyyy-MM-dd HH:mm"),
             gran, BucketLabel(gran),
-            total, page, maxPage, PageSize,
+            total, page, maxPage, size,
             dataPage.Select(ToAlertDto).ToList(),
             buckets.Select(b => new UtBucketDto(b.BucketStart.ToLocalTime().ToString("o"), b.LogLevel, b.Count)).ToList(),
             top.Select(t => new UtTopDto(t.Name, t.LogLevel, t.Count)).ToList(),

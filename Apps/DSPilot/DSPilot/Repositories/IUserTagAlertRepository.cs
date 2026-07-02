@@ -20,7 +20,8 @@ public interface IUserTagAlertRepository
         DateTime startUtc, DateTime endUtc,
         string? nameFilter, string? levelFilter, string? systemFilter, string? categoryFilter,
         int limit, int offset,
-        CancellationToken ct = default, string? flowFilter = null);
+        CancellationToken ct = default, string? flowFilter = null,
+        string? sortColumn = null, bool sortDesc = true);
 
     /// <summary>주어진 기간의 알림 총 개수 (필터 동일 적용).</summary>
     Task<int> CountAlertsAsync(

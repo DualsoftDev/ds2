@@ -176,18 +176,30 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         DateTime startUtc, DateTime endUtc,
         string? nameFilter, string? levelFilter, string? systemFilter, string? categoryFilter,
         int limit, int offset,
-        CancellationToken ct = default, string? flowFilter = null)
+        CancellationToken ct = default, string? flowFilter = null,
+        string? sortColumn = null, bool sortDesc = true)
     {
         await using var conn = await OpenAsync();
         var (where, p) = BuildFilter(startUtc, endUtc, nameFilter, levelFilter, systemFilter, categoryFilter, flowFilter);
         p.Add("Limit", limit);
         p.Add("Offset", offset);
 
+        // 정렬 컬럼 화이트리스트 — 외부 입력을 SQL 에 직접 넣지 않도록 허용 컬럼만 매핑(SQL 인젝션 방지).
+        var col = sortColumn switch
+        {
+            "name"       => "name",
+            "systemName" => "systemName",
+            "matchOp"    => "matchOp",
+            "valueType"  => "valueType",
+            _            => "occurredAt",
+        };
+        var dir = sortDesc ? "DESC" : "ASC";
+
         var sql = $@"
             SELECT id, occurredAt, systemId, systemName, name, logLevel, tagAddress, valueType, matchOp, matchValue, actualValue, sourceLogId
             FROM userTagAlertLog
             {where}
-            ORDER BY occurredAt DESC, id DESC
+            ORDER BY {col} {dir}, id DESC
             LIMIT @Limit OFFSET @Offset";
 
         var rows = await conn.QueryAsync<Row>(sql, p);

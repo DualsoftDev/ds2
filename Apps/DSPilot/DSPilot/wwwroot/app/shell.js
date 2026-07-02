@@ -575,7 +575,8 @@
         var agData = agentRow();
         agHub.text.textContent = 'PROMAKER HUB: —';
         agPlc.text.textContent = 'PLC 어댑터: —';
-        agData.text.textContent = 'PLC 데이터 대기';
+        agData.text.textContent = 'PLC 데이터 수신중';
+        agData.row.style.display = 'none';  // 실제 수신 확인 전까지 숨김 — 수신되면 applySummary 가 켠다.
 
         // PLC 어댑터 행 우측에 '상세' 토글 — 누르면 대상 PLC 의 IP/Port·상태·출처를 펼쳐 보여준다.
         var agPlcDetailBtn = el('button', null, '상세');
@@ -845,7 +846,7 @@
             var plcTotal = agent.plcTotal || 0;
             var plcDown = agent.plcDisconnected || 0;
             var plcSource = agent.plcSource || '';
-            var hasData = !!data.hasData;
+            var hasData = !!data.receivingData;
 
             var hubLabel = hub === 'connected' ? '정상'
                 : (hub === 'connecting' ? '연결 중'
@@ -878,8 +879,10 @@
             _agPlcSource = plcSource;
             if (_plcDetailOpen) renderPlcDetail();
 
-            agData.text.textContent = hasData ? 'PLC 데이터 수신중' : 'PLC 데이터 대기';
-            agData.dot.style.background = hasData ? AG_DOT.green : AG_DOT.gray;
+            // 실제 유입이 있을 때만 "수신중" 행을 노출, 그 전(대기/끊김)에는 행 자체를 숨긴다.
+            agData.row.style.display = hasData ? '' : 'none';
+            agData.text.textContent = 'PLC 데이터 수신중';
+            agData.dot.style.background = AG_DOT.green;
         }
 
         function pollSummary() {

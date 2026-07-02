@@ -49,6 +49,21 @@ public class DspDbService : IDisposable
         _snapshot.Flows.Any(f => f.MT.HasValue || f.WT.HasValue) ||
         _snapshot.Calls.Any(c => c.GoingCount > 0);
 
+    // ── 라이브 유입 최근성 ──
+    // "지금 PLC 데이터가 들어오고 있는가"는 HasData(=누적 보유 여부, 시간 개념 없음)로 답할 수 없다.
+    // HasData 는 한 번이라도 사이클 데이터가 쌓이면 PLC 가 끊겨도 계속 true 라, 헤더 "수신중"이
+    // 영원히 켜져 있는 오해를 낳는다. 그래서 *실제 유입* 시각만 별도로 추적한다.
+    //   유입 = ① 실시간 상태전이 이벤트 적용(ApplyEventToSnapshot) ② DB 폴링서 실제 변경 감지(TryRefresh)
+    //   제외 = ProgressUpdateLoopAsync 의 로컬 진행률 보간(새 PLC 데이터 아님)
+    private static readonly TimeSpan LiveDataWindow = TimeSpan.FromSeconds(15);
+    private DateTime _lastInboundUtc = DateTime.MinValue;
+
+    /// <summary>최근 <see cref="LiveDataWindow"/> 내에 실제 PLC 유입이 있었는지 — 헤더 "PLC 데이터 수신중" 표시 소스.
+    /// PLC 가 끊기면 유입이 끊겨 창이 지난 뒤 false 로 떨어진다(HasData 와 달리 stale 로 박제되지 않음).
+    /// 라인이 가동 중이어도 상태전이가 창보다 드물게 발생하면 잠시 false 가 될 수 있다(의도된 정직성).</summary>
+    public bool IsReceivingLiveData =>
+        (DateTime.UtcNow - _lastInboundUtc) < LiveDataWindow;
+
     public event Action? OnDataChanged;
 
     /// <summary>
@@ -203,6 +218,7 @@ public class DspDbService : IDisposable
                     .ToDictionary(g => g.Key, g => g.ToList()),
                 Timestamp   = evt.OccurredAt,
             };
+            _lastInboundUtc = DateTime.UtcNow;  // 실시간 상태전이 유입 — 수신중 창 갱신
         }
     }
 
@@ -576,7 +592,7 @@ public class DspDbService : IDisposable
                     CallsByFlow = callsByFlow,
                     Timestamp = DateTimeOffset.UtcNow,
                 };
-
+                _lastInboundUtc = DateTime.UtcNow;  // DB 실제 변경(hasChanged) 유입 — 수신중 창 갱신
             }
 
             OnDataChanged?.Invoke();

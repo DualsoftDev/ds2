@@ -191,7 +191,9 @@ public class NavController : ControllerBase
         return new NavSummaryDto(
             new NavLinesDto(total, running, idle, efficiencyPct),
             agent,
-            _db.HasData,
+            // "PLC 데이터 수신중" 은 실제 유입 최근성(창 기반)이지 누적 보유(HasData)가 아니다 —
+            // PLC 가 끊기면 이 값이 false 로 떨어져 "어댑터 끊김 + 데이터 수신중" 모순을 없앤다.
+            _db.IsReceivingLiveData,
             anomalyActiveCount,
             recentAnomalies,
             DateTimeOffset.UtcNow);
@@ -216,7 +218,8 @@ public record NavSystemDto(string Name, List<string> Flows);
 public record NavSummaryDto(
     NavLinesDto Lines,
     NavAgentDto Agent,
-    bool HasData,
+    // 실제 PLC 유입 최근성(DspDbService.IsReceivingLiveData). 셸은 data.receivingData 로 읽는다.
+    bool ReceivingData,
     int AnomalyActiveCount,
     List<NavAnomalyDto> RecentAnomalies,
     DateTimeOffset ServerTimeUtc);

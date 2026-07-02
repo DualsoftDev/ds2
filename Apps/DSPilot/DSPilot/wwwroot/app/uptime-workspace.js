@@ -61,6 +61,8 @@
                 _utSeq: 0, _oeeSeq: 0,
                 // utCategory = 구분 필터 ('' 전체 | 'abnormal' | 'usertag'). 레벨은 서버가 Error 로 통일(클라 미노출).
                 utPage: 0, utSearch: '', utCategory: '', utSystem: '', actionOverHint: [],
+                // 알람 이력 테이블 — 페이지 크기 / 정렬(서버 처리). sort 키는 서버 화이트리스트와 일치.
+                utPageSize: 10, utSort: 'occurredAt', utSortDir: 'desc', _utSearchTimer: null,
                 // 태그별 Top 10 그룹 기준: 'path'(경로별로 펼침 — 기본) | 'name'(유형/이름별 — abnormal 은 4종으로 묶임).
                 topGroupBy: 'path',
                 _focusAt: null, // 피드에서 at 으로 진입 시 스크롤·하이라이트할 알람 행 키(occurredAtLocal 초단위)
@@ -436,7 +438,7 @@
 
                 // 이상발생 스냅샷 쿼리 (기간 + 페이지 + 검색/레벨/System 필터)
                 utQs() {
-                    const p = new URLSearchParams({ period: this.period, page: this.utPage });
+                    const p = new URLSearchParams({ period: this.period, page: this.utPage, pageSize: this.utPageSize, sort: this.utSort, sortDir: this.utSortDir });
                     if (this.period === 'custom' && this.customFrom && this.customTo) {
                         p.set('from', this.customFrom + ':00');
                         p.set('to', this.customTo + ':00');
@@ -530,8 +532,28 @@
 
                 // ── 이상발생 필터/페이지/CSV (구 관리페이지) ──
                 applyUtFilters() { this.utPage = 0; this.load(); },
+                // 검색어 입력 — 키 입력마다 서버 재조회를 피하려 300ms 디바운스 후 첫 페이지부터 재조회.
+                onUtSearchInput() {
+                    if (this._utSearchTimer) clearTimeout(this._utSearchTimer);
+                    this._utSearchTimer = setTimeout(() => { this.utPage = 0; this.load(); }, 300);
+                },
+                clearUtSearch() { this.utSearch = ''; this.utPage = 0; this.load(); },
+                // 페이지 크기 변경 — 첫 페이지로 리셋 후 재조회.
+                setUtPageSize(n) { this.utPageSize = +n || 10; this.utPage = 0; this.load(); },
+                // 정렬 헤더 클릭 — 같은 컬럼이면 방향 토글, 다른 컬럼이면 내림차순 시작. 서버 정렬이라 재조회.
+                setUtSort(col) {
+                    if (this.utSort === col) this.utSortDir = this.utSortDir === 'asc' ? 'desc' : 'asc';
+                    else { this.utSort = col; this.utSortDir = 'desc'; }
+                    this.utPage = 0; this.load();
+                },
+                utSortIcon(col) {
+                    if (this.utSort !== col) return 'unfold_more';
+                    return this.utSortDir === 'asc' ? 'arrow_upward' : 'arrow_downward';
+                },
                 prevUtPage() { if (this.utPage === 0) return; this.utPage--; this.load(); },
                 nextUtPage() { if (!this.ut || this.utPage + 1 >= this.ut.maxPage) return; this.utPage++; this.load(); },
+                firstUtPage() { if (this.utPage === 0) return; this.utPage = 0; this.load(); },
+                lastUtPage() { if (!this.ut || this.utPage + 1 >= this.ut.maxPage) return; this.utPage = this.ut.maxPage - 1; this.load(); },
                 // Excel(.xlsx) 다운로드 — 서버(/api/user-tags/excel)가 현재 필터로 조회해 xlsx 를 반환(Content-Disposition attachment).
                 // utQs() 가 기간·검색·System·구분·설비(flow) 필터를 그대로 담는다.
                 exportUtExcel() {

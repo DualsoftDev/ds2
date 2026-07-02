@@ -30,18 +30,6 @@
         .dsp-appbar .spacer { flex: 1; }
         .dsp-main { flex: 1; min-height: 0; padding: 16px 20px 20px; max-width: 1280px; margin: 0 auto; width: 100%; }
 
-        /* ── 콘텐츠 상단 페이지 헤더 (dashboard .dash-toolbar 컨벤션) ── */
-        .set-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; padding-bottom: 12px; border-bottom: 2px solid var(--color-text-primary); }
-        .set-toolbar .set-head { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
-        .set-toolbar .set-index { font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700; color: var(--color-primary); letter-spacing: 0.04em; }
-        .set-toolbar .set-title { font-size: 1.4rem; font-weight: 700; letter-spacing: -0.015em; }
-        .set-live { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; font-variant-numeric: tabular-nums; }
-        .set-live .set-live-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
-        .set-live.is-live { color: var(--color-success); border-color: color-mix(in srgb, var(--color-success) 50%, transparent); }
-        .set-live.is-live .set-live-dot { animation: set-pulse 1.6s ease-in-out infinite; }
-        .set-live.is-poll { color: var(--color-text-secondary); }
-        @keyframes set-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-
         /* ── 유형별 탭 ── */
         .set-tabs { margin-bottom: 18px; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
         /* .set-tabs/.set-tab 룩은 swiss.css 공용 세그먼트/탭 표준(inset+애저)으로 이관 */
@@ -100,6 +88,25 @@
         .set-subhead { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--color-text-secondary); }
         .set-subhead .material-icons { font-size: 16px; color: var(--color-primary); }
         .set-subnote { color: var(--color-text-secondary); display: block; margin-bottom: 10px; font-size: 0.72rem; line-height: 1.5; }
+
+        /* ── 사용자 정의 에러 테이블: 검색/필터/정렬/페이징 ── */
+        .ude-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+        .ude-search { position: relative; display: flex; align-items: center; flex: 1 1 220px; min-width: 180px; }
+        .ude-search > .material-icons { position: absolute; left: 8px; font-size: 18px; color: var(--color-text-secondary); pointer-events: none; }
+        .ude-search .form-field { width: 100%; padding-left: 30px; padding-right: 30px; }
+        .ude-search .btn-icon { position: absolute; right: 4px; width: 24px; height: 24px; min-width: 0; padding: 0; }
+        .ude-search .btn-icon .material-icons { font-size: 16px; }
+        .ude-sel { flex: 0 0 auto; width: auto; min-width: 110px; }
+        /* 결과가 줄어도 문서 높이가 급변하지 않도록 고정 높이 스크롤 영역(필터 변경 시 스크롤 튐 방지) */
+        .ude-scroll { overflow: auto; min-height: 320px; max-height: 60vh; }
+        .ude-table thead th { cursor: pointer; user-select: none; white-space: nowrap; position: sticky; top: 0; z-index: 1; background: var(--color-surface-variant, var(--color-surface)); }
+        .ude-table thead th:hover { color: var(--color-primary); }
+        .ude-sort { font-size: 14px; vertical-align: middle; opacity: 0.6; }
+        .ude-pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; }
+        .ude-pager-info { font-size: 0.75rem; color: var(--color-text-secondary); }
+        .ude-pager-nav { display: flex; align-items: center; gap: 4px; }
+        .ude-pager-nav .btn-sm .material-icons { font-size: 16px; }
+        .ude-pager-page { font-size: 0.75rem; padding: 0 6px; white-space: nowrap; }
         .modal-confirm { max-width: 520px; }
         .modal-confirm h3 { margin: 0 0 12px; font-size: 1.05rem; font-weight: 700; color: var(--color-text-primary); }
         .modal-confirm .msg { white-space: pre-line; color: var(--color-text-secondary); line-height: 1.6; font-size: 0.85rem; max-height: 50vh; overflow-y: auto; }
@@ -167,19 +174,6 @@
 
         <main class="dsp-main">
 
-            <!-- 콘텐츠 페이지 헤더: 번호 인덱스 + 제목 + 실시간 상태 -->
-            <div class="set-toolbar">
-                <div class="set-head">
-                    <span class="set-title">시스템 설정</span>
-                </div>
-                <div class="spacer"></div>
-                <span class="set-live" :class="rt.connected ? 'is-live' : 'is-poll'"
-                      :title="rt.connected ? 'SignalR 실시간 연결됨' : '연결 대기'">
-                    <span class="set-live-dot"></span>
-                    <span x-text="rt.connected ? 'LIVE · 실시간' : 'IDLE · 대기'"></span>
-                </span>
-            </div>
-
             <!-- 로딩 -->
             <div x-show="loading && !s" class="progress-bar progress-bar-indeterminate mb-4">
                 <div class="progress-bar-fill"></div>
@@ -187,31 +181,33 @@
 
             <template x-if="s">
                 <div class="settings-page">
-                    <!-- 상단 액션 -->
-                    <div class="settings-actions">
-                        <button class="btn btn-outlined color-default" @click="reload()" :disabled="busy">
-                            <span class="material-icons">refresh</span> 되돌리기
-                        </button>
-                        <button class="btn" :class="settingsDirty ? 'btn-filled' : ''" @click="save()" :disabled="busy">
-                            <span class="material-icons">save</span> <span x-text="settingsDirty ? '저장*' : '저장'"></span>
-                        </button>
-                    </div>
+                    <!-- 상단 툴바 — (왼쪽) 유형별 탭 + (오른쪽) 되돌리기/저장.
+                         이상·알람 분석 페이지의 .ds-topbar 레이아웃과 통일(별도 제목 헤더 없음). -->
+                    <div class="ds-topbar">
+                        <nav class="set-tabs" role="tablist" style="margin-bottom:0;">
+                            <button class="set-tab" :class="{ 'is-active': activeTab === 'general' }" @click="setTab('general')" role="tab">
+                                <span class="material-icons">settings</span> 일반
+                            </button>
+                            <button class="set-tab" :class="{ 'is-active': activeTab === 'monitoring' }" @click="setTab('monitoring')" role="tab">
+                                <span class="material-icons">speed</span> 모니터링·정합
+                            </button>
+                            <button class="set-tab" :class="{ 'is-active': activeTab === 'anomaly' }" @click="setTab('anomaly')" role="tab">
+                                <span class="material-icons">filter_list</span> 이상치·알람
+                            </button>
+                            <button class="set-tab" :class="{ 'is-active': activeTab === 'data' }" @click="setTab('data')" role="tab">
+                                <span class="material-icons">storage</span> 모델·데이터
+                            </button>
+                        </nav>
 
-                    <!-- 유형별 탭 — 카드는 activeTab 으로 표시/숨김, 멀티컬럼이 보이는 카드만 균형 배치 -->
-                    <nav class="set-tabs" role="tablist">
-                        <button class="set-tab" :class="{ 'is-active': activeTab === 'general' }" @click="setTab('general')" role="tab">
-                            <span class="material-icons">settings</span> 일반
-                        </button>
-                        <button class="set-tab" :class="{ 'is-active': activeTab === 'monitoring' }" @click="setTab('monitoring')" role="tab">
-                            <span class="material-icons">speed</span> 모니터링·정합
-                        </button>
-                        <button class="set-tab" :class="{ 'is-active': activeTab === 'anomaly' }" @click="setTab('anomaly')" role="tab">
-                            <span class="material-icons">filter_list</span> 이상치·알람
-                        </button>
-                        <button class="set-tab" :class="{ 'is-active': activeTab === 'data' }" @click="setTab('data')" role="tab">
-                            <span class="material-icons">storage</span> 모델·데이터
-                        </button>
-                    </nav>
+                        <div class="ds-topbar-actions" style="justify-content:flex-end;">
+                            <button class="btn btn-sm btn-outlined color-default" @click="reload()" :disabled="busy">
+                                <span class="material-icons">refresh</span> 되돌리기
+                            </button>
+                            <button class="btn btn-sm" :class="settingsDirty ? 'btn-filled' : ''" @click="save()" :disabled="busy">
+                                <span class="material-icons">save</span> <span x-text="settingsDirty ? '저장*' : '저장'"></span>
+                            </button>
+                        </div>
+                    </div>
 
                     <div class="settings-grid">
 
@@ -477,21 +473,59 @@
                                     </div>
                                     <div x-show="ude.loading" class="progress-bar progress-bar-indeterminate" style="margin-bottom:8px;"><div class="progress-bar-fill"></div></div>
                                     <template x-if="!ude.loading && ude.items.length > 0">
-                                        <div style="overflow-x:auto;">
-                                            <table class="ds-table">
-                                                <thead><tr><th>System</th><th>이름</th><th>주소</th><th>타입</th><th>매칭 조건</th></tr></thead>
-                                                <tbody>
-                                                    <template x-for="(d, i) in ude.items" :key="i">
-                                                        <tr>
-                                                            <td data-label="System" x-text="d.systemName"></td>
-                                                            <td data-label="이름"><strong x-text="d.name"></strong></td>
-                                                            <td data-label="주소"><span style="font-family:var(--font-mono);" x-text="d.tagAddress"></span></td>
-                                                            <td data-label="타입" x-text="d.valueType"></td>
-                                                            <td data-label="매칭 조건" x-text="describeUdeOp(d.matchOp, d.matchValue)"></td>
-                                                        </tr>
-                                                    </template>
-                                                </tbody>
-                                            </table>
+                                        <div>
+                                            <!-- 툴바: 검색 + 페이지 크기 -->
+                                            <div class="ude-toolbar">
+                                                <div class="ude-search">
+                                                    <span class="material-icons">search</span>
+                                                    <input type="text" class="form-field" placeholder="이름·주소·조건 검색" x-model="ude.q" @input="udeResetPage()" />
+                                                    <button x-show="ude.q" class="btn-icon" @click="ude.q=''; udeResetPage()" title="지우기"><span class="material-icons">close</span></button>
+                                                </div>
+                                                <select class="form-field ude-sel" x-model.number="ude.pageSize" @change="udeResetPage()">
+                                                    <option :value="20">20개씩</option>
+                                                    <option :value="50">50개씩</option>
+                                                    <option :value="100">100개씩</option>
+                                                </select>
+                                            </div>
+                                            <div class="ude-scroll">
+                                                <table class="ds-table ude-table">
+                                                    <thead><tr>
+                                                        <th @click="udeSort('systemName')">System <span class="material-icons ude-sort" x-text="udeSortIcon('systemName')"></span></th>
+                                                        <th @click="udeSort('name')">이름 <span class="material-icons ude-sort" x-text="udeSortIcon('name')"></span></th>
+                                                        <th @click="udeSort('tagAddress')">주소 <span class="material-icons ude-sort" x-text="udeSortIcon('tagAddress')"></span></th>
+                                                        <th @click="udeSort('valueType')">타입 <span class="material-icons ude-sort" x-text="udeSortIcon('valueType')"></span></th>
+                                                        <th @click="udeSort('match')">매칭 조건 <span class="material-icons ude-sort" x-text="udeSortIcon('match')"></span></th>
+                                                    </tr></thead>
+                                                    <tbody>
+                                                        <template x-for="d in udePaged" :key="d.tagAddress + '|' + d.name">
+                                                            <tr>
+                                                                <td data-label="System" x-text="d.systemName"></td>
+                                                                <td data-label="이름"><strong x-text="d.name"></strong></td>
+                                                                <td data-label="주소"><span style="font-family:var(--font-mono);" x-text="d.tagAddress"></span></td>
+                                                                <td data-label="타입" x-text="d.valueType"></td>
+                                                                <td data-label="매칭 조건" x-text="describeUdeOp(d.matchOp, d.matchValue)"></td>
+                                                            </tr>
+                                                        </template>
+                                                        <template x-if="udeFiltered.length === 0">
+                                                            <tr><td colspan="5" style="text-align:center; color:var(--text-secondary); padding:16px;">검색 조건에 맞는 항목이 없습니다.</td></tr>
+                                                        </template>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                            <!-- 페이징 -->
+                                            <div class="ude-pager" x-show="udeFiltered.length > 0">
+                                                <span class="ude-pager-info">
+                                                    총 <strong x-text="udeFiltered.length"></strong>건 ·
+                                                    <span x-text="(ude.page * ude.pageSize + 1)"></span>–<span x-text="Math.min((ude.page + 1) * ude.pageSize, udeFiltered.length)"></span>
+                                                </span>
+                                                <div class="ude-pager-nav">
+                                                    <button class="btn btn-sm btn-outlined" @click="ude.page = 0" :disabled="ude.page === 0" title="처음"><span class="material-icons">first_page</span></button>
+                                                    <button class="btn btn-sm btn-outlined" @click="udePrevPage()" :disabled="ude.page === 0">이전</button>
+                                                    <span class="ude-pager-page"><span x-text="ude.page + 1"></span> / <span x-text="udeMaxPage"></span></span>
+                                                    <button class="btn btn-sm btn-outlined" @click="udeNextPage()" :disabled="ude.page + 1 >= udeMaxPage">다음</button>
+                                                    <button class="btn btn-sm btn-outlined" @click="ude.page = udeMaxPage - 1" :disabled="ude.page + 1 >= udeMaxPage" title="마지막"><span class="material-icons">last_page</span></button>
+                                                </div>
+                                            </div>
                                         </div>
                                     </template>
                                     <template x-if="!ude.loading && ude.items.length === 0 && !ude.error">
@@ -840,7 +874,8 @@
                 activeTab: 'general', // 유형별 탭: general | monitoring | anomaly | data (기본=일반)
                 scanMs: 100, scanConnected: false, // PLC 스캔 주기 (Agent 동기화 — 기본 100ms)
                 autoCalibrate: true, // 자동 duration 정합 ON/OFF (Agent 동기화)
-                ude: { loading: false, items: [], error: '' }, // 사용자 정의 에러(UserTag 정의) 읽기전용 목록
+                // 사용자 정의 에러(UserTag 정의) 읽기전용 목록 — filter/sort/page 클라이언트 처리
+                ude: { loading: false, items: [], error: '', q: '', sortKey: 'name', sortDir: 'asc', page: 0, pageSize: 20 },
 
                 async init() {
                     const savedTab = localStorage.getItem(this.TAB_KEY);
@@ -878,6 +913,41 @@
                         default: return op || '?';
                     }
                 },
+                // 검색어 필터 + 정렬 적용된 전체 목록
+                get udeFiltered() {
+                    const q = (this.ude.q || '').trim().toLowerCase();
+                    let list = (this.ude.items || []).filter(d => {
+                        if (q) {
+                            const hay = [d.systemName, d.name, d.tagAddress, d.valueType, this.describeUdeOp(d.matchOp, d.matchValue)]
+                                .map(x => (x || '').toString().toLowerCase()).join(' ');
+                            if (!hay.includes(q)) return false;
+                        }
+                        return true;
+                    });
+                    const key = this.ude.sortKey, dir = this.ude.sortDir === 'asc' ? 1 : -1;
+                    const val = (d) => key === 'match' ? this.describeUdeOp(d.matchOp, d.matchValue) : (d[key] ?? '');
+                    return [...list].sort((a, b) => dir * val(a).toString().localeCompare(val(b).toString(), undefined, { numeric: true }));
+                },
+                get udeMaxPage() { return Math.max(1, Math.ceil(this.udeFiltered.length / this.ude.pageSize)); },
+                // 현재 페이지에 표시할 항목
+                get udePaged() {
+                    const start = this.ude.page * this.ude.pageSize;
+                    return this.udeFiltered.slice(start, start + this.ude.pageSize);
+                },
+                // 정렬 열 헤더 클릭 — 같은 열이면 방향 토글, 다른 열이면 오름차순 시작
+                udeSort(key) {
+                    if (this.ude.sortKey === key) this.ude.sortDir = this.ude.sortDir === 'asc' ? 'desc' : 'asc';
+                    else { this.ude.sortKey = key; this.ude.sortDir = 'asc'; }
+                    this.ude.page = 0;
+                },
+                udeSortIcon(key) {
+                    if (this.ude.sortKey !== key) return 'unfold_more';
+                    return this.ude.sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward';
+                },
+                // 필터 변경 시 첫 페이지로
+                udeResetPage() { this.ude.page = 0; },
+                udePrevPage() { if (this.ude.page > 0) this.ude.page--; },
+                udeNextPage() { if (this.ude.page + 1 < this.udeMaxPage) this.ude.page++; },
 
                 // ── 자동 duration 정합 — Agent abnormal 판정 기준(실측 학습 ↔ 모델 확정값) 전환. 전 인스턴스 동기화.
                 async loadAutoCalibrate() {

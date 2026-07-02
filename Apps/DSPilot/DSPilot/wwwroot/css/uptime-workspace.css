@@ -117,6 +117,23 @@
         @media (max-width: 900px) { .up-ut-chart-row { grid-template-columns: 1fr; } }
         .up-ut-toolrow { display: flex; gap: 8px; align-items: center; }
 
+        /* ── 알람 이력 테이블: 검색/정렬/페이지 크기/페이징 (설정 페이지와 동일 스타일) ── */
+        .ut-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+        .ut-search { position: relative; display: flex; align-items: center; flex: 1 1 200px; min-width: 160px; max-width: 320px; }
+        .ut-search > .material-icons { position: absolute; left: 8px; font-size: 18px; color: var(--color-text-secondary); pointer-events: none; }
+        .ut-search .form-field { width: 100%; padding-left: 30px; padding-right: 30px; }
+        .ut-search .btn-icon { position: absolute; right: 4px; width: 24px; height: 24px; min-width: 0; padding: 0; }
+        .ut-search .btn-icon .material-icons { font-size: 16px; }
+        .ut-sel { flex: 0 0 auto; width: auto; min-width: 100px; }
+        .ut-table thead th.ut-th-sort { cursor: pointer; user-select: none; white-space: nowrap; }
+        .ut-table thead th.ut-th-sort:hover { color: var(--color-primary); }
+        .ut-sort { font-size: 14px; vertical-align: middle; opacity: 0.6; }
+        .ut-pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; }
+        .ut-pager-info { font-size: 0.75rem; color: var(--color-text-secondary); }
+        .ut-pager-nav { display: flex; align-items: center; gap: 4px; }
+        .ut-pager-nav .btn-sm .material-icons { font-size: 16px; }
+        .ut-pager-page { font-size: 0.75rem; padding: 0 6px; white-space: nowrap; }
+
         /* ── 정지 이벤트 로그 테이블 (필터 + 분류/수리 인라인 액션) ── */
         .up-filter-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
         .up-chip { padding: 4px 10px; font-size: 0.72rem; font-weight: 700; border: 1px solid var(--color-lines-strong); border-radius: 999px; background: var(--color-surface); color: var(--color-text-secondary); cursor: pointer; }
