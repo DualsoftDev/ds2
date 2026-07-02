@@ -285,8 +285,8 @@ var canonicalStaticRoutes = new Dictionary<string, string>(StringComparer.Ordina
     ["/settings"] = "settings.html",
     ["/flow"] = "flow.html",
     ["/flow-trend"] = "flow-trend.html",
-    ["/flow-cycle"] = "flow-cycle.html",
-    ["/flow-all"] = "flow-all.html",
+    ["/flow-cycle"] = "flow-cycle.html",   // ?name= 단일 · 매개변수 없음/?system= 전체 편집(bulkCycleApp)
+    // 구 /flow-all(전체 편집)은 아래 legacyRedirects 에서 /flow-cycle 로 302(쿼리 보존). flow-all.html 은 사용 중단.
     ["/pw"] = "pw.html",
 };
 // 구 통합 경로 → 물리 분리 페이지 리다이렉트(가동시간·이상 분리, 2026-07-01). 쿼리스트링 보존.
@@ -295,6 +295,8 @@ var legacyRedirects = new Dictionary<string, string>(StringComparer.OrdinalIgnor
 {
     ["/uptime"] = "/uptime-oee",
     ["/oee"] = "/uptime-oee",
+    // 전체 편집 통합(2026-07-02): /flow-all → /flow-cycle (매개변수 없음/?system= 전체 편집). 쿼리 보존.
+    ["/flow-all"] = "/flow-cycle",
 };
 app.Use(async (context, next) =>
 {

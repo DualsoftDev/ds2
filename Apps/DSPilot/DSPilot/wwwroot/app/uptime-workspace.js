@@ -42,8 +42,8 @@
                 _utSeq: 0, _oeeSeq: 0,
                 // utCategory = 구분 필터 ('' 전체 | 'abnormal' | 'usertag'). 레벨은 서버가 Error 로 통일(클라 미노출).
                 utPage: 0, utSearch: '', utCategory: '', utSystem: '', actionOverHint: [],
-                // 태그별 Top 10 그룹 기준: 'name'(유형/이름별 — abnormal 은 4종으로 묶임) | 'path'(경로별로 펼침).
-                topGroupBy: 'name',
+                // 태그별 Top 10 그룹 기준: 'path'(경로별로 펼침 — 기본) | 'name'(유형/이름별 — abnormal 은 4종으로 묶임).
+                topGroupBy: 'path',
                 _focusAt: null, // 피드에서 at 으로 진입 시 스크롤·하이라이트할 알람 행 키(occurredAtLocal 초단위)
                 _charts: null,
                 dailyData: null,
@@ -53,6 +53,7 @@
 
                 // 신규 OEE 상태
                 oee: null, oeeError: null,
+                oeeExporting: false,   // OEE Excel 내보내기 진행 중
                 planTime: null, // /api/oee/plan-time — 계획시간 폴백 체인 + 14일 히스토그램
                 downtime: [], ranking: [],
                 dtFilterStatus: 'all', dtFilterFault: 'all', // 'all'|'fault'|'maintenance'
@@ -466,7 +467,9 @@
                     if (this.view === 'oee') return; // 이상·알람 차트는 OEE 전용 페이지에 캔버스 없음
                     if (!this._charts || !this.ut) return;
                     try {
-                        this._charts.renderTrendChart('ut-trend-chart', this.ut.buckets || [], this.ut.granularity);
+                        // 설비별 보기는 자동감지만(USERTAG 는 Flow 에 속하지 않음) → 트렌드도 자동감지 단일 시리즈.
+                        this._charts.renderTrendChart('ut-trend-chart', this.ut.buckets || [], this.ut.granularity,
+                            this.curFlow ? ['ABNORMAL'] : ['ABNORMAL', 'USERTAG']);
                         const topSrc = this.topGroupBy === 'path' ? this.ut.topRowsByPath : this.ut.topRows;
                         this._charts.renderTopChart('ut-top-chart', (topSrc || []).slice(0, 10));
                     } catch (e) { console.warn('chart draw failed', e); }
@@ -483,6 +486,17 @@
                 applyUtFilters() { this.utPage = 0; this.load(); },
                 prevUtPage() { if (this.utPage === 0) return; this.utPage--; this.load(); },
                 nextUtPage() { if (!this.ut || this.utPage + 1 >= this.ut.maxPage) return; this.utPage++; this.load(); },
+                // Excel(.xlsx) 다운로드 — 서버(/api/user-tags/excel)가 현재 필터로 조회해 xlsx 를 반환(Content-Disposition attachment).
+                // utQs() 가 기간·검색·System·구분·설비(flow) 필터를 그대로 담는다.
+                exportUtExcel() {
+                    if (!this.ut || !this.ut.alerts || this.ut.alerts.length === 0) return;
+                    const url = '/api/user-tags/excel?' + this.utQs() + '&limit=100000';
+                    const a = document.createElement('a');
+                    a.href = url;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                },
                 async exportUtCsv() {
                     if (!this.ut) return;
                     if (!this._charts) { this.error = 'CSV 모듈이 로드되지 않았습니다 — 페이지를 새로고침한 뒤 다시 시도하세요.'; return; }
@@ -524,6 +538,116 @@
                         this.oeeError = 'OEE 데이터를 불러오지 못했습니다: ' + e.message;
                     }
                     this.$nextTick(() => this.drawDailyChart());
+                },
+
+                // ── 내보내기 (OEE 종합) ─────────────────────────────────────────────
+                // CSV = 데이터 전용(요약 KPI + 설비별 순위 + 정지 이벤트, 3 섹션). 서버 미경유 — 클라이언트에서 즉시 빌드.
+                // Excel = 화면 상태(요약·순위·정지) + 일자별 추이 차트(캔버스 캡처)를 서버(OeeExcelExporter)가 렌더 → WYSIWYG.
+                oeeExportName() { return this.curFlow ? this.curFlow : '라인전체'; },
+                _stamp() { const t = new Date(); const p = (x) => String(x).padStart(2, '0'); return `${t.getFullYear()}${p(t.getMonth() + 1)}${p(t.getDate())}_${p(t.getHours())}${p(t.getMinutes())}${p(t.getSeconds())}`; },
+                _csvEscape(v) { if (v == null) return ''; const s = String(v); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; },
+                _wallOf(iso) { if (!iso) return ''; const d = new Date(iso); if (isNaN(d)) return String(iso); const p = (x) => String(x).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; },
+                _downloadBlob(filename, blob) {
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a'); a.href = url; a.download = filename;
+                    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+                },
+
+                exportOeeCsv() {
+                    const o = this.oee;
+                    if (!o) return;
+                    const E = (v) => this._csvEscape(v);
+                    const pctv = (v) => (v == null ? '' : (v * 100).toFixed(1));
+                    const sec = (ms) => (ms == null ? '' : (ms / 1000).toFixed(1));
+                    const r = this.rangeForPeriod();
+                    const out = [];
+                    out.push('OEE 종합 데이터');
+                    out.push(['설비', E(this.curFlow || '라인 전체')].join(','));
+                    out.push(['기간', E(this._wallOf(r.from) + ' ~ ' + this._wallOf(r.to))].join(','));
+                    out.push('');
+                    out.push('[OEE 종합 지표]');
+                    out.push('지표,값(%),비고');
+                    out.push(['OEE', pctv(o.oee), ''].join(','));
+                    out.push(['가용성 A', pctv(o.availability), E(o.availabilitySource || '')].join(','));
+                    out.push(['성능 P', pctv(o.performance), '14일 평균'].join(','));
+                    out.push(['품질 Q', pctv(o.quality), E(o.qualitySource || '')].join(','));
+                    out.push(['MTBF', '', E(this.durShort(o.mtbf))].join(','));
+                    out.push(['MTTR', '', E(this.durShort(o.mttr))].join(','));
+                    out.push(['정지 건수', o.downtimeCount != null ? o.downtimeCount : '', ''].join(','));
+                    out.push(['정지 시간', '', E(this.durShort(o.downtimeMs))].join(','));
+                    out.push('');
+                    out.push('[설비별 OEE 순위]');
+                    out.push('순위,설비,OEE(%),가용성(%),성능(%),품질(%),정지건수,정지시간(초),생산수');
+                    this.ranking.forEach((rk, i) => out.push([
+                        i + 1, E(rk.flowName), pctv(rk.oee), pctv(rk.availability), pctv(rk.performance), pctv(rk.quality),
+                        rk.downtimeCount != null ? rk.downtimeCount : 0, sec(rk.downtimeMs), rk.totalCount != null ? rk.totalCount : 0,
+                    ].join(',')));
+                    out.push('');
+                    out.push('[정지 이벤트]');
+                    out.push('발생,복구,지속(초),설비,장치,구분,감지,상태');
+                    this.downtime.forEach(d => out.push([
+                        E(this._wallOf(d.startAt)), E(d.endAt ? this._wallOf(d.endAt) : ''), sec(d.durationMs),
+                        E(d.flowName || d.systemName || ''), E(d.deviceName || ''),
+                        d.isFailure ? '고장' : '유지보수', E(d.detectSource || ''), d.status === 'open' ? '진행중' : '복구',
+                    ].join(',')));
+                    const text = '﻿' + out.join('\r\n');
+                    this._downloadBlob(`OEE_${this.oeeExportName()}_${this._stamp()}.csv`, new Blob([text], { type: 'text/csv;charset=utf-8' }));
+                },
+
+                async exportOeeExcel() {
+                    if (!this.oee || this.oeeExporting) return;
+                    this.oeeExporting = true; this.oeeError = null;
+                    try {
+                        const o = this.oee;
+                        const r = this.rangeForPeriod();
+                        // 일자별/시간별 추이 차트(캔버스 캡처) — WYSIWYG.
+                        const images = [];
+                        const cv = document.getElementById('up-daily-chart');
+                        if (cv) {
+                            try {
+                                const rc = cv.getBoundingClientRect();
+                                images.push({
+                                    name: (this.dailyData && this.dailyData.granularity === 'hour' ? '시간별 추이' : '일자별 추이') + ' (가동·고장·유지보수·비생산)',
+                                    dataUrl: cv.toDataURL('image/png'), width: Math.round(rc.width), height: Math.round(rc.height),
+                                });
+                            } catch (e) { /* 캡처 실패는 무시(데이터 시트는 정상 생성) */ }
+                        }
+                        const ac = this.availComp;
+                        const model = {
+                            title: this.curFlow || '라인 전체',
+                            systemName: null,
+                            flowName: this.curFlow || null,
+                            periodStart: r.from, periodEnd: r.to,
+                            kpi: {
+                                oee: o.oee, availability: o.availability, performance: o.performance, quality: o.quality,
+                                mtbf: o.mtbf, mttr: o.mttr,
+                                availabilitySource: o.availabilitySource, qualitySource: o.qualitySource,
+                                downtimeCount: o.downtimeCount, downtimeMs: o.downtimeMs, ctThresholdMs: o.ctThresholdMs,
+                                normalCycleCount: o.normalCycleCount, failureCount: o.failureCount,
+                                goodCount: o.goodCount, totalCount: o.totalCount,
+                            },
+                            availComp: (ac && ac.hasData) ? { mode: ac.mode, runLabel: ac.runLabel, runMs: ac.runMs, runPct: ac.runPct, stopLabel: ac.stopLabel, stopMs: ac.stopMs, stopPct: ac.stopPct } : null,
+                            faultSegs: this.faultDist.segs.map(s => ({ label: s.label, ms: s.ms, share: s.share })),
+                            ranking: this.ranking.map(rk => ({ flowName: rk.flowName, oee: rk.oee, availability: rk.availability, performance: rk.performance, quality: rk.quality, downtimeCount: rk.downtimeCount, downtimeMs: rk.downtimeMs, totalCount: rk.totalCount })),
+                            downtime: this.downtime.map(d => ({ startAt: d.startAt, endAt: d.endAt, durationMs: d.durationMs, flowName: d.flowName || d.systemName, deviceName: d.deviceName, isFailure: !!d.isFailure, detectSource: d.detectSource, status: d.status })),
+                            images,
+                        };
+                        const res = await fetch('/api/oee/export-excel', {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(model),
+                        });
+                        if (!res.ok) throw new Error('HTTP ' + res.status);
+                        let fn = `OEE_${this.oeeExportName()}_${this._stamp()}.xlsx`;
+                        const cd = res.headers.get('Content-Disposition');
+                        if (cd) {
+                            const star = cd.match(/filename\*=(?:UTF-8'')?([^;]+)/i);
+                            const plain = cd.match(/filename="?([^";]+)"?/i);
+                            if (star) { try { fn = decodeURIComponent(star[1].trim()); } catch (_) {} }
+                            else if (plain) { fn = plain[1].trim(); }
+                        }
+                        this._downloadBlob(fn, await res.blob());
+                    } catch (e) {
+                        this.oeeError = 'Excel 내보내기 실패: ' + e.message;
+                    } finally { this.oeeExporting = false; }
                 },
 
                 drawDailyChart() {

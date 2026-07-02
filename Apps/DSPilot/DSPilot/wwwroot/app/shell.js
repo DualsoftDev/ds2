@@ -339,10 +339,11 @@
         var curFlowName = onFlowPage ? (qs.get('name') || '') : '';
         // 현재 페이지의 분석 유형: 'trend'(추이 분석) | 'cycle'(사이클 분석) | ''(구 /flow — 특정 분석 아님).
         var curFlowView = path === '/flow-trend' ? 'trend' : (path === '/flow-cycle' ? 'cycle' : '');
-        // 사이클 분석 '전체 편집'(/flow-all) — 한 시스템의 모든 Flow 사이클 간트 일괄 편집.
-        //   사이클 분석 그룹의 '전체' 버튼이 진입점(?system=<시스템명>). 그 시스템 행/그룹을 강조·자동펼침.
-        var onFlowAllPage = path === '/flow-all';
-        var flowAllSystem = onFlowAllPage ? (qs.get('system') || '') : '';
+        // 사이클 분석 '전체'(= /flow-cycle 에 ?name= 없이 진입) — 모든 Flow 사이클 간트 일괄 편집(bulkCycleApp).
+        //   사이클 분석.설정 그룹의 '전체' 버튼이 진입점: /flow-cycle?system=<시스템명>(그 시스템 Flow만).
+        //   매개변수 없음 = 전 시스템 모든 Flow. 어느 쪽이든 그 시스템 행/그룹을 강조·자동펼침.
+        var onFlowCycleBulk = path === '/flow-cycle' && !qs.get('name');
+        var flowCycleSystem = onFlowCycleBulk ? (qs.get('system') || '') : '';
 
         // 동작편차/OEE 종합/이상·알람 페이지 — 그룹은 ?flow= 로 이동. 현재 페이지+선택 Flow 로 강조/자동펼침.
         var onHeatmapPage = (path === '/heatmap');
@@ -468,9 +469,9 @@
             systems.forEach(function (sys) {
                 var flows = sys.flows || [];
                 var sysHasCurrent =
-                       (onFlowPage    && flows.indexOf(curFlowName) !== -1)
-                    || (onFlowAllPage && flowAllSystem === sys.name)
-                    || (onHeatmapPage && flows.indexOf(heatmapFlow) !== -1)
+                       (onFlowPage      && flows.indexOf(curFlowName) !== -1)
+                    || (onFlowCycleBulk && flowCycleSystem === sys.name)
+                    || (onHeatmapPage   && flows.indexOf(heatmapFlow) !== -1)
                     || (onOeePage     && flows.indexOf(oeeFlow)     !== -1)
                     || (onAlarmPage   && flows.indexOf(alarmFlow)   !== -1);
 
@@ -490,13 +491,13 @@
                 // 5개 분석/페이지 그룹 — 각각 이 시스템의 FLOW 리스트. Flow 클릭 → 해당 페이지?쿼리= 이동.
                 //   추이/사이클 = ?name= (/flow-trend·/flow-cycle), 동작편차/OEE/이상·알람 = ?flow= (해당 페이지가 설비 필터).
                 var gTrend = buildAnalysisGroup(flows, '추이 분석',  'timeline',      '/flow-trend',   'name', onFlowPage && curFlowView === 'trend', curFlowName, false, true);
-                // 사이클 분석: base(/flow-cycle) 는 단일 Flow. '전체' 는 /flow-all?system= (모든 Flow 간트 일괄 편집)로 보낸다.
-                //   그룹은 /flow-cycle(단일) 이든 /flow-all(전체) 이든 이 시스템에 속하면 활성/자동펼침.
-                var cycleActive = (onFlowPage && curFlowView === 'cycle') || (onFlowAllPage && flowAllSystem === sys.name);
-                var gCycle = buildAnalysisGroup(flows, '사이클 분석', 'account_tree',  '/flow-cycle',   'name', cycleActive, curFlowName, false, true, {
-                    href: '/flow-all?system=' + encodeURIComponent(sys.name),
-                    active: onFlowAllPage && flowAllSystem === sys.name,
-                    label: '전체 편집',
+                // 사이클 분석.설정: base(/flow-cycle?name=) 는 단일 Flow. '전체' 는 /flow-cycle?system= (그 시스템 모든
+                //   Flow 간트 일괄 편집)로 보낸다. 그룹은 단일(?name=)이든 전체(bulk)이든 이 시스템이면 활성/자동펼침.
+                var cycleActive = (onFlowPage && curFlowView === 'cycle') || (onFlowCycleBulk && flowCycleSystem === sys.name);
+                var gCycle = buildAnalysisGroup(flows, '사이클 분석.설정', 'account_tree',  '/flow-cycle',   'name', cycleActive, curFlowName, false, true, {
+                    href: '/flow-cycle?system=' + encodeURIComponent(sys.name),
+                    active: onFlowCycleBulk && flowCycleSystem === sys.name,
+                    label: '전체',
                     title: '이 시스템의 모든 Flow 사이클 간트를 한 화면에서 일괄 조회·편집'
                 });
                 var gHeat  = buildAnalysisGroup(flows, '동작편차',    'gradient',      '/heatmap',      'flow', onHeatmapPage, heatmapFlow, false, true);

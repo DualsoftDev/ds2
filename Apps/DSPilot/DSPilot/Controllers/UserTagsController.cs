@@ -166,6 +166,30 @@ public class UserTagsController : ControllerBase
         return all.Select(ToAlertDto).ToList();
     }
 
+    /// <summary>Excel(.xlsx) 내보내기 — 현재 필터의 전체 알림을 단일 시트 테이블로. CSV(/alerts)와 동일 데이터원.</summary>
+    [HttpGet("excel")]
+    public async Task<IActionResult> GetExcel(
+        [FromQuery] string period = "today",
+        [FromQuery] string? search = null,
+        [FromQuery] string? category = null,
+        [FromQuery] string? system = null,
+        [FromQuery] string? flow = null,        // 설비(Flow)명 — 자동감지(Abnormal)만 그 Flow 로 필터
+        [FromQuery] int limit = 100000,
+        [FromQuery] DateTime? from = null,
+        [FromQuery] DateTime? to = null,
+        CancellationToken ct = default)
+    {
+        var (startLocal, endLocal, _) = ResolvePeriod(period, from, to);
+        var flw = Blank(flow);
+        var cat = flw is null ? Blank(category) : null; // flow 필터 시 구분 필터 무시(snapshot 과 동일)
+        var all = await _repo.QueryAlertsAsync(
+            startLocal.ToUniversalTime(), endLocal.ToUniversalTime(),
+            Blank(search), DisplayLevel, Blank(system), cat, limit, 0, ct, flowFilter: flw);
+        var bytes = UserTagAlertExcelExporter.Build(all, startLocal, endLocal, flw);
+        var fn = $"UserTagAlerts_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
+        return File(bytes, UserTagAlertExcelExporter.XlsxMimeType, fn);
+    }
+
     private static UtAlertDto ToAlertDto(UserTagAlertRecord a) => new(
         a.OccurredAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss.fff"),
         a.LogLevel, a.SystemName, a.Name, a.TagAddress, a.ValueType, a.MatchOp, a.MatchValue, a.ActualValue);

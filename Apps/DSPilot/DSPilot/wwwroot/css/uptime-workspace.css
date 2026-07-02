@@ -176,6 +176,8 @@
         /* ── 기간 직접 선택 ── */
         .up-period-input { padding: 5px 8px; font-size: 0.78rem; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-primary); font-family: var(--font-mono); }
         .up-custom-range { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+        /* 내보내기 버튼 그룹 (기간 UI 옆) */
+        .up-dl-group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
         /* ── 디바이스 알람 차단 (모달 + 알림 행 바로가기) ── */
         .up-blk-overlay { position: fixed; inset: 0; background: rgba(10, 15, 22, 0.42); display: flex; align-items: center; justify-content: center; z-index: 2000; backdrop-filter: blur(2px); }

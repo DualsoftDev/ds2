@@ -24,15 +24,10 @@
         .dsp-appbar { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 20px; background: var(--color-appbar-bg); color: var(--color-appbar-text); border-bottom: 1px solid var(--color-lines-strong); position: sticky; top: 0; z-index: 50; flex-shrink: 0; }
         .dsp-appbar .dsp-title { font-size: 18px; font-weight: 700; }
         .dsp-appbar .spacer { flex: 1; }
-        .dsp-main { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px 20px 24px; }
+        .dsp-main { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px 20px 24px; max-width: 1400px; margin: 0 auto; width: 100%; }
 
         /* ── 데이터 카운트 pill (ds-topbar 액션 영역) ── */
         .hm-count { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-lg); font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-secondary); font-variant-numeric: tabular-nums; background: var(--color-surface); }
-
-        /* ── 컨트롤 패널 폼 라벨/필드 ── */
-        .hm-control-grid { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; }
-        .hm-field-filter { flex: 1; min-width: 220px; max-width: 420px; }
-        .hm-control-actions { flex: 0 0 auto; display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
 
         /* ── 4-up KPI 계기판 (metric-strip 셀) ── */
         .hm-kpi-label { font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--color-text-disabled); }
@@ -44,10 +39,7 @@
         .hm-legend-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
         .hm-legend-bar .heatmap-legend-item { margin: 0; }
 
-        /* ── 보기 전환 세그먼트 (flow-call 매트릭스 ⇄ 테이블 나열) ── */
-        .hm-view-switch { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-        /* .hm-seg 룩은 swiss.css 공용 세그먼트 컨트롤(.segmented/.ct-seg/.hm-seg 통일)로 이관 */
-        .hm-view-hint { font-size: 0.72rem; color: var(--color-text-secondary); font-weight: 600; }
+        /* 보기 전환 세그먼트는 상단 .ds-topbar 로 이동(swiss.css 공용 .segmented 룩 사용) */
 
         /* ── Call 블럭 그리드(디바이스 카드) — mockup p3(P2) "색으로 즉시 진단" UX ──
            편차 등급은 변동계수 CV=σ/평균(평균 대비) 4구간 파생. takt/표준 시간 미사용. */
@@ -137,11 +129,11 @@
             .dsp-appbar .dsp-title { font-size: 16px; }
             .dsp-main { padding: 12px 12px 20px; }
 
-            /* Flow 필터: 한 줄 전체폭 */
-            .hm-control-grid { gap: 10px; }
-            .hm-field-filter { min-width: auto; max-width: 100%; flex-basis: 100%; }
-            .hm-control-actions { flex-basis: 100%; }
-            .hm-control-actions .btn { flex: 1 1 auto; justify-content: center; }
+            /* 상단 툴바(.ds-topbar): 액션이 좁아서 줄바꿈 + 버튼 꽉 채움 */
+            .ds-topbar-actions { width: 100%; }
+            .ds-topbar-actions .btn { flex: 1 1 auto; justify-content: center; }
+            .ds-topbar-actions .segmented { flex: 1 1 100%; }
+            .ds-topbar-actions .segmented > button { flex: 1 1 50%; justify-content: center; }
 
             /* KPI 계기판: 4-up 이 좁아서 값/라벨 축소 */
             .hm-kpi-value { font-size: 1.25rem; }
@@ -151,12 +143,6 @@
             /* 범례 행 간격 정리 (줄바꿈 시 촘촘하게) */
             .hm-legend-bar { gap: 8px 12px; }
             .ds-legend { gap: 6px 12px; }
-
-            /* 보기 전환 세그먼트: 두 버튼 꽉 채우고 힌트는 아래 줄 전체폭 */
-            .hm-view-switch { gap: 8px; }
-            .hm-seg { flex: 1 1 100%; }
-            .hm-seg button { flex: 1 1 50%; justify-content: center; padding: 9px 10px; font-size: 0.74rem; }
-            .hm-view-hint { flex-basis: 100%; font-size: 0.68rem; }
 
             /* 진단 블럭 그리드: 1열 단일 컬럼 */
             .hm-block-grid { grid-template-columns: 1fr; gap: 10px; }
@@ -200,36 +186,46 @@
         </header>
 
         <main class="dsp-main">
-            <!-- 컨트롤 패널 -->
-            <div class="card mb-4">
-                <div class="dsp-panel-body">
-                    <div class="hm-control-grid">
-                        <!-- 설비(Flow) 선택은 좌측 메뉴 '동작편차' 트리에서 수행 → 여기서는 현재 필터 상태만 표시. -->
-                        <div class="hm-field-filter" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-                            <template x-if="flowParam">
-                                <span class="chip chip-info">설비: <b x-text="flowParam"></b></span>
-                            </template>
-                            <template x-if="flowParam">
-                                <a class="btn btn-sm btn-outlined color-default" href="/heatmap">
-                                    <span class="material-icons">clear</span> 전체 보기
-                                </a>
-                            </template>
-                            <template x-if="!flowParam">
-                                <span class="typo-caption" style="color:var(--color-text-secondary);">전체 설비 · 좌측 메뉴 '동작편차'에서 설비를 선택하세요</span>
-                            </template>
-                        </div>
-                        <label class="switch" style="margin-bottom:8px;" title="동작편차 시간을 ms(밀리초) 단위로 표시합니다. 해제 시 초 단위로 표시.">
-                            <input type="checkbox" x-model="showMs" @change="onUnitChange()" /> ms로 보기
-                        </label>
-                        <div class="hm-control-actions">
-                            <button class="btn btn-filled" @click="loadData()">
-                                <span class="material-icons">refresh</span> 새로고침
-                            </button>
-                            <button class="btn btn-outlined color-default" @click="exportCsv()" :disabled="filteredGroups.length === 0">
-                                <span class="material-icons">download</span> CSV 내보내기
-                            </button>
-                        </div>
+
+            <!-- 상단 툴바 — 보기 전환 + ms 토글 + 다운로드 · (오른쪽) 설비 필터 상태.
+                 uptime-oee / uptime-alarm 과 동일한 .ds-topbar 패턴(푸른 선 위 메뉴/다운로드, 아래 UI). -->
+            <div class="ds-topbar">
+                <div class="ds-topbar-actions">
+                    <!-- 보기 전환: flow-call 매트릭스 ⇄ 테이블 나열 (한 번에 하나만) -->
+                    <div class="segmented" role="tablist" aria-label="보기 전환">
+                        <button type="button" role="tab" :aria-selected="viewMode === 'matrix'"
+                                :class="viewMode === 'matrix' ? 'is-active' : ''" @click="viewMode = 'matrix'">
+                            <span class="material-icons">grid_view</span> 매트릭스
+                        </button>
+                        <button type="button" role="tab" :aria-selected="viewMode === 'table'"
+                                :class="viewMode === 'table' ? 'is-active' : ''" @click="viewMode = 'table'">
+                            <span class="material-icons">table_rows</span> 테이블
+                        </button>
                     </div>
+                    <label class="switch" title="동작편차 시간을 ms(밀리초) 단위로 표시합니다. 해제 시 초 단위로 표시.">
+                        <input type="checkbox" x-model="showMs" @change="onUnitChange()" /> ms로 보기
+                    </label>
+                </div>
+
+                <!-- 오른쪽: 설비(Flow) 필터 상태 + Excel/CSV 다운로드 -->
+                <div class="ds-topbar-actions" style="justify-content:flex-end;">
+                    <template x-if="flowParam">
+                        <span class="chip chip-info">설비: <b x-text="flowParam"></b></span>
+                    </template>
+                    <template x-if="flowParam">
+                        <a class="btn btn-sm btn-outlined color-default" href="/heatmap">
+                            <span class="material-icons" style="font-size:15px;">clear</span> 전체 보기
+                        </a>
+                    </template>
+                    <button class="btn btn-sm btn-outlined color-default" @click="exportExcel()" :disabled="excelExporting || filteredGroups.length === 0"
+                            title="동작편차 데이터를 Excel(.xlsx) 로 내보냅니다">
+                        <span class="material-icons" style="font-size:15px;">download</span>
+                        <span x-text="excelExporting ? 'Excel 생성 중…' : 'Excel 다운로드'"></span>
+                    </button>
+                    <button class="btn btn-sm btn-outlined color-default" @click="exportCsv()" :disabled="filteredGroups.length === 0"
+                            title="동작편차 데이터를 CSV 로 내보냅니다">
+                        <span class="material-icons" style="font-size:15px;">description</span> CSV 다운로드
+                    </button>
                 </div>
             </div>
 
@@ -254,28 +250,6 @@
 
             <template x-if="!loading && filteredGroups.length > 0">
                 <div>
-                    <!-- 요약 계기판 (KPI metric-strip) -->
-                    <div class="metric-strip mb-4" style="box-shadow:var(--shadow-card);">
-                        <div>
-                            <div class="hm-kpi-label">총 Flow</div>
-                            <div class="hm-kpi-value" style="color:var(--color-primary);" x-text="filteredGroups.length"></div>
-                        </div>
-                        <div>
-                            <div class="hm-kpi-label">총 Call</div>
-                            <div class="hm-kpi-value" x-text="totalCalls"></div>
-                        </div>
-                        <div>
-                            <div class="hm-kpi-label">위험 Call (편차 평균대비)</div>
-                            <div class="hm-kpi-value" :style="`color:${dangerCalls > 0 ? 'var(--color-error)' : 'var(--color-success)'};`" x-text="dangerCalls"></div>
-                            <div class="hm-kpi-sub" x-text="'CV ≥ ' + dangerCv.toFixed(2) + ' (편차 ±' + dangerPct + '% 초과)'"></div>
-                        </div>
-                        <div>
-                            <div class="hm-kpi-label">분석 N (총 실행)</div>
-                            <div class="hm-kpi-value" x-text="totalGoingCount.toLocaleString()"></div>
-                            <div class="hm-kpi-sub">전체 Going 전환 합산</div>
-                        </div>
-                    </div>
-
                     <!-- 3단계 진단 범례 (변동계수 CV = σ/평균 · 평균 대비 편차 기반 — 표준(takt) 시간 미사용) -->
                     <div class="card mb-4" style="padding:14px 16px;">
                         <div class="ds-card-h">
@@ -296,21 +270,6 @@
                                 <span class="ds-status bad" style="margin-left:6px;" x-text="'위험 ' + dangerCalls + ' Call'"></span>
                             </template>
                         </div>
-                    </div>
-
-                    <!-- 보기 전환: flow-call 매트릭스 ⇄ 테이블 나열 (한 번에 하나만 표시 — 매트릭스 중복 배치 제거) -->
-                    <div class="hm-view-switch mb-4">
-                        <div class="hm-seg" role="tablist" aria-label="보기 전환">
-                            <button type="button" role="tab" :aria-selected="viewMode === 'matrix'"
-                                    :class="viewMode === 'matrix' ? 'is-active' : ''" @click="viewMode = 'matrix'">
-                                <span class="material-icons">grid_view</span> 매트릭스 보기
-                            </button>
-                            <button type="button" role="tab" :aria-selected="viewMode === 'table'"
-                                    :class="viewMode === 'table' ? 'is-active' : ''" @click="viewMode = 'table'">
-                                <span class="material-icons">table_rows</span> 테이블 보기
-                            </button>
-                        </div>
-                        <span class="hm-view-hint" x-text="viewMode === 'matrix' ? 'Flow별 Call 블럭을 편차 색상으로 진단 · 클릭 시 상세' : 'Call별 평균·표준편차·변동계수 정렬 표 · 클릭 시 상세'"></span>
                     </div>
 
                     <!-- ════ Flow 그룹 루프: 매트릭스/테이블 카드 + (선택 Call 소속 그룹) 인라인 상세 ════
@@ -530,6 +489,7 @@
                 dark: false,
                 // 시간 단위 표시: false=초(기본) / true=ms. Flow 필터란의 "ms로 보기" 토글로 전환(localStorage 영속).
                 showMs: false,
+                excelExporting: false,   // Excel 내보내기 진행 상태(중복 클릭 방지)
 
                 // 색상 등급 임계(CV=σ/평균). 설정 페이지(동작편차 설정)에서 사용자가 조정 → /api/heatmap/config 로 로드.
                 // 기본 0.10/0.30(±10%/±30%). fetch 실패 시 이 기본값 유지.
@@ -779,6 +739,17 @@
                     return Math.floor(ms / 3600000) + '시간 ' + Math.floor((ms % 3600000) / 60000) + '분 ' + Math.floor((ms % 60000) / 1000) + '초';
                 },
 
+                // 파일명 타임스탬프(yyyyMMdd_HHmmss) — CSV/Excel 공통.
+                _stamp() {
+                    const pad = (x) => String(x).padStart(2, '0');
+                    const t = new Date();
+                    return `${t.getFullYear()}${pad(t.getMonth() + 1)}${pad(t.getDate())}_${pad(t.getHours())}${pad(t.getMinutes())}${pad(t.getSeconds())}`;
+                },
+                _downloadBlob(name, blob) {
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob); a.download = name; a.click(); URL.revokeObjectURL(a.href);
+                },
+
                 exportCsv() {
                     const groups = this.filteredGroups;
                     if (groups.length === 0) return;
@@ -786,18 +757,50 @@
                         v = (v ?? '').toString();
                         return (v.includes(',') || v.includes('"') || v.includes('\n')) ? '"' + v.replace(/"/g, '""') + '"' : v;
                     };
-                    const lines = ['Flow,Call,Work,평균(ms),표준편차(ms),변동계수,실행횟수'];
+                    const lines = ['Flow,Call,Work,평균(ms),표준편차(ms),변동계수,편차(%),등급,실행횟수'];
                     for (const g of groups) for (const c of this.sortedCalls(g)) {
+                        const tier = this.blockTier(c);
                         lines.push([esc(c.flowName), esc(c.callName), esc(c.workName),
                             Math.round(c.averageGoingTime), Math.round(c.stdDevGoingTime),
-                            c.coefficientOfVariation.toFixed(2), c.goingCount].join(','));
+                            c.coefficientOfVariation.toFixed(2), this.deviationPct(c), this.tierLabel(tier), c.goingCount].join(','));
                     }
-                    const pad = (x) => String(x).padStart(2, '0');
-                    const t = new Date();
-                    const name = `Heatmap_${t.getFullYear()}${pad(t.getMonth() + 1)}${pad(t.getDate())}_${pad(t.getHours())}${pad(t.getMinutes())}${pad(t.getSeconds())}.csv`;
                     const blob = new Blob(['﻿' + lines.join('\r\n') + '\r\n'], { type: 'text/csv;charset=utf-8' });
-                    const a = document.createElement('a');
-                    a.href = URL.createObjectURL(blob); a.download = name; a.click(); URL.revokeObjectURL(a.href);
+                    this._downloadBlob(`Heatmap_${this.flowParam || '전체'}_${this._stamp()}.csv`, blob);
+                },
+
+                // Excel = 동작편차 데이터 테이블. 서버(HeatmapExcelExporter)가 렌더 → CSV 와 동일 컬럼 + tier 색상.
+                async exportExcel() {
+                    const groups = this.filteredGroups;
+                    if (groups.length === 0 || this.excelExporting) return;
+                    this.excelExporting = true; this.error = null;
+                    try {
+                        const rows = [];
+                        for (const g of groups) for (const c of this.sortedCalls(g)) {
+                            rows.push({
+                                flowName: c.flowName, callName: c.callName, workName: c.workName || '',
+                                averageMs: c.averageGoingTime, stdDevMs: c.stdDevGoingTime,
+                                cv: c.coefficientOfVariation, goingCount: c.goingCount
+                            });
+                        }
+                        const model = { title: this.flowParam || '전체', cautionCv: this.cautionCv, dangerCv: this.dangerCv, rows };
+                        const res = await fetch('/api/heatmap/export-excel', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(model)
+                        });
+                        if (!res.ok) throw new Error('HTTP ' + res.status);
+                        let fn = `Heatmap_${this.flowParam || '전체'}_${this._stamp()}.xlsx`;
+                        const cd = res.headers.get('Content-Disposition');
+                        if (cd) {
+                            const star = cd.match(/filename\*=(?:UTF-8'')?([^;]+)/i);
+                            const plain = cd.match(/filename="?([^";]+)"?/i);
+                            if (star) { try { fn = decodeURIComponent(star[1].trim()); } catch (_) {} }
+                            else if (plain) { fn = plain[1].trim(); }
+                        }
+                        this._downloadBlob(fn, await res.blob());
+                    } catch (e) {
+                        this.error = 'Excel 내보내기 실패: ' + e.message;
+                    } finally { this.excelExporting = false; }
                 }
             };
         }

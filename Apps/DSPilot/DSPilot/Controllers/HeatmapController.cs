@@ -63,6 +63,32 @@ public class HeatmapController : ControllerBase
         return await _heatmap.GetCallExecutionHistoryAsync(callId, start, end, null);
     }
 
+    /// <summary>
+    /// Excel(.xlsx) 내보내기 — WYSIWYG. 클라이언트가 화면(테이블 보기)에 표시 중인 동작편차 데이터
+    /// (<see cref="HeatmapExcelModel"/>: Flow/Call 별 통계 + tier 임계)를 그대로 받아
+    /// <see cref="HeatmapExcelExporter.BuildHeatmapExcel"/> 로 렌더한다.
+    /// 파일명 = Heatmap_&lt;title&gt;_&lt;yyyyMMdd_HHmmss&gt;.xlsx. antiforgery 미적용 평범한 POST.
+    /// CSV(데이터 전용)는 클라이언트가 직접 빌드해 다운로드한다(서버 미경유).
+    /// </summary>
+    [HttpPost("export-excel")]
+    public IActionResult ExportExcel([FromBody] HeatmapExcelModel req)
+    {
+        if (req is null)
+            return BadRequest("model required");
+
+        var bytes = HeatmapExcelExporter.BuildHeatmapExcel(req);
+        var title = string.IsNullOrWhiteSpace(req.Title) ? "전체" : SanitizeFileName(req.Title);
+        var fileName = $"Heatmap_{title}_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
+        return File(bytes, HeatmapExcelExporter.XlsxMimeType, fileName);
+    }
+
+    private static string SanitizeFileName(string name)
+    {
+        foreach (var c in Path.GetInvalidFileNameChars())
+            name = name.Replace(c, '_');
+        return name;
+    }
+
     // Blazor Heatmap.GetHistoryRange 와 동일한 기간 변환(서버 로컬 시간 기준 — DB 와 동일 타임존).
     private static (DateTime? start, DateTime? end) ResolvePeriod(string period)
     {

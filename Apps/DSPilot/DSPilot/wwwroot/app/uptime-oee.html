@@ -54,14 +54,26 @@
                     </template>
                 </div>
 
-                <!-- 설비(Flow) 선택 — 날짜 UI 와 같은 행, 오른쪽 정렬(.ds-topbar space-between). 드롭다운(전체/특정 Flow).
-                     기본 '전체'. 선택 시 OEE·정지·도넛·시간구성·계획시간을 그 설비로 필터(표준 가동시간·설비순위는 전체 유지=비교/편집용). -->
-                <!-- 설비(Flow) 선택은 좌측 메뉴 '가동시간·이상' 트리에서 수행(/uptime?flow=이름) → 여기서는 현재 필터 상태만 표시. -->
-                <div class="ds-topbar-actions" style="justify-content:flex-end;" x-show="tab === 'oee' && curFlow">
-                    <span class="chip chip-info">설비: <b x-text="curFlow"></b></span>
-                    <a class="btn btn-sm btn-outlined" href="/uptime-oee">
-                        <span class="material-icons" style="font-size:15px;">clear</span> 전체 보기
-                    </a>
+                <!-- 오른쪽: 설비(Flow) 필터 상태 + Excel/CSV 다운로드 (heatmap 과 동일한 .ds-topbar 우측 패턴) -->
+                <div class="ds-topbar-actions" style="justify-content:flex-end;" x-show="tab === 'oee'">
+                    <template x-if="curFlow">
+                        <span class="chip chip-info">설비: <b x-text="curFlow"></b></span>
+                    </template>
+                    <template x-if="curFlow">
+                        <a class="btn btn-sm btn-outlined color-default" href="/uptime-oee">
+                            <span class="material-icons" style="font-size:15px;">clear</span> 전체 보기
+                        </a>
+                    </template>
+                    <!-- 내보내기: Excel(요약·순위·정지 + 추이 차트) / CSV(요약·순위·정지 데이터). oee 로드 후 표시. -->
+                    <button class="btn btn-sm btn-outlined color-default" @click="exportOeeExcel()" :disabled="oeeExporting || !oee"
+                            title="OEE 종합 지표·설비별 순위·정지 이벤트를 Excel(.xlsx) 로 내보냅니다">
+                        <span class="material-icons" style="font-size:15px;">download</span>
+                        <span x-text="oeeExporting ? 'Excel 생성 중…' : 'Excel 다운로드'"></span>
+                    </button>
+                    <button class="btn btn-sm btn-outlined color-default" @click="exportOeeCsv()" :disabled="!oee"
+                            title="OEE 요약·설비별 순위·정지 이벤트 데이터를 CSV 로 내보냅니다">
+                        <span class="material-icons" style="font-size:15px;">description</span> CSV 다운로드
+                    </button>
                 </div>
             </div>
             <!-- ═══════════════ 탭 1: OEE 종합 ═══════════════ -->

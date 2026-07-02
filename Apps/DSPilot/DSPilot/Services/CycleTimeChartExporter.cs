@@ -74,7 +74,8 @@ public static class CycleTimeChartExporter
     {
         using var workbook = new XLWorkbook();
         var palette = new CycleExcelPalette();
-        BuildGanttSheet(workbook, model, palette);
+        var ws = workbook.Worksheets.Add("간트차트");
+        BuildGanttSheet(ws, model, palette, 1, applySheetChrome: true);
         BuildDataSheet(workbook, model, palette);
 
         using var ms = new MemoryStream();
@@ -82,10 +83,48 @@ public static class CycleTimeChartExporter
         return ms.ToArray();
     }
 
-    // ── Sheet1: 간트 재현 ─────────────────────────────────────────────────────────
-    private static void BuildGanttSheet(XLWorkbook workbook, CycleExcelModel model, CycleExcelPalette p)
+    /// <summary>
+    /// 전체 편집(bulkCycleApp) Excel — 여러 Flow 의 화면 간트를 한 시트("간트차트")에 위→아래로 이어 쌓는다.
+    /// 각 Flow 블록은 <see cref="BuildGanttSheet"/> 를 baseRow 를 누적하며 호출해 렌더(제목행이 Flow명 헤더 역할).
+    /// 블록마다 자체 시간축을 가지므로 열 의미는 블록마다 다르다(세로 나열 = 화면 카드 나열과 1:1).
+    /// </summary>
+    public static byte[] BuildBulkCycleAnalysisExcel(IReadOnlyList<CycleExcelModel> models)
     {
+        using var workbook = new XLWorkbook();
+        var palette = new CycleExcelPalette();
         var ws = workbook.Worksheets.Add("간트차트");
+
+        int row = 1;
+        bool any = false;
+        foreach (var m in models ?? new List<CycleExcelModel>())
+        {
+            if (m is null || (m.Lanes?.Count ?? 0) == 0) continue;
+            int last = BuildGanttSheet(ws, m, palette, row, applySheetChrome: false);
+            row = last + 3;   // 블록 사이 여백 2~3행
+            any = true;
+        }
+
+        if (!any)
+        {
+            ws.Cell(1, 1).Value = "내보낼 간트가 없습니다.";
+        }
+        else
+        {
+            ws.SheetView.FreezeColumns(2);
+            ws.PageSetup.PageOrientation = XLPageOrientation.Landscape;
+            ws.PageSetup.Footer.Center.AddText($"Exported: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+        }
+
+        using var ms = new MemoryStream();
+        workbook.SaveAs(ms);
+        return ms.ToArray();
+    }
+
+    // ── Sheet1: 간트 재현 (baseRow 부터 렌더 · 여러 번 호출해 세로 쌓기 가능) ──────────────
+    //   반환값 = 이 블록이 사용한 마지막 행(다음 블록의 baseRow 계산용).
+    //   applySheetChrome=true 일 때만 FreezeRows/PageSetup/헤더푸터를 적용(단일 시트 전용).
+    private static int BuildGanttSheet(IXLWorksheet ws, CycleExcelModel model, CycleExcelPalette p, int baseRow, bool applySheetChrome)
+    {
         var lanes = model.Lanes ?? new List<CycleExcelLane>();
         var boundaries = (model.CycleBoundaries ?? new List<string>());
 
@@ -123,9 +162,9 @@ public static class CycleTimeChartExporter
         bool hasCycles = bnd.Count > 0;
         var spans = hasCycles ? BuildSpans(bnd, tails, chartEndMs) : new List<CycleSpan>();
 
-        const int rowTitle = 1, rowMajor = 2, rowFine = 3;
-        int rowRibbon = hasCycles ? 4 : 0;
-        int firstLaneRow = hasCycles ? 5 : 4;
+        int rowTitle = baseRow, rowMajor = baseRow + 1, rowFine = baseRow + 2;
+        int rowRibbon = hasCycles ? baseRow + 3 : 0;
+        int firstLaneRow = hasCycles ? baseRow + 4 : baseRow + 3;
         int lastLaneRow = lanes.Count > 0 ? firstLaneRow + lanes.Count - 1 : firstLaneRow;
         bool bar = string.Equals(model.ViewMode, "bar", StringComparison.OrdinalIgnoreCase);
 
@@ -344,11 +383,16 @@ public static class CycleTimeChartExporter
         ws.Column(1).Width = 22;
         ws.Column(2).Width = 14;
         ws.Columns(firstDataCol, lastDataCol).Width = 1.6;
-        ws.SheetView.FreezeRows(hasCycles ? 4 : 3);
-        ws.SheetView.FreezeColumns(2);
-        ws.PageSetup.PageOrientation = XLPageOrientation.Landscape;
-        ws.PageSetup.Header.Center.AddText(model.FlowName);
-        ws.PageSetup.Footer.Center.AddText($"Exported: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+        if (applySheetChrome)
+        {
+            ws.SheetView.FreezeRows(hasCycles ? 4 : 3);
+            ws.SheetView.FreezeColumns(2);
+            ws.PageSetup.PageOrientation = XLPageOrientation.Landscape;
+            ws.PageSetup.Header.Center.AddText(model.FlowName);
+            ws.PageSetup.Footer.Center.AddText($"Exported: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+        }
+
+        return lastLaneRow;
     }
 
     // ── Sheet2: 데이터 테이블 ───────────────────────────────────────────────────────

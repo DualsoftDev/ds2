@@ -67,6 +67,33 @@ public class OeeController : ControllerBase
         return summary;
     }
 
+    // ── POST /api/oee/export-excel ────────────────────────────────────────
+    /// <summary>
+    /// Excel(.xlsx) 내보내기 — WYSIWYG. 서버가 OEE 를 다시 계산하지 않고, 클라이언트(uptime-oee.html)가
+    /// 화면에 그린 현재 상태(<see cref="OeeExcelModel"/>: 종합 지표 + 가용성 분해 + 정지 구성 + 설비별 순위
+    /// + 정지 이벤트 로그 + 일자별 추이 차트 캔버스 캡처)를 그대로 받아 <see cref="OeeExcelExporter.BuildOeeExcel"/> 로 렌더.
+    /// 파일명 = OEE_&lt;title&gt;_&lt;yyyyMMdd_HHmmss&gt;.xlsx. antiforgery 미적용 평범한 POST.
+    /// CSV(데이터 전용)는 클라이언트가 직접 빌드해 다운로드한다(서버 미경유).
+    /// </summary>
+    [HttpPost("export-excel")]
+    public IActionResult ExportExcel([FromBody] OeeExcelModel req)
+    {
+        if (req is null)
+            return BadRequest("model required");
+
+        var bytes = OeeExcelExporter.BuildOeeExcel(req);
+        var title = string.IsNullOrWhiteSpace(req.Title) ? "라인전체" : SanitizeFileName(req.Title);
+        var fileName = $"OEE_{title}_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
+        return File(bytes, OeeExcelExporter.XlsxMimeType, fileName);
+    }
+
+    private static string SanitizeFileName(string name)
+    {
+        foreach (var c in Path.GetInvalidFileNameChars())
+            name = name.Replace(c, '_');
+        return name;
+    }
+
     // ── GET /api/oee/downtime?from&to&status&reason&flow ──────────────────
     [HttpGet("downtime")]
     public async Task<ActionResult<List<OeeDowntimeDto>>> Downtime(

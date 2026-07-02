@@ -56,7 +56,9 @@ function isDark() {
 }
 
 // timeBuckets: [{ bucketStartIso, level, count }] — level 슬롯은 이제 구분(ABNORMAL/USERTAG)을 담는다.
-export function renderTrendChart(chartId, timeBuckets, granularity) {
+// cats: 표시할 구분 목록(기본 둘 다). 설비별 보기는 ['ABNORMAL'] 만 넘겨 자동감지 단일로 그린다
+//   (설비별은 서버가 자동감지만 주고 FillBucketGaps 가 USERTAG 0-채움 버킷을 남기므로, 여기서 명시적으로 배제).
+export function renderTrendChart(chartId, timeBuckets, granularity, cats) {
     const canvas = document.getElementById(chartId);
     if (!canvas) return;
 
@@ -70,8 +72,8 @@ export function renderTrendChart(chartId, timeBuckets, granularity) {
 
     const CAT_COLORS = categoryColors();
     const tc = themeChartColors();
-    const cats = ['ABNORMAL', 'USERTAG'];
-    const datasets = cats.map(cat => {
+    const catList = (cats && cats.length) ? cats : ['ABNORMAL', 'USERTAG'];
+    const datasets = catList.map(cat => {
         const data = new Array(labels.length).fill(0);
         for (const b of timeBuckets) {
             if (b.level === cat) {
@@ -88,9 +90,7 @@ export function renderTrendChart(chartId, timeBuckets, granularity) {
             borderWidth: 1,
             stack: 'category',
         };
-    // 데이터가 하나도 없는 구분은 시리즈에서 제외 — 설비별 보기(자동감지만)에서 빈 '사용자지정' 범례가 뜨지 않게,
-    // 그리고 전체 보기에서도 해당 기간에 없는 구분의 빈 범례를 없앤다(0-채움 버킷만 있는 경우 포함).
-    }).filter(ds => ds.data.some(v => v > 0));
+    });
 
     const timeUnit = ({
         'hour':  'hour',

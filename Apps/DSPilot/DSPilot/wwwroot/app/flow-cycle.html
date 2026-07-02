@@ -23,10 +23,102 @@
     <link href="/css/ds.css" rel="stylesheet" />
 
     <link href="/css/flow-workspace.css" rel="stylesheet" />
+
+    <!-- ════ '전체'(bulkCycleApp) 전용 스타일 — 단일 flow-cycle 은 flow-workspace.css 를 그대로 쓰고,
+             여기서는 전체 편집 루트(#fc-bulk)의 고정 뷰포트 레이아웃 + .fa-* 카드/바만 추가한다.
+             .ct-* 간트 클래스는 flow-workspace.css 공유(단일 페이지와 픽셀 동등). ════ -->
+    <style>
+        /* 전체 편집 루트만 고정 뷰포트(상단 컨트롤·적용 바 고정, Flow 목록만 스크롤).
+           flow-workspace.css 의 .dsp-page{min-height:100vh} 를 덮어 body 스크롤을 막는다. */
+        #fc-bulk.dsp-page { height: calc(100vh - 64px); min-height: 0; overflow: hidden; }
+        #fc-bulk .dsp-main { display: flex; flex-direction: column; max-width: 1500px; }
+        #fc-bulk .ct-gantt-layout { max-height: 60vh; }   /* 카드 간트는 컴팩트하게(단일=전체화면 대신) */
+        .fa-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; padding: 2px 4px 4px 2px; margin: 0 -4px -4px -2px; }
+        .fa-scroll > * { flex: 0 0 auto; }
+
+        /* ── 공유 컨트롤 + 일괄 적용 바 ── */
+        .fa-controls-wrap { display: flex; flex-direction: column; gap: 8px; }
+        .fa-controls-toggle { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 14px; background: var(--color-surface); border: 1px solid var(--color-lines-strong); border-radius: var(--radius-md); cursor: pointer; font: inherit; color: var(--color-text-secondary); text-align: left; }
+        .fa-controls-toggle:hover { border-color: var(--color-primary); color: var(--color-primary); }
+        .fa-controls-toggle .material-icons { font-size: 20px; flex: 0 0 auto; }
+        .fa-controls-toggle .fa-ct-title { font-size: 0.78rem; font-weight: 800; letter-spacing: 0.02em; flex: 0 0 auto; }
+        .fa-controls-toggle .fa-ct-summary { font-size: 0.72rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; margin-left: auto; }
+        .fa-controls { flex-shrink: 0; display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; padding: 14px 16px; }
+
+        .fa-rotate-hint { display: none; }
+        .fa-savebar { flex-shrink: 0; z-index: 30; display: flex; align-items: center; gap: 12px 14px; flex-wrap: wrap; padding: 11px 16px; background: var(--color-surface); border: 1px solid var(--color-lines-strong); border-radius: var(--radius-md); box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        .fa-savebar .spacer { flex: 1; min-width: 8px; }
+        .fa-pending { display: inline-flex; align-items: center; gap: 8px; font-size: 0.78rem; font-weight: 700; color: var(--color-text-secondary); flex-wrap: wrap; }
+        .fa-pchip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px; font-size: 0.72rem; font-weight: 700; border: 1px solid var(--color-lines-strong); color: var(--color-text-secondary); background: var(--color-surface); }
+        .fa-pchip.on { color: var(--color-primary); border-color: color-mix(in srgb, var(--color-primary) 50%, transparent); background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface)); }
+        .fa-savemsg { font-size: 0.78rem; font-weight: 700; color: var(--color-primary); font-variant-numeric: tabular-nums; }
+        .fa-savemsg.is-err { color: var(--color-error, #d33); }
+
+        /* ── Flow 카드 (단일 '사이클 분석' 섹션과 동일한 흰 카드 fw-section 사용) ── */
+        #fc-bulk .card.is-changed { box-shadow: inset 4px 0 0 var(--color-primary); }
+        /* fw-section 이 카드 패딩을 가지므로 본문 래퍼는 패딩 없이 세로 스택만 */
+        #fc-bulk .fa-flow-body { padding: 0; display: flex; flex-direction: column; gap: 12px; }
+        /* 이 Flow 편집 바(칩/배지/실측/AASX기본/열기/새로고침) — Flow명은 간트 사이드바 타이틀에 표시 */
+        .fc-flow-bar { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; margin-bottom: 10px; }
+        /* 간트 사이드바 좌상단 = Flow 이름 타이틀 (간트차트 안 타이틀) */
+        .fc-flow-gtitle { text-transform: none; letter-spacing: normal; font-size: 0.92rem; font-weight: 800; color: var(--color-primary); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .fa-badge { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px; font-size: 0.68rem; font-weight: 800; letter-spacing: 0.02em; background: color-mix(in srgb, var(--color-primary) 14%, transparent); color: var(--color-primary); }
+        .fa-toolbar { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; }
+        .fa-changed-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 0.66rem; font-weight: 800; background: color-mix(in srgb, var(--color-warning, #e8a33d) 18%, transparent); color: var(--color-warning, #b97e1f); }
+        .fa-dur-msg { font-size: 0.72rem; font-weight: 700; color: var(--color-primary); padding: 0 2px; }
+
+        /* ── 이상치 인라인 편집 (깔끔한 솔리드 — 구 점선 박스 폐기) ── */
+        .fa-outlier { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; padding: 9px 12px; background: var(--color-surface-variant); border: 1px solid var(--color-lines); border-radius: var(--radius-md); }
+        .fa-outlier-label { display: inline-flex; align-items: center; gap: 6px; font-size: 0.74rem; font-weight: 800; color: var(--color-text-secondary); }
+        .fa-outlier-label .material-icons { font-size: 17px; }
+        .fa-outlier .fa-min, .fa-outlier .fa-max { display: inline-flex; align-items: center; gap: 5px; font-size: 0.72rem; font-weight: 700; color: var(--color-text-secondary); }
+        .fa-outlier input[type="number"] { width: 88px; }
+        .fa-outlier select { min-width: auto; }
+
+        /* 드래그 구간 4-KPI (단일 페이지의 플로팅 팁 대신 카드 인라인) */
+        .ct-range-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+        .ct-range-stats .kpi-cell .kp-value { font-size: 1.15rem; }
+        .ct-sw-idle-band { background: #cfd8dc; border: 1px solid #90a4ae; }
+        .ct-sw-range { background: rgba(126,87,194,0.16); border: 1px dashed #7e57c2; }
+
+        @media (max-width: 768px) { .ct-range-stats { grid-template-columns: repeat(2, 1fr); } }
+        @media (max-width: 480px) {
+            #fc-bulk .dsp-main { padding: 10px 10px 16px; }
+            .fa-controls { flex-direction: column; align-items: stretch; gap: 10px; padding: 12px; }
+            .fa-controls .ct-field { min-width: 0 !important; width: 100%; }
+            .fa-controls .ct-field .form-field { width: 100%; }
+            .fa-controls > div[style*="margin-left:auto"] { margin-left: 0 !important; width: 100%; }
+            .fa-savebar { padding: 10px 12px; gap: 8px 10px; }
+            .fa-savebar .spacer { display: none; }
+            .fa-pending { width: 100%; }
+            .fa-savemsg { width: 100%; }
+            #fc-bulk .fa-flow-body { gap: 10px; }
+            .ct-range-stats { grid-template-columns: 1fr; gap: 8px; }
+            .fa-outlier { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px; }
+            .fa-outlier .fa-min, .fa-outlier .fa-max { width: 100%; flex-wrap: wrap; }
+            .fa-outlier input[type="number"] { width: auto; flex: 1 1 90px; min-width: 0; }
+            .fa-outlier select { flex: 0 0 auto; }
+        }
+        /* 터치 세로 모드 — 간트는 가로에서만 편집(좁은 세로에선 숨기고 회전 안내) */
+        @media (orientation: portrait) and (pointer: coarse) {
+            .fa-rotate-hint {
+                display: flex; align-items: center; gap: 10px; padding: 16px;
+                background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
+                border: 1px dashed color-mix(in srgb, var(--color-primary) 40%, transparent);
+                border-radius: var(--radius-md); color: var(--color-text-secondary);
+                font-size: 0.8rem; font-weight: 700; line-height: 1.45;
+            }
+            .fa-rotate-hint .material-icons { font-size: 26px; color: var(--color-primary); flex: 0 0 auto; }
+            #fc-bulk .fa-flow-body .ct-gantt-toolbar,
+            #fc-bulk .fa-flow-body .ct-gantt-layout,
+            #fc-bulk .fa-flow-body .ct-legend { display: none !important; }
+        }
+    </style>
 </head>
 
 <body>
-    <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="flowApp()" x-init="init()" x-cloak>
+    <!-- 단일 Flow 사이클 분석(?name= 진입). 부트스트랩이 ?name= 없으면 이 루트를 제거한다. -->
+    <div id="fc-single" class="dsp-page" :class="{ 'dark-theme': dark }" x-data="flowApp()" x-init="init()" x-cloak>
 
         <!-- fallback 슬림 헤더 (shell.js 가 제거) -->
         <header class="dsp-appbar">
@@ -40,13 +132,53 @@
 
         <main class="dsp-main">
 
-            <!-- 상단 툴바 -->
-            <div class="ds-topbar">
-                <div class="ds-topbar-titles">
-                    <h2 x-text="flow ? flow.flowName : (flowName || 'Flow')"></h2>
-                    <div class="ds-breadcrumb">
-                        <span x-text="flow && flow.systemName ? flow.systemName : '-'"></span> · 사이클 분석
-                    </div>
+            <!-- 상단 툴바 — OEE 종합·이상·알람 페이지와 통일 (좌: 이상치/미완료 필터 · 우: 적용·Excel·CSV).
+                 Flow 이름은 아래 '사이클 분석' 카드 제목으로 이동. 액션은 flow 로드 시에만 표시. -->
+            <div class="ds-topbar" x-show="flow" x-cloak>
+                <div class="ds-topbar-actions">
+                    <button class="btn btn-sm" :class="_exRange ? 'btn-filled' : 'btn-outlined color-default'"
+                            @click="openRangeModal()"
+                            title="최소·최대 가동시간을 지정해 그 범위를 벗어난 사이클(이상치)을 사이클 목록·차트·히스토리에서 제외합니다 — 이 Flow 에 적용·서버 공유">
+                        <span class="material-icons" style="font-size:16px;">tune</span>
+                        <span x-text="_exRange ? ('이상치 범위 ' + rangeLabel) : '이상치 범위 설정'"></span>
+                    </button>
+                    <span class="hist-filter-chip" x-show="_exRange && (excludedCount > 0 || excludedCycleCount > 0)" x-cloak>
+                        <span x-text="(tab === 'cycle' ? excludedCycleCount : excludedCount) + '개 제외됨 · 평균 재계산'"></span>
+                        <button class="hfc-reset" @click="resetExclusions()" title="제외 해제 (전체 복원)">
+                            <span class="material-icons">restart_alt</span> 초기화
+                        </button>
+                    </span>
+                    <label class="fw-tb-check" :class="{ 'is-on': excludeIncomplete }"
+                           title="완료신호(Tail InTag↑)가 없는 미완료 사이클을 사이클 목록·차트·히스토리·평균에서 제외합니다. 보통 로깅/서비스 중단으로 완료신호가 누락된 구간이라 가동시간이 부정확합니다. 해제하면 어두운 회색 막대로 표시하되 평균·가동률 집계에는 계속 포함하지 않습니다.">
+                        <input type="checkbox" x-model="excludeIncomplete" @change="onExcludeIncompleteChanged()" />
+                        미완료 제외
+                        <span class="fw-tb-badge" x-show="incompleteCount > 0" x-text="incompleteCount"></span>
+                    </label>
+                </div>
+
+                <!-- 오른쪽: 사이클 분석 전용 액션 (적용(저장) · Excel · CSV) -->
+                <div class="ds-topbar-actions" style="justify-content:flex-end; flex-wrap:wrap;"
+                     x-show="tab === 'cycle' && callLanes.length > 0" x-cloak>
+                    <span x-show="recomputeBusy || recomputeMsg" class="ct-recompute"
+                          :class="recomputeError ? 'is-err' : ''" x-text="recomputeMsg"></span>
+                    <button class="btn btn-sm" :class="userOverrodeHeadTail ? 'btn-primary' : 'btn-outlined color-default'" @click="applyHeadTail()"
+                            :disabled="overlayBusy || recomputeBusy || !headCallId || !tailCallId"
+                            title="현재 Head/Tail 을 이 Flow 의 사이클 경계로 저장하고, 이 Flow 의 과거 이력 전체를 새 경계로 재계산합니다(백그라운드, 진행률 표시) — 라이브 가동시간·대시보드에 과거 포함 반영">
+                        <span class="material-icons" style="font-size:15px;">save</span>
+                        <span x-text="userOverrodeHeadTail ? '적용(저장)*' : '적용(저장)'"></span>
+                    </button>
+                    <button class="btn btn-sm btn-outlined color-default" @click="exportExcel()"
+                            :disabled="exporting || !selectedFlow"
+                            title="현재 Flow·시간범위의 IO 세그먼트를 Excel(.xlsx) 로 내보냅니다">
+                        <span class="material-icons" style="font-size:15px;">download</span>
+                        <span x-text="exporting ? 'Excel 생성 중…' : 'Excel 다운로드'"></span>
+                    </button>
+                    <button class="btn btn-sm btn-outlined color-default" @click="exportCycleCsv()"
+                            :disabled="!callLanes.length"
+                            title="현재 Flow·시간범위의 IO 세그먼트를 CSV(데이터 전용) 로 내보냅니다">
+                        <span class="material-icons" style="font-size:15px;">description</span>
+                        CSV 다운로드
+                    </button>
                 </div>
             </div>
 
@@ -67,56 +199,12 @@
 
             <template x-if="flow">
                 <div class="fw-grid">
-                    <!-- ════ 공용 툴바: 이상치 제외 필터 (이 Flow · 서버 공유 · 사이클분석·히스토리 전 탭 적용) ════ -->
-                    <div class="fw-toolbar" x-show="flow" x-cloak>
-                        <button class="btn" :class="_exRange ? 'btn-filled' : 'btn-outlined color-default'"
-                                @click="openRangeModal()"
-                                title="최소·최대 가동시간을 지정해 그 범위를 벗어난 사이클(이상치)을 사이클 목록·차트·히스토리에서 제외합니다 — 이 Flow 에 적용·서버 공유">
-                            <span class="material-icons" style="font-size:18px; vertical-align:middle;">tune</span>
-                            <span x-text="_exRange ? ('이상치 범위 ' + rangeLabel) : '이상치 범위 설정'"></span>
-                        </button>
-                        <span class="hist-filter-chip" x-show="_exRange && (excludedCount > 0 || excludedCycleCount > 0)" x-cloak>
-                            <span x-text="(tab === 'cycle' ? excludedCycleCount : excludedCount) + '개 제외됨 · 평균 재계산'"></span>
-                            <button class="hfc-reset" @click="resetExclusions()" title="제외 해제 (전체 복원)">
-                                <span class="material-icons">restart_alt</span> 초기화
-                            </button>
-                        </span>
-                        <label class="fw-tb-check" :class="{ 'is-on': excludeIncomplete }"
-                               title="완료신호(Tail InTag↑)가 없는 미완료 사이클을 사이클 목록·차트·히스토리·평균에서 제외합니다. 보통 로깅/서비스 중단으로 완료신호가 누락된 구간이라 가동시간이 부정확합니다. 해제하면 어두운 회색 막대로 표시하되 평균·가동률 집계에는 계속 포함하지 않습니다.">
-                            <input type="checkbox" x-model="excludeIncomplete" @change="onExcludeIncompleteChanged()" />
-                            미완료 제외
-                            <span class="fw-tb-badge" x-show="incompleteCount > 0" x-text="incompleteCount"></span>
-                        </label>
-                        <!-- 사이클 분석 전용 액션 (구 '가동시간 기준' 바에서 이동): Head/Tail 적용(저장) · Excel · 오른쪽 정렬 -->
-                        <div class="fw-toolbar-actions" x-show="tab === 'cycle' && callLanes.length > 0" x-cloak>
-                            <span x-show="recomputeBusy || recomputeMsg" class="ct-recompute"
-                                  :class="recomputeError ? 'is-err' : ''" x-text="recomputeMsg"></span>
-                            <button class="btn" :class="userOverrodeHeadTail ? 'btn-primary' : 'btn-outlined color-default'" @click="applyHeadTail()"
-                                    :disabled="overlayBusy || recomputeBusy || !headCallId || !tailCallId"
-                                    title="현재 Head/Tail 을 이 Flow 의 사이클 경계로 저장하고, 이 Flow 의 과거 이력 전체를 새 경계로 재계산합니다(백그라운드, 진행률 표시) — 라이브 가동시간·대시보드에 과거 포함 반영">
-                                <span class="material-icons" style="font-size:18px; vertical-align:middle;">save</span>
-                                <span x-text="userOverrodeHeadTail ? '적용(저장)*' : '적용(저장)'"></span>
-                            </button>
-                            <button class="btn btn-outlined color-default" @click="exportExcel()"
-                                    :disabled="exporting || !selectedFlow"
-                                    title="현재 Flow·시간범위의 IO 세그먼트를 Excel(.xlsx) 로 내보냅니다">
-                                <span class="material-icons" style="font-size:18px; vertical-align:middle;">download</span>
-                                <span x-text="exporting ? 'Excel 생성 중…' : 'Excel 다운로드'"></span>
-                            </button>
-                            <button class="btn btn-outlined color-default" @click="exportCycleCsv()"
-                                    :disabled="!callLanes.length"
-                                    title="현재 Flow·시간범위의 IO 세그먼트를 CSV(데이터 전용) 로 내보냅니다">
-                                <span class="material-icons" style="font-size:18px; vertical-align:middle;">description</span>
-                                CSV 다운로드
-                            </button>
-                        </div>
-                    </div>
-                    <!-- ════ 사이클 분석 (구 cycle-time-analysis 전체 기능, 이 Flow 스코프) ════ -->
+                    <!-- ════ 사이클 분석 (구 cycle-time-analysis 전체 기능, 이 Flow 스코프) — 상단 필터/액션 툴바는 .ds-topbar 로 통합 ════ -->
                     <section class="card fw-section" x-show="tab === 'cycle'">
                         <div class="ds-card-h" style="margin-bottom:12px;">
-                            <div>
-                                <h4>사이클 분석</h4>
-                                <span class="ds-card-h-sub">신호 간트 · Head/Tail 사이클 경계 적용(저장) · 드래그 구간통계 · Excel</span>
+                            <div style="min-width:0;">
+                                <h4>사이클 분석 · <span x-text="flow ? flow.flowName : (flowName || 'Flow')"></span></h4>
+                                <span class="ds-card-h-sub"><span x-text="flow && flow.systemName ? flow.systemName : '-'"></span> · 신호 간트 · Head/Tail 사이클 경계 적용(저장) · 드래그 구간통계 · Excel</span>
                             </div>
                             <span class="ct-live" x-show="isLoading || overlayBusy"
                                   title="데이터/오버레이 갱신 중"
@@ -485,10 +573,384 @@
         </main>
     </div>
 
+    <!-- ════════════════════════════════════════════════════════════════════════
+         전체 편집 루트 (bulkCycleApp) — /flow-cycle 에 ?name= 없이 진입 시 사용.
+         한 화면에 여러 Flow 사이클 간트를 세로로 쌓아 조회·일괄 편집 + 전체 Excel.
+         부트스트랩이 ?name= 있으면 이 루트를 제거한다(단일 페이지 진입).
+         ════════════════════════════════════════════════════════════════════════ -->
+    <div id="fc-bulk" class="dsp-page" x-data="bulkCycleApp()" x-cloak>
+        <header class="dsp-appbar">
+            <span class="dsp-title">사이클 분석 · 전체</span>
+            <span class="dsp-badge">정적</span>
+            <div class="spacer"></div>
+        </header>
+
+        <main class="dsp-main">
+            <div class="fw-grid" style="display:flex; flex-direction:column; gap:16px; flex:1; min-height:0;">
+
+                <!-- ════ 공용 액션 바 (단일 페이지 fw-toolbar 스타일) ════ -->
+                <div class="fw-toolbar">
+                    <label class="fw-tb-check" :class="{ 'is-on': excludeIncomplete }"
+                           title="완료신호(Tail InTag↑)가 없는 미완료 사이클을 사이클·평균에서 제외">
+                        <input type="checkbox" x-model="excludeIncomplete" @change="onExcludeIncompleteChanged()" />
+                        미완료 제외
+                    </label>
+                    <span style="font-size:0.72rem; font-weight:700; color:var(--color-text-secondary);" x-text="'· ' + scopeLabel()"></span>
+                    <span class="fa-savemsg" :class="saveError ? 'is-err' : ''" x-show="saveMsg" x-text="saveMsg"></span>
+                    <div class="spacer" style="flex:1;"></div>
+                    <span class="fa-pending" x-show="hasPending" x-cloak>
+                        <span class="fa-pchip" :class="pendingHt ? 'on' : ''">H/T <b x-text="pendingHt"></b></span>
+                        <span class="fa-pchip" :class="pendingOutlier ? 'on' : ''">이상치 <b x-text="pendingOutlier"></b></span>
+                        <span class="fa-pchip" :class="pendingDur ? 'on' : ''">실측 <b x-text="pendingDur"></b></span>
+                    </span>
+                    <button class="btn btn-outlined color-default" @click="exportAllExcel()" :disabled="exportingAll || loadingAny || loadedFlowCount === 0"
+                            title="로드된 모든 Flow 의 간트를 한 Excel(.xlsx) 한 시트에 세로로 쌓아 내보냅니다">
+                        <span class="material-icons" style="font-size:18px; vertical-align:middle;" x-text="exportingAll ? 'hourglass_top' : 'download'"></span>
+                        <span x-text="exportingAll ? 'Excel 생성 중…' : '전체 Excel 다운로드'"></span>
+                    </button>
+                    <button class="btn btn-outlined color-default" @click="resetAllStaged()" :disabled="saving || !hasPending"
+                            title="아직 적용하지 않은 모든 변경을 되돌립니다 (마지막 로드 상태로)">
+                        <span class="material-icons" style="font-size:18px; vertical-align:middle;">undo</span> 변경 취소
+                    </button>
+                    <button class="btn" :class="hasPending ? 'btn-primary' : 'btn-outlined color-default'" @click="saveAll()" :disabled="saving || !hasPending"
+                            title="모든 Flow 의 이상치·Head/Tail·실측 변경을 한 번에 적용합니다(Head/Tail 은 과거 이력 재계산 동반, 순차 처리).">
+                        <span class="material-icons" style="font-size:18px; vertical-align:middle;" x-text="saving ? 'hourglass_top' : 'save'"></span>
+                        <span x-text="saving ? '적용 중…' : (hasPending ? '적용*' : '적용')"></span>
+                    </button>
+                </div>
+
+                <!-- ════ 시간/사이클 프리셋 (단일 페이지 call-test-controls 와 동일) ════ -->
+                <div class="call-test-controls">
+                    <div class="ct-range-field">
+                        <div class="segmented">
+                            <button :class="timePreset === 'm1' ? 'is-active' : ''" @click="setRecentMinutes(1)" :disabled="loadingAny">1분</button>
+                            <button :class="timePreset === 'm5' ? 'is-active' : ''" @click="setRecentMinutes(5)" :disabled="loadingAny">5분</button>
+                            <button :class="timePreset === 'm30' ? 'is-active' : ''" @click="setRecentMinutes(30)" :disabled="loadingAny">30분</button>
+                            <button :class="timePreset === 'h1' ? 'is-active' : ''" @click="setRecentHours(1)" :disabled="loadingAny">1시간</button>
+                            <button :class="timePreset === 'h24' ? 'is-active' : ''" @click="setRecentHours(24)" :disabled="loadingAny">24시간</button>
+                            <button :class="rangePopupOpen ? 'is-active' : ''" @click="rangePopupOpen = !rangePopupOpen"
+                                    title="분석할 시작·종료 시각을 직접 지정 (모든 Flow 공통)">
+                                <span class="material-icons">calendar_today</span>기간
+                            </button>
+                        </div>
+                        <div class="ct-range-popup" x-show="rangePopupOpen" x-transition @click.outside="rangePopupOpen = false">
+                            <div class="ct-field">
+                                <label>시작</label>
+                                <input type="datetime-local" step="1" class="form-field" x-model="startTime" @change="onTimeChanged()" />
+                            </div>
+                            <div class="ct-field">
+                                <label>종료</label>
+                                <input type="datetime-local" step="1" class="form-field" x-model="endTime" @change="onTimeChanged()" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="ct-cycle-presets">
+                        <span class="ct-preset-sep" title="사이클 개수 기준 — 최근 N개 사이클 (첫 번째 Flow 히스토리 기준)">사이클</span>
+                        <div class="segmented">
+                            <button :class="cyclePreset === 20 ? 'is-active' : ''" @click="setRecentCycles(20)" :disabled="loadingAny">최근 20</button>
+                            <button :class="cyclePreset === 50 ? 'is-active' : ''" @click="setRecentCycles(50)" :disabled="loadingAny">최근 50</button>
+                            <button :class="cyclePreset === 100 ? 'is-active' : ''" @click="setRecentCycles(100)" :disabled="loadingAny">최근 100</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ════ 공유 간트 툴바 (모든 Flow 에 일괄 적용: 보기 전환 + 줌) ════ -->
+                <div class="ct-gantt-toolbar" style="padding:2px 2px 0;">
+                    <div class="ct-seg">
+                        <button :class="viewMode === 'bar' ? 'active' : ''" @click="setViewAll('bar')" title="실행 막대그래프">막대</button>
+                        <button :class="viewMode === 'line' ? 'active' : ''" @click="setViewAll('line')" title="OutTag·InTag 신호 라인">InOut 라인</button>
+                    </div>
+                    <span class="ct-tb-hint">휠 = 개별 확대/축소 · 간트 가로 드래그 = 구간 선택 · 시작/끝 = Head/Tail 지정</span>
+                    <div class="spacer" style="flex:1;"></div>
+                    <div class="ct-zoom">
+                        <button @click="zoomAll(1/1.3)" :disabled="zoom <= 1" title="전체 축소">−</button>
+                        <span class="ct-zoom-val" x-text="Math.round(zoom * 100) + '%'"></span>
+                        <button @click="zoomAll(1.3)" :disabled="zoom >= 24" title="전체 확대">＋</button>
+                        <button class="ct-zoom-reset" @click="resetZoomAll()" :disabled="zoom <= 1" title="전체 보기로 리셋">전체</button>
+                    </div>
+                </div>
+
+                <!-- ════ 스크롤 영역 (Flow 목록) ════ -->
+                <div class="fa-scroll">
+
+                <!-- Flow 없음 -->
+                <template x-if="!loadingAny && flows.length === 0">
+                    <section class="card fw-section" style="padding:18px 20px;">
+                        <div class="ds-empty">
+                            <span class="material-icons">account_tree</span>
+                            <div class="ds-empty-title">표시할 Flow 가 없습니다</div>
+                            <div class="ds-empty-desc"><span style="font-family:var(--font-mono);">?system=&lt;시스템명&gt;</span> 으로 시스템을 지정하거나 매개변수 없이 진입하면 전체 시스템의 Flow 를 봅니다. AASX 프로젝트가 로드되어 있어야 하며, Flow 가 있는 시스템만 표시됩니다.</div>
+                        </div>
+                    </section>
+                </template>
+
+                <!-- ════ Flow 카드 (모든 Flow) ════ -->
+                <template x-for="slice in flows" :key="slice.flowName">
+                    <section class="card fw-section" :class="(headTailChanged(slice) || outlierChanged(slice) || (slice.stageDurations && durCount(slice) > 0)) ? 'is-changed' : ''">
+                        <!-- 헤더 — 단일 '사이클 분석' 섹션과 동일한 ds-card-h. 제목 = Flow 이름. -->
+                        <div class="ds-card-h" style="margin-bottom:12px; flex-wrap:wrap; gap:8px 12px;">
+                            <div style="min-width:0;">
+                                <h4 x-text="slice.flowName"></h4>
+                                <div class="ds-card-h-sub">신호 간트 · Head/Tail 사이클 경계 · 드래그 구간통계</div>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                                <span class="ct-chip" :class="slice.isOverride ? 'is-custom' : ''"
+                                      x-text="slice.isOverride ? '사용자 지정' : 'AASX 기본'"></span>
+                                <template x-if="headTailChanged(slice)"><span class="fa-changed-badge">Head/Tail 변경</span></template>
+                                <template x-if="outlierChanged(slice)"><span class="fa-changed-badge">이상치 변경</span></template>
+                                <template x-if="slice.stageDurations && durCount(slice) > 0"><span class="fa-changed-badge" x-text="'실측 ' + durCount(slice) + '건'"></span></template>
+                                <span class="fa-dur-msg" x-show="slice.applyDurMsg" x-text="slice.applyDurMsg"></span>
+                                <label class="ct-tb-check"
+                                       :title="durCount(slice) ? ('일괄 적용 시 이 Flow 의 실측 ' + durCount(slice) + '건을 AASX Work 에 기록') : '적용 가능한 실측 없음'">
+                                    <input type="checkbox" x-model="slice.stageDurations" :disabled="!durCount(slice)" />
+                                    실측 적용 <span x-show="durCount(slice)" x-text="'(' + durCount(slice) + ')'"></span>
+                                </label>
+                                <button class="btn btn-sm btn-outlined" @click="restoreToAasx(slice)"
+                                        :disabled="slice.overlayBusy || !slice.projectHeadId || !slice.projectTailId"
+                                        title="Head/Tail 을 AASX 프로젝트 기본값으로 되돌립니다">AASX 기본</button>
+                                <a class="btn btn-sm btn-outlined" :href="'/flow-cycle?name=' + encodeURIComponent(slice.flowName)"
+                                   title="이 Flow 의 단일 사이클 분석 페이지 열기">
+                                    <span class="material-icons" style="font-size:15px; vertical-align:middle;">open_in_new</span>
+                                </a>
+                                <button class="btn btn-sm btn-outlined" @click="loadSlice(slice)" :disabled="slice.loading"
+                                        title="이 Flow 만 다시 로드 (스테이징 변경 취소)">
+                                    <span class="material-icons" style="font-size:15px; vertical-align:middle;">refresh</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- 로딩 -->
+                        <template x-if="slice.loading">
+                            <div class="ct-loading"><div class="spinner"></div><p>로딩 중…</p></div>
+                        </template>
+                        <!-- 오류 -->
+                        <template x-if="!slice.loading && slice.error">
+                            <div class="fa-flow-body">
+                                <div class="alert alert-error"><span class="material-icons">error</span><span x-text="slice.error"></span></div>
+                            </div>
+                        </template>
+                        <!-- 데이터 없음 -->
+                        <template x-if="!slice.loading && !slice.error && slice.callLanes.length === 0">
+                            <div class="ct-empty">
+                                <span class="material-icons">hourglass_disabled</span>
+                                <p>선택한 시간 범위에 신호 이벤트가 없습니다.</p>
+                            </div>
+                        </template>
+
+                        <!-- 본문 -->
+                        <template x-if="!slice.loading && !slice.error && slice.callLanes.length > 0">
+                            <div class="fa-flow-body">
+                                <!-- KPI 그리드 제거 — 단일 flow-cycle 과 동일하게 가동/동작 평균은 간트 사이드바 헤더,
+                                     Head/Tail 은 레인 배지·시작/끝 버튼으로 표시(중복 그리드 제거로 UI 일치). -->
+
+                                <!-- 이상치 인라인 편집 -->
+                                <div class="fa-outlier">
+                                    <span class="fa-outlier-label"><span class="material-icons">filter_alt</span> 이상치 제외 (가동시간 범위)</span>
+                                    <span class="fa-min">최소
+                                        <input type="number" class="form-field" min="0" step="any" placeholder="제한 없음" x-model="slice.rangeForm.min" />
+                                        <select class="form-select" :value="slice.rangeForm.minUnit" @change="changeUnit(slice, 'min', $event.target.value)">
+                                            <option value="s">초</option><option value="m">분</option><option value="h">시간</option>
+                                        </select>
+                                    </span>
+                                    <span class="fa-max">최대
+                                        <input type="number" class="form-field" min="0" step="any" placeholder="제한 없음" x-model="slice.rangeForm.max" />
+                                        <select class="form-select" :value="slice.rangeForm.maxUnit" @change="changeUnit(slice, 'max', $event.target.value)">
+                                            <option value="s">초</option><option value="m">분</option><option value="h">시간</option>
+                                        </select>
+                                    </span>
+                                    <span class="ct-tb-hint" x-show="excludedCount(slice) > 0" x-text="excludedCount(slice) + '개 제외 · 평균 재계산'"></span>
+                                    <button class="btn btn-sm btn-outlined" @click="resetRange(slice)"
+                                            x-show="slice.rangeForm.min !== '' || slice.rangeForm.max !== ''"
+                                            title="이 Flow 의 제외 범위 비우기">해제</button>
+                                </div>
+
+                                <!-- 모바일 세로: 간트 편집 곤란 → 가로 안내 -->
+                                <div class="fa-rotate-hint">
+                                    <span class="material-icons">screen_rotation</span>
+                                    <span>신호 간트차트는 <b>가로 화면</b>에서 편집할 수 있어요. 휴대폰을 가로로 돌려 주세요.</span>
+                                </div>
+
+                                <!-- 간트 (보기/줌 툴바는 상단 공용, Flow 이름은 사이드바 타이틀) -->
+                                <div class="ct-gantt-layout">
+                                    <div class="ct-lane-sidebar">
+                                        <div class="ct-sidebar-header" :style="`height:${TOP_MARGIN}px;`">
+                                            <span class="ct-sh-title fc-flow-gtitle" x-text="slice.flowName" :title="slice.flowName"></span>
+                                            <span class="ct-sh-stats">
+                                                <span class="ct-sh-stat is-primary" x-show="slice.avgCycleMs !== null" title="가동시간 평균 (시작 → 다음 시작)">
+                                                    <i>가동 평균</i><b x-text="fmtMs(slice.avgCycleMs)"></b>
+                                                </span>
+                                                <span class="ct-sh-stat is-active" x-show="slice.avgActiveMs !== null" title="동작시간 평균 (시작 → 완료)">
+                                                    <i>동작 평균</i><b x-text="fmtMs(slice.avgActiveMs)"></b>
+                                                </span>
+                                            </span>
+                                        </div>
+                                        <div class="ct-ribbon-side" x-show="slice.cycleBoundaries.length" :style="`height:${RIBBON_H}px;`">
+                                            <span class="rs-t">사이클</span>
+                                            <span class="rs-sub">동작시간 · 대기시간 · 가동률</span>
+                                            <span x-show="slice.tailCompletionSource === 'OutTag'" class="rs-sub" style="margin-top:2px;color:#b26a00;background:#fff3e0;border:1px solid #ffcc80;border-radius:3px;padding:0 4px;font-size:9px;" title="이 Flow 의 Tail Call 에 응답(InTag)이 없어 명령 종료(OutTag↓)로 동작시간을 추정합니다. 검증된 완료가 아니라 명령 ON 시간입니다.">명령 ON 추정</span>
+                                        </div>
+                                        <template x-for="row in laneRows(slice)" :key="row.key">
+                                            <div :class="rowClass(slice, row)" :style="`height:${row.h}px;`">
+                                                <button x-show="row.kind === 'call'" class="ct-expand-btn"
+                                                        :disabled="!hasApiCalls(row.lane)"
+                                                        @click="toggleExpand(slice, row.lane.callId)"
+                                                        :title="hasApiCalls(row.lane) ? 'ApiCall 펼치기/접기 (실측 duration)' : 'ApiCall 없음'"
+                                                        x-text="!hasApiCalls(row.lane) ? '·' : (slice.expandedCalls[row.lane.callId] ? '▾' : '▸')"></button>
+                                                <template x-if="row.kind === 'call'">
+                                                    <div class="ct-lane-name-block">
+                                                        <div class="ct-lane-name">
+                                                            <span x-text="row.lane.callName"></span>
+                                                            <template x-if="slice.headCallId === row.lane.callId"><span class="ct-badge head">시작</span></template>
+                                                            <template x-if="slice.tailCallId === row.lane.callId"><span class="ct-badge tail">끝</span></template>
+                                                        </div>
+                                                        <div class="ct-lane-work" x-text="row.lane.workName"></div>
+                                                        <div class="ct-lane-row-leg" x-show="row.lane.outTag || row.lane.inTag">
+                                                            <span class="leg-out" x-show="row.lane.outTag"><i></i><span x-text="row.lane.outTag"></span></span>
+                                                            <span class="leg-in"  x-show="row.lane.inTag"><i></i><span x-text="row.lane.inTag"></span></span>
+                                                        </div>
+                                                    </div>
+                                                </template>
+                                                <template x-if="row.kind === 'call'">
+                                                    <div class="ct-lane-tags">
+                                                        <button :class="'ct-tag-btn head ' + (slice.headCallId === row.lane.callId ? 'active' : '')"
+                                                                @click="toggleHead(slice, row.lane.callId)" :disabled="slice.overlayBusy"
+                                                                title="시작 지정: 이 Call 의 OutTag↑ 가 사이클 시작 경계">시작</button>
+                                                        <button :class="'ct-tag-btn tail ' + (slice.tailCallId === row.lane.callId ? 'active' : '')"
+                                                                @click="toggleTail(slice, row.lane.callId)" :disabled="slice.overlayBusy"
+                                                                title="끝 지정: 이 Call 의 InTag↑ 가 사이클 완료 마커">끝</button>
+                                                    </div>
+                                                </template>
+                                                <template x-if="row.kind === 'api'">
+                                                    <div class="ct-api-block">
+                                                        <div class="ct-api-info">
+                                                            <div class="ct-api-name">
+                                                                <span class="ct-api-dot"></span>
+                                                                <span x-text="row.ac.name"></span>
+                                                                <span class="ct-api-tags" x-text="(row.ac.outTag ? ('OUT ' + row.ac.outTag) : '') + (row.ac.inTag ? ('  IN ' + row.ac.inTag) : '')"></span>
+                                                            </div>
+                                                            <div class="ct-api-stats">
+                                                                <span class="ct-api-meas" x-show="row.m.count > 0">
+                                                                    <span class="m"><i>실측</i><b x-text="row.m.count + '회'"></b></span>
+                                                                    <span class="m"><i>min</i><b x-text="fmtMs(row.m.min)"></b></span>
+                                                                    <span class="m"><i>평균</i><b x-text="fmtMs(row.m.mean)"></b></span>
+                                                                    <span class="m"><i>max</i><b x-text="fmtMs(row.m.max)"></b></span>
+                                                                </span>
+                                                                <span class="ct-api-meas ct-api-nodata" x-show="row.m.count === 0">이 구간 실측 없음</span>
+                                                                <span class="ct-api-cur">
+                                                                    <span class="m"><i>현재 AASX</i></span>
+                                                                    <span class="m"><i>D</i><b x-text="fmtAasx(row.ac.currentDurationMs)"></b></span>
+                                                                    <span class="m"><i>min</i><b x-text="fmtAasx(row.ac.currentMinMs)"></b></span>
+                                                                    <span class="m"><i>max</i><b x-text="fmtAasx(row.ac.currentMaxMs)"></b></span>
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                        <button class="ct-api-apply" x-show="canApplyApi(row.lane, row.ac)"
+                                                                :disabled="slice.applyDurBusy"
+                                                                @click="applyApiCallDuration(slice, row)"
+                                                                title="이 ApiCall 의 실측 평균/min/max 를 대상 Work 의 Duration/Min/Max 로 AASX 에 즉시 기록">적용</button>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                        </template>
+                                    </div>
+                                    <div class="ct-gantt-chart-area" :id="'cta-' + slice.id"
+                                         x-init="$el.addEventListener('wheel', (e) => onWheel(e, slice), { passive: false })"
+                                         @pointerdown="onDragStart($event, slice)">
+                                        <div class="ct-gantt-wrapper" x-html="slice.svgMarkup"></div>
+                                    </div>
+                                </div>
+
+                                <!-- 간트 신호 범례 -->
+                                <div class="ct-legend">
+                                    <span><i class="ct-sw ct-sw-out"></i> OutTag (명령=시작)</span>
+                                    <span><i class="ct-sw ct-sw-in"></i> InTag (응답=완료)</span>
+                                    <span><i class="ct-sw ct-sw-head"></i> 시작</span>
+                                    <span><i class="ct-sw ct-sw-tail"></i> 끝</span>
+                                    <span><i class="ct-sw ct-sw-cycle-edge"></i> 사이클 경계</span>
+                                    <template x-if="slice.selectedRange">
+                                        <span><i class="ct-sw ct-sw-range"></i> 드래그 선택 구간</span>
+                                    </template>
+                                </div>
+                                <!-- 리본(MT·WT) 범례 — Tail 지정 시에만 -->
+                                <template x-if="slice.tailCallId !== null">
+                                    <div class="ct-legend" style="margin-top:4px;">
+                                        <span style="color:var(--color-text-primary);font-weight:700;">상단 리본 = 사이클별 동작시간·대기시간 비율 + 가동률</span>
+                                        <span><i class="ct-sw ct-sw-active-band"></i> 동작시간</span>
+                                        <span><i class="ct-sw ct-sw-idle-band"></i> 대기시간</span>
+                                    </div>
+                                </template>
+
+                                <!-- 드래그 선택 구간 → 인라인 4-KPI 카드 -->
+                                <template x-if="slice.selectedRange">
+                                    <div class="card" style="border-color: var(--color-primary);">
+                                        <div class="ds-card-h">
+                                            <h4>
+                                                선택 구간
+                                                <span style="font-weight:400; font-size:0.82em; color:var(--color-text-secondary);"
+                                                      x-text="' · ' + hms2k(new Date(slice.selectedRange.startMs)) + ' ~ ' + hms2k(new Date(slice.selectedRange.endMs))"></span>
+                                            </h4>
+                                            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                                                <button class="btn btn-sm btn-filled" @click="applyRangeAsPeriod(slice)" :disabled="loadingAny"
+                                                        title="선택 구간을 모든 Flow 의 분석 시간으로 설정하고 다시 로드 (공유 시간범위가 바뀝니다)">
+                                                    <span class="material-icons" style="font-size:16px; vertical-align:middle;">schedule</span>
+                                                    사이클 기간으로 설정
+                                                </button>
+                                                <button class="btn btn-sm btn-outlined" @click="clearRangeSelection(slice)" title="선택 구간 해제">✕ 해제</button>
+                                            </div>
+                                        </div>
+                                        <div class="sm-hint" style="margin-bottom:14px;">
+                                            <span class="material-icons">info</span>
+                                            <span>드래그한 구간의 통계입니다. <b>사이클 기간으로 설정</b>을 누르면 모든 Flow 의 분석 시간이 이 구간으로 바뀌고 전체 새로고침합니다.</span>
+                                        </div>
+                                        <div class="ct-range-stats">
+                                            <div class="kpi-cell">
+                                                <div class="kp-label">선택 구간 길이</div>
+                                                <div class="kp-value" x-text="fmtMs(selRangeLenMs(slice))"></div>
+                                            </div>
+                                            <div class="kpi-cell tone-primary">
+                                                <div class="kp-label">동작 (Run) 합</div>
+                                                <div class="kp-value" x-text="fmtMs(selRunMs(slice))"></div>
+                                            </div>
+                                            <div class="kpi-cell tone-max">
+                                                <div class="kp-label">병목 (Gap) 합</div>
+                                                <div class="kp-value" x-text="fmtMs(selGapMs(slice))"></div>
+                                            </div>
+                                            <div class="kpi-cell">
+                                                <div class="kp-label">활성 Call</div>
+                                                <div class="kp-value" x-text="selActiveDevices(slice) + ' / ' + slice.callLanes.length"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+
+                            </div>
+                        </template>
+                    </section>
+                </template>
+
+                </div><!-- /.fa-scroll -->
+
+            </div>
+        </main>
+    </div>
+
     <script src="/lib/signalr.min.js"></script>
     <script src="/lib/chart.umd.min.js"></script>
     <script>window.DSP_FLOW_VIEW = "cycle";</script>
     <script src="/app/flow-workspace.js"></script>
+    <script src="/app/cycle-gantt.js"></script>
+    <script src="/app/flow-cycle-bulk.js"></script>
+    <script>
+        // ── 진입 부트스트랩 (Alpine 로드 전, 파싱 시점 실행) ──
+        // ?name= 있으면 단일 Flow → 전체 루트(#fc-bulk) 제거. 없으면 전체 편집 → 단일 루트(#fc-single) 제거.
+        // 두 루트가 모두 남아 각자 init() 되는 이중 초기화를 막는다.
+        (function () {
+            var hasName = !!new URLSearchParams(location.search).get('name');
+            var el = document.getElementById(hasName ? 'fc-bulk' : 'fc-single');
+            if (el && el.parentNode) el.parentNode.removeChild(el);
+            if (!hasName) { try { document.title = '사이클 분석 · 전체 편집 — DSPilot'; } catch (e) { /* ignore */ } }
+        })();
+    </script>
     <script src="/app/shell.js" defer></script>
     <script defer src="/lib/alpine.min.js"></script>
 </body>

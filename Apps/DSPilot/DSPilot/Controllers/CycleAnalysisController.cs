@@ -164,6 +164,23 @@ public class CycleAnalysisController : ControllerBase
         return File(bytes, CycleTimeChartExporter.XlsxMimeType, fileName);
     }
 
+    /// <summary>
+    /// 전체 편집(bulkCycleApp) Excel — 여러 Flow 의 화면 상태(<see cref="CycleExcelModel"/> 배열)를 받아
+    /// 한 시트에 Flow 간트 블록을 세로로 쌓은 xlsx 를 반환한다(<see cref="CycleTimeChartExporter.BuildBulkCycleAnalysisExcel"/>).
+    /// 화면 '전체 Excel 다운로드' 가 로드된 모든 Flow 의 buildSliceExportModel 을 배열로 POST 한다.
+    /// 파일명 = CycleTime_ALL_&lt;yyyyMMdd_HHmmss&gt;.xlsx.
+    /// </summary>
+    [HttpPost("export-excel-bulk")]
+    public IActionResult ExportExcelBulk([FromBody] List<CycleExcelModel> req)
+    {
+        if (req is null || req.Count == 0)
+            return BadRequest("models required");
+
+        var bytes = CycleTimeChartExporter.BuildBulkCycleAnalysisExcel(req);
+        var fileName = $"CycleTime_ALL_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
+        return File(bytes, CycleTimeChartExporter.XlsxMimeType, fileName);
+    }
+
     // ─── Blazor LoadIdleEdgesAsync 와 동일 ────────────────────────────────────
     private async Task<List<DateTime>> LoadIdleEdgesAsync(string flowName, DateTime start, DateTime end)
     {

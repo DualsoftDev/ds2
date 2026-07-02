@@ -446,9 +446,9 @@
             if (tailX !== null) {
                 var aw = Math.max(0, tailX - sx);
                 var iw = Math.max(0, ex - tailX);
-                g += '<rect x="' + f(sx) + '" y="' + barY + '" width="' + f(aw) + '" height="' + barH + '" fill="#4caf50" opacity="' + (0.9 * dim) + '"/>';
-                g += '<rect x="' + f(tailX) + '" y="' + barY + '" width="' + f(iw) + '" height="' + barH + '" fill="#b0bec5" opacity="' + (0.9 * dim) + '"/>';
-                if (aw > 54) g += '<text x="' + f(sx + aw / 2.0) + '" y="' + f(barCY) + '" text-anchor="middle" dominant-baseline="central" font-size="9.5" font-weight="700" fill="#1b5e20" font-family="Inter,ui-monospace,Cascadia Code,Consolas,monospace">' + esc(formatMs(atMs)) + '</text>';
+                g += '<rect x="' + f(sx) + '" y="' + barY + '" width="' + f(aw) + '" height="' + barH + '" fill="#fb8c00" opacity="' + (0.9 * dim) + '"/>';
+                g += '<rect x="' + f(tailX) + '" y="' + barY + '" width="' + f(iw) + '" height="' + barH + '" fill="#AEB9C6" opacity="' + (0.9 * dim) + '"/>';
+                if (aw > 54) g += '<text x="' + f(sx + aw / 2.0) + '" y="' + f(barCY) + '" text-anchor="middle" dominant-baseline="central" font-size="9.5" font-weight="700" fill="#5a3200" font-family="Inter,ui-monospace,Cascadia Code,Consolas,monospace">' + esc(formatMs(atMs)) + '</text>';
                 if (iw > 54) g += '<text x="' + f(tailX + iw / 2.0) + '" y="' + f(barCY) + '" text-anchor="middle" dominant-baseline="central" font-size="9.5" fill="#37474f" font-family="Inter,ui-monospace,Cascadia Code,Consolas,monospace">' + esc(formatMs(idleMs)) + '</text>';
             } else {
                 var bfill = isEven ? '#9fa8da' : '#ce93d8';
@@ -500,14 +500,14 @@
             var tailX = tailIn !== null ? LEFT_PAD + msOf(tailIn) * xScale : null;
 
             if (tailX !== null) {
-                sb += '<rect x="' + f(sx) + '" y="' + laneAreaTop + '" width="' + f(tailX - sx) + '" height="' + laneAreaH + '" fill="#4caf50" opacity="' + (0.10 * dim) + '"/>';
-                sb += '<rect x="' + f(tailX) + '" y="' + laneAreaTop + '" width="' + f(ex - tailX) + '" height="' + laneAreaH + '" fill="#607d8b" opacity="' + (0.08 * dim) + '"/>';
+                sb += '<rect x="' + f(sx) + '" y="' + laneAreaTop + '" width="' + f(tailX - sx) + '" height="' + laneAreaH + '" fill="#fb8c00" opacity="' + (0.10 * dim) + '"/>';
+                sb += '<rect x="' + f(tailX) + '" y="' + laneAreaTop + '" width="' + f(ex - tailX) + '" height="' + laneAreaH + '" fill="#AEB9C6" opacity="' + (0.08 * dim) + '"/>';
             } else {
                 var bandFill = isEven ? '#5c6bc0' : '#8e24aa';
                 sb += '<rect x="' + f(sx) + '" y="' + laneAreaTop + '" width="' + f(bandW) + '" height="' + laneAreaH + '" fill="' + bandFill + '" opacity="' + (0.07 * dim) + '"/>';
             }
 
-            sb += '<line x1="' + f(sx) + '" y1="' + TOP_MARGIN + '" x2="' + f(sx) + '" y2="' + laneAreaBottom + '" stroke="#ff9800" stroke-width="1.8" opacity="0.9"/>';
+            sb += '<line x1="' + f(sx) + '" y1="' + TOP_MARGIN + '" x2="' + f(sx) + '" y2="' + laneAreaBottom + '" stroke="#455a64" stroke-width="1.8" opacity="0.9"/>';
             if (tailX !== null) {
                 sb += '<line x1="' + f(tailX) + '" y1="' + laneAreaTop + '" x2="' + f(tailX) + '" y2="' + laneAreaBottom + '" stroke="#ab47bc" stroke-width="1.2" stroke-dasharray="3 2" opacity="0.85"/>';
             }
@@ -516,7 +516,7 @@
         var lastEdge = bnd[bnd.length - 1];
         if (lastEdge >= cs && lastEdge <= ce) {
             var lx = LEFT_PAD + msOf(lastEdge) * xScale;
-            sb += '<line x1="' + f(lx) + '" y1="' + TOP_MARGIN + '" x2="' + f(lx) + '" y2="' + laneAreaBottom + '" stroke="#ff9800" stroke-width="1.8" opacity="0.9"/>';
+            sb += '<line x1="' + f(lx) + '" y1="' + TOP_MARGIN + '" x2="' + f(lx) + '" y2="' + laneAreaBottom + '" stroke="#455a64" stroke-width="1.8" opacity="0.9"/>';
         }
         return sb;
     }
