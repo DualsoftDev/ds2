@@ -272,8 +272,8 @@ app.UseAntiforgery();
 // 기존 Blazor @page(.razor)는 폴백으로 남겨두며(딕셔너리에서 해당 줄 삭제 시 즉시 Blazor 로 원복).
 var canonicalStaticRoutes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 {
-    ["/"] = "dashboard2.html",
-    ["/dashboard"] = "dashboard2.html",
+    ["/"] = "dashboard.html",
+    ["/dashboard"] = "dashboard.html",
     ["/heatmap"] = "heatmap.html",
     ["/cycle-time-analysis"] = "cycle-time-analysis.html",
     // 가동시간·이상 물리 분리(2026-07-01): OEE 종합 / 이상·알람 2페이지. 공용 JS/CSS(uptime-workspace) SSOT 공유.
