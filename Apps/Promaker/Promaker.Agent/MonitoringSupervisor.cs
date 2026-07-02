@@ -405,12 +405,16 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
             //    IPlcGateway(Control 공유 인스턴스)·IRuntimeHubSession 을 우선 등록. readOnly=false(Control) 면
             //    SignalHub.SetReadOnly(false) 로 client write 허용 + PlcScanService 초기 동기 스캔 활성.
             //    UseWindowsService 는 외부 Generic Host (Program.cs) 담당 — 여기서는 추가 안 함.
-            // ActionUnder 게이트 — calibration-state 사이드카 + 현재 AASX 해시로 "Min 실측 확정" 판정 함수 구성.
-            // 어댑터(F#)가 이 Func 로 미확정 Work 의 ActionUnder 를 거른다(모델 해시 불일치=변경 시 전부 false → stale).
+            // ActionUnder/ActionOver 게이트 — calibration-state 사이드카의 실측 확정값을 현재 모델 duration 과 대조해 구성.
+            // 어댑터(F#)/engine watchdog 이 이 Func 로 미확정 Work 의 판정을 거른다.
+            // raw AASX 해시 대신 Work 별 duration 값으로 stale 판정: usertag·이름 등 duration 무관 편집엔 게이트 유지,
+            // duration 이 실제로 바뀐 Work 만 재확정 요구(GUID 승계). index.WorkDurationRange = 엔진 판정과 동일 SSOT.
             var calibState = CalibrationState.Load();
-            var calibHash = RuntimeModelHash.compute(session.AasxPath);
-            Func<Guid, bool> isMinMeasured = g => calibState.IsMinMeasured(g, calibHash);
-            Func<Guid, bool> isMaxMeasured = g => calibState.IsMaxMeasured(g, calibHash);
+            var durById = new Dictionary<Guid, (int Min, int Max)>();
+            foreach (var kv in index.WorkDurationRange)
+                durById[kv.Key] = (kv.Value.MinMs, kv.Value.MaxMs);
+            Func<Guid, bool> isMinMeasured = g => durById.TryGetValue(g, out var r) && calibState.IsMinMeasured(g, r.Min);
+            Func<Guid, bool> isMaxMeasured = g => durById.TryGetValue(g, out var r) && calibState.IsMaxMeasured(g, r.Max);
             // 게이트 주입.
             //  - ActionOver(Max): Control(adapter.OnTick)·Monitoring(engine device-watchdog) 양쪽 경로 → engine 에 항상 주입.
             //  - ActionUnder(Min): Control 은 engine adapter, Monitoring 은 아래 HubSession(MonitoringAbnormalAdapter) 이 주입.

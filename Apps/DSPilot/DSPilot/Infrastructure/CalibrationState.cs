@@ -12,7 +12,9 @@ namespace DSPilot.Infrastructure;
 ///
 /// 용도: ActionUnder(Min 보다 빨리 끝남)·ActionOver(Max 초과) 판정 게이트의 SSOT.
 ///   - 사용자가 실측으로 확정한 Work 만 MinMeasured/MaxMeasured=true → 해당 이상 판정 활성.
-///   - AasxSha256 이 현재 AASX 해시와 다르면(모델 변경) 전체 stale → 재확정 전까지 비활성.
+///   - 게이트 유효성은 Work 별 실측 duration 값(MinMs/MaxMs)이 현재 모델 duration 과 일치하는지로 판정한다.
+///     usertag·이름·좌표 등 duration 무관 편집엔 게이트 유지, duration 이 실제로 바뀐 Work 만 재확정 요구
+///     (AasxSha256 은 마지막 확정 시점 기록용 정보 필드 — 게이트 판정에는 쓰지 않는다).
 ///
 /// 모델(AASX)을 건드리지 않고, 동시 저장 충돌은 <see cref="SharedWriteLock"/> 으로 직렬화한다.
 /// </summary>
@@ -66,19 +68,16 @@ public sealed class CalibrationState
         catch { return false; }
     }
 
-    /// <summary>해당 Work 의 Min 실측 확정 여부 — 현재 AASX 해시와 일치할 때만 유효(모델 변경 시 stale 제외).</summary>
-    public bool IsMinMeasured(Guid workGuid, string currentAasxSha256)
-    {
-        if (string.IsNullOrEmpty(AasxSha256) || AasxSha256 != currentAasxSha256) return false;   // stale
-        return Works.TryGetValue(Key(workGuid), out var w) && w.MinMeasured;
-    }
+    /// <summary>해당 Work 의 Min 실측 확정 여부 — 저장된 실측 MinMs 가 현재 모델의 Min duration(currentMinMs)과
+    /// 같을 때만 유효. raw AASX 해시(usertag·이름 등 duration 무관 편집에도 바뀜) 대신 Work 별 duration 값으로
+    /// stale 판정한다: duration 을 안 건드린 편집은 게이트 유지(GUID 승계), duration 이 바뀐 Work 만 재확정 요구.</summary>
+    public bool IsMinMeasured(Guid workGuid, int currentMinMs)
+        => Works.TryGetValue(Key(workGuid), out var w) && w.MinMeasured && w.MinMs == currentMinMs;
 
-    /// <summary>해당 Work 의 Max 실측 확정 여부 — 현재 AASX 해시와 일치할 때만 유효. ActionOver 게이트가 사용.</summary>
-    public bool IsMaxMeasured(Guid workGuid, string currentAasxSha256)
-    {
-        if (string.IsNullOrEmpty(AasxSha256) || AasxSha256 != currentAasxSha256) return false;   // stale
-        return Works.TryGetValue(Key(workGuid), out var w) && w.MaxMeasured;
-    }
+    /// <summary>해당 Work 의 Max 실측 확정 여부 — 저장된 실측 MaxMs 가 현재 모델의 Max duration(currentMaxMs)과
+    /// 같을 때만 유효. 판정 근거는 IsMinMeasured 와 동일(duration 값 대조, GUID 승계). ActionOver 게이트가 사용.</summary>
+    public bool IsMaxMeasured(Guid workGuid, int currentMaxMs)
+        => Works.TryGetValue(Key(workGuid), out var w) && w.MaxMeasured && w.MaxMs == currentMaxMs;
 
     /// <summary>한 Work 의 Min 실측 확정 기록(in-memory, 누적). 호출자가 락 안에서 호출 후 <see cref="TrySave"/>.
     /// 같은 Work 의 Max 확정은 보존한다(같은 실측 적용이 Min/Max 를 함께 박을 수 있음).</summary>
@@ -99,14 +98,11 @@ public sealed class CalibrationState
         w.MeasuredAtUtc = DateTime.UtcNow.ToString("o");
     }
 
-    /// <summary>모델 해시가 바뀌었으면(다른 모델) 기존 확정 전체를 비우고 해시 갱신 후, 해당 Work 의 WorkCalib 를 확보.</summary>
+    /// <summary>해당 Work 의 WorkCalib 확보. 다른 Work 의 확정은 보존한다(부분 재확정이 나머지를 날리지 않음 = GUID 승계).
+    /// 게이트 유효성은 Work 별 duration 값 대조로 판정하므로 모델 변경 시 전체 무효화(Clear)가 필요 없다.</summary>
     private WorkCalib EnsureWork(Guid workGuid, string aasxSha256)
     {
-        if (AasxSha256 != aasxSha256)
-        {
-            AasxSha256 = aasxSha256;
-            Works.Clear();   // 모델이 바뀌면 이전 확정은 무효 — 새 기준으로 재시작
-        }
+        AasxSha256 = aasxSha256;   // 정보성 — 게이트 판정엔 미사용(Work 별 duration 값이 SSOT)
         var key = Key(workGuid);
         if (!Works.TryGetValue(key, out var w)) { w = new WorkCalib(); Works[key] = w; }
         return w;
