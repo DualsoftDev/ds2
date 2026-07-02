@@ -60,20 +60,11 @@ function bulkCycleApp() {
                 }, 180);
             });
 
-            // 기본 시간범위 (최신-5분 ~ 최신)
-            try {
-                const t = await this.apiGet('/api/call-test/latest-time');
-                this.startTime = this.toInputValue(t.start);
-                this.endTime = this.toInputValue(t.end);
-            } catch (e) {
-                const now = new Date();
-                this.endTime = this.dateToInput(now);
-                this.startTime = this.dateToInput(new Date(now.getTime() - 5 * 60000));
-            }
-
             await this.loadFlows();
             await this.loadExclusions();
-            await this.loadAll();
+            // 기본 = 최근 5분 프리셋 (단일 페이지와 동일). setRecentMinutes 가
+            // 시간창 계산 + timePreset='m5' 활성표시 + loadAll 까지 한 번에 처리.
+            await this.setRecentMinutes(5);
             this.connectSignalR();
         },
 
