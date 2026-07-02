@@ -67,6 +67,80 @@ public class OeeController : ControllerBase
         return summary;
     }
 
+    // ── GET /api/oee/output-count?from&to ─────────────────────────────────
+    /// <summary>
+    /// 대시보드 "가동횟수" 카드 값. flow별 사이클수를 그냥 합치면 직렬 공정에서 과다 계상되므로:
+    ///   · 출력 Flow 지정(OeeManual.OutputFlows) 있음 → 그 flow들의 사이클수 합(산출량).
+    ///   · 지정 없음(자동) → 전체 사이클수 합 ÷ 기간 내 가동한 flow 수(정수 평균) — 직렬이면 완제품 수, 병렬이면 라인 평균에 근사.
+    /// </summary>
+    [HttpGet("output-count")]
+    public async Task<ActionResult<OutputCountDto>> OutputCount(
+        [FromQuery] DateTime? from, [FromQuery] DateTime? to)
+    {
+        var (fromUtc, toUtc) = ResolveRange(from, to);
+        var selected = _settings.LoadSettings().OeeManual.OutputFlows ?? [];
+
+        if (selected.Count > 0)
+        {
+            int sum = 0;
+            foreach (var f in selected)
+                sum += await CountFlowHistoryAsync(f, fromUtc, toUtc);
+            return new OutputCountDto(sum, "designated");
+        }
+
+        var total = await CountFlowHistoryAsync(null, fromUtc, toUtc);
+        var flowCount = await CountDistinctActiveFlowsAsync(fromUtc, toUtc);
+        var avg = flowCount > 0
+            ? (int)Math.Round((double)total / flowCount, MidpointRounding.AwayFromZero)
+            : 0;
+        return new OutputCountDto(avg, "auto");
+    }
+
+    // ── GET /api/oee/output-flows ─────────────────────────────────────────
+    /// <summary>출력 Flow 지정 모달용 — 후보 flow 목록(프로젝트 flow ∪ 히스토리 flowName) + 현재 지정.</summary>
+    [HttpGet("output-flows")]
+    public async Task<ActionResult<OutputFlowStateDto>> GetOutputFlows()
+    {
+        var selected = _settings.LoadSettings().OeeManual.OutputFlows ?? [];
+        var names = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            if (_project.IsLoaded)
+                foreach (var f in _project.GetAllFlows())
+                    if (!string.IsNullOrWhiteSpace(f.Name))
+                        names.Add(f.Name.Trim());
+        }
+        catch (Exception ex) { _logger.LogDebug(ex, "[OEE] output-flows: project flow 수집 실패 (non-critical)"); }
+
+        foreach (var n in await GetDistinctFlowNamesAsync())
+            names.Add(n);
+
+        return new OutputFlowStateDto([.. names], [.. selected]);
+    }
+
+    // ── POST /api/oee/output-flows ────────────────────────────────────────
+    /// <summary>출력 Flow 지정 저장(전체 교체). 빈 목록 = 자동(평균) 모드.</summary>
+    [HttpPost("output-flows")]
+    public ActionResult<SaveResultDto> SaveOutputFlows([FromBody] OutputFlowSaveDto? req)
+    {
+        try
+        {
+            var flows = (req?.Flows ?? [])
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .Select(s => s.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            _settings.Update(m => m.OeeManual.OutputFlows = flows);
+            return new SaveResultDto(true,
+                flows.Count == 0 ? "자동(평균) 모드로 설정되었습니다." : $"출력 Flow {flows.Count}개가 지정되었습니다.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[OEE] SaveOutputFlows failed");
+            return new SaveResultDto(false, $"출력 Flow 저장 실패: {ex.Message}");
+        }
+    }
+
     // ── POST /api/oee/export-excel ────────────────────────────────────────
     /// <summary>
     /// Excel(.xlsx) 내보내기 — WYSIWYG. 서버가 OEE 를 다시 계산하지 않고, 클라이언트(uptime-oee.html)가
@@ -1508,6 +1582,62 @@ public class OeeController : ControllerBase
         }
     }
 
+    /// <summary>기간 내 <b>가동한(비가동 제외) flow 수</b>(distinct flowName). 자동(평균) 모드의 분모.</summary>
+    private async Task<int> CountDistinctActiveFlowsAsync(DateTime fromUtc, DateTime toUtc)
+    {
+        var dbPath = _pathResolver.GetSharedDbPath();
+        if (!System.IO.File.Exists(dbPath)) return 0;
+        try
+        {
+            await using var conn = new SqliteConnection(
+                $"Data Source={dbPath};Mode=ReadWriteCreate;Default Timeout=20");
+            await conn.OpenAsync();
+
+            var exists = await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlowHistory'");
+            if (exists == 0) return 0;
+
+            var p = new DynamicParameters();
+            p.Add("From", fromUtc.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture));
+            p.Add("To", toUtc.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture));
+            return await conn.ExecuteScalarAsync<int>(@"
+                SELECT COUNT(DISTINCT flowName) FROM dspFlowHistory
+                WHERE COALESCE(IsIdle,0) = 0
+                  AND recordedAt >= @From AND recordedAt < @To", p);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[OEE] dspFlowHistory distinct-flow count failed");
+            return 0;
+        }
+    }
+
+    /// <summary>히스토리에 존재하는 모든 flowName(중복 제거). 출력 Flow 지정 모달의 후보 목록 보강용.</summary>
+    private async Task<List<string>> GetDistinctFlowNamesAsync()
+    {
+        var dbPath = _pathResolver.GetSharedDbPath();
+        if (!System.IO.File.Exists(dbPath)) return [];
+        try
+        {
+            await using var conn = new SqliteConnection(
+                $"Data Source={dbPath};Mode=ReadWriteCreate;Default Timeout=20");
+            await conn.OpenAsync();
+
+            var exists = await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlowHistory'");
+            if (exists == 0) return [];
+
+            var rows = await conn.QueryAsync<string>(
+                "SELECT DISTINCT flowName FROM dspFlowHistory WHERE flowName IS NOT NULL AND flowName <> ''");
+            return [.. rows];
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[OEE] dspFlowHistory distinct flowName query failed");
+            return [];
+        }
+    }
+
     // ── 가용성 분모 폴백 체인 (계획시간: UserSet 시프트 ▸ 14일 자동추정 ▸ 달력근사) ──────────────
 
     private readonly record struct AvailabilityResult(double? Availability, string? Note, string Source, double PlannedMs, double RuntimeMs);
@@ -1818,6 +1948,11 @@ public record ShiftExceptionRequest(string? Flow, DateTime? StartAt, DateTime? E
 // Mode: "manual"=사용자 직접 입력(자동이 안 덮음, 값 동일해도 수동 잠금) / "auto"=자동 관리로 해제(수동값 비움→자동기입) / null=레거시(값 변경 시 수동).
 public record IdealCycleRequest(string Flow, int? IdealCycleTimeMs, string? Mode = null);
 public record IdealCycleBatchRequest(List<IdealCycleRequest> Items);
+
+// 대시보드 "가동횟수" 카드 — 출력(생산) Flow 지정.
+public record OutputCountDto(int Count, string Mode);          // Mode: "designated"(지정 합) | "auto"(flow 평균)
+public record OutputFlowStateDto(List<string> Flows, List<string> Selected);
+public record OutputFlowSaveDto(List<string>? Flows);
 
 // idealCT 일괄 편집 테이블 1행: 현재 설정값(+출처) + 실측 추천/통계(이상치 제외).
 // Source: "auto" = 실측 자동기입(OeeIdealCycleAutoFillService) / null = 수동 입력(값 있을 때) 또는 미설정.
