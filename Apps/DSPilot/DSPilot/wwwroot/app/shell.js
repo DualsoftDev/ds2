@@ -35,6 +35,25 @@
 (function () {
     'use strict';
 
+    // 파비콘: 모든 정적 페이지 <head> 에 명시적 링크 주입(브라우저 기본 /favicon.ico 폴백도 존재).
+    (function ensureFavicon() {
+        try {
+            if (document.querySelector('link[rel~="icon"]')) return;
+            var head = document.head || document.getElementsByTagName('head')[0];
+            if (!head) return;
+            var ico = document.createElement('link');
+            ico.rel = 'icon';
+            ico.href = '/favicon.ico';
+            ico.setAttribute('sizes', 'any');
+            head.appendChild(ico);
+            var png = document.createElement('link');
+            png.rel = 'icon';
+            png.type = 'image/png';
+            png.href = '/images/favicon.png';
+            head.appendChild(png);
+        } catch (e) { /* noop */ }
+    })();
+
     // 사이드바 너비(px). aside.width 와 main.margin-left 단일 소스. 인라인 style 이 w-60/ml-60 클래스를 덮음.
     var SHELL_W = 300;
     // 모바일/데스크톱 분기 기준(px). 미만이면 사이드바를 드로어로 전환.
@@ -372,11 +391,9 @@
             //   queryParam='name'(추이/사이클) | 'flow'(동작편차/OEE/이상·알람).
             //   isActivePage=현재 페이지가 이 그룹의 페이지인지, activeFlowName=그 페이지에서 선택된 Flow('' 가능).
             //   withBadge=true 면 header 우측에 이상 알람 배지를 붙여 anomalyBadges 에 등록.
-            //   withAll=true 면 FLOW 목록 맨 위에 '전체' 버튼을 추가 — 클릭 시 설비 필터 없이(base 로) 이동해
-            //     전체 설비(라인 전체)를 본다. ?flow= 로 설비를 거르는 페이지(동작편차/OEE/이상·알람)만 사용.
-            //   allOpts(선택) = '전체' 버튼을 base 가 아닌 다른 페이지로 보낼 때: { href, active, label, title }.
-            //     사이클 분석은 base(/flow-cycle) 가 단일 Flow 전용이라 '전체'를 /flow-all(일괄 편집)로 보낸다.
-            function buildAnalysisGroup(sysFlows, label, iconName, base, queryParam, isActivePage, activeFlowName, withBadge, withAll, allOpts) {
+            //   headerHref = header 클릭 시 이동할 '전체' 페이지 주소(별도 '전체' 항목 없음). 이동 후 대상 페이지에서
+            //     isActivePage=true 로 자동 펼쳐져 FLOW 를 바로 선택하는 구조(2026-07-02 전 그룹 공통).
+            function buildAnalysisGroup(sysFlows, label, iconName, base, queryParam, isActivePage, activeFlowName, withBadge, headerHref) {
                 var wrap = el('div', 'flex flex-col gap-0.5');
 
                 var head = el('button', 'w-full flex items-center gap-2 px-3 py-2 rounded text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-inverse-surface transition-colors');
@@ -401,33 +418,18 @@
                     head.appendChild(badge);
                     anomalyBadges.push(badge);
                 }
+                // 펼치기 chevron — header 본문은 '전체' 이동이지만 이 chevron 만은 펼침/접힘 토글(이동 안 함).
                 var hChev = icon('chevron_right');
-                hChev.style.cssText = 'flex:0 0 auto;font-size:16px;transition:transform 0.12s;';
+                hChev.style.cssText = 'flex:0 0 auto;font-size:16px;transition:transform 0.12s;'
+                    + 'cursor:pointer;padding:2px;margin:-2px;border-radius:4px;';
+                hChev.setAttribute('role', 'button');
+                hChev.setAttribute('aria-label', '펼치기/접기');
                 head.appendChild(hChev);
 
                 var list = el('div', 'flex flex-col gap-0.5');
                 list.style.cssText = 'display:none;padding-left:16px;';
 
                 var groupHasCurrent = false;
-
-                // '전체' 버튼 — FLOW 목록 맨 위. 설비 필터를 걸지 않고(base 로) 이동해 라인 전체를 본다.
-                //   활성(파랑 강조) 조건 = 이 그룹의 페이지에 있으면서 선택된 설비가 없는 상태(activeFlowName='').
-                if (withAll) {
-                    var allHref = (allOpts && allOpts.href) || base;
-                    var allActive = allOpts ? !!allOpts.active : (isActivePage && !activeFlowName);
-                    var ab = el('button', 'w-full flex items-center gap-2 px-3 py-2 rounded transition-colors text-on-surface-variant dark:text-surface-variant'
-                        + (allActive ? '' : ' hover:bg-surface-container-high dark:hover:bg-inverse-surface'));
-                    ab.type = 'button';
-                    ab.style.cssText = 'text-align:left;' + BTN_RESET;
-                    if (allActive) { ab.style.backgroundColor = '#2170e4'; ab.style.color = '#fff'; }
-                    ab.appendChild(dot(allActive ? '#fff' : 'currentColor', allActive ? '1' : '0.7'));
-                    var al = el('span', 'font-label-sm text-label-sm', (allOpts && allOpts.label) || '전체');
-                    al.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700;font-size:0.9rem;';
-                    ab.appendChild(al);
-                    ab.title = (allOpts && allOpts.title) || (base + ' — 설비 필터 없이 라인 전체 보기');
-                    ab.addEventListener('click', function (ev) { ev.stopPropagation(); location.href = allHref; });
-                    list.appendChild(ab);
-                }
 
                 (sysFlows || []).forEach(function (flowName) {
                     var isCur = isActivePage && flowName === activeFlowName;
@@ -456,7 +458,16 @@
                     hChev.style.transform = expanded ? 'rotate(90deg)' : '';
                     head.setAttribute('aria-expanded', expanded ? 'true' : 'false');
                 }
-                head.addEventListener('click', function (e) { e.stopPropagation(); toggle(); });
+                // 우측 chevron 클릭 = 펼침/접힘 토글만(이동 안 함). header 본문 클릭보다 먼저 가로채기.
+                hChev.addEventListener('click', function (e) { e.stopPropagation(); toggle(); });
+                head.addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    // 모든 분석 그룹: header 본문 클릭 = 별도 '전체' 항목 없이 바로 전체 페이지로 이동.
+                    //   이동 후 대상 페이지에서 isActivePage=true → 아래 자동펼침으로 FLOW 선택 UI 노출.
+                    //   headerHref 미지정(방어적): 기존처럼 토글만.
+                    if (headerHref) { location.href = headerHref; return; }
+                    toggle();
+                });
 
                 // 현재 이 그룹의 페이지에 있으면(특정 Flow 선택 여부 무관) 자동 펼침.
                 if (isActivePage) toggle();
@@ -490,19 +501,17 @@
 
                 // 5개 분석/페이지 그룹 — 각각 이 시스템의 FLOW 리스트. Flow 클릭 → 해당 페이지?쿼리= 이동.
                 //   추이/사이클 = ?name= (/flow-trend·/flow-cycle), 동작편차/OEE/이상·알람 = ?flow= (해당 페이지가 설비 필터).
-                var gTrend = buildAnalysisGroup(flows, '추이 분석',  'timeline',      '/flow-trend',   'name', onFlowPage && curFlowView === 'trend', curFlowName, false, true);
-                // 사이클 분석.설정: base(/flow-cycle?name=) 는 단일 Flow. '전체' 는 /flow-cycle?system= (그 시스템 모든
-                //   Flow 간트 일괄 편집)로 보낸다. 그룹은 단일(?name=)이든 전체(bulk)이든 이 시스템이면 활성/자동펼침.
+                // 공통 구조(2026-07-02): 모든 그룹에서 별도 '전체' 항목 제거(withAll=false). header 클릭이 곧 '전체' 페이지
+                //   이동(headerHref)이며, 이동한 페이지에서 isActivePage=true 로 자동 펼쳐져 FLOW 를 바로 선택한다.
+                var gTrend = buildAnalysisGroup(flows, '추이 분석',  'timeline',      '/flow-trend',   'name', onFlowPage && curFlowView === 'trend', curFlowName, false, '/flow-trend');
+                // 가동시간 분석.설정: base(/flow-cycle?name=) 는 단일 Flow. '전체'(header 클릭) 는 /flow-cycle?system=
+                //   (그 시스템 모든 Flow 간트 일괄 편집)로 보낸다. 그룹은 단일(?name=)이든 전체(bulk)이든 이 시스템이면 활성/자동펼침.
                 var cycleActive = (onFlowPage && curFlowView === 'cycle') || (onFlowCycleBulk && flowCycleSystem === sys.name);
-                var gCycle = buildAnalysisGroup(flows, '가동시간 분석.설정', 'account_tree',  '/flow-cycle',   'name', cycleActive, curFlowName, false, true, {
-                    href: '/flow-cycle?system=' + encodeURIComponent(sys.name),
-                    active: onFlowCycleBulk && flowCycleSystem === sys.name,
-                    label: '전체',
-                    title: '이 시스템의 모든 Flow 가동 간트를 한 화면에서 일괄 조회·편집'
-                });
-                var gHeat  = buildAnalysisGroup(flows, '동작편차',    'gradient',      '/heatmap',      'flow', onHeatmapPage, heatmapFlow, false, true);
-                var gOee   = buildAnalysisGroup(flows, 'OEE 종합',    'speed',         '/uptime-oee',   'flow', onOeePage,     oeeFlow,     false, true);
-                var gAlarm = buildAnalysisGroup(flows, '이상·알람',   'warning_amber', '/uptime-alarm', 'flow', onAlarmPage,   alarmFlow,   true,  true);
+                var gCycle = buildAnalysisGroup(flows, '가동시간 분석.설정', 'account_tree',  '/flow-cycle',   'name', cycleActive, curFlowName, false,
+                    '/flow-cycle?system=' + encodeURIComponent(sys.name));
+                var gHeat  = buildAnalysisGroup(flows, '동작편차',    'gradient',      '/heatmap',      'flow', onHeatmapPage, heatmapFlow, false, '/heatmap');
+                var gOee   = buildAnalysisGroup(flows, 'OEE 종합',    'speed',         '/uptime-oee',   'flow', onOeePage,     oeeFlow,     false, '/uptime-oee');
+                var gAlarm = buildAnalysisGroup(flows, '이상·알람',   'warning_amber', '/uptime-alarm', 'flow', onAlarmPage,   alarmFlow,   true,  '/uptime-alarm');
                 sub.appendChild(gTrend.wrap);
                 sub.appendChild(gCycle.wrap);
                 sub.appendChild(gHeat.wrap);
