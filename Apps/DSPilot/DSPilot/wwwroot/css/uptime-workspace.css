@@ -75,9 +75,16 @@
         .up-legend-row { display: flex; align-items: center; gap: 10px; font-size: 0.76rem; }
         .up-legend-swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
 
+        /* OEE 가동·정지 색 SSOT — 차트(canvas, JS)·범례 스와치·정지 도넛(SVG) 공용.
+           가동(파랑)=더 밝고 눈에 띄게 / 정지 3종=살짝 더 어둡게 대비.
+           유지보수=노란 계열이되 hue 를 머스터드/올리브(~52°)로 밀어 동작-주황(--dash-mt ~33°)·
+           대기/경고 앰버(--wt·--amber ~38°)와 분리(충돌 회피). */
+        :root { --oee-run: #1E9BE8; --oee-fault: #B22F22; --oee-maint: #9A8500; }
+        .dark-theme { --oee-run: #52C4FF; --oee-fault: #D14738; --oee-maint: #E0C74A; }
+
         /* 정지 유형 = 대각선 빗금(가동=솔리드와 직관적 대비). 색=유형, 빗금=정지 신호. 스와치·바 공용 */
-        .hatch-fault { background-color: var(--red); background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.55) 0 1.4px, transparent 1.4px 6px); }
-        .hatch-maint { background-color: var(--green); background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.55) 0 1.4px, transparent 1.4px 6px); }
+        .hatch-fault { background-color: var(--oee-fault); background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.55) 0 1.4px, transparent 1.4px 6px); }
+        .hatch-maint { background-color: var(--oee-maint); background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.55) 0 1.4px, transparent 1.4px 6px); }
         .up-legend-name { font-weight: 700; flex: 1; }
         .up-legend-share { font-family: var(--font-mono); font-weight: 700; color: var(--color-text-secondary); }
         .up-legend-val { width: 56px; text-align: right; font-family: var(--font-mono); font-weight: 800; }

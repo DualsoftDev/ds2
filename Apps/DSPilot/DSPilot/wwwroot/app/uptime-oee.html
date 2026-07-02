@@ -186,11 +186,11 @@
                     <template x-if="availComp.hasData">
                         <div style="margin-bottom:18px;">
                             <div class="ds-legend" style="margin-bottom:10px;">
-                                <div class="lg-item"><span class="lg-swatch" style="background:var(--color-primary);"></span> <span x-text="availComp.runLabel"></span></div>
+                                <div class="lg-item"><span class="lg-swatch" style="background:var(--oee-run);"></span> <span x-text="availComp.runLabel"></span></div>
                                 <div class="lg-item"><span class="lg-swatch hatch-fault"></span> <span x-text="availComp.stopLabel"></span></div>
                             </div>
                             <div style="display:flex; height:26px; border-radius:var(--radius-sm); overflow:hidden; border:1px solid var(--color-lines);">
-                                <div :style="`width:${availComp.runPct}%; background:var(--color-primary);`" :title="availComp.runLabel + ' ' + availComp.runPct + '%'"></div>
+                                <div :style="`width:${availComp.runPct}%; background:var(--oee-run);`" :title="availComp.runLabel + ' ' + availComp.runPct + '%'"></div>
                                 <div class="hatch-fault" :style="`width:${availComp.stopPct}%;`" :title="availComp.stopLabel + ' ' + availComp.stopPct + '%'"></div>
                             </div>
                             <div style="display:flex; gap:18px; margin-top:8px; font-size:0.72rem; color:var(--color-text-secondary); flex-wrap:wrap;">
@@ -315,8 +315,8 @@
                         <span style="width:10px;"></span>
                         <span style="font-size:0.64rem; font-weight:700; color:var(--color-text-secondary); text-transform:uppercase; letter-spacing:0.06em; margin-right:4px;">구분</span>
                         <span class="up-chip" :class="dtFilterFault === 'all' ? 'is-on' : ''" @click="dtFilterFault='all'">전체</span>
-                        <span class="up-chip" :class="dtFilterFault === 'fault' ? 'is-on' : ''" @click="dtFilterFault='fault'" style="border-color:var(--red); color:var(--red);" :style="dtFilterFault==='fault'?'background:var(--red);color:#fff;':''">고장</span>
-                        <span class="up-chip" :class="dtFilterFault === 'maintenance' ? 'is-on' : ''" @click="dtFilterFault='maintenance'" style="border-color:var(--green); color:var(--green);" :style="dtFilterFault==='maintenance'?'background:var(--green);color:#fff;':''">유지보수</span>
+                        <span class="up-chip" :class="dtFilterFault === 'fault' ? 'is-on' : ''" @click="dtFilterFault='fault'" style="border-color:var(--oee-fault); color:var(--oee-fault);" :style="dtFilterFault==='fault'?'background:var(--oee-fault);color:#fff;':''">고장</span>
+                        <span class="up-chip" :class="dtFilterFault === 'maintenance' ? 'is-on' : ''" @click="dtFilterFault='maintenance'" style="border-color:var(--oee-maint); color:var(--oee-maint);" :style="dtFilterFault==='maintenance'?'background:var(--oee-maint);color:#fff;':''">유지보수</span>
                         <span style="flex:1;"></span>
                         <span class="up-form-ok" x-show="dtMsg" x-text="dtMsg"></span>
                     </div>
@@ -350,7 +350,7 @@
                                             <td data-label="고장" style="white-space:nowrap;">
                                                 <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;" :title="d.isFailure ? '고장 — 클릭하면 유지보수로 변경' : '유지보수 — 클릭하면 고장으로 변경'">
                                                     <input type="checkbox" class="up-dt-cb" :checked="d.isFailure" @change="setFault(d, $event.target.checked)">
-                                                    <span x-text="d.isFailure ? '고장' : '유지보수'" :style="d.isFailure ? 'color:var(--red);font-weight:700;' : 'color:var(--green);font-weight:700;'"></span>
+                                                    <span x-text="d.isFailure ? '고장' : '유지보수'" :style="d.isFailure ? 'color:var(--oee-fault);font-weight:700;' : 'color:var(--oee-maint);font-weight:700;'"></span>
                                                 </label>
                                             </td>
                                             <td data-label="감지" x-html="detectChipHtml(d.detectSource)"></td>
@@ -408,13 +408,16 @@
                     <div x-show="ps.auto" x-cloak>
                         <div style="display:flex; align-items:flex-start; gap:9px; padding:11px 13px; border:1px dashed var(--color-border); border-radius:8px; color:var(--color-text-secondary); font-size:0.78rem; line-height:1.5; margin-bottom:12px;">
                             <span class="material-icons" style="font-size:18px; color:var(--teal,#1FA8B8);">auto_mode</span>
-                            <span>자동 계산이 켜져 있어 비생산 시간대를 직접 지정할 필요가 없습니다. 평균 가동시간의 <b x-text="ps.ctMultiplier"></b>배 이상 멈춘 구간이 실시간 비생산으로 분류됩니다. 아래는 이전에 설정한 수동 시간대(현재 미적용, 참고용)입니다. 직접 지정하려면 자동 계산을 끄세요.</span>
+                            <span>자동 계산이 켜져 있어 비생산 시간대를 직접 지정할 필요가 없습니다. 평균 가동시간의 <b x-text="ps.ctMultiplier"></b>배 이상 멈춘 구간이 실시간 비생산으로 분류됩니다. 아래 <b>진한 블록 = 이번 기간에 실제로 제외된 비생산</b>(위 추이의 남색과 동일), 옅은 블록 = 14일 평균 패턴·수동 설정(참고용). 직접 지정하려면 자동 계산을 끄세요.</span>
                         </div>
 
-                        <!-- 읽기 전용 24h 타임라인 — 14일 자동 감지 비생산 패턴 + 수동 설정(참고) 동시 표시 -->
+                        <!-- 읽기 전용 24h 타임라인 — 실제 제외 비생산(메인) + 14일 평균 패턴·수동 설정(참고, 옅게) -->
                         <div class="up-ptl">
                             <div class="up-ptl-legend">
-                                <span class="lg"><span class="sw auto"></span> 자동 감지 비생산 (어제~14일 이동평균)</span>
+                                <span class="lg"><span class="sw auto"></span> 실제 제외된 비생산 (이번 기간)</span>
+                                <span class="lg" x-show="ps.autoPattern && ps.autoPattern.windows.length > 0" style="opacity:0.55;">
+                                    <span class="sw auto" style="opacity:0.35;"></span> 14일 평균 패턴 (참고)
+                                </span>
                                 <span class="lg" x-show="ps.windows.length > 0" style="opacity:0.55;">
                                     <span class="sw manual" style="opacity:0.45;"></span> 수동 설정 (미적용)
                                 </span>
@@ -422,35 +425,35 @@
                             </div>
                             <div class="up-ptl-track" style="pointer-events:none; cursor:default;">
                                 <div class="up-ptl-now" :style="`left:${nowMin() / 1440 * 100}%`"></div>
-                                <!-- 자동 감지 비생산 블록 (14일 시간대 패턴) -->
-                                <template x-for="(w, i) in (ps.autoPattern ? ps.autoPattern.windows : [])" :key="'auto-' + i">
+                                <!-- 14일 평균 패턴 (옅게, 참고) -->
+                                <template x-for="(w, i) in (ps.autoPattern ? ps.autoPattern.windows : [])" :key="'pat-' + i">
+                                    <div class="up-ptl-win auto" :style="psWinStyle(w) + 'opacity:0.3;'"
+                                         :title="minToHHMM(w.startMinutes) + ' – ' + minToHHMM(w.endMinutes) + ' · 14일 평균 패턴 (참고)'"></div>
+                                </template>
+                                <!-- 수동 설정 범위 (옅게, 참고) -->
+                                <template x-for="(w, i) in ps.windows" :key="'ro-' + i">
+                                    <div class="up-ptl-win auto" :style="psWinStyle(w) + 'opacity:0.3;'"
+                                         :title="minToHHMM(w.startMinutes) + ' – ' + minToHHMM(w.endMinutes) + (w.label ? (' · ' + w.label) : '') + ' (수동 설정 · 현재 미적용)'"></div>
+                                </template>
+                                <!-- 실제 제외된 비생산 (메인, 진하게) — 추이 남색과 동일 소스 -->
+                                <template x-for="(w, i) in (ps.actualNonProd ? ps.actualNonProd.windows : [])" :key="'act-' + i">
                                     <div class="up-ptl-win auto" :style="psWinStyle(w)"
-                                         :title="minToHHMM(w.startMinutes) + ' – ' + minToHHMM(w.endMinutes) + ' · 자동 감지 비생산 (14일 기준)'">
+                                         :title="minToHHMM(w.startMinutes) + ' – ' + minToHHMM(w.endMinutes) + ' · 실제 제외된 비생산 (이번 기간)'">
                                         <span class="wl">비생산</span>
                                         <span class="wt" x-show="(w.endMinutes - w.startMinutes) >= 90" x-text="minToHHMM(w.startMinutes) + '–' + minToHHMM(w.endMinutes)"></span>
                                     </div>
                                 </template>
-                                <!-- 수동 설정 범위 (반투명 참고용) -->
-                                <template x-for="(w, i) in ps.windows" :key="'ro-' + i">
-                                    <div class="up-ptl-win auto" :style="psWinStyle(w) + 'opacity:0.35;'"
-                                         :title="minToHHMM(w.startMinutes) + ' – ' + minToHHMM(w.endMinutes) + (w.label ? (' · ' + w.label) : '') + ' (수동 설정 · 현재 미적용)'">
-                                        <span class="wl" x-text="w.label || '비생산'"></span>
-                                    </div>
-                                </template>
                                 <!-- 빈 상태 -->
                                 <div class="up-ptl-empty"
-                                     x-show="(!ps.autoPattern || ps.autoPattern.windows.length === 0) && ps.windows.length === 0">
-                                    최근 14일 자동 감지된 비생산 없음 (10×가동시간 기준)
+                                     x-show="(!ps.actualNonProd || ps.actualNonProd.windows.length === 0) && (!ps.autoPattern || ps.autoPattern.windows.length === 0) && ps.windows.length === 0">
+                                    이번 기간에 제외된 비생산 없음 (10×가동시간 이상 정지 없음)
                                 </div>
                             </div>
                             <div class="up-ptl-hours">
                                 <span>00</span><span>03</span><span>06</span><span>09</span><span>12</span><span>15</span><span>18</span><span>21</span><span>24</span>
                             </div>
-                            <div style="font-size:0.6rem; color:var(--color-text-secondary); margin-top:4px;" x-show="ps.autoPattern">
-                                최근 14일 중 해당 시간대에 10×가동시간 이상 정지가 1회 이상 있었던 구간을 표시합니다
-                                <template x-if="ps.autoPattern && ps.autoPattern.dataFrom">
-                                    <span x-text="' (' + (ps.autoPattern.dataFrom || '').slice(0,10) + ' ~ ' + (ps.autoPattern.dataTo || '').slice(0,10) + ')'"></span>
-                                </template>
+                            <div style="font-size:0.6rem; color:var(--color-text-secondary); margin-top:4px;">
+                                진한 블록은 <b>이번 조회 기간에 실제로 A(가용성)에서 제외된 비생산</b>을 시:분으로 접어 표시합니다 (위 시간별 추이의 남색과 동일). 옅은 블록은 14일 평균 패턴·수동 설정(참고, 미적용).
                             </div>
                         </div>
                     </div>

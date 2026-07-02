@@ -1,6 +1,6 @@
         // 정지 2-상태: 고장(isFault=true) / 유지보수(isFault=false). isFailure 필드에 대응.
-        const FAULT_DEF = { label: '고장', color: 'var(--red)', cls: 'hatch-fault', pat: 'up-pat-fault' };
-        const MAINT_DEF = { label: '유지보수', color: 'var(--green)', cls: 'hatch-maint', pat: 'up-pat-maint' };
+        const FAULT_DEF = { label: '고장', color: 'var(--oee-fault)', cls: 'hatch-fault', pat: 'up-pat-fault' };
+        const MAINT_DEF = { label: '유지보수', color: 'var(--oee-maint)', cls: 'hatch-maint', pat: 'up-pat-maint' };
 
         // 일자별 차트 인스턴스 — Alpine 반응형 밖에 보관(Proxy 크래시 방지)
         let _dailyChart = null;
@@ -86,7 +86,8 @@
                 _qDown: false,
                 // 비생산 시간대 (doc/22 §3.3) — auto: 자동 계산(10×가동시간 장시간정지) on/off. source: auto/manual/none. ctMultiplier: 자동판정 배수(10).
                 // windows=수동 편집용 사본. selected=선택된 윈도 index(-1=미선택). addMode=드래그 추가 무장.
-                ps: { source: 'none', auto: true, ctMultiplier: 10, windows: [], selected: -1, addMode: false, msg: '', err: '', busy: false, autoPattern: null, seededFromAuto: false },
+                // autoPattern=14일 평균 패턴(참고). actualNonProd=이번 기간 실제 제외된 비생산(추이 남색과 동일 소스, 타임라인 메인).
+                ps: { source: 'none', auto: true, ctMultiplier: 10, windows: [], selected: -1, addMode: false, msg: '', err: '', busy: false, autoPattern: null, actualNonProd: null, seededFromAuto: false },
                 _psDrag: null, // 진행 중 드래그 상태 { mode:'create'|'resize-l'|'resize-r', index, anchor } (비반응형)
                 // 정지 이벤트 로그 토글 — 기본 숨김, 정지 원인 구성(도넛)의 [로그 보기 및 설정] 버튼으로 토글
                 showDowntimeLog: false,
@@ -230,15 +231,21 @@
                         this.ps.windows = (r.windows || []).map(w => ({ startMinutes: w.startMinutes, endMinutes: w.endMinutes, label: w.label || '' }));
                         this.ps.selected = -1; this.ps.addMode = false; this.ps.seededFromAuto = false;
                     } catch (e) { this.ps.err = '비생산 시간대를 불러오지 못했습니다: ' + e.message; }
-                    // 자동 모드일 때 14일 시간대 패턴 별도 조회 (curFlow 필터 반영)
+                    // 자동 모드일 때: ① 이번 기간 실제 제외 비생산(메인) ② 14일 평균 패턴(참고) 조회. (curFlow 필터 반영)
                     if (this.ps.auto) {
+                        const flowQs = this.curFlow ? `&flow=${encodeURIComponent(this.curFlow)}` : '';
+                        try {
+                            const r = this.rangeForPeriod();
+                            const aqs = `from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}` + flowQs;
+                            this.ps.actualNonProd = await this.apiGet('/api/oee/planned-stops/actual?' + aqs);
+                        } catch (e) { this.ps.actualNonProd = null; }
                         try {
                             const qs = this.curFlow ? `?flow=${encodeURIComponent(this.curFlow)}` : '';
-                            const p = await this.apiGet('/api/oee/planned-stops/auto-pattern' + qs);
-                            this.ps.autoPattern = p;
+                            this.ps.autoPattern = await this.apiGet('/api/oee/planned-stops/auto-pattern' + qs);
                         } catch (e) { this.ps.autoPattern = null; }
                     } else {
                         this.ps.autoPattern = null;
+                        this.ps.actualNonProd = null;
                     }
                 },
                 // 자동 계산 on/off — on=10×가동시간 장시간정지 자동 비생산, off=수동 시각대만. 수동 적용은 자동을 끈다(서버 SavePlannedStops).
@@ -700,20 +707,22 @@
                     const avgRun = runData.length > 0 ? runData.reduce((a, b) => a + b, 0) / runData.length : 0;
 
                     const cs = getComputedStyle(document.documentElement);
-                    const cGreen = cs.getPropertyValue('--green').trim() || '#22c55e';
-                    const cRed   = cs.getPropertyValue('--red').trim()   || '#ef4444';
-                    const cRun   = cs.getPropertyValue('--color-primary').trim() || '#0E7CCB'; // 가동 = 브랜드 애저
+                    // 가동=밝은 파랑(눈에 띄게) / 정지 3종=어둡게 대비. 유지보수=노란(앰버) 계열. SSOT=uptime-workspace.css --oee-*
+                    const cMaint = cs.getPropertyValue('--oee-maint').trim() || '#9A8500';
+                    const cFault = cs.getPropertyValue('--oee-fault').trim() || '#B22F22';
+                    const cRun   = cs.getPropertyValue('--oee-run').trim()   || '#1E9BE8'; // 가동 = 밝은 애저
                     const cGray  = cs.getPropertyValue('--color-text-secondary').trim() || '#888';
                     const nightHatch = _nightHatchPattern(canvas); // 비생산: 밤하늘 어두운 파랑 빗금
-                    const faultHatch = _stripePattern(canvas, cRed);   // 고장: 빨강 위 빗금
-                    const maintHatch = _stripePattern(canvas, cGreen); // 유지보수: 녹색 위 빗금
+                    const faultHatch = _stripePattern(canvas, cFault);   // 고장: 어두운 빨강 위 빗금
+                    const maintHatch = _stripePattern(canvas, cMaint);   // 유지보수: 노란(앰버) 위 빗금
 
                     const datasets = [
                         // 가동 = 솔리드(파랑) / 정지 3종(고장·유지보수·비생산) = 빗금 → "가동이 아님"을 직관적으로 표시
                         { label: '가동(근사)', data: runData, backgroundColor: cRun, stack: 's', order: 2 },
                         { label: '고장', data: failureData, backgroundColor: faultHatch, stack: 's', order: 2 },
                         { label: '유지보수', data: plannedData, backgroundColor: maintHatch, stack: 's', order: 2 },
-                        { label: '비생산(제외)', data: nonProdData, backgroundColor: nightHatch, stack: 's', order: 2 },
+                        // 비생산(제외)은 기본 비활성(범례에서 꺼진 상태) — 필요 시 범례 클릭으로 켬. hidden 은 생성 시 1회만 적용, 이후 사용자 토글 유지.
+                        { label: '비생산(제외)', data: nonProdData, backgroundColor: nightHatch, stack: 's', order: 2, hidden: true },
                         {
                             label: `평균 ${avgRun.toFixed(1)}h`,
                             type: 'line',
@@ -1233,7 +1242,7 @@
                     const pat = (id, color) => `<pattern id="${id}" patternUnits="userSpaceOnUse" width="7" height="7">`
                         + `<rect width="7" height="7" fill="${color}"></rect>`
                         + `<path d="M0,7 L7,0 M-1.5,1.5 L1.5,-1.5 M5.5,8.5 L8.5,5.5" stroke="rgba(255,255,255,0.55)" stroke-width="1.3"></path></pattern>`;
-                    let s = `<defs>${pat('up-pat-fault', 'var(--red)')}${pat('up-pat-maint', 'var(--green)')}</defs>`;
+                    let s = `<defs>${pat('up-pat-fault', 'var(--oee-fault)')}${pat('up-pat-maint', 'var(--oee-maint)')}</defs>`;
                     s += '<circle class="up-donut-track" cx="50" cy="50" r="38" fill="none" stroke-width="14"></circle>';
                     for (const seg of d.segs)
                         s += `<circle cx="50" cy="50" r="38" fill="none" stroke="url(#${seg.pat})" stroke-width="14" stroke-dasharray="${seg.dash}" stroke-dashoffset="${seg.offset}" transform="rotate(-90 50 50)"></circle>`;

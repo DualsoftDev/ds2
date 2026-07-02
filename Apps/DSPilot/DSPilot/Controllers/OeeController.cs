@@ -476,6 +476,46 @@ public class OeeController : ControllerBase
         return new PlannedAutoPatternDto(windows, fromUtc.ToLocalTime(), toUtc.ToLocalTime(), 14);
     }
 
+    // ── GET /api/oee/planned-stops/actual?from&to&flow ───────────────────────
+    // 이번 조회기간에 "실제로 A 분모에서 제외된" 비생산 구간(NonProdIntervals)을 로컬 시:분(hour-of-day)으로
+    // 접어 병합 windows 로 반환. 14일 평균 패턴(auto-pattern)과 달리 실제 적용분 — 시간별 추이의 남색(비생산 제외)과
+    // 동일 소스라 타임라인과 추이가 일치한다. DaysAnalyzed=0 = "실제 적용분" 신호.
+    [HttpGet("planned-stops/actual")]
+    public async Task<ActionResult<PlannedAutoPatternDto>> GetActualNonProduction(
+        [FromQuery] DateTime? from, [FromQuery] DateTime? to, [FromQuery] string? flow, CancellationToken ct)
+    {
+        var (fromUtc, toUtc) = ResolveRange(from, to);
+        var flowName = string.IsNullOrWhiteSpace(flow) ? null : flow.Trim();
+
+        var thresholds = await ResolveCtThresholdsAsync();
+        var (plannedWindows, _, applyLongStop) = ResolvePlannedWindows();
+        var agg = await ComputeCycleAggregateAsync(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct);
+        var intervals = agg.NonProdIntervals ?? new List<(double S, double E)>();
+
+        // NonProdIntervals(UTC epoch ms) → 로컬 시:분(minute-of-day) 커버리지. 여러 날 구간은 같은 24h 시계에 겹쳐 접힌다.
+        var covered = new bool[1440];
+        foreach (var (s, e) in intervals)
+        {
+            if (e <= s) continue;
+            var durMin = (e - s) / 60000.0;
+            if (durMin >= 1440) { for (int m = 0; m < 1440; m++) covered[m] = true; continue; }
+            var startLocal = DateTimeOffset.FromUnixTimeMilliseconds((long)s).LocalDateTime;
+            int startMin = startLocal.Hour * 60 + startLocal.Minute;
+            int span = (int)Math.Ceiling(durMin);
+            for (int k = 0; k < span; k++) covered[(startMin + k) % 1440] = true;
+        }
+
+        var windows = new List<PlannedStopWindowDto>();
+        int? wStart = null;
+        for (int m = 0; m <= 1440; m++)
+        {
+            bool has = m < 1440 && covered[m];
+            if (has && wStart == null) wStart = m;
+            else if (!has && wStart != null) { windows.Add(new PlannedStopWindowDto(wStart.Value, m, null)); wStart = null; }
+        }
+        return new PlannedAutoPatternDto(windows, fromUtc.ToLocalTime(), toUtc.ToLocalTime(), 0);
+    }
+
     // ── PUT /api/oee/planned-stops  {windows:[{startMinutes,endMinutes,label?}]} ──
     // 사용자가 비생산 시간대를 직접 설정(수동 적용) → 자동 계산 OFF(요청 사양). 빈 배열도 수동(=비생산 시간대 없음).
     [HttpPut("planned-stops")]
