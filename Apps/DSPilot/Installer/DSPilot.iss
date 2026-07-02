@@ -506,6 +506,11 @@ begin
       'URL=' + GetAppURL('') + #13#10 +
       'IconFile=' + ExpandConstant('{app}\DSPilot.ico') + #13#10 +
       'IconIndex=0' + #13#10, False);
+
+    // 아이콘 캐시 갱신 — 업그레이드 재설치 시 DSPilot.ico 내용만 바뀌고 경로({app}\DSPilot.ico)는
+    // 동일하므로, Windows 탐색기가 IconCache.db 에 캐시된 옛 아이콘을 계속 보여준다.
+    // ie4uinit -show 로 셸 아이콘 캐시를 새로고침해 재부팅 없이 새 아이콘이 반영되게 한다.
+    Exec(ExpandConstant('{sys}\ie4uinit.exe'), '-show', '', SW_HIDE, ewNoWait, ResultCode);
   end;
 end;
 
