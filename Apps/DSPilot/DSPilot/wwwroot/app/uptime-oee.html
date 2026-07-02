@@ -417,34 +417,18 @@
                     <div x-show="ps.auto" x-cloak>
                         <div style="display:flex; align-items:flex-start; gap:9px; padding:11px 13px; border:1px dashed var(--color-border); border-radius:8px; color:var(--color-text-secondary); font-size:0.78rem; line-height:1.5; margin-bottom:12px;">
                             <span class="material-icons" style="font-size:18px; color:var(--teal,#1FA8B8);">auto_mode</span>
-                            <span>자동 계산이 켜져 있어 비생산 시간대를 직접 지정할 필요가 없습니다. 평균 가동시간의 <b x-text="ps.ctMultiplier"></b>배 이상 멈춘 구간이 실시간 비생산으로 분류됩니다. 아래 <b>진한 블록 = 이번 기간에 실제로 제외된 비생산</b>(위 추이의 남색과 동일), 옅은 블록 = 14일 평균 패턴·수동 설정(참고용). 직접 지정하려면 자동 계산을 끄세요.</span>
+                            <span>자동 계산이 켜져 있어 비생산 시간대를 직접 지정할 필요가 없습니다. 평균 가동시간의 <b x-text="ps.ctMultiplier"></b>배 이상 멈춘 구간이 실시간 비생산으로 분류됩니다. 아래 <b>블록 = 이번 기간에 실제로 제외된 비생산</b>(위 추이의 남색과 동일). 직접 지정하려면 <b>[수동 설정하기]</b>를 누르세요 — 지금 비생산 구간을 초기값(참고용)으로 불러옵니다.</span>
                         </div>
 
-                        <!-- 읽기 전용 24h 타임라인 — 실제 제외 비생산(메인) + 14일 평균 패턴·수동 설정(참고, 옅게) -->
+                        <!-- 읽기 전용 24h 타임라인 — 이번 기간 실제 제외된 비생산만 표시(참고용 옅은 블록 폐지) -->
                         <div class="up-ptl">
                             <div class="up-ptl-legend">
                                 <span class="lg"><span class="sw auto"></span> 실제 제외된 비생산 (이번 기간)</span>
-                                <span class="lg" x-show="ps.autoPattern && ps.autoPattern.windows.length > 0" style="opacity:0.55;">
-                                    <span class="sw auto" style="opacity:0.35;"></span> 14일 평균 패턴 (참고)
-                                </span>
-                                <span class="lg" x-show="ps.windows.length > 0" style="opacity:0.55;">
-                                    <span class="sw manual" style="opacity:0.45;"></span> 수동 설정 (미적용)
-                                </span>
                                 <span class="lg"><span class="sw now"></span> 현재 <b x-text="minToHHMM(nowMin())"></b></span>
                             </div>
                             <div class="up-ptl-track" style="pointer-events:none; cursor:default;">
                                 <div class="up-ptl-now" :style="`left:${nowMin() / 1440 * 100}%`"></div>
-                                <!-- 14일 평균 패턴 (옅게, 참고) -->
-                                <template x-for="(w, i) in (ps.autoPattern ? ps.autoPattern.windows : [])" :key="'pat-' + i">
-                                    <div class="up-ptl-win auto" :style="psWinStyle(w) + 'opacity:0.3;'"
-                                         :title="minToHHMM(w.startMinutes) + ' – ' + minToHHMM(w.endMinutes) + ' · 14일 평균 패턴 (참고)'"></div>
-                                </template>
-                                <!-- 수동 설정 범위 (옅게, 참고) -->
-                                <template x-for="(w, i) in ps.windows" :key="'ro-' + i">
-                                    <div class="up-ptl-win auto" :style="psWinStyle(w) + 'opacity:0.3;'"
-                                         :title="minToHHMM(w.startMinutes) + ' – ' + minToHHMM(w.endMinutes) + (w.label ? (' · ' + w.label) : '') + ' (수동 설정 · 현재 미적용)'"></div>
-                                </template>
-                                <!-- 실제 제외된 비생산 (메인, 진하게) — 추이 남색과 동일 소스 -->
+                                <!-- 실제 제외된 비생산 (메인) — 추이 남색과 동일 소스 -->
                                 <template x-for="(w, i) in (ps.actualNonProd ? ps.actualNonProd.windows : [])" :key="'act-' + i">
                                     <div class="up-ptl-win auto" :style="psWinStyle(w)"
                                          :title="minToHHMM(w.startMinutes) + ' – ' + minToHHMM(w.endMinutes) + ' · 실제 제외된 비생산 (이번 기간)'">
@@ -454,7 +438,7 @@
                                 </template>
                                 <!-- 빈 상태 -->
                                 <div class="up-ptl-empty"
-                                     x-show="(!ps.actualNonProd || ps.actualNonProd.windows.length === 0) && (!ps.autoPattern || ps.autoPattern.windows.length === 0) && ps.windows.length === 0">
+                                     x-show="!ps.actualNonProd || ps.actualNonProd.windows.length === 0">
                                     이번 기간에 제외된 비생산 없음 (10×가동시간 이상 정지 없음)
                                 </div>
                             </div>
@@ -462,7 +446,7 @@
                                 <span>00</span><span>03</span><span>06</span><span>09</span><span>12</span><span>15</span><span>18</span><span>21</span><span>24</span>
                             </div>
                             <div style="font-size:0.6rem; color:var(--color-text-secondary); margin-top:4px;">
-                                진한 블록은 <b>이번 조회 기간에 실제로 A(가용성)에서 제외된 비생산</b>을 시:분으로 접어 표시합니다 (위 시간별 추이의 남색과 동일). 옅은 블록은 14일 평균 패턴·수동 설정(참고, 미적용).
+                                블록은 <b>이번 조회 기간에 실제로 A(가용성)에서 제외된 비생산</b>을 시:분으로 접어 표시합니다 (위 시간별 추이의 남색과 동일). 직접 지정하려면 <b>[수동 설정하기]</b>로 전환하세요.
                             </div>
                         </div>
                     </div>
@@ -472,7 +456,7 @@
                         <div x-show="ps.seededFromAuto" x-cloak
                              style="display:flex; align-items:flex-start; gap:9px; padding:10px 13px; border:1px dashed var(--color-border); border-radius:8px; background:color-mix(in srgb,var(--teal,#1FA8B8) 7%,transparent); color:var(--color-text-secondary); font-size:0.78rem; line-height:1.5; margin-bottom:12px;">
                             <span class="material-icons" style="font-size:18px; color:var(--teal,#1FA8B8); flex:none;">auto_mode</span>
-                            <span>자동 감지된 비생산 구간을 초기값으로 불러왔습니다. 아래 연표에서 직접 수정한 뒤 <b>[적용]</b>을 누르면 수동 고정됩니다.</span>
+                            <span>지금 비생산 구간을 초기값(참고용)으로 불러왔습니다. 아래 연표에서 직접 수정한 뒤 <b>[적용]</b>을 누르면 수동 고정됩니다.</span>
                         </div>
 
                         <!-- 범례 + [시간 추가] (드래그 추가 모드 토글) -->

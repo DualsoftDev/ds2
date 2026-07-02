@@ -88,8 +88,8 @@
                 _qDown: false,
                 // 비생산 시간대 (doc/22 §3.3) — auto: 자동 계산(10×가동시간 장시간정지) on/off. source: auto/manual/none. ctMultiplier: 자동판정 배수(10).
                 // windows=수동 편집용 사본. selected=선택된 윈도 index(-1=미선택). addMode=드래그 추가 무장.
-                // autoPattern=14일 평균 패턴(참고). actualNonProd=이번 기간 실제 제외된 비생산(추이 남색과 동일 소스, 타임라인 메인).
-                ps: { source: 'none', auto: true, ctMultiplier: 10, windows: [], selected: -1, addMode: false, msg: '', err: '', busy: false, autoPattern: null, actualNonProd: null, seededFromAuto: false },
+                // actualNonProd=이번 기간 실제 제외된 비생산(추이 남색과 동일 소스, 자동 모드 타임라인의 유일한 소스이자 수동 전환 시 시드).
+                ps: { source: 'none', auto: true, ctMultiplier: 10, windows: [], selected: -1, addMode: false, msg: '', err: '', busy: false, actualNonProd: null, seededFromAuto: false },
                 _psDrag: null, // 진행 중 드래그 상태 { mode:'create'|'resize-l'|'resize-r', index, anchor } (비반응형)
                 // 정지 이벤트 로그 토글 — 기본 숨김, 정지 원인 구성(도넛)의 [로그 보기 및 설정] 버튼으로 토글
                 showDowntimeLog: false,
@@ -244,7 +244,7 @@
                         this.ps.windows = (r.windows || []).map(w => ({ startMinutes: w.startMinutes, endMinutes: w.endMinutes, label: w.label || '' }));
                         this.ps.selected = -1; this.ps.addMode = false; this.ps.seededFromAuto = false;
                     } catch (e) { this.ps.err = '비생산 시간대를 불러오지 못했습니다: ' + e.message; }
-                    // 자동 모드일 때: ① 이번 기간 실제 제외 비생산(메인) ② 14일 평균 패턴(참고) 조회.
+                    // 자동 모드일 때: 이번 기간 실제 제외 비생산(타임라인의 유일한 소스)만 조회 — 14일 평균 패턴 참고 블록은 폐지.
                     // 비생산 시간대는 시스템(전역) 단위 — flow별 페이지에서도 curFlow 필터 없이 항상 시스템 전체로 표시.
                     if (this.ps.auto) {
                         try {
@@ -252,16 +252,12 @@
                             const aqs = `from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}`;
                             this.ps.actualNonProd = await this.apiGet('/api/oee/planned-stops/actual?' + aqs);
                         } catch (e) { this.ps.actualNonProd = null; }
-                        try {
-                            this.ps.autoPattern = await this.apiGet('/api/oee/planned-stops/auto-pattern');
-                        } catch (e) { this.ps.autoPattern = null; }
                     } else {
-                        this.ps.autoPattern = null;
                         this.ps.actualNonProd = null;
                     }
                 },
                 // 폴링용 경량 갱신 — 자동 모드에서 '실제 제외 비생산'(+현재 상태 배지)만 다시 읽는다.
-                // 수동 편집 상태(ps.windows/selected/addMode)·autoPattern(14일·저빈도)은 건드리지 않아 편집 중 클로버 방지.
+                // 수동 편집 상태(ps.windows/selected/addMode)는 건드리지 않아 편집 중 클로버 방지.
                 async refreshActualNonProd() {
                     if (!this.ps.auto) return;
                     try {
@@ -273,18 +269,18 @@
                 // 자동 계산 on/off — on=10×가동시간 장시간정지 자동 비생산, off=수동 시각대만. 수동 적용은 자동을 끈다(서버 SavePlannedStops).
                 async psSetAuto(enabled) {
                     this.ps.busy = true; this.ps.msg = ''; this.ps.err = '';
-                    // 자동 → 수동 전환 시: loadPlannedStops 호출 전에 autoPattern 캡처 (이후 autoPattern=null 로 지워짐)
-                    const capturedAutoWins = !enabled && this.ps.autoPattern?.windows?.length
-                        ? this.ps.autoPattern.windows.map(w => ({ startMinutes: w.startMinutes, endMinutes: w.endMinutes, label: w.label || '' }))
+                    // 자동 → 수동 전환 시: loadPlannedStops 호출 전에 '지금 비생산'(actualNonProd) 캡처 (이후 null 로 지워짐)
+                    const capturedActualWins = !enabled && this.ps.actualNonProd?.windows?.length
+                        ? this.ps.actualNonProd.windows.map(w => ({ startMinutes: w.startMinutes, endMinutes: w.endMinutes, label: w.label || '' }))
                         : null;
                     try {
                         await this.apiPost('/api/oee/planned-stops/auto', { enabled });
                         await this.loadPlannedStops();
-                        // 수동 전환 시 자동 감지 구간을 수동 에디터 초기값으로 시드 (사용자가 바로 수정 가능)
-                        if (!enabled && capturedAutoWins && capturedAutoWins.length > 0) {
-                            this.ps.windows = capturedAutoWins;
+                        // 수동 전환 시 지금 비생산 구간을 수동 에디터 초기값(참고용)으로 시드 (사용자가 바로 수정 가능)
+                        if (!enabled && capturedActualWins && capturedActualWins.length > 0) {
+                            this.ps.windows = capturedActualWins;
                             this.ps.seededFromAuto = true;
-                            this.ps.msg = `자동 감지된 비생산 ${capturedAutoWins.length}개 구간을 불러왔습니다 — 수정 후 [적용]을 누르세요`;
+                            this.ps.msg = `지금 비생산 ${capturedActualWins.length}개 구간을 불러왔습니다 — 수정 후 [적용]을 누르세요`;
                         } else {
                             this.ps.seededFromAuto = false;
                             this.ps.msg = enabled ? `자동 계산 켜짐 — 평균 가동시간의 ${this.ps.ctMultiplier}배 이상 장시간 정지를 비생산으로 분류` : '자동 계산 꺼짐 — 수동 시간대만 적용';
