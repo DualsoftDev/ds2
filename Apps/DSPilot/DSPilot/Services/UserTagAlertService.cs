@@ -29,6 +29,7 @@ public sealed class UserTagAlertService : BackgroundService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly SimulationEngineService _engineService;
     private readonly IHubContext<MonitoringHub> _hubContext;
+    private readonly AppSettingsService _appSettings;
     private readonly ILogger<UserTagAlertService> _logger;
 
     private readonly object _stateLock = new();
@@ -57,12 +58,14 @@ public sealed class UserTagAlertService : BackgroundService
         IServiceScopeFactory scopeFactory,
         SimulationEngineService engineService,
         IHubContext<MonitoringHub> hubContext,
+        AppSettingsService appSettings,
         ILogger<UserTagAlertService> logger)
     {
         _projectService = projectService;
         _scopeFactory = scopeFactory;
         _engineService = engineService;
         _hubContext = hubContext;
+        _appSettings = appSettings;
         _logger = logger;
     }
 
@@ -71,23 +74,41 @@ public sealed class UserTagAlertService : BackgroundService
         lock (_stateLock) return _definitions.ToList();
     }
 
-    /// <summary>최신순 메모리 큐 — 빠른 UI 푸시용. 장기 조회는 Repository 사용.</summary>
+    /// <summary>현재 차단된 UserTag TagAddress 집합(대소문자 무시). 소스 차단·라이브 큐 필터 공용.</summary>
+    private HashSet<string> GetBlockedAddresses()
+    {
+        try
+        {
+            var list = _appSettings.LoadSettings().AbnormalAlarm.UserTagFilters;
+            return list is { Count: > 0 }
+                ? new HashSet<string>(list.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim()), StringComparer.OrdinalIgnoreCase)
+                : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+        catch { return new HashSet<string>(StringComparer.OrdinalIgnoreCase); }
+    }
+
+    /// <summary>최신순 메모리 큐 — 빠른 UI 푸시용. 장기 조회는 Repository 사용. 차단된 UserTag 는 읽기 시 제외(해제하면 다시 표시).</summary>
     public IReadOnlyList<UserTagAlert> GetAlerts(int? maxCount = null)
     {
+        var blocked = GetBlockedAddresses();
         lock (_stateLock)
         {
-            var list = _alerts.ToList();
-            if (maxCount.HasValue && list.Count > maxCount.Value)
-                return list.Take(maxCount.Value).ToList();
-            return list;
+            var list = _alerts.AsEnumerable();
+            if (blocked.Count > 0) list = list.Where(a => !blocked.Contains(a.TagAddress));
+            var result = list.ToList();
+            if (maxCount.HasValue && result.Count > maxCount.Value)
+                return result.Take(maxCount.Value).ToList();
+            return result;
         }
     }
 
-    /// <summary>현재 조건이 걸려 있는 활성 알람(시각 내림차순). 대시보드/전체화면 배너용 — 조건 풀리면 자동 제외됨.</summary>
+    /// <summary>현재 조건이 걸려 있는 활성 알람(시각 내림차순). 대시보드/전체화면 배너용 — 조건 풀리면 자동 제외됨. 차단된 UserTag 는 제외.</summary>
     public IReadOnlyList<ActiveUserAlarm> GetActiveAlarms()
     {
+        var blocked = GetBlockedAddresses();
         lock (_stateLock)
             return _activeUserAlarms.Values
+                .Where(a => blocked.Count == 0 || !blocked.Contains(a.TagAddress))
                 .OrderByDescending(a => a.OccurredAt)
                 .ToList();
     }
@@ -248,6 +269,10 @@ public sealed class UserTagAlertService : BackgroundService
         Dictionary<string, UserTagDefinition> defsSnap;
         lock (_stateLock) defsSnap = _definitionsByAddress;
 
+        // 사용자정의 알람 차단 — 차단된 UserTag 는 이번 폴링에서 아예 발화시키지 않는다(라이브 큐/DB/SignalR 미기록).
+        // 디바이스 차단(AbnormalEventService.ProcessAsync skip)의 UserTag 대응물. 해제하면 이후 발생분부터 다시 기록된다.
+        var blockedSnap = GetBlockedAddresses();
+
         // 진단 — UserTag 정의된 주소가 newLogs 에 몇 건 들어왔는지 / fire 결정 추적용.
         // 정의된 주소가 plcTagLog 에 전혀 안 들어오면(A 케이스) 본 카운터가 항상 0.
         var matchedCount = 0;
@@ -263,6 +288,9 @@ public sealed class UserTagAlertService : BackgroundService
             if (!defsSnap.TryGetValue(log.Address, out var def)) continue;
 
             matchedCount++;
+
+            // 차단된 UserTag 는 소스에서 완전 배제(기록·활성 알람·SignalR 생략).
+            if (blockedSnap.Count > 0 && blockedSnap.Contains(def.TagAddress)) continue;
 
             var newValue = log.Value ?? string.Empty;
 

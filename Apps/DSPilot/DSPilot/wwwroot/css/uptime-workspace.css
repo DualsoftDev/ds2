@@ -198,6 +198,14 @@
         .up-blk-head h3 { margin: 0; font-size: 1.02rem; font-weight: 800; }
         .up-blk-head .material-icons { color: var(--red); }
         .up-blk-sub { font-size: 0.72rem; color: var(--color-text-secondary); line-height: 1.5; margin-bottom: 12px; }
+        /* 탭 바 (자동알람 / 사용자지정 알람) */
+        .up-blk-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--color-lines-strong); margin-bottom: 12px; }
+        .up-blk-tab { appearance: none; border: none; background: none; cursor: pointer; padding: 8px 16px; font-size: 0.8rem; font-weight: 700; color: var(--color-text-secondary); border-bottom: 2px solid transparent; margin-bottom: -1px; display: inline-flex; align-items: center; gap: 6px; }
+        .up-blk-tab:hover { color: var(--color-text); }
+        .up-blk-tab.on { color: var(--color-primary); border-bottom-color: var(--color-primary); }
+        .up-blk-tab .up-blk-tabcount { font-size: 0.64rem; font-weight: 800; padding: 0 6px; border-radius: 999px; background: color-mix(in srgb, var(--red) 12%, transparent); color: var(--red); }
+        /* 탭 패널 — 모달 세로 flex 안에서 본문(테이블)이 늘어나도록. x-show 가 display 를 토글(참=none 해제→flex). */
+        .up-blk-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; }
         .up-blk-kinds { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
         .up-blk-kind { display: inline-flex; align-items: center; gap: 5px; padding: 4px 11px; border: 1px solid var(--color-lines); border-radius: 999px; font-size: 0.74rem; cursor: pointer; color: var(--color-text-secondary); user-select: none; }
         .up-blk-kind input { margin: 0; accent-color: var(--red); }

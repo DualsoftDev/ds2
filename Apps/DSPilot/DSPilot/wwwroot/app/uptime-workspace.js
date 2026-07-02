@@ -93,8 +93,14 @@
                 showDowntimeLog: false,
                 // 표준 가동시간(idealCT) Flow 일괄 편집 테이블 (편집값은 각 행 객체 draft 에 보관 — Alpine x-for 양방향 바인딩 안정)
                 ctTable: [], ctMsg: '', ctError: null, ctLoading: false, ctApplying: false,
-                // 디바이스 알람 차단 관리 모달 (selKinds=적용할 유형 int[], selected=디바이스 체크 맵)
-                blockMgr: { show: false, loading: false, busy: false, devices: [], kindOptions: [], selKinds: [], selected: {}, msg: '', err: '', filter: '', showBlockedOnly: false, sortCol: 'device', sortDir: 'asc' },
+                // 알람 차단 관리 모달 — 탭 2개(auto=자동알람/디바이스, user=사용자지정/UserTag).
+                //   자동알람: selKinds=적용할 유형 int[], selected=디바이스 체크 맵.
+                //   사용자지정(ut): tags=UserTag 정의 목록, selected=주소 체크 맵.
+                blockMgr: {
+                    show: false, tab: 'auto', busy: false,
+                    loading: false, devices: [], kindOptions: [], selKinds: [], selected: {}, msg: '', err: '', filter: '', showBlockedOnly: false, sortCol: 'device', sortDir: 'asc',
+                    ut: { loading: false, tags: [], selected: {}, msg: '', err: '', filter: '', showBlockedOnly: false }
+                },
 
                 async init() {
                     this.dark = localStorage.getItem('dspilot-theme') === 'dark';
@@ -142,7 +148,7 @@
                         if (this._focusAt) this.$nextTick(() => this.focusAlertRow());
                         // 차단 상태는 항상 로드(툴바 버튼의 차단 수 배지) — ?blockMgr=1 진입(설정 페이지 링크)이면 모달 자동 열기.
                         if (qp.has('blockMgr')) this.openBlockMgr();
-                        else this.loadBlockState();
+                        else { this.loadBlockState(); this.loadUserTagBlockState(); }
                     }
                 },
 
@@ -887,11 +893,14 @@
                     return '-';
                 },
 
-                // ── 디바이스 알람 차단 관리 (모달) ──
+                // ── 알람 차단 관리 (모달) ──
                 blkKindLabel(kind) { const o = this.blockMgr.kindOptions.find(k => k.kind === kind); return o ? o.label : String(kind); },
                 get blkSelectedCount() { return Object.values(this.blockMgr.selected).filter(Boolean).length; },
                 get blkAllSelected() { const fd = this.blkFilteredDevices; return fd.length > 0 && fd.every(d => this.blockMgr.selected[d.device]); },
                 get blockedDeviceCount() { return this.blockMgr.devices.filter(d => (d.blockedKinds || []).length > 0).length; },
+                // 툴바 버튼 배지 = 자동알람(디바이스) + 사용자지정(UserTag) 차단 수 합계.
+                get blockedUserTagCount() { return this.blockMgr.ut.tags.filter(t => t.blocked).length; },
+                get blockedTotalCount() { return this.blockedDeviceCount + this.blockedUserTagCount; },
                 get blkFilteredDevices() {
                     let list = this.blockMgr.devices;
                     const q = (this.blockMgr.filter || '').toLowerCase().trim();
@@ -926,11 +935,11 @@
                     const i = seg.lastIndexOf('.');
                     return i > 0 ? seg.slice(0, i) : '';
                 },
-                // presetDevice/presetKindName: 알림 행 바로가기 — 해당 디바이스+유형이 선택된 채 열림.
+                // presetDevice/presetKindName: 알림 행 바로가기 — 해당 디바이스+유형이 선택된 채 자동알람 탭으로 열림.
                 async openBlockMgr(presetDevice, presetKindName) {
                     const m = this.blockMgr;
-                    m.show = true; m.msg = ''; m.err = '';
-                    await this.loadBlockState();
+                    m.show = true; m.tab = 'auto'; m.msg = ''; m.err = '';
+                    await Promise.all([this.loadBlockState(), this.loadUserTagBlockState()]);
                     if (presetDevice) {
                         m.selected = { [presetDevice]: true };
                         const opt = m.kindOptions.find(k => k.name === presetKindName);
@@ -938,6 +947,13 @@
                     } else if (!m.selKinds.length) {
                         m.selKinds = m.kindOptions.map(k => k.kind); // 기본 = 전체 유형
                     }
+                },
+                // presetTagAddress: UserTag 알림 행 바로가기 — 해당 태그가 선택된 채 사용자지정 탭으로 열림.
+                async openUserTagBlockMgr(presetTagAddress) {
+                    const m = this.blockMgr;
+                    m.show = true; m.tab = 'user'; m.ut.msg = ''; m.ut.err = '';
+                    await Promise.all([this.loadBlockState(), this.loadUserTagBlockState()]);
+                    if (presetTagAddress) m.ut.selected = { [presetTagAddress]: true };
                 },
                 async loadBlockState() {
                     const m = this.blockMgr;
@@ -972,6 +988,51 @@
                         await this.loadBlockState();
                         await this.load(true);
                     } catch (e) { m.err = '적용 실패: ' + e.message; }
+                    finally { m.busy = false; }
+                },
+
+                // ── 사용자지정(UserTag) 알람 차단 ──
+                get utSelectedCount() { return Object.values(this.blockMgr.ut.selected).filter(Boolean).length; },
+                get utFilteredTags() {
+                    const u = this.blockMgr.ut;
+                    let list = u.tags;
+                    const q = (u.filter || '').toLowerCase().trim();
+                    if (q) list = list.filter(t => (t.name || '').toLowerCase().includes(q) || (t.tagAddress || '').toLowerCase().includes(q) || (t.systemName || '').toLowerCase().includes(q));
+                    if (u.showBlockedOnly) list = list.filter(t => t.blocked);
+                    return list;
+                },
+                get utAllSelected() { const ft = this.utFilteredTags; return ft.length > 0 && ft.every(t => this.blockMgr.ut.selected[t.tagAddress]); },
+                utSelectAll(on) {
+                    const sel = { ...this.blockMgr.ut.selected };
+                    for (const t of this.utFilteredTags) sel[t.tagAddress] = on;
+                    this.blockMgr.ut.selected = sel;
+                },
+                async loadUserTagBlockState() {
+                    const u = this.blockMgr.ut;
+                    u.loading = true;
+                    try {
+                        const st = await this.apiGet('/api/settings/usertag-filters');
+                        u.tags = st.tags || [];
+                        u.err = '';
+                    } catch (e) { u.err = '차단 상태를 불러오지 못했습니다: ' + e.message; }
+                    finally { u.loading = false; }
+                },
+                // 일괄 적용: 선택 UserTag 를 차단(add)/해제 후 전체 차단 주소 목록을 교체 저장.
+                async applyUserTagBlock(add) {
+                    const m = this.blockMgr, u = m.ut;
+                    if (m.busy) return;
+                    m.busy = true; u.msg = ''; u.err = '';
+                    try {
+                        const sel = new Set(Object.keys(u.selected).filter(a => u.selected[a]));
+                        // 현재 차단된 주소로 시작 → 선택분을 추가/제거.
+                        const blocked = new Set(u.tags.filter(t => t.blocked).map(t => t.tagAddress));
+                        for (const a of sel) { if (add) blocked.add(a); else blocked.delete(a); }
+                        const r = await this.apiPost('/api/settings/usertag-filters', { tagAddresses: [...blocked] });
+                        if (!r.ok) throw new Error(r.message || '저장 실패');
+                        u.msg = r.message;
+                        await this.loadUserTagBlockState();
+                        await this.load(true);
+                    } catch (e) { u.err = '적용 실패: ' + e.message; }
                     finally { m.busy = false; }
                 },
 

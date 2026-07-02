@@ -176,6 +176,14 @@ public class AbnormalAlarmSettings
     /// </summary>
     public List<AbnormalDeviceFilter> DeviceFilters { get; set; } = [];
 
+    /// <summary>
+    /// 사용자정의(UserTag) 알람 차단 목록 — 차단할 UserTag 정의의 TagAddress(정의 고유키).
+    /// 규칙에 걸린 UserTag 는 신규 발생 시 어디에도 기록되지 않고(라이브 큐/userTagAlertLog/SignalR 생략),
+    /// 차단 이전의 기존 기록도 알람·사이드바·통계·기록 조회에서 숨겨진다(읽기 시 필터 — 해제하면 다시 표시).
+    /// 자동감지(Abnormal) 차단(<see cref="DeviceFilters"/>)의 UserTag 대응물.
+    /// </summary>
+    public List<string> UserTagFilters { get; set; } = [];
+
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }

@@ -113,6 +113,7 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         else if (cat == "usertag")
             sb.Append(" AND (valueType IS NULL OR valueType <> 'Abnormal') ");
         AppendDeviceFilterExclusion(sb, p);
+        AppendUserTagFilterExclusion(sb, p);
         return (sb.ToString(), p);
     }
 
@@ -144,6 +145,27 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
                 p.Add($"AbnFltPre{i}", device + ".%");
                 i++;
             }
+        }
+    }
+
+    /// <summary>
+    /// 사용자정의(UserTag) 알람 차단 목록을 WHERE 절에 반영. usertag 행(valueType != 'Abnormal')의
+    /// tagAddress 가 차단 목록(AbnormalAlarm.UserTagFilters)의 UserTag 정의 주소와 정확히 일치하면 제외한다.
+    /// 자동감지(Abnormal) 행은 건드리지 않는다(디바이스 차단이 소유).
+    /// </summary>
+    private void AppendUserTagFilterExclusion(StringBuilder sb, DynamicParameters p)
+    {
+        List<string> addrs;
+        try { addrs = _appSettings.LoadSettings().AbnormalAlarm.UserTagFilters; }
+        catch { return; } // 설정 로드 실패 시 필터 없이 진행
+
+        var i = 0;
+        foreach (var addr in addrs ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(addr)) continue;
+            sb.Append($" AND NOT ((valueType IS NULL OR valueType <> 'Abnormal') AND tagAddress = @UtFltAddr{i}) ");
+            p.Add($"UtFltAddr{i}", addr.Trim());
+            i++;
         }
     }
 
@@ -271,6 +293,7 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         var p = new DynamicParameters();
         p.Add("Limit", maxCount);
         AppendDeviceFilterExclusion(sb, p);
+        AppendUserTagFilterExclusion(sb, p);
         var sql = $@"
             SELECT id, occurredAt, systemId, systemName, name, logLevel, tagAddress, valueType, matchOp, matchValue, actualValue, sourceLogId
             FROM userTagAlertLog

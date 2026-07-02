@@ -74,8 +74,8 @@
                     <button class="btn btn-sm btn-outlined color-default" @click="exportUtCsv()" :disabled="!ut || !ut.alerts || ut.alerts.length === 0">
                         <span class="material-icons" style="font-size:15px;">download</span> CSV 다운로드
                     </button>
-                    <button class="btn btn-sm btn-outlined color-default" @click="openBlockMgr()" title="디바이스를 선택해 이상감지 유형(4종)별로 알람·통계·기록을 차단합니다">
-                        <span class="material-icons" style="font-size:15px;">notifications_off</span> 디바이스 알람 차단<span x-show="blockedDeviceCount > 0" x-text="' (' + blockedDeviceCount + ')'"></span>
+                    <button class="btn btn-sm btn-outlined color-default" @click="openBlockMgr()" title="자동알람(디바이스)·사용자지정(UserTag) 알람을 선택해 알람·통계·기록에서 차단합니다">
+                        <span class="material-icons" style="font-size:15px;">notifications_off</span> 알람 차단<span x-show="blockedTotalCount > 0" x-text="' (' + blockedTotalCount + ')'"></span>
                     </button>
                 </div>
             </div>
@@ -201,10 +201,15 @@
                                                     <td data-label="조건" x-text="describeOp(a.matchOp, a.matchValue)"></td>
                                                     <!-- 값: AbnormalDetect 시간·주소값 숨김, 나머지 기존 -->
                                                     <td data-label="값"><span :class="a.matchOp !== 'AbnormalDetect' ? 'up-codeish' : ''" x-text="abnVal(a)"></span></td>
-                                                    <!-- 차단 바로가기: Abnormal 행만 — 해당 디바이스+유형이 선택된 채 차단 관리가 열림 -->
+                                                    <!-- 차단 바로가기: Abnormal → 자동알람 탭(디바이스+유형), UserTag → 사용자지정 탭(주소) 이 선택된 채 열림 -->
                                                     <td data-label="차단" style="text-align:center;">
                                                         <template x-if="a.matchOp === 'AbnormalDetect' && rowDevice(a)">
-                                                            <button class="up-blk-rowbtn" @click="openBlockMgr(rowDevice(a), a.matchValue)" :title="rowDevice(a) + ' 디바이스 알람 차단 관리'">
+                                                            <button class="up-blk-rowbtn" @click="openBlockMgr(rowDevice(a), a.matchValue)" :title="rowDevice(a) + ' 자동알람 차단 관리'">
+                                                                <span class="material-icons">notifications_off</span>
+                                                            </button>
+                                                        </template>
+                                                        <template x-if="a.matchOp !== 'AbnormalDetect' && a.tagAddress">
+                                                            <button class="up-blk-rowbtn" @click="openUserTagBlockMgr(a.tagAddress)" :title="a.name + ' 사용자지정 알람 차단 관리'">
                                                                 <span class="material-icons">notifications_off</span>
                                                             </button>
                                                         </template>
@@ -230,114 +235,204 @@
             </div>
         </main>
 
-        <!-- ════ 디바이스 알람 차단 관리 모달 ════ -->
+        <!-- ════ 알람 차단 관리 모달 (자동알람 / 사용자지정 알람 탭) ════ -->
         <div class="up-blk-overlay" x-show="blockMgr.show" style="display:none;" @click.self="blockMgr.show = false" @keydown.escape.window="blockMgr.show = false">
             <div class="up-blk-modal" @click.stop>
                 <div class="up-blk-head">
                     <span class="material-icons">notifications_off</span>
-                    <h3>디바이스 알람 차단</h3>
+                    <h3>알람 차단</h3>
                     <span style="flex:1;"></span>
                     <button class="btn-icon" @click="blockMgr.show = false" title="닫기"><span class="material-icons">close</span></button>
                 </div>
-                <div class="up-blk-sub">
-                    디바이스를 선택하고 이상 유형을 골라 <b>차단 추가/해제</b>합니다. 차단된 유형은 알람 배너·사이드바·통계·기록에서 숨겨지고,
-                    <b>차단 중 새로 발생하는 이상은 기록 자체가 남지 않습니다</b>(해제해도 차단 기간 발생분은 복구되지 않음).
-                    차단 이전의 기존 기록은 해제하면 다시 표시됩니다. 적용은 즉시 반영됩니다.
+
+                <!-- 탭 바 -->
+                <div class="up-blk-tabs">
+                    <button class="up-blk-tab" :class="{ on: blockMgr.tab === 'auto' }" @click="blockMgr.tab = 'auto'">
+                        자동알람<span class="up-blk-tabcount" x-show="blockedDeviceCount > 0" x-text="blockedDeviceCount"></span>
+                    </button>
+                    <button class="up-blk-tab" :class="{ on: blockMgr.tab === 'user' }" @click="blockMgr.tab = 'user'">
+                        사용자지정 알람<span class="up-blk-tabcount" x-show="blockedUserTagCount > 0" x-text="blockedUserTagCount"></span>
+                    </button>
                 </div>
 
-                <div class="up-blk-kinds">
-                    <span style="font-size:0.64rem; font-weight:700; color:var(--color-text-secondary); text-transform:uppercase; letter-spacing:0.06em; margin-right:4px;">유형</span>
-                    <template x-for="k in blockMgr.kindOptions" :key="k.kind">
-                        <label class="up-blk-kind" :class="{ on: blockMgr.selKinds.includes(k.kind) }">
-                            <input type="checkbox" :checked="blockMgr.selKinds.includes(k.kind)" @change="blkToggleKind(k.kind, $event.target.checked)" />
-                            <span x-text="k.label"></span>
-                        </label>
-                    </template>
-                </div>
-
-                <div x-show="blockMgr.loading" class="progress-bar progress-bar-indeterminate" style="margin-bottom:8px;"><div class="progress-bar-fill"></div></div>
-
-                <div class="up-blk-filter-row">
-                    <div class="up-blk-search">
-                        <span class="material-icons" style="font-size:15px; color:var(--color-text-secondary);">search</span>
-                        <input type="text" x-model="blockMgr.filter" placeholder="디바이스 · 경로 검색…" class="up-blk-search-input" />
-                        <button x-show="blockMgr.filter" @click="blockMgr.filter=''" class="btn-icon" style="padding:1px;" title="지우기"><span class="material-icons" style="font-size:14px;">close</span></button>
+                <!-- ─── 자동알람(디바이스별 이상감지) 탭 ─── -->
+                <div class="up-blk-panel" x-show="blockMgr.tab === 'auto'">
+                    <div class="up-blk-sub">
+                        디바이스를 선택하고 이상 유형을 골라 <b>차단 추가/해제</b>합니다. 차단된 유형은 알람 배너·사이드바·통계·기록에서 숨겨지고,
+                        <b>차단 중 새로 발생하는 이상은 기록 자체가 남지 않습니다</b>(해제해도 차단 기간 발생분은 복구되지 않음).
+                        차단 이전의 기존 기록은 해제하면 다시 표시됩니다. 적용은 즉시 반영됩니다.
                     </div>
-                    <label class="up-blk-toggle-blocked">
-                        <input type="checkbox" x-model="blockMgr.showBlockedOnly" />
-                        <span>차단된 것만</span>
-                    </label>
-                    <span class="up-blk-filter-count" x-text="blkFilteredDevices.length + ' / ' + blockMgr.devices.length + ' 개'"></span>
-                </div>
 
-                <div class="up-blk-body">
-                    <table class="up-blk-table">
-                        <thead>
-                            <tr>
-                                <th style="width:36px; text-align:center;"><input type="checkbox" class="up-dt-cb" :checked="blkAllSelected" @change="blkSelectAll($event.target.checked)" title="전체 선택" /></th>
-                                <th class="up-blk-th-sort" @click="blkSort('device')">
-                                    디바이스
-                                    <span class="up-blk-sort-icon" :class="{ active: blockMgr.sortCol === 'device' }">
-                                        <span class="material-icons" x-text="blockMgr.sortCol === 'device' ? (blockMgr.sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'"></span>
-                                    </span>
-                                </th>
-                                <th class="up-blk-th-sort" @click="blkSort('path')">
-                                    경로 (FLOW / WORK / CALL)
-                                    <span class="up-blk-sort-icon" :class="{ active: blockMgr.sortCol === 'path' }">
-                                        <span class="material-icons" x-text="blockMgr.sortCol === 'path' ? (blockMgr.sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'"></span>
-                                    </span>
-                                </th>
-                                <th style="width:230px;" class="up-blk-th-sort" @click="blkSort('blocked')">
-                                    현재 차단
-                                    <span class="up-blk-sort-icon" :class="{ active: blockMgr.sortCol === 'blocked' }">
-                                        <span class="material-icons" x-text="blockMgr.sortCol === 'blocked' ? (blockMgr.sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'"></span>
-                                    </span>
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <template x-for="d in blkFilteredDevices" :key="d.device">
-                                <tr :class="{ sel: !!blockMgr.selected[d.device] }" @click="blockMgr.selected[d.device] = !blockMgr.selected[d.device]" style="cursor:pointer;">
-                                    <td data-label="선택" style="text-align:center;">
-                                        <input type="checkbox" class="up-dt-cb" :checked="!!blockMgr.selected[d.device]" @click.stop @change="blockMgr.selected[d.device] = $event.target.checked" />
-                                    </td>
-                                    <td class="up-blk-dev" data-label="디바이스">
-                                        <span x-text="d.device"></span>
-                                        <span x-show="!d.inModel" title="현재 AASX 모델에 없는 디바이스 (차단 규칙만 남음 — 해제 가능)" style="color:var(--amber); margin-left:4px;">⚠</span>
-                                    </td>
-                                    <td data-label="경로">
-                                        <div class="up-blk-path">
-                                            <template x-for="p in d.paths" :key="p"><div x-text="p"></div></template>
-                                            <span x-show="!d.paths.length" style="color:var(--color-text-disabled);">—</span>
-                                        </div>
-                                    </td>
-                                    <td data-label="현재 차단">
-                                        <template x-for="k in d.blockedKinds" :key="k"><span class="up-blk-chip" x-text="blkKindLabel(k)"></span></template>
-                                        <span x-show="!d.blockedKinds.length" style="color:var(--color-text-disabled); font-size:0.7rem;">—</span>
-                                    </td>
+                    <div class="up-blk-kinds">
+                        <span style="font-size:0.64rem; font-weight:700; color:var(--color-text-secondary); text-transform:uppercase; letter-spacing:0.06em; margin-right:4px;">유형</span>
+                        <template x-for="k in blockMgr.kindOptions" :key="k.kind">
+                            <label class="up-blk-kind" :class="{ on: blockMgr.selKinds.includes(k.kind) }">
+                                <input type="checkbox" :checked="blockMgr.selKinds.includes(k.kind)" @change="blkToggleKind(k.kind, $event.target.checked)" />
+                                <span x-text="k.label"></span>
+                            </label>
+                        </template>
+                    </div>
+
+                    <div x-show="blockMgr.loading" class="progress-bar progress-bar-indeterminate" style="margin-bottom:8px;"><div class="progress-bar-fill"></div></div>
+
+                    <div class="up-blk-filter-row">
+                        <div class="up-blk-search">
+                            <span class="material-icons" style="font-size:15px; color:var(--color-text-secondary);">search</span>
+                            <input type="text" x-model="blockMgr.filter" placeholder="디바이스 · 경로 검색…" class="up-blk-search-input" />
+                            <button x-show="blockMgr.filter" @click="blockMgr.filter=''" class="btn-icon" style="padding:1px;" title="지우기"><span class="material-icons" style="font-size:14px;">close</span></button>
+                        </div>
+                        <label class="up-blk-toggle-blocked">
+                            <input type="checkbox" x-model="blockMgr.showBlockedOnly" />
+                            <span>차단된 것만</span>
+                        </label>
+                        <span class="up-blk-filter-count" x-text="blkFilteredDevices.length + ' / ' + blockMgr.devices.length + ' 개'"></span>
+                    </div>
+
+                    <div class="up-blk-body">
+                        <table class="up-blk-table">
+                            <thead>
+                                <tr>
+                                    <th style="width:36px; text-align:center;"><input type="checkbox" class="up-dt-cb" :checked="blkAllSelected" @change="blkSelectAll($event.target.checked)" title="전체 선택" /></th>
+                                    <th class="up-blk-th-sort" @click="blkSort('device')">
+                                        디바이스
+                                        <span class="up-blk-sort-icon" :class="{ active: blockMgr.sortCol === 'device' }">
+                                            <span class="material-icons" x-text="blockMgr.sortCol === 'device' ? (blockMgr.sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'"></span>
+                                        </span>
+                                    </th>
+                                    <th class="up-blk-th-sort" @click="blkSort('path')">
+                                        경로 (FLOW / WORK / CALL)
+                                        <span class="up-blk-sort-icon" :class="{ active: blockMgr.sortCol === 'path' }">
+                                            <span class="material-icons" x-text="blockMgr.sortCol === 'path' ? (blockMgr.sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'"></span>
+                                        </span>
+                                    </th>
+                                    <th style="width:230px;" class="up-blk-th-sort" @click="blkSort('blocked')">
+                                        현재 차단
+                                        <span class="up-blk-sort-icon" :class="{ active: blockMgr.sortCol === 'blocked' }">
+                                            <span class="material-icons" x-text="blockMgr.sortCol === 'blocked' ? (blockMgr.sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'"></span>
+                                        </span>
+                                    </th>
                                 </tr>
-                            </template>
-                            <tr x-show="!blockMgr.loading && !blockMgr.devices.length">
-                                <td colspan="4" style="text-align:center; color:var(--color-text-secondary); padding:18px;">디바이스가 없습니다 — AASX 모델 로드 후 다시 시도하세요.</td>
-                            </tr>
-                            <tr x-show="!blockMgr.loading && blockMgr.devices.length > 0 && !blkFilteredDevices.length">
-                                <td colspan="4" style="text-align:center; color:var(--color-text-secondary); padding:18px;">검색 결과가 없습니다.</td>
-                            </tr>
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                <template x-for="d in blkFilteredDevices" :key="d.device">
+                                    <tr :class="{ sel: !!blockMgr.selected[d.device] }" @click="blockMgr.selected[d.device] = !blockMgr.selected[d.device]" style="cursor:pointer;">
+                                        <td data-label="선택" style="text-align:center;">
+                                            <input type="checkbox" class="up-dt-cb" :checked="!!blockMgr.selected[d.device]" @click.stop @change="blockMgr.selected[d.device] = $event.target.checked" />
+                                        </td>
+                                        <td class="up-blk-dev" data-label="디바이스">
+                                            <span x-text="d.device"></span>
+                                            <span x-show="!d.inModel" title="현재 AASX 모델에 없는 디바이스 (차단 규칙만 남음 — 해제 가능)" style="color:var(--amber); margin-left:4px;">⚠</span>
+                                        </td>
+                                        <td data-label="경로">
+                                            <div class="up-blk-path">
+                                                <template x-for="p in d.paths" :key="p"><div x-text="p"></div></template>
+                                                <span x-show="!d.paths.length" style="color:var(--color-text-disabled);">—</span>
+                                            </div>
+                                        </td>
+                                        <td data-label="현재 차단">
+                                            <template x-for="k in d.blockedKinds" :key="k"><span class="up-blk-chip" x-text="blkKindLabel(k)"></span></template>
+                                            <span x-show="!d.blockedKinds.length" style="color:var(--color-text-disabled); font-size:0.7rem;">—</span>
+                                        </td>
+                                    </tr>
+                                </template>
+                                <tr x-show="!blockMgr.loading && !blockMgr.devices.length">
+                                    <td colspan="4" style="text-align:center; color:var(--color-text-secondary); padding:18px;">디바이스가 없습니다 — AASX 모델 로드 후 다시 시도하세요.</td>
+                                </tr>
+                                <tr x-show="!blockMgr.loading && blockMgr.devices.length > 0 && !blkFilteredDevices.length">
+                                    <td colspan="4" style="text-align:center; color:var(--color-text-secondary); padding:18px;">검색 결과가 없습니다.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="up-blk-actions">
+                        <button class="btn btn-sm btn-filled" @click="applyBlock(true)" :disabled="blockMgr.busy || !blkSelectedCount || !blockMgr.selKinds.length">
+                            <span class="material-icons" style="font-size:15px;">block</span> 선택 유형 차단 추가
+                        </button>
+                        <button class="btn btn-sm btn-outlined" @click="applyBlock(false)" :disabled="blockMgr.busy || !blkSelectedCount || !blockMgr.selKinds.length">
+                            <span class="material-icons" style="font-size:15px;">notifications_active</span> 선택 유형 차단 해제
+                        </button>
+                        <span class="ds-card-h-sub" x-text="blkSelectedCount + '개 디바이스 · 유형 ' + blockMgr.selKinds.length + '개 선택'"></span>
+                        <span class="up-blk-msg" :class="blockMgr.err ? 'err' : 'ok'" x-text="blockMgr.err || blockMgr.msg"></span>
+                        <span style="flex:1;"></span>
+                        <button class="btn btn-sm btn-outlined" @click="blockMgr.show = false">닫기</button>
+                    </div>
                 </div>
 
-                <div class="up-blk-actions">
-                    <button class="btn btn-sm btn-filled" @click="applyBlock(true)" :disabled="blockMgr.busy || !blkSelectedCount || !blockMgr.selKinds.length">
-                        <span class="material-icons" style="font-size:15px;">block</span> 선택 유형 차단 추가
-                    </button>
-                    <button class="btn btn-sm btn-outlined" @click="applyBlock(false)" :disabled="blockMgr.busy || !blkSelectedCount || !blockMgr.selKinds.length">
-                        <span class="material-icons" style="font-size:15px;">notifications_active</span> 선택 유형 차단 해제
-                    </button>
-                    <span class="ds-card-h-sub" x-text="blkSelectedCount + '개 디바이스 · 유형 ' + blockMgr.selKinds.length + '개 선택'"></span>
-                    <span class="up-blk-msg" :class="blockMgr.err ? 'err' : 'ok'" x-text="blockMgr.err || blockMgr.msg"></span>
-                    <span style="flex:1;"></span>
-                    <button class="btn btn-sm btn-outlined" @click="blockMgr.show = false">닫기</button>
+                <!-- ─── 사용자지정(UserTag) 알람 탭 ─── -->
+                <div class="up-blk-panel" x-show="blockMgr.tab === 'user'" style="display:none;">
+                    <div class="up-blk-sub">
+                        사용자정의 알람(UserTag)을 선택해 <b>차단 추가/해제</b>합니다. 차단된 알람은 배너·사이드바·통계·기록에서 숨겨지고,
+                        <b>차단 중 새로 발생하는 알람은 기록 자체가 남지 않습니다</b>(해제해도 차단 기간 발생분은 복구되지 않음).
+                        차단 이전의 기존 기록은 해제하면 다시 표시됩니다. 적용은 즉시 반영됩니다.
+                    </div>
+
+                    <div x-show="blockMgr.ut.loading" class="progress-bar progress-bar-indeterminate" style="margin-bottom:8px;"><div class="progress-bar-fill"></div></div>
+
+                    <div class="up-blk-filter-row">
+                        <div class="up-blk-search">
+                            <span class="material-icons" style="font-size:15px; color:var(--color-text-secondary);">search</span>
+                            <input type="text" x-model="blockMgr.ut.filter" placeholder="이름 · 주소 · 시스템 검색…" class="up-blk-search-input" />
+                            <button x-show="blockMgr.ut.filter" @click="blockMgr.ut.filter=''" class="btn-icon" style="padding:1px;" title="지우기"><span class="material-icons" style="font-size:14px;">close</span></button>
+                        </div>
+                        <label class="up-blk-toggle-blocked">
+                            <input type="checkbox" x-model="blockMgr.ut.showBlockedOnly" />
+                            <span>차단된 것만</span>
+                        </label>
+                        <span class="up-blk-filter-count" x-text="utFilteredTags.length + ' / ' + blockMgr.ut.tags.length + ' 개'"></span>
+                    </div>
+
+                    <div class="up-blk-body">
+                        <table class="up-blk-table">
+                            <thead>
+                                <tr>
+                                    <th style="width:36px; text-align:center;"><input type="checkbox" class="up-dt-cb" :checked="utAllSelected" @change="utSelectAll($event.target.checked)" title="전체 선택" /></th>
+                                    <th>이름</th>
+                                    <th style="width:130px;">시스템</th>
+                                    <th>주소</th>
+                                    <th style="width:120px;">현재 차단</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="t in utFilteredTags" :key="t.tagAddress">
+                                    <tr :class="{ sel: !!blockMgr.ut.selected[t.tagAddress] }" @click="blockMgr.ut.selected[t.tagAddress] = !blockMgr.ut.selected[t.tagAddress]" style="cursor:pointer;">
+                                        <td data-label="선택" style="text-align:center;">
+                                            <input type="checkbox" class="up-dt-cb" :checked="!!blockMgr.ut.selected[t.tagAddress]" @click.stop @change="blockMgr.ut.selected[t.tagAddress] = $event.target.checked" />
+                                        </td>
+                                        <td class="up-blk-dev" data-label="이름">
+                                            <span x-text="t.name"></span>
+                                            <span x-show="!t.inModel" title="현재 모델에 없는 UserTag (차단 규칙만 남음 — 해제 가능)" style="color:var(--amber); margin-left:4px;">⚠</span>
+                                        </td>
+                                        <td data-label="시스템"><span x-text="t.systemName || '—'"></span></td>
+                                        <td data-label="주소"><div class="up-blk-path" x-text="t.tagAddress"></div></td>
+                                        <td data-label="현재 차단">
+                                            <span x-show="t.blocked" class="up-blk-chip">차단됨</span>
+                                            <span x-show="!t.blocked" style="color:var(--color-text-disabled); font-size:0.7rem;">—</span>
+                                        </td>
+                                    </tr>
+                                </template>
+                                <tr x-show="!blockMgr.ut.loading && !blockMgr.ut.tags.length">
+                                    <td colspan="5" style="text-align:center; color:var(--color-text-secondary); padding:18px;">정의된 사용자정의 알람(UserTag)이 없습니다.</td>
+                                </tr>
+                                <tr x-show="!blockMgr.ut.loading && blockMgr.ut.tags.length > 0 && !utFilteredTags.length">
+                                    <td colspan="5" style="text-align:center; color:var(--color-text-secondary); padding:18px;">검색 결과가 없습니다.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="up-blk-actions">
+                        <button class="btn btn-sm btn-filled" @click="applyUserTagBlock(true)" :disabled="blockMgr.busy || !utSelectedCount">
+                            <span class="material-icons" style="font-size:15px;">block</span> 선택 차단 추가
+                        </button>
+                        <button class="btn btn-sm btn-outlined" @click="applyUserTagBlock(false)" :disabled="blockMgr.busy || !utSelectedCount">
+                            <span class="material-icons" style="font-size:15px;">notifications_active</span> 선택 차단 해제
+                        </button>
+                        <span class="ds-card-h-sub" x-text="utSelectedCount + '개 알람 선택'"></span>
+                        <span class="up-blk-msg" :class="blockMgr.ut.err ? 'err' : 'ok'" x-text="blockMgr.ut.err || blockMgr.ut.msg"></span>
+                        <span style="flex:1;"></span>
+                        <button class="btn btn-sm btn-outlined" @click="blockMgr.show = false">닫기</button>
+                    </div>
                 </div>
             </div>
         </div>

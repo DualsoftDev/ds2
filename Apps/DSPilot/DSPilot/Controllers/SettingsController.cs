@@ -36,6 +36,7 @@ public class SettingsController : ControllerBase
     private readonly IHubContext<MonitoringHub> _hub;
     private readonly HeatmapService _heatmap;
     private readonly SimulationEngineService _engine;
+    private readonly UserTagAlertService _userTags;
     private readonly ILogger<SettingsController> _logger;
 
     private readonly HubSubscriberService _hubSubscriber;
@@ -51,6 +52,7 @@ public class SettingsController : ControllerBase
         IHubContext<MonitoringHub> hub,
         HeatmapService heatmap,
         SimulationEngineService engine,
+        UserTagAlertService userTags,
         HubSubscriberService hubSubscriber,
         ILogger<SettingsController> logger)
     {
@@ -64,6 +66,7 @@ public class SettingsController : ControllerBase
         _hub = hub;
         _heatmap = heatmap;
         _engine = engine;
+        _userTags = userTags;
         _hubSubscriber = hubSubscriber;
         _logger = logger;
     }
@@ -443,6 +446,68 @@ public class SettingsController : ControllerBase
         }
     }
 
+    // ── GET: 사용자정의(UserTag) 알람 차단 상태 (알람 차단 모달 "사용자지정 알람" 탭용) ──
+    // 원천 = AASX 프로젝트에 정의된 UserTag(UserTagAlertService.GetDefinitions), 식별키 = TagAddress.
+    // 현재 차단 목록(AbnormalAlarm.UserTagFilters)을 병합. 규칙에만 남고 모델에서 사라진 주소도
+    // InModel=false 로 포함(해제 가능해야 하므로).
+    [HttpGet("usertag-filters")]
+    public ActionResult<UserTagFilterStateDto> GetUserTagFilters()
+    {
+        var defs = _userTags.GetDefinitions()
+            .Where(d => !string.IsNullOrWhiteSpace(d.TagAddress))
+            .GroupBy(d => d.TagAddress, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+        var blocked = AbnormalDeviceFilterHelpers.NormalizeUserTagFilters(_settings.LoadSettings().AbnormalAlarm.UserTagFilters);
+        var blockedSet = new HashSet<string>(blocked, StringComparer.OrdinalIgnoreCase);
+
+        var tags = defs.Keys.Union(blocked, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(a => defs.TryGetValue(a, out var d0) ? d0.Name : a, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(a => a, StringComparer.OrdinalIgnoreCase)
+            .Select(a =>
+            {
+                var inModel = defs.TryGetValue(a, out var d);
+                return new UserTagFilterInfoDto(
+                    a,
+                    inModel ? d!.Name : a,
+                    inModel ? d!.SystemName : "",
+                    inModel ? d!.ValueType : "",
+                    inModel ? d!.MatchOp : "",
+                    inModel ? d!.MatchValue : "",
+                    blockedSet.Contains(a),
+                    inModel);
+            })
+            .ToList();
+
+        return new UserTagFilterStateDto(tags);
+    }
+
+    // ── POST: 사용자정의(UserTag) 알람 차단 목록 저장 (전체 교체) ──
+    // 적용 즉시: 신규 발생분은 소스에서 차단(미기록), 기존 기록은 알람/통계/기록 조회에서 숨김(가역).
+    [HttpPost("usertag-filters")]
+    public async Task<ActionResult<SaveResultDto>> SaveUserTagFilters(
+        [FromBody] UserTagFiltersSaveDto req, CancellationToken ct)
+    {
+        try
+        {
+            var normalized = AbnormalDeviceFilterHelpers.NormalizeUserTagFilters(req.TagAddresses);
+
+            _settings.Update(m => m.AbnormalAlarm.UserTagFilters = normalized);
+
+            // 알람 배너/사이드바/이상알람 페이지가 REST 재조회하도록 트리거 — 숨김/해제가 모든 화면에 즉시 반영.
+            try { await _hub.Clients.All.SendAsync("UserTagAlertsChanged", new { count = 0 }, ct); }
+            catch (Exception ex) { _logger.LogDebug(ex, "[Settings] SignalR broadcast failed (non-critical)"); }
+
+            return new SaveResultDto(true,
+                normalized.Count == 0 ? "사용자정의 알람 차단이 모두 해제되었습니다." : $"사용자정의 알람 차단 {normalized.Count}건이 적용되었습니다.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Settings] SaveUserTagFilters failed");
+            return new SaveResultDto(false, $"차단 목록 저장 실패: {ex.Message}");
+        }
+    }
+
     // ── helpers ──
 
     private ActionResult<RebuildResultDto> Result(RebuildResult r)
@@ -625,6 +690,19 @@ public record AbnormalDeviceFilterStateDto(
 
 // POST 본문 — 전체 규칙 교체(PUT 의미). 클라이언트가 일괄 추가/해제를 계산해 최종 상태를 보낸다.
 public record AbnormalDeviceFiltersSaveDto(List<AbnormalDeviceFilterDto>? Filters);
+
+// ── 사용자정의(UserTag) 알람 차단 (알람 차단 모달 "사용자지정 알람" 탭용) ──
+
+// UserTag 1개의 차단 상태. TagAddress = 정의 고유키. InModel=false 는 규칙에만 남고 현재 모델엔 없는 주소.
+public record UserTagFilterInfoDto(
+    string TagAddress, string Name, string SystemName,
+    string ValueType, string MatchOp, string MatchValue,
+    bool Blocked, bool InModel);
+
+public record UserTagFilterStateDto(List<UserTagFilterInfoDto> Tags);
+
+// POST 본문 — 차단할 TagAddress 전체 목록 교체(PUT 의미).
+public record UserTagFiltersSaveDto(List<string>? TagAddresses);
 
 // CompletedAt = 자동 1회 실행 완료 시각(고정). LastAppliedAt = 마지막으로 AASX 에 기록한 시각(매 적용 갱신).
 // 둘 다 로컬 표시 문자열, null = 미실행. MaxMode = "Percentile"|"RawMax". PercentileMax/Min = 백분위수(기본 95/5).

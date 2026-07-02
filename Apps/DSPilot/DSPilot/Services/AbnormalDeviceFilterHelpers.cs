@@ -100,4 +100,29 @@ public static class AbnormalDeviceFilterHelpers
             .Select(kv => new AbnormalDeviceFilter { Device = kv.Key, Kinds = [.. kv.Value] })
             .ToList();
     }
+
+    // ── 사용자정의(UserTag) 알람 차단 ──
+    // 식별키 = UserTag 정의의 TagAddress(UserTagAlertService._definitionsByAddress 와 동일 고유키).
+    // userTagAlertLog 의 usertag 행(valueType != 'Abnormal')은 tagAddress 에 이 주소를 그대로 담으므로
+    // 소스 차단(폴링 skip)·읽기 필터(SQL)·라이브 큐 필터가 모두 같은 키로 동작한다.
+
+    /// <summary>tagAddress 가 UserTag 차단 목록에 포함되는지(대소문자 무시).</summary>
+    public static bool IsUserTagSuppressed(IReadOnlyCollection<string>? blockedAddresses, string? tagAddress)
+    {
+        if (blockedAddresses is not { Count: > 0 } || string.IsNullOrWhiteSpace(tagAddress)) return false;
+        foreach (var a in blockedAddresses)
+            if (!string.IsNullOrWhiteSpace(a) && string.Equals(a.Trim(), tagAddress.Trim(), StringComparison.OrdinalIgnoreCase))
+                return true;
+        return false;
+    }
+
+    /// <summary>UserTag 차단 목록 정규화: trim·빈값 제거·중복 제거(대소문자 무시)·정렬.</summary>
+    public static List<string> NormalizeUserTagFilters(IEnumerable<string>? addresses)
+    {
+        var set = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var a in addresses ?? [])
+            if (!string.IsNullOrWhiteSpace(a))
+                set.Add(a.Trim());
+        return [.. set];
+    }
 }
