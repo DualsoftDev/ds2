@@ -221,7 +221,9 @@ public sealed record OeeSummaryDto(
     string? PlannedStopSource = null, // 비생산 출처: "manual"(사용자 시각대) / "auto"(10×CT 장시간정지 자동) / "none"(없음)
     int? CtSampleCount = null,        // CT이상치 산출에 쓰인 클린샘플 수(라인=임계 보유 flow 중 최소). 임계 없으면 null
     bool CtSampleLow = false,         // 클린샘플 < 신뢰선(5) — A·P 는 잠정값(샘플 쌓이면 자동 정상화). UI '샘플 부족' 표시용
-    double IdleMaintCtMs = 0);        // Σ비가동CT 중 유지보수(isFailure=0 이벤트 겹침) 귀속분 — 가용성 바 3분할(고장 = IdleCtMs − 이 값)
+    double IdleMaintCtMs = 0,         // Σ비가동CT 중 유지보수(isFailure=0 이벤트 겹침) 귀속분 — 가용성 바 분할(고장 = IdleCtMs − 이 값)
+    double IdleCalendarMs = 0,        // 비가동 구간의 달력(벽시계) 환산 — Union 후 Total. ΣCT(설비 합산)와의 단위 오독 방지 병기용
+    int CycleFlowCount = 0);          // ΣCT 합산에 참여한 설비(flow) 수 — "설비시간 합산 ×N" 칩 표기용(설비 필터 시 1)
 
 /// <summary>비생산 시간대 한 칸 DTO (반복 일일, 로컬 자정 기준 분).</summary>
 public sealed record PlannedStopWindowDto(int StartMinutes, int EndMinutes, string? Label);

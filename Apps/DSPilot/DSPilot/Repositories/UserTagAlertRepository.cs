@@ -241,11 +241,13 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
 
         // 스택 키 = 구분(ABNORMAL/USERTAG). 레벨이 Error 단일로 통일돼 레벨 스택은 무의미하므로 구분으로 스택한다.
         // (UserTagAlertBucket.LogLevel 슬롯에 구분 문자열을 담아 DTO 형상 유지.)
+        // ⚠ GROUP BY 에 별칭 LogLevel 을 쓰면 테이블 실제 컬럼 logLevel(전부 'Error')로 해석돼
+        // 구분이 한 그룹으로 합쳐진다(SQLite 는 GROUP BY 에서 컬럼이 별칭보다 우선) → CASE 식으로 직접 그룹.
         var sql = $@"
             SELECT {bucketSql} AS BucketStartStr, {CategoryCase} AS LogLevel, COUNT(*) AS Count
             FROM userTagAlertLog
             {where}
-            GROUP BY BucketStartStr, LogLevel
+            GROUP BY BucketStartStr, {CategoryCase}
             ORDER BY BucketStartStr ASC";
 
         var rows = await conn.QueryAsync<BucketRow>(sql, p);
@@ -267,15 +269,18 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         p.Add("TopN", topN);
         // 그룹키: name(기본) | tagAddress(경로). SQL 삽입값이라 화이트리스트로만 결정(주입 방지).
         var keyCol = string.Equals(groupBy, "path", StringComparison.OrdinalIgnoreCase) ? "tagAddress" : "name";
+        // Level 슬롯엔 구분(ABNORMAL/USERTAG)을 담는다 — 레벨이 Error 단일로 통일돼 Top N 막대색은
+        // 자동감지/수동등록 구분으로 칠한다(버킷 스택과 동일 규약). 같은 키는 단일 구분이라 그룹 분열 없음.
+        // ⚠ GROUP BY 별칭 LogLevel 은 테이블 컬럼 logLevel 로 해석됨(버킷 쿼리와 동일 함정) → CASE 식으로 직접 그룹.
         var sql = $@"
-            SELECT {keyCol} AS Name, logLevel AS LogLevel, COUNT(*) AS Count
+            SELECT {keyCol} AS Name, {CategoryCase} AS LogLevel, COUNT(*) AS Count
             FROM userTagAlertLog
             {where}
-            GROUP BY {keyCol}, logLevel
+            GROUP BY {keyCol}, {CategoryCase}
             ORDER BY Count DESC
             LIMIT @TopN";
         var rows = await conn.QueryAsync<TopRow>(sql, p);
-        return rows.Select(r => new UserTagAlertTopRow(r.Name ?? "", r.LogLevel ?? "Info", r.Count)).ToList();
+        return rows.Select(r => new UserTagAlertTopRow(r.Name ?? "", r.LogLevel ?? "USERTAG", r.Count)).ToList();
     }
 
     public async Task<IReadOnlyDictionary<string, int>> GetCategoryCountsAsync(

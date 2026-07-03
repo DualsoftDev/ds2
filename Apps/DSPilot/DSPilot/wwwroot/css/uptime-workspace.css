@@ -92,6 +92,9 @@
         /* 정지 유형 = 대각선 빗금(가동=솔리드와 직관적 대비). 색=유형, 빗금=정지 신호. 스와치·바 공용 */
         .hatch-fault { background-color: var(--oee-fault); background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.55) 0 1.4px, transparent 1.4px 6px); }
         .hatch-maint { background-color: var(--oee-maint); background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.55) 0 1.4px, transparent 1.4px 6px); }
+        /* 비생산(분모 밖 제외) = 남색 슬레이트(--nonprod, ds.css) + 푸른 빗금 — 일자별 추이 캔버스의
+           밤하늘 빗금(_nightHatchPattern)과 동일 의미의 CSS 판. TEEP 시간 분해 막대 등 DOM 막대·스와치 공용 */
+        .hatch-nonprod { background-color: var(--nonprod); background-image: repeating-linear-gradient(45deg, rgba(96,140,210,0.55) 0 1.4px, transparent 1.4px 6px); }
         .up-legend-name { font-weight: 700; flex: 1; }
         .up-legend-share { font-family: var(--font-mono); font-weight: 700; color: var(--color-text-secondary); }
         .up-legend-val { width: 56px; text-align: right; font-family: var(--font-mono); font-weight: 800; }

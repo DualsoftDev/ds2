@@ -62,9 +62,9 @@ function bulkCycleApp() {
 
             await this.loadFlows();
             await this.loadExclusions();
-            // 기본 = 최근 5분 프리셋 (단일 페이지와 동일). setRecentMinutes 가
-            // 시간창 계산 + timePreset='m5' 활성표시 + loadAll 까지 한 번에 처리.
-            await this.setRecentMinutes(5);
+            // 최초 범위 — URL 기간 파라미터(?period/from/to, 같은 페이지 나브 이동 시 shell 이 실어 보냄)
+            // 복원, 없으면 기본 최근 5분 프리셋 (단일 페이지와 동일).
+            await this.applyRangeFromUrl();
             this.connectSignalR();
         },
 
@@ -142,8 +142,37 @@ function bulkCycleApp() {
 
         get loadingAny() { return this.flows.some(s => s.loading); },
 
+        // ── 분석 기간 URL 동기화 (?period=프리셋 | ?from/?to=직접 범위) — 단일 페이지(flow-workspace)와 동일 규약 ──
+        // shell 나브의 같은 페이지 전체/FLOW 이동(withPeriodCarry)이 이 파라미터를 실어 가 기간이 유지된다.
+        // 기본(최근 5분, m5)은 파라미터 생략.
+        syncRangeUrl() {
+            const qp = new URLSearchParams(location.search);
+            qp.delete('period'); qp.delete('from'); qp.delete('to');
+            if (this.timePreset) { if (this.timePreset !== 'm5') qp.set('period', this.timePreset); }
+            else if (this.cyclePreset) qp.set('period', 'c' + this.cyclePreset);
+            else if (this.startTime && this.endTime) { qp.set('from', this.startTime); qp.set('to', this.endTime); }
+            const qs = qp.toString();
+            history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
+        },
+        async applyRangeFromUrl() {
+            const qp = new URLSearchParams(location.search);
+            const per = qp.get('period') || '';
+            let m;
+            if ((m = per.match(/^m(\d+)$/))) return await this.setRecentMinutes(+m[1]);
+            if ((m = per.match(/^h(\d+)$/))) return await this.setRecentHours(+m[1]);
+            if ((m = per.match(/^c(\d+)$/))) return await this.setRecentCycles(+m[1]);
+            const from = qp.get('from'), to = qp.get('to');
+            if (from && to && this.inputToDate(to) > this.inputToDate(from)) {
+                this.startTime = from; this.endTime = to;
+                this.timePreset = null; this.cyclePreset = null;
+                return await this.loadAll();
+            }
+            return await this.setRecentMinutes(5);
+        },
+
         // ── 로드 (동시성 제한) ──
         async loadAll() {
+            this.syncRangeUrl(); // 모든 범위 변경(프리셋/수동/드래그)이 여기로 수렴 — 현재 기간을 URL 반영
             const list = this.flows.slice();
             const CONC = 4;
             let idx = 0;
@@ -459,6 +488,7 @@ function bulkCycleApp() {
             const r = slice.selectedRange; if (!r) return;
             const s = new Date(r.startMs), e = new Date(r.endMs);
             if (e <= s) return;
+            this.timePreset = null; this.cyclePreset = null;   // 수동 범위 → 프리셋 해제 (단일 페이지와 동일)
             this.startTime = this.dateToInput(s);
             this.endTime = this.dateToInput(e);
             for (const fl of this.flows) fl.selectedRange = null;

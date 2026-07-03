@@ -142,16 +142,18 @@ export function renderTrendChart(chartId, timeBuckets, granularity, cats) {
     charts[chartId] = chart;
 }
 
-// topRows: [{ name, level, count }]
+// topRows: [{ name, level, count }] — level 슬롯은 구분(ABNORMAL/USERTAG). 막대색을 구분으로 칠해
+// 수동등록TAG 를 자동감지와 시각적으로 분리한다(시계열 스택·구분 도넛과 동일 팔레트).
 export function renderTopChart(chartId, topRows) {
     const canvas = document.getElementById(chartId);
     if (!canvas) return;
 
-    const LEVEL_COLORS = levelColors();
+    const CAT_COLORS = categoryColors();
     const tc = themeChartColors();
     const labels = topRows.map(r => r.name);
     const counts = topRows.map(r => r.count);
-    const colors = topRows.map(r => (LEVEL_COLORS[r.level] || LEVEL_COLORS.Info).fill);
+    const cats = topRows.map(r => r.level);
+    const colors = cats.map(c => (CAT_COLORS[c] || CAT_COLORS.USERTAG).fill);
 
     // 같은 canvas·테마면 in-place 갱신(차트 재생성 churn 방지).
     const existing = charts[chartId];
@@ -159,6 +161,7 @@ export function renderTopChart(chartId, topRows) {
         existing.data.labels = labels;
         const ds = existing.data.datasets[0];
         ds.data = counts; ds.backgroundColor = colors; ds.borderColor = colors;
+        existing._rowCats = cats;
         existing.update('none');
         return;
     }
@@ -186,11 +189,22 @@ export function renderTopChart(chartId, topRows) {
             },
             plugins: {
                 legend: { display: false },
-                tooltip: { enabled: true, backgroundColor: tc.surface, titleColor: tc.textStrong, bodyColor: tc.text, borderColor: tc.grid, borderWidth: 1 },
+                tooltip: {
+                    enabled: true, backgroundColor: tc.surface, titleColor: tc.textStrong, bodyColor: tc.text, borderColor: tc.grid, borderWidth: 1,
+                    callbacks: {
+                        // 막대색만으론 구분이 애매할 수 있어 툴팁에 자동감지/수동등록TAG 를 병기.
+                        label(ctx) {
+                            const cat = ctx.chart._rowCats?.[ctx.dataIndex];
+                            const catLabel = CATEGORY_LABELS[cat] || cat || '';
+                            return `알림 수: ${ctx.parsed.x}` + (catLabel ? ` (${catLabel})` : '');
+                        },
+                    },
+                },
             },
         },
     });
     chart._dark = isDark();
+    chart._rowCats = cats;
     charts[chartId] = chart;
 }
 

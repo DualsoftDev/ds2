@@ -275,10 +275,13 @@ var canonicalStaticRoutes = new Dictionary<string, string>(StringComparer.Ordina
     ["/"] = "dashboard.html",
     ["/dashboard"] = "dashboard.html",
     ["/heatmap"] = "heatmap.html",
-    // 가동시간·이상 물리 분리(2026-07-01): 종합효율 현황 / 이상·알람 2페이지. 공용 JS/CSS(uptime-workspace) SSOT 공유.
+    // 가동시간·이상 물리 분리(2026-07-01): 종합설비효율 현황 / 이상·알람 2페이지. 공용 JS/CSS(uptime-workspace) SSOT 공유.
+    // 설비/생산 물리 분리(2026-07-03): 구 내부 탭(설비효율/생산효율)을 /uptime-oee·/uptime-teep 2페이지로 분리.
     ["/uptime-oee"] = "uptime-oee.html",
+    ["/uptime-teep"] = "uptime-teep.html",
     ["/uptime-alarm"] = "uptime-alarm.html",
     // 구 통합 /uptime, /oee 는 아래 legacyRedirects 에서 /uptime-oee 로 302(쿼리 보존).
+    //   구 ?section=teep 딥링크는 uptime-workspace.js init 이 /uptime-teep 로 클라이언트 리다이렉트.
     ["/cctv"] = "cctv.html",
     ["/plc-debug"] = "plc-debug.html",
     ["/settings"] = "settings.html",

@@ -150,10 +150,10 @@
                             await this.reloadTrend();
                             await this.loadExclusions();
                             this.syncHistory();
-                            // 사이클 분석 기본 = 최근 5분 (사이클타임 기본값과 일치 → 5분 프리셋 활성).
-                            // 추이 전용 페이지에서는 불필요하므로 건너뜀.
+                            // 사이클 분석 최초 범위 — URL 기간 파라미터(?period/from/to, 같은 페이지 나브 이동 시
+                            // shell 이 실어 보냄) 복원, 없으면 기본 최근 5분. 추이 전용 페이지에서는 불필요하므로 건너뜀.
                             if (this.view !== 'trend') {
-                                await this.setRecentMinutes(5);
+                                await this.applyRangeFromUrl();
                             }
                         }
                     }
@@ -703,6 +703,36 @@
                     await this.load();
                 },
 
+                // ── 분석 기간 URL 동기화 (?period=프리셋 | ?from/?to=직접 범위) ──
+                // shell 나브의 같은 페이지 전체/FLOW 이동(withPeriodCarry)이 이 파라미터를 실어 가
+                // 가동시간 분석 기간이 유지된다(새로고침 유지 포함). 프리셋은 이름(m30/h1/c10)으로 실어
+                // 대상에서 최신 데이터 기준 재계산, 직접 범위(수동 입력·드래그)는 from/to 그대로.
+                // 기본(최근 5분, m5)은 파라미터 생략.
+                syncRangeUrl() {
+                    const qp = new URLSearchParams(location.search);
+                    qp.delete('period'); qp.delete('from'); qp.delete('to');
+                    if (this.timePreset) { if (this.timePreset !== 'm5') qp.set('period', this.timePreset); }
+                    else if (this.cyclePreset) qp.set('period', 'c' + this.cyclePreset);
+                    else if (this.startTime && this.endTime) { qp.set('from', this.startTime); qp.set('to', this.endTime); }
+                    const qs = qp.toString();
+                    history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
+                },
+                async applyRangeFromUrl() {
+                    const qp = new URLSearchParams(location.search);
+                    const per = qp.get('period') || '';
+                    let m;
+                    if ((m = per.match(/^m(\d+)$/))) return await this.setRecentMinutes(+m[1]);
+                    if ((m = per.match(/^h(\d+)$/))) return await this.setRecentHours(+m[1]);
+                    if ((m = per.match(/^c(\d+)$/))) return await this.setRecentCycles(+m[1]);
+                    const from = qp.get('from'), to = qp.get('to');
+                    if (from && to && this.inputToDate(to) > this.inputToDate(from)) {
+                        this.startTime = from; this.endTime = to;
+                        this.timePreset = null; this.cyclePreset = null;
+                        return await this.load();
+                    }
+                    return await this.setRecentMinutes(5);
+                },
+
                 // H/T 토글 — Head/Tail 은 무조건 존재(이동만, 해제 없음). 같은 Call 에 둘 다 허용
                 // (단일 신호 Call 1개를 자기 OutTag↑→완료(InTag↑/OutTag↓)로 MT 분해 — head==tail).
                 async toggleHead(callId) {
@@ -834,6 +864,7 @@
                     const start = this.inputToDate(this.startTime);
                     const end = this.inputToDate(this.endTime);
                     if (end <= start) { this.errorMessage = '종료 시각은 시작 시각보다 커야 합니다.'; return; }
+                    this.syncRangeUrl(); // 모든 범위 변경(프리셋/수동/드래그)이 여기로 수렴 — 확정된 기간만 URL 반영
 
                     this.isLoading = true; this.errorMessage = null;
                     if (window.dspLoading) window.dspLoading.begin('가동시간 분석 데이터 불러오는 중…');

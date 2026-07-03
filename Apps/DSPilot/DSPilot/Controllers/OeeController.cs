@@ -1243,7 +1243,9 @@ public class OeeController : ControllerBase
             PlannedStopSource: agg.HasThreshold ? plannedSource : null,
             CtSampleCount: agg.HasThreshold ? agg.CtSampleMin : (int?)null,
             CtSampleLow: agg.HasThreshold && agg.CtSampleMin < OeeCtStatsService.ConfidentMinCleanCycles,
-            IdleMaintCtMs: agg.IdleMaintCtMs);
+            IdleMaintCtMs: agg.IdleMaintCtMs,
+            IdleCalendarMs: agg.IdleCalendarMs,
+            CycleFlowCount: agg.FlowCount);
     }
 
     /// <summary>
@@ -1348,7 +1350,8 @@ public class OeeController : ControllerBase
         double NormalCtMs, double IdleCtMs, int NormalCount, int DowntimeEventCount,
         double? CtThresholdMs, List<double> OnsetsMs, List<double> RepairMsList, bool HasThreshold,
         double PlannedCtMs, int CtSampleMin = 0, List<(double S, double E)>? NonProdIntervals = null,
-        List<(double S, double E)>? RunIntervals = null, double IdleMaintCtMs = 0);
+        List<(double S, double E)>? RunIntervals = null, double IdleMaintCtMs = 0,
+        double IdleCalendarMs = 0, int FlowCount = 0);
 
     private sealed class CycleAggRow { public long NormalCt { get; set; } public long NormalCount { get; set; } public long NonProdNormalCt { get; set; } }
     private sealed class DtCycleRaw { public string? RecordedAt { get; set; } public long? Ct { get; set; } public long? Mt { get; set; } }
@@ -1412,6 +1415,9 @@ public class OeeController : ControllerBase
             maintAll = Intervals.Union(maintIntervals.Where(x => x.E > x.S).Select(x => (x.S, x.E)).ToList());
         }
         double idleMaintCtMs = 0;
+        // 미계획 비가동으로 '계상된' 구간(달력) — ΣCT(설비 합산)와 별개로 벽시계 환산치(Union 후 Total)를 제공.
+        // "비가동 13d(설비시간)가 달력에선 얼마인가"를 UI 가 병기해 ΣCT↔달력 오독을 방지(P0 개선).
+        var idleCalIntervals = new List<(double S, double E)>();
         static double OverlapMs(List<(double S, double E)>? iv, double s, double e)
         {
             if (iv is null) return 0;
@@ -1506,6 +1512,7 @@ public class OeeController : ControllerBase
                         continue;
                     }
                     idleCtMs += cMs;
+                    idleCalIntervals.Add((startMs, rec));
                     // 유지보수 이벤트(같은 flow)와 겹친 만큼 유지보수로 귀속(잔여 = 고장) — 가용성 바 3분할용
                     idleMaintCtMs += Math.Min(cMs, OverlapMs(maintByFlow?.GetValueOrDefault(f), startMs, rec));
                     onsets.Add(startMs + thr);                                  // 고장 onset = 사이클 시작 + CT이상치
@@ -1543,6 +1550,7 @@ public class OeeController : ControllerBase
                             continue;
                         }
                         idleCtMs += len;
+                        idleCalIntervals.Add((u.S, u.E));
                         // 무사이클 잔여의 유지보수 귀속 — flow 조회는 그 flow 의 유지보수 구간, 라인은 전체 Union
                         idleMaintCtMs += Math.Min(len, OverlapMs(
                             flowName is not null ? maintByFlow?.GetValueOrDefault(flowName) : maintAll, u.S, u.E));
@@ -1582,7 +1590,8 @@ public class OeeController : ControllerBase
         return new CycleAgg(normalCtMs, idleCtMs, normalCount, dtEventCount, displayThr, onsets, repairs, true, plannedCtMs,
             ctSampleMin == int.MaxValue ? 0 : ctSampleMin, Intervals.Union(nonProdIntervals),
             runIntervals is not null ? Intervals.Union(runIntervals) : null,
-            Math.Min(idleMaintCtMs, idleCtMs));
+            Math.Min(idleMaintCtMs, idleCtMs),
+            Intervals.Total(Intervals.Union(idleCalIntervals)), thrCount);
     }
 
     // 자동(10×) 비생산 감지 1건 → 로그 엔티티. onset/clear = UTC epoch ms, thrMs = 감지 당시 14일 평균 CT 스냅샷.
