@@ -278,6 +278,14 @@ module Queries =
             && (match excludeId with Some id -> a.Id <> id | None -> true))
         |> not
 
+    /// 주어진 Work 를 Tx/Rx 로 가리키는 ApiDef(=그 Work 가 나타내는 디바이스 Action). 없으면 None.
+    /// 디바이스(Passive) 내부 Action Work ↔ ApiDef 의 역방향 조회 — Work 이름 변경을 SSOT(ApiDef.Name)로
+    /// cascade 할지 판정하는 데 쓴다. Device.fs ensureApiDef 가 Tx=Rx=work.Id 로 1:1 연결하므로 첫 매치면 충분.
+    /// (일반/Active Work 는 어느 ApiDef 의 Tx/Rx 도 아니므로 None → 일반 rename 경로 유지.)
+    let apiDefOwningWork (workId: Guid) (store: DsStore) : ApiDef option =
+        store.ApiDefsReadOnly.Values
+        |> Seq.tryFind (fun d -> d.TxGuid = Some workId || d.RxGuid = Some workId)
+
     /// 주어진 Passive System 의 ApiDef 들을 ApiCall.ApiDefId 로 참조하는 모든 Call.
     /// Cross-flow Move 의 prefix-rename 모드 충돌 가드용 — source device 가 다른 Flow Call 한테도
     /// 공유 중이면 rename 이 다른 참조를 깨뜨리므로 차단해야 한다.
