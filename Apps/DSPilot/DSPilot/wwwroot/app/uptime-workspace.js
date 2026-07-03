@@ -63,8 +63,6 @@
                 utPage: 0, utSearch: '', utCategory: '', utSystem: '', actionOverHint: [],
                 // 알람 이력 테이블 — 페이지 크기 / 정렬(서버 처리). sort 키는 서버 화이트리스트와 일치.
                 utPageSize: 10, utSort: 'occurredAt', utSortDir: 'desc', _utSearchTimer: null,
-                // 태그별 Top 10 그룹 기준: 'path'(경로별로 펼침 — 기본) | 'name'(유형/이름별 — abnormal 은 4종으로 묶임).
-                topGroupBy: 'path',
                 _focusAt: null, // 피드에서 at 으로 진입 시 스크롤·하이라이트할 알람 행 키(occurredAtLocal 초단위)
                 _charts: null,
                 dailyData: null,
@@ -514,16 +512,9 @@
                         // 설비별 보기는 자동감지만(USERTAG 는 Flow 에 속하지 않음) → 트렌드도 자동감지 단일 시리즈.
                         this._charts.renderTrendChart('ut-trend-chart', this.ut.buckets || [], this.ut.granularity,
                             this.curFlow ? ['ABNORMAL'] : ['ABNORMAL', 'USERTAG']);
-                        const topSrc = this.topGroupBy === 'path' ? this.ut.topRowsByPath : this.ut.topRows;
-                        this._charts.renderTopChart('ut-top-chart', (topSrc || []).slice(0, 10));
+                        // 태그별 Top 10 은 경로(FLOW / WORK / CALL)별 집계로 고정.
+                        this._charts.renderTopChart('ut-top-chart', (this.ut.topRowsByPath || []).slice(0, 10));
                     } catch (e) { console.warn('chart draw failed', e); }
-                },
-
-                // 태그별 Top 10 그룹 기준 전환(유형별 ↔ 경로별) — 스냅샷은 두 집계를 모두 담고 있어 재조회 없이 즉시 다시 그림.
-                setTopGroupBy(mode) {
-                    if (this.topGroupBy === mode) return;
-                    this.topGroupBy = mode;
-                    this.$nextTick(() => this.drawCharts());
                 },
 
                 // ── 이상발생 필터/페이지/CSV (구 관리페이지) ──
