@@ -33,7 +33,7 @@
 
         <main class="dsp-main">
 
-            <!-- 상단 툴바 — 날짜 선택 + (오른쪽) Excel/CSV 다운로드 · 디바이스 알람 차단.
+            <!-- 상단 툴바 — 날짜 선택 + (오른쪽) Excel 다운로드 · 디바이스 알람 차단.
                  검색/System/구분 필터와 기간 텍스트는 이 툴바로 통합하며 카드 안 필터행은 제거했다. -->
             <div class="ds-topbar">
                 <div class="ds-topbar-actions">
@@ -56,7 +56,7 @@
                     </template>
                 </div>
 
-                <!-- 오른쪽: 설비 필터 상태(설비별 보기 시) + Excel/CSV 다운로드 + 디바이스 알람 차단.
+                <!-- 오른쪽: 설비 필터 상태(설비별 보기 시) + Excel 다운로드 + 디바이스 알람 차단.
                      설비(Flow) 선택은 좌측 메뉴 '이상·알람' 트리에서 수행(/uptime-alarm?flow=이름). 설비별 보기는 그 Flow 의
                      자동감지(이상감지)만 조회하고, UserTag 는 Flow 에 속하지 않아 제외된다('전체 보기'로 라인 전체 복귀). -->
                 <div class="ds-topbar-actions" style="justify-content:flex-end; flex-wrap:wrap;">
@@ -70,9 +70,6 @@
                     </template>
                     <button class="btn btn-sm btn-outlined color-default" @click="exportUtExcel()" :disabled="!ut || !ut.alerts || ut.alerts.length === 0">
                         <span class="material-icons" style="font-size:15px;">download</span> Excel 다운로드
-                    </button>
-                    <button class="btn btn-sm btn-outlined color-default" @click="exportUtCsv()" :disabled="!ut || !ut.alerts || ut.alerts.length === 0">
-                        <span class="material-icons" style="font-size:15px;">download</span> CSV 다운로드
                     </button>
                     <button class="btn btn-sm btn-outlined color-default" @click="openBlockMgr()" title="자동알람(디바이스)·사용자지정(UserTag) 알람을 선택해 알람·통계·기록에서 차단합니다">
                         <span class="material-icons" style="font-size:15px;">notifications_off</span> 알람 차단<span x-show="blockedTotalCount > 0" x-text="' (' + blockedTotalCount + ')'"></span>
@@ -96,7 +93,7 @@
 
                     <template x-if="ut">
                         <div>
-                            <!-- 검색/System/구분 필터·CSV·차단 버튼·기간 텍스트는 상단 툴바로 이동/제거됨. -->
+                            <!-- 검색/System/구분 필터·차단 버튼·기간 텍스트는 상단 툴바로 이동/제거됨. -->
 
                             <!-- 시계열 추이 (Chart.js 스택 막대) -->
                             <div class="ds-card-h" style="margin-bottom:10px;">

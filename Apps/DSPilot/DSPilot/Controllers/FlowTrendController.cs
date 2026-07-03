@@ -10,7 +10,6 @@ namespace DSPilot.Controllers;
 /// 격리형 호스팅용 기간별 추이(flow-trend) 내보내기 API.
 /// 추이 자체는 클라이언트가 대시보드 히스토리로 집계하므로 조회 엔드포인트는 없고,
 /// Excel(차트+데이터) 내보내기만 서버가 담당한다(차트 이미지는 클라이언트가 캔버스로 캡처해 전달 → WYSIWYG).
-/// CSV(데이터 전용)는 클라이언트가 buckets 로 직접 빌드해 다운로드한다(서버 미경유).
 /// </summary>
 [ApiController]
 [Route("api/flow-trend")]

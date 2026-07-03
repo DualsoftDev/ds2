@@ -683,32 +683,6 @@ function bulkCycleApp() {
             };
         },
         _stamp() { const t = new Date(); const p = (x) => String(x).padStart(2, '0'); return `${t.getFullYear()}${p(t.getMonth() + 1)}${p(t.getDate())}_${p(t.getHours())}${p(t.getMinutes())}${p(t.getSeconds())}`; },
-        _csvEscape(v) { if (v == null) return ''; const s = String(v); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; },
-        // 전체 CSV — 로드된 모든 Flow 의 IO 신호 세그먼트(단일 페이지 exportCycleCsv 와 동일 컬럼 + Flow 열).
-        exportAllCsv() {
-            const slices = this.flows.filter(s => !s.loading && !s.error && s.callLanes.length);
-            if (!slices.length) { this.saveMsg = '내보낼 데이터가 없습니다.'; this.saveError = true; setTimeout(() => { this.saveMsg = ''; }, 3000); return; }
-            const wall = (iso) => iso ? String(iso).replace('T', ' ').slice(0, 23) : '';
-            const dur = (s, e) => Math.max(0, Math.round(new Date(e).getTime() - new Date(s).getTime()));
-            const out = ['Flow,Call,Work,신호,Tag,시작,종료,지속(ms)'];
-            for (const slice of slices) {
-                const rows = [];
-                for (const l of slice.callLanes) {
-                    for (const iv of (l.outIntervals || [])) rows.push({ call: l.callName, work: l.workName || '', kind: 'OUT', tag: l.outTag || '', s: iv.start, e: iv.end });
-                    for (const iv of (l.inIntervals || [])) rows.push({ call: l.callName, work: l.workName || '', kind: 'IN', tag: l.inTag || '', s: iv.start, e: iv.end });
-                }
-                rows.sort((a, b) => new Date(a.s) - new Date(b.s));
-                for (const r of rows)
-                    out.push([this._csvEscape(slice.flowName), this._csvEscape(r.call), this._csvEscape(r.work), r.kind, this._csvEscape(r.tag), this._csvEscape(wall(r.s)), this._csvEscape(wall(r.e)), dur(r.s, r.e)].join(','));
-            }
-            const text = '﻿' + out.join('\r\n');
-            const blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a'); a.href = url; a.download = 'CycleAnalysis_ALL_' + this._stamp() + '.csv';
-            document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-            this.saveMsg = '전체 CSV 다운로드 완료 (' + slices.length + '개 Flow)';
-            setTimeout(() => { this.saveMsg = ''; }, 4000);
-        },
         async exportAllExcel() {
             if (this.exportingAll) return;
             const models = this.flows

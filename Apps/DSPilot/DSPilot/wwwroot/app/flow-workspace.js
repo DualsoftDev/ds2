@@ -308,24 +308,10 @@
                 // ── 내보내기 (기간별 추이) ─────────────────────────────────────────────
                 trendName() { return this.allMode ? '전체추이' : (this.flow ? this.flow.flowName : (this.flowName || 'Flow')); },
                 _stamp() { const t = new Date(); const p = (x) => String(x).padStart(2, '0'); return `${t.getFullYear()}${p(t.getMonth() + 1)}${p(t.getDate())}_${p(t.getHours())}${p(t.getMinutes())}${p(t.getSeconds())}`; },
-                _csvEscape(v) { if (v == null) return ''; const s = String(v); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; },
                 _downloadBlob(filename, blob) {
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a'); a.href = url; a.download = filename;
                     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-                },
-
-                // CSV = 데이터 전용(버킷별 집계). 서버 미경유 — 클라이언트에서 즉시 빌드.
-                exportTrendCsv() {
-                    if (!this.buckets.length) return;
-                    const p = (x) => String(x).padStart(2, '0');
-                    const fmtTs = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
-                    const sec = (ms) => (ms == null ? '' : (ms / 1000).toFixed(2));
-                    const out = ['버킷시각,가동횟수,비가동수,평균 CT(초),평균 동작(초),평균 대기(초)'];
-                    for (const b of this.buckets)
-                        out.push([this._csvEscape(fmtTs(b.ts)), b.count, b.idle, sec(b.avgCT), sec(b.avgMT), sec(b.avgWT)].join(','));
-                    const text = '﻿' + out.join('\r\n');
-                    this._downloadBlob(`Trend_${this.trendName()}_${this._stamp()}.csv`, new Blob([text], { type: 'text/csv;charset=utf-8' }));
                 },
 
                 // Excel = 차트(화면 캔버스 캡처) + 데이터. 서버(TrendExcelExporter)가 렌더.
@@ -870,25 +856,6 @@
                     const t = new Date(); const p = (x) => String(x).padStart(2, '0');
                     return `CycleTime_${this.selectedFlow}_${t.getFullYear()}${p(t.getMonth()+1)}${p(t.getDate())}_${p(t.getHours())}${p(t.getMinutes())}${p(t.getSeconds())}.xlsx`;
                 },
-                // CSV(데이터 전용) — 화면에 로드된 IO 신호 세그먼트(callLanes)를 그대로 내보낸다(Excel Sheet2 와 동일 컬럼).
-                // 서버 미경유 — 클라이언트에서 즉시 빌드. exportExcel 과 달리 차트/오버레이 없이 데이터만.
-                exportCycleCsv() {
-                    if (!this.callLanes || !this.callLanes.length) return;
-                    const rows = [];
-                    for (const l of this.callLanes) {
-                        for (const iv of (l.outIntervals || [])) rows.push({ call: l.callName, work: l.workName || '', kind: 'OUT', tag: l.outTag || '', s: iv.start, e: iv.end });
-                        for (const iv of (l.inIntervals || [])) rows.push({ call: l.callName, work: l.workName || '', kind: 'IN', tag: l.inTag || '', s: iv.start, e: iv.end });
-                    }
-                    rows.sort((a, b) => new Date(a.s) - new Date(b.s));
-                    const wall = (iso) => iso ? String(iso).replace('T', ' ').slice(0, 23) : '';
-                    const dur = (s, e) => Math.max(0, Math.round(new Date(e).getTime() - new Date(s).getTime()));
-                    const out = ['Call,Work,신호,Tag,시작,종료,지속(ms)'];
-                    for (const r of rows)
-                        out.push([this._csvEscape(r.call), this._csvEscape(r.work), r.kind, this._csvEscape(r.tag), this._csvEscape(wall(r.s)), this._csvEscape(wall(r.e)), dur(r.s, r.e)].join(','));
-                    const text = '﻿' + out.join('\r\n');
-                    this._downloadBlob(`CycleAnalysis_${this.selectedFlow || 'Flow'}_${this._stamp()}.csv`, new Blob([text], { type: 'text/csv;charset=utf-8' }));
-                },
-
                 async load() {
                     if (this.view === 'trend') return;   // 추이 전용 페이지 — 사이클(간트) 로드 건너뜀
                     if (!this.selectedFlow) return;

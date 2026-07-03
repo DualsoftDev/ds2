@@ -132,7 +132,7 @@
 
         <main class="dsp-main">
 
-            <!-- 상단 툴바 — 종합효율 현황·이상·알람 페이지와 통일 (좌: 이상치/미완료 필터 · 우: 적용·Excel·CSV).
+            <!-- 상단 툴바 — 종합효율 현황·이상·알람 페이지와 통일 (좌: 이상치/미완료 필터 · 우: 적용·Excel).
                  Flow 이름은 아래 '사이클 분석' 카드 제목으로 이동. 액션은 flow 로드 시에만 표시. -->
             <div class="ds-topbar" x-show="flow" x-cloak>
                 <div class="ds-topbar-actions">
@@ -156,7 +156,7 @@
                     </label>
                 </div>
 
-                <!-- 오른쪽: 사이클 분석 전용 액션 (적용(저장) · Excel · CSV) -->
+                <!-- 오른쪽: 사이클 분석 전용 액션 (적용(저장) · Excel) -->
                 <div class="ds-topbar-actions" style="justify-content:flex-end; flex-wrap:wrap;"
                      x-show="tab === 'cycle' && callLanes.length > 0" x-cloak>
                     <span x-show="recomputeBusy || recomputeMsg" class="ct-recompute"
@@ -172,12 +172,6 @@
                             title="현재 Flow·시간범위의 IO 세그먼트를 Excel(.xlsx) 로 내보냅니다">
                         <span class="material-icons" style="font-size:15px;">download</span>
                         <span x-text="exporting ? 'Excel 생성 중…' : 'Excel 다운로드'"></span>
-                    </button>
-                    <button class="btn btn-sm btn-outlined color-default" @click="exportCycleCsv()"
-                            :disabled="!callLanes.length"
-                            title="현재 Flow·시간범위의 IO 세그먼트를 CSV(데이터 전용) 로 내보냅니다">
-                        <span class="material-icons" style="font-size:15px;">description</span>
-                        CSV 다운로드
                     </button>
                 </div>
             </div>
@@ -605,11 +599,6 @@
                             title="로드된 모든 Flow 의 간트를 한 Excel(.xlsx) 한 시트에 세로로 쌓아 내보냅니다">
                         <span class="material-icons" style="font-size:18px; vertical-align:middle;" x-text="exportingAll ? 'hourglass_top' : 'download'"></span>
                         <span x-text="exportingAll ? 'Excel 생성 중…' : '전체 Excel 다운로드'"></span>
-                    </button>
-                    <button class="btn btn-outlined color-default" @click="exportAllCsv()" :disabled="loadingAny || loadedFlowCount === 0"
-                            title="로드된 모든 Flow 의 신호 세그먼트를 하나의 CSV 로 내보냅니다">
-                        <span class="material-icons" style="font-size:18px; vertical-align:middle;">description</span>
-                        전체 CSV 다운로드
                     </button>
                     <button class="btn btn-outlined color-default" @click="resetAllStaged()" :disabled="saving || !hasPending"
                             title="아직 적용하지 않은 모든 변경을 되돌립니다 (마지막 로드 상태로)">

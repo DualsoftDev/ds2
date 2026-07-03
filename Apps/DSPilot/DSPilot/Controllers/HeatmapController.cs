@@ -68,7 +68,6 @@ public class HeatmapController : ControllerBase
     /// (<see cref="HeatmapExcelModel"/>: Flow/Call 별 통계 + tier 임계)를 그대로 받아
     /// <see cref="HeatmapExcelExporter.BuildHeatmapExcel"/> 로 렌더한다.
     /// 파일명 = Heatmap_&lt;title&gt;_&lt;yyyyMMdd_HHmmss&gt;.xlsx. antiforgery 미적용 평범한 POST.
-    /// CSV(데이터 전용)는 클라이언트가 직접 빌드해 다운로드한다(서버 미경유).
     /// </summary>
     [HttpPost("export-excel")]
     public IActionResult ExportExcel([FromBody] HeatmapExcelModel req)

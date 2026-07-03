@@ -17,7 +17,6 @@ namespace DSPilot.Controllers;
 ///
 /// gantt-data 한 번 호출로 페이지가 필요한 모든 것(lanes, bars, axis 정보, 비가동 구간, GAP top-5) 을 내려보냄.
 /// SVG 렌더 / 정렬 / 선택 오버레이 / 바 클릭은 전부 클라이언트(static html + JS)에서 처리 — 라운드트립 없음.
-/// CSV 는 클라이언트가 로드된 데이터로 직접 빌드(CycleTimeChartExporter.BuildCsvBytes 포맷 동일).
 /// 시간 범위 프리셋 해석은 Blazor 페이지와 동일하게 DateTime.Now / DB 최신 로그 기준으로 클라이언트가 계산.
 /// </summary>
 [ApiController]

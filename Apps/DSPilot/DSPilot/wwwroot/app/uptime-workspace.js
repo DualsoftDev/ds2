@@ -553,7 +553,7 @@
                     } catch (e) { console.warn('chart draw failed', e); }
                 },
 
-                // ── 이상발생 필터/페이지/CSV (구 관리페이지) ──
+                // ── 이상발생 필터/페이지 (구 관리페이지) ──
                 applyUtFilters() { this.utPage = 0; this.load(); },
                 // 검색어 입력 — 키 입력마다 서버 재조회를 피하려 300ms 디바운스 후 첫 페이지부터 재조회.
                 onUtSearchInput() {
@@ -588,20 +588,6 @@
                     a.click();
                     document.body.removeChild(a);
                 },
-                async exportUtCsv() {
-                    if (!this.ut) return;
-                    if (!this._charts) { this.error = 'CSV 모듈이 로드되지 않았습니다 — 페이지를 새로고침한 뒤 다시 시도하세요.'; return; }
-                    let all;
-                    try { all = await this.apiGet('/api/user-tags/alerts?' + this.utQs() + '&limit=100000'); }
-                    catch (e) { console.error(e); this.error = 'CSV 내보내기 실패: ' + e.message; return; }
-                    const esc = (v) => { v = (v ?? '').toString(); return (v.includes(',') || v.includes('"') || v.includes('\n')) ? '"' + v.replace(/"/g, '""') + '"' : v; };
-                    const lines = ['Timestamp,LogLevel,System,Name,TagAddress,ValueType,MatchOp,MatchValue,ActualValue'];
-                    for (const a of all) lines.push([esc(a.occurredAtLocal), esc(a.logLevel), esc(a.systemName), esc(a.name), esc(a.tagAddress), esc(a.valueType), esc(a.matchOp), esc(a.matchValue || ''), esc(a.actualValue)].join(','));
-                    const t = new Date(); const p = (x) => String(x).padStart(2, '0');
-                    const fn = `UserTagAlerts_${t.getFullYear()}${p(t.getMonth() + 1)}${p(t.getDate())}_${p(t.getHours())}${p(t.getMinutes())}${p(t.getSeconds())}.csv`;
-                    this._charts.downloadCsv(fn, lines.join('\n'));
-                },
-
                 // ── 생산효율(TEEP) 로드 (/api/oee/teep) — 생산효율 탭 전용 ──
                 async loadTeep() {
                     if (this.view === 'alarm') return;
@@ -656,57 +642,13 @@
                 },
 
                 // ── 내보내기 (종합효율 현황) ─────────────────────────────────────────────
-                // CSV = 데이터 전용(요약 KPI + 설비별 순위 + 정지 이벤트, 3 섹션). 서버 미경유 — 클라이언트에서 즉시 빌드.
                 // Excel = 화면 상태(요약·순위·정지) + 일자별 추이 차트(캔버스 캡처)를 서버(OeeExcelExporter)가 렌더 → WYSIWYG.
                 oeeExportName() { return this.curFlow ? this.curFlow : '라인전체'; },
                 _stamp() { const t = new Date(); const p = (x) => String(x).padStart(2, '0'); return `${t.getFullYear()}${p(t.getMonth() + 1)}${p(t.getDate())}_${p(t.getHours())}${p(t.getMinutes())}${p(t.getSeconds())}`; },
-                _csvEscape(v) { if (v == null) return ''; const s = String(v); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; },
-                _wallOf(iso) { if (!iso) return ''; const d = new Date(iso); if (isNaN(d)) return String(iso); const p = (x) => String(x).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; },
                 _downloadBlob(filename, blob) {
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a'); a.href = url; a.download = filename;
                     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-                },
-
-                exportOeeCsv() {
-                    const o = this.oee;
-                    if (!o) return;
-                    const E = (v) => this._csvEscape(v);
-                    const pctv = (v) => (v == null ? '' : (v * 100).toFixed(1));
-                    const sec = (ms) => (ms == null ? '' : (ms / 1000).toFixed(1));
-                    const r = this.rangeForPeriod();
-                    const out = [];
-                    out.push('종합효율 현황 데이터');
-                    out.push(['설비', E(this.curFlow || '라인 전체')].join(','));
-                    out.push(['기간', E(this._wallOf(r.from) + ' ~ ' + this._wallOf(r.to))].join(','));
-                    out.push('');
-                    out.push('[OEE 종합 지표]');
-                    out.push('지표,값(%),비고');
-                    out.push(['OEE', pctv(o.oee), ''].join(','));
-                    out.push(['가용성 A', pctv(o.availability), E(o.availabilitySource || '')].join(','));
-                    out.push(['성능 P', pctv(o.performance), '14일 평균'].join(','));
-                    out.push(['품질 Q', pctv(o.quality), E(o.qualitySource || '')].join(','));
-                    out.push(['MTBF', '', E(this.durShort(o.mtbf))].join(','));
-                    out.push(['MTTR', '', E(this.durShort(o.mttr))].join(','));
-                    out.push(['정지 건수', o.downtimeCount != null ? o.downtimeCount : '', ''].join(','));
-                    out.push(['정지 시간', '', E(this.durShort(o.downtimeMs))].join(','));
-                    out.push('');
-                    out.push('[설비별 OEE 순위]');
-                    out.push('순위,설비,OEE(%),가용성(%),성능(%),품질(%),정지건수,정지시간(초),생산수');
-                    this.ranking.forEach((rk, i) => out.push([
-                        i + 1, E(rk.flowName), pctv(rk.oee), pctv(rk.availability), pctv(rk.performance), pctv(rk.quality),
-                        rk.downtimeCount != null ? rk.downtimeCount : 0, sec(rk.downtimeMs), rk.totalCount != null ? rk.totalCount : 0,
-                    ].join(',')));
-                    out.push('');
-                    out.push('[정지 이벤트]');
-                    out.push('발생,복구,지속(초),설비,장치,구분,감지,상태');
-                    this.downtime.forEach(d => out.push([
-                        E(this._wallOf(d.startAt)), E(d.endAt ? this._wallOf(d.endAt) : ''), sec(d.durationMs),
-                        E(d.flowName || d.systemName || ''), E(d.deviceName || ''),
-                        d.isFailure ? '고장' : '유지보수', E(d.detectSource || ''), d.status === 'open' ? '진행중' : '복구',
-                    ].join(',')));
-                    const text = '﻿' + out.join('\r\n');
-                    this._downloadBlob(`OEE_${this.oeeExportName()}_${this._stamp()}.csv`, new Blob([text], { type: 'text/csv;charset=utf-8' }));
                 },
 
                 async exportOeeExcel() {

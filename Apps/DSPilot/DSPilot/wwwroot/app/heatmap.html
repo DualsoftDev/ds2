@@ -207,7 +207,7 @@
                     </label>
                 </div>
 
-                <!-- 오른쪽: 설비(Flow) 필터 상태 + Excel/CSV 다운로드 -->
+                <!-- 오른쪽: 설비(Flow) 필터 상태 + Excel 다운로드 -->
                 <div class="ds-topbar-actions" style="justify-content:flex-end;">
                     <template x-if="flowParam">
                         <span class="chip chip-info">설비: <b x-text="flowParam"></b></span>
@@ -221,10 +221,6 @@
                             title="동작편차 데이터를 Excel(.xlsx) 로 내보냅니다">
                         <span class="material-icons" style="font-size:15px;">download</span>
                         <span x-text="excelExporting ? 'Excel 생성 중…' : 'Excel 다운로드'"></span>
-                    </button>
-                    <button class="btn btn-sm btn-outlined color-default" @click="exportCsv()" :disabled="filteredGroups.length === 0"
-                            title="동작편차 데이터를 CSV 로 내보냅니다">
-                        <span class="material-icons" style="font-size:15px;">description</span> CSV 다운로드
                     </button>
                 </div>
             </div>
@@ -739,7 +735,7 @@
                     return Math.floor(ms / 3600000) + '시간 ' + Math.floor((ms % 3600000) / 60000) + '분 ' + Math.floor((ms % 60000) / 1000) + '초';
                 },
 
-                // 파일명 타임스탬프(yyyyMMdd_HHmmss) — CSV/Excel 공통.
+                // 파일명 타임스탬프(yyyyMMdd_HHmmss) — Excel 파일명용.
                 _stamp() {
                     const pad = (x) => String(x).padStart(2, '0');
                     const t = new Date();
@@ -750,25 +746,7 @@
                     a.href = URL.createObjectURL(blob); a.download = name; a.click(); URL.revokeObjectURL(a.href);
                 },
 
-                exportCsv() {
-                    const groups = this.filteredGroups;
-                    if (groups.length === 0) return;
-                    const esc = (v) => {
-                        v = (v ?? '').toString();
-                        return (v.includes(',') || v.includes('"') || v.includes('\n')) ? '"' + v.replace(/"/g, '""') + '"' : v;
-                    };
-                    const lines = ['Flow,Call,Work,평균(ms),표준편차(ms),변동계수,편차(%),등급,실행횟수'];
-                    for (const g of groups) for (const c of this.sortedCalls(g)) {
-                        const tier = this.blockTier(c);
-                        lines.push([esc(c.flowName), esc(c.callName), esc(c.workName),
-                            Math.round(c.averageGoingTime), Math.round(c.stdDevGoingTime),
-                            c.coefficientOfVariation.toFixed(2), this.deviationPct(c), this.tierLabel(tier), c.goingCount].join(','));
-                    }
-                    const blob = new Blob(['﻿' + lines.join('\r\n') + '\r\n'], { type: 'text/csv;charset=utf-8' });
-                    this._downloadBlob(`Heatmap_${this.flowParam || '전체'}_${this._stamp()}.csv`, blob);
-                },
-
-                // Excel = 동작편차 데이터 테이블. 서버(HeatmapExcelExporter)가 렌더 → CSV 와 동일 컬럼 + tier 색상.
+                // Excel = 동작편차 데이터 테이블. 서버(HeatmapExcelExporter)가 렌더 → 화면과 동일 컬럼 + tier 색상.
                 async exportExcel() {
                     const groups = this.filteredGroups;
                     if (groups.length === 0 || this.excelExporting) return;

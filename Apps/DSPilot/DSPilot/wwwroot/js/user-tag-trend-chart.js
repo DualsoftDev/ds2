@@ -239,15 +239,3 @@ export function renderLevelDoughnut(chartId, levelCounts) {
     chart._dark = isDark();
     charts[chartId] = chart;
 }
-
-export function downloadCsv(filename, csvContent) {
-    const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csvContent], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-}

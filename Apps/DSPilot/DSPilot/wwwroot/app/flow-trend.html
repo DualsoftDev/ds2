@@ -68,7 +68,7 @@
                     </div>
                 </div>
 
-                <!-- 오른쪽: 설비(Flow) 필터 상태 + 전체 보기 + Excel/CSV 내보내기 (종합효율 현황 페이지와 동일 패턴) -->
+                <!-- 오른쪽: 설비(Flow) 필터 상태 + 전체 보기 + Excel 내보내기 (종합효율 현황 페이지와 동일 패턴) -->
                 <div class="ds-topbar-actions" style="justify-content:flex-end;">
                     <template x-if="!allMode && (flow || flowName)">
                         <span class="chip chip-info">설비: <b x-text="flow ? flow.flowName : flowName"></b></span>
@@ -82,10 +82,6 @@
                             title="차트와 데이터를 Excel(.xlsx) 로 내보냅니다">
                         <span class="material-icons" style="font-size:15px;">download</span>
                         <span x-text="trendExporting ? 'Excel 생성 중…' : 'Excel 다운로드'"></span>
-                    </button>
-                    <button class="btn btn-sm btn-outlined color-default" @click="exportTrendCsv()" :disabled="!(trend.cycleCount > 0)"
-                            title="데이터(버킷별 집계)만 CSV 로 내보냅니다">
-                        <span class="material-icons" style="font-size:15px;">description</span> CSV 다운로드
                     </button>
                 </div>
             </div>

@@ -59,7 +59,7 @@
                     </template>
                 </div>
 
-                <!-- 오른쪽: 설비(Flow) 필터 상태 + Excel/CSV 다운로드 (heatmap 과 동일한 .ds-topbar 우측 패턴) -->
+                <!-- 오른쪽: 설비(Flow) 필터 상태 + Excel 다운로드 (heatmap 과 동일한 .ds-topbar 우측 패턴) -->
                 <div class="ds-topbar-actions" style="justify-content:flex-end;" x-show="tab === 'oee' && oeeTab === 'equip'">
                     <template x-if="curFlow">
                         <span class="chip chip-info">설비: <b x-text="curFlow"></b></span>
@@ -69,15 +69,11 @@
                             <span class="material-icons" style="font-size:15px;">clear</span> 전체 보기
                         </a>
                     </template>
-                    <!-- 내보내기: Excel(요약·순위·정지 + 추이 차트) / CSV(요약·순위·정지 데이터). oee 로드 후 표시. -->
+                    <!-- 내보내기: Excel(요약·순위·정지 + 추이 차트). oee 로드 후 표시. -->
                     <button class="btn btn-sm btn-outlined color-default" @click="exportOeeExcel()" :disabled="oeeExporting || !oee"
                             title="OEE 종합 지표·설비별 순위·정지 이벤트를 Excel(.xlsx) 로 내보냅니다">
                         <span class="material-icons" style="font-size:15px;">download</span>
                         <span x-text="oeeExporting ? 'Excel 생성 중…' : 'Excel 다운로드'"></span>
-                    </button>
-                    <button class="btn btn-sm btn-outlined color-default" @click="exportOeeCsv()" :disabled="!oee"
-                            title="OEE 요약·설비별 순위·정지 이벤트 데이터를 CSV 로 내보냅니다">
-                        <span class="material-icons" style="font-size:15px;">description</span> CSV 다운로드
                     </button>
                 </div>
             </div>
