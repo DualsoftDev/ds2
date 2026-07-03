@@ -60,7 +60,7 @@
                 rt: { connected: false },
                 _conn: null, _dt: null, _pollTimer: null,
                 // stale 응답 가드 — 폴링/기간변경/페이지이동 응답이 뒤늦게 도착해 최신 상태를 덮어쓰는 경합 방지
-                _utSeq: 0, _oeeSeq: 0,
+                _utSeq: 0, _oeeSeq: 0, _anpSeq: 0,
                 // utCategory = 구분 필터 ('' 전체 | 'abnormal' | 'usertag'). 레벨은 서버가 Error 로 통일(클라 미노출).
                 utPage: 0, utSearch: '', utCategory: '', utSystem: '', actionOverHint: [],
                 // 알람 이력 테이블 — 페이지 크기 / 정렬(서버 처리). sort 키는 서버 화이트리스트와 일치.
@@ -281,23 +281,28 @@
                     // 자동 모드일 때: 이번 기간 실제 제외 비생산(타임라인의 유일한 소스)만 조회 — 14일 평균 패턴 참고 블록은 폐지.
                     // 비생산 시간대는 시스템(전역) 단위 — flow별 페이지에서도 curFlow 필터 없이 항상 시스템 전체로 표시.
                     if (this.ps.auto) {
+                        const seq = ++this._anpSeq; // 진행 중인 refreshActualNonProd 의 stale 응답이 이 결과를 덮지 않도록
                         try {
                             const r = this.rangeForPeriod();
                             const aqs = `from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}`;
-                            this.ps.actualNonProd = await this.apiGet('/api/oee/planned-stops/actual?' + aqs);
-                        } catch (e) { this.ps.actualNonProd = null; }
+                            const dto = await this.apiGet('/api/oee/planned-stops/actual?' + aqs);
+                            if (seq === this._anpSeq) this.ps.actualNonProd = dto;
+                        } catch (e) { if (seq === this._anpSeq) this.ps.actualNonProd = null; }
                     } else {
+                        ++this._anpSeq; // 진행 중 갱신 무효화 — 수동 모드 null 을 뒤늦은 응답이 덮지 않도록
                         this.ps.actualNonProd = null;
                     }
                 },
-                // 폴링용 경량 갱신 — 자동 모드에서 '실제 제외 비생산'(+현재 상태 배지)만 다시 읽는다.
+                // 폴링·기간변경 경량 갱신 — 자동 모드에서 '실제 제외 비생산'(+현재 상태 배지)만 다시 읽는다.
                 // 수동 편집 상태(ps.windows/selected/addMode)는 건드리지 않아 편집 중 클로버 방지.
                 async refreshActualNonProd() {
                     if (!this.ps.auto) return;
+                    const seq = ++this._anpSeq;
                     try {
                         const r = this.rangeForPeriod();
-                        this.ps.actualNonProd = await this.apiGet(
+                        const dto = await this.apiGet(
                             `/api/oee/planned-stops/actual?from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}`);
+                        if (seq === this._anpSeq) this.ps.actualNonProd = dto; // stale 응답(이후 기간변경/폴링이 이미 시작) 폐기
                     } catch (e) { /* 이전 값 유지 */ }
                 },
                 // 자동 계산 on/off — on=10×가동시간 장시간정지 자동 비생산, off=수동 시각대만. 수동 적용은 자동을 끈다(서버 SavePlannedStops).
@@ -633,7 +638,9 @@
                         this.dailyData = daily;
                         this.planTime = planTime;
                         this.oeeError = null;
-                        if (this.oeeTab === 'teep') this.loadTeep();  // 생산효율 탭 활성 시 동반 갱신(폴링·기간·설비 변경 포함)
+                        // 생산효율 탭 활성 시 동반 갱신(폴링·기간·설비 변경 포함) — await 로 완주까지 기다려야
+                        // 기간 변경 로딩 인디케이터(setPeriod 의 wrap)가 TEEP 갱신보다 먼저 끝나지 않는다.
+                        if (this.oeeTab === 'teep') await this.loadTeep();
                     } catch (e) {
                         if (seq !== this._oeeSeq) return;
                         this.oeeError = 'OEE 데이터를 불러오지 못했습니다: ' + e.message;
@@ -812,7 +819,14 @@
                     this._conn = conn;
                 },
 
-                setPeriod(p) { if (this.period === p) return; this.period = p; this.utPage = 0; if (window.dspLoading) window.dspLoading.wrap(() => this.load(), '기간 데이터 불러오는 중…'); else this.load(); },
+                // 기간 변경 재로드 — load()(스냅샷+OEE) 외에 기간 의존 데이터('실제 제외 비생산' 타임라인)도
+                // 함께 기다린다. 빠뜨리면 로딩 인디케이터가 끝난 뒤(다음 10초 폴링에서야) 타임라인이 뒤늦게 갱신됨.
+                reloadForPeriod() {
+                    const jobs = [this.load()];
+                    if (this.view !== 'alarm') jobs.push(this.refreshActualNonProd());
+                    return Promise.all(jobs);
+                },
+                setPeriod(p) { if (this.period === p) return; this.period = p; this.utPage = 0; if (window.dspLoading) window.dspLoading.wrap(() => this.reloadForPeriod(), '기간 데이터 불러오는 중…'); else this.reloadForPeriod(); },
 
                 toggleCustomPeriod() {
                     if (this.period === 'custom') { this.setPeriod('today'); return; }
@@ -829,14 +843,14 @@
                 applyCustomPeriod() {
                     if (!this.customFrom || !this.customTo) return;
                     this.utPage = 0;
-                    if (window.dspLoading) window.dspLoading.wrap(() => this.load(), '기간 데이터 불러오는 중…'); else this.load();
+                    if (window.dspLoading) window.dspLoading.wrap(() => this.reloadForPeriod(), '기간 데이터 불러오는 중…'); else this.reloadForPeriod();
                 },
 
                 // ── 구분(ABNORMAL/USERTAG) 도넛/배지 ──
                 // 구분 판별 SSOT(클라) — abnormal 행은 matchOp='AbnormalDetect'(서버 valueType='Abnormal' 과 대응).
                 categoryOf(a) { return (a && a.matchOp === 'AbnormalDetect') ? 'ABNORMAL' : 'USERTAG'; },
-                // 표시 라벨: ABNORMAL=자동감지(엔진 자동), USERTAG=사용자지정(사용자 정의 태그).
-                categoryLabel(a) { return this.categoryOf(a) === 'ABNORMAL' ? '자동감지' : '사용자지정'; },
+                // 표시 라벨: ABNORMAL=자동감지(엔진 자동), USERTAG=수동등록TAG(사용자 정의 태그).
+                categoryLabel(a) { return this.categoryOf(a) === 'ABNORMAL' ? '자동감지' : '수동등록TAG'; },
                 // ds-status 톤: 둘 다 Error 알람이라 bad(빨강)로 통일, 구분은 라벨로만.
                 categoryStatus(a) { return 'bad'; },
                 cc(cat) { return (this.ut && this.ut.categoryCounts && this.ut.categoryCounts[cat]) || 0; },

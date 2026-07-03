@@ -10,7 +10,7 @@
             // 깊은 Proxy 로 감싸고, 재사용 update() 시 리졸버가 Proxy 순환 스코프를 타며 폭주한다
             // (stack overflow / 레이아웃 box undefined / 옵션 resolver 의 `.includes` of undefined).
             // 구버전이 매번 destroy()+new Chart() 라 update() 를 안 해서 안 터졌을 뿐 → 클로저 보관으로 근본 차단.
-            let _charts = { trend: null, count: null, dist: null };   // 추이 탭 (trend/count/dist)
+            let _charts = { trend: null, count: null };   // 추이 탭 (trend/count)
             let _cycleChart = null;   // 사이클 분석 탭
             let _histChart = null;    // 최근 히스토리 탭
 
@@ -126,7 +126,6 @@
                     const _resizeCharts = () => {
                         if (_charts.trend) try { _charts.trend.resize(); } catch (e) {}
                         if (_charts.count) try { _charts.count.resize(); } catch (e) {}
-                        if (_charts.dist) try { _charts.dist.resize(); } catch (e) {}
                     };
                     window.addEventListener('resize', () => {
                         clearTimeout(_rt);
@@ -330,7 +329,6 @@
                         };
                         const images = [
                             grab('trendChart', '기간별 가동시간 (동작·대기)'),
-                            grab('distChart', '시간 구성'),
                             grab('countChart', '가동횟수'),
                         ].filter(Boolean);
                         const model = {
@@ -472,7 +470,7 @@
                 drawCharts() {
                     if (!window.Chart) return;
                     Object.values(_charts).forEach(c => { if (c) c.destroy(); });
-                    _charts = { trend: null, count: null, dist: null };
+                    _charts = { trend: null, count: null };
                     if (this.trend.cycleCount === 0) { this._drawRetry = 0; return; }
                     // 캔버스를 $refs 가 아닌 DOM 에서 직접 찾는다.
                     // 첫 접속 시 중첩 x-if(flow→추이) 가 mount 될 때 Alpine 이 $refs.trendChart 를
@@ -480,7 +478,6 @@
                     const root = this.$root || document;
                     const trendCv = root.querySelector('canvas[x-ref="trendChart"]');
                     const countCv = root.querySelector('canvas[x-ref="countChart"]');
-                    const distCv = root.querySelector('canvas[x-ref="distChart"]');
                     // 아직 mount 전이면(템플릿 미렌더) 다음 프레임 재시도.
                     if (!trendCv) {
                         if (this._drawRetry < 60) { this._drawRetry++; requestAnimationFrame(() => this.drawCharts()); }
@@ -497,8 +494,6 @@
                     const toSec = (ms) => Math.round(ms / 1000 * 10) / 10;
                     const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim() || '#888';
                     const cCt = css('--color-primary') || '#0E7CCB';
-                    const cMt = css('--dash-mt') || '#fb8c00';   // 동작 = 주황 (신호색 통일)
-                    const cWt = css('--dash-wt') || '#AEB9C6';    // 대기 = 회색 (신호색 통일)
                     const grid = css('--color-lines') || 'rgba(14,27,42,0.10)';
                     const tickColor = css('--color-text-secondary') || '#5A6B7E';
 
@@ -563,29 +558,6 @@
                             type: 'line',
                             data: { labels, datasets: [{ label: '가동횟수', data: this.buckets.map(b => b.count), borderColor: cCt, backgroundColor: cCt, borderWidth: 2, tension: 0.3, pointRadius: 2, pointHoverRadius: 4, fill: false, spanGaps: true }] },
                             options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: grid }, ticks: { color: tickColor, font: { size: 10 }, maxRotation: 0, autoSkip: false, callback: edgeTickCallback } }, y: { beginAtZero: true, grid: { color: grid }, ticks: { color: tickColor, precision: 0 } } } }
-                        });
-                    }
-                    if (distCv) {
-                        const self = this;
-                        _charts.dist = new Chart(distCv, {
-                            type: 'doughnut',
-                            data: { labels: ['동작시간', '대기시간'], datasets: [{ data: [this.trend.totalMt, this.trend.totalWt], backgroundColor: [cMt, cWt] }] },
-                            options: {
-                                responsive: true, maintainAspectRatio: false,
-                                plugins: {
-                                    legend: { position: 'bottom', labels: { color: tickColor } },
-                                    tooltip: {
-                                        callbacks: {
-                                            label: (c) => {
-                                                const total = c.dataset.data.reduce((s, v) => s + (v || 0), 0);
-                                                const v = c.parsed || 0;
-                                                const pct = total > 0 ? Math.round(v / total * 100) : 0;
-                                                return `${c.label}: ${self.fmt(v)} (${pct}%)`;
-                                            },
-                                        }
-                                    },
-                                }
-                            }
                         });
                     }
                 },

@@ -53,7 +53,7 @@ public static class UserTagAlertExcelExporter
         {
             ws.Cell(row, 1).Value = a.OccurredAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
             ws.Cell(row, 2).Value = a.LogLevel;
-            ws.Cell(row, 3).Value = string.Equals(a.ValueType, "Abnormal", StringComparison.Ordinal) ? "자동감지" : "사용자지정";
+            ws.Cell(row, 3).Value = string.Equals(a.ValueType, "Abnormal", StringComparison.Ordinal) ? "자동감지" : "수동등록TAG";
             ws.Cell(row, 4).Value = a.SystemName;
             ws.Cell(row, 5).Value = a.Name;
             ws.Cell(row, 6).Value = a.TagAddress;

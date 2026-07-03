@@ -499,7 +499,7 @@ public class SettingsController : ControllerBase
             catch (Exception ex) { _logger.LogDebug(ex, "[Settings] SignalR broadcast failed (non-critical)"); }
 
             return new SaveResultDto(true,
-                normalized.Count == 0 ? "사용자정의 알람 차단이 모두 해제되었습니다." : $"사용자정의 알람 차단 {normalized.Count}건이 적용되었습니다.");
+                normalized.Count == 0 ? "수동등록TAG 알람 차단이 모두 해제되었습니다." : $"수동등록TAG 알람 차단 {normalized.Count}건이 적용되었습니다.");
         }
         catch (Exception ex)
         {

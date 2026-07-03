@@ -1997,6 +1997,23 @@ public class OeeController : ControllerBase
         var runIv = (agg.RunIntervals ?? new List<(double S, double E)>())
             .Select(x => ((long)x.S, (long)x.E)).Where(x => x.Item2 > x.Item1).ToList();
 
+        // ③ 비생산 우선 — 모든 정지 이벤트 구간에서 비생산 구간을 차집합(구간 연산)으로 제거.
+        //    사이클 모델(KPI A)이 비생산으로 분모서 제외한 시간은 사용자가 유지보수로 분류한 정지라도 추이에서
+        //    비생산(숨김)으로 채워져 막대가 줄어든다 — 분류색(노랑/빨강)은 비생산이 아닌 잔여 정지에만 칠한다.
+        //    (10×CT 규칙은 분류 무관이므로 이벤트 종류 구분 없이 일괄 차집합 — KPI·비생산 배지와 일치)
+        var nonProdD = nonProdSource.Where(x => x.E > x.S).ToList();
+        if (nonProdD.Count > 0)
+        {
+            for (int k = 0; k < 4; k++)
+            {
+                static List<(long S, long E)> SubtractNonProd(List<(long S, long E)> src, List<(double S, double E)> np)
+                    => Intervals.Subtract(src.Select(x => ((double)x.S, (double)x.E)).ToList(), np)
+                        .Select(x => ((long)x.S, (long)x.E)).Where(x => x.Item2 > x.Item1).ToList();
+                delibKind[k] = SubtractNonProd(delibKind[k], nonProdD);
+                autoKind[k] = SubtractNonProd(autoKind[k], nonProdD);
+            }
+        }
+
         static long SumOverlap(List<(long S, long E)> segs, long slotS, long slotE)
         {
             long sum = 0;
@@ -2055,9 +2072,9 @@ public class OeeController : ControllerBase
     /// 가동하한(runFloorMs) = 슬롯과 겹친 실측 정상 사이클 시간(Union). 라인 레벨에선 한 flow 의 장기 무사이클 잔여가
     ///   타 flow 생산 중 시간까지 비생산/정지로 덮을 수 있어(과대포함), 실제 생산한 시간은 카빙 대상에서 먼저 제외한다.
     /// 우선순위(핵심): ① 실제 기록된 정지(비자동 = 고장비트/사용자 분류) → ② 비생산(제외) → ③ 자동(nocycle 미분류) 정지 잔여.
-    /// 이유: 자동 nocycle 정지는 사이클 모델이 "비생산(10×CT 장기유휴, A 분모 밖)"으로 빼는 유휴와 동일 구간이다.
-    ///   비생산을 자동정지보다 먼저 카빙해 그 시간을 고장(빨강)이 아닌 비생산으로 흡수 → 상단 KPI A(정본)와 추이가 일치.
-    ///   단 고장비트/수동 정지(비자동)는 진짜 정지이므로 비생산에 가려지지 않게 맨 앞에서 우선 확보한다.
+    /// 단, 호출부(Daily ③)가 모든 정지 이벤트 구간에서 비생산 구간을 미리 차집합으로 제거한다 — 사이클 모델(KPI A)이
+    ///   비생산으로 분모서 제외한 시간은 사용자 분류(유지보수/고장)와 무관하게 추이에서도 비생산(숨김)으로 채워져
+    ///   막대가 줄어들고, 분류색은 비생산이 아닌 잔여 정지에만 칠해진다(10×CT 규칙이 분류 무관인 것과 일치).
     /// delib/auto 배열 인덱스 = Kind: [0]=계획정비 [1]=고장 [2]=기타 [3]=미분류.
     /// </summary>
     private static OeeDailySlotDto BuildDailySlot(

@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<title>P6 View · 스펙 정합 인터랙티브 데모 (Top-Down 4 Level)</title>
+<style>
+:root{
+  --bg:#0F1720; --panel:#1A2433; --line:#2C3947; --ink:#E0E7EF; --muted:#8896A6;
+  --accent:#4FC3F7; --warn:#FFB74D; --danger:#EF5350; --ok:#66BB6A; --amber:#FFD54F;
+  --running:#4FC3F7; --down:#EF5350; --idle:#78909C;
+  --teep:#FFD54F; --oee:#66BB6A; --apq:#4FC3F7; --cycle:#BA68C8;
+}
+*{box-sizing:border-box; margin:0; padding:0;}
+body{
+  background:var(--bg); color:var(--ink); min-height:100vh; padding:16px 20px 24px;
+  font-family:-apple-system,"Pretendard","Apple SD Gothic Neo",sans-serif; font-size:13px;
+}
+
+header{
+  display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:12px;
+  padding-bottom:10px; border-bottom:2px solid var(--line);
+}
+header h1{ font-size:18px; letter-spacing:-0.3px; font-weight:800; color:#fff;}
+header h1 .v{ background:var(--amber); color:#0F1720; padding:1px 8px; border-radius:3px; font-size:11px; margin-left:6px;}
+header .sub{ font-size:11.5px; color:var(--muted); margin-top:2px;}
+header .sub b{ color:var(--amber);}
+
+.kpi-strip{ display:flex; gap:6px;}
+.kpi{
+  background:var(--panel); border:1px solid var(--line); border-radius:5px;
+  padding:6px 12px; min-width:96px; border-left:3px solid var(--line);
+}
+.kpi.k-teep{ border-left-color:var(--teep);}
+.kpi.k-oee{ border-left-color:var(--oee);}
+.kpi.k-apq{ border-left-color:var(--apq);}
+.kpi.k-q{ border-left-color:var(--danger);}
+.kpi .lbl{ font-size:10px; color:var(--muted); font-weight:700; letter-spacing:0.3px;}
+.kpi .lbl .lvl{ background:#0F1720; color:var(--muted); padding:0 4px; border-radius:2px; font-size:9px; margin-right:3px; border:1px solid var(--line);}
+.kpi .val{ font-size:16px; font-weight:800; color:#fff; font-family:"JetBrains Mono",monospace; line-height:1.1;}
+.kpi .delta{ font-size:9.5px; color:var(--ok); margin-top:1px;}
+.kpi .delta.down{ color:var(--danger);}
+.kpi .delta.man{ color:var(--danger); }
+
+.controls{
+  display:flex; gap:6px; margin-bottom:12px; align-items:center;
+  background:var(--panel); padding:8px 10px; border-radius:6px; border:1px solid var(--line);
+}
+.controls .lbl{ font-size:10.5px; color:var(--muted); font-weight:700; margin-right:6px;}
+.axis-btn{
+  padding:7px 12px; border:1px solid var(--line); background:transparent; color:var(--muted);
+  border-radius:4px; font-size:12px; font-weight:700; cursor:pointer; transition:all 0.15s;
+  display:flex; align-items:center; gap:5px;
+}
+.axis-btn:hover{ background:#233242; color:#fff; border-color:#4a6379;}
+.axis-btn.active[data-view="l0"]{ background:var(--teep); color:#0F1720; border-color:var(--teep);}
+.axis-btn.active[data-view="l1"]{ background:var(--oee);  color:#0F1720; border-color:var(--oee);}
+.axis-btn.active[data-view="l2"]{ background:var(--apq);  color:#0F1720; border-color:var(--apq);}
+.axis-btn.active[data-view="l3"]{ background:var(--cycle);color:#0F1720; border-color:var(--cycle);}
+.axis-btn .lv{ font-size:10px; opacity:0.85; background:rgba(0,0,0,0.15); padding:1px 5px; border-radius:2px;}
+.axis-btn.active .lv{ background:rgba(255,255,255,0.25);}
+
+.filters{ display:flex; gap:4px; margin-left:auto; align-items:center;}
+.filter-lbl{ font-size:10.5px; color:var(--muted); font-weight:700; margin-right:4px;}
+.filter-btn{
+  padding:4px 9px; border:1px solid var(--line); background:transparent; color:var(--muted);
+  border-radius:3px; font-size:11px; font-weight:700; cursor:pointer;
+}
+.filter-btn:hover{ background:#233242; color:#fff;}
+.filter-btn.on{ background:#233242; color:#fff; border-color:#4a6379;}
+
+main{ display:grid; grid-template-columns:1fr 260px; gap:12px;}
+
+.viz-wrap{
+  background:linear-gradient(180deg,#141C28 0%,#0B1219 100%);
+  border:1px solid var(--line); border-radius:6px; padding:14px; position:relative; min-height:540px;
+}
+.viz-title{
+  position:absolute; top:12px; left:16px; font-size:12px; font-weight:800; color:var(--ink);
+  letter-spacing:0.3px;
+}
+.viz-title .badge{ font-size:9.5px; padding:2px 6px; border-radius:2px; margin-left:6px; font-weight:700;}
+.viz-hint{
+  position:absolute; top:12px; right:16px; font-size:10.5px; color:var(--muted);
+}
+#viz{ width:100%; height:auto; display:block; margin-top:24px;}
+
+aside.side{ display:flex; flex-direction:column; gap:10px;}
+
+.card{ background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:10px 12px;}
+.card h3{ font-size:12px; color:#fff; margin-bottom:6px; letter-spacing:0.3px; font-weight:800;
+  border-left:3px solid var(--ok); padding-left:6px;}
+
+.legend{ display:flex; flex-direction:column; gap:4px; font-size:11px;}
+.legend .item{ display:flex; align-items:center; gap:6px;}
+.legend .sw{ width:14px; height:14px; border-radius:3px; flex-shrink:0;}
+.legend .item b{ color:#fff; font-weight:700;}
+.legend .item .src{ margin-left:auto; color:var(--muted); font-size:10px; font-family:monospace;}
+
+.hint-block{ font-size:10.5px; color:var(--muted); line-height:1.5;}
+.hint-block b{ color:var(--ok);}
+
+.formulaBox{ font-size:10px; line-height:1.55; background:#0F1720; padding:6px 8px; border-radius:4px; border:1px solid var(--line); font-family:"JetBrains Mono",monospace;}
+.formulaBox b{ color:var(--amber);}
+.formulaBox .k{ color:#66BB6A;}
+
+.insight{
+  background:#2A1F10; border-left:3px solid var(--warn); color:#FFE082; font-size:10.5px;
+  padding:8px 10px; border-radius:4px; line-height:1.5;
+}
+
+.src-table{ width:100%; font-size:10.5px; border-collapse:collapse;}
+.src-table td{ padding:2px 4px; border-bottom:1px dotted #2C3947;}
+.src-table td:first-child{ color:var(--muted); width:52%;}
+.src-table td:last-child{ text-align:right; font-family:"JetBrains Mono",monospace; color:#fff; font-weight:700;}
+
+footer{ margin-top:14px; text-align:center; font-size:10px; color:var(--muted);}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>P6 View · 스펙 정합 인터랙티브 데모 <span class="v">Top-Down 4 Level</span></h1>
+    <div class="sub">기본 <b>L0 TEEP</b> (24×365 캘린더 풀가동) · 클릭시 L1 OEE → L2 A/P/Q → L3 Cycle · <b>P5 확정값만 재활용</b> · Q는 P5와 동일 수기</div>
+  </div>
+  <div class="kpi-strip">
+    <div class="kpi k-teep"><div class="lbl"><span class="lvl">L0</span>TEEP</div><div class="val">50.0%</div><div class="delta">▲ 1.4%p</div></div>
+    <div class="kpi k-oee"><div class="lbl"><span class="lvl">L1</span>OEE</div><div class="val">75.0%</div><div class="delta">A·P·Q</div></div>
+    <div class="kpi k-apq"><div class="lbl"><span class="lvl">L2</span>A · P</div><div class="val">85·90%</div><div class="delta">🤖 자동</div></div>
+    <div class="kpi k-q"><div class="lbl"><span class="lvl">L2</span>Q</div><div class="val">98%</div><div class="delta man">✎ 수기</div></div>
+  </div>
+</header>
+
+<div class="controls">
+  <span class="lbl">Level :</span>
+  <button class="axis-btn active" data-view="l0"><span class="lv">L0</span> 🌐 TEEP</button>
+  <button class="axis-btn" data-view="l1"><span class="lv">L1</span> 📊 OEE</button>
+  <button class="axis-btn" data-view="l2"><span class="lv">L2</span> ⚙️ A·P·Q + MTTR/MTBF</button>
+  <button class="axis-btn" data-view="l3"><span class="lv">L3</span> 🔬 Cycle 상세</button>
+
+  <div class="filters">
+    <span class="filter-lbl">기간 :</span>
+    <button class="filter-btn" data-period="year">연</button>
+    <button class="filter-btn" data-period="month">월</button>
+    <button class="filter-btn on" data-period="week2">2주</button>
+    <button class="filter-btn" data-period="day">1일</button>
+    <button class="filter-btn" data-period="shift">시프트</button>
+  </div>
+</div>
+
+<main>
+  <div class="viz-wrap">
+    <div class="viz-title" id="vizTitle">L0 · TEEP <span class="badge" style="background:#FFD54F;color:#0F1720;">기본</span></div>
+    <div class="viz-hint" id="vizHint">Σ 실측 CT ÷ 캘린더 시간 · 클릭 = 레벨다운</div>
+    <svg id="viz" viewBox="0 0 900 500" xmlns="http://www.w3.org/2000/svg"></svg>
+  </div>
+
+  <aside class="side">
+    <div class="card">
+      <h3>📐 사용 공식 (현재 Level)</h3>
+      <div class="formulaBox" id="formulaBox">
+        <b>TEEP</b> = <span class="k">Σ 실측 CT</span> ÷ <span class="k">캘린더 시간</span><br>
+        &nbsp;&nbsp;&nbsp;= Utilization × OEE<br>
+        <span style="color:#8896A6">= 66.7% × 75.0% = 50.0%</span>
+      </div>
+    </div>
+    <div class="card">
+      <h3>🧾 P5 재활용 값 (기간 합계)</h3>
+      <table class="src-table">
+        <tr><td>Calendar (2주 × 24h)</td><td>336h</td></tr>
+        <tr><td>Planned (2교대 · 16h/일)</td><td>224h</td></tr>
+        <tr><td style="color:#66BB6A">Σ 실측 CT</td><td style="color:#4FC3F7">192h</td></tr>
+        <tr><td style="color:#EF5350">Σ 비가동 CT</td><td style="color:#EF5350">32h</td></tr>
+        <tr><td>Cycle 수</td><td>23,040</td></tr>
+        <tr><td>CT이상치 (14일 평균)</td><td>30s</td></tr>
+        <tr><td>MTTR / MTBF</td><td>4.0m / 42m</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <h3>🎨 상태 카테고리 (SPEC 3분류)</h3>
+      <div class="legend">
+        <div class="item"><span class="sw" style="background:#4FC3F7"></span><b>Running</b><span class="src">Σ 실측 CT</span></div>
+        <div class="item"><span class="sw" style="background:#EF5350"></span><b>Down</b><span class="src">Σ 비가동 CT</span></div>
+        <div class="item"><span class="sw" style="background:#78909C"></span><b>Idle</b><span class="src">Cal − Running − Down</span></div>
+      </div>
+      <div class="hint-block" style="margin-top:6px; font-size:10px;">
+        ※ Waiting Vehicle · Setup · Alarm 세부 코드는 <b style="color:#FFB74D">사업장 편차 커서 스펙 배제</b>
+      </div>
+    </div>
+    <div class="card">
+      <h3>💡 Auto Insight</h3>
+      <div class="insight" id="insight">
+        <b>TEEP 50%</b>은 계획가동(66.7%) 대비 OEE 75%가 곱해진 결과. 개선 여지 = 계획정지 시간 축소 또는 OEE 향상 (특히 A 85%).
+      </div>
+    </div>
+    <div class="card">
+      <h3>✅ 레벨 정합 검증</h3>
+      <div class="hint-block" style="font-family:monospace; font-size:10px;">
+        <div>L0 TEEP = <b style="color:#FFD54F">50.0%</b></div>
+        <div>= Util 66.7% × OEE 75.0%</div>
+        <div style="color:#66BB6A;">✓ 일치</div>
+        <div style="margin-top:3px;">L1 OEE = <b style="color:#66BB6A">75.0%</b></div>
+        <div>= A 85% × P 90% × Q 98%</div>
+        <div style="color:#66BB6A;">✓ 일치 (0.85×0.90×0.98=0.750)</div>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<footer>DSPilot · P6 View · Top-Down 4 Level (L0 TEEP → L1 OEE → L2 A·P·Q → L3 Cycle) · P5 확정값 재활용 · Q 수기 유지 · <b>P6 스펙 참조: P6_PRODUCTION_AUTO.html</b></footer>
+
+<script>
+// ===== SPEC 상수 =====
+const CAL_HOURS_PER_DAY = 24;
+const PLANNED_HOURS_PER_DAY = 16; // 2교대
+const CT_STANDARD_SEC = 30;
+const Q_MANUAL = 0.98;
+
+// ===== 데이터 모델 (14일 × 3 라인) =====
+const DAYS = 14;
+const LINES = ['L1', 'L2', 'L3'];
+
+// 3분류 상태 (SPEC 정합)
+const STATES = [
+  { key: 'Running', label: 'Running', color: '#4FC3F7', src: 'Σ 실측 CT' },
+  { key: 'Down',    label: 'Down',    color: '#EF5350', src: 'Σ 비가동 CT' },
+  { key: 'Idle',    label: 'Idle',    color: '#78909C', src: 'Cal − R − D' }
+];
+
+// 시드 랜덤
+let seed = 42;
+function rand() { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; }
+
+// 각 셀 = (line, day)
+const data = [];
+for (let l = 0; l < LINES.length; l++) {
+  for (let d = 0; d < DAYS; d++) {
+    // 실측/비가동 hours (2교대 16h 계획 안에서)
+    const targetRunning = 13.6 + Math.sin(d * 0.7 + l * 0.9) * 1.2 + (rand()-0.5) * 1.5;
+    const running_h = Math.max(6, Math.min(15.5, targetRunning));
+    const down_h = Math.max(0.3, PLANNED_HOURS_PER_DAY - running_h - (rand()-0.5) * 1.5);
+    const runFinal = running_h;
+    const downFinal = Math.max(0, Math.min(PLANNED_HOURS_PER_DAY - runFinal, down_h));
+    const idle_h = CAL_HOURS_PER_DAY - runFinal - downFinal;
+
+    // 사이클 수 = Running 시간 ÷ 표준 CT
+    const cycles = Math.floor(runFinal * 3600 / CT_STANDARD_SEC);
+    // A, P, Q, OEE
+    const A = runFinal / (runFinal + downFinal);
+    // 성능은 랜덤 90% ±3%
+    const P = 0.90 + (rand()-0.5) * 0.06;
+    const Q = Q_MANUAL;
+    const OEE = A * P * Q;
+    // TEEP = A × P × Q × (Planned/Cal) — 각 일자 기준
+    const util_day = (runFinal + downFinal) / CAL_HOURS_PER_DAY;
+    const teep = OEE * util_day;
+    // MTTR/MTBF (분)
+    const mttr = 3.5 + rand() * 2.0;
+    const mtbf = 30 + rand() * 25;
+
+    data.push({ line: l, day: d, running_h: runFinal, down_h: downFinal, idle_h, cycles, A, P, Q, OEE, teep, util_day, mttr, mtbf });
+  }
+}
+
+// 기간 합계
+function aggregate() {
+  const totalRun = data.reduce((s,c) => s + c.running_h, 0);
+  const totalDown = data.reduce((s,c) => s + c.down_h, 0);
+  const totalCyc = data.reduce((s,c) => s + c.cycles, 0);
+  const cal = CAL_HOURS_PER_DAY * DAYS * LINES.length;
+  const planned = PLANNED_HOURS_PER_DAY * DAYS * LINES.length;
+  const util = (totalRun + totalDown) / cal;
+  const A = totalRun / (totalRun + totalDown);
+  const P = data.reduce((s,c) => s + c.P, 0) / data.length;
+  const Q = Q_MANUAL;
+  const OEE = A * P * Q;
+  const teep = totalRun * P * Q / cal; // 양품시간 / 캘린더
+  return { totalRun, totalDown, totalCyc, cal, planned, util, A, P, Q, OEE, teep };
+}
+const AGG = aggregate();
+
+// TEEP 등급 색상
+function teepColor(pct) {
+  if (pct >= 60) return { top:'#F57F17', right:'#EF6C00', front:'#E65100' };
+  if (pct >= 45) return { top:'#FFA000', right:'#FF8F00', front:'#FF6F00' };
+  if (pct >= 30) return { top:'#FFD54F', right:'#FFCA28', front:'#FFC107' };
+  return          { top:'#FFF59D', right:'#FFF176', front:'#FFEE58' };
+}
+function oeeColor(pct) {
+  if (pct >= 85) return { top:'#1B5E20', right:'#2E7D32', front:'#388E3C' };
+  if (pct >= 70) return { top:'#2E7D32', right:'#388E3C', front:'#43A047' };
+  if (pct >= 55) return { top:'#66BB6A', right:'#4CAF50', front:'#43A047' };
+  return          { top:'#FFF176', right:'#FFEE58', front:'#FDD835' };
+}
+
+// ===== SVG helper =====
+const svg = document.getElementById('viz');
+function clear() { while(svg.firstChild) svg.removeChild(svg.firstChild); }
+function el(tag, attrs = {}, parent = svg) {
+  const e = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [k,v] of Object.entries(attrs)) e.setAttribute(k, v);
+  parent.appendChild(e);
+  return e;
+}
+
+// ===== 아이소 프로젝션 =====
+const CELL = 24;
+const COS30 = 0.866, SIN30 = 0.5;
+const ORIGIN_X = 360, ORIGIN_Y = 200;
+function iso(x, y, z) {
+  return [ ORIGIN_X + (x - z) * CELL * COS30, ORIGIN_Y + (x + z) * CELL * SIN30 - y * CELL ];
+}
+
+// ===== L0 · TEEP 3D 아이소 =====
+function renderL0() {
+  clear();
+  document.getElementById('vizTitle').innerHTML = 'L0 · TEEP · Line × Day × 실측 CT <span class="badge" style="background:#FFD54F;color:#0F1720;">기본</span>';
+  document.getElementById('vizHint').textContent = '높이 = 실측 CT (일별 시간) · 색 = TEEP 등급 · 큐브 클릭 = L1 OEE 드릴';
+  document.getElementById('formulaBox').innerHTML =
+    '<b>TEEP</b> = <span class="k">Σ 실측 CT</span> ÷ <span class="k">캘린더 시간</span><br>' +
+    '&nbsp;&nbsp;&nbsp;= Utilization × OEE<br>' +
+    '<span style="color:#8896A6">= ' + (AGG.util*100).toFixed(1) + '% × ' + (AGG.OEE*100).toFixed(1) + '% = ' + (AGG.teep*100).toFixed(1) + '%</span>';
+  document.getElementById('insight').innerHTML =
+    '<b>TEEP ' + (AGG.teep*100).toFixed(1) + '%</b>은 계획가동(' + (AGG.util*100).toFixed(0) + '%) 대비 OEE ' + (AGG.OEE*100).toFixed(0) + '%가 곱해진 결과. 개선 여지 = 계획정지 축소 또는 A(' + (AGG.A*100).toFixed(0) + '%) 향상.';
+
+  const off = { x: 0, y: 0 };
+
+  // 바닥 그리드
+  for (let l = 0; l < LINES.length; l++) {
+    for (let d = 0; d < DAYS; d++) {
+      const p1 = iso(d, 0, l), p2 = iso(d+1, 0, l), p3 = iso(d+1, 0, l+1), p4 = iso(d, 0, l+1);
+      el('polygon', {
+        points: [p1,p2,p3,p4].map(p => (p[0]+off.x)+','+(p[1]+off.y)).join(' '),
+        fill: (l+d)%2 === 0 ? '#1A2530' : '#152029', stroke:'#0D1520', 'stroke-width': 0.5
+      });
+    }
+  }
+
+  // 큐브 (뒤에서 앞으로)
+  const cells = [...data].sort((a,b) => (a.line+a.day) - (b.line+b.day));
+  cells.forEach(c => {
+    const h = c.running_h / 3;  // 24h 최대면 h=8
+    const col = teepColor(c.teep*100);
+    const d = c.day, l = c.line;
+    const p000 = iso(d,   0, l), p100 = iso(d+1, 0, l), p101 = iso(d+1, 0, l+1), p001 = iso(d,   0, l+1);
+    const p010 = iso(d,   h, l), p110 = iso(d+1, h, l), p111 = iso(d+1, h, l+1), p011 = iso(d,   h, l+1);
+    const of = (p) => (p[0]+off.x)+','+(p[1]+off.y);
+    const g = el('g', { style:'cursor:pointer;' });
+    // Front (z = l+1)
+    el('polygon', { points:[p001,p101,p111,p011].map(of).join(' '), fill: col.front, stroke:'#000', 'stroke-width': 0.6 }, g);
+    // Right (x = d+1)
+    el('polygon', { points:[p100,p101,p111,p110].map(of).join(' '), fill: col.right, stroke:'#000', 'stroke-width': 0.6 }, g);
+    // Top
+    el('polygon', { points:[p010,p110,p111,p011].map(of).join(' '), fill: col.top, stroke:'#000', 'stroke-width': 0.6 }, g);
+    // Down cap (붉은 캡)
+    if (c.down_h / 3 > 0.05) {
+      const dh = (c.running_h + c.down_h) / 3;
+      const d010 = iso(d,   dh, l), d110 = iso(d+1, dh, l), d111 = iso(d+1, dh, l+1), d011 = iso(d,   dh, l+1);
+      const dCol = { top:'#B71C1C', right:'#C62828', front:'#D32F2F' };
+      el('polygon', { points:[p011,p111,d111,d011].map(of).join(' '), fill: dCol.front, stroke:'#000', 'stroke-width': 0.4 }, g);
+      el('polygon', { points:[p110,p111,d111,d110].map(of).join(' '), fill: dCol.right, stroke:'#000', 'stroke-width': 0.4 }, g);
+      el('polygon', { points:[d010,d110,d111,d011].map(of).join(' '), fill: dCol.top, stroke:'#000', 'stroke-width': 0.4 }, g);
+    }
+    const t = el('title', {}, g);
+    t.textContent = LINES[l] + ' · D-' + (DAYS-1-d) + ' · Run ' + c.running_h.toFixed(1) + 'h · Down ' + c.down_h.toFixed(1) + 'h · TEEP ' + (c.teep*100).toFixed(0) + '%';
+    g.addEventListener('click', () => switchView('l1'));
+  });
+
+  // 축 라벨
+  LINES.forEach((n, i) => {
+    const p = iso(-0.3, 0, i+0.5);
+    el('text', { x: p[0]+off.x, y: p[1]+off.y+4, fill:'#B0BEC5', 'font-size': 11, 'font-weight': 700, 'text-anchor':'end' }).textContent = n;
+  });
+  for (let d = 0; d < DAYS; d += 2) {
+    const p = iso(d + 0.5, 0, LINES.length + 0.4);
+    el('text', { x: p[0]+off.x, y: p[1]+off.y+10, fill:'#78909C', 'font-size': 9.5, 'font-weight': 700, 'text-anchor':'middle' })
+      .textContent = d === DAYS-1 ? 'Today' : 'D-' + (DAYS-1-d);
+  }
+  // 캘린더 기준선 (계획 시간 = 16h)
+  const capY = iso(0, PLANNED_HOURS_PER_DAY/3, 0)[1];
+  el('line', { x1: 30, y1: capY+off.y, x2: 880, y2: capY+off.y, stroke:'#FFD54F', 'stroke-width': 1, 'stroke-dasharray':'4,3', opacity: 0.5 });
+  el('text', { x: 40, y: capY+off.y-3, fill:'#FFD54F', 'font-size': 10, 'font-weight': 700 }).textContent = '계획 16h/day (Planned)';
+}
+
+// ===== L1 · OEE 라인별 히트맵 =====
+function renderL1() {
+  clear();
+  document.getElementById('vizTitle').innerHTML = 'L1 · OEE = A × P × Q · 라인 × 일자 히트맵 <span class="badge" style="background:#66BB6A;color:#0F1720;">Level 1</span>';
+  document.getElementById('vizHint').textContent = '색 = OEE 등급 · 클릭 = L2 A/P/Q 드릴';
+  document.getElementById('formulaBox').innerHTML =
+    '<b>OEE</b> = <span class="k">A</span> × <span class="k">P</span> × <span class="k">Q</span><br>' +
+    '&nbsp;&nbsp;&nbsp;= ' + (AGG.A*100).toFixed(1) + '% × ' + (AGG.P*100).toFixed(1) + '% × ' + (AGG.Q*100).toFixed(0) + '%<br>' +
+    '<span style="color:#8896A6">= ' + (AGG.OEE*100).toFixed(1) + '% (평균)</span>';
+  document.getElementById('insight').innerHTML =
+    '어느 라인·일자가 <b>OEE 발목</b>인지 즉시 파악. Q는 수기 ' + (Q_MANUAL*100).toFixed(0) + '% 고정 · A와 P의 조합이 색상 결정.';
+
+  const W = 900, H = 500;
+  const m = { l: 90, r: 60, t: 50, b: 70 };
+  const pw = W - m.l - m.r, ph = H - m.t - m.b;
+  const cw = pw / DAYS, ch = ph / LINES.length;
+
+  LINES.forEach((n, l) => {
+    for (let d = 0; d < DAYS; d++) {
+      const cell = data.find(c => c.day === d && c.line === l);
+      const col = oeeColor(cell.OEE*100);
+      const x = m.l + d*cw, y = m.t + l*ch;
+      const g = el('g', { style:'cursor:pointer;' });
+      el('rect', { x: x+2, y: y+2, width: cw-4, height: ch-4, fill: col.top, stroke:'#0F1720', 'stroke-width': 1, rx: 3 }, g);
+      el('text', { x: x+cw/2, y: y+ch/2+4, fill:'#fff', 'font-size': 11, 'font-weight': 800, 'text-anchor':'middle' }, g).textContent = (cell.OEE*100).toFixed(0);
+      if (cell.OEE < 0.65) el('circle', { cx: x+cw-8, cy: y+8, r: 4, fill:'#EF5350' }, g);
+      const t = el('title', {}, g);
+      t.textContent = LINES[l] + ' · D-' + (DAYS-1-d) + ' · A ' + (cell.A*100).toFixed(0) + '% · P ' + (cell.P*100).toFixed(0) + '% · Q ' + (cell.Q*100).toFixed(0) + '%';
+      g.addEventListener('click', () => switchView('l2'));
+    }
+  });
+  LINES.forEach((n, l) => {
+    el('text', { x: m.l-12, y: m.t+l*ch+ch/2+4, fill:'#E0E7EF', 'font-size': 14, 'font-weight': 800, 'text-anchor':'end' }).textContent = n;
+    const avg = data.filter(c => c.line === l).reduce((s,c) => s+c.OEE, 0) / DAYS;
+    el('text', { x: m.l+pw+12, y: m.t+l*ch+ch/2+4, fill:'#66BB6A', 'font-size': 12, 'font-weight': 700 }).textContent = 'avg ' + (avg*100).toFixed(0) + '%';
+  });
+  for (let d = 0; d < DAYS; d += 2) {
+    el('text', { x: m.l+d*cw+cw/2, y: H-m.b+16, fill:'#B0BEC5', 'font-size': 10, 'text-anchor':'middle', 'font-weight': 700 })
+      .textContent = d === DAYS-1 ? 'Today' : 'D-' + (DAYS-1-d);
+  }
+  el('text', { x: m.l+pw/2, y: H-12, fill:'#B0BEC5', 'font-size': 12, 'font-weight': 700, 'text-anchor':'middle' }).textContent = 'Day';
+  el('text', { x: 20, y: m.t+ph/2, fill:'#B0BEC5', 'font-size': 12, 'font-weight': 700, transform: `rotate(-90,20,${m.t+ph/2})`, 'text-anchor':'middle' }).textContent = 'Line';
+  el('text', { x: m.l, y: m.t-18, fill:'#66BB6A', 'font-size': 11.5, 'font-weight': 800 }).textContent = '수치 = OEE% · ● = 65% 미만';
+}
+
+// ===== L2 · A · P · Q + MTTR/MTBF 시계열 =====
+function renderL2() {
+  clear();
+  document.getElementById('vizTitle').innerHTML = 'L2 · A · P · Q · MTTR · MTBF 시계열 <span class="badge" style="background:#4FC3F7;color:#0F1720;">Level 2</span>';
+  document.getElementById('vizHint').textContent = 'A·P·Q 개별 지표와 신뢰성(MTTR/MTBF) · 클릭 = L3 Cycle 드릴';
+  document.getElementById('formulaBox').innerHTML =
+    '<b>A</b> = 실측 ÷ (실측+비가동)<br>' +
+    '<b>P</b> = (사이클수 × CT이상치) ÷ 실측<br>' +
+    '<b>Q</b> = <span style="color:#EF5350">✎ 수기 (기본 100%)</span><br>' +
+    '<span style="color:#8896A6">현재 A ' + (AGG.A*100).toFixed(1) + '% · P ' + (AGG.P*100).toFixed(1) + '% · Q ' + (AGG.Q*100).toFixed(0) + '%</span>';
+  document.getElementById('insight').innerHTML =
+    '<b>A · P는 자동</b>(P5 재활용), <b>Q는 수기</b>. MTTR ' + AGG.totalDown > 0 ? '~4분 (복구 빠름)' : '' + ', MTBF ~42분 (자주 재발). <b>MTBF 개선 우선</b>.';
+
+  const W = 900, H = 500;
+  const m = { l: 60, r: 130, t: 50, b: 70 };
+  const pw = W - m.l - m.r, ph = H - m.t - m.b;
+
+  // 일별 평균 (라인 3개 평균)
+  const daily = [];
+  for (let d = 0; d < DAYS; d++) {
+    const cells = data.filter(c => c.day === d);
+    daily.push({
+      A: cells.reduce((s,c)=>s+c.A,0)/cells.length,
+      P: cells.reduce((s,c)=>s+c.P,0)/cells.length,
+      Q: Q_MANUAL,
+      mttr: cells.reduce((s,c)=>s+c.mttr,0)/cells.length,
+      mtbf: cells.reduce((s,c)=>s+c.mtbf,0)/cells.length
+    });
+  }
+
+  // Y 그리드 (%)
+  [0.5, 0.6, 0.7, 0.8, 0.9, 1.0].forEach(v => {
+    const y = m.t + ph*(1-(v-0.5)/0.5);
+    el('line', { x1: m.l, y1: y, x2: m.l+pw, y2: y, stroke:'#2C3947', 'stroke-width': 0.5, 'stroke-dasharray': v < 1 && v > 0.5 ? '2,3' : '' });
+    el('text', { x: m.l-8, y: y+3, fill:'#78909C', 'font-size': 10, 'text-anchor':'end' }).textContent = (v*100).toFixed(0)+'%';
+  });
+
+  // 라인 (A·P·Q)
+  const series = [
+    { key: 'A', color: '#4FC3F7', label: '가용성 A' },
+    { key: 'P', color: '#FFD54F', label: '성능 P' },
+    { key: 'Q', color: '#EF5350', label: '품질 Q (수기)' }
+  ];
+  series.forEach(s => {
+    const pts = daily.map((v, i) => {
+      const x = m.l + (i/(DAYS-1)) * pw;
+      const y = m.t + ph*(1-(v[s.key]-0.5)/0.5);
+      return [x, y];
+    });
+    el('path', { d: 'M ' + pts.map(p => p.join(',')).join(' L '), fill:'none', stroke: s.color, 'stroke-width': 2.5, 'stroke-linejoin':'round',
+      'stroke-dasharray': s.key === 'Q' ? '5,3' : '' });
+    pts.forEach(p => el('circle', { cx: p[0], cy: p[1], r: 3, fill: s.color, stroke:'#0F1720', 'stroke-width': 1 }));
+    const last = pts[pts.length-1];
+    el('text', { x: last[0]+10, y: last[1]+4, fill: s.color, 'font-size': 11, 'font-weight': 800 }).textContent = s.label;
+  });
+
+  for (let d = 0; d < DAYS; d += 2) {
+    const x = m.l + (d/(DAYS-1)) * pw;
+    el('text', { x, y: H-m.b+16, fill:'#B0BEC5', 'font-size': 10, 'text-anchor':'middle', 'font-weight': 700 })
+      .textContent = d === DAYS-1 ? 'Today' : 'D-' + (DAYS-1-d);
+  }
+  el('text', { x: m.l+pw/2, y: H-12, fill:'#B0BEC5', 'font-size': 12, 'font-weight': 700, 'text-anchor':'middle' }).textContent = 'Day';
+  el('text', { x: 20, y: m.t+ph/2, fill:'#B0BEC5', 'font-size': 12, 'font-weight': 700, transform: `rotate(-90,20,${m.t+ph/2})`, 'text-anchor':'middle' }).textContent = '% (50~100%)';
+
+  // MTTR/MTBF 배지
+  el('rect', { x: m.l+pw-260, y: m.t-30, width: 260, height: 22, fill:'#1A2433', stroke:'#2C3947', rx: 3 });
+  el('text', { x: m.l+pw-250, y: m.t-14, fill:'#FFB74D', 'font-size': 10.5, 'font-weight': 800 }).textContent = 'MTTR 4.0m · MTBF 42m · 신뢰성 (P5 파생)';
+}
+
+// ===== L3 · Cycle 상세 (P5 스타일) =====
+function renderL3() {
+  clear();
+  document.getElementById('vizTitle').innerHTML = 'L3 · Cycle 상세 · CT/MT/WT · onset · MTTR/MTBF <span class="badge" style="background:#BA68C8;color:#fff;">Level 3</span>';
+  document.getElementById('vizHint').textContent = 'P5 원본 타임라인 스타일 · 오늘 L1 라인의 1 시프트 예시';
+  document.getElementById('formulaBox').innerHTML =
+    '<b>CT</b> = <span class="k">MT</span> + <span class="k">WT</span><br>' +
+    '<b>비가동</b>: MT > CT이상치(30s)<br>' +
+    '<b>MTTR</b> = onset → going 회복<br>' +
+    '<b>MTBF</b> = onset → 다음 onset';
+  document.getElementById('insight').innerHTML =
+    '한 시프트 내 사이클 <b>10건 중 2건 비가동</b>. 첫 onset 09:24:15 (교반 시간 미달) → 복구 4분. MTBF 42분으로 재발 잦음.';
+
+  // P5 유사 스타일
+  const W = 900, H = 500;
+  const baseY = 200;
+  const startX = 50;
+  const totalCycles = 20;
+  const abnormal = new Set([4, 12]);
+  const cellW = (W - 100) / totalCycles;
+
+  // 시프트 헤더
+  el('rect', { x: 20, y: 20, width: W-40, height: 30, fill:'#1A2433', stroke:'#2C3947', rx: 3 });
+  el('text', { x: 40, y: 40, fill:'#E0E7EF', 'font-size': 12, 'font-weight': 800 }).textContent = 'L1 · Today Day Shift (08:00~16:00) · 20 사이클 예시';
+
+  for (let i = 0; i < totalCycles; i++) {
+    const x = startX + i * cellW;
+    if (abnormal.has(i)) {
+      // 비가동 사이클
+      el('rect', { x, y: baseY-40, width: cellW*0.4, height: 60, fill:'#FFE0E0', stroke:'#B71C1C' });
+      el('text', { x: x+cellW*0.2, y: baseY, fill:'#B71C1C', 'font-size': 8, 'text-anchor':'middle' }).textContent = '인식';
+      el('rect', { x: x+cellW*0.4, y: baseY-40, width: cellW*0.5, height: 60, fill:'#EF9A9A', stroke:'#B71C1C', 'stroke-width': 1.3 });
+      el('text', { x: x+cellW*0.65, y: baseY, fill:'#7F1410', 'font-size': 9, 'font-weight': 800, 'text-anchor':'middle' }).textContent = '고장';
+      // onset 마커
+      el('line', { x1: x+cellW*0.4, y1: baseY-60, x2: x+cellW*0.4, y2: baseY+80, stroke:'#EF5350', 'stroke-dasharray':'3,3' });
+      el('circle', { cx: x+cellW*0.4, cy: baseY-40, r: 4, fill:'#EF5350' });
+    } else {
+      // 정상 사이클: MT + WT
+      el('rect', { x: x+2, y: baseY-30, width: cellW*0.6, height: 50, fill:'#90CAF9', stroke:'#1565C0' });
+      el('rect', { x: x+cellW*0.62, y: baseY-30, width: cellW*0.36, height: 50, fill:'#ECEFF1', stroke:'#90A4AE' });
+    }
+  }
+
+  // CT이상치 기준선
+  el('line', { x1: 40, y1: baseY-45, x2: W-40, y2: baseY-45, stroke:'#FFD54F', 'stroke-dasharray':'4,3', opacity: 0.6 });
+  el('text', { x: W-45, y: baseY-48, fill:'#FFD54F', 'font-size': 9, 'font-weight': 700, 'text-anchor':'end' }).textContent = 'CT이상치 30s';
+
+  // 범례
+  el('rect', { x: 40, y: baseY+50, width: 14, height: 11, fill:'#90CAF9', stroke:'#1565C0' });
+  el('text', { x: 60, y: baseY+60, fill:'#B0BEC5', 'font-size': 10 }).textContent = 'MT (동작)';
+  el('rect', { x: 150, y: baseY+50, width: 14, height: 11, fill:'#ECEFF1', stroke:'#90A4AE' });
+  el('text', { x: 170, y: baseY+60, fill:'#B0BEC5', 'font-size': 10 }).textContent = 'WT (대기)';
+  el('rect', { x: 260, y: baseY+50, width: 14, height: 11, fill:'#EF9A9A', stroke:'#B71C1C' });
+  el('text', { x: 280, y: baseY+60, fill:'#B0BEC5', 'font-size': 10 }).textContent = '비가동 CT (MT>CT이상치)';
+
+  // MTTR/MTBF 구간 표시
+  const c1 = startX + 4*cellW + cellW*0.4;
+  const c2 = startX + 12*cellW + cellW*0.4;
+  const gRec = c1 + cellW*0.8;
+  el('line', { x1: c1, y1: baseY+120, x2: gRec, y2: baseY+120, stroke:'#66BB6A', 'stroke-width': 2 });
+  el('text', { x: (c1+gRec)/2, y: baseY+135, fill:'#66BB6A', 'font-size': 10.5, 'font-weight': 800, 'text-anchor':'middle' }).textContent = 'MTTR 4.0m';
+  el('line', { x1: c1, y1: baseY+165, x2: c2, y2: baseY+165, stroke:'#BA68C8', 'stroke-width': 2 });
+  el('text', { x: (c1+c2)/2, y: baseY+180, fill:'#BA68C8', 'font-size': 10.5, 'font-weight': 800, 'text-anchor':'middle' }).textContent = 'MTBF 42m';
+
+  el('text', { x: 40, y: baseY+220, fill:'#78909C', 'font-size': 10.5 }).textContent = '※ P5 원본 사이클 타임라인 · CT = MT + WT · MT > CT이상치 인 사이클의 CT 전체가 비가동 CT';
+}
+
+// ===== 뷰 스위칭 =====
+function switchView(view) {
+  document.querySelectorAll('.axis-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+  if (view === 'l0') renderL0();
+  else if (view === 'l1') renderL1();
+  else if (view === 'l2') renderL2();
+  else if (view === 'l3') renderL3();
+}
+
+document.querySelectorAll('.axis-btn').forEach(btn => btn.addEventListener('click', () => switchView(btn.dataset.view)));
+document.querySelectorAll('.filter-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('on'));
+    btn.classList.add('on');
+  });
+});
+
+renderL0();
+</script>
+</body>
+</html>

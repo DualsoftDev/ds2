@@ -875,14 +875,15 @@
                                 <template x-if="!focusRow">
                                     <div class="ct-fb-hint">
                                         <span class="material-icons">touch_app</span>
-                                        Flow 에 마우스를 올리면 동작·대기 시간이 표시됩니다
+                                        Flow 에 마우스를 올리면 동작·대기 시간, 클릭하면 가동시간 분석으로 이동합니다
                                     </div>
                                 </template>
                             </div>
                             <div class="ct-legend">
                                 <template x-for="(f, i) in chartData" :key="f.flowName">
                                     <button class="ct-legend-item" :class="focusFlowName === f.flowName ? 'is-sel' : ''"
-                                            @mouseenter="hoverFlow(f.flowName)" @mouseleave="hoverFlow(null)" :title="f.flowName">
+                                            @mouseenter="hoverFlow(f.flowName)" @mouseleave="hoverFlow(null)"
+                                            @click="gotoFlowCycle(f.flowName)" :title="f.flowName + ' — 클릭: 가동시간 분석'">
                                         <span class="ct-legend-sw" :style="`background:${f.flowName === maxCtName ? 'var(--ct-bottleneck)' : ctPalette(i)}`"></span>
                                         <span class="ct-legend-name" x-text="f.flowName"></span>
                                         <span class="ct-legend-val" style="color:var(--dash-mt)" x-text="fmt(f.mt) + ' (' + (f.ct>0 ? Math.round(f.mt*100/f.ct) : 0) + '%)'"></span>
@@ -1217,6 +1218,11 @@
 
             // 알람 배너 [상세 확인] → 가동시간·이상 페이지로 바로가기. 시스템/구분 필터를 시드(사이드바 이상코드 피드와 동일 형상).
             // 레벨은 알람 페이지가 Error 로 통일했으므로 시드하지 않는다. 구분(ABNORMAL/USERTAG)은 kindName 유무로 판별.
+            // 도넛 슬라이스/범례 클릭 → 해당 flow 의 가동시간 분석 페이지
+            gotoFlowCycle(name) {
+                if (!name) return;
+                location.href = '/flow-cycle?name=' + encodeURIComponent(name);
+            },
             gotoAbnormal(a) {
                 if (!a) return;
                 const q = [];
@@ -1471,6 +1477,7 @@
                             tooltip: { enabled: false },
                         },
                         onHover: (e, els, chart) => {
+                            if (e.native?.target) e.native.target.style.cursor = (els && els.length) ? 'pointer' : '';
                             if (els && els.length) {
                                 // ctDyn.rows 사용 — in-place 갱신 후 stale 클로저 rows 방지
                                 const el = els[0];
@@ -1478,6 +1485,11 @@
                                 self.chartHoverFlowName = d.rows[el.index]?.flowName || null;
                             }
                             // els=[] 일 때는 갱신 생략 — @mouseleave 가 차트를 벗어날 때 null 로 리셋한다.
+                        },
+                        onClick: (e, els) => {
+                            if (!els || !els.length) return;
+                            const d = ctDyn; if (!d) return;
+                            self.gotoFlowCycle(d.rows[els[0].index]?.flowName);
                         },
                     },
                 });

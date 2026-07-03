@@ -504,10 +504,10 @@
                 // 공통 구조(2026-07-02): 모든 그룹에서 별도 '전체' 항목 제거(withAll=false). header 클릭이 곧 '전체' 페이지
                 //   이동(headerHref)이며, 이동한 페이지에서 isActivePage=true 로 자동 펼쳐져 FLOW 를 바로 선택한다.
                 var gTrend = buildAnalysisGroup(flows, '추이 분석',  'timeline',      '/flow-trend',   'name', onFlowPage && curFlowView === 'trend', curFlowName, false, '/flow-trend');
-                // 가동시간 분석.설정: base(/flow-cycle?name=) 는 단일 Flow. '전체'(header 클릭) 는 /flow-cycle?system=
+                // 가동시간 분석: base(/flow-cycle?name=) 는 단일 Flow. '전체'(header 클릭) 는 /flow-cycle?system=
                 //   (그 시스템 모든 Flow 간트 일괄 편집)로 보낸다. 그룹은 단일(?name=)이든 전체(bulk)이든 이 시스템이면 활성/자동펼침.
                 var cycleActive = (onFlowPage && curFlowView === 'cycle') || (onFlowCycleBulk && flowCycleSystem === sys.name);
-                var gCycle = buildAnalysisGroup(flows, '가동시간 분석.설정', 'account_tree',  '/flow-cycle',   'name', cycleActive, curFlowName, false,
+                var gCycle = buildAnalysisGroup(flows, '가동시간 분석', 'account_tree',  '/flow-cycle',   'name', cycleActive, curFlowName, false,
                     '/flow-cycle?system=' + encodeURIComponent(sys.name));
                 var gHeat  = buildAnalysisGroup(flows, '동작편차',    'gradient',      '/heatmap',      'flow', onHeatmapPage, heatmapFlow, false, '/heatmap');
                 var gOee   = buildAnalysisGroup(flows, '종합효율 현황', 'speed',         '/uptime-oee',   'flow', onOeePage,     oeeFlow,     false, '/uptime-oee');

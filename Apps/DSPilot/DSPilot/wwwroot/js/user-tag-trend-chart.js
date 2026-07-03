@@ -21,7 +21,7 @@ function levelColors() {
 
 // 구분(ABNORMAL/USERTAG) 색 — 레벨이 Error 단일로 통일된 뒤 시계열/버킷은 구분으로 스택한다.
 // 둘 다 Error 알람이라 빨강 계열로 통일하되, 스택/도넛에서 구분되도록 톤을 다르게 둔다.
-// ABNORMAL(자동감지)=밝은 빨강, USERTAG(사용자지정)=진한 로즈레드.
+// ABNORMAL(자동감지)=밝은 빨강, USERTAG(수동등록TAG)=진한 로즈레드.
 function categoryColors() {
     return {
         'ABNORMAL': { fill: 'rgba(239, 68, 68, 0.85)', border: 'rgb(239, 68, 68)' },
@@ -30,7 +30,7 @@ function categoryColors() {
 }
 
 // 범례 표시용 한글 라벨(데이터 키는 서버가 주는 ABNORMAL/USERTAG 코드 유지).
-const CATEGORY_LABELS = { 'ABNORMAL': '자동감지', 'USERTAG': '사용자지정' };
+const CATEGORY_LABELS = { 'ABNORMAL': '자동감지', 'USERTAG': '수동등록TAG' };
 
 // 축/범례/툴팁 텍스트·격자선을 테마 가변으로 (다크 캔버스에서 가독성 확보).
 function themeChartColors() {

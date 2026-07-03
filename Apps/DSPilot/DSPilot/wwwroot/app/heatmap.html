@@ -474,7 +474,7 @@
                 error: null,
                 // 설비(Flow) 필터 — 좌측 메뉴 '동작편차' 트리에서 /heatmap?flow=이름 으로 진입. '' = 전체.
                 flowParam: '',
-                viewMode: 'matrix', // 'matrix'(flow-call 블럭 매트릭스) | 'table'(정렬 표) — 한 번에 하나만
+                viewMode: 'table', // 'matrix'(flow-call 블럭 매트릭스) | 'table'(정렬 표) — 한 번에 하나만, 기본=테이블
                 sortField: 'cv',
                 sortAsc: false,
                 selectedCall: null,
@@ -541,9 +541,16 @@
                             const calls = g.calls || [];
                             for (const c of calls) { c._tier = this.cvToTier(c.coefficientOfVariation); c._dev = this.deviationPctFromCv(c.coefficientOfVariation); }
                             g._dangerCount = calls.reduce((n, c) => n + (c._tier === 'danger' ? 1 : 0), 0);
+                            g._cautionCount = calls.reduce((n, c) => n + (c._tier === 'caution' ? 1 : 0), 0);
                             g._blockCalls = calls.slice().sort((a, b) => (b.coefficientOfVariation - a.coefficientOfVariation) || (a.callName || '').localeCompare(b.callName || ''));
                             g.isExpanded = true; // 테이블 보기 기본 펼침
                         }
+                        // Flow 나열 순서: 상태가 나쁜 그룹이 위로 — 위험 Call 수 ▸ 주의 Call 수 ▸ 평균 CV ▸ 이름
+                        groups.sort((a, b) =>
+                            (b._dangerCount - a._dangerCount)
+                            || (b._cautionCount - a._cautionCount)
+                            || ((b.flowAverageCV || 0) - (a.flowAverageCV || 0))
+                            || (a.flowName || '').localeCompare(b.flowName || ''));
                         this.allGroups = groups;
                         // 새로고침으로 데이터가 교체됐는데 열린 모달의 Call 이 더 이상 없으면 모달 정리(좀비 모달 방지)
                         if (this.selectedCall &&
