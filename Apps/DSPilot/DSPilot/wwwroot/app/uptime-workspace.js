@@ -50,6 +50,8 @@
                 // 기존 UserTag 상태 (+ 구 이상발생 관리 흡수: 필터/페이지/정의/차트)
                 ut: null, loading: true, error: null, dark: false,
                 tab: 'oee', // 'oee' | 'anomaly' — URL ?tab= 와 동기화
+                // OEE 페이지 내부 탭: 'equip'(설비효율=OEE, 기존 UI) | 'teep'(생산효율=TEEP). URL ?section= 와 동기화.
+                oeeTab: 'equip',
                 // 물리 페이지 뷰: 'oee'(=/uptime-oee) | 'alarm'(=/uptime-alarm) | 'both'(구 통합, 폐기).
                 // window.DSP_UPTIME_VIEW 로 각 HTML 이 주입. view 가 곧 표시할 도메인(탭바 없음).
                 view: (window.DSP_UPTIME_VIEW || 'both'),
@@ -128,8 +130,10 @@
                         : this.view === 'alarm' ? 'anomaly'
                         : ((qp.get('tab') === 'anomaly' || seeded || qp.has('blockMgr')) ? 'anomaly' : 'oee');
                     this.syncTabUrl();
+                    // OEE 페이지 내부 탭(설비효율/생산효율) — URL ?section=teep 로 진입 시 시드.
+                    this.oeeTab = (qp.get('section') === 'teep') ? 'teep' : 'equip';
                     // 뒤로/앞으로 가기 시 탭 동기화
-                    window.addEventListener('popstate', () => { this.applyTabFromUrl(); });
+                    window.addEventListener('popstate', () => { this.applyTabFromUrl(); this.applyOeeTabFromUrl(); });
                     try { this._charts = await import('/js/user-tag-trend-chart.js'); } catch (e) { console.warn('chart module load failed', e); }
                     // 최초 진입 로드도 로딩 인디케이터로 감싼다(기간 변경 setPeriod 와 동일 UX). 폴링(load(true))은 무표시.
                     const initLoad = async () => {
@@ -162,7 +166,7 @@
                 // 테마 전환 직후 차트 색 재계산 — 없으면 다음 폴링(최대 10초)까지 이전 테마 색이 남음
                 redrawForTheme() { this.$nextTick(() => { this.drawCharts(); this.drawDailyChart(); }); },
 
-                // ── 탭 전환 (OEE 종합 ⇆ 이상·알람) + URL ?tab= 동기화 ──
+                // ── 탭 전환 (종합효율 현황 ⇆ 이상·알람) + URL ?tab= 동기화 ──
                 setTab(t) {
                     if (this.view !== 'both') return; // 물리 분리 페이지는 탭 전환 없음(단일 도메인)
                     if (this.tab === t) return;
@@ -185,6 +189,28 @@
                     if (t === this.tab) return;
                     this.tab = t;
                     this.$nextTick(() => { if (t === 'anomaly') this.drawCharts(); else this.drawDailyChart(); });
+                },
+
+                // ── OEE 페이지 내부 탭 전환 (설비효율 ⇆ 생산효율) + URL ?section= 동기화 ──
+                //   설비효율(equip)=기존 OEE UI, 생산효율(teep)=TEEP(Phase 3). x-show(display:none) 로 숨겨졌던
+                //   캔버스는 0 크기로 그려지므로 설비효율 복귀 시 차트를 다시 렌더한다(테마 재렌더와 동일 패턴).
+                setOeeTab(t) {
+                    if (this.oeeTab === t) return;
+                    this.oeeTab = t;
+                    this.syncOeeTabUrl();
+                    if (t === 'equip') this.$nextTick(() => { this.drawCharts(); this.drawDailyChart(); });
+                },
+                syncOeeTabUrl() {
+                    const qp = new URLSearchParams(location.search);
+                    if (this.oeeTab === 'equip') qp.delete('section'); else qp.set('section', this.oeeTab);
+                    const qs = qp.toString();
+                    history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
+                },
+                applyOeeTabFromUrl() {
+                    const t = new URLSearchParams(location.search).get('section') === 'teep' ? 'teep' : 'equip';
+                    if (t === this.oeeTab) return;
+                    this.oeeTab = t;
+                    if (t === 'equip') this.$nextTick(() => { this.drawCharts(); this.drawDailyChart(); });
                 },
 
                 // ── fetch 헬퍼 ──
@@ -595,7 +621,7 @@
                     this.$nextTick(() => this.drawDailyChart());
                 },
 
-                // ── 내보내기 (OEE 종합) ─────────────────────────────────────────────
+                // ── 내보내기 (종합효율 현황) ─────────────────────────────────────────────
                 // CSV = 데이터 전용(요약 KPI + 설비별 순위 + 정지 이벤트, 3 섹션). 서버 미경유 — 클라이언트에서 즉시 빌드.
                 // Excel = 화면 상태(요약·순위·정지) + 일자별 추이 차트(캔버스 캡처)를 서버(OeeExcelExporter)가 렌더 → WYSIWYG.
                 oeeExportName() { return this.curFlow ? this.curFlow : '라인전체'; },
@@ -616,7 +642,7 @@
                     const sec = (ms) => (ms == null ? '' : (ms / 1000).toFixed(1));
                     const r = this.rangeForPeriod();
                     const out = [];
-                    out.push('OEE 종합 데이터');
+                    out.push('종합효율 현황 데이터');
                     out.push(['설비', E(this.curFlow || '라인 전체')].join(','));
                     out.push(['기간', E(this._wallOf(r.from) + ' ~ ' + this._wallOf(r.to))].join(','));
                     out.push('');
@@ -1446,6 +1472,15 @@
             };
         }
 
+        // x축(category) 눈금 라벨: 첫·마지막은 항상 표시, 나머지는 균등 간격. autoSkip 이 끝 눈금을
+        // 보장하지 않아 마지막 날짜/시각 라벨이 잘려 안 보이던 문제 해결.
+        function _edgeTickCallback(value, index, ticks) {
+            const n = ticks.length;
+            if (n <= 1 || index === 0 || index === n - 1) return this.getLabelForValue(value);
+            const step = Math.max(1, Math.ceil(n / 12));
+            return index % step === 0 ? this.getLabelForValue(value) : '';
+        }
+
         function _dailyChartOptions(granularity) {
             const cs = getComputedStyle(document.documentElement);
             const cText = cs.getPropertyValue('--color-text-secondary').trim() || '#888';
@@ -1480,7 +1515,7 @@
                 scales: {
                     x: {
                         stacked: true,
-                        ticks: { color: cText, font: { size: 11 }, maxRotation: granularity === 'hour' ? 45 : 0 },
+                        ticks: { color: cText, font: { size: 11 }, maxRotation: granularity === 'hour' ? 45 : 0, autoSkip: false, callback: _edgeTickCallback },
                         grid: { color: cGrid },
                     },
                     y: {

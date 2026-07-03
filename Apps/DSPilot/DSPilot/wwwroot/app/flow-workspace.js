@@ -14,6 +14,16 @@
             let _cycleChart = null;   // 사이클 분석 탭
             let _histChart = null;    // 최근 히스토리 탭
 
+            // x축(category) 눈금 라벨: 첫·마지막은 항상 표시하고 나머지는 균등 간격으로 남긴다.
+            // Chart.js 기본 autoSkip 은 균등 간격만 유지하고 끝 눈금 보존을 보장하지 않아
+            // 마지막 버킷(가장 최근 날짜/시각) 라벨이 잘려 안 보이던 문제를 해결한다.
+            function edgeTickCallback(value, index, ticks) {
+                const n = ticks.length;
+                if (n <= 1 || index === 0 || index === n - 1) return this.getLabelForValue(value);
+                const step = Math.max(1, Math.ceil(n / 12));
+                return index % step === 0 ? this.getLabelForValue(value) : '';
+            }
+
             return {
                 TOP_MARGIN, LANE_HEIGHT, RIBBON_H,
 
@@ -555,7 +565,7 @@
                                     },
                                 },
                                 scales: {
-                                    x: { stacked: true, grid: { display: false }, ticks: { color: tickColor, font: { size: 10 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 12 } },
+                                    x: { stacked: true, grid: { display: false }, ticks: { color: tickColor, font: { size: 10 }, maxRotation: 0, autoSkip: false, callback: edgeTickCallback } },
                                     y: { stacked: true, beginAtZero: true, min: 0, grid: { color: grid }, ticks: { color: tickColor, font: { size: 10 }, callback: (v) => fmtMs(v) }, title: { display: true, text: '시간', color: tickColor } },
                                 },
                             }
@@ -566,7 +576,7 @@
                         _charts.count = new Chart(countCv, {
                             type: 'line',
                             data: { labels, datasets: [{ label: '가동횟수', data: this.buckets.map(b => b.count), borderColor: cCt, backgroundColor: cCt, borderWidth: 2, tension: 0.3, pointRadius: 2, pointHoverRadius: 4, fill: false, spanGaps: true }] },
-                            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: grid }, ticks: { color: tickColor, font: { size: 10 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 12 } }, y: { beginAtZero: true, grid: { color: grid }, ticks: { color: tickColor, precision: 0 } } } }
+                            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: grid }, ticks: { color: tickColor, font: { size: 10 }, maxRotation: 0, autoSkip: false, callback: edgeTickCallback } }, y: { beginAtZero: true, grid: { color: grid }, ticks: { color: tickColor, precision: 0 } } } }
                         });
                     }
                     if (distCv) {
@@ -1935,7 +1945,7 @@
                                 } },
                             },
                             scales: {
-                                x: { stacked: true, grid: { display: false }, title: { display: true, text: '가동', color: txt }, ticks: { color: txt, font: { size: 10 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 12 } },
+                                x: { stacked: true, grid: { display: false }, title: { display: true, text: '가동', color: txt }, ticks: { color: txt, font: { size: 10 }, maxRotation: 0, autoSkip: false, callback: edgeTickCallback } },
                                 y: { stacked: true, beginAtZero: true, min: 0, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, callback: (v) => fmtMs(v) }, title: { display: true, text: '시간', color: txt } },
                             },
                         },
@@ -2008,7 +2018,7 @@
                                 },
                             },
                             scales: {
-                                x: { stacked: true, grid: { display: false }, title: { display: true, text: '가동 발생 시각', color: txt }, ticks: { color: txt, font: { size: 10 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 12 } },
+                                x: { stacked: true, grid: { display: false }, title: { display: true, text: '가동 발생 시각', color: txt }, ticks: { color: txt, font: { size: 10 }, maxRotation: 0, autoSkip: false, callback: edgeTickCallback } },
                                 y: { stacked: true, beginAtZero: true, min: 0, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, callback: (v) => fmtMs(v) }, title: { display: true, text: '시간', color: txt } },
                             },
                         },
