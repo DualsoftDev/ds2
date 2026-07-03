@@ -86,6 +86,7 @@
                 qDialog: { show: false, qualityPct: 100, busy: false, msg: '', err: '' },
                 // 오버레이 닫힘 가드 — mousedown 이 오버레이(백드롭)에서 시작했을 때만 닫는다(모달 안에서 시작→백드롭 release 드래그로 오닫힘 방지).
                 _qDown: false,
+                _dtDown: false, // 정지 이벤트 로그 다이얼로그 백드롭 닫힘 가드
                 // 비생산 시간대 (doc/22 §3.3) — auto: 자동 계산(10×가동시간 장시간정지) on/off. source: auto/manual/none. ctMultiplier: 자동판정 배수(10).
                 // windows=수동 편집용 사본. selected=선택된 윈도 index(-1=미선택). addMode=드래그 추가 무장.
                 // actualNonProd=이번 기간 실제 제외된 비생산(추이 남색과 동일 소스, 자동 모드 타임라인의 유일한 소스이자 수동 전환 시 시드).
@@ -1239,12 +1240,10 @@
                     return `달력근사 · 기간 ${hrs(pt.plannedMs)} · 가동 ${hrs(pt.runtimeMs)}`;
                 },
 
-                // ── 정지 이벤트 로그 토글 (도넛 [로그 보기 및 설정]) ──
+                // ── 정지 이벤트 로그 (도넛 [로그 보기 및 설정]) — 팝업 다이얼로그(showDowntimeLog) ──
+                // 버튼에서 직접 show=true; 로 여는 것이 정본이나 하위호환용 토글 유지.
                 toggleDowntimeLog() {
                     this.showDowntimeLog = !this.showDowntimeLog;
-                    // 로그는 정지 원인 구성 바로 아래에 표시됨 — 화면 밖일 때만 부드럽게 스크롤(인접 시 점프 방지).
-                    if (this.showDowntimeLog)
-                        this.$nextTick(() => document.getElementById('downtime-log-section')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
                 },
 
                 // ── 품질(양품률) 직접 입력 다이얼로그 (품질 Q 카드 클릭) — 전반 품질% 직접 설정(전역) ──

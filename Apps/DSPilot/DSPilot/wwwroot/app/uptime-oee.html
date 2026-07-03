@@ -261,9 +261,9 @@
                         <div style="font-size:0.62rem; color:var(--color-text-secondary); margin-top:10px;">
                             기본 <b>고장</b> — 로그에서 체크 해제 시 유지보수로 변경(MTBF 고장 제외)
                         </div>
-                        <button class="btn btn-sm btn-outlined" style="margin-top:12px; width:100%; justify-content:center;" @click="toggleDowntimeLog()">
+                        <button class="btn btn-sm btn-outlined" style="margin-top:12px; width:100%; justify-content:center;" @click="showDowntimeLog = true">
                             <span class="material-icons" style="font-size:16px;">receipt_long</span>
-                            <span x-text="showDowntimeLog ? '정지 이벤트 로그 접기' : '정지 이벤트 로그 보기 및 설정'"></span>
+                            정지 이벤트 로그 보기 및 설정
                         </button>
                     </section>
 
@@ -295,17 +295,22 @@
                     </section>
                 </div>
 
-                <!-- ════ 정지 이벤트 로그 (실데이터: /api/oee/downtime) + 미분류 큐 — 기본 숨김, 정지 원인 구성의 [로그 보기 및 설정] 토글(이 아래 표시) ════ -->
-                <section class="card up-section" id="downtime-log-section" x-show="showDowntimeLog" x-cloak>
-                    <div class="ds-card-h">
-                        <h4>정지 이벤트 로그</h4>
-                        <span class="ds-card-h-sub">발생 → 복구 · 고장(기본) / 유지보수 체크 해제로 변경</span>
+                <!-- ════ 정지 이벤트 로그 다이얼로그 (실데이터: /api/oee/downtime) + 미분류 큐 — 정지 구성의 [로그 보기 및 설정] 버튼으로 팝업 ════ -->
+                <!-- 닫힘은 mousedown 이 백드롭에서 시작 + 백드롭에서 release 일 때만(모달 안 클릭/드래그로 오닫힘 방지). -->
+                <div class="up-blk-overlay" x-show="showDowntimeLog" style="display:none;"
+                     @mousedown="_dtDown = ($event.target === $el)"
+                     @mouseup="if (_dtDown && $event.target === $el) showDowntimeLog=false; _dtDown=false"
+                     @keydown.escape.window="showDowntimeLog=false" x-cloak>
+                <div class="up-blk-modal" @click.stop id="downtime-log-section" style="width:min(1080px,96vw); max-height:90vh; display:flex; flex-direction:column;">
+                    <div class="up-blk-head">
+                        <span class="material-icons">receipt_long</span>
+                        <h3>정지 이벤트 로그</h3>
+                        <span class="ds-card-h-sub" style="margin-left:8px;">발생 → 복구 · 고장(기본) / 유지보수 체크 해제로 변경</span>
                         <span style="flex:1;"></span>
-                        <button class="btn btn-sm btn-outlined" @click="toggleDowntimeLog()" title="로그 접기">
-                            <span class="material-icons" style="font-size:15px;">close</span> 접기
-                        </button>
+                        <button class="btn-icon" @click="showDowntimeLog=false" title="닫기"><span class="material-icons">close</span></button>
                     </div>
 
+                    <div style="overflow:auto; flex:1; min-height:0;">
                     <!-- 필터 -->
                     <div class="up-filter-row">
                         <span style="font-size:0.64rem; font-weight:700; color:var(--color-text-secondary); text-transform:uppercase; letter-spacing:0.06em; margin-right:4px;">상태</span>
@@ -384,7 +389,9 @@
                         <span class="clue-chip ut"><span class="material-icons">troubleshoot</span>usertag</span>
                         같은 설비·시간대에 겹친 이상신호를 <b>표시용</b>으로 붙입니다 — <b>건수·MTBF에 더해지지 않습니다</b>(정직성).
                     </div>
-                </section>
+                    </div>
+                </div>
+                </div>
 
                 <!-- 품질(양품률) 직접 입력은 OEE 종합의 '품질 Q' 카드 클릭 → 다이얼로그로 이동(아래 #qDialog). -->
                 <!-- 설비별 OEE 순위는 상단 '정지 구성' 옆(2열 그리드)으로 이동 — 여기 있던 전폭 순위 카드 제거. -->
