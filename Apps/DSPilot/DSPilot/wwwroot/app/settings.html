@@ -870,16 +870,13 @@
                 rt: { connected: false },
                 autoCal: { running: false },
                 _conn: null, _toastTimer: null,
-                TAB_KEY: 'dspilot-settings-tab', // 마지막 선택 탭 브라우저 기억 키
-                activeTab: 'general', // 유형별 탭: general | monitoring | anomaly | data (기본=일반)
+                activeTab: 'general', // 유형별 탭: general | monitoring | anomaly | data (항상 기본=일반, 위치 미저장)
                 scanMs: 100, scanConnected: false, // PLC 스캔 주기 (Agent 동기화 — 기본 100ms)
                 autoCalibrate: true, // 자동 duration 정합 ON/OFF (Agent 동기화)
                 // 사용자 정의 에러(UserTag 정의) 읽기전용 목록 — filter/sort/page 클라이언트 처리
                 ude: { loading: false, items: [], error: '', q: '', sortKey: 'name', sortDir: 'asc', page: 0, pageSize: 20 },
 
                 async init() {
-                    const savedTab = localStorage.getItem(this.TAB_KEY);
-                    if (['monitoring', 'anomaly', 'data', 'general'].includes(savedTab)) this.activeTab = savedTab;
                     this.dark = localStorage.getItem('dspilot-theme') === 'dark';
                     window.addEventListener('storage', (e) => { if (e.key === 'dspilot-theme') this.dark = e.newValue === 'dark'; });
                     await this.load();
@@ -1002,10 +999,9 @@
 
                 destroy() { this._conn?.stop(); clearTimeout(this._demoTimer); },
 
-                // 유형별 탭 전환 — 선택은 이 브라우저에 기억된다.
+                // 유형별 탭 전환 — 항상 기본 '일반'에서 시작, 위치는 저장하지 않는다.
                 setTab(tab) {
                     this.activeTab = tab;
-                    localStorage.setItem(this.TAB_KEY, tab);
                 },
 
                 // 테마 변경: .dsp-page(Alpine) + <html> + 셸 레이아웃 + 다른 탭까지 모두 반영.
