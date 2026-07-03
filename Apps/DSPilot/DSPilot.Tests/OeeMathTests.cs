@@ -221,6 +221,72 @@ public class OeeMathTests
     public void IsLongStopNonProduction_no_threshold_is_false(double thrMs)
         => Assert.False(OeeMath.IsLongStopNonProduction(1_000_000, thrMs));
 
+    // ── gap 기반 비가동 분류 (doc/23 §5) ────────────────────────────────────
+
+    [Fact]
+    public void DowntimeGap_multiplier_is_three()
+        => Assert.Equal(3.0, OeeMath.DowntimeGapMultiplier);
+
+    [Theory]
+    // gap' = 2000ms, CT임계 = 10000ms → 비가동 경계 6000(초과), 비생산 경계 100000(이상)
+    [InlineData(2000, OeeMath.GapClass.Normal)]         // 정상 대기 (= gap')
+    [InlineData(6000, OeeMath.GapClass.Normal)]         // 정확히 3×gap' → 아직 정상(초과 조건)
+    [InlineData(6001, OeeMath.GapClass.Downtime)]       // 3×gap' 초과 → 비가동
+    [InlineData(99999, OeeMath.GapClass.Downtime)]      // 10×CT 직전 → 비가동 유지
+    [InlineData(100000, OeeMath.GapClass.NonProduction)] // 정확히 10×CT → 비생산
+    [InlineData(500000, OeeMath.GapClass.NonProduction)] // 장시간 → 비생산
+    public void ClassifyGap_boundaries(double gapMs, OeeMath.GapClass expected)
+        => Assert.Equal(expected, OeeMath.ClassifyGap(gapMs, gapMedianMs: 2000, ctThresholdMs: 10000));
+
+    [Fact]
+    public void ClassifyGap_no_gap_median_only_nonproduction_applies()
+    {
+        // gap' 표본 부족(0) → 비가동 판정 불가(가짜 정지 금지) — 비생산 경계만 적용.
+        Assert.Equal(OeeMath.GapClass.Normal, OeeMath.ClassifyGap(50_000, 0, 10_000));
+        Assert.Equal(OeeMath.GapClass.NonProduction, OeeMath.ClassifyGap(100_000, 0, 10_000));
+    }
+
+    [Fact]
+    public void ClassifyGap_no_thresholds_at_all_is_normal()
+        => Assert.Equal(OeeMath.GapClass.Normal, OeeMath.ClassifyGap(1_000_000, 0, 0));
+
+    // ── 무사이클 임계 폴백 체인 (doc/23 §6 Phase 1) ─────────────────────────
+
+    [Fact]
+    public void NoCycleThreshold_chain_gap_median_first()
+        // ① gap' 학습됨 → 3×gap' (floor 이상이면 그대로)
+        => Assert.Equal(60_000, OeeMath.ResolveNoCycleThresholdMs(
+            gapMedianMs: 20_000, ctAvgMs: 5_000, floorMs: 30_000, bootstrapMs: 120_000));
+
+    [Fact]
+    public void NoCycleThreshold_chain_floor_clamps_fast_flows()
+        // ① 초고속 flow(gap' 500ms) → 3×gap'=1.5s 지만 floor 30s 로 클램프(잡음성 미세정지 방지)
+        => Assert.Equal(30_000, OeeMath.ResolveNoCycleThresholdMs(
+            gapMedianMs: 500, ctAvgMs: 5_000, floorMs: 30_000, bootstrapMs: 120_000));
+
+    [Fact]
+    public void NoCycleThreshold_chain_ct_avg_fallback()
+        // ② gap' 없음 → 3×14일평균CT (여전히 per-flow)
+        => Assert.Equal(150_000, OeeMath.ResolveNoCycleThresholdMs(
+            gapMedianMs: 0, ctAvgMs: 50_000, floorMs: 30_000, bootstrapMs: 120_000));
+
+    [Fact]
+    public void NoCycleThreshold_chain_bootstrap_when_unlearned()
+        // ③ 학습 전무(콜드스타트) → 부트스트랩(기존 NoCycleSeconds)
+        => Assert.Equal(120_000, OeeMath.ResolveNoCycleThresholdMs(
+            gapMedianMs: 0, ctAvgMs: 0, floorMs: 30_000, bootstrapMs: 120_000));
+
+    [Fact]
+    public void NoCycleThreshold_slow_flow_no_false_onset()
+    {
+        // 회귀 핵심: 주기 200s(>120s) 느린 flow — 구 고정 120s 면 정상 gap(180s)에서 거짓 onset.
+        // gap'=180s 학습 시 임계 540s → 정상 gap 은 안 걸리고, 진짜 정지(600s)만 걸린다.
+        var thr = OeeMath.ResolveNoCycleThresholdMs(180_000, 200_000, 30_000, 120_000);
+        Assert.Equal(540_000, thr);
+        Assert.True(180_000 < thr);   // 정상 gap → onset 아님
+        Assert.True(600_000 >= thr);  // 진짜 정지 → onset
+    }
+
     // ── MTBF 고장 판정 = 설비고장(equipment_fault)만 ───────────────────────
 
     [Theory]

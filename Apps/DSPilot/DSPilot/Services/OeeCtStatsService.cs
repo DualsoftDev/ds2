@@ -124,6 +124,71 @@ public sealed class OeeCtStatsService
     /// weight(age) = exp(age × ln2 / halfLife) — age가 클수록(오래될수록) 가중치 증가 → 최근 자기참조순환 영향 감소.
     /// 가중 p10 도 같은 가중치를 적용한 누적분위로 산출한다.
     /// </summary>
+    /// <summary>
+    /// flow별 클린 gap 중앙값 gap'(ms) — doc/23 §4. gap = WT = ct − mt(완료→다음 가동 간격, CT=MT+WT 왕복 보존).
+    /// 최근 <paramref name="windowDays"/>일(기본 14) 클린사이클(IsIdle=0, ct&gt;0, mt 있음)만 — IsIdle 이 CT(주기)
+    /// 이상치를 이미 제외하므로 정지를 머금은 사이클이 gap' 을 끌어올리는 오염(threshold creep)이 없다.
+    /// <b>가중 없음</b>(CT 임계의 반대가중은 성능 P 자기참조 방지용 — 비가동 분류엔 불필요, 정지 gap 은 정상 gap 과
+    /// 자릿수가 달라 신호가 압도적)·평균 대신 <b>중앙값</b>(미필터 긴 gap 하나에 안 끌려감).
+    /// <paramref name="excludeUntilUtc"/>로 오늘 제외(자기참조 방지) — CT 임계와 동일 컨벤션.
+    /// 표본 0 인 flow 는 맵에서 제외(호출측이 폴백 체인 ②③으로 처리).
+    /// </summary>
+    public async Task<Dictionary<string, (double MedianMs, int Sample)>> ComputeGapMedianAsync(
+        int windowDays = 14, DateTime? excludeUntilUtc = null)
+    {
+        var result = new Dictionary<string, (double MedianMs, int Sample)>(StringComparer.OrdinalIgnoreCase);
+        var dbPath = _pathResolver.GetSharedDbPath();
+        if (!File.Exists(dbPath)) return result;
+        try
+        {
+            await using var conn = new SqliteConnection(
+                $"Data Source={dbPath};Mode=ReadWriteCreate;Default Timeout=20");
+            await conn.OpenAsync();
+
+            var histExists = await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlowHistory'");
+            if (histExists == 0) return result;
+
+            var since = DateTime.UtcNow.AddDays(-Math.Max(1, windowDays))
+                .ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+            string? until = excludeUntilUtc.HasValue
+                ? excludeUntilUtc.Value.ToUniversalTime()
+                    .ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture)
+                : null;
+
+            // gap = ct − mt. mt 없는(미완료) 사이클은 gap 정의 불가 → 제외. ct ≥ mt 가드(비정상 행 방어).
+            const string sql = @"
+                SELECT flowName AS FlowName, (ct - mt) AS Ct, 0.0 AS AgeDays
+                FROM dspFlowHistory
+                WHERE COALESCE(IsIdle,0) = 0 AND ct IS NOT NULL AND ct > 0
+                  AND mt IS NOT NULL AND ct >= mt
+                  AND recordedAt >= @Since
+                  AND (@Until IS NULL OR recordedAt < @Until)";
+            var raw = await conn.QueryAsync<CtRowRaw>(sql, new { Since = since, Until = until });
+
+            var grouped = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in raw)
+            {
+                if (string.IsNullOrEmpty(r.FlowName)) continue;
+                if (!grouped.TryGetValue(r.FlowName, out var list)) { list = new(); grouped[r.FlowName] = list; }
+                list.Add((int)r.Ct);
+            }
+
+            foreach (var (flow, list) in grouped)
+            {
+                if (list.Count == 0) continue;
+                list.Sort();
+                result[flow] = (list[list.Count / 2], list.Count);
+            }
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[OEE] gap median (14d clean WT) compute failed");
+            return result;
+        }
+    }
+
     public async Task<Dictionary<string, (double AvgMs, double P10Ms, int Sample)>> ComputeCtThresholdAsync(
         int windowDays = 14, int minCleanCycles = 1, DateTime? excludeUntilUtc = null, double? decayHalfLifeDays = null)
     {

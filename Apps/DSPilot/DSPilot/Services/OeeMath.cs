@@ -23,6 +23,56 @@ public static class OeeMath
         => ctThresholdMs > 0 && idleDurationMs >= NonProductionCtMultiplier * ctThresholdMs;
 
     /// <summary>
+    /// 비가동 gap 판정 배수(doc/23 §5) — gap(완료→다음 가동 간격)이 flow 자신의 클린 gap 중앙값(gap')의
+    /// 이 배수를 넘으면 비가동. ×1 은 중앙값 정의상 정상 gap 절반이 초과해 오탐 → 마진 필수, ×2 는 작고
+    /// 변동 큰 gap 에서 튐 → 3 을 기본으로 한다.
+    /// </summary>
+    public const double DowntimeGapMultiplier = 3.0;
+
+    /// <summary>gap(완료 후 대기 간격) 분류 결과 (doc/23 §5).</summary>
+    public enum GapClass
+    {
+        /// <summary>정상 대기 — 생산 시간에 포함.</summary>
+        Normal,
+        /// <summary>비가동 — 가용성 A 분모 안에서 깎임.</summary>
+        Downtime,
+        /// <summary>비생산 — A 분모 밖(≥10×CT, 기존 규칙 재사용).</summary>
+        NonProduction
+    }
+
+    /// <summary>
+    /// gap(ms)을 정상/비가동/비생산으로 분류 (doc/23 §5).
+    ///   gap ≥ <see cref="NonProductionCtMultiplier"/>(10) × ctThresholdMs → 비생산 (기존 10×CT 규칙과 동일 경계)
+    ///   gap &gt; <see cref="DowntimeGapMultiplier"/>(3) × gapMedianMs      → 비가동
+    ///   그 외                                                              → 정상
+    /// gapMedianMs ≤ 0(표본 부족)이면 비가동 판정 불가 → 비생산 경계만 적용(가짜 정지 금지, doc/21 §10).
+    /// 비생산을 먼저 검사한다 — 정상 데이터에선 항상 3×gap' &lt; 10×CT (gap'=WT ⊂ CT) 라 순서 무해하나,
+    /// 표본 왜곡 시에도 "더 긴 정지 = 더 관대한 분류(분모 밖)" 방향으로 안전.
+    /// </summary>
+    public static GapClass ClassifyGap(double gapMs, double gapMedianMs, double ctThresholdMs)
+    {
+        if (IsLongStopNonProduction(gapMs, ctThresholdMs)) return GapClass.NonProduction;
+        if (gapMedianMs > 0 && gapMs > DowntimeGapMultiplier * gapMedianMs) return GapClass.Downtime;
+        return GapClass.Normal;
+    }
+
+    /// <summary>
+    /// 무사이클 정지 onset 임계(ms) 폴백 체인 (doc/23 §6 Phase 1). 위에서부터:
+    ///   ① gap' 학습됨 → max(3×gap', floor) — floor 는 초고속 flow 잡음성 미세정지 onset 방지
+    ///   ② gap' 없지만 14일평균CT 학습됨 → 3×평균CT (여전히 per-flow)
+    ///   ③ 학습 전무(콜드스타트) → bootstrapMs(기존 NoCycleSeconds, 기본 120s)
+    /// 고정 120초를 제거하지 않고 ③ 부트스트랩으로 격하 — Day 0 첫날 정지 감지는 유지하고,
+    /// 학습되면(보통 Day 1+) 자동으로 ①/② per-flow 로 승격돼 느린 flow 상시 오탐이 사라진다.
+    /// </summary>
+    public static double ResolveNoCycleThresholdMs(
+        double gapMedianMs, double ctAvgMs, double floorMs, double bootstrapMs)
+    {
+        if (gapMedianMs > 0) return Math.Max(DowntimeGapMultiplier * gapMedianMs, floorMs);
+        if (ctAvgMs > 0) return DowntimeGapMultiplier * ctAvgMs;
+        return bootstrapMs;
+    }
+
+    /// <summary>
     /// 품질 = (기간 사이클수 − 입력 불량) / 기간 사이클수 (doc/21 §12 개정).
     /// 분모는 항상 dspFlowHistory 기간 사이클수(자동) — production 행의 스냅샷 totalCount 를 분모로 쓰지 않는다.
     /// 일부 날만 불량을 입력해도 미입력일이 분모에서 빠지지 않아(미입력일 = 불량 0) 기간 품질이 왜곡되지 않고,
