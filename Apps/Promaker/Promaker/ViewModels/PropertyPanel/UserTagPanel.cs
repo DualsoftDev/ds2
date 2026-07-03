@@ -83,6 +83,29 @@ public partial class PropertyPanelState
     }
 
     [RelayCommand]
+    private void ClearUserTags()
+    {
+        if (!ShowSystemUserTags) return; // Passive(수동) 시스템은 UserTags 미지원
+        if (!GuardSimulationSemanticEdit("사용자 태그 일괄 삭제")) return;
+        if (!TryGetSelectedNode(EntityKind.System, out var systemNode)) return;
+
+        if (UserTags.Count == 0)
+        {
+            DialogHelpers.Warn("삭제할 사용자 태그가 없습니다.");
+            return;
+        }
+
+        if (!DialogHelpers.Confirm(null, $"사용자 태그 {UserTags.Count}건을 모두 삭제합니다. 계속하시겠습니까?", "사용자 태그 일괄 삭제"))
+            return;
+
+        if (!_host.TryFunc(() => Store.ClearUserTags(systemNode.Id), out var removed, 0))
+            return;
+
+        RefreshUserTagsPanel(systemNode.Id);
+        _host.SetStatusText($"사용자 태그 {removed}건 삭제됨.");
+    }
+
+    [RelayCommand]
     private void ExportUserTagsCsv()
     {
         if (!TryGetSelectedNode(EntityKind.System, out var systemNode)) return;
