@@ -348,75 +348,127 @@
                                 </div>
                             </div>
 
-                            <!-- 동작시간 이상감지 -->
+                            <!-- 동작시간 이상감지 (실측 자동 보정 + 실시간 학습 통합) -->
                             <div class="card" x-show="activeTab === 'monitoring'">
                                 <div class="card-header">
                                     <span class="material-icons">tune</span>
                                     <span>동작시간 이상감지</span>
                                 </div>
                                 <div class="card-content">
-                                    <p style="font-size:0.78rem;font-weight:600;margin:0 0 8px;">이상감지 기준</p>
-                                    <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
-                                        <input type="checkbox" x-model="autoCalibrate" @change="applyAutoCalibrate()" :disabled="!scanConnected" />
-                                        <span x-text="autoCalibrate ? 'ON — 실시간 학습 (Agent 자동)' : 'OFF — AASX 확정값 (p95 기반)'"></span>
-                                    </label>
-                                    <small class="settings-hint">
-                                        ON: 3회 가동 관측 후 avg ± 마진으로 즉시 적용. OFF: 아래 보정 설정으로 기록된 p95 값을 기준으로 사용.
-                                        전 인스턴스 동시 적용.
-                                        <span x-show="!scanConnected"><strong> — Agent 미연결 상태입니다.</strong></span>
+                                    <small class="settings-hint" style="display:block;margin:0 0 12px;">
+                                        설비별 실측 duration 으로 <strong>동작 초과(ActionOver)</strong> · <strong>동작 미달(ActionUnder)</strong> 을 감지합니다.
+                                        아래에서 임계를 실측으로 확정(보정)해야 감지가 무장됩니다.
                                     </small>
 
-                                    <!-- OFF: AASX 자동 보정 설정 -->
-                                    <hr class="divider" style="margin:14px 0;" />
-                                    <div :style="autoCalibrate ? 'opacity:0.45;pointer-events:none;user-select:none;' : ''">
-                                        <p style="font-size:0.78rem;font-weight:600;margin:0 0 8px;" x-show="!autoCalibrate">AASX 자동 보정 설정</p>
-                                        <p style="font-size:0.78rem;font-weight:600;margin:0 0 8px;color:var(--color-text-secondary);" x-show="autoCalibrate">AASX 자동 보정 설정 <span style="font-weight:400;">(정합 ON — 비활성)</span></p>
+                                    <!-- ── 1. 실측 자동 보정 (AASX 임계 산출 — 감지 무장) ── -->
+                                    <p style="font-size:0.78rem;font-weight:700;margin:0 0 4px;">1. 실측 자동 보정 (AASX 임계 산출)</p>
+                                    <small class="settings-hint" style="display:block;margin:0 0 10px;">실측 duration 을 AASX 에 확정해 감지 임계를 무장합니다. 실시간 학습(맨 아래) 여부와 무관하게 동작합니다.</small>
 
-                                        <label class="switch mb-2">
-                                            <input type="checkbox" x-model="s.autoCalibration.enabled" />
-                                            클린 가동 누적 시 자동 실행
-                                        </label>
-                                        <small class="settings-hint">Flow 가 아래 클린 가동 횟수를 채우면 1회 자동 보정. 끄면 수동("지금 실측값 채우기")만 동작합니다.</small>
+                                    <label class="switch mb-2">
+                                        <input type="checkbox" x-model="s.autoCalibration.enabled" />
+                                        클린 가동 누적 시 자동 실행
+                                    </label>
+                                    <small class="settings-hint">Flow 가 아래 클린 가동 횟수를 채우면 1회 자동 보정. 끄면 수동("지금 실측값 채우기")만 동작합니다.</small>
 
-                                        <div class="form-group" style="margin-top:12px;">
-                                            <label class="form-label">최소 클린 가동 횟수</label>
-                                            <input type="number" class="form-field mono" x-model.number="s.autoCalibration.minCleanCycles" min="1" max="1000" placeholder="10" />
-                                            <small class="settings-hint">이상치 제외 가동시간 존재 가동 기준. 기본 10.</small>
+                                    <div class="form-group" style="margin-top:12px;">
+                                        <label class="form-label">최소 클린 가동 횟수</label>
+                                        <input type="number" class="form-field mono" x-model.number="s.autoCalibration.minCleanCycles" min="1" max="1000" placeholder="10" />
+                                        <small class="settings-hint">이상치 제외 가동시간 존재 가동 기준. 기본 10.</small>
+                                    </div>
+
+                                    <!-- 동작 초과(ActionOver) — Max 임계 (상시 적용) -->
+                                    <div class="form-group" style="margin-top:14px;margin-bottom:0;">
+                                        <label class="form-label">동작 초과(ActionOver) — Max 임계 산출 <span style="font-weight:400;color:var(--color-text-secondary);">· 상시 적용</span></label>
+                                        <div style="display:flex;flex-direction:column;gap:6px;margin:4px 0 6px;">
+                                            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                                                <input type="radio" x-model="s.autoCalibration.maxMode" value="Percentile" />
+                                                <span>백분위수 (이상치 제외)</span>
+                                            </label>
+                                            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                                                <input type="radio" x-model="s.autoCalibration.maxMode" value="RawMax" />
+                                                <span>실측 최대값 + 여유율</span>
+                                            </label>
                                         </div>
+                                        <div x-show="s.autoCalibration.maxMode !== 'RawMax'" x-cloak style="margin-top:4px;">
+                                            <input type="number" class="form-field mono" x-model.number="s.autoCalibration.percentileMax" min="50" max="100" step="1" placeholder="95" />
+                                            <small class="settings-hint">Max = 실측 p<span x-text="s.autoCalibration.percentileMax ?? 95"></span>. 클수록 느슨(오탐↓).</small>
+                                        </div>
+                                        <div x-show="s.autoCalibration.maxMode === 'RawMax'" x-cloak style="margin-top:4px;">
+                                            <div style="display:flex;align-items:center;gap:6px;">
+                                                <span style="font-size:0.8rem;white-space:nowrap;">+</span>
+                                                <input type="text" inputmode="decimal" class="form-field mono"
+                                                       :value="s.autoCalibration.marginMaxPct == null ? '' : Math.round(s.autoCalibration.marginMaxPct * 10000) / 100"
+                                                       @change="s.autoCalibration.marginMaxPct = pctToFrac($event.target.value)"
+                                                       placeholder="20" style="width:90px;" />
+                                                <span style="font-size:0.8rem;white-space:nowrap;">% 여유율</span>
+                                            </div>
+                                            <small class="settings-hint">Max = 실측 최대값 × (1 + 여유율%). 예: 20 = +20%, 10.5 = +10.5%. 단일 이상치가 반영되므로 샘플 수가 충분할 때 사용하세요.</small>
+                                        </div>
+                                    </div>
 
-                                        <div class="form-group" style="margin-bottom:0;">
-                                            <label class="form-label">ActionOver 임계 Max 산출 방식</label>
-                                            <div style="display:flex;flex-direction:column;gap:6px;margin:4px 0 6px;">
-                                                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-                                                    <input type="radio" x-model="s.autoCalibration.maxMode" value="Percentile" />
-                                                    <span>백분위수 (이상치 제외)</span>
-                                                </label>
-                                                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-                                                    <input type="radio" x-model="s.autoCalibration.maxMode" value="RawMax" />
-                                                    <span>실측 최대값 + 여유율</span>
-                                                </label>
+                                    <!-- 동작 미달(ActionUnder) — Min 임계 (선택 / opt-in) -->
+                                    <div class="form-group" style="margin-top:14px;margin-bottom:0;">
+                                        <label class="switch mb-2">
+                                            <input type="checkbox" x-model="s.autoCalibration.fillMin" />
+                                            동작 미달(ActionUnder) 감지 — 최소값(Min)도 실측 기록
+                                        </label>
+                                        <small class="settings-hint">켜면 p05 기반 MinDuration 을 AASX 에 기록해 동작 미달 감지를 활성화합니다. 실시간 학습 여부와 무관.</small>
+                                        <div x-show="s.autoCalibration.fillMin" x-cloak>
+                                            <div class="form-group" style="margin:12px 0 0;">
+                                                <label class="form-label">Min 백분위수 (PercentileMin)</label>
+                                                <input type="number" class="form-field mono" x-model.number="s.autoCalibration.percentileMin" min="0" max="50" step="1" placeholder="5" />
+                                                <small class="settings-hint">Min 기준 백분위수. 기본 5 (p5).</small>
                                             </div>
-                                            <div x-show="s.autoCalibration.maxMode !== 'RawMax'" x-cloak style="margin-top:4px;">
-                                                <input type="number" class="form-field mono" x-model.number="s.autoCalibration.percentileMax" min="50" max="100" step="1" placeholder="95" />
-                                                <small class="settings-hint">Max = 실측 p<span x-text="s.autoCalibration.percentileMax ?? 95"></span>. 클수록 느슨(오탐↓).</small>
-                                            </div>
-                                            <div x-show="s.autoCalibration.maxMode === 'RawMax'" x-cloak style="margin-top:4px;">
-                                                <div style="display:flex;align-items:center;gap:6px;">
-                                                    <span style="font-size:0.8rem;white-space:nowrap;">+</span>
-                                                    <input type="number" class="form-field mono" x-model.number="s.autoCalibration.marginMaxPct" min="0" max="5" step="0.05" placeholder="0.20" style="width:90px;" />
-                                                    <span style="font-size:0.8rem;white-space:nowrap;">여유율</span>
-                                                </div>
-                                                <small class="settings-hint">Max = 실측 최대값 × (1 + 여유율). 예: 0.20 = +20%. 단일 이상치가 반영되므로 샘플 수가 충분할 때 사용하세요.</small>
+                                            <div class="form-group" style="margin:8px 0 0;">
+                                                <label class="form-label">최소값 추가 여유율 (%)</label>
+                                                <input type="text" inputmode="decimal" class="form-field mono"
+                                                       :value="s.autoCalibration.marginMinPct == null ? '' : Math.round(s.autoCalibration.marginMinPct * 10000) / 100"
+                                                       @change="s.autoCalibration.marginMinPct = pctToFrac($event.target.value)"
+                                                       placeholder="3" />
+                                                <small class="settings-hint">Min = pN × (1 − 여유율%). 예: 3 = −3%, 10.5 = −10.5% 추가 여유.</small>
                                             </div>
                                         </div>
                                     </div>
 
-                                    <!-- ON: 건강 기준선 동결 -->
-                                    <div x-show="autoCalibrate">
-                                        <hr class="divider" style="margin:14px 0;" />
-                                        <p style="font-size:0.78rem;font-weight:600;margin:0 0 8px;">기준선 동결</p>
+                                    <!-- 실행 & 상태 -->
+                                    <div class="settings-status-grid" style="margin:14px 0 0;">
+                                        <span class="lbl">마지막 실측 적용</span>
+                                        <span class="val" x-text="s.autoCalibration.lastAppliedAt || '없음'"></span>
+                                        <span class="lbl">자동 1회 완료</span>
+                                        <span class="val" x-text="s.autoCalibration.completedAt || '미실행 (대기 중)'"></span>
+                                    </div>
+                                    <small class="settings-hint" x-show="s.autoCalibration.lastAppliedSummary"
+                                           x-text="'최근 기록: ' + (s.autoCalibration.lastAppliedSummary || '')"></small>
+
+                                    <button class="btn btn-outlined w-100" style="margin-top:12px;" @click="fillAutoCalibration()" :disabled="busy || autoCal.running">
+                                        <span class="material-icons" x-text="autoCal.running ? 'refresh' : 'sync'"></span>
+                                        <span x-text="autoCal.running ? '채우는 중…' : '지금 실측값 채우기 (재시도)'"></span>
+                                    </button>
+                                    <small class="settings-hint">완료 여부와 무관하게 현재 실측값으로 적합 Flow 디바이스 duration 을 즉시 재기록합니다.</small>
+
+                                    <button class="btn btn-outlined w-100" style="margin-top:10px; color:var(--color-warning, #e67e22); border-color:var(--color-warning, #e67e22);"
+                                            @click="clearCalibrationRanges()" :disabled="busy || autoCal.running">
+                                        <span class="material-icons">restart_alt</span>
+                                        <span>Min/Max 전부 초기화 (null)</span>
+                                    </button>
+                                    <small class="settings-hint">모든 디바이스의 이상감지 Min/Max 를 전부 비웁니다(Duration 은 보존). 잘못 보정된 임계를 한 번에 되돌릴 때 사용.</small>
+
+                                    <!-- ── 2. 실시간 학습 (Agent 자동) — 선택 ── -->
+                                    <hr class="divider" style="margin:16px 0;" />
+                                    <p style="font-size:0.78rem;font-weight:700;margin:0 0 4px;">2. 실시간 학습 (Agent 자동)</p>
+                                    <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                                        <input type="checkbox" x-model="autoCalibrate" @change="applyAutoCalibrate()" :disabled="!scanConnected" />
+                                        <span x-text="autoCalibrate ? 'ON — 실시간 학습 사용 (Agent 자동)' : 'OFF — 미사용'"></span>
+                                    </label>
+                                    <small class="settings-hint">
+                                        ON: Agent 가 실측 duration 을 라이브 학습 — 설비 노화 드리프트 추적('기준선 동결')과, 동작 미달을 켠 경우 그 판정의 라이브 기준으로 사용(3회 관측 후 avg ± 마진).
+                                        <strong>동작 초과(ActionOver)·센서 이상과는 무관</strong>합니다.
+                                        <span x-show="!scanConnected"><strong> — Agent 미연결 상태입니다.</strong></span>
+                                    </small>
+
+                                    <div x-show="autoCalibrate" style="margin-top:12px;">
                                         <button class="btn btn-outlined w-100" @click="freezeHealthBaseline()" :disabled="!scanConnected">
-                                            <span class="material-icons">ac_unit</span> 지금 동결
+                                            <span class="material-icons">ac_unit</span> 기준선 동결 (지금 동결)
                                         </button>
                                         <small class="settings-hint">
                                             현재 학습된 분포를 건강 기준선으로 고정합니다. 이후 가동은 이 기준 대비 드리프트(설비 노화)로 추적됩니다.
@@ -652,58 +704,6 @@
                                     <a class="btn btn-outlined w-100" href="/uptime-alarm?blockMgr=1">
                                         <span class="material-icons">notifications_off</span> 이상 분석 페이지에서 차단 관리
                                     </a>
-                                </div>
-                            </div>
-
-                            <!-- 실측값 AASX 반영 (공통 옵션) -->
-                            <div class="card" x-show="activeTab === 'monitoring'">
-                                <div class="card-header">
-                                    <span class="material-icons">speed</span>
-                                    <span>실측값 AASX 반영</span>
-                                </div>
-                                <div class="card-content">
-                                    <label class="switch mb-2">
-                                        <input type="checkbox" x-model="s.autoCalibration.fillMin" />
-                                        최소값(Min)도 실측으로 기록
-                                    </label>
-                                    <small class="settings-hint">켜면 p05 기반 MinDuration 을 AASX 에 기록 — 동작 미달(ActionUnder) 감지가 활성화됩니다. 정합 ON/OFF 무관하게 적용됩니다.</small>
-
-                                    <div x-show="s.autoCalibration.fillMin" x-cloak>
-                                        <div class="form-group" style="margin:14px 0 0;">
-                                            <label class="form-label">Min 백분위수 (PercentileMin)</label>
-                                            <input type="number" class="form-field mono" x-model.number="s.autoCalibration.percentileMin" min="0" max="50" step="1" placeholder="5" />
-                                            <small class="settings-hint">Min 기준 백분위수. 기본 5 (p5).</small>
-                                        </div>
-                                        <div class="form-group" style="margin:8px 0 0;">
-                                            <label class="form-label">최소값 추가 여유율</label>
-                                            <input type="number" class="form-field mono" x-model.number="s.autoCalibration.marginMinPct" min="0" max="1" step="0.01" placeholder="0.03" />
-                                            <small class="settings-hint">Min = pN × (1 − 이 값). 예: 0.03 = −3% 추가 여유.</small>
-                                        </div>
-                                    </div>
-
-                                    <!-- 상태/버튼: 정합 ON/OFF 무관 항상 활성 -->
-                                    <div class="settings-status-grid" style="margin:14px 0 0;">
-                                        <span class="lbl">마지막 실측 적용</span>
-                                        <span class="val" x-text="s.autoCalibration.lastAppliedAt || '없음'"></span>
-                                        <span class="lbl">자동 1회 완료</span>
-                                        <span class="val" x-text="s.autoCalibration.completedAt || '미실행 (대기 중)'"></span>
-                                    </div>
-                                    <small class="settings-hint" x-show="s.autoCalibration.lastAppliedSummary"
-                                           x-text="'최근 기록: ' + (s.autoCalibration.lastAppliedSummary || '')"></small>
-
-                                    <hr class="divider my-3" />
-                                    <button class="btn btn-outlined w-100" @click="fillAutoCalibration()" :disabled="busy || autoCal.running">
-                                        <span class="material-icons" x-text="autoCal.running ? 'refresh' : 'sync'"></span>
-                                        <span x-text="autoCal.running ? '채우는 중…' : '지금 실측값 채우기 (재시도)'"></span>
-                                    </button>
-                                    <small class="settings-hint">완료 여부와 무관하게 현재 실측값으로 적합 Flow 디바이스 duration 을 즉시 재기록합니다.</small>
-
-                                    <button class="btn btn-outlined w-100" style="margin-top:10px; color:var(--color-warning, #e67e22); border-color:var(--color-warning, #e67e22);"
-                                            @click="clearCalibrationRanges()" :disabled="busy || autoCal.running">
-                                        <span class="material-icons">restart_alt</span>
-                                        <span>Min/Max 전부 초기화 (null)</span>
-                                    </button>
-                                    <small class="settings-hint">모든 디바이스의 이상감지 Min/Max 를 전부 비웁니다(Duration 은 보존). 잘못 보정된 임계를 한 번에 되돌릴 때 사용.</small>
                                 </div>
                             </div>
 
@@ -1042,6 +1042,15 @@
                         this.showToast('설정을 불러오지 못했습니다: ' + e.message, 'error');
                     } finally { this.loading = false; }
                 },
+                // % 문자열 → 소수 분수(예: "10.5" → 0.105). 로케일(콤마) 허용·공백 제거, 빈값/무효는 null.
+                // type=number 의 로케일(소수점) 검증으로 특정 기기에서 입력이 지워지던 문제 회피(type=text 파싱).
+                pctToFrac(v) {
+                    if (v == null) return null;
+                    const t = String(v).trim().replace(',', '.');
+                    if (t === '') return null;
+                    const n = parseFloat(t);
+                    return (isFinite(n) && n >= 0) ? n / 100 : null;
+                },
                 async reload() {
                     await this.load();
                     this.showToast('설정을 다시 불러왔습니다.', 'info');
@@ -1330,7 +1339,12 @@
                     const conn = new signalR.HubConnectionBuilder().withUrl('/hubs/monitoring').withAutomaticReconnect([0, 0, 1000, 3000, 5000, 10000]).build();
                     conn.on('DatabaseRebuilt', () => this.refreshAasxStatus());
                     // 자동 보정 적용 → 카드의 시각/요약 갱신(알림 토스트는 공용 셸 shell.js 가 표시).
-                    conn.on('AutoCalibrationApplied', () => this.load());
+                    // ⚠ 편집 중(입력 포커스)·미저장 상태에는 재로드 스킵 — this.s 전체 교체가 입력 중인 값을 지우던 버그 방지.
+                    conn.on('AutoCalibrationApplied', () => {
+                        const ae = document.activeElement;
+                        const editing = ae && ['INPUT', 'SELECT', 'TEXTAREA'].includes(ae.tagName);
+                        if (!this.settingsDirty && !editing) this.load();
+                    });
                     // PLC 스캔 주기 동기화 — Promaker/다른 클라이언트가 바꾸면 슬라이더 실시간 갱신.
                     conn.on('ScanIntervalChanged', (ms) => { this.scanMs = ms; this.scanConnected = true; });
                     conn.on('AutoCalibrateChanged', (on) => { this.autoCalibrate = !!on; this.scanConnected = true; });
