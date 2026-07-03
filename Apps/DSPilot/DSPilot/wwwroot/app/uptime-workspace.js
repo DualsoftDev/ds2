@@ -74,6 +74,8 @@
 
                 // 신규 OEE 상태
                 oee: null, oeeError: null,
+                // 생산효율(TEEP) — /api/oee/teep. teepPct() 가 시간분해 막대 %. _teepSeq=stale 가드.
+                teep: null, teepError: null, _teepSeq: 0,
                 oeeExporting: false,   // OEE Excel 내보내기 진행 중
                 planTime: null, // /api/oee/plan-time — 계획시간 폴백 체인 + 14일 히스토그램
                 downtime: [], ranking: [],
@@ -131,8 +133,11 @@
                         : this.view === 'alarm' ? 'anomaly'
                         : ((qp.get('tab') === 'anomaly' || seeded || qp.has('blockMgr')) ? 'anomaly' : 'oee');
                     this.syncTabUrl();
-                    // OEE 페이지 내부 탭(설비효율/생산효율) — URL ?section=teep 로 진입 시 시드.
-                    this.oeeTab = (qp.get('section') === 'teep') ? 'teep' : 'equip';
+                    // OEE 페이지 내부 탭(설비효율/생산효율) — URL ?section= 우선, 없으면 브라우저 기억(localStorage), 기본 설비효율.
+                    const secQp = qp.get('section');
+                    this.oeeTab = secQp === 'teep' ? 'teep'
+                        : secQp === 'equip' ? 'equip'
+                        : (localStorage.getItem('dspOeeTab') === 'teep' ? 'teep' : 'equip');
                     // 뒤로/앞으로 가기 시 탭 동기화
                     window.addEventListener('popstate', () => { this.applyTabFromUrl(); this.applyOeeTabFromUrl(); });
                     try { this._charts = await import('/js/user-tag-trend-chart.js'); } catch (e) { console.warn('chart module load failed', e); }
@@ -198,8 +203,10 @@
                 setOeeTab(t) {
                     if (this.oeeTab === t) return;
                     this.oeeTab = t;
+                    localStorage.setItem('dspOeeTab', t);   // 브라우저가 선택 기억
                     this.syncOeeTabUrl();
                     if (t === 'equip') this.$nextTick(() => { this.drawCharts(); this.drawDailyChart(); });
+                    else if (t === 'teep') this.loadTeep();
                 },
                 syncOeeTabUrl() {
                     const qp = new URLSearchParams(location.search);
@@ -211,7 +218,9 @@
                     const t = new URLSearchParams(location.search).get('section') === 'teep' ? 'teep' : 'equip';
                     if (t === this.oeeTab) return;
                     this.oeeTab = t;
+                    localStorage.setItem('dspOeeTab', t);   // 뒤로/앞으로 이동도 브라우저 기억에 반영
                     if (t === 'equip') this.$nextTick(() => { this.drawCharts(); this.drawDailyChart(); });
+                    else if (t === 'teep') this.loadTeep();
                 },
 
                 // ── fetch 헬퍼 ──
@@ -593,6 +602,29 @@
                     this._charts.downloadCsv(fn, lines.join('\n'));
                 },
 
+                // ── 생산효율(TEEP) 로드 (/api/oee/teep) — 생산효율 탭 전용 ──
+                async loadTeep() {
+                    if (this.view === 'alarm') return;
+                    const r = this.rangeForPeriod();
+                    let qs = `from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}`;
+                    if (this.curFlow) qs += `&flow=${encodeURIComponent(this.curFlow)}`;
+                    const seq = ++this._teepSeq;
+                    try {
+                        const dto = await this.apiGet('/api/oee/teep?' + qs);
+                        if (seq !== this._teepSeq) return; // stale 응답 폐기
+                        this.teep = dto;
+                        this.teepError = null;
+                    } catch (e) {
+                        if (seq !== this._teepSeq) return;
+                        this.teepError = 'TEEP 데이터를 불러오지 못했습니다: ' + e.message;
+                    }
+                },
+                // 시간 분해 막대 — 해당 조각이 캘린더에서 차지하는 % (0~100, 1자리).
+                teepPct(field) {
+                    if (!this.teep || !this.teep.calendarMs) return '0.0';
+                    return Math.max(0, Math.min(100, this.teep[field] / this.teep.calendarMs * 100)).toFixed(1);
+                },
+
                 async loadOee() {
                     if (this.view === 'alarm') return; // OEE 지표는 알람 전용 페이지에서 미사용
                     const r = this.rangeForPeriod();
@@ -615,6 +647,7 @@
                         this.dailyData = daily;
                         this.planTime = planTime;
                         this.oeeError = null;
+                        if (this.oeeTab === 'teep') this.loadTeep();  // 생산효율 탭 활성 시 동반 갱신(폴링·기간·설비 변경 포함)
                     } catch (e) {
                         if (seq !== this._oeeSeq) return;
                         this.oeeError = 'OEE 데이터를 불러오지 못했습니다: ' + e.message;

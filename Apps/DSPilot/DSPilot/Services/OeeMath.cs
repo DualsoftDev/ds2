@@ -225,4 +225,19 @@ public static class OeeMath
             return (null, "비가동 복구 구간 없음 — MTTR 산출 불가.");
         return (valid.Average(), "비가동 onset → going 회복 구간 평균 (P5 §④).");
     }
+
+    /// <summary>
+    /// 생산효율 TEEP = 가동(Σ실측CT) ÷ 캘린더시간 (전체, 비생산 포함) — 표준 TEEP(24×365 관점, P6 생산효율 탭).
+    /// 단순 가동형: 분자=가동시간만(P·Q 미반영 — 설비효율 탭이 A·P·Q 담당). 캘린더 ≤ 0 이면 null.
+    /// 라인은 호출측이 캘린더=기간×flow수 로 넘긴다(가동이 flow별 합산이므로 분모도 배수 — 병렬 flow 과다계상 방지).
+    /// </summary>
+    public static double? ComputeTeep(double runningMs, double calendarMs)
+        => calendarMs > 0 ? Math.Clamp(runningMs / calendarMs, 0, 1) : (double?)null;
+
+    /// <summary>
+    /// 가동률(보조) = (캘린더 − 비생산) ÷ 캘린더. "운영하기로 한 시간 대비" 관점 — TEEP 와 달리 비생산을 분모서 뺀다.
+    /// 캘린더 ≤ 0 이면 null. 음수 방지 clamp.
+    /// </summary>
+    public static double? ComputeUtilization(double calendarMs, double nonProdMs)
+        => calendarMs > 0 ? Math.Clamp((calendarMs - nonProdMs) / calendarMs, 0, 1) : (double?)null;
 }

@@ -11,9 +11,16 @@
         @media (max-width: 900px) { .up-2col { grid-template-columns: 1fr; } }
         .up-section { padding: 18px 20px; }
 
-        /* ── 탭 (OEE 종합 | 이상·알람): 세그먼트 트랙 — URL ?tab= 와 동기화 ── */
+        /* ── 탭 (종합효율 현황 | 이상·알람): 세그먼트 트랙 — URL ?tab= 와 동기화 ── */
         .up-tabs { margin-bottom: 14px; flex-wrap: wrap; }
         /* .up-tabs/.up-tab 룩은 swiss.css 공용 세그먼트/탭 표준(inset+애저)으로 이관 */
+
+        /* ── 생산효율(TEEP) 탭 — 시간 분해 범례 ── */
+        .up-teep-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; font-size: 0.82rem; color: var(--color-text-secondary); }
+        .up-teep-leg { display: flex; align-items: center; gap: 5px; }
+        .up-teep-leg .sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; flex-shrink: 0; }
+        .up-teep-leg b { font-weight: 700; font-family: "JetBrains Mono", ui-monospace, monospace; }
+        .up-teep-leg em { font-style: normal; opacity: 0.8; }
         .up-tab-badge { display: inline-flex; min-width: 18px; height: 18px; padding: 0 5px; align-items: center; justify-content: center; border-radius: 999px; background: var(--red); color: #fff; font-size: 0.62rem; font-weight: 800; line-height: 1; }
 
         /* ── OEE 6 KPI (OEE·A·P·Q·MTBF·MTTR — doc/22 사이클기반: MTTR 복원. 산출가능=강조, 산출불가=흐림+사유) ── */

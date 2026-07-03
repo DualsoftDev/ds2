@@ -375,6 +375,46 @@ public class OeeMathTests
         Assert.Contains("산출 불가", note);
     }
 
+    // ── 생산효율 TEEP / 가동률 (P6) ────────────────────────────────────────
+
+    [Fact]
+    public void ComputeTeep_running_over_full_calendar()
+    {
+        // 하루(24h) 중 가동 12h → TEEP 50% (표준: 비생산도 분모 포함).
+        var teep = OeeMath.ComputeTeep(runningMs: 12 * 3600_000.0, calendarMs: 24 * 3600_000.0);
+        Assert.NotNull(teep);
+        Assert.Equal(0.5, teep!.Value, 10);
+    }
+
+    [Fact]
+    public void ComputeTeep_null_when_calendar_not_positive()
+    {
+        Assert.Null(OeeMath.ComputeTeep(1000, 0));
+        Assert.Null(OeeMath.ComputeTeep(1000, -5));
+    }
+
+    [Fact]
+    public void ComputeTeep_clamped_to_one()
+    {
+        // 가동 > 캘린더(방어)여도 1.0 캡.
+        Assert.Equal(1.0, OeeMath.ComputeTeep(30 * 3600_000.0, 24 * 3600_000.0)!.Value);
+    }
+
+    [Fact]
+    public void ComputeUtilization_excludes_nonprod_from_denominator()
+    {
+        // 캘린더 24h, 비생산 9h → 가동률 = (24−9)/24 = 62.5% (TEEP 와 달리 비생산을 분모서 뺀 관점).
+        var util = OeeMath.ComputeUtilization(calendarMs: 24 * 3600_000.0, nonProdMs: 9 * 3600_000.0);
+        Assert.NotNull(util);
+        Assert.Equal(15.0 / 24.0, util!.Value, 10);
+    }
+
+    [Fact]
+    public void ComputeUtilization_null_when_calendar_not_positive()
+    {
+        Assert.Null(OeeMath.ComputeUtilization(0, 0));
+    }
+
     // ── MTBF (연속 onset 간격 평균) / MTTR ─────────────────────────────────
 
     [Fact]

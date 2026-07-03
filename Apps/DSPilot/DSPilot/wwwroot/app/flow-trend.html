@@ -41,7 +41,7 @@
 
         <main class="dsp-main">
 
-            <!-- 상단 툴바 (OEE 종합 페이지와 동일한 .ds-topbar 패턴: 좌측 기간 세그먼트 · 우측 설비칩/전체보기/내보내기) -->
+            <!-- 상단 툴바 (종합효율 현황 페이지와 동일한 .ds-topbar 패턴: 좌측 기간 세그먼트 · 우측 설비칩/전체보기/내보내기) -->
             <div class="ds-topbar">
                 <div class="ds-topbar-actions">
                     <div class="ct-range-field">
@@ -68,7 +68,7 @@
                     </div>
                 </div>
 
-                <!-- 오른쪽: 설비(Flow) 필터 상태 + 전체 보기 + Excel/CSV 내보내기 (OEE 종합 페이지와 동일 패턴) -->
+                <!-- 오른쪽: 설비(Flow) 필터 상태 + 전체 보기 + Excel/CSV 내보내기 (종합효율 현황 페이지와 동일 패턴) -->
                 <div class="ds-topbar-actions" style="justify-content:flex-end;">
                     <template x-if="!allMode && (flow || flowName)">
                         <span class="chip chip-info">설비: <b x-text="flow ? flow.flowName : flowName"></b></span>

@@ -544,7 +544,7 @@
             <!-- 4개 카드: 가동횟수 · OEE 종합 · MTBF · MTTR. 각 카드는 하루 단위로 오늘(00:00~현재)을
                  어제 같은 시각(어제 00:00~24시간 전)과 공정 비교해 등락(▲/▼·%·시간차)을 표시한다.
                  데이터 = /api/oee/summary 를 오늘/어제 2회 호출 → cmp.today / cmp.yesterday (loadCompare).
-                 색 규칙: 개선=초록 / 악화=빨강 (MTTR 만 낮을수록 개선이라 방향 반대). 카드 클릭 → OEE 종합 페이지. -->
+                 색 규칙: 개선=초록 / 악화=빨강 (MTTR 만 낮을수록 개선이라 방향 반대). 카드 클릭 → 종합효율 현황 페이지. -->
             <div class="dash-kpi-grid">
 
                 <!-- ① 가동횟수 (오늘 vs 어제 같은 시각) — azure -->
@@ -566,7 +566,7 @@
                 <!-- ② OEE 종합 — green -->
                 <div class="border p-card-padding rounded-xl shadow-sm relative overflow-hidden group cursor-pointer transition-all"
                      style="background: color-mix(in srgb, var(--green) 9%, var(--color-surface)); border-color: color-mix(in srgb, var(--green) 26%, transparent);"
-                     @click="window.location='/uptime-oee'" title="OEE 종합 페이지로 이동">
+                     @click="window.location='/uptime-oee'" title="종합효율 현황 페이지로 이동">
                     <div class="flex items-center gap-2 mb-1">
                         <span class="font-label-sm text-label-sm opacity-90 uppercase tracking-tighter" style="color:var(--green);">OEE 종합</span>
                         <span class="px-1.5 py-px rounded text-[10px] font-bold bg-surface-container-high text-on-surface-variant">일간</span>
@@ -582,7 +582,7 @@
                 <!-- ③ MTBF (평균 무고장 시간 — 높을수록 좋음) — amber -->
                 <div class="border p-card-padding rounded-xl shadow-sm relative overflow-hidden group cursor-pointer transition-all"
                      style="background: color-mix(in srgb, var(--amber) 9%, var(--color-surface)); border-color: color-mix(in srgb, var(--amber) 26%, transparent);"
-                     @click="window.location='/uptime-oee'" title="OEE 종합 페이지로 이동 · MTBF = 연속 비가동 onset 간격 평균">
+                     @click="window.location='/uptime-oee'" title="종합효율 현황 페이지로 이동 · MTBF = 연속 비가동 onset 간격 평균">
                     <div class="flex items-center gap-2 mb-1">
                         <span class="font-label-sm text-label-sm opacity-90 uppercase tracking-tighter" style="color:var(--amber);">MTBF</span>
                         <span class="px-1.5 py-px rounded text-[10px] font-bold bg-surface-container-high text-on-surface-variant">일간</span>
@@ -598,7 +598,7 @@
                 <!-- ④ MTTR (평균 복구 시간 — 낮을수록 좋음) — amber -->
                 <div class="border p-card-padding rounded-xl shadow-sm relative overflow-hidden group cursor-pointer transition-all"
                      style="background: color-mix(in srgb, var(--amber) 9%, var(--color-surface)); border-color: color-mix(in srgb, var(--amber) 26%, transparent);"
-                     @click="window.location='/uptime-oee'" title="OEE 종합 페이지로 이동 · MTTR = 비가동 onset→회복 평균">
+                     @click="window.location='/uptime-oee'" title="종합효율 현황 페이지로 이동 · MTTR = 비가동 onset→회복 평균">
                     <div class="flex items-center gap-2 mb-1">
                         <span class="font-label-sm text-label-sm opacity-90 uppercase tracking-tighter" style="color:var(--amber);">MTTR</span>
                         <span class="px-1.5 py-px rounded text-[10px] font-bold bg-surface-container-high text-on-surface-variant">일간</span>

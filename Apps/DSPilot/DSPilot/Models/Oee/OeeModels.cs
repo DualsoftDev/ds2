@@ -69,6 +69,44 @@ public sealed class OeeDowntimeEvent
 }
 
 /// <summary>
+/// oeeNonProdDetectionLog — 자동 인식 비생산(무변화 정지 ≥ 10×14일평균CT, doc/22 §3.3)을 감지 시점에 영속화한 로그.
+/// 기존엔 ComputeCycleAggregateAsync 가 조회마다 재계산 후 버렸음(ephemeral) → TEEP(생산효율) 이 장기간에도 일관·저비용으로
+/// 쓰도록 조회 시 materialize(UPSERT)한다. <see cref="CtThresholdMs"/> 는 감지 당시의 14일 임계값 스냅샷 —
+/// 나중에 임계가 바뀌어도 과거 판정이 흔들리지 않게 한다(감사·재현성). 정지 '원천'은 여전히 oeeDowntimeEvent 이고,
+/// 이 로그는 "왜 비생산으로 분류됐는가"의 감사기록 + TEEP 소스다(이중계상 금지 — dedup 키로 멱등).
+/// </summary>
+public sealed class OeeNonProdDetectionLog
+{
+    public long Id { get; set; }
+
+    /// <summary>설비(Flow). 라인(전체) 스코프 감지는 저장 시 ""(빈문자열)로 정규화(SQLite UNIQUE NULL footgun 회피).</summary>
+    public string? FlowName { get; set; }
+
+    /// <summary>비생산 구간 시작 (ISO8601 UTC).</summary>
+    public DateTime OnsetAt { get; set; }
+
+    /// <summary>비생산 구간 끝 (ISO8601 UTC). 진행중이면 조회 상한(min(now,to))으로 캡해 갱신.</summary>
+    public DateTime? ClearAt { get; set; }
+
+    /// <summary>ClearAt − OnsetAt (ms).</summary>
+    public long DurationMs { get; set; }
+
+    /// <summary>감지 출처 — 현재 'auto-10xct' 뿐.</summary>
+    public string DetectionSource { get; set; } = "auto-10xct";
+
+    /// <summary>'idle-cycle'(미완료 멈춤 사이클) / 'nocycle-gap'(무사이클 정지). dedup 키의 일부.</summary>
+    public string DetectionReason { get; set; } = string.Empty;
+
+    /// <summary>감지 당시 14일 평균 CT(이상치, ms) 스냅샷.</summary>
+    public double CtThresholdMs { get; set; }
+
+    /// <summary>적용 배수(기본 10). 향후 파라미터화 대비.</summary>
+    public double CtMultiplier { get; set; } = 10.0;
+
+    public DateTime CreatedAt { get; set; }
+}
+
+/// <summary>
 /// oeeProductionCount — 생산/품질. (bucketDate, flowName, shift) 복합 PK.
 /// totalCount 는 dspFlowHistory row count 로 자동, rejectCount 만 수동 입력.
 /// </summary>
@@ -116,6 +154,27 @@ public sealed class OeeShiftException
 // ─────────────────────────────────────────────────────────────────────────
 //  DTO (API 응답 — camelCase 자동 직렬화)
 // ─────────────────────────────────────────────────────────────────────────
+
+/// <summary>
+/// 생산효율(TEEP) — 캘린더 대비 실제 가동. 설비효율 탭의 OEE 와 별개 관점(P6). 단순 가동형: 분자=가동(NormalCtMs), P·Q 미반영.
+/// TEEP = 가동 ÷ 캘린더(전체, 비생산 포함). Utilization(가동률) = (캘린더−비생산) ÷ 캘린더(보조).
+/// 라인(flow=null)은 flow별 합산 — 캘린더 = 기간 × 임계 보유 flow 수(FlowCount). 잔여 = 캘린더 − 가동 − 정지 − 비생산(≥0).
+/// 비생산(NonProdMs)은 자동 10×CT 감지 + 수동 시간대 합(Phase 2 로그와 동일 소스 — 같은 사이클 집계가 로그로도 materialize).
+/// </summary>
+public sealed record OeeTeepDto(
+    string? FlowName,                 // null = 전체(라인 합산)
+    DateTime FromUtc,
+    DateTime ToUtc,
+    int FlowCount,                    // 캘린더 배수 (단일 flow=1, 라인=임계 보유 flow 수). 0 이면 산출 불가.
+    double CalendarMs,                // 기간 × FlowCount
+    double RunningMs,                 // 가동 = Σ실측CT
+    double DownMs,                    // 정지 = Σ비가동CT
+    double NonProdMs,                 // 비생산 = 자동10× + 수동(flow별 합산, A 분모 밖)
+    double ResidualMs,                // 잔여 = 캘린더 − 가동 − 정지 − 비생산 (≥0)
+    double? Teep,                     // 가동 ÷ 캘린더 (0~1). null = 산출 불가(캘린더 0 / 임계 없음)
+    string? TeepNote,
+    double? Utilization,              // (캘린더 − 비생산) ÷ 캘린더 (0~1). 보조지표
+    double? CtThresholdMs);           // 참고 (14일 평균)
 
 /// <summary>
 /// OEE 6지표 + 구성요소. 산출 불가 항목은 null + 사유(*Note) 정직 표기 (doc/21 §10, §12 개정).
