@@ -425,6 +425,27 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
                     edEngine.SetMinMeasured(isMinMeasured);
             }
 
+            // [Gate] ActionOver 게이트 스냅샷 — 활성화 시 1회, Max 있는 device work 중 게이트 닫힌 항목을 값과 함께 덤프.
+            // 게이트 닫힘(엔진/어댑터 발행 침묵)의 하위원인(사이드카 미기록 / ms 불일치 / 재활성화 race)을
+            // 로그만으로 판별한다(IsMaxMeasured 는 모델 Max 와 사이드카 MaxMs 의 int 완전일치 비교).
+            {
+                var closedCount = 0;
+                foreach (var kv in durById)
+                {
+                    if (kv.Value.Max <= 0 || isMaxMeasured(kv.Key)) continue;
+                    var sysName = index.WorkSystemName.TryFind(kv.Key);
+                    if (sysName is null || index.ActiveSystemNames.Contains(sysName.Value)) continue; // device work 만
+                    closedCount++;
+                    var workName = index.WorkName.TryFind(kv.Key) is { } n ? n.Value : kv.Key.ToString("N")[..8];
+                    var sidecar = calibState.Works.TryGetValue(kv.Key.ToString("D"), out var w)
+                        ? $"MaxMeasured={w.MaxMeasured} MaxMs={w.MaxMs}"
+                        : "absent";
+                    Log.Warn($"[Gate] MaxMeasured=false work={workName} modelMax={kv.Value.Max} sidecar={{{sidecar}}}");
+                }
+                if (closedCount > 0)
+                    Log.Warn($"[Gate] ActionOver 게이트 닫힌 device work {closedCount}건 — 위 목록의 Work 는 시간초과여도 자동 ActionOver 미발행");
+            }
+
             Log.Info($"Starting BackendHost on port {Port} " +
                      $"({(readOnly ? "read-only / Monitoring" : "read-write / Control")}) with engine session {identity.SessionId}...");
             _app = BackendHost.startWithBuilderConfig(Port, gatewayConfig, readOnly, builder =>
@@ -440,7 +461,8 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
                         sp.GetRequiredService<IHubContext<SignalHub>>(),
                         identity,
                         scanForMargin,
-                        isMinMeasured));
+                        isMinMeasured,
+                        isMaxMeasured));
             });
             _engine = engine;
 

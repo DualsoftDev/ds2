@@ -7,6 +7,10 @@ open Ds2.Runtime.Engine.Core
 open Ds2.Runtime.Engine.Scheduler
 
 module internal WorkTransitions =
+    // ActionOver 미발화 진단(doc/ACTIONOVER_MONITORING_MISS_AGENT_FIX_HANDOFF_2026-07-03.md §6) —
+    // 이 로그 부재 = 무장(스케줄) 실패 확정 증거. Composition 의 [overdue-fire]/[overdue-eval] 과 체인.
+    let private overdueLog = log4net.LogManager.GetLogger("EventDrivenEngine.Overdue")
+
     type Context = {
         Index: SimIndex
         StateManager: StateManager
@@ -75,11 +79,19 @@ module internal WorkTransitions =
                     let graceMs =
                         if ctx.RuntimeMode = RuntimeMode.Monitoring then monitoringObservationGraceMs
                         else 0L
+                    let delayMs = max 1L (int64 range.MaxMs + 1L + graceMs)
                     ctx.Scheduler.ScheduleAfter(
                         ScheduledEventType.DeviceOverdueCheck(workGuid, workEpoch),
-                        max 1L (int64 range.MaxMs + 1L + graceMs),
+                        delayMs,
                         ScheduledEvent.PriorityDurationCheck)
                     |> ignore
+                    let workName =
+                        match ctx.Index.WorkName |> Map.tryFind workGuid with
+                        | Some n -> n
+                        | None -> workGuid.ToString("N").Substring(0, 8)
+                    overdueLog.Info(
+                        sprintf "[overdue-sched] work=%s epoch=%d maxMs=%d graceMs=%d dueMs=%d"
+                            workName workEpoch range.MaxMs graceMs (ctx.Scheduler.CurrentTimeMs + delayMs))
                 | _ -> ()
 
         scheduleDeviceOverdueCheck ()
