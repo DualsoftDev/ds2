@@ -430,13 +430,13 @@
                     <div x-show="ps.auto" x-cloak>
                         <div style="display:flex; align-items:flex-start; gap:9px; padding:11px 13px; border:1px dashed var(--color-border); border-radius:8px; color:var(--color-text-secondary); font-size:0.78rem; line-height:1.5; margin-bottom:12px;">
                             <span class="material-icons" style="font-size:18px; color:var(--teal,#1FA8B8);">auto_mode</span>
-                            <span>자동 계산이 켜져 있어 비생산 시간대를 직접 지정할 필요가 없습니다. 평균 가동시간의 <b x-text="ps.ctMultiplier"></b>배 이상 멈춘 구간이 실시간 비생산으로 분류됩니다. 아래 <b>블록 = 이번 기간에 실제로 제외된 비생산</b>(위 추이의 남색과 동일). 직접 지정하려면 <b>[수동 설정하기]</b>를 누르세요 — 지금 비생산 구간을 초기값(참고용)으로 불러옵니다.</span>
+                            <span>자동 계산이 켜져 있어 비생산 시간대를 직접 지정할 필요가 없습니다. 평균 가동시간의 <b x-text="ps.ctMultiplier"></b>배 이상 멈춘 구간이 실시간 비생산으로 분류됩니다. 아래 <b>블록 = 조회 기간 마지막 날에 실제로 제외된 비생산</b>(위 추이의 남색과 동일 소스). 직접 지정하려면 <b>[수동 설정하기]</b>를 누르세요 — 지금 비생산 구간을 초기값(참고용)으로 불러옵니다.</span>
                         </div>
 
                         <!-- 읽기 전용 24h 타임라인 — 이번 기간 실제 제외된 비생산만 표시(참고용 옅은 블록 폐지) -->
                         <div class="up-ptl">
                             <div class="up-ptl-legend">
-                                <span class="lg"><span class="sw auto"></span> 실제 제외된 비생산 (이번 기간)</span>
+                                <span class="lg"><span class="sw auto"></span> 실제 제외된 비생산 (기간 마지막 날)</span>
                                 <span class="lg"><span class="sw now"></span> 현재 <b x-text="minToHHMM(nowMin())"></b></span>
                             </div>
                             <div class="up-ptl-track" style="pointer-events:none; cursor:default;">
@@ -444,7 +444,7 @@
                                 <!-- 실제 제외된 비생산 (메인) — 추이 남색과 동일 소스 -->
                                 <template x-for="(w, i) in (ps.actualNonProd ? ps.actualNonProd.windows : [])" :key="'act-' + i">
                                     <div class="up-ptl-win auto" :style="psWinStyle(w)"
-                                         :title="minToHHMM(w.startMinutes) + ' – ' + minToHHMM(w.endMinutes) + ' · 실제 제외된 비생산 (이번 기간)'">
+                                         :title="minToHHMM(w.startMinutes) + ' – ' + minToHHMM(w.endMinutes) + ' · 실제 제외된 비생산 (기간 마지막 날)'">
                                         <span class="wl">비생산</span>
                                         <span class="wt" x-show="(w.endMinutes - w.startMinutes) >= 90" x-text="minToHHMM(w.startMinutes) + '–' + minToHHMM(w.endMinutes)"></span>
                                     </div>
@@ -452,14 +452,14 @@
                                 <!-- 빈 상태 -->
                                 <div class="up-ptl-empty"
                                      x-show="!ps.actualNonProd || ps.actualNonProd.windows.length === 0">
-                                    이번 기간에 제외된 비생산 없음 (10×가동시간 이상 정지 없음)
+                                    기간 마지막 날에 제외된 비생산 없음 (10×가동시간 이상 정지 없음)
                                 </div>
                             </div>
                             <div class="up-ptl-hours">
                                 <span>00</span><span>03</span><span>06</span><span>09</span><span>12</span><span>15</span><span>18</span><span>21</span><span>24</span>
                             </div>
                             <div style="font-size:0.6rem; color:var(--color-text-secondary); margin-top:4px;">
-                                블록은 <b>이번 조회 기간에 실제로 A(가용성)에서 제외된 비생산</b>을 시:분으로 접어 표시합니다 (위 시간별 추이의 남색과 동일). 직접 지정하려면 <b>[수동 설정하기]</b>로 전환하세요.
+                                블록은 <b>조회 기간 마지막 날에 실제로 A(가용성)에서 제외된 비생산</b>을 시:분으로 표시합니다 (위 시간별 추이의 남색과 동일 소스 — 24시간 연표라 하루치만, 기간 전체는 위 추이에서 확인). 직접 지정하려면 <b>[수동 설정하기]</b>로 전환하세요.
                             </div>
                         </div>
                     </div>

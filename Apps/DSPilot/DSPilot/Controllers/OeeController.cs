@@ -607,9 +607,10 @@ public class OeeController : ControllerBase
     }
 
     // ── GET /api/oee/planned-stops/actual?from&to&flow ───────────────────────
-    // 이번 조회기간에 "실제로 A 분모에서 제외된" 비생산 구간(NonProdIntervals)을 로컬 시:분(hour-of-day)으로
+    // 조회기간에 "실제로 A 분모에서 제외된" 비생산 구간(NonProdIntervals)을 로컬 시:분(hour-of-day)으로
     // 접어 병합 windows 로 반환. 14일 평균 패턴(auto-pattern)과 달리 실제 적용분 — 시간별 추이의 남색(비생산 제외)과
-    // 동일 소스라 타임라인과 추이가 일치한다. DaysAnalyzed=0 = "실제 적용분" 신호.
+    // 동일 소스. 단 24h 연표 표시는 기간 마지막 날(로컬)만 접는다(여러 날 union 은 전체 채움으로 퇴화 — 본문 참조).
+    // DaysAnalyzed=0 = "실제 적용분" 신호.
     [HttpGet("planned-stops/actual")]
     public async Task<ActionResult<PlannedAutoPatternDto>> GetActualNonProduction(
         [FromQuery] DateTime? from, [FromQuery] DateTime? to, [FromQuery] string? flow, CancellationToken ct)
@@ -630,10 +631,20 @@ public class OeeController : ControllerBase
             ? Intervals.Union(merged)
             : (agg.NonProdIntervals ?? new List<(double S, double E)>());
 
-        // NonProdIntervals(UTC epoch ms) → 로컬 시:분(minute-of-day) 커버리지. 여러 날 구간은 같은 24h 시계에 겹쳐 접힌다.
+        // NonProdIntervals(UTC epoch ms) → 로컬 시:분(minute-of-day) 커버리지.
+        // 여러 날 union 접기는 주말 정지 등 ≥24h 구간 하나로 1440분 전체가 덮여 무의미(전체 채움 버그)
+        // → 24h 연표는 '하루 일과' 뷰이므로 기간 마지막 날(로컬)로 클립해 접는다.
+        //   오늘로 끝나는 기간(오늘/7일/30일 등)이면 '오늘' 조회와 동일 화면.
+        var lastDayProbe = toUtc > fromUtc ? toUtc.AddSeconds(-1) : toUtc; // to=자정 정각이면 전날이 마지막 날
+        var dayStartUtc = DateTime.SpecifyKind(lastDayProbe.ToLocalTime().Date, DateTimeKind.Local).ToUniversalTime();
+        if (dayStartUtc < fromUtc) dayStartUtc = fromUtc;
+        double clipS = ToMs(dayStartUtc), clipE = ToMs(toUtc);
+
         var covered = new bool[1440];
-        foreach (var (s, e) in intervals)
+        foreach (var (s0, e0) in intervals)
         {
+            var s = Math.Max(s0, clipS);
+            var e = Math.Min(e0, clipE);
             if (e <= s) continue;
             var durMin = (e - s) / 60000.0;
             if (durMin >= 1440) { for (int m = 0; m < 1440; m++) covered[m] = true; continue; }

@@ -148,6 +148,9 @@
             --green: #16a34a;  --color-success: #16a34a;  --color-success-rgb: 22, 163, 74;
             --amber: #d97706;  --color-warning: #d97706;  --color-warning-rgb: 217, 119, 6;
             --red:   #dc2626;  --color-error: #dc2626;    --color-error-rgb: 220, 38, 38;
+            /* MTBF/MTTR 카드 전용 러스트(벽돌빛). 가동중 주황(--amber/--dash-mt)과 겹쳐 보여 분리,
+               단 알람 빨강(--red)만큼 튀지 않는 중간 톤. */
+            --rust: #b5533c;
             /* 병목(최대 CT) 강조 = 온브랜드 딥 애저. 빨강(에러)과 분리해 오인 방지. */
             --ct-bottleneck: #1e3a8a;  --ct-bottleneck-rgb: 30, 58, 138;
             --color-info: #0058be;
@@ -187,6 +190,8 @@
             --green: #2bbf6a;  --color-success: #2bbf6a;  --color-success-rgb: 43, 191, 106;
             --amber: #f59e0b;  --color-warning: #f59e0b;  --color-warning-rgb: 245, 158, 11;
             --red:   #f26d6d;  --color-error: #f26d6d;    --color-error-rgb: 242, 109, 109;
+            /* 다크: 러스트도 한 톤 밝게(어두운 배경 가독). 에러 빨강(#f26d6d)보다 주황쪽. */
+            --rust: #e07a5c;
             /* 다크: 어두운 배경에서 묻히지 않도록 밝은 애저(같은 계열). */
             --ct-bottleneck: #3b82f6;  --ct-bottleneck-rgb: 59, 130, 246;
             --color-info: #4d9fff;
@@ -579,34 +584,34 @@
                     </div>
                 </div>
 
-                <!-- ③ MTBF (평균 무고장 시간 — 높을수록 좋음) — amber -->
+                <!-- ③ MTBF (평균 무고장 시간 — 높을수록 좋음) — rust (가동중 주황과 구분) -->
                 <div class="border p-card-padding rounded-xl shadow-sm relative overflow-hidden group cursor-pointer transition-all"
-                     style="background: color-mix(in srgb, var(--amber) 9%, var(--color-surface)); border-color: color-mix(in srgb, var(--amber) 26%, transparent);"
+                     style="background: color-mix(in srgb, var(--rust) 9%, var(--color-surface)); border-color: color-mix(in srgb, var(--rust) 26%, transparent);"
                      @click="window.location='/uptime-oee'" title="종합효율 현황 페이지로 이동 · MTBF = 연속 비가동 onset 간격 평균">
                     <div class="flex items-center gap-2 mb-1">
-                        <span class="font-label-sm text-label-sm opacity-90 uppercase tracking-tighter" style="color:var(--amber);">MTBF</span>
+                        <span class="font-label-sm text-label-sm opacity-90 uppercase tracking-tighter" style="color:var(--rust);">MTBF</span>
                         <span class="px-1.5 py-px rounded text-[10px] font-bold bg-surface-container-high text-on-surface-variant">일간</span>
                     </div>
-                    <h4 class="font-display-metrics text-display-metrics leading-none mt-2" style="color:var(--amber);"
+                    <h4 class="font-display-metrics text-display-metrics leading-none mt-2" style="color:var(--rust);"
                         x-text="cmp.today ? (cmp.today.failureCount === 0 ? '무고장' : durShort(cmp.today.mtbf)) : '—'"></h4>
                     <div class="mt-3 flex items-center gap-1.5 flex-wrap" x-html="cmpBadge('mtbf')"></div>
-                    <div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity" style="color:var(--amber);">
+                    <div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity" style="color:var(--rust);">
                         <span class="material-icons" style="font-size:120px; line-height:1;">timer</span>
                     </div>
                 </div>
 
-                <!-- ④ MTTR (평균 복구 시간 — 낮을수록 좋음) — amber -->
+                <!-- ④ MTTR (평균 복구 시간 — 낮을수록 좋음) — rust (가동중 주황과 구분) -->
                 <div class="border p-card-padding rounded-xl shadow-sm relative overflow-hidden group cursor-pointer transition-all"
-                     style="background: color-mix(in srgb, var(--amber) 9%, var(--color-surface)); border-color: color-mix(in srgb, var(--amber) 26%, transparent);"
+                     style="background: color-mix(in srgb, var(--rust) 9%, var(--color-surface)); border-color: color-mix(in srgb, var(--rust) 26%, transparent);"
                      @click="window.location='/uptime-oee'" title="종합효율 현황 페이지로 이동 · MTTR = 비가동 onset→회복 평균">
                     <div class="flex items-center gap-2 mb-1">
-                        <span class="font-label-sm text-label-sm opacity-90 uppercase tracking-tighter" style="color:var(--amber);">MTTR</span>
+                        <span class="font-label-sm text-label-sm opacity-90 uppercase tracking-tighter" style="color:var(--rust);">MTTR</span>
                         <span class="px-1.5 py-px rounded text-[10px] font-bold bg-surface-container-high text-on-surface-variant">일간</span>
                     </div>
-                    <h4 class="font-display-metrics text-display-metrics leading-none mt-2" style="color:var(--amber);"
+                    <h4 class="font-display-metrics text-display-metrics leading-none mt-2" style="color:var(--rust);"
                         x-text="cmp.today ? (cmp.today.failureCount === 0 ? '무고장' : durShort(cmp.today.mttr)) : '—'"></h4>
                     <div class="mt-3 flex items-center gap-1.5 flex-wrap" x-html="cmpBadge('mttr')"></div>
-                    <div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity" style="color:var(--amber);">
+                    <div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity" style="color:var(--rust);">
                         <span class="material-icons" style="font-size:120px; line-height:1;">build</span>
                     </div>
                 </div>
