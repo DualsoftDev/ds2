@@ -327,27 +327,6 @@
                                 </div>
                             </div>
 
-                            <!-- UI -->
-                            <!-- PLC 스캔 주기 (Agent 동기화) -->
-                            <div class="card" x-show="activeTab === 'monitoring'">
-                                <div class="card-header">
-                                    <span class="material-icons">speed</span>
-                                    <span>PLC 스캔 주기</span>
-                                </div>
-                                <div class="card-content">
-                                    <div style="display:flex; align-items:center; gap:10px;">
-                                        <input type="range" min="10" max="500" step="10" style="flex:1"
-                                               x-model.number="scanMs" @change="applyScanInterval()" :disabled="!scanConnected" />
-                                        <strong style="min-width:64px; text-align:right;" x-text="scanMs + ' ms'"></strong>
-                                    </div>
-                                    <small class="settings-hint">
-                                        Agent 의 PLC 폴링 주기입니다 (10~500ms, 10ms 단위, 기본 100ms).
-                                        변경은 재시작 없이 즉시 적용되고 Promaker 와도 자동 동기화됩니다.
-                                        <span x-show="!scanConnected"><strong> — 현재 Agent 미연결(모니터링 비활성)이라 변경할 수 없습니다.</strong></span>
-                                    </small>
-                                </div>
-                            </div>
-
                             <!-- 동작시간 이상감지 (실측 자동 보정 + 실시간 학습 통합) -->
                             <div class="card" x-show="activeTab === 'monitoring'">
                                 <div class="card-header">
@@ -403,6 +382,17 @@
                                                 <span style="font-size:0.8rem;white-space:nowrap;">% 여유율</span>
                                             </div>
                                             <small class="settings-hint">Max = 실측 최대값 × (1 + 여유율%). 예: 20 = +20%, 10.5 = +10.5%. 단일 이상치가 반영되므로 샘플 수가 충분할 때 사용하세요.</small>
+                                        </div>
+                                        <div style="margin-top:10px;">
+                                            <div style="display:flex;align-items:center;gap:6px;">
+                                                <span style="font-size:0.8rem;white-space:nowrap;">+ 추가 여유값</span>
+                                                <input type="text" inputmode="decimal" class="form-field mono"
+                                                       :value="(s.autoCalibration.marginMaxAbsMs ?? 5000) / 1000"
+                                                       @change="s.autoCalibration.marginMaxAbsMs = secToMs($event.target.value)"
+                                                       placeholder="5" style="width:90px;" />
+                                                <span style="font-size:0.8rem;white-space:nowrap;">초</span>
+                                            </div>
+                                            <small class="settings-hint">Max = (위 산출값) + 이 초. "정상보다 N초 더 걸리면 정지" 절대 버퍼. 예: 5 = +5초. 기본 5초.</small>
                                         </div>
                                     </div>
 
@@ -475,6 +465,26 @@
                                             <span x-show="!scanConnected"><strong> — Agent 미연결 상태입니다.</strong></span>
                                         </small>
                                     </div>
+                                </div>
+                            </div>
+
+                            <!-- PLC 스캔 주기 (Agent 동기화) -->
+                            <div class="card" x-show="activeTab === 'monitoring'">
+                                <div class="card-header">
+                                    <span class="material-icons">speed</span>
+                                    <span>PLC 스캔 주기</span>
+                                </div>
+                                <div class="card-content">
+                                    <div style="display:flex; align-items:center; gap:10px;">
+                                        <input type="range" min="10" max="500" step="10" style="flex:1"
+                                               x-model.number="scanMs" @change="applyScanInterval()" :disabled="!scanConnected" />
+                                        <strong style="min-width:64px; text-align:right;" x-text="scanMs + ' ms'"></strong>
+                                    </div>
+                                    <small class="settings-hint">
+                                        Agent 의 PLC 폴링 주기입니다 (10~500ms, 10ms 단위, 기본 100ms).
+                                        변경은 재시작 없이 즉시 적용되고 Promaker 와도 자동 동기화됩니다.
+                                        <span x-show="!scanConnected"><strong> — 현재 Agent 미연결(모니터링 비활성)이라 변경할 수 없습니다.</strong></span>
+                                    </small>
                                 </div>
                             </div>
 
@@ -1051,6 +1061,12 @@
                     const n = parseFloat(t);
                     return (isFinite(n) && n >= 0) ? n / 100 : null;
                 },
+                // 초 문자열 → ms(정수). 로케일(콤마) 허용, 빈값/무효는 0. ActionOver 절대 추가 여유값 입력용.
+                secToMs(v) {
+                    const t = String(v ?? '').trim().replace(',', '.');
+                    const n = parseFloat(t);
+                    return (isFinite(n) && n >= 0) ? Math.round(n * 1000) : 0;
+                },
                 async reload() {
                     await this.load();
                     this.showToast('설정을 다시 불러왔습니다.', 'info');
@@ -1137,6 +1153,7 @@
                                 maxMode: this.s.autoCalibration?.maxMode === 'RawMax' ? 'RawMax' : 'Percentile',
                                 percentileMax: +(this.s.autoCalibration?.percentileMax ?? 95),
                                 marginMaxPct: +(this.s.autoCalibration?.marginMaxPct ?? 0.20),
+                                marginMaxAbsMs: (this.s.autoCalibration?.marginMaxAbsMs ?? 5000) | 0,
                                 fillMin: !!this.s.autoCalibration?.fillMin,
                                 percentileMin: +(this.s.autoCalibration?.percentileMin ?? 5),
                                 marginMinPct: +(this.s.autoCalibration?.marginMinPct ?? 0.03)

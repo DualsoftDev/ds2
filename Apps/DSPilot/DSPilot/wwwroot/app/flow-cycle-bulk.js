@@ -269,27 +269,33 @@ function bulkCycleApp() {
             e.preventDefault();
             const screenX = e.clientX - el.getBoundingClientRect().left;
             const factor = e.deltaY < 0 ? 1.25 : 1 / 1.25;
-            this.applyZoom(slice, slice.zoom * factor, screenX, el);
+            this.applyZoom(slice, this.zoom * factor, screenX, el);
         },
-        zoomBy(slice, factor) {
-            const el = this.areaEl(slice);
-            if (!el || !slice.callLanes.length) return;
-            this.applyZoom(slice, slice.zoom * factor, el.clientWidth / 2, el);
-        },
-        resetZoom(slice) {
-            slice.zoom = 1; this.measurePlotWidth(slice); slice.svgMarkup = CG.buildSvg(slice);
-            this.$nextTick(() => { const el = this.areaEl(slice); if (el) el.scrollLeft = 0; });
-        },
+        // 휠 줌도 상단 툴바(zoomAll)와 같은 "공유 줌" 하나로 통일 — 모든 카드에 일괄 적용된다.
+        // 앵커(휠 커서 아래 시각) 보존은 이벤트가 난 카드 기준으로 계산하고, 나머지 카드는
+        // 같은 스크롤 비율로 맞춰 전 간트가 같은 구간을 보여준다.
         applyZoom(slice, targetZoom, anchorX, el) {
             el = el || this.areaEl(slice); if (!el) return;
             const newZoom = Math.min(MAX_ZOOM, Math.max(1, targetZoom));
-            if (Math.abs(newZoom - slice.zoom) < 1e-6) return;
+            if (Math.abs(newZoom - this.zoom) < 1e-6) return;
             const plotAreaX = Math.max(0, anchorX + el.scrollLeft - LEFT_PAD);
             const frac = slice.plotWidth > 0 ? Math.min(1, plotAreaX / slice.plotWidth) : 0;
-            slice.zoom = newZoom;
-            slice.plotWidth = Math.max(MIN, Math.round(slice.baseWidth * slice.zoom));
-            slice.svgMarkup = CG.buildSvg(slice);
-            this.$nextTick(() => { el.scrollLeft = frac * slice.plotWidth + LEFT_PAD - anchorX; });
+            this.zoom = newZoom;
+            for (const s of this.flows) {
+                s.zoom = newZoom;
+                this.measurePlotWidth(s);
+                if (s.callLanes.length) s.svgMarkup = CG.buildSvg(s);
+            }
+            this.$nextTick(() => {
+                const left = frac * slice.plotWidth + LEFT_PAD - anchorX;
+                el.scrollLeft = left;
+                const ratio = slice.plotWidth > 0 ? Math.max(0, left) / slice.plotWidth : 0;
+                for (const s of this.flows) {
+                    if (s === slice) continue;
+                    const other = this.areaEl(s);
+                    if (other) other.scrollLeft = ratio * s.plotWidth;
+                }
+            });
         },
         focusMaxGap(slice) {
             if (!slice.topGaps.length) return;

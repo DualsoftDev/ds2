@@ -277,9 +277,10 @@ public sealed class AutoCalibrationService : BackgroundService
 
             int duration = (int)Math.Round(mean.Value);
             bool useRaw = ac.MaxMode == "RawMax";
-            int maxMs = useRaw && rawMax.HasValue
+            int maxMs = (useRaw && rawMax.HasValue
                 ? (int)Math.Round(rawMax.Value * (1 + ac.MarginMaxPct))
-                : (int)Math.Round(pMax.Value);
+                : (int)Math.Round(pMax.Value))
+                + Math.Max(0, ac.MarginMaxAbsMs); // 절대 추가 여유(기본 5초) — "정상보다 N초 더 걸리면 정지"
             int? minMs = ac.FillMin
                 ? useRaw && rawMin.HasValue
                     ? (int)Math.Round(rawMin.Value * (1 - ac.MarginMinPct))

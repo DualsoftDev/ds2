@@ -129,6 +129,9 @@ public class AutoCalibrationSettings
     /// <summary>실측 최대값 여유율(분수). MaxMode="RawMax" 일 때 Max = round(rawMax × (1 + 이 값)). 기본 0.20(=+20%).</summary>
     public double MarginMaxPct { get; set; } = 0.20;
 
+    /// <summary>MaxDuration 절대 추가 여유(ms). Max = (모드 산출값) + 이 값. "정상보다 N초 더 걸리면 정지" 절대 버퍼. 기본 5000(=5초).</summary>
+    public int MarginMaxAbsMs { get; set; } = 5000;
+
     /// <summary>true 일 때만 MinDuration 을 실측값으로 기록(false 면 기존값 보존). 기본 false.</summary>
     public bool FillMin { get; set; } = false;
 
