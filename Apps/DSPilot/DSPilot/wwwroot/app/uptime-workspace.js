@@ -727,10 +727,12 @@
                         const parts = s.slot.split('-');
                         return parts.length === 3 ? (parseInt(parts[1]) + '/' + parseInt(parts[2])) : s.slot;
                     });
-                    // 가동·고장·유지보수·비생산 4분해. 서버 슬롯: failureMs=isFailure 1, plannedMs=isFailure 0(유지보수),
+                    // 가동·고장·유지보수·비생산 4분해 — 고장/유지보수 구분은 '정지 구성' 도넛과 동일한 isFailure 2-상태로 정렬:
+                    //   고장 = failureMs(isFailure=1) + unclassifiedMs(미분류, 기본 isFailure=1)
+                    //   유지보수 = plannedMs(category='planned') + otherMs(계획외지만 isFailure=0 — 자재대기 등, 도넛도 유지보수로 집계)
                     //   nonProdMs=비생산(A 분모 밖 — 가동에서 카빙), 나머지=가동근사.
-                    const failureData = d.slots.map(s => ((s.failureMs || 0) + (s.otherMs || 0) + (s.unclassifiedMs || 0)) / MS); // 고장(isFailure+기타+미분류 전부 포함)
-                    const plannedData = d.slots.map(s => (s.plannedMs || 0) / MS); // 유지보수(isFailure=0)
+                    const failureData = d.slots.map(s => ((s.failureMs || 0) + (s.unclassifiedMs || 0)) / MS); // 고장(isFailure=1 계열)
+                    const plannedData = d.slots.map(s => ((s.plannedMs || 0) + (s.otherMs || 0)) / MS); // 유지보수(isFailure=0 계열)
                     const nonProdData = d.slots.map(s => (s.nonProdMs || 0) / MS); // 비생산(제외) — A 분모 밖
                     const runData = d.slots.map(s => Math.max(0, s.slotMs - (s.failureMs || 0) - (s.otherMs || 0) - (s.unclassifiedMs || 0) - (s.plannedMs || 0) - (s.nonProdMs || 0)) / MS);
 
@@ -1147,13 +1149,20 @@
                         const n = Math.max(0, o.normalCtMs || 0), i = Math.max(0, o.idleCtMs || 0);
                         const tot = n + i;
                         const runPct = tot > 0 ? r1(n / tot * 100) : 0;
+                        const stopPct = tot > 0 ? r1(100 - runPct) : 0;
+                        // 비가동 고장/유지보수 분리 — '정지 구성' 도넛과 동일한 isFailure 2-상태(서버가 비가동 ΣCT 를
+                        // 유지보수 이벤트 구간과 교차 귀속). 유지보수 0 이면 기존 단일 세그먼트 표시와 동일.
+                        const m = Math.min(i, Math.max(0, o.idleMaintCtMs || 0));
+                        const maintPct = tot > 0 ? r1(m / tot * 100) : 0;
+                        const faultPct = Math.max(0, r1(stopPct - maintPct));
                         return {
                             mode: 'cycle', hasData: tot > 0,
-                            runMs: n, stopMs: i, runPct, stopPct: tot > 0 ? r1(100 - runPct) : 0,
-                            runLabel: '실측 가동시간 (정상 가동)', stopLabel: '비가동 가동시간',
+                            runMs: n, stopMs: i, runPct, stopPct,
+                            faultMs: i - m, maintMs: m, faultPct, maintPct,
+                            runLabel: '실측 가동시간 (정상 가동)', stopLabel: m > 0 ? '비가동 · 고장' : '비가동 가동시간',
                             runNote: (o.normalCycleCount || 0) + '회', stopNote: (o.failureCount || 0) + '건',
                             subtitle: 'Σ실측 가동시간 ÷ (Σ실측 + Σ비가동) · 비가동 = 동작시간>이상치 / 미완료 폭주 / 무가동',
-                            hint: '한 번의 가동에서 <b>동작시간이 가동시간 이상치를 넘으면</b> 그 가동의 가동시간 전체를 비가동으로 본다(인식지연 + 고장 + 회복 포함). 미완료(가동시간 폭주)·무가동 정지도 비가동에 합산하되 겹친 구간은 1회만 계상한다(이중계상 방지).',
+                            hint: '한 번의 가동에서 <b>동작시간이 가동시간 이상치를 넘으면</b> 그 가동의 가동시간 전체를 비가동으로 본다(인식지연 + 고장 + 회복 포함). 미완료(가동시간 폭주)·무가동 정지도 비가동에 합산하되 겹친 구간은 1회만 계상한다(이중계상 방지). 고장/유지보수 구분은 정지 로그 분류(도넛과 동일 기준)를 비가동 시간에 겹쳐 귀속한 것.',
                         };
                     }
                     // 폴백(shift/auto/calendar): 계획시간 분모 기준 — planTime 사용.
@@ -1167,6 +1176,7 @@
                     return {
                         mode: 'fallback', hasData: planned > 0,
                         runMs: run, stopMs: stop, runPct, stopPct: planned > 0 ? r1(100 - runPct) : 0,
+                        faultMs: stop, maintMs: 0, faultPct: planned > 0 ? r1(100 - runPct) : 0, maintPct: 0,
                         runLabel: '가동시간', stopLabel: '정지 (비계획)',
                         runNote: null, stopNote: null, sourceLabel: srcLabel,
                         subtitle: '가동시간 ÷ 계획생산시간 · 계획시간 폴백(' + srcLabel + ') — 가동 표본 부족',

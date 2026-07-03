@@ -190,14 +190,19 @@
                             <div class="ds-legend" style="margin-bottom:10px;">
                                 <div class="lg-item"><span class="lg-swatch" style="background:var(--oee-run);"></span> <span x-text="availComp.runLabel"></span></div>
                                 <div class="lg-item"><span class="lg-swatch hatch-fault"></span> <span x-text="availComp.stopLabel"></span></div>
+                                <div class="lg-item" x-show="availComp.maintMs > 0"><span class="lg-swatch hatch-maint"></span> <span>비가동 · 유지보수</span></div>
                             </div>
                             <div style="display:flex; height:26px; border-radius:var(--radius-sm); overflow:hidden; border:1px solid var(--color-lines);">
                                 <div :style="`width:${availComp.runPct}%; background:var(--oee-run);`" :title="availComp.runLabel + ' ' + availComp.runPct + '%'"></div>
-                                <div class="hatch-fault" :style="`width:${availComp.stopPct}%;`" :title="availComp.stopLabel + ' ' + availComp.stopPct + '%'"></div>
+                                <div class="hatch-fault" :style="`width:${availComp.faultPct}%;`" :title="availComp.stopLabel + ' ' + availComp.faultPct + '%'"></div>
+                                <div class="hatch-maint" x-show="availComp.maintMs > 0" :style="`width:${availComp.maintPct}%;`" :title="'비가동 · 유지보수 ' + availComp.maintPct + '%'"></div>
                             </div>
                             <div style="display:flex; gap:18px; margin-top:8px; font-size:0.72rem; color:var(--color-text-secondary); flex-wrap:wrap;">
                                 <span><span x-text="availComp.runLabel"></span> <b x-text="durShort(availComp.runMs)"></b> (<span x-text="availComp.runPct + '%'"></span>)<template x-if="availComp.runNote"><span x-text="' · ' + availComp.runNote"></span></template></span>
-                                <span><span x-text="availComp.stopLabel"></span> <b x-text="durShort(availComp.stopMs)"></b> (<span x-text="availComp.stopPct + '%'"></span>)<template x-if="availComp.stopNote"><span x-text="' · ' + availComp.stopNote"></span></template></span>
+                                <span x-show="availComp.maintMs > 0">비가동 · 고장 <b x-text="durShort(availComp.faultMs)"></b> (<span x-text="availComp.faultPct + '%'"></span>)</span>
+                                <span x-show="availComp.maintMs > 0">비가동 · 유지보수 <b x-text="durShort(availComp.maintMs)"></b> (<span x-text="availComp.maintPct + '%'"></span>)</span>
+                                <span x-show="!(availComp.maintMs > 0)"><span x-text="availComp.stopLabel"></span> <b x-text="durShort(availComp.stopMs)"></b> (<span x-text="availComp.stopPct + '%'"></span>)<template x-if="availComp.stopNote"><span x-text="' · ' + availComp.stopNote"></span></template></span>
+                                <span x-show="availComp.maintMs > 0 && availComp.stopNote">비가동 합계 <b x-text="durShort(availComp.stopMs)"></b> · <span x-text="availComp.stopNote"></span></span>
                                 <span x-show="availComp.mode === 'cycle' && oee && oee.plannedDownMs > 0">비생산 시간 <b x-text="durShort(oee.plannedDownMs)"></b> <span class="up-codeish" x-text="(oee.plannedStopSource === 'manual' ? '수동' : '자동(10×가동시간)') + '·전부제외'"></span></span>
                                 <span x-show="availComp.mode === 'cycle'">가동시간 이상치 <b x-text="durShort(oee.ctThresholdMs)"></b> <span class="up-codeish">14일 평균</span></span>
                                 <span x-show="availComp.mode === 'fallback'">계획시간 기준 <span class="up-codeish" x-text="availComp.sourceLabel"></span></span>

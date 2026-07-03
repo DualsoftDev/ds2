@@ -102,8 +102,9 @@ public interface IOeeRepository
     /// IsAuto: detectSource='nocycle' 여부 — 자동 파생 무사이클 정지(=사이클 모델의 비생산과 같은 유휴)면 true.
     ///   컨트롤러가 비생산 카빙을 이 자동 정지보다 우선 적용해 상단 KPI A(정본)와 추이를 일치시킨다(고장비트/수동 정지는 그대로 우선).
     /// open(endAt NULL) 은 min(now, to) 로 캡. startAt 이 from 이전이라도 겹치면 포함(장시간·다일 정지 정확 분배).
+    /// FlowName: 이벤트의 flow — 라인 조회(flowName=null) 시 비가동 ΣCT 고장/유지보수 분리의 flow별 귀속에 사용.
     /// </summary>
-    Task<IReadOnlyList<(long StartMs, long EndMs, int Kind, bool IsAuto)>> GetDowntimeIntervalsAsync(
+    Task<IReadOnlyList<(long StartMs, long EndMs, int Kind, bool IsAuto, string? FlowName)>> GetDowntimeIntervalsAsync(
         DateTime fromUtc, DateTime toUtc, string? flowName, CancellationToken ct = default);
 
     // ── 자동 비생산 감지 로그 (10×CT, doc/22 §3.3) ────────────────────────

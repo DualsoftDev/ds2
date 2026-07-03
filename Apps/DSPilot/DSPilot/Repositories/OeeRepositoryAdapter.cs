@@ -580,7 +580,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
 
     // ── 일자별/시간별 정지 버킷 ───────────────────────────────────────────
 
-    public async Task<IReadOnlyList<(long StartMs, long EndMs, int Kind, bool IsAuto)>> GetDowntimeIntervalsAsync(
+    public async Task<IReadOnlyList<(long StartMs, long EndMs, int Kind, bool IsAuto, string? FlowName)>> GetDowntimeIntervalsAsync(
         DateTime fromUtc, DateTime toUtc, string? flowName, CancellationToken ct = default)
     {
         await using var conn = await OpenAsync();
@@ -599,7 +599,9 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         // open(endAt NULL) 은 @Cap(min(now,to)) 로 마감. 기간과 겹치는 이벤트 전부 포함(startAt < to AND effEnd > from)
         //   → 시작일 몰빵 대신 컨트롤러가 실제 겹친 슬롯마다 분배(다일·장시간 정지 정확 표현).
         // Kind(상호배타): 0=계획정비 / 1=고장 / 2=기타 비계획 / 3=미분류.
-        // IsAuto: detectSource='nocycle' → 자동 파생 무사이클 정지(사이클 모델의 비생산과 동일 유휴). 비생산 카빙 우선 판정에 사용.
+        // IsAuto: detectSource='nocycle' 이고 사용자 분류(classifySource='manual')가 아닌 것 — 자동 파생 무사이클
+        //   정지(사이클 모델의 비생산과 동일 유휴)라 추이에서 비생산 카빙에 흡수될 수 있다. 사용자가 직접 분류한
+        //   정지는 nocycle 감지라도 '확정된 진짜 정지'이므로 비자동 승격 → 추이에서 비생산에 가려지지 않는다.
         const string startMs = "CAST((julianday(startAt) - 2440587.5) * 86400000 AS INTEGER)";
         const string endMs = "CAST((julianday(COALESCE(endAt, @Cap)) - 2440587.5) * 86400000 AS INTEGER)";
         var sql = $@"
@@ -612,11 +614,12 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
                 WHEN isFailure = 1 THEN 1
                 ELSE 2
               END AS Kind,
-              CASE WHEN detectSource = 'nocycle' THEN 1 ELSE 0 END AS IsAuto
+              CASE WHEN detectSource = 'nocycle' AND COALESCE(classifySource,'') <> 'manual' THEN 1 ELSE 0 END AS IsAuto,
+              flowName AS FlowName
             FROM oeeDowntimeEvent
             WHERE startAt <= @To AND COALESCE(endAt, @Cap) >= @From {flowClause}";
         var rows = await conn.QueryAsync<IntervalRow>(sql, p);
-        return rows.Select(r => (r.StartMs, r.EndMs, r.Kind, r.IsAuto != 0)).ToList();
+        return rows.Select(r => (r.StartMs, r.EndMs, r.Kind, r.IsAuto != 0, r.FlowName)).ToList();
     }
 
     private sealed class IntervalRow
@@ -625,6 +628,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         public long EndMs { get; set; }
         public int Kind { get; set; }
         public int IsAuto { get; set; }
+        public string? FlowName { get; set; }
     }
 
     // ── 자동 비생산 감지 로그 (10×CT, doc/22 §3.3) ────────────────────────

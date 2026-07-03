@@ -220,7 +220,8 @@ public sealed record OeeSummaryDto(
     double PlannedDownMs = 0,         // 비생산 시간 비가동(가용성 분모서 제외 — 표준 OEE)
     string? PlannedStopSource = null, // 비생산 출처: "manual"(사용자 시각대) / "auto"(10×CT 장시간정지 자동) / "none"(없음)
     int? CtSampleCount = null,        // CT이상치 산출에 쓰인 클린샘플 수(라인=임계 보유 flow 중 최소). 임계 없으면 null
-    bool CtSampleLow = false);        // 클린샘플 < 신뢰선(5) — A·P 는 잠정값(샘플 쌓이면 자동 정상화). UI '샘플 부족' 표시용
+    bool CtSampleLow = false,         // 클린샘플 < 신뢰선(5) — A·P 는 잠정값(샘플 쌓이면 자동 정상화). UI '샘플 부족' 표시용
+    double IdleMaintCtMs = 0);        // Σ비가동CT 중 유지보수(isFailure=0 이벤트 겹침) 귀속분 — 가용성 바 3분할(고장 = IdleCtMs − 이 값)
 
 /// <summary>비생산 시간대 한 칸 DTO (반복 일일, 로컬 자정 기준 분).</summary>
 public sealed record PlannedStopWindowDto(int StartMinutes, int EndMinutes, string? Label);
