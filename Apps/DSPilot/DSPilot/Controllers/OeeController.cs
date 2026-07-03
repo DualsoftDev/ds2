@@ -105,9 +105,13 @@ public class OeeController : ControllerBase
         var names = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
         try
         {
+            // "*_Flow" 접미사 = device 레벨/합성 플로우(실제 제조 Flow 아님) → 후보에서 제외.
+            // DspDatabaseServiceAdapter/FlowMetricsService/DatabaseLifecycleService 와 동일 규약.
+            // (이 필터가 없으면 1IN_CYL_Flow 등 히스토리에 안 남는 플로우가 모달에 떠 선택해도 가동횟수 0)
             if (_project.IsLoaded)
                 foreach (var f in _project.GetAllFlows())
-                    if (!string.IsNullOrWhiteSpace(f.Name))
+                    if (!string.IsNullOrWhiteSpace(f.Name)
+                        && !f.Name.EndsWith("_Flow", StringComparison.OrdinalIgnoreCase))
                         names.Add(f.Name.Trim());
         }
         catch (Exception ex) { _logger.LogDebug(ex, "[OEE] output-flows: project flow 수집 실패 (non-critical)"); }
