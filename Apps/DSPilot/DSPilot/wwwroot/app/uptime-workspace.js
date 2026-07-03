@@ -61,6 +61,10 @@
                 _conn: null, _dt: null, _pollTimer: null,
                 // stale 응답 가드 — 폴링/기간변경/페이지이동 응답이 뒤늦게 도착해 최신 상태를 덮어쓰는 경합 방지
                 _utSeq: 0, _oeeSeq: 0, _anpSeq: 0,
+                // 사용자 로드(기간변경·페이지·정렬 등 비무음) 진행 중 카운트 — >0 이면 폴링/SignalR 무음 재로드를 건너뜀.
+                // 무음 로드가 seq 를 선점하면 사용자 로드 응답이 stale 폐기되어, 로딩 인디케이터가 끝나고도
+                // (뒤늦은 무음 응답 도착까지) 화면이 안 채워지는 가로채기가 생긴다. OEE 요약처럼 느린 조회일수록 잦음.
+                _userBusy: 0,
                 // utCategory = 구분 필터 ('' 전체 | 'abnormal' | 'usertag'). 레벨은 서버가 Error 로 통일(클라 미노출).
                 utPage: 0, utSearch: '', utCategory: '', utSystem: '', actionOverHint: [],
                 // 알람 이력 테이블 — 페이지 크기 / 정렬(서버 처리). sort 키는 서버 화이트리스트와 일치.
@@ -150,7 +154,7 @@
                     if (window.dspLoading) await window.dspLoading.wrap(initLoad, '불러오는 중…');
                     else await initLoad();
                     this.connectSignalR();
-                    this._pollTimer = setInterval(() => { this.load(true); if (this.view !== 'alarm') this.refreshActualNonProd(); }, 10000);
+                    this._pollTimer = setInterval(() => { this.load(true); if (this.view !== 'alarm' && !this._userBusy) this.refreshActualNonProd(); }, 10000);
                     // 알람 페이지 진입 시드(필터 스크롤·포커스·차단 모달) — OEE 전용 페이지에서는 무의미하므로 스킵.
                     if (this.view !== 'oee') {
                         // 필터 시드로 진입했으면 UserTag 카드로 스크롤(특정 알람 포커스가 있으면 그 행으로 직접 스크롤하므로 생략).
@@ -488,35 +492,39 @@
                 },
 
                 async load(silent) {
-                    if (!silent) this.loading = true;
-                    // OEE 데이터는 스냅샷과 독립적이므로 여기서 즉시(동기) dispatch 해 스냅샷 fetch 뒤로 미루지 않는다.
-                    // 뒤로 미루면(특히 스냅샷이 느릴 때) 이미 dispatch 된 옛 기간의 loadOee 가 최신 _oeeSeq 를 차지한 채
-                    // 먼저 도착해, 방금 선택한 기간과 화면이 어긋나거나(범위 불일치) 새 기간이 스냅샷 완료 후에야
-                    // 뒤늦게 적용되던 경합이 생긴다. 동기 호출하면 rangeForPeriod()·++_oeeSeq 가 방금 바뀐 period 로
-                    // 즉시 실행돼 loadOee 의 dispatch 순서가 기간 선택 순서와 정확히 일치한다(최신 선택이 항상 승리).
-                    const oeePromise = this.loadOee();
-                    const seq = ++this._utSeq;
-                    // 이상발생(UserTag) — 구 관리페이지 흡수(필터/페이지/차트)
+                    // 사용자 로드 진행 중이면 무음(폴링/SignalR) 재로드는 건너뜀 — seq 선점 가로채기 방지(_userBusy 주석 참조).
+                    if (silent && this._userBusy) return;
+                    if (!silent) { this.loading = true; this._userBusy++; }
                     try {
-                        const snap = await this.apiGet('/api/user-tags/snapshot?' + this.utQs());
-                        if (seq === this._utSeq) { // stale 응답(이후 요청이 이미 시작됨)은 폐기 — 페이지/기간 덮어쓰기 경합 방지
-                            this.ut = snap;
-                            this.utPage = snap.page; // 서버가 page 클램프할 수 있음
-                            // ActionOver 반복 디바이스 집계 — 같은 tagAddress 에서 2건 이상이면 힌트 표시
-                            const _aoCounts = {};
-                            for (const a of (snap.alerts || []))
-                                if (a.matchOp === 'AbnormalDetect' && a.matchValue === 'ActionOver' && a.tagAddress)
-                                    _aoCounts[a.tagAddress] = (_aoCounts[a.tagAddress] || 0) + 1;
-                            this.actionOverHint = Object.entries(_aoCounts).filter(([,n]) => n >= 2).map(([k]) => k);
-                            this.error = null;
-                            this.$nextTick(() => this.drawCharts());
-                        }
-                    } catch (e) {
-                        if (seq === this._utSeq) this.error = '이상발생 데이터를 불러오지 못했습니다: ' + e.message;
-                    } finally { this.loading = false; }
+                        // OEE 데이터는 스냅샷과 독립적이므로 여기서 즉시(동기) dispatch 해 스냅샷 fetch 뒤로 미루지 않는다.
+                        // 뒤로 미루면(특히 스냅샷이 느릴 때) 이미 dispatch 된 옛 기간의 loadOee 가 최신 _oeeSeq 를 차지한 채
+                        // 먼저 도착해, 방금 선택한 기간과 화면이 어긋나거나(범위 불일치) 새 기간이 스냅샷 완료 후에야
+                        // 뒤늦게 적용되던 경합이 생긴다. 동기 호출하면 rangeForPeriod()·++_oeeSeq 가 방금 바뀐 period 로
+                        // 즉시 실행돼 loadOee 의 dispatch 순서가 기간 선택 순서와 정확히 일치한다(최신 선택이 항상 승리).
+                        const oeePromise = this.loadOee();
+                        const seq = ++this._utSeq;
+                        // 이상발생(UserTag) — 구 관리페이지 흡수(필터/페이지/차트)
+                        try {
+                            const snap = await this.apiGet('/api/user-tags/snapshot?' + this.utQs());
+                            if (seq === this._utSeq) { // stale 응답(이후 요청이 이미 시작됨)은 폐기 — 페이지/기간 덮어쓰기 경합 방지
+                                this.ut = snap;
+                                this.utPage = snap.page; // 서버가 page 클램프할 수 있음
+                                // ActionOver 반복 디바이스 집계 — 같은 tagAddress 에서 2건 이상이면 힌트 표시
+                                const _aoCounts = {};
+                                for (const a of (snap.alerts || []))
+                                    if (a.matchOp === 'AbnormalDetect' && a.matchValue === 'ActionOver' && a.tagAddress)
+                                        _aoCounts[a.tagAddress] = (_aoCounts[a.tagAddress] || 0) + 1;
+                                this.actionOverHint = Object.entries(_aoCounts).filter(([,n]) => n >= 2).map(([k]) => k);
+                                this.error = null;
+                                this.$nextTick(() => this.drawCharts());
+                            }
+                        } catch (e) {
+                            if (seq === this._utSeq) this.error = '이상발생 데이터를 불러오지 못했습니다: ' + e.message;
+                        } finally { this.loading = false; }
 
-                    // 신규 OEE 데이터 — 위에서 이미 dispatch 됨(스냅샷과 병렬). 완료만 대기.
-                    await oeePromise;
+                        // 신규 OEE 데이터 — 위에서 이미 dispatch 됨(스냅샷과 병렬). 완료만 대기.
+                        await oeePromise;
+                    } finally { if (!silent) this._userBusy--; }
                 },
 
                 // 피드에서 at 으로 진입했을 때 해당 알람 행(data-at=occurredAtLocal 초단위)을 찾아 스크롤 + 잠깐 하이라이트.
@@ -821,10 +829,13 @@
 
                 // 기간 변경 재로드 — load()(스냅샷+OEE) 외에 기간 의존 데이터('실제 제외 비생산' 타임라인)도
                 // 함께 기다린다. 빠뜨리면 로딩 인디케이터가 끝난 뒤(다음 10초 폴링에서야) 타임라인이 뒤늦게 갱신됨.
-                reloadForPeriod() {
-                    const jobs = [this.load()];
-                    if (this.view !== 'alarm') jobs.push(this.refreshActualNonProd());
-                    return Promise.all(jobs);
+                async reloadForPeriod() {
+                    this._userBusy++; // load() 자체 카운트 외에 refreshActualNonProd 완주까지 무음 재로드 차단
+                    try {
+                        const jobs = [this.load()];
+                        if (this.view !== 'alarm') jobs.push(this.refreshActualNonProd());
+                        await Promise.all(jobs);
+                    } finally { this._userBusy--; }
                 },
                 setPeriod(p) { if (this.period === p) return; this.period = p; this.utPage = 0; if (window.dspLoading) window.dspLoading.wrap(() => this.reloadForPeriod(), '기간 데이터 불러오는 중…'); else this.reloadForPeriod(); },
 
