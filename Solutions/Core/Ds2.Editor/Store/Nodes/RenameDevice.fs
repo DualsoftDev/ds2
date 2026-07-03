@@ -347,3 +347,26 @@ type DsStoreRenameDeviceExtensions =
     static member TryGetDeviceSystemOfCall(store: DsStore, callId: Guid) : DsSystem option =
         Queries.getCall callId store
         |> Option.bind (fun call -> Queries.tryResolveCallTargetSystem call store)
+
+    /// UI 이름 변경 라우팅(#229). 디바이스(Passive System) 내부 Action Work 의 이름을 Properties/F2 로 바꾸면
+    /// 예전엔 그 Work 의 LocalName 만 바뀌고 SSOT 인 ApiDef.Name / ApiCall.Name / Call.ApiName 은 그대로 남아
+    /// 트리 표시(Work)와 일괄 이름 변경 다이얼로그의 "현재 Action 이름"(ApiDef)이 어긋났다.
+    /// → 해당 Work 를 Tx/Rx 로 가리키는 ApiDef 가 있으면 RenameDeviceBatch(단일 트랜잭션 cascade)에 위임해
+    ///   ApiDef.Name + Work.LocalName(Tx/Rx) + ApiCall.Name + Call.ApiName 을 한 번에 정합시킨다.
+    /// 그 외(일반/Active Work·Call·Flow·System·Project·ApiDef 등)는 기존 RenameEntity 를 그대로 호출한다.
+    [<Extension>]
+    static member RenameEntitySmart(store: DsStore, id: Guid, entityKind: EntityKind, newName: string) =
+        match entityKind with
+        | EntityKind.Work ->
+            match Queries.apiDefOwningWork id store with
+            | Some apiDef ->
+                // RenameEntity(Work) 와 동일 규칙으로 "FlowPrefix.LocalName" → LocalName 부분만 추출.
+                let localName =
+                    match newName.IndexOf('.') with
+                    | -1  -> newName
+                    | idx -> newName[idx + 1..]
+                DsStoreRenameDeviceExtensions.RenameDeviceBatch(store, apiDef.ParentId, None, [ apiDef.Id, localName ]) |> ignore
+            | None ->
+                DsStoreNodesExtensions.RenameEntity(store, id, entityKind, newName)
+        | _ ->
+            DsStoreNodesExtensions.RenameEntity(store, id, entityKind, newName)
