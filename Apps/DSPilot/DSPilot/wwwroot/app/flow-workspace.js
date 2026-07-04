@@ -10,9 +10,19 @@
             // 깊은 Proxy 로 감싸고, 재사용 update() 시 리졸버가 Proxy 순환 스코프를 타며 폭주한다
             // (stack overflow / 레이아웃 box undefined / 옵션 resolver 의 `.includes` of undefined).
             // 구버전이 매번 destroy()+new Chart() 라 update() 를 안 해서 안 터졌을 뿐 → 클로저 보관으로 근본 차단.
-            let _charts = { trend: null, count: null, dist: null };   // 추이 탭 (trend/count/dist)
+            let _charts = { trend: null, count: null };   // 추이 탭 (trend/count)
             let _cycleChart = null;   // 사이클 분석 탭
             let _histChart = null;    // 최근 히스토리 탭
+
+            // x축(category) 눈금 라벨: 첫·마지막은 항상 표시하고 나머지는 균등 간격으로 남긴다.
+            // Chart.js 기본 autoSkip 은 균등 간격만 유지하고 끝 눈금 보존을 보장하지 않아
+            // 마지막 버킷(가장 최근 날짜/시각) 라벨이 잘려 안 보이던 문제를 해결한다.
+            function edgeTickCallback(value, index, ticks) {
+                const n = ticks.length;
+                if (n <= 1 || index === 0 || index === n - 1) return this.getLabelForValue(value);
+                const step = Math.max(1, Math.ceil(n / 12));
+                return index % step === 0 ? this.getLabelForValue(value) : '';
+            }
 
             return {
                 TOP_MARGIN, LANE_HEIGHT, RIBBON_H,
@@ -116,7 +126,6 @@
                     const _resizeCharts = () => {
                         if (_charts.trend) try { _charts.trend.resize(); } catch (e) {}
                         if (_charts.count) try { _charts.count.resize(); } catch (e) {}
-                        if (_charts.dist) try { _charts.dist.resize(); } catch (e) {}
                     };
                     window.addEventListener('resize', () => {
                         clearTimeout(_rt);
@@ -141,10 +150,10 @@
                             await this.reloadTrend();
                             await this.loadExclusions();
                             this.syncHistory();
-                            // 사이클 분석 기본 = 최근 5분 (사이클타임 기본값과 일치 → 5분 프리셋 활성).
-                            // 추이 전용 페이지에서는 불필요하므로 건너뜀.
+                            // 사이클 분석 최초 범위 — URL 기간 파라미터(?period/from/to, 같은 페이지 나브 이동 시
+                            // shell 이 실어 보냄) 복원, 없으면 기본 최근 5분. 추이 전용 페이지에서는 불필요하므로 건너뜀.
                             if (this.view !== 'trend') {
-                                await this.setRecentMinutes(5);
+                                await this.applyRangeFromUrl();
                             }
                         }
                     }
@@ -298,24 +307,10 @@
                 // ── 내보내기 (기간별 추이) ─────────────────────────────────────────────
                 trendName() { return this.allMode ? '전체추이' : (this.flow ? this.flow.flowName : (this.flowName || 'Flow')); },
                 _stamp() { const t = new Date(); const p = (x) => String(x).padStart(2, '0'); return `${t.getFullYear()}${p(t.getMonth() + 1)}${p(t.getDate())}_${p(t.getHours())}${p(t.getMinutes())}${p(t.getSeconds())}`; },
-                _csvEscape(v) { if (v == null) return ''; const s = String(v); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; },
                 _downloadBlob(filename, blob) {
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a'); a.href = url; a.download = filename;
                     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-                },
-
-                // CSV = 데이터 전용(버킷별 집계). 서버 미경유 — 클라이언트에서 즉시 빌드.
-                exportTrendCsv() {
-                    if (!this.buckets.length) return;
-                    const p = (x) => String(x).padStart(2, '0');
-                    const fmtTs = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
-                    const sec = (ms) => (ms == null ? '' : (ms / 1000).toFixed(2));
-                    const out = ['버킷시각,가동횟수,비가동수,평균 CT(초),평균 동작(초),평균 대기(초)'];
-                    for (const b of this.buckets)
-                        out.push([this._csvEscape(fmtTs(b.ts)), b.count, b.idle, sec(b.avgCT), sec(b.avgMT), sec(b.avgWT)].join(','));
-                    const text = '﻿' + out.join('\r\n');
-                    this._downloadBlob(`Trend_${this.trendName()}_${this._stamp()}.csv`, new Blob([text], { type: 'text/csv;charset=utf-8' }));
                 },
 
                 // Excel = 차트(화면 캔버스 캡처) + 데이터. 서버(TrendExcelExporter)가 렌더.
@@ -334,7 +329,6 @@
                         };
                         const images = [
                             grab('trendChart', '기간별 가동시간 (동작·대기)'),
-                            grab('distChart', '시간 구성'),
                             grab('countChart', '가동횟수'),
                         ].filter(Boolean);
                         const model = {
@@ -476,7 +470,7 @@
                 drawCharts() {
                     if (!window.Chart) return;
                     Object.values(_charts).forEach(c => { if (c) c.destroy(); });
-                    _charts = { trend: null, count: null, dist: null };
+                    _charts = { trend: null, count: null };
                     if (this.trend.cycleCount === 0) { this._drawRetry = 0; return; }
                     // 캔버스를 $refs 가 아닌 DOM 에서 직접 찾는다.
                     // 첫 접속 시 중첩 x-if(flow→추이) 가 mount 될 때 Alpine 이 $refs.trendChart 를
@@ -484,7 +478,6 @@
                     const root = this.$root || document;
                     const trendCv = root.querySelector('canvas[x-ref="trendChart"]');
                     const countCv = root.querySelector('canvas[x-ref="countChart"]');
-                    const distCv = root.querySelector('canvas[x-ref="distChart"]');
                     // 아직 mount 전이면(템플릿 미렌더) 다음 프레임 재시도.
                     if (!trendCv) {
                         if (this._drawRetry < 60) { this._drawRetry++; requestAnimationFrame(() => this.drawCharts()); }
@@ -501,8 +494,6 @@
                     const toSec = (ms) => Math.round(ms / 1000 * 10) / 10;
                     const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim() || '#888';
                     const cCt = css('--color-primary') || '#0E7CCB';
-                    const cMt = css('--dash-mt') || '#fb8c00';   // 동작 = 주황 (신호색 통일)
-                    const cWt = css('--dash-wt') || '#AEB9C6';    // 대기 = 회색 (신호색 통일)
                     const grid = css('--color-lines') || 'rgba(14,27,42,0.10)';
                     const tickColor = css('--color-text-secondary') || '#5A6B7E';
 
@@ -555,7 +546,7 @@
                                     },
                                 },
                                 scales: {
-                                    x: { stacked: true, grid: { display: false }, ticks: { color: tickColor, font: { size: 10 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 12 } },
+                                    x: { stacked: true, grid: { display: false }, ticks: { color: tickColor, font: { size: 10 }, maxRotation: 0, autoSkip: false, callback: edgeTickCallback } },
                                     y: { stacked: true, beginAtZero: true, min: 0, grid: { color: grid }, ticks: { color: tickColor, font: { size: 10 }, callback: (v) => fmtMs(v) }, title: { display: true, text: '시간', color: tickColor } },
                                 },
                             }
@@ -566,30 +557,7 @@
                         _charts.count = new Chart(countCv, {
                             type: 'line',
                             data: { labels, datasets: [{ label: '가동횟수', data: this.buckets.map(b => b.count), borderColor: cCt, backgroundColor: cCt, borderWidth: 2, tension: 0.3, pointRadius: 2, pointHoverRadius: 4, fill: false, spanGaps: true }] },
-                            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: grid }, ticks: { color: tickColor, font: { size: 10 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 12 } }, y: { beginAtZero: true, grid: { color: grid }, ticks: { color: tickColor, precision: 0 } } } }
-                        });
-                    }
-                    if (distCv) {
-                        const self = this;
-                        _charts.dist = new Chart(distCv, {
-                            type: 'doughnut',
-                            data: { labels: ['동작시간', '대기시간'], datasets: [{ data: [this.trend.totalMt, this.trend.totalWt], backgroundColor: [cMt, cWt] }] },
-                            options: {
-                                responsive: true, maintainAspectRatio: false,
-                                plugins: {
-                                    legend: { position: 'bottom', labels: { color: tickColor } },
-                                    tooltip: {
-                                        callbacks: {
-                                            label: (c) => {
-                                                const total = c.dataset.data.reduce((s, v) => s + (v || 0), 0);
-                                                const v = c.parsed || 0;
-                                                const pct = total > 0 ? Math.round(v / total * 100) : 0;
-                                                return `${c.label}: ${self.fmt(v)} (${pct}%)`;
-                                            },
-                                        }
-                                    },
-                                }
-                            }
+                            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: grid }, ticks: { color: tickColor, font: { size: 10 }, maxRotation: 0, autoSkip: false, callback: edgeTickCallback } }, y: { beginAtZero: true, grid: { color: grid }, ticks: { color: tickColor, precision: 0 } } } }
                         });
                     }
                 },
@@ -735,6 +703,36 @@
                     await this.load();
                 },
 
+                // ── 분석 기간 URL 동기화 (?period=프리셋 | ?from/?to=직접 범위) ──
+                // shell 나브의 같은 페이지 전체/FLOW 이동(withPeriodCarry)이 이 파라미터를 실어 가
+                // 가동시간 분석 기간이 유지된다(새로고침 유지 포함). 프리셋은 이름(m30/h1/c10)으로 실어
+                // 대상에서 최신 데이터 기준 재계산, 직접 범위(수동 입력·드래그)는 from/to 그대로.
+                // 기본(최근 5분, m5)은 파라미터 생략.
+                syncRangeUrl() {
+                    const qp = new URLSearchParams(location.search);
+                    qp.delete('period'); qp.delete('from'); qp.delete('to');
+                    if (this.timePreset) { if (this.timePreset !== 'm5') qp.set('period', this.timePreset); }
+                    else if (this.cyclePreset) qp.set('period', 'c' + this.cyclePreset);
+                    else if (this.startTime && this.endTime) { qp.set('from', this.startTime); qp.set('to', this.endTime); }
+                    const qs = qp.toString();
+                    history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
+                },
+                async applyRangeFromUrl() {
+                    const qp = new URLSearchParams(location.search);
+                    const per = qp.get('period') || '';
+                    let m;
+                    if ((m = per.match(/^m(\d+)$/))) return await this.setRecentMinutes(+m[1]);
+                    if ((m = per.match(/^h(\d+)$/))) return await this.setRecentHours(+m[1]);
+                    if ((m = per.match(/^c(\d+)$/))) return await this.setRecentCycles(+m[1]);
+                    const from = qp.get('from'), to = qp.get('to');
+                    if (from && to && this.inputToDate(to) > this.inputToDate(from)) {
+                        this.startTime = from; this.endTime = to;
+                        this.timePreset = null; this.cyclePreset = null;
+                        return await this.load();
+                    }
+                    return await this.setRecentMinutes(5);
+                },
+
                 // H/T 토글 — Head/Tail 은 무조건 존재(이동만, 해제 없음). 같은 Call 에 둘 다 허용
                 // (단일 신호 Call 1개를 자기 OutTag↑→완료(InTag↑/OutTag↓)로 MT 분해 — head==tail).
                 async toggleHead(callId) {
@@ -860,31 +858,13 @@
                     const t = new Date(); const p = (x) => String(x).padStart(2, '0');
                     return `CycleTime_${this.selectedFlow}_${t.getFullYear()}${p(t.getMonth()+1)}${p(t.getDate())}_${p(t.getHours())}${p(t.getMinutes())}${p(t.getSeconds())}.xlsx`;
                 },
-                // CSV(데이터 전용) — 화면에 로드된 IO 신호 세그먼트(callLanes)를 그대로 내보낸다(Excel Sheet2 와 동일 컬럼).
-                // 서버 미경유 — 클라이언트에서 즉시 빌드. exportExcel 과 달리 차트/오버레이 없이 데이터만.
-                exportCycleCsv() {
-                    if (!this.callLanes || !this.callLanes.length) return;
-                    const rows = [];
-                    for (const l of this.callLanes) {
-                        for (const iv of (l.outIntervals || [])) rows.push({ call: l.callName, work: l.workName || '', kind: 'OUT', tag: l.outTag || '', s: iv.start, e: iv.end });
-                        for (const iv of (l.inIntervals || [])) rows.push({ call: l.callName, work: l.workName || '', kind: 'IN', tag: l.inTag || '', s: iv.start, e: iv.end });
-                    }
-                    rows.sort((a, b) => new Date(a.s) - new Date(b.s));
-                    const wall = (iso) => iso ? String(iso).replace('T', ' ').slice(0, 23) : '';
-                    const dur = (s, e) => Math.max(0, Math.round(new Date(e).getTime() - new Date(s).getTime()));
-                    const out = ['Call,Work,신호,Tag,시작,종료,지속(ms)'];
-                    for (const r of rows)
-                        out.push([this._csvEscape(r.call), this._csvEscape(r.work), r.kind, this._csvEscape(r.tag), this._csvEscape(wall(r.s)), this._csvEscape(wall(r.e)), dur(r.s, r.e)].join(','));
-                    const text = '﻿' + out.join('\r\n');
-                    this._downloadBlob(`CycleAnalysis_${this.selectedFlow || 'Flow'}_${this._stamp()}.csv`, new Blob([text], { type: 'text/csv;charset=utf-8' }));
-                },
-
                 async load() {
                     if (this.view === 'trend') return;   // 추이 전용 페이지 — 사이클(간트) 로드 건너뜀
                     if (!this.selectedFlow) return;
                     const start = this.inputToDate(this.startTime);
                     const end = this.inputToDate(this.endTime);
                     if (end <= start) { this.errorMessage = '종료 시각은 시작 시각보다 커야 합니다.'; return; }
+                    this.syncRangeUrl(); // 모든 범위 변경(프리셋/수동/드래그)이 여기로 수렴 — 확정된 기간만 URL 반영
 
                     this.isLoading = true; this.errorMessage = null;
                     if (window.dspLoading) window.dspLoading.begin('가동시간 분석 데이터 불러오는 중…');
@@ -1935,7 +1915,7 @@
                                 } },
                             },
                             scales: {
-                                x: { stacked: true, grid: { display: false }, title: { display: true, text: '가동', color: txt }, ticks: { color: txt, font: { size: 10 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 12 } },
+                                x: { stacked: true, grid: { display: false }, title: { display: true, text: '가동', color: txt }, ticks: { color: txt, font: { size: 10 }, maxRotation: 0, autoSkip: false, callback: edgeTickCallback } },
                                 y: { stacked: true, beginAtZero: true, min: 0, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, callback: (v) => fmtMs(v) }, title: { display: true, text: '시간', color: txt } },
                             },
                         },
@@ -2008,7 +1988,7 @@
                                 },
                             },
                             scales: {
-                                x: { stacked: true, grid: { display: false }, title: { display: true, text: '가동 발생 시각', color: txt }, ticks: { color: txt, font: { size: 10 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 12 } },
+                                x: { stacked: true, grid: { display: false }, title: { display: true, text: '가동 발생 시각', color: txt }, ticks: { color: txt, font: { size: 10 }, maxRotation: 0, autoSkip: false, callback: edgeTickCallback } },
                                 y: { stacked: true, beginAtZero: true, min: 0, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, callback: (v) => fmtMs(v) }, title: { display: true, text: '시간', color: txt } },
                             },
                         },

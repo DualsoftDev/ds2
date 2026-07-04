@@ -38,7 +38,8 @@ public interface IUserTagAlertRepository
         CancellationToken ct = default, string? flowFilter = null);
 
     /// <summary>태그별 Top N (카운트 내림차순). groupBy="name"(기본, 이름 기준 — abnormal 은 4개 유형으로 묶임)
-    /// | "path"(경로 tagAddress 기준 — abnormal 을 경로별로 펼침). 반환 TopRow 의 Name 슬롯에 그룹키를 담는다.</summary>
+    /// | "path"(경로 tagAddress 기준 — abnormal 을 경로별로 펼침). 반환 TopRow 의 Name 슬롯에 그룹키,
+    /// LogLevel 슬롯에 구분(ABNORMAL/USERTAG)을 담는다.</summary>
     Task<IReadOnlyList<UserTagAlertTopRow>> GetTopByNameAsync(
         DateTime startUtc, DateTime endUtc,
         int topN,

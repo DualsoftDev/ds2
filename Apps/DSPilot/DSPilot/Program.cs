@@ -272,31 +272,36 @@ app.UseAntiforgery();
 // 기존 Blazor @page(.razor)는 폴백으로 남겨두며(딕셔너리에서 해당 줄 삭제 시 즉시 Blazor 로 원복).
 var canonicalStaticRoutes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 {
-    ["/"] = "dashboard2.html",
-    ["/dashboard"] = "dashboard2.html",
+    ["/"] = "dashboard.html",
+    ["/dashboard"] = "dashboard.html",
     ["/heatmap"] = "heatmap.html",
-    ["/cycle-time-analysis"] = "cycle-time-analysis.html",
-    // 가동시간·이상 물리 분리(2026-07-01): OEE 종합 / 이상·알람 2페이지. 공용 JS/CSS(uptime-workspace) SSOT 공유.
+    // 가동시간·이상 물리 분리(2026-07-01): 종합설비효율 현황 / 이상·알람 2페이지. 공용 JS/CSS(uptime-workspace) SSOT 공유.
+    // 설비/생산 물리 분리(2026-07-03): 구 내부 탭(설비효율/생산효율)을 /uptime-oee·/uptime-teep 2페이지로 분리.
     ["/uptime-oee"] = "uptime-oee.html",
+    ["/uptime-teep"] = "uptime-teep.html",
     ["/uptime-alarm"] = "uptime-alarm.html",
     // 구 통합 /uptime, /oee 는 아래 legacyRedirects 에서 /uptime-oee 로 302(쿼리 보존).
+    //   구 ?section=teep 딥링크는 uptime-workspace.js init 이 /uptime-teep 로 클라이언트 리다이렉트.
     ["/cctv"] = "cctv.html",
     ["/plc-debug"] = "plc-debug.html",
     ["/settings"] = "settings.html",
-    ["/flow"] = "flow.html",
     ["/flow-trend"] = "flow-trend.html",
     ["/flow-cycle"] = "flow-cycle.html",   // ?name= 단일 · 매개변수 없음/?system= 전체 편집(bulkCycleApp)
-    // 구 /flow-all(전체 편집)은 아래 legacyRedirects 에서 /flow-cycle 로 302(쿼리 보존). flow-all.html 은 사용 중단.
-    ["/pw"] = "pw.html",
 };
 // 구 통합 경로 → 물리 분리 페이지 리다이렉트(가동시간·이상 분리, 2026-07-01). 쿼리스트링 보존.
-//   /uptime, /oee 는 이제 OEE 종합(/uptime-oee)으로 302. 이상·알람은 좌측 나브/링크가 /uptime-alarm 직접 이동.
+//   /uptime, /oee 는 이제 종합효율 현황(/uptime-oee)으로 302. 이상·알람은 좌측 나브/링크가 /uptime-alarm 직접 이동.
 var legacyRedirects = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 {
     ["/uptime"] = "/uptime-oee",
     ["/oee"] = "/uptime-oee",
     // 전체 편집 통합(2026-07-02): /flow-all → /flow-cycle (매개변수 없음/?system= 전체 편집). 쿼리 보존.
     ["/flow-all"] = "/flow-cycle",
+    // 페이지 삭제(2026-07-03): 아래 정적 페이지를 제거하고 잔존 URL/북마크를 후속 페이지로 302(쿼리 보존).
+    //   이 리다이렉트는 정적 서빙·Blazor 폴백보다 먼저 실행되므로, 남아있는 Blazor @page(FlowWorkspace/PowerTools)로
+    //   흘러가는 것도 함께 차단한다.
+    ["/flow"] = "/flow-trend",                 // 구 통합 flow.html(추이+사이클) → 추이 분석
+    ["/cycle-time-analysis"] = "/flow-cycle",  // 구 cycle-time-analysis.html → 사이클 분석(구 ?flow= 파라미터는 무시)
+    ["/pw"] = "/",                             // 구 pw.html(테스트 페이지) → 대시보드
 };
 app.Use(async (context, next) =>
 {

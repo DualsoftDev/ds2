@@ -88,8 +88,10 @@ public partial class MainViewModel
         if (!GuardSimulationSemanticEdit("이름 변경"))
             return;
 
+        // #229: 디바이스(Passive) Action Work 의 이름 변경은 SSOT(ApiDef)로 cascade 되도록 라우팅.
+        // (RenameEntitySmart 가 Work↔ApiDef 여부를 판정 — 일반 Work/기타 엔티티는 기존 RenameEntity 그대로.)
         if (TryEditorAction(
-                () => _store.RenameEntity(SelectedNode.Id, SelectedNode.EntityType, newName)))
+                () => _store.RenameEntitySmart(SelectedNode.Id, SelectedNode.EntityType, newName)))
             StatusText = $"Renamed to '{newName}'.";
     }
 

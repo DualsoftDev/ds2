@@ -11,9 +11,16 @@
         @media (max-width: 900px) { .up-2col { grid-template-columns: 1fr; } }
         .up-section { padding: 18px 20px; }
 
-        /* ── 탭 (OEE 종합 | 이상·알람): 세그먼트 트랙 — URL ?tab= 와 동기화 ── */
+        /* ── 탭 (종합효율 현황 | 이상·알람): 세그먼트 트랙 — URL ?tab= 와 동기화 ── */
         .up-tabs { margin-bottom: 14px; flex-wrap: wrap; }
         /* .up-tabs/.up-tab 룩은 swiss.css 공용 세그먼트/탭 표준(inset+애저)으로 이관 */
+
+        /* ── 생산효율(TEEP) 탭 — 시간 분해 범례 ── */
+        .up-teep-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; font-size: 0.82rem; color: var(--color-text-secondary); }
+        .up-teep-leg { display: flex; align-items: center; gap: 5px; }
+        .up-teep-leg .sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; flex-shrink: 0; }
+        .up-teep-leg b { font-weight: 700; font-family: "JetBrains Mono", ui-monospace, monospace; }
+        .up-teep-leg em { font-style: normal; opacity: 0.8; }
         .up-tab-badge { display: inline-flex; min-width: 18px; height: 18px; padding: 0 5px; align-items: center; justify-content: center; border-radius: 999px; background: var(--red); color: #fff; font-size: 0.62rem; font-weight: 800; line-height: 1; }
 
         /* ── OEE 6 KPI (OEE·A·P·Q·MTBF·MTTR — doc/22 사이클기반: MTTR 복원. 산출가능=강조, 산출불가=흐림+사유) ── */
@@ -85,6 +92,9 @@
         /* 정지 유형 = 대각선 빗금(가동=솔리드와 직관적 대비). 색=유형, 빗금=정지 신호. 스와치·바 공용 */
         .hatch-fault { background-color: var(--oee-fault); background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.55) 0 1.4px, transparent 1.4px 6px); }
         .hatch-maint { background-color: var(--oee-maint); background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.55) 0 1.4px, transparent 1.4px 6px); }
+        /* 비생산(분모 밖 제외) = 남색 슬레이트(--nonprod, ds.css) + 푸른 빗금 — 일자별 추이 캔버스의
+           밤하늘 빗금(_nightHatchPattern)과 동일 의미의 CSS 판. TEEP 시간 분해 막대 등 DOM 막대·스와치 공용 */
+        .hatch-nonprod { background-color: var(--nonprod); background-image: repeating-linear-gradient(45deg, rgba(96,140,210,0.55) 0 1.4px, transparent 1.4px 6px); }
         .up-legend-name { font-weight: 700; flex: 1; }
         .up-legend-share { font-family: var(--font-mono); font-weight: 700; color: var(--color-text-secondary); }
         .up-legend-val { width: 56px; text-align: right; font-family: var(--font-mono); font-weight: 800; }
@@ -106,7 +116,7 @@
         .up-utkpi.clickable:hover { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 5%, var(--color-surface-variant)); }
         .up-utkpi.is-active { border-color: var(--color-primary); box-shadow: inset 0 0 0 1px var(--color-primary); background: color-mix(in srgb, var(--color-primary) 9%, var(--color-surface-variant)); }
 
-        /* ── 이상발생 필터 행 + CSV ── */
+        /* ── 이상발생 필터 행 ── */
         .up-ut-filter { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
         .up-ut-filter .form-field, .up-ut-filter .form-select { min-width: 150px; width: auto; }
 

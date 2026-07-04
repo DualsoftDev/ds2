@@ -25,7 +25,10 @@ type EventDrivenEngineRuntimeHubSession
       scanPeriodMs: int,
       // ActionUnder 게이트 — workGuid 의 Min 이 실측 확정(calibration-state)됐는지. Agent(C#)가 사이드카+AASX
       // 해시로 만든 판정 함수를 주입한다. F# 는 Promaker.Shared 를 모르므로 Func 만 받는다(의존성 분리).
-      isMinMeasured: System.Func<Guid, bool> ) =
+      isMinMeasured: System.Func<Guid, bool>,
+      // ActionOver 게이트 — workGuid 의 Max 실측 확정 여부. 엔진 SetMaxMeasured 와 동일 판정 함수를
+      // adapter OUT-falling 발행 경로에도 주입한다(게이트 우회 금지 — 핸드오프 §7 가드2).
+      isMaxMeasured: System.Func<Guid, bool> ) =
 
     // ── 변환 헬퍼 ───────────────────────────────────────────────
     let gs (g: Guid) = g.ToString()
@@ -95,7 +98,15 @@ type EventDrivenEngineRuntimeHubSession
                     lock abnormalDedupLock (fun () ->
                         let key = Abnormal.latchKeyOf record
                         let prev = abnormalLastEmitted |> Map.tryFind key
-                        if abnormalDedupPolicy.ShouldEmit(prev, record) then
+                        // Action*(Over/Under)는 사이클당 1회 — 엔진 due 발행과 adapter OUT-falling 발행이
+                        // 5초 넘게 벌어지면 DefaultLatchPolicy 5s window 를 통과해 이중발행되므로, 윈도우가
+                        // 아닌 "직전 발행 존재 자체"로 억제한다. 클리어는 Call Going 진입 훅(아래 do 블록)이
+                        // 담당 → 새 사이클마다 재무장. Sensor* 는 기존 정책 유지.
+                        let shouldEmit =
+                            match record.Kind with
+                            | AbnormalKind.ActionOver | AbnormalKind.ActionUnder -> prev.IsNone
+                            | _ -> abnormalDedupPolicy.ShouldEmit(prev, record)
+                        if shouldEmit then
                             abnormalLastEmitted <- abnormalLastEmitted.Add(key, record)
                             true
                         else false)
@@ -218,8 +229,9 @@ type EventDrivenEngineRuntimeHubSession
             // SensorOpen 판정용 Call state — passive inference 가 engine 에 Force 한 현재 상태를 읽는다.
             let getCallStateForOpen g = match engine.GetCallState(g) with Some s -> s | None -> Status4.Ready
             let ab = MonitoringAbnormalAdapter(engine.Index, engine.IOMap, getCallStateForOpen, (fun () -> DateTime.UtcNow), broadcastAbnormal, 250, scanPeriodMs)
-            // ActionUnder 게이트 주입 — Min 실측 확정(calibration-state)된 Work 만 발행하게 한다.
+            // ActionUnder/ActionOver 게이트 주입 — Min/Max 실측 확정(calibration-state)된 Work 만 발행하게 한다.
             ab.IsMinMeasured <- (fun g -> isMinMeasured.Invoke g)
+            ab.IsMaxMeasured <- (fun g -> isMaxMeasured.Invoke g)
             // 자동 줄자 학습 확정 → client(Promaker)로 push. 정지 시 "업데이트" 선택하면 모델 dirty 반영.
             ab.OnLearnedDuration <- (fun workGuid avg minMs maxMs ->
                 let workName =
@@ -256,7 +268,14 @@ type EventDrivenEngineRuntimeHubSession
         engine.AdvanceSimulationToRealTime()
         let jumped = engine.CurrentTimeMs - before
         if jumped > 500L then
-            passiveLog.Info($"[ClockSync] sim clock jumped {jumped}ms on hub-thread drain (stale stamp window)")
+            // status/nextEvent 는 ActionOver 미발화 진단용 — due 이벤트가 큐에 있는데(nextEvent≤cur)
+            // 안 깨어난 것인지, 애초에 스케줄이 없는 것인지(nextEvent=none)를 로그만으로 판별.
+            let nextEvent =
+                match engine.NextEventTimeMs with
+                | Some t -> string t
+                | None -> "none"
+            passiveLog.Info(
+                $"[ClockSync] sim clock jumped {jumped}ms on hub-thread drain (stale stamp window) status={engine.Status} nextEventMs={nextEvent} curMs={engine.CurrentTimeMs}")
     let isMappedDeviceWork workGuid =
         (engine.IOMap.TxWorkToOutAddresses |> Map.containsKey workGuid)
         || (engine.IOMap.RxWorkToInAddresses |> Map.containsKey workGuid)

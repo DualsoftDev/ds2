@@ -67,13 +67,142 @@ public class OeeController : ControllerBase
         return summary;
     }
 
+    // ── GET /api/oee/teep?from&to&flow ────────────────────────────────────
+    // 생산효율(TEEP) = 가동(Σ실측CT) ÷ 캘린더(전체, 비생산 포함). 단순 가동형(P·Q 미반영 — 설비효율 탭이 A·P·Q 담당).
+    // 가동/정지/비생산은 같은 사이클 집계(ComputeCycleAggregateAsync)에서 조달 — 그 호출이 자동 10× 비생산을 로그로도 materialize.
+    // 라인(flow 미지정)은 flow별 합산이라 캘린더=기간×임계보유flow수 로 스케일(병렬 flow 과다계상 방지).
+    [HttpGet("teep")]
+    public async Task<ActionResult<OeeTeepDto>> Teep(
+        [FromQuery] DateTime? from, [FromQuery] DateTime? to, [FromQuery] string? flow,
+        CancellationToken ct)
+    {
+        var (fromUtc, toUtc) = ResolveRange(from, to);
+        var flowName = string.IsNullOrWhiteSpace(flow) ? null : flow.Trim();
+
+        var periodMs = (toUtc - fromUtc).TotalMilliseconds;
+        if (periodMs < 0) periodMs = 0;
+
+        var thresholds = await ResolveCtThresholdsAsync();
+        var (plannedWindows, _, applyLongStop) = ResolvePlannedWindows();
+        var agg = await ComputeCycleAggregateAsync(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct);
+
+        // 캘린더 배수 = 대상 flow 수(가동/정지/비생산이 flow별 합산이므로 분모도 배수).
+        int flowCount = flowName is not null
+            ? (thresholds.TryGetValue(flowName, out var t) && t.AvgMs > 0 ? 1 : 0)
+            : thresholds.Count(kv => kv.Value.AvgMs > 0);
+
+        double calendarMs = periodMs * flowCount;
+        double runningMs = agg.NormalCtMs;
+        double downMs = agg.IdleCtMs;
+        double nonProdMs = agg.PlannedCtMs;
+        double residualMs = Math.Max(0, calendarMs - runningMs - downMs - nonProdMs);
+
+        var teep = OeeMath.ComputeTeep(runningMs, calendarMs);
+        var util = OeeMath.ComputeUtilization(calendarMs, nonProdMs);
+        var teepNote = flowCount == 0
+            ? "표준 CT(14일 평균) 보유 flow 없음 — TEEP 산출 불가."
+            : "가동(Σ실측CT) ÷ 캘린더(전체, 비생산 포함) — 달력 대비 진짜 가동.";
+
+        return new OeeTeepDto(
+            FlowName: flowName,
+            FromUtc: fromUtc,
+            ToUtc: toUtc,
+            FlowCount: flowCount,
+            CalendarMs: calendarMs,
+            RunningMs: runningMs,
+            DownMs: downMs,
+            NonProdMs: nonProdMs,
+            ResidualMs: residualMs,
+            Teep: teep,
+            TeepNote: teepNote,
+            Utilization: util,
+            CtThresholdMs: agg.CtThresholdMs);
+    }
+
+    // ── GET /api/oee/output-count?from&to ─────────────────────────────────
+    /// <summary>
+    /// 대시보드 "가동횟수" 카드 값. flow별 사이클수를 그냥 합치면 직렬 공정에서 과다 계상되므로:
+    ///   · 출력 Flow 지정(OeeManual.OutputFlows) 있음 → 그 flow들의 사이클수 합(산출량).
+    ///   · 지정 없음(자동) → 전체 사이클수 합 ÷ 기간 내 가동한 flow 수(정수 평균) — 직렬이면 완제품 수, 병렬이면 라인 평균에 근사.
+    /// </summary>
+    [HttpGet("output-count")]
+    public async Task<ActionResult<OutputCountDto>> OutputCount(
+        [FromQuery] DateTime? from, [FromQuery] DateTime? to)
+    {
+        var (fromUtc, toUtc) = ResolveRange(from, to);
+        var selected = _settings.LoadSettings().OeeManual.OutputFlows ?? [];
+
+        if (selected.Count > 0)
+        {
+            int sum = 0;
+            foreach (var f in selected)
+                sum += await CountFlowHistoryAsync(f, fromUtc, toUtc);
+            return new OutputCountDto(sum, "designated");
+        }
+
+        var total = await CountFlowHistoryAsync(null, fromUtc, toUtc);
+        var flowCount = await CountDistinctActiveFlowsAsync(fromUtc, toUtc);
+        var avg = flowCount > 0
+            ? (int)Math.Round((double)total / flowCount, MidpointRounding.AwayFromZero)
+            : 0;
+        return new OutputCountDto(avg, "auto");
+    }
+
+    // ── GET /api/oee/output-flows ─────────────────────────────────────────
+    /// <summary>출력 Flow 지정 모달용 — 후보 flow 목록(프로젝트 flow ∪ 히스토리 flowName) + 현재 지정.</summary>
+    [HttpGet("output-flows")]
+    public async Task<ActionResult<OutputFlowStateDto>> GetOutputFlows()
+    {
+        var selected = _settings.LoadSettings().OeeManual.OutputFlows ?? [];
+        var names = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            // "*_Flow" 접미사 = device 레벨/합성 플로우(실제 제조 Flow 아님) → 후보에서 제외.
+            // DspDatabaseServiceAdapter/FlowMetricsService/DatabaseLifecycleService 와 동일 규약.
+            // (이 필터가 없으면 1IN_CYL_Flow 등 히스토리에 안 남는 플로우가 모달에 떠 선택해도 가동횟수 0)
+            if (_project.IsLoaded)
+                foreach (var f in _project.GetAllFlows())
+                    if (!string.IsNullOrWhiteSpace(f.Name)
+                        && !f.Name.EndsWith("_Flow", StringComparison.OrdinalIgnoreCase))
+                        names.Add(f.Name.Trim());
+        }
+        catch (Exception ex) { _logger.LogDebug(ex, "[OEE] output-flows: project flow 수집 실패 (non-critical)"); }
+
+        foreach (var n in await GetDistinctFlowNamesAsync())
+            names.Add(n);
+
+        return new OutputFlowStateDto([.. names], [.. selected]);
+    }
+
+    // ── POST /api/oee/output-flows ────────────────────────────────────────
+    /// <summary>출력 Flow 지정 저장(전체 교체). 빈 목록 = 자동(평균) 모드.</summary>
+    [HttpPost("output-flows")]
+    public ActionResult<SaveResultDto> SaveOutputFlows([FromBody] OutputFlowSaveDto? req)
+    {
+        try
+        {
+            var flows = (req?.Flows ?? [])
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .Select(s => s.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            _settings.Update(m => m.OeeManual.OutputFlows = flows);
+            return new SaveResultDto(true,
+                flows.Count == 0 ? "자동(평균) 모드로 설정되었습니다." : $"출력 Flow {flows.Count}개가 지정되었습니다.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[OEE] SaveOutputFlows failed");
+            return new SaveResultDto(false, $"출력 Flow 저장 실패: {ex.Message}");
+        }
+    }
+
     // ── POST /api/oee/export-excel ────────────────────────────────────────
     /// <summary>
     /// Excel(.xlsx) 내보내기 — WYSIWYG. 서버가 OEE 를 다시 계산하지 않고, 클라이언트(uptime-oee.html)가
     /// 화면에 그린 현재 상태(<see cref="OeeExcelModel"/>: 종합 지표 + 가용성 분해 + 정지 구성 + 설비별 순위
     /// + 정지 이벤트 로그 + 일자별 추이 차트 캔버스 캡처)를 그대로 받아 <see cref="OeeExcelExporter.BuildOeeExcel"/> 로 렌더.
     /// 파일명 = OEE_&lt;title&gt;_&lt;yyyyMMdd_HHmmss&gt;.xlsx. antiforgery 미적용 평범한 POST.
-    /// CSV(데이터 전용)는 클라이언트가 직접 빌드해 다운로드한다(서버 미경유).
     /// </summary>
     [HttpPost("export-excel")]
     public IActionResult ExportExcel([FromBody] OeeExcelModel req)
@@ -477,9 +606,10 @@ public class OeeController : ControllerBase
     }
 
     // ── GET /api/oee/planned-stops/actual?from&to&flow ───────────────────────
-    // 이번 조회기간에 "실제로 A 분모에서 제외된" 비생산 구간(NonProdIntervals)을 로컬 시:분(hour-of-day)으로
+    // 조회기간에 "실제로 A 분모에서 제외된" 비생산 구간(NonProdIntervals)을 로컬 시:분(hour-of-day)으로
     // 접어 병합 windows 로 반환. 14일 평균 패턴(auto-pattern)과 달리 실제 적용분 — 시간별 추이의 남색(비생산 제외)과
-    // 동일 소스라 타임라인과 추이가 일치한다. DaysAnalyzed=0 = "실제 적용분" 신호.
+    // 동일 소스. 단 24h 연표 표시는 기간 마지막 날(로컬)만 접는다(여러 날 union 은 전체 채움으로 퇴화 — 본문 참조).
+    // DaysAnalyzed=0 = "실제 적용분" 신호.
     [HttpGet("planned-stops/actual")]
     public async Task<ActionResult<PlannedAutoPatternDto>> GetActualNonProduction(
         [FromQuery] DateTime? from, [FromQuery] DateTime? to, [FromQuery] string? flow, CancellationToken ct)
@@ -489,13 +619,31 @@ public class OeeController : ControllerBase
 
         var thresholds = await ResolveCtThresholdsAsync();
         var (plannedWindows, _, applyLongStop) = ResolvePlannedWindows();
+        // 자동 비생산은 로그(SSOT, 감지시점 임계 스냅샷)에서, 수동 비생산 시간대는 설정에서 조달해 병합.
+        // ComputeCycleAggregateAsync 호출이 이번 기간 자동 감지를 로그에 materialize(UPSERT)하므로 로그가 최신.
         var agg = await ComputeCycleAggregateAsync(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct);
-        var intervals = agg.NonProdIntervals ?? new List<(double S, double E)>();
+        var merged = new List<(double S, double E)>();
+        merged.AddRange(await _repo.GetNonProdIntervalsFromLogAsync(fromUtc, toUtc, flowName, ct)); // 자동(10×) — 로그
+        merged.AddRange(ExpandPlannedIntervalsMs(plannedWindows, fromUtc, toUtc));                  // 수동 비생산 시간대 — 설정
+        // 로그가 비면(자동 OFF·기록 실패 등) 방금 계산한 값으로 폴백해 표시 공백 방지.
+        List<(double S, double E)> intervals = merged.Count > 0
+            ? Intervals.Union(merged)
+            : (agg.NonProdIntervals ?? new List<(double S, double E)>());
 
-        // NonProdIntervals(UTC epoch ms) → 로컬 시:분(minute-of-day) 커버리지. 여러 날 구간은 같은 24h 시계에 겹쳐 접힌다.
+        // NonProdIntervals(UTC epoch ms) → 로컬 시:분(minute-of-day) 커버리지.
+        // 여러 날 union 접기는 주말 정지 등 ≥24h 구간 하나로 1440분 전체가 덮여 무의미(전체 채움 버그)
+        // → 24h 연표는 '하루 일과' 뷰이므로 기간 마지막 날(로컬)로 클립해 접는다.
+        //   오늘로 끝나는 기간(오늘/7일/30일 등)이면 '오늘' 조회와 동일 화면.
+        var lastDayProbe = toUtc > fromUtc ? toUtc.AddSeconds(-1) : toUtc; // to=자정 정각이면 전날이 마지막 날
+        var dayStartUtc = DateTime.SpecifyKind(lastDayProbe.ToLocalTime().Date, DateTimeKind.Local).ToUniversalTime();
+        if (dayStartUtc < fromUtc) dayStartUtc = fromUtc;
+        double clipS = ToMs(dayStartUtc), clipE = ToMs(toUtc);
+
         var covered = new bool[1440];
-        foreach (var (s, e) in intervals)
+        foreach (var (s0, e0) in intervals)
         {
+            var s = Math.Max(s0, clipS);
+            var e = Math.Min(e0, clipE);
             if (e <= s) continue;
             var durMin = (e - s) / 60000.0;
             if (durMin >= 1440) { for (int m = 0; m < 1440; m++) covered[m] = true; continue; }
@@ -1010,7 +1158,15 @@ public class OeeController : ControllerBase
         var thresholds = ctThresholds ?? await ResolveCtThresholdsAsync();
         // 비생산 시간대에 든 비가동은 비생산으로 분류해 A 분모서 제외(표준 OEE). 자동(10× 장시간정지)/수동(시각대 윈도).
         var (plannedWindows, plannedSource, applyLongStop) = ResolvePlannedWindows();
-        var agg = await ComputeCycleAggregateAsync(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct);
+        // 유지보수(isFailure=0 계열 = 계획정비 kind0 + 기타 kind2) 이벤트 구간 → 비가동 ΣCT 고장/유지보수 분리.
+        // '정지 구성' 도넛의 2-상태(isFailure)와 동일 기준 — 가용성 바 3분할이 도넛·추이와 같은 언어를 쓴다.
+        var evIntervals = await _repo.GetDowntimeIntervalsAsync(fromUtc, toUtc, flowName, ct);
+        var maintIv = evIntervals
+            .Where(x => x.Kind is 0 or 2 && x.EndMs > x.StartMs)
+            .Select(x => ((double)x.StartMs, (double)x.EndMs, x.FlowName))
+            .ToList();
+        var agg = await ComputeCycleAggregateAsync(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct,
+            maintIntervals: maintIv);
 
         // ── Availability — 사이클기반 1차(source='cycle'), 표본 부족 시 시간기반 폴백 체인 보존(doc/22 §7) ──
         double? availability; string? availNote; string? availabilitySource; double runtimeMs;
@@ -1086,7 +1242,10 @@ public class OeeController : ControllerBase
             PlannedDownMs: agg.PlannedCtMs,
             PlannedStopSource: agg.HasThreshold ? plannedSource : null,
             CtSampleCount: agg.HasThreshold ? agg.CtSampleMin : (int?)null,
-            CtSampleLow: agg.HasThreshold && agg.CtSampleMin < OeeCtStatsService.ConfidentMinCleanCycles);
+            CtSampleLow: agg.HasThreshold && agg.CtSampleMin < OeeCtStatsService.ConfidentMinCleanCycles,
+            IdleMaintCtMs: agg.IdleMaintCtMs,
+            IdleCalendarMs: agg.IdleCalendarMs,
+            CycleFlowCount: agg.FlowCount);
     }
 
     /// <summary>
@@ -1190,7 +1349,9 @@ public class OeeController : ControllerBase
     private readonly record struct CycleAgg(
         double NormalCtMs, double IdleCtMs, int NormalCount, int DowntimeEventCount,
         double? CtThresholdMs, List<double> OnsetsMs, List<double> RepairMsList, bool HasThreshold,
-        double PlannedCtMs, int CtSampleMin = 0, List<(double S, double E)>? NonProdIntervals = null);
+        double PlannedCtMs, int CtSampleMin = 0, List<(double S, double E)>? NonProdIntervals = null,
+        List<(double S, double E)>? RunIntervals = null, double IdleMaintCtMs = 0,
+        double IdleCalendarMs = 0, int FlowCount = 0);
 
     private sealed class CycleAggRow { public long NormalCt { get; set; } public long NormalCount { get; set; } public long NonProdNormalCt { get; set; } }
     private sealed class DtCycleRaw { public string? RecordedAt { get; set; } public long? Ct { get; set; } public long? Mt { get; set; } }
@@ -1206,7 +1367,9 @@ public class OeeController : ControllerBase
     private async Task<CycleAgg> ComputeCycleAggregateAsync(
         string? flowName, DateTime fromUtc, DateTime toUtc,
         IReadOnlyDictionary<string, (double AvgMs, double P10Ms, int Sample)> thresholds,
-        IReadOnlyList<(int StartMin, int EndMin)> plannedWindows, bool applyLongStop, CancellationToken ct)
+        IReadOnlyList<(int StartMin, int EndMin)> plannedWindows, bool applyLongStop, CancellationToken ct,
+        bool collectRunIntervals = false,
+        IReadOnlyList<(double S, double E, string? Flow)>? maintIntervals = null)
     {
         var onsets = new List<double>();
         var repairs = new List<double>();
@@ -1234,6 +1397,34 @@ public class OeeController : ControllerBase
         // 비생산(제외) 구간 수집 — 일자별 추이 차트의 '비생산(제외)' 세그먼트용(A 분모 밖 시간 시각화). 수동 윈도는 전 구간,
         //  자동(10×)은 판정된 유휴 사이클/무사이클 갭 구간을 모은다. 마지막에 Union 으로 병합(이중계상 방지).
         var nonProdIntervals = new List<(double S, double E)>(ExpandPlannedIntervalsMs(plannedWindows, fromUtc, toUtc));
+        // 자동(10×) 감지분만 로그로 영속화(수동 윈도는 설정이 정본이라 제외). 마지막에 배치 UPSERT(멱등).
+        var nonProdDetections = new List<OeeNonProdDetectionLog>();
+        // 실측 가동(정상 사이클 [start, recordedAt)) 구간 — 일자별 추이의 '가동 하한'(collectRunIntervals 시에만 수집).
+        // 라인 레벨 무사이클 잔여(스턱 flow open 이벤트)가 타 flow 생산 중 시간까지 비생산으로 덮는 과대포함에서
+        // 실제 생산시간을 보호하는 용도. flow 병렬이라 ΣCT > 달력시간 가능 → 반환 전 Union(달력 커버리지)으로 접는다.
+        var runIntervals = collectRunIntervals ? new List<(double S, double E)>() : null;
+        // 유지보수(isFailure=0 계열) 이벤트 구간 — 비가동 ΣCT 를 고장/유지보수로 분리(가용성 바 3분할, 도넛과 동일 2-상태).
+        // flow별 Union(사이클 비가동 귀속) + 전체 Union(라인 무사이클 잔여 귀속). 미전달 시 분리 생략(전부 고장 취급).
+        Dictionary<string, List<(double S, double E)>>? maintByFlow = null;
+        List<(double S, double E)>? maintAll = null;
+        if (maintIntervals is { Count: > 0 })
+        {
+            maintByFlow = maintIntervals.Where(x => !string.IsNullOrEmpty(x.Flow) && x.E > x.S)
+                .GroupBy(x => x.Flow!, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => Intervals.Union(g.Select(x => (x.S, x.E)).ToList()), StringComparer.Ordinal);
+            maintAll = Intervals.Union(maintIntervals.Where(x => x.E > x.S).Select(x => (x.S, x.E)).ToList());
+        }
+        double idleMaintCtMs = 0;
+        // 미계획 비가동으로 '계상된' 구간(달력) — ΣCT(설비 합산)와 별개로 벽시계 환산치(Union 후 Total)를 제공.
+        // "비가동 13d(설비시간)가 달력에선 얼마인가"를 UI 가 병기해 ΣCT↔달력 오독을 방지(P0 개선).
+        var idleCalIntervals = new List<(double S, double E)>();
+        static double OverlapMs(List<(double S, double E)>? iv, double s, double e)
+        {
+            if (iv is null) return 0;
+            double sum = 0;
+            foreach (var (a, b) in iv) { var o = Math.Min(b, e) - Math.Max(a, s); if (o > 0) sum += o; }
+            return sum;
+        }
 
         // dspFlowHistory 비가동 조건 — ① MT>thr ② complete=null(mt null) AND CT>thr (IsIdle 무관, §3.2).
         const string dtCond = "ct > 0 AND ((mt IS NOT NULL AND mt > @Thr) OR (mt IS NULL AND ct > @Thr))";
@@ -1278,6 +1469,19 @@ public class OeeController : ControllerBase
                     plannedCtMs += aggRow.NonProdNormalCt;           // 비생산 시간대 정상 CT — A 분모서 제외(정상/비가동 모두 필터)
                 }
 
+                // 실측 가동 구간(정상 사이클) 수집 — 비생산 시간대 시작분도 포함(물리적으로 돌던 시간이므로 하한 대상).
+                if (runIntervals is not null)
+                {
+                    var runRows = await conn.QueryAsync<DtCycleRaw>($@"
+                        SELECT recordedAt AS RecordedAt, ct AS Ct, mt AS Mt
+                        FROM dspFlowHistory
+                        WHERE recordedAt >= @From AND recordedAt < @To AND flowName = @Flow
+                          AND ct > 0 AND NOT ({dtCond})", p);
+                    foreach (var r in runRows)
+                        if (r.Ct is long rc && rc > 0 && ParseUtcMs(r.RecordedAt) is double rrec)
+                            runIntervals.Add((rrec - rc, rrec));
+                }
+
                 // 비가동 사이클 row → 비생산 시간대면 비생산(분모 제외), 아니면 생산 미계획정지(Σ비가동CT + onset/repair).
                 // 모든 비가동 구간([start, recordedAt))은 nocycle dedup 용으로 모은다(비생산 여부 무관).
                 var rows = await conn.QueryAsync<DtCycleRaw>($@"
@@ -1304,9 +1508,13 @@ public class OeeController : ControllerBase
                     {
                         plannedCtMs += cMs;
                         nonProdIntervals.Add((startMs, rec));       // 자동(10×) 유휴 사이클 → 비생산(제외) 시각화
+                        nonProdDetections.Add(NewNonProdDetection(f, startMs, rec, thr, "idle-cycle"));
                         continue;
                     }
                     idleCtMs += cMs;
+                    idleCalIntervals.Add((startMs, rec));
+                    // 유지보수 이벤트(같은 flow)와 겹친 만큼 유지보수로 귀속(잔여 = 고장) — 가용성 바 3분할용
+                    idleMaintCtMs += Math.Min(cMs, OverlapMs(maintByFlow?.GetValueOrDefault(f), startMs, rec));
                     onsets.Add(startMs + thr);                                  // 고장 onset = 사이클 시작 + CT이상치
                     double repair = r.Mt is long mtL ? (mtL - thr) : (cMs - thr); // going 회복: complete(MT) 또는 CT 종료
                     if (repair >= 0) repairs.Add(repair);
@@ -1338,9 +1546,14 @@ public class OeeController : ControllerBase
                         {
                             plannedCtMs += len;
                             nonProdIntervals.Add((u.S, u.E));       // 자동(10×) 무사이클 갭 → 비생산(제외) 시각화
+                            nonProdDetections.Add(NewNonProdDetection(flowName, u.S, u.E, avgThr, "nocycle-gap"));
                             continue;
                         }
                         idleCtMs += len;
+                        idleCalIntervals.Add((u.S, u.E));
+                        // 무사이클 잔여의 유지보수 귀속 — flow 조회는 그 flow 의 유지보수 구간, 라인은 전체 Union
+                        idleMaintCtMs += Math.Min(len, OverlapMs(
+                            flowName is not null ? maintByFlow?.GetValueOrDefault(flowName) : maintAll, u.S, u.E));
                         onsets.Add(u.S);
                         repairs.Add(len);
                         dtEventCount++;
@@ -1366,9 +1579,34 @@ public class OeeController : ControllerBase
             var thrVals = targetFlows.Select(f => thresholds[f].AvgMs).Where(v => v > 0).ToList();
             displayThr = thrVals.Count > 0 ? thrVals.Average() : (double?)null;
         }
+        // 자동 비생산 감지를 로그에 materialize(멱등 UPSERT) — TEEP(생산효율)이 장기간에도 일관·저비용으로 읽는 SSOT.
+        // best-effort: 실패해도 OEE 조회는 그대로 성공. 감지 0건이면 skip.
+        if (applyLongStop && nonProdDetections.Count > 0)
+        {
+            try { await _repo.UpsertNonProdDetectionsAsync(nonProdDetections, ct); }
+            catch (Exception ex) { _logger.LogWarning(ex, "[OEE] 비생산 감지 로그 materialize 실패"); }
+        }
+
         return new CycleAgg(normalCtMs, idleCtMs, normalCount, dtEventCount, displayThr, onsets, repairs, true, plannedCtMs,
-            ctSampleMin == int.MaxValue ? 0 : ctSampleMin, Intervals.Union(nonProdIntervals));
+            ctSampleMin == int.MaxValue ? 0 : ctSampleMin, Intervals.Union(nonProdIntervals),
+            runIntervals is not null ? Intervals.Union(runIntervals) : null,
+            Math.Min(idleMaintCtMs, idleCtMs),
+            Intervals.Total(Intervals.Union(idleCalIntervals)), thrCount);
     }
+
+    // 자동(10×) 비생산 감지 1건 → 로그 엔티티. onset/clear = UTC epoch ms, thrMs = 감지 당시 14일 평균 CT 스냅샷.
+    private static OeeNonProdDetectionLog NewNonProdDetection(string? flow, double onsetMs, double clearMs, double thrMs, string reason)
+        => new()
+        {
+            FlowName = flow,
+            OnsetAt = DateTimeOffset.FromUnixTimeMilliseconds((long)onsetMs).UtcDateTime,
+            ClearAt = DateTimeOffset.FromUnixTimeMilliseconds((long)clearMs).UtcDateTime,
+            DurationMs = (long)(clearMs - onsetMs),
+            DetectionSource = "auto-10xct",
+            DetectionReason = reason,
+            CtThresholdMs = thrMs,
+            CtMultiplier = OeeMath.NonProductionCtMultiplier,
+        };
 
     /// <summary>
     /// oee.db 의 무사이클 정지(detectSource='nocycle') 구간을 ms 로 (기간 클립). 사이클기반 dedup 소스(§3 ③).
@@ -1402,7 +1640,9 @@ public class OeeController : ControllerBase
             {
                 var s = ParseUtcMs(r.StartAt);
                 if (s is not double sMs) continue;
-                var eMs = ParseUtcMs(r.EndAt) ?? toMs;     // open 이벤트는 기간 끝으로 캡
+                // open 이벤트는 min(now, 기간 끝)으로 캡 — 기간 끝이 미래(오늘 23:59 등)면 아직 오지 않은
+                // 시간까지 정지/비생산으로 칠해지는 것을 막는다(진행 중 정지는 '지금'까지가 사실).
+                var eMs = ParseUtcMs(r.EndAt) ?? Math.Min(toMs, ToMs(DateTime.UtcNow));
                 var clipS = Math.Max(sMs, fromMs);
                 var clipE = Math.Min(eMs, toMs);
                 if (clipE > clipS) result.Add((clipS, clipE));
@@ -1505,6 +1745,62 @@ public class OeeController : ControllerBase
         {
             _logger.LogWarning(ex, "[OEE] dspFlowHistory count failed");
             return 0;
+        }
+    }
+
+    /// <summary>기간 내 <b>가동한(비가동 제외) flow 수</b>(distinct flowName). 자동(평균) 모드의 분모.</summary>
+    private async Task<int> CountDistinctActiveFlowsAsync(DateTime fromUtc, DateTime toUtc)
+    {
+        var dbPath = _pathResolver.GetSharedDbPath();
+        if (!System.IO.File.Exists(dbPath)) return 0;
+        try
+        {
+            await using var conn = new SqliteConnection(
+                $"Data Source={dbPath};Mode=ReadWriteCreate;Default Timeout=20");
+            await conn.OpenAsync();
+
+            var exists = await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlowHistory'");
+            if (exists == 0) return 0;
+
+            var p = new DynamicParameters();
+            p.Add("From", fromUtc.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture));
+            p.Add("To", toUtc.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture));
+            return await conn.ExecuteScalarAsync<int>(@"
+                SELECT COUNT(DISTINCT flowName) FROM dspFlowHistory
+                WHERE COALESCE(IsIdle,0) = 0
+                  AND recordedAt >= @From AND recordedAt < @To", p);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[OEE] dspFlowHistory distinct-flow count failed");
+            return 0;
+        }
+    }
+
+    /// <summary>히스토리에 존재하는 모든 flowName(중복 제거). 출력 Flow 지정 모달의 후보 목록 보강용.</summary>
+    private async Task<List<string>> GetDistinctFlowNamesAsync()
+    {
+        var dbPath = _pathResolver.GetSharedDbPath();
+        if (!System.IO.File.Exists(dbPath)) return [];
+        try
+        {
+            await using var conn = new SqliteConnection(
+                $"Data Source={dbPath};Mode=ReadWriteCreate;Default Timeout=20");
+            await conn.OpenAsync();
+
+            var exists = await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlowHistory'");
+            if (exists == 0) return [];
+
+            var rows = await conn.QueryAsync<string>(
+                "SELECT DISTINCT flowName FROM dspFlowHistory WHERE flowName IS NOT NULL AND flowName <> ''");
+            return [.. rows];
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[OEE] dspFlowHistory distinct flowName query failed");
+            return [];
         }
     }
 
@@ -1682,20 +1978,50 @@ public class OeeController : ControllerBase
         var gran = hourly ? "hour" : "day";
 
         // ① 정지 이벤트 raw 구간(kind별). 시작일 몰빵 대신 각 이벤트를 실제 겹친 슬롯에 overlap 분배(다일·장시간 정지 정확).
-        //    자동(nocycle) vs 비자동(고장비트/수동) 분리 — 비생산 카빙 우선순위가 다름(아래 BuildDailySlot 참조).
+        //    자동(nocycle 미분류) vs 비자동(고장비트/사용자 분류) 분리 — 비생산 카빙 우선순위가 다름(아래 BuildDailySlot 참조).
         var intervals = await _repo.GetDowntimeIntervalsAsync(fromUtc, toUtc, flowName, ct);
         var delibKind = new[] { new List<(long S, long E)>(), new List<(long S, long E)>(), new List<(long S, long E)>(), new List<(long S, long E)>() };
         var autoKind = new[] { new List<(long S, long E)>(), new List<(long S, long E)>(), new List<(long S, long E)>(), new List<(long S, long E)>() };
-        foreach (var (s, e, kind, isAuto) in intervals)
+        foreach (var (s, e, kind, isAuto, _) in intervals)
             if (e > s && kind is >= 0 and <= 3) (isAuto ? autoKind : delibKind)[kind].Add((s, e));
 
         // ② 비생산(제외) 구간 — 사이클 모델(10×CT/수동 시각대, A 분모 밖). 가동(초록)에서 카빙해 별도 세그먼트로 표시.
         //    daily 는 저빈도라 사이클 집계 1회 추가 호출 허용. Union 된 구간이라 자체 겹침 없음(슬롯 overlap 이중계상 없음).
         var thresholds = await ResolveCtThresholdsAsync();
         var (plannedWindows, _, applyLongStop) = ResolvePlannedWindows();
-        var agg = await ComputeCycleAggregateAsync(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct);
-        var nonProd = (agg.NonProdIntervals ?? new List<(double S, double E)>())
+        var agg = await ComputeCycleAggregateAsync(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct,
+            collectRunIntervals: true);
+        // 비생산 소스 = 타임라인(planned-stops/actual)과 동일하게 일원화: 로그(자동 10×, SSOT) ∪ 수동 윈도, 비면 방금 계산분 폴백.
+        // agg.NonProdIntervals 단독은 라이브 재집계라 로그에 있던 감지분(임계 스냅샷·타 뷰 감지)을 놓쳐 추이가 그 구간을
+        // 고장(빨강)으로 새게 만들었음 → 타임라인과 소스를 맞춰 KPI(정본)·타임라인·추이 3화면 일치.
+        var nonProdMerged = new List<(double S, double E)>();
+        nonProdMerged.AddRange(await _repo.GetNonProdIntervalsFromLogAsync(fromUtc, toUtc, flowName, ct)); // 자동(10×) — 로그
+        nonProdMerged.AddRange(ExpandPlannedIntervalsMs(plannedWindows, fromUtc, toUtc));                  // 수동 비생산 시간대 — 설정
+        var nonProdSource = nonProdMerged.Count > 0
+            ? Intervals.Union(nonProdMerged)
+            : (agg.NonProdIntervals ?? new List<(double S, double E)>());
+        var nonProd = nonProdSource
             .Select(x => ((long)x.S, (long)x.E)).Where(x => x.Item2 > x.Item1).ToList();
+        // 실측 가동(정상 사이클 Union) — 슬롯별 '가동 하한'. 정지/비생산 카빙이 실제 생산시간을 침식하지 못하게 예약.
+        var runIv = (agg.RunIntervals ?? new List<(double S, double E)>())
+            .Select(x => ((long)x.S, (long)x.E)).Where(x => x.Item2 > x.Item1).ToList();
+
+        // ③ 비생산 우선 — 모든 정지 이벤트 구간에서 비생산 구간을 차집합(구간 연산)으로 제거.
+        //    사이클 모델(KPI A)이 비생산으로 분모서 제외한 시간은 사용자가 유지보수로 분류한 정지라도 추이에서
+        //    비생산(숨김)으로 채워져 막대가 줄어든다 — 분류색(노랑/빨강)은 비생산이 아닌 잔여 정지에만 칠한다.
+        //    (10×CT 규칙은 분류 무관이므로 이벤트 종류 구분 없이 일괄 차집합 — KPI·비생산 배지와 일치)
+        var nonProdD = nonProdSource.Where(x => x.E > x.S).ToList();
+        if (nonProdD.Count > 0)
+        {
+            for (int k = 0; k < 4; k++)
+            {
+                static List<(long S, long E)> SubtractNonProd(List<(long S, long E)> src, List<(double S, double E)> np)
+                    => Intervals.Subtract(src.Select(x => ((double)x.S, (double)x.E)).ToList(), np)
+                        .Select(x => ((long)x.S, (long)x.E)).Where(x => x.Item2 > x.Item1).ToList();
+                delibKind[k] = SubtractNonProd(delibKind[k], nonProdD);
+                autoKind[k] = SubtractNonProd(autoKind[k], nonProdD);
+            }
+        }
 
         static long SumOverlap(List<(long S, long E)> segs, long slotS, long slotE)
         {
@@ -1718,7 +2044,7 @@ public class OeeController : ControllerBase
                 delib[k] = SumOverlap(delibKind[k], sS, sE);
                 auto[k] = SumOverlap(autoKind[k], sS, sE);
             }
-            slots.Add(BuildDailySlot(label, slotMs, delib, auto, SumOverlap(nonProd, sS, sE)));
+            slots.Add(BuildDailySlot(label, slotMs, delib, auto, SumOverlap(nonProd, sS, sE), SumOverlap(runIv, sS, sE)));
         }
         if (hourly)
         {
@@ -1749,19 +2075,21 @@ public class OeeController : ControllerBase
     private static DateTime Max(DateTime a, DateTime b) => a > b ? a : b;
 
     /// <summary>
-    /// 정지 분해를 슬롯 예산(slotMs) 안에 캡한다. 예산 소진 순서가 곧 우선순위(세그먼트 합 ≤ slotMs).
-    /// 가동 = slotMs − (failure+other+unclass+planned+nonprod) 은 클라이언트가 차감.
+    /// 정지 분해를 슬롯 예산(slotMs − 가동하한) 안에 캡한다. 예산 소진 순서가 곧 우선순위(세그먼트 합 ≤ slotMs − runFloorMs).
+    /// 가동 = slotMs − (failure+other+unclass+planned+nonprod) 은 클라이언트가 차감 → 항상 ≥ runFloorMs 보장.
     ///
-    /// 우선순위(핵심): ① 실제 기록된 정지(비자동 = 고장비트/수동) → ② 비생산(제외) → ③ 자동(nocycle) 정지 잔여.
-    /// 이유: 자동 nocycle 정지는 사이클 모델이 "비생산(10×CT 장기유휴, A 분모 밖)"으로 빼는 유휴와 동일 구간이다.
-    ///   비생산을 자동정지보다 먼저 카빙해 그 시간을 고장(빨강)이 아닌 비생산으로 흡수 → 상단 KPI A(정본)와 추이가 일치.
-    ///   단 고장비트/수동 정지(비자동)는 진짜 정지이므로 비생산에 가려지지 않게 맨 앞에서 우선 확보한다.
+    /// 가동하한(runFloorMs) = 슬롯과 겹친 실측 정상 사이클 시간(Union). 라인 레벨에선 한 flow 의 장기 무사이클 잔여가
+    ///   타 flow 생산 중 시간까지 비생산/정지로 덮을 수 있어(과대포함), 실제 생산한 시간은 카빙 대상에서 먼저 제외한다.
+    /// 우선순위(핵심): ① 실제 기록된 정지(비자동 = 고장비트/사용자 분류) → ② 비생산(제외) → ③ 자동(nocycle 미분류) 정지 잔여.
+    /// 단, 호출부(Daily ③)가 모든 정지 이벤트 구간에서 비생산 구간을 미리 차집합으로 제거한다 — 사이클 모델(KPI A)이
+    ///   비생산으로 분모서 제외한 시간은 사용자 분류(유지보수/고장)와 무관하게 추이에서도 비생산(숨김)으로 채워져
+    ///   막대가 줄어들고, 분류색은 비생산이 아닌 잔여 정지에만 칠해진다(10×CT 규칙이 분류 무관인 것과 일치).
     /// delib/auto 배열 인덱스 = Kind: [0]=계획정비 [1]=고장 [2]=기타 [3]=미분류.
     /// </summary>
     private static OeeDailySlotDto BuildDailySlot(
-        string label, long slotMs, long[] delib, long[] auto, long nonProdMs)
+        string label, long slotMs, long[] delib, long[] auto, long nonProdMs, long runFloorMs = 0)
     {
-        var budget = slotMs;
+        var budget = Math.Max(0, slotMs - Math.Max(0, runFloorMs));
         long Take(long v) { var t = Math.Min(Math.Max(0, v), Math.Max(0, budget)); budget -= t; return t; }
 
         // ① 실제 기록된 정지(비자동) 우선 — 진짜 정지는 비생산에 가려지면 안 됨.
@@ -1818,6 +2146,11 @@ public record ShiftExceptionRequest(string? Flow, DateTime? StartAt, DateTime? E
 // Mode: "manual"=사용자 직접 입력(자동이 안 덮음, 값 동일해도 수동 잠금) / "auto"=자동 관리로 해제(수동값 비움→자동기입) / null=레거시(값 변경 시 수동).
 public record IdealCycleRequest(string Flow, int? IdealCycleTimeMs, string? Mode = null);
 public record IdealCycleBatchRequest(List<IdealCycleRequest> Items);
+
+// 대시보드 "가동횟수" 카드 — 출력(생산) Flow 지정.
+public record OutputCountDto(int Count, string Mode);          // Mode: "designated"(지정 합) | "auto"(flow 평균)
+public record OutputFlowStateDto(List<string> Flows, List<string> Selected);
+public record OutputFlowSaveDto(List<string>? Flows);
 
 // idealCT 일괄 편집 테이블 1행: 현재 설정값(+출처) + 실측 추천/통계(이상치 제외).
 // Source: "auto" = 실측 자동기입(OeeIdealCycleAutoFillService) / null = 수동 입력(값 있을 때) 또는 미설정.

@@ -5,8 +5,8 @@
 <title>대시보드 — DSPilot</title>
 
 <!--
-  DSPilot dashboard2 — stitch "Industrial Insight" 디자인(Tailwind self-host)을 보존하면서
-  메인 대시보드(dashboard.html)의 기능을 전부 이식한 페이지.
+  DSPilot 메인 대시보드 — stitch "Industrial Insight" 디자인(Tailwind self-host).
+  (구 dashboard2.html 을 dashboard.html 로 승격 — 구 dashboard.html 기능을 전부 흡수한 단일 메인)
     · 기능 : KPI 띠 / CCTV 영상벽(대체이미지) / CT 비교 도넛(Chart.js) /
              시프트 설정·카운트다운 / UserTag 이상 배너 / SignalR 실시간 + 5초 폴링.
     · 셸: 공통 shell.js 가 사이드바(navmenu)+상단 헤더를 생성하고 .dsp-page 를 main 안으로 이동.
@@ -148,6 +148,9 @@
             --green: #16a34a;  --color-success: #16a34a;  --color-success-rgb: 22, 163, 74;
             --amber: #d97706;  --color-warning: #d97706;  --color-warning-rgb: 217, 119, 6;
             --red:   #dc2626;  --color-error: #dc2626;    --color-error-rgb: 220, 38, 38;
+            /* MTBF/MTTR 카드 전용 러스트(벽돌빛). 가동중 주황(--amber/--dash-mt)과 겹쳐 보여 분리,
+               단 알람 빨강(--red)만큼 튀지 않는 중간 톤. */
+            --rust: #b5533c;
             /* 병목(최대 CT) 강조 = 온브랜드 딥 애저. 빨강(에러)과 분리해 오인 방지. */
             --ct-bottleneck: #1e3a8a;  --ct-bottleneck-rgb: 30, 58, 138;
             --color-info: #0058be;
@@ -187,6 +190,8 @@
             --green: #2bbf6a;  --color-success: #2bbf6a;  --color-success-rgb: 43, 191, 106;
             --amber: #f59e0b;  --color-warning: #f59e0b;  --color-warning-rgb: 245, 158, 11;
             --red:   #f26d6d;  --color-error: #f26d6d;    --color-error-rgb: 242, 109, 109;
+            /* 다크: 러스트도 한 톤 밝게(어두운 배경 가독). 에러 빨강(#f26d6d)보다 주황쪽. */
+            --rust: #e07a5c;
             /* 다크: 어두운 배경에서 묻히지 않도록 밝은 애저(같은 계열). */
             --ct-bottleneck: #3b82f6;  --ct-bottleneck-rgb: 59, 130, 246;
             --color-info: #4d9fff;
@@ -544,13 +549,13 @@
             <!-- 4개 카드: 가동횟수 · OEE 종합 · MTBF · MTTR. 각 카드는 하루 단위로 오늘(00:00~현재)을
                  어제 같은 시각(어제 00:00~24시간 전)과 공정 비교해 등락(▲/▼·%·시간차)을 표시한다.
                  데이터 = /api/oee/summary 를 오늘/어제 2회 호출 → cmp.today / cmp.yesterday (loadCompare).
-                 색 규칙: 개선=초록 / 악화=빨강 (MTTR 만 낮을수록 개선이라 방향 반대). 카드 클릭 → OEE 종합 페이지. -->
+                 색 규칙: 개선=초록 / 악화=빨강 (MTTR 만 낮을수록 개선이라 방향 반대). 카드 클릭 → 종합설비효율 현황 페이지. -->
             <div class="dash-kpi-grid">
 
                 <!-- ① 가동횟수 (오늘 vs 어제 같은 시각) — azure -->
                 <div class="border p-card-padding rounded-xl shadow-sm relative overflow-hidden group cursor-pointer transition-all"
                      style="background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); border-color: color-mix(in srgb, var(--color-primary) 26%, transparent);"
-                     @click="window.location='/uptime-oee'" title="OEE 종합 페이지로 이동">
+                     @click="openOutputFlowModal()" title="클릭하여 출력(생산 기준) Flow 지정">
                     <div class="flex items-center gap-2 mb-1">
                         <span class="font-label-sm text-label-sm opacity-80 uppercase tracking-tighter" style="color:var(--color-primary-strong);">가동횟수</span>
                         <span class="px-1.5 py-px rounded text-[10px] font-bold bg-surface-container-high text-on-surface-variant">일간</span>
@@ -566,7 +571,7 @@
                 <!-- ② OEE 종합 — green -->
                 <div class="border p-card-padding rounded-xl shadow-sm relative overflow-hidden group cursor-pointer transition-all"
                      style="background: color-mix(in srgb, var(--green) 9%, var(--color-surface)); border-color: color-mix(in srgb, var(--green) 26%, transparent);"
-                     @click="window.location='/uptime-oee'" title="OEE 종합 페이지로 이동">
+                     @click="window.location='/uptime-oee'" title="종합설비효율 현황 페이지로 이동">
                     <div class="flex items-center gap-2 mb-1">
                         <span class="font-label-sm text-label-sm opacity-90 uppercase tracking-tighter" style="color:var(--green);">OEE 종합</span>
                         <span class="px-1.5 py-px rounded text-[10px] font-bold bg-surface-container-high text-on-surface-variant">일간</span>
@@ -579,34 +584,34 @@
                     </div>
                 </div>
 
-                <!-- ③ MTBF (평균 무고장 시간 — 높을수록 좋음) — amber -->
+                <!-- ③ MTBF (평균 무고장 시간 — 높을수록 좋음) — rust (가동중 주황과 구분) -->
                 <div class="border p-card-padding rounded-xl shadow-sm relative overflow-hidden group cursor-pointer transition-all"
-                     style="background: color-mix(in srgb, var(--amber) 9%, var(--color-surface)); border-color: color-mix(in srgb, var(--amber) 26%, transparent);"
-                     @click="window.location='/uptime-oee'" title="OEE 종합 페이지로 이동 · MTBF = 연속 비가동 onset 간격 평균">
+                     style="background: color-mix(in srgb, var(--rust) 9%, var(--color-surface)); border-color: color-mix(in srgb, var(--rust) 26%, transparent);"
+                     @click="window.location='/uptime-oee'" title="종합설비효율 현황 페이지로 이동 · MTBF = 연속 비가동 onset 간격 평균">
                     <div class="flex items-center gap-2 mb-1">
-                        <span class="font-label-sm text-label-sm opacity-90 uppercase tracking-tighter" style="color:var(--amber);">MTBF</span>
+                        <span class="font-label-sm text-label-sm opacity-90 uppercase tracking-tighter" style="color:var(--rust);">MTBF</span>
                         <span class="px-1.5 py-px rounded text-[10px] font-bold bg-surface-container-high text-on-surface-variant">일간</span>
                     </div>
-                    <h4 class="font-display-metrics text-display-metrics leading-none mt-2" style="color:var(--amber);"
+                    <h4 class="font-display-metrics text-display-metrics leading-none mt-2" style="color:var(--rust);"
                         x-text="cmp.today ? (cmp.today.failureCount === 0 ? '무고장' : durShort(cmp.today.mtbf)) : '—'"></h4>
                     <div class="mt-3 flex items-center gap-1.5 flex-wrap" x-html="cmpBadge('mtbf')"></div>
-                    <div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity" style="color:var(--amber);">
+                    <div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity" style="color:var(--rust);">
                         <span class="material-icons" style="font-size:120px; line-height:1;">timer</span>
                     </div>
                 </div>
 
-                <!-- ④ MTTR (평균 복구 시간 — 낮을수록 좋음) — amber -->
+                <!-- ④ MTTR (평균 복구 시간 — 낮을수록 좋음) — rust (가동중 주황과 구분) -->
                 <div class="border p-card-padding rounded-xl shadow-sm relative overflow-hidden group cursor-pointer transition-all"
-                     style="background: color-mix(in srgb, var(--amber) 9%, var(--color-surface)); border-color: color-mix(in srgb, var(--amber) 26%, transparent);"
-                     @click="window.location='/uptime-oee'" title="OEE 종합 페이지로 이동 · MTTR = 비가동 onset→회복 평균">
+                     style="background: color-mix(in srgb, var(--rust) 9%, var(--color-surface)); border-color: color-mix(in srgb, var(--rust) 26%, transparent);"
+                     @click="window.location='/uptime-oee'" title="종합설비효율 현황 페이지로 이동 · MTTR = 비가동 onset→회복 평균">
                     <div class="flex items-center gap-2 mb-1">
-                        <span class="font-label-sm text-label-sm opacity-90 uppercase tracking-tighter" style="color:var(--amber);">MTTR</span>
+                        <span class="font-label-sm text-label-sm opacity-90 uppercase tracking-tighter" style="color:var(--rust);">MTTR</span>
                         <span class="px-1.5 py-px rounded text-[10px] font-bold bg-surface-container-high text-on-surface-variant">일간</span>
                     </div>
-                    <h4 class="font-display-metrics text-display-metrics leading-none mt-2" style="color:var(--amber);"
+                    <h4 class="font-display-metrics text-display-metrics leading-none mt-2" style="color:var(--rust);"
                         x-text="cmp.today ? (cmp.today.failureCount === 0 ? '무고장' : durShort(cmp.today.mttr)) : '—'"></h4>
                     <div class="mt-3 flex items-center gap-1.5 flex-wrap" x-html="cmpBadge('mttr')"></div>
-                    <div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity" style="color:var(--amber);">
+                    <div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity" style="color:var(--rust);">
                         <span class="material-icons" style="font-size:120px; line-height:1;">build</span>
                     </div>
                 </div>
@@ -870,14 +875,15 @@
                                 <template x-if="!focusRow">
                                     <div class="ct-fb-hint">
                                         <span class="material-icons">touch_app</span>
-                                        Flow 에 마우스를 올리면 동작·대기 시간이 표시됩니다
+                                        Flow 에 마우스를 올리면 동작·대기 시간, 클릭하면 가동시간 분석으로 이동합니다
                                     </div>
                                 </template>
                             </div>
                             <div class="ct-legend">
                                 <template x-for="(f, i) in chartData" :key="f.flowName">
                                     <button class="ct-legend-item" :class="focusFlowName === f.flowName ? 'is-sel' : ''"
-                                            @mouseenter="hoverFlow(f.flowName)" @mouseleave="hoverFlow(null)" :title="f.flowName">
+                                            @mouseenter="hoverFlow(f.flowName)" @mouseleave="hoverFlow(null)"
+                                            @click="gotoFlowCycle(f.flowName)" :title="f.flowName + ' — 클릭: 가동시간 분석'">
                                         <span class="ct-legend-sw" :style="`background:${f.flowName === maxCtName ? 'var(--ct-bottleneck)' : ctPalette(i)}`"></span>
                                         <span class="ct-legend-name" x-text="f.flowName"></span>
                                         <span class="ct-legend-val" style="color:var(--dash-mt)" x-text="fmt(f.mt) + ' (' + (f.ct>0 ? Math.round(f.mt*100/f.ct) : 0) + '%)'"></span>
@@ -936,6 +942,57 @@
             </div>
         </div>
 
+        <!-- ════════════ 출력(생산 기준) Flow 지정 모달 — 가동횟수 카드 클릭 ════════════ -->
+        <!-- 미지정 = 자동(평균): 전체 flow 사이클수 합 ÷ 가동 flow 수. 지정 = 그 flow들의 사이클수 합.
+             직렬 파이프라인은 같은 제품이 여러 flow를 지나 단순합이 과다 계상되므로 "완제품=1사이클" flow를 지정한다. -->
+        <div class="modal-overlay" x-show="outFlowModalOpen" x-cloak style="z-index:2100;" @click="closeOutputFlowModal()">
+            <div class="modal-content" style="max-width:420px;" @click.stop>
+                <div class="sm-head">
+                    <span class="sm-title">출력(생산 기준) Flow 지정</span>
+                    <button class="btn-icon" @click="closeOutputFlowModal()" title="닫기"><span class="material-icons">close</span></button>
+                </div>
+                <div class="sm-body">
+                    <div class="form-helper" style="margin-bottom:12px;">
+                        "가동횟수"를 무엇으로 셀지 정합니다. <b>미지정</b>이면 모든 Flow 가동횟수의 <b>평균</b>(합 ÷ Flow 수)을,
+                        지정하면 선택한 Flow(들)의 가동횟수 <b>합</b>을 산출량으로 표시합니다.
+                        완제품 1개가 여러 공정을 순차 통과한다면 마지막(완성) Flow 하나만 지정하세요.
+                    </div>
+
+                    <template x-if="outFlowLoading">
+                        <div class="text-label-sm text-on-surface-variant" style="padding:12px 0;">불러오는 중…</div>
+                    </template>
+
+                    <template x-if="!outFlowLoading">
+                        <div>
+                            <label class="flex items-center gap-2" style="padding:8px 4px;border-bottom:1px solid var(--color-outline-variant,rgba(0,0,0,.08));cursor:pointer;">
+                                <input type="radio" name="outflow-mode" :checked="outFlowSel.length === 0" @change="outFlowSel = []" style="accent-color:var(--color-primary);" />
+                                <span style="font-weight:700;">자동 (전체 Flow 평균)</span>
+                            </label>
+                            <div style="max-height:260px;overflow-y:auto;margin-top:6px;">
+                                <template x-for="fn in outFlowList" :key="fn">
+                                    <label class="flex items-center gap-2" style="padding:7px 4px;cursor:pointer;">
+                                        <input type="checkbox" :value="fn" :checked="outFlowSel.includes(fn)" @change="toggleOutputFlow(fn)" style="accent-color:var(--color-primary);" />
+                                        <span x-text="fn" style="font-variant-numeric:tabular-nums;"></span>
+                                    </label>
+                                </template>
+                                <template x-if="outFlowList.length === 0">
+                                    <div class="text-label-sm text-on-surface-variant" style="padding:8px 4px;">선택 가능한 Flow가 없습니다.</div>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
+
+                    <div class="flex gap-2 justify-end" style="margin-top:16px;">
+                        <button class="btn btn-sm btn-outlined" @click="closeOutputFlowModal()">취소</button>
+                        <button class="btn btn-sm" :class="outFlowDirty ? 'btn-primary' : ''" :disabled="outFlowSaving" @click="saveOutputFlows()">
+                            <span class="material-icons" style="font-size:15px;">check</span>
+                            <span x-text="outFlowSaving ? '저장 중…' : (outFlowDirty ? '적용*' : '적용')"></span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
 
 </div>
 
@@ -968,6 +1025,13 @@
             avgDays: 1,
             avgModalOpen: false,
             avgDaysForm: 1,
+            // 출력(생산 기준) Flow 지정 모달 — 가동횟수 카드 클릭. sel=현재 선택(빈=자동/평균), saved=서버 기준선(dirty 판정).
+            outFlowModalOpen: false, outFlowLoading: false, outFlowSaving: false,
+            outFlowList: [], outFlowSel: [], outFlowSaved: [],
+            get outFlowDirty() {
+                const a = [...this.outFlowSel].sort(), b = [...this.outFlowSaved].sort();
+                return a.length !== b.length || a.some((v, i) => v !== b[i]);
+            },
             histAvg: {},
             sortField: 'ct', sortDesc: true,
             flowProcessOrder: {}, rt: { connected: false },
@@ -1154,6 +1218,11 @@
 
             // 알람 배너 [상세 확인] → 가동시간·이상 페이지로 바로가기. 시스템/구분 필터를 시드(사이드바 이상코드 피드와 동일 형상).
             // 레벨은 알람 페이지가 Error 로 통일했으므로 시드하지 않는다. 구분(ABNORMAL/USERTAG)은 kindName 유무로 판별.
+            // 도넛 슬라이스/범례 클릭 → 해당 flow 의 가동시간 분석 페이지
+            gotoFlowCycle(name) {
+                if (!name) return;
+                location.href = '/flow-cycle?name=' + encodeURIComponent(name);
+            },
             gotoAbnormal(a) {
                 if (!a) return;
                 const q = [];
@@ -1408,6 +1477,7 @@
                             tooltip: { enabled: false },
                         },
                         onHover: (e, els, chart) => {
+                            if (e.native?.target) e.native.target.style.cursor = (els && els.length) ? 'pointer' : '';
                             if (els && els.length) {
                                 // ctDyn.rows 사용 — in-place 갱신 후 stale 클로저 rows 방지
                                 const el = els[0];
@@ -1415,6 +1485,11 @@
                                 self.chartHoverFlowName = d.rows[el.index]?.flowName || null;
                             }
                             // els=[] 일 때는 갱신 생략 — @mouseleave 가 차트를 벗어날 때 null 로 리셋한다.
+                        },
+                        onClick: (e, els) => {
+                            if (!els || !els.length) return;
+                            const d = ctDyn; if (!d) return;
+                            self.gotoFlowCycle(d.rows[els[0].index]?.flowName);
                         },
                     },
                 });
@@ -1437,6 +1512,40 @@
 
             openAvgModal() { this.avgDaysForm = this.avgDays; this.avgModalOpen = true; },
             closeAvgModal() { this.avgModalOpen = false; },
+
+            // ── 출력(생산 기준) Flow 지정 — 가동횟수 카드 클릭 ──
+            async openOutputFlowModal() {
+                this.outFlowModalOpen = true;
+                this.outFlowLoading = true;
+                try {
+                    const st = await this.apiGet('/api/oee/output-flows');
+                    this.outFlowList = st.flows || [];
+                    this.outFlowSel = [...(st.selected || [])];
+                    this.outFlowSaved = [...(st.selected || [])];
+                } catch (e) { this.outFlowList = []; this.outFlowSel = []; this.outFlowSaved = []; }
+                finally { this.outFlowLoading = false; }
+            },
+            closeOutputFlowModal() { this.outFlowModalOpen = false; },
+            toggleOutputFlow(fn) {
+                const i = this.outFlowSel.indexOf(fn);
+                if (i >= 0) this.outFlowSel.splice(i, 1); else this.outFlowSel.push(fn);
+            },
+            async saveOutputFlows() {
+                if (this.outFlowSaving) return;
+                this.outFlowSaving = true;
+                try {
+                    const res = await fetch('/api/oee/output-flows', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ flows: this.outFlowSel }),
+                    });
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    this.outFlowSaved = [...this.outFlowSel];
+                    this.outFlowModalOpen = false;
+                    this.loadCompare();   // 카드 값 즉시 갱신
+                } catch (e) { /* 저장 실패 시 모달 유지 */ }
+                finally { this.outFlowSaving = false; }
+            },
             saveAvgDays() {
                 const v = Math.max(1, Math.min(90, Math.round(Number(this.avgDaysForm) || 1)));
                 this.avgDays = v;
@@ -1545,10 +1654,17 @@
                     const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
                     const yStart = new Date(todayStart); yStart.setDate(yStart.getDate() - 1);
                     const yNow = new Date(now); yNow.setDate(yNow.getDate() - 1);
-                    const [today, yesterday] = await Promise.all([
+                    // 가동횟수 카드는 flow별 사이클수 단순합이 아니라 "출력 기준"(지정 flow 합 또는 flow 평균)을 쓴다.
+                    // → summary(전 지표)와 별개로 /api/oee/output-count 를 같은 창으로 조회해 totalCount 를 덮어쓴다.
+                    // (cmpBadge('count')·카드 x-text 는 totalCount 만 참조하므로 이 한 필드만 교체하면 일관 반영)
+                    const [today, yesterday, outToday, outYest] = await Promise.all([
                         this.apiGet(`/api/oee/summary?from=${encodeURIComponent(iso(todayStart))}&to=${encodeURIComponent(iso(now))}`),
                         this.apiGet(`/api/oee/summary?from=${encodeURIComponent(iso(yStart))}&to=${encodeURIComponent(iso(yNow))}`),
+                        this.apiGet(`/api/oee/output-count?from=${encodeURIComponent(iso(todayStart))}&to=${encodeURIComponent(iso(now))}`),
+                        this.apiGet(`/api/oee/output-count?from=${encodeURIComponent(iso(yStart))}&to=${encodeURIComponent(iso(yNow))}`),
                     ]);
+                    if (today && outToday) today.totalCount = outToday.count;
+                    if (yesterday && outYest) yesterday.totalCount = outYest.count;
                     this.cmp = { today, yesterday };
                 } catch (e) { /* 미수신 시 기존값 유지 */ }
             },

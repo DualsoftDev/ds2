@@ -278,8 +278,8 @@
 
         // ── 3) 네비게이션 정의 (라우트/아이콘 — 라이브 대시보드는 '/'). ──
         var NAV_ITEMS = [
-            { label: '대시보드',    href: '/',                    icon: 'space_dashboard', match: 'all',    legacy: ['/app/dashboard.html', '/app/dashboard2.html'] },
-            // 동작편차·가동시간·이상(OEE 종합/이상·알람)은 최상위 링크에서 제거하고, 시스템 '○○ 관리'
+            { label: '대시보드',    href: '/',                    icon: 'space_dashboard', match: 'all',    legacy: '/app/dashboard.html' },
+            // 동작편차·가동시간·이상(종합설비효율/종합생산효율/이상·알람)은 최상위 링크에서 제거하고, 시스템 '○○ 관리'
             // 아코디언 안의 분석 그룹(추이 분석/사이클 분석 옆)으로 이동 — buildSystemSubmenu 참조.
             // OEE 메뉴 숨김 — 페이지(/oee)는 URL 로 접근 가능, 네비에서만 제외. 복구는 이 줄 주석 해제.
             // { label: 'OEE',         href: '/oee',                 icon: 'precision_manufacturing', match: 'prefix', legacy: '/app/oee.html' },
@@ -364,12 +364,14 @@
         var onFlowCycleBulk = path === '/flow-cycle' && !qs.get('name');
         var flowCycleSystem = onFlowCycleBulk ? (qs.get('system') || '') : '';
 
-        // 동작편차/OEE 종합/이상·알람 페이지 — 그룹은 ?flow= 로 이동. 현재 페이지+선택 Flow 로 강조/자동펼침.
+        // 동작편차/종합설비효율/종합생산효율/이상·알람 페이지 — 그룹은 ?flow= 로 이동. 현재 페이지+선택 Flow 로 강조/자동펼침.
         var onHeatmapPage = (path === '/heatmap');
         var onOeePage     = (path === '/uptime-oee' || path === '/uptime' || path === '/oee');
+        var onTeepPage    = (path === '/uptime-teep');
         // onAlarmPage 는 위(배지 로직)에서 이미 정의됨.
         var heatmapFlow = onHeatmapPage ? (qs.get('flow') || '') : '';
         var oeeFlow     = onOeePage     ? (qs.get('flow') || '') : '';
+        var teepFlow    = onTeepPage    ? (qs.get('flow') || '') : '';
         var alarmFlow   = onAlarmPage   ? (qs.get('flow') || '') : '';
 
         function buildSystemSubmenu(systems) {
@@ -393,6 +395,20 @@
             //   withBadge=true 면 header 우측에 이상 알람 배지를 붙여 anomalyBadges 에 등록.
             //   headerHref = header 클릭 시 이동할 '전체' 페이지 주소(별도 '전체' 항목 없음). 이동 후 대상 페이지에서
             //     isActivePage=true 로 자동 펼쳐져 FLOW 를 바로 선택하는 구조(2026-07-02 전 그룹 공통).
+            // 같은 페이지 안에서 전체/FLOW 만 바꿔 이동할 때 현재 URL 의 기간 선택(?period/from/to)을 같이
+            // 실어 보낸다 — 대상 페이지 init 이 이 파라미터로 기간을 복원(uptime-workspace syncPeriodUrl 참조).
+            // 다른 페이지로의 이동은 기간 의미가 달라질 수 있어 전파하지 않는다.
+            function withPeriodCarry(href) {
+                var qIdx = href.indexOf('?');
+                var path = qIdx === -1 ? href : href.slice(0, qIdx);
+                if (location.pathname !== path) return href;
+                var qs = new URLSearchParams(qIdx === -1 ? '' : href.slice(qIdx + 1));
+                var cur = new URLSearchParams(location.search);
+                ['period', 'from', 'to'].forEach(function (k) { if (cur.has(k) && !qs.has(k)) qs.set(k, cur.get(k)); });
+                var s = qs.toString();
+                return path + (s ? '?' + s : '');
+            }
+
             function buildAnalysisGroup(sysFlows, label, iconName, base, queryParam, isActivePage, activeFlowName, withBadge, headerHref) {
                 var wrap = el('div', 'flex flex-col gap-0.5');
 
@@ -446,7 +462,7 @@
                     fb.appendChild(fl);
                     fb.addEventListener('click', function (ev) {
                         ev.stopPropagation();
-                        location.href = base + '?' + queryParam + '=' + encodeURIComponent(flowName);
+                        location.href = withPeriodCarry(base + '?' + queryParam + '=' + encodeURIComponent(flowName));
                     });
                     list.appendChild(fb);
                 });
@@ -465,7 +481,7 @@
                     // 모든 분석 그룹: header 본문 클릭 = 별도 '전체' 항목 없이 바로 전체 페이지로 이동.
                     //   이동 후 대상 페이지에서 isActivePage=true → 아래 자동펼침으로 FLOW 선택 UI 노출.
                     //   headerHref 미지정(방어적): 기존처럼 토글만.
-                    if (headerHref) { location.href = headerHref; return; }
+                    if (headerHref) { location.href = withPeriodCarry(headerHref); return; }
                     toggle();
                 });
 
@@ -484,6 +500,7 @@
                     || (onFlowCycleBulk && flowCycleSystem === sys.name)
                     || (onHeatmapPage   && flows.indexOf(heatmapFlow) !== -1)
                     || (onOeePage     && flows.indexOf(oeeFlow)     !== -1)
+                    || (onTeepPage    && flows.indexOf(teepFlow)    !== -1)
                     || (onAlarmPage   && flows.indexOf(alarmFlow)   !== -1);
 
                 // 시스템 행 = 접기 없는 정적 섹션 헤더(chevron·토글 없음).
@@ -499,23 +516,26 @@
                 var sub = el('div', 'flex flex-col gap-0.5');
                 sub.style.cssText = 'padding-left:18px;';
 
-                // 5개 분석/페이지 그룹 — 각각 이 시스템의 FLOW 리스트. Flow 클릭 → 해당 페이지?쿼리= 이동.
-                //   추이/사이클 = ?name= (/flow-trend·/flow-cycle), 동작편차/OEE/이상·알람 = ?flow= (해당 페이지가 설비 필터).
+                // 6개 분석/페이지 그룹 — 각각 이 시스템의 FLOW 리스트. Flow 클릭 → 해당 페이지?쿼리= 이동.
+                //   추이/사이클 = ?name= (/flow-trend·/flow-cycle), 동작편차/설비효율/생산효율/이상·알람 = ?flow= (해당 페이지가 설비 필터).
                 // 공통 구조(2026-07-02): 모든 그룹에서 별도 '전체' 항목 제거(withAll=false). header 클릭이 곧 '전체' 페이지
                 //   이동(headerHref)이며, 이동한 페이지에서 isActivePage=true 로 자동 펼쳐져 FLOW 를 바로 선택한다.
                 var gTrend = buildAnalysisGroup(flows, '추이 분석',  'timeline',      '/flow-trend',   'name', onFlowPage && curFlowView === 'trend', curFlowName, false, '/flow-trend');
-                // 가동시간 분석.설정: base(/flow-cycle?name=) 는 단일 Flow. '전체'(header 클릭) 는 /flow-cycle?system=
+                // 가동시간 분석: base(/flow-cycle?name=) 는 단일 Flow. '전체'(header 클릭) 는 /flow-cycle?system=
                 //   (그 시스템 모든 Flow 간트 일괄 편집)로 보낸다. 그룹은 단일(?name=)이든 전체(bulk)이든 이 시스템이면 활성/자동펼침.
                 var cycleActive = (onFlowPage && curFlowView === 'cycle') || (onFlowCycleBulk && flowCycleSystem === sys.name);
-                var gCycle = buildAnalysisGroup(flows, '가동시간 분석.설정', 'account_tree',  '/flow-cycle',   'name', cycleActive, curFlowName, false,
+                var gCycle = buildAnalysisGroup(flows, '가동시간 분석', 'account_tree',  '/flow-cycle',   'name', cycleActive, curFlowName, false,
                     '/flow-cycle?system=' + encodeURIComponent(sys.name));
                 var gHeat  = buildAnalysisGroup(flows, '동작편차',    'gradient',      '/heatmap',      'flow', onHeatmapPage, heatmapFlow, false, '/heatmap');
-                var gOee   = buildAnalysisGroup(flows, 'OEE 종합',    'speed',         '/uptime-oee',   'flow', onOeePage,     oeeFlow,     false, '/uptime-oee');
+                // 종합효율 현황 → 설비효율(OEE)/생산효율(TEEP) 물리 분리(2026-07-03) — 구 내부 탭(?section=) 폐지.
+                var gOee   = buildAnalysisGroup(flows, '종합설비효율 현황', 'speed',       '/uptime-oee',   'flow', onOeePage,     oeeFlow,     false, '/uptime-oee');
+                var gTeep  = buildAnalysisGroup(flows, '종합생산효율 현황', 'trending_up', '/uptime-teep',  'flow', onTeepPage,    teepFlow,    false, '/uptime-teep');
                 var gAlarm = buildAnalysisGroup(flows, '이상·알람',   'warning_amber', '/uptime-alarm', 'flow', onAlarmPage,   alarmFlow,   true,  '/uptime-alarm');
                 sub.appendChild(gTrend.wrap);
                 sub.appendChild(gCycle.wrap);
                 sub.appendChild(gHeat.wrap);
                 sub.appendChild(gOee.wrap);
+                sub.appendChild(gTeep.wrap);
                 sub.appendChild(gAlarm.wrap);
 
                 cycleSubWrap.appendChild(row);

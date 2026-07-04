@@ -94,4 +94,44 @@ public class CycleTimeChartExporterTests
         Assert.True(bytes.Length > 1000);
         Assert.Contains("간트차트", ReadZipEntry(bytes, "xl/workbook.xml"));
     }
+
+    [Fact]
+    public void BuildBulkCycleAnalysisExcel_produces_gantt_and_data_sheets()
+    {
+        var models = new List<CycleExcelModel>
+        {
+            MakeModel("bar", withCycles: true),
+            MakeModel("line", withCycles: false) with { FlowName = "테스트Flow2" },
+            // lane 없는 모델은 간트/데이터 모두에서 제외
+            MakeModel("line", withCycles: true) with { FlowName = "빈Flow", Lanes = new List<CycleExcelLane>() },
+        };
+
+        var bytes = CycleTimeChartExporter.BuildBulkCycleAnalysisExcel(models);
+
+        Assert.True(bytes.Length > 1000, $"xlsx too small: {bytes.Length} bytes");
+        var workbookXml = ReadZipEntry(bytes, "xl/workbook.xml");
+        Assert.Contains("간트차트", workbookXml);
+        Assert.Contains("데이터", workbookXml);
+
+        // 데이터 시트(sheet2)에 Flow 열 헤더 + 두 Flow 이름이 기록됨 (문자열은 sharedStrings 에 저장)
+        Assert.NotEqual("", ReadZipEntry(bytes, "xl/worksheets/sheet2.xml"));
+        var shared = ReadZipEntry(bytes, "xl/sharedStrings.xml");
+        Assert.Contains("Flow", shared);
+        Assert.Contains("테스트Flow", shared);
+        Assert.Contains("테스트Flow2", shared);
+        Assert.DoesNotContain("빈Flow", shared);
+    }
+
+    [Fact]
+    public void BuildBulkCycleAnalysisExcel_all_empty_models_yields_single_placeholder_sheet()
+    {
+        var models = new List<CycleExcelModel>
+        {
+            MakeModel("line", true) with { Lanes = new List<CycleExcelLane>() },
+        };
+        var bytes = CycleTimeChartExporter.BuildBulkCycleAnalysisExcel(models);
+        var workbookXml = ReadZipEntry(bytes, "xl/workbook.xml");
+        Assert.Contains("간트차트", workbookXml);
+        Assert.DoesNotContain("데이터", workbookXml);
+    }
 }

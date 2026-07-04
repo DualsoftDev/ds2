@@ -116,6 +116,27 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             const string idxShiftTime =
                 "CREATE INDEX IF NOT EXISTS idx_oeeShiftException_time ON oeeShiftException(startAt, endAt)";
 
+            // 자동 비생산 감지 로그 (10×CT, doc/22 §3.3) — ComputeCycleAggregateAsync 가 조회 시 UPSERT(materialize).
+            // flowName: 라인 스코프 감지는 ""(빈문자열)로 저장 — SQLite UNIQUE 에서 NULL 은 서로 distinct 라 dedup 이 깨지기 때문.
+            const string createNonProdLog = @"
+                CREATE TABLE IF NOT EXISTS oeeNonProdDetectionLog (
+                  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                  flowName        TEXT NOT NULL DEFAULT '',
+                  onsetAt         TEXT NOT NULL,
+                  clearAt         TEXT,
+                  durationMs      INTEGER NOT NULL DEFAULT 0,
+                  detectionSource TEXT NOT NULL DEFAULT 'auto-10xct',
+                  detectionReason TEXT NOT NULL,
+                  ctThresholdMs   REAL NOT NULL DEFAULT 0,
+                  ctMultiplier    REAL NOT NULL DEFAULT 10,
+                  createdAt       DATETIME DEFAULT (datetime('now'))
+                )";
+            // dedup 멱등 키 — 같은 (flow, 시작시각, 사유)면 재조회 시 재삽입 대신 끝/지속/임계 갱신(UPSERT).
+            const string uqNonProdLog =
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_oeeNonProdLog_key ON oeeNonProdDetectionLog(flowName, onsetAt, detectionReason)";
+            const string idxNonProdLogTime =
+                "CREATE INDEX IF NOT EXISTS idx_oeeNonProdLog_time ON oeeNonProdDetectionLog(onsetAt)";
+
             await conn.ExecuteAsync(createDowntime);
             await conn.ExecuteAsync(idxDowntimeSystemTime);
             await conn.ExecuteAsync(idxDowntimeFlowTime);
@@ -123,6 +144,9 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             await conn.ExecuteAsync(createProduction);
             await conn.ExecuteAsync(createShift);
             await conn.ExecuteAsync(idxShiftTime);
+            await conn.ExecuteAsync(createNonProdLog);
+            await conn.ExecuteAsync(uqNonProdLog);
+            await conn.ExecuteAsync(idxNonProdLogTime);
 
             // classifySource — 기존 oee.db 마이그레이션(이 어댑터는 CREATE TABLE IF NOT EXISTS 만 쓰고 ALTER 인프라가
             // 없음). detectSource(감지 출처)와 의미 구분: 분류가 어떻게 정해졌는지(manual/auto-bit/auto-heuristic/NULL).
@@ -148,7 +172,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             if (upgraded > 0)
                 _logger.LogInformation("[OEE] isFailure 기본값 업그레이드(고장): {N}건 — nocycle 미분류 → isFailure=1", upgraded);
 
-            _logger.LogInformation("OEE schema ensured (oeeDowntimeEvent / oeeProductionCount / oeeShiftException) at {Path}", OeeDbPath());
+            _logger.LogInformation("OEE schema ensured (oeeDowntimeEvent / oeeProductionCount / oeeShiftException / oeeNonProdDetectionLog) at {Path}", OeeDbPath());
             return true;
         }
         catch (Exception ex)
@@ -304,6 +328,8 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
     {
         // 정지 이벤트만 비운다 — oeeProductionCount / oeeShiftException(수동입력 자산)은 그대로 둔다.
         await using var conn = await OpenAsync();
+        // 비생산 감지 로그도 동반 초기화 — plc.db 사이클에서 파생되므로 정지 이벤트와 동일 수명(전체 초기화 시 stale 방지).
+        await conn.ExecuteAsync("DELETE FROM oeeNonProdDetectionLog");
         return await conn.ExecuteAsync("DELETE FROM oeeDowntimeEvent");
     }
 
@@ -554,7 +580,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
 
     // ── 일자별/시간별 정지 버킷 ───────────────────────────────────────────
 
-    public async Task<IReadOnlyList<(long StartMs, long EndMs, int Kind, bool IsAuto)>> GetDowntimeIntervalsAsync(
+    public async Task<IReadOnlyList<(long StartMs, long EndMs, int Kind, bool IsAuto, string? FlowName)>> GetDowntimeIntervalsAsync(
         DateTime fromUtc, DateTime toUtc, string? flowName, CancellationToken ct = default)
     {
         await using var conn = await OpenAsync();
@@ -573,7 +599,9 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         // open(endAt NULL) 은 @Cap(min(now,to)) 로 마감. 기간과 겹치는 이벤트 전부 포함(startAt < to AND effEnd > from)
         //   → 시작일 몰빵 대신 컨트롤러가 실제 겹친 슬롯마다 분배(다일·장시간 정지 정확 표현).
         // Kind(상호배타): 0=계획정비 / 1=고장 / 2=기타 비계획 / 3=미분류.
-        // IsAuto: detectSource='nocycle' → 자동 파생 무사이클 정지(사이클 모델의 비생산과 동일 유휴). 비생산 카빙 우선 판정에 사용.
+        // IsAuto: detectSource='nocycle' 이고 사용자 분류(classifySource='manual')가 아닌 것 — 자동 파생 무사이클
+        //   정지(사이클 모델의 비생산과 동일 유휴)라 추이에서 비생산 카빙에 흡수될 수 있다. 사용자가 직접 분류한
+        //   정지는 nocycle 감지라도 '확정된 진짜 정지'이므로 비자동 승격 → 추이에서 비생산에 가려지지 않는다.
         const string startMs = "CAST((julianday(startAt) - 2440587.5) * 86400000 AS INTEGER)";
         const string endMs = "CAST((julianday(COALESCE(endAt, @Cap)) - 2440587.5) * 86400000 AS INTEGER)";
         var sql = $@"
@@ -586,11 +614,12 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
                 WHEN isFailure = 1 THEN 1
                 ELSE 2
               END AS Kind,
-              CASE WHEN detectSource = 'nocycle' THEN 1 ELSE 0 END AS IsAuto
+              CASE WHEN detectSource = 'nocycle' AND COALESCE(classifySource,'') <> 'manual' THEN 1 ELSE 0 END AS IsAuto,
+              flowName AS FlowName
             FROM oeeDowntimeEvent
             WHERE startAt <= @To AND COALESCE(endAt, @Cap) >= @From {flowClause}";
         var rows = await conn.QueryAsync<IntervalRow>(sql, p);
-        return rows.Select(r => (r.StartMs, r.EndMs, r.Kind, r.IsAuto != 0)).ToList();
+        return rows.Select(r => (r.StartMs, r.EndMs, r.Kind, r.IsAuto != 0, r.FlowName)).ToList();
     }
 
     private sealed class IntervalRow
@@ -599,7 +628,76 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         public long EndMs { get; set; }
         public int Kind { get; set; }
         public int IsAuto { get; set; }
+        public string? FlowName { get; set; }
     }
+
+    // ── 자동 비생산 감지 로그 (10×CT, doc/22 §3.3) ────────────────────────
+
+    public async Task<int> UpsertNonProdDetectionsAsync(
+        IReadOnlyList<OeeNonProdDetectionLog> entries, CancellationToken ct = default)
+    {
+        if (entries.Count == 0) return 0;
+        await using var conn = await OpenAsync();
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        // 조회마다 같은 구간이 다시 감지되므로 (flowName, onsetAt, detectionReason) 멱등 UPSERT — 재삽입 대신 끝/지속/임계 갱신.
+        const string sql = @"
+            INSERT INTO oeeNonProdDetectionLog
+                (flowName, onsetAt, clearAt, durationMs, detectionSource, detectionReason, ctThresholdMs, ctMultiplier)
+            VALUES
+                (@FlowName, @OnsetAt, @ClearAt, @DurationMs, @DetectionSource, @DetectionReason, @CtThresholdMs, @CtMultiplier)
+            ON CONFLICT(flowName, onsetAt, detectionReason) DO UPDATE SET
+                clearAt       = excluded.clearAt,
+                durationMs    = excluded.durationMs,
+                ctThresholdMs = excluded.ctThresholdMs,
+                ctMultiplier  = excluded.ctMultiplier";
+        int n = 0;
+        foreach (var e in entries)
+        {
+            n += await conn.ExecuteAsync(sql, new
+            {
+                FlowName = e.FlowName ?? "",                 // 라인 스코프 감지는 "" 로 정규화(UNIQUE NULL footgun 회피)
+                OnsetAt = Iso(e.OnsetAt),
+                ClearAt = e.ClearAt.HasValue ? Iso(e.ClearAt.Value) : null,
+                e.DurationMs,
+                e.DetectionSource,
+                e.DetectionReason,
+                e.CtThresholdMs,
+                e.CtMultiplier,
+            }, tx);
+        }
+        await tx.CommitAsync(ct);
+        return n;
+    }
+
+    public async Task<IReadOnlyList<(double S, double E)>> GetNonProdIntervalsFromLogAsync(
+        DateTime fromUtc, DateTime toUtc, string? flowName, CancellationToken ct = default)
+    {
+        await using var conn = await OpenAsync();
+        var capUtc = DateTime.UtcNow < toUtc ? DateTime.UtcNow : toUtc;
+        var p = new DynamicParameters();
+        p.Add("From", Iso(fromUtc));
+        p.Add("To", Iso(toUtc));
+        p.Add("Cap", Iso(capUtc));
+        var flowClause = "";
+        if (!string.IsNullOrWhiteSpace(flowName))
+        {
+            flowClause = " AND flowName = @Flow ";
+            p.Add("Flow", flowName.Trim());
+        }
+        // UTC epoch ms (GetDowntimeIntervalsAsync 와 동일 변환). open(clearAt NULL)은 @Cap(min(now,to))로 마감.
+        // onset 이 기간에 든 감지만(materialize 가 기간창 단위로 이뤄지므로 일치). 라인(flow=null)은 전체 반환 → 호출측 Union.
+        const string startMs = "CAST((julianday(onsetAt) - 2440587.5) * 86400000 AS INTEGER)";
+        const string endMs = "CAST((julianday(COALESCE(clearAt, @Cap)) - 2440587.5) * 86400000 AS INTEGER)";
+        var sql = $@"
+            SELECT {startMs} AS S, {endMs} AS E
+            FROM oeeNonProdDetectionLog
+            WHERE onsetAt >= @From AND onsetAt < @To {flowClause}
+            ORDER BY onsetAt";
+        var rows = await conn.QueryAsync<IntervalMsRow>(sql, p);
+        return rows.Select(r => (S: (double)r.S, E: (double)r.E)).Where(iv => iv.E > iv.S).ToList();
+    }
+
+    private sealed class IntervalMsRow { public long S { get; set; } public long E { get; set; } }
 
     // ── 시프트 예외 ───────────────────────────────────────────────────────
 

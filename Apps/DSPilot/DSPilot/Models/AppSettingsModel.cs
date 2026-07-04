@@ -60,6 +60,14 @@ public class OeeManualSettings
     /// <summary>자동 비생산 패턴 캐시 (자동 모드 전환 또는 24h 만료 시 갱신). null = 아직 미계산.</summary>
     public PlannedAutoPatternCache? AutoPatternCache { get; set; }
 
+    /// <summary>
+    /// 대시보드 "가동횟수" 카드의 <b>출력(생산) 기준 Flow</b> 지정. flow별 사이클수를 그냥 합치면 직렬(파이프라인)
+    /// 공정에서 같은 제품이 여러 flow를 지나며 공정 단계 수만큼 과다 계상되므로, "완제품 1개 = 1사이클"인
+    /// flow(들)를 지정해 그 합만 산출량으로 보여준다(지정 시 그 flow들의 사이클수 합).
+    /// 비어 있으면 <b>자동(평균) 모드</b>: 전체 flow 사이클수 합 ÷ (기간 내 가동한 flow 수)를 정수 평균으로 표시.
+    /// </summary>
+    public List<string> OutputFlows { get; set; } = [];
+
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }
@@ -120,6 +128,9 @@ public class AutoCalibrationSettings
 
     /// <summary>실측 최대값 여유율(분수). MaxMode="RawMax" 일 때 Max = round(rawMax × (1 + 이 값)). 기본 0.20(=+20%).</summary>
     public double MarginMaxPct { get; set; } = 0.20;
+
+    /// <summary>MaxDuration 절대 추가 여유(ms). Max = (모드 산출값) + 이 값. "정상보다 N초 더 걸리면 정지" 절대 버퍼. 기본 5000(=5초).</summary>
+    public int MarginMaxAbsMs { get; set; } = 5000;
 
     /// <summary>true 일 때만 MinDuration 을 실측값으로 기록(false 면 기존값 보존). 기본 false.</summary>
     public bool FillMin { get; set; } = false;

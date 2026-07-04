@@ -9,7 +9,7 @@
     <!--
       DSPilot 정적 호스팅 — 가동시간·이상 물리 분리: 이상·알람 페이지 (view=alarm).
       공용 스타일/스크립트 = /css/uptime-workspace.css · /app/uptime-workspace.js
-        (OEE 종합 페이지 uptime-oee.html 과 SSOT 1벌 공유 — window.DSP_UPTIME_VIEW 로 도메인 분기).
+        (종합설비효율 uptime-oee.html · 종합생산효율 uptime-teep.html 과 SSOT 1벌 공유 — window.DSP_UPTIME_VIEW 로 도메인 분기).
       서버/모델 = C#(/api/user-tags/*), 뷰 = 정적 HTML/CSS/JS(Alpine + SignalR).
       "이상발생(UserTag)" 패널/도넛/SignalR/기간 토글/디바이스 알람 차단은 기존 실데이터 동작 그대로 보존.
     -->
@@ -33,7 +33,7 @@
 
         <main class="dsp-main">
 
-            <!-- 상단 툴바 — 날짜 선택 + (오른쪽) Excel/CSV 다운로드 · 디바이스 알람 차단.
+            <!-- 상단 툴바 — 날짜 선택 + (오른쪽) Excel 다운로드 · 디바이스 알람 차단.
                  검색/System/구분 필터와 기간 텍스트는 이 툴바로 통합하며 카드 안 필터행은 제거했다. -->
             <div class="ds-topbar">
                 <div class="ds-topbar-actions">
@@ -56,7 +56,7 @@
                     </template>
                 </div>
 
-                <!-- 오른쪽: 설비 필터 상태(설비별 보기 시) + Excel/CSV 다운로드 + 디바이스 알람 차단.
+                <!-- 오른쪽: 설비 필터 상태(설비별 보기 시) + Excel 다운로드 + 디바이스 알람 차단.
                      설비(Flow) 선택은 좌측 메뉴 '이상·알람' 트리에서 수행(/uptime-alarm?flow=이름). 설비별 보기는 그 Flow 의
                      자동감지(이상감지)만 조회하고, UserTag 는 Flow 에 속하지 않아 제외된다('전체 보기'로 라인 전체 복귀). -->
                 <div class="ds-topbar-actions" style="justify-content:flex-end; flex-wrap:wrap;">
@@ -71,10 +71,7 @@
                     <button class="btn btn-sm btn-outlined color-default" @click="exportUtExcel()" :disabled="!ut || !ut.alerts || ut.alerts.length === 0">
                         <span class="material-icons" style="font-size:15px;">download</span> Excel 다운로드
                     </button>
-                    <button class="btn btn-sm btn-outlined color-default" @click="exportUtCsv()" :disabled="!ut || !ut.alerts || ut.alerts.length === 0">
-                        <span class="material-icons" style="font-size:15px;">download</span> CSV 다운로드
-                    </button>
-                    <button class="btn btn-sm btn-outlined color-default" @click="openBlockMgr()" title="자동알람(디바이스)·사용자지정(UserTag) 알람을 선택해 알람·통계·기록에서 차단합니다">
+                    <button class="btn btn-sm btn-outlined color-default" @click="openBlockMgr()" title="자동알람(디바이스)·수동등록TAG(UserTag) 알람을 선택해 알람·통계·기록에서 차단합니다">
                         <span class="material-icons" style="font-size:15px;">notifications_off</span> 알람 차단<span x-show="blockedTotalCount > 0" x-text="' (' + blockedTotalCount + ')'"></span>
                     </button>
                 </div>
@@ -86,8 +83,8 @@
                 <section id="ut-section" class="card up-section">
                     <div class="ds-card-h">
                         <h4>알람 조회<span x-show="curFlow" style="font-weight:600;color:var(--color-text-secondary);"> · 설비 <span x-text="curFlow"></span></span></h4>
-                        <span class="ds-card-h-sub" x-show="!curFlow">AASX UserTag 조건 충족 이벤트 · 실시간 + 기간별 추이 (구 이상발생 관리 통합)</span>
-                        <span class="ds-card-h-sub" x-show="curFlow">이 설비의 <b>자동감지(이상감지)</b> 알람만 표시 — 사용자정의(UserTag) 알람은 설비에 속하지 않아 제외됩니다.</span>
+                        <span class="ds-card-h-sub" x-show="!curFlow">자동 감지: DSPilot이 실시간으로 탐지한 이벤트</span>
+                        <span class="ds-card-h-sub" x-show="curFlow">수동 등록: PLC 데이터를 기준으로 사용자가 등록한 이벤트</span>
                     </div>
 
                     <!-- 로딩/오류 -->
@@ -96,12 +93,12 @@
 
                     <template x-if="ut">
                         <div>
-                            <!-- 검색/System/구분 필터·CSV·차단 버튼·기간 텍스트는 상단 툴바로 이동/제거됨. -->
+                            <!-- 검색/System/구분 필터·차단 버튼·기간 텍스트는 상단 툴바로 이동/제거됨. -->
 
                             <!-- 시계열 추이 (Chart.js 스택 막대) -->
                             <div class="ds-card-h" style="margin-bottom:10px;">
                                 <h4 style="font-size:0.74rem;">시계열 추이</h4>
-                                <span class="ds-card-h-sub" x-text="curFlow ? '자동감지(이상감지) 시계열 막대' : '구분별 스택 막대 (자동감지 · 사용자지정)'"></span>
+                                <span class="ds-card-h-sub" x-text="curFlow ? '자동감지(이상감지) 시계열 막대' : '구분별 스택 막대 (자동감지 · 수동등록TAG)'"></span>
                             </div>
                             <div class="up-ut-chart-tall" style="margin-bottom:16px;"><canvas id="ut-trend-chart"></canvas></div>
 
@@ -110,15 +107,11 @@
                                 <div>
                                     <div class="ds-card-h" style="margin-bottom:10px;">
                                         <h4 style="font-size:0.74rem;">태그별 Top 10</h4>
-                                        <div class="segmented" style="margin-left:auto;">
-                                            <button :class="topGroupBy === 'path' ? 'is-active' : ''" @click="setTopGroupBy('path')" title="자동감지 이상을 경로(FLOW / WORK / CALL)별로 펼쳐 표시">경로별</button>
-                                            <button :class="topGroupBy === 'name' ? 'is-active' : ''" @click="setTopGroupBy('name')" title="자동감지 이상은 4개 유형으로 묶어 표시">유형별</button>
-                                        </div>
                                     </div>
                                     <div class="up-ut-chart-md"><canvas id="ut-top-chart"></canvas></div>
                                 </div>
                                 <div x-show="!curFlow">
-                                    <div class="ds-card-h" style="margin-bottom:10px;"><h4 style="font-size:0.74rem;">구분 분포</h4><span class="ds-card-h-sub">자동감지 · 사용자지정 비율</span></div>
+                                    <div class="ds-card-h" style="margin-bottom:10px;"><h4 style="font-size:0.74rem;">구분 분포</h4><span class="ds-card-h-sub">자동감지 · 수동등록TAG 비율</span></div>
                                     <div class="up-dist">
                                         <template x-if="categoryTotal > 0">
                                             <svg class="up-donut" viewBox="0 0 100 100">
@@ -143,7 +136,7 @@
                                                 </div>
                                                 <div class="up-legend-row">
                                                     <span class="up-legend-swatch" style="background:rgb(190, 18, 60);"></span>
-                                                    <span class="up-legend-name">사용자지정</span>
+                                                    <span class="up-legend-name">수동등록TAG</span>
                                                     <span class="up-legend-share" x-text="categoryShare('USERTAG') + '%'"></span>
                                                     <span class="up-legend-val" x-text="cc('USERTAG').toLocaleString() + '건'"></span>
                                                 </div>
@@ -153,7 +146,7 @@
                                             <div class="ds-empty up-dist-empty" style="border-style:solid;">
                                                 <span class="material-icons">donut_large</span>
                                                 <div class="ds-empty-title">해당 기간 알림 없음</div>
-                                                <div class="ds-empty-desc">선택한 기간에 집계된 자동감지/사용자지정 알림이 없습니다.</div>
+                                                <div class="ds-empty-desc">선택한 기간에 집계된 자동감지/수동등록TAG 알림이 없습니다.</div>
                                             </div>
                                         </template>
                                     </div>
@@ -203,7 +196,7 @@
                                             <th>주소</th>
                                             <th class="ut-th-sort" @click="setUtSort('matchOp')">조건 <span class="material-icons ut-sort" x-text="utSortIcon('matchOp')"></span></th>
                                             <th>값</th>
-                                            <th style="width:40px;" title="디바이스 알람 차단 바로가기">차단</th>
+                                            <th style="width:64px;" title="알람 차단(알림해제) 바로가기">알림해제</th>
                                         </tr></thead>
                                         <tbody>
                                             <template x-for="(a, i) in ut.alerts" :key="i">
@@ -219,15 +212,15 @@
                                                     <td data-label="조건" x-text="describeOp(a.matchOp, a.matchValue)"></td>
                                                     <!-- 값: AbnormalDetect 시간·주소값 숨김, 나머지 기존 -->
                                                     <td data-label="값"><span :class="a.matchOp !== 'AbnormalDetect' ? 'up-codeish' : ''" x-text="abnVal(a)"></span></td>
-                                                    <!-- 차단 바로가기: Abnormal → 자동알람 탭(디바이스+유형), UserTag → 사용자지정 탭(주소) 이 선택된 채 열림 -->
-                                                    <td data-label="차단" style="text-align:center;">
+                                                    <!-- 차단 바로가기: Abnormal → 자동알람 탭(디바이스+유형), UserTag → 수동등록TAG 탭(주소) 이 선택된 채 열림 -->
+                                                    <td data-label="알림해제" style="text-align:center;">
                                                         <template x-if="a.matchOp === 'AbnormalDetect' && rowDevice(a)">
                                                             <button class="up-blk-rowbtn" @click="openBlockMgr(rowDevice(a), a.matchValue)" :title="rowDevice(a) + ' 자동알람 차단 관리'">
                                                                 <span class="material-icons">notifications_off</span>
                                                             </button>
                                                         </template>
                                                         <template x-if="a.matchOp !== 'AbnormalDetect' && a.tagAddress">
-                                                            <button class="up-blk-rowbtn" @click="openUserTagBlockMgr(a.tagAddress)" :title="a.name + ' 사용자지정 알람 차단 관리'">
+                                                            <button class="up-blk-rowbtn" @click="openUserTagBlockMgr(a.tagAddress)" :title="a.name + ' 수동등록TAG 알람 차단 관리'">
                                                                 <span class="material-icons">notifications_off</span>
                                                             </button>
                                                         </template>
@@ -267,7 +260,7 @@
             </div>
         </main>
 
-        <!-- ════ 알람 차단 관리 모달 (자동알람 / 사용자지정 알람 탭) ════ -->
+        <!-- ════ 알람 차단 관리 모달 (자동알람 / 수동등록TAG 알람 탭) ════ -->
         <div class="up-blk-overlay" x-show="blockMgr.show" style="display:none;" @click.self="blockMgr.show = false" @keydown.escape.window="blockMgr.show = false">
             <div class="up-blk-modal" @click.stop>
                 <div class="up-blk-head">
@@ -283,7 +276,7 @@
                         자동알람<span class="up-blk-tabcount" x-show="blockedDeviceCount > 0" x-text="blockedDeviceCount"></span>
                     </button>
                     <button class="up-blk-tab" :class="{ on: blockMgr.tab === 'user' }" @click="blockMgr.tab = 'user'">
-                        사용자지정 알람<span class="up-blk-tabcount" x-show="blockedUserTagCount > 0" x-text="blockedUserTagCount"></span>
+                        수동등록TAG 알람<span class="up-blk-tabcount" x-show="blockedUserTagCount > 0" x-text="blockedUserTagCount"></span>
                     </button>
                 </div>
 
@@ -391,10 +384,10 @@
                     </div>
                 </div>
 
-                <!-- ─── 사용자지정(UserTag) 알람 탭 ─── -->
+                <!-- ─── 수동등록TAG(UserTag) 알람 탭 ─── -->
                 <div class="up-blk-panel" x-show="blockMgr.tab === 'user'" style="display:none;">
                     <div class="up-blk-sub">
-                        사용자정의 알람(UserTag)을 선택해 <b>차단 추가/해제</b>합니다. 차단된 알람은 배너·사이드바·통계·기록에서 숨겨지고,
+                        수동등록TAG 알람(UserTag)을 선택해 <b>차단 추가/해제</b>합니다. 차단된 알람은 배너·사이드바·통계·기록에서 숨겨지고,
                         <b>차단 중 새로 발생하는 알람은 기록 자체가 남지 않습니다</b>(해제해도 차단 기간 발생분은 복구되지 않음).
                         차단 이전의 기존 기록은 해제하면 다시 표시됩니다. 적용은 즉시 반영됩니다.
                     </div>

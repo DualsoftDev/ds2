@@ -26,7 +26,7 @@ public sealed record UserTagAlertBucket(
     string LogLevel,
     int Count);
 
-/// <summary>태그명 별 Top-N 행.</summary>
+/// <summary>태그명 별 Top-N 행. LogLevel 슬롯엔 구분(ABNORMAL/USERTAG)이 담긴다 — 막대색 구분용.</summary>
 public sealed record UserTagAlertTopRow(
     string Name,
     string LogLevel,

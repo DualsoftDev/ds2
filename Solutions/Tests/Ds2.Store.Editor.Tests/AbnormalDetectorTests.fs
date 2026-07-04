@@ -738,6 +738,112 @@ module MonitoringAdapterTests =
         adapter.OnObservedIo("X0", "false", 600)
         Assert.Empty(emitted)
 
+    // ── OUT-falling ActionOver (doc/ACTIONOVER_MONITORING_MISS_AGENT_FIX_HANDOFF_2026-07-03.md §7 옵션A) ──
+    // 라인 전체 정지(관측 블랙아웃) 중 엔진 due-tick 이 평가 기회를 못 얻어도 OUT falling 은 실제로
+    // 들어오는 이벤트 — 그 순간 Going + IN 미도달(goingClock 잔존) + 모델 Max 초과면 ActionOver 발행.
+    // 16:33 실사건 재현: OUT rising(t0) → 15초 뒤 OUT falling, IN 은 끝내 미도달.
+
+    [<Fact>]
+    let ``out falling with call Going and elapsed above Max emits ActionOver with measured elapsed`` () =
+        let adapter, emitted, states, callId, _ = setup ()
+        adapter.IsMaxMeasured <- fun _ -> true
+        states.[callId] <- Status4.Going
+        adapter.OnObservedIo("Y0", "false", 0)      // OUT baseline
+        adapter.OnObservedIo("Y0", "true", 0)       // OUT rising → goingClock=0
+        adapter.OnObservedIo("X0", "false", 0)      // IN baseline — 끝내 미도달
+        adapter.OnObservedIo("Y0", "false", 1500)   // OUT falling, elapsed 1500 > Max 900
+        Assert.Single(emitted) |> ignore
+        Assert.Equal(AbnormalKind.ActionOver, emitted.[0].Kind)
+        // elapsed 는 실측(Control adapter 규약) — 엔진 due 경로의 MaxMs+1 과 다르다.
+        Assert.Equal(1500, emitted.[0].ElapsedMs |> Option.defaultValue -1)
+
+    [<Fact>]
+    let ``out falling within Max is not ActionOver`` () =
+        let adapter, emitted, states, callId, _ = setup ()
+        adapter.IsMaxMeasured <- fun _ -> true
+        states.[callId] <- Status4.Going
+        adapter.OnObservedIo("Y0", "false", 0)
+        adapter.OnObservedIo("Y0", "true", 0)
+        adapter.OnObservedIo("X0", "false", 0)
+        adapter.OnObservedIo("Y0", "false", 500)    // elapsed 500 ≤ 900 — 정상 범위 종료
+        Assert.Empty(emitted)
+
+    [<Fact>]
+    let ``out falling after normal finish is not ActionOver (goingClock consumed)`` () =
+        let adapter, emitted, states, callId, _ = setup ()
+        adapter.IsMaxMeasured <- fun _ -> true
+        states.[callId] <- Status4.Going            // Going 이어도 goingClock 부재면 발행 없음
+        goingThenFinish adapter 0 500               // IN rising 이 goingClock 소비
+        adapter.OnObservedIo("Y0", "false", 1500)
+        Assert.Empty(emitted)
+
+    [<Fact>]
+    let ``out falling ActionOver suppressed when Max not measured`` () =
+        // IsMaxMeasured 기본 false — 엔진 watchdog 와 동일 게이트 유지(§7 가드2).
+        let adapter, emitted, states, callId, _ = setup ()
+        states.[callId] <- Status4.Going
+        adapter.OnObservedIo("Y0", "false", 0)
+        adapter.OnObservedIo("Y0", "true", 0)
+        adapter.OnObservedIo("X0", "false", 0)
+        adapter.OnObservedIo("Y0", "false", 1500)
+        Assert.Empty(emitted)
+
+    [<Fact>]
+    let ``out falling ActionOver suppressed when call not Going`` () =
+        let adapter, emitted, _, _, _ = setup ()
+        adapter.IsMaxMeasured <- fun _ -> true
+        // states 미설정 → Ready (사이클 이미 종료/리셋된 뒤의 OUT off)
+        adapter.OnObservedIo("Y0", "false", 0)
+        adapter.OnObservedIo("Y0", "true", 0)
+        adapter.OnObservedIo("X0", "false", 0)
+        adapter.OnObservedIo("Y0", "false", 1500)
+        Assert.Empty(emitted)
+
+    [<Fact>]
+    let ``out falling after blackout invalidation is not ActionOver`` () =
+        // 통신 blackout 가드 — InvalidateObservations 가 goingClock 을 비워 단절 구간이 낀
+        // elapsed 로는 발행 자체가 안 만들어진다(재개 첫 관측은 baseline → rising 아님).
+        let adapter, emitted, states, callId, _ = setup ()
+        adapter.IsMaxMeasured <- fun _ -> true
+        states.[callId] <- Status4.Going
+        adapter.OnObservedIo("Y0", "false", 0)
+        adapter.OnObservedIo("Y0", "true", 0)       // goingClock=0
+        adapter.OnObservedIo("X0", "false", 0)
+        adapter.InvalidateObservations()            // PLC 단절
+        adapter.OnObservedIo("Y0", "true", 1000)    // 재개 첫 관측 = baseline — goingClock 안 찍힘
+        adapter.OnObservedIo("Y0", "false", 1500)   // falling 이지만 goingClock 부재 → 발행 없음
+        Assert.Empty(emitted)
+
+    [<Fact>]
+    let ``late in rising after out-falling ActionOver is not SensorShort`` () =
+        // goingClock 을 발행 후에도 유지하는 이유 — 뒤늦은 IN(실사건 16:46:58)이 정상 finish 경로를
+        // 타야 "goingClock 부재+OUT off" 조합의 SensorShort 오판이 없다.
+        let adapter, emitted, states, callId, _ = setup ()
+        adapter.IsMaxMeasured <- fun _ -> true
+        states.[callId] <- Status4.Going
+        adapter.OnObservedIo("Y0", "false", 0)
+        adapter.OnObservedIo("Y0", "true", 0)
+        adapter.OnObservedIo("X0", "false", 0)
+        adapter.OnObservedIo("Y0", "false", 1500)   // ActionOver 1회
+        adapter.OnObservedIo("X0", "true", 2000)    // 뒤늦은 IN rising — 정상 finish 경로(goingClock 소비)
+        Assert.Single(emitted) |> ignore
+        Assert.Equal(AbnormalKind.ActionOver, emitted.[0].Kind)
+
+    [<Fact>]
+    let ``next cycle re-emits ActionOver after new out rising`` () =
+        let adapter, emitted, states, callId, _ = setup ()
+        adapter.IsMaxMeasured <- fun _ -> true
+        states.[callId] <- Status4.Going
+        adapter.OnObservedIo("Y0", "false", 0)
+        adapter.OnObservedIo("Y0", "true", 0)
+        adapter.OnObservedIo("X0", "false", 0)
+        adapter.OnObservedIo("Y0", "false", 1500)   // 사이클1 ActionOver
+        adapter.OnObservedIo("Y0", "true", 2000)    // 사이클2 시작 — latch 클리어 + goingClock=2000
+        adapter.OnObservedIo("Y0", "false", 3500)   // elapsed 1500 > 900 → 재발행
+        Assert.Equal(2, emitted.Count)
+        Assert.Equal(AbnormalKind.ActionOver, emitted.[0].Kind)
+        Assert.Equal(AbnormalKind.ActionOver, emitted.[1].Kind)
+
 // device work = plan: In(?�제 IO) ?�이 duration plan ?�로 Going?�Finish ?�야 ?�다 (?�용???�정).
 // "Control device Finish ???? ?��?�?코드 ?�벨?�서 못박???�합?�스??
 module DeviceControlCycleTests =
@@ -971,7 +1077,7 @@ module DeviceControlCycleTests =
               ModelHash = "test-model"
               Generation = 1
               Mode = "Monitoring" }
-        let session = EventDrivenEngineRuntimeHubSession(engine, NullSignalHubContext(), identity, 100, System.Func<Guid, bool>(fun _ -> true))
+        let session = EventDrivenEngineRuntimeHubSession(engine, NullSignalHubContext(), identity, 100, System.Func<Guid, bool>(fun _ -> true), System.Func<Guid, bool>(fun _ -> true))
         let command : RuntimeIOAddressBatchCommand =
             { Envelope = RuntimeHubDefaults.selfEnvelope identity
               Items =
@@ -1014,7 +1120,7 @@ module DeviceControlCycleTests =
               ModelHash = "test-model"
               Generation = 1
               Mode = "Monitoring" }
-        let session = EventDrivenEngineRuntimeHubSession(engine, NullSignalHubContext(), identity, 100, System.Func<Guid, bool>(fun _ -> true))
+        let session = EventDrivenEngineRuntimeHubSession(engine, NullSignalHubContext(), identity, 100, System.Func<Guid, bool>(fun _ -> true), System.Func<Guid, bool>(fun _ -> true))
         let inject addr v =
             let cmd : RuntimeIOAddressBatchCommand =
                 { Envelope = RuntimeHubDefaults.selfEnvelope identity

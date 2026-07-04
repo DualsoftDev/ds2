@@ -21,7 +21,7 @@ function levelColors() {
 
 // 구분(ABNORMAL/USERTAG) 색 — 레벨이 Error 단일로 통일된 뒤 시계열/버킷은 구분으로 스택한다.
 // 둘 다 Error 알람이라 빨강 계열로 통일하되, 스택/도넛에서 구분되도록 톤을 다르게 둔다.
-// ABNORMAL(자동감지)=밝은 빨강, USERTAG(사용자지정)=진한 로즈레드.
+// ABNORMAL(자동감지)=밝은 빨강, USERTAG(수동등록TAG)=진한 로즈레드.
 function categoryColors() {
     return {
         'ABNORMAL': { fill: 'rgba(239, 68, 68, 0.85)', border: 'rgb(239, 68, 68)' },
@@ -30,7 +30,7 @@ function categoryColors() {
 }
 
 // 범례 표시용 한글 라벨(데이터 키는 서버가 주는 ABNORMAL/USERTAG 코드 유지).
-const CATEGORY_LABELS = { 'ABNORMAL': '자동감지', 'USERTAG': '사용자지정' };
+const CATEGORY_LABELS = { 'ABNORMAL': '자동감지', 'USERTAG': '수동등록TAG' };
 
 // 축/범례/툴팁 텍스트·격자선을 테마 가변으로 (다크 캔버스에서 가독성 확보).
 function themeChartColors() {
@@ -142,16 +142,18 @@ export function renderTrendChart(chartId, timeBuckets, granularity, cats) {
     charts[chartId] = chart;
 }
 
-// topRows: [{ name, level, count }]
+// topRows: [{ name, level, count }] — level 슬롯은 구분(ABNORMAL/USERTAG). 막대색을 구분으로 칠해
+// 수동등록TAG 를 자동감지와 시각적으로 분리한다(시계열 스택·구분 도넛과 동일 팔레트).
 export function renderTopChart(chartId, topRows) {
     const canvas = document.getElementById(chartId);
     if (!canvas) return;
 
-    const LEVEL_COLORS = levelColors();
+    const CAT_COLORS = categoryColors();
     const tc = themeChartColors();
     const labels = topRows.map(r => r.name);
     const counts = topRows.map(r => r.count);
-    const colors = topRows.map(r => (LEVEL_COLORS[r.level] || LEVEL_COLORS.Info).fill);
+    const cats = topRows.map(r => r.level);
+    const colors = cats.map(c => (CAT_COLORS[c] || CAT_COLORS.USERTAG).fill);
 
     // 같은 canvas·테마면 in-place 갱신(차트 재생성 churn 방지).
     const existing = charts[chartId];
@@ -159,6 +161,7 @@ export function renderTopChart(chartId, topRows) {
         existing.data.labels = labels;
         const ds = existing.data.datasets[0];
         ds.data = counts; ds.backgroundColor = colors; ds.borderColor = colors;
+        existing._rowCats = cats;
         existing.update('none');
         return;
     }
@@ -186,11 +189,22 @@ export function renderTopChart(chartId, topRows) {
             },
             plugins: {
                 legend: { display: false },
-                tooltip: { enabled: true, backgroundColor: tc.surface, titleColor: tc.textStrong, bodyColor: tc.text, borderColor: tc.grid, borderWidth: 1 },
+                tooltip: {
+                    enabled: true, backgroundColor: tc.surface, titleColor: tc.textStrong, bodyColor: tc.text, borderColor: tc.grid, borderWidth: 1,
+                    callbacks: {
+                        // 막대색만으론 구분이 애매할 수 있어 툴팁에 자동감지/수동등록TAG 를 병기.
+                        label(ctx) {
+                            const cat = ctx.chart._rowCats?.[ctx.dataIndex];
+                            const catLabel = CATEGORY_LABELS[cat] || cat || '';
+                            return `알림 수: ${ctx.parsed.x}` + (catLabel ? ` (${catLabel})` : '');
+                        },
+                    },
+                },
             },
         },
     });
     chart._dark = isDark();
+    chart._rowCats = cats;
     charts[chartId] = chart;
 }
 
@@ -238,16 +252,4 @@ export function renderLevelDoughnut(chartId, levelCounts) {
     });
     chart._dark = isDark();
     charts[chartId] = chart;
-}
-
-export function downloadCsv(filename, csvContent) {
-    const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csvContent], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
 }

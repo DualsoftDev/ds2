@@ -399,7 +399,12 @@ window.renderCallHistoryChart = function (canvasId, executionData, averageMs, st
 
                             const items = [];
                             // 1) GoingTime: 파란 실선(데이터 포인트는 원)
-                            if (byIdx[0]) items.push(byIdx[0]);
+                            // pointBackgroundColor 가 이상치 포함 배열이라 기본 범례 마커가 빨강으로 해석됨 → azure 로 강제
+                            if (byIdx[0]) {
+                                byIdx[0].fillStyle = azure;
+                                byIdx[0].strokeStyle = azure;
+                                items.push(byIdx[0]);
+                            }
                             // 2) 이상치: 빨간 원 — 차트에 찍히는 이상치 포인트. 합성 항목(실제 데이터셋 아님)
                             items.push({
                                 text: '이상치',

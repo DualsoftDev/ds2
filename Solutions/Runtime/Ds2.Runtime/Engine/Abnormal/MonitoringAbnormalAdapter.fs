@@ -131,6 +131,9 @@ type MonitoringAbnormalAdapter
     // 호스트가 calibration-state 사이드카(+AASX 해시 stale 판정)를 읽어 주입한다.
     // 기본 false → 미확정 Work 의 ActionUnder 는 발행 안 함(오탐 차단). ActionOver(Max)는 영향 없음.
     let mutable isMinMeasured : Guid -> bool = fun _ -> false
+    // ActionOver(시간 초과) 게이트 — 엔진 device-watchdog 의 engineIsMaxMeasured 와 동일 의미/주입원.
+    // OUT-falling 발행 경로(아래 OnObservedIo)가 사용. 기본 false → 미확정 Work 발행 안 함.
+    let mutable isMaxMeasured : Guid -> bool = fun _ -> false
 
     // ApiCall → ApiDef (SensorOpen level-like 판정 + gating 용).
     let apiDefOf (apiCallId: Guid) : ApiDef option =
@@ -172,6 +175,9 @@ type MonitoringAbnormalAdapter
     /// ActionUnder 게이트 주입 — workGuid 의 Min 이 실측 확정(calibration-state)됐는지. 기본 false(비활성).
     member _.IsMinMeasured with get () = isMinMeasured and set v = isMinMeasured <- v
 
+    /// ActionOver 게이트 주입 — workGuid 의 Max 가 실측 확정(calibration-state)됐는지. 기본 false(비활성).
+    member _.IsMaxMeasured with get () = isMaxMeasured and set v = isMaxMeasured <- v
+
     /// AASX 확정값(Duration=avg)으로 학습기를 prime — 다음 세션 재학습 없이 첫 사이클부터 판정.
     member _.PrimeLearnedDuration(workGuid: Guid, avgMs: int) = durationLearner.Prime(workGuid, avgMs)
 
@@ -184,6 +190,11 @@ type MonitoringAbnormalAdapter
             match Queries.getApiCall outMappings.Head.ApiCallGuid store with
             | Some apiCall ->
                 let active = RuntimeSemantics.isActiveOutputValue apiCall value
+                // risingEdge 가 prevActive 를 갱신하므로 falling 판정용 직전값은 먼저 캡처(IN falling 과 동형).
+                let wasOutActive =
+                    match prevActive.TryGetValue ("OUT:" + address) with
+                    | true, b -> b
+                    | _ -> active        // 첫 관측 baseline → falling 으로 보지 않음
                 if risingEdge ("OUT:" + address) active then
                     everOutRisingSeen.Add("OUT:" + address) |> ignore
                     for m in outMappings do
@@ -193,6 +204,35 @@ type MonitoringAbnormalAdapter
                         //   (Kind,Target) Under/Over 를 5초 억제해(사이클<5s 면 매 사이클 누락) 즉시 재검출이 안 된다.
                         //   사이클 내 중복(watchdog tick + In rising)은 5s window 가 그대로 coalesce → 1회 유지.
                         AbnormalDetector.clearLatchForCall detectorState m.CallGuid
+                elif wasOutActive && not active then
+                    // OUT falling(동작 명령 회수)인데 Call 이 여전히 Going + IN 미도달(goingClock 잔존)이고
+                    // 경과가 모델 Max 초과면 그 자리에서 ActionOver. 라인 전체 정지(관측 블랙아웃) 중엔 엔진
+                    // due-tick 이 평가 기회를 못 얻어 장행정(컨베이어) 타임아웃이 침묵하던 사각을, 블랙아웃
+                    // 중에도 실제로 들어오는 OUT-falling 이벤트로 직격한다
+                    // (doc/ACTIONOVER_MONITORING_MISS_AGENT_FIX_HANDOFF_2026-07-03.md §7 옵션A).
+                    // · range SSOT = 모델 WorkDurationRange(엔진 watchdog 와 동일) — 학습 줄자(durationLearner) 아님.
+                    // · elapsed 는 실측(Control adapter 규약) — 엔진 due 경로의 MaxMs+1 과 값이 다를 수 있음.
+                    // · goingClock 은 지우지 않는다 — 지우면 뒤늦은 IN rising 이 "goingClock 부재+OUT off"
+                    //   조합으로 SensorShort 오판(아래 IN 분기 실기 가드). 정리는 IN rising 정상 경로가 담당.
+                    // · 통신 blackout 은 InvalidateObservations 가 goingClock 을 비워 자동 차단(+세션 억제 2중).
+                    for m in outMappings do
+                        match apiDefOf m.ApiCallGuid with
+                        | Some def when AbnormalDetector.canEvaluate store m.CallGuid def
+                                        && getCallState m.CallGuid = Status4.Going ->
+                            match goingClock.TryGetValue m.ApiCallGuid with
+                            | true, goingAt ->
+                                match m.RxWorkGuid with
+                                | Some rxWork when isMaxMeasured rxWork ->
+                                    match index.WorkDurationRange |> Map.tryFind rxWork with
+                                    | Some range when range.MaxMs > 0 ->
+                                        let elapsed = nowMs - goingAt
+                                        if elapsed > range.MaxMs then
+                                            let target = Abnormal.target (Some m.CallGuid) (Some m.ApiCallGuid) m.RxWorkGuid
+                                            emit (Abnormal.actionOver target elapsed (nowUtc ()))
+                                    | _ -> ()
+                                | _ -> ()
+                            | _ -> ()
+                        | _ -> ()
             | None -> ()
 
         // 완료측: InAddress rising → finish(elapsed vs range), falling → level 센서 단선 = SensorOpen.

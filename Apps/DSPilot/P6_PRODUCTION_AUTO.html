@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<title>P6 생산 자동지표 확장 — PLC 로깅만으로 (품질 Q는 P5와 동일 수기)</title>
+<style>
+@page{size:A4 landscape; margin:8mm;}
+*{box-sizing:border-box;}
+body{margin:0; font-family:-apple-system,"Pretendard","Apple SD Gothic Neo",sans-serif;
+  background:#F5F7FA; color:#1A2433; font-size:11px; line-height:1.45;}
+.page{width:297mm; min-height:200mm; margin:8px auto; background:#fff; padding:14mm 14mm 10mm 14mm;
+  display:grid; grid-template-columns:1fr 1fr; gap:10px; box-shadow:0 0 6px rgba(0,0,0,0.08);}
+.hdr{grid-column:1/-1; display:flex; justify-content:space-between; align-items:flex-end;
+  border-bottom:2px solid #1FA8B8; padding-bottom:6px; margin-bottom:2px;}
+.hdr h1{margin:0; font-size:18px; color:#0A2540; letter-spacing:-0.3px;}
+.hdr .sub{font-size:10.5px; color:#5B6B7E;}
+.hdr .v{background:#1FA8B8; color:#fff; padding:2px 8px; border-radius:3px; font-size:10px; font-weight:700;}
+.hdr .link{background:#0A2540; color:#fff; padding:1px 6px; border-radius:2px; font-size:9.5px; font-weight:700; margin-left:4px;}
+
+.box{border:1px solid #E1E6EB; border-radius:5px; padding:8px 10px; background:#fff;}
+.box.full{grid-column:1/-1;}
+.box h3{margin:0 0 6px 0; font-size:12px; color:#0A2540; border-left:3px solid #1FA8B8; padding-left:6px;}
+.box h3 .n{background:#1FA8B8; color:#fff; padding:1px 6px; border-radius:2px; font-size:10px; margin-right:4px;}
+.box h3 .badge{background:#B71C1C; color:#fff; padding:0 5px; border-radius:2px; font-size:9px; margin-left:4px;}
+
+.tag{display:inline-block; background:#0A2540; color:#fff; padding:1px 5px; border-radius:2px;
+  font-size:9.5px; font-weight:700; margin-right:3px;}
+.chip{display:inline-block; padding:0px 5px; border-radius:8px; font-size:9px; font-weight:700;}
+.cauto{background:#E8F5E9; color:#1B5E20;}
+.cman{background:#FFEBEE; color:#B71C1C;}
+.cnew{background:#FFF8E1; color:#7A5200;}
+.cplc{background:#E3F2FD; color:#1565C0;}
+.cmes{background:#F3E5F5; color:#6A1B9A;}
+
+table{width:100%; border-collapse:collapse; font-size:10px;}
+table th{background:#0A2540; color:#fff; padding:3px 6px; text-align:left; font-weight:600; font-size:9.5px;}
+table td{padding:3px 6px; border-bottom:1px solid #EEE; vertical-align:top;}
+table td.k{font-weight:700; color:#0A2540; white-space:nowrap;}
+table .auto{background:#E8F5E9; color:#1B5E20; padding:0 4px; border-radius:2px; font-size:9px; font-weight:700;}
+table .man{background:#FFEBEE; color:#B71C1C; padding:0 4px; border-radius:2px; font-size:9px; font-weight:700; text-decoration:line-through;}
+
+.k4{display:grid; grid-template-columns:repeat(4,1fr); gap:5px;}
+.kcell{border:1px solid #E1E6EB; border-left:3px solid #1FA8B8; border-radius:3px; padding:5px 7px; background:#fff;}
+.kcell .lbl{font-size:9px; color:#5B6B7E; font-weight:700; letter-spacing:0.3px;}
+.kcell .val{font-size:11.5px; color:#0A2540; font-weight:700; margin:1px 0; font-family:"JetBrains Mono",monospace;}
+.kcell .sub{font-size:9px; color:#8896A6;}
+
+.formula{background:#FAFBFC; border-left:3px solid #1FA8B8; padding:4px 8px; margin:3px 0; font-size:10.5px;
+  line-height:1.7;}
+.formula .ko{font-weight:700; color:#0A2540;}
+.frac{display:inline-block; vertical-align:middle; text-align:center; margin:0 3px;}
+.frac .num{display:block; border-bottom:1.2px solid #0A2540; padding:0 5px 1px 5px; font-size:10px;}
+.frac .den{display:block; padding:1px 5px 0 5px; font-size:10px;}
+.eq{margin:0 4px; color:#178899; font-weight:700;}
+.note{font-size:9.5px; color:#5B6B7E;}
+.v2-tag{background:#1FA8B8; color:#fff; padding:0 4px; border-radius:2px; font-size:9px; font-weight:700; margin-right:3px;}
+
+ul.tight{margin:3px 0; padding-left:14px;}
+ul.tight li{margin:1px 0;}
+
+.svg-row{grid-column:1/-1;}
+svg{width:100%; height:auto; display:block;}
+
+.foot{grid-column:1/-1; text-align:center; font-size:9px; color:#8896A6; margin-top:4px;}
+
+/* UX mockup styles */
+.ux{display:grid; grid-template-columns:1fr; gap:5px;}
+.ux-lvl{border:1px dashed #B0BEC5; border-radius:4px; padding:5px 7px; background:#FAFBFC;}
+.ux-lvl .lbl{font-size:9.5px; font-weight:700; color:#0A2540; margin-bottom:3px;}
+.ux-lvl .row{display:flex; gap:4px; flex-wrap:wrap;}
+.ux-lvl .tile{background:#fff; border:1px solid #E1E6EB; border-radius:3px; padding:3px 6px; font-size:9.5px; flex:1;}
+.ux-lvl .tile b{color:#0A2540; font-size:11.5px;}
+.ux-lvl .tile .g{color:#1B5E20;}
+.ux-lvl .tile .y{color:#7A5200;}
+.ux-lvl .tile .r{color:#B71C1C;}
+.ux-lvl .sticky{background:#FFEBEE; border-left:3px solid #B71C1C; padding:3px 6px; font-size:9.5px; margin-top:3px; border-radius:3px;}
+.ux-arrow{text-align:center; color:#1FA8B8; font-size:16px; font-weight:700; line-height:1;}
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <div class="hdr">
+    <div>
+      <h1>P6 생산 확장 — <span style="color:#B71C1C;">TEEP 최상위</span> · P5 위에 얹는 자동집계 <span class="v">v2</span></h1>
+      <div class="sub">P5 자동계산(생산/비생산 시간) 위에 <b>TEEP(24×365)</b>를 얹어 4레벨 드릴다운 · Q는 P5와 동일 수기 <span class="link">→ P5 참조</span></div>
+    </div>
+    <div class="sub">DSPilot · 확장 설계</div>
+  </div>
+
+  <!-- ===== ①  왜 확장 · 원칙 ===== -->
+  <div class="box">
+    <h3><span class="n">①</span>왜 확장 · 자동화 원칙</h3>
+    <div style="padding:5px 7px; background:#FFEBEE; border-left:3px solid #B71C1C; border-radius:3px; font-size:10px; margin-bottom:5px;">
+      <b style="color:#B71C1C;">현재 한계</b> — P5는 설비 단위 OEE만 자동, 정보 범위 좁음. 라인·WO·시프트 관점 부재.
+    </div>
+    <ul class="tight">
+      <li><b>원칙 1</b> — <b>P5에서 확정 자동계산된 값만</b> 재활용 (실측/비가동 CT · A · P · MTTR/MTBF)</li>
+      <li><b>원칙 2</b> — <span style="color:#B71C1C;">품질(Q)은 자동 불가</span> — P5와 동일 수기 입력 <span class="chip cman">✎ 수기</span></li>
+      <li><b>원칙 3</b> — <b>Top = TEEP (24×365 풀가동 기준)</b>. 여기서 레벨다운(OEE → A/P/Q → Cycle)</li>
+      <li><b>원칙 4</b> — 확장 신호(Recipe·Batch·PV·Alarm 세부)는 사업장별 편차 커서 <b>표준 확장 대상 제외</b></li>
+      <li><b>원칙 5</b> — 모든 상위 지표는 <b>P5 자동 산출값의 재조합</b>. 새 PLC 태그 요구 없음</li>
+    </ul>
+    <div style="margin-top:5px; padding:4px 7px; background:#E8F6F8; border-left:3px solid #1FA8B8; border-radius:3px; font-size:9.5px;">
+      🎯 <b>목표</b> — 최상위는 24×365 캘린더 풀가동(TEEP)에서 시작, 클릭 한 번씩 아래로 내려가며 OEE→A/P/Q→Cycle을 자동 정합 재집계.
+    </div>
+  </div>
+
+  <!-- ===== ②  P5에서 이미 확정 자동계산되는 것 ===== -->
+  <div class="box">
+    <h3><span class="n">②</span>P5에서 확정 자동계산 — 이 위에만 얹는다</h3>
+    <div style="padding:5px 7px; background:#E8F6F8; border-left:3px solid #1FA8B8; border-radius:3px; font-size:10px; margin-bottom:5px;">
+      PLC 신호에서 <b>확정적으로</b> 얻어지는 정보는 제한적. Line/WO/Recipe/PV 등은 사업장별 편차 커서 배제.
+      P5 자동계산 결과 중 <b>생산 vs 비생산 시간</b>만 확장의 기반으로 사용.
+    </div>
+    <table>
+      <tr><th>P5 자동 산출</th><th>정의</th><th>확장 활용</th></tr>
+      <tr><td class="k">Σ 실측 CT</td><td>정상 사이클 CT 합계 = <b>생산 시간</b></td><td>TEEP·라인 처리량</td></tr>
+      <tr><td class="k">Σ 비가동 CT</td><td>비가동 판정 사이클 CT 합계 = <b>비생산 시간</b></td><td>Loss 자동집계</td></tr>
+      <tr><td class="k">Cycle 수 (N)</td><td>사이클 총 개수</td><td>Throughput</td></tr>
+      <tr><td class="k">CT이상치</td><td>14일 평균 표준CT</td><td>성능 산출 재활용</td></tr>
+      <tr><td class="k">가용성 A · 성능 P</td><td>A × P (Q 제외)</td><td>OEE 위 TEEP 계산</td></tr>
+      <tr><td class="k">MTTR · MTBF</td><td>비가동 onset 파생</td><td>신뢰성 하위 지표</td></tr>
+      <tr><td class="k">품질 Q</td><td>기본 100%, 수기 조정 ✎</td><td>OEE 승산 (수기 유지)</td></tr>
+    </table>
+    <div style="margin-top:5px; padding:4px 7px; background:#FFF3E0; border-left:3px solid #EF6C00; border-radius:3px; font-size:9.5px;">
+      🚫 <b>확장 배제</b> — Recipe ID·Batch ID·Prod Counter·PV·Alarm Code는 사업장·설비별 신호 정의 편차가 커 자동 확장 대상에서 제외.
+      필요 시 사업장별 <b>선택 옵션</b>으로만 추가.
+    </div>
+  </div>
+
+  <!-- ===== ③  품질 Q · 수기 유지 (자동 불가) ===== -->
+  <div class="box">
+    <h3><span class="n">③</span>품질 Q · <span style="color:#B71C1C;">수기 입력 유지</span> (P5와 동일)</h3>
+    <div style="padding:5px 7px; background:#FFEBEE; border-left:3px solid #B71C1C; border-radius:3px; font-size:10px; margin-bottom:5px;">
+      <b>Q 자동화 시도 → 보류</b> — 현장 검사 방식·판정 기준이 라인마다 달라 PLC 신호로 일관 자동화 어려움.
+      리젝트 카운터·OK/NG bit·SPC 이탈 모두 <b>부분 정보</b>만 제공하므로 오탐 위험 &gt; 이득.
+    </div>
+    <div class="formula"><span class="v2-tag">Q</span><span class="ko">품질 (P5 동일)</span>
+      <span class="eq">=</span> 양품수 / 총생산수
+      <span class="note">기본값 100% · 사용자 조정 ✎</span>
+    </div>
+    <table style="margin-top:5px; font-size:9.5px;">
+      <tr><th>지표</th><th>산출</th><th>구분</th></tr>
+      <tr><td class="k">가용성 A</td><td>Σ실측CT / (Σ실측CT + Σ비가동CT)</td><td><span class="auto">🤖 PLC 자동</span></td></tr>
+      <tr><td class="k">성능 P</td><td>(사이클수 × CT이상치) / Σ실측CT</td><td><span class="auto">🤖 PLC 자동</span></td></tr>
+      <tr><td class="k">품질 Q</td><td>양품/총생산</td><td><span class="man">✎ 수기</span></td></tr>
+    </table>
+    <div style="margin-top:5px; padding:4px 7px; background:#E8F6F8; border-left:3px solid #1FA8B8; border-radius:3px; font-size:9.5px;">
+      💡 <b>보조 · 참고용</b> — 프로세스 값(온도/압력) 이상 사이클은 <b>Q 후보</b>로 표시만, 자동 반영 X.
+      사용자가 검사 결과를 확인 후 <b>Q 수기 값</b>에 반영.
+    </div>
+  </div>
+
+  <!-- ===== ④  Top-Down 4 Level (TEEP → OEE → A/P/Q → Cycle) ===== -->
+  <div class="box full">
+    <h3><span class="n">④</span>Top-Down 4 Level — 24×365 풀가동(TEEP) 최상위 · 레벨다운 드릴</h3>
+    <div style="display:grid; grid-template-columns:1fr 1.35fr; gap:10px;">
+      <!-- 계층 도식 -->
+      <div>
+        <div style="background:#FFEB3B; border-left:5px solid #F57F17; padding:6px 9px; border-radius:3px; margin-bottom:5px;">
+          <div style="font-size:9.5px; color:#7A5200; font-weight:800;">LEVEL 0 · 최상위</div>
+          <div style="font-size:15px; font-weight:900; color:#0A2540; margin-top:1px;">TEEP <span style="font-size:10px;">= 실측생산시간 / 24×365</span></div>
+          <div style="font-size:9.5px; color:#7A5200; margin-top:2px;">캘린더 풀가동 기준 · 사업 관점의 진짜 가동률</div>
+        </div>
+        <div style="text-align:center; color:#1FA8B8; font-weight:800; font-size:11px;">▼ 레벨다운</div>
+        <div style="background:#E8F6F8; border-left:5px solid #1FA8B8; padding:6px 9px; border-radius:3px; margin:3px 0;">
+          <div style="font-size:9.5px; color:#0A2540; font-weight:800;">LEVEL 1 · 계획 가동 기준</div>
+          <div style="font-size:14px; font-weight:900; color:#0A2540;">OEE = A × P × Q</div>
+          <div style="font-size:9.5px; color:#178899; margin-top:2px;">교대·계획정지 제외한 순수 가동 성과 (P5 기존)</div>
+        </div>
+        <div style="text-align:center; color:#1FA8B8; font-weight:800; font-size:11px;">▼</div>
+        <div style="background:#E1F5FE; border-left:5px solid #0288D1; padding:6px 9px; border-radius:3px; margin:3px 0;">
+          <div style="font-size:9.5px; color:#0A2540; font-weight:800;">LEVEL 2 · 3대 지표</div>
+          <div style="font-size:12.5px; font-weight:900; color:#0A2540;">가용성 A · 성능 P · 품질 Q</div>
+          <div style="font-size:9.5px; color:#01579B; margin-top:2px;">A·P 자동(P5) · Q 수기 ✎</div>
+        </div>
+        <div style="text-align:center; color:#1FA8B8; font-weight:800; font-size:11px;">▼</div>
+        <div style="background:#F3E5F5; border-left:5px solid #6A1B9A; padding:6px 9px; border-radius:3px; margin:3px 0;">
+          <div style="font-size:9.5px; color:#0A2540; font-weight:800;">LEVEL 3 · 사이클/이벤트 상세</div>
+          <div style="font-size:12.5px; font-weight:900; color:#0A2540;">CT · MT · WT · 비가동 onset · MTTR/MTBF</div>
+          <div style="font-size:9.5px; color:#4A148C; margin-top:2px;">P5 타임라인 · 원인 · 조치</div>
+        </div>
+      </div>
+      <!-- 수식 & TEEP 자동화 로직 -->
+      <div>
+        <div class="formula"><span class="v2-tag">TEEP</span><span class="ko">캘린더 풀가동</span>
+          <span class="eq">=</span><span class="frac"><span class="num">Σ 실측 CT</span><span class="den">24h × 365d = 8,760h/년</span></span>
+          <span class="chip cauto">🤖 자동</span>
+        </div>
+        <div class="formula"><span class="v2-tag">↳</span><span class="ko">분해</span>
+          <span class="eq">=</span> <b>Utilization</b> × <b>OEE</b>
+          <div style="font-size:10px; margin-top:2px;">Utilization = 계획가동시간 / 캘린더 · OEE = A·P·Q</div>
+        </div>
+        <table style="margin-top:5px; font-size:9.5px;">
+          <tr><th>Level</th><th>지표</th><th>산출 소스</th><th>자동</th></tr>
+          <tr><td class="k">L0</td><td>TEEP</td><td>Σ실측CT ÷ 캘린더시간</td><td><span class="auto">🤖 자동</span></td></tr>
+          <tr><td class="k">L0</td><td>Utilization</td><td>(실측+비가동)CT ÷ 캘린더</td><td><span class="auto">🤖 자동</span></td></tr>
+          <tr><td class="k">L0</td><td>총 Throughput</td><td>Cycle 수 (기간별 합)</td><td><span class="auto">🤖 자동</span></td></tr>
+          <tr><td class="k">L1</td><td>OEE</td><td>A × P × Q</td><td><span class="auto">🤖 A·P</span> <span class="man">✎ Q</span></td></tr>
+          <tr><td class="k">L2</td><td>가용성 A</td><td>실측CT ÷ (실측+비가동)</td><td><span class="auto">🤖 자동</span></td></tr>
+          <tr><td class="k">L2</td><td>성능 P</td><td>(N×CT이상치) ÷ 실측CT</td><td><span class="auto">🤖 자동</span></td></tr>
+          <tr><td class="k">L2</td><td>품질 Q</td><td>양품 ÷ 총생산 (기본 100%)</td><td><span class="man">✎ 수기</span></td></tr>
+          <tr><td class="k">L3</td><td>사이클 상세</td><td>CT · MT · WT · onset</td><td><span class="auto">🤖 자동</span></td></tr>
+          <tr><td class="k">L3</td><td>MTTR · MTBF</td><td>onset ↔ going / 다음 onset</td><td><span class="auto">🤖 자동</span></td></tr>
+        </table>
+        <div style="margin-top:5px; padding:4px 7px; background:#FFEB3B; border-left:3px solid #F57F17; border-radius:3px; font-size:9.5px; color:#7A5200;">
+          <b>레벨다운 UX</b> — Top(TEEP) 클릭 → L1(OEE) → L2(A/P/Q) → L3(사이클 타임라인).
+          각 레벨은 <b>기간 필터</b>(연·월·주·일·시프트)와 <b>대상 필터</b>(전사·라인·설비)로 좁혀지며, 항상 상위 지표에 <b>일치</b>하게 자동 재집계.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== ⑤  P5 → TEEP 파이프라인 ===== -->
+  <div class="box svg-row">
+    <h3><span class="n">⑤</span>P5 확정값 → TEEP 자동 조합 파이프라인</h3>
+    <svg viewBox="0 0 1100 200" xmlns="http://www.w3.org/2000/svg">
+      <!-- 좌: P5 자동 산출 (확정 소스) -->
+      <text x="20" y="20" font-size="10.5" font-weight="700" fill="#0A2540">P5 확정 자동 산출</text>
+      <g font-size="9.5">
+        <rect x="20" y="30" width="180" height="22" fill="#E8F5E9" stroke="#1B5E20"/>
+        <text x="28" y="45" fill="#0A2540">Σ 실측 CT (생산 시간)</text>
+        <rect x="20" y="55" width="180" height="22" fill="#FFEBEE" stroke="#B71C1C"/>
+        <text x="28" y="70" fill="#0A2540">Σ 비가동 CT (비생산 시간)</text>
+        <rect x="20" y="80" width="180" height="22" fill="#E3F2FD" stroke="#1565C0"/>
+        <text x="28" y="95" fill="#0A2540">Cycle 수 · CT이상치</text>
+        <rect x="20" y="105" width="180" height="22" fill="#E3F2FD" stroke="#1565C0"/>
+        <text x="28" y="120" fill="#0A2540">가용성 A · 성능 P</text>
+        <rect x="20" y="130" width="180" height="22" fill="#E3F2FD" stroke="#1565C0"/>
+        <text x="28" y="145" fill="#0A2540">MTTR · MTBF (onset)</text>
+      </g>
+
+      <!-- 화살표 -->
+      <line x1="205" y1="87" x2="235" y2="87" stroke="#1FA8B8" stroke-width="2" marker-end="url(#arr)"/>
+      <defs>
+        <marker id="arr" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+          <polygon points="0 0, 8 4, 0 8" fill="#1FA8B8"/>
+        </marker>
+      </defs>
+
+      <!-- 중: TEEP 상위 조합 엔진 -->
+      <rect x="240" y="45" width="220" height="120" fill="#FFF9C4" stroke="#F57F17" stroke-width="1.5" rx="4"/>
+      <text x="350" y="62" text-anchor="middle" font-size="11" font-weight="700" fill="#0A2540">TEEP 상위 자동 조합</text>
+      <text x="350" y="80" text-anchor="middle" font-size="9.5" fill="#7A5200">Σ실측CT ÷ (24×365)</text>
+      <text x="350" y="95" text-anchor="middle" font-size="9.5" fill="#7A5200">= <b>TEEP</b> (캘린더 풀가동)</text>
+      <text x="350" y="112" text-anchor="middle" font-size="9.5" fill="#178899">A × P × Q = OEE (P5)</text>
+      <text x="350" y="127" text-anchor="middle" font-size="9.5" fill="#178899">기간 필터별 재집계</text>
+      <text x="350" y="142" text-anchor="middle" font-size="9.5" fill="#178899">전사·라인·설비 축 합산</text>
+      <text x="350" y="157" text-anchor="middle" font-size="9.5" fill="#178899">레벨 간 정합 자동 검증</text>
+
+      <line x1="465" y1="87" x2="495" y2="87" stroke="#1FA8B8" stroke-width="2" marker-end="url(#arr)"/>
+
+      <!-- 우: 지표 (Top-down 4 Level) -->
+      <text x="500" y="20" font-size="10.5" font-weight="700" fill="#0A2540">자동 산출 지표 · Top-Down 4 Level</text>
+      <g font-size="9.5">
+        <rect x="500" y="30" width="590" height="30" fill="#FFF9C4" stroke="#F57F17" stroke-width="1.5"/>
+        <text x="795" y="42" text-anchor="middle" font-weight="700" fill="#0A2540">L0 · TEEP (24×365 캘린더 풀가동)</text>
+        <text x="795" y="54" text-anchor="middle" fill="#7A5200">Σ 실측 CT ÷ 8,760h · Utilization × OEE</text>
+
+        <!-- 품질 Q는 수기 유지 -->
+        <rect x="500" y="70" width="590" height="30" fill="#FFF3E0" stroke="#EF6C00" stroke-width="1.5"/>
+        <text x="795" y="82" text-anchor="middle" font-weight="700" fill="#B71C1C">품질 Q · ✎ 수기 입력 유지 (P5와 동일)</text>
+        <text x="795" y="94" text-anchor="middle" fill="#5B6B7E">기본 100% · 사용자 조정. PV 이상 사이클은 참고 표시만.</text>
+
+        <!-- L1 OEE -->
+        <rect x="500" y="110" width="590" height="30" fill="#E8F6F8" stroke="#1FA8B8" stroke-width="1.5"/>
+        <text x="795" y="122" text-anchor="middle" font-weight="700" fill="#0A2540">L1 · OEE = A × P × Q (P5 기존)</text>
+        <text x="795" y="134" text-anchor="middle" fill="#5B6B7E">Utilization · A 자동 · P 자동 · Q 수기</text>
+
+        <!-- L2 & L3 -->
+        <rect x="500" y="150" width="290" height="30" fill="#E1F5FE" stroke="#0288D1"/>
+        <text x="645" y="162" text-anchor="middle" font-weight="700" fill="#0A2540">L2 · A · P · Q + MTTR/MTBF</text>
+        <text x="645" y="174" text-anchor="middle" fill="#5B6B7E">신뢰성 하위 지표</text>
+        <rect x="800" y="150" width="290" height="30" fill="#F3E5F5" stroke="#6A1B9A"/>
+        <text x="945" y="162" text-anchor="middle" font-weight="700" fill="#0A2540">L3 · Cycle 상세 (P5 원본)</text>
+        <text x="945" y="174" text-anchor="middle" fill="#5B6B7E">CT/MT/WT · onset · going</text>
+      </g>
+    </svg>
+    <div class="note" style="margin-top:4px;">
+      ※ 상단 <b>P5 확정 자동 산출</b>만 소스로 사용 — 새로운 PLC 태그 요구 없음. Q는 수기 유지.
+      TEEP는 <b>기간 필터</b>(연·월·주·일·시프트) 변경 시 분모(캘린더 시간)와 함께 자동 재계산.
+    </div>
+  </div>
+
+  <!-- ===== ⑥  구현 순서 ===== -->
+  <div class="box">
+    <h3><span class="n">⑥</span>구현 순서 (P5 위에 확장)</h3>
+    <ul class="tight">
+      <li>① <b>P5 산출 재활용</b> — Σ실측CT · Σ비가동CT · Cycle 수 · A · P · MTTR · MTBF 그대로 사용</li>
+      <li>② <b>기간 필터 인프라</b> — 연·월·주·일·시프트 기준 자동 재집계 (P5는 사이클/이벤트 원본 보존)</li>
+      <li>③ <b>대상 필터 인프라</b> — 전사·라인·설비 계층 (기존 P5 asset 계층 재활용)</li>
+      <li>④ <b>TEEP 계산 순수함수</b> — TEEP = ΣMT ÷ 캘린더시간, Utilization × OEE 분해 검증</li>
+      <li>⑤ <b>Q 수기 그대로</b> — P5 동일. 향후 자동화 여지 있으면 별도 트랙</li>
+      <li>⑥ <b>UI L0 상단</b> — <code>/app/dashboard.html</code>은 TEEP Hero, 클릭 시 L1 OEE, L2, L3(P5 <code>uptime.html</code>)로 전이</li>
+      <li>⑦ <b>레벨 정합 검증</b> — 하위 재집계 결과가 상위 값과 수치 일치하는지 자동 assert</li>
+    </ul>
+  </div>
+
+  <!-- ===== ⑦  비목표 · 가정 ===== -->
+  <div class="box">
+    <h3><span class="n">⑦</span>비목표 · 가정</h3>
+    <ul class="tight">
+      <li><b>확장 신호 자동화 배제</b> — Recipe·Batch·Prod Counter·PV·Alarm 세부 코드는 사업장별 편차 커서 표준 배제</li>
+      <li><b>품질 Q 자동화 불가</b> — P5와 동일 수기 유지. 향후 표준화되면 재검토</li>
+      <li><b>계획 정지 분리</b> — 계획정지 캘린더가 없으면 TEEP=Utilization×OEE 분해 대신 단일 값만 제공</li>
+      <li><b>CT이상치 14일 평균 정책</b> — P5와 동일. 확장 지표도 동일 소스 사용</li>
+      <li><b>레벨 간 정합</b> — 하위 재집계값 = 상위 값이 성립해야 함. 이상 시 상위에 경고 배지</li>
+      <li><b>육안·수기 로그</b> — 자동 커버 불가, 별도 트랙</li>
+    </ul>
+  </div>
+
+  <div class="foot">
+    DSPilot — P6 생산 확장 <b>스펙</b> · TEEP(24×365) · Top-Down 4 Level · Q 수기 유지 · 시각화/UX는 별도 <b>P6_PRODUCTION_AUTO_VIEW.html</b> 참조
+  </div>
+
+</div>
+
+</body>
+</html>

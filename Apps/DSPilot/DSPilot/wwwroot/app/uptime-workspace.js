@@ -50,21 +50,24 @@
                 // 기존 UserTag 상태 (+ 구 이상발생 관리 흡수: 필터/페이지/정의/차트)
                 ut: null, loading: true, error: null, dark: false,
                 tab: 'oee', // 'oee' | 'anomaly' — URL ?tab= 와 동기화
-                // 물리 페이지 뷰: 'oee'(=/uptime-oee) | 'alarm'(=/uptime-alarm) | 'both'(구 통합, 폐기).
+                // 물리 페이지 뷰: 'oee'(=/uptime-oee 설비효율) | 'teep'(=/uptime-teep 생산효율) | 'alarm'(=/uptime-alarm) | 'both'(구 통합, 폐기).
                 // window.DSP_UPTIME_VIEW 로 각 HTML 이 주입. view 가 곧 표시할 도메인(탭바 없음).
+                // 구 내부 탭(oeeTab ?section=)은 2026-07-03 물리 분리로 폐지 — ?section=teep 딥링크는 init 이 /uptime-teep 로 보냄.
                 view: (window.DSP_UPTIME_VIEW || 'both'),
                 period: 'today',
                 curFlow: '', // '' = 라인 전체, 그 외 = 특정 Flow (OEE/정지/도넛/계획시간을 그 설비로 필터)
                 rt: { connected: false },
                 _conn: null, _dt: null, _pollTimer: null,
                 // stale 응답 가드 — 폴링/기간변경/페이지이동 응답이 뒤늦게 도착해 최신 상태를 덮어쓰는 경합 방지
-                _utSeq: 0, _oeeSeq: 0,
+                _utSeq: 0, _oeeSeq: 0, _anpSeq: 0,
+                // 사용자 로드(기간변경·페이지·정렬 등 비무음) 진행 중 카운트 — >0 이면 폴링/SignalR 무음 재로드를 건너뜀.
+                // 무음 로드가 seq 를 선점하면 사용자 로드 응답이 stale 폐기되어, 로딩 인디케이터가 끝나고도
+                // (뒤늦은 무음 응답 도착까지) 화면이 안 채워지는 가로채기가 생긴다. OEE 요약처럼 느린 조회일수록 잦음.
+                _userBusy: 0,
                 // utCategory = 구분 필터 ('' 전체 | 'abnormal' | 'usertag'). 레벨은 서버가 Error 로 통일(클라 미노출).
                 utPage: 0, utSearch: '', utCategory: '', utSystem: '', actionOverHint: [],
                 // 알람 이력 테이블 — 페이지 크기 / 정렬(서버 처리). sort 키는 서버 화이트리스트와 일치.
                 utPageSize: 10, utSort: 'occurredAt', utSortDir: 'desc', _utSearchTimer: null,
-                // 태그별 Top 10 그룹 기준: 'path'(경로별로 펼침 — 기본) | 'name'(유형/이름별 — abnormal 은 4종으로 묶임).
-                topGroupBy: 'path',
                 _focusAt: null, // 피드에서 at 으로 진입 시 스크롤·하이라이트할 알람 행 키(occurredAtLocal 초단위)
                 _charts: null,
                 dailyData: null,
@@ -74,6 +77,8 @@
 
                 // 신규 OEE 상태
                 oee: null, oeeError: null,
+                // 생산효율(TEEP) — /api/oee/teep. teepPct() 가 시간분해 막대 %. _teepSeq=stale 가드.
+                teep: null, teepError: null, _teepSeq: 0,
                 oeeExporting: false,   // OEE Excel 내보내기 진행 중
                 planTime: null, // /api/oee/plan-time — 계획시간 폴백 체인 + 14일 히스토그램
                 downtime: [], ranking: [],
@@ -86,10 +91,11 @@
                 qDialog: { show: false, qualityPct: 100, busy: false, msg: '', err: '' },
                 // 오버레이 닫힘 가드 — mousedown 이 오버레이(백드롭)에서 시작했을 때만 닫는다(모달 안에서 시작→백드롭 release 드래그로 오닫힘 방지).
                 _qDown: false,
+                _dtDown: false, // 정지 이벤트 로그 다이얼로그 백드롭 닫힘 가드
                 // 비생산 시간대 (doc/22 §3.3) — auto: 자동 계산(10×가동시간 장시간정지) on/off. source: auto/manual/none. ctMultiplier: 자동판정 배수(10).
                 // windows=수동 편집용 사본. selected=선택된 윈도 index(-1=미선택). addMode=드래그 추가 무장.
-                // autoPattern=14일 평균 패턴(참고). actualNonProd=이번 기간 실제 제외된 비생산(추이 남색과 동일 소스, 타임라인 메인).
-                ps: { source: 'none', auto: true, ctMultiplier: 10, windows: [], selected: -1, addMode: false, msg: '', err: '', busy: false, autoPattern: null, actualNonProd: null, seededFromAuto: false },
+                // actualNonProd=이번 기간 실제 제외된 비생산(추이 남색과 동일 소스, 자동 모드 타임라인의 유일한 소스이자 수동 전환 시 시드).
+                ps: { source: 'none', auto: true, ctMultiplier: 10, windows: [], selected: -1, addMode: false, msg: '', err: '', busy: false, actualNonProd: null, seededFromAuto: false },
                 _psDrag: null, // 진행 중 드래그 상태 { mode:'create'|'resize-l'|'resize-r', index, anchor } (비반응형)
                 // 정지 이벤트 로그 토글 — 기본 숨김, 정지 원인 구성(도넛)의 [로그 보기 및 설정] 버튼으로 토글
                 showDowntimeLog: false,
@@ -105,6 +111,16 @@
                 },
 
                 async init() {
+                    // 구 내부 탭 딥링크(/uptime-oee?section=teep) → 물리 분리된 생산효율 페이지로 이동(그 외 쿼리 보존).
+                    if (this.view === 'oee') {
+                        const legacyQp = new URLSearchParams(location.search);
+                        if (legacyQp.get('section') === 'teep') {
+                            legacyQp.delete('section');
+                            const legacyQs = legacyQp.toString();
+                            location.replace('/uptime-teep' + (legacyQs ? '?' + legacyQs : '') + location.hash);
+                            return;
+                        }
+                    }
                     this.dark = localStorage.getItem('dspilot-theme') === 'dark';
                     window.addEventListener('storage', (e) => { if (e.key === 'dspilot-theme') { this.dark = e.newValue === 'dark'; this.redrawForTheme(); } });
                     // 사이드바 이상코드 피드에서 진입 시 필터 시드(/uptime?utSystem=&category=&utSearch=).
@@ -114,6 +130,16 @@
                     if (qp.has('utSystem')) this.utSystem = qp.get('utSystem') || '';
                     if (qp.has('category')) this.utCategory = qp.get('category') || '';
                     if (qp.has('utSearch')) this.utSearch = qp.get('utSearch') || '';
+                    // 기간 복원(?period, custom 이면 +from/to) — 같은 페이지에서 전체/FLOW 를 바꿔 이동할 때
+                    // shell 나브가 현재 URL 의 기간 선택을 같이 실어 보낸다(아래 syncPeriodUrl 참조). ?at= 딥링크가
+                    // 있으면 그 알람의 '하루'가 우선(아래 블록이 덮어씀).
+                    const perQ = qp.get('period');
+                    if (perQ === '7d' || perQ === '30d' || perQ === '60d') this.period = perQ;
+                    else if (perQ === 'custom' && qp.get('from') && qp.get('to')) {
+                        this.period = 'custom';
+                        this.customFrom = qp.get('from').slice(0, 16);
+                        this.customTo = qp.get('to').slice(0, 16);
+                    }
                     // 피드에서 발생시각(at)을 받으면 그 '날' 하루를 custom 기간으로 맞춰 클릭한 알람이 조회 범위에 들어오게 한다.
                     // (기본 '오늘'이라 과거 알람이면 0건이 되던 문제 해결.) _focusAt 은 로드 후 그 행을 스크롤·하이라이트하는 키.
                     const at = qp.get('at'); // "yyyy-MM-dd HH:mm:ss" (초 단위) — 알림 이력 행의 occurredAtLocal.slice(0,19) 와 동일 형식
@@ -123,28 +149,35 @@
                         this.customFrom = day + 'T00:00';
                         this.customTo = day + 'T23:59';
                         this._focusAt = at.slice(0, 19);
+                        this.syncPeriodUrl(); // 이후 나브 전체/FLOW 이동에도 이 '하루' 기간이 유지되게 URL 에 반영
                     }
                     const seeded = qp.has('utSystem') || qp.has('category') || qp.has('utSearch') || qp.has('at');
                     // 활성 탭: 물리 분리 페이지는 view 가 결정(탭바 없음). 구 통합(both)만 URL ?tab=/시드로 분기.
-                    this.tab = this.view === 'oee' ? 'oee'
+                    this.tab = (this.view === 'oee' || this.view === 'teep') ? 'oee'
                         : this.view === 'alarm' ? 'anomaly'
                         : ((qp.get('tab') === 'anomaly' || seeded || qp.has('blockMgr')) ? 'anomaly' : 'oee');
                     this.syncTabUrl();
                     // 뒤로/앞으로 가기 시 탭 동기화
                     window.addEventListener('popstate', () => { this.applyTabFromUrl(); });
-                    try { this._charts = await import('/js/user-tag-trend-chart.js'); } catch (e) { console.warn('chart module load failed', e); }
+                    // 이상·알람 추이/Top 차트 모듈 — 알람 도메인에서만 사용(OEE/TEEP 페이지는 해당 캔버스 없음).
+                    if (this.view !== 'oee' && this.view !== 'teep') {
+                        try { this._charts = await import('/js/user-tag-trend-chart.js'); } catch (e) { console.warn('chart module load failed', e); }
+                    }
                     // 최초 진입 로드도 로딩 인디케이터로 감싼다(기간 변경 setPeriod 와 동일 UX). 폴링(load(true))은 무표시.
                     const initLoad = async () => {
                         await this.load();
-                        // OEE 도메인 로드(CT 표·비생산 시간대)는 알람 전용 페이지에서 스킵.
-                        if (this.view !== 'alarm') { await this.loadCtTable(); await this.loadPlannedStops(); }
+                        // OEE 도메인 로드 — CT 표(수동 오버라이드 UI)는 설비효율 페이지 전용,
+                        // 비생산 시간대(ps.ctMultiplier 등)는 설비효율·생산효율 둘 다 사용.
+                        if (this.view === 'oee' || this.view === 'both') await this.loadCtTable();
+                        if (this.view !== 'alarm') await this.loadPlannedStops();
                     };
                     if (window.dspLoading) await window.dspLoading.wrap(initLoad, '불러오는 중…');
                     else await initLoad();
                     this.connectSignalR();
-                    this._pollTimer = setInterval(() => { this.load(true); if (this.view !== 'alarm') this.refreshActualNonProd(); }, 10000);
-                    // 알람 페이지 진입 시드(필터 스크롤·포커스·차단 모달) — OEE 전용 페이지에서는 무의미하므로 스킵.
-                    if (this.view !== 'oee') {
+                    // '실제 제외 비생산' 타임라인은 설비효율 페이지에만 있음 — 생산효율/알람 페이지는 폴링 생략.
+                    this._pollTimer = setInterval(() => { this.load(true); if ((this.view === 'oee' || this.view === 'both') && !this._userBusy) this.refreshActualNonProd(); }, 10000);
+                    // 알람 페이지 진입 시드(필터 스크롤·포커스·차단 모달) — OEE/TEEP 전용 페이지에서는 무의미하므로 스킵.
+                    if (this.view !== 'oee' && this.view !== 'teep') {
                         // 필터 시드로 진입했으면 UserTag 카드로 스크롤(특정 알람 포커스가 있으면 그 행으로 직접 스크롤하므로 생략).
                         if (seeded && !this._focusAt) this.$nextTick(() => document.getElementById('ut-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
                         if (this._focusAt) this.$nextTick(() => this.focusAlertRow());
@@ -164,7 +197,7 @@
                 // 테마 전환 직후 차트 색 재계산 — 없으면 다음 폴링(최대 10초)까지 이전 테마 색이 남음
                 redrawForTheme() { this.$nextTick(() => { this.drawCharts(); this.drawDailyChart(); }); },
 
-                // ── 탭 전환 (OEE 종합 ⇆ 이상·알람) + URL ?tab= 동기화 ──
+                // ── 탭 전환 (종합효율 현황 ⇆ 이상·알람) + URL ?tab= 동기화 ──
                 setTab(t) {
                     if (this.view !== 'both') return; // 물리 분리 페이지는 탭 전환 없음(단일 도메인)
                     if (this.tab === t) return;
@@ -189,6 +222,18 @@
                     this.$nextTick(() => { if (t === 'anomaly') this.drawCharts(); else this.drawDailyChart(); });
                 },
 
+                // 현재 기간 선택을 URL(?period=, custom 이면 +from/to)에 반영 — 새로고침 유지 +
+                // shell 나브의 같은 페이지 전체/FLOW 이동이 이 파라미터를 실어 가 기간이 유지된다(init 에서 복원).
+                // 기본(오늘)은 파라미터 생략. custom 인데 범위 미입력(적용 전)이면 기간 파라미터를 남기지 않는다.
+                syncPeriodUrl() {
+                    const qp = new URLSearchParams(location.search);
+                    qp.delete('period'); qp.delete('from'); qp.delete('to');
+                    if (this.period === 'custom') {
+                        if (this.customFrom && this.customTo) { qp.set('period', 'custom'); qp.set('from', this.customFrom); qp.set('to', this.customTo); }
+                    } else if (this.period !== 'today') qp.set('period', this.period);
+                    const qs = qp.toString();
+                    history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
+                },
                 // ── fetch 헬퍼 ──
                 async apiGet(url) {
                     const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
@@ -244,47 +289,48 @@
                         this.ps.windows = (r.windows || []).map(w => ({ startMinutes: w.startMinutes, endMinutes: w.endMinutes, label: w.label || '' }));
                         this.ps.selected = -1; this.ps.addMode = false; this.ps.seededFromAuto = false;
                     } catch (e) { this.ps.err = '비생산 시간대를 불러오지 못했습니다: ' + e.message; }
-                    // 자동 모드일 때: ① 이번 기간 실제 제외 비생산(메인) ② 14일 평균 패턴(참고) 조회.
+                    // 자동 모드일 때: 이번 기간 실제 제외 비생산(타임라인의 유일한 소스)만 조회 — 14일 평균 패턴 참고 블록은 폐지.
                     // 비생산 시간대는 시스템(전역) 단위 — flow별 페이지에서도 curFlow 필터 없이 항상 시스템 전체로 표시.
                     if (this.ps.auto) {
+                        const seq = ++this._anpSeq; // 진행 중인 refreshActualNonProd 의 stale 응답이 이 결과를 덮지 않도록
                         try {
                             const r = this.rangeForPeriod();
                             const aqs = `from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}`;
-                            this.ps.actualNonProd = await this.apiGet('/api/oee/planned-stops/actual?' + aqs);
-                        } catch (e) { this.ps.actualNonProd = null; }
-                        try {
-                            this.ps.autoPattern = await this.apiGet('/api/oee/planned-stops/auto-pattern');
-                        } catch (e) { this.ps.autoPattern = null; }
+                            const dto = await this.apiGet('/api/oee/planned-stops/actual?' + aqs);
+                            if (seq === this._anpSeq) this.ps.actualNonProd = dto;
+                        } catch (e) { if (seq === this._anpSeq) this.ps.actualNonProd = null; }
                     } else {
-                        this.ps.autoPattern = null;
+                        ++this._anpSeq; // 진행 중 갱신 무효화 — 수동 모드 null 을 뒤늦은 응답이 덮지 않도록
                         this.ps.actualNonProd = null;
                     }
                 },
-                // 폴링용 경량 갱신 — 자동 모드에서 '실제 제외 비생산'(+현재 상태 배지)만 다시 읽는다.
-                // 수동 편집 상태(ps.windows/selected/addMode)·autoPattern(14일·저빈도)은 건드리지 않아 편집 중 클로버 방지.
+                // 폴링·기간변경 경량 갱신 — 자동 모드에서 '실제 제외 비생산'(+현재 상태 배지)만 다시 읽는다.
+                // 수동 편집 상태(ps.windows/selected/addMode)는 건드리지 않아 편집 중 클로버 방지.
                 async refreshActualNonProd() {
                     if (!this.ps.auto) return;
+                    const seq = ++this._anpSeq;
                     try {
                         const r = this.rangeForPeriod();
-                        this.ps.actualNonProd = await this.apiGet(
+                        const dto = await this.apiGet(
                             `/api/oee/planned-stops/actual?from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}`);
+                        if (seq === this._anpSeq) this.ps.actualNonProd = dto; // stale 응답(이후 기간변경/폴링이 이미 시작) 폐기
                     } catch (e) { /* 이전 값 유지 */ }
                 },
                 // 자동 계산 on/off — on=10×가동시간 장시간정지 자동 비생산, off=수동 시각대만. 수동 적용은 자동을 끈다(서버 SavePlannedStops).
                 async psSetAuto(enabled) {
                     this.ps.busy = true; this.ps.msg = ''; this.ps.err = '';
-                    // 자동 → 수동 전환 시: loadPlannedStops 호출 전에 autoPattern 캡처 (이후 autoPattern=null 로 지워짐)
-                    const capturedAutoWins = !enabled && this.ps.autoPattern?.windows?.length
-                        ? this.ps.autoPattern.windows.map(w => ({ startMinutes: w.startMinutes, endMinutes: w.endMinutes, label: w.label || '' }))
+                    // 자동 → 수동 전환 시: loadPlannedStops 호출 전에 '지금 비생산'(actualNonProd) 캡처 (이후 null 로 지워짐)
+                    const capturedActualWins = !enabled && this.ps.actualNonProd?.windows?.length
+                        ? this.ps.actualNonProd.windows.map(w => ({ startMinutes: w.startMinutes, endMinutes: w.endMinutes, label: w.label || '' }))
                         : null;
                     try {
                         await this.apiPost('/api/oee/planned-stops/auto', { enabled });
                         await this.loadPlannedStops();
-                        // 수동 전환 시 자동 감지 구간을 수동 에디터 초기값으로 시드 (사용자가 바로 수정 가능)
-                        if (!enabled && capturedAutoWins && capturedAutoWins.length > 0) {
-                            this.ps.windows = capturedAutoWins;
+                        // 수동 전환 시 지금 비생산 구간을 수동 에디터 초기값(참고용)으로 시드 (사용자가 바로 수정 가능)
+                        if (!enabled && capturedActualWins && capturedActualWins.length > 0) {
+                            this.ps.windows = capturedActualWins;
                             this.ps.seededFromAuto = true;
-                            this.ps.msg = `자동 감지된 비생산 ${capturedAutoWins.length}개 구간을 불러왔습니다 — 수정 후 [적용]을 누르세요`;
+                            this.ps.msg = `지금 비생산 ${capturedActualWins.length}개 구간을 불러왔습니다 — 수정 후 [적용]을 누르세요`;
                         } else {
                             this.ps.seededFromAuto = false;
                             this.ps.msg = enabled ? `자동 계산 켜짐 — 평균 가동시간의 ${this.ps.ctMultiplier}배 이상 장시간 정지를 비생산으로 분류` : '자동 계산 꺼짐 — 수동 시간대만 적용';
@@ -453,35 +499,45 @@
                 },
 
                 async load(silent) {
-                    if (!silent) this.loading = true;
-                    // OEE 데이터는 스냅샷과 독립적이므로 여기서 즉시(동기) dispatch 해 스냅샷 fetch 뒤로 미루지 않는다.
-                    // 뒤로 미루면(특히 스냅샷이 느릴 때) 이미 dispatch 된 옛 기간의 loadOee 가 최신 _oeeSeq 를 차지한 채
-                    // 먼저 도착해, 방금 선택한 기간과 화면이 어긋나거나(범위 불일치) 새 기간이 스냅샷 완료 후에야
-                    // 뒤늦게 적용되던 경합이 생긴다. 동기 호출하면 rangeForPeriod()·++_oeeSeq 가 방금 바뀐 period 로
-                    // 즉시 실행돼 loadOee 의 dispatch 순서가 기간 선택 순서와 정확히 일치한다(최신 선택이 항상 승리).
-                    const oeePromise = this.loadOee();
-                    const seq = ++this._utSeq;
-                    // 이상발생(UserTag) — 구 관리페이지 흡수(필터/페이지/차트)
+                    // 사용자 로드 진행 중이면 무음(폴링/SignalR) 재로드는 건너뜀 — seq 선점 가로채기 방지(_userBusy 주석 참조).
+                    if (silent && this._userBusy) return;
+                    if (!silent) { this.loading = true; this._userBusy++; }
                     try {
-                        const snap = await this.apiGet('/api/user-tags/snapshot?' + this.utQs());
-                        if (seq === this._utSeq) { // stale 응답(이후 요청이 이미 시작됨)은 폐기 — 페이지/기간 덮어쓰기 경합 방지
-                            this.ut = snap;
-                            this.utPage = snap.page; // 서버가 page 클램프할 수 있음
-                            // ActionOver 반복 디바이스 집계 — 같은 tagAddress 에서 2건 이상이면 힌트 표시
-                            const _aoCounts = {};
-                            for (const a of (snap.alerts || []))
-                                if (a.matchOp === 'AbnormalDetect' && a.matchValue === 'ActionOver' && a.tagAddress)
-                                    _aoCounts[a.tagAddress] = (_aoCounts[a.tagAddress] || 0) + 1;
-                            this.actionOverHint = Object.entries(_aoCounts).filter(([,n]) => n >= 2).map(([k]) => k);
-                            this.error = null;
-                            this.$nextTick(() => this.drawCharts());
+                        // OEE 데이터는 스냅샷과 독립적이므로 여기서 즉시(동기) dispatch 해 스냅샷 fetch 뒤로 미루지 않는다.
+                        // 뒤로 미루면(특히 스냅샷이 느릴 때) 이미 dispatch 된 옛 기간의 loadOee 가 최신 _oeeSeq 를 차지한 채
+                        // 먼저 도착해, 방금 선택한 기간과 화면이 어긋나거나(범위 불일치) 새 기간이 스냅샷 완료 후에야
+                        // 뒤늦게 적용되던 경합이 생긴다. 동기 호출하면 rangeForPeriod()·++_oeeSeq 가 방금 바뀐 period 로
+                        // 즉시 실행돼 loadOee 의 dispatch 순서가 기간 선택 순서와 정확히 일치한다(최신 선택이 항상 승리).
+                        const oeePromise = this.loadOee();
+                        // 생산효율 페이지 — 알람(UserTag) UI 가 없어 스냅샷 조회 생략(OEE 요약 + TEEP 만).
+                        if (this.view === 'teep') {
+                            this.loading = false;
+                            await oeePromise;
+                            return;
                         }
-                    } catch (e) {
-                        if (seq === this._utSeq) this.error = '이상발생 데이터를 불러오지 못했습니다: ' + e.message;
-                    } finally { this.loading = false; }
+                        const seq = ++this._utSeq;
+                        // 이상발생(UserTag) — 구 관리페이지 흡수(필터/페이지/차트)
+                        try {
+                            const snap = await this.apiGet('/api/user-tags/snapshot?' + this.utQs());
+                            if (seq === this._utSeq) { // stale 응답(이후 요청이 이미 시작됨)은 폐기 — 페이지/기간 덮어쓰기 경합 방지
+                                this.ut = snap;
+                                this.utPage = snap.page; // 서버가 page 클램프할 수 있음
+                                // ActionOver 반복 디바이스 집계 — 같은 tagAddress 에서 2건 이상이면 힌트 표시
+                                const _aoCounts = {};
+                                for (const a of (snap.alerts || []))
+                                    if (a.matchOp === 'AbnormalDetect' && a.matchValue === 'ActionOver' && a.tagAddress)
+                                        _aoCounts[a.tagAddress] = (_aoCounts[a.tagAddress] || 0) + 1;
+                                this.actionOverHint = Object.entries(_aoCounts).filter(([,n]) => n >= 2).map(([k]) => k);
+                                this.error = null;
+                                this.$nextTick(() => this.drawCharts());
+                            }
+                        } catch (e) {
+                            if (seq === this._utSeq) this.error = '이상발생 데이터를 불러오지 못했습니다: ' + e.message;
+                        } finally { this.loading = false; }
 
-                    // 신규 OEE 데이터 — 위에서 이미 dispatch 됨(스냅샷과 병렬). 완료만 대기.
-                    await oeePromise;
+                        // 신규 OEE 데이터 — 위에서 이미 dispatch 됨(스냅샷과 병렬). 완료만 대기.
+                        await oeePromise;
+                    } finally { if (!silent) this._userBusy--; }
                 },
 
                 // 피드에서 at 으로 진입했을 때 해당 알람 행(data-at=occurredAtLocal 초단위)을 찾아 스크롤 + 잠깐 하이라이트.
@@ -512,25 +568,18 @@
                 },
 
                 drawCharts() {
-                    if (this.view === 'oee') return; // 이상·알람 차트는 OEE 전용 페이지에 캔버스 없음
+                    if (this.view === 'oee' || this.view === 'teep') return; // 이상·알람 차트는 OEE/TEEP 전용 페이지에 캔버스 없음
                     if (!this._charts || !this.ut) return;
                     try {
                         // 설비별 보기는 자동감지만(USERTAG 는 Flow 에 속하지 않음) → 트렌드도 자동감지 단일 시리즈.
                         this._charts.renderTrendChart('ut-trend-chart', this.ut.buckets || [], this.ut.granularity,
                             this.curFlow ? ['ABNORMAL'] : ['ABNORMAL', 'USERTAG']);
-                        const topSrc = this.topGroupBy === 'path' ? this.ut.topRowsByPath : this.ut.topRows;
-                        this._charts.renderTopChart('ut-top-chart', (topSrc || []).slice(0, 10));
+                        // 태그별 Top 10 은 경로(FLOW / WORK / CALL)별 집계로 고정.
+                        this._charts.renderTopChart('ut-top-chart', (this.ut.topRowsByPath || []).slice(0, 10));
                     } catch (e) { console.warn('chart draw failed', e); }
                 },
 
-                // 태그별 Top 10 그룹 기준 전환(유형별 ↔ 경로별) — 스냅샷은 두 집계를 모두 담고 있어 재조회 없이 즉시 다시 그림.
-                setTopGroupBy(mode) {
-                    if (this.topGroupBy === mode) return;
-                    this.topGroupBy = mode;
-                    this.$nextTick(() => this.drawCharts());
-                },
-
-                // ── 이상발생 필터/페이지/CSV (구 관리페이지) ──
+                // ── 이상발생 필터/페이지 (구 관리페이지) ──
                 applyUtFilters() { this.utPage = 0; this.load(); },
                 // 검색어 입력 — 키 입력마다 서버 재조회를 피하려 300ms 디바운스 후 첫 페이지부터 재조회.
                 onUtSearchInput() {
@@ -565,18 +614,27 @@
                     a.click();
                     document.body.removeChild(a);
                 },
-                async exportUtCsv() {
-                    if (!this.ut) return;
-                    if (!this._charts) { this.error = 'CSV 모듈이 로드되지 않았습니다 — 페이지를 새로고침한 뒤 다시 시도하세요.'; return; }
-                    let all;
-                    try { all = await this.apiGet('/api/user-tags/alerts?' + this.utQs() + '&limit=100000'); }
-                    catch (e) { console.error(e); this.error = 'CSV 내보내기 실패: ' + e.message; return; }
-                    const esc = (v) => { v = (v ?? '').toString(); return (v.includes(',') || v.includes('"') || v.includes('\n')) ? '"' + v.replace(/"/g, '""') + '"' : v; };
-                    const lines = ['Timestamp,LogLevel,System,Name,TagAddress,ValueType,MatchOp,MatchValue,ActualValue'];
-                    for (const a of all) lines.push([esc(a.occurredAtLocal), esc(a.logLevel), esc(a.systemName), esc(a.name), esc(a.tagAddress), esc(a.valueType), esc(a.matchOp), esc(a.matchValue || ''), esc(a.actualValue)].join(','));
-                    const t = new Date(); const p = (x) => String(x).padStart(2, '0');
-                    const fn = `UserTagAlerts_${t.getFullYear()}${p(t.getMonth() + 1)}${p(t.getDate())}_${p(t.getHours())}${p(t.getMinutes())}${p(t.getSeconds())}.csv`;
-                    this._charts.downloadCsv(fn, lines.join('\n'));
+                // ── 생산효율(TEEP) 로드 (/api/oee/teep) — 생산효율 페이지(/uptime-teep) 전용 ──
+                async loadTeep() {
+                    if (this.view !== 'teep') return;
+                    const r = this.rangeForPeriod();
+                    let qs = `from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}`;
+                    if (this.curFlow) qs += `&flow=${encodeURIComponent(this.curFlow)}`;
+                    const seq = ++this._teepSeq;
+                    try {
+                        const dto = await this.apiGet('/api/oee/teep?' + qs);
+                        if (seq !== this._teepSeq) return; // stale 응답 폐기
+                        this.teep = dto;
+                        this.teepError = null;
+                    } catch (e) {
+                        if (seq !== this._teepSeq) return;
+                        this.teepError = 'TEEP 데이터를 불러오지 못했습니다: ' + e.message;
+                    }
+                },
+                // 시간 분해 막대 — 해당 조각이 캘린더에서 차지하는 % (0~100, 1자리).
+                teepPct(field) {
+                    if (!this.teep || !this.teep.calendarMs) return '0.0';
+                    return Math.max(0, Math.min(100, this.teep[field] / this.teep.calendarMs * 100)).toFixed(1);
                 },
 
                 async loadOee() {
@@ -586,6 +644,21 @@
                     // fqs = 기간 + 설비 필터. 순위(ranking)는 설비 비교용이라 항상 전체(qs).
                     const fqs = this.curFlow ? qs + `&flow=${encodeURIComponent(this.curFlow)}` : qs;
                     const seq = ++this._oeeSeq;
+                    // 생산효율 페이지 — OEE 는 참조 KPI(요약)만 필요. 정지/순위/추이/계획시간(무거운 4조회)은
+                    // 설비효율 페이지 전용이라 10초 폴링 낭비를 막기 위해 요약 + TEEP 만 로드.
+                    if (this.view === 'teep') {
+                        try {
+                            const summary = await this.apiGet('/api/oee/summary?' + fqs);
+                            if (seq !== this._oeeSeq) return; // stale 응답 폐기
+                            this.oee = summary;
+                            this.oeeError = null;
+                            await this.loadTeep();
+                        } catch (e) {
+                            if (seq !== this._oeeSeq) return;
+                            this.oeeError = 'OEE 데이터를 불러오지 못했습니다: ' + e.message;
+                        }
+                        return;
+                    }
                     try {
                         const [summary, downtime, ranking, daily, planTime] = await Promise.all([
                             this.apiGet('/api/oee/summary?' + fqs),
@@ -608,58 +681,14 @@
                     this.$nextTick(() => this.drawDailyChart());
                 },
 
-                // ── 내보내기 (OEE 종합) ─────────────────────────────────────────────
-                // CSV = 데이터 전용(요약 KPI + 설비별 순위 + 정지 이벤트, 3 섹션). 서버 미경유 — 클라이언트에서 즉시 빌드.
+                // ── 내보내기 (종합효율 현황) ─────────────────────────────────────────────
                 // Excel = 화면 상태(요약·순위·정지) + 일자별 추이 차트(캔버스 캡처)를 서버(OeeExcelExporter)가 렌더 → WYSIWYG.
                 oeeExportName() { return this.curFlow ? this.curFlow : '라인전체'; },
                 _stamp() { const t = new Date(); const p = (x) => String(x).padStart(2, '0'); return `${t.getFullYear()}${p(t.getMonth() + 1)}${p(t.getDate())}_${p(t.getHours())}${p(t.getMinutes())}${p(t.getSeconds())}`; },
-                _csvEscape(v) { if (v == null) return ''; const s = String(v); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; },
-                _wallOf(iso) { if (!iso) return ''; const d = new Date(iso); if (isNaN(d)) return String(iso); const p = (x) => String(x).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; },
                 _downloadBlob(filename, blob) {
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a'); a.href = url; a.download = filename;
                     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-                },
-
-                exportOeeCsv() {
-                    const o = this.oee;
-                    if (!o) return;
-                    const E = (v) => this._csvEscape(v);
-                    const pctv = (v) => (v == null ? '' : (v * 100).toFixed(1));
-                    const sec = (ms) => (ms == null ? '' : (ms / 1000).toFixed(1));
-                    const r = this.rangeForPeriod();
-                    const out = [];
-                    out.push('OEE 종합 데이터');
-                    out.push(['설비', E(this.curFlow || '라인 전체')].join(','));
-                    out.push(['기간', E(this._wallOf(r.from) + ' ~ ' + this._wallOf(r.to))].join(','));
-                    out.push('');
-                    out.push('[OEE 종합 지표]');
-                    out.push('지표,값(%),비고');
-                    out.push(['OEE', pctv(o.oee), ''].join(','));
-                    out.push(['가용성 A', pctv(o.availability), E(o.availabilitySource || '')].join(','));
-                    out.push(['성능 P', pctv(o.performance), '14일 평균'].join(','));
-                    out.push(['품질 Q', pctv(o.quality), E(o.qualitySource || '')].join(','));
-                    out.push(['MTBF', '', E(this.durShort(o.mtbf))].join(','));
-                    out.push(['MTTR', '', E(this.durShort(o.mttr))].join(','));
-                    out.push(['정지 건수', o.downtimeCount != null ? o.downtimeCount : '', ''].join(','));
-                    out.push(['정지 시간', '', E(this.durShort(o.downtimeMs))].join(','));
-                    out.push('');
-                    out.push('[설비별 OEE 순위]');
-                    out.push('순위,설비,OEE(%),가용성(%),성능(%),품질(%),정지건수,정지시간(초),생산수');
-                    this.ranking.forEach((rk, i) => out.push([
-                        i + 1, E(rk.flowName), pctv(rk.oee), pctv(rk.availability), pctv(rk.performance), pctv(rk.quality),
-                        rk.downtimeCount != null ? rk.downtimeCount : 0, sec(rk.downtimeMs), rk.totalCount != null ? rk.totalCount : 0,
-                    ].join(',')));
-                    out.push('');
-                    out.push('[정지 이벤트]');
-                    out.push('발생,복구,지속(초),설비,장치,구분,감지,상태');
-                    this.downtime.forEach(d => out.push([
-                        E(this._wallOf(d.startAt)), E(d.endAt ? this._wallOf(d.endAt) : ''), sec(d.durationMs),
-                        E(d.flowName || d.systemName || ''), E(d.deviceName || ''),
-                        d.isFailure ? '고장' : '유지보수', E(d.detectSource || ''), d.status === 'open' ? '진행중' : '복구',
-                    ].join(',')));
-                    const text = '﻿' + out.join('\r\n');
-                    this._downloadBlob(`OEE_${this.oeeExportName()}_${this._stamp()}.csv`, new Blob([text], { type: 'text/csv;charset=utf-8' }));
                 },
 
                 async exportOeeExcel() {
@@ -738,10 +767,12 @@
                         const parts = s.slot.split('-');
                         return parts.length === 3 ? (parseInt(parts[1]) + '/' + parseInt(parts[2])) : s.slot;
                     });
-                    // 가동·고장·유지보수·비생산 4분해. 서버 슬롯: failureMs=isFailure 1, plannedMs=isFailure 0(유지보수),
+                    // 가동·고장·유지보수·비생산 4분해 — 고장/유지보수 구분은 '정지 구성' 도넛과 동일한 isFailure 2-상태로 정렬:
+                    //   고장 = failureMs(isFailure=1) + unclassifiedMs(미분류, 기본 isFailure=1)
+                    //   유지보수 = plannedMs(category='planned') + otherMs(계획외지만 isFailure=0 — 자재대기 등, 도넛도 유지보수로 집계)
                     //   nonProdMs=비생산(A 분모 밖 — 가동에서 카빙), 나머지=가동근사.
-                    const failureData = d.slots.map(s => ((s.failureMs || 0) + (s.otherMs || 0) + (s.unclassifiedMs || 0)) / MS); // 고장(isFailure+기타+미분류 전부 포함)
-                    const plannedData = d.slots.map(s => (s.plannedMs || 0) / MS); // 유지보수(isFailure=0)
+                    const failureData = d.slots.map(s => ((s.failureMs || 0) + (s.unclassifiedMs || 0)) / MS); // 고장(isFailure=1 계열)
+                    const plannedData = d.slots.map(s => ((s.plannedMs || 0) + (s.otherMs || 0)) / MS); // 유지보수(isFailure=0 계열)
                     const nonProdData = d.slots.map(s => (s.nonProdMs || 0) / MS); // 비생산(제외) — A 분모 밖
                     const runData = d.slots.map(s => Math.max(0, s.slotMs - (s.failureMs || 0) - (s.otherMs || 0) - (s.unclassifiedMs || 0) - (s.plannedMs || 0) - (s.nonProdMs || 0)) / MS);
 
@@ -821,7 +852,18 @@
                     this._conn = conn;
                 },
 
-                setPeriod(p) { if (this.period === p) return; this.period = p; this.utPage = 0; if (window.dspLoading) window.dspLoading.wrap(() => this.load(), '기간 데이터 불러오는 중…'); else this.load(); },
+                // 기간 변경 재로드 — load()(스냅샷+OEE) 외에 기간 의존 데이터('실제 제외 비생산' 타임라인)도
+                // 함께 기다린다. 빠뜨리면 로딩 인디케이터가 끝난 뒤(다음 10초 폴링에서야) 타임라인이 뒤늦게 갱신됨.
+                async reloadForPeriod() {
+                    this._userBusy++; // load() 자체 카운트 외에 refreshActualNonProd 완주까지 무음 재로드 차단
+                    try {
+                        const jobs = [this.load()];
+                        // '실제 제외 비생산' 타임라인은 설비효율 페이지 전용(생산효율/알람 페이지엔 UI 없음).
+                        if (this.view === 'oee' || this.view === 'both') jobs.push(this.refreshActualNonProd());
+                        await Promise.all(jobs);
+                    } finally { this._userBusy--; }
+                },
+                setPeriod(p) { if (this.period === p) return; this.period = p; this.utPage = 0; this.syncPeriodUrl(); if (window.dspLoading) window.dspLoading.wrap(() => this.reloadForPeriod(), '기간 데이터 불러오는 중…'); else this.reloadForPeriod(); },
 
                 toggleCustomPeriod() {
                     if (this.period === 'custom') { this.setPeriod('today'); return; }
@@ -834,18 +876,20 @@
                     this.customFrom = r.from.slice(0, 16);
                     this.customTo = r.to.slice(0, 16);
                     this.period = 'custom';
+                    this.syncPeriodUrl();
                 },
                 applyCustomPeriod() {
                     if (!this.customFrom || !this.customTo) return;
                     this.utPage = 0;
-                    if (window.dspLoading) window.dspLoading.wrap(() => this.load(), '기간 데이터 불러오는 중…'); else this.load();
+                    this.syncPeriodUrl();
+                    if (window.dspLoading) window.dspLoading.wrap(() => this.reloadForPeriod(), '기간 데이터 불러오는 중…'); else this.reloadForPeriod();
                 },
 
                 // ── 구분(ABNORMAL/USERTAG) 도넛/배지 ──
                 // 구분 판별 SSOT(클라) — abnormal 행은 matchOp='AbnormalDetect'(서버 valueType='Abnormal' 과 대응).
                 categoryOf(a) { return (a && a.matchOp === 'AbnormalDetect') ? 'ABNORMAL' : 'USERTAG'; },
-                // 표시 라벨: ABNORMAL=자동감지(엔진 자동), USERTAG=사용자지정(사용자 정의 태그).
-                categoryLabel(a) { return this.categoryOf(a) === 'ABNORMAL' ? '자동감지' : '사용자지정'; },
+                // 표시 라벨: ABNORMAL=자동감지(엔진 자동), USERTAG=수동등록TAG(사용자 정의 태그).
+                categoryLabel(a) { return this.categoryOf(a) === 'ABNORMAL' ? '자동감지' : '수동등록TAG'; },
                 // ds-status 톤: 둘 다 Error 알람이라 bad(빨강)로 통일, 구분은 라벨로만.
                 categoryStatus(a) { return 'bad'; },
                 cc(cat) { return (this.ut && this.ut.categoryCounts && this.ut.categoryCounts[cat]) || 0; },
@@ -1158,13 +1202,20 @@
                         const n = Math.max(0, o.normalCtMs || 0), i = Math.max(0, o.idleCtMs || 0);
                         const tot = n + i;
                         const runPct = tot > 0 ? r1(n / tot * 100) : 0;
+                        const stopPct = tot > 0 ? r1(100 - runPct) : 0;
+                        // 비가동 고장/유지보수 분리 — '정지 구성' 도넛과 동일한 isFailure 2-상태(서버가 비가동 ΣCT 를
+                        // 유지보수 이벤트 구간과 교차 귀속). 유지보수 0 이면 기존 단일 세그먼트 표시와 동일.
+                        const m = Math.min(i, Math.max(0, o.idleMaintCtMs || 0));
+                        const maintPct = tot > 0 ? r1(m / tot * 100) : 0;
+                        const faultPct = Math.max(0, r1(stopPct - maintPct));
                         return {
                             mode: 'cycle', hasData: tot > 0,
-                            runMs: n, stopMs: i, runPct, stopPct: tot > 0 ? r1(100 - runPct) : 0,
-                            runLabel: '실측 가동시간 (정상 가동)', stopLabel: '비가동 가동시간',
+                            runMs: n, stopMs: i, runPct, stopPct,
+                            faultMs: i - m, maintMs: m, faultPct, maintPct,
+                            runLabel: '실측 가동시간 (정상 가동)', stopLabel: m > 0 ? '비가동 · 고장' : '비가동 가동시간',
                             runNote: (o.normalCycleCount || 0) + '회', stopNote: (o.failureCount || 0) + '건',
                             subtitle: 'Σ실측 가동시간 ÷ (Σ실측 + Σ비가동) · 비가동 = 동작시간>이상치 / 미완료 폭주 / 무가동',
-                            hint: '한 번의 가동에서 <b>동작시간이 가동시간 이상치를 넘으면</b> 그 가동의 가동시간 전체를 비가동으로 본다(인식지연 + 고장 + 회복 포함). 미완료(가동시간 폭주)·무가동 정지도 비가동에 합산하되 겹친 구간은 1회만 계상한다(이중계상 방지).',
+                            hint: '한 번의 가동에서 <b>동작시간이 가동시간 이상치를 넘으면</b> 그 가동의 가동시간 전체를 비가동으로 본다(인식지연 + 고장 + 회복 포함). 미완료(가동시간 폭주)·무가동 정지도 비가동에 합산하되 겹친 구간은 1회만 계상한다(이중계상 방지). 고장/유지보수 구분은 정지 로그 분류(도넛과 동일 기준)를 비가동 시간에 겹쳐 귀속한 것.',
                         };
                     }
                     // 폴백(shift/auto/calendar): 계획시간 분모 기준 — planTime 사용.
@@ -1178,6 +1229,7 @@
                     return {
                         mode: 'fallback', hasData: planned > 0,
                         runMs: run, stopMs: stop, runPct, stopPct: planned > 0 ? r1(100 - runPct) : 0,
+                        faultMs: stop, maintMs: 0, faultPct: planned > 0 ? r1(100 - runPct) : 0, maintPct: 0,
                         runLabel: '가동시간', stopLabel: '정지 (비계획)',
                         runNote: null, stopNote: null, sourceLabel: srcLabel,
                         subtitle: '가동시간 ÷ 계획생산시간 · 계획시간 폴백(' + srcLabel + ') — 가동 표본 부족',
@@ -1226,12 +1278,10 @@
                     return `달력근사 · 기간 ${hrs(pt.plannedMs)} · 가동 ${hrs(pt.runtimeMs)}`;
                 },
 
-                // ── 정지 이벤트 로그 토글 (도넛 [로그 보기 및 설정]) ──
+                // ── 정지 이벤트 로그 (도넛 [로그 보기 및 설정]) — 팝업 다이얼로그(showDowntimeLog) ──
+                // 버튼에서 직접 show=true; 로 여는 것이 정본이나 하위호환용 토글 유지.
                 toggleDowntimeLog() {
                     this.showDowntimeLog = !this.showDowntimeLog;
-                    // 로그는 정지 원인 구성 바로 아래에 표시됨 — 화면 밖일 때만 부드럽게 스크롤(인접 시 점프 방지).
-                    if (this.showDowntimeLog)
-                        this.$nextTick(() => document.getElementById('downtime-log-section')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
                 },
 
                 // ── 품질(양품률) 직접 입력 다이얼로그 (품질 Q 카드 클릭) — 전반 품질% 직접 설정(전역) ──
@@ -1459,6 +1509,15 @@
             };
         }
 
+        // x축(category) 눈금 라벨: 첫·마지막은 항상 표시, 나머지는 균등 간격. autoSkip 이 끝 눈금을
+        // 보장하지 않아 마지막 날짜/시각 라벨이 잘려 안 보이던 문제 해결.
+        function _edgeTickCallback(value, index, ticks) {
+            const n = ticks.length;
+            if (n <= 1 || index === 0 || index === n - 1) return this.getLabelForValue(value);
+            const step = Math.max(1, Math.ceil(n / 12));
+            return index % step === 0 ? this.getLabelForValue(value) : '';
+        }
+
         function _dailyChartOptions(granularity) {
             const cs = getComputedStyle(document.documentElement);
             const cText = cs.getPropertyValue('--color-text-secondary').trim() || '#888';
@@ -1493,7 +1552,7 @@
                 scales: {
                     x: {
                         stacked: true,
-                        ticks: { color: cText, font: { size: 11 }, maxRotation: granularity === 'hour' ? 45 : 0 },
+                        ticks: { color: cText, font: { size: 11 }, maxRotation: granularity === 'hour' ? 45 : 0, autoSkip: false, callback: _edgeTickCallback },
                         grid: { color: cGrid },
                     },
                     y: {

@@ -102,8 +102,21 @@ public interface IOeeRepository
     /// IsAuto: detectSource='nocycle' 여부 — 자동 파생 무사이클 정지(=사이클 모델의 비생산과 같은 유휴)면 true.
     ///   컨트롤러가 비생산 카빙을 이 자동 정지보다 우선 적용해 상단 KPI A(정본)와 추이를 일치시킨다(고장비트/수동 정지는 그대로 우선).
     /// open(endAt NULL) 은 min(now, to) 로 캡. startAt 이 from 이전이라도 겹치면 포함(장시간·다일 정지 정확 분배).
+    /// FlowName: 이벤트의 flow — 라인 조회(flowName=null) 시 비가동 ΣCT 고장/유지보수 분리의 flow별 귀속에 사용.
     /// </summary>
-    Task<IReadOnlyList<(long StartMs, long EndMs, int Kind, bool IsAuto)>> GetDowntimeIntervalsAsync(
+    Task<IReadOnlyList<(long StartMs, long EndMs, int Kind, bool IsAuto, string? FlowName)>> GetDowntimeIntervalsAsync(
+        DateTime fromUtc, DateTime toUtc, string? flowName, CancellationToken ct = default);
+
+    // ── 자동 비생산 감지 로그 (10×CT, doc/22 §3.3) ────────────────────────
+
+    /// <summary>
+    /// 자동 인식 비생산(≥10×14일평균CT) 감지들을 UPSERT(멱등 — (flowName, onsetAt, detectionReason) 키).
+    /// ComputeCycleAggregateAsync 가 조회 시 materialize. 라인 스코프(flowName=null)는 "" 로 정규화 저장. 영향 행 수 반환.
+    /// </summary>
+    Task<int> UpsertNonProdDetectionsAsync(IReadOnlyList<OeeNonProdDetectionLog> entries, CancellationToken ct = default);
+
+    /// <summary>기간 내 자동 비생산 감지 구간(UTC epoch ms)을 로그에서 조회. flow 지정=그 flow, null=전체(라인 — union 은 호출측). open 은 min(now,to) 캡.</summary>
+    Task<IReadOnlyList<(double S, double E)>> GetNonProdIntervalsFromLogAsync(
         DateTime fromUtc, DateTime toUtc, string? flowName, CancellationToken ct = default);
 
     Task<long> InsertShiftExceptionAsync(OeeShiftException row, CancellationToken ct = default);

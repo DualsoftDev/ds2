@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>종합생산효율 현황 — DSPilot</title>
+
+    <!--
+      DSPilot 정적 호스팅 — 종합생산효율 현황 페이지 (view=teep, 생산효율 TEEP).
+      설비효율(OEE A·P·Q)은 물리 분리된 uptime-oee.html(/uptime-oee) 담당 — 구 내부 탭(?section=) 폐지(2026-07-03).
+      공용 스타일/스크립트 = /css/uptime-workspace.css · /app/uptime-workspace.js
+        (설비효율 uptime-oee.html · 이상·알람 uptime-alarm.html 과 SSOT 1벌 공유 — window.DSP_UPTIME_VIEW 로 도메인 분기).
+      서버/모델 = C#(/api/oee/summary·teep·planned-stops), 뷰 = 정적 HTML/CSS/JS(Alpine + SignalR).
+      차트 캔버스가 없어 Chart.js 번들은 로드하지 않는다(시간 분해는 순수 CSS 누적 막대).
+    -->
+    <link href="/css/fonts.css" rel="stylesheet" />
+    <link href="/css/ds.css" rel="stylesheet" />
+    <link href="/css/uptime-workspace.css" rel="stylesheet" />
+</head>
+
+<body>
+    <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="uptimeApp()" x-init="init()" x-cloak>
+
+        <!-- fallback 슬림 헤더 (shell.js 가 제거) -->
+        <header class="dsp-appbar">
+            <span class="dsp-title">종합생산효율 현황</span>
+            <span class="dsp-badge">정적</span>
+            <div class="spacer"></div>
+            <button class="btn-icon" @click="toggleTheme()" title="테마 전환">
+                <span class="material-icons" x-text="dark ? 'light_mode' : 'dark_mode'"></span>
+            </button>
+        </header>
+
+        <main class="dsp-main">
+
+            <!-- 상단 툴바 (설비효율 페이지와 동일한 .ds-topbar 패턴: 좌측 기간 세그먼트 · 우측 설비칩/전체보기) -->
+            <div class="ds-topbar">
+                <div class="ds-topbar-actions">
+                    <div class="segmented">
+                        <button :class="period === 'today' ? 'is-active' : ''" @click="setPeriod('today')">오늘</button>
+                        <button :class="period === '7d' ? 'is-active' : ''" @click="setPeriod('7d')">7일</button>
+                        <button :class="period === '30d' ? 'is-active' : ''" @click="setPeriod('30d')">30일</button>
+                        <button :class="period === '60d' ? 'is-active' : ''" @click="setPeriod('60d')">60일</button>
+                        <button :class="period === 'custom' ? 'is-active' : ''" @click="toggleCustomPeriod()" title="날짜 직접 선택">
+                            <span class="material-icons">calendar_today</span>기간
+                        </button>
+                    </div>
+                    <template x-if="period === 'custom'">
+                        <div class="up-custom-range">
+                            <input type="datetime-local" class="up-period-input" x-model="customFrom" />
+                            <span style="color:var(--color-text-secondary); font-size:0.85rem;">~</span>
+                            <input type="datetime-local" class="up-period-input" x-model="customTo" />
+                            <button class="btn btn-sm btn-primary" @click="applyCustomPeriod()" :disabled="!customFrom || !customTo">적용</button>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- 오른쪽: 설비(Flow) 필터 상태 (설비효율 페이지와 동일 패턴) -->
+                <div class="ds-topbar-actions" style="justify-content:flex-end;">
+                    <template x-if="curFlow">
+                        <span class="chip chip-info">설비: <b x-text="curFlow"></b></span>
+                    </template>
+                    <template x-if="curFlow">
+                        <a class="btn btn-sm btn-outlined color-default" href="/uptime-teep">
+                            <span class="material-icons" style="font-size:15px;">clear</span> 전체 보기
+                        </a>
+                    </template>
+                </div>
+            </div>
+
+            <!-- ═══════════════ 생산효율 (TEEP) — 캘린더 대비 실제 가동 (단순 가동형) ═══════════════ -->
+            <div class="up-grid">
+
+                <!-- ════ 생산효율 지표 (TEEP hero + 가동률 보조 + OEE 참조) ════ -->
+                <section class="card up-section">
+                    <div class="ds-card-h">
+                        <h4>생산효율 지표</h4>
+                        <span class="ds-card-h-sub" x-text="curFlow ? ('설비: ' + curFlow) : ('라인 전체 · flow ' + (teep ? teep.flowCount : '—') + '개 합산')"></span>
+                    </div>
+
+                    <div class="up-oee-row">
+                        <!-- TEEP (hero) -->
+                        <div class="up-oee is-hero">
+                            <div class="up-oee-label">생산효율 TEEP</div>
+                            <div class="up-oee-value up-oee-mono" x-text="teep ? pct(teep.teep) : '—'"></div>
+                            <div class="up-oee-note" x-text="teep ? (teep.teep != null ? '가동시간 ÷ 캘린더(전체 · 비생산 포함)' : (teep.teepNote || '산출 불가')) : '불러오는 중…'"></div>
+                        </div>
+                        <!-- 가동률 (보조) -->
+                        <div class="up-oee">
+                            <div class="up-oee-label">가동률 <span class="up-oee-chip">보조</span></div>
+                            <div class="up-oee-value up-oee-mono" x-text="teep ? pct(teep.utilization) : '—'"></div>
+                            <div class="up-oee-note">(캘린더 − 비생산) ÷ 캘린더</div>
+                        </div>
+                        <!-- 설비효율 OEE (참조 — 종합설비효율 현황 페이지) — 현재 기간·설비 선택을 그대로 실어 이동 -->
+                        <div class="up-oee">
+                            <div class="up-oee-label">설비효율 OEE <span class="up-oee-chip">참조</span></div>
+                            <div class="up-oee-value up-oee-mono" x-text="oee ? pct(oee.oee) : '—'"></div>
+                            <div class="up-oee-note"><a @click.prevent="location.href = '/uptime-oee' + location.search" style="cursor:pointer; color:var(--color-primary);">종합설비효율 현황에서 A·P·Q 보기 →</a></div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ════ 시간 분해 (캘린더 = 가동 + 정지 + 비생산 + 잔여) ════ -->
+                <section class="card up-section">
+                    <div class="ds-card-h">
+                        <h4>시간 분해 (캘린더 기준)</h4>
+                        <span class="ds-card-h-sub" x-text="teep && teep.calendarMs > 0 ? ('캘린더 ' + durShort(teep.calendarMs)) : ''"></span>
+                    </div>
+
+                    <template x-if="teep && teep.calendarMs > 0">
+                        <div>
+                            <!-- 누적 막대 — 색 SSOT는 설비효율 페이지와 동일(가동=--oee-run 솔리드 / 정지=고장 빗금 /
+                                 비생산=남색 슬레이트 빗금). "가동=솔리드, 비가동·제외=빗금" 규칙 공유. -->
+                            <div style="display:flex; height:26px; border-radius:var(--radius-sm); overflow:hidden; border:1px solid var(--color-lines);">
+                                <div :style="`width:${teepPct('runningMs')}%; background:var(--oee-run);`" :title="'가동 ' + teepPct('runningMs') + '%'"></div>
+                                <div class="hatch-fault" :style="`width:${teepPct('downMs')}%;`" :title="'정지 ' + teepPct('downMs') + '%'"></div>
+                                <div class="hatch-nonprod" :style="`width:${teepPct('nonProdMs')}%;`" :title="'비생산 ' + teepPct('nonProdMs') + '%'"></div>
+                                <div :style="`width:${teepPct('residualMs')}%; background:var(--color-surface-variant);`" :title="'잔여 ' + teepPct('residualMs') + '%'"></div>
+                            </div>
+                            <!-- 범례 + 값 -->
+                            <div class="up-teep-legend">
+                                <div class="up-teep-leg"><span class="sw" style="background:var(--oee-run);"></span>가동 <b x-text="durShort(teep.runningMs)"></b> <em x-text="'(' + teepPct('runningMs') + '%)'"></em></div>
+                                <div class="up-teep-leg"><span class="sw hatch-fault"></span>정지 <b x-text="durShort(teep.downMs)"></b> <em x-text="'(' + teepPct('downMs') + '%)'"></em></div>
+                                <div class="up-teep-leg"><span class="sw hatch-nonprod"></span>비생산 <b x-text="durShort(teep.nonProdMs)"></b> <em x-text="'(' + teepPct('nonProdMs') + '%)'"></em></div>
+                                <div class="up-teep-leg"><span class="sw" style="background:var(--color-surface-variant); border:1px solid var(--color-lines-strong);"></span>잔여 <b x-text="durShort(teep.residualMs)"></b> <em x-text="'(' + teepPct('residualMs') + '%)'"></em></div>
+                            </div>
+                            <div class="up-form-hint" style="margin-top:12px;">
+                                <b>TEEP</b> = 가동 ÷ 캘린더 — 야간·점심·무오더 등 <b>비생산도 분모에 포함</b>한 "달력 전체 대비 진짜 가동"입니다(표준 TEEP). 비생산을 뺀 관점은 <b>가동률</b> 보조지표로 보세요. 비생산은 자동 인식(평균 가동시간의 <span x-text="ps.ctMultiplier"></span>배 이상 정지) + 수동 지정 시간대이며, 성능·품질(P·Q)은 <b>종합설비효율 현황(OEE)</b> 페이지가 담당합니다.
+                            </div>
+                        </div>
+                    </template>
+
+                    <template x-if="!teep || teep.calendarMs <= 0">
+                        <div class="ds-empty">
+                            <span class="material-icons">hourglass_empty</span>
+                            <div class="ds-empty-title" x-text="teepError ? '불러오기 실패' : '표시할 생산효율 데이터가 없습니다'"></div>
+                            <div class="ds-empty-desc" x-text="teepError || (teep && teep.teepNote) || '표준 CT(14일 평균)를 가진 설비의 가동 데이터가 쌓이면 자동 표시됩니다.'"></div>
+                        </div>
+                    </template>
+                </section>
+
+            </div>
+        </main>
+
+    </div>
+
+    <script src="/lib/signalr.min.js"></script>
+    <script>window.DSP_UPTIME_VIEW = "teep";</script>
+    <script src="/app/uptime-workspace.js"></script>
+    <script src="/app/shell.js" defer></script>
+    <script defer src="/lib/alpine.min.js"></script>
+</body>
+
+</html>

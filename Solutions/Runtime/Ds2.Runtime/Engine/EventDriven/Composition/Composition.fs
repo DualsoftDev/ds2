@@ -316,6 +316,13 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
         match index.WorkSystemName |> Map.tryFind workGuid with
         | Some sysName -> not (index.ActiveSystemNames.Contains sysName)
         | None -> false
+    // ActionOver 미발화 진단(doc/ACTIONOVER_MONITORING_MISS_AGENT_FIX_HANDOFF_2026-07-03.md §6) —
+    // WorkTransitions 의 [overdue-sched] 와 체인. 게이트 차단은 여기 아니면 어디에도 안 남는다.
+    let overdueLog = log4net.LogManager.GetLogger("EventDrivenEngine.Overdue")
+    let overdueWorkName (workGuid: Guid) =
+        match index.WorkName |> Map.tryFind workGuid with
+        | Some n -> n
+        | None -> workGuid.ToString("N").Substring(0, 8)
     let onDeviceDurationExpired (workGuid: Guid) =
         match abnormalAdapter with
         | Some adapter ->
@@ -330,19 +337,33 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
                     let nowUtc = DateTime.UtcNow
                     let ioState = (stateManager.GetState()).IOValues
                     for m in ioMap.Mappings do
-                        if m.RxWorkGuid = Some workGuid
-                           && stateManager.GetCallState(m.CallGuid) = Status4.Going then
-                            let inActive =
-                                match Queries.getApiCall m.ApiCallGuid index.Store with
-                                | Some ac ->
-                                    match ioState.TryFind m.ApiCallGuid with
-                                    | Some v -> RuntimeSemantics.isActiveInputValue ac v
+                        if m.RxWorkGuid = Some workGuid then
+                            let callGoing = stateManager.GetCallState(m.CallGuid) = Status4.Going
+                            if not callGoing then
+                                overdueLog.Info(
+                                    sprintf "[overdue-eval] work=%s call=%s going=false → skip"
+                                        (overdueWorkName workGuid) (m.CallGuid.ToString("N").Substring(0, 8)))
+                            else
+                                let inActive =
+                                    match Queries.getApiCall m.ApiCallGuid index.Store with
+                                    | Some ac ->
+                                        match ioState.TryFind m.ApiCallGuid with
+                                        | Some v -> RuntimeSemantics.isActiveInputValue ac v
+                                        | None -> false
                                     | None -> false
-                                | None -> false
-                            // Max 실측 확정(calibration-state)된 Work 만 ActionOver 발행 — 미확정/모델임의 Max 오탐 차단.
-                            if not inActive && engineIsMaxMeasured workGuid then
-                                let target = Abnormal.target (Some m.CallGuid) (Some m.ApiCallGuid) (Some workGuid)
-                                abnormalDetectedEvent.Trigger(Abnormal.actionOver target (range.MaxMs + 1) nowUtc)
+                                // Max 실측 확정(calibration-state)된 Work 만 ActionOver 발행 — 미확정/모델임의 Max 오탐 차단.
+                                let maxMeasured = engineIsMaxMeasured workGuid
+                                let emit = not inActive && maxMeasured
+                                let evalMsg =
+                                    sprintf "[overdue-eval] work=%s call=%s inActive=%b maxMeasured=%b maxMs=%d → emit=%b"
+                                        (overdueWorkName workGuid) (m.CallGuid.ToString("N").Substring(0, 8))
+                                        inActive maxMeasured range.MaxMs emit
+                                // 게이트(maxMeasured=false) 차단은 침묵 미발화의 유일 흔적 — Warn 으로 가시화(후보2 판별).
+                                if not emit && not inActive && not maxMeasured then overdueLog.Warn(evalMsg)
+                                else overdueLog.Info(evalMsg)
+                                if emit then
+                                    let target = Abnormal.target (Some m.CallGuid) (Some m.ApiCallGuid) (Some workGuid)
+                                    abnormalDetectedEvent.Trigger(Abnormal.actionOver target (range.MaxMs + 1) nowUtc)
                 | None -> ()
     let durationCompleteContext =
         EventDrivenCompositionContext.createDurationCompleteContext
@@ -359,7 +380,11 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
     let handleDurationComplete workGuid =
         EventDrivenExecution.handleDurationComplete durationCompleteContext workGuid
     let handleDeviceOverdueCheck workGuid workEpoch =
-        if stateManager.GetWorkEpoch(workGuid) = workEpoch then
+        let curEpoch = stateManager.GetWorkEpoch(workGuid)
+        overdueLog.Info(
+            sprintf "[overdue-fire] work=%s epoch cur=%d sched=%d match=%b"
+                (overdueWorkName workGuid) curEpoch workEpoch (curEpoch = workEpoch))
+        if curEpoch = workEpoch then
             onDeviceDurationExpired workGuid
     let applyOutputWrite address value =
         ioMap.OutAddressToMappings

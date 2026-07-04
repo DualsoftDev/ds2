@@ -60,20 +60,11 @@ function bulkCycleApp() {
                 }, 180);
             });
 
-            // 기본 시간범위 (최신-5분 ~ 최신)
-            try {
-                const t = await this.apiGet('/api/call-test/latest-time');
-                this.startTime = this.toInputValue(t.start);
-                this.endTime = this.toInputValue(t.end);
-            } catch (e) {
-                const now = new Date();
-                this.endTime = this.dateToInput(now);
-                this.startTime = this.dateToInput(new Date(now.getTime() - 5 * 60000));
-            }
-
             await this.loadFlows();
             await this.loadExclusions();
-            await this.loadAll();
+            // 최초 범위 — URL 기간 파라미터(?period/from/to, 같은 페이지 나브 이동 시 shell 이 실어 보냄)
+            // 복원, 없으면 기본 최근 5분 프리셋 (단일 페이지와 동일).
+            await this.applyRangeFromUrl();
             this.connectSignalR();
         },
 
@@ -151,8 +142,37 @@ function bulkCycleApp() {
 
         get loadingAny() { return this.flows.some(s => s.loading); },
 
+        // ── 분석 기간 URL 동기화 (?period=프리셋 | ?from/?to=직접 범위) — 단일 페이지(flow-workspace)와 동일 규약 ──
+        // shell 나브의 같은 페이지 전체/FLOW 이동(withPeriodCarry)이 이 파라미터를 실어 가 기간이 유지된다.
+        // 기본(최근 5분, m5)은 파라미터 생략.
+        syncRangeUrl() {
+            const qp = new URLSearchParams(location.search);
+            qp.delete('period'); qp.delete('from'); qp.delete('to');
+            if (this.timePreset) { if (this.timePreset !== 'm5') qp.set('period', this.timePreset); }
+            else if (this.cyclePreset) qp.set('period', 'c' + this.cyclePreset);
+            else if (this.startTime && this.endTime) { qp.set('from', this.startTime); qp.set('to', this.endTime); }
+            const qs = qp.toString();
+            history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
+        },
+        async applyRangeFromUrl() {
+            const qp = new URLSearchParams(location.search);
+            const per = qp.get('period') || '';
+            let m;
+            if ((m = per.match(/^m(\d+)$/))) return await this.setRecentMinutes(+m[1]);
+            if ((m = per.match(/^h(\d+)$/))) return await this.setRecentHours(+m[1]);
+            if ((m = per.match(/^c(\d+)$/))) return await this.setRecentCycles(+m[1]);
+            const from = qp.get('from'), to = qp.get('to');
+            if (from && to && this.inputToDate(to) > this.inputToDate(from)) {
+                this.startTime = from; this.endTime = to;
+                this.timePreset = null; this.cyclePreset = null;
+                return await this.loadAll();
+            }
+            return await this.setRecentMinutes(5);
+        },
+
         // ── 로드 (동시성 제한) ──
         async loadAll() {
+            this.syncRangeUrl(); // 모든 범위 변경(프리셋/수동/드래그)이 여기로 수렴 — 현재 기간을 URL 반영
             const list = this.flows.slice();
             const CONC = 4;
             let idx = 0;
@@ -249,27 +269,33 @@ function bulkCycleApp() {
             e.preventDefault();
             const screenX = e.clientX - el.getBoundingClientRect().left;
             const factor = e.deltaY < 0 ? 1.25 : 1 / 1.25;
-            this.applyZoom(slice, slice.zoom * factor, screenX, el);
+            this.applyZoom(slice, this.zoom * factor, screenX, el);
         },
-        zoomBy(slice, factor) {
-            const el = this.areaEl(slice);
-            if (!el || !slice.callLanes.length) return;
-            this.applyZoom(slice, slice.zoom * factor, el.clientWidth / 2, el);
-        },
-        resetZoom(slice) {
-            slice.zoom = 1; this.measurePlotWidth(slice); slice.svgMarkup = CG.buildSvg(slice);
-            this.$nextTick(() => { const el = this.areaEl(slice); if (el) el.scrollLeft = 0; });
-        },
+        // 휠 줌도 상단 툴바(zoomAll)와 같은 "공유 줌" 하나로 통일 — 모든 카드에 일괄 적용된다.
+        // 앵커(휠 커서 아래 시각) 보존은 이벤트가 난 카드 기준으로 계산하고, 나머지 카드는
+        // 같은 스크롤 비율로 맞춰 전 간트가 같은 구간을 보여준다.
         applyZoom(slice, targetZoom, anchorX, el) {
             el = el || this.areaEl(slice); if (!el) return;
             const newZoom = Math.min(MAX_ZOOM, Math.max(1, targetZoom));
-            if (Math.abs(newZoom - slice.zoom) < 1e-6) return;
+            if (Math.abs(newZoom - this.zoom) < 1e-6) return;
             const plotAreaX = Math.max(0, anchorX + el.scrollLeft - LEFT_PAD);
             const frac = slice.plotWidth > 0 ? Math.min(1, plotAreaX / slice.plotWidth) : 0;
-            slice.zoom = newZoom;
-            slice.plotWidth = Math.max(MIN, Math.round(slice.baseWidth * slice.zoom));
-            slice.svgMarkup = CG.buildSvg(slice);
-            this.$nextTick(() => { el.scrollLeft = frac * slice.plotWidth + LEFT_PAD - anchorX; });
+            this.zoom = newZoom;
+            for (const s of this.flows) {
+                s.zoom = newZoom;
+                this.measurePlotWidth(s);
+                if (s.callLanes.length) s.svgMarkup = CG.buildSvg(s);
+            }
+            this.$nextTick(() => {
+                const left = frac * slice.plotWidth + LEFT_PAD - anchorX;
+                el.scrollLeft = left;
+                const ratio = slice.plotWidth > 0 ? Math.max(0, left) / slice.plotWidth : 0;
+                for (const s of this.flows) {
+                    if (s === slice) continue;
+                    const other = this.areaEl(s);
+                    if (other) other.scrollLeft = ratio * s.plotWidth;
+                }
+            });
         },
         focusMaxGap(slice) {
             if (!slice.topGaps.length) return;
@@ -468,6 +494,7 @@ function bulkCycleApp() {
             const r = slice.selectedRange; if (!r) return;
             const s = new Date(r.startMs), e = new Date(r.endMs);
             if (e <= s) return;
+            this.timePreset = null; this.cyclePreset = null;   // 수동 범위 → 프리셋 해제 (단일 페이지와 동일)
             this.startTime = this.dateToInput(s);
             this.endTime = this.dateToInput(e);
             for (const fl of this.flows) fl.selectedRange = null;
@@ -692,32 +719,6 @@ function bulkCycleApp() {
             };
         },
         _stamp() { const t = new Date(); const p = (x) => String(x).padStart(2, '0'); return `${t.getFullYear()}${p(t.getMonth() + 1)}${p(t.getDate())}_${p(t.getHours())}${p(t.getMinutes())}${p(t.getSeconds())}`; },
-        _csvEscape(v) { if (v == null) return ''; const s = String(v); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; },
-        // 전체 CSV — 로드된 모든 Flow 의 IO 신호 세그먼트(단일 페이지 exportCycleCsv 와 동일 컬럼 + Flow 열).
-        exportAllCsv() {
-            const slices = this.flows.filter(s => !s.loading && !s.error && s.callLanes.length);
-            if (!slices.length) { this.saveMsg = '내보낼 데이터가 없습니다.'; this.saveError = true; setTimeout(() => { this.saveMsg = ''; }, 3000); return; }
-            const wall = (iso) => iso ? String(iso).replace('T', ' ').slice(0, 23) : '';
-            const dur = (s, e) => Math.max(0, Math.round(new Date(e).getTime() - new Date(s).getTime()));
-            const out = ['Flow,Call,Work,신호,Tag,시작,종료,지속(ms)'];
-            for (const slice of slices) {
-                const rows = [];
-                for (const l of slice.callLanes) {
-                    for (const iv of (l.outIntervals || [])) rows.push({ call: l.callName, work: l.workName || '', kind: 'OUT', tag: l.outTag || '', s: iv.start, e: iv.end });
-                    for (const iv of (l.inIntervals || [])) rows.push({ call: l.callName, work: l.workName || '', kind: 'IN', tag: l.inTag || '', s: iv.start, e: iv.end });
-                }
-                rows.sort((a, b) => new Date(a.s) - new Date(b.s));
-                for (const r of rows)
-                    out.push([this._csvEscape(slice.flowName), this._csvEscape(r.call), this._csvEscape(r.work), r.kind, this._csvEscape(r.tag), this._csvEscape(wall(r.s)), this._csvEscape(wall(r.e)), dur(r.s, r.e)].join(','));
-            }
-            const text = '﻿' + out.join('\r\n');
-            const blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a'); a.href = url; a.download = 'CycleAnalysis_ALL_' + this._stamp() + '.csv';
-            document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-            this.saveMsg = '전체 CSV 다운로드 완료 (' + slices.length + '개 Flow)';
-            setTimeout(() => { this.saveMsg = ''; }, 4000);
-        },
         async exportAllExcel() {
             if (this.exportingAll) return;
             const models = this.flows

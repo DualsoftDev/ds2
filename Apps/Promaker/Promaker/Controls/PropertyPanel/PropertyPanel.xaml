@@ -223,6 +223,9 @@
                                                               Command="{Binding ImportUserTagsCsvAppendCommand}"/>
                                                     <MenuItem Header="CSV 가져오기 — 교체"
                                                               Command="{Binding ImportUserTagsCsvReplaceCommand}"/>
+                                                    <Separator/>
+                                                    <MenuItem Header="일괄 삭제"
+                                                              Command="{Binding ClearUserTagsCommand}"/>
                                                 </ContextMenu>
                                             </Button.ContextMenu>
                                         </Button>

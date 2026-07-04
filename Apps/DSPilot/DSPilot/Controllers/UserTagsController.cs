@@ -11,7 +11,7 @@ namespace DSPilot.Controllers;
 /// <summary>
 /// 격리형 호스팅용 UserTag(이상발생 관리) API.
 /// Blazor /user-tags 가 쓰던 UserTagAlertService(정의) + IUserTagAlertRepository(쿼리) 를 얇게 래핑.
-/// 8개 granular 쿼리를 하나의 /snapshot 으로 통합(라운드트립·레이스 축소). CSV 용 flat /alerts 별도.
+/// 8개 granular 쿼리를 하나의 /snapshot 으로 통합(라운드트립·레이스 축소).
 /// 기간 프리셋→날짜·버킷 변환은 Blazor SetPresetState 와 동일하게 서버에서 처리(로컬 tz).
 /// </summary>
 [ApiController]
@@ -149,29 +149,7 @@ public class UserTagsController : ControllerBase
         return defs;
     }
 
-    /// <summary>CSV 내보내기용 — 현재 필터의 전체 알림(최신순, 상한 limit).</summary>
-    [HttpGet("alerts")]
-    public async Task<ActionResult<List<UtAlertDto>>> GetAlerts(
-        [FromQuery] string period = "today",
-        [FromQuery] string? search = null,
-        [FromQuery] string? category = null,   // "abnormal" | "usertag" | null(전체 구분)
-        [FromQuery] string? system = null,
-        [FromQuery] string? flow = null,        // 설비(Flow)명 — 자동감지(Abnormal)만 그 Flow 로 필터
-        [FromQuery] int limit = 100000,
-        [FromQuery] DateTime? from = null,
-        [FromQuery] DateTime? to = null,
-        CancellationToken ct = default)
-    {
-        var (startLocal, endLocal, _) = ResolvePeriod(period, from, to);
-        var flw = Blank(flow);
-        var cat = flw is null ? Blank(category) : null; // flow 필터 시 구분 필터 무시(snapshot 과 동일)
-        var all = await _repo.QueryAlertsAsync(
-            startLocal.ToUniversalTime(), endLocal.ToUniversalTime(),
-            Blank(search), DisplayLevel, Blank(system), cat, limit, 0, ct, flowFilter: flw);
-        return all.Select(ToAlertDto).ToList();
-    }
-
-    /// <summary>Excel(.xlsx) 내보내기 — 현재 필터의 전체 알림을 단일 시트 테이블로. CSV(/alerts)와 동일 데이터원.</summary>
+    /// <summary>Excel(.xlsx) 내보내기 — 현재 필터의 전체 알림을 단일 시트 테이블로. snapshot 과 동일 데이터원.</summary>
     [HttpGet("excel")]
     public async Task<IActionResult> GetExcel(
         [FromQuery] string period = "today",

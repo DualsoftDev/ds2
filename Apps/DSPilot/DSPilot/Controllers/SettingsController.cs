@@ -196,6 +196,7 @@ public class SettingsController : ControllerBase
                     m.AutoCalibration.MaxMode = acReq.MaxMode is "RawMax" ? "RawMax" : "Percentile";
                     m.AutoCalibration.PercentileMax = Math.Clamp(acReq.PercentileMax, 50, 100);
                     m.AutoCalibration.MarginMaxPct = Math.Clamp(acReq.MarginMaxPct, 0, 5);
+                    m.AutoCalibration.MarginMaxAbsMs = Math.Clamp(acReq.MarginMaxAbsMs, 0, 600000);
                     m.AutoCalibration.FillMin = acReq.FillMin;
                     m.AutoCalibration.PercentileMin = Math.Clamp(acReq.PercentileMin, 0, 50);
                     m.AutoCalibration.MarginMinPct = Math.Clamp(acReq.MarginMinPct, 0, 1);
@@ -499,7 +500,7 @@ public class SettingsController : ControllerBase
             catch (Exception ex) { _logger.LogDebug(ex, "[Settings] SignalR broadcast failed (non-critical)"); }
 
             return new SaveResultDto(true,
-                normalized.Count == 0 ? "사용자정의 알람 차단이 모두 해제되었습니다." : $"사용자정의 알람 차단 {normalized.Count}건이 적용되었습니다.");
+                normalized.Count == 0 ? "수동등록TAG 알람 차단이 모두 해제되었습니다." : $"수동등록TAG 알람 차단 {normalized.Count}건이 적용되었습니다.");
         }
         catch (Exception ex)
         {
@@ -540,6 +541,7 @@ public class SettingsController : ControllerBase
                 m.AutoCalibration.MaxMode,
                 m.AutoCalibration.PercentileMax,
                 m.AutoCalibration.MarginMaxPct,
+                m.AutoCalibration.MarginMaxAbsMs,
                 m.AutoCalibration.FillMin,
                 m.AutoCalibration.PercentileMin,
                 m.AutoCalibration.MarginMinPct,
@@ -712,6 +714,7 @@ public record AutoCalibrationDto(
     string MaxMode,
     double PercentileMax,
     double MarginMaxPct,
+    int MarginMaxAbsMs,
     bool FillMin,
     double PercentileMin,
     double MarginMinPct,
@@ -726,6 +729,7 @@ public record AutoCalibrationSaveDto(
     string MaxMode,
     double PercentileMax,
     double MarginMaxPct,
+    int MarginMaxAbsMs,
     bool FillMin,
     double PercentileMin,
     double MarginMinPct);

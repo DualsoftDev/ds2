@@ -4,7 +4,6 @@
 using System.Globalization;
 using System.Text;
 using ClosedXML.Excel;
-using DSPilot.Models.Analysis;
 
 namespace DSPilot.Services;
 
@@ -15,53 +14,10 @@ namespace DSPilot.Services;
 /// 클라이언트(정적 cycle-time-analysis.html)가 화면에 그린 현재 상태(<see cref="CycleExcelModel"/>: 정렬된 lane +
 /// 병합 intervals + Head/Tail + 보기모드 + 사이클 경계/Tail 마커 + 활성 Gap)를 그대로 받아 렌더한다.
 /// → 화면 간트와 1:1 (WYSIWYG). Sheet1 = 간트 재현(셀 그리드), Sheet2 = 신호 세그먼트 + 사이클 요약 데이터 테이블.
-///
-/// CSV 는 (구 Blazor 경로) 데이터만 넘기고 브라우저 다운로드는 클라이언트가 처리한다.
 /// </summary>
 public static class CycleTimeChartExporter
 {
-    public const string CsvMimeType = "text/csv;charset=utf-8";
     public const string XlsxMimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-
-    // ─── CSV (구 Blazor 경로 — 데이터 전용) ──────────────────────────────────────
-
-    public static byte[] BuildCsvBytes(GanttChartData data)
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine("CallName,WorkName,FlowName,TagName,TagAddress,EventType,GoingStartTime,FinishTime,Duration(ms),Lane");
-
-        foreach (var item in data.Items.OrderBy(i => i.GoingStartTime))
-        {
-            var eventType = item.EventType == IOEventType.InTag ? "IN" : "OUT";
-            var finish = item.FinishTime?.ToString("yyyy-MM-dd HH:mm:ss.fff") ?? "";
-            var duration = item.Duration?.ToString() ?? "";
-            sb.AppendLine(string.Join(",",
-                CsvEscape(item.CallName),
-                CsvEscape(item.WorkName),
-                CsvEscape(item.FlowName),
-                CsvEscape(item.TagName),
-                CsvEscape(item.TagAddress),
-                eventType,
-                item.GoingStartTime.ToString("yyyy-MM-dd HH:mm:ss.fff"),
-                finish,
-                duration,
-                item.Lane));
-        }
-
-        // UTF-8 BOM 포함 — Excel 의 한글 깨짐 방지
-        return Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
-    }
-
-    public static string CsvFileName(string flowName)
-        => $"CycleAnalysis_{flowName}_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
-
-    private static string CsvEscape(string? value)
-    {
-        if (string.IsNullOrEmpty(value)) return "";
-        if (value.Contains(',') || value.Contains('"') || value.Contains('\n'))
-            return "\"" + value.Replace("\"", "\"\"") + "\"";
-        return value;
-    }
 
     // ─── Excel (WYSIWYG — 화면 모델 기반) ────────────────────────────────────────
 
@@ -76,7 +32,7 @@ public static class CycleTimeChartExporter
         var palette = new CycleExcelPalette();
         var ws = workbook.Worksheets.Add("간트차트");
         BuildGanttSheet(ws, model, palette, 1, applySheetChrome: true);
-        BuildDataSheet(workbook, model, palette);
+        BuildDataSheet(workbook, new[] { model }, palette, includeFlow: false);
 
         using var ms = new MemoryStream();
         workbook.SaveAs(ms);
@@ -87,6 +43,7 @@ public static class CycleTimeChartExporter
     /// 전체 편집(bulkCycleApp) Excel — 여러 Flow 의 화면 간트를 한 시트("간트차트")에 위→아래로 이어 쌓는다.
     /// 각 Flow 블록은 <see cref="BuildGanttSheet"/> 를 baseRow 를 누적하며 호출해 렌더(제목행이 Flow명 헤더 역할).
     /// 블록마다 자체 시간축을 가지므로 열 의미는 블록마다 다르다(세로 나열 = 화면 카드 나열과 1:1).
+    /// Sheet2 "데이터" 는 단일 내보내기와 동일 테이블에 Flow 열을 더해 모든 Flow 를 세로로 쌓는다.
     /// </summary>
     public static byte[] BuildBulkCycleAnalysisExcel(IReadOnlyList<CycleExcelModel> models)
     {
@@ -95,16 +52,16 @@ public static class CycleTimeChartExporter
         var ws = workbook.Worksheets.Add("간트차트");
 
         int row = 1;
-        bool any = false;
+        var rendered = new List<CycleExcelModel>();
         foreach (var m in models ?? new List<CycleExcelModel>())
         {
             if (m is null || (m.Lanes?.Count ?? 0) == 0) continue;
             int last = BuildGanttSheet(ws, m, palette, row, applySheetChrome: false);
             row = last + 3;   // 블록 사이 여백 2~3행
-            any = true;
+            rendered.Add(m);
         }
 
-        if (!any)
+        if (rendered.Count == 0)
         {
             ws.Cell(1, 1).Value = "내보낼 간트가 없습니다.";
         }
@@ -113,6 +70,7 @@ public static class CycleTimeChartExporter
             ws.SheetView.FreezeColumns(2);
             ws.PageSetup.PageOrientation = XLPageOrientation.Landscape;
             ws.PageSetup.Footer.Center.AddText($"Exported: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+            BuildDataSheet(workbook, rendered, palette, includeFlow: true);
         }
 
         using var ms = new MemoryStream();
@@ -395,15 +353,17 @@ public static class CycleTimeChartExporter
         return lastLaneRow;
     }
 
-    // ── Sheet2: 데이터 테이블 ───────────────────────────────────────────────────────
-    private static void BuildDataSheet(XLWorkbook workbook, CycleExcelModel model, CycleExcelPalette p)
+    // ── Sheet2: 데이터 테이블 (단일 = Flow 열 없음 · 전체 편집 = Flow 열을 더해 모든 Flow 세로 스택) ──
+    private static void BuildDataSheet(XLWorkbook workbook, IReadOnlyList<CycleExcelModel> models, CycleExcelPalette p, bool includeFlow)
     {
         var ws = workbook.Worksheets.Add("데이터");
-        var lanes = model.Lanes ?? new List<CycleExcelLane>();
+        int off = includeFlow ? 1 : 0;   // Flow 열 유무에 따른 열 오프셋
 
         // 1) 신호 세그먼트 표 — 화면 간트가 이 세그먼트들로 그려진다(같은 원천 → 표·그래프 일치).
-        var headers = new[] { "Call", "Work", "신호", "Tag", "시작", "종료", "지속(ms)" };
-        for (int i = 0; i < headers.Length; i++)
+        var headers = new List<string>();
+        if (includeFlow) headers.Add("Flow");
+        headers.AddRange(new[] { "Call", "Work", "신호", "Tag", "시작", "종료", "지속(ms)" });
+        for (int i = 0; i < headers.Count; i++)
         {
             var c = ws.Cell(1, i + 1);
             c.Value = headers[i];
@@ -412,89 +372,108 @@ public static class CycleTimeChartExporter
             c.Style.Font.FontColor = XLColor.White;
         }
 
-        var rows = new List<(string Call, string Work, string Kind, string Tag, DateTime Start, DateTime End, long Dur)>();
-        foreach (var lane in lanes)
-        {
-            foreach (var iv in lane.OutIntervals ?? new List<CycleExcelInterval>())
-                rows.Add((lane.CallName, lane.WorkName ?? "", "OUT", lane.OutTag ?? "", Wall(iv.Start), Wall(iv.End), EpochMs(iv.End) - EpochMs(iv.Start)));
-            foreach (var iv in lane.InIntervals ?? new List<CycleExcelInterval>())
-                rows.Add((lane.CallName, lane.WorkName ?? "", "IN", lane.InTag ?? "", Wall(iv.Start), Wall(iv.End), EpochMs(iv.End) - EpochMs(iv.Start)));
-        }
-
         int row = 2;
-        foreach (var x in rows.OrderBy(x => x.Start))
+        foreach (var model in models)
         {
-            ws.Cell(row, 1).Value = x.Call;
-            ws.Cell(row, 2).Value = x.Work;
-            ws.Cell(row, 3).Value = x.Kind;
-            ws.Cell(row, 3).Style.Font.Bold = true;
-            ws.Cell(row, 3).Style.Font.FontColor = x.Kind == "OUT" ? p.Out : p.In;
-            ws.Cell(row, 4).Value = x.Tag;
-            ws.Cell(row, 5).Value = x.Start.ToString("HH:mm:ss.fff");
-            ws.Cell(row, 6).Value = x.End.ToString("HH:mm:ss.fff");
-            ws.Cell(row, 7).Value = x.Dur;
-            row++;
+            var rows = new List<(string Call, string Work, string Kind, string Tag, DateTime Start, DateTime End, long Dur)>();
+            foreach (var lane in model.Lanes ?? new List<CycleExcelLane>())
+            {
+                foreach (var iv in lane.OutIntervals ?? new List<CycleExcelInterval>())
+                    rows.Add((lane.CallName, lane.WorkName ?? "", "OUT", lane.OutTag ?? "", Wall(iv.Start), Wall(iv.End), EpochMs(iv.End) - EpochMs(iv.Start)));
+                foreach (var iv in lane.InIntervals ?? new List<CycleExcelInterval>())
+                    rows.Add((lane.CallName, lane.WorkName ?? "", "IN", lane.InTag ?? "", Wall(iv.Start), Wall(iv.End), EpochMs(iv.End) - EpochMs(iv.Start)));
+            }
+
+            foreach (var x in rows.OrderBy(x => x.Start))
+            {
+                if (includeFlow) ws.Cell(row, 1).Value = model.FlowName;
+                ws.Cell(row, off + 1).Value = x.Call;
+                ws.Cell(row, off + 2).Value = x.Work;
+                ws.Cell(row, off + 3).Value = x.Kind;
+                ws.Cell(row, off + 3).Style.Font.Bold = true;
+                ws.Cell(row, off + 3).Style.Font.FontColor = x.Kind == "OUT" ? p.Out : p.In;
+                ws.Cell(row, off + 4).Value = x.Tag;
+                ws.Cell(row, off + 5).Value = x.Start.ToString("HH:mm:ss.fff");
+                ws.Cell(row, off + 6).Value = x.End.ToString("HH:mm:ss.fff");
+                ws.Cell(row, off + 7).Value = x.Dur;
+                row++;
+            }
         }
 
         // 고정 너비 — ClosedXML AdjustToContents 의 한글 폭 버그 회피(메모리 규칙).
-        ws.Column(1).Width = 22;
-        ws.Column(2).Width = 18;
-        ws.Column(3).Width = 6;
-        ws.Column(4).Width = 24;
-        ws.Column(5).Width = 14;
-        ws.Column(6).Width = 14;
-        ws.Column(7).Width = 11;
+        if (includeFlow) ws.Column(1).Width = 18;
+        ws.Column(off + 1).Width = 22;
+        ws.Column(off + 2).Width = 18;
+        ws.Column(off + 3).Width = 6;
+        ws.Column(off + 4).Width = 24;
+        ws.Column(off + 5).Width = 14;
+        ws.Column(off + 6).Width = 14;
+        ws.Column(off + 7).Width = 11;
         ws.SheetView.FreezeRows(1);
 
-        // 2) 사이클 요약 표 (화면 '사이클 목록' 과 동일) — I열부터.
-        var bndDto = (model.CycleBoundaries ?? new List<string>())
-            .Select(s => DateTimeOffset.Parse(s, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind))
-            .OrderBy(x => x).ToList();
-        if (bndDto.Count > 0)
+        // 2) 사이클 요약 표 (화면 '사이클 목록' 과 동일) — 세그먼트 표 오른쪽에 한 열 띄우고 시작.
+        int c0 = headers.Count + 2;
+        var sh = new List<string>();
+        if (includeFlow) sh.Add("Flow");
+        sh.AddRange(new[] { "#", "시작", "AT(ms)", "CT(ms)", "가동률%" });
+        bool anySummary = false;
+        int rr = 2;
+        foreach (var model in models)
         {
+            var bndDto = (model.CycleBoundaries ?? new List<string>())
+                .Select(s => DateTimeOffset.Parse(s, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind))
+                .OrderBy(x => x).ToList();
+            if (bndDto.Count == 0) continue;
+
+            if (!anySummary)
+            {
+                for (int i = 0; i < sh.Count; i++)
+                {
+                    var c = ws.Cell(1, c0 + i);
+                    c.Value = sh[i];
+                    c.Style.Font.Bold = true;
+                    c.Style.Fill.BackgroundColor = p.HeaderBg2;
+                    c.Style.Font.FontColor = XLColor.White;
+                }
+                anySummary = true;
+            }
+
             var bnd = bndDto.Select(x => x.ToUnixTimeMilliseconds()).ToList();
             var tails = (model.TailEdges ?? new List<string>()).Select(EpochMs).OrderBy(x => x).ToList();
             var spans = BuildSpans(bnd, tails, EpochMs(model.ChartEnd));
 
-            const int c0 = 9;
-            var sh = new[] { "#", "시작", "AT(ms)", "CT(ms)", "가동률%" };
-            for (int i = 0; i < sh.Length; i++)
-            {
-                var c = ws.Cell(1, c0 + i);
-                c.Value = sh[i];
-                c.Style.Font.Bold = true;
-                c.Style.Fill.BackgroundColor = p.HeaderBg2;
-                c.Style.Font.FontColor = XLColor.White;
-            }
-
-            int rr = 2;
             foreach (var sp in spans)
             {
                 long ct = sp.End - sp.Start;
                 long? at = sp.TailIn.HasValue ? sp.TailIn.Value - sp.Start : (long?)null;
                 int? ratio = (at.HasValue && ct > 0) ? (int)Math.Round(at.Value * 100.0 / ct) : (int?)null;
 
-                ws.Cell(rr, c0).Value = sp.IsOpen ? $"#{sp.Number}↻" : $"#{sp.Number}";
-                ws.Cell(rr, c0 + 1).Value = bndDto[sp.Number - 1].DateTime.ToString("HH:mm:ss");
-                if (at.HasValue) ws.Cell(rr, c0 + 2).Value = at.Value;
-                else ws.Cell(rr, c0 + 2).Value = "—";
-                ws.Cell(rr, c0 + 3).Value = ct;
+                if (includeFlow) ws.Cell(rr, c0).Value = model.FlowName;
+                ws.Cell(rr, c0 + off).Value = sp.IsOpen ? $"#{sp.Number}↻" : $"#{sp.Number}";
+                ws.Cell(rr, c0 + off + 1).Value = bndDto[sp.Number - 1].DateTime.ToString("HH:mm:ss");
+                if (at.HasValue) ws.Cell(rr, c0 + off + 2).Value = at.Value;
+                else ws.Cell(rr, c0 + off + 2).Value = "—";
+                ws.Cell(rr, c0 + off + 3).Value = ct;
                 if (ratio.HasValue)
                 {
-                    var rc = ws.Cell(rr, c0 + 4);
+                    var rc = ws.Cell(rr, c0 + off + 4);
                     rc.Value = ratio.Value;
                     rc.Style.Font.Bold = true;
                     rc.Style.Font.FontColor = ratio.Value >= 80 ? p.Good : ratio.Value >= 50 ? p.Mid : p.Low;
                 }
-                else ws.Cell(rr, c0 + 4).Value = "—";
+                else ws.Cell(rr, c0 + off + 4).Value = "—";
                 rr++;
             }
+        }
 
-            ws.Column(c0).Width = 6;
-            ws.Column(c0 + 1).Width = 12;
-            ws.Column(c0 + 2).Width = 11;
-            ws.Column(c0 + 3).Width = 11;
-            ws.Column(c0 + 4).Width = 9;
+        if (anySummary)
+        {
+            if (includeFlow) ws.Column(c0).Width = 18;
+            ws.Column(c0 + off).Width = 6;
+            ws.Column(c0 + off + 1).Width = 12;
+            ws.Column(c0 + off + 2).Width = 11;
+            ws.Column(c0 + off + 3).Width = 11;
+            ws.Column(c0 + off + 4).Width = 9;
         }
     }
 

@@ -1,13 +1,13 @@
 /*
  * cycle-gantt.js — 사이클 분석 간트(신호 SVG) + 사이클 파생 순수 함수 모듈.
  * ------------------------------------------------------------------------------
- * flow.html(flowApp) 의 단일 Flow 사이클 분석 렌더링/파생 로직을 "그대로" 추출한 것.
- * 전체 편집 페이지(flow-all.html)가 N개 Flow 를 한 화면에 그리기 위해 Flow 별 상태 슬라이스(s)를
- * 인자로 받는 순수 함수로 재구성했다. flow.html 의 this.X 는 모두 s.X 로, this.method() 는 모듈
- * 함수 method(s, ...) 로 치환됐을 뿐 계산 로직은 1:1 동일.
+ * 구 flow.html(flowApp) 의 단일 Flow 사이클 분석 렌더링/파생 로직을 "그대로" 추출한 것.
+ * 전체 편집(flow-cycle.html ?system=, bulkCycleApp)이 N개 Flow 를 한 화면에 그리기 위해 Flow 별 상태
+ * 슬라이스(s)를 인자로 받는 순수 함수로 재구성했다. 원본의 this.X 는 모두 s.X 로, this.method() 는
+ * 모듈 함수 method(s, ...) 로 치환됐을 뿐 계산 로직은 1:1 동일.
  *
  *   - 의존 없음(Chart.js/Alpine 불필요). DOM 도 만지지 않는다(SVG 문자열만 생성).
- *   - 클래식 스크립트(IIFE) → window.CycleGantt 전역. flow-all.html 이 alpine 보다 먼저 로드.
+ *   - 클래식 스크립트(IIFE) → window.CycleGantt 전역. flow-cycle.html 이 alpine 보다 먼저 로드.
  *
  * 슬라이스(s) 가 들고 있어야 하는 필드(렌더가 읽는 것):
  *   callLanes[], cycleBoundaries(Date[]), tailEdges(Date[]), chartStart(Date), chartEnd(Date),
@@ -15,7 +15,7 @@
  *   topGaps[], selectedGapIndex, (선택) selectedRange{startMs,endMs}.
  *   _geo 는 buildSvg 가 세팅(드래그/스크롤 좌표 변환용).
  *
- * 좌표/색/마진은 cycle-time-analysis ↔ flow.html 과 동일. 간트 배경은 항상 흰색(다크에서도) — 의도된 것.
+ * 좌표/색/마진은 flow-workspace.js(단일 Flow 경로)와 동일. 간트 배경은 항상 흰색(다크에서도) — 의도된 것.
  */
 (function () {
     'use strict';

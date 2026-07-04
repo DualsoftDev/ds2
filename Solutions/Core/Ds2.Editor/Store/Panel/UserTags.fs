@@ -186,3 +186,23 @@ type DsStorePanelUserTagExtensions =
                         count <- count + 1))
         store.EmitAndHistory(SystemPropsChanged systemId)
         count
+
+    /// 일괄 삭제: 해당 System 의 UserTag 를 전부 제거. 삭제된 개수 반환.
+    /// 삭제할 항목이 없으면(0건) transaction·undo 항목·이벤트를 만들지 않는다 (AddUserTagsBatch 와 동일한 no-op early-return).
+    [<Extension>]
+    static member ClearUserTags(store: DsStore, systemId: Guid) : int =
+        StoreLog.debug($"ClearUserTags systemId={systemId}")
+        let sys = StoreLog.requireSystem(store, systemId)
+        let count =
+            match sys.GetLoggingProperties() with
+            | Some p -> p.UserTags.Count
+            | None -> 0
+        if count = 0 then 0
+        else
+            store.WithTransaction("사용자 태그 일괄 삭제", fun () ->
+                store.TrackMutate(store.Systems, systemId, fun s ->
+                    match s.GetLoggingProperties() with
+                    | Some p -> p.UserTags.Clear()
+                    | None -> ()))
+            store.EmitAndHistory(SystemPropsChanged systemId)
+            count
