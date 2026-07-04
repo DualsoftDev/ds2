@@ -20,7 +20,7 @@ namespace DSPilot.Services;
 /// </summary>
 public static class OeeExcelExporter
 {
-    public const string XlsxMimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    public const string XlsxMimeType = ExcelExporterBase.XlsxMimeType;
 
     public static byte[] BuildOeeExcel(OeeExcelModel model)
     {
@@ -29,9 +29,7 @@ public static class OeeExcelExporter
         BuildRankingSheet(workbook, model);
         BuildDowntimeSheet(workbook, model);
 
-        using var ms = new MemoryStream();
-        workbook.SaveAs(ms);
-        return ms.ToArray();
+        return ExcelExporterBase.SaveToBytes(workbook);
     }
 
     // ── Sheet1: 요약(지표·가용성·정지 구성) + 차트 이미지 ─────────────────────────────

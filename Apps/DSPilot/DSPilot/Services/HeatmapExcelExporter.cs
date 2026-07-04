@@ -18,7 +18,7 @@ namespace DSPilot.Services;
 /// </summary>
 public static class HeatmapExcelExporter
 {
-    public const string XlsxMimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    public const string XlsxMimeType = ExcelExporterBase.XlsxMimeType;
 
     // tier 색(범례 3색과 동조 — 연한 배경). heatmap.html .hm-tier-bg-* 와 톤 일치.
     private static readonly XLColor NormalBg = XLColor.FromHtml("#E4F4EA");
@@ -30,43 +30,26 @@ public static class HeatmapExcelExporter
         using var workbook = new XLWorkbook();
         BuildDataSheet(workbook, model);
 
-        using var ms = new MemoryStream();
-        workbook.SaveAs(ms);
-        return ms.ToArray();
+        return ExcelExporterBase.SaveToBytes(workbook);
     }
 
     private static void BuildDataSheet(XLWorkbook workbook, HeatmapExcelModel model)
     {
         var ws = workbook.Worksheets.Add("동작편차");
-        var header = XLColor.FromHtml("#37474F");
+        const int lastCol = 9;
 
-        // 제목 / 부제
-        var titleCell = ws.Cell(1, 1);
-        titleCell.Value = $"{(string.IsNullOrWhiteSpace(model.Title) ? "전체" : model.Title)} · 동작편차";
-        titleCell.Style.Font.Bold = true;
-        titleCell.Style.Font.FontSize = 14;
-        ws.Range(1, 1, 1, 9).Merge();
-        ws.Row(1).Height = 24;
+        ExcelExporterBase.ApplyTitleRow(ws, 1,
+            $"{(string.IsNullOrWhiteSpace(model.Title) ? "전체" : model.Title)} · 동작편차", lastCol, 24);
 
         var caution = model.CautionCv > 0 ? model.CautionCv : 0.10;
         var danger = model.DangerCv > 0 ? model.DangerCv : 0.30;
-        var sub = ws.Cell(2, 1);
-        sub.Value = $"편차는 평균 대비(CV=표준편차/평균) · 정상 < {Pct(caution)}% ≤ 주의 < {Pct(danger)}% ≤ 위험";
-        sub.Style.Font.FontColor = XLColor.FromHtml("#546E7A");
-        sub.Style.Font.FontSize = 10;
-        ws.Range(2, 1, 2, 9).Merge();
+        ExcelExporterBase.ApplySubtitleRow(ws, 2,
+            $"편차는 평균 대비(CV=표준편차/평균) · 정상 < {Pct(caution)}% ≤ 주의 < {Pct(danger)}% ≤ 위험", lastCol);
 
         // 헤더 행
         const int headRow = 4;
-        var headers = new[] { "Flow", "Call", "Work", "평균(ms)", "표준편차(ms)", "변동계수(CV)", "편차(±%)", "등급", "실행횟수(N)" };
-        for (int i = 0; i < headers.Length; i++)
-        {
-            var c = ws.Cell(headRow, i + 1);
-            c.Value = headers[i];
-            c.Style.Font.Bold = true;
-            c.Style.Fill.BackgroundColor = header;
-            c.Style.Font.FontColor = XLColor.White;
-        }
+        ExcelExporterBase.ApplyHeaderRow(ws, headRow,
+            ["Flow", "Call", "Work", "평균(ms)", "표준편차(ms)", "변동계수(CV)", "편차(±%)", "등급", "실행횟수(N)"]);
 
         int row = headRow + 1;
         foreach (var r in (model.Rows ?? new List<HeatmapExcelRow>()))
@@ -99,8 +82,7 @@ public static class HeatmapExcelExporter
         ws.Column(7).Width = 11;
         ws.Column(8).Width = 9;
         ws.Column(9).Width = 12;
-        ws.SheetView.FreezeRows(headRow);
-        ws.PageSetup.Footer.Center.AddText($"Exported: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+        ExcelExporterBase.FreezeAndFooter(ws, headRow);
     }
 
     private static (string Label, XLColor Bg) ClassifyTier(double cv, double caution, double danger)

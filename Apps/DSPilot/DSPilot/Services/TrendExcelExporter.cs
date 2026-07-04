@@ -18,7 +18,7 @@ namespace DSPilot.Services;
 /// </summary>
 public static class TrendExcelExporter
 {
-    public const string XlsxMimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    public const string XlsxMimeType = ExcelExporterBase.XlsxMimeType;
 
     public static byte[] BuildTrendExcel(TrendExcelModel model)
     {
@@ -26,9 +26,7 @@ public static class TrendExcelExporter
         BuildSummarySheet(workbook, model);
         BuildDataSheet(workbook, model);
 
-        using var ms = new MemoryStream();
-        workbook.SaveAs(ms);
-        return ms.ToArray();
+        return ExcelExporterBase.SaveToBytes(workbook);
     }
 
     // ── Sheet1: 요약 + 차트 이미지 ─────────────────────────────────────────────────
