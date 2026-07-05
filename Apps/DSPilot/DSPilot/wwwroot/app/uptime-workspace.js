@@ -53,15 +53,10 @@
             if (parent) parent.appendChild(e);
             return e;
         }
-        // TEEP 등급 팔레트(앰버 스케일, P6 목업 L0) — 데이터색은 라이트/다크 공통 고정(크롬 색만 CSS 토큰).
-        function _tmTeepFaces(pct) {
-            if (pct >= 60) return { top: '#F57F17', right: '#EF6C00', front: '#E65100' };
-            if (pct >= 45) return { top: '#FFA000', right: '#FF8F00', front: '#FF6F00' };
-            if (pct >= 30) return { top: '#FFD54F', right: '#FFCA28', front: '#FFC107' };
-            return { top: '#FFF59D', right: '#FFF176', front: '#FFEE58' };
-        }
         // 정지 캡(빨강) — 시간분해 막대의 '정지' 와 같은 의미(빗금 대신 3D 캡).
         const TM_DOWN_FACES = { top: '#B71C1C', right: '#C62828', front: '#D32F2F' };
+        // OEE 산출 불가 셀(무활동·성능 미산출) 중립 회색 — 색=OEE 고정 시 '모름'을 '나쁨(최하등급)'으로 오독 방지(§3.4).
+        const TM_NA_FACES = { top: '#9AA5B1', right: '#7B8794', front: '#616E7C' };
         // OEE 등급 3면(3D 색 모드 'oee', 그린 스케일 — P6 목업 L1 경계 85/70/55) — 앰버 팔레트와 동일하게 top 이 가장 밝고
         // front 가 가장 어둡다. <55% 는 그린 계열 밖(옐로)로 이탈시켜 "나쁨"이 스캔에서 튀게 한다.
         function _tmOeeFaces(pct) {
@@ -108,9 +103,9 @@
                 // 생산효율 매트릭스(P6 L0) — /api/oee/teep/matrix (flow×시간버킷 TEEP·OEE).
                 // 라인 전체=3D 아이소(설비×시간), 설비 선택=2D 막대(TEEP·OEE/시간). _teepMxAt=무음(폴링) 갱신 스로틀 기준 시각.
                 teepMatrix: null, teepMatrixError: null, _teepMxSeq: 0, _teepMxAt: 0,
-                // 3D 아이소 뷰 옵션 — teepIsoRot: 수직축 4시점 스텝 회전(0~3, 가림을 시점 전환으로 회피),
-                // teepIsoColor: 큐브 색 지표('teep' 앰버 | 'oee' 그린 — 같은 지형을 두 지표로 대조).
-                teepIsoRot: 0, teepIsoColor: 'teep',
+                // 3D 아이소 뷰 옵션 — teepIsoRot: 수직축 4시점 스텝 회전(0~3, 가림을 시점 전환으로 회피).
+                // 색은 OEE 등급 고정 — 높이가 이미 TEEP 이라 색=TEEP 은 중복(높이=TEEP · 색=OEE 로 두 지표 동시 표현).
+                teepIsoRot: 0,
                 // 날짜별 비생산 패턴 — /api/oee/planned-stops/actual 의 days(로컬 날짜별 접기, 기간에 맞춰 행 수 변동).
                 // 비생산은 시스템(전역) 단위라 curFlow 필터 없이 조회(설정 타임라인과 동일 규칙). _teepNpSeq=stale 가드.
                 teepNonProd: null, teepNonProdError: null, _teepNpSeq: 0,
@@ -758,7 +753,7 @@
                     if (mode === 'iso') {
                         const plan = this.teepShowPlanned()
                             ? ` · 골드 점선=계획(${(m.plannedFraction * 24).toFixed(m.plannedFraction * 24 % 1 === 0 ? 0 : 1)}h/day)` : '';
-                        return `설비 ${m.flows.length}개 × ${g} ${m.buckets.length}구간 · 높이=가동 · 색=${this.teepIsoColor === 'oee' ? 'OEE' : 'TEEP'} 등급 · 빨간 캡=정지${plan} · 클릭=설비 상세`;
+                        return `설비 ${m.flows.length}개 × ${g} ${m.buckets.length}구간 · 높이=TEEP(가동) · 색=OEE 등급 · 빨간 캡=정지${plan} · 클릭=설비 상세`;
                     }
                     const f = this.curFlow || m.flows[0].flowName;
                     return `${f} · ${g} ${m.buckets.length}구간 · 막대=TEEP · 마커=OEE (같은 축, 갭=쓰지 못한 시간) · 클릭=설비효율(A·P·Q) 상세`;
@@ -769,9 +764,8 @@
                     return !!m && m.plannedFraction != null && m.plannedSource !== 'calendar'
                         && m.plannedFraction > 0.02 && m.plannedFraction < 0.995;
                 },
-                // 3D 시점 스텝 회전(±90°) / 색 지표 전환 — 상태만 바꾸고 전체 재렌더(임퍼러티브 SVG, 체감 즉시).
+                // 3D 시점 스텝 회전(±90°) — 상태만 바꾸고 전체 재렌더(임퍼러티브 SVG, 체감 즉시).
                 teepIsoRotate(dir) { this.teepIsoRot = (this.teepIsoRot + dir + 4) % 4; this.renderTeepMatrix(); },
-                teepIsoSetColor(c) { if (this.teepIsoColor === c) return; this.teepIsoColor = c; this.renderTeepMatrix(); },
                 // 룰 기반 한 줄 인사이트 — 라인 뷰=기간 최저/최고 설비, 설비 뷰=최저 버킷과 그 원인 분해.
                 teepMatrixInsight() {
                     const m = this.teepMatrix;
@@ -824,8 +818,8 @@
                     if (mode === 'iso') this._renderTeepIso(host, this.teepMatrix);
                     else this._renderTeepBars(host, this.teepMatrix);
                 },
-                // 3D 아이소(설비 × 시간 × 가동) — P6 목업 renderL0 이식 + 4시점 스텝 회전 + 색 지표 전환 + 행 하이라이트.
-                // 높이=가동/캘린더, 색=TEEP/OEE 등급(teepIsoColor), 빨간 캡=정지. 회전(teepIsoRot)은 데이터 (버킷,설비)를
+                // 3D 아이소(설비 × 시간 × 가동) — P6 목업 renderL0 이식 + 4시점 스텝 회전 + 행 하이라이트.
+                // 높이=가동/캘린더=TEEP, 색=OEE 등급(고정), 빨간 캡=정지. 회전(teepIsoRot)은 데이터 (버킷,설비)를
                 // 프레임 (x,z)로 재매핑만 한다 — 투영·면 구성(앞/우/윗면)·페인터 정렬은 불변이라 면 가시성 계산이 필요 없고,
                 // 앞쪽 벽에 가린 셀은 시점을 90° 돌려서 본다(데이터 의존 가림의 회피 수단).
                 _renderTeepIso(host, m) {
@@ -864,8 +858,7 @@
                     if (showPlanned)
                         _tmEl('polygon', { points: pts(planCorners), class: 'up-tm-plan-fill' }, svg);
 
-                    // 큐브 — 프레임 좌표 기준 뒤(x+z 작음)→앞 페인터 정렬.
-                    const faces = this.teepIsoColor === 'oee' ? _tmOeeFaces : _tmTeepFaces;
+                    // 큐브 — 프레임 좌표 기준 뒤(x+z 작음)→앞 페인터 정렬. 색=OEE 등급 고정(높이=TEEP 와 이중 인코딩 제거).
                     const order = [];
                     for (let l = 0; l < L; l++) for (let d = 0; d < B; d++) { const [x, z] = map(d, l); order.push([l, d, x, z]); }
                     order.sort((a, b) => (a[2] + a[3]) - (b[2] + b[3]));
@@ -885,8 +878,8 @@
                             _tmEl('polygon', { points: pts([b0, c0, c1, b1]), fill: f.right, class: 'up-tm-face' }, g);
                             _tmEl('polygon', { points: pts([a1, b1, c1, e1]), fill: f.top, class: 'up-tm-face' }, g);
                         };
-                        const metric = this.teepIsoColor === 'oee' ? c.oee : c.teep;
-                        if (hRun > 0.03) box(0, hRun, faces((metric ?? 0) * 100));
+                        // 색 = OEE 등급. OEE 산출 불가(무활동·성능 미산출)는 0 이 아니라 '모름' → 중립 회색(§3.4).
+                        if (hRun > 0.03) box(0, hRun, c.oee != null ? _tmOeeFaces(c.oee * 100) : TM_NA_FACES);
                         if (hTot - hRun > 0.03) box(hRun, hTot, TM_DOWN_FACES); // 정지 캡
                         const t = _tmEl('title', {}, g);
                         t.textContent = `${flows[l].flowName} · ${this._tmShortLabel(m.buckets[d].label, m.granularity)}`

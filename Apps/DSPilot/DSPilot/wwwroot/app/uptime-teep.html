@@ -113,32 +113,22 @@
                     </div>
 
                     <div x-show="teepMatrixMode()">
-                        <!-- 3D 뷰 컨트롤 — 색 지표(TEEP↔OEE, 같은 지형을 두 지표로 대조) + 시점 스텝 회전(±90°, 가림 회피) -->
+                        <!-- 3D 뷰 컨트롤 — 시점 스텝 회전(±90°, 가림 회피). 색은 OEE 고정(높이=TEEP 와 이중 인코딩 제거) -->
                         <div class="up-tm-controls" x-show="teepMatrixMode() === 'iso'">
-                            <div class="segmented">
-                                <button :class="teepIsoColor === 'teep' ? 'is-active' : ''" @click="teepIsoSetColor('teep')" title="색=생산효율 TEEP 등급">TEEP</button>
-                                <button :class="teepIsoColor === 'oee' ? 'is-active' : ''" @click="teepIsoSetColor('oee')" title="색=설비효율 OEE 등급">OEE</button>
-                            </div>
                             <button class="btn-icon" @click="teepIsoRotate(-1)" title="시점 왼쪽으로 90° 회전"><span class="material-icons">rotate_left</span></button>
                             <button class="btn-icon" @click="teepIsoRotate(1)" title="시점 오른쪽으로 90° 회전"><span class="material-icons">rotate_right</span></button>
-                            <span class="up-tm-controls-hint" x-text="'시점 ' + (teepIsoRot + 1) + '/4 — 앞 막대에 가리면 회전, 설비에 올리면 그 행만 강조'"></span>
+                            <span class="up-tm-controls-hint" x-text="'시점 ' + (teepIsoRot + 1) + '/4 — 높이=TEEP · 색=OEE · 앞 막대에 가리면 회전, 설비에 올리면 그 행만 강조'"></span>
                         </div>
                         <div class="up-tm-scroll">
                             <div id="teep-matrix-host" class="up-tm-host"></div>
                         </div>
-                        <!-- 범례 — 데이터색은 JS 팔레트와 동일 고정값(3D 는 우측면 톤 기준). 3D 는 색 지표에 따라 전환 -->
-                        <div class="up-teep-legend" x-show="teepMatrixMode() === 'iso' && teepIsoColor === 'teep'">
-                            <div class="up-teep-leg"><span class="sw" style="background:#FFF176;"></span>TEEP &lt;30%</div>
-                            <div class="up-teep-leg"><span class="sw" style="background:#FFCA28;"></span>30~45%</div>
-                            <div class="up-teep-leg"><span class="sw" style="background:#FF8F00;"></span>45~60%</div>
-                            <div class="up-teep-leg"><span class="sw" style="background:#EF6C00;"></span>≥60%</div>
-                            <div class="up-teep-leg"><span class="sw" style="background:#C62828;"></span>정지(윗쪽 캡)</div>
-                        </div>
-                        <div class="up-teep-legend" x-show="teepMatrixMode() === 'iso' && teepIsoColor === 'oee'">
+                        <!-- 범례 — 데이터색은 JS 팔레트와 동일 고정값(3D 는 우측면 톤 기준). 높이=TEEP · 색=OEE 등급 -->
+                        <div class="up-teep-legend" x-show="teepMatrixMode() === 'iso'">
                             <div class="up-teep-leg"><span class="sw" style="background:#FBC02D;"></span>OEE &lt;55%</div>
                             <div class="up-teep-leg"><span class="sw" style="background:#81C784;"></span>55~70%</div>
                             <div class="up-teep-leg"><span class="sw" style="background:#4CAF50;"></span>70~85%</div>
                             <div class="up-teep-leg"><span class="sw" style="background:#2E7D32;"></span>≥85%</div>
+                            <div class="up-teep-leg"><span class="sw" style="background:#616E7C;"></span>OEE 산출 불가(무활동·표본 부족)</div>
                             <div class="up-teep-leg"><span class="sw" style="background:#C62828;"></span>정지(윗쪽 캡)</div>
                         </div>
                         <div class="up-teep-legend" x-show="teepMatrixMode() === 'iso' && teepShowPlanned()">
