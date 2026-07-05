@@ -409,6 +409,23 @@
 
         .up-ptl-hours { display: flex; justify-content: space-between; margin-top: 4px; font-size: 0.58rem; color: var(--color-text-secondary); font-family: var(--font-mono); }
 
+        /* ── 날짜별 비생산 패턴 (생산효율 페이지) — 행=날짜 × 24h 트랙. 색 SSOT=시간 분해(hatch-nonprod/hatch-unmeas) ── */
+        .up-npd { display: flex; flex-direction: column; gap: 3px; max-height: 480px; overflow-y: auto; }
+        .up-npd-row { display: flex; align-items: center; gap: 9px; }
+        .up-npd-date { flex: 0 0 84px; font-size: 0.64rem; font-family: var(--font-mono); color: var(--color-text-secondary); text-align: right; white-space: nowrap; }
+        .up-npd-date.is-sun { color: #E05252; }
+        .up-npd-date.is-sat { color: var(--color-primary); }
+        .up-npd-row.is-today .up-npd-date { font-weight: 800; color: var(--color-text-primary); }
+        .up-npd-track { position: relative; flex: 1; height: 20px; border-radius: 3px; overflow: hidden;
+            background: color-mix(in srgb, var(--color-text-secondary) 5%, transparent);
+            background-image: linear-gradient(90deg, var(--color-lines) 1px, transparent 1px); /* 3h 눈금 */
+            background-size: 12.5% 100%; }
+        .up-npd.is-dense .up-npd-track { height: 12px; }   /* 30·60일 — 히트맵 톤으로 압축 */
+        .up-npd-win { position: absolute; top: 0; bottom: 0; min-width: 2px; }
+        .up-npd-now { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--color-primary); z-index: 3; }
+        .up-npd-sum { flex: 0 0 58px; font-size: 0.62rem; font-family: var(--font-mono); color: var(--color-text-secondary); }
+        .up-npd-axis { position: sticky; bottom: 0; z-index: 4; background: var(--color-surface); padding-top: 2px; }
+
         /* 자동 추정 미리보기 레인 (수동 설정 중 참고용 — 클릭 시 불러오기) */
         .up-ptl-suglane-cap { font-size: 0.6rem; color: var(--color-text-disabled); margin-bottom: 3px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
         .up-ptl-suglane-cap:hover { color: var(--purple); }
@@ -618,6 +635,9 @@
 
             /* 비생산 시간대 연표: 트랙 키우고(터치 타깃) 편집 패널 세로 스택 + 핸들 확대 */
             .up-ptl-track { height: 84px; }
+            .up-npd-row { gap: 6px; }
+            .up-npd-date { flex-basis: 64px; font-size: 0.58rem; }
+            .up-npd-sum { flex-basis: 44px; font-size: 0.56rem; }
             .up-ptl-win .wt { display: none; }
             .up-ptl-handle { width: 16px; display: block; }   /* 터치: 핸들 상시 노출·확대 */
             .up-ptl-edit { flex-direction: column; align-items: stretch; }

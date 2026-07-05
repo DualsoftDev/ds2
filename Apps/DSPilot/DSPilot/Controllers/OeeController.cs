@@ -726,34 +726,27 @@ public class OeeController : ControllerBase
         double clipS = ToMs(dayStartUtc), clipE = ToMs(toUtc);
 
         static List<PlannedStopWindowDto> FoldToDay(IEnumerable<(double S, double E)> ivs, double clipS, double clipE)
-        {
-            var covered = new bool[1440];
-            foreach (var (s0, e0) in ivs)
-            {
-                var s = Math.Max(s0, clipS);
-                var e = Math.Min(e0, clipE);
-                if (e <= s) continue;
-                var durMin = (e - s) / 60000.0;
-                if (durMin >= 1440) { for (int m = 0; m < 1440; m++) covered[m] = true; continue; }
-                var startLocal = DateTimeOffset.FromUnixTimeMilliseconds((long)s).LocalDateTime;
-                int startMin = startLocal.Hour * 60 + startLocal.Minute;
-                int span = (int)Math.Ceiling(durMin);
-                for (int k = 0; k < span; k++) covered[(startMin + k) % 1440] = true;
-            }
-
-            var res = new List<PlannedStopWindowDto>();
-            int? wStart = null;
-            for (int m = 0; m <= 1440; m++)
-            {
-                bool has = m < 1440 && covered[m];
-                if (has && wStart == null) wStart = m;
-                else if (!has && wStart != null) { res.Add(new PlannedStopWindowDto(wStart.Value, m, null)); wStart = null; }
-            }
-            return res;
-        }
+            => OeeMath.FoldIntervalsToMinuteOfDay(ivs, clipS, clipE, OeeMath.LocalMinuteOfDay);
 
         var windows = FoldToDay(intervals, clipS, clipE);
         var unmeasuredWindows = FoldToDay(unmeasuredIv, clipS, clipE); // 미계측(§3.4) — 회색 블록(비생산과 분리)
+
+        // 날짜별 접기 — TEEP "날짜별 비생산 패턴" 행(오늘=1행, 7일=7행 …). 각 날을 그 날의 로컬 자정
+        // 경계로 클립해 독립 접기하므로 union 접기의 ≥24h 전체 채움 퇴화가 없다(PlannedStopDayDto 주석).
+        // custom 초장기 범위 가드 — 최근 MaxPatternDays 일만(행 폭주 방지), 잘리면 DaysClipped 로 정직 표기.
+        const int MaxPatternDays = 92;
+        var firstDayLocal = fromUtc.ToLocalTime().Date;
+        var lastDayLocal = lastDayProbe.ToLocalTime().Date;
+        var daysClipped = (lastDayLocal - firstDayLocal).Days + 1 > MaxPatternDays;
+        if (daysClipped) firstDayLocal = lastDayLocal.AddDays(-(MaxPatternDays - 1));
+        var days = new List<PlannedStopDayDto>();
+        for (var day = firstDayLocal; day <= lastDayLocal; day = day.AddDays(1))
+        {
+            var dS = Math.Max(ToMs(DateTime.SpecifyKind(day, DateTimeKind.Local).ToUniversalTime()), ToMs(fromUtc));
+            var dE = Math.Min(ToMs(DateTime.SpecifyKind(day.AddDays(1), DateTimeKind.Local).ToUniversalTime()), ToMs(toUtc));
+            if (dE <= dS) continue;
+            days.Add(new PlannedStopDayDto(day, FoldToDay(intervals, dS, dE), FoldToDay(unmeasuredIv, dS, dE)));
+        }
 
         // 현재 비생산 상태 — 조회범위가 실시간(현재 포함)이고 지금 이 순간이 비생산 raw 구간에 속하는가.
         // 진행 중 정지는 구간 끝이 now 근처까지 이어지므로 [S, E) 에 now(1분 여유) 포함 여부로 판정.
@@ -765,7 +758,8 @@ public class OeeController : ControllerBase
         var currentlyUnmeasured = isLive && unmeasuredIv.Any(iv => iv.S <= probeMs && iv.E >= probeMs - 60000);
 
         return new PlannedAutoPatternDto(windows, fromUtc.ToLocalTime(), toUtc.ToLocalTime(), 0, currentlyNonProd,
-            UnmeasuredWindows: unmeasuredWindows, CurrentlyUnmeasured: currentlyUnmeasured);
+            UnmeasuredWindows: unmeasuredWindows, CurrentlyUnmeasured: currentlyUnmeasured,
+            Days: days, DaysClipped: daysClipped);
     }
 
     // ── PUT /api/oee/planned-stops  {windows:[{startMinutes,endMinutes,label?}]} ──

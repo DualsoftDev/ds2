@@ -345,4 +345,48 @@ public static class OeeMath
         }
         return cells;
     }
+
+    /// <summary>
+    /// 구간(UTC epoch ms)들을 [clipS, clipE) 로 클립해 minute-of-day(0~1440) 커버리지로 접어 병합
+    /// windows 로 반환 — planned-stops/actual 의 "하루 접기"(기간 마지막 날)와 "날짜별 접기"(TEEP
+    /// 날짜별 비생산 패턴, 날마다 그 날의 자정 경계로 클립해 호출) 공용 순수함수.
+    /// 클립 후 폭이 하루(1440분) 이상인 구간은 전체 채움. 자정을 걸치는 클립은 wrap(% 1440) — 단
+    /// 날짜별 호출처럼 클립 자체가 로컬 자정 경계면 wrap 은 발생하지 않는다.
+    /// </summary>
+    /// <param name="minuteOfDay">epoch ms → 로컬 minute-of-day(0~1439) 변환 — 주입식(테스트 타임존 독립).
+    /// 프로덕션은 <see cref="LocalMinuteOfDay"/> 를 넘긴다.</param>
+    public static List<PlannedStopWindowDto> FoldIntervalsToMinuteOfDay(
+        IEnumerable<(double S, double E)> intervals, double clipS, double clipE,
+        Func<double, int> minuteOfDay)
+    {
+        var covered = new bool[1440];
+        foreach (var (s0, e0) in intervals)
+        {
+            var s = Math.Max(s0, clipS);
+            var e = Math.Min(e0, clipE);
+            if (e <= s) continue;
+            var durMin = (e - s) / 60000.0;
+            if (durMin >= 1440) { for (int m = 0; m < 1440; m++) covered[m] = true; continue; }
+            int startMin = minuteOfDay(s);
+            int span = (int)Math.Ceiling(durMin);
+            for (int k = 0; k < span; k++) covered[(startMin + k) % 1440] = true;
+        }
+
+        var res = new List<PlannedStopWindowDto>();
+        int? wStart = null;
+        for (int m = 0; m <= 1440; m++)
+        {
+            bool has = m < 1440 && covered[m];
+            if (has && wStart == null) wStart = m;
+            else if (!has && wStart != null) { res.Add(new PlannedStopWindowDto(wStart.Value, m, null)); wStart = null; }
+        }
+        return res;
+    }
+
+    /// <summary>epoch ms → 서버 로컬 minute-of-day (프로덕션용 기본 변환기).</summary>
+    public static int LocalMinuteOfDay(double epochMs)
+    {
+        var local = DateTimeOffset.FromUnixTimeMilliseconds((long)epochMs).LocalDateTime;
+        return local.Hour * 60 + local.Minute;
+    }
 }

@@ -607,4 +607,73 @@ public class OeeMathTests
         Assert.Equal(1, cells[0].CycleCount);
         Assert.Equal(1, cells[1].CycleCount);
     }
+
+    // ── FoldIntervalsToMinuteOfDay — planned-stops/actual 하루/날짜별 접기 (TEEP 날짜별 비생산 패턴) ──
+    // epoch 0 = 그 날 00:00 로 두고 minute-of-day 변환기를 주입해 서버 타임존과 무관하게 검증한다.
+
+    private const double Min = 60_000.0;
+    private static int FakeMinuteOfDay(double ms) => (int)(ms / Min) % 1440;
+
+    [Fact]
+    public void Fold_merges_and_clips_intervals_to_windows()
+    {
+        // 12:00~13:00 + 12:30~14:00 (겹침) → 병합 720~840, 클립 밖(음수) 구간은 제거.
+        var ivs = new List<(double, double)> { (720 * Min, 780 * Min), (750 * Min, 840 * Min), (-500 * Min, -100 * Min) };
+        var w = OeeMath.FoldIntervalsToMinuteOfDay(ivs, 0, 1440 * Min, FakeMinuteOfDay);
+
+        var win = Assert.Single(w);
+        Assert.Equal(720, win.StartMinutes);
+        Assert.Equal(840, win.EndMinutes);
+    }
+
+    [Fact]
+    public void Fold_full_day_interval_fills_1440()
+    {
+        // 클립 폭 만큼(하루 전체) 덮는 구간 → 0~1440 전체 채움.
+        var w = OeeMath.FoldIntervalsToMinuteOfDay(
+            new List<(double, double)> { (-2880 * Min, 4320 * Min) }, 0, 1440 * Min, FakeMinuteOfDay);
+
+        var win = Assert.Single(w);
+        Assert.Equal(0, win.StartMinutes);
+        Assert.Equal(1440, win.EndMinutes);
+    }
+
+    [Fact]
+    public void Fold_per_day_clip_avoids_multiday_union_degeneration()
+    {
+        // 주말 정지(1일차 18:00 ~ 3일차 06:00, 36h)를 날짜별로 클립해 접으면:
+        //   1일차 = 18:00~24:00 부분 채움, 2일차 = 전체 채움, 3일차 = 00:00~06:00 부분 채움.
+        // (union 으로 한 번에 접으면 1440분 전체 채움으로 퇴화 — 날짜별 접기가 이 퇴화를 없앤다.)
+        var stop = new List<(double, double)> { (1080 * Min, (2880 + 360) * Min) };
+
+        var day1 = OeeMath.FoldIntervalsToMinuteOfDay(stop, 0, 1440 * Min, FakeMinuteOfDay);
+        var day2 = OeeMath.FoldIntervalsToMinuteOfDay(stop, 1440 * Min, 2880 * Min, FakeMinuteOfDay);
+        var day3 = OeeMath.FoldIntervalsToMinuteOfDay(stop, 2880 * Min, 4320 * Min, FakeMinuteOfDay);
+
+        Assert.Equal((1080, 1440), (Assert.Single(day1).StartMinutes, Assert.Single(day1).EndMinutes));
+        Assert.Equal((0, 1440), (Assert.Single(day2).StartMinutes, Assert.Single(day2).EndMinutes));
+        Assert.Equal((0, 360), (Assert.Single(day3).StartMinutes, Assert.Single(day3).EndMinutes));
+    }
+
+    [Fact]
+    public void Fold_empty_or_out_of_clip_returns_no_windows()
+    {
+        Assert.Empty(OeeMath.FoldIntervalsToMinuteOfDay(
+            new List<(double, double)>(), 0, 1440 * Min, FakeMinuteOfDay));
+        // 클립 범위(2일차) 밖 구간만 존재 → 빈 결과.
+        Assert.Empty(OeeMath.FoldIntervalsToMinuteOfDay(
+            new List<(double, double)> { (100 * Min, 200 * Min) }, 1440 * Min, 2880 * Min, FakeMinuteOfDay));
+    }
+
+    [Fact]
+    public void Fold_disjoint_intervals_produce_separate_windows()
+    {
+        // 점심 12:00~13:00 + 야간 22:00~24:00 → 두 개의 분리 창(병합 금지).
+        var ivs = new List<(double, double)> { (720 * Min, 780 * Min), (1320 * Min, 1440 * Min) };
+        var w = OeeMath.FoldIntervalsToMinuteOfDay(ivs, 0, 1440 * Min, FakeMinuteOfDay);
+
+        Assert.Equal(2, w.Count);
+        Assert.Equal((720, 780), (w[0].StartMinutes, w[0].EndMinutes));
+        Assert.Equal((1320, 1440), (w[1].StartMinutes, w[1].EndMinutes));
+    }
 }

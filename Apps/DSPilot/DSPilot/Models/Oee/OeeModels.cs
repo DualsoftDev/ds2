@@ -287,7 +287,19 @@ public sealed record PlannedAutoPatternDto(
     int DaysAnalyzed,
     bool CurrentlyNonProd = false,
     IReadOnlyList<PlannedStopWindowDto>? UnmeasuredWindows = null,  // 미계측(수신 공백, §3.4) — actual 전용, 비생산과 분리 표기
-    bool CurrentlyUnmeasured = false);                              // 지금 이 순간이 미계측(수신 공백) — 배지 3-상태용
+    bool CurrentlyUnmeasured = false,                               // 지금 이 순간이 미계측(수신 공백) — 배지 3-상태용
+    IReadOnlyList<PlannedStopDayDto>? Days = null,                  // 날짜별 접기(actual 전용) — TEEP "날짜별 비생산 패턴" 행
+    bool DaysClipped = false);                                      // Days 가 상한(최근 N일)으로 잘렸는가 — UI 정직 표기용
+
+/// <summary>
+/// 날짜별 비생산 패턴 한 행 (actual 전용) — 해당 로컬 날짜의 자정 경계로 클립해 접은 windows.
+/// 각 날을 독립으로 접으므로 union 접기의 "≥24h 정지 → 1440분 전체 채움" 퇴화가 없다
+/// (주말 정지는 해당 날짜 행들이 꽉 차는 것이 날짜별 뷰에선 정확한 표현). Date = 로컬 날짜(자정).
+/// </summary>
+public sealed record PlannedStopDayDto(
+    DateTime Date,
+    IReadOnlyList<PlannedStopWindowDto> Windows,
+    IReadOnlyList<PlannedStopWindowDto> UnmeasuredWindows);
 
 /// <summary>정지 이벤트 로그 한 건 (필터 조회용). 시각은 로컬 변환된 DateTime.</summary>
 public sealed record OeeDowntimeDto(

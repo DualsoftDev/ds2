@@ -180,6 +180,66 @@
                     </template>
                 </section>
 
+                <!-- ════ 날짜별 비생산 패턴 — 행=날짜(최근이 위) × 24h 트랙, 기간에 맞춰 행 수 변동(오늘=1행, 7일=7행 …) ════
+                     데이터 = /api/oee/planned-stops/actual 의 days(로컬 날짜별 접기 — 각 날을 자정 경계로 독립 접기라
+                     union 접기의 ≥24h 전체 채움 퇴화 없음). 색 SSOT = 시간 분해 막대와 동일(비생산=hatch-nonprod /
+                     미계측=hatch-unmeas). 비생산은 시스템(전역) 단위 — 설비(flow) 선택과 무관하게 시스템 전체 표시. -->
+                <section class="card up-section">
+                    <div class="ds-card-h">
+                        <h4>날짜별 비생산 패턴</h4>
+                        <span class="ds-card-h-sub" x-text="teepNpSub()"></span>
+                    </div>
+
+                    <template x-if="teepNpDays().length > 0">
+                        <div>
+                            <div class="up-teep-legend" style="margin-top:0; margin-bottom:9px;">
+                                <div class="up-teep-leg"><span class="sw hatch-nonprod"></span>비생산 (자동 감지 + 수동 시간대)</div>
+                                <div class="up-teep-leg"><span class="sw hatch-unmeas"></span>미계측 (수신 공백 — 판정 제외)</div>
+                                <div class="up-teep-leg"><span class="sw" style="width:3px; background:var(--color-primary);"></span>지금</div>
+                            </div>
+                            <div class="up-npd" :class="teepNpDense() ? 'is-dense' : ''">
+                                <template x-for="d in teepNpDays()" :key="d.date">
+                                    <div class="up-npd-row" :class="teepNpDayInfo(d).isToday ? 'is-today' : ''">
+                                        <div class="up-npd-date" :class="{ 'is-sun': teepNpDayInfo(d).dow === 0, 'is-sat': teepNpDayInfo(d).dow === 6 }" x-text="teepNpDayInfo(d).label"></div>
+                                        <div class="up-npd-track">
+                                            <template x-for="(w, i) in (d.unmeasuredWindows || [])" :key="'u' + i">
+                                                <div class="up-npd-win hatch-unmeas" :style="psWinStyle(w)" :title="teepNpWinTitle(d, w, '미계측')"></div>
+                                            </template>
+                                            <template x-for="(w, i) in (d.windows || [])" :key="'n' + i">
+                                                <div class="up-npd-win hatch-nonprod" :style="psWinStyle(w)" :title="teepNpWinTitle(d, w, '비생산')"></div>
+                                            </template>
+                                            <template x-if="teepNpDayInfo(d).isToday">
+                                                <div class="up-npd-now" :style="`left:${nowMin() / 1440 * 100}%;`"></div>
+                                            </template>
+                                        </div>
+                                        <div class="up-npd-sum" x-text="teepNpDayMs(d) > 0 ? durShort(teepNpDayMs(d)) : '—'"></div>
+                                    </div>
+                                </template>
+                                <!-- 시각 눈금 — sticky bottom(스크롤 중에도 상시 노출 + 트랙과 정확 정렬), 좌 날짜/우 합계 컬럼과 동일 flex 골격 -->
+                                <div class="up-npd-row up-npd-axis">
+                                    <div class="up-npd-date"></div>
+                                    <div class="up-ptl-hours" style="flex:1; margin-top:0;">
+                                        <span>00</span><span>03</span><span>06</span><span>09</span><span>12</span><span>15</span><span>18</span><span>21</span><span>24</span>
+                                    </div>
+                                    <div class="up-npd-sum"></div>
+                                </div>
+                            </div>
+                            <div class="up-form-hint" style="margin-top:10px;">
+                                각 행은 그 날 실제로 가용성 분모에서 제외된 <b>비생산</b> 시간대(자동 감지 + 수동 시간대)입니다.
+                                기간을 늘리면 날짜 행이 늘어나 점심·야간·주말 같은 반복 패턴이 보입니다. 우측 = 그 날 비생산 합계.
+                            </div>
+                        </div>
+                    </template>
+
+                    <template x-if="teepNpDays().length === 0">
+                        <div class="ds-empty">
+                            <span class="material-icons">event_busy</span>
+                            <div class="ds-empty-title" x-text="teepNonProdError ? '불러오기 실패' : '불러오는 중…'"></div>
+                            <div class="ds-empty-desc" x-text="teepNonProdError || ''"></div>
+                        </div>
+                    </template>
+                </section>
+
             </div>
         </main>
 

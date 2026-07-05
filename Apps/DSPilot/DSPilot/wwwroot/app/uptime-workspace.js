@@ -107,6 +107,9 @@
                 // 생산효율 매트릭스(P6 L0) — /api/oee/teep/matrix (flow×시간버킷 TEEP·OEE).
                 // 라인 전체=3D 아이소(설비×시간), 설비 선택=2D 막대(TEEP·OEE/시간). _teepMxAt=무음(폴링) 갱신 스로틀 기준 시각.
                 teepMatrix: null, teepMatrixError: null, _teepMxSeq: 0, _teepMxAt: 0,
+                // 날짜별 비생산 패턴 — /api/oee/planned-stops/actual 의 days(로컬 날짜별 접기, 기간에 맞춰 행 수 변동).
+                // 비생산은 시스템(전역) 단위라 curFlow 필터 없이 조회(설정 타임라인과 동일 규칙). _teepNpSeq=stale 가드.
+                teepNonProd: null, teepNonProdError: null, _teepNpSeq: 0,
                 oeeExporting: false,   // OEE Excel 내보내기 진행 중
                 planTime: null, // /api/oee/plan-time — 계획시간 폴백 체인 + 14일 히스토그램
                 downtime: [], ranking: [],
@@ -665,6 +668,47 @@
                     return Math.max(0, Math.min(100, this.teep[field] / this.teep.calendarMs * 100)).toFixed(1);
                 },
 
+                // ── 날짜별 비생산 패턴 (/api/oee/planned-stops/actual · days) — 생산효율 페이지 전용 ──
+                // ps.actualNonProd(설비효율 설정 타임라인, 자동 모드 전용)와 별도 상태 — 여기는 자동/수동 무관하게
+                // "실제 A 분모에서 제외된" 비생산(자동 로그 ∪ 수동 시간대)을 항상 조회한다(엔드포인트가 병합 제공).
+                async loadTeepNonProd() {
+                    if (this.view !== 'teep') return;
+                    const r = this.rangeForPeriod();
+                    const seq = ++this._teepNpSeq;
+                    try {
+                        const dto = await this.apiGet(
+                            `/api/oee/planned-stops/actual?from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}`);
+                        if (seq !== this._teepNpSeq) return; // stale 응답 폐기
+                        this.teepNonProd = dto;
+                        this.teepNonProdError = null;
+                    } catch (e) {
+                        if (seq !== this._teepNpSeq) return;
+                        this.teepNonProdError = '날짜별 비생산 패턴을 불러오지 못했습니다: ' + e.message;
+                    }
+                },
+                // 행 배열 — 최근이 위(오늘이 첫 행, 스크롤 없이 보이게). 서버 days 는 날짜 오름차순.
+                teepNpDays() { return ((this.teepNonProd && this.teepNonProd.days) || []).slice().reverse(); },
+                teepNpDense() { return this.teepNpDays().length > 21; }, // 30·60일 — 행 높이 압축(히트맵 톤)
+                // 'YYYY-MM-DDT00:00:00'(로컬 자정) → 라벨/요일/오늘 여부. 파싱은 date-only 슬라이스(타임존 안전).
+                teepNpDayInfo(d) {
+                    const s = String(d.date).slice(0, 10);
+                    const dt = new Date(s + 'T00:00:00');
+                    const dow = dt.getDay();
+                    const today = new Date(); today.setHours(0, 0, 0, 0);
+                    return { label: s.slice(5).replace('-', '/') + ' (' + '일월화수목금토'[dow] + ')', dow, isToday: dt.getTime() === today.getTime() };
+                },
+                teepNpDayMs(d) { return (d.windows || []).reduce((a, w) => a + Math.max(0, w.endMinutes - w.startMinutes), 0) * 60000; },
+                teepNpWinTitle(d, w, kind) {
+                    return this.teepNpDayInfo(d).label + ' ' + this.minToHHMM(w.startMinutes) + '–' + this.minToHHMM(w.endMinutes)
+                        + ' ' + kind + ' (' + this.durShort(Math.max(0, w.endMinutes - w.startMinutes) * 60000) + ')';
+                },
+                teepNpSub() {
+                    const n = this.teepNpDays().length;
+                    if (!n) return '';
+                    const base = n === 1 ? '1일 × 24시간' : `${n}일 × 24시간 · 최근이 위`;
+                    return base + (this.teepNonProd && this.teepNonProd.daysClipped ? ' · 최근 92일만 표시' : '');
+                },
+
                 // ── 생산효율 매트릭스 (P6 L0, /api/oee/teep/matrix) ──────────────────
                 // flow×버킷 재집계라 KPI 보다 비싸다 — 무음(10초 폴링) 갱신은 60초에 한 번만(기간/설비 변경·수동 적용은 즉시).
                 async loadTeepMatrix(silent) {
@@ -882,7 +926,7 @@
                             if (seq !== this._oeeSeq) return; // stale 응답 폐기
                             this.oee = summary;
                             this.oeeError = null;
-                            await Promise.all([this.loadTeep(), this.loadTeepMatrix(silent)]);
+                            await Promise.all([this.loadTeep(), this.loadTeepMatrix(silent), this.loadTeepNonProd()]);
                         } catch (e) {
                             if (seq !== this._oeeSeq) return;
                             this.oeeError = 'OEE 데이터를 불러오지 못했습니다: ' + e.message;
