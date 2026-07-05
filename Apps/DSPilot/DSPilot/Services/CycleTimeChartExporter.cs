@@ -17,7 +17,7 @@ namespace DSPilot.Services;
 /// </summary>
 public static class CycleTimeChartExporter
 {
-    public const string XlsxMimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    public const string XlsxMimeType = ExcelExporterBase.XlsxMimeType;
 
     // ─── Excel (WYSIWYG — 화면 모델 기반) ────────────────────────────────────────
 
@@ -34,9 +34,7 @@ public static class CycleTimeChartExporter
         BuildGanttSheet(ws, model, palette, 1, applySheetChrome: true);
         BuildDataSheet(workbook, new[] { model }, palette, includeFlow: false);
 
-        using var ms = new MemoryStream();
-        workbook.SaveAs(ms);
-        return ms.ToArray();
+        return ExcelExporterBase.SaveToBytes(workbook);
     }
 
     /// <summary>
@@ -73,9 +71,7 @@ public static class CycleTimeChartExporter
             BuildDataSheet(workbook, rendered, palette, includeFlow: true);
         }
 
-        using var ms = new MemoryStream();
-        workbook.SaveAs(ms);
-        return ms.ToArray();
+        return ExcelExporterBase.SaveToBytes(workbook);
     }
 
     // ── Sheet1: 간트 재현 (baseRow 부터 렌더 · 여러 번 호출해 세로 쌓기 가능) ──────────────

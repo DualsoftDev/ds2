@@ -149,6 +149,26 @@ public class UserTagsController : ControllerBase
         return defs;
     }
 
+    /// <summary>
+    /// ChatBot AI 도구용 경량 알람 목록 — period·flow·limit 필터 적용.
+    /// snapshot 의 무거운 집계(버킷·TOP·범주 도넛) 없이 목록만 반환.
+    /// </summary>
+    [HttpGet("alerts")]
+    public async Task<ActionResult<List<UtAlertDto>>> GetAlerts(
+        [FromQuery] string? period,
+        [FromQuery] string? flow,
+        [FromQuery] int limit = 20,
+        CancellationToken ct = default)
+    {
+        var (startLocal, endLocal, _) = ResolvePeriod(period ?? "today");
+        var flw = Blank(flow);
+        var size = Math.Clamp(limit, 1, 200);
+        var rows = await _repo.QueryAlertsAsync(
+            startLocal.ToUniversalTime(), endLocal.ToUniversalTime(),
+            null, DisplayLevel, null, null, size, 0, ct, flowFilter: flw);
+        return rows.Select(ToAlertDto).ToList();
+    }
+
     /// <summary>Excel(.xlsx) 내보내기 — 현재 필터의 전체 알림을 단일 시트 테이블로. snapshot 과 동일 데이터원.</summary>
     [HttpGet("excel")]
     public async Task<IActionResult> GetExcel(
