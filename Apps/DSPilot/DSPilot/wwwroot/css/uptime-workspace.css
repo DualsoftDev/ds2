@@ -33,12 +33,22 @@
         .up-tm-grid-strong { stroke: var(--color-lines-strong); stroke-width: 1; }
         .up-tm-floor-a { fill: var(--color-surface-variant); stroke: var(--color-lines); stroke-width: 0.4; }
         .up-tm-floor-b { fill: var(--color-surface); stroke: var(--color-lines); stroke-width: 0.4; }
-        .up-tm-cube { cursor: pointer; }
+        .up-tm-cube { cursor: pointer; transition: opacity 0.12s; }
         .up-tm-cube:hover .up-tm-face { filter: brightness(1.12); }
         .up-tm-face { stroke: rgba(0, 0, 0, 0.4); stroke-width: 0.6; }
+        /* 설비 행 호버 하이라이트 — 올린 flow 의 큐브만 남기고 나머지 dim(앞 벽 너머 훑기 보조) */
+        .up-tm-svg.tm-dim .up-tm-cube { opacity: 0.15; }
+        .up-tm-svg.tm-dim .up-tm-cube.is-hl { opacity: 1; }
         .up-tm-bar-g { cursor: pointer; }
         .up-tm-bar-g:hover rect { filter: brightness(1.1); }
         .up-tm-val { fill: var(--color-text-secondary); font-size: 9px; font-weight: 700; }
+        /* 2D 불릿 — OEE 가로 마커(stroke 색은 JS 시리즈 고정색) + TEEP↔OEE 갭 점선 */
+        .up-tm-oee-tick { stroke-width: 2.5; }
+        .up-tm-gap { stroke: var(--color-text-secondary); stroke-width: 1; stroke-dasharray: 2 2.5; }
+        /* 3D 뷰 컨트롤(색 지표 세그먼트 + 시점 회전) */
+        .up-tm-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+        .up-tm-controls-hint { font-size: 0.66rem; color: var(--color-text-secondary); }
+        .up-teep-legend .sw-tick { height: 3px; border-radius: 1px; }
         .up-tab-badge { display: inline-flex; min-width: 18px; height: 18px; padding: 0 5px; align-items: center; justify-content: center; border-radius: 999px; background: var(--red); color: #fff; font-size: 0.62rem; font-weight: 800; line-height: 1; }
 
         /* ── OEE 6 KPI (OEE·A·P·Q·MTBF·MTTR — doc/22 사이클기반: MTTR 복원. 산출가능=강조, 산출불가=흐림+사유) ── */
@@ -372,6 +382,7 @@
         .up-ptl-legend .sw.manual { background: var(--nonprod); }
         .up-ptl-legend .sw.auto { background: color-mix(in srgb, var(--nonprod) 16%, transparent); border: 1.5px dashed var(--nonprod); }
         .up-ptl-legend .sw.unmeas { background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--color-text-secondary) 28%, transparent) 0 3px, transparent 3px 6px); border: 1.5px dotted var(--color-text-secondary); }
+        .up-ptl-legend .sw.learned { background: transparent; border: 1.5px dashed var(--teal, #1FA8B8); }
         .up-ptl-legend .sw.sug { background: transparent; border: 1.5px dashed var(--color-lines-strong); }
         .up-ptl-legend .sw.now { width: 3px; height: 15px; border-radius: 1px; background: var(--color-primary); }
 
@@ -398,6 +409,10 @@
         .up-ptl-win.auto { background: color-mix(in srgb, var(--nonprod) 15%, var(--color-surface)); color: var(--nonprod); border-style: dashed; }
         /* 미계측(수신 공백, doc/22 §3.4) — 회색 점선 빗금: '모르는 시간'의 시각 언어(비생산 남색과 구분). 읽기 전용 */
         .up-ptl-win.unmeas { background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--color-text-secondary) 14%, var(--color-surface)) 0 5px, var(--color-surface) 5px 10px); color: var(--color-text-secondary); border-style: dotted; border-color: var(--color-text-secondary); cursor: default; }
+        /* 예상 비생산(doc/22 §3.5 학습, 참고·미적용) — 채움 없는 청록 점선 윤곽: 실제 제외분(진한 블록) 뒤에 깔리는 섀도.
+           라벨은 위쪽 정렬로 실제 블록 라벨과 겹침 회피. */
+        .up-ptl-win.learned { background: transparent; color: var(--teal, #1FA8B8); border: 1.5px dashed var(--teal, #1FA8B8); z-index: 3; justify-content: flex-start; padding-top: 1px; cursor: default; }
+        .up-ptl-win.learned .wl { font-size: 0.58rem; font-weight: 700; opacity: 0.85; }
         .up-ptl-win:hover { z-index: 7; box-shadow: 0 2px 9px rgba(0, 0, 0, 0.22); }
         .up-ptl-win.sel { z-index: 8; box-shadow: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-primary); }
         .up-ptl-win .wl { font-size: 0.68rem; font-weight: 800; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }

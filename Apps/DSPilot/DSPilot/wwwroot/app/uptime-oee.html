@@ -169,9 +169,9 @@
                             · <span x-text="oee ? (oee.ctThresholdMs ? ('가동시간 이상치 ' + durShort(oee.ctThresholdMs) + ' · 14일 평균') : (oee.idealCycleTimeMs ? ('표준 가동시간 ' + durShort(oee.idealCycleTimeMs)) : '표준 가동시간 미설정(클린샘플 0)')) : ''"></span>
                             <span x-show="oee && oee.ctSampleLow" style="color:var(--amber, #b7791f); font-weight:700;" x-text="oee ? (' · 클린샘플 ' + (oee.ctSampleCount != null ? oee.ctSampleCount : 0) + '/5(잠정)') : ''"></span>
                             <span x-show="oee && oee.normalCycleCount != null" x-text="oee ? (' · 정상 ' + (oee.normalCycleCount || 0) + '회') : ''"></span>
-                            <span x-show="oee && oee.unmeasuredMs > 0" style="font-weight:700;"
-                                  title="PLC 수신 공백(통신 헬스 심박 기준) — 이 시간은 가동/비가동/비생산 어디에도 넣지 않았습니다 (doc/22 §3.4)."
-                                  x-text="oee ? (' · 미계측 ' + durShort(oee.unmeasuredMs) + ' (판정 제외)') : ''"></span>
+                            <span x-show="oee && (oee.plannedDownMs + (oee.unmeasuredMs || 0)) > 0" style="font-weight:700;"
+                                  title="가용성(A) 분모에서 제외된 시간 — 10×장시간정지 자동 감지 + 수동 시간대 + 수신 공백(§3.4, 내부적으로는 분리 기록·학습 제외)."
+                                  x-text="oee ? (' · 비생산 제외 ' + durShort(oee.plannedDownMs + (oee.unmeasuredMs || 0))) : ''"></span>
                         </span>
                     </div>
                 </section>
@@ -182,7 +182,7 @@
                         <h4><span x-text="dailyData && dailyData.granularity === 'hour' ? '시간별 라인 가동' : '일자별 라인 가동'"></span>
                             <span class="up-oee-chip" title="벽시계 기준(하루 최대 24h) — 아래 가용성 누적 정산(설비시간 합산)과 단위가 달라 수치가 직접 비교되지 않습니다.">달력 24h</span>
                         </h4>
-                        <span class="ds-card-h-sub">가동 근사 · 고장 · 유지보수 · 비생산(제외) · 미계측</span>
+                        <span class="ds-card-h-sub">가동 근사 · 고장 · 유지보수 · 비생산(제외)</span>
                     </div>
                     <template x-if="dailyData && dailyData.slots && dailyData.slots.length > 0">
                         <div style="position:relative; height:220px;">
@@ -421,19 +421,14 @@
                         <span class="ds-card-h-sub">애초에 생산하지 않는 시간(점심·교대·정기정비·무오더 등)은 OEE 산출에서 통째로 제외 — 자동 계산하거나 24시간 연표로 직접 지정</span>
                         <span style="flex:1;"></span>
                         <!-- 현재 비생산 상태 실시간 배지 (시스템 단위) — 실시간 조회(오늘/N일)일 때만 -->
+                        <!-- 표시 정책(2026-07-04): 미계측(수신 공백)은 사용자에게 비생산으로 합쳐 보임 — currentlyNonProd 가 이미 포함 -->
                         <span x-show="ps.auto && ps.actualNonProd && period !== 'custom'" x-cloak
                               class="up-oee-chip"
-                              :style="(ps.actualNonProd && ps.actualNonProd.currentlyUnmeasured)
-                                        ? 'background:var(--color-text-secondary);color:#fff;border-color:transparent;'
-                                        : (ps.actualNonProd && ps.actualNonProd.currentlyNonProd)
-                                          ? 'background:#334155;color:#fff;border-color:transparent;'
-                                          : 'background:var(--color-primary);color:#fff;border-color:transparent;'"
-                              :title="(ps.actualNonProd && ps.actualNonProd.currentlyUnmeasured)
-                                        ? '현재 PLC 수신 공백(미계측) — 가동/정지 상태를 알 수 없습니다'
-                                        : (ps.actualNonProd && ps.actualNonProd.currentlyNonProd) ? '현재 시스템이 비생산(제외) 구간입니다' : '현재 시스템이 가동 중입니다'">
-                            <span x-text="(ps.actualNonProd && ps.actualNonProd.currentlyUnmeasured)
-                                            ? '● 현재: 미계측(수신 공백)'
-                                            : (ps.actualNonProd && ps.actualNonProd.currentlyNonProd) ? '● 현재: 비생산 중' : '● 현재: 가동 중'"></span>
+                              :style="(ps.actualNonProd && ps.actualNonProd.currentlyNonProd)
+                                        ? 'background:#334155;color:#fff;border-color:transparent;'
+                                        : 'background:var(--color-primary);color:#fff;border-color:transparent;'"
+                              :title="(ps.actualNonProd && ps.actualNonProd.currentlyNonProd) ? '현재 시스템이 비생산(제외) 구간입니다' : '현재 시스템이 가동 중입니다'">
+                            <span x-text="(ps.actualNonProd && ps.actualNonProd.currentlyNonProd) ? '● 현재: 비생산 중' : '● 현재: 가동 중'"></span>
                         </span>
                         <span class="up-oee-chip" :class="ps.auto ? 'auto' : (ps.source === 'manual' ? 'solid' : '')"
                               x-text="ps.auto ? ('자동 · ' + ps.ctMultiplier + '×가동시간 장시간정지') : (ps.source === 'manual' ? '수동' : '미설정')"></span>
@@ -454,21 +449,21 @@
                         <div class="up-ptl">
                             <div class="up-ptl-legend">
                                 <span class="lg"><span class="sw auto"></span> 실제 제외된 비생산 (기간 마지막 날)</span>
-                                <span class="lg" x-show="ps.actualNonProd && ps.actualNonProd.unmeasuredWindows && ps.actualNonProd.unmeasuredWindows.length > 0">
-                                    <span class="sw unmeas"></span> 미계측 (수신 공백 — 판정 제외)</span>
+                                <span class="lg" x-show="ps.learned && ps.learned.windows && ps.learned.windows.length > 0"
+                                      :title="ps.learned ? ('활동일 ' + ps.learned.activeDays + '일 중 ' + Math.round((ps.learned.promoteRatio || 0) * 100) + '% 이상 반복된 시간대 — 아직 판정에는 미적용(참고)') : ''">
+                                    <span class="sw learned"></span> 예상 비생산 (14일 학습 · 미적용)</span>
                                 <span class="lg"><span class="sw now"></span> 현재 <b x-text="minToHHMM(nowMin())"></b></span>
                             </div>
                             <div class="up-ptl-track" style="pointer-events:none; cursor:default;">
                                 <div class="up-ptl-now" :style="`left:${nowMin() / 1440 * 100}%`"></div>
-                                <!-- 미계측 (수신 공백, doc/22 §3.4) — 가동/정지/비생산 어디에도 안 넣은 '모르는 시간' -->
-                                <template x-for="(w, i) in (ps.actualNonProd && ps.actualNonProd.unmeasuredWindows ? ps.actualNonProd.unmeasuredWindows : [])" :key="'unm-' + i">
-                                    <div class="up-ptl-win unmeas" :style="psWinStyle(w)"
-                                         :title="minToHHMM(w.startMinutes) + ' – ' + minToHHMM(w.endMinutes) + ' · 미계측 (PLC 수신 공백 — 가동/정지/비생산 판정에서 제외)'">
-                                        <span class="wl">미계측</span>
-                                        <span class="wt" x-show="(w.endMinutes - w.startMinutes) >= 90" x-text="minToHHMM(w.startMinutes) + '–' + minToHHMM(w.endMinutes)"></span>
+                                <!-- 예상 비생산 (§3.5 투표제 학습, 참고·미적용) — 점선 윤곽만: 실제 제외분(진한 블록)과 겹쳐 비교하는 섀도 -->
+                                <template x-for="(w, i) in (ps.learned && ps.learned.windows ? ps.learned.windows : [])" :key="'lrn-' + i">
+                                    <div class="up-ptl-win learned" :style="psWinStyle(w)"
+                                         :title="minToHHMM(w.startMinutes) + ' – ' + minToHHMM(w.endMinutes) + ' · 예상 비생산 (14일 학습 · 판정 미적용)'">
+                                        <span class="wl">예상</span>
                                     </div>
                                 </template>
-                                <!-- 실제 제외된 비생산 (메인) — 추이 남색과 동일 소스 -->
+                                <!-- 실제 제외된 비생산 (메인) — 추이 남색과 동일 소스. 미계측(§3.4)은 여기 합쳐 표시(데이터는 분리) -->
                                 <template x-for="(w, i) in (ps.actualNonProd ? ps.actualNonProd.windows : [])" :key="'act-' + i">
                                     <div class="up-ptl-win auto" :style="psWinStyle(w)"
                                          :title="minToHHMM(w.startMinutes) + ' – ' + minToHHMM(w.endMinutes) + ' · 실제 제외된 비생산 (기간 마지막 날)'">
@@ -478,8 +473,7 @@
                                 </template>
                                 <!-- 빈 상태 -->
                                 <div class="up-ptl-empty"
-                                     x-show="(!ps.actualNonProd || ps.actualNonProd.windows.length === 0)
-                                             && (!ps.actualNonProd || !ps.actualNonProd.unmeasuredWindows || ps.actualNonProd.unmeasuredWindows.length === 0)">
+                                     x-show="!ps.actualNonProd || ps.actualNonProd.windows.length === 0">
                                     기간 마지막 날에 제외된 비생산 없음 (10×가동시간 이상 정지 없음)
                                 </div>
                             </div>

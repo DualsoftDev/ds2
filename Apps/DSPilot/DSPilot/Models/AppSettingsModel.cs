@@ -74,7 +74,8 @@ public class OeeManualSettings
 
 /// <summary>
 /// 자동 비생산 시간대 패턴 캐시. 자동 모드 전환 시 또는 24h 만료 후 재계산.
-/// dspFlowHistory 14일 스캔: mt IS NULL AND ct ≥ 10×avgCT 사이클의 시작 시각(hour-of-day) 집계 → 윈도 병합.
+/// 학습 = 일별 샘플 투표제(doc/22 §3.5, OeeNonProdPatternService): 활동일마다 장시간(10×) 정지 구간을
+/// 30분 슬롯에 페인팅해 1표, 활동일의 60% 이상 반복된 슬롯만 창으로 승격. 참고 표시 전용(KPI 미적용).
 /// </summary>
 public class PlannedAutoPatternCache
 {
@@ -82,6 +83,9 @@ public class PlannedAutoPatternCache
     public DateTime ComputedAt { get; set; }
     public DateTime DataFrom { get; set; }
     public DateTime DataTo { get; set; }
+
+    /// <summary>투표 분모가 된 활동일(사이클 ≥1) 수 — 표본 신뢰도 표시용.</summary>
+    public int ActiveDays { get; set; }
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }

@@ -62,12 +62,13 @@
         }
         // 정지 캡(빨강) — 시간분해 막대의 '정지' 와 같은 의미(빗금 대신 3D 캡).
         const TM_DOWN_FACES = { top: '#B71C1C', right: '#C62828', front: '#D32F2F' };
-        // OEE 등급(그린 스케일, P6 목업 L1) — 2D 막대 단색.
-        function _tmOeeColor(pct) {
-            if (pct >= 85) return '#1B5E20';
-            if (pct >= 70) return '#2E7D32';
-            if (pct >= 55) return '#66BB6A';
-            return '#FDD835';
+        // OEE 등급 3면(3D 색 모드 'oee', 그린 스케일 — P6 목업 L1 경계 85/70/55) — 앰버 팔레트와 동일하게 top 이 가장 밝고
+        // front 가 가장 어둡다. <55% 는 그린 계열 밖(옐로)로 이탈시켜 "나쁨"이 스캔에서 튀게 한다.
+        function _tmOeeFaces(pct) {
+            if (pct >= 85) return { top: '#388E3C', right: '#2E7D32', front: '#1B5E20' };
+            if (pct >= 70) return { top: '#66BB6A', right: '#4CAF50', front: '#43A047' };
+            if (pct >= 55) return { top: '#A5D6A7', right: '#81C784', front: '#66BB6A' };
+            return { top: '#FDD835', right: '#FBC02D', front: '#F9A825' };
         }
 
         function uptimeApp() {
@@ -107,6 +108,9 @@
                 // 생산효율 매트릭스(P6 L0) — /api/oee/teep/matrix (flow×시간버킷 TEEP·OEE).
                 // 라인 전체=3D 아이소(설비×시간), 설비 선택=2D 막대(TEEP·OEE/시간). _teepMxAt=무음(폴링) 갱신 스로틀 기준 시각.
                 teepMatrix: null, teepMatrixError: null, _teepMxSeq: 0, _teepMxAt: 0,
+                // 3D 아이소 뷰 옵션 — teepIsoRot: 수직축 4시점 스텝 회전(0~3, 가림을 시점 전환으로 회피),
+                // teepIsoColor: 큐브 색 지표('teep' 앰버 | 'oee' 그린 — 같은 지형을 두 지표로 대조).
+                teepIsoRot: 0, teepIsoColor: 'teep',
                 // 날짜별 비생산 패턴 — /api/oee/planned-stops/actual 의 days(로컬 날짜별 접기, 기간에 맞춰 행 수 변동).
                 // 비생산은 시스템(전역) 단위라 curFlow 필터 없이 조회(설정 타임라인과 동일 규칙). _teepNpSeq=stale 가드.
                 teepNonProd: null, teepNonProdError: null, _teepNpSeq: 0,
@@ -126,7 +130,7 @@
                 // 비생산 시간대 (doc/22 §3.3) — auto: 자동 계산(10×가동시간 장시간정지) on/off. source: auto/manual/none. ctMultiplier: 자동판정 배수(10).
                 // windows=수동 편집용 사본. selected=선택된 윈도 index(-1=미선택). addMode=드래그 추가 무장.
                 // actualNonProd=이번 기간 실제 제외된 비생산(추이 남색과 동일 소스, 자동 모드 타임라인의 유일한 소스이자 수동 전환 시 시드).
-                ps: { source: 'none', auto: true, ctMultiplier: 10, windows: [], selected: -1, addMode: false, msg: '', err: '', busy: false, actualNonProd: null, seededFromAuto: false },
+                ps: { source: 'none', auto: true, ctMultiplier: 10, windows: [], selected: -1, addMode: false, msg: '', err: '', busy: false, actualNonProd: null, seededFromAuto: false, learned: null },
                 _psDrag: null, // 진행 중 드래그 상태 { mode:'create'|'resize-l'|'resize-r', index, anchor } (비반응형)
                 // 정지 이벤트 로그 토글 — 기본 숨김, 정지 원인 구성(도넛)의 [로그 보기 및 설정] 버튼으로 토글
                 showDowntimeLog: false,
@@ -320,8 +324,9 @@
                         this.ps.windows = (r.windows || []).map(w => ({ startMinutes: w.startMinutes, endMinutes: w.endMinutes, label: w.label || '' }));
                         this.ps.selected = -1; this.ps.addMode = false; this.ps.seededFromAuto = false;
                     } catch (e) { this.ps.err = '비생산 시간대를 불러오지 못했습니다: ' + e.message; }
-                    // 자동 모드일 때: 이번 기간 실제 제외 비생산(타임라인의 유일한 소스)만 조회 — 14일 평균 패턴 참고 블록은 폐지.
-                    // 비생산 시간대는 시스템(전역) 단위 — flow별 페이지에서도 curFlow 필터 없이 항상 시스템 전체로 표시.
+                    // 자동 모드일 때: ① 이번 기간 실제 제외 비생산(타임라인 메인 소스) ② 학습 창(§3.5 투표제,
+                    // 참고·미적용 — Phase 1 섀도 검증용 점선 윤곽). 비생산 시간대는 시스템(전역) 단위 —
+                    // flow별 페이지에서도 curFlow 필터 없이 항상 시스템 전체로 표시.
                     if (this.ps.auto) {
                         const seq = ++this._anpSeq; // 진행 중인 refreshActualNonProd 의 stale 응답이 이 결과를 덮지 않도록
                         try {
@@ -330,9 +335,13 @@
                             const dto = await this.apiGet('/api/oee/planned-stops/actual?' + aqs);
                             if (seq === this._anpSeq) this.ps.actualNonProd = dto;
                         } catch (e) { if (seq === this._anpSeq) this.ps.actualNonProd = null; }
+                        // 학습 창은 서버 24h 캐시라 폴링 불필요 — 로드/모드 전환 시 1회만 (실패해도 메인 표시 무영향)
+                        try { this.ps.learned = await this.apiGet('/api/oee/planned-stops/auto-pattern'); }
+                        catch (e) { this.ps.learned = null; }
                     } else {
                         ++this._anpSeq; // 진행 중 갱신 무효화 — 수동 모드 null 을 뒤늦은 응답이 덮지 않도록
                         this.ps.actualNonProd = null;
+                        this.ps.learned = null;
                     }
                 },
                 // 폴링·기간변경 경량 갱신 — 자동 모드에서 '실제 제외 비생산'(+현재 상태 배지)만 다시 읽는다.
@@ -667,6 +676,12 @@
                     if (!this.teep || !this.teep.calendarMs) return '0.0';
                     return Math.max(0, Math.min(100, this.teep[field] / this.teep.calendarMs * 100)).toFixed(1);
                 },
+                // 비생산 표시값 — 미계측(§3.4)을 합쳐 보여준다(2026-07-04 표시 정책, 데이터·학습·판정은 분리).
+                teepNonProdDisplayPct() {
+                    if (!this.teep || !this.teep.calendarMs) return '0.0';
+                    const ms = (this.teep.nonProdMs || 0) + (this.teep.unmeasuredMs || 0);
+                    return Math.max(0, Math.min(100, ms / this.teep.calendarMs * 100)).toFixed(1);
+                },
 
                 // ── 날짜별 비생산 패턴 (/api/oee/planned-stops/actual · days) — 생산효율 페이지 전용 ──
                 // ps.actualNonProd(설비효율 설정 타임라인, 자동 모드 전용)와 별도 상태 — 여기는 자동/수동 무관하게
@@ -740,10 +755,13 @@
                     const m = this.teepMatrix, mode = this.teepMatrixMode();
                     if (!mode) return '';
                     const g = m.granularity === 'hour' ? '시간별' : '일별';
-                    if (mode === 'iso') return `설비 ${m.flows.length}개 × ${g} ${m.buckets.length}구간 · 높이=가동 · 색=TEEP 등급 · 빨간 캡=정지 · 클릭=설비 상세`;
+                    if (mode === 'iso') return `설비 ${m.flows.length}개 × ${g} ${m.buckets.length}구간 · 높이=가동 · 색=${this.teepIsoColor === 'oee' ? 'OEE' : 'TEEP'} 등급 · 빨간 캡=정지 · 클릭=설비 상세`;
                     const f = this.curFlow || m.flows[0].flowName;
-                    return `${f} · ${g} ${m.buckets.length}구간 · 막대=TEEP·OEE 등급색 · 클릭=설비효율(A·P·Q) 상세`;
+                    return `${f} · ${g} ${m.buckets.length}구간 · 막대=TEEP · 마커=OEE (같은 축, 갭=쓰지 못한 시간) · 클릭=설비효율(A·P·Q) 상세`;
                 },
+                // 3D 시점 스텝 회전(±90°) / 색 지표 전환 — 상태만 바꾸고 전체 재렌더(임퍼러티브 SVG, 체감 즉시).
+                teepIsoRotate(dir) { this.teepIsoRot = (this.teepIsoRot + dir + 4) % 4; this.renderTeepMatrix(); },
+                teepIsoSetColor(c) { if (this.teepIsoColor === c) return; this.teepIsoColor = c; this.renderTeepMatrix(); },
                 // 룰 기반 한 줄 인사이트 — 라인 뷰=기간 최저/최고 설비, 설비 뷰=최저 버킷과 그 원인 분해.
                 teepMatrixInsight() {
                     const m = this.teepMatrix;
@@ -796,72 +814,100 @@
                     if (mode === 'iso') this._renderTeepIso(host, this.teepMatrix);
                     else this._renderTeepBars(host, this.teepMatrix);
                 },
-                // 3D 아이소(설비 × 시간 × 가동) — P6 목업 renderL0 이식. 높이=가동/캘린더, 색=TEEP 등급, 빨간 캡=정지.
+                // 3D 아이소(설비 × 시간 × 가동) — P6 목업 renderL0 이식 + 4시점 스텝 회전 + 색 지표 전환 + 행 하이라이트.
+                // 높이=가동/캘린더, 색=TEEP/OEE 등급(teepIsoColor), 빨간 캡=정지. 회전(teepIsoRot)은 데이터 (버킷,설비)를
+                // 프레임 (x,z)로 재매핑만 한다 — 투영·면 구성(앞/우/윗면)·페인터 정렬은 불변이라 면 가시성 계산이 필요 없고,
+                // 앞쪽 벽에 가린 셀은 시점을 90° 돌려서 본다(데이터 의존 가림의 회피 수단).
                 _renderTeepIso(host, m) {
                     const flows = m.flows, B = m.buckets.length, L = flows.length;
+                    const r = ((this.teepIsoRot % 4) + 4) % 4;
+                    const X = r % 2 === 0 ? B : L, Z = r % 2 === 0 ? L : B; // 회전 후 프레임 치수
+                    const map = (d, l) => r === 0 ? [d, l] : r === 1 ? [l, B - 1 - d] : r === 2 ? [B - 1 - d, L - 1 - l] : [L - 1 - l, d];
                     const CELL = Math.max(9, Math.min(24, Math.floor(720 / (B + L + 4)))); // 60일(60버킷)까지 자동 축소
                     const COS30 = 0.866, SIN30 = 0.5;
                     const H_UNITS = 5; // 가동 100% = 5셀 높이
                     const PAD_L = 70, PAD_R = 34, PAD_T = 14, PAD_B = 30;
-                    const OX = PAD_L + L * CELL * COS30;
+                    const OX = PAD_L + Z * CELL * COS30;
                     const OY = PAD_T + H_UNITS * CELL;
-                    const W = Math.ceil(OX + B * CELL * COS30 + PAD_R);
-                    const H = Math.ceil(OY + (B + L) * CELL * SIN30 + PAD_B);
+                    const W = Math.ceil(OX + X * CELL * COS30 + PAD_R);
+                    const H = Math.ceil(OY + (X + Z) * CELL * SIN30 + PAD_B);
                     const iso = (x, y, z) => [OX + (x - z) * CELL * COS30, OY + (x + z) * CELL * SIN30 - y * CELL];
                     const pts = (arr) => arr.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
                     const svg = _tmEl('svg', { viewBox: `0 0 ${W} ${H}`, class: 'up-tm-svg', role: 'img' });
                     host.appendChild(svg);
 
                     // 바닥 그리드(체커보드) — 크롬 색은 CSS 토큰(라이트/다크 자동 대응).
-                    for (let l = 0; l < L; l++)
-                        for (let d = 0; d < B; d++)
+                    for (let z = 0; z < Z; z++)
+                        for (let x = 0; x < X; x++)
                             _tmEl('polygon', {
-                                points: pts([iso(d, 0, l), iso(d + 1, 0, l), iso(d + 1, 0, l + 1), iso(d, 0, l + 1)]),
-                                class: (l + d) % 2 === 0 ? 'up-tm-floor-a' : 'up-tm-floor-b'
+                                points: pts([iso(x, 0, z), iso(x + 1, 0, z), iso(x + 1, 0, z + 1), iso(x, 0, z + 1)]),
+                                class: (x + z) % 2 === 0 ? 'up-tm-floor-a' : 'up-tm-floor-b'
                             }, svg);
 
-                    // 큐브 — 뒤(x+z 작음)→앞 페인터 정렬.
+                    // 큐브 — 프레임 좌표 기준 뒤(x+z 작음)→앞 페인터 정렬.
+                    const faces = this.teepIsoColor === 'oee' ? _tmOeeFaces : _tmTeepFaces;
                     const order = [];
-                    for (let l = 0; l < L; l++) for (let d = 0; d < B; d++) order.push([l, d]);
-                    order.sort((a, b) => (a[0] + a[1]) - (b[0] + b[1]));
-                    for (const [l, d] of order) {
+                    for (let l = 0; l < L; l++) for (let d = 0; d < B; d++) { const [x, z] = map(d, l); order.push([l, d, x, z]); }
+                    order.sort((a, b) => (a[2] + a[3]) - (b[2] + b[3]));
+                    const cubes = []; // 행(설비) 호버 하이라이트용 — enter 시 같은 flow 만 남기고 dim
+                    for (const [l, d, x, z] of order) {
                         const c = flows[l].cells[d];
                         if (!c || c.calendarMs <= 0) continue;
                         const hRun = Math.min(H_UNITS, c.runningMs / c.calendarMs * H_UNITS);
                         const hTot = Math.min(H_UNITS, (c.runningMs + c.downMs) / c.calendarMs * H_UNITS);
                         if (hTot < 0.03) continue;
                         const g = _tmEl('g', { class: 'up-tm-cube' }, svg);
-                        // 앞(z=l+1)/우(x=d+1)/윗면 3면 박스 [y0,y1]
+                        // 앞(z+1)/우(x+1)/윗면 3면 박스 [y0,y1]
                         const box = (y0, y1, f) => {
-                            const b0 = iso(d + 1, y0, l), c0 = iso(d + 1, y0, l + 1), e0 = iso(d, y0, l + 1);
-                            const a1 = iso(d, y1, l), b1 = iso(d + 1, y1, l), c1 = iso(d + 1, y1, l + 1), e1 = iso(d, y1, l + 1);
+                            const b0 = iso(x + 1, y0, z), c0 = iso(x + 1, y0, z + 1), e0 = iso(x, y0, z + 1);
+                            const a1 = iso(x, y1, z), b1 = iso(x + 1, y1, z), c1 = iso(x + 1, y1, z + 1), e1 = iso(x, y1, z + 1);
                             _tmEl('polygon', { points: pts([e0, c0, c1, e1]), fill: f.front, class: 'up-tm-face' }, g);
                             _tmEl('polygon', { points: pts([b0, c0, c1, b1]), fill: f.right, class: 'up-tm-face' }, g);
                             _tmEl('polygon', { points: pts([a1, b1, c1, e1]), fill: f.top, class: 'up-tm-face' }, g);
                         };
-                        if (hRun > 0.03) box(0, hRun, _tmTeepFaces((c.teep ?? 0) * 100));
+                        const metric = this.teepIsoColor === 'oee' ? c.oee : c.teep;
+                        if (hRun > 0.03) box(0, hRun, faces((metric ?? 0) * 100));
                         if (hTot - hRun > 0.03) box(hRun, hTot, TM_DOWN_FACES); // 정지 캡
                         const t = _tmEl('title', {}, g);
                         t.textContent = `${flows[l].flowName} · ${this._tmShortLabel(m.buckets[d].label, m.granularity)}`
                             + ` — TEEP ${this.pct(c.teep)} · OEE ${this.pct(c.oee)}`
                             + ` · 가동 ${this.durShort(c.runningMs)} · 정지 ${this.durShort(c.downMs)} · 비생산 ${this.durShort(c.nonProdMs)}`;
+                        g.dataset.flow = flows[l].flowName;
+                        cubes.push(g);
                         g.addEventListener('click', () => this._tmDrillFlow(flows[l].flowName));
+                        g.addEventListener('pointerenter', () => {
+                            svg.classList.add('tm-dim');
+                            for (const q of cubes) q.classList.toggle('is-hl', q.dataset.flow === g.dataset.flow);
+                        });
                     }
-
-                    // 축 라벨 — 설비(좌측, 이름 축약), 시간(앞쪽 하단, 밀도에 맞춰 스텝).
-                    flows.forEach((f, i) => {
-                        const p = iso(-0.35, 0, i + 0.55);
-                        const name = f.flowName.length > 10 ? f.flowName.slice(0, 9) + '…' : f.flowName;
-                        _tmEl('text', { x: p[0].toFixed(1), y: (p[1] + 4).toFixed(1), class: 'up-tm-axis-strong', 'text-anchor': 'end' }, svg).textContent = name;
+                    svg.addEventListener('pointerleave', () => {
+                        svg.classList.remove('tm-dim');
+                        for (const q of cubes) q.classList.remove('is-hl');
                     });
-                    const step = Math.max(1, Math.ceil(B / 14));
-                    for (let d = 0; d < B; d += step) {
-                        const p = iso(d + 0.5, 0, L + 0.45);
-                        _tmEl('text', { x: p[0].toFixed(1), y: (p[1] + 11).toFixed(1), class: 'up-tm-axis', 'text-anchor': 'middle' }, svg)
-                            .textContent = this._tmShortLabel(m.buckets[d].label, m.granularity);
+
+                    // 축 라벨 — 회전에 따라 좌측(z축)/하단(x축)에 설비·시간이 자리를 바꾼다. 시간 라벨만 스텝 솎음.
+                    const flowName = (i) => { const n = flows[i].flowName; return n.length > 10 ? n.slice(0, 9) + '…' : n; };
+                    const zItem = (zi) => r === 0 ? { flow: zi } : r === 1 ? { bucket: B - 1 - zi } : r === 2 ? { flow: L - 1 - zi } : { bucket: zi };
+                    const xItem = (xi) => r === 0 ? { bucket: xi } : r === 1 ? { flow: xi } : r === 2 ? { bucket: B - 1 - xi } : { flow: L - 1 - xi };
+                    const zStep = Math.max(1, Math.ceil(Z / 14)), xStep = Math.max(1, Math.ceil(X / 14));
+                    for (let zi = 0; zi < Z; zi++) {
+                        const it = zItem(zi);
+                        if (it.bucket != null && zi % zStep !== 0) continue;
+                        const p = iso(-0.35, 0, zi + 0.55);
+                        _tmEl('text', { x: p[0].toFixed(1), y: (p[1] + 4).toFixed(1), class: it.flow != null ? 'up-tm-axis-strong' : 'up-tm-axis', 'text-anchor': 'end' }, svg)
+                            .textContent = it.flow != null ? flowName(it.flow) : this._tmShortLabel(m.buckets[it.bucket].label, m.granularity);
+                    }
+                    for (let xi = 0; xi < X; xi++) {
+                        const it = xItem(xi);
+                        if (it.bucket != null && xi % xStep !== 0) continue;
+                        const p = iso(xi + 0.5, 0, Z + 0.45);
+                        _tmEl('text', { x: p[0].toFixed(1), y: (p[1] + 11).toFixed(1), class: it.flow != null ? 'up-tm-axis-strong' : 'up-tm-axis', 'text-anchor': 'middle' }, svg)
+                            .textContent = it.flow != null ? flowName(it.flow) : this._tmShortLabel(m.buckets[it.bucket].label, m.granularity);
                     }
                 },
-                // 2D 막대(설비 뷰) — 버킷별 TEEP·OEE 쌍. y=0~100%, 색=각 등급 스케일(3D 와 동일 팔레트).
+                // 2D 불릿(설비 뷰) — 버킷별 같은 0~100% 축에 TEEP 막대(앰버 단색) + OEE 가로 마커(그린) 겹침.
+                // 둘 사이 세로 점선 = 갭("설비는 이만큼 돌 수 있는데(OEE) 시간을 이만큼밖에 못 썼다(TEEP)") — 비교가
+                // 도형 하나로 읽히도록 등급색(높이+색 이중 인코딩)은 버리고 색=시리즈 구분 고정 단색만 쓴다.
                 _renderTeepBars(host, m) {
                     const fr = this.curFlow ? m.flows.find(f => f.flowName === this.curFlow) : m.flows[0];
                     if (!fr) return;
@@ -878,27 +924,33 @@
                         _tmEl('text', { x: mg.l - 7, y: (+y + 3.5).toFixed(1), class: 'up-tm-axis', 'text-anchor': 'end' }, svg).textContent = v + '%';
                     }
 
+                    const TEEP_C = '#FFA000', OEE_C = '#2E7D32'; // 시리즈 고정색 — 범례와 SSOT
                     const gw = pw / B;
-                    const bw = Math.max(3, Math.min(20, gw * 0.34));
-                    const showVal = B <= 16; // 버킷 적을 때만 막대 위 % 수치(시간별 24개 등은 툴팁만)
+                    const bw = Math.max(4, Math.min(26, gw * 0.5));
+                    const showVal = B <= 16; // 버킷 적을 때만 % 수치(시간별 24개 등은 툴팁만)
                     const step = Math.max(1, Math.ceil(B / 12));
+                    const yOf = v => mg.t + ph * (1 - Math.min(1, Math.max(0, v)));
                     for (let i = 0; i < B; i++) {
                         const c = fr.cells[i];
                         const cx = mg.l + i * gw + gw / 2;
                         const g = _tmEl('g', { class: 'up-tm-bar-g' }, svg);
                         // 투명 히트영역 — 막대가 없는(무활동) 버킷도 툴팁·클릭 가능
                         _tmEl('rect', { x: (cx - gw / 2).toFixed(1), y: mg.t, width: gw.toFixed(1), height: ph, fill: 'transparent' }, g);
-                        const bar = (v, x, color) => {
-                            if (v == null) return;
-                            const bh = Math.max(v > 0 ? 1.5 : 0, ph * Math.min(1, v));
-                            _tmEl('rect', { x: x.toFixed(1), y: (mg.t + ph - bh).toFixed(1), width: bw.toFixed(1), height: bh.toFixed(1), fill: color, rx: 1.5 }, g);
-                            if (showVal && v > 0.001)
-                                _tmEl('text', { x: (x + bw / 2).toFixed(1), y: (mg.t + ph - bh - 3).toFixed(1), class: 'up-tm-val', 'text-anchor': 'middle' }, g)
-                                    .textContent = Math.round(v * 100);
-                        };
                         if (c) {
-                            bar(c.teep, cx - bw - 1.5, _tmTeepFaces((c.teep ?? 0) * 100).top);
-                            bar(c.oee, cx + 1.5, _tmOeeColor((c.oee ?? 0) * 100));
+                            if (c.teep != null) {
+                                const bh = Math.max(c.teep > 0 ? 1.5 : 0, mg.t + ph - yOf(c.teep));
+                                _tmEl('rect', { x: (cx - bw / 2).toFixed(1), y: (mg.t + ph - bh).toFixed(1), width: bw.toFixed(1), height: bh.toFixed(1), fill: TEEP_C, rx: 1.5 }, g);
+                            }
+                            if (c.teep != null && c.oee != null) // 갭 점선 — TEEP 상단 ↔ OEE 마커
+                                _tmEl('line', { x1: cx.toFixed(1), y1: yOf(c.teep).toFixed(1), x2: cx.toFixed(1), y2: yOf(c.oee).toFixed(1), class: 'up-tm-gap' }, g);
+                            if (c.oee != null)
+                                _tmEl('line', { x1: (cx - bw * 0.85).toFixed(1), y1: yOf(c.oee).toFixed(1), x2: (cx + bw * 0.85).toFixed(1), y2: yOf(c.oee).toFixed(1), stroke: OEE_C, class: 'up-tm-oee-tick' }, g);
+                            if (showVal && (c.teep > 0.001 || c.oee > 0.001)) {
+                                // TEEP % 를 막대·마커 중 높은 쪽 위에 — 마커와 수치 겹침 방지
+                                const topY = Math.min(c.teep != null ? yOf(c.teep) : Infinity, c.oee != null ? yOf(c.oee) : Infinity);
+                                _tmEl('text', { x: cx.toFixed(1), y: (topY - 4).toFixed(1), class: 'up-tm-val', 'text-anchor': 'middle' }, g)
+                                    .textContent = Math.round((c.teep ?? c.oee) * 100);
+                            }
                             const t = _tmEl('title', {}, g);
                             t.textContent = `${m.buckets[i].label} — TEEP ${this.pct(c.teep)} · OEE ${this.pct(c.oee)}`
                                 + ` (A ${this.pct(c.availability)} · P ${this.pct(c.performance)} · Q ${this.pct(m.quality)})`
@@ -1047,8 +1099,9 @@
                     //   nonProdMs=비생산(A 분모 밖 — 가동에서 카빙), 나머지=가동근사.
                     const failureData = d.slots.map(s => ((s.failureMs || 0) + (s.unclassifiedMs || 0)) / MS); // 고장(isFailure=1 계열)
                     const plannedData = d.slots.map(s => ((s.plannedMs || 0) + (s.otherMs || 0)) / MS); // 유지보수(isFailure=0 계열)
-                    const nonProdData = d.slots.map(s => (s.nonProdMs || 0) / MS); // 비생산(제외) — A 분모 밖
-                    const unmeasData = d.slots.map(s => (s.unmeasuredMs || 0) / MS); // 미계측(수신 공백, §3.4) — 판정 제외
+                    // 비생산(제외) — A 분모 밖. 표시 정책(2026-07-04 사용자 결정): 미계측(수신 공백, §3.4)을 합쳐 보여준다.
+                    // 데이터(unmeasuredMs 필드)·학습(§3.5 차집합)·KPI 카빙은 분리 유지 — 화면 카테고리만 통합.
+                    const nonProdData = d.slots.map(s => ((s.nonProdMs || 0) + (s.unmeasuredMs || 0)) / MS);
                     const runData = d.slots.map(s => Math.max(0, s.slotMs - (s.failureMs || 0) - (s.otherMs || 0) - (s.unclassifiedMs || 0) - (s.plannedMs || 0) - (s.nonProdMs || 0) - (s.unmeasuredMs || 0)) / MS);
 
                     // 평균 가동시간 선 (비생산 카빙 후 실가동 기준)
@@ -1063,17 +1116,15 @@
                     const nightHatch = _nightHatchPattern(canvas); // 비생산: 밤하늘 어두운 파랑 빗금
                     const faultHatch = _stripePattern(canvas, cFault);   // 고장: 어두운 빨강 위 빗금
                     const maintHatch = _stripePattern(canvas, cMaint);   // 유지보수: 노란(앰버) 위 빗금
-                    const unmeasHatch = _stripePattern(canvas, cGray);   // 미계측: 회색 빗금 — '모르는 시간'(§3.4)
 
                     const datasets = [
                         // 가동 = 솔리드(파랑) / 정지 3종(고장·유지보수·비생산) = 빗금 → "가동이 아님"을 직관적으로 표시
                         { label: '가동(근사)', data: runData, backgroundColor: cRun, stack: 's', order: 2 },
                         { label: '고장', data: failureData, backgroundColor: faultHatch, stack: 's', order: 2 },
                         { label: '유지보수', data: plannedData, backgroundColor: maintHatch, stack: 's', order: 2 },
-                        // 비생산(제외)은 기본 비활성(범례에서 꺼진 상태) — 필요 시 범례 클릭으로 켬. hidden 은 생성 시 1회만 적용, 이후 사용자 토글 유지.
-                        { label: '비생산(제외)', data: nonProdData, backgroundColor: nightHatch, stack: 's', order: 2, hidden: true },
-                        // 미계측(수신 공백)은 기본 표시 — 숨기면 '가동처럼 보이는 빈칸'이 되어 §3.4 취지(정직 표기)가 죽는다.
-                        { label: '미계측', data: unmeasData, backgroundColor: unmeasHatch, stack: 's', order: 2 },
+                        // 비생산(제외) — 기본 표시(2026-07-04 전환): 미계측이 합쳐진 카테고리라 숨기면 그 시간이
+                        // '가동처럼 보이는 빈칸'이 된다(구 hidden 기본의 혼선 재발 방지). 범례 클릭으로 끄는 건 가능.
+                        { label: '비생산(제외)', data: nonProdData, backgroundColor: nightHatch, stack: 's', order: 2 },
                         {
                             label: `평균 ${avgRun.toFixed(1)}h`,
                             type: 'line',

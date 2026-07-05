@@ -101,7 +101,8 @@
                     </div>
                 </section>
 
-                <!-- ════ 생산효율 매트릭스 (P6 L0) — 라인 전체=3D 아이소(설비×시간×가동), 설비 선택=2D 막대(TEEP·OEE/시간) ════
+                <!-- ════ 생산효율 매트릭스 (P6 L0) — 라인 전체=3D 아이소(설비×시간×가동, 4시점 회전·색 TEEP/OEE 전환·행 하이라이트),
+                     설비 선택=2D 불릿(TEEP 막대+OEE 마커, 같은 축 — 갭=비교) ════
                      드릴 체인: 3D 큐브 클릭 → 이 페이지 설비(2D) 뷰 → 2D 막대 클릭 → /uptime-oee (L1 A·P·Q).
                      렌더는 uptime-workspace.js renderTeepMatrix(임퍼러티브 SVG) — 호스트 div 는 Alpine 테어다운을 피해
                      x-if 없이 상시 존재(x-show 로만 감춤). 데이터 = /api/oee/teep/matrix. -->
@@ -112,22 +113,44 @@
                     </div>
 
                     <div x-show="teepMatrixMode()">
+                        <!-- 3D 뷰 컨트롤 — 색 지표(TEEP↔OEE, 같은 지형을 두 지표로 대조) + 시점 스텝 회전(±90°, 가림 회피) -->
+                        <div class="up-tm-controls" x-show="teepMatrixMode() === 'iso'">
+                            <div class="segmented">
+                                <button :class="teepIsoColor === 'teep' ? 'is-active' : ''" @click="teepIsoSetColor('teep')" title="색=생산효율 TEEP 등급">TEEP</button>
+                                <button :class="teepIsoColor === 'oee' ? 'is-active' : ''" @click="teepIsoSetColor('oee')" title="색=설비효율 OEE 등급">OEE</button>
+                            </div>
+                            <button class="btn-icon" @click="teepIsoRotate(-1)" title="시점 왼쪽으로 90° 회전"><span class="material-icons">rotate_left</span></button>
+                            <button class="btn-icon" @click="teepIsoRotate(1)" title="시점 오른쪽으로 90° 회전"><span class="material-icons">rotate_right</span></button>
+                            <span class="up-tm-controls-hint" x-text="'시점 ' + (teepIsoRot + 1) + '/4 — 앞 막대에 가리면 회전, 설비에 올리면 그 행만 강조'"></span>
+                        </div>
                         <div class="up-tm-scroll">
                             <div id="teep-matrix-host" class="up-tm-host"></div>
                         </div>
-                        <!-- 범례 — 데이터색은 JS 팔레트와 동일 고정값(3D 는 우측면 톤 기준) -->
-                        <div class="up-teep-legend" x-show="teepMatrixMode() === 'iso'">
+                        <!-- 범례 — 데이터색은 JS 팔레트와 동일 고정값(3D 는 우측면 톤 기준). 3D 는 색 지표에 따라 전환 -->
+                        <div class="up-teep-legend" x-show="teepMatrixMode() === 'iso' && teepIsoColor === 'teep'">
                             <div class="up-teep-leg"><span class="sw" style="background:#FFF176;"></span>TEEP &lt;30%</div>
                             <div class="up-teep-leg"><span class="sw" style="background:#FFCA28;"></span>30~45%</div>
                             <div class="up-teep-leg"><span class="sw" style="background:#FF8F00;"></span>45~60%</div>
                             <div class="up-teep-leg"><span class="sw" style="background:#EF6C00;"></span>≥60%</div>
                             <div class="up-teep-leg"><span class="sw" style="background:#C62828;"></span>정지(윗쪽 캡)</div>
                         </div>
-                        <div class="up-teep-legend" x-show="teepMatrixMode() === 'bars'">
-                            <div class="up-teep-leg"><span class="sw" style="background:#FFA000;"></span>생산효율 TEEP <em>(앰버 — 높을수록 진함)</em></div>
-                            <div class="up-teep-leg"><span class="sw" style="background:#2E7D32;"></span>설비효율 OEE <em>(그린 — 높을수록 진함)</em></div>
+                        <div class="up-teep-legend" x-show="teepMatrixMode() === 'iso' && teepIsoColor === 'oee'">
+                            <div class="up-teep-leg"><span class="sw" style="background:#FBC02D;"></span>OEE &lt;55%</div>
+                            <div class="up-teep-leg"><span class="sw" style="background:#81C784;"></span>55~70%</div>
+                            <div class="up-teep-leg"><span class="sw" style="background:#4CAF50;"></span>70~85%</div>
+                            <div class="up-teep-leg"><span class="sw" style="background:#2E7D32;"></span>≥85%</div>
+                            <div class="up-teep-leg"><span class="sw" style="background:#C62828;"></span>정지(윗쪽 캡)</div>
                         </div>
-                        <div class="up-form-hint" style="margin-top:8px;" x-show="teepMatrixInsight()" x-text="teepMatrixInsight()"></div>
+                        <div class="up-teep-legend" x-show="teepMatrixMode() === 'bars'">
+                            <div class="up-teep-leg"><span class="sw" style="background:#FFA000;"></span>생산효율 TEEP <em>(막대)</em></div>
+                            <div class="up-teep-leg"><span class="sw sw-tick" style="background:#2E7D32;"></span>설비효율 OEE <em>(가로 마커)</em></div>
+                            <div class="up-teep-leg"><em>둘 사이 점선 = 갭(설비는 돌 수 있는데 쓰지 못한 시간 폭)</em></div>
+                        </div>
+                        <div class="up-form-hint" style="margin-top:8px;">
+                            <b>OEE</b>=가동한 시간 안에서의 효율 · <b>TEEP</b>=전체 시간(캘린더) 대비 가동 — 분모가 다른 두 지표입니다.
+                            갭이 클수록 설비 자체보다 <b>운영(비생산·대기)</b> 쪽 개선 여지가 큽니다.
+                        </div>
+                        <div class="up-form-hint" style="margin-top:6px;" x-show="teepMatrixInsight()" x-text="teepMatrixInsight()"></div>
                     </div>
 
                     <template x-if="!teepMatrixMode()">
@@ -139,7 +162,7 @@
                     </template>
                 </section>
 
-                <!-- ════ 시간 분해 (캘린더 = 가동 + 정지 + 비생산 + 미계측 + 잔여) ════ -->
+                <!-- ════ 시간 분해 (캘린더 = 가동 + 정지 + 비생산(미계측 포함 표시) + 잔여) ════ -->
                 <section class="card up-section">
                     <div class="ds-card-h">
                         <h4>시간 분해 (캘린더 기준)</h4>
@@ -153,16 +176,15 @@
                             <div style="display:flex; height:26px; border-radius:var(--radius-sm); overflow:hidden; border:1px solid var(--color-lines);">
                                 <div :style="`width:${teepPct('runningMs')}%; background:var(--oee-run);`" :title="'가동 ' + teepPct('runningMs') + '%'"></div>
                                 <div class="hatch-fault" :style="`width:${teepPct('downMs')}%;`" :title="'정지 ' + teepPct('downMs') + '%'"></div>
-                                <div class="hatch-nonprod" :style="`width:${teepPct('nonProdMs')}%;`" :title="'비생산 ' + teepPct('nonProdMs') + '%'"></div>
-                                <div class="hatch-unmeas" :style="`width:${teepPct('unmeasuredMs')}%;`" :title="'미계측 ' + teepPct('unmeasuredMs') + '% (수신 공백 — 판정 제외)'"></div>
+                                <!-- 미계측(§3.4)은 비생산에 합쳐 표시(2026-07-04 표시 정책) — 데이터·학습·판정은 분리 유지 -->
+                                <div class="hatch-nonprod" :style="`width:${teepNonProdDisplayPct()}%;`" :title="'비생산 ' + teepNonProdDisplayPct() + '%'"></div>
                                 <div :style="`width:${teepPct('residualMs')}%; background:var(--color-surface-variant);`" :title="'잔여 ' + teepPct('residualMs') + '%'"></div>
                             </div>
                             <!-- 범례 + 값 -->
                             <div class="up-teep-legend">
                                 <div class="up-teep-leg"><span class="sw" style="background:var(--oee-run);"></span>가동 <b x-text="durShort(teep.runningMs)"></b> <em x-text="'(' + teepPct('runningMs') + '%)'"></em></div>
                                 <div class="up-teep-leg"><span class="sw hatch-fault"></span>정지 <b x-text="durShort(teep.downMs)"></b> <em x-text="'(' + teepPct('downMs') + '%)'"></em></div>
-                                <div class="up-teep-leg"><span class="sw hatch-nonprod"></span>비생산 <b x-text="durShort(teep.nonProdMs)"></b> <em x-text="'(' + teepPct('nonProdMs') + '%)'"></em></div>
-                                <div class="up-teep-leg" x-show="teep.unmeasuredMs > 0"><span class="sw hatch-unmeas"></span>미계측 <b x-text="durShort(teep.unmeasuredMs)"></b> <em x-text="'(' + teepPct('unmeasuredMs') + '%)'"></em></div>
+                                <div class="up-teep-leg"><span class="sw hatch-nonprod"></span>비생산 <b x-text="durShort((teep.nonProdMs || 0) + (teep.unmeasuredMs || 0))"></b> <em x-text="'(' + teepNonProdDisplayPct() + '%)'"></em></div>
                                 <div class="up-teep-leg"><span class="sw" style="background:var(--color-surface-variant); border:1px solid var(--color-lines-strong);"></span>잔여 <b x-text="durShort(teep.residualMs)"></b> <em x-text="'(' + teepPct('residualMs') + '%)'"></em></div>
                             </div>
                             <div class="up-form-hint" style="margin-top:12px;">
@@ -194,7 +216,6 @@
                         <div>
                             <div class="up-teep-legend" style="margin-top:0; margin-bottom:9px;">
                                 <div class="up-teep-leg"><span class="sw hatch-nonprod"></span>비생산 (자동 감지 + 수동 시간대)</div>
-                                <div class="up-teep-leg"><span class="sw hatch-unmeas"></span>미계측 (수신 공백 — 판정 제외)</div>
                                 <div class="up-teep-leg"><span class="sw" style="width:3px; background:var(--color-primary);"></span>지금</div>
                             </div>
                             <div class="up-npd" :class="teepNpDense() ? 'is-dense' : ''">
@@ -202,9 +223,7 @@
                                     <div class="up-npd-row" :class="teepNpDayInfo(d).isToday ? 'is-today' : ''">
                                         <div class="up-npd-date" :class="{ 'is-sun': teepNpDayInfo(d).dow === 0, 'is-sat': teepNpDayInfo(d).dow === 6 }" x-text="teepNpDayInfo(d).label"></div>
                                         <div class="up-npd-track">
-                                            <template x-for="(w, i) in (d.unmeasuredWindows || [])" :key="'u' + i">
-                                                <div class="up-npd-win hatch-unmeas" :style="psWinStyle(w)" :title="teepNpWinTitle(d, w, '미계측')"></div>
-                                            </template>
+                                            <!-- 미계측(§3.4)은 windows 에 합쳐 옴(표시 정책 2026-07-04) — unmeasuredWindows 는 데이터 보존용 -->
                                             <template x-for="(w, i) in (d.windows || [])" :key="'n' + i">
                                                 <div class="up-npd-win hatch-nonprod" :style="psWinStyle(w)" :title="teepNpWinTitle(d, w, '비생산')"></div>
                                             </template>

@@ -190,6 +190,9 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<OeeAutoShiftInfere
 // '미계측(수신 공백)' 구간의 SSOT — OEE 가 이 구간을 가동/비가동/비생산 어디에도 넣지 않게 한다(doc/22 §3.4).
 builder.Services.AddSingleton<OeeCommHealthService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<OeeCommHealthService>());
+// 비생산 시간대 학습기(doc/22 §3.5) — 일별 샘플 투표제(활동일 60% 반복 슬롯만 승격, 미계측 제외).
+// Phase 1 = 참고 표시 전용(auto-pattern 엔드포인트·대시보드 배지) — KPI 판정 미적용(섀도 검증).
+builder.Services.AddSingleton<OeeNonProdPatternService>();
 
 // CCTV — 카메라 목록을 별도 프로세스 MediaMTX(:9997) 로 동기화. WebRTC 재게시는 MediaMTX 담당.
 // Singleton + HostedService — Settings 페이지가 동일 인스턴스로 SyncAsync 직접 호출.

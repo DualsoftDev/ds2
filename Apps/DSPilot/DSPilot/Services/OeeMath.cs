@@ -389,4 +389,73 @@ public static class OeeMath
         var local = DateTimeOffset.FromUnixTimeMilliseconds((long)epochMs).LocalDateTime;
         return local.Hour * 60 + local.Minute;
     }
+
+    // ── 비생산 시간대 학습기 — 일별 샘플 투표제 (doc/22 §3.5, Phase 1 참고 표시 전용) ──
+    //
+    // 구모델("14일 중 1건이라도 있으면 창")은 단발 정지 하나가 시간대를 영구 오염시켰다.
+    // 새 모델: 활동일마다 "그날의 비생산 영역" 샘플 1장을 만들고(하루 1표), 활동일의 promoteRatio 이상이
+    // 반복 투표한 슬롯만 창으로 승격 — 14일 이동평균의 구현체다(슬롯별 값 = 비생산이었던 날의 비율).
+
+    /// <summary>슬롯이 그날 표를 얻는 데 필요한 최소 커버 비율 — 정지가 슬롯의 절반 이상을 덮어야 투표.</summary>
+    public const double PatternSlotCoverRatio = 0.5;
+
+    /// <summary>
+    /// 한 활동일의 비생산 minute-of-day 창들(그날 정지를 <see cref="FoldIntervalsToMinuteOfDay"/> 로 접은 것)을
+    /// slotMinutes 단위 슬롯 투표로 변환. 슬롯의 <see cref="PatternSlotCoverRatio"/> 이상을 덮은 창만 그 슬롯에 투표
+    /// (경계를 스치는 조각이 슬롯을 통째로 먹지 않게).
+    /// </summary>
+    public static bool[] SlotVotesFromMinuteWindows(
+        IEnumerable<(int StartMin, int EndMin)> dayWindows, int slotMinutes)
+    {
+        if (slotMinutes <= 0) slotMinutes = 30;
+        var slotCount = (1440 + slotMinutes - 1) / slotMinutes;
+        var coverMin = new int[slotCount];
+        foreach (var (s0, e0) in dayWindows)
+        {
+            var s = Math.Clamp(s0, 0, 1440);
+            var e = Math.Clamp(e0, 0, 1440);
+            if (e <= s) continue;
+            for (int i = s / slotMinutes; i < slotCount && i * slotMinutes < e; i++)
+            {
+                var overlap = Math.Min(e, (i + 1) * slotMinutes) - Math.Max(s, i * slotMinutes);
+                if (overlap > 0) coverMin[i] += overlap;
+            }
+        }
+        var votes = new bool[slotCount];
+        for (int i = 0; i < slotCount; i++)
+            votes[i] = coverMin[i] >= slotMinutes * PatternSlotCoverRatio;
+        return votes;
+    }
+
+    /// <summary>
+    /// 활동일별 슬롯 투표 → 승격 창(분 단위, 인접 슬롯 병합). 승격 = 투표 수 ≥ promoteRatio × 활동일 수.
+    /// 활동일이 minActiveDays 미만이면 표본 부족 → 창 미성립(빈 목록) — 가짜 창 금지(doc/21 §10 정직성).
+    /// </summary>
+    public static List<(int StartMin, int EndMin)> BuildNonProdPatternWindows(
+        IReadOnlyList<bool[]> dayVotes, int slotMinutes, double promoteRatio, int minActiveDays)
+    {
+        var res = new List<(int StartMin, int EndMin)>();
+        if (slotMinutes <= 0) slotMinutes = 30;
+        if (dayVotes.Count == 0 || dayVotes.Count < Math.Max(1, minActiveDays)) return res;
+
+        var slotCount = dayVotes.Max(v => v.Length);
+        var counts = new int[slotCount];
+        foreach (var v in dayVotes)
+            for (int i = 0; i < v.Length && i < slotCount; i++)
+                if (v[i]) counts[i]++;
+
+        var need = promoteRatio * dayVotes.Count - 1e-9; // 부동소수 경계(9/15=0.6 등) 보호
+        int? wStart = null;
+        for (int i = 0; i <= slotCount; i++)
+        {
+            bool on = i < slotCount && counts[i] >= need;
+            if (on && wStart is null) wStart = i;
+            else if (!on && wStart is int s0)
+            {
+                res.Add((s0 * slotMinutes, Math.Min(1440, i * slotMinutes)));
+                wStart = null;
+            }
+        }
+        return res;
+    }
 }

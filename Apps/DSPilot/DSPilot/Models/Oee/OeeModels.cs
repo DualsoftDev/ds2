@@ -289,7 +289,9 @@ public sealed record PlannedAutoPatternDto(
     IReadOnlyList<PlannedStopWindowDto>? UnmeasuredWindows = null,  // 미계측(수신 공백, §3.4) — actual 전용, 비생산과 분리 표기
     bool CurrentlyUnmeasured = false,                               // 지금 이 순간이 미계측(수신 공백) — 배지 3-상태용
     IReadOnlyList<PlannedStopDayDto>? Days = null,                  // 날짜별 접기(actual 전용) — TEEP "날짜별 비생산 패턴" 행
-    bool DaysClipped = false);                                      // Days 가 상한(최근 N일)으로 잘렸는가 — UI 정직 표기용
+    bool DaysClipped = false,                                       // Days 가 상한(최근 N일)으로 잘렸는가 — UI 정직 표기용
+    int ActiveDays = 0,                                             // 패턴 학습 투표 분모(활동일 수) — auto-pattern 전용(§3.5)
+    double PromoteRatio = 0);                                       // 승격 컷(활동일 대비 반복 비율) — auto-pattern 전용
 
 /// <summary>
 /// 날짜별 비생산 패턴 한 행 (actual 전용) — 해당 로컬 날짜의 자정 경계로 클립해 접은 windows.

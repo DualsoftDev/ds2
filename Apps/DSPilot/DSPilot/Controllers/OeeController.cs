@@ -35,6 +35,7 @@ public class OeeController : ControllerBase
     private readonly OeeCtStatsService _ctStats;
     private readonly OeeAutoShiftInferenceService _shiftInfer;
     private readonly OeeCommHealthService _commHealth;
+    private readonly OeeNonProdPatternService _nonProdPattern;
     private readonly ILogger<OeeController> _logger;
 
     public OeeController(
@@ -45,6 +46,7 @@ public class OeeController : ControllerBase
         OeeCtStatsService ctStats,
         OeeAutoShiftInferenceService shiftInfer,
         OeeCommHealthService commHealth,
+        OeeNonProdPatternService nonProdPattern,
         ILogger<OeeController> logger)
     {
         _repo = repo;
@@ -54,6 +56,7 @@ public class OeeController : ControllerBase
         _ctStats = ctStats;
         _shiftInfer = shiftInfer;
         _commHealth = commHealth;
+        _nonProdPattern = nonProdPattern;
         _logger = logger;
     }
 
@@ -562,128 +565,15 @@ public class OeeController : ControllerBase
     }
 
     // ── GET /api/oee/planned-stops/auto-pattern ──────────────────────────────
-    // 자동 비생산 14일 시간대 패턴: dspFlowHistory 에서 mt IS NULL AND ct ≥ 10×avgCT 사이클의 시작 시각(hour-of-day)을
-    // 집계해 병합된 윈도로 반환. 라인 레벨(flow 미지정)은 24h 캐시 사용(자동 전환 시 즉시 갱신).
+    // 자동 비생산 14일 시간대 패턴 — 일별 샘플 투표제 학습(doc/22 §3.5, OeeNonProdPatternService).
+    // 참고 표시 전용(KPI 판정 미적용 — Phase 1 섀도). 라인 레벨(flow 미지정)은 24h 캐시(자동 전환 시 즉시 갱신).
     [HttpGet("planned-stops/auto-pattern")]
     public async Task<ActionResult<PlannedAutoPatternDto>> GetPlannedAutoPattern(
         [FromQuery] string? flow, CancellationToken ct)
     {
         var flowName = string.IsNullOrWhiteSpace(flow) ? null : flow.Trim();
-
-        // 라인 레벨(flow=null)만 캐시 사용. 24h 미만이면 즉시 반환.
-        if (flowName is null)
-        {
-            var cache = _settings.LoadSettings().OeeManual.AutoPatternCache;
-            if (cache != null && (DateTime.UtcNow - cache.ComputedAt).TotalHours < 24)
-            {
-                var w = cache.Windows.Select(x => new PlannedStopWindowDto(x.StartMinutes, x.EndMinutes, x.Label)).ToList();
-                return new PlannedAutoPatternDto(w, cache.DataFrom, cache.DataTo, 14);
-            }
-        }
-
-        return await ComputeAndCacheAutoPatternAsync(flowName, ct);
-    }
-
-    /// <summary>
-    /// dspFlowHistory 를 직접 스캔해 자동 비생산 시간대 패턴을 계산하고(라인 레벨이면 캐시에 저장) DTO 로 반환한다.
-    /// 기간: 어제 로컬 자정까지 14일(오늘은 진행중이라 제외). 판정 기준 = mt IS NULL AND ct ≥ 10×avgCT(flow별).
-    /// </summary>
-    private async Task<PlannedAutoPatternDto> ComputeAndCacheAutoPatternAsync(string? flowName, CancellationToken ct)
-    {
-        // 어제 자정(로컬)까지 14일 — 오늘 진행중 데이터 제외
-        var todayLocal = DateTime.Now.Date;
-        var toUtc   = DateTime.SpecifyKind(todayLocal, DateTimeKind.Local).ToUniversalTime();
-        var fromUtc = toUtc.AddDays(-14);
-
         var thresholds = await ResolveCtThresholdsAsync();
-
-        List<string> targetFlows;
-        if (!string.IsNullOrWhiteSpace(flowName))
-            targetFlows = thresholds.ContainsKey(flowName) ? new List<string> { flowName } : new List<string>();
-        else
-            targetFlows = thresholds.Keys.ToList();
-
-        var hourHits = new bool[24]; // h=0~23: 비생산 장시간 정지가 1회 이상 발생한 시간
-
-        if (targetFlows.Count > 0)
-        {
-            var dbPath = _pathResolver.GetSharedDbPath();
-            if (System.IO.File.Exists(dbPath))
-            {
-                var fromStr = fromUtc.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
-                var toStr   = toUtc.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
-                try
-                {
-                    await using var conn = new SqliteConnection(
-                        $"Data Source={dbPath};Mode=ReadWriteCreate;Default Timeout=20");
-                    await conn.OpenAsync(ct);
-                    var exists = await conn.ExecuteScalarAsync<long>(
-                        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlowHistory'");
-                    if (exists > 0)
-                    {
-                        // 사이클 시작 시각(로컬)의 시: recordedAt(UTC 문자열) - ct/1000 초 → localtime → %H
-                        const string startHour =
-                            "CAST(strftime('%H', substr(recordedAt,1,19), 'localtime', (-ct/1000.0)||' seconds') AS INTEGER)";
-
-                        foreach (var f in targetFlows)
-                        {
-                            var thr = thresholds[f].AvgMs;
-                            if (thr <= 0) continue;
-                            var longStopMs = thr * OeeMath.NonProductionCtMultiplier;
-
-                            var p = new DynamicParameters();
-                            p.Add("From", fromStr); p.Add("To", toStr);
-                            p.Add("Flow", f); p.Add("LongStop", longStopMs);
-
-                            var hours = await conn.QueryAsync<int>($@"
-                                SELECT DISTINCT {startHour} AS h
-                                FROM dspFlowHistory
-                                WHERE recordedAt >= @From AND recordedAt < @To
-                                  AND flowName = @Flow
-                                  AND ct > 0 AND mt IS NULL
-                                  AND ct >= @LongStop", p);
-
-                            foreach (var h in hours)
-                                if (h is >= 0 and < 24)
-                                    hourHits[h] = true;
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "[OEE] auto-pattern compute failed");
-                }
-            }
-        }
-
-        // 인접 시간대 병합 → windows
-        var windows = new List<PlannedStopWindowDto>();
-        int? wStart = null;
-        for (int h = 0; h <= 24; h++)
-        {
-            bool has = h < 24 && hourHits[h];
-            if (has && wStart == null) wStart = h;
-            else if (!has && wStart != null)
-            {
-                windows.Add(new PlannedStopWindowDto(wStart.Value * 60, h * 60, null));
-                wStart = null;
-            }
-        }
-
-        // 라인 레벨이면 캐시 저장
-        if (flowName is null)
-        {
-            _settings.SavePlannedAutoPatternCache(new PlannedAutoPatternCache
-            {
-                Windows = windows.Select(w => new PlannedStopWindow
-                    { StartMinutes = w.StartMinutes, EndMinutes = w.EndMinutes, Label = w.Label }).ToList(),
-                ComputedAt = DateTime.UtcNow,
-                DataFrom = fromUtc.ToLocalTime(),
-                DataTo = toUtc.ToLocalTime(),
-            });
-        }
-
-        return new PlannedAutoPatternDto(windows, fromUtc.ToLocalTime(), toUtc.ToLocalTime(), 14);
+        return await _nonProdPattern.GetOrComputeAsync(flowName, thresholds, forceRefresh: false, ct);
     }
 
     // ── GET /api/oee/planned-stops/actual?from&to&flow ───────────────────────
@@ -710,11 +600,15 @@ public class OeeController : ControllerBase
         List<(double S, double E)> intervals = merged.Count > 0
             ? Intervals.Union(merged)
             : (agg.NonProdIntervals ?? new List<(double S, double E)>());
-        // 미계측(수신 공백, §3.4) — 비생산 블록에서 차집합하고 별도 회색 윈도로 접는다(agg·daily 와 동일 소스).
-        // stale 감지 로그(수신 공백을 비생산으로 기록한 과거분)도 심박 보유 구간에선 여기서 표시상 걸러진다.
+        // 미계측(수신 공백, §3.4) — 데이터로는 비생산과 분리하되(별도 필드·학습 §3.5 차집합·A 별도 제외),
+        // 화면 표시는 비생산에 합친다(사용자 결정 2026-07-04): 사용자 눈에는 "제외된 시간" 하나로 보이고,
+        // 14일 이동평균 학습과 KPI 카빙에는 절대 안 들어간다. displayIv = 비생산 ∪ 미계측.
         var unmeasuredIv = agg.UnmeasuredIntervals ?? new List<(double S, double E)>();
         if (unmeasuredIv.Count > 0)
-            intervals = Intervals.Subtract(intervals, unmeasuredIv);
+            intervals = Intervals.Subtract(intervals, unmeasuredIv);   // 순수 비생산(데이터)
+        var displayIv = unmeasuredIv.Count > 0
+            ? Intervals.Union(intervals.Concat(unmeasuredIv))
+            : intervals;
 
         // NonProdIntervals(UTC epoch ms) → 로컬 시:분(minute-of-day) 커버리지.
         // 여러 날 union 접기는 주말 정지 등 ≥24h 구간 하나로 1440분 전체가 덮여 무의미(전체 채움 버그)
@@ -728,8 +622,8 @@ public class OeeController : ControllerBase
         static List<PlannedStopWindowDto> FoldToDay(IEnumerable<(double S, double E)> ivs, double clipS, double clipE)
             => OeeMath.FoldIntervalsToMinuteOfDay(ivs, clipS, clipE, OeeMath.LocalMinuteOfDay);
 
-        var windows = FoldToDay(intervals, clipS, clipE);
-        var unmeasuredWindows = FoldToDay(unmeasuredIv, clipS, clipE); // 미계측(§3.4) — 회색 블록(비생산과 분리)
+        var windows = FoldToDay(displayIv, clipS, clipE);              // 표시 = 비생산 ∪ 미계측(합쳐 보임)
+        var unmeasuredWindows = FoldToDay(unmeasuredIv, clipS, clipE); // 미계측(§3.4) — 데이터 보존(진단·후속 소비자용)
 
         // 날짜별 접기 — TEEP "날짜별 비생산 패턴" 행(오늘=1행, 7일=7행 …). 각 날을 그 날의 로컬 자정
         // 경계로 클립해 독립 접기하므로 union 접기의 ≥24h 전체 채움 퇴화가 없다(PlannedStopDayDto 주석).
@@ -745,7 +639,7 @@ public class OeeController : ControllerBase
             var dS = Math.Max(ToMs(DateTime.SpecifyKind(day, DateTimeKind.Local).ToUniversalTime()), ToMs(fromUtc));
             var dE = Math.Min(ToMs(DateTime.SpecifyKind(day.AddDays(1), DateTimeKind.Local).ToUniversalTime()), ToMs(toUtc));
             if (dE <= dS) continue;
-            days.Add(new PlannedStopDayDto(day, FoldToDay(intervals, dS, dE), FoldToDay(unmeasuredIv, dS, dE)));
+            days.Add(new PlannedStopDayDto(day, FoldToDay(displayIv, dS, dE), FoldToDay(unmeasuredIv, dS, dE)));
         }
 
         // 현재 비생산 상태 — 조회범위가 실시간(현재 포함)이고 지금 이 순간이 비생산 raw 구간에 속하는가.
@@ -753,9 +647,9 @@ public class OeeController : ControllerBase
         var nowUtc = DateTime.UtcNow;
         var isLive = toUtc >= nowUtc.AddMinutes(-5);
         var probeMs = ToMs(nowUtc);
-        var currentlyNonProd = isLive && intervals.Any(iv => iv.S <= probeMs && iv.E >= probeMs - 60000);
-        // 지금이 미계측(수신 공백)이면 배지가 '가동 중'을 주장하지 않도록 별도 신호 — §3.4 "모르는 시간을 아는 척 금지".
-        var currentlyUnmeasured = isLive && unmeasuredIv.Any(iv => iv.S <= probeMs && iv.E >= probeMs - 60000);
+        // 표시 정책: 지금이 미계측이어도 배지는 '비생산 중'으로 — displayIv(비생산 ∪ 미계측) 기준 판정.
+        var currentlyNonProd = isLive && displayIv.Any(iv => iv.S <= probeMs && iv.E >= probeMs - 60000);
+        var currentlyUnmeasured = isLive && unmeasuredIv.Any(iv => iv.S <= probeMs && iv.E >= probeMs - 60000); // 데이터 보존
 
         return new PlannedAutoPatternDto(windows, fromUtc.ToLocalTime(), toUtc.ToLocalTime(), 0, currentlyNonProd,
             UnmeasuredWindows: unmeasuredWindows, CurrentlyUnmeasured: currentlyUnmeasured,
@@ -785,7 +679,7 @@ public class OeeController : ControllerBase
         var enabled = req?.Enabled ?? true;
         _settings.SavePlannedStopsAuto(enabled);
         if (enabled)
-            await ComputeAndCacheAutoPatternAsync(null, ct);
+            await _nonProdPattern.GetOrComputeAsync(null, await ResolveCtThresholdsAsync(), forceRefresh: true, ct);
         return GetPlannedStops();
     }
 
