@@ -190,7 +190,12 @@ public sealed record OeeTeepMatrixDto(
     double Quality,                   // 셀 OEE 에 곱한 품질 Q (0~1) — 수기 전역값, 미설정 = 1.0 가정
     string QualitySource,             // "manual" | "assumed"
     List<OeeTeepMatrixBucketDto> Buckets,
-    List<OeeTeepMatrixFlowDto> Flows);
+    List<OeeTeepMatrixFlowDto> Flows,
+    // 계획 기준선(P6 L0) — 캘린더 대비 "가동하기로 한" 비율(가용성 분모 ÷ 기간). 3D 아이소가 이 높이에
+    // 점선 평면("계획 Nh/day")을 그려 큐브 총높이(가동+정지)를 계획과 대비시킨다(목업 원의도 복원).
+    // 소스 = 가용성 폴백 체인(shift/auto/calendar). calendar = 계획 미설정(=1.0, 프론트는 기준선 생략).
+    double? PlannedFraction = null,
+    string? PlannedSource = null);
 
 /// <summary>매트릭스 시간버킷 — Label 은 daily 와 동일 포맷("yyyy-MM-dd HH:00" | "yyyy-MM-dd"), 표시 축약은 프론트 몫.</summary>
 public sealed record OeeTeepMatrixBucketDto(string Label, DateTime StartUtc, DateTime EndUtc);

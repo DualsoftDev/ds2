@@ -169,9 +169,9 @@
                             · <span x-text="oee ? (oee.ctThresholdMs ? ('가동시간 이상치 ' + durShort(oee.ctThresholdMs) + ' · 14일 평균') : (oee.idealCycleTimeMs ? ('표준 가동시간 ' + durShort(oee.idealCycleTimeMs)) : '표준 가동시간 미설정(클린샘플 0)')) : ''"></span>
                             <span x-show="oee && oee.ctSampleLow" style="color:var(--amber, #b7791f); font-weight:700;" x-text="oee ? (' · 클린샘플 ' + (oee.ctSampleCount != null ? oee.ctSampleCount : 0) + '/5(잠정)') : ''"></span>
                             <span x-show="oee && oee.normalCycleCount != null" x-text="oee ? (' · 정상 ' + (oee.normalCycleCount || 0) + '회') : ''"></span>
-                            <span x-show="oee && (oee.plannedDownMs + (oee.unmeasuredMs || 0)) > 0" style="font-weight:700;"
-                                  title="가용성(A) 분모에서 제외된 시간 — 10×장시간정지 자동 감지 + 수동 시간대 + 수신 공백(§3.4, 내부적으로는 분리 기록·학습 제외)."
-                                  x-text="oee ? (' · 비생산 제외 ' + durShort(oee.plannedDownMs + (oee.unmeasuredMs || 0))) : ''"></span>
+                            <span x-show="oee && oee.plannedDownMs > 0" style="font-weight:700;"
+                                  title="가용성(A) 분모에서 제외된 비생산 시간(설비시간 합산) — 10×장시간정지 자동 감지 + 수동 시간대. 아래 가용성 카드의 '비생산 시간'과 동일 값(수신 공백은 달력 기반 타임라인·추이에만 합쳐 표시, 이 KPI 숫자와는 단위가 달라 합산하지 않음)."
+                                  x-text="oee ? (' · 비생산 ' + durShort(oee.plannedDownMs)) : ''"></span>
                         </span>
                     </div>
                 </section>

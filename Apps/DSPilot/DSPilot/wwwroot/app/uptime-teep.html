@@ -141,6 +141,9 @@
                             <div class="up-teep-leg"><span class="sw" style="background:#2E7D32;"></span>≥85%</div>
                             <div class="up-teep-leg"><span class="sw" style="background:#C62828;"></span>정지(윗쪽 캡)</div>
                         </div>
+                        <div class="up-teep-legend" x-show="teepMatrixMode() === 'iso' && teepShowPlanned()">
+                            <div class="up-teep-leg"><span class="sw sw-plan"></span>계획 기준선 <em>(가동하기로 한 시간 — 총높이가 닿으면 계획시간 소진, 아래면 초과 유휴)</em></div>
+                        </div>
                         <div class="up-teep-legend" x-show="teepMatrixMode() === 'bars'">
                             <div class="up-teep-leg"><span class="sw" style="background:#FFA000;"></span>생산효율 TEEP <em>(막대)</em></div>
                             <div class="up-teep-leg"><span class="sw sw-tick" style="background:#2E7D32;"></span>설비효율 OEE <em>(가로 마커)</em></div>

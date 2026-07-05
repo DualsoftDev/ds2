@@ -162,7 +162,15 @@ public class OeeMetricsController : OeeControllerBase
             flowRows.Add(new OeeTeepMatrixFlowDto(f, thr, cells));
         }
 
-        return new OeeTeepMatrixDto(fromUtc, toUtc, hourly ? "hour" : "day", quality, qualitySource, buckets, flowRows);
+        // 계획 기준선 — 가용성 폴백 체인(shift/auto/calendar)의 계획생산시간 ÷ 기간 = 캘린더 대비 계획가동 비율.
+        // 라인(flowName=null)/설비 동일 소스라 3D·요약 KPI 와 일관. plan-time 엔드포인트와 같은 ResolveAvailabilityAsync.
+        var periodMs = Math.Max(0, (toUtc - fromUtc).TotalMilliseconds);
+        var (downtimeMs, _) = await _repo.GetDowntimeAggregateAsync(fromUtc, toUtc, flowName, ct);
+        var avr = await ResolveAvailabilityAsync(flowName, fromUtc, toUtc, downtimeMs, periodMs, ct);
+        double? plannedFraction = periodMs > 0 ? Math.Clamp(avr.PlannedMs / periodMs, 0, 1) : null;
+
+        return new OeeTeepMatrixDto(fromUtc, toUtc, hourly ? "hour" : "day", quality, qualitySource, buckets, flowRows,
+            plannedFraction, avr.Source);
     }
 
     // ── GET /api/oee/ranking?from&to ──────────────────────────────────────

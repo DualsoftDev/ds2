@@ -755,9 +755,19 @@
                     const m = this.teepMatrix, mode = this.teepMatrixMode();
                     if (!mode) return '';
                     const g = m.granularity === 'hour' ? '시간별' : '일별';
-                    if (mode === 'iso') return `설비 ${m.flows.length}개 × ${g} ${m.buckets.length}구간 · 높이=가동 · 색=${this.teepIsoColor === 'oee' ? 'OEE' : 'TEEP'} 등급 · 빨간 캡=정지 · 클릭=설비 상세`;
+                    if (mode === 'iso') {
+                        const plan = this.teepShowPlanned()
+                            ? ` · 골드 점선=계획(${(m.plannedFraction * 24).toFixed(m.plannedFraction * 24 % 1 === 0 ? 0 : 1)}h/day)` : '';
+                        return `설비 ${m.flows.length}개 × ${g} ${m.buckets.length}구간 · 높이=가동 · 색=${this.teepIsoColor === 'oee' ? 'OEE' : 'TEEP'} 등급 · 빨간 캡=정지${plan} · 클릭=설비 상세`;
+                    }
                     const f = this.curFlow || m.flows[0].flowName;
                     return `${f} · ${g} ${m.buckets.length}구간 · 막대=TEEP · 마커=OEE (같은 축, 갭=쓰지 못한 시간) · 클릭=설비효율(A·P·Q) 상세`;
+                },
+                // 계획 기준선(골드 점선)이 실제로 그려지는가 — 렌더러 showPlanned 와 동일 조건(범례/서브헤더 게이트 SSOT).
+                teepShowPlanned() {
+                    const m = this.teepMatrix;
+                    return !!m && m.plannedFraction != null && m.plannedSource !== 'calendar'
+                        && m.plannedFraction > 0.02 && m.plannedFraction < 0.995;
                 },
                 // 3D 시점 스텝 회전(±90°) / 색 지표 전환 — 상태만 바꾸고 전체 재렌더(임퍼러티브 SVG, 체감 즉시).
                 teepIsoRotate(dir) { this.teepIsoRot = (this.teepIsoRot + dir + 4) % 4; this.renderTeepMatrix(); },
@@ -844,6 +854,16 @@
                                 class: (x + z) % 2 === 0 ? 'up-tm-floor-a' : 'up-tm-floor-b'
                             }, svg);
 
+                    // 계획 기준선 평면(P6 목업 "계획 Nh/day" 복원) — 캘린더 대비 "가동하기로 한" 높이에 점선 평면.
+                    // 큐브 총높이(가동+정지)가 이 평면에 닿으면 계획시간을 다 쓴 것, 아래면 초과 유휴(Idle). calendar 폴백
+                    // (계획 미설정=비율 1.0)이면 기준선이 천장과 겹쳐 무의미 → 생략. 채움은 큐브 아래, 점선·라벨은 위(항상 노출).
+                    const pf = m.plannedFraction;
+                    const showPlanned = pf != null && m.plannedSource !== 'calendar' && pf > 0.02 && pf < 0.995;
+                    const hPlan = showPlanned ? pf * H_UNITS : 0;
+                    const planCorners = showPlanned ? [iso(0, hPlan, 0), iso(X, hPlan, 0), iso(X, hPlan, Z), iso(0, hPlan, Z)] : null;
+                    if (showPlanned)
+                        _tmEl('polygon', { points: pts(planCorners), class: 'up-tm-plan-fill' }, svg);
+
                     // 큐브 — 프레임 좌표 기준 뒤(x+z 작음)→앞 페인터 정렬.
                     const faces = this.teepIsoColor === 'oee' ? _tmOeeFaces : _tmTeepFaces;
                     const order = [];
@@ -884,6 +904,15 @@
                         svg.classList.remove('tm-dim');
                         for (const q of cubes) q.classList.remove('is-hl');
                     });
+
+                    // 계획 기준선 점선 윤곽 + 라벨 — 큐브 위에 그려 항상 보이게(가려진 셀 위로도 기준 노출).
+                    if (showPlanned) {
+                        _tmEl('polygon', { points: pts(planCorners), class: 'up-tm-plan-line' }, svg);
+                        const hpd = pf * 24;                                  // 캘린더 대비 비율 → 하루 계획가동 시간(h)
+                        const lp = iso(0, hPlan, Z);                          // 좌측(앞) 상단 모서리
+                        _tmEl('text', { x: (lp[0] + 5).toFixed(1), y: (lp[1] - 4).toFixed(1), class: 'up-tm-plan-label', 'text-anchor': 'start' }, svg)
+                            .textContent = `계획 ${hpd % 1 === 0 ? hpd.toFixed(0) : hpd.toFixed(1)}h/day`;
+                    }
 
                     // 축 라벨 — 회전에 따라 좌측(z축)/하단(x축)에 설비·시간이 자리를 바꾼다. 시간 라벨만 스텝 솎음.
                     const flowName = (i) => { const n = flows[i].flowName; return n.length > 10 ? n.slice(0, 9) + '…' : n; };
