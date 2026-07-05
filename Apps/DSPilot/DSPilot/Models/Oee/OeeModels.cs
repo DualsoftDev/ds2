@@ -174,7 +174,43 @@ public sealed record OeeTeepDto(
     double? Teep,                     // 가동 ÷ 캘린더 (0~1). null = 산출 불가(캘린더 0 / 임계 없음)
     string? TeepNote,
     double? Utilization,              // (캘린더 − 비생산) ÷ 캘린더 (0~1). 보조지표
-    double? CtThresholdMs);           // 참고 (14일 평균)
+    double? CtThresholdMs,            // 참고 (14일 평균)
+    double UnmeasuredMs = 0);         // 미계측(수신 공백, §3.4) — flowCount 배수 적용. 잔여(Residual)에서 분리 표기
+
+/// <summary>
+/// 생산효율 매트릭스(P6 L0) — flow × 시간버킷별 TEEP·OEE. /uptime-teep 의 라인 3D(설비×시간)·설비 2D(TEEP·OEE/시간) 차트 데이터.
+/// 버킷 규칙은 /api/oee/daily 와 동일(스팬 ≤2일=시간, 초과=일, 로컬 달력 클립). 셀 산출은 <c>OeeMath.BuildTeepMatrixCells</c>(순수함수) —
+/// 가동·사이클수=시작버킷 귀속, 정지·비생산=구간 overlap 분배. KPI(/api/oee/teep)와 같은 사이클 집계지만 flow별 재집계라
+/// 무사이클 갭 10× 판정 임계(라인=flow 평균 vs 여기=flow 자신)가 달라 라인 합산치와 미세 오차 가능(차트용 허용).
+/// </summary>
+public sealed record OeeTeepMatrixDto(
+    DateTime FromUtc,
+    DateTime ToUtc,
+    string Granularity,               // "hour"(≤2일) | "day"
+    double Quality,                   // 셀 OEE 에 곱한 품질 Q (0~1) — 수기 전역값, 미설정 = 1.0 가정
+    string QualitySource,             // "manual" | "assumed"
+    List<OeeTeepMatrixBucketDto> Buckets,
+    List<OeeTeepMatrixFlowDto> Flows);
+
+/// <summary>매트릭스 시간버킷 — Label 은 daily 와 동일 포맷("yyyy-MM-dd HH:00" | "yyyy-MM-dd"), 표시 축약은 프론트 몫.</summary>
+public sealed record OeeTeepMatrixBucketDto(string Label, DateTime StartUtc, DateTime EndUtc);
+
+public sealed record OeeTeepMatrixFlowDto(
+    string FlowName,
+    double? CtThresholdMs,            // flow CT이상치(14일 평균) — 셀 성능 P 의 표준(참고 표기용)
+    List<OeeTeepMatrixCellDto> Cells);
+
+/// <summary>매트릭스 셀 — 산출 불가 지표는 null(정직 표기). 버킷 순서는 Buckets 와 1:1.</summary>
+public sealed record OeeTeepMatrixCellDto(
+    double CalendarMs,                // 버킷 길이(기간 클립 후)
+    double RunningMs,                 // 가동 = 버킷 시작 정상 사이클 ΣCT
+    double DownMs,                    // 정지 = 비가동 구간 overlap
+    double NonProdMs,                 // 비생산 = 자동10× + 수동 시간대 overlap
+    int CycleCount,                   // 정상 사이클 수(성능 P 분자)
+    double? Teep,                     // 가동 ÷ 버킷캘린더 (0~1)
+    double? Availability,             // 가동 ÷ (가동+정지)
+    double? Performance,              // (N × CT이상치) ÷ 가동, max 1.0
+    double? Oee);                     // A × P × Q(전역 수기)
 
 /// <summary>
 /// OEE 6지표 + 구성요소. 산출 불가 항목은 null + 사유(*Note) 정직 표기 (doc/21 §10, §12 개정).
@@ -223,7 +259,8 @@ public sealed record OeeSummaryDto(
     bool CtSampleLow = false,         // 클린샘플 < 신뢰선(5) — A·P 는 잠정값(샘플 쌓이면 자동 정상화). UI '샘플 부족' 표시용
     double IdleMaintCtMs = 0,         // Σ비가동CT 중 유지보수(isFailure=0 이벤트 겹침) 귀속분 — 가용성 바 분할(고장 = IdleCtMs − 이 값)
     double IdleCalendarMs = 0,        // 비가동 구간의 달력(벽시계) 환산 — Union 후 Total. ΣCT(설비 합산)와의 단위 오독 방지 병기용
-    int CycleFlowCount = 0);          // ΣCT 합산에 참여한 설비(flow) 수 — "설비시간 합산 ×N" 칩 표기용(설비 필터 시 1)
+    int CycleFlowCount = 0,           // ΣCT 합산에 참여한 설비(flow) 수 — "설비시간 합산 ×N" 칩 표기용(설비 필터 시 1)
+    double UnmeasuredMs = 0);         // 미계측(수신 공백, doc/22 §3.4) 달력시간 — 가동/비가동/비생산 어디에도 미포함(정직 표기)
 
 /// <summary>비생산 시간대 한 칸 DTO (반복 일일, 로컬 자정 기준 분).</summary>
 public sealed record PlannedStopWindowDto(int StartMinutes, int EndMinutes, string? Label);
@@ -248,7 +285,9 @@ public sealed record PlannedAutoPatternDto(
     DateTime DataFrom,
     DateTime DataTo,
     int DaysAnalyzed,
-    bool CurrentlyNonProd = false);
+    bool CurrentlyNonProd = false,
+    IReadOnlyList<PlannedStopWindowDto>? UnmeasuredWindows = null,  // 미계측(수신 공백, §3.4) — actual 전용, 비생산과 분리 표기
+    bool CurrentlyUnmeasured = false);                              // 지금 이 순간이 미계측(수신 공백) — 배지 3-상태용
 
 /// <summary>정지 이벤트 로그 한 건 (필터 조회용). 시각은 로컬 변환된 DateTime.</summary>
 public sealed record OeeDowntimeDto(
@@ -307,4 +346,5 @@ public sealed record OeeDailySlotDto(
     long FailureMs = 0,     // 고장 (isFailure=1, 비계획)
     long OtherMs = 0,       // 기타 비계획 (category='unplanned' AND isFailure=0)
     long UnclassifiedMs = 0, // 미분류 (category IS NULL)
-    long NonProdMs = 0);    // 비생산(제외) — 가동에서 카빙, A 분모 밖 (사이클 10×CT / 수동 시각대)
+    long NonProdMs = 0,     // 비생산(제외) — 가동에서 카빙, A 분모 밖 (사이클 10×CT / 수동 시각대)
+    long UnmeasuredMs = 0); // 미계측(수신 공백, §3.4) — 최우선 카빙(모르는 시간은 어떤 상태도 주장 안 함)

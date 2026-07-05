@@ -193,9 +193,8 @@ public class SettingsController : ControllerBase
                 {
                     m.AutoCalibration.Enabled = acReq.Enabled;
                     m.AutoCalibration.MinCleanCycles = Math.Max(1, acReq.MinCleanCycles);
-                    m.AutoCalibration.MaxMode = acReq.MaxMode is "RawMax" ? "RawMax" : "Percentile";
-                    m.AutoCalibration.PercentileMax = Math.Clamp(acReq.PercentileMax, 50, 100);
-                    m.AutoCalibration.MarginMaxPct = Math.Clamp(acReq.MarginMaxPct, 0, 5);
+                    // null = 구(캐시) 클라이언트가 필드 없이 보낸 경우 — 기존값 보존(0 으로 조여지는 사고 방지).
+                    m.AutoCalibration.MedianMarginMaxPct = Math.Clamp(acReq.MedianMarginMaxPct ?? m.AutoCalibration.MedianMarginMaxPct, 0, 5);
                     m.AutoCalibration.MarginMaxAbsMs = Math.Clamp(acReq.MarginMaxAbsMs, 0, 600000);
                     m.AutoCalibration.FillMin = acReq.FillMin;
                     m.AutoCalibration.PercentileMin = Math.Clamp(acReq.PercentileMin, 0, 50);
@@ -538,9 +537,7 @@ public class SettingsController : ControllerBase
             new AutoCalibrationDto(
                 m.AutoCalibration.Enabled,
                 m.AutoCalibration.MinCleanCycles,
-                m.AutoCalibration.MaxMode,
-                m.AutoCalibration.PercentileMax,
-                m.AutoCalibration.MarginMaxPct,
+                m.AutoCalibration.MedianMarginMaxPct,
                 m.AutoCalibration.MarginMaxAbsMs,
                 m.AutoCalibration.FillMin,
                 m.AutoCalibration.PercentileMin,
@@ -707,13 +704,11 @@ public record UserTagFilterStateDto(List<UserTagFilterInfoDto> Tags);
 public record UserTagFiltersSaveDto(List<string>? TagAddresses);
 
 // CompletedAt = 자동 1회 실행 완료 시각(고정). LastAppliedAt = 마지막으로 AASX 에 기록한 시각(매 적용 갱신).
-// 둘 다 로컬 표시 문자열, null = 미실행. MaxMode = "Percentile"|"RawMax". PercentileMax/Min = 백분위수(기본 95/5).
+// 둘 다 로컬 표시 문자열, null = 미실행. MedianMarginMaxPct = Max 여유율(중앙값 대비 분수, 기본 0.60). PercentileMin = Min 백분위수(기본 5).
 public record AutoCalibrationDto(
     bool Enabled,
     int MinCleanCycles,
-    string MaxMode,
-    double PercentileMax,
-    double MarginMaxPct,
+    double MedianMarginMaxPct,
     int MarginMaxAbsMs,
     bool FillMin,
     double PercentileMin,
@@ -723,12 +718,11 @@ public record AutoCalibrationDto(
     string? LastAppliedSummary);
 
 // 자동 보정 저장 입력 — 편집 가능한 필드만(CompletedAt 은 서버 관리, 저장으로 변경 불가).
+// MedianMarginMaxPct 는 nullable — 구(캐시) 클라이언트가 이 필드 없이 보내면 서버가 기존값을 보존한다.
 public record AutoCalibrationSaveDto(
     bool Enabled,
     int MinCleanCycles,
-    string MaxMode,
-    double PercentileMax,
-    double MarginMaxPct,
+    double? MedianMarginMaxPct,
     int MarginMaxAbsMs,
     bool FillMin,
     double PercentileMin,

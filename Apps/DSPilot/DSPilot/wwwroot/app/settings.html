@@ -358,30 +358,16 @@
                                     <!-- 동작 초과(ActionOver) — Max 임계 (상시 적용) -->
                                     <div class="form-group" style="margin-top:14px;margin-bottom:0;">
                                         <label class="form-label">동작 초과(ActionOver) — Max 임계 산출 <span style="font-weight:400;color:var(--color-text-secondary);">· 상시 적용</span></label>
-                                        <div style="display:flex;flex-direction:column;gap:6px;margin:4px 0 6px;">
-                                            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-                                                <input type="radio" x-model="s.autoCalibration.maxMode" value="Percentile" />
-                                                <span>백분위수 (이상치 제외)</span>
-                                            </label>
-                                            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-                                                <input type="radio" x-model="s.autoCalibration.maxMode" value="RawMax" />
-                                                <span>실측 최대값 + 여유율</span>
-                                            </label>
-                                        </div>
-                                        <div x-show="s.autoCalibration.maxMode !== 'RawMax'" x-cloak style="margin-top:4px;">
-                                            <input type="number" class="form-field mono" x-model.number="s.autoCalibration.percentileMax" min="50" max="100" step="1" placeholder="95" />
-                                            <small class="settings-hint">Max = 실측 p<span x-text="s.autoCalibration.percentileMax ?? 95"></span>. 클수록 느슨(오탐↓).</small>
-                                        </div>
-                                        <div x-show="s.autoCalibration.maxMode === 'RawMax'" x-cloak style="margin-top:4px;">
+                                        <div style="margin-top:4px;">
                                             <div style="display:flex;align-items:center;gap:6px;">
-                                                <span style="font-size:0.8rem;white-space:nowrap;">+</span>
+                                                <span style="font-size:0.8rem;white-space:nowrap;">여유율 +</span>
                                                 <input type="text" inputmode="decimal" class="form-field mono"
-                                                       :value="s.autoCalibration.marginMaxPct == null ? '' : Math.round(s.autoCalibration.marginMaxPct * 10000) / 100"
-                                                       @change="s.autoCalibration.marginMaxPct = pctToFrac($event.target.value)"
-                                                       placeholder="20" style="width:90px;" />
-                                                <span style="font-size:0.8rem;white-space:nowrap;">% 여유율</span>
+                                                       :value="s.autoCalibration.medianMarginMaxPct == null ? '' : Math.round(s.autoCalibration.medianMarginMaxPct * 10000) / 100"
+                                                       @change="s.autoCalibration.medianMarginMaxPct = pctToFrac($event.target.value)"
+                                                       placeholder="60" style="width:90px;" />
+                                                <span style="font-size:0.8rem;white-space:nowrap;">%</span>
                                             </div>
-                                            <small class="settings-hint">Max = 실측 최대값 × (1 + 여유율%). 예: 20 = +20%, 10.5 = +10.5%. 단일 이상치가 반영되므로 샘플 수가 충분할 때 사용하세요.</small>
+                                            <small class="settings-hint">Max = 실측 중앙값 × (1 + 여유율%). 예: 60 = +60%. 기본 60. 관측된 정상 최대(통신 이상치 제외)보다 작게 잡히지는 않습니다.</small>
                                         </div>
                                         <div style="margin-top:10px;">
                                             <div style="display:flex;align-items:center;gap:6px;">
@@ -1150,9 +1136,7 @@
                             autoCalibration: {
                                 enabled: !!this.s.autoCalibration?.enabled,
                                 minCleanCycles: (this.s.autoCalibration?.minCleanCycles ?? 10) | 0,
-                                maxMode: this.s.autoCalibration?.maxMode === 'RawMax' ? 'RawMax' : 'Percentile',
-                                percentileMax: +(this.s.autoCalibration?.percentileMax ?? 95),
-                                marginMaxPct: +(this.s.autoCalibration?.marginMaxPct ?? 0.20),
+                                medianMarginMaxPct: +(this.s.autoCalibration?.medianMarginMaxPct ?? 0.60),
                                 marginMaxAbsMs: (this.s.autoCalibration?.marginMaxAbsMs ?? 5000) | 0,
                                 fillMin: !!this.s.autoCalibration?.fillMin,
                                 percentileMin: +(this.s.autoCalibration?.percentileMin ?? 5),

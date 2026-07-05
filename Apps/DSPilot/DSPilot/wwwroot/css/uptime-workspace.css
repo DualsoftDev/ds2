@@ -21,6 +21,24 @@
         .up-teep-leg .sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; flex-shrink: 0; }
         .up-teep-leg b { font-weight: 700; font-family: "JetBrains Mono", ui-monospace, monospace; }
         .up-teep-leg em { font-style: normal; opacity: 0.8; }
+
+        /* ── 생산효율 매트릭스 (P6 L0) — 3D 아이소/2D 막대 SVG (uptime-workspace.js renderTeepMatrix).
+           데이터색(TEEP 앰버/OEE 그린/정지 빨강)은 JS 고정 팔레트 — 여기서는 크롬(바닥/축/그리드)만 토큰으로 테마 대응. */
+        .up-tm-scroll { overflow-x: auto; }              /* 모바일: 차트는 자체 가로 스크롤(페이지 가로 스크롤 금지 규약) */
+        .up-tm-host svg.up-tm-svg { display: block; width: 100%; height: auto; min-width: 640px; }
+        .up-tm-host text { font-family: var(--font-mono, ui-monospace, monospace); }
+        .up-tm-axis { fill: var(--color-text-secondary); font-size: 10px; }
+        .up-tm-axis-strong { fill: var(--color-text-primary); font-size: 11px; font-weight: 700; }
+        .up-tm-grid { stroke: var(--color-lines); stroke-width: 0.6; stroke-dasharray: 2 3; }
+        .up-tm-grid-strong { stroke: var(--color-lines-strong); stroke-width: 1; }
+        .up-tm-floor-a { fill: var(--color-surface-variant); stroke: var(--color-lines); stroke-width: 0.4; }
+        .up-tm-floor-b { fill: var(--color-surface); stroke: var(--color-lines); stroke-width: 0.4; }
+        .up-tm-cube { cursor: pointer; }
+        .up-tm-cube:hover .up-tm-face { filter: brightness(1.12); }
+        .up-tm-face { stroke: rgba(0, 0, 0, 0.4); stroke-width: 0.6; }
+        .up-tm-bar-g { cursor: pointer; }
+        .up-tm-bar-g:hover rect { filter: brightness(1.1); }
+        .up-tm-val { fill: var(--color-text-secondary); font-size: 9px; font-weight: 700; }
         .up-tab-badge { display: inline-flex; min-width: 18px; height: 18px; padding: 0 5px; align-items: center; justify-content: center; border-radius: 999px; background: var(--red); color: #fff; font-size: 0.62rem; font-weight: 800; line-height: 1; }
 
         /* ── OEE 6 KPI (OEE·A·P·Q·MTBF·MTTR — doc/22 사이클기반: MTTR 복원. 산출가능=강조, 산출불가=흐림+사유) ── */
@@ -95,6 +113,8 @@
         /* 비생산(분모 밖 제외) = 남색 슬레이트(--nonprod, ds.css) + 푸른 빗금 — 일자별 추이 캔버스의
            밤하늘 빗금(_nightHatchPattern)과 동일 의미의 CSS 판. TEEP 시간 분해 막대 등 DOM 막대·스와치 공용 */
         .hatch-nonprod { background-color: var(--nonprod); background-image: repeating-linear-gradient(45deg, rgba(96,140,210,0.55) 0 1.4px, transparent 1.4px 6px); }
+        /* 미계측(수신 공백, doc/22 §3.4) — 회색 빗금: '모르는 시간' */
+        .hatch-unmeas { background-color: color-mix(in srgb, var(--color-text-secondary) 55%, var(--color-surface)); background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.5) 0 1.4px, transparent 1.4px 6px); }
         .up-legend-name { font-weight: 700; flex: 1; }
         .up-legend-share { font-family: var(--font-mono); font-weight: 700; color: var(--color-text-secondary); }
         .up-legend-val { width: 56px; text-align: right; font-family: var(--font-mono); font-weight: 800; }
@@ -351,6 +371,7 @@
         .up-ptl-legend .sw { width: 15px; height: 11px; border-radius: 3px; flex-shrink: 0; }
         .up-ptl-legend .sw.manual { background: var(--nonprod); }
         .up-ptl-legend .sw.auto { background: color-mix(in srgb, var(--nonprod) 16%, transparent); border: 1.5px dashed var(--nonprod); }
+        .up-ptl-legend .sw.unmeas { background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--color-text-secondary) 28%, transparent) 0 3px, transparent 3px 6px); border: 1.5px dotted var(--color-text-secondary); }
         .up-ptl-legend .sw.sug { background: transparent; border: 1.5px dashed var(--color-lines-strong); }
         .up-ptl-legend .sw.now { width: 3px; height: 15px; border-radius: 1px; background: var(--color-primary); }
 
@@ -375,6 +396,8 @@
             padding: 2px 7px; overflow: hidden; cursor: grab; z-index: 4; transition: box-shadow 0.12s; touch-action: none;
         }
         .up-ptl-win.auto { background: color-mix(in srgb, var(--nonprod) 15%, var(--color-surface)); color: var(--nonprod); border-style: dashed; }
+        /* 미계측(수신 공백, doc/22 §3.4) — 회색 점선 빗금: '모르는 시간'의 시각 언어(비생산 남색과 구분). 읽기 전용 */
+        .up-ptl-win.unmeas { background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--color-text-secondary) 14%, var(--color-surface)) 0 5px, var(--color-surface) 5px 10px); color: var(--color-text-secondary); border-style: dotted; border-color: var(--color-text-secondary); cursor: default; }
         .up-ptl-win:hover { z-index: 7; box-shadow: 0 2px 9px rgba(0, 0, 0, 0.22); }
         .up-ptl-win.sel { z-index: 8; box-shadow: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-primary); }
         .up-ptl-win .wl { font-size: 0.68rem; font-weight: 800; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }

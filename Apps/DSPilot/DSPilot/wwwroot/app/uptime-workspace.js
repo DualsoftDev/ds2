@@ -45,6 +45,31 @@
             return canvas.getContext('2d').createPattern(tile, 'repeat');
         }
 
+        // ── 생산효율 매트릭스(P6 L0) SVG 헬퍼 — Alpine 반응형 밖(임퍼러티브 렌더, Proxy 크래시 방지) ──
+        const TM_NS = 'http://www.w3.org/2000/svg';
+        function _tmEl(tag, attrs, parent) {
+            const e = document.createElementNS(TM_NS, tag);
+            for (const k in attrs) e.setAttribute(k, attrs[k]);
+            if (parent) parent.appendChild(e);
+            return e;
+        }
+        // TEEP 등급 팔레트(앰버 스케일, P6 목업 L0) — 데이터색은 라이트/다크 공통 고정(크롬 색만 CSS 토큰).
+        function _tmTeepFaces(pct) {
+            if (pct >= 60) return { top: '#F57F17', right: '#EF6C00', front: '#E65100' };
+            if (pct >= 45) return { top: '#FFA000', right: '#FF8F00', front: '#FF6F00' };
+            if (pct >= 30) return { top: '#FFD54F', right: '#FFCA28', front: '#FFC107' };
+            return { top: '#FFF59D', right: '#FFF176', front: '#FFEE58' };
+        }
+        // 정지 캡(빨강) — 시간분해 막대의 '정지' 와 같은 의미(빗금 대신 3D 캡).
+        const TM_DOWN_FACES = { top: '#B71C1C', right: '#C62828', front: '#D32F2F' };
+        // OEE 등급(그린 스케일, P6 목업 L1) — 2D 막대 단색.
+        function _tmOeeColor(pct) {
+            if (pct >= 85) return '#1B5E20';
+            if (pct >= 70) return '#2E7D32';
+            if (pct >= 55) return '#66BB6A';
+            return '#FDD835';
+        }
+
         function uptimeApp() {
             return {
                 // 기존 UserTag 상태 (+ 구 이상발생 관리 흡수: 필터/페이지/정의/차트)
@@ -79,6 +104,9 @@
                 oee: null, oeeError: null,
                 // 생산효율(TEEP) — /api/oee/teep. teepPct() 가 시간분해 막대 %. _teepSeq=stale 가드.
                 teep: null, teepError: null, _teepSeq: 0,
+                // 생산효율 매트릭스(P6 L0) — /api/oee/teep/matrix (flow×시간버킷 TEEP·OEE).
+                // 라인 전체=3D 아이소(설비×시간), 설비 선택=2D 막대(TEEP·OEE/시간). _teepMxAt=무음(폴링) 갱신 스로틀 기준 시각.
+                teepMatrix: null, teepMatrixError: null, _teepMxSeq: 0, _teepMxAt: 0,
                 oeeExporting: false,   // OEE Excel 내보내기 진행 중
                 planTime: null, // /api/oee/plan-time — 계획시간 폴백 체인 + 14일 히스토그램
                 downtime: [], ranking: [],
@@ -508,8 +536,8 @@
                         // 먼저 도착해, 방금 선택한 기간과 화면이 어긋나거나(범위 불일치) 새 기간이 스냅샷 완료 후에야
                         // 뒤늦게 적용되던 경합이 생긴다. 동기 호출하면 rangeForPeriod()·++_oeeSeq 가 방금 바뀐 period 로
                         // 즉시 실행돼 loadOee 의 dispatch 순서가 기간 선택 순서와 정확히 일치한다(최신 선택이 항상 승리).
-                        const oeePromise = this.loadOee();
-                        // 생산효율 페이지 — 알람(UserTag) UI 가 없어 스냅샷 조회 생략(OEE 요약 + TEEP 만).
+                        const oeePromise = this.loadOee(silent);
+                        // 생산효율 페이지 — 알람(UserTag) UI 가 없어 스냅샷 조회 생략(OEE 요약 + TEEP + 매트릭스만).
                         if (this.view === 'teep') {
                             this.loading = false;
                             await oeePromise;
@@ -637,7 +665,209 @@
                     return Math.max(0, Math.min(100, this.teep[field] / this.teep.calendarMs * 100)).toFixed(1);
                 },
 
-                async loadOee() {
+                // ── 생산효율 매트릭스 (P6 L0, /api/oee/teep/matrix) ──────────────────
+                // flow×버킷 재집계라 KPI 보다 비싸다 — 무음(10초 폴링) 갱신은 60초에 한 번만(기간/설비 변경·수동 적용은 즉시).
+                async loadTeepMatrix(silent) {
+                    if (this.view !== 'teep') return;
+                    if (silent && Date.now() - this._teepMxAt < 60000) return;
+                    const r = this.rangeForPeriod();
+                    let qs = `from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}`;
+                    if (this.curFlow) qs += `&flow=${encodeURIComponent(this.curFlow)}`;
+                    const seq = ++this._teepMxSeq;
+                    try {
+                        const dto = await this.apiGet('/api/oee/teep/matrix?' + qs);
+                        if (seq !== this._teepMxSeq) return; // stale 응답 폐기
+                        this.teepMatrix = dto;
+                        this.teepMatrixError = null;
+                        this._teepMxAt = Date.now();
+                        this.$nextTick(() => this.renderTeepMatrix());
+                    } catch (e) {
+                        if (seq !== this._teepMxSeq) return;
+                        this.teepMatrixError = '매트릭스 데이터를 불러오지 못했습니다: ' + e.message;
+                    }
+                },
+                // 표시 모드 — 라인 전체(설비 ≥2)=3D 아이소 'iso', 설비 선택(또는 설비 1개 라인)=2D 막대 'bars', 데이터 없음=null.
+                teepMatrixMode() {
+                    const m = this.teepMatrix;
+                    if (!m || !m.flows || m.flows.length === 0 || !m.buckets || m.buckets.length === 0) return null;
+                    return (this.curFlow || m.flows.length === 1) ? 'bars' : 'iso';
+                },
+                teepMatrixSub() {
+                    const m = this.teepMatrix, mode = this.teepMatrixMode();
+                    if (!mode) return '';
+                    const g = m.granularity === 'hour' ? '시간별' : '일별';
+                    if (mode === 'iso') return `설비 ${m.flows.length}개 × ${g} ${m.buckets.length}구간 · 높이=가동 · 색=TEEP 등급 · 빨간 캡=정지 · 클릭=설비 상세`;
+                    const f = this.curFlow || m.flows[0].flowName;
+                    return `${f} · ${g} ${m.buckets.length}구간 · 막대=TEEP·OEE 등급색 · 클릭=설비효율(A·P·Q) 상세`;
+                },
+                // 룰 기반 한 줄 인사이트 — 라인 뷰=기간 최저/최고 설비, 설비 뷰=최저 버킷과 그 원인 분해.
+                teepMatrixInsight() {
+                    const m = this.teepMatrix;
+                    if (!this.teepMatrixMode()) return '';
+                    if (this.teepMatrixMode() === 'iso') {
+                        const per = m.flows.map(f => {
+                            let run = 0, cal = 0, down = 0;
+                            for (const c of f.cells) { run += c.runningMs; cal += c.calendarMs; down += c.downMs; }
+                            return { name: f.flowName, teep: cal > 0 ? run / cal : null, down };
+                        }).filter(x => x.teep != null);
+                        if (per.length < 2) return '';
+                        const worst = per.reduce((a, b) => (b.teep < a.teep ? b : a));
+                        const best = per.reduce((a, b) => (b.teep > a.teep ? b : a));
+                        return `기간 생산효율 최저 설비: ${worst.name} ${this.pct(worst.teep)} (정지 ${this.durShort(worst.down)}) · 최고: ${best.name} ${this.pct(best.teep)}`;
+                    }
+                    const f = this.curFlow ? m.flows.find(x => x.flowName === this.curFlow) : m.flows[0];
+                    if (!f) return '';
+                    let wi = -1;
+                    f.cells.forEach((c, i) => {
+                        if (c.teep == null || c.runningMs + c.downMs <= 0) return; // 무활동 버킷(야간 등)은 최저 후보 제외
+                        if (wi < 0 || c.teep < f.cells[wi].teep) wi = i;
+                    });
+                    if (wi < 0) return '';
+                    const c = f.cells[wi];
+                    return `최저 구간: ${this._tmShortLabel(m.buckets[wi].label, m.granularity)} — TEEP ${this.pct(c.teep)} · 가동 ${this.durShort(c.runningMs)} · 정지 ${this.durShort(c.downMs)} · 비생산 ${this.durShort(c.nonProdMs)}`;
+                },
+                _tmShortLabel(lbl, gran) {
+                    return gran === 'hour' ? lbl.slice(11, 13) + '시' : lbl.slice(5); // "yyyy-MM-dd HH:00"→"HH시" / "yyyy-MM-dd"→"MM-dd"
+                },
+                // 큐브 클릭 → 이 페이지의 설비(2D) 뷰. location.search 가 기간(?period 등)을 이미 담고 있어(syncPeriodUrl) 그대로 유지.
+                _tmDrillFlow(flowName) {
+                    const qp = new URLSearchParams(location.search);
+                    qp.set('flow', flowName);
+                    location.href = '/uptime-teep?' + qp.toString();
+                },
+                // 2D 막대 클릭 → 설비효율(OEE) 페이지 L1 드릴(A·P·Q 분해). 기간/설비 유지.
+                _tmDrillOee(flowName) {
+                    const qp = new URLSearchParams(location.search);
+                    qp.set('flow', flowName);
+                    location.href = '/uptime-oee?' + qp.toString();
+                },
+                // 호스트 div 는 x-show 로 상시 존재(테어다운 없음) — 드물게 첫 마운트 직후 못 찾으면 1프레임 재시도
+                // (중첩 x-if 캔버스 레이스와 같은 계열 방어).
+                renderTeepMatrix(retried) {
+                    const host = document.getElementById('teep-matrix-host');
+                    if (!host) { if (!retried) requestAnimationFrame(() => this.renderTeepMatrix(true)); return; }
+                    host.innerHTML = '';
+                    const mode = this.teepMatrixMode();
+                    if (!mode) return;
+                    if (mode === 'iso') this._renderTeepIso(host, this.teepMatrix);
+                    else this._renderTeepBars(host, this.teepMatrix);
+                },
+                // 3D 아이소(설비 × 시간 × 가동) — P6 목업 renderL0 이식. 높이=가동/캘린더, 색=TEEP 등급, 빨간 캡=정지.
+                _renderTeepIso(host, m) {
+                    const flows = m.flows, B = m.buckets.length, L = flows.length;
+                    const CELL = Math.max(9, Math.min(24, Math.floor(720 / (B + L + 4)))); // 60일(60버킷)까지 자동 축소
+                    const COS30 = 0.866, SIN30 = 0.5;
+                    const H_UNITS = 5; // 가동 100% = 5셀 높이
+                    const PAD_L = 70, PAD_R = 34, PAD_T = 14, PAD_B = 30;
+                    const OX = PAD_L + L * CELL * COS30;
+                    const OY = PAD_T + H_UNITS * CELL;
+                    const W = Math.ceil(OX + B * CELL * COS30 + PAD_R);
+                    const H = Math.ceil(OY + (B + L) * CELL * SIN30 + PAD_B);
+                    const iso = (x, y, z) => [OX + (x - z) * CELL * COS30, OY + (x + z) * CELL * SIN30 - y * CELL];
+                    const pts = (arr) => arr.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+                    const svg = _tmEl('svg', { viewBox: `0 0 ${W} ${H}`, class: 'up-tm-svg', role: 'img' });
+                    host.appendChild(svg);
+
+                    // 바닥 그리드(체커보드) — 크롬 색은 CSS 토큰(라이트/다크 자동 대응).
+                    for (let l = 0; l < L; l++)
+                        for (let d = 0; d < B; d++)
+                            _tmEl('polygon', {
+                                points: pts([iso(d, 0, l), iso(d + 1, 0, l), iso(d + 1, 0, l + 1), iso(d, 0, l + 1)]),
+                                class: (l + d) % 2 === 0 ? 'up-tm-floor-a' : 'up-tm-floor-b'
+                            }, svg);
+
+                    // 큐브 — 뒤(x+z 작음)→앞 페인터 정렬.
+                    const order = [];
+                    for (let l = 0; l < L; l++) for (let d = 0; d < B; d++) order.push([l, d]);
+                    order.sort((a, b) => (a[0] + a[1]) - (b[0] + b[1]));
+                    for (const [l, d] of order) {
+                        const c = flows[l].cells[d];
+                        if (!c || c.calendarMs <= 0) continue;
+                        const hRun = Math.min(H_UNITS, c.runningMs / c.calendarMs * H_UNITS);
+                        const hTot = Math.min(H_UNITS, (c.runningMs + c.downMs) / c.calendarMs * H_UNITS);
+                        if (hTot < 0.03) continue;
+                        const g = _tmEl('g', { class: 'up-tm-cube' }, svg);
+                        // 앞(z=l+1)/우(x=d+1)/윗면 3면 박스 [y0,y1]
+                        const box = (y0, y1, f) => {
+                            const b0 = iso(d + 1, y0, l), c0 = iso(d + 1, y0, l + 1), e0 = iso(d, y0, l + 1);
+                            const a1 = iso(d, y1, l), b1 = iso(d + 1, y1, l), c1 = iso(d + 1, y1, l + 1), e1 = iso(d, y1, l + 1);
+                            _tmEl('polygon', { points: pts([e0, c0, c1, e1]), fill: f.front, class: 'up-tm-face' }, g);
+                            _tmEl('polygon', { points: pts([b0, c0, c1, b1]), fill: f.right, class: 'up-tm-face' }, g);
+                            _tmEl('polygon', { points: pts([a1, b1, c1, e1]), fill: f.top, class: 'up-tm-face' }, g);
+                        };
+                        if (hRun > 0.03) box(0, hRun, _tmTeepFaces((c.teep ?? 0) * 100));
+                        if (hTot - hRun > 0.03) box(hRun, hTot, TM_DOWN_FACES); // 정지 캡
+                        const t = _tmEl('title', {}, g);
+                        t.textContent = `${flows[l].flowName} · ${this._tmShortLabel(m.buckets[d].label, m.granularity)}`
+                            + ` — TEEP ${this.pct(c.teep)} · OEE ${this.pct(c.oee)}`
+                            + ` · 가동 ${this.durShort(c.runningMs)} · 정지 ${this.durShort(c.downMs)} · 비생산 ${this.durShort(c.nonProdMs)}`;
+                        g.addEventListener('click', () => this._tmDrillFlow(flows[l].flowName));
+                    }
+
+                    // 축 라벨 — 설비(좌측, 이름 축약), 시간(앞쪽 하단, 밀도에 맞춰 스텝).
+                    flows.forEach((f, i) => {
+                        const p = iso(-0.35, 0, i + 0.55);
+                        const name = f.flowName.length > 10 ? f.flowName.slice(0, 9) + '…' : f.flowName;
+                        _tmEl('text', { x: p[0].toFixed(1), y: (p[1] + 4).toFixed(1), class: 'up-tm-axis-strong', 'text-anchor': 'end' }, svg).textContent = name;
+                    });
+                    const step = Math.max(1, Math.ceil(B / 14));
+                    for (let d = 0; d < B; d += step) {
+                        const p = iso(d + 0.5, 0, L + 0.45);
+                        _tmEl('text', { x: p[0].toFixed(1), y: (p[1] + 11).toFixed(1), class: 'up-tm-axis', 'text-anchor': 'middle' }, svg)
+                            .textContent = this._tmShortLabel(m.buckets[d].label, m.granularity);
+                    }
+                },
+                // 2D 막대(설비 뷰) — 버킷별 TEEP·OEE 쌍. y=0~100%, 색=각 등급 스케일(3D 와 동일 팔레트).
+                _renderTeepBars(host, m) {
+                    const fr = this.curFlow ? m.flows.find(f => f.flowName === this.curFlow) : m.flows[0];
+                    if (!fr) return;
+                    const B = m.buckets.length;
+                    const W = 900, H = 300;
+                    const mg = { l: 46, r: 14, t: 20, b: 42 };
+                    const pw = W - mg.l - mg.r, ph = H - mg.t - mg.b;
+                    const svg = _tmEl('svg', { viewBox: `0 0 ${W} ${H}`, class: 'up-tm-svg', role: 'img' });
+                    host.appendChild(svg);
+
+                    for (const v of [0, 25, 50, 75, 100]) {
+                        const y = (mg.t + ph * (1 - v / 100)).toFixed(1);
+                        _tmEl('line', { x1: mg.l, y1: y, x2: mg.l + pw, y2: y, class: v === 0 ? 'up-tm-grid-strong' : 'up-tm-grid' }, svg);
+                        _tmEl('text', { x: mg.l - 7, y: (+y + 3.5).toFixed(1), class: 'up-tm-axis', 'text-anchor': 'end' }, svg).textContent = v + '%';
+                    }
+
+                    const gw = pw / B;
+                    const bw = Math.max(3, Math.min(20, gw * 0.34));
+                    const showVal = B <= 16; // 버킷 적을 때만 막대 위 % 수치(시간별 24개 등은 툴팁만)
+                    const step = Math.max(1, Math.ceil(B / 12));
+                    for (let i = 0; i < B; i++) {
+                        const c = fr.cells[i];
+                        const cx = mg.l + i * gw + gw / 2;
+                        const g = _tmEl('g', { class: 'up-tm-bar-g' }, svg);
+                        // 투명 히트영역 — 막대가 없는(무활동) 버킷도 툴팁·클릭 가능
+                        _tmEl('rect', { x: (cx - gw / 2).toFixed(1), y: mg.t, width: gw.toFixed(1), height: ph, fill: 'transparent' }, g);
+                        const bar = (v, x, color) => {
+                            if (v == null) return;
+                            const bh = Math.max(v > 0 ? 1.5 : 0, ph * Math.min(1, v));
+                            _tmEl('rect', { x: x.toFixed(1), y: (mg.t + ph - bh).toFixed(1), width: bw.toFixed(1), height: bh.toFixed(1), fill: color, rx: 1.5 }, g);
+                            if (showVal && v > 0.001)
+                                _tmEl('text', { x: (x + bw / 2).toFixed(1), y: (mg.t + ph - bh - 3).toFixed(1), class: 'up-tm-val', 'text-anchor': 'middle' }, g)
+                                    .textContent = Math.round(v * 100);
+                        };
+                        if (c) {
+                            bar(c.teep, cx - bw - 1.5, _tmTeepFaces((c.teep ?? 0) * 100).top);
+                            bar(c.oee, cx + 1.5, _tmOeeColor((c.oee ?? 0) * 100));
+                            const t = _tmEl('title', {}, g);
+                            t.textContent = `${m.buckets[i].label} — TEEP ${this.pct(c.teep)} · OEE ${this.pct(c.oee)}`
+                                + ` (A ${this.pct(c.availability)} · P ${this.pct(c.performance)} · Q ${this.pct(m.quality)})`
+                                + ` · 가동 ${this.durShort(c.runningMs)} · 정지 ${this.durShort(c.downMs)} · 비생산 ${this.durShort(c.nonProdMs)}`;
+                        }
+                        g.addEventListener('click', () => this._tmDrillOee(fr.flowName));
+                        if (i % step === 0)
+                            _tmEl('text', { x: cx.toFixed(1), y: (mg.t + ph + 15).toFixed(1), class: 'up-tm-axis', 'text-anchor': 'middle' }, svg)
+                                .textContent = this._tmShortLabel(m.buckets[i].label, m.granularity);
+                    }
+                },
+
+                async loadOee(silent) {
                     if (this.view === 'alarm') return; // OEE 지표는 알람 전용 페이지에서 미사용
                     const r = this.rangeForPeriod();
                     const qs = `from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}`;
@@ -645,14 +875,14 @@
                     const fqs = this.curFlow ? qs + `&flow=${encodeURIComponent(this.curFlow)}` : qs;
                     const seq = ++this._oeeSeq;
                     // 생산효율 페이지 — OEE 는 참조 KPI(요약)만 필요. 정지/순위/추이/계획시간(무거운 4조회)은
-                    // 설비효율 페이지 전용이라 10초 폴링 낭비를 막기 위해 요약 + TEEP 만 로드.
+                    // 설비효율 페이지 전용이라 10초 폴링 낭비를 막기 위해 요약 + TEEP + 매트릭스만 로드.
                     if (this.view === 'teep') {
                         try {
                             const summary = await this.apiGet('/api/oee/summary?' + fqs);
                             if (seq !== this._oeeSeq) return; // stale 응답 폐기
                             this.oee = summary;
                             this.oeeError = null;
-                            await this.loadTeep();
+                            await Promise.all([this.loadTeep(), this.loadTeepMatrix(silent)]);
                         } catch (e) {
                             if (seq !== this._oeeSeq) return;
                             this.oeeError = 'OEE 데이터를 불러오지 못했습니다: ' + e.message;
@@ -774,7 +1004,8 @@
                     const failureData = d.slots.map(s => ((s.failureMs || 0) + (s.unclassifiedMs || 0)) / MS); // 고장(isFailure=1 계열)
                     const plannedData = d.slots.map(s => ((s.plannedMs || 0) + (s.otherMs || 0)) / MS); // 유지보수(isFailure=0 계열)
                     const nonProdData = d.slots.map(s => (s.nonProdMs || 0) / MS); // 비생산(제외) — A 분모 밖
-                    const runData = d.slots.map(s => Math.max(0, s.slotMs - (s.failureMs || 0) - (s.otherMs || 0) - (s.unclassifiedMs || 0) - (s.plannedMs || 0) - (s.nonProdMs || 0)) / MS);
+                    const unmeasData = d.slots.map(s => (s.unmeasuredMs || 0) / MS); // 미계측(수신 공백, §3.4) — 판정 제외
+                    const runData = d.slots.map(s => Math.max(0, s.slotMs - (s.failureMs || 0) - (s.otherMs || 0) - (s.unclassifiedMs || 0) - (s.plannedMs || 0) - (s.nonProdMs || 0) - (s.unmeasuredMs || 0)) / MS);
 
                     // 평균 가동시간 선 (비생산 카빙 후 실가동 기준)
                     const avgRun = runData.length > 0 ? runData.reduce((a, b) => a + b, 0) / runData.length : 0;
@@ -788,6 +1019,7 @@
                     const nightHatch = _nightHatchPattern(canvas); // 비생산: 밤하늘 어두운 파랑 빗금
                     const faultHatch = _stripePattern(canvas, cFault);   // 고장: 어두운 빨강 위 빗금
                     const maintHatch = _stripePattern(canvas, cMaint);   // 유지보수: 노란(앰버) 위 빗금
+                    const unmeasHatch = _stripePattern(canvas, cGray);   // 미계측: 회색 빗금 — '모르는 시간'(§3.4)
 
                     const datasets = [
                         // 가동 = 솔리드(파랑) / 정지 3종(고장·유지보수·비생산) = 빗금 → "가동이 아님"을 직관적으로 표시
@@ -796,6 +1028,8 @@
                         { label: '유지보수', data: plannedData, backgroundColor: maintHatch, stack: 's', order: 2 },
                         // 비생산(제외)은 기본 비활성(범례에서 꺼진 상태) — 필요 시 범례 클릭으로 켬. hidden 은 생성 시 1회만 적용, 이후 사용자 토글 유지.
                         { label: '비생산(제외)', data: nonProdData, backgroundColor: nightHatch, stack: 's', order: 2, hidden: true },
+                        // 미계측(수신 공백)은 기본 표시 — 숨기면 '가동처럼 보이는 빈칸'이 되어 §3.4 취지(정직 표기)가 죽는다.
+                        { label: '미계측', data: unmeasData, backgroundColor: unmeasHatch, stack: 's', order: 2 },
                         {
                             label: `평균 ${avgRun.toFixed(1)}h`,
                             type: 'line',

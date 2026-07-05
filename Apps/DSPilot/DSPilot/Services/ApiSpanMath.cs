@@ -41,7 +41,7 @@ public static class ApiSpanMath
     /// pMin/pMax 는 정렬 후 분위수(OeeCtStatsService 와 동일 공식) — 이상치 단 1개가 임계를 왜곡하는
     /// measMax/mean+k·σ 방식보다 고변동(수작업·조립) 공정에서 안정적이다.
     /// percentileMax/percentileMin 을 지정하면 p95/p05 대신 해당 백분위수를 계산한다(기본값 95/5).
-    /// RawMin/RawMax 는 sorted 첫/마지막 값(백분위수 무관한 순수 최솟값/최댓값) — "RawMax" 모드 전용.
+    /// RawMin/RawMax 는 sorted 첫/마지막 값(백분위수 무관한 순수 최솟값/최댓값).
     /// </summary>
     public static (int Count, double? PMin, double? PMax, double? Mean, double? RawMin, double? RawMax) Measured(
         IReadOnlyList<double> spans, double percentileMax = 95.0, double percentileMin = 5.0)
@@ -59,6 +59,22 @@ public static class ApiSpanMath
     {
         int idx = Math.Clamp((int)Math.Floor(pct / 100.0 * (sorted.Count - 1)), 0, sorted.Count - 1);
         return sorted[idx];
+    }
+
+    /// <summary>
+    /// 중앙값과 클린 실측최대(중앙값 × 3 초과 span 은 통신 오염 단발 이상치로 보고 제외한 최댓값). 빈 입력은 (null, null).
+    /// 3× 울타리는 DeviceDurationLearner.robustAvg 의 [med/3, med×3] 상한과 동일 규약 — 정상 이중모드(느린 정상 경로가
+    /// 중앙값의 3배 이내)는 클램프로 보호하고, 재연결 burst 로 부풀려진 span 은 Max 임계에 반영하지 않는다.
+    /// </summary>
+    public static (double? Median, double? CleanMax) MedianAndCleanMax(IReadOnlyList<double> spans)
+    {
+        if (spans is null || spans.Count == 0) return (null, null);
+        var sorted = spans.OrderBy(x => x).ToList();
+        double median = Percentile(sorted, 50.0);
+        double cleanMax = median;
+        foreach (var x in sorted)
+            if (x <= median * 3.0 && x > cleanMax) cleanMax = x;
+        return (median, cleanMax);
     }
 
     /// <summary>

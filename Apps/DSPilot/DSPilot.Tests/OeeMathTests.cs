@@ -523,4 +523,88 @@ public class OeeMathTests
         Assert.Null(mttr);
         Assert.Contains("산출 불가", note);
     }
+
+    // ── BuildTeepMatrixCells (P6 L0 매트릭스 — /uptime-teep 3D/2D 차트 셀) ──────
+    //  귀속 규칙 고정: 가동·사이클수=시작버킷 통째 귀속 / 정지·비생산=overlap 분배(다일 정지 몰림 방지).
+
+    private static readonly List<(double S, double E)> TwoHourBuckets =
+        new() { (0, 3_600_000), (3_600_000, 7_200_000) }; // [0,1h), [1h,2h)
+
+    [Fact]
+    public void TeepMatrix_assigns_cycle_to_start_bucket_and_computes_teep()
+    {
+        // 버킷1에 30초 사이클 60개(가동 30분) — TEEP = 30m/60m = 0.5. 버킷2는 무활동(산출 불가 null).
+        var cycles = Enumerable.Range(0, 60).Select(i => ((double)i * 60_000, 30_000.0)).ToList();
+        var cells = OeeMath.BuildTeepMatrixCells(TwoHourBuckets, cycles,
+            idleIntervals: new List<(double, double)>(), nonProdIntervals: new List<(double, double)>(),
+            ctThresholdMs: 30_000, quality: 1.0);
+
+        Assert.Equal(2, cells.Count);
+        Assert.Equal(60, cells[0].CycleCount);
+        Assert.Equal(0.5, cells[0].Teep!.Value, 10);
+        Assert.Equal(1.0, cells[0].Availability!.Value, 10);   // 정지 0
+        Assert.Equal(1.0, cells[0].Performance!.Value, 10);    // 60×30s ÷ 30m
+        Assert.Equal(1.0, cells[0].Oee!.Value, 10);
+        Assert.Equal(0, cells[1].CycleCount);
+        Assert.Equal(0.0, cells[1].Teep!.Value, 10);            // 가동 0 → TEEP 0 (캘린더는 있으므로 null 아님)
+        Assert.Null(cells[1].Availability);                     // 가동+정지 0 → 산출 불가(null 정직 표기)
+        Assert.Null(cells[1].Oee);
+    }
+
+    [Fact]
+    public void TeepMatrix_boundary_cycle_belongs_wholly_to_start_bucket()
+    {
+        // 버킷 경계에 걸친 사이클(시작 59.5분, CT 1분)은 시작 버킷1에 통째 귀속 — 버킷2 가동 0.
+        var cycles = new List<(double, double)> { (59.5 * 60_000, 60_000.0) };
+        var cells = OeeMath.BuildTeepMatrixCells(TwoHourBuckets, cycles,
+            new List<(double, double)>(), new List<(double, double)>(), 60_000, 1.0);
+
+        Assert.Equal(60_000.0, cells[0].RunningMs, 6);
+        Assert.Equal(0.0, cells[1].RunningMs, 6);
+    }
+
+    [Fact]
+    public void TeepMatrix_distributes_idle_and_nonprod_by_overlap()
+    {
+        // 정지 30분(0.5h~1.5h)이 두 버킷에 걸침 → 각 15분씩 분배(시작일 몰빵 금지 — 주말 다일정지 함정).
+        var idle = new List<(double, double)> { (1_800_000, 5_400_000) };
+        // 비생산 1시간(1h~2h) → 버킷2에만.
+        var nonProd = new List<(double, double)> { (3_600_000, 7_200_000) };
+        var cells = OeeMath.BuildTeepMatrixCells(TwoHourBuckets, new List<(double, double)>(),
+            idle, nonProd, 30_000, 1.0);
+
+        Assert.Equal(1_800_000.0, cells[0].DownMs, 6);
+        Assert.Equal(1_800_000.0, cells[1].DownMs, 6);
+        Assert.Equal(0.0, cells[0].NonProdMs, 6);
+        Assert.Equal(3_600_000.0, cells[1].NonProdMs, 6);
+        // 가동 0 + 정지 >0 → A=0, TEEP=0, 성능 null → OEE null(정직 표기).
+        Assert.Equal(0.0, cells[0].Availability!.Value, 10);
+        Assert.Null(cells[0].Performance);
+        Assert.Null(cells[0].Oee);
+    }
+
+    [Fact]
+    public void TeepMatrix_applies_manual_quality_to_oee()
+    {
+        // A=0.5(가동 30분·정지 30분), P=1.0, Q=0.9 → OEE = 0.45.
+        var cycles = Enumerable.Range(0, 60).Select(i => ((double)i * 30_000, 30_000.0)).ToList();
+        var idle = new List<(double, double)> { (1_800_000, 3_600_000) };
+        var cells = OeeMath.BuildTeepMatrixCells(TwoHourBuckets, cycles, idle,
+            new List<(double, double)>(), 30_000, quality: 0.9);
+
+        Assert.Equal(0.5, cells[0].Availability!.Value, 10);
+        Assert.Equal(0.45, cells[0].Oee!.Value, 10);
+    }
+
+    [Fact]
+    public void TeepMatrix_unsorted_cycles_are_bucketed_correctly()
+    {
+        // 두 포인터 귀속은 내부 정렬에 의존 — 역순 입력도 동일 결과.
+        var cycles = new List<(double, double)> { (4_000_000, 30_000.0), (100_000, 30_000.0) };
+        var cells = OeeMath.BuildTeepMatrixCells(TwoHourBuckets, cycles,
+            new List<(double, double)>(), new List<(double, double)>(), 30_000, 1.0);
+
+        Assert.Equal(1, cells[0].CycleCount);
+        Assert.Equal(1, cells[1].CycleCount);
+    }
 }

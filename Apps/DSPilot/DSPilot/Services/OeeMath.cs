@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
+using DSPilot.Models.Oee;
+
 namespace DSPilot.Services;
 
 /// <summary>
@@ -290,4 +292,57 @@ public static class OeeMath
     /// </summary>
     public static double? ComputeUtilization(double calendarMs, double nonProdMs)
         => calendarMs > 0 ? Math.Clamp((calendarMs - nonProdMs) / calendarMs, 0, 1) : (double?)null;
+
+    /// <summary>
+    /// 생산효율 매트릭스(P6 L0) 셀 — 한 flow 의 시간버킷별 TEEP·OEE 산출 (순수함수, /api/oee/teep/matrix).
+    /// 귀속 규칙(차트용 근사, 셀 간 이중계상 없음):
+    ///   가동·사이클수 = 정상 사이클을 <b>시작 시각이 속한 버킷</b>에 통째 귀속 — 사이클이 짧아(수십 초) 경계 오차 무시 수준.
+    ///   정지·비생산  = Union 구간을 버킷 겹침(overlap)으로 분배 — 다일 무사이클 갭(주말정지)이 시작일에 몰리는 왜곡 방지.
+    /// 셀 지표는 기간 KPI 와 동일 정의: TEEP=가동÷버킷캘린더(단순 가동형), A=<see cref="ComputeCycleAvailability"/>,
+    /// P=<see cref="ComputeCyclePerformance"/>, OEE=A×P×Q(Q=수기 전역, 기본 100% 가정). 산출 불가 셀은 null 유지(정직 표기).
+    /// </summary>
+    /// <param name="buckets">버킷 [시작,끝) UTC epoch ms — 오름차순, 서로 겹치지 않음(로컬 달력 클립).</param>
+    /// <param name="normalCycles">정상 사이클 (시작 ms, CT ms) — 비생산 시간대 시작분 제외(KPI 가동과 동일 기준).</param>
+    /// <param name="idleIntervals">비가동(정지) Union 구간 ms.</param>
+    /// <param name="nonProdIntervals">비생산(자동 10× + 수동 시간대) Union 구간 ms.</param>
+    /// <param name="ctThresholdMs">flow CT이상치(14일 평균) — 성능 P 의 표준.</param>
+    /// <param name="quality">품질 Q (0~1) — 수기 전역값(미설정 = 1.0 가정).</param>
+    public static List<OeeTeepMatrixCellDto> BuildTeepMatrixCells(
+        IReadOnlyList<(double S, double E)> buckets,
+        IReadOnlyList<(double StartMs, double CtMs)> normalCycles,
+        IReadOnlyList<(double S, double E)> idleIntervals,
+        IReadOnlyList<(double S, double E)> nonProdIntervals,
+        double ctThresholdMs, double quality)
+    {
+        static double Overlap(IReadOnlyList<(double S, double E)> iv, double s, double e)
+        {
+            double sum = 0;
+            foreach (var (a, b) in iv) { var o = Math.Min(b, e) - Math.Max(a, s); if (o > 0) sum += o; }
+            return sum;
+        }
+
+        // 시작 시각 귀속은 정렬 후 두 포인터로 O(N log N) — 버킷이 오름차순·비중첩이라 한 번만 전진.
+        var cycles = normalCycles.OrderBy(c => c.StartMs).ToList();
+        int ci = 0;
+
+        var cells = new List<OeeTeepMatrixCellDto>(buckets.Count);
+        foreach (var (s, e) in buckets)
+        {
+            var calendarMs = Math.Max(0, e - s);
+            double runningMs = 0; int count = 0;
+            while (ci < cycles.Count && cycles[ci].StartMs < s) ci++;          // 첫 버킷 이전 시작분 스킵
+            while (ci < cycles.Count && cycles[ci].StartMs < e) { runningMs += cycles[ci].CtMs; count++; ci++; }
+
+            var downMs = Overlap(idleIntervals, s, e);
+            var nonProdMs = Overlap(nonProdIntervals, s, e);
+
+            var teep = ComputeTeep(runningMs, calendarMs);
+            var (a, _) = ComputeCycleAvailability(runningMs, downMs);
+            var (p, _) = ComputeCyclePerformance(count, ctThresholdMs, runningMs);
+            double? oee = a is double av && p is double pv ? av * pv * quality : null;
+
+            cells.Add(new OeeTeepMatrixCellDto(calendarMs, runningMs, downMs, nonProdMs, count, teep, a, p, oee));
+        }
+        return cells;
+    }
 }

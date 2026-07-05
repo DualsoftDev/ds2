@@ -186,6 +186,10 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<OeeAutoShiftInfere
 
 // 비생산 시간대 자동계산(doc/22 §3.3)은 별도 백그라운드 서비스가 필요 없다 — 14일 평균 CT(OeeCtStatsService) 위에
 // "무변화 정지 ≥ 10×평균CT = 비생산" 규칙을 OeeController 가 조회 시 온디맨드로 적용한다(고장신호와 무관, 순수 CT).
+// 통신 헬스 심박(60s) — PLC 연결 상태(에이전트 보고 ▸ 직접 핑 폴백)를 oee.db(oeeCommHealthLog)에 영속.
+// '미계측(수신 공백)' 구간의 SSOT — OEE 가 이 구간을 가동/비가동/비생산 어디에도 넣지 않게 한다(doc/22 §3.4).
+builder.Services.AddSingleton<OeeCommHealthService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<OeeCommHealthService>());
 
 // CCTV — 카메라 목록을 별도 프로세스 MediaMTX(:9997) 로 동기화. WebRTC 재게시는 MediaMTX 담당.
 // Singleton + HostedService — Settings 페이지가 동일 인스턴스로 SyncAsync 직접 호출.

@@ -11,7 +11,7 @@ namespace DSPilot.Services;
 /// 실측 duration 자동 보정. 첫 설치 후 각 Flow 가 이상치 제외 클린사이클(IsIdle=0 AND CT NOT NULL)을
 /// <c>AutoCalibration.MinCleanCycles</c>(기본 10) 개 이상 모으면, 그 Flow 의 디바이스(Device Work) Duration/Min/MaxDuration 을
 /// 실측값으로 1회 자동 채운다. 공식: Duration=round(mean),
-/// Max=MaxMode="Percentile"→round(pPercentileMax), "RawMax"→round(실측최대×(1+MarginMaxPct)),
+/// Max=round(max(중앙값×(1+MedianMarginMaxPct), 클린 실측최대))+MarginMaxAbsMs (<see cref="ComputeMaxThresholdMs"/>),
 /// Min(FillMin=true 일 때만)=round(pPercentileMin×(1−MarginMinPct)). 측정 span 있는 디바이스만 기록.
 ///
 /// <para>측정→조인→기록은 검증된 기존 자산을 재사용한다: <see cref="CallLaneBuilderService"/>(lane/interval 빌드,
@@ -272,25 +272,29 @@ public sealed class AutoCalibrationService : BackgroundService
         var changes = new List<(Guid, int?, int?, int?)>();
         foreach (var (wid, spans) in spansByWork)
         {
-            var (count, pMin, pMax, mean, rawMin, rawMax) = ApiSpanMath.Measured(spans, ac.PercentileMax, ac.PercentileMin);
-            if (count == 0 || mean is null || pMax is null || pMin is null) continue;
+            var (count, pMin, _, mean, _, _) = ApiSpanMath.Measured(spans, percentileMin: ac.PercentileMin);
+            var (median, cleanMax) = ApiSpanMath.MedianAndCleanMax(spans);
+            if (count == 0 || mean is null || pMin is null || median is null) continue;
 
             int duration = (int)Math.Round(mean.Value);
-            bool useRaw = ac.MaxMode == "RawMax";
-            int maxMs = (useRaw && rawMax.HasValue
-                ? (int)Math.Round(rawMax.Value * (1 + ac.MarginMaxPct))
-                : (int)Math.Round(pMax.Value))
-                + Math.Max(0, ac.MarginMaxAbsMs); // 절대 추가 여유(기본 5초) — "정상보다 N초 더 걸리면 정지"
+            int maxMs = ComputeMaxThresholdMs(median.Value, cleanMax ?? median.Value, ac.MedianMarginMaxPct, ac.MarginMaxAbsMs);
             int? minMs = ac.FillMin
-                ? useRaw && rawMin.HasValue
-                    ? (int)Math.Round(rawMin.Value * (1 - ac.MarginMinPct))
-                    : (int)Math.Round(pMin.Value * (1 - ac.MarginMinPct))
+                ? (int)Math.Round(pMin.Value * (1 - ac.MarginMinPct))
                 : currentMinByWork[wid]; // FillMin=false → 기존 MinDuration 보존(null 은 store 에서 clear 되므로 현재값 재기록).
 
             changes.Add((wid, duration, minMs, maxMs));
         }
         return changes;
     }
+
+    /// <summary>
+    /// ActionOver Max 임계(ms) = round(max(중앙값 × (1 + 여유율), 클린 실측최대)) + 절대 여유.
+    /// 클린 실측최대 클램프 = "이미 관측된 정상(통신 이상치 제외) 가동은 절대 이상 판정하지 않는다" 불변식 —
+    /// 정상 duration 이 두 갈래(부하 조건 등)인 디바이스에서 중앙값×여유율이 정상 느린 경로 안쪽에 떨어지는 오탐을 막는다.
+    /// 분포가 좁으면 클램프는 발동하지 않아 중앙값 공식 그대로다.
+    /// </summary>
+    public static int ComputeMaxThresholdMs(double medianMs, double cleanMaxMs, double marginPct, int marginAbsMs)
+        => (int)Math.Round(Math.Max(medianMs * (1 + Math.Max(0, marginPct)), cleanMaxMs)) + Math.Max(0, marginAbsMs);
 
     private static AutoCalibrationRunResult Skip(string message, bool success)
         => new(success, false, 0, 0, 0, message);

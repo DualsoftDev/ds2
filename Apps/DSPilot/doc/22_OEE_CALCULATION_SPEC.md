@@ -97,6 +97,37 @@ CT이상치(14일 평균)보다 훨씬 크다. **본 판정과 별개**다 — I
   - 결정: [OeeController.ResolvePlannedWindows](../DSPilot/Controllers/OeeController.cs) → `ComputeCycleAggregateAsync(applyLongStop)`. API `GET/PUT /api/oee/planned-stops`, `POST /api/oee/planned-stops/auto`.
 - **dedup**: 비생산으로 뺀 무변화 구간도 §3.1 차집합 대상(이중계상 방지)은 동일. 비생산은 onset/repair(MTBF/MTTR)에 미반영.
 
+### 3.4 미계측(수신 공백) 분리 — 통신 헬스 심박 (2026-07-04 추가)
+**문제**: plcTagLog 는 태그 *변화* 시에만 기록되는 change-log 라, "기계가 멈춤"과 "수신이 끊김"(VPN/현장망 단절,
+에이전트 다운, DSPilot 다운)이 사후에 구분되지 않는다. 수신 공백을 §3.3 규칙이 무변화 정지로 읽으면 통째로
+비생산이 되어 **가용성이 거짓으로 좋아진다**(17시간 단절 → A=100% 사례, 2026-07-04). 반대로 비가동으로 읽으면
+가짜 고장이 폭증한다. **모르는 시간은 어느 쪽도 아니다.**
+
+- **소스(SSOT)**: [OeeCommHealthService](../DSPilot/Services/OeeCommHealthService.cs) 가 60초 심박으로 PLC 연결
+  상태(에이전트 보고 `PlcConnectionStatusTracker` ▸ 직접 TCP 핑 `PlcPingService` 폴백)를 oee.db
+  `oeeCommHealthLog(sampledAt, plcOk)` 에 영속. oee.db 인 이유 = plc.db 전체초기화에도 계측 이력 보존.
+- **판정**: 심박 1개(plcOk=1)가 `[t, t+150s)` 를 계측으로 보증. 범위 중 보증되지 않은 잔여(심박 없음=앱 다운,
+  또는 plcOk=0=PLC 미연결)가 **미계측**. 3분 미만 조각은 보고 안 함(재시작/지터 허용 — 보수).
+- **소급 금지**: 심박 최초 행(epoch) 이전 기간에는 미계측을 주장하지 않는다 — 판정 근거가 없으므로 기존 동작 유지.
+  판정 방향은 전부 보수적(불확실 = 미계측 아님): 핑 대상 미설정(시뮬레이션)=정상 취급.
+- **집계 반영**(`ComputeCycleAggregateAsync`): 미계측 구간을 무사이클 갭·미완료 멈춤 CT 에서 **차집합 후** §3/§3.3
+  판정 — 가동/비가동/비생산 어디에도 안 들어가고 `UnmeasuredMs` 로만 보고(A 분자·분모 밖). 10× 판정도 계측된
+  잔여 길이 기준(모르는 시간이 임계를 채워 정지를 비생산으로 승격시키지 않게). 전 구간 미계측인 행은 onset/repair 미계상.
+- **표시**: 시간별 추이 회색 빗금(기본 표시 — 숨기면 '가동처럼 보이는 빈칸'이 됨), 비생산 타임라인 회색 점선 블록
+  (`UnmeasuredWindows`), KPI 하단 "미계측 Xh (판정 제외)" 배지, TEEP 잔여에서 분리(`OeeTeepDto.UnmeasuredMs`).
+  카빙 우선순위: **⓪ 미계측 → ① 비자동 정지 → ② 비생산 → ③ 자동 잔여** (BuildDailySlot).
+- **한계(정직, Phase 1 과제)**:
+  - teep/matrix 셀 단위는 Phase 0 미반영(TEEP 합계·시간분해 막대는 반영).
+  - 심박은 **라인 단일 비트**(하나라도 끊김=down) — 멀티 PLC 부분 단절 시 건강한 flow 의 시간까지 미계측 처리되고,
+    그 flow 가 그 동안 기록한 정지는 미계측에 흡수되어 A 가 상방 왜곡될 수 있다(정상 사이클은 카빙하지 않으므로
+    가동은 유지 — 비대칭). 단일 PLC 사이트(현 배포)는 해당 없음. → Phase 1: 어댑터→flow 매핑 per-flow 심박.
+  - 정상 사이클(가동 ΣCT·runFloor)은 미계측과 차집합하지 않는다 — 미계측 창 가장자리에 걸친 사이클은
+    '가동+미계측' 양쪽에 계상될 수 있다(사이클 1개 길이 이하, TEEP 잔여 클램프로 흡수).
+  - PlcConnectionStatusTracker 의 어댑터 엔트리는 TTL 이 없어, 제거/개명된 어댑터의 stale disconnected 보고가
+    재시작 전까지 plcOk=0 을 유발할 수 있다(수정 경로: Hub Closed 시 ClearAll 뿐). → Phase 1: 신선도 게이트.
+  - 심박 시작(단절 후 최초 5.5분 = 커버 150s+보고하한 180s)까지는 기존 로직(비가동)으로 잡히다가 다음 조회에서
+    미계측으로 자가 수정된다(보수 — 짧은 단절을 미계측으로 과잉 주장하지 않는 대가).
+
 ---
 
 ## 4. 지표 공식 — `OeeMath` 순수함수 단일 소스

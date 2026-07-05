@@ -137,6 +137,17 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             const string idxNonProdLogTime =
                 "CREATE INDEX IF NOT EXISTS idx_oeeNonProdLog_time ON oeeNonProdDetectionLog(onsetAt)";
 
+            // 통신 헬스 심박(doc/22 §3.4) — OeeCommHealthService 가 60s 주기 기록. '미계측(수신 공백)' 판정의 SSOT.
+            // oee.db 에 두는 이유 = plc.db 전체초기화(rebuild)에도 계측 이력 보존.
+            const string createCommHealth = @"
+                CREATE TABLE IF NOT EXISTS oeeCommHealthLog (
+                  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                  sampledAt TEXT NOT NULL,
+                  plcOk     INTEGER NOT NULL
+                )";
+            const string idxCommHealthTime =
+                "CREATE INDEX IF NOT EXISTS idx_oeeCommHealth_time ON oeeCommHealthLog(sampledAt)";
+
             await conn.ExecuteAsync(createDowntime);
             await conn.ExecuteAsync(idxDowntimeSystemTime);
             await conn.ExecuteAsync(idxDowntimeFlowTime);
@@ -147,6 +158,8 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             await conn.ExecuteAsync(createNonProdLog);
             await conn.ExecuteAsync(uqNonProdLog);
             await conn.ExecuteAsync(idxNonProdLogTime);
+            await conn.ExecuteAsync(createCommHealth);
+            await conn.ExecuteAsync(idxCommHealthTime);
 
             // classifySource — 기존 oee.db 마이그레이션(이 어댑터는 CREATE TABLE IF NOT EXISTS 만 쓰고 ALTER 인프라가
             // 없음). detectSource(감지 출처)와 의미 구분: 분류가 어떻게 정해졌는지(manual/auto-bit/auto-heuristic/NULL).
@@ -172,7 +185,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             if (upgraded > 0)
                 _logger.LogInformation("[OEE] isFailure 기본값 업그레이드(고장): {N}건 — nocycle 미분류 → isFailure=1", upgraded);
 
-            _logger.LogInformation("OEE schema ensured (oeeDowntimeEvent / oeeProductionCount / oeeShiftException / oeeNonProdDetectionLog) at {Path}", OeeDbPath());
+            _logger.LogInformation("OEE schema ensured (oeeDowntimeEvent / oeeProductionCount / oeeShiftException / oeeNonProdDetectionLog / oeeCommHealthLog) at {Path}", OeeDbPath());
             return true;
         }
         catch (Exception ex)
