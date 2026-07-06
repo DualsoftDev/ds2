@@ -81,9 +81,25 @@ public sealed class AutoCalibrationService : BackgroundService
                     // 보정 실행(완료 박제)됐으면 느린 폴링으로, 아직 적합 Flow 없으면 짧게 재확인.
                     next = result.Applied ? IdlePollInterval : CheckInterval;
                 }
+                else if (ac.Enabled)
+                {
+                    // 초기 보정 완료 후 — 모델 변경(Promaker 재발행 등)으로 게이트가 stale 된 Work 만 타겟 재측정.
+                    // 확정값 ≠ 현재 모델 duration 인 Work 만 대상(측정 데이터 있는 것부터 게이트 재개방, 없으면 배지 '측정 대기').
+                    var stale = _project.GetCalibrationStatus()
+                        .Where(s => s.StaleMax || s.StaleMin)
+                        .Select(s => s.WorkId)
+                        .ToHashSet();
+                    if (stale.Count > 0)
+                    {
+                        var result = await RunAsync(manual: false, stoppingToken, stale);
+                        _logger.LogInformation("[AutoCal] stale 게이트 {N}개 재측정 시도 (기록 {Applied}건)", stale.Count, result.DevicesApplied);
+                        next = CheckInterval; // 아직 데이터 없는 stale 가 남으면 짧게 재확인.
+                    }
+                    else next = IdlePollInterval;
+                }
                 else
                 {
-                    next = IdlePollInterval; // 비활성 또는 이미 완료 — 설정 재무장만 느리게 감지.
+                    next = IdlePollInterval; // 비활성 — 아무것도 안 함.
                 }
             }
             catch (Exception ex)
@@ -100,8 +116,10 @@ public sealed class AutoCalibrationService : BackgroundService
     /// 적합 Flow 의 디바이스 duration 을 실측값으로 보정한다. manual=true(설정 "지금 실측값 채우기")면
     /// Enabled/CompletedAt 게이트를 무시하고 즉시 실행한다. 재진입 가드로 직렬화되며, 성공 export 후
     /// CompletedAt 을 1회 박제(멱등)하고 DatabaseRebuilt 를 브로드캐스트한다.
+    /// <paramref name="onlyWorkIds"/> 가 주어지면 그 Work 만 재측정한다(stale-repair) — 이 경우 CompletedAt 1회성
+    /// 게이트를 무시하되(완료 후에도 허용) Enabled 는 여전히 요구한다. null 이면 전체 초기 보정(기존 동작).
     /// </summary>
-    public async Task<AutoCalibrationRunResult> RunAsync(bool manual, CancellationToken ct)
+    public async Task<AutoCalibrationRunResult> RunAsync(bool manual, CancellationToken ct, IReadOnlySet<Guid>? onlyWorkIds = null)
     {
         await _gate.WaitAsync(ct);
         try
@@ -113,7 +131,8 @@ public sealed class AutoCalibrationService : BackgroundService
             {
                 // ExecuteAsync 가 이미 게이트했으나, 체크~게이트 획득 사이 설정 변경에 대비한 방어(정상 스킵 = 성공/미적용).
                 if (!ac.Enabled) return Skip("자동 보정 비활성", success: true);
-                if (ac.CompletedAt is not null) return Skip($"이미 완료됨 ({ac.CompletedAt:u})", success: true);
+                // CompletedAt(1회성)은 "전체 초기 보정"에만 적용. stale-repair(onlyWorkIds 지정)는 완료 후에도 허용.
+                if (onlyWorkIds is null && ac.CompletedAt is not null) return Skip($"이미 완료됨 ({ac.CompletedAt:u})", success: true);
             }
             if (!_project.IsLoaded) return Skip("프로젝트(AASX) 미로드 — 보정할 수 없습니다", success: false);
 
@@ -144,7 +163,7 @@ public sealed class AutoCalibrationService : BackgroundService
                 var startLocal = oldestUtc.AddMilliseconds(-(oldestCt + WindowBufferMs)).ToLocalTime();
                 var endLocal = newestUtc.AddMilliseconds(WindowBufferMs).ToLocalTime();
 
-                var flowChanges = await BuildFlowChangesAsync(flow, startLocal, endLocal, ac);
+                var flowChanges = await BuildFlowChangesAsync(flow, startLocal, endLocal, ac, onlyWorkIds);
                 if (flowChanges.Count > 0)
                 {
                     allChanges.AddRange(flowChanges);
@@ -240,7 +259,8 @@ public sealed class AutoCalibrationService : BackgroundService
     /// 디바이스(=TargetWorkId)별로 span 을 모아 한 건씩 산출 — 같은 Work 를 여러 Call/ApiCall 이 구동해도 합쳐 집계.
     /// </summary>
     private async Task<List<(Guid WorkId, int? DurationMs, int? MinMs, int? MaxMs)>> BuildFlowChangesAsync(
-        string flow, DateTime startLocal, DateTime endLocal, Models.AutoCalibrationSettings ac)
+        string flow, DateTime startLocal, DateTime endLocal, Models.AutoCalibrationSettings ac,
+        IReadOnlySet<Guid>? onlyWorkIds = null)
     {
         using var scope = _scopeFactory.CreateScope();
         var laneBuilder = scope.ServiceProvider.GetRequiredService<CallLaneBuilderService>();
@@ -257,6 +277,7 @@ public sealed class AutoCalibrationService : BackgroundService
             foreach (var apiCall in lane.ApiCalls)
             {
                 if (!Guid.TryParse(apiCall.TargetWorkId, out var wid)) continue; // RxGuid 없는 ApiCall 제외.
+                if (onlyWorkIds is not null && !onlyWorkIds.Contains(wid)) continue; // stale-repair: 지정 Work 만.
                 if (!spansByWork.TryGetValue(wid, out var list))
                 {
                     list = new List<double>();

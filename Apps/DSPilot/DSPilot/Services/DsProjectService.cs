@@ -540,6 +540,56 @@ public class DsProjectService
         var visual = Ds2.Editor.ArrowPathCalculator.computePath(source, target);
         return [.. visual.Points.Select(p => (p.Item1, p.Item2))];
     }
+
+    /// <summary>
+    /// calibration-state 사이드카의 각 확정 Work 를 현재 모델 duration 과 대조해 이상감지 게이트 상태를 산출한다.
+    /// stale = 확정(MaxMeasured/MinMeasured)돼 있으나 모델의 현재 Min/MaxDuration 이 확정값과 달라
+    /// <see cref="CalibrationState.IsMaxMeasured"/>/<see cref="CalibrationState.IsMinMeasured"/> 게이트가 닫힌 Work
+    /// (= ActionOver/ActionUnder 가 조용히 발화 안 하는 상태). 모델 변경(Promaker 재발행 등) 후 실측 재확정을 안 하면 발생.
+    /// 판정 규칙: 모델 값이 null(ClearRanges/미설정)이면 "의도적 비활성"으로 보고 stale 로 치지 않는다 —
+    /// 모델이 여전히 임계를 원하는데 값만 달라진 경우(non-null 불일치)만 재측정 대상 stale.
+    /// stale-repair 루프(<see cref="AutoCalibrationService"/>)와 설정 페이지 게이트 배지의 단일 소스.
+    /// </summary>
+    public IReadOnlyList<CalibrationWorkStatus> GetCalibrationStatus()
+    {
+        var list = new List<CalibrationWorkStatus>();
+        var calib = CalibrationState.Load();
+        if (calib.Works.Count == 0) return list;
+
+        foreach (var kv in calib.Works)
+        {
+            if (!Guid.TryParse(kv.Key, out var wid)) continue;
+            var w = kv.Value;
+
+            int? modelMin = null, modelMax = null;
+            string name = wid.ToString("D")[..8];
+            if (IsLoaded)
+            {
+                var wo = Queries.getWork(wid, _store);
+                if (Microsoft.FSharp.Core.FSharpOption<Work>.get_IsSome(wo))
+                {
+                    var mw = wo.Value;
+                    name = mw.Name;
+                    modelMin = DurationToMs(mw.MinDuration);
+                    modelMax = DurationToMs(mw.MaxDuration);
+                }
+            }
+
+            bool staleMax = w.MaxMeasured && modelMax.HasValue && modelMax.Value != w.MaxMs;
+            bool staleMin = w.MinMeasured && modelMin.HasValue && modelMin.Value != w.MinMs;
+
+            list.Add(new CalibrationWorkStatus(
+                wid, name,
+                w.MaxMeasured, w.MaxMs, modelMax, staleMax,
+                w.MinMeasured, w.MinMs, modelMin, staleMin));
+        }
+        return list;
+    }
+
+    private static int? DurationToMs(Microsoft.FSharp.Core.FSharpOption<TimeSpan> ts)
+        => Microsoft.FSharp.Core.FSharpOption<TimeSpan>.get_IsSome(ts)
+            ? (int)ts.Value.TotalMilliseconds
+            : null;
 }
 
 /// <summary>
@@ -555,3 +605,20 @@ public record CallApiCallDetail(
     int? CurrentDurationMs,
     int? CurrentMinMs,
     int? CurrentMaxMs);
+
+/// <summary>
+/// 한 Device Work 의 이상감지 게이트 상태 — calibration-state 확정값 vs 현재 모델 duration 대조 결과.
+/// <see cref="DsProjectService.GetCalibrationStatus"/> 산출물. <c>StaleMax</c>/<c>StaleMin</c> 가 true 면
+/// 그 방향 게이트가 닫혀 ActionOver(Max)/ActionUnder(Min) 가 발화하지 않는다 → 실측 재측정 필요.
+/// </summary>
+public record CalibrationWorkStatus(
+    Guid WorkId,
+    string WorkName,
+    bool MaxMeasured,
+    int CalibMaxMs,
+    int? ModelMaxMs,
+    bool StaleMax,
+    bool MinMeasured,
+    int CalibMinMs,
+    int? ModelMinMs,
+    bool StaleMin);

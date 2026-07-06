@@ -373,6 +373,35 @@ public class SettingsController : ControllerBase
         }
     }
 
+    // ── GET: 이상감지 게이트(실측 확정) 상태 — 모델 duration 과 어긋나 닫힌(stale) Work 배지용 ──
+    // stale = 확정값 ≠ 현재 모델 duration → ActionOver/Under 가 조용히 안 뜸(모델 재발행 후 재측정 안 한 경우).
+    // autoEnabled=true 면 stale-repair 루프가 데이터 쌓이는 대로 자동 재측정("측정 중"), false 면 수동 "채우기" 필요.
+    [HttpGet("calibration-status")]
+    public IActionResult GetCalibrationStatus()
+    {
+        var all = _project.GetCalibrationStatus();
+        var stale = all.Where(s => s.StaleMax || s.StaleMin).ToList();
+        var ac = _settings.LoadSettings().AutoCalibration;
+        return Ok(new
+        {
+            autoEnabled = ac.Enabled,
+            loaded = _project.IsLoaded,
+            total = all.Count,
+            staleCount = stale.Count,
+            stale = stale.Select(s => new
+            {
+                workId = s.WorkId,
+                name = s.WorkName,
+                staleMax = s.StaleMax,
+                staleMin = s.StaleMin,
+                calibMaxMs = s.CalibMaxMs,
+                modelMaxMs = s.ModelMaxMs,
+                calibMinMs = s.CalibMinMs,
+                modelMinMs = s.ModelMinMs,
+            }),
+        });
+    }
+
     // ── GET: 디바이스별 이상감지 차단 상태 (uptime 페이지 차단 관리 모달용) ──
     // 디바이스 = AASX 모델 모든 Call 의 DevicesAlias. 경로(FLOW / WORK / CALL)별로 그룹해 내려주고,
     // 현재 차단 규칙(AbnormalAlarm.DeviceFilters)을 병합. 규칙에만 남고 모델에서 사라진 디바이스도

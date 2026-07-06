@@ -500,6 +500,37 @@
                                     <small class="settings-hint" x-show="s.autoCalibration.lastAppliedSummary"
                                            x-text="'최근 기록: ' + (s.autoCalibration.lastAppliedSummary || '')"></small>
 
+                                    <!-- 이상감지 게이트 상태 (stale = 확정값 ≠ 현재 모델 duration → ActionOver/Under 조용히 안 뜸) -->
+                                    <div class="settings-status-grid" style="margin:12px 0 0;" x-show="calib.loaded">
+                                        <span class="lbl">이상감지 게이트</span>
+                                        <span class="val">
+                                            <template x-if="calib.staleCount === 0">
+                                                <span style="color:var(--color-success,#2e9e5b);font-weight:700;">정상 — 확정 Work 게이트 열림</span>
+                                            </template>
+                                            <template x-if="calib.staleCount > 0">
+                                                <span style="color:var(--color-warning,#e67e22);font-weight:700;"
+                                                      x-text="'재측정 필요 ' + calib.staleCount + '개' + (calib.autoEnabled ? ' — 자동 측정 중' : ' — 수동 채우기 필요')"></span>
+                                            </template>
+                                        </span>
+                                    </div>
+                                    <div x-show="calib.staleCount > 0" x-cloak style="margin-top:6px;">
+                                        <small class="settings-hint" x-show="calib.autoEnabled">
+                                            모델이 바뀐(재발행 등) Work 의 확정값이 어긋나 게이트가 닫혔습니다. 새 클린 가동이 쌓이는 대로 자동 재측정되어 다시 열립니다.
+                                        </small>
+                                        <small class="settings-hint" x-show="!calib.autoEnabled" style="color:var(--color-warning,#e67e22);">
+                                            자동 보정(1번)이 꺼져 있어 자동 복구되지 않습니다. 아래 "지금 실측값 채우기" 를 누르거나 자동 보정을 켜세요.
+                                        </small>
+                                        <ul style="margin:6px 0 0;padding-left:18px;font-size:0.74rem;line-height:1.7;">
+                                            <template x-for="w in calib.stale" :key="w.workId">
+                                                <li>
+                                                    <strong x-text="w.name"></strong>
+                                                    <template x-if="w.staleMax"><span x-text="' · Max 확정 ' + w.calibMaxMs + 'ms ≠ 모델 ' + (w.modelMaxMs ?? '—') + 'ms'"></span></template>
+                                                    <template x-if="w.staleMin"><span x-text="' · Min 확정 ' + w.calibMinMs + 'ms ≠ 모델 ' + (w.modelMinMs ?? '—') + 'ms'"></span></template>
+                                                </li>
+                                            </template>
+                                        </ul>
+                                    </div>
+
                                     <button class="btn btn-outlined w-100" style="margin-top:12px;" @click="fillAutoCalibration()" :disabled="busy || autoCal.running">
                                         <span class="material-icons" x-text="autoCal.running ? 'refresh' : 'sync'"></span>
                                         <span x-text="autoCal.running ? '채우는 중…' : '지금 실측값 채우기 (재시도)'"></span>
@@ -867,7 +898,8 @@
                 selectiveDel: { show: false, loading: false, entries: [] },
                 rt: { connected: false },
                 autoCal: { running: false },
-                _conn: null, _toastTimer: null,
+                calib: { loaded: false, autoEnabled: true, staleCount: 0, stale: [] }, // 이상감지 게이트 상태 배지 (this.s 밖 — dirty 미유발)
+                _conn: null, _toastTimer: null, _calibTimer: null,
                 activeTab: 'general', // 유형별 탭: general | monitoring | anomaly | data | advanced (항상 기본=일반, 위치 미저장)
                 scanMs: 100, scanConnected: false, // PLC 스캔 주기 (Agent 동기화 — 기본 100ms)
                 autoCalibrate: true, // 자동 duration 정합 ON/OFF (Agent 동기화)
@@ -884,6 +916,9 @@
                     this.demoStartTicker();
                     this.loadScanInterval();
                     this.loadAutoCalibrate();
+                    this.loadCalibStatus();
+                    // 게이트 상태 폴링 — stale-repair 루프(≥1분)가 자동 재측정하면 30초 내 배지 반영.
+                    this._calibTimer = setInterval(() => this.loadCalibStatus(), 30000);
                     this.loadUserDefinedErrors();
                     // 더티 가드 등록 — 미저장 설정 변경 이탈 방지
                     window.dspDirtyRegister(() => this.settingsDirty);
@@ -953,6 +988,18 @@
                         this.autoCalibrate = !!d.on;
                         this.scanConnected = this.scanConnected || !!d.connected;
                     } catch (e) { /* 미연결 — scanConnected 가 disable 처리 */ }
+                },
+                // ── 이상감지 게이트 상태 — 확정값 ≠ 현재 모델 duration 인(stale) Work 배지. this.s 밖이라 dirty 미유발.
+                async loadCalibStatus() {
+                    try {
+                        const d = await this.apiGet('/api/settings/calibration-status');
+                        this.calib = {
+                            loaded: !!d.loaded,
+                            autoEnabled: !!d.autoEnabled,
+                            staleCount: d.staleCount | 0,
+                            stale: d.stale || [],
+                        };
+                    } catch (e) { /* 비치명 — 배지 미표시 */ }
                 },
                 async applyAutoCalibrate() {
                     try {
@@ -1262,7 +1309,7 @@
                     try {
                         const r = await this.apiPost('/api/settings/auto-calibrate/run');
                         this.showToast(r.message, r.success ? 'success' : 'error');
-                        if (r.success) await this.load();
+                        if (r.success) { await this.load(); await this.loadCalibStatus(); }
                     } catch (e) {
                         this.showToast('실측값 채우기 실패: ' + e.message, 'error');
                     } finally { this.autoCal.running = false; }
