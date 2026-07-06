@@ -250,7 +250,7 @@
                 </section>
 
                 <!-- ════ 정지 원인 도넛 | 계획시간 폴백 체인 + 14일 히스토그램 (정지 로그 위로 이동 — 로그는 이 아래에서 토글) ════ -->
-                <div class="up-grid up-2col">
+                <div class="up-grid" :class="curFlow ? 'up-1col' : 'up-2col'">
 
                     <!-- 정지 고장/유지보수 도넛 — 합계가 상단 '기간 정지'와 일치 -->
                     <section class="card up-section">
@@ -286,9 +286,9 @@
                         </button>
                     </section>
 
-                    <!-- 설비별 OEE 순위 (정지 구성 옆으로 이동 — 가용성 분모 폴백 카드 제거) -->
-                    <section class="card up-section">
-                        <div class="ds-card-h"><h4>설비별 OEE 순위</h4><span class="ds-card-h-sub">OEE = A × P × Q · 최하위 강조 · 클릭→히트맵</span></div>
+                    <!-- OEE 순위 — 시스템 단위에서만 표시 (설비 선택 시 숨김) -->
+                    <section class="card up-section" x-show="!curFlow" x-cloak>
+                        <div class="ds-card-h"><h4>OEE 순위</h4><span class="ds-card-h-sub">OEE = A × P × Q · 최하위 강조 · 클릭→히트맵</span></div>
                         <template x-if="ranking.length > 0">
                             <div>
                                 <template x-for="(r, i) in ranking" :key="r.flowName">
@@ -417,7 +417,7 @@
 
                 <!-- ════ 비생산 시간대 (doc/22) — 24시간 연표 에디터. 자동 5일 패턴 ▸ 사용자 설정 시 수동 전환.
                      이 시간대의 정상 가동시간·비가동은 모두 OEE 산출에서 제외(생산·비생산 가리지 않고 분모 밖). 설비효율 탭 맨 아래 배치(설정 성격). ════ -->
-                <section class="card up-section" id="planned-stops-section">
+                <section class="card up-section" id="planned-stops-section" x-show="!curFlow" x-cloak>
                     <div class="ds-card-h">
                         <h4>비생산 시간대</h4>
                         <span class="ds-card-h-sub">애초에 생산하지 않는 시간(점심·교대·정기정비·무오더 등)은 OEE 산출에서 통째로 제외 — 자동 계산하거나 24시간 연표로 직접 지정</span>

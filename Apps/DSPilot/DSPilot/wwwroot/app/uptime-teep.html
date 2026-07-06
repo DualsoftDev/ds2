@@ -196,7 +196,7 @@
                      데이터 = /api/oee/planned-stops/actual 의 days(로컬 날짜별 접기 — 각 날을 자정 경계로 독립 접기라
                      union 접기의 ≥24h 전체 채움 퇴화 없음). 색 SSOT = 시간 분해 막대와 동일(비생산=hatch-nonprod /
                      미계측=hatch-unmeas). 비생산은 시스템(전역) 단위 — 설비(flow) 선택과 무관하게 시스템 전체 표시. -->
-                <section class="card up-section">
+                <section class="card up-section" x-show="!curFlow" x-cloak>
                     <div class="ds-card-h">
                         <h4>날짜별 비생산 패턴</h4>
                         <span class="ds-card-h-sub" x-text="teepNpSub()"></span>

@@ -322,12 +322,10 @@ public class OeeMetricsController : OeeControllerBase
         var agg = await ComputeCycleAggregateAsync(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct,
             collectRunIntervals: true);
 
-        var nonProdMerged = new List<(double S, double E)>();
-        nonProdMerged.AddRange(await _repo.GetNonProdIntervalsFromLogAsync(fromUtc, toUtc, flowName, ct));
-        nonProdMerged.AddRange(ExpandPlannedIntervalsMs(plannedWindows, fromUtc, toUtc));
-        var nonProdSource = nonProdMerged.Count > 0
-            ? Intervals.Union(nonProdMerged)
-            : (agg.NonProdIntervals ?? new List<(double S, double E)>());
+        // 추이 차트 비생산 = KPI와 동일 소스(agg.NonProdIntervals) — ComputeCycleAggregateAsync가
+        // 수동 창(ExpandPlannedIntervalsMs) + 자동감지(10×CT, applyLongStop) 를 이미 합산한 결과.
+        // 구 로그(GetNonProdIntervalsFromLogAsync) + 수동창 union 은 KPI와 어긋나는 경우가 있어 제거.
+        var nonProdSource = agg.NonProdIntervals ?? new List<(double S, double E)>();
 
         static List<(long S, long E)> SubtractIv(List<(long S, long E)> src, List<(double S, double E)> cut)
             => Intervals.Subtract(src.Select(x => ((double)x.S, (double)x.E)).ToList(), cut)

@@ -8,6 +8,7 @@
 
         .up-grid { display: grid; gap: 16px; }
         .up-2col { grid-template-columns: 1fr 1fr; }
+        .up-1col { grid-template-columns: 1fr; }
         @media (max-width: 900px) { .up-2col { grid-template-columns: 1fr; } }
         .up-section { padding: 18px 20px; }
 

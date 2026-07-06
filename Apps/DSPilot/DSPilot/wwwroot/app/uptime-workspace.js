@@ -1157,9 +1157,10 @@
                     //   nonProdMs=비생산(A 분모 밖 — 가동에서 카빙), 나머지=가동근사.
                     const failureData = d.slots.map(s => ((s.failureMs || 0) + (s.unclassifiedMs || 0)) / MS); // 고장(isFailure=1 계열)
                     const plannedData = d.slots.map(s => ((s.plannedMs || 0) + (s.otherMs || 0)) / MS); // 유지보수(isFailure=0 계열)
-                    // 비생산(제외) — A 분모 밖. 표시 정책(2026-07-04 사용자 결정): 미계측(수신 공백, §3.4)을 합쳐 보여준다.
-                    // 데이터(unmeasuredMs 필드)·학습(§3.5 차집합)·KPI 카빙은 분리 유지 — 화면 카테고리만 통합.
-                    const nonProdData = d.slots.map(s => ((s.nonProdMs || 0) + (s.unmeasuredMs || 0)) / MS);
+                    // 비생산(제외) — A 분모 밖. 미계측(수신 공백, §3.4)은 어떤 스택에도 채우지 않는다(2026-07-06 결정):
+                    // 비생산·가동 어디에도 안 넣어 스택 합 < slotMs → 그만큼 흰 여백으로 남아 "데이터 없음"이 시각 구분된다.
+                    // (범례에도 미계측 항목 없음 — 별도 데이터셋을 만들지 않으므로.)
+                    const nonProdData = d.slots.map(s => (s.nonProdMs || 0) / MS);
                     const runData = d.slots.map(s => Math.max(0, s.slotMs - (s.failureMs || 0) - (s.otherMs || 0) - (s.unclassifiedMs || 0) - (s.plannedMs || 0) - (s.nonProdMs || 0) - (s.unmeasuredMs || 0)) / MS);
 
                     // 평균 가동시간 선 (비생산 카빙 후 실가동 기준)
