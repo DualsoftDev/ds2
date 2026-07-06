@@ -462,10 +462,6 @@
                 var num = span.isOpen ? '#' + span.number + ' ↻' : '#' + span.number;
                 g += '<text x="' + f(sx + 4) + '" y="' + f(ribbonTop + 12) + '" font-size="11" font-weight="800" fill="#263238">' + num + '</text>';
             }
-            if (ratio !== null && bandW > 86) {
-                var rc = ratio >= 80 ? '#2e7d32' : ratio >= 50 ? '#e65100' : '#c62828';
-                g += '<text x="' + f(ex - 4) + '" y="' + f(ribbonTop + 12) + '" text-anchor="end" font-size="10" font-weight="700" fill="' + rc + '">동작 ' + ratio + '%</text>';
-            }
             g += '</g>';
             sb += g;
         }

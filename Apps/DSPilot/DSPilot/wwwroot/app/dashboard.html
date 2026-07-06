@@ -287,6 +287,8 @@
         .dash-live.is-live { color: var(--color-success); border-color: color-mix(in srgb, var(--color-success) 50%, transparent); }
         .dash-live.is-live .dash-live-dot { animation: dash-pulse 1.6s ease-in-out infinite; }
         .dash-live.is-poll { color: var(--color-text-secondary); }
+        .dash-live.is-warn { color: var(--color-warning); border-color: color-mix(in srgb, var(--color-warning) 50%, transparent); }
+        .dash-live.is-warn .dash-live-dot { animation: dash-pulse 1.6s ease-in-out infinite; }
         @keyframes dash-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
         /* ── 상단 일간 KPI 카드 그리드 (가동횟수·OEE·MTBF·MTTR) ──
@@ -953,9 +955,8 @@
                 </div>
                 <div class="sm-body">
                     <div class="form-helper" style="margin-bottom:12px;">
-                        "가동횟수"를 무엇으로 셀지 정합니다. <b>미지정</b>이면 모든 Flow 가동횟수의 <b>평균</b>(합 ÷ Flow 수)을,
-                        지정하면 선택한 Flow(들)의 가동횟수 <b>합</b>을 산출량으로 표시합니다.
-                        완제품 1개가 여러 공정을 순차 통과한다면 마지막(완성) Flow 하나만 지정하세요.
+                        생산량으로 셀 Flow를 <b>하나</b> 고르세요. <b>자동</b>은 전체 Flow 평균,
+                        <b>지정</b>은 그 Flow의 가동횟수를 표시합니다. 보통 마지막(완성) 공정을 고릅니다.
                     </div>
 
                     <template x-if="outFlowLoading">
@@ -971,7 +972,7 @@
                             <div style="max-height:260px;overflow-y:auto;margin-top:6px;">
                                 <template x-for="fn in outFlowList" :key="fn">
                                     <label class="flex items-center gap-2" style="padding:7px 4px;cursor:pointer;">
-                                        <input type="checkbox" :value="fn" :checked="outFlowSel.includes(fn)" @change="toggleOutputFlow(fn)" style="accent-color:var(--color-primary);" />
+                                        <input type="radio" name="outflow-mode" :value="fn" :checked="outFlowSel.length === 1 && outFlowSel[0] === fn" @change="selectOutputFlow(fn)" style="accent-color:var(--color-primary);" />
                                         <span x-text="fn" style="font-variant-numeric:tabular-nums;"></span>
                                     </label>
                                 </template>
@@ -1526,9 +1527,9 @@
                 finally { this.outFlowLoading = false; }
             },
             closeOutputFlowModal() { this.outFlowModalOpen = false; },
-            toggleOutputFlow(fn) {
-                const i = this.outFlowSel.indexOf(fn);
-                if (i >= 0) this.outFlowSel.splice(i, 1); else this.outFlowSel.push(fn);
+            // 단일 선택: 하나의 Flow만 산출 기준으로 지정(다시 클릭하면 자동으로 복귀).
+            selectOutputFlow(fn) {
+                this.outFlowSel = (this.outFlowSel.length === 1 && this.outFlowSel[0] === fn) ? [] : [fn];
             },
             async saveOutputFlows() {
                 if (this.outFlowSaving) return;

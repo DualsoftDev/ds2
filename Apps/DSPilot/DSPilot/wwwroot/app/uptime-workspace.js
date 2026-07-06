@@ -125,7 +125,7 @@
                 // 비생산 시간대 (doc/22 §3.3) — auto: 자동 계산(10×가동시간 장시간정지) on/off. source: auto/manual/none. ctMultiplier: 자동판정 배수(10).
                 // windows=수동 편집용 사본. selected=선택된 윈도 index(-1=미선택). addMode=드래그 추가 무장.
                 // actualNonProd=이번 기간 실제 제외된 비생산(추이 남색과 동일 소스, 자동 모드 타임라인의 유일한 소스이자 수동 전환 시 시드).
-                ps: { source: 'none', auto: true, ctMultiplier: 10, windows: [], selected: -1, addMode: false, msg: '', err: '', busy: false, actualNonProd: null, seededFromAuto: false, learned: null },
+                ps: { source: 'none', auto: true, ctMultiplier: 10, windows: [], selected: -1, addMode: false, msg: '', err: '', busy: false, actualNonProd: null, seededFromAuto: false, learned: null, dirty: false },
                 _psDrag: null, // 진행 중 드래그 상태 { mode:'create'|'resize-l'|'resize-r', index, anchor } (비반응형)
                 // 정지 이벤트 로그 토글 — 기본 숨김, 정지 원인 구성(도넛)의 [로그 보기 및 설정] 버튼으로 토글
                 showDowntimeLog: false,
@@ -214,6 +214,10 @@
                         // 차단 상태는 항상 로드(툴바 버튼의 차단 수 배지) — ?blockMgr=1 진입(설정 페이지 링크)이면 모달 자동 열기.
                         if (qp.has('blockMgr')) this.openBlockMgr();
                         else { this.loadBlockState(); this.loadUserTagBlockState(); }
+                    }
+                    // 더티 가드 등록 — 비생산 시간대 수동 편집(ps.dirty) 중 이탈 방지(OEE 페이지만)
+                    if (this.view !== 'alarm') {
+                        window.dspDirtyRegister(() => !this.ps.auto && this.ps.dirty);
                     }
                 },
 
@@ -317,7 +321,7 @@
                         this.ps.auto = !!r.auto;
                         this.ps.ctMultiplier = r.ctMultiplier || 10;
                         this.ps.windows = (r.windows || []).map(w => ({ startMinutes: w.startMinutes, endMinutes: w.endMinutes, label: w.label || '' }));
-                        this.ps.selected = -1; this.ps.addMode = false; this.ps.seededFromAuto = false;
+                        this.ps.selected = -1; this.ps.addMode = false; this.ps.seededFromAuto = false; this.ps.dirty = false;
                     } catch (e) { this.ps.err = '비생산 시간대를 불러오지 못했습니다: ' + e.message; }
                     // 자동 모드일 때: ① 이번 기간 실제 제외 비생산(타임라인 메인 소스) ② 학습 창(§3.5 투표제,
                     // 참고·미적용 — Phase 1 섀도 검증용 점선 윤곽). 비생산 시간대는 시스템(전역) 단위 —
@@ -365,6 +369,7 @@
                         if (!enabled && capturedActualWins && capturedActualWins.length > 0) {
                             this.ps.windows = capturedActualWins;
                             this.ps.seededFromAuto = true;
+                            this.ps.dirty = true;  // 시드된 창은 아직 저장 전 — 이탈 가드 발동
                             this.ps.msg = `지금 비생산 ${capturedActualWins.length}개 구간을 불러왔습니다 — 수정 후 [적용]을 누르세요`;
                         } else {
                             this.ps.seededFromAuto = false;
@@ -461,6 +466,7 @@
                     this.ps.windows = this.ps.windows.slice().sort((a, b) => a.startMinutes - b.startMinutes);
                     this.ps.selected = this.ps.windows.indexOf(ref);
                     if (d.mode === 'create') this.ps.addMode = false;    // 생성 완료 → 추가 모드 종료
+                    this.ps.dirty = true;
                 },
                 // 선택된 윈도의 시작/끝 시각 인라인 수정(type=time → 분). 라이브 재배치(재정렬은 적용 시).
                 psSetTime(which, val) {
@@ -470,9 +476,11 @@
                     if (!w) return;
                     if (which === 'start') w.startMinutes = m; else w.endMinutes = m;
                     this.ps.err = '';
+                    this.ps.dirty = true;
                 },
                 psRemove(i) {
                     this.ps.windows = this.ps.windows.filter((_, idx) => idx !== i);
+                    this.ps.dirty = true;
                     if (this.ps.selected === i) this.ps.selected = -1;
                     else if (this.ps.selected > i) this.ps.selected -= 1;
                 },
@@ -1172,9 +1180,7 @@
                         { label: '가동(근사)', data: runData, backgroundColor: cRun, stack: 's', order: 2 },
                         { label: '고장', data: failureData, backgroundColor: faultHatch, stack: 's', order: 2 },
                         { label: '유지보수', data: plannedData, backgroundColor: maintHatch, stack: 's', order: 2 },
-                        // 비생산(제외) — 기본 표시(2026-07-04 전환): 미계측이 합쳐진 카테고리라 숨기면 그 시간이
-                        // '가동처럼 보이는 빈칸'이 된다(구 hidden 기본의 혼선 재발 방지). 범례 클릭으로 끄는 건 가능.
-                        { label: '비생산(제외)', data: nonProdData, backgroundColor: nightHatch, stack: 's', order: 2 },
+                        { label: '비생산(제외)', data: nonProdData, backgroundColor: nightHatch, stack: 's', order: 2, hidden: true },
                         {
                             label: `평균 ${avgRun.toFixed(1)}h`,
                             type: 'line',

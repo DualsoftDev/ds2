@@ -65,13 +65,15 @@
                             <span class="material-icons" style="font-size:15px;">clear</span> 전체 보기
                         </a>
                     </template>
-                    <!-- 내보내기: Excel(요약·순위·정지 + 추이 차트). oee 로드 후 표시. -->
-                    <button class="btn btn-sm btn-outlined color-default" @click="exportOeeExcel()" :disabled="oeeExporting || !oee"
+                </div>
+                <template x-teleport="#dsp-header-actions">
+                    <button class="btn btn-sm btn-outlined color-default" x-show="tab === 'oee'" x-cloak
+                            @click="exportOeeExcel()" :disabled="oeeExporting || !oee"
                             title="OEE 종합 지표·설비별 순위·정지 이벤트를 Excel(.xlsx) 로 내보냅니다">
                         <span class="material-icons" style="font-size:15px;">download</span>
                         <span x-text="oeeExporting ? 'Excel 생성 중…' : 'Excel 다운로드'"></span>
                     </button>
-                </div>
+                </template>
             </div>
 
             <!-- ═══════════════ 설비효율 (OEE) — 생산효율(TEEP)은 /uptime-teep 별도 페이지 ═══════════════ -->
@@ -543,7 +545,7 @@
                                 <div class="up-qfield"><label>시작</label><input type="time" :value="minToTimeInput(ps.windows[ps.selected].startMinutes)" @input="psSetTime('start', $event.target.value)" /></div>
                                 <span class="up-qeq">–</span>
                                 <div class="up-qfield"><label>끝</label><input type="time" :value="minToTimeInput(ps.windows[ps.selected].endMinutes)" @input="psSetTime('end', $event.target.value)" /></div>
-                                <div class="up-qfield" style="flex:1; min-width:120px;"><label>라벨(선택)</label><input type="text" x-model="ps.windows[ps.selected].label" placeholder="점심 / 정기정비" style="width:100%; font-family:var(--font-family);" /></div>
+                                <div class="up-qfield" style="flex:1; min-width:120px;"><label>라벨(선택)</label><input type="text" x-model="ps.windows[ps.selected].label" @input="ps.dirty = true" placeholder="점심 / 정기정비" style="width:100%; font-family:var(--font-family);" /></div>
                                 <button class="btn btn-sm btn-outlined" @click="psRemove(ps.selected)"><span class="material-icons" style="font-size:15px;">delete</span> 삭제</button>
                                 <button class="btn btn-sm btn-outlined" @click="psDeselect()">선택 해제</button>
                             </div>

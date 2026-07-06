@@ -78,12 +78,14 @@
                             <span class="material-icons" style="font-size:15px;">clear</span> 전체 보기
                         </a>
                     </template>
+                </div>
+                <template x-teleport="#dsp-header-actions">
                     <button class="btn btn-sm btn-outlined color-default" @click="exportTrendExcel()" :disabled="trendExporting || !(trend.cycleCount > 0)"
                             title="차트와 데이터를 Excel(.xlsx) 로 내보냅니다">
                         <span class="material-icons" style="font-size:15px;">download</span>
                         <span x-text="trendExporting ? 'Excel 생성 중…' : 'Excel 다운로드'"></span>
                     </button>
-                </div>
+                </template>
             </div>
 
             <!-- 로딩/오류 -->
