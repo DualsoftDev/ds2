@@ -19,13 +19,11 @@ function levelColors() {
     };
 }
 
-// 구분(ABNORMAL/USERTAG) 색 — 레벨이 Error 단일로 통일된 뒤 시계열/버킷은 구분으로 스택한다.
-// 둘 다 Error 알람이라 빨강 계열로 통일하되, 스택/도넛에서 구분되도록 톤을 다르게 둔다.
-// ABNORMAL(자동감지)=밝은 빨강, USERTAG(수동등록TAG)=진한 로즈레드.
+// 구분(ABNORMAL/USERTAG) 색 — 수동등록TAG 로즈레드로 통일.
 function categoryColors() {
     return {
-        'ABNORMAL': { fill: 'rgba(239, 68, 68, 0.85)', border: 'rgb(239, 68, 68)' },
-        'USERTAG':  { fill: 'rgba(190, 18, 60, 0.85)',  border: 'rgb(190, 18, 60)' },
+        'ABNORMAL': { fill: 'rgba(190, 18, 60, 0.85)', border: 'rgb(190, 18, 60)' },
+        'USERTAG':  { fill: 'rgba(190, 18, 60, 0.85)', border: 'rgb(190, 18, 60)' },
     };
 }
 

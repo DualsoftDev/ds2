@@ -56,9 +56,10 @@
            1fr(=minmax(auto,1fr)) 트랙을 부풀려 우측 열이 폭주(가로 스크롤)하던 문제 방지. min-width:0 은 보강. */
         /* 탭 본문: 보이는 카드만 자동 균형 배치(멀티컬럼). x-show 로 숨긴(display:none) 카드는 흐름에서 빠진다.
            → 카드를 두 열(settings-col)로 고정 분배하지 않아도 탭별로 자동 2열 균형이 맞는다. */
-        .settings-grid { columns: 2; column-gap: 16px; }
-        @media (max-width: 900px) { .settings-grid { columns: 1; } }
-        .settings-grid > .card { break-inside: avoid; width: 100%; margin: 0 0 16px; }
+        .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: stretch; }
+        @media (max-width: 900px) { .settings-grid { grid-template-columns: 1fr; } }
+        .settings-grid > .card { width: 100%; margin: 0; display: flex; flex-direction: column; }
+        .settings-grid > .card > .card-content { flex: 1; }
         .settings-actions { display: flex; justify-content: flex-end; gap: 12px; margin-bottom: 16px; }
         .settings-note { padding: 10px 12px; margin-bottom: 12px; background: var(--color-surface-variant); border: 1px solid var(--color-lines); border-left: 3px solid var(--color-primary); border-radius: var(--radius-sm); }
         .settings-note small { color: var(--color-text-secondary); line-height: 1.55; }
@@ -131,9 +132,6 @@
             /* 메인 패딩 축소 → 360px 에서 카드가 가장자리에 붙지 않게 좌우 여백만 유지 */
             .dsp-main { padding: 12px 12px 16px; }
 
-            /* settings-grid 는 900px 에서 이미 1열 — 폰에서 카드 간격만 약간 좁힌다 */
-            .settings-grid > .card { margin-bottom: 12px; }
-
             /* 상단 저장/되돌리기 액션 — 좁은 폭에서 줄바꿈 허용 */
             .settings-actions { flex-wrap: wrap; gap: 8px; }
 
@@ -196,6 +194,9 @@
                             </button>
                             <button class="set-tab" :class="{ 'is-active': activeTab === 'data' }" @click="setTab('data')" role="tab">
                                 <span class="material-icons">storage</span> 모델·데이터
+                            </button>
+                            <button class="set-tab" :class="{ 'is-active': activeTab === 'advanced' }" @click="setTab('advanced')" role="tab">
+                                <span class="material-icons">tune</span> 고급
                             </button>
                         </nav>
 
@@ -291,39 +292,112 @@
                                     </div>
                                     <hr class="divider my-3" />
                                     <button class="btn btn-outlined color-default w-100" @click="invalidateCaches()" :disabled="busy">
-                                        <span class="material-icons">restart_alt</span> 캐시 재계산 (raw 보존)
+                                        <span class="material-icons">restart_alt</span> 통계 재계산
                                     </button>
                                     <small class="settings-hint">
-                                        dspFlow / dspCall 의 평균/누적 통계만 NULL 초기화. plcTagLog · dspFlowHistory · userTagAlertLog 는 그대로 보존.
-                                        head/tail 이 바뀌었거나 모델이 크게 바뀌어 새 baseline 으로 평균을 다시 누적하고 싶을 때 사용.
-                                        다음 가동부터 자연스럽게 누적 시작.
-                                    </small>
-                                    <hr class="divider my-3" />
-                                    <button class="btn btn-outlined color-warning w-100" @click="clearFlowHistory()" :disabled="busy">
-                                        <span class="material-icons">delete_sweep</span> Flow 히스토리 삭제
-                                    </button>
-                                    <small class="settings-hint">
-                                        dspFlowHistory + Call 통계 초기화. plcTagLog 는 보존. Flow/Call 정의와 AASX 도 유지.
+                                        평균·누적 통계만 리셋하고 raw 데이터(plcTagLog·히스토리·알림)는 그대로 둡니다.
+                                        모델이나 head/tail 이 바뀌어 평균을 새로 잡을 때 사용하세요. 대부분은 이것으로 충분합니다.
                                     </small>
                                     <hr class="divider my-3" />
                                     <button class="btn btn-outlined color-warning w-100" @click="openSelectiveDel()" :disabled="busy">
-                                        <span class="material-icons">event</span> 데이터 선택 삭제 (AASX 갱신일 기준)
+                                        <span class="material-icons">event</span> 오래된 데이터 삭제
                                     </button>
                                     <small class="settings-hint">
-                                        AASX 갱신일을 선택하면 해당 시점 이전의 plcTagLog · 알림이력 · FlowHistory · OEE정지 데이터를 삭제합니다.
-                                        선택 시각 이후 데이터는 보존됩니다.
+                                        AASX 갱신일을 골라 그 이전의 raw 데이터를 정리합니다(디스크 확보용). 선택 시각 이후는 보존됩니다.
                                     </small>
                                     <hr class="divider my-3" />
                                     <button class="btn btn-outlined color-error w-100" @click="rebuildDatabase()" :disabled="busy">
-                                        <span class="material-icons">delete_forever</span> 전체 초기화 (plcTagLog 포함 삭제)
+                                        <span class="material-icons">delete_forever</span> 전체 초기화
                                     </button>
                                     <small class="settings-hint">
-                                        ⚠️ plc.db 파일 자체를 삭제하고 스키마부터 재생성. plcTagLog (수 GB 단위 가능), dspFlowHistory, userTagAlertLog 등
-                                        <strong>raw 데이터를 모두 잃습니다.</strong> 대부분의 경우 위의 "캐시 재계산" 으로 충분합니다.
+                                        ⚠️ plc.db 를 통째로 지우고 다시 만듭니다. <strong>raw 데이터가 전부 사라집니다.</strong>
                                     </small>
                                     <small class="settings-hint">
                                         현재 DB: <span class="mono" x-text="s.dbPath"></span>
                                     </small>
+                                </div>
+                            </div>
+
+                            <!-- 사용자 정의 에러 (읽기전용) — Promaker/AASX 에서 정의된 UserTag 조건 목록 조회 -->
+                            <div class="card" x-show="activeTab === 'monitoring'">
+                                <div class="card-header">
+                                    <span class="material-icons">rule</span>
+                                    <span>사용자 정의 에러</span>
+                                </div>
+                                <div class="card-content">
+                                    <div class="settings-note">
+                                        <small>
+                                            Promaker 의 사용자 태그 패널에서 정의한 <strong>사용자 정의 에러(UserTag)</strong> 조건 목록입니다.
+                                            여기서는 <strong>조회만</strong> 가능하며 추가·수정은 Promaker 에서 합니다.
+                                            발생 이력·추이는 <a href="/uptime-alarm" style="color:var(--color-primary);">이상·알람 분석</a> 페이지에서 확인하세요.
+                                        </small>
+                                    </div>
+                                    <div x-show="ude.loading" class="progress-bar progress-bar-indeterminate" style="margin-bottom:8px;"><div class="progress-bar-fill"></div></div>
+                                    <template x-if="!ude.loading && ude.items.length > 0">
+                                        <div>
+                                            <!-- 툴바: 검색 + 페이지 크기 -->
+                                            <div class="ude-toolbar">
+                                                <div class="ude-search">
+                                                    <span class="material-icons">search</span>
+                                                    <input type="text" class="form-field" placeholder="이름·주소·조건 검색" x-model="ude.q" @input="udeResetPage()" />
+                                                    <button x-show="ude.q" class="btn-icon" @click="ude.q=''; udeResetPage()" title="지우기"><span class="material-icons">close</span></button>
+                                                </div>
+                                                <select class="form-field ude-sel" x-model.number="ude.pageSize" @change="udeResetPage()">
+                                                    <option :value="20">20개씩</option>
+                                                    <option :value="50">50개씩</option>
+                                                    <option :value="100">100개씩</option>
+                                                </select>
+                                            </div>
+                                            <div class="ude-scroll">
+                                                <table class="ds-table ude-table">
+                                                    <thead><tr>
+                                                        <th @click="udeSort('systemName')">System <span class="material-icons ude-sort" x-text="udeSortIcon('systemName')"></span></th>
+                                                        <th @click="udeSort('name')">이름 <span class="material-icons ude-sort" x-text="udeSortIcon('name')"></span></th>
+                                                        <th @click="udeSort('tagAddress')">주소 <span class="material-icons ude-sort" x-text="udeSortIcon('tagAddress')"></span></th>
+                                                        <th @click="udeSort('valueType')">타입 <span class="material-icons ude-sort" x-text="udeSortIcon('valueType')"></span></th>
+                                                        <th @click="udeSort('match')">매칭 조건 <span class="material-icons ude-sort" x-text="udeSortIcon('match')"></span></th>
+                                                    </tr></thead>
+                                                    <tbody>
+                                                        <template x-for="d in udePaged" :key="d.tagAddress + '|' + d.name">
+                                                            <tr>
+                                                                <td data-label="System" x-text="d.systemName"></td>
+                                                                <td data-label="이름"><strong x-text="d.name"></strong></td>
+                                                                <td data-label="주소"><span style="font-family:var(--font-mono);" x-text="d.tagAddress"></span></td>
+                                                                <td data-label="타입" x-text="d.valueType"></td>
+                                                                <td data-label="매칭 조건" x-text="describeUdeOp(d.matchOp, d.matchValue)"></td>
+                                                            </tr>
+                                                        </template>
+                                                        <template x-if="udeFiltered.length === 0">
+                                                            <tr><td colspan="5" style="text-align:center; color:var(--text-secondary); padding:16px;">검색 조건에 맞는 항목이 없습니다.</td></tr>
+                                                        </template>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                            <!-- 페이징 -->
+                                            <div class="ude-pager" x-show="udeFiltered.length > 0">
+                                                <span class="ude-pager-info">
+                                                    총 <strong x-text="udeFiltered.length"></strong>건 ·
+                                                    <span x-text="(ude.page * ude.pageSize + 1)"></span>–<span x-text="Math.min((ude.page + 1) * ude.pageSize, udeFiltered.length)"></span>
+                                                </span>
+                                                <div class="ude-pager-nav">
+                                                    <button class="btn btn-sm btn-outlined" @click="ude.page = 0" :disabled="ude.page === 0" title="처음"><span class="material-icons">first_page</span></button>
+                                                    <button class="btn btn-sm btn-outlined" @click="udePrevPage()" :disabled="ude.page === 0">이전</button>
+                                                    <span class="ude-pager-page"><span x-text="ude.page + 1"></span> / <span x-text="udeMaxPage"></span></span>
+                                                    <button class="btn btn-sm btn-outlined" @click="udeNextPage()" :disabled="ude.page + 1 >= udeMaxPage">다음</button>
+                                                    <button class="btn btn-sm btn-outlined" @click="ude.page = udeMaxPage - 1" :disabled="ude.page + 1 >= udeMaxPage" title="마지막"><span class="material-icons">last_page</span></button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
+                                    <template x-if="!ude.loading && ude.items.length === 0 && !ude.error">
+                                        <div class="settings-note" style="margin-top:0;">
+                                            <small>정의된 사용자 정의 에러가 없습니다. Promaker 의 사용자 태그 패널에서 추가하세요.</small>
+                                        </div>
+                                    </template>
+                                    <div x-show="ude.error" class="alert alert-error" style="margin-bottom:8px;"><span class="material-icons">error</span><span x-text="ude.error"></span></div>
+                                    <button class="btn btn-outlined w-100" style="margin-top:10px;" @click="loadUserDefinedErrors()" :disabled="ude.loading">
+                                        <span class="material-icons">refresh</span> 새로고침 (<span x-text="ude.items.length"></span>건)
+                                    </button>
                                 </div>
                             </div>
 
@@ -416,6 +490,37 @@
                                     <small class="settings-hint" x-show="s.autoCalibration.lastAppliedSummary"
                                            x-text="'최근 기록: ' + (s.autoCalibration.lastAppliedSummary || '')"></small>
 
+                                    <!-- 이상감지 게이트 상태 (stale = 확정값 ≠ 현재 모델 duration → ActionOver/Under 조용히 안 뜸) -->
+                                    <div class="settings-status-grid" style="margin:12px 0 0;" x-show="calib.loaded">
+                                        <span class="lbl">이상감지 게이트</span>
+                                        <span class="val">
+                                            <template x-if="calib.staleCount === 0">
+                                                <span style="color:var(--color-success,#2e9e5b);font-weight:700;">정상 — 확정 Work 게이트 열림</span>
+                                            </template>
+                                            <template x-if="calib.staleCount > 0">
+                                                <span style="color:var(--color-warning,#e67e22);font-weight:700;"
+                                                      x-text="'재측정 필요 ' + calib.staleCount + '개' + (calib.autoEnabled ? ' — 자동 측정 중' : ' — 수동 채우기 필요')"></span>
+                                            </template>
+                                        </span>
+                                    </div>
+                                    <div x-show="calib.staleCount > 0" x-cloak style="margin-top:6px;">
+                                        <small class="settings-hint" x-show="calib.autoEnabled">
+                                            모델이 바뀐(재발행 등) Work 의 확정값이 어긋나 게이트가 닫혔습니다. 새 클린 가동이 쌓이는 대로 자동 재측정되어 다시 열립니다.
+                                        </small>
+                                        <small class="settings-hint" x-show="!calib.autoEnabled" style="color:var(--color-warning,#e67e22);">
+                                            자동 보정(1번)이 꺼져 있어 자동 복구되지 않습니다. 아래 "지금 실측값 채우기" 를 누르거나 자동 보정을 켜세요.
+                                        </small>
+                                        <ul style="margin:6px 0 0;padding-left:18px;font-size:0.74rem;line-height:1.7;">
+                                            <template x-for="w in calib.stale" :key="w.workId">
+                                                <li>
+                                                    <strong x-text="w.name"></strong>
+                                                    <template x-if="w.staleMax"><span x-text="' · Max 확정 ' + w.calibMaxMs + 'ms ≠ 모델 ' + (w.modelMaxMs ?? '—') + 'ms'"></span></template>
+                                                    <template x-if="w.staleMin"><span x-text="' · Min 확정 ' + w.calibMinMs + 'ms ≠ 모델 ' + (w.modelMinMs ?? '—') + 'ms'"></span></template>
+                                                </li>
+                                            </template>
+                                        </ul>
+                                    </div>
+
                                     <button class="btn btn-outlined w-100" style="margin-top:12px;" @click="fillAutoCalibration()" :disabled="busy || autoCal.running">
                                         <span class="material-icons" x-text="autoCal.running ? 'refresh' : 'sync'"></span>
                                         <span x-text="autoCal.running ? '채우는 중…' : '지금 실측값 채우기 (재시도)'"></span>
@@ -471,89 +576,6 @@
                                         변경은 재시작 없이 즉시 적용되고 Promaker 와도 자동 동기화됩니다.
                                         <span x-show="!scanConnected"><strong> — 현재 Agent 미연결(모니터링 비활성)이라 변경할 수 없습니다.</strong></span>
                                     </small>
-                                </div>
-                            </div>
-
-                            <!-- 사용자 정의 에러 (읽기전용) — Promaker/AASX 에서 정의된 UserTag 조건 목록 조회 -->
-                            <div class="card" x-show="activeTab === 'general'">
-                                <div class="card-header">
-                                    <span class="material-icons">rule</span>
-                                    <span>사용자 정의 에러</span>
-                                </div>
-                                <div class="card-content">
-                                    <div class="settings-note">
-                                        <small>
-                                            Promaker 의 사용자 태그 패널에서 정의한 <strong>사용자 정의 에러(UserTag)</strong> 조건 목록입니다.
-                                            여기서는 <strong>조회만</strong> 가능하며 추가·수정은 Promaker 에서 합니다.
-                                            발생 이력·추이는 <a href="/uptime-alarm" style="color:var(--color-primary);">이상·알람 분석</a> 페이지에서 확인하세요.
-                                        </small>
-                                    </div>
-                                    <div x-show="ude.loading" class="progress-bar progress-bar-indeterminate" style="margin-bottom:8px;"><div class="progress-bar-fill"></div></div>
-                                    <template x-if="!ude.loading && ude.items.length > 0">
-                                        <div>
-                                            <!-- 툴바: 검색 + 페이지 크기 -->
-                                            <div class="ude-toolbar">
-                                                <div class="ude-search">
-                                                    <span class="material-icons">search</span>
-                                                    <input type="text" class="form-field" placeholder="이름·주소·조건 검색" x-model="ude.q" @input="udeResetPage()" />
-                                                    <button x-show="ude.q" class="btn-icon" @click="ude.q=''; udeResetPage()" title="지우기"><span class="material-icons">close</span></button>
-                                                </div>
-                                                <select class="form-field ude-sel" x-model.number="ude.pageSize" @change="udeResetPage()">
-                                                    <option :value="20">20개씩</option>
-                                                    <option :value="50">50개씩</option>
-                                                    <option :value="100">100개씩</option>
-                                                </select>
-                                            </div>
-                                            <div class="ude-scroll">
-                                                <table class="ds-table ude-table">
-                                                    <thead><tr>
-                                                        <th @click="udeSort('systemName')">System <span class="material-icons ude-sort" x-text="udeSortIcon('systemName')"></span></th>
-                                                        <th @click="udeSort('name')">이름 <span class="material-icons ude-sort" x-text="udeSortIcon('name')"></span></th>
-                                                        <th @click="udeSort('tagAddress')">주소 <span class="material-icons ude-sort" x-text="udeSortIcon('tagAddress')"></span></th>
-                                                        <th @click="udeSort('valueType')">타입 <span class="material-icons ude-sort" x-text="udeSortIcon('valueType')"></span></th>
-                                                        <th @click="udeSort('match')">매칭 조건 <span class="material-icons ude-sort" x-text="udeSortIcon('match')"></span></th>
-                                                    </tr></thead>
-                                                    <tbody>
-                                                        <template x-for="d in udePaged" :key="d.tagAddress + '|' + d.name">
-                                                            <tr>
-                                                                <td data-label="System" x-text="d.systemName"></td>
-                                                                <td data-label="이름"><strong x-text="d.name"></strong></td>
-                                                                <td data-label="주소"><span style="font-family:var(--font-mono);" x-text="d.tagAddress"></span></td>
-                                                                <td data-label="타입" x-text="d.valueType"></td>
-                                                                <td data-label="매칭 조건" x-text="describeUdeOp(d.matchOp, d.matchValue)"></td>
-                                                            </tr>
-                                                        </template>
-                                                        <template x-if="udeFiltered.length === 0">
-                                                            <tr><td colspan="5" style="text-align:center; color:var(--text-secondary); padding:16px;">검색 조건에 맞는 항목이 없습니다.</td></tr>
-                                                        </template>
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                            <!-- 페이징 -->
-                                            <div class="ude-pager" x-show="udeFiltered.length > 0">
-                                                <span class="ude-pager-info">
-                                                    총 <strong x-text="udeFiltered.length"></strong>건 ·
-                                                    <span x-text="(ude.page * ude.pageSize + 1)"></span>–<span x-text="Math.min((ude.page + 1) * ude.pageSize, udeFiltered.length)"></span>
-                                                </span>
-                                                <div class="ude-pager-nav">
-                                                    <button class="btn btn-sm btn-outlined" @click="ude.page = 0" :disabled="ude.page === 0" title="처음"><span class="material-icons">first_page</span></button>
-                                                    <button class="btn btn-sm btn-outlined" @click="udePrevPage()" :disabled="ude.page === 0">이전</button>
-                                                    <span class="ude-pager-page"><span x-text="ude.page + 1"></span> / <span x-text="udeMaxPage"></span></span>
-                                                    <button class="btn btn-sm btn-outlined" @click="udeNextPage()" :disabled="ude.page + 1 >= udeMaxPage">다음</button>
-                                                    <button class="btn btn-sm btn-outlined" @click="ude.page = udeMaxPage - 1" :disabled="ude.page + 1 >= udeMaxPage" title="마지막"><span class="material-icons">last_page</span></button>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </template>
-                                    <template x-if="!ude.loading && ude.items.length === 0 && !ude.error">
-                                        <div class="settings-note" style="margin-top:0;">
-                                            <small>정의된 사용자 정의 에러가 없습니다. Promaker 의 사용자 태그 패널에서 추가하세요.</small>
-                                        </div>
-                                    </template>
-                                    <div x-show="ude.error" class="alert alert-error" style="margin-bottom:8px;"><span class="material-icons">error</span><span x-text="ude.error"></span></div>
-                                    <button class="btn btn-outlined w-100" style="margin-top:10px;" @click="loadUserDefinedErrors()" :disabled="ude.loading">
-                                        <span class="material-icons">refresh</span> 새로고침 (<span x-text="ude.items.length"></span>건)
-                                    </button>
                                 </div>
                             </div>
 
@@ -685,7 +707,7 @@
                             </div>
 
                             <!-- 알람 차단 — 관리는 uptime(가동시간·이상 분석) 페이지의 차단 관리에서 -->
-                            <div class="card" x-show="activeTab === 'anomaly'">
+                            <div class="card" x-show="activeTab === 'anomaly'" style="align-self: start;">
                                 <div class="card-header">
                                     <span class="material-icons">notifications_off</span>
                                     <span>알람 차단</span>
@@ -755,7 +777,7 @@
                             </div>
 
                             <!-- 로깅 -->
-                            <div class="card" x-show="activeTab === 'general'">
+                            <div class="card" x-show="activeTab === 'advanced'">
                                 <div class="card-header">
                                     <span class="material-icons">bug_report</span>
                                     <span>로깅</span>
@@ -775,8 +797,46 @@
                                 </div>
                             </div>
 
+                            <!-- 서비스 재시작 (기본 접힘 — 위험 작업이라 헤더 클릭 시에만 펼침 + 확인 팝업 가드) -->
+                            <div class="card" x-show="activeTab === 'advanced'" style="align-self: start;">
+                                <div class="card-header" @click="svcRestartOpen = !svcRestartOpen"
+                                     style="cursor:pointer; user-select:none;">
+                                    <span class="material-icons">restart_alt</span>
+                                    <span>서비스 재시작</span>
+                                    <span class="material-icons" style="margin-left:auto; transition:transform .15s;"
+                                          x-text="svcRestartOpen ? 'expand_less' : 'expand_more'"></span>
+                                </div>
+                                <div class="card-content" x-show="svcRestartOpen" x-cloak x-transition>
+                                    <div class="settings-note">
+                                        <small>
+                                            Windows 서비스로 등록된 항목을 재시작합니다. 문제가 있는 서비스만 골라 재시작하거나,
+                                            아래 <strong>"세 서비스 전체 재시작"</strong> 으로 한 번에 재기동할 수 있습니다.
+                                        </small>
+                                    </div>
+                                    <button class="btn btn-outlined w-100" style="margin-bottom:8px;" @click="restartService('agent')" :disabled="busy">
+                                        <span class="material-icons">restart_alt</span> Promaker.Agent 재시작
+                                    </button>
+                                    <button class="btn btn-outlined w-100" style="margin-bottom:8px;" @click="restartService('mtx')" :disabled="busy">
+                                        <span class="material-icons">restart_alt</span> DSPilot MediaMTX 재시작
+                                    </button>
+                                    <button class="btn btn-outlined color-warning w-100" @click="restartService('dspilot')" :disabled="busy">
+                                        <span class="material-icons">restart_alt</span> DSPilot 재시작 (화면 잠시 끊김)
+                                    </button>
+                                    <hr class="divider my-3" />
+                                    <button class="btn btn-outlined color-error w-100" @click="restartService('all')" :disabled="busy">
+                                        <span class="material-icons">restart_alt</span> 세 서비스 전체 재시작
+                                    </button>
+                                    <small class="settings-hint">
+                                        ⚠️ 재시작하는 서비스의 모니터링·데이터 수집이 수 초간 중단됩니다.
+                                        <strong>DSPilot(및 전체)</strong> 을 재시작하면 이 화면의 실시간 연결이 잠시 끊겼다가 자동으로 다시 연결됩니다.
+                                        Agent·MediaMTX 만 재시작하면 화면은 유지되고 결과가 즉시 표시됩니다.
+                                        서비스로 설치되지 않은 경우(개발/콘솔 실행)에는 재시작할 서비스가 없습니다.
+                                    </small>
+                                </div>
+                            </div>
+
                             <!-- 설정 초기화 -->
-                            <div class="card" x-show="activeTab === 'general'">
+                            <div class="card" x-show="activeTab === 'advanced'">
                                 <div class="card-header">
                                     <span class="material-icons">restart_alt</span>
                                     <span>설정 초기화</span>
@@ -866,8 +926,10 @@
                 selectiveDel: { show: false, loading: false, entries: [] },
                 rt: { connected: false },
                 autoCal: { running: false },
-                _conn: null, _toastTimer: null,
-                activeTab: 'general', // 유형별 탭: general | monitoring | anomaly | data (항상 기본=일반, 위치 미저장)
+                calib: { loaded: false, autoEnabled: true, staleCount: 0, stale: [] }, // 이상감지 게이트 상태 배지 (this.s 밖 — dirty 미유발)
+                _conn: null, _toastTimer: null, _calibTimer: null,
+                activeTab: 'general', // 유형별 탭: general | monitoring | anomaly | data | advanced (항상 기본=일반, 위치 미저장)
+                svcRestartOpen: false, // 고급 탭 "서비스 재시작" 카드 — 기본 접힘(위험 작업)
                 scanMs: 100, scanConnected: false, // PLC 스캔 주기 (Agent 동기화 — 기본 100ms)
                 autoCalibrate: true, // 자동 duration 정합 ON/OFF (Agent 동기화)
                 // 사용자 정의 에러(UserTag 정의) 읽기전용 목록 — filter/sort/page 클라이언트 처리
@@ -883,7 +945,12 @@
                     this.demoStartTicker();
                     this.loadScanInterval();
                     this.loadAutoCalibrate();
+                    this.loadCalibStatus();
+                    // 게이트 상태 폴링 — stale-repair 루프(≥1분)가 자동 재측정하면 30초 내 배지 반영.
+                    this._calibTimer = setInterval(() => this.loadCalibStatus(), 30000);
                     this.loadUserDefinedErrors();
+                    // 더티 가드 등록 — 미저장 설정 변경 이탈 방지
+                    window.dspDirtyRegister(() => this.settingsDirty);
                 },
 
                 // ── 사용자 정의 에러(UserTag 정의) 읽기전용 조회 — Promaker/AASX 정의를 경량 엔드포인트로 가져온다.
@@ -950,6 +1017,18 @@
                         this.autoCalibrate = !!d.on;
                         this.scanConnected = this.scanConnected || !!d.connected;
                     } catch (e) { /* 미연결 — scanConnected 가 disable 처리 */ }
+                },
+                // ── 이상감지 게이트 상태 — 확정값 ≠ 현재 모델 duration 인(stale) Work 배지. this.s 밖이라 dirty 미유발.
+                async loadCalibStatus() {
+                    try {
+                        const d = await this.apiGet('/api/settings/calibration-status');
+                        this.calib = {
+                            loaded: !!d.loaded,
+                            autoEnabled: !!d.autoEnabled,
+                            staleCount: d.staleCount | 0,
+                            stale: d.stale || [],
+                        };
+                    } catch (e) { /* 비치명 — 배지 미표시 */ }
                 },
                 async applyAutoCalibrate() {
                     try {
@@ -1033,6 +1112,8 @@
                         // 배너 표시 레벨은 체크박스 배열 바인딩이라 항상 배열이어야 함(서버 null/구버전 방어). 기본 Error.
                         if (!Array.isArray(this.s.abnormalAlarmDisplayLevels)) this.s.abnormalAlarmDisplayLevels = ['Error'];
                         this.settingsDirty = false;
+                        // $watch 콜백은 queueMicrotask로 지연 → 위 false를 덮어씀. 동일 큐에 재reset 적재.
+                        queueMicrotask(() => { this.settingsDirty = false; });
                         this.aasx = d.aasxStatus || {};
                     } catch (e) {
                         this.showToast('설정을 불러오지 못했습니다: ' + e.message, 'error');
@@ -1182,38 +1263,20 @@
                     await this.runLifecycle('/api/settings/rebuild-aasx', true);
                 },
                 async invalidateCaches() {
-                    const ok = await this.askConfirm('캐시 재계산',
-                        'dspFlow / dspCall 의 평균과 누적 통계를 NULL 로 초기화합니다.\n\n' +
-                        '• plcTagLog, dspFlowHistory, userTagAlertLog 등 raw 데이터는 그대로 보존\n' +
-                        '• 엔진 in-memory Welford 누적기 reset\n' +
-                        '• 다음 가동 완료 시점부터 새 평균이 자연스럽게 누적\n' +
-                        '• 서비스 재시작 불필요\n\n' +
-                        'head/tail 이 바뀌었거나 모델이 크게 변경되어 평균을 새 baseline 으로 다시 측정하고 싶을 때 사용하세요.',
+                    const ok = await this.askConfirm('통계 재계산',
+                        '평균·누적 통계를 리셋합니다.\n\n' +
+                        '• raw 데이터(plcTagLog, dspFlowHistory, 알림 이력)는 그대로 보존\n' +
+                        '• 서비스 재시작 불필요 — 다음 가동부터 새 평균이 다시 쌓입니다.',
                         '재계산', '취소');
                     if (!ok) return;
                     await this.runLifecycle('/api/settings/invalidate-caches', false);
                 },
-                async clearFlowHistory() {
-                    // 파괴적 — confirm 가드 필수.
-                    const ok = await this.askConfirm('Flow 히스토리 삭제',
-                        'dspFlowHistory 와 Call 통계(평균/표준편차/가동횟수) 를 모두 초기화합니다.\n\n' +
-                        'Flow/Call 정의는 유지되며, 즉시 새 가동부터 다시 측정됩니다. 서버 재시작 불필요.',
-                        '초기화', '취소');
-                    if (!ok) return;
-                    await this.runLifecycle('/api/settings/clear-flow-history', false);
-                },
                 async rebuildDatabase() {
                     // 가장 파괴적 (plcTagLog 포함 raw 삭제) — confirm 가드 필수.
                     const ok = await this.askConfirm('⚠️ 전체 초기화 — raw 데이터 삭제',
-                        'plc.db 파일을 완전히 삭제하고 스키마부터 재생성합니다.\n\n' +
-                        '다음 데이터가 영구히 사라집니다:\n' +
-                        '• plcTagLog (PLC 신호 시계열 — 수 GB 단위 가능)\n' +
-                        '• dspFlowHistory (Flow 가동 히스토리 전체)\n' +
-                        '• userTagAlertLog / userTagAlertDaily (알림 이력)\n' +
-                        '• aasxChangeLog / flowBoundaryChangeLog (변경 이력)\n' +
-                        '• 모든 통계 / 평균\n\n' +
-                        '대부분의 경우 "캐시 재계산" 으로 충분합니다.\n' +
-                        '정말 raw 데이터까지 모두 삭제하시겠습니까?',
+                        'plc.db 를 통째로 삭제하고 스키마부터 다시 만듭니다.\n\n' +
+                        'plcTagLog(수 GB 가능)·히스토리·알림 이력·모든 통계가 영구히 사라집니다.\n\n' +
+                        '대부분은 "통계 재계산" 으로 충분합니다. 정말 raw 데이터까지 모두 삭제할까요?',
                         '전체 삭제', '취소');
                     if (!ok) return;
                     await this.runLifecycle('/api/settings/rebuild-database', true);
@@ -1257,7 +1320,7 @@
                     try {
                         const r = await this.apiPost('/api/settings/auto-calibrate/run');
                         this.showToast(r.message, r.success ? 'success' : 'error');
-                        if (r.success) await this.load();
+                        if (r.success) { await this.load(); await this.loadCalibStatus(); }
                     } catch (e) {
                         this.showToast('실측값 채우기 실패: ' + e.message, 'error');
                     } finally { this.autoCal.running = false; }
@@ -1282,6 +1345,36 @@
                     } catch (e) {
                         this.showToast('초기화 실패: ' + e.message, 'error');
                     } finally { this.autoCal.running = false; }
+                },
+
+                // ── 서비스 재시작 (target = agent | mtx | dspilot | all) — 접힘 카드 + 확인 팝업 가드 ──
+                // agent/mtx: 백엔드 인라인 동기 실행 → 실제 결과 토스트, 화면 유지.
+                // dspilot/all: DSPilot 이 자신을 재시작 → detached 배치. 화면 연결이 잠시 끊겼다가 SignalR 자동 재연결.
+                async restartService(target) {
+                    if (this.busy) return;
+                    const meta = {
+                        agent: { name: 'Promaker.Agent', self: false },
+                        mtx: { name: 'DSPilot MediaMTX', self: false },
+                        dspilot: { name: 'DSPilot', self: true },
+                        all: { name: '세 서비스 전체 (MediaMTX · Promaker.Agent · DSPilot)', self: true },
+                    }[target];
+                    if (!meta) return;
+                    const selfNote = meta.self
+                        ? '\n• 이 화면의 실시간 연결이 잠시 끊겼다가 자동으로 다시 연결됩니다\n• DSPilot 서비스는 응답 후 약 2초 뒤 재시작됩니다'
+                        : '';
+                    const ok = await this.askConfirm('⚠️ 서비스 재시작',
+                        `${meta.name} 를 재시작합니다.\n\n` +
+                        '• 해당 서비스의 모니터링·데이터 수집이 수 초간 중단됩니다' + selfNote +
+                        '\n\n정말 재시작할까요?',
+                        '재시작', '취소');
+                    if (!ok) return;
+                    this.busy = true;
+                    try {
+                        const r = await this.apiPost('/api/settings/restart-services', { target });
+                        this.showToast(r.message, r.success ? 'success' : 'error');
+                    } catch (e) {
+                        this.showToast('서비스 재시작 요청 실패: ' + e.message, 'error');
+                    } finally { this.busy = false; }
                 },
 
                 // ── AASX 갱신일 기준 선택 삭제 ──

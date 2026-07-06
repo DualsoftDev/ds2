@@ -68,13 +68,17 @@
                             <span class="material-icons" style="font-size:15px;">clear</span> 전체 보기
                         </a>
                     </template>
-                    <button class="btn btn-sm btn-outlined color-default" @click="exportUtExcel()" :disabled="!ut || !ut.alerts || ut.alerts.length === 0">
-                        <span class="material-icons" style="font-size:15px;">download</span> Excel 다운로드
-                    </button>
                     <button class="btn btn-sm btn-outlined color-default" @click="openBlockMgr()" title="자동알람(디바이스)·수동등록TAG(UserTag) 알람을 선택해 알람·통계·기록에서 차단합니다">
                         <span class="material-icons" style="font-size:15px;">notifications_off</span> 알람 차단<span x-show="blockedTotalCount > 0" x-text="' (' + blockedTotalCount + ')'"></span>
                     </button>
                 </div>
+                <template x-teleport="#dsp-header-actions">
+                    <button class="btn btn-sm btn-outlined color-default" @click="exportUtExcel()" :disabled="!ut || !ut.alerts || ut.alerts.length === 0"
+                            title="이상·알람 데이터를 Excel(.xlsx) 로 내보냅니다">
+                        <span class="material-icons" style="font-size:15px;">download</span>
+                        <span x-text="'Excel 다운로드'"></span>
+                    </button>
+                </template>
             </div>
             <!-- ═══════════════ 탭 2: 이상·알람 (abnormal / UserTag) ═══════════════ -->
             <div class="up-grid" x-show="tab === 'anomaly'">
@@ -112,44 +116,28 @@
                                 </div>
                                 <div x-show="!curFlow">
                                     <div class="ds-card-h" style="margin-bottom:10px;"><h4 style="font-size:0.74rem;">구분 분포</h4><span class="ds-card-h-sub">자동감지 · 수동등록TAG 비율</span></div>
-                                    <div class="up-dist">
-                                        <template x-if="categoryTotal > 0">
-                                            <svg class="up-donut" viewBox="0 0 100 100">
-                                                <circle class="up-donut-track" cx="50" cy="50" r="38" fill="none" stroke-width="14"></circle>
-                                                <circle cx="50" cy="50" r="38" fill="none" stroke="var(--red)" stroke-width="14"
-                                                        :stroke-dasharray="catDonutSeg('ABNORMAL').dash" :stroke-dashoffset="catDonutSeg('ABNORMAL').offset"
-                                                        transform="rotate(-90 50 50)"></circle>
-                                                <circle cx="50" cy="50" r="38" fill="none" stroke="rgb(190, 18, 60)" stroke-width="14"
-                                                        :stroke-dasharray="catDonutSeg('USERTAG').dash" :stroke-dashoffset="catDonutSeg('USERTAG').offset"
-                                                        transform="rotate(-90 50 50)"></circle>
-                                                <text class="up-donut-total" x="50" y="49" text-anchor="middle" x-text="categoryTotal.toLocaleString()"></text>
-                                                <text class="up-donut-cap" x="50" y="61" text-anchor="middle">총 알림</text>
-                                            </svg>
-                                        </template>
-                                        <template x-if="categoryTotal > 0">
-                                            <div class="up-legend">
-                                                <div class="up-legend-row">
-                                                    <span class="up-legend-swatch" style="background:var(--red);"></span>
-                                                    <span class="up-legend-name">자동감지</span>
-                                                    <span class="up-legend-share" x-text="categoryShare('ABNORMAL') + '%'"></span>
-                                                    <span class="up-legend-val" x-text="cc('ABNORMAL').toLocaleString() + '건'"></span>
-                                                </div>
-                                                <div class="up-legend-row">
-                                                    <span class="up-legend-swatch" style="background:rgb(190, 18, 60);"></span>
-                                                    <span class="up-legend-name">수동등록TAG</span>
-                                                    <span class="up-legend-share" x-text="categoryShare('USERTAG') + '%'"></span>
-                                                    <span class="up-legend-val" x-text="cc('USERTAG').toLocaleString() + '건'"></span>
-                                                </div>
+                                    <template x-if="categoryTotal > 0">
+                                        <div class="up-cat-stats">
+                                            <div class="up-cat-tile">
+                                                <span class="up-cat-label">자동감지</span>
+                                                <span class="up-cat-pct" x-text="categoryShare('ABNORMAL') + '%'"></span>
+                                                <span class="up-cat-count" x-text="cc('ABNORMAL').toLocaleString() + '건'"></span>
                                             </div>
-                                        </template>
-                                        <template x-if="categoryTotal === 0">
-                                            <div class="ds-empty up-dist-empty" style="border-style:solid;">
-                                                <span class="material-icons">donut_large</span>
-                                                <div class="ds-empty-title">해당 기간 알림 없음</div>
-                                                <div class="ds-empty-desc">선택한 기간에 집계된 자동감지/수동등록TAG 알림이 없습니다.</div>
+                                            <div class="up-cat-tile">
+                                                <span class="up-cat-label">수동등록TAG</span>
+                                                <span class="up-cat-pct" x-text="categoryShare('USERTAG') + '%'"></span>
+                                                <span class="up-cat-count" x-text="cc('USERTAG').toLocaleString() + '건'"></span>
                                             </div>
-                                        </template>
-                                    </div>
+                                            <div class="up-cat-total">총 <strong x-text="categoryTotal.toLocaleString()"></strong>건</div>
+                                        </div>
+                                    </template>
+                                    <template x-if="categoryTotal === 0">
+                                        <div class="ds-empty up-dist-empty" style="border-style:solid;">
+                                            <span class="material-icons">notifications</span>
+                                            <div class="ds-empty-title">해당 기간 알림 없음</div>
+                                            <div class="ds-empty-desc">선택한 기간에 집계된 자동감지/수동등록TAG 알림이 없습니다.</div>
+                                        </div>
+                                    </template>
                                 </div>
                             </div>
 

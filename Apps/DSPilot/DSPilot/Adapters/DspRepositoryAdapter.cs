@@ -1613,10 +1613,18 @@ public class DspRepositoryAdapter : IDspRepository
                     new { Cutoff = cutoffStr }, tx)
                 : 0;
 
+            // 삭제한 시점 이전의 AASX 갱신 기록도 함께 정리 — 그 이전 데이터가 이미 사라졌으므로
+            // 다이얼로그에 재선택 옵션으로 다시 뜨지 않게 한다. 선택한 기준 시각(== cutoff) 항목 자체는
+            // 남은 데이터의 경계이므로 보존(< 이므로 자동으로 남음).
+            var changeLogDeleted = await TableExistsAsync(conn, "aasxChangeLog")
+                ? await conn.ExecuteAsync("DELETE FROM aasxChangeLog WHERE changedAt < @Cutoff",
+                    new { Cutoff = cutoffStr }, tx)
+                : 0;
+
             tx.Commit();
             _logger.LogInformation(
-                "[DeleteRawDataBefore] cutoff={Cutoff} plcTagLog={P} userTagAlertLog={A} history={H}",
-                cutoffStr, plcDeleted, alertDeleted, histDeleted);
+                "[DeleteRawDataBefore] cutoff={Cutoff} plcTagLog={P} userTagAlertLog={A} history={H} aasxChangeLog={C}",
+                cutoffStr, plcDeleted, alertDeleted, histDeleted, changeLogDeleted);
             return (plcDeleted, alertDeleted, histDeleted);
         }
         catch

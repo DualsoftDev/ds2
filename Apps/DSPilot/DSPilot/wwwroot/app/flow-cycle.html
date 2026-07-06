@@ -167,14 +167,16 @@
                         <span class="material-icons" style="font-size:15px;">save</span>
                         <span x-text="userOverrodeHeadTail ? '적용(저장)*' : '적용(저장)'"></span>
                     </button>
-                    <button class="btn btn-sm btn-outlined color-default" @click="exportExcel()"
-                            :disabled="exporting || !selectedFlow"
-                            title="현재 Flow·시간범위의 IO 세그먼트를 Excel(.xlsx) 로 내보냅니다">
-                        <span class="material-icons" style="font-size:15px;">download</span>
-                        <span x-text="exporting ? 'Excel 생성 중…' : 'Excel 다운로드'"></span>
-                    </button>
                 </div>
             </div>
+            <template x-teleport="#dsp-header-actions">
+                <button class="btn btn-sm btn-outlined color-default" x-show="tab === 'cycle' && callLanes.length > 0" x-cloak
+                        @click="exportExcel()" :disabled="exporting || !selectedFlow"
+                        title="현재 Flow·시간범위의 IO 세그먼트를 Excel(.xlsx) 로 내보냅니다">
+                    <span class="material-icons" style="font-size:15px;">download</span>
+                    <span x-text="exporting ? 'Excel 생성 중…' : 'Excel 다운로드'"></span>
+                </button>
+            </template>
 
             <!-- ════ 기간/가동횟수 선택 — 카드 바깥 상단으로 분리(공용). 사이클 탭 + Flow 있을 때만 노출. ════ -->
             <div class="ds-cycle-presets-bar" x-show="flow && tab === 'cycle'" x-cloak style="margin-bottom:12px;">
@@ -595,11 +597,13 @@
                     <span class="fa-pending" x-show="pendingHt > 0" x-cloak>
                         <span class="fa-pchip on">Head/Tail 변경 <b x-text="pendingHt"></b></span>
                     </span>
-                    <button class="btn btn-outlined color-default" @click="exportAllExcel()" :disabled="exportingAll || loadingAny || loadedFlowCount === 0"
-                            title="로드된 모든 Flow 의 간트를 한 Excel(.xlsx) 한 시트에 세로로 쌓아 내보냅니다">
-                        <span class="material-icons" style="font-size:18px; vertical-align:middle;" x-text="exportingAll ? 'hourglass_top' : 'download'"></span>
-                        <span x-text="exportingAll ? 'Excel 생성 중…' : '전체 Excel 다운로드'"></span>
-                    </button>
+                    <template x-teleport="#dsp-header-actions">
+                        <button class="btn btn-sm btn-outlined color-default" @click="exportAllExcel()" :disabled="exportingAll || loadingAny || loadedFlowCount === 0"
+                                title="로드된 모든 Flow 의 간트를 한 Excel(.xlsx) 한 시트에 세로로 쌓아 내보냅니다">
+                            <span class="material-icons" style="font-size:15px;" x-text="exportingAll ? 'hourglass_top' : 'download'"></span>
+                            <span x-text="exportingAll ? 'Excel 생성 중…' : 'Excel 다운로드'"></span>
+                        </button>
+                    </template>
                     <button class="btn btn-outlined color-default" @click="resetAllStaged()" :disabled="saving || !hasPending"
                             title="아직 적용하지 않은 모든 변경을 되돌립니다 (마지막 로드 상태로)">
                         <span class="material-icons" style="font-size:18px; vertical-align:middle;">undo</span> 변경 취소

@@ -117,6 +117,10 @@
                     else if (this.view === 'cycle') this.tab = 'cycle';
                     // 추이 페이지에 ?name= 없이 진입 → 전체 추이(라인 전체 합산) 모드.
                     this.allMode = (this.view === 'trend' && !this.flowName);
+                    // 더티 가드 등록 — 가동시간 분석(cycle)에서 Head/Tail 미저장 이탈 방지
+                    if (this.view === 'cycle') {
+                        window.dspDirtyRegister(() => this.userOverrodeHeadTail);
+                    }
                     this.computePeriod('today');
 
                     // 컨테이너 폭 변화 시 간트 폭맞춤(줌 대체) + Chart.js 차트 강제 리사이즈
@@ -1603,10 +1607,6 @@
                         if (bandW > 22) {
                             const num = span.isOpen ? `#${span.number} ↻` : `#${span.number}`;
                             g += `<text x="${this.f(sx + 4)}" y="${this.f(ribbonTop + 12)}" font-size="11" font-weight="800" fill="#263238">${num}</text>`;
-                        }
-                        if (ratio !== null && bandW > 86) {
-                            const rc = ratio >= 80 ? '#2e7d32' : ratio >= 50 ? '#e65100' : '#c62828';
-                            g += `<text x="${this.f(ex - 4)}" y="${this.f(ribbonTop + 12)}" text-anchor="end" font-size="10" font-weight="700" fill="${rc}">동작 ${ratio}%</text>`;
                         }
                         g += `</g>`;
                         sb += g;

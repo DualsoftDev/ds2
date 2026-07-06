@@ -67,7 +67,7 @@ public class OeePlannedStopsController : OeeControllerBase
         var flowName = string.IsNullOrWhiteSpace(flow) ? null : flow.Trim();
 
         var thresholds = await ResolveCtThresholdsAsync();
-        var (plannedWindows, _, applyLongStop) = ResolvePlannedWindows();
+        var (plannedWindows, _, applyLongStop) = await ResolvePlannedWindowsAsync(thresholds, ct);
         if (detected) applyLongStop = true;   // 실측 패턴 조회 — 수동 시간대가 감지를 끄지 못하게
         var agg = await ComputeCycleAggregateAsync(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct);
         var merged = new List<(double S, double E)>();

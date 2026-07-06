@@ -1,3 +1,8 @@
+// ── 더티 가드 API — 페이지 init 에서 window.dspDirtyRegister(() => isDirty) 로 등록 ──
+// shell.js 보다 먼저 불리는 경우(e.g. defer 역전)도 있으므로 IIFE 밖에 노출한다.
+window._dspDirtyChecker = null;
+window.dspDirtyRegister = function (fn) { window._dspDirtyChecker = fn; };
+
 /*
  * DSPilot 정적 셸 (Shared App-Shell) — stitch "Industrial Insight"
  * ------------------------------------------------------------------
@@ -87,6 +92,16 @@
             var mcss = document.createElement('style');
             mcss.id = 'dsp-shell-mobile-css';
             mcss.textContent =
+                /* 헤더 액션 슬롯 버튼 — 테마 무관 항상 보이는 테두리·텍스트(다크 모드에서 투명도 낮은 border 덮어씀) */
+                '#dsp-header-actions .btn{' +
+                  'border:1.5px solid rgba(120,140,165,0.55)!important;' +
+                  'color:var(--color-text-primary)!important;' +
+                  'background:var(--color-surface)!important;' +
+                '}' +
+                '.dark #dsp-header-actions .btn,.dark-theme #dsp-header-actions .btn{' +
+                  'border-color:rgba(180,200,220,0.50)!important;' +
+                '}' +
+                '#dsp-header-actions .btn:disabled{opacity:0.42;cursor:not-allowed;}' +
                 '@media (max-width:768px){' +
                   /* 드로어 폭: 폰에서 300px 가 화면을 다 가리지 않도록 85vw 로 클램프(인라인 width 를 !important 로 덮음). 숨김 오프셋(-300px)은 항상 폭 이상이라 완전히 가려짐. */
                   'aside.dsp-shell{width:min(300px,85vw)!important;}' +
@@ -100,6 +115,8 @@
                   'header.dsp-shell{padding-left:12px!important;padding-right:12px!important;}' +
                   /* 헤더 좌측 영역 간격 축소(햄버거↔제목). */
                   'header.dsp-shell .dsp-shell-headleft{gap:10px!important;}' +
+                  /* 헤더 액션 슬롯: 480px 미만에서 텍스트 숨기고 아이콘만 표시 */
+                  '#dsp-header-actions .btn span:not(.material-icons){display:none!important;}' +
                 '}';
             document.head.appendChild(mcss);
         }
@@ -374,6 +391,77 @@
         var teepFlow    = onTeepPage    ? (qs.get('flow') || '') : '';
         var alarmFlow   = onAlarmPage   ? (qs.get('flow') || '') : '';
 
+        // ── 더티 가드 내부 구현 ──
+        // 페이지별 dirty 체크 함수(window._dspDirtyChecker)가 true 를 반환하면,
+        // 사이드바 링크·플로우 버튼 클릭 시 커스텀 확인 모달을 띄워 이탈을 한 번 막는다.
+        var _dirtyPendingUrl = null;
+        var _dirtyModal = null;
+        function _isDirty() {
+            try {
+                var chk = window._dspDirtyChecker;
+                if (!chk) return false;
+                var v = chk();
+                console.debug('[dirty-guard] checker=', !!chk, ' value=', v);
+                return !!v;
+            } catch (e) { console.warn('[dirty-guard] error', e); return false; }
+        }
+        function _buildDirtyModal() {
+            var ov = document.createElement('div');
+            ov.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9999;align-items:center;justify-content:center;';
+            var box = document.createElement('div');
+            box.style.cssText = 'background:var(--color-surface,#fff);border:1px solid var(--color-lines,#e2e8f0);border-radius:12px;'
+                + 'box-shadow:0 8px 32px rgba(0,0,0,0.2);padding:24px 28px;max-width:360px;width:90%;';
+            var ttl = document.createElement('div');
+            ttl.style.cssText = 'font-size:0.9375rem;font-weight:700;color:var(--color-text,#0f172a);margin-bottom:8px;display:flex;align-items:center;gap:8px;';
+            var warnIc = document.createElement('span');
+            warnIc.className = 'material-icons';
+            warnIc.style.cssText = 'font-size:20px;color:#f59e0b;flex:0 0 auto;';
+            warnIc.textContent = 'warning_amber';
+            ttl.appendChild(warnIc);
+            ttl.appendChild(document.createTextNode('저장하지 않은 변경사항'));
+            box.appendChild(ttl);
+            var msg = document.createElement('p');
+            msg.style.cssText = 'font-size:0.875rem;color:var(--color-text-secondary,#475569);margin:0 0 20px;line-height:1.5;';
+            msg.textContent = '이 페이지를 떠나면 변경사항이 사라집니다. 계속하시겠습니까?';
+            box.appendChild(msg);
+            var btns = document.createElement('div');
+            btns.style.cssText = 'display:flex;gap:10px;justify-content:flex-end;';
+            var btnLeave = document.createElement('button');
+            btnLeave.type = 'button';
+            btnLeave.textContent = '페이지 이동';
+            btnLeave.style.cssText = 'padding:8px 18px;border-radius:7px;border:0;background:var(--color-primary,#0e7ccb);color:#fff;'
+                + 'font-size:0.875rem;font-weight:600;cursor:pointer;';
+            var btnStay = document.createElement('button');
+            btnStay.type = 'button';
+            btnStay.textContent = '취소';
+            btnStay.style.cssText = 'padding:8px 18px;border-radius:7px;border:1px solid var(--color-lines,#cbd5e1);background:transparent;'
+                + 'font-size:0.875rem;font-weight:600;cursor:pointer;color:var(--color-text,#334155);';
+            btns.appendChild(btnLeave);
+            btns.appendChild(btnStay);
+            box.appendChild(btns);
+            ov.appendChild(box);
+            document.body.appendChild(ov);
+            btnLeave.addEventListener('click', function () {
+                ov.style.display = 'none';
+                var url = _dirtyPendingUrl; _dirtyPendingUrl = null;
+                // 이동 확정: dirty 체크 해제 후 이동(beforeunload 가 다시 막지 않도록)
+                if (url) { window._dspDirtyChecker = null; location.href = url; }
+            });
+            btnStay.addEventListener('click', function () { ov.style.display = 'none'; _dirtyPendingUrl = null; });
+            ov.addEventListener('click', function (e) { if (e.target === ov) { ov.style.display = 'none'; _dirtyPendingUrl = null; } });
+            document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && ov.style.display === 'flex') { ov.style.display = 'none'; _dirtyPendingUrl = null; } });
+            return ov;
+        }
+        function navigateTo(url) {
+            if (_isDirty()) {
+                if (!_dirtyModal) _dirtyModal = _buildDirtyModal();
+                _dirtyPendingUrl = url;
+                _dirtyModal.style.display = 'flex';
+            } else {
+                location.href = url;
+            }
+        }
+
         function buildSystemSubmenu(systems) {
             cycleSubWrap.innerHTML = '';
             if (!systems || !systems.length) return;
@@ -462,7 +550,7 @@
                     fb.appendChild(fl);
                     fb.addEventListener('click', function (ev) {
                         ev.stopPropagation();
-                        location.href = withPeriodCarry(base + '?' + queryParam + '=' + encodeURIComponent(flowName));
+                        navigateTo(withPeriodCarry(base + '?' + queryParam + '=' + encodeURIComponent(flowName)));
                     });
                     list.appendChild(fb);
                 });
@@ -481,7 +569,7 @@
                     // 모든 분석 그룹: header 본문 클릭 = 별도 '전체' 항목 없이 바로 전체 페이지로 이동.
                     //   이동 후 대상 페이지에서 isActivePage=true → 아래 자동펼침으로 FLOW 선택 UI 노출.
                     //   headerHref 미지정(방어적): 기존처럼 토글만.
-                    if (headerHref) { location.href = withPeriodCarry(headerHref); return; }
+                    if (headerHref) { navigateTo(withPeriodCarry(headerHref)); return; }
                     toggle();
                 });
 
@@ -493,6 +581,9 @@
                 return { wrap: wrap, hasCurrent: groupHasCurrent, isActive: isActivePage };
             }
 
+            // ── 헤더 컨텍스트 캡처용 — 루프 후 headTitle/crumb 업데이트에 사용 ──
+            var _hdrSys = null, _hdrFlow = '';
+
             systems.forEach(function (sys) {
                 var flows = sys.flows || [];
                 var sysHasCurrent =
@@ -502,6 +593,19 @@
                     || (onOeePage     && flows.indexOf(oeeFlow)     !== -1)
                     || (onTeepPage    && flows.indexOf(teepFlow)    !== -1)
                     || (onAlarmPage   && flows.indexOf(alarmFlow)   !== -1);
+
+                if (!_hdrSys) {
+                    var _isAnalysis = onFlowPage || onFlowCycleBulk || onHeatmapPage || onOeePage || onTeepPage || onAlarmPage;
+                    var _flowCtx = onFlowPage ? curFlowName : onHeatmapPage ? heatmapFlow : onOeePage ? oeeFlow : onTeepPage ? teepFlow : onAlarmPage ? alarmFlow : '';
+                    var _flowInSys = _flowCtx && flows.indexOf(_flowCtx) !== -1;
+                    var _bulkInSys = onFlowCycleBulk && flowCycleSystem === sys.name;
+                    // 시스템 1개 + 분석 페이지면 전체보기도 해당 시스템으로 간주
+                    var _allSingle = _isAnalysis && systems.length === 1;
+                    if (_flowInSys || _bulkInSys || _allSingle) {
+                        _hdrSys = sys;
+                        _hdrFlow = _flowInSys ? _flowCtx : '';
+                    }
+                }
 
                 // 시스템 행 = 접기 없는 정적 섹션 헤더(chevron·토글 없음).
                 var row = el('div', 'w-full flex items-center gap-3 px-4 py-3');
@@ -541,6 +645,30 @@
                 cycleSubWrap.appendChild(row);
                 cycleSubWrap.appendChild(sub);
             });
+
+            // ── 헤더 제목에 시스템/Flow 컨텍스트 반영 ──
+            // headTitle·crumb 은 var 선언 후 async 전에 이미 할당 → 클로저로 접근 가능.
+            if (_hdrSys && pageTitle) {
+                var _prefix = _hdrFlow || (_hdrSys.name || '');
+                if (_prefix) {
+                    // "가동시간 분석 · 전체" → "가동시간 분석" (· 뒤 view 한정어 제거 — h2/크럼 기능명 단계용)
+                    var _funcName = pageTitle.replace(/\s*·\s*.+$/, '');
+                    headTitle.textContent = _prefix + ' ' + _funcName;
+                    // 브레드크럼: Home > [시스템] 관리 > [기능명] > [flow명](flow 있을 때만)
+                    crumb.innerHTML = '';
+                    crumb.appendChild(el('span', null, 'Home'));
+                    crumb.appendChild(el('span', 'material-icons text-[16px]', 'chevron_right'));
+                    crumb.appendChild(el('span', null, (_hdrSys.name || '') + ' 관리'));
+                    crumb.appendChild(el('span', 'material-icons text-[16px]', 'chevron_right'));
+                    if (_hdrFlow) {
+                        crumb.appendChild(el('span', null, _funcName));
+                        crumb.appendChild(el('span', 'material-icons text-[16px]', 'chevron_right'));
+                        crumb.appendChild(el('span', 'text-primary font-semibold', _hdrFlow));
+                    } else {
+                        crumb.appendChild(el('span', 'text-primary font-semibold', _funcName));
+                    }
+                }
+            }
         }
 
         // 푸터 (설정)
@@ -673,6 +801,12 @@
         liveBadge.appendChild(liveDot);
         liveBadge.appendChild(liveText);
         liveBadge.appendChild(liveChev);
+
+        // ── 페이지별 액션 슬롯 (Excel 다운로드 등) — x-teleport 대상 ──
+        var pageActionsSlot = document.createElement('div');
+        pageActionsSlot.id = 'dsp-header-actions';
+        pageActionsSlot.style.cssText = 'display:flex;align-items:center;gap:6px;';
+        headRight.appendChild(pageActionsSlot);
 
         headRight.appendChild(liveBadge);
 
@@ -810,6 +944,22 @@
         }
         applyLayout();
 
+        // ── 더티 가드: 페이지 내 모든 <a> 링크 클릭 인터셉트 ──
+        document.addEventListener('click', function (e) {
+            var a = e.target.closest('a[href]');
+            if (!a) return;
+            var href = a.getAttribute('href');
+            if (!href || href.charAt(0) === '#' || href.indexOf('javascript:') === 0) return;
+            if (!_isDirty()) return;
+            e.preventDefault();
+            navigateTo(href);
+        });
+
+        // ── 더티 가드: 브라우저 뒤로가기·새로고침·닫기 ──
+        window.addEventListener('beforeunload', function (e) {
+            if (_isDirty()) { e.preventDefault(); e.returnValue = ''; return ''; }
+        });
+
         // ── 7) 테마 동기화 (설정 페이지 변경 + 다른 탭 동기화) ──
         //  헤더 토글 버튼은 제거됨. 테마는 로드 시 localStorage 에서 적용되며, 설정 페이지/타 탭 변경은 storage 이벤트로 반영.
         function applyTheme(d) {
@@ -857,9 +1007,6 @@
             });
 
             var agent = data.agent || {};
-            var live = HUB_LIVE[agent.hub] || HUB_LIVE.disconnected;
-            liveBadge.className = 'dash-live ' + live[0];
-            liveText.textContent = live[1];
 
             // ── Agent 상태 블록 ──
             var hub = agent.hub || 'disconnected';
@@ -903,6 +1050,23 @@
             agData.row.style.display = hasData ? '' : 'none';
             agData.text.textContent = 'PLC 데이터 수신중';
             agData.dot.style.background = AG_DOT.green;
+
+            // ── 접힌 배지: 3행(Hub·PLC·데이터) 최악 상태 반영 ──
+            var badgeClass, badgeText;
+            if (hub !== 'connected') {
+                var hl = HUB_LIVE[hub] || HUB_LIVE.disconnected;
+                badgeClass = hl[0]; badgeText = hl[1];
+            } else if (plcColor === AG_DOT.red) {
+                badgeClass = 'is-warn'; badgeText = 'PLC 끊김';
+            } else if (plcColor === AG_DOT.green && !hasData) {
+                badgeClass = 'is-warn'; badgeText = '데이터 대기';
+            } else if (plcColor === AG_DOT.green) {
+                badgeClass = 'is-live'; badgeText = '실시간';
+            } else {
+                badgeClass = 'is-poll'; badgeText = 'PLC 미설정';
+            }
+            liveBadge.className = 'dash-live ' + badgeClass;
+            liveText.textContent = badgeText;
         }
 
         function pollSummary() {

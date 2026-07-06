@@ -215,6 +215,7 @@ public static class OeeMath
 
     /// <summary>
     /// 사이클기반 가용성 A = Σ실측CT / (Σ실측CT + Σ비가동CT) (doc/22 §4). 분모 0 이면 null + 사유.
+    /// (TEEP 매트릭스 셀·테스트 전용 — 요약 KPI 는 <see cref="ComputeWallClockAvailability"/> 벽시계 모델로 이관.)
     /// </summary>
     public static (double? Availability, string? Note) ComputeCycleAvailability(double normalCtMs, double idleCtMs)
     {
@@ -223,6 +224,22 @@ public static class OeeMath
             return (null, "기간 내 사이클 CT 합 0 — 사이클기반 가용성 산출 불가.");
         return (Math.Clamp(normalCtMs / denom, 0, 1),
             "Σ실측CT ÷ (Σ실측CT + Σ비가동CT). 비가동 = MT>CT이상치 / 미완료 CT폭주 / 무사이클 정지.");
+    }
+
+    /// <summary>
+    /// 벽시계 가용성 A = Σ가동 ÷ Σ생산가능시간 (2026-07-06 단일 모델). 세 뷰(추이·정산·도넛) 공통 SSOT.
+    ///   생산가능 = 캘린더 − 비생산(지정 창/14일 학습패턴) − 미계측(수신 공백)
+    ///   가동     = 정상 사이클이 실제 돈 구간(runIntervals ∩ 생산가능)
+    ///   비가동   = 생산가능 − 가동 (잔여 = 전부 정지 — 무사이클·미완료·인식지연 모두 포함)
+    /// 라인(다-Flow)은 호출측이 flow별 합산으로 넘긴다(availableWallMs = 생산가능_1flow × flow수) → 생산가능시간
+    /// 가중평균 = flow별 A 평균. 분모 0 이면 null + 사유.
+    /// </summary>
+    public static (double? Availability, string? Note) ComputeWallClockAvailability(double runWallMs, double availableWallMs)
+    {
+        if (availableWallMs <= 0)
+            return (null, "생산가능시간 0(전 기간 비생산/미계측) — 가용성 산출 불가.");
+        return (Math.Clamp(runWallMs / availableWallMs, 0, 1),
+            "가동(벽시계) ÷ 생산가능시간(캘린더 − 비생산 − 미계측). 비가동 = 생산가능 − 가동(잔여).");
     }
 
     /// <summary>

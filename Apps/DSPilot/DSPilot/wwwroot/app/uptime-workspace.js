@@ -125,7 +125,7 @@
                 // 비생산 시간대 (doc/22 §3.3) — auto: 자동 계산(10×가동시간 장시간정지) on/off. source: auto/manual/none. ctMultiplier: 자동판정 배수(10).
                 // windows=수동 편집용 사본. selected=선택된 윈도 index(-1=미선택). addMode=드래그 추가 무장.
                 // actualNonProd=이번 기간 실제 제외된 비생산(추이 남색과 동일 소스, 자동 모드 타임라인의 유일한 소스이자 수동 전환 시 시드).
-                ps: { source: 'none', auto: true, ctMultiplier: 10, windows: [], selected: -1, addMode: false, msg: '', err: '', busy: false, actualNonProd: null, seededFromAuto: false, learned: null },
+                ps: { source: 'none', auto: true, ctMultiplier: 10, windows: [], selected: -1, addMode: false, msg: '', err: '', busy: false, actualNonProd: null, seededFromAuto: false, learned: null, dirty: false },
                 _psDrag: null, // 진행 중 드래그 상태 { mode:'create'|'resize-l'|'resize-r', index, anchor } (비반응형)
                 // 정지 이벤트 로그 토글 — 기본 숨김, 정지 원인 구성(도넛)의 [로그 보기 및 설정] 버튼으로 토글
                 showDowntimeLog: false,
@@ -214,6 +214,10 @@
                         // 차단 상태는 항상 로드(툴바 버튼의 차단 수 배지) — ?blockMgr=1 진입(설정 페이지 링크)이면 모달 자동 열기.
                         if (qp.has('blockMgr')) this.openBlockMgr();
                         else { this.loadBlockState(); this.loadUserTagBlockState(); }
+                    }
+                    // 더티 가드 등록 — 비생산 시간대 수동 편집(ps.dirty) 중 이탈 방지(OEE 페이지만)
+                    if (this.view !== 'alarm') {
+                        window.dspDirtyRegister(() => !this.ps.auto && this.ps.dirty);
                     }
                 },
 
@@ -317,7 +321,7 @@
                         this.ps.auto = !!r.auto;
                         this.ps.ctMultiplier = r.ctMultiplier || 10;
                         this.ps.windows = (r.windows || []).map(w => ({ startMinutes: w.startMinutes, endMinutes: w.endMinutes, label: w.label || '' }));
-                        this.ps.selected = -1; this.ps.addMode = false; this.ps.seededFromAuto = false;
+                        this.ps.selected = -1; this.ps.addMode = false; this.ps.seededFromAuto = false; this.ps.dirty = false;
                     } catch (e) { this.ps.err = '비생산 시간대를 불러오지 못했습니다: ' + e.message; }
                     // 자동 모드일 때: ① 이번 기간 실제 제외 비생산(타임라인 메인 소스) ② 학습 창(§3.5 투표제,
                     // 참고·미적용 — Phase 1 섀도 검증용 점선 윤곽). 비생산 시간대는 시스템(전역) 단위 —
@@ -365,6 +369,7 @@
                         if (!enabled && capturedActualWins && capturedActualWins.length > 0) {
                             this.ps.windows = capturedActualWins;
                             this.ps.seededFromAuto = true;
+                            this.ps.dirty = true;  // 시드된 창은 아직 저장 전 — 이탈 가드 발동
                             this.ps.msg = `지금 비생산 ${capturedActualWins.length}개 구간을 불러왔습니다 — 수정 후 [적용]을 누르세요`;
                         } else {
                             this.ps.seededFromAuto = false;
@@ -461,6 +466,7 @@
                     this.ps.windows = this.ps.windows.slice().sort((a, b) => a.startMinutes - b.startMinutes);
                     this.ps.selected = this.ps.windows.indexOf(ref);
                     if (d.mode === 'create') this.ps.addMode = false;    // 생성 완료 → 추가 모드 종료
+                    this.ps.dirty = true;
                 },
                 // 선택된 윈도의 시작/끝 시각 인라인 수정(type=time → 분). 라이브 재배치(재정렬은 적용 시).
                 psSetTime(which, val) {
@@ -470,9 +476,11 @@
                     if (!w) return;
                     if (which === 'start') w.startMinutes = m; else w.endMinutes = m;
                     this.ps.err = '';
+                    this.ps.dirty = true;
                 },
                 psRemove(i) {
                     this.ps.windows = this.ps.windows.filter((_, idx) => idx !== i);
+                    this.ps.dirty = true;
                     if (this.ps.selected === i) this.ps.selected = -1;
                     else if (this.ps.selected > i) this.ps.selected -= 1;
                 },
@@ -671,13 +679,6 @@
                     if (!this.teep || !this.teep.calendarMs) return '0.0';
                     return Math.max(0, Math.min(100, this.teep[field] / this.teep.calendarMs * 100)).toFixed(1);
                 },
-                // 비생산 표시값 — 미계측(§3.4)을 합쳐 보여준다(2026-07-04 표시 정책, 데이터·학습·판정은 분리).
-                teepNonProdDisplayPct() {
-                    if (!this.teep || !this.teep.calendarMs) return '0.0';
-                    const ms = (this.teep.nonProdMs || 0) + (this.teep.unmeasuredMs || 0);
-                    return Math.max(0, Math.min(100, ms / this.teep.calendarMs * 100)).toFixed(1);
-                },
-
                 // ── 날짜별 비생산 패턴 (/api/oee/planned-stops/actual · days) — 생산효율 페이지 전용 ──
                 // ps.actualNonProd(설비효율 설정 타임라인, 자동 모드 전용)와 별도 상태 — 여기는 자동/수동 설정과
                 // 무관하게 그 범위의 "실측" 비생산 패턴을 조회한다(detected=true 로 10×CT 감지 강제 — 수동 지정이
@@ -1149,13 +1150,20 @@
                     //   nonProdMs=비생산(A 분모 밖 — 가동에서 카빙), 나머지=가동근사.
                     const failureData = d.slots.map(s => ((s.failureMs || 0) + (s.unclassifiedMs || 0)) / MS); // 고장(isFailure=1 계열)
                     const plannedData = d.slots.map(s => ((s.plannedMs || 0) + (s.otherMs || 0)) / MS); // 유지보수(isFailure=0 계열)
-                    // 비생산(제외) — A 분모 밖. 표시 정책(2026-07-04 사용자 결정): 미계측(수신 공백, §3.4)을 합쳐 보여준다.
-                    // 데이터(unmeasuredMs 필드)·학습(§3.5 차집합)·KPI 카빙은 분리 유지 — 화면 카테고리만 통합.
-                    const nonProdData = d.slots.map(s => ((s.nonProdMs || 0) + (s.unmeasuredMs || 0)) / MS);
+                    // 비생산(제외) — A 분모 밖. 미계측(수신 공백, §3.4)은 어떤 스택에도 채우지 않는다(2026-07-06 결정):
+                    // 비생산·가동 어디에도 안 넣어 스택 합 < slotMs → 그만큼 흰 여백으로 남아 "데이터 없음"이 시각 구분된다.
+                    // (범례에도 미계측 항목 없음 — 별도 데이터셋을 만들지 않으므로.)
+                    const nonProdData = d.slots.map(s => (s.nonProdMs || 0) / MS);
                     const runData = d.slots.map(s => Math.max(0, s.slotMs - (s.failureMs || 0) - (s.otherMs || 0) - (s.unclassifiedMs || 0) - (s.plannedMs || 0) - (s.nonProdMs || 0) - (s.unmeasuredMs || 0)) / MS);
 
                     // 평균 가동시간 선 (비생산 카빙 후 실가동 기준)
                     const avgRun = runData.length > 0 ? runData.reduce((a, b) => a + b, 0) / runData.length : 0;
+
+                    // y축 고정 상한: 오늘(시간별)=1h, 그 이상(일별)=24h. 전체(시스템)면 ×설비수(합산이라 슬롯이 그만큼 참).
+                    //   부분 슬롯(오늘 진행 중 시각/기간 양끝 날)이 있어도 축은 항상 꽉 찬 슬롯 기준으로 고정 → 막대가
+                    //   "1h/24h 를 넘는 것처럼" 보이던 착시(평균 참조선 대비) 제거.
+                    const flowCount = Math.max(1, d.flowCount || 1);
+                    const yMax = (d.granularity === 'hour' ? 1 : 24) * flowCount;
 
                     const cs = getComputedStyle(document.documentElement);
                     // 가동=밝은 파랑(눈에 띄게) / 정지 3종=어둡게 대비. 유지보수=노란(앰버) 계열. SSOT=uptime-workspace.css --oee-*
@@ -1172,9 +1180,7 @@
                         { label: '가동(근사)', data: runData, backgroundColor: cRun, stack: 's', order: 2 },
                         { label: '고장', data: failureData, backgroundColor: faultHatch, stack: 's', order: 2 },
                         { label: '유지보수', data: plannedData, backgroundColor: maintHatch, stack: 's', order: 2 },
-                        // 비생산(제외) — 기본 표시(2026-07-04 전환): 미계측이 합쳐진 카테고리라 숨기면 그 시간이
-                        // '가동처럼 보이는 빈칸'이 된다(구 hidden 기본의 혼선 재발 방지). 범례 클릭으로 끄는 건 가능.
-                        { label: '비생산(제외)', data: nonProdData, backgroundColor: nightHatch, stack: 's', order: 2 },
+                        { label: '비생산(제외)', data: nonProdData, backgroundColor: nightHatch, stack: 's', order: 2, hidden: true },
                         {
                             label: `평균 ${avgRun.toFixed(1)}h`,
                             type: 'line',
@@ -1193,7 +1199,7 @@
                         _dailyChart = new Chart(canvas, {
                             type: 'bar',
                             data: { labels, datasets },
-                            options: _dailyChartOptions(d.granularity),
+                            options: _dailyChartOptions(d.granularity, yMax),
                         });
                     } else {
                         _dailyChart.data.labels = labels;
@@ -1207,7 +1213,7 @@
                                 _dailyChart.data.datasets.push(datasets[i]);
                             }
                         }
-                        _dailyChart.options = _dailyChartOptions(d.granularity);
+                        _dailyChart.options = _dailyChartOptions(d.granularity, yMax);
                         _dailyChart.update('none');
                     }
                 },
@@ -1571,30 +1577,32 @@
                         ? '<span class="src-chip manual">수동 고정</span>'
                         : '<span class="src-chip auto">14일 평균</span>';
                 },
-                // 가용성 분해 (활성 모드 통합) — 상단 A KPI와 항상 일치.
-                //  cycle : Σ실측CT(정상 사이클) vs Σ비가동CT  (A = 실측/(실측+비가동))
-                //  폴백  : 가동시간 vs 정지  (A = 가동 ÷ 계획생산시간, 분모=planTime.plannedMs)
+                // 가용성 분해 (벽시계 단일모델, 2026-07-06) — 상단 A KPI·추이 세로합·정지 도넛과 항상 일치.
+                //  wallclock : 가동(벽시계) vs 비가동(생산가능−가동 잔여)  (A = 가동 ÷ 생산가능시간)
+                //  폴백      : 가동시간 vs 정지  (A = 가동 ÷ 계획생산시간, 분모=planTime.plannedMs)
                 get availComp() {
                     const o = this.oee || {};
                     const r1 = (x) => Math.round(x * 10) / 10;
-                    if (o.availabilitySource === 'cycle') {
-                        const n = Math.max(0, o.normalCtMs || 0), i = Math.max(0, o.idleCtMs || 0);
-                        const tot = n + i;
-                        const runPct = tot > 0 ? r1(n / tot * 100) : 0;
-                        const stopPct = tot > 0 ? r1(100 - runPct) : 0;
-                        // 비가동 고장/유지보수 분리 — '정지 구성' 도넛과 동일한 isFailure 2-상태(서버가 비가동 ΣCT 를
-                        // 유지보수 이벤트 구간과 교차 귀속). 유지보수 0 이면 기존 단일 세그먼트 표시와 동일.
-                        const m = Math.min(i, Math.max(0, o.idleMaintCtMs || 0));
-                        const maintPct = tot > 0 ? r1(m / tot * 100) : 0;
+                    if (o.availabilitySource === 'wallclock') {
+                        const run = Math.max(0, o.runWallMs || 0);
+                        const avail = Math.max(0, o.availableWallMs || 0);
+                        const down = Math.max(0, avail - run);
+                        // 비가동 고장/유지보수 분리 — '정지 구성' 도넛과 동일 소스(서버가 비가동을 유지보수 이벤트 구간과
+                        // 겹쳐 귀속, 잔여=고장). 세 뷰가 한 타임라인에서 나오므로 값이 서로 어긋나지 않는다.
+                        const maint = Math.min(down, Math.max(0, o.downMaintWallMs || 0));
+                        const fault = Math.max(0, down - maint);
+                        const runPct = avail > 0 ? r1(run / avail * 100) : 0;
+                        const stopPct = avail > 0 ? r1(100 - runPct) : 0;
+                        const maintPct = avail > 0 ? r1(maint / avail * 100) : 0;
                         const faultPct = Math.max(0, r1(stopPct - maintPct));
                         return {
-                            mode: 'cycle', hasData: tot > 0,
-                            runMs: n, stopMs: i, runPct, stopPct,
-                            faultMs: i - m, maintMs: m, faultPct, maintPct,
-                            runLabel: '실측 가동시간 (정상 가동)', stopLabel: m > 0 ? '비가동 · 고장' : '비가동 가동시간',
+                            mode: 'wallclock', hasData: avail > 0,
+                            runMs: run, stopMs: down, runPct, stopPct,
+                            faultMs: fault, maintMs: maint, faultPct, maintPct,
+                            runLabel: '가동 (생산가능시간 내)', stopLabel: maint > 0 ? '비가동 · 고장' : '비가동',
                             runNote: (o.normalCycleCount || 0) + '회', stopNote: (o.failureCount || 0) + '건',
-                            subtitle: 'Σ실측 가동시간 ÷ (Σ실측 + Σ비가동) · 비가동 = 동작시간>이상치 / 미완료 폭주 / 무가동',
-                            hint: '한 번의 가동에서 <b>동작시간이 가동시간 이상치를 넘으면</b> 그 가동의 가동시간 전체를 비가동으로 본다(인식지연 + 고장 + 회복 포함). 미완료(가동시간 폭주)·무가동 정지도 비가동에 합산하되 겹친 구간은 1회만 계상한다(이중계상 방지). 고장/유지보수 구분은 정지 로그 분류(도넛과 동일 기준)를 비가동 시간에 겹쳐 귀속한 것.',
+                            subtitle: '가동 ÷ 생산가능시간 · 생산가능 = 캘린더 − 비생산(지정) − 미계측 · 비가동 = 생산가능 − 가동(잔여)',
+                            hint: '<b>벽시계 단일모델</b>: 지정 비생산(계획/14일 학습)·미계측을 뺀 <b>생산가능시간</b>에서 실제로 사이클이 돈 시간이 <b>가동</b>, 나머지는 전부 <b>비가동</b>이다(인식지연·미완료·무가동 모두 포함). 비가동 중 유지보수 이벤트와 겹친 구간만 유지보수, 나머지는 고장(기본). 시간별 추이의 세로 합·정지 구성 도넛과 완전히 같은 소스다.',
                         };
                     }
                     // 폴백(shift/auto/calendar): 계획시간 분모 기준 — planTime 사용.
@@ -1736,19 +1744,18 @@
                     } finally { this.bulkBusy = false; }
                 },
 
-                // 정지 도넛 (고장/유지보수 2-상태, 지속시간 가중 — 합계가 상단 '기간 정지'와 일치)
+                // 정지 구성 도넛 (고장/유지보수 2-상태) — 벽시계 단일모델(2026-07-06): 서버가 비가동(생산가능−가동)을
+                // 유지보수 이벤트 구간과 겹쳐 귀속(잔여=고장)한 값. 가용성 정산 분해·시간별 추이 정지부와 동일 소스라
+                // 세 뷰가 항상 일치한다. (구: this.downtime durationMs 다-flow 중첩 합산 → 하루 24h 초과 착시 폐기.)
                 get faultDist() {
-                    let faultMs = 0, maintMs = 0, count = 0;
-                    for (const d of this.downtime) {
-                        const ms = (d.durationMs && d.durationMs > 0)
-                            ? d.durationMs
-                            : (d.status === 'open' && d.startAt ? Math.max(0, Date.now() - new Date(d.startAt).getTime()) : 0);
-                        if (ms <= 0) continue;
-                        count++;
-                        if (d.isFailure) faultMs += ms; else maintMs += ms;
-                    }
+                    const o = this.oee || {};
+                    const run = Math.max(0, o.runWallMs || 0), avail = Math.max(0, o.availableWallMs || 0);
+                    const down = Math.max(0, avail - run);
+                    const maintMs = Math.min(down, Math.max(0, o.downMaintWallMs || 0));
+                    const faultMs = Math.max(0, down - maintMs);
+                    const count = Array.isArray(this.downtime) ? this.downtime.length : 0;  // 정지 이벤트 건수(표시용)
                     const totalMs = faultMs + maintMs;
-                    if (totalMs <= 0 || count === 0) return { count, segs: [] };
+                    if (totalMs <= 0) return { count, segs: [] };
                     const C = 2 * Math.PI * 38;
                     const segs = [];
                     const defs = [{ def: FAULT_DEF, ms: faultMs }, { def: MAINT_DEF, ms: maintMs }].filter(x => x.ms > 0);
@@ -1897,7 +1904,7 @@
             return index % step === 0 ? this.getLabelForValue(value) : '';
         }
 
-        function _dailyChartOptions(granularity) {
+        function _dailyChartOptions(granularity, yMax) {
             const cs = getComputedStyle(document.documentElement);
             const cText = cs.getPropertyValue('--color-text-secondary').trim() || '#888';
             const cGrid = cs.getPropertyValue('--color-lines').trim() || '#e5e7eb';
@@ -1937,6 +1944,8 @@
                     y: {
                         stacked: true,
                         min: 0,
+                        // 고정 상한: 시간별=1h, 일별=24h (전체=×설비수). 없으면 자동(하위호환).
+                        ...(yMax > 0 ? { max: yMax } : {}),
                         ticks: {
                             color: cText,
                             font: { size: 11 },

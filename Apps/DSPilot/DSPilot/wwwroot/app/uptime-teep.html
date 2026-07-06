@@ -152,7 +152,7 @@
                     </template>
                 </section>
 
-                <!-- ════ 시간 분해 (캘린더 = 가동 + 정지 + 비생산(미계측 포함 표시) + 잔여) ════ -->
+                <!-- ════ 시간 분해 (캘린더 = 가동 + 정지 + 비생산 + 미계측 + 잔여) ════ -->
                 <section class="card up-section">
                     <div class="ds-card-h">
                         <h4>시간 분해 (캘린더 기준)</h4>
@@ -166,19 +166,25 @@
                             <div style="display:flex; height:26px; border-radius:var(--radius-sm); overflow:hidden; border:1px solid var(--color-lines);">
                                 <div :style="`width:${teepPct('runningMs')}%; background:var(--oee-run);`" :title="'가동 ' + teepPct('runningMs') + '%'"></div>
                                 <div class="hatch-fault" :style="`width:${teepPct('downMs')}%;`" :title="'정지 ' + teepPct('downMs') + '%'"></div>
-                                <!-- 미계측(§3.4)은 비생산에 합쳐 표시(2026-07-04 표시 정책) — 데이터·학습·판정은 분리 유지 -->
-                                <div class="hatch-nonprod" :style="`width:${teepNonProdDisplayPct()}%;`" :title="'비생산 ' + teepNonProdDisplayPct() + '%'"></div>
+                                <div class="hatch-nonprod" :style="`width:${teepPct('nonProdMs')}%;`" :title="'비생산 ' + teepPct('nonProdMs') + '%'"></div>
+                                <!-- 미계측(수신 공백, §3.4) = 비생산과 별도 표기(회색 빗금) — 데이터 있을 때만 노출 -->
+                                <template x-if="(teep.unmeasuredMs || 0) > 0">
+                                    <div class="hatch-unmeas" :style="`width:${teepPct('unmeasuredMs')}%;`" :title="'미계측 ' + teepPct('unmeasuredMs') + '%'"></div>
+                                </template>
                                 <div :style="`width:${teepPct('residualMs')}%; background:var(--color-surface-variant);`" :title="'잔여 ' + teepPct('residualMs') + '%'"></div>
                             </div>
                             <!-- 범례 + 값 -->
                             <div class="up-teep-legend">
                                 <div class="up-teep-leg"><span class="sw" style="background:var(--oee-run);"></span>가동 <b x-text="durShort(teep.runningMs)"></b> <em x-text="'(' + teepPct('runningMs') + '%)'"></em></div>
                                 <div class="up-teep-leg"><span class="sw hatch-fault"></span>정지 <b x-text="durShort(teep.downMs)"></b> <em x-text="'(' + teepPct('downMs') + '%)'"></em></div>
-                                <div class="up-teep-leg"><span class="sw hatch-nonprod"></span>비생산 <b x-text="durShort((teep.nonProdMs || 0) + (teep.unmeasuredMs || 0))"></b> <em x-text="'(' + teepNonProdDisplayPct() + '%)'"></em></div>
+                                <div class="up-teep-leg"><span class="sw hatch-nonprod"></span>비생산 <b x-text="durShort(teep.nonProdMs || 0)"></b> <em x-text="'(' + teepPct('nonProdMs') + '%)'"></em></div>
+                                <template x-if="(teep.unmeasuredMs || 0) > 0">
+                                    <div class="up-teep-leg"><span class="sw hatch-unmeas"></span>미계측 <b x-text="durShort(teep.unmeasuredMs || 0)"></b> <em x-text="'(' + teepPct('unmeasuredMs') + '%)'"></em></div>
+                                </template>
                                 <div class="up-teep-leg"><span class="sw" style="background:var(--color-surface-variant); border:1px solid var(--color-lines-strong);"></span>잔여 <b x-text="durShort(teep.residualMs)"></b> <em x-text="'(' + teepPct('residualMs') + '%)'"></em></div>
                             </div>
                             <div class="up-form-hint" style="margin-top:12px;">
-                                <b>TEEP</b> = 가동 ÷ 캘린더 — 야간·점심·무오더 등 <b>비생산도 분모에 포함</b>한 "달력 전체 대비 진짜 가동"입니다(표준 TEEP). 비생산을 뺀 관점은 <b>가동률</b> 보조지표로 보세요. 비생산은 자동 인식(평균 가동시간의 <span x-text="ps.ctMultiplier"></span>배 이상 정지) + 수동 지정 시간대이며, 성능·품질(P·Q)은 <b>종합설비효율 현황(OEE)</b> 페이지가 담당합니다.
+                                <b>TEEP</b> = 가동 ÷ 캘린더 — 야간·점심·무오더 등 <b>비생산도 분모에 포함</b>한 "달력 전체 대비 진짜 가동"입니다(표준 TEEP). 비생산을 뺀 관점은 <b>가동률</b> 보조지표로 보세요. 비생산은 자동 인식(평균 가동시간의 <span x-text="ps.ctMultiplier"></span>배 이상 정지) + 수동 지정 시간대이며, 성능·품질(P·Q)은 <b>종합설비효율 현황(OEE)</b> 페이지가 담당합니다.<template x-if="(teep && (teep.unmeasuredMs || 0) > 0)"><span> <b>미계측</b>(PLC 수신 공백)은 상태를 알 수 없는 시간이라 가동에는 넣지 않되 캘린더 분모엔 남겨 TEEP 를 보수적으로 낮춥니다 — 설비효율(OEE)은 미계측을 분모에서 제외하므로 통신 공백이 잦은 구간에선 두 지표가 벌어질 수 있습니다.</span></template>
                             </div>
                         </div>
                     </template>
@@ -196,7 +202,7 @@
                      데이터 = /api/oee/planned-stops/actual 의 days(로컬 날짜별 접기 — 각 날을 자정 경계로 독립 접기라
                      union 접기의 ≥24h 전체 채움 퇴화 없음). 색 SSOT = 시간 분해 막대와 동일(비생산=hatch-nonprod /
                      미계측=hatch-unmeas). 비생산은 시스템(전역) 단위 — 설비(flow) 선택과 무관하게 시스템 전체 표시. -->
-                <section class="card up-section">
+                <section class="card up-section" x-show="!curFlow" x-cloak>
                     <div class="ds-card-h">
                         <h4>날짜별 비생산 패턴</h4>
                         <span class="ds-card-h-sub" x-text="teepNpSub()"></span>

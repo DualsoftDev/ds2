@@ -52,7 +52,7 @@ public class OeeMetricsController : OeeControllerBase
         if (periodMs < 0) periodMs = 0;
 
         var thresholds = await ResolveCtThresholdsAsync();
-        var (plannedWindows, _, applyLongStop) = ResolvePlannedWindows();
+        var (plannedWindows, _, applyLongStop) = await ResolvePlannedWindowsAsync(thresholds, ct);
         var agg = await ComputeCycleAggregateAsync(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct);
 
         int flowCount = flowName is not null
@@ -103,7 +103,7 @@ public class OeeMetricsController : OeeControllerBase
         var flowName = string.IsNullOrWhiteSpace(flow) ? null : flow.Trim();
 
         var thresholds = await ResolveCtThresholdsAsync();
-        var (plannedWindows, _, applyLongStop) = ResolvePlannedWindows();
+        var (plannedWindows, _, applyLongStop) = await ResolvePlannedWindowsAsync(thresholds, ct);
 
         // 대상 flow = 임계(14일 평균) 보유 flow — /api/oee/teep 의 FlowCount 와 동일 모집단. 이름순 고정(차트 축 안정).
         var targetFlows = (flowName is not null
@@ -311,58 +311,30 @@ public class OeeMetricsController : OeeControllerBase
         var hourly = spanDays <= 2.0;
         var gran = hourly ? "hour" : "day";
 
-        var intervals = await _repo.GetDowntimeIntervalsAsync(fromUtc, toUtc, flowName, ct);
-        var delibKind = new[] { new List<(long S, long E)>(), new List<(long S, long E)>(), new List<(long S, long E)>(), new List<(long S, long E)>() };
-        var autoKind = new[] { new List<(long S, long E)>(), new List<(long S, long E)>(), new List<(long S, long E)>(), new List<(long S, long E)>() };
-        foreach (var (s, e, kind, isAuto, _) in intervals)
-            if (e > s && kind is >= 0 and <= 3) (isAuto ? autoKind : delibKind)[kind].Add((s, e));
-
+        // 벽시계 단일모델(2026-07-06): 추이 = 요약 KPI 와 동일 SSOT(ComputeCycleAggregateAsync 벽시계 구간).
+        //   슬롯별 [가동 / 고장 / 유지보수 / 비생산 / 미계측] flow 합산 — 세로 합 = 정산, 정지부 = 도넛.
+        //   가동·유지보수는 flow별 구간 연결(concat) SumOverlap(=flow 합), 비생산·미계측은 전역이라 ×flow수.
         var thresholds = await ResolveCtThresholdsAsync();
-        var (plannedWindows, _, applyLongStop) = ResolvePlannedWindows();
+        var (plannedWindows, _, applyLongStop) = await ResolvePlannedWindowsAsync(thresholds, ct);
+        var evIntervals = await _repo.GetDowntimeIntervalsAsync(fromUtc, toUtc, flowName, ct);
+        var maintIv = evIntervals
+            .Where(x => x.Kind is 0 or 2 && x.EndMs > x.StartMs)   // 유지보수(계획정비/기타 = isFailure 0 계열)
+            .Select(x => ((double)x.StartMs, (double)x.EndMs, x.FlowName))
+            .ToList();
         var agg = await ComputeCycleAggregateAsync(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct,
-            collectRunIntervals: true);
+            maintIntervals: maintIv);
 
-        var nonProdMerged = new List<(double S, double E)>();
-        nonProdMerged.AddRange(await _repo.GetNonProdIntervalsFromLogAsync(fromUtc, toUtc, flowName, ct));
-        nonProdMerged.AddRange(ExpandPlannedIntervalsMs(plannedWindows, fromUtc, toUtc));
-        var nonProdSource = nonProdMerged.Count > 0
-            ? Intervals.Union(nonProdMerged)
-            : (agg.NonProdIntervals ?? new List<(double S, double E)>());
-
-        static List<(long S, long E)> SubtractIv(List<(long S, long E)> src, List<(double S, double E)> cut)
-            => Intervals.Subtract(src.Select(x => ((double)x.S, (double)x.E)).ToList(), cut)
+        int flowCount = Math.Max(1, agg.FlowCount);
+        static List<(long S, long E)> ToLong(IEnumerable<(double S, double E)>? iv)
+            => (iv ?? Enumerable.Empty<(double S, double E)>())
                 .Select(x => ((long)x.S, (long)x.E)).Where(x => x.Item2 > x.Item1).ToList();
 
-        // ②-b 미계측(수신 공백, §3.4) 최우선 — 정지 이벤트·비생산 모두에서 차집합. 수신이 끊긴 시간은 어떤
-        //     상태도 주장하지 않고 회색(미계측)으로만 표시한다. KPI(agg)와 동일 소스라 3화면 일치.
-        //     stale 감지 로그(수신 공백을 비생산으로 기록한 과거분)도 여기서 표시상 걸러진다(심박 보유 구간 한정).
+        var runWall = ToLong(agg.RunWallIntervals);            // flow별 가동(생산가능 클립) 연결
+        var maintWall = ToLong(agg.DownMaintWallIntervals);    // flow별 유지보수(비가동∩유지이벤트) 연결
         var unmeasuredIv = agg.UnmeasuredIntervals ?? new List<(double S, double E)>();
-        if (unmeasuredIv.Count > 0)
-        {
-            nonProdSource = Intervals.Subtract(nonProdSource, unmeasuredIv);
-            for (int k = 0; k < 4; k++)
-            {
-                delibKind[k] = SubtractIv(delibKind[k], unmeasuredIv);
-                autoKind[k] = SubtractIv(autoKind[k], unmeasuredIv);
-            }
-        }
-        var unmeasuredL = unmeasuredIv
-            .Select(x => ((long)x.S, (long)x.E)).Where(x => x.Item2 > x.Item1).ToList();
-
-        var nonProd = nonProdSource
-            .Select(x => ((long)x.S, (long)x.E)).Where(x => x.Item2 > x.Item1).ToList();
-        var runIv = (agg.RunIntervals ?? new List<(double S, double E)>())
-            .Select(x => ((long)x.S, (long)x.E)).Where(x => x.Item2 > x.Item1).ToList();
-
-        var nonProdD = nonProdSource.Where(x => x.E > x.S).ToList();
-        if (nonProdD.Count > 0)
-        {
-            for (int k = 0; k < 4; k++)
-            {
-                delibKind[k] = SubtractIv(delibKind[k], nonProdD);
-                autoKind[k] = SubtractIv(autoKind[k], nonProdD);
-            }
-        }
+        // 비생산(표시) = 지정/학습 − 미계측(미계측 우선). 전역이라 슬롯에서 ×flowCount.
+        var nonProdDisp = ToLong(Intervals.Subtract(agg.NonProdIntervals ?? new List<(double S, double E)>(), unmeasuredIv));
+        var unmeasuredL = ToLong(unmeasuredIv);
 
         static long SumOverlap(List<(long S, long E)> segs, long slotS, long slotE)
         {
@@ -376,16 +348,16 @@ public class OeeMetricsController : OeeControllerBase
         {
             var sS = (long)ToMs(Max(fromUtc, slotStartUtc));
             var sE = (long)ToMs(Min(toUtc, slotEndUtc));
-            var slotMs = Math.Max(0, sE - sS);
-            var delib = new long[4];
-            var auto = new long[4];
-            for (int k = 0; k < 4; k++)
-            {
-                delib[k] = SumOverlap(delibKind[k], sS, sE);
-                auto[k] = SumOverlap(autoKind[k], sS, sE);
-            }
-            slots.Add(BuildDailySlot(label, slotMs, delib, auto, SumOverlap(nonProd, sS, sE), SumOverlap(runIv, sS, sE),
-                SumOverlap(unmeasuredL, sS, sE)));
+            var slotWall = Math.Max(0, sE - sS);
+            long nonProd = SumOverlap(nonProdDisp, sS, sE) * flowCount;
+            long unmeasured = SumOverlap(unmeasuredL, sS, sE) * flowCount;
+            long run = SumOverlap(runWall, sS, sE);
+            long available = Math.Max(0, slotWall * flowCount - nonProd - unmeasured);
+            long down = Math.Max(0, available - run);            // 비가동 = 생산가능 − 가동(잔여)
+            long maint = Math.Min(SumOverlap(maintWall, sS, sE), down);
+            long fault = Math.Max(0, down - maint);
+            // 벽시계 매핑: FailureMs=고장 / PlannedMs=유지보수(Other·Unclassified 미사용) / SlotMs=slotWall×flow수(잔여=가동).
+            slots.Add(new OeeDailySlotDto(label, slotWall * flowCount, fault + maint, maint, fault, 0, 0, nonProd, unmeasured));
         }
         if (hourly)
         {
@@ -409,7 +381,7 @@ public class OeeMetricsController : OeeControllerBase
             }
         }
 
-        return new OeeDailyResponse(gran, slots);
+        return new OeeDailyResponse(gran, slots, flowCount);
     }
 
 }

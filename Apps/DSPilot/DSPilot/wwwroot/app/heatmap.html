@@ -217,12 +217,14 @@
                             <span class="material-icons" style="font-size:15px;">clear</span> 전체 보기
                         </a>
                     </template>
+                </div>
+                <template x-teleport="#dsp-header-actions">
                     <button class="btn btn-sm btn-outlined color-default" @click="exportExcel()" :disabled="excelExporting || filteredGroups.length === 0"
                             title="동작편차 데이터를 Excel(.xlsx) 로 내보냅니다">
                         <span class="material-icons" style="font-size:15px;">download</span>
                         <span x-text="excelExporting ? 'Excel 생성 중…' : 'Excel 다운로드'"></span>
                     </button>
-                </div>
+                </template>
             </div>
 
             <!-- 로딩 (헤어라인 indeterminate) -->

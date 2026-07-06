@@ -65,13 +65,15 @@
                             <span class="material-icons" style="font-size:15px;">clear</span> 전체 보기
                         </a>
                     </template>
-                    <!-- 내보내기: Excel(요약·순위·정지 + 추이 차트). oee 로드 후 표시. -->
-                    <button class="btn btn-sm btn-outlined color-default" @click="exportOeeExcel()" :disabled="oeeExporting || !oee"
+                </div>
+                <template x-teleport="#dsp-header-actions">
+                    <button class="btn btn-sm btn-outlined color-default" x-show="tab === 'oee'" x-cloak
+                            @click="exportOeeExcel()" :disabled="oeeExporting || !oee"
                             title="OEE 종합 지표·설비별 순위·정지 이벤트를 Excel(.xlsx) 로 내보냅니다">
                         <span class="material-icons" style="font-size:15px;">download</span>
                         <span x-text="oeeExporting ? 'Excel 생성 중…' : 'Excel 다운로드'"></span>
                     </button>
-                </div>
+                </template>
             </div>
 
             <!-- ═══════════════ 설비효율 (OEE) — 생산효율(TEEP)은 /uptime-teep 별도 페이지 ═══════════════ -->
@@ -95,14 +97,14 @@
                         <div class="up-oee" :class="oeeTone('availability')">
                             <div class="up-oee-label">가용성 A
                                 <span class="up-oee-chip" x-show="oee && oee.availabilitySource"
-                                      :class="oee && (oee.availabilitySource === 'cycle' || oee.availabilitySource === 'auto') ? 'auto' : (oee && oee.availabilitySource === 'shift' ? 'solid' : '')"
-                                      x-text="oee ? ({ cycle: '가동시간', shift: '시프트', auto: '자동추정', calendar: '달력' }[oee.availabilitySource] || '') : ''"></span>
-                                <span class="up-oee-chip warn" x-show="oee && oee.ctSampleLow && oee.availabilitySource === 'cycle'"
+                                      :class="oee && (oee.availabilitySource === 'wallclock' || oee.availabilitySource === 'auto') ? 'auto' : (oee && oee.availabilitySource === 'shift' ? 'solid' : '')"
+                                      x-text="oee ? ({ wallclock: '벽시계', shift: '시프트', auto: '자동추정', calendar: '달력' }[oee.availabilitySource] || '') : ''"></span>
+                                <span class="up-oee-chip warn" x-show="oee && oee.ctSampleLow && oee.availabilitySource === 'wallclock'"
                                       x-text="'샘플 ' + (oee && oee.ctSampleCount != null ? oee.ctSampleCount : 0) + '/5'"
                                       title="클린샘플 5개 미만으로 산출된 잠정값입니다. 가동이 쌓이면 자동으로 정확해집니다."></span>
                             </div>
                             <div class="up-oee-value up-oee-mono" x-text="oee ? pct(oee.availability) : '—'"></div>
-                            <div class="up-oee-note" x-text="oee ? (oee.availability != null ? (oee.availabilitySource === 'cycle' ? 'Σ실측 가동시간 / Σ전체 가동시간' : '가동 / 계획시간') : (oee.availabilityNote || '산출 불가')) : ''"></div>
+                            <div class="up-oee-note" x-text="oee ? (oee.availability != null ? (oee.availabilitySource === 'wallclock' ? '가동 / 생산가능시간' : '가동 / 계획시간') : (oee.availabilityNote || '산출 불가')) : ''"></div>
                         </div>
                         <!-- 성능 P (사이클기반: N × 가동시간 이상치 ÷ Σ실측 가동시간) — 표준 가동시간 = 최근 14일 평균(고정) -->
                         <div class="up-oee" :class="oeeTone('performance')" title="표준 가동시간 = 최근 14일 평균 — 정상상태 P≈100% 수렴(추세 대비 당기 저하 감지)">
@@ -176,13 +178,15 @@
                     </div>
                 </section>
 
-                <!-- ════ 일자별 라인 가동 (달력) — 정지 이벤트 기반 달력 뷰. 아래 '가용성 누적 정산'(설비시간 합산)과 단위가 다름 → 별도 카드(P1) ════ -->
+                <!-- ════ 일자별 라인 가동 — 벽시계 단일모델(2026-07-06): 아래 '가용성 누적 정산'·'정지 구성' 도넛과 동일 소스.
+                      세로 합 = 정산, 정지부 = 도넛. 라인은 설비별 합산(축 최대 24h × 설비 수) ════ -->
                 <section class="card up-section">
                     <div class="ds-card-h">
                         <h4><span x-text="dailyData && dailyData.granularity === 'hour' ? '시간별 라인 가동' : '일자별 라인 가동'"></span>
-                            <span class="up-oee-chip" title="벽시계 기준(하루 최대 24h) — 아래 가용성 누적 정산(설비시간 합산)과 단위가 달라 수치가 직접 비교되지 않습니다.">달력 24h</span>
+                            <span class="up-oee-chip" x-show="!curFlow && oee && oee.cycleFlowCount > 1" x-text="'설비 합산 ×' + (oee ? oee.cycleFlowCount : '')"
+                                  title="라인(전체)은 설비별로 합산해 축이 24h × 설비 수까지 올라갑니다. 이 차트의 세로 합이 곧 아래 가용성 누적 정산이며 값이 일치합니다. 설비를 하나 고르면 24h 기준.">설비 합산</span>
                         </h4>
-                        <span class="ds-card-h-sub">가동 근사 · 고장 · 유지보수 · 비생산(제외)</span>
+                        <span class="ds-card-h-sub">가동 · 고장 · 유지보수 · 비생산(제외) · 미계측 — 세로 합 = 가용성 누적 정산</span>
                     </div>
                     <template x-if="dailyData && dailyData.slots && dailyData.slots.length > 0">
                         <div style="position:relative; height:220px;">
@@ -196,17 +200,17 @@
                             <div class="ds-empty-desc">정지 이벤트가 누적되면 일자별 가동·정지 추이가 표시됩니다.</div>
                         </div>
                     </template>
-                    <div class="up-form-hint" style="margin-top:8px;">아래 <b>가용성 누적 정산</b>은 설비별 가동시간의 합산(하루 최대 24h × 설비 수), 이 차트는 달력 기준 — <b>단위가 달라 수치가 직접 비교되지 않습니다</b>. 추이의 가동은 달력근사(슬롯시간 − 정지)라 유휴와 분리되지 않으며, 정본은 가용성 누적 정산(KPI A와 일치)입니다. 고장·유지보수 비중은 아래 <b>정지 구성</b> 도넛 참조.</div>
+                    <div class="up-form-hint" style="margin-top:8px;">이 차트의 세로 합이 곧 아래 <b>가용성 누적 정산</b>이고, 정지 부분만 떼면 <b>정지 구성</b> 도넛입니다 — 세 뷰가 같은 벽시계 타임라인(가동/고장/유지보수/비생산/미계측)에서 나와 항상 일치합니다. 라인(전체)은 설비별 합산이라 하루 축이 24h × 설비 수까지 올라갑니다(설비 하나를 고르면 24h 기준).</div>
                 </section>
 
-                <!-- ════ 가용성 누적 정산 — 설비시간(ΣCT) 합산 기준 A 분해(cycle: Σ실측CT vs Σ비가동CT / 폴백: 가동 vs 정지). KPI(A)와 항상 일치.
-                      달력 기반 '일자별 라인 가동' 카드와 단위가 다르므로(설비 병렬 합산 vs 벽시계) 카드 분리 + 단위 칩으로 오독 방지 ════ -->
+                <!-- ════ 가용성 누적 정산 — 벽시계 단일모델(2026-07-06): 가동 ÷ 생산가능시간. 위 '일자별 라인 가동' 추이의
+                      세로 합·정지 구성 도넛과 동일 소스(같은 flow합 벽시계). KPI(A)와 항상 일치 ════ -->
                 <section class="card up-section">
                     <div class="ds-card-h">
                         <h4>가용성 누적 정산
-                            <span class="up-oee-chip" x-show="availComp.mode === 'cycle'"
-                                  x-text="curFlow ? '설비시간 기준' : ('설비시간 합산' + (oee && oee.cycleFlowCount > 1 ? ' ×' + oee.cycleFlowCount : ''))"
-                                  title="설비별 가동시간(CT)을 합산한 수치 — 설비가 병렬이라 달력 시간보다 커질 수 있습니다. 위 '일자별 라인 가동'(달력 24h)과 단위가 달라 직접 비교되지 않습니다."></span>
+                            <span class="up-oee-chip" x-show="availComp.mode === 'wallclock' && !curFlow && oee && oee.cycleFlowCount > 1"
+                                  x-text="'설비 합산 ×' + (oee ? oee.cycleFlowCount : '')"
+                                  title="라인(전체)은 설비별 생산가능시간을 합산합니다(=설비별 가용성의 가중평균). 설비를 하나 고르면 벽시계 24h 기준이 됩니다."></span>
                         </h4>
                         <span class="ds-card-h-sub" x-text="availComp.subtitle"></span>
                     </div>
@@ -228,10 +232,10 @@
                                 <span><span x-text="availComp.runLabel"></span> <b x-text="durShort(availComp.runMs)"></b> (<span x-text="availComp.runPct + '%'"></span>)<template x-if="availComp.runNote"><span x-text="' · ' + availComp.runNote"></span></template></span>
                                 <span x-show="availComp.maintMs > 0">비가동 · 고장 <b x-text="durShort(availComp.faultMs)"></b> (<span x-text="availComp.faultPct + '%'"></span>)</span>
                                 <span x-show="availComp.maintMs > 0">비가동 · 유지보수 <b x-text="durShort(availComp.maintMs)"></b> (<span x-text="availComp.maintPct + '%'"></span>)</span>
-                                <span x-show="!(availComp.maintMs > 0)"><span x-text="availComp.stopLabel"></span> <b x-text="durShort(availComp.stopMs)"></b> (<span x-text="availComp.stopPct + '%'"></span>)<template x-if="availComp.stopNote"><span x-text="' · ' + availComp.stopNote"></span></template><span class="up-codeish" x-show="availComp.mode === 'cycle' && oee && oee.idleCalendarMs > 0" x-text="' 달력 환산 ≈ ' + durShort(oee.idleCalendarMs)" title="설비시간 합산(ΣCT)을 벽시계 시간으로 접은 값 — 위 달력 추이와 비교할 때는 이 수치를 쓰세요."></span></span>
-                                <span x-show="availComp.maintMs > 0 && availComp.stopNote">비가동 합계 <b x-text="durShort(availComp.stopMs)"></b> · <span x-text="availComp.stopNote"></span><span class="up-codeish" x-show="oee && oee.idleCalendarMs > 0" x-text="' 달력 환산 ≈ ' + durShort(oee.idleCalendarMs)" title="설비시간 합산(ΣCT)을 벽시계 시간으로 접은 값 — 위 달력 추이와 비교할 때는 이 수치를 쓰세요."></span></span>
-                                <span x-show="availComp.mode === 'cycle' && oee && oee.plannedDownMs > 0">비생산 시간 <b x-text="durShort(oee.plannedDownMs)"></b> <span class="up-codeish" x-text="(oee.plannedStopSource === 'manual' ? '수동' : '자동(10×가동시간)') + '·전부제외'"></span></span>
-                                <span x-show="availComp.mode === 'cycle'">가동시간 이상치 <b x-text="durShort(oee.ctThresholdMs)"></b> <span class="up-codeish">14일 평균</span></span>
+                                <span x-show="!(availComp.maintMs > 0)"><span x-text="availComp.stopLabel"></span> <b x-text="durShort(availComp.stopMs)"></b> (<span x-text="availComp.stopPct + '%'"></span>)<template x-if="availComp.stopNote"><span x-text="' · ' + availComp.stopNote"></span></template></span>
+                                <span x-show="availComp.maintMs > 0 && availComp.stopNote">비가동 합계 <b x-text="durShort(availComp.stopMs)"></b> · <span x-text="availComp.stopNote"></span></span>
+                                <span x-show="availComp.mode === 'wallclock' && oee && oee.plannedDownMs > 0">비생산 시간 <b x-text="durShort(oee.plannedDownMs)"></b> <span class="up-codeish" x-text="(oee.plannedStopSource === 'manual' ? '수동 지정' : '14일 학습') + '·분모 밖'"></span></span>
+                                <span x-show="availComp.mode === 'wallclock'">가동시간 이상치 <b x-text="durShort(oee.ctThresholdMs)"></b> <span class="up-codeish">14일 평균</span></span>
                                 <span x-show="availComp.mode === 'fallback'">계획시간 기준 <span class="up-codeish" x-text="availComp.sourceLabel"></span></span>
                             </div>
                             <div class="up-form-hint" style="margin-top:8px;" x-html="availComp.hint"></div>
@@ -248,7 +252,7 @@
                 </section>
 
                 <!-- ════ 정지 원인 도넛 | 계획시간 폴백 체인 + 14일 히스토그램 (정지 로그 위로 이동 — 로그는 이 아래에서 토글) ════ -->
-                <div class="up-grid up-2col">
+                <div class="up-grid" :class="curFlow ? 'up-1col' : 'up-2col'">
 
                     <!-- 정지 고장/유지보수 도넛 — 합계가 상단 '기간 정지'와 일치 -->
                     <section class="card up-section">
@@ -284,9 +288,9 @@
                         </button>
                     </section>
 
-                    <!-- 설비별 OEE 순위 (정지 구성 옆으로 이동 — 가용성 분모 폴백 카드 제거) -->
-                    <section class="card up-section">
-                        <div class="ds-card-h"><h4>설비별 OEE 순위</h4><span class="ds-card-h-sub">OEE = A × P × Q · 최하위 강조 · 클릭→히트맵</span></div>
+                    <!-- OEE 순위 — 시스템 단위에서만 표시 (설비 선택 시 숨김) -->
+                    <section class="card up-section" x-show="!curFlow" x-cloak>
+                        <div class="ds-card-h"><h4>OEE 순위</h4><span class="ds-card-h-sub">OEE = A × P × Q · 최하위 강조 · 클릭→히트맵</span></div>
                         <template x-if="ranking.length > 0">
                             <div>
                                 <template x-for="(r, i) in ranking" :key="r.flowName">
@@ -415,7 +419,7 @@
 
                 <!-- ════ 비생산 시간대 (doc/22) — 24시간 연표 에디터. 자동 5일 패턴 ▸ 사용자 설정 시 수동 전환.
                      이 시간대의 정상 가동시간·비가동은 모두 OEE 산출에서 제외(생산·비생산 가리지 않고 분모 밖). 설비효율 탭 맨 아래 배치(설정 성격). ════ -->
-                <section class="card up-section" id="planned-stops-section">
+                <section class="card up-section" id="planned-stops-section" x-show="!curFlow" x-cloak>
                     <div class="ds-card-h">
                         <h4>비생산 시간대</h4>
                         <span class="ds-card-h-sub">애초에 생산하지 않는 시간(점심·교대·정기정비·무오더 등)은 OEE 산출에서 통째로 제외 — 자동 계산하거나 24시간 연표로 직접 지정</span>
@@ -543,7 +547,7 @@
                                 <div class="up-qfield"><label>시작</label><input type="time" :value="minToTimeInput(ps.windows[ps.selected].startMinutes)" @input="psSetTime('start', $event.target.value)" /></div>
                                 <span class="up-qeq">–</span>
                                 <div class="up-qfield"><label>끝</label><input type="time" :value="minToTimeInput(ps.windows[ps.selected].endMinutes)" @input="psSetTime('end', $event.target.value)" /></div>
-                                <div class="up-qfield" style="flex:1; min-width:120px;"><label>라벨(선택)</label><input type="text" x-model="ps.windows[ps.selected].label" placeholder="점심 / 정기정비" style="width:100%; font-family:var(--font-family);" /></div>
+                                <div class="up-qfield" style="flex:1; min-width:120px;"><label>라벨(선택)</label><input type="text" x-model="ps.windows[ps.selected].label" @input="ps.dirty = true" placeholder="점심 / 정기정비" style="width:100%; font-family:var(--font-family);" /></div>
                                 <button class="btn btn-sm btn-outlined" @click="psRemove(ps.selected)"><span class="material-icons" style="font-size:15px;">delete</span> 삭제</button>
                                 <button class="btn btn-sm btn-outlined" @click="psDeselect()">선택 해제</button>
                             </div>

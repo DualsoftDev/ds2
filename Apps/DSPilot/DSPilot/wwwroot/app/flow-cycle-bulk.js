@@ -66,6 +66,8 @@ function bulkCycleApp() {
             // 복원, 없으면 기본 최근 5분 프리셋 (단일 페이지와 동일).
             await this.applyRangeFromUrl();
             this.connectSignalR();
+            // 더티 가드 등록 — 전체 편집에서 미적용 변경 이탈 방지
+            window.dspDirtyRegister(() => this.hasPending);
         },
 
         destroy() { clearTimeout(this._timer); if (this._conn) this._conn.stop(); },

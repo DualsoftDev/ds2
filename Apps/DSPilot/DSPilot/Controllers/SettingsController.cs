@@ -337,6 +337,109 @@ public class SettingsController : ControllerBase
         }
     }
 
+    // ── 서비스명(SSOT = Installer/DSPilot.iss) ──
+    private const string SvcDspilot = "DSPilotService";
+    private const string SvcAgent = "PromakerAgentService";
+    private const string SvcMtx = "DSPilotMediaMtx";
+
+    // ── POST: 서비스 재시작 (target = dspilot | agent | mtx | all) ──
+    // 고급 설정의 접힘 카드에서 확인 후 호출. 대상 Windows 서비스를 net stop → net start 한다.
+    //  • DSPilot 자신을 포함하지 않는 대상(agent/mtx)은 인라인 동기 실행 → 실제 성공/실패를 즉시 회신.
+    //  • DSPilot 을 포함(dspilot/all)하면 net stop 이 이 프로세스를 종료시키므로, DSPilot 프로세스 트리와
+    //    분리된(detached) 임시 배치로 실행하고 HTTP 응답이 먼저 반환되도록 DSPilot 은 짧은 지연 뒤 마지막에 재시작.
+    //    브라우저는 그 사이 끊기지만 SignalR 자동 재연결로 곧 복구된다.
+    //  • net stop/start 는 서비스가 완전히 멈출 때까지 동기 대기. 미설치/미기동 서비스는 무해하게 실패한다.
+    [HttpPost("restart-services")]
+    public async Task<IActionResult> RestartServices([FromBody] RestartServicesRequest? req, CancellationToken ct)
+    {
+        var target = (req?.Target ?? "all").Trim().ToLowerInvariant();
+
+        // 대상 → (서비스명, 표시명) 목록. all 은 DSPilot 을 마지막에 둔다(자기 재시작이 응답 flush 뒤 오도록).
+        var svc = new Dictionary<string, (string name, string label)>
+        {
+            ["dspilot"] = (SvcDspilot, "DSPilot"),
+            ["agent"] = (SvcAgent, "Promaker.Agent"),
+            ["mtx"] = (SvcMtx, "DSPilot MediaMTX"),
+        };
+
+        List<(string name, string label)> targets;
+        if (target == "all")
+            targets = new() { svc["mtx"], svc["agent"], svc["dspilot"] };
+        else if (svc.TryGetValue(target, out var one))
+            targets = new() { one };
+        else
+            return Ok(new RebuildResultDto(false, $"알 수 없는 재시작 대상입니다: {target}"));
+
+        var includesSelf = targets.Any(t => t.name == SvcDspilot);
+
+        try
+        {
+            if (!includesSelf)
+            {
+                // DSPilot 자신을 건드리지 않음 → 인라인 동기 실행 후 실제 결과 회신.
+                var msgs = new List<string>();
+                var okAll = true;
+                foreach (var (name, label) in targets)
+                {
+                    var code = await RunCmdAsync($"/c net stop {name} & net start {name}", ct);
+                    var ok = code == 0; // 마지막 net start 의 종료코드 (미설치/실패 시 비0)
+                    okAll &= ok;
+                    msgs.Add($"{label}: {(ok ? "재시작됨" : "재시작 실패(서비스 미설치이거나 권한 부족)")}");
+                }
+                _logger.LogWarning("[Settings] RestartServices target={Target} → {Msg}", target, string.Join("; ", msgs));
+                return Ok(new RebuildResultDto(okAll, string.Join(" · ", msgs)));
+            }
+
+            // DSPilot 포함 → detached 배치. DSPilot 은 응답 flush 를 위해 2초 지연 뒤 마지막.
+            var script = new System.Text.StringBuilder("@echo off\r\n");
+            foreach (var (name, _) in targets.Where(t => t.name != SvcDspilot))
+                script.Append($"net stop {name}\r\nnet start {name}\r\n");
+            script.Append("timeout /t 2 /nobreak\r\n");
+            script.Append($"net stop {SvcDspilot}\r\nnet start {SvcDspilot}\r\n");
+            script.Append("del \"%~f0\"\r\n"); // 임시 배치 자기삭제
+
+            var batPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                $"dspilot-restart-{Guid.NewGuid():N}.bat");
+            await System.IO.File.WriteAllTextAsync(batPath, script.ToString(), ct);
+
+            // start 로 배치를 DSPilot 프로세스와 분리 → net stop DSPilotService 에도 배치는 살아남아 재시작을 마친다.
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = $"/c start \"dspilot-restart\" /min \"{batPath}\"",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            });
+
+            _logger.LogWarning("[Settings] RestartServices target={Target} → detached self-restart scheduled", target);
+            var others = targets.Where(t => t.name != SvcDspilot).Select(t => t.label).ToList();
+            var prefix = others.Count > 0 ? string.Join("·", others) + " 를 재시작한 뒤 약 2초 후 " : "약 2초 후 ";
+            return Ok(new RebuildResultDto(true,
+                prefix + "DSPilot 서비스가 재시작됩니다. 재시작 동안 이 화면 연결이 잠시 끊겼다가 자동으로 다시 연결됩니다."));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Settings] RestartServices failed (target={Target})", target);
+            return Ok(new RebuildResultDto(false, $"서비스 재시작 요청 실패: {ex.Message}"));
+        }
+    }
+
+    // cmd.exe 를 실행하고 종료코드를 반환. net stop/start 완료까지 동기 대기. (인라인 재시작용)
+    private static async Task<int> RunCmdAsync(string arguments, CancellationToken ct)
+    {
+        using var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "cmd.exe",
+            Arguments = arguments,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        })!;
+        await p.WaitForExitAsync(ct);
+        return p.ExitCode;
+    }
+
     // ── POST: 실측 duration 자동 보정 즉시 실행 ("지금 실측값 채우기(재시도)") ──
     // CompletedAt(1회성 플래그)을 무시하고 manual 로 즉시 보정한다. 적합 Flow 의 디바이스 duration/min/max 를
     // 현재 실측값으로 재기록(공식 적용) 후, 성공하면 AutoCalibrationService 가 DatabaseRebuilt 를 브로드캐스트한다.
@@ -371,6 +474,35 @@ public class SettingsController : ControllerBase
             _logger.LogError(ex, "[Settings] ClearCalibrationRanges failed");
             return new RebuildResultDto(false, $"Min/Max 초기화 실패: {ex.Message}");
         }
+    }
+
+    // ── GET: 이상감지 게이트(실측 확정) 상태 — 모델 duration 과 어긋나 닫힌(stale) Work 배지용 ──
+    // stale = 확정값 ≠ 현재 모델 duration → ActionOver/Under 가 조용히 안 뜸(모델 재발행 후 재측정 안 한 경우).
+    // autoEnabled=true 면 stale-repair 루프가 데이터 쌓이는 대로 자동 재측정("측정 중"), false 면 수동 "채우기" 필요.
+    [HttpGet("calibration-status")]
+    public IActionResult GetCalibrationStatus()
+    {
+        var all = _project.GetCalibrationStatus();
+        var stale = all.Where(s => s.StaleMax || s.StaleMin).ToList();
+        var ac = _settings.LoadSettings().AutoCalibration;
+        return Ok(new
+        {
+            autoEnabled = ac.Enabled,
+            loaded = _project.IsLoaded,
+            total = all.Count,
+            staleCount = stale.Count,
+            stale = stale.Select(s => new
+            {
+                workId = s.WorkId,
+                name = s.WorkName,
+                staleMax = s.StaleMax,
+                staleMin = s.StaleMin,
+                calibMaxMs = s.CalibMaxMs,
+                modelMaxMs = s.ModelMaxMs,
+                calibMinMs = s.CalibMinMs,
+                modelMinMs = s.ModelMinMs,
+            }),
+        });
     }
 
     // ── GET: 디바이스별 이상감지 차단 상태 (uptime 페이지 차단 관리 모달용) ──
@@ -790,3 +922,6 @@ public record RebuildResultDto(bool Success, string Message);
 public record AasxChangeLogDto(long Id, string ChangedAtLocal, string CutoffIso, string Source, string? Notes);
 
 public record DeleteBeforeRequestDto(string CutoffIso);
+
+// 서비스 재시작 대상: dspilot | agent | mtx | all (기본 all)
+public record RestartServicesRequest(string? Target);
