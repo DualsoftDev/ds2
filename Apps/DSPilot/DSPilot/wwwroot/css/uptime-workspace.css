@@ -28,7 +28,11 @@
         .up-tm-host svg.up-tm-svg { display: block; width: 100%; height: auto; min-width: 640px; }
         .up-tm-host text { font-family: var(--font-mono, ui-monospace, monospace); }
         .up-tm-axis { fill: var(--color-text-secondary); font-size: 10px; }
-        .up-tm-axis-strong { fill: var(--color-text-primary); font-size: 11px; font-weight: 700; }
+        /* 설비(flow) 축 라벨 — 호버 시 해당 행 큐브와 함께 강조(색+볼드). data-flow 로 매칭 */
+        .up-tm-axis-flow { fill: var(--color-text-primary); font-size: 11px; font-weight: 700; transition: opacity 0.12s, fill 0.12s; }
+        .up-tm-svg.tm-dim .up-tm-axis-flow { opacity: 0.3; }
+        .up-tm-svg.tm-dim .up-tm-axis-flow.is-hl { opacity: 1; fill: var(--color-primary); font-weight: 800; }
+        .up-tm-axis-leader { stroke: var(--color-lines-strong); stroke-width: 0.6; stroke-dasharray: 2 2; opacity: 0.55; }
         .up-tm-grid { stroke: var(--color-lines); stroke-width: 0.6; stroke-dasharray: 2 3; }
         .up-tm-grid-strong { stroke: var(--color-lines-strong); stroke-width: 1; }
         .up-tm-floor-a { fill: var(--color-surface-variant); stroke: var(--color-lines); stroke-width: 0.4; }
@@ -46,13 +50,9 @@
         .up-tm-plan-fill { fill: #FFD54F; fill-opacity: 0.08; stroke: none; pointer-events: none; }
         .up-tm-plan-line { fill: none; stroke: #FFC107; stroke-width: 1; stroke-dasharray: 4 3; opacity: 0.75; pointer-events: none; }
         .up-tm-plan-label { fill: #FFB300; font-size: 10px; font-weight: 700; pointer-events: none; }
-        /* 2D 불릿 — OEE 가로 마커(stroke 색은 JS 시리즈 고정색) + TEEP↔OEE 갭 점선 */
-        .up-tm-oee-tick { stroke-width: 2.5; }
-        .up-tm-gap { stroke: var(--color-text-secondary); stroke-width: 1; stroke-dasharray: 2 2.5; }
-        /* 3D 뷰 컨트롤(색 지표 세그먼트 + 시점 회전) */
+        /* 3D 뷰 컨트롤(시점 회전) */
         .up-tm-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
         .up-tm-controls-hint { font-size: 0.66rem; color: var(--color-text-secondary); }
-        .up-teep-legend .sw-tick { height: 3px; border-radius: 1px; }
         .up-teep-legend .sw-plan { background: transparent; border: 1.5px dashed #FFC107; }
         .up-tab-badge { display: inline-flex; min-width: 18px; height: 18px; padding: 0 5px; align-items: center; justify-content: center; border-radius: 999px; background: var(--red); color: #fff; font-size: 0.62rem; font-weight: 800; line-height: 1; }
 

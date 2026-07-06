@@ -679,15 +679,16 @@
                 },
 
                 // ── 날짜별 비생산 패턴 (/api/oee/planned-stops/actual · days) — 생산효율 페이지 전용 ──
-                // ps.actualNonProd(설비효율 설정 타임라인, 자동 모드 전용)와 별도 상태 — 여기는 자동/수동 무관하게
-                // "실제 A 분모에서 제외된" 비생산(자동 로그 ∪ 수동 시간대)을 항상 조회한다(엔드포인트가 병합 제공).
+                // ps.actualNonProd(설비효율 설정 타임라인, 자동 모드 전용)와 별도 상태 — 여기는 자동/수동 설정과
+                // 무관하게 그 범위의 "실측" 비생산 패턴을 조회한다(detected=true 로 10×CT 감지 강제 — 수동 지정이
+                // 걸려 있어도 실제 패턴이 드러나게. 수동 시간대도 union 으로 함께 표시).
                 async loadTeepNonProd() {
                     if (this.view !== 'teep') return;
                     const r = this.rangeForPeriod();
                     const seq = ++this._teepNpSeq;
                     try {
                         const dto = await this.apiGet(
-                            `/api/oee/planned-stops/actual?from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}`);
+                            `/api/oee/planned-stops/actual?detected=true&from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}`);
                         if (seq !== this._teepNpSeq) return; // stale 응답 폐기
                         this.teepNonProd = dto;
                         this.teepNonProdError = null;
@@ -756,7 +757,9 @@
                         return `설비 ${m.flows.length}개 × ${g} ${m.buckets.length}구간 · 높이=TEEP(가동) · 색=OEE 등급 · 빨간 캡=정지${plan} · 클릭=설비 상세`;
                     }
                     const f = this.curFlow || m.flows[0].flowName;
-                    return `${f} · ${g} ${m.buckets.length}구간 · 막대=TEEP · 마커=OEE (같은 축, 갭=쓰지 못한 시간) · 클릭=설비효율(A·P·Q) 상세`;
+                    const plan = this.teepShowPlanned()
+                        ? ` · 골드 점선=계획(${(m.plannedFraction * 24).toFixed(m.plannedFraction * 24 % 1 === 0 ? 0 : 1)}h/day)` : '';
+                    return `${f} · ${g} ${m.buckets.length}구간 · 막대 높이=TEEP(가동) · 색=OEE 등급 · 빨간 캡=정지${plan} · 클릭=설비효율(A·P·Q) 상세`;
                 },
                 // 계획 기준선(골드 점선)이 실제로 그려지는가 — 렌더러 showPlanned 와 동일 조건(범례/서브헤더 게이트 SSOT).
                 teepShowPlanned() {
@@ -862,7 +865,8 @@
                     const order = [];
                     for (let l = 0; l < L; l++) for (let d = 0; d < B; d++) { const [x, z] = map(d, l); order.push([l, d, x, z]); }
                     order.sort((a, b) => (a[2] + a[3]) - (b[2] + b[3]));
-                    const cubes = []; // 행(설비) 호버 하이라이트용 — enter 시 같은 flow 만 남기고 dim
+                    const cubes = [];              // 행(설비) 호버 하이라이트용 — enter 시 같은 flow 만 남기고 dim
+                    const flowLabelEls = {};       // flowName → 축 라벨 <text>(호버 시 함께 강조). 축 라벨부에서 채움.
                     for (const [l, d, x, z] of order) {
                         const c = flows[l].cells[d];
                         if (!c || c.calendarMs <= 0) continue;
@@ -891,11 +895,13 @@
                         g.addEventListener('pointerenter', () => {
                             svg.classList.add('tm-dim');
                             for (const q of cubes) q.classList.toggle('is-hl', q.dataset.flow === g.dataset.flow);
+                            for (const fn in flowLabelEls) flowLabelEls[fn].classList.toggle('is-hl', fn === g.dataset.flow);
                         });
                     }
                     svg.addEventListener('pointerleave', () => {
                         svg.classList.remove('tm-dim');
                         for (const q of cubes) q.classList.remove('is-hl');
+                        for (const fn in flowLabelEls) flowLabelEls[fn].classList.remove('is-hl');
                     });
 
                     // 계획 기준선 점선 윤곽 + 라벨 — 큐브 위에 그려 항상 보이게(가려진 셀 위로도 기준 노출).
@@ -907,29 +913,45 @@
                             .textContent = `계획 ${hpd % 1 === 0 ? hpd.toFixed(0) : hpd.toFixed(1)}h/day`;
                     }
 
-                    // 축 라벨 — 회전에 따라 좌측(z축)/하단(x축)에 설비·시간이 자리를 바꾼다. 시간 라벨만 스텝 솎음.
-                    const flowName = (i) => { const n = flows[i].flowName; return n.length > 10 ? n.slice(0, 9) + '…' : n; };
+                    // 축 라벨 — 회전에 따라 설비(flow)는 좌측(z축)/하단(x축)에 자리를 바꾼다. 시간(bucket)은 스텝 솎음.
+                    // 설비 라벨은 버킷이 많으면(60일 등) CELL 이 작아져 서로 겹치므로 화면좌표 declutter(최소 간격 확보 + 리더선).
+                    const fullName = (i) => { const n = flows[i].flowName; return n.length > 10 ? n.slice(0, 9) + '…' : n; };
                     const zItem = (zi) => r === 0 ? { flow: zi } : r === 1 ? { bucket: B - 1 - zi } : r === 2 ? { flow: L - 1 - zi } : { bucket: zi };
                     const xItem = (xi) => r === 0 ? { bucket: xi } : r === 1 ? { flow: xi } : r === 2 ? { bucket: B - 1 - xi } : { flow: L - 1 - xi };
                     const zStep = Math.max(1, Math.ceil(Z / 14)), xStep = Math.max(1, Math.ceil(X / 14));
+                    const drawBucket = (x, y, bi, anchor) =>
+                        _tmEl('text', { x: x.toFixed(1), y: y.toFixed(1), class: 'up-tm-axis', 'text-anchor': anchor }, svg)
+                            .textContent = this._tmShortLabel(m.buckets[bi].label, m.granularity);
+                    // 설비 라벨 스펙 수집(시간 라벨은 스텝 솎음이라 바로 그림). 좌측 z축=세로(Y) declutter, 하단 x축=가로(X).
+                    const flowSpecs = [];
                     for (let zi = 0; zi < Z; zi++) {
-                        const it = zItem(zi);
-                        if (it.bucket != null && zi % zStep !== 0) continue;
-                        const p = iso(-0.35, 0, zi + 0.55);
-                        _tmEl('text', { x: p[0].toFixed(1), y: (p[1] + 4).toFixed(1), class: it.flow != null ? 'up-tm-axis-strong' : 'up-tm-axis', 'text-anchor': 'end' }, svg)
-                            .textContent = it.flow != null ? flowName(it.flow) : this._tmShortLabel(m.buckets[it.bucket].label, m.granularity);
+                        const it = zItem(zi), p = iso(-0.35, 0, zi + 0.55);
+                        if (it.flow != null) flowSpecs.push({ fi: it.flow, x: p[0], y: p[1] + 4, ox: p[0], oy: p[1] + 4, anchor: 'end', dim: 'y' });
+                        else if (zi % zStep === 0) drawBucket(p[0], p[1] + 4, it.bucket, 'end');
                     }
                     for (let xi = 0; xi < X; xi++) {
-                        const it = xItem(xi);
-                        if (it.bucket != null && xi % xStep !== 0) continue;
-                        const p = iso(xi + 0.5, 0, Z + 0.45);
-                        _tmEl('text', { x: p[0].toFixed(1), y: (p[1] + 11).toFixed(1), class: it.flow != null ? 'up-tm-axis-strong' : 'up-tm-axis', 'text-anchor': 'middle' }, svg)
-                            .textContent = it.flow != null ? flowName(it.flow) : this._tmShortLabel(m.buckets[it.bucket].label, m.granularity);
+                        const it = xItem(xi), p = iso(xi + 0.5, 0, Z + 0.45);
+                        if (it.flow != null) flowSpecs.push({ fi: it.flow, x: p[0], y: p[1] + 11, ox: p[0], oy: p[1] + 11, anchor: 'middle', dim: 'x' });
+                        else if (xi % xStep === 0) drawBucket(p[0], p[1] + 11, it.bucket, 'middle');
+                    }
+                    // declutter — 축 방향(z=세로 / x=가로)으로 최소간격 확보. 밀린 라벨엔 원 위치로 리더선.
+                    if (flowSpecs.length) {
+                        const dim = flowSpecs[0].dim, minGap = dim === 'y' ? 13 : 40;
+                        flowSpecs.sort((a, b) => a[dim] - b[dim]);
+                        for (let i = 1; i < flowSpecs.length; i++)
+                            if (flowSpecs[i][dim] < flowSpecs[i - 1][dim] + minGap) flowSpecs[i][dim] = flowSpecs[i - 1][dim] + minGap;
+                        for (const s of flowSpecs) {
+                            if (Math.abs(s.x - s.ox) > 2 || Math.abs(s.y - s.oy) > 2)
+                                _tmEl('line', { x1: s.x.toFixed(1), y1: s.y.toFixed(1), x2: s.ox.toFixed(1), y2: s.oy.toFixed(1), class: 'up-tm-axis-leader' }, svg);
+                            const el = _tmEl('text', { x: s.x.toFixed(1), y: s.y.toFixed(1), class: 'up-tm-axis-flow', 'text-anchor': s.anchor }, svg);
+                            el.textContent = fullName(s.fi);
+                            el.dataset.flow = flows[s.fi].flowName;
+                            flowLabelEls[flows[s.fi].flowName] = el;
+                        }
                     }
                 },
-                // 2D 불릿(설비 뷰) — 버킷별 같은 0~100% 축에 TEEP 막대(앰버 단색) + OEE 가로 마커(그린) 겹침.
-                // 둘 사이 세로 점선 = 갭("설비는 이만큼 돌 수 있는데(OEE) 시간을 이만큼밖에 못 썼다(TEEP)") — 비교가
-                // 도형 하나로 읽히도록 등급색(높이+색 이중 인코딩)은 버리고 색=시리즈 구분 고정 단색만 쓴다.
+                // 2D 막대(설비 뷰) — 3D 아이소의 단일 flow 시간열을 평면으로 편 것(같은 정보): 막대 높이=TEEP(가동),
+                // 색=OEE 등급(산출 불가=회색), 빨간 캡=정지, 골드 점선=계획 기준선. 한 flow 대상이라 2D 로 충분.
                 _renderTeepBars(host, m) {
                     const fr = this.curFlow ? m.flows.find(f => f.flowName === this.curFlow) : m.flows[0];
                     if (!fr) return;
@@ -939,40 +961,49 @@
                     const pw = W - mg.l - mg.r, ph = H - mg.t - mg.b;
                     const svg = _tmEl('svg', { viewBox: `0 0 ${W} ${H}`, class: 'up-tm-svg', role: 'img' });
                     host.appendChild(svg);
+                    const yOf = v => mg.t + ph * (1 - Math.min(1, Math.max(0, v)));
 
                     for (const v of [0, 25, 50, 75, 100]) {
-                        const y = (mg.t + ph * (1 - v / 100)).toFixed(1);
+                        const y = yOf(v / 100).toFixed(1);
                         _tmEl('line', { x1: mg.l, y1: y, x2: mg.l + pw, y2: y, class: v === 0 ? 'up-tm-grid-strong' : 'up-tm-grid' }, svg);
                         _tmEl('text', { x: mg.l - 7, y: (+y + 3.5).toFixed(1), class: 'up-tm-axis', 'text-anchor': 'end' }, svg).textContent = v + '%';
                     }
 
-                    const TEEP_C = '#FFA000', OEE_C = '#2E7D32'; // 시리즈 고정색 — 범례와 SSOT
+                    // 계획 기준선 — 3D 와 동일 소스(가용성 폴백 체인). calendar 폴백(비율≈1)이면 생략.
+                    if (this.teepShowPlanned()) {
+                        const yP = yOf(m.plannedFraction);
+                        _tmEl('line', { x1: mg.l, y1: yP.toFixed(1), x2: mg.l + pw, y2: yP.toFixed(1), class: 'up-tm-plan-line' }, svg);
+                        const hpd = m.plannedFraction * 24;
+                        _tmEl('text', { x: (mg.l + pw).toFixed(1), y: (yP - 3).toFixed(1), class: 'up-tm-plan-label', 'text-anchor': 'end' }, svg)
+                            .textContent = `계획 ${hpd % 1 === 0 ? hpd.toFixed(0) : hpd.toFixed(1)}h/day`;
+                    }
+
                     const gw = pw / B;
-                    const bw = Math.max(4, Math.min(26, gw * 0.5));
-                    const showVal = B <= 16; // 버킷 적을 때만 % 수치(시간별 24개 등은 툴팁만)
+                    const bw = Math.max(4, Math.min(30, gw * 0.62));
+                    const showVal = B <= 16; // 버킷 적을 때만 막대 위 TEEP% (시간별 24개 등은 툴팁만)
                     const step = Math.max(1, Math.ceil(B / 12));
-                    const yOf = v => mg.t + ph * (1 - Math.min(1, Math.max(0, v)));
                     for (let i = 0; i < B; i++) {
                         const c = fr.cells[i];
                         const cx = mg.l + i * gw + gw / 2;
                         const g = _tmEl('g', { class: 'up-tm-bar-g' }, svg);
                         // 투명 히트영역 — 막대가 없는(무활동) 버킷도 툴팁·클릭 가능
                         _tmEl('rect', { x: (cx - gw / 2).toFixed(1), y: mg.t, width: gw.toFixed(1), height: ph, fill: 'transparent' }, g);
-                        if (c) {
-                            if (c.teep != null) {
-                                const bh = Math.max(c.teep > 0 ? 1.5 : 0, mg.t + ph - yOf(c.teep));
-                                _tmEl('rect', { x: (cx - bw / 2).toFixed(1), y: (mg.t + ph - bh).toFixed(1), width: bw.toFixed(1), height: bh.toFixed(1), fill: TEEP_C, rx: 1.5 }, g);
+                        if (c && c.calendarMs > 0) {
+                            const teepF = c.teep ?? 0;                                     // 가동/캘린더 = 막대 높이
+                            const totF = Math.min(1, (c.runningMs + c.downMs) / c.calendarMs); // 가동+정지 = 캡 상단
+                            const x = (cx - bw / 2).toFixed(1), w = bw.toFixed(1);
+                            // TEEP 막대 — 색=OEE 등급(3D 팔레트 .right 톤), 산출 불가=중립 회색(§3.4)
+                            if (teepF > 0.001) {
+                                const yT = yOf(teepF);
+                                const col = c.oee != null ? _tmOeeFaces(c.oee * 100).right : TM_NA_FACES.right;
+                                _tmEl('rect', { x, y: yT.toFixed(1), width: w, height: (mg.t + ph - yT).toFixed(1), fill: col, rx: 1.5 }, g);
                             }
-                            if (c.teep != null && c.oee != null) // 갭 점선 — TEEP 상단 ↔ OEE 마커
-                                _tmEl('line', { x1: cx.toFixed(1), y1: yOf(c.teep).toFixed(1), x2: cx.toFixed(1), y2: yOf(c.oee).toFixed(1), class: 'up-tm-gap' }, g);
-                            if (c.oee != null)
-                                _tmEl('line', { x1: (cx - bw * 0.85).toFixed(1), y1: yOf(c.oee).toFixed(1), x2: (cx + bw * 0.85).toFixed(1), y2: yOf(c.oee).toFixed(1), stroke: OEE_C, class: 'up-tm-oee-tick' }, g);
-                            if (showVal && (c.teep > 0.001 || c.oee > 0.001)) {
-                                // TEEP % 를 막대·마커 중 높은 쪽 위에 — 마커와 수치 겹침 방지
-                                const topY = Math.min(c.teep != null ? yOf(c.teep) : Infinity, c.oee != null ? yOf(c.oee) : Infinity);
-                                _tmEl('text', { x: cx.toFixed(1), y: (topY - 4).toFixed(1), class: 'up-tm-val', 'text-anchor': 'middle' }, g)
-                                    .textContent = Math.round((c.teep ?? c.oee) * 100);
-                            }
+                            // 정지 캡 — TEEP 위에 쌓음(3D 빨간 캡과 동일 의미)
+                            if (totF - teepF > 0.002)
+                                _tmEl('rect', { x, y: yOf(totF).toFixed(1), width: w, height: (yOf(teepF) - yOf(totF)).toFixed(1), fill: TM_DOWN_FACES.right }, g);
+                            if (showVal && teepF > 0.001)
+                                _tmEl('text', { x: cx.toFixed(1), y: (yOf(totF) - 3).toFixed(1), class: 'up-tm-val', 'text-anchor': 'middle' }, g)
+                                    .textContent = Math.round(teepF * 100);
                             const t = _tmEl('title', {}, g);
                             t.textContent = `${m.buckets[i].label} — TEEP ${this.pct(c.teep)} · OEE ${this.pct(c.oee)}`
                                 + ` (A ${this.pct(c.availability)} · P ${this.pct(c.performance)} · Q ${this.pct(m.quality)})`
