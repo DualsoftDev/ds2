@@ -26,6 +26,7 @@
     <Compile Include="Export\Metadata.fs" />
     <Compile Include="Export\TechnicalData.fs" />
     <Compile Include="Export\Entry.fs" />
+    <Compile Include="PlcAasxFacade.fs" />
   </ItemGroup>
 
   <ItemGroup>
