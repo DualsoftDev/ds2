@@ -125,7 +125,10 @@
                 // 비생산 시간대 (doc/22 §3.3) — auto: 자동 계산(10×가동시간 장시간정지) on/off. source: auto/manual/none. ctMultiplier: 자동판정 배수(10).
                 // windows=수동 편집용 사본. selected=선택된 윈도 index(-1=미선택). addMode=드래그 추가 무장.
                 // actualNonProd=이번 기간 실제 제외된 비생산(추이 남색과 동일 소스, 자동 모드 타임라인의 유일한 소스이자 수동 전환 시 시드).
-                ps: { source: 'none', auto: true, ctMultiplier: 10, windows: [], selected: -1, addMode: false, msg: '', err: '', busy: false, actualNonProd: null, seededFromAuto: false, learned: null, dirty: false },
+                // excludedWeekdays=서버 truth(휴무 요일, DayOfWeek 정수 0=일…6=토). xwDraft=체크박스 편집 사본. 저장 전엔 dirty.
+                ps: { source: 'none', auto: true, ctMultiplier: 10, windows: [], selected: -1, addMode: false, msg: '', err: '', busy: false, actualNonProd: null, seededFromAuto: false, learned: null, dirty: false, pendingManual: false, excludedWeekdays: [], xwDraft: [], xwBusy: false, xwMsg: '' },
+                // 생산 요일 UI(월~일 표기, d=DayOfWeek 정수). 체크=생산일, 해제=휴무(OEE 가용성 분모서 제외).
+                xwDays: [{ l: '월', d: 1, full: '월요일' }, { l: '화', d: 2, full: '화요일' }, { l: '수', d: 3, full: '수요일' }, { l: '목', d: 4, full: '목요일' }, { l: '금', d: 5, full: '금요일' }, { l: '토', d: 6, full: '토요일' }, { l: '일', d: 0, full: '일요일' }],
                 _psDrag: null, // 진행 중 드래그 상태 { mode:'create'|'resize-l'|'resize-r', index, anchor } (비반응형)
                 // 정지 이벤트 로그 토글 — 기본 숨김, 정지 원인 구성(도넛)의 [로그 보기 및 설정] 버튼으로 토글
                 showDowntimeLog: false,
@@ -217,7 +220,7 @@
                     }
                     // 더티 가드 등록 — 비생산 시간대 수동 편집(ps.dirty) 중 이탈 방지(OEE 페이지만)
                     if (this.view !== 'alarm') {
-                        window.dspDirtyRegister(() => !this.ps.auto && this.ps.dirty);
+                        window.dspDirtyRegister(() => ((!this.ps.auto || this.ps.pendingManual) && this.ps.dirty) || this.xwDirty());
                     }
                 },
 
@@ -321,7 +324,10 @@
                         this.ps.auto = !!r.auto;
                         this.ps.ctMultiplier = r.ctMultiplier || 10;
                         this.ps.windows = (r.windows || []).map(w => ({ startMinutes: w.startMinutes, endMinutes: w.endMinutes, label: w.label || '' }));
-                        this.ps.selected = -1; this.ps.addMode = false; this.ps.seededFromAuto = false; this.ps.dirty = false;
+                        this.ps.selected = -1; this.ps.addMode = false; this.ps.seededFromAuto = false; this.ps.dirty = false; this.ps.pendingManual = false;
+                        // 휴무 요일 — 서버 truth + 편집 draft 동기화(편집 미저장 상태가 아니면 draft 를 서버값으로 재설정).
+                        this.ps.excludedWeekdays = (r.excludedWeekdays || []).slice().sort((a, b) => a - b);
+                        this.ps.xwDraft = this.ps.excludedWeekdays.slice();
                     } catch (e) { this.ps.err = '비생산 시간대를 불러오지 못했습니다: ' + e.message; }
                     // 자동 모드일 때: ① 이번 기간 실제 제외 비생산(타임라인 메인 소스) ② 학습 창(§3.5 투표제,
                     // 참고·미적용 — Phase 1 섀도 검증용 점선 윤곽). 비생산 시간대는 시스템(전역) 단위 —
@@ -355,6 +361,33 @@
                         if (seq === this._anpSeq) this.ps.actualNonProd = dto; // stale 응답(이후 기간변경/폴링이 이미 시작) 폐기
                     } catch (e) { /* 이전 값 유지 */ }
                 },
+                // 자동 → 수동: 서버 전환 없이 UI만 '수동 편집(미저장)' 상태로 진입. 실제 전환/저장은 [적용]에서만 일어난다
+                // (저장 전 이탈하면 자동 계산 그대로 유지 — 실수로 모드가 바뀌지 않도록). 지금 비생산 구간을 초기값(참고)으로 시드.
+                psBeginManual() {
+                    const captured = this.ps.actualNonProd?.windows?.length
+                        ? this.ps.actualNonProd.windows.map(w => ({ startMinutes: w.startMinutes, endMinutes: w.endMinutes, label: w.label || '' }))
+                        : null;
+                    this.ps.pendingManual = true;
+                    this.ps.selected = -1; this.ps.addMode = false; this.ps.err = '';
+                    if (captured && captured.length > 0) {
+                        this.ps.windows = captured;
+                        this.ps.seededFromAuto = true;
+                        this.ps.dirty = true; // 시드된 창은 아직 저장 전 — 이탈 가드 발동
+                        this.ps.msg = `지금 비생산 ${captured.length}개 구간을 불러왔습니다 — 수정 후 [적용]을 누르세요 (아직 저장 안 됨)`;
+                    } else {
+                        this.ps.windows = [];
+                        this.ps.seededFromAuto = false;
+                        this.ps.dirty = false; // 빈 상태로 아무것도 안 그렸으면 저장 없이 이탈 자유
+                        this.ps.msg = '수동 편집 모드 — 시간대를 그린 뒤 [적용]을 눌러야 수동으로 고정됩니다 (아직 저장 안 됨)';
+                    }
+                    setTimeout(() => { this.ps.msg = ''; }, 8000);
+                },
+                // 수동 편집 취소 → 자동으로 복귀. 서버는 계속 자동이었으므로 로컬 상태만 되돌리면 됨(저장 안 한 편집 폐기).
+                async psCancelManual() {
+                    this.ps.pendingManual = false; this.ps.dirty = false; this.ps.seededFromAuto = false;
+                    this.ps.addMode = false; this.ps.selected = -1; this.ps.msg = ''; this.ps.err = '';
+                    await this.loadPlannedStops();
+                },
                 // 자동 계산 on/off — on=10×가동시간 장시간정지 자동 비생산, off=수동 시각대만. 수동 적용은 자동을 끈다(서버 SavePlannedStops).
                 async psSetAuto(enabled) {
                     this.ps.busy = true; this.ps.msg = ''; this.ps.err = '';
@@ -378,6 +411,41 @@
                         await this.loadOee();
                     } catch (e) { this.ps.err = '변경 실패: ' + e.message; }
                     finally { this.ps.busy = false; setTimeout(() => { this.ps.msg = ''; }, 8000); }
+                },
+                // ── 생산 요일(휴무일 제외) ──────────────────────────────────────────
+                // 체크박스 = 생산일. 해제 = 휴무 → xwDraft(제외 요일)에 담김. 저장 시 서버 반영 + OEE 재조회.
+                xwToggle(d) {
+                    const i = this.ps.xwDraft.indexOf(d);
+                    if (i >= 0) this.ps.xwDraft.splice(i, 1);   // 다시 생산일로
+                    else this.ps.xwDraft.push(d);               // 휴무로 제외
+                    this.ps.xwDraft.sort((a, b) => a - b);
+                },
+                // draft ≠ 서버값이면 dirty(정렬 비교). 이탈 가드·저장 버튼 상태 소스.
+                xwDirty() {
+                    const a = this.ps.xwDraft, b = this.ps.excludedWeekdays;
+                    if (a.length !== b.length) return true;
+                    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return true;
+                    return false;
+                },
+                // 정수 요일 목록 → '토·일' 라벨(월~일 순 정렬).
+                xwLabel(days) {
+                    const order = { 1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 0: 6 };
+                    const map = { 0: '일', 1: '월', 2: '화', 3: '수', 4: '목', 5: '금', 6: '토' };
+                    return (days || []).slice().sort((x, y) => order[x] - order[y]).map(d => map[d]).join('·');
+                },
+                async saveExcludedWeekdays() {
+                    if (!this.xwDirty() || this.ps.xwBusy) return;
+                    this.ps.xwBusy = true; this.ps.err = ''; this.ps.xwMsg = '';
+                    try {
+                        const r = await this.apiPut('/api/oee/planned-stops/excluded-weekdays', { days: this.ps.xwDraft });
+                        this.ps.excludedWeekdays = (r.excludedWeekdays || []).slice().sort((a, b) => a - b);
+                        this.ps.xwDraft = this.ps.excludedWeekdays.slice();
+                        this.ps.xwMsg = this.ps.excludedWeekdays.length === 0
+                            ? '매일 생산으로 저장 — 요일 제외 없음'
+                            : `휴무 요일 저장: ${this.xwLabel(this.ps.excludedWeekdays)} — OEE 가용성에서 제외`;
+                        await this.loadOee();   // 분모 재산출 반영
+                    } catch (e) { this.ps.err = '휴무 요일 저장 실패: ' + e.message; }
+                    finally { this.ps.xwBusy = false; setTimeout(() => { this.ps.xwMsg = ''; }, 8000); }
                 },
                 psSelect(i) { if (this.ps.addMode) return; this.ps.selected = i; this.ps.err = ''; },
                 psDeselect() { this.ps.selected = -1; },

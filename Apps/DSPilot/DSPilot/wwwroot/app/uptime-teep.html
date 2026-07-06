@@ -164,14 +164,14 @@
                             <!-- 누적 막대 — 색 SSOT는 설비효율 페이지와 동일(가동=--oee-run 솔리드 / 정지=고장 빗금 /
                                  비생산=남색 슬레이트 빗금). "가동=솔리드, 비가동·제외=빗금" 규칙 공유. -->
                             <div style="display:flex; height:26px; border-radius:var(--radius-sm); overflow:hidden; border:1px solid var(--color-lines);">
-                                <div :style="`width:${teepPct('runningMs')}%; background:var(--oee-run);`" :title="'가동 ' + teepPct('runningMs') + '%'"></div>
-                                <div class="hatch-fault" :style="`width:${teepPct('downMs')}%;`" :title="'정지 ' + teepPct('downMs') + '%'"></div>
-                                <div class="hatch-nonprod" :style="`width:${teepPct('nonProdMs')}%;`" :title="'비생산 ' + teepPct('nonProdMs') + '%'"></div>
+                                <div class="up-bar-seg" :style="`width:${teepPct('runningMs')}%; background:var(--oee-run);`" :title="'가동 ' + teepPct('runningMs') + '%'"><span class="up-bar-lbl" x-show="parseFloat(teepPct('runningMs')) >= 6" x-text="teepPct('runningMs') + '%'"></span></div>
+                                <div class="up-bar-seg hatch-fault" :style="`width:${teepPct('downMs')}%;`" :title="'정지 ' + teepPct('downMs') + '%'"><span class="up-bar-lbl" x-show="parseFloat(teepPct('downMs')) >= 6" x-text="teepPct('downMs') + '%'"></span></div>
+                                <div class="up-bar-seg hatch-nonprod" :style="`width:${teepPct('nonProdMs')}%;`" :title="'비생산 ' + teepPct('nonProdMs') + '%'"><span class="up-bar-lbl" x-show="parseFloat(teepPct('nonProdMs')) >= 6" x-text="teepPct('nonProdMs') + '%'"></span></div>
                                 <!-- 미계측(수신 공백, §3.4) = 비생산과 별도 표기(회색 빗금) — 데이터 있을 때만 노출 -->
                                 <template x-if="(teep.unmeasuredMs || 0) > 0">
-                                    <div class="hatch-unmeas" :style="`width:${teepPct('unmeasuredMs')}%;`" :title="'미계측 ' + teepPct('unmeasuredMs') + '%'"></div>
+                                    <div class="up-bar-seg hatch-unmeas" :style="`width:${teepPct('unmeasuredMs')}%;`" :title="'미계측 ' + teepPct('unmeasuredMs') + '%'"><span class="up-bar-lbl up-bar-lbl-dark" x-show="parseFloat(teepPct('unmeasuredMs')) >= 6" x-text="teepPct('unmeasuredMs') + '%'"></span></div>
                                 </template>
-                                <div :style="`width:${teepPct('residualMs')}%; background:var(--color-surface-variant);`" :title="'잔여 ' + teepPct('residualMs') + '%'"></div>
+                                <div class="up-bar-seg" :style="`width:${teepPct('residualMs')}%; background:var(--color-surface-variant);`" :title="'잔여 ' + teepPct('residualMs') + '%'"><span class="up-bar-lbl up-bar-lbl-dark" x-show="parseFloat(teepPct('residualMs')) >= 6" x-text="teepPct('residualMs') + '%'"></span></div>
                             </div>
                             <!-- 범례 + 값 -->
                             <div class="up-teep-legend">

@@ -609,6 +609,28 @@ public abstract class OeeControllerBase : ControllerBase
         return res;
     }
 
+    /// <summary>
+    /// 휴무 요일(생산하지 않는 요일)의 하루(00:00~24:00, 로컬) 구간을 [fromUtc, toUtc] 범위에서 epoch-ms 구간으로 전개한다.
+    /// 값은 <see cref="DayOfWeek"/> 정수(0=일 … 6=토). 비생산·미계측과 동일하게 가용성(A) 분모에서 빼기 위한 소스.
+    /// 비어 있으면 빈 목록(제외 없음).
+    /// </summary>
+    protected static List<(double S, double E)> BuildExcludedWeekdayIntervalsMs(
+        IReadOnlyCollection<int>? excludedWeekdays, DateTime fromUtc, DateTime toUtc)
+    {
+        var res = new List<(double S, double E)>();
+        if (excludedWeekdays is null || excludedWeekdays.Count == 0) return res;
+        var localFrom = fromUtc.ToLocalTime().Date;
+        var localToEnd = toUtc.ToLocalTime().Date.AddDays(1);
+        for (var d = localFrom; d < localToEnd; d = d.AddDays(1))
+        {
+            if (!excludedWeekdays.Contains((int)d.DayOfWeek)) continue;
+            var sLocal = DateTime.SpecifyKind(d, DateTimeKind.Local);
+            var eLocal = DateTime.SpecifyKind(d.AddDays(1), DateTimeKind.Local);
+            res.Add((ToMs(sLocal.ToUniversalTime()), ToMs(eLocal.ToUniversalTime())));
+        }
+        return res;
+    }
+
     // ── CT 이상치(임계) 산출 ─────────────────────────────────────────────────
 
     protected async Task<Dictionary<string, (double AvgMs, double P10Ms, int Sample)>> ResolveCtThresholdsAsync()
@@ -718,9 +740,15 @@ public abstract class OeeControllerBase : ControllerBase
         // ── 벽시계 단일모델(2026-07-06): 생산가능 = 기간 − 비생산(지정/학습) − 미계측. flow별 가동/비가동을 이 창에서 잰다. ──
         //   nonProdIntervals 는 이 시점 지정/학습 비생산만(당일 10× 미포함 — applyLongStop=false). 생산가능은 flow 공통.
         double periodStartMs = ToMs(fromUtc), periodEndMs = ToMs(toUtc);
+        // 휴무 요일(생산 안 하는 요일)의 하루 전체 = 비생산·미계측과 동일하게 생산가능시간에서 통째 제외 — 쉬는 날의
+        //   정지가 가용성을 깎지 않게. OEE 전용: 아래 wallAvailableIv 는 runWall/availableSingle(=벽시계 A)만 좌우하고,
+        //   TEEP 가 읽는 NormalCt/IdleCt/PlannedCt(원 SQL 집계)에는 영향 없다 → TEEP 달력 분모는 표준 그대로 유지됨.
+        //   비생산과 달리 nonProdIntervals(시각화·감지 로그)에는 넣지 않는다 — '휴무일'은 '비생산 시간대'와 별개 개념.
+        var excludedDayIv = BuildExcludedWeekdayIntervalsMs(
+            _settings.LoadSettings().OeeManual.ExcludedWeekdays, fromUtc, toUtc);
         var wallAvailableIv = Intervals.Subtract(
             new List<(double S, double E)> { (periodStartMs, periodEndMs) },
-            Intervals.Union(nonProdIntervals).Concat(unmeasured).ToList());
+            Intervals.Union(nonProdIntervals).Concat(unmeasured).Concat(excludedDayIv).ToList());
         double availableSingleMs = Intervals.Total(wallAvailableIv);
         double runWallMs = 0, downMaintWallMs = 0;
         var runWallIntervals = new List<(double S, double E)>();       // flow별 가동(생산가능 클립) 연결
@@ -1237,6 +1265,7 @@ public record ProductionRequest(DateTime? Date, string Flow, string? Shift, int 
 public record ManualQualityRequest(double? QualityPercent);
 public record PlannedStopsRequest(List<PlannedStopWindowDto>? Windows);
 public record PlannedStopsAutoRequest(bool Enabled);
+public record ExcludedWeekdaysRequest(List<int>? Days);
 public record ShiftExceptionRequest(string? Flow, DateTime? StartAt, DateTime? EndAt, string Kind, string? Note);
 public record IdealCycleRequest(string Flow, int? IdealCycleTimeMs, string? Mode = null);
 public record IdealCycleBatchRequest(List<IdealCycleRequest> Items);

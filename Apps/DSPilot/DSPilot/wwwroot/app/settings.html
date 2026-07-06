@@ -921,6 +921,7 @@
             return {
                 s: null, aasx: {}, loading: true, busy: false, dark: false,
                 settingsDirty: false,
+                _baseline: null, // 로드 직후 s 스냅샷(JSON) — 내용 비교식 dirty 판정 기준
                 toast: { show: false, msg: '', type: 'success' },
                 confirm: { show: false, title: '', message: '', okText: '확인', cancelText: '취소', _resolve: null },
                 selectiveDel: { show: false, loading: false, entries: [] },
@@ -939,8 +940,12 @@
                     this.dark = localStorage.getItem('dspilot-theme') === 'dark';
                     window.addEventListener('storage', (e) => { if (e.key === 'dspilot-theme') this.dark = e.newValue === 'dark'; });
                     await this.load();
-                    // load() 완료 후에 watch 등록 — 초기 할당으로 dirty 가 트리거되지 않도록 nextTick 후 설정.
-                    this.$nextTick(() => { this.$watch('s', () => { this.settingsDirty = true; }); });
+                    // 내용 비교식 더티 판정 — 로드 직후 스냅샷(_baseline)과 실제 내용이 다를 때만 dirty.
+                    // 단순 "s 변경 → dirty" 는 초기 하이드레이션(x-model.number 강제변환, 배열 기본값 등)이
+                    //   값을 건드리는 것만으로 페이지 진입 즉시 dirty 로 표시되던 버그의 원인이었다.
+                    this.$watch('s', () => {
+                        if (this._baseline !== null) this.settingsDirty = JSON.stringify(this.s) !== this._baseline;
+                    });
                     this.connectSignalR();
                     this.demoStartTicker();
                     this.loadScanInterval();
@@ -1112,8 +1117,9 @@
                         // 배너 표시 레벨은 체크박스 배열 바인딩이라 항상 배열이어야 함(서버 null/구버전 방어). 기본 Error.
                         if (!Array.isArray(this.s.abnormalAlarmDisplayLevels)) this.s.abnormalAlarmDisplayLevels = ['Error'];
                         this.settingsDirty = false;
-                        // $watch 콜백은 queueMicrotask로 지연 → 위 false를 덮어씀. 동일 큐에 재reset 적재.
-                        queueMicrotask(() => { this.settingsDirty = false; });
+                        // 하이드레이션(x-model 강제변환 등)이 정착한 뒤 스냅샷을 잡아 baseline 으로 삼는다.
+                        // 이후 watch 는 이 스냅샷과 내용을 비교하므로, 강제변환만으로는 dirty 가 되지 않는다.
+                        this.$nextTick(() => { this._baseline = JSON.stringify(this.s); this.settingsDirty = false; });
                         this.aasx = d.aasxStatus || {};
                     } catch (e) {
                         this.showToast('설정을 불러오지 못했습니다: ' + e.message, 'error');

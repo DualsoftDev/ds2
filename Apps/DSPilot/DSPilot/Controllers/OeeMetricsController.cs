@@ -332,9 +332,15 @@ public class OeeMetricsController : OeeControllerBase
         var runWall = ToLong(agg.RunWallIntervals);            // flow별 가동(생산가능 클립) 연결
         var maintWall = ToLong(agg.DownMaintWallIntervals);    // flow별 유지보수(비가동∩유지이벤트) 연결
         var unmeasuredIv = agg.UnmeasuredIntervals ?? new List<(double S, double E)>();
-        // 비생산(표시) = 지정/학습 − 미계측(미계측 우선). 전역이라 슬롯에서 ×flowCount.
-        var nonProdDisp = ToLong(Intervals.Subtract(agg.NonProdIntervals ?? new List<(double S, double E)>(), unmeasuredIv));
-        var unmeasuredL = ToLong(unmeasuredIv);
+        // 휴무 요일(생산 안 하는 요일)의 하루 전체 = 생산가능 달력에서 제외(요약 KPI 와 동일 — 쉬는 날을 고장으로 칠하지 않게).
+        //   비생산·미계측 표시가 휴무일과 겹쳐 이중계상되지 않도록 먼저 차감하고, 슬롯 달력(SlotMs)에서 휴무분을 빼 빈 슬롯으로 만든다.
+        var excludedDayIv = BuildExcludedWeekdayIntervalsMs(
+            _settings.LoadSettings().OeeManual.ExcludedWeekdays, fromUtc, toUtc);
+        // 비생산(표시) = 지정/학습 − 미계측(미계측 우선) − 휴무. 전역이라 슬롯에서 ×flowCount.
+        var nonProdDisp = ToLong(Intervals.Subtract(
+            Intervals.Subtract(agg.NonProdIntervals ?? new List<(double S, double E)>(), unmeasuredIv), excludedDayIv));
+        var unmeasuredL = ToLong(Intervals.Subtract(unmeasuredIv, excludedDayIv));
+        var excludedL = ToLong(excludedDayIv);   // 휴무(단일 flow ms) — 슬롯 달력서 차감
 
         static long SumOverlap(List<(long S, long E)> segs, long slotS, long slotE)
         {
@@ -349,15 +355,18 @@ public class OeeMetricsController : OeeControllerBase
             var sS = (long)ToMs(Max(fromUtc, slotStartUtc));
             var sE = (long)ToMs(Min(toUtc, slotEndUtc));
             var slotWall = Math.Max(0, sE - sS);
+            // 휴무분을 뺀 생산가능 달력 — 휴무 요일 슬롯은 slotCal≈0 이 되어 빈 슬롯으로 표시(고장 아님, 요약 KPI 와 일관).
+            long excludedSingle = SumOverlap(excludedL, sS, sE);
+            long slotCal = Math.Max(0, slotWall - excludedSingle) * flowCount;
             long nonProd = SumOverlap(nonProdDisp, sS, sE) * flowCount;
             long unmeasured = SumOverlap(unmeasuredL, sS, sE) * flowCount;
             long run = SumOverlap(runWall, sS, sE);
-            long available = Math.Max(0, slotWall * flowCount - nonProd - unmeasured);
+            long available = Math.Max(0, slotCal - nonProd - unmeasured);
             long down = Math.Max(0, available - run);            // 비가동 = 생산가능 − 가동(잔여)
             long maint = Math.Min(SumOverlap(maintWall, sS, sE), down);
             long fault = Math.Max(0, down - maint);
-            // 벽시계 매핑: FailureMs=고장 / PlannedMs=유지보수(Other·Unclassified 미사용) / SlotMs=slotWall×flow수(잔여=가동).
-            slots.Add(new OeeDailySlotDto(label, slotWall * flowCount, fault + maint, maint, fault, 0, 0, nonProd, unmeasured));
+            // 벽시계 매핑: FailureMs=고장 / PlannedMs=유지보수(Other·Unclassified 미사용) / SlotMs=휴무 뺀 생산가능 달력(잔여=가동).
+            slots.Add(new OeeDailySlotDto(label, slotCal, fault + maint, maint, fault, 0, 0, nonProd, unmeasured));
         }
         if (hourly)
         {
