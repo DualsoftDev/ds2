@@ -53,20 +53,28 @@ public class OeePlannedStopsController : OeeControllerBase
         return await _nonProdPattern.GetOrComputeAsync(flowName, thresholds, forceRefresh: false, ct);
     }
 
-    // ── GET /api/oee/planned-stops/actual?from&to&flow ───────────────────
+    // ── GET /api/oee/planned-stops/actual?from&to&flow[&detected] ────────
+    // detected=true : 자동/수동 설정과 무관하게 그 범위의 "실측" 비생산 패턴을 드러낸다(생산효율 날짜별 패턴 카드용).
+    //   수동 모드면 ResolvePlannedWindows 가 applyLongStop=false 를 줘서 10×CT 자동 감지가 꺼지고, 카드가
+    //   "수동 지정 그대로"만 보이는 문제가 있다. detected 면 감지를 강제로 켠다(수동 시간대는 union 으로 함께
+    //   유지 — 정보 손실 없음). 자동 모드에선 이미 applyLongStop=true 라 무영향(no-op).
     [HttpGet("planned-stops/actual")]
     public async Task<ActionResult<PlannedAutoPatternDto>> GetActualNonProduction(
-        [FromQuery] DateTime? from, [FromQuery] DateTime? to, [FromQuery] string? flow, CancellationToken ct)
+        [FromQuery] DateTime? from, [FromQuery] DateTime? to, [FromQuery] string? flow,
+        [FromQuery] bool detected, CancellationToken ct)
     {
         var (fromUtc, toUtc) = ResolveRange(from, to);
         var flowName = string.IsNullOrWhiteSpace(flow) ? null : flow.Trim();
 
         var thresholds = await ResolveCtThresholdsAsync();
         var (plannedWindows, _, applyLongStop) = ResolvePlannedWindows();
+        if (detected) applyLongStop = true;   // 실측 패턴 조회 — 수동 시간대가 감지를 끄지 못하게
         var agg = await ComputeCycleAggregateAsync(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct);
         var merged = new List<(double S, double E)>();
         merged.AddRange(await _repo.GetNonProdIntervalsFromLogAsync(fromUtc, toUtc, flowName, ct));
         merged.AddRange(ExpandPlannedIntervalsMs(plannedWindows, fromUtc, toUtc));
+        if (detected && agg.NonProdIntervals is { Count: > 0 })
+            merged.AddRange(agg.NonProdIntervals);   // 방금 감지한 실측 구간 직접 포함(로그 왕복·materialize 신뢰게이트 의존 제거)
         List<(double S, double E)> intervals = merged.Count > 0
             ? Intervals.Union(merged)
             : (agg.NonProdIntervals ?? new List<(double S, double E)>());
