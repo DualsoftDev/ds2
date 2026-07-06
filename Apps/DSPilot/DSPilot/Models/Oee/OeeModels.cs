@@ -354,7 +354,8 @@ public sealed record OeeRankingDto(
 /// <summary>일자별/시간별 가동·정지·점검 버킷 (API 응답 컨테이너).</summary>
 public sealed record OeeDailyResponse(
     string Granularity,                  // "day" | "hour"
-    IReadOnlyList<OeeDailySlotDto> Slots);
+    IReadOnlyList<OeeDailySlotDto> Slots,
+    int FlowCount = 1);                  // 합산 설비 수 — y축 고정 상한(=슬롯당 1h|24h × 설비수)용. 단일 flow=1.
 
 /// <summary>
 /// 단일 버킷: Slot 문자열·슬롯 지속시간 + 정지 분해(가동/고장/기타/미분류/점검/비생산).

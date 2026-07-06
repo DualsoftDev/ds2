@@ -679,13 +679,6 @@
                     if (!this.teep || !this.teep.calendarMs) return '0.0';
                     return Math.max(0, Math.min(100, this.teep[field] / this.teep.calendarMs * 100)).toFixed(1);
                 },
-                // 비생산 표시값 — 미계측(§3.4)을 합쳐 보여준다(2026-07-04 표시 정책, 데이터·학습·판정은 분리).
-                teepNonProdDisplayPct() {
-                    if (!this.teep || !this.teep.calendarMs) return '0.0';
-                    const ms = (this.teep.nonProdMs || 0) + (this.teep.unmeasuredMs || 0);
-                    return Math.max(0, Math.min(100, ms / this.teep.calendarMs * 100)).toFixed(1);
-                },
-
                 // ── 날짜별 비생산 패턴 (/api/oee/planned-stops/actual · days) — 생산효율 페이지 전용 ──
                 // ps.actualNonProd(설비효율 설정 타임라인, 자동 모드 전용)와 별도 상태 — 여기는 자동/수동 설정과
                 // 무관하게 그 범위의 "실측" 비생산 패턴을 조회한다(detected=true 로 10×CT 감지 강제 — 수동 지정이
@@ -1166,6 +1159,12 @@
                     // 평균 가동시간 선 (비생산 카빙 후 실가동 기준)
                     const avgRun = runData.length > 0 ? runData.reduce((a, b) => a + b, 0) / runData.length : 0;
 
+                    // y축 고정 상한: 오늘(시간별)=1h, 그 이상(일별)=24h. 전체(시스템)면 ×설비수(합산이라 슬롯이 그만큼 참).
+                    //   부분 슬롯(오늘 진행 중 시각/기간 양끝 날)이 있어도 축은 항상 꽉 찬 슬롯 기준으로 고정 → 막대가
+                    //   "1h/24h 를 넘는 것처럼" 보이던 착시(평균 참조선 대비) 제거.
+                    const flowCount = Math.max(1, d.flowCount || 1);
+                    const yMax = (d.granularity === 'hour' ? 1 : 24) * flowCount;
+
                     const cs = getComputedStyle(document.documentElement);
                     // 가동=밝은 파랑(눈에 띄게) / 정지 3종=어둡게 대비. 유지보수=노란(앰버) 계열. SSOT=uptime-workspace.css --oee-*
                     const cMaint = cs.getPropertyValue('--oee-maint').trim() || '#9A8500';
@@ -1200,7 +1199,7 @@
                         _dailyChart = new Chart(canvas, {
                             type: 'bar',
                             data: { labels, datasets },
-                            options: _dailyChartOptions(d.granularity),
+                            options: _dailyChartOptions(d.granularity, yMax),
                         });
                     } else {
                         _dailyChart.data.labels = labels;
@@ -1214,7 +1213,7 @@
                                 _dailyChart.data.datasets.push(datasets[i]);
                             }
                         }
-                        _dailyChart.options = _dailyChartOptions(d.granularity);
+                        _dailyChart.options = _dailyChartOptions(d.granularity, yMax);
                         _dailyChart.update('none');
                     }
                 },
@@ -1905,7 +1904,7 @@
             return index % step === 0 ? this.getLabelForValue(value) : '';
         }
 
-        function _dailyChartOptions(granularity) {
+        function _dailyChartOptions(granularity, yMax) {
             const cs = getComputedStyle(document.documentElement);
             const cText = cs.getPropertyValue('--color-text-secondary').trim() || '#888';
             const cGrid = cs.getPropertyValue('--color-lines').trim() || '#e5e7eb';
@@ -1945,6 +1944,8 @@
                     y: {
                         stacked: true,
                         min: 0,
+                        // 고정 상한: 시간별=1h, 일별=24h (전체=×설비수). 없으면 자동(하위호환).
+                        ...(yMax > 0 ? { max: yMax } : {}),
                         ticks: {
                             color: cText,
                             font: { size: 11 },

@@ -558,9 +558,14 @@
                 <div class="border p-card-padding rounded-xl shadow-sm relative overflow-hidden group cursor-pointer transition-all"
                      style="background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); border-color: color-mix(in srgb, var(--color-primary) 26%, transparent);"
                      @click="openOutputFlowModal()" title="클릭하여 출력(생산 기준) Flow 지정">
-                    <div class="flex items-center gap-2 mb-1">
+                    <div class="flex items-center gap-2 mb-1 flex-wrap">
                         <span class="font-label-sm text-label-sm opacity-80 uppercase tracking-tighter" style="color:var(--color-primary-strong);">가동횟수</span>
                         <span class="px-1.5 py-px rounded text-[10px] font-bold bg-surface-container-high text-on-surface-variant">일간</span>
+                        <!-- 출력 기준 표시: 지정 Flow 없으면 [자동](전체 flow 평균), 있으면 [선택 flow명] -->
+                        <span class="px-1.5 py-px rounded text-[10px] font-bold"
+                              style="background: color-mix(in srgb, var(--color-primary) 16%, transparent); color:var(--color-primary-strong);"
+                              x-text="outFlowSaved.length ? outFlowSaved.join(', ') : '자동'"
+                              :title="outFlowSaved.length ? ('출력 기준 Flow: ' + outFlowSaved.join(', ')) : '출력 기준: 자동(전체 Flow 평균)'"></span>
                     </div>
                     <h4 class="font-display-metrics text-display-metrics leading-none mt-2" style="color:var(--color-primary);"
                         x-text="cmp.today ? (cmp.today.totalCount ?? 0).toLocaleString() + '회' : '—'"></h4>
@@ -1067,6 +1072,7 @@
                 this.loadNonprod();
                 this.loadTodayCycles();
                 this.loadCompare();
+                this.loadOutputFlowSel();
                 this.loadAbnormals();
                 this.abnStartTicker();
                 this.connectSignalR();
@@ -1515,6 +1521,13 @@
             closeAvgModal() { this.avgModalOpen = false; },
 
             // ── 출력(생산 기준) Flow 지정 — 가동횟수 카드 클릭 ──
+            // 카드 배지([자동]/[선택 flow])용 — 모달 없이 현재 저장된 출력 기준만 로드.
+            async loadOutputFlowSel() {
+                try {
+                    const st = await this.apiGet('/api/oee/output-flows');
+                    this.outFlowSaved = [...(st.selected || [])];
+                } catch (e) { /* 배지는 폴백 [자동] 유지 */ }
+            },
             async openOutputFlowModal() {
                 this.outFlowModalOpen = true;
                 this.outFlowLoading = true;

@@ -381,7 +381,7 @@ public class OeeMetricsController : OeeControllerBase
             }
         }
 
-        return new OeeDailyResponse(gran, slots);
+        return new OeeDailyResponse(gran, slots, flowCount);
     }
 
 }
