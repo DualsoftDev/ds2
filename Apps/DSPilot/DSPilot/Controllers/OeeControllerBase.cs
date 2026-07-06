@@ -446,7 +446,7 @@ public abstract class OeeControllerBase : ControllerBase
             await _repo.QueryProductionAsync(fromUtc.ToLocalTime(), toUtc.ToLocalTime(), flowName, ct);
 
         var thresholds = ctThresholds ?? await ResolveCtThresholdsAsync();
-        var (plannedWindows, plannedSource, applyLongStop) = ResolvePlannedWindows();
+        var (plannedWindows, plannedSource, applyLongStop) = await ResolvePlannedWindowsAsync(thresholds, ct);
         var evIntervals = await _repo.GetDowntimeIntervalsAsync(fromUtc, toUtc, flowName, ct);
         var maintIv = evIntervals
             .Where(x => x.Kind is 0 or 2 && x.EndMs > x.StartMs)
@@ -455,20 +455,21 @@ public abstract class OeeControllerBase : ControllerBase
         var agg = await ComputeCycleAggregateAsync(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct,
             maintIntervals: maintIv);
 
+        // 가용성 A = 벽시계 단일모델(2026-07-06): 가동 ÷ 생산가능시간. 추이·정산·도넛 3뷰 공통 SSOT.
         double? availability; string? availNote; string? availabilitySource; double runtimeMs;
-        var (cycleA, cycleANote) = OeeMath.ComputeCycleAvailability(agg.NormalCtMs, agg.IdleCtMs);
-        if (agg.HasThreshold && cycleA is not null)
+        var (wallA, wallANote) = OeeMath.ComputeWallClockAvailability(agg.RunWallMs, agg.AvailableWallMs);
+        if (agg.HasThreshold && wallA is not null)
         {
-            availability = cycleA;
-            availNote = cycleANote;
-            availabilitySource = "cycle";
-            runtimeMs = agg.NormalCtMs;
+            availability = wallA;
+            availNote = wallANote;
+            availabilitySource = "wallclock";
+            runtimeMs = agg.RunWallMs;
         }
         else
         {
             var av = await ResolveAvailabilityAsync(flowName, fromUtc, toUtc, downtimeMs, periodMs, ct);
             availability = av.Availability;
-            availNote = (av.Note ?? "") + " (사이클 표본 부족 — 시간기반 폴백).";
+            availNote = (av.Note ?? "") + " (생산가능시간 0 또는 임계 미보유 — 시간기반 폴백).";
             availabilitySource = av.Source;
             runtimeMs = av.RuntimeMs;
         }
@@ -527,16 +528,38 @@ public abstract class OeeControllerBase : ControllerBase
             IdleMaintCtMs: agg.IdleMaintCtMs,
             IdleCalendarMs: agg.IdleCalendarMs,
             CycleFlowCount: agg.FlowCount,
-            UnmeasuredMs: agg.UnmeasuredMs);
+            UnmeasuredMs: agg.UnmeasuredMs,
+            RunWallMs: agg.RunWallMs,
+            AvailableWallMs: agg.AvailableWallMs,
+            DownMaintWallMs: agg.DownMaintWallMs);
     }
 
     // ── 비생산 판정 모드 ─────────────────────────────────────────────────────
 
-    protected (List<(int StartMin, int EndMin)> Windows, string Source, bool ApplyLongStop) ResolvePlannedWindows()
+    // 비생산 시간대 해석 (2026-07-06 단일 벽시계 모델). 비생산 = "지정된 것"만 — 당일 데이터를 쓰지 않는다:
+    //   auto   : 14일 학습패턴 창(OeeNonProdPatternService, 어제까지 히스토리 투표제 — 당일 제외).
+    //   manual : 사용자 지정 시간대 창.
+    // 어느 경우도 당일 10×CT 자동판정(applyLongStop)은 적용하지 않는다(항상 false) — 평일 긴 정지는
+    // '비생산'으로 숨기지 않고 비가동(고장)으로 정직하게 드러낸다. applyLongStop 인자는 실측 패턴 조회
+    // (planned-stops/actual?detected)만 true 로 강제 사용.
+    protected async Task<(List<(int StartMin, int EndMin)> Windows, string Source, bool ApplyLongStop)>
+        ResolvePlannedWindowsAsync(
+            IReadOnlyDictionary<string, (double AvgMs, double P10Ms, int Sample)> thresholds, CancellationToken ct)
     {
         var oee = _settings.LoadSettings().OeeManual;
         if (oee.PlannedStopsAutoEffective)
-            return (new List<(int, int)>(), "auto", true);
+        {
+            try
+            {
+                var pattern = await _nonProdPattern.GetOrComputeAsync(null, thresholds, forceRefresh: false, ct);
+                return (pattern.Windows.Select(x => (x.StartMinutes, x.EndMinutes)).ToList(), "auto", false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[OEE] 학습 비생산 패턴 조회 실패 — 비생산 창 없음 폴백");
+                return (new List<(int, int)>(), "auto", false);
+            }
+        }
 
         var manual = oee.PlannedStops;
         if (manual is { Count: > 0 })
@@ -618,7 +641,13 @@ public abstract class OeeControllerBase : ControllerBase
         List<(double S, double E)>? IdleIntervals = null,
         List<(double StartMs, double CtMs)>? NormalCycles = null,
         double UnmeasuredMs = 0,                                    // 미계측(수신 공백, §3.4) 달력시간 — 기간 클립·Union
-        List<(double S, double E)>? UnmeasuredIntervals = null);    // 미계측 구간(daily/actual 표시·차집합 공용)
+        List<(double S, double E)>? UnmeasuredIntervals = null,     // 미계측 구간(daily/actual 표시·차집합 공용)
+        // ── 벽시계 단일모델(2026-07-06) — 세 뷰(추이·정산·도넛) 공통 SSOT. flow별 합산(라인=Σ). ──
+        double RunWallMs = 0,                                       // Σ가동(벽시계) = 정상 사이클 ∩ 생산가능
+        double AvailableWallMs = 0,                                 // Σ생산가능시간 = (기간−비생산−미계측) × flow수
+        double DownMaintWallMs = 0,                                 // Σ유지보수(비가동 ∩ 유지보수 이벤트) — 고장 = (Avail−Run) − 이 값
+        List<(double S, double E)>? RunWallIntervals = null,        // flow별 가동 구간 연결(concat, 합산 슬롯용 — union 아님)
+        List<(double S, double E)>? DownMaintWallIntervals = null); // flow별 유지보수 구간 연결(concat)
 
     private sealed class CycleAggRow { public long NormalCt { get; set; } public long NormalCount { get; set; } public long NonProdNormalCt { get; set; } }
     private sealed class DtCycleRaw { public string? RecordedAt { get; set; } public long? Ct { get; set; } public long? Mt { get; set; } }
@@ -686,6 +715,17 @@ public abstract class OeeControllerBase : ControllerBase
             return sum;
         }
 
+        // ── 벽시계 단일모델(2026-07-06): 생산가능 = 기간 − 비생산(지정/학습) − 미계측. flow별 가동/비가동을 이 창에서 잰다. ──
+        //   nonProdIntervals 는 이 시점 지정/학습 비생산만(당일 10× 미포함 — applyLongStop=false). 생산가능은 flow 공통.
+        double periodStartMs = ToMs(fromUtc), periodEndMs = ToMs(toUtc);
+        var wallAvailableIv = Intervals.Subtract(
+            new List<(double S, double E)> { (periodStartMs, periodEndMs) },
+            Intervals.Union(nonProdIntervals).Concat(unmeasured).ToList());
+        double availableSingleMs = Intervals.Total(wallAvailableIv);
+        double runWallMs = 0, downMaintWallMs = 0;
+        var runWallIntervals = new List<(double S, double E)>();       // flow별 가동(생산가능 클립) 연결
+        var downMaintWallIntervals = new List<(double S, double E)>(); // flow별 유지보수(비가동∩유지이벤트) 연결
+
         const string dtCond = "ct > 0 AND ((mt IS NOT NULL AND mt > @Thr) OR (mt IS NULL AND ct > @Thr))";
         var nonProdStartSql = BuildNonProductionStartSql(plannedWindows);
 
@@ -724,7 +764,8 @@ public abstract class OeeControllerBase : ControllerBase
                     plannedCtMs += aggRow.NonProdNormalCt;
                 }
 
-                if (runIntervals is not null || normalCycles is not null)
+                // 벽시계 가동 산출 위해 정상 사이클 구간은 항상 조회(collectRunIntervals/normalCycles 는 부가 수집).
+                var flowRun = new List<(double S, double E)>();
                 {
                     var runRows = await conn.QueryAsync<DtCycleRaw>($@"
                         SELECT recordedAt AS RecordedAt, ct AS Ct, mt AS Mt
@@ -734,12 +775,23 @@ public abstract class OeeControllerBase : ControllerBase
                     foreach (var r in runRows)
                         if (r.Ct is long rc && rc > 0 && ParseUtcMs(r.RecordedAt) is double rrec)
                         {
+                            flowRun.Add((rrec - rc, rrec));
                             runIntervals?.Add((rrec - rc, rrec));
                             // NormalCt(SQL)와 동일 기준 — 비생산 시간대 시작 사이클은 KPI 가동에서 빠지므로 여기서도 제외.
                             if (normalCycles is not null && !IsPlannedTimeOfDay(rrec - rc, plannedWindows))
                                 normalCycles.Add((rrec - rc, rc));
                         }
                 }
+                // 벽시계 단일모델: 가동 = 이 flow 정상 사이클 ∩ 생산가능. 비가동 = 생산가능 − 가동(잔여).
+                //   유지보수 = 비가동 ∩ 유지보수 이벤트(같은 flow, kind 0/2). 고장 = 비가동 − 유지보수(호출측이 차감).
+                var flowRunAvail = Intervals.Intersect(Intervals.Union(flowRun), wallAvailableIv);
+                runWallMs += Intervals.Total(flowRunAvail);
+                runWallIntervals.AddRange(flowRunAvail);
+                var flowDownIv = Intervals.Subtract(wallAvailableIv, flowRun);
+                var flowMaintIv = Intervals.Intersect(flowDownIv,
+                    maintByFlow?.GetValueOrDefault(f) ?? new List<(double S, double E)>());
+                downMaintWallMs += Intervals.Total(flowMaintIv);
+                downMaintWallIntervals.AddRange(flowMaintIv);
 
                 var rows = await conn.QueryAsync<DtCycleRaw>($@"
                     SELECT recordedAt AS RecordedAt, ct AS Ct, mt AS Mt
@@ -867,7 +919,10 @@ public abstract class OeeControllerBase : ControllerBase
             Math.Min(idleMaintCtMs, idleCtMs),
             Intervals.Total(idleCalUnion), thrCount,
             IdleIntervals: idleCalUnion, NormalCycles: normalCycles,
-            UnmeasuredMs: unmeasuredMs, UnmeasuredIntervals: unmeasured);
+            UnmeasuredMs: unmeasuredMs, UnmeasuredIntervals: unmeasured,
+            RunWallMs: runWallMs, AvailableWallMs: availableSingleMs * thrCount,
+            DownMaintWallMs: downMaintWallMs,
+            RunWallIntervals: runWallIntervals, DownMaintWallIntervals: downMaintWallIntervals);
     }
 
     private static OeeNonProdDetectionLog NewNonProdDetection(string? flow, double onsetMs, double clearMs, double thrMs, string reason)
@@ -1149,30 +1204,8 @@ public abstract class OeeControllerBase : ControllerBase
     protected static DateTime Min(DateTime a, DateTime b) => a < b ? a : b;
     protected static DateTime Max(DateTime a, DateTime b) => a > b ? a : b;
 
-    protected static OeeDailySlotDto BuildDailySlot(
-        string label, long slotMs, long[] delib, long[] auto, long nonProdMs, long runFloorMs = 0,
-        long unmeasuredMs = 0)
-    {
-        var budget = Math.Max(0, slotMs - Math.Max(0, runFloorMs));
-        long Take(long v) { var t = Math.Min(Math.Max(0, v), Math.Max(0, budget)); budget -= t; return t; }
-
-        // ⓪ 미계측(수신 공백, §3.4) — 최우선 예약: 모르는 시간은 어떤 정지/비생산도 주장하지 않는다.
-        //    호출부가 정지/비생산 구간에서 이미 차집합했으므로 여기선 이중계상 없음(예산 캡만 공유).
-        var unmeasured = Take(unmeasuredMs);
-
-        var failure = Take(delib[1]);
-        var other = Take(delib[2]);
-        var unclass = Take(delib[3]);
-        var planned = Take(delib[0]);
-        var nonProd = Take(nonProdMs);
-        failure += Take(auto[1]);
-        other += Take(auto[2]);
-        unclass += Take(auto[3]);
-        planned += Take(auto[0]);
-
-        var unplanned = failure + other + unclass;
-        return new OeeDailySlotDto(label, slotMs, unplanned, planned, failure, other, unclass, nonProd, unmeasured);
-    }
+    // (구 BuildDailySlot — 이벤트로그 kind 예산배분 — 은 벽시계 단일모델 전환[2026-07-06]으로 제거.
+    //  Daily 는 이제 agg 벽시계 구간[RunWall/DownMaintWall/NonProd/Unmeasured]을 슬롯에 직접 합산한다.)
 
     // ── 공통 헬퍼 ────────────────────────────────────────────────────────────
 

@@ -265,7 +265,12 @@ public sealed record OeeSummaryDto(
     double IdleMaintCtMs = 0,         // Σ비가동CT 중 유지보수(isFailure=0 이벤트 겹침) 귀속분 — 가용성 바 분할(고장 = IdleCtMs − 이 값)
     double IdleCalendarMs = 0,        // 비가동 구간의 달력(벽시계) 환산 — Union 후 Total. ΣCT(설비 합산)와의 단위 오독 방지 병기용
     int CycleFlowCount = 0,           // ΣCT 합산에 참여한 설비(flow) 수 — "설비시간 합산 ×N" 칩 표기용(설비 필터 시 1)
-    double UnmeasuredMs = 0);         // 미계측(수신 공백, doc/22 §3.4) 달력시간 — 가동/비가동/비생산 어디에도 미포함(정직 표기)
+    double UnmeasuredMs = 0,          // 미계측(수신 공백, doc/22 §3.4) 달력시간 — 가동/비가동/비생산 어디에도 미포함(정직 표기)
+
+    // ── 벽시계 단일모델(2026-07-06) — 추이·정산·도넛 3뷰 공통 SSOT. 라인은 flow별 합산(=생산가능시간 가중평균 A). ──
+    double RunWallMs = 0,             // Σ가동(벽시계) = 정상 사이클 ∩ 생산가능. A 분자.
+    double AvailableWallMs = 0,       // Σ생산가능시간 = (기간 − 비생산 − 미계측) × flow수. A 분모.
+    double DownMaintWallMs = 0);      // Σ유지보수(비가동 ∩ 유지보수 이벤트). 고장 = (Available−Run) − 이 값. 도넛/정산 분할.
 
 /// <summary>비생산 시간대 한 칸 DTO (반복 일일, 로컬 자정 기준 분).</summary>
 public sealed record PlannedStopWindowDto(int StartMinutes, int EndMinutes, string? Label);

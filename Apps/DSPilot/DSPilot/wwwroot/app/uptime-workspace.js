@@ -1578,30 +1578,32 @@
                         ? '<span class="src-chip manual">수동 고정</span>'
                         : '<span class="src-chip auto">14일 평균</span>';
                 },
-                // 가용성 분해 (활성 모드 통합) — 상단 A KPI와 항상 일치.
-                //  cycle : Σ실측CT(정상 사이클) vs Σ비가동CT  (A = 실측/(실측+비가동))
-                //  폴백  : 가동시간 vs 정지  (A = 가동 ÷ 계획생산시간, 분모=planTime.plannedMs)
+                // 가용성 분해 (벽시계 단일모델, 2026-07-06) — 상단 A KPI·추이 세로합·정지 도넛과 항상 일치.
+                //  wallclock : 가동(벽시계) vs 비가동(생산가능−가동 잔여)  (A = 가동 ÷ 생산가능시간)
+                //  폴백      : 가동시간 vs 정지  (A = 가동 ÷ 계획생산시간, 분모=planTime.plannedMs)
                 get availComp() {
                     const o = this.oee || {};
                     const r1 = (x) => Math.round(x * 10) / 10;
-                    if (o.availabilitySource === 'cycle') {
-                        const n = Math.max(0, o.normalCtMs || 0), i = Math.max(0, o.idleCtMs || 0);
-                        const tot = n + i;
-                        const runPct = tot > 0 ? r1(n / tot * 100) : 0;
-                        const stopPct = tot > 0 ? r1(100 - runPct) : 0;
-                        // 비가동 고장/유지보수 분리 — '정지 구성' 도넛과 동일한 isFailure 2-상태(서버가 비가동 ΣCT 를
-                        // 유지보수 이벤트 구간과 교차 귀속). 유지보수 0 이면 기존 단일 세그먼트 표시와 동일.
-                        const m = Math.min(i, Math.max(0, o.idleMaintCtMs || 0));
-                        const maintPct = tot > 0 ? r1(m / tot * 100) : 0;
+                    if (o.availabilitySource === 'wallclock') {
+                        const run = Math.max(0, o.runWallMs || 0);
+                        const avail = Math.max(0, o.availableWallMs || 0);
+                        const down = Math.max(0, avail - run);
+                        // 비가동 고장/유지보수 분리 — '정지 구성' 도넛과 동일 소스(서버가 비가동을 유지보수 이벤트 구간과
+                        // 겹쳐 귀속, 잔여=고장). 세 뷰가 한 타임라인에서 나오므로 값이 서로 어긋나지 않는다.
+                        const maint = Math.min(down, Math.max(0, o.downMaintWallMs || 0));
+                        const fault = Math.max(0, down - maint);
+                        const runPct = avail > 0 ? r1(run / avail * 100) : 0;
+                        const stopPct = avail > 0 ? r1(100 - runPct) : 0;
+                        const maintPct = avail > 0 ? r1(maint / avail * 100) : 0;
                         const faultPct = Math.max(0, r1(stopPct - maintPct));
                         return {
-                            mode: 'cycle', hasData: tot > 0,
-                            runMs: n, stopMs: i, runPct, stopPct,
-                            faultMs: i - m, maintMs: m, faultPct, maintPct,
-                            runLabel: '실측 가동시간 (정상 가동)', stopLabel: m > 0 ? '비가동 · 고장' : '비가동 가동시간',
+                            mode: 'wallclock', hasData: avail > 0,
+                            runMs: run, stopMs: down, runPct, stopPct,
+                            faultMs: fault, maintMs: maint, faultPct, maintPct,
+                            runLabel: '가동 (생산가능시간 내)', stopLabel: maint > 0 ? '비가동 · 고장' : '비가동',
                             runNote: (o.normalCycleCount || 0) + '회', stopNote: (o.failureCount || 0) + '건',
-                            subtitle: 'Σ실측 가동시간 ÷ (Σ실측 + Σ비가동) · 비가동 = 동작시간>이상치 / 미완료 폭주 / 무가동',
-                            hint: '한 번의 가동에서 <b>동작시간이 가동시간 이상치를 넘으면</b> 그 가동의 가동시간 전체를 비가동으로 본다(인식지연 + 고장 + 회복 포함). 미완료(가동시간 폭주)·무가동 정지도 비가동에 합산하되 겹친 구간은 1회만 계상한다(이중계상 방지). 고장/유지보수 구분은 정지 로그 분류(도넛과 동일 기준)를 비가동 시간에 겹쳐 귀속한 것.',
+                            subtitle: '가동 ÷ 생산가능시간 · 생산가능 = 캘린더 − 비생산(지정) − 미계측 · 비가동 = 생산가능 − 가동(잔여)',
+                            hint: '<b>벽시계 단일모델</b>: 지정 비생산(계획/14일 학습)·미계측을 뺀 <b>생산가능시간</b>에서 실제로 사이클이 돈 시간이 <b>가동</b>, 나머지는 전부 <b>비가동</b>이다(인식지연·미완료·무가동 모두 포함). 비가동 중 유지보수 이벤트와 겹친 구간만 유지보수, 나머지는 고장(기본). 시간별 추이의 세로 합·정지 구성 도넛과 완전히 같은 소스다.',
                         };
                     }
                     // 폴백(shift/auto/calendar): 계획시간 분모 기준 — planTime 사용.
@@ -1743,19 +1745,18 @@
                     } finally { this.bulkBusy = false; }
                 },
 
-                // 정지 도넛 (고장/유지보수 2-상태, 지속시간 가중 — 합계가 상단 '기간 정지'와 일치)
+                // 정지 구성 도넛 (고장/유지보수 2-상태) — 벽시계 단일모델(2026-07-06): 서버가 비가동(생산가능−가동)을
+                // 유지보수 이벤트 구간과 겹쳐 귀속(잔여=고장)한 값. 가용성 정산 분해·시간별 추이 정지부와 동일 소스라
+                // 세 뷰가 항상 일치한다. (구: this.downtime durationMs 다-flow 중첩 합산 → 하루 24h 초과 착시 폐기.)
                 get faultDist() {
-                    let faultMs = 0, maintMs = 0, count = 0;
-                    for (const d of this.downtime) {
-                        const ms = (d.durationMs && d.durationMs > 0)
-                            ? d.durationMs
-                            : (d.status === 'open' && d.startAt ? Math.max(0, Date.now() - new Date(d.startAt).getTime()) : 0);
-                        if (ms <= 0) continue;
-                        count++;
-                        if (d.isFailure) faultMs += ms; else maintMs += ms;
-                    }
+                    const o = this.oee || {};
+                    const run = Math.max(0, o.runWallMs || 0), avail = Math.max(0, o.availableWallMs || 0);
+                    const down = Math.max(0, avail - run);
+                    const maintMs = Math.min(down, Math.max(0, o.downMaintWallMs || 0));
+                    const faultMs = Math.max(0, down - maintMs);
+                    const count = Array.isArray(this.downtime) ? this.downtime.length : 0;  // 정지 이벤트 건수(표시용)
                     const totalMs = faultMs + maintMs;
-                    if (totalMs <= 0 || count === 0) return { count, segs: [] };
+                    if (totalMs <= 0) return { count, segs: [] };
                     const C = 2 * Math.PI * 38;
                     const segs = [];
                     const defs = [{ def: FAULT_DEF, ms: faultMs }, { def: MAINT_DEF, ms: maintMs }].filter(x => x.ms > 0);
