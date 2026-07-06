@@ -833,7 +833,7 @@
                     const CELL = Math.max(9, Math.min(24, Math.floor(720 / (B + L + 4)))); // 60일(60버킷)까지 자동 축소
                     const COS30 = 0.866, SIN30 = 0.5;
                     const H_UNITS = 5; // 가동 100% = 5셀 높이
-                    const PAD_L = 70, PAD_R = 34, PAD_T = 14, PAD_B = 30;
+                    const PAD_L = 92, PAD_R = 34, PAD_T = 14, PAD_B = 34; // 좌측=설비 라벨 gutter, 하단=회전 시 설비 라벨
                     const OX = PAD_L + Z * CELL * COS30;
                     const OY = PAD_T + H_UNITS * CELL;
                     const W = Math.ceil(OX + X * CELL * COS30 + PAD_R);
@@ -908,46 +908,43 @@
                     if (showPlanned) {
                         _tmEl('polygon', { points: pts(planCorners), class: 'up-tm-plan-line' }, svg);
                         const hpd = pf * 24;                                  // 캘린더 대비 비율 → 하루 계획가동 시간(h)
-                        const lp = iso(0, hPlan, Z);                          // 좌측(앞) 상단 모서리
-                        _tmEl('text', { x: (lp[0] + 5).toFixed(1), y: (lp[1] - 4).toFixed(1), class: 'up-tm-plan-label', 'text-anchor': 'start' }, svg)
+                        const lp = iso(X, hPlan, Z);                          // 우측(앞) 상단 모서리 — 좌측 설비 라벨 gutter 와 분리
+                        _tmEl('text', { x: (lp[0] - 4).toFixed(1), y: (lp[1] - 4).toFixed(1), class: 'up-tm-plan-label', 'text-anchor': 'end' }, svg)
                             .textContent = `계획 ${hpd % 1 === 0 ? hpd.toFixed(0) : hpd.toFixed(1)}h/day`;
                     }
 
-                    // 축 라벨 — 회전에 따라 설비(flow)는 좌측(z축)/하단(x축)에 자리를 바꾼다. 시간(bucket)은 스텝 솎음.
-                    // 설비 라벨은 버킷이 많으면(60일 등) CELL 이 작아져 서로 겹치므로 화면좌표 declutter(최소 간격 확보 + 리더선).
+                    // 축 라벨 — 시간(bucket)은 축 위 스텝 솎음. 설비(flow)는 플롯 밖 전용 여백(gutter)에 정렬 + 리더선으로
+                    // 각 행에 연결한다: 압축된 깊이축 위에 직접 그리면 서로/그리드/계획선과 겹치고 영역을 벗어나기 때문(사용자 지적).
+                    // 세로 깊이축(z, r=0·2)=좌측 여백 세로 스택 / 가로 깊이축(x, r=1·3)=하단 여백 가로 스택.
                     const fullName = (i) => { const n = flows[i].flowName; return n.length > 10 ? n.slice(0, 9) + '…' : n; };
                     const zItem = (zi) => r === 0 ? { flow: zi } : r === 1 ? { bucket: B - 1 - zi } : r === 2 ? { flow: L - 1 - zi } : { bucket: zi };
                     const xItem = (xi) => r === 0 ? { bucket: xi } : r === 1 ? { flow: xi } : r === 2 ? { bucket: B - 1 - xi } : { flow: L - 1 - xi };
                     const zStep = Math.max(1, Math.ceil(Z / 14)), xStep = Math.max(1, Math.ceil(X / 14));
-                    const drawBucket = (x, y, bi, anchor) =>
-                        _tmEl('text', { x: x.toFixed(1), y: y.toFixed(1), class: 'up-tm-axis', 'text-anchor': anchor }, svg)
-                            .textContent = this._tmShortLabel(m.buckets[bi].label, m.granularity);
-                    // 설비 라벨 스펙 수집(시간 라벨은 스텝 솎음이라 바로 그림). 좌측 z축=세로(Y) declutter, 하단 x축=가로(X).
-                    const flowSpecs = [];
+                    const flowAnchors = []; // { fi, ax, ay } — 행의 축 위 기준점(리더선 끝)
                     for (let zi = 0; zi < Z; zi++) {
-                        const it = zItem(zi), p = iso(-0.35, 0, zi + 0.55);
-                        if (it.flow != null) flowSpecs.push({ fi: it.flow, x: p[0], y: p[1] + 4, ox: p[0], oy: p[1] + 4, anchor: 'end', dim: 'y' });
-                        else if (zi % zStep === 0) drawBucket(p[0], p[1] + 4, it.bucket, 'end');
+                        const it = zItem(zi);
+                        if (it.flow != null) { const p = iso(-0.1, 0, zi + 0.5); flowAnchors.push({ fi: it.flow, ax: p[0], ay: p[1] }); }
+                        else if (zi % zStep === 0) { const p = iso(-0.35, 0, zi + 0.55); _tmEl('text', { x: p[0].toFixed(1), y: (p[1] + 4).toFixed(1), class: 'up-tm-axis', 'text-anchor': 'end' }, svg).textContent = this._tmShortLabel(m.buckets[it.bucket].label, m.granularity); }
                     }
                     for (let xi = 0; xi < X; xi++) {
-                        const it = xItem(xi), p = iso(xi + 0.5, 0, Z + 0.45);
-                        if (it.flow != null) flowSpecs.push({ fi: it.flow, x: p[0], y: p[1] + 11, ox: p[0], oy: p[1] + 11, anchor: 'middle', dim: 'x' });
-                        else if (xi % xStep === 0) drawBucket(p[0], p[1] + 11, it.bucket, 'middle');
+                        const it = xItem(xi);
+                        if (it.flow != null) { const p = iso(xi + 0.5, 0, Z + 0.1); flowAnchors.push({ fi: it.flow, ax: p[0], ay: p[1] }); }
+                        else if (xi % xStep === 0) { const p = iso(xi + 0.5, 0, Z + 0.45); _tmEl('text', { x: p[0].toFixed(1), y: (p[1] + 11).toFixed(1), class: 'up-tm-axis', 'text-anchor': 'middle' }, svg).textContent = this._tmShortLabel(m.buckets[it.bucket].label, m.granularity); }
                     }
-                    // declutter — 축 방향(z=세로 / x=가로)으로 최소간격 확보. 밀린 라벨엔 원 위치로 리더선.
-                    if (flowSpecs.length) {
-                        const dim = flowSpecs[0].dim, minGap = dim === 'y' ? 13 : 40;
-                        flowSpecs.sort((a, b) => a[dim] - b[dim]);
-                        for (let i = 1; i < flowSpecs.length; i++)
-                            if (flowSpecs[i][dim] < flowSpecs[i - 1][dim] + minGap) flowSpecs[i][dim] = flowSpecs[i - 1][dim] + minGap;
-                        for (const s of flowSpecs) {
-                            if (Math.abs(s.x - s.ox) > 2 || Math.abs(s.y - s.oy) > 2)
-                                _tmEl('line', { x1: s.x.toFixed(1), y1: s.y.toFixed(1), x2: s.ox.toFixed(1), y2: s.oy.toFixed(1), class: 'up-tm-axis-leader' }, svg);
-                            const el = _tmEl('text', { x: s.x.toFixed(1), y: s.y.toFixed(1), class: 'up-tm-axis-flow', 'text-anchor': s.anchor }, svg);
-                            el.textContent = fullName(s.fi);
-                            el.dataset.flow = flows[s.fi].flowName;
-                            flowLabelEls[flows[s.fi].flowName] = el;
-                        }
+                    // gutter 배치 — 앵커 순서대로 최소간격 유지하며 여백에 정렬, 밀린 만큼 리더선으로 행과 연결.
+                    const addFlowLabel = (fi, lx, ly, anchor, ax, ay) => {
+                        _tmEl('line', { x1: lx.toFixed(1), y1: ly.toFixed(1), x2: ax.toFixed(1), y2: ay.toFixed(1), class: 'up-tm-axis-leader' }, svg);
+                        const el = _tmEl('text', { x: lx.toFixed(1), y: (ly + 3.5).toFixed(1), class: 'up-tm-axis-flow', 'text-anchor': anchor }, svg);
+                        el.textContent = fullName(fi); el.dataset.flow = flows[fi].flowName; flowLabelEls[flows[fi].flowName] = el;
+                    };
+                    if (r === 0 || r === 2) { // 좌측 여백 세로 스택
+                        flowAnchors.sort((a, b) => a.ay - b.ay);
+                        let prev = -1e9; const gap = 15, lx = PAD_L - 10;
+                        for (const a of flowAnchors) { const ly = Math.max(a.ay, prev + gap); prev = ly; addFlowLabel(a.fi, lx, ly, 'end', a.ax, a.ay); }
+                    } else {                  // 하단 여백 가로 스택
+                        flowAnchors.sort((a, b) => a.ax - b.ax);
+                        let prev = -1e9; const gap = 44, ly = H - 6;
+                        for (const a of flowAnchors) { const lx = Math.max(a.ax, prev + gap); prev = lx; addFlowLabel(a.fi, lx, ly - 3.5, 'middle', a.ax, a.ay); }
                     }
                 },
                 // 2D 막대(설비 뷰) — 3D 아이소의 단일 flow 시간열을 평면으로 편 것(같은 정보): 막대 높이=TEEP(가동),
