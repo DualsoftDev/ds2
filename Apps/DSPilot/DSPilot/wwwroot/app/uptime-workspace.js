@@ -1659,18 +1659,23 @@
                         // 겹쳐 귀속, 잔여=고장). 세 뷰가 한 타임라인에서 나오므로 값이 서로 어긋나지 않는다.
                         const maint = Math.min(down, Math.max(0, o.downMaintWallMs || 0));
                         const fault = Math.max(0, down - maint);
+                        const failCount = Math.max(0, o.failureCount || 0);
+                        // 미귀속 잔여(노이즈): 감지된 정지 이벤트(failureCount)가 0 인데 남는 벽시계 비가동 = 임계 미만 사이클 간
+                        //   미세 슬랙. 가용성 정산엔 계속 반영하되(숫자 정합), '고장'이 아니라 '미귀속 잔여'로 표기해 오해를 막는다.
+                        const unattributed = fault > 0 && failCount === 0 && maint === 0;
                         const runPct = avail > 0 ? r1(run / avail * 100) : 0;
                         const stopPct = avail > 0 ? r1(100 - runPct) : 0;
                         const maintPct = avail > 0 ? r1(maint / avail * 100) : 0;
                         const faultPct = Math.max(0, r1(stopPct - maintPct));
                         return {
-                            mode: 'wallclock', hasData: avail > 0,
+                            mode: 'wallclock', hasData: avail > 0, unattributed,
                             runMs: run, stopMs: down, runPct, stopPct,
                             faultMs: fault, maintMs: maint, faultPct, maintPct,
-                            runLabel: '가동 (생산가능시간 내)', stopLabel: maint > 0 ? '비가동 · 고장' : '비가동',
-                            runNote: (o.normalCycleCount || 0) + '회', stopNote: (o.failureCount || 0) + '건',
+                            runLabel: '가동 (생산가능시간 내)',
+                            stopLabel: maint > 0 ? '비가동 · 고장' : (unattributed ? '비가동 · 미귀속 잔여' : '비가동'),
+                            runNote: (o.normalCycleCount || 0) + '회', stopNote: failCount + '건',
                             subtitle: '가동 ÷ 생산가능시간 · 생산가능 = 캘린더 − 비생산(지정) − 미계측 · 비가동 = 생산가능 − 가동(잔여)',
-                            hint: '<b>벽시계 단일모델</b>: 지정 비생산(계획/14일 학습)·미계측을 뺀 <b>생산가능시간</b>에서 실제로 사이클이 돈 시간이 <b>가동</b>, 나머지는 전부 <b>비가동</b>이다(인식지연·미완료·무가동 모두 포함). 비가동 중 유지보수 이벤트와 겹친 구간만 유지보수, 나머지는 고장(기본). 시간별 추이의 세로 합·정지 구성 도넛과 완전히 같은 소스다.',
+                            hint: '<b>벽시계 단일모델</b>: 지정 비생산(계획/14일 학습)·미계측을 뺀 <b>생산가능시간</b>에서 실제로 사이클이 돈 시간이 <b>가동</b>, 나머지는 전부 <b>비가동</b>이다(인식지연·미완료·무가동 모두 포함). 비가동 중 유지보수 이벤트와 겹친 구간만 유지보수, 나머지는 고장(기본). 감지된 정지 이벤트가 0건이면(임계 미만 미세 슬랙만) <b>미귀속 잔여</b>로 표기한다 — 가용성엔 반영되나 정지 구성 도넛에선 노이즈로 제외. 시간별 추이의 세로 합·정지 구성 도넛과 완전히 같은 소스다.',
                         };
                     }
                     // 폴백(shift/auto/calendar): 계획시간 분모 기준 — planTime 사용.

@@ -228,12 +228,12 @@
                         <div style="margin-bottom:18px;">
                             <div class="ds-legend" style="margin-bottom:10px;">
                                 <div class="lg-item"><span class="lg-swatch" style="background:var(--oee-run);"></span> <span x-text="availComp.runLabel"></span></div>
-                                <div class="lg-item"><span class="lg-swatch hatch-fault"></span> <span x-text="availComp.stopLabel"></span></div>
+                                <div class="lg-item"><span class="lg-swatch" :class="availComp.unattributed ? 'hatch-unattr' : 'hatch-fault'"></span> <span x-text="availComp.stopLabel"></span></div>
                                 <div class="lg-item" x-show="availComp.maintMs > 0"><span class="lg-swatch hatch-maint"></span> <span>비가동 · 유지보수</span></div>
                             </div>
                             <div style="display:flex; height:26px; border-radius:var(--radius-sm); overflow:hidden; border:1px solid var(--color-lines);">
                                 <div class="up-bar-seg" :style="`width:${availComp.runPct}%; background:var(--oee-run);`" :title="availComp.runLabel + ' ' + availComp.runPct + '%'"><span class="up-bar-lbl" x-show="availComp.runPct >= 6" x-text="availComp.runPct + '%'"></span></div>
-                                <div class="up-bar-seg hatch-fault" :style="`width:${availComp.faultPct}%;`" :title="availComp.stopLabel + ' ' + availComp.faultPct + '%'"><span class="up-bar-lbl" x-show="availComp.faultPct >= 6" x-text="availComp.faultPct + '%'"></span></div>
+                                <div class="up-bar-seg" :class="availComp.unattributed ? 'hatch-unattr' : 'hatch-fault'" :style="`width:${availComp.faultPct}%;`" :title="availComp.stopLabel + ' ' + availComp.faultPct + '%'"><span class="up-bar-lbl" x-show="availComp.faultPct >= 6" x-text="availComp.faultPct + '%'"></span></div>
                                 <div class="up-bar-seg hatch-maint" x-show="availComp.maintMs > 0" :style="`width:${availComp.maintPct}%;`" :title="'비가동 · 유지보수 ' + availComp.maintPct + '%'"><span class="up-bar-lbl" x-show="availComp.maintPct >= 6" x-text="availComp.maintPct + '%'"></span></div>
                             </div>
                             <div style="display:flex; gap:18px; margin-top:8px; font-size:0.72rem; color:var(--color-text-secondary); flex-wrap:wrap;">
