@@ -4,10 +4,10 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>종합생산효율 현황 — DSPilot</title>
+    <title>생산효율 현황 — DSPilot</title>
 
     <!--
-      DSPilot 정적 호스팅 — 종합생산효율 현황 페이지 (view=teep, 생산효율 TEEP).
+      DSPilot 정적 호스팅 — 생산효율 현황 페이지 (view=teep, 생산효율 TEEP).
       설비효율(OEE A·P·Q)은 물리 분리된 uptime-oee.html(/uptime-oee) 담당 — 구 내부 탭(?section=) 폐지(2026-07-03).
       공용 스타일/스크립트 = /css/uptime-workspace.css · /app/uptime-workspace.js
         (설비효율 uptime-oee.html · 이상·알람 uptime-alarm.html 과 SSOT 1벌 공유 — window.DSP_UPTIME_VIEW 로 도메인 분기).
@@ -24,7 +24,7 @@
 
         <!-- fallback 슬림 헤더 (shell.js 가 제거) -->
         <header class="dsp-appbar">
-            <span class="dsp-title">종합생산효율 현황</span>
+            <span class="dsp-title">생산효율 현황</span>
             <span class="dsp-badge">정적</span>
             <div class="spacer"></div>
             <button class="btn-icon" @click="toggleTheme()" title="테마 전환">
@@ -92,11 +92,11 @@
                             <div class="up-oee-value up-oee-mono" x-text="teep ? pct(teep.utilization) : '—'"></div>
                             <div class="up-oee-note">(캘린더 − 비생산) ÷ 캘린더</div>
                         </div>
-                        <!-- 설비효율 OEE (참조 — 종합설비효율 현황 페이지) — 현재 기간·설비 선택을 그대로 실어 이동 -->
+                        <!-- 설비효율 OEE (참조 — 설비효율 현황 페이지) — 현재 기간·설비 선택을 그대로 실어 이동 -->
                         <div class="up-oee">
                             <div class="up-oee-label">설비효율 OEE <span class="up-oee-chip">참조</span></div>
                             <div class="up-oee-value up-oee-mono" x-text="oee ? pct(oee.oee) : '—'"></div>
-                            <div class="up-oee-note"><a @click.prevent="location.href = '/uptime-oee' + location.search" style="cursor:pointer; color:var(--color-primary);">종합설비효율 현황에서 A·P·Q 보기 →</a></div>
+                            <div class="up-oee-note"><a @click.prevent="location.href = '/uptime-oee' + location.search" style="cursor:pointer; color:var(--color-primary);">설비효율 현황에서 A·P·Q 보기 →</a></div>
                         </div>
                     </div>
                 </section>
@@ -184,7 +184,7 @@
                                 <div class="up-teep-leg"><span class="sw" style="background:var(--color-surface-variant); border:1px solid var(--color-lines-strong);"></span>잔여 <b x-text="durShort(teep.residualMs)"></b> <em x-text="'(' + teepPct('residualMs') + '%)'"></em></div>
                             </div>
                             <div class="up-form-hint" style="margin-top:12px;">
-                                <b>TEEP</b> = 가동 ÷ 캘린더 — 야간·점심·무오더 등 <b>비생산도 분모에 포함</b>한 "달력 전체 대비 진짜 가동"입니다(표준 TEEP). 비생산을 뺀 관점은 <b>가동률</b> 보조지표로 보세요. 비생산은 자동 인식(평균 가동시간의 <span x-text="ps.ctMultiplier"></span>배 이상 정지) + 수동 지정 시간대이며, 성능·품질(P·Q)은 <b>종합설비효율 현황(OEE)</b> 페이지가 담당합니다.<template x-if="(teep && (teep.unmeasuredMs || 0) > 0)"><span> <b>미계측</b>(PLC 수신 공백)은 상태를 알 수 없는 시간이라 가동에는 넣지 않되 캘린더 분모엔 남겨 TEEP 를 보수적으로 낮춥니다 — 설비효율(OEE)은 미계측을 분모에서 제외하므로 통신 공백이 잦은 구간에선 두 지표가 벌어질 수 있습니다.</span></template>
+                                <b>TEEP</b> = 가동 ÷ 캘린더 — 야간·점심·무오더 등 <b>비생산도 분모에 포함</b>한 "달력 전체 대비 진짜 가동"입니다(표준 TEEP). 비생산을 뺀 관점은 <b>가동률</b> 보조지표로 보세요. 비생산은 자동 인식(평균 가동시간의 <span x-text="ps.ctMultiplier"></span>배 이상 정지) + 수동 지정 시간대이며, 성능·품질(P·Q)은 <b>설비효율 현황(OEE)</b> 페이지가 담당합니다.<template x-if="(teep && (teep.unmeasuredMs || 0) > 0)"><span> <b>미계측</b>(PLC 수신 공백)은 상태를 알 수 없는 시간이라 가동에는 넣지 않되 캘린더 분모엔 남겨 TEEP 를 보수적으로 낮춥니다 — 설비효율(OEE)은 미계측을 분모에서 제외하므로 통신 공백이 잦은 구간에선 두 지표가 벌어질 수 있습니다.</span></template>
                             </div>
                         </div>
                     </template>
