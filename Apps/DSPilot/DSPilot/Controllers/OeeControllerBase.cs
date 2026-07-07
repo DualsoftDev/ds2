@@ -140,6 +140,64 @@ public abstract class OeeControllerBase : ControllerBase
         return list;
     }
 
+    /// <summary>
+    /// 이상치 초과 사이클(=failureCount 의 사이클 성분)을 정지 이벤트 로그 행으로 합성한다.
+    /// 이 소스는 oeeDowntimeEvent 테이블에 적히지 않아(계산만) '정지 이벤트 로그' 내역이 비었던 원인 —
+    /// failureCount 와 동일한 ComputeCycleAggregate 경로(collectDowntimeCycles)로 수집해 건수를 정합시킨다.
+    /// 합성 행은 DB 행이 아니므로 Id 를 음수(-1,-2,…)로 부여(고유 key)하고 분류/마감 불가로 표시(프론트).
+    /// </summary>
+    protected async Task<List<OeeDowntimeDto>> GetOverThresholdCycleDowntimeAsync(
+        string? flowName, DateTime fromUtc, DateTime toUtc, CancellationToken ct)
+    {
+        var thresholds = await ResolveCtThresholdsAsync();
+        var (plannedWindows, _, applyLongStop) = await ResolvePlannedWindowsAsync(thresholds, ct);
+        var agg = await ComputeCycleAggregateAsync(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct,
+            collectDowntimeCycles: true);
+        var cycles = agg.DowntimeCycles;
+        if (cycles is null || cycles.Count == 0) return new List<OeeDowntimeDto>();
+
+        var sysMap = BuildFlowSystemMap();       // flowName → systemName (AASX 미로드/미매칭이면 빈 문자열)
+        var list = new List<OeeDowntimeDto>(cycles.Count);
+        var synthId = 0L;
+        foreach (var c in cycles)
+        {
+            var thrMs = c.Flow is not null && thresholds.TryGetValue(c.Flow, out var t) ? t.AvgMs : 0;
+            list.Add(new OeeDowntimeDto(
+                Id: --synthId,                   // -1,-2,… : 합성(DB 없음) 표식 + x-for 고유 key
+                SystemName: c.Flow is not null && sysMap.TryGetValue(c.Flow, out var s) ? s : "",
+                FlowName: c.Flow,
+                DeviceName: null,
+                StartAt: DateTimeOffset.FromUnixTimeMilliseconds((long)c.StartMs).LocalDateTime,
+                EndAt: DateTimeOffset.FromUnixTimeMilliseconds((long)c.EndMs).LocalDateTime,
+                DurationMs: (long)(c.EndMs - c.StartMs),
+                ReasonCode: "cycle_overtime",
+                Category: "unplanned",
+                IsFailure: true,
+                DetectSource: "over-cycle",
+                SourceLogId: null,
+                Note: thrMs > 0
+                    ? $"가동시간 이상치 초과 (CT {(c.CtMs / 1000.0):0.0}s > 이상치 {(thrMs / 1000.0):0.0}s)"
+                    : "가동시간 이상치 초과",
+                Status: "recovered",
+                ClassifySource: "auto-cycle"));
+        }
+        return list;
+    }
+
+    // flowName → systemName. AASX 미로드/예외 시 빈 맵(합성 행 systemName 은 빈 문자열로 폴백).
+    private Dictionary<string, string> BuildFlowSystemMap()
+    {
+        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        try
+        {
+            foreach (var sys in _project.GetActiveSystems())
+                foreach (var f in _project.GetFlows(sys.Id))
+                    map[f.Name] = sys.Name;
+        }
+        catch (Exception ex) { _logger.LogDebug(ex, "[OEE] flow→system map build failed (AASX 미로드?)"); }
+        return map;
+    }
+
     private static string AbnormalKindLabel(string? kind) => kind switch
     {
         "ActionOver" => "동작지연",
@@ -669,7 +727,10 @@ public abstract class OeeControllerBase : ControllerBase
         double AvailableWallMs = 0,                                 // Σ생산가능시간 = (기간−비생산−미계측) × flow수
         double DownMaintWallMs = 0,                                 // Σ유지보수(비가동 ∩ 유지보수 이벤트) — 고장 = (Avail−Run) − 이 값
         List<(double S, double E)>? RunWallIntervals = null,        // flow별 가동 구간 연결(concat, 합산 슬롯용 — union 아님)
-        List<(double S, double E)>? DownMaintWallIntervals = null); // flow별 유지보수 구간 연결(concat)
+        List<(double S, double E)>? DownMaintWallIntervals = null,  // flow별 유지보수 구간 연결(concat)
+        // 이상치 초과 사이클(=DowntimeEventCount 의 사이클 성분) 개별 이벤트 — 정지 로그(oeeDowntimeEvent)에는
+        // 안 적히는 소스라, '정지 이벤트 로그' 내역이 failureCount 와 정합되도록 여기서 수집해 노출한다(collectDowntimeCycles).
+        List<(string? Flow, double StartMs, double EndMs, double CtMs)>? DowntimeCycles = null);
 
     private sealed class CycleAggRow { public long NormalCt { get; set; } public long NormalCount { get; set; } public long NonProdNormalCt { get; set; } }
     private sealed class DtCycleRaw { public string? RecordedAt { get; set; } public long? Ct { get; set; } public long? Mt { get; set; } }
@@ -681,7 +742,8 @@ public abstract class OeeControllerBase : ControllerBase
         IReadOnlyList<(int StartMin, int EndMin)> plannedWindows, bool applyLongStop, CancellationToken ct,
         bool collectRunIntervals = false,
         IReadOnlyList<(double S, double E, string? Flow)>? maintIntervals = null,
-        bool collectNormalCycles = false)
+        bool collectNormalCycles = false,
+        bool collectDowntimeCycles = false)
     {
         var onsets = new List<double>();
         var repairs = new List<double>();
@@ -718,6 +780,8 @@ public abstract class OeeControllerBase : ControllerBase
         // 정상 사이클 (시작, CT) 목록 — 매트릭스(teep/matrix)가 시간버킷에 귀속시키는 원본. NormalCt(SQL) 분류와
         // 동일하게 비생산 시간대 시작분은 제외해, 버킷 합계 ≈ KPI 가동(NormalCtMs)이 되게 한다.
         var normalCycles = collectNormalCycles ? new List<(double StartMs, double CtMs)>() : null;
+        // 이상치 초과 사이클 이벤트 — dtEventCount(=failureCount) 증가 지점과 동일 모집단(정지 로그 내역 정합용).
+        var downtimeCycles = collectDowntimeCycles ? new List<(string? Flow, double StartMs, double EndMs, double CtMs)>() : null;
         Dictionary<string, List<(double S, double E)>>? maintByFlow = null;
         List<(double S, double E)>? maintAll = null;
         if (maintIntervals is { Count: > 0 })
@@ -867,6 +931,7 @@ public abstract class OeeControllerBase : ControllerBase
                     double repair = r.Mt is long mtL && measuredMs >= cMs ? (mtL - thr) : (measuredMs - thr);
                     if (repair >= 0) repairs.Add(repair);
                     dtEventCount++;
+                    downtimeCycles?.Add((f, startMs, rec, cMs));   // 정지 로그 내역 정합 — dtEventCount 와 1:1
                 }
             }
 
@@ -950,7 +1015,8 @@ public abstract class OeeControllerBase : ControllerBase
             UnmeasuredMs: unmeasuredMs, UnmeasuredIntervals: unmeasured,
             RunWallMs: runWallMs, AvailableWallMs: availableSingleMs * thrCount,
             DownMaintWallMs: downMaintWallMs,
-            RunWallIntervals: runWallIntervals, DownMaintWallIntervals: downMaintWallIntervals);
+            RunWallIntervals: runWallIntervals, DownMaintWallIntervals: downMaintWallIntervals,
+            DowntimeCycles: downtimeCycles);
     }
 
     private static OeeNonProdDetectionLog NewNonProdDetection(string? flow, double onsetMs, double clearMs, double thrMs, string reason)

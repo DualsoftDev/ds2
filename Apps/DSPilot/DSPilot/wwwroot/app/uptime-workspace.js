@@ -1629,9 +1629,11 @@
                 esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); },
                 // 감지 출처 칩 (정지 구간 소스)
                 detectChipHtml(s) {
-                    const m = { 'nocycle': '무가동', 'fault-bit': '고장비트', 'usertag': '고장비트', 'manual': '수동' };
+                    const m = { 'nocycle': '무가동', 'fault-bit': '고장비트', 'usertag': '고장비트', 'manual': '수동', 'over-cycle': '이상치초과' };
                     return `<span class="src-chip detect">${m[s] || this.esc(s) || '—'}</span>`;
                 },
+                // 합성(사이클 유래) 행 = DB 이벤트가 아니라 분류/마감 불가. id 음수로 표식.
+                isSyntheticDt(d) { return !d || d.id <= 0 || d.detectSource === 'over-cycle'; },
                 // 단서 칩 (abnormal/usertag 시간겹침 — 표시 전용)
                 clueHtml(c) {
                     if (!c) return '<span class="clue-none">—</span>';
