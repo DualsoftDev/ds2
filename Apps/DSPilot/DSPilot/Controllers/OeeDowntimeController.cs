@@ -36,9 +36,19 @@ public class OeeDowntimeController : OeeControllerBase
         CancellationToken ct)
     {
         var (fromUtc, toUtc) = ResolveRange(from, to);
-        var rows = await _repo.QueryDowntimeAsync(fromUtc, toUtc, status, reason,
-            string.IsNullOrWhiteSpace(flow) ? null : flow.Trim(), ct);
-        return await AttachCluesAsync(rows, fromUtc, toUtc, ct);
+        var flowName = string.IsNullOrWhiteSpace(flow) ? null : flow.Trim();
+        var rows = await _repo.QueryDowntimeAsync(fromUtc, toUtc, status, reason, flowName, ct);
+
+        // 이상치 초과 사이클(로그 테이블에 없는 failureCount 사이클 성분)을 합성해 병합 — 내역이 도넛/바 건수와 정합.
+        //   status 필터(진행중)엔 해당 없음(합성은 전부 복구됨), reason 필터가 걸리면 합성 행(고정 reason)은 제외.
+        var merged = rows.ToList();
+        if (!string.Equals(status, "open", StringComparison.OrdinalIgnoreCase) && string.IsNullOrWhiteSpace(reason))
+        {
+            var overCycles = await GetOverThresholdCycleDowntimeAsync(flowName, fromUtc, toUtc, ct);
+            merged.AddRange(overCycles);
+            merged = merged.OrderByDescending(d => d.StartAt).ThenByDescending(d => d.Id).ToList();
+        }
+        return await AttachCluesAsync(merged, fromUtc, toUtc, ct);
     }
 
     // ── POST /api/oee/downtime/{id}/classify ──────────────────────────────

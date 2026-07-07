@@ -228,12 +228,12 @@
                         <div style="margin-bottom:18px;">
                             <div class="ds-legend" style="margin-bottom:10px;">
                                 <div class="lg-item"><span class="lg-swatch" style="background:var(--oee-run);"></span> <span x-text="availComp.runLabel"></span></div>
-                                <div class="lg-item"><span class="lg-swatch hatch-fault"></span> <span x-text="availComp.stopLabel"></span></div>
+                                <div class="lg-item"><span class="lg-swatch" :class="availComp.unattributed ? 'hatch-unattr' : 'hatch-fault'"></span> <span x-text="availComp.stopLabel"></span></div>
                                 <div class="lg-item" x-show="availComp.maintMs > 0"><span class="lg-swatch hatch-maint"></span> <span>비가동 · 유지보수</span></div>
                             </div>
                             <div style="display:flex; height:26px; border-radius:var(--radius-sm); overflow:hidden; border:1px solid var(--color-lines);">
                                 <div class="up-bar-seg" :style="`width:${availComp.runPct}%; background:var(--oee-run);`" :title="availComp.runLabel + ' ' + availComp.runPct + '%'"><span class="up-bar-lbl" x-show="availComp.runPct >= 6" x-text="availComp.runPct + '%'"></span></div>
-                                <div class="up-bar-seg hatch-fault" :style="`width:${availComp.faultPct}%;`" :title="availComp.stopLabel + ' ' + availComp.faultPct + '%'"><span class="up-bar-lbl" x-show="availComp.faultPct >= 6" x-text="availComp.faultPct + '%'"></span></div>
+                                <div class="up-bar-seg" :class="availComp.unattributed ? 'hatch-unattr' : 'hatch-fault'" :style="`width:${availComp.faultPct}%;`" :title="availComp.stopLabel + ' ' + availComp.faultPct + '%'"><span class="up-bar-lbl" x-show="availComp.faultPct >= 6" x-text="availComp.faultPct + '%'"></span></div>
                                 <div class="up-bar-seg hatch-maint" x-show="availComp.maintMs > 0" :style="`width:${availComp.maintPct}%;`" :title="'비가동 · 유지보수 ' + availComp.maintPct + '%'"><span class="up-bar-lbl" x-show="availComp.maintPct >= 6" x-text="availComp.maintPct + '%'"></span></div>
                             </div>
                             <div style="display:flex; gap:18px; margin-top:8px; font-size:0.72rem; color:var(--color-text-secondary); flex-wrap:wrap;">
@@ -265,7 +265,7 @@
                     <!-- 정지 고장/유지보수 도넛 — 합계가 상단 '기간 정지'와 일치 -->
                     <section class="card up-section">
                         <div class="ds-card-h"><h4>정지 구성</h4><span class="ds-card-h-sub">고장 · 유지보수 비중 (지속시간 기준)</span></div>
-                        <template x-if="faultDist.count > 0">
+                        <template x-if="faultDist.has">
                             <div class="up-dist">
                                 <svg class="up-donut" viewBox="0 0 100 100" x-html="faultDonutSvg"></svg>
                                 <div class="up-legend">
@@ -280,11 +280,11 @@
                                 </div>
                             </div>
                         </template>
-                        <template x-if="faultDist.count === 0">
+                        <template x-if="!faultDist.has">
                             <div class="ds-empty">
                                 <span class="material-icons">donut_large</span>
                                 <div class="ds-empty-title">표시할 정지 데이터 없음</div>
-                                <div class="ds-empty-desc">정지 이벤트가 기록되면 고장/유지보수 비중이 도넛으로 표시됩니다.</div>
+                                <div class="ds-empty-desc">이 기간 감지된 정지 이벤트가 없습니다(이벤트 없이 남는 초 단위 벽시계 잔여는 노이즈로 간주 — 추이엔 표기, 도넛엔 제외). 이상치초과 사이클·무사이클·고장비트 정지가 잡히면 고장/유지보수 비중이 도넛으로 표시됩니다.</div>
                             </div>
                         </template>
                         <div style="font-size:0.62rem; color:var(--color-text-secondary); margin-top:10px;">
@@ -382,12 +382,17 @@
                                                 <template x-if="d.deviceName"><span class="up-rank-sub" x-text="' · ' + d.deviceName"></span></template>
                                             </td>
                                             <td data-label="고장" style="white-space:nowrap;">
-                                                <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;" :title="d.isFailure ? '고장 — 클릭하면 유지보수로 변경' : '유지보수 — 클릭하면 고장으로 변경'">
-                                                    <input type="checkbox" class="up-dt-cb" :checked="d.isFailure" @change="setFault(d, $event.target.checked)">
-                                                    <span x-text="d.isFailure ? '고장' : '유지보수'" :style="d.isFailure ? 'color:var(--oee-fault);font-weight:700;' : 'color:var(--oee-maint);font-weight:700;'"></span>
-                                                </label>
+                                                <template x-if="!isSyntheticDt(d)">
+                                                    <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;" :title="d.isFailure ? '고장 — 클릭하면 유지보수로 변경' : '유지보수 — 클릭하면 고장으로 변경'">
+                                                        <input type="checkbox" class="up-dt-cb" :checked="d.isFailure" @change="setFault(d, $event.target.checked)">
+                                                        <span x-text="d.isFailure ? '고장' : '유지보수'" :style="d.isFailure ? 'color:var(--oee-fault);font-weight:700;' : 'color:var(--oee-maint);font-weight:700;'"></span>
+                                                    </label>
+                                                </template>
+                                                <template x-if="isSyntheticDt(d)">
+                                                    <span x-text="'고장'" style="color:var(--oee-fault);font-weight:700;" title="가동시간 이상치를 초과한 사이클(계산 유래) — 로그 이벤트가 아니라 분류/마감 불가"></span>
+                                                </template>
                                             </td>
-                                            <td data-label="감지" x-html="detectChipHtml(d.detectSource)"></td>
+                                            <td data-label="감지"><span x-html="detectChipHtml(d.detectSource)" :title="d.note || ''"></span></td>
                                             <td data-label="겹친 신호 (단서)" x-html="clueHtml(d.clue)"></td>
                                             <td data-label="상태">
                                                 <span class="ds-status" :class="d.status === 'open' ? 'bad' : 'ok'" x-text="d.status === 'open' ? '진행중' : '복구'"></span>
@@ -410,7 +415,8 @@
                         <b style="color:var(--color-text-primary);">감지(정지 구간):</b>
                         <span class="src-chip detect">무가동</span> 가동 끊김
                         <span class="src-chip detect">고장비트</span> PLC 비트 rising/falling
-                        <span class="src-chip detect">수동</span> 작업자 등록 &nbsp;—&nbsp; 여기서만 정지 건수·길이가 만들어집니다.<br>
+                        <span class="src-chip detect">수동</span> 작업자 등록
+                        <span class="src-chip detect">이상치초과</span> 사이클이 가동시간 이상치 초과(계산 유래·분류 불가) &nbsp;—&nbsp; 이 네 소스가 정지 건수·길이(=도넛·바)를 이룹니다.<br>
                         <b style="color:var(--color-text-primary);">고장/유지보수:</b>
                         기본 <b>고장</b>으로 체크됨 — 체크 해제 시 <b>유지보수</b>(MTBF 고장 제외)로 변경됩니다. &nbsp;·&nbsp;
                         <b style="color:var(--color-text-primary);">단서:</b>

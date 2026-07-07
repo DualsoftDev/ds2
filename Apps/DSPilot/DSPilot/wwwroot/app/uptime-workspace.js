@@ -1629,9 +1629,11 @@
                 esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); },
                 // 감지 출처 칩 (정지 구간 소스)
                 detectChipHtml(s) {
-                    const m = { 'nocycle': '무가동', 'fault-bit': '고장비트', 'usertag': '고장비트', 'manual': '수동' };
+                    const m = { 'nocycle': '무가동', 'fault-bit': '고장비트', 'usertag': '고장비트', 'manual': '수동', 'over-cycle': '이상치초과' };
                     return `<span class="src-chip detect">${m[s] || this.esc(s) || '—'}</span>`;
                 },
+                // 합성(사이클 유래) 행 = DB 이벤트가 아니라 분류/마감 불가. id 음수로 표식.
+                isSyntheticDt(d) { return !d || d.id <= 0 || d.detectSource === 'over-cycle'; },
                 // 단서 칩 (abnormal/usertag 시간겹침 — 표시 전용)
                 clueHtml(c) {
                     if (!c) return '<span class="clue-none">—</span>';
@@ -1659,16 +1661,21 @@
                         // 겹쳐 귀속, 잔여=고장). 세 뷰가 한 타임라인에서 나오므로 값이 서로 어긋나지 않는다.
                         const maint = Math.min(down, Math.max(0, o.downMaintWallMs || 0));
                         const fault = Math.max(0, down - maint);
+                        const failCount = Math.max(0, o.failureCount || 0);
+                        // 미귀속 잔여(노이즈): 감지된 정지 이벤트(failureCount)가 0 인데 남는 벽시계 비가동 = 임계 미만 사이클 간
+                        //   미세 슬랙. 가용성 정산엔 계속 반영하되(숫자 정합), '고장'이 아니라 '미귀속 잔여'로 표기해 오해를 막는다.
+                        const unattributed = fault > 0 && failCount === 0 && maint === 0;
                         const runPct = avail > 0 ? r1(run / avail * 100) : 0;
                         const stopPct = avail > 0 ? r1(100 - runPct) : 0;
                         const maintPct = avail > 0 ? r1(maint / avail * 100) : 0;
                         const faultPct = Math.max(0, r1(stopPct - maintPct));
                         return {
-                            mode: 'wallclock', hasData: avail > 0,
+                            mode: 'wallclock', hasData: avail > 0, unattributed,
                             runMs: run, stopMs: down, runPct, stopPct,
                             faultMs: fault, maintMs: maint, faultPct, maintPct,
-                            runLabel: '가동 (생산가능시간 내)', stopLabel: maint > 0 ? '비가동 · 고장' : '비가동',
-                            runNote: (o.normalCycleCount || 0) + '회', stopNote: (o.failureCount || 0) + '건',
+                            runLabel: '가동 (생산가능시간 내)',
+                            stopLabel: maint > 0 ? '비가동 · 고장' : (unattributed ? '비가동 · 미귀속 잔여' : '비가동'),
+                            runNote: (o.normalCycleCount || 0) + '회', stopNote: failCount + '건',
                             subtitle: '가동 ÷ 생산가능시간 · 생산가능 = 캘린더 − 비생산(지정) − 미계측 · 비가동 = 생산가능 − 가동(잔여)',
                         };
                     }
@@ -1820,9 +1827,14 @@
                     const down = Math.max(0, avail - run);
                     const maintMs = Math.min(down, Math.max(0, o.downMaintWallMs || 0));
                     const faultMs = Math.max(0, down - maintMs);
-                    const count = Array.isArray(this.downtime) ? this.downtime.length : 0;  // 정지 이벤트 건수(표시용)
+                    // 정지건수 = 벽시계 감지 정지 이벤트 수(요약 KPI failureCount = 가용성 정산 바의 'N건'과 동일 소스).
+                    //   failureCount 는 이상치초과 사이클 + 무사이클 갭을 센다(this.downtime 로그 테이블엔 무사이클/고장비트만
+                    //   적재돼 로그 0 이어도 실제 정지는 있을 수 있으므로 로그 행 수는 쓰지 않는다).
+                    const count = Math.max(0, o.failureCount || 0);
                     const totalMs = faultMs + maintMs;
-                    if (totalMs <= 0) return { count, segs: [] };
+                    // 표시 게이트 = 감지된 정지 이벤트(failureCount) 유무. 이벤트 없이 남는 초 단위 벽시계 잔여(사이클 간
+                    //   미세 슬랙)는 노이즈로 보고 도넛을 비운다 — 추이/바는 가용성 정산상 이 잔여를 계속 표기(숫자 정합).
+                    if (totalMs <= 0 || count <= 0) return { count, has: false, segs: [] };
                     const C = 2 * Math.PI * 38;
                     const segs = [];
                     const defs = [{ def: FAULT_DEF, ms: faultMs }, { def: MAINT_DEF, ms: maintMs }].filter(x => x.ms > 0);
@@ -1833,7 +1845,7 @@
                         segs.push({ label: def.label, color: def.color, cls: def.cls, pat: def.pat, ms, share: Math.round(ms * 100 / totalMs),
                                     dash: len.toFixed(2) + ' ' + gap.toFixed(2), offset: offset.toFixed(2) });
                     }
-                    return { count, segs };
+                    return { count, has: true, segs };
                 },
                 // faultDist → 도넛 내부 SVG 문자열 (x-html)
                 get faultDonutSvg() {
