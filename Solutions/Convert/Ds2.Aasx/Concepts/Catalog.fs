@@ -276,7 +276,7 @@ module internal AasxConceptDescriptionCatalog =
           ShortName = "OEEkpi"
           DefinitionDe = "Overall Equipment Effectiveness mit Verfügbarkeit, Leistung und Qualität"
           DefinitionEn = "Overall Equipment Effectiveness with availability, performance, and quality"
-          DefinitionKr = "종합설비효율 (가동률 × 성능률 × 양품률)" }
+          DefinitionKr = "설비효율 (가동률 × 성능률 × 양품률)" }
 
         { Id = SimKpiPerTokenSemanticId
           PreferredNameDe = "Token-spezifische KPIs"

@@ -282,7 +282,7 @@ var canonicalStaticRoutes = new Dictionary<string, string>(StringComparer.Ordina
     ["/"] = "dashboard.html",
     ["/dashboard"] = "dashboard.html",
     ["/heatmap"] = "heatmap.html",
-    // 가동시간·이상 물리 분리(2026-07-01): 종합설비효율 현황 / 이상·알람 2페이지. 공용 JS/CSS(uptime-workspace) SSOT 공유.
+    // 가동시간·이상 물리 분리(2026-07-01): 설비효율 현황 / 이상·알람 2페이지. 공용 JS/CSS(uptime-workspace) SSOT 공유.
     // 설비/생산 물리 분리(2026-07-03): 구 내부 탭(설비효율/생산효율)을 /uptime-oee·/uptime-teep 2페이지로 분리.
     ["/uptime-oee"] = "uptime-oee.html",
     ["/uptime-teep"] = "uptime-teep.html",
@@ -296,7 +296,7 @@ var canonicalStaticRoutes = new Dictionary<string, string>(StringComparer.Ordina
     ["/flow-cycle"] = "flow-cycle.html",   // ?name= 단일 · 매개변수 없음/?system= 전체 편집(bulkCycleApp)
 };
 // 구 통합 경로 → 물리 분리 페이지 리다이렉트(가동시간·이상 분리, 2026-07-01). 쿼리스트링 보존.
-//   /uptime, /oee 는 이제 종합효율 현황(/uptime-oee)으로 302. 이상·알람은 좌측 나브/링크가 /uptime-alarm 직접 이동.
+//   /uptime, /oee 는 이제 효율 현황(/uptime-oee)으로 302. 이상·알람은 좌측 나브/링크가 /uptime-alarm 직접 이동.
 var legacyRedirects = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 {
     ["/uptime"] = "/uptime-oee",

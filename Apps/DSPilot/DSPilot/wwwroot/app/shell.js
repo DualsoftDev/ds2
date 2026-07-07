@@ -296,7 +296,7 @@ window.dspDirtyRegister = function (fn) { window._dspDirtyChecker = fn; };
         // ── 3) 네비게이션 정의 (라우트/아이콘 — 라이브 대시보드는 '/'). ──
         var NAV_ITEMS = [
             { label: '대시보드',    href: '/',                    icon: 'space_dashboard', match: 'all',    legacy: '/app/dashboard.html' },
-            // 동작편차·가동시간·이상(종합설비효율/종합생산효율/이상·알람)은 최상위 링크에서 제거하고, 시스템 '○○ 관리'
+            // 동작편차·가동시간·이상(설비효율/생산효율/이상·알람)은 최상위 링크에서 제거하고, 시스템 '○○ 관리'
             // 아코디언 안의 분석 그룹(추이 분석/사이클 분석 옆)으로 이동 — buildSystemSubmenu 참조.
             // OEE 메뉴 숨김 — 페이지(/oee)는 URL 로 접근 가능, 네비에서만 제외. 복구는 이 줄 주석 해제.
             // { label: 'OEE',         href: '/oee',                 icon: 'precision_manufacturing', match: 'prefix', legacy: '/app/oee.html' },
@@ -381,7 +381,7 @@ window.dspDirtyRegister = function (fn) { window._dspDirtyChecker = fn; };
         var onFlowCycleBulk = path === '/flow-cycle' && !qs.get('name');
         var flowCycleSystem = onFlowCycleBulk ? (qs.get('system') || '') : '';
 
-        // 동작편차/종합설비효율/종합생산효율/이상·알람 페이지 — 그룹은 ?flow= 로 이동. 현재 페이지+선택 Flow 로 강조/자동펼침.
+        // 동작편차/설비효율/생산효율/이상·알람 페이지 — 그룹은 ?flow= 로 이동. 현재 페이지+선택 Flow 로 강조/자동펼침.
         var onHeatmapPage = (path === '/heatmap');
         var onOeePage     = (path === '/uptime-oee' || path === '/uptime' || path === '/oee');
         var onTeepPage    = (path === '/uptime-teep');
@@ -632,8 +632,8 @@ window.dspDirtyRegister = function (fn) { window._dspDirtyChecker = fn; };
                     '/flow-cycle?system=' + encodeURIComponent(sys.name));
                 var gHeat  = buildAnalysisGroup(flows, '동작편차',    'gradient',      '/heatmap',      'flow', onHeatmapPage, heatmapFlow, false, '/heatmap');
                 // 종합효율 현황 → 설비효율(OEE)/생산효율(TEEP) 물리 분리(2026-07-03) — 구 내부 탭(?section=) 폐지.
-                var gOee   = buildAnalysisGroup(flows, '종합설비효율 현황', 'speed',       '/uptime-oee',   'flow', onOeePage,     oeeFlow,     false, '/uptime-oee');
-                var gTeep  = buildAnalysisGroup(flows, '종합생산효율 현황', 'trending_up', '/uptime-teep',  'flow', onTeepPage,    teepFlow,    false, '/uptime-teep');
+                var gOee   = buildAnalysisGroup(flows, '설비효율 현황', 'speed',       '/uptime-oee',   'flow', onOeePage,     oeeFlow,     false, '/uptime-oee');
+                var gTeep  = buildAnalysisGroup(flows, '생산효율 현황', 'trending_up', '/uptime-teep',  'flow', onTeepPage,    teepFlow,    false, '/uptime-teep');
                 var gAlarm = buildAnalysisGroup(flows, '이상·알람',   'warning_amber', '/uptime-alarm', 'flow', onAlarmPage,   alarmFlow,   true,  '/uptime-alarm');
                 sub.appendChild(gTrend.wrap);
                 sub.appendChild(gCycle.wrap);

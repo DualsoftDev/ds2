@@ -7,7 +7,7 @@ using ClosedXML.Excel;
 namespace DSPilot.Services;
 
 /// <summary>
-/// 종합효율 현황(uptime-oee) 페이지의 Excel(.xlsx) 내보내기.
+/// 효율 현황(uptime-oee) 페이지의 Excel(.xlsx) 내보내기.
 ///
 /// 서버가 OEE 를 다시 계산하지 않고, 클라이언트(정적 uptime-oee.html)가 화면에 그린 현재 상태
 /// (<see cref="OeeExcelModel"/>: 종합 지표 + 가용성 분해 + 정지 구성 + 설비별 순위 + 정지 이벤트 로그
