@@ -64,6 +64,12 @@
         .settings-note { padding: 10px 12px; margin-bottom: 12px; background: var(--color-surface-variant); border: 1px solid var(--color-lines); border-left: 3px solid var(--color-primary); border-radius: var(--radius-sm); }
         .settings-note small { color: var(--color-text-secondary); line-height: 1.55; }
         .settings-hint { color: var(--color-text-secondary); margin-top: 6px; display: block; font-size: 0.72rem; line-height: 1.5; }
+        /* 딥링크 진입 시 "지금 실측값 채우기" 버튼 강조 플래시 — 사용자가 눌러야 할 곳을 즉시 인지시킨다. */
+        .calib-fill-flash { animation: calib-fill-flash 0.8s ease-in-out 3; }
+        @keyframes calib-fill-flash {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(14,124,203,0); }
+            50% { box-shadow: 0 0 0 4px rgba(14,124,203,0.45); border-color: var(--color-primary); }
+        }
         .settings-status-grid { display: grid; grid-template-columns: auto 1fr; gap: 7px 14px; font-size: 0.8rem; margin: 10px 0 14px; align-items: baseline; }
         .settings-status-grid .lbl { font-size: 0.64rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--color-text-secondary); }
         .settings-status-grid .val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--color-text-primary); }
@@ -521,7 +527,7 @@
                                         </ul>
                                     </div>
 
-                                    <button class="btn btn-outlined w-100" style="margin-top:12px;" @click="fillAutoCalibration()" :disabled="busy || autoCal.running">
+                                    <button id="calib-fill" x-ref="calibFill" class="btn btn-outlined w-100" :class="{ 'calib-fill-flash': flashCalibFill }" style="margin-top:12px;" @click="fillAutoCalibration()" :disabled="busy || autoCal.running">
                                         <span class="material-icons" x-text="autoCal.running ? 'refresh' : 'sync'"></span>
                                         <span x-text="autoCal.running ? '채우는 중…' : '지금 실측값 채우기 (재시도)'"></span>
                                     </button>
@@ -930,6 +936,7 @@
                 calib: { loaded: false, autoEnabled: true, staleCount: 0, stale: [] }, // 이상감지 게이트 상태 배지 (this.s 밖 — dirty 미유발)
                 _conn: null, _toastTimer: null, _calibTimer: null,
                 activeTab: 'general', // 유형별 탭: general | monitoring | anomaly | data | advanced (항상 기본=일반, 위치 미저장)
+                flashCalibFill: false, // 딥링크(?tab=monitoring#calib-fill) 진입 시 "지금 실측값 채우기" 버튼 강조 플래시
                 svcRestartOpen: false, // 고급 탭 "서비스 재시작" 카드 — 기본 접힘(위험 작업)
                 scanMs: 100, scanConnected: false, // PLC 스캔 주기 (Agent 동기화 — 기본 100ms)
                 autoCalibrate: true, // 자동 duration 정합 ON/OFF (Agent 동기화)
@@ -956,6 +963,29 @@
                     this.loadUserDefinedErrors();
                     // 더티 가드 등록 — 미저장 설정 변경 이탈 방지
                     window.dspDirtyRegister(() => this.settingsDirty);
+                    // 딥링크: 다른 페이지(예: 이상·알람의 "설정 > 실측 duration 자동 보정")에서
+                    //   ?tab=monitoring#calib-fill 로 진입하면 해당 탭을 열고 대상 버튼으로 스크롤·강조한다.
+                    this.applyDeepLink();
+                },
+
+                // ── URL(?tab=…#anchor) 기반 탭/앵커 딥링크 ──
+                // tab 파라미터가 유효하면 해당 탭으로 전환, 해시가 대상 요소면 스크롤 후 잠깐 플래시.
+                applyDeepLink() {
+                    const validTabs = ['general', 'monitoring', 'anomaly', 'data', 'advanced'];
+                    const params = new URLSearchParams(location.search);
+                    const tab = params.get('tab');
+                    if (tab && validTabs.includes(tab)) this.activeTab = tab;
+                    if (location.hash === '#calib-fill') {
+                        if (!tab) this.activeTab = 'monitoring'; // 탭 미지정이어도 대상이 있는 탭으로
+                        // x-show 로 탭 전환된 뒤 DOM 이 보이도록 다음 틱에 스크롤·강조.
+                        this.$nextTick(() => {
+                            const el = this.$refs.calibFill;
+                            if (!el) return;
+                            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            this.flashCalibFill = true;
+                            setTimeout(() => { this.flashCalibFill = false; }, 2400);
+                        });
+                    }
                 },
 
                 // ── 사용자 정의 에러(UserTag 정의) 읽기전용 조회 — Promaker/AASX 정의를 경량 엔드포인트로 가져온다.

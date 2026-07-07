@@ -265,7 +265,7 @@
                     <!-- 정지 고장/유지보수 도넛 — 합계가 상단 '기간 정지'와 일치 -->
                     <section class="card up-section">
                         <div class="ds-card-h"><h4>정지 구성</h4><span class="ds-card-h-sub">고장 · 유지보수 비중 (지속시간 기준)</span></div>
-                        <template x-if="faultDist.count > 0">
+                        <template x-if="faultDist.has">
                             <div class="up-dist">
                                 <svg class="up-donut" viewBox="0 0 100 100" x-html="faultDonutSvg"></svg>
                                 <div class="up-legend">
@@ -280,11 +280,11 @@
                                 </div>
                             </div>
                         </template>
-                        <template x-if="faultDist.count === 0">
+                        <template x-if="!faultDist.has">
                             <div class="ds-empty">
                                 <span class="material-icons">donut_large</span>
                                 <div class="ds-empty-title">표시할 정지 데이터 없음</div>
-                                <div class="ds-empty-desc">정지 이벤트가 기록되면 고장/유지보수 비중이 도넛으로 표시됩니다.</div>
+                                <div class="ds-empty-desc">이 기간 감지된 정지 이벤트가 없습니다(이벤트 없이 남는 초 단위 벽시계 잔여는 노이즈로 간주 — 추이엔 표기, 도넛엔 제외). 이상치초과 사이클·무사이클·고장비트 정지가 잡히면 고장/유지보수 비중이 도넛으로 표시됩니다.</div>
                             </div>
                         </template>
                         <div style="font-size:0.62rem; color:var(--color-text-secondary); margin-top:10px;">

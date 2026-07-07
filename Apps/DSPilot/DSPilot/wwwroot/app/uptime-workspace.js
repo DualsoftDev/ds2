@@ -1821,9 +1821,14 @@
                     const down = Math.max(0, avail - run);
                     const maintMs = Math.min(down, Math.max(0, o.downMaintWallMs || 0));
                     const faultMs = Math.max(0, down - maintMs);
-                    const count = Array.isArray(this.downtime) ? this.downtime.length : 0;  // 정지 이벤트 건수(표시용)
+                    // 정지건수 = 벽시계 감지 정지 이벤트 수(요약 KPI failureCount = 가용성 정산 바의 'N건'과 동일 소스).
+                    //   failureCount 는 이상치초과 사이클 + 무사이클 갭을 센다(this.downtime 로그 테이블엔 무사이클/고장비트만
+                    //   적재돼 로그 0 이어도 실제 정지는 있을 수 있으므로 로그 행 수는 쓰지 않는다).
+                    const count = Math.max(0, o.failureCount || 0);
                     const totalMs = faultMs + maintMs;
-                    if (totalMs <= 0) return { count, segs: [] };
+                    // 표시 게이트 = 감지된 정지 이벤트(failureCount) 유무. 이벤트 없이 남는 초 단위 벽시계 잔여(사이클 간
+                    //   미세 슬랙)는 노이즈로 보고 도넛을 비운다 — 추이/바는 가용성 정산상 이 잔여를 계속 표기(숫자 정합).
+                    if (totalMs <= 0 || count <= 0) return { count, has: false, segs: [] };
                     const C = 2 * Math.PI * 38;
                     const segs = [];
                     const defs = [{ def: FAULT_DEF, ms: faultMs }, { def: MAINT_DEF, ms: maintMs }].filter(x => x.ms > 0);
@@ -1834,7 +1839,7 @@
                         segs.push({ label: def.label, color: def.color, cls: def.cls, pat: def.pat, ms, share: Math.round(ms * 100 / totalMs),
                                     dash: len.toFixed(2) + ' ' + gap.toFixed(2), offset: offset.toFixed(2) });
                     }
-                    return { count, segs };
+                    return { count, has: true, segs };
                 },
                 // faultDist → 도넛 내부 SVG 문자열 (x-html)
                 get faultDonutSvg() {
