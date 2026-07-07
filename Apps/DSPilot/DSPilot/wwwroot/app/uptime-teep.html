@@ -125,7 +125,7 @@
                         <!-- 범례 — 데이터색은 JS 팔레트와 동일 고정값(3D 는 우측면 톤 기준). 높이=TEEP · 색=OEE 등급 -->
                         <!-- 높이/막대=TEEP · 색=OEE 등급 · 캡=정지 · 골드 점선=계획 — 3D·2D 동일 인코딩(같은 정보) -->
                         <div class="up-teep-legend" x-show="teepMatrixMode()">
-                            <div class="up-teep-leg" style="font-weight:700;"><span x-text="teepMatrixMode() === 'iso' ? '높이' : '막대 높이'"></span>=TEEP(가동) · 색=OEE↓</div>
+                            <div class="up-teep-leg" style="font-weight:700;"><span x-text="teepMatrixMode() === 'iso' ? '높이' : '막대 높이'"></span>=가동량(TEEP) · 색=효율(OEE, 진할수록 좋음)</div>
                             <div class="up-teep-leg"><span class="sw" style="background:#FBC02D;"></span>OEE &lt;55%</div>
                             <div class="up-teep-leg"><span class="sw" style="background:#81C784;"></span>55~70%</div>
                             <div class="up-teep-leg"><span class="sw" style="background:#4CAF50;"></span>70~85%</div>
@@ -134,11 +134,13 @@
                             <div class="up-teep-leg"><span class="sw" style="background:#C62828;"></span>정지(윗쪽 캡)</div>
                         </div>
                         <div class="up-teep-legend" x-show="teepShowPlanned()">
-                            <div class="up-teep-leg"><span class="sw sw-plan"></span>계획 기준선 <em>(가동하기로 한 시간 — 높이가 닿으면 계획시간 소진, 아래면 초과 유휴)</em></div>
+                            <div class="up-teep-leg"><span class="sw sw-plan"></span>계획 기준선 <em>(가동하기로 계획한 양 — 막대가 닿으면 계획대로, 못 미치면 덜 돌린 것)</em></div>
                         </div>
                         <div class="up-form-hint" style="margin-top:8px;">
-                            <b>OEE</b>=가동한 시간 안에서의 효율 · <b>TEEP</b>=전체 시간(캘린더) 대비 가동 — 분모가 다른 두 지표입니다.
-                            색(OEE)이 나쁜데 <b>높으면(TEEP↑) 속도·품질</b> 문제, <b>낮으면(TEEP↓) 가동률(계획 대비 미가동)</b> 문제입니다.
+                            <div><b>OEE</b>=가동한 시간 안에서의 효율 · <b>TEEP</b>=전체 시간(캘린더) 대비 가동.</div>
+                            <div style="margin-top:5px;"><b>색(OEE)이 안 좋을 때</b></div>
+                            <div style="margin-top:2px;">• 막대가 <b>높으면</b> → 돌긴 하는데 느리거나 불량 (속도·품질 문제)</div>
+                            <div style="margin-top:1px;">• 막대가 <b>낮으면</b> → 아예 덜 돌렸다 (정지·미가동 문제)</div>
                         </div>
                         <div class="up-form-hint" style="margin-top:6px;" x-show="teepMatrixInsight()" x-text="teepMatrixInsight()"></div>
                     </div>

@@ -425,12 +425,12 @@
 
                                     <label class="switch mb-2">
                                         <input type="checkbox" x-model="s.autoCalibration.enabled" />
-                                        클린 가동 누적 시 자동 실행
+                                        정상 가동 누적 시 자동 실행
                                     </label>
-                                    <small class="settings-hint">Flow 가 아래 클린 가동 횟수를 채우면 1회 자동 보정. 끄면 수동("지금 실측값 채우기")만 동작합니다.</small>
+                                    <small class="settings-hint">Flow 가 아래 정상 가동 횟수를 채우면 1회 자동 보정. 끄면 수동("지금 실측값 채우기")만 동작합니다.</small>
 
                                     <div class="form-group" style="margin-top:12px;">
-                                        <label class="form-label">최소 클린 가동 횟수</label>
+                                        <label class="form-label">최소 정상 가동 횟수</label>
                                         <input type="number" class="form-field mono" x-model.number="s.autoCalibration.minCleanCycles" min="1" max="1000" placeholder="10" />
                                         <small class="settings-hint">이상치 제외 가동시간 존재 가동 기준. 기본 10.</small>
                                     </div>
@@ -511,7 +511,7 @@
                                     </div>
                                     <div x-show="calib.staleCount > 0" x-cloak style="margin-top:6px;">
                                         <small class="settings-hint" x-show="calib.autoEnabled">
-                                            모델이 바뀐(재발행 등) Work 의 확정값이 어긋나 게이트가 닫혔습니다. 새 클린 가동이 쌓이는 대로 자동 재측정되어 다시 열립니다.
+                                            모델이 바뀐(재발행 등) Work 의 확정값이 어긋나 게이트가 닫혔습니다. 새 정상 가동이 쌓이는 대로 자동 재측정되어 다시 열립니다.
                                         </small>
                                         <small class="settings-hint" x-show="!calib.autoEnabled" style="color:var(--color-warning,#e67e22);">
                                             자동 보정(1번)이 꺼져 있어 자동 복구되지 않습니다. 아래 "지금 실측값 채우기" 를 누르거나 자동 보정을 켜세요.
@@ -1337,7 +1337,7 @@
                     if (this.busy || this.autoCal.running) return;
                     const baseMsg =
                         '현재까지 수집된 실측값으로 적합 Flow 디바이스의 Duration/Max(및 설정 시 Min)를 project.aasx 에 즉시 기록합니다.\n\n' +
-                        '• 클린 가동이 충분한 Flow 의 디바이스만 보정\n' +
+                        '• 정상 가동이 충분한 Flow 의 디바이스만 보정\n' +
                         '• 측정 span 이 있는 디바이스만 덮어씁니다\n' +
                         '• 완료 여부와 무관하게 다시 실행할 수 있습니다';
                     if (this.settingsDirty) {
