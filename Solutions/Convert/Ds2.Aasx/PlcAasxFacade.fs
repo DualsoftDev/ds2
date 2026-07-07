@@ -56,6 +56,9 @@ module PlcAasxFacade =
             |> Array.toList
 
     // ── DsStore 구축 ──────────────────────────────────────────────────────────
+    // Promaker 구조 일치: active system 1개(sampleName) + passive device 다수.
+    // SYSTEM 컬럼 값이 여러 개여도 모두 단일 active system 아래 flow 로 귀속.
+    // flow 이름 충돌 방지: 서로 다른 SYSTEM 값이 같은 flow 이름을 가지면 "SYS_FLOW" 로 한정.
 
     let private buildStore (sampleName: string) (rows: Row list) : DsStore * Project =
         let store = DsStore()
@@ -63,55 +66,53 @@ module PlcAasxFacade =
         let project = Project(sampleName)
         store.DirectWrite(store.Projects, project)
 
-        // System registry — name → DsSystem (active/passive 구분)
-        let sysReg = System.Collections.Generic.Dictionary<string, DsSystem>(StringComparer.OrdinalIgnoreCase)
+        // ── Active system: 1개(sampleName) ──────────────────────────────────
+        let activeSystem = DsSystem(sampleName)
+        activeSystem.SystemType <- Some "Cylinder_1"
+        store.DirectWrite(store.Systems, activeSystem)
+        project.ActiveSystemIds.Add(activeSystem.Id)
 
-        let getOrCreateSystem name isActive =
-            match sysReg.TryGetValue(name) with
+        // ── Passive device registry (Device 컬럼) ──────────────────────────
+        let deviceReg = System.Collections.Generic.Dictionary<string, DsSystem>(StringComparer.OrdinalIgnoreCase)
+
+        let getOrCreateDevice name =
+            match deviceReg.TryGetValue(name) with
             | true, s -> s
             | _ ->
                 let s = DsSystem(name)
                 s.SystemType <- Some "Cylinder_1"
                 store.DirectWrite(store.Systems, s)
-                sysReg.[name] <- s
-                if isActive then project.ActiveSystemIds.Add(s.Id)
-                else project.PassiveSystemIds.Add(s.Id)
+                deviceReg.[name] <- s
+                project.PassiveSystemIds.Add(s.Id)
                 s
 
-        // Active systems (System 컬럼) 먼저 등록
-        rows
-        |> List.map (fun r -> r.System)
-        |> List.filter (String.IsNullOrWhiteSpace >> not)
-        |> List.distinct
-        |> List.iter (fun n -> getOrCreateSystem n true |> ignore)
-
-        // Passive devices (Device 컬럼) — active와 겹치지 않으면 passive 등록
         rows
         |> List.map (fun r -> r.Device)
         |> List.filter (String.IsNullOrWhiteSpace >> not)
         |> List.distinct
-        |> List.iter (fun n ->
-            if not (sysReg.ContainsKey n) then getOrCreateSystem n false |> ignore)
+        |> List.iter (fun n -> getOrCreateDevice n |> ignore)
 
-        // Flow registry — (sysName * flowName) → Flow
+        // ── Flow registry — (sysName * flowName) → Flow (active system 아래) ─
+        // 동일 flowName 이 여러 SYSTEM 에 존재할 수 있으므로 key 는 (sys,flow) 쌍.
+        // flow 이름은 sys 가 비어있지 않으면 "SYS_FLOW" 로 한정.
         let flowReg = System.Collections.Generic.Dictionary<string * string, Flow>()
 
         let getOrCreateFlow sysName flowName =
-            if String.IsNullOrWhiteSpace sysName || String.IsNullOrWhiteSpace flowName then None
+            if String.IsNullOrWhiteSpace flowName then None
             else
                 let key = (sysName, flowName)
                 match flowReg.TryGetValue(key) with
                 | true, f -> Some f
                 | _ ->
-                    match sysReg.TryGetValue(sysName) with
-                    | false, _ -> None
-                    | true, sys ->
-                        let f = Flow(flowName, sys.Id)
-                        store.DirectWrite(store.Flows, f)
-                        flowReg.[key] <- f
-                        Some f
+                    let qualName =
+                        if String.IsNullOrWhiteSpace sysName then flowName
+                        else $"{sysName}_{flowName}"
+                    let f = Flow(qualName, activeSystem.Id)
+                    store.DirectWrite(store.Flows, f)
+                    flowReg.[key] <- f
+                    Some f
 
-        // Work registry — (sysName * flowName * workName) → Work
+        // ── Work registry ──────────────────────────────────────────────────
         let workReg = System.Collections.Generic.Dictionary<string * string * string, Work>()
 
         let getOrCreateWork sysName flowName workName =
@@ -129,7 +130,7 @@ module PlcAasxFacade =
                         workReg.[key] <- w
                         Some w
 
-        // ApiDef registry — (deviceName * apiName) → ApiDef
+        // ── ApiDef registry — (deviceName * apiName) → ApiDef ─────────────
         let apiDefReg = System.Collections.Generic.Dictionary<string * string, ApiDef>()
 
         let getOrCreateApiDef deviceName apiName =
@@ -139,7 +140,7 @@ module PlcAasxFacade =
                 match apiDefReg.TryGetValue(key) with
                 | true, d -> Some d
                 | _ ->
-                    match sysReg.TryGetValue(deviceName) with
+                    match deviceReg.TryGetValue(deviceName) with
                     | false, _ -> None
                     | true, dev ->
                         let d = ApiDef(apiName, dev.Id)
@@ -147,12 +148,12 @@ module PlcAasxFacade =
                         apiDefReg.[key] <- d
                         Some d
 
-        // Flow/Work 존재 보장 (Api 없는 행 포함)
+        // Flow/Work 존재 보장
         for r in rows do
             getOrCreateFlow r.System r.Flow |> ignore
             getOrCreateWork r.System r.Flow r.Work |> ignore
 
-        // Call + ApiCall 생성 (Api 있는 행만)
+        // Call + ApiCall 생성
         for r in rows do
             if not (String.IsNullOrWhiteSpace r.Api) then
                 getOrCreateWork r.System r.Flow r.Work
@@ -182,7 +183,8 @@ module PlcAasxFacade =
     let exportDs2CsvToAasxBytes (sampleName: string) (ds2Csv: string) (iriPrefix: string) : byte[] =
         try
             let rows = parseDs2Csv ds2Csv
-            if rows.IsEmpty then null
+            if rows.IsEmpty then
+                failwithf "Ds2CSV 데이터 없음 (csv.Length=%d) — 파이프라인 결과를 확인하세요" ds2Csv.Length
             else
                 let store, project = buildStore sampleName rows
                 let tempPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".aasx")
@@ -221,25 +223,27 @@ module PlcAasxFacade =
     let exportDs2CsvToDevicesZipBytes (sampleName: string) (ds2Csv: string) (iriPrefix: string) : byte[] =
         try
             let rows = parseDs2Csv ds2Csv
-            if rows.IsEmpty then null
-            else
-                let store, project = buildStore sampleName rows
-                let ms = new MemoryStream()
-                let zip = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen = true)
-                try
-                    let getSystem id =
-                        match store.Systems.TryGetValue(id) with
-                        | true, s -> Some s
-                        | _ -> None
-                    project.ActiveSystemIds
-                    |> Seq.choose getSystem
-                    |> Seq.iter (fun s -> exportDeviceToZip store project s iriPrefix "active" zip)
-                    project.PassiveSystemIds
-                    |> Seq.choose getSystem
-                    |> Seq.iter (fun s -> exportDeviceToZip store project s iriPrefix "passive" zip)
-                finally
-                    zip.Dispose()
-                ms.ToArray()
+            if rows.IsEmpty then
+                failwithf "Ds2CSV 데이터 없음 (csv.Length=%d) — 파이프라인 결과를 확인하세요" ds2Csv.Length
+            let store, project = buildStore sampleName rows
+            let ms = new MemoryStream()
+            let zip = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen = true)
+            try
+                let getSystem id =
+                    match store.Systems.TryGetValue(id) with
+                    | true, s -> Some s
+                    | _ -> None
+                // active/ → 단일 active system AASX (1개)
+                project.ActiveSystemIds
+                |> Seq.choose getSystem
+                |> Seq.iter (fun s -> exportDeviceToZip store project s iriPrefix "active" zip)
+                // passive/ → Device별 AASX
+                project.PassiveSystemIds
+                |> Seq.choose getSystem
+                |> Seq.iter (fun s -> exportDeviceToZip store project s iriPrefix "passive" zip)
+            finally
+                zip.Dispose()
+            ms.ToArray()
         with ex ->
             eprintfn "[PlcAasxFacade] exportDs2CsvToDevicesZipBytes failed: %s" ex.Message
             null
