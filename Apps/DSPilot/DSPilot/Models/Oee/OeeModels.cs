@@ -284,7 +284,9 @@ public sealed record PlannedStopsDto(
     string Source,
     IReadOnlyList<PlannedStopWindowDto> Windows,
     bool Auto,
-    int CtMultiplier);
+    int CtMultiplier,
+    // 휴무 요일(생산 안 하는 요일). DayOfWeek 정수(0=일 … 6=토). 비어 있음 = 매일 생산. OEE 가용성 분모서 제외(TEEP 미영향).
+    IReadOnlyList<int> ExcludedWeekdays);
 
 /// <summary>
 /// 자동 비생산 시간대 windows. 14일 평균 패턴(auto-pattern, DaysAnalyzed=14) 또는 이번 기간 실제 제외분(actual, DaysAnalyzed=0).

@@ -61,6 +61,15 @@ public class OeeManualSettings
     public PlannedAutoPatternCache? AutoPatternCache { get; set; }
 
     /// <summary>
+    /// <b>휴무 요일</b>(애초에 생산하지 않는 요일, 라인 전체). 값은 <see cref="System.DayOfWeek"/> 정수
+    /// (0=일 … 6=토, JS <c>Date.getDay()</c> 와 동일). 이 요일의 하루(00:00~24:00) 전체는 비생산 시간대와 동일하게
+    /// 가용성(A) 분모(생산가능시간)에서 통째 제외된다 — 쉬는 날의 정지가 가동률을 깎지 않게. <b>OEE 전용</b>:
+    /// TEEP(생산효율)의 달력 분모(기간×flow수)는 표준 정의(휴일=이용손실)를 지키기 위해 건드리지 않는다.
+    /// 비어 있음(기본) = 매일 생산(요일 제외 없음). 성격상 비생산 시간대(<see cref="PlannedStops"/>)의 일(day) 단위 형제.
+    /// </summary>
+    public List<int> ExcludedWeekdays { get; set; } = [];
+
+    /// <summary>
     /// 대시보드 "가동횟수" 카드의 <b>출력(생산) 기준 Flow</b> 지정. flow별 사이클수를 그냥 합치면 직렬(파이프라인)
     /// 공정에서 같은 제품이 여러 flow를 지나며 공정 단계 수만큼 과다 계상되므로, "완제품 1개 = 1사이클"인
     /// flow(들)를 지정해 그 합만 산출량으로 보여준다(지정 시 그 flow들의 사이클수 합).

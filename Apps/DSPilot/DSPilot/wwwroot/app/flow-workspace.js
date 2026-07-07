@@ -46,6 +46,7 @@
                 periodStart: null, periodEnd: null,
                 _trendSeq: 0,
                 _drawRetry: 0,
+                trendClipped: false,   // 추이 차트 Y축이 이상치 때문에 로버스트 상한으로 축약됐는지
                 // 날짜 직접 지정(기간) — 프리셋(오늘/7·30·60일) 외에 시작·종료를 직접 골라 조회.
                 trendRangeOpen: false, customStart: '', customEnd: '', _trendRangeTimer: null,
                 trendExporting: false,   // 추이 Excel 내보내기 진행
@@ -501,6 +502,17 @@
                     const grid = css('--color-lines') || 'rgba(14,27,42,0.10)';
                     const tickColor = css('--color-text-secondary') || '#5A6B7E';
 
+                    // hex(#RGB/#RRGGBB) → rgba 문자열 (차트 영역 채움용)
+                    const hexA = (hex, a) => {
+                        let h = (hex || '').replace('#', '').trim();
+                        if (h.length === 3) h = h.split('').map(c => c + c).join('');
+                        if (h.length !== 6) return `rgba(14,124,203,${a})`;
+                        const n = parseInt(h, 16);
+                        return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+                    };
+                    // 라벨용 짧은 시간 포맷 (막대 위 이상치 표시)
+                    const fmtShort = (sec) => { const ms = sec * 1000; if (ms >= 3600000) return Math.round(ms / 3600000) + '시간'; if (ms >= 60000) return Math.round(ms / 60000) + '분'; return Math.round(ms / 1000) + '초'; };
+
                     if (trendCv) {
                         // 최근 히스토리와 동일한 차트 스타일: 버킷별 MT/WT 스택 막대 + 평균 CT 기준선
                         const cssRaw = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
@@ -510,9 +522,25 @@
                         const mtData = this.buckets.map(b => toSec(b.avgMT));
                         const wtData = this.buckets.map(b => toSec(b.avgWT));
                         const avg = this.trend.avgCT > 0 ? toSec(this.trend.avgCT) : null;
+
+                        // ── 이상치 대응 Y축 상한(로버스트) ──
+                        // 가동이 멈춘 한 구간의 대기시간이 유난히 크면 축이 늘어나 나머지 막대가 납작해져
+                        // "허전"하게 보인다. 뚜렷한 이상치(최댓값 > p90×2)일 때만 축 상한을 p90 기반으로 고정하고,
+                        // 잘린 막대는 ▲+실제값 라벨과 툴팁으로 정직하게 노출한다.
+                        const totalsSec = this.buckets.map(b => toSec(b.avgMT) + toSec(b.avgWT)).filter(v => v > 0).sort((a, b) => a - b);
+                        let yMax = null;
+                        if (totalsSec.length >= 4) {
+                            const at = (q) => totalsSec[Math.min(totalsSec.length - 1, Math.floor(q * totalsSec.length))];
+                            const p90 = at(0.90), median = at(0.5), maxT = totalsSec[totalsSec.length - 1];
+                            if (p90 > 0 && maxT > p90 * 2) {
+                                yMax = Math.ceil(Math.max(p90 * 1.25, median * 1.5, (avg || 0) * 1.2));
+                            }
+                        }
+                        this.trendClipped = yMax != null;
+
                         const datasets = [
-                            { label: '동작시간', data: mtData, backgroundColor: cMtBar, stack: 'ct', borderWidth: 0 },
-                            { label: '대기시간', data: wtData, backgroundColor: cWtBar, stack: 'ct', borderWidth: 0 },
+                            { label: '동작시간', data: mtData, backgroundColor: cMtBar, stack: 'ct', borderWidth: 0, borderRadius: 3, maxBarThickness: 40 },
+                            { label: '대기시간', data: wtData, backgroundColor: cWtBar, stack: 'ct', borderWidth: 0, borderRadius: 3, maxBarThickness: 40 },
                         ];
                         if (avg != null) {
                             datasets.push({ type: 'line', label: '평균 가동시간', data: labels.map(() => avg),
@@ -520,14 +548,37 @@
                         }
                         const self = this;
                         const fmtMs = (s) => self.fmt(s * 1000);
+                        // 잘린 막대(합계 > yMax) 위에 ▲+실제값을 그려 데이터 은폐를 방지
+                        const overflowPlugin = {
+                            id: 'fwTrendOverflow',
+                            afterDatasetsDraw(chart) {
+                                if (yMax == null) return;
+                                const ctx = chart.ctx, area = chart.chartArea;
+                                const meta = chart.getDatasetMeta(0);
+                                if (!meta || !meta.data) return;
+                                ctx.save();
+                                ctx.font = '700 10px ' + (getComputedStyle(document.body).fontFamily || 'sans-serif');
+                                ctx.fillStyle = cRed;
+                                ctx.textAlign = 'center';
+                                for (let i = 0; i < meta.data.length; i++) {
+                                    const total = (mtData[i] || 0) + (wtData[i] || 0);
+                                    if (total > yMax + 0.01 && meta.data[i]) {
+                                        ctx.fillText('▲ ' + fmtShort(total), meta.data[i].x, area.top + 11);
+                                    }
+                                }
+                                ctx.restore();
+                            }
+                        };
                         _charts.trend = new Chart(trendCv, {
                             type: 'bar',
                             data: { labels, datasets },
+                            plugins: [overflowPlugin],
                             options: {
                                 responsive: true, maintainAspectRatio: false, animation: false,
                                 interaction: { mode: 'index', intersect: false },
+                                layout: { padding: { top: yMax != null ? 16 : 4 } },
                                 plugins: {
-                                    legend: { position: 'top', labels: { color: tickColor, boxWidth: 12, font: { size: 11 } } },
+                                    legend: { position: 'top', labels: { color: tickColor, boxWidth: 12, usePointStyle: true, pointStyle: 'rectRounded', font: { size: 11 } } },
                                     tooltip: {
                                         filter: (it) => it.dataset.type !== 'line',
                                         callbacks: {
@@ -551,17 +602,21 @@
                                 },
                                 scales: {
                                     x: { stacked: true, grid: { display: false }, ticks: { color: tickColor, font: { size: 10 }, maxRotation: 0, autoSkip: false, callback: edgeTickCallback } },
-                                    y: { stacked: true, beginAtZero: true, min: 0, grid: { color: grid }, ticks: { color: tickColor, font: { size: 10 }, callback: (v) => fmtMs(v) }, title: { display: true, text: '시간', color: tickColor } },
+                                    y: { stacked: true, beginAtZero: true, min: 0, max: yMax != null ? yMax : undefined, grid: { color: grid }, ticks: { color: tickColor, font: { size: 10 }, callback: (v) => fmtMs(v) }, title: { display: true, text: '시간', color: tickColor } },
                                 },
                             }
                         });
                         _charts.trend.$ctx = { labels, mt: mtData, wt: wtData, avg };
                     }
                     if (countCv) {
+                        const cctx = countCv.getContext('2d');
+                        const grad = cctx.createLinearGradient(0, 0, 0, countCv.clientHeight || 260);
+                        grad.addColorStop(0, hexA(cCt, 0.30));
+                        grad.addColorStop(1, hexA(cCt, 0.02));
                         _charts.count = new Chart(countCv, {
                             type: 'line',
-                            data: { labels, datasets: [{ label: '가동횟수', data: this.buckets.map(b => b.count), borderColor: cCt, backgroundColor: cCt, borderWidth: 2, tension: 0.3, pointRadius: 2, pointHoverRadius: 4, fill: false, spanGaps: true }] },
-                            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: grid }, ticks: { color: tickColor, font: { size: 10 }, maxRotation: 0, autoSkip: false, callback: edgeTickCallback } }, y: { beginAtZero: true, grid: { color: grid }, ticks: { color: tickColor, precision: 0 } } } }
+                            data: { labels, datasets: [{ label: '가동횟수', data: this.buckets.map(b => b.count), borderColor: cCt, backgroundColor: grad, borderWidth: 2.5, tension: 0.35, pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: cCt, pointHoverBorderColor: '#fff', pointHoverBorderWidth: 2, fill: true, spanGaps: true }] },
+                            options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { display: false }, tooltip: { callbacks: { title: (items) => items[0].label || '', label: (c) => '가동 ' + (c.parsed.y ?? 0).toLocaleString() + '회' } } }, scales: { x: { grid: { display: false }, ticks: { color: tickColor, font: { size: 10 }, maxRotation: 0, autoSkip: false, callback: edgeTickCallback } }, y: { beginAtZero: true, grid: { color: grid }, ticks: { color: tickColor, precision: 0 } } } }
                         });
                     }
                 },

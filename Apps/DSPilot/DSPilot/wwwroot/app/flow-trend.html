@@ -127,12 +127,46 @@
 
                         <template x-if="!trendLoading && trend.cycleCount > 0">
                             <div>
-                                <div class="fw-chart-tall"><canvas x-ref="trendChart"></canvas></div>
-
-                                <div>
-                                    <div class="ds-card-h"><h4 style="font-size:0.78rem;">가동횟수</h4></div>
-                                    <div class="fw-chart-md"><canvas x-ref="countChart"></canvas></div>
+                                <!-- 요약 KPI (기간 전체) -->
+                                <div class="fw-trend-kpi-row">
+                                    <div class="fw-trend-kpi">
+                                        <span class="fw-trend-kpi-label">가동 횟수</span>
+                                        <span class="fw-trend-kpi-value" x-text="trend.cycleCount.toLocaleString() + '회'"></span>
+                                        <span class="fw-trend-kpi-sub" x-text="'비가동 ' + trend.idleCount.toLocaleString() + '회'"></span>
+                                    </div>
+                                    <div class="fw-trend-kpi">
+                                        <span class="fw-trend-kpi-label">평균 가동시간</span>
+                                        <span class="fw-trend-kpi-value" x-text="fmtDur(trend.avgCT)"></span>
+                                        <span class="fw-trend-kpi-sub" x-text="fmtDur(trend.minCT) + ' ~ ' + fmtDur(trend.maxCT)"></span>
+                                    </div>
+                                    <div class="fw-trend-kpi">
+                                        <span class="fw-trend-kpi-label">평균 동작시간</span>
+                                        <span class="fw-trend-kpi-value" style="color:var(--dash-mt,#12A594);" x-text="fmtDur(trend.avgMT)"></span>
+                                        <span class="fw-trend-kpi-sub">실제 동작(MT)</span>
+                                    </div>
+                                    <div class="fw-trend-kpi">
+                                        <span class="fw-trend-kpi-label">평균 대기시간</span>
+                                        <span class="fw-trend-kpi-value" x-text="fmtDur(trend.avgWT)"></span>
+                                        <span class="fw-trend-kpi-sub">대기(WT)</span>
+                                    </div>
+                                    <div class="fw-trend-kpi">
+                                        <span class="fw-trend-kpi-label">가동률</span>
+                                        <span class="fw-trend-kpi-value" x-text="Math.round(trend.utilization * 100) + '%'"></span>
+                                        <span class="fw-trend-kpi-sub">동작 ÷ 전체</span>
+                                    </div>
                                 </div>
+
+                                <div class="ds-card-h fw-chart-h">
+                                    <h4 style="font-size:0.78rem;">가동시간 구성 <span class="fw-chart-h-hint">버킷별 평균 · 동작 + 대기</span></h4>
+                                </div>
+                                <div class="fw-chart-tall"><canvas x-ref="trendChart"></canvas></div>
+                                <div class="fw-chart-note" x-show="trendClipped" x-cloak>
+                                    <span class="material-icons">info</span>
+                                    한 구간의 대기시간이 유난히 길어(가동 정지 등) 세로축을 축약했습니다. ▲ 표시 막대는 실제값이 더 크며, 막대에 마우스를 올리면 정확한 값을 볼 수 있습니다.
+                                </div>
+
+                                <div class="ds-card-h fw-chart-h"><h4 style="font-size:0.78rem;">가동횟수</h4></div>
+                                <div class="fw-chart-md"><canvas x-ref="countChart"></canvas></div>
                             </div>
                         </template>
                     </section>

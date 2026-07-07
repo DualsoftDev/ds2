@@ -38,7 +38,8 @@ public class OeePlannedStopsController : OeeControllerBase
         var manual = oee.PlannedStops ?? new List<PlannedStopWindow>();
         var windows = manual.Select(w => new PlannedStopWindowDto(w.StartMinutes, w.EndMinutes, w.Label)).ToList();
         var source = auto ? "auto" : (windows.Count > 0 ? "manual" : "none");
-        return new PlannedStopsDto(source, windows, auto, (int)OeeMath.NonProductionCtMultiplier);
+        return new PlannedStopsDto(source, windows, auto, (int)OeeMath.NonProductionCtMultiplier,
+            oee.ExcludedWeekdays ?? new List<int>());
     }
 
     // ── GET /api/oee/planned-stops/auto-pattern ───────────────────────────
@@ -136,6 +137,16 @@ public class OeePlannedStopsController : OeeControllerBase
             .Select(w => new PlannedStopWindow { StartMinutes = w.StartMinutes, EndMinutes = w.EndMinutes, Label = w.Label })
             .ToList();
         _settings.SavePlannedStops(windows);
+        return GetPlannedStops();
+    }
+
+    // ── PUT /api/oee/planned-stops/excluded-weekdays ──────────────────────
+    // 휴무 요일(생산 안 하는 요일) 저장. DayOfWeek 정수(0=일 … 6=토). 비생산 시간대와 독립 — 자동/수동 토글과 무관하게
+    // 항상 적용된다(이 요일의 하루는 OEE 가용성 분모서 통째 제외, TEEP 미영향). 비어 있음 = 매일 생산.
+    [HttpPut("planned-stops/excluded-weekdays")]
+    public ActionResult<PlannedStopsDto> SetExcludedWeekdays([FromBody] ExcludedWeekdaysRequest? req)
+    {
+        _settings.SaveExcludedWeekdays(req?.Days ?? new List<int>());
         return GetPlannedStops();
     }
 

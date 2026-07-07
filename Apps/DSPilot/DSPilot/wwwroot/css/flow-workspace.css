@@ -33,8 +33,12 @@
         .fw-trend-kpi-value { font-size: 1.35rem; font-weight: 800; color: var(--color-text-primary); line-height: 1.1; font-variant-numeric: tabular-nums; }
         .fw-trend-kpi-sub { font-size: 0.74rem; color: var(--color-text-secondary); }
 
-        .fw-chart-tall { position: relative; height: 320px; margin-bottom: 16px; overflow: hidden; }
-        .fw-chart-md { position: relative; height: 260px; overflow: hidden; }
+        .fw-chart-h { margin-top: 4px; }
+        .fw-chart-h-hint { font-size: 0.68rem; font-weight: 600; color: var(--color-text-secondary); letter-spacing: 0.01em; margin-left: 6px; }
+        .fw-chart-tall { position: relative; height: 340px; margin-bottom: 8px; overflow: hidden; }
+        .fw-chart-md { position: relative; height: 220px; overflow: hidden; }
+        .fw-chart-note { display: flex; align-items: flex-start; gap: 6px; margin: 2px 0 14px; padding: 8px 11px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface)); border: 1px solid var(--color-lines); font-size: 0.74rem; line-height: 1.4; color: var(--color-text-secondary); }
+        .fw-chart-note .material-icons { font-size: 15px; color: var(--color-primary); flex-shrink: 0; margin-top: 1px; }
 
         .fw-period-controls { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; align-items: flex-start; }
         .fw-dl-group { display: flex; gap: 6px; flex-wrap: wrap; }
