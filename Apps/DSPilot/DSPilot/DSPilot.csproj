@@ -4,7 +4,7 @@
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>1.0.1.30</Version>
+    <Version>1.0.1.31</Version>
     <ApplicationIcon>DSPilot.ico</ApplicationIcon>
     <NoWarn>MSB3277</NoWarn>
     <!-- Tailwind(stitch) 빌드 의존성: node_modules 를 SDK 기본 glob(**/*.json 등)에서 제외.

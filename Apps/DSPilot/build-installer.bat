@@ -86,7 +86,7 @@ if not exist "%FFMPEG_DIR%\ffmpeg.exe" (
     if not exist "%FFMPEG_DIR%" mkdir "%FFMPEG_DIR%"
     powershell -NoProfile -Command "$ErrorActionPreference='Stop'; [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $u='https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip'; $z='%FFMPEG_DIR%\ff.zip'; $d='%FFMPEG_DIR%\ff-tmp'; Invoke-WebRequest -Uri $u -OutFile $z; Expand-Archive -Path $z -DestinationPath $d -Force; $exe=Get-ChildItem $d -Recurse -Filter ffmpeg.exe | Select-Object -First 1; Copy-Item $exe.FullName '%FFMPEG_DIR%\ffmpeg.exe' -Force; $lic=Get-ChildItem $d -Recurse -Filter LICENSE | Select-Object -First 1; if ($lic) { Copy-Item $lic.FullName '%FFMPEG_DIR%\LICENSE-ffmpeg.txt' -Force }; Remove-Item $d -Recurse -Force; Remove-Item $z"
     if !errorlevel! neq 0 (
-        echo       [WARN] ffmpeg download FAILED — installer will be built WITHOUT ffmpeg (snapshot live-grab disabled).
+        echo       [WARN] ffmpeg download FAILED — installer will be built WITHOUT ffmpeg ^(snapshot live-grab disabled^).
     )
 ) else (
     echo       ffmpeg already present, skipping.
