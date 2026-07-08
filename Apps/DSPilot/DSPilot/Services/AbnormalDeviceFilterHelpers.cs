@@ -14,11 +14,13 @@ namespace DSPilot.Services;
 /// </summary>
 public static class AbnormalDeviceFilterHelpers
 {
-    /// <summary>이상감지 4종의 (int 값, enum 이름, 한글 라벨) — UI 체크박스/라벨의 단일 소스.</summary>
+    /// <summary>
+    /// 차단 가능한 이상감지 유형 (int 값, enum 이름, 한글 라벨) — UI 체크박스/라벨의 단일 소스.
+    /// 센서 2종(SensorOpen/SensorShort)은 메모리 전용 경로(CCTV 이상탐지)로만 흘러 알람·통계·기록에
+    /// 구조적으로 나오지 않으므로 차단 대상에서 제외 — Normalize 가 기존 저장 규칙의 센서 kind 도 걸러낸다.
+    /// </summary>
     public static readonly IReadOnlyList<(int Kind, string Name, string Label)> KindOptions =
     [
-        ((int)AbnormalKind.SensorOpen,  nameof(AbnormalKind.SensorOpen),  LabelOf(AbnormalKind.SensorOpen)),
-        ((int)AbnormalKind.SensorShort, nameof(AbnormalKind.SensorShort), LabelOf(AbnormalKind.SensorShort)),
         ((int)AbnormalKind.ActionOver,  nameof(AbnormalKind.ActionOver),  LabelOf(AbnormalKind.ActionOver)),
         ((int)AbnormalKind.ActionUnder, nameof(AbnormalKind.ActionUnder), LabelOf(AbnormalKind.ActionUnder)),
     ];
@@ -74,7 +76,7 @@ public static class AbnormalDeviceFilterHelpers
     }
 
     /// <summary>
-    /// 저장 입력 정규화: 디바이스 trim·빈값 제거, 같은 디바이스 규칙 병합, kind 는 알려진 4종으로 한정·중복 제거,
+    /// 저장 입력 정규화: 디바이스 trim·빈값 제거, 같은 디바이스 규칙 병합, kind 는 KindOptions 로 한정·중복 제거,
     /// 유형이 하나도 없는 규칙은 삭제(= 차단 해제). 디바이스명 순 정렬.
     /// </summary>
     public static List<AbnormalDeviceFilter> Normalize(IEnumerable<AbnormalDeviceFilter>? rules)

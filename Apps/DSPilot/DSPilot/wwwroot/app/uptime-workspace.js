@@ -1170,9 +1170,10 @@
                         { label: '가동(근사)', data: runData, backgroundColor: cRun, stack: 's', order: 2 },
                         { label: '고장', data: failureData, backgroundColor: faultHatch, stack: 's', order: 2 },
                         { label: '유지보수', data: plannedData, backgroundColor: maintHatch, stack: 's', order: 2 },
-                        // 기본 표시(2026-07-08) — 당일 판정 모델에서 비생산이 정지 구성(도넛)에도 포함되므로 추이도 같이 보여
-                        //   숨김 빈칸("전부 파랑/빈칸" 혼선, 7/4 블랙아웃 신고 사례)을 재발시키지 않는다.
-                        { label: '비생산(제외)', data: nonProdData, backgroundColor: nightHatch, stack: 's', order: 2 },
+                        // 기본 숨김(2026-07-08 사용자 결정) — 비생산은 A 분모 밖이라 추이에선 기본으로 감추고,
+                        //   보고 싶으면 범례 클릭으로 켠다. hidden 은 생성 시에만 지정 — update-in-place 루프가
+                        //   hidden 을 건드리지 않으므로 사용자의 범례 토글이 라이브 갱신에도 유지된다.
+                        { label: '비생산(제외)', data: nonProdData, backgroundColor: nightHatch, stack: 's', order: 2, hidden: true },
                         {
                             label: `평균 ${avgRun.toFixed(1)}h`,
                             type: 'line',
@@ -1611,7 +1612,7 @@
                             runLabel: '가동 (생산가능시간 내)',
                             stopLabel: maint > 0 ? '비가동 · 고장' : (unattributed ? '비가동 · 미귀속 잔여' : '비가동'),
                             runNote: (o.normalCycleCount || 0) + '회', stopNote: failCount + '건',
-                            subtitle: '가동 ÷ 생산가능시간 · 생산가능 = 캘린더 − 비생산(지정) − 미계측 · 비가동 = 생산가능 − 가동(잔여)',
+                            subtitle: '가동 ÷ 생산가능시간(캘린더 − 비생산 − 미계측)',
                         };
                     }
                     // 폴백(shift/auto/calendar): 계획시간 분모 기준 — planTime 사용.
@@ -1629,7 +1630,7 @@
                         runLabel: '가동시간', stopLabel: '정지 (비계획)',
                         runNote: null, stopNote: null, sourceLabel: srcLabel,
                         subtitle: '가동시간 ÷ 계획생산시간 · 계획시간 폴백(' + srcLabel + ') — 가동 표본 부족',
-                        hint: '정상 가동 표본이 부족해 <b>계획시간 폴백</b>으로 가용성을 산출한다(계획시간 = ' + srcLabel + '). 가동시간에는 유휴가 포함될 수 있어 가동시간 기반보다 느슨한 근사다. 정상 가동이 쌓이면 자동으로 가동시간 기반으로 전환된다.',
+                        hint: '가동 표본 부족 — <b>계획시간 폴백</b>(' + srcLabel + ') 근사 중, 정상 가동이 쌓이면 가동시간 기반으로 자동 전환됩니다.',
                     };
                 },
                 // 계획시간 폴백 체인 3단계 (활성/건너뜀/대기)

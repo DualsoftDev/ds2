@@ -836,10 +836,7 @@
 
                 <div class="cctv-camset-note">
                     <small>
-                        RTSP 카메라를 등록하면 <strong>MediaMTX</strong>(별도 서비스)가 받아 WebRTC 로 재게시하고, 이 페이지에서 시청합니다.
-                        저장 시 MediaMTX 에 자동 반영됩니다.
-                        이름은 한글도 됩니다. MediaMTX 내부 경로는 자동 생성됩니다.
-                        <br><strong>RTSP 주소를 비워두고 대체 이미지만 등록</strong>하면 카메라 없이 이미지만 표시하는 타일로 쓸 수 있습니다.
+                        등록한 RTSP 카메라는 MediaMTX 를 거쳐 WebRTC 로 시청합니다 — RTSP 를 비우고 이미지만 등록하면 이미지 전용 타일.
                     </small>
                 </div>
 
@@ -887,7 +884,7 @@
                                         </template>
                                     </div>
                                     <small class="cam-fallback-hint"
-                                           x-text="cam.slug ? 'CCTV 캡쳐 = 저장된 RTSP 영상에 연결해 들어온 첫 프레임을 이미지로 사용합니다. 연결 실패·주소 없음·대기 시 대시보드/영상벽이 이 이미지를 대신 표시합니다. 변경 후 아래 \'저장 후 동기화\' 를 눌러야 적용됩니다.' : '이미지 등록은 지금 바로 가능하며 \'저장 후 동기화\' 시 함께 반영됩니다. CCTV 캡쳐는 먼저 저장해 영상이 연결된 뒤 사용할 수 있습니다. (RTSP 저장 후 영상이 들어오면 등록된 이미지가 없을 때 자동으로 한 컷 캡쳐됩니다.)'"></small>
+                                           x-text="cam.slug ? '영상 연결 실패·대기 시 이 이미지를 대신 표시합니다 — \'저장 후 동기화\' 를 눌러야 적용됩니다.' : '이미지 등록은 지금 바로 가능, CCTV 캡쳐는 저장 후 사용할 수 있습니다.'"></small>
                                 </div>
                             </div>
                         </div>
@@ -913,8 +910,7 @@
                         <span style="color:var(--color-text-secondary); font-size:13px;">분 동안 마우스·키보드 입력이 없으면 일시정지 (기본 60분)</span>
                     </div>
                     <small class="cctv-camset-empty" style="margin:6px 0 0;">
-                        카메라가 LTE 같은 종량제 회선으로 연결된 경우 켜두세요. 일시정지되면 화면에 안내가 뜨고, 마우스를 움직이면 바로 재생됩니다.
-                        대시보드 CCTV 화면에도 함께 적용됩니다. 다른 탭 이동/창 최소화 시 즉시 정지는 이 설정과 무관하게 항상 동작합니다.
+                        LTE 등 종량제 회선이면 켜두세요 — 마우스를 움직이면 즉시 재생됩니다(모든 시청 화면 공통).
                     </small>
                 </div>
 
@@ -939,9 +935,7 @@
                         <label class="form-label">외부 접속 주소 (공인 IP/도메인) <span style="font-weight:400; color:var(--color-text-secondary);">— 내부망만 쓰면 비워두세요</span></label>
                         <input class="form-field mono" x-model="camSettings.webRtcAdditionalHosts" placeholder="예: 203.0.113.10  또는  cctv.example.com" />
                         <small class="cctv-camset-empty" style="margin:6px 0 0;">
-                            클라우드 PC·원격 접속 시 <strong>필수</strong>. 이 주소를 MediaMTX 가 영상 연결 후보로 광고하고(없으면 사설 IP만 광고돼 외부에서 영상이 안 붙음),
-                            UDP 차단망 대비 TCP 폴백도 함께 켜집니다. 쉼표로 여러 개 가능.
-                            <br>※ 별도로 방화벽/보안그룹(NSG)에서 <span class="mono">TCP 8889·UDP 8189·TCP 8189</span> 인바운드를 열어야 합니다.
+                            원격 접속 시 <strong>필수</strong>(쉼표로 여러 개) — 방화벽에서 <span class="mono">TCP 8889·UDP/TCP 8189</span> 인바운드도 열어야 합니다.
                         </small>
                     </div>
                 </div>

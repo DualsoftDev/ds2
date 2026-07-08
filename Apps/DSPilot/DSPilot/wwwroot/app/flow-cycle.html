@@ -228,7 +228,7 @@
                     <div class="ds-empty">
                         <span class="material-icons">account_tree</span>
                         <div class="ds-empty-title">선택 가능한 Flow가 없습니다</div>
-                        <div class="ds-empty-desc">URL 에 <span style="font-family:var(--font-mono);">?name=&lt;Flow이름&gt;</span> 으로 Flow 를 지정하세요. AASX 프로젝트가 로드되어 있어야 합니다.</div>
+                        <div class="ds-empty-desc">URL 에 <span style="font-family:var(--font-mono);">?name=&lt;Flow이름&gt;</span> 으로 Flow 를 지정하세요.</div>
                     </div>
                 </div>
             </template>
@@ -443,8 +443,7 @@
                         <div class="sm-hint" style="margin-bottom:14px;">
                             <span class="material-icons">info</span>
                             <span>
-                                설정한 <b>최소 ~ 최대</b> 가동시간 범위를 벗어난 가동을 차트·테이블·평균에서 제외합니다.
-                                한쪽만 입력해도 됩니다 (예: <b>최대</b>만 입력 = 그보다 긴 가동만 제외). 새 가동이 들어와도 범위가 유지됩니다.
+                                <b>최소 ~ 최대</b> 범위를 벗어난 가동을 집계에서 제외합니다(한쪽만 입력 가능).
                             </span>
                         </div>
 
@@ -509,9 +508,7 @@
                         <div class="sm-hint" style="margin-bottom:14px;">
                             <span class="material-icons">info</span>
                             <span>
-                                이 디바이스 Work 의 <b>동작시간(Duration)</b>·<b>최소(Min)</b>·<b>최대(Max)</b> 를 직접 입력합니다(단위: 초).
-                                Min/Max 는 이상감지(ActionUnder/Over) 임계로 쓰이며, <b>비워두면 해제(미설정)</b> 됩니다.
-                                아래 <b>실측 적용</b> 버튼으로 이 구간 실측값을 자동 채울 수 있습니다.
+                                Min/Max(초)는 이상감지 임계로 쓰이며 <b>비워두면 해제</b> — <b>실측 적용</b>으로 자동 채울 수 있습니다.
                             </span>
                         </div>
 
@@ -675,7 +672,7 @@
                         <div class="ds-empty">
                             <span class="material-icons">account_tree</span>
                             <div class="ds-empty-title">표시할 Flow 가 없습니다</div>
-                            <div class="ds-empty-desc"><span style="font-family:var(--font-mono);">?system=&lt;시스템명&gt;</span> 으로 시스템을 지정하거나 매개변수 없이 진입하면 전체 시스템의 Flow 를 봅니다. AASX 프로젝트가 로드되어 있어야 하며, Flow 가 있는 시스템만 표시됩니다.</div>
+                            <div class="ds-empty-desc"><span style="font-family:var(--font-mono);">?system=&lt;시스템명&gt;</span> 으로 시스템을 지정하거나 매개변수 없이 전체 시스템을 봅니다.</div>
                         </div>
                     </section>
                 </template>

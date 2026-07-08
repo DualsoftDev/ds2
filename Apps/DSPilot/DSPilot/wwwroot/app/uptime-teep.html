@@ -174,7 +174,7 @@
                                 <div class="up-teep-leg"><span class="sw" style="background:var(--color-surface-variant); border:1px solid var(--color-lines-strong);"></span>잔여 <b x-text="durShort(teep.residualMs)"></b> <em x-text="'(' + teepPct('residualMs') + '%)'"></em></div>
                             </div>
                             <div class="up-form-hint" style="margin-top:12px;">
-                                <b>TEEP</b> = 가동 ÷ 캘린더 — 야간·점심·무오더 등 <b>비생산도 분모에 포함</b>한 "달력 전체 대비 진짜 가동"입니다(표준 TEEP). 비생산을 뺀 관점은 <b>가동률</b> 보조지표로 보세요. 비생산은 자동 인식(평균 가동시간의 <span x-text="ps.ctMultiplier"></span>배 이상 정지) + 수동 지정 시간대이며, 성능·품질(P·Q)은 <b>설비효율 현황(OEE)</b> 페이지가 담당합니다.<template x-if="(teep && (teep.unmeasuredMs || 0) > 0)"><span> <b>미계측</b>(PLC 수신 공백)은 상태를 알 수 없는 시간이라 가동에는 넣지 않되 캘린더 분모엔 남겨 TEEP 를 보수적으로 낮춥니다 — 설비효율(OEE)은 미계측을 분모에서 제외하므로 통신 공백이 잦은 구간에선 두 지표가 벌어질 수 있습니다.</span></template>
+                                <b>TEEP</b> = 가동 ÷ 캘린더 전체(비생산·미계측 포함) — 성능·품질(P·Q)은 <b>설비효율(OEE)</b> 페이지 참조.
                             </div>
                         </div>
                     </template>
@@ -230,8 +230,7 @@
                                 </div>
                             </div>
                             <div class="up-form-hint" style="margin-top:10px;">
-                                각 행은 그 날 실제로 가용성 분모에서 제외된 <b>비생산</b> 시간대(자동 감지 + 수동 시간대)입니다.
-                                기간을 늘리면 날짜 행이 늘어나 점심·야간·주말 같은 반복 패턴이 보입니다. 우측 = 그 날 비생산 합계.
+                                행 = 그 날 가용성에서 제외된 <b>비생산</b> 시간대, 우측 = 일 합계.
                             </div>
                         </div>
                     </template>

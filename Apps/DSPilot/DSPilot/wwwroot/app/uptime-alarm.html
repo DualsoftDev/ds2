@@ -168,7 +168,7 @@
                                             <span style="display:inline-block;margin:0 4px;padding:1px 7px;background:color-mix(in srgb,var(--color-warning,#f59e0b) 20%,transparent);border-radius:4px;font-family:monospace;" x-text="d"></span>
                                         </template>
                                         <span style="margin-left:4px;">— 임계가 너무 좁을 수 있습니다.</span>
-                                        <a href="/app/settings.html?tab=monitoring#calib-fill" style="margin-left:6px;color:var(--color-primary);text-decoration:underline;">설정 &gt; 모니터링·정합 &gt; 실측 duration 자동 보정</a>에서 p95 기반 임계로 전환하거나, <strong>자동 duration 정합을 OFF</strong>로 변경해 보세요.
+                                        <a href="/app/settings.html?tab=monitoring#calib-fill" style="margin-left:6px;color:var(--color-primary);text-decoration:underline;">실측 duration 자동 보정</a>에서 조정하세요.
                                     </div>
                                 </div>
                             </template>
@@ -271,9 +271,7 @@
                 <!-- ─── 자동알람(디바이스별 이상감지) 탭 ─── -->
                 <div class="up-blk-panel" x-show="blockMgr.tab === 'auto'">
                     <div class="up-blk-sub">
-                        디바이스를 선택하고 이상 유형을 골라 <b>차단 추가/해제</b>합니다. 차단된 유형은 알람 배너·사이드바·통계·기록에서 숨겨지고,
-                        <b>차단 중 새로 발생하는 이상은 기록 자체가 남지 않습니다</b>(해제해도 차단 기간 발생분은 복구되지 않음).
-                        차단 이전의 기존 기록은 해제하면 다시 표시됩니다. 적용은 즉시 반영됩니다.
+                        차단한 유형은 배너·통계·기록에서 숨겨지고, <b>차단 중 새 발생분은 기록되지 않습니다</b>(기존 기록은 해제 시 복구).
                     </div>
 
                     <div class="up-blk-kinds">
@@ -375,9 +373,7 @@
                 <!-- ─── 수동등록TAG(UserTag) 알람 탭 ─── -->
                 <div class="up-blk-panel" x-show="blockMgr.tab === 'user'" style="display:none;">
                     <div class="up-blk-sub">
-                        수동등록TAG 알람을 선택해 <b>차단 추가/해제</b>합니다. 차단된 알람은 배너·사이드바·통계·기록에서 숨겨지고,
-                        <b>차단 중 새로 발생하는 알람은 기록 자체가 남지 않습니다</b>(해제해도 차단 기간 발생분은 복구되지 않음).
-                        차단 이전의 기존 기록은 해제하면 다시 표시됩니다. 적용은 즉시 반영됩니다.
+                        차단한 알람은 배너·통계·기록에서 숨겨지고, <b>차단 중 새 발생분은 기록되지 않습니다</b>(기존 기록은 해제 시 복구).
                     </div>
 
                     <div x-show="blockMgr.ut.loading" class="progress-bar progress-bar-indeterminate" style="margin-bottom:8px;"><div class="progress-bar-fill"></div></div>

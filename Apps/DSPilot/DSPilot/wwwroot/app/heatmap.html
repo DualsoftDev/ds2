@@ -242,7 +242,7 @@
             <div class="ds-empty mb-4" x-show="!loading && !error && filteredGroups.length === 0" style="flex-shrink:0;">
                 <span class="material-icons">grid_off</span>
                 <div class="ds-empty-title">표시할 동작편차 데이터가 없습니다</div>
-                <div class="ds-empty-desc">Call 실행 이력(Going 전환)이 수집되면 평균·표준편차·변동계수(CV)가 자동으로 계산되어 히트맵으로 표시됩니다. PLC 연동 후 잠시 기다려 주세요.</div>
+                <div class="ds-empty-desc">Call 실행 이력이 수집되면 히트맵이 자동 표시됩니다.</div>
                 <span class="ds-empty-tag">데이터 수집 대기</span>
             </div>
 
@@ -416,7 +416,7 @@
                                             <tr><th>N (실행횟수)</th><td class="hm-info-mono" x-text="(chartCount > 0 ? chartCount : selectedCall.goingCount).toLocaleString() + '회'"></td></tr>
                                         </table>
                                         <div class="typo-caption" style="color:var(--color-text-disabled); margin-top:8px;">
-                                            ※ 본 시스템은 표준(takt) 시간을 사용하지 않습니다. 편차는 모두 평균 대비(CV=σ/평균)로 산출됩니다. 디바이스명·최소/최대는 실행 이력 기준이며 이력이 없으면 '—'.
+                                            ※ 편차는 평균 대비(CV=σ/평균) 기준.
                                         </div>
                                     </div>
 
@@ -447,7 +447,7 @@
                                             실행 이력이 없습니다.
                                         </div>
                                         <div class="typo-caption" style="color:var(--color-text-secondary); margin-top:6px;">
-                                            녹색 밴드 = 정상 범위(평균 ± 2σ) · 빨간선 = 실제 실행시간 · 최근 포인트 강조. (표준/takt 기준 아님)
+                                            녹색 밴드 = 평균 ± 2σ · 빨간선 = 실행시간
                                         </div>
                                     </div>
                                 </div>
