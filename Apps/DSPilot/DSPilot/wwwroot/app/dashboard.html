@@ -291,10 +291,10 @@
         .dash-live.is-warn .dash-live-dot { animation: dash-pulse 1.6s ease-in-out infinite; }
         @keyframes dash-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-        /* ── 상단 일간 KPI 카드 그리드 (가동횟수·OEE·MTBF·MTTR) ──
-           stitch.css self-host 빌드에 grid-cols-2/4 유틸이 없어(원본은 grid-cols-3만) Tailwind 대신 자체 CSS 로 4열 그리드 정의.
-           데스크톱 4열 → 태블릿 2열 → 폰 1열. gap = gutter(16px). */
-        .dash-kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+        /* ── 상단 일간 KPI 카드 그리드 (사용자 구성 — 기본 가동횟수·OEE·MTBF·MTTR) ──
+           stitch.css self-host 빌드에 grid-cols-2/4 유틸이 없어(원본은 grid-cols-3만) Tailwind 대신 자체 CSS 로 그리드 정의.
+           데스크톱 = 선택 카드 수(--kpi-cols, 3~6 · 인라인 style 로 주입) → 태블릿 2열 → 폰 1열. gap = gutter(16px). */
+        .dash-kpi-grid { display: grid; grid-template-columns: repeat(var(--kpi-cols, 4), minmax(0, 1fr)); gap: 16px; }
         @media (max-width: 1024px) { .dash-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
         @media (max-width: 480px)  { .dash-kpi-grid { grid-template-columns: 1fr; } }
 
@@ -357,6 +357,44 @@
         .sm-hint { display: flex; gap: 9px; align-items: flex-start; margin-top: 6px; padding: 11px 13px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--color-primary) 22%, transparent); font-size: 0.78rem; line-height: 1.5; color: var(--color-text-secondary); }
         .sm-hint .material-icons { font-size: 17px; color: var(--color-primary); flex-shrink: 0; margin-top: 1px; }
         .sm-hint b { color: var(--color-primary-strong); font-weight: 800; }
+
+        /* ── 상단 지표 카드 설정 모달(kcm) — 실제 카드 축소판 미리보기 + 지표 칩 팔레트 ──
+           미리보기 카드는 대시보드 KPI 카드와 같은 색/라벨/라이브 값으로 그려 "적용 결과"를 모달 안에서 즉시 보여준다.
+           드래그(값 이동, DOM 행 고정)·‹›·× 는 hover 시 표시(터치 기기는 상시). */
+        .kcm-preview { display: flex; gap: 8px; padding: 12px; border-radius: 12px; background: color-mix(in srgb, var(--color-text-primary) 4%, var(--color-surface)); border: 1px dashed var(--color-lines-strong); }
+        .kcm-card { position: relative; flex: 1 1 0; min-width: 0; border: 1px solid; border-radius: 10px; padding: 9px 9px 5px; cursor: grab; user-select: none; overflow: hidden; transition: opacity 0.1s, transform 0.12s, box-shadow 0.12s; }
+        .kcm-card:hover { box-shadow: 0 4px 10px -4px rgba(0,0,0,0.25); transform: translateY(-1px); }
+        .kcm-card.is-drag { opacity: 0.45; outline: 1.5px dashed var(--color-primary); outline-offset: 2px; }
+        .kcm-card .kcm-label { font-size: 0.6rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .kcm-card .kcm-value { font-size: 0.92rem; font-weight: 800; margin-top: 3px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        /* 5장 이상이면 카드 폭이 좁아져 값이 잘림 — 밀도 모드로 글자만 축소(잘림 방지) */
+        .kcm-preview.is-dense { gap: 6px; padding: 10px; }
+        .kcm-preview.is-dense .kcm-card { padding: 8px 6px 4px; }
+        .kcm-preview.is-dense .kcm-label { font-size: 0.54rem; }
+        .kcm-preview.is-dense .kcm-value { font-size: 0.74rem; }
+        .kcm-card .kcm-wm { position: absolute; right: -6px; bottom: -8px; font-size: 44px; line-height: 1; opacity: 0.08; pointer-events: none; }
+        .kcm-x { position: absolute; top: 3px; right: 3px; width: 18px; height: 18px; border: none; border-radius: 50%; background: color-mix(in srgb, var(--color-text-primary) 10%, transparent); color: var(--color-text-secondary); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; z-index: 2; }
+        .kcm-x .material-icons { font-size: 12px; }
+        .kcm-x:hover { background: var(--red); color: #fff; }
+        .kcm-ord { display: flex; align-items: center; justify-content: center; gap: 2px; margin-top: 5px; }
+        .kcm-ord button { border: none; background: transparent; color: var(--color-text-secondary); cursor: pointer; padding: 0; width: 18px; height: 16px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; }
+        .kcm-ord button:hover:not(:disabled) { background: color-mix(in srgb, var(--color-primary) 14%, transparent); color: var(--color-primary); }
+        .kcm-ord button:disabled { cursor: default; }
+        .kcm-ord .material-icons { font-size: 15px; }
+        .kcm-ord .kcm-num { font-size: 0.62rem; font-weight: 800; color: var(--color-text-secondary); font-variant-numeric: tabular-nums; min-width: 10px; text-align: center; }
+        .kcm-x, .kcm-ord button { opacity: 0; transition: opacity 0.12s; }
+        .kcm-card:hover .kcm-x, .kcm-card:hover .kcm-ord button { opacity: 1; }
+        .kcm-card:hover .kcm-ord button:disabled { opacity: 0.25; }
+        @media (hover: none) { .kcm-x, .kcm-ord button { opacity: 1; } .kcm-ord button:disabled { opacity: 0.25; } }
+        .kcm-group { margin-top: 12px; }
+        .kcm-group-title { font-size: 0.68rem; font-weight: 800; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 7px; }
+        .kcm-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+        .kcm-chip { display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px; border-radius: 9999px; border: 1.5px solid var(--color-lines-strong); background: var(--color-surface); font-size: 0.8rem; font-weight: 700; color: var(--color-text-secondary); cursor: pointer; transition: all 0.12s; }
+        .kcm-chip .material-icons { font-size: 15px; }
+        .kcm-chip:hover { border-color: var(--color-primary); color: var(--color-primary-strong); }
+        .kcm-chip.is-on { background: color-mix(in srgb, var(--color-primary) 13%, var(--color-surface)); border-color: var(--color-primary); color: var(--color-primary-strong); }
+        .kcm-chip.is-lock { opacity: 0.38; cursor: not-allowed; }
+        .kcm-chip.is-lock:hover { border-color: var(--color-lines-strong); color: var(--color-text-secondary); }
 
         /* ── CT 비교 도넛 범례 ── */
         .ct-legend { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 10px; padding: 8px 14px 12px; border-top: 1px solid var(--color-lines); flex-shrink: 0; }
@@ -547,81 +585,34 @@
                 <button type="button" class="flow-alarm-btn" @click="gotoAbnormal(abnormals[abnIndex])" title="가동시간·이상 페이지에서 상세 확인">상세 확인</button>
             </div>
 
-            <!-- ════════════ Summary Row — 일간 지표 (어제 대비 등락) ════════════ -->
-            <!-- 4개 카드: 가동횟수 · OEE 종합 · MTBF · MTTR. 각 카드는 하루 단위로 오늘(00:00~현재)을
-                 어제 같은 시각(어제 00:00~24시간 전)과 공정 비교해 등락(▲/▼·%·시간차)을 표시한다.
-                 데이터 = /api/oee/summary 를 오늘/어제 2회 호출 → cmp.today / cmp.yesterday (loadCompare).
-                 색 규칙: 개선=초록 / 악화=빨강 (MTTR 만 낮을수록 개선이라 방향 반대). 카드 클릭 → 설비효율 현황 페이지. -->
-            <div class="dash-kpi-grid">
-
-                <!-- ① 가동횟수 (오늘 vs 어제 같은 시각) — azure -->
-                <div class="border p-card-padding rounded-xl shadow-sm relative overflow-hidden group cursor-pointer transition-all"
-                     style="background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); border-color: color-mix(in srgb, var(--color-primary) 26%, transparent);"
-                     @click="openOutputFlowModal()" title="클릭하여 출력(생산 기준) Flow 지정">
-                    <div class="flex items-center gap-2 mb-1 flex-wrap">
-                        <span class="font-label-sm text-label-sm opacity-80 uppercase tracking-tighter" style="color:var(--color-primary-strong);">가동횟수</span>
-                        <span class="px-1.5 py-px rounded text-[10px] font-bold bg-surface-container-high text-on-surface-variant">일간</span>
-                        <!-- 출력 기준 표시: 지정 Flow 없으면 [자동](전체 flow 평균), 있으면 [선택 flow명] -->
-                        <span class="px-1.5 py-px rounded text-[10px] font-bold"
-                              style="background: color-mix(in srgb, var(--color-primary) 16%, transparent); color:var(--color-primary-strong);"
-                              x-text="outFlowSaved.length ? outFlowSaved.join(', ') : '자동'"
-                              :title="outFlowSaved.length ? ('출력 기준 Flow: ' + outFlowSaved.join(', ')) : '출력 기준: 자동(전체 Flow 평균)'"></span>
+            <!-- ════════════ Summary Row — 일간 지표 (어제 대비 등락, 사용자 구성) ════════════ -->
+            <!-- 카드 구성은 사용자별 커스텀(헤더 톱니 → 모달, localStorage 'dspilot-dash-kpi-cards', 기본 = 가동횟수·OEE·MTBF·MTTR).
+                 카드 정의(라벨·색·아이콘·값 추출·클릭 동작)는 KPI_CATALOG(스크립트) 단일 소스 — 여기 템플릿은 공통 셸만 렌더.
+                 각 카드는 하루 단위로 오늘(00:00~현재)을 어제 같은 시각(어제 00:00~24시간 전)과 공정 비교해 등락(▲/▼·%·시간차)을 표시한다.
+                 데이터 = /api/oee/summary 오늘/어제 2회(cmp.today/yesterday, loadCompare) + TEEP 계열 카드 선택 시에만 /api/oee/teep 2회(cmpTeep).
+                 색 규칙: 개선=초록 / 악화=빨강 (MTTR·정지시간은 낮을수록 개선이라 방향 반대). -->
+            <div class="dash-kpi-grid" :style="'--kpi-cols:' + kpiCards.length">
+                <template x-for="c in kpiCards" :key="c.id">
+                    <div class="border p-card-padding rounded-xl shadow-sm relative overflow-hidden group cursor-pointer transition-all"
+                         :style="'background: color-mix(in srgb, var(' + c.color + ') 9%, var(--color-surface)); border-color: color-mix(in srgb, var(' + c.color + ') 26%, transparent);'"
+                         @click="kpiClick(c)" :title="c.tip">
+                        <div class="flex items-center gap-2 mb-1 flex-wrap">
+                            <span class="font-label-sm text-label-sm opacity-90 uppercase tracking-tighter" :style="'color:var(' + (c.labelColor || c.color) + ');'" x-text="c.label"></span>
+                            <span class="px-1.5 py-px rounded text-[10px] font-bold bg-surface-container-high text-on-surface-variant">일간</span>
+                            <!-- 카드별 보조 칩 — 가동횟수: 출력 기준([자동]/선택 flow), 가용성/품질: 산출 기준 -->
+                            <template x-if="kpiChip(c.id)">
+                                <span class="px-1.5 py-px rounded text-[10px] font-bold"
+                                      :style="'background: color-mix(in srgb, var(' + c.color + ') 16%, transparent); color:var(' + (c.labelColor || c.color) + ');'"
+                                      x-text="kpiChip(c.id).text" :title="kpiChip(c.id).title"></span>
+                            </template>
+                        </div>
+                        <h4 class="font-display-metrics text-display-metrics leading-none mt-2" :style="'color:var(' + c.color + ');'" x-text="kpiValue(c.id)"></h4>
+                        <div class="mt-3 flex items-center gap-1.5 flex-wrap" x-html="cmpBadge(c.id)"></div>
+                        <div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity" :style="'color:var(' + c.color + ');'">
+                            <span class="material-icons" style="font-size:120px; line-height:1;" x-text="c.icon"></span>
+                        </div>
                     </div>
-                    <h4 class="font-display-metrics text-display-metrics leading-none mt-2" style="color:var(--color-primary);"
-                        x-text="cmp.today ? (cmp.today.totalCount ?? 0).toLocaleString() + '회' : '—'"></h4>
-                    <div class="mt-3 flex items-center gap-1.5 flex-wrap" x-html="cmpBadge('count')"></div>
-                    <div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity" style="color:var(--color-primary);">
-                        <span class="material-icons" style="font-size:120px; line-height:1;">autorenew</span>
-                    </div>
-                </div>
-
-                <!-- ② OEE 종합 — green -->
-                <div class="border p-card-padding rounded-xl shadow-sm relative overflow-hidden group cursor-pointer transition-all"
-                     style="background: color-mix(in srgb, var(--green) 9%, var(--color-surface)); border-color: color-mix(in srgb, var(--green) 26%, transparent);"
-                     @click="window.location='/uptime-oee'" title="설비효율 현황 페이지로 이동">
-                    <div class="flex items-center gap-2 mb-1">
-                        <span class="font-label-sm text-label-sm opacity-90 uppercase tracking-tighter" style="color:var(--green);">OEE 종합</span>
-                        <span class="px-1.5 py-px rounded text-[10px] font-bold bg-surface-container-high text-on-surface-variant">일간</span>
-                    </div>
-                    <h4 class="font-display-metrics text-display-metrics leading-none mt-2" style="color:var(--green);"
-                        x-text="(cmp.today && cmp.today.oee != null) ? (cmp.today.oee * 100).toFixed(1) + '%' : '—'"></h4>
-                    <div class="mt-3 flex items-center gap-1.5 flex-wrap" x-html="cmpBadge('oee')"></div>
-                    <div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity" style="color:var(--green);">
-                        <span class="material-icons" style="font-size:120px; line-height:1;">insights</span>
-                    </div>
-                </div>
-
-                <!-- ③ MTBF (평균 무고장 시간 — 높을수록 좋음) — rust (가동중 주황과 구분) -->
-                <div class="border p-card-padding rounded-xl shadow-sm relative overflow-hidden group cursor-pointer transition-all"
-                     style="background: color-mix(in srgb, var(--rust) 9%, var(--color-surface)); border-color: color-mix(in srgb, var(--rust) 26%, transparent);"
-                     @click="window.location='/uptime-oee'" title="설비효율 현황 페이지로 이동 · MTBF = 연속 비가동 onset 간격 평균">
-                    <div class="flex items-center gap-2 mb-1">
-                        <span class="font-label-sm text-label-sm opacity-90 uppercase tracking-tighter" style="color:var(--rust);">MTBF</span>
-                        <span class="px-1.5 py-px rounded text-[10px] font-bold bg-surface-container-high text-on-surface-variant">일간</span>
-                    </div>
-                    <h4 class="font-display-metrics text-display-metrics leading-none mt-2" style="color:var(--rust);"
-                        x-text="cmp.today ? (cmp.today.failureCount === 0 ? '무고장' : durShort(cmp.today.mtbf)) : '—'"></h4>
-                    <div class="mt-3 flex items-center gap-1.5 flex-wrap" x-html="cmpBadge('mtbf')"></div>
-                    <div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity" style="color:var(--rust);">
-                        <span class="material-icons" style="font-size:120px; line-height:1;">timer</span>
-                    </div>
-                </div>
-
-                <!-- ④ MTTR (평균 복구 시간 — 낮을수록 좋음) — rust (가동중 주황과 구분) -->
-                <div class="border p-card-padding rounded-xl shadow-sm relative overflow-hidden group cursor-pointer transition-all"
-                     style="background: color-mix(in srgb, var(--rust) 9%, var(--color-surface)); border-color: color-mix(in srgb, var(--rust) 26%, transparent);"
-                     @click="window.location='/uptime-oee'" title="설비효율 현황 페이지로 이동 · MTTR = 비가동 onset→회복 평균">
-                    <div class="flex items-center gap-2 mb-1">
-                        <span class="font-label-sm text-label-sm opacity-90 uppercase tracking-tighter" style="color:var(--rust);">MTTR</span>
-                        <span class="px-1.5 py-px rounded text-[10px] font-bold bg-surface-container-high text-on-surface-variant">일간</span>
-                    </div>
-                    <h4 class="font-display-metrics text-display-metrics leading-none mt-2" style="color:var(--rust);"
-                        x-text="cmp.today ? (cmp.today.failureCount === 0 ? '무고장' : durShort(cmp.today.mttr)) : '—'"></h4>
-                    <div class="mt-3 flex items-center gap-1.5 flex-wrap" x-html="cmpBadge('mttr')"></div>
-                    <div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity" style="color:var(--rust);">
-                        <span class="material-icons" style="font-size:120px; line-height:1;">build</span>
-                    </div>
-                </div>
+                </template>
             </div>
             </div><!-- /flow-alarm-overlay -->
 
@@ -863,7 +854,7 @@
                                                  Call=그 디바이스 1건, Flow=그 flow 의 에러 전부. -->
                                                         <template x-if="(cctvHover?.model?.sensorErrors || []).length > 0">
                                                             <div class="tip-sensor">
-                                                                <template x-for="se in cctvHover.model.sensorErrors" :key="se.device + se.occurredAt">
+                                                                <template x-for="se in (cctvHover?.model?.sensorErrors || [])" :key="se.device + se.occurredAt">
                                                                     <div class="ts-item">
                                                                         <div class="ts-head">
                                                                             <span class="material-icons">sensors_off</span>
@@ -1119,6 +1110,84 @@
             </div>
         </div>
 
+        <!-- ── 헤더 우측 톱니(상단 지표 카드 설정) — 공통 셸의 페이지 액션 슬롯(#dsp-header-actions)으로 teleport ── -->
+        <template x-teleport="#dsp-header-actions">
+            <button class="btn btn-sm btn-outlined color-default" @click="openKpiModal()"
+                    title="상단 지표 카드 구성 (이 브라우저에만 저장되는 개인 설정)">
+                <span class="material-icons" style="font-size:16px;">settings</span>
+                <span>카드 설정</span>
+            </button>
+        </template>
+
+        <!-- ════════════ 상단 지표 카드 설정 모달 — 헤더 톱니 클릭 ════════════ -->
+        <!-- 미리보기(실제 카드 축소판, 라이브 값) + 지표 칩 팔레트(누르면 담기/빼기, 3~6개).
+             순서 변경 = 미리보기 카드 드래그(DOM 고정·값 이동으로 Alpine x-for 드롭버그 회피) 또는 ‹›.
+             저장 = localStorage(브라우저별 개인 설정, 공유상태 아님). -->
+        <div class="modal-overlay" x-show="kpiModalOpen" x-cloak style="z-index:2100;" @click="closeKpiModal()">
+            <div class="modal-content" style="max-width:560px;" @click.stop>
+                <div class="sm-head">
+                    <span class="sm-title">상단 지표 카드 설정</span>
+                    <button class="btn-icon" @click="closeKpiModal()" title="닫기"><span class="material-icons">close</span></button>
+                </div>
+                <div class="sm-body">
+                    <!-- 미리보기 — 대시보드 상단이 어떻게 보일지 그대로 -->
+                    <div class="form-group">
+                        <label class="form-label">미리보기
+                            <span style="font-weight:600; color:var(--color-text-secondary);" x-text="'— 대시보드 상단에 이렇게 표시됩니다 (' + kpiForm.length + '/6)'"></span>
+                        </label>
+                        <div class="kcm-preview" :class="{ 'is-dense': kpiForm.length >= 5 }">
+                            <template x-for="(id, i) in kpiForm" :key="i">
+                                <div class="kcm-card" :class="{ 'is-drag': kpiDragIdx === i }" draggable="true"
+                                     :style="'background: color-mix(in srgb, var(' + kpiDef(id).color + ') 9%, var(--color-surface)); border-color: color-mix(in srgb, var(' + kpiDef(id).color + ') 26%, transparent);'"
+                                     :title="kpiDef(id).label + ' — 드래그하여 순서 변경'"
+                                     @dragstart="kpiDragStart(i, $event)" @dragover.prevent="kpiDragOver(i)" @drop.prevent="kpiDragEnd()" @dragend="kpiDragEnd()">
+                                    <button type="button" class="kcm-x" x-show="kpiForm.length > 3" @click.stop="kpiToggle(id)" title="카드 빼기"><span class="material-icons">close</span></button>
+                                    <div class="kcm-label" :style="'color:var(' + (kpiDef(id).labelColor || kpiDef(id).color) + ');'" x-text="kpiDef(id).label"></div>
+                                    <div class="kcm-value" :style="'color:var(' + kpiDef(id).color + ');'" x-text="kpiValue(id)"></div>
+                                    <div class="kcm-ord">
+                                        <button type="button" :disabled="i === 0" @click.stop="kpiMove(i, -1)" title="앞으로"><span class="material-icons">chevron_left</span></button>
+                                        <span class="kcm-num" x-text="i + 1"></span>
+                                        <button type="button" :disabled="i === kpiForm.length - 1" @click.stop="kpiMove(i, 1)" title="뒤로"><span class="material-icons">chevron_right</span></button>
+                                    </div>
+                                    <span class="kcm-wm material-icons" :style="'color:var(' + kpiDef(id).color + ');'" x-text="kpiDef(id).icon"></span>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                    <!-- 지표 팔레트 — 누르면 미리보기에 바로 담기/빼기 -->
+                    <div class="form-group" style="margin-top:6px;">
+                        <template x-for="g in kpiGroups" :key="g.name">
+                            <div class="kcm-group">
+                                <div class="kcm-group-title" x-text="g.name"></div>
+                                <div class="kcm-chips">
+                                    <template x-for="opt in g.items" :key="opt.id">
+                                        <button type="button" class="kcm-chip"
+                                                :class="{ 'is-on': kpiForm.includes(opt.id), 'is-lock': (!kpiForm.includes(opt.id) && kpiForm.length >= 6) || (kpiForm.includes(opt.id) && kpiForm.length <= 3) }"
+                                                @click="kpiToggle(opt.id)"
+                                                :title="kpiForm.includes(opt.id) ? (kpiForm.length <= 3 ? '카드는 최소 3개가 필요합니다' : '눌러서 빼기') : (kpiForm.length >= 6 ? '최대 6개까지 담을 수 있습니다' : '눌러서 담기')">
+                                            <span class="material-icons" x-text="kpiForm.includes(opt.id) ? 'check' : opt.icon"></span>
+                                            <span x-text="opt.label"></span>
+                                        </button>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                    <div class="form-helper" style="margin-top:14px;">
+                        이 설정은 <b>이 브라우저에만 저장</b>되는 개인 설정입니다 — 다른 PC·사용자 화면에는 영향을 주지 않습니다.
+                    </div>
+                    <div class="flex gap-2 justify-end" style="margin-top:14px;">
+                        <button class="btn btn-sm btn-outlined" @click="kpiResetDefault()" title="기본 구성(가동횟수·OEE 종합·MTBF·MTTR)으로 되돌리기">기본값</button>
+                        <button class="btn btn-sm btn-outlined" @click="closeKpiModal()">취소</button>
+                        <button class="btn btn-sm" :class="kpiDirty ? 'btn-primary' : ''" @click="saveKpiCards()">
+                            <span class="material-icons" style="font-size:15px;">check</span>
+                            <span x-text="kpiDirty ? '적용*' : '적용'"></span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
 
 </div>
 
@@ -1139,6 +1208,33 @@
         //  · 거대한 Chart 객체를 deep-proxy 하지 않게 하고, x-effect 의 자기참조 재발화(읽고-쓰기)를 차단
         //  · ctChart=인스턴스, ctSig=마지막 렌더 시그니처(동일 시 redraw 생략), ctDyn=플러그인이 읽는 최신 동적상태
         let ctChart = null, ctSig = null, ctDyn = null;
+        // ── 상단 지표 카드 카탈로그(단일 소스) — 사용자 커스텀 카드의 정의 전부 ──
+        //  · src: 'sum'=/api/oee/summary(cmp) 응답 사용 / 'teep'=/api/oee/teep(cmpTeep) 응답 사용(선택 시에만 fetch)
+        //  · kind: 배지·값 포맷 — 'count'(회·%) / 'pct'(fraction→%·%p) / 'dur'(durShort)
+        //  · dir: 'up'=클수록 개선(초록) / 'down'=작을수록 개선(MTTR·정지시간)
+        //  · color: 사이트 CSS 토큰(var 이름). 아이콘은 self-host Material Symbols 번들에 이미 쓰이는 이름만 사용.
+        const KPI_CATALOG = [
+            { id: 'count',        label: '가동횟수',     group: '대시보드',      src: 'sum',  kind: 'count', dir: 'up',   color: '--color-primary', labelColor: '--color-primary-strong', icon: 'autorenew',       val: r => r.totalCount != null ? r.totalCount : 0, tip: '클릭하여 출력(생산 기준) Flow 지정' },
+            { id: 'oee',          label: 'OEE 종합',     group: '대시보드',      src: 'sum',  kind: 'pct',   dir: 'up',   color: '--green',          icon: 'insights',        val: r => r.oee,          nav: '/uptime-oee',  tip: '설비효율 현황 페이지로 이동' },
+            { id: 'mtbf',         label: 'MTBF',         group: '대시보드',      src: 'sum',  kind: 'dur',   dir: 'up',   color: '--rust',           icon: 'timer',           val: r => r.mtbf,         nav: '/uptime-oee',  tip: '설비효율 현황 페이지로 이동 · MTBF = 연속 비가동 onset 간격 평균' },
+            { id: 'mttr',         label: 'MTTR',         group: '대시보드',      src: 'sum',  kind: 'dur',   dir: 'down', color: '--rust',           icon: 'build',           val: r => r.mttr,         nav: '/uptime-oee',  tip: '설비효율 현황 페이지로 이동 · MTTR = 비가동 onset→회복 평균' },
+            { id: 'availability', label: '가용성 A',     group: '설비효율 OEE',  src: 'sum',  kind: 'pct',   dir: 'up',   color: '--color-primary',  icon: 'hourglass_empty', val: r => r.availability, nav: '/uptime-oee',  tip: '설비효율 현황 페이지로 이동 · 가용성 = 실가동시간 ÷ 계획가동시간' },
+            { id: 'performance',  label: '성능 P',       group: '설비효율 OEE',  src: 'sum',  kind: 'pct',   dir: 'up',   color: '--amber',          icon: 'bar_chart',       val: r => r.performance,  nav: '/uptime-oee',  tip: '설비효율 현황 페이지로 이동 · 성능 = 표준CT 기준 속도 효율' },
+            { id: 'quality',      label: '품질 Q',       group: '설비효율 OEE',  src: 'sum',  kind: 'pct',   dir: 'up',   color: '--green',          icon: 'check_circle',    val: r => r.quality,      nav: '/uptime-oee',  tip: '설비효율 현황 페이지로 이동 · 품질 = 양품 ÷ 전체' },
+            { id: 'downtime',     label: '정지 시간',    group: '설비효율 OEE',  src: 'sum',  kind: 'dur',   dir: 'down', color: '--red',            icon: 'event_busy',      val: r => r.downtimeMs,   nav: '/uptime-oee',  tip: '설비효율 현황 페이지로 이동 · 기간 내 비가동(정지) 합계' },
+            { id: 'teep',         label: '생산효율 TEEP', group: '생산효율 TEEP', src: 'teep', kind: 'pct',   dir: 'up',   color: '--color-primary',  icon: 'leaderboard',     val: r => r.teep,         nav: '/uptime-teep', tip: '생산효율 현황 페이지로 이동 · TEEP = 가동 ÷ 달력시간' },
+            { id: 'utilization',  label: '가동률',       group: '생산효율 TEEP', src: 'teep', kind: 'pct',   dir: 'up',   color: '--amber',          icon: 'donut_small',     val: r => r.utilization,  nav: '/uptime-teep', tip: '생산효율 현황 페이지로 이동 · 가동률 = (달력 − 비생산) ÷ 달력' },
+        ];
+        const KPI_MAP = Object.fromEntries(KPI_CATALOG.map(c => [c.id, c]));
+        const KPI_DEFAULT = ['count', 'oee', 'mtbf', 'mttr'];
+        const KPI_LS_KEY = 'dspilot-dash-kpi-cards';
+        // 설정 모달 팔레트용 — 카탈로그를 group 별로 묶는다(카탈로그 순서 유지)
+        const KPI_GROUPS = KPI_CATALOG.reduce((gs, c) => {
+            let g = gs.find(x => x.name === c.group);
+            if (!g) { g = { name: c.group, items: [] }; gs.push(g); }
+            g.items.push(c);
+            return gs;
+        }, []);
         return {
             // CCTV 영상벽(읽기 전용) 시청 엔진 — /js/cctv-wall.js. 모든 키는 cctv* 접두사라 충돌 없음.
             ...window.CctvWall.state(),
@@ -1170,8 +1266,21 @@
 
             nonprod: { windows: [], source: 'none' },
             todayCycles: 0,
-            // 상단 일간 비교 카드(가동횟수·OEE·MTBF·MTTR) — /api/oee/summary 오늘/어제 응답. loadCompare() 가 채운다.
+            // 상단 일간 비교 카드(사용자 구성) — /api/oee/summary 오늘/어제 응답. loadCompare() 가 채운다.
             cmp: { today: null, yesterday: null },
+            // TEEP 계열 카드(teep/utilization) 선택 시에만 채워지는 /api/oee/teep 오늘/어제 응답 (loadCompare 조건부).
+            cmpTeep: { today: null, yesterday: null },
+            // 상단 카드 사용자 구성 — sel=적용 중(렌더 기준), form=모달 편집본. localStorage 'dspilot-dash-kpi-cards' (브라우저별 개인 설정).
+            kpiSel: [...KPI_DEFAULT],
+            kpiModalOpen: false,
+            kpiForm: [],
+            kpiDragIdx: null,   // 모달 드래그 순서변경 — 드래그 중인 항목의 현재 인덱스(값 이동에 따라 갱신)
+            get kpiCards() { return this.kpiSel.map(id => KPI_MAP[id]).filter(Boolean); },
+            get kpiCatalog() { return KPI_CATALOG; },
+            get kpiGroups() { return KPI_GROUPS; },
+            kpiDef(id) { return KPI_MAP[id]; },
+            get kpiDirty() { return this.kpiForm.join(',') !== this.kpiSel.join(','); },
+            get kpiNeedsTeep() { return this.kpiSel.some(id => KPI_MAP[id] && KPI_MAP[id].src === 'teep'); },
             nowTick: Date.now(),
             _conn: null, _dt: null, _shiftTimer: null, _pollTimer: null, _avgTimer: null,
 
@@ -1188,6 +1297,8 @@
                 // 사이클 비교 평균 기간 — 브라우저별 기억(1~90일, 기본 1일).
                 const savedAvgDays = parseInt(localStorage.getItem('dspilot-dash-avgdays'), 10);
                 if (!isNaN(savedAvgDays) && savedAvgDays >= 1) this.avgDays = Math.min(savedAvgDays, 90);
+                // 상단 지표 카드 구성 — loadCompare() 전에 복원해야 TEEP 조건부 fetch 판단이 맞다.
+                this.loadKpiSel();
                 await this.loadSnapshot();
                 this.loadNonprod();
                 this.loadTodayCycles();
@@ -1682,6 +1793,81 @@
                 } catch (e) { /* 저장 실패 시 모달 유지 */ }
                 finally { this.outFlowSaving = false; }
             },
+
+            // ── 상단 지표 카드 구성(헤더 톱니) — 브라우저별 개인 설정(localStorage) ──
+            loadKpiSel() {
+                try {
+                    const raw = JSON.parse(localStorage.getItem(KPI_LS_KEY) || 'null');
+                    if (!Array.isArray(raw)) return;
+                    // 방어적 복원: 알 수 없는 id 제거 + 중복 제거 + 최대 6장. 유효 카드가 없으면 기본 구성 유지.
+                    const ids = [...new Set(raw)].filter(id => KPI_MAP[id]).slice(0, 6);
+                    if (ids.length) this.kpiSel = ids;
+                } catch (_) { /* 손상된 저장값은 무시하고 기본 구성 */ }
+            },
+            openKpiModal() { this.kpiForm = [...this.kpiSel]; this.kpiModalOpen = true; },
+            closeKpiModal() { this.kpiModalOpen = false; },
+            // 팔레트 칩 클릭 — 담기/빼기(3~6개 가드). TEEP 계열을 처음 담으면 미리보기 값용 데이터를 즉시 로드.
+            kpiToggle(id) {
+                const i = this.kpiForm.indexOf(id);
+                if (i >= 0) {
+                    if (this.kpiForm.length > 3) this.kpiForm.splice(i, 1);
+                    return;
+                }
+                if (this.kpiForm.length >= 6 || !KPI_MAP[id]) return;
+                this.kpiForm.push(id);
+                if (KPI_MAP[id].src === 'teep' && !this.cmpTeep.today) this._loadTeepPreview();
+            },
+            // 모달 미리보기용 TEEP 오늘/어제 로드 — 아직 TEEP 카드가 적용 전이라 loadCompare 가 안 가져온 경우만
+            async _loadTeepPreview() {
+                if (this._teepPrevLoading) return;
+                this._teepPrevLoading = true;
+                try {
+                    const p = (x) => String(x).padStart(2, '0');
+                    const iso = (d) => `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+                    const now = new Date();
+                    const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
+                    const yStart = new Date(todayStart); yStart.setDate(yStart.getDate() - 1);
+                    const yNow = new Date(now); yNow.setDate(yNow.getDate() - 1);
+                    const [t, y] = await Promise.all([
+                        this.apiGet(`/api/oee/teep?from=${encodeURIComponent(iso(todayStart))}&to=${encodeURIComponent(iso(now))}`),
+                        this.apiGet(`/api/oee/teep?from=${encodeURIComponent(iso(yStart))}&to=${encodeURIComponent(iso(yNow))}`),
+                    ]);
+                    this.cmpTeep = { today: t, yesterday: y };
+                } catch (_) { /* 미리보기 값은 '—' 유지 */ }
+                finally { this._teepPrevLoading = false; }
+            },
+            kpiResetDefault() { this.kpiForm = [...KPI_DEFAULT]; },
+            // ↑↓ 버튼 — 인접 슬롯과 값 교환
+            kpiMove(i, d) {
+                const j = i + d;
+                if (j < 0 || j >= this.kpiForm.length) return;
+                const f = [...this.kpiForm];
+                [f[i], f[j]] = [f[j], f[i]];
+                this.kpiForm = f;
+            },
+            // 드래그 순서변경 — DOM 행은 그대로 두고 배열 값만 이동(기록은 kpiDragIdx가 따라감)
+            kpiDragStart(i, ev) {
+                this.kpiDragIdx = i;
+                // Firefox 는 setData 없으면 드래그 자체가 시작되지 않음
+                if (ev.dataTransfer) { ev.dataTransfer.setData('text/plain', String(i)); ev.dataTransfer.effectAllowed = 'move'; }
+            },
+            kpiDragOver(i) {
+                const from = this.kpiDragIdx;
+                if (from === null || from === i) return;
+                const f = [...this.kpiForm];
+                const [m] = f.splice(from, 1);
+                f.splice(i, 0, m);
+                this.kpiForm = f;
+                this.kpiDragIdx = i;
+            },
+            kpiDragEnd() { this.kpiDragIdx = null; },
+            saveKpiCards() {
+                this.kpiSel = [...this.kpiForm];
+                try { localStorage.setItem(KPI_LS_KEY, JSON.stringify(this.kpiSel)); } catch (_) {}
+                this.kpiModalOpen = false;
+                // TEEP 계열 카드가 새로 포함됐으면 cmpTeep 가 비어 있으니 즉시 재조회 (배지·값 채움)
+                this.loadCompare();
+            },
             saveAvgDays() {
                 const v = Math.max(1, Math.min(90, Math.round(Number(this.avgDaysForm) || 1)));
                 this.avgDays = v;
@@ -1793,57 +1979,98 @@
                     // 가동횟수 카드는 flow별 사이클수 단순합이 아니라 "출력 기준"(지정 flow 합 또는 flow 평균)을 쓴다.
                     // → summary(전 지표)와 별개로 /api/oee/output-count 를 같은 창으로 조회해 totalCount 를 덮어쓴다.
                     // (cmpBadge('count')·카드 x-text 는 totalCount 만 참조하므로 이 한 필드만 교체하면 일관 반영)
-                    const [today, yesterday, outToday, outYest] = await Promise.all([
+                    // TEEP 계열 카드(teep/utilization)를 선택했을 때만 /api/oee/teep 도 같은 창으로 2회 추가 조회
+                    // — 기본 구성 사용자는 기존과 동일한 네트워크 비용 유지.
+                    const wantTeep = this.kpiNeedsTeep;
+                    const reqs = [
                         this.apiGet(`/api/oee/summary?from=${encodeURIComponent(iso(todayStart))}&to=${encodeURIComponent(iso(now))}`),
                         this.apiGet(`/api/oee/summary?from=${encodeURIComponent(iso(yStart))}&to=${encodeURIComponent(iso(yNow))}`),
                         this.apiGet(`/api/oee/output-count?from=${encodeURIComponent(iso(todayStart))}&to=${encodeURIComponent(iso(now))}`),
                         this.apiGet(`/api/oee/output-count?from=${encodeURIComponent(iso(yStart))}&to=${encodeURIComponent(iso(yNow))}`),
-                    ]);
+                    ];
+                    if (wantTeep) {
+                        reqs.push(
+                            this.apiGet(`/api/oee/teep?from=${encodeURIComponent(iso(todayStart))}&to=${encodeURIComponent(iso(now))}`),
+                            this.apiGet(`/api/oee/teep?from=${encodeURIComponent(iso(yStart))}&to=${encodeURIComponent(iso(yNow))}`),
+                        );
+                    }
+                    const [today, yesterday, outToday, outYest, teepToday, teepYest] = await Promise.all(reqs);
                     if (today && outToday) today.totalCount = outToday.count;
                     if (yesterday && outYest) yesterday.totalCount = outYest.count;
                     this.cmp = { today, yesterday };
+                    if (wantTeep) this.cmpTeep = { today: teepToday, yesterday: teepYest };
                 } catch (e) { /* 미수신 시 기존값 유지 */ }
             },
-            // 지표별 원시값 추출 (null = 산출 불가)
-            _cmpVal(row, metric) {
-                if (!row) return null;
-                switch (metric) {
-                    case 'count': return row.totalCount != null ? row.totalCount : 0;
-                    case 'oee': return row.oee;    // 0..1 (fraction) or null
-                    case 'mtbf': return row.mtbf;  // ms or null
-                    case 'mttr': return row.mttr;  // ms or null
+            // ── 상단 지표 카드 헬퍼 (카드 정의 = KPI_CATALOG 단일 소스) ──
+            // 카드의 데이터 행 — summary 계열은 cmp, TEEP 계열은 cmpTeep
+            _kpiRow(c, which) { return c.src === 'teep' ? this.cmpTeep[which] : this.cmp[which]; },
+            // 카드 본값(오늘) 표시 문자열
+            kpiValue(id) {
+                const c = KPI_MAP[id]; if (!c) return '—';
+                const row = this._kpiRow(c, 'today');
+                if (!row) return '—';
+                if (id === 'mtbf' || id === 'mttr') return row.failureCount === 0 ? '무고장' : this.durShort(c.val(row));
+                const v = c.val(row);
+                if (v == null) return '—';
+                if (c.kind === 'count') return v.toLocaleString() + '회';
+                if (c.kind === 'pct') return (v * 100).toFixed(1) + '%';
+                return v > 0 ? this.durShort(v) : '정지 없음';
+            },
+            // 카드별 보조 칩({text, title} | null) — 가동횟수: 출력 기준, 가용성/품질: 산출 기준
+            kpiChip(id) {
+                if (id === 'count') {
+                    const sel = this.outFlowSaved;
+                    return sel.length
+                        ? { text: sel.join(', '), title: '출력 기준 Flow: ' + sel.join(', ') }
+                        : { text: '자동', title: '출력 기준: 자동(전체 Flow 평균)' };
+                }
+                const row = this.cmp.today;
+                if (id === 'availability' && row && row.availabilitySource) {
+                    const m = { cycle: '사이클', shift: '시프트', auto: '자동추정', calendar: '달력' };
+                    return { text: m[row.availabilitySource] || row.availabilitySource, title: '가용성 산출 기준' };
+                }
+                if (id === 'quality' && row && row.qualitySource) {
+                    const m = { measured: '실측', assumed: '불량0 가정', manual: '수동' };
+                    return { text: m[row.qualitySource] || row.qualitySource, title: '품질 산출 기준' };
                 }
                 return null;
             },
+            // 카드 클릭 — 가동횟수는 출력 기준 지정 모달, 나머지는 해당 상세 페이지로 이동
+            kpiClick(c) {
+                if (c.id === 'count') { this.openOutputFlowModal(); return; }
+                if (c.nav) window.location = c.nav;
+            },
             // 어제 대비 등락 배지(HTML) — x-html 로 삽입. ▲/▼ + 증감량 + "어제 대비".
-            // 개선=초록/악화=빨강(방향과 별개로 좋음/나쁨으로 색 결정). MTTR 만 낮을수록 개선.
-            cmpBadge(metric) {
+            // 개선=초록/악화=빨강(방향과 별개로 좋음/나쁨으로 색 결정). dir:'down'(MTTR·정지시간)은 감소가 개선.
+            cmpBadge(id) {
+                const c = KPI_MAP[id]; if (!c) return '';
                 const note = '<span class="text-label-sm text-on-surface-variant opacity-70" style="margin-left:5px;">어제 대비</span>';
                 const gray = (txt) => '<span style="font-weight:700;font-size:0.82rem;color:var(--color-text-disabled);">' + txt + '</span>' + note;
                 // MTBF/MTTR: 비가동 0건이면 시간값이 없음 — "무고장 유지"로 정직 표기
-                if (metric === 'mtbf' || metric === 'mttr') {
+                if (id === 'mtbf' || id === 'mttr') {
                     const tf = this.cmp.today ? this.cmp.today.failureCount : null;
                     const yf = this.cmp.yesterday ? this.cmp.yesterday.failureCount : null;
                     if (tf === 0 && (yf === 0 || yf == null))
                         return '<span style="display:inline-flex;align-items:center;gap:4px;font-weight:800;font-size:0.8rem;color:var(--green);"><span style="font-size:0.6rem;">●</span>무고장 유지</span>';
                 }
-                const t = this._cmpVal(this.cmp.today, metric);
-                const y = this._cmpVal(this.cmp.yesterday, metric);
+                const tr = this._kpiRow(c, 'today'), yr = this._kpiRow(c, 'yesterday');
+                const t = tr ? c.val(tr) : null;
+                const y = yr ? c.val(yr) : null;
                 if (t == null || y == null) return gray('—');
                 const diff = t - y;
-                const eps = metric === 'oee' ? 0.0005 : (metric === 'count' ? 0.5 : 1000);
+                const eps = c.kind === 'pct' ? 0.0005 : (c.kind === 'count' ? 0.5 : 1000);
                 let color, arrow;
                 if (Math.abs(diff) < eps) { color = 'var(--color-text-disabled)'; arrow = '—'; }
                 else {
                     const up = diff > 0;
-                    const good = metric === 'mttr' ? !up : up;   // MTTR 은 감소가 개선
+                    const good = c.dir === 'down' ? !up : up;
                     color = good ? 'var(--green)' : 'var(--red)';
                     arrow = up ? '▲' : '▼';
                 }
                 const a = Math.abs(diff);
                 let txt;
-                if (metric === 'count') { txt = a.toLocaleString() + '회'; if (y > 0) txt += ' · ' + (a / y * 100).toFixed(1) + '%'; }
-                else if (metric === 'oee') txt = (a * 100).toFixed(1) + '%p';
+                if (c.kind === 'count') { txt = a.toLocaleString() + '회'; if (y > 0) txt += ' · ' + (a / y * 100).toFixed(1) + '%'; }
+                else if (c.kind === 'pct') txt = (a * 100).toFixed(1) + '%p';
                 else txt = this.durShort(a);
                 return '<span style="display:inline-flex;align-items:center;gap:3px;font-weight:800;font-size:0.82rem;color:' + color + ';font-variant-numeric:tabular-nums;"><span style="font-size:0.8rem;line-height:1;">' + arrow + '</span>' + txt + '</span>' + note;
             },
