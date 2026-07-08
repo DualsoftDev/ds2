@@ -98,6 +98,27 @@ if ! ldconfig -p 2>/dev/null | grep -qi 'libicu'; then
   echo "      (Debian/Ubuntu: apt-get install -y libicu) (RHEL/Rocky: dnf install -y libicu)"
 fi
 
+# ── ffmpeg(CCTV 스냅샷 API 가 PATH 의 ffmpeg 로 1프레임 그랩. 패키지에 미동봉) ──────
+# 온라인 환경 가정으로 패키지 매니저 자동 설치를 시도하고, 실패(오프라인/프록시/저장소 정책)해도
+# 경고만 남기고 나머지 설치는 계속한다 — ffmpeg 부재 시 스냅샷 API 만 실패, 스트리밍은 무관.
+if [[ $ENABLE_CCTV -eq 1 ]] && ! command -v ffmpeg >/dev/null 2>&1; then
+  echo "==> ffmpeg 미감지 — 자동 설치 시도 (CCTV 스냅샷 API 용)"
+  FFMPEG_OK=0
+  if command -v apt-get >/dev/null 2>&1; then
+    { apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg; } && FFMPEG_OK=1 || true
+  elif command -v dnf >/dev/null 2>&1; then
+    dnf install -y -q ffmpeg && FFMPEG_OK=1 || true
+  elif command -v yum >/dev/null 2>&1; then
+    yum install -y -q ffmpeg && FFMPEG_OK=1 || true
+  fi
+  if [[ $FFMPEG_OK -eq 1 ]] && command -v ffmpeg >/dev/null 2>&1; then
+    echo "    ffmpeg 설치 완료: $(command -v ffmpeg)"
+  else
+    echo "경고: ffmpeg 자동 설치에 실패했습니다. CCTV 스냅샷 API 가 동작하지 않습니다(스트리밍은 무관)."
+    echo "      수동 설치 후 재기동 불필요 — (Debian/Ubuntu: apt-get install -y ffmpeg) (RHEL/Rocky: dnf install -y ffmpeg)"
+  fi
+fi
+
 # ── 1) 서비스 계정 ─────────────────────────────────────────────────────────
 if ! id -u "$APP_USER" >/dev/null 2>&1; then
   echo "==> 시스템 사용자 생성: $APP_USER"
