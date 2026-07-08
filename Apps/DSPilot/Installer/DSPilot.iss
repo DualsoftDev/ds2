@@ -87,6 +87,14 @@ Source: "mediamtx\mediamtx.yml"; DestDir: "{app}\mediamtx"; Flags: onlyifdoesnte
 ; MIT 고지문 — 바이너리 재배포 시 저작권·허가 고지 동봉 의무 (MediaMTX / WinSW)
 Source: "mediamtx\LICENSE"; DestDir: "{app}\mediamtx"; Flags: ignoreversion
 Source: "mediamtx\LICENSE-winsw.txt"; DestDir: "{app}\mediamtx"; Flags: ignoreversion
+; CCTV 스냅샷 — ffmpeg 원샷 프레임 그랩(/api/cctv/snapshot). 상주 아님: 요청 시 실행→1프레임→종료라
+; 서비스 등록·방화벽 설정 불필요. Installer\ffmpeg\ffmpeg.exe 를 놓으면 함께 배포되고(없으면 자동 스킵 —
+; 스냅샷 API 는 대체 이미지 폴백만 동작). LICENSE 동봉 의무(GPL/LGPL 빌드에 따라 고지문 필수).
+#define HasFfmpeg FileExists("ffmpeg\ffmpeg.exe")
+#if HasFfmpeg
+Source: "ffmpeg\ffmpeg.exe"; DestDir: "{app}\ffmpeg"; Flags: ignoreversion
+Source: "ffmpeg\LICENSE*"; DestDir: "{app}\ffmpeg"; Flags: ignoreversion skipifsourcedoesntexist
+#endif
 #if HasAgent
 ; Promaker.Agent — "installagent" 태스크 체크 시에만 {app}\Agent 로 번들(self-contained).
 ; 별도 폴더로 분리해 DSPilot.exe 와 dll 충돌 방지 + Agent 로그(logs\promaker-agent.log) 격리.

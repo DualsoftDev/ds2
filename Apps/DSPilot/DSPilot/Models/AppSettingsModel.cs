@@ -399,6 +399,18 @@ public class CctvSettings
     /// <summary>무조작 일시정지까지의 시간(분). 기본 60분.</summary>
     public int IdlePauseMinutes { get; set; } = 60;
 
+    /// <summary>
+    /// 스냅샷(정지 프레임) 획득용 ffmpeg 실행 파일 경로 오버라이드. 비우면 자동 탐색 —
+    /// ① {앱 폴더}\ffmpeg\ffmpeg.exe(인스톨러 동봉) ② PATH 의 ffmpeg. (CctvSnapshotService)
+    /// </summary>
+    public string FfmpegPath { get; set; } = "";
+
+    /// <summary>
+    /// MediaMTX RTSP 재게시 포트(mediamtx.yml rtspAddress). 스냅샷이 rtsp://{host}:{port}/{slug} 로
+    /// 프레임을 뽑을 때 사용. host 는 <see cref="MediaMtxApiUrl"/> 에서 파생.
+    /// </summary>
+    public int RtspPort { get; set; } = 8554;
+
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }

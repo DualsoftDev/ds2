@@ -19,6 +19,9 @@
     <PackageReference Include="System.Threading.Channels" Version="9.0.0" />
     <PackageReference Include="System.Reactive" Version="6.1.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <!-- CCTV 스냅샷 오버레이 합성 (CctvOverlayRenderer). System.Drawing 은 Windows 전용이라 배제(bLinux). -->
+    <PackageReference Include="SkiaSharp" Version="2.88.9" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="2.88.9" />
     <PackageReference Include="log4net" Version="3.3.0" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="9.0.0" />
     <!-- 서비스 호스팅: Windows(서비스)·Linux(systemd) 양쪽 라이프사이클 통합. 둘 다 해당 OS 에서만 활성. -->

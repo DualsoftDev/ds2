@@ -28,6 +28,7 @@ public class CctvController : ControllerBase
     private readonly PlcToCallMapperService _callMapper;
     private readonly DspDbService _dspDb;
     private readonly DsProjectService _project;
+    private readonly CctvSnapshotService _snapshot;
 
     public CctvController(
         AppSettingsService settings,
@@ -36,7 +37,8 @@ public class CctvController : ControllerBase
         CctvFallbackImageService fallback,
         PlcToCallMapperService callMapper,
         DspDbService dspDb,
-        DsProjectService project)
+        DsProjectService project,
+        CctvSnapshotService snapshot)
     {
         _settings = settings;
         _mediaMtx = mediaMtx;
@@ -45,6 +47,7 @@ public class CctvController : ControllerBase
         _callMapper = callMapper;
         _dspDb = dspDb;
         _project = project;
+        _snapshot = snapshot;
     }
 
     /// <summary>
@@ -437,6 +440,79 @@ public class CctvController : ControllerBase
                 CurrentCt: currentCt, MovingStartName: movingStart, MovingEndName: movingEnd));
         }
         return result;
+    }
+
+    // ──────────────────────────── 스냅샷 (프레임 + 오버레이 합성 이미지) ────────────────────────────
+
+    /// <summary>
+    /// 카메라 현재 프레임을 오버레이(설비 상태색 포함) 합성 JPEG 로 반환 — API 소비자(외부/DSPilot 공용)용.
+    /// 프레임 소스: MediaMTX RTSP 재게시에서 ffmpeg 원샷 그랩(<see cref="CctvSnapshotService"/>),
+    /// 실패 시 대체(폴백) 이미지 베이스로 폴백. camera = 표시명 또는 slug(대소문자 무시).
+    /// overlay=0 이면 원본 프레임만. width 로 비율 유지 다운스케일(업스케일 안 함).
+    /// 오버레이 상태색은 <see cref="GetOverlayState"/> 와 동일 스냅샷 소스라 화면과 일치한다.
+    /// </summary>
+    [HttpGet("snapshot/{camera}")]
+    public async Task<IActionResult> GetSnapshot(string camera, [FromQuery] int overlay = 1,
+        [FromQuery] int? width = null, CancellationToken ct = default)
+    {
+        var cctv = _settings.LoadSettings().Cctv;
+        CctvMediaMtxService.AssignSlugs(cctv.Cameras);
+        var cam = cctv.Cameras.FirstOrDefault(c => c.Enabled
+            && (string.Equals(c.Name, camera, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(c.Slug, camera, StringComparison.OrdinalIgnoreCase)));
+        if (cam is null)
+            return NotFound(new { error = $"카메라를 찾을 수 없습니다: {camera}" });
+
+        var (bytes, fromLive, error) = await _snapshot.GetFrameAsync(cam, ct);
+        if (bytes is null)
+            return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                new { error = error ?? "프레임을 획득할 수 없습니다." });
+
+        // 라이브/폴백 여부를 헤더로 노출 — 소비자가 stale 이미지를 구분할 수 있게.
+        Response.Headers["X-Cctv-Source"] = fromLive ? "live" : "fallback";
+
+        if (overlay == 0)
+        {
+            if (width is int w0 && w0 > 0)
+                bytes = CctvOverlayRenderer.Render(bytes, [], w0);   // 다운스케일만
+            return File(bytes, "image/jpeg");
+        }
+
+        var items = _overlays.GetByCamera(cam.Name);
+        var stateMap = BuildOverlayStateMap(items);
+        var drawList = items
+            .Select(o => new CctvOverlayRenderer.Item(o, stateMap.TryGetValue(o.Id, out var s) ? s : ""))
+            .ToList();
+        try
+        {
+            var composed = CctvOverlayRenderer.Render(bytes, drawList, width is int w1 && w1 > 0 ? w1 : null);
+            return File(composed, "image/jpeg");
+        }
+        catch (ArgumentException ex) // 디코드 불가(손상 폴백 파일 등)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// 오버레이 id → 라이브 상태 문자열 맵. <see cref="GetOverlayState"/> 의 상태 해석부만 —
+    /// Call 바인딩 우선(callId 조인), 없으면 Flow(FlowName 조인). 미해석은 빈 문자열(미상 색).
+    /// </summary>
+    private Dictionary<string, string> BuildOverlayStateMap(IReadOnlyList<CctvOverlay> overlays)
+    {
+        var map = new Dictionary<string, string>();
+        if (overlays.Count == 0) return map;
+        var snap = _dspDb.Snapshot;
+        var callById = snap.Calls.GroupBy(c => c.CallId).ToDictionary(g => g.Key, g => g.Last());
+        var flowByName = snap.Flows.GroupBy(f => f.FlowName).ToDictionary(g => g.Key, g => g.Last());
+        foreach (var ovl in overlays)
+        {
+            if (ovl.CallId is Guid cid && callById.TryGetValue(cid, out var call))
+                map[ovl.Id] = call.State ?? "";
+            else if (!string.IsNullOrEmpty(ovl.FlowName) && flowByName.TryGetValue(ovl.FlowName, out var flow))
+                map[ovl.Id] = flow.State ?? "";
+        }
+        return map;
     }
 
     /// <summary>활성 시스템의 Flow 들에서 flowId 로 (FlowName, SystemName) 를 찾는다. 없으면 null.</summary>

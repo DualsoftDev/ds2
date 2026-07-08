@@ -21,6 +21,7 @@ set "AGENT_PUBLISH_DIR=%SOLUTION_DIR%publish-agent"
 set "ISCC=C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 set "ISS_FILE=%SOLUTION_DIR%Installer\DSPilot.iss"
 set "MTX_DIR=%SOLUTION_DIR%Installer\mediamtx"
+set "FFMPEG_DIR=%SOLUTION_DIR%Installer\ffmpeg"
 :: CCTV - bundled external binary versions (update as needed)
 :: v1.10.0+ required for H.265 over WebRTC (camera H.265 streams play in supporting browsers)
 set "MTX_VERSION=v1.19.1"
@@ -74,6 +75,21 @@ if not exist "%MTX_DIR%\mediamtx-service.exe" (
     if !errorlevel! neq 0 goto :fail_cctv
 ) else (
     echo       WinSW already present, skipping.
+)
+
+rem ffmpeg (essentials, GPL) - CCTV snapshot one-shot frame grabber (/api/cctv/snapshot).
+rem Not a resident service: DSPilot spawns it per request. gyan.dev "release-essentials" = latest
+rem stable; the zip's top folder name is versioned so locate ffmpeg.exe by recursive search.
+rem 실패해도 설치 빌드는 계속 - DSPilot.iss 의 #if HasFfmpeg 가드가 자동 생략(스냅샷은 폴백 이미지만 동작).
+if not exist "%FFMPEG_DIR%\ffmpeg.exe" (
+    echo       Downloading ffmpeg release-essentials...
+    if not exist "%FFMPEG_DIR%" mkdir "%FFMPEG_DIR%"
+    powershell -NoProfile -Command "$ErrorActionPreference='Stop'; [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $u='https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip'; $z='%FFMPEG_DIR%\ff.zip'; $d='%FFMPEG_DIR%\ff-tmp'; Invoke-WebRequest -Uri $u -OutFile $z; Expand-Archive -Path $z -DestinationPath $d -Force; $exe=Get-ChildItem $d -Recurse -Filter ffmpeg.exe | Select-Object -First 1; Copy-Item $exe.FullName '%FFMPEG_DIR%\ffmpeg.exe' -Force; $lic=Get-ChildItem $d -Recurse -Filter LICENSE | Select-Object -First 1; if ($lic) { Copy-Item $lic.FullName '%FFMPEG_DIR%\LICENSE-ffmpeg.txt' -Force }; Remove-Item $d -Recurse -Force; Remove-Item $z"
+    if !errorlevel! neq 0 (
+        echo       [WARN] ffmpeg download FAILED — installer will be built WITHOUT ffmpeg (snapshot live-grab disabled).
+    )
+) else (
+    echo       ffmpeg already present, skipping.
 )
 echo       Done.
 echo.

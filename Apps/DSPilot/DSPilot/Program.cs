@@ -86,6 +86,7 @@ builder.Services.AddScoped<DashboardEditService>();
 builder.Services.AddSingleton<BlueprintService>();
 builder.Services.AddSingleton<CctvOverlayService>(); // CCTV 설비 오버레이 영속(WebRoot/uploads/cctv-overlays.json)
 builder.Services.AddSingleton<CctvFallbackImageService>(); // CCTV 대체 이미지 파일 영속(WebRoot/uploads/cctv-fallbacks/)
+builder.Services.AddSingleton<CctvSnapshotService>(); // CCTV 스냅샷 — ffmpeg 원샷 프레임 그랩(single-flight+TTL), /api/cctv/snapshot
 builder.Services.AddSingleton<HeatmapService>();
 builder.Services.AddSingleton<DspDbService>();
 builder.Services.AddSingleton<PlcDebugService>();
