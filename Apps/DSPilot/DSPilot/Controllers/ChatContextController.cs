@@ -60,10 +60,15 @@ public class ChatContextController : ControllerBase
             f.MT, f.WT,
             f.MovingStartName, f.MovingEndName)).ToList();
 
-        // 활성 알람 — abnormal 이벤트만 (usertag 는 별도 엔드포인트)
+        // 활성 알람 — abnormal 이벤트만 (usertag 는 별도 엔드포인트).
+        // Sensor* 는 메모리 전용 저장소(GetSensorErrors)로 분리됐으므로 병합해 챗 컨텍스트엔 계속 노출.
         var n = Math.Clamp(alarmLimit, 1, 100);
-        var alarms = _abnormal.GetActive(n).Select(a => new ChatAlarmDto(
-            a.Level, a.KindName, a.FlowName, a.WorkName, a.ElapsedMs)).ToList();
+        var alarms = _abnormal.GetActive(n)
+            .Concat(_abnormal.GetSensorErrors(n))
+            .OrderByDescending(a => a.OccurredAtUtc)
+            .Take(n)
+            .Select(a => new ChatAlarmDto(
+                a.Level, a.KindName, a.FlowName, a.WorkName, a.ElapsedMs)).ToList();
 
         return Ok(new ChatContextDto(
             flows,

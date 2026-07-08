@@ -174,6 +174,16 @@ public class DashboardController : ControllerBase
     }
 
     /// <summary>
+    /// 활성 센서에러(SensorOpen/SensorShort) 목록 — 서버 메모리 전용(userTagAlertLog 미기록, 재시작 소실).
+    /// 디바이스(Call)당 마지막 발생 1건, 그 디바이스가 다시 가동(Going)되면 자동 제거.
+    /// 소비: 대시보드 CCTV/이미지 "이상탐지" 버튼(오버레이 강조) + 외부 API 조회.
+    /// 실시간 갱신 트리거 = SignalR "SensorErrorsChanged".
+    /// </summary>
+    [HttpGet("sensor-errors")]
+    public ActionResult<IReadOnlyList<AbnormalEventDto>> GetSensorErrors([FromQuery] int limit = 100)
+        => Ok(_abnormal.GetSensorErrors(Math.Clamp(limit, 1, 100)));
+
+    /// <summary>
     /// 데모용 이상감지 이벤트 주입 — 브라우저 콘솔에서 demoAlarm() 으로 호출.
     /// kind: 0=센서단선(Error), 1=센서오감지(Warning), 2=동작지연(Error), 3=동작과속(Warning)
     /// </summary>

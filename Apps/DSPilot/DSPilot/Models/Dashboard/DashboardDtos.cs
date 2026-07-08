@@ -122,4 +122,6 @@ public record AbnormalEventDto(
     System.DateTime OccurredAtUtc,
     string OccurredAtLocal,
     string? SensorTag = null,
-    string CallName = "");
+    string CallName = "",
+    // Sensor*(메모리 전용) 디바이스 식별자 — CCTV 오버레이 callId 매칭·디바이스 Going 해제 키. Action*/usertag 는 null.
+    System.Guid? CallId = null);

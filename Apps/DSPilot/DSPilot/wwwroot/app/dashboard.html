@@ -649,6 +649,14 @@
                                     <span class="material-icons text-[14px]">image</span> 이미지
                                 </button>
                             </div>
+                            <!-- 이상탐지 토글 — ON 이면 서버 메모리 센서에러(단선/오감지)를 오버레이에 빨강 표시.
+                                 라이브·이미지 모드 공통. 센서에러는 DB 미기록(메모리 전용)이라 이 버튼으로만 확인. -->
+                            <button class="px-2 py-1 text-[10px] font-bold rounded transition-all flex items-center gap-1 border border-outline-variant"
+                                    :class="cctvAbnDetect ? 'bg-error text-white shadow-sm' : 'bg-surface text-on-surface-variant hover:bg-surface-container-high'"
+                                    @click="cctvToggleAbnDetect()"
+                                    title="이상탐지 — 센서 단선/오감지를 오버레이에 표시 (디바이스 재가동 시 자동 해제)">
+                                <span class="material-icons text-[14px]">sensors_off</span> 이상탐지
+                            </button>
                             <!-- CCTV 설정 페이지로 이동 -->
                             <button class="p-1.5 hover:bg-surface-container-highest rounded transition-colors text-on-surface-variant flex items-center gap-1 text-[12px] font-bold"
                                     @click="goCctvSettings()" title="CCTV 설정 (카메라·오버레이 편집 페이지로 이동)">
@@ -799,6 +807,11 @@
                                                             <template x-if="cctvHover?.model?.movingStartName || cctvHover?.model?.movingEndName"><span class="tv" x-text="(cctvHover?.model?.movingStartName || '?') + ' → ' + (cctvHover?.model?.movingEndName || '?')"></span></template>
                                                             <template x-if="cctvHover?.model?.errorText"><span class="tk">이상</span></template>
                                                             <template x-if="cctvHover?.model?.errorText"><span class="tv is-error" x-text="cctvHover?.model?.errorText"></span></template>
+                                                            <!-- 이상탐지 ON: 메모리 센서에러(단선/오감지) 상세 — 종류 + 센서주소 + 발생시각 -->
+                                                            <template x-if="cctvHover?.model?.sensorError"><span class="tk">센서 이상</span></template>
+                                                            <template x-if="cctvHover?.model?.sensorError"><span class="tv is-error" x-text="cctvHover?.model?.sensorError?.label + (cctvHover?.model?.sensorError?.sensorTag ? ' · ' + cctvHover?.model?.sensorError?.sensorTag : '')"></span></template>
+                                                            <template x-if="cctvHover?.model?.sensorError?.occurredAt"><span class="tk">발생 시각</span></template>
+                                                            <template x-if="cctvHover?.model?.sensorError?.occurredAt"><span class="tv" x-text="cctvHover?.model?.sensorError?.occurredAt"></span></template>
                                                         </div>
                                                     </div>
                                                 </template>
@@ -1271,6 +1284,8 @@
                 conn.on('AbnormalDetected', () => { this.debouncedLoadAbnormals(); });
                 // usertag 활성 알람 발생/해소(조건 풀림) 시에도 배너 즉시 재조회 (REST 단일 소스).
                 conn.on('UserTagAlertsChanged', () => { this.debouncedLoadAbnormals(); });
+                // 센서에러(메모리 전용) 발생/해소 — 이상탐지 버튼 ON + CCTV 뷰 활성일 때만 오버레이 즉시 갱신(그 외 3초 폴링 무시).
+                conn.on('SensorErrorsChanged', () => { if (this._cctvActive && this.cctvAbnDetect) this.cctvLoadStates(); });
                 conn.onreconnected(() => { this.rt.connected = true; this.loadSnapshot(); this.loadAbnormals(); });
                 conn.onreconnecting(() => { this.rt.connected = false; });
                 conn.onclose(() => { this.rt.connected = false; });

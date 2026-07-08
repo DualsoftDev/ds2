@@ -16,10 +16,17 @@ namespace DSPilot.Services;
 /// v12 경로이탈 이상감지(4종) 싱크 + 라이브 피드 (P5) + DB 영속화.
 ///
 /// SimulationEngineService 의 MonitoringAbnormalAdapter 가 감지한 <see cref="AbnormalRecord"/> 를
-/// <see cref="Record"/> 로 흘려보내면:
+/// <see cref="Record"/> 로 흘려보내면 Kind 별로 두 경로로 갈린다:
+///
+/// Action*(ActionOver/ActionUnder) — 기존 영속 경로:
 ///   - 최근 N건 링버퍼에 적재 (사이드바 /api/nav/summary 피드 조회용)
 ///   - userTagAlertLog 에 INSERT (→ /uptime · /oee · 배지 카운트 자동 포함)
 ///   - SignalR "AbnormalDetected" 트리거 발행 → 화면이 REST 를 재조회 (코드베이스 관례: 이벤트=트리거)
+///
+/// Sensor*(SensorOpen/SensorShort) — 메모리 전용 경로(2026-07 결정):
+///   - _sensorErrors 딕셔너리에 디바이스(CallId)당 마지막 발생 1건만 유지 (DB 미기록·이상알람 내역 미포함·재시작 소실)
+///   - 그 디바이스(Call)가 다시 Going 되면 자동 제거 (CallId 미해석 폴백은 flow Going)
+///   - 소비: /api/dashboard/sensor-errors + SignalR "SensorErrorsChanged" 트리거 (대시보드 CCTV 이상탐지 버튼)
 /// </summary>
 public sealed class AbnormalEventService
 {
@@ -32,8 +39,17 @@ public sealed class AbnormalEventService
     // _recent(사이드바 피드)와 별개: 배너·Flow 카드·CCTV 오버레이는 _active(active-alarms)만 본다.
     private readonly LinkedList<AbnormalEventDto> _active = new();
 
+    // Sensor*(SensorOpen/SensorShort) 전용 메모리 저장소 — DB(userTagAlertLog)·_recent·_active 에 남기지 않는다.
+    //   키 = CallId(디바이스) 문자열, CallId 미해석 시 경로("FLOW / WORK / CALL") 폴백.
+    //   값 = 그 디바이스의 "마지막 발생" 1건(덮어쓰기). 해당 디바이스(Call)가 다시 가동(Going)되면 제거.
+    //   소비처: /api/dashboard/sensor-errors (대시보드 CCTV 이상탐지 버튼 + 외부 API). 재시작 시 소실(수용된 결정).
+    private readonly Dictionary<string, AbnormalEventDto> _sensorErrors = new(StringComparer.Ordinal);
+
     // 직전 스냅샷에서 가동(Going) 중이던 flow 집합 — Ready→Going 전이(재가동) 검출용.
     private HashSet<string> _prevGoing = new(StringComparer.Ordinal);
+
+    // 직전 스냅샷에서 가동(Going) 중이던 call(디바이스) 집합 — 센서에러의 디바이스 단위 해제용.
+    private HashSet<Guid> _prevGoingCalls = new();
 
     private readonly object _lock = new();
     private readonly IHubContext<MonitoringHub> _hub;
@@ -118,8 +134,33 @@ public sealed class AbnormalEventService
     }
 
     /// <summary>
+    /// 활성 센서에러(SensorOpen/SensorShort) 목록 — 디바이스당 마지막 발생 1건, 시각 내림차순.
+    /// 해당 디바이스(Call)가 다시 가동(Going)되면 OnSnapshotChanged 가 제거한다. 메모리 전용(재시작 소실).
+    /// ResetIntervalHours 컷오프는 _active 와 동일한 backstop(가동이 영영 재개되지 않는 디바이스 안전망).
+    /// </summary>
+    public IReadOnlyList<AbnormalEventDto> GetSensorErrors(int max)
+    {
+        var n = Math.Clamp(max, 1, Capacity);
+        var alarm = _appSettings.LoadSettings().AbnormalAlarm;
+        var cutoff = alarm.ResetIntervalHours > 0 ? DateTime.UtcNow - TimeSpan.FromHours(alarm.ResetIntervalHours) : (DateTime?)null;
+        lock (_lock)
+        {
+            var query = _sensorErrors.Values.AsEnumerable();
+            if (cutoff.HasValue)
+                query = query.Where(e => e.OccurredAtUtc >= cutoff.Value);
+            return query
+                .Where(e => !AbnormalDeviceFilterHelpers.IsSuppressed(alarm.DeviceFilters, e.Kind, e.CallName))
+                .OrderByDescending(e => e.OccurredAtUtc)
+                .Take(n)
+                .ToList();
+        }
+    }
+
+    /// <summary>
     /// 스냅샷 갱신 콜백 — 직전 비-Going 이던 flow 가 Going 으로 전이(재가동)하면 그 flow 의 활성 abnormal 을 전부 제거.
     /// 가동 중 발생한 abnormal 은 그 episode 동안 유지되고, 다음 Ready→Going 전이에서 해소된다(요구사항).
+    /// 센서에러(_sensorErrors)는 디바이스 단위: 그 call 이 Going 으로 전이하면 그 디바이스 항목만 제거
+    /// (CallId 미해석 폴백 항목은 flow Going 전이로 제거).
     /// </summary>
     private void OnSnapshotChanged()
     {
@@ -130,13 +171,24 @@ public sealed class AbnormalEventService
                 if (string.Equals(f.State, "Going", StringComparison.Ordinal) && !string.IsNullOrEmpty(f.FlowName))
                     current.Add(f.FlowName);
 
+            var currentCalls = new HashSet<Guid>();
+            foreach (var c in _db.Snapshot.Calls)
+                if (string.Equals(c.State, "Going", StringComparison.Ordinal))
+                    currentCalls.Add(c.CallId);
+
             var removedAny = false;
+            var removedSensor = false;
             lock (_lock)
             {
                 // 새로 Going 이 된 flow = current - _prevGoing.
                 var newGoing = new HashSet<string>(current, StringComparer.Ordinal);
                 newGoing.ExceptWith(_prevGoing);
                 _prevGoing = current;
+
+                // 새로 Going 이 된 call(디바이스) = currentCalls - _prevGoingCalls.
+                var newGoingCalls = new HashSet<Guid>(currentCalls);
+                newGoingCalls.ExceptWith(_prevGoingCalls);
+                _prevGoingCalls = currentCalls;
 
                 if (newGoing.Count > 0 && _active.Count > 0)
                 {
@@ -152,6 +204,22 @@ public sealed class AbnormalEventService
                         node = next;
                     }
                 }
+
+                if ((newGoingCalls.Count > 0 || newGoing.Count > 0) && _sensorErrors.Count > 0)
+                {
+                    foreach (var key in _sensorErrors.Keys.ToList())
+                    {
+                        var e = _sensorErrors[key];
+                        var clear = e.CallId is Guid cid
+                            ? newGoingCalls.Contains(cid)                 // 디바이스(Call) 재가동
+                            : newGoing.Contains(e.FlowName);              // CallId 미해석 폴백 — flow 재가동
+                        if (clear)
+                        {
+                            _sensorErrors.Remove(key);
+                            removedSensor = true;
+                        }
+                    }
+                }
             }
 
             if (removedAny)
@@ -159,6 +227,11 @@ public sealed class AbnormalEventService
                 // 코드베이스 관례: 페이로드 없는 트리거 → 클라이언트가 활성알람 재조회.
                 try { _ = _hub.Clients.All.SendAsync("AbnormalDetected"); }
                 catch (Exception ex) { _logger.LogDebug(ex, "[Abnormal] 가동 해소 SignalR 발행 실패 (non-critical)"); }
+            }
+            if (removedSensor)
+            {
+                try { _ = _hub.Clients.All.SendAsync("SensorErrorsChanged"); }
+                catch (Exception ex) { _logger.LogDebug(ex, "[Abnormal] 센서에러 해소 SignalR 발행 실패 (non-critical)"); }
             }
         }
         catch (Exception ex)
@@ -176,7 +249,8 @@ public sealed class AbnormalEventService
             // Target.CallId → 모델상 (FlowName, WorkName, CallName). 경로 표시(FLOW/WORK/CALL) 용.
             string flow = string.Empty, work = string.Empty, callName = string.Empty;
             string? sensorTag = null;
-            if (FsGuid(rec.Target.CallId) is Guid callId)
+            Guid? callGuid = FsGuid(rec.Target.CallId);
+            if (callGuid is Guid callId)
             {
                 // AASX 프로젝트 모델에서 실제 이름 해석 (dspCall.WorkName 은 flow 명으로 채워지는 quirk 회피).
                 var path = _project.IsLoaded ? _project.GetCallPath(callId) : null;
@@ -226,7 +300,28 @@ public sealed class AbnormalEventService
                 OccurredAtUtc: rec.TimestampUtc,
                 OccurredAtLocal: rec.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
                 SensorTag: sensorTag,
-                CallName: callName);
+                CallName: callName,
+                CallId: callGuid);
+
+            // Sensor*(단선/오감지)는 메모리 전용 — DB(userTagAlertLog)·_recent(사이드바)·_active(배너/카드) 어디에도
+            // 남기지 않고 디바이스당 마지막 발생 1건만 유지한다(덮어쓰기). 표시는 대시보드 CCTV 이상탐지 버튼
+            // + /api/dashboard/sensor-errors 로만. 해제는 그 디바이스(Call) Going 전이(OnSnapshotChanged).
+            if (rec.Kind is AbnormalKind.SensorOpen or AbnormalKind.SensorShort)
+            {
+                var key = callGuid?.ToString() ?? BuildPath(flow, work, callName);
+                lock (_lock)
+                {
+                    _sensorErrors[key] = dto;
+                }
+
+                try { await _hub.Clients.All.SendAsync("SensorErrorsChanged"); }
+                catch (Exception ex) { _logger.LogDebug(ex, "[Abnormal] 센서에러 SignalR 발행 실패 (non-critical)"); }
+
+                _logger.LogInformation(
+                    "[Abnormal] {Kind} (메모리 전용) flow={Flow} work={Work} call={Call} tag={Tag}",
+                    dto.KindName, flow, work, callName, sensorTag);
+                return;
+            }
 
             lock (_lock)
             {
@@ -287,6 +382,16 @@ public sealed class AbnormalEventService
             OccurredAtUtc: now,
             OccurredAtLocal: now.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"));
 
+        // 실제 경로와 동일하게 Sensor* 는 메모리 전용 분기 — demoAlarm(0|1) 으로 이상탐지 버튼 검증 가능.
+        if (abnKind is AbnormalKind.SensorOpen or AbnormalKind.SensorShort)
+        {
+            var key = BuildPath(flowName, workName, string.Empty);
+            lock (_lock) { _sensorErrors[key] = dto; }
+            try { await _hub.Clients.All.SendAsync("SensorErrorsChanged"); }
+            catch (Exception ex) { _logger.LogDebug(ex, "[Abnormal] 센서에러 SignalR 발행 실패 (demo)"); }
+            return;
+        }
+
         lock (_lock)
         {
             _recent.AddFirst(dto);
@@ -301,11 +406,13 @@ public sealed class AbnormalEventService
         catch (Exception ex) { _logger.LogDebug(ex, "[Abnormal] SignalR 발행 실패 (demo)"); }
     }
 
-    /// <summary>링버퍼 전체 초기화 후 AbnormalDetected 트리거 — 데모 리셋 전용.</summary>
+    /// <summary>링버퍼·센서에러 전체 초기화 후 트리거 — 데모 리셋 전용.</summary>
     public async Task ClearAsync()
     {
-        lock (_lock) { _recent.Clear(); _active.Clear(); }
+        lock (_lock) { _recent.Clear(); _active.Clear(); _sensorErrors.Clear(); }
         try { await _hub.Clients.All.SendAsync("AbnormalDetected"); }
+        catch { }
+        try { await _hub.Clients.All.SendAsync("SensorErrorsChanged"); }
         catch { }
     }
 
