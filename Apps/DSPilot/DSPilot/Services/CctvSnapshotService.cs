@@ -17,6 +17,9 @@ namespace DSPilot.Services;
 /// - 카메라별 single-flight + 짧은 TTL 캐시: 동시/연속 요청이 ffmpeg 프로세스 1개로 흡수된다
 ///   (PlcPingService 의 TTL single-flight 패턴).
 /// - 라이브 그랩 실패 시 대체(폴백) 이미지를 베이스로 폴백 — 그것도 없으면 실패(null bytes + 사유).
+/// - 프레임↔오버레이 동기: 오버레이 상태(stateSampler)는 프레임 획득 완료 "그 순간" 1회 샘플해
+///   프레임과 함께 캐시한다. 합성 시점(요청마다)에 최신 상태를 읽으면 TTL 캐시 프레임(과거)과
+///   상태(현재)가 어긋나 "그림은 과거인데 오버레이는 미래" 스큐가 생기기 때문.
 /// </summary>
 public class CctvSnapshotService
 {
@@ -29,8 +32,18 @@ public class CctvSnapshotService
     private readonly ILogger<CctvSnapshotService> _logger;
     private readonly string _fallbackDir;
 
+    /// <summary>라이브 그랩 1회의 결과 — 프레임 bytes + 그 순간 샘플한 오버레이 상태 + 획득 시각(UTC).</summary>
+    private sealed record Grab(byte[] Bytes, IReadOnlyDictionary<string, string>? States, DateTime CapturedUtc);
+
+    /// <summary>
+    /// <see cref="GetFrameAsync"/> 결과. States 는 프레임 획득 시점에 고정된 오버레이 id→상태 맵
+    /// (stateSampler 미전달 시 null). CapturedUtc 는 프레임 획득 시각 — TTL 캐시 적중이면 과거일 수 있다.
+    /// </summary>
+    public sealed record FrameResult(byte[]? Bytes, bool FromLive, string? Error,
+        IReadOnlyDictionary<string, string>? States, DateTime CapturedUtc);
+
     // slug → (그랩 태스크, 시작 시각). 진행 중이거나 TTL 내 완료면 공유(single-flight).
-    private sealed record Inflight(Task<byte[]?> Task, DateTime StartedUtc);
+    private sealed record Inflight(Task<Grab?> Task, DateTime StartedUtc);
     private readonly Dictionary<string, Inflight> _inflight = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _gate = new();
 
@@ -48,17 +61,19 @@ public class CctvSnapshotService
 
     /// <summary>
     /// 카메라의 현재 프레임을 획득. 라이브(RTSP) 우선, 실패 시 대체 이미지 폴백.
-    /// bytes=null 이면 완전 실패 — error 에 사유(ffmpeg 부재/스트림 실패 등).
+    /// Bytes=null 이면 완전 실패 — Error 에 사유(ffmpeg 부재/스트림 실패 등).
+    /// stateSampler 는 프레임 획득 완료 시점에 1회 호출돼 결과가 프레임과 함께 TTL 캐시된다
+    /// (프레임↔오버레이 동시각 보장). 폴백 이미지는 시각 개념이 없어 요청 시점에 샘플.
     /// </summary>
-    public async Task<(byte[]? bytes, bool fromLive, string? error)> GetFrameAsync(CctvCamera cam, CancellationToken ct)
+    public async Task<FrameResult> GetFrameAsync(CctvCamera cam,
+        Func<IReadOnlyDictionary<string, string>>? stateSampler, CancellationToken ct)
     {
-        byte[]? live = null;
         string? error = null;
 
         if (!string.IsNullOrWhiteSpace(cam.RtspUrl) && !string.IsNullOrWhiteSpace(cam.Slug))
         {
-            live = await GrabSharedAsync(cam.Slug).WaitAsync(ct);
-            if (live is not null) return (live, true, null);
+            var grab = await GrabSharedAsync(cam.Slug, stateSampler).WaitAsync(ct);
+            if (grab is not null) return new FrameResult(grab.Bytes, true, null, grab.States, grab.CapturedUtc);
             _lastError.TryGetValue(cam.Slug, out error);
         }
         else if (string.IsNullOrWhiteSpace(cam.RtspUrl))
@@ -67,13 +82,14 @@ public class CctvSnapshotService
         }
 
         var fb = ReadFallbackBytes(cam.FallbackImage);
-        if (fb is not null) return (fb, false, error);
+        if (fb is not null) return new FrameResult(fb, false, error, SafeSample(stateSampler), DateTime.UtcNow);
 
-        return (null, false, error ?? "프레임을 획득할 수 없습니다.");
+        return new FrameResult(null, false, error ?? "프레임을 획득할 수 없습니다.", null, DateTime.UtcNow);
     }
 
-    /// <summary>single-flight: 진행 중이거나 TTL 내 완료된 그랩 태스크를 공유, 없으면 새로 시작.</summary>
-    private Task<byte[]?> GrabSharedAsync(string slug)
+    /// <summary>single-flight: 진행 중이거나 TTL 내 완료된 그랩 태스크를 공유, 없으면 새로 시작.
+    /// 공유 적중 시 상태 맵도 그 그랩 시점의 것을 그대로 재사용(신규 샘플 안 함) — 프레임과 동시각 유지.</summary>
+    private Task<Grab?> GrabSharedAsync(string slug, Func<IReadOnlyDictionary<string, string>>? stateSampler)
     {
         lock (_gate)
         {
@@ -81,14 +97,21 @@ public class CctvSnapshotService
                 && (!e.Task.IsCompleted || DateTime.UtcNow - e.StartedUtc < CacheTtl))
                 return e.Task;
 
-            var task = Task.Run(() => GrabOnceAsync(slug));
+            var task = Task.Run(() => GrabOnceAsync(slug, stateSampler));
             _inflight[slug] = new Inflight(task, DateTime.UtcNow);
             return task;
         }
     }
 
+    /// <summary>상태 샘플러 안전 호출 — 오버레이 상태는 부가 정보라 실패해도 프레임 응답은 계속.</summary>
+    private static IReadOnlyDictionary<string, string>? SafeSample(Func<IReadOnlyDictionary<string, string>>? sampler)
+    {
+        try { return sampler?.Invoke(); }
+        catch { return null; }
+    }
+
     /// <summary>ffmpeg 원샷 실행으로 rtsp://{host}:{rtspPort}/{slug} 에서 JPEG 1프레임을 뽑는다.</summary>
-    private async Task<byte[]?> GrabOnceAsync(string slug)
+    private async Task<Grab?> GrabOnceAsync(string slug, Func<IReadOnlyDictionary<string, string>>? stateSampler)
     {
         var cctv = _settings.LoadSettings().Cctv;
         var ffmpeg = ResolveFfmpegPath(cctv);
@@ -113,9 +136,15 @@ public class CctvSnapshotService
             CreateNoWindow = true,
         };
         // -frames:v 1 → 첫 디코드 프레임만 mjpeg 로 stdout 에 쓰고 종료. TCP 강제(UDP 손실/방화벽 회피).
+        // nobuffer/low_delay + analyzeduration 0 + probesize 최소: 기본값이면 ffmpeg 가 스트림 분석
+        // 동안 수 초치 패킷을 버퍼링했다가 그 "과거" 구간의 첫 키프레임을 내보낸다 → 프레임이 오버레이
+        // 상태(현재)보다 수 초 뒤처지는 싱크 어긋남의 주범. 코덱 파라미터는 MediaMTX SDP(sprop)/
+        // 키프레임 in-band SPS·PPS 로 충분해 분석 생략 가능.
         foreach (var a in new[]
         {
             "-hide_banner", "-loglevel", "error", "-nostdin",
+            "-fflags", "nobuffer", "-flags", "low_delay",
+            "-analyzeduration", "0", "-probesize", "32768",
             "-rtsp_transport", "tcp", "-i", url,
             "-frames:v", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "-q:v", "4", "-",
         }) psi.ArgumentList.Add(a);
@@ -155,7 +184,9 @@ public class CctvSnapshotService
             }
 
             _lastError.TryRemove(slug, out _);
-            return stdout.ToArray();
+            // 상태 샘플은 프레임 획득 직후 "여기서" 1회 — 이 결과가 TTL 캐시에 프레임과 함께 실려
+            // 캐시 적중 요청들도 프레임과 같은 시각의 상태로 합성된다.
+            return new Grab(stdout.ToArray(), SafeSample(stateSampler), DateTime.UtcNow);
         }
         catch (Exception ex) // ffmpeg 부재(Win32Exception) 포함
         {

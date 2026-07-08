@@ -206,8 +206,10 @@ DSPilot 웹서버가 제공하는 전체 HTTP API 목록.
 - `width`: 비율 유지 다운스케일(업스케일 안 함)
 - 프레임 소스: MediaMTX RTSP 재게시에서 ffmpeg 원샷 그랩, 실패 시 대체(폴백) 이미지 베이스
 - 응답 헤더 `X-Cctv-Source: live | fallback` 으로 라이브/폴백 구분
+- 응답 헤더 `X-Cctv-Captured-At`(UTC ISO8601): 프레임 획득 시각 — TTL(3초) 캐시 적중이면 과거일 수 있음
 - 오류: 카메라 미매칭 404, 프레임 획득 실패/디코드 불가 503
-- 오버레이 상태색은 `overlay-state` 와 동일 스냅샷 소스 → 대시보드 화면과 일치
+- 오버레이 상태색은 `overlay-state` 와 동일 스냅샷 소스이되, **프레임 획득 순간의 상태로 고정** 합성
+  (프레임과 오버레이가 같은 시각을 가리킴 — 캐시 프레임에 최신 상태가 얹혀 어긋나는 것 방지)
 
 예시: `GET /api/cctv/snapshot/0?overlay=1&width=1280`
 

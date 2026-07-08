@@ -449,7 +449,10 @@ public class CctvController : ControllerBase
     /// 프레임 소스: MediaMTX RTSP 재게시에서 ffmpeg 원샷 그랩(<see cref="CctvSnapshotService"/>),
     /// 실패 시 대체(폴백) 이미지 베이스로 폴백. camera = 표시명 또는 slug(대소문자 무시) 또는 등록 순서 index(0부터).
     /// overlay=0 이면 원본 프레임만. width 로 비율 유지 다운스케일(업스케일 안 함).
-    /// 오버레이 상태색은 <see cref="GetOverlayState"/> 와 동일 스냅샷 소스라 화면과 일치한다.
+    /// 오버레이 상태색은 <see cref="GetOverlayState"/> 와 동일 스냅샷 소스이되, 샘플 시각은
+    /// "프레임 획득 순간"에 고정된다(CctvSnapshotService 가 프레임과 함께 캐시) — 합성 시점에
+    /// 최신 상태를 읽으면 TTL 캐시 프레임(과거)과 상태(현재)가 어긋나기 때문. 프레임 획득 시각은
+    /// 응답 헤더 X-Cctv-Captured-At(UTC ISO8601)으로 노출한다.
     /// </summary>
     [HttpGet("snapshot/{camera}")]
     public async Task<IActionResult> GetSnapshot(string camera, [FromQuery] int overlay = 1,
@@ -468,13 +471,17 @@ public class CctvController : ControllerBase
         if (cam is null)
             return NotFound(new { error = $"카메라를 찾을 수 없습니다: {camera}" });
 
-        var (bytes, fromLive, error) = await _snapshot.GetFrameAsync(cam, ct);
+        // 상태 샘플러를 넘겨 프레임 획득 순간의 오버레이 상태를 프레임과 함께 받는다(동시각 고정).
+        var frame = await _snapshot.GetFrameAsync(cam,
+            () => BuildOverlayStateMap(_overlays.GetByCamera(cam.Name)), ct);
+        var bytes = frame.Bytes;
         if (bytes is null)
             return StatusCode(StatusCodes.Status503ServiceUnavailable,
-                new { error = error ?? "프레임을 획득할 수 없습니다." });
+                new { error = frame.Error ?? "프레임을 획득할 수 없습니다." });
 
-        // 라이브/폴백 여부를 헤더로 노출 — 소비자가 stale 이미지를 구분할 수 있게.
-        Response.Headers["X-Cctv-Source"] = fromLive ? "live" : "fallback";
+        // 라이브/폴백 여부 + 프레임 획득 시각을 헤더로 노출 — 소비자가 stale 이미지를 구분할 수 있게.
+        Response.Headers["X-Cctv-Source"] = frame.FromLive ? "live" : "fallback";
+        Response.Headers["X-Cctv-Captured-At"] = frame.CapturedUtc.ToString("o");
 
         if (overlay == 0)
         {
@@ -484,7 +491,9 @@ public class CctvController : ControllerBase
         }
 
         var items = _overlays.GetByCamera(cam.Name);
-        var stateMap = BuildOverlayStateMap(items);
+        // 프레임에 고정된 상태 맵 우선. null(샘플 실패 등)이면 현재 상태로 폴백.
+        // 그랩 이후 TTL 내 새로 추가된 오버레이는 맵에 없어 미상색으로 그려진다(3초 내 자연 해소).
+        var stateMap = frame.States ?? BuildOverlayStateMap(items);
         var drawList = items
             .Select(o => new CctvOverlayRenderer.Item(o, stateMap.TryGetValue(o.Id, out var s) ? s : ""))
             .ToList();
