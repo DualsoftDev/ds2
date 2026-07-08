@@ -637,9 +637,9 @@ window.dspDirtyRegister = function (fn) { window._dspDirtyChecker = fn; };
                 var gAlarm = buildAnalysisGroup(flows, '이상·알람',   'warning_amber', '/uptime-alarm', 'flow', onAlarmPage,   alarmFlow,   true,  '/uptime-alarm');
                 sub.appendChild(gTrend.wrap);
                 sub.appendChild(gCycle.wrap);
-                sub.appendChild(gHeat.wrap);
-                sub.appendChild(gOee.wrap);
                 sub.appendChild(gTeep.wrap);
+                sub.appendChild(gOee.wrap);
+                sub.appendChild(gHeat.wrap);
                 sub.appendChild(gAlarm.wrap);
 
                 cycleSubWrap.appendChild(row);
