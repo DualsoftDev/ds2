@@ -407,7 +407,7 @@
                         <div class="ds-empty" style="border-style:solid;">
                             <span class="material-icons">check_circle</span>
                             <div class="ds-empty-title" x-text="downtime.length === 0 ? '해당 기간 정지 이벤트 없음' : '필터에 해당하는 정지 이벤트 없음'"></div>
-                            <div class="ds-empty-desc" x-text="downtime.length === 0 ? '무가동 onset 자동 감지 / UserTag onset 가 기록되면 여기에 표시됩니다.' : '상태·구분 필터를 변경해 보세요.'"></div>
+                            <div class="ds-empty-desc" x-text="downtime.length === 0 ? '무가동 onset 자동 감지 / 수동등록TAG onset 가 기록되면 여기에 표시됩니다.' : '상태·구분 필터를 변경해 보세요.'"></div>
                         </div>
                     </template>
 
@@ -421,7 +421,7 @@
                         기본 <b>고장</b>으로 체크됨 — 체크 해제 시 <b>유지보수</b>(MTBF 고장 제외)로 변경됩니다. &nbsp;·&nbsp;
                         <b style="color:var(--color-text-primary);">단서:</b>
                         <span class="clue-chip abn"><span class="material-icons">troubleshoot</span>abnormal</span>
-                        <span class="clue-chip ut"><span class="material-icons">troubleshoot</span>usertag</span>
+                        <span class="clue-chip ut"><span class="material-icons">troubleshoot</span>수동등록TAG</span>
                         같은 설비·시간대에 겹친 이상신호를 <b>표시용</b>으로 붙입니다 — <b>건수·MTBF에 더해지지 않습니다</b>(정직성).
                     </div>
                     </div>
@@ -639,7 +639,7 @@
                                 <tr><td>비가동 dedup</td><td>① 동작시간&gt;가동시간 이상치 ② 미완료(complete=null) 가동시간 폭주 ③ 무가동 정지. ③은 가동 가동시간 구간과 안 겹치는 부분만 가산(구간 차집합) — <b>이중계상 방지</b>.</td></tr>
                                 <tr><td>MTTR / MTBF</td><td>비가동 <b>onset</b>(= 가동 시작 + 가동시간 이상치)에서 파생. <b>MTTR</b> = onset→going 회복 평균 · <b>MTBF</b> = 연속 onset 간격 평균. OEE 곱셈식과 <b>독립</b> 동반지표. 0건이면 "🟢 무비가동" 배지(가짜수치 금지).</td></tr>
                                 <tr><td>폴백 보존</td><td>14일 클린샘플 <b>0(임계 없음)</b>일 때만 가용성은 <b>시간기반 폴백 체인</b>(시프트 ▸ 자동추정 ▸ 달력)으로 근사. A 카드 칩으로 현재 출처(<span class="up-codeish">가동시간</span>/시프트/자동추정/달력) 표시.</td></tr>
-                                <tr><td>정지 2계층</td><td><b>감지</b>(무가동/고장비트/수동) · <b>단서</b>(abnormal/usertag 겹침 = 표시 전용). 기본 고장 체크 — 로그에서 해제 시 유지보수(MTBF 분모 제외).</td></tr>
+                                <tr><td>정지 2계층</td><td><b>감지</b>(무가동/고장비트/수동) · <b>단서</b>(abnormal/수동등록TAG 겹침 = 표시 전용). 기본 고장 체크 — 로그에서 해제 시 유지보수(MTBF 분모 제외).</td></tr>
                                 <tr><td>필수 입력 0개</td><td>가동시간 이상치·비가동 판정·A·P·MTTR·MTBF 모두 수집 데이터로 자동. 품질%·표준 가동시간 수동입력·고장/유지보수 구분은 선택(보정).</td></tr>
                             </tbody>
                         </table>

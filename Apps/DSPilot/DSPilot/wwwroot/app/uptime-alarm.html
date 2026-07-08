@@ -68,7 +68,7 @@
                             <span class="material-icons" style="font-size:15px;">clear</span> 전체 보기
                         </a>
                     </template>
-                    <button class="btn btn-sm btn-outlined color-default" @click="openBlockMgr()" title="자동알람(디바이스)·수동등록TAG(UserTag) 알람을 선택해 알람·통계·기록에서 차단합니다">
+                    <button class="btn btn-sm btn-outlined color-default" @click="openBlockMgr()" title="자동알람(디바이스)·수동등록TAG 알람을 선택해 알람·통계·기록에서 차단합니다">
                         <span class="material-icons" style="font-size:15px;">notifications_off</span> 알람 차단<span x-show="blockedTotalCount > 0" x-text="' (' + blockedTotalCount + ')'"></span>
                     </button>
                 </div>
@@ -88,7 +88,7 @@
                     <div class="ds-card-h">
                         <h4>알람 조회<span x-show="curFlow" style="font-weight:600;color:var(--color-text-secondary);"> · 설비 <span x-text="curFlow"></span></span></h4>
                         <span class="ds-card-h-sub" x-show="!curFlow">자동 감지: DSPilot이 실시간으로 탐지한 이벤트</span>
-                        <span class="ds-card-h-sub" x-show="curFlow">수동 등록: PLC 데이터를 기준으로 사용자가 등록한 이벤트</span>
+                        <span class="ds-card-h-sub" x-show="curFlow">수동등록TAG: PLC 데이터를 기준으로 사용자가 등록한 이벤트</span>
                     </div>
 
                     <!-- 로딩/오류 -->
@@ -375,7 +375,7 @@
                 <!-- ─── 수동등록TAG(UserTag) 알람 탭 ─── -->
                 <div class="up-blk-panel" x-show="blockMgr.tab === 'user'" style="display:none;">
                     <div class="up-blk-sub">
-                        수동등록TAG 알람(UserTag)을 선택해 <b>차단 추가/해제</b>합니다. 차단된 알람은 배너·사이드바·통계·기록에서 숨겨지고,
+                        수동등록TAG 알람을 선택해 <b>차단 추가/해제</b>합니다. 차단된 알람은 배너·사이드바·통계·기록에서 숨겨지고,
                         <b>차단 중 새로 발생하는 알람은 기록 자체가 남지 않습니다</b>(해제해도 차단 기간 발생분은 복구되지 않음).
                         차단 이전의 기존 기록은 해제하면 다시 표시됩니다. 적용은 즉시 반영됩니다.
                     </div>
@@ -414,7 +414,7 @@
                                         </td>
                                         <td class="up-blk-dev" data-label="이름">
                                             <span x-text="t.name"></span>
-                                            <span x-show="!t.inModel" title="현재 모델에 없는 UserTag (차단 규칙만 남음 — 해제 가능)" style="color:var(--amber); margin-left:4px;">⚠</span>
+                                            <span x-show="!t.inModel" title="현재 모델에 없는 수동등록TAG (차단 규칙만 남음 — 해제 가능)" style="color:var(--amber); margin-left:4px;">⚠</span>
                                         </td>
                                         <td data-label="시스템"><span x-text="t.systemName || '—'"></span></td>
                                         <td data-label="주소"><div class="up-blk-path" x-text="t.tagAddress"></div></td>
@@ -425,7 +425,7 @@
                                     </tr>
                                 </template>
                                 <tr x-show="!blockMgr.ut.loading && !blockMgr.ut.tags.length">
-                                    <td colspan="5" style="text-align:center; color:var(--color-text-secondary); padding:18px;">정의된 사용자정의 알람(UserTag)이 없습니다.</td>
+                                    <td colspan="5" style="text-align:center; color:var(--color-text-secondary); padding:18px;">정의된 수동등록TAG가 없습니다.</td>
                                 </tr>
                                 <tr x-show="!blockMgr.ut.loading && blockMgr.ut.tags.length > 0 && !utFilteredTags.length">
                                     <td colspan="5" style="text-align:center; color:var(--color-text-secondary); padding:18px;">검색 결과가 없습니다.</td>

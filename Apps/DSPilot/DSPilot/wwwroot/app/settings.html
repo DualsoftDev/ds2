@@ -276,7 +276,7 @@
                                         모델 정의 동기화 (Reload + Resync)
                                     </button>
                                     <small class="settings-hint">
-                                        AASX 재로딩 + 모델 정의 동기화(UPSERT) + 사라진 Flow 정리 + 레이아웃 자동 재배치.
+                                        AASX 재로딩 + 모델 정의 동기화(UPSERT) + 사라진 Flow 정리 + 레이아웃 자동 재배치를 수행합니다.
                                         살아남은 Flow 의 통계/히스토리는 보존됩니다.
                                     </small>
                                 </div>
@@ -293,7 +293,7 @@
                                         <label class="form-label">DB 저장 폴더</label>
                                         <input class="form-field mono" x-model="s.dbDir" placeholder="%ProgramData%/DualSoft/Shared" />
                                         <small class="settings-hint">
-                                            plc.db 파일이 저장될 폴더. 서비스 모드에서 <code>%APPDATA%</code> 는 SYSTEM 계정 경로로 해석되므로 사용 금지.
+                                            plc.db 파일이 저장될 폴더입니다. 서비스 모드에서 <code>%APPDATA%</code> 는 SYSTEM 계정 경로로 해석되므로 사용하면 안 됩니다.
                                         </small>
                                     </div>
                                     <hr class="divider my-3" />
@@ -328,12 +328,12 @@
                             <div class="card" x-show="activeTab === 'monitoring'">
                                 <div class="card-header">
                                     <span class="material-icons">rule</span>
-                                    <span>사용자 정의 에러</span>
+                                    <span>수동등록TAG</span>
                                 </div>
                                 <div class="card-content">
                                     <div class="settings-note">
                                         <small>
-                                            Promaker 의 사용자 태그 패널에서 정의한 <strong>사용자 정의 에러(UserTag)</strong> 조건 목록입니다.
+                                            Promaker 의 사용자 태그 패널에서 정의한 <strong>수동등록TAG</strong> 조건 목록입니다.
                                             여기서는 <strong>조회만</strong> 가능하며 추가·수정은 Promaker 에서 합니다.
                                             발생 이력·추이는 <a href="/uptime-alarm" style="color:var(--color-primary);">이상·알람 분석</a> 페이지에서 확인하세요.
                                         </small>
@@ -397,7 +397,7 @@
                                     </template>
                                     <template x-if="!ude.loading && ude.items.length === 0 && !ude.error">
                                         <div class="settings-note" style="margin-top:0;">
-                                            <small>정의된 사용자 정의 에러가 없습니다. Promaker 의 사용자 태그 패널에서 추가하세요.</small>
+                                            <small>정의된 수동등록TAG가 없습니다. Promaker 의 사용자 태그 패널에서 추가하세요.</small>
                                         </div>
                                     </template>
                                     <div x-show="ude.error" class="alert alert-error" style="margin-bottom:8px;"><span class="material-icons">error</span><span x-text="ude.error"></span></div>
@@ -414,40 +414,36 @@
                                     <span>동작시간 이상감지</span>
                                 </div>
                                 <div class="card-content">
-                                    <small class="settings-hint" style="display:block;margin:0 0 12px;">
-                                        설비별 실측 duration 으로 <strong>동작 초과(ActionOver)</strong> · <strong>동작 미달(ActionUnder)</strong> 을 감지합니다.
-                                        아래에서 임계를 실측으로 확정(보정)해야 감지가 무장됩니다.
-                                    </small>
-
+                                    
                                     <!-- ── 1. 실측 자동 보정 (AASX 임계 산출 — 감지 무장) ── -->
                                     <p style="font-size:0.78rem;font-weight:700;margin:0 0 4px;">1. 실측 자동 보정 (AASX 임계 산출)</p>
-                                    <small class="settings-hint" style="display:block;margin:0 0 10px;">실측 duration 을 AASX 에 확정해 감지 임계를 무장합니다. 실시간 학습(맨 아래) 여부와 무관하게 동작합니다.</small>
+                                    <small class="settings-hint" style="display:block;margin:0 0 10px;">실제 동작 시간을 측정해 설비 모델(AASX)에 저장하고, 이상감지 기준을 설정합니다.</small>
 
                                     <label class="switch mb-2">
                                         <input type="checkbox" x-model="s.autoCalibration.enabled" />
                                         정상 가동 누적 시 자동 실행
                                     </label>
-                                    <small class="settings-hint">Flow 가 아래 정상 가동 횟수를 채우면 1회 자동 보정. 끄면 수동("지금 실측값 채우기")만 동작합니다.</small>
+                                    <small class="settings-hint">Flow 가 아래 정상 가동 횟수를 채우면 1회 자동 보정합니다. 끄면 수동("지금 실측값 채우기")만 동작합니다.</small>
 
                                     <div class="form-group" style="margin-top:12px;">
                                         <label class="form-label">최소 정상 가동 횟수</label>
-                                        <input type="number" class="form-field mono" x-model.number="s.autoCalibration.minCleanCycles" min="1" max="1000" placeholder="10" />
-                                        <small class="settings-hint">이상치 제외 가동시간 존재 가동 기준. 기본 10.</small>
+                                        <input type="number" class="form-field mono" x-model.number="s.autoCalibration.minCleanCycles" min="1" max="1000" placeholder="10 (기본값)" />
+                                        <small class="settings-hint">이상치를 제외한 가동시간이 있는 가동을 기준으로 합니다.</small>
                                     </div>
 
                                     <!-- 동작 초과(ActionOver) — Max 임계 (상시 적용) -->
                                     <div class="form-group" style="margin-top:14px;margin-bottom:0;">
-                                        <label class="form-label">동작 초과(ActionOver) — Max 임계 산출 <span style="font-weight:400;color:var(--color-text-secondary);">· 상시 적용</span></label>
+                                        <label class="form-label">동작 초과(ActionOver) — Max 임계 산출</label>
                                         <div style="margin-top:4px;">
                                             <div style="display:flex;align-items:center;gap:6px;">
                                                 <span style="font-size:0.8rem;white-space:nowrap;">여유율 +</span>
                                                 <input type="text" inputmode="decimal" class="form-field mono"
                                                        :value="s.autoCalibration.medianMarginMaxPct == null ? '' : Math.round(s.autoCalibration.medianMarginMaxPct * 10000) / 100"
                                                        @change="s.autoCalibration.medianMarginMaxPct = pctToFrac($event.target.value)"
-                                                       placeholder="60" style="width:90px;" />
+                                                       placeholder="60 (기본값)" style="width:90px;" />
                                                 <span style="font-size:0.8rem;white-space:nowrap;">%</span>
                                             </div>
-                                            <small class="settings-hint">Max = 실측 중앙값 × (1 + 여유율%). 예: 60 = +60%. 기본 60. 관측된 정상 최대(통신 이상치 제외)보다 작게 잡히지는 않습니다.</small>
+                                            <small class="settings-hint">Max = 실측 중앙값 × (1 + 여유율%). 예: 60 = +60%. 관측된 정상 최대(통신 이상치 제외)보다 작게 잡히지는 않습니다.</small>
                                         </div>
                                         <div style="margin-top:10px;">
                                             <div style="display:flex;align-items:center;gap:6px;">
@@ -455,10 +451,10 @@
                                                 <input type="text" inputmode="decimal" class="form-field mono"
                                                        :value="(s.autoCalibration.marginMaxAbsMs ?? 5000) / 1000"
                                                        @change="s.autoCalibration.marginMaxAbsMs = secToMs($event.target.value)"
-                                                       placeholder="5" style="width:90px;" />
+                                                       placeholder="5 (기본값)" style="width:90px;" />
                                                 <span style="font-size:0.8rem;white-space:nowrap;">초</span>
                                             </div>
-                                            <small class="settings-hint">Max = (위 산출값) + 이 초. "정상보다 N초 더 걸리면 정지" 절대 버퍼. 예: 5 = +5초. 기본 5초.</small>
+                                            <small class="settings-hint">Max = (위 산출값) + 이 초. "정상보다 N초 더 걸리면 정지" 절대 버퍼입니다. 예: 5 = +5초.</small>
                                         </div>
                                     </div>
 
@@ -468,19 +464,19 @@
                                             <input type="checkbox" x-model="s.autoCalibration.fillMin" />
                                             동작 미달(ActionUnder) 감지 — 최소값(Min)도 실측 기록
                                         </label>
-                                        <small class="settings-hint">켜면 p05 기반 MinDuration 을 AASX 에 기록해 동작 미달 감지를 활성화합니다. 실시간 학습 여부와 무관.</small>
+                                        <small class="settings-hint">켜면 최소 동작 시간 기준을 설비 모델(AASX)에 기록해, 동작 미달을 감지합니다.</small>
                                         <div x-show="s.autoCalibration.fillMin" x-cloak>
                                             <div class="form-group" style="margin:12px 0 0;">
                                                 <label class="form-label">Min 백분위수 (PercentileMin)</label>
-                                                <input type="number" class="form-field mono" x-model.number="s.autoCalibration.percentileMin" min="0" max="50" step="1" placeholder="5" />
-                                                <small class="settings-hint">Min 기준 백분위수. 기본 5 (p5).</small>
+                                                <input type="number" class="form-field mono" x-model.number="s.autoCalibration.percentileMin" min="0" max="50" step="1" placeholder="5 (기본값)" />
+                                                <small class="settings-hint">Min 기준 백분위수입니다.</small>
                                             </div>
                                             <div class="form-group" style="margin:8px 0 0;">
                                                 <label class="form-label">최소값 추가 여유율 (%)</label>
                                                 <input type="text" inputmode="decimal" class="form-field mono"
                                                        :value="s.autoCalibration.marginMinPct == null ? '' : Math.round(s.autoCalibration.marginMinPct * 10000) / 100"
                                                        @change="s.autoCalibration.marginMinPct = pctToFrac($event.target.value)"
-                                                       placeholder="3" />
+                                                       placeholder="3 (기본값)" />
                                                 <small class="settings-hint">Min = pN × (1 − 여유율%). 예: 3 = −3%, 10.5 = −10.5% 추가 여유.</small>
                                             </div>
                                         </div>
@@ -536,9 +532,9 @@
                                     <button class="btn btn-outlined w-100" style="margin-top:10px; color:var(--color-warning, #e67e22); border-color:var(--color-warning, #e67e22);"
                                             @click="clearCalibrationRanges()" :disabled="busy || autoCal.running">
                                         <span class="material-icons">restart_alt</span>
-                                        <span>Min/Max 전부 초기화 (null)</span>
+                                        <span>Min/Max 전부 초기화 </span>
                                     </button>
-                                    <small class="settings-hint">모든 디바이스의 이상감지 Min/Max 를 전부 비웁니다(Duration 은 보존). 잘못 보정된 임계를 한 번에 되돌릴 때 사용.</small>
+                                    <small class="settings-hint">모든 디바이스의 이상감지 Min/Max 를 전부 비웁니다(Duration 은 보존됩니다).</small>
 
                                     <!-- ── 2. 실시간 학습 (Agent 자동) — 선택 ── -->
                                     <hr class="divider" style="margin:16px 0;" />
@@ -548,9 +544,7 @@
                                         <span x-text="autoCalibrate ? 'ON — 실시간 학습 사용 (Agent 자동)' : 'OFF — 미사용'"></span>
                                     </label>
                                     <small class="settings-hint">
-                                        ON: Agent 가 실측 duration 을 라이브 학습 — 설비 노화 드리프트 추적('기준선 동결')과, 동작 미달을 켠 경우 그 판정의 라이브 기준으로 사용(3회 관측 후 avg ± 마진).
-                                        <strong>동작 초과(ActionOver)·센서 이상과는 무관</strong>합니다.
-                                        <span x-show="!scanConnected"><strong> — Agent 미연결 상태입니다.</strong></span>
+                                        Agent가 실제 동작 시간을 계속 학습합니다.<span x-show="!scanConnected"><strong> — Agent 미연결 상태입니다.</strong></span>
                                     </small>
 
                                     <div x-show="autoCalibrate" style="margin-top:12px;">
@@ -592,17 +586,10 @@
                                     <span>이상치 필터</span>
                                 </div>
                                 <div class="card-content">
-                                    <div class="settings-note">
-                                        <small>저장하면 서버 재시작 없이 즉시 적용됩니다.</small>
-                                    </div>
-
                                     <h6 class="set-subhead">
                                         <span class="material-icons">timer_off</span>
                                         비가동 판정
                                     </h6>
-                                    <small class="set-subnote">
-                                        가동시간이 최대 제한을 초과하거나 최소 제한에 미달하면 비가동으로 판정. 대시보드·동작편차·Flow 평균에서 제외, 가동시간 분석에서 회색 배경 표시.
-                                    </small>
                                     <div class="form-group">
                                         <label class="form-label">가동시간 최대 제한 (초과 시 제외)</label>
                                         <div class="hms-row">
@@ -610,7 +597,7 @@
                                             <div class="hms-cell"><input type="number" class="form-field" :value="maxCycleMinutes" @input="setMaxCycle('m', $event.target.value)" min="0" max="59" /><span>분</span></div>
                                             <div class="hms-cell"><input type="number" class="form-field" :value="maxCycleSeconds" @input="setMaxCycle('s', $event.target.value)" min="0" max="59" /><span>초</span></div>
                                         </div>
-                                        <small class="settings-hint">가장 긴 Flow 의 평균 가동시간 + 여유시간 권장. 모두 0이면 비활성.</small>
+                                        <small class="settings-hint">가장 긴 Flow 의 평균 가동시간 + 여유시간을 권장합니다. 모두 0이면 비활성화됩니다.</small>
                                     </div>
                                     <div class="form-group">
                                         <label class="form-label">가동시간 최소 제한 (미달 시 제외)</label>
@@ -619,14 +606,18 @@
                                             <div class="hms-cell"><input type="number" class="form-field" :value="minCycleMinutes" @input="setMinCycle('m', $event.target.value)" min="0" max="59" /><span>분</span></div>
                                             <div class="hms-cell"><input type="number" class="form-field" :value="minCycleSeconds" @input="setMinCycle('s', $event.target.value)" min="0" max="59" /><span>초</span></div>
                                         </div>
-                                        <small class="settings-hint">오감지·노이즈로 인한 짧은 가동 제외용. 모두 0이면 비활성.</small>
+                                        <small class="settings-hint">오감지·노이즈로 인한 짧은 가동을 제외합니다. 모두 0이면 비활성화됩니다.</small>
                                     </div>
 
                                     <div class="form-group" style="margin-bottom:0;">
                                         <label class="form-label">대시보드 평균 윈도우 (최근 N회 가동)</label>
-                                        <input type="number" class="form-field mono" x-model.number="s.historyView.cycleAverageWindow" min="0" max="1000" placeholder="20" />
-                                        <small class="settings-hint">대시보드 Flow 평균(동작시간/대기시간/가동시간)을 최근 N회 비가동-제외 가동으로만 산출 → 현재 거동 반영. 0이면 전체 이력 평균.</small>
+                                        <input type="number" class="form-field mono" x-model.number="s.historyView.cycleAverageWindow" min="0" max="1000" placeholder="20 (기본값)" />
+                                        <small class="settings-hint">대시보드 Flow 평균(동작시간/대기시간/가동시간)을 최근 N회 비가동-제외 가동으로만 산출해 현재 거동을 반영합니다. 0이면 전체 이력 평균입니다.</small>
                                     </div>
+
+                                    <small class="set-subnote">
+                                        가동시간이 설정 범위(최대·최소)를 벗어나면 비가동으로 처리해 통계·평균에서 제외합니다.
+                                    </small>
 
                                     <hr class="divider" style="margin:16px 0;" />
 
@@ -635,28 +626,28 @@
                                         동작편차 설정
                                     </h6>
                                     <small class="set-subnote">
-                                        실행시간(GoingTime) 통계 제외 범위와 동작편차(평균 대비) 색상 등급 기준. 저장 시 동작편차 페이지에 즉시 반영됩니다.
+                                        실행시간(GoingTime) 통계 제외 범위와 동작편차(평균 대비) 색상 등급 기준입니다. 저장 시 동작편차 페이지에 즉시 반영됩니다.
                                     </small>
                                     <div class="form-group">
                                         <label class="form-label">최대 실행시간 (ms, 초과 시 제외)</label>
-                                        <input type="number" class="form-field mono" x-model.number="s.historyView.maxCallGoingTimeMs" min="1000" max="600000" placeholder="30000" />
-                                        <small class="settings-hint">기본: 30,000ms (30초). 라인 정지·엣지 유실로 늘어진 이상치를 통계에서 제외.</small>
+                                        <input type="number" class="form-field mono" x-model.number="s.historyView.maxCallGoingTimeMs" min="1000" max="600000" placeholder="30000 (기본값)" />
+                                        <small class="settings-hint">라인 정지·엣지 유실로 늘어진 이상치를 통계에서 제외합니다.</small>
                                     </div>
                                     <div class="form-group">
                                         <label class="form-label">최소 실행시간 (ms, 미달 시 제외)</label>
-                                        <input type="number" class="form-field mono" x-model.number="s.historyView.minCallGoingTimeMs" min="0" max="600000" placeholder="0" />
-                                        <small class="settings-hint">오감지·노이즈로 인한 짧은 동작 제외용. 0이면 비활성.</small>
+                                        <input type="number" class="form-field mono" x-model.number="s.historyView.minCallGoingTimeMs" min="0" max="600000" placeholder="0 (기본값)" />
+                                        <small class="settings-hint">오감지·노이즈로 인한 짧은 동작을 제외합니다. 0이면 비활성화됩니다.</small>
                                     </div>
 
                                     <div class="form-group">
                                         <label class="form-label">색상 등급 — 주의 임계 (편차 %)</label>
-                                        <input type="number" class="form-field mono" x-model.number="s.historyView.heatmapCautionPct" min="0" max="1000" step="1" placeholder="10" />
-                                        <small class="settings-hint">편차(CV×100)가 이 값 이상이면 <b>주의(노랑)</b>. 기본 10%.</small>
+                                        <input type="number" class="form-field mono" x-model.number="s.historyView.heatmapCautionPct" min="0" max="1000" step="1" placeholder="10 (기본값)" />
+                                        <small class="settings-hint">편차가 설정 값 이상이면 <b>주의(노랑)</b>로 표시합니다.</small>
                                     </div>
                                     <div class="form-group" style="margin-bottom:0;">
                                         <label class="form-label">색상 등급 — 위험 임계 (편차 %)</label>
-                                        <input type="number" class="form-field mono" x-model.number="s.historyView.heatmapDangerPct" min="1" max="2000" step="1" placeholder="30" />
-                                        <small class="settings-hint">편차가 이 값을 초과하면 <b>위험(빨강)</b>. 기본 30%. 주의 임계보다 커야 합니다(작으면 자동 보정).</small>
+                                        <input type="number" class="form-field mono" x-model.number="s.historyView.heatmapDangerPct" min="1" max="2000" step="1" placeholder="30 (기본값)" />
+                                        <small class="settings-hint">편차가 설정 값 이상이면 <b>위험(빨강)</b>으로 표시합니다. 주의 임계보다 커야 합니다(작으면 자동 보정).</small>
                                     </div>
 
                                     <hr class="divider" style="margin:16px 0;" />
@@ -664,7 +655,7 @@
                                         <span class="material-icons">speed</span>
                                         이상 알람 배너
                                     </h6>
-                                    <small class="fa-demo-cap">미리보기 — 아래 속도값으로 실제 배너처럼 한 건씩 전환됩니다 (값을 바꾸면 즉시 반영).</small>
+                                    <small class="fa-demo-cap">미리보기 — 아래 속도값으로 실제 배너처럼 한 건씩 전환됩니다 (값을 바꾸면 즉시 반영됩니다).</small>
                                     <div class="fa-demo" aria-hidden="true">
                                         <div class="fa-demo-icon">
                                             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
@@ -678,8 +669,8 @@
                                     </div>
                                     <div class="form-group">
                                         <label class="form-label">텍스트 전환 간격 (초)</label>
-                                        <input type="number" class="form-field mono" x-model.number="s.alarmTickerIntervalSec" min="1" max="30" step="1" placeholder="3" />
-                                        <small class="settings-hint">대시보드·전체화면 이상 알람 배너에서 한 건이 머무는 시간(초). 작을수록 빠르게 다음 건으로 넘어감. 기본 3초.</small>
+                                        <input type="number" class="form-field mono" x-model.number="s.alarmTickerIntervalSec" min="1" max="30" step="1" placeholder="3 (기본값)" />
+                                        <small class="settings-hint">대시보드·전체화면 이상 알람 배너에서 한 건이 머무는 시간(초)입니다. 작을수록 다음 건으로 빠르게 넘어갑니다.</small>
                                     </div>
                                     <div class="form-group">
                                         <label class="form-label">표시 레벨</label>
@@ -694,7 +685,7 @@
                                                 <input type="checkbox" value="Info" x-model="s.abnormalAlarmDisplayLevels" /> 정보 (Info)
                                             </label>
                                         </div>
-                                        <small class="settings-hint">배너에 표시할 알람 레벨을 고릅니다. 기본은 <b>위험(Error)</b>만 — usertag 알람이 모든 레벨로 쏟아지는 것을 막습니다. 경로이탈 이상감지 4종은 모두 위험(Error)이라 그대로 표시됩니다. 모두 해제하면 전체 표시.</small>
+                                        <small class="settings-hint">배너에 표시할 알람 레벨을 고릅니다. 기본은 <b>위험(Error)</b>만 — 수동등록TAG 알람이 모든 레벨로 쏟아지는 것을 막습니다. 경로이탈 이상감지 4종은 모두 위험(Error)이라 그대로 표시됩니다. 모두 해제하면 전체가 표시됩니다.</small>
                                     </div>
                                     <div class="form-group" style="margin-bottom:0;">
                                         <label class="form-label">알람 표시 유효 시간</label>
@@ -721,7 +712,7 @@
                                 <div class="card-content">
                                     <div class="settings-note">
                                         <small>
-                                            자동알람(디바이스별 이상감지 4종)·사용자지정 알람(UserTag) 차단은 <a href="/uptime-alarm?blockMgr=1" style="color:var(--color-primary);">가동시간·이상 분석 페이지</a>의
+                                            자동알람(디바이스별 이상감지 4종)·수동등록TAG 알람 차단은 <a href="/uptime-alarm?blockMgr=1" style="color:var(--color-primary);">가동시간·이상 분석 페이지</a>의
                                             <strong>"알람 차단"</strong> 에서 에러 로그를 보면서 관리합니다. (차단 시 알람·통계·기록에서 숨겨지고, 신규 발생분은 기록되지 않음)
                                         </small>
                                     </div>
@@ -797,7 +788,7 @@
                                             </template>
                                         </select>
                                         <small class="settings-hint">
-                                            세부 카테고리별 로그 수준은 <code>appsettings.json</code> 에서 직접 편집.
+                                            세부 카테고리별 로그 수준은 <code>appsettings.json</code> 에서 직접 편집할 수 있습니다.
                                         </small>
                                     </div>
                                 </div>
@@ -994,7 +985,7 @@
                     try {
                         this.ude.items = await this.apiGet('/api/user-tags/definitions');
                     } catch (e) {
-                        this.ude.error = '사용자 정의 에러 목록을 불러오지 못했습니다: ' + e.message;
+                        this.ude.error = '수동등록TAG 목록을 불러오지 못했습니다: ' + e.message;
                         this.ude.items = [];
                     } finally { this.ude.loading = false; }
                 },
@@ -1367,9 +1358,9 @@
                 async clearCalibrationRanges() {
                     if (this.busy || this.autoCal.running) return;
                     const ok = await this.askConfirm('Min/Max 전부 초기화',
-                        '모든 디바이스의 이상감지 Min/Max(최소/최대 소요시간)를 project.aasx 에서 전부 비웁니다(null).\n\n' +
-                        '• Duration(거동 구동 평균)은 그대로 보존됩니다\n' +
-                        '• 잘못 보정된 임계값을 한 번에 초기화할 때 사용\n' +
+                        '모든 디바이스의 이상감지 Min/Max(최소/최대 소요시간)를 project.aasx 에서 전부 비웁니다.\n\n' +
+                        '• Duration은 그대로 보존됩니다\n' +
+                        '• 잘못 보정된 임계값을 한 번에 초기화할 때 사용합니다\n' +
                         '• 다시 "지금 실측값 채우기" 로 재보정할 수 있습니다',
                         '전부 초기화', '취소');
                     if (!ok) return;
