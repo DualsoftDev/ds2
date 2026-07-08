@@ -198,6 +198,30 @@ day     도넛유보%  추이유보h  추이가동h | A     fault/maint h
 - **③ 도넛**: 비가동의 고장/유지보수 벽시계 합(flow 합산, 중첩 union). **②의 비가동 분해 = ③**. 다-flow duration 중첩합·open 이벤트 추정 폐기.
 
 ### 7.4 코드 영향 (중간 규모)
+
+---
+
+## 9. 정책 개정 (2026-07-08) — 비생산 = 당일 판정 + 사용자 오버라이드
+
+§7 의 "비생산=지정만(계획창/14일 학습, 당일 데이터 미사용)"을 개정한다. 근거(오너 결정): 14일 학습창이
+사용자 생산 패턴(불규칙 휴무·스케줄 변경)을 모두 대응할 수 없고, 비가동/비생산 경계가 다소 어긋나도
+**의미상 당일 판단이 더 맞으며**, 당일 실측 파티션은 TEEP(캘린더 분모)와 정합된다. 7/6 기각의 최대 근거였던
+블랙아웃 흡수는 §3.4 미계측 분리(P0)가 이미 구조적으로 제거했다.
+
+- **자동 모드** = 당일 10×CT 장시간 정지 판정 재활성(`ResolvePlannedWindowsAsync` auto → 창 없음 + `applyLongStop=true`).
+  14일 학습창의 KPI 적용은 폐기(auto-pattern 은 참고 표시 전용 존치). 수동 모드 = 지정 시각대만(기존 유지).
+- **사용자 오버라이드(신규)** — 정지 이벤트 로그 팝업에 '비생산' 구분 탭 + 행별 [→ 비생산]/[→ 비가동] 버튼.
+  `POST /api/oee/downtime/reclassify` 가 `classifySource='manual'` + `reasonCode='non_production'`(또는 고장)으로 확정하고,
+  `ComputeCycleAggregateAsync` 가 이를 양방향 우선 적용(비생산 강제 카빙 / 자동 승격 억제). 기존 고장/유지보수
+  체크(수동 분류)도 자동으로 '비가동 확정' 오버라이드가 된다(호환). 합성 행(over-cycle)은 reclassify 시
+  실제 이벤트 행으로 materialize. '비가동으로 보내기' 시 겹치는 자동 감지 로그(oeeNonProdDetectionLog) 청소.
+- **집계 2-패스** — 비생산(지정 창+당일 승격+오버라이드)이 루프에서 확정된 뒤 생산가능 창·flow별 가동/비가동
+  벽시계를 산출 → 승격된 비생산이 벽시계 A 분모에서도 빠진다(§7 도입 당시엔 applyLongStop=false 라 무관했던 지점).
+- **정지 구성(도넛) = 고장/유지보수/비생산 3분할** — `NonProdWallMs`(기간 클립·미계측 차감 ×flow수) 추가.
+  비생산 분류 이벤트는 정지 KPI(기간 정지·순위·MTBF 계열)에서 제외.
+- **'생산 요일(휴무)' 기능 제거** — UI·API(`PUT planned-stops/excluded-weekdays`)·설정(`ExcludedWeekdays`)·분모 주입
+  전부 삭제. 쉬는 날은 사이클이 없어 당일 10×CT 규칙이 자동으로 비생산 처리(기존 설정 키는 ExtensionData 로 무해 보존).
+- 3뷰 항등식(§7.3)은 유지 — 파티션 정의만 바뀌고 추이·정산·도넛은 여전히 한 타임라인에서 파생.
 - `ComputeCycleAggregateAsync`: 자동 10×CT 분기(`IsLongStopNonProduction`) 제거, 벽시계 `생산가능/가동/비가동` 구간 산출 추가. `normalCtMs`는 P용으로 존치.
 - `BuildSummaryAsync`: A 산식을 벽시계로 교체(사이클 ΣCT 분모 제거). `availabilitySource` 폴백 체인(shift/auto/calendar) 정리 — 벽시계 A는 계획 비생산 스케줄이 곧 분모라 폴백 단순화.
 - `availComp`(JS): cycle/fallback 2모드 → 단일 벽시계 모드.

@@ -17,6 +17,13 @@ public static class OeeMath
     public const double NonProductionCtMultiplier = 10.0;
 
     /// <summary>
+    /// 사용자/자동 분류에서 "비생산"을 뜻하는 reasonCode — 정지 이벤트를 비생산으로 보내면 이 코드가 찍히고
+    /// KPI 는 그 구간을 생산가능시간(A 분모) 밖으로 카빙한다(2026-07-08 당일 판정 모델). isFailure=0, MTBF 미반영.
+    /// oeeShiftException 의 kind 'non_production' 과 같은 어휘.
+    /// </summary>
+    public const string NonProductionReasonCode = "non_production";
+
+    /// <summary>
     /// 무변화 정지 지속시간(ms)이 비생산(≥ <see cref="NonProductionCtMultiplier"/>×CT이상치)인지 판정(doc/22 §3.3).
     /// thr ≤ 0(표본 부족)이면 판정 불가 → false(=다운타임 유지). 대상은 "변화 없음" 정지뿐(무사이클 갭·미완료 멈춤),
     /// 완료된 느린 사이클(움직였음)은 호출측에서 제외한다.

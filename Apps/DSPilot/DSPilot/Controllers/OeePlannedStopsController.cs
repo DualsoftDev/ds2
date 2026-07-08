@@ -38,8 +38,7 @@ public class OeePlannedStopsController : OeeControllerBase
         var manual = oee.PlannedStops ?? new List<PlannedStopWindow>();
         var windows = manual.Select(w => new PlannedStopWindowDto(w.StartMinutes, w.EndMinutes, w.Label)).ToList();
         var source = auto ? "auto" : (windows.Count > 0 ? "manual" : "none");
-        return new PlannedStopsDto(source, windows, auto, (int)OeeMath.NonProductionCtMultiplier,
-            oee.ExcludedWeekdays ?? new List<int>());
+        return new PlannedStopsDto(source, windows, auto, (int)OeeMath.NonProductionCtMultiplier);
     }
 
     // ── GET /api/oee/planned-stops/auto-pattern ───────────────────────────
@@ -74,8 +73,9 @@ public class OeePlannedStopsController : OeeControllerBase
         var merged = new List<(double S, double E)>();
         merged.AddRange(await _repo.GetNonProdIntervalsFromLogAsync(fromUtc, toUtc, flowName, ct));
         merged.AddRange(ExpandPlannedIntervalsMs(plannedWindows, fromUtc, toUtc));
-        if (detected && agg.NonProdIntervals is { Count: > 0 })
-            merged.AddRange(agg.NonProdIntervals);   // 방금 감지한 실측 구간 직접 포함(로그 왕복·materialize 신뢰게이트 의존 제거)
+        if (agg.NonProdIntervals is { Count: > 0 })
+            merged.AddRange(agg.NonProdIntervals);   // 방금 감지·강제(사용자 보내기 포함)한 실측 구간 직접 포함 —
+                                                     // 로그 왕복·materialize 신뢰게이트 의존 제거 + 수동 non_production 이벤트 표시
         List<(double S, double E)> intervals = merged.Count > 0
             ? Intervals.Union(merged)
             : (agg.NonProdIntervals ?? new List<(double S, double E)>());
@@ -140,15 +140,8 @@ public class OeePlannedStopsController : OeeControllerBase
         return GetPlannedStops();
     }
 
-    // ── PUT /api/oee/planned-stops/excluded-weekdays ──────────────────────
-    // 휴무 요일(생산 안 하는 요일) 저장. DayOfWeek 정수(0=일 … 6=토). 비생산 시간대와 독립 — 자동/수동 토글과 무관하게
-    // 항상 적용된다(이 요일의 하루는 OEE 가용성 분모서 통째 제외, TEEP 미영향). 비어 있음 = 매일 생산.
-    [HttpPut("planned-stops/excluded-weekdays")]
-    public ActionResult<PlannedStopsDto> SetExcludedWeekdays([FromBody] ExcludedWeekdaysRequest? req)
-    {
-        _settings.SaveExcludedWeekdays(req?.Days ?? new List<int>());
-        return GetPlannedStops();
-    }
+    // (구 PUT planned-stops/excluded-weekdays[생산 요일] 은 2026-07-08 당일 비생산 판정 모델로 제거 —
+    //  쉬는 날은 사이클이 없어 10×CT 규칙이 자동으로 비생산 처리한다.)
 
     // ── POST /api/oee/planned-stops/auto ──────────────────────────────────
     [HttpPost("planned-stops/auto")]

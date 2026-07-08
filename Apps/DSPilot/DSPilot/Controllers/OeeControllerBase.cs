@@ -144,17 +144,22 @@ public abstract class OeeControllerBase : ControllerBase
     /// 이상치 초과 사이클(=failureCount 의 사이클 성분)을 정지 이벤트 로그 행으로 합성한다.
     /// 이 소스는 oeeDowntimeEvent 테이블에 적히지 않아(계산만) '정지 이벤트 로그' 내역이 비었던 원인 —
     /// failureCount 와 동일한 ComputeCycleAggregate 경로(collectDowntimeCycles)로 수집해 건수를 정합시킨다.
-    /// 합성 행은 DB 행이 아니므로 Id 를 음수(-1,-2,…)로 부여(고유 key)하고 분류/마감 불가로 표시(프론트).
+    /// 합성 행은 DB 행이 아니므로 Id 를 음수(-1,-2,…)로 부여(고유 key). 재분류(비생산↔비가동 보내기)는
+    /// reclassify API 가 실행 시점에 실제 이벤트 행으로 materialize 한다.
+    /// 당일 판정 모델(2026-07-08): 10×CT 승격 사이클은 IsNonProd=true 합성 행(비생산 탭), agg.NonProdIntervals 는
+    /// DB 이벤트 행(무가동 등)의 구분 표시(비생산 겹침 판정)에 쓰라고 함께 반환한다.
     /// </summary>
-    protected async Task<List<OeeDowntimeDto>> GetOverThresholdCycleDowntimeAsync(
-        string? flowName, DateTime fromUtc, DateTime toUtc, CancellationToken ct)
+    protected async Task<(List<OeeDowntimeDto> Rows, List<(double S, double E)> NonProdIv)>
+        GetOverThresholdCycleDowntimeAsync(
+            string? flowName, DateTime fromUtc, DateTime toUtc, CancellationToken ct)
     {
         var thresholds = await ResolveCtThresholdsAsync();
         var (plannedWindows, _, applyLongStop) = await ResolvePlannedWindowsAsync(thresholds, ct);
         var agg = await ComputeCycleAggregateAsync(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct,
             collectDowntimeCycles: true);
+        var nonProdIv = agg.NonProdIntervals ?? new List<(double S, double E)>();
         var cycles = agg.DowntimeCycles;
-        if (cycles is null || cycles.Count == 0) return new List<OeeDowntimeDto>();
+        if (cycles is null || cycles.Count == 0) return (new List<OeeDowntimeDto>(), nonProdIv);
 
         var sysMap = BuildFlowSystemMap();       // flowName → systemName (AASX 미로드/미매칭이면 빈 문자열)
         var list = new List<OeeDowntimeDto>(cycles.Count);
@@ -170,18 +175,21 @@ public abstract class OeeControllerBase : ControllerBase
                 StartAt: DateTimeOffset.FromUnixTimeMilliseconds((long)c.StartMs).LocalDateTime,
                 EndAt: DateTimeOffset.FromUnixTimeMilliseconds((long)c.EndMs).LocalDateTime,
                 DurationMs: (long)(c.EndMs - c.StartMs),
-                ReasonCode: "cycle_overtime",
-                Category: "unplanned",
-                IsFailure: true,
+                ReasonCode: c.NonProd ? OeeMath.NonProductionReasonCode : "cycle_overtime",
+                Category: c.NonProd ? "nonproduction" : "unplanned",
+                IsFailure: !c.NonProd,
                 DetectSource: "over-cycle",
                 SourceLogId: null,
-                Note: thrMs > 0
-                    ? $"가동시간 이상치 초과 (CT {(c.CtMs / 1000.0):0.0}s > 이상치 {(thrMs / 1000.0):0.0}s)"
-                    : "가동시간 이상치 초과",
+                Note: c.NonProd
+                    ? $"장시간 정지 자동 비생산 (지속 {((c.EndMs - c.StartMs) / 1000.0):0.0}s ≥ 이상치 {(thrMs / 1000.0):0.0}s × {OeeMath.NonProductionCtMultiplier:0}배)"
+                    : thrMs > 0
+                        ? $"가동시간 이상치 초과 (CT {(c.CtMs / 1000.0):0.0}s > 이상치 {(thrMs / 1000.0):0.0}s)"
+                        : "가동시간 이상치 초과",
                 Status: "recovered",
-                ClassifySource: "auto-cycle"));
+                ClassifySource: c.NonProd ? "auto-longstop" : "auto-cycle",
+                IsNonProd: c.NonProd));
         }
-        return list;
+        return (list, nonProdIv);
     }
 
     // flowName → systemName. AASX 미로드/예외 시 빈 맵(합성 행 systemName 은 빈 문자열로 폴백).
@@ -589,41 +597,33 @@ public abstract class OeeControllerBase : ControllerBase
             UnmeasuredMs: agg.UnmeasuredMs,
             RunWallMs: agg.RunWallMs,
             AvailableWallMs: agg.AvailableWallMs,
-            DownMaintWallMs: agg.DownMaintWallMs);
+            DownMaintWallMs: agg.DownMaintWallMs,
+            NonProdWallMs: agg.NonProdWallMs);
     }
 
     // ── 비생산 판정 모드 ─────────────────────────────────────────────────────
 
-    // 비생산 시간대 해석 (2026-07-06 단일 벽시계 모델). 비생산 = "지정된 것"만 — 당일 데이터를 쓰지 않는다:
-    //   auto   : 14일 학습패턴 창(OeeNonProdPatternService, 어제까지 히스토리 투표제 — 당일 제외).
-    //   manual : 사용자 지정 시간대 창.
-    // 어느 경우도 당일 10×CT 자동판정(applyLongStop)은 적용하지 않는다(항상 false) — 평일 긴 정지는
-    // '비생산'으로 숨기지 않고 비가동(고장)으로 정직하게 드러낸다. applyLongStop 인자는 실측 패턴 조회
-    // (planned-stops/actual?detected)만 true 로 강제 사용.
-    protected async Task<(List<(int StartMin, int EndMin)> Windows, string Source, bool ApplyLongStop)>
+    // 비생산 시간대 해석 (2026-07-08 당일 판정 모델 — 14일 학습창 KPI 적용 폐기):
+    //   auto   : 창 없음 + applyLongStop=true — 당일 실측 10×CT 장시간 정지를 그때그때 비생산으로 분류.
+    //            사용자 생산 패턴을 학습창이 다 못 덮는 문제(불규칙 휴무/스케줄 변경)를 당일 판정이 흡수하고,
+    //            TEEP(캘린더 분모)와 같은 실측 파티션을 공유해 두 지표가 정합된다.
+    //   manual : 사용자 지정 시간대 창(applyLongStop=false — 지정한 것만).
+    // 자동 판정이 어긋나면 정지 이벤트 로그에서 '비생산↔비가동 보내기'(classifySource='manual')로 사용자가
+    // 개별 확정한다 — ComputeCycleAggregateAsync 가 이 오버라이드를 양방향으로 우선 적용.
+    // (14일 학습 패턴 OeeNonProdPatternService 는 auto-pattern 참고 표시 전용으로 존치.)
+    protected Task<(List<(int StartMin, int EndMin)> Windows, string Source, bool ApplyLongStop)>
         ResolvePlannedWindowsAsync(
             IReadOnlyDictionary<string, (double AvgMs, double P10Ms, int Sample)> thresholds, CancellationToken ct)
     {
         var oee = _settings.LoadSettings().OeeManual;
         if (oee.PlannedStopsAutoEffective)
-        {
-            try
-            {
-                var pattern = await _nonProdPattern.GetOrComputeAsync(null, thresholds, forceRefresh: false, ct);
-                return (pattern.Windows.Select(x => (x.StartMinutes, x.EndMinutes)).ToList(), "auto", false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "[OEE] 학습 비생산 패턴 조회 실패 — 비생산 창 없음 폴백");
-                return (new List<(int, int)>(), "auto", false);
-            }
-        }
+            return Task.FromResult((new List<(int, int)>(), "auto", true));
 
         var manual = oee.PlannedStops;
         if (manual is { Count: > 0 })
-            return (manual.Select(w => (w.StartMinutes, w.EndMinutes)).ToList(), "manual", false);
+            return Task.FromResult((manual.Select(w => (w.StartMinutes, w.EndMinutes)).ToList(), "manual", false));
 
-        return (new List<(int, int)>(), "none", false);
+        return Task.FromResult((new List<(int, int)>(), "none", false));
     }
 
     private static string BuildNonProductionStartSql(IReadOnlyList<(int StartMin, int EndMin)> windows)
@@ -667,27 +667,8 @@ public abstract class OeeControllerBase : ControllerBase
         return res;
     }
 
-    /// <summary>
-    /// 휴무 요일(생산하지 않는 요일)의 하루(00:00~24:00, 로컬) 구간을 [fromUtc, toUtc] 범위에서 epoch-ms 구간으로 전개한다.
-    /// 값은 <see cref="DayOfWeek"/> 정수(0=일 … 6=토). 비생산·미계측과 동일하게 가용성(A) 분모에서 빼기 위한 소스.
-    /// 비어 있으면 빈 목록(제외 없음).
-    /// </summary>
-    protected static List<(double S, double E)> BuildExcludedWeekdayIntervalsMs(
-        IReadOnlyCollection<int>? excludedWeekdays, DateTime fromUtc, DateTime toUtc)
-    {
-        var res = new List<(double S, double E)>();
-        if (excludedWeekdays is null || excludedWeekdays.Count == 0) return res;
-        var localFrom = fromUtc.ToLocalTime().Date;
-        var localToEnd = toUtc.ToLocalTime().Date.AddDays(1);
-        for (var d = localFrom; d < localToEnd; d = d.AddDays(1))
-        {
-            if (!excludedWeekdays.Contains((int)d.DayOfWeek)) continue;
-            var sLocal = DateTime.SpecifyKind(d, DateTimeKind.Local);
-            var eLocal = DateTime.SpecifyKind(d.AddDays(1), DateTimeKind.Local);
-            res.Add((ToMs(sLocal.ToUniversalTime()), ToMs(eLocal.ToUniversalTime())));
-        }
-        return res;
-    }
+    // (구 BuildExcludedWeekdayIntervalsMs[휴무 요일] 은 2026-07-08 당일 비생산 판정 모델로 제거 — 쉬는 날은
+    //  사이클이 없어 10×CT 장시간 정지 규칙이 자동으로 비생산 처리한다.)
 
     // ── CT 이상치(임계) 산출 ─────────────────────────────────────────────────
 
@@ -726,11 +707,13 @@ public abstract class OeeControllerBase : ControllerBase
         double RunWallMs = 0,                                       // Σ가동(벽시계) = 정상 사이클 ∩ 생산가능
         double AvailableWallMs = 0,                                 // Σ생산가능시간 = (기간−비생산−미계측) × flow수
         double DownMaintWallMs = 0,                                 // Σ유지보수(비가동 ∩ 유지보수 이벤트) — 고장 = (Avail−Run) − 이 값
+        double NonProdWallMs = 0,                                   // Σ비생산(벽시계, 기간 클립·미계측 차감) × flow수 — 도넛 세그먼트
         List<(double S, double E)>? RunWallIntervals = null,        // flow별 가동 구간 연결(concat, 합산 슬롯용 — union 아님)
         List<(double S, double E)>? DownMaintWallIntervals = null,  // flow별 유지보수 구간 연결(concat)
         // 이상치 초과 사이클(=DowntimeEventCount 의 사이클 성분) 개별 이벤트 — 정지 로그(oeeDowntimeEvent)에는
         // 안 적히는 소스라, '정지 이벤트 로그' 내역이 failureCount 와 정합되도록 여기서 수집해 노출한다(collectDowntimeCycles).
-        List<(string? Flow, double StartMs, double EndMs, double CtMs)>? DowntimeCycles = null);
+        // NonProd=true 는 당일 10×CT 승격으로 '비생산' 처리된 사이클(건수·MTBF 미반영) — 팝업 비생산 탭 표시용.
+        List<(string? Flow, double StartMs, double EndMs, double CtMs, bool NonProd)>? DowntimeCycles = null);
 
     private sealed class CycleAggRow { public long NormalCt { get; set; } public long NormalCount { get; set; } public long NonProdNormalCt { get; set; } }
     private sealed class DtCycleRaw { public string? RecordedAt { get; set; } public long? Ct { get; set; } public long? Mt { get; set; } }
@@ -781,7 +764,26 @@ public abstract class OeeControllerBase : ControllerBase
         // 동일하게 비생산 시간대 시작분은 제외해, 버킷 합계 ≈ KPI 가동(NormalCtMs)이 되게 한다.
         var normalCycles = collectNormalCycles ? new List<(double StartMs, double CtMs)>() : null;
         // 이상치 초과 사이클 이벤트 — dtEventCount(=failureCount) 증가 지점과 동일 모집단(정지 로그 내역 정합용).
-        var downtimeCycles = collectDowntimeCycles ? new List<(string? Flow, double StartMs, double EndMs, double CtMs)>() : null;
+        var downtimeCycles = collectDowntimeCycles ? new List<(string? Flow, double StartMs, double EndMs, double CtMs, bool NonProd)>() : null;
+
+        // ── 사용자 오버라이드(2026-07-08) — 정지 이벤트 로그의 '비생산↔비가동 보내기'(classifySource='manual'). ──
+        //   toNonProdIv : 비생산 강제 구간(reasonCode='non_production') — 자동 판정과 무관하게 A 분모 밖으로 카빙.
+        //   toDownIv    : 비가동 확정 구간(고장/유지보수 수동 분류) — 당일 10×CT 자동 승격을 억제(정지 유지).
+        //   기존 고장/유지보수 체크(수동 분류)와 자연 호환 — 그 행위 자체가 '비가동 확정' 오버라이드가 된다.
+        var toNonProdIv = new List<(string? Flow, double S, double E)>();
+        var toDownIv = new List<(string? Flow, double S, double E)>();
+        try
+        {
+            foreach (var (rf, rs, re, toNp) in await _repo.GetManualReclassIntervalsAsync(fromUtc, toUtc, ct))
+                (toNp ? toNonProdIv : toDownIv).Add((rf, rs, re));
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "[OEE] 수동 재분류 오버라이드 조회 실패 — 자동 판정만 적용"); }
+        static List<(double S, double E)> ScopedIv(List<(string? Flow, double S, double E)> src, string? flow)
+            => src.Where(x => x.Flow is null || flow is null || string.Equals(x.Flow, flow, StringComparison.Ordinal))
+                  .Select(x => (x.S, x.E)).ToList();
+        static bool OverlapsAny(List<(string? Flow, double S, double E)> src, string? flow, double s, double e)
+            => src.Any(x => (x.Flow is null || flow is null || string.Equals(x.Flow, flow, StringComparison.Ordinal))
+                            && Math.Min(x.E, e) > Math.Max(x.S, s));
         Dictionary<string, List<(double S, double E)>>? maintByFlow = null;
         List<(double S, double E)>? maintAll = null;
         if (maintIntervals is { Count: > 0 })
@@ -801,22 +803,12 @@ public abstract class OeeControllerBase : ControllerBase
             return sum;
         }
 
-        // ── 벽시계 단일모델(2026-07-06): 생산가능 = 기간 − 비생산(지정/학습) − 미계측. flow별 가동/비가동을 이 창에서 잰다. ──
-        //   nonProdIntervals 는 이 시점 지정/학습 비생산만(당일 10× 미포함 — applyLongStop=false). 생산가능은 flow 공통.
+        // ── 벽시계 단일모델(2026-07-06 도입, 2026-07-08 2-패스 전환): 생산가능 = 기간 − 비생산 − 미계측. ──
+        //   비생산이 이제 '당일 판정'(10×CT 승격 + 사용자 오버라이드)으로 루프 중에 확정되므로, 생산가능 창과
+        //   flow별 가동/비가동 벽시계는 분류가 끝난 뒤(패스 2, 아래 루프 이후)에 잰다 — 승격된 비생산이 A 분모에서도
+        //   빠져 plannedCtMs(TEEP 축)와 벽시계 A 가 같은 파티션을 공유한다. 여기서는 flow별 정상 사이클 구간만 모아 둔다.
         double periodStartMs = ToMs(fromUtc), periodEndMs = ToMs(toUtc);
-        // 휴무 요일(생산 안 하는 요일)의 하루 전체 = 비생산·미계측과 동일하게 생산가능시간에서 통째 제외 — 쉬는 날의
-        //   정지가 가용성을 깎지 않게. OEE 전용: 아래 wallAvailableIv 는 runWall/availableSingle(=벽시계 A)만 좌우하고,
-        //   TEEP 가 읽는 NormalCt/IdleCt/PlannedCt(원 SQL 집계)에는 영향 없다 → TEEP 달력 분모는 표준 그대로 유지됨.
-        //   비생산과 달리 nonProdIntervals(시각화·감지 로그)에는 넣지 않는다 — '휴무일'은 '비생산 시간대'와 별개 개념.
-        var excludedDayIv = BuildExcludedWeekdayIntervalsMs(
-            _settings.LoadSettings().OeeManual.ExcludedWeekdays, fromUtc, toUtc);
-        var wallAvailableIv = Intervals.Subtract(
-            new List<(double S, double E)> { (periodStartMs, periodEndMs) },
-            Intervals.Union(nonProdIntervals).Concat(unmeasured).Concat(excludedDayIv).ToList());
-        double availableSingleMs = Intervals.Total(wallAvailableIv);
-        double runWallMs = 0, downMaintWallMs = 0;
-        var runWallIntervals = new List<(double S, double E)>();       // flow별 가동(생산가능 클립) 연결
-        var downMaintWallIntervals = new List<(double S, double E)>(); // flow별 유지보수(비가동∩유지이벤트) 연결
+        var flowRunByFlow = new Dictionary<string, List<(double S, double E)>>(StringComparer.Ordinal);
 
         const string dtCond = "ct > 0 AND ((mt IS NOT NULL AND mt > @Thr) OR (mt IS NULL AND ct > @Thr))";
         var nonProdStartSql = BuildNonProductionStartSql(plannedWindows);
@@ -874,16 +866,8 @@ public abstract class OeeControllerBase : ControllerBase
                                 normalCycles.Add((rrec - rc, rc));
                         }
                 }
-                // 벽시계 단일모델: 가동 = 이 flow 정상 사이클 ∩ 생산가능. 비가동 = 생산가능 − 가동(잔여).
-                //   유지보수 = 비가동 ∩ 유지보수 이벤트(같은 flow, kind 0/2). 고장 = 비가동 − 유지보수(호출측이 차감).
-                var flowRunAvail = Intervals.Intersect(Intervals.Union(flowRun), wallAvailableIv);
-                runWallMs += Intervals.Total(flowRunAvail);
-                runWallIntervals.AddRange(flowRunAvail);
-                var flowDownIv = Intervals.Subtract(wallAvailableIv, flowRun);
-                var flowMaintIv = Intervals.Intersect(flowDownIv,
-                    maintByFlow?.GetValueOrDefault(f) ?? new List<(double S, double E)>());
-                downMaintWallMs += Intervals.Total(flowMaintIv);
-                downMaintWallIntervals.AddRange(flowMaintIv);
+                // 벽시계 가동/비가동은 비생산 확정 후 패스 2(루프 아래)에서 — 여기선 flow별 정상 사이클 구간만 보관.
+                flowRunByFlow[f] = flowRun;
 
                 var rows = await conn.QueryAsync<DtCycleRaw>($@"
                     SELECT recordedAt AS RecordedAt, ct AS Ct, mt AS Mt
@@ -910,7 +894,19 @@ public abstract class OeeControllerBase : ControllerBase
                         plannedCtMs += measuredMs;                              // 비생산 시간대 — A 분모서 제외, MTBF/MTTR 미반영
                         continue;
                     }
-                    if (applyLongStop && r.Mt is null && OeeMath.IsLongStopNonProduction(measuredMs, thr))
+                    // 사용자 오버라이드 ① 비생산 강제 — 수동 non_production 이벤트와 겹친 부분은 자동 판정보다 우선 카빙.
+                    var forcedNp = Intervals.Intersect(rowSegs, ScopedIv(toNonProdIv, f));
+                    if (forcedNp.Count > 0)
+                    {
+                        plannedCtMs += Intervals.Total(forcedNp);
+                        nonProdIntervals.AddRange(forcedNp);
+                        rowSegs = Intervals.Subtract(rowSegs, forcedNp);
+                        measuredMs = Intervals.Total(rowSegs);
+                        if (measuredMs <= 0) continue;              // 전 구간 비생산 확정 — 정지 미계상
+                    }
+                    // 사용자 오버라이드 ② 비가동 확정(고장/유지보수 수동 분류 겹침) → 당일 10×CT 자동 승격 억제.
+                    if (applyLongStop && r.Mt is null && OeeMath.IsLongStopNonProduction(measuredMs, thr)
+                        && !OverlapsAny(toDownIv, f, startMs, rec))
                     {
                         plannedCtMs += measuredMs;
                         foreach (var seg in rowSegs)
@@ -918,6 +914,7 @@ public abstract class OeeControllerBase : ControllerBase
                             nonProdIntervals.Add(seg);              // 자동(10×) 유휴 사이클 → 비생산(제외) 시각화
                             nonProdDetections.Add(NewNonProdDetection(f, seg.S, seg.E, thr, "idle-cycle"));
                         }
+                        downtimeCycles?.Add((f, startMs, rec, cMs, true));   // 팝업 비생산 탭 표시(건수·MTBF 미반영)
                         continue;
                     }
                     idleCtMs += measuredMs;
@@ -931,7 +928,7 @@ public abstract class OeeControllerBase : ControllerBase
                     double repair = r.Mt is long mtL && measuredMs >= cMs ? (mtL - thr) : (measuredMs - thr);
                     if (repair >= 0) repairs.Add(repair);
                     dtEventCount++;
-                    downtimeCycles?.Add((f, startMs, rec, cMs));   // 정지 로그 내역 정합 — dtEventCount 와 1:1
+                    downtimeCycles?.Add((f, startMs, rec, cMs, false));   // 정지 로그 내역 정합 — dtEventCount 와 1:1
                 }
             }
 
@@ -957,7 +954,19 @@ public abstract class OeeControllerBase : ControllerBase
                             : new List<(double S, double E)> { u };
                         var len = Intervals.Total(uSegs);
                         if (len <= 0) continue;                     // 전 구간 미계측 — 비가동/비생산/onset 전부 미계상
-                        if (applyLongStop && OeeMath.IsLongStopNonProduction(len, avgThr))
+                        // 사용자 오버라이드 ① 비생산 강제 — 갭은 라인 스코프라 flow 무관 전체 오버라이드와 겹침 카빙.
+                        var forcedNpU = Intervals.Intersect(uSegs, toNonProdIv.Select(x => (x.S, x.E)).ToList());
+                        if (forcedNpU.Count > 0)
+                        {
+                            plannedCtMs += Intervals.Total(forcedNpU);
+                            nonProdIntervals.AddRange(forcedNpU);
+                            uSegs = Intervals.Subtract(uSegs, forcedNpU);
+                            len = Intervals.Total(uSegs);
+                            if (len <= 0) continue;                 // 전 구간 비생산 확정 — 정지 미계상
+                        }
+                        // 사용자 오버라이드 ② 비가동 확정 겹침 → 자동 승격 억제(정지 유지).
+                        if (applyLongStop && OeeMath.IsLongStopNonProduction(len, avgThr)
+                            && !toDownIv.Any(x => Math.Min(x.E, u.E) > Math.Max(x.S, u.S)))
                         {
                             plannedCtMs += len;
                             foreach (var us in uSegs)
@@ -1005,9 +1014,35 @@ public abstract class OeeControllerBase : ControllerBase
             catch (Exception ex) { _logger.LogWarning(ex, "[OEE] 비생산 감지 로그 materialize 실패"); }
         }
 
+        // ── 패스 2 — 벽시계 산출(2026-07-08): 비생산(지정 창 + 당일 10× 승격 + 사용자 오버라이드)이 전부 확정된 뒤
+        //    생산가능 창을 만들고 flow별 가동/비가동/유지보수를 잰다 — 승격·강제된 비생산이 A 분모에서도 빠진다.
+        var periodIv = new List<(double S, double E)> { (periodStartMs, periodEndMs) };
+        var nonProdUnion = Intervals.Union(nonProdIntervals);
+        var wallAvailableIv = Intervals.Subtract(periodIv, nonProdUnion.Concat(unmeasured).ToList());
+        double availableSingleMs = Intervals.Total(wallAvailableIv);
+        // 비생산 벽시계(도넛/표시) = 기간 클립 후 미계측 차감(미계측 우선 — daily 표시와 동일 규칙).
+        double nonProdSingleMs = Intervals.Total(
+            Intervals.Subtract(Intervals.Intersect(nonProdUnion, periodIv), unmeasured));
+        double runWallMs = 0, downMaintWallMs = 0;
+        var runWallIntervals = new List<(double S, double E)>();       // flow별 가동(생산가능 클립) 연결
+        var downMaintWallIntervals = new List<(double S, double E)>(); // flow별 유지보수(비가동∩유지이벤트) 연결
+        foreach (var (f, flowRun) in flowRunByFlow)
+        {
+            // 가동 = 이 flow 정상 사이클 ∩ 생산가능. 비가동 = 생산가능 − 가동(잔여).
+            //   유지보수 = 비가동 ∩ 유지보수 이벤트(같은 flow, kind 0/2). 고장 = 비가동 − 유지보수(호출측이 차감).
+            var flowRunAvail = Intervals.Intersect(Intervals.Union(flowRun), wallAvailableIv);
+            runWallMs += Intervals.Total(flowRunAvail);
+            runWallIntervals.AddRange(flowRunAvail);
+            var flowDownIv = Intervals.Subtract(wallAvailableIv, flowRun);
+            var flowMaintIv = Intervals.Intersect(flowDownIv,
+                maintByFlow?.GetValueOrDefault(f) ?? new List<(double S, double E)>());
+            downMaintWallMs += Intervals.Total(flowMaintIv);
+            downMaintWallIntervals.AddRange(flowMaintIv);
+        }
+
         var idleCalUnion = Intervals.Union(idleCalIntervals);
         return new CycleAgg(normalCtMs, idleCtMs, normalCount, dtEventCount, displayThr, onsets, repairs, true, plannedCtMs,
-            ctSampleMin == int.MaxValue ? 0 : ctSampleMin, Intervals.Union(nonProdIntervals),
+            ctSampleMin == int.MaxValue ? 0 : ctSampleMin, nonProdUnion,
             runIntervals is not null ? Intervals.Union(runIntervals) : null,
             Math.Min(idleMaintCtMs, idleCtMs),
             Intervals.Total(idleCalUnion), thrCount,
@@ -1015,6 +1050,7 @@ public abstract class OeeControllerBase : ControllerBase
             UnmeasuredMs: unmeasuredMs, UnmeasuredIntervals: unmeasured,
             RunWallMs: runWallMs, AvailableWallMs: availableSingleMs * thrCount,
             DownMaintWallMs: downMaintWallMs,
+            NonProdWallMs: nonProdSingleMs * thrCount,
             RunWallIntervals: runWallIntervals, DownMaintWallIntervals: downMaintWallIntervals,
             DowntimeCycles: downtimeCycles);
     }
@@ -1331,7 +1367,9 @@ public record ProductionRequest(DateTime? Date, string Flow, string? Shift, int 
 public record ManualQualityRequest(double? QualityPercent);
 public record PlannedStopsRequest(List<PlannedStopWindowDto>? Windows);
 public record PlannedStopsAutoRequest(bool Enabled);
-public record ExcludedWeekdaysRequest(List<int>? Days);
+// 정지 이벤트 재분류(비생산↔비가동 보내기). Id>0 = 기존 이벤트, Id 없음/음수 = 합성 행(over-cycle) — Flow/StartAt/EndAt 로
+// 실제 이벤트 행을 materialize 한 뒤 분류한다. ToNonProd=true → 비생산(A 분모 밖), false → 비가동(고장 기본).
+public record ReclassifyDowntimeRequest(long? Id, string? Flow, DateTime? StartAt, DateTime? EndAt, bool ToNonProd);
 public record ShiftExceptionRequest(string? Flow, DateTime? StartAt, DateTime? EndAt, string Kind, string? Note);
 public record IdealCycleRequest(string Flow, int? IdealCycleTimeMs, string? Mode = null);
 public record IdealCycleBatchRequest(List<IdealCycleRequest> Items);

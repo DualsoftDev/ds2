@@ -430,12 +430,14 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         }
         // SUM 단순 합산 대신 Interval Union — 겹치는 open 이벤트가 같은 시간대를
         // 이중 계상해 downtimeMs > periodMs 가 되는 문제를 방지.
+        // 비생산(non_production) 분류 이벤트는 정지 KPI(기간 정지)에서 제외 — A 분모 밖 시간이라 '정지'가 아니다.
         var sql = $@"
             SELECT
               CAST((julianday(startAt)                      - julianday(@From)) * 86400000 AS INTEGER) AS S,
               CAST((julianday(COALESCE(endAt, @Cap))        - julianday(@From)) * 86400000 AS INTEGER) AS E
             FROM oeeDowntimeEvent
-            WHERE startAt >= @From AND startAt <= @To {flowClause}";
+            WHERE startAt >= @From AND startAt <= @To
+              AND COALESCE(reasonCode,'') <> '{OeeMath.NonProductionReasonCode}' {flowClause}";
         var rows = await conn.QueryAsync<SegRow>(sql, p);
         var list = rows.ToList();
         var periodMs = (long)(toUtc - fromUtc).TotalMilliseconds;
@@ -471,12 +473,14 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
     {
         await using var conn = await OpenAsync();
         var capUtc = DateTime.UtcNow < toUtc ? DateTime.UtcNow : toUtc;
-        var sql = @"
+        // 비생산 분류 이벤트 제외 — 순위표 '정지'는 비가동만 센다(GetDowntimeAggregateAsync 와 동일 규칙).
+        var sql = $@"
             SELECT flowName AS FlowName,
               CAST((julianday(startAt)                - julianday(@From)) * 86400000 AS INTEGER) AS S,
               CAST((julianday(COALESCE(endAt, @Cap))  - julianday(@From)) * 86400000 AS INTEGER) AS E
             FROM oeeDowntimeEvent
-            WHERE startAt >= @From AND startAt <= @To AND flowName IS NOT NULL";
+            WHERE startAt >= @From AND startAt <= @To AND flowName IS NOT NULL
+              AND COALESCE(reasonCode,'') <> '{OeeMath.NonProductionReasonCode}'";
         var rows = await conn.QueryAsync<FlowSegRow>(sql, new
         {
             From = Iso(fromUtc),
@@ -630,7 +634,8 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
               CASE WHEN detectSource = 'nocycle' AND COALESCE(classifySource,'') <> 'manual' THEN 1 ELSE 0 END AS IsAuto,
               flowName AS FlowName
             FROM oeeDowntimeEvent
-            WHERE startAt <= @To AND COALESCE(endAt, @Cap) >= @From {flowClause}";
+            WHERE startAt <= @To AND COALESCE(endAt, @Cap) >= @From
+              AND COALESCE(reasonCode,'') <> '{OeeMath.NonProductionReasonCode}' {flowClause}";
         var rows = await conn.QueryAsync<IntervalRow>(sql, p);
         return rows.Select(r => (r.StartMs, r.EndMs, r.Kind, r.IsAuto != 0, r.FlowName)).ToList();
     }
@@ -711,6 +716,51 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
     }
 
     private sealed class IntervalMsRow { public long S { get; set; } public long E { get; set; } }
+
+    public async Task<int> DeleteNonProdDetectionsOverlappingAsync(
+        DateTime fromUtc, DateTime toUtc, CancellationToken ct = default)
+    {
+        await using var conn = await OpenAsync();
+        // open(clearAt NULL) 감지는 now 로 캡해 겹침 판정 — '비가동으로 보내기' 확정 구간의 stale 감지 청소.
+        const string sql = @"
+            DELETE FROM oeeNonProdDetectionLog
+            WHERE onsetAt < @To AND COALESCE(clearAt, @Now) > @From";
+        return await conn.ExecuteAsync(sql, new { From = Iso(fromUtc), To = Iso(toUtc), Now = Iso(DateTime.UtcNow) });
+    }
+
+    public async Task<IReadOnlyList<(string? FlowName, double S, double E, bool ToNonProd)>> GetManualReclassIntervalsAsync(
+        DateTime fromUtc, DateTime toUtc, CancellationToken ct = default)
+    {
+        await using var conn = await OpenAsync();
+        var capUtc = DateTime.UtcNow < toUtc ? DateTime.UtcNow : toUtc;
+        // 사용자 확정 분류(classifySource='manual')만 — 당일 자동(10×CT) 판정의 오버라이드 소스.
+        //   reasonCode='non_production' → 비생산 강제(ToNonProd=true), 그 외(고장/유지보수 등) → 자동 승격 억제.
+        // 기간과 '겹치는' 이벤트 전부(GetDowntimeIntervalsAsync 와 동일 경계) — 다일 정지 오버라이드 정확 반영.
+        var sql = $@"
+            SELECT flowName AS FlowName,
+              CAST((julianday(startAt) - 2440587.5) * 86400000 AS INTEGER) AS S,
+              CAST((julianday(COALESCE(endAt, @Cap)) - 2440587.5) * 86400000 AS INTEGER) AS E,
+              CASE WHEN reasonCode = '{OeeMath.NonProductionReasonCode}' THEN 1 ELSE 0 END AS ToNonProd
+            FROM oeeDowntimeEvent
+            WHERE startAt <= @To AND COALESCE(endAt, @Cap) >= @From
+              AND classifySource = 'manual'";
+        var rows = await conn.QueryAsync<ReclassRow>(sql, new
+        {
+            From = Iso(fromUtc),
+            To = Iso(toUtc),
+            Cap = Iso(capUtc),
+        });
+        return rows.Where(r => r.E > r.S)
+            .Select(r => (r.FlowName, (double)r.S, (double)r.E, r.ToNonProd != 0)).ToList();
+    }
+
+    private sealed class ReclassRow
+    {
+        public string? FlowName { get; set; }
+        public long S { get; set; }
+        public long E { get; set; }
+        public int ToNonProd { get; set; }
+    }
 
     // ── 시프트 예외 ───────────────────────────────────────────────────────
 

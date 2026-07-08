@@ -159,21 +159,6 @@ public class AppSettingsService
         => Update(settings => settings.OeeManual.PlannedStopsAuto = enabled);
 
     /// <summary>
-    /// <b>휴무 요일</b>(생산하지 않는 요일) 저장. 값은 <see cref="System.DayOfWeek"/> 정수(0=일 … 6=토).
-    /// 0~6 범위만 유지·중복 제거·정렬. 비어 있음 = 매일 생산(제외 없음). 이 요일의 하루는 OEE 가용성 분모에서
-    /// 통째 제외된다(TEEP 미영향). <see cref="Update"/> 로 원자적 저장(설정 페이지 저장과 경합해도 유실 없음).
-    /// </summary>
-    public void SaveExcludedWeekdays(IReadOnlyList<int>? days)
-    {
-        var normalized = (days ?? Array.Empty<int>())
-            .Where(d => d is >= 0 and <= 6)
-            .Distinct()
-            .OrderBy(d => d)
-            .ToList();
-        Update(settings => settings.OeeManual.ExcludedWeekdays = normalized);
-    }
-
-    /// <summary>
     /// 자동 비생산 패턴 캐시를 저장한다. OeeController.ComputeAndCacheAutoPatternAsync 전용.
     /// <see cref="Update"/> 로 원자적 저장(설정 페이지 저장과 경합해도 유실 없음).
     /// </summary>

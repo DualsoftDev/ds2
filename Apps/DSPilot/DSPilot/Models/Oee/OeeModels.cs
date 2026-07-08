@@ -270,7 +270,8 @@ public sealed record OeeSummaryDto(
     // ── 벽시계 단일모델(2026-07-06) — 추이·정산·도넛 3뷰 공통 SSOT. 라인은 flow별 합산(=생산가능시간 가중평균 A). ──
     double RunWallMs = 0,             // Σ가동(벽시계) = 정상 사이클 ∩ 생산가능. A 분자.
     double AvailableWallMs = 0,       // Σ생산가능시간 = (기간 − 비생산 − 미계측) × flow수. A 분모.
-    double DownMaintWallMs = 0);      // Σ유지보수(비가동 ∩ 유지보수 이벤트). 고장 = (Available−Run) − 이 값. 도넛/정산 분할.
+    double DownMaintWallMs = 0,       // Σ유지보수(비가동 ∩ 유지보수 이벤트). 고장 = (Available−Run) − 이 값. 도넛/정산 분할.
+    double NonProdWallMs = 0);        // Σ비생산(벽시계, 미계측 차감 후) × flow수 — 도넛 '비생산' 세그먼트. Available 과 같은 축.
 
 /// <summary>비생산 시간대 한 칸 DTO (반복 일일, 로컬 자정 기준 분).</summary>
 public sealed record PlannedStopWindowDto(int StartMinutes, int EndMinutes, string? Label);
@@ -284,9 +285,7 @@ public sealed record PlannedStopsDto(
     string Source,
     IReadOnlyList<PlannedStopWindowDto> Windows,
     bool Auto,
-    int CtMultiplier,
-    // 휴무 요일(생산 안 하는 요일). DayOfWeek 정수(0=일 … 6=토). 비어 있음 = 매일 생산. OEE 가용성 분모서 제외(TEEP 미영향).
-    IReadOnlyList<int> ExcludedWeekdays);
+    int CtMultiplier);
 
 /// <summary>
 /// 자동 비생산 시간대 windows. 14일 평균 패턴(auto-pattern, DaysAnalyzed=14) 또는 이번 기간 실제 제외분(actual, DaysAnalyzed=0).
@@ -331,8 +330,9 @@ public sealed record OeeDowntimeDto(
     long? SourceLogId,
     string? Note,
     string Status,                    // "open" | "recovered"
-    string? ClassifySource = null,    // 분류 출처: manual / auto-bit / auto-heuristic / null(미분류)
-    OeeDowntimeClue? Clue = null);    // abnormal/usertag 시간겹침 단서(표시 전용 — 건수·MTBF 미반영, doc/21 §4)
+    string? ClassifySource = null,    // 분류 출처: manual / auto-bit / auto-heuristic / auto-longstop / null(미분류)
+    OeeDowntimeClue? Clue = null,     // abnormal/usertag 시간겹침 단서(표시 전용 — 건수·MTBF 미반영, doc/21 §4)
+    bool IsNonProd = false);          // 구분=비생산(A 분모 밖). 수동(reasonCode='non_production') 또는 당일 자동(10×CT) 판정
 
 /// <summary>
 /// 정지 구간에 시간이 겹친 abnormal/usertag 점 이벤트 단서 (읽기전용 표시 — 정지 소스 아님).

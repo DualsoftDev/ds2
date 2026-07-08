@@ -57,14 +57,6 @@
 
                 <!-- 오른쪽: 설비(Flow) 필터 상태 + Excel 다운로드 (heatmap 과 동일한 .ds-topbar 우측 패턴) -->
                 <div class="ds-topbar-actions" style="justify-content:flex-end;" x-show="tab === 'oee'">
-                    <!-- 휴무 요일 요약 칩(읽기전용) — 왜 가용성 분모가 줄었는지 상단에서 즉시 이해. 클릭 시 설정으로 스크롤. -->
-                    <template x-if="ps.excludedWeekdays && ps.excludedWeekdays.length">
-                        <span class="chip" style="cursor:pointer; background:#334155; color:#fff; border-color:transparent;"
-                              @click="document.getElementById('planned-stops-section')?.scrollIntoView({behavior:'smooth', block:'center'})"
-                              title="휴무 요일은 OEE 가용성 분모에서 제외됩니다 (TEEP 미영향) — 클릭 시 설정으로 이동">
-                            <span class="material-icons" style="font-size:14px; vertical-align:-2px;">event_busy</span> 휴무 제외: <b x-text="xwLabel(ps.excludedWeekdays)"></b>
-                        </span>
-                    </template>
                     <template x-if="curFlow">
                         <span class="chip chip-info">설비: <b x-text="curFlow"></b></span>
                     </template>
@@ -242,7 +234,7 @@
                                 <span x-show="availComp.maintMs > 0">비가동 · 유지보수 <b x-text="durShort(availComp.maintMs)"></b> (<span x-text="availComp.maintPct + '%'"></span>)</span>
                                 <span x-show="!(availComp.maintMs > 0)"><span x-text="availComp.stopLabel"></span> <b x-text="durShort(availComp.stopMs)"></b> (<span x-text="availComp.stopPct + '%'"></span>)<template x-if="availComp.stopNote"><span x-text="' · ' + availComp.stopNote"></span></template></span>
                                 <span x-show="availComp.maintMs > 0 && availComp.stopNote">비가동 합계 <b x-text="durShort(availComp.stopMs)"></b> · <span x-text="availComp.stopNote"></span></span>
-                                <span x-show="availComp.mode === 'wallclock' && oee && oee.plannedDownMs > 0">비생산 시간 <b x-text="durShort(oee.plannedDownMs)"></b> <span class="up-codeish" x-text="(oee.plannedStopSource === 'manual' ? '수동 지정' : '14일 학습') + '·분모 밖'"></span></span>
+                                <span x-show="availComp.mode === 'wallclock' && oee && oee.plannedDownMs > 0">비생산 시간 <b x-text="durShort(oee.plannedDownMs)"></b> <span class="up-codeish" x-text="(oee.plannedStopSource === 'manual' ? '수동 지정' : '당일 자동 감지') + '·분모 밖'"></span></span>
                                 <span x-show="availComp.mode === 'wallclock'">가동시간 이상치 <b x-text="durShort(oee.ctThresholdMs)"></b> <span class="up-codeish">14일 평균</span></span>
                                 <span x-show="availComp.mode === 'fallback'">계획시간 기준 <span class="up-codeish" x-text="availComp.sourceLabel"></span></span>
                             </div>
@@ -264,7 +256,7 @@
 
                     <!-- 정지 고장/유지보수 도넛 — 합계가 상단 '기간 정지'와 일치 -->
                     <section class="card up-section">
-                        <div class="ds-card-h"><h4>정지 구성</h4><span class="ds-card-h-sub">고장 · 유지보수 비중 (지속시간 기준)</span></div>
+                        <div class="ds-card-h"><h4>정지 구성</h4><span class="ds-card-h-sub">고장 · 유지보수 · 비생산 비중 (지속시간 기준)</span></div>
                         <template x-if="faultDist.has">
                             <div class="up-dist">
                                 <svg class="up-donut" viewBox="0 0 100 100" x-html="faultDonutSvg"></svg>
@@ -288,7 +280,7 @@
                             </div>
                         </template>
                         <div style="font-size:0.62rem; color:var(--color-text-secondary); margin-top:10px;">
-                            기본 <b>고장</b> — 로그에서 체크 해제 시 유지보수로 변경(MTBF 고장 제외)
+                            기본 <b>고장</b> — 로그에서 체크 해제 시 유지보수로 변경(MTBF 고장 제외) · <b>비생산</b>은 A 분모 밖(로그에서 비가동↔비생산 보내기 가능)
                         </div>
                         <button class="btn btn-sm btn-outlined" style="margin-top:12px; width:100%; justify-content:center;" @click="showDowntimeLog = true">
                             <span class="material-icons" style="font-size:16px;">receipt_long</span>
@@ -334,7 +326,7 @@
                     <div class="up-blk-head">
                         <span class="material-icons">receipt_long</span>
                         <h3>정지 이벤트 로그</h3>
-                        <span class="ds-card-h-sub" style="margin-left:8px;">발생 → 복구 · 고장(기본) / 유지보수 체크 해제로 변경</span>
+                        <span class="ds-card-h-sub" style="margin-left:8px;">발생 → 복구 · 고장/유지보수/비생산 구분 — 자동 판정을 행별로 바꿀 수 있음</span>
                         <span style="flex:1;"></span>
                         <button class="btn-icon" @click="showDowntimeLog=false" title="닫기"><span class="material-icons">close</span></button>
                     </div>
@@ -351,6 +343,7 @@
                         <span class="up-chip" :class="dtFilterFault === 'all' ? 'is-on' : ''" @click="dtFilterFault='all'">전체</span>
                         <span class="up-chip" :class="dtFilterFault === 'fault' ? 'is-on' : ''" @click="dtFilterFault='fault'" style="border-color:var(--oee-fault); color:var(--oee-fault);" :style="dtFilterFault==='fault'?'background:var(--oee-fault);color:#fff;':''">고장</span>
                         <span class="up-chip" :class="dtFilterFault === 'maintenance' ? 'is-on' : ''" @click="dtFilterFault='maintenance'" style="border-color:var(--oee-maint); color:var(--oee-maint);" :style="dtFilterFault==='maintenance'?'background:var(--oee-maint);color:#fff;':''">유지보수</span>
+                        <span class="up-chip" :class="dtFilterFault === 'nonprod' ? 'is-on' : ''" @click="dtFilterFault='nonprod'" style="border-color:var(--nonprod); color:var(--nonprod);" :style="dtFilterFault==='nonprod'?'background:var(--nonprod);color:#fff;':''">비생산</span>
                         <span style="flex:1;"></span>
                         <span class="up-form-ok" x-show="dtMsg" x-text="dtMsg"></span>
                     </div>
@@ -366,7 +359,8 @@
                                         <th style="width:140px;">복구</th>
                                         <th style="width:80px;">지속</th>
                                         <th>설비(Flow)</th>
-                                        <th style="width:100px;">고장</th>
+                                        <th style="width:100px;">구분</th>
+                                        <th style="width:104px;">구분 변경</th>
                                         <th style="width:90px;">감지</th>
                                         <th style="width:150px;">겹친 신호 (단서)</th>
                                         <th style="width:84px;">상태</th>
@@ -381,16 +375,26 @@
                                             <td data-label="설비(Flow)"><strong x-text="d.flowName || d.systemName || '—'"></strong>
                                                 <template x-if="d.deviceName"><span class="up-rank-sub" x-text="' · ' + d.deviceName"></span></template>
                                             </td>
-                                            <td data-label="고장" style="white-space:nowrap;">
-                                                <template x-if="!isSyntheticDt(d)">
+                                            <td data-label="구분" style="white-space:nowrap;">
+                                                <template x-if="d.isNonProd">
+                                                    <span style="color:var(--nonprod);font-weight:700;" :title="'비생산 — 가용성(A) 분모 밖 · ' + (d.classifySource === 'manual' ? '사용자 확정' : '당일 자동 판정(장시간 정지)')">비생산</span>
+                                                </template>
+                                                <template x-if="!d.isNonProd && !isSyntheticDt(d)">
                                                     <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;" :title="d.isFailure ? '고장 — 클릭하면 유지보수로 변경' : '유지보수 — 클릭하면 고장으로 변경'">
                                                         <input type="checkbox" class="up-dt-cb" :checked="d.isFailure" @change="setFault(d, $event.target.checked)">
                                                         <span x-text="d.isFailure ? '고장' : '유지보수'" :style="d.isFailure ? 'color:var(--oee-fault);font-weight:700;' : 'color:var(--oee-maint);font-weight:700;'"></span>
                                                     </label>
                                                 </template>
-                                                <template x-if="isSyntheticDt(d)">
-                                                    <span x-text="'고장'" style="color:var(--oee-fault);font-weight:700;" title="가동시간 이상치를 초과한 사이클(계산 유래) — 로그 이벤트가 아니라 분류/마감 불가"></span>
+                                                <template x-if="!d.isNonProd && isSyntheticDt(d)">
+                                                    <span x-text="'고장'" style="color:var(--oee-fault);font-weight:700;" title="가동시간 이상치를 초과한 사이클(계산 유래) — 고장/유지보수 체크는 불가, 비생산 보내기는 가능"></span>
                                                 </template>
+                                            </td>
+                                            <td data-label="구분 변경" style="white-space:nowrap;">
+                                                <button class="btn btn-sm btn-outlined" style="padding:3px 8px; font-size:0.68rem;"
+                                                        :disabled="dtReclassBusy"
+                                                        :title="d.isNonProd ? '이 구간을 비가동(고장)으로 확정 — 가용성(A)이 다시 깎입니다' : '이 구간을 비생산으로 확정 — 가용성(A) 분모에서 빠집니다'"
+                                                        @click="reclassifyDt(d, !d.isNonProd)"
+                                                        x-text="d.isNonProd ? '→ 비가동' : '→ 비생산'"></button>
                                             </td>
                                             <td data-label="감지"><span x-html="detectChipHtml(d.detectSource)" :title="d.note || ''"></span></td>
                                             <td data-label="겹친 신호 (단서)" x-html="clueHtml(d.clue)"></td>
@@ -416,9 +420,10 @@
                         <span class="src-chip detect">무가동</span> 가동 끊김
                         <span class="src-chip detect">고장비트</span> PLC 비트 rising/falling
                         <span class="src-chip detect">수동</span> 작업자 등록
-                        <span class="src-chip detect">이상치초과</span> 사이클이 가동시간 이상치 초과(계산 유래·분류 불가) &nbsp;—&nbsp; 이 네 소스가 정지 건수·길이(=도넛·바)를 이룹니다.<br>
-                        <b style="color:var(--color-text-primary);">고장/유지보수:</b>
-                        기본 <b>고장</b>으로 체크됨 — 체크 해제 시 <b>유지보수</b>(MTBF 고장 제외)로 변경됩니다. &nbsp;·&nbsp;
+                        <span class="src-chip detect">이상치초과</span> 사이클이 가동시간 이상치 초과(계산 유래) &nbsp;—&nbsp; 이 네 소스가 정지 건수·길이(=도넛·바)를 이룹니다.<br>
+                        <b style="color:var(--color-text-primary);">구분:</b>
+                        비가동은 기본 <b>고장</b> — 체크 해제 시 <b>유지보수</b>(MTBF 고장 제외). 평균 가동시간의 10배 이상 장시간 정지는 당일 자동으로 <b style="color:var(--nonprod);">비생산</b>(가용성 A 분모 밖, 건수·MTBF 미반영) 처리되며,
+                        [→ 비생산]/[→ 비가동] 버튼으로 자동 판정을 행별로 확정·변경할 수 있습니다(확정은 자동보다 우선). &nbsp;·&nbsp;
                         <b style="color:var(--color-text-primary);">단서:</b>
                         <span class="clue-chip abn"><span class="material-icons">troubleshoot</span>abnormal</span>
                         <span class="clue-chip ut"><span class="material-icons">troubleshoot</span>수동등록TAG</span>
@@ -455,33 +460,8 @@
                                 x-text="ps.pendingManual ? '자동으로 되돌리기' : (ps.auto ? '수동 설정하기' : '자동 전환하기')"></button>
                     </div>
 
-                    <!-- ════ 생산 요일 (휴무일 제외) — 비생산 시간대의 '일(day) 단위' 형제. 체크=생산일, 해제=휴무.
-                         휴무 요일의 하루 전체는 OEE 가용성(A) 분모에서 제외(쉬는 날 정지가 가동률을 깎지 않게).
-                         자동/수동 비생산 토글과 독립적으로 항상 적용. TEEP(생산효율)는 표준 정의라 미영향. ════ -->
-                    <div style="display:flex; align-items:center; flex-wrap:wrap; gap:10px; padding:11px 13px; margin-bottom:12px; border:1px solid var(--color-border); border-radius:8px;">
-                        <div style="display:flex; flex-direction:column; gap:1px;">
-                            <span style="font-weight:600; font-size:0.82rem;">생산 요일</span>
-                            
-                        </div>
-                        <div style="display:flex; gap:5px; flex-wrap:wrap;">
-                            <template x-for="wd in xwDays" :key="wd.d">
-                                <button type="button" @click="xwToggle(wd.d)"
-                                        :title="!ps.xwDraft.includes(wd.d) ? (wd.full + ' — 생산일 (클릭 시 휴무 처리)') : (wd.full + ' — 휴무 · OEE 가용성 분모서 제외 (클릭 시 생산일로)')"
-                                        :style="!ps.xwDraft.includes(wd.d)
-                                            ? 'min-width:34px;padding:5px 9px;border-radius:7px;border:1px solid transparent;background:var(--color-primary);color:#fff;font-weight:600;cursor:pointer;font-size:0.8rem;'
-                                            : 'min-width:34px;padding:5px 9px;border-radius:7px;border:1px solid var(--color-border);background:transparent;color:var(--color-text-secondary);cursor:pointer;font-size:0.8rem;text-decoration:line-through;'"
-                                        x-text="wd.l"></button>
-                            </template>
-                        </div>
-                        <span style="flex:1;"></span>
-                        <span style="font-size:0.72rem;"
-                              :style="ps.xwMsg ? 'color:var(--color-primary);' : 'color:var(--color-text-secondary);'"
-                              x-text="ps.xwMsg ? ps.xwMsg : (ps.xwDraft.length === 0 ? '매일 생산 (제외 없음)' : ('휴무 제외: ' + xwLabel(ps.xwDraft)))"></span>
-                        <button class="btn btn-sm" :class="xwDirty() ? 'btn-primary' : ''"
-                                :disabled="ps.xwBusy || !xwDirty()"
-                                @click="saveExcludedWeekdays()"
-                                x-text="ps.xwBusy ? '저장 중…' : (xwDirty() ? '저장 *' : '저장')"></button>
-                    </div>
+                    <!-- (구 '생산 요일' UI 는 2026-07-08 당일 비생산 판정 모델로 제거 — 쉬는 날은 사이클이 없어
+                         10×가동시간 장시간 정지 규칙이 자동으로 비생산 처리한다.) -->
 
                     <!-- 자동 계산 ON: 읽기 전용 타임라인 (설명문은 타임라인 아래 캡션으로 이동. 수동 편집 미저장 상태에선 숨김) -->
                     <div x-show="ps.auto && !ps.pendingManual" x-cloak>

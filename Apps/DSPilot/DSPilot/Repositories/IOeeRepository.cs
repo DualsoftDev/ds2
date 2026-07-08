@@ -119,6 +119,21 @@ public interface IOeeRepository
     Task<IReadOnlyList<(double S, double E)>> GetNonProdIntervalsFromLogAsync(
         DateTime fromUtc, DateTime toUtc, string? flowName, CancellationToken ct = default);
 
+    /// <summary>
+    /// [fromUtc, toUtc] 와 겹치는 자동 비생산 감지 로그 행 삭제 — 사용자가 그 구간을 '비가동으로 보내기' 확정했을 때
+    /// stale 감지가 actual/추이 표시에 되살아나지 않게 청소한다(2026-07-08). 삭제 행 수 반환.
+    /// </summary>
+    Task<int> DeleteNonProdDetectionsOverlappingAsync(
+        DateTime fromUtc, DateTime toUtc, CancellationToken ct = default);
+
+    /// <summary>
+    /// 기간과 겹치는 <b>수동 분류</b>(classifySource='manual') 정지 이벤트 구간(UTC epoch ms) — 당일 비생산 판정의
+    /// 사용자 오버라이드 소스(2026-07-08). ToNonProd=true(reasonCode='non_production') → 그 구간을 비생산으로 강제,
+    /// false(고장/유지보수 등) → 자동 10×CT 승격을 억제(비가동 유지). open(endAt NULL)은 min(now,to) 캡.
+    /// </summary>
+    Task<IReadOnlyList<(string? FlowName, double S, double E, bool ToNonProd)>> GetManualReclassIntervalsAsync(
+        DateTime fromUtc, DateTime toUtc, CancellationToken ct = default);
+
     Task<long> InsertShiftExceptionAsync(OeeShiftException row, CancellationToken ct = default);
     Task<IReadOnlyList<OeeShiftException>> QueryShiftExceptionsAsync(
         DateTime fromUtc, DateTime toUtc, string? flowName, CancellationToken ct = default);

@@ -207,7 +207,7 @@ public static class OeeExcelExporter
             ws.Cell(row, 3).Value = FormatMs(d.DurationMs);
             ws.Cell(row, 4).Value = d.FlowName ?? "-";
             ws.Cell(row, 5).Value = d.DeviceName ?? "-";
-            ws.Cell(row, 6).Value = d.IsFailure ? "고장" : "유지보수";
+            ws.Cell(row, 6).Value = d.IsNonProd ? "비생산" : (d.IsFailure ? "고장" : "유지보수");
             ws.Cell(row, 7).Value = DetectLabel(d.DetectSource);
             ws.Cell(row, 8).Value = d.Status == "open" ? "진행중" : "복구";
             row++;
@@ -349,7 +349,7 @@ public sealed record OeeRankRowDto(
     double DowntimeMs,
     int? TotalCount);
 
-/// <summary>정지 이벤트 로그 한 행. 시각=로컬 ISO 문자열, DurationMs=ms.</summary>
+/// <summary>정지 이벤트 로그 한 행. 시각=로컬 ISO 문자열, DurationMs=ms. IsNonProd=구분 '비생산'(A 분모 밖).</summary>
 public sealed record OeeDowntimeRowDto(
     string? StartAt,
     string? EndAt,
@@ -358,4 +358,5 @@ public sealed record OeeDowntimeRowDto(
     string? DeviceName,
     bool IsFailure,
     string? DetectSource,
-    string? Status);
+    string? Status,
+    bool IsNonProd = false);

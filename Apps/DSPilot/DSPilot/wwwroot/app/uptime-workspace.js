@@ -1,6 +1,7 @@
-        // 정지 2-상태: 고장(isFault=true) / 유지보수(isFault=false). isFailure 필드에 대응.
+        // 정지 구분: 고장(isFailure=true) / 유지보수(isFailure=false) / 비생산(isNonProd=true, A 분모 밖).
         const FAULT_DEF = { label: '고장', color: 'var(--oee-fault)', cls: 'hatch-fault', pat: 'up-pat-fault' };
         const MAINT_DEF = { label: '유지보수', color: 'var(--oee-maint)', cls: 'hatch-maint', pat: 'up-pat-maint' };
+        const NONPROD_DEF = { label: '비생산', color: 'var(--nonprod)', cls: 'hatch-nonprod', pat: 'up-pat-nonprod' };
 
         // 일자별 차트 인스턴스 — Alpine 반응형 밖에 보관(Proxy 크래시 방지)
         let _dailyChart = null;
@@ -112,8 +113,9 @@
                 oeeExporting: false,   // OEE Excel 내보내기 진행 중
                 planTime: null, // /api/oee/plan-time — 계획시간 폴백 체인 + 14일 히스토그램
                 downtime: [], ranking: [],
-                dtFilterStatus: 'all', dtFilterFault: 'all', // 'all'|'fault'|'maintenance'
+                dtFilterStatus: 'all', dtFilterFault: 'all', // 'all'|'fault'|'maintenance'|'nonprod'
                 dtMsg: '', _dtMsgTimer: null, _prodMsgTimer: null, _ctMsgTimer: null,
+                dtReclassBusy: false, // 비생산↔비가동 보내기 진행 중(이중 클릭 가드)
                 // 일괄 선택 상태
                 selectedIds: {}, bulkBusy: false,
                 // 일자 기본값은 로컬 날짜 — toISOString() 은 UTC 라 KST 오전 9시 전엔 어제로 채워짐
@@ -122,13 +124,11 @@
                 // 오버레이 닫힘 가드 — mousedown 이 오버레이(백드롭)에서 시작했을 때만 닫는다(모달 안에서 시작→백드롭 release 드래그로 오닫힘 방지).
                 _qDown: false,
                 _dtDown: false, // 정지 이벤트 로그 다이얼로그 백드롭 닫힘 가드
-                // 비생산 시간대 (doc/22 §3.3) — auto: 자동 계산(10×가동시간 장시간정지) on/off. source: auto/manual/none. ctMultiplier: 자동판정 배수(10).
+                // 비생산 시간대 (doc/22 §3.3) — auto: 당일 자동 판정(10×가동시간 장시간정지) on/off. source: auto/manual/none. ctMultiplier: 자동판정 배수(10).
                 // windows=수동 편집용 사본. selected=선택된 윈도 index(-1=미선택). addMode=드래그 추가 무장.
                 // actualNonProd=이번 기간 실제 제외된 비생산(추이 남색과 동일 소스, 자동 모드 타임라인의 유일한 소스이자 수동 전환 시 시드).
-                // excludedWeekdays=서버 truth(휴무 요일, DayOfWeek 정수 0=일…6=토). xwDraft=체크박스 편집 사본. 저장 전엔 dirty.
-                ps: { source: 'none', auto: true, ctMultiplier: 10, windows: [], selected: -1, addMode: false, msg: '', err: '', busy: false, actualNonProd: null, seededFromAuto: false, learned: null, dirty: false, pendingManual: false, excludedWeekdays: [], xwDraft: [], xwBusy: false, xwMsg: '' },
-                // 생산 요일 UI(월~일 표기, d=DayOfWeek 정수). 체크=생산일, 해제=휴무(OEE 가용성 분모서 제외).
-                xwDays: [{ l: '월', d: 1, full: '월요일' }, { l: '화', d: 2, full: '화요일' }, { l: '수', d: 3, full: '수요일' }, { l: '목', d: 4, full: '목요일' }, { l: '금', d: 5, full: '금요일' }, { l: '토', d: 6, full: '토요일' }, { l: '일', d: 0, full: '일요일' }],
+                // (구 excludedWeekdays/xw*[생산 요일] 는 2026-07-08 당일 판정 모델로 제거 — 쉬는 날은 10×CT 규칙이 흡수.)
+                ps: { source: 'none', auto: true, ctMultiplier: 10, windows: [], selected: -1, addMode: false, msg: '', err: '', busy: false, actualNonProd: null, seededFromAuto: false, learned: null, dirty: false, pendingManual: false },
                 _psDrag: null, // 진행 중 드래그 상태 { mode:'create'|'resize-l'|'resize-r', index, anchor } (비반응형)
                 // 정지 이벤트 로그 토글 — 기본 숨김, 정지 원인 구성(도넛)의 [로그 보기 및 설정] 버튼으로 토글
                 showDowntimeLog: false,
@@ -220,7 +220,7 @@
                     }
                     // 더티 가드 등록 — 비생산 시간대 수동 편집(ps.dirty) 중 이탈 방지(OEE 페이지만)
                     if (this.view !== 'alarm') {
-                        window.dspDirtyRegister(() => ((!this.ps.auto || this.ps.pendingManual) && this.ps.dirty) || this.xwDirty());
+                        window.dspDirtyRegister(() => (!this.ps.auto || this.ps.pendingManual) && this.ps.dirty);
                     }
                 },
 
@@ -325,9 +325,6 @@
                         this.ps.ctMultiplier = r.ctMultiplier || 10;
                         this.ps.windows = (r.windows || []).map(w => ({ startMinutes: w.startMinutes, endMinutes: w.endMinutes, label: w.label || '' }));
                         this.ps.selected = -1; this.ps.addMode = false; this.ps.seededFromAuto = false; this.ps.dirty = false; this.ps.pendingManual = false;
-                        // 휴무 요일 — 서버 truth + 편집 draft 동기화(편집 미저장 상태가 아니면 draft 를 서버값으로 재설정).
-                        this.ps.excludedWeekdays = (r.excludedWeekdays || []).slice().sort((a, b) => a - b);
-                        this.ps.xwDraft = this.ps.excludedWeekdays.slice();
                     } catch (e) { this.ps.err = '비생산 시간대를 불러오지 못했습니다: ' + e.message; }
                     // 자동 모드일 때: ① 이번 기간 실제 제외 비생산(타임라인 메인 소스) ② 학습 창(§3.5 투표제,
                     // 참고·미적용 — Phase 1 섀도 검증용 점선 윤곽). 비생산 시간대는 시스템(전역) 단위 —
@@ -412,41 +409,7 @@
                     } catch (e) { this.ps.err = '변경 실패: ' + e.message; }
                     finally { this.ps.busy = false; setTimeout(() => { this.ps.msg = ''; }, 8000); }
                 },
-                // ── 생산 요일(휴무일 제외) ──────────────────────────────────────────
-                // 체크박스 = 생산일. 해제 = 휴무 → xwDraft(제외 요일)에 담김. 저장 시 서버 반영 + OEE 재조회.
-                xwToggle(d) {
-                    const i = this.ps.xwDraft.indexOf(d);
-                    if (i >= 0) this.ps.xwDraft.splice(i, 1);   // 다시 생산일로
-                    else this.ps.xwDraft.push(d);               // 휴무로 제외
-                    this.ps.xwDraft.sort((a, b) => a - b);
-                },
-                // draft ≠ 서버값이면 dirty(정렬 비교). 이탈 가드·저장 버튼 상태 소스.
-                xwDirty() {
-                    const a = this.ps.xwDraft, b = this.ps.excludedWeekdays;
-                    if (a.length !== b.length) return true;
-                    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return true;
-                    return false;
-                },
-                // 정수 요일 목록 → '토·일' 라벨(월~일 순 정렬).
-                xwLabel(days) {
-                    const order = { 1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 0: 6 };
-                    const map = { 0: '일', 1: '월', 2: '화', 3: '수', 4: '목', 5: '금', 6: '토' };
-                    return (days || []).slice().sort((x, y) => order[x] - order[y]).map(d => map[d]).join('·');
-                },
-                async saveExcludedWeekdays() {
-                    if (!this.xwDirty() || this.ps.xwBusy) return;
-                    this.ps.xwBusy = true; this.ps.err = ''; this.ps.xwMsg = '';
-                    try {
-                        const r = await this.apiPut('/api/oee/planned-stops/excluded-weekdays', { days: this.ps.xwDraft });
-                        this.ps.excludedWeekdays = (r.excludedWeekdays || []).slice().sort((a, b) => a - b);
-                        this.ps.xwDraft = this.ps.excludedWeekdays.slice();
-                        this.ps.xwMsg = this.ps.excludedWeekdays.length === 0
-                            ? '매일 생산으로 저장 — 요일 제외 없음'
-                            : `휴무 요일 저장: ${this.xwLabel(this.ps.excludedWeekdays)} — OEE 가용성에서 제외`;
-                        await this.loadOee();   // 분모 재산출 반영
-                    } catch (e) { this.ps.err = '휴무 요일 저장 실패: ' + e.message; }
-                    finally { this.ps.xwBusy = false; setTimeout(() => { this.ps.xwMsg = ''; }, 8000); }
-                },
+                // (구 생산 요일(xw*) 함수들은 2026-07-08 당일 비생산 판정 모델로 제거.)
                 psSelect(i) { if (this.ps.addMode) return; this.ps.selected = i; this.ps.err = ''; },
                 psDeselect() { this.ps.selected = -1; },
                 // [시간 추가] 토글 — 무장 시 트랙 드래그로 새 시간대 생성. 다시 누르면 취소.
@@ -1171,7 +1134,7 @@
                             availComp: (ac && ac.hasData) ? { mode: ac.mode, runLabel: ac.runLabel, runMs: ac.runMs, runPct: ac.runPct, stopLabel: ac.stopLabel, stopMs: ac.stopMs, stopPct: ac.stopPct } : null,
                             faultSegs: this.faultDist.segs.map(s => ({ label: s.label, ms: s.ms, share: s.share })),
                             ranking: this.ranking.map(rk => ({ flowName: rk.flowName, oee: rk.oee, availability: rk.availability, performance: rk.performance, quality: rk.quality, downtimeCount: rk.downtimeCount, downtimeMs: rk.downtimeMs, totalCount: rk.totalCount })),
-                            downtime: this.downtime.map(d => ({ startAt: d.startAt, endAt: d.endAt, durationMs: d.durationMs, flowName: d.flowName || d.systemName, deviceName: d.deviceName, isFailure: !!d.isFailure, detectSource: d.detectSource, status: d.status })),
+                            downtime: this.downtime.map(d => ({ startAt: d.startAt, endAt: d.endAt, durationMs: d.durationMs, flowName: d.flowName || d.systemName, deviceName: d.deviceName, isFailure: !!d.isFailure, isNonProd: !!d.isNonProd, detectSource: d.detectSource, status: d.status })),
                             images,
                         };
                         const res = await fetch('/api/oee/export-excel', {
@@ -1248,7 +1211,9 @@
                         { label: '가동(근사)', data: runData, backgroundColor: cRun, stack: 's', order: 2 },
                         { label: '고장', data: failureData, backgroundColor: faultHatch, stack: 's', order: 2 },
                         { label: '유지보수', data: plannedData, backgroundColor: maintHatch, stack: 's', order: 2 },
-                        { label: '비생산(제외)', data: nonProdData, backgroundColor: nightHatch, stack: 's', order: 2, hidden: true },
+                        // 기본 표시(2026-07-08) — 당일 판정 모델에서 비생산이 정지 구성(도넛)에도 포함되므로 추이도 같이 보여
+                        //   숨김 빈칸("전부 파랑/빈칸" 혼선, 7/4 블랙아웃 신고 사례)을 재발시키지 않는다.
+                        { label: '비생산(제외)', data: nonProdData, backgroundColor: nightHatch, stack: 's', order: 2 },
                         {
                             label: `평균 ${avgRun.toFixed(1)}h`,
                             type: 'line',
@@ -1592,12 +1557,13 @@
                     return 'is-bad';
                 },
 
-                // ── 정지 필터 ──
+                // ── 정지 필터 ── 구분 = 고장/유지보수(비가동 하위) + 비생산(isNonProd, A 분모 밖).
                 get filteredDowntime() {
                     return this.downtime.filter(d => {
                         if (this.dtFilterStatus !== 'all' && d.status !== this.dtFilterStatus) return false;
-                        if (this.dtFilterFault === 'fault' && !d.isFailure) return false;
-                        if (this.dtFilterFault === 'maintenance' && d.isFailure) return false;
+                        if (this.dtFilterFault === 'fault' && (d.isNonProd || !d.isFailure)) return false;
+                        if (this.dtFilterFault === 'maintenance' && (d.isNonProd || d.isFailure)) return false;
+                        if (this.dtFilterFault === 'nonprod' && !d.isNonProd) return false;
                         return true;
                     });
                 },
@@ -1818,26 +1784,27 @@
                     } finally { this.bulkBusy = false; }
                 },
 
-                // 정지 구성 도넛 (고장/유지보수 2-상태) — 벽시계 단일모델(2026-07-06): 서버가 비가동(생산가능−가동)을
-                // 유지보수 이벤트 구간과 겹쳐 귀속(잔여=고장)한 값. 가용성 정산 분해·시간별 추이 정지부와 동일 소스라
-                // 세 뷰가 항상 일치한다. (구: this.downtime durationMs 다-flow 중첩 합산 → 하루 24h 초과 착시 폐기.)
+                // 정지 구성 도넛 (고장/유지보수/비생산) — 벽시계 단일모델(2026-07-06): 서버가 비가동(생산가능−가동)을
+                // 유지보수 이벤트 구간과 겹쳐 귀속(잔여=고장)한 값 + 비생산 벽시계(nonProdWallMs, A 분모 밖 — 2026-07-08
+                // 당일 판정 모델로 정지 구성에 포함). 가용성 정산 분해·시간별 추이 정지부와 동일 소스라 세 뷰가 항상 일치한다.
                 get faultDist() {
                     const o = this.oee || {};
                     const run = Math.max(0, o.runWallMs || 0), avail = Math.max(0, o.availableWallMs || 0);
                     const down = Math.max(0, avail - run);
                     const maintMs = Math.min(down, Math.max(0, o.downMaintWallMs || 0));
                     const faultMs = Math.max(0, down - maintMs);
+                    const nonProdMs = Math.max(0, o.nonProdWallMs || 0);
                     // 정지건수 = 벽시계 감지 정지 이벤트 수(요약 KPI failureCount = 가용성 정산 바의 'N건'과 동일 소스).
                     //   failureCount 는 이상치초과 사이클 + 무사이클 갭을 센다(this.downtime 로그 테이블엔 무사이클/고장비트만
                     //   적재돼 로그 0 이어도 실제 정지는 있을 수 있으므로 로그 행 수는 쓰지 않는다).
                     const count = Math.max(0, o.failureCount || 0);
-                    const totalMs = faultMs + maintMs;
-                    // 표시 게이트 = 감지된 정지 이벤트(failureCount) 유무. 이벤트 없이 남는 초 단위 벽시계 잔여(사이클 간
-                    //   미세 슬랙)는 노이즈로 보고 도넛을 비운다 — 추이/바는 가용성 정산상 이 잔여를 계속 표기(숫자 정합).
-                    if (totalMs <= 0 || count <= 0) return { count, has: false, segs: [] };
+                    const totalMs = faultMs + maintMs + nonProdMs;
+                    // 표시 게이트: 정지 이벤트(failureCount)나 비생산이 하나라도 있으면 표시. 이벤트·비생산 없이 남는
+                    //   초 단위 벽시계 잔여(사이클 간 미세 슬랙)는 노이즈로 보고 도넛을 비운다(추이/바는 계속 표기).
+                    if (totalMs <= 0 || (count <= 0 && nonProdMs <= 0)) return { count, has: false, segs: [] };
                     const C = 2 * Math.PI * 38;
                     const segs = [];
-                    const defs = [{ def: FAULT_DEF, ms: faultMs }, { def: MAINT_DEF, ms: maintMs }].filter(x => x.ms > 0);
+                    const defs = [{ def: FAULT_DEF, ms: faultMs }, { def: MAINT_DEF, ms: maintMs }, { def: NONPROD_DEF, ms: nonProdMs }].filter(x => x.ms > 0);
                     let prior = 0;
                     for (const { def, ms } of defs) {
                         const len = ms / totalMs * C, gap = C - len, offset = -(prior / totalMs * C);
@@ -1854,7 +1821,7 @@
                     const pat = (id, color) => `<pattern id="${id}" patternUnits="userSpaceOnUse" width="7" height="7">`
                         + `<rect width="7" height="7" fill="${color}"></rect>`
                         + `<path d="M0,7 L7,0 M-1.5,1.5 L1.5,-1.5 M5.5,8.5 L8.5,5.5" stroke="rgba(255,255,255,0.55)" stroke-width="1.3"></path></pattern>`;
-                    let s = `<defs>${pat('up-pat-fault', 'var(--oee-fault)')}${pat('up-pat-maint', 'var(--oee-maint)')}</defs>`;
+                    let s = `<defs>${pat('up-pat-fault', 'var(--oee-fault)')}${pat('up-pat-maint', 'var(--oee-maint)')}${pat('up-pat-nonprod', 'var(--nonprod)')}</defs>`;
                     s += '<circle class="up-donut-track" cx="50" cy="50" r="38" fill="none" stroke-width="14"></circle>';
                     for (const seg of d.segs)
                         s += `<circle cx="50" cy="50" r="38" fill="none" stroke="url(#${seg.pat})" stroke-width="14" stroke-dasharray="${seg.dash}" stroke-dashoffset="${seg.offset}" transform="rotate(-90 50 50)"></circle>`;
@@ -1905,7 +1872,7 @@
                     return s;
                 },
 
-                // ── 인터랙션: 고장/유지보수 토글 / 수동마감 / 불량 / 표준 가동시간 ──
+                // ── 인터랙션: 고장/유지보수 토글 / 비생산↔비가동 보내기 / 수동마감 / 불량 / 표준 가동시간 ──
                 async setFault(d, isFault) {
                     try {
                         await this.apiPost('/api/oee/downtime/' + d.id + '/set-fault', { isFault });
@@ -1914,6 +1881,24 @@
                     } catch (e) {
                         this.oeeError = '변경 실패: ' + e.message;
                     }
+                },
+                // 비생산↔비가동 보내기 — 당일 자동 판정을 행 단위로 사용자 확정(서버 classifySource='manual' 오버라이드).
+                // 합성 행(id<0, 계산 유래)은 flow/start/end 로 서버가 실제 이벤트 행을 만들어 확정한다.
+                async reclassifyDt(d, toNonProd) {
+                    this.dtReclassBusy = true;
+                    try {
+                        await this.apiPost('/api/oee/downtime/reclassify', {
+                            id: d.id > 0 ? d.id : null,
+                            flow: d.flowName || null,
+                            startAt: d.startAt || null,
+                            endAt: d.endAt || null,
+                            toNonProd,
+                        });
+                        await this.loadOee();
+                        this.flashDtMsg(`${d.flowName || d.systemName || ''} → ${toNonProd ? '비생산 (A 분모 밖)' : '비가동 (고장)'}`);
+                    } catch (e) {
+                        this.oeeError = '구분 변경 실패: ' + e.message;
+                    } finally { this.dtReclassBusy = false; }
                 },
                 async closeEvent(d) {
                     if (!confirm(`'${d.flowName || d.systemName || '이 이벤트'}' 정지를 마감 처리할까요?\n마감 후에는 화면에서 되돌릴 수 없습니다.`)) return;
