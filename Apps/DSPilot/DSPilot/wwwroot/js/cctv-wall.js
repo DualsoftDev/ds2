@@ -46,7 +46,9 @@
                 cctvAbnNames: new Set(),          // 최근 이상 flowName Set
                 cctvAbnDetect: false,             // 이상탐지 버튼(헤더 토글) — ON 이면 서버 메모리 센서에러를 오버레이에 표시
                 cctvSensorByCall: {},             // callId -> 센서에러(마지막 발생) — /api/dashboard/sensor-errors
+                cctvSensorList: [],               // 센서에러 전체 목록 — flow 바인딩 오버레이 툴팁(그 flow 의 에러들) 용
                 cctvSensorFlowNames: new Set(),   // 센서에러 보유 flowName Set (flow 바인딩 오버레이 강조용)
+                cctvSensorCount: 0,               // 미해결 센서에러 총 건수 — 버튼 배지(토글 OFF 여도 표시)
                 cctvTileRects: {},                // camId -> letterbox displayRect
                 cctvOverlaySize: OVL_SZ_DEFAULT,
                 cctvHover: null,                  // { id, camId, kind, color, pos, model }
@@ -139,8 +141,9 @@
                         // active-alarms: Flow 카드·알람 배너와 동일 소스(_active). 재가동(Going) 시 자동 해제 동일 적용.
                         // (Sensor* 는 2026-07 부터 메모리 전용 → 이 피드엔 Action*/usertag 만 남음.)
                         this.apiGet('/api/dashboard/active-alarms?limit=20').catch(() => []),
-                        // 센서에러(단선/오감지): 서버 메모리 전용, 디바이스당 마지막 발생 1건. 이상탐지 버튼 ON 일 때만 조회.
-                        this.cctvAbnDetect ? this.apiGet('/api/dashboard/sensor-errors?limit=100').catch(() => []) : Promise.resolve([])
+                        // 센서에러(단선/오감지): 서버 메모리 전용, 디바이스당 마지막 발생 1건.
+                        // 항상 조회 — 버튼 배지(미해결 건수)는 토글 OFF 여도 보여야 한다. 오버레이 표시만 토글 게이트.
+                        this.apiGet('/api/dashboard/sensor-errors?limit=100').catch(() => [])
                     ]);
                     const map = {};
                     for (const s of (list || [])) map[s.id] = {
@@ -155,7 +158,9 @@
                     const byCall = {};
                     for (const e of sensors) if (e.callId) byCall[e.callId] = e;
                     this.cctvSensorByCall = byCall;
+                    this.cctvSensorList = sensors;
                     this.cctvSensorFlowNames = new Set(sensors.map(e => e.flowName).filter(Boolean));
+                    this.cctvSensorCount = sensors.length;
                     this.cctvRenderTick++;
                     if (this.cctvHover) this.cctvHover = { ...this.cctvHover, model: this.cctvTooltipModel(this.cctvHover.id), color: this.cctvColorOf(this.cctvStateOf(this.cctvHover.id)) };
                 } catch (e) { console.error(e); }
@@ -212,17 +217,13 @@
                 this.$nextTick(() => this.cctvRecalcRects());
             },
             // 이상탐지 토글(헤더 버튼, 라이브·이미지 모드 공통). ON = 서버 메모리 센서에러(단선/오감지)를
-            // 오버레이에 빨강 표시. OFF = 미조회·미표시. 상태는 이미지 모드와 동일하게 localStorage 영속.
+            // 오버레이에 빨강 표시. 조회는 항상(배지용) — 토글은 오버레이 표시 여부만 바꾼다.
+            // 상태는 이미지 모드와 동일하게 localStorage 영속.
             cctvToggleAbnDetect() {
                 this.cctvAbnDetect = !this.cctvAbnDetect;
                 try { localStorage.setItem('dsp.dash.cctvAbnDetect', this.cctvAbnDetect ? '1' : '0'); } catch (e) {}
-                if (!this.cctvAbnDetect) {
-                    this.cctvSensorByCall = {};
-                    this.cctvSensorFlowNames = new Set();
-                    this.cctvRenderTick++;
-                } else {
-                    this.cctvLoadStates();   // 즉시 1회 조회 — 이후는 3초 폴링이 유지
-                }
+                this.cctvRenderTick++;       // 이미 로드된 데이터로 즉시 재렌더
+                this.cctvLoadStates();       // + 최신화 1회(이후는 3초 폴링)
             },
             // 단독 보기 ⇄ 분할 전환 시 스트림 게이팅. 분할이면 전 타일 즉시 재개, 단독이면 보이는 한 대만
             // 두고 나머지는 SOLO_PAUSE_DELAY_MS 뒤 일시정지(끊김 = MediaMTX sourceOnDemand 가 10초 뒤
@@ -377,19 +378,23 @@
             },
 
             // ════════ 박스 파생 (정규화→px) ════════
-            // 이상탐지 ON 일 때 이 오버레이에 해당하는 센서에러(단선/오감지). Call 바인딩=callId 정확 매칭,
-            // Flow 바인딩=그 flow 에 센서에러 보유 디바이스가 있으면 강조(기존 flow 단위 표시 관례 유지).
-            cctvSensorErrOf(o) {
-                if (!this.cctvAbnDetect) return null;
-                if (o.callId && this.cctvSensorByCall[o.callId]) return this.cctvSensorByCall[o.callId];
-                if (!o.callId && this.cctvSensorFlowNames.has(o.flowName || '')) return { flowOnly: true };
-                return null;
+            // 이상탐지 ON 일 때 이 오버레이에 해당하는 센서에러(단선/오감지) 목록.
+            // Call 바인딩=callId 정확 매칭(0~1건), Flow 바인딩=그 flow 의 에러 전부(디바이스별 마지막 발생)
+            // — 빨간 오버레이 호버 시 "어떤 에러였는지"를 그대로 보여준다.
+            cctvSensorErrsOf(o) {
+                if (!this.cctvAbnDetect) return [];
+                if (o.callId) {
+                    const e = this.cctvSensorByCall[o.callId];
+                    return e ? [e] : [];
+                }
+                const fn = o.flowName || '';
+                return fn ? this.cctvSensorList.filter(e => (e.flowName || '') === fn) : [];
             },
             cctvBoxFrom(o, r) {
                 const left = r.left + o.x * r.width, top = r.top + o.y * r.height;
                 const width = o.w * r.width, height = o.h * r.height;
                 const st = this.cctvStateOf(o.id);
-                const isAbnormal = this.cctvAbnNames.has(o.flowName || '') || !!this.cctvSensorErrOf(o);
+                const isAbnormal = this.cctvAbnNames.has(o.flowName || '') || this.cctvSensorErrsOf(o).length > 0;
                 return {
                     id: o.id, label: this.cctvLabelText(o), kind: o.callId ? 'Call' : 'Flow',
                     color: isAbnormal ? 'var(--red)' : this.cctvColorOf(st),
@@ -414,13 +419,15 @@
                 if (o.flowId) { const f = this.cctvFlows.find(x => x.flowId === o.flowId); if (f) systemName = f.systemName || ''; }
                 let workName = s.workName || '';
                 if (!workName && o.callId) { const c = this.cctvCalls.find(x => x.callId === o.callId); if (c) workName = c.workName || ''; }
-                // 이상탐지 ON: 이 디바이스(Call 매칭)의 센서에러 상세. flow 단위 강조(flowOnly)는 상세 없음.
-                const se = this.cctvSensorErrOf(o);
-                const sensorError = (se && !se.flowOnly)
-                    ? { label: se.label || se.kindName || '', sensorTag: se.sensorTag || '', occurredAt: se.occurredAtLocal || '' }
-                    : null;
+                // 이상탐지 ON: 이 오버레이의 센서에러 상세 목록 — Call=그 디바이스 1건, Flow=그 flow 의 에러 전부.
+                const sensorErrors = this.cctvSensorErrsOf(o).map(e => ({
+                    label: e.label || e.kindName || '',
+                    device: e.callName || '',
+                    sensorTag: e.sensorTag || '',
+                    occurredAt: e.occurredAtLocal || ''
+                }));
                 return {
-                    sensorError,
+                    sensorErrors,
                     title: this.cctvLabelText(o),
                     flowName: o.flowName || '',
                     systemName,

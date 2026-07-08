@@ -30,15 +30,13 @@ public class OeePlannedStopsController : OeeControllerBase
         : base(repo, settings, project, pathResolver, ctStats, shiftInfer, commHealth, nonProdPattern, logger) { }
 
     // ── GET /api/oee/planned-stops ────────────────────────────────────────
+    // 병행 모델(2026-07-08): 당일 자동 판정 상시 + Windows(수동 지정)는 추가 확정 비생산. Source=auto|both.
     [HttpGet("planned-stops")]
     public ActionResult<PlannedStopsDto> GetPlannedStops()
     {
-        var oee = _settings.LoadSettings().OeeManual;
-        var auto = oee.PlannedStopsAutoEffective;
-        var manual = oee.PlannedStops ?? new List<PlannedStopWindow>();
+        var manual = _settings.LoadSettings().OeeManual.PlannedStops ?? new List<PlannedStopWindow>();
         var windows = manual.Select(w => new PlannedStopWindowDto(w.StartMinutes, w.EndMinutes, w.Label)).ToList();
-        var source = auto ? "auto" : (windows.Count > 0 ? "manual" : "none");
-        return new PlannedStopsDto(source, windows, auto, (int)OeeMath.NonProductionCtMultiplier);
+        return new PlannedStopsDto(windows.Count > 0 ? "both" : "auto", windows, (int)OeeMath.NonProductionCtMultiplier);
     }
 
     // ── GET /api/oee/planned-stops/auto-pattern ───────────────────────────
@@ -54,10 +52,7 @@ public class OeePlannedStopsController : OeeControllerBase
     }
 
     // ── GET /api/oee/planned-stops/actual?from&to&flow[&detected] ────────
-    // detected=true : 자동/수동 설정과 무관하게 그 범위의 "실측" 비생산 패턴을 드러낸다(생산효율 날짜별 패턴 카드용).
-    //   수동 모드면 ResolvePlannedWindows 가 applyLongStop=false 를 줘서 10×CT 자동 감지가 꺼지고, 카드가
-    //   "수동 지정 그대로"만 보이는 문제가 있다. detected 면 감지를 강제로 켠다(수동 시간대는 union 으로 함께
-    //   유지 — 정보 손실 없음). 자동 모드에선 이미 applyLongStop=true 라 무영향(no-op).
+    // 병행 모델(2026-07-08)에선 applyLongStop 이 항상 true 라 detected 파라미터는 no-op(하위호환 유지).
     [HttpGet("planned-stops/actual")]
     public async Task<ActionResult<PlannedAutoPatternDto>> GetActualNonProduction(
         [FromQuery] DateTime? from, [FromQuery] DateTime? to, [FromQuery] string? flow,
@@ -143,17 +138,8 @@ public class OeePlannedStopsController : OeeControllerBase
     // (구 PUT planned-stops/excluded-weekdays[생산 요일] 은 2026-07-08 당일 비생산 판정 모델로 제거 —
     //  쉬는 날은 사이클이 없어 10×CT 규칙이 자동으로 비생산 처리한다.)
 
-    // ── POST /api/oee/planned-stops/auto ──────────────────────────────────
-    [HttpPost("planned-stops/auto")]
-    public async Task<ActionResult<PlannedStopsDto>> SetPlannedStopsAuto(
-        [FromBody] PlannedStopsAutoRequest? req, CancellationToken ct)
-    {
-        var enabled = req?.Enabled ?? true;
-        _settings.SavePlannedStopsAuto(enabled);
-        if (enabled)
-            await _nonProdPattern.GetOrComputeAsync(null, await ResolveCtThresholdsAsync(), forceRefresh: true, ct);
-        return GetPlannedStops();
-    }
+    // (구 POST planned-stops/auto[자동/수동 배타 토글] 은 2026-07-08 병행 모델로 제거 — 자동 판정 상시,
+    //  지정 시간대는 PUT planned-stops 로 추가/삭제만 한다.)
 
     // ── GET /api/oee/shift-exception?from&to&flow ─────────────────────────
     [HttpGet("shift-exception")]

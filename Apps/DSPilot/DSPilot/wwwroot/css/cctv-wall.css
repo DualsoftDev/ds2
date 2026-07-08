@@ -158,6 +158,16 @@
 .cctv-wall-embed .cctv-ovl-tip .tip-rows .tv.mono { font-family: var(--font-mono); }
 /* 툴팁은 .cctv-ovl-tip 자체가 fixed 라 .cctv-wall-embed 스코프 밖에서도 토큰이 필요 → 색은 인라인(--ovl-color)·--color-error(전역) 사용 */
 
+/* ── 툴팁 센서에러 블록(이상보기 ON) — 툴팁 배경이 반투명+블러라 tk/tv 행으론 영상 위에서 안 읽힘
+      → 불투명 진빨강 밴드 + 밝은 텍스트 전용 블록. 여러 건이면 세로 스택. ── */
+.cctv-wall-embed .cctv-ovl-tip .tip-sensor { border-top: 1px solid rgba(255, 255, 255, 0.18); padding: 8px 10px 9px; display: flex; flex-direction: column; gap: 8px; background: rgba(146, 24, 24, 0.92); }
+.cctv-wall-embed .cctv-ovl-tip .tip-sensor .ts-item { display: flex; flex-direction: column; gap: 2px; }
+.cctv-wall-embed .cctv-ovl-tip .tip-sensor .ts-item + .ts-item { border-top: 1px dashed rgba(255, 255, 255, 0.25); padding-top: 7px; }
+.cctv-wall-embed .cctv-ovl-tip .tip-sensor .ts-head { display: flex; align-items: center; gap: 6px; font-size: 0.7rem; font-weight: 800; color: #fff; }
+.cctv-wall-embed .cctv-ovl-tip .tip-sensor .ts-head .material-icons { font-size: 14px; color: #ffd54f; }
+.cctv-wall-embed .cctv-ovl-tip .tip-sensor .ts-tag { font-family: var(--font-mono); font-size: 0.64rem; font-weight: 700; color: #ffe0e0; word-break: break-all; }
+.cctv-wall-embed .cctv-ovl-tip .tip-sensor .ts-time { font-size: 0.6rem; color: rgba(255, 255, 255, 0.82); font-variant-numeric: tabular-nums; }
+
 /* ── 범례 ── */
 .cctv-wall-embed .cctv-legend { display: flex; align-items: center; gap: 8px 18px; flex-wrap: wrap; padding: 9px 12px; margin-top: 10px; border: 1px solid var(--color-lines); border-radius: var(--radius-md); background: var(--color-surface); font-size: 0.7rem; color: var(--color-text-secondary); flex-shrink: 0; }
 .cctv-wall-embed .cctv-legend .lg-cap { font-weight: 700; color: var(--color-text-primary); }

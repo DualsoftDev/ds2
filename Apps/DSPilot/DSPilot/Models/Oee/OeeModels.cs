@@ -277,14 +277,13 @@ public sealed record OeeSummaryDto(
 public sealed record PlannedStopWindowDto(int StartMinutes, int EndMinutes, string? Label);
 
 /// <summary>
-/// 비생산 시간대 설정 상태 — GET /api/oee/planned-stops 응답.
-/// Auto=true → 10×(14일 평균 CT) 장시간 무변화 정지 자동 비생산(Source="auto", Windows 미사용).
-/// Auto=false → 사용자 수동 시각대(Source="manual" Windows 권위, 또는 "none"). CtMultiplier = 자동판정 배수(10).
+/// 비생산 시간대 설정 상태 — GET /api/oee/planned-stops 응답 (병행 모델 2026-07-08).
+/// 당일 자동 판정(10×CT)은 항상 켜져 있고, Windows(수동 지정)는 추가로 "무조건 비생산" 확정 창.
+/// Source = "auto"(지정 없음) | "both"(자동+지정). CtMultiplier = 자동판정 배수(10).
 /// </summary>
 public sealed record PlannedStopsDto(
     string Source,
     IReadOnlyList<PlannedStopWindowDto> Windows,
-    bool Auto,
     int CtMultiplier);
 
 /// <summary>

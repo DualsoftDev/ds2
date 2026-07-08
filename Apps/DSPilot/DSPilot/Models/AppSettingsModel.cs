@@ -38,24 +38,12 @@ public class OeeManualSettings
     public double? QualityPercent { get; set; }
 
     /// <summary>
-    /// 사용자가 직접 설정한 <b>비생산 시간대</b>(반복 일일, 라인 전체). 이 시간대에 발생한 비가동(사이클 비가동·무사이클)은
-    /// 비생산으로 분류되어 가용성(A) 분모에서 제외된다(표준 OEE — 비생산은 가용성을 깎지 않음).
-    /// <see cref="PlannedStopsAuto"/> 가 꺼졌을(수동) 때만 적용된다.
+    /// 사용자가 <b>수동 지정</b>한 비생산 시간대(반복 일일, 라인 전체). 병행 모델(2026-07-08): 당일 자동 판정(10×CT)은
+    /// 항상 켜져 있고, 이 시간대는 <b>추가로 무조건 비생산</b>으로 자르는 보조 규칙 — 창 안은 가동/정지 불문 가용성(A)
+    /// 계산 밖(생산가능시간 아님 선언). 자동이 못 잡는 반복 짧은 휴게·느린 CT 설비의 점심 등을 확정 지정하는 용도.
+    /// (구 PlannedStopsAuto 자동/수동 배타 토글은 폐기 — 기존 Production.json 키는 ExtensionData 로 무해 보존.)
     /// </summary>
     public List<PlannedStopWindow> PlannedStops { get; set; } = [];
-
-    /// <summary>
-    /// 비생산 시간대 <b>자동 계산</b> on/off. true = 무변화 정지 길이 ≥ 10×(14일 평균 CT) 인 구간을 비생산으로 자동 분류
-    /// (시각대 윈도 없이 지속시간만으로 판정 — 고장신호·이상감지와 무관한 순수 CT 기반, doc/22 §3.3). false = 사용자가
-    /// 직접 그린 <see cref="PlannedStops"/> 시각대만 적용. <b>수동 적용(시간대 저장) 시 자동으로 false 로 내려가고</b>,
-    /// 사용자가 '자동 계산'을 다시 켜면 true 로 복귀한다.
-    /// null = 레거시(미설정) → <see cref="PlannedStops"/> 유무로 추론(있으면 수동=false, 없으면 자동=true) — 기존 설치 호환.
-    /// </summary>
-    public bool? PlannedStopsAuto { get; set; }
-
-    /// <summary>현재 비생산 자동계산이 켜져 있는지(레거시 null 은 시간대 유무로 추론). 단일 판정 소스.</summary>
-    [JsonIgnore]
-    public bool PlannedStopsAutoEffective => PlannedStopsAuto ?? (PlannedStops is not { Count: > 0 });
 
     /// <summary>자동 비생산 패턴 캐시 (자동 모드 전환 또는 24h 만료 시 갱신). null = 아직 미계산.</summary>
     public PlannedAutoPatternCache? AutoPatternCache { get; set; }

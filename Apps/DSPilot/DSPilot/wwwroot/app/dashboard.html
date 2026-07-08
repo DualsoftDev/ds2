@@ -649,13 +649,20 @@
                                     <span class="material-icons text-[14px]">image</span> 이미지
                                 </button>
                             </div>
-                            <!-- 이상탐지 토글 — ON 이면 서버 메모리 센서에러(단선/오감지)를 오버레이에 빨강 표시.
-                                 라이브·이미지 모드 공통. 센서에러는 DB 미기록(메모리 전용)이라 이 버튼으로만 확인. -->
-                            <button class="px-2 py-1 text-[10px] font-bold rounded transition-all flex items-center gap-1 border border-outline-variant"
+                            <!-- 이상보기 토글 — ON 이면 서버 메모리 센서에러(단선/오감지)를 오버레이에 빨강 표시하고,
+                                 우측 '가동시간 비교' 카드가 센서 이상 목록으로 전환된다. 라이브·이미지 모드 공통.
+                                 센서에러는 DB 미기록(메모리 전용)이라 이 버튼으로만 확인.
+                                 미해결 건수 배지는 토글 OFF 여도 표시(있는지 모르고 지나치는 것 방지). -->
+                            <button class="relative px-2 py-1 text-[10px] font-bold rounded transition-all flex items-center gap-1 border border-outline-variant"
                                     :class="cctvAbnDetect ? 'bg-error text-white shadow-sm' : 'bg-surface text-on-surface-variant hover:bg-surface-container-high'"
                                     @click="cctvToggleAbnDetect()"
-                                    title="이상탐지 — 센서 단선/오감지를 오버레이에 표시 (디바이스 재가동 시 자동 해제)">
-                                <span class="material-icons text-[14px]">sensors_off</span> 이상탐지
+                                    title="이상보기 — 센서 단선/오감지를 오버레이와 우측 목록에 표시 (디바이스 재가동 시 자동 해제)">
+                                <span class="material-icons text-[14px]">sensors_off</span> 이상보기
+                                <!-- 미해결 센서에러 건수 배지 -->
+                                <span x-show="cctvSensorCount > 0" x-cloak x-text="cctvSensorCount > 99 ? '99+' : cctvSensorCount"
+                                      style="position:absolute; top:-7px; right:-7px; min-width:16px; height:16px; padding:0 4px;
+                                             border-radius:8px; background:#d32f2f; color:#fff; font-size:9.5px; font-weight:800;
+                                             line-height:16px; text-align:center; box-shadow:0 1px 3px rgba(0,0,0,.35);"></span>
                             </button>
                             <!-- CCTV 설정 페이지로 이동 -->
                             <button class="p-1.5 hover:bg-surface-container-highest rounded transition-colors text-on-surface-variant flex items-center gap-1 text-[12px] font-bold"
@@ -807,12 +814,23 @@
                                                             <template x-if="cctvHover?.model?.movingStartName || cctvHover?.model?.movingEndName"><span class="tv" x-text="(cctvHover?.model?.movingStartName || '?') + ' → ' + (cctvHover?.model?.movingEndName || '?')"></span></template>
                                                             <template x-if="cctvHover?.model?.errorText"><span class="tk">이상</span></template>
                                                             <template x-if="cctvHover?.model?.errorText"><span class="tv is-error" x-text="cctvHover?.model?.errorText"></span></template>
-                                                            <!-- 이상탐지 ON: 메모리 센서에러(단선/오감지) 상세 — 종류 + 센서주소 + 발생시각 -->
-                                                            <template x-if="cctvHover?.model?.sensorError"><span class="tk">센서 이상</span></template>
-                                                            <template x-if="cctvHover?.model?.sensorError"><span class="tv is-error" x-text="cctvHover?.model?.sensorError?.label + (cctvHover?.model?.sensorError?.sensorTag ? ' · ' + cctvHover?.model?.sensorError?.sensorTag : '')"></span></template>
-                                                            <template x-if="cctvHover?.model?.sensorError?.occurredAt"><span class="tk">발생 시각</span></template>
-                                                            <template x-if="cctvHover?.model?.sensorError?.occurredAt"><span class="tv" x-text="cctvHover?.model?.sensorError?.occurredAt"></span></template>
                                                         </div>
+                                                        <!-- 이상보기 ON: 센서에러(단선/오감지) 상세 — 전용 블록(가시성: 빨강 배경 밴드 + 밝은 텍스트).
+                                                             Call=그 디바이스 1건, Flow=그 flow 의 에러 전부. -->
+                                                        <template x-if="(cctvHover?.model?.sensorErrors || []).length > 0">
+                                                            <div class="tip-sensor">
+                                                                <template x-for="se in cctvHover.model.sensorErrors" :key="se.device + se.occurredAt">
+                                                                    <div class="ts-item">
+                                                                        <div class="ts-head">
+                                                                            <span class="material-icons">sensors_off</span>
+                                                                            <span x-text="se.label + (se.device ? ' · ' + se.device : '')"></span>
+                                                                        </div>
+                                                                        <template x-if="se.sensorTag"><div class="ts-tag" x-text="'센서 ' + se.sensorTag"></div></template>
+                                                                        <div class="ts-time" x-text="se.occurredAt"></div>
+                                                                    </div>
+                                                                </template>
+                                                            </div>
+                                                        </template>
                                                     </div>
                                                 </template>
 
@@ -847,8 +865,50 @@
                     </div>
                 </div>
 
-                <!-- ── 사이클 비교 (4/12) — Chart.js 도넛 ── -->
+                <!-- ── 사이클 비교 (4/12) — Chart.js 도넛. 이상보기(cctvAbnDetect) ON 이면 센서 이상 목록으로 전환 ── -->
                 <div class="chart-card col-span-12 md:col-span-12 lg:col-span-4 bg-surface-container-lowest border border-outline-variant rounded-xl shadow-sm overflow-hidden flex flex-col" style="min-height:460px;">
+
+                    <!-- 이상보기 ON: 센서 이상(단선/오감지) 목록 — 서버 메모리, 디바이스당 마지막 발생 1건 -->
+                    <template x-if="cctvAbnDetect">
+                        <div style="display:flex; flex-direction:column; flex:1; min-height:0;">
+                            <div class="p-4 border-b border-outline-variant flex justify-between items-center bg-surface-container-low">
+                                <span class="font-headline-md text-headline-md flex items-center gap-2" style="color:#d32f2f;">
+                                    <span class="material-icons text-[20px]">sensors_off</span> 센서 이상
+                                </span>
+                                <span class="text-[11px] font-bold px-2 py-0.5 rounded"
+                                      :style="cctvSensorCount > 0 ? 'background:#d32f2f; color:#fff;' : 'background:var(--color-surface); color:var(--color-text-secondary); border:1px solid var(--color-lines);'"
+                                      x-text="cctvSensorCount + '건'"></span>
+                            </div>
+                            <div style="flex:1; min-height:0; overflow-y:auto; padding:12px; display:flex; flex-direction:column; gap:10px;">
+                                <template x-for="se in cctvSensorList" :key="(se.callId || '') + se.occurredAtLocal">
+                                    <div style="border:1px solid var(--color-lines); border-left:4px solid #d32f2f; border-radius:8px; padding:10px 12px; background:var(--color-surface); display:flex; flex-direction:column; gap:4px;">
+                                        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                                            <span style="font-weight:800; font-size:0.82rem; color:#d32f2f;" x-text="se.label || se.kindName"></span>
+                                            <span style="font-size:0.68rem; color:var(--color-text-secondary); font-variant-numeric:tabular-nums;" x-text="se.occurredAtLocal"></span>
+                                        </div>
+                                        <div style="font-size:0.74rem; font-weight:700; color:var(--color-text);"
+                                             x-text="[se.flowName, se.workName, se.callName].filter(Boolean).join(' / ')"></div>
+                                        <template x-if="se.sensorTag">
+                                            <div style="font-family:var(--font-mono); font-size:0.7rem; color:var(--color-text-secondary);" x-text="'센서 ' + se.sensorTag"></div>
+                                        </template>
+                                    </div>
+                                </template>
+                                <template x-if="cctvSensorCount === 0">
+                                    <div class="ds-empty" style="padding:48px 0;">
+                                        <span class="material-icons">sensors</span>
+                                        <span class="ds-empty-title">미해결 센서 이상이 없습니다</span>
+                                        <span class="ds-empty-desc">단선/오감지가 감지되면 여기와 CCTV 오버레이에 표시됩니다.</span>
+                                    </div>
+                                </template>
+                            </div>
+                            <div style="padding:8px 12px; border-top:1px solid var(--color-lines); font-size:0.66rem; color:var(--color-text-secondary);">
+                                디바이스가 다시 가동되면 자동 해제 · 이상보기를 끄면 가동시간 비교로 돌아갑니다
+                            </div>
+                        </div>
+                    </template>
+
+                    <template x-if="!cctvAbnDetect">
+                    <div style="display:contents;">
                     <div class="p-4 border-b border-outline-variant flex justify-between items-center bg-surface-container-low">
                         <span class="font-headline-md text-headline-md text-primary">가동시간 비교</span>
                         <div class="flex items-center gap-1.5">
@@ -922,6 +982,8 @@
                                 <span class="ds-empty-desc">가동이 수집되면 Flow별 가동시간이 도넛으로 표시됩니다.</span>
                             </div>
                         </div>
+                    </template>
+                    </div><!-- /display:contents (이상보기 OFF = 가동시간 비교) -->
                     </template>
                 </div>
             </div>
@@ -1284,8 +1346,8 @@
                 conn.on('AbnormalDetected', () => { this.debouncedLoadAbnormals(); });
                 // usertag 활성 알람 발생/해소(조건 풀림) 시에도 배너 즉시 재조회 (REST 단일 소스).
                 conn.on('UserTagAlertsChanged', () => { this.debouncedLoadAbnormals(); });
-                // 센서에러(메모리 전용) 발생/해소 — 이상탐지 버튼 ON + CCTV 뷰 활성일 때만 오버레이 즉시 갱신(그 외 3초 폴링 무시).
-                conn.on('SensorErrorsChanged', () => { if (this._cctvActive && this.cctvAbnDetect) this.cctvLoadStates(); });
+                // 센서에러(메모리 전용) 발생/해소 — CCTV 뷰 활성이면 즉시 갱신(배지는 토글 OFF 여도 갱신 필요).
+                conn.on('SensorErrorsChanged', () => { if (this._cctvActive) this.cctvLoadStates(); });
                 conn.onreconnected(() => { this.rt.connected = true; this.loadSnapshot(); this.loadAbnormals(); });
                 conn.onreconnecting(() => { this.rt.connected = false; });
                 conn.onclose(() => { this.rt.connected = false; });

@@ -136,19 +136,16 @@ public sealed class AbnormalEventService
     /// <summary>
     /// 활성 센서에러(SensorOpen/SensorShort) 목록 — 디바이스당 마지막 발생 1건, 시각 내림차순.
     /// 해당 디바이스(Call)가 다시 가동(Going)되면 OnSnapshotChanged 가 제거한다. 메모리 전용(재시작 소실).
-    /// ResetIntervalHours 컷오프는 _active 와 동일한 backstop(가동이 영영 재개되지 않는 디바이스 안전망).
+    /// ResetIntervalHours 시간 컷오프는 적용하지 않는다 — "해결(재가동)되기 전까지 유지"가 요구사항이라
+    /// 오래된 미해결 에러도 그대로 보여야 한다(24h 컷오프가 미해결 에러를 숨기던 버그 수정).
     /// </summary>
     public IReadOnlyList<AbnormalEventDto> GetSensorErrors(int max)
     {
         var n = Math.Clamp(max, 1, Capacity);
         var alarm = _appSettings.LoadSettings().AbnormalAlarm;
-        var cutoff = alarm.ResetIntervalHours > 0 ? DateTime.UtcNow - TimeSpan.FromHours(alarm.ResetIntervalHours) : (DateTime?)null;
         lock (_lock)
         {
-            var query = _sensorErrors.Values.AsEnumerable();
-            if (cutoff.HasValue)
-                query = query.Where(e => e.OccurredAtUtc >= cutoff.Value);
-            return query
+            return _sensorErrors.Values
                 .Where(e => !AbnormalDeviceFilterHelpers.IsSuppressed(alarm.DeviceFilters, e.Kind, e.CallName))
                 .OrderByDescending(e => e.OccurredAtUtc)
                 .Take(n)

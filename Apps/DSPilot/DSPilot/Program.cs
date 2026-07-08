@@ -263,13 +263,21 @@ var uploadsPath = Path.Combine(webRoot, "uploads");
 Directory.CreateDirectory(uploadsPath); // 서비스 시작 시 디렉토리 없으면 생성
 app.Logger.LogInformation("▶ DSPilot uploads dir: {Path}, exists: {E}", uploadsPath, Directory.Exists(uploadsPath));
 
+// 정적 파일은 no-cache(저장은 하되 매 사용 전 재검증) — Cache-Control 부재 시 브라우저 휴리스틱 캐시가
+// 업데이트 후에도 옛 JS 를 재검증 없이 쓸 수 있어(예: 새 dashboard.html + 구 cctv-wall.js 조합
+// → "cctvAbnDetect is not defined"), 배포/업그레이드 직후 stale 자산 조합을 원천 차단한다.
+// 미변경 파일은 ETag 304 로 끝나므로 LAN 앱에서 비용 무시 가능.
+static void Revalidate(Microsoft.AspNetCore.StaticFiles.StaticFileResponseContext ctx)
+    => ctx.Context.Response.Headers.CacheControl = "no-cache";
+
 app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(uploadsPath),
-    RequestPath = "/uploads"
+    RequestPath = "/uploads",
+    OnPrepareResponse = Revalidate
 });
 
-app.UseStaticFiles();
+app.UseStaticFiles(new StaticFileOptions { OnPrepareResponse = Revalidate });
 app.UseAntiforgery();
 
 // ── 격리형 호스팅: 정식 라우트를 정적 /app/*.html 로 대체 ──

@@ -31,6 +31,13 @@ public interface IOeeRepository
     /// </summary>
     Task<int> ClassifyDowntimeAsync(long id, string? reasonCode, string? category, bool isFailure, string? classifySource = "manual", CancellationToken ct = default);
 
+    /// <summary>
+    /// 비생산↔비가동 재분류(2026-07-08). toNonProd=true 는 현재 비가동 분류를 prev* 에 스태시한 뒤 비생산으로,
+    /// false 는 스태시가 있으면 원래 분류(유지보수 등) 복원(없으면 기본 고장) — 왕복해도 유지보수 상태가 보존된다.
+    /// 항상 classifySource='manual'(KPI 오버라이드). 영향 행 수 반환.
+    /// </summary>
+    Task<int> ReclassifyDowntimeAsync(long id, bool toNonProd, CancellationToken ct = default);
+
     /// <summary>일괄 분류 — 복수 id 에 동일 reasonCode/category/classifySource 적용. 영향 행 수 반환.</summary>
     Task<int> BulkClassifyDowntimeAsync(IReadOnlyList<long> ids, string? reasonCode, string? category, bool isFailure, string? classifySource = "manual", CancellationToken ct = default);
 

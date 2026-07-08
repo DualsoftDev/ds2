@@ -447,7 +447,7 @@ public class CctvController : ControllerBase
     /// <summary>
     /// 카메라 현재 프레임을 오버레이(설비 상태색 포함) 합성 JPEG 로 반환 — API 소비자(외부/DSPilot 공용)용.
     /// 프레임 소스: MediaMTX RTSP 재게시에서 ffmpeg 원샷 그랩(<see cref="CctvSnapshotService"/>),
-    /// 실패 시 대체(폴백) 이미지 베이스로 폴백. camera = 표시명 또는 slug(대소문자 무시).
+    /// 실패 시 대체(폴백) 이미지 베이스로 폴백. camera = 표시명 또는 slug(대소문자 무시) 또는 등록 순서 index(0부터).
     /// overlay=0 이면 원본 프레임만. width 로 비율 유지 다운스케일(업스케일 안 함).
     /// 오버레이 상태색은 <see cref="GetOverlayState"/> 와 동일 스냅샷 소스라 화면과 일치한다.
     /// </summary>
@@ -460,6 +460,11 @@ public class CctvController : ControllerBase
         var cam = cctv.Cameras.FirstOrDefault(c => c.Enabled
             && (string.Equals(c.Name, camera, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(c.Slug, camera, StringComparison.OrdinalIgnoreCase)));
+        // 이름/slug 미매칭 + 숫자면 등록 순서 index(0부터, 설정의 카메라 목록 순)로 해석 —
+        // 이름 매칭이 우선이므로 "3" 같은 숫자 표시명 카메라와도 충돌하지 않는다.
+        if (cam is null && int.TryParse(camera, out var idx)
+            && idx >= 0 && idx < cctv.Cameras.Count && cctv.Cameras[idx].Enabled)
+            cam = cctv.Cameras[idx];
         if (cam is null)
             return NotFound(new { error = $"카메라를 찾을 수 없습니다: {camera}" });
 

@@ -101,8 +101,8 @@
                     </div>
                 </section>
 
-                <!-- ════ 생산효율 매트릭스 (P6 L0) — 라인 전체=3D 아이소(설비×시간×가동, 4시점 회전·색 TEEP/OEE 전환·행 하이라이트),
-                     설비 선택=2D 불릿(TEEP 막대+OEE 마커, 같은 축 — 갭=비교) ════
+                <!-- ════ 생산효율 매트릭스 (P6 L0) — 라인 전체=3D 아이소(설비×시간×가동, 4시점 회전·행 하이라이트),
+                     설비 선택=2D 막대(TEEP 높이, 같은 인코딩) ════
                      드릴 체인: 3D 큐브 클릭 → 이 페이지 설비(2D) 뷰 → 2D 막대 클릭 → /uptime-oee (L1 A·P·Q).
                      렌더는 uptime-workspace.js renderTeepMatrix(임퍼러티브 SVG) — 호스트 div 는 Alpine 테어다운을 피해
                      x-if 없이 상시 존재(x-show 로만 감춤). 데이터 = /api/oee/teep/matrix. -->
@@ -113,34 +113,22 @@
                     </div>
 
                     <div x-show="teepMatrixMode()">
-                        <!-- 3D 뷰 컨트롤 — 시점 스텝 회전(±90°, 가림 회피). 색은 OEE 고정(높이=TEEP 와 이중 인코딩 제거) -->
+                        <!-- 3D 뷰 컨트롤 — 시점 스텝 회전(±90°, 가림 회피) -->
                         <div class="up-tm-controls" x-show="teepMatrixMode() === 'iso'">
                             <button class="btn-icon" @click="teepIsoRotate(-1)" title="시점 왼쪽으로 90° 회전"><span class="material-icons">rotate_left</span></button>
                             <button class="btn-icon" @click="teepIsoRotate(1)" title="시점 오른쪽으로 90° 회전"><span class="material-icons">rotate_right</span></button>
-                            <span class="up-tm-controls-hint" x-text="'시점 ' + (teepIsoRot + 1) + '/4 — 높이=TEEP · 색=OEE · 앞 막대에 가리면 회전, 설비에 올리면 그 행만 강조'"></span>
+                            <span class="up-tm-controls-hint" x-text="'시점 ' + (teepIsoRot + 1) + '/4 — 앞 막대에 가리면 회전, 설비에 올리면 그 행만 강조'"></span>
                         </div>
                         <div class="up-tm-scroll">
                             <div id="teep-matrix-host" class="up-tm-host"></div>
                         </div>
-                        <!-- 범례 — 데이터색은 JS 팔레트와 동일 고정값(3D 는 우측면 톤 기준). 높이=TEEP · 색=OEE 등급 -->
-                        <!-- 높이/막대=TEEP · 색=OEE 등급 · 캡=정지 · 골드 점선=계획 — 3D·2D 동일 인코딩(같은 정보) -->
+                        <!-- 범례 — 색은 가동(초록)/정지(빨강) 2색만(OEE 등급별 색 스케일은 2026-07-08 단순화로 제거).
+                             데이터색은 JS 팔레트(TM_RUN_FACES/TM_DOWN_FACES)와 동일 고정값(3D 는 우측면 톤 기준). -->
                         <div class="up-teep-legend" x-show="teepMatrixMode()">
-                            <div class="up-teep-leg" style="font-weight:700;"><span x-text="teepMatrixMode() === 'iso' ? '높이' : '막대 높이'"></span>=가동량(TEEP) · 색=효율(OEE, 진할수록 좋음)</div>
-                            <div class="up-teep-leg"><span class="sw" style="background:#FBC02D;"></span>OEE &lt;55%</div>
-                            <div class="up-teep-leg"><span class="sw" style="background:#81C784;"></span>55~70%</div>
-                            <div class="up-teep-leg"><span class="sw" style="background:#4CAF50;"></span>70~85%</div>
-                            <div class="up-teep-leg"><span class="sw" style="background:#2E7D32;"></span>≥85%</div>
-                            <div class="up-teep-leg"><span class="sw" style="background:#616E7C;"></span>OEE 산출 불가(무활동·표본 부족)</div>
-                            <div class="up-teep-leg"><span class="sw" style="background:#C62828;"></span>정지(윗쪽 캡)</div>
-                        </div>
-                        <div class="up-teep-legend" x-show="teepShowPlanned()">
-                            <div class="up-teep-leg"><span class="sw sw-plan"></span>계획 기준선 <em>(가동하기로 계획한 양 — 막대가 닿으면 계획대로, 못 미치면 덜 돌린 것)</em></div>
-                        </div>
-                        <div class="up-form-hint" style="margin-top:8px;">
-                            <div><b>OEE</b>=가동한 시간 안에서의 효율 · <b>TEEP</b>=전체 시간(캘린더) 대비 가동.</div>
-                            <div style="margin-top:5px;"><b>색(OEE)이 안 좋을 때</b></div>
-                            <div style="margin-top:2px;">• 막대가 <b>높으면</b> → 돌긴 하는데 느리거나 불량 (속도·품질 문제)</div>
-                            <div style="margin-top:1px;">• 막대가 <b>낮으면</b> → 아예 덜 돌렸다 (정지·미가동 문제)</div>
+                            <div class="up-teep-leg" style="font-weight:700;"><span x-text="teepMatrixMode() === 'iso' ? '높이' : '막대 높이'"></span>=가동량(TEEP)</div>
+                            <div class="up-teep-leg"><span class="sw" style="background:#4CAF50;"></span>가동</div>
+                            <div class="up-teep-leg"><span class="sw" style="background:#C62828;"></span>정지</div>
+                            <div class="up-teep-leg" x-show="teepShowPlanned()"><span class="sw sw-plan"></span>계획 기준선</div>
                         </div>
                         <div class="up-form-hint" style="margin-top:6px;" x-show="teepMatrixInsight()" x-text="teepMatrixInsight()"></div>
                     </div>

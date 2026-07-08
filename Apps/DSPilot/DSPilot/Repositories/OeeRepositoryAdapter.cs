@@ -165,6 +165,12 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             // 없음). detectSource(감지 출처)와 의미 구분: 분류가 어떻게 정해졌는지(manual/auto-bit/auto-heuristic/NULL).
             await EnsureColumnAsync(conn, "oeeDowntimeEvent", "classifySource", "TEXT");
 
+            // prev*(2026-07-08) — 비생산으로 보내기 전의 비가동 분류 스태시. 비생산→비가동 왕복 시 유지보수 등
+            // 원래 분류를 복원하기 위함(prevIsFailure IS NOT NULL = 스태시 있음 마커).
+            await EnsureColumnAsync(conn, "oeeDowntimeEvent", "prevReasonCode", "TEXT");
+            await EnsureColumnAsync(conn, "oeeDowntimeEvent", "prevCategory", "TEXT");
+            await EnsureColumnAsync(conn, "oeeDowntimeEvent", "prevIsFailure", "INTEGER");
+
             // 2026-06-15: MTBF '고장' 정의를 설비고장(reasonCode='equipment_fault')만으로 변경(OeeMath.IsFailureReason).
             // 기존 분류 이벤트(reasonCode 있는)의 isFailure 를 새 규칙에 재정렬 — 자재대기·작업자대기 등 비-설비고장을 MTBF에서 제외.
             // 미분류(reasonCode NULL) / 고장비트 onset(reasonCode NULL, 감지기반 isFailure=1)은 보존. 멱등(불일치 행만 갱신).
@@ -279,6 +285,37 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             IsFailure = isFailure ? 1 : 0,
             ClassifySource = classifySource,
         });
+    }
+
+    public async Task<int> ReclassifyDowntimeAsync(long id, bool toNonProd, CancellationToken ct = default)
+    {
+        await using var conn = await OpenAsync();
+        if (toNonProd)
+        {
+            // 비생산으로 — 현재 비가동 분류(고장/유지보수/미분류)를 prev* 에 스태시(이미 비생산이면 스태시 보존).
+            var sql = $@"
+                UPDATE oeeDowntimeEvent
+                SET prevReasonCode = CASE WHEN COALESCE(reasonCode,'') <> '{OeeMath.NonProductionReasonCode}' THEN reasonCode ELSE prevReasonCode END,
+                    prevCategory   = CASE WHEN COALESCE(reasonCode,'') <> '{OeeMath.NonProductionReasonCode}' THEN category   ELSE prevCategory   END,
+                    prevIsFailure  = CASE WHEN COALESCE(reasonCode,'') <> '{OeeMath.NonProductionReasonCode}' THEN isFailure  ELSE prevIsFailure  END,
+                    reasonCode     = '{OeeMath.NonProductionReasonCode}',
+                    category       = 'nonproduction',
+                    isFailure      = 0,
+                    classifySource = 'manual'
+                WHERE id = @Id";
+            return await conn.ExecuteAsync(sql, new { Id = id });
+        }
+        // 비가동으로 — 스태시가 있으면 원래 분류(유지보수 등) 복원, 없으면 기본 고장. 복원 후 스태시 클리어.
+        // prevIsFailure IS NOT NULL 이 스태시 마커(스태시된 reasonCode 자체가 NULL[미분류]일 수 있어 별도 마커 필요).
+        const string restore = @"
+            UPDATE oeeDowntimeEvent
+            SET reasonCode     = CASE WHEN prevIsFailure IS NOT NULL THEN prevReasonCode ELSE 'equipment_fault' END,
+                category       = CASE WHEN prevIsFailure IS NOT NULL THEN prevCategory   ELSE 'unplanned' END,
+                isFailure      = COALESCE(prevIsFailure, 1),
+                prevReasonCode = NULL, prevCategory = NULL, prevIsFailure = NULL,
+                classifySource = 'manual'
+            WHERE id = @Id";
+        return await conn.ExecuteAsync(restore, new { Id = id });
     }
 
     public async Task<int> BulkClassifyDowntimeAsync(IReadOnlyList<long> ids, string? reasonCode, string? category, bool isFailure, string? classifySource = "manual", CancellationToken ct = default)

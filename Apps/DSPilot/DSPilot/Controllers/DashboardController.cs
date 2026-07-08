@@ -333,9 +333,10 @@ public class DashboardController : ControllerBase
         var midnightUtc = DateTime.Now.Date.ToUniversalTime();
         var flowNames = _db.Snapshot.Flows.Select(f => f.FlowName).ToList();
 
-        // 수동 비생산 시간대(PlannedStops)만 적용 — 자동(10×CT)은 시각대 윈도 없음.
+        // 수동 지정 비생산 시간대(PlannedStops) 적용 — 병행 모델(2026-07-08): 지정 창은 항상 확정 비생산.
+        // (당일 자동 10×CT 판정은 시각대 윈도가 없어 이 간이 카운트에는 미반영 — 기존과 동일.)
         var oee = _settings.LoadSettings().OeeManual;
-        var plannedWindows = (!oee.PlannedStopsAutoEffective && oee.PlannedStops is { Count: > 0 })
+        var plannedWindows = oee.PlannedStops is { Count: > 0 }
             ? oee.PlannedStops.Select(w => (w.StartMinutes, w.EndMinutes)).ToArray()
             : Array.Empty<(int, int)>();
 

@@ -87,14 +87,10 @@ public class OeeDowntimeController : OeeControllerBase
     // 자동 판정(당일 10×CT)이 어긋났을 때 사용자가 구간 단위로 확정한다(classifySource='manual' → KPI 오버라이드).
     //   Id>0  : 기존 이벤트 행 분류 변경.
     //   합성행: Flow/StartAt/EndAt 로 over-cycle 이벤트 행을 materialize 한 뒤 분류(이후 오버라이드로 작동).
-    // 비가동으로 보내면 기본 '고장' — 팝업의 고장/유지보수 체크로 후속 조정(기존 UX 호환).
+    // 비가동으로 보내면 이전 분류 복원(유지보수→비생산→비가동 왕복 시 유지보수 유지, prev* 스태시) — 스태시 없으면 기본 '고장'.
     [HttpPost("downtime/reclassify")]
     public async Task<ActionResult<object>> Reclassify([FromBody] ReclassifyDowntimeRequest req, CancellationToken ct)
     {
-        var (reasonCode, category, isFailure) = req.ToNonProd
-            ? (OeeMath.NonProductionReasonCode, "nonproduction", false)
-            : ("equipment_fault", "unplanned", true);
-
         long id = req.Id ?? 0;
         if (id <= 0)
         {
@@ -116,7 +112,8 @@ public class OeeDowntimeController : OeeControllerBase
             if (id <= 0) return StatusCode(500, new { error = "materialize failed" });
         }
 
-        var n = await _repo.ClassifyDowntimeAsync(id, reasonCode, category, isFailure, classifySource: "manual", ct);
+        // 스태시/복원 방식(repo) — 유지보수였던 정지를 비생산으로 보냈다가 되돌리면 유지보수로 복원된다(고장 강등 없음).
+        var n = await _repo.ReclassifyDowntimeAsync(id, req.ToNonProd, ct);
         if (n == 0) return NotFound(new { error = "downtime event not found", id });
 
         // 비가동 확정 시: 그 구간과 겹치는 자동 비생산 감지 로그를 청소 — actual/추이 표시에 stale 비생산이 남지 않게.

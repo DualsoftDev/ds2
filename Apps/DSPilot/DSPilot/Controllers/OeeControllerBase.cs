@@ -603,27 +603,22 @@ public abstract class OeeControllerBase : ControllerBase
 
     // ── 비생산 판정 모드 ─────────────────────────────────────────────────────
 
-    // 비생산 시간대 해석 (2026-07-08 당일 판정 모델 — 14일 학습창 KPI 적용 폐기):
-    //   auto   : 창 없음 + applyLongStop=true — 당일 실측 10×CT 장시간 정지를 그때그때 비생산으로 분류.
-    //            사용자 생산 패턴을 학습창이 다 못 덮는 문제(불규칙 휴무/스케줄 변경)를 당일 판정이 흡수하고,
-    //            TEEP(캘린더 분모)와 같은 실측 파티션을 공유해 두 지표가 정합된다.
-    //   manual : 사용자 지정 시간대 창(applyLongStop=false — 지정한 것만).
-    // 자동 판정이 어긋나면 정지 이벤트 로그에서 '비생산↔비가동 보내기'(classifySource='manual')로 사용자가
-    // 개별 확정한다 — ComputeCycleAggregateAsync 가 이 오버라이드를 양방향으로 우선 적용.
+    // 비생산 시간대 해석 (2026-07-08 당일 판정 + 수동 지정 병행 모델 — 14일 학습창 KPI 적용·자동/수동 배타 토글 폐기):
+    //   ① 당일 자동 판정 — 항상 켜짐(applyLongStop=true): 실측 10×CT 장시간 정지를 그때그때 비생산으로 분류.
+    //      학습창이 못 덮는 불규칙 패턴을 당일 판정이 흡수하고, TEEP(캘린더)와 같은 실측 파티션 공유.
+    //   ② 수동 지정 시간대(PlannedStops) — 있으면 추가로 "무조건 비생산"으로 자르는 보조 규칙(창 안=가동/정지 불문 지표 밖).
+    //      자동이 못 잡는 임계 미만 반복 휴게·느린 CT 설비의 점심 등을 확정 지정.
+    // Source: "auto"=자동만 / "both"=자동+지정. 자동 판정이 어긋나면 정지 이벤트 로그의 '비생산↔비가동
+    // 보내기'(classifySource='manual')로 행 단위 확정 — ComputeCycleAggregateAsync 가 양방향 우선 적용.
     // (14일 학습 패턴 OeeNonProdPatternService 는 auto-pattern 참고 표시 전용으로 존치.)
     protected Task<(List<(int StartMin, int EndMin)> Windows, string Source, bool ApplyLongStop)>
         ResolvePlannedWindowsAsync(
             IReadOnlyDictionary<string, (double AvgMs, double P10Ms, int Sample)> thresholds, CancellationToken ct)
     {
-        var oee = _settings.LoadSettings().OeeManual;
-        if (oee.PlannedStopsAutoEffective)
-            return Task.FromResult((new List<(int, int)>(), "auto", true));
-
-        var manual = oee.PlannedStops;
-        if (manual is { Count: > 0 })
-            return Task.FromResult((manual.Select(w => (w.StartMinutes, w.EndMinutes)).ToList(), "manual", false));
-
-        return Task.FromResult((new List<(int, int)>(), "none", false));
+        var manual = _settings.LoadSettings().OeeManual.PlannedStops;
+        return manual is { Count: > 0 }
+            ? Task.FromResult((manual.Select(w => (w.StartMinutes, w.EndMinutes)).ToList(), "both", true))
+            : Task.FromResult((new List<(int, int)>(), "auto", true));
     }
 
     private static string BuildNonProductionStartSql(IReadOnlyList<(int StartMin, int EndMin)> windows)
@@ -1366,7 +1361,7 @@ public record BulkSetFaultRequest(List<long> Ids, bool IsFault);
 public record ProductionRequest(DateTime? Date, string Flow, string? Shift, int Reject);
 public record ManualQualityRequest(double? QualityPercent);
 public record PlannedStopsRequest(List<PlannedStopWindowDto>? Windows);
-public record PlannedStopsAutoRequest(bool Enabled);
+// (구 PlannedStopsAutoRequest[자동/수동 배타 토글] 은 2026-07-08 병행 모델로 폐기 — 자동 판정 상시 + 지정 시간대 추가 적용.)
 // 정지 이벤트 재분류(비생산↔비가동 보내기). Id>0 = 기존 이벤트, Id 없음/음수 = 합성 행(over-cycle) — Flow/StartAt/EndAt 로
 // 실제 이벤트 행을 materialize 한 뒤 분류한다. ToNonProd=true → 비생산(A 분모 밖), false → 비가동(고장 기본).
 public record ReclassifyDowntimeRequest(long? Id, string? Flow, DateTime? StartAt, DateTime? EndAt, bool ToNonProd);

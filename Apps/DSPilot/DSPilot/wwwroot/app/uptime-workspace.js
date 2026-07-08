@@ -56,16 +56,9 @@
         }
         // 정지 캡(빨강) — 시간분해 막대의 '정지' 와 같은 의미(빗금 대신 3D 캡).
         const TM_DOWN_FACES = { top: '#B71C1C', right: '#C62828', front: '#D32F2F' };
-        // OEE 산출 불가 셀(무활동·성능 미산출) 중립 회색 — 색=OEE 고정 시 '모름'을 '나쁨(최하등급)'으로 오독 방지(§3.4).
-        const TM_NA_FACES = { top: '#9AA5B1', right: '#7B8794', front: '#616E7C' };
-        // OEE 등급 3면(3D 색 모드 'oee', 그린 스케일 — P6 목업 L1 경계 85/70/55) — 앰버 팔레트와 동일하게 top 이 가장 밝고
-        // front 가 가장 어둡다. <55% 는 그린 계열 밖(옐로)로 이탈시켜 "나쁨"이 스캔에서 튀게 한다.
-        function _tmOeeFaces(pct) {
-            if (pct >= 85) return { top: '#388E3C', right: '#2E7D32', front: '#1B5E20' };
-            if (pct >= 70) return { top: '#66BB6A', right: '#4CAF50', front: '#43A047' };
-            if (pct >= 55) return { top: '#A5D6A7', right: '#81C784', front: '#66BB6A' };
-            return { top: '#FDD835', right: '#FBC02D', front: '#F9A825' };
-        }
+        // 가동(초록) 단일색 — OEE 등급별 색 스케일(옐로/그린 4단계 + 산출불가 회색)은 2026-07-08 단순화로 제거,
+        // 색은 가동/정지 두 가지만 구분. OEE 값 자체는 툴팁에 유지.
+        const TM_RUN_FACES = { top: '#66BB6A', right: '#4CAF50', front: '#43A047' };
 
         function uptimeApp() {
             return {
@@ -113,7 +106,8 @@
                 oeeExporting: false,   // OEE Excel 내보내기 진행 중
                 planTime: null, // /api/oee/plan-time — 계획시간 폴백 체인 + 14일 히스토그램
                 downtime: [], ranking: [],
-                dtFilterStatus: 'all', dtFilterFault: 'all', // 'all'|'fault'|'maintenance'|'nonprod'
+                dtTab: 'down', // 정지 로그 구분 탭: 'down'(비가동=고장/유지보수) | 'nonprod'(비생산) — 보내기 후 대상 탭 자동 이동
+                dtFilterStatus: 'all', dtFilterFault: 'all', // 'all'|'fault'|'maintenance' (비가동 탭 전용 하위 필터)
                 dtMsg: '', _dtMsgTimer: null, _prodMsgTimer: null, _ctMsgTimer: null,
                 dtReclassBusy: false, // 비생산↔비가동 보내기 진행 중(이중 클릭 가드)
                 // 일괄 선택 상태
@@ -124,11 +118,11 @@
                 // 오버레이 닫힘 가드 — mousedown 이 오버레이(백드롭)에서 시작했을 때만 닫는다(모달 안에서 시작→백드롭 release 드래그로 오닫힘 방지).
                 _qDown: false,
                 _dtDown: false, // 정지 이벤트 로그 다이얼로그 백드롭 닫힘 가드
-                // 비생산 시간대 (doc/22 §3.3) — auto: 당일 자동 판정(10×가동시간 장시간정지) on/off. source: auto/manual/none. ctMultiplier: 자동판정 배수(10).
-                // windows=수동 편집용 사본. selected=선택된 윈도 index(-1=미선택). addMode=드래그 추가 무장.
-                // actualNonProd=이번 기간 실제 제외된 비생산(추이 남색과 동일 소스, 자동 모드 타임라인의 유일한 소스이자 수동 전환 시 시드).
-                // (구 excludedWeekdays/xw*[생산 요일] 는 2026-07-08 당일 판정 모델로 제거 — 쉬는 날은 10×CT 규칙이 흡수.)
-                ps: { source: 'none', auto: true, ctMultiplier: 10, windows: [], selected: -1, addMode: false, msg: '', err: '', busy: false, actualNonProd: null, seededFromAuto: false, learned: null, dirty: false, pendingManual: false },
+                // 비생산 시간대 (doc/22 §3.3, 2026-07-08 병행 모델) — 당일 자동 판정(10×장시간정지)은 항상 켜져 있고,
+                // windows=수동 지정 창(추가로 무조건 비생산, 매일 반복). source: auto(지정 없음)/both. editing=[수동 추가] 편집 모드.
+                // actualNonProd=이번 기간 실제 제외된 비생산(자동+지정 합산 실측 — 통합 타임라인의 자동(점선) 소스).
+                // (구 auto/pendingManual 배타 토글, excludedWeekdays/xw*[생산 요일] 는 병행 모델 전환으로 제거.)
+                ps: { source: 'auto', ctMultiplier: 10, windows: [], selected: -1, addMode: false, editing: false, msg: '', err: '', busy: false, actualNonProd: null, dirty: false },
                 _psDrag: null, // 진행 중 드래그 상태 { mode:'create'|'resize-l'|'resize-r', index, anchor } (비반응형)
                 // 정지 이벤트 로그 토글 — 기본 숨김, 정지 원인 구성(도넛)의 [로그 보기 및 설정] 버튼으로 토글
                 showDowntimeLog: false,
@@ -220,7 +214,7 @@
                     }
                     // 더티 가드 등록 — 비생산 시간대 수동 편집(ps.dirty) 중 이탈 방지(OEE 페이지만)
                     if (this.view !== 'alarm') {
-                        window.dspDirtyRegister(() => (!this.ps.auto || this.ps.pendingManual) && this.ps.dirty);
+                        window.dspDirtyRegister(() => this.ps.editing && this.ps.dirty);
                     }
                 },
 
@@ -320,36 +314,24 @@
                 async loadPlannedStops() {
                     try {
                         const r = await this.apiGet('/api/oee/planned-stops');
-                        this.ps.source = r.source || 'none';
-                        this.ps.auto = !!r.auto;
+                        this.ps.source = r.source || 'auto';
                         this.ps.ctMultiplier = r.ctMultiplier || 10;
                         this.ps.windows = (r.windows || []).map(w => ({ startMinutes: w.startMinutes, endMinutes: w.endMinutes, label: w.label || '' }));
-                        this.ps.selected = -1; this.ps.addMode = false; this.ps.seededFromAuto = false; this.ps.dirty = false; this.ps.pendingManual = false;
+                        this.ps.selected = -1; this.ps.addMode = false; this.ps.dirty = false; this.ps.editing = false;
                     } catch (e) { this.ps.err = '비생산 시간대를 불러오지 못했습니다: ' + e.message; }
-                    // 자동 모드일 때: ① 이번 기간 실제 제외 비생산(타임라인 메인 소스) ② 학습 창(§3.5 투표제,
-                    // 참고·미적용 — Phase 1 섀도 검증용 점선 윤곽). 비생산 시간대는 시스템(전역) 단위 —
-                    // flow별 페이지에서도 curFlow 필터 없이 항상 시스템 전체로 표시.
-                    if (this.ps.auto) {
-                        const seq = ++this._anpSeq; // 진행 중인 refreshActualNonProd 의 stale 응답이 이 결과를 덮지 않도록
-                        try {
-                            const r = this.rangeForPeriod();
-                            const aqs = `from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}`;
-                            const dto = await this.apiGet('/api/oee/planned-stops/actual?' + aqs);
-                            if (seq === this._anpSeq) this.ps.actualNonProd = dto;
-                        } catch (e) { if (seq === this._anpSeq) this.ps.actualNonProd = null; }
-                        // 학습 창은 서버 24h 캐시라 폴링 불필요 — 로드/모드 전환 시 1회만 (실패해도 메인 표시 무영향)
-                        try { this.ps.learned = await this.apiGet('/api/oee/planned-stops/auto-pattern'); }
-                        catch (e) { this.ps.learned = null; }
-                    } else {
-                        ++this._anpSeq; // 진행 중 갱신 무효화 — 수동 모드 null 을 뒤늦은 응답이 덮지 않도록
-                        this.ps.actualNonProd = null;
-                        this.ps.learned = null;
-                    }
+                    // 이번 기간 실제 제외 비생산(자동+지정 합산 — 통합 타임라인의 자동(점선) 소스). 비생산 시간대는
+                    // 시스템(전역) 단위 — flow별 페이지에서도 curFlow 필터 없이 항상 시스템 전체로 표시.
+                    const seq = ++this._anpSeq; // 진행 중인 refreshActualNonProd 의 stale 응답이 이 결과를 덮지 않도록
+                    try {
+                        const r = this.rangeForPeriod();
+                        const aqs = `from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}`;
+                        const dto = await this.apiGet('/api/oee/planned-stops/actual?' + aqs);
+                        if (seq === this._anpSeq) this.ps.actualNonProd = dto;
+                    } catch (e) { if (seq === this._anpSeq) this.ps.actualNonProd = null; }
                 },
-                // 폴링·기간변경 경량 갱신 — 자동 모드에서 '실제 제외 비생산'(+현재 상태 배지)만 다시 읽는다.
-                // 수동 편집 상태(ps.windows/selected/addMode)는 건드리지 않아 편집 중 클로버 방지.
+                // 폴링·기간변경 경량 갱신 — '실제 제외 비생산'(+현재 상태 배지)만 다시 읽는다.
+                // 지정 창 편집 상태(ps.windows/selected/addMode)는 건드리지 않아 편집 중 클로버 방지.
                 async refreshActualNonProd() {
-                    if (!this.ps.auto) return;
                     const seq = ++this._anpSeq;
                     try {
                         const r = this.rangeForPeriod();
@@ -358,58 +340,38 @@
                         if (seq === this._anpSeq) this.ps.actualNonProd = dto; // stale 응답(이후 기간변경/폴링이 이미 시작) 폐기
                     } catch (e) { /* 이전 값 유지 */ }
                 },
-                // 자동 → 수동: 서버 전환 없이 UI만 '수동 편집(미저장)' 상태로 진입. 실제 전환/저장은 [적용]에서만 일어난다
-                // (저장 전 이탈하면 자동 계산 그대로 유지 — 실수로 모드가 바뀌지 않도록). 지금 비생산 구간을 초기값(참고)으로 시드.
-                psBeginManual() {
-                    const captured = this.ps.actualNonProd?.windows?.length
-                        ? this.ps.actualNonProd.windows.map(w => ({ startMinutes: w.startMinutes, endMinutes: w.endMinutes, label: w.label || '' }))
-                        : null;
-                    this.ps.pendingManual = true;
-                    this.ps.selected = -1; this.ps.addMode = false; this.ps.err = '';
-                    if (captured && captured.length > 0) {
-                        this.ps.windows = captured;
-                        this.ps.seededFromAuto = true;
-                        this.ps.dirty = true; // 시드된 창은 아직 저장 전 — 이탈 가드 발동
-                        this.ps.msg = `지금 비생산 ${captured.length}개 구간을 불러왔습니다 — 수정 후 [적용]을 누르세요 (아직 저장 안 됨)`;
-                    } else {
-                        this.ps.windows = [];
-                        this.ps.seededFromAuto = false;
-                        this.ps.dirty = false; // 빈 상태로 아무것도 안 그렸으면 저장 없이 이탈 자유
-                        this.ps.msg = '수동 편집 모드 — 시간대를 그린 뒤 [적용]을 눌러야 수동으로 고정됩니다 (아직 저장 안 됨)';
-                    }
-                    setTimeout(() => { this.ps.msg = ''; }, 8000);
+                // [수동 추가] — 지정 창 편집 모드 진입(자동 판정은 서버에서 계속 켜져 있음). 바로 드래그 추가 무장.
+                psBeginEdit() {
+                    this.ps.editing = true; this.ps.selected = -1; this.ps.err = ''; this.ps.msg = '';
+                    this.psBeginAdd();
                 },
-                // 수동 편집 취소 → 자동으로 복귀. 서버는 계속 자동이었으므로 로컬 상태만 되돌리면 됨(저장 안 한 편집 폐기).
-                async psCancelManual() {
-                    this.ps.pendingManual = false; this.ps.dirty = false; this.ps.seededFromAuto = false;
-                    this.ps.addMode = false; this.ps.selected = -1; this.ps.msg = ''; this.ps.err = '';
+                // 편집 취소 — 저장 안 한 편집 폐기, 서버 truth 재로드.
+                async psCancelEdit() {
+                    this.ps.editing = false; this.ps.dirty = false; this.ps.addMode = false; this.ps.selected = -1;
+                    this.ps.msg = ''; this.ps.err = '';
                     await this.loadPlannedStops();
                 },
-                // 자동 계산 on/off — on=10×가동시간 장시간정지 자동 비생산, off=수동 시각대만. 수동 적용은 자동을 끈다(서버 SavePlannedStops).
-                async psSetAuto(enabled) {
-                    this.ps.busy = true; this.ps.msg = ''; this.ps.err = '';
-                    // 자동 → 수동 전환 시: loadPlannedStops 호출 전에 '지금 비생산'(actualNonProd) 캡처 (이후 null 로 지워짐)
-                    const capturedActualWins = !enabled && this.ps.actualNonProd?.windows?.length
-                        ? this.ps.actualNonProd.windows.map(w => ({ startMinutes: w.startMinutes, endMinutes: w.endMinutes, label: w.label || '' }))
-                        : null;
-                    try {
-                        await this.apiPost('/api/oee/planned-stops/auto', { enabled });
-                        await this.loadPlannedStops();
-                        // 수동 전환 시 지금 비생산 구간을 수동 에디터 초기값(참고용)으로 시드 (사용자가 바로 수정 가능)
-                        if (!enabled && capturedActualWins && capturedActualWins.length > 0) {
-                            this.ps.windows = capturedActualWins;
-                            this.ps.seededFromAuto = true;
-                            this.ps.dirty = true;  // 시드된 창은 아직 저장 전 — 이탈 가드 발동
-                            this.ps.msg = `지금 비생산 ${capturedActualWins.length}개 구간을 불러왔습니다 — 수정 후 [적용]을 누르세요`;
-                        } else {
-                            this.ps.seededFromAuto = false;
-                            this.ps.msg = enabled ? `자동 계산 켜짐 — 평균 가동시간의 ${this.ps.ctMultiplier}배 이상 장시간 정지를 비생산으로 분류` : '자동 계산 꺼짐 — 수동 시간대만 적용';
+                // 자동(점선) 표시용 — 실측 제외 비생산에서 수동 지정 창과 겹친 부분을 차집합(수동 남색이 정체를 대변).
+                get psAutoWindows() {
+                    const act = (this.ps.actualNonProd && this.ps.actualNonProd.windows) || [];
+                    const man = this.ps.windows || [];
+                    const res = [];
+                    for (const a of act) {
+                        let segs = [[a.startMinutes, a.endMinutes]];
+                        for (const m of man) {
+                            const next = [];
+                            for (const [s, e] of segs) {
+                                if (m.endMinutes <= s || m.startMinutes >= e) { next.push([s, e]); continue; }
+                                if (m.startMinutes > s) next.push([s, Math.min(m.startMinutes, e)]);
+                                if (m.endMinutes < e) next.push([Math.max(m.endMinutes, s), e]);
+                            }
+                            segs = next;
                         }
-                        await this.loadOee();
-                    } catch (e) { this.ps.err = '변경 실패: ' + e.message; }
-                    finally { this.ps.busy = false; setTimeout(() => { this.ps.msg = ''; }, 8000); }
+                        for (const [s, e] of segs) if (e - s > 0) res.push({ startMinutes: s, endMinutes: e });
+                    }
+                    return res;
                 },
-                // (구 생산 요일(xw*) 함수들은 2026-07-08 당일 비생산 판정 모델로 제거.)
+                // (구 psBeginManual/psCancelManual/psSetAuto[자동/수동 배타 토글], 생산 요일(xw*) 함수들은 병행 모델로 제거.)
                 psSelect(i) { if (this.ps.addMode) return; this.ps.selected = i; this.ps.err = ''; },
                 psDeselect() { this.ps.selected = -1; },
                 // [시간 추가] 토글 — 무장 시 트랙 드래그로 새 시간대 생성. 다시 누르면 취소.
@@ -425,6 +387,7 @@
                 },
                 // 트랙 pointerdown — 추가 모드: 드래그 생성 시작 / 평소: 빈 곳이면 선택 해제(막대는 @click.stop)
                 psTrackPointerDown(ev) {
+                    if (!this.ps.editing) return;   // 보기 모드 — 통합 타임라인은 읽기 전용
                     if (this.ps.addMode) {
                         const m = this._psMinFromEvent(ev);
                         this.ps.windows = [...this.ps.windows, { startMinutes: m, endMinutes: m, label: '' }];
@@ -437,7 +400,7 @@
                 },
                 // 막대 본체 pointerdown → 선택 + 이동(전체 시간대 평행이동) 드래그 시작. 거의 안 움직이면 단순 선택(클릭)으로 처리.
                 psMoveStart(ev, i) {
-                    if (this.ps.addMode) return;
+                    if (!this.ps.editing || this.ps.addMode) return;
                     this.ps.selected = i; this.ps.err = '';
                     const w = this.ps.windows[i];
                     this._psDrag = { mode: 'move', index: i, anchor: this._psMinFromEvent(ev), downX: ev.clientX, dur: w.endMinutes - w.startMinutes, origStart: w.startMinutes, moved: false };
@@ -445,7 +408,7 @@
                 },
                 // 막대 양끝 핸들 pointerdown → 리사이즈 드래그 시작
                 psResizeStart(ev, i, side) {
-                    if (this.ps.addMode) return;
+                    if (!this.ps.editing || this.ps.addMode) return;
                     this.ps.selected = i; this.ps.err = '';
                     this._psDrag = { mode: side === 'l' ? 'resize-l' : 'resize-r', index: i, anchor: 0 };
                     this._psStartDrag();
@@ -529,8 +492,11 @@
                             .sort((a, b) => a.startMinutes - b.startMinutes)
                             .map(w => ({ startMinutes: w.startMinutes, endMinutes: w.endMinutes, label: (w.label || '').trim() || null }));
                         await this.apiPut('/api/oee/planned-stops', { windows });
-                        this.ps.msg = windows.length ? `비생산 시간 ${windows.length}개 적용(수동) — 자동 계산 꺼짐` : '수동 적용(비생산 시간대 없음) — 자동 계산 꺼짐';
-                        await this.loadPlannedStops();
+                        const okMsg = windows.length
+                            ? `수동 지정 ${windows.length}개 적용 — 매일 이 시간대는 무조건 비생산 (자동 판정은 계속 동작)`
+                            : '수동 지정 없음으로 저장 — 당일 자동 판정만 적용';
+                        await this.loadPlannedStops();   // editing/dirty 리셋 + 서버 truth 재로드
+                        this.ps.msg = okMsg;
                         await this.loadOee();
                     } catch (e) { this.ps.err = '적용 실패: ' + e.message; }
                     finally { this.ps.busy = false; setTimeout(() => { this.ps.msg = ''; }, 5000); }
@@ -783,15 +749,10 @@
                     const m = this.teepMatrix, mode = this.teepMatrixMode();
                     if (!mode) return '';
                     const g = m.granularity === 'hour' ? '시간별' : '일별';
-                    if (mode === 'iso') {
-                        const plan = this.teepShowPlanned()
-                            ? ` · 골드 점선=계획(${(m.plannedFraction * 24).toFixed(m.plannedFraction * 24 % 1 === 0 ? 0 : 1)}h/day)` : '';
-                        return `설비 ${m.flows.length}개 × ${g} ${m.buckets.length}구간 · 높이=TEEP(가동) · 색=OEE 등급 · 빨간 캡=정지${plan} · 클릭=설비 상세`;
-                    }
+                    if (mode === 'iso')
+                        return `설비 ${m.flows.length}개 × ${g} ${m.buckets.length}구간 · 클릭=설비 상세`;
                     const f = this.curFlow || m.flows[0].flowName;
-                    const plan = this.teepShowPlanned()
-                        ? ` · 골드 점선=계획(${(m.plannedFraction * 24).toFixed(m.plannedFraction * 24 % 1 === 0 ? 0 : 1)}h/day)` : '';
-                    return `${f} · ${g} ${m.buckets.length}구간 · 막대 높이=TEEP(가동) · 색=OEE 등급 · 빨간 캡=정지${plan} · 클릭=설비효율(A·P·Q) 상세`;
+                    return `${f} · ${g} ${m.buckets.length}구간 · 클릭=설비효율(A·P·Q) 상세`;
                 },
                 // 계획 기준선(골드 점선)이 실제로 그려지는가 — 렌더러 showPlanned 와 동일 조건(범례/서브헤더 게이트 SSOT).
                 teepShowPlanned() {
@@ -854,7 +815,7 @@
                     else this._renderTeepBars(host, this.teepMatrix);
                 },
                 // 3D 아이소(설비 × 시간 × 가동) — P6 목업 renderL0 이식 + 4시점 스텝 회전 + 행 하이라이트.
-                // 높이=가동/캘린더=TEEP, 색=OEE 등급(고정), 빨간 캡=정지. 회전(teepIsoRot)은 데이터 (버킷,설비)를
+                // 높이=가동/캘린더=TEEP, 색=가동(초록)/정지(빨간 캡) 2색. 회전(teepIsoRot)은 데이터 (버킷,설비)를
                 // 프레임 (x,z)로 재매핑만 한다 — 투영·면 구성(앞/우/윗면)·페인터 정렬은 불변이라 면 가시성 계산이 필요 없고,
                 // 앞쪽 벽에 가린 셀은 시점을 90° 돌려서 본다(데이터 의존 가림의 회피 수단).
                 _renderTeepIso(host, m) {
@@ -893,7 +854,7 @@
                     if (showPlanned)
                         _tmEl('polygon', { points: pts(planCorners), class: 'up-tm-plan-fill' }, svg);
 
-                    // 큐브 — 프레임 좌표 기준 뒤(x+z 작음)→앞 페인터 정렬. 색=OEE 등급 고정(높이=TEEP 와 이중 인코딩 제거).
+                    // 큐브 — 프레임 좌표 기준 뒤(x+z 작음)→앞 페인터 정렬. 색=가동 단일색(초록), 정지만 빨간 캡.
                     const order = [];
                     for (let l = 0; l < L; l++) for (let d = 0; d < B; d++) { const [x, z] = map(d, l); order.push([l, d, x, z]); }
                     order.sort((a, b) => (a[2] + a[3]) - (b[2] + b[3]));
@@ -914,8 +875,7 @@
                             _tmEl('polygon', { points: pts([b0, c0, c1, b1]), fill: f.right, class: 'up-tm-face' }, g);
                             _tmEl('polygon', { points: pts([a1, b1, c1, e1]), fill: f.top, class: 'up-tm-face' }, g);
                         };
-                        // 색 = OEE 등급. OEE 산출 불가(무활동·성능 미산출)는 0 이 아니라 '모름' → 중립 회색(§3.4).
-                        if (hRun > 0.03) box(0, hRun, c.oee != null ? _tmOeeFaces(c.oee * 100) : TM_NA_FACES);
+                        if (hRun > 0.03) box(0, hRun, TM_RUN_FACES);
                         if (hTot - hRun > 0.03) box(hRun, hTot, TM_DOWN_FACES); // 정지 캡
                         const t = _tmEl('title', {}, g);
                         t.textContent = `${flows[l].flowName} · ${this._tmShortLabel(m.buckets[d].label, m.granularity)}`
@@ -980,7 +940,7 @@
                     }
                 },
                 // 2D 막대(설비 뷰) — 3D 아이소의 단일 flow 시간열을 평면으로 편 것(같은 정보): 막대 높이=TEEP(가동),
-                // 색=OEE 등급(산출 불가=회색), 빨간 캡=정지, 골드 점선=계획 기준선. 한 flow 대상이라 2D 로 충분.
+                // 색=가동(초록)/정지(빨간 캡) 2색, 골드 점선=계획 기준선. 한 flow 대상이라 2D 로 충분.
                 _renderTeepBars(host, m) {
                     const fr = this.curFlow ? m.flows.find(f => f.flowName === this.curFlow) : m.flows[0];
                     if (!fr) return;
@@ -1021,11 +981,10 @@
                             const teepF = c.teep ?? 0;                                     // 가동/캘린더 = 막대 높이
                             const totF = Math.min(1, (c.runningMs + c.downMs) / c.calendarMs); // 가동+정지 = 캡 상단
                             const x = (cx - bw / 2).toFixed(1), w = bw.toFixed(1);
-                            // TEEP 막대 — 색=OEE 등급(3D 팔레트 .right 톤), 산출 불가=중립 회색(§3.4)
+                            // TEEP 막대 — 가동 단일색(3D 팔레트 .right 톤)
                             if (teepF > 0.001) {
                                 const yT = yOf(teepF);
-                                const col = c.oee != null ? _tmOeeFaces(c.oee * 100).right : TM_NA_FACES.right;
-                                _tmEl('rect', { x, y: yT.toFixed(1), width: w, height: (mg.t + ph - yT).toFixed(1), fill: col, rx: 1.5 }, g);
+                                _tmEl('rect', { x, y: yT.toFixed(1), width: w, height: (mg.t + ph - yT).toFixed(1), fill: TM_RUN_FACES.right, rx: 1.5 }, g);
                             }
                             // 정지 캡 — TEEP 위에 쌓음(3D 빨간 캡과 동일 의미)
                             if (totF - teepF > 0.002)
@@ -1557,15 +1516,25 @@
                     return 'is-bad';
                 },
 
-                // ── 정지 필터 ── 구분 = 고장/유지보수(비가동 하위) + 비생산(isNonProd, A 분모 밖).
+                // ── 정지 필터 ── 상위 = 탭(비가동/비생산, isNonProd), 하위 = 고장/유지보수(비가동 탭 전용).
                 get filteredDowntime() {
                     return this.downtime.filter(d => {
                         if (this.dtFilterStatus !== 'all' && d.status !== this.dtFilterStatus) return false;
-                        if (this.dtFilterFault === 'fault' && (d.isNonProd || !d.isFailure)) return false;
-                        if (this.dtFilterFault === 'maintenance' && (d.isNonProd || d.isFailure)) return false;
-                        if (this.dtFilterFault === 'nonprod' && !d.isNonProd) return false;
+                        if (this.dtTab === 'nonprod') return !!d.isNonProd;
+                        if (d.isNonProd) return false;
+                        if (this.dtFilterFault === 'fault' && !d.isFailure) return false;
+                        if (this.dtFilterFault === 'maintenance' && d.isFailure) return false;
                         return true;
                     });
+                },
+                // 탭 배지 건수 — 상태 필터만 반영(하위 고장/유지보수 필터와 무관, 탭 간 총량 비교용).
+                get dtDownCount() {
+                    return this.downtime.filter(d => !d.isNonProd
+                        && (this.dtFilterStatus === 'all' || d.status === this.dtFilterStatus)).length;
+                },
+                get dtNonProdCount() {
+                    return this.downtime.filter(d => !!d.isNonProd
+                        && (this.dtFilterStatus === 'all' || d.status === this.dtFilterStatus)).length;
                 },
 
                 // ── 일괄 선택 computed ──
@@ -1884,6 +1853,7 @@
                 },
                 // 비생산↔비가동 보내기 — 당일 자동 판정을 행 단위로 사용자 확정(서버 classifySource='manual' 오버라이드).
                 // 합성 행(id<0, 계산 유래)은 flow/start/end 로 서버가 실제 이벤트 행을 만들어 확정한다.
+                // 성공 시 대상 탭으로 자동 이동 — 옮겨진 행을 그 자리에서 확인·판단(비가동 복귀는 이전 유지보수/고장 분류 복원).
                 async reclassifyDt(d, toNonProd) {
                     this.dtReclassBusy = true;
                     try {
@@ -1895,7 +1865,8 @@
                             toNonProd,
                         });
                         await this.loadOee();
-                        this.flashDtMsg(`${d.flowName || d.systemName || ''} → ${toNonProd ? '비생산 (A 분모 밖)' : '비가동 (고장)'}`);
+                        this.dtTab = toNonProd ? 'nonprod' : 'down';
+                        this.flashDtMsg(`${d.flowName || d.systemName || ''} → ${toNonProd ? '비생산 탭으로 이동 (A 분모 밖)' : '비가동 탭으로 이동 (이전 분류 복원)'}`);
                     } catch (e) {
                         this.oeeError = '구분 변경 실패: ' + e.message;
                     } finally { this.dtReclassBusy = false; }
