@@ -649,15 +649,15 @@
                                     <span class="material-icons text-[14px]">image</span> 이미지
                                 </button>
                             </div>
-                            <!-- 이상보기 토글 — ON 이면 서버 메모리 센서에러(단선/오감지)를 오버레이에 빨강 표시하고,
-                                 우측 '가동시간 비교' 카드가 센서 이상 목록으로 전환된다. 라이브·이미지 모드 공통.
-                                 센서에러는 DB 미기록(메모리 전용)이라 이 버튼으로만 확인.
-                                 미해결 건수 배지는 토글 OFF 여도 표시(있는지 모르고 지나치는 것 방지). -->
+                            <!-- 센서이상 토글 — ON 이면 서버 메모리 센서에러(단선/오감지)를 오버레이에 빨강 표시하고,
+                     우측 '가동시간 비교' 카드가 센서 이상 목록으로 전환된다. 라이브·이미지 모드 공통.
+                     센서에러는 DB 미기록(메모리 전용)이라 이 버튼으로만 확인.
+                     미해결 건수 배지는 토글 OFF 여도 표시(있는지 모르고 지나치는 것 방지). -->
                             <button class="relative px-2 py-1 text-[10px] font-bold rounded transition-all flex items-center gap-1 border border-outline-variant"
                                     :class="cctvAbnDetect ? 'bg-error text-white shadow-sm' : 'bg-surface text-on-surface-variant hover:bg-surface-container-high'"
                                     @click="cctvToggleAbnDetect()"
-                                    title="이상보기 — 센서 단선/오감지를 오버레이와 우측 목록에 표시 (디바이스 재가동 시 자동 해제)">
-                                <span class="material-icons text-[14px]">sensors_off</span> 이상보기
+                                    title="센서이상 — 센서 단선/오감지를 오버레이와 우측 목록에 표시 (디바이스 재가동 시 자동 해제)">
+                                <span class="material-icons text-[14px]">sensors_off</span> 센서이상
                                 <!-- 미해결 센서에러 건수 배지 -->
                                 <span x-show="cctvSensorCount > 0" x-cloak x-text="cctvSensorCount > 99 ? '99+' : cctvSensorCount"
                                       style="position:absolute; top:-7px; right:-7px; min-width:16px; height:16px; padding:0 4px;
@@ -792,31 +792,75 @@
                                                         </div>
                                                         <div class="tip-title" x-text="cctvHover?.model?.title"></div>
                                                         <div class="tip-rows">
-                                                            <template x-if="cctvHover?.model?.flowName"><span class="tk">Flow</span></template>
-                                                            <template x-if="cctvHover?.model?.flowName"><span class="tv" x-text="cctvHover?.model?.flowName"></span></template>
-                                                            <template x-if="cctvHover?.model?.systemName"><span class="tk">시스템</span></template>
-                                                            <template x-if="cctvHover?.model?.systemName"><span class="tv" x-text="cctvHover?.model?.systemName"></span></template>
-                                                            <template x-if="cctvHover?.model?.callName"><span class="tk">Call</span></template>
-                                                            <template x-if="cctvHover?.model?.callName"><span class="tv mono" x-text="cctvHover?.model?.callName"></span></template>
-                                                            <template x-if="cctvHover?.model?.workName"><span class="tk">Work</span></template>
-                                                            <template x-if="cctvHover?.model?.workName"><span class="tv" x-text="cctvHover?.model?.workName"></span></template>
-                                                            <template x-if="cctvHover?.model?.device"><span class="tk">설비</span></template>
-                                                            <template x-if="cctvHover?.model?.device"><span class="tv mono" x-text="cctvHover?.model?.device"></span></template>
-                                                            <template x-if="cctvHover?.model?.avgMs != null"><span class="tk">평균 가동시간</span></template>
-                                                            <template x-if="cctvHover?.model?.avgMs != null"><span class="tv" x-text="cctvFmtDuration(cctvHover?.model?.avgMs)"></span></template>
-                                                            <template x-if="cctvHover?.model?.currentCt != null"><span class="tk">현재 가동시간</span></template>
-                                                            <template x-if="cctvHover?.model?.currentCt != null"><span class="tv" x-text="cctvFmtDuration(cctvHover?.model?.currentCt)"></span></template>
-                                                            <template x-if="cctvHover?.model?.goingCount != null && cctvHover?.model?.goingCount > 0"><span class="tk">진행 횟수</span></template>
-                                                            <template x-if="cctvHover?.model?.goingCount != null && cctvHover?.model?.goingCount > 0"><span class="tv" x-text="cctvHover?.model?.goingCount + '회'"></span></template>
-                                                            <template x-if="cctvHover?.model?.progressRate != null && cctvHover?.model?.progressRate > 0"><span class="tk">진행률</span></template>
-                                                            <template x-if="cctvHover?.model?.progressRate != null && cctvHover?.model?.progressRate > 0"><span class="tv" x-text="cctvFmtPct(cctvHover?.model?.progressRate)"></span></template>
-                                                            <template x-if="cctvHover?.model?.movingStartName || cctvHover?.model?.movingEndName"><span class="tk">이동 구간</span></template>
-                                                            <template x-if="cctvHover?.model?.movingStartName || cctvHover?.model?.movingEndName"><span class="tv" x-text="(cctvHover?.model?.movingStartName || '?') + ' → ' + (cctvHover?.model?.movingEndName || '?')"></span></template>
-                                                            <template x-if="cctvHover?.model?.errorText"><span class="tk">이상</span></template>
-                                                            <template x-if="cctvHover?.model?.errorText"><span class="tv is-error" x-text="cctvHover?.model?.errorText"></span></template>
+                                                            <template x-if="cctvHover?.model?.flowName">
+                                                                <span class="tk">Flow</span>
+                                                            </template>
+                                                            <template x-if="cctvHover?.model?.flowName">
+                                                                <span class="tv" x-text="cctvHover?.model?.flowName"></span>
+                                                            </template>
+                                                            <template x-if="cctvHover?.model?.systemName">
+                                                                <span class="tk">시스템</span>
+                                                            </template>
+                                                            <template x-if="cctvHover?.model?.systemName">
+                                                                <span class="tv" x-text="cctvHover?.model?.systemName"></span>
+                                                            </template>
+                                                            <template x-if="cctvHover?.model?.callName">
+                                                                <span class="tk">Call</span>
+                                                            </template>
+                                                            <template x-if="cctvHover?.model?.callName">
+                                                                <span class="tv mono" x-text="cctvHover?.model?.callName"></span>
+                                                            </template>
+                                                            <template x-if="cctvHover?.model?.workName">
+                                                                <span class="tk">Work</span>
+                                                            </template>
+                                                            <template x-if="cctvHover?.model?.workName">
+                                                                <span class="tv" x-text="cctvHover?.model?.workName"></span>
+                                                            </template>
+                                                            <template x-if="cctvHover?.model?.device">
+                                                                <span class="tk">설비</span>
+                                                            </template>
+                                                            <template x-if="cctvHover?.model?.device">
+                                                                <span class="tv mono" x-text="cctvHover?.model?.device"></span>
+                                                            </template>
+                                                            <template x-if="cctvHover?.model?.avgMs != null">
+                                                                <span class="tk">평균 가동시간</span>
+                                                            </template>
+                                                            <template x-if="cctvHover?.model?.avgMs != null">
+                                                                <span class="tv" x-text="cctvFmtDuration(cctvHover?.model?.avgMs)"></span>
+                                                            </template>
+                                                            <template x-if="cctvHover?.model?.currentCt != null">
+                                                                <span class="tk">현재 가동시간</span>
+                                                            </template>
+                                                            <template x-if="cctvHover?.model?.currentCt != null">
+                                                                <span class="tv" x-text="cctvFmtDuration(cctvHover?.model?.currentCt)"></span>
+                                                            </template>
+                                                            <template x-if="cctvHover?.model?.goingCount != null && cctvHover?.model?.goingCount > 0">
+                                                                <span class="tk">진행 횟수</span>
+                                                            </template>
+                                                            <template x-if="cctvHover?.model?.goingCount != null && cctvHover?.model?.goingCount > 0">
+                                                                <span class="tv" x-text="cctvHover?.model?.goingCount + '회'"></span>
+                                                            </template>
+                                                            <template x-if="cctvHover?.model?.progressRate != null && cctvHover?.model?.progressRate > 0">
+                                                                <span class="tk">진행률</span>
+                                                            </template>
+                                                            <template x-if="cctvHover?.model?.progressRate != null && cctvHover?.model?.progressRate > 0">
+                                                                <span class="tv" x-text="cctvFmtPct(cctvHover?.model?.progressRate)"></span>
+                                                            </template>
+                                                            <template x-if="cctvHover?.model?.movingStartName || cctvHover?.model?.movingEndName">
+                                                                <span class="tk">이동 구간</span>
+                                                            </template>
+                                                            <template x-if="cctvHover?.model?.movingStartName || cctvHover?.model?.movingEndName">
+                                                                <span class="tv" x-text="(cctvHover?.model?.movingStartName || '?') + ' → ' + (cctvHover?.model?.movingEndName || '?')"></span>
+                                                            </template>
+                                                            <template x-if="cctvHover?.model?.errorText">
+                                                                <span class="tk">이상</span>
+                                                            </template>
+                                                            <template x-if="cctvHover?.model?.errorText">
+                                                                <span class="tv is-error" x-text="cctvHover?.model?.errorText"></span>
+                                                            </template>
                                                         </div>
-                                                        <!-- 이상보기 ON: 센서에러(단선/오감지) 상세 — 전용 블록(가시성: 빨강 배경 밴드 + 밝은 텍스트).
-                                                             Call=그 디바이스 1건, Flow=그 flow 의 에러 전부. -->
+                                                        <!-- 센서이상 ON: 센서에러(단선/오감지) 상세 — 전용 블록(가시성: 빨강 배경 밴드 + 밝은 텍스트).
+                                                 Call=그 디바이스 1건, Flow=그 flow 의 에러 전부. -->
                                                         <template x-if="(cctvHover?.model?.sensorErrors || []).length > 0">
                                                             <div class="tip-sensor">
                                                                 <template x-for="se in cctvHover.model.sensorErrors" :key="se.device + se.occurredAt">
@@ -825,7 +869,9 @@
                                                                             <span class="material-icons">sensors_off</span>
                                                                             <span x-text="se.label + (se.device ? ' · ' + se.device : '')"></span>
                                                                         </div>
-                                                                        <template x-if="se.sensorTag"><div class="ts-tag" x-text="'센서 ' + se.sensorTag"></div></template>
+                                                                        <template x-if="se.sensorTag">
+                                                                            <div class="ts-tag" x-text="'센서 ' + se.sensorTag"></div>
+                                                                        </template>
                                                                         <div class="ts-time" x-text="se.occurredAt"></div>
                                                                     </div>
                                                                 </template>
@@ -865,10 +911,10 @@
                     </div>
                 </div>
 
-                <!-- ── 사이클 비교 (4/12) — Chart.js 도넛. 이상보기(cctvAbnDetect) ON 이면 센서 이상 목록으로 전환 ── -->
+                <!-- ── 사이클 비교 (4/12) — Chart.js 도넛. 센서이상(cctvAbnDetect) ON 이면 센서 이상 목록으로 전환 ── -->
                 <div class="chart-card col-span-12 md:col-span-12 lg:col-span-4 bg-surface-container-lowest border border-outline-variant rounded-xl shadow-sm overflow-hidden flex flex-col" style="min-height:460px;">
 
-                    <!-- 이상보기 ON: 센서 이상(단선/오감지) 목록 — 서버 메모리, 디바이스당 마지막 발생 1건 -->
+                    <!-- 센서이상 ON: 센서 이상(단선/오감지) 목록 — 서버 메모리, 디바이스당 마지막 발생 1건 -->
                     <template x-if="cctvAbnDetect">
                         <div style="display:flex; flex-direction:column; flex:1; min-height:0;">
                             <div class="p-4 border-b border-outline-variant flex justify-between items-center bg-surface-container-low">
@@ -902,88 +948,88 @@
                                 </template>
                             </div>
                             <div style="padding:8px 12px; border-top:1px solid var(--color-lines); font-size:0.66rem; color:var(--color-text-secondary);">
-                                디바이스가 다시 가동되면 자동 해제 · 이상보기를 끄면 가동시간 비교로 돌아갑니다
+                                디바이스가 다시 가동되면 자동 해제 · 센서이상를 끄면 가동시간 비교로 돌아갑니다
                             </div>
                         </div>
                     </template>
 
                     <template x-if="!cctvAbnDetect">
-                    <div style="display:contents;">
-                    <div class="p-4 border-b border-outline-variant flex justify-between items-center bg-surface-container-low">
-                        <span class="font-headline-md text-headline-md text-primary">가동시간 비교</span>
-                        <div class="flex items-center gap-1.5">
-                            <div class="flex bg-surface border border-outline-variant rounded p-0.5">
-                                <button class="px-2 py-1 text-[10px] font-bold rounded-sm transition-all flex items-center gap-1"
-                                        :class="!showAverage ? 'bg-secondary text-white shadow-sm' : 'text-on-surface-variant hover:bg-surface-container-high'"
-                                        @click="setDisplayMode(false)" title="최근 가동시간 값 표시">
-                                    <span class="material-icons text-[14px]">history</span> 최근
-                                </button>
-                                <button class="px-2 py-1 text-[10px] font-bold rounded-sm transition-all flex items-center gap-1"
-                                        :class="showAverage ? 'bg-secondary text-white shadow-sm' : 'text-on-surface-variant hover:bg-surface-container-high'"
-                                        @click="showAverage ? openAvgModal() : setDisplayMode(true)"
-                                        :title="showAverage ? avgDays + '일 기준 평균 — 클릭하여 기간 변경' : '평균값 표시'">
-                                    <span class="material-icons text-[14px]">analytics</span>
-                                    <span x-text="showAverage ? '평균 · ' + avgDays + '일' : '평균'"></span>
-                                </button>
+                        <div style="display:contents;">
+                            <div class="p-4 border-b border-outline-variant flex justify-between items-center bg-surface-container-low">
+                                <span class="font-headline-md text-headline-md text-primary">가동시간 비교</span>
+                                <div class="flex items-center gap-1.5">
+                                    <div class="flex bg-surface border border-outline-variant rounded p-0.5">
+                                        <button class="px-2 py-1 text-[10px] font-bold rounded-sm transition-all flex items-center gap-1"
+                                                :class="!showAverage ? 'bg-secondary text-white shadow-sm' : 'text-on-surface-variant hover:bg-surface-container-high'"
+                                                @click="setDisplayMode(false)" title="최근 가동시간 값 표시">
+                                            <span class="material-icons text-[14px]">history</span> 최근
+                                        </button>
+                                        <button class="px-2 py-1 text-[10px] font-bold rounded-sm transition-all flex items-center gap-1"
+                                                :class="showAverage ? 'bg-secondary text-white shadow-sm' : 'text-on-surface-variant hover:bg-surface-container-high'"
+                                                @click="showAverage ? openAvgModal() : setDisplayMode(true)"
+                                                :title="showAverage ? avgDays + '일 기준 평균 — 클릭하여 기간 변경' : '평균값 표시'">
+                                            <span class="material-icons text-[14px]">analytics</span>
+                                            <span x-text="showAverage ? '평균 · ' + avgDays + '일' : '평균'"></span>
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
-                        </div>
-                    </div>
 
-                    <template x-if="chartData.length > 0">
-                        <div style="flex:1; min-height:0; display:flex; flex-direction:column;">
-                            <div style="position:relative; flex:1; min-height:220px; padding:10px 4px 4px;" x-effect="renderCtDonut()" @mouseleave="chartHoverFlowName = null">
-                                <canvas x-ref="ctDonut"></canvas>
-                            </div>
-                            <!-- 도넛 아래 가로 막대: 강조(hover) flow 의 동작(MT)·대기(WT) 시간. 마우스를 떼면 안내문. -->
-                            <div class="ct-focusbar">
-                                <template x-if="focusRow">
-                                    <div>
-                                        <div class="ct-fb-head">
-                                            <span class="ct-fb-name" x-text="focusRow.flowName"></span>
-                                            <span class="ct-fb-ct">가동시간 <b x-text="fmt(focusRow.ct)"></b></span>
-                                        </div>
-                                        <div class="ct-fb-track" role="img" :aria-label="focusRow.flowName + ' 동작 ' + fmt(focusRow.mt) + ' 대기 ' + fmt(focusRow.wt)">
-                                            <div class="ct-fb-seg ct-fb-mt" :style="`width:${focusRow.ct>0 ? focusRow.mt*100/focusRow.ct : 0}%`" :title="'동작 ' + fmt(focusRow.mt)"></div>
-                                            <div class="ct-fb-seg ct-fb-wt" :style="`width:${focusRow.ct>0 ? focusRow.wt*100/focusRow.ct : 0}%`" :title="'대기 ' + fmt(focusRow.wt)"></div>
-                                        </div>
-                                        <div class="ct-fb-legend">
-                                            <span class="ct-fb-li"><span class="ct-fb-dot ct-fb-dot-mt"></span>동작 <b x-text="fmt(focusRow.mt)"></b> <em x-text="'(' + (focusRow.ct>0 ? Math.round(focusRow.mt*100/focusRow.ct) : 0) + '%)'"></em></span>
-                                            <span class="ct-fb-li"><span class="ct-fb-dot ct-fb-dot-wt"></span>대기 <b x-text="fmt(focusRow.wt)"></b> <em x-text="'(' + (focusRow.ct>0 ? Math.round(focusRow.wt*100/focusRow.ct) : 0) + '%)'"></em></span>
-                                        </div>
+                            <template x-if="chartData.length > 0">
+                                <div style="flex:1; min-height:0; display:flex; flex-direction:column;">
+                                    <div style="position:relative; flex:1; min-height:220px; padding:10px 4px 4px;" x-effect="renderCtDonut()" @mouseleave="chartHoverFlowName = null">
+                                        <canvas x-ref="ctDonut"></canvas>
                                     </div>
-                                </template>
-                                <template x-if="!focusRow">
-                                    <div class="ct-fb-hint">
-                                        <span class="material-icons">touch_app</span>
-                                        Flow 에 마우스를 올리면 동작·대기 시간, 클릭하면 가동시간 분석으로 이동합니다
+                                    <!-- 도넛 아래 가로 막대: 강조(hover) flow 의 동작(MT)·대기(WT) 시간. 마우스를 떼면 안내문. -->
+                                    <div class="ct-focusbar">
+                                        <template x-if="focusRow">
+                                            <div>
+                                                <div class="ct-fb-head">
+                                                    <span class="ct-fb-name" x-text="focusRow.flowName"></span>
+                                                    <span class="ct-fb-ct">가동시간 <b x-text="fmt(focusRow.ct)"></b></span>
+                                                </div>
+                                                <div class="ct-fb-track" role="img" :aria-label="focusRow.flowName + ' 동작 ' + fmt(focusRow.mt) + ' 대기 ' + fmt(focusRow.wt)">
+                                                    <div class="ct-fb-seg ct-fb-mt" :style="`width:${focusRow.ct>0 ? focusRow.mt*100/focusRow.ct : 0}%`" :title="'동작 ' + fmt(focusRow.mt)"></div>
+                                                    <div class="ct-fb-seg ct-fb-wt" :style="`width:${focusRow.ct>0 ? focusRow.wt*100/focusRow.ct : 0}%`" :title="'대기 ' + fmt(focusRow.wt)"></div>
+                                                </div>
+                                                <div class="ct-fb-legend">
+                                                    <span class="ct-fb-li"><span class="ct-fb-dot ct-fb-dot-mt"></span>동작 <b x-text="fmt(focusRow.mt)"></b> <em x-text="'(' + (focusRow.ct>0 ? Math.round(focusRow.mt*100/focusRow.ct) : 0) + '%)'"></em></span>
+                                                    <span class="ct-fb-li"><span class="ct-fb-dot ct-fb-dot-wt"></span>대기 <b x-text="fmt(focusRow.wt)"></b> <em x-text="'(' + (focusRow.ct>0 ? Math.round(focusRow.wt*100/focusRow.ct) : 0) + '%)'"></em></span>
+                                                </div>
+                                            </div>
+                                        </template>
+                                        <template x-if="!focusRow">
+                                            <div class="ct-fb-hint">
+                                                <span class="material-icons">touch_app</span>
+                                                Flow 에 마우스를 올리면 동작·대기 시간, 클릭하면 가동시간 분석으로 이동합니다
+                                            </div>
+                                        </template>
                                     </div>
-                                </template>
-                            </div>
-                            <div class="ct-legend">
-                                <template x-for="(f, i) in chartData" :key="f.flowName">
-                                    <button class="ct-legend-item" :class="focusFlowName === f.flowName ? 'is-sel' : ''"
-                                            @mouseenter="hoverFlow(f.flowName)" @mouseleave="hoverFlow(null)"
-                                            @click="gotoFlowCycle(f.flowName)" :title="f.flowName + ' — 클릭: 가동시간 분석'">
-                                        <span class="ct-legend-sw" :style="`background:${f.flowName === maxCtName ? 'var(--ct-bottleneck)' : ctPalette(i)}`"></span>
-                                        <span class="ct-legend-name" x-text="f.flowName"></span>
-                                        <span class="ct-legend-val" style="color:var(--dash-mt)" x-text="fmt(f.mt) + ' (' + (f.ct>0 ? Math.round(f.mt*100/f.ct) : 0) + '%)'"></span>
-                                        <span style="font-size:0.6rem; color:var(--color-lines-strong); margin:0 2px;">|</span>
-                                        <span class="ct-legend-val" style="color:var(--color-text-secondary)" x-text="fmt(f.wt) + ' (' + (f.ct>0 ? Math.round(f.wt*100/f.ct) : 0) + '%)'"></span>
-                                    </button>
-                                </template>
-                            </div>
-                        </div>
-                    </template>
-                    <template x-if="chartData.length === 0">
-                        <div class="flex-1 flex items-center justify-center p-6">
-                            <div class="ds-empty" style="padding:32px 0;">
-                                <span class="material-icons">donut_large</span>
-                                <span class="ds-empty-title">Time 데이터가 없습니다</span>
-                                <span class="ds-empty-desc">가동이 수집되면 Flow별 가동시간이 도넛으로 표시됩니다.</span>
-                            </div>
-                        </div>
-                    </template>
-                    </div><!-- /display:contents (이상보기 OFF = 가동시간 비교) -->
+                                    <div class="ct-legend">
+                                        <template x-for="(f, i) in chartData" :key="f.flowName">
+                                            <button class="ct-legend-item" :class="focusFlowName === f.flowName ? 'is-sel' : ''"
+                                                    @mouseenter="hoverFlow(f.flowName)" @mouseleave="hoverFlow(null)"
+                                                    @click="gotoFlowCycle(f.flowName)" :title="f.flowName + ' — 클릭: 가동시간 분석'">
+                                                <span class="ct-legend-sw" :style="`background:${f.flowName === maxCtName ? 'var(--ct-bottleneck)' : ctPalette(i)}`"></span>
+                                                <span class="ct-legend-name" x-text="f.flowName"></span>
+                                                <span class="ct-legend-val" style="color:var(--dash-mt)" x-text="fmt(f.mt) + ' (' + (f.ct>0 ? Math.round(f.mt*100/f.ct) : 0) + '%)'"></span>
+                                                <span style="font-size:0.6rem; color:var(--color-lines-strong); margin:0 2px;">|</span>
+                                                <span class="ct-legend-val" style="color:var(--color-text-secondary)" x-text="fmt(f.wt) + ' (' + (f.ct>0 ? Math.round(f.wt*100/f.ct) : 0) + '%)'"></span>
+                                            </button>
+                                        </template>
+                                    </div>
+                                </div>
+                            </template>
+                            <template x-if="chartData.length === 0">
+                                <div class="flex-1 flex items-center justify-center p-6">
+                                    <div class="ds-empty" style="padding:32px 0;">
+                                        <span class="material-icons">donut_large</span>
+                                        <span class="ds-empty-title">Time 데이터가 없습니다</span>
+                                        <span class="ds-empty-desc">가동이 수집되면 Flow별 가동시간이 도넛으로 표시됩니다.</span>
+                                    </div>
+                                </div>
+                            </template>
+                        </div><!-- /display:contents (센서이상 OFF = 가동시간 비교) -->
                     </template>
                 </div>
             </div>
