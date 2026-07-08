@@ -29,6 +29,7 @@ public class CctvController : ControllerBase
     private readonly DspDbService _dspDb;
     private readonly DsProjectService _project;
     private readonly CctvSnapshotService _snapshot;
+    private readonly AbnormalEventService _abnormal;
 
     public CctvController(
         AppSettingsService settings,
@@ -38,7 +39,8 @@ public class CctvController : ControllerBase
         PlcToCallMapperService callMapper,
         DspDbService dspDb,
         DsProjectService project,
-        CctvSnapshotService snapshot)
+        CctvSnapshotService snapshot,
+        AbnormalEventService abnormal)
     {
         _settings = settings;
         _mediaMtx = mediaMtx;
@@ -48,6 +50,7 @@ public class CctvController : ControllerBase
         _dspDb = dspDb;
         _project = project;
         _snapshot = snapshot;
+        _abnormal = abnormal;
     }
 
     /// <summary>
@@ -511,6 +514,13 @@ public class CctvController : ControllerBase
     /// <summary>
     /// 오버레이 id → 라이브 상태 문자열 맵. <see cref="GetOverlayState"/> 의 상태 해석부만 —
     /// Call 바인딩 우선(callId 조인), 없으면 Flow(FlowName 조인). 미해석은 빈 문자열(미상 색).
+    /// 활성 이상이 걸린 오버레이는 "Error"(적색)로 강제. 이상 소스는 저장소가 둘로 갈린다:
+    ///   - action 에러(ActionOver/Under) = GetActive — flow 단위 적색(존/핀 모두, 라이브 화면
+    ///     abnFlowNames 와 동일 소스·동일 flowName 규칙, flow 재가동 시 자동 해제)
+    ///   - 센서에러(SensorOpen/Short) = GetSensorErrors(메모리 전용, _active 미포함) — 라이브
+    ///     cctv-wall.js cctvSensorErrsOf 와 동일 규칙: Call 핀 = callId 정확 매칭(자기 디바이스만),
+    ///     Flow 존 = 그 flow 에 센서에러가 하나라도 있으면 적색. 디바이스 Going 시 자동 해제.
+    /// 정지 JPEG 라 점멸은 없고 단색 적색. usertag 알람은 FlowName 이 비어 원래 영향 없음.
     /// </summary>
     private Dictionary<string, string> BuildOverlayStateMap(IReadOnlyList<CctvOverlay> overlays)
     {
@@ -519,11 +529,27 @@ public class CctvController : ControllerBase
         var snap = _dspDb.Snapshot;
         var callById = snap.Calls.GroupBy(c => c.CallId).ToDictionary(g => g.Key, g => g.Last());
         var flowByName = snap.Flows.GroupBy(f => f.FlowName).ToDictionary(g => g.Key, g => g.Last());
+
+        var abnFlows = new HashSet<string>(
+            _abnormal.GetActive(100).Select(a => a.FlowName).Where(f => !string.IsNullOrEmpty(f)),
+            StringComparer.Ordinal);
+        var sensor = _abnormal.GetSensorErrors(100);
+        var sensorCallIds = new HashSet<Guid>(sensor.Where(s => s.CallId.HasValue).Select(s => s.CallId!.Value));
+        var sensorFlows = new HashSet<string>(
+            sensor.Select(s => s.FlowName).Where(f => !string.IsNullOrEmpty(f)),
+            StringComparer.Ordinal);
+
         foreach (var ovl in overlays)
         {
-            if (ovl.CallId is Guid cid && callById.TryGetValue(cid, out var call))
+            bool hasFlow = !string.IsNullOrEmpty(ovl.FlowName);
+            bool abnormal = ovl.CallId is Guid pinCid
+                ? sensorCallIds.Contains(pinCid) || (hasFlow && abnFlows.Contains(ovl.FlowName!))
+                : hasFlow && (abnFlows.Contains(ovl.FlowName!) || sensorFlows.Contains(ovl.FlowName!));
+            if (abnormal)
+                map[ovl.Id] = "Error";
+            else if (ovl.CallId is Guid cid && callById.TryGetValue(cid, out var call))
                 map[ovl.Id] = call.State ?? "";
-            else if (!string.IsNullOrEmpty(ovl.FlowName) && flowByName.TryGetValue(ovl.FlowName, out var flow))
+            else if (hasFlow && flowByName.TryGetValue(ovl.FlowName!, out var flow))
                 map[ovl.Id] = flow.State ?? "";
         }
         return map;

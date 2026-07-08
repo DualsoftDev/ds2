@@ -210,6 +210,11 @@ DSPilot 웹서버가 제공하는 전체 HTTP API 목록.
 - 오류: 카메라 미매칭 404, 프레임 획득 실패/디코드 불가 503
 - 오버레이 상태색은 `overlay-state` 와 동일 스냅샷 소스이되, **프레임 획득 순간의 상태로 고정** 합성
   (프레임과 오버레이가 같은 시각을 가리킴 — 캐시 프레임에 최신 상태가 얹혀 어긋나는 것 방지)
+- 활성 이상이 걸린 오버레이는 **적색(Error)** 으로 합성(정지 이미지라 점멸 대신 단색). 소스는 둘:
+  - action 에러(ActionOver/Under) = `GetActive`(라이브 화면 abnFlowNames 와 동일) → **flow 단위** 적색, flow 재가동 시 해제
+  - 센서에러(SensorOpen/Short) = `GetSensorErrors`(메모리 전용, active-alarms 미포함) → 라이브 cctv-wall.js
+    `cctvSensorErrsOf` 와 동일 규칙: **Call 핀 = callId 정확 매칭(자기 디바이스만), Flow 존 = 그 flow 에
+    센서에러가 하나라도 있으면 적색**. 디바이스 재가동(Going) 시 해제
 
 예시: `GET /api/cctv/snapshot/0?overlay=1&width=1280`
 
