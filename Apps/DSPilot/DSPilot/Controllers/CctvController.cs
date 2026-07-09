@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
+using DSPilot.Infrastructure;
 using DSPilot.Models.Cctv;
 using DSPilot.Models;
 using DSPilot.Services;
@@ -486,10 +487,24 @@ public class CctvController : ControllerBase
         Response.Headers["X-Cctv-Source"] = frame.FromLive ? "live" : "fallback";
         Response.Headers["X-Cctv-Captured-At"] = frame.CapturedUtc.ToString("o");
 
+        // ETag = 그랩 시각 + 렌더 파라미터 — 같은 그랩(TTL 3초)을 재폴링하는 소비자는 304 로 전송 생략.
+        var etag = $"\"{frame.CapturedUtc.Ticks:x}-{(frame.FromLive ? 1 : 0)}-{overlay}-{width ?? 0}\"";
+        Response.Headers.ETag = etag;
+        if (Request.Headers.IfNoneMatch.ToString().Contains(etag, StringComparison.Ordinal))
+            return StatusCode(StatusCodes.Status304NotModified);
+
+        // 합성(디코드→드로잉→JPEG 재인코딩)은 CPU-bound 라 소비자 수만큼 곱해지면 코어를 상시 소모한다.
+        // 입력(프레임+상태맵)이 그랩에 고정돼 있으므로 CapturedUtc 키 캐시는 정확성 손실이 없다 —
+        // 같은 그랩에 대한 동시/연속 합성을 1회로 코얼레싱(O(뷰어) → O(카메라)). 폴백 프레임은
+        // CapturedUtc 가 요청마다 달라 캐시를 안 타지만(정확성 우선) 빈도가 낮아 무해하다.
+        var camKey = cam.Slug ?? cam.Name;
+
         if (overlay == 0)
         {
             if (width is int w0 && w0 > 0)
-                bytes = CctvOverlayRenderer.Render(bytes, [], w0);   // 다운스케일만
+                bytes = await TtlRequestCache.GetOrComputeAsync(
+                    $"cctv/composed|{camKey}|{frame.CapturedUtc.Ticks}|raw|{w0}", TimeSpan.FromSeconds(4),
+                    () => Task.FromResult(CctvOverlayRenderer.Render(bytes!, [], w0)));   // 다운스케일만
             return File(bytes, "image/jpeg");
         }
 
@@ -502,7 +517,9 @@ public class CctvController : ControllerBase
             .ToList();
         try
         {
-            var composed = CctvOverlayRenderer.Render(bytes, drawList, width is int w1 && w1 > 0 ? w1 : null);
+            var composed = await TtlRequestCache.GetOrComputeAsync(
+                $"cctv/composed|{camKey}|{frame.CapturedUtc.Ticks}|ov{items.Count}|{width ?? 0}", TimeSpan.FromSeconds(4),
+                () => Task.FromResult(CctvOverlayRenderer.Render(bytes!, drawList, width is int w1 && w1 > 0 ? w1 : null)));
             return File(composed, "image/jpeg");
         }
         catch (ArgumentException ex) // 디코드 불가(손상 폴백 파일 등)

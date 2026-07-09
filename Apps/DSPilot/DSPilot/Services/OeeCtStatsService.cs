@@ -29,10 +29,47 @@ public sealed class OeeCtStatsService
     private readonly IDatabasePathResolver _pathResolver;
     private readonly ILogger<OeeCtStatsService> _logger;
 
+    // ── TTL 캐시 + single-flight ────────────────────────────────────────────
+    // 세 통계 모두 dspFlowHistory 창 스캔이라 요청 단가가 테이블 크기에 비례하고, OEE 엔드포인트
+    // 5종 × 10초 폴링 × 동접 탭 수만큼 동일 계산이 반복된다. 14일 통계라 30초 staleness 는 무해
+    // — 동시/연속 호출을 계산 1회로 코얼레싱한다. 호출측이 반환 딕셔너리를 mutate 하므로
+    // (ResolveCtThresholdsAsync 의 TryAdd/인덱서 덮어쓰기) 캐시 원본이 아닌 복사본을 반환할 것.
+    private static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(30);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTime ExpiresUtc, object Value)> _cache = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<Task<object>>> _inflight = new();
+
     public OeeCtStatsService(IDatabasePathResolver pathResolver, ILogger<OeeCtStatsService> logger)
     {
         _pathResolver = pathResolver;
         _logger = logger;
+    }
+
+    private async Task<Dictionary<string, T>> GetOrComputeCachedAsync<T>(
+        string key, Func<Task<Dictionary<string, T>>> factory)
+    {
+        if (_cache.TryGetValue(key, out var hit) && hit.ExpiresUtc > DateTime.UtcNow)
+            return new Dictionary<string, T>((Dictionary<string, T>)hit.Value, StringComparer.OrdinalIgnoreCase);
+
+        var lazy = _inflight.GetOrAdd(key, k => new Lazy<Task<object>>(async () =>
+        {
+            var value = await factory().ConfigureAwait(false);
+            _cache[key] = (DateTime.UtcNow.Add(CacheTtl), value);
+            // 키 공간은 호출 파라미터 조합(수 개)뿐이지만 excludeUntil 이 날짜 경계로 바뀌므로 만료분만 정리.
+            if (_cache.Count > 64)
+                foreach (var stale in _cache.Where(e => e.Value.ExpiresUtc <= DateTime.UtcNow).ToList())
+                    _cache.TryRemove(stale.Key, out _);
+            return value;
+        }));
+
+        try
+        {
+            var computed = (Dictionary<string, T>)await lazy.Value.ConfigureAwait(false);
+            return new Dictionary<string, T>(computed, StringComparer.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            _inflight.TryRemove(key, out _);
+        }
     }
 
     private sealed class CtRowRaw
@@ -47,7 +84,11 @@ public sealed class OeeCtStatsService
     /// dspFlow 의 전체 flow 를 0-샘플 항목으로라도 포함(사이클 없는 flow 도 테이블에 노출). 키는 flowName.
     /// 실패/테이블 부재 시 빈(또는 부분) 맵 반환 — 호출측은 결측을 "데이터 없음"으로 취급한다.
     /// </summary>
-    public async Task<Dictionary<string, OeeCtStat>> ComputeAsync(int sampleLimit, double percentile)
+    public Task<Dictionary<string, OeeCtStat>> ComputeAsync(int sampleLimit, double percentile)
+        => GetOrComputeCachedAsync($"compute|{sampleLimit}|{percentile}",
+            () => ComputeCoreAsync(sampleLimit, percentile));
+
+    private async Task<Dictionary<string, OeeCtStat>> ComputeCoreAsync(int sampleLimit, double percentile)
     {
         var result = new Dictionary<string, OeeCtStat>(StringComparer.OrdinalIgnoreCase);
         var dbPath = _pathResolver.GetSharedDbPath();
@@ -133,8 +174,13 @@ public sealed class OeeCtStatsService
     /// <paramref name="excludeUntilUtc"/>로 오늘 제외(자기참조 방지) — CT 임계와 동일 컨벤션.
     /// 표본 0 인 flow 는 맵에서 제외(호출측이 폴백 체인 ②③으로 처리).
     /// </summary>
-    public async Task<Dictionary<string, (double MedianMs, int Sample)>> ComputeGapMedianAsync(
+    public Task<Dictionary<string, (double MedianMs, int Sample)>> ComputeGapMedianAsync(
         int windowDays = 14, DateTime? excludeUntilUtc = null)
+        => GetOrComputeCachedAsync($"gap|{windowDays}|{excludeUntilUtc?.ToUniversalTime().Ticks}",
+            () => ComputeGapMedianCoreAsync(windowDays, excludeUntilUtc));
+
+    private async Task<Dictionary<string, (double MedianMs, int Sample)>> ComputeGapMedianCoreAsync(
+        int windowDays, DateTime? excludeUntilUtc)
     {
         var result = new Dictionary<string, (double MedianMs, int Sample)>(StringComparer.OrdinalIgnoreCase);
         var dbPath = _pathResolver.GetSharedDbPath();
@@ -189,8 +235,14 @@ public sealed class OeeCtStatsService
         }
     }
 
-    public async Task<Dictionary<string, (double AvgMs, double P10Ms, int Sample)>> ComputeCtThresholdAsync(
+    public Task<Dictionary<string, (double AvgMs, double P10Ms, int Sample)>> ComputeCtThresholdAsync(
         int windowDays = 14, int minCleanCycles = 1, DateTime? excludeUntilUtc = null, double? decayHalfLifeDays = null)
+        => GetOrComputeCachedAsync(
+            $"thr|{windowDays}|{minCleanCycles}|{excludeUntilUtc?.ToUniversalTime().Ticks}|{decayHalfLifeDays}",
+            () => ComputeCtThresholdCoreAsync(windowDays, minCleanCycles, excludeUntilUtc, decayHalfLifeDays));
+
+    private async Task<Dictionary<string, (double AvgMs, double P10Ms, int Sample)>> ComputeCtThresholdCoreAsync(
+        int windowDays, int minCleanCycles, DateTime? excludeUntilUtc, double? decayHalfLifeDays)
     {
         const double p10Percentile = 10.0; // best-demonstrated 분위수 (ComputeAsync 기본값과 동일)
         var result = new Dictionary<string, (double AvgMs, double P10Ms, int Sample)>(StringComparer.OrdinalIgnoreCase);

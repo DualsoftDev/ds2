@@ -344,8 +344,19 @@ public sealed class DatabaseLifecycleService
             //    인식되지 않고 plcTagLog 기록도 누락된다 (서비스 재시작해야 적용되던 증상).
             //    ResetAsync 직후 재초기화에서 BootstrapPlcTags 가 새 UserTag 주소를 캐시에 등록하고,
             //    SeedCallStatsFromDb 가 DB 통계를 다시 시드하므로 누적 통계 연속성도 유지된다.
-            await _engineService.ResetAsync();
-            _engineService.TryEnsureInitialized();
+            //    suspendInit=true 필수 — 게이트 없이 Reset 하면 teardown 의 컨슈머 대기 창(최대 2초)에
+            //    Hub 신호가 도착할 때 TryEnsureInitialized 가 엔진을 조기 재빌드하고, 직후 Reset 4단계가
+            //    그 fresh 세션/채널만 null 로 덮어 (_engine 은 남음) 재시작 전까지 모든 PLC 신호가
+            //    silent skip 되는 race 가 있다(RebuildDatabaseAsync 와 동일 유형). 성공/실패/예외 어느
+            //    경로든 Resume 은 반드시 호출 — 보류가 안 풀리면 역시 신호 전면 무시 상태가 된다.
+            try
+            {
+                await _engineService.ResetAsync(suspendInit: true);
+            }
+            finally
+            {
+                _engineService.ResumeInitializationAndStart();
+            }
 
             // 6) Layout 동기화 — Flow Guid 집합이 placement 와 다르면 백업 후 자동 재배치.
             //    도면(이미지/Canvas/Offset) 메타는 유지, FlowPlacements/FlowProcessOrder/Grid 만 재구성.

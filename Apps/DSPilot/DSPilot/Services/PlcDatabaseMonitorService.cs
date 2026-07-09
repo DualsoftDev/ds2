@@ -40,17 +40,28 @@ public class PlcDatabaseMonitorService : BackgroundService
     {
         _logger.LogInformation("PlcDatabaseMonitorService starting... (Poll interval: {Interval}ms)", _pollIntervalMs);
 
-        // 초기화: 모든 태그의 현재 상태를 배치 쿼리로 로드
-        await InitializeTagStatesAsync();
-
-        _logger.LogInformation("Tag states initialized: {Count} tags, starting from log ID {MaxId}",
-            _lastTagValues.Count, _lastCheckedMaxId);
+        // 초기화 성공 전에는 폴링을 시작하지 않는다 — 실패를 삼키고 진행하면 워터마크가 0인 채
+        // GetLogsAfterIdAsync(0) 이 과거 로그 전체를 대상으로 도는 폭주 경로가 된다(부팅 시
+        // SQLite 락 경합 1회로 진입 가능). UserTagAlertService 의 시드 가드와 동일 컨벤션.
+        var initialized = false;
 
         // 주기적으로 데이터베이스 polling (델타 기반)
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
+                if (!initialized)
+                {
+                    initialized = await InitializeTagStatesAsync();
+                    if (!initialized)
+                    {
+                        await Task.Delay(5000, stoppingToken); // 초기화 재시도 backoff
+                        continue;
+                    }
+                    _logger.LogInformation("Tag states initialized: {Count} tags, starting from log ID {MaxId}",
+                        _lastTagValues.Count, _lastCheckedMaxId);
+                }
+
                 await PollDatabaseForChangesAsync(stoppingToken);
                 await Task.Delay(_pollIntervalMs, stoppingToken);
             }
@@ -69,9 +80,10 @@ public class PlcDatabaseMonitorService : BackgroundService
     }
 
     /// <summary>
-    /// 모든 태그의 현재 상태를 단일 배치 쿼리로 로드
+    /// 모든 태그의 현재 상태를 단일 배치 쿼리로 로드. 실패 시 false — 호출측이 성공할 때까지
+    /// 재시도하며, 그동안 폴링은 시작되지 않는다(워터마크 0 폭주 방지).
     /// </summary>
-    private async Task InitializeTagStatesAsync()
+    private async Task<bool> InitializeTagStatesAsync()
     {
         using var scope = _scopeFactory.CreateScope();
         var plcRepo = scope.ServiceProvider.GetRequiredService<IPlcRepository>();
@@ -89,10 +101,12 @@ public class PlcDatabaseMonitorService : BackgroundService
 
             _logger.LogDebug("Initialized {Count} tag states from database (maxLogId: {MaxId})",
                 _lastTagValues.Count, _lastCheckedMaxId);
+            return true;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to initialize tag states");
+            _logger.LogError(ex, "Failed to initialize tag states — retrying before polling starts");
+            return false;
         }
     }
 

@@ -890,7 +890,7 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
     }
 
     /// <inheritdoc />
-    public async Task<List<PlcTagLogEntity>> GetLogsAfterIdAsync(long afterId)
+    public async Task<List<PlcTagLogEntity>> GetLogsAfterIdAsync(long afterId, int limit = 5000)
     {
         using var connection = CreateConnection();
 
@@ -899,6 +899,9 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
             return new List<PlcTagLogEntity>();
         }
 
+        // LIMIT 필수 — 워터마크가 크게 뒤처진 상태(부팅 직후 등)에서 무제한 조회하면 수개월치
+        // plcTagLog 를 통째로 materialize 한다. 호출측은 id ASC + 배치 Max(id) 워터마크 전진
+        // 패턴이라, 잘린 잔여분은 다음 폴링 주기에 이어서 처리된다.
         const string sql = @"
             SELECT
                 l.id AS Id,
@@ -910,9 +913,10 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
             FROM plcTagLog l
             INNER JOIN plcTag t ON l.plcTagId = t.id
             WHERE l.id > @AfterId
-            ORDER BY l.id ASC";
+            ORDER BY l.id ASC
+            LIMIT @Limit";
 
-        var rows = await connection.QueryAsync<PlcTagLogAddressRow>(sql, new { AfterId = afterId });
+        var rows = await connection.QueryAsync<PlcTagLogAddressRow>(sql, new { AfterId = afterId, Limit = limit });
         return rows.Select(row => new PlcTagLogEntity
         {
             Id = row.Id,

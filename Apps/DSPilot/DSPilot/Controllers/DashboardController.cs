@@ -4,6 +4,7 @@
 using System.Globalization;
 using DSPilot.Adapters;
 using DSPilot.Hubs;
+using DSPilot.Infrastructure;
 using DSPilot.Models.Dashboard;
 using DSPilot.Models.Dsp;
 using DSPilot.Services;
@@ -94,27 +95,31 @@ public class DashboardController : ControllerBase
     public async Task<ActionResult<List<FlowAverageDto>>> GetHistoryAverage([FromQuery] int days = 1)
     {
         days = Math.Clamp(days, 1, 90);
-        var since = DateTime.UtcNow.AddDays(-days);
 
-        var flowNames = _db.Snapshot.Flows.Select(f => f.FlowName).ToList();
-        var result = new List<FlowAverageDto>(flowNames.Count);
-
-        foreach (var name in flowNames)
+        // 탭당 60초 폴링 × flow별 N일치 행 전량 materialize — 동접 탭 수만큼 곱해지므로 30초 TTL 로
+        // 코얼레싱(클라 갱신 주기 60초의 절반 = 체감 무손실). 반환 리스트는 직렬화 전용(비변경).
+        return await TtlRequestCache.GetOrComputeAsync($"dashboard/average|{days}", TimeSpan.FromSeconds(30), async () =>
         {
-            var history = await _dspRepository.GetFlowHistoryByDaysAsync(name, days);
-            var active = history.Where(h => !h.IsIdle && h.MT.HasValue).ToList();
-            if (active.Count == 0)
-            {
-                result.Add(new FlowAverageDto(name, null, null, null, 0));
-                continue;
-            }
-            double avgMT = active.Average(h => (double)(h.MT ?? 0));
-            double avgWT = active.Average(h => (double)(h.WT ?? 0));
-            double avgCT = active.Average(h => (double)(h.CT ?? 0));
-            result.Add(new FlowAverageDto(name, avgMT, avgWT, avgCT, active.Count));
-        }
+            var flowNames = _db.Snapshot.Flows.Select(f => f.FlowName).ToList();
+            var result = new List<FlowAverageDto>(flowNames.Count);
 
-        return result;
+            foreach (var name in flowNames)
+            {
+                var history = await _dspRepository.GetFlowHistoryByDaysAsync(name, days);
+                var active = history.Where(h => !h.IsIdle && h.MT.HasValue).ToList();
+                if (active.Count == 0)
+                {
+                    result.Add(new FlowAverageDto(name, null, null, null, 0));
+                    continue;
+                }
+                double avgMT = active.Average(h => (double)(h.MT ?? 0));
+                double avgWT = active.Average(h => (double)(h.WT ?? 0));
+                double avgCT = active.Average(h => (double)(h.CT ?? 0));
+                result.Add(new FlowAverageDto(name, avgMT, avgWT, avgCT, active.Count));
+            }
+
+            return result;
+        });
     }
 
     /// <summary>
@@ -330,23 +335,28 @@ public class DashboardController : ControllerBase
     [HttpGet("today-cycles")]
     public async Task<ActionResult<int>> GetTodayCycles()
     {
-        var midnightUtc = DateTime.Now.Date.ToUniversalTime();
-        var flowNames = _db.Snapshot.Flows.Select(f => f.FlowName).ToList();
-
-        // 수동 지정 비생산 시간대(PlannedStops) 적용 — 병행 모델(2026-07-08): 지정 창은 항상 확정 비생산.
-        // (당일 자동 10×CT 판정은 시각대 윈도가 없어 이 간이 카운트에는 미반영 — 기존과 동일.)
-        var oee = _settings.LoadSettings().OeeManual;
-        var plannedWindows = oee.PlannedStops is { Count: > 0 }
-            ? oee.PlannedStops.Select(w => (w.StartMinutes, w.EndMinutes)).ToArray()
-            : Array.Empty<(int, int)>();
-
-        var total = 0;
-        foreach (var name in flowNames)
+        // 탭당 5초 폴링 체인(loadSnapshot→today-cycles) × flow별 당일 행 전량 materialize — 동접 탭 수만큼
+        // 곱해지므로 5초 TTL(폴링 주기와 동일 = 체감 무손실)로 코얼레싱.
+        return await TtlRequestCache.GetOrComputeAsync("dashboard/today-cycles", TimeSpan.FromSeconds(5), async () =>
         {
-            var hist = await _dspRepository.GetFlowHistoryByStartTimeAsync(name, midnightUtc);
-            total += hist.Count(h => !h.IsIdle && !IsInPlannedWindow(h, plannedWindows));
-        }
-        return total;
+            var midnightUtc = DateTime.Now.Date.ToUniversalTime();
+            var flowNames = _db.Snapshot.Flows.Select(f => f.FlowName).ToList();
+
+            // 수동 지정 비생산 시간대(PlannedStops) 적용 — 병행 모델(2026-07-08): 지정 창은 항상 확정 비생산.
+            // (당일 자동 10×CT 판정은 시각대 윈도가 없어 이 간이 카운트에는 미반영 — 기존과 동일.)
+            var oee = _settings.LoadSettings().OeeManual;
+            var plannedWindows = oee.PlannedStops is { Count: > 0 }
+                ? oee.PlannedStops.Select(w => (w.StartMinutes, w.EndMinutes)).ToArray()
+                : Array.Empty<(int, int)>();
+
+            var total = 0;
+            foreach (var name in flowNames)
+            {
+                var hist = await _dspRepository.GetFlowHistoryByStartTimeAsync(name, midnightUtc);
+                total += hist.Count(h => !h.IsIdle && !IsInPlannedWindow(h, plannedWindows));
+            }
+            return total;
+        });
     }
 
     /// <summary>사이클 시작 시각(로컬 분)이 비생산 시간대 윈도에 드는지 판정.</summary>

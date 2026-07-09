@@ -155,9 +155,10 @@ public interface IPlcRepository
     Task<(Dictionary<string, string> TagValues, long MaxLogId)> GetLatestValuePerTagAsync();
 
     /// <summary>
-    /// 지정 ID 이후의 새 로그를 일괄 조회 (델타 폴링용)
+    /// 지정 ID 이후의 새 로그를 일괄 조회 (델타 폴링용). id ASC 정렬로 최대 <paramref name="limit"/>건 —
+    /// 초과분은 호출측 워터마크(배치 Max id) 전진에 따라 다음 폴링에서 이어진다.
     /// </summary>
     /// <param name="afterId">이 ID보다 큰 로그만 조회</param>
     /// <returns>새 로그 목록 (address 포함)</returns>
-    Task<List<PlcTagLogEntity>> GetLogsAfterIdAsync(long afterId);
+    Task<List<PlcTagLogEntity>> GetLogsAfterIdAsync(long afterId, int limit = 5000);
 }

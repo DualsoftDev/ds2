@@ -1079,7 +1079,9 @@ window.dspDirtyRegister = function (fn) { window._dspDirtyChecker = fn; };
                 .catch(function () { /* 폴링 실패 시 마지막 값 유지 */ });
         }
         pollSummary();
-        setInterval(pollSummary, 4000);
+        // 숨긴 탭은 폴링 정지(방치 탭의 상시 유입 차단), 다시 보이면 즉시 1회 재조회로 따라잡기.
+        setInterval(function () { if (!document.hidden) pollSummary(); }, 4000);
+        document.addEventListener('visibilitychange', function () { if (!document.hidden) pollSummary(); });
 
         // ── 10) 실측 duration 자동 보정 완료 토스트 (전역) ──
         //   AutoCalibrationService 가 자동 실행으로 디바이스 duration 을 project.aasx 에 기록하면 SignalR

@@ -202,7 +202,10 @@
                     else await initLoad();
                     this.connectSignalR();
                     // '실제 제외 비생산' 타임라인은 설비효율 페이지에만 있음 — 생산효율/알람 페이지는 폴링 생략.
-                    this._pollTimer = setInterval(() => { this.load(true); if ((this.view === 'oee' || this.view === 'both') && !this._userBusy) this.refreshActualNonProd(); }, 10000);
+                    // 숨긴 탭(다른 탭 뒤/최소화)은 폴링을 정지 — 방치 탭이 무거운 OEE 엔드포인트를 계속
+                    // 때리는 것을 차단하고, 다시 보이는 순간 1회 즉시 재로드로 따라잡는다.
+                    this._pollTimer = setInterval(() => { if (document.hidden) return; this.load(true); if ((this.view === 'oee' || this.view === 'both') && !this._userBusy) this.refreshActualNonProd(); }, 10000);
+                    document.addEventListener('visibilitychange', () => { if (!document.hidden) this.load(true); });
                     // 알람 페이지 진입 시드(필터 스크롤·포커스·차단 모달) — OEE/TEEP 전용 페이지에서는 무의미하므로 스킵.
                     if (this.view !== 'oee' && this.view !== 'teep') {
                         // 필터 시드로 진입했으면 UserTag 카드로 스크롤(특정 알람 포커스가 있으면 그 행으로 직접 스크롤하므로 생략).
@@ -1214,9 +1217,30 @@
                 connectSignalR() {
                     if (!window.signalR) return;
                     const conn = new signalR.HubConnectionBuilder().withUrl('/hubs/monitoring').withAutomaticReconnect([0, 0, 1000, 3000, 5000, 10000]).build();
-                    const trigger = () => { clearTimeout(this._dt); this._dt = setTimeout(() => this.load(true), 300); };
-                    conn.on('CallStateChangedBatch', trigger);
-                    conn.on('CallStateChanged', trigger);
+                    // 이벤트-트리거 재조회는 디바운스가 아니라 스로틀(최소 5초 간격, trailing 1회) —
+                    // 생산 중엔 사이클마다 CallStateChanged 가 오므로 300ms 디바운스만으로는 탭당 초당
+                    // 수 회 × 무거운 OEE 엔드포인트 전체 재조회가 된다(동접 탭 수만큼 곱해짐).
+                    // 10초 폴링이 병행되므로 5초 상한으로도 체감 즉시성은 유지된다. 숨긴 탭은 스킵.
+                    const trigger = () => {
+                        if (document.hidden) return;
+                        const since = Date.now() - (this._lastTrigLoad || 0);
+                        if (since >= 5000) {
+                            this._lastTrigLoad = Date.now();
+                            this.load(true);
+                        } else if (!this._dt) {
+                            this._dt = setTimeout(() => {
+                                this._dt = null;
+                                this._lastTrigLoad = Date.now();
+                                this.load(true);
+                            }, 5000 - since);
+                        }
+                    };
+                    // Call 상태변화 구독은 알람 페이지에서 제외 — 알람 데이터와 무관한 이벤트인데
+                    // 생산 중 최다 빈도 소스라, 알람 탭까지 사이클마다 스냅샷을 재조회하게 만든다.
+                    if (this.view !== 'alarm') {
+                        conn.on('CallStateChangedBatch', trigger);
+                        conn.on('CallStateChanged', trigger);
+                    }
                     conn.on('DatabaseRebuilt', () => { this.load(true); });
                     conn.on('FlowHistoryCleared', trigger);
                     // 신규 UserTag 알림 — 총알림·시계열 추이를 상단바 배지와 동일하게 실시간 갱신 (issue #176).

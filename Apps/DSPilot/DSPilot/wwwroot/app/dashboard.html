@@ -1307,11 +1307,14 @@
                 this.loadAbnormals();
                 this.abnStartTicker();
                 this.connectSignalR();
-                this._pollTimer = setInterval(() => this.loadSnapshot(), 5000);
+                // 숨긴 탭(다른 탭 뒤/최소화)은 폴링 정지 — 방치된 대시보드 탭이 서버를 계속 때리지 않게.
+                // 다시 보이는 순간 스냅샷 1회 즉시 재로드로 따라잡는다(상시 표시 관제 모니터는 영향 없음).
+                this._pollTimer = setInterval(() => { if (!document.hidden) this.loadSnapshot(); }, 5000);
+                document.addEventListener('visibilitychange', () => { if (!document.hidden) this.loadSnapshot(); });
                 // 시프트 카운트다운은 분 단위 표시라 1초 틱은 불필요한 reactivity churn — 15초면 충분히 라이브.
                 this._shiftTimer = setInterval(() => { this.nowTick = Date.now(); }, 15000);
                 // 히스토리 평균·비생산·당일사이클은 1분 주기 갱신 (5초 스냅샷과 분리 — DB집계라 비용 있음).
-                this._avgTimer = setInterval(() => { if (this.showAverage) this.loadHistAvg(); this.loadNonprod(); this.loadTodayCycles(); this.loadCompare(); }, 60000);
+                this._avgTimer = setInterval(() => { if (document.hidden) return; if (this.showAverage) this.loadHistAvg(); this.loadNonprod(); this.loadTodayCycles(); this.loadCompare(); }, 60000);
                 // 전체화면 변화 → CCTV 타일 바 숨김 토글 + 레터박스 좌표 재계산.
                 const onFsChange = () => {
                     this.cctvFullscreen = !!document.fullscreenElement;

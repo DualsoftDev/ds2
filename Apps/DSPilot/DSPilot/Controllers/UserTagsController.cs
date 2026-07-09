@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
+using DSPilot.Infrastructure;
 using DSPilot.Models.UserTagAlerts;
 using DSPilot.Repositories;
 using DSPilot.Services;
@@ -62,6 +63,12 @@ public class UserTagsController : ControllerBase
         var size = Math.Clamp(pageSize, 5, 200);
         var sortDesc = !string.Equals(sortDir, "asc", StringComparison.OrdinalIgnoreCase);
 
+        // 요청당 쿼리 9개(집계 4개 포함) — 탭당 10초 폴링 × 동접 탭 수만큼 곱해지므로 10초 TTL 로
+        // 코얼레싱. endUtc 는 보통 '지금'이라 키만 10초 격자로 양자화(staleness = 폴링 주기 이하).
+        var cacheKey = $"usertags/snapshot|{page}|{size}|{name}|{cat}|{sys}|{flw}|{Blank(sort)}|{sortDesc}|{gran}"
+                       + $"|{startUtc.Ticks}|{endUtc.Ticks / (TimeSpan.TicksPerSecond * 10)}";
+        return await TtlRequestCache.GetOrComputeAsync(cacheKey, TimeSpan.FromSeconds(10), async () =>
+        {
         var total = await _repo.CountAlertsAsync(startUtc, endUtc, name, lvl, sys, cat, ct, flowFilter: flw);
         var maxPage = Math.Max(1, (int)Math.Ceiling(total / (double)size));
         if (page * size >= total) page = 0;
@@ -102,6 +109,7 @@ public class UserTagsController : ControllerBase
             activeError, todayError, lastAlertAtLocal,
             defDtos, systemOptions,
             _settings.LoadSettings().Ui.AlarmTickerIntervalSec);
+        });
     }
 
     /// <summary>

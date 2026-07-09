@@ -714,7 +714,109 @@ public abstract class OeeControllerBase : ControllerBase
     private sealed class DtCycleRaw { public string? RecordedAt { get; set; } public long? Ct { get; set; } public long? Mt { get; set; } }
     private sealed class NocycleRaw { public string? StartAt { get; set; } public string? EndAt { get; set; } }
 
+    // ── 사이클 집계 TTL 캐시 + single-flight ─────────────────────────────────
+    // 폴링 엔드포인트 4종(summary/daily/actual/teep)과 ranking 의 flow별 루프가 같은 (기간,flow) 집계를
+    // 요청마다 전량 재계산한다 — 동접 탭 수만큼 정비례 증폭되는 최대 항목. 결과는 10초 TTL 로 공유한다
+    // (폴링 주기와 동일 = 체감 무손실). toUtc 는 보통 '지금'이라 키만 10초 격자로 양자화 — 재사용 시
+    // 벽시계 합산이 최대 10초 어긋나지만 시간 단위 창의 % 지표에서 무시 가능. static 인 이유: 컨트롤러는
+    // 요청마다 새로 만들어지므로 인스턴스 캐시는 무의미. 캐시 원본은 불변 취급 — 반환은 반드시 CloneAgg.
+    private static readonly TimeSpan AggCacheTtl = TimeSpan.FromSeconds(10);
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTime ExpiresUtc, CycleAgg Value)> s_aggCache = new();
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<Task<CycleAgg>>> s_aggInflight = new();
+
+    private static string BuildAggKey(
+        string? flowName, DateTime fromUtc, DateTime toUtc,
+        IReadOnlyDictionary<string, (double AvgMs, double P10Ms, int Sample)> thresholds,
+        IReadOnlyList<(int StartMin, int EndMin)> plannedWindows, bool applyLongStop,
+        bool collectRunIntervals, IReadOnlyList<(double S, double E, string? Flow)>? maintIntervals,
+        bool collectNormalCycles, bool collectDowntimeCycles)
+    {
+        var sb = new System.Text.StringBuilder(256);
+        sb.Append(flowName ?? "*").Append('|').Append(fromUtc.Ticks).Append('|')
+          .Append(toUtc.Ticks / (TimeSpan.TicksPerSecond * 10)).Append('|')  // 10초 격자
+          .Append(applyLongStop ? '1' : '0').Append(collectRunIntervals ? '1' : '0')
+          .Append(collectNormalCycles ? '1' : '0').Append(collectDowntimeCycles ? '1' : '0').Append('|');
+        foreach (var k in thresholds.Keys.OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+        {
+            var v = thresholds[k];
+            sb.Append(k).Append(':').Append(v.AvgMs).Append(':').Append(v.P10Ms).Append(':').Append(v.Sample).Append(';');
+        }
+        sb.Append('|');
+        foreach (var w in plannedWindows) sb.Append(w.StartMin).Append('-').Append(w.EndMin).Append(';');
+        sb.Append('|');
+        if (maintIntervals is not null)
+            foreach (var m in maintIntervals) sb.Append(m.S).Append(':').Append(m.E).Append(':').Append(m.Flow).Append(';');
+        return sb.ToString();
+    }
+
+    private static CycleAgg CloneAgg(in CycleAgg v) => v with
+    {
+        OnsetsMs = new List<double>(v.OnsetsMs),
+        RepairMsList = new List<double>(v.RepairMsList),
+        NonProdIntervals = v.NonProdIntervals is null ? null : new List<(double S, double E)>(v.NonProdIntervals),
+        RunIntervals = v.RunIntervals is null ? null : new List<(double S, double E)>(v.RunIntervals),
+        IdleIntervals = v.IdleIntervals is null ? null : new List<(double S, double E)>(v.IdleIntervals),
+        NormalCycles = v.NormalCycles is null ? null : new List<(double StartMs, double CtMs)>(v.NormalCycles),
+        UnmeasuredIntervals = v.UnmeasuredIntervals is null ? null : new List<(double S, double E)>(v.UnmeasuredIntervals),
+        RunWallIntervals = v.RunWallIntervals is null ? null : new List<(double S, double E)>(v.RunWallIntervals),
+        DownMaintWallIntervals = v.DownMaintWallIntervals is null ? null : new List<(double S, double E)>(v.DownMaintWallIntervals),
+        DowntimeCycles = v.DowntimeCycles is null ? null : new List<(string? Flow, double StartMs, double EndMs, double CtMs, bool NonProd)>(v.DowntimeCycles),
+    };
+
     protected async Task<CycleAgg> ComputeCycleAggregateAsync(
+        string? flowName, DateTime fromUtc, DateTime toUtc,
+        IReadOnlyDictionary<string, (double AvgMs, double P10Ms, int Sample)> thresholds,
+        IReadOnlyList<(int StartMin, int EndMin)> plannedWindows, bool applyLongStop, CancellationToken ct,
+        bool collectRunIntervals = false,
+        IReadOnlyList<(double S, double E, string? Flow)>? maintIntervals = null,
+        bool collectNormalCycles = false,
+        bool collectDowntimeCycles = false)
+    {
+        var key = BuildAggKey(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop,
+            collectRunIntervals, maintIntervals, collectNormalCycles, collectDowntimeCycles);
+
+        if (s_aggCache.TryGetValue(key, out var hit) && hit.ExpiresUtc > DateTime.UtcNow)
+            return CloneAgg(hit.Value);
+
+        Task<CycleAgg> ComputeSelfAsync() => ComputeCycleAggregateCoreAsync(
+            flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct,
+            collectRunIntervals, maintIntervals, collectNormalCycles, collectDowntimeCycles);
+
+        var lazy = new Lazy<Task<CycleAgg>>(ComputeSelfAsync);
+        var winner = s_aggInflight.GetOrAdd(key, lazy);
+        if (ReferenceEquals(winner, lazy))
+        {
+            try
+            {
+                var v = await lazy.Value;
+                s_aggCache[key] = (DateTime.UtcNow.Add(AggCacheTtl), v);
+                if (s_aggCache.Count > 256)
+                    foreach (var stale in s_aggCache.Where(e => e.Value.ExpiresUtc <= DateTime.UtcNow).ToList())
+                        s_aggCache.TryRemove(stale.Key, out _);
+                return CloneAgg(v);
+            }
+            finally
+            {
+                s_aggInflight.TryRemove(key, out _);
+            }
+        }
+
+        try
+        {
+            var shared = await winner.Value;
+            return CloneAgg(shared);
+        }
+        catch
+        {
+            // 계산 주체 요청이 취소(_repo 는 Scoped — 주체의 스코프/토큰에 묶임)되거나 실패한 경우
+            // 예외를 공유하지 않고 이 요청의 스코프로 직접 재계산한다.
+            var v = await ComputeSelfAsync();
+            s_aggCache[key] = (DateTime.UtcNow.Add(AggCacheTtl), v);
+            return CloneAgg(v);
+        }
+    }
+
+    private async Task<CycleAgg> ComputeCycleAggregateCoreAsync(
         string? flowName, DateTime fromUtc, DateTime toUtc,
         IReadOnlyDictionary<string, (double AvgMs, double P10Ms, int Sample)> thresholds,
         IReadOnlyList<(int StartMin, int EndMin)> plannedWindows, bool applyLongStop, CancellationToken ct,

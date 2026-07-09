@@ -52,6 +52,11 @@ public class HeatmapController : ControllerBase
     /// period: all | today | 7d | 30d (Blazor Heatmap 페이지의 기간 프리셋과 동일).
     /// 이상치 제외 필터는 클라이언트(heatmap.html)에서 적용한다 — 원본 회차를 모두 내려보낸다.
     /// </summary>
+    // 응답 회차 수 상한 — period="all"(기본값)은 plcTagLog 전 이력 매칭이라 수개월 운영 DB 에서
+    // 무제한이면 요청 1회가 수백만 레코드 + 거대 JSON 을 만든다. maxCycles 는 "최근 N회 유지"
+    // 의미(HeatmapService 가 뒤에서 자름)라 차트 용도에는 5000회면 사실상 전체와 동일.
+    private const int MaxHistoryCycles = 5000;
+
     [HttpGet("call-history")]
     public async Task<ActionResult<List<CallExecutionRecord>>> GetCallHistory(
         [FromQuery] Guid callId, [FromQuery] string period = "all")
@@ -60,7 +65,7 @@ public class HeatmapController : ControllerBase
             return BadRequest("callId is required.");
 
         var (start, end) = ResolvePeriod(period);
-        return await _heatmap.GetCallExecutionHistoryAsync(callId, start, end, null);
+        return await _heatmap.GetCallExecutionHistoryAsync(callId, start, end, MaxHistoryCycles);
     }
 
     /// <summary>

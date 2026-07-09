@@ -328,10 +328,16 @@ public class DspRepositoryAdapter : IDspRepository
             const string createFlowHistoryIdxFlowTime =
                 "CREATE INDEX IF NOT EXISTS idx_dspFlowHistory_flow_recordedAt ON dspFlowHistory(flowName, recordedAt)";
 
+            // CT 임계/gap 통계(OeeCtStatsService)는 flowName 조건 없이 recordedAt 범위만 거는데, 복합
+            // 인덱스는 선두열(flowName)이 빠지면 seek 불가라 풀스캔이 된다 — recordedAt 단독 인덱스로 보완.
+            const string createFlowHistoryIdxTime =
+                "CREATE INDEX IF NOT EXISTS idx_dspFlowHistory_recordedAt ON dspFlowHistory(recordedAt)";
+
             await conn.ExecuteAsync(createFlow);
             await conn.ExecuteAsync(createCall);
             await conn.ExecuteAsync(createFlowHistory);
             await conn.ExecuteAsync(createFlowHistoryIdxFlowTime);
+            await conn.ExecuteAsync(createFlowHistoryIdxTime);
             await conn.ExecuteAsync(createPlc);
             await conn.ExecuteAsync(createPlcTag);
             await conn.ExecuteAsync(createPlcTagLog);
