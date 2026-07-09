@@ -81,6 +81,7 @@ builder.Services.AddSingleton<IDatabasePathResolver>(sp => sp.GetRequiredService
 
 // Core services
 builder.Services.AddSingleton<AppSettingsService>();
+builder.Services.AddSingleton<DemoAdminService>(); // 데모용 관리자 게이트 (설정 페이지 보호, /demo/admin 토글)
 builder.Services.AddSingleton<DsProjectService>();
 builder.Services.AddScoped<DashboardEditService>();
 builder.Services.AddSingleton<BlueprintService>();
@@ -270,6 +271,30 @@ app.Logger.LogInformation("▶ DSPilot uploads dir: {Path}, exists: {E}", upload
 static void Revalidate(Microsoft.AspNetCore.StaticFiles.StaticFileResponseContext ctx)
     => ctx.Context.Response.Headers.CacheControl = "no-cache";
 
+// ── 데모 관리자 게이트: 설정 페이지 진입 시 로그인 요구 (게이트 활성 시에만) ──
+// /demo/admin 활성화 페이지에서 코드 입력으로 on/off (DemoAdminService). 정적 서빙(UseStaticFiles)보다
+// 먼저 실행해야 /app/settings.html 직접 접근도 가로챈다. 비활성 시 완전 무개입(기존과 동일 진입).
+// 게이트 활성/비활성 여부는 UI/API 어디에도 표시하지 않는다.
+{
+    var demoAdmin = app.Services.GetRequiredService<DemoAdminService>();
+    app.Use(async (context, next) =>
+    {
+        var reqPath = context.Request.Path.Value ?? string.Empty;
+        var isSettingsPage = HttpMethods.IsGet(context.Request.Method)
+            && (string.Equals(reqPath, "/settings", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(reqPath, "/app/settings.html", StringComparison.OrdinalIgnoreCase));
+        if (isSettingsPage
+            && demoAdmin.IsEnabled
+            && !demoAdmin.IsSessionValid(context.Request.Cookies[DemoAdminService.SessionCookieName]))
+        {
+            var returnUrl = Uri.EscapeDataString(reqPath + context.Request.QueryString);
+            context.Response.Redirect("/admin-login?return=" + returnUrl, permanent: false);
+            return;
+        }
+        await next();
+    });
+}
+
 app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(uploadsPath),
@@ -303,6 +328,9 @@ var canonicalStaticRoutes = new Dictionary<string, string>(StringComparer.Ordina
     ["/settings"] = "settings.html",
     ["/flow-trend"] = "flow-trend.html",
     ["/flow-cycle"] = "flow-cycle.html",   // ?name= 단일 · 매개변수 없음/?system= 전체 편집(bulkCycleApp)
+    // 데모 관리자 게이트(2026-07-09): 나브에 노출하지 않는 직접 URL 전용 페이지 2종.
+    ["/admin-login"] = "admin-login.html", // 게이트 활성 시 /settings 진입 관문 (위 데모 게이트 미들웨어가 302)
+    ["/demo/admin"] = "demo-admin.html",   // 코드 입력으로 게이트 on/off 토글 (상태 비표시)
 };
 // 구 통합 경로 → 물리 분리 페이지 리다이렉트(가동시간·이상 분리, 2026-07-01). 쿼리스트링 보존.
 //   /uptime, /oee 는 이제 효율 현황(/uptime-oee)으로 302. 이상·알람은 좌측 나브/링크가 /uptime-alarm 직접 이동.

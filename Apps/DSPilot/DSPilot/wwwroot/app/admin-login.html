@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>관리자 로그인 — DSPilot</title>
+
+    <!--
+      데모 관리자 게이트 — 로그인 관문 페이지 (독립 셸: shell.js/나브 미로드).
+      게이트 활성 시 Program.cs 미들웨어가 /settings → 여기로 302 (?return= 원래 경로).
+      POST /api/demo-admin/login {id, password} → 성공 시 HttpOnly 세션 쿠키 발급 후 return 경로로 이동.
+      게이트 활성/비활성 상태는 이 페이지 어디에도 표시하지 않는다.
+      디자인 시스템: /css/ds.css (Control Room 토큰). 페이지 고유 클래스(alogin-*)만 인라인.
+    -->
+    <link href="/css/fonts.css" rel="stylesheet" />
+    <link href="/css/ds.css" rel="stylesheet" />
+    <script>
+        // 테마 부트스트랩 — shell.js 미로드 페이지이므로 동일 키(dspilot-theme)로 직접 적용 (FOUC 방지, head 동기 실행)
+        (function () {
+            var dark = localStorage.getItem('dspilot-theme') === 'dark';
+            document.documentElement.classList.toggle('dark', dark);
+            document.documentElement.classList.toggle('dark-theme', dark);
+        })();
+    </script>
+
+    <style>
+        .alogin-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px 16px; background: var(--color-background); color: var(--color-text-primary); font-family: var(--font-family); }
+        .alogin-wrap { width: 100%; max-width: 380px; }
+
+        /* 브랜드 로크업 — 관제실 계기판 결 (mono 워드마크 + 헤어라인) */
+        .alogin-brand { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 18px; user-select: none; }
+        .alogin-brand .material-icons { font-size: 22px; color: var(--color-primary); }
+        .alogin-brand-name { font-family: var(--font-family-mono, 'Cascadia Code', Consolas, monospace); font-size: 1.05rem; font-weight: 700; letter-spacing: 0.14em; }
+
+        .alogin-card { background: var(--color-surface); border: 1px solid var(--color-lines-strong); border-radius: var(--radius-md); box-shadow: var(--shadow-4); padding: 26px 26px 24px; }
+        .alogin-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+        .alogin-head .material-icons { font-size: 20px; color: var(--color-primary); }
+        .alogin-title { font-size: 1.02rem; font-weight: 700; }
+        .alogin-sub { display: block; color: var(--color-text-secondary); font-size: 0.78rem; line-height: 1.55; margin: 6px 0 18px; }
+
+        .alogin-field { margin-bottom: 14px; }
+        .alogin-field label { display: block; font-size: 0.74rem; font-weight: 600; color: var(--color-text-secondary); margin-bottom: 6px; letter-spacing: 0.02em; }
+        .alogin-field .form-field { width: 100%; box-sizing: border-box; }
+
+        .alogin-error { display: flex; align-items: center; gap: 6px; min-height: 20px; margin: 2px 0 12px; color: var(--color-error); font-size: 0.76rem; font-weight: 600; visibility: hidden; }
+        .alogin-error.show { visibility: visible; animation: alogin-shake 0.3s ease-in-out 1; }
+        .alogin-error .material-icons { font-size: 15px; }
+        @keyframes alogin-shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-4px); }
+            75% { transform: translateX(4px); }
+        }
+
+        .alogin-submit { width: 100%; justify-content: center; }
+        .alogin-submit[disabled] { opacity: 0.65; }
+
+        .alogin-foot { text-align: center; margin-top: 16px; color: var(--color-text-secondary); font-size: 0.68rem; letter-spacing: 0.06em; user-select: none; }
+    </style>
+</head>
+
+<body>
+    <div class="alogin-page">
+        <div class="alogin-wrap">
+            <div class="alogin-brand">
+                <span class="material-icons" aria-hidden="true">precision_manufacturing</span>
+                <span class="alogin-brand-name">DSPILOT</span>
+            </div>
+
+            <form class="alogin-card" id="aloginForm" autocomplete="on">
+                <div class="alogin-head">
+                    <span class="material-icons" aria-hidden="true">lock</span>
+                    <span class="alogin-title">관리자 로그인</span>
+                </div>
+                <small class="alogin-sub">설정 페이지에 접근하려면 관리자 인증이 필요합니다.</small>
+
+                <div class="alogin-field">
+                    <label for="aloginId">아이디</label>
+                    <input class="form-field" id="aloginId" name="username" type="text"
+                           autocomplete="username" autocapitalize="off" spellcheck="false" autofocus required />
+                </div>
+                <div class="alogin-field">
+                    <label for="aloginPw">비밀번호</label>
+                    <input class="form-field" id="aloginPw" name="password" type="password"
+                           autocomplete="current-password" required />
+                </div>
+
+                <div class="alogin-error" id="aloginError" role="alert">
+                    <span class="material-icons" aria-hidden="true">error</span>
+                    <span id="aloginErrorText">아이디 또는 비밀번호가 올바르지 않습니다.</span>
+                </div>
+
+                <button type="submit" class="btn btn-primary alogin-submit" id="aloginSubmit">
+                    <span class="material-icons" aria-hidden="true">login</span> 로그인
+                </button>
+            </form>
+
+            <div class="alogin-foot">DUALSOFT · DSPilot</div>
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            var form = document.getElementById('aloginForm');
+            var errBox = document.getElementById('aloginError');
+            var errText = document.getElementById('aloginErrorText');
+            var submitBtn = document.getElementById('aloginSubmit');
+
+            // return 파라미터 — 오픈 리다이렉트 방지: 같은 오리진 상대경로("/...")만 허용, "//"(프로토콜 상대) 차단
+            function returnUrl() {
+                var raw = new URLSearchParams(location.search).get('return') || '/settings';
+                return (raw.charAt(0) === '/' && raw.charAt(1) !== '/') ? raw : '/settings';
+            }
+
+            form.addEventListener('submit', async function (e) {
+                e.preventDefault();
+                errBox.classList.remove('show');
+                submitBtn.disabled = true;
+                try {
+                    var res = await fetch('/api/demo-admin/login', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            id: document.getElementById('aloginId').value,
+                            password: document.getElementById('aloginPw').value
+                        })
+                    });
+                    if (res.ok) {
+                        location.replace(returnUrl());
+                        return;
+                    }
+                    var body = null;
+                    try { body = await res.json(); } catch (_) { /* 비 JSON 응답 무시 */ }
+                    errText.textContent = (body && body.message) || '로그인에 실패했습니다.';
+                    errBox.classList.add('show');
+                    document.getElementById('aloginPw').value = '';
+                    document.getElementById('aloginPw').focus();
+                } catch (_) {
+                    errText.textContent = '서버에 연결할 수 없습니다.';
+                    errBox.classList.add('show');
+                } finally {
+                    submitBtn.disabled = false;
+                }
+            });
+        })();
+    </script>
+</body>
+
+</html>

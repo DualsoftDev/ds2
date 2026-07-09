@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DSPilot</title>
+
+    <!--
+      데모 관리자 게이트 — 활성화 코드 입력 페이지 (/demo/admin, 나브 비노출·직접 URL 전용).
+      POST /api/demo-admin/toggle {code} — 코드 일치 시 설정 페이지 로그인 게이트를 on/off 토글.
+      의도적으로 현재 활성/비활성 상태를 어디에도 표시하지 않는다(응답 메시지도 상태 무관 동일).
+      디자인 시스템: /css/ds.css. 페이지 고유 클래스(dadm-*)만 인라인.
+    -->
+    <link href="/css/fonts.css" rel="stylesheet" />
+    <link href="/css/ds.css" rel="stylesheet" />
+    <script>
+        // 테마 부트스트랩 — shell.js 미로드 페이지이므로 동일 키(dspilot-theme)로 직접 적용
+        (function () {
+            var dark = localStorage.getItem('dspilot-theme') === 'dark';
+            document.documentElement.classList.toggle('dark', dark);
+            document.documentElement.classList.toggle('dark-theme', dark);
+        })();
+    </script>
+
+    <style>
+        .dadm-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px 16px; background: var(--color-background); color: var(--color-text-primary); font-family: var(--font-family); }
+        .dadm-card { width: 100%; max-width: 320px; background: var(--color-surface); border: 1px solid var(--color-lines-strong); border-radius: var(--radius-md); box-shadow: var(--shadow-4); padding: 24px; }
+        .dadm-head { display: flex; align-items: center; gap: 9px; margin-bottom: 16px; }
+        .dadm-head .material-icons { font-size: 19px; color: var(--color-primary); }
+        .dadm-title { font-size: 0.95rem; font-weight: 700; }
+        .dadm-field { display: flex; gap: 8px; }
+        .dadm-field .form-field { flex: 1; min-width: 0; font-family: var(--font-family-mono, Consolas, monospace); letter-spacing: 0.2em; }
+        .dadm-msg { display: block; min-height: 18px; margin-top: 10px; font-size: 0.76rem; font-weight: 600; }
+        .dadm-msg.ok { color: var(--color-success); }
+        .dadm-msg.err { color: var(--color-error); }
+    </style>
+</head>
+
+<body>
+    <div class="dadm-page">
+        <form class="dadm-card" id="dadmForm">
+            <div class="dadm-head">
+                <span class="material-icons" aria-hidden="true">key</span>
+                <span class="dadm-title">코드 입력</span>
+            </div>
+            <div class="dadm-field">
+                <input class="form-field" id="dadmCode" type="password" inputmode="numeric"
+                       autocomplete="off" autocapitalize="off" spellcheck="false" autofocus required />
+                <button type="submit" class="btn btn-primary" id="dadmSubmit">적용</button>
+            </div>
+            <small class="dadm-msg" id="dadmMsg" role="status"></small>
+        </form>
+    </div>
+
+    <script>
+        (function () {
+            var form = document.getElementById('dadmForm');
+            var code = document.getElementById('dadmCode');
+            var msg = document.getElementById('dadmMsg');
+            var submitBtn = document.getElementById('dadmSubmit');
+
+            form.addEventListener('submit', async function (e) {
+                e.preventDefault();
+                msg.textContent = '';
+                msg.className = 'dadm-msg';
+                submitBtn.disabled = true;
+                try {
+                    var res = await fetch('/api/demo-admin/toggle', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ code: code.value })
+                    });
+                    var body = null;
+                    try { body = await res.json(); } catch (_) { /* 비 JSON 응답 무시 */ }
+                    msg.textContent = (body && body.message) || (res.ok ? '적용되었습니다.' : '요청이 실패했습니다.');
+                    msg.className = 'dadm-msg ' + (res.ok ? 'ok' : 'err');
+                    code.value = '';
+                    code.focus();
+                } catch (_) {
+                    msg.textContent = '서버에 연결할 수 없습니다.';
+                    msg.className = 'dadm-msg err';
+                } finally {
+                    submitBtn.disabled = false;
+                }
+            });
+        })();
+    </script>
+</body>
+
+</html>
