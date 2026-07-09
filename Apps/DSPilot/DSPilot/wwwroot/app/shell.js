@@ -305,6 +305,12 @@ window.dspDirtyRegister = function (fn) { window._dspDirtyChecker = fn; };
         ];
         var PLC_DEBUG_ITEM = { label: 'PLC 디버그', href: '/plc-debug', icon: 'bug_report', match: 'prefix', legacy: '/app/plc-debug.html' };
         var SETTINGS_ITEM = { label: '설정', href: '/settings', icon: 'settings', match: 'prefix', legacy: '/app/settings.html' };
+        // 외부 도구 바로가기(절대 URL). external:true → buildNavLink 이 새 탭(target=_blank) + open_in_new 아이콘 부여.
+        // 주소 변경 시 이 배열의 href 만 수정하면 전 페이지 사이드바에 반영됨(shell.js 는 모든 /app/*.html 공용).
+        var EXTERNAL_ITEMS = [
+            { label: '설비박사 챗봇',       href: 'http://121.139.3.28:2748/', icon: 'smart_toy', external: true },
+            { label: 'ReverseAI PLCtoAASX', href: 'http://121.139.3.28:2747',  icon: 'sync_alt',  external: true }
+        ];
 
         var path = (location.pathname || '/').replace(/\/+$/, '') || '/';
         function isActive(item) {
@@ -322,8 +328,18 @@ window.dspDirtyRegister = function (fn) { window._dspDirtyChecker = fn; };
         function buildNavLink(item, activeCls, idleCls) {
             var a = el('a', isActive(item) ? activeCls : idleCls);
             a.href = item.href;
+            // 외부 도구 바로가기: 새 탭으로 열고(현재 모니터링 페이지 유지), 우측에 open_in_new 아이콘 표시.
+            if (item.external) {
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+            }
             a.appendChild(icon(item.icon));
             a.appendChild(el('span', 'font-label-sm text-label-sm', item.label));
+            if (item.external) {
+                var ext = icon('open_in_new');
+                ext.style.cssText = 'margin-left:auto;flex:0 0 auto;font-size:15px;opacity:0.5;';
+                a.appendChild(ext);
+            }
             return a;
         }
 
@@ -671,10 +687,27 @@ window.dspDirtyRegister = function (fn) { window._dspDirtyChecker = fn; };
             }
         }
 
-        // 푸터 (설정)
+        // 푸터 (외부 바로가기[데모 게이트 활성 시] + 설정)
         var footer = el('div', 'p-4 border-t border-outline-variant dark:border-outline flex flex-col gap-1');
-        footer.appendChild(buildNavLink(SETTINGS_ITEM, SET_ACTIVE, SET_IDLE));
+        var settingsLink = buildNavLink(SETTINGS_ITEM, SET_ACTIVE, SET_IDLE);
+        footer.appendChild(settingsLink);
         aside.appendChild(footer);
+
+        // 외부 도구 바로가기(설비박사 챗봇·ReverseAI PLCtoAASX) — 데모 관리자 게이트가 활성일 때만 노출.
+        //   /api/nav 의 showExternalShortcuts(=DemoAdminService.IsEnabled)가 true 일 때 아래 콜백에서 호출한다.
+        //   게이트 비활성이면 아예 DOM 에 넣지 않아 사이드바에 흔적이 없다('바로가기' 라벨 포함 미렌더).
+        //   '설정' 링크 앞에 '바로가기' 라벨 + 링크들을 삽입한다.
+        function renderExternalShortcuts() {
+            if (footer.querySelector('[data-dsp-ext-shortcut]')) return;   // 중복 렌더 방지
+            var label = el('div', 'text-[10px] uppercase font-bold tracking-wider text-outline px-4 mb-1', '바로가기');
+            label.setAttribute('data-dsp-ext-shortcut', '');
+            footer.insertBefore(label, settingsLink);
+            EXTERNAL_ITEMS.forEach(function (item) {
+                var link = buildNavLink(item, SET_ACTIVE, SET_IDLE);
+                link.setAttribute('data-dsp-ext-shortcut', '');
+                footer.insertBefore(link, settingsLink);
+            });
+        }
 
         // ── 5) 메인 + 상단 헤더 ──
         var main = el('main', 'min-h-screen');
@@ -950,6 +983,8 @@ window.dspDirtyRegister = function (fn) { window._dspDirtyChecker = fn; };
             if (!a) return;
             var href = a.getAttribute('href');
             if (!href || href.charAt(0) === '#' || href.indexOf('javascript:') === 0) return;
+            // 새 탭 링크(외부 바로가기)는 현재 페이지를 떠나지 않으므로 더티 가드 제외 — 그대로 새 탭에서 열림.
+            if (a.target === '_blank') return;
             if (!_isDirty()) return;
             e.preventDefault();
             navigateTo(href);
@@ -978,6 +1013,8 @@ window.dspDirtyRegister = function (fn) { window._dspDirtyChecker = fn; };
                 if (data.showPlcDebug) {
                     navMenu.appendChild(buildNavLink(PLC_DEBUG_ITEM, LINK_ACTIVE, LINK_IDLE));
                 }
+                // 외부 바로가기 — 데모 관리자 게이트 활성 시에만(플래그 true) 푸터에 삽입.
+                if (data.showExternalShortcuts) renderExternalShortcuts();
                 buildSystemSubmenu(data.systems);
             })
             .catch(function () { /* ignore */ });

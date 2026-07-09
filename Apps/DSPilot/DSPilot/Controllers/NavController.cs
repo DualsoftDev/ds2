@@ -29,6 +29,7 @@ public class NavController : ControllerBase
     private readonly IUserTagAlertRepository _alertRepo;
     private readonly AbnormalEventService _abnormal;
     private readonly BlueprintService _blueprint;
+    private readonly DemoAdminService _demoAdmin;
 
     public NavController(
         DsProjectService project,
@@ -39,7 +40,8 @@ public class NavController : ControllerBase
         HubSubscriberService hub,
         IUserTagAlertRepository alertRepo,
         AbnormalEventService abnormal,
-        BlueprintService blueprint)
+        BlueprintService blueprint,
+        DemoAdminService demoAdmin)
     {
         _project = project;
         _settings = settings;
@@ -50,12 +52,18 @@ public class NavController : ControllerBase
         _alertRepo = alertRepo;
         _abnormal = abnormal;
         _blueprint = blueprint;
+        _demoAdmin = demoAdmin;
     }
 
     [HttpGet]
     public ActionResult<NavDto> Get()
     {
         var showPlcDebug = _settings.LoadSettings().Ui.ShowPlcDebug;
+
+        // 외부 도구 바로가기(설비박사 챗봇·ReverseAI PLCtoAASX)는 데모 관리자 게이트가 활성일 때만 노출.
+        // 사용자 선택(2026-07-10): 게이트가 켜지면 그 기기 전체에 표시(로그인 불요). 이 플래그가 곧 게이트
+        // on/off 를 드러내므로 '상태 비노출' 원칙은 이 바로가기 기능에 한해 완화된 것이다.
+        var showExternalShortcuts = _demoAdmin.IsEnabled;
 
         // FlowProcessOrder: 대시보드에서 사용자가 지정한 공정 순서.
         var processOrder = _blueprint.Layout.FlowProcessOrder;
@@ -82,7 +90,7 @@ public class NavController : ControllerBase
             }
         }
 
-        return new NavDto(showPlcDebug, systems);
+        return new NavDto(showPlcDebug, systems, showExternalShortcuts);
     }
 
     /// <summary>
@@ -211,7 +219,7 @@ public class NavController : ControllerBase
 
 // ── DTOs (camelCase 자동) ──
 
-public record NavDto(bool ShowPlcDebug, List<NavSystemDto> Systems);
+public record NavDto(bool ShowPlcDebug, List<NavSystemDto> Systems, bool ShowExternalShortcuts);
 
 public record NavSystemDto(string Name, List<string> Flows);
 
