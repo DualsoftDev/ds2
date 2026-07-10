@@ -796,7 +796,7 @@
                     return `최저 구간: ${this._tmShortLabel(m.buckets[wi].label, m.granularity)} — TEEP ${this.pct(c.teep)} · 가동 ${this.durShort(c.runningMs)} · 정지 ${this.durShort(c.downMs)} · 비생산 ${this.durShort(c.nonProdMs)}`;
                 },
                 _tmShortLabel(lbl, gran) {
-                    return gran === 'hour' ? lbl.slice(11, 13) + '시' : lbl.slice(5); // "yyyy-MM-dd HH:00"→"HH시" / "yyyy-MM-dd"→"MM-dd"
+                    return gran === 'hour' ? lbl.slice(11, 16) : lbl.slice(5); // "yyyy-MM-dd HH:00"→"HH:mm" / "yyyy-MM-dd"→"MM-DD" (ISO 숫자형 통일)
                 },
                 // 큐브 클릭 → 이 페이지의 설비(2D) 뷰. location.search 가 기간(?period 등)을 이미 담고 있어(syncPeriodUrl) 그대로 유지.
                 _tmDrillFlow(flowName) {
@@ -1136,10 +1136,8 @@
 
                     const MS = 3600000; // ms → 시간
                     const labels = d.slots.map(s => {
-                        if (d.granularity === 'hour') return s.slot.slice(11, 16); // "HH:00"
-                        // "yyyy-MM-dd" → "M/D"
-                        const parts = s.slot.split('-');
-                        return parts.length === 3 ? (parseInt(parts[1]) + '/' + parseInt(parts[2])) : s.slot;
+                        if (d.granularity === 'hour') return s.slot.slice(11, 16); // "HH:mm"(=HH:00)
+                        return s.slot.length >= 10 ? s.slot.slice(5, 10) : s.slot;  // "yyyy-MM-dd" → "MM-DD" (ISO 숫자형 통일)
                     });
                     // 가동·고장·유지보수·비생산 4분해 — 고장/유지보수 구분은 '정지 구성' 도넛과 동일한 isFailure 2-상태로 정렬:
                     //   고장 = failureMs(isFailure=1) + unclassifiedMs(미분류, 기본 isFailure=1)

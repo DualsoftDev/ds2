@@ -118,7 +118,12 @@ export function renderTrendChart(chartId, timeBuckets, granularity, cats) {
             scales: {
                 x: {
                     type: 'time',
-                    time: { unit: timeUnit, tooltipFormat: 'yyyy-MM-dd HH:mm' },
+                    // 툴팁·축 라벨 시각 표기 — ISO 숫자형(현장 표준, 앱 전역 통일). day=07-04 / hour=09:00 / month=2026-07.
+                    time: {
+                        unit: timeUnit,
+                        tooltipFormat: 'yyyy-MM-dd HH:mm',
+                        displayFormats: { hour: 'HH:mm', day: 'MM-dd', week: 'MM-dd', month: 'yyyy-MM' },
+                    },
                     stacked: true,
                     grid: { color: tc.gridSoft },
                     ticks: { color: tc.text },
