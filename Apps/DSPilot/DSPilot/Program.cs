@@ -288,6 +288,14 @@ static void Revalidate(Microsoft.AspNetCore.StaticFiles.StaticFileResponseContex
 //    비표준 창/필터 조회/미준비(stale)는 통과 → 기존 라이브 계산. X-Dsp-Fresh 헤더(사전계산 셀프 호출)도 통과.
 {
     var precompute = app.Services.GetRequiredService<OeePrecomputeService>();
+
+    // 편집성 변경(정지 분류/품질/표준CT/비생산 창/설정 저장 등)으로 취급해 저장본을 폐기할 경로.
+    // export-excel 은 POST 지만 읽기 전용(모델 → 파일 생성)이라 제외.
+    static bool InvalidatesPrecompute(string path)
+        => (path.StartsWith("/api/oee/", StringComparison.OrdinalIgnoreCase)
+            && !path.Equals("/api/oee/export-excel", StringComparison.OrdinalIgnoreCase))
+           || path.StartsWith("/api/settings", StringComparison.OrdinalIgnoreCase);
+
     app.Use(async (context, next) =>
     {
         if (HttpMethods.IsGet(context.Request.Method))
@@ -300,6 +308,19 @@ static void Revalidate(Microsoft.AspNetCore.StaticFiles.StaticFileResponseContex
                 await context.Response.Body.WriteAsync(json);
                 return;
             }
+        }
+        else if (InvalidatesPrecompute(context.Request.Path.Value ?? ""))
+        {
+            // 성공한 편집 응답이 클라이언트에 나가기 **직전**(OnStarting)에 저장본을 동기 폐기 —
+            // 저장 직후 프런트의 재조회가 변경 전 저장본을 받는 일이 없다(엔드포인트별 호출 산재 대신
+            // 일괄 규칙: 미래의 편집 엔드포인트도 자동 커버, 폐기 후 재적재 비용은 수 초라 남발 무해).
+            context.Response.OnStarting(static state =>
+            {
+                var ctx = (HttpContext)state;
+                if (ctx.Response.StatusCode is >= 200 and < 300)
+                    OeeChangeSignal.NotifyInvalidate();
+                return Task.CompletedTask;
+            }, context);
         }
         await next();
     });

@@ -18,10 +18,22 @@ namespace DSPilot.Services;
 public static class OeeChangeSignal
 {
     public static event Action<string?>? Changed;
+    public static event Action? Invalidated;
     /// <summary>flow=null 은 라인 전체 영향(재구축/설정성 변경). 실패 무해 — 주기 스윕이 안전망.</summary>
     public static void Notify(string? flow = null)
     {
         try { Changed?.Invoke(flow); } catch { /* 구독자 예외가 쓰기 경로를 오염시키지 않게 */ }
+    }
+
+    /// <summary>
+    /// 편집성/파괴성 변경(정지 분류·품질·표준CT·비생산 창·설정 저장·DB 초기화) — 사전계산 저장본을
+    /// **즉시(동기) 폐기**해 직후의 재조회가 변경 전 JSON 을 받지 않게 한다. 폐기 동안 표준 창 요청은
+    /// 라이브 계산으로 통과(정확)하고, 러너가 전 창을 수 초 내 재적재한다.
+    /// 사이클성 삽입은 Notify(오늘 창 이벤트 갱신)만 — 저장본 폐기를 남발하지 않는다.
+    /// </summary>
+    public static void NotifyInvalidate()
+    {
+        try { Invalidated?.Invoke(); } catch { /* 동일 — 호출 경로 보호 */ }
     }
 }
 
@@ -85,6 +97,12 @@ public sealed class OeePrecomputeService : IHostedService, IDisposable
     private DateTime _dirtyAtUtc;
     private DateTime _lastEventRefreshUtc = DateTime.MinValue;
     private readonly Dictionary<string, DateTime> _lastSweepUtc = new();
+
+    // 무효화(편집/자정) 세대 — 무효화와 교차한 재계산 결과가 클리어 뒤에 저장되는 것을 막는다.
+    // _epoch 증가+클리어와 가드+저장을 같은 락으로 묶어 TOCTOU 를 봉쇄(경합 빈도는 러너 초당 수 회 수준).
+    private readonly object _storeSync = new();
+    private int _epoch;
+    private volatile bool _sweepResetRequested; // _lastSweepUtc 는 러너 스레드 소유 — 리셋은 플래그로 위임
 
     public OeePrecomputeService(
         OeePrecomputeOptions opt, IServer server, DspDbService db,
@@ -182,6 +200,7 @@ public sealed class OeePrecomputeService : IHostedService, IDisposable
             return Task.CompletedTask;
         }
         OeeChangeSignal.Changed += OnChanged;
+        OeeChangeSignal.Invalidated += OnInvalidated;
         _cts = new CancellationTokenSource();
         _runner = Task.Run(() => RunAsync(_cts.Token), CancellationToken.None);
         return Task.CompletedTask;
@@ -190,6 +209,7 @@ public sealed class OeePrecomputeService : IHostedService, IDisposable
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         OeeChangeSignal.Changed -= OnChanged;
+        OeeChangeSignal.Invalidated -= OnInvalidated;
         _cts?.Cancel();
         if (_runner is not null)
         {
@@ -208,6 +228,19 @@ public sealed class OeePrecomputeService : IHostedService, IDisposable
         _dirtyAtUtc = DateTime.UtcNow;
     }
 
+    private void OnInvalidated()
+    {
+        // 호출 스레드(편집 API 응답 직전)에서 동기 클리어 — 편집 직후 프런트의 재조회가 변경 전
+        // 저장본을 받지 않게 한다. 클리어 동안 표준 창 요청은 라이브 계산으로 통과하고,
+        // 스윕 리셋으로 전 창이 초당 1개씩(≈5초 내) 재적재된다. 자정 롤오버도 같은 경로.
+        lock (_storeSync)
+        {
+            _epoch++;
+            _store.Clear();
+        }
+        _sweepResetRequested = true;
+    }
+
     private async Task RunAsync(CancellationToken ct)
     {
         // Kestrel 기동 후에야 주소가 잡힌다(호스팅 서비스가 서버보다 먼저 시작) — 준비될 때까지 대기.
@@ -223,12 +256,31 @@ public sealed class OeePrecomputeService : IHostedService, IDisposable
             _baseUrl, _opt.TodaySweepSeconds, _opt.WeekSweepSeconds, _opt.MonthSweepSeconds, _opt.YesterdaySweepSeconds);
 
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        var lastDateLocal = DateTime.Now.Date;
         while (!ct.IsCancellationRequested)
         {
             try
             {
                 await timer.WaitForNextTickAsync(ct);
                 var nowUtc = DateTime.UtcNow;
+
+                // 자정 경과 — 표준 창 정의(오늘 00:00 기준)가 통째로 이동하므로 저장본 전부 무효.
+                // 방치하면 '어제' 창이 그저께 데이터를 다음 스윕까지(최대 10분) 서빙하는 등
+                // 창 이름과 내용이 어긋난다.
+                var todayLocal = DateTime.Now.Date;
+                if (todayLocal != lastDateLocal)
+                {
+                    lastDateLocal = todayLocal;
+                    OnInvalidated();
+                    _logger.LogInformation("[Precompute] 날짜 변경 — 저장본 무효화 후 전 창 재계산");
+                }
+
+                // 무효화(편집/자정) 직후 — 전 창을 처음부터 다시 스윕(today 부터 초당 1개).
+                if (_sweepResetRequested)
+                {
+                    _sweepResetRequested = false;
+                    _lastSweepUtc.Clear();
+                }
 
                 // 변경 이벤트 → '오늘' 창 갱신 (디바운스 + 최소 간격)
                 if (_dirty
@@ -279,7 +331,7 @@ public sealed class OeePrecomputeService : IHostedService, IDisposable
         var (fromStr, toStr) = WindowRange(window);
         var flows = _db.Snapshot.Flows.Select(f => f.FlowName).Where(n => !string.IsNullOrEmpty(n)).ToList();
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        int ok = 0, fail = 0;
+        int ok = 0, fail = 0, drop = 0;
 
         foreach (var scope in new string?[] { null }.Concat(flows.Select(f => (string?)f)))
         {
@@ -293,14 +345,23 @@ public sealed class OeePrecomputeService : IHostedService, IDisposable
                           + (scope is null ? "" : $"&flow={Uri.EscapeDataString(scope)}");
                 try
                 {
+                    var epoch = _epoch; // 요청 전 세대 캡처 — 응답 대기 중 무효화가 끼면 결과 폐기
                     using var msg = new HttpRequestMessage(HttpMethod.Get, url);
                     msg.Headers.Add("X-Dsp-Fresh", "1");
                     using var res = await Http.SendAsync(msg, ct);
                     if (res.IsSuccessStatusCode)
                     {
                         var bytes = await res.Content.ReadAsByteArrayAsync(ct);
-                        _store[Key(path, window, scope)] = new Entry(bytes, DateTime.UtcNow);
-                        ok++;
+                        lock (_storeSync)
+                        {
+                            // 변경 전 상태로 계산된 결과일 수 있다 — 버리면 스윕 리셋이 곧 다시 채운다.
+                            if (_epoch == epoch)
+                            {
+                                _store[Key(path, window, scope)] = new Entry(bytes, DateTime.UtcNow);
+                                ok++;
+                            }
+                            else drop++;
+                        }
                     }
                     else fail++;
                 }
@@ -309,8 +370,9 @@ public sealed class OeePrecomputeService : IHostedService, IDisposable
             }
         }
 
-        _logger.LogDebug("[Precompute] {Window} 갱신 — {Ok}건 ({Ms}ms{Fail})",
-            window, ok, sw.ElapsedMilliseconds, fail > 0 ? $", 실패 {fail}" : "");
+        _logger.LogDebug("[Precompute] {Window} 갱신 — {Ok}건 ({Ms}ms{Fail}{Drop})",
+            window, ok, sw.ElapsedMilliseconds,
+            fail > 0 ? $", 실패 {fail}" : "", drop > 0 ? $", 폐기 {drop}" : "");
 
         // push — 프런트(uptime 등)는 자기 창이면 재조회(저장본이라 ~2ms). 페이로드는 신호용 최소.
         try { await _hub.Clients.All.SendAsync("OeePrecomputed", new { window }, ct); }

@@ -236,7 +236,7 @@ public sealed class DatabaseLifecycleService
                 _engineService.ResumeInitializationAndStart();
                 // 미러 전체 재적재 — 새 파일 DB 기준으로 재구축(성공/실패 무관, 그동안은 파일 폴백).
                 _mirror.MarkDirty("db-rebuild");
-                OeeChangeSignal.Notify();
+                OeeChangeSignal.NotifyInvalidate();
             }
         }
         catch (Exception ex)
@@ -410,7 +410,7 @@ public sealed class DatabaseLifecycleService
             catch (Exception ex) { _logger.LogDebug(ex, "[DBLifecycle] SignalR broadcast failed (non-critical)"); }
 
             _mirror.MarkDirty("aasx-resync"); // prune 은 write-through 가 커버하지만 모델 교체 사건이라 보험 재적재
-            OeeChangeSignal.Notify();
+            OeeChangeSignal.NotifyInvalidate();
 
             _logger.LogInformation(
                 "[DBLifecycle] ReloadAndResync complete (pruned: flow={F} call={C} hist={H}, layout={Layout})",
@@ -483,7 +483,7 @@ public sealed class DatabaseLifecycleService
 
             var msg = $"삭제 완료 — plcTagLog: {plc}건, 알림이력: {alert}건, FlowHistory: {hist}건, OEE정지: {oeeDeleted}건";
             _mirror.MarkDirty("delete-before"); // 삭제 전파는 write-through 가 커버하지만 대량 삭제라 보험 재적재
-            OeeChangeSignal.Notify();
+            OeeChangeSignal.NotifyInvalidate();
             _logger.LogInformation("[DBLifecycle] DeleteDataBefore complete: {Msg}", msg);
             return new RebuildResult(true, msg);
         }
@@ -534,7 +534,7 @@ public sealed class DatabaseLifecycleService
             }
 
             _mirror.MarkDirty("clear-history"); // 삭제 전파는 write-through 가 커버하지만 전량 삭제라 보험 재적재
-            OeeChangeSignal.Notify();
+            OeeChangeSignal.NotifyInvalidate();
             _logger.LogInformation("[DBLifecycle] ClearFlowHistory complete (deleted {Count} rows)", deleted);
             return new RebuildResult(true, $"Flow 히스토리 {deleted}건 + Call 통계가 초기화되었습니다.");
         }
