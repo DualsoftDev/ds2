@@ -1,0 +1,25 @@
+# BriefingRelay systemd 유닛 템플릿. install.sh 가 @TOKEN@ 을 치환해 /etc/systemd/system/briefingrelay.service 로 설치한다.
+# Type=notify 는 앱의 UseSystemd()(Microsoft.Extensions.Hosting.Systemd) 가 READY=1 을 보내므로 동작한다.
+[Unit]
+Description=DSPilot Briefing Relay - Email sending API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=@USER@
+Group=@USER@
+WorkingDirectory=@WORKDIR@
+ExecStart=@EXEC@
+# Production 환경: appsettings.Production.json(포트 오버라이드) 자동 로드 + 상세 오류 비노출.
+Environment=ASPNETCORE_ENVIRONMENT=Production
+Restart=on-failure
+RestartSec=10
+# ASP.NET Core 는 SIGINT 로 graceful shutdown 한다.
+KillSignal=SIGINT
+TimeoutStopSec=30
+SyslogIdentifier=briefingrelay
+@AMBIENT_CAP@
+
+[Install]
+WantedBy=multi-user.target

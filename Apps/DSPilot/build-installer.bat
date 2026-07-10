@@ -114,7 +114,18 @@ echo.
 
 :: Step 4: Build installer with Inno Setup
 echo [4/4] Building installer with Inno Setup...
-"%ISCC%" "%ISS_FILE%"
+:: 브리핑 릴레이 API 키 주입 — Installer\briefing-apikey.txt(git 미포함) 또는 환경변수 DSP_BRIEFING_API_KEY.
+:: 키가 있으면 /D 로 넘겨 설치본에 릴레이 자동연결(appsettings.Secrets.json)을 포함시킨다. 없으면 경고 후 미포함 빌드.
+set "BRIEFING_KEY=%DSP_BRIEFING_API_KEY%"
+if exist "%SOLUTION_DIR%Installer\briefing-apikey.txt" set /p BRIEFING_KEY=<"%SOLUTION_DIR%Installer\briefing-apikey.txt"
+if defined BRIEFING_KEY (
+    echo       브리핑 릴레이 자동연결 포함 ^(API 키 주입됨^).
+    "%ISCC%" /D"BriefingApiKey=%BRIEFING_KEY%" "%ISS_FILE%"
+) else (
+    echo       [WARN] 브리핑 API 키 미주입 — 설치본에 릴레이 자동연결이 포함되지 않습니다.
+    echo              ^(Installer\briefing-apikey.txt 생성 또는 DSP_BRIEFING_API_KEY 설정 후 재빌드^)
+    "%ISCC%" "%ISS_FILE%"
+)
 if !errorlevel! neq 0 goto :fail_iscc
 
 echo       Done.

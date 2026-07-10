@@ -1,0 +1,8 @@
+# 주입 시크릿(발송 계정 비밀번호·API 키) — 절대 커밋 금지. 형식은 appsettings.Secrets.sample.json 참고.
+appsettings.Secrets.json
+# 호스트 전용/개발 오버라이드
+appsettings.Development.json
+# 배포 산출물(publish / 패키지)
+publish-linux/
+Output/
+Installer/linux/.stage/

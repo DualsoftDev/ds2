@@ -19,6 +19,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DSPilot.Tests", "DSPilot.Te
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DSPilot.AasxSimulator", "DSPilot.AasxSimulator\DSPilot.AasxSimulator.csproj", "{C7F2D5E8-3A4B-4C6D-8E9F-1234567890AB}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BriefingRelay", "..\BriefingRelay\BriefingRelay.csproj", "{758A9F3C-5CBC-45E8-A726-8F16D1A49F71}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -101,6 +103,18 @@ Global
 		{C7F2D5E8-3A4B-4C6D-8E9F-1234567890AB}.Release|x64.Build.0 = Release|Any CPU
 		{C7F2D5E8-3A4B-4C6D-8E9F-1234567890AB}.Release|x86.ActiveCfg = Release|Any CPU
 		{C7F2D5E8-3A4B-4C6D-8E9F-1234567890AB}.Release|x86.Build.0 = Release|Any CPU
+		{758A9F3C-5CBC-45E8-A726-8F16D1A49F71}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{758A9F3C-5CBC-45E8-A726-8F16D1A49F71}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{758A9F3C-5CBC-45E8-A726-8F16D1A49F71}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{758A9F3C-5CBC-45E8-A726-8F16D1A49F71}.Debug|x64.Build.0 = Debug|Any CPU
+		{758A9F3C-5CBC-45E8-A726-8F16D1A49F71}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{758A9F3C-5CBC-45E8-A726-8F16D1A49F71}.Debug|x86.Build.0 = Debug|Any CPU
+		{758A9F3C-5CBC-45E8-A726-8F16D1A49F71}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{758A9F3C-5CBC-45E8-A726-8F16D1A49F71}.Release|Any CPU.Build.0 = Release|Any CPU
+		{758A9F3C-5CBC-45E8-A726-8F16D1A49F71}.Release|x64.ActiveCfg = Release|Any CPU
+		{758A9F3C-5CBC-45E8-A726-8F16D1A49F71}.Release|x64.Build.0 = Release|Any CPU
+		{758A9F3C-5CBC-45E8-A726-8F16D1A49F71}.Release|x86.ActiveCfg = Release|Any CPU
+		{758A9F3C-5CBC-45E8-A726-8F16D1A49F71}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

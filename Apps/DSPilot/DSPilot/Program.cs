@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using DSPilot.Services;
+using DSPilot.Services.EmailBriefing;
 using DSPilot.Repositories;
 using DSPilot.Adapters;
 using DSPilot.Infrastructure;
@@ -35,6 +36,11 @@ builder.Host.UseSystemd();
 // 보존되어야 한다 → 설치 스크립트는 더 이상 Production.json 에 포트를 쓰지 않고 이 파일에만 쓴다.
 // 마지막에 추가하므로 Production.json 의 (구버전) Urls 보다 우선한다. optional: 개발/직접 실행 시 없어도 무방.
 builder.Configuration.AddJsonFile("appsettings.Hosting.json", optional: true, reloadOnChange: false);
+
+// 브리핑 릴레이 자격증명 주입용 시크릿 파일 — 설치 스크립트가 배포 폴더에 배치("BriefingRelay" 섹션).
+// git·설치본 소스에 평문 자격증명을 두지 않기 위한 분리 파일(publish 에서 제외됨). 없어도 무방(optional).
+// 환경변수(BriefingRelay__User / __Password 등)로도 동일하게 주입 가능(CreateBuilder 가 env 를 이미 병합).
+builder.Configuration.AddJsonFile("appsettings.Secrets.json", optional: true, reloadOnChange: true);
 
 // 진단 모드 체크
 if (args.Contains("--diagnose"))
@@ -226,6 +232,19 @@ builder.Services.AddSingleton<PlcPingService>();
 builder.Services.AddSingleton<HubSubscriberService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<HubSubscriberService>());
 
+// 일일 브리핑 메일링 — 매일 지정 시각·요일에 어제의 생산(OEE)·이상 요약을 HTML 메일로 발송.
+//   - BriefingOeeReader/BriefingComposer 는 Scoped(IOeeRepository·IUserTagAlertRepository 가 Scoped) — 발송마다 scope 열기.
+//   - EmailBriefingService 는 Singleton + HostedService(설정 페이지가 동일 인스턴스로 테스트 발송/미리보기 호출).
+builder.Services.AddSingleton(builder.Configuration.GetSection("BriefingRelay").Get<BriefingRelayOptions>() ?? new BriefingRelayOptions());
+builder.Services.AddSingleton<BriefingHtmlRenderer>();
+builder.Services.AddSingleton<ISmtpMailer, SmtpMailer>();
+// 중앙 발송 API 클라이언트(api 모드) — 타임아웃 여유(발송 왕복). BriefingRelayOptions 는 싱글톤 주입.
+builder.Services.AddHttpClient<IBriefingApiClient, BriefingApiClient>(c => c.Timeout = TimeSpan.FromSeconds(30));
+builder.Services.AddScoped<BriefingOeeReader>();
+builder.Services.AddScoped<BriefingComposer>();
+builder.Services.AddSingleton<EmailBriefingService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<EmailBriefingService>());
+
 var app = builder.Build();
 
 // H1 fix: HostedService 시작 전에 plc.db 스키마를 보장 — Hub 신호가 빨리 들어와도
@@ -337,7 +356,9 @@ static void Revalidate(Microsoft.AspNetCore.StaticFiles.StaticFileResponseContex
         var reqPath = context.Request.Path.Value ?? string.Empty;
         var isSettingsPage = HttpMethods.IsGet(context.Request.Method)
             && (string.Equals(reqPath, "/settings", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(reqPath, "/app/settings.html", StringComparison.OrdinalIgnoreCase));
+                || string.Equals(reqPath, "/app/settings.html", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(reqPath, "/settings-email", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(reqPath, "/app/settings-email.html", StringComparison.OrdinalIgnoreCase));
         if (isSettingsPage
             && demoAdmin.IsEnabled
             && !demoAdmin.IsSessionValid(context.Request.Cookies[DemoAdminService.SessionCookieName]))
@@ -381,6 +402,7 @@ var canonicalStaticRoutes = new Dictionary<string, string>(StringComparer.Ordina
     ["/cctv"] = "cctv.html",
     ["/plc-debug"] = "plc-debug.html",
     ["/settings"] = "settings.html",
+    ["/settings-email"] = "settings-email.html",   // 일일 브리핑 메일 설정(설정 페이지에서 링크, 데모 게이트 연동)
     ["/flow-trend"] = "flow-trend.html",
     ["/flow-cycle"] = "flow-cycle.html",   // ?name= 단일 · 매개변수 없음/?system= 전체 편집(bulkCycleApp)
     // 데모 관리자 게이트(2026-07-09): 나브에 노출하지 않는 직접 URL 전용 페이지 2종.

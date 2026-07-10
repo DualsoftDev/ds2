@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    DSPilot 브리핑 중앙 발송 API (Linux/systemd 배포).
+    고객사 DSPilot 이 X-Api-Key 로 호출 → 이 서버가 회사 O365 계정으로 대신 발송.
+    메일 자격증명은 이 서버에만 존재(고객 PC 미노출). 자격증명·API키는 appsettings.Secrets.json / 환경변수로 주입(git 제외).
+    이 프로젝트는 독립 실행형 — Ds2 의 F# 코어에 의존하지 않는다(작은 minimal API + MailKit).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>BriefingRelay</RootNamespace>
+    <AssemblyName>BriefingRelay</AssemblyName>
+    <Version>1.0.0</Version>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- 배포 산출물/설치 스크립트 폴더를 SDK 기본 item glob(**/*.json 등)에서 제외 —
+         publish 출력이 프로젝트 폴더 내 publish-linux/Output 를 Content 로 재귀 흡수하는 것 방지. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);publish-linux/**;Output/**;Installer/**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MailKit" Version="4.16.0" />
+    <!-- Linux 서비스 라이프사이클(systemd). -->
+    <PackageReference Include="Microsoft.Extensions.Hosting.Systemd" Version="9.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 주입되는 시크릿은 publish 산출물에 포함하지 않음(설치/배포 시 별도 배치). -->
+    <Content Remove="appsettings.Secrets.json" />
+  </ItemGroup>
+
+</Project>

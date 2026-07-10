@@ -1,0 +1,2 @@
+# 브리핑 릴레이 API 키(빌드 시 주입, 절대 커밋 금지). build-installer.bat 가 읽어 /D 로 ISCC 에 넘긴다.
+briefing-apikey.txt

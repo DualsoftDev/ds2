@@ -763,6 +763,25 @@
                                 </div>
                             </div>
 
+                            <!-- 브리핑 메일 -->
+                            <div class="card" x-show="activeTab === 'general'">
+                                <div class="card-header">
+                                    <span class="material-icons">mail</span>
+                                    <span>일일 브리핑 메일</span>
+                                </div>
+                                <div class="card-content">
+                                    <div class="settings-note">
+                                        <small>
+                                            매일 지정 시각·요일에 <strong>어제의 생산(OEE)·이상 요약</strong>을 수신자에게 자동 발송합니다.
+                                            활성 여부·수신 주소·스케줄·SMTP 는 <a href="/settings-email" style="color:var(--color-primary);">브리핑 메일 설정</a>에서 관리합니다.
+                                        </small>
+                                    </div>
+                                    <a class="btn btn-outlined w-100" href="/settings-email">
+                                        <span class="material-icons">mail</span> 브리핑 메일 설정 열기
+                                    </a>
+                                </div>
+                            </div>
+
                             <!-- 로깅 -->
                             <div class="card" x-show="activeTab === 'advanced'">
                                 <div class="card-header">

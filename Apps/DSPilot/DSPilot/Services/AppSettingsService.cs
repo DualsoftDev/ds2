@@ -17,7 +17,7 @@ public class AppSettingsService
     private static readonly object _writeLock = new();
 
     private static readonly string[] ManagedSections =
-        ["Database", "FlowCycle", "DspTables", "Hub", "Logging", "Ui", "HistoryView", "Cctv", "OeeSignals", "OeeManual", "Shift", "CycleExclusion", "AbnormalAlarm", "AutoCalibration"];
+        ["Database", "FlowCycle", "DspTables", "Hub", "Logging", "Ui", "HistoryView", "Cctv", "OeeSignals", "OeeManual", "Shift", "CycleExclusion", "AbnormalAlarm", "AutoCalibration", "EmailBriefing"];
 
     private readonly string _filePath;
     private readonly string _productionFilePath;
@@ -79,6 +79,7 @@ public class AppSettingsService
             CycleExclusion = Deserialize<CycleExclusionSettings>(root["CycleExclusion"]),
             AbnormalAlarm = Deserialize<AbnormalAlarmSettings>(root["AbnormalAlarm"]),
             AutoCalibration = Deserialize<AutoCalibrationSettings>(root["AutoCalibration"]),
+            EmailBriefing = Deserialize<EmailBriefingSettings>(root["EmailBriefing"]),
         };
     }
 
@@ -183,6 +184,7 @@ public class AppSettingsService
         target["CycleExclusion"] = JsonSerializer.SerializeToNode(model.CycleExclusion, JsonOptions);
         target["AbnormalAlarm"] = JsonSerializer.SerializeToNode(model.AbnormalAlarm, JsonOptions);
         target["AutoCalibration"] = JsonSerializer.SerializeToNode(model.AutoCalibration, JsonOptions);
+        target["EmailBriefing"] = JsonSerializer.SerializeToNode(model.EmailBriefing, JsonOptions);
     }
 
     public FlowCycleOverride? GetFlowCycleOverride(string flowName)

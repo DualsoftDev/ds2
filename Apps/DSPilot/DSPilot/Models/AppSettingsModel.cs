@@ -23,6 +23,64 @@ public class AppSettingsModel
     public CycleExclusionSettings CycleExclusion { get; set; } = new();
     public AbnormalAlarmSettings AbnormalAlarm { get; set; } = new();
     public AutoCalibrationSettings AutoCalibration { get; set; } = new();
+    public EmailBriefingSettings EmailBriefing { get; set; } = new();
+}
+
+/// <summary>
+/// 일일 브리핑 메일링 설정. 매일 지정 시각·요일에 "어제"의 생산 요약(OEE)과 이상 요약(경로이탈·UserTag)을
+/// HTML 메일로 발송한다(<see cref="Services.EmailBriefing.EmailBriefingService"/>). SMTP 접속정보는 이 섹션에
+/// 보관하며 사용처 환경(사내 Exchange/O365/Gmail 등)에 맞춰 설정 UI 에서 입력한다.
+/// <see cref="LastSentDate"/> 는 하루 1회 멱등 발송을 위한 워터마크(로컬 날짜) — 8시를 놓친 재기동에도 중복 발송 방지.
+/// SMTP 비밀번호는 GET 응답에서 마스킹(원문 미노출), 저장 시 빈 값이면 기존값 유지한다(컨트롤러 규약).
+/// </summary>
+public class EmailBriefingSettings
+{
+    /// <summary>브리핑 자동 발송 사용 여부. false 면 스케줄러는 대기만 하고 발송하지 않는다(수동 테스트는 가능).</summary>
+    public bool Enabled { get; set; } = false;
+
+    /// <summary>수신 메일 주소 목록(복수). 발송 시 Bcc 로 넣어 수신자 간 주소 노출을 막는다. 비면 발송 스킵.</summary>
+    public List<string> Recipients { get; set; } = [];
+
+    /// <summary>발송 시각(로컬 벽시계 "HH:mm"). 기본 08:00.</summary>
+    public string SendTimeLocal { get; set; } = "08:00";
+
+    /// <summary>발송 요일(0=일 … 6=토). 기본 평일(월~금). 비어 있으면 발송 안 함.</summary>
+    public List<int> Weekdays { get; set; } = [1, 2, 3, 4, 5];
+
+    /// <summary>
+    /// 발송 모드. "relay"(기본) = 아래 SMTP 서버로 위임 발송. "direct" = 중계 서버 없이 DSPilot 이 수신 도메인의
+    /// MX 로 직접 발송(direct-to-MX). direct 는 SPF/DKIM/PTR·포트25·IP평판 부재로 스팸/반송 위험이 커 비권장 —
+    /// 사내 릴레이(relay)가 안정적이다. direct 모드에서는 <see cref="SmtpHost"/> 불필요, <see cref="FromAddress"/>(도메인)만 필요.
+    /// </summary>
+    public string SendMode { get; set; } = "relay";
+
+    /// <summary>마지막으로 발송 완료한 로컬 날짜("yyyy-MM-dd"). 하루 1회 멱등 발송 워터마크. 미발송이면 빈 문자열.</summary>
+    public string LastSentDate { get; set; } = "";
+
+    // ── SMTP 접속 ──
+    /// <summary>SMTP 서버 호스트. 예: smtp.gmail.com / smtp.office365.com / 사내 메일서버.</summary>
+    public string SmtpHost { get; set; } = "";
+
+    /// <summary>SMTP 포트. 587(STARTTLS) 기본, 465(암시적 SSL)도 가능.</summary>
+    public int SmtpPort { get; set; } = 587;
+
+    /// <summary>true=STARTTLS/SSL 사용. 포트 465 이면 암시적 SSL, 그 외엔 STARTTLS 로 자동 해석.</summary>
+    public bool SmtpUseTls { get; set; } = true;
+
+    /// <summary>SMTP 인증 계정 ID. 비우면 익명(무인증) 릴레이로 시도.</summary>
+    public string SmtpUser { get; set; } = "";
+
+    /// <summary>SMTP 인증 비밀번호(또는 앱 비밀번호). GET 응답에서 마스킹, 저장 시 빈 값이면 기존값 유지.</summary>
+    public string SmtpPassword { get; set; } = "";
+
+    /// <summary>발신 주소(From). 서비스에 따라 인증 계정과 일치해야 한다. 비우면 <see cref="SmtpUser"/> 사용.</summary>
+    public string FromAddress { get; set; } = "";
+
+    /// <summary>발신자 표시명. 기본 "DSPilot 브리핑".</summary>
+    public string FromName { get; set; } = "DSPilot 브리핑";
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }
 
 /// <summary>

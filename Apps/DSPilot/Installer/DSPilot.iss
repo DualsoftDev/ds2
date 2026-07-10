@@ -7,6 +7,15 @@
 #define MyAppPublisher "DualSoft"
 #define MyAppURL "https://dualsoft.co.kr"
 #define MyAppExeName "DSPilot.exe"
+; ── 브리핑 릴레이 자동 연결 ──
+; 고객 설치본이 설치 시 자동으로 회사 발송 API(BriefingRelay)에 연결되도록 appsettings.Secrets.json 을 써넣는다.
+; ApiUrl 은 공개 엔드포인트(비밀 아님). ApiKey 는 비밀 → 빌드 시 /DBriefingApiKey=<키> 로 주입(git 미포함).
+;   build-installer.bat 가 Installer\briefing-apikey.txt(또는 환경변수 DSP_BRIEFING_API_KEY)에서 읽어 넘긴다.
+;   키가 주입되지 않으면(빈 값) 설정 파일을 쓰지 않는다(=릴레이 자동연결 미포함 빌드).
+#define BriefingApiUrl "https://dualsoft.co.kr/briefing"
+#ifndef BriefingApiKey
+  #define BriefingApiKey ""
+#endif
 #define MyServiceName "DSPilotService"
 #define MyServiceDisplayName "DSPilot Service"
 #define MyServiceDescription "DSPilot - PLC Monitoring & Analysis Service"
@@ -529,6 +538,20 @@ begin
       '{' + #13#10 +
       '  "Urls": "' + UrlsValue + '"' + #13#10 +
       '}' + #13#10, False);
+
+    // ── 브리핑 릴레이 자동 연결(appsettings.Secrets.json) ──
+    // 빌드 시 ApiKey 가 주입됐을 때만 기록(미주입 빌드는 생략). Dualsoft 관리 중앙값이라 매 설치마다 갱신(키 로테이션 반영).
+    // 서비스 시작 전에 써서 첫 부팅부터 릴레이에 연결되게 한다. 사용자 설정(Production.json)과 별개 파일이라 무관.
+    if ('{#BriefingApiKey}' <> '') then
+      SaveStringToFile(ExpandConstant('{app}\appsettings.Secrets.json'),
+        '{' + #13#10 +
+        '  "BriefingRelay": {' + #13#10 +
+        '    "Mode": "api",' + #13#10 +
+        '    "ApiUrl": "{#BriefingApiUrl}",' + #13#10 +
+        '    "ApiKey": "{#BriefingApiKey}",' + #13#10 +
+        '    "Locked": true' + #13#10 +
+        '  }' + #13#10 +
+        '}' + #13#10, False);
 
     // 포트 파일(appsettings.Hosting.json)을 기록한 *뒤에* 서비스를 시작한다 — 이 순서가 중요.
     // [Run](설치 순서 15단계)에서 시작하면 포트 파일 부재 상태로 떠 기본 포트(5000)에 바인딩되는 버그가 있었다.

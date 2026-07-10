@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>브리핑 메일 — DSPilot</title>
+
+    <!--
+      일일 브리핑 메일 설정 — 정적 호스팅. 서버/모델 = C#(/api/email-briefing/*), 뷰 = Alpine + fetch.
+      GET /api/email-briefing (조회, SMTP 비번 마스킹) · POST /api/email-briefing (저장) ·
+      POST /api/email-briefing/test (테스트 발송) · GET /api/email-briefing/preview (본문 미리보기).
+      디자인 시스템: /css/ds.css (+swiss 프리미티브 .btn*/.form-field/.card/.switch/.chip). 데모 게이트 연동(Program.cs).
+      저장 버튼 dirty 규약: 기본 중립, 수정 시 PRIMARY + '*'.
+    -->
+    <link href="/css/fonts.css" rel="stylesheet" />
+    <link href="/css/ds.css" rel="stylesheet" />
+
+    <style>
+        [x-cloak] { display: none !important; }
+
+        .dsp-page { min-height: 100vh; display: flex; flex-direction: column; background: var(--color-background); color: var(--color-text-primary); font-family: var(--font-family); }
+        .dsp-appbar { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 20px; background: var(--color-appbar-bg); color: var(--color-appbar-text); border-bottom: 1px solid var(--color-lines-strong); position: sticky; top: 0; z-index: 50; flex-shrink: 0; }
+        .dark-theme .dsp-appbar { border-bottom-color: var(--color-lines); }
+        .dsp-appbar .dsp-title { font-size: 18px; font-weight: 700; }
+        .dsp-appbar .spacer { flex: 1; }
+        .dsp-main { flex: 1; min-height: 0; padding: 18px 20px 28px; max-width: 860px; margin: 0 auto; width: 100%; }
+
+        .eb-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+        @media (max-width: 760px) { .eb-grid { grid-template-columns: 1fr; } }
+        .eb-full { grid-column: 1 / -1; }
+
+        .eb-actions { display: flex; justify-content: flex-end; gap: 10px; margin: 18px 0 4px; flex-wrap: wrap; }
+        .eb-note { padding: 11px 13px; margin-bottom: 16px; background: var(--color-surface-variant); border: 1px solid var(--color-lines); border-left: 3px solid var(--color-primary); border-radius: var(--radius-sm); }
+        .eb-note small { color: var(--color-text-secondary); line-height: 1.6; }
+        .eb-hint { color: var(--color-text-secondary); margin-top: 6px; display: block; font-size: 0.72rem; line-height: 1.5; }
+
+        .eb-field { margin-bottom: 14px; }
+        .eb-field:last-child { margin-bottom: 0; }
+        .eb-row { display: flex; gap: 12px; flex-wrap: wrap; }
+        .eb-row > .eb-field { flex: 1; min-width: 120px; }
+
+        /* 수신자 칩 입력 */
+        .eb-chips { display: flex; flex-wrap: wrap; gap: 7px; padding: 8px; min-height: 44px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); align-content: flex-start; }
+        .eb-chip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 6px 4px 11px; background: color-mix(in srgb, var(--color-primary) 9%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--color-primary) 40%, var(--color-lines)); color: var(--color-text-primary); border-radius: 999px; font-size: 0.78rem; }
+        .eb-chip button { border: none; background: none; cursor: pointer; color: var(--color-text-secondary); display: inline-flex; padding: 0; }
+        .eb-chip button:hover { color: var(--color-error); }
+        .eb-chip .material-icons { font-size: 15px; }
+        .eb-chip-input { border: none; background: none; outline: none; flex: 1; min-width: 160px; color: var(--color-text-primary); font-size: 0.82rem; padding: 4px; }
+
+        /* 요일 세그먼트 */
+        .eb-days { display: flex; gap: 6px; flex-wrap: wrap; }
+        .eb-day { width: 42px; height: 40px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-secondary); font-weight: 700; cursor: pointer; user-select: none; transition: all .12s; }
+        .eb-day.is-on { background: var(--color-primary); border-color: var(--color-primary); color: #fff; box-shadow: 0 2px 5px color-mix(in srgb, var(--color-primary) 45%, transparent); }
+        .eb-day.sun { color: var(--color-error); }
+        .eb-day.sun.is-on { background: var(--color-error); border-color: var(--color-error); color: #fff; }
+
+        /* 발송 방식 선택 */
+        .eb-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        @media (max-width: 560px) { .eb-modes { grid-template-columns: 1fr; } }
+        .eb-mode { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 13px 14px; border: 2px solid var(--color-lines); border-radius: var(--radius-md, 10px); background: var(--color-surface); color: var(--color-text-primary); cursor: pointer; text-align: left; transition: border-color .12s, background .12s; }
+        .eb-mode:hover { border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-lines)); }
+        .eb-mode.is-on { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); box-shadow: 0 0 0 1px var(--color-primary) inset; }
+        .eb-mode .material-icons { color: var(--color-primary); }
+        .eb-mode small { color: var(--color-text-secondary); line-height: 1.45; }
+        .eb-warn { display: flex; gap: 9px; align-items: flex-start; margin-top: 12px; padding: 11px 13px; background: color-mix(in srgb, var(--color-warning, #d8892b) 12%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--color-warning, #d8892b) 45%, var(--color-lines)); border-radius: var(--radius-sm); }
+        .eb-warn .material-icons { color: var(--color-warning, #d8892b); font-size: 20px; flex-shrink: 0; }
+        .eb-warn small { color: var(--color-text-primary); line-height: 1.55; }
+
+        .eb-status { display: inline-flex; align-items: center; gap: 6px; font-size: 0.74rem; color: var(--color-text-secondary); }
+        .eb-status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-text-disabled); }
+        .eb-status.on .dot { background: var(--color-success); }
+
+        /* 미리보기 모달 */
+        .modal-overlay { position: fixed; inset: 0; background: rgba(10, 15, 22, 0.5); display: flex; align-items: center; justify-content: center; z-index: 2000; backdrop-filter: blur(2px); padding: 20px; }
+        .dark-theme .modal-overlay { background: rgba(4, 8, 14, 0.7); }
+        .eb-preview-box { background: var(--color-surface); border: 1px solid var(--color-lines-strong); border-radius: var(--radius-md); width: 720px; max-width: 100%; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: var(--shadow-modal); }
+        .eb-preview-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--color-lines); }
+        .eb-preview-head .subj { font-size: 0.82rem; color: var(--color-text-secondary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .eb-preview-frame { flex: 1; border: none; width: 100%; min-height: 480px; background: #f1f5f9; }
+
+        .dsp-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 2500; padding: 11px 18px; border: 1px solid var(--color-lines-strong); border-left: 3px solid var(--color-text-secondary); border-radius: var(--radius-sm); background: var(--color-text-primary); color: var(--color-surface); font-size: 0.82rem; font-weight: 600; box-shadow: var(--shadow-4); max-width: 90vw; }
+        .dsp-toast.success { border-left-color: var(--color-success); }
+        .dsp-toast.error { border-left-color: var(--color-error); }
+        .dsp-toast.info { border-left-color: var(--color-info); }
+    </style>
+</head>
+
+<body>
+    <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="emailBriefingApp()" x-init="init()" x-cloak>
+
+        <header class="dsp-appbar">
+            <a href="/settings" class="btn-icon" title="설정으로">
+                <span class="material-icons">arrow_back</span>
+            </a>
+            <span class="dsp-title">브리핑 메일</span>
+            <span class="dsp-badge">정적</span>
+            <div class="spacer"></div>
+            <button class="btn-icon" @click="toggleTheme()" title="테마 전환">
+                <span class="material-icons" x-text="dark ? 'light_mode' : 'dark_mode'"></span>
+            </button>
+        </header>
+
+        <main class="dsp-main">
+            <div x-show="loading && !form" class="progress-bar progress-bar-indeterminate mb-4">
+                <div class="progress-bar-fill"></div>
+            </div>
+
+            <div class="eb-note">
+                <small>
+                    매일 지정한 시각·요일에 <b>어제의 생산 요약(OEE)</b>과 <b>이상 요약</b>을 수신자에게 HTML 메일로 자동 발송합니다.
+                    수신자는 Bcc 로 발송되어 서로의 주소가 노출되지 않습니다. 발송 계정(SMTP)의 SPF/DKIM 설정에 따라 스팸 분류될 수 있습니다.
+                </small>
+            </div>
+
+            <template x-if="form">
+                <div>
+                    <!-- 발송 스케줄 -->
+                    <div class="eb-grid">
+                        <div class="card eb-full">
+                            <div class="card-header"><span class="material-icons">schedule</span><span>발송 스케줄</span></div>
+                            <div class="card-content">
+                                <div class="eb-field">
+                                    <label class="switch">
+                                        <input type="checkbox" x-model="form.enabled" @change="markDirty()">
+                                        <span><b>자동 발송 사용</b></span>
+                                    </label>
+                                    <span class="eb-status" :class="{ on: form.enabled }" style="margin-left:14px;">
+                                        <span class="dot"></span>
+                                        <span x-text="form.enabled ? '활성' : '비활성'"></span>
+                                    </span>
+                                    <span class="eb-hint" x-show="form.lastSentDate">마지막 발송: <span x-text="form.lastSentDate"></span></span>
+                                </div>
+
+                                <div class="eb-row">
+                                    <div class="eb-field" style="max-width:160px;">
+                                        <label class="form-label">발송 시각</label>
+                                        <input type="time" class="form-field" x-model="form.sendTimeLocal" @input="markDirty()">
+                                    </div>
+                                    <div class="eb-field">
+                                        <label class="form-label">발송 요일</label>
+                                        <div class="eb-days">
+                                            <template x-for="(d, i) in dayLabels" :key="i">
+                                                <div class="eb-day" :class="{ 'is-on': form.weekdays.includes(i), sun: i === 0 }"
+                                                     @click="toggleDay(i)" x-text="d"></div>
+                                            </template>
+                                        </div>
+                                        <span class="eb-hint">요일을 눌러 발송할 날을 선택하세요.</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 수신자 -->
+                        <div class="card eb-full">
+                            <div class="card-header"><span class="material-icons">group</span><span>수신 메일 주소</span></div>
+                            <div class="card-content">
+                                <div class="eb-chips" @click="$refs.recipInput.focus()">
+                                    <template x-for="(r, i) in form.recipients" :key="i">
+                                        <span class="eb-chip">
+                                            <span x-text="r"></span>
+                                            <button type="button" @click.stop="removeRecipient(i)" title="삭제"><span class="material-icons">close</span></button>
+                                        </span>
+                                    </template>
+                                    <input x-ref="recipInput" class="eb-chip-input" type="email" inputmode="email"
+                                           placeholder="주소 입력 후 Enter"
+                                           x-model="newRecipient"
+                                           @keydown.enter.prevent="addRecipient()"
+                                           @keydown.,.prevent="addRecipient()"
+                                           @blur="addRecipient()">
+                                </div>
+                                <span class="eb-hint">여러 명 등록 가능. Enter 또는 쉼표로 추가. 다양한 도메인(회사·Gmail·네이버 등) 혼용 가능합니다.</span>
+                            </div>
+                        </div>
+
+                        <!-- 고정 릴레이(설치 시 주입) — 잠금 상태 안내 -->
+                        <div class="card eb-full" x-show="form.relayLocked">
+                            <div class="card-header"><span class="material-icons">verified_user</span><span>발송 서버</span></div>
+                            <div class="card-content">
+                                <div class="settings-note" style="border-left-color: var(--color-success);" x-show="form.relayMode === 'api'">
+                                    <small>
+                                        회사 중앙 발송 서버(<b x-text="form.relayEndpoint || '(미구성)'"></b>)를 통해 자동 발송됩니다.
+                                        메일 계정 정보는 회사 서버에만 있고 이 PC 에는 저장되지 않습니다 — 별도 설정이 필요 없습니다.
+                                    </small>
+                                </div>
+                                <div class="settings-note" style="border-left-color: var(--color-success);" x-show="form.relayMode !== 'api'">
+                                    <small>
+                                        회사 메일서버(<b x-text="form.relayHost"></b>)를 통해 <b x-text="form.relayFrom || '(발신 계정)'"></b> 이름으로 자동 발송됩니다.
+                                        SMTP 설정은 설치 시 구성되어 있어 별도 입력이 필요 없습니다.
+                                    </small>
+                                </div>
+                                <div class="eb-warn" x-show="!form.relayCredentialConfigured">
+                                    <span class="material-icons">error</span>
+                                    <small>
+                                        <span x-show="form.relayMode === 'api'">발송 서버(API)가 아직 구성되지 않았습니다.</span>
+                                        <span x-show="form.relayMode !== 'api'">발송 계정이 아직 구성되지 않았습니다.</span>
+                                        설치 담당자/관리자에게 문의하세요(설정 파일 <b>appsettings.Secrets.json</b> 의 <b>BriefingRelay</b> 주입 필요).
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 발송 방식 (잠금 해제 시에만) -->
+                        <div class="card eb-full" x-show="!form.relayLocked">
+                            <div class="card-header"><span class="material-icons">alt_route</span><span>발송 방식</span></div>
+                            <div class="card-content">
+                                <div class="eb-modes">
+                                    <button type="button" class="eb-mode" :class="{ 'is-on': form.sendMode === 'relay' }"
+                                            @click="form.sendMode = 'relay'; markDirty()">
+                                        <span class="material-icons">dns</span>
+                                        <b>SMTP 릴레이 (권장)</b>
+                                        <small>사내/외부 메일서버로 위임 발송. 안정적.</small>
+                                    </button>
+                                    <button type="button" class="eb-mode" :class="{ 'is-on': form.sendMode === 'direct' }"
+                                            @click="form.sendMode = 'direct'; markDirty()">
+                                        <span class="material-icons">bolt</span>
+                                        <b>DSPilot 직접 발송</b>
+                                        <small>중계 서버 없이 수신 도메인 MX로 직접(direct-to-MX).</small>
+                                    </button>
+                                </div>
+                                <div class="eb-warn" x-show="form.sendMode === 'direct'">
+                                    <span class="material-icons">warning</span>
+                                    <small>
+                                        직접 발송은 중계 서버가 필요 없지만, <b>SPF/DKIM·역방향 DNS(PTR)·IP 평판</b>이 없어
+                                        Gmail·네이버·O365 등에서 <b>스팸 처리되거나 반송</b>될 가능성이 높고, 사내망이 <b>아웃바운드 포트 25</b>를
+                                        막으면 아예 발송되지 않습니다. 안정적인 수신을 원하면 SMTP 릴레이를 권장합니다.
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 발신 정보 (잠금 해제 시에만) -->
+                        <div class="card eb-full" x-show="!form.relayLocked">
+                            <div class="card-header"><span class="material-icons">badge</span><span>발신 정보</span></div>
+                            <div class="card-content">
+                                <div class="eb-row">
+                                    <div class="eb-field">
+                                        <label class="form-label">발신 주소(From)</label>
+                                        <input type="text" class="form-field" placeholder="briefing@우리회사.com" x-model="form.fromAddress" @input="markDirty()">
+                                        <span class="eb-hint" x-show="form.sendMode === 'direct'">직접 발송은 도메인이 포함된 발신 주소가 <b>필수</b>이며, 그 도메인이 HELO/보낸사람으로 쓰입니다.</span>
+                                        <span class="eb-hint" x-show="form.sendMode === 'relay'">릴레이는 보통 계정과 동일하게 둡니다(서비스에 따라 강제).</span>
+                                    </div>
+                                    <div class="eb-field">
+                                        <label class="form-label">발신자 표시명</label>
+                                        <input type="text" class="form-field" placeholder="DSPilot 브리핑" x-model="form.fromName" @input="markDirty()">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- SMTP 서버 (잠금 해제 + 릴레이 모드) -->
+                        <div class="card eb-full" x-show="!form.relayLocked && form.sendMode === 'relay'">
+                            <div class="card-header"><span class="material-icons">dns</span><span>SMTP 발송 서버</span></div>
+                            <div class="card-content">
+                                <div class="eb-row">
+                                    <div class="eb-field" style="flex:2;">
+                                        <label class="form-label">호스트</label>
+                                        <input type="text" class="form-field" placeholder="smtp.office365.com / mail.우리회사.local / localhost" x-model="form.smtpHost" @input="markDirty()">
+                                    </div>
+                                    <div class="eb-field" style="max-width:110px;">
+                                        <label class="form-label">포트</label>
+                                        <input type="text" inputmode="numeric" class="form-field" placeholder="587" x-model="form.smtpPort" @input="markDirty()">
+                                    </div>
+                                </div>
+                                <div class="eb-field">
+                                    <label class="switch">
+                                        <input type="checkbox" x-model="form.smtpUseTls" @change="markDirty()">
+                                        <span>TLS/SSL 사용 (포트 465=SSL, 그 외=STARTTLS)</span>
+                                    </label>
+                                </div>
+                                <div class="eb-row">
+                                    <div class="eb-field">
+                                        <label class="form-label">계정(ID) <small style="font-weight:400;color:var(--color-text-secondary);">— 비우면 무인증 릴레이</small></label>
+                                        <input type="text" class="form-field" placeholder="user@company.com" x-model="form.smtpUser" @input="markDirty()">
+                                    </div>
+                                    <div class="eb-field">
+                                        <label class="form-label">비밀번호</label>
+                                        <input type="password" class="form-field" autocomplete="new-password"
+                                               :placeholder="form.smtpPasswordSet ? '●●●●●● (저장됨 — 변경 시에만 입력)' : '미설정'"
+                                               x-model="newPassword" @input="markDirty()">
+                                    </div>
+                                </div>
+                                <span class="eb-hint">Gmail/O365 는 앱 비밀번호가 필요하거나 발신 주소를 계정과 일치시켜야 할 수 있습니다. 사내 릴레이는 host=localhost/사내주소로 두고 계정을 비울 수 있습니다.</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="eb-actions">
+                        <button class="btn btn-outlined" @click="preview()" :disabled="busy">
+                            <span class="material-icons">visibility</span> 미리보기
+                        </button>
+                        <button class="btn btn-outlined color-success" @click="sendTest()" :disabled="busy">
+                            <span class="material-icons">send</span> 테스트 발송
+                        </button>
+                        <button class="btn" :class="{ 'btn-primary': dirty }" @click="save()" :disabled="busy || !dirty">
+                            <span class="material-icons">save</span> <span x-text="dirty ? '저장 *' : '저장됨'"></span>
+                        </button>
+                    </div>
+                </div>
+            </template>
+        </main>
+
+        <!-- 미리보기 모달 -->
+        <div class="modal-overlay" x-show="previewOpen" @click.self="previewOpen = false" x-cloak>
+            <div class="eb-preview-box">
+                <div class="eb-preview-head">
+                    <span class="material-icons" style="color:var(--color-primary);">mail</span>
+                    <span class="subj" x-text="previewSubject || '미리보기'"></span>
+                    <button class="btn-icon btn-sm" @click="previewOpen = false"><span class="material-icons">close</span></button>
+                </div>
+                <iframe class="eb-preview-frame" x-ref="previewFrame" title="브리핑 미리보기"></iframe>
+            </div>
+        </div>
+
+        <div x-show="toast.show" class="dsp-toast" :class="toast.type" x-text="toast.msg" x-cloak></div>
+    </div>
+
+    <script src="/app/shell.js" defer></script>
+    <script defer src="/lib/alpine.min.js"></script>
+    <script>
+        function emailBriefingApp() {
+            return {
+                dark: (localStorage.getItem('dsp-theme') || 'light') === 'dark',
+                loading: true,
+                busy: false,
+                dirty: false,
+                form: null,
+                newRecipient: '',
+                newPassword: '',
+                dayLabels: ['일', '월', '화', '수', '목', '금', '토'],
+                previewOpen: false,
+                previewSubject: '',
+                toast: { show: false, msg: '', type: 'info' },
+
+                async init() {
+                    try {
+                        const res = await fetch('/api/email-briefing');
+                        if (!res.ok) throw new Error('설정을 불러오지 못했습니다.');
+                        const d = await res.json();
+                        d.smtpPort = String(d.smtpPort ?? 587);
+                        d.recipients = d.recipients || [];
+                        d.weekdays = d.weekdays || [];
+                        d.sendMode = d.sendMode === 'direct' ? 'direct' : 'relay';
+                        this.form = d;
+                    } catch (e) {
+                        this.showToast(e.message || '로드 실패', 'error');
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+
+                markDirty() { this.dirty = true; },
+
+                toggleDay(i) {
+                    const idx = this.form.weekdays.indexOf(i);
+                    if (idx >= 0) this.form.weekdays.splice(idx, 1);
+                    else this.form.weekdays.push(i);
+                    this.form.weekdays.sort((a, b) => a - b);
+                    this.markDirty();
+                },
+
+                addRecipient() {
+                    const v = (this.newRecipient || '').trim().replace(/,$/, '').trim();
+                    this.newRecipient = '';
+                    if (!v) return;
+                    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) { this.showToast('메일 주소 형식이 올바르지 않습니다: ' + v, 'error'); return; }
+                    if (this.form.recipients.some(r => r.toLowerCase() === v.toLowerCase())) return;
+                    this.form.recipients.push(v);
+                    this.markDirty();
+                },
+
+                removeRecipient(i) { this.form.recipients.splice(i, 1); this.markDirty(); },
+
+                buildPayload() {
+                    return {
+                        enabled: this.form.enabled,
+                        recipients: this.form.recipients,
+                        sendTimeLocal: this.form.sendTimeLocal,
+                        weekdays: this.form.weekdays,
+                        sendMode: this.form.sendMode,
+                        smtpHost: this.form.smtpHost,
+                        smtpPort: parseInt(this.form.smtpPort, 10) || 587,
+                        smtpUseTls: this.form.smtpUseTls,
+                        smtpUser: this.form.smtpUser,
+                        smtpPassword: this.newPassword || '',   // 빈 값이면 서버가 기존값 유지
+                        fromAddress: this.form.fromAddress,
+                        fromName: this.form.fromName
+                    };
+                },
+
+                async save() {
+                    // blur 전에 저장 눌러도 입력 중 주소가 유실되지 않도록 흡수.
+                    if (this.newRecipient.trim()) this.addRecipient();
+                    this.busy = true;
+                    try {
+                        const res = await fetch('/api/email-briefing', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(this.buildPayload())
+                        });
+                        if (!res.ok) throw new Error((await res.text()) || '저장 실패');
+                        const d = await res.json();
+                        d.smtpPort = String(d.smtpPort ?? 587);
+                        d.sendMode = d.sendMode === 'direct' ? 'direct' : 'relay';
+                        this.form = d;
+                        this.newPassword = '';
+                        this.dirty = false;
+                        this.showToast('저장되었습니다.', 'success');
+                    } catch (e) {
+                        this.showToast(e.message || '저장 실패', 'error');
+                    } finally {
+                        this.busy = false;
+                    }
+                },
+
+                async sendTest() {
+                    if (this.dirty) { this.showToast('먼저 저장한 뒤 테스트 발송하세요.', 'info'); return; }
+                    this.busy = true;
+                    this.showToast('테스트 발송 중…', 'info');
+                    try {
+                        const res = await fetch('/api/email-briefing/test', { method: 'POST' });
+                        const d = await res.json().catch(() => ({ message: '' }));
+                        if (res.ok && d.sent) this.showToast(d.message || '테스트 발송 완료', 'success');
+                        else this.showToast(d.message || '테스트 발송 실패', 'error');
+                    } catch (e) {
+                        this.showToast(e.message || '테스트 발송 실패', 'error');
+                    } finally {
+                        this.busy = false;
+                    }
+                },
+
+                async preview() {
+                    this.busy = true;
+                    try {
+                        const res = await fetch('/api/email-briefing/preview');
+                        if (!res.ok) throw new Error('미리보기 생성 실패');
+                        const subjHeader = res.headers.get('X-Briefing-Subject');
+                        this.previewSubject = subjHeader ? decodeURIComponent(subjHeader) : '';
+                        const html = await res.text();
+                        this.previewOpen = true;
+                        this.$nextTick(() => { this.$refs.previewFrame.srcdoc = html; });
+                    } catch (e) {
+                        this.showToast(e.message || '미리보기 실패', 'error');
+                    } finally {
+                        this.busy = false;
+                    }
+                },
+
+                toggleTheme() {
+                    this.dark = !this.dark;
+                    localStorage.setItem('dsp-theme', this.dark ? 'dark' : 'light');
+                },
+
+                showToast(msg, type = 'info') {
+                    this.toast = { show: true, msg, type };
+                    clearTimeout(this._toastT);
+                    this._toastT = setTimeout(() => { this.toast.show = false; }, 3200);
+                }
+            };
+        }
+    </script>
+</body>
+
+</html>

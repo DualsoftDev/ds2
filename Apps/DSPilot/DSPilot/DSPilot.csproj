@@ -14,6 +14,10 @@
 
   <ItemGroup>
     <PackageReference Include="ClosedXML" Version="0.104.2" />
+    <!-- 일일 브리핑 메일링(EmailBriefingService) — SMTP 발송. System.Net.Mail.SmtpClient 는 MS 비권장이라 MailKit 채택. -->
+    <PackageReference Include="MailKit" Version="4.16.0" />
+    <!-- direct-to-MX 발송 모드용 MX 레코드 조회(.NET 내장 MX 질의 없음). 릴레이 모드는 미사용. -->
+    <PackageReference Include="DnsClient" Version="1.8.0" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.3" />
     <PackageReference Include="Dapper" Version="2.1.35" />
     <PackageReference Include="System.Threading.Channels" Version="9.0.0" />

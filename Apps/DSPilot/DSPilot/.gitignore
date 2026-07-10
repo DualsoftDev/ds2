@@ -4,6 +4,8 @@ appsettings.Production.json
 appsettings.Development.json
 # 설치 스크립트가 기록하는 호스트 전용 포트 파일 (Program.cs 가 명시 로드)
 appsettings.Hosting.json
+# 브리핑 릴레이 자격증명 주입 파일 (설치 시 배치, 절대 커밋 금지). 형식은 appsettings.Secrets.sample.json 참고.
+appsettings.Secrets.json
 
 # Node / Tailwind(stitch) CSS 빌드 — 도구/의존성은 제외.
 # 산출물(wwwroot/css/stitch.css·stitch-shell.css)과 package.json/package-lock.json·tailwind*.js 는 커밋.
