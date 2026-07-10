@@ -71,7 +71,7 @@ export function renderTrendChart(chartId, buckets, granularity) {
             scales: {
                 x: {
                     type: 'time',
-                    time: { unit: timeUnitOf(granularity), tooltipFormat: 'yyyy-MM-dd HH:mm' },
+                    time: { unit: timeUnitOf(granularity), tooltipFormat: 'yyyy-MM-dd HH:mm', displayFormats: { hour: 'HH:mm', day: 'MM-dd', week: 'MM-dd', month: 'yyyy-MM' } },
                     grid: { color: 'rgba(127, 127, 127, 0.08)' },
                 },
                 y: {
@@ -134,7 +134,7 @@ export function renderCycleCountChart(chartId, buckets, granularity) {
             scales: {
                 x: {
                     type: 'time',
-                    time: { unit: timeUnitOf(granularity), tooltipFormat: 'yyyy-MM-dd HH:mm' },
+                    time: { unit: timeUnitOf(granularity), tooltipFormat: 'yyyy-MM-dd HH:mm', displayFormats: { hour: 'HH:mm', day: 'MM-dd', week: 'MM-dd', month: 'yyyy-MM' } },
                     stacked: true,
                     grid: { color: 'rgba(127, 127, 127, 0.08)' },
                 },
