@@ -38,14 +38,18 @@ public sealed class OeeNonProdPatternService
         OeeCommHealthService commHealth,
         AppSettingsService settings,
         IConfiguration configuration,
+        HistoryMirrorService mirror,
         ILogger<OeeNonProdPatternService> logger)
     {
         _pathResolver = pathResolver;
         _commHealth = commHealth;
         _settings = settings;
         _configuration = configuration;
+        _mirror = mirror;
         _logger = logger;
     }
+
+    private readonly HistoryMirrorService _mirror;
 
     private int SlotMinutes => Clamp(_configuration.GetValue<int?>("Oee:NonProdPattern:SlotMinutes") ?? 30, 5, 120);
     private double PromoteRatio => Math.Clamp(_configuration.GetValue<double?>("Oee:NonProdPattern:PromoteRatio") ?? 0.6, 0.05, 1.0);
@@ -167,8 +171,14 @@ public sealed class OeeNonProdPatternService
         var fromStr = fromUtc.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
         var toStr = toUtc.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
 
-        await using var conn = new SqliteConnection($"Data Source={dbPath};Mode=ReadOnly;Default Timeout=20");
-        await conn.OpenAsync(ct);
+        // 학습창(14일)이 미러 범위 안이면 인메모리 미러에서 읽는다(같은 SQL, 밖이면 파일 폴백).
+        var conn = await _mirror.TryOpenPlcReadAsync(fromUtc, layerB: true);
+        if (conn is null)
+        {
+            conn = new SqliteConnection($"Data Source={dbPath};Mode=ReadOnly;Default Timeout=20");
+            await conn.OpenAsync(ct);
+        }
+        await using var _ = conn;
         var exists = await conn.ExecuteScalarAsync<long>(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlowHistory'");
         if (exists == 0) return;

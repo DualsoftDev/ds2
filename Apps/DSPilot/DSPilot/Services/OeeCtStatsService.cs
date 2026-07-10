@@ -27,6 +27,7 @@ public sealed class OeeCtStatsService
     public const int ConfidentMinCleanCycles = 5;
 
     private readonly IDatabasePathResolver _pathResolver;
+    private readonly HistoryMirrorService _mirror;
     private readonly ILogger<OeeCtStatsService> _logger;
 
     // ── TTL 캐시 + single-flight ────────────────────────────────────────────
@@ -38,9 +39,10 @@ public sealed class OeeCtStatsService
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTime ExpiresUtc, object Value)> _cache = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<Task<object>>> _inflight = new();
 
-    public OeeCtStatsService(IDatabasePathResolver pathResolver, ILogger<OeeCtStatsService> logger)
+    public OeeCtStatsService(IDatabasePathResolver pathResolver, HistoryMirrorService mirror, ILogger<OeeCtStatsService> logger)
     {
         _pathResolver = pathResolver;
+        _mirror = mirror;
         _logger = logger;
     }
 
@@ -187,9 +189,14 @@ public sealed class OeeCtStatsService
         if (!File.Exists(dbPath)) return result;
         try
         {
-            await using var conn = new SqliteConnection(
-                $"Data Source={dbPath};Mode=ReadWriteCreate;Default Timeout=20");
-            await conn.OpenAsync();
+            // 14일 창 스캔 — 미러 범위 안이면 인메모리 미러에서(같은 SQL, 밖/미준비면 파일 폴백).
+            var conn = await _mirror.TryOpenPlcReadAsync(DateTime.UtcNow.AddDays(-Math.Max(1, windowDays)), layerB: true);
+            if (conn is null)
+            {
+                conn = new SqliteConnection($"Data Source={dbPath};Mode=ReadWriteCreate;Default Timeout=20");
+                await conn.OpenAsync();
+            }
+            await using var _ = conn;
 
             var histExists = await conn.ExecuteScalarAsync<long>(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlowHistory'");
@@ -250,9 +257,14 @@ public sealed class OeeCtStatsService
         if (!File.Exists(dbPath)) return result;
         try
         {
-            await using var conn = new SqliteConnection(
-                $"Data Source={dbPath};Mode=ReadWriteCreate;Default Timeout=20");
-            await conn.OpenAsync();
+            // 14일 창 스캔 — 미러 범위 안이면 인메모리 미러에서(같은 SQL, 밖/미준비면 파일 폴백).
+            var conn = await _mirror.TryOpenPlcReadAsync(DateTime.UtcNow.AddDays(-Math.Max(1, windowDays)), layerB: true);
+            if (conn is null)
+            {
+                conn = new SqliteConnection($"Data Source={dbPath};Mode=ReadWriteCreate;Default Timeout=20");
+                await conn.OpenAsync();
+            }
+            await using var _ = conn;
 
             var histExists = await conn.ExecuteScalarAsync<long>(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlowHistory'");

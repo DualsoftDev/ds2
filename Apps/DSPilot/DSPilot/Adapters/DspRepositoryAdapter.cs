@@ -29,15 +29,17 @@ public class DspRepositoryAdapter : IDspRepository
 
     private readonly DatabasePaths _paths;
     private readonly ILogger<DspRepositoryAdapter> _logger;
+    private readonly Services.HistoryMirrorService _mirror;
     private readonly bool _enabled;
     private readonly string _connectionString;
     private readonly string _flowTable;
     private readonly string _callTable;
 
-    public DspRepositoryAdapter(DatabasePaths paths, ILogger<DspRepositoryAdapter> logger)
+    public DspRepositoryAdapter(DatabasePaths paths, ILogger<DspRepositoryAdapter> logger, Services.HistoryMirrorService mirror)
     {
         _paths = paths;
         _logger = logger;
+        _mirror = mirror;
         _enabled = paths.DspTablesEnabled;
         _connectionString = $"Data Source={paths.SharedDbPath};Mode=ReadWriteCreate;Default Timeout=20";
         _flowTable = paths.GetFlowTableName();
@@ -653,6 +655,8 @@ public class DspRepositoryAdapter : IDspRepository
 
             tx.Commit();
 
+            await _mirror.ReplicatePlcAsync(HistoryTable, "1=1"); // dspFlow/dspCall 은 3초 스냅샷이 따라잡음
+
             _logger.LogInformation("Cleared all data from DSP database");
             return true;
         }
@@ -924,11 +928,13 @@ public class DspRepositoryAdapter : IDspRepository
 
         try
         {
+            // RETURNING id — 미러 write-through 가 "파일에서 이 행을 read-back" 하는 식별자로 사용.
             var sql = $@"
                 INSERT INTO {HistoryTable} (FlowName, MT, WT, CT, CycleNo, RecordedAt, IsIdle, HeadCallName, TailCallName)
-                VALUES (@FlowName, @MT, @WT, @CT, @CycleNo, @RecordedAt, @IsIdle, @HeadCallName, @TailCallName)";
+                VALUES (@FlowName, @MT, @WT, @CT, @CycleNo, @RecordedAt, @IsIdle, @HeadCallName, @TailCallName)
+                RETURNING Id";
 
-            var result = await conn.ExecuteAsync(sql, new
+            var newId = await conn.ExecuteScalarAsync<long?>(sql, new
             {
                 history.FlowName,
                 history.MT,
@@ -941,12 +947,15 @@ public class DspRepositoryAdapter : IDspRepository
                 history.TailCallName,
             });
 
+            if (newId is long id)
+                await _mirror.ReplicatePlcAsync(HistoryTable, "Id = @Id", new { Id = id });
+
             _logger.LogDebug(
                 "Inserted Flow history for '{FlowName}': Cycle={CycleNo}, MT={MT}ms, WT={WT}ms, CT={CT}ms, head={Head}, tail={Tail}",
                 history.FlowName, history.CycleNo, history.MT, history.WT, history.CT,
                 history.HeadCallName, history.TailCallName);
 
-            return result;
+            return newId is null ? 0 : 1;
         }
         catch (Exception ex)
         {
@@ -994,6 +1003,13 @@ public class DspRepositoryAdapter : IDspRepository
             }
 
             tx.Commit();
+
+            // 미러 동기화 — 같은 문장 재실행이 아니라 파일에서 구간을 read-back(AUTOINCREMENT id 가
+            // 파일과 동일하게 유지돼 ORDER BY RecordedAt, Id 타이브레이커가 어긋나지 않는다).
+            await _mirror.ReplicatePlcAsync(HistoryTable,
+                "FlowName = @FlowName AND RecordedAt >= @FromUtc AND RecordedAt < @ToUtc",
+                new { FlowName = flowName, FromUtc = fromUtc, ToUtc = toUtc });
+
             _logger.LogInformation(
                 "ReplaceFlowHistoryRange '{Flow}' [{From:o}, {To:o}): deleted={Deleted}, inserted={Inserted}",
                 flowName, fromUtc, toUtc, deleted, inserted);
@@ -1042,7 +1058,9 @@ public class DspRepositoryAdapter : IDspRepository
     {
         if (!_enabled) return new List<DspFlowHistoryEntity>();
 
-        await using var conn = await OpenAsync();
+        // 창이 미러 범위 안이면 인메모리 미러에서 읽는다(같은 SQL — 커넥션만 교체, 밖이면 파일 폴백).
+        var sinceDate = DateTime.UtcNow.AddDays(-days);
+        await using var conn = await _mirror.TryOpenPlcReadAsync(sinceDate) ?? await OpenAsync();
 
         if (!await TableExistsAsync(conn, HistoryTable))
             return new List<DspFlowHistoryEntity>();
@@ -1059,7 +1077,6 @@ public class DspRepositoryAdapter : IDspRepository
                   AND RecordedAt >= @SinceDate
                 ORDER BY RecordedAt DESC";
 
-            var sinceDate = DateTime.UtcNow.AddDays(-days);
             var results = await conn.QueryAsync<DspFlowHistoryEntity>(sql, new { FlowName = flowName, SinceDate = sinceDate });
             return results.ToList();
         }
@@ -1074,7 +1091,8 @@ public class DspRepositoryAdapter : IDspRepository
     {
         if (!_enabled) return new List<DspFlowHistoryEntity>();
 
-        await using var conn = await OpenAsync();
+        // 창이 미러 범위 안이면 인메모리 미러에서 읽는다(같은 SQL — 커넥션만 교체, 밖이면 파일 폴백).
+        await using var conn = await _mirror.TryOpenPlcReadAsync(startTime) ?? await OpenAsync();
 
         if (!await TableExistsAsync(conn, HistoryTable))
             return new List<DspFlowHistoryEntity>();
@@ -1180,6 +1198,9 @@ public class DspRepositoryAdapter : IDspRepository
 
             tx.Commit();
 
+            if (historyDeleted > 0)
+                await _mirror.ReplicatePlcAsync(HistoryTable, "FlowName NOT IN @Names", param);
+
             if (flowsDeleted + callsDeleted + historyDeleted > 0)
                 _logger.LogInformation("Pruned stale rows: dspFlow={Flows}, dspCall={Calls}, dspFlowHistory={History}",
                     flowsDeleted, callsDeleted, historyDeleted);
@@ -1209,6 +1230,7 @@ public class DspRepositoryAdapter : IDspRepository
         try
         {
             var deleted = await conn.ExecuteAsync($"DELETE FROM {HistoryTable}");
+            await _mirror.ReplicatePlcAsync(HistoryTable, "1=1");
             _logger.LogInformation("Cleared {Count} rows from {Table}", deleted, HistoryTable);
             return deleted;
         }
@@ -1315,6 +1337,9 @@ public class DspRepositoryAdapter : IDspRepository
             await conn.ExecuteAsync(lastSql, transaction: tx);
 
             tx.Commit();
+
+            // IsIdle 재스탬프는 전 이력 UPDATE — 미러는 자기 창만 파일에서 재복제(dspFlow 평균분은 스냅샷이 흡수).
+            await _mirror.ReplicatePlcAsync(HistoryTable, "RecordedAt >= @Floor", new { Floor = _mirror.WindowFloorUtc });
 
             _logger.LogInformation(
                 "Reapplied idle thresholds (global Max={MaxCT}ms, Min={MinCT}ms, {Overrides} per-flow override(s)): {Rows} history rows restamped, {Flows} flows recomputed",
@@ -1628,6 +1653,11 @@ public class DspRepositoryAdapter : IDspRepository
                 : 0;
 
             tx.Commit();
+
+            // 미러 삭제 전파 — 파일과 동일 조건/인자(read-back 이라 파일에 남은 행 기준으로 수렴).
+            await _mirror.ReplicatePlcAsync(HistoryTable, "recordedAt < @Cutoff", new { Cutoff = cutoffStr });
+            await _mirror.ReplicatePlcAsync("userTagAlertLog", "occurredAt < @Cutoff", new { Cutoff = cutoffStr });
+
             _logger.LogInformation(
                 "[DeleteRawDataBefore] cutoff={Cutoff} plcTagLog={P} userTagAlertLog={A} history={H} aasxChangeLog={C}",
                 cutoffStr, plcDeleted, alertDeleted, histDeleted, changeLogDeleted);

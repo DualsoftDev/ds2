@@ -25,8 +25,9 @@ public class OeeProductionController : OeeControllerBase
         OeeAutoShiftInferenceService shiftInfer,
         OeeCommHealthService commHealth,
         OeeNonProdPatternService nonProdPattern,
+        HistoryMirrorService mirror,
         ILogger<OeeProductionController> logger)
-        : base(repo, settings, project, pathResolver, ctStats, shiftInfer, commHealth, nonProdPattern, logger) { }
+        : base(repo, settings, project, pathResolver, ctStats, shiftInfer, commHealth, nonProdPattern, mirror, logger) { }
 
     // ── GET /api/oee/output-count?from&to ─────────────────────────────────
     [HttpGet("output-count")]

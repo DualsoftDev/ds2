@@ -166,6 +166,7 @@
                         this.period = 'custom';
                         this.customFrom = qp.get('from').slice(0, 16);
                         this.customTo = qp.get('to').slice(0, 16);
+                        this.clampCustomRange(); // 북마크/URL 로 상한(2개월) 우회 방지
                     }
                     // 피드에서 발생시각(at)을 받으면 그 '날' 하루를 custom 기간으로 맞춰 클릭한 알람이 조회 범위에 들어오게 한다.
                     // (기본 '오늘'이라 과거 알람이면 0건이 되던 문제 해결.) _focusAt 은 로드 후 그 행을 스크롤·하이라이트하는 키.
@@ -1280,8 +1281,22 @@
                     this.period = 'custom';
                     this.syncPeriodUrl();
                 },
+                // 커스텀 기간 상한(2개월) — 초과 시 종료 시각을 기준으로 시작을 당기고 토스트로 안내.
+                // 서버 인메모리 미러 창(63일) 안에 사용자 조회가 항상 들어오게 하는 UX 규약(shell.js SSOT).
+                clampCustomRange() {
+                    if (!window.dspClampRange || !this.customFrom || !this.customTo) return;
+                    const s = new Date(this.customFrom), e = new Date(this.customTo);
+                    const r = window.dspClampRange(s, e, 'end');
+                    if (!r.clamped) return;
+                    const p = (x) => String(x).padStart(2, '0');
+                    const fmt = (d) => `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+                    this.customFrom = fmt(r.start);
+                    this.customTo = fmt(r.end);
+                    if (window.dspToast) window.dspToast(window.dspRangeClampMsg, 'warning');
+                },
                 applyCustomPeriod() {
                     if (!this.customFrom || !this.customTo) return;
+                    this.clampCustomRange();
                     this.utPage = 0;
                     this.syncPeriodUrl();
                     if (window.dspLoading) window.dspLoading.wrap(() => this.reloadForPeriod(), '기간 데이터 불러오는 중…'); else this.reloadForPeriod();

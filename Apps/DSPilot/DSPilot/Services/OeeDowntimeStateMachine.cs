@@ -64,6 +64,7 @@ public sealed class OeeDowntimeStateMachine : BackgroundService
         DsProjectService project,
         OeeCtStatsService ctStats,
         IConfiguration configuration,
+        HistoryMirrorService mirror,
         ILogger<OeeDowntimeStateMachine> logger)
     {
         _scopeFactory = scopeFactory;
@@ -71,8 +72,11 @@ public sealed class OeeDowntimeStateMachine : BackgroundService
         _project = project;
         _ctStats = ctStats;
         _configuration = configuration;
+        _mirror = mirror;
         _logger = logger;
     }
+
+    private readonly HistoryMirrorService _mirror;
 
     private int NoCycleSeconds
     {
@@ -255,9 +259,18 @@ public sealed class OeeDowntimeStateMachine : BackgroundService
 
         try
         {
-            await using var conn = new SqliteConnection(
-                $"Data Source={dbPath};Mode=ReadWriteCreate;Default Timeout=20");
-            await conn.OpenAsync();
+            // 미러 라우팅 — 15초 폴링의 flow별 MAX 풀스캔을 창 고정 비용으로. 시맨틱 편차 1건 수용:
+            // 미러는 63일 창만 담으므로 63일 내 사이클이 전무한 flow 는 맵에서 빠진다 — nocycle 판정이
+            // "그 flow 는 정지 추적 대상 아님" 쪽(보수)으로 기울 뿐 오탐을 만들지 않는다.
+            var mirrorConn = await _mirror.TryOpenPlcReadAsync(DateTime.UtcNow.AddDays(-60), layerB: true);
+            SqliteConnection conn;
+            if (mirrorConn is not null) conn = mirrorConn;
+            else
+            {
+                conn = new SqliteConnection($"Data Source={dbPath};Mode=ReadWriteCreate;Default Timeout=20");
+                await conn.OpenAsync();
+            }
+            await using var _ = conn;
 
             var exists = await conn.ExecuteScalarAsync<long>(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlowHistory'");

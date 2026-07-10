@@ -516,6 +516,19 @@
                 resetTimeRange() {
                     this.startTime = this.isoToLocalInput(this.oldestLog);
                     this.endTime = this.isoToLocalInput(this.latestLog);
+                    this.clampTimeRange(); // '전체 기간'도 상한(2개월) 적용 — 최신 기준으로 시작을 당김
+                },
+                // 시간창 상한(2개월) — 종료 기준으로 시작을 당기고 안내(shell.js dspClampRange SSOT).
+                clampTimeRange() {
+                    if (!window.dspClampRange || !this.startTime || !this.endTime) return;
+                    const s = new Date(this.startTime), e = new Date(this.endTime);
+                    const r = window.dspClampRange(s, e, 'end');
+                    if (!r.clamped) return;
+                    const p = (x) => String(x).padStart(2, '0');
+                    const fmt = (d) => `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+                    this.startTime = fmt(r.start);
+                    this.endTime = fmt(r.end);
+                    this.showToast(window.dspRangeClampMsg || '기간은 최대 2개월까지 선택할 수 있어 자동으로 조정했습니다.', 'warning');
                 },
                 syncSelectionToCurrentFilter() {
                     this.selectedTagIds = new Set(this.filteredTags.map(t => t.id));
@@ -531,6 +544,7 @@
 
                 // ── 차트 로드 (Blazor LoadChartData — 서버에서 datasets/lanes 계산) ──
                 async loadChartData() {
+                    this.clampTimeRange(); // 직접 입력한 시간창도 상한(2개월) 적용
                     const filteredIds = new Set(this.filteredTags.map(t => t.id));
                     if (filteredIds.size === 0) { this.showToast('필터 조건에 맞는 태그가 없습니다.', 'warning'); return; }
                     if (this.selectedTagIds.size === 0) { this.showToast('태그를 선택하세요.', 'warning'); return; }

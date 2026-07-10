@@ -25,8 +25,9 @@ public class OeeMetricsController : OeeControllerBase
         OeeAutoShiftInferenceService shiftInfer,
         OeeCommHealthService commHealth,
         OeeNonProdPatternService nonProdPattern,
+        HistoryMirrorService mirror,
         ILogger<OeeMetricsController> logger)
-        : base(repo, settings, project, pathResolver, ctStats, shiftInfer, commHealth, nonProdPattern, logger) { }
+        : base(repo, settings, project, pathResolver, ctStats, shiftInfer, commHealth, nonProdPattern, mirror, logger) { }
 
     // ── GET /api/oee/summary?from&to&flow ─────────────────────────────────
     [HttpGet("summary")]

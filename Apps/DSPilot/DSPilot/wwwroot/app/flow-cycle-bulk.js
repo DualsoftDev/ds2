@@ -166,6 +166,7 @@ function bulkCycleApp() {
             const from = qp.get('from'), to = qp.get('to');
             if (from && to && this.inputToDate(to) > this.inputToDate(from)) {
                 this.startTime = from; this.endTime = to;
+                this.clampTimeRange(); // 북마크/URL 로 상한(2개월) 우회 방지
                 this.timePreset = null; this.cyclePreset = null;
                 return await this.loadAll();
             }
@@ -499,6 +500,7 @@ function bulkCycleApp() {
             this.timePreset = null; this.cyclePreset = null;   // 수동 범위 → 프리셋 해제 (단일 페이지와 동일)
             this.startTime = this.dateToInput(s);
             this.endTime = this.dateToInput(e);
+            this.clampTimeRange();                             // 커스텀 기간 상한(2개월)
             for (const fl of this.flows) fl.selectedRange = null;
             await this.loadAll();
         },
@@ -785,11 +787,21 @@ function bulkCycleApp() {
         // ── 시간범위 컨트롤 ──
         onTimeChanged() {
             this.timePreset = null; this.cyclePreset = null;
+            this.clampTimeRange(); // 커스텀 기간 상한(2개월)
             clearTimeout(this._timer);
             this._timer = setTimeout(() => {
                 if (this.inputToDate(this.endTime) <= this.inputToDate(this.startTime)) return;
                 this.loadAll();
             }, 350);
+        },
+        // 시간창(start~end) 상한 — 종료 기준으로 시작을 당기고 토스트 안내(shell.js SSOT, 단일 페이지와 동일).
+        clampTimeRange() {
+            if (!window.dspClampRange || !this.startTime || !this.endTime) return;
+            const r = window.dspClampRange(this.inputToDate(this.startTime), this.inputToDate(this.endTime), 'end');
+            if (!r.clamped) return;
+            this.startTime = this.dateToInput(r.start);
+            this.endTime = this.dateToInput(r.end);
+            if (window.dspToast) window.dspToast(window.dspRangeClampMsg, 'warning');
         },
         async setRecentMinutes(min) {
             this.timePreset = 'm' + min; this.cyclePreset = null; this.rangePopupOpen = false;

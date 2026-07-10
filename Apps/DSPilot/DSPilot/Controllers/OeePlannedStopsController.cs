@@ -26,8 +26,9 @@ public class OeePlannedStopsController : OeeControllerBase
         OeeAutoShiftInferenceService shiftInfer,
         OeeCommHealthService commHealth,
         OeeNonProdPatternService nonProdPattern,
+        HistoryMirrorService mirror,
         ILogger<OeePlannedStopsController> logger)
-        : base(repo, settings, project, pathResolver, ctStats, shiftInfer, commHealth, nonProdPattern, logger) { }
+        : base(repo, settings, project, pathResolver, ctStats, shiftInfer, commHealth, nonProdPattern, mirror, logger) { }
 
     // ── GET /api/oee/planned-stops ────────────────────────────────────────
     // 병행 모델(2026-07-08): 당일 자동 판정 상시 + Windows(수동 지정)는 추가 확정 비생산. Source=auto|both.

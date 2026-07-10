@@ -22,12 +22,15 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
 {
     private readonly IDatabasePathResolver _pathResolver;
     private readonly AppSettingsService _appSettings;
+    private readonly HistoryMirrorService _mirror;
     private readonly ILogger<UserTagAlertRepository> _logger;
 
-    public UserTagAlertRepository(IDatabasePathResolver pathResolver, AppSettingsService appSettings, ILogger<UserTagAlertRepository> logger)
+    public UserTagAlertRepository(IDatabasePathResolver pathResolver, AppSettingsService appSettings,
+        HistoryMirrorService mirror, ILogger<UserTagAlertRepository> logger)
     {
         _pathResolver = pathResolver;
         _appSettings = appSettings;
+        _mirror = mirror;
         _logger = logger;
     }
 
@@ -53,7 +56,7 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
                 (@OccurredAt, @SystemId, @SystemName, @Name, @LogLevel, @TagAddress, @ValueType, @MatchOp, @MatchValue, @ActualValue, @SourceLogId);
             SELECT last_insert_rowid();";
 
-        return await conn.ExecuteScalarAsync<long>(sql, new
+        var id = await conn.ExecuteScalarAsync<long>(sql, new
         {
             OccurredAt = Iso(r.OccurredAt),
             SystemId = r.SystemId.ToString(),
@@ -67,6 +70,9 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
             r.ActualValue,
             r.SourceLogId,
         });
+
+        await _mirror.ReplicatePlcAsync("userTagAlertLog", "id = @Id", new { Id = id });
+        return id;
     }
 
     // 구분(카테고리) 판별 SSOT — abnormal 행은 valueType='Abnormal'(AbnormalEventService.PersistToLogAsync),
@@ -179,7 +185,8 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         CancellationToken ct = default, string? flowFilter = null,
         string? sortColumn = null, bool sortDesc = true)
     {
-        await using var conn = await OpenAsync();
+        // 창이 미러 범위 안이면 인메모리 미러에서 읽는다(같은 SQL — 커넥션만 교체, 밖이면 파일 폴백).
+        await using var conn = await _mirror.TryOpenPlcReadAsync(startUtc) ?? await OpenAsync();
         var (where, p) = BuildFilter(startUtc, endUtc, nameFilter, levelFilter, systemFilter, categoryFilter, flowFilter);
         p.Add("Limit", limit);
         p.Add("Offset", offset);
@@ -211,7 +218,7 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         string? nameFilter, string? levelFilter, string? systemFilter, string? categoryFilter = null,
         CancellationToken ct = default, string? flowFilter = null)
     {
-        await using var conn = await OpenAsync();
+        await using var conn = await _mirror.TryOpenPlcReadAsync(startUtc) ?? await OpenAsync();
         var (where, p) = BuildFilter(startUtc, endUtc, nameFilter, levelFilter, systemFilter, categoryFilter, flowFilter);
         var sql = $"SELECT COUNT(*) FROM userTagAlertLog {where}";
         return await conn.ExecuteScalarAsync<int>(sql, p);
@@ -223,7 +230,7 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         string? nameFilter, string? levelFilter, string? systemFilter, string? categoryFilter,
         CancellationToken ct = default, string? flowFilter = null)
     {
-        await using var conn = await OpenAsync();
+        await using var conn = await _mirror.TryOpenPlcReadAsync(startUtc) ?? await OpenAsync();
         var (where, p) = BuildFilter(startUtc, endUtc, nameFilter, levelFilter, systemFilter, categoryFilter, flowFilter);
 
         // SQLite strftime — UTC 기반 버킷 시작 시각 문자열 (UI 측에서 다시 DateTime 으로 파싱).
@@ -264,7 +271,7 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         string groupBy = "name",
         CancellationToken ct = default, string? flowFilter = null)
     {
-        await using var conn = await OpenAsync();
+        await using var conn = await _mirror.TryOpenPlcReadAsync(startUtc) ?? await OpenAsync();
         var (where, p) = BuildFilter(startUtc, endUtc, null, levelFilter, systemFilter, categoryFilter, flowFilter);
         p.Add("TopN", topN);
         // 그룹키: name(기본) | tagAddress(경로). SQL 삽입값이라 화이트리스트로만 결정(주입 방지).
@@ -288,7 +295,7 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         string? nameFilter, string? levelFilter, string? systemFilter,
         CancellationToken ct = default, string? flowFilter = null)
     {
-        await using var conn = await OpenAsync();
+        await using var conn = await _mirror.TryOpenPlcReadAsync(startUtc) ?? await OpenAsync();
         // 구분 도넛은 항상 두 구분을 함께 보여준다 → category 필터는 걸지 않는다(name/level/system 만).
         // 단 flow 필터가 걸리면(설비별 보기) tagAddress 로 자동감지만 남으므로 도넛도 ABNORMAL 단일이 된다.
         var (where, p) = BuildFilter(startUtc, endUtc, nameFilter, levelFilter, systemFilter, null, flowFilter);

@@ -19,11 +19,13 @@ namespace DSPilot.Repositories;
 public sealed class OeeRepositoryAdapter : IOeeRepository
 {
     private readonly IDatabasePathResolver _pathResolver;
+    private readonly Services.HistoryMirrorService _mirror;
     private readonly ILogger<OeeRepositoryAdapter> _logger;
 
-    public OeeRepositoryAdapter(IDatabasePathResolver pathResolver, ILogger<OeeRepositoryAdapter> logger)
+    public OeeRepositoryAdapter(IDatabasePathResolver pathResolver, Services.HistoryMirrorService mirror, ILogger<OeeRepositoryAdapter> logger)
     {
         _pathResolver = pathResolver;
+        _mirror = mirror;
         _logger = logger;
     }
 
@@ -237,7 +239,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             ON CONFLICT(detectSource, sourceLogId) WHERE sourceLogId IS NOT NULL DO NOTHING
             RETURNING id;";
 
-        return await conn.ExecuteScalarAsync<long?>(sql, new
+        var newId = await conn.ExecuteScalarAsync<long?>(sql, new
         {
             e.SystemName,
             e.FlowName,
@@ -252,7 +254,18 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             e.SourceLogId,
             e.Note,
         }) ?? 0L;
+
+        if (newId > 0) // dedupe(미삽입=0)면 미러 갱신 불필요
+            await _mirror.ReplicateOeeAsync("oeeDowntimeEvent", "id = @Id", new { Id = newId });
+        return newId;
     }
+
+    /// <summary>정지 이벤트 쓰기 공통 미러 동기화 — 파일 커밋 후 영향 행을 id 로 read-back(멱등).</summary>
+    private Task MirrorDowntimeAsync(long id)
+        => _mirror.ReplicateOeeAsync("oeeDowntimeEvent", "id = @Id", new { Id = id });
+
+    private Task MirrorDowntimeAsync(IReadOnlyList<long> ids)
+        => _mirror.ReplicateOeeAsync("oeeDowntimeEvent", "id IN @Ids", new { Ids = ids });
 
     public async Task<int> CloseDowntimeAsync(long id, DateTime endAtUtc, CancellationToken ct = default)
     {
@@ -264,7 +277,9 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             SET endAt = @EndAt,
                 durationMs = CAST((julianday(@EndAt) - julianday(startAt)) * 86400000 AS INTEGER)
             WHERE id = @Id AND endAt IS NULL";
-        return await conn.ExecuteAsync(sql, new { Id = id, EndAt = Iso(endAtUtc) });
+        var n = await conn.ExecuteAsync(sql, new { Id = id, EndAt = Iso(endAtUtc) });
+        await MirrorDowntimeAsync(id);
+        return n;
     }
 
     public async Task<int> ClassifyDowntimeAsync(long id, string? reasonCode, string? category, bool isFailure, string? classifySource = "manual", CancellationToken ct = default)
@@ -277,7 +292,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
                 isFailure      = @IsFailure,
                 classifySource = @ClassifySource
             WHERE id = @Id";
-        return await conn.ExecuteAsync(sql, new
+        var n = await conn.ExecuteAsync(sql, new
         {
             Id = id,
             ReasonCode = reasonCode,
@@ -285,6 +300,8 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             IsFailure = isFailure ? 1 : 0,
             ClassifySource = classifySource,
         });
+        await MirrorDowntimeAsync(id);
+        return n;
     }
 
     public async Task<int> ReclassifyDowntimeAsync(long id, bool toNonProd, CancellationToken ct = default)
@@ -303,7 +320,9 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
                     isFailure      = 0,
                     classifySource = 'manual'
                 WHERE id = @Id";
-            return await conn.ExecuteAsync(sql, new { Id = id });
+            var n1 = await conn.ExecuteAsync(sql, new { Id = id });
+            await MirrorDowntimeAsync(id);
+            return n1;
         }
         // 비가동으로 — 스태시가 있으면 원래 분류(유지보수 등) 복원, 없으면 기본 고장. 복원 후 스태시 클리어.
         // prevIsFailure IS NOT NULL 이 스태시 마커(스태시된 reasonCode 자체가 NULL[미분류]일 수 있어 별도 마커 필요).
@@ -315,7 +334,9 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
                 prevReasonCode = NULL, prevCategory = NULL, prevIsFailure = NULL,
                 classifySource = 'manual'
             WHERE id = @Id";
-        return await conn.ExecuteAsync(restore, new { Id = id });
+        var n2 = await conn.ExecuteAsync(restore, new { Id = id });
+        await MirrorDowntimeAsync(id);
+        return n2;
     }
 
     public async Task<int> BulkClassifyDowntimeAsync(IReadOnlyList<long> ids, string? reasonCode, string? category, bool isFailure, string? classifySource = "manual", CancellationToken ct = default)
@@ -329,7 +350,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
                 isFailure      = @IsFailure,
                 classifySource = @ClassifySource
             WHERE id IN @Ids";
-        return await conn.ExecuteAsync(sql, new
+        var n = await conn.ExecuteAsync(sql, new
         {
             Ids = ids,
             ReasonCode = reasonCode,
@@ -337,6 +358,8 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             IsFailure = isFailure ? 1 : 0,
             ClassifySource = classifySource,
         });
+        await MirrorDowntimeAsync(ids);
+        return n;
     }
 
     public async Task<int> AutoClassifyHeuristicAsync(long id, string? reasonCode, string? category, bool isFailure, CancellationToken ct = default)
@@ -353,13 +376,15 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             WHERE id = @Id
               AND category IS NULL
               AND (classifySource IS NULL OR classifySource <> 'manual')";
-        return await conn.ExecuteAsync(sql, new
+        var n = await conn.ExecuteAsync(sql, new
         {
             Id = id,
             ReasonCode = reasonCode,
             Category = category,
             IsFailure = isFailure ? 1 : 0,
         });
+        await MirrorDowntimeAsync(id);
+        return n;
     }
 
     public async Task<int> BulkCloseDowntimeAsync(IReadOnlyList<long> ids, DateTime endAtUtc, CancellationToken ct = default)
@@ -371,7 +396,9 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             SET endAt = @EndAt,
                 durationMs = CAST((julianday(@EndAt) - julianday(startAt)) * 86400000 AS INTEGER)
             WHERE id IN @Ids AND endAt IS NULL";
-        return await conn.ExecuteAsync(sql, new { Ids = ids, EndAt = Iso(endAtUtc) });
+        var n = await conn.ExecuteAsync(sql, new { Ids = ids, EndAt = Iso(endAtUtc) });
+        await MirrorDowntimeAsync(ids);
+        return n;
     }
 
     public async Task<int> ClearDowntimeEventsAsync(CancellationToken ct = default)
@@ -380,15 +407,19 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         await using var conn = await OpenAsync();
         // 비생산 감지 로그도 동반 초기화 — plc.db 사이클에서 파생되므로 정지 이벤트와 동일 수명(전체 초기화 시 stale 방지).
         await conn.ExecuteAsync("DELETE FROM oeeNonProdDetectionLog");
-        return await conn.ExecuteAsync("DELETE FROM oeeDowntimeEvent");
+        var n = await conn.ExecuteAsync("DELETE FROM oeeDowntimeEvent");
+        await _mirror.ReplicateOeeAsync("oeeDowntimeEvent", "1=1"); // nonProdLog 는 3초 스냅샷이 따라잡음
+        return n;
     }
 
     public async Task<int> DeleteDowntimeEventsBeforeAsync(DateTime cutoffUtc, CancellationToken ct = default)
     {
         await using var conn = await OpenAsync();
-        return await conn.ExecuteAsync(
+        var n = await conn.ExecuteAsync(
             "DELETE FROM oeeDowntimeEvent WHERE startAt < @Cutoff",
             new { Cutoff = Iso(cutoffUtc) });
+        await _mirror.ReplicateOeeAsync("oeeDowntimeEvent", "startAt < @Cutoff", new { Cutoff = Iso(cutoffUtc) });
+        return n;
     }
 
     private static (string Where, DynamicParameters Params) BuildDowntimeFilter(
@@ -424,7 +455,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         string? status, string? reasonCode, string? flowName,
         CancellationToken ct = default)
     {
-        await using var conn = await OpenAsync();
+        await using var conn = await _mirror.TryOpenOeeReadAsync(fromUtc) ?? await OpenAsync();
         var (where, p) = BuildDowntimeFilter(fromUtc, toUtc, status, reasonCode, flowName);
         var sql = $@"
             SELECT id, systemName, flowName, deviceName, startAt, endAt, durationMs,
@@ -438,6 +469,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
 
     public async Task<IReadOnlyList<OeeDowntimeEvent>> GetOpenEventsAsync(string? flowName = null, CancellationToken ct = default)
     {
+        // 파일 고정 — 정지 상태머신의 onset 중복 가드라 writer 의 정확성이 미러 신선도에 의존하면 안 된다.
         await using var conn = await OpenAsync();
         var sql = @"
             SELECT id, systemName, flowName, deviceName, startAt, endAt, durationMs,
@@ -453,7 +485,8 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
     public async Task<(long DowntimeMs, int Count)> GetDowntimeAggregateAsync(
         DateTime fromUtc, DateTime toUtc, string? flowName, CancellationToken ct = default)
     {
-        await using var conn = await OpenAsync();
+        // 창이 미러 범위 안이면 인메모리 미러에서 읽는다(같은 SQL — 커넥션만 교체, 밖이면 파일 폴백).
+        await using var conn = await _mirror.TryOpenOeeReadAsync(fromUtc) ?? await OpenAsync();
         var capUtc = DateTime.UtcNow < toUtc ? DateTime.UtcNow : toUtc;
         var p = new DynamicParameters();
         p.Add("From", Iso(fromUtc));
@@ -485,7 +518,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
     public async Task<(long FailureDurationMs, int FailureCount)> GetFailureAggregateAsync(
         DateTime fromUtc, DateTime toUtc, string? flowName, CancellationToken ct = default)
     {
-        await using var conn = await OpenAsync();
+        await using var conn = await _mirror.TryOpenOeeReadAsync(fromUtc) ?? await OpenAsync();
         var p = new DynamicParameters();
         p.Add("From", Iso(fromUtc));
         p.Add("To", Iso(toUtc));
@@ -508,7 +541,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
     public async Task<IReadOnlyList<(string FlowName, long DowntimeMs, int Count)>> GetDowntimeByFlowAsync(
         DateTime fromUtc, DateTime toUtc, CancellationToken ct = default)
     {
-        await using var conn = await OpenAsync();
+        await using var conn = await _mirror.TryOpenOeeReadAsync(fromUtc) ?? await OpenAsync();
         var capUtc = DateTime.UtcNow < toUtc ? DateTime.UtcNow : toUtc;
         // 비생산 분류 이벤트 제외 — 순위표 '정지'는 비가동만 센다(GetDowntimeAggregateAsync 와 동일 규칙).
         var sql = $@"
@@ -549,7 +582,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
                 goodCount   = excluded.goodCount,
                 rejectCount = excluded.rejectCount,
                 source      = excluded.source";
-        return await conn.ExecuteAsync(sql, new
+        var n = await conn.ExecuteAsync(sql, new
         {
             r.BucketDate,
             r.FlowName,
@@ -559,6 +592,11 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             r.RejectCount,
             Source = string.IsNullOrEmpty(r.Source) ? "manual" : r.Source,
         });
+        // 3초 스냅샷이 따라잡지만, 수동 입력 직후 재조회(read-your-write)가 stale 을 보지 않게 즉시 복제.
+        await _mirror.ReplicateOeeAsync("oeeProductionCount",
+            "bucketDate = @B AND flowName = @F AND shift = @S",
+            new { B = r.BucketDate, F = r.FlowName, S = r.Shift ?? "" });
+        return n;
     }
 
     public async Task<int> UpsertProductionFromPlcAsync(
@@ -585,7 +623,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
                     (CASE WHEN @HasReject = 1 THEN @Reject ELSE oeeProductionCount.rejectCount END)),
                 source      = 'plc'";
 
-        return await conn.ExecuteAsync(sql, new
+        var n = await conn.ExecuteAsync(sql, new
         {
             BucketDate = bucketDate,
             FlowName = flowName,
@@ -598,12 +636,17 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             HasReject = reject.HasValue ? 1 : 0,
             Reject = reject ?? 0,
         });
+        await _mirror.ReplicateOeeAsync("oeeProductionCount",
+            "bucketDate = @B AND flowName = @F AND shift = @S",
+            new { B = bucketDate, F = flowName, S = shift ?? "" });
+        return n;
     }
 
     public async Task<(int Total, int Good, int Reject, bool HasReject)> QueryProductionAsync(
         DateTime fromLocal, DateTime toLocal, string? flowName, CancellationToken ct = default)
     {
-        await using var conn = await OpenAsync();
+        // oeeProductionCount 는 미러에 전체 복사(소형, 3초 스냅샷) — 기간과 무관하게 미러 사용 가능.
+        await using var conn = await _mirror.TryOpenOeeReadAsync(null) ?? await OpenAsync();
         var p = new DynamicParameters();
         p.Add("From", fromLocal.ToString("yyyy-MM-dd"));
         p.Add("To", toLocal.ToString("yyyy-MM-dd"));
@@ -637,7 +680,8 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
     public async Task<IReadOnlyList<(long StartMs, long EndMs, int Kind, bool IsAuto, string? FlowName)>> GetDowntimeIntervalsAsync(
         DateTime fromUtc, DateTime toUtc, string? flowName, CancellationToken ct = default)
     {
-        await using var conn = await OpenAsync();
+        // 겹침 쿼리지만 미러가 "창과 겹치는 정지(열린/늦게 끝난 것 포함)"를 보존 복사하므로 from>=floor 면 동등.
+        await using var conn = await _mirror.TryOpenOeeReadAsync(fromUtc) ?? await OpenAsync();
         var capUtc = DateTime.UtcNow < toUtc ? DateTime.UtcNow : toUtc;
         var p = new DynamicParameters();
         p.Add("From", Iso(fromUtc));
@@ -727,7 +771,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
     public async Task<IReadOnlyList<(double S, double E)>> GetNonProdIntervalsFromLogAsync(
         DateTime fromUtc, DateTime toUtc, string? flowName, CancellationToken ct = default)
     {
-        await using var conn = await OpenAsync();
+        await using var conn = await _mirror.TryOpenOeeReadAsync(fromUtc) ?? await OpenAsync();
         var capUtc = DateTime.UtcNow < toUtc ? DateTime.UtcNow : toUtc;
         var p = new DynamicParameters();
         p.Add("From", Iso(fromUtc));
@@ -768,7 +812,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
     public async Task<IReadOnlyList<(string? FlowName, double S, double E, bool ToNonProd)>> GetManualReclassIntervalsAsync(
         DateTime fromUtc, DateTime toUtc, CancellationToken ct = default)
     {
-        await using var conn = await OpenAsync();
+        await using var conn = await _mirror.TryOpenOeeReadAsync(fromUtc) ?? await OpenAsync();
         var capUtc = DateTime.UtcNow < toUtc ? DateTime.UtcNow : toUtc;
         // 사용자 확정 분류(classifySource='manual')만 — 당일 자동(10×CT) 판정의 오버라이드 소스.
         //   reasonCode='non_production' → 비생산 강제(ToNonProd=true), 그 외(고장/유지보수 등) → 자동 승격 억제.
@@ -808,7 +852,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             INSERT INTO oeeShiftException (flowName, startAt, endAt, kind, note)
             VALUES (@FlowName, @StartAt, @EndAt, @Kind, @Note);
             SELECT last_insert_rowid();";
-        return await conn.ExecuteScalarAsync<long>(sql, new
+        var id = await conn.ExecuteScalarAsync<long>(sql, new
         {
             r.FlowName,
             StartAt = Iso(r.StartAt),
@@ -816,12 +860,15 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             r.Kind,
             r.Note,
         });
+        await _mirror.ReplicateOeeAsync("oeeShiftException", "id = @Id", new { Id = id });
+        return id;
     }
 
     public async Task<IReadOnlyList<OeeShiftException>> QueryShiftExceptionsAsync(
         DateTime fromUtc, DateTime toUtc, string? flowName, CancellationToken ct = default)
     {
-        await using var conn = await OpenAsync();
+        // oeeShiftException 은 미러에 전체 복사(소형, 3초 스냅샷) — 기간과 무관하게 미러 사용 가능.
+        await using var conn = await _mirror.TryOpenOeeReadAsync(null) ?? await OpenAsync();
         var p = new DynamicParameters();
         p.Add("From", Iso(fromUtc));
         p.Add("To", Iso(toUtc));
@@ -852,7 +899,9 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
     public async Task<int> DeleteShiftExceptionAsync(long id, CancellationToken ct = default)
     {
         await using var conn = await OpenAsync();
-        return await conn.ExecuteAsync("DELETE FROM oeeShiftException WHERE id = @Id", new { Id = id });
+        var n = await conn.ExecuteAsync("DELETE FROM oeeShiftException WHERE id = @Id", new { Id = id });
+        await _mirror.ReplicateOeeAsync("oeeShiftException", "id = @Id", new { Id = id });
+        return n;
     }
 
     // ── 매핑 ──────────────────────────────────────────────────────────────

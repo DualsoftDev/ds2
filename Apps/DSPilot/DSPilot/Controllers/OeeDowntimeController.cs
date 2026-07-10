@@ -25,8 +25,9 @@ public class OeeDowntimeController : OeeControllerBase
         OeeAutoShiftInferenceService shiftInfer,
         OeeCommHealthService commHealth,
         OeeNonProdPatternService nonProdPattern,
+        HistoryMirrorService mirror,
         ILogger<OeeDowntimeController> logger)
-        : base(repo, settings, project, pathResolver, ctStats, shiftInfer, commHealth, nonProdPattern, logger) { }
+        : base(repo, settings, project, pathResolver, ctStats, shiftInfer, commHealth, nonProdPattern, mirror, logger) { }
 
     // ── GET /api/oee/downtime?from&to&status&reason&flow ──────────────────
     [HttpGet("downtime")]

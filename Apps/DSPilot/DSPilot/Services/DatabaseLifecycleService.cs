@@ -25,6 +25,7 @@ public sealed class DatabaseLifecycleService
     private readonly IFlowMetricsService _flowMetricsService;
     private readonly IHubContext<MonitoringHub> _hubContext;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly HistoryMirrorService _mirror;
     private readonly ILogger<DatabaseLifecycleService> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -40,8 +41,10 @@ public sealed class DatabaseLifecycleService
         IFlowMetricsService flowMetricsService,
         IHubContext<MonitoringHub> hubContext,
         IServiceScopeFactory scopeFactory,
+        HistoryMirrorService mirror,
         ILogger<DatabaseLifecycleService> logger)
     {
+        _mirror = mirror;
         _engineService = engineService;
         _dspDbService = dspDbService;
         _bootstrap = bootstrap;
@@ -156,6 +159,10 @@ public sealed class DatabaseLifecycleService
                 // 2. UI 스냅샷 클리어 — DspDbService 가 stale 값(GoingCount 등) 보호 로직으로 새 fresh 데이터 무시 못하게
                 _dspDbService.Reset();
 
+                // 2-b. 미러 정지 — 파일 삭제 전에 독자를 파일로 우회시키고 진행 중 복제(ATTACH 파일 핸들)를
+                //      비운다. 삭제가 미러의 열린 핸들에 막히지 않게 하는 순서 규약.
+                await _mirror.SuspendAsync();
+
                 // 3. plc.db 파일 삭제 (connection pool clear 포함)
                 var dbPath = _pathResolver.GetSharedDbPath();
                 _settingsService.DeleteDatabase(dbPath);
@@ -227,6 +234,8 @@ public sealed class DatabaseLifecycleService
                 //    캐시한다. 성공/실패/예외 어느 경로로 빠져나가도 반드시 호출 — 보류가 안 풀리면
                 //    서비스 재시작 전까지 모든 Hub 신호가 무시(plcTagLog 미기록)된다.
                 _engineService.ResumeInitializationAndStart();
+                // 미러 전체 재적재 — 새 파일 DB 기준으로 재구축(성공/실패 무관, 그동안은 파일 폴백).
+                _mirror.MarkDirty("db-rebuild");
             }
         }
         catch (Exception ex)
@@ -399,6 +408,8 @@ public sealed class DatabaseLifecycleService
             try { await _hubContext.Clients.All.SendAsync("DatabaseRebuilt"); }
             catch (Exception ex) { _logger.LogDebug(ex, "[DBLifecycle] SignalR broadcast failed (non-critical)"); }
 
+            _mirror.MarkDirty("aasx-resync"); // prune 은 write-through 가 커버하지만 모델 교체 사건이라 보험 재적재
+
             _logger.LogInformation(
                 "[DBLifecycle] ReloadAndResync complete (pruned: flow={F} call={C} hist={H}, layout={Layout})",
                 pruned.Flows, pruned.Calls, pruned.History, layoutChanged);
@@ -469,6 +480,7 @@ public sealed class DatabaseLifecycleService
             catch (Exception ex) { _logger.LogDebug(ex, "[DBLifecycle] SignalR broadcast 실패 (비중요)"); }
 
             var msg = $"삭제 완료 — plcTagLog: {plc}건, 알림이력: {alert}건, FlowHistory: {hist}건, OEE정지: {oeeDeleted}건";
+            _mirror.MarkDirty("delete-before"); // 삭제 전파는 write-through 가 커버하지만 대량 삭제라 보험 재적재
             _logger.LogInformation("[DBLifecycle] DeleteDataBefore complete: {Msg}", msg);
             return new RebuildResult(true, msg);
         }
@@ -518,6 +530,7 @@ public sealed class DatabaseLifecycleService
                 _logger.LogDebug(ex, "[DBLifecycle] SignalR broadcast failed (non-critical)");
             }
 
+            _mirror.MarkDirty("clear-history"); // 삭제 전파는 write-through 가 커버하지만 전량 삭제라 보험 재적재
             _logger.LogInformation("[DBLifecycle] ClearFlowHistory complete (deleted {Count} rows)", deleted);
             return new RebuildResult(true, $"Flow 히스토리 {deleted}건 + Call 통계가 초기화되었습니다.");
         }

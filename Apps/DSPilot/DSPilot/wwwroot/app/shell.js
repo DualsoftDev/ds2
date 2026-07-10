@@ -1124,10 +1124,11 @@ window.dspDirtyRegister = function (fn) { window._dspDirtyChecker = fn; };
         //   AutoCalibrationService 가 자동 실행으로 디바이스 duration 을 project.aasx 에 기록하면 SignalR
         //   "AutoCalibrationApplied"(요약 문자열)를 브로드캐스트한다. 어느 페이지에 있든 셸이 한 번 알림을 띄운다.
         //   (수동 "지금 실측값 채우기" 는 설정 페이지가 HTTP 응답으로 직접 토스트하므로 자동 실행만 브로드캐스트됨.)
-        function showShellToast(msg) {
+        function showShellToast(msg, type) {
+            var bg = type === 'warning' ? '#d97706' : type === 'error' ? '#dc2626' : '#16a34a';
             var t = el('div', null, msg);
             t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:3000;'
-                + 'max-width:90vw;padding:12px 18px;border-radius:8px;background:#16a34a;color:#fff;'
+                + 'max-width:90vw;padding:12px 18px;border-radius:8px;background:' + bg + ';color:#fff;'
                 + 'font-size:0.86rem;font-weight:600;box-shadow:0 6px 20px rgba(0,0,0,0.25);';
             document.body.appendChild(t);
             setTimeout(function () {
@@ -1136,6 +1137,24 @@ window.dspDirtyRegister = function (fn) { window._dspDirtyChecker = fn; };
                 setTimeout(function () { t.remove(); }, 400);
             }, 6000);
         }
+        // 전역 노출 — 페이지 스크립트(기간 클램프 안내 등)가 셸 토스트를 재사용.
+        window.dspToast = showShellToast;
+
+        // ── 커스텀 기간 상한(2개월) 공용 클램프 ──
+        //   초과 시 편집 기준(anchor: 'start'|'end', 기본 'end')을 고정하고 반대편을 당긴다.
+        //   호출측은 clamped=true 면 dspToast 로 안내하고 되써진 값을 입력에 반영한다.
+        //   62일 = "2개월" 의 SSOT — 서버 인메모리 미러 창(63일)보다 항상 작게 유지할 것.
+        window.DSP_MAX_RANGE_DAYS = 62;
+        window.dspClampRange = function (start, end, anchor) {
+            var maxMs = window.DSP_MAX_RANGE_DAYS * 864e5;
+            if (!(start instanceof Date) || !(end instanceof Date) || isNaN(start) || isNaN(end))
+                return { start: start, end: end, clamped: false };
+            if (end.getTime() - start.getTime() <= maxMs)
+                return { start: start, end: end, clamped: false };
+            if (anchor === 'start') return { start: start, end: new Date(start.getTime() + maxMs), clamped: true };
+            return { start: new Date(end.getTime() - maxMs), end: end, clamped: true };
+        };
+        window.dspRangeClampMsg = '기간은 최대 2개월까지 선택할 수 있어 자동으로 조정했습니다.';
         function connectAutoCalToast() {
             if (!window.signalR) return;
             try {

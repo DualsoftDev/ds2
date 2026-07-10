@@ -42,6 +42,7 @@ public sealed class OeeCommHealthService : BackgroundService
     private readonly PlcConnectionStatusTracker _tracker;
     private readonly PlcPingService _ping;
     private readonly HubSubscriberService _hub;
+    private readonly HistoryMirrorService _mirror;
     private readonly ILogger<OeeCommHealthService> _logger;
 
     // 조회 memo — uptime 페이지가 10초 폴링으로 같은 범위를 반복 조회하므로 짧은 TTL 로 흡수.
@@ -57,12 +58,14 @@ public sealed class OeeCommHealthService : BackgroundService
         PlcConnectionStatusTracker tracker,
         PlcPingService ping,
         HubSubscriberService hub,
+        HistoryMirrorService mirror,
         ILogger<OeeCommHealthService> logger)
     {
         _pathResolver = pathResolver;
         _tracker = tracker;
         _ping = ping;
         _hub = hub;
+        _mirror = mirror;
         _logger = logger;
     }
 
@@ -108,9 +111,11 @@ public sealed class OeeCommHealthService : BackgroundService
             await EnsureTableAsync(conn);
             _tableEnsured = true;
         }
-        await conn.ExecuteAsync(
-            "INSERT INTO oeeCommHealthLog (sampledAt, plcOk) VALUES (@At, @Ok)",
+        var id = await conn.ExecuteScalarAsync<long>(
+            "INSERT INTO oeeCommHealthLog (sampledAt, plcOk) VALUES (@At, @Ok) RETURNING id",
             new { At = Iso(DateTime.UtcNow), Ok = plcOk ? 1 : 0 });
+        // 레포 우회 writer — 미러 write-through 를 여기서 직접(파일 read-back, 멱등).
+        await _mirror.ReplicateOeeAsync("oeeCommHealthLog", "id = @Id", new { Id = id });
     }
 
     internal static async Task EnsureTableAsync(SqliteConnection conn)
@@ -200,16 +205,16 @@ public sealed class OeeCommHealthService : BackgroundService
         var dbPath = OeeDbPath();
         if (!System.IO.File.Exists(dbPath)) return new List<(double S, double E)>();
 
-        await using var conn = new SqliteConnection($"Data Source={dbPath};Mode=ReadOnly;Default Timeout=20");
-        await conn.OpenAsync(ct);
-
         // 심박 epoch (최초 행) — 이전 기간은 판정 근거 없음. 테이블 미존재도 동일 취급.
+        // ★epoch 프로브는 파일 고정 — 미러는 63일 창으로 트림돼 MIN(sampledAt)이 진짜 epoch 가 아니다.
         if (_epochMs is null || DateTime.UtcNow - _epochCheckedUtc > EpochTtl)
         {
-            var exists = await conn.ExecuteScalarAsync<long>(
+            await using var fileConn = new SqliteConnection($"Data Source={dbPath};Mode=ReadOnly;Default Timeout=20");
+            await fileConn.OpenAsync(ct);
+            var exists = await fileConn.ExecuteScalarAsync<long>(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='oeeCommHealthLog'");
             if (exists == 0) return new List<(double S, double E)>();
-            var minAt = await conn.ExecuteScalarAsync<string?>("SELECT MIN(sampledAt) FROM oeeCommHealthLog");
+            var minAt = await fileConn.ExecuteScalarAsync<string?>("SELECT MIN(sampledAt) FROM oeeCommHealthLog");
             _epochMs = ParseMs(minAt);
             _epochCheckedUtc = DateTime.UtcNow;
         }
@@ -217,6 +222,16 @@ public sealed class OeeCommHealthService : BackgroundService
 
         var effFrom = Math.Max(fromMs, epochMs);
         if (capMs <= effFrom) return new List<(double S, double E)>();
+
+        // 샘플 조회는 창이 미러 범위 안이면 인메모리 미러에서(같은 SQL, 밖이면 파일 폴백).
+        var queryFromUtc = EpochUtc.AddMilliseconds(effFrom - CoverWindowMs);
+        var conn = await _mirror.TryOpenOeeReadAsync(queryFromUtc, layerB: true);
+        if (conn is null)
+        {
+            conn = new SqliteConnection($"Data Source={dbPath};Mode=ReadOnly;Default Timeout=20");
+            await conn.OpenAsync(ct);
+        }
+        await using var _ = conn;
 
         // 커버 창이 범위 시작에 걸치는 직전 샘플까지 포함해 조회.
         var rows = await conn.QueryAsync<HealthRow>(@"

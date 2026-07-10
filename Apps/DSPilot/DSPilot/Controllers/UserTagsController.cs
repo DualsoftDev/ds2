@@ -54,6 +54,10 @@ public class UserTagsController : ControllerBase
         var (startLocal, endLocal, gran) = ResolvePeriod(period, from, to);
         var startUtc = startLocal.ToUniversalTime();
         var endUtc = endLocal.ToUniversalTime();
+        // 커스텀 기간 스팬 상한(2개월) — UI 는 자체 클램프하지만 외부 API 소비자 방어(끝 기준으로 시작을 당김).
+        // shell.js DSP_MAX_RANGE_DAYS(62)와 동일 값, 인메모리 미러 창(63일)보다 작게 유지.
+        if ((endUtc - startUtc).TotalDays > 62)
+            startUtc = endUtc.AddDays(-62);
         var name = Blank(search);
         var lvl = DisplayLevel;               // Error 고정
         var sys = Blank(system);

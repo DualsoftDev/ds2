@@ -296,8 +296,18 @@
                 },
                 onTrendRangeChanged() {
                     if (!this.customStart || !this.customEnd) return;
-                    const s = this.inputToDate(this.customStart), e = this.inputToDate(this.customEnd);
+                    let s = this.inputToDate(this.customStart), e = this.inputToDate(this.customEnd);
                     if (isNaN(s) || isNaN(e) || e.getTime() <= s.getTime()) return;
+                    // 커스텀 기간 상한(2개월) — 초과 시 종료 기준으로 시작을 당기고 토스트 안내(shell.js SSOT).
+                    if (window.dspClampRange) {
+                        const r = window.dspClampRange(s, e, 'end');
+                        if (r.clamped) {
+                            s = r.start; e = r.end;
+                            this.customStart = this.dateToInput(s);
+                            this.customEnd = this.dateToInput(e);
+                            if (window.dspToast) window.dspToast(window.dspRangeClampMsg, 'warning');
+                        }
+                    }
                     clearTimeout(this._trendRangeTimer);
                     this._trendRangeTimer = setTimeout(async () => {
                         this.period = 'custom';
@@ -695,12 +705,22 @@
                     if (!this.selectedFlow) return;
                     this.cyclePreset = null;   // 수동 시간 변경 → 사이클-기준 프리셋 해제
                     this.timePreset = null;    // 수동 시간 변경 → 시간 프리셋 해제
+                    this.clampTimeRange();     // 커스텀 기간 상한(2개월)
                     clearTimeout(this._timeReloadTimer);
                     this._timeReloadTimer = setTimeout(() => {
                         if (this.inputToDate(this.endTime) <= this.inputToDate(this.startTime)) return;
                         this.errorMessage = null;
                         this.load();
                     }, 300);
+                },
+                // 시간창(start~end) 상한 — 종료 기준으로 시작을 당기고 토스트 안내(shell.js SSOT).
+                clampTimeRange() {
+                    if (!window.dspClampRange || !this.startTime || !this.endTime) return;
+                    const r = window.dspClampRange(this.inputToDate(this.startTime), this.inputToDate(this.endTime), 'end');
+                    if (!r.clamped) return;
+                    this.startTime = this.dateToInput(r.start);
+                    this.endTime = this.dateToInput(r.end);
+                    if (window.dspToast) window.dspToast(window.dspRangeClampMsg, 'warning');
                 },
 
                 async setRecentMinutes(minutes) {
@@ -786,6 +806,7 @@
                     const from = qp.get('from'), to = qp.get('to');
                     if (from && to && this.inputToDate(to) > this.inputToDate(from)) {
                         this.startTime = from; this.endTime = to;
+                        this.clampTimeRange(); // 북마크/URL 로 상한(2개월) 우회 방지
                         this.timePreset = null; this.cyclePreset = null;
                         return await this.load();
                     }
@@ -1196,6 +1217,7 @@
                     this.timePreset = null;
                     this.startTime = this.dateToInput(s);
                     this.endTime = this.dateToInput(e);
+                    this.clampTimeRange();            // 커스텀 기간 상한(2개월)
                     this.errorMessage = null;
                     this.selectedRange = null;        // 다이얼로그 닫기 (load() 의 applyLoadResult 에서도 재초기화됨)
                     await this.load();

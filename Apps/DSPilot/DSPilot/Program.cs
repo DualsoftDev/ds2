@@ -79,6 +79,12 @@ builder.Services.AddControllers()
 builder.Services.AddSingleton<DatabasePathResolverAdapter>();
 builder.Services.AddSingleton<IDatabasePathResolver>(sp => sp.GetRequiredService<DatabasePathResolverAdapter>());
 
+// 63일 인메모리 히스토리 미러 — 기간별 조회를 파일 대신 인메모리 사본에서(창 밖/미준비 시 파일 폴백).
+// appsettings "HistoryMirror" 섹션이 킬스위치·창 길이·라우팅 단계 플래그를 제어한다.
+builder.Services.AddSingleton(builder.Configuration.GetSection("HistoryMirror").Get<HistoryMirrorOptions>() ?? new HistoryMirrorOptions());
+builder.Services.AddSingleton<HistoryMirrorService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<HistoryMirrorService>());
+
 // Core services
 builder.Services.AddSingleton<AppSettingsService>();
 builder.Services.AddSingleton<DemoAdminService>(); // 데모용 관리자 게이트 (설정 페이지 보호, /demo/admin 토글)
@@ -102,7 +108,7 @@ builder.Services.AddSingleton<DspRepositoryAdapter>(sp =>
 {
     var pathResolver = sp.GetRequiredService<DatabasePathResolverAdapter>();
     var logger = sp.GetRequiredService<ILogger<DspRepositoryAdapter>>();
-    return new DspRepositoryAdapter(pathResolver.GetDatabasePaths(), logger);
+    return new DspRepositoryAdapter(pathResolver.GetDatabasePaths(), logger, sp.GetRequiredService<HistoryMirrorService>());
 });
 
 // Register as interface for existing consumers

@@ -26,6 +26,7 @@ public abstract class OeeControllerBase : ControllerBase
     protected readonly OeeAutoShiftInferenceService _shiftInfer;
     protected readonly OeeCommHealthService _commHealth;
     protected readonly OeeNonProdPatternService _nonProdPattern;
+    protected readonly HistoryMirrorService _mirror;
     protected readonly ILogger _logger;
 
     protected OeeControllerBase(
@@ -37,6 +38,7 @@ public abstract class OeeControllerBase : ControllerBase
         OeeAutoShiftInferenceService shiftInfer,
         OeeCommHealthService commHealth,
         OeeNonProdPatternService nonProdPattern,
+        HistoryMirrorService mirror,
         ILogger logger)
     {
         _repo = repo;
@@ -47,7 +49,29 @@ public abstract class OeeControllerBase : ControllerBase
         _shiftInfer = shiftInfer;
         _commHealth = commHealth;
         _nonProdPattern = nonProdPattern;
+        _mirror = mirror;
         _logger = logger;
+    }
+
+    // ── 미러 라우팅 헬퍼 — 창이 미러 범위 안이면 인메모리 미러, 밖/미준비면 파일(기존 경로) ──
+
+    private async Task<SqliteConnection> OpenSharedReadAsync(DateTime fromUtc)
+    {
+        var m = await _mirror.TryOpenPlcReadAsync(fromUtc, layerB: true);
+        if (m is not null) return m;
+        var conn = new SqliteConnection(
+            $"Data Source={_pathResolver.GetSharedDbPath()};Mode=ReadWriteCreate;Default Timeout=20");
+        await conn.OpenAsync();
+        return conn;
+    }
+
+    private async Task<SqliteConnection> OpenOeeReadAsync(DateTime fromUtc, string oeeDbPath)
+    {
+        var m = await _mirror.TryOpenOeeReadAsync(fromUtc, layerB: true);
+        if (m is not null) return m;
+        var conn = new SqliteConnection($"Data Source={oeeDbPath};Mode=ReadOnly;Default Timeout=20");
+        await conn.OpenAsync();
+        return conn;
     }
 
     // ── 파일명 정제 ──────────────────────────────────────────────────────────
@@ -78,8 +102,7 @@ public abstract class OeeControllerBase : ControllerBase
         var clues = new List<(string? Flow, string? System, DateTime At, string Label, string Src)>();
         try
         {
-            await using var conn = new SqliteConnection($"Data Source={dbPath};Mode=ReadWriteCreate;Default Timeout=20");
-            await conn.OpenAsync();
+            await using var conn = await OpenSharedReadAsync(fromUtc);
             var exists = await conn.ExecuteScalarAsync<long>(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='userTagAlertLog'");
             if (exists == 0) return list;
@@ -912,9 +935,7 @@ public abstract class OeeControllerBase : ControllerBase
 
         try
         {
-            await using var conn = new SqliteConnection(
-                $"Data Source={dbPath};Mode=ReadWriteCreate;Default Timeout=20");
-            await conn.OpenAsync(ct);
+            await using var conn = await OpenSharedReadAsync(fromUtc);
             var exists = await conn.ExecuteScalarAsync<long>(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlowHistory'");
             if (exists == 0) return empty;
@@ -1178,8 +1199,7 @@ public abstract class OeeControllerBase : ControllerBase
         var toMs = ToMs(toUtc);
         try
         {
-            await using var conn = new SqliteConnection($"Data Source={oeeDb};Mode=ReadOnly;Default Timeout=20");
-            await conn.OpenAsync();
+            await using var conn = await OpenOeeReadAsync(fromUtc, oeeDb);
             var exists = await conn.ExecuteScalarAsync<long>(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='oeeDowntimeEvent'");
             if (exists == 0) return result;
@@ -1231,9 +1251,7 @@ public abstract class OeeControllerBase : ControllerBase
         if (!System.IO.File.Exists(dbPath)) return 0;
         try
         {
-            await using var conn = new SqliteConnection(
-                $"Data Source={dbPath};Mode=ReadWriteCreate;Default Timeout=20");
-            await conn.OpenAsync();
+            await using var conn = await OpenSharedReadAsync(fromUtc);
 
             var exists = await conn.ExecuteScalarAsync<long>(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlowHistory'");
@@ -1266,9 +1284,7 @@ public abstract class OeeControllerBase : ControllerBase
         if (!System.IO.File.Exists(dbPath)) return 0;
         try
         {
-            await using var conn = new SqliteConnection(
-                $"Data Source={dbPath};Mode=ReadWriteCreate;Default Timeout=20");
-            await conn.OpenAsync();
+            await using var conn = await OpenSharedReadAsync(fromUtc);
 
             var exists = await conn.ExecuteScalarAsync<long>(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlowHistory'");
@@ -1401,8 +1417,7 @@ public abstract class OeeControllerBase : ControllerBase
         if (!System.IO.File.Exists(dbPath)) return result;
         try
         {
-            await using var conn = new SqliteConnection($"Data Source={dbPath};Mode=ReadWriteCreate;Default Timeout=20");
-            await conn.OpenAsync();
+            await using var conn = await OpenSharedReadAsync(fromUtc);
             var exists = await conn.ExecuteScalarAsync<long>(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlowHistory'");
             if (exists == 0) return result;
@@ -1436,11 +1451,17 @@ public abstract class OeeControllerBase : ControllerBase
 
     // ── 공통 헬퍼 ────────────────────────────────────────────────────────────
 
+    /// <summary>커스텀 기간 스팬 상한(일) — UI 클램프(shell.js DSP_MAX_RANGE_DAYS)와 동일 값. 인메모리 미러 창(63일)보다 작게 유지.</summary>
+    protected const int MaxRangeDays = 62;
+
     protected static (DateTime FromUtc, DateTime ToUtc) ResolveRange(DateTime? from, DateTime? to)
     {
         var toUtc = to.HasValue ? ToUtc(to.Value) : DateTime.UtcNow;
         var fromUtc = from.HasValue ? ToUtc(from.Value) : toUtc.AddHours(-24);
         if (fromUtc > toUtc) (fromUtc, toUtc) = (toUtc, fromUtc);
+        // UI 는 자체 클램프하지만 외부 API 소비자가 수년 창을 요청하는 것을 서버에서도 방어(끝 기준으로 시작을 당김).
+        if ((toUtc - fromUtc).TotalDays > MaxRangeDays)
+            fromUtc = toUtc.AddDays(-MaxRangeDays);
         return (fromUtc, toUtc);
     }
 
