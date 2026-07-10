@@ -205,7 +205,10 @@
                     // '실제 제외 비생산' 타임라인은 설비효율 페이지에만 있음 — 생산효율/알람 페이지는 폴링 생략.
                     // 숨긴 탭(다른 탭 뒤/최소화)은 폴링을 정지 — 방치 탭이 무거운 OEE 엔드포인트를 계속
                     // 때리는 것을 차단하고, 다시 보이는 순간 1회 즉시 재로드로 따라잡는다.
-                    this._pollTimer = setInterval(() => { if (document.hidden) return; this.load(true); if ((this.view === 'oee' || this.view === 'both') && !this._userBusy) this.refreshActualNonProd(); }, 10000);
+                    // P2: OEE/TEEP 는 서버 push(OeePrecomputed)가 주 갱신 경로 — 폴링은 60초 안전망으로 감속
+                    // (push 유실/미연결 대비). 알람 페이지는 사전계산 대상이 아니라 10초 유지.
+                    const pollMs = this.view === 'alarm' ? 10000 : 60000;
+                    this._pollTimer = setInterval(() => { if (document.hidden) return; this.load(true); if ((this.view === 'oee' || this.view === 'both') && !this._userBusy) this.refreshActualNonProd(); }, pollMs);
                     document.addEventListener('visibilitychange', () => { if (!document.hidden) this.load(true); });
                     // 알람 페이지 진입 시드(필터 스크롤·포커스·차단 모달) — OEE/TEEP 전용 페이지에서는 무의미하므로 스킵.
                     if (this.view !== 'oee' && this.view !== 'teep') {
@@ -1218,14 +1221,13 @@
                 connectSignalR() {
                     if (!window.signalR) return;
                     const conn = new signalR.HubConnectionBuilder().withUrl('/hubs/monitoring').withAutomaticReconnect([0, 0, 1000, 3000, 5000, 10000]).build();
-                    // 이벤트-트리거 재조회는 디바운스가 아니라 스로틀(최소 5초 간격, trailing 1회) —
-                    // 생산 중엔 사이클마다 CallStateChanged 가 오므로 300ms 디바운스만으로는 탭당 초당
-                    // 수 회 × 무거운 OEE 엔드포인트 전체 재조회가 된다(동접 탭 수만큼 곱해짐).
-                    // 10초 폴링이 병행되므로 5초 상한으로도 체감 즉시성은 유지된다. 숨긴 탭은 스킵.
+                    // 이벤트-트리거 재조회 스로틀(trailing 1회). 숨긴 탭은 스킵.
+                    // P2 이후 OEE/TEEP 의 트리거 소스는 서버 push(OeePrecomputed — 서버에서 이미 ≥5초
+                    // 간격으로 율제한됨)라 2초 상한이면 충분하다. 재조회 응답은 사전계산 저장본(~2ms).
                     const trigger = () => {
                         if (document.hidden) return;
                         const since = Date.now() - (this._lastTrigLoad || 0);
-                        if (since >= 5000) {
+                        if (since >= 2000) {
                             this._lastTrigLoad = Date.now();
                             this.load(true);
                         } else if (!this._dt) {
@@ -1233,14 +1235,16 @@
                                 this._dt = null;
                                 this._lastTrigLoad = Date.now();
                                 this.load(true);
-                            }, 5000 - since);
+                            }, 2000 - since);
                         }
                     };
-                    // Call 상태변화 구독은 알람 페이지에서 제외 — 알람 데이터와 무관한 이벤트인데
-                    // 생산 중 최다 빈도 소스라, 알람 탭까지 사이클마다 스냅샷을 재조회하게 만든다.
+                    // P2 push 구독 — 서버 사전계산이 갱신될 때만 재조회. 구 CallStateChanged(Batch) 구독은
+                    // 제거: 사이클마다 오는 최다 빈도 이벤트로 무거운 전체 재조회를 유발하던 증폭원이며,
+                    // OeePrecomputed(변화 후 ≤5초 내 도착)가 실시간성을 대체한다. 알람 페이지는 무관.
                     if (this.view !== 'alarm') {
-                        conn.on('CallStateChangedBatch', trigger);
-                        conn.on('CallStateChanged', trigger);
+                        // custom 기간은 사전계산 대상이 아니라 push 반응 시 라이브 재계산이 됨 — 표준 프리셋만 반응
+                        // (custom 은 60초 안전망 폴링 + 수동 '적용'으로 갱신).
+                        conn.on('OeePrecomputed', () => { if (this.period !== 'custom') trigger(); });
                     }
                     conn.on('DatabaseRebuilt', () => { this.load(true); });
                     conn.on('FlowHistoryCleared', trigger);

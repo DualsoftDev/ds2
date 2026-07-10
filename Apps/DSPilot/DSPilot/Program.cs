@@ -85,6 +85,13 @@ builder.Services.AddSingleton(builder.Configuration.GetSection("HistoryMirror").
 builder.Services.AddSingleton<HistoryMirrorService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<HistoryMirrorService>());
 
+// P2 사전계산+push — 표준 창 OEE 응답을 백그라운드가 완성 유지, 미들웨어(아래 파이프라인)가 즉시 서빙.
+builder.Services.AddSingleton(builder.Configuration.GetSection("OeePrecompute").Get<OeePrecomputeOptions>() ?? new OeePrecomputeOptions());
+builder.Services.AddSingleton<OeePrecomputeService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<OeePrecomputeService>());
+// 읽기 경로에서 발생하던 비생산 감지 UPSERT 를 백그라운드 단일 writer 로 분리(P2-3).
+builder.Services.AddHostedService<NonProdWriteQueueService>();
+
 // Core services
 builder.Services.AddSingleton<AppSettingsService>();
 builder.Services.AddSingleton<DemoAdminService>(); // 데모용 관리자 게이트 (설정 페이지 보호, /demo/admin 토글)
@@ -276,6 +283,27 @@ app.Logger.LogInformation("▶ DSPilot uploads dir: {Path}, exists: {E}", upload
 // 미변경 파일은 ETag 304 로 끝나므로 LAN 앱에서 비용 무시 가능.
 static void Revalidate(Microsoft.AspNetCore.StaticFiles.StaticFileResponseContext ctx)
     => ctx.Context.Response.Headers.CacheControl = "no-cache";
+
+// ── P2 사전계산 단락: 표준 창(오늘/7d/30d/60d/어제) OEE GET 을 저장된 완성 JSON 으로 즉시 응답 ──
+//    비표준 창/필터 조회/미준비(stale)는 통과 → 기존 라이브 계산. X-Dsp-Fresh 헤더(사전계산 셀프 호출)도 통과.
+{
+    var precompute = app.Services.GetRequiredService<OeePrecomputeService>();
+    app.Use(async (context, next) =>
+    {
+        if (HttpMethods.IsGet(context.Request.Method))
+        {
+            var json = precompute.TryServe(context.Request, out var ageMs);
+            if (json is not null)
+            {
+                context.Response.ContentType = "application/json; charset=utf-8";
+                context.Response.Headers["X-Dsp-Precomputed-Age-Ms"] = ageMs.ToString();
+                await context.Response.Body.WriteAsync(json);
+                return;
+            }
+        }
+        await next();
+    });
+}
 
 // ── 데모 관리자 게이트: 설정 페이지 진입 시 로그인 요구 (게이트 활성 시에만) ──
 // /demo/admin 활성화 페이지에서 코드 입력으로 on/off (DemoAdminService). 정적 서빙(UseStaticFiles)보다

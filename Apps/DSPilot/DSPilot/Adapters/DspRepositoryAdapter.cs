@@ -949,6 +949,7 @@ public class DspRepositoryAdapter : IDspRepository
 
             if (newId is long id)
                 await _mirror.ReplicatePlcAsync(HistoryTable, "Id = @Id", new { Id = id });
+            Services.OeeChangeSignal.Notify(history.FlowName); // 사전계산 '오늘' 창 갱신 트리거
 
             _logger.LogDebug(
                 "Inserted Flow history for '{FlowName}': Cycle={CycleNo}, MT={MT}ms, WT={WT}ms, CT={CT}ms, head={Head}, tail={Tail}",
@@ -1009,6 +1010,7 @@ public class DspRepositoryAdapter : IDspRepository
             await _mirror.ReplicatePlcAsync(HistoryTable,
                 "FlowName = @FlowName AND RecordedAt >= @FromUtc AND RecordedAt < @ToUtc",
                 new { FlowName = flowName, FromUtc = fromUtc, ToUtc = toUtc });
+            Services.OeeChangeSignal.Notify(flowName);
 
             _logger.LogInformation(
                 "ReplaceFlowHistoryRange '{Flow}' [{From:o}, {To:o}): deleted={Deleted}, inserted={Inserted}",
@@ -1340,6 +1342,7 @@ public class DspRepositoryAdapter : IDspRepository
 
             // IsIdle 재스탬프는 전 이력 UPDATE — 미러는 자기 창만 파일에서 재복제(dspFlow 평균분은 스냅샷이 흡수).
             await _mirror.ReplicatePlcAsync(HistoryTable, "RecordedAt >= @Floor", new { Floor = _mirror.WindowFloorUtc });
+            Services.OeeChangeSignal.Notify();
 
             _logger.LogInformation(
                 "Reapplied idle thresholds (global Max={MaxCT}ms, Min={MinCT}ms, {Overrides} per-flow override(s)): {Rows} history rows restamped, {Flows} flows recomputed",

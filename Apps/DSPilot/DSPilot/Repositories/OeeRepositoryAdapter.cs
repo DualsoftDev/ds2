@@ -256,16 +256,25 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         }) ?? 0L;
 
         if (newId > 0) // dedupe(미삽입=0)면 미러 갱신 불필요
+        {
             await _mirror.ReplicateOeeAsync("oeeDowntimeEvent", "id = @Id", new { Id = newId });
+            Services.OeeChangeSignal.Notify(e.FlowName);
+        }
         return newId;
     }
 
-    /// <summary>정지 이벤트 쓰기 공통 미러 동기화 — 파일 커밋 후 영향 행을 id 로 read-back(멱등).</summary>
-    private Task MirrorDowntimeAsync(long id)
-        => _mirror.ReplicateOeeAsync("oeeDowntimeEvent", "id = @Id", new { Id = id });
+    /// <summary>정지 이벤트 쓰기 공통 미러 동기화 — 파일 커밋 후 영향 행을 id 로 read-back(멱등) + 사전계산 트리거.</summary>
+    private async Task MirrorDowntimeAsync(long id)
+    {
+        await _mirror.ReplicateOeeAsync("oeeDowntimeEvent", "id = @Id", new { Id = id });
+        Services.OeeChangeSignal.Notify();
+    }
 
-    private Task MirrorDowntimeAsync(IReadOnlyList<long> ids)
-        => _mirror.ReplicateOeeAsync("oeeDowntimeEvent", "id IN @Ids", new { Ids = ids });
+    private async Task MirrorDowntimeAsync(IReadOnlyList<long> ids)
+    {
+        await _mirror.ReplicateOeeAsync("oeeDowntimeEvent", "id IN @Ids", new { Ids = ids });
+        Services.OeeChangeSignal.Notify();
+    }
 
     public async Task<int> CloseDowntimeAsync(long id, DateTime endAtUtc, CancellationToken ct = default)
     {
@@ -596,6 +605,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         await _mirror.ReplicateOeeAsync("oeeProductionCount",
             "bucketDate = @B AND flowName = @F AND shift = @S",
             new { B = r.BucketDate, F = r.FlowName, S = r.Shift ?? "" });
+        Services.OeeChangeSignal.Notify(r.FlowName);
         return n;
     }
 
@@ -639,6 +649,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         await _mirror.ReplicateOeeAsync("oeeProductionCount",
             "bucketDate = @B AND flowName = @F AND shift = @S",
             new { B = bucketDate, F = flowName, S = shift ?? "" });
+        Services.OeeChangeSignal.Notify(flowName);
         return n;
     }
 

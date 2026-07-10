@@ -1126,11 +1126,9 @@ public abstract class OeeControllerBase : ControllerBase
 
         // 미계측 조회가 실패(비신뢰)한 요청에선 스킵 — 카빙 안 된 블랙아웃 스팬이 비생산으로 영구 기록되는 오염 방지
         // (UPSERT 키가 onset 이라 이후 정상 요청이 자가 치유하지 못함).
+        // P2-3: 조회 경로가 파일 쓰기를 기다리지 않도록 백그라운드 큐로 분리(멱등 UPSERT — 유실·중복 무해).
         if (applyLongStop && unmeasuredTrusted && nonProdDetections.Count > 0)
-        {
-            try { await _repo.UpsertNonProdDetectionsAsync(nonProdDetections, ct); }
-            catch (Exception ex) { _logger.LogWarning(ex, "[OEE] 비생산 감지 로그 materialize 실패"); }
-        }
+            NonProdWriteQueueService.Enqueue(nonProdDetections);
 
         // ── 패스 2 — 벽시계 산출(2026-07-08): 비생산(지정 창 + 당일 10× 승격 + 사용자 오버라이드)이 전부 확정된 뒤
         //    생산가능 창을 만들고 flow별 가동/비가동/유지보수를 잰다 — 승격·강제된 비생산이 A 분모에서도 빠진다.
