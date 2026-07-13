@@ -651,10 +651,10 @@ window.dspDirtyRegister = function (fn) { window._dspDirtyChecker = fn; };
                 var gOee   = buildAnalysisGroup(flows, '설비효율 현황', 'speed',       '/uptime-oee',   'flow', onOeePage,     oeeFlow,     false, '/uptime-oee');
                 var gTeep  = buildAnalysisGroup(flows, '생산효율 현황', 'trending_up', '/uptime-teep',  'flow', onTeepPage,    teepFlow,    false, '/uptime-teep');
                 var gAlarm = buildAnalysisGroup(flows, '이상·알람',   'warning_amber', '/uptime-alarm', 'flow', onAlarmPage,   alarmFlow,   true,  '/uptime-alarm');
-                sub.appendChild(gTrend.wrap);
-                sub.appendChild(gCycle.wrap);
                 sub.appendChild(gTeep.wrap);
                 sub.appendChild(gOee.wrap);
+                sub.appendChild(gTrend.wrap);
+                sub.appendChild(gCycle.wrap);
                 sub.appendChild(gHeat.wrap);
                 sub.appendChild(gAlarm.wrap);
 
