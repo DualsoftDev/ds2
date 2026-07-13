@@ -220,13 +220,13 @@
                         <div style="margin-bottom:18px;">
                             <div class="ds-legend" style="margin-bottom:10px;">
                                 <div class="lg-item"><span class="lg-swatch" style="background:var(--oee-run);"></span> <span x-text="availComp.runLabel"></span></div>
-                                <div class="lg-item"><span class="lg-swatch" :class="availComp.unattributed ? 'hatch-unattr' : 'hatch-fault'"></span> <span x-text="availComp.stopLabel"></span></div>
-                                <div class="lg-item" x-show="availComp.maintMs > 0"><span class="lg-swatch hatch-maint"></span> <span>비가동 · 유지보수</span></div>
+                                <div class="lg-item" style="cursor:pointer;" @click="openDtPattern('all')" title="클릭 → 날짜별 비가동 패턴"><span class="lg-swatch" :class="availComp.unattributed ? 'hatch-unattr' : 'hatch-fault'"></span> <span x-text="availComp.stopLabel"></span></div>
+                                <div class="lg-item" x-show="availComp.maintMs > 0" style="cursor:pointer;" @click="openDtPattern('maintenance')" title="클릭 → 날짜별 비가동 패턴 (유지보수)"><span class="lg-swatch hatch-maint"></span> <span>비가동 · 유지보수</span></div>
                             </div>
                             <div style="display:flex; height:26px; border-radius:var(--radius-sm); overflow:hidden; border:1px solid var(--color-lines);">
                                 <div class="up-bar-seg" :style="`width:${availComp.runPct}%; background:var(--oee-run);`" :title="availComp.runLabel + ' ' + availComp.runPct + '%'"><span class="up-bar-lbl" x-show="availComp.runPct >= 6" x-text="availComp.runPct + '%'"></span></div>
-                                <div class="up-bar-seg" :class="availComp.unattributed ? 'hatch-unattr' : 'hatch-fault'" :style="`width:${availComp.faultPct}%;`" :title="availComp.stopLabel + ' ' + availComp.faultPct + '%'"><span class="up-bar-lbl" x-show="availComp.faultPct >= 6" x-text="availComp.faultPct + '%'"></span></div>
-                                <div class="up-bar-seg hatch-maint" x-show="availComp.maintMs > 0" :style="`width:${availComp.maintPct}%;`" :title="'비가동 · 유지보수 ' + availComp.maintPct + '%'"><span class="up-bar-lbl" x-show="availComp.maintPct >= 6" x-text="availComp.maintPct + '%'"></span></div>
+                                <div class="up-bar-seg" :class="availComp.unattributed ? 'hatch-unattr' : 'hatch-fault'" @click="openDtPattern('all')" :style="`width:${availComp.faultPct}%; cursor:pointer;`" :title="availComp.stopLabel + ' ' + availComp.faultPct + '% — 클릭 → 날짜별 비가동 패턴'"><span class="up-bar-lbl" x-show="availComp.faultPct >= 6" x-text="availComp.faultPct + '%'"></span></div>
+                                <div class="up-bar-seg hatch-maint" x-show="availComp.maintMs > 0" @click="openDtPattern('maintenance')" :style="`width:${availComp.maintPct}%; cursor:pointer;`" :title="'비가동 · 유지보수 ' + availComp.maintPct + '% — 클릭 → 날짜별 비가동 패턴'"><span class="up-bar-lbl" x-show="availComp.maintPct >= 6" x-text="availComp.maintPct + '%'"></span></div>
                             </div>
                             <div style="display:flex; gap:18px; margin-top:8px; font-size:0.72rem; color:var(--color-text-secondary); flex-wrap:wrap;">
                                 <span><span x-text="availComp.runLabel"></span> <b x-text="durShort(availComp.runMs)"></b> (<span x-text="availComp.runPct + '%'"></span>)<template x-if="availComp.runNote"><span x-text="' · ' + availComp.runNote"></span></template></span>
@@ -251,6 +251,74 @@
 
                 </section>
 
+                <!-- ════ 날짜별 비가동 패턴 (드릴다운, 2026-07-13) — 가용성 누적 정산의 빨간(비가동) 부분·정지 구성
+                     도넛/범례(고장·유지보수) 클릭으로 열림. '날짜별 비생산 패턴'(생산효율)과 동일 골격(up-npd) —
+                     행=날짜×24h, 창=정지 이벤트(고장=빨강 빗금 / 유지보수=골드 빗금). 소스=정지 이벤트 로그와 동일. ════ -->
+                <section class="card up-section" id="downtime-pattern-section" x-show="dtPat.show" x-cloak>
+                    <div class="ds-card-h">
+                        <h4>날짜별 비가동 패턴</h4>
+                        <span class="ds-card-h-sub" x-text="dtPatSub()"></span>
+                        <span style="flex:1;"></span>
+                        <button class="btn-icon" @click="dtPat.show=false" title="닫기"><span class="material-icons">close</span></button>
+                    </div>
+
+                    <!-- 구분 필터 — 정지 로그의 고장/유지보수 칩과 동일 규약 -->
+                    <div class="up-filter-row" style="margin-bottom:9px;">
+                        <span style="font-size:0.64rem; font-weight:700; color:var(--color-text-secondary); text-transform:uppercase; letter-spacing:0.06em; margin-right:4px;">구분</span>
+                        <span class="up-chip" :class="dtPat.filter === 'all' ? 'is-on' : ''" @click="dtPat.filter='all'">전체</span>
+                        <span class="up-chip" :class="dtPat.filter === 'fault' ? 'is-on' : ''" @click="dtPat.filter='fault'"
+                              :style="dtPat.filter==='fault' ? 'background:var(--oee-fault);color:#fff;border-color:var(--oee-fault);' : 'border-color:var(--oee-fault);color:var(--oee-fault);'">고장</span>
+                        <span class="up-chip" :class="dtPat.filter === 'maintenance' ? 'is-on' : ''" @click="dtPat.filter='maintenance'"
+                              :style="dtPat.filter==='maintenance' ? 'background:var(--oee-maint);color:#fff;border-color:var(--oee-maint);' : 'border-color:var(--oee-maint);color:var(--oee-maint);'">유지보수</span>
+                    </div>
+
+                    <template x-if="dtPatDays().length > 0">
+                        <div>
+                            <div class="ds-legend" style="margin-bottom:9px;">
+                                <div class="lg-item" x-show="dtPat.filter !== 'maintenance'"><span class="lg-swatch hatch-fault"></span> 비가동 · 고장</div>
+                                <div class="lg-item" x-show="dtPat.filter !== 'fault'"><span class="lg-swatch hatch-maint"></span> 비가동 · 유지보수</div>
+                                <div class="lg-item"><span class="lg-swatch" style="width:3px; background:var(--color-primary);"></span> 지금</div>
+                            </div>
+                            <div class="up-npd" :class="dtPatDense() ? 'is-dense' : ''">
+                                <template x-for="d in dtPatDays()" :key="d.date">
+                                    <div class="up-npd-row" :class="teepNpDayInfo(d).isToday ? 'is-today' : ''">
+                                        <div class="up-npd-date" :class="{ 'is-sun': teepNpDayInfo(d).dow === 0, 'is-sat': teepNpDayInfo(d).dow === 6 }" x-text="teepNpDayInfo(d).label"></div>
+                                        <div class="up-npd-track">
+                                            <template x-for="(w, i) in (d.windows || [])" :key="'w' + i">
+                                                <div class="up-npd-win" :class="w.cls" :style="psWinStyle(w)" :title="dtPatWinTitle(d, w)"></div>
+                                            </template>
+                                            <template x-if="teepNpDayInfo(d).isToday">
+                                                <div class="up-npd-now" :style="`left:${nowMin() / 1440 * 100}%;`"></div>
+                                            </template>
+                                        </div>
+                                        <div class="up-npd-sum" x-text="dtPatDayMs(d) > 0 ? durShort(dtPatDayMs(d)) : '—'"></div>
+                                    </div>
+                                </template>
+                                <!-- 시각 눈금 — sticky bottom, 좌 날짜/우 합계 컬럼과 동일 flex 골격 (비생산 패턴과 동일) -->
+                                <div class="up-npd-row up-npd-axis">
+                                    <div class="up-npd-date"></div>
+                                    <div class="up-ptl-hours" style="flex:1; margin-top:0;">
+                                        <span>00</span><span>03</span><span>06</span><span>09</span><span>12</span><span>15</span><span>18</span><span>21</span><span>24</span>
+                                    </div>
+                                    <div class="up-npd-sum"></div>
+                                </div>
+                            </div>
+                            <div class="up-form-hint" style="margin-top:10px;">
+                                행 = 그 날 감지된 <b>비가동</b>(고장·유지보수) 시간대 — 비생산·미계측으로 제외된 시간은 뺀 뒤 표시(가용성 정산과 동일 기준).
+                                우측 = 일 합계(설비 합산 — 여러 설비가 동시에 정지하면 겹친 시간도 각각 계상).
+                                비생산은 여기 없음 — <a href="/uptime-teep">생산효율의 '날짜별 비생산 패턴'</a> 참고.
+                            </div>
+                        </div>
+                    </template>
+                    <template x-if="dtPatDays().length === 0">
+                        <div class="ds-empty">
+                            <span class="material-icons">event_available</span>
+                            <div class="ds-empty-title">이 기간 비가동 이벤트 없음</div>
+                            <div class="ds-empty-desc">정지 이벤트가 감지되면 날짜×24시간 트랙에 표시됩니다.</div>
+                        </div>
+                    </template>
+                </section>
+
                 <!-- ════ 정지 원인 도넛 | 계획시간 폴백 체인 + 14일 히스토그램 (정지 로그 위로 이동 — 로그는 이 아래에서 토글) ════ -->
                 <div class="up-grid" :class="curFlow ? 'up-1col' : 'up-2col'">
 
@@ -259,10 +327,13 @@
                         <div class="ds-card-h"><h4>정지 구성</h4><span class="ds-card-h-sub">고장 · 유지보수 · 비생산 비중 (지속시간 기준)</span></div>
                         <template x-if="faultDist.has">
                             <div class="up-dist">
-                                <svg class="up-donut" viewBox="0 0 100 100" x-html="faultDonutSvg"></svg>
+                                <!-- 고장/유지보수 세그·범례 클릭 → 날짜별 비가동 패턴 드릴다운 (data-seg 는 faultDonutSvg 가 심음) -->
+                                <svg class="up-donut" viewBox="0 0 100 100" x-html="faultDonutSvg" @click="onFaultDonutClick($event)"></svg>
                                 <div class="up-legend">
                                     <template x-for="seg in faultDist.segs" :key="seg.label">
-                                        <div class="up-legend-row">
+                                        <div class="up-legend-row" @click="onFaultLegendClick(seg)"
+                                             :style="seg.pat !== 'up-pat-nonprod' ? 'cursor:pointer;' : ''"
+                                             :title="seg.pat !== 'up-pat-nonprod' ? '클릭 → 날짜별 비가동 패턴' : ''">
                                             <span class="up-legend-swatch" :class="seg.cls"></span>
                                             <span class="up-legend-name" x-text="seg.label"></span>
                                             <span class="up-legend-share" x-text="seg.share + '%'"></span>

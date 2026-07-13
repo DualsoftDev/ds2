@@ -130,6 +130,11 @@
                 _cmSeq: 0, _cmPrevTimer: null, _cmMultMsgTimer: null,
                 // 정지 이벤트 로그 토글 — 기본 숨김, 정지 원인 구성(도넛)의 [로그 보기 및 설정] 버튼으로 토글
                 showDowntimeLog: false,
+                // 날짜별 비가동 패턴 (드릴다운, 2026-07-13) — 가용성 누적 정산의 빨간(비가동) 부분·정지 구성
+                // 도넛/범례(고장·유지보수) 클릭으로 열림. '날짜별 비생산 패턴'(생산효율)과 같은 up-npd 골격을
+                // 이미 로드된 this.downtime(기간·설비 필터 반영)에서 클라 접기로 그린다. filter='all'|'fault'|'maintenance'.
+                dtPat: { show: false, filter: 'all' },
+                _dtPatMemo: null, // dtPatDays() 메모 — downtime 재로드(배열 교체)/필터/기간 변경 시 무효
                 // 표준 가동시간(idealCT) Flow 일괄 편집 테이블 (편집값은 각 행 객체 draft 에 보관 — Alpine x-for 양방향 바인딩 안정)
                 ctTable: [], ctMsg: '', ctError: null, ctLoading: false, ctApplying: false,
                 // 알람 차단 관리 모달 — 탭 2개(auto=자동알람/디바이스, user=사용자지정/UserTag).
@@ -1920,11 +1925,131 @@
                         + `<path d="M0,7 L7,0 M-1.5,1.5 L1.5,-1.5 M5.5,8.5 L8.5,5.5" stroke="rgba(255,255,255,0.55)" stroke-width="1.3"></path></pattern>`;
                     let s = `<defs>${pat('up-pat-fault', 'var(--oee-fault)')}${pat('up-pat-maint', 'var(--oee-maint)')}${pat('up-pat-nonprod', 'var(--nonprod)')}</defs>`;
                     s += '<circle class="up-donut-track" cx="50" cy="50" r="38" fill="none" stroke-width="14"></circle>';
-                    for (const seg of d.segs)
-                        s += `<circle cx="50" cy="50" r="38" fill="none" stroke="url(#${seg.pat})" stroke-width="14" stroke-dasharray="${seg.dash}" stroke-dashoffset="${seg.offset}" transform="rotate(-90 50 50)"></circle>`;
+                    // 고장/유지보수 세그는 클릭 드릴다운(날짜별 비가동 패턴) 대상 — data-seg 로 onFaultDonutClick 이 식별.
+                    for (const seg of d.segs) {
+                        const segKey = seg.pat === 'up-pat-fault' ? 'fault' : (seg.pat === 'up-pat-maint' ? 'maint' : 'nonprod');
+                        const click = segKey !== 'nonprod' ? ` data-seg="${segKey}" style="cursor:pointer;"` : '';
+                        s += `<circle cx="50" cy="50" r="38" fill="none" stroke="url(#${seg.pat})" stroke-width="14" stroke-dasharray="${seg.dash}" stroke-dashoffset="${seg.offset}" transform="rotate(-90 50 50)"${click}><title>${this.esc(seg.label)}${segKey !== 'nonprod' ? ' — 클릭 → 날짜별 비가동 패턴' : ''}</title></circle>`;
+                    }
                     s += `<text class="up-donut-total" x="50" y="49" text-anchor="middle">${d.count}</text>`;
                     s += '<text class="up-donut-cap" x="50" y="61" text-anchor="middle">정지건수</text>';
                     return s;
+                },
+
+                // ── 날짜별 비가동 패턴 (드릴다운) — 가용성 정산 빨간부·정지 도넛/범례(고장·유지보수) 클릭으로 토글 ──
+                // '날짜별 비생산 패턴'(uptime-teep)과 같은 up-npd 골격이되 소스가 다르다: 비생산=서버 days 접기,
+                // 여기는 이미 로드된 정지 이벤트(this.downtime — 기간·설비 필터로 조회됨)를 클라에서 날짜별로 접는다.
+                // 겹침(여러 설비 동시 정지)은 병합하지 않는다 — 일 합계 = Σ이벤트 지속시간(페이지의 '설비 합산' 규약과 정합).
+                openDtPattern(filter) {
+                    this.dtPat.filter = filter || 'all';
+                    this.dtPat.show = true;
+                    this.$nextTick(() => {
+                        const el = document.getElementById('downtime-pattern-section');
+                        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    });
+                },
+                // 도넛 세그먼트 클릭 — faultDonutSvg 가 circle 에 data-seg 를 심어둠. 비생산 세그는 대상 아님
+                // (그 패턴은 생산효율 페이지의 '날짜별 비생산 패턴' 담당 — 여기는 A 분모 안의 비가동만).
+                onFaultDonutClick(ev) {
+                    const seg = ev.target && ev.target.dataset ? ev.target.dataset.seg : null;
+                    if (seg === 'fault') this.openDtPattern('fault');
+                    else if (seg === 'maint') this.openDtPattern('maintenance');
+                },
+                onFaultLegendClick(seg) {
+                    if (seg.pat === 'up-pat-fault') this.openDtPattern('fault');
+                    else if (seg.pat === 'up-pat-maint') this.openDtPattern('maintenance');
+                },
+                // 패턴 대상 이벤트 — 비가동만(비생산 제외) + 하위 필터(고장/유지보수)
+                dtPatEvents() {
+                    return this.downtime.filter(d => !d.isNonProd
+                        && (this.dtPat.filter === 'all' || (this.dtPat.filter === 'fault' ? !!d.isFailure : !d.isFailure)));
+                },
+                // 날짜 행 배열(최근이 위) — 각 이벤트 [startAt, endAt|now] 를 기간으로 클립 후 로컬 자정 경계로 접고,
+                // 그 날의 비생산∪미계측 창(ps.actualNonProd.days — 가용성 정산이 A 분모에서 빼는 것과 동일 소스)을
+                // 차집합으로 뺀다. 안 빼면 주말·무오더 장기 정지가 통째로 빨갛게 나와 정산 바의 비가동(2%대)과 어긋난다.
+                // Alpine 렌더마다 재호출되므로 (downtime/actualNonProd identity, 필터, 기간) 메모로 재계산 억제 —
+                // 10초 폴링이 downtime 을 새 배열로 교체하면 자동 무효화(진행중 이벤트의 '현재까지' 연장도 그때 반영).
+                dtPatDays() {
+                    const src = this.downtime, anp = this.ps.actualNonProd, r = this.rangeForPeriod();
+                    const memoKey = this.dtPat.filter + '|' + r.from + '|' + r.to.slice(0, 10);
+                    if (this._dtPatMemo && this._dtPatMemo.src === src && this._dtPatMemo.anp === anp && this._dtPatMemo.key === memoKey)
+                        return this._dtPatMemo.days;
+                    const now = Date.now();
+                    const fromMs = new Date(r.from).getTime();
+                    const toParsed = new Date(r.to).getTime();
+                    const toMs = Math.min(isNaN(toParsed) ? now : toParsed, now);
+                    const evs = [];
+                    for (const d of this.dtPatEvents()) {
+                        const s = new Date(d.startAt).getTime();
+                        const e = d.endAt ? new Date(d.endAt).getTime() : now;
+                        if (isNaN(s) || isNaN(e) || e <= s) continue;
+                        const cs = Math.max(s, fromMs), ce = Math.min(e, toMs);
+                        if (ce > cs) evs.push({ s: cs, e: ce, isFailure: !!d.isFailure, flow: d.flowName || d.systemName || '', open: d.status === 'open' });
+                    }
+                    // 날짜 → 그 날 제외(비생산∪미계측) 창 — 서버 FoldToDay 산출이라 이미 서로소·오름차순.
+                    const cutsByDate = {};
+                    for (const nd of (anp && anp.days) || [])
+                        cutsByDate[String(nd.date).slice(0, 10)] = nd.windows || [];
+                    // [s,e)분 구간에서 cuts(서로소 오름차순, 분 단위)를 뺀 잔여 구간들
+                    const subtract = (s, e, cuts) => {
+                        const out = []; let cur = s;
+                        for (const c of cuts) {
+                            if (c.endMinutes <= cur) continue;
+                            if (c.startMinutes >= e) break;
+                            if (c.startMinutes > cur) out.push([cur, Math.min(c.startMinutes, e)]);
+                            cur = Math.max(cur, c.endMinutes);
+                            if (cur >= e) break;
+                        }
+                        if (cur < e) out.push([cur, e]);
+                        return out;
+                    };
+                    const rows = [];
+                    const cur = new Date(fromMs); cur.setHours(0, 0, 0, 0);
+                    const last = new Date(toMs); last.setHours(0, 0, 0, 0);
+                    const p = (x) => String(x).padStart(2, '0');
+                    while (cur.getTime() <= last.getTime()) {
+                        const dayStart = cur.getTime();
+                        const next = new Date(cur); next.setDate(next.getDate() + 1);
+                        const dayEnd = next.getTime();
+                        const dateKey = `${cur.getFullYear()}-${p(cur.getMonth() + 1)}-${p(cur.getDate())}`;
+                        const cuts = cutsByDate[dateKey] || [];
+                        const windows = [];
+                        for (const ev of evs) {
+                            const ws = Math.max(ev.s, dayStart), we = Math.min(ev.e, dayEnd);
+                            if (we <= ws) continue;
+                            for (const [ss, ee] of subtract((ws - dayStart) / 60000, (we - dayStart) / 60000, cuts)) {
+                                ev.used = true; // 비생산 차감 후에도 남는 이벤트만 건수로 셈(정산 바 'N건'과 결이 같게)
+                                windows.push({
+                                    startMinutes: ss, endMinutes: ee, ms: (ee - ss) * 60000,
+                                    cls: ev.isFailure ? 'hatch-fault' : 'hatch-maint',
+                                    kind: (ev.isFailure ? '고장' : '유지보수') + (ev.open ? ' (진행중)' : ''), flow: ev.flow,
+                                });
+                            }
+                        }
+                        windows.sort((a, b) => a.startMinutes - b.startMinutes);
+                        rows.push({ date: dateKey, windows });
+                        cur.setDate(cur.getDate() + 1);
+                    }
+                    rows.reverse();
+                    const daysClipped = rows.length > 92; // 커스텀 초장기 기간 안전판 — 서버 비생산 패턴의 92일 클립과 동일 규약
+                    const days = daysClipped ? rows.slice(0, 92) : rows;
+                    this._dtPatMemo = { src, anp, key: memoKey, days, daysClipped, evCount: evs.filter(x => x.used).length };
+                    return days;
+                },
+                dtPatDense() { return this.dtPatDays().length > 21; },
+                dtPatDayMs(d) { return (d.windows || []).reduce((a, w) => a + w.ms, 0); },
+                dtPatWinTitle(d, w) {
+                    return this.teepNpDayInfo(d).label + ' ' + this.minToHHMM(w.startMinutes) + '–' + this.minToHHMM(w.endMinutes)
+                        + ' ' + w.kind + (w.flow ? ' · ' + w.flow : '') + ' (' + this.durShort(w.ms) + ')';
+                },
+                dtPatSub() {
+                    const days = this.dtPatDays();
+                    if (!days.length) return '';
+                    const total = days.reduce((a, d) => a + this.dtPatDayMs(d), 0);
+                    const f = { all: '비가동', fault: '고장', maintenance: '유지보수' }[this.dtPat.filter] || '비가동';
+                    return (days.length === 1 ? '1일 × 24시간' : days.length + '일 × 24시간 · 최근이 위')
+                        + ' · ' + f + ' ' + (this._dtPatMemo ? this._dtPatMemo.evCount : 0) + '건 · ' + (total > 0 ? this.durShort(total) : '0')
+                        + (this._dtPatMemo && this._dtPatMemo.daysClipped ? ' · 최근 92일만 표시' : '');
                 },
 
                 // ── 순위 메달/최하위 ──
