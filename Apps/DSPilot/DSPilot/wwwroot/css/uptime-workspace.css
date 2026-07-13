@@ -330,7 +330,7 @@
         .up-oee-chip.solid { color: var(--color-text-primary); background: var(--color-surface-variant); border-style: solid; }
         /* '샘플 부족' — A·P 가 클린샘플 <5 로 산출된 잠정값(샘플 쌓이면 자동 정상화). 살짝만 경고. */
         .up-oee-chip.warn { color: var(--amber, #b7791f); border-color: color-mix(in srgb, var(--amber, #b7791f) 55%, transparent); background: color-mix(in srgb, var(--amber, #b7791f) 12%, transparent); border-style: solid; }
-        /* MTBF 무고장 배지 (가짜 max(n,1) 금지 — doc/21 §10) */
+        /* MTBF 고장없음 배지 (가짜 max(n,1) 금지 — doc/21 §10) */
         .up-nofault { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 1.05rem; font-weight: 800; color: var(--green); }
         .up-nofault .led { width: 9px; height: 9px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 4px color-mix(in srgb, var(--green) 22%, transparent); }
 
@@ -490,6 +490,40 @@
         .up-ptl-handle::after { content: ""; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 2px; height: 48%; background: rgba(255, 255, 255, 0.9); border-radius: 2px; }
         .up-ptl-win.auto .up-ptl-handle::after { background: var(--nonprod); }
         .up-ptl-win:hover .up-ptl-handle, .up-ptl-win.sel .up-ptl-handle { display: block; }
+
+        /* ── 정지·비생산 판정 기준 카드 (doc/22 §3/§3.3, 2026-07-13 사용자 설정화) ──
+           분류 밴드(정상|비가동|비생산) — 색은 OEE 색 SSOT(--oee-run/--oee-fault/--nonprod) 재사용,
+           정지 계열은 다른 화면과 동일하게 대각선 빗금으로 신호. 슬라이더 thumb 색 = 담당 세그먼트 색. */
+        .up-cm-band { display: flex; height: 38px; border-radius: 8px; overflow: hidden; border: 1px solid var(--color-lines); margin: 4px 0 16px; }
+        .up-cm-band .seg { position: relative; display: flex; flex-direction: column; justify-content: center; padding: 0 10px; min-width: 56px; overflow: hidden; transition: width 0.18s ease; }
+        .up-cm-band .seg + .seg { border-left: 1px solid color-mix(in srgb, var(--color-text-primary) 18%, transparent); }
+        .up-cm-band .seg .nm { font-size: 0.66rem; font-weight: 800; white-space: nowrap; color: var(--color-text-primary); }
+        .up-cm-band .seg .rg { font-size: 0.58rem; font-family: var(--font-mono); color: var(--color-text-secondary); white-space: nowrap; }
+        .up-cm-band .seg.normal { background: color-mix(in srgb, var(--oee-run) 16%, var(--color-surface)); }
+        .up-cm-band .seg.idle { background-color: color-mix(in srgb, var(--oee-fault) 14%, var(--color-surface)); background-image: repeating-linear-gradient(45deg, color-mix(in srgb, var(--oee-fault) 22%, transparent) 0 1.4px, transparent 1.4px 7px); }
+        .up-cm-band .seg.nonprod { background-color: color-mix(in srgb, var(--nonprod) 18%, var(--color-surface)); background-image: repeating-linear-gradient(45deg, color-mix(in srgb, var(--nonprod) 32%, transparent) 0 1.4px, transparent 1.4px 7px); }
+        .up-cm-rows { display: flex; flex-direction: column; gap: 12px; }
+        .up-cm-row { display: grid; grid-template-columns: minmax(250px, 1fr) minmax(170px, 300px) 52px; gap: 16px; align-items: center; }
+        @media (max-width: 880px) { .up-cm-row { grid-template-columns: 1fr; gap: 6px; } }
+        .up-cm-head b { font-size: 0.78rem; }
+        .up-cm-head span { display: block; font-size: 0.66rem; color: var(--color-text-secondary); line-height: 1.45; margin-top: 2px; }
+        .up-cm-val { font-family: var(--font-mono); font-weight: 800; font-size: 0.95rem; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .up-cm-slider { -webkit-appearance: none; appearance: none; width: 100%; height: 6px; border-radius: 999px; background: var(--color-surface-variant); border: 1px solid var(--color-lines); outline: none; cursor: pointer; }
+        .up-cm-slider:disabled { opacity: 0.5; cursor: default; }
+        .up-cm-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; border-radius: 50%; background: var(--oee-fault); border: 3px solid var(--color-surface); box-shadow: 0 1px 3px rgba(0,0,0,0.35); cursor: grab; }
+        .up-cm-slider::-moz-range-thumb { width: 13px; height: 13px; border-radius: 50%; background: var(--oee-fault); border: 3px solid var(--color-surface); box-shadow: 0 1px 3px rgba(0,0,0,0.35); cursor: grab; }
+        .up-cm-slider.nonprod::-webkit-slider-thumb { background: var(--nonprod); }
+        .up-cm-slider.nonprod::-moz-range-thumb { background: var(--nonprod); }
+        .up-cm-flows { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 13px; }
+        .up-cm-flowchip { display: inline-flex; align-items: center; gap: 8px; padding: 3px 10px; border: 1px solid var(--color-lines); border-radius: 999px; background: var(--color-surface-variant); font-size: 0.64rem; white-space: nowrap; }
+        .up-cm-flowchip b { font-weight: 800; color: var(--color-text-primary); }
+        .up-cm-flowchip .th { color: var(--color-text-secondary); }
+        .up-cm-flowchip .th i { font-style: normal; font-family: var(--font-mono); font-weight: 700; color: var(--oee-fault); }
+        .up-cm-flowchip .th.np i { color: var(--nonprod); }
+        .up-cm-preview { display: flex; align-items: center; gap: 8px; margin-top: 13px; padding: 9px 12px; border: 1px dashed color-mix(in srgb, var(--color-primary) 45%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--color-primary) 6%, transparent); font-size: 0.72rem; color: var(--color-text-secondary); line-height: 1.55; }
+        .up-cm-preview .material-icons { color: var(--color-primary); flex-shrink: 0; }
+        .up-cm-preview b { font-family: var(--font-mono); color: var(--color-text-primary); font-weight: 800; }
+        .up-cm-preview b.to { color: var(--color-primary); }
 
         /* ─────────────────────────────────────────────────────────────
            모바일 (≤480px) — 데이터테이블 = 카드 리스트 리플로우 + 전체 reflow.

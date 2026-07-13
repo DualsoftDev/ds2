@@ -100,7 +100,7 @@ public sealed class OeeNonProdDetectionLog
     /// <summary>감지 당시 14일 평균 CT(이상치, ms) 스냅샷.</summary>
     public double CtThresholdMs { get; set; }
 
-    /// <summary>적용 배수(기본 10). 향후 파라미터화 대비.</summary>
+    /// <summary>감지 당시 적용된 비생산 배수 스냅샷(사용자 설정, 기본 10 — 2026-07-13 설정화).</summary>
     public double CtMultiplier { get; set; } = 10.0;
 
     public DateTime CreatedAt { get; set; }
@@ -278,13 +278,49 @@ public sealed record PlannedStopWindowDto(int StartMinutes, int EndMinutes, stri
 
 /// <summary>
 /// 비생산 시간대 설정 상태 — GET /api/oee/planned-stops 응답 (병행 모델 2026-07-08).
-/// 당일 자동 판정(10×CT)은 항상 켜져 있고, Windows(수동 지정)는 추가로 "무조건 비생산" 확정 창.
-/// Source = "auto"(지정 없음) | "both"(자동+지정). CtMultiplier = 자동판정 배수(10).
+/// 당일 자동 판정(배수×CT)은 항상 켜져 있고, Windows(수동 지정)는 추가로 "무조건 비생산" 확정 창.
+/// Source = "auto"(지정 없음) | "both"(자동+지정). CtMultiplier = 비생산 자동판정 배수(사용자 설정, 기본 10),
+/// IdleCtMultiplier = 비가동 판정 배수(사용자 설정, 기본 2.5 — 2026-07-13).
 /// </summary>
 public sealed record PlannedStopsDto(
     string Source,
     IReadOnlyList<PlannedStopWindowDto> Windows,
-    int CtMultiplier);
+    double CtMultiplier,
+    double IdleCtMultiplier = Services.OeeMath.IdleCtMultiplierDefault);
+
+/// <summary>
+/// 정지·비생산 판정 기준(배수) — GET /api/oee/ct-multipliers 응답 (2026-07-13, doc/22 §3/§3.3 사용자 설정화).
+/// Flows = flow별 14일 평균 CT(판정 임계 환산 표시용 — 경계 = AvgCtMs × 배수).
+/// </summary>
+public sealed record CtMultipliersDto(
+    double IdleCtMultiplier,
+    double NonProdCtMultiplier,
+    IReadOnlyList<CtMultiplierFlowDto> Flows);
+
+/// <summary>flow별 판정 임계 환산 정보 — AvgCtMs = 14일 평균 CT(수동 표준CT 오버라이드 반영, 집계와 동일 소스).</summary>
+public sealed record CtMultiplierFlowDto(string FlowName, double AvgCtMs);
+
+/// <summary>PUT /api/oee/ct-multipliers 요청. null 필드는 기존값 유지.</summary>
+public sealed record CtMultipliersRequest(double? IdleCtMultiplier, double? NonProdCtMultiplier);
+
+/// <summary>
+/// 판정 기준 변경 미리보기 — GET /api/oee/ct-multipliers/preview. 같은 기간을 현재 배수/제안 배수로
+/// 각각 집계해 재분류 결과를 비교한다(저장 없음 — 오버라이드 계산, 사이클 집계 TTL 캐시 공유).
+/// </summary>
+public sealed record CtMultipliersPreviewDto(
+    CtMultipliersPreviewSideDto Current,
+    CtMultipliersPreviewSideDto Proposed);
+
+/// <summary>미리보기 한쪽(현재 또는 제안) 재분류 요약 — 정지 건수/비가동 CT/비생산(벽시계)/A/P.</summary>
+public sealed record CtMultipliersPreviewSideDto(
+    double IdleCtMultiplier,
+    double NonProdCtMultiplier,
+    int DowntimeCount,
+    int NormalCycleCount,
+    double IdleCtMs,
+    double NonProdWallMs,
+    double? Availability,
+    double? Performance);
 
 /// <summary>
 /// 자동 비생산 시간대 windows. 14일 평균 패턴(auto-pattern, DaysAnalyzed=14) 또는 이번 기간 실제 제외분(actual, DaysAnalyzed=0).

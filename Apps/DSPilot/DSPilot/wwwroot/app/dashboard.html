@@ -2012,7 +2012,7 @@
                 const c = KPI_MAP[id]; if (!c) return '—';
                 const row = this._kpiRow(c, 'today');
                 if (!row) return '—';
-                if (id === 'mtbf' || id === 'mttr') return row.failureCount === 0 ? '무고장' : this.durShort(c.val(row));
+                if (id === 'mtbf' || id === 'mttr') return row.failureCount === 0 ? '고장없음' : this.durShort(c.val(row));
                 const v = c.val(row);
                 if (v == null) return '—';
                 if (c.kind === 'count') return v.toLocaleString() + '회';
@@ -2049,12 +2049,12 @@
                 const c = KPI_MAP[id]; if (!c) return '';
                 const note = '<span class="text-label-sm text-on-surface-variant opacity-70" style="margin-left:5px;">어제 대비</span>';
                 const gray = (txt) => '<span style="font-weight:700;font-size:0.82rem;color:var(--color-text-disabled);">' + txt + '</span>' + note;
-                // MTBF/MTTR: 비가동 0건이면 시간값이 없음 — "무고장 유지"로 정직 표기
+                // MTBF/MTTR: 비가동 0건이면 시간값이 없음 — "고장없음 유지"로 정직 표기
                 if (id === 'mtbf' || id === 'mttr') {
                     const tf = this.cmp.today ? this.cmp.today.failureCount : null;
                     const yf = this.cmp.yesterday ? this.cmp.yesterday.failureCount : null;
                     if (tf === 0 && (yf === 0 || yf == null))
-                        return '<span style="display:inline-flex;align-items:center;gap:4px;font-weight:800;font-size:0.8rem;color:var(--green);"><span style="font-size:0.6rem;">●</span>무고장 유지</span>';
+                        return '<span style="display:inline-flex;align-items:center;gap:4px;font-weight:800;font-size:0.8rem;color:var(--green);"><span style="font-size:0.6rem;">●</span>고장없음 유지</span>';
                 }
                 const tr = this._kpiRow(c, 'today'), yr = this._kpiRow(c, 'yesterday');
                 const t = tr ? c.val(tr) : null;

@@ -37,7 +37,77 @@ public class OeePlannedStopsController : OeeControllerBase
     {
         var manual = _settings.LoadSettings().OeeManual.PlannedStops ?? new List<PlannedStopWindow>();
         var windows = manual.Select(w => new PlannedStopWindowDto(w.StartMinutes, w.EndMinutes, w.Label)).ToList();
-        return new PlannedStopsDto(windows.Count > 0 ? "both" : "auto", windows, (int)OeeMath.NonProductionCtMultiplier);
+        var (idleMult, nonProdMult) = ResolveCtMultipliers();
+        return new PlannedStopsDto(windows.Count > 0 ? "both" : "auto", windows, nonProdMult, idleMult);
+    }
+
+    // ── GET /api/oee/ct-multipliers ───────────────────────────────────────
+    // 정지·비생산 판정 기준 배수 + flow별 평균 CT(임계 환산 표시용). 설비효율 현황 '판정 기준' 카드 소스.
+    [HttpGet("ct-multipliers")]
+    public async Task<ActionResult<CtMultipliersDto>> GetCtMultipliers()
+    {
+        var (idleMult, nonProdMult) = ResolveCtMultipliers();
+        var thresholds = await ResolveCtThresholdsAsync();
+        var flows = thresholds.Where(kv => kv.Value.AvgMs > 0)
+            .OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(kv => new CtMultiplierFlowDto(kv.Key, kv.Value.AvgMs))
+            .ToList();
+        return new CtMultipliersDto(idleMult, nonProdMult, flows);
+    }
+
+    // ── PUT /api/oee/ct-multipliers ───────────────────────────────────────
+    // 판정 배수 저장 (2026-07-13). 검증: 범위 + 비가동 < 비생산(역전 시 비가동 밴드 소멸 → 거부).
+    // 저장 즉시 사전계산 저장본 동기 폐기(NotifyInvalidate) — 직후 재조회가 구 기준 수치를 받지 않는다.
+    // 과거 KPI 는 조회 시 재계산이라 자동 소급되지만, oeeNonProdDetectionLog 의 기존 행(감지 당시 배수 스냅샷)은
+    // 감사·재현성 규약대로 유지된다(OeeNonProdDetectionLog 주석).
+    [HttpPut("ct-multipliers")]
+    public async Task<ActionResult<CtMultipliersDto>> SetCtMultipliers([FromBody] CtMultipliersRequest? req)
+    {
+        var (curIdle, curNonProd) = ResolveCtMultipliers();
+        var idle = req?.IdleCtMultiplier ?? curIdle;
+        var nonProd = req?.NonProdCtMultiplier ?? curNonProd;
+        if (!double.IsFinite(idle) || idle < OeeManualSettings.IdleMultMin || idle > OeeManualSettings.IdleMultMax)
+            return BadRequest(new { error = $"비가동 판정 배수는 {OeeManualSettings.IdleMultMin:0.#}~{OeeManualSettings.IdleMultMax:0.#} 범위여야 합니다." });
+        if (!double.IsFinite(nonProd) || nonProd < OeeManualSettings.NonProdMultMin || nonProd > OeeManualSettings.NonProdMultMax)
+            return BadRequest(new { error = $"비생산 판정 배수는 {OeeManualSettings.NonProdMultMin:0.#}~{OeeManualSettings.NonProdMultMax:0.#} 범위여야 합니다." });
+        if (idle >= nonProd)
+            return BadRequest(new { error = "비가동 배수는 비생산 배수보다 작아야 합니다 — 역전되면 비가동(정지) 구간이 사라져 가용성이 왜곡됩니다." });
+
+        _settings.SaveCtMultipliers(idle, nonProd);
+        OeeChangeSignal.NotifyInvalidate();
+        _logger.LogInformation("[OEE] 판정 배수 변경: 비가동 {Idle}× / 비생산 {NonProd}× (구 {OldIdle}×/{OldNonProd}×)",
+            idle, nonProd, curIdle, curNonProd);
+        return await GetCtMultipliers();
+    }
+
+    // ── GET /api/oee/ct-multipliers/preview?idle&nonProd[&from&to] ────────
+    // 저장 없는 what-if 재분류 — 같은 기간을 현재/제안 배수로 각각 집계해 비교(라인 전체 스코프).
+    // 오버라이드 계산은 감지로그 materialize 를 막고(suppressDetectionLog), 결과는 집계 TTL 캐시를 공유한다.
+    [HttpGet("ct-multipliers/preview")]
+    public async Task<ActionResult<CtMultipliersPreviewDto>> PreviewCtMultipliers(
+        [FromQuery] double idle, [FromQuery] double nonProd,
+        [FromQuery] DateTime? from, [FromQuery] DateTime? to, CancellationToken ct)
+    {
+        if (!double.IsFinite(idle) || !double.IsFinite(nonProd) || idle <= 0 || nonProd <= 0 || idle >= nonProd)
+            return BadRequest(new { error = "미리보기 배수가 올바르지 않습니다 (0 < 비가동 < 비생산)." });
+
+        var (fromUtc, toUtc) = ResolveRange(from, to);
+        var thresholds = await ResolveCtThresholdsAsync();
+        var (plannedWindows, _, applyLongStop) = await ResolvePlannedWindowsAsync(thresholds, ct);
+        var (curIdle, curNonProd) = ResolveCtMultipliers();
+
+        async Task<CtMultipliersPreviewSideDto> SideAsync(double im, double nm)
+        {
+            var agg = await ComputeCycleAggregateAsync(null, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct,
+                idleMultOverride: im, nonProdMultOverride: nm);
+            var (a, _) = OeeMath.ComputeWallClockAvailability(agg.RunWallMs, agg.AvailableWallMs);
+            var (p, _) = OeeMath.ComputeCyclePerformance(agg.NormalCount, agg.CtThresholdMs, agg.NormalCtMs);
+            return new CtMultipliersPreviewSideDto(im, nm,
+                agg.DowntimeEventCount, agg.HasThreshold ? agg.NormalCount : 0,
+                agg.IdleCtMs, agg.NonProdWallMs, a, p);
+        }
+
+        return new CtMultipliersPreviewDto(await SideAsync(curIdle, curNonProd), await SideAsync(idle, nonProd));
     }
 
     // ── GET /api/oee/planned-stops/auto-pattern ───────────────────────────
@@ -133,6 +203,7 @@ public class OeePlannedStopsController : OeeControllerBase
             .Select(w => new PlannedStopWindow { StartMinutes = w.StartMinutes, EndMinutes = w.EndMinutes, Label = w.Label })
             .ToList();
         _settings.SavePlannedStops(windows);
+        OeeChangeSignal.NotifyInvalidate();   // 사전계산 저장본 동기 폐기 — 적용 직후 재조회(loadOee)가 구 창 수치를 받지 않게
         return GetPlannedStops();
     }
 

@@ -560,6 +560,97 @@
                     <div class="up-form-hint" style="margin-top:8px;">비생산 시간(점심·교대·정기정비·무오더 등)은 생산하지 않는 시간이라 <b>OEE 산출에서 통째로 제외</b>됩니다.</div>
                 </section>
 
+                <!-- ════ 정지·비생산 판정 기준 (doc/22 §3/§3.3, 2026-07-13 사용자 설정화) — 평균 CT 배수 슬라이더 2개 +
+                     분류 밴드 + flow별 임계 환산 칩 + 저장 전 재분류 미리보기(서버 what-if 계산, 저장·기록 없음). 라인 전역 설정. ════ -->
+                <section class="card up-section" id="ct-mult-section" x-show="!curFlow" x-cloak>
+                    <div class="ds-card-h">
+                        <h4>정지·비생산 판정 기준</h4>
+                        <span style="flex:1;"></span>
+                        <span class="up-oee-chip" :class="cmDirty() ? 'warn' : 'auto'"
+                              x-text="cmDirty() ? '미적용 변경 — [적용]을 눌러 저장' : ('비가동 ' + cm.idle + '× · 비생산 ' + cm.nonProd + '× 평균 가동시간')"></span>
+                    </div>
+
+                    <!-- 분류 밴드 — 사이클 길이(평균 CT 배수) 축 위 3구간, 슬라이더와 실시간 동기 -->
+                    <div class="up-cm-band" title="사이클(정지) 길이가 14일 평균 가동시간의 몇 배인가에 따라 분류됩니다">
+                        <div class="seg normal" :style="'width:' + cmBandW('normal')">
+                            <span class="nm">정상</span><span class="rg">≤ <b x-text="cm.idle"></b>×</span>
+                        </div>
+                        <div class="seg idle" :style="'width:' + cmBandW('idle')">
+                            <span class="nm">비가동 (정지)</span><span class="rg"><b x-text="cm.idle"></b>× – <b x-text="cm.nonProd"></b>×</span>
+                        </div>
+                        <div class="seg nonprod" :style="'width:' + cmBandW('nonprod')">
+                            <span class="nm">비생산 (제외)</span><span class="rg">≥ <b x-text="cm.nonProd"></b>×</span>
+                        </div>
+                    </div>
+
+                    <div class="up-cm-rows">
+                        <div class="up-cm-row">
+                            <div class="up-cm-head">
+                                <b>비가동(정지) 판정</b>
+                                <span>가동시간이 14일 평균의 <b x-text="cm.idle + '배'"></b>를 넘긴 사이클을 정지로 계상합니다. 그 미만의 느린 사이클은 정상 — 속도 저하는 성능(P)이 흡수합니다.</span>
+                            </div>
+                            <input class="up-cm-slider idle" type="range" min="1" max="5" step="0.1"
+                                   :value="cm.idle" @input="cmSetIdle($event.target.value)" :disabled="cm.busy"
+                                   aria-label="비가동 판정 배수">
+                            <span class="up-cm-val" x-text="cm.idle.toFixed(1) + '×'"></span>
+                        </div>
+                        <div class="up-cm-row">
+                            <div class="up-cm-head">
+                                <b>비생산(제외) 판정</b>
+                                <span>변화 없는 정지가 평균의 <b x-text="cm.nonProd + '배'"></b> 이상 이어지면 생산 계획이 없던 시간(무오더·교대·주말)으로 보고 가용성 분모에서 제외합니다.</span>
+                            </div>
+                            <input class="up-cm-slider nonprod" type="range" min="3" max="30" step="0.5"
+                                   :value="cm.nonProd" @input="cmSetNonProd($event.target.value)" :disabled="cm.busy"
+                                   aria-label="비생산 판정 배수">
+                            <span class="up-cm-val" x-text="cm.nonProd.toFixed(1) + '×'"></span>
+                        </div>
+                    </div>
+
+                    <!-- flow별 임계 환산 — "이 배수가 우리 라인에선 몇 초/분인가" -->
+                    <div class="up-cm-flows" x-show="cm.flows.length" x-cloak>
+                        <template x-for="f in cm.flows" :key="f.flowName">
+                            <span class="up-cm-flowchip" :title="f.flowName + ' · 14일 평균 가동시간 ' + cmSecs(f.avgCtMs, 1)">
+                                <b x-text="f.flowName"></b>
+                                <span class="th">정지 &gt; <i x-text="cmSecs(f.avgCtMs, cm.idle)"></i></span>
+                                <span class="th np">비생산 ≥ <i x-text="cmSecs(f.avgCtMs, cm.nonProd)"></i></span>
+                            </span>
+                        </template>
+                    </div>
+
+                    <!-- 재분류 미리보기 (저장 전 what-if — 서버가 같은 기간을 제안 배수로 재집계, 아무것도 기록하지 않음) -->
+                    <div class="up-cm-preview" x-show="cmDirty()" x-cloak>
+                        <span class="material-icons" style="font-size:16px;">query_stats</span>
+                        <template x-if="cm.previewBusy"><span>이 기간을 새 기준으로 재분류하는 중…</span></template>
+                        <template x-if="!cm.previewBusy && cm.preview">
+                            <span>
+                                이 기간 재분류:
+                                정지 <b x-text="cm.preview.current.downtimeCount"></b>건 → <b class="to" x-text="cm.preview.proposed.downtimeCount"></b>건 ·
+                                비가동 <b x-text="cmFmtH(cm.preview.current.idleCtMs)"></b> → <b class="to" x-text="cmFmtH(cm.preview.proposed.idleCtMs)"></b> ·
+                                비생산 <b x-text="cmFmtH(cm.preview.current.nonProdWallMs)"></b> → <b class="to" x-text="cmFmtH(cm.preview.proposed.nonProdWallMs)"></b> ·
+                                가용성 <b x-text="cmFmtPct(cm.preview.current.availability)"></b> → <b class="to" x-text="cmFmtPct(cm.preview.proposed.availability)"></b> ·
+                                성능 <b x-text="cmFmtPct(cm.preview.current.performance)"></b> → <b class="to" x-text="cmFmtPct(cm.preview.proposed.performance)"></b>
+                            </span>
+                        </template>
+                        <template x-if="!cm.previewBusy && !cm.preview && !cm.err"><span>기준을 조절하면 이 기간의 재분류 결과를 미리 보여드립니다.</span></template>
+                    </div>
+
+                    <div style="display:flex; align-items:center; gap:8px; margin-top:12px;">
+                        <span class="up-blk-msg ok" x-show="cm.msg" x-text="cm.msg"></span>
+                        <span class="up-blk-msg err" x-show="cm.err" x-text="cm.err"></span>
+                        <span style="flex:1;"></span>
+                        <button class="btn btn-sm btn-outlined" @click="cmReset()" :disabled="cm.busy"
+                                title="기본값(비가동 2.5× · 비생산 10×)으로 되돌린 뒤 [적용]으로 저장">기본값</button>
+                        <button class="btn btn-sm" :class="cmDirty() ? 'btn-primary' : ''" @click="cmApply()" :disabled="cm.busy || !cmDirty()">
+                            <span class="material-icons" style="font-size:15px;">save</span>
+                            <span x-text="cmDirty() ? '적용 *' : '적용'"></span>
+                        </button>
+                    </div>
+                    <div class="up-form-hint" style="margin-top:8px;">
+                        기준은 <b>14일 평균 가동시간(CT) × 배수</b>로 flow마다 자동 환산됩니다. 조회 시 재계산이라 과거 기간에도 즉시
+                        소급 적용되며, 정지 이벤트 로그의 <b>비생산↔비가동 보내기</b>(수동 확정)는 이 기준과 무관하게 항상 우선합니다.
+                    </div>
+                </section>
+
                 <datalist id="up-flow-list">
                     <template x-for="f in flowNames" :key="f"><option :value="f"></option></template>
                 </datalist>

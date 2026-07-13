@@ -194,11 +194,13 @@ public sealed class OeeNonProdPatternService
                     System.Globalization.DateTimeStyles.None, out var day))
                 activeDays.Add(day.Date);
 
+        // 사용자 설정 비생산 배수(기본 10×) — 라이브 §3.3 판정과 동일 문턱(설정 변경 시 학습 재료도 함께 이동).
+        var nonProdMult = _settings.LoadSettings().OeeManual.ResolveCtMultipliers().NonProdMult;
         foreach (var f in targetFlows)
         {
             var thr = thresholds[f].AvgMs;
             if (thr <= 0) continue;
-            var longStopMs = thr * OeeMath.NonProductionCtMultiplier;
+            var longStopMs = thr * nonProdMult;
 
             var rows = await conn.QueryAsync<(string RecordedAt, long Ct)>(@"
                 SELECT recordedAt AS RecordedAt, ct AS Ct
@@ -236,7 +238,8 @@ public sealed class OeeNonProdPatternService
 
         var thrVals = targetFlows.Select(f => thresholds[f].AvgMs).Where(v => v > 0).ToList();
         if (thrVals.Count == 0) return;
-        var longStopMs = thrVals.Average() * OeeMath.NonProductionCtMultiplier;
+        // 라인 대표 임계 × 사용자 설정 비생산 배수 — CollectIdleCycleStopsAsync 와 동일 규칙(라이브 nocycle-gap 분기 정합).
+        var longStopMs = thrVals.Average() * _settings.LoadSettings().OeeManual.ResolveCtMultipliers().NonProdMult;
 
         await using var conn = new SqliteConnection($"Data Source={oeeDb};Mode=ReadOnly;Default Timeout=20");
         await conn.OpenAsync(ct);

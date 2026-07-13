@@ -124,6 +124,10 @@
                 // (구 auto/pendingManual 배타 토글, excludedWeekdays/xw*[생산 요일] 는 병행 모델 전환으로 제거.)
                 ps: { source: 'auto', ctMultiplier: 10, windows: [], selected: -1, addMode: false, editing: false, msg: '', err: '', busy: false, actualNonProd: null, dirty: false },
                 _psDrag: null, // 진행 중 드래그 상태 { mode:'create'|'resize-l'|'resize-r', index, anchor } (비반응형)
+                // 정지·비생산 판정 기준 (doc/22 §3/§3.3, 2026-07-13 사용자 설정화) — 비가동=평균CT×idle 초과 사이클,
+                // 비생산=평균CT×nonProd 이상 무변화 정지(분모 밖). preview=저장 전 what-if 재분류(서버 오버라이드 계산, 저장·기록 없음).
+                cm: { idle: 2.5, nonProd: 10, origIdle: 2.5, origNonProd: 10, flows: [], busy: false, msg: '', err: '', preview: null, previewBusy: false },
+                _cmSeq: 0, _cmPrevTimer: null, _cmMultMsgTimer: null,
                 // 정지 이벤트 로그 토글 — 기본 숨김, 정지 원인 구성(도넛)의 [로그 보기 및 설정] 버튼으로 토글
                 showDowntimeLog: false,
                 // 표준 가동시간(idealCT) Flow 일괄 편집 테이블 (편집값은 각 행 객체 draft 에 보관 — Alpine x-for 양방향 바인딩 안정)
@@ -198,6 +202,8 @@
                         // 비생산 시간대(ps.ctMultiplier 등)는 설비효율·생산효율 둘 다 사용.
                         if (this.view === 'oee' || this.view === 'both') await this.loadCtTable();
                         if (this.view !== 'alarm') await this.loadPlannedStops();
+                        // 판정 기준 카드(비가동/비생산 배수)는 설비효율 페이지 전용.
+                        if (this.view === 'oee' || this.view === 'both') await this.loadCtMultipliers();
                     };
                     if (window.dspLoading) await window.dspLoading.wrap(initLoad, '불러오는 중…');
                     else await initLoad();
@@ -507,6 +513,86 @@
                         await this.loadOee();
                     } catch (e) { this.ps.err = '적용 실패: ' + e.message; }
                     finally { this.ps.busy = false; setTimeout(() => { this.ps.msg = ''; }, 5000); }
+                },
+
+                // ── 정지·비생산 판정 기준 (GET/PUT /api/oee/ct-multipliers) — 슬라이더 + flow 임계 환산 + 저장 전 재분류 미리보기 ──
+                cmDirty() { return this.cm.idle !== this.cm.origIdle || this.cm.nonProd !== this.cm.origNonProd; },
+                async loadCtMultipliers() {
+                    try {
+                        const r = await this.apiGet('/api/oee/ct-multipliers');
+                        this.cm.idle = this.cm.origIdle = Math.round((r.idleCtMultiplier || 2.5) * 10) / 10;
+                        this.cm.nonProd = this.cm.origNonProd = Math.round((r.nonProdCtMultiplier || 10) * 10) / 10;
+                        this.cm.flows = r.flows || [];
+                        this.cm.preview = null;
+                    } catch (e) { this.cm.err = '판정 기준을 불러오지 못했습니다: ' + e.message; }
+                },
+                // 배수 × flow 평균 CT → 임계 환산 표시 (10s 미만은 소수 1자리, 90s↑ 분, 90분↑ 시간)
+                cmSecs(avgMs, mult) {
+                    const s = ((avgMs || 0) * mult) / 1000;
+                    if (s >= 5400) return (s / 3600).toFixed(1) + '시간';
+                    if (s >= 90) return (s / 60).toFixed(1) + '분';
+                    return (s >= 10 ? String(Math.round(s)) : s.toFixed(1)) + '초';
+                },
+                cmFmtH(ms) { const h = (ms || 0) / 3600000; return h >= 10 ? Math.round(h) + 'h' : h.toFixed(1) + 'h'; },
+                cmFmtPct(v) { return (v === null || v === undefined) ? '—' : (v * 100).toFixed(1) + '%'; },
+                // 슬라이더 입력 — 역전 차단(비가동 + 0.5 ≤ 비생산 유지) 후 미리보기 디바운스
+                cmSetIdle(v) {
+                    const x = Math.round(parseFloat(v) * 10) / 10;
+                    if (!isFinite(x)) return;
+                    this.cm.idle = Math.max(1, Math.min(x, this.cm.nonProd - 0.5));
+                    this.cmQueuePreview();
+                },
+                cmSetNonProd(v) {
+                    const x = Math.round(parseFloat(v) * 10) / 10;
+                    if (!isFinite(x)) return;
+                    this.cm.nonProd = Math.min(100, Math.max(x, this.cm.idle + 0.5));
+                    this.cmQueuePreview();
+                },
+                cmQueuePreview() {
+                    this.cm.msg = ''; this.cm.err = '';
+                    if (!this.cmDirty()) { this.cm.preview = null; return; }
+                    clearTimeout(this._cmPrevTimer);
+                    this._cmPrevTimer = setTimeout(() => this.cmPreview(), 600);
+                },
+                async cmPreview() {
+                    if (!this.cmDirty()) return;
+                    const seq = ++this._cmSeq;
+                    this.cm.previewBusy = true;
+                    try {
+                        const r = this.rangeForPeriod();
+                        const qs = `idle=${this.cm.idle}&nonProd=${this.cm.nonProd}&from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}`;
+                        const dto = await this.apiGet('/api/oee/ct-multipliers/preview?' + qs);
+                        if (seq === this._cmSeq) this.cm.preview = dto;
+                    } catch (e) { if (seq === this._cmSeq) { this.cm.preview = null; this.cm.err = '미리보기 실패: ' + e.message; } }
+                    finally { if (seq === this._cmSeq) this.cm.previewBusy = false; }
+                },
+                cmReset() { this.cm.idle = 2.5; this.cm.nonProd = 10; this.cmQueuePreview(); },
+                async cmApply() {
+                    if (this.cm.idle >= this.cm.nonProd) { this.cm.err = '비가동 배수는 비생산 배수보다 작아야 합니다.'; return; }
+                    this.cm.busy = true; this.cm.msg = ''; this.cm.err = '';
+                    try {
+                        const r = await this.apiPut('/api/oee/ct-multipliers',
+                            { idleCtMultiplier: this.cm.idle, nonProdCtMultiplier: this.cm.nonProd });
+                        this.cm.idle = this.cm.origIdle = Math.round(r.idleCtMultiplier * 10) / 10;
+                        this.cm.nonProd = this.cm.origNonProd = Math.round(r.nonProdCtMultiplier * 10) / 10;
+                        this.cm.flows = r.flows || [];
+                        this.cm.preview = null;
+                        this.cm.msg = `판정 기준 적용 — 비가동 ${this.cm.idle}× / 비생산 ${this.cm.nonProd}× (조회 시 재계산이라 과거 기간에도 즉시 반영)`;
+                        // KPI + 비생산 카드의 자동 칩(배수 표기) + 실측 타임라인 갱신
+                        await Promise.all([this.loadOee(), this.loadPlannedStops()]);
+                    } catch (e) { this.cm.err = '적용 실패: ' + e.message; }
+                    finally {
+                        this.cm.busy = false;
+                        clearTimeout(this._cmMultMsgTimer);
+                        this._cmMultMsgTimer = setTimeout(() => { this.cm.msg = ''; }, 6000);
+                    }
+                },
+                // 분류 밴드 세그먼트 폭(%) — 0 ~ 비생산×1.15 선형 스케일(정상 | 비가동 | 비생산)
+                cmBandW(kind) {
+                    const max = this.cm.nonProd * 1.15;
+                    if (kind === 'normal') return (this.cm.idle / max * 100) + '%';
+                    if (kind === 'idle') return ((this.cm.nonProd - this.cm.idle) / max * 100) + '%';
+                    return (100 - this.cm.nonProd / max * 100) + '%';
                 },
 
                 // 현재 기간 → OEE 엔드포인트용 from/to (로컬 ISO, UserTagsController.ResolvePeriod 와 동일 의미)

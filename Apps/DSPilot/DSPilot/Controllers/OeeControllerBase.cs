@@ -185,6 +185,7 @@ public abstract class OeeControllerBase : ControllerBase
         if (cycles is null || cycles.Count == 0) return (new List<OeeDowntimeDto>(), nonProdIv);
 
         var sysMap = BuildFlowSystemMap();       // flowName → systemName (AASX 미로드/미매칭이면 빈 문자열)
+        var (idleMult, nonProdMult) = ResolveCtMultipliers();
         var list = new List<OeeDowntimeDto>(cycles.Count);
         var synthId = 0L;
         foreach (var c in cycles)
@@ -204,10 +205,10 @@ public abstract class OeeControllerBase : ControllerBase
                 DetectSource: "over-cycle",
                 SourceLogId: null,
                 Note: c.NonProd
-                    ? $"장시간 정지 자동 비생산 (지속 {((c.EndMs - c.StartMs) / 1000.0):0.0}s ≥ 이상치 {(thrMs / 1000.0):0.0}s × {OeeMath.NonProductionCtMultiplier:0}배)"
+                    ? $"장시간 정지 자동 비생산 (지속 {((c.EndMs - c.StartMs) / 1000.0):0.0}s ≥ 평균CT {(thrMs / 1000.0):0.0}s × {nonProdMult:0.#}배)"
                     : thrMs > 0
-                        ? $"가동시간 이상치 초과 (CT {(c.CtMs / 1000.0):0.0}s > 이상치 {(thrMs / 1000.0):0.0}s)"
-                        : "가동시간 이상치 초과",
+                        ? $"가동시간 기준 초과 (CT {(c.CtMs / 1000.0):0.0}s > 기준 {(thrMs * idleMult / 1000.0):0.0}s = 평균CT {(thrMs / 1000.0):0.0}s × {idleMult:0.#}배)"
+                        : "가동시간 기준 초과",
                 Status: "recovered",
                 ClassifySource: c.NonProd ? "auto-longstop" : "auto-cycle",
                 IsNonProd: c.NonProd));
@@ -752,13 +753,15 @@ public abstract class OeeControllerBase : ControllerBase
         IReadOnlyDictionary<string, (double AvgMs, double P10Ms, int Sample)> thresholds,
         IReadOnlyList<(int StartMin, int EndMin)> plannedWindows, bool applyLongStop,
         bool collectRunIntervals, IReadOnlyList<(double S, double E, string? Flow)>? maintIntervals,
-        bool collectNormalCycles, bool collectDowntimeCycles)
+        bool collectNormalCycles, bool collectDowntimeCycles,
+        double idleMult, double nonProdMult)
     {
         var sb = new System.Text.StringBuilder(256);
         sb.Append(flowName ?? "*").Append('|').Append(fromUtc.Ticks).Append('|')
           .Append(toUtc.Ticks / (TimeSpan.TicksPerSecond * 10)).Append('|')  // 10초 격자
           .Append(applyLongStop ? '1' : '0').Append(collectRunIntervals ? '1' : '0')
-          .Append(collectNormalCycles ? '1' : '0').Append(collectDowntimeCycles ? '1' : '0').Append('|');
+          .Append(collectNormalCycles ? '1' : '0').Append(collectDowntimeCycles ? '1' : '0').Append('|')
+          .Append(idleMult).Append('x').Append(nonProdMult).Append('|');   // 판정 배수 — 설정/미리보기 변경 즉시 반영(§3/§3.3)
         foreach (var k in thresholds.Keys.OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
         {
             var v = thresholds[k];
@@ -786,6 +789,10 @@ public abstract class OeeControllerBase : ControllerBase
         DowntimeCycles = v.DowntimeCycles is null ? null : new List<(string? Flow, double StartMs, double EndMs, double CtMs, bool NonProd)>(v.DowntimeCycles),
     };
 
+    /// <summary>판정 배수 (비가동, 비생산) — 사용자 설정(설비효율 현황) 정규화 값. 집계·문구·DTO 공용.</summary>
+    protected (double IdleMult, double NonProdMult) ResolveCtMultipliers()
+        => _settings.LoadSettings().OeeManual.ResolveCtMultipliers();
+
     protected async Task<CycleAgg> ComputeCycleAggregateAsync(
         string? flowName, DateTime fromUtc, DateTime toUtc,
         IReadOnlyDictionary<string, (double AvgMs, double P10Ms, int Sample)> thresholds,
@@ -793,17 +800,30 @@ public abstract class OeeControllerBase : ControllerBase
         bool collectRunIntervals = false,
         IReadOnlyList<(double S, double E, string? Flow)>? maintIntervals = null,
         bool collectNormalCycles = false,
-        bool collectDowntimeCycles = false)
+        bool collectDowntimeCycles = false,
+        double? idleMultOverride = null,        // 판정 기준 미리보기 전용 — 저장 없이 배수를 바꿔 계산(ct-multipliers/preview)
+        double? nonProdMultOverride = null)
     {
+        var (idleMult, nonProdMult) = ResolveCtMultipliers();
+        // 오버라이드(미리보기)는 저장 전 what-if 계산 — 결과는 정상 계산과 동일 경로지만, 감지로그 materialize 는
+        // 막는다(제안 배수의 판정이 oeeNonProdDetectionLog 에 영구 기록되면 TEEP/actual 이 오염).
+        var suppressDetectionLog = idleMultOverride is not null || nonProdMultOverride is not null;
+        if (idleMultOverride is double io && double.IsFinite(io))
+            idleMult = Math.Clamp(io, OeeManualSettings.IdleMultMin, OeeManualSettings.IdleMultMax);
+        if (nonProdMultOverride is double no && double.IsFinite(no))
+            nonProdMult = Math.Clamp(no, OeeManualSettings.NonProdMultMin, OeeManualSettings.NonProdMultMax);
+        if (idleMult >= nonProdMult) idleMult = Math.Max(OeeManualSettings.IdleMultMin, nonProdMult / 2);
+
         var key = BuildAggKey(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop,
-            collectRunIntervals, maintIntervals, collectNormalCycles, collectDowntimeCycles);
+            collectRunIntervals, maintIntervals, collectNormalCycles, collectDowntimeCycles, idleMult, nonProdMult);
 
         if (s_aggCache.TryGetValue(key, out var hit) && hit.ExpiresUtc > DateTime.UtcNow)
             return CloneAgg(hit.Value);
 
         Task<CycleAgg> ComputeSelfAsync() => ComputeCycleAggregateCoreAsync(
             flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct,
-            collectRunIntervals, maintIntervals, collectNormalCycles, collectDowntimeCycles);
+            collectRunIntervals, maintIntervals, collectNormalCycles, collectDowntimeCycles,
+            idleMult, nonProdMult, suppressDetectionLog);
 
         var lazy = new Lazy<Task<CycleAgg>>(ComputeSelfAsync);
         var winner = s_aggInflight.GetOrAdd(key, lazy);
@@ -846,7 +866,13 @@ public abstract class OeeControllerBase : ControllerBase
         bool collectRunIntervals = false,
         IReadOnlyList<(double S, double E, string? Flow)>? maintIntervals = null,
         bool collectNormalCycles = false,
-        bool collectDowntimeCycles = false)
+        bool collectDowntimeCycles = false,
+        // 판정 배수(호출측 ComputeCycleAggregateAsync 가 정규화해 전달) — 비가동 경계 = thr×idleMult(@Thr 바인딩만),
+        // 비생산 승격 = thr×nonProdMult. 성능 P 표준치(perfNumerator)·onset/repair 는 원 thr(1×) 유지(doc/22 §3/§4).
+        double idleMult = 1.0,
+        double nonProdMult = OeeMath.NonProductionCtMultiplier,
+        // 미리보기(배수 오버라이드) 계산 — 감지로그 materialize 금지(제안 배수 판정의 영구 기록 방지).
+        bool suppressDetectionLog = false)
     {
         var onsets = new List<double>();
         var repairs = new List<double>();
@@ -949,7 +975,10 @@ public abstract class OeeControllerBase : ControllerBase
                 ctSampleMin = Math.Min(ctSampleMin, thresholds[f].Sample);
 
                 var p = new DynamicParameters();
-                p.Add("From", fromStr); p.Add("To", toStr); p.Add("Flow", f); p.Add("Thr", thr);
+                // @Thr = 비가동 판정 경계(thr×배수, 2026-07-13 사용자 설정화) — dtCond 3개 쿼리(정상 집계/정상 구간/
+                // 비가동 행)가 이 파라미터 하나를 공유해 KPI·정지 내역이 함께 움직인다. 경계 아래 느린 사이클은
+                // 정상으로 편입돼 성능 P(표준=1×thr, perfNumerator)가 속도 손실로 흡수한다.
+                p.Add("From", fromStr); p.Add("To", toStr); p.Add("Flow", f); p.Add("Thr", thr * idleMult);
 
                 var aggRow = await conn.QueryFirstOrDefaultAsync<CycleAggRow>($@"
                     SELECT
@@ -1022,15 +1051,15 @@ public abstract class OeeControllerBase : ControllerBase
                         measuredMs = Intervals.Total(rowSegs);
                         if (measuredMs <= 0) continue;              // 전 구간 비생산 확정 — 정지 미계상
                     }
-                    // 사용자 오버라이드 ② 비가동 확정(고장/유지보수 수동 분류 겹침) → 당일 10×CT 자동 승격 억제.
-                    if (applyLongStop && r.Mt is null && OeeMath.IsLongStopNonProduction(measuredMs, thr)
+                    // 사용자 오버라이드 ② 비가동 확정(고장/유지보수 수동 분류 겹침) → 당일 배수×CT 자동 승격 억제.
+                    if (applyLongStop && r.Mt is null && OeeMath.IsLongStopNonProduction(measuredMs, thr, nonProdMult)
                         && !OverlapsAny(toDownIv, f, startMs, rec))
                     {
                         plannedCtMs += measuredMs;
                         foreach (var seg in rowSegs)
                         {
-                            nonProdIntervals.Add(seg);              // 자동(10×) 유휴 사이클 → 비생산(제외) 시각화
-                            nonProdDetections.Add(NewNonProdDetection(f, seg.S, seg.E, thr, "idle-cycle"));
+                            nonProdIntervals.Add(seg);              // 자동(배수×) 유휴 사이클 → 비생산(제외) 시각화
+                            nonProdDetections.Add(NewNonProdDetection(f, seg.S, seg.E, thr, "idle-cycle", nonProdMult));
                         }
                         downtimeCycles?.Add((f, startMs, rec, cMs, true));   // 팝업 비생산 탭 표시(건수·MTBF 미반영)
                         continue;
@@ -1083,14 +1112,14 @@ public abstract class OeeControllerBase : ControllerBase
                             if (len <= 0) continue;                 // 전 구간 비생산 확정 — 정지 미계상
                         }
                         // 사용자 오버라이드 ② 비가동 확정 겹침 → 자동 승격 억제(정지 유지).
-                        if (applyLongStop && OeeMath.IsLongStopNonProduction(len, avgThr)
+                        if (applyLongStop && OeeMath.IsLongStopNonProduction(len, avgThr, nonProdMult)
                             && !toDownIv.Any(x => Math.Min(x.E, u.E) > Math.Max(x.S, u.S)))
                         {
                             plannedCtMs += len;
                             foreach (var us in uSegs)
                             {
-                                nonProdIntervals.Add(us);           // 자동(10×) 무사이클 갭 → 비생산(제외) 시각화
-                                nonProdDetections.Add(NewNonProdDetection(flowName, us.S, us.E, avgThr, "nocycle-gap"));
+                                nonProdIntervals.Add(us);           // 자동(배수×) 무사이클 갭 → 비생산(제외) 시각화
+                                nonProdDetections.Add(NewNonProdDetection(flowName, us.S, us.E, avgThr, "nocycle-gap", nonProdMult));
                             }
                             continue;
                         }
@@ -1127,7 +1156,7 @@ public abstract class OeeControllerBase : ControllerBase
         // 미계측 조회가 실패(비신뢰)한 요청에선 스킵 — 카빙 안 된 블랙아웃 스팬이 비생산으로 영구 기록되는 오염 방지
         // (UPSERT 키가 onset 이라 이후 정상 요청이 자가 치유하지 못함).
         // P2-3: 조회 경로가 파일 쓰기를 기다리지 않도록 백그라운드 큐로 분리(멱등 UPSERT — 유실·중복 무해).
-        if (applyLongStop && unmeasuredTrusted && nonProdDetections.Count > 0)
+        if (applyLongStop && unmeasuredTrusted && !suppressDetectionLog && nonProdDetections.Count > 0)
             NonProdWriteQueueService.Enqueue(nonProdDetections);
 
         // ── 패스 2 — 벽시계 산출(2026-07-08): 비생산(지정 창 + 당일 10× 승격 + 사용자 오버라이드)이 전부 확정된 뒤
@@ -1171,17 +1200,18 @@ public abstract class OeeControllerBase : ControllerBase
             DowntimeCycles: downtimeCycles);
     }
 
-    private static OeeNonProdDetectionLog NewNonProdDetection(string? flow, double onsetMs, double clearMs, double thrMs, string reason)
+    private static OeeNonProdDetectionLog NewNonProdDetection(
+        string? flow, double onsetMs, double clearMs, double thrMs, string reason, double nonProdMult)
         => new()
         {
             FlowName = flow,
             OnsetAt = DateTimeOffset.FromUnixTimeMilliseconds((long)onsetMs).UtcDateTime,
             ClearAt = DateTimeOffset.FromUnixTimeMilliseconds((long)clearMs).UtcDateTime,
             DurationMs = (long)(clearMs - onsetMs),
-            DetectionSource = "auto-10xct",
+            DetectionSource = "auto-10xct",   // 감지 규칙 식별자(dedup 키 일부) — 배수가 바뀌어도 규칙명은 유지, 적용 배수는 CtMultiplier 스냅샷
             DetectionReason = reason,
             CtThresholdMs = thrMs,
-            CtMultiplier = OeeMath.NonProductionCtMultiplier,
+            CtMultiplier = nonProdMult,
         };
 
     private async Task<List<(double S, double E)>> GetNocycleIntervalsMsAsync(string? flowName, DateTime fromUtc, DateTime toUtc)

@@ -156,6 +156,23 @@ public class AppSettingsService
         => Update(settings => settings.OeeManual.AutoPatternCache = cache);
 
     /// <summary>
+    /// 정지·비생산 판정 배수 저장 (2026-07-13, doc/22 §3/§3.3 사용자 설정화). 호출측(컨트롤러)이 범위·역전
+    /// 검증을 마친 값을 받는다(여기서도 클램프 방어). 배수가 바뀌면 학습기(§3.5)의 장시간 정지 문턱도 바뀌므로
+    /// AutoPatternCache(24h)를 함께 폐기 — 다음 조회가 새 문턱으로 즉시 재학습한다.
+    /// </summary>
+    public void SaveCtMultipliers(double idleMult, double nonProdMult)
+    {
+        var idle = Math.Clamp(idleMult, OeeManualSettings.IdleMultMin, OeeManualSettings.IdleMultMax);
+        var nonProd = Math.Clamp(nonProdMult, OeeManualSettings.NonProdMultMin, OeeManualSettings.NonProdMultMax);
+        Update(settings =>
+        {
+            settings.OeeManual.IdleCtMultiplier = idle;
+            settings.OeeManual.NonProdCtMultiplier = nonProd;
+            settings.OeeManual.AutoPatternCache = null;
+        });
+    }
+
+    /// <summary>
     /// 모든 관리 설정을 코드 기본값(<see cref="AppSettingsModel"/>)으로 초기화하고 저장한다.
     /// 업그레이드 시 Production.json 을 보존하므로, 구버전에서 넘어온 stale 설정이 문제를 일으킬 때
     /// 사용자가 설정 페이지에서 명시적으로 깨끗한 기본값으로 되돌리는 escape hatch.

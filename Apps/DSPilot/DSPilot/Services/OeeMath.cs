@@ -11,10 +11,21 @@ namespace DSPilot.Services;
 public static class OeeMath
 {
     /// <summary>
-    /// 비생산 자동판정 배수 — 무변화 정지 길이가 14일 평균 CT 의 이 배수 이상이면 "비생산"(분모 밖)으로 본다(doc/22 §3.3).
+    /// 비생산 자동판정 배수 <b>기본값</b> — 무변화 정지 길이가 14일 평균 CT 의 이 배수 이상이면 "비생산"(분모 밖)으로 본다(doc/22 §3.3).
     /// "라인이 평균 사이클의 10배를 넘게 멈춰 있었으면 그 시간은 애초에 생산하던 시간이 아니다"는 가정. 고장신호와 무관(순수 CT).
+    /// 2026-07-13 사용자 설정화: 실제 적용값은 <see cref="Models.OeeManualSettings.NonProdCtMultiplier"/>(설비효율 현황에서 조절) —
+    /// 이 상수는 그 설정의 기본값이자 설정 미보유 경로의 폴백이다.
     /// </summary>
     public const double NonProductionCtMultiplier = 10.0;
+
+    /// <summary>
+    /// 비가동(정지) 판정 배수 기본값 — 사이클 MT(또는 미완료 CT)가 14일 평균 CT 의 이 배수를 <b>초과</b>하면
+    /// 비가동으로 본다(doc/22 §3 ①②, 2026-07-13 도입 — 종전 1×). 평균의 1~2.5배 구간 "느린 사이클"은 정상(속도
+    /// 손실 → 성능 P 로 재배분)으로 두고, 그 이상 늘어진 것만 정지로 계상한다. 성능 P 의 표준치는 여전히 1×평균
+    /// (<see cref="ComputeCyclePerformance"/>) — 판정 경계만 배수가 붙는다. 실제 적용값은
+    /// <see cref="Models.OeeManualSettings.IdleCtMultiplier"/>.
+    /// </summary>
+    public const double IdleCtMultiplierDefault = 2.5;
 
     /// <summary>
     /// 사용자/자동 분류에서 "비생산"을 뜻하는 reasonCode — 정지 이벤트를 비생산으로 보내면 이 코드가 찍히고
@@ -24,12 +35,14 @@ public static class OeeMath
     public const string NonProductionReasonCode = "non_production";
 
     /// <summary>
-    /// 무변화 정지 지속시간(ms)이 비생산(≥ <see cref="NonProductionCtMultiplier"/>×CT이상치)인지 판정(doc/22 §3.3).
+    /// 무변화 정지 지속시간(ms)이 비생산(≥ multiplier×CT이상치)인지 판정(doc/22 §3.3).
     /// thr ≤ 0(표본 부족)이면 판정 불가 → false(=다운타임 유지). 대상은 "변화 없음" 정지뿐(무사이클 갭·미완료 멈춤),
-    /// 완료된 느린 사이클(움직였음)은 호출측에서 제외한다.
+    /// 완료된 느린 사이클(움직였음)은 호출측에서 제외한다. multiplier 는 사용자 설정(기본 10×) — 호출측이
+    /// <see cref="Models.OeeManualSettings.ResolveCtMultipliers"/> 값을 넘긴다(미지정 = 기본 상수).
     /// </summary>
-    public static bool IsLongStopNonProduction(double idleDurationMs, double ctThresholdMs)
-        => ctThresholdMs > 0 && idleDurationMs >= NonProductionCtMultiplier * ctThresholdMs;
+    public static bool IsLongStopNonProduction(double idleDurationMs, double ctThresholdMs,
+        double multiplier = NonProductionCtMultiplier)
+        => ctThresholdMs > 0 && multiplier > 0 && idleDurationMs >= multiplier * ctThresholdMs;
 
     /// <summary>
     /// 비가동 gap 판정 배수(doc/23 §5) — gap(완료→다음 가동 간격)이 flow 자신의 클린 gap 중앙값(gap')의
@@ -57,10 +70,12 @@ public static class OeeMath
     /// gapMedianMs ≤ 0(표본 부족)이면 비가동 판정 불가 → 비생산 경계만 적용(가짜 정지 금지, doc/21 §10).
     /// 비생산을 먼저 검사한다 — 정상 데이터에선 항상 3×gap' &lt; 10×CT (gap'=WT ⊂ CT) 라 순서 무해하나,
     /// 표본 왜곡 시에도 "더 긴 정지 = 더 관대한 분류(분모 밖)" 방향으로 안전.
+    /// nonProdMultiplier 는 사용자 설정 비생산 배수(기본 10×) — <see cref="IsLongStopNonProduction"/> 와 동일 경계.
     /// </summary>
-    public static GapClass ClassifyGap(double gapMs, double gapMedianMs, double ctThresholdMs)
+    public static GapClass ClassifyGap(double gapMs, double gapMedianMs, double ctThresholdMs,
+        double nonProdMultiplier = NonProductionCtMultiplier)
     {
-        if (IsLongStopNonProduction(gapMs, ctThresholdMs)) return GapClass.NonProduction;
+        if (IsLongStopNonProduction(gapMs, ctThresholdMs, nonProdMultiplier)) return GapClass.NonProduction;
         if (gapMedianMs > 0 && gapMs > DowntimeGapMultiplier * gapMedianMs) return GapClass.Downtime;
         return GapClass.Normal;
     }
@@ -144,13 +159,13 @@ public static class OeeMath
     }
 
     /// <summary>
-    /// MTBF = Σ가동시간 / 고장건수. 고장 0건이면 분모 0 → 가짜 수치(max(n,1)) 금지하고 null + 무고장 표기(doc/21 §10).
-    /// NoFault=true 면 UI 가 "🟢 무고장" 배지를 띄운다.
+    /// MTBF = Σ가동시간 / 고장건수. 고장 0건이면 분모 0 → 가짜 수치(max(n,1)) 금지하고 null + 고장없음 표기(doc/21 §10).
+    /// NoFault=true 면 UI 가 "🟢 고장없음" 배지를 띄운다.
     /// </summary>
     public static (double? Mtbf, string? Note, bool NoFault) ComputeMtbf(double runtimeMs, int failureCount)
     {
         if (failureCount <= 0)
-            return (null, "고장(분류 unplanned) 건수 0 — MTBF 산출 불가(무고장).", true);
+            return (null, "고장(분류 unplanned) 건수 0 — MTBF 산출 불가(고장없음).", true);
         return (runtimeMs / failureCount, "Σ가동시간 / 고장건수 (가동시간 = 가용성 분모와 동일 폴백).", false);
     }
 
@@ -205,19 +220,22 @@ public static class OeeMath
     }
 
     /// <summary>
-    /// 한 사이클을 정상/비가동으로 분류 (doc/22 §3 ①②). thr = CT이상치(14일 평균, ms).
-    ///   ① MT &gt; thr (완료가 늦게 발화 = 정지를 머금은 과주행)
-    ///   ② complete=null(=mt null) AND CT &gt; thr (끝내 완료 못한 CT 폭주)
+    /// 한 사이클을 정상/비가동으로 분류 (doc/22 §3 ①②). thr = CT이상치(14일 평균, ms), 판정 경계 = thr × idleMultiplier.
+    ///   ① MT &gt; thr×mult (완료가 늦게 발화 = 정지를 머금은 과주행)
+    ///   ② complete=null(=mt null) AND CT &gt; thr×mult (끝내 완료 못한 CT 폭주)
     /// CT 없는 사이클(마지막 열린)은 Ignore. thr ≤ 0(표본 부족)이면 판정 불가 → 상위에서 산출 게이트.
+    /// idleMultiplier 는 사용자 설정 비가동 배수(2026-07-13, 기본 2.5× — 이 함수의 기본 인자는 종전 호환 1.0).
+    /// 경계 아래의 느린 사이클은 정상(Σ실측CT 편입 → 성능 P 가 속도 손실로 흡수). 성능 표준치는 여전히 1×thr.
     /// IsIdle(아웃라이어 캡)과는 무관 — IsIdle 은 CT이상치 산출 시만 제외(§3.2).
     /// </summary>
-    public static CycleClass ClassifyCycle(int? mt, int? ct, double ctThresholdMs)
+    public static CycleClass ClassifyCycle(int? mt, int? ct, double ctThresholdMs, double idleMultiplier = 1.0)
     {
         if (ct is not int c || c <= 0) return CycleClass.Ignore;
         if (ctThresholdMs <= 0) return CycleClass.Normal;
+        var boundary = ctThresholdMs * Math.Max(idleMultiplier, 1.0);
         if (mt is int m)
-            return m > ctThresholdMs ? CycleClass.Downtime : CycleClass.Normal;   // ①
-        return c > ctThresholdMs ? CycleClass.Downtime : CycleClass.Normal;        // ② complete=null
+            return m > boundary ? CycleClass.Downtime : CycleClass.Normal;   // ①
+        return c > boundary ? CycleClass.Downtime : CycleClass.Normal;        // ② complete=null
     }
 
     /// <summary>
@@ -270,12 +288,12 @@ public static class OeeMath
 
     /// <summary>
     /// MTBF (doc/22 §5 / P5 §④) = 연속 비가동 onset 간격 평균. onset 은 오름차순 ms.
-    /// doc/21 의 Σruntime/고장건수 를 대체. 0건이면 무고장 배지, 1건이면 간격 없음(산출 불가).
+    /// doc/21 의 Σruntime/고장건수 를 대체. 0건이면 고장없음 배지, 1건이면 간격 없음(산출 불가).
     /// </summary>
     public static (double? Mtbf, string? Note, bool NoFault) ComputeMtbf2(IReadOnlyList<double> onsetsAscMs)
     {
         if (onsetsAscMs is null || onsetsAscMs.Count == 0)
-            return (null, "비가동(고장) 0건 — MTBF 산출 불가(무고장).", true);
+            return (null, "비가동(고장) 0건 — MTBF 산출 불가(고장없음).", true);
         if (onsetsAscMs.Count < 2)
             return (null, "비가동 1건 — 연속 onset 간격 없음(MTBF 산출 불가).", false);
 

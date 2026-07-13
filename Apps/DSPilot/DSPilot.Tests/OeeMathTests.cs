@@ -133,15 +133,15 @@ public class OeeMathTests
         Assert.Contains(missingLabel, note);
     }
 
-    // ── MTBF / 무고장 배지 (가짜 max(n,1) 금지) ────────────────────────────
+    // ── MTBF / 고장없음 배지 (가짜 max(n,1) 금지) ────────────────────────────
 
     [Fact]
     public void Mtbf_zero_failures_is_null_and_nofault()
     {
         var (mtbf, note, noFault) = OeeMath.ComputeMtbf(3_600_000, 0);
         Assert.Null(mtbf);          // 가짜 수치 금지
-        Assert.True(noFault);       // UI 무고장 배지
-        Assert.Contains("무고장", note);
+        Assert.True(noFault);       // UI 고장없음 배지
+        Assert.Contains("고장없음", note);
     }
 
     [Fact]
@@ -381,6 +381,53 @@ public class OeeMathTests
         Assert.Equal(OeeMath.CycleClass.Normal, OeeMath.ClassifyCycle(mt: 999999, ct: 999999, ctThresholdMs: 0));
     }
 
+    // ── 비가동 판정 배수 (2026-07-13 사용자 설정화) — 경계 = thr × idleMultiplier ──
+
+    [Theory]
+    [InlineData(45000, 50000, OeeMath.CycleClass.Normal)]    // MT 45s > 1×thr 지만 ≤ 2.5×thr(75s) → 정상(속도 손실 → P)
+    [InlineData(75000, 80000, OeeMath.CycleClass.Normal)]    // 정확히 2.5×thr → 아직 정상(초과 조건)
+    [InlineData(75001, 80000, OeeMath.CycleClass.Downtime)]  // 2.5×thr 초과 → 비가동
+    [InlineData(null, 75001, OeeMath.CycleClass.Downtime)]   // ② 미완료 CT 도 동일 경계
+    public void ClassifyCycle_idle_multiplier_moves_boundary(int? mt, int? ct, OeeMath.CycleClass expected)
+        => Assert.Equal(expected, OeeMath.ClassifyCycle(mt, ct, ctThresholdMs: 30000, idleMultiplier: 2.5));
+
+    [Fact]
+    public void ClassifyCycle_idle_multiplier_below_one_clamps_to_one()
+        // 배수 < 1 은 1로 클램프(정상 사이클을 비가동으로 삼키는 역방향 금지).
+        => Assert.Equal(OeeMath.CycleClass.Normal, OeeMath.ClassifyCycle(mt: 29000, ct: 30000, ctThresholdMs: 30000, idleMultiplier: 0.5));
+
+    // ── 비생산 승격 배수 (2026-07-13 사용자 설정화) — IsLongStopNonProduction/ClassifyGap 파라미터 ──
+
+    [Theory]
+    [InlineData(149_999, 15.0, false)]  // 15×thr 미만 → 다운타임 유지
+    [InlineData(150_000, 15.0, true)]   // 정확히 15×thr → 비생산
+    [InlineData(100_000, 15.0, false)]  // 기본 10× 였다면 비생산이었을 길이 — 배수 상향으로 다운타임 유지
+    public void IsLongStopNonProduction_honors_custom_multiplier(double durMs, double mult, bool expected)
+        => Assert.Equal(expected, OeeMath.IsLongStopNonProduction(durMs, ctThresholdMs: 10_000, multiplier: mult));
+
+    [Fact]
+    public void ClassifyGap_honors_custom_nonprod_multiplier()
+    {
+        // gap'=2000, thr=10000, 비생산 배수 5× → 경계 50s (기본 10×의 절반)
+        Assert.Equal(OeeMath.GapClass.Downtime, OeeMath.ClassifyGap(49_999, 2000, 10_000, nonProdMultiplier: 5));
+        Assert.Equal(OeeMath.GapClass.NonProduction, OeeMath.ClassifyGap(50_000, 2000, 10_000, nonProdMultiplier: 5));
+    }
+
+    [Fact]
+    public void ResolveCtMultipliers_defaults_clamps_and_inversion_defense()
+    {
+        var s = new DSPilot.Models.OeeManualSettings();
+        Assert.Equal((OeeMath.IdleCtMultiplierDefault, OeeMath.NonProductionCtMultiplier), s.ResolveCtMultipliers());
+
+        // 역전(손편집/구버전 JSON) — 비가동 ≥ 비생산이면 비가동을 비생산/2 로 방어(승격 경로 사망 방지)
+        s.IdleCtMultiplier = 12; s.NonProdCtMultiplier = 10;
+        Assert.Equal((5.0, 10.0), s.ResolveCtMultipliers());
+
+        // NaN → 기본값 폴백, 범위 밖 → 클램프
+        s.IdleCtMultiplier = double.NaN; s.NonProdCtMultiplier = 1000;
+        Assert.Equal((OeeMath.IdleCtMultiplierDefault, DSPilot.Models.OeeManualSettings.NonProdMultMax), s.ResolveCtMultipliers());
+    }
+
     // ── P5 §⑥ 검산 (STN3): CT이상치=30s, N=90, Σ실측CT=2970s, Σ비가동CT=1200s ──
 
     [Fact]
@@ -489,7 +536,7 @@ public class OeeMathTests
         var (mtbf, note, noFault) = OeeMath.ComputeMtbf2(new List<double>());
         Assert.Null(mtbf);
         Assert.True(noFault);
-        Assert.Contains("무고장", note);
+        Assert.Contains("고장없음", note);
     }
 
     [Fact]
@@ -497,7 +544,7 @@ public class OeeMathTests
     {
         var (mtbf, _, noFault) = OeeMath.ComputeMtbf2(new List<double> { 1000 });
         Assert.Null(mtbf);
-        Assert.False(noFault); // 고장은 있으나 간격 없음 (무고장 아님)
+        Assert.False(noFault); // 고장은 있으나 간격 없음 (고장없음 아님)
     }
 
     [Fact]

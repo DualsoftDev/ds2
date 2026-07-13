@@ -113,6 +113,43 @@ public class OeeManualSettings
     /// <summary>자동 비생산 패턴 캐시 (자동 모드 전환 또는 24h 만료 시 갱신). null = 아직 미계산.</summary>
     public PlannedAutoPatternCache? AutoPatternCache { get; set; }
 
+    /// <summary>
+    /// 비가동(정지) 판정 배수 (2026-07-13 사용자 설정화, doc/22 §3 ①②). 사이클 MT(또는 미완료 CT)가
+    /// <b>14일 평균 CT × 이 배수</b>를 초과하면 비가동으로 판정한다 — 경계 아래의 느린 사이클은 정상(Σ실측CT 편입,
+    /// 속도 손실은 성능 P 가 흡수). 성능 P 의 표준치·MTBF onset 시각은 여전히 1×평균(판정 경계만 배수 적용).
+    /// 유효범위 <see cref="IdleMultMin"/>~<see cref="IdleMultMax"/>, 반드시 <see cref="NonProdCtMultiplier"/> 미만
+    /// (역전 시 비가동 밴드 소멸 → <see cref="ResolveCtMultipliers"/> 가 방어 보정). 설비효율 현황에서 조절.
+    /// </summary>
+    public double IdleCtMultiplier { get; set; } = Services.OeeMath.IdleCtMultiplierDefault;
+
+    /// <summary>
+    /// 비생산 승격 배수 (2026-07-13 사용자 설정화, doc/22 §3.3). "변화 없음" 정지(무사이클 갭·미완료 멈춤)가
+    /// <b>14일 평균 CT × 이 배수</b> 이상이면 비생산(생산가능시간 밖, A 분모 제외)으로 승격한다.
+    /// 낮출수록 정지가 분모 밖으로 빠져 가용성이 후해지므로 주의 — 수동 확정(비생산↔비가동 보내기)은 배수와
+    /// 무관하게 항상 우선. 유효범위 <see cref="NonProdMultMin"/>~<see cref="NonProdMultMax"/>.
+    /// </summary>
+    public double NonProdCtMultiplier { get; set; } = Services.OeeMath.NonProductionCtMultiplier;
+
+    public const double IdleMultMin = 1.0, IdleMultMax = 20.0;
+    public const double NonProdMultMin = 2.0, NonProdMultMax = 100.0;
+
+    /// <summary>
+    /// 저장값을 안전 범위로 정규화해 (비가동 배수, 비생산 배수)로 반환 — 집계·학습기·표시의 단일 소스.
+    /// 손편집/구버전 JSON 으로 역전(비가동 ≥ 비생산)됐으면 비가동을 비생산의 절반(≥1)으로 방어 보정한다
+    /// (역전 시 dtCond 가 비생산 후보를 정상으로 삼켜 승격이 통째로 죽는 것을 방지). API 는 저장 전 검증으로 역전을 거부.
+    /// </summary>
+    public (double IdleMult, double NonProdMult) ResolveCtMultipliers()
+    {
+        var nonProd = double.IsFinite(NonProdCtMultiplier)
+            ? Math.Clamp(NonProdCtMultiplier, NonProdMultMin, NonProdMultMax)
+            : Services.OeeMath.NonProductionCtMultiplier;
+        var idle = double.IsFinite(IdleCtMultiplier)
+            ? Math.Clamp(IdleCtMultiplier, IdleMultMin, IdleMultMax)
+            : Services.OeeMath.IdleCtMultiplierDefault;
+        if (idle >= nonProd) idle = Math.Max(IdleMultMin, nonProd / 2);
+        return (idle, nonProd);
+    }
+
     // (구 ExcludedWeekdays[휴무 요일]는 2026-07-08 당일 비생산 판정 모델로 대체·삭제 — 쉬는 날은 사이클이 없어
     //  10×CT 장시간 정지 규칙이 자동으로 비생산 처리한다. 기존 Production.json 의 키는 ExtensionData 로 무해 보존.)
 
