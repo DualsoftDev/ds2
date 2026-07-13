@@ -11,7 +11,11 @@
       서버/코어/모델은 C#(/api/heatmap/*), 뷰는 순수 HTML/CSS/JS(Alpine + Chart.js).
       디자인 시스템: /css/ds.css (swiss.css @import + mockup 팔레트). 공통 클래스(ds-topbar/ds-legend/ds-card-h)는 ds.css, 페이지 고유 클래스(hm-*)만 인라인.
       viz 클래스(flow-dashboard-*, heatmap-*)와 heatmap-indeterminate keyframe 은 swiss.css 에 정의됨 → 참조만.
-      편차 기준: 시스템에 표준(takt) 시간이 없으므로 "변동계수(CV)=표준편차/평균" 및 "평균 대비 편차"만 사용(거짓 라벨 금지).
+      편차 기준: 시스템에 표준(takt) 시간이 없으므로 실측 기반만 사용(거짓 라벨 금지).
+        주 지표 = 로버스트 CV(1.4826×MAD/중앙값, 서버 CallRobustStats) — 사람 개입·대기 표본이 섞인 이봉 분포에서
+        평균/σ 기반 CV 가 수백%로 부풀던 오독(2026-07 200~350% 상시 빨강)을 해소. 평균/σ/CV 는 참고 표기로 유지.
+        색(tier) = 절대 크기가 아니라 "최근(마지막 200회)이 평소(전체 이력) 대비 악화됐는가" — tierOf() 참조.
+        서버 robust 미산출(부팅 직후 첫 TTL 스캔 전) 시 구 CV 절대 임계로 자동 폴백.
     -->
     <link href="/css/fonts.css" rel="stylesheet" />
     <link href="/css/ds.css" rel="stylesheet" />
@@ -36,8 +40,13 @@
         .hm-kpi-sub { font-size: 0.66rem; color: var(--color-text-secondary); margin-top: 3px; font-weight: 600; }
 
         /* ── 범례 행 (ds-legend 기반, swiss heatmap 스와치 재사용) ── */
-        .hm-legend-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+        .hm-legend-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 14px; }
         .hm-legend-bar .heatmap-legend-item { margin: 0; }
+        .hm-legend-bar .lg-item { display: inline-flex; align-items: center; gap: 6px; font-size: 0.74rem; font-weight: 600; color: var(--color-text-secondary); cursor: help; }
+        /* ds.css 의 .lg-swatch 크기는 .ds-legend 스코프에만 정의 → 이 컨테이너에서도 보이도록 재정의 */
+        .hm-legend-bar .lg-swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; flex-shrink: 0; }
+        .hm-lg-label { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-disabled); }
+        .hm-lg-divider { width: 1px; height: 16px; background: var(--color-lines-strong); margin: 0 2px; }
 
         /* 보기 전환 세그먼트는 상단 .ds-topbar 로 이동(swiss.css 공용 .segmented 룩 사용) */
 
@@ -63,8 +72,10 @@
         /* 선택 카드: 청록 강조 테두리 (mockup ③ cb-selected) */
         .hm-block.is-active { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.22); transform: scale(1.035); }
 
-        /* 3단계 진단 배경/테두리 — CV(σ/평균) 구간 파생. ds.css 토큰만 사용 */
+        /* 4단계 진단 배경/테두리 — 색 = "평소 대비 악화" 여부(로버스트 CV 기준). ds.css 토큰만 사용.
+           steady = "변동 공정": 편차는 크지만 평소 수준(사람 개입 등 공정 특성) → 정보색(파랑), 경보 아님. */
         .hm-block.tier-normal  { background: rgba(var(--color-success-rgb), 0.14); border-color: rgba(var(--color-success-rgb), 0.45); }
+        .hm-block.tier-steady  { background: rgba(var(--color-primary-rgb), 0.10); border-color: rgba(var(--color-primary-rgb), 0.40); }
         .hm-block.tier-caution { background: rgba(var(--color-warning-rgb), 0.16); border-color: rgba(var(--color-warning-rgb), 0.55); }
         .hm-block.tier-danger  { background: rgba(var(--color-error-rgb), 0.16); border-color: rgba(var(--color-error-rgb), 0.55); }
 
@@ -77,11 +88,19 @@
         .hm-block .hm-b-avg .hm-b-unit { font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-disabled); }
         .hm-block .hm-b-dev { display: inline-flex; align-items: center; align-self: flex-start; padding: 2px 8px; border-radius: var(--radius-lg); font-size: 0.66rem; font-weight: 800; font-variant-numeric: tabular-nums; }
         .hm-block .hm-b-dev.tone-normal  { background: rgba(var(--color-success-rgb), 0.22); color: #1B7A50; }
+        .hm-block .hm-b-dev.tone-steady  { background: rgba(var(--color-primary-rgb), 0.16); color: #0B5E97; }
         .hm-block .hm-b-dev.tone-caution { background: rgba(var(--color-warning-rgb), 0.30); color: #8A5E00; }
         .hm-block .hm-b-dev.tone-danger  { background: rgba(var(--color-error-rgb), 0.22); color: #B0271D; }
         .dark-theme .hm-block .hm-b-dev.tone-normal  { color: #4FD19A; }
+        .dark-theme .hm-block .hm-b-dev.tone-steady  { color: #7CC4F5; }
         .dark-theme .hm-block .hm-b-dev.tone-caution { color: #E6B748; }
         .dark-theme .hm-block .hm-b-dev.tone-danger  { color: #F0705F; }
+
+        /* 정상범위(P10~P90) 서브라인 + 지연 뱃지 — 지연은 정보 표시(경보색 금지, 대기·개입 추정 건수) */
+        .hm-block .hm-b-range { font-size: 0.64rem; font-weight: 600; color: var(--color-text-secondary); font-variant-numeric: tabular-nums; }
+        .hm-block .hm-b-foot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+        .hm-delay-badge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px; border-radius: var(--radius-lg); font-size: 0.64rem; font-weight: 700; font-variant-numeric: tabular-nums; background: var(--color-surface-variant); border: 1px solid var(--color-lines); color: var(--color-text-secondary); cursor: help; }
+        .hm-delay-badge .material-icons { font-size: 12px; }
 
         /* ── 공유 tier 색(범례 3색) — 단일 소스 ──
            매트릭스 뱃지(.hm-b-dev.tone-*)와 동일 값. 테이블 색상 셀(.heatmap-cell-compact/-mini)이
@@ -89,9 +108,11 @@
            swiss.css 기본 .heatmap-cell-*는 color:#fff + 배경 없음이라, 본 인라인 규칙(ds.css 링크 뒤)이
            동일 명시도에서 소스 순서로 우선 적용됨. */
         .hm-tier-bg-normal  { background: rgba(var(--color-success-rgb), 0.22); color: #1B7A50; }
+        .hm-tier-bg-steady  { background: rgba(var(--color-primary-rgb), 0.16); color: #0B5E97; }
         .hm-tier-bg-caution { background: rgba(var(--color-warning-rgb), 0.30); color: #8A5E00; }
         .hm-tier-bg-danger  { background: rgba(var(--color-error-rgb), 0.22); color: #B0271D; }
         .dark-theme .hm-tier-bg-normal  { color: #4FD19A; }
+        .dark-theme .hm-tier-bg-steady  { color: #7CC4F5; }
         .dark-theme .hm-tier-bg-caution { color: #E6B748; }
         .dark-theme .hm-tier-bg-danger  { color: #F0705F; }
 
@@ -248,24 +269,24 @@
 
             <template x-if="!loading && filteredGroups.length > 0">
                 <div>
-                    <!-- 3단계 진단 범례 (변동계수 CV = σ/평균 · 평균 대비 편차 기반 — 표준(takt) 시간 미사용) -->
-                    <div class="card mb-4" style="padding:14px 16px;">
-                        <div class="ds-card-h">
-                            <h4>색상 범례 — 편차(평균 대비) 3단계 진단</h4>
-                            <span class="ds-card-h-sub">
-                                CV = 표준편차 / 평균 · 값이 클수록 평균 대비 편차가 큼
-                                <template x-if="totalGoingCount > 0">
-                                    <span style="color:var(--color-text-disabled); font-weight:700; margin-left:8px;"
-                                          x-text="'N = 총 실행 ' + totalGoingCount.toLocaleString() + '회 분석'"></span>
-                                </template>
-                            </span>
-                        </div>
-                        <div class="ds-legend" style="margin-top:4px;">
-                            <div class="lg-item"><span class="lg-swatch" style="background:rgba(var(--color-success-rgb),0.30); border:1px solid rgba(var(--color-success-rgb),0.6);"></span> <span x-text="'정상 (편차 ±' + cautionPct + '% 미만)'"></span></div>
-                            <div class="lg-item"><span class="lg-swatch" style="background:rgba(var(--color-warning-rgb),0.40); border:1px solid rgba(var(--color-warning-rgb),0.7);"></span> <span x-text="'주의 (±' + cautionPct + '~' + dangerPct + '%)'"></span></div>
-                            <div class="lg-item"><span class="lg-swatch" style="background:rgba(var(--color-error-rgb),0.30); border:1px solid rgba(var(--color-error-rgb),0.6);"></span> <span x-text="'위험 (±' + dangerPct + '% 초과)'"></span></div>
+                    <!-- 범례 — 이상 진단(4색) / 편차 표기 두 그룹만. 정의·기준은 툴팁(title)으로. -->
+                    <div class="card mb-4" style="padding:12px 16px;">
+                        <div class="hm-legend-bar">
+                            <span class="hm-lg-label">이상 진단</span>
+                            <div class="lg-item" :title="'최근 편차 ±' + cautionPct + '% 미만'"><span class="lg-swatch" style="background:rgba(var(--color-success-rgb),0.30); border:1px solid rgba(var(--color-success-rgb),0.6);"></span> 안정</div>
+                            <div class="lg-item" title="편차는 크지만 평소 수준 — 공정 특성"><span class="lg-swatch" style="background:rgba(var(--color-primary-rgb),0.22); border:1px solid rgba(var(--color-primary-rgb),0.5);"></span> 변동 공정</div>
+                            <div class="lg-item" title="평소 대비 1.3배 이상 악화"><span class="lg-swatch" style="background:rgba(var(--color-warning-rgb),0.40); border:1px solid rgba(var(--color-warning-rgb),0.7);"></span> 주의</div>
+                            <div class="lg-item" :title="'악화 + 최근 편차 ±' + dangerPct + '% 이상'"><span class="lg-swatch" style="background:rgba(var(--color-error-rgb),0.30); border:1px solid rgba(var(--color-error-rgb),0.6);"></span> 위험</div>
                             <template x-if="dangerCalls > 0">
-                                <span class="ds-status bad" style="margin-left:6px;" x-text="'위험 ' + dangerCalls + ' Call'"></span>
+                                <span class="ds-status bad" x-text="'위험 ' + dangerCalls + ' Call'"></span>
+                            </template>
+                            <span class="hm-lg-divider"></span>
+                            <span class="hm-lg-label">편차 표기</span>
+                            <div class="lg-item" title="중앙값 대비 로버스트 편차 — 대기·개입 표본 영향 최소화"><span class="hm-b-dev tone-normal" style="align-self:center;">±%</span> 편차</div>
+                            <div class="lg-item" title="정상(중앙값)의 3배 초과 실행 수 — 대기·개입 추정"><span class="hm-delay-badge"><span class="material-icons">hourglass_empty</span>n</span> 지연</div>
+                            <template x-if="totalGoingCount > 0">
+                                <span style="margin-left:auto; color:var(--color-text-disabled); font-weight:700; font-size:0.66rem;"
+                                      x-text="'N = ' + totalGoingCount.toLocaleString() + '회'"></span>
                             </template>
                         </div>
                     </div>
@@ -286,7 +307,7 @@
                                             <span class="chip chip-info" x-text="group.callCount + ' Calls'"></span>
                                             <span class="ds-status bad" x-show="flowDangerCount(group) > 0" x-text="'위험 ' + flowDangerCount(group)"></span>
                                         </div>
-                                        <span class="hm-fb-sub">평균 실행시간 · 편차%(평균 대비) · 클릭으로 상세</span>
+                                        <span class="hm-fb-sub">대표 실행시간(중앙값) · 정상범위 · 편차% · 지연 — 클릭으로 상세</span>
                                     </div>
 
                                     <div class="hm-block-grid">
@@ -299,13 +320,19 @@
                                                  @keydown.space.prevent="selectCall(call)">
                                                 <div class="hm-b-name">
                                                     <span x-text="call.callName"></span>
-                                                    <span class="hm-b-warn material-icons" style="font-size:14px;" x-show="blockTier(call) === 'danger'" :title="'위험 — 평균 대비 편차 ' + dangerPct + '% 초과'">warning</span>
+                                                    <span class="hm-b-warn material-icons" style="font-size:14px;" x-show="blockTier(call) === 'danger'" title="위험 — 최근 편차가 평소 대비 악화됨">warning</span>
                                                 </div>
                                                 <div class="hm-b-avg">
-                                                    <span class="hm-b-val" x-text="fmtShortAvg(call.averageGoingTime)"></span>
-                                                    <span class="hm-b-unit">avg</span>
+                                                    <span class="hm-b-val" x-text="fmtShortAvg(callMedianVal(call))"></span>
+                                                    <span class="hm-b-unit" x-text="call.medianGoingTime != null ? '중앙값' : 'avg'"></span>
                                                 </div>
-                                                <span :class="'hm-b-dev tone-' + blockTier(call)" x-text="'±' + deviationPct(call) + '%'"></span>
+                                                <span class="hm-b-range" x-show="call.p10GoingTime != null" x-text="'보통 ' + rangeText(call)"></span>
+                                                <div class="hm-b-foot">
+                                                    <span :class="'hm-b-dev tone-' + blockTier(call)" x-text="devBadgeText(call)"></span>
+                                                    <span class="hm-delay-badge" x-show="(call.delayCount || 0) > 0" :title="delayTooltip(call)">
+                                                        <span class="material-icons">hourglass_empty</span><span x-text="'지연 ' + call.delayCount"></span>
+                                                    </span>
+                                                </div>
                                             </div>
                                         </template>
                                     </div>
@@ -325,30 +352,33 @@
                                             <span class="chip chip-error" x-show="flowDangerCount(group) > 0" x-text="'위험 ' + flowDangerCount(group)"></span>
                                         </div>
                                         <div class="d-flex" style="align-items:center; gap:4px;">
-                                            <div :class="'heatmap-cell-mini hm-tier-bg-' + flowTier(group)" :title="'평균: ' + formatMs(group.flowAverageTime)">Avg</div>
-                                            <div :class="'heatmap-cell-mini hm-tier-bg-' + flowTier(group)" :title="'표준편차: ' + formatMs(group.flowAverageStdDev)">SD</div>
-                                            <div :class="'heatmap-cell-mini hm-tier-bg-' + flowTier(group)" :title="'변동계수: ' + group.flowAverageCV.toFixed(2)">CV</div>
+                                            <span :class="'ds-status ' + tierStatusClass(flowTier(group))"
+                                                  title="Flow 대표 상태 = 소속 Call 중 가장 나쁜 등급"
+                                                  x-text="tierLabel(flowTier(group))"></span>
                                         </div>
                                     </div>
 
                                     <div class="table-container" x-show="group.isExpanded" style="overflow:auto;">
                                         <table class="table table-hover heatmap-matrix-table" style="table-layout:fixed; width:100%;">
                                             <colgroup>
-                                                <col style="width:22%;" /><col style="width:14%;" /><col style="width:12%;" />
-                                                <col style="width:12%;" /><col style="width:12%;" /><col style="width:10%;" />
+                                                <col style="width:21%;" /><col style="width:13%;" /><col style="width:12%;" />
+                                                <col style="width:18%;" /><col style="width:12%;" /><col style="width:10%;" /><col style="width:14%;" />
                                             </colgroup>
                                             <thead class="table-head-sticky">
                                                 <tr>
                                                     <th class="sortable" @click="sortBy('callName')">Call <span x-html="sortIcon('callName')"></span></th>
                                                     <th class="sortable" @click="sortBy('workName')">Work <span x-html="sortIcon('workName')"></span></th>
-                                                    <th class="sortable heatmap-col-header" @click="sortBy('avg')">
-                                                        <span :title="'Call의 평균 실행 시간 (' + unitName + '). 낮을수록 빠릅니다.'" class="hm-help">평균 <span x-html="sortIcon('avg')"></span></span>
+                                                    <th class="sortable heatmap-col-header" @click="sortBy('median')">
+                                                        <span :title="'실행시간 중앙값 (' + unitName + ') — 대기·개입 표본에 끌려가지 않는 대표값'" class="hm-help">대표시간 <span x-html="sortIcon('median')"></span></span>
                                                     </th>
-                                                    <th class="sortable heatmap-col-header" @click="sortBy('stddev')">
-                                                        <span :title="'실행 시간의 표준편차 (' + unitName + '). 낮을수록 안정적입니다.'" class="hm-help">표준편차 <span x-html="sortIcon('stddev')"></span></span>
+                                                    <th class="heatmap-col-header">
+                                                        <span title="P10 ~ P90 — 실행의 80%가 이 범위 안에 들어옵니다" class="hm-help">정상범위</span>
                                                     </th>
                                                     <th class="sortable heatmap-col-header" @click="sortBy('cv')">
-                                                        <span :title="'변동계수 (CV) = 표준편차/평균. ' + cautionCv.toFixed(2) + ' 미만: 안정, ' + dangerCv.toFixed(2) + ' 이상: 불안정'" class="hm-help">변동계수 <span x-html="sortIcon('cv')"></span></span>
+                                                        <span :title="'중앙값 대비 로버스트 편차(%). 대기·개입 표본의 영향 최소화. 색 = 평소 대비 악화 여부(' + cautionPct + '/' + dangerPct + '% 임계)'" class="hm-help">편차 <span x-html="sortIcon('cv')"></span></span>
+                                                    </th>
+                                                    <th class="sortable heatmap-col-header" @click="sortBy('delay')">
+                                                        <span title="정상(중앙값)의 3배를 초과한 실행 수 — 대기·사람 개입 추정 (편차와 분리 집계)" class="hm-help">지연 <span x-html="sortIcon('delay')"></span></span>
                                                     </th>
                                                     <th style="text-align:center;"><span title="Call이 Going 상태로 전환된 총 횟수" class="hm-help">실행횟수</span></th>
                                                 </tr>
@@ -360,13 +390,19 @@
                                                         <td class="heatmap-matrix-label" x-text="call.callName"></td>
                                                         <td class="heatmap-matrix-label" x-text="call.workName"></td>
                                                         <td style="text-align:center; padding:4px;">
-                                                            <div :class="'heatmap-cell-compact hm-tier-bg-' + blockTier(call)" x-text="fmtShortAvg(call.averageGoingTime)"></div>
+                                                            <div :class="'heatmap-cell-compact hm-tier-bg-' + blockTier(call)" x-text="fmtShortAvg(callMedianVal(call))"></div>
+                                                        </td>
+                                                        <td style="text-align:center;">
+                                                            <span class="typo-body2" style="font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-size:0.72rem;" x-text="rangeText(call)"></span>
                                                         </td>
                                                         <td style="text-align:center; padding:4px;">
-                                                            <div :class="'heatmap-cell-compact hm-tier-bg-' + blockTier(call)" x-text="fmtShortAvg(call.stdDevGoingTime)"></div>
+                                                            <div :class="'heatmap-cell-compact hm-tier-bg-' + blockTier(call)" x-text="devBadgeText(call)"></div>
                                                         </td>
-                                                        <td style="text-align:center; padding:4px;">
-                                                            <div :class="'heatmap-cell-compact hm-tier-bg-' + blockTier(call)" x-text="call.coefficientOfVariation.toFixed(2)"></div>
+                                                        <td style="text-align:center;">
+                                                            <span class="hm-delay-badge" x-show="(call.delayCount || 0) > 0" :title="delayTooltip(call)">
+                                                                <span class="material-icons">hourglass_empty</span><span x-text="call.delayCount"></span>
+                                                            </span>
+                                                            <span x-show="!(call.delayCount > 0)" style="color:var(--color-text-disabled);">—</span>
                                                         </td>
                                                         <td style="text-align:center;"><span class="typo-body2" style="font-family:var(--font-mono); font-variant-numeric:tabular-nums;" x-text="call.goingCount"></span></td>
                                                     </tr>
@@ -398,25 +434,36 @@
                                         <table class="hm-info-table">
                                             <tr><th>Call ID</th><td class="hm-info-mono" x-text="selectedCall.callId"></td></tr>
                                             <tr><th>Flow / Work</th><td x-text="selectedCall.flowName + ' / ' + (selectedCall.workName || '—')"></td></tr>
-                                            <tr><th>평균</th><td class="hm-info-mono hm-info-strong" x-text="formatMs(chartCount > 0 ? chartAvg : selectedCall.averageGoingTime)"></td></tr>
+                                            <tr><th>대표 시간 (중앙값)</th><td class="hm-info-mono hm-info-strong" x-text="detailStats ? formatMs(detailStats.med) : '—'"></td></tr>
+                                            <tr>
+                                                <th>정상범위 (P10~P90)</th>
+                                                <td class="hm-info-mono" x-text="detailStats ? (formatMs(detailStats.p10) + ' ~ ' + formatMs(detailStats.p90)) : '—'"></td>
+                                            </tr>
+                                            <tr>
+                                                <th>편차 (중앙값 대비)</th>
+                                                <td>
+                                                    <span class="hm-info-mono hm-info-strong" x-text="detailStats ? ('±' + deviationPctFromCv(detailStats.rcv) + '%') : '—'"></span>
+                                                    <span :class="'ds-status ' + tierStatusClass(blockTier(selectedCall))"
+                                                          style="margin-left:6px;" x-text="tierLabel(blockTier(selectedCall))"></span>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <th>지연 (중앙값×3 초과)</th>
+                                                <td class="hm-info-mono" x-text="detailStats ? (detailStats.delay + '회 (' + (detailStats.n > 0 ? (detailStats.delay * 100 / detailStats.n).toFixed(1) : '0.0') + '%)') : '—'"></td>
+                                            </tr>
                                             <tr>
                                                 <th>최소 / 최대</th>
                                                 <td class="hm-info-mono" x-text="displayedMin === null ? '—' : (formatMs(displayedMin) + ' / ' + formatMs(displayedMax))"></td>
                                             </tr>
                                             <tr>
-                                                <th>편차 (평균 대비)</th>
-                                                <td>
-                                                    <span class="hm-info-mono hm-info-strong" x-text="'±' + deviationPctFromCv(chartCount > 0 ? chartCV : selectedCall.coefficientOfVariation) + '%'"></span>
-                                                    <span :class="'ds-status ' + tierStatusClass(cvToTier(chartCount > 0 ? chartCV : selectedCall.coefficientOfVariation))"
-                                                          style="margin-left:6px;" x-text="tierLabel(cvToTier(chartCount > 0 ? chartCV : selectedCall.coefficientOfVariation))"></span>
-                                                </td>
+                                                <th>평균 / 표준편차 (참고)</th>
+                                                <td class="hm-info-mono" x-text="formatMs(chartCount > 0 ? chartAvg : selectedCall.averageGoingTime) + ' / ' + formatMs(chartCount > 0 ? chartStdDev : selectedCall.stdDevGoingTime)"></td>
                                             </tr>
-                                            <tr><th>변동계수 (CV=σ/평균)</th><td class="hm-info-mono" x-text="(chartCount > 0 ? chartCV : selectedCall.coefficientOfVariation).toFixed(2)"></td></tr>
-                                            <tr><th>표준편차 (σ)</th><td class="hm-info-mono" x-text="formatMs(chartCount > 0 ? chartStdDev : selectedCall.stdDevGoingTime)"></td></tr>
+                                            <tr><th>변동계수 CV (참고)</th><td class="hm-info-mono" x-text="(chartCount > 0 ? chartCV : selectedCall.coefficientOfVariation).toFixed(2)"></td></tr>
                                             <tr><th>N (실행횟수)</th><td class="hm-info-mono" x-text="(chartCount > 0 ? chartCount : selectedCall.goingCount).toLocaleString() + '회'"></td></tr>
                                         </table>
                                         <div class="typo-caption" style="color:var(--color-text-disabled); margin-top:8px;">
-                                            ※ 편차는 평균 대비(CV=σ/평균) 기준.
+                                            ※ 편차 = 중앙값 대비 로버스트 편차(1.4826×MAD/중앙값) — 대기·사람 개입 표본이 섞여도 동작 자체의 안정성만 측정합니다. 평균·σ·CV는 참고용.
                                         </div>
                                     </div>
 
@@ -447,7 +494,7 @@
                                             실행 이력이 없습니다.
                                         </div>
                                         <div class="typo-caption" style="color:var(--color-text-secondary); margin-top:6px;">
-                                            녹색 밴드 = 평균 ± 2σ · 빨간선 = 실행시간
+                                            녹색 밴드 = 중앙값 ± 2×로버스트σ (정상 동작 구간) · 빨간선 = 실행시간
                                         </div>
                                     </div>
                                 </div>
@@ -539,19 +586,26 @@
                         await this.loadConfig();
                         const groups = await this.apiGet('/api/heatmap/data') || [];
                         // 렌더 비용 선계산(1회): 행마다 blockTier / flowDangerCount 재계산 방지(O(n²) 렉 회피)
+                        const tierRank = { danger: 3, caution: 2, steady: 1, normal: 0 };
                         for (const g of groups) {
                             const calls = g.calls || [];
-                            for (const c of calls) { c._tier = this.cvToTier(c.coefficientOfVariation); c._dev = this.deviationPctFromCv(c.coefficientOfVariation); }
+                            for (const c of calls) {
+                                c._devVal = c.robustCv != null ? c.robustCv : c.coefficientOfVariation;
+                                c._dev = this.deviationPctFromCv(c._devVal);
+                                c._tier = this.tierOf(c);
+                            }
                             g._dangerCount = calls.reduce((n, c) => n + (c._tier === 'danger' ? 1 : 0), 0);
                             g._cautionCount = calls.reduce((n, c) => n + (c._tier === 'caution' ? 1 : 0), 0);
-                            g._blockCalls = calls.slice().sort((a, b) => (b.coefficientOfVariation - a.coefficientOfVariation) || (a.callName || '').localeCompare(b.callName || ''));
+                            g._avgDev = calls.length ? calls.reduce((s, c) => s + (c._devVal || 0), 0) / calls.length : 0;
+                            g._flowTier = calls.reduce((w, c) => tierRank[c._tier] > tierRank[w] ? c._tier : w, 'normal');
+                            g._blockCalls = calls.slice().sort((a, b) => (b._devVal - a._devVal) || (a.callName || '').localeCompare(b.callName || ''));
                             g.isExpanded = true; // 테이블 보기 기본 펼침
                         }
-                        // Flow 나열 순서: 상태가 나쁜 그룹이 위로 — 위험 Call 수 ▸ 주의 Call 수 ▸ 평균 CV ▸ 이름
+                        // Flow 나열 순서: 상태가 나쁜 그룹이 위로 — 위험 Call 수 ▸ 주의 Call 수 ▸ 평균 편차 ▸ 이름
                         groups.sort((a, b) =>
                             (b._dangerCount - a._dangerCount)
                             || (b._cautionCount - a._cautionCount)
-                            || ((b.flowAverageCV || 0) - (a.flowAverageCV || 0))
+                            || ((b._avgDev || 0) - (a._avgDev || 0))
                             || (a.flowName || '').localeCompare(b.flowName || ''));
                         this.allGroups = groups;
                         // 새로고침으로 데이터가 교체됐는데 열린 모달의 Call 이 더 이상 없으면 모달 정리(좀비 모달 방지)
@@ -581,39 +635,83 @@
                     return Math.floor(v / 3600000) + '시간 ' + Math.floor((v % 3600000) / 60000) + '분';
                 },
 
-                // ── 3단계 진단 등급 파생 (CV=σ/평균 구간 → normal/caution/danger) ──
-                // 서버 ColorClassCV 클래스에 의존하지 않고 클라에서 평균 대비 편차(CV)로만 파생. takt/표준 미사용.
-                cvToTier(cv) {
-                    if (cv < this.cautionCv) return 'normal';   // 편차 주의임계 미만
-                    if (cv < this.dangerCv) return 'caution';   // 편차 주의~위험
-                    return 'danger';                            // 편차 위험임계 이상
+                // ── 4단계 진단 등급 — 색 = "평소(전체 이력) 대비 최근이 악화됐는가" ──
+                // 편차의 절대 크기(공정 특성일 수 있음)와 이상 여부(조치 필요)를 분리:
+                //   normal  = 최근 편차 < 주의임계 (지금 안정)
+                //   steady  = 편차 ≥ 주의임계지만 평소 수준 (변동 공정 — 정보색, 경보 아님)
+                //   caution = 평소 대비 1.3배 이상 악화
+                //   danger  = 악화 + 최근 편차 ≥ 위험임계
+                // robust 통계 미산출(서버 부팅 직후 등) Call 은 기존 CV 절대 임계로 폴백.
+                tierOf(c) {
+                    if (c.robustCv == null) return this.cvToTier(c.coefficientOfVariation);
+                    const base = c.robustCv;
+                    const recent = c.recentRobustCv != null ? c.recentRobustCv : base;
+                    if (recent < this.cautionCv) return 'normal';
+                    if (recent >= base * 1.3) return recent >= this.dangerCv ? 'danger' : 'caution';
+                    return 'steady';
                 },
-                // 범례/KPI 텍스트용 임계(편차 %). cvToTier 와 동일 소스.
+                // (폴백 전용) CV 절대 임계 3단계 — robust 미산출 Call 에서만 사용.
+                cvToTier(cv) {
+                    if (cv < this.cautionCv) return 'normal';
+                    if (cv < this.dangerCv) return 'caution';
+                    return 'danger';
+                },
+                // 범례/KPI 텍스트용 임계(편차 %). tierOf/cvToTier 와 동일 소스.
                 get cautionPct() { return Math.round(this.cautionCv * 100); },
                 get dangerPct() { return Math.round(this.dangerCv * 100); },
-                blockTier(call) { return call._tier != null ? call._tier : this.cvToTier(call.coefficientOfVariation); },
+                blockTier(call) { return call._tier != null ? call._tier : this.tierOf(call); },
                 tierLabel(tier) {
-                    return { normal: '정상', caution: '주의', danger: '위험' }[tier] || '정상';
+                    return { normal: '안정', steady: '변동 공정', caution: '주의', danger: '위험' }[tier] || '안정';
                 },
                 tierStatusClass(tier) {
-                    return { normal: 'ok', caution: 'warn', danger: 'bad' }[tier] || 'info';
+                    return { normal: 'ok', steady: 'info', caution: 'warn', danger: 'bad' }[tier] || 'info';
                 },
-                // 편차%(평균 대비) = CV × 100 = (σ/평균)×100
-                deviationPct(call) { return call._dev != null ? call._dev : this.deviationPctFromCv(call.coefficientOfVariation); },
+                // 편차%(중앙값 대비 로버스트 — 폴백 시 평균 대비 CV) = CV × 100
+                deviationPct(call) { return call._dev != null ? call._dev : this.deviationPctFromCv(call.robustCv != null ? call.robustCv : call.coefficientOfVariation); },
+                // 편차 뱃지 텍스트 — 악화(주의/위험) tier 는 판정 근거인 "최근" 편차를 보여준다.
+                // (평소 편차 10%인데 빨강이면 "왜?"가 되므로 — 색과 숫자의 논리를 일치)
+                devBadgeText(call) {
+                    const tier = this.blockTier(call);
+                    if ((tier === 'caution' || tier === 'danger') && call.recentRobustCv != null)
+                        return '최근 ±' + this.deviationPctFromCv(call.recentRobustCv) + '%';
+                    return '±' + this.deviationPct(call) + '%';
+                },
                 deviationPctFromCv(cv) {
                     const v = Number(cv) * 100;
                     return v >= 100 ? Math.round(v) : v.toFixed(1);
                 },
-                // 블럭 그리드용 정렬: 편차(CV) 큰 순 → 진단 카드가 위험부터 보이도록
+                // 대표 시간 = 중앙값(로버스트 미산출 시 평균 폴백)
+                callMedianVal(c) { return c.medianGoingTime != null ? c.medianGoingTime : c.averageGoingTime; },
+                // 정상범위 P10~P90 표기
+                rangeText(c) {
+                    if (c.p10GoingTime == null || c.p90GoingTime == null) return '—';
+                    return this.fmtShortAvg(c.p10GoingTime) + ' ~ ' + this.fmtShortAvg(c.p90GoingTime);
+                },
+                delayTooltip(c) {
+                    const thr = c.medianGoingTime != null ? Math.max(3 * c.medianGoingTime, 2000) : null;
+                    return '지연 ' + (c.delayCount || 0) + '회 — 정상(중앙값)의 3배'
+                        + (thr ? ' (>' + this.fmtShortAvg(thr) + ')' : '') + ' 초과 실행.\n대기·사람 개입으로 추정되는 표본으로, 편차 계산과 분리해 집계합니다.';
+                },
+                // 선형 보간 백분위수(sorted 오름차순 전제) — 상세 패널 robust 재계산용(서버 정의와 동일)
+                pctl(sorted, p) {
+                    if (!sorted.length) return 0;
+                    const rank = (p / 100) * (sorted.length - 1);
+                    const lo = Math.floor(rank), hi = Math.ceil(rank);
+                    return lo === hi ? sorted[lo] : sorted[lo] + (sorted[hi] - sorted[lo]) * (rank - lo);
+                },
+                // 블럭 그리드용 정렬: 편차 큰 순 → 진단 카드가 위험부터 보이도록
                 blockCalls(group) {
                     return group._blockCalls || group.calls.slice().sort((a, b) =>
-                        (b.coefficientOfVariation - a.coefficientOfVariation)
+                        ((b.robustCv != null ? b.robustCv : b.coefficientOfVariation) - (a.robustCv != null ? a.robustCv : a.coefficientOfVariation))
                         || (a.callName || '').localeCompare(b.callName || ''));
                 },
                 flowDangerCount(group) { return group._dangerCount != null ? group._dangerCount : group.calls.filter(c => this.blockTier(c) === 'danger').length; },
-                // Flow 대표 tier: 서버 flowColorClassCV(데이터셋 상대값) 대신 cvToTier(평균CV) 절대기준 사용 → Call/범례/매트릭스와 동일 모델.
-                // (flowAverageCV = 서버의 Call별 CV 평균값. flowDangerCount 가 Call tier 를 집계하는 방식과 일관)
-                flowTier(group) { return this.cvToTier(group.flowAverageCV != null ? group.flowAverageCV : 0); },
+                // Flow 대표 tier = 소속 Call 중 가장 나쁜 등급(danger > caution > steady > normal) — 헤더 상태 칩용.
+                flowTier(group) {
+                    if (group._flowTier != null) return group._flowTier;
+                    const rank = { danger: 3, caution: 2, steady: 1, normal: 0 };
+                    return (group.calls || []).reduce((w, c) => rank[this.blockTier(c)] > rank[w] ? this.blockTier(c) : w, 'normal');
+                },
                 // 선택된 Call 이 이 그룹 소속인지 — 상세 패널을 "소속 그룹의 매트릭스/테이블 바로 아래"에 렌더하는 데 사용
                 groupHasSelected(group) {
                     return this.selectedCall && (group.calls || []).some(c => c.callId === this.selectedCall.callId);
@@ -630,8 +728,10 @@
                     if (f === 'callName') calls.sort((a, b) => asc ? cmp(a.callName, b.callName) : cmp(b.callName, a.callName));
                     else if (f === 'workName') calls.sort((a, b) => asc ? cmp(a.workName, b.workName) : cmp(b.workName, a.workName));
                     else {
-                        const k = f === 'avg' ? 'averageGoingTime' : f === 'stddev' ? 'stdDevGoingTime' : 'coefficientOfVariation';
-                        calls.sort((a, b) => asc ? a[k] - b[k] : b[k] - a[k]);
+                        const val = f === 'median' ? (c => this.callMedianVal(c))
+                            : f === 'delay' ? (c => c.delayCount || 0)
+                            : (c => c._devVal != null ? c._devVal : (c.robustCv != null ? c.robustCv : c.coefficientOfVariation)); // 'cv' = 편차
+                        calls.sort((a, b) => asc ? val(a) - val(b) : val(b) - val(a));
                     }
                     return calls;
                 },
@@ -647,11 +747,20 @@
 
                 callTooltip(call) {
                     const tier = this.blockTier(call);
-                    return `[${call.callName}]\nFlow: ${call.flowName}\nWork: ${call.workName || '—'}\n`
-                        + `평균: ${this.formatMs(call.averageGoingTime)}\n표준편차(σ): ${this.formatMs(call.stdDevGoingTime)}\n`
-                        + `편차(평균 대비): ±${this.deviationPct(call)}%  [${this.tierLabel(tier)}]\n`
-                        + `변동계수(CV=σ/평균): ${call.coefficientOfVariation.toFixed(2)}\n`
-                        + `실행횟수(N): ${call.goingCount}회\n클릭 → 추이·상세 펼침`;
+                    let s = `[${call.callName}]\nFlow: ${call.flowName}\nWork: ${call.workName || '—'}\n`;
+                    if (call.robustCv != null) {
+                        s += `대표 시간(중앙값): ${this.formatMs(call.medianGoingTime)}\n`
+                            + `정상범위(P10~P90): ${this.rangeText(call)}\n`
+                            + `편차(전체 이력): ±${this.deviationPct(call)}%\n`
+                            + (call.recentRobustCv != null ? `편차(최근 ~200회): ±${this.deviationPctFromCv(call.recentRobustCv)}%\n` : '')
+                            + `진단: ${this.tierLabel(tier)} — 색은 최근이 평소 대비 악화됐는지 기준\n`
+                            + `지연(중앙값×3 초과): ${call.delayCount || 0}회\n`
+                            + `평균 / σ (참고): ${this.formatMs(call.averageGoingTime)} / ${this.formatMs(call.stdDevGoingTime)}\n`;
+                    } else {
+                        s += `평균: ${this.formatMs(call.averageGoingTime)}\n표준편차(σ): ${this.formatMs(call.stdDevGoingTime)}\n`
+                            + `편차(평균 대비): ±${this.deviationPct(call)}%  [${this.tierLabel(tier)}]\n`;
+                    }
+                    return s + `실행횟수(N): ${call.goingCount}회\n클릭 → 추이·상세 펼침`;
                 },
 
                 // ── 차트/통계 (이상치 제외 반영) ──
@@ -671,6 +780,30 @@
                 get chartStdDev() { const d = this.displayedHistory; if (!d.length) return 0; const a = this.chartAvg; return Math.sqrt(d.reduce((s, r) => s + Math.pow(r.goingTimeMs - a, 2), 0) / d.length); },
                 get chartCV() { return this.chartAvg > 0 ? this.chartStdDev / this.chartAvg : 0; },
                 get chartCount() { return this.displayedHistory.length; },
+                // 상세 패널 로버스트 요약 — 로드된 기간 이력(원본, 이상치 제외 미적용)에서 재계산해
+                // 매트릭스와 같은 지표 정의(중앙값/MAD/P10~P90/지연)를 기간 스코프로 제공(검산 가능).
+                // 이력이 아직 없으면 서버 전체기간 값으로 폴백, 그것도 없으면 null(— 표기).
+                get detailStats() {
+                    const h = this.callHistory;
+                    if (h.length >= 5) {
+                        const xs = h.map(r => r.goingTimeMs).slice().sort((a, b) => a - b);
+                        const med = this.pctl(xs, 50), p10 = this.pctl(xs, 10), p90 = this.pctl(xs, 90);
+                        const devs = xs.map(v => Math.abs(v - med)).sort((a, b) => a - b);
+                        let sig = 1.4826 * this.pctl(devs, 50);
+                        if (sig <= 0) sig = (this.pctl(xs, 75) - this.pctl(xs, 25)) / 1.349; // MAD=0 → IQR 폴백(서버와 동일)
+                        const thr = Math.max(3 * med, 2000);
+                        return { med, p10, p90, sig, rcv: med > 0 ? sig / med : 0, delay: xs.filter(v => v > thr).length, n: xs.length };
+                    }
+                    const c = this.selectedCall;
+                    if (c && c.robustCv != null) {
+                        return {
+                            med: c.medianGoingTime, p10: c.p10GoingTime, p90: c.p90GoingTime,
+                            sig: c.robustCv * (c.medianGoingTime || 0), rcv: c.robustCv,
+                            delay: c.delayCount || 0, n: c.robustSampleCount || c.goingCount
+                        };
+                    }
+                    return null;
+                },
                 // 최소/최대 실행시간 — 표시 이력(이상치 제외 반영) 기준. 이력 없으면 null('—' 표기).
                 get displayedMin() { const d = this.displayedHistory; return d.length ? Math.min(...d.map(r => r.goingTimeMs)) : null; },
                 get displayedMax() { const d = this.displayedHistory; return d.length ? Math.max(...d.map(r => r.goingTimeMs)) : null; },
@@ -710,8 +843,10 @@
                         goingTimeMs: r.goingTimeMs,
                         timestamp: (r.timestamp || '').replace('T', ' ').slice(0, 19)
                     }));
-                    const avg = this.selectedCall?.averageGoingTime ?? 0;
-                    const sd = this.selectedCall?.stdDevGoingTime ?? 0;
+                    // 밴드 = 중앙값 ± 2×로버스트σ — 평균±2σ는 대기 표본에 끌려가 밴드가 무의미하게 넓어짐.
+                    const st = this.detailStats;
+                    const avg = st ? st.med : (this.selectedCall?.averageGoingTime ?? 0);
+                    const sd = st ? st.sig : (this.selectedCall?.stdDevGoingTime ?? 0);
                     // canvas 는 x-if(모달) + x-show(이력>0) 안에 있어 $nextTick 한 번으로 DOM 보장이 안 될 수 있으므로
                     // requestAnimationFrame 으로 최대 ~10프레임 폴링 후 렌더(Blazor 의 Task.Delay(50) 대체, 더 견고).
                     await this.$nextTick();
@@ -766,7 +901,10 @@
                             rows.push({
                                 flowName: c.flowName, callName: c.callName, workName: c.workName || '',
                                 averageMs: c.averageGoingTime, stdDevMs: c.stdDevGoingTime,
-                                cv: c.coefficientOfVariation, goingCount: c.goingCount
+                                cv: c.coefficientOfVariation, goingCount: c.goingCount,
+                                // 로버스트 표시값 + 화면 tier 그대로(WYSIWYG — 등급은 "평소 대비 악화" 판정이라 서버가 재산출 불가)
+                                medianMs: c.medianGoingTime, p10Ms: c.p10GoingTime, p90Ms: c.p90GoingTime,
+                                robustCv: c.robustCv, delayCount: c.delayCount || 0, tier: this.tierLabel(this.blockTier(c))
                             });
                         }
                         const model = { title: this.flowParam || '전체', cautionCv: this.cautionCv, dangerCv: this.dangerCv, rows };

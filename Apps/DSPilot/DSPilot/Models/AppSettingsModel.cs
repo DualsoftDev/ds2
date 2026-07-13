@@ -57,6 +57,13 @@ public class EmailBriefingSettings
     /// <summary>마지막으로 발송 완료한 로컬 날짜("yyyy-MM-dd"). 하루 1회 멱등 발송 워터마크. 미발송이면 빈 문자열.</summary>
     public string LastSentDate { get; set; } = "";
 
+    /// <summary>
+    /// 발송 몰림 방지 지터(분). 예정 시각에 설치별·날짜별 안정 랜덤 오프셋(0~이 값)을 더해 발송한다.
+    /// 여러 설치가 동일 시각(예 08:00)에 몰려 중앙 릴레이/O365 분당 한도를 넘기는 것을 분산으로 완화.
+    /// 0 = 지터 없음(정시 발송). 기본 15분. (수동 "테스트 발송"에는 적용 안 됨 — 정기 발송만.)
+    /// </summary>
+    public int SendJitterMinutes { get; set; } = 15;
+
     // ── SMTP 접속 ──
     /// <summary>SMTP 서버 호스트. 예: smtp.gmail.com / smtp.office365.com / 사내 메일서버.</summary>
     public string SmtpHost { get; set; } = "";

@@ -18,6 +18,17 @@ public class CallHeatmapItem
     public double StdDevGoingTime { get; set; }
     public int GoingCount { get; set; }
 
+    // ── 로버스트(중앙값 기반) 통계 — HeatmapService 메모리 캐시(CallRobustStats)에서 병합. ──
+    // null = 아직 미산출(부팅 직후 첫 refresh 전) → 클라이언트가 기존 평균/CV 표시로 폴백한다.
+    // 기존 AverageGoingTime/StdDevGoingTime 은 의미를 바꾸지 않는다(CCTV 오버레이·Flow KPI 가 소비).
+    public double? MedianGoingTime { get; set; }
+    public double? P10GoingTime { get; set; }
+    public double? P90GoingTime { get; set; }
+    public double? RobustCv { get; set; }
+    public double? RecentRobustCv { get; set; }
+    public int? DelayCount { get; set; }
+    public int? RobustSampleCount { get; set; }
+
     public string ColorClassAvg { get; set; } = string.Empty;
     public string ColorClassStdDev { get; set; } = string.Empty;
     public string ColorClassCV { get; set; } = string.Empty;

@@ -2,6 +2,8 @@
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using DSPilot.Models;
 
 namespace DSPilot.Services.EmailBriefing;
@@ -94,7 +96,8 @@ public sealed class EmailBriefingService : BackgroundService
                 var now = DateTime.Now;
                 var tod = ParseTime(cfg.SendTimeLocal);
                 var todayStr = now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-                var todaysFire = now.Date + tod;
+                // 예정 시각 + 지터(설치별·날짜별 안정 오프셋) — 8시 몰림 분산.
+                var todaysFire = FireTimeForDay(now.Date, tod, cfg.SendJitterMinutes);
                 var isFireWeekday = cfg.Weekdays.Contains((int)now.DayOfWeek);
 
                 // 오늘 발송해야 하는데 아직 안 함(시각 도달 or 지남) → 지금 발송(정시 + 놓친 경우 따라잡기).
@@ -105,9 +108,9 @@ public sealed class EmailBriefingService : BackgroundService
                     continue;
                 }
 
-                // 다음 발화 시각까지 대기(설정 변경 감지 위해 짧게 끊어서).
-                var next = ComputeNextFire(now, tod, cfg.Weekdays);
-                _logger.LogDebug("다음 브리핑 발송 예정: {Next:yyyy-MM-dd HH:mm}", next);
+                // 다음 발화 시각까지 대기(설정 변경 감지 위해 짧게 끊어서). 지터 반영.
+                var next = ComputeNextFire(now, tod, cfg.Weekdays, cfg.SendJitterMinutes);
+                _logger.LogDebug("다음 브리핑 발송 예정: {Next:yyyy-MM-dd HH:mm:ss} (지터 {Jitter}분)", next, cfg.SendJitterMinutes);
                 var signature = ScheduleSignature(cfg);
                 while (!stoppingToken.IsCancellationRequested && DateTime.Now < next)
                 {
@@ -214,7 +217,7 @@ public sealed class EmailBriefingService : BackgroundService
             .ToList();
 
     private static string ScheduleSignature(EmailBriefingSettings cfg) =>
-        $"{cfg.Enabled}|{cfg.SendTimeLocal}|{string.Join(',', (cfg.Weekdays ?? []).OrderBy(x => x))}|{NormalizedRecipients(cfg).Count}|{cfg.SendMode}|{cfg.SmtpHost}|{cfg.FromAddress}";
+        $"{cfg.Enabled}|{cfg.SendTimeLocal}|{cfg.SendJitterMinutes}|{string.Join(',', (cfg.Weekdays ?? []).OrderBy(x => x))}|{NormalizedRecipients(cfg).Count}|{cfg.SendMode}|{cfg.SmtpHost}|{cfg.FromAddress}";
 
     private static TimeSpan ParseTime(string? hhmm)
     {
@@ -224,16 +227,32 @@ public sealed class EmailBriefingService : BackgroundService
         return new TimeSpan(8, 0, 0); // 파싱 실패 시 08:00 폴백
     }
 
-    // now 이후 가장 이른 발화 시각(요일 필터 반영). 최대 8일 탐색.
-    private static DateTime ComputeNextFire(DateTime now, TimeSpan tod, List<int> weekdays)
+    // now 이후 가장 이른 발화 시각(요일 필터 + 지터 반영). 최대 8일 탐색.
+    private static DateTime ComputeNextFire(DateTime now, TimeSpan tod, List<int> weekdays, int jitterMinutes)
     {
         for (var i = 0; i <= 7; i++)
         {
-            var cand = now.Date.AddDays(i) + tod;
-            if (cand > now && weekdays.Contains((int)cand.DayOfWeek))
+            var day = now.Date.AddDays(i);
+            var cand = FireTimeForDay(day, tod, jitterMinutes);
+            if (cand > now && weekdays.Contains((int)day.DayOfWeek))
                 return cand;
         }
         return now.AddMinutes(1); // 방어적 폴백(요일 집합이 비정상일 때)
+    }
+
+    // 특정 날짜의 실제 발화 시각 = 예정 시각(tod) + 지터 오프셋. dueToday 판정과 대기 계산이 동일 값을 쓰도록 공용화.
+    private static DateTime FireTimeForDay(DateTime day, TimeSpan tod, int jitterMinutes)
+        => day.Date + tod + TimeSpan.FromSeconds(JitterOffsetSeconds(day.Date, jitterMinutes));
+
+    // 지터 오프셋(초). 설치(MachineName)+날짜 기반 안정 해시 → 같은 날 같은 값(루프 반복에 흔들림 없음),
+    // 설치마다 다른 값(전 고객이 동시 발송하지 않도록 분산). 0~jitterMinutes*60 범위.
+    private static int JitterOffsetSeconds(DateTime day, int jitterMinutes)
+    {
+        if (jitterMinutes <= 0) return 0;
+        var seed = Encoding.UTF8.GetBytes($"{Environment.MachineName}|{day:yyyy-MM-dd}");
+        var hash = SHA256.HashData(seed);
+        var v = BitConverter.ToUInt32(hash, 0);
+        return (int)(v % (uint)(jitterMinutes * 60));
     }
 
     private static async Task SafeDelay(TimeSpan delay, CancellationToken ct)

@@ -21,6 +21,23 @@ public class HeatmapService
     private readonly AppSettingsService _settingsService;
     private readonly ILogger<HeatmapService> _logger;
 
+    // ── 로버스트(중앙값 기반) 통계 캐시 ──
+    // 평균/σ(Welford)와 달리 중앙값/MAD 는 증분 누적이 불가능해 매칭 기록 전체에서 사후 산출한다.
+    // 갱신 경로: ① RecomputeAllCallGoingStatisticsAsync(부팅 heal·캡 변경) ② TTL 경과 시 백그라운드 재산출.
+    // 요청 경로는 절대 스캔을 기다리지 않는다(stale-while-revalidate) — 전체 이력 스캔이 수십 초라
+    // await 하면 TTL 만료 후 첫 방문자가 그 비용을 통째로 부담한다(2026-07-13 실측 22.6s).
+    // 쓰기는 완성본 딕셔너리로 원자 교체(스캔 중간 상태가 응답에 노출되지 않음), 읽기는 참조 스냅샷.
+    private volatile Dictionary<Guid, CallRobustStats> _robustStats = new();
+    private DateTime _robustRefreshedAt = DateTime.MinValue;
+    private int _robustRefreshRunning; // 0/1 — 백그라운드 갱신 single-flight
+    private static readonly TimeSpan RobustTtl = TimeSpan.FromMinutes(5);
+
+    // 지연 판정 임계 하한(ms) — 중앙값이 아주 짧은 동작(수백 ms)에서 1초 남짓 표본까지 지연으로 세지 않도록.
+    private const double DelayFloorMs = 2000;
+    // "최근" 창 크기(마지막 N회) / 최근 CV 를 신뢰할 최소 표본 수.
+    private const int RecentWindow = 200;
+    private const int RecentMinSamples = 30;
+
     public HeatmapService(
         IDspRepository dspRepository,
         IPlcRepository plcRepository,
@@ -43,6 +60,9 @@ public class HeatmapService
     {
         try
         {
+            // 0. 로버스트 통계가 낡았으면(TTL 5분) 백그라운드 재산출을 발사하고, 응답은 항상 현재 캐시로 즉시.
+            KickRobustRefreshIfStale();
+
             // 1. 통계 데이터 조회
             var statistics = await _dspRepository.GetCallStatisticsAsync();
 
@@ -52,19 +72,31 @@ public class HeatmapService
                 return new List<FlowHeatmapGroup>();
             }
 
-            // 2. Heatmap 아이템 리스트 생성
-            var items = statistics.Select(s => new CallHeatmapItem
+            // 2. Heatmap 아이템 리스트 생성 (+ 로버스트 통계 병합 — 미산출 Call 은 null → 클라 폴백)
+            var robust = _robustStats; // 참조 스냅샷 — 응답 중 교체돼도 일관된 세대를 본다
+            var items = statistics.Select(s =>
             {
-                CallId = s.CallId,
-                CallName = s.CallName,
-                FlowName = s.FlowName,
-                WorkName = s.WorkName,
-                AverageGoingTime = s.AverageGoingTime,
-                StdDevGoingTime = s.StdDevGoingTime,
-                GoingCount = s.GoingCount,
-                ColorClassAvg = "",
-                ColorClassStdDev = "",
-                ColorClassCV = ""
+                robust.TryGetValue(s.CallId, out var rb);
+                return new CallHeatmapItem
+                {
+                    CallId = s.CallId,
+                    CallName = s.CallName,
+                    FlowName = s.FlowName,
+                    WorkName = s.WorkName,
+                    AverageGoingTime = s.AverageGoingTime,
+                    StdDevGoingTime = s.StdDevGoingTime,
+                    GoingCount = s.GoingCount,
+                    MedianGoingTime = rb?.MedianMs,
+                    P10GoingTime = rb?.P10Ms,
+                    P90GoingTime = rb?.P90Ms,
+                    RobustCv = rb?.RobustCv,
+                    RecentRobustCv = rb?.RecentRobustCv,
+                    DelayCount = rb?.DelayCount,
+                    RobustSampleCount = rb?.SampleCount,
+                    ColorClassAvg = "",
+                    ColorClassStdDev = "",
+                    ColorClassCV = ""
+                };
             }).ToList();
 
             return AssignColorsAndGroup(items);
@@ -158,6 +190,7 @@ public class HeatmapService
         if (!oldest.HasValue || !latest.HasValue) return 0;
 
         var stats = new List<(Guid CallId, int Count, double Avg, double StdDev)>(pairs.Count);
+        var freshRobust = new Dictionary<Guid, CallRobustStats>(pairs.Count);
         foreach (var p in pairs)
         {
             ct.ThrowIfCancellationRequested();
@@ -176,8 +209,13 @@ public class HeatmapService
             double mean = records.Average(r => r.GoingTimeMs);
             double sumSq = records.Sum(r => (r.GoingTimeMs - mean) * (r.GoingTimeMs - mean));
             stats.Add((p.CallId, records.Count, mean, Math.Sqrt(sumSq / records.Count)));
+
+            // 같은 기록으로 로버스트 통계도 산출 — heal/캡 변경 직후 별도 TTL 스캔 없이 캐시가 함께 최신화된다.
+            freshRobust[p.CallId] = ComputeRobustStats(records);
         }
 
+        _robustStats = freshRobust; // 완성본 원자 교체(스캔 중간 상태 미노출)
+        _robustRefreshedAt = DateTime.UtcNow;
         var written = await _dspRepository.SetCallGoingStatisticsAsync(stats);
         _logger.LogInformation(
             "[Heatmap] 동작편차 통계 self-heal(캡 재도출): {Written}/{Total} Call 갱신", written, stats.Count);
@@ -211,6 +249,108 @@ public class HeatmapService
     }
 
     // ===== Private Methods =====
+
+    /// <summary>
+    /// 로버스트 통계 캐시가 TTL(5분)보다 낡았으면 <b>백그라운드</b> 재산출을 발사한다(stale-while-revalidate).
+    /// 요청은 절대 스캔을 기다리지 않고 현재 캐시로 즉시 응답 — 갱신 완료 시 완성본으로 원자 교체된다.
+    /// single-flight: 이미 갱신 중이면 발사하지 않는다. 실패 시 기존 캐시 유지, 다음 TTL 경과 조회에서 재시도.
+    /// DB 쓰기·엔진 재시드 없음 — RecomputeAllCallGoingStatisticsAsync(무거운 self-heal)와 달리 표시용 캐시만 만진다.
+    /// </summary>
+    private void KickRobustRefreshIfStale()
+    {
+        if (DateTime.UtcNow - _robustRefreshedAt < RobustTtl) return;
+        if (Interlocked.CompareExchange(ref _robustRefreshRunning, 1, 0) != 0) return;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var fresh = await BuildRobustStatsAsync();
+                if (fresh is not null)
+                {
+                    _robustStats = fresh; // 완성본 원자 교체
+                    _robustRefreshedAt = DateTime.UtcNow;
+                    _logger.LogInformation("[Heatmap] 로버스트 통계 재산출(백그라운드) — calls={Count}", fresh.Count);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Heatmap] 로버스트 통계 백그라운드 재산출 실패 — 기존 캐시 유지");
+            }
+            finally { Interlocked.Exchange(ref _robustRefreshRunning, 0); }
+        });
+    }
+
+    /// <summary>전 Call 로버스트 통계를 새 딕셔너리로 산출. 매핑/로그 미준비면 null(캐시 유지, 스탬프 안 찍음 → 재시도).</summary>
+    private async Task<Dictionary<Guid, CallRobustStats>?> BuildRobustStatsAsync()
+    {
+        var pairs = _mapperService.GetAllCallTagPairs();
+        if (pairs.Count == 0) return null;
+
+        var oldest = await _plcRepository.GetOldestLogDateTimeAsync();
+        var latest = await _plcRepository.GetLatestLogDateTimeAsync();
+        if (!oldest.HasValue || !latest.HasValue) return null;
+
+        var fresh = new Dictionary<Guid, CallRobustStats>(pairs.Count);
+        foreach (var p in pairs)
+        {
+            if (string.IsNullOrEmpty(p.InTag) || string.IsNullOrEmpty(p.OutTag))
+                continue;
+
+            var records = await ComputeExecutionRecordsAsync(p.InTag!, p.OutTag!, oldest.Value, latest.Value, null);
+            if (records.Count > 0)
+                fresh[p.CallId] = ComputeRobustStats(records);
+        }
+        return fresh;
+    }
+
+    /// <summary>
+    /// 매칭 완료된 실행 기록(시간순)에서 로버스트 통계를 산출한다.
+    /// σ 로버스트 추정 = 1.4826×MAD, MAD=0(표본 절반 이상 동일값 — 양자화 데이터)이면 IQR/1.349 폴백.
+    /// </summary>
+    internal static CallRobustStats ComputeRobustStats(List<CallExecutionRecord> records)
+    {
+        var xs = records.Select(r => (double)r.GoingTimeMs).OrderBy(v => v).ToArray();
+        double med = Percentile(xs, 50);
+        double p10 = Percentile(xs, 10);
+        double p90 = Percentile(xs, 90);
+        double rcv = RobustCvOf(xs, med);
+
+        // 최근 창(마지막 N회, 시간순) — "평소 대비 악화" 판정용. 표본이 적으면 null → 전체값 폴백.
+        double? recentRcv = null;
+        if (records.Count >= RecentMinSamples)
+        {
+            var recent = records.Skip(Math.Max(0, records.Count - RecentWindow))
+                                .Select(r => (double)r.GoingTimeMs).OrderBy(v => v).ToArray();
+            recentRcv = RobustCvOf(recent, Percentile(recent, 50));
+        }
+
+        double delayThreshold = Math.Max(3 * med, DelayFloorMs);
+        int delay = xs.Count(v => v > delayThreshold);
+
+        return new CallRobustStats(med, p10, p90, rcv, recentRcv, delay, xs.Length);
+    }
+
+    /// <summary>정렬된 표본과 그 중앙값으로 로버스트 CV 를 계산. med≤0 이면 0(노이즈성 초단시간 Call 방어).</summary>
+    private static double RobustCvOf(double[] sorted, double med)
+    {
+        if (med <= 0) return 0;
+        var devs = sorted.Select(v => Math.Abs(v - med)).OrderBy(v => v).ToArray();
+        double sigma = 1.4826 * Percentile(devs, 50);
+        if (sigma <= 0)
+            sigma = (Percentile(sorted, 75) - Percentile(sorted, 25)) / 1.349; // MAD=0 폴백
+        return sigma / med;
+    }
+
+    /// <summary>선형 보간 백분위수(sorted 오름차순 전제).</summary>
+    private static double Percentile(double[] sorted, double p)
+    {
+        if (sorted.Length == 0) return 0;
+        double rank = (p / 100.0) * (sorted.Length - 1);
+        int lo = (int)Math.Floor(rank);
+        int hi = (int)Math.Ceiling(rank);
+        return lo == hi ? sorted[lo] : sorted[lo] + (sorted[hi] - sorted[lo]) * (rank - lo);
+    }
 
     /// <summary>
     /// CallHeatmapItem 리스트에 색상 클래스를 할당하고 Flow별로 그룹화
