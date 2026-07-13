@@ -48,6 +48,7 @@ public sealed class BriefingComposer
 
         // ── 생산: 라인 전체 + Flow별 ──
         var line = await _oee.GetSummaryAsync(null, fromUtc, toUtc, ct);
+        var lineTeep = await _oee.GetTeepAsync(null, fromUtc, toUtc, ct);
 
         var flows = new List<FlowBrief>();
         foreach (var flowName in EnumerateFlowNames())
@@ -81,7 +82,7 @@ public sealed class BriefingComposer
             .Select(r => new BriefTopRow(r.Name, r.LogLevel, r.Count))
             .ToList();
 
-        return new BriefingData(day, line, topFlows, abnormalTotal, abnormalCount, userTagCount, top);
+        return new BriefingData(day, line, lineTeep, topFlows, abnormalTotal, abnormalCount, userTagCount, top);
     }
 
     // 프로젝트에 로드된 모든 시스템의 Flow 명(NavController 와 동일 소스). 프로젝트 미로드면 빈 목록.

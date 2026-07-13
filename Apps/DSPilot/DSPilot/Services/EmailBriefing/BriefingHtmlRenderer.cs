@@ -48,15 +48,14 @@ public sealed class BriefingHtmlRenderer
         sb.Append($@"<tr><td style=""padding:0 28px;"">");
         sb.Append(KpiRow(new (string, string, string)[]
         {
-            ("설비종합효율 OEE", FmtPct(d.Line.Oee), Accent),
+            ("설비효율 OEE", FmtPct(d.Line.Oee), Accent),
+            ("생산효율 TEEP", FmtPct(d.LineTeep), Accent),
             ("가동률 A", FmtPct(d.Line.Availability), Ink),
             ("성능 P", FmtPct(d.Line.Performance), Ink),
-            ("품질 Q", FmtPct(d.Line.Quality), Ink),
         }));
         sb.Append(KpiRow(new (string, string, string)[]
         {
             ("생산 수량", FmtCount(d.Line.TotalCount), Ink),
-            ("양품 / 불량", $"{FmtCount(d.Line.GoodCount)} / {FmtCount(d.Line.RejectCount)}", Ink),
             ("정지 시간", FmtDuration(d.Line.DowntimeMs), Warn),
             ("고장 건수", $"{d.Line.FailureCount}건", Ink),
         }));
@@ -148,10 +147,11 @@ public sealed class BriefingHtmlRenderer
     private static string KpiRow((string Label, string Value, string Color)[] cells)
     {
         var sb = new StringBuilder();
+        var w = cells.Length > 0 ? (int)Math.Round(100.0 / cells.Length) : 100; // 타일 수에 맞춰 균등 폭
         sb.Append(@"<table role=""presentation"" width=""100%"" cellpadding=""0"" cellspacing=""0"" style=""border-collapse:separate;border-spacing:8px 8px;""><tr>");
         foreach (var c in cells)
         {
-            sb.Append($@"<td width=""25%"" valign=""top"" style=""background:{Bg};border:1px solid {Border};border-radius:10px;padding:12px 12px;"">
+            sb.Append($@"<td width=""{w}%"" valign=""top"" style=""background:{Bg};border:1px solid {Border};border-radius:10px;padding:12px 12px;"">
   <div style=""font-size:11px;color:{Muted};margin-bottom:4px;"">{Enc(c.Label)}</div>
   <div style=""font-size:19px;font-weight:800;color:{c.Color};"">{c.Value}</div>
 </td>");

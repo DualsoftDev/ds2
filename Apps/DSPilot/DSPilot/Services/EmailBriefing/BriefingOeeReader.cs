@@ -32,4 +32,27 @@ public sealed class BriefingOeeReader : OeeControllerBase
     /// <summary>지정 UTC 창의 OEE 요약. flow=null 이면 라인 전체.</summary>
     public Task<OeeSummaryDto> GetSummaryAsync(string? flow, DateTime fromUtc, DateTime toUtc, CancellationToken ct)
         => BuildSummaryAsync(string.IsNullOrWhiteSpace(flow) ? null : flow.Trim(), fromUtc, toUtc, ct);
+
+    /// <summary>
+    /// 지정 창의 TEEP(생산효율 = 가동(Σ실측CT) ÷ 캘린더 전체). flow=null 이면 라인 전체.
+    /// OeeMetricsController.Teep 와 동일 계산 경로 — 표준CT 보유 flow 수로 캘린더를 스케일한다.
+    /// 산출 불가(표준CT 보유 flow 0)면 null.
+    /// </summary>
+    public async Task<double?> GetTeepAsync(string? flow, DateTime fromUtc, DateTime toUtc, CancellationToken ct)
+    {
+        var flowName = string.IsNullOrWhiteSpace(flow) ? null : flow.Trim();
+        var periodMs = (toUtc - fromUtc).TotalMilliseconds;
+        if (periodMs < 0) periodMs = 0;
+
+        var thresholds = await ResolveCtThresholdsAsync();
+        var (plannedWindows, _, applyLongStop) = await ResolvePlannedWindowsAsync(thresholds, ct);
+        var agg = await ComputeCycleAggregateAsync(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct);
+
+        int flowCount = flowName is not null
+            ? (thresholds.TryGetValue(flowName, out var t) && t.AvgMs > 0 ? 1 : 0)
+            : thresholds.Count(kv => kv.Value.AvgMs > 0);
+
+        double calendarMs = periodMs * flowCount;
+        return OeeMath.ComputeTeep(agg.NormalCtMs, calendarMs);
+    }
 }

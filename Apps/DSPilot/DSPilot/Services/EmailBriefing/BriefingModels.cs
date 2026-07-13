@@ -12,6 +12,7 @@ namespace DSPilot.Services.EmailBriefing;
 public sealed record BriefingData(
     DateOnly Day,                 // 대상 날짜(로컬, 어제)
     OeeSummaryDto Line,           // 라인 전체(flow=null) 생산 요약
+    double? LineTeep,             // 라인 전체 TEEP(생산효율). null=산출 불가
     IReadOnlyList<FlowBrief> Flows,   // Flow별 요약(생산량 내림차순)
     int AbnormalTotal,            // 이상 총 건수(경로이탈+UserTag)
     int AbnormalCount,            // 경로이탈 자동감지 건수(ABNORMAL)

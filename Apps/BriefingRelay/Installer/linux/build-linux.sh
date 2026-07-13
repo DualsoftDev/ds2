@@ -35,10 +35,10 @@ VERSION="$(grep -oE '<Version>[^<]+' "$PROJECT" | head -n1 | sed 's/<Version>//'
 
 echo "[3/3] 패키지 구성 및 압축..."
 cp "$SCRIPT_DIR/briefingrelay.service" "$STAGE/systemd/"
-cp "$SCRIPT_DIR/install.sh" "$SCRIPT_DIR/uninstall.sh" "$STAGE/"
+cp "$SCRIPT_DIR/install.sh" "$SCRIPT_DIR/uninstall.sh" "$SCRIPT_DIR/keygen.sh" "$STAGE/"
 cp "$RELAY_ROOT/SETUP-O365.md" "$STAGE/" 2>/dev/null || true
 cp "$RELAY_ROOT/README.md" "$STAGE/" 2>/dev/null || true
-chmod +x "$STAGE/install.sh" "$STAGE/uninstall.sh"
+chmod +x "$STAGE/install.sh" "$STAGE/uninstall.sh" "$STAGE/keygen.sh"
 
 # CRLF→LF 정규화 — Windows(Git autocrlf)에서 빌드 시 .sh/.service 가 CRLF 면 리눅스에서 shebang·유닛이 깨진다.
 find "$STAGE" -type f \( -name '*.sh' -o -name '*.service' \) -exec sed -i 's/\r$//' {} +
