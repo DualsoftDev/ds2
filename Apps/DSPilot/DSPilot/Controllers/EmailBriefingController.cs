@@ -99,6 +99,13 @@ public class EmailBriefingController : ControllerBase
                 e.SmtpPassword = dto.SmtpPassword;
             e.FromAddress = (dto.FromAddress ?? "").Trim();
             e.FromName = string.IsNullOrWhiteSpace(dto.FromName) ? "DSPilot 브리핑" : dto.FromName.Trim();
+
+            // 저장이 곧바로 당일 따라잡기 발송으로 이어지지 않게: 오늘 발화 시각이 이미 지났으면 오늘자 워터마크를
+            // 박아 스케줄러가 다음 예정 시각부터 발송하게 한다. (테스트 발송은 별도 버튼으로만.)
+            var now = DateTime.Now;
+            var todayStr = now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            if (e.Enabled && e.LastSentDate != todayStr && EmailBriefingService.IsTodayFirePassed(e, now))
+                e.LastSentDate = todayStr;
         });
 
         return Get();

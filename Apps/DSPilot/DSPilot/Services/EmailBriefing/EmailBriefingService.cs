@@ -208,6 +208,14 @@ public sealed class EmailBriefingService : BackgroundService
             : !string.IsNullOrWhiteSpace(cfg.SmtpHost);
     }
 
+    /// <summary>
+    /// 오늘이 발송 요일이고 오늘 발화 시각(지터 포함)이 이미 지났는지. 설정 저장 시 "당일 따라잡기" 억제 판정용 —
+    /// 저장 직후 즉시 발송되는 것을 막고 다음 스케줄부터 발송하게 한다(다운타임 따라잡기는 저장과 무관하므로 유지).
+    /// </summary>
+    internal static bool IsTodayFirePassed(EmailBriefingSettings cfg, DateTime now)
+        => (cfg.Weekdays ?? []).Contains((int)now.DayOfWeek)
+           && now >= FireTimeForDay(now.Date, ParseTime(cfg.SendTimeLocal), cfg.SendJitterMinutes);
+
     private static List<string> NormalizedRecipients(EmailBriefingSettings cfg) =>
         (cfg.Recipients ?? [])
             .Select(r => r?.Trim())
