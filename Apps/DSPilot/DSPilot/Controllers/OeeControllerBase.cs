@@ -622,7 +622,8 @@ public abstract class OeeControllerBase : ControllerBase
             RunWallMs: agg.RunWallMs,
             AvailableWallMs: agg.AvailableWallMs,
             DownMaintWallMs: agg.DownMaintWallMs,
-            NonProdWallMs: agg.NonProdWallMs);
+            NonProdWallMs: agg.NonProdWallMs,
+            DownFaultWallMs: agg.DownFaultWallMs);
     }
 
     // ── 비생산 판정 모드 ─────────────────────────────────────────────────────
@@ -729,6 +730,10 @@ public abstract class OeeControllerBase : ControllerBase
         double NonProdWallMs = 0,                                   // Σ비생산(벽시계, 기간 클립·미계측 차감) × flow수 — 도넛 세그먼트
         List<(double S, double E)>? RunWallIntervals = null,        // flow별 가동 구간 연결(concat, 합산 슬롯용 — union 아님)
         List<(double S, double E)>? DownMaintWallIntervals = null,  // flow별 유지보수 구간 연결(concat)
+        // 고장 = 비가동 중 '감지된 정지'(이상치 초과 사이클 + 무사이클 갭)에 실제로 덮인 부분만(유지보수 차감 후).
+        //   비가동 − 유지보수 − 고장 = 가동간 공백(임계 미만 사이클 간 미세 슬랙 — 감지 정지 0인 시간, 2026-07-14).
+        double DownFaultWallMs = 0,                                 // Σ고장(비가동 ∩ 감지 정지 이벤트) 벽시계
+        List<(double S, double E)>? DownFaultWallIntervals = null,  // flow별 고장 귀속 구간 연결(concat, daily 슬롯용)
         // 이상치 초과 사이클(=DowntimeEventCount 의 사이클 성분) 개별 이벤트 — 정지 로그(oeeDowntimeEvent)에는
         // 안 적히는 소스라, '정지 이벤트 로그' 내역이 failureCount 와 정합되도록 여기서 수집해 노출한다(collectDowntimeCycles).
         // NonProd=true 는 당일 10×CT 승격으로 '비생산' 처리된 사이클(건수·MTBF 미반영) — 팝업 비생산 탭 표시용.
@@ -786,6 +791,7 @@ public abstract class OeeControllerBase : ControllerBase
         UnmeasuredIntervals = v.UnmeasuredIntervals is null ? null : new List<(double S, double E)>(v.UnmeasuredIntervals),
         RunWallIntervals = v.RunWallIntervals is null ? null : new List<(double S, double E)>(v.RunWallIntervals),
         DownMaintWallIntervals = v.DownMaintWallIntervals is null ? null : new List<(double S, double E)>(v.DownMaintWallIntervals),
+        DownFaultWallIntervals = v.DownFaultWallIntervals is null ? null : new List<(double S, double E)>(v.DownFaultWallIntervals),
         DowntimeCycles = v.DowntimeCycles is null ? null : new List<(string? Flow, double StartMs, double EndMs, double CtMs, bool NonProd)>(v.DowntimeCycles),
     };
 
@@ -941,6 +947,16 @@ public abstract class OeeControllerBase : ControllerBase
         }
         double idleMaintCtMs = 0;
         var idleCalIntervals = new List<(double S, double E)>();
+        // 감지 정지의 flow별 귀속(2026-07-14) — 패스 2에서 비가동을 [유지보수 / 고장(감지 정지 덮임) / 가동간 공백(잔여)]
+        //   3분할하기 위한 소스. 이상치 초과 사이클 = 그 flow, 무사이클 갭 = 조회 flow(라인 조회면 라인 스코프 = 전 flow 공통).
+        var idleByFlow = new Dictionary<string, List<(double S, double E)>>(StringComparer.Ordinal);
+        var idleLineIntervals = new List<(double S, double E)>();
+        void AddIdleFor(string? f, List<(double S, double E)> segs)
+        {
+            if (f is null) { idleLineIntervals.AddRange(segs); return; }
+            if (!idleByFlow.TryGetValue(f, out var list)) idleByFlow[f] = list = new List<(double S, double E)>();
+            list.AddRange(segs);
+        }
         static double OverlapMs(List<(double S, double E)>? iv, double s, double e)
         {
             if (iv is null) return 0;
@@ -1066,6 +1082,7 @@ public abstract class OeeControllerBase : ControllerBase
                     }
                     idleCtMs += measuredMs;
                     idleCalIntervals.AddRange(rowSegs);
+                    AddIdleFor(f, rowSegs);                         // 감지 정지(이상치 초과 사이클) — 고장 벽시계 귀속 소스
                     // 유지보수 이벤트(같은 flow)와 겹친 만큼 유지보수로 귀속(잔여 = 고장) — 가용성 바 3분할용.
                     // 계측 잔여(rowSegs) 기준으로 겹침 계산 — 미계측 안에만 있는 유지보수가 잔여 idle 로 오귀속되지 않게.
                     idleMaintCtMs += Math.Min(measuredMs,
@@ -1125,6 +1142,7 @@ public abstract class OeeControllerBase : ControllerBase
                         }
                         idleCtMs += len;
                         idleCalIntervals.AddRange(uSegs);
+                        AddIdleFor(flowName, uSegs);                // 감지 정지(무사이클 갭) — 라인 조회면 전 flow 공통 귀속
                         // 무사이클 잔여의 유지보수 귀속 — flow 조회는 그 flow 의 유지보수 구간, 라인은 전체 Union.
                         // 계측 잔여 세그먼트 기준(미계측 안 유지보수의 오귀속 방지).
                         idleMaintCtMs += Math.Min(len, uSegs.Sum(us => OverlapMs(
@@ -1168,13 +1186,16 @@ public abstract class OeeControllerBase : ControllerBase
         // 비생산 벽시계(도넛/표시) = 기간 클립 후 미계측 차감(미계측 우선 — daily 표시와 동일 규칙).
         double nonProdSingleMs = Intervals.Total(
             Intervals.Subtract(Intervals.Intersect(nonProdUnion, periodIv), unmeasured));
-        double runWallMs = 0, downMaintWallMs = 0;
+        double runWallMs = 0, downMaintWallMs = 0, downFaultWallMs = 0;
         var runWallIntervals = new List<(double S, double E)>();       // flow별 가동(생산가능 클립) 연결
         var downMaintWallIntervals = new List<(double S, double E)>(); // flow별 유지보수(비가동∩유지이벤트) 연결
+        var downFaultWallIntervals = new List<(double S, double E)>(); // flow별 고장(비가동∩감지 정지) 연결
         foreach (var (f, flowRun) in flowRunByFlow)
         {
             // 가동 = 이 flow 정상 사이클 ∩ 생산가능. 비가동 = 생산가능 − 가동(잔여).
-            //   유지보수 = 비가동 ∩ 유지보수 이벤트(같은 flow, kind 0/2). 고장 = 비가동 − 유지보수(호출측이 차감).
+            //   유지보수 = 비가동 ∩ 유지보수 이벤트(같은 flow, kind 0/2).
+            //   고장 = (비가동 − 유지보수) ∩ 감지 정지(이상치 초과 사이클 + 무사이클 갭) — failureCount 와 같은 모집단.
+            //   가동간 공백 = 비가동 − 유지보수 − 고장(임계 미만 사이클 간 미세 슬랙 — 호출측이 차감, 2026-07-14).
             var flowRunAvail = Intervals.Intersect(Intervals.Union(flowRun), wallAvailableIv);
             runWallMs += Intervals.Total(flowRunAvail);
             runWallIntervals.AddRange(flowRunAvail);
@@ -1183,6 +1204,13 @@ public abstract class OeeControllerBase : ControllerBase
                 maintByFlow?.GetValueOrDefault(f) ?? new List<(double S, double E)>());
             downMaintWallMs += Intervals.Total(flowMaintIv);
             downMaintWallIntervals.AddRange(flowMaintIv);
+            var flowIdleEv = idleLineIntervals.Count > 0 || idleByFlow.ContainsKey(f)
+                ? Intervals.Union((idleByFlow.GetValueOrDefault(f) ?? new List<(double S, double E)>())
+                    .Concat(idleLineIntervals).ToList())
+                : new List<(double S, double E)>();
+            var flowFaultIv = Intervals.Intersect(Intervals.Subtract(flowDownIv, flowMaintIv), flowIdleEv);
+            downFaultWallMs += Intervals.Total(flowFaultIv);
+            downFaultWallIntervals.AddRange(flowFaultIv);
         }
 
         var idleCalUnion = Intervals.Union(idleCalIntervals);
@@ -1197,6 +1225,7 @@ public abstract class OeeControllerBase : ControllerBase
             DownMaintWallMs: downMaintWallMs,
             NonProdWallMs: nonProdSingleMs * thrCount,
             RunWallIntervals: runWallIntervals, DownMaintWallIntervals: downMaintWallIntervals,
+            DownFaultWallMs: downFaultWallMs, DownFaultWallIntervals: downFaultWallIntervals,
             DowntimeCycles: downtimeCycles);
     }
 

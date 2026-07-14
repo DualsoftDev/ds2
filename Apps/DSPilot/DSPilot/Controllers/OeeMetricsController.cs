@@ -332,6 +332,7 @@ public class OeeMetricsController : OeeControllerBase
 
         var runWall = ToLong(agg.RunWallIntervals);            // flow별 가동(생산가능 클립) 연결
         var maintWall = ToLong(agg.DownMaintWallIntervals);    // flow별 유지보수(비가동∩유지이벤트) 연결
+        var faultWall = ToLong(agg.DownFaultWallIntervals);    // flow별 고장(비가동∩감지 정지) 연결 — 잔여 슬랙은 가동에 흡수
         var unmeasuredIv = agg.UnmeasuredIntervals ?? new List<(double S, double E)>();
         // 비생산(표시) = 지정 창 + 당일 판정 + 사용자 강제 − 미계측(미계측 우선). 전역이라 슬롯에서 ×flowCount.
         // (구 휴무 요일 차감은 2026-07-08 당일 판정 모델로 제거 — 쉬는 날은 10×CT 규칙이 비생산으로 흡수.)
@@ -359,7 +360,10 @@ public class OeeMetricsController : OeeControllerBase
             long available = Math.Max(0, slotCal - nonProd - unmeasured);
             long down = Math.Max(0, available - run);            // 비가동 = 생산가능 − 가동(잔여)
             long maint = Math.Min(SumOverlap(maintWall, sS, sE), down);
-            long fault = Math.Max(0, down - maint);
+            // 고장 = 감지된 정지(이상치 초과 사이클 + 무사이클 갭)에 덮인 비가동만. 임계 미만 사이클 간 미세 슬랙
+            //   (가동간 공백)은 고장으로 보내지 않는다 → 슬롯 잔여로 남아 추이에선 가동에 흡수(2026-07-14 사용자 결정 —
+            //   정산 바가 '가동간 공백' 세그먼트로 따로 보여주고, 시간별 추이는 가동으로 인정).
+            long fault = Math.Min(SumOverlap(faultWall, sS, sE), Math.Max(0, down - maint));
             // 벽시계 매핑: FailureMs=고장 / PlannedMs=유지보수(Other·Unclassified 미사용) / SlotMs=휴무 뺀 생산가능 달력(잔여=가동).
             slots.Add(new OeeDailySlotDto(label, slotCal, fault + maint, maint, fault, 0, 0, nonProd, unmeasured));
         }

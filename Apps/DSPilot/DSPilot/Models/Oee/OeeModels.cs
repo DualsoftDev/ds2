@@ -270,8 +270,12 @@ public sealed record OeeSummaryDto(
     // ── 벽시계 단일모델(2026-07-06) — 추이·정산·도넛 3뷰 공통 SSOT. 라인은 flow별 합산(=생산가능시간 가중평균 A). ──
     double RunWallMs = 0,             // Σ가동(벽시계) = 정상 사이클 ∩ 생산가능. A 분자.
     double AvailableWallMs = 0,       // Σ생산가능시간 = (기간 − 비생산 − 미계측) × flow수. A 분모.
-    double DownMaintWallMs = 0,       // Σ유지보수(비가동 ∩ 유지보수 이벤트). 고장 = (Available−Run) − 이 값. 도넛/정산 분할.
-    double NonProdWallMs = 0);        // Σ비생산(벽시계, 미계측 차감 후) × flow수 — 도넛 '비생산' 세그먼트. Available 과 같은 축.
+    double DownMaintWallMs = 0,       // Σ유지보수(비가동 ∩ 유지보수 이벤트). 도넛/정산 분할.
+    double NonProdWallMs = 0,         // Σ비생산(벽시계, 미계측 차감 후) × flow수 — 도넛 '비생산' 세그먼트. Available 과 같은 축.
+    // 고장 = 비가동 중 감지된 정지(이상치 초과 사이클 + 무사이클 갭)에 실제로 덮인 부분만(유지보수 차감 후).
+    //   (Available − Run) − DownMaint − DownFault = 가동간 공백(임계 미만 사이클 간 미세 슬랙, 2026-07-14) —
+    //   감지 정지 0인 시간이라 고장으로 표기하지 않고 정산 바에서 밝은 하늘색 별도 세그먼트로 보여준다.
+    double DownFaultWallMs = 0);      // Σ고장(비가동 ∩ 감지 정지 이벤트) 벽시계
 
 /// <summary>비생산 시간대 한 칸 DTO (반복 일일, 로컬 자정 기준 분).</summary>
 public sealed record PlannedStopWindowDto(int StartMinutes, int EndMinutes, string? Label);

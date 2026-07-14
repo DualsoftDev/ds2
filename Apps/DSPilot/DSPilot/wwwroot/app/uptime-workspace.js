@@ -1234,6 +1234,9 @@
                     //   고장 = failureMs(isFailure=1) + unclassifiedMs(미분류, 기본 isFailure=1)
                     //   유지보수 = plannedMs(category='planned') + otherMs(계획외지만 isFailure=0 — 자재대기 등, 도넛도 유지보수로 집계)
                     //   nonProdMs=비생산(A 분모 밖 — 가동에서 카빙), 나머지=가동근사.
+                    // 가동간 공백(임계 미만 사이클 간 미세 슬랙, 2026-07-14): 서버 daily 가 고장에 감지 정지 귀속분만
+                    //   적재하므로 공백은 슬롯 잔여 = 가동에 포함돼 그려진다(사용자 결정 — 추이에선 가동으로 인정,
+                    //   가용성 정산 바가 밝은 하늘색 '가동간 공백' 세그먼트로 따로 보여준다).
                     const failureData = d.slots.map(s => ((s.failureMs || 0) + (s.unclassifiedMs || 0)) / MS); // 고장(isFailure=1 계열)
                     const plannedData = d.slots.map(s => ((s.plannedMs || 0) + (s.otherMs || 0)) / MS); // 유지보수(isFailure=0 계열)
                     // 비생산(제외) — A 분모 밖. 미계측(수신 공백, §3.4)은 어떤 스택에도 채우지 않는다(2026-07-06 결정):
@@ -1725,25 +1728,30 @@
                         const run = Math.max(0, o.runWallMs || 0);
                         const avail = Math.max(0, o.availableWallMs || 0);
                         const down = Math.max(0, avail - run);
-                        // 비가동 고장/유지보수 분리 — '정지 구성' 도넛과 동일 소스(서버가 비가동을 유지보수 이벤트 구간과
-                        // 겹쳐 귀속, 잔여=고장). 세 뷰가 한 타임라인에서 나오므로 값이 서로 어긋나지 않는다.
+                        // 비가동 3분할(2026-07-14) — '정지 구성' 도넛·시간별 추이와 동일 소스(서버 벽시계 귀속):
+                        //   유지보수 = 비가동 ∩ 유지보수 이벤트 / 고장 = 비가동 ∩ 감지 정지(failureCount 와 같은 모집단) /
+                        //   가동간 공백 = 잔여(임계 미만 사이클 간 미세 슬랙). 공백은 감지된 정지가 아니라 크게 보면 가동
+                        //   흐름의 일부 — 고장(빨강)이 아닌 밝은 하늘색으로 따로 표기하되, A 숫자에는 계속 손실로 계상(정직).
+                        //   시간별 추이는 같은 값을 아예 가동에 포함해 그린다(서버 daily 가 고장=감지 정지만 적재).
                         const maint = Math.min(down, Math.max(0, o.downMaintWallMs || 0));
-                        const fault = Math.max(0, down - maint);
+                        const fault = Math.min(Math.max(0, down - maint), Math.max(0, o.downFaultWallMs || 0));
+                        const slack = Math.max(0, down - maint - fault);
                         const failCount = Math.max(0, o.failureCount || 0);
-                        // 미귀속 잔여(노이즈): 감지된 정지 이벤트(failureCount)가 0 인데 남는 벽시계 비가동 = 임계 미만 사이클 간
-                        //   미세 슬랙. 가용성 정산엔 계속 반영하되(숫자 정합), '고장'이 아니라 '미귀속 잔여'로 표기해 오해를 막는다.
-                        const unattributed = fault > 0 && failCount === 0 && maint === 0;
+                        const cycles = Math.max(0, o.normalCycleCount || 0);
                         const runPct = avail > 0 ? r1(run / avail * 100) : 0;
-                        const stopPct = avail > 0 ? r1(100 - runPct) : 0;
                         const maintPct = avail > 0 ? r1(maint / avail * 100) : 0;
-                        const faultPct = Math.max(0, r1(stopPct - maintPct));
+                        const faultPct = avail > 0 ? r1(fault / avail * 100) : 0;
+                        const slackPct = avail > 0 ? r1(slack / avail * 100) : 0;
                         return {
-                            mode: 'wallclock', hasData: avail > 0, unattributed,
-                            runMs: run, stopMs: down, runPct, stopPct,
+                            mode: 'wallclock', hasData: avail > 0,
+                            runMs: run, stopMs: maint + fault, runPct, stopPct: r1(maintPct + faultPct),
                             faultMs: fault, maintMs: maint, faultPct, maintPct,
+                            slackMs: slack, slackPct,
+                            // 사이클당 환산(초) — "43m"이 커 보여도 사이클당 0.6s 수준임을 병기해 오해 방지(커지면 그 자체가 경고).
+                            slackPerCycleS: cycles > 0 ? Math.round(slack / cycles / 100) / 10 : 0,
                             runLabel: '가동 (생산가능시간 내)',
-                            stopLabel: maint > 0 ? '비가동 · 고장' : (unattributed ? '비가동 · 미귀속 잔여' : '비가동'),
-                            runNote: (o.normalCycleCount || 0) + '회', stopNote: failCount + '건',
+                            stopLabel: '비가동 · 고장',
+                            runNote: cycles + '회', stopNote: failCount + '건',
                             subtitle: '가동 ÷ 생산가능시간(캘린더 − 비생산 − 미계측)',
                         };
                     }
@@ -1759,6 +1767,7 @@
                         mode: 'fallback', hasData: planned > 0,
                         runMs: run, stopMs: stop, runPct, stopPct: planned > 0 ? r1(100 - runPct) : 0,
                         faultMs: stop, maintMs: 0, faultPct: planned > 0 ? r1(100 - runPct) : 0, maintPct: 0,
+                        slackMs: 0, slackPct: 0, slackPerCycleS: 0,   // 가동간 공백은 벽시계 모델 전용
                         runLabel: '가동시간', stopLabel: '정지 (비계획)',
                         runNote: null, stopNote: null, sourceLabel: srcLabel,
                         subtitle: '가동시간 ÷ 계획생산시간 · 계획시간 폴백(' + srcLabel + ') — 가동 표본 부족',
@@ -1886,23 +1895,24 @@
                     } finally { this.bulkBusy = false; }
                 },
 
-                // 정지 구성 도넛 (고장/유지보수/비생산) — 벽시계 단일모델(2026-07-06): 서버가 비가동(생산가능−가동)을
-                // 유지보수 이벤트 구간과 겹쳐 귀속(잔여=고장)한 값 + 비생산 벽시계(nonProdWallMs, A 분모 밖 — 2026-07-08
-                // 당일 판정 모델로 정지 구성에 포함). 가용성 정산 분해·시간별 추이 정지부와 동일 소스라 세 뷰가 항상 일치한다.
+                // 정지 구성 도넛 (고장/유지보수/비생산) — 벽시계 단일모델(2026-07-06): 서버가 비가동을 유지보수/감지 정지
+                // 이벤트 구간과 겹쳐 귀속한 값 + 비생산 벽시계(nonProdWallMs, A 분모 밖 — 2026-07-08 당일 판정 모델로
+                // 정지 구성에 포함). 가용성 정산 분해·시간별 추이 정지부와 동일 소스라 세 뷰가 항상 일치한다.
+                // 가동간 공백(감지 정지에 안 덮인 잔여 비가동, 2026-07-14)은 정지가 아니므로 도넛에 넣지 않는다.
                 get faultDist() {
                     const o = this.oee || {};
                     const run = Math.max(0, o.runWallMs || 0), avail = Math.max(0, o.availableWallMs || 0);
                     const down = Math.max(0, avail - run);
                     const maintMs = Math.min(down, Math.max(0, o.downMaintWallMs || 0));
-                    const faultMs = Math.max(0, down - maintMs);
+                    // 고장 = 감지 정지 이벤트에 실제로 덮인 비가동만(2026-07-14) — 가동간 공백(잔여 슬랙)은 정지 아님.
+                    const faultMs = Math.min(Math.max(0, down - maintMs), Math.max(0, o.downFaultWallMs || 0));
                     const nonProdMs = Math.max(0, o.nonProdWallMs || 0);
                     // 정지건수 = 벽시계 감지 정지 이벤트 수(요약 KPI failureCount = 가용성 정산 바의 'N건'과 동일 소스).
                     //   failureCount 는 이상치초과 사이클 + 무사이클 갭을 센다(this.downtime 로그 테이블엔 무사이클/고장비트만
                     //   적재돼 로그 0 이어도 실제 정지는 있을 수 있으므로 로그 행 수는 쓰지 않는다).
                     const count = Math.max(0, o.failureCount || 0);
                     const totalMs = faultMs + maintMs + nonProdMs;
-                    // 표시 게이트: 정지 이벤트(failureCount)나 비생산이 하나라도 있으면 표시. 이벤트·비생산 없이 남는
-                    //   초 단위 벽시계 잔여(사이클 간 미세 슬랙)는 노이즈로 보고 도넛을 비운다(추이/바는 계속 표기).
+                    // 표시 게이트: 정지 이벤트(failureCount)나 비생산이 하나라도 있으면 표시(고장=귀속값이라 공백은 이미 제외).
                     if (totalMs <= 0 || (count <= 0 && nonProdMs <= 0)) return { count, has: false, segs: [] };
                     const C = 2 * Math.PI * 38;
                     const segs = [];
