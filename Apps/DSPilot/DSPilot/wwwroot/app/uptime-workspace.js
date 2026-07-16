@@ -1705,6 +1705,8 @@
                 // 감지 출처 칩 (정지 구간 소스)
                 detectChipHtml(s) {
                     const m = { 'nocycle': '무가동', 'fault-bit': '고장비트', 'usertag': '고장비트', 'manual': '수동', 'over-cycle': '이상치초과' };
+                    if (typeof s === 'string' && s.includes('+'))   // 같은 정지 이중 감지 병합(무가동+이상치초과, doc/25)
+                        return `<span class="src-chip detect" title="무가동 이벤트와 이상치 초과 사이클이 같은 정지를 동시 감지 — 한 줄로 병합">${s.split('+').map(x => m[x] || this.esc(x)).join('+')}</span>`;
                     return `<span class="src-chip detect">${m[s] || this.esc(s) || '—'}</span>`;
                 },
                 // 합성(사이클 유래) 행 = DB 이벤트가 아니라 분류/마감 불가. id 음수로 표식.
@@ -2120,7 +2122,13 @@
                 // ── 인터랙션: 고장/유지보수 토글 / 비생산↔비가동 보내기 / 수동마감 / 불량 / 표준 가동시간 ──
                 async setFault(d, isFault) {
                     try {
-                        await this.apiPost('/api/oee/downtime/' + d.id + '/set-fault', { isFault });
+                        // 합성 행(id<0, 이상치 초과 사이클)은 flow/start/end 로 서버가 실제 이벤트 행을 만들어 분류(doc/25).
+                        await this.apiPost('/api/oee/downtime/' + d.id + '/set-fault', {
+                            isFault,
+                            flow: d.id > 0 ? null : (d.flowName || null),
+                            startAt: d.id > 0 ? null : (d.startAt || null),
+                            endAt: d.id > 0 ? null : (d.endAt || null),
+                        });
                         await this.loadOee();
                         this.flashDtMsg(`${d.flowName || d.systemName || ''} → ${isFault ? '고장' : '유지보수'}`);
                     } catch (e) {

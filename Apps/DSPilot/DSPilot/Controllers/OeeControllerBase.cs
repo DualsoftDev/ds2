@@ -1726,7 +1726,9 @@ public record ClassifyRequest(string? ReasonCode, string? Category);
 public record CloseRequest(DateTime? EndAt);
 public record BulkClassifyRequest(List<long> Ids, string? ReasonCode, string? Category);
 public record BulkCloseRequest(List<long> Ids, DateTime? EndAt);
-public record SetFaultRequest(bool IsFault);
+// Flow/StartAt/EndAt: 합성 행(이상치 초과 사이클, id 없음) 지원 — reclassify 와 동일하게 실제 이벤트 행을
+// materialize 한 뒤 분류한다(2026-07-16, doc/25 — 의도된 정지가 이상치로 잡혔을 때 유지보수 해제 가능해야 함).
+public record SetFaultRequest(bool IsFault, string? Flow = null, DateTime? StartAt = null, DateTime? EndAt = null);
 public record BulkSetFaultRequest(List<long> Ids, bool IsFault);
 public record ProductionRequest(DateTime? Date, string Flow, string? Shift, int Reject);
 public record ManualQualityRequest(double? QualityPercent);

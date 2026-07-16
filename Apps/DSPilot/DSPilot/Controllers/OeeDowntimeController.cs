@@ -54,10 +54,46 @@ public class OeeDowntimeController : OeeControllerBase
             waitScoped = wScoped;
             // 재분류로 materialize 된 over-cycle 이벤트 행과 겹치는 합성 행 dedup — 같은 사이클이 두 줄로 보이지 않게.
             static bool NearSameStart(DateTime a, DateTime b) => Math.Abs((a - b).TotalSeconds) < 2.0;
-            merged.AddRange(overCycles.Where(sc => !merged.Any(d =>
-                string.Equals(d.DetectSource, "over-cycle", StringComparison.OrdinalIgnoreCase)
-                && string.Equals(d.FlowName, sc.FlowName, StringComparison.Ordinal)
-                && NearSameStart(d.StartAt, sc.StartAt))));
+            // 같은 정지 이중 표시 흡수(2026-07-16, 사용자 확인) — 하나의 정지가 무가동 이벤트(DB)와 ct 폭주 사이클
+            // (합성) 두 소스에 다 잡히면 목록엔 DB 행 하나만 남긴다(체크·재분류 가능한 쪽). KPI 는 집계에서 이미
+            // 구간 차감(dedup)되므로 표시 전용 정리. 흡수된 DB 행은 감지 칩에 '+이상치초과' 병기(정보 유실 방지).
+            static double OverlapRatioOfSynthetic(OeeDowntimeDto db, OeeDowntimeDto sc, DateTime nowL)
+            {
+                var s = Math.Max(db.StartAt.Ticks, sc.StartAt.Ticks);
+                var e = Math.Min((db.EndAt ?? nowL).Ticks, (sc.EndAt ?? nowL).Ticks);
+                var dur = Math.Max(1.0, ((sc.EndAt ?? nowL) - sc.StartAt).Ticks);
+                return Math.Max(0, e - s) / dur;
+            }
+            var nowL = DateTime.Now;
+            var absorbedIdx = new HashSet<int>();   // 합성 행을 흡수한 DB 행 index — 감지 칩 병기 마킹
+            var keptSynthetic = new List<OeeDowntimeDto>();
+            foreach (var sc in overCycles)
+            {
+                // ① 이미 materialize 된 over-cycle DB 행과 같은 사이클 → 제외(종전 dedup).
+                if (merged.Any(d => string.Equals(d.DetectSource, "over-cycle", StringComparison.OrdinalIgnoreCase)
+                        && string.Equals(d.FlowName, sc.FlowName, StringComparison.Ordinal)
+                        && NearSameStart(d.StartAt, sc.StartAt)))
+                    continue;
+                // ② 같은 flow 의 무가동 DB 행과 크게 겹침(≥60%) → 흡수(같은 정지의 이중 표시).
+                var host = -1;
+                for (var i = 0; i < merged.Count; i++)
+                {
+                    var d = merged[i];
+                    if (d.Id <= 0 || !string.Equals(d.FlowName, sc.FlowName, StringComparison.Ordinal)) continue;
+                    if (OverlapRatioOfSynthetic(d, sc, nowL) >= 0.6) { host = i; break; }
+                }
+                if (host >= 0) { absorbedIdx.Add(host); continue; }
+                keptSynthetic.Add(sc);
+            }
+            foreach (var i in absorbedIdx)
+                merged[i] = merged[i] with
+                {
+                    DetectSource = merged[i].DetectSource + "+over-cycle",
+                    Note = string.IsNullOrEmpty(merged[i].Note)
+                        ? "무가동 이벤트 + 이상치 초과 사이클 동시 감지(같은 정지 — 한 줄로 병합)"
+                        : merged[i].Note + " · 이상치 초과 사이클 동시 감지(병합)",
+                };
+            merged.AddRange(keptSynthetic);
             merged = merged.OrderByDescending(d => d.StartAt).ThenByDescending(d => d.Id).ToList();
         }
 
@@ -181,9 +217,30 @@ public class OeeDowntimeController : OeeControllerBase
     }
 
     // ── POST /api/oee/downtime/{id}/set-fault ─────────────────────────────
+    // id ≤ 0 = 합성 행(이상치 초과 사이클) — reclassify 와 동일하게 실제 이벤트 행을 materialize 한 뒤 분류
+    // (2026-07-16, doc/25): 의도된 정지(유지보수 등)가 이상치로 잡혔을 때도 고장 체크 해제가 가능해야 한다.
     [HttpPost("downtime/{id:long}/set-fault")]
     public async Task<ActionResult<object>> SetFault(long id, [FromBody] SetFaultRequest req, CancellationToken ct)
     {
+        if (id <= 0)
+        {
+            if (string.IsNullOrWhiteSpace(req.Flow) || req.StartAt is null || req.EndAt is null)
+                return BadRequest(new { error = "synthetic row requires flow, startAt, endAt" });
+            var startUtc = ToUtc(req.StartAt.Value);
+            var endUtc = ToUtc(req.EndAt.Value);
+            if (endUtc <= startUtc) return BadRequest(new { error = "endAt must be after startAt" });
+            id = await _repo.InsertDowntimeAsync(new OeeDowntimeEvent
+            {
+                SystemName = "",
+                FlowName = req.Flow.Trim(),
+                StartAt = startUtc,
+                EndAt = endUtc,
+                DurationMs = (long)(endUtc - startUtc).TotalMilliseconds,
+                DetectSource = "over-cycle",
+                Note = "사용자 분류로 확정(계산 유래 사이클)",
+            }, ct);
+            if (id <= 0) return StatusCode(500, new { error = "materialize failed" });
+        }
         var (reasonCode, category, isFailure) = req.IsFault
             ? ("equipment_fault", "unplanned", true)
             : ("planned_maint", "planned", false);

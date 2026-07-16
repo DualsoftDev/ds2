@@ -471,14 +471,13 @@
                                                 <template x-if="!d.isNonProd && d.isWait">
                                                     <span style="color:var(--oee-slack, #7dd3fc);font-weight:700;" title="대기(고장 여파, 기준 미만) — 가동간 공백으로 계산(A 손실), 고장 건수·MTBF 미반영">대기(공백)</span>
                                                 </template>
-                                                <template x-if="!d.isNonProd && !d.isWait && !isSyntheticDt(d)">
-                                                    <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;" :title="d.isFailure ? '고장 — 클릭하면 유지보수로 변경' : '유지보수 — 클릭하면 고장으로 변경'">
+                                                <!-- 고장/유지보수 체크 — 합성 행(이상치 초과 사이클)도 가능(2026-07-16, doc/25):
+                                                     의도된 정지가 이상치로 잡혔을 때 체크 해제 시 서버가 실제 행으로 승격 후 유지보수 확정. -->
+                                                <template x-if="!d.isNonProd && !d.isWait">
+                                                    <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;" :title="(d.isFailure ? '고장 — 클릭하면 유지보수로 변경' : '유지보수 — 클릭하면 고장으로 변경') + (isSyntheticDt(d) ? ' (계산 유래 — 변경 시 이벤트 행으로 확정 저장)' : '')">
                                                         <input type="checkbox" class="up-dt-cb" :checked="d.isFailure" @change="setFault(d, $event.target.checked)">
                                                         <span x-text="d.isFailure ? '고장' : '유지보수'" :style="d.isFailure ? 'color:var(--oee-fault);font-weight:700;' : 'color:var(--oee-maint);font-weight:700;'"></span>
                                                     </label>
-                                                </template>
-                                                <template x-if="!d.isNonProd && !d.isWait && isSyntheticDt(d)">
-                                                    <span x-text="'고장'" style="color:var(--oee-fault);font-weight:700;" title="가동시간 이상치를 초과한 사이클(계산 유래) — 고장/유지보수 체크는 불가, 비생산 보내기는 가능"></span>
                                                 </template>
                                             </td>
                                             <td data-label="감지"><span x-html="detectChipHtml(d.detectSource)" :title="d.note || ''"></span></td>
