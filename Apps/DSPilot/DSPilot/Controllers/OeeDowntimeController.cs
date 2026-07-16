@@ -43,13 +43,15 @@ public class OeeDowntimeController : OeeControllerBase
 
         // 이상치 초과 사이클(로그 테이블에 없는 failureCount 사이클 성분)을 합성해 병합 — 내역이 도넛/바 건수와 정합.
         //   status 필터(진행중)엔 해당 없음(합성은 전부 복구됨), reason 필터가 걸리면 합성 행(고정 reason)은 제외.
-        // 합성엔 KPI 와 동일한 집계의 비생산 구간(NonProdIv)이 딸려 온다 — DB 이벤트 행의 '구분'(비생산/비가동)
-        //   판정에 재사용해 팝업 표시와 KPI 카빙이 같은 판단을 공유한다(2026-07-08 당일 판정 모델).
-        var nonProdIv = new List<(double S, double E)>();
+        // 합성엔 KPI 와 동일한 집계의 flow 귀속 비생산/대기 구간이 딸려 온다 — DB 이벤트 행의 '구분' 판정에
+        //   재사용해 팝업 표시와 KPI 카빙이 같은 판단을 공유한다(2026-07-08 당일 판정 모델 + doc/25 flow 스코프).
+        var nonProdScoped = new List<(string? Flow, double S, double E)>();
+        var waitScoped = new List<(string? Flow, double S, double E)>();
         if (!string.Equals(status, "open", StringComparison.OrdinalIgnoreCase) && string.IsNullOrWhiteSpace(reason))
         {
-            var (overCycles, npIv) = await GetOverThresholdCycleDowntimeAsync(flowName, fromUtc, toUtc, ct);
-            nonProdIv = npIv;
+            var (overCycles, npScoped, wScoped) = await GetOverThresholdCycleDowntimeAsync(flowName, fromUtc, toUtc, ct);
+            nonProdScoped = npScoped;
+            waitScoped = wScoped;
             // 재분류로 materialize 된 over-cycle 이벤트 행과 겹치는 합성 행 dedup — 같은 사이클이 두 줄로 보이지 않게.
             static bool NearSameStart(DateTime a, DateTime b) => Math.Abs((a - b).TotalSeconds) < 2.0;
             merged.AddRange(overCycles.Where(sc => !merged.Any(d =>
@@ -60,14 +62,15 @@ public class OeeDowntimeController : OeeControllerBase
         }
 
         // DB 이벤트 행 구분 판정: 수동 분류가 있으면 그것이 정답(non_production=비생산, 그 외=비가동),
-        // 아니면 KPI 비생산 구간과의 겹침 비율(≥50%)로 자동 판정 — 무가동 장시간 정지가 KPI 에서 비생산으로
-        // 카빙됐다면 팝업에서도 비생산으로 보인다.
+        // 아니면 KPI 비생산/대기 구간과의 겹침 비율(≥50%)로 자동 판정 — 반드시 **그 행의 flow 구간만** 본다
+        // (doc/25: 형제 flow 의 대기 비생산이 유발 flow 의 고장 행을 비생산으로 오표시하지 않게).
         var nowLocal = DateTime.Now;
         for (var i = 0; i < merged.Count; i++)
         {
             var d = merged[i];
-            if (d.Id <= 0) continue;   // 합성 행은 이미 IsNonProd 세팅됨
+            if (d.Id <= 0) continue;   // 합성 행은 이미 IsNonProd/IsWait 세팅됨
             bool isNp;
+            var isWait = false;
             if (string.Equals(d.ClassifySource, "manual", StringComparison.OrdinalIgnoreCase))
                 isNp = string.Equals(d.ReasonCode, OeeMath.NonProductionReasonCode, StringComparison.OrdinalIgnoreCase);
             else
@@ -75,13 +78,51 @@ public class OeeDowntimeController : OeeControllerBase
                 var sMs = new DateTimeOffset(DateTime.SpecifyKind(d.StartAt, DateTimeKind.Local)).ToUnixTimeMilliseconds();
                 var eMs = new DateTimeOffset(DateTime.SpecifyKind(d.EndAt ?? nowLocal, DateTimeKind.Local)).ToUnixTimeMilliseconds();
                 var dur = Math.Max(1.0, eMs - sMs);
-                double overlap = 0;
-                foreach (var (s, e) in nonProdIv) { var o = Math.Min(e, eMs) - Math.Max(s, sMs); if (o > 0) overlap += o; }
-                isNp = overlap / dur >= 0.5;
+                static double OverlapFor(List<(string? Flow, double S, double E)> src, string? flow, double sMs, double eMs)
+                {
+                    double sum = 0;
+                    foreach (var (fl, s, e) in src)
+                    {
+                        if (fl is not null && flow is not null
+                            && !string.Equals(fl, flow, StringComparison.OrdinalIgnoreCase)) continue;
+                        var o = Math.Min(e, eMs) - Math.Max(s, sMs);
+                        if (o > 0) sum += o;
+                    }
+                    return sum;
+                }
+                isNp = OverlapFor(nonProdScoped, d.FlowName, sMs, eMs) / dur >= 0.5;
+                isWait = isNp && OverlapFor(waitScoped, d.FlowName, sMs, eMs) / dur >= 0.5;
             }
-            if (isNp != d.IsNonProd) merged[i] = d with { IsNonProd = isNp };
+            if (isNp != d.IsNonProd || isWait != d.IsWait) merged[i] = d with { IsNonProd = isNp, IsWait = isWait };
         }
-        return await AttachCluesAsync(merged, fromUtc, toUtc, ct);
+        var classified = await AttachCluesAsync(merged, fromUtc, toUtc, ct);
+        LogClassifyTransitions(classified);   // 판정 전이 로그(doc/25 §4.3) — 프로세스 수명 내 구분 변화 계측
+        return classified;
+    }
+
+    // ── 판정 전이 로그 (doc/25 §4.3) — 같은 정지 행의 구분(비가동/비생산/대기)이 이전 조회와 달라지면 1줄 기록.
+    //    스키마 없이 프로세스 수명 캐시로 계측 — "언제 왜 뒤집혔나" 를 다음 테스트에서 즉시 확정하기 위한 진단용.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (bool Np, bool Wait)>
+        s_lastClassify = new();
+
+    private void LogClassifyTransitions(List<OeeDowntimeDto> rows)
+    {
+        foreach (var d in rows)
+        {
+            var key = d.Id > 0 ? $"id:{d.Id}" : $"{d.FlowName}|{d.StartAt.Ticks}";
+            var cur = (d.IsNonProd, d.IsWait);
+            if (s_lastClassify.TryGetValue(key, out var prev) && prev != cur)
+            {
+                static string Label((bool Np, bool Wait) v) =>
+                    v.Np && v.Wait ? "비생산·대기" : v.Np ? "비생산" : v.Wait ? "대기(공백)" : "비가동";
+                _logger.LogInformation(
+                    "[OEE-CLASSIFY] 정지 구분 전이 flow={Flow} ev={Key} {Prev}→{Cur} (시작 {Start:MM-dd HH:mm:ss}, 지속 {Dur}s, 단서={Clue})",
+                    d.FlowName, key, Label(prev), Label(cur), d.StartAt,
+                    (d.DurationMs ?? 0) / 1000, d.Clue?.Label ?? "-");
+            }
+            s_lastClassify[key] = cur;
+            if (s_lastClassify.Count > 4096) s_lastClassify.Clear();   // 진단 캐시 폭주 방지(정확성 무관)
+        }
     }
 
     // ── POST /api/oee/downtime/reclassify — 비생산↔비가동 보내기 ───────────

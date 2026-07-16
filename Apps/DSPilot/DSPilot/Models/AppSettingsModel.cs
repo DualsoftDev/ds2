@@ -154,6 +154,15 @@ public class OeeManualSettings
     public const double NonProdMultMin = 2.0, NonProdMultMax = 100.0;
 
     /// <summary>
+    /// 신호 기반 정지 분류 (doc/25 §1·§2, 2026-07-16). true(기본)면 정지 창에 겹친 abnormal(자동감지, flow 귀속)·
+    /// usertag(PLC 에러비트, 라인 스코프)로 고장/대기를 판별: 유발 flow = 고장 확정(비생산 승격 억제), 형제
+    /// flow(자기 신호 없음 + 같은 창에 유발자 존재) = 대기(기준 미만 공백 / 이상 비생산·대기, 고장 건수 제외).
+    /// 신호 이력이 기간+14일에 전혀 없으면 커버리지 게이트(doc/25 §2.4)가 자동으로 순수 CT 규칙으로 폴백 —
+    /// 감지 인프라 없는 사이트에서 "신호 없음=비생산" 이 가용성을 부풀리지 않게 한다.
+    /// </summary>
+    public bool SignalClassifyEnabled { get; set; } = true;
+
+    /// <summary>
     /// 저장값을 안전 범위로 정규화해 (비가동 배수, 비생산 배수)로 반환 — 집계·학습기·표시의 단일 소스.
     /// 손편집/구버전 JSON 으로 역전(비가동 ≥ 비생산)됐으면 비가동을 비생산의 절반(≥1)으로 방어 보정한다
     /// (역전 시 dtCond 가 비생산 후보를 정상으로 삼켜 승격이 통째로 죽는 것을 방지). API 는 저장 전 검증으로 역전을 거부.

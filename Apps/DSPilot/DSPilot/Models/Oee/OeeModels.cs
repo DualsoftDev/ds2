@@ -267,15 +267,18 @@ public sealed record OeeSummaryDto(
     int CycleFlowCount = 0,           // ΣCT 합산에 참여한 설비(flow) 수 — "설비시간 합산 ×N" 칩 표기용(설비 필터 시 1)
     double UnmeasuredMs = 0,          // 미계측(수신 공백, doc/22 §3.4) 달력시간 — 가동/비가동/비생산 어디에도 미포함(정직 표기)
 
-    // ── 벽시계 단일모델(2026-07-06) — 추이·정산·도넛 3뷰 공통 SSOT. 라인은 flow별 합산(=생산가능시간 가중평균 A). ──
-    double RunWallMs = 0,             // Σ가동(벽시계) = 정상 사이클 ∩ 생산가능. A 분자.
-    double AvailableWallMs = 0,       // Σ생산가능시간 = (기간 − 비생산 − 미계측) × flow수. A 분모.
+    // ── 벽시계 단일모델(2026-07-06, doc/25 §3.1 flow별 분모) — 추이·정산·도넛 3뷰 공통 SSOT. ──
+    double RunWallMs = 0,             // Σ가동(벽시계) = 정상 사이클 ∩ 그 flow 생산가능. A 분자.
+    double AvailableWallMs = 0,       // Σ_flow 생산가능 = Σ(기간 − 미계측 − 비생산_flow). A 분모(종전 "단일 창 × flow수" 반전).
     double DownMaintWallMs = 0,       // Σ유지보수(비가동 ∩ 유지보수 이벤트). 도넛/정산 분할.
-    double NonProdWallMs = 0,         // Σ비생산(벽시계, 미계측 차감 후) × flow수 — 도넛 '비생산' 세그먼트. Available 과 같은 축.
+    double NonProdWallMs = 0,         // Σ_flow 비생산(벽시계, 미계측 차감 후, 대기 포함) — 도넛 '비생산' 세그먼트. Available 과 같은 축.
     // 고장 = 비가동 중 감지된 정지(이상치 초과 사이클 + 무사이클 갭)에 실제로 덮인 부분만(유지보수 차감 후).
-    //   (Available − Run) − DownMaint − DownFault = 가동간 공백(임계 미만 사이클 간 미세 슬랙, 2026-07-14) —
+    //   (Available − Run) − DownMaint − DownFault = 가동간 공백(임계 미만 사이클 간 미세 슬랙 + 대기 공백, 2026-07-14/doc/25) —
     //   감지 정지 0인 시간이라 고장으로 표기하지 않고 정산 바에서 밝은 하늘색 별도 세그먼트로 보여준다.
-    double DownFaultWallMs = 0);      // Σ고장(비가동 ∩ 감지 정지 이벤트) 벽시계
+    double DownFaultWallMs = 0,       // Σ고장(비가동 ∩ 감지 정지 이벤트) 벽시계
+    // ── 대기(고장 여파, doc/25 §1) — 형제 flow 가 라인 고장으로 서 있던 시간의 분화 표기 ──
+    double WaitWallMs = 0,            // Σ대기 비생산(기준 이상 형제 정지) — NonProdWallMs 에 포함, 도넛 '대기' 분화용
+    double WaitSlackWallMs = 0);      // Σ대기 공백(기준 미만 형제 정지) — 가동간 공백에 포함, 정산 툴팁 표기용
 
 /// <summary>비생산 시간대 한 칸 DTO (반복 일일, 로컬 자정 기준 분).</summary>
 public sealed record PlannedStopWindowDto(int StartMinutes, int EndMinutes, string? Label);
@@ -371,7 +374,9 @@ public sealed record OeeDowntimeDto(
     string Status,                    // "open" | "recovered"
     string? ClassifySource = null,    // 분류 출처: manual / auto-bit / auto-heuristic / auto-longstop / null(미분류)
     OeeDowntimeClue? Clue = null,     // abnormal/usertag 시간겹침 단서(표시 전용 — 건수·MTBF 미반영, doc/21 §4)
-    bool IsNonProd = false);          // 구분=비생산(A 분모 밖). 수동(reasonCode='non_production') 또는 당일 자동(10×CT) 판정
+    bool IsNonProd = false,           // 구분=비생산(A 분모 밖). 수동(reasonCode='non_production') 또는 당일 자동(10×CT) 판정
+    bool IsWait = false);             // 대기(고장 여파, doc/25 §1) — 같은 창에 유발 flow 고장 존재. IsNonProd=true 면
+                                      // 대기 비생산(분모 밖), false 면 대기 공백(A 손실·건수 미반영). 라벨 표시용
 
 /// <summary>
 /// 정지 구간에 시간이 겹친 abnormal/usertag 점 이벤트 단서 (읽기전용 표시 — 정지 소스 아님).

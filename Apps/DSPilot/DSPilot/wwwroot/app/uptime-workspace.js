@@ -2,6 +2,8 @@
         const FAULT_DEF = { label: '고장', color: 'var(--oee-fault)', cls: 'hatch-fault', pat: 'up-pat-fault' };
         const MAINT_DEF = { label: '유지보수', color: 'var(--oee-maint)', cls: 'hatch-maint', pat: 'up-pat-maint' };
         const NONPROD_DEF = { label: '비생산', color: 'var(--nonprod)', cls: 'hatch-nonprod', pat: 'up-pat-nonprod' };
+        // 대기(고장 여파, doc/25) — 라인 내 다른 설비 고장으로 서 있던 시간(기준 이상 → 분모 밖). 비생산과 분리 표기.
+        const WAIT_DEF = { label: '대기(고장 여파)', color: 'var(--oee-slack, #7dd3fc)', cls: 'hatch-wait', pat: 'up-pat-wait' };
 
         // 일자별 차트 인스턴스 — Alpine 반응형 밖에 보관(Proxy 크래시 방지)
         let _dailyChart = null;
@@ -1653,11 +1655,13 @@
                 },
 
                 // ── 정지 필터 ── 상위 = 탭(비가동/비생산, isNonProd), 하위 = 고장/유지보수(비가동 탭 전용).
+                //    대기(공백) 행(isWait && !isNonProd, doc/25)은 고장도 유지보수도 아니므로 하위 필터에 걸리지 않게 통과.
                 get filteredDowntime() {
                     return this.downtime.filter(d => {
                         if (this.dtFilterStatus !== 'all' && d.status !== this.dtFilterStatus) return false;
                         if (this.dtTab === 'nonprod') return !!d.isNonProd;
                         if (d.isNonProd) return false;
+                        if (d.isWait) return this.dtFilterFault !== 'maintenance';   // 대기(공백) — 고장 필터엔 노출(여파 추적), 유지보수 필터엔 제외
                         if (this.dtFilterFault === 'fault' && !d.isFailure) return false;
                         if (this.dtFilterFault === 'maintenance' && d.isFailure) return false;
                         return true;
@@ -1736,6 +1740,9 @@
                         const maint = Math.min(down, Math.max(0, o.downMaintWallMs || 0));
                         const fault = Math.min(Math.max(0, down - maint), Math.max(0, o.downFaultWallMs || 0));
                         const slack = Math.max(0, down - maint - fault);
+                        // 대기(고장 여파, doc/25) — 공백 성분 중 "라인 고장으로 서 있던 시간"(기준 미만 형제 정지).
+                        //   계산상 slack 에 포함(A 손실 유지), 툴팁에서만 미세 슬랙과 구분 표기해 진단 가치 보존.
+                        const waitSlack = Math.min(slack, Math.max(0, o.waitSlackWallMs || 0));
                         const failCount = Math.max(0, o.failureCount || 0);
                         const cycles = Math.max(0, o.normalCycleCount || 0);
                         const runPct = avail > 0 ? r1(run / avail * 100) : 0;
@@ -1746,9 +1753,10 @@
                             mode: 'wallclock', hasData: avail > 0,
                             runMs: run, stopMs: maint + fault, runPct, stopPct: r1(maintPct + faultPct),
                             faultMs: fault, maintMs: maint, faultPct, maintPct,
-                            slackMs: slack, slackPct,
+                            slackMs: slack, slackPct, waitSlackMs: waitSlack,
                             // 사이클당 환산(초) — "43m"이 커 보여도 사이클당 0.6s 수준임을 병기해 오해 방지(커지면 그 자체가 경고).
-                            slackPerCycleS: cycles > 0 ? Math.round(slack / cycles / 100) / 10 : 0,
+                            // 대기(여파) 성분은 이벤트성이라 사이클당 환산에서 제외 — 미세 슬랙 진단 지표 희석 방지(doc/25 §3.3).
+                            slackPerCycleS: cycles > 0 ? Math.round((slack - waitSlack) / cycles / 100) / 10 : 0,
                             runLabel: '가동 (생산가능시간 내)',
                             stopLabel: '비가동 · 고장',
                             runNote: cycles + '회', stopNote: failCount + '건',
@@ -1906,17 +1914,20 @@
                     const maintMs = Math.min(down, Math.max(0, o.downMaintWallMs || 0));
                     // 고장 = 감지 정지 이벤트에 실제로 덮인 비가동만(2026-07-14) — 가동간 공백(잔여 슬랙)은 정지 아님.
                     const faultMs = Math.min(Math.max(0, down - maintMs), Math.max(0, o.downFaultWallMs || 0));
-                    const nonProdMs = Math.max(0, o.nonProdWallMs || 0);
+                    // 비생산을 [일반 비생산 / 대기(고장 여파, doc/25)] 로 분화 — 대기는 계산상 비생산(분모 밖)이지만
+                    // "계획 외 유휴"가 아니라 "라인 고장 때문에 선 시간"이므로 세그먼트를 분리해 사건이 보이게 한다.
+                    const waitMs = Math.min(Math.max(0, o.waitWallMs || 0), Math.max(0, o.nonProdWallMs || 0));
+                    const nonProdMs = Math.max(0, (o.nonProdWallMs || 0) - waitMs);
                     // 정지건수 = 벽시계 감지 정지 이벤트 수(요약 KPI failureCount = 가용성 정산 바의 'N건'과 동일 소스).
                     //   failureCount 는 이상치초과 사이클 + 무사이클 갭을 센다(this.downtime 로그 테이블엔 무사이클/고장비트만
                     //   적재돼 로그 0 이어도 실제 정지는 있을 수 있으므로 로그 행 수는 쓰지 않는다).
                     const count = Math.max(0, o.failureCount || 0);
-                    const totalMs = faultMs + maintMs + nonProdMs;
-                    // 표시 게이트: 정지 이벤트(failureCount)나 비생산이 하나라도 있으면 표시(고장=귀속값이라 공백은 이미 제외).
-                    if (totalMs <= 0 || (count <= 0 && nonProdMs <= 0)) return { count, has: false, segs: [] };
+                    const totalMs = faultMs + maintMs + nonProdMs + waitMs;
+                    // 표시 게이트: 정지 이벤트(failureCount)나 비생산/대기가 하나라도 있으면 표시(고장=귀속값이라 공백은 이미 제외).
+                    if (totalMs <= 0 || (count <= 0 && nonProdMs <= 0 && waitMs <= 0)) return { count, has: false, segs: [] };
                     const C = 2 * Math.PI * 38;
                     const segs = [];
-                    const defs = [{ def: FAULT_DEF, ms: faultMs }, { def: MAINT_DEF, ms: maintMs }, { def: NONPROD_DEF, ms: nonProdMs }].filter(x => x.ms > 0);
+                    const defs = [{ def: FAULT_DEF, ms: faultMs }, { def: MAINT_DEF, ms: maintMs }, { def: NONPROD_DEF, ms: nonProdMs }, { def: WAIT_DEF, ms: waitMs }].filter(x => x.ms > 0);
                     let prior = 0;
                     for (const { def, ms } of defs) {
                         const len = ms / totalMs * C, gap = C - len, offset = -(prior / totalMs * C);
@@ -1933,13 +1944,15 @@
                     const pat = (id, color) => `<pattern id="${id}" patternUnits="userSpaceOnUse" width="7" height="7">`
                         + `<rect width="7" height="7" fill="${color}"></rect>`
                         + `<path d="M0,7 L7,0 M-1.5,1.5 L1.5,-1.5 M5.5,8.5 L8.5,5.5" stroke="rgba(255,255,255,0.55)" stroke-width="1.3"></path></pattern>`;
-                    let s = `<defs>${pat('up-pat-fault', 'var(--oee-fault)')}${pat('up-pat-maint', 'var(--oee-maint)')}${pat('up-pat-nonprod', 'var(--nonprod)')}</defs>`;
+                    let s = `<defs>${pat('up-pat-fault', 'var(--oee-fault)')}${pat('up-pat-maint', 'var(--oee-maint)')}${pat('up-pat-nonprod', 'var(--nonprod)')}${pat('up-pat-wait', 'var(--oee-slack, #7dd3fc)')}</defs>`;
                     s += '<circle class="up-donut-track" cx="50" cy="50" r="38" fill="none" stroke-width="14"></circle>';
                     // 고장/유지보수 세그는 클릭 드릴다운(날짜별 비가동 패턴) 대상 — data-seg 로 onFaultDonutClick 이 식별.
                     for (const seg of d.segs) {
-                        const segKey = seg.pat === 'up-pat-fault' ? 'fault' : (seg.pat === 'up-pat-maint' ? 'maint' : 'nonprod');
-                        const click = segKey !== 'nonprod' ? ` data-seg="${segKey}" style="cursor:pointer;"` : '';
-                        s += `<circle cx="50" cy="50" r="38" fill="none" stroke="url(#${seg.pat})" stroke-width="14" stroke-dasharray="${seg.dash}" stroke-dashoffset="${seg.offset}" transform="rotate(-90 50 50)"${click}><title>${this.esc(seg.label)}${segKey !== 'nonprod' ? ' — 클릭 → 날짜별 비가동 패턴' : ''}</title></circle>`;
+                        const segKey = seg.pat === 'up-pat-fault' ? 'fault' : (seg.pat === 'up-pat-maint' ? 'maint'
+                            : (seg.pat === 'up-pat-wait' ? 'wait' : 'nonprod'));
+                        const drill = segKey === 'fault' || segKey === 'maint';   // 대기/비생산은 드릴다운 비대상
+                        const click = drill ? ` data-seg="${segKey}" style="cursor:pointer;"` : '';
+                        s += `<circle cx="50" cy="50" r="38" fill="none" stroke="url(#${seg.pat})" stroke-width="14" stroke-dasharray="${seg.dash}" stroke-dashoffset="${seg.offset}" transform="rotate(-90 50 50)"${click}><title>${this.esc(seg.label)}${drill ? ' — 클릭 → 날짜별 비가동 패턴' : ''}</title></circle>`;
                     }
                     s += `<text class="up-donut-total" x="50" y="49" text-anchor="middle">${d.count}</text>`;
                     s += '<text class="up-donut-cap" x="50" y="61" text-anchor="middle">정지건수</text>';
@@ -1969,9 +1982,9 @@
                     if (seg.pat === 'up-pat-fault') this.openDtPattern('fault');
                     else if (seg.pat === 'up-pat-maint') this.openDtPattern('maintenance');
                 },
-                // 패턴 대상 이벤트 — 비가동만(비생산 제외) + 하위 필터(고장/유지보수)
+                // 패턴 대상 이벤트 — 비가동만(비생산·대기 제외, doc/25) + 하위 필터(고장/유지보수)
                 dtPatEvents() {
-                    return this.downtime.filter(d => !d.isNonProd
+                    return this.downtime.filter(d => !d.isNonProd && !d.isWait
                         && (this.dtPat.filter === 'all' || (this.dtPat.filter === 'fault' ? !!d.isFailure : !d.isFailure)));
                 },
                 // 날짜 행 배열(최근이 위) — 각 이벤트 [startAt, endAt|now] 를 기간으로 클립 후 로컬 자정 경계로 접고,

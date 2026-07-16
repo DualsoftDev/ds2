@@ -133,6 +133,9 @@
         /* 비생산(분모 밖 제외) = 남색 슬레이트(--nonprod, ds.css) + 푸른 빗금 — 일자별 추이 캔버스의
            밤하늘 빗금(_nightHatchPattern)과 동일 의미의 CSS 판. TEEP 시간 분해 막대 등 DOM 막대·스와치 공용 */
         .hatch-nonprod { background-color: var(--nonprod); background-image: repeating-linear-gradient(45deg, rgba(96,140,210,0.55) 0 1.4px, transparent 1.4px 6px); }
+        /* 대기(고장 여파, doc/25) — 라인 내 다른 설비 고장으로 서 있던 시간. 계산은 비생산(분모 밖)이지만
+           "계획 외 유휴"가 아닌 "사건의 여파"라서 공백(하늘색) 계열 + 정지 빗금으로 구분. 도넛/스와치 공용 */
+        .hatch-wait { background-color: var(--oee-slack); background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.55) 0 1.4px, transparent 1.4px 6px); }
         /* 미계측(수신 공백, doc/22 §3.4) — 회색 빗금: '모르는 시간' */
         .hatch-unmeas { background-color: color-mix(in srgb, var(--color-text-secondary) 55%, var(--color-surface)); background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.5) 0 1.4px, transparent 1.4px 6px); }
         /* 누적 막대(가용성 정산 / TEEP 시간 분해) 세그먼트 내부 % 라벨 — 폭이 넉넉한 구간에만 x-show 로 노출.

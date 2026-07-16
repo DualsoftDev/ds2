@@ -167,6 +167,12 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             // 없음). detectSource(감지 출처)와 의미 구분: 분류가 어떻게 정해졌는지(manual/auto-bit/auto-heuristic/NULL).
             await EnsureColumnAsync(conn, "oeeDowntimeEvent", "classifySource", "TEXT");
 
+            // 자가치유(doc/25 §4.1, 2026-07-16) — 감지 로그의 판정 뒤집힘 대응.
+            //   lastConfirmedAt: 마지막으로 집계 패스가 재확인(UPSERT)한 시각 — 생존 마커.
+            //   invalidatedAt : 재판정으로 무효화된 시각(NULL=유효). 삭제 대신 마킹 — 감사 행 보존, 표시에서 제외.
+            await EnsureColumnAsync(conn, "oeeNonProdDetectionLog", "lastConfirmedAt", "TEXT");
+            await EnsureColumnAsync(conn, "oeeNonProdDetectionLog", "invalidatedAt", "TEXT");
+
             // prev*(2026-07-08) — 비생산으로 보내기 전의 비가동 분류 스태시. 비생산→비가동 왕복 시 유지보수 등
             // 원래 분류를 복원하기 위함(prevIsFailure IS NOT NULL = 스태시 있음 마커).
             await EnsureColumnAsync(conn, "oeeDowntimeEvent", "prevReasonCode", "TEXT");
@@ -750,17 +756,21 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         await using var conn = await OpenAsync();
         await using var tx = await conn.BeginTransactionAsync(ct);
         // 조회마다 같은 구간이 다시 감지되므로 (flowName, onsetAt, detectionReason) 멱등 UPSERT — 재삽입 대신 끝/지속/임계 갱신.
+        // lastConfirmedAt = 재확인 생존 마커(자가치유 판정 기준), invalidatedAt 해제 = 재감지 시 부활(doc/25 §4.1).
         const string sql = @"
             INSERT INTO oeeNonProdDetectionLog
-                (flowName, onsetAt, clearAt, durationMs, detectionSource, detectionReason, ctThresholdMs, ctMultiplier)
+                (flowName, onsetAt, clearAt, durationMs, detectionSource, detectionReason, ctThresholdMs, ctMultiplier, lastConfirmedAt)
             VALUES
-                (@FlowName, @OnsetAt, @ClearAt, @DurationMs, @DetectionSource, @DetectionReason, @CtThresholdMs, @CtMultiplier)
+                (@FlowName, @OnsetAt, @ClearAt, @DurationMs, @DetectionSource, @DetectionReason, @CtThresholdMs, @CtMultiplier, @Now)
             ON CONFLICT(flowName, onsetAt, detectionReason) DO UPDATE SET
-                clearAt       = excluded.clearAt,
-                durationMs    = excluded.durationMs,
-                ctThresholdMs = excluded.ctThresholdMs,
-                ctMultiplier  = excluded.ctMultiplier";
+                clearAt         = excluded.clearAt,
+                durationMs      = excluded.durationMs,
+                ctThresholdMs   = excluded.ctThresholdMs,
+                ctMultiplier    = excluded.ctMultiplier,
+                lastConfirmedAt = excluded.lastConfirmedAt,
+                invalidatedAt   = NULL";
         int n = 0;
+        var now = Iso(DateTime.UtcNow);
         foreach (var e in entries)
         {
             n += await conn.ExecuteAsync(sql, new
@@ -773,10 +783,39 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
                 e.DetectionReason,
                 e.CtThresholdMs,
                 e.CtMultiplier,
+                Now = now,
             }, tx);
         }
         await tx.CommitAsync(ct);
         return n;
+    }
+
+    public async Task<int> InvalidateStaleNonProdDetectionsAsync(
+        DateTime fromUtc, DateTime toUtc, IReadOnlyList<string> flows, bool includeLineScope,
+        DateTime batchMarkUtc, CancellationToken ct = default)
+    {
+        await using var conn = await OpenAsync();
+        // 이번 패스가 재확인하지 않은(=lastConfirmedAt < 패스 시작) 창 안 행만 무효화. 대상 flow 는 이번 패스가
+        // 실제 처리한 것으로 한정 — 임계를 잃은(14일 무사이클) flow 의 과거 유효 감지를 오폭하지 않는다.
+        // 라인 스코프('') 행은 라인 집계 패스만 정리(flow 패스는 라인 행을 재감지할 수 없음).
+        var scopes = new List<string>(flows);
+        if (includeLineScope) scopes.Add("");
+        if (scopes.Count == 0) return 0;
+        const string sql = @"
+            UPDATE oeeNonProdDetectionLog
+            SET invalidatedAt = @Now
+            WHERE invalidatedAt IS NULL
+              AND onsetAt >= @From AND onsetAt < @To
+              AND flowName IN @Scopes
+              AND (lastConfirmedAt IS NULL OR lastConfirmedAt < @Mark)";
+        return await conn.ExecuteAsync(sql, new
+        {
+            Now = Iso(DateTime.UtcNow),
+            From = Iso(fromUtc),
+            To = Iso(toUtc),
+            Scopes = scopes,
+            Mark = Iso(batchMarkUtc),
+        });
     }
 
     public async Task<IReadOnlyList<(double S, double E)>> GetNonProdIntervalsFromLogAsync(
@@ -796,12 +835,16 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         }
         // UTC epoch ms (GetDowntimeIntervalsAsync 와 동일 변환). open(clearAt NULL)은 @Cap(min(now,to))로 마감.
         // onset 이 기간에 든 감지만(materialize 가 기간창 단위로 이뤄지므로 일치). 라인(flow=null)은 전체 반환 → 호출측 Union.
+        // invalidatedAt(자가치유, doc/25 §4.1) 행 제외 + 대기(wait-starve — 고장 여파, doc/25 §4.2)는 비생산
+        // 시간대 표시/학습에서 제외(시각대 패턴이 아니라 사건이므로).
         const string startMs = "CAST((julianday(onsetAt) - 2440587.5) * 86400000 AS INTEGER)";
         const string endMs = "CAST((julianday(COALESCE(clearAt, @Cap)) - 2440587.5) * 86400000 AS INTEGER)";
         var sql = $@"
             SELECT {startMs} AS S, {endMs} AS E
             FROM oeeNonProdDetectionLog
             WHERE onsetAt >= @From AND onsetAt < @To {flowClause}
+              AND invalidatedAt IS NULL
+              AND detectionReason <> 'wait-starve'
             ORDER BY onsetAt";
         var rows = await conn.QueryAsync<IntervalMsRow>(sql, p);
         return rows.Select(r => (S: (double)r.S, E: (double)r.E)).Where(iv => iv.E > iv.S).ToList();
@@ -814,9 +857,13 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
     {
         await using var conn = await OpenAsync();
         // open(clearAt NULL) 감지는 now 로 캡해 겹침 판정 — '비가동으로 보내기' 확정 구간의 stale 감지 청소.
+        // doc/25 §4.1 부터 삭제 대신 invalidatedAt 마킹(감사 행 보존). 이후 자동 재감지가 UPSERT 로 부활시켜도
+        // 수동 오버라이드(toDownIv)가 집계에서 승격을 억제하므로 KPI 는 안전 — 마킹은 표시 정합용.
         const string sql = @"
-            DELETE FROM oeeNonProdDetectionLog
-            WHERE onsetAt < @To AND COALESCE(clearAt, @Now) > @From";
+            UPDATE oeeNonProdDetectionLog
+            SET invalidatedAt = @Now
+            WHERE invalidatedAt IS NULL
+              AND onsetAt < @To AND COALESCE(clearAt, @Now) > @From";
         return await conn.ExecuteAsync(sql, new { From = Iso(fromUtc), To = Iso(toUtc), Now = Iso(DateTime.UtcNow) });
     }
 

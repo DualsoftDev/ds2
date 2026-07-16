@@ -119,16 +119,28 @@ public interface IOeeRepository
     /// <summary>
     /// 자동 인식 비생산(≥10×14일평균CT) 감지들을 UPSERT(멱등 — (flowName, onsetAt, detectionReason) 키).
     /// ComputeCycleAggregateAsync 가 조회 시 materialize. 라인 스코프(flowName=null)는 "" 로 정규화 저장. 영향 행 수 반환.
+    /// 재확인 시 lastConfirmedAt 갱신 + invalidatedAt 해제(부활) — 자가치유(doc/25 §4.1)의 생존 마커.
     /// </summary>
     Task<int> UpsertNonProdDetectionsAsync(IReadOnlyList<OeeNonProdDetectionLog> entries, CancellationToken ct = default);
+
+    /// <summary>
+    /// 자가치유(doc/25 §4.1) — 창 안(onsetAt ∈ [fromUtc, toUtc))의 감지 행 중 이번 집계 패스(batchMarkUtc 이후
+    /// UPSERT)가 재확인하지 않은 행을 invalidatedAt 마킹(삭제 대신 — 감사 보존, 표시에서만 제외).
+    /// flows = 이번 패스가 실제 처리한 flow 목록(임계 없는 flow 의 과거 행 오폭 방지), includeLineScope = 라인
+    /// 스코프('') 행 포함 여부(라인 집계 패스만 true). 마킹 행 수 반환.
+    /// </summary>
+    Task<int> InvalidateStaleNonProdDetectionsAsync(
+        DateTime fromUtc, DateTime toUtc, IReadOnlyList<string> flows, bool includeLineScope,
+        DateTime batchMarkUtc, CancellationToken ct = default);
 
     /// <summary>기간 내 자동 비생산 감지 구간(UTC epoch ms)을 로그에서 조회. flow 지정=그 flow, null=전체(라인 — union 은 호출측). open 은 min(now,to) 캡.</summary>
     Task<IReadOnlyList<(double S, double E)>> GetNonProdIntervalsFromLogAsync(
         DateTime fromUtc, DateTime toUtc, string? flowName, CancellationToken ct = default);
 
     /// <summary>
-    /// [fromUtc, toUtc] 와 겹치는 자동 비생산 감지 로그 행 삭제 — 사용자가 그 구간을 '비가동으로 보내기' 확정했을 때
-    /// stale 감지가 actual/추이 표시에 되살아나지 않게 청소한다(2026-07-08). 삭제 행 수 반환.
+    /// [fromUtc, toUtc] 와 겹치는 자동 비생산 감지 로그 행을 invalidatedAt 마킹 — 사용자가 그 구간을 '비가동으로
+    /// 보내기' 확정했을 때 stale 감지가 actual/추이 표시에 되살아나지 않게 한다(2026-07-08, doc/25 §4.1 부터
+    /// 삭제 대신 마킹 — 감사 행 보존). 마킹 행 수 반환.
     /// </summary>
     Task<int> DeleteNonProdDetectionsOverlappingAsync(
         DateTime fromUtc, DateTime toUtc, CancellationToken ct = default);

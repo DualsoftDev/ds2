@@ -314,7 +314,8 @@ public class OeeMetricsController : OeeControllerBase
 
         // 벽시계 단일모델(2026-07-06): 추이 = 요약 KPI 와 동일 SSOT(ComputeCycleAggregateAsync 벽시계 구간).
         //   슬롯별 [가동 / 고장 / 유지보수 / 비생산 / 미계측] flow 합산 — 세로 합 = 정산, 정지부 = 도넛.
-        //   가동·유지보수는 flow별 구간 연결(concat) SumOverlap(=flow 합), 비생산·미계측은 전역이라 ×flow수.
+        //   가동·유지보수·비생산(doc/25 §3.1 flow 귀속화)은 flow별 구간 연결(concat) SumOverlap(=flow 합),
+        //   미계측만 라인 공통이라 ×flow수.
         var thresholds = await ResolveCtThresholdsAsync();
         var (plannedWindows, _, applyLongStop) = await ResolvePlannedWindowsAsync(thresholds, ct);
         var evIntervals = await _repo.GetDowntimeIntervalsAsync(fromUtc, toUtc, flowName, ct);
@@ -334,10 +335,10 @@ public class OeeMetricsController : OeeControllerBase
         var maintWall = ToLong(agg.DownMaintWallIntervals);    // flow별 유지보수(비가동∩유지이벤트) 연결
         var faultWall = ToLong(agg.DownFaultWallIntervals);    // flow별 고장(비가동∩감지 정지) 연결 — 잔여 슬랙은 가동에 흡수
         var unmeasuredIv = agg.UnmeasuredIntervals ?? new List<(double S, double E)>();
-        // 비생산(표시) = 지정 창 + 당일 판정 + 사용자 강제 − 미계측(미계측 우선). 전역이라 슬롯에서 ×flowCount.
-        // (구 휴무 요일 차감은 2026-07-08 당일 판정 모델로 제거 — 쉬는 날은 10×CT 규칙이 비생산으로 흡수.)
-        var nonProdDisp = ToLong(Intervals.Subtract(
-            agg.NonProdIntervals ?? new List<(double S, double E)>(), unmeasuredIv));
+        // 비생산(표시) = 지정 창 + 당일 판정 + 대기 + 사용자 강제. doc/25 §3.1 부터 agg.NonProdIntervals 는
+        // flow별 concat(기간 클립·미계측 차감 완료) — 슬롯에서 그대로 SumOverlap(가동·유지보수와 동일 축, ×flowCount 금지).
+        // 미계측만 여전히 라인 공통이라 ×flowCount.
+        var nonProdDisp = ToLong(agg.NonProdIntervals ?? new List<(double S, double E)>());
         var unmeasuredL = ToLong(unmeasuredIv);
 
         static long SumOverlap(List<(long S, long E)> segs, long slotS, long slotE)
@@ -354,8 +355,8 @@ public class OeeMetricsController : OeeControllerBase
             var sE = (long)ToMs(Min(toUtc, slotEndUtc));
             var slotWall = Math.Max(0, sE - sS);
             long slotCal = slotWall * flowCount;
-            long nonProd = SumOverlap(nonProdDisp, sS, sE) * flowCount;
-            long unmeasured = SumOverlap(unmeasuredL, sS, sE) * flowCount;
+            long nonProd = SumOverlap(nonProdDisp, sS, sE);                // flow별 concat — 곱 없음(doc/25 §3.1)
+            long unmeasured = SumOverlap(unmeasuredL, sS, sE) * flowCount; // 미계측은 라인 공통 유지 — ×flow수
             long run = SumOverlap(runWall, sS, sE);
             long available = Math.Max(0, slotCal - nonProd - unmeasured);
             long down = Math.Max(0, available - run);            // 비가동 = 생산가능 − 가동(잔여)

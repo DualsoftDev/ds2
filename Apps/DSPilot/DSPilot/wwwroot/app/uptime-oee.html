@@ -232,11 +232,12 @@
                             </div>
                             <div style="display:flex; gap:18px; margin-top:8px; font-size:0.72rem; color:var(--color-text-secondary); flex-wrap:wrap;">
                                 <span><span x-text="availComp.runLabel"></span> <b x-text="durShort(availComp.runMs)"></b> (<span x-text="availComp.runPct + '%'"></span>)<template x-if="availComp.runNote"><span x-text="' · ' + availComp.runNote"></span></template></span>
-                                <span x-show="availComp.slackMs > 0" title="사이클 간 임계 미만 미세 공백 — 감지된 정지 아님">가동간 공백 <b x-text="durShort(availComp.slackMs)"></b> (<span x-text="availComp.slackPct + '%'"></span>)<span x-show="availComp.slackPerCycleS > 0" x-text="' · 사이클당 ' + availComp.slackPerCycleS + 's'"></span></span>
+                                <span x-show="availComp.slackMs > 0" :title="'사이클 간 임계 미만 미세 공백 — 감지된 정지 아님' + (availComp.waitSlackMs > 0 ? ('. 이 중 ' + durShort(availComp.waitSlackMs) + ' 는 대기(라인 고장 여파, 고장 건수 미반영)') : '')">가동간 공백 <b x-text="durShort(availComp.slackMs)"></b> (<span x-text="availComp.slackPct + '%'"></span>)<span x-show="availComp.slackPerCycleS > 0" x-text="' · 사이클당 ' + availComp.slackPerCycleS + 's'"></span><span x-show="availComp.waitSlackMs > 0" style="color:var(--color-text-secondary);" x-text="' · 대기(여파) ' + durShort(availComp.waitSlackMs)"></span></span>
                                 <span x-show="availComp.faultMs > 0"><span x-text="availComp.stopLabel"></span> <b x-text="durShort(availComp.faultMs)"></b> (<span x-text="availComp.faultPct + '%'"></span>)<template x-if="availComp.stopNote"><span x-text="' · ' + availComp.stopNote"></span></template></span>
                                 <span x-show="availComp.maintMs > 0">비가동 · 유지보수 <b x-text="durShort(availComp.maintMs)"></b> (<span x-text="availComp.maintPct + '%'"></span>)</span>
                                 <span x-show="availComp.maintMs > 0 && availComp.faultMs > 0">비가동 합계 <b x-text="durShort(availComp.stopMs)"></b> (<span x-text="availComp.stopPct + '%'"></span>)</span>
                                 <span x-show="availComp.mode === 'wallclock' && oee && oee.plannedDownMs > 0">비생산 시간 <b x-text="durShort(oee.plannedDownMs)"></b> <span class="up-codeish" x-text="(oee.plannedStopSource === 'both' ? '당일 자동+수동 지정' : '당일 자동 감지') + '·분모 밖'"></span></span>
+                                <span x-show="availComp.mode === 'wallclock' && oee && oee.waitWallMs > 0" title="라인 내 다른 설비 고장으로 서 있던 시간(기준 이상) — 분모 밖, 고장 건수 미반영">대기(고장 여파) <b x-text="durShort(oee.waitWallMs)"></b> <span class="up-codeish">분모 밖·건수 제외</span></span>
                                 <span x-show="availComp.mode === 'wallclock'">가동시간 이상치 <b x-text="durShort(oee.ctThresholdMs)"></b> <span class="up-codeish">14일 평균</span></span>
                                 <span x-show="availComp.mode === 'fallback'">계획시간 기준 <span class="up-codeish" x-text="availComp.sourceLabel"></span></span>
                             </div>
@@ -326,7 +327,7 @@
 
                     <!-- 정지 고장/유지보수 도넛 — 합계가 상단 '기간 정지'와 일치 -->
                     <section class="card up-section">
-                        <div class="ds-card-h"><h4>정지 구성</h4><span class="ds-card-h-sub">고장 · 유지보수 · 비생산 비중 (지속시간 기준)</span></div>
+                        <div class="ds-card-h"><h4>정지 구성</h4><span class="ds-card-h-sub">고장 · 유지보수 · 비생산 · 대기(고장 여파) 비중 (지속시간 기준)</span></div>
                         <template x-if="faultDist.has">
                             <div class="up-dist">
                                 <!-- 고장/유지보수 세그·범례 클릭 → 날짜별 비가동 패턴 드릴다운 (data-seg 는 faultDonutSvg 가 심음) -->
@@ -334,8 +335,8 @@
                                 <div class="up-legend">
                                     <template x-for="seg in faultDist.segs" :key="seg.label">
                                         <div class="up-legend-row" @click="onFaultLegendClick(seg)"
-                                             :style="seg.pat !== 'up-pat-nonprod' ? 'cursor:pointer;' : ''"
-                                             :title="seg.pat !== 'up-pat-nonprod' ? '클릭 → 날짜별 비가동 패턴' : ''">
+                                             :style="(seg.pat === 'up-pat-fault' || seg.pat === 'up-pat-maint') ? 'cursor:pointer;' : ''"
+                                             :title="(seg.pat === 'up-pat-fault' || seg.pat === 'up-pat-maint') ? '클릭 → 날짜별 비가동 패턴' : (seg.pat === 'up-pat-wait' ? '대기(고장 여파) — 라인 내 다른 설비 고장으로 서 있던 시간(분모 밖·고장 건수 미반영)' : '')">
                                             <span class="up-legend-swatch" :class="seg.cls"></span>
                                             <span class="up-legend-name" x-text="seg.label"></span>
                                             <span class="up-legend-share" x-text="seg.share + '%'"></span>
@@ -465,15 +466,18 @@
                                             </td>
                                             <td data-label="구분" style="white-space:nowrap;">
                                                 <template x-if="d.isNonProd">
-                                                    <span style="color:var(--nonprod);font-weight:700;" :title="'비생산 — 가용성(A) 분모 밖 · ' + (d.classifySource === 'manual' ? '사용자 확정' : '당일 자동 판정(장시간 정지)')">비생산</span>
+                                                    <span style="color:var(--nonprod);font-weight:700;" :title="d.isWait ? '대기(고장 여파) — 같은 시간 라인 내 다른 설비 고장으로 서 있던 시간. 가용성(A) 분모 밖 · 고장 건수 미반영' : ('비생산 — 가용성(A) 분모 밖 · ' + (d.classifySource === 'manual' ? '사용자 확정' : '당일 자동 판정(장시간 정지)'))" x-text="d.isWait ? '비생산 · 대기' : '비생산'"></span>
                                                 </template>
-                                                <template x-if="!d.isNonProd && !isSyntheticDt(d)">
+                                                <template x-if="!d.isNonProd && d.isWait">
+                                                    <span style="color:var(--oee-slack, #7dd3fc);font-weight:700;" title="대기(고장 여파, 기준 미만) — 가동간 공백으로 계산(A 손실), 고장 건수·MTBF 미반영">대기(공백)</span>
+                                                </template>
+                                                <template x-if="!d.isNonProd && !d.isWait && !isSyntheticDt(d)">
                                                     <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;" :title="d.isFailure ? '고장 — 클릭하면 유지보수로 변경' : '유지보수 — 클릭하면 고장으로 변경'">
                                                         <input type="checkbox" class="up-dt-cb" :checked="d.isFailure" @change="setFault(d, $event.target.checked)">
                                                         <span x-text="d.isFailure ? '고장' : '유지보수'" :style="d.isFailure ? 'color:var(--oee-fault);font-weight:700;' : 'color:var(--oee-maint);font-weight:700;'"></span>
                                                     </label>
                                                 </template>
-                                                <template x-if="!d.isNonProd && isSyntheticDt(d)">
+                                                <template x-if="!d.isNonProd && !d.isWait && isSyntheticDt(d)">
                                                     <span x-text="'고장'" style="color:var(--oee-fault);font-weight:700;" title="가동시간 이상치를 초과한 사이클(계산 유래) — 고장/유지보수 체크는 불가, 비생산 보내기는 가능"></span>
                                                 </template>
                                             </td>
@@ -505,7 +509,7 @@
 
                     <!-- 상세 설명은 각 요소 툴팁으로 대체(2026-07-08) — 하단은 핵심 한 줄만 -->
                     <div style="font-size:0.62rem; color:var(--color-text-secondary); margin-top:12px;">
-                        고장 체크 해제 = 유지보수(MTBF 제외) · <b style="color:var(--nonprod);">비생산</b> = 가용성(A) 분모 밖 · 단서는 표시용(건수·MTBF 미반영)
+                        고장 체크 해제 = 유지보수(MTBF 제외) · <b style="color:var(--nonprod);">비생산</b> = 가용성(A) 분모 밖 · <b>대기</b> = 라인 고장 여파(건수 미반영, 신호 기반 자동 판별) · 단서는 표시용(건수·MTBF 미반영)
                     </div>
                     </div>
                 </div>

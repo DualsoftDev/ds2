@@ -45,6 +45,51 @@ public static class OeeMath
         => ctThresholdMs > 0 && multiplier > 0 && idleDurationMs >= multiplier * ctThresholdMs;
 
     /// <summary>
+    /// 신호 기반 정지 분류 결과 (doc/25 §1 분류표). 무변화 정지(무사이클 갭·미완료 멈춤) 하나를 flow 관점에서
+    /// 분류한다. 완료된 MT 과주행 사이클(움직인 증거)은 이 함수 대상이 아니다 — 호출측이 무조건 고장 유지.
+    /// </summary>
+    public enum StopClass
+    {
+        /// <summary>고장 — A 손실 + 고장 건수/MTBF 반영.</summary>
+        Fault,
+        /// <summary>대기(고장 여파, 기준 미만) — 공백으로 귀속: A 손실이지만 고장 건수/MTBF 미반영.</summary>
+        WaitSlack,
+        /// <summary>대기(고장 여파, 기준 이상) — 비생산(분모 밖)·대기 라벨, 고장 건수/MTBF 미반영.</summary>
+        WaitNonProd,
+        /// <summary>비가동(무신호, 기준 미만) — 현행 규칙 그대로: A 손실 + 건수 반영.</summary>
+        Down,
+        /// <summary>비생산(무신호, 기준 이상 승격) — 분모 밖, 건수 미반영 (doc/22 §3.3 현행).</summary>
+        NonProduction,
+    }
+
+    /// <summary>
+    /// 무변화 정지 창의 신호 기반 분류 (doc/25 §1 SSOT — 단위 테스트 대상).
+    /// 우선순위: ① 자기 flow 귀속 신호(abnormal) = 유발자 → 고장(길이 무관).
+    ///           ② 같은 창에 라인 내 유발자 존재(자기 신호 없음) → 대기: 기준(nonProdMult×thr) 미만 공백 / 이상 비생산.
+    ///           ③ usertag(라인 스코프)만 있고 유발자 특정 불가 → 고장 유지(보수 — 형제 강등은 유발자 특정 시에만).
+    ///           ④ 라인 전체 무신호(또는 신호 규칙 비활성) → 현행 순수 CT 규칙(기준 이상 비생산 승격 / 미만 비가동).
+    /// signalRulesActive=false(설정 OFF 또는 커버리지 게이트 §2.4 발동)면 ④ 만 적용 — 나머지 인자는 무시된다.
+    /// 수동 재분류(비생산↔비가동 보내기)는 이 함수 밖에서 항상 우선한다.
+    /// </summary>
+    public static StopClass ClassifyStopWindow(
+        bool signalRulesActive, bool hasOwnSignal, bool lineHasCulprit, bool lineHasAnySignal,
+        double durationMs, double ctThresholdMs, double nonProdMultiplier = NonProductionCtMultiplier)
+    {
+        if (signalRulesActive)
+        {
+            if (hasOwnSignal) return StopClass.Fault;
+            if (lineHasCulprit)
+                return IsLongStopNonProduction(durationMs, ctThresholdMs, nonProdMultiplier)
+                    ? StopClass.WaitNonProd
+                    : StopClass.WaitSlack;
+            if (lineHasAnySignal) return StopClass.Fault;   // usertag만 — 유발자 특정 불가, 보수적으로 고장 유지
+        }
+        return IsLongStopNonProduction(durationMs, ctThresholdMs, nonProdMultiplier)
+            ? StopClass.NonProduction
+            : StopClass.Down;
+    }
+
+    /// <summary>
     /// 비가동 gap 판정 배수(doc/23 §5) — gap(완료→다음 가동 간격)이 flow 자신의 클린 gap 중앙값(gap')의
     /// 이 배수를 넘으면 비가동. ×1 은 중앙값 정의상 정상 gap 절반이 초과해 오탐 → 마진 필수, ×2 는 작고
     /// 변동 큰 gap 에서 튐 → 3 을 기본으로 한다.

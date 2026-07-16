@@ -145,6 +145,11 @@ public class OeePlannedStopsController : OeeControllerBase
         List<(double S, double E)> intervals = merged.Count > 0
             ? Intervals.Union(merged)
             : (agg.NonProdIntervals ?? new List<(double S, double E)>());
+        // 대기(고장 여파, doc/25 §4.2)는 '비생산 시간대' 카드·패턴 표시에서 제외 — 시각대 습관이 아니라 사건이므로,
+        // 고장 여파 시간이 "그 시각대는 원래 비생산"으로 보이거나 학습되지 않게 한다(감지 로그 쪽은 SQL 필터).
+        if (agg.WaitScoped is { Count: > 0 })
+            intervals = Intervals.Subtract(intervals,
+                Intervals.Union(agg.WaitScoped.Select(w => (w.S, w.E)).ToList()));
         // 미계측(수신 공백, §3.4) — 데이터로는 비생산과 분리하되(별도 필드·학습 §3.5 차집합·A 별도 제외),
         // 화면 표시는 비생산에 합친다(사용자 결정 2026-07-04): 사용자 눈에는 "제외된 시간" 하나로 보이고,
         // 14일 이동평균 학습과 KPI 카빙에는 절대 안 들어간다. displayIv = 비생산 ∪ 미계측.

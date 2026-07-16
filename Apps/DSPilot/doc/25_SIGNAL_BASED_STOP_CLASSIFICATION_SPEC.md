@@ -1,6 +1,13 @@
 # 25. 신호 기반 정지 분류 + flow별 생산가능 분모 스펙
 
-> 상태: **설계(결정 확정, 구현 전)**. 2026-07-16 kit_test 실증 테스트(의도적 고장 3회)에서 확인된
+> 상태: **구현 완료(2026-07-16, P0~P2 일괄)** — 빌드·단위테스트(OeeMathTests ClassifyStopWindow 7종 포함)
+> 통과, 로컬 스모크(summary/downtime/daily/actual/teep) 통과. **kit_test 실서버 §5 회귀는 배포 후 확인 대기.**
+> 구현 위치: 분류 SSOT = [OeeMath.ClassifyStopWindow](../DSPilot/Services/OeeMath.cs), 집계 =
+> [OeeControllerBase.ComputeCycleAggregateCoreAsync](../DSPilot/Controllers/OeeControllerBase.cs),
+> 자가치유 = InvalidateStaleNonProdDetectionsAsync + [NonProdWriteQueueService.Batch](../DSPilot/Services/NonProdWriteQueueService.cs),
+> 전이 로그 = OeeDowntimeController.LogClassifyTransitions, 토글 = OeeManualSettings.SignalClassifyEnabled.
+>
+> 2026-07-16 kit_test 실증 테스트(의도적 고장 3회)에서 확인된
 > 분류 불일치 4건을 근본 수정하기 위한 스펙. 산출 공식의 정본은 [doc/22](22_OEE_CALCULATION_SPEC.md),
 > 무사이클 갭 감지는 [doc/23](23_GAP_BASED_DOWNTIME_SPEC.md) 이 정본이며, 본 문서는 **정지의
 > 분류(고장/대기/비생산/공백)와 가용성 분모의 스코프만** 다룬다.
@@ -106,9 +113,11 @@ invalidated 행 제외. 쓰기는 기존 [NonProdWriteQueueService](../DSPilot/S
 에 invalidate 작업 추가(읽기 경로 비차단 유지).
 
 ### 4.2 자동 패턴 학습 오염 방지
-'대기' 라벨 구간은 [OeeNonProdPatternService](../DSPilot/Services/OeeNonProdPatternService.cs)
-14일 학습과 '비생산 시간대' 카드의 학습 입력에서 **제외**(별도 표기는 허용) — 고장 여파가
-"그 시각대는 원래 비생산" 으로 학습되는 것을 차단.
+'대기' 라벨 구간은 '비생산 시간대' 카드(planned-stops/actual)의 표시·일별 접기에서 **제외**
+(집계 구간은 WaitScoped 차집합, 감지 로그는 `detectionReason='wait-starve'` SQL 필터) — 고장 여파가
+"그 시각대는 원래 비생산" 으로 보이지 않게 한다. ⚠한계: 섀도 학습기
+[OeeNonProdPatternService](../DSPilot/Services/OeeNonProdPatternService.cs) 는 dspFlowHistory 를 직접
+읽는 순수 CT 판정이라 신호 미반영 — 참고 표시 전용(KPI 미적용)이므로 수용, 승격 시 재설계.
 
 ### 4.3 판정 전이 로그 (원인 추적 계측)
 정지 이벤트/합성 행의 구분이 직전 계산과 달라질 때 `ILogger` 정보 로그 1줄:
@@ -117,14 +126,20 @@ invalidated 행 제외. 쓰기는 기존 [NonProdWriteQueueService](../DSPilot/S
 
 ## 5. 검증 계획 — kit_test 2026-07-16 회귀 기준표
 
-구현 후 같은 날 데이터 재조회 시 기대값(디버그 58494, Playwright 캡처 + API 대조):
+구현 후 같은 날 데이터 재조회 시 기대값(디버그 58494, Playwright 캡처 + API 대조).
+실측 신호: 08:17:09 abnormal(이송 RET) / 08:27:46 은 **usertag 만**(2nd_usb.RET_센서단선이상, abnormal 없음)
+/ 09:10:51 abnormal(이송 RET) + 09:11:00 usertag ×2.
 
 | 정지 | 현행 | 기대(본 스펙) |
 |---|---|---|
-| 08:16·08:27 (~5분·5.5분, abnormal=이송) | 고장 12건 | **이송 고장 2건**, 형제 10건 → 공백·대기(건수 0) |
+| 08:16 (~5분, abnormal=이송 08:17:09) | 고장 6건 | **이송 고장 1건**, 형제 5건 → 공백·대기(건수 0) |
+| 08:27 (~5.5분, usertag 만 — 유발 특정 불가 §2.3) | 고장 6건 | 고장 6건 **유지**(보수적 — 형제 강등은 유발자 특정 시에만) |
 | 09:10 (41분, abnormal=이송 09:10:51) | 비생산 6건·고장 0 | **이송 고장 1건(41분)**, 형제 5건 → 비생산·대기(41분) |
 | 전체 A | 96~97.8% (요동) | 이송 몫 손실만 반영 + 대기 세그먼트 가시화, 판정 불변(왕복 없음) |
-| '비생산 시간대' 카드 | stale 40분 잔존 | 재분류 시 즉시 소거(invalidate) |
+| '비생산 시간대' 카드 | stale 40분 잔존 | 재분류 시 자가치유(invalidate)로 소거, 대기는 애초 미표시(§4.2) |
+
+부수 확인: failureCount(라인)가 병합 세그먼트 수 → **flow별 이벤트 수(Σ)** 로 바뀐다(§3.2) — 정지 로그
+행 수와 정합되는 방향이나, 무신호 라인 정지에서는 건수가 flow 수만큼 커진다(릴리스 노트 명시).
 
 추가 검증: flow별 화면 = 전체 화면 분류 합 일치(문제 ③), 브리핑 메일·Excel·TEEP·사전계산
 push(`X-Dsp-Precomputed-Age-Ms`)가 동일 분모를 쓰는지 소비처 전수 대조. `OeeMath` 신규

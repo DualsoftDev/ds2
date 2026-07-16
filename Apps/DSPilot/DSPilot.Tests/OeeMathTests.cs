@@ -723,4 +723,80 @@ public class OeeMathTests
         Assert.Equal((720, 780), (w[0].StartMinutes, w[0].EndMinutes));
         Assert.Equal((1320, 1440), (w[1].StartMinutes, w[1].EndMinutes));
     }
+
+    // ── ClassifyStopWindow (doc/25 §1 분류표 SSOT) ──────────────────────────
+    //    기준 예시: thr=48s, 비생산 배수 10× → 경계 480s. 유발=flow 귀속 abnormal, 형제=같은 창에 유발자 존재.
+
+    private const double Thr = 48_000;
+
+    [Fact]
+    public void Own_signal_wins_regardless_of_duration()
+    {
+        // 유발 flow — 41분(기준 초과)이어도 고장 확정(doc/25 §0 ① kit_test 41분 이송 케이스).
+        Assert.Equal(OeeMath.StopClass.Fault, OeeMath.ClassifyStopWindow(
+            signalRulesActive: true, hasOwnSignal: true, lineHasCulprit: false, lineHasAnySignal: true,
+            durationMs: 41 * 60_000, ctThresholdMs: Thr));
+        // 짧아도 고장.
+        Assert.Equal(OeeMath.StopClass.Fault, OeeMath.ClassifyStopWindow(
+            true, true, false, true, 90_000, Thr));
+    }
+
+    [Fact]
+    public void Sibling_with_culprit_splits_by_threshold()
+    {
+        // 형제 flow — 기준(10×48s=480s) 미만 = 대기 공백(§0 ② 5분 테스트), 이상 = 대기 비생산(41분 케이스).
+        Assert.Equal(OeeMath.StopClass.WaitSlack, OeeMath.ClassifyStopWindow(
+            true, hasOwnSignal: false, lineHasCulprit: true, lineHasAnySignal: true, 300_000, Thr));
+        Assert.Equal(OeeMath.StopClass.WaitNonProd, OeeMath.ClassifyStopWindow(
+            true, false, true, true, 41 * 60_000, Thr));
+    }
+
+    [Fact]
+    public void Usertag_only_without_culprit_stays_fault()
+    {
+        // usertag(라인 스코프)만 — 유발자 특정 불가 → 보수적으로 고장 유지(§2.3), 기준 초과라도 비생산 승격 금지.
+        Assert.Equal(OeeMath.StopClass.Fault, OeeMath.ClassifyStopWindow(
+            true, hasOwnSignal: false, lineHasCulprit: false, lineHasAnySignal: true, 41 * 60_000, Thr));
+    }
+
+    [Fact]
+    public void No_signal_falls_back_to_pure_ct_rule()
+    {
+        // 라인 전체 무신호 — 현행 순수 CT 규칙: 기준 이상 비생산 / 미만 비가동.
+        Assert.Equal(OeeMath.StopClass.NonProduction, OeeMath.ClassifyStopWindow(
+            true, false, false, false, 41 * 60_000, Thr));
+        Assert.Equal(OeeMath.StopClass.Down, OeeMath.ClassifyStopWindow(
+            true, false, false, false, 300_000, Thr));
+    }
+
+    [Fact]
+    public void Inactive_rules_ignore_signals_entirely()
+    {
+        // 커버리지 게이트/설정 OFF — 신호 인자 무시, 순수 CT 규칙만(§2.4 폴백).
+        Assert.Equal(OeeMath.StopClass.NonProduction, OeeMath.ClassifyStopWindow(
+            signalRulesActive: false, hasOwnSignal: true, lineHasCulprit: true, lineHasAnySignal: true,
+            41 * 60_000, Thr));
+        Assert.Equal(OeeMath.StopClass.Down, OeeMath.ClassifyStopWindow(
+            false, true, true, true, 300_000, Thr));
+    }
+
+    [Fact]
+    public void No_threshold_never_promotes_to_nonproduction()
+    {
+        // 표본 부족(thr=0) — 승격 판정 불가 → 다운타임 유지(가짜 비생산 금지, doc/21 §10). 형제면 대기 공백.
+        Assert.Equal(OeeMath.StopClass.Down, OeeMath.ClassifyStopWindow(
+            true, false, false, false, 41 * 60_000, 0));
+        Assert.Equal(OeeMath.StopClass.WaitSlack, OeeMath.ClassifyStopWindow(
+            true, false, true, true, 41 * 60_000, 0));
+    }
+
+    [Fact]
+    public void Custom_multiplier_moves_the_boundary()
+    {
+        // 사용자 배수(예: 5×) — 경계 240s: 250s 형제 정지가 대기 비생산으로 승격.
+        Assert.Equal(OeeMath.StopClass.WaitNonProd, OeeMath.ClassifyStopWindow(
+            true, false, true, true, 250_000, Thr, nonProdMultiplier: 5));
+        Assert.Equal(OeeMath.StopClass.WaitSlack, OeeMath.ClassifyStopWindow(
+            true, false, true, true, 230_000, Thr, nonProdMultiplier: 5));
+    }
 }
