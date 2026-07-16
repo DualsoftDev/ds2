@@ -315,10 +315,8 @@
         .cctv-camset-divider { border: none; border-top: 1px solid var(--color-lines); margin: 14px 0; }
         .cctv-camset-list { max-height: 42vh; overflow-y: auto; margin-bottom: 8px; padding-right: 2px; }
         .cctv-camset-empty { color: var(--color-text-secondary); display: block; margin: 10px 0; font-size: 0.78rem; }
-        .cctv-camset-advtoggle { display: inline-flex; align-items: center; gap: 4px; background: none; border: none; padding: 4px 0; cursor: pointer; color: var(--color-text-secondary); font-size: 0.82rem; font-weight: 600; }
-        .cctv-camset-advtoggle:hover { color: var(--color-text); }
-        .cctv-camset-advtoggle .material-icons { font-size: 18px; }
         .cctv-camset-sync { color: var(--color-text-secondary); display: block; margin-top: 8px; font-size: 0.72rem; line-height: 1.5; }
+        .cctv-camset-extnote { color: var(--color-text-primary); font-size: 0.78rem; margin-top: 4px; }
         .cam-card { border: 1px solid var(--color-lines); border-radius: var(--radius-sm); padding: 10px; margin-bottom: 8px; background: var(--color-surface-variant); }
         .cam-row1 { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
         .cctv-camset .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
@@ -914,30 +912,12 @@
                     </small>
                 </div>
 
-                <hr class="cctv-camset-divider" />
-
-                <button type="button" class="cctv-camset-advtoggle" @click="camSettings.advancedOpen = !camSettings.advancedOpen"
-                        :aria-expanded="camSettings.advancedOpen ? 'true' : 'false'">
-                    <span class="material-icons" x-text="camSettings.advancedOpen ? 'expand_more' : 'chevron_right'"></span>
-                    추가설정 (MediaMTX · 포트 · 외부 접속 주소)
-                </button>
-
-                <div x-show="camSettings.advancedOpen" x-cloak style="margin-top:12px;">
-                    <div class="form-group">
-                        <label class="form-label">MediaMTX 제어 API</label>
-                        <input class="form-field mono" x-model="camSettings.mediaMtxApiUrl" placeholder="http://localhost:9997" />
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">WebRTC 포트</label>
-                        <input type="number" class="form-field mono" x-model.number="camSettings.webRtcPort" min="1" max="65535" placeholder="8889" style="width:130px;" />
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">외부 접속 주소 (공인 IP/도메인) <span style="font-weight:400; color:var(--color-text-secondary);">— 내부망만 쓰면 비워두세요</span></label>
-                        <input class="form-field mono" x-model="camSettings.webRtcAdditionalHosts" placeholder="예: 203.0.113.10  또는  cctv.example.com" />
-                        <small class="cctv-camset-empty" style="margin:6px 0 0;">
-                            원격 접속 시 <strong>필수</strong>(쉼표로 여러 개) — 방화벽에서 <span class="mono">TCP 8889·UDP/TCP 8189</span> 인바운드도 열어야 합니다.
-                        </small>
-                    </div>
+                <!-- (구 "추가설정" — MediaMTX API·WebRTC 포트·외부 접속 주소 입력은 UI 에서 제거(2026-07-16).
+                     API/포트는 설치본 고정값(예외는 설정 파일 직접 편집), 외부 주소는 전역 "설정 › 외부 접속 주소" 한 곳으로
+                     일원화 — CCTV ICE 광고는 전역 host ∪ 잔존 WebRtcAdditionalHosts 합집합(CctvMediaMtxService).
+                     값들은 openCamSettings→saveCamSettings 라운드트립으로 계속 영속되므로 기존 설치본 무손상. -->
+                <div class="cctv-camset-extnote" x-show="camSettings.externalUrl" x-cloak>
+                    외부 접속: <span class="mono" x-text="camSettings.externalUrl"></span> <span style="color:var(--color-text-secondary);">(설정 › 외부 접속 주소)</span>
                 </div>
 
                 <template x-if="camSettings.syncMessage">
@@ -1048,7 +1028,7 @@
                 hoverOverlay: null,        // { id, camId, kind, color, pos:{left, top?|bottom?}, model:{...} }
 
                 labelForm: { open: false, id: null, label: '', orig: '', saving: false },
-                camSettings: { open: false, advancedOpen: false, mediaMtxApiUrl: '', webRtcPort: 8889, webRtcAdditionalHosts: '', idlePauseEnabled: true, idlePauseMinutes: 60, cameras: [], saving: false, syncOk: false, syncMessage: '' },
+                camSettings: { open: false, mediaMtxApiUrl: '', webRtcPort: 8889, webRtcAdditionalHosts: '', externalUrl: '', idlePauseEnabled: true, idlePauseMinutes: 60, cameras: [], saving: false, syncOk: false, syncMessage: '' },
                 _camBaseline: null,   // 카메라 설정 모달 열 때의 스냅샷 — 저장 버튼 dirty(수정됨) 판정용
 
                 async init() {
@@ -2072,10 +2052,11 @@
                         const c = await this.apiGet('/api/cctv/settings');
                         this.camSettings = {
                             open: true,
-                            advancedOpen: false,
+                            // API/포트/공인주소 입력 UI 는 제거됐지만(전역 외부 접속 주소로 일원화) 저장 라운드트립으로 값 보존.
                             mediaMtxApiUrl: c.mediaMtxApiUrl || '',
                             webRtcPort: c.webRtcPort || 8889,
                             webRtcAdditionalHosts: c.webRtcAdditionalHosts || '',
+                            externalUrl: c.externalUrl || '',   // 표시 전용 — 현재 적용 중인 전역 외부 접속 주소
                             idlePauseEnabled: c.idlePauseEnabled !== false,
                             idlePauseMinutes: c.idlePauseMinutes || 60,
                             cameras: (c.cameras || []).map(x => ({ name: x.name || '', rtspUrl: x.rtspUrl || '', enabled: !!x.enabled, slug: x.slug || '', fallbackImage: x.fallbackImage || '', _capturing: false })),
@@ -2088,7 +2069,7 @@
                 },
                 addCamSetting() { this.camSettings.cameras.push({ name: 'camera' + (this.camSettings.cameras.length + 1), rtspUrl: '', enabled: true, slug: '', fallbackImage: '', _capturing: false }); },
                 removeCamSetting(i) { this.camSettings.cameras.splice(i, 1); },
-                closeCamSettings() { this._camBaseline = null; this.camSettings = { open: false, advancedOpen: false, mediaMtxApiUrl: '', webRtcPort: 8889, webRtcAdditionalHosts: '', idlePauseEnabled: true, idlePauseMinutes: 60, cameras: [], saving: false, syncOk: false, syncMessage: '' }; },
+                closeCamSettings() { this._camBaseline = null; this.camSettings = { open: false, mediaMtxApiUrl: '', webRtcPort: 8889, webRtcAdditionalHosts: '', externalUrl: '', idlePauseEnabled: true, idlePauseMinutes: 60, cameras: [], saving: false, syncOk: false, syncMessage: '' }; },
                 async saveCamSettings() {
                     if (this.camSettings.saving) return;
                     this.camSettings.saving = true;

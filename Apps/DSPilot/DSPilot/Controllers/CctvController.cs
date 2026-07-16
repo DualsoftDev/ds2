@@ -31,6 +31,7 @@ public class CctvController : ControllerBase
     private readonly DsProjectService _project;
     private readonly CctvSnapshotService _snapshot;
     private readonly AbnormalEventService _abnormal;
+    private readonly ExternalAccessService _externalAccess;
 
     public CctvController(
         AppSettingsService settings,
@@ -41,7 +42,8 @@ public class CctvController : ControllerBase
         DspDbService dspDb,
         DsProjectService project,
         CctvSnapshotService snapshot,
-        AbnormalEventService abnormal)
+        AbnormalEventService abnormal,
+        ExternalAccessService externalAccess)
     {
         _settings = settings;
         _mediaMtx = mediaMtx;
@@ -52,6 +54,7 @@ public class CctvController : ControllerBase
         _project = project;
         _snapshot = snapshot;
         _abnormal = abnormal;
+        _externalAccess = externalAccess;
     }
 
     /// <summary>
@@ -110,7 +113,8 @@ public class CctvController : ControllerBase
             _mediaMtx.LastSyncMessage,
             cctv.WebRtcAdditionalHosts,
             cctv.IdlePauseEnabled,
-            cctv.IdlePauseMinutes);
+            cctv.IdlePauseMinutes,
+            _externalAccess.ResolveUrl());
     }
 
     /// <summary>
@@ -192,7 +196,8 @@ public class CctvController : ControllerBase
             _mediaMtx.LastSyncMessage,
             m.Cctv.WebRtcAdditionalHosts,
             m.Cctv.IdlePauseEnabled,
-            m.Cctv.IdlePauseMinutes);
+            m.Cctv.IdlePauseMinutes,
+            _externalAccess.ResolveUrl());
     }
 
     // ──────────────────────────── 대체(폴백) 이미지 ────────────────────────────

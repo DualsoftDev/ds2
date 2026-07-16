@@ -28,6 +28,7 @@
 - [21_OEE_DOWNTIME_DESIGN.md](./21_OEE_DOWNTIME_DESIGN.md) - OEE·정지 이벤트 데이터 모델 & 수집 설계
 - [22_OEE_CALCULATION_SPEC.md](./22_OEE_CALCULATION_SPEC.md) - OEE 산출 규격 (6대 지표 계산 정의)
 - [24_HTTP_API_REFERENCE.md](./24_HTTP_API_REFERENCE.md) - DSPilot HTTP API 전체 목록 (외부 연동 포함)
+- [25_SIGNAL_BASED_STOP_CLASSIFICATION_SPEC.md](./25_SIGNAL_BASED_STOP_CLASSIFICATION_SPEC.md) - 신호(abnormal/usertag) 기반 정지 분류 + flow별 생산가능 분모
 
 ### 4. 리팩토링 계획
 

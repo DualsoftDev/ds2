@@ -24,12 +24,14 @@ public class EmailBriefingController : ControllerBase
     private readonly AppSettingsService _settings;
     private readonly EmailBriefingService _briefing;
     private readonly BriefingRelayOptions _relay;
+    private readonly ExternalAccessService _externalAccess;
 
-    public EmailBriefingController(AppSettingsService settings, EmailBriefingService briefing, BriefingRelayOptions relay)
+    public EmailBriefingController(AppSettingsService settings, EmailBriefingService briefing, BriefingRelayOptions relay, ExternalAccessService externalAccess)
     {
         _settings = settings;
         _briefing = briefing;
         _relay = relay;
+        _externalAccess = externalAccess;
     }
 
     [HttpGet]
@@ -50,6 +52,8 @@ public class EmailBriefingController : ControllerBase
             SmtpPasswordSet: !string.IsNullOrEmpty(s.SmtpPassword),
             FromAddress: s.FromAddress ?? "",
             FromName: string.IsNullOrWhiteSpace(s.FromName) ? "DSPilot 브리핑" : s.FromName,
+            // 메일 CTA 에 실제로 들어갈 유효 외부 접속 주소(전역 설정 ▸ 설치 주입) — 표시 전용, 편집은 설정 페이지.
+            ExternalUrl: _externalAccess.ResolveUrl(),
             // 고정 릴레이(설치 시 주입) 상태 — UI 가 SMTP 카드 잠금/안내에 사용.
             RelayLocked: _relay.Locked,
             RelayCredentialConfigured: _relay.CredentialConfigured,
@@ -81,6 +85,7 @@ public class EmailBriefingController : ControllerBase
             .Distinct()
             .OrderBy(d => d)
             .ToList();
+
 
         _settings.Update(m =>
         {
@@ -154,6 +159,7 @@ public record EmailBriefingDto(
     bool SmtpPasswordSet,
     string FromAddress,
     string FromName,
+    string ExternalUrl,
     bool RelayLocked,
     bool RelayCredentialConfigured,
     string RelayFrom,

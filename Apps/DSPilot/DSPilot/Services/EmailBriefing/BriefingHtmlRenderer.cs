@@ -28,7 +28,11 @@ public sealed class BriefingHtmlRenderer
         return $"[DSPilot] 일일 브리핑 · {d.Day:yyyy-MM-dd} (생산 OEE {oee} / 이상 {d.AbnormalTotal}건)";
     }
 
-    public string BuildHtml(BriefingData d)
+    /// <param name="dashboardUrl">
+    /// DSPilot 바로가기 버튼 주소 — 전역 외부 접속 주소(<see cref="Services.ExternalAccessService.ResolveUrl"/>,
+    /// 사용자 설정 ▸ 설치 주입 폴백)의 유효값. 서버는 자기 외부 주소를 모르므로 호출측이 해석해 넘긴다. 비면 버튼 미출력.
+    /// </param>
+    public string BuildHtml(BriefingData d, string? dashboardUrl = null)
     {
         var sb = new StringBuilder(8192);
         sb.Append($@"<div style=""margin:0;padding:0;background:{Bg};"">
@@ -123,6 +127,17 @@ public sealed class BriefingHtmlRenderer
             }
         }
         sb.Append("</td></tr>");
+
+        // ── 대시보드 바로가기 (주소 지정 시에만) ──
+        if (!string.IsNullOrWhiteSpace(dashboardUrl))
+        {
+            var href = Enc(dashboardUrl.Trim());
+            sb.Append($@"
+<tr><td align=""center"" style=""padding:22px 28px 2px;"">
+  <a href=""{href}"" target=""_blank"" style=""display:inline-block;background:{Accent};color:#ffffff;text-decoration:none;font-weight:800;font-size:14px;padding:13px 36px;border-radius:10px;"">DSPilot 대시보드 열기</a>
+  <div style=""font-size:11px;color:{Muted};margin-top:8px;"">{href}</div>
+</td></tr>");
+        }
 
         // ── 푸터 ──
         sb.Append($@"

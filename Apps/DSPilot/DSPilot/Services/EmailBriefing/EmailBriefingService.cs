@@ -28,6 +28,7 @@ public sealed class EmailBriefingService : BackgroundService
     private readonly BriefingHtmlRenderer _renderer;
     private readonly AppSettingsService _settings;
     private readonly BriefingRelayOptions _relay;
+    private readonly ExternalAccessService _externalAccess;
     private readonly ILogger<EmailBriefingService> _logger;
 
     public EmailBriefingService(
@@ -37,6 +38,7 @@ public sealed class EmailBriefingService : BackgroundService
         BriefingHtmlRenderer renderer,
         AppSettingsService settings,
         BriefingRelayOptions relay,
+        ExternalAccessService externalAccess,
         ILogger<EmailBriefingService> logger)
     {
         _scopeFactory = scopeFactory;
@@ -45,6 +47,7 @@ public sealed class EmailBriefingService : BackgroundService
         _renderer = renderer;
         _settings = settings;
         _relay = relay;
+        _externalAccess = externalAccess;
         _logger = logger;
     }
 
@@ -156,7 +159,7 @@ public sealed class EmailBriefingService : BackgroundService
             var composer = scope.ServiceProvider.GetRequiredService<BriefingComposer>();
             var data = await composer.ComposeAsync(targetDay, ct);
             var subject = _renderer.BuildSubject(data);
-            var html = _renderer.BuildHtml(data);
+            var html = _renderer.BuildHtml(data, _externalAccess.ResolveUrl());
 
             if (UseCentralApi)
                 await _apiClient.SendAsync(subject, html, recipients, ct);   // 메일 자격증명 없이 회사 API 로 위임
@@ -183,7 +186,7 @@ public sealed class EmailBriefingService : BackgroundService
         using var scope = _scopeFactory.CreateScope();
         var composer = scope.ServiceProvider.GetRequiredService<BriefingComposer>();
         var data = await composer.ComposeAsync(targetDay, ct);
-        return new BriefingPreview(_renderer.BuildSubject(data), _renderer.BuildHtml(data));
+        return new BriefingPreview(_renderer.BuildSubject(data), _renderer.BuildHtml(data, _externalAccess.ResolveUrl()));
     }
 
     // ── 내부 ──

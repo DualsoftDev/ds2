@@ -24,6 +24,25 @@ public class AppSettingsModel
     public AbnormalAlarmSettings AbnormalAlarm { get; set; } = new();
     public AutoCalibrationSettings AutoCalibration { get; set; } = new();
     public EmailBriefingSettings EmailBriefing { get; set; } = new();
+    public ExternalAccessSettings ExternalAccess { get; set; } = new();
+}
+
+/// <summary>
+/// 이 DSPilot 설치본의 <b>외부 접속 기본 주소</b> — 서버는 자신이 밖에서 어떤 주소(NAT 공인 IP·도메인·프록시)로
+/// 접근되는지 스스로 알 수 없으므로 사용자가 지정하는 전역 단일 값. 브리핑 메일의 "DSPilot 대시보드 열기" 버튼 등
+/// 서버 밖으로 나가는 링크가 소비한다(비면 링크 미출력). CCTV 의 <see cref="CctvSettings.WebRtcAdditionalHosts"/> 와
+/// 사실상 같은 주소이지만 CCTV 는 ICE 광고용 host 목록(스킴 없음)이라 형식이 달라 별도 유지.
+/// 유효값 해석은 <see cref="Services.ExternalAccessService"/> — 이 사용자 설정이 비면 설치 시 주입값
+/// (appsettings.Secrets.json / 환경변수 <c>ExternalAccess__Url</c> 의 "ExternalAccess:Url")으로 폴백한다.
+/// 클라우드 인스턴스 자동 생성(리눅스 설치) 시 설치 스크립트가 인스턴스 공인 주소를 그 경로로 주입하는 용도.
+/// </summary>
+public class ExternalAccessSettings
+{
+    /// <summary>외부에서 접속 가능한 http(s) 절대 URL. 예: "https://dspilot.company.com:8443". 비면 미설정.</summary>
+    public string Url { get; set; } = "";
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }
 
 /// <summary>
@@ -85,6 +104,7 @@ public class EmailBriefingSettings
 
     /// <summary>발신자 표시명. 기본 "DSPilot 브리핑".</summary>
     public string FromName { get; set; } = "DSPilot 브리핑";
+    // (메일 하단 "DSPilot 대시보드 열기" 버튼 주소는 전역 ExternalAccessSettings.Url 을 소비 — 브리핑 전용 설정 아님.)
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }

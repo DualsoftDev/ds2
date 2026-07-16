@@ -27,6 +27,7 @@ public class CctvMediaMtxService : BackgroundService
     };
 
     private readonly AppSettingsService _settings;
+    private readonly ExternalAccessService _externalAccess;
     private readonly ILogger<CctvMediaMtxService> _logger;
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(5) };
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -35,9 +36,10 @@ public class CctvMediaMtxService : BackgroundService
     public string LastSyncMessage { get; private set; } = "동기화 전";
     public DateTime? LastSyncUtc { get; private set; }
 
-    public CctvMediaMtxService(AppSettingsService settings, ILogger<CctvMediaMtxService> logger)
+    public CctvMediaMtxService(AppSettingsService settings, ExternalAccessService externalAccess, ILogger<CctvMediaMtxService> logger)
     {
         _settings = settings;
+        _externalAccess = externalAccess;
         _logger = logger;
     }
 
@@ -163,7 +165,10 @@ public class CctvMediaMtxService : BackgroundService
 
     /// <summary>
     /// 외부 접속용 전역 WebRTC 설정을 MediaMTX 에 반영한다.
-    /// 공인주소(WebRtcAdditionalHosts) 가 비어 있으면 <b>무동작</b> — LAN 전용 의도 보존(기존 동작 그대로).
+    /// 공인주소 = 전역 외부 접속 주소(ExternalAccess.Url)의 host ∪ CCTV 잔존값(WebRtcAdditionalHosts) <b>합집합</b>
+    /// (2026-07-16). CCTV UI 입력은 제거됨 — 사용자는 전역 한 곳만 입력하고, 구버전 설치본에 저장돼 있던 CCTV 값도
+    /// 계속 광고돼 무중단(잔존값이 전역을 가리는 숨은 우선값이 되지 않도록 폴백이 아닌 합집합. ICE 후보는 여러 host
+    /// 광고해도 무해 — 브라우저가 닿는 것만 쓴다). 둘 다 비면 <b>무동작</b> — LAN 전용 의도 보존.
     /// 값이 있으면: ① webrtcAdditionalHosts 에 공인 IP/도메인을 광고(클라우드 VM 은 NIC 사설 IP 만 광고돼
     /// 외부 브라우저가 미디어에 못 닿는 문제 해결), ② UDP 차단망 대비 TCP 폴백(webrtcLocalTCPAddress)도 동반.
     /// 매 reconcile 마다 GET 으로 현재값과 비교해 <b>다를 때만</b> patch — 불필요한 WebRTC 서버 reload(스트림 끊김) 회피.
@@ -175,10 +180,18 @@ public class CctvMediaMtxService : BackgroundService
         var desiredHosts = (cctv.WebRtcAdditionalHosts ?? "")
             .Split(new[] { ',', ';', ' ', '\t', '\r', '\n' },
                    StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        // 공인주소 미설정 = LAN 전용 의도 → 전역 설정에 일절 손대지 않는다.
+        // 전역 외부 접속 주소의 host 를 합집합에 추가(스킴·포트 제외 — ICE 광고는 host 만).
+        if (_externalAccess.ResolveUrl() is { Length: > 0 } externalUrl
+            && Uri.TryCreate(externalUrl, UriKind.Absolute, out var eu))
+        {
+            desiredHosts.Add(eu.Host);
+        }
+
+        desiredHosts = desiredHosts.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+        // 공인주소 미설정(전역·CCTV 잔존값 모두 빈 값) = LAN 전용 의도 → 전역 설정에 일절 손대지 않는다.
         if (desiredHosts.Count == 0) return;
 
         try

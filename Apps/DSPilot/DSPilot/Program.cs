@@ -100,6 +100,7 @@ builder.Services.AddHostedService<NonProdWriteQueueService>();
 
 // Core services
 builder.Services.AddSingleton<AppSettingsService>();
+builder.Services.AddSingleton<ExternalAccessService>(); // 외부 접속 주소 유효값(사용자 설정 ▸ 설치 주입) 해석
 builder.Services.AddSingleton<DemoAdminService>(); // 데모용 관리자 게이트 (설정 페이지 보호, /demo/admin 토글)
 builder.Services.AddSingleton<DsProjectService>();
 builder.Services.AddScoped<DashboardEditService>();

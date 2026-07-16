@@ -37,6 +37,7 @@ public class SettingsController : ControllerBase
     private readonly HeatmapService _heatmap;
     private readonly SimulationEngineService _engine;
     private readonly UserTagAlertService _userTags;
+    private readonly ExternalAccessService _externalAccess;
     private readonly ILogger<SettingsController> _logger;
 
     private readonly HubSubscriberService _hubSubscriber;
@@ -53,6 +54,7 @@ public class SettingsController : ControllerBase
         HeatmapService heatmap,
         SimulationEngineService engine,
         UserTagAlertService userTags,
+        ExternalAccessService externalAccess,
         HubSubscriberService hubSubscriber,
         ILogger<SettingsController> logger)
     {
@@ -67,6 +69,7 @@ public class SettingsController : ControllerBase
         _heatmap = heatmap;
         _engine = engine;
         _userTags = userTags;
+        _externalAccess = externalAccess;
         _hubSubscriber = hubSubscriber;
         _logger = logger;
     }
@@ -159,6 +162,11 @@ public class SettingsController : ControllerBase
                 prevHv.MaxCallGoingTimeMs != req.MaxCallGoingTimeMs ||
                 prevHv.MinCallGoingTimeMs != req.MinCallGoingTimeMs;
 
+            // 외부 접속 주소 검증(스킴 생략 시 http:// 보정, http(s) 절대 URL 만). null=구 클라이언트 → 기존 값 보존.
+            var normalizedExternalUrl = req.ExternalUrl is null ? null : ExternalAccessService.Normalize(req.ExternalUrl);
+            if (req.ExternalUrl is not null && normalizedExternalUrl is null)
+                return new SaveResultDto(false, "외부 접속 주소가 올바르지 않습니다. 예: http://192.168.0.10 또는 https://dspilot.company.com");
+
             // 현재 디스크 설정을 baseline 으로 로드 후 클라이언트 편집값을 덮어쓴다(load-modify-save 를 단일 잠금으로 원자화 —
             // 백그라운드 자동보정의 CompletedAt 박제와 경합해도 유실되지 않도록 AppSettingsService.Update 사용).
             // (UI 미노출 섹션 DspTables/Hub/Ui.ShowPlcDebug 등은 baseline 유지 — appsettings.json 으로만 관리)
@@ -200,6 +208,10 @@ public class SettingsController : ControllerBase
                     m.AutoCalibration.PercentileMin = Math.Clamp(acReq.PercentileMin, 0, 50);
                     m.AutoCalibration.MarginMinPct = Math.Clamp(acReq.MarginMinPct, 0, 1);
                 }
+
+                // 외부 접속 주소 — null(구 클라이언트)이면 기존 값 보존. 형식 오류는 Update 진입 전에 걸렀다.
+                if (normalizedExternalUrl is not null)
+                    m.ExternalAccess.Url = normalizedExternalUrl;
 
                 // CCTV(RTSP) 카메라 설정은 CCTV 페이지(CctvController.SaveSettings)가 소유 — 여기서는 건드리지 않는다.
                 // (Settings 저장이 카메라 목록을 덮어써 오버레이/카메라가 유실되는 것을 방지.)
@@ -677,7 +689,9 @@ public class SettingsController : ControllerBase
                 LocalStamp(m.AutoCalibration.CompletedAt),
                 LocalStamp(m.AutoCalibration.LastAppliedAt),
                 m.AutoCalibration.LastAppliedSummary),
-            m.AbnormalAlarm.DisplayLevels.ToArray());
+            m.AbnormalAlarm.DisplayLevels.ToArray(),
+            m.ExternalAccess.Url ?? "",
+            _externalAccess.SeedUrlRaw);
     }
 
     // 배너 표시 레벨 정규화 — 유효값(Info/Warning/Error)만, 표준 표기·순서로, 중복 제거. 빈 결과 허용(=전체 표시).
@@ -801,7 +815,10 @@ public record SettingsDto(
     // 실측 duration 자동 보정 설정 + 1회성 완료 시각(표시용 로컬 문자열, 미실행이면 null). 기본값으로 기존 호출부 무손상.
     AutoCalibrationDto? AutoCalibration = null,
     // 배너 표시 레벨(Info/Warning/Error). 기본값으로 기존 호출부 무손상.
-    string[]? AbnormalAlarmDisplayLevels = null);
+    string[]? AbnormalAlarmDisplayLevels = null,
+    // 외부 접속 주소 — ExternalUrl=사용자 설정값(편집 대상), ExternalUrlSeed=설치 시 주입값(비어 있을 때 폴백 안내용).
+    string ExternalUrl = "",
+    string ExternalUrlSeed = "");
 
 // ── 디바이스별 이상감지 차단 (uptime 페이지 차단 관리 모달용) ──
 
@@ -880,7 +897,9 @@ public record CctvDto(
     string WebRtcAdditionalHosts = "",
     // 무조작 일시정지(절전 가드, LTE 종량 회선 보호). 기본값으로 기존 호출부 무손상.
     bool IdlePauseEnabled = true,
-    int IdlePauseMinutes = 60);
+    int IdlePauseMinutes = 60,
+    // 유효 전역 외부 접속 주소(표시 전용 — CCTV 모달이 "현재 적용 중" 안내에 사용, 편집은 설정 페이지).
+    string ExternalUrl = "");
 
 // Slug = MediaMTX 경로명(ASCII). GET 응답에만 포함(디버깅·참고용). 클라이언트는 slug 를 보내지 않으며,
 // 서버(CctvController.SaveSettings)가 포지션 기반 이어받기 + AssignSlugs(cam1/cam2/…) 로 관리.
@@ -913,7 +932,9 @@ public record SaveRequestDto(
     // 자동 보정 파라미터(편집 5필드). null 이면 기존 값 보존 — 기존 호출부 무손상.
     AutoCalibrationSaveDto? AutoCalibration = null,
     // 배너 표시 레벨(Info/Warning/Error). null 이면 기존 값 보존 — 기존 호출부 무손상.
-    string[]? AbnormalAlarmDisplayLevels = null);
+    string[]? AbnormalAlarmDisplayLevels = null,
+    // 외부 접속 주소(ExternalAccess.Url). null 이면 기존 값 보존 — 기존(캐시) 클라이언트 무손상.
+    string? ExternalUrl = null);
 
 public record SaveResultDto(bool Ok, string Message);
 

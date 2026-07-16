@@ -745,6 +745,45 @@
                                 </div>
                             </div>
 
+                            <!-- 외부 접속 주소 (전역 — 브리핑 메일 바로가기 등 외부로 나가는 링크가 소비) -->
+                            <div class="card" x-show="activeTab === 'general'">
+                                <div class="card-header">
+                                    <span class="material-icons">public</span>
+                                    <span>외부 접속 주소</span>
+                                </div>
+                                <div class="card-content">
+                                    <!-- 부가 설명은 힌트에 나열하지 않고 안내 아이콘 토글 뒤로(사용자 지시 2026-07-16) -->
+                                    <div class="form-group" style="margin-bottom:0;" x-data="{ extHelpOpen: false }">
+                                        <label class="form-label" style="display:flex; align-items:center; gap:4px;">
+                                            이 DSPilot 의 외부 접속 URL
+                                            <button type="button" class="btn-icon btn-sm" @click="extHelpOpen = !extHelpOpen"
+                                                    title="자세한 설명" :style="extHelpOpen ? 'color:var(--color-primary);' : ''">
+                                                <span class="material-icons" style="font-size:17px;">info</span>
+                                            </button>
+                                        </label>
+                                        <input type="text" class="form-field mono" placeholder="http://192.168.0.10 또는 https://dspilot.우리회사.com:8443"
+                                               x-model="s.externalUrl" />
+                                        <small class="settings-hint">
+                                            브리핑 메일 바로가기 버튼과 CCTV 외부 스트리밍에 사용됩니다 — 비우면 내부망 전용.
+                                        </small>
+                                        <div class="settings-note" x-show="extHelpOpen" style="margin-top:8px;" x-cloak>
+                                            <small>
+                                                서버는 자신이 밖에서 어떤 주소(공인 IP·도메인·포트포워딩)로 접근되는지 스스로 알 수 없어 직접 지정합니다.
+                                                비워두면 브리핑 메일은 링크 없이 발송되고 CCTV 는 내부망 전용으로 동작합니다.<br />
+                                                CCTV 외부 시청은 방화벽/클라우드 보안그룹에서 <code>TCP 8889</code> · <code>UDP/TCP 8189</code>
+                                                <strong>인바운드</strong> 개방도 함께 필요합니다(웹 포트와 별개).
+                                            </small>
+                                        </div>
+                                        <div class="settings-note" x-show="s && !s.externalUrl && s.externalUrlSeed" style="margin-top:8px;" x-cloak>
+                                            <small>
+                                                설치 시 주입된 주소 <strong class="mono" x-text="s.externalUrlSeed"></strong> 를 사용 중입니다.
+                                                여기 입력하면 그 값 대신 입력값이 우선합니다.
+                                            </small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
                             <!-- CCTV -->
                             <div class="card" x-show="activeTab === 'general'">
                                 <div class="card-header">
@@ -1242,6 +1281,7 @@
                             alarmTickerIntervalSec: (this.s.alarmTickerIntervalSec ?? 3) | 0,
                             abnormalAlarmResetIntervalHours: (this.s.abnormalAlarmResetIntervalHours ?? 24) | 0,
                             abnormalAlarmDisplayLevels: Array.isArray(this.s.abnormalAlarmDisplayLevels) ? this.s.abnormalAlarmDisplayLevels : [],
+                            externalUrl: this.s.externalUrl ?? '',
                             autoCalibration: {
                                 enabled: !!this.s.autoCalibration?.enabled,
                                 minCleanCycles: (this.s.autoCalibration?.minCleanCycles ?? 10) | 0,
