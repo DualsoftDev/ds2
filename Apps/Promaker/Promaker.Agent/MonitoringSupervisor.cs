@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Ds2.Aasx;
@@ -310,6 +312,49 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
         }
     }
 
+    /// <summary>cloudinit 가 내려준 단말 화이트리스트를 로드해 <see cref="SignalHub.ValidateDeviceCredential"/> 훅 주입.
+    /// 계약(쓰는 쪽 Provisioning-server/app/cloudinit.py 와 동일): 경로 <see cref="DeviceCredentialsPath"/>,
+    /// 형식 {"version":1,"deviceIds":[...]}. deviceId=RPi 하드웨어 시리얼(=X-Device-Id 헤더). Pi5 가 제시한
+    /// 시리얼이 이 목록에 있으면 통과(단순 membership). Bearer 토큰 대조 없음(provision_token 은 부트스트랩 전용).
+    /// 파일 없으면(로컬/올인원/Windows) 훅 미설정 = 검증 생략(회귀 0).</summary>
+    private static void WireDeviceCredentialValidator()
+    {
+        try
+        {
+            if (!File.Exists(DeviceCredentialsPath))
+            {
+                Log.Info($"Device credentials file absent ({DeviceCredentialsPath}) — Hub 단말 인증 생략(로컬/올인원).");
+                return;
+            }
+            var json = File.ReadAllText(DeviceCredentialsPath);
+            var doc = JsonSerializer.Deserialize<DeviceCredentialsFile>(
+                json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            var whitelist = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var id in doc?.DeviceIds ?? Array.Empty<string>())
+                if (!string.IsNullOrEmpty(id))
+                    whitelist.Add(id);
+
+            SignalHub.ValidateDeviceCredential = deviceId =>
+                !string.IsNullOrEmpty(deviceId) && whitelist.Contains(deviceId);
+
+            Log.Info($"Device credential validator wired — {whitelist.Count} registered device(s) from {DeviceCredentialsPath}");
+        }
+        catch (Exception ex)
+        {
+            // 로드 실패 시 훅을 켜지 않는다 — 잘못된 파일로 정상 단말을 막지 않도록(가용성 우선). 이슈 로그만.
+            Log.Warn($"Device credential load failed ({DeviceCredentialsPath}) — Hub 단말 인증 비활성.", ex);
+        }
+    }
+
+    /// <summary>cloudinit device-credentials.json 계약 경로 — 쓰는 쪽(cloudinit.py DEVICE_CREDENTIALS_PATH)과 일치.</summary>
+    private const string DeviceCredentialsPath = "/etc/agent/device-credentials.json";
+
+    private sealed record DeviceCredentialsFile
+    {
+        public int Version { get; init; }
+        public string[]? DeviceIds { get; init; }
+    }
+
     private async Task TryActivateAsync()
     {
         await _gate.WaitAsync().ConfigureAwait(false);
@@ -482,6 +527,9 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
             //    이후 ConfigChanged 가 "스캔 주기만 변경" 이면 재시작 없이 ApplyScanIntervalLive 경로.
             SignalHub.PersistScanIntervalMs = PersistScanInterval;
             SignalHub.PersistAutoCalibrate = PersistAutoCalibrate;
+            // 원격 수집 클라이언트(Pi5 edge) 단말 인증 훅 — cloudinit 가 내려준 신원 맵을 로드해 주입.
+            // 파일 없으면(로컬/올인원/Windows) 훅 미설정 = 검증 생략(기존 동작, 회귀 0).
+            WireDeviceCredentialValidator();
             (_appliedConfigFingerprint, _appliedScanIntervalMs) = ComputeConfigFingerprint();
 
             // 저장된 자동정합 상태로 엔진 초기화 — OFF 영속 복원(정지 시 AASX 반영→OFF 결과 유지).

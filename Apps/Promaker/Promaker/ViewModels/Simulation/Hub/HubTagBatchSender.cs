@@ -54,7 +54,7 @@ internal sealed class HubTagBatchSender : IAsyncDisposable
     public bool Enqueue(string address, string value, string source)
     {
         if (string.IsNullOrEmpty(address)) return false;
-        return _channel.Writer.TryWrite(new Item(new TagWrite(address, value, source), FlushTcs: null));
+        return _channel.Writer.TryWrite(new Item(new TagWrite(address, value, source, System.Environment.TickCount64), FlushTcs: null));
     }
 
     /// <summary>현재 channel 에 쌓인 enqueue 분이 모두 송신될 때까지 대기.</summary>

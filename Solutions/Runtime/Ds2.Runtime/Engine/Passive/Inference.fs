@@ -164,7 +164,8 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
         (mapping: SignalMapping)
         address
         value
-        isOut =
+        isOut
+        (originTsMs: int64) =
         let callGuid = mapping.CallGuid
         let highMap = if isOut then callOutHighAddresses else callInHighAddresses
         let highSet = getOrAddSignalSet highMap callGuid
@@ -196,7 +197,7 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
                 //   going 시각을 기록해 TickVirtualFinish 가 elapsed≥T 시점에 finish 시킨다.
                 let virtMs = SimIndex.apiCallVirtualSensingMs index mapping.ApiCallGuid
                 if virtMs > 0 then
-                    callGoingTick.[callGuid] <- struct (Stopwatch.GetTimestamp(), virtMs)
+                    callGoingTick.[callGuid] <- struct (originTsMs, virtMs)
         else
             tryEnqueueCallFinishFromObservedInputs actions overlay callGuid
 
@@ -206,13 +207,14 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
         address
         value
         isOut
-        (mappings: seq<SignalMapping>) =
+        (mappings: seq<SignalMapping>)
+        (originTsMs: int64) =
         let isOn = value = "true"
         let observedTick = Stopwatch.GetTimestamp()
         let mappingArray = mappings |> Seq.toArray
 
         mappingArray
-        |> Seq.iter (fun mapping -> observePassiveCallSignal actions overlay mapping address value isOut)
+        |> Seq.iter (fun mapping -> observePassiveCallSignal actions overlay mapping address value isOut originTsMs)
 
         // e2b6d21 방식 복귀: VP/Monitoring 모두 observePositiveWorkSignal 로 cycle 학습 진행 →
         // applyWorkStateForExpectedGroup 가 cycle boundary 기반 정확한 Work 상태 trigger.
@@ -274,7 +276,9 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
         address: string,
         value: string,
         getWorkState: Func<Guid, Status4>,
-        getCallState: Func<Guid, Status4>
+        getCallState: Func<Guid, Status4>,
+        // 원천 관측 시각(ms). 분산 store-and-forward 대비 — 생략(레거시/테스트 호출) 시 0L(=수신 시각 무의미치).
+        [<System.Runtime.InteropServices.Optional; System.Runtime.InteropServices.DefaultParameterValue(0L)>] originTsMs: int64
     ) =
         match lastObservedValue.TryGetValue(address) with
         | true, previous when previous = value -> Array.empty
@@ -303,31 +307,29 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
                     let actions = ResizeArray<PassiveInferenceAction>()
                     let overlay = StateOverlay(getWorkState, getCallState)
                     if not (List.isEmpty outMappings) then
-                        observePassiveSignalDirectionInternal actions overlay address value true outMappings
+                        observePassiveSignalDirectionInternal actions overlay address value true outMappings originTsMs
                     if not (List.isEmpty inMappings) then
-                        observePassiveSignalDirectionInternal actions overlay address value false inMappings
+                        observePassiveSignalDirectionInternal actions overlay address value false inMappings originTsMs
                     actions.ToArray()
 
     /// v16 Virtual 센싱(Monitoring passive) — going 중인 Virtual call 중 출력+T 경과분을 finish action 으로 낸다.
     ///   능동 엔진의 ScheduleAfter(T)→ConditionEval 대응. passive 는 scheduler 가 없어, 매 IO 관측
     ///   (observeAndInfer) 후 호출돼 elapsed(실시간 Stopwatch)≥T 인 Virtual call 을 finish 시킨다.
     ///   현재 Going 이 아니면(이미 finish/reset) 추적만 종료한다.
-    member _.TickVirtualFinish(getCallState: Func<Guid, Status4>) : PassiveInferenceAction[] =
+    member _.TickVirtualFinish(getCallState: Func<Guid, Status4>, nowMs: int64) : PassiveInferenceAction[] =
         if callGoingTick.Count = 0 then
             Array.empty
         else
-            let now = Stopwatch.GetTimestamp()
-            let freq = float Stopwatch.Frequency
             let actions = ResizeArray<PassiveInferenceAction>()
             let toRemove = ResizeArray<Guid>()
             for kvp in callGoingTick do
                 let callGuid = kvp.Key
-                let struct (goingTick, virtMs) = kvp.Value
+                let struct (goingTsMs, virtMs) = kvp.Value
                 if getCallState.Invoke(callGuid) <> Status4.Going then
                     toRemove.Add(callGuid)
                 else
-                    let elapsedMs = (float (now - goingTick)) * 1000.0 / freq
-                    if elapsedMs >= float virtMs then
+                    let elapsedMs = int (nowMs - goingTsMs)
+                    if elapsedMs >= virtMs then
                         actions.Add(
                             { TargetKind = PassiveInferenceTarget.Call
                               TargetGuid = callGuid
@@ -358,9 +360,10 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
         isOut: bool,
         mappings: seq<SignalMapping>,
         getWorkState: Func<Guid, Status4>,
-        getCallState: Func<Guid, Status4>
+        getCallState: Func<Guid, Status4>,
+        [<System.Runtime.InteropServices.Optional; System.Runtime.InteropServices.DefaultParameterValue(0L)>] originTsMs: int64
     ) =
         let actions = ResizeArray<PassiveInferenceAction>()
         let overlay = StateOverlay(getWorkState, getCallState)
-        observePassiveSignalDirectionInternal actions overlay address value isOut mappings
+        observePassiveSignalDirectionInternal actions overlay address value isOut mappings originTsMs
         actions.ToArray()

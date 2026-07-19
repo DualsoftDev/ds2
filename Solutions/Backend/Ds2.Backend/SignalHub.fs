@@ -177,7 +177,8 @@ type SignalHubBroadcaster(hubContext: IHubContext<SignalHub>, runtimeSession: IR
                     |> List.map (fun change ->
                         { Address = change.HubAddress
                           Value = change.Value
-                          Source = change.Source })
+                          Source = change.Source
+                          OriginTsMs = change.OriginTsMs })
                     |> List.toArray
 
                 for item in items do
@@ -255,6 +256,14 @@ and SignalHub(gateway: IPlcGateway, runtimeSession: IRuntimeHubSession) =
     /// OFF 상태가 재시작 후에도 유지되게 한다(정지 시 AASX 반영→OFF 의 결과 보존).
     static member val PersistAutoCalibrate : Action<bool> = null with get, set
 
+    /// 원격 수집 클라이언트(Pi5 엣지 수집기)의 단말 신원 검증 훅 — 호스트(Promaker.Agent)가 주입.
+    /// 시그니처: deviceId → 등록된 단말이면 true. deviceId = RPi 하드웨어 시리얼(device.device_id),
+    /// Agent 가 cloudinit 화이트리스트에 있는지 단순 membership 대조. device_id 는 비밀이 아닌 등록 화이트리스트.
+    /// **null(미설정)이면 검증 생략** — localhost 올인원/로컬 개발은 인증 불필요(기존 동작 유지, 회귀 0).
+    /// 설정돼 있고 미등록이면 OnConnectedAsync 가 연결을 Abort. Pi5 는 X-Device-Id 헤더로 시리얼을 싣는다
+    /// (HubClientPusher 와 헤더 계약 일치). provision_token 은 부트스트랩 전용이라 상시 인증에서 제외.
+    static member val ValidateDeviceCredential : Func<string, bool> = null with get, set
+
     /// 현재 유효 스캔 주기(ms) — override 우선, 없으면 config 의 최소 주기.
     member _.GetScanIntervalMs() : Task<int> =
         let ms =
@@ -299,6 +308,13 @@ and SignalHub(gateway: IPlcGateway, runtimeSession: IRuntimeHubSession) =
     member this.FreezeHealthBaseline() : Task =
         log.Info("Health baseline freeze requested — broadcasting to all clients")
         this.Clients.All.SendAsync(HubMethod.OnHealthBaselineFreeze)
+
+    /// 스캔 생존 heartbeat 리포트 (Client → Server). 수집 주체가 분리(Pi5 엣지 수집기)일 때 Pi5 가
+    /// 클라이언트로서 호출 → Hub 가 OnScanHeartbeat 를 fan-out. 올인원의 BroadcastScanHeartbeat(server-origin)
+    /// 와 최종 fan-out 지점(OnScanHeartbeat, Clients.All)이 동일하므로 소비자(Promaker/DSPilot)는 무영향.
+    /// Clients.All 사용(BroadcastScanHeartbeat 와 동형) — Pi5 는 OnScanHeartbeat 를 구독하지 않아 자기 echo 무해.
+    member this.ReportScanHeartbeat() : Task =
+        this.Clients.All.SendAsync(HubMethod.OnScanHeartbeat)
 
     /// PLC 게이트웨이로 위임 — fire-and-forget.
     /// source = "plc" 인 경우(=PLC 가 우리에게 알려준 변화)는 다시 PLC 로 echo 하지 않는다.
@@ -548,6 +564,24 @@ and SignalHub(gateway: IPlcGateway, runtimeSession: IRuntimeHubSession) =
         let baseTask = base.OnConnectedAsync()
         task {
             do! baseTask
+            // 원격 수집 클라이언트 단말 신원 검증 (hook 미설정=localhost 올인원/로컬이면 생략).
+            // 미등록 시 연결 Abort — 이후 snapshot 송출 스킵. Hub 앞단(연결 진입)에서 걸러 무효 연결을 조기 차단.
+            // deviceId = RPi 시리얼(X-Device-Id) → 화이트리스트 membership 대조(단순). Bearer 토큰 대조 없음.
+            let validator = SignalHub.ValidateDeviceCredential
+            if not (isNull validator) then
+                let mutable ok = false
+                try
+                    let http = this.Context.GetHttpContext()
+                    if not (isNull http) then
+                        let deviceId = http.Request.Headers.["X-Device-Id"].ToString()
+                        ok <- validator.Invoke(deviceId)
+                with ex ->
+                    log.Warn($"Device credential validation threw: {ex.Message}")
+                    ok <- false
+                if not ok then
+                    log.Warn($"SignalR connection rejected — unregistered device (connId={this.Context.ConnectionId})")
+                    this.Context.Abort()
+                    return ()
             try
                 let fromGateway = gateway.GetConnectionStatuses() |> List.map (fun s -> s.Name, s)
                 let merged =

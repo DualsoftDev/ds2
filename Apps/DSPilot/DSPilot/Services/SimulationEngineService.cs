@@ -609,7 +609,8 @@ public sealed class SimulationEngineService : IDisposable
         var actions = _passiveInference.Observe(
             address, value,
             new Func<Guid, Status4>(GetWorkStateSafe),
-            new Func<Guid, Status4>(GetCallStateSafe));
+            new Func<Guid, Status4>(GetCallStateSafe),
+            System.Environment.TickCount64);
 
         foreach (var action in actions)
         {

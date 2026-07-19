@@ -287,6 +287,7 @@ type PlcGateway(config: PlcGatewayConfig) =
                                     HubAddress = tag.HubAddress
                                     Value = s
                                     Source = Ds2.Backend.Common.HubSource.Resync
+                                    OriginTsMs = System.Environment.TickCount64
                                 })
                             else
                             let changed =
@@ -305,6 +306,7 @@ type PlcGateway(config: PlcGatewayConfig) =
                                     HubAddress = tag.HubAddress
                                     Value = s
                                     Source = Ds2.Backend.Common.HubSource.Plc
+                                    OriginTsMs = System.Environment.TickCount64
                                 })
                             elif isResync then
                                 // 주기 resync — 무변화 레벨만 baseline 으로 재방송(마이크로 스파이크로
@@ -314,6 +316,7 @@ type PlcGateway(config: PlcGatewayConfig) =
                                     HubAddress = tag.HubAddress
                                     Value = s
                                     Source = Ds2.Backend.Common.HubSource.Resync
+                                    OriginTsMs = System.Environment.TickCount64
                                 })
 
                         let readTagNoSkip (tag: PlcTagDef) =

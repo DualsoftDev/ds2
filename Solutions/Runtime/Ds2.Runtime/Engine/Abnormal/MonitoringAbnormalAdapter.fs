@@ -112,7 +112,7 @@ type MonitoringAbnormalAdapter
 
     let store = index.Store
     let detectorState = AbnormalDetectorState.Empty
-    let goingClock = Dictionary<Guid, int>()      // apiCallId → OutTag On(going) 관측시각(ms)
+    let goingClock = Dictionary<Guid, int64>()    // apiCallId → OutTag On(going) 원천 관측시각(ms, TagWrite.OriginTsMs)
     let prevActive = Dictionary<string, bool>()   // 방향+address → 직전 active (rising edge 판정)
     // OUT rising 을 *edge 로 직접* 본 주소("OUT:"+addr) — SensorShort 의 전제 증거.
     // prevActive 는 resync baseline 주입(시작/주기)으로도 채워지므로 "관측했다"의 증거가 못 된다 —
@@ -182,7 +182,7 @@ type MonitoringAbnormalAdapter
     member _.PrimeLearnedDuration(workGuid: Guid, avgMs: int) = durationLearner.Prime(workGuid, avgMs)
 
     /// PLC scan 으로 관측된 IO 값. OutTag On=going 시작, InTag On=finish.
-    member _.OnObservedIo(address: string, value: string, nowMs: int) =
+    member _.OnObservedIo(address: string, value: string, nowMs: int64) =
         // 시작측: OutAddress rising → 매핑된 모든 ApiCall 의 going clock 기록 + 직전 사이클 latch 비움.
         match ioMap.GetByOutAddress(address) with
         | [] -> ()
@@ -225,7 +225,7 @@ type MonitoringAbnormalAdapter
                                 | Some rxWork when isMaxMeasured rxWork ->
                                     match index.WorkDurationRange |> Map.tryFind rxWork with
                                     | Some range when range.MaxMs > 0 ->
-                                        let elapsed = nowMs - goingAt
+                                        let elapsed = int (nowMs - goingAt)
                                         if elapsed > range.MaxMs then
                                             let target = Abnormal.target (Some m.CallGuid) (Some m.ApiCallGuid) m.RxWorkGuid
                                             emit (Abnormal.actionOver target elapsed (nowUtc ()))
@@ -255,7 +255,7 @@ type MonitoringAbnormalAdapter
                             match goingClock.TryGetValue m.ApiCallGuid with
                             | true, goingAt ->
                                 // going clock 있음 = going 을 거쳤다 → 실측 elapsed.
-                                let elapsed = nowMs - goingAt
+                                let elapsed = int (nowMs - goingAt)
                                 // 모델 duration(참고/dead-reckoning)이 아니라 *학습된 실측 줄자* 로 판정한다.
                                 match m.RxWorkGuid with
                                 | Some rxWork ->

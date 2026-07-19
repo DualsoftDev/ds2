@@ -29,6 +29,41 @@
                 <Setter Property="BorderThickness" Value="1"/>
                 <Setter Property="CaretBrush" Value="{DynamicResource PrimaryTextBrush}"/>
             </Style>
+            <!-- 버튼 다크 정합 — 기본 light 버튼 차단 (로그인/로그아웃/확인/취소 공통) -->
+            <Style TargetType="{x:Type Button}">
+                <Setter Property="Background" Value="{DynamicResource TertiaryBackgroundBrush}"/>
+                <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="Padding" Value="10,4"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="bd" Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    Padding="{TemplateBinding Padding}" CornerRadius="3">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource HoverBackgroundBrush}"/>
+                                    <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                    <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Foreground" Value="{DynamicResource DisabledTextBrush}"/>
+                                    <Setter TargetName="bd" Property="Opacity" Value="0.5"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
         </Border.Resources>
         <Grid Margin="16">
             <Grid.RowDefinitions>
@@ -250,6 +285,30 @@
                             </StackPanel>
                         </Grid>
                     </Grid>
+                </TabItem>
+                <!-- 탭 4: 클라우드(PV) 계정 -->
+                <TabItem Header="클라우드 계정">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="10">
+                        <StackPanel>
+                            <TextBlock Text="클라우드(PV) 계정"
+                                       FontSize="12" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource PrimaryTextBrush}"
+                                       Margin="0,0,0,6"/>
+                            <TextBlock x:Name="PvStatusText" Text="로그인되지 않음"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Margin="0,0,0,12"/>
+                            <StackPanel Orientation="Horizontal">
+                                <Button x:Name="PvLoginButton" Content="로그인" Width="110" Padding="8,4"
+                                        Click="PvLoginButton_Click"/>
+                                <Button x:Name="PvLogoutButton" Content="로그아웃" Width="110" Margin="8,0,0,0" Padding="8,4"
+                                        Click="PvLogoutButton_Click"/>
+                            </StackPanel>
+                            <TextBlock Text="로그인 세션은 앱을 닫으면 해제됩니다 (자동 로그인 없음). 서버 주소는 설치본에 내장됩니다."
+                                       FontSize="10" FontStyle="Italic"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Margin="0,12,0,0" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </ScrollViewer>
                 </TabItem>
             </TabControl>
 

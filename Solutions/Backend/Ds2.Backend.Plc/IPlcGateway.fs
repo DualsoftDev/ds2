@@ -10,6 +10,9 @@ type PlcTagChange = {
     HubAddress : string
     Value      : string
     Source     : string
+    /// 원천 관측 시각(scan 기기 모노토닉 ms, Environment.TickCount64). 분산 store-and-forward 에서
+    /// 이벤트가 밀려 도착해도 엔진이 정확한 elapsed 로 판정하도록 scan 시점에 찍는다(P1). 엔진 사용은 P2.
+    OriginTsMs : int64
 }
 
 /// SignalHub 와 실 PLC 사이의 경계 인터페이스.

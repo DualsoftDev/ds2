@@ -40,7 +40,8 @@ public partial class SimulationPanelState
             address,
             value,
             new Func<Guid, Status4>(GetWorkStateSafe),
-            new Func<Guid, Status4>(GetCallStateSafe));
+            new Func<Guid, Status4>(GetCallStateSafe),
+            System.Environment.TickCount64);
 
         // 진단 — 인퍼런스 관측·전이가 UI 로그에만 남아 파일에서 추적 불가했던 갭.
         // Going 누락 사이클의 "신호는 왔는데 액션이 없었는지 / 신호 자체가 안 왔는지" 를 파일로 판별.

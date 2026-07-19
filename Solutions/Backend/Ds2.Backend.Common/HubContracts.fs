@@ -41,6 +41,12 @@ module HubMethod =
     /// 이 heartbeat 기준이어야 한다(실 PLC 는 무변화 침묵 수 초가 정상 — 오판 차단).
     [<Literal>]
     let OnScanHeartbeat = "OnScanHeartbeat"
+    /// 스캔 생존 heartbeat 리포트 — Client → Server invoke. 수집 주체가 분리(Pi5 엣지 수집기)일 때
+    /// Pi5 가 클라이언트로서 "스캔 살아있음"을 Hub 에 올린다 → Hub 가 OnScanHeartbeat 를 다른 클라이언트로
+    /// fan-out. 올인원(Agent 내부 PlcScanService)은 server-origin 으로 직접 BroadcastScanHeartbeat 하고,
+    /// 분리는 이 경로를 타 — 최종 fan-out 지점(OnScanHeartbeat)은 동일해 소비자는 무영향.
+    [<Literal>]
+    let ReportScanHeartbeat = "ReportScanHeartbeat"
     /// 자동 duration 정합 ON/OFF — Client → Server invoke. server 가 엔진(abnormal 어댑터)에 적용 +
     /// OnAutoCalibrateChanged 전 클라이언트 fan-out (스캔주기 패턴 동형). ON=실측학습 기준, OFF=모델 기준.
     [<Literal>]
@@ -193,6 +199,9 @@ type TagWrite = {
     Address: string
     Value: string
     Source: string
+    /// 원천 관측 시각(scan 기기 모노토닉 ms). PlcTagChange.OriginTsMs 에서 전파. 수신 시각이 아니라
+    /// 이 값으로 엔진이 elapsed/abnormal 판정(P2) — 분산 store-and-forward replay 대비.
+    OriginTsMs: int64
 }
 
 /// PLC 어댑터 1개의 연결 상태 스냅샷. SignalR JSON 직렬화로 양방향 전달되는 contract.

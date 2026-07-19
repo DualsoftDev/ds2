@@ -104,6 +104,10 @@
                                                      IsEnabled="{Binding AgentTransferIsNetwork}"
                                                      ToolTip="원격 Agent IP 주소"/>
                                         </StackPanel>
+                                        <RadioButton GroupName="OpenAgentTarget" Content="클라우드" Margin="8,0,8,4"
+                                                     Foreground="{DynamicResource PrimaryTextBrush}"
+                                                     IsChecked="{Binding AgentTransferIsCloud, Mode=TwoWay}"
+                                                     ToolTip="PV 서버 로그인 후 사이트/단말 선택 전송 (업로드 시 미로그인이면 로그인창)"/>
                                         <Border Height="1" Background="{DynamicResource BorderBrush}" Margin="4,2,4,6"/>
                                         <TextBlock Text="최근 파일" FontSize="11" FontWeight="SemiBold" Margin="8,0,8,8" Foreground="{DynamicResource PrimaryTextBrush}"/>
                                         <ItemsControl ItemsSource="{Binding RecentFiles}">
@@ -170,6 +174,10 @@
                                                      IsEnabled="{Binding AgentTransferIsNetwork}"
                                                      ToolTip="원격 Agent IP 주소"/>
                                         </StackPanel>
+                                        <RadioButton GroupName="SaveAgentTarget" Content="클라우드" Margin="8,0,8,4"
+                                                     Foreground="{DynamicResource PrimaryTextBrush}"
+                                                     IsChecked="{Binding AgentTransferIsCloud, Mode=TwoWay}"
+                                                     ToolTip="PV 서버 로그인 후 사이트/단말 선택 전송 (업로드 시 미로그인이면 로그인창)"/>
                                     </StackPanel>
                                 </Border>
                             </Popup>

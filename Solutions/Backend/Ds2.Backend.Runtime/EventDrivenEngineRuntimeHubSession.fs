@@ -288,12 +288,12 @@ type EventDrivenEngineRuntimeHubSession
             | None -> guid.ToString("N").Substring(0, 8)
         | _ -> guid.ToString("N").Substring(0, 8)
 
-    let observeAndInfer (address: string) (value: string) =
+    let observeAndInfer (address: string) (value: string) (originTsMs: int64) =
         match passiveInference with
         | Some pi ->
             let mutable scheduledStateChange = false
             let mutable actionCount = 0
-            for action in pi.Observe(address, value, getWorkStateSafe, getCallStateSafe) do
+            for action in pi.Observe(address, value, getWorkStateSafe, getCallStateSafe, originTsMs) do
                 actionCount <- actionCount + 1
                 match action.TargetKind with
                 | PassiveInferenceTarget.Work ->
@@ -319,7 +319,7 @@ type EventDrivenEngineRuntimeHubSession
             //   ※ drainCurrentTick(device-work cycle 구동) *이후*에 적용한다 — 앞서 적용하면 drain 의
             //     work cycle 이 call 을 Going 으로 되돌려 finish 가 묻힌다(실측 단위/통합 테스트로 확인).
             let mutable virtFinished = false
-            for action in pi.TickVirtualFinish(getCallStateSafe) do
+            for action in pi.TickVirtualFinish(getCallStateSafe, originTsMs) do
                 if getCallStateSafe.Invoke(action.TargetGuid) <> action.State then
                     engine.ForceCallState(action.TargetGuid, action.State)
                     virtFinished <- true
@@ -337,10 +337,10 @@ type EventDrivenEngineRuntimeHubSession
             | Some pi -> pi.IsAbnormalReadyForAddress(address)
             | None -> true
         match monitoringAbnormal with
-        | Some ab when abnormalReady -> ab.OnObservedIo(address, value, Environment.TickCount)
+        | Some ab when abnormalReady -> ab.OnObservedIo(address, value, originTsMs)
         | None -> ()
         | _ -> ()
-    let applyEffect (effect: RuntimeHubEffect) =
+    let applyEffect (effect: RuntimeHubEffect) (originTsMs: int64) =
         match effect.Kind with
         | RuntimeHubEffectKind.InjectIoByAddress ->
             engine.InjectIOValueByAddress(effect.Address, effect.Value) |> ignore
@@ -357,7 +357,7 @@ type EventDrivenEngineRuntimeHubSession
             if effect.WorkGuid <> Guid.Empty then
                 engine.TryForceWorkStateIfReady(effect.WorkGuid, effect.State)
                 drainCurrentTick ()
-        | RuntimeHubEffectKind.PassiveObserve -> observeAndInfer effect.Address effect.Value
+        | RuntimeHubEffectKind.PassiveObserve -> observeAndInfer effect.Address effect.Value originTsMs
         | RuntimeHubEffectKind.PassiveBaseline ->
             match passiveInference with
             | Some pi -> pi.Baseline(effect.Address, effect.Value)
@@ -383,7 +383,7 @@ type EventDrivenEngineRuntimeHubSession
 
     let applyHubTag address value source =
         for effect in modeSession.HandleHubTag(address, value, source) do
-            applyEffect effect
+            applyEffect effect System.Environment.TickCount64
 
     // ── comm blackout: resync baseline + per-call 재무장 ──────────────────
     let isResyncItem (item: TagWrite) =
@@ -483,7 +483,7 @@ type EventDrivenEngineRuntimeHubSession
                                && effect.Kind = RuntimeHubEffectKind.InjectIoByAddress then
                                 ()
                             else
-                                applyEffect effect
+                                applyEffect effect item.OriginTsMs
 
             if runtimeMode = RuntimeMode.Monitoring then
                 drainCurrentTick ()
@@ -510,9 +510,9 @@ type EventDrivenEngineRuntimeHubSession
                         |> Seq.filter (fun m -> m.TxWorkGuid = Some args.WorkGuid && not (String.IsNullOrEmpty m.InAddress))
                     match args.NewState with
                     | Status4.Finish ->
-                        for m in deviceInMappings do observeAndInfer m.InAddress (inputValueFor m.ApiCallGuid true)
+                        for m in deviceInMappings do observeAndInfer m.InAddress (inputValueFor m.ApiCallGuid true) System.Environment.TickCount64
                     | Status4.Ready | Status4.Homing ->
-                        for m in deviceInMappings do observeAndInfer m.InAddress (inputValueFor m.ApiCallGuid false)
+                        for m in deviceInMappings do observeAndInfer m.InAddress (inputValueFor m.ApiCallGuid false) System.Environment.TickCount64
                     | _ -> ())
 
     let guidStatus (id: string) (s: Status4) : RuntimeGuidStatus =

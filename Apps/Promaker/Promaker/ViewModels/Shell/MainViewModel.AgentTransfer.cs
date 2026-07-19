@@ -1,51 +1,88 @@
 using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Promaker.Dialogs.Pv;
 using Promaker.Presentation;
 using Promaker.Services;
 
 namespace Promaker.ViewModels;
 
 /// <summary>
-/// Agent 보내기/가져오기 대상 선택 (◎로컬 ○네트워크[IP]) + 'Agent에서 가져오기' 명령.
-/// 대상 상태는 저장(▼)/불러오기(▼) 두 팝업이 공유하고 세션 간 영속화된다.
-/// 실제 경로 결정은 <see cref="AgentModelTransfer"/> — 네트워크는 구조만 (미구현 안내).
+/// Agent 보내기/가져오기 대상 선택 (◎로컬 ○네트워크[IP] ○클라우드) + 'Agent에서 가져오기'.
+/// 클라우드 로그인 세션은 앱 전역 <see cref="PvSession"/>(휘발성 — 앱 재시작 시 재로그인)이 보관하고
+/// 설정 다이얼로그의 계정 섹션과 공유한다. 여기선 대상 모드만 관리한다.
 /// </summary>
 public partial class MainViewModel
 {
     [ObservableProperty]
-    private bool _agentTransferIsNetwork =
-        AppSettingStore.LoadStringOrDefault(SettingsPaths.AgentTransferUseNetwork, "false") == "true";
+    private AgentTransferTargetKind _agentTransferMode =
+        ParseMode(AppSettingStore.LoadStringOrDefault(SettingsPaths.AgentTransferMode, "Local"));
 
     [ObservableProperty]
     private string _agentTransferIp =
         AppSettingStore.LoadStringOrDefault(SettingsPaths.AgentTransferIp, "");
 
-    /// <summary>로컬 라디오 바인딩용 — IsNetwork 의 반대. 라디오 둘이 같은 상태를 양방향으로 본다.</summary>
+    private static AgentTransferTargetKind ParseMode(string s) =>
+        System.Enum.TryParse<AgentTransferTargetKind>(s, out var m) ? m : AgentTransferTargetKind.Local;
+
+    // 라디오 바인딩 (상호배타 3개).
     public bool AgentTransferIsLocal
     {
-        get => !AgentTransferIsNetwork;
-        set => AgentTransferIsNetwork = !value;
+        get => AgentTransferMode == AgentTransferTargetKind.Local;
+        set { if (value) AgentTransferMode = AgentTransferTargetKind.Local; }
     }
 
-    partial void OnAgentTransferIsNetworkChanged(bool value)
+    public bool AgentTransferIsNetwork
+    {
+        get => AgentTransferMode == AgentTransferTargetKind.Network;
+        set { if (value) AgentTransferMode = AgentTransferTargetKind.Network; }
+    }
+
+    public bool AgentTransferIsCloud
+    {
+        get => AgentTransferMode == AgentTransferTargetKind.Cloud;
+        set { if (value) AgentTransferMode = AgentTransferTargetKind.Cloud; }
+    }
+
+    partial void OnAgentTransferModeChanged(AgentTransferTargetKind value)
     {
         OnPropertyChanged(nameof(AgentTransferIsLocal));
-        AppSettingStore.SaveString(SettingsPaths.AgentTransferUseNetwork, value ? "true" : "false");
+        OnPropertyChanged(nameof(AgentTransferIsNetwork));
+        OnPropertyChanged(nameof(AgentTransferIsCloud));
+        AppSettingStore.SaveString(SettingsPaths.AgentTransferMode, value.ToString());
     }
 
     partial void OnAgentTransferIpChanged(string value) =>
         AppSettingStore.SaveString(SettingsPaths.AgentTransferIp, value);
 
-    private AgentTransferTarget CurrentAgentTransferTarget =>
-        AgentTransferIsNetwork
-            ? AgentTransferTarget.Network(AgentTransferIp)
-            : AgentTransferTarget.Local;
+    private AgentTransferTarget CurrentAgentTransferTarget => AgentTransferMode switch
+    {
+        AgentTransferTargetKind.Network => AgentTransferTarget.Network(AgentTransferIp),
+        AgentTransferTargetKind.Cloud => AgentTransferTarget.Cloud,
+        _ => AgentTransferTarget.Local,
+    };
 
-    /// <summary>'Agent에서 가져오기' — 로컬은 공유폴더 AASX 를, 네트워크는 원격 Agent(5050)에서 다운로드해 연다.</summary>
+    /// <summary>'Agent에서 가져오기' — 로컬은 공유폴더 AASX, 네트워크는 원격 Agent(5050) 다운로드해 연다.</summary>
     [RelayCommand]
     private async System.Threading.Tasks.Task OpenFromAgent()
     {
+        // 클라우드: 미로그인이면 로그인창부터 → 사이트/단말 선택 (다운로드 계층은 후속 단계).
+        if (AgentTransferMode == AgentTransferTargetKind.Cloud)
+        {
+            if (!PvSession.IsLoggedIn)
+            {
+                var login = PvLoginDialog.Show(PvSession.Client);
+                if (login is not { Ok: true })
+                    return;
+                PvSession.Token = login.Token;
+            }
+            var target = PvTargetDialog.Show(PvSession.Client, PvSession.Token ?? "");
+            if (target is null)
+                return;
+            _dialogService.ShowWarning("클라우드 가져오기는 준비 중입니다 (다운로드 계층 구현 후 활성화됩니다).");
+            return;
+        }
+
         string path;
         if (CurrentAgentTransferTarget.Kind == AgentTransferTargetKind.Network)
         {

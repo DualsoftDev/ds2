@@ -119,6 +119,9 @@ Apps/DSPilot/Output/
 # Installer outputs and bundled redistributables
 /Apps/AasxEditor/Installer/Output/
 /Apps/AasxEditor/Installer/Redist/MicrosoftEdgeWebView2RuntimeInstaller*.exe
+# PV 서버 통신 네이티브 DLL + 로컬 설정 — 서버 정보 보호 위해 git 제외 (사내에서만 배포)
+/ExternalDlls/PvClient.dll
+/ExternalDlls/pv.conf
 /ExternalDlls/AAStoPLC.pdb
 /ExternalDlls/AAStoPLC.xml
 /ExternalDlls/AAStoPLC.LadderViewer.pdb

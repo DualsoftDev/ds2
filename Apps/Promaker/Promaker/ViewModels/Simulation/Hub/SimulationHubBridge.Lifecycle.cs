@@ -687,7 +687,7 @@ public sealed partial class SimulationHubBridge
         var batch = _txOutAddresses()
             .Where(addr => !string.IsNullOrWhiteSpace(addr))
             .Distinct()
-            .Select(addr => new TagWrite(addr, "false", source))
+            .Select(addr => new TagWrite(addr, "false", source, System.Environment.TickCount64))
             .ToArray();
 
         if (batch.Length == 0) return;

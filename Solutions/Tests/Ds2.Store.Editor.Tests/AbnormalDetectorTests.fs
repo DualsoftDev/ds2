@@ -583,10 +583,10 @@ module MonitoringAdapterTests =
 
     // baseline(off) ??�?깔고 off?�on rising ?�로 going/finish ??만든??
     let private goingThenFinish (adapter: MonitoringAbnormalAdapter) (goingMs: int) (finishMs: int) =
-        adapter.OnObservedIo("Y0", "false", goingMs)   // OUT baseline
-        adapter.OnObservedIo("Y0", "true", goingMs)    // OUT rising ??going
-        adapter.OnObservedIo("X0", "false", goingMs)   // IN baseline
-        adapter.OnObservedIo("X0", "true", finishMs)   // IN rising ??finish
+        adapter.OnObservedIo("Y0", "false", int64 goingMs)   // OUT baseline
+        adapter.OnObservedIo("Y0", "true", int64 goingMs)    // OUT rising ??going
+        adapter.OnObservedIo("X0", "false", int64 goingMs)   // IN baseline
+        adapter.OnObservedIo("X0", "true", int64 finishMs)   // IN rising ??finish
 
     [<Fact>]
     let ``elapsed in range is normal ??no false positive`` () =
@@ -642,16 +642,16 @@ module MonitoringAdapterTests =
         let adapter, emitted, _, _, _ = setup ()
         // If OUT was already on before Monitoring attached, a later IN rise is
         // not enough evidence to call a 1-cycle short.
-        adapter.OnObservedIo("Y0", "true", 0)
-        adapter.OnObservedIo("X0", "false", 0)
-        adapter.OnObservedIo("X0", "true", 100)
+        adapter.OnObservedIo("Y0", "true", 0L)
+        adapter.OnObservedIo("X0", "false", 0L)
+        adapter.OnObservedIo("X0", "true", 100L)
         Assert.Empty(emitted)
 
     [<Fact>]
     let ``finish before any output observation is dropped (unknown baseline)`` () =
         let adapter, emitted, _, _, _ = setup ()
-        adapter.OnObservedIo("X0", "false", 0)
-        adapter.OnObservedIo("X0", "true", 100)
+        adapter.OnObservedIo("X0", "false", 0L)
+        adapter.OnObservedIo("X0", "true", 100L)
         Assert.Empty(emitted)
 
     [<Fact>]
@@ -662,9 +662,9 @@ module MonitoringAdapterTests =
         let adapter, emitted, _, _, _ = setup ()
         goingThenFinish adapter 0 500            // 정상 1사이클 — OUT rising 을 edge 로 관측
         emitted.Clear()
-        adapter.OnObservedIo("Y0", "false", 1000)  // OUT off (사이클 종료)
-        adapter.OnObservedIo("X0", "false", 1000)
-        adapter.OnObservedIo("X0", "true", 1500)   // 유령 IN rising — Going 없이 Finish
+        adapter.OnObservedIo("Y0", "false", 1000L)  // OUT off (사이클 종료)
+        adapter.OnObservedIo("X0", "false", 1000L)
+        adapter.OnObservedIo("X0", "true", 1500L)   // 유령 IN rising — Going 없이 Finish
         Assert.Single(emitted) |> ignore
         Assert.Equal(AbnormalKind.SensorShort, emitted.[0].Kind)
 
@@ -673,9 +673,9 @@ module MonitoringAdapterTests =
         // 시작/주기 resync 가 OUT=off 를 baseline 으로 주입한 직후(중간 합류) —
         // rising 을 edge 로 본 적 없는 OUT 의 IN rising 은 Short 증거 불충분.
         let adapter, emitted, _, _, _ = setup ()
-        adapter.OnObservedIo("Y0", "false", 0)   // baseline 주입과 동형 — edge 아님
-        adapter.OnObservedIo("X0", "false", 0)
-        adapter.OnObservedIo("X0", "true", 100)
+        adapter.OnObservedIo("Y0", "false", 0L)   // baseline 주입과 동형 — edge 아님
+        adapter.OnObservedIo("X0", "false", 0L)
+        adapter.OnObservedIo("X0", "true", 100L)
         Assert.Empty(emitted)
 
     [<Fact>]
@@ -695,7 +695,7 @@ module MonitoringAdapterTests =
         goingThenFinish adapter 0 500
         Assert.Empty(emitted)
         states.[callId] <- Status4.Ready           // reset?�Ready = ?�상 종료, Open ?�님
-        adapter.OnObservedIo("X0", "false", 600)
+        adapter.OnObservedIo("X0", "false", 600L)
         Assert.Empty(emitted)
 
     [<Fact>]
@@ -704,7 +704,7 @@ module MonitoringAdapterTests =
         goingThenFinish adapter 0 500
         Assert.Empty(emitted)
         states.[callId] <- Status4.Finish
-        adapter.OnObservedIo("X0", "false", 600)
+        adapter.OnObservedIo("X0", "false", 600L)
         Assert.Empty(emitted)
 
     // Normal(Some T) = 감지 후 T 유지 약속 — Finish 중 In falling = SensorOpen (출력 활성 중).
@@ -714,7 +714,7 @@ module MonitoringAdapterTests =
         goingThenFinish adapter 0 500
         Assert.Empty(emitted)
         states.[callId] <- Status4.Finish
-        adapter.OnObservedIo("X0", "false", 600)
+        adapter.OnObservedIo("X0", "false", 600L)
         Assert.Single(emitted) |> ignore
         Assert.Equal(AbnormalKind.SensorOpen, emitted.[0].Kind)
 
@@ -725,7 +725,7 @@ module MonitoringAdapterTests =
         goingThenFinish adapter 0 500
         Assert.Empty(emitted)
         states.[callId] <- Status4.Finish
-        adapter.OnObservedIo("X0", "false", 600)
+        adapter.OnObservedIo("X0", "false", 600L)
         Assert.Empty(emitted)
 
     [<Fact>]
@@ -734,8 +734,8 @@ module MonitoringAdapterTests =
         goingThenFinish adapter 0 500
         Assert.Empty(emitted)
         states.[callId] <- Status4.Finish
-        adapter.OnObservedIo("Y0", "false", 550)
-        adapter.OnObservedIo("X0", "false", 600)
+        adapter.OnObservedIo("Y0", "false", 550L)
+        adapter.OnObservedIo("X0", "false", 600L)
         Assert.Empty(emitted)
 
     // ── OUT-falling ActionOver (doc/ACTIONOVER_MONITORING_MISS_AGENT_FIX_HANDOFF_2026-07-03.md §7 옵션A) ──
@@ -748,10 +748,10 @@ module MonitoringAdapterTests =
         let adapter, emitted, states, callId, _ = setup ()
         adapter.IsMaxMeasured <- fun _ -> true
         states.[callId] <- Status4.Going
-        adapter.OnObservedIo("Y0", "false", 0)      // OUT baseline
-        adapter.OnObservedIo("Y0", "true", 0)       // OUT rising → goingClock=0
-        adapter.OnObservedIo("X0", "false", 0)      // IN baseline — 끝내 미도달
-        adapter.OnObservedIo("Y0", "false", 1500)   // OUT falling, elapsed 1500 > Max 900
+        adapter.OnObservedIo("Y0", "false", 0L)      // OUT baseline
+        adapter.OnObservedIo("Y0", "true", 0L)       // OUT rising → goingClock=0
+        adapter.OnObservedIo("X0", "false", 0L)      // IN baseline — 끝내 미도달
+        adapter.OnObservedIo("Y0", "false", 1500L)   // OUT falling, elapsed 1500 > Max 900
         Assert.Single(emitted) |> ignore
         Assert.Equal(AbnormalKind.ActionOver, emitted.[0].Kind)
         // elapsed 는 실측(Control adapter 규약) — 엔진 due 경로의 MaxMs+1 과 다르다.
@@ -762,10 +762,10 @@ module MonitoringAdapterTests =
         let adapter, emitted, states, callId, _ = setup ()
         adapter.IsMaxMeasured <- fun _ -> true
         states.[callId] <- Status4.Going
-        adapter.OnObservedIo("Y0", "false", 0)
-        adapter.OnObservedIo("Y0", "true", 0)
-        adapter.OnObservedIo("X0", "false", 0)
-        adapter.OnObservedIo("Y0", "false", 500)    // elapsed 500 ≤ 900 — 정상 범위 종료
+        adapter.OnObservedIo("Y0", "false", 0L)
+        adapter.OnObservedIo("Y0", "true", 0L)
+        adapter.OnObservedIo("X0", "false", 0L)
+        adapter.OnObservedIo("Y0", "false", 500L)    // elapsed 500 ≤ 900 — 정상 범위 종료
         Assert.Empty(emitted)
 
     [<Fact>]
@@ -774,7 +774,7 @@ module MonitoringAdapterTests =
         adapter.IsMaxMeasured <- fun _ -> true
         states.[callId] <- Status4.Going            // Going 이어도 goingClock 부재면 발행 없음
         goingThenFinish adapter 0 500               // IN rising 이 goingClock 소비
-        adapter.OnObservedIo("Y0", "false", 1500)
+        adapter.OnObservedIo("Y0", "false", 1500L)
         Assert.Empty(emitted)
 
     [<Fact>]
@@ -782,10 +782,10 @@ module MonitoringAdapterTests =
         // IsMaxMeasured 기본 false — 엔진 watchdog 와 동일 게이트 유지(§7 가드2).
         let adapter, emitted, states, callId, _ = setup ()
         states.[callId] <- Status4.Going
-        adapter.OnObservedIo("Y0", "false", 0)
-        adapter.OnObservedIo("Y0", "true", 0)
-        adapter.OnObservedIo("X0", "false", 0)
-        adapter.OnObservedIo("Y0", "false", 1500)
+        adapter.OnObservedIo("Y0", "false", 0L)
+        adapter.OnObservedIo("Y0", "true", 0L)
+        adapter.OnObservedIo("X0", "false", 0L)
+        adapter.OnObservedIo("Y0", "false", 1500L)
         Assert.Empty(emitted)
 
     [<Fact>]
@@ -793,10 +793,10 @@ module MonitoringAdapterTests =
         let adapter, emitted, _, _, _ = setup ()
         adapter.IsMaxMeasured <- fun _ -> true
         // states 미설정 → Ready (사이클 이미 종료/리셋된 뒤의 OUT off)
-        adapter.OnObservedIo("Y0", "false", 0)
-        adapter.OnObservedIo("Y0", "true", 0)
-        adapter.OnObservedIo("X0", "false", 0)
-        adapter.OnObservedIo("Y0", "false", 1500)
+        adapter.OnObservedIo("Y0", "false", 0L)
+        adapter.OnObservedIo("Y0", "true", 0L)
+        adapter.OnObservedIo("X0", "false", 0L)
+        adapter.OnObservedIo("Y0", "false", 1500L)
         Assert.Empty(emitted)
 
     [<Fact>]
@@ -806,12 +806,12 @@ module MonitoringAdapterTests =
         let adapter, emitted, states, callId, _ = setup ()
         adapter.IsMaxMeasured <- fun _ -> true
         states.[callId] <- Status4.Going
-        adapter.OnObservedIo("Y0", "false", 0)
-        adapter.OnObservedIo("Y0", "true", 0)       // goingClock=0
-        adapter.OnObservedIo("X0", "false", 0)
+        adapter.OnObservedIo("Y0", "false", 0L)
+        adapter.OnObservedIo("Y0", "true", 0L)       // goingClock=0
+        adapter.OnObservedIo("X0", "false", 0L)
         adapter.InvalidateObservations()            // PLC 단절
-        adapter.OnObservedIo("Y0", "true", 1000)    // 재개 첫 관측 = baseline — goingClock 안 찍힘
-        adapter.OnObservedIo("Y0", "false", 1500)   // falling 이지만 goingClock 부재 → 발행 없음
+        adapter.OnObservedIo("Y0", "true", 1000L)    // 재개 첫 관측 = baseline — goingClock 안 찍힘
+        adapter.OnObservedIo("Y0", "false", 1500L)   // falling 이지만 goingClock 부재 → 발행 없음
         Assert.Empty(emitted)
 
     [<Fact>]
@@ -821,11 +821,11 @@ module MonitoringAdapterTests =
         let adapter, emitted, states, callId, _ = setup ()
         adapter.IsMaxMeasured <- fun _ -> true
         states.[callId] <- Status4.Going
-        adapter.OnObservedIo("Y0", "false", 0)
-        adapter.OnObservedIo("Y0", "true", 0)
-        adapter.OnObservedIo("X0", "false", 0)
-        adapter.OnObservedIo("Y0", "false", 1500)   // ActionOver 1회
-        adapter.OnObservedIo("X0", "true", 2000)    // 뒤늦은 IN rising — 정상 finish 경로(goingClock 소비)
+        adapter.OnObservedIo("Y0", "false", 0L)
+        adapter.OnObservedIo("Y0", "true", 0L)
+        adapter.OnObservedIo("X0", "false", 0L)
+        adapter.OnObservedIo("Y0", "false", 1500L)   // ActionOver 1회
+        adapter.OnObservedIo("X0", "true", 2000L)    // 뒤늦은 IN rising — 정상 finish 경로(goingClock 소비)
         Assert.Single(emitted) |> ignore
         Assert.Equal(AbnormalKind.ActionOver, emitted.[0].Kind)
 
@@ -834,12 +834,12 @@ module MonitoringAdapterTests =
         let adapter, emitted, states, callId, _ = setup ()
         adapter.IsMaxMeasured <- fun _ -> true
         states.[callId] <- Status4.Going
-        adapter.OnObservedIo("Y0", "false", 0)
-        adapter.OnObservedIo("Y0", "true", 0)
-        adapter.OnObservedIo("X0", "false", 0)
-        adapter.OnObservedIo("Y0", "false", 1500)   // 사이클1 ActionOver
-        adapter.OnObservedIo("Y0", "true", 2000)    // 사이클2 시작 — latch 클리어 + goingClock=2000
-        adapter.OnObservedIo("Y0", "false", 3500)   // elapsed 1500 > 900 → 재발행
+        adapter.OnObservedIo("Y0", "false", 0L)
+        adapter.OnObservedIo("Y0", "true", 0L)
+        adapter.OnObservedIo("X0", "false", 0L)
+        adapter.OnObservedIo("Y0", "false", 1500L)   // 사이클1 ActionOver
+        adapter.OnObservedIo("Y0", "true", 2000L)    // 사이클2 시작 — latch 클리어 + goingClock=2000
+        adapter.OnObservedIo("Y0", "false", 3500L)   // elapsed 1500 > 900 → 재발행
         Assert.Equal(2, emitted.Count)
         Assert.Equal(AbnormalKind.ActionOver, emitted.[0].Kind)
         Assert.Equal(AbnormalKind.ActionOver, emitted.[1].Kind)
@@ -1081,9 +1081,9 @@ module DeviceControlCycleTests =
         let command : RuntimeIOAddressBatchCommand =
             { Envelope = RuntimeHubDefaults.selfEnvelope identity
               Items =
-                [| { Address = "%QX0.1.13"; Value = "true"; Source = HubSource.Plc }
-                   { Address = "%QX0.1.13"; Value = "false"; Source = HubSource.Plc }
-                   { Address = "%IX0.0.13"; Value = "true"; Source = HubSource.Plc } |] }
+                [| { Address = "%QX0.1.13"; Value = "true"; Source = HubSource.Plc; OriginTsMs = 0L }
+                   { Address = "%QX0.1.13"; Value = "false"; Source = HubSource.Plc; OriginTsMs = 0L }
+                   { Address = "%IX0.0.13"; Value = "true"; Source = HubSource.Plc; OriginTsMs = 0L } |] }
 
         (session :> IRuntimeHubSession)
             .InjectIOValuesByAddressAsync(command)
@@ -1121,19 +1121,18 @@ module DeviceControlCycleTests =
               Generation = 1
               Mode = "Monitoring" }
         let session = EventDrivenEngineRuntimeHubSession(engine, NullSignalHubContext(), identity, 100, System.Func<Guid, bool>(fun _ -> true), System.Func<Guid, bool>(fun _ -> true))
-        let inject addr v =
+        let inject addr v ts =
             let cmd : RuntimeIOAddressBatchCommand =
                 { Envelope = RuntimeHubDefaults.selfEnvelope identity
-                  Items = [| { Address = addr; Value = v; Source = HubSource.Plc } |] }
+                  Items = [| { Address = addr; Value = v; Source = HubSource.Plc; OriginTsMs = ts } |] }
             (session :> IRuntimeHubSession).InjectIOValuesByAddressAsync(cmd).GetAwaiter().GetResult()
 
-        // 출력 관측 → Going
-        inject "%QX0.1.20" "true"
+        // 출력 관측(원천 ts=0) → Going
+        inject "%QX0.1.20" "true" 0L
         Assert.Equal(Some Status4.Going, engine.GetCallState(call.Id))
 
-        // T(50ms) 경과 후 다음 관측 틱 → 셀프 finish (IN 없이)
-        System.Threading.Thread.Sleep 150
-        inject "%QX0.1.20" "false"
+        // 원천 ts 가 T(50ms) 경과한 다음 관측 → 셀프 finish (IN 없이). 원천 ts 기반이라 Sleep 불필요(결정론).
+        inject "%QX0.1.20" "false" 200L
         Assert.Equal(Some Status4.Finish, engine.GetCallState(call.Id))
 
     [<Fact>]
@@ -1160,9 +1159,9 @@ module DeviceControlCycleTests =
         let getC = System.Func<Guid, Status4>(fun _ -> cs)
         let getW = System.Func<Guid, Status4>(fun _ -> Status4.Ready)
 
-        let a1 = session.Observe("%QX0.2.0", "true", getW, getC)
+        let a1 = session.Observe("%QX0.2.0", "true", getW, getC, 0L)
         Assert.Contains(Status4.Going, a1 |> Array.map (fun x -> x.State))
         cs <- Status4.Going
-        System.Threading.Thread.Sleep 120
-        let a2 = session.TickVirtualFinish(getC)
+        // 원천 ts 100 > T 50 → finish (Sleep 불필요, 명시 ts 로 결정론)
+        let a2 = session.TickVirtualFinish(getC, 100L)
         Assert.Contains(Status4.Finish, a2 |> Array.map (fun x -> x.State))

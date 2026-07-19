@@ -56,6 +56,8 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 네이티브 PvClient.dll(C++, P/Invoke) 을 실행 폴더로 복사. 없으면 스킵(사내 배포 산출물이라 CI/타 개발자엔 없을 수 있음). -->
+    <None Include="..\..\..\ExternalDlls\PvClient.dll" Link="PvClient.dll" CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\..\ExternalDlls\PvClient.dll')" />
     <!-- 샘플 모델 — "샘플" 버튼이 build output 의 Sample\ 폴더에서 로드. -->
     <Content Include="..\Sample\**\*" Link="Sample\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\..\Solutions\View\Ds2.View3D\wwwroot\models\**\*" Link="wwwroot\models\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />

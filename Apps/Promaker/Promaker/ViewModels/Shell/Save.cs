@@ -10,6 +10,7 @@ using Ds2.Editor;
 
 using Microsoft.Win32;
 using Promaker.Dialogs;
+using Promaker.Dialogs.Pv;
 using Promaker.Presentation;
 using Promaker.Services;
 
@@ -130,6 +131,34 @@ public partial class MainViewModel
         {
             _dialogService.ShowWarning("Agent 세션 기록 실패 — 공유 폴더 권한을 확인하세요.");
             StatusText = "Agent 업로드 실패 — 세션 기록 불가";
+            return;
+        }
+
+        // 클라우드 대상: PV 로그인 후 사이트/단말 탐색으로 타겟을 고르고, 그 단말의 인스턴스 IP 로
+        // 기존 원격 Agent 업로드(AgentUploadClient) 를 그대로 태운다. (Pi5 가 아니라 인스턴스 Agent 로 감)
+        if (CurrentAgentTransferTarget.Kind == AgentTransferTargetKind.Cloud)
+        {
+            // 로그인 안 됐으면 업로드 흐름에서 로그인창부터 띄운다 (취소하면 업로드 중단).
+            if (!PvSession.IsLoggedIn)
+            {
+                var login = PvLoginDialog.Show(PvSession.Client);
+                if (login is not { Ok: true })
+                    return;
+                PvSession.Token = login.Token;
+            }
+            var target = PvTargetDialog.Show(PvSession.Client, PvSession.Token ?? "");
+            if (target is null)
+                return; // 사용자 취소
+            var instanceIp = target.Value.Edge.PublicIp;
+            if (string.IsNullOrWhiteSpace(instanceIp))
+            {
+                _dialogService.ShowWarning("선택한 단말에 인스턴스 IP 가 없습니다 (인스턴스가 아직 생성 중일 수 있습니다).");
+                return;
+            }
+            StatusText = $"클라우드 업로드 중 — {target.Value.Site.DisplayName} / {target.Value.Edge.DisplayName} ({instanceIp})...";
+            var (cloudOk, cloudMsg) = await AgentUploadClient.UploadAsync(instanceIp);
+            StatusText = cloudMsg;
+            if (!cloudOk) _dialogService.ShowWarning(cloudMsg);
             return;
         }
 
