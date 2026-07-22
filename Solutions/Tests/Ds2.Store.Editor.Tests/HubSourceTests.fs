@@ -55,6 +55,43 @@ let ``HubSource.DefaultAcceptedSources 는 Monitoring/Web 차단 (echo / 외부 
     Assert.DoesNotContain(HubSource.Web, defaults)
 
 [<Fact>]
+let ``위임 스캔은 수신 source와 무관하게 Agent PLC 재쓰기를 차단`` () =
+    for source in [| HubSource.Plc; HubSource.Resync; HubSource.Control; HubSource.Monitoring; "pi5"; null |] do
+        Assert.False(
+            SignalHubWritePolicy.shouldForwardToPlc true true "%QX0.1.2" source,
+            $"delegated source '{source}' must not be forwarded")
+
+[<Fact>]
+let ``직접 스캔도 PLC 관측 source는 self echo를 차단`` () =
+    Assert.False(SignalHubWritePolicy.shouldForwardToPlc false true "%IX0.0.1" HubSource.Plc)
+    Assert.False(SignalHubWritePolicy.shouldForwardToPlc false true "%IX0.0.1" "PLC")
+    Assert.False(SignalHubWritePolicy.shouldForwardToPlc false true "%IX0.0.1" HubSource.Resync)
+
+[<Fact>]
+let ``Agent가 PLC owner인 모드는 제어 source만 PLC로 전달`` () =
+    Assert.True(SignalHubWritePolicy.shouldForwardToPlc false true "%QX0.1.2" HubSource.Control)
+    Assert.True(SignalHubWritePolicy.shouldForwardToPlc false true "%QX0.1.2" HubSource.VirtualPlant)
+    Assert.False(SignalHubWritePolicy.shouldForwardToPlc false false "%QX0.1.2" HubSource.Control)
+    Assert.False(SignalHubWritePolicy.shouldForwardToPlc false true "" HubSource.Control)
+
+[<Fact>]
+let ``단말 인증 미설정 Hub는 기존 연결을 모두 허용`` () =
+    Assert.True(SignalHubConnectionPolicy.isAllowed false false false false)
+    Assert.True(SignalHubConnectionPolicy.isAllowed false false true false)
+
+[<Fact>]
+let ``단말 인증 설정 시 헤더 없는 loopback 클라이언트만 예외 허용`` () =
+    Assert.True(SignalHubConnectionPolicy.isAllowed true true false false)
+    Assert.False(SignalHubConnectionPolicy.isAllowed true false false false)
+
+[<Fact>]
+let ``원격 단말은 device credential 검증 성공 시에만 허용`` () =
+    Assert.True(SignalHubConnectionPolicy.isAllowed true false true true)
+    Assert.False(SignalHubConnectionPolicy.isAllowed true false true false)
+    // 로컬이라도 명시적으로 잘못된 헤더를 보냈다면 우회시키지 않는다.
+    Assert.False(SignalHubConnectionPolicy.isAllowed true true true false)
+
+[<Fact>]
 let ``Runtime HubMethod names are locked`` () =
     Assert.Equal("RuntimeStart", HubMethod.RuntimeStart)
     Assert.Equal("RuntimeApplyInitialStates", HubMethod.RuntimeApplyInitialStates)
@@ -71,6 +108,11 @@ let ``Runtime HubMethod names are locked`` () =
     Assert.Equal("OnRuntimeCallStateChanged", HubMethod.OnRuntimeCallStateChanged)
     Assert.Equal("OnRuntimeStatusChanged", HubMethod.OnRuntimeStatusChanged)
     Assert.Equal("OnRuntimeCommandRejected", HubMethod.OnRuntimeCommandRejected)
+
+[<Fact>]
+let ``Delegated PLC status report contract is exposed by SignalHub`` () =
+    Assert.Equal("ReportPlcConnectionStatus", HubMethod.ReportPlcConnectionStatus)
+    assertHubMethod HubMethod.ReportPlcConnectionStatus typeof<PlcConnectionStatus> typeof<Task>
 
 [<Fact>]
 let ``Runtime DTOs expose CLIMutable default constructors`` () =

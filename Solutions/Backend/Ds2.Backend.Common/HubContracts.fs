@@ -26,6 +26,11 @@ module HubMethod =
     /// 신규 접속 클라이언트는 OnConnectedAsync 단계에서 현재 모든 PLC 상태를 캐스트로 받는다.
     [<Literal>]
     let OnPlcConnectionStatus = "OnPlcConnectionStatus"
+    /// Delegated collector PLC status report — Client (Pi5) -> Server (Agent).
+    /// The Agent caches and fans this out as OnPlcConnectionStatus so DSPilot sees
+    /// the field-side gateway state instead of the intentionally idle Agent gateway.
+    [<Literal>]
+    let ReportPlcConnectionStatus = "ReportPlcConnectionStatus"
     /// v12 — Control/Monitoring 경로이탈 이상감지. Server → Client.
     [<Literal>]
     let OnAbnormal = "OnAbnormal"
@@ -47,6 +52,12 @@ module HubMethod =
     /// 분리는 이 경로를 타 — 최종 fan-out 지점(OnScanHeartbeat)은 동일해 소비자는 무영향.
     [<Literal>]
     let ReportScanHeartbeat = "ReportScanHeartbeat"
+    /// 수집기 config push — Server → All clients. 분리 아키텍처에서 Agent 가 aasx IOMap(태그) +
+    /// PlcConnection(접속)으로 조립한 PlcGatewayConfig 를 Pi5 수집기가 읽는 형식(CollectorConfigPayload)으로
+    /// 내려준다. Pi5 는 접속(마법사 로컬)과 태그(이 payload)를 병합해 plc.json 갱신 → scan 시작.
+    /// 신규 client 는 OnConnectedAsync 에서 마지막 config 를 caller 로 받는다(PlcConnectionStatus 캐시와 동형).
+    [<Literal>]
+    let OnCollectorConfig = "OnCollectorConfig"
     /// 자동 duration 정합 ON/OFF — Client → Server invoke. server 가 엔진(abnormal 어댑터)에 적용 +
     /// OnAutoCalibrateChanged 전 클라이언트 fan-out (스캔주기 패턴 동형). ON=실측학습 기준, OFF=모델 기준.
     [<Literal>]
@@ -248,6 +259,33 @@ type LearnedDurationPayload = {
     [<JsonPropertyName("avgMs")>]     AvgMs: int
     [<JsonPropertyName("minMs")>]     MinMs: int
     [<JsonPropertyName("maxMs")>]     MaxMs: int
+}
+
+/// 수집기(Pi5) config push payload — Server → client. 수집기가 읽는 형식과 필드명이 정확히 일치해야
+/// 하므로(camelCase) Pi5 의 plc.json DTO(connections/tags)와 동형. Agent 가 PlcGatewayConfig →
+/// 이 payload 로 매핑(Ds2.Backend.Plc.CollectorConfig.fromGateway)해 push, Pi5 가 병합해 plc.json 갱신.
+[<CLIMutable>]
+type CollectorTagConfig = {
+    [<JsonPropertyName("hub")>]   Hub: string
+    [<JsonPropertyName("plc")>]   Plc: string
+    [<JsonPropertyName("dtype")>] Dtype: string
+}
+
+[<CLIMutable>]
+type CollectorConnectionConfig = {
+    [<JsonPropertyName("name")>]          Name: string
+    [<JsonPropertyName("vendor")>]        Vendor: string          // "LsXgk" | "LsXgi" | "Mitsubishi"
+    [<JsonPropertyName("ip")>]            Ip: string
+    [<JsonPropertyName("port")>]          Port: int
+    [<JsonPropertyName("localEthernet")>] LocalEthernet: bool
+    [<JsonPropertyName("timeoutMs")>]     TimeoutMs: int
+    [<JsonPropertyName("scanMs")>]        ScanMs: int
+    [<JsonPropertyName("tags")>]          Tags: CollectorTagConfig[]
+}
+
+[<CLIMutable>]
+type CollectorConfigPayload = {
+    [<JsonPropertyName("connections")>] Connections: CollectorConnectionConfig[]
 }
 
 /// Runtime session identity carried by every remote command/event/snapshot.

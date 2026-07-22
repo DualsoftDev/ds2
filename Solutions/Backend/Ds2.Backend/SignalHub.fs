@@ -102,6 +102,36 @@ module RuntimeHubDefaults =
             Mappings = [||]
         }
 
+/// Hub 수신값을 Agent 로컬 PLC 게이트웨이에 전달할지 결정하는 순수 정책.
+/// 위임 스캔에서는 Pi5가 이미 현장 PLC에서 읽은 관측값을 보내므로 Agent가 다시 PLC로
+/// echo하면 안 된다. Control/VirtualPlant처럼 Agent가 PLC owner인 모드에서만 forward한다.
+[<RequireQualifiedAccess>]
+module SignalHubWritePolicy =
+    let shouldForwardToPlc
+            (delegatedScan: bool)
+            (gatewayEnabled: bool)
+            (address: string)
+            (source: string) =
+        not delegatedScan
+        && gatewayEnabled
+        && not (String.IsNullOrWhiteSpace address)
+        && not (String.Equals(source, HubSource.Plc, StringComparison.OrdinalIgnoreCase))
+        && not (String.Equals(source, HubSource.Resync, StringComparison.OrdinalIgnoreCase))
+
+/// 단말 화이트리스트가 켜진 Hub의 연결 허용 정책.
+/// 같은 인스턴스의 DSPilot 같은 loopback 클라이언트는 헤더 없이 허용하되, 원격(Pi5 포함)은
+/// 반드시 X-Device-Id를 제시해 화이트리스트를 통과해야 한다. 로컬이라도 헤더를 제시했다면 검증한다.
+[<RequireQualifiedAccess>]
+module SignalHubConnectionPolicy =
+    let isAllowed
+            (validatorConfigured: bool)
+            (isLoopback: bool)
+            (hasDeviceId: bool)
+            (credentialValid: bool) =
+        not validatorConfigured
+        || (isLoopback && not hasDeviceId)
+        || credentialValid
+
 type NullRuntimeHubSession() =
     interface IRuntimeHubSession with
         member _.CurrentIdentity = RuntimeHubDefaults.emptyIdentity
@@ -218,9 +248,20 @@ and SignalHub(gateway: IPlcGateway, runtimeSession: IRuntimeHubSession) =
     static let plcStatusCache =
         System.Collections.Concurrent.ConcurrentDictionary<string, PlcConnectionStatus>()
 
+    /// 마지막 수집기 config push (분리 아키텍처) — 신규 client(Pi5)가 OnConnectedAsync 에서 caller 로 받아
+    /// Agent 활성 broadcast 를 놓쳐도 현재 config 를 확보한다(PlcConnectionStatus 캐시와 동형).
+    /// null 이면 아직 config 가 조립/push 되지 않음(전송 생략).
+    static let mutable collectorConfigCache : CollectorConfigPayload = Unchecked.defaultof<CollectorConfigPayload>
+
     /// Monitoring 모드 read-only flag. true 면 클라이언트 WriteTag/WriteTags 가 no-op.
     /// PlcScanService 의 PLC→Hub broadcast 는 영향 없음 (broadcaster 가 직접 SendAsync).
     static let mutable readOnlyMode = false
+
+    /// 위임 스캔 모드 — Agent 가 PLC 에 직접 안 붙고(§10.10 ①: PlcScanService off) 분리된 Pi5 수집기가
+    /// 스캔→WriteTags push 로 IN 을 공급한다. readOnlyMode(Monitoring)여도 Pi5 의 WriteTags 는 수용해야
+    /// 엔진이 IN 을 받아 구동되므로, 이 플래그가 켜지면 WriteTags 의 read-only 억제를 예외 처리한다.
+    /// (UI 클라이언트 write 는 여전히 억제 — Monitoring UI 는 수신 전용이라 WriteTags 를 호출하지 않는다.)
+    static let mutable delegatedScanMode = false
 
     /// 자동 duration 정합 현재 상태 캐시 — 클라이언트(DSPilot)가 연결 직후 GetAutoCalibrate 로 pull.
     /// SetAutoCalibrate(토글) + InitAutoCalibrate(Agent 시작 시 저장값 복원)가 갱신. SSOT 는 엔진이지만
@@ -233,6 +274,11 @@ and SignalHub(gateway: IPlcGateway, runtimeSession: IRuntimeHubSession) =
     static member ClearTagCache() =
         tagCache.Clear()
         plcStatusCache.Clear()
+        collectorConfigCache <- Unchecked.defaultof<CollectorConfigPayload>
+
+    /// Agent 가 조립한 수집기 config 를 캐시 — broadcast 직후 호출해 신규 client 가 OnConnectedAsync 로 받게 한다.
+    static member UpdateCollectorConfigCache(payload: CollectorConfigPayload) =
+        collectorConfigCache <- payload
 
     /// PlcScanService broadcaster 가 캐시를 직접 갱신하기 위한 internal 진입점.
     static member internal UpdateTagCache(address: string, value: string) =
@@ -247,6 +293,13 @@ and SignalHub(gateway: IPlcGateway, runtimeSession: IRuntimeHubSession) =
         readOnlyMode <- value
 
     static member IsReadOnly = readOnlyMode
+
+    /// 위임 스캔 모드 set — host bootstrap 에서 "실제 PLC 연결" 안 함(위임)일 때 true.
+    /// true 면 PlcScanService 가 등록되지 않아(Agent 직접 스캔 off) Pi5 수집기가 유일한 IN 소스가 된다.
+    static member SetDelegatedScan(value: bool) =
+        delegatedScanMode <- value
+
+    static member IsDelegatedScan = delegatedScanMode
 
     /// 스캔 주기 영속화 훅 — 호스트(Promaker.Agent 등)가 PlcConnection.json 기록 람다를 주입.
     /// null 이면 라이브 적용만 (재시작 시 파일값으로 복귀). readOnlyMode 와 무관 — 설정이지 태그 쓰기가 아님.
@@ -316,12 +369,29 @@ and SignalHub(gateway: IPlcGateway, runtimeSession: IRuntimeHubSession) =
     member this.ReportScanHeartbeat() : Task =
         this.Clients.All.SendAsync(HubMethod.OnScanHeartbeat)
 
-    /// PLC 게이트웨이로 위임 — fire-and-forget.
-    /// source = "plc" 인 경우(=PLC 가 우리에게 알려준 변화)는 다시 PLC 로 echo 하지 않는다.
-    member private _.ForwardToPlc(address: string, value: string, source: string) =
-        if isNull address || not gateway.IsEnabled then ()
-        elif source = HubSource.Plc then ()  // self-echo 차단
+    /// Field-side PLC connection status report from the delegated Pi5 collector.
+    /// In delegated mode the Agent gateway is intentionally idle, so only this
+    /// report represents the real PLC connection. Direct-scan hosts ignore it.
+    member this.ReportPlcConnectionStatus(status: PlcConnectionStatus) : Task =
+        if not delegatedScanMode
+           || isNull (box status)
+           || String.IsNullOrWhiteSpace status.Name then
+            Task.CompletedTask
         else
+            SignalHub.UpdatePlcStatusCache(status)
+            task {
+                try
+                    do! runtimeSession.NotifyPlcConnectionAsync(status)
+                with ex ->
+                    log.Warn($"ReportPlcConnectionStatus engine notify failed for {status.Name}: {ex.Message}")
+                do! this.Clients.All.SendAsync(HubMethod.OnPlcConnectionStatus, status)
+            } :> Task
+
+    /// PLC 게이트웨이로 위임 — fire-and-forget.
+    /// - source=plc/resync: PLC 관측값이므로 self-echo 차단.
+    /// - delegatedScanMode: Pi5가 현장 PLC owner이므로 source와 무관하게 Agent 재쓰기 차단.
+    member private _.ForwardToPlc(address: string, value: string, source: string) =
+        if SignalHubWritePolicy.shouldForwardToPlc delegatedScanMode gateway.IsEnabled address source then
             log.Debug($"ForwardToPlc: {address}={value} source={source}")
             task {
                 try
@@ -524,7 +594,10 @@ and SignalHub(gateway: IPlcGateway, runtimeSession: IRuntimeHubSession) =
     /// Batch 송신 — 여러 태그 변경을 한 프레임으로 받아 한 프레임으로 fan-out.
     /// Per-tag WriteTag 호출 대비 SignalR 프레임 수 / 직렬화 비용 감소.
     member this.WriteTags(items: TagWrite[]) : Task =
-        if readOnlyMode then
+        // 위임 스캔 모드에선 read-only 여도 수용 — 분리된 Pi5 수집기의 WriteTags 가 유일한 IN 소스이므로.
+        // (Monitoring UI 는 수신 전용이라 WriteTags 를 호출하지 않으니, 위임 모드에서 이 예외로 UI write 가
+        //  열려도 실질 위험 없음. 직접 Monitoring(위임 아님)은 기존대로 억제.)
+        if readOnlyMode && not delegatedScanMode then
             let cnt = if isNull items then 0 else items.Length
             log.Debug($"WriteTags suppressed (read-only): count={cnt}")
             Task.CompletedTask
@@ -564,9 +637,9 @@ and SignalHub(gateway: IPlcGateway, runtimeSession: IRuntimeHubSession) =
         let baseTask = base.OnConnectedAsync()
         task {
             do! baseTask
-            // 원격 수집 클라이언트 단말 신원 검증 (hook 미설정=localhost 올인원/로컬이면 생략).
-            // 미등록 시 연결 Abort — 이후 snapshot 송출 스킵. Hub 앞단(연결 진입)에서 걸러 무효 연결을 조기 차단.
-            // deviceId = RPi 시리얼(X-Device-Id) → 화이트리스트 membership 대조(단순). Bearer 토큰 대조 없음.
+            // 원격 수집 클라이언트 단말 신원 검증. 같은 인스턴스의 DSPilot(loopback)은 헤더 없이 허용하고,
+            // 그 외 원격 연결은 X-Device-Id가 화이트리스트를 통과해야 한다. 로컬이라도 헤더를 보냈으면 검증한다.
+            // 미등록 시 연결 Abort — 이후 snapshot 송출 스킵. provision_token은 부트스트랩 전용이라 사용하지 않는다.
             let validator = SignalHub.ValidateDeviceCredential
             if not (isNull validator) then
                 let mutable ok = false
@@ -574,7 +647,11 @@ and SignalHub(gateway: IPlcGateway, runtimeSession: IRuntimeHubSession) =
                     let http = this.Context.GetHttpContext()
                     if not (isNull http) then
                         let deviceId = http.Request.Headers.["X-Device-Id"].ToString()
-                        ok <- validator.Invoke(deviceId)
+                        let hasDeviceId = not (String.IsNullOrWhiteSpace deviceId)
+                        let remoteIp = http.Connection.RemoteIpAddress
+                        let isLoopback = not (isNull remoteIp) && System.Net.IPAddress.IsLoopback(remoteIp)
+                        let credentialValid = hasDeviceId && validator.Invoke(deviceId)
+                        ok <- SignalHubConnectionPolicy.isAllowed true isLoopback hasDeviceId credentialValid
                 with ex ->
                     log.Warn($"Device credential validation threw: {ex.Message}")
                     ok <- false
@@ -583,7 +660,12 @@ and SignalHub(gateway: IPlcGateway, runtimeSession: IRuntimeHubSession) =
                     this.Context.Abort()
                     return ()
             try
-                let fromGateway = gateway.GetConnectionStatuses() |> List.map (fun s -> s.Name, s)
+                // The local gateway is intentionally disconnected in delegated mode.
+                // Publishing that snapshot makes DSPilot report a false PLC outage.
+                // Use only statuses reported by the Pi5 collector in that mode.
+                let fromGateway =
+                    if delegatedScanMode then []
+                    else gateway.GetConnectionStatuses() |> List.map (fun s -> s.Name, s)
                 let merged =
                     let m = System.Collections.Generic.Dictionary<string, PlcConnectionStatus>()
                     for kv in plcStatusCache do m.[kv.Key] <- kv.Value
@@ -596,6 +678,12 @@ and SignalHub(gateway: IPlcGateway, runtimeSession: IRuntimeHubSession) =
                         log.Debug($"OnConnectedAsync PlcStatus send {s.Name}: {ex.Message}")
             with ex ->
                 log.Warn($"OnConnectedAsync PlcStatus snapshot threw: {ex.Message}")
+            // 수집기 config 스냅샷 — 분리 아키텍처에서 나중에 붙은 Pi5 가 마지막 config 를 즉시 받게 한다.
+            try
+                if not (isNull (box collectorConfigCache)) then
+                    do! this.Clients.Caller.SendAsync(HubMethod.OnCollectorConfig, collectorConfigCache)
+            with ex ->
+                log.Debug($"OnConnectedAsync CollectorConfig send: {ex.Message}")
             // Runtime session 초기 snapshot — client proxy 가 현재 상태 + identity(SessionId/Generation) 를 동기화.
             // engine 없는 Null 세션(SessionId="")이면 생략 — 무의미한 빈 snapshot 차단.
             try

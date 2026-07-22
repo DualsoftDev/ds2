@@ -319,6 +319,9 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
     /// 파일 없으면(로컬/올인원/Windows) 훅 미설정 = 검증 생략(회귀 0).</summary>
     private static void WireDeviceCredentialValidator()
     {
+        // 프로세스 내 이전 활성 세션의 static hook이 남아 파일 부재/로드 실패 시 잘못 적용되지 않도록
+        // 매 활성화마다 먼저 해제한 뒤, 현재 cloud-init 파일을 성공적으로 읽은 경우에만 다시 건다.
+        SignalHub.ValidateDeviceCredential = null;
         try
         {
             if (!File.Exists(DeviceCredentialsPath))
@@ -353,6 +356,67 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
     {
         public int Version { get; init; }
         public string[]? DeviceIds { get; init; }
+    }
+
+    /// <summary>cloudinit 이 내려준 PLC 접속(plc-connections.json)으로 접속 설정을 override.
+    /// 분리 아키텍처의 접속 SSOT — 마법사 discovery(현장 실측) → PV → cloudinit → 여기.
+    /// 계약(쓰는 쪽 cloudinit.py PLC_CONNECTIONS_PATH 와 동일): 경로 <see cref="PlcConnectionsPath"/>,
+    /// 형식 {"version":1,"plcs":[{"name","ip","type","enabled"}]}. discovery 는 ip/type 만 주므로
+    /// port/station 은 벤더 기본으로 유추. 파일 없으면(로컬/올인원/Windows) 로컬 plcSettings 유지(회귀 0).
+    /// 현재 빌더가 단일 connection 이라 첫 enabled PLC 만 반영(복수 PLC 는 아래 이슈).</summary>
+    private static void ApplyCloudinitPlcConnection(PlcConnectionSettings settings)
+    {
+        try
+        {
+            if (!File.Exists(PlcConnectionsPath))
+                return; // 로컬/올인원 — cloudinit 접속 없음, 기존 설정 유지.
+            var json = File.ReadAllText(PlcConnectionsPath);
+            var doc = JsonSerializer.Deserialize<PlcConnectionsFile>(
+                json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            var first = doc?.Plcs?.FirstOrDefault(p => p.Enabled && !string.IsNullOrWhiteSpace(p.Ip));
+            if (first is null)
+            {
+                Log.Warn($"plc-connections.json 에 enabled PLC 없음 ({PlcConnectionsPath}) — 로컬 plcSettings 유지.");
+                return;
+            }
+            var (vendor, port) = MapPlcType(first.Type);
+            settings.Vendor = vendor;
+            settings.Port = port;
+            settings.IpAddress = first.Ip!.Trim();
+            if (!string.IsNullOrWhiteSpace(first.Name)) settings.Name = first.Name!;
+            Log.Info($"PLC 접속 = cloudinit SSOT: name={settings.Name} vendor={settings.Vendor} ip={settings.IpAddress}:{settings.Port}");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"plc-connections.json 로드 실패 ({PlcConnectionsPath}) — 로컬 plcSettings 유지.", ex);
+        }
+    }
+
+    /// <summary>discovery type("LS"/"MX"/…) → (Vendor enum 이름, 기본 port). discovery 는 ip/type 만 주므로
+    /// port/station 세부는 벤더 기본으로 유추. LS 계열 XGK/XGI 구분 정보가 type 에 없어 LsXgk 기본(아래 이슈).</summary>
+    private static (string vendor, int port) MapPlcType(string? type) =>
+        (type ?? "").Trim().ToUpperInvariant() switch
+        {
+            "MX" or "MITSUBISHI" or "MELSEC" => (nameof(PlcVendorChoice.Mitsubishi), 5007),
+            "XGI" or "LSXGI" => (nameof(PlcVendorChoice.LsXgi), 2004),
+            _ => (nameof(PlcVendorChoice.LsXgk), 2004), // "LS"(discovery 기본) 포함
+        };
+
+    /// <summary>cloudinit plc-connections.json 계약 경로 — 쓰는 쪽(cloudinit.py PLC_CONNECTIONS_PATH)과 일치.</summary>
+    private const string PlcConnectionsPath = "/etc/agent/plc-connections.json";
+
+    private sealed record PlcConnectionsFile
+    {
+        public int Version { get; init; }
+        public PlcConnItem[]? Plcs { get; init; }
+    }
+
+    private sealed record PlcConnItem
+    {
+        public string? Name { get; init; }
+        public string? Ip { get; init; }
+        public string? Type { get; init; }
+        public bool Enabled { get; init; } = true;
     }
 
     private async Task TryActivateAsync()
@@ -407,6 +471,9 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
                 string.IsNullOrWhiteSpace(session.PlcConnectionPath)
                     ? SharedPaths.PlcConnectionFilePath
                     : session.PlcConnectionPath);
+            // 분리 아키텍처: 접속 SSOT = PV(마법사 discovery) → cloudinit → 인스턴스.
+            // cloudinit plc-connections.json 이 있으면 그 실측 접속으로 override(없으면 로컬 plcSettings — 올인원 회귀 0).
+            ApplyCloudinitPlcConnection(plcSettings);
             var gatewayConfig = PlcGatewayConfigBuilder.TryBuild(plcSettings, ioMap, out var errors, userTagAddresses);
             if (gatewayConfig is null)
             {
@@ -421,6 +488,10 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
             var isControl = string.Equals(session.RuntimeMode, "Control", StringComparison.OrdinalIgnoreCase);
             var runtimeMode = isControl ? RuntimeMode.Control : RuntimeMode.Monitoring;
             var readOnly = !isControl;
+            // 위임 스캔(§10.10 ①): Monitoring 이고 "실제 PLC 연결" 미체크(=위임)면 Agent 는 PLC 에 직접 접속하지 않고
+            // 분리된 Pi5 수집기가 WriteTags 로 IN 을 공급한다 → PlcScanService off. Control 은 OUT 을 실 PLC 에 써야
+            // 하므로 항상 직접. (구 session.json 은 IsRealPlcConnected 기본 true → 직접 = 올인원 회귀 0.)
+            var delegatedScan = !isControl && !session.IsRealPlcConnected;
 
             // Control 은 OUT 태그를 실제 PLC 로 쓴다. engine 은 BackendHost 시작 전에 생성되므로 DI 가 만드는
             // gateway 를 기다릴 수 없다 → gateway 인스턴스를 여기서 직접 만들어 engine writeTag 콜백과
@@ -492,8 +563,10 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
             }
 
             Log.Info($"Starting BackendHost on port {Port} " +
-                     $"({(readOnly ? "read-only / Monitoring" : "read-write / Control")}) with engine session {identity.SessionId}...");
-            _app = BackendHost.startWithBuilderConfig(Port, gatewayConfig, readOnly, builder =>
+                     $"({(readOnly ? "read-only / Monitoring" : "read-write / Control")}, " +
+                     $"scan={(delegatedScan ? "위임(Pi5) — PlcScanService off" : "직접(Agent)")}) " +
+                     $"with engine session {identity.SessionId}...");
+            _app = BackendHost.startWithBuilderConfig(Port, gatewayConfig, readOnly, delegatedScan, builder =>
             {
                 if (sharedGateway is not null)
                     builder.Services.AddSingleton<IPlcGateway>(sharedGateway);
@@ -530,6 +603,22 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
             // 원격 수집 클라이언트(Pi5 edge) 단말 인증 훅 — cloudinit 가 내려준 신원 맵을 로드해 주입.
             // 파일 없으면(로컬/올인원/Windows) 훅 미설정 = 검증 생략(기존 동작, 회귀 0).
             WireDeviceCredentialValidator();
+
+            // 분리 아키텍처: 조립한 PlcGatewayConfig 를 수집기(Pi5)에 push(server→client) + 캐시.
+            //   올인원(Agent 직접 스캔)은 이 push 를 무시하는 게 정상 — 추가 채널이지 기존 스캔 대체 아님(회귀 0).
+            //   Agent 가 서버 자신이라 IHubContext 로 직접 fan-out(heartbeat 올인원 발행부와 동형).
+            //   신규 Pi5 가 나중에 붙어도 SignalHub.OnConnectedAsync 가 캐시본을 caller 로 보낸다.
+            try
+            {
+                var collectorPayload = CollectorConfig.fromGateway(gatewayConfig);
+                SignalHub.UpdateCollectorConfigCache(collectorPayload);
+                var cfgHubCtx = _app.Services.GetRequiredService<IHubContext<SignalHub>>();
+                // fire-and-forget — 신규 Pi5 는 OnConnectedAsync 캐시본으로도 받으므로 여기 대기 불필요.
+                _ = cfgHubCtx.Clients.All.SendAsync(HubMethod.OnCollectorConfig, collectorPayload);
+                Log.Info($"CollectorConfig pushed — connections={collectorPayload.Connections.Length}");
+            }
+            catch (Exception ex) { Log.Warn("CollectorConfig push failed — Pi5 는 재연결 시 캐시본 수신.", ex); }
+
             (_appliedConfigFingerprint, _appliedScanIntervalMs) = ComputeConfigFingerprint();
 
             // 저장된 자동정합 상태로 엔진 초기화 — OFF 영속 복원(정지 시 AASX 반영→OFF 결과 유지).
@@ -558,6 +647,7 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
         await _gate.WaitAsync().ConfigureAwait(false);
         try
         {
+            SignalHub.ValidateDeviceCredential = null;
             if (_app is null) return;
             Log.Info("Stopping BackendHost (deactivate)...");
             SignalHub.PersistScanIntervalMs = null;

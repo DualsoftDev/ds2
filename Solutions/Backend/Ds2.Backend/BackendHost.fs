@@ -25,16 +25,26 @@ module BackendHost =
             (port: int)
             (plcConfig: PlcGatewayConfig option)
             (readOnly: bool)
+            (delegated: bool)
             (configureBuilder: WebApplicationBuilder -> unit) =
         SignalHub.ClearTagCache()
         SignalHub.SetReadOnly(readOnly)
+        // 위임 스캔: Agent 는 PLC 에 직접 안 붙고 Pi5 수집기가 WriteTags push 로 IN 공급(§10.10 ①).
+        // → PlcScanService 를 아예 등록하지 않아 connect/scan loop 자체가 없다(모델 IP 무한 접속실패/blackout 차단).
+        SignalHub.SetDelegatedScan(delegated)
         // Monitoring(read-only) 은 초기 동기 PLC 스캔 생략 — PLC 응답 지연이 UI 를 freeze 시키는 문제 차단.
         // Control 은 원위치 추론용 cache populate 가 필요하므로 기존 동작 유지 (false).
         PlcScanService.SetSkipInitialScan(readOnly)
 
         let builder = WebApplication.CreateBuilder()
         configureBuilder builder
-        builder.Services.AddSignalR() |> ignore
+        // Pi5 collector flushes PLC changes in batches. The ASP.NET Core SignalR default
+        // receive limit is 32 KiB, which is too small for a few hundred TagWrite records
+        // and makes the server close the connection before SignalHub.WriteTags is invoked.
+        // Keep a finite ceiling, but size it for collector backlog chunks.
+        builder.Services.AddSignalR(fun options ->
+            options.MaximumReceiveMessageSize <- Nullable(1024L * 1024L))
+        |> ignore
 
         let cfg = plcConfig |> Option.defaultValue emptyConfig
         builder.Services.AddSingleton<PlcGatewayConfig>(cfg) |> ignore
@@ -43,10 +53,15 @@ module BackendHost =
         builder.Services.TryAddSingleton<IPlcGateway, PlcGateway>()
         builder.Services.AddSingleton<IPlcHubBroadcaster, SignalHubBroadcaster>() |> ignore
         builder.Services.TryAddSingleton<IRuntimeHubSession, NullRuntimeHubSession>()
-        builder.Services.AddHostedService<PlcScanService>() |> ignore
+        // 위임이 아닐 때만 직접 스캔 서비스 등록 — 위임이면 Agent 가 PLC 에 접속하지 않는다.
+        if not delegated then
+            builder.Services.AddHostedService<PlcScanService>() |> ignore
 
         let app = builder.Build()
-        app.Urls.Add($"http://localhost:{port}")
+        // 위임(분리) 모드는 원격 Pi5 가 WG 너머로 이 Hub 에 붙어야 하므로 모든 인터페이스에 bind.
+        // 직접(올인원)은 로컬 전용 유지 — 외부 노출 없음, 회귀 0.
+        let bindHost = if delegated then "0.0.0.0" else "localhost"
+        app.Urls.Add($"http://{bindHost}:{port}")
         app.MapHub<SignalHub>(hubPath) |> ignore
         app.StartAsync() |> Async.AwaitTask |> Async.RunSynchronously
         app
@@ -57,7 +72,7 @@ module BackendHost =
     /// - readOnly: true 면 SignalHub 가 클라이언트 WriteTag/WriteTags 를 거부 — Monitoring 모드용.
     let startWithPlc (port: int option) (plcConfig: PlcGatewayConfig option) (readOnly: bool) =
         let p = port |> Option.defaultValue defaultPort
-        bootstrap p plcConfig readOnly (fun _ -> ())
+        bootstrap p plcConfig readOnly false (fun _ -> ())
 
     /// 기존 호출자 호환 entry — PLC 미연결 모드.
     let start (port: int option) =
@@ -74,12 +89,15 @@ module BackendHost =
     /// Promaker.Agent 등 호스트 lifecycle 을 커스터마이즈해야 하는 호출자용 entry.
     /// configureBuilder 에서 Host.UseWindowsService() 등을 주입할 수 있다.
     /// C# 에서 람다 그대로 전달 가능 — Action<WebApplicationBuilder>.
+    /// delegated: true 면 위임 스캔(§10.10 ①) — PlcScanService 미등록(Agent 가 PLC 직접 접속 안 함),
+    ///            Pi5 수집기의 WriteTags 만 IN 소스. false 면 기존 직접 스캔(회귀 0).
     let startWithBuilderConfig
             (port: int)
             (plcConfig: PlcGatewayConfig)
             (readOnly: bool)
+            (delegated: bool)
             (configureBuilder: Action<WebApplicationBuilder>) =
-        bootstrap port (Some plcConfig) readOnly (fun b -> configureBuilder.Invoke(b))
+        bootstrap port (Some plcConfig) readOnly delegated (fun b -> configureBuilder.Invoke(b))
 
     let stop (app: WebApplication) =
         SignalHub.ClearTagCache()

@@ -126,7 +126,10 @@ public partial class MainViewModel
 
         // session.RuntimeMode 로 Agent 가 engine 모드를 결정 — Control 이면 read-write, 그 외 read-only.
         var modeName = Simulation.SelectedRuntimeMode == Ds2.Core.RuntimeMode.Control ? "Control" : "Monitoring";
-        var session = Promaker.Shared.AgentSession.ForCurrentDefaults(requestedBy: "promaker", runtimeMode: modeName);
+        // 기존 "실제 PLC 연결" 체크값을 그대로 전달 — Agent 의 직접(true)/위임(false, Pi5 수집) 스캔을 가른다.
+        var session = Promaker.Shared.AgentSession.ForCurrentDefaults(
+            requestedBy: "promaker", runtimeMode: modeName,
+            isRealPlcConnected: Simulation.IsRealPlcConnected);
         if (!session.TryWrite())
         {
             _dialogService.ShowWarning("Agent 세션 기록 실패 — 공유 폴더 권한을 확인하세요.");

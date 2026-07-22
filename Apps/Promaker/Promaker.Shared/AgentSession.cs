@@ -33,6 +33,15 @@ public sealed class AgentSession
     /// 기본 "Monitoring" (하위호환: 구 session.json 에 필드 없으면 Monitoring 으로 간주).</summary>
     public string RuntimeMode { get; set; } = "Monitoring";
 
+    /// <summary>"실제 PLC 연결" 여부 — Promaker 런타임 모드 설정 UI 의 기존 체크박스
+    /// (SimulationPanelState.IsRealPlcConnected) 값을 그대로 전달. 이 값이 Agent 의 직접/위임 스캔을 가른다:
+    ///   true  = 직접 스캔 (Agent 가 PlcScanService 로 현장 PLC 에 직접 접속 — 올인원/현장 로컬).
+    ///   false = 위임 스캔 (Agent 는 PLC 에 안 붙고, 분리된 Pi5 수집기가 스캔→WriteTags push → Agent 엔진 구동).
+    /// 클라우드 인스턴스처럼 Agent 가 현장 PLC 에 네트워크상 못 붙는 환경에서 false(위임)로 두면
+    /// 모델 IP 무한 접속실패/CommBlackout 이 원천 차단된다(§10.10 ①).
+    /// **기본 true(직접)** — 구 session.json 에 필드가 없으면 기존(직접 스캔) 동작 유지 → 올인원 회귀 0.</summary>
+    public bool IsRealPlcConnected { get; set; } = true;
+
     /// <summary>스키마 버전 — 향후 필드 추가 시 호환성 가드.</summary>
     public int SchemaVersion { get; set; } = 1;
 
@@ -109,13 +118,16 @@ public sealed class AgentSession
         }
     }
 
-    /// <summary>현재 시점 + 기본 경로로 채운 세션 인스턴스 생성 helper.</summary>
-    public static AgentSession ForCurrentDefaults(string requestedBy, string runtimeMode = "Monitoring") => new()
+    /// <summary>현재 시점 + 기본 경로로 채운 세션 인스턴스 생성 helper.
+    /// <paramref name="isRealPlcConnected"/> = 런타임 모드 설정 UI 의 "실제 PLC 연결" 체크값(기본 true=직접 스캔).</summary>
+    public static AgentSession ForCurrentDefaults(string requestedBy, string runtimeMode = "Monitoring",
+                                                  bool isRealPlcConnected = true) => new()
     {
         AasxPath = SharedPaths.AasxFilePath,
         PlcConnectionPath = SharedPaths.PlcConnectionFilePath,
         ActivatedAtUtc = DateTime.UtcNow.ToString("o"),
         RequestedBy = requestedBy,
         RuntimeMode = runtimeMode,
+        IsRealPlcConnected = isRealPlcConnected,
     };
 }

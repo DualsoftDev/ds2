@@ -136,3 +136,49 @@ module PlcAddressInfer =
             | 'D' | 'W' | 'R' | 'Z' -> PlcDataTypes.Int16
             | 'T' | 'C' when upper.Length >= 2 && upper.[1] = 'N' -> PlcDataTypes.Int16  // TN/CN = current value
             | _ -> PlcDataTypes.Bool
+
+/// PlcGatewayConfig(Agent 가 aasx IOMap + PlcConnection 으로 조립) → 수집기(Pi5) push payload 매핑.
+/// 분리 아키텍처: Agent 가 이 payload 를 Hub 로 push, Pi5 가 받아 plc.json 병합.
+/// 문자열 라벨(vendor/dtype)은 Pi5 Config 의 toVendor/toDataType 이 파싱하는 값과 정확히 일치해야 한다.
+[<RequireQualifiedAccess>]
+module CollectorConfig =
+    open Ds2.Backend.Common
+
+    let private vendorStr (v: PlcVendor) =
+        match v with
+        | PlcVendor.LsXgi      -> "LsXgi"
+        | PlcVendor.LsXgk      -> "LsXgk"
+        | PlcVendor.Mitsubishi -> "Mitsubishi"
+
+    let private dtypeStr (d: CoreDataTypesModule.PlcDataType) =
+        match d with
+        | CoreDataTypesModule.PlcDataType.Bool    -> "Bool"
+        | CoreDataTypesModule.PlcDataType.Int16   -> "Int16"
+        | CoreDataTypesModule.PlcDataType.UInt16  -> "UInt16"
+        | CoreDataTypesModule.PlcDataType.Int32   -> "Int32"
+        | CoreDataTypesModule.PlcDataType.UInt32  -> "UInt32"
+        | CoreDataTypesModule.PlcDataType.Float32 -> "Float32"
+        | CoreDataTypesModule.PlcDataType.Float64 -> "Float64"
+        | _                                       -> "Bool"
+
+    /// PlcGatewayConfig → CollectorConfigPayload. ScanInterval None(write-only)이면 scanMs=100 기본.
+    let fromGateway (cfg: PlcGatewayConfig) : CollectorConfigPayload =
+        { Connections =
+            cfg.Connections
+            |> List.map (fun c ->
+                { Name = c.Name
+                  Vendor = vendorStr c.Vendor
+                  Ip = c.IpAddress
+                  Port = c.Port
+                  LocalEthernet = c.LocalEthernet
+                  TimeoutMs = c.TimeoutMs
+                  ScanMs =
+                    c.ScanInterval
+                    |> Option.map (fun t -> int t.TotalMilliseconds)
+                    |> Option.defaultValue 100
+                  Tags =
+                    c.Tags
+                    |> List.map (fun t ->
+                        { Hub = t.HubAddress; Plc = t.PlcAddress; Dtype = dtypeStr t.DataType })
+                    |> List.toArray })
+            |> List.toArray }
