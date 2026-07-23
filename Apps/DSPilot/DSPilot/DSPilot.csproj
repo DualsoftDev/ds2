@@ -53,6 +53,41 @@
     <Content Remove="appsettings.*.json" />
   </ItemGroup>
 
+  <!--
+    Secrets 관리 — appsettings.Secrets.json(gitignore, 실제 값) 이 없을 때의 개발자 안내/자동복사.
+    정본(canonical)은 사내 private cloudworks repo 의 deploy/dsp.conf (appsettings.Secrets.sample.json 참조).
+    파일명 dsp.conf 는 표적성 낮추려 의도적으로 무해하게(pv.conf 관례) — 내용은 appsettings.Secrets.json 과 동일 JSON.
+    동작:
+      1) 환경변수 DUALSOFT_SECRETS_DIR 의 정본이 있으면 → 자동 복사(무마찰).
+      2) 여전히 없고 RequireSecrets=true(옵트인) → 빌드 error.
+      3) 그 외 없으면 → 빌드 warning(복사 안내). 기본값 — Ds2.sln/CI·타 앱 빌드는 안 깨진다.
+    하드 차단: dotnet build -p:RequireSecrets=true
+  -->
+  <Target Name="EnsureDspSecrets" BeforeTargets="BeforeBuild">
+    <PropertyGroup>
+      <_DspSecretsPath>$(MSBuildProjectDirectory)\appsettings.Secrets.json</_DspSecretsPath>
+      <!-- 정본 후보: $(DUALSOFT_SECRETS_DIR)\dsp.conf → \appsettings.Secrets.json -->
+      <_DspSecretsSrc Condition="'$(DUALSOFT_SECRETS_DIR)' != '' And Exists('$(DUALSOFT_SECRETS_DIR)\dsp.conf')">$(DUALSOFT_SECRETS_DIR)\dsp.conf</_DspSecretsSrc>
+      <_DspSecretsSrc Condition="'$(_DspSecretsSrc)' == '' And '$(DUALSOFT_SECRETS_DIR)' != '' And Exists('$(DUALSOFT_SECRETS_DIR)\appsettings.Secrets.json')">$(DUALSOFT_SECRETS_DIR)\appsettings.Secrets.json</_DspSecretsSrc>
+    </PropertyGroup>
+
+    <!-- 1) 자동 복사: 정본이 환경변수 경로에 있으면 -->
+    <Copy Condition="!Exists('$(_DspSecretsPath)') And '$(_DspSecretsSrc)' != ''"
+          SourceFiles="$(_DspSecretsSrc)" DestinationFiles="$(_DspSecretsPath)" SkipUnchangedFiles="true" />
+    <Message Condition="Exists('$(_DspSecretsPath)') And '$(_DspSecretsSrc)' != ''"
+             Importance="high" Text="DSPilot: appsettings.Secrets.json ← $(_DspSecretsSrc) (DUALSOFT_SECRETS_DIR 자동 복사)" />
+
+    <!-- 2) 여전히 없음 + 하드 게이트 옵트인 → error -->
+    <Error Condition="!Exists('$(_DspSecretsPath)') And '$(RequireSecrets)' == 'true'"
+           Code="DSP0001"
+           Text="appsettings.Secrets.json 이 없습니다. 사내 cloudworks repo 의 deploy/dsp.conf 를 $(MSBuildProjectDirectory)\appsettings.Secrets.json 으로 복사하거나, 환경변수 DUALSOFT_SECRETS_DIR 을 그 폴더로 지정하세요(또는 appsettings.Secrets.sample.json 복사 후 값 입력)." />
+
+    <!-- 3) 없음 + 기본 → warning (CI/타 앱 빌드는 안 깨짐) -->
+    <Warning Condition="!Exists('$(_DspSecretsPath)') And '$(RequireSecrets)' != 'true'"
+             Code="DSP0001"
+             Text="appsettings.Secrets.json 이 없어 CloudWorks 연동/브리핑이 '미구성'으로 동작합니다. 사내 cloudworks repo 의 deploy/dsp.conf 를 이 폴더에 appsettings.Secrets.json 으로 복사하거나 DUALSOFT_SECRETS_DIR 환경변수를 지정하세요(하드 차단: -p:RequireSecrets=true)." />
+  </Target>
+
   <ItemGroup>
     <!-- Exclude backup folder from build -->
     <Compile Remove="_backup/**" />

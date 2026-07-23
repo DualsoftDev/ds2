@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>클라우드 계정 — DSPilot</title>
+
+    <!--
+      CloudWorks(프로비저닝 서버) 계정 연동 — 회원가입/로그인. 정적 호스팅. 서버/모델 = C#(/api/cloud-auth/*), 뷰 = Alpine + fetch.
+      GET  /api/cloud-auth/status   (구성 여부 + 로그인 상태, 토큰 미노출)
+      POST /api/cloud-auth/login    {loginId, password}
+      POST /api/cloud-auth/register {loginId, password, displayName?, companyName?}
+      POST /api/cloud-auth/logout
+      GET  /api/cloud-auth/overview (연동 검증 — 사이트>단말 트리)
+      서버 URL 은 브라우저로 오지 않는다(C# 백엔드가 프로비저닝 서버로 프록시, BaseUrl=Secrets 주입).
+      디자인 시스템: /css/ds.css (+swiss 프리미티브 .btn*/.form-field/.card). 데모 게이트 비연동(계정 자체가 관문).
+    -->
+    <link href="/css/fonts.css" rel="stylesheet" />
+    <link href="/css/ds.css" rel="stylesheet" />
+
+    <style>
+        [x-cloak] { display: none !important; }
+
+        .dsp-page { min-height: 100vh; display: flex; flex-direction: column; background: var(--color-background); color: var(--color-text-primary); font-family: var(--font-family); }
+        .dsp-appbar { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 20px; background: var(--color-appbar-bg); color: var(--color-appbar-text); border-bottom: 1px solid var(--color-lines-strong); position: sticky; top: 0; z-index: 50; flex-shrink: 0; }
+        .dark-theme .dsp-appbar { border-bottom-color: var(--color-lines); }
+        .dsp-appbar .dsp-title { font-size: 18px; font-weight: 700; }
+        .dsp-appbar .spacer { flex: 1; }
+        .dsp-main { flex: 1; min-height: 0; padding: 18px 20px 28px; max-width: 640px; margin: 0 auto; width: 100%; }
+
+        .cw-note { padding: 11px 13px; margin-bottom: 16px; background: var(--color-surface-variant); border: 1px solid var(--color-lines); border-left: 3px solid var(--color-primary); border-radius: var(--radius-sm); }
+        .cw-note small { color: var(--color-text-secondary); line-height: 1.6; }
+
+        .cw-field { margin-bottom: 14px; }
+        .cw-field:last-child { margin-bottom: 0; }
+        .cw-field label.cw-lbl { display: block; font-size: 0.78rem; font-weight: 700; margin-bottom: 6px; color: var(--color-text-primary); }
+        .cw-hint { color: var(--color-text-secondary); margin-top: 6px; display: block; font-size: 0.72rem; line-height: 1.5; }
+        .cw-row { display: flex; gap: 12px; flex-wrap: wrap; }
+        .cw-row > .cw-field { flex: 1; min-width: 140px; }
+
+        .cw-actions { display: flex; justify-content: flex-end; gap: 10px; margin: 18px 0 4px; flex-wrap: wrap; }
+
+        /* 로그인/가입 탭 */
+        .cw-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }
+        .cw-tab { padding: 11px 14px; border: 2px solid var(--color-lines); border-radius: var(--radius-md, 10px); background: var(--color-surface); color: var(--color-text-secondary); font-weight: 700; cursor: pointer; transition: border-color .12s, background .12s, color .12s; }
+        .cw-tab.is-on { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); color: var(--color-text-primary); box-shadow: 0 0 0 1px var(--color-primary) inset; }
+
+        /* 로그인 상태 배지 */
+        .cw-account { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-md); background: color-mix(in srgb, var(--color-success, #2e9e5b) 7%, var(--color-surface)); margin-bottom: 16px; }
+        .cw-account .avatar { width: 40px; height: 40px; border-radius: 50%; background: var(--color-primary); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; flex-shrink: 0; }
+        .cw-account .who { flex: 1; min-width: 0; }
+        .cw-account .who .name { font-weight: 800; }
+        .cw-account .who .sub { font-size: 0.74rem; color: var(--color-text-secondary); }
+
+        /* 사이트/단말 트리 */
+        .cw-tree { display: flex; flex-direction: column; gap: 10px; }
+        .cw-site { border: 1px solid var(--color-lines); border-radius: var(--radius-sm); overflow: hidden; }
+        .cw-site-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px; background: var(--color-surface-variant); font-weight: 700; font-size: 0.86rem; }
+        .cw-site-head .material-icons { font-size: 18px; color: var(--color-primary); }
+        .cw-edge { display: flex; align-items: center; gap: 10px; padding: 8px 12px 8px 34px; border-top: 1px solid var(--color-lines); font-size: 0.8rem; }
+        .cw-edge .eid { font-weight: 600; }
+        .cw-edge .spacer { flex: 1; }
+        .cw-pill { font-size: 0.68rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--color-lines-strong); color: var(--color-text-secondary); background: var(--color-surface); }
+        .cw-pill.run { color: var(--color-success); border-color: color-mix(in srgb, var(--color-success) 45%, var(--color-lines)); background: color-mix(in srgb, var(--color-success) 10%, var(--color-surface)); }
+        .cw-ip { font-family: var(--font-mono, monospace); font-size: 0.74rem; color: var(--color-text-secondary); }
+        .cw-empty { padding: 20px; text-align: center; color: var(--color-text-secondary); font-size: 0.82rem; }
+
+        .cw-warn { display: flex; gap: 9px; align-items: flex-start; padding: 11px 13px; background: color-mix(in srgb, var(--color-warning, #d8892b) 12%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--color-warning, #d8892b) 45%, var(--color-lines)); border-radius: var(--radius-sm); margin-bottom: 16px; }
+        .cw-warn .material-icons { color: var(--color-warning, #d8892b); font-size: 20px; flex-shrink: 0; }
+        .cw-warn small { color: var(--color-text-primary); line-height: 1.55; }
+
+        .dsp-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 2500; padding: 11px 18px; border: 1px solid var(--color-lines-strong); border-left: 3px solid var(--color-text-secondary); border-radius: var(--radius-sm); background: var(--color-text-primary); color: var(--color-surface); font-size: 0.82rem; font-weight: 600; box-shadow: var(--shadow-4); max-width: 90vw; }
+        .dsp-toast.success { border-left-color: var(--color-success); }
+        .dsp-toast.error { border-left-color: var(--color-error); }
+        .dsp-toast.info { border-left-color: var(--color-info); }
+    </style>
+</head>
+
+<body>
+    <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="cloudAccountApp()" x-init="init()" x-cloak>
+
+        <header class="dsp-appbar">
+            <a href="/settings" class="btn-icon" title="설정으로">
+                <span class="material-icons">arrow_back</span>
+            </a>
+            <span class="dsp-title">클라우드 계정</span>
+            <span class="dsp-badge">CloudWorks</span>
+            <div class="spacer"></div>
+            <button class="btn-icon" @click="toggleTheme()" title="테마 전환">
+                <span class="material-icons" x-text="dark ? 'light_mode' : 'dark_mode'"></span>
+            </button>
+        </header>
+
+        <main class="dsp-main">
+            <div x-show="loading" class="progress-bar progress-bar-indeterminate mb-4">
+                <div class="progress-bar-fill"></div>
+            </div>
+
+            <div class="cw-note">
+                <small>
+                    현장(EdgePC)을 클라우드에 등록하려면 <b>CloudWorks 계정</b>이 필요합니다. 여기서 가입·로그인하면
+                    이 DSPilot 이 해당 계정으로 클라우드(프로비저닝 서버)와 연동됩니다. 서버 주소·비밀번호는 이 PC 밖으로 나가지 않습니다.
+                </small>
+            </div>
+
+            <!-- 서버 미구성 경고 -->
+            <template x-if="!loading && !configured">
+                <div class="cw-warn">
+                    <span class="material-icons">warning</span>
+                    <small>
+                        클라우드 서버 주소가 아직 구성되지 않았습니다. 설치 담당자에게 문의하세요
+                        (설정 파일 <b>appsettings.Secrets.json</b> 의 <b>CloudAuth.BaseUrl</b> 주입 필요).
+                    </small>
+                </div>
+            </template>
+
+            <!-- ── 로그인됨: 계정 + 사이트/단말 트리 ── -->
+            <template x-if="!loading && loggedIn">
+                <div>
+                    <div class="cw-account">
+                        <span class="avatar" x-text="initial()"></span>
+                        <div class="who">
+                            <div class="name" x-text="displayName || loginId"></div>
+                            <div class="sub" x-text="'로그인됨 · ' + (loginId || '')"></div>
+                        </div>
+                        <button class="btn btn-outlined" @click="logout()" :disabled="busy">
+                            <span class="material-icons">logout</span> 로그아웃
+                        </button>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <span class="material-icons">device_hub</span><span>내 사이트 · 단말</span>
+                            <div style="flex:1"></div>
+                            <button class="btn-icon" @click="loadOverview()" :disabled="busy" title="새로고침">
+                                <span class="material-icons">refresh</span>
+                            </button>
+                        </div>
+                        <div class="card-content">
+                            <template x-if="overviewError">
+                                <div class="cw-empty" x-text="overviewError"></div>
+                            </template>
+                            <template x-if="!overviewError && sites.length === 0">
+                                <div class="cw-empty">아직 등록된 사이트가 없습니다. EdgePC 설치 마법사에서 현장을 등록하세요.</div>
+                            </template>
+                            <div class="cw-tree" x-show="sites.length > 0">
+                                <template x-for="s in sites" :key="s.siteId">
+                                    <div class="cw-site">
+                                        <div class="cw-site-head">
+                                            <span class="material-icons">factory</span>
+                                            <span x-text="s.displayName"></span>
+                                        </div>
+                                        <template x-if="s.edges.length === 0">
+                                            <div class="cw-edge" style="color:var(--color-text-secondary)">단말 없음</div>
+                                        </template>
+                                        <template x-for="e in s.edges" :key="e.edgeId">
+                                            <div class="cw-edge">
+                                                <span class="material-icons" style="font-size:16px;color:var(--color-text-secondary)">memory</span>
+                                                <span class="eid" x-text="e.edgeId"></span>
+                                                <span class="cw-pill" x-text="e.status"></span>
+                                                <span class="spacer"></span>
+                                                <span class="cw-pill" :class="{ run: e.instanceStatus === 'running' }"
+                                                      x-show="e.instanceStatus" x-text="e.instanceStatus"></span>
+                                                <span class="cw-ip" x-show="e.publicIp" x-text="e.publicIp"></span>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </template>
+
+            <!-- ── 미로그인: 로그인/가입 폼 ── -->
+            <template x-if="!loading && configured && !loggedIn">
+                <div class="card">
+                    <div class="card-content">
+                        <div class="cw-tabs">
+                            <button class="cw-tab" :class="{ 'is-on': tab === 'login' }" @click="tab = 'login'">로그인</button>
+                            <button class="cw-tab" :class="{ 'is-on': tab === 'register' }" @click="tab = 'register'">회원가입</button>
+                        </div>
+
+                        <!-- 로그인 -->
+                        <form x-show="tab === 'login'" @submit.prevent="login()">
+                            <div class="cw-field">
+                                <label class="cw-lbl">아이디</label>
+                                <input type="text" class="form-field" x-model="loginForm.loginId" autocomplete="username" placeholder="계정 아이디">
+                            </div>
+                            <div class="cw-field">
+                                <label class="cw-lbl">비밀번호</label>
+                                <input type="password" class="form-field" x-model="loginForm.password" autocomplete="current-password" placeholder="비밀번호">
+                            </div>
+                            <div class="cw-actions">
+                                <button type="submit" class="btn btn-filled" :disabled="busy">
+                                    <span class="material-icons">login</span> 로그인
+                                </button>
+                            </div>
+                        </form>
+
+                        <!-- 회원가입 -->
+                        <form x-show="tab === 'register'" @submit.prevent="register()">
+                            <div class="cw-row">
+                                <div class="cw-field">
+                                    <label class="cw-lbl">아이디 <span style="color:var(--color-error)">*</span></label>
+                                    <input type="text" class="form-field" x-model="regForm.loginId" autocomplete="username" placeholder="로그인에 쓸 아이디">
+                                </div>
+                                <div class="cw-field">
+                                    <label class="cw-lbl">이름(표시)</label>
+                                    <input type="text" class="form-field" x-model="regForm.displayName" placeholder="담당자 이름">
+                                </div>
+                            </div>
+                            <div class="cw-field">
+                                <label class="cw-lbl">회사명</label>
+                                <input type="text" class="form-field" x-model="regForm.companyName" placeholder="회사(계정) 이름">
+                                <span class="cw-hint">클라우드 네트워크는 회사(계정) 단위로 배분됩니다.</span>
+                            </div>
+                            <div class="cw-row">
+                                <div class="cw-field">
+                                    <label class="cw-lbl">비밀번호 <span style="color:var(--color-error)">*</span></label>
+                                    <input type="password" class="form-field" x-model="regForm.password" autocomplete="new-password" placeholder="비밀번호">
+                                </div>
+                                <div class="cw-field">
+                                    <label class="cw-lbl">비밀번호 확인 <span style="color:var(--color-error)">*</span></label>
+                                    <input type="password" class="form-field" x-model="regForm.password2" autocomplete="new-password" placeholder="다시 입력">
+                                </div>
+                            </div>
+                            <div class="cw-actions">
+                                <button type="submit" class="btn btn-filled" :disabled="busy">
+                                    <span class="material-icons">person_add</span> 가입하고 로그인
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </template>
+        </main>
+
+        <div x-show="toast.show" class="dsp-toast" :class="toast.type" x-text="toast.msg" x-cloak></div>
+    </div>
+
+    <script src="/app/shell.js" defer></script>
+    <script defer src="/lib/alpine.min.js"></script>
+    <script>
+        function cloudAccountApp() {
+            return {
+                dark: (localStorage.getItem('dsp-theme') || 'light') === 'dark',
+                loading: true,
+                busy: false,
+                configured: false,
+                loggedIn: false,
+                adminId: '',
+                loginId: '',
+                displayName: '',
+                tab: 'login',
+                loginForm: { loginId: '', password: '' },
+                regForm: { loginId: '', displayName: '', companyName: '', password: '', password2: '' },
+                sites: [],
+                overviewError: '',
+                toast: { show: false, msg: '', type: 'info' },
+
+                async init() {
+                    await this.refreshStatus();
+                    this.loading = false;
+                    if (this.loggedIn) this.loadOverview();
+                },
+
+                async refreshStatus() {
+                    try {
+                        const res = await fetch('/api/cloud-auth/status');
+                        const d = await res.json();
+                        this.configured = !!d.configured;
+                        this.loggedIn = !!d.loggedIn;
+                        this.adminId = d.adminId || '';
+                        this.loginId = d.loginId || '';
+                        this.displayName = d.displayName || '';
+                    } catch (e) {
+                        this.showToast('상태를 불러오지 못했습니다.', 'error');
+                    }
+                },
+
+                initial() {
+                    const s = (this.displayName || this.loginId || '?').trim();
+                    return s ? s.charAt(0).toUpperCase() : '?';
+                },
+
+                async login() {
+                    if (!this.loginForm.loginId.trim() || !this.loginForm.password) {
+                        this.showToast('아이디와 비밀번호를 입력하세요.', 'error'); return;
+                    }
+                    this.busy = true;
+                    try {
+                        const res = await fetch('/api/cloud-auth/login', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ loginId: this.loginForm.loginId.trim(), password: this.loginForm.password })
+                        });
+                        const d = await res.json().catch(() => ({}));
+                        if (!res.ok) throw new Error(d.message || '로그인에 실패했습니다.');
+                        this.loginForm.password = '';
+                        await this.refreshStatus();
+                        this.showToast('로그인되었습니다.', 'success');
+                        this.loadOverview();
+                    } catch (e) {
+                        this.showToast(e.message || '로그인 실패', 'error');
+                    } finally {
+                        this.busy = false;
+                    }
+                },
+
+                async register() {
+                    const f = this.regForm;
+                    if (!f.loginId.trim() || !f.password) { this.showToast('아이디와 비밀번호를 입력하세요.', 'error'); return; }
+                    if (f.password !== f.password2) { this.showToast('비밀번호 확인이 일치하지 않습니다.', 'error'); return; }
+                    this.busy = true;
+                    try {
+                        const res = await fetch('/api/cloud-auth/register', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                loginId: f.loginId.trim(),
+                                password: f.password,
+                                displayName: f.displayName.trim(),
+                                companyName: f.companyName.trim()
+                            })
+                        });
+                        const d = await res.json().catch(() => ({}));
+                        if (!res.ok) throw new Error(d.message || '회원가입에 실패했습니다.');
+                        this.regForm = { loginId: '', displayName: '', companyName: '', password: '', password2: '' };
+                        await this.refreshStatus();
+                        this.showToast('가입이 완료되어 로그인되었습니다.', 'success');
+                        this.loadOverview();
+                    } catch (e) {
+                        this.showToast(e.message || '회원가입 실패', 'error');
+                    } finally {
+                        this.busy = false;
+                    }
+                },
+
+                async logout() {
+                    this.busy = true;
+                    try {
+                        await fetch('/api/cloud-auth/logout', { method: 'POST' });
+                        this.sites = [];
+                        this.overviewError = '';
+                        await this.refreshStatus();
+                        this.showToast('로그아웃되었습니다.', 'info');
+                    } catch (e) {
+                        this.showToast('로그아웃 실패', 'error');
+                    } finally {
+                        this.busy = false;
+                    }
+                },
+
+                async loadOverview() {
+                    this.busy = true;
+                    this.overviewError = '';
+                    try {
+                        const res = await fetch('/api/cloud-auth/overview');
+                        const d = await res.json().catch(() => ({}));
+                        if (!res.ok) throw new Error(d.message || '사이트/단말 조회에 실패했습니다.');
+                        this.sites = (d.sites || []).map(s => ({
+                            siteId: s.siteId,
+                            displayName: s.displayName || s.siteId,
+                            edges: s.edges || []
+                        }));
+                    } catch (e) {
+                        this.overviewError = e.message || '조회 실패';
+                        this.sites = [];
+                    } finally {
+                        this.busy = false;
+                    }
+                },
+
+                toggleTheme() {
+                    this.dark = !this.dark;
+                    localStorage.setItem('dsp-theme', this.dark ? 'dark' : 'light');
+                },
+
+                showToast(msg, type = 'info') {
+                    this.toast = { show: true, msg, type };
+                    clearTimeout(this._toastT);
+                    this._toastT = setTimeout(() => { this.toast.show = false; }, 3200);
+                }
+            };
+        }
+    </script>
+</body>
+
+</html>

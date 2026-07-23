@@ -821,6 +821,26 @@
                                 </div>
                             </div>
 
+                            <!-- 클라우드 계정(CloudWorks 연동) -->
+                            <div class="card" x-show="activeTab === 'general'">
+                                <div class="card-header">
+                                    <span class="material-icons">cloud</span>
+                                    <span>클라우드 계정</span>
+                                </div>
+                                <div class="card-content">
+                                    <div class="settings-note">
+                                        <small>
+                                            현장(EdgePC)을 클라우드에 등록하려면 <strong>CloudWorks 계정</strong>이 필요합니다.
+                                            <a href="/settings-cloud" style="color:var(--color-primary);">클라우드 계정 설정</a>에서 가입·로그인하면
+                                            이 DSPilot 이 해당 계정으로 프로비저닝 서버와 연동됩니다.
+                                        </small>
+                                    </div>
+                                    <a class="btn btn-outlined w-100" href="/settings-cloud">
+                                        <span class="material-icons">cloud</span> 클라우드 계정 설정 열기
+                                    </a>
+                                </div>
+                            </div>
+
                             <!-- 로깅 -->
                             <div class="card" x-show="activeTab === 'advanced'">
                                 <div class="card-header">

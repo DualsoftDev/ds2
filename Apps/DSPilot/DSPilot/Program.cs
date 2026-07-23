@@ -246,6 +246,13 @@ builder.Services.AddScoped<BriefingComposer>();
 builder.Services.AddSingleton<EmailBriefingService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<EmailBriefingService>());
 
+// CloudWorks(프로비저닝 서버) 계정 연동 — 회원가입/로그인 프록시(/api/cloud-auth/*).
+//   BaseUrl 은 "CloudAuth" 섹션(appsettings.Secrets.json / 환경변수 CloudAuth__BaseUrl)에서만 주입 — public 소스 미노출.
+//   세션 스토어는 앱 전역 싱글톤(한 사이트 = 한 클라우드 계정, Promaker PvSession 과 동형).
+builder.Services.AddSingleton(builder.Configuration.GetSection("CloudAuth").Get<DSPilot.Services.CloudAuth.CloudAuthOptions>() ?? new DSPilot.Services.CloudAuth.CloudAuthOptions());
+builder.Services.AddSingleton<DSPilot.Services.CloudAuth.CloudSessionStore>();
+builder.Services.AddHttpClient<DSPilot.Services.CloudAuth.IProvisioningAuthClient, DSPilot.Services.CloudAuth.ProvisioningAuthClient>(c => c.Timeout = TimeSpan.FromSeconds(30));
+
 var app = builder.Build();
 
 // H1 fix: HostedService 시작 전에 plc.db 스키마를 보장 — Hub 신호가 빨리 들어와도
@@ -359,7 +366,9 @@ static void Revalidate(Microsoft.AspNetCore.StaticFiles.StaticFileResponseContex
             && (string.Equals(reqPath, "/settings", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(reqPath, "/app/settings.html", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(reqPath, "/settings-email", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(reqPath, "/app/settings-email.html", StringComparison.OrdinalIgnoreCase));
+                || string.Equals(reqPath, "/app/settings-email.html", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(reqPath, "/settings-cloud", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(reqPath, "/app/settings-cloud.html", StringComparison.OrdinalIgnoreCase));
         if (isSettingsPage
             && demoAdmin.IsEnabled
             && !demoAdmin.IsSessionValid(context.Request.Cookies[DemoAdminService.SessionCookieName]))
@@ -404,6 +413,7 @@ var canonicalStaticRoutes = new Dictionary<string, string>(StringComparer.Ordina
     ["/plc-debug"] = "plc-debug.html",
     ["/settings"] = "settings.html",
     ["/settings-email"] = "settings-email.html",   // 일일 브리핑 메일 설정(설정 페이지에서 링크, 데모 게이트 연동)
+    ["/settings-cloud"] = "settings-cloud.html",   // CloudWorks 클라우드 계정 연동(회원가입/로그인, 설정 페이지에서 링크)
     ["/flow-trend"] = "flow-trend.html",
     ["/flow-cycle"] = "flow-cycle.html",   // ?name= 단일 · 매개변수 없음/?system= 전체 편집(bulkCycleApp)
     // 데모 관리자 게이트(2026-07-09): 나브에 노출하지 않는 직접 URL 전용 페이지 2종.
