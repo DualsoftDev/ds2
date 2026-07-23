@@ -11,14 +11,15 @@ namespace DSPilot.Services.CloudAuth;
 /// 서버 URL 이 브라우저로 새지 않도록. 실제 URL 은 <see cref="CloudAuthOptions.BaseUrl"/>(Secrets 주입)에만 있다.
 ///
 /// ── 서버 계약(Provisioning-server app/routers/admin.py) ──
-///   POST /api/admin/register {login_id, password, display_name?, company_name?} → {admin_id, admin_session}
-///   POST /api/admin/login    {login_id, password}                              → {admin_id, admin_session, display_name}
-///   GET  /api/account/overview  (헤더 X-Admin-Session)                          → {account, network, sites[...]}
+///   POST /api/admin/register   {login_id, password}                              → {admin_id, admin_session}
+///   POST /api/provision/claim {instance_id, claim_token, login_id, password}     → {admin_id, admin_session}
+///   POST /api/admin/login      {login_id, password}                              → {admin_id, admin_session, display_name}
+///   GET  /api/account/overview (헤더 X-Admin-Session)                            → {account, network, sites[...]}
 /// </summary>
 public interface IProvisioningAuthClient
 {
     /// <summary>회원가입. 성공 시 즉시 세션 토큰(서버가 가입 직후 발급)까지 담아 반환.</summary>
-    Task<CloudAuthResult> RegisterAsync(string loginId, string password, string? displayName, string? companyName, CancellationToken ct);
+    Task<CloudAuthResult> RegisterAsync(string loginId, string password, CancellationToken ct);
 
     /// <summary>로그인. 성공 시 세션 토큰 + 표시명 반환.</summary>
     Task<CloudAuthResult> LoginAsync(string loginId, string password, CancellationToken ct);

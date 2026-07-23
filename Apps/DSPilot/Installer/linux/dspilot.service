@@ -17,6 +17,8 @@ Environment=ASPNETCORE_ENVIRONMENT=Production
 # plc.db / oee.db / project.aasx / PlcConnection.json / agent/active.flag 가 모두 이 폴더(SharedPaths).
 # install.sh 가 /etc/dualsoft/dualsoft.env 를 생성한다(DUALSOFT_SHARED_DIR=<공유경로>).
 EnvironmentFile=/etc/dualsoft/dualsoft.env
+# 체험 인스턴스인 경우 PV cloud-init이 생성한다. 일반 설치에는 파일이 없어도 된다.
+EnvironmentFile=-/etc/dspilot/cloud-claim.env
 Restart=on-failure
 RestartSec=10
 # ASP.NET Core 는 SIGINT 로 graceful shutdown 한다.

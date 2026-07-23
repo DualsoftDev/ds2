@@ -27,7 +27,7 @@ public class CloudAuthController : ControllerBase
         _opts = opts;
     }
 
-    public record RegisterRequest(string? LoginId, string? Password, string? DisplayName, string? CompanyName);
+    public record RegisterRequest(string? LoginId, string? Password);
     public record LoginRequest(string? LoginId, string? Password);
 
     /// <summary>현재 로그인 상태 + 연동 구성 여부(토큰은 미노출).</summary>
@@ -45,7 +45,11 @@ public class CloudAuthController : ControllerBase
         if (string.IsNullOrWhiteSpace(req?.LoginId) || string.IsNullOrWhiteSpace(req?.Password))
             return BadRequest(new { message = "아이디와 비밀번호를 입력하세요." });
 
-        var r = await _client.RegisterAsync(req.LoginId!.Trim(), req.Password!, req.DisplayName?.Trim(), req.CompanyName?.Trim(), ct);
+        var issues = PasswordPolicy.GetIssues(req.Password!);
+        if (issues.Count > 0)
+            return BadRequest(new { message = $"비밀번호 조건 미충족: {string.Join(", ", issues)}" });
+
+        var r = await _client.RegisterAsync(req.LoginId!.Trim(), req.Password!, ct);
         if (!r.Ok)
             return BadRequest(new { message = r.Message });
 

@@ -23,6 +23,23 @@ public sealed class CloudAuthOptions
     /// </summary>
     public string BaseUrl { get; set; } = "";
 
+    /// <summary>
+    /// 체험 인스턴스의 PV 내부 식별자. PV cloud-init이 인스턴스마다 환경변수로 주입하며
+    /// public 설정/브라우저에는 노출하지 않는다.
+    /// </summary>
+    public string TrialInstanceId { get; set; } = "";
+
+    /// <summary>
+    /// 체험 계정을 이 인스턴스에서만 승격하기 위한 1회성 비밀값.
+    /// PV cloud-init이 root 전용 systemd EnvironmentFile로 주입한다.
+    /// </summary>
+    public string TrialClaimToken { get; set; } = "";
+
     /// <summary>연동 사용 가능 여부(BaseUrl 주입됨).</summary>
     public bool Configured => !string.IsNullOrWhiteSpace(BaseUrl);
+
+    /// <summary>일반 신규가입 대신 이 인스턴스의 체험 계정을 승격할 수 있는지.</summary>
+    public bool HasTrialClaim =>
+        !string.IsNullOrWhiteSpace(TrialInstanceId) &&
+        !string.IsNullOrWhiteSpace(TrialClaimToken);
 }

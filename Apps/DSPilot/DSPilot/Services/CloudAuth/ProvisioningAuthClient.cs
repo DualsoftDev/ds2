@@ -29,19 +29,22 @@ public sealed class ProvisioningAuthClient : IProvisioningAuthClient
     }
 
     public async Task<CloudAuthResult> RegisterAsync(
-        string loginId, string password, string? displayName, string? companyName, CancellationToken ct)
+        string loginId, string password, CancellationToken ct)
     {
         if (!_opts.Configured)
             return CloudAuthResult.Fail("클라우드 서버 주소가 구성되지 않았습니다 (appsettings.Secrets.json 의 CloudAuth.BaseUrl).");
 
-        var body = new RegisterDto(loginId, password, displayName, companyName);
-        var (ok, json, err) = await PostAsync("/api/admin/register", body, ct);
+        var path = _opts.HasTrialClaim ? "/api/provision/claim" : "/api/admin/register";
+        object body = _opts.HasTrialClaim
+            ? new ClaimDto(_opts.TrialInstanceId, _opts.TrialClaimToken, loginId, password)
+            : new RegisterDto(loginId, password);
+        var (ok, json, err) = await PostAsync(path, body, ct);
         if (!ok) return CloudAuthResult.Fail(err!);
 
         var payload = TryParse<AuthResponseDto>(json);
         if (payload is null || string.IsNullOrEmpty(payload.AdminSession))
             return CloudAuthResult.Fail("가입 응답에 세션이 없습니다.");
-        return CloudAuthResult.Success(payload.AdminId, payload.AdminSession, payload.DisplayName ?? displayName);
+        return CloudAuthResult.Success(payload.AdminId, payload.AdminSession, payload.DisplayName ?? loginId);
     }
 
     public async Task<CloudAuthResult> LoginAsync(string loginId, string password, CancellationToken ct)
@@ -174,7 +177,8 @@ public sealed class ProvisioningAuthClient : IProvisioningAuthClient
         el.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
 
     // ── DTO ──
-    private sealed record RegisterDto(string login_id, string password, string? display_name, string? company_name);
+    private sealed record RegisterDto(string login_id, string password);
+    private sealed record ClaimDto(string instance_id, string claim_token, string login_id, string password);
     private sealed record LoginDto(string login_id, string password);
     // 서버(admin.py)는 snake_case 로 응답 — 명시 매핑(Web camelCase 기본값과 불일치).
     private sealed record AuthResponseDto
