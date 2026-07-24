@@ -162,6 +162,26 @@ if [[ $ENABLE_AGENT -eq 1 ]]; then
   chmod +x "$AGENT_DIR/Promaker.Agent"
 fi
 
+# ── 4c) 시크릿(dsp.conf) 배치 + 권한 잠금 ────────────────────────────────────
+# 브리핑/클라우드 연동 자격정보. 정본 파일명 dsp.conf 를 런타임이 content root 에서 직접 읽는다(Program.cs).
+#   - 패키지에 dsp.conf 가 있으면 배치(Dualsoft 중앙 관리 값 → 업그레이드마다 갱신, Windows 설치본과 동형).
+#   - 패키지에 없고 기존 설치본에 이미 있으면 보존(재구성 없이 업그레이드).
+#   - 환경변수(BriefingRelay__ApiKey / CloudAuth__BaseUrl 등)로도 주입 가능하며 파일보다 우선(override).
+# 권한은 서비스 계정 소유 600 으로 잠가 같은 호스트의 다른 로컬 계정이 못 읽게 한다.
+DSP_CONF="$INSTALL_DIR/dsp.conf"
+if [[ -f "$SCRIPT_DIR/dsp.conf" ]]; then
+  echo "==> 시크릿 배치: $DSP_CONF"
+  cp -f "$SCRIPT_DIR/dsp.conf" "$DSP_CONF"
+elif [[ -f "$DSP_CONF" ]]; then
+  echo "==> 기존 시크릿(dsp.conf) 보존"
+else
+  echo "==> 시크릿(dsp.conf) 없음 — 메일링/클라우드는 '미구성'(환경변수 또는 수동 배치로 주입 가능)"
+fi
+if [[ -f "$DSP_CONF" ]]; then
+  chown "$APP_USER:$APP_USER" "$DSP_CONF"
+  chmod 600 "$DSP_CONF"
+fi
+
 # ── 5) 포트 기록(appsettings.Hosting.json) — Program.cs 가 명시 로드(AddJsonFile, 최우선). ──
 #     사용자 설정 저장소(appsettings.Production.json)와 분리해 보존과 포트 갱신 충돌을 막는다.
 cat > "$HOSTING_JSON" <<EOF

@@ -37,10 +37,15 @@ builder.Host.UseSystemd();
 // 마지막에 추가하므로 Production.json 의 (구버전) Urls 보다 우선한다. optional: 개발/직접 실행 시 없어도 무방.
 builder.Configuration.AddJsonFile("appsettings.Hosting.json", optional: true, reloadOnChange: false);
 
-// 브리핑 릴레이 자격증명 주입용 시크릿 파일 — 설치 스크립트가 배포 폴더에 배치("BriefingRelay" 섹션).
-// git·설치본 소스에 평문 자격증명을 두지 않기 위한 분리 파일(publish 에서 제외됨). 없어도 무방(optional).
-// 환경변수(BriefingRelay__User / __Password 등)로도 동일하게 주입 가능(CreateBuilder 가 env 를 이미 병합).
+// 시크릿(브리핑 릴레이 / CloudAuth / ExternalAccess) 주입 파일 — 설치본/설치 스크립트가 배포 폴더에 배치.
+// 정본 파일명은 dsp.conf(무해한 이름 — 배포 타깃에서도 "Secrets" 를 광고하지 않음). 설치 시 600/ACL 로 잠근다.
+// git·publish 산출물에는 포함하지 않는다(설치 시점 배치). 없어도 무방(optional) → 연동은 '미구성' 으로 동작.
+// 하위호환: 기존 설치가 쓰던 appsettings.Secrets.json 도 계속 로드. 우선순위 dsp.conf > appsettings.Secrets.json.
 builder.Configuration.AddJsonFile("appsettings.Secrets.json", optional: true, reloadOnChange: true);
+builder.Configuration.AddJsonFile("dsp.conf", optional: true, reloadOnChange: true);
+// 환경변수(BriefingRelay__ApiKey / CloudAuth__BaseUrl 등)가 파일보다 우선 — 클라우드/체험 인스턴스 주입·키
+// 로테이션 override. CreateBuilder 가 이미 한 번 병합했지만, 위 파일 뒤에 재추가해 최종 우선순위를 env > 파일로 확정.
+builder.Configuration.AddEnvironmentVariables();
 
 // 진단 모드 체크
 if (args.Contains("--diagnose"))
@@ -353,29 +358,55 @@ static void Revalidate(Microsoft.AspNetCore.StaticFiles.StaticFileResponseContex
     });
 }
 
-// ── 데모 관리자 게이트: 설정 페이지 진입 시 로그인 요구 (게이트 활성 시에만) ──
-// /demo/admin 활성화 페이지에서 코드 입력으로 on/off (DemoAdminService). 정적 서빙(UseStaticFiles)보다
-// 먼저 실행해야 /app/settings.html 직접 접근도 가로챈다. 비활성 시 완전 무개입(기존과 동일 진입).
-// 게이트 활성/비활성 여부는 UI/API 어디에도 표시하지 않는다.
+// ── 데모 관리자 게이트: 로그인 요구 (데모 전환 활성 시에만) ──
+// /demo/admin 관리 페이지에서 admin 로그인 후 데모 전환·범위를 설정(DemoAdminService). 정적 서빙(UseStaticFiles)
+// 보다 먼저 실행해야 /app/*.html 직접 접근도 가로챈다. 데모 전환 비활성 시 완전 무개입(기존과 동일 진입).
+// 로그인 범위(LoginScope):
+//   - "settings" : 설정 계열 페이지 진입 시에만 로그인 요구(기본).
+//   - "app"      : 첫 화면부터 모든 페이지(HTML 문서) 진입 시 로그인 요구.
+// 로그인/관리 페이지(admin-login, demo/admin)와 API·허브·정적 자산은 항상 통과시켜야 로그인 자체가 가능하다.
 {
     var demoAdmin = app.Services.GetRequiredService<DemoAdminService>();
+
+    // 데모 전환이 "app" 범위여도 절대 가로채지 않는 경로(로그인 진입로 + 백엔드).
+    static bool IsGatePassthrough(string path)
+        => string.Equals(path, "/admin-login", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(path, "/app/admin-login.html", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(path, "/demo/admin", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(path, "/app/demo-admin.html", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWith("/api", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWith("/hubs", StringComparison.OrdinalIgnoreCase);
+
+    static bool IsSettingsPage(string path)
+        => string.Equals(path, "/settings", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(path, "/app/settings.html", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(path, "/settings-email", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(path, "/app/settings-email.html", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(path, "/settings-cloud", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(path, "/app/settings-cloud.html", StringComparison.OrdinalIgnoreCase);
+
     app.Use(async (context, next) =>
     {
         var reqPath = context.Request.Path.Value ?? string.Empty;
-        var isSettingsPage = HttpMethods.IsGet(context.Request.Method)
-            && (string.Equals(reqPath, "/settings", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(reqPath, "/app/settings.html", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(reqPath, "/settings-email", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(reqPath, "/app/settings-email.html", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(reqPath, "/settings-cloud", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(reqPath, "/app/settings-cloud.html", StringComparison.OrdinalIgnoreCase));
-        if (isSettingsPage
+        if (HttpMethods.IsGet(context.Request.Method)
             && demoAdmin.IsEnabled
-            && !demoAdmin.IsSessionValid(context.Request.Cookies[DemoAdminService.SessionCookieName]))
+            && !IsGatePassthrough(reqPath))
         {
-            var returnUrl = Uri.EscapeDataString(reqPath + context.Request.QueryString);
-            context.Response.Redirect("/admin-login?return=" + returnUrl, permanent: false);
-            return;
+            bool requiresLogin;
+            if (string.Equals(demoAdmin.LoginScope, "app", StringComparison.OrdinalIgnoreCase))
+                // 첫 화면부터: HTML 문서 내비게이션만 가로챈다(자산 요청 Accept 는 text/html 아님).
+                requiresLogin = context.Request.Headers.Accept.ToString()
+                    .Contains("text/html", StringComparison.OrdinalIgnoreCase);
+            else
+                requiresLogin = IsSettingsPage(reqPath);
+
+            if (requiresLogin
+                && !demoAdmin.IsSessionValid(context.Request.Cookies[DemoAdminService.SessionCookieName]))
+            {
+                var returnUrl = Uri.EscapeDataString(reqPath + context.Request.QueryString);
+                context.Response.Redirect("/admin-login?return=" + returnUrl, permanent: false);
+                return;
+            }
         }
         await next();
     });
@@ -417,8 +448,8 @@ var canonicalStaticRoutes = new Dictionary<string, string>(StringComparer.Ordina
     ["/flow-trend"] = "flow-trend.html",
     ["/flow-cycle"] = "flow-cycle.html",   // ?name= 단일 · 매개변수 없음/?system= 전체 편집(bulkCycleApp)
     // 데모 관리자 게이트(2026-07-09): 나브에 노출하지 않는 직접 URL 전용 페이지 2종.
-    ["/admin-login"] = "admin-login.html", // 게이트 활성 시 /settings 진입 관문 (위 데모 게이트 미들웨어가 302)
-    ["/demo/admin"] = "demo-admin.html",   // 코드 입력으로 게이트 on/off 토글 (상태 비표시)
+    ["/admin-login"] = "admin-login.html", // 데모 전환 활성 시 진입 관문 (위 데모 게이트 미들웨어가 302)
+    ["/demo/admin"] = "demo-admin.html",   // admin 로그인 → 데모 전환·범위·자격증명·바로가기 관리 패널
 };
 // 구 통합 경로 → 물리 분리 페이지 리다이렉트(가동시간·이상 분리, 2026-07-01). 쿼리스트링 보존.
 //   /uptime, /oee 는 이제 효율 현황(/uptime-oee)으로 302. 이상·알람은 좌측 나브/링크가 /uptime-alarm 직접 이동.

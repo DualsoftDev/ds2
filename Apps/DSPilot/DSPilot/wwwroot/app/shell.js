@@ -305,12 +305,8 @@ window.dspDirtyRegister = function (fn) { window._dspDirtyChecker = fn; };
         ];
         var PLC_DEBUG_ITEM = { label: 'PLC 디버그', href: '/plc-debug', icon: 'bug_report', match: 'prefix', legacy: '/app/plc-debug.html' };
         var SETTINGS_ITEM = { label: '설정', href: '/settings', icon: 'settings', match: 'prefix', legacy: '/app/settings.html' };
-        // 외부 도구 바로가기(절대 URL). external:true → buildNavLink 이 새 탭(target=_blank) + open_in_new 아이콘 부여.
-        // 주소 변경 시 이 배열의 href 만 수정하면 전 페이지 사이드바에 반영됨(shell.js 는 모든 /app/*.html 공용).
-        var EXTERNAL_ITEMS = [
-            { label: '설비박사 챗봇',       href: 'http://121.139.3.28:2748/', icon: 'smart_toy', external: true },
-            { label: 'ReverseAI PLCtoAASX', href: 'http://121.139.3.28:2747',  icon: 'sync_alt',  external: true }
-        ];
+        // 외부 도구 바로가기(설비박사·ReverseAI)는 하드코딩이 아니라 /api/nav 의 externalShortcuts 로 내려온다
+        // (데모 전환 활성 + 개별 노출 체크 시에만). 라벨·URL 은 /demo/admin 관리 패널에서 설정한다.
 
         var path = (location.pathname || '/').replace(/\/+$/, '') || '/';
         function isActive(item) {
@@ -694,15 +690,18 @@ window.dspDirtyRegister = function (fn) { window._dspDirtyChecker = fn; };
         aside.appendChild(footer);
 
         // 외부 도구 바로가기(설비박사 챗봇·ReverseAI PLCtoAASX) — 데모 관리자 게이트가 활성일 때만 노출.
-        //   /api/nav 의 showExternalShortcuts(=DemoAdminService.IsEnabled)가 true 일 때 아래 콜백에서 호출한다.
+        //   /api/nav 의 externalShortcuts 배열(데모 전환 활성 + 개별 노출 체크한 항목)로 아래 콜백에서 렌더한다.
         //   게이트 비활성이면 아예 DOM 에 넣지 않아 사이드바에 흔적이 없다('바로가기' 라벨 포함 미렌더).
         //   '설정' 링크 앞에 '바로가기' 라벨 + 링크들을 삽입한다.
-        function renderExternalShortcuts() {
+        function renderExternalShortcuts(items) {
+            if (!items || !items.length) return;
             if (footer.querySelector('[data-dsp-ext-shortcut]')) return;   // 중복 렌더 방지
             var label = el('div', 'text-[10px] uppercase font-bold tracking-wider text-outline px-4 mb-1', '바로가기');
             label.setAttribute('data-dsp-ext-shortcut', '');
             footer.insertBefore(label, settingsLink);
-            EXTERNAL_ITEMS.forEach(function (item) {
+            items.forEach(function (s) {
+                // external:true → buildNavLink 이 새 탭(target=_blank) + open_in_new 아이콘 부여.
+                var item = { label: s.label, href: s.href, icon: s.icon || 'open_in_new', external: true };
                 var link = buildNavLink(item, SET_ACTIVE, SET_IDLE);
                 link.setAttribute('data-dsp-ext-shortcut', '');
                 footer.insertBefore(link, settingsLink);
@@ -1013,8 +1012,8 @@ window.dspDirtyRegister = function (fn) { window._dspDirtyChecker = fn; };
                 if (data.showPlcDebug) {
                     navMenu.appendChild(buildNavLink(PLC_DEBUG_ITEM, LINK_ACTIVE, LINK_IDLE));
                 }
-                // 외부 바로가기 — 데모 관리자 게이트 활성 시에만(플래그 true) 푸터에 삽입.
-                if (data.showExternalShortcuts) renderExternalShortcuts();
+                // 외부 바로가기 — 서버가 내려준 목록(데모 전환 활성 + 개별 노출 체크)만 푸터에 삽입.
+                renderExternalShortcuts(data.externalShortcuts);
                 buildSystemSubmenu(data.systems);
             })
             .catch(function () { /* ignore */ });

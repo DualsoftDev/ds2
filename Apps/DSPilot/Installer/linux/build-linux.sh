@@ -79,6 +79,27 @@ cp "$SCRIPT_DIR/install.sh" "$SCRIPT_DIR/uninstall.sh" "$STAGE/"
 [[ -f "$SCRIPT_DIR/README.md" ]] && cp "$SCRIPT_DIR/README.md" "$STAGE/"
 chmod +x "$STAGE/install.sh" "$STAGE/uninstall.sh"
 
+# 시크릿 정본(dsp.conf) 동봉 — 브리핑/클라우드 연동 자격정보(Windows 설치본이 exe 에 API 키를 굽는 것과 동형).
+# 정본 위치: $DUALSOFT_SECRETS_DIR/dsp.conf(권장) → Installer/linux/dsp.conf(로컬 배치). 있으면 패키지에 담아
+# install.sh 가 /opt/dspilot/dsp.conf 로 배치·600 잠금한다. 없으면 미구성으로 빌드(환경변수/수동 배치로 나중에 채움).
+# dsp.conf 는 .gitignore 로 커밋 제외 — tarball 은 비밀을 담으므로 Windows 설치 exe 와 같은 신뢰수준으로 취급/배포.
+DSP_CONF_SRC=""
+if [[ -n "${DUALSOFT_SECRETS_DIR:-}" && -f "$DUALSOFT_SECRETS_DIR/dsp.conf" ]]; then
+  DSP_CONF_SRC="$DUALSOFT_SECRETS_DIR/dsp.conf"
+elif [[ -n "${DUALSOFT_SECRETS_DIR:-}" && -f "$DUALSOFT_SECRETS_DIR/appsettings.Secrets.json" ]]; then
+  DSP_CONF_SRC="$DUALSOFT_SECRETS_DIR/appsettings.Secrets.json"   # 구 이름도 허용
+elif [[ -f "$SCRIPT_DIR/dsp.conf" ]]; then
+  DSP_CONF_SRC="$SCRIPT_DIR/dsp.conf"
+fi
+if [[ -n "$DSP_CONF_SRC" ]]; then
+  cp "$DSP_CONF_SRC" "$STAGE/dsp.conf"
+  chmod 600 "$STAGE/dsp.conf"
+  echo "    시크릿 동봉: dsp.conf ← $DSP_CONF_SRC"
+else
+  echo "    경고: dsp.conf 미발견(DUALSOFT_SECRETS_DIR/Installer\\linux) — 메일링/클라우드는 '미구성'으로 설치됩니다."
+  echo "          (설치 후 /opt/dspilot/dsp.conf 수동 배치 또는 환경변수 BriefingRelay__ApiKey/CloudAuth__BaseUrl 로 주입 가능.)"
+fi
+
 # CRLF→LF 정규화 — Windows(Git autocrlf)에서 빌드 시 .sh/.service 가 CRLF 면 타깃 리눅스에서
 # shebang('bash\r')·systemd 유닛이 깨진다. 스크립트/유닛만 LF 로 강제(앱 바이너리는 제외).
 find "$STAGE" -type f \( -name '*.sh' -o -name '*.service' \) -exec sed -i 's/\r$//' {} +

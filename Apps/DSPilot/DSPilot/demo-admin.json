@@ -1,0 +1,23 @@
+{
+  "enabled": true,
+  "loginScope": "app",
+  "adminId": "admin",
+  "passwordHash": "0A672354891BD3C11418F62F5C0CED0C72888F4983A3289865B1EA54648EF09E",
+  "passwordSalt": "51BB021A2669FA7E25A20FFC23BD359E",
+  "shortcuts": [
+    {
+      "key": "equipmentDoctor",
+      "label": "\uC124\uBE44\uBC15\uC0AC \uCC57\uBD07",
+      "href": "http://121.139.3.28:2748/",
+      "icon": "smart_toy",
+      "show": true
+    },
+    {
+      "key": "reverseAi",
+      "label": "ReverseAI PLCtoAASX",
+      "href": "http://121.139.3.28:2747",
+      "icon": "sync_alt",
+      "show": false
+    }
+  ]
+}

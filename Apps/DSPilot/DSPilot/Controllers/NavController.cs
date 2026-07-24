@@ -60,10 +60,12 @@ public class NavController : ControllerBase
     {
         var showPlcDebug = _settings.LoadSettings().Ui.ShowPlcDebug;
 
-        // 외부 도구 바로가기(설비박사 챗봇·ReverseAI PLCtoAASX)는 데모 관리자 게이트가 활성일 때만 노출.
-        // 사용자 선택(2026-07-10): 게이트가 켜지면 그 기기 전체에 표시(로그인 불요). 이 플래그가 곧 게이트
-        // on/off 를 드러내므로 '상태 비노출' 원칙은 이 바로가기 기능에 한해 완화된 것이다.
-        var showExternalShortcuts = _demoAdmin.IsEnabled;
+        // 외부 도구 바로가기(설비박사 챗봇·ReverseAI PLCtoAASX)는 데모 전환(마스터 스위치)이 켜졌을 때,
+        // 각 항목의 개별 노출 체크가 켜진 것만 내려준다(라벨·URL 은 /demo/admin 관리 패널에서 설정).
+        // 데모 전환 off 면 빈 목록 — 사이드바에 흔적이 없다.
+        var externalShortcuts = _demoAdmin.GetVisibleShortcuts()
+            .Select(s => new NavShortcutDto(s.Label, s.Href, s.Icon))
+            .ToList();
 
         // FlowProcessOrder: 대시보드에서 사용자가 지정한 공정 순서.
         var processOrder = _blueprint.Layout.FlowProcessOrder;
@@ -90,7 +92,7 @@ public class NavController : ControllerBase
             }
         }
 
-        return new NavDto(showPlcDebug, systems, showExternalShortcuts);
+        return new NavDto(showPlcDebug, systems, externalShortcuts);
     }
 
     /// <summary>
@@ -219,7 +221,10 @@ public class NavController : ControllerBase
 
 // ── DTOs (camelCase 자동) ──
 
-public record NavDto(bool ShowPlcDebug, List<NavSystemDto> Systems, bool ShowExternalShortcuts);
+public record NavDto(bool ShowPlcDebug, List<NavSystemDto> Systems, List<NavShortcutDto> ExternalShortcuts);
+
+// 사이드바 외부 도구 바로가기 1행(절대 URL). 데모 전환 활성 + 개별 노출 체크 시에만 내려온다.
+public record NavShortcutDto(string Label, string Href, string Icon);
 
 public record NavSystemDto(string Name, List<string> Flows);
 

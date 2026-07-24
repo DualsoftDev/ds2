@@ -8,7 +8,9 @@
 #define MyAppURL "https://dualsoft.co.kr"
 #define MyAppExeName "DSPilot.exe"
 ; ── 브리핑 릴레이 자동 연결 ──
-; 고객 설치본이 설치 시 자동으로 회사 발송 API(BriefingRelay)에 연결되도록 appsettings.Secrets.json 을 써넣는다.
+; 고객 설치본이 설치 시 자동으로 회사 발송 API(BriefingRelay)에 연결되도록 시크릿 파일 dsp.conf 를 써넣는다.
+;   dsp.conf = 정본 파일명(런타임이 직접 읽음, Program.cs). "Secrets" 를 배포 타깃에 광고하지 않기 위한 무해한 이름.
+;   기록 직후 icacls 로 SYSTEM(서비스 계정)+Administrators 만 접근하도록 잠근다(상속 제거 → 일반 Users 읽기 차단).
 ; ApiUrl 은 공개 엔드포인트(비밀 아님). ApiKey 는 비밀 → 빌드 시 /DBriefingApiKey=<키> 로 주입(git 미포함).
 ;   build-installer.bat 가 Installer\briefing-apikey.txt(또는 환경변수 DSP_BRIEFING_API_KEY)에서 읽어 넘긴다.
 ;   키가 주입되지 않으면(빈 값) 설정 파일을 쓰지 않는다(=릴레이 자동연결 미포함 빌드).
@@ -226,6 +228,9 @@ Filename: "{code:GetAppURL}"; \
 
 [UninstallDelete]
 Type: files; Name: "{autodesktop}\{#MyAppName}.url"
+; 시크릿 파일은 [Code] 의 SaveStringToFile 로 생성돼 [Files] 추적 밖 → 제거 시 명시적으로 지운다(비밀 잔존 방지).
+Type: files; Name: "{app}\dsp.conf"
+Type: files; Name: "{app}\appsettings.Secrets.json"
 
 [UninstallRun]
 #if HasAgent
@@ -527,6 +532,7 @@ var
   Port: String;
   UrlsValue: String;
   HostingJsonPath: String;
+  SecretsPath: String;
   ResultCode: Integer;
 begin
   if CurStep = ssPostInstall then
@@ -539,11 +545,14 @@ begin
       '  "Urls": "' + UrlsValue + '"' + #13#10 +
       '}' + #13#10, False);
 
-    // ── 브리핑 릴레이 자동 연결(appsettings.Secrets.json) ──
+    // ── 브리핑 릴레이 자동 연결(dsp.conf) ──
     // 빌드 시 ApiKey 가 주입됐을 때만 기록(미주입 빌드는 생략). Dualsoft 관리 중앙값이라 매 설치마다 갱신(키 로테이션 반영).
     // 서비스 시작 전에 써서 첫 부팅부터 릴레이에 연결되게 한다. 사용자 설정(Production.json)과 별개 파일이라 무관.
+    // 파일명 dsp.conf = 런타임이 직접 읽는 정본 이름(Program.cs). 기록 직후 icacls 로 권한을 잠근다.
     if ('{#BriefingApiKey}' <> '') then
-      SaveStringToFile(ExpandConstant('{app}\appsettings.Secrets.json'),
+    begin
+      SecretsPath := ExpandConstant('{app}\dsp.conf');
+      SaveStringToFile(SecretsPath,
         '{' + #13#10 +
         '  "BriefingRelay": {' + #13#10 +
         '    "Mode": "api",' + #13#10 +
@@ -552,6 +561,12 @@ begin
         '    "Locked": true' + #13#10 +
         '  }' + #13#10 +
         '}' + #13#10, False);
+      // 권한 잠금: 상속 제거(/inheritance:r) 후 SYSTEM(S-1-5-18, LocalSystem 서비스 계정)+Administrators(S-1-5-32-544)
+      // 에게만 전체 권한 부여 → 같은 PC 의 일반 사용자 계정이 비밀을 못 읽는다. (SID 사용 → 로케일 무관.)
+      Exec(ExpandConstant('{sys}\icacls.exe'),
+        '"' + SecretsPath + '" /inheritance:r /grant:r *S-1-5-18:F *S-1-5-32-544:F',
+        '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    end;
 
     // 포트 파일(appsettings.Hosting.json)을 기록한 *뒤에* 서비스를 시작한다 — 이 순서가 중요.
     // [Run](설치 순서 15단계)에서 시작하면 포트 파일 부재 상태로 떠 기본 포트(5000)에 바인딩되는 버그가 있었다.

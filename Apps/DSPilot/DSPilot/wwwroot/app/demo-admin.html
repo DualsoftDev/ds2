@@ -4,18 +4,22 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>DSPilot</title>
+    <title>데모 관리 — DSPilot</title>
 
     <!--
-      데모 관리자 게이트 — 활성화 코드 입력 페이지 (/demo/admin, 나브 비노출·직접 URL 전용).
-      POST /api/demo-admin/toggle {code} — 코드 일치 시 설정 페이지 로그인 게이트를 on/off 토글.
-      의도적으로 현재 활성/비활성 상태를 어디에도 표시하지 않는다(응답 메시지도 상태 무관 동일).
-      디자인 시스템: /css/ds.css. 페이지 고유 클래스(dadm-*)만 인라인.
+      데모 관리 패널 (/demo/admin, 나브 비노출·직접 URL 전용, 독립 셸: shell.js/나브 미로드).
+      admin 로그인(기본 admin/2747) 후 다음을 제어한다(DemoAdminService / /api/demo-admin/*):
+        - 데모 전환(enabled)  : 마스터 스위치. ON 이면 로그인 게이트 + 사이드바 바로가기 노출.
+        - 로그인 요구 범위    : 설정 페이지만 / 첫 화면부터 전체.
+        - 관리자 자격 증명    : 아이디·비밀번호 변경(현재 비밀번호 확인).
+        - 바로가기            : 설비박사·ReverseAI 개별 노출 체크 + 라벨/URL.
+      GET /api/demo-admin/config 가 401 이면 로그인 화면, 200 이면 관리 패널을 보여준다.
+      디자인 시스템: /css/ds.css (Control Room 토큰). 페이지 고유 클래스(dadm-*)만 인라인.
     -->
     <link href="/css/fonts.css" rel="stylesheet" />
     <link href="/css/ds.css" rel="stylesheet" />
     <script>
-        // 테마 부트스트랩 — shell.js 미로드 페이지이므로 동일 키(dspilot-theme)로 직접 적용
+        // 테마 부트스트랩 — shell.js 미로드 페이지이므로 동일 키(dspilot-theme)로 직접 적용 (FOUC 방지)
         (function () {
             var dark = localStorage.getItem('dspilot-theme') === 'dark';
             document.documentElement.classList.toggle('dark', dark);
@@ -24,66 +28,435 @@
     </script>
 
     <style>
-        .dadm-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px 16px; background: var(--color-background); color: var(--color-text-primary); font-family: var(--font-family); }
-        .dadm-card { width: 100%; max-width: 320px; background: var(--color-surface); border: 1px solid var(--color-lines-strong); border-radius: var(--radius-md); box-shadow: var(--shadow-4); padding: 24px; }
-        .dadm-head { display: flex; align-items: center; gap: 9px; margin-bottom: 16px; }
-        .dadm-head .material-icons { font-size: 19px; color: var(--color-primary); }
-        .dadm-title { font-size: 0.95rem; font-weight: 700; }
-        .dadm-field { display: flex; gap: 8px; }
-        .dadm-field .form-field { flex: 1; min-width: 0; font-family: var(--font-family-mono, Consolas, monospace); letter-spacing: 0.2em; }
-        .dadm-msg { display: block; min-height: 18px; margin-top: 10px; font-size: 0.76rem; font-weight: 600; }
+        .dadm-page { min-height: 100vh; display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; background: var(--color-background); color: var(--color-text-primary); font-family: var(--font-family); }
+        .dadm-wrap { width: 100%; max-width: 560px; }
+
+        /* 브랜드 로크업 */
+        .dadm-brand { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 18px; user-select: none; }
+        .dadm-brand .material-icons { font-size: 22px; color: var(--color-primary); }
+        .dadm-brand-name { font-family: var(--font-family-mono, 'Cascadia Code', Consolas, monospace); font-size: 1.05rem; font-weight: 700; letter-spacing: 0.14em; }
+
+        .dadm-card { background: var(--color-surface); border: 1px solid var(--color-lines-strong); border-radius: var(--radius-md); box-shadow: var(--shadow-4); padding: 22px 24px; }
+        .dadm-card + .dadm-card { margin-top: 16px; }
+        .dadm-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+        .dadm-head .material-icons { font-size: 20px; color: var(--color-primary); }
+        .dadm-title { font-size: 1.0rem; font-weight: 700; }
+        .dadm-sub { display: block; color: var(--color-text-secondary); font-size: 0.78rem; line-height: 1.55; margin: 4px 0 16px; }
+
+        .dadm-field { margin-bottom: 14px; }
+        .dadm-field label { display: block; font-size: 0.74rem; font-weight: 600; color: var(--color-text-secondary); margin-bottom: 6px; letter-spacing: 0.02em; }
+        .dadm-field .form-field { width: 100%; box-sizing: border-box; }
+        .dadm-row2 { display: flex; gap: 12px; }
+        .dadm-row2 > * { flex: 1; min-width: 0; }
+
+        /* 스위치(체크박스) 행 */
+        .dadm-toggle { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--color-lines); }
+        .dadm-toggle:first-of-type { border-top: 0; }
+        .dadm-toggle-main { flex: 1; min-width: 0; }
+        .dadm-toggle-main .t { font-size: 0.86rem; font-weight: 600; }
+        .dadm-toggle-main .d { display: block; font-size: 0.72rem; color: var(--color-text-secondary); margin-top: 2px; line-height: 1.45; }
+
+        /* iOS 스타일 스위치 */
+        .dadm-switch { position: relative; flex: 0 0 auto; width: 44px; height: 24px; }
+        .dadm-switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+        .dadm-switch .track { position: absolute; inset: 0; border-radius: 999px; background: var(--color-lines-strong); transition: background .18s ease; }
+        .dadm-switch .thumb { position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.35); transition: transform .18s ease; }
+        .dadm-switch input:checked ~ .track { background: var(--color-primary); }
+        .dadm-switch input:checked ~ .thumb { transform: translateX(20px); }
+        .dadm-switch input:disabled ~ .track { opacity: .45; }
+
+        /* 세그먼트(로그인 범위) */
+        .dadm-seg { display: flex; gap: 8px; }
+        .dadm-seg-opt { flex: 1; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); padding: 12px; cursor: pointer; transition: border-color .15s ease, background .15s ease; }
+        .dadm-seg-opt input { position: absolute; opacity: 0; }
+        .dadm-seg-opt .st { font-size: 0.84rem; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+        .dadm-seg-opt .sd { display: block; font-size: 0.7rem; color: var(--color-text-secondary); margin-top: 4px; line-height: 1.4; }
+        .dadm-seg-opt.active { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 8%, transparent); }
+        .dadm-seg-opt.active .st { color: var(--color-primary); }
+        .dadm-seg[aria-disabled="true"] { opacity: .5; pointer-events: none; }
+
+        /* 바로가기 항목 */
+        .dadm-shortcut { border: 1px solid var(--color-lines); border-radius: var(--radius-sm); padding: 14px; margin-bottom: 12px; }
+        .dadm-shortcut:last-child { margin-bottom: 0; }
+        .dadm-shortcut-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+        .dadm-shortcut-head .material-icons { font-size: 18px; color: var(--color-primary); }
+        .dadm-shortcut-head .nm { flex: 1; min-width: 0; font-size: 0.86rem; font-weight: 700; }
+        .dadm-shortcut.off { opacity: .6; }
+
+        .dadm-actions { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+        .dadm-actions .grow { flex: 1; }
+
+        .dadm-msg { display: flex; align-items: center; gap: 6px; min-height: 20px; font-size: 0.76rem; font-weight: 600; }
+        .dadm-msg .material-icons { font-size: 15px; }
         .dadm-msg.ok { color: var(--color-success); }
         .dadm-msg.err { color: var(--color-error); }
+
+        .dadm-foot { text-align: center; margin-top: 16px; color: var(--color-text-secondary); font-size: 0.68rem; letter-spacing: 0.06em; user-select: none; }
+        .dadm-hidden { display: none !important; }
+
+        @keyframes dadm-shake { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+        .dadm-shake { animation: dadm-shake 0.3s ease-in-out 1; }
     </style>
 </head>
 
 <body>
     <div class="dadm-page">
-        <form class="dadm-card" id="dadmForm">
-            <div class="dadm-head">
-                <span class="material-icons" aria-hidden="true">key</span>
-                <span class="dadm-title">코드 입력</span>
+        <div class="dadm-wrap">
+            <div class="dadm-brand">
+                <span class="material-icons" aria-hidden="true">precision_manufacturing</span>
+                <span class="dadm-brand-name">DSPILOT</span>
             </div>
-            <div class="dadm-field">
-                <input class="form-field" id="dadmCode" type="password" inputmode="numeric"
-                       autocomplete="off" autocapitalize="off" spellcheck="false" autofocus required />
-                <button type="submit" class="btn btn-primary" id="dadmSubmit">적용</button>
+
+            <!-- ── 로그인 화면 ── -->
+            <form class="dadm-card dadm-hidden" id="loginView" autocomplete="on">
+                <div class="dadm-head">
+                    <span class="material-icons" aria-hidden="true">lock</span>
+                    <span class="dadm-title">데모 관리자 로그인</span>
+                </div>
+                <small class="dadm-sub">데모 설정을 변경하려면 관리자 인증이 필요합니다.</small>
+
+                <div class="dadm-field">
+                    <label for="loginId">아이디</label>
+                    <input class="form-field" id="loginId" name="username" type="text"
+                           autocomplete="username" autocapitalize="off" spellcheck="false" required />
+                </div>
+                <div class="dadm-field">
+                    <label for="loginPw">비밀번호</label>
+                    <input class="form-field" id="loginPw" name="password" type="password"
+                           autocomplete="current-password" required />
+                </div>
+
+                <small class="dadm-msg err dadm-hidden" id="loginErr">
+                    <span class="material-icons" aria-hidden="true">error</span>
+                    <span id="loginErrText"></span>
+                </small>
+
+                <button type="submit" class="btn btn-primary" id="loginBtn" style="width:100%;justify-content:center;margin-top:6px;">
+                    <span class="material-icons" aria-hidden="true">login</span> 로그인
+                </button>
+            </form>
+
+            <!-- ── 관리 패널 ── -->
+            <div class="dadm-hidden" id="panelView">
+                <!-- 데모 전환 + 로그인 범위 -->
+                <div class="dadm-card">
+                    <div class="dadm-head">
+                        <span class="material-icons" aria-hidden="true">tune</span>
+                        <span class="dadm-title">데모 전환</span>
+                    </div>
+                    <small class="dadm-sub">데모 전환은 마스터 스위치입니다. 켜면 로그인 게이트가 활성화되고 아래 바로가기가 사이드바에 노출됩니다. 끄면 순정 설치처럼 로그인·바로가기 없이 동작합니다.</small>
+
+                    <div class="dadm-toggle">
+                        <div class="dadm-toggle-main">
+                            <span class="t">데모 전환</span>
+                            <span class="d">데모 모드 전체 on/off</span>
+                        </div>
+                        <label class="dadm-switch">
+                            <input type="checkbox" id="cfgEnabled" />
+                            <span class="track"></span><span class="thumb"></span>
+                        </label>
+                    </div>
+
+                    <div class="dadm-field" id="scopeField" style="margin-top:14px;">
+                        <label>로그인 요구 범위</label>
+                        <div class="dadm-seg" id="scopeSeg" role="radiogroup" aria-label="로그인 요구 범위">
+                            <label class="dadm-seg-opt" data-scope="settings">
+                                <input type="radio" name="loginScope" value="settings" />
+                                <span class="st"><span class="material-icons" style="font-size:16px;">settings</span> 설정만</span>
+                                <span class="sd">설정 계열 페이지 진입 시에만 로그인을 요구합니다.</span>
+                            </label>
+                            <label class="dadm-seg-opt" data-scope="app">
+                                <input type="radio" name="loginScope" value="app" />
+                                <span class="st"><span class="material-icons" style="font-size:16px;">shield</span> 첫 화면부터</span>
+                                <span class="sd">앱을 열자마자 모든 화면에서 로그인을 요구합니다.</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 바로가기 -->
+                <div class="dadm-card">
+                    <div class="dadm-head">
+                        <span class="material-icons" aria-hidden="true">link</span>
+                        <span class="dadm-title">바로가기 메뉴</span>
+                    </div>
+                    <small class="dadm-sub">사이드바에 노출할 외부 도구 바로가기입니다. 노출 여부는 각 스위치로, 하이퍼링크는 URL 칸에서 설정합니다. (데모 전환이 켜져 있을 때만 실제로 노출됩니다.)</small>
+                    <div id="shortcutList"></div>
+                </div>
+
+                <!-- 저장 -->
+                <div class="dadm-card">
+                    <div class="dadm-actions">
+                        <small class="dadm-msg grow" id="cfgMsg" role="status"></small>
+                        <button type="button" class="btn btn-primary" id="cfgSaveBtn">
+                            <span class="material-icons" aria-hidden="true">save</span> 설정 저장
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 자격 증명 변경 -->
+                <div class="dadm-card">
+                    <div class="dadm-head">
+                        <span class="material-icons" aria-hidden="true">key</span>
+                        <span class="dadm-title">아이디 · 비밀번호 변경</span>
+                    </div>
+                    <small class="dadm-sub">변경할 항목만 입력하세요(비우면 유지). 확인을 위해 현재 비밀번호가 필요합니다.</small>
+
+                    <form id="credForm" autocomplete="off">
+                        <div class="dadm-field">
+                            <label for="curPw">현재 비밀번호</label>
+                            <input class="form-field" id="curPw" type="password" autocomplete="current-password" required />
+                        </div>
+                        <div class="dadm-row2">
+                            <div class="dadm-field">
+                                <label for="newId">새 아이디</label>
+                                <input class="form-field" id="newId" type="text" autocapitalize="off" spellcheck="false" placeholder="변경 안 하면 비움" />
+                            </div>
+                            <div class="dadm-field">
+                                <label for="newPw">새 비밀번호</label>
+                                <input class="form-field" id="newPw" type="password" autocomplete="new-password" placeholder="변경 안 하면 비움" />
+                            </div>
+                        </div>
+                        <div class="dadm-field">
+                            <label for="newPw2">새 비밀번호 확인</label>
+                            <input class="form-field" id="newPw2" type="password" autocomplete="new-password" />
+                        </div>
+                        <div class="dadm-actions">
+                            <small class="dadm-msg grow" id="credMsg" role="status"></small>
+                            <button type="submit" class="btn btn-outlined" id="credBtn">
+                                <span class="material-icons" aria-hidden="true">manage_accounts</span> 자격 증명 변경
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="dadm-actions" style="justify-content:flex-end;margin-top:8px;">
+                    <button type="button" class="btn btn-outlined color-default" id="logoutBtn">
+                        <span class="material-icons" aria-hidden="true">logout</span> 로그아웃
+                    </button>
+                </div>
             </div>
-            <small class="dadm-msg" id="dadmMsg" role="status"></small>
-        </form>
+
+            <div class="dadm-foot">DUALSOFT · DSPilot 데모 관리</div>
+        </div>
     </div>
 
     <script>
         (function () {
-            var form = document.getElementById('dadmForm');
-            var code = document.getElementById('dadmCode');
-            var msg = document.getElementById('dadmMsg');
-            var submitBtn = document.getElementById('dadmSubmit');
+            var loginView = document.getElementById('loginView');
+            var panelView = document.getElementById('panelView');
 
-            form.addEventListener('submit', async function (e) {
-                e.preventDefault();
-                msg.textContent = '';
-                msg.className = 'dadm-msg';
-                submitBtn.disabled = true;
-                try {
-                    var res = await fetch('/api/demo-admin/toggle', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ code: code.value })
-                    });
-                    var body = null;
-                    try { body = await res.json(); } catch (_) { /* 비 JSON 응답 무시 */ }
-                    msg.textContent = (body && body.message) || (res.ok ? '적용되었습니다.' : '요청이 실패했습니다.');
-                    msg.className = 'dadm-msg ' + (res.ok ? 'ok' : 'err');
-                    code.value = '';
-                    code.focus();
-                } catch (_) {
-                    msg.textContent = '서버에 연결할 수 없습니다.';
-                    msg.className = 'dadm-msg err';
-                } finally {
-                    submitBtn.disabled = false;
+            function $(id) { return document.getElementById(id); }
+            function show(elm) { elm.classList.remove('dadm-hidden'); }
+            function hide(elm) { elm.classList.add('dadm-hidden'); }
+            function setMsg(elm, text, ok) {
+                elm.textContent = '';
+                elm.className = 'dadm-msg grow ' + (ok ? 'ok' : 'err');
+                if (!text) return;
+                var i = document.createElement('span');
+                i.className = 'material-icons';
+                i.setAttribute('aria-hidden', 'true');
+                i.textContent = ok ? 'check_circle' : 'error';
+                var s = document.createElement('span');
+                s.textContent = text;
+                elm.appendChild(i); elm.appendChild(s);
+            }
+
+            async function api(method, url, body) {
+                var opts = { method: method, headers: {} };
+                if (body !== undefined) {
+                    opts.headers['Content-Type'] = 'application/json';
+                    opts.body = JSON.stringify(body);
                 }
+                var res = await fetch(url, opts);
+                var data = null;
+                try { data = await res.json(); } catch (_) { /* 비 JSON 무시 */ }
+                return { ok: res.ok, status: res.status, data: data };
+            }
+
+            // ── 부팅: 세션 확인 → 패널 또는 로그인 ──
+            async function boot() {
+                var r = await api('GET', '/api/demo-admin/config');
+                if (r.ok && r.data) {
+                    renderPanel(r.data);
+                    hide(loginView); show(panelView);
+                } else {
+                    hide(panelView); show(loginView);
+                    $('loginId').focus();
+                }
+            }
+
+            // ── 로그인 ──
+            loginView.addEventListener('submit', async function (e) {
+                e.preventDefault();
+                var err = $('loginErr'), btn = $('loginBtn');
+                hide(err); btn.disabled = true;
+                try {
+                    var r = await api('POST', '/api/demo-admin/login', {
+                        id: $('loginId').value, password: $('loginPw').value
+                    });
+                    if (r.ok) { $('loginPw').value = ''; await boot(); return; }
+                    $('loginErrText').textContent = (r.data && r.data.message) || '로그인에 실패했습니다.';
+                    show(err); err.classList.remove('dadm-shake'); void err.offsetWidth; err.classList.add('dadm-shake');
+                    $('loginPw').value = ''; $('loginPw').focus();
+                } catch (_) {
+                    $('loginErrText').textContent = '서버에 연결할 수 없습니다.';
+                    show(err);
+                } finally { btn.disabled = false; }
             });
+
+            // ── 패널 렌더 ──
+            function syncScopeUi() {
+                var enabled = $('cfgEnabled').checked;
+                var seg = $('scopeSeg');
+                seg.setAttribute('aria-disabled', enabled ? 'false' : 'true');
+                Array.prototype.forEach.call(seg.querySelectorAll('input'), function (i) { i.disabled = !enabled; });
+                Array.prototype.forEach.call(seg.querySelectorAll('.dadm-seg-opt'), function (opt) {
+                    var checked = opt.querySelector('input').checked;
+                    opt.classList.toggle('active', checked);
+                });
+            }
+
+            function renderPanel(cfg) {
+                $('cfgEnabled').checked = !!cfg.enabled;
+                var scope = cfg.loginScope === 'app' ? 'app' : 'settings';
+                Array.prototype.forEach.call($('scopeSeg').querySelectorAll('input'), function (i) {
+                    i.checked = (i.value === scope);
+                });
+                syncScopeUi();
+
+                var list = $('shortcutList');
+                list.innerHTML = '';
+                (cfg.shortcuts || []).forEach(function (s) {
+                    list.appendChild(buildShortcutRow(s));
+                });
+                setMsg($('cfgMsg'), '', true);
+                setMsg($('credMsg'), '', true);
+            }
+
+            function buildShortcutRow(s) {
+                var wrap = document.createElement('div');
+                wrap.className = 'dadm-shortcut' + (s.show ? '' : ' off');
+                wrap.setAttribute('data-key', s.key);
+
+                var head = document.createElement('div');
+                head.className = 'dadm-shortcut-head';
+                var icon = document.createElement('span');
+                icon.className = 'material-icons';
+                icon.setAttribute('aria-hidden', 'true');
+                icon.textContent = s.icon || 'open_in_new';
+                var nm = document.createElement('span');
+                nm.className = 'nm';
+                nm.textContent = s.label || s.key;
+                var sw = document.createElement('label');
+                sw.className = 'dadm-switch';
+                sw.innerHTML = '<input type="checkbox" data-role="show"' + (s.show ? ' checked' : '') +
+                    ' /><span class="track"></span><span class="thumb"></span>';
+                sw.querySelector('input').addEventListener('change', function (e) {
+                    wrap.classList.toggle('off', !e.target.checked);
+                });
+                head.appendChild(icon); head.appendChild(nm); head.appendChild(sw);
+
+                var fLabel = document.createElement('div');
+                fLabel.className = 'dadm-field';
+                fLabel.innerHTML = '<label>표시 이름</label>';
+                var inLabel = document.createElement('input');
+                inLabel.className = 'form-field'; inLabel.type = 'text';
+                inLabel.setAttribute('data-role', 'label'); inLabel.value = s.label || '';
+                fLabel.appendChild(inLabel);
+
+                var fHref = document.createElement('div');
+                fHref.className = 'dadm-field'; fHref.style.marginBottom = '0';
+                fHref.innerHTML = '<label>하이퍼링크 (URL)</label>';
+                var inHref = document.createElement('input');
+                inHref.className = 'form-field'; inHref.type = 'url';
+                inHref.setAttribute('data-role', 'href'); inHref.value = s.href || '';
+                inHref.setAttribute('inputmode', 'url'); inHref.spellcheck = false;
+                fHref.appendChild(inHref);
+
+                wrap.appendChild(head); wrap.appendChild(fLabel); wrap.appendChild(fHref);
+                return wrap;
+            }
+
+            // 세그먼트 클릭 시 active 스타일 갱신
+            $('scopeSeg').addEventListener('change', syncScopeUi);
+            $('cfgEnabled').addEventListener('change', syncScopeUi);
+
+            // ── 설정 저장 ──
+            $('cfgSaveBtn').addEventListener('click', async function () {
+                var btn = this; btn.disabled = true;
+                setMsg($('cfgMsg'), '', true);
+                try {
+                    var scopeInput = $('scopeSeg').querySelector('input:checked');
+                    var shortcuts = Array.prototype.map.call(
+                        document.querySelectorAll('#shortcutList .dadm-shortcut'),
+                        function (row) {
+                            return {
+                                key: row.getAttribute('data-key'),
+                                show: row.querySelector('[data-role="show"]').checked,
+                                label: row.querySelector('[data-role="label"]').value,
+                                href: row.querySelector('[data-role="href"]').value
+                            };
+                        });
+                    var r = await api('POST', '/api/demo-admin/config', {
+                        enabled: $('cfgEnabled').checked,
+                        loginScope: scopeInput ? scopeInput.value : 'settings',
+                        shortcuts: shortcuts
+                    });
+                    if (r.ok) {
+                        if (r.data && r.data.config) renderPanel(r.data.config);
+                        setMsg($('cfgMsg'), '저장되었습니다.', true);
+                    } else if (r.status === 401) {
+                        await boot();
+                    } else {
+                        setMsg($('cfgMsg'), (r.data && r.data.message) || '저장에 실패했습니다.', false);
+                    }
+                } catch (_) {
+                    setMsg($('cfgMsg'), '서버에 연결할 수 없습니다.', false);
+                } finally { btn.disabled = false; }
+            });
+
+            // ── 자격 증명 변경 ──
+            $('credForm').addEventListener('submit', async function (e) {
+                e.preventDefault();
+                var btn = $('credBtn'); btn.disabled = true;
+                setMsg($('credMsg'), '', true);
+                try {
+                    var newPw = $('newPw').value, newPw2 = $('newPw2').value, newId = $('newId').value;
+                    if (!newId && !newPw) {
+                        setMsg($('credMsg'), '변경할 아이디 또는 비밀번호를 입력하세요.', false);
+                        btn.disabled = false; return;
+                    }
+                    if (newPw && newPw !== newPw2) {
+                        setMsg($('credMsg'), '새 비밀번호가 일치하지 않습니다.', false);
+                        btn.disabled = false; return;
+                    }
+                    var r = await api('POST', '/api/demo-admin/credentials', {
+                        currentPassword: $('curPw').value, newId: newId, newPassword: newPw
+                    });
+                    if (r.ok) {
+                        setMsg($('credMsg'), '변경되었습니다.', true);
+                        $('credForm').reset();
+                    } else if (r.status === 401) {
+                        await boot();
+                    } else {
+                        setMsg($('credMsg'), (r.data && r.data.message) || '변경에 실패했습니다.', false);
+                    }
+                } catch (_) {
+                    setMsg($('credMsg'), '서버에 연결할 수 없습니다.', false);
+                } finally { btn.disabled = false; }
+            });
+
+            // ── 로그아웃 ──
+            $('logoutBtn').addEventListener('click', async function () {
+                this.disabled = true;
+                try { await api('POST', '/api/demo-admin/logout'); } catch (_) { /* 무시 */ }
+                $('loginPw').value = '';
+                await boot();
+                this.disabled = false;
+            });
+
+            boot();
         })();
     </script>
 </body>
