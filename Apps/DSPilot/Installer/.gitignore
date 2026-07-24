@@ -1,2 +1,6 @@
 # 브리핑 릴레이 API 키(빌드 시 주입, 절대 커밋 금지). build-installer.bat 가 읽어 /D 로 ISCC 에 넘긴다.
 briefing-apikey.txt
+
+# 시크릿 정본 파일(빌드 시 설치본/패키지에 실림, 절대 커밋 금지). Windows(build-installer.bat)·Linux(build-linux.sh) 공유.
+# 바로 이름(dsp.conf)만 적어 Installer\dsp.conf, Installer\linux\dsp.conf 둘 다 매칭.
+dsp.conf

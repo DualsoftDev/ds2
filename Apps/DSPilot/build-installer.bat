@@ -114,17 +114,36 @@ echo.
 
 :: Step 4: Build installer with Inno Setup
 echo [4/4] Building installer with Inno Setup...
-:: 브리핑 릴레이 API 키 주입 — Installer\briefing-apikey.txt(git 미포함) 또는 환경변수 DSP_BRIEFING_API_KEY.
-:: 키가 있으면 /D 로 넘겨 설치본에 릴레이 자동연결(appsettings.Secrets.json)을 포함시킨다. 없으면 경고 후 미포함 빌드.
-set "BRIEFING_KEY=%DSP_BRIEFING_API_KEY%"
-if exist "%SOLUTION_DIR%Installer\briefing-apikey.txt" set /p BRIEFING_KEY=<"%SOLUTION_DIR%Installer\briefing-apikey.txt"
-if defined BRIEFING_KEY (
-    echo       브리핑 릴레이 자동연결 포함 ^(API 키 주입됨^).
-    "%ISCC%" /D"BriefingApiKey=%BRIEFING_KEY%" "%ISS_FILE%"
-) else (
-    echo       [WARN] 브리핑 API 키 미주입 — 설치본에 릴레이 자동연결이 포함되지 않습니다.
-    echo              ^(Installer\briefing-apikey.txt 생성 또는 DSP_BRIEFING_API_KEY 설정 후 재빌드^)
+:: ── 시크릿(dsp.conf) 해석 ─────────────────────────────────────────────────
+:: 정본 dsp.conf 파일이 있으면 publish 에 넣어 [Files] 로 {app}\dsp.conf 배치 → 전 섹션(Briefing+CloudAuth+
+:: ExternalAccess) 통째 반영(Linux build-linux.sh 와 같은 파일 Installer\dsp.conf 를 공유). 우선순위:
+::   %DUALSOFT_SECRETS_DIR%\dsp.conf → Installer\dsp.conf → DSPilot\dsp.conf → DSPilot\appsettings.Secrets.json(구 이름)
+:: 이전 빌드의 stale publish\dsp.conf 제거 — 이번 빌드에 소스가 없으면 미구성으로 나가야 하는데 옛 비밀이 남아 실리는 것 방지.
+if exist "%PUBLISH_DIR%\dsp.conf" del /q "%PUBLISH_DIR%\dsp.conf"
+set "DSP_CONF_SRC="
+if defined DUALSOFT_SECRETS_DIR if exist "%DUALSOFT_SECRETS_DIR%\dsp.conf" set "DSP_CONF_SRC=%DUALSOFT_SECRETS_DIR%\dsp.conf"
+if not defined DSP_CONF_SRC if exist "%SOLUTION_DIR%Installer\dsp.conf" set "DSP_CONF_SRC=%SOLUTION_DIR%Installer\dsp.conf"
+if not defined DSP_CONF_SRC if exist "%PROJECT_DIR%\dsp.conf" set "DSP_CONF_SRC=%PROJECT_DIR%\dsp.conf"
+if not defined DSP_CONF_SRC if exist "%PROJECT_DIR%\appsettings.Secrets.json" set "DSP_CONF_SRC=%PROJECT_DIR%\appsettings.Secrets.json"
+
+if defined DSP_CONF_SRC (
+    echo       시크릿 정본 포함: {app}\dsp.conf ^<- "!DSP_CONF_SRC!"
+    copy /y "!DSP_CONF_SRC!" "%PUBLISH_DIR%\dsp.conf" >nul
+    :: 정본 파일이 전 섹션을 담으므로 브리핑 키 인라인 주입은 하지 않는다(iss 는 파일 존재 시 잠금만).
     "%ISCC%" "%ISS_FILE%"
+) else (
+    :: 폴백: 정본 파일이 없으면 브리핑 API 키만 인라인 주입(구 방식) — CloudAuth 미포함.
+    :: 키 소스: Installer\briefing-apikey.txt(git 미포함) 또는 환경변수 DSP_BRIEFING_API_KEY.
+    set "BRIEFING_KEY=%DSP_BRIEFING_API_KEY%"
+    if exist "%SOLUTION_DIR%Installer\briefing-apikey.txt" set /p BRIEFING_KEY=<"%SOLUTION_DIR%Installer\briefing-apikey.txt"
+    if defined BRIEFING_KEY (
+        echo       dsp.conf 미발견 — 브리핑 키만 인라인 주입 ^(CloudAuth 미포함^).
+        "%ISCC%" /D"BriefingApiKey=!BRIEFING_KEY!" "%ISS_FILE%"
+    ) else (
+        echo       [WARN] dsp.conf / 브리핑 키 모두 없음 — 메일링/클라우드 '미구성' 빌드.
+        echo              ^(Installer\dsp.conf 배치 또는 DUALSOFT_SECRETS_DIR 지정 후 재빌드^)
+        "%ISCC%" "%ISS_FILE%"
+    )
 )
 if !errorlevel! neq 0 goto :fail_iscc
 

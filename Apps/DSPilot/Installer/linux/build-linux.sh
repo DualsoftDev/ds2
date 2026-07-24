@@ -79,24 +79,28 @@ cp "$SCRIPT_DIR/install.sh" "$SCRIPT_DIR/uninstall.sh" "$STAGE/"
 [[ -f "$SCRIPT_DIR/README.md" ]] && cp "$SCRIPT_DIR/README.md" "$STAGE/"
 chmod +x "$STAGE/install.sh" "$STAGE/uninstall.sh"
 
-# 시크릿 정본(dsp.conf) 동봉 — 브리핑/클라우드 연동 자격정보(Windows 설치본이 exe 에 API 키를 굽는 것과 동형).
-# 정본 위치: $DUALSOFT_SECRETS_DIR/dsp.conf(권장) → Installer/linux/dsp.conf(로컬 배치). 있으면 패키지에 담아
-# install.sh 가 /opt/dspilot/dsp.conf 로 배치·600 잠금한다. 없으면 미구성으로 빌드(환경변수/수동 배치로 나중에 채움).
-# dsp.conf 는 .gitignore 로 커밋 제외 — tarball 은 비밀을 담으므로 Windows 설치 exe 와 같은 신뢰수준으로 취급/배포.
+# 시크릿 정본(dsp.conf) 동봉 — 브리핑/클라우드 연동 자격정보(Windows 설치본이 exe 에 굽는 것과 동형).
+# 정본 파일 하나(Installer/dsp.conf)를 Windows(build-installer.bat)와 공유한다. 우선순위:
+#   $DUALSOFT_SECRETS_DIR/dsp.conf → Installer/dsp.conf(공유 정본) → Installer/linux/dsp.conf → DSPilot/dsp.conf →
+#   DSPilot/appsettings.Secrets.json(구 이름/dev). 있으면 패키지에 담아 install.sh 가 /opt/dspilot/dsp.conf 로 배치·600 잠금.
+# 없으면 '미구성'으로 빌드(환경변수/수동 배치로 나중에 채움). dsp.conf 는 .gitignore 로 커밋 제외 — tarball 은 비밀을
+# 담으므로 Windows 설치 exe 와 같은 신뢰수준으로 취급/배포.
 DSP_CONF_SRC=""
-if [[ -n "${DUALSOFT_SECRETS_DIR:-}" && -f "$DUALSOFT_SECRETS_DIR/dsp.conf" ]]; then
-  DSP_CONF_SRC="$DUALSOFT_SECRETS_DIR/dsp.conf"
-elif [[ -n "${DUALSOFT_SECRETS_DIR:-}" && -f "$DUALSOFT_SECRETS_DIR/appsettings.Secrets.json" ]]; then
-  DSP_CONF_SRC="$DUALSOFT_SECRETS_DIR/appsettings.Secrets.json"   # 구 이름도 허용
-elif [[ -f "$SCRIPT_DIR/dsp.conf" ]]; then
-  DSP_CONF_SRC="$SCRIPT_DIR/dsp.conf"
-fi
+for _cand in \
+  "${DUALSOFT_SECRETS_DIR:+$DUALSOFT_SECRETS_DIR/dsp.conf}" \
+  "${DUALSOFT_SECRETS_DIR:+$DUALSOFT_SECRETS_DIR/appsettings.Secrets.json}" \
+  "$SCRIPT_DIR/../dsp.conf" \
+  "$SCRIPT_DIR/dsp.conf" \
+  "$DSPILOT_ROOT/DSPilot/dsp.conf" \
+  "$DSPILOT_ROOT/DSPilot/appsettings.Secrets.json"; do
+  if [[ -n "$_cand" && -f "$_cand" ]]; then DSP_CONF_SRC="$_cand"; break; fi
+done
 if [[ -n "$DSP_CONF_SRC" ]]; then
   cp "$DSP_CONF_SRC" "$STAGE/dsp.conf"
   chmod 600 "$STAGE/dsp.conf"
   echo "    시크릿 동봉: dsp.conf ← $DSP_CONF_SRC"
 else
-  echo "    경고: dsp.conf 미발견(DUALSOFT_SECRETS_DIR/Installer\\linux) — 메일링/클라우드는 '미구성'으로 설치됩니다."
+  echo "    경고: dsp.conf 미발견(DUALSOFT_SECRETS_DIR / Installer/dsp.conf) — 메일링/클라우드는 '미구성'으로 설치됩니다."
   echo "          (설치 후 /opt/dspilot/dsp.conf 수동 배치 또는 환경변수 BriefingRelay__ApiKey/CloudAuth__BaseUrl 로 주입 가능.)"
 fi
 
