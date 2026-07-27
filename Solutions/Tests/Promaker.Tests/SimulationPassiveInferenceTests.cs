@@ -486,7 +486,7 @@ public sealed class SimulationPassiveInferenceTests
             Assert.Equal(Status4.Finish, GetWorkState(engine, fixture.ActiveWorkId));
 
             ObservePassive(state, fixture.OutAddress, "true");
-            Assert.True(StaTestRunner.WaitUntil(1000, () => GetWorkState(engine, fixture.ActiveWorkId) == Status4.Going));
+            Assert.True(StaTestRunner.WaitUntil(500, () => GetWorkState(engine, fixture.ActiveWorkId) == Status4.Going));
         });
     }
 
