@@ -369,6 +369,13 @@ public class SettingsController : ControllerBase
     private const string SvcAgent = "PromakerAgentService";
     private const string SvcMtx = "DSPilotMediaMtx";
 
+    // Windows 서비스로 기동된 설치본에서만 서비스 재시작을 제공한다. (SSOT — app-info 의
+    // ServiceControlSupported 로 노출되어 설정 화면이 카드 자체를 숨긴다.)
+    // net stop/start 는 Windows 서비스 제어 명령이라, systemd 서비스·콘솔 실행에서는 대응 수단이
+    // 아니다(Linux 는 systemctl 로 dspilot / promaker-agent / dspilot-mediamtx 를 재시작해야 하고,
+    // 서비스 계정 dspilot 에 polkit 예외가 필요하다 — 미구현).
+    private static bool ServiceControlSupported => WindowsServiceHelpers.IsWindowsService();
+
     // ── POST: 서비스 재시작 (target = dspilot | agent | mtx | all) ──
     // 고급 설정의 접힘 카드에서 확인 후 호출. 대상 Windows 서비스를 net stop → net start 한다.
     //  • DSPilot 자신을 포함하지 않는 대상(agent/mtx)은 인라인 동기 실행 → 실제 성공/실패를 즉시 회신.
@@ -380,6 +387,15 @@ public class SettingsController : ControllerBase
     public async Task<IActionResult> RestartServices([FromBody] RestartServicesRequest? req, CancellationToken ct)
     {
         var target = (req?.Target ?? "all").Trim().ToLowerInvariant();
+
+        // UI 는 카드를 숨기지만, 직접 호출·오래된 화면 캐시에도 실패 이유가 분명하도록 서버에서 한 번 더 막는다.
+        if (!ServiceControlSupported)
+        {
+            _logger.LogWarning("[Settings] RestartServices target={Target} → 무시(Windows 서비스 아님, hostMode={Host})",
+                target, HostModeText());
+            return Ok(new RebuildResultDto(false,
+                $"서비스 재시작은 Windows 서비스로 설치된 경우에만 사용할 수 있습니다 (현재: {HostModeText()})."));
+        }
 
         // 대상 → (서비스명, 표시명) 목록. all 은 DSPilot 을 마지막에 둔다(자기 재시작이 응답 flush 뒤 오도록).
         var svc = new Dictionary<string, (string name, string label)>
@@ -693,10 +709,6 @@ public class SettingsController : ControllerBase
         try { buildLocal = System.IO.File.Exists(asmPath) ? System.IO.File.GetLastWriteTime(asmPath).ToString("yyyy-MM-dd HH:mm:ss") : "—"; }
         catch { buildLocal = "—"; }
 
-        var hostMode = WindowsServiceHelpers.IsWindowsService() ? "Windows 서비스"
-            : Microsoft.Extensions.Hosting.Systemd.SystemdHelpers.IsSystemdService() ? "systemd 서비스"
-            : "콘솔 실행";
-
         var startedLocal = "—";
         var uptimeSeconds = 0L;
         var pid = 0;
@@ -728,7 +740,8 @@ public class SettingsController : ControllerBase
             RuntimeInformation.FrameworkDescription,
             $"{RuntimeInformation.OSDescription} ({RuntimeInformation.OSArchitecture})",
             Environment.MachineName,
-            hostMode,
+            HostModeText(),
+            ServiceControlSupported,
             pid,
             startedLocal,
             uptimeSeconds,
@@ -741,6 +754,12 @@ public class SettingsController : ControllerBase
             _project.AasxFilePath,
             "© 2026 Dualsoft Inc.");
     }
+
+    // 실행 방식 표시 문구. 정보 카드와 재시작 거부 메시지가 같은 문구를 쓰도록 한 곳에 둔다.
+    private static string HostModeText()
+        => WindowsServiceHelpers.IsWindowsService() ? "Windows 서비스"
+            : Microsoft.Extensions.Hosting.Systemd.SystemdHelpers.IsSystemdService() ? "systemd 서비스"
+            : "콘솔 실행";
 
     // 파일의 FileVersion(없으면 ProductVersion). 파일이 없거나 읽기 실패면 null.
     private static string? FileVersionOf(string path)
@@ -1022,6 +1041,7 @@ public record AppInfoDto(
     string Os,
     string MachineName,
     string HostMode,
+    bool ServiceControlSupported, // Windows 서비스 기동 여부 — 설정 화면의 "서비스 재시작" 카드 표시 조건
     int ProcessId,
     string StartedAtLocal,
     long UptimeSeconds,

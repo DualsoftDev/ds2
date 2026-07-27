@@ -260,7 +260,7 @@ DSPilot 웹서버가 제공하는 전체 HTTP API 목록.
 | POST | `/api/settings/rebuild-database` | ⚠️ DB 전체 재구성 (파괴적) |
 | POST | `/api/settings/restore-flow-defaults` | Flow 기본값 복원 |
 | POST | `/api/settings/reset-defaults` | 전체 기본값 복원 |
-| POST | `/api/settings/restart-services` | 서비스 재시작 |
+| POST | `/api/settings/restart-services` | 서비스 재시작 (Windows 서비스 기동 시에만 동작 — 그 외에는 `success:false`. UI 는 카드를 숨김) |
 | GET | `/api/settings/abnormal-device-filters` | 디바이스별 이상감지 차단 필터 조회 |
 | POST | `/api/settings/abnormal-device-filters` | 디바이스별 이상감지 차단 필터 저장 |
 | GET | `/api/settings/usertag-filters` | 사용자 태그 표시 필터 조회 |

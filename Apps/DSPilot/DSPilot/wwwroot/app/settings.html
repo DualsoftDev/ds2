@@ -872,7 +872,11 @@
                             </div>
 
                             <!-- 서비스 재시작 (기본 접힘 — 위험 작업이라 헤더 클릭 시에만 펼침 + 확인 팝업 가드) -->
-                            <div class="card" x-show="activeTab === 'advanced'" style="align-self: start;">
+                            <!-- net stop/start 기반이라 Windows 서비스로 기동된 설치본에서만 노출한다.
+                                 systemd 서비스·콘솔 실행(dotnet run, Linux 설치본)에서는 카드 자체를 숨긴다
+                                 — 눌러도 실패하는 버튼을 보여주지 않기 위함. 판정은 서버(app-info)가 SSOT. -->
+                            <div class="card" x-show="activeTab === 'advanced' && info.d && info.d.serviceControlSupported"
+                                 style="align-self: start;">
                                 <div class="card-header" @click="svcRestartOpen = !svcRestartOpen"
                                      style="cursor:pointer; user-select:none;">
                                     <span class="material-icons">restart_alt</span>
