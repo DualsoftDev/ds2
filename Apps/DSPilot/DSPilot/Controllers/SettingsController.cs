@@ -7,6 +7,11 @@ using DSPilot.Hubs;
 using DSPilot.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.Extensions.Hosting.WindowsServices;
+using System.Reflection;
+using System.Runtime.InteropServices;
 
 namespace DSPilot.Controllers;
 
@@ -38,6 +43,10 @@ public class SettingsController : ControllerBase
     private readonly SimulationEngineService _engine;
     private readonly UserTagAlertService _userTags;
     private readonly ExternalAccessService _externalAccess;
+    // 앱 정보 카드(app-info) 전용 — 실제 바인딩 주소/콘텐츠 루트/호스팅 설정 조회.
+    private readonly IServer _server;
+    private readonly IHostEnvironment _env;
+    private readonly IConfiguration _config;
     private readonly ILogger<SettingsController> _logger;
 
     private readonly HubSubscriberService _hubSubscriber;
@@ -56,6 +65,9 @@ public class SettingsController : ControllerBase
         UserTagAlertService userTags,
         ExternalAccessService externalAccess,
         HubSubscriberService hubSubscriber,
+        IServer server,
+        IHostEnvironment env,
+        IConfiguration config,
         ILogger<SettingsController> logger)
     {
         _settings = settings;
@@ -71,6 +83,9 @@ public class SettingsController : ControllerBase
         _userTags = userTags;
         _externalAccess = externalAccess;
         _hubSubscriber = hubSubscriber;
+        _server = server;
+        _env = env;
+        _config = config;
         _logger = logger;
     }
 
@@ -652,6 +667,94 @@ public class SettingsController : ControllerBase
         }
     }
 
+    // ── GET: 이 설치본의 제품/실행환경 정보 (고급 탭 하단 "이 DSPilot 정보" 카드) ──
+    // 버전·빌드시각·런타임·경로·바인딩 주소를 한 번에 모아, 지원 문의 시 그대로 복사해 보낼 수 있게 한다.
+    // 전부 읽기 전용 조회이며, 개별 항목이 실패해도(파일 접근 거부·단일파일 배포 등) 그 필드만 "—" 로
+    // 떨어지고 응답 자체는 성공한다 — 정보 카드 때문에 설정 페이지가 깨지지 않도록.
+    [HttpGet("app-info")]
+    public ActionResult<AppInfoDto> GetAppInfo()
+    {
+        var asm = Assembly.GetEntryAssembly() ?? typeof(SettingsController).Assembly;
+
+        // 단일파일 배포에서는 Location 이 빈 문자열 → BaseDirectory 기준으로 재구성.
+        var asmPath = asm.Location;
+        if (string.IsNullOrEmpty(asmPath))
+            asmPath = Path.Combine(AppContext.BaseDirectory, (asm.GetName().Name ?? "DSPilot") + ".dll");
+
+        var version = FileVersionOf(asmPath) ?? asm.GetName().Version?.ToString() ?? "—";
+
+        // InformationalVersion 은 SourceRevisionId 가 붙어 "1.0.1.38+<sha>" 형태가 될 수 있다 → 커밋 해시만 분리.
+        var informational = asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "";
+        var plus = informational.IndexOf('+');
+        var commit = plus >= 0 && plus + 1 < informational.Length ? informational[(plus + 1)..] : "";
+        if (commit.Length > 12) commit = commit[..12];
+
+        string buildLocal;
+        try { buildLocal = System.IO.File.Exists(asmPath) ? System.IO.File.GetLastWriteTime(asmPath).ToString("yyyy-MM-dd HH:mm:ss") : "—"; }
+        catch { buildLocal = "—"; }
+
+        var hostMode = WindowsServiceHelpers.IsWindowsService() ? "Windows 서비스"
+            : Microsoft.Extensions.Hosting.Systemd.SystemdHelpers.IsSystemdService() ? "systemd 서비스"
+            : "콘솔 실행";
+
+        var startedLocal = "—";
+        var uptimeSeconds = 0L;
+        var pid = 0;
+        try
+        {
+            using var p = System.Diagnostics.Process.GetCurrentProcess();
+            pid = p.Id;
+            startedLocal = p.StartTime.ToString("yyyy-MM-dd HH:mm:ss");
+            uptimeSeconds = (long)Math.Max(0, (DateTime.Now - p.StartTime).TotalSeconds);
+        }
+        catch { /* 권한/플랫폼 제약 — 표시만 생략 */ }
+
+        // 실제 바인딩된 주소(Kestrel). 미노출 환경이면 설치 스크립트가 기록한 "Urls" 설정으로 폴백.
+        var urls = _server.Features.Get<IServerAddressesFeature>()?.Addresses?.ToArray() ?? Array.Empty<string>();
+        if (urls.Length == 0)
+            urls = (_config["Urls"] ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        var dbPath = GetDatabasePath();
+        string dbSize;
+        try { dbSize = System.IO.File.Exists(dbPath) ? FormatBytes(new FileInfo(dbPath).Length) : "—"; }
+        catch { dbSize = "—"; }
+
+        return new AppInfoDto(
+            "DSPilot",
+            version,
+            commit,
+            buildLocal,
+            FileVersionOf(Path.Combine(AppContext.BaseDirectory, "Ds2.Core.dll")) ?? "—",
+            RuntimeInformation.FrameworkDescription,
+            $"{RuntimeInformation.OSDescription} ({RuntimeInformation.OSArchitecture})",
+            Environment.MachineName,
+            hostMode,
+            pid,
+            startedLocal,
+            uptimeSeconds,
+            AppContext.BaseDirectory,
+            _env.ContentRootPath,
+            urls,
+            _externalAccess.ResolveUrl(),
+            dbPath,
+            dbSize,
+            _project.AasxFilePath,
+            "© 2026 Dualsoft Inc.");
+    }
+
+    // 파일의 FileVersion(없으면 ProductVersion). 파일이 없거나 읽기 실패면 null.
+    private static string? FileVersionOf(string path)
+    {
+        try
+        {
+            if (!System.IO.File.Exists(path)) return null;
+            var fvi = System.Diagnostics.FileVersionInfo.GetVersionInfo(path);
+            var v = fvi.FileVersion ?? fvi.ProductVersion;
+            return string.IsNullOrWhiteSpace(v) ? null : v.Trim();
+        }
+        catch { return null; }
+    }
+
     // ── helpers ──
 
     private ActionResult<RebuildResultDto> Result(RebuildResult r)
@@ -906,6 +1009,30 @@ public record CctvDto(
 // FallbackImage = 대체(폴백) 이미지 URL. GET 에 포함되고, POST(CctvController.SaveSettings) 에서 라운드트립으로
 // 영속된다(없으면 null → 포지션 기준 기존값 유지, 구 클라이언트 호환).
 public record CameraDto(string Name, string RtspUrl, bool Enabled, string Slug = "", string? FallbackImage = null);
+
+// 고급 탭 하단 "이 DSPilot 정보" 카드 — 제품/빌드/실행환경/경로 스냅샷(읽기 전용).
+// Commit = InformationalVersion 의 "+" 뒤 커밋 해시(없으면 ""), UptimeSeconds = 조회 시점 가동초(클라이언트가 1초씩 증가시켜 표시).
+public record AppInfoDto(
+    string Product,
+    string Version,
+    string Commit,
+    string BuildTimeLocal,
+    string EngineVersion,
+    string Runtime,
+    string Os,
+    string MachineName,
+    string HostMode,
+    int ProcessId,
+    string StartedAtLocal,
+    long UptimeSeconds,
+    string InstallPath,
+    string ContentRoot,
+    string[] ListenUrls,
+    string ExternalUrl,
+    string DbPath,
+    string DbSizeDisplay,
+    string AasxPath,
+    string Copyright);
 
 public record AasxStatusDto(
     bool Exists,

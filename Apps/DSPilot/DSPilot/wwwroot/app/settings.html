@@ -96,6 +96,15 @@
         .set-subhead .material-icons { font-size: 16px; color: var(--color-primary); }
         .set-subnote { color: var(--color-text-secondary); display: block; margin-bottom: 10px; font-size: 0.72rem; line-height: 1.5; }
 
+        /* ── 이 DSPilot 정보(고급 탭 하단) ── */
+        /* 카드 자체는 두 열을 가로지르므로 내부는 3열까지 자동 접힘(auto-fit). 긴 경로는 열을 부풀리지 않게 줄바꿈. */
+        .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 4px 28px; }
+        .info-grid > div { min-width: 0; }
+        .info-grid .settings-status-grid { margin-bottom: 4px; }
+        .info-grid .val { overflow-wrap: anywhere; }
+        .info-path { font-size: 0.74rem; }
+        .info-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+
         /* ── 사용자 정의 에러 테이블: 검색/필터/정렬/페이징 ── */
         .ude-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
         .ude-search { position: relative; display: flex; align-items: center; flex: 1 1 220px; min-width: 180px; }
@@ -912,6 +921,118 @@
                                 </div>
                             </div>
 
+                            <!-- DSPilot 정보 — 고급 탭 맨 아래 전체 폭. 지원 문의용 스냅샷(읽기 전용).
+                                 grid-column:1/-1 로 두 열을 가로질러 마지막 행에 놓인다.
+                                 기본 접힘(참고 정보라 평소엔 자리만 차지) — 접힌 상태에서도 헤더에 버전은 보인다. -->
+                            <div class="card" x-show="activeTab === 'advanced'" style="grid-column:1 / -1; align-self: start;">
+                                <div class="card-header" @click="toggleAppInfo()"
+                                     style="cursor:pointer; user-select:none;">
+                                    <span class="material-icons">info</span>
+                                    <span>DSPilot 정보</span>
+                                    <span class="spacer" style="flex:1;"></span>
+                                    <span class="mono" style="color:var(--color-text-secondary);"
+                                          x-text="info.d ? ('v' + info.d.version) : ''"></span>
+                                    <span class="material-icons" style="margin-left:10px; transition:transform .15s;"
+                                          x-text="appInfoOpen ? 'expand_less' : 'expand_more'"></span>
+                                </div>
+                                <div class="card-content" x-show="appInfoOpen" x-cloak x-transition>
+                                    <template x-if="info.error">
+                                        <div class="settings-note" style="border-left-color:var(--color-error);">
+                                            <small x-text="info.error"></small>
+                                        </div>
+                                    </template>
+
+                                    <template x-if="info.d">
+                                        <div>
+                                            <div class="info-grid">
+                                                <div>
+                                                    <div class="set-subhead"><span class="material-icons">verified</span> 제품</div>
+                                                    <div class="settings-status-grid" style="margin-top:0;">
+                                                        <span class="lbl">버전</span>
+                                                        <span class="val" x-text="info.d.version + (info.d.commit ? ' (' + info.d.commit + ')' : '')"></span>
+
+                                                        <span class="lbl">빌드</span>
+                                                        <span class="val" x-text="info.d.buildTimeLocal"></span>
+
+                                                        <span class="lbl">엔진</span>
+                                                        <span class="val" x-text="'Ds2.Core ' + info.d.engineVersion"></span>
+
+                                                        <span class="lbl">런타임</span>
+                                                        <span class="val" x-text="info.d.runtime"></span>
+                                                    </div>
+                                                </div>
+
+                                                <div>
+                                                    <div class="set-subhead"><span class="material-icons">dns</span> 실행 환경</div>
+                                                    <div class="settings-status-grid" style="margin-top:0;">
+                                                        <span class="lbl">호스트</span>
+                                                        <span class="val" x-text="info.d.machineName"></span>
+
+                                                        <span class="lbl">OS</span>
+                                                        <span class="val" x-text="info.d.os"></span>
+
+                                                        <span class="lbl">실행 방식</span>
+                                                        <span class="val" x-text="info.d.hostMode + ' · PID ' + info.d.processId"></span>
+
+                                                        <span class="lbl">시작 시각</span>
+                                                        <span class="val" x-text="info.d.startedAtLocal"></span>
+
+                                                        <span class="lbl">가동 시간</span>
+                                                        <span class="val" x-text="uptimeText"></span>
+                                                    </div>
+                                                </div>
+
+                                                <div>
+                                                    <div class="set-subhead"><span class="material-icons">link</span> 접속 주소</div>
+                                                    <div class="settings-status-grid" style="margin-top:0;">
+                                                        <span class="lbl">바인딩</span>
+                                                        <span class="val" x-text="info.d.listenUrls.length ? info.d.listenUrls.join(', ') : '—'"></span>
+
+                                                        <span class="lbl">외부 주소</span>
+                                                        <span class="val" x-text="info.d.externalUrl || '미설정'"></span>
+                                                    </div>
+
+                                                    <div class="set-subhead" style="margin-top:14px;"><span class="material-icons">folder</span> 경로</div>
+                                                    <div class="settings-status-grid" style="margin-top:0;">
+                                                        <span class="lbl">설치 폴더</span>
+                                                        <span class="val info-path" x-text="info.d.installPath"></span>
+
+                                                        <span class="lbl">설정 폴더</span>
+                                                        <span class="val info-path" x-text="info.d.contentRoot"></span>
+
+                                                        <span class="lbl">DB</span>
+                                                        <span class="val info-path" x-text="info.d.dbPath + ' (' + info.d.dbSizeDisplay + ')'"></span>
+
+                                                        <span class="lbl">AASX</span>
+                                                        <span class="val info-path" x-text="info.d.aasxPath"></span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <hr class="divider my-3" />
+                                            <div class="info-actions">
+                                                <small class="settings-hint" style="margin:0;" x-text="info.d.copyright"></small>
+                                                <div style="display:flex; gap:8px;">
+                                                    <button class="btn btn-sm btn-outlined color-default" @click="loadAppInfo()">
+                                                        <span class="material-icons">refresh</span> 새로고침
+                                                    </button>
+                                                    <button class="btn btn-sm btn-outlined" @click="copyAppInfo()">
+                                                        <span class="material-icons">content_copy</span> 정보 복사
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <small class="settings-hint">
+                                                지원 문의 시 "정보 복사" 로 이 내용을 그대로 붙여넣어 주세요.
+                                            </small>
+                                        </div>
+                                    </template>
+
+                                    <template x-if="!info.d && !info.error">
+                                        <small class="settings-hint" style="margin:0;">정보를 불러오는 중…</small>
+                                    </template>
+                                </div>
+                            </div>
+
                     </div>
                 </div>
             </template>
@@ -985,7 +1106,10 @@
                 rt: { connected: false },
                 autoCal: { running: false },
                 calib: { loaded: false, autoEnabled: true, staleCount: 0, stale: [] }, // 이상감지 게이트 상태 배지 (this.s 밖 — dirty 미유발)
-                _conn: null, _toastTimer: null, _calibTimer: null,
+                // 고급 탭 하단 "DSPilot 정보" — this.s 밖(읽기 전용 스냅샷)이라 dirty 미유발. 기본 접힘.
+                info: { d: null, error: '', uptimeSec: 0 },
+                appInfoOpen: false,
+                _conn: null, _toastTimer: null, _calibTimer: null, _uptimeTimer: null,
                 activeTab: 'general', // 유형별 탭: general | monitoring | anomaly | data | advanced (항상 기본=일반, 위치 미저장)
                 flashCalibFill: false, // 딥링크(?tab=monitoring#calib-fill) 진입 시 "지금 실측값 채우기" 버튼 강조 플래시
                 svcRestartOpen: false, // 고급 탭 "서비스 재시작" 카드 — 기본 접힘(위험 작업)
@@ -1012,6 +1136,13 @@
                     // 게이트 상태 폴링 — stale-repair 루프(≥1분)가 자동 재측정하면 30초 내 배지 반영.
                     this._calibTimer = setInterval(() => this.loadCalibStatus(), 30000);
                     this.loadUserDefinedErrors();
+                    this.loadAppInfo();
+                    // 가동 시간은 서버 재조회 없이 클라이언트에서 1초씩 증가시켜 표시(새로고침 시 서버값으로 재동기화).
+                    // clearInterval 선행: 이 페이지는 x-init="init()" 과 Alpine 자동 init() 로 init 이 두 번 실행되므로
+                    // 가드가 없으면 티커가 2개 붙어 가동 시간이 2배속으로 흐른다.
+                    // 접혀 있을 땐 틱을 멈춘다(펼칠 때 toggleAppInfo 가 서버값으로 재동기화).
+                    clearInterval(this._uptimeTimer);
+                    this._uptimeTimer = setInterval(() => { if (this.info.d && this.appInfoOpen) this.info.uptimeSec++; }, 1000);
                     // 더티 가드 등록 — 미저장 설정 변경 이탈 방지
                     window.dspDirtyRegister(() => this.settingsDirty);
                     // 딥링크: 다른 페이지(예: 이상·알람의 "설정 > 실측 duration 자동 보정")에서
@@ -1159,7 +1290,74 @@
                     }
                 },
 
-                destroy() { this._conn?.stop(); clearTimeout(this._demoTimer); },
+                // ── DSPilot 정보 — 버전/빌드/실행환경/경로 스냅샷 ──
+                // 펼칠 때마다 재조회 — 접혀 있는 동안 티커가 멈추므로 가동 시간을 서버값으로 다시 맞춘다.
+                toggleAppInfo() {
+                    this.appInfoOpen = !this.appInfoOpen;
+                    if (this.appInfoOpen) this.loadAppInfo();
+                },
+                async loadAppInfo() {
+                    try {
+                        const d = await this.apiGet('/api/settings/app-info');
+                        d.listenUrls = d.listenUrls || [];
+                        this.info.d = d;
+                        this.info.uptimeSec = d.uptimeSeconds | 0;
+                        this.info.error = '';
+                    } catch (e) {
+                        this.info.d = null;
+                        this.info.error = '정보를 불러오지 못했습니다: ' + e.message;
+                    }
+                },
+                // 가동 시간 표기 — 1일 이상이면 "3일 4시간 5분", 그 미만은 "4시간 5분 6초".
+                get uptimeText() {
+                    const t = Math.max(0, this.info.uptimeSec | 0);
+                    const d = Math.floor(t / 86400), h = Math.floor(t % 86400 / 3600),
+                          m = Math.floor(t % 3600 / 60), s = t % 60;
+                    if (d > 0) return `${d}일 ${h}시간 ${m}분`;
+                    if (h > 0) return `${h}시간 ${m}분 ${s}초`;
+                    return m > 0 ? `${m}분 ${s}초` : `${s}초`;
+                },
+                // 지원 문의용 텍스트 복사. http:// LAN 접속은 보안 컨텍스트가 아니라 navigator.clipboard 가
+                // 없을 수 있어 execCommand('copy') 폴백을 함께 둔다.
+                async copyAppInfo() {
+                    const d = this.info.d;
+                    if (!d) return;
+                    const text = [
+                        `${d.product} ${d.version}${d.commit ? ' (' + d.commit + ')' : ''}`,
+                        `빌드: ${d.buildTimeLocal}`,
+                        `엔진: Ds2.Core ${d.engineVersion}`,
+                        `런타임: ${d.runtime}`,
+                        `OS: ${d.os}`,
+                        `호스트: ${d.machineName}`,
+                        `실행 방식: ${d.hostMode} (PID ${d.processId})`,
+                        `시작 시각: ${d.startedAtLocal} · 가동 ${this.uptimeText}`,
+                        `바인딩: ${d.listenUrls.length ? d.listenUrls.join(', ') : '—'}`,
+                        `외부 주소: ${d.externalUrl || '미설정'}`,
+                        `설치 폴더: ${d.installPath}`,
+                        `설정 폴더: ${d.contentRoot}`,
+                        `DB: ${d.dbPath} (${d.dbSizeDisplay})`,
+                        `AASX: ${d.aasxPath}`,
+                    ].join('\n');
+                    try {
+                        if (navigator.clipboard && window.isSecureContext) {
+                            await navigator.clipboard.writeText(text);
+                        } else {
+                            const ta = document.createElement('textarea');
+                            ta.value = text;
+                            ta.style.position = 'fixed'; ta.style.opacity = '0';
+                            document.body.appendChild(ta);
+                            ta.select();
+                            const ok = document.execCommand('copy');
+                            document.body.removeChild(ta);
+                            if (!ok) throw new Error('execCommand 실패');
+                        }
+                        this.showToast('시스템 정보가 클립보드에 복사되었습니다.', 'success');
+                    } catch (e) {
+                        this.showToast('복사 실패 — 표시된 내용을 직접 선택해 복사하세요.', 'error');
+                    }
+                },
+
+                destroy() { this._conn?.stop(); clearTimeout(this._demoTimer); clearInterval(this._uptimeTimer); clearInterval(this._calibTimer); },
 
                 // 유형별 탭 전환 — 항상 기본 '일반'에서 시작, 위치는 저장하지 않는다.
                 setTab(tab) {
