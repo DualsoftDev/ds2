@@ -846,6 +846,10 @@ window.dspDirtyRegister = function (fn) { window._dspDirtyChecker = fn; };
         function closeAgPopover(e) {
             // 팝오버 내부 클릭('상세' 토글 등)은 닫지 않는다 — 바깥 클릭에서만 닫힘.
             if (e && agPopover.contains(e.target)) return;
+            // 배지 자체 클릭도 여기서 닫지 않는다. 이 리스너는 document 캡처 단계라 배지의 click 핸들러보다
+            // 먼저 실행되므로, 여기서 닫아버리면 뒤이어 도는 배지 핸들러가 _agPopOpen=false 를 보고 다시 열어
+            // 두 번째 클릭이 영원히 접히지 않는다. 배지 클릭의 열기/닫기는 배지 핸들러의 토글에만 맡긴다.
+            if (e && liveBadge.contains(e.target)) return;
             _agPopOpen = false;
             agPopover.style.display = 'none';
             liveChev.style.transform = '';
