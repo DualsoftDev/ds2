@@ -242,11 +242,16 @@
                                 <h4 x-text="flow ? flow.flowName : (flowName || 'Flow')"></h4>
                                 <span class="ds-card-h-sub"><span x-text="flow && flow.systemName ? flow.systemName : '-'"></span> · 신호 간트 · Head/Tail 가동 경계 적용(저장) · 드래그 구간통계 · Excel</span>
                             </div>
-                            <span class="ct-live" x-show="isLoading || overlayBusy"
-                                  title="데이터/오버레이 갱신 중"
-                                  style="display:inline-flex; align-items:center; gap:7px; padding:5px 11px; border:1px solid var(--color-lines-strong); border-radius:var(--radius-sm); font-size:0.66rem; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; color:var(--color-text-secondary);">
-                                <span>SYNC · 갱신중</span>
-                            </span>
+                            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                                <!-- 'SYNC · 갱신중' 배지 제거(2026-07-28) — 진행 표시는 공용 상단 인디케이터
+                                     (window.dspLoading) 단일 소스. 오버레이 재계산도 그쪽에 붙였다. -->
+                                <!-- 다시 로드 — '전체' 편집 페이지의 Flow 카드 새로고침과 동일 위치/모양 -->
+                                <button class="btn btn-sm btn-outlined" @click="reloadCycle()"
+                                        :disabled="isLoading || overlayBusy || !selectedFlow"
+                                        title="이 Flow 를 다시 로드 (프리셋 기간이면 최신 시각 기준으로 갱신)">
+                                    <span class="material-icons" style="font-size:15px; vertical-align:middle;">refresh</span>
+                                </button>
+                            </div>
                         </div>
 
                         <div class="call-test-page">
@@ -258,7 +263,7 @@
                                 <span x-text="errorMessage"></span>
                             </div>
 
-                            <!-- 로딩 (최초 로드만 큰 스피너 — 재로딩은 기존 간트를 유지해 스크롤 위치가 튀지 않게 한다. 진행표시는 헤더 SYNC 배지) -->
+                            <!-- 로딩 (최초 로드만 큰 스피너 — 재로딩은 기존 간트를 유지해 스크롤 위치가 튀지 않게 한다. 진행표시는 공용 상단 인디케이터) -->
                             <template x-if="isLoading && callLanes.length === 0">
                                 <div class="ct-loading">
                                     <div class="spinner"></div>

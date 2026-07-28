@@ -938,6 +938,23 @@
                     const t = new Date(); const p = (x) => String(x).padStart(2, '0');
                     return `CycleTime_${this.selectedFlow}_${t.getFullYear()}${p(t.getMonth()+1)}${p(t.getDate())}_${p(t.getHours())}${p(t.getMinutes())}${p(t.getSeconds())}.xlsx`;
                 },
+                // 카드 헤더의 '다시 로드' — '전체' 편집 페이지의 Flow 카드 새로고침(loadSlice)과 같은 역할.
+                // 활성 프리셋(시간/가동횟수)이면 최신 시각 기준으로 창을 다시 잡고(그냥 load() 하면
+                // 고정된 옛 창을 재조회해 새 가동이 안 들어온다), 직접 지정 기간은 그 창 그대로 재조회.
+                // 히스토리 캐시는 폐기 — 가동횟수 프리셋 역산·이상치 제외 집계가 옛 rows 를 쓰지 않게.
+                async reloadCycle() {
+                    if (!this.selectedFlow || this.isLoading) return;
+                    this.errorMessage = null;
+                    const name = this.histFlowName;
+                    if (name) delete histCache[name];
+                    const m = this.timePreset ? /^([mh])(\d+)$/.exec(this.timePreset) : null;
+                    if (this.cyclePreset) await this.setRecentCycles(this.cyclePreset);
+                    else if (m && m[1] === 'm') await this.setRecentMinutes(+m[2]);
+                    else if (m) await this.setRecentHours(+m[2]);
+                    else await this.load();
+                    await this.loadFlow(true);           // 헤더 부제(시스템)·KPI 최신화
+                    if (name) await this.loadHistory(name);
+                },
                 async load() {
                     if (this.view === 'trend') return;   // 추이 전용 페이지 — 사이클(간트) 로드 건너뜀
                     if (!this.selectedFlow) return;
@@ -1265,6 +1282,9 @@
                 async resolveOverlays() {
                     if (!this.selectedFlow) return;
                     this.overlayBusy = true;
+                    // Head/Tail 토글은 사용자의 명시적 조작 → 공용 상단 인디케이터로 진행 표시
+                    // (카드 헤더 'SYNC · 갱신중' 배지는 중복이라 제거됨).
+                    if (window.dspLoading) window.dspLoading.begin('가동 경계 다시 계산 중…');
                     try {
                         const headLane = this.headCallId ? this.callLanes.find(l => l.callId === this.headCallId) : null;
                         const tailLane = this.tailCallId ? this.callLanes.find(l => l.callId === this.tailCallId) : null;
@@ -1290,6 +1310,7 @@
                         this.errorMessage = '오버레이 갱신 실패: ' + e.message;
                     } finally {
                         this.overlayBusy = false;
+                        if (window.dspLoading) window.dspLoading.end();
                     }
                 },
 
