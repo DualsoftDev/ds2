@@ -589,17 +589,18 @@
                         <span class="up-oee-chip" :class="ps.editing ? '' : 'auto'"
                               x-text="ps.editing ? ('수동 지정 편집 중' + (ps.dirty ? ' · 미저장' : ''))
                                                  : ('자동 · ' + ps.ctMultiplier + '×가동시간 장시간정지' + (ps.windows.length ? (' + 수동 지정 ' + ps.windows.length + '개') : ''))"></span>
+                        <!-- [수동 편집] = 편집 모드 진입(기존 창 이동/조절/삭제). 새 창 추가는 편집 모드 안의 [시간 추가]. -->
                         <button class="btn btn-sm" :class="ps.editing ? 'btn-outlined' : 'btn-filled'"
                                 :disabled="ps.busy"
                                 @click="ps.editing ? psCancelEdit() : psBeginEdit()"
-                                x-text="ps.editing ? '편집 취소' : '수동 추가'"></button>
+                                x-text="ps.editing ? '편집 취소' : '수동 편집'"></button>
                     </div>
 
                     <!-- (구 '생산 요일' UI 는 2026-07-08 당일 비생산 판정 모델로 제거 — 쉬는 날은 사이클이 없어
                          10×가동시간 장시간 정지 규칙이 자동으로 비생산 처리한다.) -->
 
                     <!-- ════ 통합 24h 타임라인 (병행 모델 2026-07-08) — 자동 인식(점선)과 수동 지정(남색 솔리드)을
-                         한 트랙에 구분 표시. [수동 추가] → 편집 모드: 드래그로 지정 창 생성/이동/조절, [적용] 저장.
+                         한 트랙에 구분 표시. [수동 편집] → 편집 모드: 기존 창 이동/조절/삭제, [시간 추가] → 드래그로 새 창 생성, [적용] 저장.
                          자동 판정은 항상 켜져 있고, 수동 지정 창은 매일 그 시간대를 무조건 비생산으로 자르는 추가 규칙. ════ -->
                     <div class="up-ptl">
                         <div class="up-ptl-legend">
@@ -634,12 +635,12 @@
                                     <span class="wt" x-show="(w.endMinutes - w.startMinutes) >= 120" x-text="minToHHMM(w.startMinutes) + '–' + minToHHMM(w.endMinutes)"></span>
                                 </div>
                             </template>
-                            <!-- 수동 지정(남색 솔리드) — 편집 모드에서만 이동/조절/삭제 가능 -->
+                            <!-- 수동 지정(남색 솔리드) — 편집 모드에서 이동/조절/삭제. 보기 모드에서도 클릭하면 편집 모드로 진입 + 그 창 선택. -->
                             <template x-for="(w, i) in ps.windows" :key="'man-' + i">
-                                <div class="up-ptl-win" :class="{ 'sel': ps.editing && ps.selected === i }"
-                                     :style="psWinStyle(w) + (ps.editing ? '' : 'pointer-events:none;')"
+                                <div class="up-ptl-win" :class="{ 'sel': ps.editing && ps.selected === i, 'ro': !ps.editing }"
+                                     :style="psWinStyle(w)"
                                      @pointerdown.stop.prevent="psMoveStart($event, i)"
-                                     :title="minToHHMM(w.startMinutes) + ' – ' + minToHHMM(w.endMinutes) + (w.label ? (' · ' + w.label) : '') + ' · 수동 지정 (매일 무조건 비생산)'">
+                                     :title="minToHHMM(w.startMinutes) + ' – ' + minToHHMM(w.endMinutes) + (w.label ? (' · ' + w.label) : '') + ' · 수동 지정 (매일 무조건 비생산)' + (ps.editing ? '' : ' · 클릭하여 편집/삭제')">
                                     <span class="up-ptl-handle l" x-show="ps.editing" @pointerdown.stop.prevent="psResizeStart($event, i, 'l')" title="시작 시각 조절"></span>
                                     <span class="wl" x-text="w.label || '수동'"></span>
                                     <span class="wt" x-show="(w.endMinutes - w.startMinutes) >= 150" x-text="minToHHMM(w.startMinutes) + '–' + minToHHMM(w.endMinutes)"></span>
@@ -654,7 +655,7 @@
                         <div class="up-ptl-hours">
                             <span>00</span><span>03</span><span>06</span><span>09</span><span>12</span><span>15</span><span>18</span><span>21</span><span>24</span>
                         </div>
-                        <div style="font-size:0.6rem; color:var(--color-text-secondary); margin-top:5px;" x-show="ps.editing" x-cloak>드래그로 이동·길이 조절, 클릭 후 라벨 입력, <span class="material-icons" style="font-size:11px; vertical-align:-1px;">close</span> 삭제 (자동 점선은 편집 불가)</div>
+                        <div style="font-size:0.6rem; color:var(--color-text-secondary); margin-top:5px;" x-show="ps.editing" x-cloak>드래그로 이동·길이 조절, 클릭 후 라벨 입력, <span class="material-icons" style="font-size:11px; vertical-align:-1px;">close</span> 삭제 · 새 시간대는 <b>[시간 추가]</b> (자동 점선은 편집 불가)</div>
 
                         <!-- 선택된 막대 편집 — 라벨 입력 + 시각 미세조정(드래그 보조) + 삭제 (편집 모드) -->
                         <template x-if="ps.editing && ps.selected >= 0 && ps.windows[ps.selected]">
@@ -673,7 +674,8 @@
                         <div x-show="!ps.editing" x-cloak
                              style="display:flex; align-items:flex-start; gap:9px; padding:11px 13px; border:1px dashed var(--color-border); border-radius:8px; color:var(--color-text-secondary); font-size:0.78rem; line-height:1.5; margin-top:8px;">
                             <span class="material-icons" style="font-size:18px; color:var(--teal,#1FA8B8);">auto_mode</span>
-                            <span>장시간 정지는 <b>자동 비생산</b>(점선), 점심 등 반복 휴게는 <b>[수동 추가]</b>(남색, 매일 무조건 비생산)로 지정하세요.</span>
+                            <span>장시간 정지는 <b>자동 비생산</b>(점선), 점심 등 반복 휴게는 <b>[수동 편집]</b> → <b>[시간 추가]</b>(남색, 매일 무조건 비생산)로 지정하세요.
+                                  <span x-show="ps.windows.length" x-cloak>이미 지정된 남색 시간대는 <b>클릭</b>하면 바로 편집·삭제할 수 있습니다.</span></span>
                         </div>
                     </div>
 

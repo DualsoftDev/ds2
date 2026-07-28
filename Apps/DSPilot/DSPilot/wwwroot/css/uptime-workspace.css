@@ -456,6 +456,8 @@
            라벨은 위쪽 정렬로 실제 블록 라벨과 겹침 회피. */
         .up-ptl-win.learned { background: transparent; color: var(--teal, #1FA8B8); border: 1.5px dashed var(--teal, #1FA8B8); z-index: 3; justify-content: flex-start; padding-top: 1px; cursor: default; }
         .up-ptl-win.learned .wl { font-size: 0.58rem; font-weight: 700; opacity: 0.85; }
+        /* 보기 모드의 수동 막대 — 클릭 한 번으로 편집 모드+선택(제거/시각 수정 진입점). 드래그 커서 대신 포인터 */
+        .up-ptl-win.ro { cursor: pointer; }
         .up-ptl-win:hover { z-index: 7; box-shadow: 0 2px 9px rgba(0, 0, 0, 0.22); }
         .up-ptl-win.sel { z-index: 8; box-shadow: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-primary); }
         .up-ptl-win .wl { font-size: 0.68rem; font-weight: 800; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }

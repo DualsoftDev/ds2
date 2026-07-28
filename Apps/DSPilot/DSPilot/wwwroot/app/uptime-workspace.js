@@ -121,7 +121,7 @@
                 _qDown: false,
                 _dtDown: false, // 정지 이벤트 로그 다이얼로그 백드롭 닫힘 가드
                 // 비생산 시간대 (doc/22 §3.3, 2026-07-08 병행 모델) — 당일 자동 판정(10×장시간정지)은 항상 켜져 있고,
-                // windows=수동 지정 창(추가로 무조건 비생산, 매일 반복). source: auto(지정 없음)/both. editing=[수동 추가] 편집 모드.
+                // windows=수동 지정 창(추가로 무조건 비생산, 매일 반복). source: auto(지정 없음)/both. editing=[수동 편집] 모드(addMode=[시간 추가] 드래그 무장).
                 // actualNonProd=이번 기간 실제 제외된 비생산(자동+지정 합산 실측 — 통합 타임라인의 자동(점선) 소스).
                 // (구 auto/pendingManual 배타 토글, excludedWeekdays/xw*[생산 요일] 는 병행 모델 전환으로 제거.)
                 ps: { source: 'auto', ctMultiplier: 10, windows: [], selected: -1, addMode: false, editing: false, msg: '', err: '', busy: false, actualNonProd: null, dirty: false },
@@ -360,10 +360,15 @@
                         if (seq === this._anpSeq) this.ps.actualNonProd = dto; // stale 응답(이후 기간변경/폴링이 이미 시작) 폐기
                     } catch (e) { /* 이전 값 유지 */ }
                 },
-                // [수동 추가] — 지정 창 편집 모드 진입(자동 판정은 서버에서 계속 켜져 있음). 바로 드래그 추가 무장.
+                // [수동 편집] — 지정 창 편집 모드 진입(자동 판정은 서버에서 계속 켜져 있음).
+                // 추가 드래그는 무장하지 않음 — 기존 창 이동/조절/삭제가 기본, 새 창은 [시간 추가]로만.
                 psBeginEdit() {
-                    this.ps.editing = true; this.ps.selected = -1; this.ps.err = ''; this.ps.msg = '';
-                    this.psBeginAdd();
+                    this.ps.editing = true; this.ps.selected = -1; this.ps.addMode = false; this.ps.err = ''; this.ps.msg = '';
+                },
+                // 보기 모드에서 수동 막대 클릭 → 편집 모드 진입 + 그 막대 선택(추가 무장 없음).
+                psEditWindow(i) {
+                    this.psBeginEdit();
+                    this.ps.selected = i;
                 },
                 // 편집 취소 — 저장 안 한 편집 폐기, 서버 truth 재로드.
                 async psCancelEdit() {
@@ -420,7 +425,8 @@
                 },
                 // 막대 본체 pointerdown → 선택 + 이동(전체 시간대 평행이동) 드래그 시작. 거의 안 움직이면 단순 선택(클릭)으로 처리.
                 psMoveStart(ev, i) {
-                    if (!this.ps.editing || this.ps.addMode) return;
+                    if (!this.ps.editing) { this.psEditWindow(i); return; }   // 보기 모드 클릭 → 편집 모드로 바로 진입
+                    if (this.ps.addMode) return;
                     this.ps.selected = i; this.ps.err = '';
                     const w = this.ps.windows[i];
                     this._psDrag = { mode: 'move', index: i, anchor: this._psMinFromEvent(ev), downX: ev.clientX, dur: w.endMinutes - w.startMinutes, origStart: w.startMinutes, moved: false };
