@@ -437,6 +437,46 @@
                         </template>
                     </div>
 
+                    <!-- ── 일괄 작업 바 (선택 행 ≥ 1일 때만) ──────────────────────────────
+                         선택 범위 = 현재 탭·필터에 보이는 행만(필터로 사라진 체크는 카운트·처리에서 제외).
+                         [고장]/[유지보수] = 구분 일괄 지정(비가동 탭 전용) — 대기(공백)·비생산 행은 고장 개념이
+                         없어 대상에서 빠지며, 그래서 버튼에 실제 적용 대상 수를 따로 표기한다.
+                         [→ 비생산/비가동] = 탭 간 일괄 이동(행 단위 [이동 →] 의 일괄판, 되돌리기 가능). -->
+                    <div class="up-bulk-bar" x-show="selectedCount > 0" x-cloak>
+                        <span class="material-icons" style="font-size:17px; color:var(--color-primary);">done_all</span>
+                        <span class="up-bulk-count" x-text="selectedCount + '건 선택됨'"></span>
+
+                        <template x-if="dtTab === 'down'">
+                            <span class="up-bulk-grp">
+                                <span class="up-bulk-label">구분 일괄 지정</span>
+                                <button class="btn btn-sm up-bulk-fault" :disabled="bulkBusy || bulkFaultTargets.length === 0"
+                                        @click="bulkSetFault(true)"
+                                        :title="bulkFaultTargets.length ? bulkFaultTargets.length + '건을 고장으로 확정 — 고장 건수·MTBF 에 반영' : '선택 행 중 구분을 바꿀 수 있는 정지가 없습니다(대기·비생산 제외)'">
+                                    <span class="material-icons">error</span>고장<span x-show="bulkFaultTargets.length > 0" x-text="' ' + bulkFaultTargets.length"></span>
+                                </button>
+                                <button class="btn btn-sm up-bulk-maint" :disabled="bulkBusy || bulkFaultTargets.length === 0"
+                                        @click="bulkSetFault(false)"
+                                        :title="bulkFaultTargets.length ? bulkFaultTargets.length + '건을 유지보수로 확정 — 고장 건수·MTBF 에서 제외' : '선택 행 중 구분을 바꿀 수 있는 정지가 없습니다(대기·비생산 제외)'">
+                                    유지보수<span x-show="bulkFaultTargets.length > 0" x-text="' ' + bulkFaultTargets.length"></span>
+                                </button>
+                            </span>
+                        </template>
+
+                        <!-- 탭 간 이동·마감은 '구분 일괄 지정' 바로 옆(구분선으로 분리) — 같은 선택에 대한 액션끼리 붙여 둔다. -->
+                        <span class="up-bulk-grp">
+                            <button class="btn btn-sm btn-primary" :disabled="bulkBusy"
+                                    @click="bulkReclassify(dtTab !== 'nonprod')"
+                                    :title="dtTab === 'nonprod' ? '선택 구간을 비가동으로 확정 — 가용성(A)이 다시 깎입니다(이전 고장/유지보수 분류 복원)' : '선택 구간을 비생산으로 확정 — 가용성(A) 분모에서 빠집니다'"
+                                    x-text="(dtTab === 'nonprod' ? '← 비가동으로 일괄 이동 (' : '→ 비생산으로 일괄 이동 (') + selectedCount + ')'"></button>
+                            <button class="btn btn-sm btn-outlined" x-show="anySelectedOpen" :disabled="bulkBusy"
+                                    @click="bulkClose()" title="선택한 진행중 정지를 지금 시각으로 마감 처리">일괄 마감</button>
+                        </span>
+
+                        <span class="up-bulk-prog" x-show="bulkProgress" x-text="bulkProgress"></span>
+                        <span style="flex:1;"></span>
+                        <button class="up-bulk-clear" @click="clearSel()">선택 해제</button>
+                    </div>
+
                     <div class="alert alert-error" x-show="oeeError" style="margin-bottom:12px;"><span class="material-icons">error</span><span x-text="oeeError"></span></div>
 
                     <template x-if="filteredDowntime.length > 0">
@@ -444,6 +484,13 @@
                             <table class="ds-table up-dt-table">
                                 <thead>
                                     <tr>
+                                        <!-- 전체 선택 = 현재 탭·필터에 보이는 행만. indeterminate 는 속성이 아닌 프로퍼티라 x-effect 로 직접 세팅. -->
+                                        <th class="cb-col">
+                                            <input type="checkbox" class="up-dt-cb" :checked="allFilteredSelected"
+                                                   x-effect="$el.indeterminate = someFilteredSelected && !allFilteredSelected"
+                                                   @change="toggleAll($event.target.checked)"
+                                                   title="보이는 행 전체 선택 / 해제">
+                                        </th>
                                         <th style="width:140px;">발생</th>
                                         <th style="width:140px;">복구</th>
                                         <th style="width:80px;">지속</th>
@@ -457,7 +504,12 @@
                                 </thead>
                                 <tbody>
                                     <template x-for="d in filteredDowntime" :key="d.id">
-                                        <tr>
+                                        <tr :class="selectedIds[d.id] ? 'ds-row-selected' : ''">
+                                            <td class="cb-col" data-label="선택">
+                                                <input type="checkbox" class="up-dt-cb" :checked="!!selectedIds[d.id]"
+                                                       @change="toggleSel(d.id, $event.target.checked)"
+                                                       :title="isSyntheticDt(d) ? '계산 유래(이상치 초과 사이클) — 일괄 처리 시 이벤트 행으로 확정 저장됩니다' : '일괄 작업 대상으로 선택'">
+                                            </td>
                                             <td class="num" data-label="발생" x-text="dtTime(d.startAt)"></td>
                                             <td class="num" data-label="복구" x-text="d.endAt ? dtTime(d.endAt) : '—'"></td>
                                             <td class="num" data-label="지속" x-text="dur(d.durationMs, d)"></td>

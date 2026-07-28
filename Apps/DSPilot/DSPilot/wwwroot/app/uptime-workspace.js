@@ -112,8 +112,8 @@
                 dtFilterStatus: 'all', dtFilterFault: 'all', // 'all'|'fault'|'maintenance' (비가동 탭 전용 하위 필터)
                 dtMsg: '', _dtMsgTimer: null, _prodMsgTimer: null, _ctMsgTimer: null,
                 dtReclassBusy: false, // 비생산↔비가동 보내기 진행 중(이중 클릭 가드)
-                // 일괄 선택 상태
-                selectedIds: {}, bulkBusy: false,
+                // 일괄 선택 상태 — bulkProgress: 순차 처리(합성 행 확정/일괄 이동) 진행 표시("이동 중 3/12")
+                selectedIds: {}, bulkBusy: false, bulkProgress: '',
                 // 일자 기본값은 로컬 날짜 — toISOString() 은 UTC 라 KST 오전 9시 전엔 어제로 채워짐
                 // 품질(양품률) 직접 입력 다이얼로그 — 전반 품질% 를 직접 설정(POST /api/oee/quality, 전역). 품질 Q 카드 클릭으로 염.
                 qDialog: { show: false, qualityPct: 100, busy: false, msg: '', err: '' },
@@ -1680,8 +1680,13 @@
                 // ── 일괄 선택 computed ──
                 // 선택/일괄 작업 범위 = 현재 필터에 보이는 행만. 필터 변경으로 화면에서 사라진 행의
                 // 체크 상태는 메모리에 남지만 카운트/일괄 처리 대상에서 제외 — "N건 선택됨"이 항상 화면과 일치.
-                get selectedVisibleIds() { return this.filteredDowntime.filter(d => this.selectedIds[d.id]).map(d => d.id); },
-                get selectedCount() { return this.selectedVisibleIds.length; },
+                get selectedVisibleRows() { return this.filteredDowntime.filter(d => this.selectedIds[d.id]); },
+                get selectedVisibleIds() { return this.selectedVisibleRows.map(d => d.id); },
+                get selectedCount() { return this.selectedVisibleRows.length; },
+                // 고장/유지보수 일괄 지정 대상 = 선택 행 중 비가동 실정지만.
+                // 대기(공백)·비생산 행은 '고장/유지보수' 개념 자체가 없어(건수·MTBF 미반영) 대상에서 뺀다 —
+                // 버튼에 이 수를 병기해 "6건 선택했는데 4건만 바뀜"이 사후 놀람이 되지 않게 한다.
+                get bulkFaultTargets() { return this.selectedVisibleRows.filter(d => !d.isNonProd && !d.isWait); },
                 get allFilteredSelected() {
                     const fd = this.filteredDowntime;
                     return fd.length > 0 && fd.every(d => this.selectedIds[d.id]);
@@ -1877,18 +1882,58 @@
                     clearTimeout(this._dtMsgTimer);
                     this._dtMsgTimer = setTimeout(() => { this.dtMsg = ''; }, 4000);
                 },
+                // 고장/유지보수 일괄 지정 — 실 이벤트 행은 서버 벌크 엔드포인트 1회, 합성 행(id<0, 이상치 초과
+                // 사이클)은 벌크가 id 만 받아 처리 못 하므로 단건 set-fault 로 materialize 하며 순차 처리(doc/25).
                 async bulkSetFault(isFault) {
-                    const ids = this.selectedVisibleIds;
-                    if (!ids.length) return;
-                    this.bulkBusy = true;
+                    const rows = this.bulkFaultTargets;
+                    if (!rows.length || this.bulkBusy) return;
+                    const ids = rows.filter(d => d.id > 0).map(d => d.id);
+                    const synth = rows.filter(d => d.id <= 0);
+                    this.bulkBusy = true; this.bulkProgress = '';
                     try {
-                        await this.apiPost('/api/oee/downtime/bulk-set-fault', { ids, isFault });
+                        if (ids.length) await this.apiPost('/api/oee/downtime/bulk-set-fault', { ids, isFault });
+                        for (let i = 0; i < synth.length; i++) {
+                            const d = synth[i];
+                            this.bulkProgress = `확정 중 ${ids.length + i + 1}/${rows.length}`;
+                            await this.apiPost('/api/oee/downtime/' + d.id + '/set-fault', {
+                                isFault, flow: d.flowName || null, startAt: d.startAt || null, endAt: d.endAt || null,
+                            });
+                        }
                         this.clearSel();
                         await this.loadOee();
-                        this.flashDtMsg(`${ids.length}건 → ${isFault ? '고장' : '유지보수'} 일괄 적용`);
+                        this.flashDtMsg(`${rows.length}건 → ${isFault ? '고장' : '유지보수'} 일괄 적용`);
                     } catch (e) {
                         this.oeeError = '일괄 변경 실패: ' + e.message;
-                    } finally { this.bulkBusy = false; }
+                        await this.loadOee();   // 부분 적용분이 화면에 반영되도록 재조회
+                    } finally { this.bulkBusy = false; this.bulkProgress = ''; }
+                },
+                // 비생산↔비가동 일괄 이동 — 단건 reclassify 를 순차 호출(합성 행 materialize·감지로그 청소·
+                // 이전 분류 복원 semantics 를 서버 단건 경로와 100% 동일하게 유지하려고 벌크 엔드포인트를 두지 않음).
+                async bulkReclassify(toNonProd) {
+                    const rows = this.selectedVisibleRows;
+                    if (!rows.length || this.bulkBusy) return;
+                    this.bulkBusy = true; this.bulkProgress = '';
+                    let done = 0;
+                    try {
+                        for (const d of rows) {
+                            this.bulkProgress = `이동 중 ${done + 1}/${rows.length}`;
+                            await this.apiPost('/api/oee/downtime/reclassify', {
+                                id: d.id > 0 ? d.id : null,
+                                flow: d.flowName || null,
+                                startAt: d.startAt || null,
+                                endAt: d.endAt || null,
+                                toNonProd,
+                            });
+                            done++;
+                        }
+                        this.clearSel();
+                        await this.loadOee();
+                        this.dtTab = toNonProd ? 'nonprod' : 'down';
+                        this.flashDtMsg(`${done}건 → ${toNonProd ? '비생산 탭으로 이동 (A 분모 밖)' : '비가동 탭으로 이동 (이전 분류 복원)'}`);
+                    } catch (e) {
+                        this.oeeError = `일괄 이동 실패(${done}/${rows.length}건 처리됨): ` + e.message;
+                        await this.loadOee();
+                    } finally { this.bulkBusy = false; this.bulkProgress = ''; }
                 },
                 async bulkClose() {
                     const ids = this.filteredDowntime.filter(d => this.selectedIds[d.id] && d.status === 'open').map(d => d.id);

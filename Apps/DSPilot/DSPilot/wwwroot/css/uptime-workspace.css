@@ -242,11 +242,28 @@
         .up-form-err { font-size: 0.7rem; font-weight: 700; color: var(--red); }
 
         /* ── 일괄 작업 툴바 ── */
-        .up-bulk-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 9px 14px; background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent); border-radius: var(--radius-md); margin-bottom: 10px; }
+        /* 모달 본문(스크롤 컨테이너)의 직계 자식 — 긴 로그를 스크롤해도 선택 요약/액션이 따라오도록 sticky */
+        .up-bulk-bar { position: sticky; top: 0; z-index: 6; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 9px 14px; background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent); border-radius: var(--radius-md); margin-bottom: 10px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.10); }
         .up-bulk-count { font-size: 0.78rem; font-weight: 800; color: var(--color-primary); white-space: nowrap; }
         .up-bulk-bar .up-mini-select { min-width: 130px; }
         .up-bulk-clear { margin-left: auto; font-size: 0.72rem; color: var(--color-text-secondary); cursor: pointer; padding: 3px 8px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: none; }
         .up-bulk-clear:hover { color: var(--color-text-primary); }
+        /* 구분 일괄 지정 그룹 — 세로 구분선으로 '선택 요약'과 '행 편집 액션'을 시각 분리 */
+        .up-bulk-grp { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; padding-left: 12px; border-left: 1px solid color-mix(in srgb, var(--color-primary) 28%, transparent); }
+        .up-bulk-label { font-size: 0.64rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-secondary); }
+        .up-bulk-prog { font-size: 0.7rem; font-weight: 700; color: var(--color-text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+        /* 고장/유지보수 일괄 버튼 = 행 인라인 라벨과 같은 색 언어(--oee-fault/--oee-maint) — 무엇이 되는지 색으로 즉시 읽히게 */
+        .up-bulk-fault, .up-bulk-maint { display: inline-flex; align-items: center; gap: 4px; border: none; font-weight: 700; color: #fff; }
+        .up-bulk-fault { background: var(--oee-fault); }
+        .up-bulk-maint { background: var(--oee-maint); color: #241f00; }
+        /* hover 배경은 .btn:hover(0,2,0) 가 이기므로 여기서 같은 특이도 이상으로 다시 지정 — 안 하면 hover 시 회색으로 돌아감 */
+        .up-bulk-fault:hover:not(:disabled) { background: var(--oee-fault); filter: brightness(1.1); }
+        .up-bulk-maint:hover:not(:disabled) { background: var(--oee-maint); filter: brightness(1.1); }
+        .up-bulk-fault:disabled, .up-bulk-maint:disabled { opacity: 0.42; cursor: not-allowed; }
+        /* 비활성 hover 도 .btn:disabled:hover(0,3,0) 가 회색으로 되돌리므로 같은 특이도로 유형색 유지(흐리게만) */
+        .up-bulk-fault:disabled:hover { background: var(--oee-fault); filter: none; }
+        .up-bulk-maint:disabled:hover { background: var(--oee-maint); filter: none; }
+        .up-bulk-fault .material-icons { font-size: 15px; }
         .up-dt-cb { width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer; }
         .up-dt-table th.cb-col, .up-dt-table td.cb-col { width: 36px; padding: 0 8px; text-align: center; }
         .ds-row-selected { background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)) !important; }
@@ -581,6 +598,10 @@
             .up-bulk-bar { flex-direction: column; align-items: stretch; }
             .up-bulk-bar .up-mini-select { min-width: 0; width: 100%; }
             .up-bulk-clear { margin-left: 0; text-align: center; }
+            /* 세로 스택에선 세로 구분선 대신 위쪽 구분선, 고장/유지보수는 절반씩 나눠 풀폭 */
+            .up-bulk-grp { padding-left: 0; border-left: none; padding-top: 8px; border-top: 1px solid color-mix(in srgb, var(--color-primary) 28%, transparent); }
+            .up-bulk-grp .btn { flex: 1; justify-content: center; }
+            .up-bulk-label { width: 100%; }
 
             /* idealCT 툴바 / CT 툴바 → 자연 줄바꿈 (이미 wrap) */
             .up-ct-toolbar .ds-card-h-sub { width: 100%; }
