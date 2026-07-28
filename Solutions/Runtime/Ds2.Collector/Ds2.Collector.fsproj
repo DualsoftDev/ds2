@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- ADR-006 · Envelope wire format · SQLite outbox · UA writer contract.
+         구 Ds2.Adapter.Common 프로젝트를 Collector 로 흡수 (2026-07-27).
+         namespace `Ds2.Adapter.Common` 은 유지 — Sinks/SqliteSinkWriter.fs 등 dependent 무영향. -->
+    <Compile Include="Envelope.fs" />
+    <Compile Include="EdgeBuffer.fs" />
+    <Compile Include="UaWriterContract.fs" />
+    <Compile Include="Sinks/SqliteSinkWriter.fs" />
+    <Compile Include="Sinks/DownsampleScheduler.fs" />
+    <Compile Include="DataApi/SeriesIdRegistry.fs" />
+    <Compile Include="DataApi/Controllers.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Core\Ds2.Core\Ds2.Core.fsproj" />
+    <!-- UaWriterContract 가 DeterministicNodeId 를 참조 → OpcUa.Server 직접 의존. -->
+    <ProjectReference Include="..\Ds2.OpcUa.Server\Ds2.OpcUa.Server.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+  </ItemGroup>
+
+</Project>

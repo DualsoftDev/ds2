@@ -14,7 +14,32 @@ module AasxImporter =
     open AasxImportGraph
     open AasxImportMetadata
     open AasxImportTechnicalData
+    open AasxImportStandardSubmodels
     open FieldValidation
+
+    /// 표준 서브모델 (AID / AIMC / OperationalData) 을 project 필드로 복원.
+    /// 세 서브모델 모두 Provenance §C · Qualifier(dualsoft:origin) + Extension(auto-suppressed) 파싱.
+    let private importStandardSubmodels (env: Environment) (project: Project) : unit =
+        let findSm (idShort: string) =
+            env.Submodels
+            |> Seq.tryPick (function
+                | :? Submodel as sm when sm.IdShort = idShort -> Some sm
+                | _ -> None)
+        let tryImport idShort importer =
+            findSm idShort
+            |> Option.iter (fun sm ->
+                try importer sm
+                with ex ->
+                    // 구버전/외부 AASX의 부분적으로 다른 표준 서브모델 구조가
+                    // SequenceModel 전체 로드를 막지 않도록 해당 부가 모델만 건너뛴다.
+                    log.Warn($"Standard submodel '{idShort}' import skipped: {ex.Message}", ex))
+
+        tryImport AidSubmodelIdShort (fun sm ->
+            project.AssetInterfaces <- Some (submodelToAid sm))
+        tryImport AimcSubmodelIdShort (fun sm ->
+            project.AssetInterfacesMapping <- Some (submodelToAimc sm))
+        tryImport OperationalDataSubmodelIdShort (fun sm ->
+            project.OperationalDataDef <- Some (submodelToOperationalData sm))
 
     let private importDomainSubmodel (sm: Submodel) (store: DsStore) (_project: Project) (submodelType: SubmodelType) : unit =
         if sm.SubmodelElements = null then ()
@@ -161,6 +186,8 @@ module AasxImporter =
                         let td = submodelToTechnicalData sm
                         project.TechnicalData <- Some td)
 
+                    importStandardSubmodels env project
+
                     SubmodelType.AllDomains
                     |> List.iter (fun submodelType ->
                         env.Submodels
@@ -227,6 +254,8 @@ module AasxImporter =
                 |> Option.iter (fun sm ->
                     let td = submodelToTechnicalData sm
                     project.TechnicalData <- Some td)
+
+                importStandardSubmodels env project
 
                 SubmodelType.AllDomains
                 |> List.iter (fun submodelType ->

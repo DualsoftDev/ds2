@@ -202,6 +202,121 @@
                 </TabItem>
 
 
+                <!-- 탭 3: OPC UA (서버) — Promaker 가 EmbeddedUaServer 를 인프로세스 호스팅 -->
+                <TabItem Header="OPC UA">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="10">
+                        <StackPanel x:Name="OpcUaTabRoot">
+                            <!-- 사용/안사용 토글 · 나머지 필드는 이 체크박스에 바인딩된 IsEnabled 로 dim. -->
+                            <CheckBox x:Name="OpcUaEnabledBox"
+                                      Content="런타임 시작 시 OPC UA 서버 구동"
+                                      Foreground="{DynamicResource PrimaryTextBrush}"
+                                      FontSize="12" Margin="0,0,0,2"/>
+                            <TextBlock Text="체크 해제 시 서버를 기동하지 않습니다. 아래 설정은 체크된 경우에만 적용됩니다."
+                                       FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Margin="20,0,0,16" FontStyle="Italic" TextWrapping="Wrap"/>
+
+                            <StackPanel x:Name="OpcUaFieldsPanel"
+                                        IsEnabled="{Binding IsChecked, ElementName=OpcUaEnabledBox}">
+                                <TextBlock Text="Endpoint URL (서버 바인딩)"
+                                           FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                           Margin="0,0,0,2"/>
+                                <TextBox x:Name="OpcUaEndpointUrlBox" Padding="6,4" Margin="0,0,0,2"
+                                         FontFamily="Consolas" FontSize="11"/>
+                                <TextBlock Text="예: opc.tcp://localhost:62541/Ds2/OpcUa/Server"
+                                           FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                           Margin="0,0,0,16" FontStyle="Italic"/>
+
+                                <!-- Application 식별 -->
+                                <Grid Margin="0,0,0,16">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="8"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="Application Name"
+                                                   FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                                   Margin="0,0,0,2"/>
+                                        <TextBox x:Name="OpcUaApplicationNameBox" Padding="6,4"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="Application URI"
+                                                   FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                                   Margin="0,0,0,2"/>
+                                        <TextBox x:Name="OpcUaApplicationUriBox" Padding="6,4"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <!-- 세션 상한 · 타임아웃 -->
+                                <Grid Margin="0,0,0,16">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="8"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="최대 세션 수"
+                                                   FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                                   Margin="0,0,0,2"/>
+                                        <TextBox x:Name="OpcUaMaxSessionsBox" Padding="6,4"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="세션 타임아웃 (ms)"
+                                                   FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                                   Margin="0,0,0,2"/>
+                                        <TextBox x:Name="OpcUaSessionTimeoutBox" Padding="6,4"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <!-- Sampling · Publishing 인터벌 -->
+                                <Grid Margin="0,0,0,16">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="8"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="8"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="최소 Sampling (ms)"
+                                                   FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                                   Margin="0,0,0,2"/>
+                                        <TextBox x:Name="OpcUaMinSamplingIntervalBox" Padding="6,4"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="기본 Sampling (ms)"
+                                                   FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                                   Margin="0,0,0,2"/>
+                                        <TextBox x:Name="OpcUaDefaultSamplingIntervalBox" Padding="6,4"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="4">
+                                        <TextBlock Text="Publishing (ms)"
+                                                   FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                                   Margin="0,0,0,2"/>
+                                        <TextBox x:Name="OpcUaPublishingIntervalBox" Padding="6,4"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <CheckBox x:Name="OpcUaAllowAnonymousBox"
+                                          Content="Anonymous 세션 허용 (개발 편의)"
+                                          Foreground="{DynamicResource PrimaryTextBrush}"
+                                          FontSize="12" Margin="0,0,0,2"/>
+                                <TextBlock Text="운영에서는 해제하고 UserName/Certificate 인증만 허용하세요."
+                                           FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                           Margin="20,0,0,12" FontStyle="Italic" TextWrapping="Wrap"/>
+
+                                <CheckBox x:Name="OpcUaAutoAcceptCertsBox"
+                                          Content="클라이언트 인증서 자동 신뢰 (개발 편의)"
+                                          Foreground="{DynamicResource PrimaryTextBrush}"
+                                          FontSize="12" Margin="0,0,0,2"/>
+                                <TextBlock Text="운영에서는 반드시 해제하고 신뢰 인증서를 %AppData%\Dualsoft\Promaker\OpcUa\certs\trusted 에 배치하세요."
+                                           FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                           Margin="20,0,0,4" FontStyle="Italic" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
                 <!-- 탭 4: 프리셋 -->
                 <TabItem Header="프리셋">
                     <Grid Margin="10">

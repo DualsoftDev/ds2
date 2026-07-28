@@ -36,6 +36,8 @@ public static class SettingsPaths
     /// <summary>실 PLC 연결 다이얼로그가 마지막으로 입력한 벤더/IP/포트/Timeout/Scan 등을 저장.
     /// Promaker 재실행 시 같은 값으로 다시 채워져 사용자 입력 부담 감소.</summary>
     public static string PlcConnection                   => Of("PlcConnection.json");
+    /// <summary>Promaker 가 호스팅하는 OPC UA 서버 설정 (Enabled · Endpoint · MaxSessions · Timeouts 등) 저장 파일.</summary>
+    public static string OpcUaServer                     => Of("OpcUaServer.json");
     public static string SplitDeviceAasx                 => Of("splitDeviceAasx.txt");
     public static string IriPrefix                       => Of("iriPrefix.txt");
     public static string CreateDefaultEntitiesOnEmptyAasx => Of("createDefaultEntitiesOnEmptyAasx.txt");

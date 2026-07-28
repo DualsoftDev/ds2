@@ -1,0 +1,51 @@
+@page "/diagnostics"
+@rendermode InteractiveServer
+@inject UaLiveClientService Ua
+
+<PageTitle>Diagnostics</PageTitle>
+
+<h1>Diagnostics</h1>
+<p class="lead">
+    OPC UA 서버 세션 상태 (in-process <code>DsUaServerService</code>).
+</p>
+
+<div class="row g-3">
+    <div class="col-md-6">
+        <div class="card p-3">
+            <h5>OPC UA (Client Session)</h5>
+            @Badge(Ua.IsConnected)
+            <div class="mt-2">
+                <div>Endpoint: <code>@(Ua.EndpointUrl ?? "-")</code></div>
+                <div>Session: <code>@(Ua.IsConnected ? "connected" : "disconnected")</code></div>
+                <div>Namespaces: <code>@Ua.NamespaceUris().Count</code></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card p-3">
+            <h5>Env</h5>
+            <ul class="mb-0">
+                <li><code>DS2_AIDSTORE_ROOT</code> = <code>@AidStoreRoot</code> (AAS 파일 SSOT)</li>
+                <li><code>DS2_UASERVER_ENDPOINT</code> = <code>@UaHint</code> (권장 기본)</li>
+                <li><code>DS2_DATASERVICE_URL</code> = <code>@DataUrl</code></li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+@code {
+    string AidStoreRoot =>
+        Environment.GetEnvironmentVariable("DS2_AIDSTORE_ROOT") ?? "/var/ds/aid-store";
+    string DataUrl =>
+        Environment.GetEnvironmentVariable("DS2_DATASERVICE_URL") ?? "http://localhost:5070";
+    string UaHint => "opc.tcp://localhost:48400";
+
+    RenderFragment Badge(bool ok) => builder =>
+    {
+        builder.OpenElement(0, "span");
+        builder.AddAttribute(1, "class", ok ? "badge bg-success" : "badge bg-danger");
+        builder.AddContent(2, ok ? "OK" : "DOWN");
+        builder.CloseElement();
+    };
+}

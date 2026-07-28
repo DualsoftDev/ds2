@@ -1,0 +1,97 @@
+@page "/method"
+@rendermode InteractiveServer
+@inject UaLiveClientService Ua
+
+<PageTitle>RaiseAssetEvent</PageTitle>
+
+<h1>Method Call · <code>RaiseAssetEvent</code></h1>
+<p class="lead">
+    ADR-003 · 이벤트는 UA Write 아닌 <b>Method Call</b> 로 서버에 주입.
+    Payload JSON 에 <code>sourceTimestamp</code> 등 시각 필드 포함 시 서버가 거부 (§1a Timestamp Precedence).
+</p>
+
+@if (!Ua.IsConnected)
+{
+    <div class="alert alert-warning">
+        <a href="live">Live UA</a> 페이지에서 먼저 Connect 하세요.
+    </div>
+}
+else
+{
+    <div class="card p-3 mb-3">
+        <h5>Input</h5>
+        <div class="row g-2">
+            <div class="col-md-6">
+                <label>GlobalAssetId</label>
+                <input class="form-control" @bind="assetId" />
+            </div>
+            <div class="col-md-6">
+                <label>EventType semanticId</label>
+                <input class="form-control" @bind="eventType" />
+            </div>
+            <div class="col-md-6">
+                <label>SignalId</label>
+                <input class="form-control" @bind="signalId" />
+            </div>
+            <div class="col-md-6">
+                <label>Payload JSON (시각 필드 금지)</label>
+                <textarea class="form-control" rows="3" @bind="payload"></textarea>
+            </div>
+        </div>
+        <div class="mt-3">
+            <button class="btn btn-primary" @onclick="Call">Call RaiseAssetEvent</button>
+        </div>
+    </div>
+
+    <div class="card p-3">
+        <h5>결과</h5>
+        @if (results.Count == 0)
+        {
+            <p><em>아직 호출 없음.</em></p>
+        }
+        else
+        {
+            <table class="table">
+                <thead><tr><th>Time</th><th>Ok</th><th>Message</th></tr></thead>
+                <tbody>
+                    @foreach (var r in results)
+                    {
+                        <tr>
+                            <td><small>@r.At.ToString("HH:mm:ss.fff")</small></td>
+                            <td>
+                                @if (r.Ok) { <span class="badge bg-success">OK</span> }
+                                else { <span class="badge bg-danger">FAIL</span> }
+                            </td>
+                            <td><code>@r.Message</code></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+
+    <div class="card p-3 mt-3 bg-light">
+        <h5>테스트 시나리오</h5>
+        <ul>
+            <li>정상: 위 기본 payload → <span class="badge bg-success">OK</span></li>
+            <li>거부 검증: payload 에 <code>"sourceTimestamp":"…"</code> 추가 → <span class="badge bg-danger">FAIL</span> (BadArgumentsMissing)</li>
+        </ul>
+    </div>
+}
+
+@code {
+    string assetId = "urn:dualsoft:asset:bcr05";
+    string eventType = "urn:opcfoundation:autoid:OpticalScanEventType";
+    string signalId = "line1.bcr05.code";
+    string payload = "{\"code\":\"1234567890\",\"symbology\":\"CODE128\"}";
+
+    record CallResult(DateTime At, bool Ok, string Message);
+    readonly List<CallResult> results = new();
+
+    async Task Call()
+    {
+        var (ok, msg) = await Ua.RaiseAssetEventAsync(assetId, eventType, signalId, payload);
+        results.Insert(0, new CallResult(DateTime.Now, ok, msg));
+        if (results.Count > 10) results.RemoveRange(10, results.Count - 10);
+    }
+}

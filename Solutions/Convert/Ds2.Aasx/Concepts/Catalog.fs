@@ -1,6 +1,7 @@
 namespace Ds2.Aasx
 
 open Ds2.Aasx.AasxSemantics
+open Ds2.Core.Kpi
 
 /// CD (ConceptDescription) 카탈로그 — 모든 자체 IRI 는 <see cref="AasxSemantics.CdBaseUrl"/> 를 prefix 로 한다.
 /// 호스팅 위치 변경 시 AasxSemantics.fs 의 CdBaseUrl 한 줄만 수정하면 일괄 전환됨.
@@ -288,8 +289,25 @@ module internal AasxConceptDescriptionCatalog =
           DefinitionKr = "혼류 환경에서 토큰 유형(origin/spec) 별 KPI 분해" }
     ]
 
-    /// 모든 ds2 자체 발급 CD (Entity + Submodel + Simulation) — 외부 표준 CD 는 임베디드 AASX 템플릿에서 로드.
+    // ── Convention-Driven KPI 자동생성 CD (Ds2.Core.Kpi.KpiKits 규약 기반) ─────
+    //    KpiKits.all 을 walk 해서 CD Info 를 자동 생성. 규약 변경 시 여기 재빌드만.
+    let kpiConceptDescriptionInfos: ConceptDescriptionInfo list =
+        KpiKits.all
+        |> List.collect (fun kit ->
+            kit.Metrics
+            |> List.map (fun m ->
+                { Id = m.SemanticId
+                  PreferredNameDe = sprintf "KPI-%s (%s)" m.IdShortSuffix kit.TypeShort
+                  PreferredNameEn = sprintf "KPI %s (%s)" m.IdShortSuffix kit.TypeShort
+                  PreferredNameKr = sprintf "KPI %s (%s)" m.IdShortSuffix kit.TypeShort
+                  ShortName = sprintf "Kpi_%s_%s" kit.TypeShort m.IdShortSuffix
+                  DefinitionDe = m.DescriptionEn
+                  DefinitionEn = m.DescriptionEn
+                  DefinitionKr = m.DescriptionKr }))
+
+    /// 모든 ds2 자체 발급 CD (Entity + Submodel + Simulation + KPI) — 외부 표준 CD 는 임베디드 AASX 템플릿에서 로드.
     let allConceptDescriptionInfos: ConceptDescriptionInfo list =
         entityConceptDescriptionInfos
         @ submodelConceptDescriptionInfos
         @ simulationConceptDescriptionInfos
+        @ kpiConceptDescriptionInfos

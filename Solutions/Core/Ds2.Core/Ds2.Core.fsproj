@@ -8,6 +8,11 @@
 
   <ItemGroup>
     <Compile Include="AssemblyInfo.fs" />
+    <!-- Phase 0 · Foundation value types (ADR-002, ADR-008, ADR-009) -->
+    <Compile Include="Encoding\Base64Url.fs" />
+    <Compile Include="SignalId.fs" />
+    <Compile Include="GlobalAssetId.fs" />
+    <Compile Include="SemanticId.fs" />
     <Compile Include="Enum.fs" />
     <Compile Include="FSharpJsonConverters.fs" />
     <Compile Include="JsonOptions.fs" />
@@ -30,6 +35,13 @@
     <Compile Include="StandardSubmodels\Nameplate.fs" />
     <Compile Include="StandardSubmodels\HandoverDocumentation.fs" />
     <Compile Include="StandardSubmodels\TechnicalData.fs" />
+    <!-- Phase 0 · IDTA standard submodels -->
+    <Compile Include="StandardSubmodels\AssetInterfacesDescription.fs" />
+    <Compile Include="StandardSubmodels\AssetInterfacesMappingConfiguration.fs" />
+    <Compile Include="StandardSubmodels\OperationalData.fs" />
+    <!-- Phase 0 · CollectionPolicy 는 04_Logging.fs 안으로 흡수 (별도 SM 파일 없음) -->
+    <!-- Phase 0 · Domain services (not submodels — ADR-008) -->
+    <Compile Include="Services\ConceptDescriptionRegistry.fs" />
     <Compile Include="SubmodelProperties.fs" />
     <Compile Include="ValueSpec.fs" />
     <Compile Include="ValueSpecText.fs" />
@@ -54,6 +66,12 @@
     <Compile Include="Store\ImportPlan.fs" />
     <Compile Include="Store\ImportPlan.Device.fs" />
     <Compile Include="Store\V10ValidationBatch.fs" />
+    <!-- Convention-Driven KPI 자동생성 (Approach A) — 시퀀스 서브모델 → AID/AIMC/OperationalData 자동 append -->
+    <Compile Include="Kpi\KpiKits.fs" />
+    <Compile Include="Kpi\KpiIdentifiers.fs" />
+    <Compile Include="Kpi\KpiWalker.fs" />
+    <Compile Include="Kpi\KpiAppenders.fs" />
+    <Compile Include="Kpi\SequenceKpiGenerator.fs" />
   </ItemGroup>
 
   <ItemGroup>

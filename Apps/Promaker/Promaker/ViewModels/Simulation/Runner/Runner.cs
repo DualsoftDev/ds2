@@ -41,6 +41,12 @@ public partial class SimulationPanelState
         ResetPassiveGanttClockAnchor();
         ContinuousInjection.ClearCycle();
 
+        // UA 브릿지는 engine 참조를 붙들고 있으므로 engine.Dispose 전에 detach 필요.
+        // OPC UA 서버 자체는 살아있음 — App.OnExit 에서만 stop.
+        var bridge = _uaBridge;
+        _uaBridge = null;
+        try { bridge?.Dispose(); } catch { /* best-effort */ }
+
         try
         {
             engine.Dispose();

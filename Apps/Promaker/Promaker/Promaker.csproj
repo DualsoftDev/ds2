@@ -28,6 +28,11 @@
     <!-- AvalonDock (MIT) — DockHost / DockAnchor / IDockManager 코드는 Promaker/Dock/ 폴더. -->
     <PackageReference Include="Dirkster.AvalonDock" />
     <PackageReference Include="Dirkster.AvalonDock.Themes.VS2013" />
+    <!-- OPC UA — Promaker 는 EmbeddedUaServer 를 인프로세스 구동 (Ds2.OpcUa.Server 참조).
+         Core/Configuration 은 UA 스택 초기화, Server 는 EmbeddedUaServer 가 사용. -->
+    <PackageReference Include="OPCFoundation.NetStandard.Opc.Ua.Core" />
+    <PackageReference Include="OPCFoundation.NetStandard.Opc.Ua.Configuration" />
+    <PackageReference Include="OPCFoundation.NetStandard.Opc.Ua.Server" />
   </ItemGroup>
   <ItemGroup>
     <None Update="log4net.config">
@@ -87,6 +92,7 @@
     <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.Runtime.Remote\Ds2.Runtime.Remote.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.Runtime.Report\Ds2.Runtime.Report.fsproj" />
+    <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.OpcUa.Server\Ds2.OpcUa.Server.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Backend\Ds2.Backend\Ds2.Backend.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Backend\Ds2.Backend.Common\Ds2.Backend.Common.fsproj" />
     <ProjectReference Include="..\Promaker.Shared\Promaker.Shared.csproj" />

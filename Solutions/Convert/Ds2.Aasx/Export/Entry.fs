@@ -4,6 +4,7 @@ open System
 open System.IO
 open AasCore.Aas3_1
 open Ds2.Core
+open Ds2.Core.Kpi
 open Ds2.Aasx.AasxSemantics
 open Ds2.Aasx.AasxConceptDescriptions
 open Ds2.Aasx.AasxFileIO
@@ -17,6 +18,7 @@ module AasxExporter =
     open AasxExportGraph
     open AasxExportMetadata
     open AasxExportTechnicalData
+    open AasxExportStandardSubmodels
     open FieldValidation
 
     let private mkSmRef (submodel: ISubmodel) : IReference =
@@ -207,6 +209,28 @@ module AasxExporter =
                         extraConcepts.Add(cd)
                         existingCdIds.Add(id) |> ignore
                     | _ -> ()
+
+    /// Convention-Driven KPI 자동 생성 헬퍼 — Project → AID + AIMC + OperationalData 3 SM.
+    /// exportToAasxFile / exportSplitAasx 양쪽에서 공용.
+    /// idempotent — 재실행 시 3-tuple guard 로 skip.
+    let private appendKpiSubmodels (store: DsStore) (project: Project) : Submodel list =
+        let kpiStats = SequenceKpiGenerator.appendForProject store project
+        log.Info(sprintf "[KPI] append: walked=%d aidAdded=%d opdataAdded=%d aimcAdded=%d conflicts=%d"
+                    kpiStats.Walked kpiStats.AidAdded kpiStats.OpDataAdded kpiStats.AimcAdded kpiStats.Conflicts)
+        [
+            match project.AssetInterfaces with
+            | Some aid when aid.Interfaces.Count > 0 ->
+                yield aidToSubmodel aid project.Name
+            | _ -> ()
+            match project.AssetInterfacesMapping with
+            | Some aimc when aimc.Mappings.Count > 0 ->
+                yield aimcToSubmodel aimc project.Name
+            | _ -> ()
+            match project.OperationalDataDef with
+            | Some od when od.Items.Count > 0 ->
+                yield operationalDataToSubmodel od project.Name
+            | _ -> ()
+        ]
 
     let private appendProjectMetadataSubmodels (_store: DsStore) (project: Project) (submodels: ResizeArray<ISubmodel>) (smRefs: ResizeArray<IReference>) =
         let nameplate = project.Nameplate |> Option.defaultValue (Nameplate())
@@ -477,7 +501,11 @@ module AasxExporter =
             SubmodelType.AllDomains
             |> List.choose (fun submodelType -> tryExportToDomainSubmodel submodelType store project)
 
-        let allNewSubmodels = modelSm :: optionalSubmodels
+        // Convention-Driven KPI 자동 생성 — 시퀀스 서브모델의 System/Work/Call/Arrow/UserTag 로부터
+        // AID + AIMC + OperationalData 를 append (idempotent).
+        let kpiSubmodels = appendKpiSubmodels store project
+
+        let allNewSubmodels = modelSm :: (optionalSubmodels @ kpiSubmodels)
 
         let (finalSubmodels, finalShells, finalConceptDescs) =
             match AasxProjectCache.tryGetEnvironment project with
@@ -492,6 +520,10 @@ module AasxExporter =
                             SubmodelModelIdShort
                             LegacySubmodelIdShort
                             yield! SubmodelType.AllDomains |> List.map (fun t -> t.IdShort)
+                            // KPI 자동생성 서브모델 3종도 매 저장마다 재발행 (사용자 편집물 유실 방지는 KPI 로직 내부 3-tuple guard 로 커버)
+                            AidSubmodelIdShort
+                            AimcSubmodelIdShort
+                            OperationalDataSubmodelIdShort
                         ]
 
                     let preservedSubmodels =
@@ -658,7 +690,10 @@ module AasxExporter =
             SubmodelType.AllDomains
             |> List.choose (fun submodelType -> tryExportToDomainSubmodel submodelType store project)
 
-        let allSubmodels = modelSm :: optionalSubmodels
+        // Convention-Driven KPI 자동 생성 (split 저장에서도 동일).
+        let kpiSubmodels = appendKpiSubmodels store project
+
+        let allSubmodels = modelSm :: (optionalSubmodels @ kpiSubmodels)
 
         let submodels = ResizeArray<ISubmodel>(allSubmodels |> List.map (fun sm -> sm :> ISubmodel))
         let smRefs = ResizeArray<IReference>(allSubmodels |> List.map mkSmRef)

@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <GenerateProgramFile>false</GenerateProgramFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="NamespaceAllocatorTests.fs" />
+    <Compile Include="DeterministicNodeIdTests.fs" />
+    <Compile Include="AasFileScannerTests.fs" />
+    <Compile Include="IntegrationSmokeTests.fs" />
+    <Compile Include="RuntimeIoKeyTests.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="OPCFoundation.NetStandard.Opc.Ua.Client" />
+    <PackageReference Include="OPCFoundation.NetStandard.Opc.Ua.Configuration" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Runtime\Ds2.OpcUa.Server\Ds2.OpcUa.Server.fsproj" />
+    <ProjectReference Include="..\..\Core\Ds2.Core\Ds2.Core.fsproj" />
+  </ItemGroup>
+
+</Project>
