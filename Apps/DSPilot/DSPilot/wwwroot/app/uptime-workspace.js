@@ -718,8 +718,10 @@
                     if (!this._charts || !this.ut) return;
                     try {
                         // 설비별 보기는 자동감지만(USERTAG 는 Flow 에 속하지 않음) → 트렌드도 자동감지 단일 시리즈.
-                        this._charts.renderTrendChart('ut-trend-chart', this.ut.buckets || [], this.ut.granularity,
-                            this.curFlow ? ['ABNORMAL'] : ['ABNORMAL', 'USERTAG']);
+                        // 요약 카드로 구분을 골랐을 때도 같은 규칙 — 0-채움 버킷만 남는 시리즈를 범례에서 지운다.
+                        const trendCats = (this.curFlow || this.utCategory === 'abnormal') ? ['ABNORMAL']
+                            : (this.utCategory === 'usertag' ? ['USERTAG'] : ['ABNORMAL', 'USERTAG']);
+                        this._charts.renderTrendChart('ut-trend-chart', this.ut.buckets || [], this.ut.granularity, trendCats);
                         // 태그별 Top 10 은 경로(FLOW / WORK / CALL)별 집계로 고정.
                         this._charts.renderTopChart('ut-top-chart', (this.ut.topRowsByPath || []).slice(0, 10));
                     } catch (e) { console.warn('chart draw failed', e); }
@@ -1415,6 +1417,31 @@
                 categoryStatus(a) { return 'bad'; },
                 cc(cat) { return (this.ut && this.ut.categoryCounts && this.ut.categoryCounts[cat]) || 0; },
                 get categoryTotal() { return this.cc('ABNORMAL') + this.cc('USERTAG'); },
+                // 상단 요약 카드에서 구분 필터를 쓸 수 있는지 — 설비별 보기(?flow=)면 서버가 자동감지만 남기고
+                // category 파라미터를 무시하므로(utQs 주석 참조) 카드 클릭도 비활성한다.
+                get utCatFilterOn() { return !this.curFlow; },
+                // 요약 카드 클릭 = 구분 필터 토글('' 전체 | 'abnormal' | 'usertag'). 같은 카드 재클릭 시 해제.
+                // 서버 재조회(첫 페이지부터)라 표·시계열·Top10 이 함께 좁혀지고, 카드 자체 수치(categoryCounts)는
+                // 구분 필터를 무시하는 집계라 필터 중에도 전체 비율이 유지된다.
+                setUtCategory(cat) {
+                    if (!this.utCatFilterOn) return;
+                    const next = (this.utCategory === cat) ? '' : cat;
+                    if (this.utCategory === next) return;
+                    this.utCategory = next;
+                    this.utPage = 0;
+                    this.load();
+                },
+                // 현재 조회 중인 구분 문구 — 시계열/Top10 부제가 요약 카드 필터와 어긋나지 않게 한다.
+                get utCategoryLabel() {
+                    if (this.curFlow || this.utCategory === 'abnormal') return '자동감지';
+                    if (this.utCategory === 'usertag') return '수동등록TAG';
+                    return '자동감지 + 수동등록TAG';
+                },
+                // 최다 발생 카드 — '태그별 Top 10' 차트와 동일 소스(경로 기준 1위).
+                get utTopPath() {
+                    const rows = (this.ut && this.ut.topRowsByPath) || [];
+                    return rows.length ? rows[0] : null;
+                },
                 categoryShare(cat) {
                     const total = this.categoryTotal;
                     if (total <= 0) return 0;

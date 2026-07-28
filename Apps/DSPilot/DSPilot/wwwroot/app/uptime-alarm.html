@@ -99,45 +99,62 @@
                         <div>
                             <!-- 검색/System/구분 필터·차단 버튼·기간 텍스트는 상단 툴바로 이동/제거됨. -->
 
+                            <!-- ════ 요약 카드 (카드형 조회) ════
+                                 설비효율(.up-oee-row)·생산효율·동작편차(.hm-kpi) 페이지와 같은 "상단 KPI 카드" 규약.
+                                 총 발생 / 자동감지 / 수동등록TAG 카드는 클릭 = 구분 필터(서버 category 파라미터) 토글이고,
+                                 현재 조회 중인 카드는 is-active 로 표시된다. 값은 전부 스냅샷 집계(categoryCounts ·
+                                 topRowsByPath)라 추가 조회가 없다.
+                                 ⚠ 합계는 ut.totalCount 가 아니라 categoryTotal(자동감지+수동등록TAG) — totalCount 는
+                                    구분 필터가 걸리면 같이 줄어들어 '전체의 N%' 가 100% 를 넘게 된다. -->
+                            <div class="up-utkpi-row">
+                                <div class="up-utkpi" :class="utCatFilterOn ? 'clickable' + (utCategory === '' ? ' is-active' : '') : ''"
+                                     @click="utCatFilterOn && setUtCategory('')"
+                                     :title="utCatFilterOn ? '클릭: 구분 필터 해제(전체 보기)' : '설비별 보기는 자동감지만 조회합니다'">
+                                    <div class="up-utkpi-label">총 발생</div>
+                                    <div class="up-utkpi-value" x-text="categoryTotal.toLocaleString() + '건'"></div>
+                                    <div class="up-utkpi-sub" x-text="(curFlow ? ('설비 ' + curFlow + ' · 자동감지') : '자동감지 + 수동등록TAG 합산 · 라인 전체')"></div>
+                                </div>
+                                <div class="up-utkpi" :class="utCatFilterOn ? 'clickable' + (utCategory === 'abnormal' ? ' is-active' : '') : ''"
+                                     @click="utCatFilterOn && setUtCategory('abnormal')"
+                                     :title="utCatFilterOn ? '클릭: 자동감지만 조회' : '설비별 보기는 이미 자동감지만 조회합니다'">
+                                    <div class="up-utkpi-label">자동감지</div>
+                                    <div class="up-utkpi-value" x-text="cc('ABNORMAL').toLocaleString() + '건'"></div>
+                                    <div class="up-utkpi-sub" x-text="'전체의 ' + categoryShare('ABNORMAL') + '%' + (utCatFilterOn ? (utCategory === 'abnormal' ? ' · 조회 중 (클릭해 해제)' : ' · 클릭해 이 구분만 조회') : '')"></div>
+                                </div>
+                                <div class="up-utkpi" :class="(utCatFilterOn && !curFlow) ? 'clickable' + (utCategory === 'usertag' ? ' is-active' : '') : ''"
+                                     @click="(utCatFilterOn && !curFlow) && setUtCategory('usertag')"
+                                     :title="curFlow ? '수동등록TAG 는 설비(Flow)에 속하지 않아 설비별 보기에서 제외됩니다' : '클릭: 수동등록TAG 만 조회'">
+                                    <div class="up-utkpi-label">수동등록TAG</div>
+                                    <div class="up-utkpi-value" x-text="curFlow ? '—' : (cc('USERTAG').toLocaleString() + '건')"
+                                         :style="curFlow ? 'color:var(--color-text-disabled);' : ''"></div>
+                                    <div class="up-utkpi-sub" x-text="curFlow ? '설비별 보기 제외 — 전체 보기에서 조회' : ('전체의 ' + categoryShare('USERTAG') + '%' + (utCategory === 'usertag' ? ' · 조회 중 (클릭해 해제)' : ' · 클릭해 이 구분만 조회'))"></div>
+                                </div>
+                                <!-- 최다 발생 — 아래 '태그별 Top 10'(경로 기준) 1위와 동일 소스. 검색은 이름만 매칭해
+                                     경로로는 필터가 되지 않으므로 표시 전용(비클릭)으로 둔다. -->
+                                <div class="up-utkpi" :title="utTopPath ? ('태그별 Top 10 1위(경로 기준) — ' + utTopPath.name) : '해당 기간 발생 없음'">
+                                    <div class="up-utkpi-label">최다 발생</div>
+                                    <div class="up-utkpi-value" x-text="utTopPath ? (utTopPath.count.toLocaleString() + '건') : '—'"
+                                         :style="utTopPath ? '' : 'color:var(--color-text-disabled);'"></div>
+                                    <div class="up-utkpi-sub" x-text="utTopPath ? utTopPath.name : '해당 기간 발생 없음'" style="word-break:break-all;"></div>
+                                </div>
+                            </div>
+
                             <!-- 시계열 추이 (Chart.js 스택 막대) -->
                             <div class="ds-card-h" style="margin-bottom:10px;">
                                 <h4 style="font-size:0.74rem;">시계열 추이</h4>
-                                <span class="ds-card-h-sub" x-text="curFlow ? '자동감지(이상감지) 시계열 막대' : '구분별 스택 막대 (자동감지 · 수동등록TAG)'"></span>
+                                <span class="ds-card-h-sub" x-text="(curFlow || utCategory) ? (utCategoryLabel + ' 시계열 막대') : '구분별 스택 막대 (자동감지 · 수동등록TAG)'"></span>
                             </div>
                             <div class="up-ut-chart-tall" style="margin-bottom:16px;"><canvas id="ut-trend-chart"></canvas></div>
 
-                            <!-- 태그별 Top 10 + 구분 분포. 설비별 보기(curFlow)면 자동감지만 남아 '구분 분포' 도넛은 무의미 → 숨기고 Top 10 을 전폭으로. -->
-                            <div class="up-ut-chart-row" :style="curFlow ? 'grid-template-columns:1fr;' : ''">
+                            <!-- 태그별 Top 10 (전폭). 구분 분포(자동감지·수동등록TAG 비율) 타일은 상단 요약 카드가
+                                 같은 수치(건수 + 전체의 %)를 담게 되어 중복이라 제거했다 — 되살릴 땐 카드 쪽 % 표기를 정리할 것. -->
+                            <div class="up-ut-chart-row" style="grid-template-columns:1fr;">
                                 <div>
                                     <div class="ds-card-h" style="margin-bottom:10px;">
                                         <h4 style="font-size:0.74rem;">태그별 Top 10</h4>
+                                        <span class="ds-card-h-sub" x-text="'경로 기준 · ' + utCategoryLabel"></span>
                                     </div>
                                     <div class="up-ut-chart-md"><canvas id="ut-top-chart"></canvas></div>
-                                </div>
-                                <div x-show="!curFlow">
-                                    <div class="ds-card-h" style="margin-bottom:10px;"><h4 style="font-size:0.74rem;">구분 분포</h4><span class="ds-card-h-sub">자동감지 · 수동등록TAG 비율</span></div>
-                                    <template x-if="categoryTotal > 0">
-                                        <div class="up-cat-stats">
-                                            <div class="up-cat-tile">
-                                                <span class="up-cat-label">자동감지</span>
-                                                <span class="up-cat-pct" x-text="categoryShare('ABNORMAL') + '%'"></span>
-                                                <span class="up-cat-count" x-text="cc('ABNORMAL').toLocaleString() + '건'"></span>
-                                            </div>
-                                            <div class="up-cat-tile">
-                                                <span class="up-cat-label">수동등록TAG</span>
-                                                <span class="up-cat-pct" x-text="categoryShare('USERTAG') + '%'"></span>
-                                                <span class="up-cat-count" x-text="cc('USERTAG').toLocaleString() + '건'"></span>
-                                            </div>
-                                            <div class="up-cat-total">총 <strong x-text="categoryTotal.toLocaleString()"></strong>건</div>
-                                        </div>
-                                    </template>
-                                    <template x-if="categoryTotal === 0">
-                                        <div class="ds-empty up-dist-empty" style="border-style:solid;">
-                                            <span class="material-icons">notifications</span>
-                                            <div class="ds-empty-title">해당 기간 알림 없음</div>
-                                            <div class="ds-empty-desc">선택한 기간에 집계된 자동감지/수동등록TAG 알림이 없습니다.</div>
-                                        </div>
-                                    </template>
                                 </div>
                             </div>
 

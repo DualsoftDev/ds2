@@ -158,7 +158,8 @@
 
         .up-codeish { font-family: var(--font-mono); font-size: 0.72rem; background: color-mix(in srgb, var(--color-text-primary) 6%, transparent); padding: 1px 6px; border-radius: var(--radius-sm); }
 
-        /* ── 이상발생(UserTag) 집계 KPI 4-그리드 (구 관리페이지 흡수) ── */
+        /* ── 이상발생(UserTag) 집계 KPI 4-그리드 (구 관리페이지 흡수)
+              → 2026-07 재사용: 총 발생 / 자동감지 / 수동등록TAG / 최다 발생 요약 카드(카드 클릭 = 구분 필터). ── */
         .up-utkpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
         @media (max-width: 720px) { .up-utkpi-row { grid-template-columns: 1fr 1fr; } }
         .up-utkpi { background: var(--color-surface-variant); border: 1px solid var(--color-lines); border-radius: var(--radius-sm); padding: 12px 14px; }
@@ -167,7 +168,9 @@
         .up-utkpi-value.sm { font-size: 0.92rem; font-weight: 700; word-break: break-all; }
         .up-utkpi-value.err { color: var(--red); }
         .up-utkpi-value.warn { color: var(--amber); }
-        /* 클릭 시 알람 필터 (레벨 토글 그룹 + 최빈 태그 검색) */
+        /* 카드 부제 — 비율·필터 안내·경로(최다 발생) 한 줄. up-oee-note 와 같은 톤/크기. */
+        .up-utkpi-sub { margin-top: 5px; font-size: 0.62rem; color: var(--color-text-secondary); line-height: 1.35; }
+        /* 클릭 시 알람 필터 (구분 토글 그룹: 총 발생 · 자동감지 · 수동등록TAG) */
         .up-utkpi.clickable { cursor: pointer; transition: border-color .12s, background .12s, box-shadow .12s; }
         .up-utkpi.clickable:hover { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 5%, var(--color-surface-variant)); }
         .up-utkpi.is-active { border-color: var(--color-primary); box-shadow: inset 0 0 0 1px var(--color-primary); background: color-mix(in srgb, var(--color-primary) 9%, var(--color-surface-variant)); }
