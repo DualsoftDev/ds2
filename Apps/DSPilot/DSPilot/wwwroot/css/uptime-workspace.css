@@ -225,7 +225,6 @@
         .up-rank-row { display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--color-lines); cursor: pointer; border-left: 3px solid transparent; }
         .up-rank-row:last-child { border-bottom: none; }
         .up-rank-row:hover { background: color-mix(in srgb, var(--color-primary) 4%, var(--color-surface)); }
-        .up-rank-row.is-worst { background: color-mix(in srgb, var(--red) 7%, var(--color-surface)); border-left-color: var(--red); }
         .up-rank-medal { font-size: 1.1rem; text-align: center; font-weight: 800; }
         .up-rank-name { font-weight: 700; font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .up-rank-sub { font-size: 0.64rem; color: var(--color-text-secondary); font-family: var(--font-mono); }

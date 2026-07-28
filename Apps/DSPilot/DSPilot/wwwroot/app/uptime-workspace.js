@@ -2155,17 +2155,8 @@
                         + (this._dtPatMemo && this._dtPatMemo.daysClipped ? ' · 최근 92일만 표시' : '');
                 },
 
-                // ── 순위 메달/최하위 ──
+                // ── 순위 메달 ──
                 medal(i) { return i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1); },
-                isWorst(r, i) {
-                    // 최하위: OEE 산출 가능 항목 중 최저, 없으면 정지시간 최대(=ranking 마지막)
-                    const scored = this.ranking.filter(x => x.oee != null);
-                    if (scored.length > 0) {
-                        const worst = scored.reduce((a, b) => b.oee < a.oee ? b : a);
-                        return r.flowName === worst.flowName;
-                    }
-                    return i === this.ranking.length - 1 && this.ranking.length > 1;
-                },
 
                 // ── Flow 이름 목록 (입력 datalist 자동완성) ──
                 get flowNames() {

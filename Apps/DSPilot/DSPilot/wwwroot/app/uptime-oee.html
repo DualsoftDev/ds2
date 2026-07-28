@@ -364,11 +364,11 @@
 
                     <!-- OEE 순위 — 시스템 단위에서만 표시 (설비 선택 시 숨김) -->
                     <section class="card up-section" x-show="!curFlow" x-cloak>
-                        <div class="ds-card-h"><h4>OEE 순위</h4><span class="ds-card-h-sub">OEE = A × P × Q · 최하위 강조 · 클릭→히트맵</span></div>
+                        <div class="ds-card-h"><h4>OEE 순위</h4><span class="ds-card-h-sub">OEE = A × P × Q · 클릭→히트맵</span></div>
                         <template x-if="ranking.length > 0">
                             <div>
                                 <template x-for="(r, i) in ranking" :key="r.flowName">
-                                    <a class="up-rank-row" :class="isWorst(r, i) ? 'is-worst' : ''"
+                                    <a class="up-rank-row"
                                        :href="'/heatmap?flow=' + encodeURIComponent(r.flowName)">
                                         <span class="up-rank-medal" x-text="medal(i)"></span>
                                         <div style="min-width:0;">
