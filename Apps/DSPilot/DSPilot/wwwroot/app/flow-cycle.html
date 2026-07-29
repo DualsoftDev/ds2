@@ -242,16 +242,15 @@
                                 <h4 x-text="flow ? flow.flowName : (flowName || 'Flow')"></h4>
                                 <span class="ds-card-h-sub"><span x-text="flow && flow.systemName ? flow.systemName : '-'"></span> · 신호 간트 · Head/Tail 가동 경계 적용(저장) · 드래그 구간통계 · Excel</span>
                             </div>
-                            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-                                <!-- 'SYNC · 갱신중' 배지 제거(2026-07-28) — 진행 표시는 공용 상단 인디케이터
-                                     (window.dspLoading) 단일 소스. 오버레이 재계산도 그쪽에 붙였다. -->
-                                <!-- 다시 로드 — '전체' 편집 페이지의 Flow 카드 새로고침과 동일 위치/모양 -->
-                                <button class="btn btn-sm btn-outlined" @click="reloadCycle()"
-                                        :disabled="isLoading || overlayBusy || !selectedFlow"
-                                        title="이 Flow 를 다시 로드 (프리셋 기간이면 최신 시각 기준으로 갱신)">
-                                    <span class="material-icons" style="font-size:15px; vertical-align:middle;">refresh</span>
-                                </button>
-                            </div>
+                            <!-- 'SYNC · 갱신중' 배지 제거(2026-07-28) — 진행 표시는 공용 상단 인디케이터
+                                 (window.dspLoading) 단일 소스(오버레이 재계산도 그쪽에 연결).
+                                 되돌리기 = '전체' 편집 페이지 카드의 새로고침과 같은 의미·같은 아이콘.
+                                 순수 '다시 로드' 는 두지 않는다(프리셋 재클릭·F5 와 중복). -->
+                            <button class="btn btn-sm btn-outlined color-default" @click="revertStaging()"
+                                    :disabled="isLoading || overlayBusy || !selectedFlow"
+                                    title="이 Flow 를 서버 값으로 되돌리기 — 저장하지 않은 Head/Tail 변경을 취소하고 저장된 가동 경계로 현 기간을 재조회합니다">
+                                <span class="material-icons" style="font-size:15px; vertical-align:middle;">refresh</span>
+                            </button>
                         </div>
 
                         <div class="call-test-page">

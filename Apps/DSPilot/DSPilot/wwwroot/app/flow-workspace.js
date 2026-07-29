@@ -938,22 +938,18 @@
                     const t = new Date(); const p = (x) => String(x).padStart(2, '0');
                     return `CycleTime_${this.selectedFlow}_${t.getFullYear()}${p(t.getMonth()+1)}${p(t.getDate())}_${p(t.getHours())}${p(t.getMinutes())}${p(t.getSeconds())}.xlsx`;
                 },
-                // 카드 헤더의 '다시 로드' — '전체' 편집 페이지의 Flow 카드 새로고침(loadSlice)과 같은 역할.
-                // 활성 프리셋(시간/가동횟수)이면 최신 시각 기준으로 창을 다시 잡고(그냥 load() 하면
-                // 고정된 옛 창을 재조회해 새 가동이 안 들어온다), 직접 지정 기간은 그 창 그대로 재조회.
-                // 히스토리 캐시는 폐기 — 가동횟수 프리셋 역산·이상치 제외 집계가 옛 rows 를 쓰지 않게.
-                async reloadCycle() {
+                // 이 Flow 를 서버 값으로 되돌리기 — '전체' 편집 페이지의 카드 새로고침(loadSlice→applyLoadResult
+                // 이 기준선 리셋)과 같은 의미. 단일 페이지에는 Head/Tail 스테이징(userOverrodeHeadTail,
+                // dspDirtyRegister 로 미저장 dirty 등록)을 취소할 수단이 F5 밖에 없었다.
+                // headCallId/tailCallId 를 비우고 headSpecified=false 로 재조회 → 서버가 저장값
+                // (FlowCycleOverride) ▸ AASX 기본 순으로 유효 Head/Tail 을 다시 해석해 내려준다.
+                // 단순 재조회(프리셋 재계산)는 프리셋 버튼 재클릭·F5 와 중복이라 일부러 넣지 않는다.
+                async revertStaging() {
                     if (!this.selectedFlow || this.isLoading) return;
+                    this.headCallId = null; this.tailCallId = null;
+                    this.userOverrodeHeadTail = false;
                     this.errorMessage = null;
-                    const name = this.histFlowName;
-                    if (name) delete histCache[name];
-                    const m = this.timePreset ? /^([mh])(\d+)$/.exec(this.timePreset) : null;
-                    if (this.cyclePreset) await this.setRecentCycles(this.cyclePreset);
-                    else if (m && m[1] === 'm') await this.setRecentMinutes(+m[2]);
-                    else if (m) await this.setRecentHours(+m[2]);
-                    else await this.load();
-                    await this.loadFlow(true);           // 헤더 부제(시스템)·KPI 최신화
-                    if (name) await this.loadHistory(name);
+                    await this.load();
                 },
                 async load() {
                     if (this.view === 'trend') return;   // 추이 전용 페이지 — 사이클(간트) 로드 건너뜀
