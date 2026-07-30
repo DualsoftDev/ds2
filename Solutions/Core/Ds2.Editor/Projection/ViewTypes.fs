@@ -23,7 +23,8 @@ type CanvasNodeInfo = {
     Y: float
     Width: float
     Height: float
-    /// Call 노드의 조건 타입들 (Work 노드는 빈 리스트)
+    /// 노드의 조건 타입들 — 조건 배지(A/C/S) 표시용. Call 은 자신의 Conditions,
+    /// Work 은 (Reference Work 면 원본의) Conditions 에서 도출.
     ConditionTypes: ConditionType list
     /// 타 Flow의 Work가 화살표로 연결되어 고스트로 표시되는 경우 true
     IsGhost: bool

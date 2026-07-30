@@ -36,7 +36,7 @@ let canvasContentForSystemWorks (store: DsStore) (systemId: Guid) : CanvasConten
         flowIds
         |> List.collect (fun flowId ->
             Queries.worksOf flowId store
-            |> List.map (fun w -> nodeFromPosition w.Id EntityKind.Work w.Name w.ParentId w.Position [] false w.ReferenceOf.IsSome w.ReferenceOf))
+            |> List.map (fun w -> nodeFromPosition w.Id EntityKind.Work w.Name w.ParentId w.Position (ConditionQueries.getResolvedWorkConditionTypes store w.Id) false w.ReferenceOf.IsSome w.ReferenceOf))
 
     let arrows =
         Queries.arrowWorksOf systemId store
@@ -52,7 +52,7 @@ let canvasContentForFlowWorks (store: DsStore) (flowId: Guid) : CanvasContent =
 
     let localNodes =
         works
-        |> List.map (fun w -> nodeFromPosition w.Id EntityKind.Work w.Name w.ParentId w.Position [] false w.ReferenceOf.IsSome w.ReferenceOf)
+        |> List.map (fun w -> nodeFromPosition w.Id EntityKind.Work w.Name w.ParentId w.Position (ConditionQueries.getResolvedWorkConditionTypes store w.Id) false w.ReferenceOf.IsSome w.ReferenceOf)
 
     // 타 Flow의 Work와 연결된 화살표 + 고스트 Work 수집
     let allArrows, ghostNodes =
@@ -77,7 +77,7 @@ let canvasContentForFlowWorks (store: DsStore) (flowId: Guid) : CanvasContent =
             let ghosts =
                 externalIds
                 |> List.choose (fun id -> Queries.getWork id store)
-                |> List.map (fun w -> nodeFromPosition w.Id EntityKind.Work w.Name w.ParentId w.Position [] true w.ReferenceOf.IsSome w.ReferenceOf)
+                |> List.map (fun w -> nodeFromPosition w.Id EntityKind.Work w.Name w.ParentId w.Position (ConditionQueries.getResolvedWorkConditionTypes store w.Id) true w.ReferenceOf.IsSome w.ReferenceOf)
 
             let arrows = relevantArrows |> List.map toArrowInfo
             arrows, ghosts
