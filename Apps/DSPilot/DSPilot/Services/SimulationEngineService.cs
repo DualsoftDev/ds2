@@ -213,7 +213,7 @@ public sealed class SimulationEngineService : IDisposable
     /// <summary>
     /// HubSubscriberService 가 받은 OnTagChanged 신호의 진입점.
     /// </summary>
-    public void HandleHubTagChanged(string address, string value, string source)
+    public void HandleHubTagChanged(string address, string value, string source, long wallClockMs = 0)
     {
         if (!TryEnsureInitialized()) return;
         if (_runtimeSession is null) return;
@@ -221,9 +221,17 @@ public sealed class SimulationEngineService : IDisposable
 
         // plcTagLog 기록 — 배치 writer 채널에 enqueue (실제 INSERT 는 PlcTagLogWriterService 가
         // 250ms / 100건 단위로 트랜잭션으로 처리)
+        // 시각 = 원천 관측 시각(TagWrite.WallClockMs, Pi5 스캔 직후 각인). 도착시각(DateTime.Now)으로
+        // 찍으면 핑 두절→버퍼 replay 신호가 전부 복구 순간에 뭉쳐 그래프/사이클이 왜곡된다(관찰된 증상).
+        // 0(구버전 송신자/단건 OnTagChanged)이면 종전대로 도착시각 폴백.
         var inCache = _plcTagIdByAddress.TryGetValue(address, out var tagId);
         if (inCache)
-            _logWriter.TryWrite(tagId, value, DateTime.Now);
+        {
+            var ts = wallClockMs > 0
+                ? DateTimeOffset.FromUnixTimeMilliseconds(wallClockMs).UtcDateTime
+                : DateTime.Now;
+            _logWriter.TryWrite(tagId, value, ts);
+        }
 
         // 진단 — UserTag 정의 주소에 대해서만 hit/miss + enqueue 결과 로깅.
         if (_userTagAddressesForDiag.Contains(address))

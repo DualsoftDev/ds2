@@ -225,7 +225,7 @@ public sealed class HubSubscriberService : BackgroundService
 
         _processor = new HubSignalProcessor(
             acceptedSources: configuredSources,
-            handleSignal: (addr, val, src) => _engineService.HandleHubTagChanged(addr, val, src),
+            handleSignal: (addr, val, src, wallMs) => _engineService.HandleHubTagChanged(addr, val, src, wallMs),
             maxRetries: HandleHubTagMaxRetries,
             onDrop: OnChannelDrop,
             onRetry: (addr, ex, attempt, max) =>
@@ -436,7 +436,9 @@ public sealed class HubSubscriberService : BackgroundService
         if (items is null || items.Length == 0 || _processor is null) return;
         foreach (var it in items)
         {
-            var result = _processor.TryEnqueue(it.Address, it.Value, it.Source);
+            // WallClockMs = 원천 관측 시각(Pi5 스캔 직후 각인). plcTagLog 기록 시각으로 관통 —
+            // 도착시각으로 찍으면 핑 두절→replay 신호가 복구 순간에 뭉쳐 그래프가 왜곡된다.
+            var result = _processor.TryEnqueue(it.Address, it.Value, it.Source, it.WallClockMs);
             if (result == EnqueueResult.Ignored)
                 _logger.LogTrace("[Hub] Ignored {Address}={Value} from={Source}", it.Address, it.Value, it.Source);
         }
