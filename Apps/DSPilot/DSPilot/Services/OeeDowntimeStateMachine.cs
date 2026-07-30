@@ -138,64 +138,87 @@ public sealed class OeeDowntimeStateMachine : BackgroundService
             .GroupBy(e => e.FlowName!)
             .ToDictionary(g => g.Key, g => g.OrderByDescending(e => e.StartAt).First(), StringComparer.Ordinal);
 
-        foreach (var (flowName, lastCycleUtc) in lastCycleByFlow)
+        foreach (var (flowName, mirrorLastCycleUtc) in lastCycleByFlow)
         {
-            var idleMs = (nowUtc - lastCycleUtc).TotalMilliseconds;
+            var lastCycleUtc = mirrorLastCycleUtc;
             var hasOpen = openByFlow.TryGetValue(flowName, out var open);
             // 폴백 체인 ③: 학습 임계 미등재(콜드스타트) flow 는 부트스트랩(NoCycleSeconds).
             var thresholdMs = _thresholdMsByFlow.TryGetValue(flowName, out var learned) ? learned : bootstrapMs;
+            var idleMs = (nowUtc - lastCycleUtc).TotalMilliseconds;
 
+            // ★미러 tail 지연 방어 — "정지"로 보이는 flow 만 파일(SSOT)로 마지막 사이클을 재확인한다.
+            //   ReadLastCyclePerFlowAsync 는 63일 인메모리 미러로 라우팅되는데, 미러 write-through 는
+            //   쓰기 락 경합 시 조용히 스킵되므로 tail 이 수 분 뒤처질 수 있다. 그 stale 값으로 판정하면
+            //   사이클이 정상 유입 중인데도 무사이클 정지가 열린 채 남고(마감 조건 미충족), 집계가 그 구간을
+            //   비생산으로 승격시켜 가동시간이 0 으로 나온다(2026-07-29 실측: 정상 사이클 196건/5분 구간이
+            //   가동 0·비생산 100%). 가동 중에는 이 분기에 들어오지 않으므로 추가 쿼리는 실제 정지 구간에서만
+            //   발생하고, (flowName, recordedAt) 인덱스 시크라 tick 당 비용이 무시할 수준이다.
             if (idleMs >= thresholdMs)
             {
-                // 무사이클 임계 초과 → onset (중복 가드: 이미 open 이면 skip).
-                if (!hasOpen)
+                var fileLast = await ReadLastCycleFromFileAsync(flowName);
+                if (fileLast.HasValue && fileLast.Value > lastCycleUtc)
                 {
-                    var systemName = systemByFlow.TryGetValue(flowName, out var sys) && !string.IsNullOrEmpty(sys)
-                        ? sys
-                        : flowName;
-                    await repo.InsertDowntimeAsync(new OeeDowntimeEvent
-                    {
-                        SystemName = systemName,
-                        FlowName = flowName,
-                        DeviceName = null,
-                        StartAt = lastCycleUtc, // 정지 시작 = 마지막 사이클 시각(무가동 시작 시점)
-                        EndAt = null,
-                        ReasonCode = null,
-                        Category = null,
-                        IsFailure = 1, // 기본 고장 — 사용자가 해제하면 유지보수(planned_maint)로 변경
-                        DetectSource = DetectSource,
-                        SourceLogId = null,
-                        Note = null,
-                    }, ct);
-                    _logger.LogInformation(
-                        "[OEE] nocycle onset: flow='{Flow}' idle={IdleSec:F0}s thr={ThrSec:F0}s (last cycle {Last:u})",
-                        flowName, idleMs / 1000.0, thresholdMs / 1000.0, lastCycleUtc);
+                    _logger.LogDebug(
+                        "[OEE] nocycle: flow='{Flow}' 미러 tail 지연 — 미러 {Mirror:u} → 파일 {File:u} ({LagSec:F0}s)",
+                        flowName, lastCycleUtc, fileLast.Value, (fileLast.Value - lastCycleUtc).TotalSeconds);
+                    lastCycleUtc = fileLast.Value;
+                    idleMs = (nowUtc - lastCycleUtc).TotalMilliseconds;
                 }
             }
-            else
-            {
-                // 사이클 정상 진행 중. open 이벤트가 있고, 그 후로 새 사이클이 돌았으면 마감.
-                // ★StartAt 은 저장소가 UTC→로컬(Kind=Local)로 되돌려 준다(SqliteDateTimeHelpers.FromSqliteUtcString).
-                //   lastCycleUtc(Kind=Utc)와 직접 비교하면 DateTime 이 Kind 무시하고 Ticks 만 비교 → KST(+9h) 만큼
-                //   StartAt 이 '미래'로 보여 조건이 9시간 동안 거짓 → 사이클 재개해도 정지가 안 닫힘. UTC 로 정규화한다.
-                var openStartUtc = ToUtc(open?.StartAt ?? default);
-                if (hasOpen && openStartUtc <= lastCycleUtc)
-                {
-                    // endAt = 사이클 재개(=마지막 사이클) 시점. durationMs 는 repo 가 계산.
-                    var closed = await repo.CloseDowntimeAsync(open!.Id, lastCycleUtc, ct);
-                    if (closed > 0)
-                    {
-                        _logger.LogInformation(
-                            "[OEE] nocycle clear: flow='{Flow}' event#{Id} cycle resumed at {Last:u}",
-                            flowName, open.Id, lastCycleUtc);
 
-                        // 분류 휴리스틱(신규 마감 건만 — 백필 금지). 수동 분류는 AutoClassifyHeuristicAsync 가드로 보존.
-                        var durMs = (lastCycleUtc - openStartUtc).TotalMilliseconds;
-                        var (rc, cat, isFail, should) = OeeMath.ClassifyByDuration(durMs);
-                        if (should)
-                            await repo.AutoClassifyHeuristicAsync(open.Id, rc, cat, isFail, ct);
-                    }
+            // ① 마감 우선 — 열린 정지의 시작 이후 새 사이클이 돌았으면 *idle 여부와 무관하게* 닫는다.
+            //   종전엔 마감이 "idle < 임계" 분기 안에만 있어, tick 이 그 짧은 창에 못 들어가거나 조회가
+            //   stale 하면 사이클 재개에도 정지가 영구 open 으로 남았다(우진 현장: 하루 종일 open).
+            //   ★StartAt 은 저장소가 UTC→로컬(Kind=Local)로 되돌려 준다(SqliteDateTimeHelpers.FromSqliteUtcString).
+            //   lastCycleUtc(Kind=Utc)와 직접 비교하면 DateTime 이 Kind 무시하고 Ticks 만 비교 → KST(+9h) 만큼
+            //   StartAt 이 '미래'로 보여 조건이 9시간 동안 거짓 → 사이클 재개해도 정지가 안 닫힘. UTC 로 정규화한다.
+            var openStartUtc = hasOpen ? ToUtc(open!.StartAt) : default;
+            // 판정 규칙은 OeeMath.ResolveNoCycleActions 단일 소스(순수·테스트 가능).
+            var (shouldClose, shouldOpen) = OeeMath.ResolveNoCycleActions(
+                hasOpen, openStartUtc, lastCycleUtc, idleMs, thresholdMs);
+
+            if (shouldClose)
+            {
+                // endAt = 사이클 재개(=마지막 사이클) 시점. durationMs 는 repo 가 계산.
+                var closed = await repo.CloseDowntimeAsync(open!.Id, lastCycleUtc, ct);
+                if (closed > 0)
+                {
+                    _logger.LogInformation(
+                        "[OEE] nocycle clear: flow='{Flow}' event#{Id} cycle resumed at {Last:u} (정지 {DurSec:F0}s)",
+                        flowName, open.Id, lastCycleUtc, (lastCycleUtc - openStartUtc).TotalSeconds);
+
+                    // 분류 휴리스틱(신규 마감 건만 — 백필 금지). 수동 분류는 AutoClassifyHeuristicAsync 가드로 보존.
+                    var durMs = (lastCycleUtc - openStartUtc).TotalMilliseconds;
+                    var (rc, cat, isFail, should) = OeeMath.ClassifyByDuration(durMs);
+                    if (should)
+                        await repo.AutoClassifyHeuristicAsync(open.Id, rc, cat, isFail, ct);
                 }
+            }
+
+            // ② onset — 무사이클 임계 초과 + (마감 반영 후) 열린 정지 없음. 마감과 같은 tick 에서 다시 열릴 수
+            //    있다: 그 사이클 뒤로 또 임계를 넘겼다는 뜻이므로 정상(startAt = 그 사이클 시각).
+            if (shouldOpen)
+            {
+                var systemName = systemByFlow.TryGetValue(flowName, out var sys) && !string.IsNullOrEmpty(sys)
+                    ? sys
+                    : flowName;
+                await repo.InsertDowntimeAsync(new OeeDowntimeEvent
+                {
+                    SystemName = systemName,
+                    FlowName = flowName,
+                    DeviceName = null,
+                    StartAt = lastCycleUtc, // 정지 시작 = 마지막 사이클 시각(무가동 시작 시점)
+                    EndAt = null,
+                    ReasonCode = null,
+                    Category = null,
+                    IsFailure = 1, // 기본 고장 — 사용자가 해제하면 유지보수(planned_maint)로 변경
+                    DetectSource = DetectSource,
+                    SourceLogId = null,
+                    Note = null,
+                }, ct);
+                _logger.LogInformation(
+                    "[OEE] nocycle onset: flow='{Flow}' idle={IdleSec:F0}s thr={ThrSec:F0}s (last cycle {Last:u})",
+                    flowName, idleMs / 1000.0, thresholdMs / 1000.0, lastCycleUtc);
             }
         }
     }
@@ -296,6 +319,35 @@ public sealed class OeeDowntimeStateMachine : BackgroundService
             _logger.LogWarning(ex, "[OEE] failed reading dspFlowHistory last cycles");
         }
         return result;
+    }
+
+    /// <summary>
+    /// 파일(SSOT)에서 한 flow 의 마지막 사이클 시각(UTC). 미러 tail 지연 재확인 전용 —
+    /// idx_dspFlowHistory_flow_recordedAt 인덱스 시크라 정지 구간에서만 호출되면 비용이 무시할 수준이다.
+    /// 실패/미존재 시 null → 호출측이 미러 값을 그대로 쓴다(보수: 판정을 바꾸지 않음).
+    /// </summary>
+    private async Task<DateTime?> ReadLastCycleFromFileAsync(string flowName)
+    {
+        var dbPath = _pathResolver.GetSharedDbPath();
+        if (!File.Exists(dbPath)) return null;
+        try
+        {
+            await using var conn = new SqliteConnection(
+                $"Data Source={dbPath};Mode=ReadWriteCreate;Default Timeout=20");
+            await conn.OpenAsync();
+            var exists = await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlowHistory'");
+            if (exists == 0) return null;
+            var raw = await conn.ExecuteScalarAsync<string?>(
+                "SELECT MAX(recordedAt) FROM dspFlowHistory WHERE flowName = @Flow",
+                new { Flow = flowName });
+            return string.IsNullOrEmpty(raw) ? null : ParseRecordedAt(raw);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[OEE] nocycle: 파일 last-cycle 재확인 실패 flow='{Flow}'", flowName);
+            return null;
+        }
     }
 
     /// <summary>

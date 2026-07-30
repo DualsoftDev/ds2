@@ -786,9 +786,22 @@ window.dspDirtyRegister = function (fn) { window._dspDirtyChecker = fn; };
         // ── PLC 어댑터 상세(IP) 렌더 — applySummary 가 채우는 최신 어댑터/출처를 사용. ──
         var _agAdapters = [];   // [{name, ip, port, connected, error, vendor}]
         var _agPlcSource = '';  // 'agent' | 'ping' | 'none'
+        var _agAddr = null;     // {expected, seen, missing[]} — 모델 주소 수신 커버리지(진단 표시 전용)
         var _plcDetailOpen = false;
         function renderPlcDetail() {
             agPlcDetail.innerHTML = '';
+            // 모델 주소 수신 커버리지 — "연결은 정상인데 그 주소만 0 건"(주소 오타/영역 불일치)은 어댑터
+            // 상태로는 안 보인다. 주소 정리 작업 중 즉시 확인할 수 있게 상세 패널 맨 위에 한 줄 노출.
+            // 전부 수신 중이면 표시하지 않는다(정상 상태에 노이즈 금지).
+            if (_agAddr && _agAddr.expected > 0 && _agAddr.seen < _agAddr.expected) {
+                var warn = el('div', null, '모델 주소 ' + _agAddr.expected + '개 중 '
+                    + _agAddr.seen + '개 수신 · ' + (_agAddr.expected - _agAddr.seen) + '개 미수신 — 주소 확인 필요');
+                warn.style.cssText = 'margin-bottom:6px;font-weight:700;color:' + AG_DOT.orange + ';';
+                if (_agAddr.missing && _agAddr.missing.length)
+                    warn.title = '미수신 주소: ' + _agAddr.missing.join(', ')
+                        + (_agAddr.expected - _agAddr.seen > _agAddr.missing.length ? ' …' : '');
+                agPlcDetail.appendChild(warn);
+            }
             if (!_agAdapters.length) {
                 var none = el('div', null, _agPlcSource === 'none'
                     ? '대상 PLC 가 설정되어 있지 않습니다.'
@@ -1083,6 +1096,7 @@ window.dspDirtyRegister = function (fn) { window._dspDirtyChecker = fn; };
 
             // 상세(IP) 패널 데이터 갱신 — 열려 있으면 즉시 다시 렌더.
             _agAdapters = agent.adapters || [];
+            _agAddr = { expected: agent.addrExpected || 0, seen: agent.addrSeen || 0, missing: agent.addrMissing || [] };
             _agPlcSource = plcSource;
             if (_plcDetailOpen) renderPlcDetail();
 
@@ -1090,6 +1104,16 @@ window.dspDirtyRegister = function (fn) { window._dspDirtyChecker = fn; };
             agData.row.style.display = hasData ? '' : 'none';
             agData.text.textContent = 'PLC 데이터 수신중';
             agData.dot.style.background = AG_DOT.green;
+
+            // 유입 공백 경과 → " 4분 18초" 꼴 접미사. 15초 미만/미제공은 빈 문자열(배지 문구 무변).
+            function formatGap(sec) {
+                if (typeof sec !== 'number' || !isFinite(sec) || sec < 15) return '';
+                var s = Math.floor(sec);
+                if (s < 60) return ' ' + s + '초';
+                var m = Math.floor(s / 60), r = s % 60;
+                if (m < 60) return ' ' + m + '분' + (r ? ' ' + r + '초' : '');
+                return ' ' + Math.floor(m / 60) + '시간 ' + (m % 60) + '분';
+            }
 
             // ── 접힌 배지: 3행(Hub·PLC·데이터) 최악 상태 반영 ──
             var badgeClass, badgeText;
@@ -1099,7 +1123,9 @@ window.dspDirtyRegister = function (fn) { window._dspDirtyChecker = fn; };
             } else if (plcColor === AG_DOT.red) {
                 badgeClass = 'is-warn'; badgeText = 'PLC 끊김';
             } else if (plcColor === AG_DOT.green && !hasData) {
-                badgeClass = 'is-warn'; badgeText = '데이터 대기';
+                // 공백 길이를 병기 — 15초 순간 공백(사이클 사이 정상 대기)과 수 분짜리 수집 장애를
+                // 사용자가 구분할 수 있게 한다. 경과 미제공(구 서버)이면 종전 문구 그대로.
+                badgeClass = 'is-warn'; badgeText = '데이터 대기' + formatGap(data.inboundGapSeconds);
             } else if (plcColor === AG_DOT.green) {
                 badgeClass = 'is-live'; badgeText = '실시간';
             } else {

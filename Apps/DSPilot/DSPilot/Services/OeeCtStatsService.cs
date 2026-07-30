@@ -242,6 +242,74 @@ public sealed class OeeCtStatsService
         }
     }
 
+    /// <summary>
+    /// flow별 CT 로버스트 통계 — <b>중앙값</b>과 <b>p99</b>(ms). 자동 '가동중' 박제 해제 경계
+    /// (<see cref="OeeMath.ResolveAutoAbandonBoundaryMs"/>) 전용 소스다.
+    /// <para>gap' 산출(<see cref="ComputeGapMedianAsync"/>)과 같은 14일 클린 창·같은 인덱스 경로를 쓰되
+    /// gap(ct−mt) 이 아니라 CT(주기) 자체를 본다 — 워치독이 재는 것이 "래치가 열린 채 흐른 시간"이라
+    /// CT 분포와 같은 축이기 때문. 평균(AvgMs)은 정지를 머금은 사이클에 끌려가므로 여기서는 쓰지 않는다.</para>
+    /// </summary>
+    public Task<Dictionary<string, (double MedianMs, double P99Ms, int Sample)>> ComputeCtRobustAsync(
+        int windowDays = 14)
+        => GetOrComputeCachedAsync($"ctrobust|{windowDays}",
+            () => ComputeCtRobustCoreAsync(windowDays));
+
+    private async Task<Dictionary<string, (double MedianMs, double P99Ms, int Sample)>> ComputeCtRobustCoreAsync(
+        int windowDays)
+    {
+        var result = new Dictionary<string, (double MedianMs, double P99Ms, int Sample)>(StringComparer.OrdinalIgnoreCase);
+        var dbPath = _pathResolver.GetSharedDbPath();
+        if (!File.Exists(dbPath)) return result;
+        try
+        {
+            var conn = await _mirror.TryOpenPlcReadAsync(DateTime.UtcNow.AddDays(-Math.Max(1, windowDays)), layerB: true);
+            if (conn is null)
+            {
+                conn = new SqliteConnection($"Data Source={dbPath};Mode=ReadWriteCreate;Default Timeout=20");
+                await conn.OpenAsync();
+            }
+            await using var _ = conn;
+
+            var histExists = await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlowHistory'");
+            if (histExists == 0) return result;
+
+            var since = DateTime.UtcNow.AddDays(-Math.Max(1, windowDays))
+                .ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+
+            const string sql = @"
+                SELECT flowName AS FlowName, ct AS Ct, 0.0 AS AgeDays
+                FROM dspFlowHistory
+                WHERE COALESCE(IsIdle,0) = 0 AND ct IS NOT NULL AND ct > 0
+                  AND recordedAt >= @Since";
+            var raw = await conn.QueryAsync<CtRowRaw>(sql, new { Since = since });
+
+            var grouped = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in raw)
+            {
+                if (string.IsNullOrEmpty(r.FlowName)) continue;
+                if (!grouped.TryGetValue(r.FlowName, out var list)) { list = new(); grouped[r.FlowName] = list; }
+                list.Add((int)r.Ct);
+            }
+
+            foreach (var (flow, list) in grouped)
+            {
+                if (list.Count == 0) continue;
+                list.Sort();
+                var median = list[list.Count / 2];
+                // p99 = ComputeCoreAsync 의 분위 공식과 동일(floor 인덱스, 경계 clamp).
+                var idx = Math.Clamp((int)Math.Floor(0.99 * (list.Count - 1)), 0, list.Count - 1);
+                result[flow] = (median, list[idx], list.Count);
+            }
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[OEE] CT robust stats (14d median/p99) compute failed");
+            return result;
+        }
+    }
+
     public Task<Dictionary<string, (double AvgMs, double P10Ms, int Sample)>> ComputeCtThresholdAsync(
         int windowDays = 14, int minCleanCycles = 1, DateTime? excludeUntilUtc = null, double? decayHalfLifeDays = null)
         => GetOrComputeCachedAsync(

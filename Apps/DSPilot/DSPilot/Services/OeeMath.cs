@@ -126,6 +126,55 @@ public static class OeeMath
     }
 
     /// <summary>
+    /// '가동중' 박제 해제(abandon) 경계의 <b>자동 폴백</b>(ms) — 순수 함수.
+    /// 사용자가 이상치 제외 Max 를 넣지 않았을 때(=0, 기본값) 워치독이 아예 동작하지 않아 CCTV 오버레이·
+    /// 대시보드가 영구 '가동중'으로 박제되는 것을 막는다. 설비마다 사이클 길이가 수 초~수 분으로 달라
+    /// 고정 초를 쓸 수 없으므로 flow 자신의 실측 분포에서 만든다(1.5s 라인=30초, 20s 라인=32분 수준).
+    /// <list type="bullet">
+    /// <item>중앙값 기준(<paramref name="medianMult"/>×) — 평균은 정지를 머금은 사이클(예: 주말 62시간
+    ///   1건)에 끌려가므로 못 쓴다. 중앙값은 그 오염에 견딘다(실측: 중앙값 20.4s vs 평균 138s).</item>
+    /// <item>p99 기준(<paramref name="p99Mult"/>×)과 함께 <b>더 큰 쪽</b> — 사이클이 들쭉날쭉한 설비에서
+    ///   정상 장주기 사이클을 잘라 미기록시키지 않기 위한 여유. 둘 중 관대한 값을 택한다.</item>
+    /// <item>표본 부족(&lt; <paramref name="minSample"/>)이면 0 = 해제 안 함(종전 동작). 부팅 직후 몇 건으로
+    ///   경계를 만들어 정상 사이클을 자르는 것보다 박제를 잠깐 유지하는 쪽이 보수적이다.</item>
+    /// <item>상한(<paramref name="ceilingMs"/>) — p99 가 이상치를 물어도 언젠가는 해제되도록 보장.</item>
+    /// </list>
+    /// 이 값은 <b>워치독 전용</b>이다. IsIdle 박제·평균CT·OEE 집계에는 쓰지 않으므로 과거 수치가 바뀌지 않는다.
+    /// </summary>
+    public static double ResolveAutoAbandonBoundaryMs(
+        double medianMs, double p99Ms, int sample,
+        double floorMs = 15_000, double ceilingMs = 6 * 60 * 60 * 1000,
+        double medianMult = 20, double p99Mult = 3, int minSample = 5)
+    {
+        if (sample < minSample || medianMs <= 0) return 0;
+        var byMedian = medianMs * medianMult;
+        var byP99 = p99Ms > 0 ? p99Ms * p99Mult : 0;
+        var boundary = Math.Max(byMedian, byP99);
+        return Math.Clamp(boundary, floorMs, ceilingMs);
+    }
+
+    /// <summary>
+    /// 무사이클 정지 이벤트의 마감(clear)/발생(onset) 판정 — 순수 함수.
+    /// <list type="bullet">
+    /// <item><b>마감</b> = 열린 정지가 있고 그 시작 이후 새 사이클이 있으면 참. <b>idle 여부와 무관하다.</b>
+    ///   종전 구현은 마감을 "idle &lt; 임계" 분기 안에만 둬서, tick(15s)이 그 창에 못 들어가거나 조회가
+    ///   stale 하면 사이클이 정상 유입 중인데도 정지가 영구 open 으로 남았다 → 집계가 그 구간을 비생산으로
+    ///   승격시켜 가동시간이 0 으로 나옴(2026-07-29 실측: 사이클 1540건/1시간이 가동 0·비생산 100%).</item>
+    /// <item>등호 제외(<c>&lt;</c>) — startAt == lastCycle 은 그 정지를 만든 사이클 자신이라 0 길이 마감이 된다.</item>
+    /// <item><b>발생</b> = 임계 초과 + (마감 반영 후) 열린 정지 없음. 마감과 같은 tick 에서 재발생할 수 있다:
+    ///   그 사이클 뒤로 또 임계를 넘겼다는 뜻이므로 정상(startAt = 그 사이클 시각).</item>
+    /// </list>
+    /// </summary>
+    public static (bool Close, bool Open) ResolveNoCycleActions(
+        bool hasOpen, DateTime openStartUtc, DateTime lastCycleUtc, double idleMs, double thresholdMs)
+    {
+        var close = hasOpen && openStartUtc < lastCycleUtc;
+        var remainsOpen = hasOpen && !close;
+        var open = idleMs >= thresholdMs && !remainsOpen;
+        return (close, open);
+    }
+
+    /// <summary>
     /// 무사이클 정지 onset 임계(ms) 폴백 체인 (doc/23 §6 Phase 1). 위에서부터:
     ///   ① gap' 학습됨 → max(3×gap', floor) — floor 는 초고속 flow 잡음성 미세정지 onset 방지
     ///   ② gap' 없지만 14일평균CT 학습됨 → 3×평균CT (여전히 per-flow)

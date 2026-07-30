@@ -250,6 +250,106 @@ public class OeeMathTests
     public void ClassifyGap_no_thresholds_at_all_is_normal()
         => Assert.Equal(OeeMath.GapClass.Normal, OeeMath.ClassifyGap(1_000_000, 0, 0));
 
+    // ── 자동 '가동중' 박제 해제 경계 (Max 미설정 폴백) ──────────────────────
+    //   설비마다 사이클 길이가 수 초~수 분이라 고정 초를 기본값으로 둘 수 없어, flow 자신의 실측
+    //   분포(중앙값·p99)에서 만든다. 아래 두 케이스는 실제 현장 측정값이다.
+
+    [Fact]
+    public void AutoAbandon_fast_line_uses_median_multiple()
+    {
+        // 우진 현장: 중앙값 1,500ms · p99 1,666ms · 표본 3,649 → max(20×1500, 3×1666)=30,000ms
+        Assert.Equal(30_000, OeeMath.ResolveAutoAbandonBoundaryMs(1_500, 1_666, 3_649));
+    }
+
+    [Fact]
+    public void AutoAbandon_slow_jittery_line_uses_p99_multiple()
+    {
+        // 110.165 현장 #100: 중앙값 20,378ms · p99 626,581ms · 표본 2,997 → 3×p99 = 31.3분.
+        // 중앙값 배수(6.8분)로는 정상 장주기 사이클을 잘라 미기록시키므로 관대한 쪽을 택한다.
+        Assert.Equal(1_879_743, OeeMath.ResolveAutoAbandonBoundaryMs(20_378, 626_581, 2_997));
+    }
+
+    [Fact]
+    public void AutoAbandon_is_disabled_until_samples_accumulate()
+        // 표본 부족 → 0 = 해제 안 함(종전 동작). 몇 건으로 경계를 만들어 정상 사이클을 자르지 않는다.
+        => Assert.Equal(0, OeeMath.ResolveAutoAbandonBoundaryMs(1_500, 1_666, sample: 4));
+
+    [Fact]
+    public void AutoAbandon_floor_protects_ultrafast_lines()
+        // 중앙값 200ms 라인: 20×200=4s 지만 floor 15s 로 클램프(짧은 정상 지터로 배지가 튀지 않게).
+        => Assert.Equal(15_000, OeeMath.ResolveAutoAbandonBoundaryMs(200, 250, 1_000));
+
+    [Fact]
+    public void AutoAbandon_ceiling_guarantees_release()
+    {
+        // p99 가 이상치(주말 정지 62시간)를 물어도 상한에서 잘려 언젠가는 해제된다.
+        Assert.Equal(6 * 60 * 60 * 1000, OeeMath.ResolveAutoAbandonBoundaryMs(20_000, 225_675_180, 3_000));
+    }
+
+    [Fact]
+    public void AutoAbandon_zero_median_is_treated_as_unlearned()
+        => Assert.Equal(0, OeeMath.ResolveAutoAbandonBoundaryMs(0, 0, 1_000));
+
+    // ── 무사이클 정지 마감/발생 판정 (2026-07-29 회귀) ──────────────────────
+    //   현장 사고: 사이클이 정상 유입(1540건/시간) 중인데 무사이클 정지가 하루 종일 open 으로 남아
+    //   그 구간이 비생산으로 승격 → 가동시간 0. 원인은 마감이 "idle < 임계" 분기 안에만 있어서,
+    //   tick 이 그 창을 놓치거나 마지막-사이클 조회가 stale 하면 영구히 닫히지 않는 것이었다.
+
+    static readonly DateTime T0 = new(2026, 7, 29, 0, 0, 0, DateTimeKind.Utc);
+
+    [Fact]
+    public void NoCycleActions_closes_on_resumed_cycle_even_while_idle_exceeds_threshold()
+    {
+        // ★핵심 회귀: 조회가 stale 해 idle(10분)이 임계를 넘어도, 정지 시작 이후 새 사이클이 있으면 마감한다.
+        var (close, open) = OeeMath.ResolveNoCycleActions(
+            hasOpen: true, openStartUtc: T0, lastCycleUtc: T0.AddMinutes(5),
+            idleMs: 600_000, thresholdMs: 30_000);
+        Assert.True(close);
+        Assert.True(open);   // 그 사이클 뒤로 또 임계를 넘겼으니 같은 tick 에서 재발생(startAt = 그 사이클)
+    }
+
+    [Fact]
+    public void NoCycleActions_closes_and_stays_closed_when_line_is_running()
+    {
+        // 가동 중(idle 1.5s < 임계) — 마감만 하고 새 정지는 열지 않는다.
+        var (close, open) = OeeMath.ResolveNoCycleActions(
+            hasOpen: true, openStartUtc: T0, lastCycleUtc: T0.AddMinutes(5),
+            idleMs: 1_500, thresholdMs: 30_000);
+        Assert.True(close);
+        Assert.False(open);
+    }
+
+    [Fact]
+    public void NoCycleActions_does_not_close_on_its_own_onset_cycle()
+    {
+        // startAt == lastCycle = 그 정지를 만든 사이클 자신 → 0 길이 마감 금지(종전 <= 비교의 부작용).
+        var (close, open) = OeeMath.ResolveNoCycleActions(
+            hasOpen: true, openStartUtc: T0, lastCycleUtc: T0,
+            idleMs: 600_000, thresholdMs: 30_000);
+        Assert.False(close);
+        Assert.False(open);   // 이미 열려 있으므로 중복 onset 금지
+    }
+
+    [Fact]
+    public void NoCycleActions_opens_when_threshold_exceeded_and_none_open()
+    {
+        var (close, open) = OeeMath.ResolveNoCycleActions(
+            hasOpen: false, openStartUtc: default, lastCycleUtc: T0,
+            idleMs: 45_000, thresholdMs: 30_000);
+        Assert.False(close);
+        Assert.True(open);
+    }
+
+    [Fact]
+    public void NoCycleActions_noop_when_running_and_none_open()
+    {
+        var (close, open) = OeeMath.ResolveNoCycleActions(
+            hasOpen: false, openStartUtc: default, lastCycleUtc: T0,
+            idleMs: 1_500, thresholdMs: 30_000);
+        Assert.False(close);
+        Assert.False(open);
+    }
+
     // ── 무사이클 임계 폴백 체인 (doc/23 §6 Phase 1) ─────────────────────────
 
     [Fact]

@@ -1251,10 +1251,37 @@ public abstract class OeeControllerBase : ControllerBase
                     var gapFlow = string.IsNullOrEmpty(byFlow.Key) ? null : byFlow.Key;
                     var thrGap = gapFlow is not null && thresholds.TryGetValue(gapFlow, out var tg) && tg.AvgMs > 0
                         ? tg.AvgMs : avgThr;                        // 임계 미보유 flow 갭 — 라인 대표 평균 폴백(종전 동일)
-                    var gaps = Intervals.Subtract(
-                        byFlow.Select(r => (r.S, r.E)).ToList(),
-                        gapFlow is not null && cycleIdleByFlow.TryGetValue(gapFlow, out var cig)
-                            ? cig : new List<(double S, double E)>());
+                    // 정지 이벤트 구간에서 "실제로 사이클이 돈 시간"을 차감한다 — 감지 정지 사이클(cycleIdle)
+                    // 뿐 아니라 **정상 사이클(flowRun)까지** 빼야 한다. 종전엔 cycleIdle 만 차감해, 무사이클
+                    // 이벤트가 잘못 열려 있으면(예: 사이클 재개에도 마감 실패) 정상 가동 구간이 갭으로 남아
+                    // 비생산으로 승격되고 생산가능시간이 0 이 되어 가동시간이 통째로 사라졌다
+                    // (2026-07-29 우진 현장: 사이클 1540건/1시간 구간이 가동 0·비생산 100%).
+                    // 모델 전제("가동 = 정상 사이클 ∩ 생산가능")와 같은 판단을 정지 쪽에도 적용하는 방어선 —
+                    // 이벤트 소스가 틀려도 실측 사이클이 있는 시간은 정지로 계상되지 않는다.
+                    // ★차감 대상은 "정상 길이" 사이클로 한정한다. dtCond 는 완료 사이클을 MT 로 판정하므로
+                    //   (mt IS NOT NULL AND mt > @Thr), 정지 후 재개 사이클(mt=이전 MT 로 작고 wt=정지 전체)은
+                    //   '정상 사이클'로 분류되고 그 CT 스팬이 정지 구간을 통째로 덮는다. 그것까지 차감하면
+                    //   진짜 정지가 가동으로 뒤집힌다(실측: 20분 정지가 가동으로 계상). 길이 상한은 조각 버림
+                    //   경계와 같은 값(thr×idleMult) — 한 사이클로 설명 가능한 스팬만 "돈 시간"으로 인정한다.
+                    var maxNormalSpanMs = thrGap > 0 ? thrGap * idleMult : double.MaxValue;
+                    var gapDeduct = new List<(double S, double E)>();
+                    if (gapFlow is not null)
+                    {
+                        if (cycleIdleByFlow.TryGetValue(gapFlow, out var cig)) gapDeduct.AddRange(cig);
+                        if (flowRunByFlow.TryGetValue(gapFlow, out var frun))
+                            foreach (var r in frun)
+                                if (r.E - r.S <= maxNormalSpanMs) gapDeduct.Add(r);
+                    }
+                    // 정상 사이클을 빼면 갭이 사이클 사이 간격(WT)마다 잘게 쪼개진다 — 그 조각까지 정지로 세면
+                    // 1시간에 수백 건 고장이 잡혀 건수·MTBF·MTTR 이 무너진다. 그래서 비가동 판정 경계
+                    // (thr×idleMult — 사이클 행 판정의 @Thr 과 같은 값) 미만 조각은 버린다. 버린 시간은 어디에도
+                    // 적립되지 않아 패스 2 에서 자동으로 '가동간 공백'(슬랙)이 된다 — WaitSlack 과 동일 메커니즘.
+                    // 진짜 장기 정지(내부에 사이클 없음)는 차감 대상이 없어 종전과 완전히 동일하게 1건으로 남는다.
+                    var minGapMs = thrGap > 0 ? thrGap * idleMult : 0;
+                    var gaps = Intervals
+                        .Subtract(byFlow.Select(r => (r.S, r.E)).ToList(), gapDeduct)
+                        .Where(g => g.E - g.S >= minGapMs)
+                        .ToList();
                     foreach (var u0 in gaps)
                     {
                         var segList = new List<(double S, double E)> { u0 };

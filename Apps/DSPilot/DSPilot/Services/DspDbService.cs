@@ -64,6 +64,11 @@ public class DspDbService : IDisposable
     public bool IsReceivingLiveData =>
         (DateTime.UtcNow - _lastInboundUtc) < LiveDataWindow;
 
+    /// <summary>마지막 유입 이후 경과(초). 부팅 후 유입이 한 번도 없으면 null(=계측 근거 없음).
+    /// 헤더 배지가 "데이터 대기"에 길이를 병기해 15초 순간 공백과 수 분짜리 장애를 구분하는 데 쓴다.</summary>
+    public double? InboundGapSeconds =>
+        _lastInboundUtc == DateTime.MinValue ? null : (DateTime.UtcNow - _lastInboundUtc).TotalSeconds;
+
     public event Action? OnDataChanged;
 
     /// <summary>

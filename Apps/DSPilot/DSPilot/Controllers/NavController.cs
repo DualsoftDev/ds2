@@ -30,6 +30,7 @@ public class NavController : ControllerBase
     private readonly AbnormalEventService _abnormal;
     private readonly BlueprintService _blueprint;
     private readonly DemoAdminService _demoAdmin;
+    private readonly SimulationEngineService _engine;
 
     public NavController(
         DsProjectService project,
@@ -41,8 +42,10 @@ public class NavController : ControllerBase
         IUserTagAlertRepository alertRepo,
         AbnormalEventService abnormal,
         BlueprintService blueprint,
-        DemoAdminService demoAdmin)
+        DemoAdminService demoAdmin,
+        SimulationEngineService engine)
     {
+        _engine = engine;
         _project = project;
         _settings = settings;
         _db = db;
@@ -161,7 +164,12 @@ public class NavController : ControllerBase
             }
         }
 
-        var agent = new NavAgentDto(hubState, plcTotal, plcConnected, plcDisconnected, plcSource, adapters);
+        // 모델 주소 수신 커버리지 — 주소 오타/영역 불일치처럼 "연결은 정상인데 그 태그만 0 건"인 상태를
+        // 상세 패널에서 바로 보게 한다(판정에는 미사용 — GetAddressCoverage 주석 참조). 인메모리 카운트라 저비용.
+        var (addrExpected, addrSeen, addrMissing) = _engine.GetAddressCoverage();
+
+        var agent = new NavAgentDto(hubState, plcTotal, plcConnected, plcDisconnected, plcSource, adapters,
+            addrExpected, addrSeen, addrMissing);
 
         // ── anomalyActiveCount (이상발생 활성) ── 최근 10분 Error. ack 가 창 안이면 시작점을 ack 로 당김.
         var nowUtc = DateTime.UtcNow;
@@ -206,7 +214,9 @@ public class NavController : ControllerBase
             _db.IsReceivingLiveData,
             anomalyActiveCount,
             recentAnomalies,
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow,
+            // 유입 공백 경과(초) — 배지가 "데이터 대기"에 길이를 병기해 15초 순간 공백과 수 분 장애를 구분한다.
+            _db.InboundGapSeconds);
     }
 
     // HubConnectionState → 셸/Blazor 가 동일하게 해석하는 소문자 토큰.
@@ -235,7 +245,9 @@ public record NavSummaryDto(
     bool ReceivingData,
     int AnomalyActiveCount,
     List<NavAnomalyDto> RecentAnomalies,
-    DateTimeOffset ServerTimeUtc);
+    DateTimeOffset ServerTimeUtc,
+    // 마지막 유입 이후 경과(초). null = 부팅 후 유입이 한 번도 없음(=계측 근거 없음).
+    double? InboundGapSeconds = null);
 
 // 사이드바 '이상코드' 피드 1행. Source = 출처("usertag" | 추후 "ds-error-1".."4").
 public record NavAnomalyDto(
@@ -255,7 +267,12 @@ public record NavAgentDto(
     int PlcDisconnected,
     /// <summary>PLC 어댑터 상태 출처 — "agent"(Promaker.Agent 보고) | "ping"(DSPilot 직접 TCP 핑) | "none"(대상 미설정).</summary>
     string PlcSource,
-    List<NavPlcAdapterDto> Adapters);
+    List<NavPlcAdapterDto> Adapters,
+    // 모델(AASX) 주소 수신 커버리지 — Expected=적힌 주소 수, Seen=부팅 후 1건 이상 수신한 주소 수,
+    // Missing=미수신 주소 표본(상위 12개). 주소 오타/영역 불일치 진단용이며 판정에는 쓰지 않는다.
+    int AddrExpected = 0,
+    int AddrSeen = 0,
+    List<string>? AddrMissing = null);
 
 public record NavPlcAdapterDto(
     string Name, string Vendor, string Ip, int Port, bool Connected, string? Error);
