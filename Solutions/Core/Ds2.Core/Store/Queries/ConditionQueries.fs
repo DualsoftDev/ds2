@@ -90,6 +90,12 @@ let getWorkConditionTypes (store: DsStore) (workId: Guid) : ConditionType list =
     | Some work -> conditionTypesOfWork work
     | None -> []
 
+/// 캔버스 Work 노드의 조건 배지(SkipAction 등)용. Reference Work 는 원본의 조건을 따른다
+/// — Properties 패널의 GetWorkConditionsForPanel 과 동일한 resolve 규칙이라야 패널 표시와 배지가 일치한다.
+[<CompiledName("GetResolvedWorkConditionTypes")>]
+let getResolvedWorkConditionTypes (store: DsStore) (workId: Guid) : ConditionType list =
+    getWorkConditionTypes store (Queries.resolveOriginalWorkId workId store)
+
 [<CompiledName("FindWorksByApiCallId")>]
 let findWorksByApiCallId (store: DsStore) (apiCallId: Guid) : struct(Guid * string) list =
     store.WorksReadOnly.Values
