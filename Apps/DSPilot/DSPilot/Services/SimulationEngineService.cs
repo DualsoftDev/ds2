@@ -243,7 +243,7 @@ public sealed class SimulationEngineService : IDisposable
     /// <summary>
     /// HubSubscriberService 가 받은 OnTagChanged 신호의 진입점.
     /// </summary>
-    public void HandleHubTagChanged(string address, string value, string source)
+    public void HandleHubTagChanged(string address, string value, string source, long wallClockMs = 0)
     {
         if (!TryEnsureInitialized()) return;
         if (_runtimeSession is null) return;
@@ -251,10 +251,22 @@ public sealed class SimulationEngineService : IDisposable
 
         // plcTagLog 기록 — 배치 writer 채널에 enqueue (실제 INSERT 는 PlcTagLogWriterService 가
         // 250ms / 100건 단위로 트랜잭션으로 처리)
+        // 시각 = 원천 관측 시각(TagWrite.WallClockMs, Pi5 스캔 직후 각인). 도착시각(DateTime.Now)으로
+        // 찍으면 핑 두절→버퍼 replay 신호가 전부 복구 순간에 뭉쳐 그래프/사이클이 왜곡된다(관찰된 증상).
+        // 0(구버전 송신자/단건 OnTagChanged)이면 종전대로 도착시각 폴백.
         var inCache = _plcTagIdByAddress.TryGetValue(address, out var tagId);
         if (inCache)
         {
-            _logWriter.TryWrite(tagId, value, DateTime.Now);
+            var ts = wallClockMs > 0
+                ? DateTimeOffset.FromUnixTimeMilliseconds(wallClockMs).UtcDateTime
+                : DateTime.Now;
+            _logWriter.TryWrite(tagId, value, ts);
+            // ★아래 두 도장은 의도적으로 ts 가 아니라 *도착시각*을 쓴다 — 재는 대상이 다르다.
+            //   기록 시각(ts)   = "그 신호가 PLC 에서 언제 관측됐나" → 버퍼 replay 도 원래 시각으로 복원.
+            //   커버리지/라이브니스 = "지금 PLC 와 말이 통하고 있나" → 도착 그 자체가 증거.
+            //   여기에 ts 를 쓰면 핑 두절 후 밀린 신호가 replay 될 때 "옛 시각 유입"으로 찍혀 라이브니스가
+            //   계속 stale 로 보이고, 그 플래그를 게이트로 쓰는 reconcile Phase 3 가 다시 상시 닫힌다
+            //   (4082439d 가 고친 바로 그 증상). 두 시각을 통일하지 말 것.
             _lastSeenByAddress[address] = DateTime.UtcNow;   // 주소 커버리지 진단(GetAddressCoverage)
             // 라이브니스 도장 — 값이 안 변해도 유입은 유입이다. 상태전이/DB변화 경로만으로는 라이브 행이
             // 고정값으로 굳은 현장에서 "데이터 대기"가 영구 표시되고, 그 플래그를 게이트로 쓰는 아래

@@ -203,12 +203,16 @@ type SignalHubBroadcaster(hubContext: IHubContext<SignalHub>, runtimeSession: IR
                 Task.CompletedTask
             else
                 let items =
+                    // 직접 스캔 경로는 스캔≈broadcast 시각이라 UtcNow 로 wall-clock 각인.
+                    // (Pi5 위임 경로는 수집기가 event_log.wall_clock_ms 를 실어 보낸다.)
+                    let wallNow = System.DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
                     changes
                     |> List.map (fun change ->
                         { Address = change.HubAddress
                           Value = change.Value
                           Source = change.Source
-                          OriginTsMs = change.OriginTsMs })
+                          OriginTsMs = change.OriginTsMs
+                          WallClockMs = wallNow })
                     |> List.toArray
 
                 for item in items do

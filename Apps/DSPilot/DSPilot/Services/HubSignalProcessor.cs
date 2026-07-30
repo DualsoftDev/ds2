@@ -16,7 +16,7 @@ namespace DSPilot.Services;
 public sealed class HubSignalProcessor
 {
     private readonly HashSet<string> _acceptedSources;
-    private readonly Action<string, string, string> _handleSignal;
+    private readonly Action<string, string, string, long> _handleSignal;
     private readonly Action<string, long>? _onDrop;
     private readonly Action<string, Exception, int, int>? _onRetry;
     private readonly Action<string, string, string, Exception, long>? _onDeadLetter;
@@ -33,7 +33,7 @@ public sealed class HubSignalProcessor
 
     public HubSignalProcessor(
         IEnumerable<string> acceptedSources,
-        Action<string, string, string> handleSignal,
+        Action<string, string, string, long> handleSignal,
         int maxRetries = 3,
         int channelCapacity = DefaultChannelCapacity,
         Func<int, TimeSpan>? retryDelay = null,
@@ -61,13 +61,15 @@ public sealed class HubSignalProcessor
     }
 
     /// <summary>accepted source 면 channel 에 enqueue. unaccepted 는 *조용히 무시* (drop 아님 — spec §2).
-    /// channel write 실패 시 drop count 증가 + 콜백.</summary>
-    public EnqueueResult TryEnqueue(string address, string value, string source)
+    /// channel write 실패 시 drop count 증가 + 콜백.
+    /// wallClockMs: 원천 관측 시각(UTC epoch ms, TagWrite.WallClockMs). 0 = 미제공(단건 OnTagChanged 등)
+    /// → 소비측이 도착시각 폴백. replay 시 원래 시각 복원을 위해 반드시 관통 전달.</summary>
+    public EnqueueResult TryEnqueue(string address, string value, string source, long wallClockMs = 0)
     {
         if (!_acceptedSources.Contains(source))
             return EnqueueResult.Ignored;
 
-        if (SignalChannel.Writer.TryWrite(new HubSignal(address, value, source, 0)))
+        if (SignalChannel.Writer.TryWrite(new HubSignal(address, value, source, 0, wallClockMs)))
             return EnqueueResult.Accepted;
 
         var total = Interlocked.Increment(ref _dropCount);
@@ -84,7 +86,7 @@ public sealed class HubSignalProcessor
         {
             try
             {
-                _handleSignal(sig.Address, sig.Value, sig.Source);
+                _handleSignal(sig.Address, sig.Value, sig.Source, sig.WallClockMs);
                 return;
             }
             catch (Exception ex)
@@ -115,8 +117,9 @@ public sealed class HubSignalProcessor
     }
 }
 
-/// <summary>처리 큐 항목. RetryCount 는 재시도 추적용.</summary>
-public readonly record struct HubSignal(string Address, string Value, string Source, int RetryCount);
+/// <summary>처리 큐 항목. RetryCount 는 재시도 추적용.
+/// WallClockMs = 원천 관측 시각(UTC epoch ms, 0=미제공→도착시각 폴백).</summary>
+public readonly record struct HubSignal(string Address, string Value, string Source, int RetryCount, long WallClockMs = 0);
 
 /// <summary>TryEnqueue 결과 — accepted(정상 enqueue), ignored(unaccepted source), dropped(채널 백압).</summary>
 public enum EnqueueResult { Accepted, Ignored, Dropped }
