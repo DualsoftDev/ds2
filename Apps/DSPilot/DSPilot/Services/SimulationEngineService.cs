@@ -89,6 +89,17 @@ public sealed class SimulationEngineService : IDisposable
     // 오분류하지 않기 위해) 커버리지만 별도로 노출한다.
     private readonly ConcurrentDictionary<string, DateTime> _lastSeenByAddress = new(StringComparer.OrdinalIgnoreCase);
 
+    // 미소비 backfill 하한 — 수집기 store-and-forward replay 로 "도착보다 과거"인 원천시각이 들어온 구간의
+    // 가장 오래된 지점. PeriodicCycleRecomputeService 가 증분 재도출 창을 여기까지 넓히는 데 쓴다. 없으면
+    // 그 서비스의 창은 "최신 로그 − 30분" 상수라, 30분 넘는 두절의 replay 구간은 plcTagLog 에만 복원되고
+    // 사이클 이력(dspFlowHistory)엔 영구 미반영으로 남는다(= 무사이클 정지가 정상가동을 계속 삼킨다).
+    private readonly BackfillFloorTracker _backfillFloor = new();
+
+    // 원천시각 기각 경고 throttle — 송신기 시계가 틀어지면 태그마다 터지므로 60초 1회로 묶어 카운트만 올린다.
+    private long _rejectedTsCount;
+    private long _rejectedTsWarnAtTicks;
+    private static readonly TimeSpan RejectedTsWarnInterval = TimeSpan.FromSeconds(60);
+
     // Flow Ready 전이 디바운스 — Call 들이 순차 실행되며 micro-gap 마다 Ready→Going 토글되는 점멸 방지
     private readonly Dictionary<string, CancellationTokenSource> _flowReadyDebounceCts = new();
     private readonly object _flowReadyLock = new();
@@ -240,6 +251,36 @@ public sealed class SimulationEngineService : IDisposable
         return (expected.Count, expected.Count - missing.Count, missing.Take(missingLimit).ToList());
     }
 
+    /// <summary>미소비 backfill 하한(Local) — 없으면 null. 수집기 replay 로 과거 시각이 들어온 구간의
+    /// 가장 오래된 지점. <see cref="PeriodicCycleRecomputeService"/> 가 증분 재도출 창 하한으로 쓴다.
+    /// <para>Local 로 돌려주는 이유: 소비처(<see cref="CycleRecomputeService.RecomputeAllTrackedFlowsAsync"/>)의
+    /// <c>sinceLocal</c> 및 워터마크(<see cref="Repositories.IPlcRepository.GetLatestLogDateTimeAsync"/> → Local)와
+    /// 같은 Kind 여야 구간 비교가 9시간 어긋나지 않는다.</para></summary>
+    public DateTime? PeekBackfillFloorLocal() => _backfillFloor.PeekUtc()?.ToLocalTime();
+
+    /// <summary>재도출로 실제 커버한 backfill 하한을 소비 처리. 재도출 중에 더 오래된 backfill 이 들어왔으면
+    /// 그 값이 남고 다음 주기가 처리한다(소비 누락 방지).</summary>
+    public void ClearBackfillFloor(DateTime consumedLocal) => _backfillFloor.Clear(consumedLocal);
+
+    /// <summary>원천시각 기각 경고 — 60초에 1회로 묶고 그동안의 건수를 함께 보고한다.
+    /// 이 경고가 보이면 송신기(Pi5) 시계 동기(NTP/RTC)를 먼저 봐야 한다 — 기록은 도착시각으로 폴백돼
+    /// 유실은 없지만 replay 구간의 시간축 복원 효과가 사라진 상태다.</summary>
+    private void WarnRejectedTimestamp(string address, long wallClockMs, HubLogTimeSource source)
+    {
+        Interlocked.Increment(ref _rejectedTsCount);
+
+        var nowTicks = DateTime.UtcNow.Ticks;
+        var lastTicks = Interlocked.Read(ref _rejectedTsWarnAtTicks);
+        if (nowTicks - lastTicks < RejectedTsWarnInterval.Ticks) return;
+        if (Interlocked.CompareExchange(ref _rejectedTsWarnAtTicks, nowTicks, lastTicks) != lastTicks) return;
+
+        var count = Interlocked.Exchange(ref _rejectedTsCount, 0);
+        _logger.LogWarning(
+            "[Engine] 원천시각 기각 {Source} — 도착시각으로 폴백. 최근 {Count}건, 예: {Addr} wallClockMs={Ms} " +
+            "(송신기 시계 동기 확인 필요)",
+            source, count, address, wallClockMs);
+    }
+
     /// <summary>
     /// HubSubscriberService 가 받은 OnTagChanged 신호의 진입점.
     /// </summary>
@@ -257,10 +298,19 @@ public sealed class SimulationEngineService : IDisposable
         var inCache = _plcTagIdByAddress.TryGetValue(address, out var tagId);
         if (inCache)
         {
-            var ts = wallClockMs > 0
-                ? DateTimeOffset.FromUnixTimeMilliseconds(wallClockMs).UtcDateTime
-                : DateTime.Now;
-            _logWriter.TryWrite(tagId, value, ts);
+            // 위생 검사 포함(미래/24h 초과 과거는 기각 후 도착시각 폴백) — 규칙과 근거는
+            // HubLogTimestampPolicy 참조. 송신기 시계가 미동기면 데이터가 조용히 사라진다.
+            var stamp = HubLogTimestampPolicy.Resolve(wallClockMs, DateTime.UtcNow);
+            _logWriter.TryWrite(tagId, value, stamp.AtUtc);
+
+            // replay 로 과거 구간이 들어왔다 — 사이클 재도출 창을 여기까지 넓히지 않으면 그 구간이
+            // plcTagLog 에만 복원되고 이력엔 안 들어가, 무사이클 정지가 정상가동을 계속 삼킨다.
+            if (stamp.IsBackfill)
+                _backfillFloor.Report(stamp.AtUtc);
+
+            if (stamp.Source is HubLogTimeSource.RejectedFuture or HubLogTimeSource.RejectedTooOld)
+                WarnRejectedTimestamp(address, wallClockMs, stamp.Source);
+
             // ★아래 두 도장은 의도적으로 ts 가 아니라 *도착시각*을 쓴다 — 재는 대상이 다르다.
             //   기록 시각(ts)   = "그 신호가 PLC 에서 언제 관측됐나" → 버퍼 replay 도 원래 시각으로 복원.
             //   커버리지/라이브니스 = "지금 PLC 와 말이 통하고 있나" → 도착 그 자체가 증거.

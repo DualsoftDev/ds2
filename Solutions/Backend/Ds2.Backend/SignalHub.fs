@@ -203,16 +203,20 @@ type SignalHubBroadcaster(hubContext: IHubContext<SignalHub>, runtimeSession: IR
                 Task.CompletedTask
             else
                 let items =
-                    // 직접 스캔 경로는 스캔≈broadcast 시각이라 UtcNow 로 wall-clock 각인.
-                    // (Pi5 위임 경로는 수집기가 event_log.wall_clock_ms 를 실어 보낸다.)
-                    let wallNow = System.DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                    // WallClockMs=0 — 직접 스캔 경로는 store-and-forward 가 없어 replay 가 애초에 없다.
+                    // ★송신측 UtcNow 를 각인하면 안 된다: 이 경로의 송신자는 Agent 프로세스이고 DSPilot 이
+                    // 다른 PC 일 수 있는데, 그러면 plcTagLog 만 Agent 시계로 찍히고 사이클 이력·정지 이벤트·
+                    // 심박은 DSPilot 시계로 남아 두 시계 차만큼 구간 경계가 어긋난다(NTP 미설정 사내망에서
+                    // 실제로 벌어진다). 0 을 보내 수신측 도착시각 폴백을 타면 전 테이블이 단일 시계를 유지한다
+                    // — 스캔≈broadcast≈도착(ms 급)이라 정확도 손실도 없다. Promaker 로컬 송신부(HubTagBatchSender)
+                    // 와 같은 규약이다. (Pi5 위임 경로는 수집기가 event_log.wall_clock_ms 를 실어 보낸다.)
                     changes
                     |> List.map (fun change ->
                         { Address = change.HubAddress
                           Value = change.Value
                           Source = change.Source
                           OriginTsMs = change.OriginTsMs
-                          WallClockMs = wallNow })
+                          WallClockMs = 0L })
                     |> List.toArray
 
                 for item in items do
