@@ -174,7 +174,8 @@ public abstract class OeeControllerBase : ControllerBase
     /// </summary>
     protected async Task<(List<OeeDowntimeDto> Rows,
             List<(string? Flow, double S, double E)> NonProdScoped,
-            List<(string? Flow, double S, double E)> WaitScoped)>
+            List<(string? Flow, double S, double E)> WaitScoped,
+            List<(string? Flow, double S, double E)> SlackScoped)>
         GetOverThresholdCycleDowntimeAsync(
             string? flowName, DateTime fromUtc, DateTime toUtc, CancellationToken ct)
     {
@@ -184,8 +185,10 @@ public abstract class OeeControllerBase : ControllerBase
             collectDowntimeCycles: true);
         var nonProdScoped = agg.NonProdScoped ?? new List<(string? Flow, double S, double E)>();
         var waitScoped = agg.WaitScoped ?? new List<(string? Flow, double S, double E)>();
+        var slackScoped = agg.SlackScoped ?? new List<(string? Flow, double S, double E)>();
         var cycles = agg.DowntimeCycles;
-        if (cycles is null || cycles.Count == 0) return (new List<OeeDowntimeDto>(), nonProdScoped, waitScoped);
+        if (cycles is null || cycles.Count == 0)
+            return (new List<OeeDowntimeDto>(), nonProdScoped, waitScoped, slackScoped);
 
         var sysMap = BuildFlowSystemMap();       // flowName → systemName (AASX 미로드/미매칭이면 빈 문자열)
         var (idleMult, nonProdMult) = ResolveCtMultipliers();
@@ -225,7 +228,7 @@ public abstract class OeeControllerBase : ControllerBase
                 IsNonProd: c.NonProd,
                 IsWait: c.Wait));
         }
-        return (list, nonProdScoped, waitScoped);
+        return (list, nonProdScoped, waitScoped, slackScoped);
     }
 
     // flowName → systemName. AASX 미로드/예외 시 빈 맵(합성 행 systemName 은 빈 문자열로 폴백).
@@ -637,7 +640,8 @@ public abstract class OeeControllerBase : ControllerBase
             NonProdWallMs: agg.NonProdWallMs,
             DownFaultWallMs: agg.DownFaultWallMs,
             WaitWallMs: agg.WaitWallMs,
-            WaitSlackWallMs: agg.WaitSlackWallMs);
+            WaitSlackWallMs: agg.WaitSlackWallMs,
+            EventSlackWallMs: agg.EventSlackWallMs);
     }
 
     // ── 비생산 판정 모드 ─────────────────────────────────────────────────────
@@ -758,7 +762,12 @@ public abstract class OeeControllerBase : ControllerBase
         List<(string? Flow, double S, double E)>? NonProdScoped = null,  // flow 귀속 비생산(지정창+승격+강제) — 로그 구분/스코프 판정용
         List<(string? Flow, double S, double E)>? WaitScoped = null,     // 그 중 대기(고장 여파) 부분
         double WaitWallMs = 0,                                           // Σ대기 비생산 벽시계(도넛 분화, NonProdWallMs 에 포함됨)
-        double WaitSlackWallMs = 0);                                     // Σ대기 공백 성분(기준 미만 형제 정지 — 정산 툴팁 표기)
+        double WaitSlackWallMs = 0,                                      // Σ대기 공백 성분(기준 미만 형제 정지 — 정산 툴팁 표기)
+        // ── 이벤트성 공백(2026-07-30) — '가동간 공백' 중 하나의 정지 이벤트에서 온 부분(대기 + 경계 미만 조각). ──
+        //   A 에는 영향 없다(슬랙 잔여 그대로). 정지 로그가 '대기(공백)'으로 표시하고, 사이클당 공백 환산에서
+        //   빼기 위한 소스일 뿐이다. WaitSlackWallMs ⊆ EventSlackWallMs (전자는 신호 기반 대기 성분만).
+        List<(string? Flow, double S, double E)>? SlackScoped = null,
+        double EventSlackWallMs = 0);
 
     private sealed class CycleAggRow { public long NormalCt { get; set; } public long NormalCount { get; set; } public long NonProdNormalCt { get; set; } }
     private sealed class DtCycleRaw { public string? RecordedAt { get; set; } public long? Ct { get; set; } public long? Mt { get; set; } }
@@ -817,6 +826,7 @@ public abstract class OeeControllerBase : ControllerBase
         DowntimeCycles = v.DowntimeCycles is null ? null : new List<(string? Flow, double StartMs, double EndMs, double CtMs, bool NonProd, bool Wait)>(v.DowntimeCycles),
         NonProdScoped = v.NonProdScoped is null ? null : new List<(string? Flow, double S, double E)>(v.NonProdScoped),
         WaitScoped = v.WaitScoped is null ? null : new List<(string? Flow, double S, double E)>(v.WaitScoped),
+        SlackScoped = v.SlackScoped is null ? null : new List<(string? Flow, double S, double E)>(v.SlackScoped),
     };
 
     /// <summary>판정 배수 (비가동, 비생산) — 사용자 설정(설비효율 현황) 정규화 값. 집계·문구·DTO 공용.</summary>
@@ -941,6 +951,21 @@ public abstract class OeeControllerBase : ControllerBase
         var nonProdByFlow = new Dictionary<string, List<(double S, double E)>>(StringComparer.Ordinal);
         var waitByFlow = new Dictionary<string, List<(double S, double E)>>(StringComparer.Ordinal);
         double waitSlackCtMs = 0;    // 대기 공백(기준 미만 형제 정지, 계측 길이 Σ) — 정산 바 툴팁 스칼라
+        // 이벤트성 공백(2026-07-30) — 패스 2에서 '가동간 공백'(슬랙)으로 귀속되지만, 사이클 간 미세 간격이
+        //   아니라 하나의 정지 이벤트에서 온 구간. 두 소스: ① WaitSlack(신호 기반 형제 대기) ② 비가동 경계
+        //   미만 조각(minGapMs 로 버려지는 부분).
+        //   가용성 A 는 종전과 완전히 동일하다(슬랙도 비가동도 "생산가능 안 + 가동 아님") — 라벨과 진단만 분리한다:
+        //     · 정지 로그가 '대기(공백)'으로 표시할 수 있게 flow 귀속 구간을 남긴다. 이게 없으면 onset 때 찍힌
+        //       isFailure=1 도장이 그대로 보여, 집계는 고장에서 뺐는데 화면만 '고장'인 불일치가 생긴다.
+        //     · 사이클당 공백(slackPerCycleS) 환산에서 빼 미세 슬랙 진단 지표가 희석되지 않게 한다.
+        var slackByFlow = new Dictionary<string, List<(double S, double E)>>(StringComparer.Ordinal);
+        // 라인 스코프(flow 미상) 조각은 귀속처가 없어 기록하지 않는다 — 잔여 슬랙으로만 남는다(종전 동작).
+        void AddSlackFor(string? f, (double S, double E) seg)
+        {
+            if (f is null || seg.E <= seg.S) return;
+            if (!slackByFlow.TryGetValue(f, out var l)) slackByFlow[f] = l = new List<(double S, double E)>();
+            l.Add(seg);
+        }
         void AddNonProdFor(string f, (double S, double E) seg, bool wait)
         {
             if (!nonProdByFlow.TryGetValue(f, out var l)) nonProdByFlow[f] = l = new List<(double S, double E)>();
@@ -1217,6 +1242,7 @@ public abstract class OeeControllerBase : ControllerBase
                             // 대기(기준 미만 형제 정지) — 공백 귀속: A 손실(분모 내)이나 고장 건수·MTBF·고장
                             // 벽시계 미반영. idle 적립을 전부 스킵하면 패스 2에서 자동으로 '가동간 공백'이 된다.
                             waitSlackCtMs += measuredMs;
+                            foreach (var seg in rowSegs) AddSlackFor(f, seg);   // 로그 '대기(공백)' 표시 + 사이클당 환산 제외
                             downtimeCycles?.Add((f, startMs, rec, cMs, false, true));  // 로그 표시용(건수 미반영)
                             continue;
                         }
@@ -1278,10 +1304,15 @@ public abstract class OeeControllerBase : ControllerBase
                     // 적립되지 않아 패스 2 에서 자동으로 '가동간 공백'(슬랙)이 된다 — WaitSlack 과 동일 메커니즘.
                     // 진짜 장기 정지(내부에 사이클 없음)는 차감 대상이 없어 종전과 완전히 동일하게 1건으로 남는다.
                     var minGapMs = thrGap > 0 ? thrGap * idleMult : 0;
-                    var gaps = Intervals
-                        .Subtract(byFlow.Select(r => (r.S, r.E)).ToList(), gapDeduct)
-                        .Where(g => g.E - g.S >= minGapMs)
-                        .ToList();
+                    var gaps = new List<(double S, double E)>();
+                    foreach (var g in Intervals.Subtract(byFlow.Select(r => (r.S, r.E)).ToList(), gapDeduct))
+                    {
+                        if (g.E - g.S >= minGapMs) { gaps.Add(g); continue; }
+                        // 버린 조각 — 슬랙으로 흘려보내되 흔적을 남긴다. 종전엔 어떤 구간·스칼라에도 남지 않아
+                        // ① 정지 로그가 계속 '고장'으로 보였고(집계는 고장에서 뺐는데 화면만 고장) ② 사이클당
+                        // 공백 환산이 이벤트성 시간까지 미세 슬랙으로 세어 오염됐다.
+                        AddSlackFor(gapFlow, g);
+                    }
                     foreach (var u0 in gaps)
                     {
                         var segList = new List<(double S, double E)> { u0 };
@@ -1331,6 +1362,7 @@ public abstract class OeeControllerBase : ControllerBase
                             if (cls == OeeMath.StopClass.WaitSlack)
                             {
                                 waitSlackCtMs += len;               // 대기(기준 미만) — 공백 귀속, 건수·고장 미반영
+                                foreach (var us in uSegs) AddSlackFor(gapFlow, us);   // 로그 '대기(공백)' 표시 + 환산 제외
                                 continue;
                             }
                             // Fault(유발/usertag-only) / Down(무신호 기준 미만) → 아래 비가동 적립으로 폴스루.
@@ -1380,7 +1412,7 @@ public abstract class OeeControllerBase : ControllerBase
         //    사용자 오버라이드)이 전부 확정된 뒤, flow별 생산가능 창을 각자 만들어 가동/비가동/유지보수를 잰다.
         //    생산가능 = Σ_flow (기간 − 미계측 − 비생산_flow) — 종전 "라인 공통 단일 창 × flow수" 반전(doc/25 §7).
         var periodIv = new List<(double S, double E)> { (periodStartMs, periodEndMs) };
-        double availableWallMs = 0, nonProdWallMs = 0, waitWallMs = 0;
+        double availableWallMs = 0, nonProdWallMs = 0, waitWallMs = 0, eventSlackWallMs = 0;
         double runWallMs = 0, downMaintWallMs = 0, downFaultWallMs = 0;
         var runWallIntervals = new List<(double S, double E)>();       // flow별 가동(생산가능 클립) 연결
         var downMaintWallIntervals = new List<(double S, double E)>(); // flow별 유지보수(비가동∩유지이벤트) 연결
@@ -1388,6 +1420,7 @@ public abstract class OeeControllerBase : ControllerBase
         var nonProdFlat = new List<(double S, double E)>();            // flow별 비생산 concat — daily 가 곱 없이 슬롯 합산
         var nonProdScoped = new List<(string? Flow, double S, double E)>();
         var waitScoped = new List<(string? Flow, double S, double E)>();
+        var slackScoped = new List<(string? Flow, double S, double E)>();
         foreach (var (f, flowRun) in flowRunByFlow)
         {
             // flow별 비생산 창 = 지정 시각대(라인 공통) ∪ 이 flow 의 승격/강제/대기 구간.
@@ -1404,6 +1437,16 @@ public abstract class OeeControllerBase : ControllerBase
                 var wClipped = Intervals.Subtract(Intervals.Intersect(Intervals.Union(wIv), periodIv), unmeasured);
                 waitWallMs += Intervals.Total(wClipped);
                 foreach (var seg in wClipped) waitScoped.Add((f, seg.S, seg.E));
+            }
+            // 이벤트성 공백(대기 + 경계 미만 조각) — 비생산이 아니라서 생산가능(availF) 안에 그대로 남는다.
+            //   기간·미계측만 클립해 ① 로그 '대기(공백)' 표시용 구간 ② 사이클당 환산 제외용 스칼라를 만든다.
+            //   availF 로 교차하지 않는 이유: 여기 담기는 구간은 정의상 비생산 밖이고, 미계측은 아래 차감으로
+            //   이미 빠지므로 추가 교차가 불필요하다(가동과 겹치는 부분은 애초에 gapDeduct 로 차감된 뒤다).
+            if (slackByFlow.TryGetValue(f, out var sIv))
+            {
+                var sClipped = Intervals.Subtract(Intervals.Intersect(Intervals.Union(sIv), periodIv), unmeasured);
+                eventSlackWallMs += Intervals.Total(sClipped);
+                foreach (var seg in sClipped) slackScoped.Add((f, seg.S, seg.E));
             }
             // 가동 = 이 flow 정상 사이클 ∩ 이 flow 생산가능. 비가동 = 생산가능 − 가동(잔여).
             //   유지보수 = 비가동 ∩ 유지보수 이벤트(같은 flow, kind 0/2).
@@ -1441,7 +1484,8 @@ public abstract class OeeControllerBase : ControllerBase
             DownFaultWallMs: downFaultWallMs, DownFaultWallIntervals: downFaultWallIntervals,
             DowntimeCycles: downtimeCycles,
             NonProdScoped: nonProdScoped, WaitScoped: waitScoped,
-            WaitWallMs: waitWallMs, WaitSlackWallMs: waitSlackCtMs);
+            WaitWallMs: waitWallMs, WaitSlackWallMs: waitSlackCtMs,
+            SlackScoped: slackScoped, EventSlackWallMs: eventSlackWallMs);
     }
 
     private static OeeNonProdDetectionLog NewNonProdDetection(

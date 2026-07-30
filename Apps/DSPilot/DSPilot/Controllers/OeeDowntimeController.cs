@@ -47,11 +47,13 @@ public class OeeDowntimeController : OeeControllerBase
         //   재사용해 팝업 표시와 KPI 카빙이 같은 판단을 공유한다(2026-07-08 당일 판정 모델 + doc/25 flow 스코프).
         var nonProdScoped = new List<(string? Flow, double S, double E)>();
         var waitScoped = new List<(string? Flow, double S, double E)>();
+        var slackScoped = new List<(string? Flow, double S, double E)>();
         if (!string.Equals(status, "open", StringComparison.OrdinalIgnoreCase) && string.IsNullOrWhiteSpace(reason))
         {
-            var (overCycles, npScoped, wScoped) = await GetOverThresholdCycleDowntimeAsync(flowName, fromUtc, toUtc, ct);
+            var (overCycles, npScoped, wScoped, slScoped) = await GetOverThresholdCycleDowntimeAsync(flowName, fromUtc, toUtc, ct);
             nonProdScoped = npScoped;
             waitScoped = wScoped;
+            slackScoped = slScoped;
             // 재분류로 materialize 된 over-cycle 이벤트 행과 겹치는 합성 행 dedup — 같은 사이클이 두 줄로 보이지 않게.
             static bool NearSameStart(DateTime a, DateTime b) => Math.Abs((a - b).TotalSeconds) < 2.0;
             // 같은 정지 이중 표시 흡수(2026-07-16, 사용자 확인) — 하나의 정지가 무가동 이벤트(DB)와 ct 폭주 사이클
@@ -126,8 +128,13 @@ public class OeeDowntimeController : OeeControllerBase
                     }
                     return sum;
                 }
-                isNp = OverlapFor(nonProdScoped, d.FlowName, sMs, eMs) / dur >= 0.5;
-                isWait = isNp && OverlapFor(waitScoped, d.FlowName, sMs, eMs) / dur >= 0.5;
+                // 대기 두 갈래(2026-07-30): ① 비생산 대기(기준 이상 형제 정지) → "비생산 · 대기"
+                //   ② 이벤트성 공백(기준 미만 대기 + 비가동 경계 미만 조각) → "대기(공백)".
+                // 판정 규칙은 OeeMath.ResolveLogStopClass 단일 소스(순수·테스트 가능).
+                (isNp, isWait) = OeeMath.ResolveLogStopClass(
+                    OverlapFor(nonProdScoped, d.FlowName, sMs, eMs) / dur,
+                    OverlapFor(waitScoped, d.FlowName, sMs, eMs) / dur,
+                    OverlapFor(slackScoped, d.FlowName, sMs, eMs) / dur);
             }
             if (isNp != d.IsNonProd || isWait != d.IsWait) merged[i] = d with { IsNonProd = isNp, IsWait = isWait };
         }

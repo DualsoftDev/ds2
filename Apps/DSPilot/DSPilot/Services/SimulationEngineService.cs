@@ -741,10 +741,14 @@ public sealed class SimulationEngineService : IDisposable
         {
             if (DateTime.UtcNow - _autoBoundaryAtUtc < AutoBoundaryTtl) return _autoBoundaryCache;
             var stats = await _ctStats.ComputeCtRobustAsync();
+            // 하한 = 워치독 판정 주기 × 3 (관측 해상도). reconcile 비활성(0)이면 워치독은
+            // StateReconcileService 의 30초 폴링으로 계속 돌므로 그 값을 tick 으로 본다.
+            var tickSec = _settings.LoadSettings().HistoryView.StateReconcileIntervalSeconds;
+            var floorMs = (tickSec > 0 ? tickSec : 30) * 3 * 1000.0;
             var map = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
             foreach (var (flow, s) in stats)
             {
-                var b = OeeMath.ResolveAutoAbandonBoundaryMs(s.MedianMs, s.P99Ms, s.Sample);
+                var b = OeeMath.ResolveAutoAbandonBoundaryMs(s.MedianMs, s.P99Ms, s.Sample, floorMs);
                 if (b > 0) map[flow] = b;
             }
             _autoBoundaryCache = map;

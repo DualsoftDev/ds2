@@ -137,13 +137,18 @@ public static class OeeMath
     ///   정상 장주기 사이클을 잘라 미기록시키지 않기 위한 여유. 둘 중 관대한 값을 택한다.</item>
     /// <item>표본 부족(&lt; <paramref name="minSample"/>)이면 0 = 해제 안 함(종전 동작). 부팅 직후 몇 건으로
     ///   경계를 만들어 정상 사이클을 자르는 것보다 박제를 잠깐 유지하는 쪽이 보수적이다.</item>
+    /// <item>하한(<paramref name="floorMs"/>)은 <b>설비 사례가 아니라 관측 해상도</b>에서 온다 — 호출측이
+    ///   워치독 판정 주기(StateReconcile tick)의 배수를 넣는다. 경계가 tick 수준이면 판정 시점 지터가 경계와
+    ///   같은 크기라 배지가 불안정해지기 때문. 특정 현장의 설정값(예: 15초)을 상수로 박으면 사이클이 훨씬
+    ///   짧은/긴 다른 설비에서 근거 없는 값이 된다. 실측 두 현장은 공식값이 30초·31분이라 하한에 걸리지 않고,
+    ///   하한은 중앙값 0.75초 미만의 초고속 라인에서만 발동한다.</item>
     /// <item>상한(<paramref name="ceilingMs"/>) — p99 가 이상치를 물어도 언젠가는 해제되도록 보장.</item>
     /// </list>
     /// 이 값은 <b>워치독 전용</b>이다. IsIdle 박제·평균CT·OEE 집계에는 쓰지 않으므로 과거 수치가 바뀌지 않는다.
     /// </summary>
     public static double ResolveAutoAbandonBoundaryMs(
         double medianMs, double p99Ms, int sample,
-        double floorMs = 15_000, double ceilingMs = 6 * 60 * 60 * 1000,
+        double floorMs, double ceilingMs = 6 * 60 * 60 * 1000,
         double medianMult = 20, double p99Mult = 3, int minSample = 5)
     {
         if (sample < minSample || medianMs <= 0) return 0;
@@ -151,6 +156,28 @@ public static class OeeMath
         var byP99 = p99Ms > 0 ? p99Ms * p99Mult : 0;
         var boundary = Math.Max(byMedian, byP99);
         return Math.Clamp(boundary, floorMs, ceilingMs);
+    }
+
+    /// <summary>
+    /// 정지 로그 한 행의 '구분' 판정 (2026-07-30) — 순수 함수. 입력은 그 행 구간이 집계의 flow 귀속 구간과
+    /// 겹치는 비율(0~1): 비생산 / 비생산 중 대기 / 이벤트성 공백(대기 + 비가동 경계 미만 조각).
+    /// <list type="bullet">
+    /// <item>(NonProd, Wait) = (T,F) 비생산 · (T,T) 비생산·대기 · (F,T) <b>대기(공백)</b> · (F,F) 고장/유지보수</item>
+    /// <item>★대기는 비생산의 하위가 아니다. 종전 구현이 <c>isWait = isNp &amp;&amp; …</c> 로 AND 를 걸어, 집계는
+    ///   고장에서 빼놓은 정지(경계 미만 조각·기준 미만 대기)도 로그에선 onset 때 찍힌 isFailure=1 그대로
+    ///   '고장'으로 보였다 — UI 의 '대기(공백)' 분기는 발화 불가능한 죽은 코드였다(실측: 라인 정지 1건이
+    ///   flow 13개 고장으로 표시). 비생산이 아닐 때는 슬랙 겹침으로 판정한다.</item>
+    /// <item>가용성 A 는 어느 쪽이든 동일하게 깎인다(슬랙·비가동 모두 "생산가능 안 + 가동 아님") —
+    ///   이 판정이 바꾸는 것은 라벨과 고장 건수/MTBF 귀속뿐이다.</item>
+    /// </list>
+    /// 수동 분류(classifySource='manual')는 이 함수 밖에서 항상 우선한다.
+    /// </summary>
+    public static (bool IsNonProd, bool IsWait) ResolveLogStopClass(
+        double nonProdRatio, double waitRatio, double slackRatio, double minRatio = 0.5)
+    {
+        var isNonProd = nonProdRatio >= minRatio;
+        var isWait = isNonProd ? waitRatio >= minRatio : slackRatio >= minRatio;
+        return (isNonProd, isWait);
     }
 
     /// <summary>

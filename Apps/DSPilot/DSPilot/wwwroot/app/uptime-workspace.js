@@ -1783,6 +1783,9 @@
                         // 대기(고장 여파, doc/25) — 공백 성분 중 "라인 고장으로 서 있던 시간"(기준 미만 형제 정지).
                         //   계산상 slack 에 포함(A 손실 유지), 툴팁에서만 미세 슬랙과 구분 표기해 진단 가치 보존.
                         const waitSlack = Math.min(slack, Math.max(0, o.waitSlackWallMs || 0));
+                        // 이벤트성 공백 = 공백 중 하나의 정지에서 온 부분(대기 + 비가동 경계 미만 조각, waitSlack ⊆ 이 값).
+                        //   사이클당 환산에서 이걸 빼야 4분짜리 단기 정지가 '사이클 간 미세 간격' 지표를 희석하지 않는다.
+                        const eventSlack = Math.min(slack, Math.max(waitSlack, Math.max(0, o.eventSlackWallMs || 0)));
                         const failCount = Math.max(0, o.failureCount || 0);
                         const cycles = Math.max(0, o.normalCycleCount || 0);
                         const runPct = avail > 0 ? r1(run / avail * 100) : 0;
@@ -1793,10 +1796,11 @@
                             mode: 'wallclock', hasData: avail > 0,
                             runMs: run, stopMs: maint + fault, runPct, stopPct: r1(maintPct + faultPct),
                             faultMs: fault, maintMs: maint, faultPct, maintPct,
-                            slackMs: slack, slackPct, waitSlackMs: waitSlack,
+                            slackMs: slack, slackPct, waitSlackMs: waitSlack, eventSlackMs: eventSlack,
                             // 사이클당 환산(초) — "43m"이 커 보여도 사이클당 0.6s 수준임을 병기해 오해 방지(커지면 그 자체가 경고).
-                            // 대기(여파) 성분은 이벤트성이라 사이클당 환산에서 제외 — 미세 슬랙 진단 지표 희석 방지(doc/25 §3.3).
-                            slackPerCycleS: cycles > 0 ? Math.round((slack - waitSlack) / cycles / 100) / 10 : 0,
+                            // 이벤트성 공백(대기 여파 + 경계 미만 단기 정지)은 사이클당 환산에서 제외 — 미세 슬랙
+                            // 진단 지표 희석 방지(doc/25 §3.3, 2026-07-30 단기 정지 조각까지 확장).
+                            slackPerCycleS: cycles > 0 ? Math.round((slack - eventSlack) / cycles / 100) / 10 : 0,
                             runLabel: '가동 (생산가능시간 내)',
                             stopLabel: '비가동 · 고장',
                             runNote: cycles + '회', stopNote: failCount + '건',
@@ -1815,7 +1819,7 @@
                         mode: 'fallback', hasData: planned > 0,
                         runMs: run, stopMs: stop, runPct, stopPct: planned > 0 ? r1(100 - runPct) : 0,
                         faultMs: stop, maintMs: 0, faultPct: planned > 0 ? r1(100 - runPct) : 0, maintPct: 0,
-                        slackMs: 0, slackPct: 0, slackPerCycleS: 0,   // 가동간 공백은 벽시계 모델 전용
+                        slackMs: 0, slackPct: 0, slackPerCycleS: 0, eventSlackMs: 0,   // 가동간 공백은 벽시계 모델 전용
                         runLabel: '가동시간', stopLabel: '정지 (비계획)',
                         runNote: null, stopNote: null, sourceLabel: srcLabel,
                         subtitle: '가동시간 ÷ 계획생산시간 · 계획시간 폴백(' + srcLabel + ') — 가동 표본 부족',
