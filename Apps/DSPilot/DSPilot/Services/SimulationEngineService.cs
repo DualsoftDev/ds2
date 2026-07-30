@@ -256,6 +256,11 @@ public sealed class SimulationEngineService : IDisposable
         {
             _logWriter.TryWrite(tagId, value, DateTime.Now);
             _lastSeenByAddress[address] = DateTime.UtcNow;   // 주소 커버리지 진단(GetAddressCoverage)
+            // 라이브니스 도장 — 값이 안 변해도 유입은 유입이다. 상태전이/DB변화 경로만으로는 라이브 행이
+            // 고정값으로 굳은 현장에서 "데이터 대기"가 영구 표시되고, 그 플래그를 게이트로 쓰는 아래
+            // reconcile Phase 3 가 상시 닫혀 엣지 유실 자가치유가 죽는다. 매핑된 주소(inCache)로 한정하므로
+            // 모델과 무관한 태그가 라이브니스를 위조하지 않는다.
+            _dspDbService.MarkInbound();
         }
 
         // 진단 — UserTag 정의 주소에 대해서만 hit/miss + enqueue 결과 로깅.
@@ -927,6 +932,9 @@ public sealed class SimulationEngineService : IDisposable
         // ★유입 게이트 — "엣지가 유실됐다"는 추정은 엣지가 실제로 들어오고 있을 때만 성립한다. 수신이 끊긴
         //   구간(라인 정지·수집 장애)에서는 유실할 엣지가 없으므로 래치를 열 근거가 없다. 이 게이트가 없으면
         //   정지 중에도 매 tick 래치를 열어 워치독 abandon 과 왕복한다(현장 실측: 정지 26분째 15초 주기 깜빡임).
+        //   ★전제: 라이브니스가 태그 유입까지 본다(DspDbService.MarkInbound). 상태전이/DB변화만 보던 종전
+        //   신호는 라이브 행이 고정값으로 굳은 현장에서 영구 false 라, 그대로 게이트로 쓰면 자가치유가 상시
+        //   비활성이 된다 — 즉 이 게이트는 ③ 도장 경로와 한 묶음이다(한쪽만 배포하면 안 된다).
         if (!_dspDbService.IsReceivingLiveData) flowsWithHealthyGoing.Clear();
 
         foreach (var flow in flowsWithHealthyGoing)
