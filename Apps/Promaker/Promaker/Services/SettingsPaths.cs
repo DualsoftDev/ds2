@@ -40,6 +40,10 @@ public static class SettingsPaths
     public static string IriPrefix                       => Of("iriPrefix.txt");
     public static string CreateDefaultEntitiesOnEmptyAasx => Of("createDefaultEntitiesOnEmptyAasx.txt");
 
+    /// <summary>AASX/.sdf 저장 시 현재 PLC 접속 정보(벤더/IP/포트)를 프로젝트 파일에 함께 기록할지.
+    /// 기본 ON. OFF 로 두면 내부망 IP 가 외부로 전달되는 파일에 실리지 않는다.</summary>
+    public static string EmbedPlcConnectionInAasx        => Of("embedPlcConnectionInAasx.txt");
+
     /// <summary>사용자 정의 AASX 템플릿 폴더 경로. 폴더 안의 *.aasx 의 모든 SM 이 export 시 자동 첨부.</summary>
     public static string AasxUserTemplatesFolder         => Of("aasxUserTemplatesFolder.txt");
 

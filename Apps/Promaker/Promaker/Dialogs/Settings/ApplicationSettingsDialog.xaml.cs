@@ -23,12 +23,14 @@ public partial class ApplicationSettingsDialog : Window
     private static string SplitDeviceAasxSettingsPath        => SettingsPaths.SplitDeviceAasx;
     private static string IriPrefixSettingsPath              => SettingsPaths.IriPrefix;
     private static string CreateDefaultEntitiesSettingsPath  => SettingsPaths.CreateDefaultEntitiesOnEmptyAasx;
+    private static string EmbedPlcConnectionSettingsPath     => SettingsPaths.EmbedPlcConnectionInAasx;
 
     private const string DefaultIriPrefix = "https://dualsoft.com/";
 
     public string ResultIriPrefix { get; private set; } = "https://dualsoft.com/";
     public bool ResultSplitDeviceAasx { get; private set; }
     public bool ResultCreateDefaultEntities { get; private set; }
+    public bool ResultEmbedPlcConnection { get; private set; } = true;
 
     /// <summary>프리셋 SystemType 매핑 결과 (배열).</summary>
     public string[] ResultPresetSystemTypes { get; private set; } = Array.Empty<string>();
@@ -83,6 +85,7 @@ public partial class ApplicationSettingsDialog : Window
         IriPrefixBox.Text = AppSettingStore.LoadStringOrDefault(IriPrefixSettingsPath, DefaultIriPrefix);
         SplitDeviceAasxBox.IsChecked = AppSettingStore.LoadBoolOrDefault(SplitDeviceAasxSettingsPath, false);
         CreateDefaultEntitiesBox.IsChecked = AppSettingStore.LoadBoolOrDefault(CreateDefaultEntitiesSettingsPath, false);
+        EmbedPlcConnectionBox.IsChecked = AppSettingStore.LoadBoolOrDefault(EmbedPlcConnectionSettingsPath, true);
 
         var plcCfg = PlcConfig.Settings;
         PlcXgiTemplatePathBox.Text = plcCfg.EffectiveXgiTemplatePath;
@@ -219,6 +222,9 @@ public partial class ApplicationSettingsDialog : Window
 
         ResultCreateDefaultEntities = CreateDefaultEntitiesBox.IsChecked == true;
         AppSettingStore.SaveBool(CreateDefaultEntitiesSettingsPath, ResultCreateDefaultEntities);
+
+        ResultEmbedPlcConnection = EmbedPlcConnectionBox.IsChecked == true;
+        AppSettingStore.SaveBool(EmbedPlcConnectionSettingsPath, ResultEmbedPlcConnection);
 
         ResultPresetSystemTypes = PresetMappingListBox.Items
             .Cast<string>()

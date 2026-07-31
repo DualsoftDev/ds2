@@ -88,6 +88,10 @@ public partial class MainViewModel
             StatusText = "Agent 업로드 보류 — 공유 폴더 쓰기 잠금 중";
             return;
         }
+        // Agent 업로드본에도 접속 정보를 실어야 Agent 가 세션 AASX 만 보고 올바른 PLC 에 붙는다.
+        // (TrySaveFile 이 이미 박제했지만, 사용자 파일과 업로드 대상이 다를 수 있어 여기서도 보장.)
+        StampPlcConnection();
+
         bool exported;
         try
         {
@@ -207,8 +211,43 @@ public partial class MainViewModel
         return SaveToPath(dlg.FileName);
     }
 
+    /// <summary>
+    /// 현재 PLC 접속 정보(벤더/IP/포트)를 store 의 ControlSystemProperties 에 기록한다.
+    /// AASX/.sdf 저장 직전에 호출 — 프로젝트 파일이 접속 대상을 함께 들고 다니게 해서,
+    /// 다른 PC 에서 열어도 그 PC 에 남아 있던 IP 가 아니라 프로젝트의 IP 가 적용되게 한다.
+    ///
+    /// <para>AppSettings.EmbedPlcConnectionInAasx 가 OFF 면 기록하지 않고, 앞서 <b>우리가 기록해둔</b>
+    /// 값이 있으면 회수한다 — 내부망 IP 가 외부로 전달되는 파일에 실리지 않게 하는 옵트아웃.
+    /// AasxEditor 등으로 손편집한 값(PlcProfileVersion=0)은 우리 것이 아니므로 보존한다.</para>
+    ///
+    /// <para>저장 실패해도 흐름을 막지 않는다 (Project/ActiveSystem 이 없으면 기록할 곳 자체가 없음).</para>
+    /// </summary>
+    private void StampPlcConnection()
+    {
+        try
+        {
+            if (AppSettings.EmbedPlcConnectionInAasx)
+            {
+                var settings = Simulation?.PlcSettings.ToPoco();
+                if (settings is not null)
+                    Promaker.Shared.PlcConnectionResolver.StampToStore(_store, settings);
+            }
+            else
+            {
+                Promaker.Shared.PlcConnectionResolver.ClearStampedConnection(_store);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"PLC 접속 정보 박제 실패 (무시하고 저장 계속): {ex.Message}", ex);
+        }
+    }
+
     private bool SaveToPath(string filePath)
     {
+        // 저장 형식(AASX/.sdf/Mermaid) 무관하게 진입부 한 곳에서 박제 — 경로별 누락 방지.
+        StampPlcConnection();
+
         if (FileTypeProbe.IsMermaid(filePath))
         {
             try

@@ -130,6 +130,7 @@ public partial class MainViewModel
         AppSettings.SetSplitDeviceAasx(dlg.ResultSplitDeviceAasx);
         AppSettings.SetCreateDefaultEntitiesOnEmptyAasx(dlg.ResultCreateDefaultEntities);
         AppSettings.SetIriPrefix(dlg.ResultIriPrefix);
+        AppSettings.SetEmbedPlcConnectionInAasx(dlg.ResultEmbedPlcConnection);
 
         StatusText = "환경 설정이 변경되었습니다.";
     }
