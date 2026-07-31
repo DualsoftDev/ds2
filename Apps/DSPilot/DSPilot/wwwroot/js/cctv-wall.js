@@ -362,13 +362,8 @@
                 }
             },
             cctvLabelText(o) { return o.label || o.callName || o.flowName || '(이름없음)'; },
-            cctvFmtDuration(ms) {
-                if (ms == null) return '—';
-                const n = Number(ms);
-                if (!isFinite(n)) return '—';
-                if (n >= 1000) return (n / 1000).toFixed(1) + 's';
-                return Math.round(n) + 'ms';
-            },
+            // 표기 SSOT = shell.js window.dspFmt.dur (한국식 일/시간/분/초).
+            cctvFmtDuration(ms) { return window.dspFmt.dur(ms); },
             cctvFmtPct(v) {
                 if (v == null) return '';
                 const n = Number(v);

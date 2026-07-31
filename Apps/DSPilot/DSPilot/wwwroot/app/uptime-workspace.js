@@ -546,7 +546,7 @@
                     if (s >= 90) return (s / 60).toFixed(1) + '분';
                     return (s >= 10 ? String(Math.round(s)) : s.toFixed(1)) + '초';
                 },
-                cmFmtH(ms) { const h = (ms || 0) / 3600000; return h >= 10 ? Math.round(h) + 'h' : h.toFixed(1) + 'h'; },
+                cmFmtH(ms) { const h = (ms || 0) / 3600000; return (h >= 10 ? Math.round(h) : h.toFixed(1)) + '시간'; },
                 cmFmtPct(v) { return (v === null || v === undefined) ? '—' : (v * 100).toFixed(1) + '%'; },
                 // 슬라이더 입력 — 역전 차단(비가동 + 0.5 ≤ 비생산 유지) 후 미리보기 디바운스
                 cmSetIdle(v) {
@@ -1284,7 +1284,7 @@
                         //   hidden 을 건드리지 않으므로 사용자의 범례 토글이 라이브 갱신에도 유지된다.
                         { label: '비생산(제외)', data: nonProdData, backgroundColor: nightHatch, stack: 's', order: 2, hidden: true },
                         {
-                            label: `평균 ${avgRun.toFixed(1)}h`,
+                            label: `평균 ${avgRun.toFixed(1)}시간`,
                             type: 'line',
                             data: d.slots.map(() => avgRun),
                             borderColor: cGray,
@@ -1652,14 +1652,8 @@
 
                 // ── OEE 포맷터/톤 ──
                 pct(v) { return (v == null) ? '—' : (v * 100).toFixed(1) + '%'; },
-                durShort(ms) {
-                    if (ms == null || ms <= 0) return '—';
-                    if (ms < 1000) return Math.round(ms) + 'ms';
-                    if (ms < 60000) return (ms / 1000).toFixed(1) + 's';
-                    if (ms < 3600000) return Math.floor(ms / 60000) + 'm ' + Math.floor(ms % 60000 / 1000) + 's';
-                    if (ms < 86400000) return Math.floor(ms / 3600000) + 'h ' + Math.floor(ms % 3600000 / 60000) + 'm';
-                    return Math.floor(ms / 86400000) + 'd ' + Math.floor(ms % 86400000 / 3600000) + 'h';
-                },
+                // 표기 SSOT = shell.js window.dspFmt.dur (한국식 일/시간/분/초).
+                durShort(ms) { return window.dspFmt.dur(ms); },
                 dur(ms, d) {
                     // open(진행중)인데 durationMs 없으면 시작→현재 경과 근사 표기
                     if (ms != null && ms > 0) return this.durShort(ms);
@@ -1859,7 +1853,7 @@
                 get planChainFoot() {
                     const pt = this.planTime;
                     if (!pt) return '';
-                    const hrs = (ms) => (ms / 3600000).toFixed(1) + 'h';
+                    const hrs = (ms) => (ms / 3600000).toFixed(1) + '시간';
                     const p2 = (x) => String(x).padStart(2, '0');
                     if (pt.source === 'auto')
                         return `자동추정${pt.autoAvailable ? ` · 활동 ${p2(pt.autoStartHour)}–${p2(pt.autoEndHour)}시` : ''} · 활동일 ${pt.activeDays}일 · 계획시간 ${hrs(pt.plannedMs)} · 가동 ${hrs(pt.runtimeMs)}`;
@@ -2319,10 +2313,7 @@
                             label(ctx) {
                                 const v = ctx.parsed.y;
                                 if (v == null || v <= 0) return null;
-                                const h = Math.floor(v);
-                                const m = Math.round((v - h) * 60);
-                                const t = h > 0 ? `${h}h ${m}m` : `${m}m`;
-                                return `${ctx.dataset.label}: ${t}`;
+                                return `${ctx.dataset.label}: ${window.dspFmt.durHours(v)}`;
                             },
                         },
                     },
@@ -2341,7 +2332,7 @@
                         ticks: {
                             color: cText,
                             font: { size: 11 },
-                            callback: v => v + 'h',
+                            callback: v => v + '시간',
                         },
                         grid: { color: cGrid },
                     },

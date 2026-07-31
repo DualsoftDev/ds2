@@ -458,6 +458,40 @@ public class OeeMathTests
         Assert.Equal(expected, OeeMath.IsFailureReason(reasonCode));
     }
 
+    // ── 유지보수 확정 정지 = 고장 아님 (2026-07-30) ────────────────────────
+    // 정지를 유지보수로 분류하면 고장 건수·MTBF onset·MTTR 에서 빠져야 한다(A 는 그대로 깎임).
+
+    [Theory]
+    [InlineData(10_000, 10_000, true)]   // 완전히 덮임 = 유지보수
+    [InlineData(10_000, 6_000, true)]    // 과반 덮임 = 유지보수
+    [InlineData(10_000, 5_001, true)]    // 과반 경계 바로 위
+    [InlineData(10_000, 5_000, false)]   // 정확히 절반 = 고장 유지(과반 아님)
+    [InlineData(10_000, 4_000, false)]   // 소수만 덮임 = 고장 유지
+    [InlineData(10_000, 1_500, false)]   // 경계 스침(1.5초) 으로 진짜 고장이 지워지지 않는다
+    [InlineData(10_000, 0, false)]       // 유지보수 구간 없음 = 고장
+    [InlineData(0, 0, false)]            // 계측 0 — 판정 대상 아님(0 나눗셈 방어)
+    public void IsMaintenanceCovered_requires_majority(double measuredMs, double maintMs, bool expected)
+    {
+        Assert.Equal(expected, OeeMath.IsMaintenanceCovered(measuredMs, maintMs));
+    }
+
+    [Fact]
+    public void IsMaintenanceCovered_excluded_stop_drops_out_of_mtbf()
+    {
+        // 정지 3건(onset 0 / 10분 / 30분) 중 가운데가 유지보수 확정 → onset 2개만 남아
+        // 갭이 10·20분(평균 15분)에서 30분 단일 갭으로 바뀐다 = MTBF 값이 실제로 변한다.
+        var all = new List<double> { 0, 10 * 60_000, 30 * 60_000 };
+        var (before, _, _) = OeeMath.ComputeMtbf2(all);
+
+        Assert.True(OeeMath.IsMaintenanceCovered(measuredMs: 60_000, maintOverlapMs: 60_000));
+        var kept = new List<double> { 0, 30 * 60_000 };   // 가운데 정지 제외 후
+        var (after, _, _) = OeeMath.ComputeMtbf2(kept);
+
+        Assert.Equal(15 * 60_000.0, before!.Value, 6);
+        Assert.Equal(30 * 60_000.0, after!.Value, 6);
+        Assert.NotEqual(before.Value, after.Value);
+    }
+
     [Fact]
     public void Classify_over_8h_is_fault() // 8h↑ 도 고장(비생산 시간대 에디터가 planned 분리 — 단순 2-상태)
     {

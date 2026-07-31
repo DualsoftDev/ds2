@@ -286,7 +286,7 @@ public static class OeeMath
     public static (double? Mtbf, string? Note, bool NoFault) ComputeMtbf(double runtimeMs, int failureCount)
     {
         if (failureCount <= 0)
-            return (null, "고장(분류 unplanned) 건수 0 — MTBF 산출 불가(고장없음).", true);
+            return (null, "고장(분류 unplanned) 건수 0 — 평균 고장 간격 산출 불가(고장없음).", true);
         return (runtimeMs / failureCount, "Σ가동시간 / 고장건수 (가동시간 = 가용성 분모와 동일 폴백).", false);
     }
 
@@ -311,6 +311,16 @@ public static class OeeMath
     /// </summary>
     public static bool IsFailureReason(string? reasonCode)
         => string.Equals(reasonCode?.Trim(), "equipment_fault", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// 유지보수 확정 정지 판정 단일 소스 (2026-07-30). 사이클기반 집계에서 감지된 정지가 '분류된 비-고장 정지'
+    /// (GetDowntimeIntervalsAsync Kind 0=계획정비 / 2=계획외이나 isFailure=0)에 <b>과반</b>이 덮이면 고장이 아니다 —
+    /// 고장 건수·MTBF onset·MTTR 복구구간에서 제외한다. '조금이라도 겹치면'은 경계 1~2초 스침으로 진짜 고장을
+    /// 지우고, '전부 덮이면'은 1초만 어긋나도 유지보수가 고장으로 남는다. 과반이 두 오류를 모두 피한다.
+    /// <b>가용성(A)은 깎인 채로 둔다</b> — 의도된 정지라도 그 시간에 생산은 없었다(빠지는 건 '고장' 귀속뿐).
+    /// </summary>
+    public static bool IsMaintenanceCovered(double measuredMs, double maintOverlapMs)
+        => measuredMs > 0 && maintOverlapMs > measuredMs / 2;
 
     /// <summary>
     /// nocycle clear 시 지속시간 기반 자동 분류: ≥ 5분 → 설비고장(unplanned, isFailure=true),
@@ -414,9 +424,9 @@ public static class OeeMath
     public static (double? Mtbf, string? Note, bool NoFault) ComputeMtbf2(IReadOnlyList<double> onsetsAscMs)
     {
         if (onsetsAscMs is null || onsetsAscMs.Count == 0)
-            return (null, "비가동(고장) 0건 — MTBF 산출 불가(고장없음).", true);
+            return (null, "비가동(고장) 0건 — 평균 고장 간격 산출 불가(고장없음).", true);
         if (onsetsAscMs.Count < 2)
-            return (null, "비가동 1건 — 연속 onset 간격 없음(MTBF 산출 불가).", false);
+            return (null, "비가동 1건 — 연속 onset 간격 없음(평균 고장 간격 산출 불가).", false);
 
         double sum = 0; int gaps = 0;
         for (int i = 1; i < onsetsAscMs.Count; i++)
@@ -424,7 +434,7 @@ public static class OeeMath
             var g = onsetsAscMs[i] - onsetsAscMs[i - 1];
             if (g > 0) { sum += g; gaps++; }
         }
-        if (gaps == 0) return (null, "유효 onset 간격 없음 — MTBF 산출 불가.", false);
+        if (gaps == 0) return (null, "유효 onset 간격 없음 — 평균 고장 간격 산출 불가.", false);
         return (sum / gaps, "연속 비가동 onset 간격 평균 (P5 §④).", false);
     }
 
@@ -437,7 +447,7 @@ public static class OeeMath
     {
         var valid = (repairMsList ?? new List<double>()).Where(x => x >= 0).ToList();
         if (valid.Count == 0)
-            return (null, "비가동 복구 구간 없음 — MTTR 산출 불가.");
+            return (null, "비가동 복구 구간 없음 — 평균 복구 시간 산출 불가.");
         return (valid.Average(), "비가동 onset → going 회복 구간 평균 (P5 §④).");
     }
 

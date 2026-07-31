@@ -3,6 +3,35 @@
 window._dspDirtyChecker = null;
 window.dspDirtyRegister = function (fn) { window._dspDirtyChecker = fn; };
 
+// ── 지속시간 표기 SSOT — window.dspFmt (한국식 일/시간/분/초) ──
+// 종전에는 durShort(OEE·대시보드)/cctvFmtDuration(CCTV 오버레이)이 파일마다 복붙돼 있었고
+// 'ms/s/m/h/d' 영문 단위를 뿌렸다. 표기 규약을 한곳으로 모은다.
+//   · 상위 2단위까지만 (일·시간 / 시간·분 / 분·초) — KPI 카드·툴팁 폭 유지
+//   · 1초 미만은 ms 유지 — 정밀 진단 화면에서 '0.1초'보다 '123ms'가 읽기 쉽다
+// 호출부는 반드시 호출 시점에 window.dspFmt 를 참조할 것. shell.js 는 defer 라
+// 비-defer 스크립트(uptime-workspace.js 등)의 로드 시점엔 아직 없다(호출 시점엔 항상 있음).
+window.dspFmt = {
+    // 짧은 지속시간 — 구 durShort/cctvFmtDuration 대체. 값 없음/0 이하는 empty(기본 '—').
+    dur(ms, empty) {
+        const e = (empty === undefined) ? '—' : empty;
+        if (ms == null) return e;
+        const n = Number(ms);
+        if (!isFinite(n) || n <= 0) return e;
+        if (n < 1000) return Math.round(n) + 'ms';
+        if (n < 60000) return (n / 1000).toFixed(1) + '초';
+        if (n < 3600000) return Math.floor(n / 60000) + '분 ' + Math.floor(n % 60000 / 1000) + '초';
+        if (n < 86400000) return Math.floor(n / 3600000) + '시간 ' + Math.floor(n % 3600000 / 60000) + '분';
+        return Math.floor(n / 86400000) + '일 ' + Math.floor(n % 86400000 / 3600000) + '시간';
+    },
+    // 시(hour) 실수값 → '2시간 15분' / '15분'. 차트 툴팁처럼 이미 시간 단위인 축에서 사용.
+    durHours(h) {
+        if (h == null || !isFinite(Number(h)) || Number(h) <= 0) return '0분';
+        const hi = Math.floor(Number(h));
+        const mi = Math.round((Number(h) - hi) * 60);
+        return hi > 0 ? (hi + '시간 ' + mi + '분') : (mi + '분');
+    },
+};
+
 /*
  * DSPilot 정적 셸 (Shared App-Shell) — stitch "Industrial Insight"
  * ------------------------------------------------------------------

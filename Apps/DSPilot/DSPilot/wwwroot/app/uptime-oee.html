@@ -133,33 +133,33 @@
                         </div>
                         <!-- MTBF (연속 비가동 onset 간격 평균; 무비가동 = 가짜수치 대신 배지) -->
                         <div class="up-oee" :class="oee && oee.failureCount === 0 ? 'is-good' : (oee && oee.mtbf != null ? 'is-warn' : 'is-na')">
-                            <div class="up-oee-label">MTBF</div>
+                            <div class="up-oee-label">평균 고장 간격(MTBF)</div>
                             <template x-if="oee && oee.failureCount === 0">
                                 <div>
-                                    <div class="up-nofault"><span class="led"></span>비가동 없음</div>
-                                    <div class="up-oee-note">기간 비가동 0건 — 산출 대상 없음.</div>
+                                    <div class="up-nofault"><span class="led"></span>고장 없음</div>
+                                    <div class="up-oee-note">기간 고장 0건 — 산출 대상 없음(유지보수는 제외).</div>
                                 </div>
                             </template>
                             <template x-if="!oee || oee.failureCount !== 0">
                                 <div>
                                     <div class="up-oee-value up-oee-mono" x-text="oee ? durShort(oee.mtbf) : '—'"></div>
-                                    <div class="up-oee-note" x-text="oee ? (oee.mtbf != null ? ('비가동 ' + oee.failureCount + '건 · onset 간격 평균') : (oee.mtbfNote || '산출 불가')) : ''"></div>
+                                    <div class="up-oee-note" x-text="oee ? (oee.mtbf != null ? ('고장 ' + oee.failureCount + '건 · onset 간격 평균') : (oee.mtbfNote || '산출 불가')) : ''"></div>
                                 </div>
                             </template>
                         </div>
                         <!-- MTTR (비가동 onset → going 회복 평균; doc/22 §5 복원. 무비가동 = 배지) -->
                         <div class="up-oee" :class="oee && oee.failureCount === 0 ? 'is-good' : (oee && oee.mttr != null ? 'is-warn' : 'is-na')">
-                            <div class="up-oee-label">MTTR</div>
+                            <div class="up-oee-label">평균 복구 시간(MTTR)</div>
                             <template x-if="oee && oee.failureCount === 0">
                                 <div>
-                                    <div class="up-nofault"><span class="led"></span>비가동 없음</div>
-                                    <div class="up-oee-note">기간 비가동 0건 — 산출 대상 없음.</div>
+                                    <div class="up-nofault"><span class="led"></span>고장 없음</div>
+                                    <div class="up-oee-note">기간 고장 0건 — 산출 대상 없음(유지보수는 제외).</div>
                                 </div>
                             </template>
                             <template x-if="!oee || oee.failureCount !== 0">
                                 <div>
                                     <div class="up-oee-value up-oee-mono" x-text="oee ? durShort(oee.mttr) : '—'"></div>
-                                    <div class="up-oee-note" x-text="oee ? (oee.mttr != null ? ('비가동 ' + oee.failureCount + '건 · onset→회복 평균') : (oee.mttrNote || '산출 불가')) : ''"></div>
+                                    <div class="up-oee-note" x-text="oee ? (oee.mttr != null ? ('고장 ' + oee.failureCount + '건 · onset→회복 평균') : (oee.mttrNote || '산출 불가')) : ''"></div>
                                 </div>
                             </template>
                         </div>
@@ -232,7 +232,7 @@
                             </div>
                             <div style="display:flex; gap:18px; margin-top:8px; font-size:0.72rem; color:var(--color-text-secondary); flex-wrap:wrap;">
                                 <span><span x-text="availComp.runLabel"></span> <b x-text="durShort(availComp.runMs)"></b> (<span x-text="availComp.runPct + '%'"></span>)<template x-if="availComp.runNote"><span x-text="' · ' + availComp.runNote"></span></template></span>
-                                <span x-show="availComp.slackMs > 0" :title="'사이클 간 미세 공백 + 비가동 경계 미만 단기 정지·대기 — 고장 건수·MTBF 에 세지 않습니다(가용성에는 손실로 계상)' + (availComp.eventSlackMs > 0 ? ('. 이 중 ' + durShort(availComp.eventSlackMs) + ' 는 하나의 정지에서 온 시간(단기 정지 · 라인 고장 여파 대기)' + (availComp.waitSlackMs > 0 ? (' — 그 중 ' + durShort(availComp.waitSlackMs) + ' 는 대기') : '')) : '')">가동간 공백 <b x-text="durShort(availComp.slackMs)"></b> (<span x-text="availComp.slackPct + '%'"></span>)<span x-show="availComp.slackPerCycleS > 0" x-text="' · 사이클당 ' + availComp.slackPerCycleS + 's'"></span><span x-show="availComp.eventSlackMs > 0" style="color:var(--color-text-secondary);" x-text="' · 단기정지·대기 ' + durShort(availComp.eventSlackMs)"></span></span>
+                                <span x-show="availComp.slackMs > 0" :title="'사이클 간 미세 공백 + 비가동 경계 미만 단기 정지·대기 — 고장 건수·평균 간격에 세지 않습니다(가용성에는 손실로 계상)' + (availComp.eventSlackMs > 0 ? ('. 이 중 ' + durShort(availComp.eventSlackMs) + ' 는 하나의 정지에서 온 시간(단기 정지 · 라인 고장 여파 대기)' + (availComp.waitSlackMs > 0 ? (' — 그 중 ' + durShort(availComp.waitSlackMs) + ' 는 대기') : '')) : '')">가동간 공백 <b x-text="durShort(availComp.slackMs)"></b> (<span x-text="availComp.slackPct + '%'"></span>)<span x-show="availComp.slackPerCycleS > 0" x-text="' · 사이클당 ' + availComp.slackPerCycleS + '초'"></span><span x-show="availComp.eventSlackMs > 0" style="color:var(--color-text-secondary);" x-text="' · 단기정지·대기 ' + durShort(availComp.eventSlackMs)"></span></span>
                                 <span x-show="availComp.faultMs > 0"><span x-text="availComp.stopLabel"></span> <b x-text="durShort(availComp.faultMs)"></b> (<span x-text="availComp.faultPct + '%'"></span>)<template x-if="availComp.stopNote"><span x-text="' · ' + availComp.stopNote"></span></template></span>
                                 <span x-show="availComp.maintMs > 0">비가동 · 유지보수 <b x-text="durShort(availComp.maintMs)"></b> (<span x-text="availComp.maintPct + '%'"></span>)</span>
                                 <span x-show="availComp.maintMs > 0 && availComp.faultMs > 0">비가동 합계 <b x-text="durShort(availComp.stopMs)"></b> (<span x-text="availComp.stopPct + '%'"></span>)</span>
@@ -354,7 +354,7 @@
                             </div>
                         </template>
                         <div style="font-size:0.62rem; color:var(--color-text-secondary); margin-top:10px;">
-                            기본 <b>고장</b> — 로그에서 체크 해제 시 유지보수로 변경(MTBF 고장 제외) · <b>비생산</b>은 A 분모 밖(로그에서 비가동↔비생산 보내기 가능)
+                            기본 <b>고장</b> — 로그에서 체크 해제 시 유지보수로 변경(평균 고장 간격 산출에서 제외) · <b>비생산</b>은 A 분모 밖(로그에서 비가동↔비생산 보내기 가능)
                         </div>
                         <button class="btn btn-sm btn-outlined" style="margin-top:12px; width:100%; justify-content:center;" @click="showDowntimeLog = true">
                             <span class="material-icons" style="font-size:16px;">receipt_long</span>
@@ -414,7 +414,7 @@
                                     title="비가동(고장/유지보수) — 가용성(A) 분모 안에서 깎이는 정지">
                                 비가동 <span x-text="'(' + dtDownCount + ')'"></span></button>
                             <button :class="dtTab === 'nonprod' ? 'is-active' : ''" @click="dtTab='nonprod'"
-                                    title="비생산 — 가용성(A) 분모 밖(생산가능시간에서 제외), 건수·MTBF 미반영">
+                                    title="비생산 — 가용성(A) 분모 밖(생산가능시간에서 제외), 건수·평균 고장 간격 미반영">
                                 비생산 <span x-text="'(' + dtNonProdCount + ')'"></span></button>
                         </div>
                         <span style="flex:1;"></span>
@@ -451,12 +451,12 @@
                                 <span class="up-bulk-label">구분 일괄 지정</span>
                                 <button class="btn btn-sm up-bulk-fault" :disabled="bulkBusy || bulkFaultTargets.length === 0"
                                         @click="bulkSetFault(true)"
-                                        :title="bulkFaultTargets.length ? bulkFaultTargets.length + '건을 고장으로 확정 — 고장 건수·MTBF 에 반영' : '선택 행 중 구분을 바꿀 수 있는 정지가 없습니다(대기·비생산 제외)'">
+                                        :title="bulkFaultTargets.length ? bulkFaultTargets.length + '건을 고장으로 확정 — 고장 건수·평균 간격에 반영' : '선택 행 중 구분을 바꿀 수 있는 정지가 없습니다(대기·비생산 제외)'">
                                     <span class="material-icons">error</span>고장<span x-show="bulkFaultTargets.length > 0" x-text="' ' + bulkFaultTargets.length"></span>
                                 </button>
                                 <button class="btn btn-sm up-bulk-maint" :disabled="bulkBusy || bulkFaultTargets.length === 0"
                                         @click="bulkSetFault(false)"
-                                        :title="bulkFaultTargets.length ? bulkFaultTargets.length + '건을 유지보수로 확정 — 고장 건수·MTBF 에서 제외' : '선택 행 중 구분을 바꿀 수 있는 정지가 없습니다(대기·비생산 제외)'">
+                                        :title="bulkFaultTargets.length ? bulkFaultTargets.length + '건을 유지보수로 확정 — 고장 건수·평균 간격에서 제외' : '선택 행 중 구분을 바꿀 수 있는 정지가 없습니다(대기·비생산 제외)'">
                                     유지보수<span x-show="bulkFaultTargets.length > 0" x-text="' ' + bulkFaultTargets.length"></span>
                                 </button>
                             </span>
@@ -521,7 +521,7 @@
                                                     <span style="color:var(--nonprod);font-weight:700;" :title="d.isWait ? '대기(고장 여파) — 같은 시간 라인 내 다른 설비 고장으로 서 있던 시간. 가용성(A) 분모 밖 · 고장 건수 미반영' : ('비생산 — 가용성(A) 분모 밖 · ' + (d.classifySource === 'manual' ? '사용자 확정' : '당일 자동 판정(장시간 정지)'))" x-text="d.isWait ? '비생산 · 대기' : '비생산'"></span>
                                                 </template>
                                                 <template x-if="!d.isNonProd && d.isWait">
-                                                    <span style="color:var(--oee-slack, #7dd3fc);font-weight:700;" title="대기·단기 정지(비가동 경계 미만) — '가동간 공백'으로 계산합니다. 가용성(A)은 비가동과 똑같이 깎이고, 고장 건수·MTBF 에만 세지 않습니다(설비 고장으로 보지 않음)">대기(공백)</span>
+                                                    <span style="color:var(--oee-slack, #7dd3fc);font-weight:700;" title="대기·단기 정지(비가동 경계 미만) — '가동간 공백'으로 계산합니다. 가용성(A)은 비가동과 똑같이 깎이고, 고장 건수·평균 간격에만 세지 않습니다(설비 고장으로 보지 않음)">대기(공백)</span>
                                                 </template>
                                                 <!-- 고장/유지보수 체크 — 합성 행(이상치 초과 사이클)도 가능(2026-07-16, doc/25):
                                                      의도된 정지가 이상치로 잡혔을 때 체크 해제 시 서버가 실제 행으로 승격 후 유지보수 확정. -->
@@ -560,7 +560,7 @@
 
                     <!-- 상세 설명은 각 요소 툴팁으로 대체(2026-07-08) — 하단은 핵심 한 줄만 -->
                     <div style="font-size:0.62rem; color:var(--color-text-secondary); margin-top:12px;">
-                        고장 체크 해제 = 유지보수(MTBF 제외) · <b style="color:var(--nonprod);">비생산</b> = 가용성(A) 분모 밖 · <b>대기</b> = 라인 고장 여파(건수 미반영, 신호 기반 자동 판별) · 단서는 표시용(건수·MTBF 미반영)
+                        고장 체크 해제 = 유지보수(평균 고장 간격 제외) · <b style="color:var(--nonprod);">비생산</b> = 가용성(A) 분모 밖 · <b>대기</b> = 라인 고장 여파(건수 미반영, 신호 기반 자동 판별) · 단서는 표시용(건수·평균 고장 간격 미반영)
                     </div>
                     </div>
                 </div>
@@ -818,10 +818,10 @@
                                 <tr><td>가동시간 이상치 (표준 가동시간)</td><td>최근 <b>14일 정상 가동 가동시간 평균</b>(flow별, RAM only — DB 미기입). 비가동 판정·성능 분자 <b>공용</b>. 클린샘플 <b>1개부터 A·P 산출</b>(5개 미만은 <b>'샘플 부족' 잠정값</b> — 쌓이면 자동 정상화), <b>0개</b>면 '—'.</td></tr>
                                 <tr><td>성능 P 의 의미</td><td>표준 가동시간 = <b>최근 14일 평균</b>(고정). 표준=평균이라 정상상태 <b>P ≈ 100% 수렴</b> — "최속 대비 손실"이 아니라 <b>"14일 추세 대비 당기 저하"</b> 감지기(90%대를 '거의 완벽'으로 오독 금지). <b>비가동 판정·가용성(A) 임계도 동일한 14일 평균</b>을 공용.</td></tr>
                                 <tr><td>비가동 dedup</td><td>① 동작시간&gt;가동시간 이상치 ② 미완료(complete=null) 가동시간 폭주 ③ 무가동 정지. ③은 가동 가동시간 구간과 안 겹치는 부분만 가산(구간 차집합) — <b>이중계상 방지</b>.</td></tr>
-                                <tr><td>MTTR / MTBF</td><td>비가동 <b>onset</b>(= 가동 시작 + 가동시간 이상치)에서 파생. <b>MTTR</b> = onset→going 회복 평균 · <b>MTBF</b> = 연속 onset 간격 평균. OEE 곱셈식과 <b>독립</b> 동반지표. 0건이면 "🟢 무비가동" 배지(가짜수치 금지).</td></tr>
+                                <tr><td>평균 복구 시간 / 평균 고장 간격</td><td>비가동 <b>onset</b>(= 가동 시작 + 가동시간 이상치)에서 파생. <b>평균 복구 시간(MTTR)</b> = onset→going 회복 평균 · <b>평균 고장 간격(MTBF)</b> = 연속 onset 간격 평균. OEE 곱셈식과 <b>독립</b> 동반지표. 0건이면 "🟢 무비가동" 배지(가짜수치 금지).</td></tr>
                                 <tr><td>폴백 보존</td><td>14일 클린샘플 <b>0(임계 없음)</b>일 때만 가용성은 <b>시간기반 폴백 체인</b>(시프트 ▸ 자동추정 ▸ 달력)으로 근사. A 카드 칩으로 현재 출처(<span class="up-codeish">가동시간</span>/시프트/자동추정/달력) 표시.</td></tr>
-                                <tr><td>정지 2계층</td><td><b>감지</b>(무가동/고장비트/수동) · <b>단서</b>(abnormal/수동등록TAG 겹침 = 표시 전용). 기본 고장 체크 — 로그에서 해제 시 유지보수(MTBF 분모 제외).</td></tr>
-                                <tr><td>필수 입력 0개</td><td>가동시간 이상치·비가동 판정·A·P·MTTR·MTBF 모두 수집 데이터로 자동. 품질%·표준 가동시간 수동입력·고장/유지보수 구분은 선택(보정).</td></tr>
+                                <tr><td>정지 2계층</td><td><b>감지</b>(무가동/고장비트/수동) · <b>단서</b>(abnormal/수동등록TAG 겹침 = 표시 전용). 기본 고장 체크 — 로그에서 해제 시 유지보수(평균 고장 간격 분모 제외).</td></tr>
+                                <tr><td>필수 입력 0개</td><td>가동시간 이상치·비가동 판정·A·P·평균 복구 시간·평균 고장 간격 모두 수집 데이터로 자동. 품질%·표준 가동시간 수동입력·고장/유지보수 구분은 선택(보정).</td></tr>
                             </tbody>
                         </table>
                     </div>

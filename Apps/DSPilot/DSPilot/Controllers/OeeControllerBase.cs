@@ -338,8 +338,8 @@ public abstract class OeeControllerBase : ControllerBase
         string? mttrNote;
         if (failureCount <= 0)
         {
-            mtbfNote = "고장(분류 unplanned) 건수 0 — MTBF 산출 불가.";
-            mttrNote = "고장(분류 unplanned, 마감됨) 건수 0 — MTTR 산출 불가.";
+            mtbfNote = "고장(분류 unplanned) 건수 0 — 평균 고장 간격 산출 불가.";
+            mttrNote = "고장(분류 unplanned, 마감됨) 건수 0 — 평균 복구 시간 산출 불가.";
         }
         else
         {
@@ -792,7 +792,8 @@ public abstract class OeeControllerBase : ControllerBase
         double idleMult, double nonProdMult)
     {
         var sb = new System.Text.StringBuilder(256);
-        sb.Append("v25|");   // 분모/분류 모델 버전(doc/25) — 모델 변경 배포 직후 L1 캐시 혼재 방지
+        sb.Append("v26|");   // 분모/분류 모델 버전 — 모델 변경 배포 직후 L1 캐시 혼재 방지
+                             // v26(2026-07-30): 유지보수 확정 정지를 고장 건수·MTBF onset·MTTR 에서 제외
         sb.Append(flowName ?? "*").Append('|').Append(fromUtc.Ticks).Append('|')
           .Append(toUtc.Ticks / (TimeSpan.TicksPerSecond * 10)).Append('|')  // 10초 격자
           .Append(applyLongStop ? '1' : '0').Append(collectRunIntervals ? '1' : '0')
@@ -1000,6 +1001,9 @@ public abstract class OeeControllerBase : ControllerBase
         static bool OverlapsAny(List<(string? Flow, double S, double E)> src, string? flow, double s, double e)
             => src.Any(x => (x.Flow is null || flow is null || string.Equals(x.Flow, flow, StringComparison.Ordinal))
                             && Math.Min(x.E, e) > Math.Max(x.S, s));
+        // maintIntervals = GetDowntimeIntervalsAsync 의 Kind 0|2 (= category 'planned' 이거나 isFailure=0)
+        //   → 이름은 'maint' 지만 실제 의미는 "분류된 비-고장 정지" 집합. 두 용도로 쓴다:
+        //   ① 가용성 바 3분할(idleMaintCtMs) ② 고장 통계 제외(OeeMath.IsMaintenanceCovered, 2026-07-30).
         Dictionary<string, List<(double S, double E)>>? maintByFlow = null;
         List<(double S, double E)>? maintAll = null;
         if (maintIntervals is { Count: > 0 })
@@ -1253,8 +1257,11 @@ public abstract class OeeControllerBase : ControllerBase
                     AddIdleFor(f, rowSegs);                         // 감지 정지(이상치 초과 사이클) — 고장 벽시계 귀속 소스
                     // 유지보수 이벤트(같은 flow)와 겹친 만큼 유지보수로 귀속(잔여 = 고장) — 가용성 바 3분할용.
                     // 계측 잔여(rowSegs) 기준으로 겹침 계산 — 미계측 안에만 있는 유지보수가 잔여 idle 로 오귀속되지 않게.
-                    idleMaintCtMs += Math.Min(measuredMs,
+                    var maintOverlapMs = Math.Min(measuredMs,
                         rowSegs.Sum(seg => OverlapMs(maintByFlow?.GetValueOrDefault(f), seg.S, seg.E)));
+                    idleMaintCtMs += maintOverlapMs;
+                    if (OeeMath.IsMaintenanceCovered(measuredMs, maintOverlapMs))
+                        continue;                                   // 유지보수 확정 — A 손실은 유지, 고장 통계만 제외
                     onsets.Add(startMs + thr);
                     // going 회복: complete(MT) 또는 CT 종료. 미계측 카빙된 행은 계측 잔여 기준(공백이 MTTR 을 부풀리지 않게).
                     double repair = r.Mt is long mtL && measuredMs >= cMs ? (mtL - thr) : (measuredMs - thr);
@@ -1371,8 +1378,11 @@ public abstract class OeeControllerBase : ControllerBase
                         idleCalIntervals.AddRange(uSegs);
                         AddIdleFor(gapFlow, uSegs);                 // 감지 정지(무사이클 갭) — 이벤트 flow 귀속
                         // 무사이클 잔여의 유지보수 귀속 — 이벤트 flow 의 유지보수 구간과 겹침(미계측 오귀속 방지).
-                        idleMaintCtMs += Math.Min(len, uSegs.Sum(us => OverlapMs(
+                        var maintOverlapGapMs = Math.Min(len, uSegs.Sum(us => OverlapMs(
                             gapFlow is not null ? maintByFlow?.GetValueOrDefault(gapFlow) : maintAll, us.S, us.E)));
+                        idleMaintCtMs += maintOverlapGapMs;
+                        if (OeeMath.IsMaintenanceCovered(len, maintOverlapGapMs))
+                            continue;                               // 유지보수 확정 — A 손실은 유지, 고장 통계만 제외
                         onsets.Add(uSegs[0].S);                     // onset = 첫 계측 세그먼트 시작(공백 안 onset 금지)
                         repairs.Add(len);
                         dtEventCount++;

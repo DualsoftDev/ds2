@@ -71,8 +71,8 @@ public static class OeeExcelExporter
             ("가용성 A", FormatPct(k.Availability) + "  (" + availSrc + ")"),
             ("성능 P", FormatPct(k.Performance) + "  (14일 평균)"),
             ("품질 Q", FormatPct(k.Quality) + "  (" + qualSrc + ")"),
-            ("MTBF", k.FailureCount == 0 ? "무비가동" : FormatMs(k.Mtbf)),
-            ("MTTR", k.FailureCount == 0 ? "무비가동" : FormatMs(k.Mttr)),
+            ("평균 고장 간격(MTBF)", k.FailureCount == 0 ? "무비가동" : FormatMs(k.Mtbf)),
+            ("평균 복구 시간(MTTR)", k.FailureCount == 0 ? "무비가동" : FormatMs(k.Mttr)),
             ("정지 건수", k.DowntimeCount.ToString("N0", CultureInfo.InvariantCulture) + " 건"),
             ("정지 시간", FormatMs(k.DowntimeMs)),
             ("가동시간 이상치(표준)", FormatMs(k.CtThresholdMs)),
@@ -282,11 +282,12 @@ public static class OeeExcelExporter
     {
         if (ms is null || ms <= 0) return "-";
         var v = ms.Value;
+        // 화면(shell.js window.dspFmt.dur)과 같은 규약 — 상위 2단위까지, 1초 미만만 ms.
         if (v < 1000) return $"{Math.Round(v)} ms";
-        if (v < 60000) return (v / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " 초";
-        if (v < 3600000) return (v / 60000.0).ToString("0.0", CultureInfo.InvariantCulture) + " 분";
-        if (v < 86400000) return (v / 3600000.0).ToString("0.0", CultureInfo.InvariantCulture) + " 시간";
-        return (v / 86400000.0).ToString("0.0", CultureInfo.InvariantCulture) + " 일";
+        if (v < 60000) return (v / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + "초";
+        if (v < 3600000) return $"{(int)(v / 60000)}분 {(int)(v % 60000 / 1000)}초";
+        if (v < 86400000) return $"{(int)(v / 3600000)}시간 {(int)(v % 3600000 / 60000)}분";
+        return $"{(int)(v / 86400000)}일 {(int)(v % 86400000 / 3600000)}시간";
     }
 }
 
