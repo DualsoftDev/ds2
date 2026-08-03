@@ -95,6 +95,10 @@ public sealed class SimulationEngineService : IDisposable
     // 사이클 이력(dspFlowHistory)엔 영구 미반영으로 남는다(= 무사이클 정지가 정상가동을 계속 삼킨다).
     private readonly BackfillFloorTracker _backfillFloor = new();
 
+    // tagId → 마지막으로 plcTagLog 에 기록한 값. resync(재연결/주기 baseline 스냅샷) 수용 시
+    // "값이 실제로 바뀐 것"만 기록해 로그 폭증(태그 전수 × 10초 주기)을 막는 dedupe 기준선.
+    private readonly ConcurrentDictionary<int, string> _lastLoggedValueByTagId = new();
+
     // 원천시각 기각 경고 throttle — 송신기 시계가 틀어지면 태그마다 터지므로 60초 1회로 묶어 카운트만 올린다.
     private long _rejectedTsCount;
     private long _rejectedTsWarnAtTicks;
@@ -295,21 +299,34 @@ public sealed class SimulationEngineService : IDisposable
         // 시각 = 원천 관측 시각(TagWrite.WallClockMs, Pi5 스캔 직후 각인). 도착시각(DateTime.Now)으로
         // 찍으면 핑 두절→버퍼 replay 신호가 전부 복구 순간에 뭉쳐 그래프/사이클이 왜곡된다(관찰된 증상).
         // 0(구버전 송신자/단건 OnTagChanged)이면 종전대로 도착시각 폴백.
+        var isResync = string.Equals(source, HubSource.Resync, StringComparison.OrdinalIgnoreCase);
         var inCache = _plcTagIdByAddress.TryGetValue(address, out var tagId);
         if (inCache)
         {
-            // 위생 검사 포함(미래/24h 초과 과거는 기각 후 도착시각 폴백) — 규칙과 근거는
-            // HubLogTimestampPolicy 참조. 송신기 시계가 미동기면 데이터가 조용히 사라진다.
-            var stamp = HubLogTimestampPolicy.Resolve(wallClockMs, DateTime.UtcNow);
-            _logWriter.TryWrite(tagId, value, stamp.AtUtc);
+            // resync(재연결/주기 10s baseline 스냅샷)는 태그 전수를 실어 오므로 그대로 기록하면
+            // plcTagLog 가 하루 수백만 행으로 폭증한다. 값이 마지막 기록과 같으면 기록 생략,
+            // 다르면 = diff 스캔이 놓친 전이(마이크로 핑 스파이크 펄스 유실)의 레벨 정정 →
+            // 원천시각으로 기록해 사이클 재도출·그래프가 참값을 본다. 일반(plc 등) 신호는
+            // 종전대로 무조건 기록 — edge 스트림 dedupe 는 이 변경의 범위 밖.
+            var skipWrite = isResync
+                && _lastLoggedValueByTagId.TryGetValue(tagId, out var lastLogged)
+                && string.Equals(lastLogged, value, StringComparison.Ordinal);
+            if (!skipWrite)
+            {
+                // 위생 검사 포함(미래/24h 초과 과거는 기각 후 도착시각 폴백) — 규칙과 근거는
+                // HubLogTimestampPolicy 참조. 송신기 시계가 미동기면 데이터가 조용히 사라진다.
+                var stamp = HubLogTimestampPolicy.Resolve(wallClockMs, DateTime.UtcNow);
+                _logWriter.TryWrite(tagId, value, stamp.AtUtc);
+                _lastLoggedValueByTagId[tagId] = value;
 
-            // replay 로 과거 구간이 들어왔다 — 사이클 재도출 창을 여기까지 넓히지 않으면 그 구간이
-            // plcTagLog 에만 복원되고 이력엔 안 들어가, 무사이클 정지가 정상가동을 계속 삼킨다.
-            if (stamp.IsBackfill)
-                _backfillFloor.Report(stamp.AtUtc);
+                // replay 로 과거 구간이 들어왔다 — 사이클 재도출 창을 여기까지 넓히지 않으면 그 구간이
+                // plcTagLog 에만 복원되고 이력엔 안 들어가, 무사이클 정지가 정상가동을 계속 삼킨다.
+                if (stamp.IsBackfill)
+                    _backfillFloor.Report(stamp.AtUtc);
 
-            if (stamp.Source is HubLogTimeSource.RejectedFuture or HubLogTimeSource.RejectedTooOld)
-                WarnRejectedTimestamp(address, wallClockMs, stamp.Source);
+                if (stamp.Source is HubLogTimeSource.RejectedFuture or HubLogTimeSource.RejectedTooOld)
+                    WarnRejectedTimestamp(address, wallClockMs, stamp.Source);
+            }
 
             // ★아래 두 도장은 의도적으로 ts 가 아니라 *도착시각*을 쓴다 — 재는 대상이 다르다.
             //   기록 시각(ts)   = "그 신호가 PLC 에서 언제 관측됐나" → 버퍼 replay 도 원래 시각으로 복원.

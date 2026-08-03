@@ -222,6 +222,11 @@ public sealed class HubSubscriberService : BackgroundService
         // spec §SignalR — DefaultAcceptedSources 가 권위 default. config override 가능.
         var configuredSources = _configuration.GetSection("Hub:AcceptedSources").Get<string[]>()
             ?? HubSource.DefaultAcceptedSources;
+        // resync 는 정책 선택지가 아니라 프로토콜 내부 채널(재연결/주기 baseline 스냅샷) — 구버전
+        // AppSettingsModel 이 자동 생성한 appsettings(Hub.AcceptedSources 에 resync 누락)가 코드
+        // 기본값을 영구히 덮어 baseline 이 통째로 버려지던 사고 방지. config 로도 끌 수 없게 항상 포함.
+        if (!configuredSources.Contains(HubSource.Resync, StringComparer.OrdinalIgnoreCase))
+            configuredSources = [.. configuredSources, HubSource.Resync];
 
         _processor = new HubSignalProcessor(
             acceptedSources: configuredSources,
