@@ -81,6 +81,27 @@ let ``SignalPolicy validate rejects non-positive intervals`` () =
     Assert.True(match SignalPolicy.validate p2 with Error _ -> true | _ -> false)
 
 [<Fact>]
+let ``SignalPolicy validate enforces sampled interval and deadband contract`` () =
+    let sampled = {
+        policy "line1.cnc01.speed" "P90D" with
+            AcquisitionMode = Sampled
+            SamplingIntervalMs = None
+    }
+    Assert.True(match SignalPolicy.validate sampled with Error _ -> true | _ -> false)
+    let bothDeadbands = {
+        policy "line1.cnc01.speed" "P90D" with
+            DeadbandAbsolute = Some 1.0
+            DeadbandPercent = Some 5.0
+    }
+    Assert.True(match SignalPolicy.validate bothDeadbands with Error _ -> true | _ -> false)
+    let invalidPercent = {
+        policy "line1.cnc01.speed" "P90D" with
+            DeadbandAbsolute = None
+            DeadbandPercent = Some 101.0
+    }
+    Assert.True(match SignalPolicy.validate invalidPercent with Error _ -> true | _ -> false)
+
+[<Fact>]
 let ``LoggingSystemProperties carries SignalPolicies`` () =
     let props = LoggingSystemProperties()
     // 기존 필드 무영향

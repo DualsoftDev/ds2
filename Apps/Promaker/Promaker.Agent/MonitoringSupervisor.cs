@@ -48,10 +48,14 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
     // Agent 단일 호스팅: Monitoring engine 을 Agent 가 직접 보유. PLC IN → engine → OnRuntime* push.
     // _app 과 lifecycle 동일 — TryActivate 에서 생성, Deactivate/restart 에서 정리.
     private ISimulationEngine? _engine;
+    // Agent가 OPC UA 서버의 정식 소유자다. WPF 데모 인스턴스와 데이터 루트를 분리한다.
+    private readonly OpcUaServerHost _opcUaHost = new(SharedPaths.AgentOpcUaDataDirectory);
+    private SimEngineUaBridge? _uaBridge;
     private FileSystemWatcher? _flagWatcher;
     private FileSystemWatcher? _sessionWatcher;
     private FileSystemWatcher? _plcWatcher;
     private FileSystemWatcher? _aasxWatcher;
+    private FileSystemWatcher? _opcUaSettingsWatcher;
     private Timer? _debounce;
     private DebounceReason _pendingReason;
     // OnDebounceFiredAsync 가 실행 중인 동안 ScheduleDebounce 가 새 Timer 를 만들지 않도록 가드.
@@ -87,7 +91,9 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
         // 자동 publish 한다. 활성 상태에서 변경되면 새 IOMap 으로 재구독.
         _aasxWatcher = MakeWatcher(SharedPaths.SharedDirectory, Path.GetFileName(SharedPaths.AasxFilePath),
             (s, e) => ScheduleDebounce(DebounceReason.ConfigChanged, e.ChangeType.ToString(), e.FullPath));
-        Log.Info("FileSystemWatchers started: flag, session, plc, aasx.");
+        _opcUaSettingsWatcher = MakeWatcher(SharedPaths.AgentDirectory, Path.GetFileName(SharedPaths.AgentOpcUaSettingsPath),
+            (s, e) => ScheduleDebounce(DebounceReason.ConfigChanged, e.ChangeType.ToString(), e.FullPath));
+        Log.Info("FileSystemWatchers started: flag, session, plc, aasx, opcua.");
     }
 
     private static FileSystemWatcher MakeWatcher(string dir, string fileName, FileSystemEventHandler onChange)
@@ -242,7 +248,9 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
             ? $"{File.GetLastWriteTimeUtc(session.AasxPath).Ticks}:{new FileInfo(session.AasxPath).Length}"
             : "none";
         var sessionStamp = $"{session.AasxPath}|{session.PlcConnectionPath}|{session.RuntimeMode}";
-        return ($"{sessionStamp}\n{aasxStamp}\n{plcNormalized}", scanMs);
+        var opcUaNormalized = System.Text.Json.JsonSerializer.Serialize(
+            OpcUaServerSettings.LoadAgentOrDefault(SharedPaths.AgentOpcUaSettingsPath));
+        return ($"{sessionStamp}\n{aasxStamp}\n{plcNormalized}\n{opcUaNormalized}", scanMs);
     }
 
     private void ApplyScanIntervalLive(int ms, bool broadcast)
@@ -375,8 +383,9 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
                 try { BackendHost.stop(_app); }
                 catch (Exception ex) { Log.Warn("Exception during BackendHost.stop — ignoring.", ex); }
                 _app = null;
-                DisposeEngine();
             }
+            await StopOpcUaAsync().ConfigureAwait(false);
+            DisposeEngine();
 
             // 1) session.json 로드 (없으면 기본 경로로 대체 — 첫 부팅 시나리오).
             var session = AgentSession.TryLoad() ?? AgentSession.ForCurrentDefaults(requestedBy: "agent");
@@ -410,26 +419,43 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
                 .ToList();
             Log.Info($"UserTag addresses to subscribe: {userTagAddresses.Count} ({string.Join(", ", userTagAddresses.Take(5))})");
 
-            // 접속 정보 해석 — 우선순위 cloudinit(현장 실측 discovery) → AASX 내장 → 로컬 PlcConnection.json.
-            // AASX 내장분은 store 에서 읽으므로 위에서 로드한 store 를 그대로 넘긴다. 구 AASX(접속 미설정)면
-            // AASX 단계가 조용히 건너뛰어져 기존 동작 그대로 (회귀 0).
-            //
-            // ⚠ 여기서 PlcConnection.json 을 갱신하지 않는다 (in-memory override 만). ComputeConfigFingerprint 가
-            //    그 파일의 직렬화 전체를 지문에 넣으므로, 여기서 파일을 쓰면 지문이 흔들려 BackendHost 재시작이
-            //    연쇄한다. sidecar 쓰기는 사용자 조작(Promaker) 경로에서만 일어난다.
-            var resolution = PlcConnectionResolver.Resolve(
-                store,
-                string.IsNullOrWhiteSpace(session.PlcConnectionPath)
-                    ? SharedPaths.PlcConnectionFilePath
-                    : session.PlcConnectionPath);
-            foreach (var w in resolution.Warnings) Log.Warn($"PLC 접속 해석: {w}");
-            Log.Info($"PLC 접속 = {resolution.Source}: {resolution.Label}");
-            var plcSettings = resolution.Settings;
-            var gatewayConfig = PlcGatewayConfigBuilder.TryBuild(plcSettings, ioMap, out var errors, userTagAddresses);
-            if (gatewayConfig is null)
+            // InterfaceXGT가 있으면 AASX AID를 southbound 설정 SSOT로 사용한다. 명시된 바인딩이
+            // 잘못된 경우 로컬 설정으로 조용히 우회하지 않는다. 바인딩이 없는 구 AASX만 기존 설정으로 폴백한다.
+            AidXgtConfigResult? aidXgtPlan = null;
+            var project = store.Projects.Values.FirstOrDefault();
+            if (project?.AssetInterfaces is { } aid)
+                aidXgtPlan = AidXgtGatewayConfig.buildForProject(store, project, aid.Value);
+
+            PlcGatewayConfig gatewayConfig;
+            if (aidXgtPlan is { HasBinding: true })
             {
-                Log.Error($"Gateway config build failed: {string.Join(" / ", errors)}");
-                return;
+                if (!aidXgtPlan.Success)
+                {
+                    Log.Error($"AID InterfaceXGT config build failed: {string.Join(" / ", aidXgtPlan.Errors)}");
+                    return;
+                }
+                gatewayConfig = aidXgtPlan.Config;
+                Log.Info($"PLC 접속 = AASX AID InterfaceXGT: connections={gatewayConfig.Connections.Length} " +
+                         $"signals={aidXgtPlan.Signals.Length}");
+            }
+            else
+            {
+                // 하위 호환 우선순위: cloudinit → AASX 구형 내장값 → PlcConnection.json.
+                var resolution = PlcConnectionResolver.Resolve(
+                    store,
+                    string.IsNullOrWhiteSpace(session.PlcConnectionPath)
+                        ? SharedPaths.PlcConnectionFilePath
+                        : session.PlcConnectionPath);
+                foreach (var warning in resolution.Warnings) Log.Warn($"PLC 접속 해석: {warning}");
+                Log.Info($"PLC 접속 = {resolution.Source}: {resolution.Label}");
+                var legacyConfig = PlcGatewayConfigBuilder.TryBuild(
+                    resolution.Settings, ioMap, out var errors, userTagAddresses);
+                if (legacyConfig is null)
+                {
+                    Log.Error($"Gateway config build failed: {string.Join(" / ", errors)}");
+                    return;
+                }
+                gatewayConfig = legacyConfig;
             }
 
             // 4) engine 생성 — Agent 단일 호스팅. session.RuntimeMode 로 Control(read-write)/Monitoring(read-only) 분기.
@@ -513,6 +539,7 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
                     Log.Warn($"[Gate] ActionOver 게이트 닫힌 device work {closedCount}건 — 위 목록의 Work 는 시간초과여도 자동 ActionOver 미발행");
             }
 
+            AidUaValueBridge? aidUaValueBridge = null;
             Log.Info($"Starting BackendHost on port {Port} " +
                      $"({(readOnly ? "read-only / Monitoring" : "read-write / Control")}, " +
                      $"scan={(delegatedScan ? "위임(Pi5) — PlcScanService off" : "직접(Agent)")}) " +
@@ -525,15 +552,49 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
                 // 미상이면 100. (라이브 스캔주기 변경 시 정밀 동기는 재학습으로 수렴)
                 var scanForMargin = _appliedScanIntervalMs > 0 ? _appliedScanIntervalMs : 100;
                 builder.Services.AddSingleton<IRuntimeHubSession>(sp =>
-                    new EventDrivenEngineRuntimeHubSession(
+                {
+                    var runtimeSession = new EventDrivenEngineRuntimeHubSession(
                         engine,
                         sp.GetRequiredService<IHubContext<SignalHub>>(),
                         identity,
                         scanForMargin,
                         isMinMeasured,
-                        isMaxMeasured));
+                        isMaxMeasured);
+                    runtimeSession.SetAddressBatchObserver(items => aidUaValueBridge?.Observe(items));
+                    runtimeSession.SetPlcConnectionObserver(status => aidUaValueBridge?.ObserveConnection(status));
+                    return runtimeSession;
+                });
             });
             _engine = engine;
+
+            // Agent가 UA 서버를 소유한다. AASX import가 복원한 AID와 현재 DsStore를 주소공간으로 만들고,
+            // 같은 engine을 bridge에 붙인다. AASX watcher 재시작 시 이 전체 구성이 원자적으로 교체된다.
+            var uaSettings = OpcUaServerSettings.LoadAgentOrDefault(SharedPaths.AgentOpcUaSettingsPath);
+            var uaResult = await _opcUaHost.StartAsync(uaSettings, store).ConfigureAwait(false);
+            if (!uaResult.Success)
+            {
+                Log.Warn($"Agent OPC UA server unavailable: {uaResult.Message}");
+            }
+            else if (_opcUaHost.Server is { IsRunning: true } uaServer)
+            {
+                _uaBridge = new SimEngineUaBridge(engine, uaServer);
+                if (aidXgtPlan is { Success: true } xgt)
+                {
+                    aidUaValueBridge = new AidUaValueBridge(uaServer, xgt.Signals);
+                    var gateway = _app.Services.GetService<IPlcGateway>();
+                    if (gateway is not null)
+                    {
+                        foreach (var status in gateway.GetConnectionStatuses())
+                            aidUaValueBridge.ObserveConnection(status);
+                    }
+                    Log.Info($"AID XGT → OPC UA value bridge active: addresses={aidUaValueBridge.AddressCount}");
+                }
+                Log.Info($"Agent OPC UA active: endpoint={uaResult.EndpointUrl} assets={uaResult.AssetCount}");
+            }
+            else
+            {
+                Log.Info("Agent OPC UA disabled by settings.");
+            }
 
             // Control: engine OUT(writeTag) → 모든 client(OnTagChanged, source="control") broadcast.
             // VP(가상 설비)가 이 OUT 을 받아 가상 IN echo 를 만들고, 그 IN 은 SignalHub.WriteTag→engine forward 로 돌아온다.
@@ -599,14 +660,17 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
         try
         {
             SignalHub.ValidateDeviceCredential = null;
-            if (_app is null) return;
-            Log.Info("Stopping BackendHost (deactivate)...");
+            Log.Info("Stopping Agent runtime (deactivate)...");
             SignalHub.PersistScanIntervalMs = null;
-            try { BackendHost.stop(_app); }
-            catch (Exception ex) { Log.Warn("Exception during BackendHost.stop — ignoring.", ex); }
-            _app = null;
+            if (_app is not null)
+            {
+                try { BackendHost.stop(_app); }
+                catch (Exception ex) { Log.Warn("Exception during BackendHost.stop — ignoring.", ex); }
+                _app = null;
+            }
+            await StopOpcUaAsync().ConfigureAwait(false);
             DisposeEngine();
-            Log.Info("BackendHost stopped → idle.");
+            Log.Info("Agent runtime stopped → idle.");
         }
         finally
         {
@@ -623,6 +687,17 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
         _engine = null;
     }
 
+    private async Task StopOpcUaAsync()
+    {
+        var bridge = _uaBridge;
+        _uaBridge = null;
+        try { bridge?.Dispose(); }
+        catch (Exception ex) { Log.Warn("SimEngineUaBridge.Dispose threw — ignoring.", ex); }
+
+        try { await _opcUaHost.StopAsync().ConfigureAwait(false); }
+        catch (Exception ex) { Log.Warn("OpcUaServerHost.StopAsync threw — ignoring.", ex); }
+    }
+
     public async ValueTask DisposeAsync()
     {
         _debounce?.Dispose();
@@ -630,7 +705,9 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
         try { _sessionWatcher?.Dispose(); } catch { }
         try { _plcWatcher?.Dispose(); } catch { }
         try { _aasxWatcher?.Dispose(); } catch { }
+        try { _opcUaSettingsWatcher?.Dispose(); } catch { }
         await DeactivateAsync().ConfigureAwait(false);
+        await _opcUaHost.DisposeAsync().ConfigureAwait(false);
         _gate.Dispose();
     }
 

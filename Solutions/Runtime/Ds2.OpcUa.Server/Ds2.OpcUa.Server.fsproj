@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <PackageReference Include="FSharp.Core" />
+    <PackageReference Include="log4net" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="OPCFoundation.NetStandard.Opc.Ua.Core" />
     <PackageReference Include="OPCFoundation.NetStandard.Opc.Ua.Server" />

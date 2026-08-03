@@ -4,9 +4,9 @@ using System.Text.Json;
 namespace Promaker.Shared;
 
 /// <summary>
-/// Promaker 가 호스팅하는 OPC UA 서버 설정 POCO. JSON 직렬화 단일 책임 (MVVM 무관).
+/// Agent 및 Promaker WPF 데모가 공유하는 OPC UA 서버 설정 POCO. JSON 직렬화 단일 책임 (MVVM 무관).
 ///
-/// Promaker 는 클라이언트가 아닌 <b>OPC UA 서버</b> 역할을 수행한다. 런타임 시작 시
+/// 정식 배포에서는 Agent가 <b>OPC UA 서버</b> 역할을 수행한다. 런타임 시작 시
 /// Ds2.OpcUa.Server 의 <c>EmbeddedUaServer</c> 를 인프로세스 구동해 KPI/Runtime IO 를
 /// UA Variable 로 노출한다. <see cref="Enabled"/> 가 false 이면 서버 자체를 구동하지 않는다.
 ///
@@ -17,6 +17,8 @@ public sealed class OpcUaServerSettings
     public const string DefaultEndpointUrl = "opc.tcp://localhost:62541/Ds2/OpcUa/Server";
     public const string DefaultApplicationName = "Promaker.OpcUa.Server";
     public const string DefaultApplicationUri = "urn:dualsoft:promaker:opcua";
+    public const string AgentApplicationName = "Promaker.Agent.OpcUa.Server";
+    public const string AgentApplicationUri = "urn:dualsoft:promaker-agent:opcua";
 
     public const int DefaultMaxSessions = 100;
     public const int DefaultSessionTimeoutMs = 60_000;
@@ -38,6 +40,9 @@ public sealed class OpcUaServerSettings
 
     /// <summary>true 면 UserIdentityToken 없이 anonymous 세션 허용 (개발 편의). 운영은 false 권장.</summary>
     public bool AllowAnonymous { get; set; } = true;
+
+    /// <summary>true 면 MessageSecurityMode.None endpoint도 노출한다. 운영에서는 false.</summary>
+    public bool AllowUnsecuredEndpoint { get; set; } = true;
 
     /// <summary>동시 세션 상한.</summary>
     public int MaxSessions { get; set; } = DefaultMaxSessions;
@@ -76,6 +81,24 @@ public sealed class OpcUaServerSettings
         {
             return new OpcUaServerSettings();
         }
+    }
+
+    /// <summary>
+    /// Agent 전용 설정을 읽는다. 최초 설치로 파일이 아직 없을 때만 Agent 기본값(Enabled=true)을
+    /// 사용한다. 파일이 손상된 경우에는 일반 로더의 안전 기본값(Enabled=false)으로 떨어진다.
+    /// </summary>
+    public static OpcUaServerSettings LoadAgentOrDefault(string path)
+    {
+        if (File.Exists(path)) return LoadOrDefault(path);
+        return new OpcUaServerSettings
+        {
+            Enabled = true,
+            ApplicationName = AgentApplicationName,
+            ApplicationUri = AgentApplicationUri,
+            AllowAnonymous = false,
+            AllowUnsecuredEndpoint = false,
+            AutoAcceptUntrustedCertificates = false,
+        };
     }
 
     public bool TrySave(string path)

@@ -51,6 +51,39 @@ module AssetInterfacesDescriptionTypes =
         | Put
         | Delete
 
+    /// IDTA 02017 v1.1의 표준 4종 바인딩에는 LS ELECTRIC XGT 전용 프로토콜이 없다.
+    /// 아래 형식은 InterfaceXGT SMC로 직렬화되는 DualSoft 관리 확장이다.
+    type XgtCpuModel =
+        | Xgi
+        | Xgk
+
+    type XgtTransport =
+        | XgtTcp
+        | XgtUdp
+
+    type XgtEndpointMetadata = {
+        Base: string
+        CpuModel: XgtCpuModel
+        LocalEthernet: bool
+        NetworkNumber: byte
+        StationNumber: byte
+        Transport: XgtTransport
+        TimeoutMs: int
+        ScanIntervalMs: int
+        AuthReferenceVault: string option
+    }
+        with static member empty = {
+                    Base = "xgt+tcp://127.0.0.1:2004"
+                    CpuModel = Xgi
+                    LocalEthernet = true
+                    NetworkNumber = 0uy
+                    StationNumber = 0xFFuy
+                    Transport = XgtTcp
+                    TimeoutMs = 3000
+                    ScanIntervalMs = 100
+                    AuthReferenceVault = None
+                }
+
     /// Endpoint metadata — the "connection root" for every binding.
     /// Credentials are Vault references, never inline secrets (ADR-005).
     type EndpointMetadata = {
@@ -152,6 +185,8 @@ module AssetInterfacesDescriptionTypes =
         | Modbus  of endpoint: EndpointMetadata * interactions: ModbusInteraction list
         | Mqtt    of endpoint: EndpointMetadata * interactions: MqttInteraction list
         | Http    of endpoint: EndpointMetadata * interactions: HttpInteraction list
+        /// XGT interaction의 공통 metadata 모양은 OPC UA interaction과 동일하며 Href만 XGT 주소를 담는다.
+        | Xgt     of endpoint: XgtEndpointMetadata * interactions: OpcUaInteraction list
 
     /// AAS Submodel "AssetInterfacesDescription" — IDTA 02017 v1.1.
     type AssetInterfacesDescription() =

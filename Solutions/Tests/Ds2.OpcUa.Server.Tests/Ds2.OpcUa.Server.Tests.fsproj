@@ -12,6 +12,7 @@
     <Compile Include="AasFileScannerTests.fs" />
     <Compile Include="IntegrationSmokeTests.fs" />
     <Compile Include="RuntimeIoKeyTests.fs" />
+    <Compile Include="SecurityConfigurationTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

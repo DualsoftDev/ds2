@@ -42,6 +42,24 @@ let private mkServerWithAssets port (managedAssets: GlobalAssetId array) =
 
 let private mkServer port = mkServerWithAssets port [||]
 
+let private mkSecureServer port =
+    let root = Path.Combine(Path.GetTempPath(), "ds2-uaserver-secure-it-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory root |> ignore
+    let allocator = NamespaceAllocator(Path.Combine(root, "nodeset-state.json")) :> INamespaceAllocator
+    let cfg =
+        { ServerConfiguration.defaultConfig root with
+            EndpointUrl = sprintf "opc.tcp://localhost:%d" port
+            AllowAnonymous = false
+            AllowUnsecuredEndpoint = false
+            // The integration test auto-accepts its freshly generated peer; production does not.
+            AutoAcceptUntrustedCertificates = true }
+    let appConfig = ServerConfiguration.build cfg
+    (ServerConfiguration.validateAndPrepare appConfig).GetAwaiter().GetResult() |> ignore
+    let appInstance = ApplicationInstance(ApplicationConfiguration = appConfig)
+    let server = new DsUaServer(allocator)
+    appInstance.Start(server).GetAwaiter().GetResult()
+    server, cfg, root
+
 let private mkClientConfig root =
     let cfg =
         ApplicationConfiguration(
@@ -106,6 +124,36 @@ let ``Server boots + client connects + reads Server_ServerStatus`` () = task {
         Assert.NotEmpty(readValues)
         Assert.Equal(StatusCodes.Good, readValues.[0].StatusCode.Code)
 
+        session.Close() |> ignore
+        session.Dispose()
+    finally
+        server.Stop()
+        server.Dispose()
+        if Directory.Exists root then
+            try Directory.Delete(root, true) with _ -> ()
+}
+
+[<Fact>]
+let ``secure endpoint accepts certificate identity without anonymous token`` () = task {
+    let port = nextTestPort()
+    let server, cfg, root = mkSecureServer port
+    try
+        let clientConfig = mkClientConfig root
+        let ed = CoreClientUtils.SelectEndpoint(clientConfig, cfg.EndpointUrl, true, 15_000)
+        Assert.NotEqual(MessageSecurityMode.None, ed.SecurityMode)
+        let endpoint = ConfiguredEndpoint(null, ed, EndpointConfiguration.Create(clientConfig))
+        let! certificate = clientConfig.SecurityConfiguration.ApplicationCertificate.Find(true)
+        Assert.NotNull(certificate)
+        let! session =
+            Session.Create(
+                clientConfig,
+                endpoint,
+                false,
+                "Secure-IT-Client",
+                60_000u,
+                UserIdentity(certificate),
+                null)
+        Assert.True(session.Connected)
         session.Close() |> ignore
         session.Dispose()
     finally
@@ -185,6 +233,28 @@ let ``AddAsset + WriteSignal + Read via UA client roundtrip`` () = task {
         Assert.Equal(StatusCodes.Good, results.[0].StatusCode.Code)
         Assert.Equal(42.5, results.[0].Value :?> float)
 
+        // String-based southbound values are coerced to the declared UA type centrally.
+        Assert.True(server.NodeManager.WriteSignal(gaid, sig', box "43.25", DateTime.UtcNow, uint32 StatusCodes.Good))
+        let mutable convertedResults = DataValueCollection()
+        let mutable convertedDiagnostics = DiagnosticInfoCollection()
+        session.Read(null, 0.0, TimestampsToReturn.Both, ids, &convertedResults, &convertedDiagnostics) |> ignore
+        Assert.Equal(StatusCodes.Good, convertedResults.[0].StatusCode.Code)
+        Assert.Equal(43.25, convertedResults.[0].Value :?> float)
+
+        // Invalid data is retained as the previous typed value and explicitly marked bad.
+        Assert.False(server.NodeManager.WriteSignal(gaid, sig', box "not-a-double", DateTime.UtcNow, uint32 StatusCodes.Good))
+        let mutable mismatchResults = DataValueCollection()
+        let mutable mismatchDiagnostics = DiagnosticInfoCollection()
+        session.Read(null, 0.0, TimestampsToReturn.Both, ids, &mismatchResults, &mismatchDiagnostics) |> ignore
+        Assert.Equal(StatusCodes.BadTypeMismatch, mismatchResults.[0].StatusCode.Code)
+        Assert.Equal(1L, server.NodeManager.TypeMismatchCount)
+
+        Assert.True(server.NodeManager.SetSignalQuality(gaid, sig', uint32 StatusCodes.BadNoCommunication, DateTime.UtcNow))
+        let mutable qualityResults = DataValueCollection()
+        let mutable qualityDiagnostics = DiagnosticInfoCollection()
+        session.Read(null, 0.0, TimestampsToReturn.Both, ids, &qualityResults, &qualityDiagnostics) |> ignore
+        Assert.Equal(StatusCodes.BadNoCommunication, qualityResults.[0].StatusCode.Code)
+
         session.Close() |> ignore
         session.Dispose()
     finally
@@ -193,6 +263,43 @@ let ``AddAsset + WriteSignal + Read via UA client roundtrip`` () = task {
         if Directory.Exists root then
             try Directory.Delete(root, true) with _ -> ()
 }
+
+[<Fact>]
+let ``CollectionPolicy is attached as deterministic UA properties`` () =
+    let port = nextTestPort()
+    let gaid = GlobalAssetId "urn:dualsoft:asset:policy-test"
+    let server, _, root = mkServerWithAssets port [| gaid |]
+    try
+        let signalId = SignalId "line1.policy.temperature"
+        let policy : SignalPolicy = {
+            SignalId = signalId
+            AcquisitionMode = AcquisitionMode.ChangeOfValue
+            SamplingIntervalMs = Some 250
+            PublishingIntervalMs = Some 500
+            DeadbandAbsolute = Some 0.5
+            DeadbandPercent = None
+            QueueSize = Some 25
+            Retention = "P90D"
+        }
+        let ns =
+            server.NodeManager.AddAssetWithHierarchyAndPolicies(
+                gaid,
+                "POLICY01",
+                [ [], signalId, "degC", BuiltInType.Double, "Temperature", Some policy ])
+        let hasPolicyProperty name =
+            server.NodeManager.ContainsNode(NodeId($"Policy/{signalId.Value}/{name}", uint16 ns))
+        Assert.True(hasPolicyProperty SignalPolicyUaMetadata.AcquisitionMode)
+        Assert.True(hasPolicyProperty SignalPolicyUaMetadata.SamplingIntervalMs)
+        Assert.True(hasPolicyProperty SignalPolicyUaMetadata.PublishingIntervalMs)
+        Assert.True(hasPolicyProperty SignalPolicyUaMetadata.DeadbandAbsolute)
+        Assert.True(hasPolicyProperty SignalPolicyUaMetadata.QueueSize)
+        Assert.True(hasPolicyProperty SignalPolicyUaMetadata.Retention)
+        Assert.False(hasPolicyProperty SignalPolicyUaMetadata.DeadbandPercent)
+    finally
+        server.Stop()
+        server.Dispose()
+        if Directory.Exists root then
+            try Directory.Delete(root, true) with _ -> ()
 
 [<Fact>]
 let ``RaiseAssetEvent Method Call returns Good`` () = task {

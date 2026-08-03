@@ -43,15 +43,19 @@
     <Compile Include="..\Ds2.OpcUa.Server.Tests\NamespaceAllocatorTests.fs"  Link="Phase3/NamespaceAllocatorTests.fs" />
     <Compile Include="..\Ds2.OpcUa.Server.Tests\DeterministicNodeIdTests.fs" Link="Phase3/DeterministicNodeIdTests.fs" />
     <Compile Include="..\Ds2.OpcUa.Server.Tests\AasFileScannerTests.fs"      Link="Phase3/AasFileScannerTests.fs" />
+    <Compile Include="..\Ds2.OpcUa.Server.Tests\SecurityConfigurationTests.fs" Link="Phase3/SecurityConfigurationTests.fs" />
 
     <!-- Phase 4 · Envelope · EdgeBuffer · UaWriter (구 Adapter.Common → Ds2.Collector 흡수) -->
     <Compile Include="..\Ds2.Collector.Tests\EnvelopeTests.fs"               Link="Phase4/EnvelopeTests.fs" />
     <Compile Include="..\Ds2.Collector.Tests\EdgeBufferTests.fs"             Link="Phase4/EdgeBufferTests.fs" />
     <Compile Include="..\Ds2.Collector.Tests\UaWriterContractTests.fs"       Link="Phase4/UaWriterContractTests.fs" />
+    <Compile Include="..\Ds2.Collector.Tests\UaSubscriptionTests.fs"         Link="Phase4/UaSubscriptionTests.fs" />
+    <Compile Include="..\Ds2.Collector.Tests\PolicyDiscoveryIntegrationTests.fs" Link="Phase4/PolicyDiscoveryIntegrationTests.fs" />
 
     <!-- Phase 6 · Ds2.Collector (SQLite sinks · Downsample) -->
     <Compile Include="..\Ds2.Collector.Tests\SqliteSinkWriterTests.fs"       Link="Phase6/SqliteSinkWriterTests.fs" />
     <Compile Include="..\Ds2.Collector.Tests\DownsampleTests.fs"             Link="Phase6/DownsampleTests.fs" />
+    <Compile Include="..\Ds2.Collector.Tests\RetentionTests.fs"              Link="Phase6/RetentionTests.fs" />
 
     <Compile Include="Program.fs" />
   </ItemGroup>

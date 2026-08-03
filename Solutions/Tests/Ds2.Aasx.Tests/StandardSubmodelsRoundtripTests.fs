@@ -1,12 +1,23 @@
 module Ds2.Aasx.Tests.StandardSubmodelsRoundtripTests
 
 open System
+open AasCore.Aas3_1
 open Ds2.Core
 open Ds2.Core.Kpi
 open Ds2.Core.StandardSubmodels
 open Ds2.Aasx
+open Ds2.Backend.Plc
 open Ds2.Aasx.Tests.PilotAssetFixtures
 open Xunit
+
+let rec private descendants (items: seq<ISubmodelElement>) = seq {
+    for item in items do
+        yield item
+        match item with
+        | :? SubmodelElementCollection as smc when not (isNull smc.Value) ->
+            yield! descendants smc.Value
+        | _ -> ()
+}
 
 // Phase 1 · 5 파일럿 자산 SM 왕복 (F# → AAS Submodel → F#) 동등성 회귀.
 // Ds2.Aasx.AasxExportStandardSubmodels · AasxImportStandardSubmodels 는 internal 이므로
@@ -93,6 +104,88 @@ let ``BCR05 AID roundtrip preserves AutoID event`` () =
         Assert.Equal("ScanResult.Code", ev.PayloadPath)
         Assert.Equal("line1.bcr05.code", ev.SignalId.Value)
     | _ -> Assert.Fail "expected OpcUa binding"
+
+[<Fact>]
+let ``InterfaceXGT roundtrip builds Agent gateway config and signal map`` () =
+    let aid = AssetInterfacesDescription()
+    let endpoint = {
+        XgtEndpointMetadata.empty with
+            Base = "xgt+tcp://192.168.10.20:2004"
+            CpuModel = Xgk
+            NetworkNumber = 2uy
+            StationNumber = 3uy
+            ScanIntervalMs = 250
+    }
+    let interaction : OpcUaInteraction = {
+        IdShort = "CylinderReady"
+        SemanticId = SemanticId "urn:dualsoft:cd:cylinder-ready:1"
+        ValueType = XsBoolean
+        Unit = None
+        Href = "%MX100"
+        SignalId = SignalId "line1.station01.cylinder-ready"
+    }
+    aid.Interfaces.Add(Xgt(endpoint, [interaction]))
+
+    let sm = AasxExportStandardSubmodels.aidToSubmodel aid "station01"
+    let elements = descendants sm.SubmodelElements |> Seq.toArray
+    let signalIdProperty =
+        elements
+        |> Seq.pick (function
+            | :? Property as p when p.IdShort = "signalId" -> Some p
+            | _ -> None)
+    Assert.NotNull(signalIdProperty.SemanticId)
+    Assert.Equal(AasxSemantics.SignalIdExtensionSemanticId, signalIdProperty.SemanticId.Keys.[0].Value)
+    let xgtCollection =
+        elements
+        |> Seq.pick (function
+            | :? SubmodelElementCollection as smc when smc.IdShort = "InterfaceXGT" -> Some smc
+            | _ -> None)
+    Assert.Equal(AasxSemantics.XgtInterfaceSemanticId, xgtCollection.SemanticId.Keys.[0].Value)
+
+    let conceptIds =
+        AasxConceptDescriptions.createAllConceptDescriptions ()
+        |> Seq.map (fun cd -> cd.Id)
+        |> Set.ofSeq
+    Assert.Contains(AasxSemantics.SignalIdExtensionSemanticId, conceptIds)
+    Assert.Contains(AasxSemantics.XgtInterfaceSemanticId, conceptIds)
+
+    let restored = AasxImportStandardSubmodels.submodelToAid sm
+    match restored.Interfaces.[0] with
+    | Xgt (ep, interactions) ->
+        Assert.Equal(endpoint.Base, ep.Base)
+        Assert.Equal(Xgk, ep.CpuModel)
+        Assert.Equal(2uy, ep.NetworkNumber)
+        Assert.Equal(3uy, ep.StationNumber)
+        Assert.Equal(250, ep.ScanIntervalMs)
+        Assert.Equal("%MX100", interactions.Head.Href)
+    | _ -> Assert.Fail "expected XGT binding"
+
+    let plan = AidXgtGatewayConfig.build restored
+    Assert.True(plan.HasBinding)
+    Assert.True(plan.Success, String.Join(" / ", plan.Errors))
+    Assert.Single(plan.Config.Connections) |> ignore
+    Assert.Equal(PlcVendor.LsXgk, plan.Config.Connections.Head.Vendor)
+    Assert.Equal("192.168.10.20", plan.Config.Connections.Head.IpAddress)
+    Assert.Equal(2004, plan.Config.Connections.Head.Port)
+    Assert.Equal("%MX100", plan.Config.Connections.Head.Tags.Head.HubAddress)
+    Assert.Single(plan.Signals) |> ignore
+    Assert.Equal("line1.station01.cylinder-ready", plan.Signals.[0].SignalId)
+    Assert.Equal("boolean", plan.Signals.[0].ValueType)
+
+[<Fact>]
+let ``AID without InterfaceXGT is explicitly distinguishable from invalid XGT`` () =
+    let noXgt = AssetInterfacesDescription()
+    noXgt.Interfaces.Add(OpcUa(EndpointMetadata.empty, [], []))
+    let missing = AidXgtGatewayConfig.build noXgt
+    Assert.False(missing.HasBinding)
+    Assert.False(missing.Success)
+
+    let invalid = AssetInterfacesDescription()
+    invalid.Interfaces.Add(Xgt({ XgtEndpointMetadata.empty with Base = "not a URI" }, []))
+    let broken = AidXgtGatewayConfig.build invalid
+    Assert.True(broken.HasBinding)
+    Assert.False(broken.Success)
+    Assert.NotEmpty(broken.Errors)
 
 // -----------------------------------------------------------------------------
 // Provenance §C — Qualifier(dualsoft:origin) + Extension(auto-suppressed) 라운드트립

@@ -92,8 +92,8 @@ public partial class SimulationPanelState
             if (!Hub.TryStart())
                 return;
 
-            // OPC UA 서버 인프로세스 기동 — settings.Enabled=false 면 no-op.
-            // 이미 구동 중이면 idempotent 성공 (Semaphore 로 재진입 안전).
+            // OPC UA 서버 인프로세스 기동 — settings.Enabled=false 면 기존 서버를 정지하고 no-op.
+            // PLAY마다 주소공간을 재생성해 Store/AASX 변경을 반영한다.
             _ = StartOpcUaServerHostAsync();
 
             Action<string, string>? writeTagAction = null;
@@ -342,8 +342,8 @@ public partial class SimulationPanelState
             // Store 를 주입해야 EmbeddedUaServer.StartForStoreAsync 가 활성 System 을 Asset 으로,
             // KPI/Work/Call/IO 를 하위 Variable 로 브라우징 트리에 노출한다. null 이면 Server 표준 노드만 보이고
             // DS/Assets 폴더가 비어 있어 클라이언트에서 "OPC item 안 보임" 이슈가 된다.
-            var r = await Promaker.Services.OpcUaServerHost.Instance
-                .StartFromSettingsAsync(Promaker.Services.SettingsPaths.OpcUaServer, Store)
+            var r = await Promaker.Shared.OpcUaServerHost.Instance
+                .RestartFromSettingsAsync(Promaker.Services.SettingsPaths.OpcUaServer, Store)
                 .ConfigureAwait(true);
             var msg = r.EndpointUrl is null
                 ? $"[OPC UA] {r.Message}"
@@ -366,12 +366,12 @@ public partial class SimulationPanelState
     private void AttachSimEngineUaBridgeIfReady()
     {
         if (_uaBridge is not null) return;
-        var uaServer = Promaker.Services.OpcUaServerHost.Instance.Server;
+        var uaServer = Promaker.Shared.OpcUaServerHost.Instance.Server;
         if (uaServer is null || !uaServer.IsRunning) return;
         if (_simEngine is null) return;
         try
         {
-            _uaBridge = new Promaker.Services.SimEngineUaBridge(_simEngine, uaServer);
+            _uaBridge = new Promaker.Shared.SimEngineUaBridge(_simEngine, uaServer);
             AddSimLog("[OPC UA] SimEngine 브릿지 attach — 상태/IO push 시작.", LogSeverity.System);
         }
         catch (Exception ex)

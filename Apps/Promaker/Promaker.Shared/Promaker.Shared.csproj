@@ -10,6 +10,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="log4net" />
     <!-- Ev2.PLC.Common.FS — PlcAddressInfer 가 데이터 타입 추론에 사용.
          Promaker WPF 쪽 csproj 와 동일 HintPath. -->
     <Reference Include="Ev2.PLC.Common.FS">
@@ -17,6 +18,9 @@
       <Private>true</Private>
     </Reference>
     <ProjectReference Include="..\..\..\Solutions\Backend\Ds2.Backend.Plc\Ds2.Backend.Plc.fsproj" />
+    <ProjectReference Include="..\..\..\Solutions\Backend\Ds2.Backend.Common\Ds2.Backend.Common.fsproj" />
+    <ProjectReference Include="..\..\..\Solutions\Core\Ds2.Core\Ds2.Core.fsproj" />
+    <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.OpcUa.Server\Ds2.OpcUa.Server.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj" />
   </ItemGroup>
 

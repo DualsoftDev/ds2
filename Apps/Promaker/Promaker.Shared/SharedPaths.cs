@@ -56,6 +56,13 @@ public static class SharedPaths
     /// active.flag 와 함께 갱신 (둘 다 있어야 Agent 가 부팅 후 자동 재개).</summary>
     public static string AgentSessionJsonPath { get; } = Path.Combine(AgentDirectory, "session.json");
 
+    /// <summary>Agent가 소유하는 OPC UA 서버 설정. WPF 사용자 AppData 설정과 분리해
+    /// Windows Service(SYSTEM)와 Linux 서비스 계정이 동일한 파일을 읽도록 한다.</summary>
+    public static string AgentOpcUaSettingsPath { get; } = Path.Combine(AgentDirectory, "OpcUaServer.json");
+
+    /// <summary>Agent OPC UA 인증서와 결정론적 namespace 상태 저장 루트.</summary>
+    public static string AgentOpcUaDataDirectory { get; } = Path.Combine(AgentDirectory, "opcua");
+
     /// <summary>실측 duration 확정 상태 사이드카 — Work 별 "Min 실측 확정(minMeasured)" + 확정 시점 AASX 해시.
     /// AASX 모델은 건드리지 않고 런타임 확정 메타만 분리 보관한다. ActionUnder(시간 미만) 판정 게이트의 SSOT —
     /// 해시가 현재 AASX 와 다르면(모델 변경) 그 확정은 stale 로 간주되어 재확정 전까지 ActionUnder 가 비활성.</summary>

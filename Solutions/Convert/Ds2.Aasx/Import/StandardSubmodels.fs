@@ -225,6 +225,29 @@ module AasxImportStandardSubmodels =
             SignalId = SignalId (propStr smc "signalId")
         }
 
+    let private xgtInteractionFromSmc (smc: SubmodelElementCollection) : OpcUaInteraction =
+        {
+            IdShort = smc.IdShort
+            SemanticId = semanticIdOf smc
+            ValueType = propStr smc "type" |> xsdOfString
+            Unit = propOpt smc "unit"
+            Href = propStr smc "href"
+            SignalId = SignalId (propStr smc "signalId")
+        }
+
+    let private xgtEndpointFromSmc (smc: SubmodelElementCollection) : XgtEndpointMetadata =
+        {
+            Base = propStr smc "base"
+            CpuModel = if propStr smc "cpuModel" = "XGK" then Xgk else Xgi
+            LocalEthernet = propBool smc "localEthernet"
+            NetworkNumber = propByte smc "networkNumber" |> Option.defaultValue 0uy
+            StationNumber = propByte smc "stationNumber" |> Option.defaultValue 0xFFuy
+            Transport = if propStr smc "transport" = "udp" then XgtUdp else XgtTcp
+            TimeoutMs = propInt smc "timeoutMs" |> Option.defaultValue 3000
+            ScanIntervalMs = propInt smc "scanIntervalMs" |> Option.defaultValue 100
+            AuthReferenceVault = propOpt smc "authReferenceVault"
+        }
+
     let private autoIdFromSmc (smc: SubmodelElementCollection) : AutoIdEventBinding =
         {
             IdShort = smc.IdShort
@@ -263,6 +286,12 @@ module AasxImportStandardSubmodels =
             Some (Mqtt (endpoint, interactionSmcs |> List.map mqttInteractionFromSmc))
         | "InterfaceHTTP" ->
             Some (Http (endpoint, interactionSmcs |> List.map httpInteractionFromSmc))
+        | "InterfaceXGT" ->
+            let xgtEndpoint =
+                findSmc bindingSmc "EndpointMetadata"
+                |> Option.map xgtEndpointFromSmc
+                |> Option.defaultValue XgtEndpointMetadata.empty
+            Some (Xgt (xgtEndpoint, interactionSmcs |> List.map xgtInteractionFromSmc))
         | _ -> None
 
     /// Submodel → AssetInterfacesDescription 도메인 값.
@@ -381,4 +410,11 @@ module AasxImportStandardSubmodels =
         match findTopSmc loggingSm "SignalPoliciesCollection" with
         | Some smc ->
             findAllChildrenSmc smc |> List.map signalPolicyFromSmc
+        | None -> []
+
+    /// 신규 정식 표현: SequenceLogging/SystemProperties/System_<guid> 아래 정책 복원.
+    /// 시스템별 소유권을 유지하므로 여러 active system에서도 정책이 섞이지 않는다.
+    let signalPoliciesFromSystemProperties (systemSmc: SubmodelElementCollection) : SignalPolicy list =
+        match findSmc systemSmc "SignalPoliciesCollection" with
+        | Some smc -> findAllChildrenSmc smc |> List.map signalPolicyFromSmc
         | None -> []

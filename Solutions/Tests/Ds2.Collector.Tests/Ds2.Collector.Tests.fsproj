@@ -9,8 +9,11 @@
     <Compile Include="EnvelopeTests.fs" />
     <Compile Include="EdgeBufferTests.fs" />
     <Compile Include="UaWriterContractTests.fs" />
+    <Compile Include="UaSubscriptionTests.fs" />
+    <Compile Include="PolicyDiscoveryIntegrationTests.fs" />
     <Compile Include="SqliteSinkWriterTests.fs" />
     <Compile Include="DownsampleTests.fs" />
+    <Compile Include="RetentionTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

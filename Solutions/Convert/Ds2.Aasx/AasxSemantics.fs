@@ -162,6 +162,9 @@ let OperationalDataSubmodelSemanticId = cdId "sm/OperationalData/1/0"
 /// SignalId 는 자산 내 유일, {lineId}.{assetId}.{shortName} kebab-case.
 let SignalIdExtensionSemanticId = cdId "cd/ext.signal-id/1/0"
 
+/// DualSoft-managed AID binding for LS ELECTRIC XGT endpoints.
+let [<Literal>] XgtInterfaceSemanticId = "urn:dualsoft:smc:aid-interface-xgt:1:0"
+
 /// AID EndpointMetadata 의 인증 정보 Vault 참조 필드.
 /// 실제 secret 은 저장하지 않고 `@vault:path` 참조만 (ADR-005).
 let VaultReferenceExtensionSemanticId = cdId "cd/ext.vault-reference/1/0"

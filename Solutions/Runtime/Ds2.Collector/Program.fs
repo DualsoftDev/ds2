@@ -11,7 +11,7 @@ open Ds2.Collector.DataApi
 /// Phase 6 · Collector Worker + Phase 7 · Data API 통합 프로세스.
 ///
 /// 이 프로세스는:
-///   - UA 서버 구독 (Wire-up 시점에 IUaWriter 반대편)
+///   - Agent UA 서버 browse/subscription → SQLite batch 적재
 ///   - Adapter Outbox pull (HTTP · Adapter.Common EdgeBuffer)
 ///   - SqliteSinkWriter 로 telemetry.db + events.db 적재
 ///   - DownsampleScheduler · Retention 백그라운드 태스크
@@ -31,18 +31,31 @@ let main argv =
 
     let paths = { TelemetryDb = telemetryDb; EventsDb = eventsDb }
     let registry = SeriesIdRegistry()
+    let uaOptions = UaSubscriptionOptions.fromEnvironment root
+    let retentionOptions = RetentionOptions.fromEnvironment ()
 
     builder.Services
         .AddSingleton<SqliteSinkWriter>(fun _sp -> SqliteSinkWriter(telemetryDb, eventsDb))
         .AddSingleton<SeriesIdRegistry>(registry)
+        .AddSingleton<UaSubscriptionOptions>(uaOptions)
+        .AddSingleton<RetentionOptions>(retentionOptions)
         .AddSingleton<DataApiPaths>(paths)
         .AddControllers() |> ignore
+    builder.Services.AddHostedService<UaSubscriptionService>() |> ignore
+    builder.Services.AddHostedService<RetentionService>() |> ignore
 
     let app = builder.Build()
     app.MapControllers() |> ignore
 
     let logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Ds2.Collector")
     logger.LogInformation("Ds2.Collector 시작 · telemetryDb={T}, eventsDb={E}", telemetryDb, eventsDb)
+    logger.LogInformation(
+        "UA subscription · enabled={Enabled} endpoint={Endpoint} security={Security} certificateIdentity={CertificateIdentity} autoAcceptUntrusted={AutoAccept}",
+        uaOptions.Enabled,
+        uaOptions.EndpointUrl,
+        uaOptions.UseSecurity,
+        uaOptions.UseCertificateIdentity,
+        uaOptions.AutoAcceptUntrustedCertificates)
 
     app.Run()
     0

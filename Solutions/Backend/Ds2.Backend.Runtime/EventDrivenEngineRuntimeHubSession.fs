@@ -30,6 +30,11 @@ type EventDrivenEngineRuntimeHubSession
       // adapter OUT-falling 발행 경로에도 주입한다(게이트 우회 금지 — 핸드오프 §7 가드2).
       isMaxMeasured: System.Func<Guid, bool> ) =
 
+    // Agent가 AID/OPC UA 같은 별도 관측 소비자를 같은 입력 경계에 붙일 수 있게 한다.
+    // Backend.Runtime은 구체 소비자를 참조하지 않고 TagWrite batch 계약만 노출한다.
+    let mutable addressBatchObserver : System.Action<TagWrite array> = null
+    let mutable plcConnectionObserver : System.Action<PlcConnectionStatus> = null
+
     // ── 변환 헬퍼 ───────────────────────────────────────────────
     let gs (g: Guid) = g.ToString()
     let pg (s: string) = match Guid.TryParse s with | true, g -> g | _ -> Guid.Empty
@@ -518,6 +523,12 @@ type EventDrivenEngineRuntimeHubSession
     let guidStatus (id: string) (s: Status4) : RuntimeGuidStatus =
         { Id = id; StatusName = st4Name s; StatusValue = st4Val s }
 
+    member _.SetAddressBatchObserver(observer: System.Action<TagWrite array>) =
+        addressBatchObserver <- observer
+
+    member _.SetPlcConnectionObserver(observer: System.Action<PlcConnectionStatus>) =
+        plcConnectionObserver <- observer
+
     interface IRuntimeHubSession with
         member _.CurrentIdentity = identity
 
@@ -617,6 +628,9 @@ type EventDrivenEngineRuntimeHubSession
             Task.CompletedTask
         member _.InjectIOValuesByAddressAsync cmd =
             if allow cmd.Envelope then
+                if not (isNull addressBatchObserver) then
+                    try addressBatchObserver.Invoke cmd.Items
+                    with _ -> () // 관측 보조 경로 실패가 엔진 입력을 막아서는 안 된다.
                 applyHubTagBatch cmd.Items
             Task.CompletedTask
         member _.SetAllFlowStatesAsync cmd =
@@ -689,6 +703,9 @@ type EventDrivenEngineRuntimeHubSession
             Task.FromResult proj
 
         member _.NotifyPlcConnectionAsync (status: PlcConnectionStatus) =
+            if not (isNull plcConnectionObserver) then
+                try plcConnectionObserver.Invoke status
+                with _ -> () // 품질 보조 경로 실패가 기존 blackout 처리를 막아서는 안 된다.
             // down 전이 → blackout 진입(1회). 지속 실패의 반복 status 는 이미 blackout 이라 no-op.
             // up 전이는 무시 — 해제는 resync 배치 도착(applyHubTagBatch)으로만 한다:
             // connect 성공 직후 read 가 전부 실패할 수 있어 "연결됨" 신호는 신뢰하지 않는다.

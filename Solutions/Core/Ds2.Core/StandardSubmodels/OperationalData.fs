@@ -71,6 +71,8 @@ module OperationalDataBuilder =
                 for i in interactions do add i.SignalId i.ValueType i.Unit
             | Http(_, interactions) ->
                 for i in interactions do add i.SignalId i.ValueType i.Unit
+            | Xgt(_, interactions) ->
+                for i in interactions do add i.SignalId i.ValueType i.Unit
         m
 
     let private mkItem (signalId: SignalId) : OperationalDataItem =

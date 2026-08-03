@@ -15,6 +15,8 @@
     <Compile Include="Sinks/DownsampleScheduler.fs" />
     <Compile Include="DataApi/SeriesIdRegistry.fs" />
     <Compile Include="DataApi/Controllers.fs" />
+    <Compile Include="UaSubscriptionService.fs" />
+    <Compile Include="RetentionService.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
@@ -28,6 +30,8 @@
     <PackageReference Include="FSharp.Core" />
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="OPCFoundation.NetStandard.Opc.Ua.Client" />
+    <PackageReference Include="OPCFoundation.NetStandard.Opc.Ua.Configuration" />
   </ItemGroup>
 
 </Project>

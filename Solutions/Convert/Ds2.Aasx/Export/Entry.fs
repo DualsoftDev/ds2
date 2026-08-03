@@ -353,11 +353,22 @@ module AasxExporter =
 
         let sysPropsWithRefs =
             activeSystems |> List.choose (fun sys ->
-                let propElements = PropertyConversion.getEntityElements submodelType sys
+                let propElements =
+                    PropertyConversion.getEntityElements submodelType sys
+                    // SignalPolicy는 JSON Property가 아니라 의미 식별자가 붙은 정식 SMC로 발행한다.
+                    |> fun elements ->
+                        if submodelType = SequenceLogging then
+                            elements |> List.filter (fun element -> element.IdShort <> "SignalPolicies")
+                        else elements
                 let extraElements =
                     match submodelType with
                     | SequenceControl ->
                         sys.GetControlProperties() |> Option.map controlIoConfigElems |> Option.defaultValue []
+                    | SequenceLogging ->
+                        sys.GetLoggingProperties()
+                        |> Option.bind (fun properties ->
+                            signalPoliciesCollectionToSmc properties.SignalPolicies)
+                        |> Option.toList
                     | _ -> []
                 let allElems = propElements @ extraElements
                 if allElems.IsEmpty then None

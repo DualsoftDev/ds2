@@ -16,6 +16,7 @@
     <Compile Include="KpiExportIntegrationTests.fs" />
     <Compile Include="OpcUaScaleTests.fs" />
     <Compile Include="UserAasxRoundtripTests.fs" />
+    <Compile Include="SampleAasxTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
@@ -30,6 +31,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\Core\Ds2.Core\Ds2.Core.fsproj" />
     <ProjectReference Include="..\..\Convert\Ds2.Aasx\Ds2.Aasx.fsproj" />
+    <ProjectReference Include="..\..\Backend\Ds2.Backend.Plc\Ds2.Backend.Plc.fsproj" />
   </ItemGroup>
 
 </Project>

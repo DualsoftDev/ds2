@@ -7,6 +7,7 @@ type SeriesResolution = {
     GlobalAssetId : string
     SignalId      : string
     DefaultTable  : string   // "signals" | "signals_1h" | "signals_1d"
+    Retention     : string option
 }
 
 /// ADR-011 · SeriesId Registry — TimeSeries LinkedSegment 의 seriesId 를
@@ -22,6 +23,9 @@ type SeriesIdRegistry() =
         match store.TryGetValue seriesId with
         | true, v -> Some v
         | _ -> None
+
+    member _.ListAll() : SeriesResolution list =
+        store.Values |> Seq.toList
 
 /// Range 크기에 따라 signals / signals_1h / signals_1d 자동 선택.
 module TableSelector =

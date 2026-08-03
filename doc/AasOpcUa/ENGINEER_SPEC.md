@@ -1,4 +1,4 @@
-# Ds2 · AAS × OPC UA 통합 · 엔지니어 스펙 (v3 — 2026-07-27, 방법 A)
+# Ds2 · AAS × OPC UA 통합 · 엔지니어 스펙 (v4 — 2026-08-03, Agent 소유)
 
 > 이 문서는 **개발자 발표자료**로 사용된다.
 > 대상: 신규 합류 F#/백엔드 엔지니어 · 아키텍처 리뷰어 · IT/OT 통합 담당자.
@@ -9,14 +9,14 @@
 ## 0. TL;DR (30초)
 
 - **목표**: 공정 자산을 IDTA AAS + OPC UA 로 표준화하여, 편집 → 실시간 노출 → 수집 → 소비 파이프라인을 한 저장소로 관리.
-- **v3 결정 · 방법 A**: **AAS 파일 자체가 SSOT**. Ds2.AasHost REST 서버 삭제. 편집자·CI 는 `aid-store` 에 파일 직접 write. UA Server 는 사용자가 `Reload()` 를 명시적으로 호출해야 변경을 반영 (수동 로딩 — 오탐/락 이슈 회피).
+- **v4 결정**: 배포용 `project.aasx`가 모델/AID SSOT이고 Agent가 UA 서버를 소유한다. Agent watcher가 AASX 변경을 감지하면 runtime과 UA 주소공간을 함께 재구성한다.
 - **원칙**:
   1. **파일 = SSOT**. REST 계층 없음 → 인증/네트워크/장애면 축소.
   2. **NodeId 결정론** — 자산이 재배포되어도 클라이언트 구독은 살아남는다 (ADR-002).
   3. **SQLite-first** — Collector 는 SQLite. Kafka/Influx 는 확장 (ADR-011).
   4. **인터페이스는 실 구현 ≥ 2 개일 때만**.
 
-**프로세스 수**: v1 = 4개 (AasHost + UA + Collector + DataService) → v3 = 2개 (**UA + Collector**).
+**프로세스 수**: 배포 기준 2개 (**Agent[UA 내장] + Collector**).
 
 ---
 
@@ -40,12 +40,12 @@ Solutions/
 
 Apps/
 ├─ Ds2.AasOpcUa.Tutorial.Web/   ← Blazor Server · UA 라이브 뷰어 · pilot seeder
-└─ Promaker/                    ← WPF · OpcUaServerHost 내장 · SimEngineUaBridge
+└─ Promaker/                    ← Agent(UA 정식 소유) + WPF 데모 + Shared bridges
 ```
 
 **존재하지 않는 프로젝트** (문서 곳곳에 언급됨): `Ds2.AasHost`, `Ds2.DataService`, `Ds2.Backend.Plc.UaBridge`, `Ds2.Adapter.{Common,OpcUaClient,Modbus,Mqtt,Http,AutoId}`.
 - AasHost/DataService: 방법 A(2026-07-27) 에서 삭제됨.
-- Adapter 시리즈: 현재는 Promaker `SimEngineUaBridge` 가 유일한 in-process publisher.
+- Adapter 시리즈: `InterfaceXGT`는 기존 `Ds2.Backend.Plc` gateway를 재사용한다. 표준 AID 4종 southbound client는 후속이다.
 - Envelope/EdgeBuffer 는 `Ds2.Collector` 어셈블리에 있음 (별도 Adapter.Common 없음).
 
 빌드: `dotnet build Solutions/Ds2.sln`.
@@ -56,36 +56,17 @@ Apps/
 ## 2. 데이터 흐름 (End-to-End)
 
 ```
-        ┌───────────────────────────────────────────────────┐
-        │   AAS 파일 SSOT   /var/ds/aid-store               │
-        │   ├─ shells/{aasIdBase64Url}.json                 │
-        │   ├─ submodels/{smIdBase64Url}.json               │
-        │   ├─ concept-descriptions/{cdIdBase64Url}.json    │
-        │   └─ packages/{packageIdBase64Url}.aasx           │
-        └────┬─────────────────────────────────┬────────────┘
-             │ write (SMB/scp/git/직접)         │ 수동 Reload() 호출
-             │                                  ▼
-   [Editor · Vendor CI · 사람]         ┌─────────────────────┐
-                                        │ Ds2.OpcUa.Server    │
-                                        │  · AasFileScanner   │
-                                        │  · DeterministicNs  │
-                                        │  · Aggregator only  │
-                                        └──────────┬──────────┘
-                                                   ▲ UA Write
-                                                   │
-                                            [OT Adapters/PLC]
-                                                   │ Envelope · outbox
-                                                   ▼
-                                        ┌─────────────────────┐
-                                        │ Ds2.Collector       │
-                                        │  · SqliteSinkWriter │
-                                        │  · Downsample       │
-                                        │  · Data REST API    │
-                                        └─────────────────────┘
-                                                   ▲
-                                                   │ GET /v1/series
-                                                   │ GET /v1/events
-                                                [IT/Cloud]
+ AASX Editor/Promaker ─▶ project.aasx ─▶ Agent watcher/import
+                                           │
+                    ┌──────────────────────▼──────────────────────┐
+ PLC ◀▶ Pi5/Agent ─▶│ runtime batch → AID signalId UA Variables  │
+                    │ EventDrivenEngine + EmbeddedUaServer :62541 │
+                    └──────────────────────┬──────────────────────┘
+                                           │ OPC UA subscription
+                                 ┌─────────▼──────────┐
+                                 │ Collector          │
+                                 │ SQLite + Data REST │
+                                 └────────────────────┘
 ```
 
 핵심 계약:
@@ -103,6 +84,10 @@ Apps/
 - **식별자 값 타입**: `SignalId` (kebab-case, [a-z0-9-_.], 128자 이내), `GlobalAssetId` (URI/IRDI, 2048자), `SemanticId` (URI/IRDI, 2048자).
 - **AAS 도메인**: `AssetInterfacesDescription`, `OperationalData`, `AssetInterfacesMappingConfiguration` — F# 클래스 (member val), Provenance HashSet 포함.
 - **SequenceSubmodels/04_Logging**: `SignalPolicy` · `AcquisitionMode` · `Iso8601Duration.isValid` — CollectionPolicy 는 별도 SM 이 아니라 SequenceLogging SM 흡수.
+  - AASX: `SystemProperties/System_<guid>/SignalPoliciesCollection`으로 시스템별 왕복.
+  - UA: 각 AID Variable의 HasProperty 자식으로 mode/sampling/publishing/deadband/queue/retention 노출.
+  - Collector: policy별 subscription/MonitoredItem 설정 및 SQLite raw retention 적용.
+  - `DeadbandPercent`는 OPC UA EURange가 없는 현재 XGT schema에서는 메타데이터만 보존하고 안전하게 미적용하며 경고한다. `DeadbandAbsolute`는 서버 필터로 적용된다.
 - **KPI 파이프라인** (`Kpi/`):
   - `KpiKits.all` — Convention-driven 5 엔티티 (System/Work/Call/ArrowWork/UserTag) × 고정 메트릭.
   - SemanticId 규칙: `urn:ds:kpi/{Entity}/{Metric}/1/0`.
@@ -122,19 +107,20 @@ Apps/
   - `<aid-store>/{shells|submodels|concept-descriptions|packages}` 4개 디렉토리 감시.
   - `Reload()` 명시 호출 시 델타 (Added/Modified/Removed) 반환. FileSystemWatcher 없음.
 - **DsNodeManager**: 계층 브라우저 — Assets/{idShort}/{System KPI, Transitions, Works, Calls, IO}.
-- **EmbeddedUaServer**: `BrowseFolders` 폴더 상수, `WriteWorkState`/`WriteCallState`/`WriteRuntimeIo` 3개 write API.
+- **EmbeddedUaServer**: AID interaction 자동 노드 투영과 `WriteAidSignal`/`WriteWorkState`/`WriteCallState`/`WriteRuntimeIo` API.
 - **정책**: 서버는 값을 스스로 만들지 않는다. 모든 `Write` 는 외부 (Promaker in-process bridge, 또는 계획된 UA Client 어댑터) 담당.
 
-### 3.3 Promaker in-process host (Phase 3.5)
+### 3.3 Agent in-process host (Phase 3.5)
 
-Phase 4 어댑터가 없는 대신 **Promaker 가 UA 서버를 직접 구동**한다:
+**Agent가 UA 서버를 정식 구동**하며 Promaker WPF 경로는 기본 OFF 데모 호환용이다:
 - `Promaker.Shared.OpcUaServerSettings` — JSON 설정 (endpoint, 포트, 인증 옵션).
-- `OpcUaServerHost` — `EmbeddedUaServer` 를 singleton 으로 구동 (`Instance`).
+- `OpcUaServerHost` — Agent는 독립 인스턴스/데이터 루트, WPF는 호환 `Instance` 사용.
 - `SimEngineUaBridge`:
   - `engine.WorkStateChanged` 이벤트 → `WriteWorkState`.
   - `engine.CallStateChanged` 이벤트 → `WriteCallState`.
   - `engine.State.IOValues` 를 200ms 주기 폴링 → `WriteRuntimeIo` (diff 캐시로 변경분만 push).
 - 초기 스냅샷 push 로 `BadWaitingForInitialData` 해제.
+- `AidUaValueBridge`: 직접 scan/Pi5 delegated scan의 공통 `TagWrite[]`를 XGT address→AID signalId로 변환해 UA에 기록.
 
 ### 3.4 Ds2.Collector (Envelope + Sink + Data API)
 
@@ -145,6 +131,7 @@ Phase 4 어댑터가 없는 대신 **Promaker 가 UA 서버를 직접 구동**�
   - Priority: `Event(0) < Sample(1)` — 이벤트가 항상 먼저 pull.
   - Idempotent enqueue, `Requeue` 는 backoff 스케줄.
 - **UaWriterContract** — `IUaWriter` + `InMemoryUaWriter` (테스트 전용).
+- **UaSubscriptionService** — UA asset namespace browse, Variable의 CollectionPolicy Property 읽기, publishing별 subscription 그룹, 신호별 sampling/deadband/queue, reconnect, bounded channel, SQLite batch persist.
 
 - **SqliteSinkWriter**: envelope batch 를 `telemetry.db` (samples) / `events.db` (events) 로 라우팅. `EnvelopeId` dedup.
 - **DownsampleScheduler**: `signals` → `signals_1h` → `signals_1d` 롤업.
@@ -152,7 +139,8 @@ Phase 4 어댑터가 없는 대신 **Promaker 가 UA 서버를 직접 구동**�
   - `GET /v1/series?seriesId=…&rangeSeconds=…` — range 크기에 따라 자동 테이블 선택.
   - `GET /v1/events?asset=…&eventType=…` — events.db 쿼리.
   - `GET /healthz`, `GET /v1/info`.
-- **SeriesIdRegistry**: in-memory 매핑. 후속에서 aid-store 스캔으로 채움.
+- **SeriesIdRegistry**: UA browse 결과로 in-memory series/retention 매핑을 채움.
+- **RetentionService**: 정책의 ISO-8601 retention에 따라 신호별 `signals` raw row를 주기적으로 정리.
 
 ---
 
@@ -223,6 +211,15 @@ dotnet run --project Solutions/Runtime/Ds2.Collector
 - `DS2_AIDSTORE_ROOT` — AAS 파일 SSOT 루트 (기본: `/var/ds/aid-store`).
 - `DS2_UASERVER_ROOT` — UA 서버 상태/인증서 (기본: `./data/opcua-server`).
 - `DS2_COLLECTOR_ROOT` — telemetry.db/events.db 루트 (기본: `./data/collector`).
+- `DS2_UA_SUBSCRIBE_ENABLED` / `DS2_UA_ENDPOINT` — Collector UA 구독 on/off 및 Agent endpoint.
+- `DS2_UA_USE_SECURITY` — Collector가 보안 endpoint를 선택할지 여부(기본 `true`).
+- `DS2_UA_USE_CERTIFICATE_IDENTITY` — Collector client 인증서를 user identity로 사용할지 여부(기본 `true`).
+- `DS2_UA_AUTO_ACCEPT_UNTRUSTED` — 미등록 서버 인증서 자동 신뢰 여부(기본 `false`, 로컬 개발에서만 임시 사용).
+
+Agent의 파일 미존재 기본 설정은 `allowAnonymous=false`, `allowUnsecuredEndpoint=false`,
+`autoAcceptUntrustedCertificates=false`다. 첫 연결 시 Agent와 Collector의 `rejected` 인증서를 검토해
+상대편 `trusted` 저장소에 승인해야 한다. Agent의 주소공간/인증서 루트는
+`{SharedDirectory}/agent/opcua`, Collector client 루트는 `{DS2_COLLECTOR_ROOT}/ua-client`다.
 
 ### 배포 (Docker)
 ```powershell

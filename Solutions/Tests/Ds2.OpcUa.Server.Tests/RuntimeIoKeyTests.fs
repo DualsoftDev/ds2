@@ -6,6 +6,7 @@ open System.IO
 open Xunit
 open Ds2.Core
 open Ds2.Core.Store
+open Ds2.Core.StandardSubmodels
 open Ds2.OpcUa.Server.Server
 
 // -----------------------------------------------------------------------------
@@ -77,6 +78,7 @@ let ``LoadStore registers runtime IO nodes indexed by ApiCall.Id, not Call.Id`` 
         let written = server.WriteRuntimeIo(values)
         Assert.Equal(2, written)
         Assert.Equal(0L, server.RuntimeIoMissCount)
+        Assert.Equal(2, server.SetRuntimeQuality(uint32 Opc.Ua.StatusCodes.BadOutOfService, DateTime.UtcNow))
     finally
         server.StopAsync().GetAwaiter().GetResult()
         (server :> IDisposable).Dispose()
@@ -98,6 +100,9 @@ let ``WriteRuntimeIo with unknown key increments miss counter`` () = task {
         let written = server.WriteRuntimeIo(bogus)
         Assert.Equal(0, written)
         Assert.Equal(2L, server.RuntimeIoMissCount)
+        Assert.False(server.WriteWorkState(Guid.NewGuid(), "Ready", DateTime.UtcNow))
+        Assert.False(server.WriteCallState(Guid.NewGuid(), "Ready", DateTime.UtcNow))
+        Assert.Equal(2L, server.StateWriteMissCount)
     finally
         server.StopAsync().GetAwaiter().GetResult()
         (server :> IDisposable).Dispose()
@@ -112,6 +117,56 @@ let ``LoadStore with exposeLiveTags=false does not register runtime IO nodes`` (
     try
         let! _ = server.StartForStoreAsync(store, false, false, false)
         Assert.Equal(0, server.RuntimeIoNodeCount)
+    finally
+        server.StopAsync().GetAwaiter().GetResult()
+        (server :> IDisposable).Dispose()
+        if Directory.Exists root then
+            try Directory.Delete(root, true) with _ -> ()
+}
+
+[<Fact>]
+let ``AID interaction is projected to deterministic UA variable on store load`` () = task {
+    let store, _ = mkStoreWithApiCalls ()
+    let project = store.Projects.Values |> Seq.head
+    let aid = AssetInterfacesDescription()
+    let interaction : OpcUaInteraction = {
+        IdShort = "SpindleSpeed"
+        SemanticId = SemanticId "urn:dualsoft:cd:spindle-speed:1"
+        ValueType = XsDouble
+        Unit = Some "rpm"
+        Href = "ns=2;s=Line1.CNC01.SpindleSpeed"
+        SignalId = SignalId "line1.cnc01.spindle-speed"
+    }
+    aid.Interfaces.Add(OpcUa(EndpointMetadata.empty, [interaction], []))
+    project.AssetInterfaces <- Some aid
+
+    let server, root = mkServer ()
+    try
+        let! assets = server.StartForStoreAsync(store, false, false, false)
+        // 기존 Active System 1개 + AID 자산 1개.
+        Assert.Equal(2, assets)
+        Assert.Equal(1, server.AidSignalNodeCount)
+        Assert.True(
+            server.WriteAidSignal(
+                "line1.cnc01.spindle-speed",
+                box 1234.5,
+                DateTime.UtcNow,
+                uint32 Opc.Ua.StatusCodes.Good))
+        Assert.False(
+            server.WriteAidSignal(
+                "unknown.signal",
+                box 1.0,
+                DateTime.UtcNow,
+                uint32 Opc.Ua.StatusCodes.Good))
+        Assert.Equal(1L, server.AidWriteMissCount)
+        Assert.False(
+            server.WriteAidSignal(
+                "line1.cnc01.spindle-speed",
+                box "not-a-double",
+                DateTime.UtcNow,
+                uint32 Opc.Ua.StatusCodes.Good))
+        Assert.Equal(1L, server.TypeMismatchCount)
+        Assert.Equal(1, server.SetAllAidSignalQuality(uint32 Opc.Ua.StatusCodes.BadNoCommunication, DateTime.UtcNow))
     finally
         server.StopAsync().GetAwaiter().GetResult()
         (server :> IDisposable).Dispose()

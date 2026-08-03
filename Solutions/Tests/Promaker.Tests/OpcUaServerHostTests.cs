@@ -1,5 +1,6 @@
+using System;
+using System.IO;
 using System.Threading.Tasks;
-using Promaker.Services;
 using Promaker.Shared;
 using Xunit;
 
@@ -42,5 +43,30 @@ public sealed class OpcUaServerHostTests
         Assert.Contains("Dualsoft", root);
         Assert.Contains("Promaker", root);
         Assert.EndsWith("OpcUa", root);
+    }
+
+    [Fact]
+    public void Agent_settings_default_to_enabled_only_when_file_is_absent()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "ds2-agent-ua-settings-" + Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(root, "OpcUaServer.json");
+        try
+        {
+            var missing = OpcUaServerSettings.LoadAgentOrDefault(path);
+            Assert.True(missing.Enabled);
+            Assert.Equal(OpcUaServerSettings.AgentApplicationUri, missing.ApplicationUri);
+            Assert.False(missing.AllowAnonymous);
+            Assert.False(missing.AllowUnsecuredEndpoint);
+            Assert.False(missing.AutoAcceptUntrustedCertificates);
+
+            Directory.CreateDirectory(root);
+            File.WriteAllText(path, "{broken json");
+            var corrupt = OpcUaServerSettings.LoadAgentOrDefault(path);
+            Assert.False(corrupt.Enabled);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
     }
 }

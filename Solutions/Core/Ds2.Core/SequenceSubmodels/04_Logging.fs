@@ -240,6 +240,25 @@ type SignalPolicy = {
     Retention: string
 }
 
+/// Agent OPC UA 서버와 Collector 사이에서 CollectionPolicy를 전달하는 UA Property 계약.
+/// 각 signal Variable의 HasProperty 자식 BrowseName으로 사용한다.
+[<RequireQualifiedAccess>]
+module SignalPolicyUaMetadata =
+    [<Literal>]
+    let AcquisitionMode = "AcquisitionMode"
+    [<Literal>]
+    let SamplingIntervalMs = "SamplingIntervalMs"
+    [<Literal>]
+    let PublishingIntervalMs = "PublishingIntervalMs"
+    [<Literal>]
+    let DeadbandAbsolute = "DeadbandAbsolute"
+    [<Literal>]
+    let DeadbandPercent = "DeadbandPercent"
+    [<Literal>]
+    let QueueSize = "QueueSize"
+    [<Literal>]
+    let Retention = "Retention"
+
 /// ISO-8601 duration 파서 · 검증.
 ///
 /// 지원 형태:
@@ -315,6 +334,14 @@ module SignalPolicy =
         if p.SignalId = SignalId.empty then Error "SignalPolicy.SignalId is empty"
         elif not (Iso8601Duration.isValid p.Retention) then
             Error (sprintf "Retention '%s' is not a valid ISO-8601 duration" p.Retention)
+        elif p.AcquisitionMode = AcquisitionMode.Sampled && p.SamplingIntervalMs.IsNone then
+            Error "Sampled acquisition requires SamplingIntervalMs"
+        elif p.DeadbandAbsolute.IsSome && p.DeadbandPercent.IsSome then
+            Error "DeadbandAbsolute and DeadbandPercent are mutually exclusive"
+        elif p.DeadbandAbsolute |> Option.exists (fun value -> value < 0.0) then
+            Error "DeadbandAbsolute must be non-negative"
+        elif p.DeadbandPercent |> Option.exists (fun value -> value < 0.0 || value > 100.0) then
+            Error "DeadbandPercent must be between 0 and 100"
         else
             let posOk name v =
                 match v with

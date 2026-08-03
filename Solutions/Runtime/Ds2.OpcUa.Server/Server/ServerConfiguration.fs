@@ -16,6 +16,10 @@ type DsServerConfig = {
     CertificateDir  : string
     /// dev 편의 · Anonymous 세션 허용 여부
     AllowAnonymous  : bool
+    /// MessageSecurityMode.None endpoint 허용 여부. 운영에서는 false.
+    AllowUnsecuredEndpoint : bool
+    /// 미등록 peer 인증서 자동 신뢰. 운영에서는 false이고 trusted store를 명시 관리한다.
+    AutoAcceptUntrustedCertificates : bool
     MaxSessionCount : int
     SessionTimeoutMs : int
     MinSamplingIntervalMs : int
@@ -38,6 +42,8 @@ module ServerConfiguration =
             EndpointUrl    = endpoint
             CertificateDir = Path.Combine(root, "certs")
             AllowAnonymous = true
+            AllowUnsecuredEndpoint = true
+            AutoAcceptUntrustedCertificates = true
             MaxSessionCount = 100
             SessionTimeoutMs = 60_000
             MinSamplingIntervalMs = 100
@@ -63,9 +69,8 @@ module ServerConfiguration =
                 RejectedCertificateStore = CertificateTrustList(
                     StoreType = "Directory",
                     StorePath = Path.Combine(cfg.CertificateDir, "rejected")),
-                AutoAcceptUntrustedCertificates = true,
-                // ADR-005 후속: Vault 통합 전까지 dev 모드에서만 true
-                RejectSHA1SignedCertificates = false,
+                AutoAcceptUntrustedCertificates = cfg.AutoAcceptUntrustedCertificates,
+                RejectSHA1SignedCertificates = true,
                 MinimumCertificateKeySize = 2048us,
                 AddAppCertToTrustedStore = true)
 
@@ -74,10 +79,11 @@ module ServerConfiguration =
             ServerConfiguration(
                 BaseAddresses = StringCollection([| cfg.EndpointUrl |]),
                 SecurityPolicies = ServerSecurityPolicyCollection([|
-                    // Anonymous · None security · dev 만 (프로덕션 제거)
-                    ServerSecurityPolicy(
-                        SecurityMode = MessageSecurityMode.None,
-                        SecurityPolicyUri = SecurityPolicies.None)
+                    if cfg.AllowUnsecuredEndpoint then
+                        // 명시적인 개발 모드에서만 None endpoint를 연다.
+                        ServerSecurityPolicy(
+                            SecurityMode = MessageSecurityMode.None,
+                            SecurityPolicyUri = SecurityPolicies.None)
                     ServerSecurityPolicy(
                         SecurityMode = MessageSecurityMode.Sign,
                         SecurityPolicyUri = SecurityPolicies.Basic256Sha256)
@@ -89,8 +95,7 @@ module ServerConfiguration =
                     if cfg.AllowAnonymous then
                         UserTokenPolicy(UserTokenType.Anonymous,
                             SecurityPolicyUri = SecurityPolicies.None)
-                    UserTokenPolicy(UserTokenType.UserName,
-                        SecurityPolicyUri = SecurityPolicies.Basic256Sha256)
+                    // Username/password is not advertised until an explicit credential validator exists.
                     UserTokenPolicy(UserTokenType.Certificate,
                         SecurityPolicyUri = SecurityPolicies.Basic256Sha256)
                 |]),

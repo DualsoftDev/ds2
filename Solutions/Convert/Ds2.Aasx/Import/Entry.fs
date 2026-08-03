@@ -63,6 +63,18 @@ module AasxImporter =
                         |> Option.iter (fun system ->
                             PropertyConversion.importSystemProperty submodelType systemSmc system.Properties
                             match submodelType with
+                            | SequenceLogging ->
+                                let policies = signalPoliciesFromSystemProperties systemSmc
+                                if not policies.IsEmpty then
+                                    let logging =
+                                        match system.GetLoggingProperties() with
+                                        | Some properties -> properties
+                                        | None ->
+                                            let properties = LoggingSystemProperties()
+                                            system.SetLoggingProperties properties
+                                            properties
+                                    logging.SignalPolicies.Clear()
+                                    logging.SignalPolicies.AddRange policies
                             | SequenceControl ->
                                 let (presets, legacySysBase, legacyFlowBase, _legacyDeviceTemplates) = smcToControlIoConfig systemSmc
                                 let hasData =

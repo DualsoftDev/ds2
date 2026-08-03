@@ -99,10 +99,14 @@ module AasxExportStandardSubmodels =
     // AID · AssetInterfacesDescription (IDTA 02017 v1.1)
     // -------------------------------------------------------------------------
 
+    let private signalIdProp (signalId: SignalId) =
+        mkProp "signalId" signalId.Value
+        |> withSemId (Some SignalIdExtensionSemanticId)
+
     let private opcUaInteractionSmc (i: OpcUaInteraction) : ISubmodelElement =
         let mutable value = [ mkPropOfType "type" DataTypeDefXsd.String (string (xsdToAas i.ValueType)) ]
         match i.Unit with Some u -> value <- value @ [ mkProp "unit" u ] | None -> ()
-        value <- value @ [ mkProp "href" i.Href; mkProp "signalId" i.SignalId.Value ]
+        value <- value @ [ mkProp "href" i.Href; signalIdProp i.SignalId ]
         let smc = mkSmc i.IdShort value
         smc |> withSemId (Some i.SemanticId.Value)
 
@@ -123,7 +127,7 @@ module AasxExportStandardSubmodels =
             mkBoolProp "mostSignificantWord" i.MostSignificantWord
             mkDoubleProp "scale" i.Scale
             mkDoubleProp "offset" i.Offset
-            mkProp "signalId" i.SignalId.Value
+            signalIdProp i.SignalId
         ]
         mkSmc i.IdShort value |> withSemId (Some i.SemanticId.Value)
 
@@ -137,7 +141,7 @@ module AasxExportStandardSubmodels =
             mkIntProp "qos" i.Qos
             mkProp "contentType" i.ContentType
             mkProp "payloadPath" i.PayloadPath
-            mkProp "signalId" i.SignalId.Value
+            signalIdProp i.SignalId
         ]
         mkSmc i.IdShort value |> withSemId (Some i.SemanticId.Value)
 
@@ -156,7 +160,13 @@ module AasxExportStandardSubmodels =
         match i.PollIntervalMs with
         | Some ms -> value <- value @ [ mkIntProp "pollIntervalMs" ms ]
         | None -> ()
-        value <- value @ [ mkProp "signalId" i.SignalId.Value ]
+        value <- value @ [ signalIdProp i.SignalId ]
+        mkSmc i.IdShort value |> withSemId (Some i.SemanticId.Value)
+
+    let private xgtInteractionSmc (i: OpcUaInteraction) : ISubmodelElement =
+        let mutable value = [ mkPropOfType "type" DataTypeDefXsd.String (string (xsdToAas i.ValueType)) ]
+        match i.Unit with Some u -> value <- value @ [ mkProp "unit" u ] | None -> ()
+        value <- value @ [ mkProp "href" i.Href; signalIdProp i.SignalId ]
         mkSmc i.IdShort value |> withSemId (Some i.SemanticId.Value)
 
     let private autoIdEventSmc (e: AutoIdEventBinding) : ISubmodelElement =
@@ -164,7 +174,7 @@ module AasxExportStandardSubmodels =
             mkProp "eventType" e.EventType.Value
             mkProp "href" e.SourceNodeHref
             mkProp "payloadPath" e.PayloadPath
-            mkProp "signalId" e.SignalId.Value
+            signalIdProp e.SignalId
         ]
         mkSmc e.IdShort value |> withSemId (Some e.SemanticId.Value)
 
@@ -181,6 +191,25 @@ module AasxExportStandardSubmodels =
             let refElem = mkProp "authReferenceVault" v
                           |> withSemId (Some VaultReferenceExtensionSemanticId)
             elems <- elems @ [ refElem ]
+        | None -> ()
+        mkSmc "EndpointMetadata" elems
+
+    let private xgtEndpointMetadataSmc (ep: XgtEndpointMetadata) : ISubmodelElement =
+        let cpuModel = match ep.CpuModel with Xgi -> "XGI" | Xgk -> "XGK"
+        let transport = match ep.Transport with XgtTcp -> "tcp" | XgtUdp -> "udp"
+        let mutable elems : ISubmodelElement list = [
+            mkProp "base" ep.Base
+            mkProp "cpuModel" cpuModel
+            mkBoolProp "localEthernet" ep.LocalEthernet
+            mkByteProp "networkNumber" ep.NetworkNumber
+            mkByteProp "stationNumber" ep.StationNumber
+            mkProp "transport" transport
+            mkIntProp "timeoutMs" ep.TimeoutMs
+            mkIntProp "scanIntervalMs" ep.ScanIntervalMs
+        ]
+        match ep.AuthReferenceVault with
+        | Some value ->
+            elems <- elems @ [ mkProp "authReferenceVault" value |> withSemId (Some VaultReferenceExtensionSemanticId) ]
         | None -> ()
         mkSmc "EndpointMetadata" elems
 
@@ -208,6 +237,11 @@ module AasxExportStandardSubmodels =
             let epSmc = endpointMetadataSmc ep
             let interSmc = mkSmc "InteractionMetadata" (interactions |> List.map (httpInteractionSmc >> tag))
             mkSmc "InterfaceHTTP" [ epSmc; interSmc ]
+        | Xgt (ep, interactions) ->
+            let epSmc = xgtEndpointMetadataSmc ep
+            let interSmc = mkSmc "InteractionMetadata" (interactions |> List.map (xgtInteractionSmc >> tag))
+            mkSmc "InterfaceXGT" [ epSmc; interSmc ]
+            |> withSemId (Some XgtInterfaceSemanticId)
 
     /// AAS Submodel "AssetInterfacesDescription" 생성 (IDTA 02017 v1.1).
     let aidToSubmodel (aid: AssetInterfacesDescription) (assetId: string) : Submodel =
@@ -301,8 +335,8 @@ module AasxExportStandardSubmodels =
             | AcquisitionMode.ChangeOfValue -> "changeOfValue"
             | AcquisitionMode.EventDriven   -> "eventDriven"
         let value = [
-            mkProp "signalId" p.SignalId.Value
-            mkProp "acquisitionMode" mode
+            signalIdProp p.SignalId
+            mkProp "acquisitionMode" mode |> withSemId (Some SignalAcquisitionModeSemanticId)
             yield! (mkIntPropOpt "samplingIntervalMs" p.SamplingIntervalMs |> Option.toList)
             yield! (mkIntPropOpt "publishingIntervalMs" p.PublishingIntervalMs |> Option.toList)
             yield! (mkDoublePropOpt "deadbandAbsolute" p.DeadbandAbsolute |> Option.toList)
@@ -312,12 +346,25 @@ module AasxExportStandardSubmodels =
         ]
         mkSmc (sprintf "Policy_%s" (p.SignalId.Value.Replace('.', '_').Replace('-', '_'))) value
 
+    /// SignalPoliciesCollection 하나를 만든다. 비어 있으면 요소를 만들지 않는다.
+    /// SequenceLogging의 System_<guid> 안과 구 top-level 호환 경로가 같은 표현을 공유한다.
+    let signalPoliciesCollectionToSmc (policies: SignalPolicy seq) : ISubmodelElement option =
+        let items = policies |> Seq.toList
+        if items.IsEmpty then None
+        else
+            for policy in items do
+                match SignalPolicy.validate policy with
+                | Ok () -> ()
+                | Error message -> invalidArg "policies" $"{policy.SignalId.Value}: {message}"
+            mkSmc "SignalPoliciesCollection" (items |> List.map signalPolicyToSmc)
+            |> withSemId (Some SignalPoliciesCollectionSemanticId)
+            |> Some
+
     /// SequenceLogging Submodel 안에 SignalPolicies SMC 를 추가.
     let attachSignalPoliciesToLogging (loggingSm: Submodel) (policies: SignalPolicy seq) : unit =
-        if not (Seq.isEmpty policies) then
-            let smc =
-                mkSmc "SignalPoliciesCollection" (policies |> Seq.map signalPolicyToSmc |> List.ofSeq)
-                |> withSemId (Some SignalPoliciesCollectionSemanticId)
+        match signalPoliciesCollectionToSmc policies with
+        | Some smc ->
             if isNull loggingSm.SubmodelElements then
                 loggingSm.SubmodelElements <- ResizeArray<ISubmodelElement>()
             loggingSm.SubmodelElements.Add(smc)
+        | None -> ()

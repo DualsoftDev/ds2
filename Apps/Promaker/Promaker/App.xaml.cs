@@ -133,7 +133,7 @@ public partial class App : Application
 
         try
         {
-            Promaker.Services.OpcUaServerHost.Instance.StopAsync()
+            Promaker.Shared.OpcUaServerHost.Instance.StopAsync()
                 .GetAwaiter().GetResult();
         }
         catch (Exception ex) { Log.Warn($"OPC UA 서버 정지 중 예외: {ex.Message}"); }

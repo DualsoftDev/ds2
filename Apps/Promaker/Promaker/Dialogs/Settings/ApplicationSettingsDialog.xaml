@@ -314,6 +314,14 @@
                                            FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
                                            Margin="20,0,0,12" FontStyle="Italic" TextWrapping="Wrap"/>
 
+                                <CheckBox x:Name="OpcUaAllowUnsecuredEndpointBox"
+                                          Content="보안 없음(None) 엔드포인트 허용 (개발 편의)"
+                                          Foreground="{DynamicResource PrimaryTextBrush}"
+                                          FontSize="12" Margin="0,0,0,2"/>
+                                <TextBlock Text="운영에서는 해제하고 Sign 또는 SignAndEncrypt만 노출하세요."
+                                           FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                           Margin="20,0,0,12" FontStyle="Italic" TextWrapping="Wrap"/>
+
                                 <CheckBox x:Name="OpcUaAutoAcceptCertsBox"
                                           Content="클라이언트 인증서 자동 신뢰 (개발 편의)"
                                           Foreground="{DynamicResource PrimaryTextBrush}"

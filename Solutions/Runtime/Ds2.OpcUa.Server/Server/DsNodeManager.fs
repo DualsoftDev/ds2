@@ -3,6 +3,8 @@ namespace Ds2.OpcUa.Server.Server
 open System
 open System.Collections.Concurrent
 open System.Collections.Generic
+open System.Globalization
+open System.Text
 open System.Threading
 open Opc.Ua
 open Opc.Ua.Server
@@ -17,6 +19,7 @@ type internal AssetContext = {
     NsIndex        : int
     AssetFolder    : FolderState
     Variables      : ConcurrentDictionary<string, BaseDataVariableState>
+    VariableTypes  : ConcurrentDictionary<string, BuiltInType>
     EventsFolder   : FolderState
     RaiseEventMethod : MethodState
 }
@@ -57,7 +60,58 @@ module private DataTypes =
         | BuiltInType.Double     -> box 0.0
         | BuiltInType.String     -> box ""
         | BuiltInType.DateTime   -> box DateTime.MinValue
+        | BuiltInType.Guid       -> box Guid.Empty
+        | BuiltInType.ByteString -> box Array.empty<byte>
         | _                      -> null
+
+    /// 외부 adapter가 문자열을 넘겨도 Variable 선언 타입으로 중앙 변환한다.
+    /// 변환 불가능한 값은 호출자가 BadTypeMismatch로 품질을 전환하도록 Error를 반환한다.
+    let tryCoerce (target: BuiltInType) (value: obj) : Result<obj, string> =
+        let inv = CultureInfo.InvariantCulture
+        try
+            if isNull value then
+                Error "null is not valid for a scalar value"
+            else
+                let converted : obj =
+                    match target with
+                    | BuiltInType.Boolean ->
+                        match value with
+                        | :? bool -> value
+                        | :? string as s when s = "1" -> box true
+                        | :? string as s when s = "0" -> box false
+                        | _ -> box (Convert.ToBoolean(value, inv))
+                    | BuiltInType.SByte -> box (Convert.ToSByte(value, inv))
+                    | BuiltInType.Byte -> box (Convert.ToByte(value, inv))
+                    | BuiltInType.Int16 -> box (Convert.ToInt16(value, inv))
+                    | BuiltInType.UInt16 -> box (Convert.ToUInt16(value, inv))
+                    | BuiltInType.Int32 -> box (Convert.ToInt32(value, inv))
+                    | BuiltInType.UInt32 -> box (Convert.ToUInt32(value, inv))
+                    | BuiltInType.Int64 -> box (Convert.ToInt64(value, inv))
+                    | BuiltInType.UInt64 -> box (Convert.ToUInt64(value, inv))
+                    | BuiltInType.Float -> box (Convert.ToSingle(value, inv))
+                    | BuiltInType.Double -> box (Convert.ToDouble(value, inv))
+                    | BuiltInType.String -> box (Convert.ToString(value, inv))
+                    | BuiltInType.DateTime ->
+                        match value with
+                        | :? DateTime -> value
+                        | :? DateTimeOffset as dto -> box dto.UtcDateTime
+                        | :? string as s ->
+                            box (DateTime.Parse(s, inv, DateTimeStyles.AssumeUniversal ||| DateTimeStyles.AdjustToUniversal))
+                        | _ -> box (Convert.ToDateTime(value, inv))
+                    | BuiltInType.Guid ->
+                        match value with
+                        | :? Guid -> value
+                        | _ -> box (Guid.Parse(Convert.ToString(value, inv)))
+                    | BuiltInType.ByteString ->
+                        match value with
+                        | :? (byte array) -> value
+                        | :? string as s ->
+                            try box (Convert.FromBase64String s)
+                            with :? FormatException -> box (Encoding.UTF8.GetBytes s)
+                        | _ -> invalidArg "value" "ByteString requires byte[] or string"
+                    | _ -> invalidArg "target" (sprintf "unsupported scalar BuiltInType: %O" target)
+                Ok converted
+        with ex -> Error ex.Message
 
 type DsNodeManager(server: IServerInternal,
                    configuration: ApplicationConfiguration,
@@ -66,7 +120,9 @@ type DsNodeManager(server: IServerInternal,
                    defaultSamplingIntervalMs: int) as this =
     inherit CustomNodeManager2(server, configuration)
 
+    static let log = log4net.LogManager.GetLogger("DsNodeManager")
     let assets = ConcurrentDictionary<GlobalAssetId, AssetContext>()
+    let mutable typeMismatchCount = 0L
     let mutable rootFolder : FolderState = Unchecked.defaultof<_>
     let mutable assetsFolder : FolderState = Unchecked.defaultof<_>
 
@@ -254,9 +310,66 @@ type DsNodeManager(server: IServerInternal,
         this.AttachPredefined outArgs
         eventsFolder, raiseMethod
 
+    member private _.BuildPolicyProperty(
+                parent: BaseDataVariableState,
+                signalId: SignalId,
+                name: string,
+                dataType: NodeId,
+                value: obj,
+                serverNs: int) =
+        let property = new BaseDataVariableState(parent)
+        property.SymbolicName <- name
+        property.NodeId <- NodeId(sprintf "Policy/%s/%s" signalId.Value name, uint16 serverNs)
+        property.BrowseName <- QualifiedName(name, uint16 serverNs)
+        property.DisplayName <- LocalizedText name
+        property.Description <- LocalizedText(sprintf "CollectionPolicy.%s for %s" name signalId.Value)
+        property.ReferenceTypeId <- ReferenceTypeIds.HasProperty
+        property.TypeDefinitionId <- VariableTypeIds.PropertyType
+        property.DataType <- dataType
+        property.ValueRank <- ValueRanks.Scalar
+        property.AccessLevel <- byte AccessLevels.CurrentRead
+        property.UserAccessLevel <- property.AccessLevel
+        property.MinimumSamplingInterval <- 0.0
+        property.Historizing <- false
+        property.Value <- value
+        property.StatusCode <- StatusCodes.Good
+        property.Timestamp <- DateTime.UtcNow
+        parent.AddChild(property)
+
+    member private this.AttachCollectionPolicy(
+                variable: BaseDataVariableState,
+                signalId: SignalId,
+                policy: SignalPolicy,
+                serverNs: int) =
+        let add name dataType value =
+            this.BuildPolicyProperty(variable, signalId, name, dataType, value, serverNs)
+        let mode =
+            match policy.AcquisitionMode with
+            | AcquisitionMode.Sampled -> "sampled"
+            | AcquisitionMode.ChangeOfValue -> "changeOfValue"
+            | AcquisitionMode.EventDriven -> "eventDriven"
+        add SignalPolicyUaMetadata.AcquisitionMode DataTypeIds.String (box mode)
+        policy.SamplingIntervalMs
+        |> Option.iter (fun value -> add SignalPolicyUaMetadata.SamplingIntervalMs DataTypeIds.Int32 (box value))
+        policy.PublishingIntervalMs
+        |> Option.iter (fun value -> add SignalPolicyUaMetadata.PublishingIntervalMs DataTypeIds.Int32 (box value))
+        policy.DeadbandAbsolute
+        |> Option.iter (fun value -> add SignalPolicyUaMetadata.DeadbandAbsolute DataTypeIds.Double (box value))
+        policy.DeadbandPercent
+        |> Option.iter (fun value -> add SignalPolicyUaMetadata.DeadbandPercent DataTypeIds.Double (box value))
+        policy.QueueSize
+        |> Option.iter (fun value -> add SignalPolicyUaMetadata.QueueSize DataTypeIds.Int32 (box value))
+        add SignalPolicyUaMetadata.Retention DataTypeIds.String (box policy.Retention)
+
     /// signal 하나에 대응하는 BaseDataVariableState 생성. 초기 StatusCode = BadWaitingForInitialData
     /// (실 값은 WriteSignal 로 들어와야 Good 으로 승격) — 브릿지가 초기 스냅샷 push 시 해제.
-    member private _.BuildVariable(parent: NodeState, sigId: SignalId, builtin: BuiltInType, displayName: string, serverNs: int)
+    member private this.BuildVariable(
+                parent: NodeState,
+                sigId: SignalId,
+                builtin: BuiltInType,
+                displayName: string,
+                policy: SignalPolicy option,
+                serverNs: int)
             : BaseDataVariableState =
         let v = new BaseDataVariableState(parent)
         v.SymbolicName <- sigId.Value
@@ -270,12 +383,18 @@ type DsNodeManager(server: IServerInternal,
         v.ValueRank <- ValueRanks.Scalar
         v.AccessLevel <- byte (AccessLevels.CurrentReadOrWrite ||| AccessLevels.HistoryRead)
         v.UserAccessLevel <- v.AccessLevel
-        v.MinimumSamplingInterval <- float (max 1 defaultSamplingIntervalMs)
+        v.MinimumSamplingInterval <-
+            policy
+            |> Option.bind (fun p -> p.SamplingIntervalMs)
+            |> Option.defaultValue defaultSamplingIntervalMs
+            |> max 1
+            |> float
         v.Historizing <- false
         v.Value <- DataTypes.defaultValue builtin
         v.StatusCode <- StatusCodes.BadWaitingForInitialData
         v.Timestamp <- DateTime.UtcNow
         parent.AddChild(v)
+        policy |> Option.iter (fun p -> this.AttachCollectionPolicy(v, sigId, p, serverNs))
         v
 
     /// 폴더 계층을 포함한 자산 등록. 브라우저 트리에서 아이템별로 인지 가능하도록 배치.
@@ -283,10 +402,10 @@ type DsNodeManager(server: IServerInternal,
     /// folderPath 는 asset 루트 기준 상대 경로 — 빈 리스트면 asset 폴더 바로 아래 배치.
     /// 동일 folderPath 는 재사용 (idempotent) — 여러 signal 이 같은 경로면 한 폴더 안에 모임.
     /// 폴더 NodeId 는 "Folder/<join(path,'/')>" 로 asset namespace 안에서 유일.
-    member this.AddAssetWithHierarchy(
+    member private this.AddAssetWithHierarchyCore(
                 gaid: GlobalAssetId,
                 idShort: string,
-                signalsWithPath: (string list * SignalId * string * BuiltInType * string) list) : int =
+                signalsWithPath: (string list * SignalId * string * BuiltInType * string * SignalPolicy option) list) : int =
         let _ = allocator.EnsureForAsset gaid
         let uri = allocator.GlobalAssetIdToUri gaid
 
@@ -331,10 +450,12 @@ type DsNodeManager(server: IServerInternal,
                         f
 
             let vars = new ConcurrentDictionary<string, BaseDataVariableState>()
-            for (path, sigId, _unit, builtin, displayName) in signalsWithPath do
+            let variableTypes = new ConcurrentDictionary<string, BuiltInType>()
+            for (path, sigId, _unit, builtin, displayName, policy) in signalsWithPath do
                 let parent = ensureFolder path
-                let v = this.BuildVariable(parent, sigId, builtin, displayName, serverNs)
+                let v = this.BuildVariable(parent, sigId, builtin, displayName, policy, serverNs)
                 vars.[sigId.Value] <- v
+                variableTypes.[sigId.Value] <- builtin
 
             // hot-append 경로 — 전체 subtree 완성 후 root 한 번 등록해야
             // descendants + hierarchical refs 가 함께 반영된다.
@@ -345,6 +466,7 @@ type DsNodeManager(server: IServerInternal,
                 NsIndex = serverNs
                 AssetFolder = assetFolder
                 Variables = vars
+                VariableTypes = variableTypes
                 EventsFolder = eventsFolder
                 RaiseEventMethod = raiseMethod
             }
@@ -352,6 +474,23 @@ type DsNodeManager(server: IServerInternal,
             serverNs
         finally
             Monitor.Exit this.Lock
+
+    /// CollectionPolicy가 포함된 AID 신호 등록 경로.
+    member this.AddAssetWithHierarchyAndPolicies(
+                gaid: GlobalAssetId,
+                idShort: string,
+                signalsWithPath: (string list * SignalId * string * BuiltInType * string * SignalPolicy option) list) : int =
+        this.AddAssetWithHierarchyCore(gaid, idShort, signalsWithPath)
+
+    /// 기존 공개 API 호환: 정책이 없는 신호 계층 등록.
+    member this.AddAssetWithHierarchy(
+                gaid: GlobalAssetId,
+                idShort: string,
+                signalsWithPath: (string list * SignalId * string * BuiltInType * string) list) : int =
+        signalsWithPath
+        |> List.map (fun (path, signalId, unitName, builtin, displayName) ->
+            path, signalId, unitName, builtin, displayName, None)
+        |> fun signals -> this.AddAssetWithHierarchyCore(gaid, idShort, signals)
 
     /// 기존 flat API — 폴더 없이 asset 아래 바로 signal 배치. 폴더 계층 없이 호출 사이트를 유지하려는 경우.
     member this.AddAssetWithDisplayNames(gaid: GlobalAssetId, idShort: string, signals: (SignalId * string * BuiltInType * string) list) : int =
@@ -368,8 +507,48 @@ type DsNodeManager(server: IServerInternal,
                 signalId, unitName, dataType, signalId.Value)
         this.AddAssetWithDisplayNames(gaid, idShort, withDisplayNames)
 
-    /// UaWriter 로부터 값 변경 시 호출.
+    /// UaWriter 로부터 값 변경 시 호출. 실제 값은 Variable 선언 BuiltInType으로 중앙 변환한다.
+    /// 변환 실패 시 이전 값은 유지하고 품질만 BadTypeMismatch로 전환한다.
     member this.WriteSignal(gaid: GlobalAssetId, signalId: SignalId, value: obj, sourceTs: DateTime, statusCode: uint32) : bool =
+        match assets.TryGetValue gaid with
+        | false, _ -> false
+        | true, ctx ->
+            match ctx.Variables.TryGetValue signalId.Value with
+            | false, _ -> false
+            | true, v ->
+                let target =
+                    match ctx.VariableTypes.TryGetValue signalId.Value with
+                    | true, t -> t
+                    | _ -> BuiltInType.Null
+                match DataTypes.tryCoerce target value with
+                | Error reason ->
+                    let total = Interlocked.Increment(&typeMismatchCount)
+                    if total = 1L || total % 100L = 0L then
+                        let actualType = if isNull value then "<null>" else value.GetType().FullName
+                        log.Warn(
+                            sprintf "OPC UA type mismatch: asset=%s signal=%s expected=%O actual=%s reason=%s total=%d"
+                                gaid.Value signalId.Value target actualType reason total)
+                    Monitor.Enter this.Lock
+                    try
+                        v.Timestamp <- sourceTs
+                        v.StatusCode <- StatusCodes.BadTypeMismatch
+                        v.ClearChangeMasks(this.SystemContext, false)
+                    finally
+                        Monitor.Exit this.Lock
+                    false
+                | Ok typedValue ->
+                    Monitor.Enter this.Lock
+                    try
+                        v.Value <- typedValue
+                        v.Timestamp <- sourceTs
+                        v.StatusCode <- StatusCode statusCode
+                        v.ClearChangeMasks(this.SystemContext, false)
+                    finally
+                        Monitor.Exit this.Lock
+                    true
+
+    /// 값은 유지하고 품질/시각만 변경한다. 통신 단절·런타임 정지 전파용.
+    member this.SetSignalQuality(gaid: GlobalAssetId, signalId: SignalId, statusCode: uint32, sourceTs: DateTime) : bool =
         match assets.TryGetValue gaid with
         | false, _ -> false
         | true, ctx ->
@@ -378,13 +557,30 @@ type DsNodeManager(server: IServerInternal,
             | true, v ->
                 Monitor.Enter this.Lock
                 try
-                    v.Value <- value
                     v.Timestamp <- sourceTs
                     v.StatusCode <- StatusCode statusCode
                     v.ClearChangeMasks(this.SystemContext, false)
                 finally
                     Monitor.Exit this.Lock
                 true
+
+    member this.SetAssetQuality(gaid: GlobalAssetId, statusCode: uint32, sourceTs: DateTime) : int =
+        match assets.TryGetValue gaid with
+        | false, _ -> 0
+        | true, ctx ->
+            let mutable changed = 0
+            for KeyValue(_, v) in ctx.Variables do
+                Monitor.Enter this.Lock
+                try
+                    v.Timestamp <- sourceTs
+                    v.StatusCode <- StatusCode statusCode
+                    v.ClearChangeMasks(this.SystemContext, false)
+                    changed <- changed + 1
+                finally
+                    Monitor.Exit this.Lock
+            changed
+
+    member _.TypeMismatchCount = Interlocked.Read(&typeMismatchCount)
 
     member _.ListAssets() =
         assets.Values |> Seq.map (fun c -> c.GlobalAssetId, c.NsIndex) |> Seq.toList

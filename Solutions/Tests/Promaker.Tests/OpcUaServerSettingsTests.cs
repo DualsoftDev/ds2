@@ -22,6 +22,7 @@ public sealed class OpcUaServerSettingsTests
         Assert.Equal(OpcUaServerSettings.DefaultDefaultSamplingIntervalMs, s.DefaultSamplingIntervalMs);
         Assert.Equal(OpcUaServerSettings.DefaultPublishingIntervalMs, s.PublishingIntervalMs);
         Assert.True(s.AllowAnonymous);
+        Assert.True(s.AllowUnsecuredEndpoint);
         Assert.True(s.AutoAcceptUntrustedCertificates);
     }
 
@@ -60,6 +61,7 @@ public sealed class OpcUaServerSettingsTests
                 DefaultSamplingIntervalMs = 1_000,
                 PublishingIntervalMs = 2_000,
                 AllowAnonymous = false,
+                AllowUnsecuredEndpoint = false,
                 AutoAcceptUntrustedCertificates = false,
             };
 
@@ -77,6 +79,7 @@ public sealed class OpcUaServerSettingsTests
             Assert.Equal(original.DefaultSamplingIntervalMs, loaded.DefaultSamplingIntervalMs);
             Assert.Equal(original.PublishingIntervalMs, loaded.PublishingIntervalMs);
             Assert.False(loaded.AllowAnonymous);
+            Assert.False(loaded.AllowUnsecuredEndpoint);
             Assert.False(loaded.AutoAcceptUntrustedCertificates);
         }
         finally

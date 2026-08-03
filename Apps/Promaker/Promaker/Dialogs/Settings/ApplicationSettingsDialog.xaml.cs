@@ -263,6 +263,7 @@ public partial class ApplicationSettingsDialog : Window
         OpcUaDefaultSamplingIntervalBox.Text     = s.DefaultSamplingIntervalMs.ToString();
         OpcUaPublishingIntervalBox.Text          = s.PublishingIntervalMs.ToString();
         OpcUaAllowAnonymousBox.IsChecked         = s.AllowAnonymous;
+        OpcUaAllowUnsecuredEndpointBox.IsChecked = s.AllowUnsecuredEndpoint;
         OpcUaAutoAcceptCertsBox.IsChecked        = s.AutoAcceptUntrustedCertificates;
     }
 
@@ -295,6 +296,7 @@ public partial class ApplicationSettingsDialog : Window
             PublishingIntervalMs            = TryParseInt(OpcUaPublishingIntervalBox.Text,
                                                           OpcUaServerSettings.DefaultPublishingIntervalMs),
             AllowAnonymous                  = OpcUaAllowAnonymousBox.IsChecked == true,
+            AllowUnsecuredEndpoint          = OpcUaAllowUnsecuredEndpointBox.IsChecked == true,
             AutoAcceptUntrustedCertificates = OpcUaAutoAcceptCertsBox.IsChecked == true,
         };
     }
