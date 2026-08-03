@@ -82,6 +82,28 @@ public sealed class SimulationEngineService : IDisposable
     // EnsureUserTagAddressesRegistered() 가 갱신.
     private volatile HashSet<string> _userTagAddressesForDiag = new(StringComparer.OrdinalIgnoreCase);
 
+    // 주소별 최근 수신 시각(UTC) — 모델에 적힌 주소가 실제로 PLC 에서 오고 있는지 진단하는 소스.
+    // 모델 주소 오타/영역 불일치(예: XGI %IX… ↔ XGB P000…)면 그 주소는 영원히 0 건인데, 연결·핑은 정상이라
+    // 기존 지표(어댑터 상태·심박)로는 드러나지 않는다. 실제로 그 상태에서 4분 넘게 기록이 비었고 그 구간이
+    // 비생산으로 집계되는 사고가 있었다(2026-07-29). 심박 판정 규칙은 그대로 두고(설비 실제 정지를 미계측으로
+    // 오분류하지 않기 위해) 커버리지만 별도로 노출한다.
+    private readonly ConcurrentDictionary<string, DateTime> _lastSeenByAddress = new(StringComparer.OrdinalIgnoreCase);
+
+    // 미소비 backfill 하한 — 수집기 store-and-forward replay 로 "도착보다 과거"인 원천시각이 들어온 구간의
+    // 가장 오래된 지점. PeriodicCycleRecomputeService 가 증분 재도출 창을 여기까지 넓히는 데 쓴다. 없으면
+    // 그 서비스의 창은 "최신 로그 − 30분" 상수라, 30분 넘는 두절의 replay 구간은 plcTagLog 에만 복원되고
+    // 사이클 이력(dspFlowHistory)엔 영구 미반영으로 남는다(= 무사이클 정지가 정상가동을 계속 삼킨다).
+    private readonly BackfillFloorTracker _backfillFloor = new();
+
+    // tagId → 마지막으로 plcTagLog 에 기록한 값. resync(재연결/주기 baseline 스냅샷) 수용 시
+    // "값이 실제로 바뀐 것"만 기록해 로그 폭증(태그 전수 × 10초 주기)을 막는 dedupe 기준선.
+    private readonly ConcurrentDictionary<int, string> _lastLoggedValueByTagId = new();
+
+    // 원천시각 기각 경고 throttle — 송신기 시계가 틀어지면 태그마다 터지므로 60초 1회로 묶어 카운트만 올린다.
+    private long _rejectedTsCount;
+    private long _rejectedTsWarnAtTicks;
+    private static readonly TimeSpan RejectedTsWarnInterval = TimeSpan.FromSeconds(60);
+
     // Flow Ready 전이 디바운스 — Call 들이 순차 실행되며 micro-gap 마다 Ready→Going 토글되는 점멸 방지
     private readonly Dictionary<string, CancellationTokenSource> _flowReadyDebounceCts = new();
     private readonly object _flowReadyLock = new();
@@ -97,6 +119,9 @@ public sealed class SimulationEngineService : IDisposable
     // Engine 의 CallStateChanged 이벤트를 단일 컨슈머로 직렬화 — 같은 callGuid 의 빠른
     // Ready→Going / Going→Finish 가 fire-and-forget 으로 병렬 실행되어 Welford 통계가
     // (0,0,0) 으로 corruption 되던 race 차단. ResetAsync 에서 재생성 가능하도록 mutable.
+    // 자동 abandon 경계 산출용 CT 통계(중앙값·p99). 워치독 폴백 전용 소스.
+    private readonly OeeCtStatsService _ctStats;
+
     private Channel<CallStateChangedArgs>? _eventChannel;
     private CancellationTokenSource? _consumerCts;
     private Task? _consumerTask;
@@ -111,8 +136,10 @@ public sealed class SimulationEngineService : IDisposable
         PlcTagLogWriterService logWriter,
         AppSettingsService settings,
         AbnormalEventService abnormalEvents,
+        OeeCtStatsService ctStats,
         ILogger<SimulationEngineService> logger)
     {
+        _ctStats = ctStats;
         _projectService = projectService;
         _dspRepository = dspRepository;
         _dspDbService = dspDbService;
@@ -211,9 +238,57 @@ public sealed class SimulationEngineService : IDisposable
     }
 
     /// <summary>
+    /// 모델(AASX) 주소 수신 커버리지 — "적힌 주소 중 실제로 신호가 들어온 주소가 몇 개인가".
+    /// Expected = plcTag 부트스트랩 대상(IOMap Out/In + UserTag), Seen = 부팅 후 1건 이상 수신한 주소.
+    /// Missing 은 표시용으로 주소 오름차순 상위 <paramref name="missingLimit"/> 개만 돌려준다.
+    /// <para>미수신이 곧 오류는 아니다(드물게만 동작하는 Call 도 0 건일 수 있음) — 그래서 경고 문구는
+    /// "확인 필요"로 쓰고 판정(심박/미계측)에는 쓰지 않는다. 주소 정리 작업 중 즉시 피드백이 목적.</para>
+    /// </summary>
+    public (int Expected, int Seen, List<string> Missing) GetAddressCoverage(int missingLimit = 12)
+    {
+        var expected = _plcTagIdByAddress.Keys.ToList();
+        if (expected.Count == 0) return (0, 0, new List<string>());
+        var missing = expected
+            .Where(a => !_lastSeenByAddress.ContainsKey(a))
+            .OrderBy(a => a, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return (expected.Count, expected.Count - missing.Count, missing.Take(missingLimit).ToList());
+    }
+
+    /// <summary>미소비 backfill 하한(Local) — 없으면 null. 수집기 replay 로 과거 시각이 들어온 구간의
+    /// 가장 오래된 지점. <see cref="PeriodicCycleRecomputeService"/> 가 증분 재도출 창 하한으로 쓴다.
+    /// <para>Local 로 돌려주는 이유: 소비처(<see cref="CycleRecomputeService.RecomputeAllTrackedFlowsAsync"/>)의
+    /// <c>sinceLocal</c> 및 워터마크(<see cref="Repositories.IPlcRepository.GetLatestLogDateTimeAsync"/> → Local)와
+    /// 같은 Kind 여야 구간 비교가 9시간 어긋나지 않는다.</para></summary>
+    public DateTime? PeekBackfillFloorLocal() => _backfillFloor.PeekUtc()?.ToLocalTime();
+
+    /// <summary>재도출로 실제 커버한 backfill 하한을 소비 처리. 재도출 중에 더 오래된 backfill 이 들어왔으면
+    /// 그 값이 남고 다음 주기가 처리한다(소비 누락 방지).</summary>
+    public void ClearBackfillFloor(DateTime consumedLocal) => _backfillFloor.Clear(consumedLocal);
+
+    /// <summary>원천시각 기각 경고 — 60초에 1회로 묶고 그동안의 건수를 함께 보고한다.
+    /// 이 경고가 보이면 송신기(Pi5) 시계 동기(NTP/RTC)를 먼저 봐야 한다 — 기록은 도착시각으로 폴백돼
+    /// 유실은 없지만 replay 구간의 시간축 복원 효과가 사라진 상태다.</summary>
+    private void WarnRejectedTimestamp(string address, long wallClockMs, HubLogTimeSource source)
+    {
+        Interlocked.Increment(ref _rejectedTsCount);
+
+        var nowTicks = DateTime.UtcNow.Ticks;
+        var lastTicks = Interlocked.Read(ref _rejectedTsWarnAtTicks);
+        if (nowTicks - lastTicks < RejectedTsWarnInterval.Ticks) return;
+        if (Interlocked.CompareExchange(ref _rejectedTsWarnAtTicks, nowTicks, lastTicks) != lastTicks) return;
+
+        var count = Interlocked.Exchange(ref _rejectedTsCount, 0);
+        _logger.LogWarning(
+            "[Engine] 원천시각 기각 {Source} — 도착시각으로 폴백. 최근 {Count}건, 예: {Addr} wallClockMs={Ms} " +
+            "(송신기 시계 동기 확인 필요)",
+            source, count, address, wallClockMs);
+    }
+
+    /// <summary>
     /// HubSubscriberService 가 받은 OnTagChanged 신호의 진입점.
     /// </summary>
-    public void HandleHubTagChanged(string address, string value, string source)
+    public void HandleHubTagChanged(string address, string value, string source, long wallClockMs = 0)
     {
         if (!TryEnsureInitialized()) return;
         if (_runtimeSession is null) return;
@@ -221,9 +296,51 @@ public sealed class SimulationEngineService : IDisposable
 
         // plcTagLog 기록 — 배치 writer 채널에 enqueue (실제 INSERT 는 PlcTagLogWriterService 가
         // 250ms / 100건 단위로 트랜잭션으로 처리)
+        // 시각 = 원천 관측 시각(TagWrite.WallClockMs, Pi5 스캔 직후 각인). 도착시각(DateTime.Now)으로
+        // 찍으면 핑 두절→버퍼 replay 신호가 전부 복구 순간에 뭉쳐 그래프/사이클이 왜곡된다(관찰된 증상).
+        // 0(구버전 송신자/단건 OnTagChanged)이면 종전대로 도착시각 폴백.
+        var isResync = string.Equals(source, HubSource.Resync, StringComparison.OrdinalIgnoreCase);
         var inCache = _plcTagIdByAddress.TryGetValue(address, out var tagId);
         if (inCache)
-            _logWriter.TryWrite(tagId, value, DateTime.Now);
+        {
+            // resync(재연결/주기 10s baseline 스냅샷)는 태그 전수를 실어 오므로 그대로 기록하면
+            // plcTagLog 가 하루 수백만 행으로 폭증한다. 값이 마지막 기록과 같으면 기록 생략,
+            // 다르면 = diff 스캔이 놓친 전이(마이크로 핑 스파이크 펄스 유실)의 레벨 정정 →
+            // 원천시각으로 기록해 사이클 재도출·그래프가 참값을 본다. 일반(plc 등) 신호는
+            // 종전대로 무조건 기록 — edge 스트림 dedupe 는 이 변경의 범위 밖.
+            var skipWrite = isResync
+                && _lastLoggedValueByTagId.TryGetValue(tagId, out var lastLogged)
+                && string.Equals(lastLogged, value, StringComparison.Ordinal);
+            if (!skipWrite)
+            {
+                // 위생 검사 포함(미래/24h 초과 과거는 기각 후 도착시각 폴백) — 규칙과 근거는
+                // HubLogTimestampPolicy 참조. 송신기 시계가 미동기면 데이터가 조용히 사라진다.
+                var stamp = HubLogTimestampPolicy.Resolve(wallClockMs, DateTime.UtcNow);
+                _logWriter.TryWrite(tagId, value, stamp.AtUtc);
+                _lastLoggedValueByTagId[tagId] = value;
+
+                // replay 로 과거 구간이 들어왔다 — 사이클 재도출 창을 여기까지 넓히지 않으면 그 구간이
+                // plcTagLog 에만 복원되고 이력엔 안 들어가, 무사이클 정지가 정상가동을 계속 삼킨다.
+                if (stamp.IsBackfill)
+                    _backfillFloor.Report(stamp.AtUtc);
+
+                if (stamp.Source is HubLogTimeSource.RejectedFuture or HubLogTimeSource.RejectedTooOld)
+                    WarnRejectedTimestamp(address, wallClockMs, stamp.Source);
+            }
+
+            // ★아래 두 도장은 의도적으로 ts 가 아니라 *도착시각*을 쓴다 — 재는 대상이 다르다.
+            //   기록 시각(ts)   = "그 신호가 PLC 에서 언제 관측됐나" → 버퍼 replay 도 원래 시각으로 복원.
+            //   커버리지/라이브니스 = "지금 PLC 와 말이 통하고 있나" → 도착 그 자체가 증거.
+            //   여기에 ts 를 쓰면 핑 두절 후 밀린 신호가 replay 될 때 "옛 시각 유입"으로 찍혀 라이브니스가
+            //   계속 stale 로 보이고, 그 플래그를 게이트로 쓰는 reconcile Phase 3 가 다시 상시 닫힌다
+            //   (4082439d 가 고친 바로 그 증상). 두 시각을 통일하지 말 것.
+            _lastSeenByAddress[address] = DateTime.UtcNow;   // 주소 커버리지 진단(GetAddressCoverage)
+            // 라이브니스 도장 — 값이 안 변해도 유입은 유입이다. 상태전이/DB변화 경로만으로는 라이브 행이
+            // 고정값으로 굳은 현장에서 "데이터 대기"가 영구 표시되고, 그 플래그를 게이트로 쓰는 아래
+            // reconcile Phase 3 가 상시 닫혀 엣지 유실 자가치유가 죽는다. 매핑된 주소(inCache)로 한정하므로
+            // 모델과 무관한 태그가 라이브니스를 위조하지 않는다.
+            _dspDbService.MarkInbound();
+        }
 
         // 진단 — UserTag 정의 주소에 대해서만 hit/miss + enqueue 결과 로깅.
         if (_userTagAddressesForDiag.Contains(address))
@@ -640,7 +757,11 @@ public sealed class SimulationEngineService : IDisposable
     /// 열린 래치의 경과가 해당 flow 의 유효 이상치 Max(전체+flow별, 사후 IsIdle 분류와 동일 소스
     /// <see cref="AppSettingsService.ResolveEffectiveCycleRangeMs"/>)를 넘으면 — 지금 완료돼도 비가동으로
     /// 분류될 사이클이므로 — 래치를 abandon(사이클/통계 미기록)하고 "Ready" 로 복귀시킨다(라인 정지로 tail 미도달 시
-    /// 박제 해소). effective Max=0(제한 없음)인 flow 는 해제하지 않는다(기존 Going-고정 해제 규칙과 동일).
+    /// 박제 해소). Max=0(미설정)인 flow 는 <b>실측 분포에서 만든 자동 경계</b>로 폴백한다 —
+    /// <see cref="OeeMath.ResolveAutoAbandonBoundaryMs"/>(중앙값·p99 기반). 종전에는 Max=0 이면 해제 자체를
+    /// 안 해서, 기본 설정 그대로 쓰는 현장은 신호가 끊기면 CCTV 오버레이·대시보드가 영구 '가동중'으로
+    /// 박제됐다(설비마다 사이클 길이가 수 초~수 분이라 고정 초를 기본값으로 둘 수도 없었다).
+    /// 자동 경계는 이 워치독 전용 — IsIdle 박제·평균CT·OEE 집계는 건드리지 않으므로 과거 수치가 안 바뀐다.
     /// </summary>
     public async Task TickFlowLatchWatchdogAsync()
     {
@@ -653,11 +774,20 @@ public sealed class SimulationEngineService : IDisposable
 
         var settings = _settings.LoadSettings();
         var now = DateTime.Now;
+        // 자동 경계 맵 — 14일 통계 스캔이라 tick(기본 5s)마다 재계산하지 않는다(TTL 캐시).
+        var autoBoundaries = await GetAutoAbandonBoundariesAsync();
 
         foreach (var (flowName, cycleStart) in active)
         {
-            var maxMs = AppSettingsService.ResolveEffectiveCycleRangeMs(settings, flowName).MaxMs;
-            if (!FlowLatchBadge.ShouldAbandon(true, cycleStart, maxMs, now)) continue;
+            var maxMs = (double)AppSettingsService.ResolveEffectiveCycleRangeMs(settings, flowName).MaxMs;
+            var source = "설정";
+            if (maxMs <= 0)
+            {
+                // 미설정 → 자동 폴백. 표본 부족이면 0 → 종전과 동일하게 해제 안 함(보수).
+                maxMs = autoBoundaries.TryGetValue(flowName, out var auto) ? auto : 0;
+                source = "자동";
+            }
+            if (!FlowLatchBadge.ShouldAbandon(true, cycleStart, (int)Math.Min(maxMs, int.MaxValue), now)) continue;
 
             if (_flowMetricsService.AbandonLatchedCycle(flowName))
             {
@@ -665,10 +795,54 @@ public sealed class SimulationEngineService : IDisposable
                 catch (Exception ex) { _logger.LogWarning(ex, "[Engine] latch watchdog: Flow {Flow} Ready 쓰기 실패", flowName); }
                 _dspDbService.SetFlowStateWithHold(flowName, FlowLatchBadge.Ready, 0);
                 _logger.LogInformation(
-                    "[Engine] latch watchdog: Flow {Flow} 사이클 경과 {Elapsed:F0}ms > 이상치 Max {Max}ms → abandon + Ready(미기록)",
-                    flowName, (now - cycleStart).TotalMilliseconds, maxMs);
+                    "[Engine] latch watchdog: Flow {Flow} 사이클 경과 {Elapsed:F0}ms > 경계 {Max:F0}ms({Source}) → abandon + Ready(미기록)",
+                    flowName, (now - cycleStart).TotalMilliseconds, maxMs, source);
             }
         }
+    }
+
+    // 자동 abandon 경계(flow→ms) 캐시. 소스는 14일 CT 중앙값·p99(OeeCtStatsService, 자체 30s TTL)라
+    // 분 단위 신선도면 충분하고, 워치독 tick 은 5s 라 여기서 한 번 더 길게 잡는다.
+    private static readonly TimeSpan AutoBoundaryTtl = TimeSpan.FromMinutes(10);
+    private Dictionary<string, double> _autoBoundaryCache = new(StringComparer.OrdinalIgnoreCase);
+    private DateTime _autoBoundaryAtUtc = DateTime.MinValue;
+    private readonly SemaphoreSlim _autoBoundaryLock = new(1, 1);
+
+    /// <summary>
+    /// flow별 자동 abandon 경계(ms). 실패 시 직전 캐시(없으면 빈 맵) — 자동 경계가 없으면 워치독은
+    /// 종전처럼 해제하지 않으므로 조회 실패가 오작동(잘못된 abandon)으로 번지지 않는다.
+    /// </summary>
+    private async Task<Dictionary<string, double>> GetAutoAbandonBoundariesAsync()
+    {
+        if (DateTime.UtcNow - _autoBoundaryAtUtc < AutoBoundaryTtl) return _autoBoundaryCache;
+        if (!await _autoBoundaryLock.WaitAsync(0)) return _autoBoundaryCache;   // 계산 중 tick 은 직전 값 사용
+        try
+        {
+            if (DateTime.UtcNow - _autoBoundaryAtUtc < AutoBoundaryTtl) return _autoBoundaryCache;
+            var stats = await _ctStats.ComputeCtRobustAsync();
+            // 하한 = 워치독 판정 주기 × 3 (관측 해상도). reconcile 비활성(0)이면 워치독은
+            // StateReconcileService 의 30초 폴링으로 계속 돌므로 그 값을 tick 으로 본다.
+            var tickSec = _settings.LoadSettings().HistoryView.StateReconcileIntervalSeconds;
+            var floorMs = (tickSec > 0 ? tickSec : 30) * 3 * 1000.0;
+            var map = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (flow, s) in stats)
+            {
+                var b = OeeMath.ResolveAutoAbandonBoundaryMs(s.MedianMs, s.P99Ms, s.Sample, floorMs);
+                if (b > 0) map[flow] = b;
+            }
+            _autoBoundaryCache = map;
+            _autoBoundaryAtUtc = DateTime.UtcNow;
+            if (map.Count > 0)
+                _logger.LogDebug("[Engine] latch watchdog 자동 경계 갱신: {Summary}",
+                    string.Join(", ", map.Select(kv => $"{kv.Key}={kv.Value / 1000.0:F0}s")));
+            return map;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Engine] latch watchdog 자동 경계 산출 실패 — 직전 값 유지");
+            return _autoBoundaryCache;
+        }
+        finally { _autoBoundaryLock.Release(); }
     }
 
     /// <summary>
@@ -810,9 +984,10 @@ public sealed class SimulationEngineService : IDisposable
                         "[Engine] reconcile: Going 고정 해제 — Call {Call}(flow {Flow}) 경과 > 이상치 Max {Max}ms → Ready 복귀(미기록)",
                         gc.CallName, gc.FlowName, maxMs);
                 }
-                else if (!string.IsNullOrEmpty(gc.FlowName))
+                else if (!string.IsNullOrEmpty(gc.FlowName) && HasKnownGoingStart(gc.CallId))
                 {
                     // 정상 진행 중인 Going Call(stuck 아님) — 래치 닫힘이면 head-start 엣지 유실 의심. Phase 3 에서 판정.
+                    // 시작 시각을 모르는 Call 은 제외 — "stuck 아님"을 확인할 수 없어 abandon 과 플랩한다(HasKnownGoingStart).
                     flowsWithHealthyGoing.Add(gc.FlowName);
                 }
                 continue;
@@ -836,6 +1011,15 @@ public sealed class SimulationEngineService : IDisposable
         // Phase 3 — head-start 엣지 유실 교차검증(래치 적격 한정 자가치유). 적격 flow 가 래치 닫힘인데 정상
         // Going Call 이 grace(LatchEdgeLossGraceMs) 이상 지속되면 head-start 누락으로 보고 래치를 연다.
         // stuck(이상치 Max 초과) Call 은 위에서 제외했으므로 워치독 abandon 과 플랩하지 않는다.
+        //
+        // ★유입 게이트 — "엣지가 유실됐다"는 추정은 엣지가 실제로 들어오고 있을 때만 성립한다. 수신이 끊긴
+        //   구간(라인 정지·수집 장애)에서는 유실할 엣지가 없으므로 래치를 열 근거가 없다. 이 게이트가 없으면
+        //   정지 중에도 매 tick 래치를 열어 워치독 abandon 과 왕복한다(현장 실측: 정지 26분째 15초 주기 깜빡임).
+        //   ★전제: 라이브니스가 태그 유입까지 본다(DspDbService.MarkInbound). 상태전이/DB변화만 보던 종전
+        //   신호는 라이브 행이 고정값으로 굳은 현장에서 영구 false 라, 그대로 게이트로 쓰면 자가치유가 상시
+        //   비활성이 된다 — 즉 이 게이트는 ③ 도장 경로와 한 묶음이다(한쪽만 배포하면 안 된다).
+        if (!_dspDbService.IsReceivingLiveData) flowsWithHealthyGoing.Clear();
+
         foreach (var flow in flowsWithHealthyGoing)
         {
             if (!_flowMetricsService.IsLatchEligible(flow) || _flowMetricsService.IsLatchCycleActive(flow))
@@ -905,6 +1089,21 @@ public sealed class SimulationEngineService : IDisposable
             startedAt = s.startedAt;
         }
         return (now - startedAt).TotalMilliseconds > ceilingMs;
+    }
+
+    /// <summary>
+    /// 이 Call 의 Going 시작 시각을 알고 있는가(경과 판정이 가능한가).
+    /// <para>모르는 경우 = ①부팅/재초기화 직후 이미 Going 이던 행(시드는 통계만 복원, 시작 시각은 없음)
+    /// ②<see cref="MarkGoingAbandoned"/> 가 시작 시각을 리셋한 뒤 그 Call 이 여전히 Going 인 경우.
+    /// ②는 실제로 플랩을 만들었다: 시작 시각이 default 면 <see cref="IsGoingStuckBeyond"/> 가 영구히 false 라
+    /// 그 Call 이 "정상 진행 중 Going"으로 재분류되고, Phase 3 가 매 tick 래치를 다시 열어 워치독 abandon 과
+    /// 무한 왕복했다(현장 실측: 라인 정지 26분째인데 배지가 Going↔Ready 15초 주기로 깜빡임).
+    /// 경과를 모르면 "정상 진행 중"이라고 주장할 근거가 없으므로 Phase 3 후보에서 제외한다(보수).</para>
+    /// </summary>
+    private bool HasKnownGoingStart(Guid callGuid)
+    {
+        lock (_statsLock)
+            return _callStats.TryGetValue(callGuid, out var s) && s.startedAt != default;
     }
 
     /// <summary>Going 고정 해제 표시 + Going 시작 시각 리셋(통계 오염/재진입 방지).</summary>

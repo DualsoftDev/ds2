@@ -222,10 +222,15 @@ public sealed class HubSubscriberService : BackgroundService
         // spec §SignalR — DefaultAcceptedSources 가 권위 default. config override 가능.
         var configuredSources = _configuration.GetSection("Hub:AcceptedSources").Get<string[]>()
             ?? HubSource.DefaultAcceptedSources;
+        // resync 는 정책 선택지가 아니라 프로토콜 내부 채널(재연결/주기 baseline 스냅샷) — 구버전
+        // AppSettingsModel 이 자동 생성한 appsettings(Hub.AcceptedSources 에 resync 누락)가 코드
+        // 기본값을 영구히 덮어 baseline 이 통째로 버려지던 사고 방지. config 로도 끌 수 없게 항상 포함.
+        if (!configuredSources.Contains(HubSource.Resync, StringComparer.OrdinalIgnoreCase))
+            configuredSources = [.. configuredSources, HubSource.Resync];
 
         _processor = new HubSignalProcessor(
             acceptedSources: configuredSources,
-            handleSignal: (addr, val, src) => _engineService.HandleHubTagChanged(addr, val, src),
+            handleSignal: (addr, val, src, wallMs) => _engineService.HandleHubTagChanged(addr, val, src, wallMs),
             maxRetries: HandleHubTagMaxRetries,
             onDrop: OnChannelDrop,
             onRetry: (addr, ex, attempt, max) =>
@@ -436,7 +441,9 @@ public sealed class HubSubscriberService : BackgroundService
         if (items is null || items.Length == 0 || _processor is null) return;
         foreach (var it in items)
         {
-            var result = _processor.TryEnqueue(it.Address, it.Value, it.Source);
+            // WallClockMs = 원천 관측 시각(Pi5 스캔 직후 각인). plcTagLog 기록 시각으로 관통 —
+            // 도착시각으로 찍으면 핑 두절→replay 신호가 복구 순간에 뭉쳐 그래프가 왜곡된다.
+            var result = _processor.TryEnqueue(it.Address, it.Value, it.Source, it.WallClockMs);
             if (result == EnqueueResult.Ignored)
                 _logger.LogTrace("[Hub] Ignored {Address}={Value} from={Source}", it.Address, it.Value, it.Source);
         }

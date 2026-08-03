@@ -54,7 +54,9 @@ internal sealed class HubTagBatchSender : IAsyncDisposable
     public bool Enqueue(string address, string value, string source)
     {
         if (string.IsNullOrEmpty(address)) return false;
-        return _channel.Writer.TryWrite(new Item(new TagWrite(address, value, source, System.Environment.TickCount64), FlushTcs: null));
+        // WallClockMs=0 — Promaker 는 원격 store-and-forward 수집기가 아닌 로컬 송신자라 도착시각 ≈ 관측시각.
+        // 0 = "미제공 → 수신측 도착시각 폴백"(HubContracts.TagWrite)이므로 종전 기록 동작이 그대로 유지된다.
+        return _channel.Writer.TryWrite(new Item(new TagWrite(address, value, source, System.Environment.TickCount64, 0L), FlushTcs: null));
     }
 
     /// <summary>현재 channel 에 쌓인 enqueue 분이 모두 송신될 때까지 대기.</summary>

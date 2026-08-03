@@ -250,6 +250,161 @@ public class OeeMathTests
     public void ClassifyGap_no_thresholds_at_all_is_normal()
         => Assert.Equal(OeeMath.GapClass.Normal, OeeMath.ClassifyGap(1_000_000, 0, 0));
 
+    // ── 자동 '가동중' 박제 해제 경계 (Max 미설정 폴백) ──────────────────────
+    //   설비마다 사이클 길이가 수 초~수 분이라 고정 초를 기본값으로 둘 수 없어, flow 자신의 실측
+    //   분포(중앙값·p99)에서 만든다. 아래 두 케이스는 실제 현장 측정값이다.
+
+    [Fact]
+    public void AutoAbandon_fast_line_uses_median_multiple()
+    {
+        // 우진 현장: 중앙값 1,500ms · p99 1,666ms · 표본 3,649 → max(20×1500, 3×1666)=30,000ms
+        Assert.Equal(30_000, OeeMath.ResolveAutoAbandonBoundaryMs(1_500, 1_666, 3_649, floorMs: Floor));
+    }
+
+    [Fact]
+    public void AutoAbandon_slow_jittery_line_uses_p99_multiple()
+    {
+        // 110.165 현장 #100: 중앙값 20,378ms · p99 626,581ms · 표본 2,997 → 3×p99 = 31.3분.
+        // 중앙값 배수(6.8분)로는 정상 장주기 사이클을 잘라 미기록시키므로 관대한 쪽을 택한다.
+        Assert.Equal(1_879_743, OeeMath.ResolveAutoAbandonBoundaryMs(20_378, 626_581, 2_997, floorMs: Floor));
+    }
+
+    [Fact]
+    public void AutoAbandon_is_disabled_until_samples_accumulate()
+        // 표본 부족 → 0 = 해제 안 함(종전 동작). 몇 건으로 경계를 만들어 정상 사이클을 자르지 않는다.
+        => Assert.Equal(0, OeeMath.ResolveAutoAbandonBoundaryMs(1_500, 1_666, sample: 4, floorMs: Floor));
+
+    [Fact]
+    public void AutoAbandon_floor_comes_from_watchdog_tick_not_a_site_value()
+    {
+        // 하한은 설비 사례가 아니라 워치독 판정 주기에서 온다(호출측이 tick×3 을 주입).
+        // 중앙값 200ms 초고속 라인: 공식값 4s → 하한이 이긴다. tick 이 바뀌면 하한도 따라 바뀐다.
+        Assert.Equal(15_000, OeeMath.ResolveAutoAbandonBoundaryMs(200, 250, 1_000, floorMs: 5 * 3 * 1000));   // tick 5s
+        Assert.Equal(90_000, OeeMath.ResolveAutoAbandonBoundaryMs(200, 250, 1_000, floorMs: 30 * 3 * 1000));  // reconcile 비활성(30s 폴링)
+        // 실측 두 현장은 공식값이 하한보다 커서 하한과 무관하다 — tick 을 바꿔도 경계가 안 흔들린다.
+        Assert.Equal(30_000, OeeMath.ResolveAutoAbandonBoundaryMs(1_500, 1_666, 3_649, floorMs: 90_000 / 3));
+    }
+
+    [Fact]
+    public void AutoAbandon_ceiling_guarantees_release()
+    {
+        // p99 가 이상치(주말 정지 62시간)를 물어도 상한에서 잘려 언젠가는 해제된다.
+        Assert.Equal(6 * 60 * 60 * 1000, OeeMath.ResolveAutoAbandonBoundaryMs(20_000, 225_675_180, 3_000, floorMs: Floor));
+    }
+
+    [Fact]
+    public void AutoAbandon_zero_median_is_treated_as_unlearned()
+        => Assert.Equal(0, OeeMath.ResolveAutoAbandonBoundaryMs(0, 0, 1_000, floorMs: Floor));
+
+    // ── 무사이클 정지 마감/발생 판정 (2026-07-29 회귀) ──────────────────────
+    //   현장 사고: 사이클이 정상 유입(1540건/시간) 중인데 무사이클 정지가 하루 종일 open 으로 남아
+    //   그 구간이 비생산으로 승격 → 가동시간 0. 원인은 마감이 "idle < 임계" 분기 안에만 있어서,
+    //   tick 이 그 창을 놓치거나 마지막-사이클 조회가 stale 하면 영구히 닫히지 않는 것이었다.
+
+    static readonly DateTime T0 = new(2026, 7, 29, 0, 0, 0, DateTimeKind.Utc);
+    const double Floor = 15_000;   // = StateReconcile tick 5s × 3 (기본 설정)
+
+    [Fact]
+    public void NoCycleActions_closes_on_resumed_cycle_even_while_idle_exceeds_threshold()
+    {
+        // ★핵심 회귀: 조회가 stale 해 idle(10분)이 임계를 넘어도, 정지 시작 이후 새 사이클이 있으면 마감한다.
+        var (close, open) = OeeMath.ResolveNoCycleActions(
+            hasOpen: true, openStartUtc: T0, lastCycleUtc: T0.AddMinutes(5),
+            idleMs: 600_000, thresholdMs: 30_000);
+        Assert.True(close);
+        Assert.True(open);   // 그 사이클 뒤로 또 임계를 넘겼으니 같은 tick 에서 재발생(startAt = 그 사이클)
+    }
+
+    [Fact]
+    public void NoCycleActions_closes_and_stays_closed_when_line_is_running()
+    {
+        // 가동 중(idle 1.5s < 임계) — 마감만 하고 새 정지는 열지 않는다.
+        var (close, open) = OeeMath.ResolveNoCycleActions(
+            hasOpen: true, openStartUtc: T0, lastCycleUtc: T0.AddMinutes(5),
+            idleMs: 1_500, thresholdMs: 30_000);
+        Assert.True(close);
+        Assert.False(open);
+    }
+
+    [Fact]
+    public void NoCycleActions_does_not_close_on_its_own_onset_cycle()
+    {
+        // startAt == lastCycle = 그 정지를 만든 사이클 자신 → 0 길이 마감 금지(종전 <= 비교의 부작용).
+        var (close, open) = OeeMath.ResolveNoCycleActions(
+            hasOpen: true, openStartUtc: T0, lastCycleUtc: T0,
+            idleMs: 600_000, thresholdMs: 30_000);
+        Assert.False(close);
+        Assert.False(open);   // 이미 열려 있으므로 중복 onset 금지
+    }
+
+    [Fact]
+    public void NoCycleActions_opens_when_threshold_exceeded_and_none_open()
+    {
+        var (close, open) = OeeMath.ResolveNoCycleActions(
+            hasOpen: false, openStartUtc: default, lastCycleUtc: T0,
+            idleMs: 45_000, thresholdMs: 30_000);
+        Assert.False(close);
+        Assert.True(open);
+    }
+
+    [Fact]
+    public void NoCycleActions_noop_when_running_and_none_open()
+    {
+        var (close, open) = OeeMath.ResolveNoCycleActions(
+            hasOpen: false, openStartUtc: default, lastCycleUtc: T0,
+            idleMs: 1_500, thresholdMs: 30_000);
+        Assert.False(close);
+        Assert.False(open);
+    }
+
+    // ── 정지 로그 '구분' 판정 (2026-07-30 회귀) ─────────────────────────────
+    //   현장 증상: 라인 정지 1건이 flow 13개 '고장'으로 표시. 집계는 이미 유발자만 고장으로 세고 형제는
+    //   공백으로 뺐는데, 로그 판정이 대기를 비생산의 하위로만 인정해(isWait = isNp && …) 전달되지 않았다.
+
+    [Fact]
+    public void LogStopClass_slack_overlap_alone_yields_wait_gap_not_fault()
+    {
+        // ★핵심 회귀: 비생산은 아니지만 이벤트성 공백에 덮인 정지 → '대기(공백)'. 종전엔 (F,F)=고장이었다.
+        var (isNp, isWait) = OeeMath.ResolveLogStopClass(nonProdRatio: 0, waitRatio: 0, slackRatio: 1.0);
+        Assert.False(isNp);
+        Assert.True(isWait);
+    }
+
+    [Fact]
+    public void LogStopClass_nonprod_with_wait_stays_nonprod_wait()
+    {
+        // 기준 이상 형제 정지 = 비생산·대기(종전 동작 보존).
+        var (isNp, isWait) = OeeMath.ResolveLogStopClass(1.0, 1.0, 0);
+        Assert.True(isNp);
+        Assert.True(isWait);
+    }
+
+    [Fact]
+    public void LogStopClass_nonprod_without_wait_is_plain_nonprod()
+    {
+        // 비생산일 때 대기 여부는 waitRatio 로만 본다 — slack 이 덮여 있어도 '비생산·대기'로 승격되지 않는다.
+        var (isNp, isWait) = OeeMath.ResolveLogStopClass(1.0, 0, 1.0);
+        Assert.True(isNp);
+        Assert.False(isWait);
+    }
+
+    [Fact]
+    public void LogStopClass_no_overlap_remains_fault()
+    {
+        // 어디에도 안 덮인 정지 = 고장/유지보수 유지(체크박스 경로) — 진짜 정지가 조용히 대기로 빠지지 않게.
+        var (isNp, isWait) = OeeMath.ResolveLogStopClass(0, 0, 0);
+        Assert.False(isNp);
+        Assert.False(isWait);
+    }
+
+    [Fact]
+    public void LogStopClass_uses_half_overlap_boundary()
+    {
+        // 경계 50%: 미만은 고장 유지, 이상은 대기 — 부분만 겹친 정지가 라벨을 뒤집지 않게 한다.
+        Assert.False(OeeMath.ResolveLogStopClass(0, 0, 0.49).IsWait);
+        Assert.True(OeeMath.ResolveLogStopClass(0, 0, 0.50).IsWait);
+    }
+
     // ── 무사이클 임계 폴백 체인 (doc/23 §6 Phase 1) ─────────────────────────
 
     [Fact]

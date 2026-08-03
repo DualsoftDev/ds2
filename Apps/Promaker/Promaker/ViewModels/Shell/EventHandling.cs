@@ -80,7 +80,12 @@ public partial class MainViewModel
                 ResyncView3DIfOpen();
                 return;
 
-            case EditorEvent.WorkPropsChanged:
+            case EditorEvent.WorkPropsChanged wp:
+                ApplyRefreshScope(RefreshScopeDecision.ForEditorEvent(evt));
+                RefreshWorkConditionBadge(wp.id);
+                Simulation.NotifyStoreChanged();
+                return;
+
             case EditorEvent.ApiDefPropsChanged:
                 ApplyRefreshScope(RefreshScopeDecision.ForEditorEvent(evt));
                 Simulation.NotifyStoreChanged();
@@ -145,6 +150,21 @@ public partial class MainViewModel
 
         if (TryEditorRef(() => ConditionQueries.GetCallConditionTypes(_store, callId), out var types))
             node.UpdateConditionTypes(types);
+    }
+
+    /// Work 의 조건(SkipAction 등) 변경을 캔버스 노드 배지에 반영.
+    /// WorkPropsChanged 의 RefreshScope 에는 Canvas 가 없어(속성 변경으로 노드 set 이 안 바뀌므로)
+    /// 캔버스가 재구축되지 않는다 — Call 과 같이 배지만 직접 patch 한다.
+    private void RefreshWorkConditionBadge(Guid workId)
+    {
+        if (!TryEditorRef(() => ConditionQueries.GetResolvedWorkConditionTypes(_store, workId), out var types))
+            return;
+
+        // 원본 Work 를 참조하는 Reference 노드도 같은 조건을 표시하므로 함께 갱신
+        // (배지 규칙 SSOT = GetResolvedWorkConditionTypes — reference 는 원본 조건을 따른다).
+        foreach (var node in Canvas.CanvasNodes)
+            if (node.Id == workId || node.ReferenceOfId == workId)
+                node.UpdateConditionTypes(types);
     }
 
     private void ApplyEntityRename(Guid entityId, string newName, string treeName)

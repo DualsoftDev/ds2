@@ -687,7 +687,8 @@ public sealed partial class SimulationHubBridge
         var batch = _txOutAddresses()
             .Where(addr => !string.IsNullOrWhiteSpace(addr))
             .Distinct()
-            .Select(addr => new TagWrite(addr, "false", source, System.Environment.TickCount64))
+            // WallClockMs=0 — 로컬 송신자라 도착시각 폴백이 곧 관측시각(HubContracts.TagWrite 규약).
+            .Select(addr => new TagWrite(addr, "false", source, System.Environment.TickCount64, 0L))
             .ToArray();
 
         if (batch.Length == 0) return;

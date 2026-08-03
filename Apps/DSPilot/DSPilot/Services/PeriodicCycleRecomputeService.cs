@@ -101,20 +101,58 @@ public sealed class PeriodicCycleRecomputeService : BackgroundService
             // 새 로그가 없으면(라인 유휴) 스킵 — 같은 데이터 재도출/UI 재빌드 방지.
             var latest = await _plc.GetLatestLogDateTimeAsync();
             if (latest is null) return;
-            if (_lastRecomputedLatest.HasValue && latest <= _lastRecomputedLatest.Value) return;
+
+            // 수집기 store-and-forward replay 로 들어온 backfill 구간(도착보다 과거인 원천시각)의 하한.
+            // ★두 곳을 모두 통과하지 못하는 사각지대라 별도 신호가 필요하다:
+            //   ① 아래 "새 로그 없음" 스킵 — replay 후 라인이 유휴면 MAX(dateTime) 가 워터마크를 안 넘을 수 있다.
+            //   ② 증분 창 하한(워터마크 − 30분) — 30분 넘는 두절의 replay 는 이 창보다 과거에 꽂힌다.
+            // 넓히지 않으면 그 구간이 plcTagLog 에만 복원되고 사이클 이력엔 안 들어가, 무사이클 정지가
+            // 정상가동을 계속 삼킨다(그래프와 OEE 가 서로 모순되는 상태로 남는다).
+            var backfillFloor = _engine.PeekBackfillFloorLocal();
+
+            // ★상시 시계 스큐(송신기 시계가 통째로 뒤진 경우)는 replay 가 아니다 — 그때는 MAX(dateTime) 도 같은
+            // 만큼 밀려 있어 평소 창 [latest−overlap, latest] 이 그 데이터를 그대로 덮는다(창이 데이터 자신의
+            // 시계 기준이라 상수 오프셋은 상쇄된다). 그래서 "평소 창 밖으로 벗어난" 깊은 replay 만 신호로 인정한다.
+            // 이 구분이 없으면 스큐 있는 현장에서 아래 유휴 스킵이 상시 무력화돼 매 주기 재도출 + "DatabaseRebuilt"
+            // 푸시가 돌아, 그 스킵이 원래 막으려던 churn 이 되살아난다.
+            var deepBackfill = backfillFloor.HasValue
+                && backfillFloor.Value < latest.Value.AddMinutes(-IncrementalOverlapMinutes)
+                    ? backfillFloor
+                    : null;
+
+            if (deepBackfill is null && _lastRecomputedLatest.HasValue && latest <= _lastRecomputedLatest.Value)
+                return;
 
             // 첫 실행(워터마크 없음)은 전 구간, 이후는 증분(워터마크 − overlap)만 재도출 → 쓰기 락 점유 최소화.
             DateTime? since = _lastRecomputedLatest.HasValue
                 ? _lastRecomputedLatest.Value.AddMinutes(-IncrementalOverlapMinutes)
                 : (DateTime?)null;
 
+            // 깊은 replay 면 하한을 그 지점까지 내린다. overlap 을 동일하게 적용하는 이유는 replay 경계에
+            // 걸친(straddle) 사이클도 온전히 재도출되어야 하기 때문 — 창 안쪽 절반만 보면 head 없는 tail 이 된다.
+            if (since.HasValue && deepBackfill.HasValue)
+            {
+                var backfillSince = deepBackfill.Value.AddMinutes(-IncrementalOverlapMinutes);
+                if (backfillSince < since.Value) since = backfillSince;
+            }
+
             var recomputed = await _recompute.RecomputeAllTrackedFlowsAsync(since, ct);
             if (recomputed > 0)
             {
-                _lastRecomputedLatest = latest;
+                // 워터마크는 단조 — backfill 재도출은 latest 가 워터마크보다 과거인 상태에서도 돌 수 있어,
+                // 그대로 대입하면 워터마크가 되돌아가 증분 창이 영구히 넓어진다.
+                if (!_lastRecomputedLatest.HasValue || latest.Value > _lastRecomputedLatest.Value)
+                    _lastRecomputedLatest = latest;
+
+                // 소비 확정 — 창 안이라 무시했던(deepBackfill 아님) 하한도 이번 재도출이 덮었으므로 함께 비운다.
+                // 재도출 중에 더 오래된 backfill 이 들어왔다면 CAS 실패로 남아 다음 주기가 처리한다.
+                if (backfillFloor.HasValue) _engine.ClearBackfillFloor(backfillFloor.Value);
+
                 _logger.LogInformation(
-                    "[AutoRecompute] {Mode} 재계산 완료 — flows={Count}",
-                    since.HasValue ? "증분" : "전체", recomputed);
+                    "[AutoRecompute] {Mode} 재계산 완료 — flows={Count}, since={Since}{Backfill}",
+                    since.HasValue ? "증분" : "전체", recomputed,
+                    since?.ToString("yyyy-MM-dd HH:mm:ss") ?? "(전 구간)",
+                    deepBackfill.HasValue ? $" ★replay 하한 {deepBackfill.Value:MM-dd HH:mm:ss} 포함" : "");
             }
             // recomputed == 0: 게이트 점유(수동 잡 진행 중) 등 — _lastRecomputedLatest 유지하여 다음 주기 재시도.
         }

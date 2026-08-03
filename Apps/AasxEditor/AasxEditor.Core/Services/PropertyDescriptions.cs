@@ -222,9 +222,17 @@ public static class PropertyDescriptions
         ["TagPrefix"] = "태그 이름 접두사",
         ["TagNamingFormat"] = "태그 이름 생성 포맷 ({SystemId}_{WorkId}_{Signal})",
         ["NameTransform"] = "이름 변환 규칙 (UpperCase/LowerCase/CamelCase 등)",
-        ["PlcVendor"] = "PLC 제조사",
+        // PLC 접속 정보 — Promaker 가 저장 시 현재 설정을 기록하고, 파일을 열 때 이 값으로 접속한다.
+        // 세 값이 모두 기본값(Mitsubishi / 192.168.0.1 / 5000)이면 "미설정" 으로 간주되어
+        // 각 PC 의 로컬 설정(PlcConnection.json)이 그대로 쓰인다.
+        ["PlcVendor"] = "PLC 제조사 (LsXgi/LsXgk/Mitsubishi)",
         ["PlcIpAddress"] = "PLC IP 주소",
-        ["PlcPort"] = "PLC 통신 포트",
+        ["PlcPort"] = "PLC 통신 포트 (LS 2004 / Mitsubishi 5007)",
+        ["PlcIsUdp"] = "미쓰비시 전송방식 — true=UDP, false=TCP (LS는 항상 TCP)",
+        ["PlcNetworkNumber"] = "미쓰비시 네트워크 번호 (0~255)",
+        ["PlcStationNumber"] = "미쓰비시 국번 (0~255, 기본 255)",
+        ["PlcLocalEthernet"] = "LS 로컬 이더넷 여부 (미쓰비시에서는 무시)",
+        ["PlcProfileVersion"] = "접속 정보 기록 형식 버전 — 0/부재는 벤더·IP·포트만 기록된 구버전(전송방식·국번은 각 PC 설정 유지)",
         ["CommunicationTimeout"] = "PLC 통신 타임아웃",
         ["RetryAttempts"] = "재시도 횟수",
         ["TagMatchMode"] = "태그 매칭 모드 (ByAddress/ByName)",

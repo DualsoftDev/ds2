@@ -43,7 +43,13 @@ module BackendHost =
         // and makes the server close the connection before SignalHub.WriteTags is invoked.
         // Keep a finite ceiling, but size it for collector backlog chunks.
         builder.Services.AddSignalR(fun options ->
-            options.MaximumReceiveMessageSize <- Nullable(1024L * 1024L))
+            options.MaximumReceiveMessageSize <- Nullable(1024L * 1024L)
+            // DSPilot 구독자(HubSubscriberService)는 KeepAliveInterval=2분 — 수신 전용이라 ping 외엔
+            // 보낼 게 없는데, 기본 ClientTimeoutInterval(30s)은 "30초 무수신 = 절단"이라 조용한
+            // 구독자가 31초마다 강제 절단됐다(실측 464회/4h, 부하 무관 정주기). 재연결 틈에
+            // 팬아웃이 유실되고(이 홉은 재전송 없음), Pi5 backlog replay 버스트가 그 틈에 걸리면
+            // 뭉텅이로 증발해 그래프/사이클이 깨진다. 클라이언트 ping 주기(2분)의 2배 이상으로 완화.
+            options.ClientTimeoutInterval <- Nullable(TimeSpan.FromMinutes 5.0))
         |> ignore
 
         let cfg = plcConfig |> Option.defaultValue emptyConfig

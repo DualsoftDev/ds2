@@ -206,6 +206,11 @@
                             </div>
                         </div>
                     </div>
+                    <!-- 프리셋 기준 시각 안내 — 프리셋("최근 N분")의 끝점은 현재 시각이 아니라 *신호가 마지막으로
+                         들어온 시각*이다. 이 표시가 없으면 신호가 끊긴 뒤에도 화면이 꽉 차 보여 "실시간인데 왜
+                         헤더는 데이터 대기냐"는 오해가 생긴다(2026-07-29 현장 문의). -->
+                    <span class="ct-anchor-hint" x-show="dataAnchorHint" x-cloak x-text="dataAnchorHint"
+                          title="프리셋 기간의 끝점 = 신호가 마지막으로 들어온 시각. 공백 구간을 보려면 '기간'으로 직접 지정하세요."></span>
                     <!-- 가동 횟수 프리셋 -->
                     <div class="ct-cycle-presets">
                         <span class="ct-preset-sep" title="가동 횟수 기준 — 최근 발생한 N회 가동이 들어오도록 시간 범위를 자동 설정">가동</span>
@@ -242,16 +247,15 @@
                                 <h4 x-text="flow ? flow.flowName : (flowName || 'Flow')"></h4>
                                 <span class="ds-card-h-sub"><span x-text="flow && flow.systemName ? flow.systemName : '-'"></span> · 신호 간트 · Head/Tail 가동 경계 적용(저장) · 드래그 구간통계 · Excel</span>
                             </div>
-                            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-                                <!-- 'SYNC · 갱신중' 배지 제거(2026-07-28) — 진행 표시는 공용 상단 인디케이터
-                                     (window.dspLoading) 단일 소스. 오버레이 재계산도 그쪽에 붙였다. -->
-                                <!-- 다시 로드 — '전체' 편집 페이지의 Flow 카드 새로고침과 동일 위치/모양 -->
-                                <button class="btn btn-sm btn-outlined" @click="reloadCycle()"
-                                        :disabled="isLoading || overlayBusy || !selectedFlow"
-                                        title="이 Flow 를 다시 로드 (프리셋 기간이면 최신 시각 기준으로 갱신)">
-                                    <span class="material-icons" style="font-size:15px; vertical-align:middle;">refresh</span>
-                                </button>
-                            </div>
+                            <!-- 'SYNC · 갱신중' 배지 제거(2026-07-28) — 진행 표시는 공용 상단 인디케이터
+                                 (window.dspLoading) 단일 소스(오버레이 재계산도 그쪽에 연결).
+                                 되돌리기 = '전체' 편집 페이지 카드의 새로고침과 같은 의미·같은 아이콘.
+                                 순수 '다시 로드' 는 두지 않는다(프리셋 재클릭·F5 와 중복). -->
+                            <button class="btn btn-sm btn-outlined color-default" @click="revertStaging()"
+                                    :disabled="isLoading || overlayBusy || !selectedFlow"
+                                    title="이 Flow 를 서버 값으로 되돌리기 — 저장하지 않은 Head/Tail 변경을 취소하고 저장된 가동 경계로 현 기간을 재조회합니다">
+                                <span class="material-icons" style="font-size:15px; vertical-align:middle;">refresh</span>
+                            </button>
                         </div>
 
                         <div class="call-test-page">
@@ -642,6 +646,9 @@
                             </div>
                         </div>
                     </div>
+                    <!-- 프리셋 기준 시각 안내(단일 Flow 뷰와 동일 규약) -->
+                    <span class="ct-anchor-hint" x-show="dataAnchorHint" x-cloak x-text="dataAnchorHint"
+                          title="프리셋 기간의 끝점 = 신호가 마지막으로 들어온 시각. 공백 구간을 보려면 '기간'으로 직접 지정하세요."></span>
                     <div class="ct-cycle-presets">
                         <span class="ct-preset-sep" title="가동 횟수 기준 — 최근 N회 가동 (첫 번째 Flow 히스토리 기준)">가동</span>
                         <div class="segmented">

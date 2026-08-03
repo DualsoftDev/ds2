@@ -278,7 +278,11 @@ public sealed record OeeSummaryDto(
     double DownFaultWallMs = 0,       // Σ고장(비가동 ∩ 감지 정지 이벤트) 벽시계
     // ── 대기(고장 여파, doc/25 §1) — 형제 flow 가 라인 고장으로 서 있던 시간의 분화 표기 ──
     double WaitWallMs = 0,            // Σ대기 비생산(기준 이상 형제 정지) — NonProdWallMs 에 포함, 도넛 '대기' 분화용
-    double WaitSlackWallMs = 0);      // Σ대기 공백(기준 미만 형제 정지) — 가동간 공백에 포함, 정산 툴팁 표기용
+    double WaitSlackWallMs = 0,       // Σ대기 공백(기준 미만 형제 정지) — 가동간 공백에 포함, 정산 툴팁 표기용
+    // Σ이벤트성 공백 = 가동간 공백 중 하나의 정지 이벤트에서 온 부분(대기 + 비가동 경계 미만 조각).
+    //   WaitSlackWallMs ⊆ 이 값. 가용성에는 영향 없고(슬랙 잔여 그대로), 사이클당 공백 환산에서 빼는 데 쓴다 —
+    //   4분짜리 단기 정지가 '사이클 간 미세 간격' 지표를 희석하지 않게(2026-07-30).
+    double EventSlackWallMs = 0);
 
 /// <summary>비생산 시간대 한 칸 DTO (반복 일일, 로컬 자정 기준 분).</summary>
 public sealed record PlannedStopWindowDto(int StartMinutes, int EndMinutes, string? Label);

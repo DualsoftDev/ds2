@@ -32,6 +32,7 @@ public class SettingsController : ControllerBase
     private const string DbFileName = "plc.db";
 
     private readonly AppSettingsService _settings;
+    private readonly OeeCtStatsService _ctStats;   // Max 권장값 산출(실측 CT 중앙값·p99)
     private readonly DatabaseLifecycleService _lifecycle;
     private readonly IFlowMetricsService _flowMetrics;
     private readonly DsProjectService _project;
@@ -63,6 +64,7 @@ public class SettingsController : ControllerBase
         HeatmapService heatmap,
         SimulationEngineService engine,
         UserTagAlertService userTags,
+        OeeCtStatsService ctStats,
         ExternalAccessService externalAccess,
         HubSubscriberService hubSubscriber,
         IServer server,
@@ -71,6 +73,7 @@ public class SettingsController : ControllerBase
         ILogger<SettingsController> logger)
     {
         _settings = settings;
+        _ctStats = ctStats;
         _lifecycle = lifecycle;
         _flowMetrics = flowMetrics;
         _project = project;
@@ -144,6 +147,39 @@ public class SettingsController : ControllerBase
     {
         var m = _settings.LoadSettings();
         return ToDto(m);
+    }
+
+    /// <summary>
+    /// 이상치 제외 Max 권장값 — flow별 실측 CT 분포(중앙값·p99)에서 산출한다.
+    /// <para>설정 화면이 "무제한(0)" 경고와 함께 한 번 클릭으로 넣을 값을 제시하는 데 쓴다. 고정 초를 제시하면
+    /// 사이클이 수 초인 설비와 수 분인 설비 중 한쪽에서 반드시 틀리므로, 그 현장 데이터에서 만든다.
+    /// 전역 Max 는 <b>가장 느린 flow</b>를 기준으로 해야 다른 flow 의 정상 사이클이 잘리지 않으므로 최댓값을 쓴다.
+    /// 워치독 자동 폴백(<see cref="OeeMath.ResolveAutoAbandonBoundaryMs"/>)과 같은 공식이라 제시값과
+    /// 실제 동작이 어긋나지 않는다.</para>
+    /// </summary>
+    [HttpGet("recommended-cycle-max")]
+    public async Task<ActionResult<RecommendedCycleMaxDto>> RecommendedCycleMax()
+    {
+        var tickSec = _settings.LoadSettings().HistoryView.StateReconcileIntervalSeconds;
+        var floorMs = (tickSec > 0 ? tickSec : 30) * 3 * 1000.0;
+        var rows = new List<RecommendedCycleMaxFlowDto>();
+        try
+        {
+            var stats = await _ctStats.ComputeCtRobustAsync();
+            foreach (var (flow, st) in stats.OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                var b = OeeMath.ResolveAutoAbandonBoundaryMs(st.MedianMs, st.P99Ms, st.Sample, floorMs);
+                rows.Add(new RecommendedCycleMaxFlowDto(flow, (int)st.MedianMs, (int)st.P99Ms, st.Sample, (int)b));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Settings] Max 권장값 산출 실패");
+        }
+        // 초 단위로 올림 — 사용자가 시/분/초 입력칸에 그대로 넣는 값이라 ms 잔여를 남기지 않는다.
+        var maxMs = rows.Count > 0 ? rows.Max(r => r.BoundaryMs) : 0;
+        var recSec = maxMs > 0 ? (int)Math.Ceiling(maxMs / 1000.0) : 0;
+        return new RecommendedCycleMaxDto(recSec * 1000, recSec, (int)floorMs, rows);
     }
 
     // ── GET: AASX 파일 상태 + 동기화 배지 (Settings.razor RefreshAasxStatus + SyncBadge*) ──
@@ -998,6 +1034,16 @@ public record AutoCalibrationSaveDto(
     bool FillMin,
     double PercentileMin,
     double MarginMinPct);
+
+/// <summary>이상치 제외 Max 권장값(전역) + 산출 근거(flow별). BoundaryMs=0 은 표본 부족(권장값 없음).</summary>
+public record RecommendedCycleMaxDto(
+    int RecommendedMs,
+    int RecommendedSec,
+    int FloorMs,
+    List<RecommendedCycleMaxFlowDto> Flows);
+
+public record RecommendedCycleMaxFlowDto(
+    string FlowName, int MedianMs, int P99Ms, int Sample, int BoundaryMs);
 
 public record HistoryViewDto(
     int MaxCycleTimeMs,

@@ -146,6 +146,15 @@
                                       FontSize="12" Margin="0,0,0,2"/>
                             <TextBlock Text="저장할 때 엔티티에 도메인 서브모델 Properties가 없으면 자동으로 생성합니다 (Simulation, Control, Monitoring 등)"
                                        FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Margin="20,0,0,16" FontStyle="Italic" TextWrapping="Wrap"/>
+
+                            <!-- EmbedPlcConnectionInAasx -->
+                            <CheckBox x:Name="EmbedPlcConnectionBox"
+                                      Content="AASX 저장 시 PLC 접속 정보 포함"
+                                      Foreground="{DynamicResource PrimaryTextBrush}"
+                                      FontSize="12" Margin="0,0,0,2"/>
+                            <TextBlock Text="현재 PLC 설정(벤더/IP/포트)을 프로젝트 파일에 함께 저장합니다. 다른 PC에서 열어도 그 PC에 남아 있던 IP가 아니라 프로젝트에 저장된 IP가 적용됩니다. 끄면 내부망 IP가 외부로 전달되는 파일에 실리지 않습니다"
+                                       FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
                                        Margin="20,0,0,0" FontStyle="Italic" TextWrapping="Wrap"/>
                         </StackPanel>
                     </ScrollViewer>

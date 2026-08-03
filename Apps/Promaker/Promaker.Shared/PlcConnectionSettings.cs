@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Promaker.Shared;
 
@@ -89,9 +90,26 @@ public sealed class PlcConnectionSettings
     /// 순수 Promaker 표시 설정이지만 PLC 설정 다이얼로그 묶음이라 같은 파일에 영속화. 기본 300분(5시간).</summary>
     public int GanttWindowMinutes { get; set; } = 300;
 
+    /// <summary>프로젝트 파일(AASX/.sdf)에 저장된 PLC 접속 정보를 로컬 설정보다 우선 적용할지.
+    /// 기본 ON — 파일을 다른 PC 로 옮겨도 접속 대상이 따라가게 하는 것이 이 기능의 목적이다.
+    /// OFF 로 두면 <see cref="PlcConnectionResolver"/> 가 AASX 단계를 건너뛰어 이 기능 도입 이전과
+    /// 완전히 동일하게 동작한다 — 현장에서 재빌드 없이 즉시 되돌리기 위한 킬 스위치.</summary>
+    public bool PreferAasxPlcConnection { get; set; } = true;
+
     /// <summary>벤더 enum 이름 → 해당 벤더의 마지막 입력값. 빈 dict 로 저장된 옛 파일은
     /// <see cref="EnsureProfiles"/> 가 플랫 필드로부터 채워준다.</summary>
     public Dictionary<string, PlcVendorProfile> Profiles { get; set; } = new();
+
+    /// <summary>
+    /// 이 값들이 실제 파일에서 왔는가(= 이 PC 에 PLC 설정이 저장된 적 있는가). <b>출처 표식이지 설정이 아니다</b> —
+    /// <see cref="JsonIgnoreAttribute"/> 로 직렬화에서 빠지므로 Agent 의 설정 지문에도 영향을 주지 않는다.
+    ///
+    /// <para>false = 파일이 없어 생성자 기본값을 쓰고 있는 상태. 아무도 고른 적 없는 값이므로
+    /// 프로젝트 파일에 기록하면 안 된다(<see cref="PlcConnectionResolver.StampToStore"/>).
+    /// 값 비교로는 이 판별을 할 수 없다 — 실제로 192.168.0.10:2004 을 쓰는 현장과 구분되지 않는다.</para>
+    /// </summary>
+    [JsonIgnore]
+    public bool WasPersisted { get; set; }
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -104,20 +122,25 @@ public sealed class PlcConnectionSettings
     public static PlcConnectionSettings LoadOrDefault(string path)
     {
         PlcConnectionSettings data;
+        var persisted = false;
         try
         {
             if (!File.Exists(path)) data = new PlcConnectionSettings();
             else
             {
                 var text = File.ReadAllText(path);
-                data = JsonSerializer.Deserialize<PlcConnectionSettings>(text, JsonOpts)
-                       ?? new PlcConnectionSettings();
+                var parsed = JsonSerializer.Deserialize<PlcConnectionSettings>(text, JsonOpts);
+                // 손상되어 내용을 못 읽은 파일은 "존재" 하지만 설정을 잃은 상태다. 그걸 저장 이력으로 인정하면
+                // 화면에 뜬 생성자 기본값이 프로젝트 파일에 기록된다 — 파일 존재가 아니라 내용이 근거여야 한다.
+                data = parsed ?? new PlcConnectionSettings();
+                persisted = parsed is not null;
             }
         }
         catch
         {
             data = new PlcConnectionSettings();
         }
+        data.WasPersisted = persisted;
         data.EnsureProfiles();
         data.UpgradeDefaultScanIntervals();
         return data;
@@ -199,6 +222,7 @@ public sealed class PlcConnectionSettings
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
             var text = JsonSerializer.Serialize(this, JsonOpts);
             File.WriteAllText(path, text);
+            WasPersisted = true;
             return true;
         }
         catch

@@ -53,6 +53,18 @@ public partial class PlcSettings : ObservableObject
     /// '보정 안함' 이 반영 안 되던 버그). SimulationPanelState.AutoDurationCalibrate(UI/hub) 와 양방향 동기화. 기본 ON.</summary>
     [ObservableProperty] private bool _autoDurationCalibrate = true;
 
+    /// <summary>프로젝트 파일(AASX/.sdf)에 저장된 PLC 접속 정보를 로컬 설정보다 우선 적용할지. 기본 ON.
+    /// OFF 면 파일을 열어도 이 PC 의 설정을 그대로 쓴다 — 기능 도입 이전과 동일 동작으로 되돌리는 킬 스위치.
+    /// PlcConnection.json 에 영속화되어 Agent(PlcConnectionResolver)와 같은 값을 공유한다.
+    /// ToPoco/FromPoco 왕복에서 빠지면 Promaker 저장이 Agent 쪽 설정까지 true 로 되돌리므로 반드시 함께 유지할 것.</summary>
+    [ObservableProperty] private bool _preferAasxPlcConnection = true;
+
+    /// <summary>이 PC 에 PLC 설정이 저장된 적 있는가 — 값이 아니라 출처 표식.
+    /// false 면 PlcConnection.json 이 아직 없어 생성자 기본값을 쓰고 있는 상태이므로,
+    /// 프로젝트 파일에 접속 정보를 기록하지 않는다(<see cref="PromakerShared.PlcConnectionResolver.StampToStore"/>).
+    /// <see cref="Save"/> 가 성공하면 그 시점부터 true.</summary>
+    public bool WasPersisted { get; private set; }
+
     /// <summary>벤더 enum 이름 → 해당 벤더에서 마지막으로 입력했던 프로파일. POCO 와 동일 dict 를
     /// 보유해 다이얼로그 / Save 시점에 동기화. 직접 노출돼 다이얼로그가 토글 중 swap 가능.</summary>
     public Dictionary<string, PromakerShared.PlcVendorProfile> VendorProfiles { get; private set; }
@@ -71,6 +83,38 @@ public partial class PlcSettings : ObservableObject
         StationNumber = StationNumber,
         IsUdp = IsUdp,
     };
+
+    /// <summary>
+    /// 프로젝트 파일(AASX/.sdf)에서 읽은 접속 정보를 적용한다. 파일을 다른 PC 로 옮겨도
+    /// 그 PC 에 남아 있던 IP 가 아니라 프로젝트에 저장된 IP 로 붙게 하는 진입점.
+    ///
+    /// <para><b>적용 규칙은 여기 두지 않는다.</b> 벤더 프로파일 복원 · 스캔주기 보존 · 버전 0 게이트는
+    /// <see cref="PromakerShared.PlcConnectionResolver.ApplyToSettings"/> 한 벌뿐이고, Agent(Resolve 경유)와
+    /// Promaker(이 메서드)가 같은 구현을 탄다. 여기에 규칙을 복제하면 두 벌이 조용히 어긋나
+    /// "Promaker 화면과 Agent 실제 접속이 다른" 최악의 진단 불능 상태가 된다.
+    /// 이 메서드가 하는 일은 POCO ↔ 관측 가능 필드 전사뿐이다.</para>
+    ///
+    /// <para>활성 벤더 프로파일 갱신은 <c>ApplyToSettings</c> 말미의 <c>EnsureProfiles()</c> 가 수행한다.
+    /// 이 경로는 <see cref="Save"/> 를 거치지 않으므로(파일 열기가 PlcConnection.json 을 쓰면 Agent 가
+    /// 재시작한다) 그 갱신이 빠지면 벤더를 토글했다 돌아올 때 프로젝트 값이 옛 로컬 값으로 되돌아간다.</para>
+    /// </summary>
+    public void ApplyConnection(PromakerShared.AasxPlcConnection conn)
+    {
+        var poco = ToPoco();   // Profiles 는 VendorProfiles 와 동일 참조 — 프로파일 갱신이 그대로 반영된다.
+        PromakerShared.PlcConnectionResolver.ApplyToSettings(poco, conn);
+
+        Vendor = (PlcVendorChoice)conn.Vendor;
+        Name = poco.Name;
+        IpAddress = poco.IpAddress;
+        Port = poco.Port;
+        TimeoutMs = poco.TimeoutMs;
+        ScanIntervalMs = poco.ScanIntervalMs;
+        LocalEthernet = poco.LocalEthernet;
+        NetworkNumber = poco.NetworkNumber;
+        StationNumber = poco.StationNumber;
+        IsUdp = poco.IsUdp;
+        VendorProfiles = poco.Profiles;
+    }
 
     /// <summary>지정 프로파일을 플랫 필드로 적용 (활성 벤더는 별도 인자로 받지 않고 호출자가 Vendor 를
     /// 미리 셋업했다고 가정).</summary>
@@ -120,10 +164,14 @@ public partial class PlcSettings : ObservableObject
     public void Save()
     {
         VendorProfiles[Vendor.ToString()] = CaptureActiveProfile();
-        ToPoco().TrySave(PromakerShared.SharedPaths.PlcConnectionFilePath);
+        // 저장에 성공한 순간부터 "이 PC 가 확정한 설정" 이 된다 — 이후 프로젝트 저장이 접속 정보를 기록한다.
+        if (ToPoco().TrySave(PromakerShared.SharedPaths.PlcConnectionFilePath))
+            WasPersisted = true;
     }
 
-    private PromakerShared.PlcConnectionSettings ToPoco() => new()
+    /// <summary>현재 UI 값을 영속화 POCO 로 스냅샷. 저장 외에도 AASX 박제(Save.StampPlcConnection)와
+    /// 게이트웨이 빌드가 같은 스냅샷을 쓰도록 공개.</summary>
+    public PromakerShared.PlcConnectionSettings ToPoco() => new()
     {
         Vendor = Vendor.ToString(),
         Name = Name,
@@ -137,10 +185,14 @@ public partial class PlcSettings : ObservableObject
         IsUdp = IsUdp,
         GanttWindowMinutes = GanttWindowMinutes,
         AutoDurationCalibrate = AutoDurationCalibrate,
+        PreferAasxPlcConnection = PreferAasxPlcConnection,
+        WasPersisted = WasPersisted,
         Profiles = VendorProfiles,
     };
 
-    private static PlcSettings FromPoco(PromakerShared.PlcConnectionSettings d)
+    /// <summary>영속화 POCO → ViewModel. <see cref="ToPoco"/> 의 역방향으로, 둘은 항상 짝으로 유지할 것
+    /// (한쪽에만 필드를 추가하면 그 설정은 저장/로드 중 한 방향에서 조용히 유실된다).</summary>
+    public static PlcSettings FromPoco(PromakerShared.PlcConnectionSettings d)
     {
         // POCO 의 EnsureProfiles 가 LoadOrDefault 안에서 호출돼 세 벤더 프로파일이 모두 채워져 있음.
         var s = new PlcSettings
@@ -148,6 +200,8 @@ public partial class PlcSettings : ObservableObject
             VendorProfiles = d.Profiles,
             GanttWindowMinutes = d.GanttWindowMinutes,
             AutoDurationCalibrate = d.AutoDurationCalibrate,
+            PreferAasxPlcConnection = d.PreferAasxPlcConnection,
+            WasPersisted = d.WasPersisted,
         };
 
         if (System.Enum.TryParse<PlcVendorChoice>(d.Vendor, ignoreCase: true, out var v))

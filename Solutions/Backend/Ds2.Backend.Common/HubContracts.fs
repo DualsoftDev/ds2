@@ -213,6 +213,11 @@ type TagWrite = {
     /// 원천 관측 시각(scan 기기 모노토닉 ms). PlcTagChange.OriginTsMs 에서 전파. 수신 시각이 아니라
     /// 이 값으로 엔진이 elapsed/abnormal 판정(P2) — 분산 store-and-forward replay 대비.
     OriginTsMs: int64
+    /// 원천 관측 시각(wall-clock, UTC epoch ms). Pi5 수집기가 스캔 직후 각인한 event_log.wall_clock_ms 전파.
+    /// 수신측(DSPilot)이 plcTagLog.dateTime 을 도착시각(DateTime.Now)이 아니라 이 값으로 기록해야
+    /// 핑 두절→버퍼 replay 시 신호가 원래 시각으로 복원된다(없으면 replay 가 복구 순간에 뭉쳐 그래프 왜곡).
+    /// 0 = 미제공(구버전 송신자) → 수신측은 도착시각 폴백.
+    WallClockMs: int64
 }
 
 /// PLC 어댑터 1개의 연결 상태 스냅샷. SignalR JSON 직렬화로 양방향 전달되는 contract.

@@ -78,6 +78,8 @@
                 cyclePreset: null,    // 활성 사이클-기준 프리셋(최근 N 사이클) — 시간 프리셋/수동 변경 시 해제
                 timePreset: null,     // 활성 시간 프리셋('m1'|'m5'|'m30'|'h1'|'h24') — 사이클/수동 변경 시 해제
                 rangePopupOpen: false, // 시작·종료 직접 지정 팝업 표시
+                dataLatestAt: null,   // 프리셋 앵커 = DB 최신 로그 시각(벽시계 now 아님) — effectiveLatest() 가 채움
+                dataAnchorHint: '',   // 그 앵커의 지연 안내 문구(1분 미만이면 빈 문자열 = 표시 안 함)
                 callLanesRaw: [],
                 expandedCalls: {},   // callId → bool : Call lane 행 확장(소속 ApiCall + 실측 duration 표시) 상태
                 applyDurBusy: false, applyDurMsg: '',   // 실측 → AASX duration 적용 진행/피드백
@@ -121,6 +123,8 @@
                     // 더티 가드 등록 — 가동시간 분석(cycle)에서 Head/Tail 미저장 이탈 방지
                     if (this.view === 'cycle') {
                         window.dspDirtyRegister(() => this.userOverrodeHeadTail);
+                        // 앵커 지연 문구는 시간이 지나면 커진다 — 30초마다 재계산(숨긴 탭에서는 정지).
+                        setInterval(() => { if (!document.hidden) this.refreshAnchorHint(); }, 30000);
                     }
                     this.computePeriod('today');
 
@@ -739,11 +743,29 @@
                     this.startTime = this.dateToInput(new Date(end.getTime() - hours * 3600000));
                     if (this.selectedFlow) await this.load();
                 },
+                // 프리셋("최근 N분") 의 끝점 = 벽시계 now 가 아니라 *DB 최신 로그 시각*이다(신호 없는 창에
+                // 앵커하면 빈 화면이 되는 것을 피하는 기존 설계). 그 사실을 화면에 안 알려주면, 신호가 끊긴
+                // 뒤에도 간트가 꽉 차 보여 "실시간인데 헤더는 데이터 대기"로 오해된다 → dataAnchorHint 로 노출.
                 async effectiveLatest() {
                     try {
                         const t = await this.apiGet('/api/call-test/latest-time');
-                        return this.inputToDate(this.toInputValue(t.end));
-                    } catch (e) { return new Date(); }
+                        const d = this.inputToDate(this.toInputValue(t.end));
+                        this.dataLatestAt = d;
+                        this.refreshAnchorHint();
+                        return d;
+                    } catch (e) { this.dataLatestAt = null; this.dataAnchorHint = ''; return new Date(); }
+                },
+                // "기준: 신호 마지막 10:19:43 (6분 전)" — 지연 1분 미만이면 표시 생략(실시간과 다름없음).
+                refreshAnchorHint() {
+                    const d = this.dataLatestAt;
+                    if (!d) { this.dataAnchorHint = ''; return; }
+                    const lagSec = Math.floor((Date.now() - d.getTime()) / 1000);
+                    const hhmmss = d.toTimeString().slice(0, 8);
+                    if (lagSec < 60) { this.dataAnchorHint = ''; return; }
+                    const lag = lagSec < 3600
+                        ? Math.floor(lagSec / 60) + '분 전'
+                        : Math.floor(lagSec / 3600) + '시간 ' + Math.floor((lagSec % 3600) / 60) + '분 전';
+                    this.dataAnchorHint = '기준: 신호 마지막 ' + hhmmss + ' (' + lag + ')';
                 },
                 // 사이클-기준 프리셋 — 최근 N 사이클을 포함하는 시간창을 히스토리(recordedAt=완료시각)로 역산해 로드.
                 // rows[0]=최신·완료(비가동) 사이클. 원하는 N개=rows[0..N-1]; 그 직전 완료(rows[N])를 창 시작으로 잡아
@@ -938,22 +960,18 @@
                     const t = new Date(); const p = (x) => String(x).padStart(2, '0');
                     return `CycleTime_${this.selectedFlow}_${t.getFullYear()}${p(t.getMonth()+1)}${p(t.getDate())}_${p(t.getHours())}${p(t.getMinutes())}${p(t.getSeconds())}.xlsx`;
                 },
-                // 카드 헤더의 '다시 로드' — '전체' 편집 페이지의 Flow 카드 새로고침(loadSlice)과 같은 역할.
-                // 활성 프리셋(시간/가동횟수)이면 최신 시각 기준으로 창을 다시 잡고(그냥 load() 하면
-                // 고정된 옛 창을 재조회해 새 가동이 안 들어온다), 직접 지정 기간은 그 창 그대로 재조회.
-                // 히스토리 캐시는 폐기 — 가동횟수 프리셋 역산·이상치 제외 집계가 옛 rows 를 쓰지 않게.
-                async reloadCycle() {
+                // 이 Flow 를 서버 값으로 되돌리기 — '전체' 편집 페이지의 카드 새로고침(loadSlice→applyLoadResult
+                // 이 기준선 리셋)과 같은 의미. 단일 페이지에는 Head/Tail 스테이징(userOverrodeHeadTail,
+                // dspDirtyRegister 로 미저장 dirty 등록)을 취소할 수단이 F5 밖에 없었다.
+                // headCallId/tailCallId 를 비우고 headSpecified=false 로 재조회 → 서버가 저장값
+                // (FlowCycleOverride) ▸ AASX 기본 순으로 유효 Head/Tail 을 다시 해석해 내려준다.
+                // 단순 재조회(프리셋 재계산)는 프리셋 버튼 재클릭·F5 와 중복이라 일부러 넣지 않는다.
+                async revertStaging() {
                     if (!this.selectedFlow || this.isLoading) return;
+                    this.headCallId = null; this.tailCallId = null;
+                    this.userOverrodeHeadTail = false;
                     this.errorMessage = null;
-                    const name = this.histFlowName;
-                    if (name) delete histCache[name];
-                    const m = this.timePreset ? /^([mh])(\d+)$/.exec(this.timePreset) : null;
-                    if (this.cyclePreset) await this.setRecentCycles(this.cyclePreset);
-                    else if (m && m[1] === 'm') await this.setRecentMinutes(+m[2]);
-                    else if (m) await this.setRecentHours(+m[2]);
-                    else await this.load();
-                    await this.loadFlow(true);           // 헤더 부제(시스템)·KPI 최신화
-                    if (name) await this.loadHistory(name);
+                    await this.load();
                 },
                 async load() {
                     if (this.view === 'trend') return;   // 추이 전용 페이지 — 사이클(간트) 로드 건너뜀

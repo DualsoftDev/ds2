@@ -358,66 +358,9 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
         public string[]? DeviceIds { get; init; }
     }
 
-    /// <summary>cloudinit 이 내려준 PLC 접속(plc-connections.json)으로 접속 설정을 override.
-    /// 분리 아키텍처의 접속 SSOT — 마법사 discovery(현장 실측) → PV → cloudinit → 여기.
-    /// 계약(쓰는 쪽 cloudinit.py PLC_CONNECTIONS_PATH 와 동일): 경로 <see cref="PlcConnectionsPath"/>,
-    /// 형식 {"version":1,"plcs":[{"name","ip","type","enabled"}]}. discovery 는 ip/type 만 주므로
-    /// port/station 은 벤더 기본으로 유추. 파일 없으면(로컬/올인원/Windows) 로컬 plcSettings 유지(회귀 0).
-    /// 현재 빌더가 단일 connection 이라 첫 enabled PLC 만 반영(복수 PLC 는 아래 이슈).</summary>
-    private static void ApplyCloudinitPlcConnection(PlcConnectionSettings settings)
-    {
-        try
-        {
-            if (!File.Exists(PlcConnectionsPath))
-                return; // 로컬/올인원 — cloudinit 접속 없음, 기존 설정 유지.
-            var json = File.ReadAllText(PlcConnectionsPath);
-            var doc = JsonSerializer.Deserialize<PlcConnectionsFile>(
-                json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-            var first = doc?.Plcs?.FirstOrDefault(p => p.Enabled && !string.IsNullOrWhiteSpace(p.Ip));
-            if (first is null)
-            {
-                Log.Warn($"plc-connections.json 에 enabled PLC 없음 ({PlcConnectionsPath}) — 로컬 plcSettings 유지.");
-                return;
-            }
-            var (vendor, port) = MapPlcType(first.Type);
-            settings.Vendor = vendor;
-            settings.Port = port;
-            settings.IpAddress = first.Ip!.Trim();
-            if (!string.IsNullOrWhiteSpace(first.Name)) settings.Name = first.Name!;
-            Log.Info($"PLC 접속 = cloudinit SSOT: name={settings.Name} vendor={settings.Vendor} ip={settings.IpAddress}:{settings.Port}");
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"plc-connections.json 로드 실패 ({PlcConnectionsPath}) — 로컬 plcSettings 유지.", ex);
-        }
-    }
-
-    /// <summary>discovery type("LS"/"MX"/…) → (Vendor enum 이름, 기본 port). discovery 는 ip/type 만 주므로
-    /// port/station 세부는 벤더 기본으로 유추. LS 계열 XGK/XGI 구분 정보가 type 에 없어 LsXgk 기본(아래 이슈).</summary>
-    private static (string vendor, int port) MapPlcType(string? type) =>
-        (type ?? "").Trim().ToUpperInvariant() switch
-        {
-            "MX" or "MITSUBISHI" or "MELSEC" => (nameof(PlcVendorChoice.Mitsubishi), 5007),
-            "XGI" or "LSXGI" => (nameof(PlcVendorChoice.LsXgi), 2004),
-            _ => (nameof(PlcVendorChoice.LsXgk), 2004), // "LS"(discovery 기본) 포함
-        };
-
-    /// <summary>cloudinit plc-connections.json 계약 경로 — 쓰는 쪽(cloudinit.py PLC_CONNECTIONS_PATH)과 일치.</summary>
-    private const string PlcConnectionsPath = "/etc/agent/plc-connections.json";
-
-    private sealed record PlcConnectionsFile
-    {
-        public int Version { get; init; }
-        public PlcConnItem[]? Plcs { get; init; }
-    }
-
-    private sealed record PlcConnItem
-    {
-        public string? Name { get; init; }
-        public string? Ip { get; init; }
-        public string? Type { get; init; }
-        public bool Enabled { get; init; } = true;
-    }
+    // cloudinit(plc-connections.json) 접속 override 는 Promaker.Shared.PlcConnectionResolver 로 이관됨.
+    // Promaker WPF 와 Agent 가 동일한 우선순위 규칙(cloudinit → AASX 내장 → 로컬 PlcConnection.json)을
+    // 한 곳에서 공유하기 위함 — 규칙이 앱마다 흩어지면 "왜 이 IP 로 붙었는지" 진단이 불가능해진다.
 
     private async Task TryActivateAsync()
     {
@@ -467,13 +410,21 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
                 .ToList();
             Log.Info($"UserTag addresses to subscribe: {userTagAddresses.Count} ({string.Join(", ", userTagAddresses.Take(5))})");
 
-            var plcSettings = PlcConnectionSettings.LoadOrDefault(
+            // 접속 정보 해석 — 우선순위 cloudinit(현장 실측 discovery) → AASX 내장 → 로컬 PlcConnection.json.
+            // AASX 내장분은 store 에서 읽으므로 위에서 로드한 store 를 그대로 넘긴다. 구 AASX(접속 미설정)면
+            // AASX 단계가 조용히 건너뛰어져 기존 동작 그대로 (회귀 0).
+            //
+            // ⚠ 여기서 PlcConnection.json 을 갱신하지 않는다 (in-memory override 만). ComputeConfigFingerprint 가
+            //    그 파일의 직렬화 전체를 지문에 넣으므로, 여기서 파일을 쓰면 지문이 흔들려 BackendHost 재시작이
+            //    연쇄한다. sidecar 쓰기는 사용자 조작(Promaker) 경로에서만 일어난다.
+            var resolution = PlcConnectionResolver.Resolve(
+                store,
                 string.IsNullOrWhiteSpace(session.PlcConnectionPath)
                     ? SharedPaths.PlcConnectionFilePath
                     : session.PlcConnectionPath);
-            // 분리 아키텍처: 접속 SSOT = PV(마법사 discovery) → cloudinit → 인스턴스.
-            // cloudinit plc-connections.json 이 있으면 그 실측 접속으로 override(없으면 로컬 plcSettings — 올인원 회귀 0).
-            ApplyCloudinitPlcConnection(plcSettings);
+            foreach (var w in resolution.Warnings) Log.Warn($"PLC 접속 해석: {w}");
+            Log.Info($"PLC 접속 = {resolution.Source}: {resolution.Label}");
+            var plcSettings = resolution.Settings;
             var gatewayConfig = PlcGatewayConfigBuilder.TryBuild(plcSettings, ioMap, out var errors, userTagAddresses);
             if (gatewayConfig is null)
             {

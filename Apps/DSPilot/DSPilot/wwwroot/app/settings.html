@@ -64,6 +64,12 @@
         .settings-note { padding: 10px 12px; margin-bottom: 12px; background: var(--color-surface-variant); border: 1px solid var(--color-lines); border-left: 3px solid var(--color-primary); border-radius: var(--radius-sm); }
         .settings-note small { color: var(--color-text-secondary); line-height: 1.55; }
         .settings-hint { color: var(--color-text-secondary); margin-top: 6px; display: block; font-size: 0.72rem; line-height: 1.5; }
+        /* 비활성(0) 같은 "조용한 오설정" 경고 — 힌트보다 강하고 알럿보다 약한 인라인 배너 */
+        .settings-warn { display: flex; gap: 8px; align-items: flex-start; margin-top: 8px; padding: 8px 10px; font-size: 0.74rem; line-height: 1.55;
+            color: #92400e; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: var(--radius-sm, 6px); }
+        .settings-warn .material-icons { font-size: 1rem; flex: 0 0 auto; margin-top: 1px; }
+        .settings-warn .btn { margin-left: 6px; vertical-align: baseline; }
+        .dark .settings-warn, .dark-theme .settings-warn { color: #fcd34d; background: rgba(245, 158, 11, 0.14); }
         /* 딥링크 진입 시 "지금 실측값 채우기" 버튼 강조 플래시 — 사용자가 눌러야 할 곳을 즉시 인지시킨다. */
         .calib-fill-flash { animation: calib-fill-flash 0.8s ease-in-out 3; }
         @keyframes calib-fill-flash {
@@ -599,6 +605,30 @@
                                             <div class="hms-cell"><input type="number" class="form-field" :value="maxCycleSeconds" @input="setMaxCycle('s', $event.target.value)" min="0" max="59" /><span>초</span></div>
                                         </div>
                                         <small class="settings-hint">가장 긴 Flow 의 평균 가동시간 + 여유시간을 권장합니다. 모두 0이면 비활성화됩니다.</small>
+                                        <!-- 0(무제한)이면 라인 정지로 늘어진 가동이 평균에 섞여 평균 가동시간이 실제의
+                                             수 배로 부풀고(실측: 중앙값 1.5초 라인의 평균이 8.5초), 모든 비가동·비생산
+                                             판정 기준이 그 평균의 배수라 함께 헐거워진다. 기본값이 0 이라 모르고 지나치기
+                                             쉬워 경고 + 권장값 한 번 클릭을 제공한다.
+                                             ※'가동중 고정' 해제(워치독)는 이 값이 0 이어도 flow 실측 분포(중앙값·p99)로
+                                               만든 자동 경계로 동작하므로 여기서 경고하지 않는다. -->
+                                        <div class="settings-warn" x-show="!(s?.historyView.maxCycleTimeMs > 0)" x-cloak>
+                                            <span class="material-icons">warning</span>
+                                            <span>
+                                                무제한(0) 상태입니다 — 라인 정지로 늘어진 가동이 평균에 섞여
+                                                <b>평균 가동시간이 부풀고 비가동·비생산 판정 기준이 헐거워집니다.</b>
+                                                <template x-if="recMaxSec > 0">
+                                                    <span>
+                                                        이 설비 실측 분포 기준 권장값은 <b x-text="recMaxLabel"></b> 입니다.
+                                                        <button type="button" class="btn btn-sm" @click="applyRecommendedMax()"
+                                                                :title="recMaxWhy">권장값 적용</button>
+                                                    </span>
+                                                </template>
+                                                <template x-if="recMaxSec === 0">
+                                                    <span>권장값은 정상 가동시간의 5~10배입니다(실측 표본이 쌓이면 자동 제시).</span>
+                                                </template>
+                                                <br><small>'가동중' 표시 해제는 이 값 없이도 실측 분포 기반 자동 경계로 동작합니다.</small>
+                                            </span>
+                                        </div>
                                     </div>
                                     <div class="form-group">
                                         <label class="form-label">가동시간 최소 제한 (미달 시 제외)</label>
@@ -1126,6 +1156,8 @@
                     this.dark = localStorage.getItem('dspilot-theme') === 'dark';
                     window.addEventListener('storage', (e) => { if (e.key === 'dspilot-theme') this.dark = e.newValue === 'dark'; });
                     await this.load();
+                    // Max 권장값은 14일 통계라 설정 로드와 분리(실패해도 페이지는 정상 동작).
+                    this.loadRecommendedMax();
                     // 내용 비교식 더티 판정 — 로드 직후 스냅샷(_baseline)과 실제 내용이 다를 때만 dirty.
                     // 단순 "s 변경 → dirty" 는 초기 하이드레이션(x-model.number 강제변환, 배열 기본값 등)이
                     //   값을 건드리는 것만으로 페이지 진입 즉시 dirty 로 표시되던 버그의 원인이었다.
@@ -1392,6 +1424,30 @@
                     return await res.json();
                 },
 
+                // 이상치 제외 Max 권장값 — 고정 초가 아니라 이 설비 CT 분포에서 산출(서버 /recommended-cycle-max).
+                recMaxSec: 0,
+                recMaxLabel: '',
+                recMaxWhy: '',
+                async loadRecommendedMax() {
+                    try {
+                        const r = await this.apiGet('/api/settings/recommended-cycle-max');
+                        this.recMaxSec = r.recommendedSec || 0;
+                        if (this.recMaxSec > 0) {
+                            this.recMaxLabel = this.recMaxSec < 60
+                                ? this.recMaxSec + '초'
+                                : Math.floor(this.recMaxSec / 60) + '분' + (this.recMaxSec % 60 ? ' ' + (this.recMaxSec % 60) + '초' : '');
+                            const f = (r.flows || []).filter(x => x.boundaryMs > 0)
+                                .sort((a, b) => b.boundaryMs - a.boundaryMs)[0];
+                            this.recMaxWhy = f
+                                ? '가장 느린 Flow(' + f.flowName + ') 기준 — 중앙값 ' + (f.medianMs / 1000).toFixed(1)
+                                  + '초 / p99 ' + (f.p99Ms / 1000).toFixed(1) + '초 / 표본 ' + f.sample + '건'
+                                : '';
+                        }
+                    } catch (e) { this.recMaxSec = 0; }
+                },
+                applyRecommendedMax() {
+                    if (this.recMaxSec > 0) this.s.historyView.maxCycleTimeMs = this.recMaxSec * 1000;
+                },
                 async load() {
                     this.loading = true;
                     try {

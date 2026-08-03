@@ -54,7 +54,12 @@ public class DspDbService : IDisposable
     // HasData 는 한 번이라도 사이클 데이터가 쌓이면 PLC 가 끊겨도 계속 true 라, 헤더 "수신중"이
     // 영원히 켜져 있는 오해를 낳는다. 그래서 *실제 유입* 시각만 별도로 추적한다.
     //   유입 = ① 실시간 상태전이 이벤트 적용(ApplyEventToSnapshot) ② DB 폴링서 실제 변경 감지(TryRefresh)
+    //          ③ 모델 매핑 태그값 수신(SimulationEngineService.HandleHubTagChanged → MarkInbound)
     //   제외 = ProgressUpdateLoopAsync 의 로컬 진행률 보간(새 PLC 데이터 아님)
+    // ★③이 필요한 이유: ①②는 "상태가 *변했을* 때"만 도장을 찍는다. 라이브 행(dspFlow.mt/wt/ct)이 고정값으로
+    //   굳고 dspCall.state 가 Going 으로 박제되면 태그가 초당 수 건 들어와도 두 경로 모두 안 걸려, 수신이
+    //   멀쩡한데 "데이터 대기"가 영구 표시됐다(2026-07-29 현장 실측: 5분 연속 false, 같은 시각 사이클 486회/3분).
+    //   태그 유입은 값이 같아도 "PLC 와 말이 통하고 있다"는 1차 증거라 라이브니스의 정직한 소스다.
     private static readonly TimeSpan LiveDataWindow = TimeSpan.FromSeconds(15);
     private DateTime _lastInboundUtc = DateTime.MinValue;
 
@@ -63,6 +68,19 @@ public class DspDbService : IDisposable
     /// 라인이 가동 중이어도 상태전이가 창보다 드물게 발생하면 잠시 false 가 될 수 있다(의도된 정직성).</summary>
     public bool IsReceivingLiveData =>
         (DateTime.UtcNow - _lastInboundUtc) < LiveDataWindow;
+
+    /// <summary>마지막 유입 이후 경과(초). 부팅 후 유입이 한 번도 없으면 null(=계측 근거 없음).
+    /// 헤더 배지가 "데이터 대기"에 길이를 병기해 15초 순간 공백과 수 분짜리 장애를 구분하는 데 쓴다.</summary>
+    public double? InboundGapSeconds =>
+        _lastInboundUtc == DateTime.MinValue ? null : (DateTime.UtcNow - _lastInboundUtc).TotalSeconds;
+
+    /// <summary>
+    /// 모델 매핑 태그값 수신 시 유입 도장(위 ③). 엔진의 태그 진입점에서 호출한다 — 값 변화가 없어도
+    /// 유입은 유입이므로 라이브니스만 갱신하고 스냅샷·이벤트는 건드리지 않는다(OnDataChanged 미발화).
+    /// <para>이 플래그의 소비처는 헤더 배지와 reconcile Phase 3 게이트 둘뿐이다 — OEE 집계·미계측 판정·
+    /// 심박(oeeCommHealthLog)은 이 값을 쓰지 않으므로 과거·현재 수치가 바뀌지 않는다.</para>
+    /// </summary>
+    public void MarkInbound() => _lastInboundUtc = DateTime.UtcNow;
 
     public event Action? OnDataChanged;
 
