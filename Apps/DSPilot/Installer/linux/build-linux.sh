@@ -126,7 +126,41 @@ TARBALL="$OUTPUT_DIR/${PKG_NAME}.tar.gz"
 # tarball 최상위가 PKG_NAME/ 디렉터리가 되도록 staging 을 rename 후 묶음.
 rm -rf "$OUTPUT_DIR/$PKG_NAME"
 cp -a "$STAGE" "$OUTPUT_DIR/$PKG_NAME"
-tar -czf "$TARBALL" -C "$OUTPUT_DIR" "$PKG_NAME"
+
+# Windows Git Bash의 NTFS에서는 chmod 결과가 tar 메타데이터에 반영되지 않는다.
+# 기본 파일은 0644/디렉터리는 0755로 묶고, 실행 파일과 시크릿은 별도 mode로
+# 추가해 어느 빌드 OS에서든 Linux 권한이 동일하도록 보장한다.
+EXECUTABLE_ENTRIES=(
+  "$PKG_NAME/install.sh"
+  "$PKG_NAME/uninstall.sh"
+  "$PKG_NAME/app/DSPilot"
+  "$PKG_NAME/agent/Promaker.Agent"
+  "$PKG_NAME/collector/Ds2.Collector"
+  "$PKG_NAME/mediamtx/mediamtx"
+)
+PRESENT_EXECUTABLES=()
+TAR_EXCLUDES=()
+for _entry in "${EXECUTABLE_ENTRIES[@]}"; do
+  if [[ -f "$OUTPUT_DIR/$_entry" ]]; then
+    PRESENT_EXECUTABLES+=("$_entry")
+    TAR_EXCLUDES+=("--exclude=$_entry")
+  fi
+done
+if [[ -f "$OUTPUT_DIR/$PKG_NAME/dsp.conf" ]]; then
+  TAR_EXCLUDES+=("--exclude=$PKG_NAME/dsp.conf")
+fi
+
+TAR_FILE="$OUTPUT_DIR/${PKG_NAME}.tar"
+rm -f "$TAR_FILE" "$TARBALL"
+tar -cf "$TAR_FILE" --mode='u+rwX,go+rX,go-w' \
+  "${TAR_EXCLUDES[@]}" -C "$OUTPUT_DIR" "$PKG_NAME"
+if [[ ${#PRESENT_EXECUTABLES[@]} -gt 0 ]]; then
+  tar -rf "$TAR_FILE" --mode=0755 -C "$OUTPUT_DIR" "${PRESENT_EXECUTABLES[@]}"
+fi
+if [[ -f "$OUTPUT_DIR/$PKG_NAME/dsp.conf" ]]; then
+  tar -rf "$TAR_FILE" --mode=0600 -C "$OUTPUT_DIR" "$PKG_NAME/dsp.conf"
+fi
+gzip -f "$TAR_FILE"
 rm -rf "$OUTPUT_DIR/$PKG_NAME" "$STAGE"
 
 echo ""
