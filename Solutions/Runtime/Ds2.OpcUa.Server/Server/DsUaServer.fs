@@ -10,16 +10,20 @@ open Ds2.OpcUa.Server.NodeIds
 type DsUaServer(
         allocator: INamespaceAllocator,
         managedNamespaceUris: string array,
-        defaultSamplingIntervalMs: int) =
+        defaultSamplingIntervalMs: int,
+        allowExternalEventInjection: bool) =
     inherit StandardServer()
 
     let mutable nodeManager : DsNodeManager option = None
 
     new(allocator: INamespaceAllocator, managedNamespaceUris: string array) =
-        new DsUaServer(allocator, managedNamespaceUris, 1000)
+        new DsUaServer(allocator, managedNamespaceUris, 1000, false)
+
+    new(allocator: INamespaceAllocator, managedNamespaceUris: string array, defaultSamplingIntervalMs: int) =
+        new DsUaServer(allocator, managedNamespaceUris, defaultSamplingIntervalMs, false)
 
     new(allocator: INamespaceAllocator) =
-        new DsUaServer(allocator, [||], 1000)
+        new DsUaServer(allocator, [||], 1000, false)
 
     /// 외부에서 asset 을 추가할 수 있게 노출.
     member _.NodeManager =
@@ -34,7 +38,8 @@ type DsUaServer(
                 configuration,
                 allocator,
                 managedNamespaceUris,
-                max 1 defaultSamplingIntervalMs)
+                max 1 defaultSamplingIntervalMs,
+                allowExternalEventInjection)
         nodeManager <- Some dsNm
         let managers : INodeManager array = [| dsNm :> INodeManager |]
         new MasterNodeManager(server, configuration, null, managers)

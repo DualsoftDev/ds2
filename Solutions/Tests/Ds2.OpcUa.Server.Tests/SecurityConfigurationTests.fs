@@ -33,8 +33,8 @@ let ``locked configuration removes anonymous and unsecured endpoints`` () =
     Assert.True(app.SecurityConfiguration.RejectSHA1SignedCertificates)
 
 [<Fact>]
-let ``development defaults remain explicitly opt-in compatible`` () =
+let ``standalone defaults are locked`` () =
     let cfg = ServerConfiguration.defaultConfig(Path.GetTempPath())
-    Assert.True(cfg.AllowAnonymous)
-    Assert.True(cfg.AllowUnsecuredEndpoint)
-    Assert.True(cfg.AutoAcceptUntrustedCertificates)
+    Assert.False(cfg.AllowAnonymous)
+    Assert.False(cfg.AllowUnsecuredEndpoint)
+    Assert.False(cfg.AutoAcceptUntrustedCertificates)

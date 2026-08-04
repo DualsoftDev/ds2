@@ -7,6 +7,7 @@ open Microsoft.Data.Sqlite
 open Microsoft.Extensions.Hosting
 open Microsoft.Extensions.Logging
 open Ds2.Collector.DataApi
+open Ds2.Adapter.Common
 
 /// Raw typed sample을 시간/일 bucket으로 집계한다.
 [<RequireQualifiedAccess>]
@@ -75,6 +76,14 @@ module Downsample =
                 unit            TEXT,
                 PRIMARY KEY (global_asset_id, signal_id, bucket_ts_us)
             ) WITHOUT ROWID;
+            CREATE TABLE IF NOT EXISTS downsample_dirty (
+                envelope_id     BLOB PRIMARY KEY,
+                global_asset_id TEXT NOT NULL,
+                signal_id       TEXT NOT NULL,
+                source_ts_us    INTEGER NOT NULL
+            ) WITHOUT ROWID;
+            CREATE INDEX IF NOT EXISTS ix_downsample_dirty_time
+                ON downsample_dirty (source_ts_us);
         """
         cmd.ExecuteNonQuery() |> ignore
         // 기존 numeric-only DB를 보존한 채 typed aggregate schema로 전진 마이그레이션한다.
@@ -177,6 +186,97 @@ module Downsample =
         tx.Commit()
         n1 + n2
 
+    /// Recomputes only buckets touched by newly persisted samples, regardless of source age.
+    /// This closes the lookback-window gap after long offline/outbox recovery periods.
+    let runDirtyAggregation (telemetryDb: string) (maxDirty: int) : int * int =
+        use conn = new SqliteConnection($"Data Source={telemetryDb};Pooling=False")
+        conn.Open()
+        use tx = conn.BeginTransaction()
+        use createBatch = conn.CreateCommand()
+        createBatch.Transaction <- tx
+        createBatch.CommandText <-
+            "CREATE TEMP TABLE dirty_batch (envelope_id BLOB PRIMARY KEY) WITHOUT ROWID;
+             INSERT INTO dirty_batch(envelope_id)
+             SELECT envelope_id FROM downsample_dirty ORDER BY source_ts_us LIMIT $limit;"
+        createBatch.Parameters.AddWithValue("$limit", max 1 maxDirty) |> ignore
+        createBatch.ExecuteNonQuery() |> ignore
+        use countCommand = conn.CreateCommand()
+        countCommand.Transaction <- tx
+        countCommand.CommandText <- "SELECT COUNT(*) FROM dirty_batch"
+        let selected = Convert.ToInt32(countCommand.ExecuteScalar())
+        if selected = 0 then
+            tx.Commit()
+            0, 0
+        else
+            let runBucket bucketSize table =
+                use command = conn.CreateCommand()
+                command.Transaction <- tx
+                command.CommandText <-
+                    sprintf """
+                    WITH dirty AS (
+                        SELECT DISTINCT d.global_asset_id, d.signal_id,
+                               (d.source_ts_us / $bucket) * $bucket AS bucket_ts_us
+                        FROM downsample_dirty d
+                        JOIN dirty_batch b ON b.envelope_id = d.envelope_id
+                    ), raw AS (
+                        SELECT s.*,
+                               (s.source_ts_us / $bucket) * $bucket AS bucket_ts_us,
+                               CASE s.value_type
+                                   WHEN 'double' THEN s.value_double
+                                   WHEN 'long' THEN CAST(s.value_long AS REAL)
+                                   WHEN 'bool' THEN CAST(s.value_bool AS REAL)
+                                   ELSE NULL
+                               END AS numeric_value
+                        FROM signals s
+                        JOIN dirty d
+                          ON d.global_asset_id = s.global_asset_id
+                         AND d.signal_id = s.signal_id
+                         AND d.bucket_ts_us = (s.source_ts_us / $bucket) * $bucket
+                    ), ranked AS (
+                        SELECT *, ROW_NUMBER() OVER (
+                            PARTITION BY global_asset_id, signal_id, bucket_ts_us
+                            ORDER BY source_ts_us DESC, envelope_id DESC
+                        ) AS rn
+                        FROM raw
+                    ), buckets AS (
+                        SELECT global_asset_id, signal_id, bucket_ts_us,
+                               COUNT(*) AS count, AVG(numeric_value) AS mean,
+                               MIN(numeric_value) AS min_v, MAX(numeric_value) AS max_v
+                        FROM raw
+                        GROUP BY global_asset_id, signal_id, bucket_ts_us
+                    )
+                    INSERT OR REPLACE INTO %s
+                        (global_asset_id, signal_id, bucket_ts_us, count, mean, min_v, max_v, last_v,
+                         value_type, last_double, last_long, last_string, last_bool, last_quality, unit)
+                    SELECT b.global_asset_id, b.signal_id, b.bucket_ts_us,
+                           b.count, b.mean, b.min_v, b.max_v,
+                           CASE r.value_type
+                               WHEN 'double' THEN r.value_double
+                               WHEN 'long' THEN CAST(r.value_long AS REAL)
+                               WHEN 'bool' THEN CAST(r.value_bool AS REAL)
+                               ELSE NULL
+                           END,
+                           r.value_type, r.value_double, r.value_long, r.value_string, r.value_bool,
+                           r.quality, r.unit
+                    FROM buckets b
+                    JOIN ranked r
+                      ON r.global_asset_id = b.global_asset_id
+                     AND r.signal_id = b.signal_id
+                     AND r.bucket_ts_us = b.bucket_ts_us
+                     AND r.rn = 1
+                    """ table
+                command.Parameters.AddWithValue("$bucket", bucketSize) |> ignore
+                command.ExecuteNonQuery()
+            let refreshed = runBucket bucket1H "signals_1h" + runBucket bucket1D "signals_1d"
+            use clear = conn.CreateCommand()
+            clear.Transaction <- tx
+            clear.CommandText <-
+                "DELETE FROM downsample_dirty
+                 WHERE envelope_id IN (SELECT envelope_id FROM dirty_batch)"
+            clear.ExecuteNonQuery() |> ignore
+            tx.Commit()
+            refreshed, selected
+
 type DownsampleOptions = {
     Enabled: bool
     SweepIntervalMs: int
@@ -213,14 +313,22 @@ type DownsampleService(
         else
             try
                 while not stoppingToken.IsCancellationRequested do
-                    let now = DateTimeOffset.UtcNow
-                    let fromUs = now.AddHours(float -options.LookbackHours).ToUnixTimeMilliseconds() * 1000L
-                    let toUs = now.ToUnixTimeMilliseconds() * 1000L
-                    let rows = Downsample.runAggregation paths.TelemetryDb fromUs toUs
-                    if rows > 0 then
-                        logger.LogInformation("Downsample sweep refreshed {Rows} aggregate rows.", rows)
+                    try
+                        let now = DateTimeOffset.UtcNow
+                        let fromUs = UnixTime.toMicroseconds (now.AddHours(float -options.LookbackHours))
+                        let toUs = UnixTime.toMicroseconds now
+                        let mutable rows = Downsample.runAggregation paths.TelemetryDb fromUs toUs
+                        let mutable processed = 1
+                        let mutable batches = 0
+                        while processed > 0 && batches < 10 && not stoppingToken.IsCancellationRequested do
+                            let refreshed, dirty = Downsample.runDirtyAggregation paths.TelemetryDb 10_000
+                            rows <- rows + refreshed
+                            processed <- dirty
+                            batches <- batches + 1
+                        if rows > 0 then
+                            logger.LogInformation("Downsample sweep refreshed {Rows} aggregate rows.", rows)
+                    with ex ->
+                        logger.LogError(ex, "Downsample sweep failed; the next sweep will retry durable dirty buckets.")
                     do! Task.Delay(options.SweepIntervalMs, stoppingToken)
-            with
-            | :? OperationCanceledException -> ()
-            | ex -> logger.LogError(ex, "Downsample background service stopped unexpectedly.")
+            with :? OperationCanceledException -> ()
     }

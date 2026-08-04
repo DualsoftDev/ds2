@@ -19,7 +19,6 @@
     <Compile Include="Server/DsUaServer.fs" />
     <Compile Include="Server/EmbeddedUaServer.fs" />
     <Compile Include="Server/DsUaServerService.fs" />
-    <Compile Include="Hotpath/AasChangeHandler.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

@@ -8,12 +8,13 @@
     <!-- 구 Ds2.Adapter.Common.Tests 흡수분 (2026-07-27). -->
     <Compile Include="EnvelopeTests.fs" />
     <Compile Include="EdgeBufferTests.fs" />
-    <Compile Include="UaWriterContractTests.fs" />
+    <Compile Include="CollectorRuntimeStateTests.fs" />
     <Compile Include="UaSubscriptionTests.fs" />
     <Compile Include="PolicyDiscoveryIntegrationTests.fs" />
     <Compile Include="SqliteSinkWriterTests.fs" />
     <Compile Include="DownsampleTests.fs" />
     <Compile Include="RetentionTests.fs" />
+    <Compile Include="DataApiSecurityTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

@@ -79,6 +79,7 @@ public static class PlcGatewayConfigBuilder
             {
                 PlcVendorChoice.LsXgi => PlcVendor.LsXgi,
                 PlcVendorChoice.LsXgk => PlcVendor.LsXgk,
+                PlcVendorChoice.LsXgb => PlcVendor.LsXgb,
                 PlcVendorChoice.Mitsubishi => PlcVendor.Mitsubishi,
                 _ => PlcVendor.LsXgi
             };

@@ -279,7 +279,7 @@ type CollectorTagConfig = {
 [<CLIMutable>]
 type CollectorConnectionConfig = {
     [<JsonPropertyName("name")>]          Name: string
-    [<JsonPropertyName("vendor")>]        Vendor: string          // "LsXgk" | "LsXgi" | "Mitsubishi"
+    [<JsonPropertyName("vendor")>]        Vendor: string          // "LsXgk" | "LsXgi" | "LsXgb" | "Mitsubishi"
     [<JsonPropertyName("ip")>]            Ip: string
     [<JsonPropertyName("port")>]          Port: int
     [<JsonPropertyName("localEthernet")>] LocalEthernet: bool

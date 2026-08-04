@@ -5,6 +5,8 @@ open System.Collections.Concurrent
 open System.Collections.Generic
 open System.Globalization
 open System.Text
+open System.Text.Json
+open System.Text.Json.Nodes
 open System.Threading
 open Opc.Ua
 open Opc.Ua.Server
@@ -113,11 +115,51 @@ module private DataTypes =
                 Ok converted
         with ex -> Error ex.Message
 
+module private AssetEvents =
+    [<Literal>]
+    let MaxPayloadBytes = 262_144
+
+    let private forbiddenTimestampFields =
+        HashSet<string>(
+            [| "sourceTimestamp"; "time"; "timestamp"; "receiveTime" |],
+            StringComparer.OrdinalIgnoreCase)
+
+    let rec private hasForbiddenTimestampField (element: JsonElement) =
+        match element.ValueKind with
+        | JsonValueKind.Object ->
+            element.EnumerateObject()
+            |> Seq.exists (fun property ->
+                forbiddenTimestampFields.Contains property.Name
+                || hasForbiddenTimestampField property.Value)
+        | JsonValueKind.Array ->
+            element.EnumerateArray() |> Seq.exists hasForbiddenTimestampField
+        | _ -> false
+
+    let tryCreateWireMessage eventTypeSemanticId sourceSignalId payloadJson =
+        if String.IsNullOrWhiteSpace eventTypeSemanticId then Error "eventTypeSemanticId is required"
+        elif String.IsNullOrWhiteSpace sourceSignalId then Error "sourceSignalId is required"
+        elif String.IsNullOrWhiteSpace payloadJson then Error "payloadJson is required"
+        elif Encoding.UTF8.GetByteCount payloadJson > MaxPayloadBytes then
+            Error(sprintf "payloadJson exceeds %d bytes" MaxPayloadBytes)
+        else
+            try
+                use document = JsonDocument.Parse payloadJson
+                if hasForbiddenTimestampField document.RootElement then
+                    Error "payloadJson must not contain timestamp fields"
+                else
+                    let wrapper = JsonObject()
+                    wrapper.["eventTypeSemanticId"] <- JsonValue.Create eventTypeSemanticId
+                    wrapper.["sourceSignalId"] <- JsonValue.Create sourceSignalId
+                    wrapper.["payload"] <- JsonNode.Parse payloadJson
+                    Ok(wrapper.ToJsonString())
+            with :? JsonException as ex -> Error("payloadJson is not valid JSON: " + ex.Message)
+
 type DsNodeManager(server: IServerInternal,
                    configuration: ApplicationConfiguration,
                    allocator: INamespaceAllocator,
                    managedNamespaceUris: string array,
-                   defaultSamplingIntervalMs: int) as this =
+                   defaultSamplingIntervalMs: int,
+                   allowExternalEventInjection: bool) as this =
     inherit CustomNodeManager2(server, configuration)
 
     static let log = log4net.LogManager.GetLogger("DsNodeManager")
@@ -212,7 +254,11 @@ type DsNodeManager(server: IServerInternal,
     /// ADR-003 · asset 하나에 Events 폴더 + RaiseAssetEvent Method 를 배치.
     /// 시그니처: (eventTypeSemanticId, sourceSignalId, sourceTimestamp, payloadJson) → (eventId, statusCode).
     /// 리턴: (eventsFolder, raiseMethod) — caller 가 AssetContext 에 저장.
-    member private this.BuildEventsSubtree(assetFolder: FolderState, idShort: string, serverNs: int)
+    member private this.BuildEventsSubtree(
+            gaid: GlobalAssetId,
+            assetFolder: FolderState,
+            idShort: string,
+            serverNs: int)
             : FolderState * MethodState =
         let eventsFolder = new FolderState(assetFolder)
         eventsFolder.SymbolicName <- "Events"
@@ -231,8 +277,8 @@ type DsNodeManager(server: IServerInternal,
         raiseMethod.BrowseName <- QualifiedName("RaiseAssetEvent", uint16 serverNs)
         raiseMethod.DisplayName <- LocalizedText "RaiseAssetEvent"
         raiseMethod.ReferenceTypeId <- ReferenceTypeIds.HasComponent
-        raiseMethod.Executable <- true
-        raiseMethod.UserExecutable <- true
+        raiseMethod.Executable <- allowExternalEventInjection
+        raiseMethod.UserExecutable <- allowExternalEventInjection
 
         let inArgs = new PropertyState<Argument array>(raiseMethod)
         inArgs.NodeId <- NodeId(sprintf "Events/RaiseAssetEvent/In-%s" idShort, uint16 serverNs)
@@ -265,9 +311,30 @@ type DsNodeManager(server: IServerInternal,
         raiseMethod.OutputArguments <- outArgs
 
         raiseMethod.OnCallMethod <- GenericMethodCalledEventHandler(fun _ctx _meth inputArgs outputArgs ->
-            if inputArgs.Count < 4 then
+            if not allowExternalEventInjection then
+                new ServiceResult(StatusCodes.BadUserAccessDenied)
+            elif inputArgs.Count < 4 then
                 new ServiceResult(StatusCodes.BadArgumentsMissing)
             else
+                let eventTypeSemId = string inputArgs.[0]
+                let sourceSignalId = string inputArgs.[1]
+                let sourceTs =
+                    match inputArgs.[2] with
+                    | :? DateTime as dt -> dt
+                    | _ -> DateTime.UtcNow
+                let payloadJson = string inputArgs.[3]
+                try
+                    match this.RaiseAssetEvent(gaid, eventTypeSemId, sourceSignalId, sourceTs, payloadJson) with
+                    | Some eventIdBytes ->
+                        if outputArgs.Count > 0 then outputArgs.[0] <- (eventIdBytes :> obj)
+                        if outputArgs.Count > 1 then outputArgs.[1] <- (0 :> obj)
+                        new ServiceResult(StatusCodes.Good)
+                    | None -> new ServiceResult(StatusCodes.BadInvalidArgument)
+                with ex ->
+                    log.Error(sprintf "RaiseAssetEvent failed: asset=%s signal=%s" gaid.Value sourceSignalId, ex)
+                    new ServiceResult(StatusCodes.BadInternalError)
+                (* Legacy inline emitter retained only in source history; the shared
+                   RaiseAssetEvent path above is used by methods and runtime bridges.
                 let eventTypeSemId = string (inputArgs.[0])
                 let sourceSignalId = string (inputArgs.[1])
                 let sourceTs =
@@ -303,12 +370,38 @@ type DsNodeManager(server: IServerInternal,
                         new ServiceResult(StatusCodes.Good)
                     with ex ->
                         Console.Error.WriteLine(sprintf "[RaiseAssetEvent] error: %s · %s" ex.Message (ex.GetType().FullName))
-                        new ServiceResult(StatusCodes.BadInternalError))
+                        new ServiceResult(StatusCodes.BadInternalError) *) )
         eventsFolder.AddChild(raiseMethod)
         this.AttachPredefined raiseMethod
         this.AttachPredefined inArgs
         this.AttachPredefined outArgs
         eventsFolder, raiseMethod
+
+    member private _.BuildSignalProperty(
+                parent: BaseDataVariableState,
+                signalId: SignalId,
+                name: string,
+                dataType: NodeId,
+                value: obj,
+                serverNs: int) =
+        let property = new BaseDataVariableState(parent)
+        property.SymbolicName <- name
+        property.NodeId <- NodeId(sprintf "Metadata/%s/%s" signalId.Value name, uint16 serverNs)
+        property.BrowseName <- QualifiedName(name, uint16 serverNs)
+        property.DisplayName <- LocalizedText name
+        property.Description <- LocalizedText(sprintf "Signal metadata %s for %s" name signalId.Value)
+        property.ReferenceTypeId <- ReferenceTypeIds.HasProperty
+        property.TypeDefinitionId <- VariableTypeIds.PropertyType
+        property.DataType <- dataType
+        property.ValueRank <- ValueRanks.Scalar
+        property.AccessLevel <- byte AccessLevels.CurrentRead
+        property.UserAccessLevel <- property.AccessLevel
+        property.MinimumSamplingInterval <- 0.0
+        property.Historizing <- false
+        property.Value <- value
+        property.StatusCode <- StatusCodes.Good
+        property.Timestamp <- DateTime.UtcNow
+        parent.AddChild(property)
 
     member private _.BuildPolicyProperty(
                 parent: BaseDataVariableState,
@@ -357,6 +450,32 @@ type DsNodeManager(server: IServerInternal,
         |> Option.iter (fun value -> add SignalPolicyUaMetadata.DeadbandAbsolute DataTypeIds.Double (box value))
         policy.DeadbandPercent
         |> Option.iter (fun value -> add SignalPolicyUaMetadata.DeadbandPercent DataTypeIds.Double (box value))
+        policy.EngineeringRangeLow
+        |> Option.iter (fun value -> add SignalPolicyUaMetadata.EngineeringRangeLow DataTypeIds.Double (box value))
+        policy.EngineeringRangeHigh
+        |> Option.iter (fun value -> add SignalPolicyUaMetadata.EngineeringRangeHigh DataTypeIds.Double (box value))
+        match policy.EngineeringRangeLow, policy.EngineeringRangeHigh with
+        | Some low, Some high ->
+            let range = Opc.Ua.Range()
+            range.Low <- low
+            range.High <- high
+            let property = new PropertyState<Opc.Ua.Range>(variable)
+            property.SymbolicName <- BrowseNames.EURange
+            property.NodeId <- NodeId(sprintf "Metadata/%s/%s" signalId.Value BrowseNames.EURange, uint16 serverNs)
+            property.BrowseName <- QualifiedName(BrowseNames.EURange, 0us)
+            property.DisplayName <- LocalizedText BrowseNames.EURange
+            property.Description <- LocalizedText(sprintf "Engineering range for %s" signalId.Value)
+            property.ReferenceTypeId <- ReferenceTypeIds.HasProperty
+            property.TypeDefinitionId <- VariableTypeIds.PropertyType
+            property.DataType <- DataTypeIds.Range
+            property.ValueRank <- ValueRanks.Scalar
+            property.AccessLevel <- byte AccessLevels.CurrentRead
+            property.UserAccessLevel <- property.AccessLevel
+            property.Value <- range
+            property.StatusCode <- StatusCodes.Good
+            property.Timestamp <- DateTime.UtcNow
+            variable.AddChild(property)
+        | _ -> ()
         policy.QueueSize
         |> Option.iter (fun value -> add SignalPolicyUaMetadata.QueueSize DataTypeIds.Int32 (box value))
         add SignalPolicyUaMetadata.Retention DataTypeIds.String (box policy.Retention)
@@ -368,6 +487,7 @@ type DsNodeManager(server: IServerInternal,
                 sigId: SignalId,
                 builtin: BuiltInType,
                 displayName: string,
+                unitName: string,
                 policy: SignalPolicy option,
                 serverNs: int)
             : BaseDataVariableState =
@@ -381,7 +501,8 @@ type DsNodeManager(server: IServerInternal,
         v.TypeDefinitionId <- VariableTypeIds.BaseDataVariableType
         v.DataType <- DataTypes.ofBuiltIn builtin
         v.ValueRank <- ValueRanks.Scalar
-        v.AccessLevel <- byte (AccessLevels.CurrentReadOrWrite ||| AccessLevels.HistoryRead)
+        // Central UA는 aggregator다. 외부 UA client write는 허용하지 않고 내부 bridge만 WriteSignal을 사용한다.
+        v.AccessLevel <- byte (AccessLevels.CurrentRead ||| AccessLevels.HistoryRead)
         v.UserAccessLevel <- v.AccessLevel
         v.MinimumSamplingInterval <-
             policy
@@ -394,6 +515,8 @@ type DsNodeManager(server: IServerInternal,
         v.StatusCode <- StatusCodes.BadWaitingForInitialData
         v.Timestamp <- DateTime.UtcNow
         parent.AddChild(v)
+        if not (String.IsNullOrWhiteSpace unitName) then
+            this.BuildSignalProperty(v, sigId, SignalUaMetadata.Unit, DataTypeIds.String, box unitName, serverNs)
         policy |> Option.iter (fun p -> this.AttachCollectionPolicy(v, sigId, p, serverNs))
         v
 
@@ -423,7 +546,7 @@ type DsNodeManager(server: IServerInternal,
             assetFolder.EventNotifier <- EventNotifiers.SubscribeToEvents
             assetsFolder.AddChild(assetFolder)
 
-            let eventsFolder, raiseMethod = this.BuildEventsSubtree(assetFolder, idShort, serverNs)
+            let eventsFolder, raiseMethod = this.BuildEventsSubtree(gaid, assetFolder, idShort, serverNs)
 
             let folderByPath = Dictionary<string, FolderState>(StringComparer.Ordinal)
             let rec ensureFolder (path: string list) : FolderState =
@@ -451,15 +574,16 @@ type DsNodeManager(server: IServerInternal,
 
             let vars = new ConcurrentDictionary<string, BaseDataVariableState>()
             let variableTypes = new ConcurrentDictionary<string, BuiltInType>()
-            for (path, sigId, _unit, builtin, displayName, policy) in signalsWithPath do
+            for (path, sigId, unitName, builtin, displayName, policy) in signalsWithPath do
                 let parent = ensureFolder path
-                let v = this.BuildVariable(parent, sigId, builtin, displayName, policy, serverNs)
+                let v = this.BuildVariable(parent, sigId, builtin, displayName, unitName, policy, serverNs)
                 vars.[sigId.Value] <- v
                 variableTypes.[sigId.Value] <- builtin
 
             // hot-append 경로 — 전체 subtree 완성 후 root 한 번 등록해야
             // descendants + hierarchical refs 가 함께 반영된다.
             this.AttachPredefined assetFolder
+            this.AddRootNotifier assetFolder
 
             let ctx = {
                 GlobalAssetId = gaid
@@ -579,6 +703,39 @@ type DsNodeManager(server: IServerInternal,
                 finally
                     Monitor.Exit this.Lock
             changed
+
+    /// Raises an asset-scoped BaseEvent using a JSON wire message that preserves
+    /// the event semantic id and payload for generic OPC UA subscribers.
+    member this.RaiseAssetEvent(
+            gaid: GlobalAssetId,
+            eventTypeSemanticId: string,
+            sourceSignalId: string,
+            sourceTs: DateTime,
+            payloadJson: string) : byte array option =
+        match assets.TryGetValue gaid with
+        | false, _ -> None
+        | true, ctx ->
+            match AssetEvents.tryCreateWireMessage eventTypeSemanticId sourceSignalId payloadJson with
+            | Error reason ->
+                log.Warn(sprintf "Asset event rejected: asset=%s signal=%s reason=%s" gaid.Value sourceSignalId reason)
+                None
+            | Ok wireMessage ->
+                let evt = new BaseEventState(ctx.AssetFolder)
+                evt.Initialize(
+                    this.SystemContext,
+                    ctx.AssetFolder,
+                    EventSeverity.Medium,
+                    LocalizedText wireMessage)
+                let eventIdBytes = Guid.NewGuid().ToByteArray()
+                if not (isNull evt.EventId) then evt.EventId.Value <- eventIdBytes
+                if not (isNull evt.EventType) then evt.EventType.Value <- ObjectTypeIds.BaseEventType
+                if not (isNull evt.SourceNode) then evt.SourceNode.Value <- ctx.AssetFolder.NodeId
+                if not (isNull evt.SourceName) then evt.SourceName.Value <- sourceSignalId
+                if not (isNull evt.Time) then evt.Time.Value <- sourceTs.ToUniversalTime()
+                if not (isNull evt.ReceiveTime) then evt.ReceiveTime.Value <- DateTime.UtcNow
+                if not (isNull evt.Message) then evt.Message.Value <- LocalizedText wireMessage
+                ctx.EventsFolder.ReportEvent(this.SystemContext, evt)
+                Some eventIdBytes
 
     member _.TypeMismatchCount = Interlocked.Read(&typeMismatchCount)
 

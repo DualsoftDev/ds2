@@ -47,6 +47,45 @@ let ``CNC01 AID roundtrip preserves signalId and href`` () =
     | _ -> Assert.Fail "expected OpcUa binding"
 
 [<Fact>]
+let ``TimeSeries LinkedSegments use the same stable Collector series identity`` () =
+    let projectId = Guid.Parse("2f5d9e90-38a7-4f99-b44b-c2bd510fa8b8")
+    let assetId = AssetTelemetryIdentity.aidProject projectId
+    let endpoint = "https://agent.example.test/data/v1/series"
+    let sm =
+        AasxExportStandardSubmodels.timeSeriesToSubmodel
+            (cnc01Aid()) assetId projectId "CNC01" endpoint
+
+    Assert.Equal(AasxSemantics.TimeSeriesSubmodelIdShort, sm.IdShort)
+    Assert.Equal(AasxSemantics.TimeSeriesSubmodelSemanticId, sm.SemanticId.Keys.[0].Value)
+
+    let linked = AasxImportStandardSubmodels.linkedSeriesFromTimeSeries sm
+    Assert.Equal(3, linked.Length)
+    let spindle = linked |> List.find (fun item -> item.SignalId = "line1.cnc01.spindle-speed")
+    let expected =
+        AssetTelemetryIdentity.seriesId assetId (SignalId "line1.cnc01.spindle-speed")
+    Assert.Equal(expected, spindle.SeriesId)
+    Assert.Equal(endpoint, spindle.Endpoint)
+    Assert.Equal("seriesId=" + Uri.EscapeDataString(expected), spindle.Query)
+
+[<Fact>]
+let ``TimeSeries parser falls back to the standard Query seriesId`` () =
+    let projectId = Guid.NewGuid()
+    let assetId = AssetTelemetryIdentity.aidProject projectId
+    let sm =
+        AasxExportStandardSubmodels.timeSeriesToSubmodel
+            (cnc01Aid()) assetId projectId "CNC01" "https://agent.example.test/v1/series"
+    let seriesIdProperties =
+        descendants sm.SubmodelElements
+        |> Seq.choose (function :? Property as p when p.IdShort = "SeriesId" -> Some p | _ -> None)
+        |> Seq.toArray
+    for property in seriesIdProperties do
+        property.Value <- ""
+
+    let linked = AasxImportStandardSubmodels.linkedSeriesFromTimeSeries sm
+    Assert.Equal(3, linked.Length)
+    Assert.All(linked, fun item -> Assert.False(String.IsNullOrWhiteSpace item.SeriesId))
+
+[<Fact>]
 let ``PM03 AID roundtrip preserves Modbus fields`` () =
     let aid = pm03Aid()
     let sm = AasxExportStandardSubmodels.aidToSubmodel aid "pm03"
@@ -187,6 +226,235 @@ let ``AID without InterfaceXGT is explicitly distinguishable from invalid XGT`` 
     Assert.False(broken.Success)
     Assert.NotEmpty(broken.Errors)
 
+[<Fact>]
+let ``InterfaceXGT rejects mismatched transport credentials and duplicate signal identities`` () =
+    let aid = AssetInterfacesDescription()
+    let endpoint = {
+        XgtEndpointMetadata.empty with
+            Transport = XgtUdp
+            Base = "xgt+tcp://192.168.10.20:2004"
+            AuthReferenceVault = Some "@vault:secret/xgt"
+    }
+    let interaction : OpcUaInteraction = {
+        IdShort = "Run"
+        SemanticId = SemanticId "urn:dualsoft:test:run"
+        ValueType = XsBoolean
+        Unit = None
+        Href = "%MX0"
+        SignalId = SignalId "line1.xgt.run"
+    }
+    aid.Interfaces.Add(Xgt(endpoint, [interaction; { interaction with IdShort = "RunAgain"; Href = "%MX1" }]))
+
+    let plan = AidXgtGatewayConfig.build aid
+    Assert.True(plan.HasBinding)
+    Assert.False(plan.Success)
+    Assert.Contains(plan.Errors, fun message -> message.Contains("xgt+udp"))
+    Assert.Contains(plan.Errors, fun message -> message.Contains("authReferenceVault"))
+
+    let duplicateAid = AssetInterfacesDescription()
+    duplicateAid.Interfaces.Add(Xgt(XgtEndpointMetadata.empty,
+        [interaction; { interaction with IdShort = "RunAgain"; Href = "%MX1" }]))
+    let duplicatePlan = AidXgtGatewayConfig.build duplicateAid
+    Assert.False(duplicatePlan.Success)
+    Assert.Contains(duplicatePlan.Errors, fun message -> message.Contains("중복"))
+
+[<Fact>]
+let ``standard AID bindings build executable southbound plans`` () =
+    let cases = [
+        cnc01Aid(), AidSouthboundProtocol.OpcUa, 3, 0
+        pm03Aid(), AidSouthboundProtocol.Modbus, 1, 0
+        vib11Aid(), AidSouthboundProtocol.Mqtt, 1, 0
+        vis02Aid(), AidSouthboundProtocol.Http, 1, 0
+        bcr05Aid(), AidSouthboundProtocol.OpcUa, 0, 1
+    ]
+    for aid, protocol, signalCount, eventCount in cases do
+        let plan = AidSouthboundConfig.build aid
+        Assert.True(plan.HasBinding)
+        Assert.True(plan.Success, String.Join(" / ", plan.Errors))
+        let endpoint = Assert.Single(plan.Endpoints)
+        Assert.Equal(protocol, endpoint.Protocol)
+        Assert.Equal(signalCount, endpoint.Signals.Length)
+        Assert.Equal(eventCount, endpoint.Events.Length)
+
+[<Fact>]
+let ``standard AID plan rejects duplicate signal identities`` () =
+    let aid = cnc01Aid()
+    let duplicate =
+        match aid.Interfaces.[0] with
+        | OpcUa (endpoint, first :: _, events) ->
+            OpcUa(endpoint, [first; { first with IdShort = "DuplicateSpindle" }], events)
+        | _ -> failwith "fixture must contain OPC UA"
+    aid.Interfaces.Clear()
+    aid.Interfaces.Add duplicate
+    let plan = AidSouthboundConfig.build aid
+    Assert.True(plan.HasBinding)
+    Assert.False(plan.Success)
+    Assert.Contains(plan.Errors, fun message -> message.Contains("duplicate signalId"))
+
+[<Fact>]
+let ``standard AID plan rejects an endpoint without a host`` () =
+    let aid = cnc01Aid()
+    let invalid =
+        match aid.Interfaces.[0] with
+        | OpcUa (endpoint, interactions, events) ->
+            OpcUa({ endpoint with Base = "opc.tcp:///missing-host" }, interactions, events)
+        | _ -> failwith "fixture must contain OPC UA"
+    aid.Interfaces.Clear()
+    aid.Interfaces.Add invalid
+
+    let plan = AidSouthboundConfig.build aid
+    Assert.False(plan.Success)
+    Assert.Contains(plan.Errors, fun message -> message.Contains("has no host"))
+
+[<Fact>]
+let ``InterfaceXGT XGB roundtrip selects the XGT compact PLC driver`` () =
+    let aid = AssetInterfacesDescription()
+    let endpoint = { XgtEndpointMetadata.empty with CpuModel = Xgb }
+    let interaction : OpcUaInteraction = {
+        IdShort = "Run"
+        SemanticId = SemanticId "urn:dualsoft:test:run"
+        ValueType = XsBoolean
+        Unit = None
+        Href = "%MX0"
+        SignalId = SignalId "line1.xgb01.run"
+    }
+    aid.Interfaces.Add(Xgt(endpoint, [interaction]))
+    let sm = AasxExportStandardSubmodels.aidToSubmodel aid "xgb01"
+    let restored = AasxImportStandardSubmodels.submodelToAid sm
+    match restored.Interfaces.[0] with
+    | Xgt (restoredEndpoint, _) -> Assert.Equal(Xgb, restoredEndpoint.CpuModel)
+    | _ -> Assert.Fail "expected XGT binding"
+    let plan = AidXgtGatewayConfig.build restored
+    Assert.True(plan.Success, String.Join(" / ", plan.Errors))
+    Assert.Equal(PlcVendor.LsXgb, plan.Config.Connections.Head.Vendor)
+
+[<Fact>]
+let ``HTTP webhook AID requires Vault auth and builds an ingress signal`` () =
+    let aid = AssetInterfacesDescription()
+    let endpoint = {
+        EndpointMetadata.empty with
+            Base = "https://agent.example.test/aid"
+            AuthReferenceVault = Some "@vault:secret/ds2/webhook#bearer"
+    }
+    let interaction : HttpInteraction = {
+        IdShort = "InspectionCompleted"
+        SemanticId = SemanticId "urn:dualsoft:test:inspection"
+        ValueType = XsString
+        Unit = None
+        Href = "/hooks/inspection"
+        Method = Post
+        ContentType = "application/json"
+        PayloadPath = "$.result"
+        PollIntervalMs = None
+        SignalId = SignalId "line1.inspection.result"
+    }
+    aid.Interfaces.Add(Http(endpoint, [interaction]))
+    let plan = AidSouthboundConfig.build aid
+    Assert.True(plan.Success, String.Join(" / ", plan.Errors))
+    let signal = Assert.Single(Assert.Single(plan.Endpoints).Signals)
+    Assert.False(signal.PollIntervalMs.HasValue)
+
+    let noAuth = AssetInterfacesDescription()
+    noAuth.Interfaces.Add(Http({ endpoint with AuthReferenceVault = None }, [interaction]))
+    let rejected = AidSouthboundConfig.build noAuth
+    Assert.False(rejected.Success)
+    Assert.Contains(rejected.Errors, fun message -> message.Contains("requires authReferenceVault"))
+
+[<Fact>]
+let ``HTTP AID rejects cross-origin href that could leak endpoint credentials`` () =
+    let aid = vis02Aid()
+    let escaped =
+        match aid.Interfaces.[0] with
+        | Http (endpoint, first :: rest) ->
+            Http(endpoint, { first with Href = "https://attacker.example/steal" } :: rest)
+        | _ -> failwith "fixture must contain HTTP"
+    aid.Interfaces.Clear()
+    aid.Interfaces.Add escaped
+    let plan = AidSouthboundConfig.build aid
+    Assert.False(plan.Success)
+    Assert.Contains(plan.Errors, fun message -> message.Contains("base origin"))
+
+[<Fact>]
+let ``HTTP AID rejects state-changing polling and non-ingress webhook methods`` () =
+    let polled = vis02Aid()
+    let unsafePolling =
+        match polled.Interfaces.[0] with
+        | Http (endpoint, first :: rest) -> Http(endpoint, { first with Method = Delete } :: rest)
+        | _ -> failwith "fixture must contain HTTP"
+    polled.Interfaces.Clear()
+    polled.Interfaces.Add unsafePolling
+    let polledPlan = AidSouthboundConfig.build polled
+    Assert.False(polledPlan.Success)
+    Assert.Contains(polledPlan.Errors, fun message -> message.Contains("state-changing"))
+
+    let webhook = AssetInterfacesDescription()
+    let endpoint = {
+        EndpointMetadata.empty with
+            Base = "https://agent.example.test/aid"
+            AuthReferenceVault = Some "@vault:secret/ds2/webhook#bearer"
+    }
+    let interaction : HttpInteraction = {
+        IdShort = "UnsafeGetWebhook"
+        SemanticId = SemanticId "urn:dualsoft:test:webhook"
+        ValueType = XsString
+        Unit = None
+        Href = "/hooks/value"
+        Method = Get
+        ContentType = "application/json"
+        PayloadPath = "$.value"
+        PollIntervalMs = None
+        SignalId = SignalId "line1.webhook.value"
+    }
+    webhook.Interfaces.Add(Http(endpoint, [interaction]))
+    let webhookPlan = AidSouthboundConfig.build webhook
+    Assert.False(webhookPlan.Success)
+    Assert.Contains(webhookPlan.Errors, fun message -> message.Contains("POST or PUT"))
+
+[<Fact>]
+let ``standard AID plaintext transports require explicit private-network opt-in`` () =
+    let mqtt = vib11Aid()
+    let plaintextMqtt =
+        match mqtt.Interfaces.[0] with
+        | Mqtt (endpoint, interactions) ->
+            Mqtt({ endpoint with Security = None; AuthReferenceVault = None }, interactions)
+        | _ -> failwith "fixture must contain MQTT"
+    mqtt.Interfaces.Clear()
+    mqtt.Interfaces.Add plaintextMqtt
+    let mqttPlan = AidSouthboundConfig.build mqtt
+    Assert.False(mqttPlan.Success)
+    Assert.Contains(mqttPlan.Errors, fun message -> message.Contains("insecure-private"))
+
+    let http = vis02Aid()
+    let plaintextHttp =
+        match http.Interfaces.[0] with
+        | Http (endpoint, interactions) ->
+            Http({ endpoint with Base = "http://camera.plant.local/api"; Security = None; AuthReferenceVault = None }, interactions)
+        | _ -> failwith "fixture must contain HTTP"
+    http.Interfaces.Clear()
+    http.Interfaces.Add plaintextHttp
+    let httpPlan = AidSouthboundConfig.build http
+    Assert.False(httpPlan.Success)
+    Assert.Contains(httpPlan.Errors, fun message -> message.Contains("insecure-private"))
+
+[<Fact>]
+let ``invalid CollectionPolicy fails AID preflight instead of disappearing`` () =
+    let aid = vis02Aid()
+    let invalidPolicy : SignalPolicy = {
+        SignalId = SignalId "line1.vis02.judgement"
+        AcquisitionMode = AcquisitionMode.Sampled
+        SamplingIntervalMs = None
+        PublishingIntervalMs = None
+        DeadbandAbsolute = None
+        DeadbandPercent = None
+        EngineeringRangeLow = None
+        EngineeringRangeHigh = None
+        QueueSize = None
+        Retention = "P90D"
+    }
+    let plan = AidSouthboundConfig.buildWithPolicies(aid, [invalidPolicy])
+    Assert.False(plan.Success)
+    Assert.Contains(plan.Errors, fun message -> message.Contains("Sampled acquisition"))
+
 // -----------------------------------------------------------------------------
 // Provenance §C — Qualifier(dualsoft:origin) + Extension(auto-suppressed) 라운드트립
 // -----------------------------------------------------------------------------
@@ -291,4 +559,7 @@ let ``SignalPolicy attaches to SequenceLogging and roundtrips`` () =
     Assert.Equal(spindleOriginal.AcquisitionMode, spindleRestored.AcquisitionMode)
     Assert.Equal(spindleOriginal.SamplingIntervalMs, spindleRestored.SamplingIntervalMs)
     Assert.Equal(spindleOriginal.DeadbandAbsolute, spindleRestored.DeadbandAbsolute)
+    Assert.Equal(spindleOriginal.DeadbandPercent, spindleRestored.DeadbandPercent)
+    Assert.Equal(spindleOriginal.EngineeringRangeLow, spindleRestored.EngineeringRangeLow)
+    Assert.Equal(spindleOriginal.EngineeringRangeHigh, spindleRestored.EngineeringRangeHigh)
     Assert.Equal(spindleOriginal.Retention, spindleRestored.Retention)

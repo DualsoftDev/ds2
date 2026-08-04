@@ -3,6 +3,17 @@ namespace Ds2.Adapter.Common
 open System
 open Ds2.Core
 
+[<RequireQualifiedAccess>]
+module UnixTime =
+    let private epochTicks = DateTime.UnixEpoch.Ticks
+
+    /// DateTimeOffset를 SQLite 계약의 Unix microseconds로 변환한다(100ns tick은 µs로 절삭).
+    let toMicroseconds (value: DateTimeOffset) =
+        (value.UtcDateTime.Ticks - epochTicks) / 10L
+
+    let fromMicroseconds (value: int64) =
+        DateTimeOffset(DateTime(epochTicks + value * 10L, DateTimeKind.Utc))
+
 /// ADR-006 · At-least-once + dedup 을 위한 sample/event envelope.
 /// 모든 어댑터 → Collector 파이프라인에서 이 스키마를 유지.
 

@@ -45,10 +45,10 @@
     <Compile Include="..\Ds2.OpcUa.Server.Tests\AasFileScannerTests.fs"      Link="Phase3/AasFileScannerTests.fs" />
     <Compile Include="..\Ds2.OpcUa.Server.Tests\SecurityConfigurationTests.fs" Link="Phase3/SecurityConfigurationTests.fs" />
 
-    <!-- Phase 4 · Envelope · EdgeBuffer · UaWriter (구 Adapter.Common → Ds2.Collector 흡수) -->
+    <!-- Phase 4 · Envelope · durable EdgeBuffer · UA subscription -->
     <Compile Include="..\Ds2.Collector.Tests\EnvelopeTests.fs"               Link="Phase4/EnvelopeTests.fs" />
     <Compile Include="..\Ds2.Collector.Tests\EdgeBufferTests.fs"             Link="Phase4/EdgeBufferTests.fs" />
-    <Compile Include="..\Ds2.Collector.Tests\UaWriterContractTests.fs"       Link="Phase4/UaWriterContractTests.fs" />
+    <Compile Include="..\Ds2.Collector.Tests\CollectorRuntimeStateTests.fs"   Link="Phase4/CollectorRuntimeStateTests.fs" />
     <Compile Include="..\Ds2.Collector.Tests\UaSubscriptionTests.fs"         Link="Phase4/UaSubscriptionTests.fs" />
     <Compile Include="..\Ds2.Collector.Tests\PolicyDiscoveryIntegrationTests.fs" Link="Phase4/PolicyDiscoveryIntegrationTests.fs" />
 
@@ -56,6 +56,7 @@
     <Compile Include="..\Ds2.Collector.Tests\SqliteSinkWriterTests.fs"       Link="Phase6/SqliteSinkWriterTests.fs" />
     <Compile Include="..\Ds2.Collector.Tests\DownsampleTests.fs"             Link="Phase6/DownsampleTests.fs" />
     <Compile Include="..\Ds2.Collector.Tests\RetentionTests.fs"              Link="Phase6/RetentionTests.fs" />
+    <Compile Include="..\Ds2.Collector.Tests\DataApiSecurityTests.fs"         Link="Phase6/DataApiSecurityTests.fs" />
 
     <Compile Include="Program.fs" />
   </ItemGroup>
@@ -64,6 +65,7 @@
     <PackageReference Include="FSharp.Core" />
     <PackageReference Include="coverlet.collector" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="log4net" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
   </ItemGroup>

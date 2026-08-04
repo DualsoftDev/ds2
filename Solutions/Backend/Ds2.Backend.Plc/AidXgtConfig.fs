@@ -40,10 +40,19 @@ module AidXgtGatewayConfig =
         | XsDateTime -> "dateTime"
         | XsByteString -> "byteString"
 
-    let private parseEndpoint (value: string) =
+    let private parseEndpoint (transport: XgtTransport) (value: string) =
         try
-            let uri = Uri value
+            if isNull value || value.Length > 2048 then
+                invalidArg (nameof value) "EndpointMetadata.base exceeds 2048 characters."
+            let uri = Uri(value, UriKind.Absolute)
+            let expectedScheme = match transport with XgtTcp -> "xgt+tcp" | XgtUdp -> "xgt+udp"
             if String.IsNullOrWhiteSpace uri.Host then Error "InterfaceXGT EndpointMetadata.base에 host가 없습니다."
+            elif not (uri.Scheme.Equals(expectedScheme, StringComparison.OrdinalIgnoreCase)) then
+                Error(sprintf "InterfaceXGT EndpointMetadata.base scheme은 transport에 맞는 '%s'여야 합니다." expectedScheme)
+            elif not (String.IsNullOrWhiteSpace uri.UserInfo) then
+                Error "InterfaceXGT EndpointMetadata.base에 inline credential을 넣을 수 없습니다."
+            elif not (String.IsNullOrEmpty uri.Fragment) then
+                Error "InterfaceXGT EndpointMetadata.base에 URI fragment를 넣을 수 없습니다."
             else
                 let port = if uri.Port > 0 then uri.Port else 2004
                 Ok(uri.Host, port)
@@ -55,6 +64,7 @@ module AidXgtGatewayConfig =
         let errors = ResizeArray<string>()
         let connections = ResizeArray<PlcConnectionConfig>()
         let signals = ResizeArray<AidXgtSignalDescriptor>()
+        let seenSignalIds = HashSet<string>(StringComparer.Ordinal)
         let mutable index = 0
 
         for binding in aid.Interfaces do
@@ -62,13 +72,19 @@ module AidXgtGatewayConfig =
             | Xgt (endpoint, interactions) ->
                 index <- index + 1
                 let connectionName = sprintf "AID-XGT#%d" index
-                match parseEndpoint endpoint.Base with
+                if endpoint.AuthReferenceVault.IsSome then
+                    errors.Add(sprintf "InterfaceXGT #%d는 프로토콜 인증 필드가 없으므로 authReferenceVault를 사용할 수 없습니다." index)
+                match parseEndpoint endpoint.Transport endpoint.Base with
                 | Error message -> errors.Add message
                 | Ok (host, port) ->
                     if interactions.IsEmpty then
                         errors.Add(sprintf "InterfaceXGT #%d에 InteractionMetadata가 없습니다." index)
                     else
-                        let vendor = match endpoint.CpuModel with Xgi -> PlcVendor.LsXgi | Xgk -> PlcVendor.LsXgk
+                        let vendor =
+                            match endpoint.CpuModel with
+                            | Xgi -> PlcVendor.LsXgi
+                            | Xgk -> PlcVendor.LsXgk
+                            | Xgb -> PlcVendor.LsXgb
                         let seen = HashSet<string>(StringComparer.OrdinalIgnoreCase)
                         let tags =
                             interactions
@@ -76,6 +92,16 @@ module AidXgtGatewayConfig =
                                 let address = if isNull interaction.Href then "" else interaction.Href.Trim()
                                 if String.IsNullOrWhiteSpace address then
                                     errors.Add(sprintf "InterfaceXGT/%s href가 비어 있습니다." interaction.IdShort)
+                                    None
+                                elif String.IsNullOrWhiteSpace interaction.SignalId.Value then
+                                    errors.Add(sprintf "InterfaceXGT/%s signalId가 비어 있습니다." interaction.IdShort)
+                                    None
+                                elif interaction.SignalId.Value.Length > 512 || address.Length > 4096
+                                     || String.IsNullOrWhiteSpace interaction.IdShort || interaction.IdShort.Length > 256 then
+                                    errors.Add(sprintf "InterfaceXGT/%s metadata가 허용 길이를 초과했습니다." interaction.IdShort)
+                                    None
+                                elif not (seenSignalIds.Add interaction.SignalId.Value) then
+                                    errors.Add(sprintf "InterfaceXGT/%s signalId '%s'가 중복되었습니다." interaction.IdShort interaction.SignalId.Value)
                                     None
                                 else
                                     signals.Add(

@@ -17,12 +17,22 @@ RestartSec=10
 KillSignal=SIGINT
 TimeoutStopSec=30
 SyslogIdentifier=ds2-collector
+UMask=0077
 
 # Collector REST API는 localhost 전용이며 외부 방화벽 포트를 열지 않는다.
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateDevices=true
 ProtectSystem=strict
 ProtectHome=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
 ReadWritePaths=@COLLECTOR_DATA_DIR@ @SHARED_DIR@
 
 [Install]

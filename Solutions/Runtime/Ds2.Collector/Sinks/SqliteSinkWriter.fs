@@ -42,6 +42,14 @@ type SqliteSinkWriter(telemetryDb: string, eventsDb: string) =
             ) WITHOUT ROWID;
             CREATE INDEX IF NOT EXISTS ix_signals_asset_time
                 ON signals (global_asset_id, source_ts_us DESC);
+            CREATE TABLE IF NOT EXISTS downsample_dirty (
+                envelope_id     BLOB PRIMARY KEY,
+                global_asset_id TEXT NOT NULL,
+                signal_id       TEXT NOT NULL,
+                source_ts_us    INTEGER NOT NULL
+            ) WITHOUT ROWID;
+            CREATE INDEX IF NOT EXISTS ix_downsample_dirty_time
+                ON downsample_dirty (source_ts_us);
         """
         tc.ExecuteNonQuery() |> ignore
 
@@ -65,6 +73,8 @@ type SqliteSinkWriter(telemetryDb: string, eventsDb: string) =
             );
             CREATE INDEX IF NOT EXISTS ix_events_asset_time
                 ON events (global_asset_id, source_ts_us DESC);
+            CREATE INDEX IF NOT EXISTS ix_events_asset_signal_time
+                ON events (global_asset_id, signal_id, source_ts_us DESC, id DESC);
             CREATE UNIQUE INDEX IF NOT EXISTS ux_events_dedup
                 ON events (global_asset_id, signal_id, source_ts_us, envelope_id);
         """
@@ -81,7 +91,7 @@ type SqliteSinkWriter(telemetryDb: string, eventsDb: string) =
         c
 
     let toUnixUs (dt: DateTimeOffset) =
-        dt.ToUnixTimeMilliseconds() * 1000L
+        UnixTime.toMicroseconds dt
 
     let valueTypeTag =
         function
@@ -121,7 +131,20 @@ type SqliteSinkWriter(telemetryDb: string, eventsDb: string) =
         cmd.Parameters.AddWithValue("$vb", vb) |> ignore
         cmd.Parameters.AddWithValue("$q", int64 e.StatusCode) |> ignore
         cmd.Parameters.AddWithValue("$unit", match e.Unit with Some u -> box u | None -> box DBNull.Value) |> ignore
-        cmd.ExecuteNonQuery()
+        let inserted = cmd.ExecuteNonQuery()
+        if inserted > 0 then
+            use dirty = tx.Connection.CreateCommand()
+            dirty.Transaction <- tx
+            dirty.CommandText <-
+                "INSERT OR IGNORE INTO downsample_dirty
+                 (envelope_id, global_asset_id, signal_id, source_ts_us)
+                 VALUES ($eid, $gaid, $sid, $ts)"
+            dirty.Parameters.AddWithValue("$eid", e.EnvelopeId.ToByteArray()) |> ignore
+            dirty.Parameters.AddWithValue("$gaid", e.GlobalAssetId.Value) |> ignore
+            dirty.Parameters.AddWithValue("$sid", e.SignalId.Value) |> ignore
+            dirty.Parameters.AddWithValue("$ts", toUnixUs e.SourceTimestamp) |> ignore
+            dirty.ExecuteNonQuery() |> ignore
+        inserted
 
     let insertEvent (tx: SqliteTransaction) (e: Envelope) : int =
         use cmd = tx.Connection.CreateCommand()

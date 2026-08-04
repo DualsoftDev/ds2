@@ -13,7 +13,7 @@ open Ds2.OpcUa.Server.Server
 /// Phase 3 · Full wire-up.
 /// - ApplicationConfiguration 부팅
 /// - 인증서 자동 발급 (없으면)
-/// - DsUaServer 시작 · opc.tcp://0.0.0.0:4840 listen
+/// - DsUaServer 시작 · 기본 localhost secure endpoint
 /// - 시드 자산 5대 (스펙 §04 파일럿) 노드 등록 (임시 · AasHost 통합 전)
 /// - Ctrl+C 대기
 

@@ -55,8 +55,10 @@ let cnc01SignalPolicies () : SignalPolicy list =
           AcquisitionMode = AcquisitionMode.ChangeOfValue
           SamplingIntervalMs = Some 500
           PublishingIntervalMs = Some 1000
-          DeadbandAbsolute = Some 5.0
-          DeadbandPercent = None
+          DeadbandAbsolute = None
+          DeadbandPercent = Some 1.0
+          EngineeringRangeLow = Some 0.0
+          EngineeringRangeHigh = Some 10000.0
           QueueSize = Some 10
           Retention = "P90D" }
         { SignalId = sig' "line1.cnc01.motor-temp"
@@ -65,6 +67,8 @@ let cnc01SignalPolicies () : SignalPolicy list =
           PublishingIntervalMs = Some 1000
           DeadbandAbsolute = Some 0.5
           DeadbandPercent = None
+          EngineeringRangeLow = None
+          EngineeringRangeHigh = None
           QueueSize = Some 10
           Retention = "P90D" }
         { SignalId = sig' "line1.cnc01.cycle-count"
@@ -73,6 +77,8 @@ let cnc01SignalPolicies () : SignalPolicy list =
           PublishingIntervalMs = Some 1000
           DeadbandAbsolute = None
           DeadbandPercent = None
+          EngineeringRangeLow = None
+          EngineeringRangeHigh = None
           QueueSize = Some 10
           Retention = "P365D" }
     ]
@@ -178,4 +184,3 @@ let bcr05Aid () : AssetInterfacesDescription =
     ]
     aid.Interfaces.Add(OpcUa (ep, [], events))
     aid
-

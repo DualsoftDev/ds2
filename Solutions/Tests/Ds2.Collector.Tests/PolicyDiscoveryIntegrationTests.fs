@@ -54,6 +54,9 @@ let ``Collector discovers CollectionPolicy from UA variable properties`` () = ta
     let config = {
         ServerConfiguration.defaultConfig root with
             EndpointUrl = $"opc.tcp://localhost:{nextPort()}"
+            AllowAnonymous = true
+            AllowUnsecuredEndpoint = true
+            AutoAcceptUntrustedCertificates = true
     }
     let appConfiguration = ServerConfiguration.build config
     ServerConfiguration.validateAndPrepare appConfiguration |> Async.AwaitTask |> Async.RunSynchronously |> ignore
@@ -78,8 +81,10 @@ let ``Collector discovers CollectionPolicy from UA variable properties`` () = ta
             AcquisitionMode = AcquisitionMode.ChangeOfValue
             SamplingIntervalMs = Some 250
             PublishingIntervalMs = Some 500
-            DeadbandAbsolute = Some 0.5
-            DeadbandPercent = None
+            DeadbandAbsolute = None
+            DeadbandPercent = Some 1.0
+            EngineeringRangeLow = Some -50.0
+            EngineeringRangeHigh = Some 150.0
             QueueSize = Some 25
             Retention = "P90D"
         }
@@ -105,13 +110,19 @@ let ``Collector discovers CollectionPolicy from UA variable properties`` () = ta
             let node =
                 UaSubscription.discoverSignalNodes session
                 |> List.find (fun node -> node.SignalId = signalId)
+            let eventNotifier = UaSubscription.discoverEventNodes session |> List.exactlyOne
+            Assert.Equal(ObjectIds.Server, eventNotifier.NodeId)
             let policy = node.Policy |> Option.get
             Assert.Equal(expected.AcquisitionMode, policy.AcquisitionMode)
             Assert.Equal(expected.SamplingIntervalMs, policy.SamplingIntervalMs)
             Assert.Equal(expected.PublishingIntervalMs, policy.PublishingIntervalMs)
             Assert.Equal(expected.DeadbandAbsolute, policy.DeadbandAbsolute)
+            Assert.Equal(expected.DeadbandPercent, policy.DeadbandPercent)
+            Assert.Equal(expected.EngineeringRangeLow, policy.EngineeringRangeLow)
+            Assert.Equal(expected.EngineeringRangeHigh, policy.EngineeringRangeHigh)
             Assert.Equal(expected.QueueSize, policy.QueueSize)
             Assert.Equal(expected.Retention, policy.Retention)
+            Assert.Equal(Some "degC", node.Unit)
 
             let options : UaSubscriptionOptions = {
                 Enabled = true
@@ -144,6 +155,7 @@ let ``Collector discovers CollectionPolicy from UA variable properties`` () = ta
             session.AddSubscription subscription |> ignore
             subscription.Create()
             Assert.True(ServiceResult.IsGood item.Status.Error, $"policy filter rejected: {item.Status.Error}")
+            Assert.Equal(uint32 DeadbandType.Percent, settings.DeadbandType)
             subscription.Delete(true)
         finally
             session.Close() |> ignore

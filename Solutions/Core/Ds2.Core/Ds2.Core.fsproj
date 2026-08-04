@@ -12,6 +12,7 @@
     <Compile Include="Encoding\Base64Url.fs" />
     <Compile Include="SignalId.fs" />
     <Compile Include="GlobalAssetId.fs" />
+    <Compile Include="AssetTelemetryIdentity.fs" />
     <Compile Include="SemanticId.fs" />
     <Compile Include="Enum.fs" />
     <Compile Include="FSharpJsonConverters.fs" />

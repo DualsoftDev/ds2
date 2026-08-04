@@ -94,7 +94,8 @@ public sealed class OpcUaServerHost : IAsyncDisposable
                 maxSessions: settings.MaxSessions,
                 sessionTimeoutMs: settings.SessionTimeoutMs,
                 minSamplingIntervalMs: settings.MinSamplingIntervalMs,
-                defaultSamplingIntervalMs: settings.DefaultSamplingIntervalMs);
+                defaultSamplingIntervalMs: settings.DefaultSamplingIntervalMs,
+                allowExternalEventInjection: settings.AllowExternalEventInjection);
 
             int assetCount;
             try

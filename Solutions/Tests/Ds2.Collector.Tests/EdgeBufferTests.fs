@@ -75,3 +75,61 @@ let ``Enqueue is idempotent on same EnvelopeId`` () =
         buf.Enqueue e
         Assert.Equal(1, buf.PendingCount())
     finally Directory.Delete(dir, true)
+
+[<Fact>]
+let ``AckMany removes a persisted batch atomically`` () =
+    let buf, dir = mkTemp()
+    try
+        let first = sample "urn:x" "line.a.first" 1.0
+        let second = sample "urn:x" "line.a.second" 2.0
+        buf.Enqueue first
+        buf.Enqueue second
+        buf.AckMany [ first.EnvelopeId; second.EnvelopeId ]
+        Assert.Equal(0, buf.PendingCount())
+    finally Directory.Delete(dir, true)
+
+[<Fact>]
+let ``pending envelopes survive buffer recreation`` () =
+    let buf, dir = mkTemp()
+    try
+        let envelope = sample "urn:x" "line.a.durable" 1.0
+        buf.Enqueue envelope
+        let reopened = SqliteEdgeBuffer(Path.Combine(dir, "outbox.db"))
+        let due = reopened.PullDue 10
+        Assert.Single(due) |> ignore
+        Assert.Equal(envelope.EnvelopeId, due.[0].EnvelopeId)
+    finally Directory.Delete(dir, true)
+
+[<Fact>]
+let ``sample capacity reserves room for an event`` () =
+    let dir = Path.Combine(Path.GetTempPath(), "ds2-edge-capacity-" + Guid.NewGuid().ToString("N"))
+    let db = Path.Combine(dir, "outbox.db")
+    let buf = SqliteEdgeBuffer(db, maxPendingRows = 2L, maxPayloadBytes = 1_000_000L)
+    try
+        let first = sample "urn:x" "line.a.first" 1.0
+        buf.Enqueue first
+        Assert.Throws<IOException>(fun () ->
+            buf.Enqueue(sample "urn:x" "line.a.second" 2.0)) |> ignore
+
+        let event = ev "urn:x" "line.a.event" """{"code":"reserved"}"""
+        buf.Enqueue event
+        let rows, bytes = buf.PendingUsage()
+        Assert.Equal(2L, rows)
+        Assert.True(bytes > 0L)
+        Assert.Equal(2, buf.PendingCount())
+    finally Directory.Delete(dir, true)
+
+[<Fact>]
+let ``buffer usage stays correct after acknowledge`` () =
+    let buf, dir = mkTemp()
+    try
+        let envelope = sample "urn:x" "line.a.usage" 1.0
+        buf.Enqueue envelope
+        let rowsBefore, bytesBefore = buf.PendingUsage()
+        Assert.Equal(1L, rowsBefore)
+        Assert.True(bytesBefore > 0L)
+        buf.Ack envelope.EnvelopeId
+        let rowsAfter, bytesAfter = buf.PendingUsage()
+        Assert.Equal(0L, rowsAfter)
+        Assert.Equal(0L, bytesAfter)
+    finally Directory.Delete(dir, true)

@@ -65,6 +65,9 @@ public sealed class PlcConnectionResolution
     /// <summary>기각된 출처 등 진단 메시지. Promaker.Shared 는 로깅 의존성을 갖지 않으므로
     /// 호출자(Agent/WPF)가 자기 로거로 남긴다.</summary>
     public IReadOnlyList<string> Warnings { get; init; } = Array.Empty<string>();
+
+    /// <summary>Agent가 안전한 활성화를 위해 거부해야 하는 입력 오류.</summary>
+    public IReadOnlyList<string> Errors { get; init; } = Array.Empty<string>();
 }
 
 /// <summary>
@@ -110,6 +113,7 @@ public static class PlcConnectionResolver
     public static PlcConnectionResolution Resolve(DsStore? store, string? sidecarPath)
     {
         var warnings = new List<string>();
+        var errors = new List<string>();
         var path = string.IsNullOrWhiteSpace(sidecarPath) ? SharedPaths.PlcConnectionFilePath : sidecarPath!;
         var settings = PlcConnectionSettings.LoadOrDefault(path);
 
@@ -130,7 +134,7 @@ public static class PlcConnectionResolver
         }
 
         // 2) cloudinit — 있으면 최우선.
-        if (TryApplyCloudinit(settings, warnings))
+        if (TryApplyCloudinit(settings, warnings, errors))
         {
             return new PlcConnectionResolution
             {
@@ -138,6 +142,7 @@ public static class PlcConnectionResolver
                 Source = PlcConnectionSource.Cloudinit,
                 Label = $"cloudinit ({settings.Vendor} {settings.IpAddress}:{settings.Port})",
                 Warnings = warnings,
+                Errors = errors,
             };
         }
 
@@ -149,6 +154,7 @@ public static class PlcConnectionResolver
                 ? $"AASX 내장 ({settings.Vendor} {settings.IpAddress}:{settings.Port})"
                 : $"로컬 설정 ({settings.Vendor} {settings.IpAddress}:{settings.Port})",
             Warnings = warnings,
+            Errors = errors,
         };
     }
 
@@ -363,7 +369,10 @@ public static class PlcConnectionResolver
     /// <summary>cloudinit 이 내려준 접속으로 override. 파일 없으면(로컬/올인원/Windows) no-op → false.
     /// 계약: {"version":1,"plcs":[{"name","ip","type","enabled"}]}. discovery 는 ip/type 만 주므로
     /// port/station 은 벤더 기본으로 유추. 현재 빌더가 단일 connection 이라 첫 enabled PLC 만 반영.</summary>
-    private static bool TryApplyCloudinit(PlcConnectionSettings settings, List<string> warnings)
+    private static bool TryApplyCloudinit(
+        PlcConnectionSettings settings,
+        List<string> warnings,
+        List<string> errors)
     {
         try
         {
@@ -373,14 +382,35 @@ public static class PlcConnectionResolver
             var json = File.ReadAllText(CloudinitPlcConnectionsPath);
             var doc = JsonSerializer.Deserialize<PlcConnectionsFile>(
                 json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-            var first = doc?.Plcs?.FirstOrDefault(p => p.Enabled && !string.IsNullOrWhiteSpace(p.Ip));
-            if (first is null)
+            if (doc is null || doc.Version != 1 || doc.Plcs is null)
+            {
+                errors.Add($"plc-connections.json 형식/버전이 올바르지 않습니다 ({CloudinitPlcConnectionsPath}).");
+                return false;
+            }
+            var enabled = doc.Plcs.Where(p => p.Enabled).ToArray();
+            if (enabled.Length == 0)
             {
                 warnings.Add($"plc-connections.json 에 enabled PLC 없음 ({CloudinitPlcConnectionsPath}) — 기존 설정 유지.");
                 return false;
             }
+            if (enabled.Length > 1)
+            {
+                errors.Add("현재 Agent gateway는 cloud-init enabled PLC를 하나만 지원합니다; 하나로 명시해야 합니다.");
+                return false;
+            }
+            var first = enabled[0];
+            if (!IsValidIpv4(first.Ip ?? ""))
+            {
+                errors.Add($"cloud-init PLC IP '{first.Ip}'가 유효한 IPv4가 아닙니다.");
+                return false;
+            }
+            if (!TryMapPlcType(first.Type, out var vendor, out var port))
+            {
+                errors.Add($"cloud-init PLC type '{first.Type}'을 지원되는 CPU 계열로 해석할 수 없습니다 " +
+                           "(XGI, XGK, XGB/XBC/XEC, MX 중 하나 필요). 일반 'LS'는 계열이 모호합니다.");
+                return false;
+            }
 
-            var (vendor, port) = MapPlcType(first.Type);
             settings.Vendor = vendor;
             settings.Port = port;
             settings.IpAddress = first.Ip!.Trim();
@@ -389,20 +419,25 @@ public static class PlcConnectionResolver
         }
         catch (Exception ex)
         {
-            warnings.Add($"plc-connections.json 로드 실패 ({CloudinitPlcConnectionsPath}) — 기존 설정 유지: {ex.Message}");
+            errors.Add($"plc-connections.json 로드 실패 ({CloudinitPlcConnectionsPath}): {ex.Message}");
             return false;
         }
     }
 
-    /// <summary>discovery type("LS"/"MX"/…) → (Vendor enum 이름, 기본 port). discovery 는 ip/type 만 주므로
-    /// port/station 세부는 벤더 기본으로 유추. LS 계열 XGK/XGI 구분 정보가 type 에 없어 LsXgk 기본.</summary>
-    private static (string vendor, int port) MapPlcType(string? type) =>
-        (type ?? "").Trim().ToUpperInvariant() switch
+    /// <summary>discovery의 명시적 CPU 계열 → (Vendor enum 이름, 기본 port).
+    /// 일반 "LS"는 XGI/XGK/XGB 메모리 체계를 구분할 수 없으므로 거부한다.</summary>
+    private static bool TryMapPlcType(string? type, out string vendor, out int port)
+    {
+        (vendor, port) = (type ?? "").Trim().ToUpperInvariant() switch
         {
             "MX" or "MITSUBISHI" or "MELSEC" => (nameof(PlcVendorChoice.Mitsubishi), 5007),
             "XGI" or "LSXGI" => (nameof(PlcVendorChoice.LsXgi), 2004),
-            _ => (nameof(PlcVendorChoice.LsXgk), 2004), // "LS"(discovery 기본) 포함
+            "XGB" or "LSXGB" or "XBC" or "XEC" => (nameof(PlcVendorChoice.LsXgb), 2004),
+            "XGK" or "LSXGK" => (nameof(PlcVendorChoice.LsXgk), 2004),
+            _ => ("", 0),
         };
+        return port != 0;
+    }
 
     private sealed record PlcConnectionsFile
     {

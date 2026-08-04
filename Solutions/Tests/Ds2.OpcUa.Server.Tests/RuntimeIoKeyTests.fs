@@ -79,6 +79,11 @@ let ``LoadStore registers runtime IO nodes indexed by ApiCall.Id, not Call.Id`` 
         Assert.Equal(2, written)
         Assert.Equal(0L, server.RuntimeIoMissCount)
         Assert.Equal(2, server.SetRuntimeQuality(uint32 Opc.Ua.StatusCodes.BadOutOfService, DateTime.UtcNow))
+        let abnormal =
+            Abnormal.sensorShort
+                (Abnormal.target None (Some apiCallIds.Head) None)
+                DateTime.UtcNow
+        Assert.True(server.RaiseRuntimeAbnormal abnormal)
     finally
         server.StopAsync().GetAwaiter().GetResult()
         (server :> IDisposable).Dispose()
@@ -137,7 +142,15 @@ let ``AID interaction is projected to deterministic UA variable on store load`` 
         Href = "ns=2;s=Line1.CNC01.SpindleSpeed"
         SignalId = SignalId "line1.cnc01.spindle-speed"
     }
-    aid.Interfaces.Add(OpcUa(EndpointMetadata.empty, [interaction], []))
+    let eventBinding : AutoIdEventBinding = {
+        IdShort = "BarcodeScan"
+        SemanticId = SemanticId "urn:dualsoft:cd:barcode-scan:1"
+        EventType = SemanticId "urn:opcfoundation:autoid:OpticalScanEventType"
+        SourceNodeHref = "ns=2;s=Line1.Scanner"
+        PayloadPath = "$.code"
+        SignalId = SignalId "line1.cnc01.barcode-scan"
+    }
+    aid.Interfaces.Add(OpcUa(EndpointMetadata.empty, [interaction], [eventBinding]))
     project.AssetInterfaces <- Some aid
 
     let server, root = mkServer ()
@@ -145,7 +158,7 @@ let ``AID interaction is projected to deterministic UA variable on store load`` 
         let! assets = server.StartForStoreAsync(store, false, false, false)
         // 기존 Active System 1개 + AID 자산 1개.
         Assert.Equal(2, assets)
-        Assert.Equal(1, server.AidSignalNodeCount)
+        Assert.Equal(2, server.AidSignalNodeCount)
         Assert.True(
             server.WriteAidSignal(
                 "line1.cnc01.spindle-speed",
@@ -166,7 +179,13 @@ let ``AID interaction is projected to deterministic UA variable on store load`` 
                 DateTime.UtcNow,
                 uint32 Opc.Ua.StatusCodes.Good))
         Assert.Equal(1L, server.TypeMismatchCount)
-        Assert.Equal(1, server.SetAllAidSignalQuality(uint32 Opc.Ua.StatusCodes.BadNoCommunication, DateTime.UtcNow))
+        Assert.True(
+            server.RaiseAidEvent(
+                eventBinding.SignalId.Value,
+                eventBinding.EventType.Value,
+                DateTime.UtcNow,
+                """{"code":"ABC-123"}"""))
+        Assert.Equal(2, server.SetAllAidSignalQuality(uint32 Opc.Ua.StatusCodes.BadNoCommunication, DateTime.UtcNow))
     finally
         server.StopAsync().GetAwaiter().GetResult()
         (server :> IDisposable).Dispose()

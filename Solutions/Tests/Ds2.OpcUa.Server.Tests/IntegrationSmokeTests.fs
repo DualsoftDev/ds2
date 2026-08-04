@@ -30,13 +30,17 @@ let private mkServerWithAssets port (managedAssets: GlobalAssetId array) =
     let cfg = {
         ServerConfiguration.defaultConfig root with
             EndpointUrl = sprintf "opc.tcp://localhost:%d" port
+            AllowAnonymous = true
+            AllowUnsecuredEndpoint = true
+            AutoAcceptUntrustedCertificates = true
     }
     let appConfig = ServerConfiguration.build cfg
     let prep = ServerConfiguration.validateAndPrepare appConfig
     prep.GetAwaiter().GetResult() |> ignore
     let appInstance = new ApplicationInstance(ApplicationConfiguration = appConfig)
     let managedNamespaces = managedAssets |> Array.map allocator.GlobalAssetIdToUri
-    let server = new DsUaServer(allocator, managedNamespaces)
+    // This fixture explicitly exercises the externally callable development method.
+    let server = new DsUaServer(allocator, managedNamespaces, 1000, true)
     appInstance.Start(server).GetAwaiter().GetResult()
     server, cfg, root
 
@@ -278,6 +282,8 @@ let ``CollectionPolicy is attached as deterministic UA properties`` () =
             PublishingIntervalMs = Some 500
             DeadbandAbsolute = Some 0.5
             DeadbandPercent = None
+            EngineeringRangeLow = None
+            EngineeringRangeHigh = None
             QueueSize = Some 25
             Retention = "P90D"
         }
@@ -326,6 +332,37 @@ let ``RaiseAssetEvent Method Call returns Good`` () = task {
         Assert.True(idx >= 0)
 
         // Method 호출.
+        use received = new ManualResetEventSlim(false)
+        let mutable receivedMessage = ""
+        use subscription = new Subscription(session.DefaultSubscription)
+        subscription.PublishingInterval <- 100
+        let item = new MonitoredItem(subscription.DefaultItem)
+        item.StartNodeId <- ObjectIds.Server
+        item.AttributeId <- Attributes.EventNotifier
+        item.QueueSize <- 10u
+        let filter = EventFilter()
+        filter.SelectClauses <- SimpleAttributeOperandCollection()
+        let messageOperand = SimpleAttributeOperand()
+        messageOperand.TypeDefinitionId <- ObjectTypeIds.BaseEventType
+        messageOperand.AttributeId <- Attributes.Value
+        messageOperand.BrowsePath <- QualifiedNameCollection([| QualifiedName(BrowseNames.Message) |])
+        filter.SelectClauses.Add messageOperand
+        filter.WhereClause <- ContentFilter()
+        item.Filter <- filter
+        item.add_Notification(MonitoredItemNotificationEventHandler(fun _ args ->
+            match args.NotificationValue with
+            | :? EventFieldList as eventFields when eventFields.EventFields.Count > 0 ->
+                match eventFields.EventFields.[0].Value with
+                | :? LocalizedText as message ->
+                    receivedMessage <- message.Text
+                    received.Set()
+                | _ -> ()
+            | _ -> ()))
+        subscription.AddItem item
+        session.AddSubscription subscription |> ignore
+        subscription.Create()
+        Assert.True(ServiceResult.IsGood item.Status.Error, $"event subscription rejected: {item.Status.Error}")
+
         let methodNode = NodeId("Events/RaiseAssetEvent", uint16 idx)
         let eventsObject = NodeId("Events", uint16 idx)
         let inputs : obj array = [|
@@ -337,7 +374,11 @@ let ``RaiseAssetEvent Method Call returns Good`` () = task {
         let outputs = session.Call(eventsObject, methodNode, inputs)
         Assert.NotNull(outputs)
         Assert.Equal(2, outputs.Count)
+        Assert.True(received.Wait(5000), "raised event was not delivered to EventNotifier subscriber")
+        Assert.Contains("\"eventTypeSemanticId\":\"urn:opcfoundation:autoid:OpticalScanEventType\"", receivedMessage)
+        Assert.Contains("\"payload\":{\"code\":\"1234567890\"", receivedMessage)
 
+        subscription.Delete(true)
         session.Close() |> ignore
         session.Dispose()
     finally
@@ -397,3 +438,24 @@ let ``RaiseAssetEvent rejects payload with sourceTimestamp field`` () = task {
         if Directory.Exists root then
             try Directory.Delete(root, true) with _ -> ()
 }
+
+[<Fact>]
+let ``RaiseAssetEvent rejects payload above transport-safe limit`` () =
+    let port = nextTestPort()
+    let server, _, root = mkServer port
+    try
+        let gaid = GlobalAssetId "urn:dualsoft:asset:evt-large"
+        server.NodeManager.AddAsset(gaid, "EVT-LARGE", []) |> ignore
+        let payload = sprintf "{\"value\":\"%s\"}" (System.String(Array.create 262_144 'x'))
+        let result = server.NodeManager.RaiseAssetEvent(
+            gaid,
+            "urn:opcfoundation:autoid:OpticalScanEventType",
+            "line1.evt-large.code",
+            DateTime.UtcNow,
+            payload)
+        Assert.True(result.IsNone)
+    finally
+        server.Stop()
+        server.Dispose()
+        if Directory.Exists root then
+            try Directory.Delete(root, true) with _ -> ()

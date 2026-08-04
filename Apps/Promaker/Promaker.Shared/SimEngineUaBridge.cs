@@ -31,6 +31,7 @@ public sealed class SimEngineUaBridge : IDisposable
 
         _engine.WorkStateChanged += OnWorkStateChanged;
         _engine.CallStateChanged += OnCallStateChanged;
+        _engine.AbnormalDetected += OnAbnormalDetected;
         PushInitialSnapshot();
         _ioPollTimer = new Timer(PollIoTick, null, interval, interval);
     }
@@ -84,6 +85,23 @@ public sealed class SimEngineUaBridge : IDisposable
         }
     }
 
+    private void OnAbnormalDetected(object? sender, AbnormalRecord record)
+    {
+        lock (_writeGate)
+        {
+            if (_disposed) return;
+            try
+            {
+                if (!_uaServer.RaiseRuntimeAbnormal(record))
+                    Log.Warn($"Runtime abnormal OPC UA event was not mapped: kind={record.Kind}");
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Runtime abnormal OPC UA event failed: kind={record.Kind}: {ex.Message}");
+            }
+        }
+    }
+
     private void PollIoTick(object? _)
     {
         lock (_writeGate)
@@ -127,6 +145,7 @@ public sealed class SimEngineUaBridge : IDisposable
         {
             _engine.WorkStateChanged -= OnWorkStateChanged;
             _engine.CallStateChanged -= OnCallStateChanged;
+            _engine.AbnormalDetected -= OnAbnormalDetected;
         }
         catch { }
         // A callback that already entered before Dispose must finish before the final quality transition.

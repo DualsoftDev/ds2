@@ -30,6 +30,7 @@ let ``exportToAasxFile · KPI 3 submodels are emitted for a sequence project`` (
         Assert.Contains(AidSubmodelIdShort, idShorts)
         Assert.Contains(AimcSubmodelIdShort, idShorts)
         Assert.Contains(OperationalDataSubmodelIdShort, idShorts)
+        Assert.Contains(TimeSeriesSubmodelIdShort, idShorts)
     finally
         if File.Exists tmpPath then File.Delete tmpPath
 
@@ -47,6 +48,7 @@ let ``exportFromStore split path (SplitDeviceAasx=true) also emits KPI submodels
         Assert.Contains(AidSubmodelIdShort, idShorts)
         Assert.Contains(AimcSubmodelIdShort, idShorts)
         Assert.Contains(OperationalDataSubmodelIdShort, idShorts)
+        Assert.Contains(TimeSeriesSubmodelIdShort, idShorts)
     finally
         if File.Exists tmpPath then File.Delete tmpPath
         if Directory.Exists expectedDevicesDir then Directory.Delete(expectedDevicesDir, true)
@@ -66,9 +68,11 @@ let ``exportToAasxFile · idempotent re-save keeps single AID with all KPI inter
             let aids = env.Submodels |> Seq.filter (fun sm -> sm.IdShort = AidSubmodelIdShort) |> Seq.length
             let aimcs = env.Submodels |> Seq.filter (fun sm -> sm.IdShort = AimcSubmodelIdShort) |> Seq.length
             let opds = env.Submodels |> Seq.filter (fun sm -> sm.IdShort = OperationalDataSubmodelIdShort) |> Seq.length
+            let series = env.Submodels |> Seq.filter (fun sm -> sm.IdShort = TimeSeriesSubmodelIdShort) |> Seq.length
             Assert.Equal(1, aids)
             Assert.Equal(1, aimcs)
             Assert.Equal(1, opds)
+            Assert.Equal(1, series)
     finally
         for p in [ tmpPath1; tmpPath2 ] do
             if File.Exists p then File.Delete p

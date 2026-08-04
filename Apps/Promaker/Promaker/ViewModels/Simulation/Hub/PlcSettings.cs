@@ -13,6 +13,7 @@ public enum PlcVendorChoice
 {
     LsXgi = PromakerShared.PlcVendorChoice.LsXgi,
     LsXgk = PromakerShared.PlcVendorChoice.LsXgk,
+    LsXgb = PromakerShared.PlcVendorChoice.LsXgb,
     Mitsubishi = PromakerShared.PlcVendorChoice.Mitsubishi,
 }
 

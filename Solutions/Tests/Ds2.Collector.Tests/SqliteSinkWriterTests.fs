@@ -66,9 +66,32 @@ let ``QuerySignals returns inserted rows`` () = task {
                 Value = ValueDouble v
         }
         let! _ = iw.WriteBatchAsync [ mkAt 1.0; mkAt 2.0; mkAt 3.0 ]
-        let fromUs = now.AddMinutes(-1.0).ToUnixTimeMilliseconds() * 1000L
-        let toUs = now.AddMinutes(1.0).ToUnixTimeMilliseconds() * 1000L
+        let fromUs = UnixTime.toMicroseconds (now.AddMinutes(-1.0))
+        let toUs = UnixTime.toMicroseconds (now.AddMinutes(1.0))
         let rows = sink.QuerySignals("urn:x", "line.a.b", fromUs, toUs)
         Assert.NotEmpty(rows)
+    finally Directory.Delete(dir, true)
+}
+
+[<Fact>]
+let ``SQLite timestamp preserves microseconds instead of truncating to milliseconds`` () = task {
+    let sink, dir = mkSink()
+    try
+        let timestamp = DateTimeOffset(2026, 8, 4, 1, 2, 3, TimeSpan.Zero).AddTicks(4567L * 10L)
+        let envelope =
+            Envelope.NewSample(
+                GlobalAssetId "urn:x",
+                SignalId "line.a.precise",
+                timestamp,
+                ValueDouble 1.0,
+                None,
+                "test-adapter")
+        let! inserted = sink.WriteBatchAsync [ envelope ]
+        Assert.Equal(1, inserted)
+        let expected = UnixTime.toMicroseconds timestamp
+        let rows = sink.QuerySignals("urn:x", "line.a.precise", expected, expected)
+        let actual, _ = Assert.Single(rows)
+        Assert.Equal(expected, actual)
+        Assert.NotEqual(timestamp.ToUnixTimeMilliseconds() * 1000L, actual)
     finally Directory.Delete(dir, true)
 }

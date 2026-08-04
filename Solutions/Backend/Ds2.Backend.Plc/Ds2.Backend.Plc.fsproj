@@ -7,6 +7,7 @@
   <ItemGroup>
     <Compile Include="Config.fs" />
     <Compile Include="AidXgtConfig.fs" />
+    <Compile Include="AidSouthboundConfig.fs" />
     <Compile Include="IPlcGateway.fs" />
     <Compile Include="Adapters.fs" />
     <Compile Include="PlcGateway.fs" />

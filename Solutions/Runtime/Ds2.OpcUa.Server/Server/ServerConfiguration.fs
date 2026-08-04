@@ -35,15 +35,23 @@ module ServerConfiguration =
             match Environment.GetEnvironmentVariable "DS2_UASERVER_ENDPOINT" with
             | null | "" -> "opc.tcp://localhost:48400"
             | v -> v
+        let insecureDev =
+            match Boolean.TryParse(Environment.GetEnvironmentVariable "DS2_UASERVER_INSECURE_DEV") with
+            | true, true -> true
+            | _ -> false
+        if insecureDev then
+            let uri = Uri(endpoint, UriKind.Absolute)
+            if not uri.IsLoopback then
+                invalidOp "DS2_UASERVER_INSECURE_DEV is restricted to a loopback endpoint."
         {
             ApplicationName = "Ds2.OpcUa.Server"
             ApplicationUri = "urn:dualsoft:opcua:server"
             ProductUri     = "https://dualsoft.com/ds2/opcua"
             EndpointUrl    = endpoint
             CertificateDir = Path.Combine(root, "certs")
-            AllowAnonymous = true
-            AllowUnsecuredEndpoint = true
-            AutoAcceptUntrustedCertificates = true
+            AllowAnonymous = insecureDev
+            AllowUnsecuredEndpoint = insecureDev
+            AutoAcceptUntrustedCertificates = insecureDev
             MaxSessionCount = 100
             SessionTimeoutMs = 60_000
             MinSamplingIntervalMs = 100

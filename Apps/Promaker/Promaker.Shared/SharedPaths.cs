@@ -60,6 +60,9 @@ public static class SharedPaths
     /// Windows Service(SYSTEM)와 Linux 서비스 계정이 동일한 파일을 읽도록 한다.</summary>
     public static string AgentOpcUaSettingsPath { get; } = Path.Combine(AgentDirectory, "OpcUaServer.json");
 
+    /// <summary>마지막으로 실제 기동까지 성공한 Agent 구성의 버전 스냅샷 저장소.</summary>
+    public static string AgentLastKnownGoodDirectory { get; } = Path.Combine(AgentDirectory, "last-known-good");
+
     /// <summary>Agent OPC UA 인증서와 결정론적 namespace 상태 저장 루트.</summary>
     public static string AgentOpcUaDataDirectory { get; } = Path.Combine(AgentDirectory, "opcua");
 

@@ -235,6 +235,9 @@ type SignalPolicy = {
     PublishingIntervalMs: int option
     DeadbandAbsolute: float option
     DeadbandPercent: float option
+    /// Percent deadband 계산 기준 engineering range. 둘 다 있거나 둘 다 없어야 한다.
+    EngineeringRangeLow: float option
+    EngineeringRangeHigh: float option
     QueueSize: int option
     /// ISO-8601 duration (예: `P90D`).
     Retention: string
@@ -255,9 +258,19 @@ module SignalPolicyUaMetadata =
     [<Literal>]
     let DeadbandPercent = "DeadbandPercent"
     [<Literal>]
+    let EngineeringRangeLow = "EngineeringRangeLow"
+    [<Literal>]
+    let EngineeringRangeHigh = "EngineeringRangeHigh"
+    [<Literal>]
     let QueueSize = "QueueSize"
     [<Literal>]
     let Retention = "Retention"
+
+/// Signal Variable 자체의 의미 메타데이터 계약.
+[<RequireQualifiedAccess>]
+module SignalUaMetadata =
+    [<Literal>]
+    let Unit = "Unit"
 
 /// ISO-8601 duration 파서 · 검증.
 ///
@@ -342,6 +355,12 @@ module SignalPolicy =
             Error "DeadbandAbsolute must be non-negative"
         elif p.DeadbandPercent |> Option.exists (fun value -> value < 0.0 || value > 100.0) then
             Error "DeadbandPercent must be between 0 and 100"
+        elif p.EngineeringRangeLow.IsSome <> p.EngineeringRangeHigh.IsSome then
+            Error "EngineeringRangeLow and EngineeringRangeHigh must be specified together"
+        elif Option.map2 (>=) p.EngineeringRangeLow p.EngineeringRangeHigh |> Option.defaultValue false then
+            Error "EngineeringRangeLow must be less than EngineeringRangeHigh"
+        elif p.DeadbandPercent.IsSome && p.EngineeringRangeLow.IsNone then
+            Error "DeadbandPercent requires EngineeringRangeLow and EngineeringRangeHigh"
         else
             let posOk name v =
                 match v with

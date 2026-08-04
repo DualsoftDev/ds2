@@ -114,6 +114,48 @@ module AasxImportStandardSubmodels =
         | true, dt -> aasToXsd dt
         | _ -> XsString
 
+    /// Resolved external-history access point carried by a TimeSeries
+    /// LinkedSegment. Query is retained verbatim for forward compatibility.
+    type LinkedSeriesAccess = {
+        SeriesId: string
+        SignalId: string
+        Endpoint: string
+        Query: string
+    }
+
+    let private queryValue (name: string) (query: string) =
+        if String.IsNullOrWhiteSpace query then None
+        else
+            query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries)
+            |> Seq.tryPick (fun pair ->
+                let parts = pair.Split('=', 2)
+                if parts.Length = 2 && String.Equals(Uri.UnescapeDataString parts.[0], name, StringComparison.Ordinal) then
+                    Some(Uri.UnescapeDataString parts.[1])
+                else None)
+
+    /// Reads approved Data API series from IDTA 02008 LinkedSegments.
+    let linkedSeriesFromTimeSeries (sm: Submodel) : LinkedSeriesAccess list =
+        match findTopSmc sm "Segments" with
+        | None -> []
+        | Some segments ->
+            findAllChildrenSmc segments
+            |> List.choose (fun linked ->
+                let endpoint = propStr linked "Endpoint"
+                let query = propStr linked "Query"
+                let seriesId =
+                    propOpt linked "SeriesId"
+                    |> Option.filter (String.IsNullOrWhiteSpace >> not)
+                    |> Option.orElseWith (fun () -> queryValue "seriesId" query)
+                    |> Option.defaultValue ""
+                let signalId = propStr linked "signalId"
+                if String.IsNullOrWhiteSpace endpoint || String.IsNullOrWhiteSpace seriesId then None
+                else Some {
+                    SeriesId = seriesId
+                    SignalId = signalId
+                    Endpoint = endpoint
+                    Query = query
+                })
+
     // -------------------------------------------------------------------------
     // Provenance §C — Qualifier(dualsoft:origin) + Submodel Extension(dualsoft:auto-suppressed)
     // -------------------------------------------------------------------------
@@ -238,7 +280,11 @@ module AasxImportStandardSubmodels =
     let private xgtEndpointFromSmc (smc: SubmodelElementCollection) : XgtEndpointMetadata =
         {
             Base = propStr smc "base"
-            CpuModel = if propStr smc "cpuModel" = "XGK" then Xgk else Xgi
+            CpuModel =
+                match propStr smc "cpuModel" with
+                | "XGK" -> Xgk
+                | "XGB" -> Xgb
+                | _ -> Xgi
             LocalEthernet = propBool smc "localEthernet"
             NetworkNumber = propByte smc "networkNumber" |> Option.defaultValue 0uy
             StationNumber = propByte smc "stationNumber" |> Option.defaultValue 0xFFuy
@@ -401,6 +447,8 @@ module AasxImportStandardSubmodels =
             PublishingIntervalMs = propInt smc "publishingIntervalMs"
             DeadbandAbsolute = propDouble smc "deadbandAbsolute"
             DeadbandPercent = propDouble smc "deadbandPercent"
+            EngineeringRangeLow = propDouble smc "engineeringRangeLow"
+            EngineeringRangeHigh = propDouble smc "engineeringRangeHigh"
             QueueSize = propInt smc "queueSize"
             Retention = propStr smc "retention"
         }

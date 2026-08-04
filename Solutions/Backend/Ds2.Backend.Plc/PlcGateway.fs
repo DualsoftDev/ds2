@@ -23,11 +23,13 @@ type PlcGateway(config: PlcGatewayConfig) =
         match v with
         | Ds2.Backend.Plc.PlcVendor.LsXgi      -> "LsXgi"
         | Ds2.Backend.Plc.PlcVendor.LsXgk      -> "LsXgk"
+        | Ds2.Backend.Plc.PlcVendor.LsXgb      -> "LsXgb"
         | Ds2.Backend.Plc.PlcVendor.Mitsubishi -> "Mitsubishi"
 
-    let adapters : (PlcConnectionConfig * IPlcConnectorAdapter) list =
+    let adapters : (PlcConnectionConfig * IPlcConnectorAdapter) array =
         config.Connections
         |> List.map (fun c -> c, Adapter.create c)
+        |> List.toArray
 
     /// HubAddress -> (adapter, tagDef). 같은 주소를 두 PLC 가 서로 다르게 보유하면 마지막 등록만 살아남는다.
     let routing : ConcurrentDictionary<string, IPlcConnectorAdapter * PlcTagDef> =
@@ -171,7 +173,7 @@ type PlcGateway(config: PlcGatewayConfig) =
 
     interface IPlcGateway with
 
-        member _.IsEnabled = not adapters.IsEmpty
+        member _.IsEnabled = adapters.Length > 0
 
         member _.ScanIntervalOverrideMs
             with get () = scanIntervalOverrideMs
@@ -179,7 +181,10 @@ type PlcGateway(config: PlcGatewayConfig) =
 
         member _.ConnectAllAsync (ct: CancellationToken) =
             task {
-                for (cfg, adapter) in adapters do
+                let mutable adapterIndex = 0
+                while adapterIndex < adapters.Length do
+                    let cfg, adapter = adapters.[adapterIndex]
+                    adapterIndex <- adapterIndex + 1
                     if ct.IsCancellationRequested then () else
                     try
                         let! ok = adapter.ConnectAsync()
@@ -198,7 +203,10 @@ type PlcGateway(config: PlcGatewayConfig) =
 
         member _.DisconnectAllAsync () =
             task {
-                for (_, adapter) in adapters do
+                let mutable adapterIndex = 0
+                while adapterIndex < adapters.Length do
+                    let _, adapter = adapters.[adapterIndex]
+                    adapterIndex <- adapterIndex + 1
                     do! adapter.DisconnectAsync()
             } :> Task
 
@@ -230,7 +238,10 @@ type PlcGateway(config: PlcGatewayConfig) =
         member _.ScanOnceAsync (ct: CancellationToken) =
             task {
                 let changes = ResizeArray<PlcTagChange>()
-                for (cfg, adapter) in adapters do
+                let mutable adapterIndex = 0
+                while adapterIndex < adapters.Length do
+                    let cfg, adapter = adapters.[adapterIndex]
+                    adapterIndex <- adapterIndex + 1
                     if ct.IsCancellationRequested then () else
                     // 끊겨 있으면 backoff 안에서만 재연결 시도 — 잘못된 PLC 설정 시 매 sweep 마다
                     // timeout 만큼 blocking 되는 걸 막는다.
@@ -407,11 +418,8 @@ type PlcGateway(config: PlcGatewayConfig) =
         member _.LastSuccessfulScanUtc = lastSuccessfulScanUtc
 
         member _.MinScanInterval =
-            adapters
-            |> List.choose (fun (c, _) -> c.ScanInterval)
-            |> function
-                | [] -> None
-                | xs -> Some (List.min xs)
+            let intervals = adapters |> Array.choose (fun (c, _) -> c.ScanInterval)
+            if intervals.Length = 0 then None else Some(Array.min intervals)
 
         member _.GetConnectionStatuses () =
             statuses.Values |> Seq.toList

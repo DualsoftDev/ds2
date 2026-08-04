@@ -11,6 +11,7 @@ public enum PlcVendorChoice
 {
     LsXgi,
     LsXgk,
+    LsXgb,
     Mitsubishi
 }
 
@@ -146,6 +147,36 @@ public sealed class PlcConnectionSettings
         return data;
     }
 
+    /// <summary>존재하는 설정 파일의 손상을 기본값으로 숨기지 않고 읽는다.</summary>
+    public static bool TryLoadExact(string path, out PlcConnectionSettings? settings, out string error)
+    {
+        settings = null;
+        error = "";
+        try
+        {
+            if (!File.Exists(path))
+            {
+                error = $"PLC settings not found at '{path}'.";
+                return false;
+            }
+            settings = JsonSerializer.Deserialize<PlcConnectionSettings>(File.ReadAllText(path), JsonOpts);
+            if (settings is null)
+            {
+                error = "PLC settings JSON was empty.";
+                return false;
+            }
+            settings.WasPersisted = true;
+            settings.EnsureProfiles();
+            settings.UpgradeDefaultScanIntervals();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = $"PLC settings JSON is invalid: {ex.Message}";
+            return false;
+        }
+    }
+
     private void UpgradeDefaultScanIntervals()
     {
         ScanIntervalMs = UpgradeDefaultScanInterval(ScanIntervalMs);
@@ -215,18 +246,22 @@ public sealed class PlcConnectionSettings
     /// 저장 직전 <see cref="EnsureProfiles"/> 로 활성 벤더 프로파일을 최신 플랫 값으로 동기화.</summary>
     public bool TrySave(string path)
     {
+        string? temp = null;
         try
         {
             EnsureProfiles();
             var dir = Path.GetDirectoryName(path);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
             var text = JsonSerializer.Serialize(this, JsonOpts);
-            File.WriteAllText(path, text);
+            temp = path + $".tmp-{Guid.NewGuid():N}";
+            File.WriteAllText(temp, text);
+            File.Move(temp, path, overwrite: true);
             WasPersisted = true;
             return true;
         }
         catch
         {
+            try { if (temp is not null && File.Exists(temp)) File.Delete(temp); } catch { }
             return false;
         }
     }

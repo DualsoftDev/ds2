@@ -4,6 +4,8 @@ open System
 open System.Text.Json.Serialization
 open Microsoft.AspNetCore.Mvc
 open Microsoft.Data.Sqlite
+open Ds2.Adapter.Common
+open Ds2.Collector
 
 /// Phase 7 · IT/클라우드 소비 REST API (Collector 프로세스에 통합됨).
 ///
@@ -77,7 +79,13 @@ module SeriesQuery =
           Min = dbFloat reader 10
           Max = dbFloat reader 11 }
 
-    let execute (telemetryDb: string) (resolution: SeriesResolution) table limit : SeriesPoint list =
+    let execute
+        (telemetryDb: string)
+        (resolution: SeriesResolution)
+        table
+        (fromUs: int64)
+        (toUs: int64)
+        limit : SeriesPoint list =
         use conn = new SqliteConnection($"Data Source={telemetryDb};Mode=ReadOnly;Pooling=False")
         conn.Open()
         use cmd = conn.CreateCommand()
@@ -87,6 +95,7 @@ module SeriesQuery =
                         quality, unit
                  FROM signals
                  WHERE global_asset_id = $g AND signal_id = $s
+                   AND source_ts_us BETWEEN $from AND $to
                  ORDER BY source_ts_us DESC LIMIT $lim"
         else
             // COALESCE(last_double, last_v)는 typed schema 도입 전 생성된 double 집계도 읽기 위한 호환 경로다.
@@ -96,9 +105,12 @@ module SeriesQuery =
                             last_string, last_bool, last_quality, unit, count, mean, min_v, max_v
                      FROM %s
                      WHERE global_asset_id = $g AND signal_id = $s
+                       AND bucket_ts_us BETWEEN $from AND $to
                      ORDER BY bucket_ts_us DESC LIMIT $lim" table
         cmd.Parameters.AddWithValue("$g", resolution.GlobalAssetId) |> ignore
         cmd.Parameters.AddWithValue("$s", resolution.SignalId) |> ignore
+        cmd.Parameters.AddWithValue("$from", fromUs) |> ignore
+        cmd.Parameters.AddWithValue("$to", toUs) |> ignore
         cmd.Parameters.AddWithValue("$lim", limit) |> ignore
         use reader = cmd.ExecuteReader()
         [ while reader.Read() do
@@ -110,37 +122,77 @@ type SeriesController(registry: SeriesIdRegistry, paths: DataApiPaths) =
     inherit ControllerBase()
 
     [<HttpGet("catalog")>]
-    member this.Catalog() : IActionResult =
-        let items =
+    member this.Catalog(
+        [<FromQuery>] afterSeriesId: string,
+        [<FromQuery>] pageSize: int) : IActionResult =
+        let limit = if pageSize <= 0 then 500 else min pageSize 1000
+        let remaining =
             registry.ListEntries()
+            |> List.filter (fun (seriesId, _) ->
+                String.IsNullOrWhiteSpace afterSeriesId
+                || String.CompareOrdinal(seriesId, afterSeriesId) > 0)
+        let page = remaining |> List.truncate (limit + 1)
+        let hasMore = List.length page > limit
+        let selected = page |> List.truncate limit
+        let items =
+            selected
             |> List.map (fun (seriesId, resolution) ->
                 {| seriesId = seriesId
                    globalAssetId = resolution.GlobalAssetId
                    signalId = resolution.SignalId
                    defaultTable = resolution.DefaultTable
                    retention = resolution.Retention |> Option.toObj |})
-        this.Ok({| count = List.length items; items = items |}) :> IActionResult
+        let nextCursor =
+            if hasMore then selected |> List.tryLast |> Option.map fst |> Option.toObj
+            else null
+        this.Ok({| count = List.length items; nextCursor = nextCursor; items = items |}) :> IActionResult
 
     [<HttpGet>]
-    member this.Get([<FromQuery>] seriesId: string, [<FromQuery>] rangeSeconds: float, [<FromQuery>] maxPoints: int) : IActionResult =
+    member this.Get(
+        [<FromQuery>] seriesId: string,
+        [<FromQuery>] rangeSeconds: float,
+        [<FromQuery>] maxPoints: int,
+        [<FromQuery>] fromUs: Nullable<int64>,
+        [<FromQuery>] toUs: Nullable<int64>) : IActionResult =
         if String.IsNullOrWhiteSpace seriesId then
             this.BadRequest("seriesId required") :> IActionResult
+        elif (fromUs.HasValue && fromUs.Value < 0L) || (toUs.HasValue && toUs.Value < 0L) then
+            this.BadRequest("fromUs/toUs must be non-negative Unix microseconds") :> IActionResult
         else
             match registry.Resolve seriesId with
             | None -> this.NotFound({| seriesId = seriesId; reason = "unknown seriesId" |}) :> IActionResult
             | Some res ->
-                let table = TableSelector.pickForRange rangeSeconds
-                let limit = if maxPoints <= 0 then 10000 else min maxPoints 10000
-                let points = SeriesQuery.execute paths.TelemetryDb res table limit
-                let response = {|
-                    seriesId = seriesId
-                    table = table
-                    globalAssetId = res.GlobalAssetId
-                    signalId = res.SignalId
-                    count = List.length points
-                    points = points
-                |}
-                this.Ok(response) :> IActionResult
+                let effectiveRangeSeconds =
+                    if Double.IsNaN rangeSeconds || Double.IsInfinity rangeSeconds || rangeSeconds <= 0.0 then 3600.0
+                    else rangeSeconds
+                let endUs =
+                    if toUs.HasValue then toUs.Value
+                    else UnixTime.toMicroseconds DateTimeOffset.UtcNow
+                let requestedSpanUs =
+                    let requested = effectiveRangeSeconds * 1_000_000.0
+                    if requested >= float Int64.MaxValue then Int64.MaxValue else int64 requested
+                let startUs =
+                    if fromUs.HasValue then fromUs.Value
+                    elif requestedSpanUs > endUs && endUs >= 0L then 0L
+                    else endUs - requestedSpanUs
+                if startUs > endUs then
+                    this.BadRequest("fromUs must be less than or equal to toUs") :> IActionResult
+                else
+                    let actualRangeSeconds = float (endUs - startUs) / 1_000_000.0
+                    let table = TableSelector.pickForRange actualRangeSeconds
+                    let limit = if maxPoints <= 0 then 10000 else min maxPoints 10000
+                    let points = SeriesQuery.execute paths.TelemetryDb res table startUs endUs limit
+                    let response = {|
+                        seriesId = seriesId
+                        table = table
+                        globalAssetId = res.GlobalAssetId
+                        signalId = res.SignalId
+                        fromUs = startUs
+                        toUs = endUs
+                        count = List.length points
+                        points = points
+                    |}
+                    this.Ok(response) :> IActionResult
 
 [<ApiController>]
 [<Route("v1/events")>]
@@ -150,23 +202,46 @@ type EventsController(paths: DataApiPaths) =
     [<HttpGet>]
     member this.Get([<FromQuery>] asset: string,
                     [<FromQuery>] eventType: string,
-                    [<FromQuery>] pageSize: int) : IActionResult =
+                    [<FromQuery>] pageSize: int,
+                    [<FromQuery>] fromUs: Nullable<int64>,
+                    [<FromQuery>] toUs: Nullable<int64>,
+                    [<FromQuery>] beforeTsUs: Nullable<int64>,
+                    [<FromQuery>] beforeId: Nullable<int64>) : IActionResult =
         if String.IsNullOrWhiteSpace asset then
             this.BadRequest("asset required") :> IActionResult
+        elif (fromUs.HasValue && fromUs.Value < 0L)
+             || (toUs.HasValue && toUs.Value < 0L)
+             || (fromUs.HasValue && toUs.HasValue && fromUs.Value > toUs.Value) then
+            this.BadRequest("fromUs/toUs must be non-negative and ordered") :> IActionResult
+        elif beforeTsUs.HasValue <> beforeId.HasValue then
+            this.BadRequest("beforeTsUs and beforeId must be supplied together") :> IActionResult
+        elif (beforeTsUs.HasValue && beforeTsUs.Value < 0L)
+             || (beforeId.HasValue && beforeId.Value <= 0L) then
+            this.BadRequest("beforeTsUs must be non-negative and beforeId must be positive") :> IActionResult
         else
-            let limit = if pageSize <= 0 then 100 else min pageSize 500
+            let limit = if pageSize <= 0 then 100 else min pageSize 100
             use conn = new SqliteConnection($"Data Source={paths.EventsDb};Mode=ReadOnly;Pooling=False")
             conn.Open()
             use cmd = conn.CreateCommand()
             let whereEventType = if String.IsNullOrWhiteSpace eventType then "" else " AND event_type_semantic_id = $et"
+            let whereCursor =
+                if beforeTsUs.HasValue then
+                    " AND (source_ts_us < $beforeTs OR (source_ts_us = $beforeTs AND id < $beforeId))"
+                else ""
             cmd.CommandText <-
                 sprintf "SELECT id, envelope_id, source_ts_us, event_type_semantic_id, payload
                          FROM events
-                         WHERE global_asset_id = $g %s
-                         ORDER BY source_ts_us DESC LIMIT $lim" whereEventType
+                         WHERE global_asset_id = $g
+                           AND source_ts_us BETWEEN $from AND $to %s %s
+                         ORDER BY source_ts_us DESC, id DESC LIMIT $lim" whereEventType whereCursor
             cmd.Parameters.AddWithValue("$g", asset) |> ignore
+            cmd.Parameters.AddWithValue("$from", if fromUs.HasValue then fromUs.Value else 0L) |> ignore
+            cmd.Parameters.AddWithValue("$to", if toUs.HasValue then toUs.Value else Int64.MaxValue) |> ignore
             if not (String.IsNullOrWhiteSpace eventType) then
                 cmd.Parameters.AddWithValue("$et", eventType) |> ignore
+            if beforeTsUs.HasValue then
+                cmd.Parameters.AddWithValue("$beforeTs", beforeTsUs.Value) |> ignore
+                cmd.Parameters.AddWithValue("$beforeId", beforeId.Value) |> ignore
             cmd.Parameters.AddWithValue("$lim", limit) |> ignore
             use reader = cmd.ExecuteReader()
             let items =
@@ -176,12 +251,37 @@ type EventsController(paths: DataApiPaths) =
                              sourceTsUs = reader.GetInt64 2
                              eventType = reader.GetString 3
                              payload = reader.GetString 4 |} ]
-            this.Ok({| count = List.length items; items = items |}) :> IActionResult
+            let nextCursor =
+                items
+                |> List.tryLast
+                |> Option.map (fun item -> {| beforeTsUs = item.sourceTsUs; beforeId = item.id |})
+                |> Option.toObj
+            this.Ok({| count = List.length items; nextCursor = nextCursor; items = items |}) :> IActionResult
 
 [<ApiController>]
-type InfoController() =
+type InfoController(runtimeState: CollectorRuntimeState, outbox: SqliteEdgeBuffer) =
     inherit ControllerBase()
+
     [<HttpGet("/healthz")>]
-    member _.Healthz() : obj = "ok" :> obj
+    member this.Healthz() : IActionResult =
+        this.Ok({| status = "ok" |}) :> IActionResult
+
+    [<HttpGet("/readyz")>]
+    member this.Readyz() : IActionResult =
+        let snapshot = runtimeState.Snapshot(outbox.PendingCount())
+        let response = {| status = (if snapshot.Ready then "ready" else "not_ready"); ready = snapshot.Ready |}
+        if snapshot.Ready then this.Ok(response) :> IActionResult
+        else this.StatusCode(503, response) :> IActionResult
+
     [<HttpGet("/v1/info")>]
-    member _.Info() : obj = {| service = "Ds2.Collector"; storage = "SQLite (ADR-011)" |} :> obj
+    member _.Info() : obj =
+        let snapshot = runtimeState.Snapshot(outbox.PendingCount())
+        let pendingRows, pendingPayloadBytes = outbox.PendingUsage()
+        {| service = "Ds2.Collector"
+           storage = "SQLite (ADR-011)"
+           delivery = "durable outbox + at-least-once + sink dedup"
+           pendingEnvelopes = snapshot.PendingEnvelopes
+           pendingRows = pendingRows
+           pendingPayloadBytes = pendingPayloadBytes
+           outboxMaximumRows = outbox.MaximumRows
+           outboxMaximumPayloadBytes = outbox.MaximumPayloadBytes |} :> obj

@@ -55,16 +55,50 @@ public sealed class CalibrationState
         catch { return new CalibrationState(); }
     }
 
+    public static bool TryLoadExact(string path, out CalibrationState? state, out string error)
+    {
+        state = null;
+        error = "";
+        try
+        {
+            if (!File.Exists(path))
+            {
+                error = $"Calibration state not found at '{path}'.";
+                return false;
+            }
+            state = JsonSerializer.Deserialize<CalibrationState>(File.ReadAllText(path), JsonOpts);
+            if (state is null)
+            {
+                error = "Calibration state JSON was empty.";
+                return false;
+            }
+            state.Works ??= new Dictionary<string, WorkCalib>();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = $"Calibration state JSON is invalid: {ex.Message}";
+            return false;
+        }
+    }
+
     /// <summary>사이드카 저장. 호출자가 <see cref="SharedWriteLock"/> 안에서 read-modify-write 하는 것을 전제.</summary>
     public bool TrySave()
     {
+        string? temp = null;
         try
         {
             Directory.CreateDirectory(SharedPaths.AgentDirectory);
-            File.WriteAllText(SharedPaths.CalibrationStateJsonPath, JsonSerializer.Serialize(this, JsonOpts));
+            temp = SharedPaths.CalibrationStateJsonPath + $".tmp-{Guid.NewGuid():N}";
+            File.WriteAllText(temp, JsonSerializer.Serialize(this, JsonOpts));
+            File.Move(temp, SharedPaths.CalibrationStateJsonPath, overwrite: true);
             return true;
         }
-        catch { return false; }
+        catch
+        {
+            try { if (temp is not null && File.Exists(temp)) File.Delete(temp); } catch { }
+            return false;
+        }
     }
 
     /// <summary>해당 Work 의 Min 실측 확정 여부 — 저장된 실측 MinMs 가 현재 모델의 Min duration(currentMinMs)과

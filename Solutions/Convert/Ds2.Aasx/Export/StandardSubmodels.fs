@@ -2,6 +2,8 @@ namespace Ds2.Aasx
 
 open System
 open System.Globalization
+open System.Security.Cryptography
+open System.Text
 open AasCore.Aas3_1
 open Ds2.Core
 open Ds2.Core.Kpi
@@ -195,7 +197,7 @@ module AasxExportStandardSubmodels =
         mkSmc "EndpointMetadata" elems
 
     let private xgtEndpointMetadataSmc (ep: XgtEndpointMetadata) : ISubmodelElement =
-        let cpuModel = match ep.CpuModel with Xgi -> "XGI" | Xgk -> "XGK"
+        let cpuModel = match ep.CpuModel with Xgi -> "XGI" | Xgk -> "XGK" | Xgb -> "XGB"
         let transport = match ep.Transport with XgtTcp -> "tcp" | XgtUdp -> "udp"
         let mutable elems : ISubmodelElement list = [
             mkProp "base" ep.Base
@@ -324,6 +326,128 @@ module AasxExportStandardSubmodels =
         sm
 
     // -------------------------------------------------------------------------
+    // TimeSeries (IDTA 02008 v1.1) - external Collector LinkedSegments
+    // -------------------------------------------------------------------------
+
+    type private TimeSeriesSignal = {
+        IdShort: string
+        SignalId: SignalId
+        SemanticId: SemanticId
+        ValueType: XsdType
+        Unit: string option
+    }
+
+    let private aidTimeSeriesSignals (aid: AssetInterfacesDescription) = [
+        for binding in aid.Interfaces do
+            match binding with
+            | OpcUa (_, interactions, _)
+            | Xgt (_, interactions) ->
+                for interaction in interactions do
+                    yield {
+                        IdShort = interaction.IdShort
+                        SignalId = interaction.SignalId
+                        SemanticId = interaction.SemanticId
+                        ValueType = interaction.ValueType
+                        Unit = interaction.Unit
+                    }
+            | Modbus (_, interactions) ->
+                for interaction in interactions do
+                    yield {
+                        IdShort = interaction.IdShort
+                        SignalId = interaction.SignalId
+                        SemanticId = interaction.SemanticId
+                        ValueType = interaction.ValueType
+                        Unit = interaction.Unit
+                    }
+            | Mqtt (_, interactions) ->
+                for interaction in interactions do
+                    yield {
+                        IdShort = interaction.IdShort
+                        SignalId = interaction.SignalId
+                        SemanticId = interaction.SemanticId
+                        ValueType = interaction.ValueType
+                        Unit = interaction.Unit
+                    }
+            | Http (_, interactions) ->
+                for interaction in interactions do
+                    yield {
+                        IdShort = interaction.IdShort
+                        SignalId = interaction.SignalId
+                        SemanticId = interaction.SemanticId
+                        ValueType = interaction.ValueType
+                        Unit = interaction.Unit
+                    }
+    ]
+
+    let private linkedSegmentIdShort (signalId: SignalId) =
+        let bytes = SHA256.HashData(Encoding.UTF8.GetBytes(signalId.Value))
+        "LinkedSegment_" + Convert.ToHexString(bytes.AsSpan(0, 8))
+
+    let private variableMetadataSmc (signal: TimeSeriesSignal) =
+        let elements = [
+            yield mkProp "RecordId" signal.SignalId.Value
+                |> withSemId (Some TimeSeriesIdExtensionSemanticId)
+            yield mkPropOfXsdType "Value" signal.ValueType ""
+                |> withSemId (Some signal.SemanticId.Value)
+            match signal.Unit with
+            | Some unitName when not (String.IsNullOrWhiteSpace unitName) ->
+                yield mkProp "Unit" unitName
+            | _ -> ()
+        ]
+        mkSmc ("Variable_" + linkedSegmentIdShort signal.SignalId) elements
+
+    let private linkedSegmentSmc
+        (assetId: GlobalAssetId)
+        (dataApiEndpoint: string)
+        (signal: TimeSeriesSignal) =
+        let seriesId = AssetTelemetryIdentity.seriesId assetId signal.SignalId
+        let query = "seriesId=" + Uri.EscapeDataString(seriesId)
+        mkSmc (linkedSegmentIdShort signal.SignalId) [
+            mkMlp "Name" signal.IdShort
+            mkMlp "Description" (sprintf "Collector history for %s" signal.SignalId.Value)
+            mkProp "Endpoint" dataApiEndpoint
+                |> withSemId (Some TimeSeriesEndpointSemanticId)
+            mkProp "Query" query
+                |> withSemId (Some TimeSeriesQuerySemanticId)
+            mkProp "SeriesId" seriesId
+                |> withSemId (Some TimeSeriesIdExtensionSemanticId)
+            signalIdProp signal.SignalId
+        ]
+        |> withSemId (Some TimeSeriesLinkedSegmentSemanticId)
+
+    /// Creates static external-history access points. The endpoint is the full
+    /// Data API series URL; callers add fromUs/toUs to the stored query.
+    let timeSeriesToSubmodel
+        (aid: AssetInterfacesDescription)
+        (assetId: GlobalAssetId)
+        (ownerId: Guid)
+        (ownerName: string)
+        (dataApiEndpoint: string) : Submodel =
+        if String.IsNullOrWhiteSpace dataApiEndpoint then
+            invalidArg "dataApiEndpoint" "Data API endpoint must not be empty"
+        let signals =
+            aidTimeSeriesSignals aid
+            |> List.filter (fun signal -> not (String.IsNullOrWhiteSpace signal.SignalId.Value))
+            |> List.distinctBy (fun signal -> signal.SignalId.Value)
+            |> List.sortBy (fun signal -> signal.SignalId.Value)
+        let metadata =
+            mkSmc "Metadata" [
+                mkMlp "Name" ownerName
+                mkSmc "Record" (
+                    [ mkPropOfType "UtcTime" DataTypeDefXsd.DateTime "" ]
+                    @ (signals |> List.map variableMetadataSmc))
+            ]
+            |> withSemId (Some TimeSeriesMetadataSemanticId)
+        let segments =
+            mkSmc "Segments" (signals |> List.map (linkedSegmentSmc assetId dataApiEndpoint))
+            |> withSemId (Some TimeSeriesSegmentsSemanticId)
+        let sm = Submodel(sprintf "urn:dualsoft:timeseries:%s" (ownerId.ToString("N")))
+        sm.IdShort <- TimeSeriesSubmodelIdShort
+        sm.SemanticId <- mkSemanticRef TimeSeriesSubmodelSemanticId
+        sm.SubmodelElements <- ResizeArray<ISubmodelElement>([ metadata; segments ])
+        sm
+
+    // -------------------------------------------------------------------------
     // SequenceLogging 확장 — SignalPolicies SMC
     //   기존 SequenceLogging exporter 가 build 하는 Submodel 위에 이 헬퍼로 필드 추가.
     // -------------------------------------------------------------------------
@@ -341,6 +465,8 @@ module AasxExportStandardSubmodels =
             yield! (mkIntPropOpt "publishingIntervalMs" p.PublishingIntervalMs |> Option.toList)
             yield! (mkDoublePropOpt "deadbandAbsolute" p.DeadbandAbsolute |> Option.toList)
             yield! (mkDoublePropOpt "deadbandPercent" p.DeadbandPercent |> Option.toList)
+            yield! (mkDoublePropOpt "engineeringRangeLow" p.EngineeringRangeLow |> Option.toList)
+            yield! (mkDoublePropOpt "engineeringRangeHigh" p.EngineeringRangeHigh |> Option.toList)
             yield! (mkIntPropOpt "queueSize" p.QueueSize |> Option.toList)
             mkProp "retention" p.Retention
         ]

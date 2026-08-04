@@ -26,6 +26,32 @@ let ``series registry catalog exposes opaque ids in stable order`` () =
     Assert.Equal("line.a", (entries |> List.head |> snd).SignalId)
 
 [<Fact>]
+let ``persistent series registry survives restart and replace removes stale ids`` () =
+    let dir = Path.Combine(Path.GetTempPath(), "ds2-registry-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory dir |> ignore
+    let database = Path.Combine(dir, "series-registry.db")
+    let resolution signal = {
+        GlobalAssetId = "urn:x"
+        SignalId = signal
+        DefaultTable = "signals"
+        Retention = Some "P30D"
+    }
+    try
+        let first = SeriesIdRegistry(database)
+        first.Register("stale", resolution "line.stale")
+        first.Register("kept", resolution "line.original")
+
+        let reopened = SeriesIdRegistry(database)
+        Assert.Equal("line.stale", (reopened.Resolve "stale" |> Option.get).SignalId)
+        reopened.ReplaceAll [ "kept", resolution "line.updated" ]
+
+        let afterReplace = SeriesIdRegistry(database)
+        Assert.True((afterReplace.Resolve "stale").IsNone)
+        Assert.Equal("line.updated", (afterReplace.Resolve "kept" |> Option.get).SignalId)
+    finally
+        if Directory.Exists dir then Directory.Delete(dir, true)
+
+[<Fact>]
 let ``ensureSchema creates signals_1h and signals_1d tables`` () = task {
     let dir = Path.Combine(Path.GetTempPath(), "ds2-ds-" + Guid.NewGuid().ToString("N"))
     Directory.CreateDirectory dir |> ignore
@@ -48,6 +74,42 @@ let ``ensureSchema creates signals_1h and signals_1d tables`` () = task {
         let toUs = baseNow.AddMinutes(35.0).ToUnixTimeMilliseconds() * 1000L
         let rows = Downsample.runAggregation telemetry fromUs toUs
         Assert.True(rows > 0, sprintf "expected downsample rows > 0, got %d" rows)
+    finally
+        if Directory.Exists dir then Directory.Delete(dir, true)
+}
+
+[<Fact>]
+let ``dirty aggregation includes samples older than the periodic lookback`` () = task {
+    let dir = Path.Combine(Path.GetTempPath(), "ds2-dirty-ds-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory dir |> ignore
+    let telemetry = Path.Combine(dir, "telemetry.db")
+    let events = Path.Combine(dir, "events.db")
+    try
+        let sink = SqliteSinkWriter(telemetry, events)
+        Downsample.ensureSchema telemetry
+        let timestamp = DateTimeOffset.UtcNow.AddDays(-90.0)
+        let sample =
+            { Envelope.NewSample(
+                GlobalAssetId "urn:x", SignalId "line.delayed", timestamp,
+                ValueDouble 42.0, None, "outbox-replay") with SourceTimestamp = timestamp }
+        let! inserted = sink.WriteBatchAsync [sample]
+        Assert.Equal(1, inserted)
+
+        let refreshed, processed = Downsample.runDirtyAggregation telemetry 100
+        Assert.Equal(1, processed)
+        Assert.True(refreshed >= 2)
+        let fromUs = timestamp.AddHours(-1.0).ToUnixTimeMilliseconds() * 1000L
+        let toUs = timestamp.AddHours(1.0).ToUnixTimeMilliseconds() * 1000L
+        let points =
+            SeriesQuery.execute telemetry {
+                GlobalAssetId = "urn:x"
+                SignalId = "line.delayed"
+                DefaultTable = "signals_1h"
+                Retention = None
+            } "signals_1h" fromUs toUs 10
+        Assert.Single(points) |> ignore
+        Assert.Equal(42.0, Assert.IsType<float>(points.Head.Value), 6)
+        Assert.Equal((0, 0), Downsample.runDirtyAggregation telemetry 100)
     finally
         if Directory.Exists dir then Directory.Delete(dir, true)
 }
@@ -78,7 +140,7 @@ let ``raw series query preserves bool long and string values`` () = task {
                 SignalId = signal
                 DefaultTable = "signals"
                 Retention = None
-            } "signals" 10
+            } "signals" 0L Int64.MaxValue 10
             |> List.exactlyOne
 
         let boolPoint = query "line.bool"
@@ -132,7 +194,7 @@ let ``downsample preserves typed last value and numeric statistics`` () = task {
                 SignalId = signal
                 DefaultTable = "signals_1h"
                 Retention = None
-            } "signals_1h" 10
+            } "signals_1h" fromUs toUs 10
             |> List.exactlyOne
 
         let boolPoint = query "line.bool"
@@ -150,6 +212,35 @@ let ``downsample preserves typed last value and numeric statistics`` () = task {
         let stringPoint = query "line.string"
         Assert.Equal("RUN", Assert.IsType<string>(stringPoint.Value))
         Assert.False(stringPoint.Mean.HasValue)
+    finally
+        if Directory.Exists dir then Directory.Delete(dir, true)
+}
+
+[<Fact>]
+let ``series query excludes samples outside requested timestamps`` () = task {
+    let dir = Path.Combine(Path.GetTempPath(), "ds2-series-range-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory dir |> ignore
+    let telemetry = Path.Combine(dir, "telemetry.db")
+    let events = Path.Combine(dir, "events.db")
+    try
+        let sink = SqliteSinkWriter(telemetry, events)
+        let now = DateTimeOffset.UtcNow
+        let sampleAt timestamp value : Envelope =
+            { Envelope.NewSample(GlobalAssetId "urn:x", SignalId "line.range", timestamp, ValueDouble value, None, "test") with
+                SourceTimestamp = timestamp }
+        let! inserted = sink.WriteBatchAsync [ sampleAt (now.AddMinutes(-10.0)) 1.0; sampleAt now 2.0 ]
+        Assert.Equal(2, inserted)
+        let fromUs = now.AddMinutes(-1.0).ToUnixTimeMilliseconds() * 1000L
+        let toUs = now.AddMinutes(1.0).ToUnixTimeMilliseconds() * 1000L
+        let points =
+            SeriesQuery.execute telemetry {
+                GlobalAssetId = "urn:x"
+                SignalId = "line.range"
+                DefaultTable = "signals"
+                Retention = None
+            } "signals" fromUs toUs 10
+        Assert.Single(points) |> ignore
+        Assert.Equal(2.0, Assert.IsType<float>(points.Head.Value), 6)
     finally
         if Directory.Exists dir then Directory.Delete(dir, true)
 }

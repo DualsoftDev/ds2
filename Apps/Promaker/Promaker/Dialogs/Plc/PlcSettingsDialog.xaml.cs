@@ -67,6 +67,7 @@ public partial class PlcSettingsDialog : Window
         {
             case PlcVendorChoice.LsXgi: RbLsXgi.IsChecked = true; break;
             case PlcVendorChoice.LsXgk: RbLsXgk.IsChecked = true; break;
+            case PlcVendorChoice.LsXgb: RbLsXgb.IsChecked = true; break;
             case PlcVendorChoice.Mitsubishi: RbMx.IsChecked = true; break;
         }
         LoadProfileToForm(_workingProfiles[_loadedVendor.ToString()]);
@@ -93,6 +94,7 @@ public partial class PlcSettingsDialog : Window
 
         var newVendor =
             RbMx.IsChecked == true ? PlcVendorChoice.Mitsubishi
+          : RbLsXgb.IsChecked == true ? PlcVendorChoice.LsXgb
           : RbLsXgk.IsChecked == true ? PlcVendorChoice.LsXgk
           : PlcVendorChoice.LsXgi;
         if (newVendor == _loadedVendor)

@@ -5,8 +5,10 @@ open System.Collections.Generic
 open System.Globalization
 open System.IO
 open System.Security.Cryptography.X509Certificates
+open System.Security.Cryptography
+open System.Text
+open System.Text.Json
 open System.Threading
-open System.Threading.Channels
 open System.Threading.Tasks
 open Microsoft.Extensions.Hosting
 open Microsoft.Extensions.Logging
@@ -84,10 +86,28 @@ module UaSubscriptionOptions =
         ReconnectDelayMs = intEnv "DS2_UA_RECONNECT_MS" 3000 250
     }
 
+    let validate (options: UaSubscriptionOptions) =
+        match Uri.TryCreate(options.EndpointUrl, UriKind.Absolute) with
+        | false, _ -> invalidOp "DS2_UA_ENDPOINT must be an absolute opc.tcp:// URI."
+        | true, uri when not (String.Equals(uri.Scheme, "opc.tcp", StringComparison.OrdinalIgnoreCase)) ->
+            invalidOp "DS2_UA_ENDPOINT must use the opc.tcp:// scheme."
+        | true, uri ->
+            let insecureLocalOptIn = boolEnv "DS2_UA_INSECURE_LOCAL_DEV" false
+            if not options.UseSecurity && (not uri.IsLoopback || not insecureLocalOptIn) then
+                invalidOp "Unsecured Collector OPC UA is restricted to explicit loopback development mode."
+            if options.AutoAcceptUntrustedCertificates && (not uri.IsLoopback || not insecureLocalOptIn) then
+                invalidOp "Automatic OPC UA certificate acceptance is restricted to explicit loopback development mode."
+            if not uri.IsLoopback && not options.UseCertificateIdentity then
+                invalidOp "Remote Collector OPC UA requires certificate user identity."
+            if options.PairLocalCertificates && not uri.IsLoopback then
+                invalidOp "DS2_UA_PAIR_LOCAL_CERTIFICATES can only be used with a loopback Agent endpoint."
+            options
+
 type UaSignalNode = {
     NodeId: NodeId
     GlobalAssetId: GlobalAssetId
     SignalId: SignalId
+    Unit: string option
     Policy: UaCollectionPolicy option
 }
 
@@ -97,8 +117,14 @@ and UaCollectionPolicy = {
     PublishingIntervalMs: int option
     DeadbandAbsolute: float option
     DeadbandPercent: float option
+    EngineeringRangeLow: float option
+    EngineeringRangeHigh: float option
     QueueSize: int option
     Retention: string
+}
+
+type UaEventNode = {
+    NodeId: NodeId
 }
 
 type UaMonitoredItemSettings = {
@@ -111,7 +137,18 @@ type UaMonitoredItemSettings = {
 }
 
 module UaSubscription =
+
+    [<Literal>]
+    let MaxEventPayloadBytes = 262_144
     let private assetNamespacePrefix = "urn:ds:asset:"
+
+    let isAcceptedEndpointSecurity useSecurity (endpoint: EndpointDescription) =
+        if not useSecurity then endpoint.SecurityMode = MessageSecurityMode.None
+        else
+            endpoint.SecurityMode = MessageSecurityMode.SignAndEncrypt
+            && (endpoint.SecurityPolicyUri = SecurityPolicies.Basic256Sha256
+                || endpoint.SecurityPolicyUri = SecurityPolicies.Aes128_Sha256_RsaOaep
+                || endpoint.SecurityPolicyUri = SecurityPolicies.Aes256_Sha256_RsaPss)
 
     let tryGlobalAssetId (namespaceUri: string) =
         if String.IsNullOrWhiteSpace namespaceUri ||
@@ -192,9 +229,27 @@ module UaSubscription =
                 PublishingIntervalMs = intValue SignalPolicyUaMetadata.PublishingIntervalMs
                 DeadbandAbsolute = floatValue SignalPolicyUaMetadata.DeadbandAbsolute
                 DeadbandPercent = floatValue SignalPolicyUaMetadata.DeadbandPercent
+                EngineeringRangeLow = floatValue SignalPolicyUaMetadata.EngineeringRangeLow
+                EngineeringRangeHigh = floatValue SignalPolicyUaMetadata.EngineeringRangeHigh
                 QueueSize = intValue SignalPolicyUaMetadata.QueueSize
                 Retention = stringValue SignalPolicyUaMetadata.Retention |> Option.defaultValue ""
             }
+
+    let private readUnit (session: Session) (signalNodeId: NodeId) =
+        browseChildren session signalNodeId
+        |> Seq.tryPick (fun reference ->
+            if reference.NodeClass <> NodeClass.Variable ||
+               not (String.Equals(reference.BrowseName.Name, SignalUaMetadata.Unit, StringComparison.Ordinal)) then None
+            else
+                let childId = ExpandedNodeId.ToNodeId(reference.NodeId, session.NamespaceUris)
+                if isNull childId then None
+                else
+                    let value = session.ReadValue childId
+                    if isNull value || StatusCode.IsBad value.StatusCode || isNull value.Value then None
+                    else
+                        Convert.ToString(value.Value, CultureInfo.InvariantCulture)
+                        |> Option.ofObj
+                        |> Option.filter (String.IsNullOrWhiteSpace >> not))
 
     let monitoredItemSettings (options: UaSubscriptionOptions) (policy: UaCollectionPolicy option) =
         let samplingInterval =
@@ -223,10 +278,8 @@ module UaSubscription =
             | Some p when p.AcquisitionMode = AcquisitionMode.ChangeOfValue ->
                 match p.DeadbandAbsolute, p.DeadbandPercent with
                 | Some value, _ -> DeadbandType.Absolute, value
-                // OPC UA Percent deadband requires a signal EURange. Current AID/XGT
-                // interaction schema has no engineering range, so do not submit an
-                // invalid server filter. Metadata is preserved and a warning is logged.
-                | None, Some _ -> DeadbandType.None, 0.0
+                | None, Some value when p.EngineeringRangeLow.IsSome && p.EngineeringRangeHigh.IsSome ->
+                    DeadbandType.Percent, value
                 | _ -> DeadbandType.None, 0.0
             | _ -> DeadbandType.None, 0.0
         {
@@ -237,6 +290,127 @@ module UaSubscription =
             DeadbandType = uint32 deadbandType
             DeadbandValue = deadbandValue
         }
+
+    let eventFilter () =
+        let select (fieldName: string) =
+            let operand = SimpleAttributeOperand()
+            operand.TypeDefinitionId <- ObjectTypeIds.BaseEventType
+            operand.AttributeId <- Attributes.Value
+            operand.BrowsePath <- QualifiedNameCollection([| QualifiedName(fieldName) |])
+            operand
+        let filter = EventFilter()
+        filter.SelectClauses <- SimpleAttributeOperandCollection()
+        for field in
+            [| BrowseNames.EventId
+               BrowseNames.EventType
+               BrowseNames.SourceNode
+               BrowseNames.SourceName
+               BrowseNames.Time
+               BrowseNames.ReceiveTime
+               BrowseNames.Message
+               BrowseNames.Severity |] do
+            filter.SelectClauses.Add(select field)
+        filter.WhereClause <- ContentFilter()
+        filter
+
+    let private stableEventEnvelopeId (eventId: byte array) =
+        if eventId.Length = 16 then Guid eventId
+        else
+            let digest = SHA256.HashData eventId
+            Guid(digest.[0..15])
+
+    /// Stable across UA retransmission/reconnect so sink dedup remains effective.
+    let stableSampleEnvelopeId
+        (globalAssetId: GlobalAssetId)
+        (signalId: SignalId)
+        (sourceTimestamp: DateTimeOffset)
+        (statusCode: uint32)
+        (value: SampleValue) =
+        use stream = new MemoryStream()
+        use writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, true)
+        writer.Write globalAssetId.Value
+        writer.Write signalId.Value
+        writer.Write sourceTimestamp.UtcDateTime.Ticks
+        writer.Write statusCode
+        match value with
+        | ValueDouble number -> writer.Write(byte 1); writer.Write number
+        | ValueLong number -> writer.Write(byte 2); writer.Write number
+        | ValueString text -> writer.Write(byte 3); writer.Write(defaultArg (Option.ofObj text) "")
+        | ValueBool state -> writer.Write(byte 4); writer.Write state
+        | ValueNone -> writer.Write(byte 0)
+        writer.Flush()
+        let digest = SHA256.HashData(stream.ToArray())
+        Guid(digest.[0..15])
+
+    let tryEventGlobalAssetId (session: Session) (fields: VariantCollection) =
+        if isNull fields || fields.Count < 3 then None
+        else
+            match fields.[2].Value with
+            | :? NodeId as sourceNode ->
+                session.NamespaceUris.GetString(uint32 sourceNode.NamespaceIndex)
+                |> tryGlobalAssetId
+            | _ -> None
+
+    /// Decodes the JSON contract emitted by DsNodeManager from the standard
+    /// BaseEvent fields selected by eventFilter.
+    let tryEventEnvelope
+        (origin: string)
+        (globalAssetId: GlobalAssetId)
+        (fields: VariantCollection) : Envelope option =
+        try
+            if isNull fields || fields.Count < 8 then None
+            else
+                let value index = fields.[index].Value
+                let eventId = value 0 :?> byte array
+                if isNull eventId || eventId.Length = 0 then None
+                else
+                    let sourceName = Convert.ToString(value 3, CultureInfo.InvariantCulture)
+                    let sourceTimestamp =
+                        match value 4 with
+                        | :? DateTime as timestamp -> DateTimeOffset(timestamp.ToUniversalTime())
+                        | _ -> DateTimeOffset.UtcNow
+                    let receiveTimestamp =
+                        match value 5 with
+                        | :? DateTime as timestamp -> Some(DateTimeOffset(timestamp.ToUniversalTime()))
+                        | _ -> None
+                    let message =
+                        match value 6 with
+                        | :? LocalizedText as localized -> localized.Text
+                        | raw -> Convert.ToString(raw, CultureInfo.InvariantCulture)
+                    if String.IsNullOrWhiteSpace message || message.Length > MaxEventPayloadBytes then
+                        raise (InvalidDataException "OPC UA event message exceeds the supported size.")
+                    use document = JsonDocument.Parse message
+                    let root = document.RootElement
+                    let mutable eventTypeElement = Unchecked.defaultof<JsonElement>
+                    let mutable sourceSignalElement = Unchecked.defaultof<JsonElement>
+                    let mutable payloadElement = Unchecked.defaultof<JsonElement>
+                    if not (root.TryGetProperty("eventTypeSemanticId", &eventTypeElement))
+                       || not (root.TryGetProperty("payload", &payloadElement)) then None
+                    else
+                        let signalId =
+                            if root.TryGetProperty("sourceSignalId", &sourceSignalElement) then
+                                sourceSignalElement.GetString()
+                            else sourceName
+                        let payloadJson = payloadElement.GetRawText()
+                        if String.IsNullOrWhiteSpace signalId
+                           || Encoding.UTF8.GetByteCount(payloadJson) > MaxEventPayloadBytes then None
+                        else
+                            Some {
+                                EnvelopeId = stableEventEnvelopeId eventId
+                                Kind = Event
+                                GlobalAssetId = globalAssetId
+                                SignalId = SignalId signalId
+                                SourceTimestamp = sourceTimestamp
+                                ServerTimestamp = receiveTimestamp
+                                Value = ValueNone
+                                StatusCode = uint32 StatusCodes.Good
+                                Unit = None
+                                SeqNo = None
+                                Origin = origin
+                                EventPayloadJson = Some payloadJson
+                                EventTypeSemanticId = Some(eventTypeElement.GetString())
+                            }
+        with _ -> None
 
     let discoverSignalNodes (session: Session) =
         let found = ResizeArray<UaSignalNode>()
@@ -261,6 +435,7 @@ module UaSubscription =
                                                 NodeId = childId
                                                 GlobalAssetId = globalAssetId
                                                 SignalId = SignalId identifier
+                                                Unit = readUnit session childId
                                                 Policy = readCollectionPolicy session childId
                                             }
                                         with _ -> ()
@@ -270,17 +445,35 @@ module UaSubscription =
                 visit (NodeId("Asset", nsIndex))
         List.ofSeq found
 
+    let discoverEventNodes (session: Session) =
+        let mutable foundAssetEvents = false
+        for index in 0 .. session.NamespaceUris.Count - 1 do
+            let nsIndex = uint16 index
+            let namespaceUri = session.NamespaceUris.GetString(uint32 index)
+            match tryGlobalAssetId namespaceUri with
+            | None -> ()
+            | Some _ ->
+                browseChildren session (NodeId("Asset", nsIndex))
+                |> Seq.tryFind (fun reference ->
+                    reference.NodeClass = NodeClass.Object
+                    && String.Equals(reference.BrowseName.Name, "Events", StringComparison.Ordinal))
+                |> Option.iter (fun reference ->
+                    let childId = ExpandedNodeId.ToNodeId(reference.NodeId, session.NamespaceUris)
+                    if not (isNull childId) then
+                        foundAssetEvents <- true)
+        // The standard Server object is the stable aggregation point for all
+        // dynamically registered asset root notifiers.
+        if foundAssetEvents then [ { NodeId = ObjectIds.Server } ] else []
+
 /// Agent OPC UA 서버의 모든 결정론적 SignalId Variable을 구독해 SQLite sink로 전달한다.
 type UaSubscriptionService(
         options: UaSubscriptionOptions,
         sink: SqliteSinkWriter,
+        outbox: SqliteEdgeBuffer,
         registry: SeriesIdRegistry,
+        runtimeState: CollectorRuntimeState,
         logger: ILogger<UaSubscriptionService>) =
     inherit BackgroundService()
-
-    let queue =
-        BoundedChannelOptions(8192, FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true, SingleWriter = false)
-        |> Channel.CreateBounded<Envelope>
 
     let buildClientConfiguration () =
         let root = Path.Combine(options.DataRoot, "ua-client")
@@ -395,6 +588,10 @@ type UaSubscriptionService(
         let! certificateOk = instance.CheckApplicationInstanceCertificates(silent = true)
         if not certificateOk then invalidOp "Collector OPC UA client certificate could not be created."
         let endpointDescription = CoreClientUtils.SelectEndpoint(config, options.EndpointUrl, options.UseSecurity, 15_000)
+        if not (UaSubscription.isAcceptedEndpointSecurity options.UseSecurity endpointDescription) then
+            invalidOp (sprintf
+                "Collector OPC UA endpoint security rejected: mode=%O policy=%s"
+                endpointDescription.SecurityMode endpointDescription.SecurityPolicyUri)
         let endpoint = ConfiguredEndpoint(null, endpointDescription, EndpointConfiguration.Create(config))
         let! applicationCertificate = config.SecurityConfiguration.ApplicationCertificate.Find(true)
         if not (isNull applicationCertificate) then
@@ -418,24 +615,54 @@ type UaSubscriptionService(
     }
 
     let writerLoop (ct: CancellationToken) = task {
+        let retryBackoff attempts =
+            let seconds = Math.Min(60.0, Math.Pow(2.0, float (min attempts 6)))
+            TimeSpan.FromSeconds seconds
         try
             while not ct.IsCancellationRequested do
-                let! available = queue.Reader.WaitToReadAsync(ct).AsTask()
-                if available then
-                    let batch = ResizeArray<Envelope>(512)
-                    let mutable item = Unchecked.defaultof<Envelope>
-                    while batch.Count < 512 && queue.Reader.TryRead(&item) do batch.Add item
-                    if batch.Count > 0 then
-                        let! rows = sink.WriteBatchAsync batch
-                        logger.LogDebug("OPC UA batch persisted: received={Received}, inserted={Inserted}", batch.Count, rows)
+                try
+                    let due = outbox.PullDue 512
+                    if due.IsEmpty then
+                        do! Task.Delay(200, ct)
+                    else
+                        try
+                            let! rows = sink.WriteBatchAsync(due |> Seq.map (fun row -> row.Envelope))
+                            outbox.AckMany(due |> Seq.map (fun row -> row.EnvelopeId))
+                            runtimeState.MarkPersisted(due.Length)
+                            logger.LogDebug(
+                                "Collector outbox batch persisted: received={Received}, inserted={Inserted}, pending={Pending}",
+                                due.Length,
+                                rows,
+                                outbox.PendingCount())
+                        with ex ->
+                            let retries =
+                                due
+                                |> Seq.map (fun row -> row.EnvelopeId, retryBackoff (row.Attempts + 1))
+                                |> Seq.toArray
+                            outbox.RequeueMany retries
+                            runtimeState.MarkWriteFailure(retries.Length, ex.Message)
+                            logger.LogError(
+                                ex,
+                                "Collector sink write failed; durable envelopes requeued: count={Count}, pending={Pending}",
+                                retries.Length,
+                                outbox.PendingCount())
+                            do! Task.Delay(250, ct)
+                with
+                | :? OperationCanceledException -> ()
+                | ex ->
+                    runtimeState.MarkWriteFailure(0, ex.Message)
+                    logger.LogError(ex, "Collector durable outbox loop failed; retrying.")
+                    do! Task.Delay(1000, ct)
         with :? OperationCanceledException -> ()
     }
 
     let attachSubscriptions (session: Session) =
         let nodes = UaSubscription.discoverSignalNodes session
-        for node in nodes do
-            let seriesId = Base64Url.encode node.GlobalAssetId.Value + "." + node.SignalId.Value
-            registry.Register(seriesId, {
+        let eventNodes = UaSubscription.discoverEventNodes session
+        nodes
+        |> Seq.map (fun node ->
+            let seriesId = AssetTelemetryIdentity.seriesId node.GlobalAssetId node.SignalId
+            seriesId, {
                 GlobalAssetId = node.GlobalAssetId.Value
                 SignalId = node.SignalId.Value
                 DefaultTable = "signals"
@@ -444,8 +671,20 @@ type UaSubscriptionService(
                     |> Option.map (fun policy -> policy.Retention)
                     |> Option.filter (String.IsNullOrWhiteSpace >> not)
             })
+        |> registry.ReplaceAll
 
         let subscriptions = ResizeArray<Subscription>()
+        let ensureCreatedItems (subscription: Subscription) =
+            let rejected =
+                subscription.MonitoredItems
+                |> Seq.choose (fun item ->
+                    let error = item.Status.Error
+                    if isNull error || ServiceResult.IsGood error then None
+                    else Some($"{item.DisplayName}={error.StatusCode}"))
+                |> Seq.toArray
+            if rejected.Length > 0 then
+                let details = String.Join(", ", rejected)
+                invalidOp ($"OPC UA monitored item creation failed: {details}")
         nodes
         |> List.map (fun node -> node, UaSubscription.monitoredItemSettings options node.Policy)
         |> List.groupBy (fun (_, settings) -> settings.PublishingIntervalMs)
@@ -458,12 +697,6 @@ type UaSubscriptionService(
             subscription.MaxNotificationsPerPublish <- 0u
 
             for node, settings in group do
-                match node.Policy with
-                | Some policy when policy.DeadbandAbsolute.IsNone && policy.DeadbandPercent.IsSome ->
-                    logger.LogWarning(
-                        "CollectionPolicy percent deadband not applied because EURange is unavailable: signalId={SignalId}",
-                        node.SignalId.Value)
-                | _ -> ()
                 let item = new MonitoredItem(subscription.DefaultItem)
                 item.DisplayName <- node.SignalId.Value
                 item.StartNodeId <- node.NodeId
@@ -486,42 +719,108 @@ type UaSubscriptionService(
                         let serverTimestamp =
                             if value.ServerTimestamp = DateTime.MinValue then None
                             else Some(DateTimeOffset(value.ServerTimestamp.ToUniversalTime()))
+                        let sampleValue = UaSubscription.toSampleValue value.Value
                         let envelope = {
-                            EnvelopeId = Guid.NewGuid()
+                            EnvelopeId = UaSubscription.stableSampleEnvelopeId
+                                node.GlobalAssetId node.SignalId sourceTimestamp value.StatusCode.Code sampleValue
                             Kind = Sample
                             GlobalAssetId = node.GlobalAssetId
                             SignalId = node.SignalId
                             SourceTimestamp = sourceTimestamp
                             ServerTimestamp = serverTimestamp
-                            Value = UaSubscription.toSampleValue value.Value
+                            Value = sampleValue
                             StatusCode = value.StatusCode.Code
-                            Unit = None
+                            Unit = node.Unit
                             SeqNo = None
                             Origin = "opcua:" + options.EndpointUrl
                             EventPayloadJson = None
                             EventTypeSemanticId = None
                         }
-                        queue.Writer.TryWrite envelope |> ignore
+                        runtimeState.MarkReceived()
+                        try
+                            // OPC UA callback 반환 전에 durable outbox에 기록한다. process crash나 sink 장애가
+                            // 발생해도 다음 기동에서 ack되지 않은 envelope를 다시 flush한다.
+                            outbox.Enqueue envelope
+                        with ex ->
+                            runtimeState.MarkEnqueueFailure(ex.Message)
+                            logger.LogCritical(
+                                ex,
+                                "Collector durable enqueue failed; notification could not be accepted: signalId={SignalId}",
+                                node.SignalId.Value)
                     | _ -> ()))
                 subscription.AddItem item
 
             session.AddSubscription subscription |> ignore
             subscription.Create()
+            ensureCreatedItems subscription
             subscriptions.Add subscription)
 
+        if not eventNodes.IsEmpty then
+            let subscription = new Subscription(session.DefaultSubscription)
+            subscription.DisplayName <- "Ds2.Collector.Events"
+            subscription.PublishingInterval <- options.PublishingIntervalMs
+            subscription.KeepAliveCount <- 10u
+            subscription.LifetimeCount <- 100u
+            subscription.MaxNotificationsPerPublish <- 0u
+
+            for eventNode in eventNodes do
+                let item = new MonitoredItem(subscription.DefaultItem)
+                item.DisplayName <- "Ds2.AssetEvents"
+                item.StartNodeId <- eventNode.NodeId
+                item.AttributeId <- Attributes.EventNotifier
+                item.QueueSize <- 1000u
+                item.DiscardOldest <- true
+                item.Filter <- UaSubscription.eventFilter()
+                item.add_Notification(MonitoredItemNotificationEventHandler(fun _ args ->
+                    match args.NotificationValue with
+                    | :? EventFieldList as notification ->
+                        match UaSubscription.tryEventGlobalAssetId session notification.EventFields with
+                        | None -> logger.LogDebug("Collector ignored a non-asset OPC UA event.")
+                        | Some globalAssetId ->
+                            match UaSubscription.tryEventEnvelope
+                                ("opcua:" + options.EndpointUrl)
+                                globalAssetId
+                                notification.EventFields with
+                            | None ->
+                                logger.LogWarning(
+                                    "Collector rejected an asset OPC UA event with an invalid wire contract: asset={Asset}",
+                                    globalAssetId.Value)
+                            | Some envelope ->
+                                runtimeState.MarkReceived()
+                                try outbox.Enqueue envelope
+                                with ex ->
+                                    runtimeState.MarkEnqueueFailure(ex.Message)
+                                    logger.LogCritical(
+                                        ex,
+                                        "Collector durable enqueue failed; event could not be accepted: asset={Asset} signalId={SignalId}",
+                                        globalAssetId.Value,
+                                        envelope.SignalId.Value)
+                    | _ -> ()))
+                subscription.AddItem item
+
+            session.AddSubscription subscription |> ignore
+            subscription.Create()
+            ensureCreatedItems subscription
+            subscriptions.Add subscription
+
         logger.LogInformation(
-            "OPC UA subscribed: endpoint={Endpoint}, signals={SignalCount}, policyGroups={GroupCount}",
+            "OPC UA subscribed: endpoint={Endpoint}, signals={SignalCount}, eventNotifiers={EventNotifierCount}, subscriptions={SubscriptionCount}",
             options.EndpointUrl,
             nodes.Length,
+            eventNodes.Length,
             subscriptions.Count)
         List.ofSeq subscriptions
 
     override _.ExecuteAsync(stoppingToken: CancellationToken) = task {
-        if not options.Enabled then
-            logger.LogInformation("OPC UA subscription disabled (DS2_UA_SUBSCRIBE_ENABLED=false).")
-        else
-            let writer = writerLoop stoppingToken
-            try
+        runtimeState.MarkStarted(options.Enabled)
+        let writer = writerLoop stoppingToken
+        try
+            if not options.Enabled then
+                logger.LogInformation("OPC UA subscription disabled (DS2_UA_SUBSCRIBE_ENABLED=false); durable outbox flush remains active.")
+                try
+                    do! Task.Delay(Timeout.Infinite, stoppingToken)
+                with :? OperationCanceledException -> ()
+            else
                 try
                     while not stoppingToken.IsCancellationRequested do
                         let mutable session : Session = null
@@ -531,13 +830,18 @@ type UaSubscriptionService(
                                 let! connected = createSession ()
                                 session <- connected
                                 subscriptions <- attachSubscriptions session
+                                runtimeState.MarkConnected()
                                 while session.Connected && not stoppingToken.IsCancellationRequested do
                                     do! Task.Delay(1000, stoppingToken)
+                                if not stoppingToken.IsCancellationRequested then
+                                    runtimeState.MarkDisconnected(Some "OPC UA session disconnected.")
                             with
                             | :? OperationCanceledException -> ()
                             | ex ->
+                                runtimeState.MarkDisconnected(Some ex.Message)
                                 logger.LogWarning(ex, "OPC UA subscription disconnected; retrying in {DelayMs}ms", options.ReconnectDelayMs)
                         finally
+                            runtimeState.MarkDisconnected(None)
                             for subscription in subscriptions do
                                 try subscription.Delete(true) with _ -> ()
                                 subscription.Dispose()
@@ -547,9 +851,9 @@ type UaSubscriptionService(
                         if not stoppingToken.IsCancellationRequested then
                             do! Task.Delay(options.ReconnectDelayMs, stoppingToken)
                 with :? OperationCanceledException -> ()
-            finally
-                queue.Writer.TryComplete() |> ignore
-            try
-                do! writer
-            with :? OperationCanceledException -> ()
+        finally
+            runtimeState.MarkStopped()
+        try
+            do! writer
+        with :? OperationCanceledException -> ()
     }

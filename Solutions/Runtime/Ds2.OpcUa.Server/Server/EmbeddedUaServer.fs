@@ -4,6 +4,7 @@ open System
 open System.Collections.Concurrent
 open System.Collections.Generic
 open System.IO
+open System.Text.Json
 open System.Threading.Tasks
 open Opc.Ua
 open Opc.Ua.Configuration
@@ -34,7 +35,8 @@ type EmbeddedUaServer(
         maxSessions: int,
         sessionTimeoutMs: int,
         minSamplingIntervalMs: int,
-        defaultSamplingIntervalMs: int) =
+        defaultSamplingIntervalMs: int,
+        allowExternalEventInjection: bool) =
 
     static let log = log4net.LogManager.GetLogger("EmbeddedUaServer")
 
@@ -44,7 +46,7 @@ type EmbeddedUaServer(
     let aidSignalNodes = ConcurrentDictionary<string, struct (GlobalAssetId * SignalId)>(StringComparer.Ordinal)
     let mutable aidSignalNodeCount = 0
     let mutable server : DsUaServer option = None
-    /// WriteRuntimeIo 시 key 매치 실패 (silent drop) 누적 카운트. 진단용.
+    /// WriteRuntimeIo 시 key 매치 실패 누적 카운트. 주기적 경고 로그와 진단 API에 노출한다.
     let mutable writeMissCount = 0L
     let mutable stateWriteMissCount = 0L
     let mutable aidWriteMissCount = 0L
@@ -64,7 +66,7 @@ type EmbeddedUaServer(
         | _ -> GlobalAssetId(sprintf "urn:dualsoft:promaker:%s:%s" (project.Id.ToString("N")) (system.Id.ToString("N")))
 
     let aidGaidOf (project: Project) =
-        GlobalAssetId(sprintf "urn:dualsoft:aas:%s" (project.Id.ToString("N")))
+        AssetTelemetryIdentity.aidProject project.Id
 
     let xsdToBuiltIn = function
         | XsDouble -> BuiltInType.Double
@@ -204,12 +206,43 @@ type EmbeddedUaServer(
             if not certificateOk then
                 invalidOp "OPC UA application certificate could not be created or validated."
             let instance = ApplicationInstance(ApplicationConfiguration = appConfig)
-            let uaServer = new DsUaServer(allocator, managedNamespaces, max minSamplingIntervalMs defaultSamplingIntervalMs)
+            let uaServer =
+                new DsUaServer(
+                    allocator,
+                    managedNamespaces,
+                    max minSamplingIntervalMs defaultSamplingIntervalMs,
+                    allowExternalEventInjection)
             do! instance.Start uaServer
             server <- Some uaServer
     }
 
     /// v1 생성자 호환: 기본 샘플링 주기를 지정하지 않은 호출자는 1000ms를 사용한다.
+    new(
+        root: string,
+        endpointUrl: string,
+        applicationName: string,
+        applicationUri: string,
+        allowAnonymous: bool,
+        allowUnsecuredEndpoint: bool,
+        autoAcceptUntrustedCertificates: bool,
+        maxSessions: int,
+        sessionTimeoutMs: int,
+        minSamplingIntervalMs: int,
+        defaultSamplingIntervalMs: int) =
+        new EmbeddedUaServer(
+            root,
+            endpointUrl,
+            applicationName,
+            applicationUri,
+            allowAnonymous,
+            allowUnsecuredEndpoint,
+            autoAcceptUntrustedCertificates,
+            maxSessions,
+            sessionTimeoutMs,
+            minSamplingIntervalMs,
+            defaultSamplingIntervalMs,
+            false)
+
     new(
         root: string,
         endpointUrl: string,
@@ -226,12 +259,13 @@ type EmbeddedUaServer(
             applicationName,
             applicationUri,
             allowAnonymous,
-            true,
-            true,
+            false,
+            false,
             maxSessions,
             sessionTimeoutMs,
             minSamplingIntervalMs,
-            defaultSamplingIntervalMs)
+            defaultSamplingIntervalMs,
+            false)
 
     new(
         root: string,
@@ -248,12 +282,13 @@ type EmbeddedUaServer(
             applicationName,
             applicationUri,
             allowAnonymous,
-            true,
-            true,
+            false,
+            false,
             maxSessions,
             sessionTimeoutMs,
             minSamplingIntervalMs,
-            max minSamplingIntervalMs 1000)
+            max minSamplingIntervalMs 1000,
+            false)
 
     member _.EndpointUrl = endpointUrl
     member _.IsRunning = server.IsSome
@@ -431,6 +466,76 @@ type EmbeddedUaServer(
             changed
 
     /// Work/Call/runtime IO 노드의 값을 유지하고 품질만 변경한다.
+    /// Publishes an AID event through the asset EventNotifier subtree consumed by Collector.
+    member _.RaiseAidEvent(
+            signalId: string,
+            eventTypeSemanticId: string,
+            sourceTs: DateTime,
+            payloadJson: string) =
+        match server with
+        | None -> false
+        | Some uaServer ->
+            match aidSignalNodes.TryGetValue signalId with
+            | true, struct (gaid, _) ->
+                uaServer.NodeManager.RaiseAssetEvent(
+                    gaid,
+                    eventTypeSemanticId,
+                    signalId,
+                    sourceTs,
+                    payloadJson).IsSome
+            | _ ->
+                let total = Threading.Interlocked.Increment(&aidWriteMissCount)
+                warnMiss "aid-event" 1 total aidSignalNodes.Count
+                false
+
+    /// Converts the engine abnormal stream into asset-scoped OPC UA events.
+    member _.RaiseRuntimeAbnormal(record: AbnormalRecord) =
+        match server with
+        | None -> false
+        | Some uaServer ->
+            let target = record.Target
+            let mappedNode =
+                target.ApiCallId
+                |> Option.bind (fun id ->
+                    match runtimeIoNodes.TryGetValue id with
+                    | true, node -> Some node
+                    | _ -> None)
+                |> Option.orElseWith (fun () ->
+                    target.CallId
+                    |> Option.bind (fun id ->
+                        match callStateNodes.TryGetValue id with
+                        | true, node -> Some node
+                        | _ -> None))
+                |> Option.orElseWith (fun () ->
+                    target.WorkId
+                    |> Option.bind (fun id ->
+                        match workStateNodes.TryGetValue id with
+                        | true, node -> Some node
+                        | _ -> None))
+            match mappedNode with
+            | None ->
+                let total = Threading.Interlocked.Increment(&stateWriteMissCount)
+                warnMiss "runtime-abnormal" 1 total (runtimeIoNodes.Count + callStateNodes.Count + workStateNodes.Count)
+                false
+            | Some(struct (gaid, sourceSignalId)) ->
+                let nullableGuid = Option.map string >> Option.toObj
+                let payload =
+                    JsonSerializer.Serialize({|
+                        kind = record.Kind.ToString()
+                        kindValue = int record.Kind
+                        callId = nullableGuid target.CallId
+                        apiCallId = nullableGuid target.ApiCallId
+                        workId = nullableGuid target.WorkId
+                        elapsedMs = record.ElapsedMs |> Option.toNullable
+                        observed = record.Observed |> Option.toNullable
+                    |})
+                uaServer.NodeManager.RaiseAssetEvent(
+                    gaid,
+                    "urn:dualsoft:event:runtime-abnormal/1/0",
+                    sourceSignalId.Value,
+                    record.TimestampUtc,
+                    payload).IsSome
+
     member _.SetRuntimeQuality(statusCode: uint32, sourceTs: DateTime) =
         match server with
         | None -> 0

@@ -154,6 +154,22 @@ let [<Literal>] AimcSubmodelSemanticId =
 let [<Literal>] OperationalDataSubmodelIdShort = "OperationalData"
 let OperationalDataSubmodelSemanticId = cdId "sm/OperationalData/1/0"
 
+/// Time Series Data (IDTA 02008 v1.1) LinkedSegment access points.
+let [<Literal>] TimeSeriesSubmodelIdShort = "TimeSeries"
+let [<Literal>] TimeSeriesSubmodelSemanticId =
+    "https://admin-shell.io/idta/TimeSeries/1/1"
+let [<Literal>] TimeSeriesMetadataSemanticId =
+    "https://admin-shell.io/idta/TimeSeries/Metadata/1/1"
+let [<Literal>] TimeSeriesSegmentsSemanticId =
+    "https://admin-shell.io/idta/TimeSeries/Segments/1/1"
+let [<Literal>] TimeSeriesLinkedSegmentSemanticId =
+    "https://admin-shell.io/idta/TimeSeries/Segments/LinkedSegment/1/1"
+let [<Literal>] TimeSeriesEndpointSemanticId =
+    "https://admin-shell.io/idta/TimeSeries/Endpoint/1/1"
+let [<Literal>] TimeSeriesQuerySemanticId =
+    "https://admin-shell.io/idta/TimeSeries/Query/1/1"
+let TimeSeriesIdExtensionSemanticId = cdId "cd/ext.time-series-id/1/0"
+
 // -----------------------------------------------------------------------------
 // AID / 신호 확장 요소 CD (ADR-002 · ADR-008 준수)
 // -----------------------------------------------------------------------------

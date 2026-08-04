@@ -56,6 +56,8 @@ module AssetInterfacesDescriptionTypes =
     type XgtCpuModel =
         | Xgi
         | Xgk
+        /// XGB/XBC/XEC compact PLC family using the XGT FEnet protocol.
+        | Xgb
 
     type XgtTransport =
         | XgtTcp

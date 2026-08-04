@@ -8,6 +8,7 @@ open Ev2.PLC.Protocol.LS
 type PlcVendor =
     | LsXgi
     | LsXgk
+    | LsXgb
     | Mitsubishi
 
 /// Hub address ↔ PLC tag 매핑 한 항목.
@@ -106,7 +107,8 @@ module PlcAddressInfer =
         let upper = s.ToUpperInvariant()
         match vendor with
         | PlcVendor.LsXgi
-        | PlcVendor.LsXgk ->
+        | PlcVendor.LsXgk
+        | PlcVendor.LsXgb ->
             // LS 표기: %<영역><타입문자><주소>.  타입문자 X=Bit, B=Byte, W=Word, D=DWord, L=LWord
             // 첫 % 이후 타입 문자 (보통 두번째 문자) 를 보고 분기.
             // 단, 워드/DWord 주소에 .N 비트 인덱스가 붙은 경우(%QW3070.3) 는 비트 액세스 → Bool.
@@ -148,6 +150,7 @@ module CollectorConfig =
         match v with
         | PlcVendor.LsXgi      -> "LsXgi"
         | PlcVendor.LsXgk      -> "LsXgk"
+        | PlcVendor.LsXgb      -> "LsXgb"
         | PlcVendor.Mitsubishi -> "Mitsubishi"
 
     let private dtypeStr (d: CoreDataTypesModule.PlcDataType) =

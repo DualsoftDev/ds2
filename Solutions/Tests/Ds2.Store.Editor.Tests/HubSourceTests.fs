@@ -1,6 +1,7 @@
 module Ds2.Store.Editor.Tests.HubSourceTests
 
 open System
+open System.Net
 open System.Reflection
 open System.Text.Json
 open System.Threading.Tasks
@@ -90,6 +91,36 @@ let ``원격 단말은 device credential 검증 성공 시에만 허용`` () =
     Assert.False(SignalHubConnectionPolicy.isAllowed true false true false)
     // 로컬이라도 명시적으로 잘못된 헤더를 보냈다면 우회시키지 않는다.
     Assert.False(SignalHubConnectionPolicy.isAllowed true true true false)
+
+[<Fact>]
+let ``원격 단말 메서드는 수집 ingress만 허용`` () =
+    for methodName in [ "WriteTags"; "ReportScanHeartbeat"; "ReportPlcConnectionStatus" ] do
+        Assert.True(SignalHubConnectionPolicy.isRemoteMethodAllowed methodName)
+    for methodName in [ "WriteTag"; "SetScanIntervalMs"; "RuntimeStop"; "RuntimeGetSnapshot" ] do
+        Assert.False(SignalHubConnectionPolicy.isRemoteMethodAllowed methodName)
+
+[<Theory>]
+[<InlineData("127.0.0.1")>]
+[<InlineData("::1")>]
+[<InlineData("10.0.0.1")>]
+[<InlineData("172.16.0.1")>]
+[<InlineData("172.31.255.254")>]
+[<InlineData("192.168.10.20")>]
+[<InlineData("169.254.1.2")>]
+[<InlineData("fc00::1")>]
+[<InlineData("fd12:3456::1")>]
+[<InlineData("fe80::1")>]
+let ``private HTTP peer ranges are accepted`` (value: string) =
+    Assert.True(SignalHubConnectionPolicy.isPrivateOrLoopbackAddress(IPAddress.Parse value))
+
+[<Theory>]
+[<InlineData("8.8.8.8")>]
+[<InlineData("172.15.255.255")>]
+[<InlineData("172.32.0.1")>]
+[<InlineData("192.0.2.10")>]
+[<InlineData("2001:4860:4860::8888")>]
+let ``public HTTP peer ranges are rejected`` (value: string) =
+    Assert.False(SignalHubConnectionPolicy.isPrivateOrLoopbackAddress(IPAddress.Parse value))
 
 [<Fact>]
 let ``Runtime HubMethod names are locked`` () =

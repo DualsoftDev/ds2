@@ -14,6 +14,8 @@ let private policy signalId retention : SignalPolicy = {
     PublishingIntervalMs = Some 1000
     DeadbandAbsolute = Some 5.0
     DeadbandPercent = None
+    EngineeringRangeLow = None
+    EngineeringRangeHigh = None
     QueueSize = Some 10
     Retention = retention
 }
@@ -100,6 +102,29 @@ let ``SignalPolicy validate enforces sampled interval and deadband contract`` ()
             DeadbandPercent = Some 101.0
     }
     Assert.True(match SignalPolicy.validate invalidPercent with Error _ -> true | _ -> false)
+
+[<Fact>]
+let ``percent deadband requires a valid engineering range`` () =
+    let missingRange = {
+        policy "line1.cnc01.speed" "P90D" with
+            DeadbandAbsolute = None
+            DeadbandPercent = Some 2.5
+    }
+    Assert.True(match SignalPolicy.validate missingRange with Error _ -> true | _ -> false)
+
+    let invalidRange = {
+        missingRange with
+            EngineeringRangeLow = Some 100.0
+            EngineeringRangeHigh = Some 100.0
+    }
+    Assert.True(match SignalPolicy.validate invalidRange with Error _ -> true | _ -> false)
+
+    let validRange = {
+        missingRange with
+            EngineeringRangeLow = Some -50.0
+            EngineeringRangeHigh = Some 150.0
+    }
+    Assert.True(match SignalPolicy.validate validRange with Ok () -> true | _ -> false)
 
 [<Fact>]
 let ``LoggingSystemProperties carries SignalPolicies`` () =

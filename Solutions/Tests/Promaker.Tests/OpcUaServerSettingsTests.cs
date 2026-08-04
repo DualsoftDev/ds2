@@ -21,9 +21,9 @@ public sealed class OpcUaServerSettingsTests
         Assert.Equal(OpcUaServerSettings.DefaultMinSamplingIntervalMs, s.MinSamplingIntervalMs);
         Assert.Equal(OpcUaServerSettings.DefaultDefaultSamplingIntervalMs, s.DefaultSamplingIntervalMs);
         Assert.Equal(OpcUaServerSettings.DefaultPublishingIntervalMs, s.PublishingIntervalMs);
-        Assert.True(s.AllowAnonymous);
-        Assert.True(s.AllowUnsecuredEndpoint);
-        Assert.True(s.AutoAcceptUntrustedCertificates);
+        Assert.False(s.AllowAnonymous);
+        Assert.False(s.AllowUnsecuredEndpoint);
+        Assert.False(s.AutoAcceptUntrustedCertificates);
     }
 
     [Fact]
@@ -63,6 +63,8 @@ public sealed class OpcUaServerSettingsTests
                 AllowAnonymous = false,
                 AllowUnsecuredEndpoint = false,
                 AutoAcceptUntrustedCertificates = false,
+                AllowInsecureLocalDevelopment = true,
+                AllowExternalEventInjection = true,
             };
 
             Assert.True(original.TrySave(path));
@@ -81,6 +83,8 @@ public sealed class OpcUaServerSettingsTests
             Assert.False(loaded.AllowAnonymous);
             Assert.False(loaded.AllowUnsecuredEndpoint);
             Assert.False(loaded.AutoAcceptUntrustedCertificates);
+            Assert.True(loaded.AllowInsecureLocalDevelopment);
+            Assert.True(loaded.AllowExternalEventInjection);
         }
         finally
         {
@@ -112,5 +116,56 @@ public sealed class OpcUaServerSettingsTests
             if (Directory.Exists(root))
                 Directory.Delete(root, recursive: true);
         }
+    }
+
+    [Fact]
+    public void Agent_validation_rejects_insecure_options_without_explicit_local_opt_in()
+    {
+        var settings = new OpcUaServerSettings
+        {
+            Enabled = true,
+            EndpointUrl = "opc.tcp://localhost:62541/Ds2/OpcUa/Server",
+            AllowAnonymous = true,
+            AllowUnsecuredEndpoint = false,
+            AutoAcceptUntrustedCertificates = false,
+        };
+
+        Assert.False(settings.TryValidateForAgent(out var error));
+        Assert.Contains("allowInsecureLocalDevelopment", error);
+
+        settings.AllowInsecureLocalDevelopment = true;
+        Assert.True(settings.TryValidateForAgent(out error), error);
+    }
+
+    [Fact]
+    public void Agent_validation_never_allows_insecure_remote_endpoint()
+    {
+        var settings = new OpcUaServerSettings
+        {
+            Enabled = true,
+            EndpointUrl = "opc.tcp://0.0.0.0:62541/Ds2/OpcUa/Server",
+            AllowAnonymous = false,
+            AllowUnsecuredEndpoint = true,
+            AutoAcceptUntrustedCertificates = false,
+            AllowInsecureLocalDevelopment = true,
+        };
+
+        Assert.False(settings.TryValidateForAgent(out var error));
+        Assert.Contains("loopback", error);
+    }
+
+    [Fact]
+    public void Agent_validation_accepts_secure_remote_endpoint()
+    {
+        var settings = new OpcUaServerSettings
+        {
+            Enabled = true,
+            EndpointUrl = "opc.tcp://0.0.0.0:62541/Ds2/OpcUa/Server",
+            AllowAnonymous = false,
+            AllowUnsecuredEndpoint = false,
+            AutoAcceptUntrustedCertificates = false,
+        };
+
+        Assert.True(settings.TryValidateForAgent(out var error), error);
     }
 }

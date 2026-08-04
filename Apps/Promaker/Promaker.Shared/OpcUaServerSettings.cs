@@ -1,4 +1,5 @@
 using System.IO;
+using System.Net;
 using System.Text.Json;
 
 namespace Promaker.Shared;
@@ -38,11 +39,11 @@ public sealed class OpcUaServerSettings
     /// <summary>UA 스택 ApplicationUri. 인증서 SubjectAlternativeName 에도 반영.</summary>
     public string ApplicationUri { get; set; } = DefaultApplicationUri;
 
-    /// <summary>true 면 UserIdentityToken 없이 anonymous 세션 허용 (개발 편의). 운영은 false 권장.</summary>
-    public bool AllowAnonymous { get; set; } = true;
+    /// <summary>true 면 UserIdentityToken 없이 anonymous 세션 허용. 기본은 안전하게 false.</summary>
+    public bool AllowAnonymous { get; set; } = false;
 
     /// <summary>true 면 MessageSecurityMode.None endpoint도 노출한다. 운영에서는 false.</summary>
-    public bool AllowUnsecuredEndpoint { get; set; } = true;
+    public bool AllowUnsecuredEndpoint { get; set; } = false;
 
     /// <summary>동시 세션 상한.</summary>
     public int MaxSessions { get; set; } = DefaultMaxSessions;
@@ -59,8 +60,20 @@ public sealed class OpcUaServerSettings
     /// <summary>서버 subscription publishing interval 기본값.</summary>
     public int PublishingIntervalMs { get; set; } = DefaultPublishingIntervalMs;
 
-    /// <summary>true 면 신뢰 저장소에 없는 클라이언트 인증서를 자동 신뢰(개발 편의). 운영은 false.</summary>
-    public bool AutoAcceptUntrustedCertificates { get; set; } = true;
+    /// <summary>true 면 신뢰 저장소에 없는 클라이언트 인증서를 자동 신뢰. 기본은 false.</summary>
+    public bool AutoAcceptUntrustedCertificates { get; set; } = false;
+
+    /// <summary>
+    /// Allows insecure UA options only for an explicitly loopback-bound development endpoint.
+    /// Agent production activation rejects insecure options unless this opt-in is set.
+    /// </summary>
+    public bool AllowInsecureLocalDevelopment { get; set; } = false;
+
+    /// <summary>
+    /// Enables the externally callable RaiseAssetEvent UA method. Agent keeps this disabled because
+    /// certificate authentication alone does not distinguish event producers from read-only clients.
+    /// </summary>
+    public bool AllowExternalEventInjection { get; set; } = false;
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -83,6 +96,35 @@ public sealed class OpcUaServerSettings
         }
     }
 
+    /// <summary>손상된 파일을 기본값으로 숨기지 않고 엄격하게 읽는다.</summary>
+    public static bool TryLoadExact(string path, out OpcUaServerSettings? settings, out string error)
+    {
+        settings = null;
+        error = "";
+        try
+        {
+            if (!File.Exists(path))
+            {
+                error = $"OPC UA settings not found at '{path}'.";
+                return false;
+            }
+
+            var text = File.ReadAllText(path);
+            settings = JsonSerializer.Deserialize<OpcUaServerSettings>(text, JsonOpts);
+            if (settings is null)
+            {
+                error = "OPC UA settings JSON was empty.";
+                return false;
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = $"OPC UA settings JSON is invalid: {ex.Message}";
+            return false;
+        }
+    }
+
     /// <summary>
     /// Agent 전용 설정을 읽는다. 최초 설치로 파일이 아직 없을 때만 Agent 기본값(Enabled=true)을
     /// 사용한다. 파일이 손상된 경우에는 일반 로더의 안전 기본값(Enabled=false)으로 떨어진다.
@@ -101,18 +143,80 @@ public sealed class OpcUaServerSettings
         };
     }
 
+    /// <summary>
+    /// Validates settings before an Agent activation replaces the current runtime.
+    /// Insecure endpoints are never allowed on a non-loopback interface.
+    /// </summary>
+    public bool TryValidateForAgent(out string error)
+    {
+        error = "";
+        if (!Enabled) return true;
+
+        if (!Uri.TryCreate(EndpointUrl, UriKind.Absolute, out var endpoint)
+            || !string.Equals(endpoint.Scheme, "opc.tcp", StringComparison.OrdinalIgnoreCase)
+            || endpoint.Port <= 0)
+        {
+            error = "OPC UA endpointUrl must be an absolute opc.tcp:// URI with a valid port.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(ApplicationName) || string.IsNullOrWhiteSpace(ApplicationUri))
+        {
+            error = "OPC UA applicationName and applicationUri are required.";
+            return false;
+        }
+
+        if (MaxSessions is < 1 or > 10_000
+            || SessionTimeoutMs is < 1_000 or > 86_400_000
+            || MinSamplingIntervalMs is < 1 or > 3_600_000
+            || DefaultSamplingIntervalMs is < 1 or > 3_600_000
+            || PublishingIntervalMs is < 1 or > 3_600_000)
+        {
+            error = "OPC UA session and sampling settings are outside the supported range.";
+            return false;
+        }
+
+        var insecure = AllowAnonymous || AllowUnsecuredEndpoint || AutoAcceptUntrustedCertificates
+                       || AllowExternalEventInjection;
+        if (!insecure) return true;
+
+        if (!AllowInsecureLocalDevelopment)
+        {
+            error = "Insecure OPC UA options require allowInsecureLocalDevelopment=true.";
+            return false;
+        }
+
+        if (!IsLoopback(endpoint.Host))
+        {
+            error = "Insecure OPC UA development mode is restricted to a loopback endpoint.";
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool IsLoopback(string host)
+    {
+        if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase)) return true;
+        return IPAddress.TryParse(host, out var address) && IPAddress.IsLoopback(address);
+    }
+
     public bool TrySave(string path)
     {
+        string? temp = null;
         try
         {
             var dir = Path.GetDirectoryName(path);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
             var text = JsonSerializer.Serialize(this, JsonOpts);
-            File.WriteAllText(path, text);
+            temp = path + $".tmp-{Guid.NewGuid():N}";
+            File.WriteAllText(temp, text);
+            File.Move(temp, path, overwrite: true);
             return true;
         }
         catch
         {
+            try { if (temp is not null && File.Exists(temp)) File.Delete(temp); } catch { }
             return false;
         }
     }

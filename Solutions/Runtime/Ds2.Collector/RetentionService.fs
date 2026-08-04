@@ -10,6 +10,7 @@ open Microsoft.Data.Sqlite
 open Microsoft.Extensions.Hosting
 open Microsoft.Extensions.Logging
 open Ds2.Collector.DataApi
+open Ds2.Adapter.Common
 
 type RetentionOptions = {
     Enabled: bool
@@ -55,17 +56,51 @@ module Retention =
         match resolution.Retention |> Option.bind tryParseDuration with
         | None -> 0
         | Some retention ->
-            let cutoffUs = (nowUtc - retention).ToUnixTimeMilliseconds() * 1000L
+            let cutoffUs = UnixTime.toMicroseconds (nowUtc - retention)
             use connection = new SqliteConnection($"Data Source={telemetryDb};Pooling=False")
+            connection.Open()
+            use transaction = connection.BeginTransaction()
+            let delete table timestampColumn bucketWidthUs =
+                use command = connection.CreateCommand()
+                command.Transaction <- transaction
+                command.CommandText <-
+                    $"DELETE FROM {table}
+                      WHERE global_asset_id = $gaid AND signal_id = $signal
+                        AND {timestampColumn} + $bucketWidth <= $cutoff"
+                command.Parameters.AddWithValue("$gaid", resolution.GlobalAssetId) |> ignore
+                command.Parameters.AddWithValue("$signal", resolution.SignalId) |> ignore
+                command.Parameters.AddWithValue("$cutoff", cutoffUs) |> ignore
+                command.Parameters.AddWithValue("$bucketWidth", bucketWidthUs) |> ignore
+                command.ExecuteNonQuery()
+            let deleted =
+                delete "signals" "source_ts_us" 1L
+                + delete "signals_1h" "bucket_ts_us" 3_600_000_000L
+                + delete "signals_1d" "bucket_ts_us" 86_400_000_000L
+                + delete "downsample_dirty" "source_ts_us" 1L
+            transaction.Commit()
+            deleted
+
+    /// CollectionPolicy retention을 telemetry와 event history에 함께 적용한다.
+    let pruneSignalIncludingEvents
+        (telemetryDb: string)
+        (eventsDb: string)
+        (nowUtc: DateTimeOffset)
+        (resolution: SeriesResolution) : int =
+        let telemetryDeleted = pruneSignal telemetryDb nowUtc resolution
+        match resolution.Retention |> Option.bind tryParseDuration with
+        | None -> telemetryDeleted
+        | Some retention ->
+            let cutoffUs = UnixTime.toMicroseconds (nowUtc - retention)
+            use connection = new SqliteConnection($"Data Source={eventsDb};Pooling=False")
             connection.Open()
             use command = connection.CreateCommand()
             command.CommandText <-
-                "DELETE FROM signals
+                "DELETE FROM events
                  WHERE global_asset_id = $gaid AND signal_id = $signal AND source_ts_us < $cutoff"
             command.Parameters.AddWithValue("$gaid", resolution.GlobalAssetId) |> ignore
             command.Parameters.AddWithValue("$signal", resolution.SignalId) |> ignore
             command.Parameters.AddWithValue("$cutoff", cutoffUs) |> ignore
-            command.ExecuteNonQuery()
+            telemetryDeleted + command.ExecuteNonQuery()
 
 /// UA에서 발견한 신호별 retention을 주기적으로 SQLite raw history에 적용한다.
 type RetentionService(
@@ -83,9 +118,17 @@ type RetentionService(
                 while not stoppingToken.IsCancellationRequested do
                     let mutable deleted = 0
                     for resolution in registry.ListAll() do
-                        deleted <- deleted + Retention.pruneSignal paths.TelemetryDb DateTimeOffset.UtcNow resolution
+                        try
+                            deleted <- deleted + Retention.pruneSignalIncludingEvents
+                                paths.TelemetryDb paths.EventsDb DateTimeOffset.UtcNow resolution
+                        with ex ->
+                            logger.LogError(
+                                ex,
+                                "CollectionPolicy retention failed for asset={Asset} signalId={SignalId}; next sweep will retry.",
+                                resolution.GlobalAssetId,
+                                resolution.SignalId)
                     if deleted > 0 then
-                        logger.LogInformation("CollectionPolicy retention sweep deleted {DeletedRows} raw rows.", deleted)
+                        logger.LogInformation("CollectionPolicy retention sweep deleted {DeletedRows} history rows.", deleted)
                     do! Task.Delay(options.SweepIntervalMs, stoppingToken)
             with :? OperationCanceledException -> ()
     }

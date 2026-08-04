@@ -217,10 +217,30 @@ module AasxExporter =
         let kpiStats = SequenceKpiGenerator.appendForProject store project
         log.Info(sprintf "[KPI] append: walked=%d aidAdded=%d opdataAdded=%d aimcAdded=%d conflicts=%d"
                     kpiStats.Walked kpiStats.AidAdded kpiStats.OpDataAdded kpiStats.AimcAdded kpiStats.Conflicts)
+        let aidAssetId = AssetTelemetryIdentity.aidProject project.Id
+        let dataApiEndpoint =
+            match System.Environment.GetEnvironmentVariable("DS2_DATA_API_PUBLIC_URL") with
+            | value when not (String.IsNullOrWhiteSpace value) ->
+                let trimmed = value.Trim().TrimEnd('/')
+                let uri = Uri(trimmed, UriKind.Absolute)
+                if uri.Scheme <> Uri.UriSchemeHttp && uri.Scheme <> Uri.UriSchemeHttps then
+                    invalidOp "DS2_DATA_API_PUBLIC_URL must use http:// or https://."
+                if String.IsNullOrWhiteSpace uri.Host
+                   || not (String.IsNullOrWhiteSpace uri.UserInfo)
+                   || not (String.IsNullOrWhiteSpace uri.Fragment)
+                   || not (String.IsNullOrWhiteSpace uri.Query) then
+                    invalidOp "DS2_DATA_API_PUBLIC_URL must contain a host and must not contain credentials, query, or fragment."
+                if uri.Scheme = Uri.UriSchemeHttp && not uri.IsLoopback then
+                    invalidOp "A non-loopback DS2_DATA_API_PUBLIC_URL must use https://."
+                if uri.AbsolutePath.TrimEnd('/').EndsWith("/v1/series", StringComparison.OrdinalIgnoreCase) then
+                    trimmed
+                else trimmed + "/v1/series"
+            | _ -> "http://127.0.0.1:62542/v1/series"
         [
             match project.AssetInterfaces with
             | Some aid when aid.Interfaces.Count > 0 ->
                 yield aidToSubmodel aid project.Name
+                yield timeSeriesToSubmodel aid aidAssetId project.Id project.Name dataApiEndpoint
             | _ -> ()
             match project.AssetInterfacesMapping with
             | Some aimc when aimc.Mappings.Count > 0 ->
@@ -535,6 +555,7 @@ module AasxExporter =
                             AidSubmodelIdShort
                             AimcSubmodelIdShort
                             OperationalDataSubmodelIdShort
+                            TimeSeriesSubmodelIdShort
                         ]
 
                     let preservedSubmodels =
