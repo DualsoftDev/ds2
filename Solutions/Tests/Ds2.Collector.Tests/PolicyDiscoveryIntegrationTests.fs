@@ -12,7 +12,9 @@ open Ds2.OpcUa.Server.NodeIds
 open Ds2.OpcUa.Server.Server
 
 let private nextPort =
-    let mutable port = 49600
+    // This source file is linked into two test assemblies. A process-specific port avoids
+    // the first run's TIME_WAIT socket without briefly reserving/releasing an ephemeral port.
+    let mutable port = 30_000 + (Environment.ProcessId % 9_000)
     fun () -> Threading.Interlocked.Increment(&port)
 
 let private clientConfiguration root =
@@ -58,7 +60,18 @@ let ``Collector discovers CollectionPolicy from UA variable properties`` () = ta
     let serverInstance = ApplicationInstance(ApplicationConfiguration = appConfiguration)
     let server = new DsUaServer(allocator, [| allocator.GlobalAssetIdToUri gaid |])
     try
-        do! serverInstance.Start server
+        try
+            do! serverInstance.Start server
+        with ex ->
+            let tracePath = appConfiguration.TraceConfiguration.OutputFilePath
+            let trace =
+                if String.IsNullOrWhiteSpace tracePath || not (File.Exists tracePath) then "<no OPC UA trace>"
+                else File.ReadAllText tracePath
+            let serviceResult =
+                match ex with
+                | :? ServiceResultException as serviceEx -> $"status={serviceEx.StatusCode}; result={serviceEx.Result}"
+                | _ -> "not a ServiceResultException"
+            raise (InvalidOperationException($"Failed to start policy test server at {config.EndpointUrl}: {serviceResult}; {ex}\n{trace}", ex))
         let signalId = SignalId "demo.policy.temperature"
         let expected : SignalPolicy = {
             SignalId = signalId
@@ -107,6 +120,9 @@ let ``Collector discovers CollectionPolicy from UA variable properties`` () = ta
                 UseSecurity = false
                 AutoAcceptUntrustedCertificates = true
                 UseCertificateIdentity = false
+                PairLocalCertificates = false
+                PairedServerCertificateRoot = root
+                PairedServerApplicationUri = config.ApplicationUri
                 SamplingIntervalMs = 200
                 PublishingIntervalMs = 500
                 ReconnectDelayMs = 1000

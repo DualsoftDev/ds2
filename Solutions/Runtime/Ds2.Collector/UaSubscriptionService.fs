@@ -4,6 +4,7 @@ open System
 open System.Collections.Generic
 open System.Globalization
 open System.IO
+open System.Security.Cryptography.X509Certificates
 open System.Threading
 open System.Threading.Channels
 open System.Threading.Tasks
@@ -25,6 +26,9 @@ type UaSubscriptionOptions = {
     UseSecurity: bool
     AutoAcceptUntrustedCertificates: bool
     UseCertificateIdentity: bool
+    PairLocalCertificates: bool
+    PairedServerCertificateRoot: string
+    PairedServerApplicationUri: string
     SamplingIntervalMs: int
     PublishingIntervalMs: int
     ReconnectDelayMs: int
@@ -57,6 +61,24 @@ module UaSubscriptionOptions =
         UseSecurity = boolEnv "DS2_UA_USE_SECURITY" true
         AutoAcceptUntrustedCertificates = boolEnv "DS2_UA_AUTO_ACCEPT_UNTRUSTED" false
         UseCertificateIdentity = boolEnv "DS2_UA_USE_CERTIFICATE_IDENTITY" true
+        PairLocalCertificates = boolEnv "DS2_UA_PAIR_LOCAL_CERTIFICATES" true
+        PairedServerCertificateRoot =
+            match Environment.GetEnvironmentVariable "DS2_UA_PAIRED_SERVER_CERT_ROOT" with
+            | null | "" ->
+                let sharedRoot =
+                    match Environment.GetEnvironmentVariable "DUALSOFT_SHARED_DIR" with
+                    | null | "" when OperatingSystem.IsWindows() ->
+                        Path.Combine(
+                            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                            "DualSoft", "Shared")
+                    | null | "" -> "/var/lib/dualsoft/Shared"
+                    | value -> value.Trim()
+                Path.Combine(sharedRoot, "agent", "opcua", "certs")
+            | value -> value.Trim()
+        PairedServerApplicationUri =
+            match Environment.GetEnvironmentVariable "DS2_UA_PAIRED_SERVER_APPLICATION_URI" with
+            | null | "" -> "urn:dualsoft:promaker-agent:opcua"
+            | value -> value.Trim()
         SamplingIntervalMs = intEnv "DS2_UA_SAMPLING_MS" 200 50
         PublishingIntervalMs = intEnv "DS2_UA_PUBLISHING_MS" 500 50
         ReconnectDelayMs = intEnv "DS2_UA_RECONNECT_MS" 3000 250
@@ -289,6 +311,83 @@ type UaSubscriptionService(
             TransportQuotas = TransportQuotas(OperationTimeout = 15_000),
             CertificateValidator = CertificateValidator())
 
+    let isLoopbackEndpoint () =
+        match Uri.TryCreate(options.EndpointUrl, UriKind.Absolute) with
+        | true, uri -> uri.IsLoopback
+        | _ -> false
+
+    let tryFindPairedServerCertificate () =
+        let ownStore = Path.Combine(options.PairedServerCertificateRoot, "own")
+        if not (Directory.Exists ownStore) then None
+        else
+            let mutable newest : X509Certificate2 option = None
+            for path in Directory.EnumerateFiles(ownStore, "*.der", SearchOption.AllDirectories) do
+                try
+                    let certificate = X509CertificateLoader.LoadCertificateFromFile path
+                    if String.Equals(
+                        X509Utils.GetApplicationUriFromCertificate certificate,
+                        options.PairedServerApplicationUri,
+                        StringComparison.Ordinal) then
+                        match newest with
+                        | Some current when current.NotAfter >= certificate.NotAfter -> certificate.Dispose()
+                        | Some current ->
+                            current.Dispose()
+                            newest <- Some certificate
+                        | None -> newest <- Some certificate
+                    else
+                        certificate.Dispose()
+                with _ -> ()
+            newest
+
+    let certificateExistsInDirectoryStore (storePath: string) (thumbprint: string) =
+        Directory.Exists storePath
+        && (Directory.EnumerateFiles(storePath, "*.der", SearchOption.AllDirectories)
+            |> Seq.exists (fun path ->
+                try
+                    use certificate = X509CertificateLoader.LoadCertificateFromFile path
+                    String.Equals(certificate.Thumbprint, thumbprint, StringComparison.OrdinalIgnoreCase)
+                with _ -> false))
+
+    let addToDirectoryStoreIfMissing
+        (certificate: X509Certificate2)
+        (store: CertificateStoreIdentifier)
+        (ct: CancellationToken) = task {
+        if not (certificateExistsInDirectoryStore store.StorePath certificate.Thumbprint) then
+            try
+                let! _ = X509Utils.AddToStoreAsync(certificate, store, null, ct)
+                return ()
+            with :? ArgumentException when certificateExistsInDirectoryStore store.StorePath certificate.Thumbprint ->
+                // Another startup path won the race. The required trust state is already present.
+                return ()
+    }
+
+    let pairLocalCertificates
+        (config: ApplicationConfiguration)
+        (applicationCertificate: X509Certificate2)
+        (ct: CancellationToken) = task {
+        if options.PairLocalCertificates && isLoopbackEndpoint () then
+            match tryFindPairedServerCertificate () with
+            | None -> ()
+            | Some serverCertificate ->
+                use serverCertificate = serverCertificate
+                // Find(true)의 인증서는 private key를 포함한다. RawData로 public-only 인스턴스를 만들어
+                // Agent trusted store에 개인키가 복사되는 것을 명시적으로 차단한다.
+                use collectorPublic = X509CertificateLoader.LoadCertificate(applicationCertificate.RawData)
+                let collectorTrusted = CertificateStoreIdentifier(
+                    StoreType = "Directory",
+                    StorePath = config.SecurityConfiguration.TrustedPeerCertificates.StorePath)
+                let serverTrusted = CertificateStoreIdentifier(
+                    StoreType = "Directory",
+                    StorePath = Path.Combine(options.PairedServerCertificateRoot, "trusted"))
+                do! addToDirectoryStoreIfMissing serverCertificate collectorTrusted ct
+                do! addToDirectoryStoreIfMissing collectorPublic serverTrusted ct
+                logger.LogInformation(
+                    "Paired local OPC UA certificates: serverUri={ServerUri}, serverThumbprint={ServerThumbprint}, collectorThumbprint={CollectorThumbprint}",
+                    options.PairedServerApplicationUri,
+                    serverCertificate.Thumbprint,
+                    collectorPublic.Thumbprint)
+    }
+
     let createSession () = task {
         let config = buildClientConfiguration ()
         do! config.Validate(ApplicationType.Client)
@@ -298,6 +397,8 @@ type UaSubscriptionService(
         let endpointDescription = CoreClientUtils.SelectEndpoint(config, options.EndpointUrl, options.UseSecurity, 15_000)
         let endpoint = ConfiguredEndpoint(null, endpointDescription, EndpointConfiguration.Create(config))
         let! applicationCertificate = config.SecurityConfiguration.ApplicationCertificate.Find(true)
+        if not (isNull applicationCertificate) then
+            do! pairLocalCertificates config applicationCertificate CancellationToken.None
         let identity : IUserIdentity =
             if options.UseCertificateIdentity && not (isNull applicationCertificate) then
                 UserIdentity(applicationCertificate) :> IUserIdentity

@@ -11,3 +11,8 @@
 # (set/() blocks, ^ escaping, labels break) — overrides core.autocrlf=input.
 *.bat   text eol=crlf
 *.cmd   text eol=crlf
+
+# Linux deployment scripts and systemd units must remain executable/parsible after
+# checkout on Windows development machines.
+*.sh      text eol=lf
+*.service text eol=lf

@@ -3,8 +3,11 @@ module Ds2.Collector.Program
 open System
 open System.IO
 open Microsoft.AspNetCore.Builder
+open Microsoft.AspNetCore.Hosting
 open Microsoft.Extensions.DependencyInjection
+open Microsoft.Extensions.Hosting
 open Microsoft.Extensions.Logging
+open Microsoft.Extensions.Hosting.WindowsServices
 open Ds2.Collector.Sinks
 open Ds2.Collector.DataApi
 
@@ -19,9 +22,23 @@ open Ds2.Collector.DataApi
 [<EntryPoint>]
 let main argv =
     let builder = WebApplication.CreateBuilder argv
+    let runningAsWindowsService = WindowsServiceHelpers.IsWindowsService()
+
+    if runningAsWindowsService then
+        builder.Services.AddWindowsService(fun options -> options.ServiceName <- "Ds2CollectorService") |> ignore
+        // SCM 기본 작업 디렉터리(System32)에 DB/인증서를 만들지 않도록 exe 위치로 정규화한다.
+        Environment.CurrentDirectory <- AppContext.BaseDirectory
+
+    // Collector API는 기본 localhost 전용. 외부 공개는 명시적인 ASPNETCORE_URLS 설정으로만 연다.
+    if String.IsNullOrWhiteSpace(builder.Configuration.["urls"]) then
+        builder.WebHost.UseUrls("http://127.0.0.1:62542") |> ignore
 
     let root =
         match Environment.GetEnvironmentVariable "DS2_COLLECTOR_ROOT" with
+        | null | "" when runningAsWindowsService ->
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "DualSoft", "Collector")
         | null | "" -> Path.Combine(Directory.GetCurrentDirectory(), "data", "collector")
         | v -> v
     Directory.CreateDirectory root |> ignore
@@ -33,15 +50,18 @@ let main argv =
     let registry = SeriesIdRegistry()
     let uaOptions = UaSubscriptionOptions.fromEnvironment root
     let retentionOptions = RetentionOptions.fromEnvironment ()
+    let downsampleOptions = DownsampleOptions.fromEnvironment ()
 
     builder.Services
         .AddSingleton<SqliteSinkWriter>(fun _sp -> SqliteSinkWriter(telemetryDb, eventsDb))
         .AddSingleton<SeriesIdRegistry>(registry)
         .AddSingleton<UaSubscriptionOptions>(uaOptions)
         .AddSingleton<RetentionOptions>(retentionOptions)
+        .AddSingleton<DownsampleOptions>(downsampleOptions)
         .AddSingleton<DataApiPaths>(paths)
         .AddControllers() |> ignore
     builder.Services.AddHostedService<UaSubscriptionService>() |> ignore
+    builder.Services.AddHostedService<DownsampleService>() |> ignore
     builder.Services.AddHostedService<RetentionService>() |> ignore
 
     let app = builder.Build()

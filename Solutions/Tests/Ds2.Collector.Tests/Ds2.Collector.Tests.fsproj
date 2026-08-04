@@ -20,6 +20,9 @@
     <PackageReference Include="FSharp.Core" />
     <PackageReference Include="coverlet.collector" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <!-- PolicyDiscoveryIntegrationTests boots DsUaServer directly. The Collector web
+         project reference does not copy the embedded server's logging runtime transitively. -->
+    <PackageReference Include="log4net" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
   </ItemGroup>

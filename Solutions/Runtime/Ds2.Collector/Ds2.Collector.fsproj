@@ -12,8 +12,8 @@
     <Compile Include="EdgeBuffer.fs" />
     <Compile Include="UaWriterContract.fs" />
     <Compile Include="Sinks/SqliteSinkWriter.fs" />
-    <Compile Include="Sinks/DownsampleScheduler.fs" />
     <Compile Include="DataApi/SeriesIdRegistry.fs" />
+    <Compile Include="Sinks/DownsampleScheduler.fs" />
     <Compile Include="DataApi/Controllers.fs" />
     <Compile Include="UaSubscriptionService.fs" />
     <Compile Include="RetentionService.fs" />
@@ -30,6 +30,7 @@
     <PackageReference Include="FSharp.Core" />
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
     <PackageReference Include="OPCFoundation.NetStandard.Opc.Ua.Client" />
     <PackageReference Include="OPCFoundation.NetStandard.Opc.Ua.Configuration" />
   </ItemGroup>

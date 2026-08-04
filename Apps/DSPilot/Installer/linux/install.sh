@@ -20,6 +20,7 @@ INSTALL_DIR="/opt/dspilot"
 # 대소문자까지 동일해야 한다. (Linux 는 경로 대소문자 구분 → 한 글자라도 다르면 다른 폴더가 되어 공유가 깨진다.)
 SHARED_DIR="/var/lib/dualsoft/Shared"
 SHARED_DIR_EXPLICIT=0
+COLLECTOR_DATA_DIR="/var/lib/dualsoft/collector"
 # 공유 디렉터리 단일 출처(SSOT). DSPilot·Promaker.Agent 의 systemd 유닛이 이 파일을 EnvironmentFile 로
 # 함께 읽어 항상 같은 폴더를 본다 — 경로를 바꾸려면 이 값 한 줄만 고치고 install.sh 를 재실행한다.
 ENV_FILE="/etc/dualsoft/dualsoft.env"
@@ -39,6 +40,7 @@ AGENT_UPLOAD_PORT=5050   # 모델 업로드 수신 (항상 listen — Promaker '
 SVC_DSPILOT="${APP_NAME}.service"
 SVC_MEDIAMTX="${APP_NAME}-mediamtx.service"
 SVC_AGENT="promaker-agent.service"
+SVC_COLLECTOR="ds2-collector.service"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -85,12 +87,12 @@ if [[ $SHARED_DIR_EXPLICIT -eq 0 && -f "$ENV_FILE" ]]; then
 fi
 
 # Agent 옵션 정리 — 켜져 있으나 패키지에 Agent 바이너리가 없으면 자동 스킵(빌드 시 미동봉).
-if [[ $ENABLE_AGENT -eq 1 && ! -f "$SCRIPT_DIR/agent/Promaker.Agent" ]]; then
-  [[ $AGENT_EXPLICIT -eq 1 ]] && echo "경고: --with-agent 지정됐으나 패키지에 agent/Promaker.Agent 가 없어 Agent 를 건너뜁니다."
+if [[ $ENABLE_AGENT -eq 1 && ( ! -f "$SCRIPT_DIR/agent/Promaker.Agent" || ! -f "$SCRIPT_DIR/collector/Ds2.Collector" ) ]]; then
+  [[ $AGENT_EXPLICIT -eq 1 ]] && echo "경고: --with-agent 지정됐으나 Agent/Collector 바이너리 중 하나가 없어 전체 수집 스택을 건너뜁니다."
   ENABLE_AGENT=0
 fi
 
-echo "==> DSPilot 설치 시작 (포트=$WEB_PORT, 공유=$SHARED_DIR, CCTV=$ENABLE_CCTV, Agent=$ENABLE_AGENT)"
+echo "==> DSPilot 설치 시작 (포트=$WEB_PORT, 공유=$SHARED_DIR, CCTV=$ENABLE_CCTV, Agent+Collector=$ENABLE_AGENT)"
 
 # ── libicu 안내(한글/문화권 정렬에 필요. self-contained 라도 ICU 자체는 시스템 의존) ──
 if ! ldconfig -p 2>/dev/null | grep -qi 'libicu'; then
@@ -126,7 +128,7 @@ if ! id -u "$APP_USER" >/dev/null 2>&1; then
 fi
 
 # ── 2) 기존 서비스 중지(업그레이드 시 파일 잠금/포트 해제) ────────────────────
-for svc in "$SVC_DSPILOT" "$SVC_MEDIAMTX" "$SVC_AGENT"; do
+for svc in "$SVC_DSPILOT" "$SVC_MEDIAMTX" "$SVC_COLLECTOR" "$SVC_AGENT"; do
   if systemctl list-unit-files "$svc" >/dev/null 2>&1 && systemctl is-active --quiet "$svc"; then
     echo "==> 기존 서비스 중지: $svc"
     systemctl stop "$svc" || true
@@ -146,7 +148,7 @@ fi
 # ── 4) 디렉터리 + 앱 파일 배치 ───────────────────────────────────────────────
 echo "==> 앱 파일 복사: $INSTALL_DIR"
 # 공유 디렉터리 + Agent 하위(active.flag/session.json)까지 미리 생성 — 아래서 서비스 계정 소유권/권한 부여.
-mkdir -p "$INSTALL_DIR" "$SHARED_DIR" "$SHARED_DIR/agent" "$INSTALL_DIR/logs"
+mkdir -p "$INSTALL_DIR" "$SHARED_DIR" "$SHARED_DIR/agent" "$COLLECTOR_DATA_DIR" "$INSTALL_DIR/logs"
 # 앱 페이로드(자체 포함 런타임 + wwwroot). 기존 appsettings.Production.json(사용자 설정)·uploads(도면/오버레이)는
 # 덮어쓰지 않도록 app/ 에 포함하지 않는다(build-linux.sh 가 publish 산출물만 담음).
 cp -a "$SCRIPT_DIR/app/." "$INSTALL_DIR/"
@@ -160,6 +162,12 @@ if [[ $ENABLE_AGENT -eq 1 ]]; then
   mkdir -p "$AGENT_DIR"
   cp -a "$SCRIPT_DIR/agent/." "$AGENT_DIR/"
   chmod +x "$AGENT_DIR/Promaker.Agent"
+
+  COLLECTOR_DIR="$INSTALL_DIR/collector"
+  echo "==> Ds2.Collector 파일 복사: $COLLECTOR_DIR"
+  mkdir -p "$COLLECTOR_DIR"
+  cp -a "$SCRIPT_DIR/collector/." "$COLLECTOR_DIR/"
+  chmod +x "$COLLECTOR_DIR/Ds2.Collector"
 fi
 
 # ── 4c) 시크릿(dsp.conf) 배치 + 권한 잠금 ────────────────────────────────────
@@ -211,8 +219,9 @@ fi
 # SHARED_DIR 은 Agent·DSPilot(둘 다 $APP_USER 로 실행)이 함께 읽기/쓰기 한다. 소유권을 서비스 계정에
 # 주고 소유자 쓰기/디렉터리 traverse 권한을 명시(umask 영향 제거). 부모(/var/lib/dualsoft)는 root 755 라
 # 서비스 계정이 traverse 가능. (코드 SharedPaths 기본값과 동일 경로 → 환경변수 없이도 권한 정합.)
-chown -R "$APP_USER:$APP_USER" "$INSTALL_DIR" "$SHARED_DIR"
+chown -R "$APP_USER:$APP_USER" "$INSTALL_DIR" "$SHARED_DIR" "$COLLECTOR_DATA_DIR"
 chmod -R u+rwX "$SHARED_DIR"
+chmod -R u+rwX "$COLLECTOR_DATA_DIR"
 
 # ── 7b) 공유 디렉터리 단일 출처(SSOT) 기록 ───────────────────────────────────
 # DSPilot·Promaker.Agent 의 systemd 유닛이 EnvironmentFile 로 이 파일을 읽어 동일 폴더로 정합된다.
@@ -222,6 +231,17 @@ cat > "$ENV_FILE" <<EOF
 # PlcConnection.json / agent/active.flag 를 주고받는 폴더. 두 서비스가 이 파일을 EnvironmentFile 로 읽어
 # 항상 같은 경로를 본다 — 경로를 바꾸려면 이 값 한 줄만 고치고 install.sh 를 재실행한다.
 DUALSOFT_SHARED_DIR=$SHARED_DIR
+# Collector는 localhost의 Agent OPC UA만 구독한다. 인증서는 자동 허용하지 않고,
+# 같은 서비스 계정이 소유한 Agent cert store와 ApplicationUri를 확인해 공개 인증서만 상호 등록한다.
+DS2_COLLECTOR_ROOT=$COLLECTOR_DATA_DIR
+DS2_UA_ENDPOINT=opc.tcp://localhost:62541/Ds2/OpcUa/Server
+DS2_UA_USE_SECURITY=true
+DS2_UA_AUTO_ACCEPT_UNTRUSTED=false
+DS2_UA_USE_CERTIFICATE_IDENTITY=true
+DS2_UA_PAIR_LOCAL_CERTIFICATES=true
+DS2_UA_PAIRED_SERVER_CERT_ROOT=$SHARED_DIR/agent/opcua/certs
+DS2_UA_PAIRED_SERVER_APPLICATION_URI=urn:dualsoft:promaker-agent:opcua
+ASPNETCORE_URLS=http://127.0.0.1:62542
 EOF
 chmod 0644 "$ENV_FILE"
 
@@ -259,6 +279,14 @@ if [[ $ENABLE_AGENT -eq 1 ]]; then
       -e "s|@AGENT_WORKDIR@|$AGENT_DIR|g" \
       -e "s|@AGENT_EXEC@|$AGENT_DIR/Promaker.Agent|g" \
       "$SCRIPT_DIR/systemd/promaker-agent.service" > "/etc/systemd/system/$SVC_AGENT"
+
+  echo "==> systemd 유닛 설치: /etc/systemd/system/$SVC_COLLECTOR"
+  sed -e "s|@USER@|$APP_USER|g" \
+      -e "s|@COLLECTOR_WORKDIR@|$COLLECTOR_DIR|g" \
+      -e "s|@COLLECTOR_EXEC@|$COLLECTOR_DIR/Ds2.Collector|g" \
+      -e "s|@COLLECTOR_DATA_DIR@|$COLLECTOR_DATA_DIR|g" \
+      -e "s|@SHARED_DIR@|$SHARED_DIR|g" \
+      "$SCRIPT_DIR/systemd/ds2-collector.service" > "/etc/systemd/system/$SVC_COLLECTOR"
 fi
 
 # ── 9) 방화벽(ufw / firewalld 자동 감지, best-effort) ────────────────────────
@@ -295,6 +323,7 @@ if [[ $ENABLE_CCTV -eq 1 ]]; then
 fi
 if [[ $ENABLE_AGENT -eq 1 ]]; then
   systemctl enable --now "$SVC_AGENT"
+  systemctl enable --now "$SVC_COLLECTOR"
 fi
 systemctl enable --now "$SVC_DSPILOT"
 
@@ -303,6 +332,7 @@ echo ""
 echo "============================================================"
 systemctl --no-pager --lines=0 status "$SVC_DSPILOT" || true
 [[ $ENABLE_AGENT -eq 1 ]] && { echo "------------------------------------------------------------"; systemctl --no-pager --lines=0 status "$SVC_AGENT" || true; }
+[[ $ENABLE_AGENT -eq 1 ]] && { echo "------------------------------------------------------------"; systemctl --no-pager --lines=0 status "$SVC_COLLECTOR" || true; }
 echo "============================================================"
 IP_HINT="$(hostname -I 2>/dev/null | awk '{print $1}')"
 echo "설치 완료. 웹 대시보드:"
@@ -311,5 +341,6 @@ echo "    http://localhost:$WEB_PORT"
 echo ""
 echo "로그 보기:   journalctl -u $SVC_DSPILOT -f"
 [[ $ENABLE_AGENT -eq 1 ]] && echo "Agent:       업로드 수신 :$AGENT_UPLOAD_PORT (항상) / Hub :$AGENT_PORT (모니터링 중) — 로그 journalctl -u $SVC_AGENT -f"
+[[ $ENABLE_AGENT -eq 1 ]] && echo "Collector:   API http://127.0.0.1:62542 / 데이터 $COLLECTOR_DATA_DIR — 로그 journalctl -u $SVC_COLLECTOR -f"
 echo "공유 폴더:   $SHARED_DIR  (project.aasx / plc.db / oee.db / PlcConnection.json / active.flag)"
 echo "제거:        sudo ./uninstall.sh"

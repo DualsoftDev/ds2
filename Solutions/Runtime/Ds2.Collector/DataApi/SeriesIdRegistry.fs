@@ -2,6 +2,12 @@ namespace Ds2.Collector.DataApi
 
 open System.Collections.Concurrent
 
+/// Collector 프로세스가 소유하는 telemetry / events DB 경로.
+type DataApiPaths = {
+    TelemetryDb : string
+    EventsDb    : string
+}
+
 /// SeriesId 해석 결과: SQLite 조회 명세.
 type SeriesResolution = {
     GlobalAssetId : string
@@ -26,6 +32,14 @@ type SeriesIdRegistry() =
 
     member _.ListAll() : SeriesResolution list =
         store.Values |> Seq.toList
+
+    /// Data API diagnostics/discovery. Series identifiers are opaque to callers,
+    /// so expose their registered resolution instead of forcing clients to guess.
+    member _.ListEntries() : (string * SeriesResolution) list =
+        store
+        |> Seq.map (fun entry -> entry.Key, entry.Value)
+        |> Seq.sortBy fst
+        |> Seq.toList
 
 /// Range 크기에 따라 signals / signals_1h / signals_1d 자동 선택.
 module TableSelector =

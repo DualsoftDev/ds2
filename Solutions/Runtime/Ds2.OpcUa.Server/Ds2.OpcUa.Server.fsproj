@@ -3,6 +3,11 @@
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <UserSecretsId>ds2-opcua-server</UserSecretsId>
+    <!-- Agent/Collector/WPF embed this assembly. Keep the referenced form a library so
+         self-contained publish never tries to copy a second apphost/runtimeconfig.
+         The seed standalone host remains available with -p:Ds2OpcUaStandalone=true. -->
+    <OutputType Condition="'$(Ds2OpcUaStandalone)' == 'true'">Exe</OutputType>
+    <OutputType Condition="'$(Ds2OpcUaStandalone)' != 'true'">Library</OutputType>
   </PropertyGroup>
 
   <ItemGroup>

@@ -201,7 +201,7 @@ dotnet test Solutions/Tests/Ds2.AasOpcUa.AllTests/Ds2.AasOpcUa.AllTests.fsproj
 ### 실행 (개발)
 ```powershell
 # OPC UA Server (aggregator + 파일 SSOT 스캐너)
-dotnet run --project Solutions/Runtime/Ds2.OpcUa.Server
+dotnet run --project Solutions/Runtime/Ds2.OpcUa.Server -p:Ds2OpcUaStandalone=true
 
 # Collector (Sink + Data API)
 dotnet run --project Solutions/Runtime/Ds2.Collector
