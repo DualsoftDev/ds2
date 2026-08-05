@@ -168,6 +168,61 @@ let ``secure endpoint accepts certificate identity without anonymous token`` () 
 }
 
 [<Fact>]
+let ``locked endpoint accepts a certificate pre-registered in peer and user trust stores`` () = task {
+    let port = nextTestPort()
+    let root = Path.Combine(Path.GetTempPath(), "ds2-uaserver-trusted-user-it-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory root |> ignore
+    let clientConfig = mkClientConfig root
+    let! certificate = clientConfig.SecurityConfiguration.ApplicationCertificate.Find(true)
+    Assert.NotNull(certificate)
+
+    let serverRoot = Path.Combine(root, "server")
+    let certRoot = Path.Combine(serverRoot, "certs")
+    let trust path =
+        let certs = Path.Combine(certRoot, path, "certs")
+        Directory.CreateDirectory certs |> ignore
+        File.WriteAllBytes(Path.Combine(certs, certificate.Thumbprint + ".der"), certificate.RawData)
+
+    let allocator = NamespaceAllocator(Path.Combine(serverRoot, "nodeset-state.json")) :> INamespaceAllocator
+    let cfg =
+        { ServerConfiguration.defaultConfig serverRoot with
+            EndpointUrl = sprintf "opc.tcp://localhost:%d" port
+            AllowAnonymous = false
+            AllowUnsecuredEndpoint = false
+            AutoAcceptUntrustedCertificates = false }
+    let appConfig = ServerConfiguration.build cfg
+    let! prepared = ServerConfiguration.validateAndPrepare appConfig
+    Assert.True(prepared)
+    let appInstance = ApplicationInstance(ApplicationConfiguration = appConfig)
+    let server = new DsUaServer(allocator)
+    do! appInstance.Start(server)
+
+    try
+        // DSPilot 발급/승인은 Agent가 이미 실행 중일 때 일어나므로 두 trust store의 동적 반영까지 검증한다.
+        trust "trusted"
+        trust "trustedUser"
+        let ed = CoreClientUtils.SelectEndpoint(clientConfig, cfg.EndpointUrl, true, 15_000)
+        let endpoint = ConfiguredEndpoint(null, ed, EndpointConfiguration.Create(clientConfig))
+        let! session =
+            Session.Create(
+                clientConfig,
+                endpoint,
+                false,
+                "Trusted-User-IT-Client",
+                60_000u,
+                UserIdentity(certificate),
+                null)
+        Assert.True(session.Connected)
+        session.Close() |> ignore
+        session.Dispose()
+    finally
+        server.Stop()
+        server.Dispose()
+        if Directory.Exists root then
+            try Directory.Delete(root, true) with _ -> ()
+}
+
+[<Fact>]
 let ``AddAsset + WriteSignal + Read via UA client roundtrip`` () = task {
     let port = nextTestPort()
     let gaid = GlobalAssetId "urn:dualsoft:asset:test01"

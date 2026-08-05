@@ -31,6 +31,8 @@ let ``locked configuration removes anonymous and unsecured endpoints`` () =
     Assert.False(hasUserNameToken)
     Assert.False(app.SecurityConfiguration.AutoAcceptUntrustedCertificates)
     Assert.True(app.SecurityConfiguration.RejectSHA1SignedCertificates)
+    Assert.EndsWith("trustedUser", app.SecurityConfiguration.TrustedUserCertificates.StorePath)
+    Assert.EndsWith("issuerUser", app.SecurityConfiguration.UserIssuerCertificates.StorePath)
 
 [<Fact>]
 let ``standalone defaults are locked`` () =

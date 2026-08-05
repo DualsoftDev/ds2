@@ -107,6 +107,7 @@ builder.Services.AddHostedService<NonProdWriteQueueService>();
 builder.Services.AddSingleton<AppSettingsService>();
 builder.Services.AddSingleton<ExternalAccessService>(); // 외부 접속 주소 유효값(사용자 설정 ▸ 설치 주입) 해석
 builder.Services.AddSingleton<DemoAdminService>(); // 데모용 관리자 게이트 (설정 페이지 보호, /demo/admin 토글)
+builder.Services.AddSingleton(_ => new OpcUaClientCertificateService()); // Softing 등 외부 OPC UA 클라이언트 PFX 발급 + Agent PKI 승인
 builder.Services.AddSingleton<DsProjectService>();
 builder.Services.AddScoped<DashboardEditService>();
 builder.Services.AddSingleton<BlueprintService>();

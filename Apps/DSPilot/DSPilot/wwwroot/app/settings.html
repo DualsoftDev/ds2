@@ -880,6 +880,66 @@
                                 </div>
                             </div>
 
+                            <!-- OPC UA 외부 클라이언트 인증서 -->
+                            <div class="card" x-show="activeTab === 'advanced'">
+                                <div class="card-header">
+                                    <span class="material-icons">verified_user</span>
+                                    <span>OPC UA 외부 클라이언트</span>
+                                </div>
+                                <div class="card-content">
+                                    <div class="settings-note">
+                                        <small>
+                                            Softing 등 외부 OPC UA 클라이언트에서 <strong>User Identity = Certificate</strong>로
+                                            사용할 PFX를 발급합니다. 개인키는 DSPilot에 저장하지 않고, 공개 인증서만 Agent 신뢰 목록에 자동 등록합니다.
+                                        </small>
+                                    </div>
+
+                                    <div class="form-group mb-2">
+                                        <label class="form-label">PFX 암호</label>
+                                        <div style="display:flex;gap:8px;align-items:center;">
+                                            <input class="form-field mono" :type="opcUaCert.showPassword ? 'text' : 'password'"
+                                                   x-model="opcUaCert.password" autocomplete="new-password"
+                                                   placeholder="Softing Password에도 동일하게 입력" />
+                                            <button class="btn-icon" type="button" @click="opcUaCert.showPassword = !opcUaCert.showPassword"
+                                                    :title="opcUaCert.showPassword ? '암호 숨기기' : '암호 보기'">
+                                                <span class="material-icons" x-text="opcUaCert.showPassword ? 'visibility_off' : 'visibility'"></span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <button class="btn btn-filled w-100" @click="downloadOpcUaCertificate()" :disabled="opcUaCert.busy || !opcUaCert.password">
+                                        <span class="material-icons">download</span>
+                                        Softing용 PFX 발급·다운로드
+                                    </button>
+                                    <small class="settings-hint">
+                                        다운로드한 <code>.pfx</code>를 Softing의 Certificate에서 선택하고 위 암호를 입력하세요.
+                                    </small>
+
+                                    <hr class="divider my-3" />
+                                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                                        <strong style="font-size:0.86rem;">접속 승인 대기 인증서</strong>
+                                        <button class="btn btn-sm btn-outlined" style="margin-left:auto;" @click="loadOpcUaRejected()" :disabled="opcUaRejected.loading">
+                                            <span class="material-icons">refresh</span> 새로고침
+                                        </button>
+                                    </div>
+                                    <small class="settings-hint" style="display:block;margin-bottom:8px;">
+                                        PFX 적용 후 Softing이 <code>BadCertificateUntrusted</code>로 거부되면 새로고침 후 해당 클라이언트를 승인하세요.
+                                    </small>
+                                    <template x-if="!opcUaRejected.loading && opcUaRejected.items.length === 0">
+                                        <div class="settings-note"><small>승인 대기 중인 클라이언트 인증서가 없습니다.</small></div>
+                                    </template>
+                                    <template x-for="cert in opcUaRejected.items" :key="cert.thumbprint">
+                                        <div style="border:1px solid var(--color-outline-variant);border-radius:8px;padding:10px;margin-top:8px;">
+                                            <div style="font-size:0.82rem;font-weight:700;word-break:break-all;" x-text="cert.subject"></div>
+                                            <div class="mono" style="font-size:0.7rem;color:var(--color-text-secondary);word-break:break-all;margin:5px 0 8px;"
+                                                 x-text="cert.thumbprint"></div>
+                                            <button class="btn btn-sm btn-outlined w-100" @click="trustOpcUaRejected(cert)" :disabled="opcUaRejected.loading">
+                                                <span class="material-icons">verified</span> 이 클라이언트 승인
+                                            </button>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+
                             <!-- 로깅 -->
                             <div class="card" x-show="activeTab === 'advanced'">
                                 <div class="card-header">
@@ -1149,6 +1209,8 @@
                 svcRestartOpen: false, // 고급 탭 "서비스 재시작" 카드 — 기본 접힘(위험 작업)
                 scanMs: 100, scanConnected: false, // PLC 스캔 주기 (Agent 동기화 — 기본 100ms)
                 autoCalibrate: true, // 자동 duration 정합 ON/OFF (Agent 동기화)
+                opcUaCert: { password: '', showPassword: false, busy: false },
+                opcUaRejected: { loading: false, items: [] },
                 // 사용자 정의 에러(UserTag 정의) 읽기전용 목록 — filter/sort/page 클라이언트 처리
                 ude: { loading: false, items: [], error: '', q: '', sortKey: 'name', sortDir: 'asc', page: 0, pageSize: 20 },
 
@@ -1172,6 +1234,7 @@
                     // 게이트 상태 폴링 — stale-repair 루프(≥1분)가 자동 재측정하면 30초 내 배지 반영.
                     this._calibTimer = setInterval(() => this.loadCalibStatus(), 30000);
                     this.loadUserDefinedErrors();
+                    this.loadOpcUaRejected();
                     this.loadAppInfo();
                     // 가동 시간은 서버 재조회 없이 클라이언트에서 1초씩 증가시켜 표시(새로고침 시 서버값으로 재동기화).
                     // clearInterval 선행: 이 페이지는 x-init="init()" 과 Alpine 자동 init() 로 init 이 두 번 실행되므로
@@ -1497,6 +1560,73 @@
                     document.body.appendChild(a);
                     a.click();
                     a.remove();
+                },
+
+                async downloadOpcUaCertificate() {
+                    if (!this.opcUaCert.password) {
+                        this.showToast('PFX 암호를 입력하세요.', 'error');
+                        return;
+                    }
+                    this.opcUaCert.busy = true;
+                    try {
+                        const res = await fetch('/api/opcua-certificates/user', {
+                            method: 'POST',
+                            credentials: 'same-origin',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ password: this.opcUaCert.password }),
+                        });
+                        if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
+                        const disposition = res.headers.get('Content-Disposition') || '';
+                        const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
+                        const plain = /filename="?([^";]+)"?/i.exec(disposition);
+                        const fileName = encoded ? decodeURIComponent(encoded[1]) : (plain ? plain[1] : 'dspilot-opcua-client.pfx');
+                        const url = URL.createObjectURL(await res.blob());
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = fileName;
+                        document.body.appendChild(a);
+                        a.click();
+                        a.remove();
+                        URL.revokeObjectURL(url);
+                        this.showToast('PFX 발급 완료 — 이 암호를 Softing Password에 그대로 입력하세요.', 'success');
+                    } catch (e) {
+                        this.showToast('OPC UA 인증서 발급 실패: ' + e.message, 'error');
+                    } finally {
+                        this.opcUaCert.busy = false;
+                    }
+                },
+
+                async loadOpcUaRejected() {
+                    this.opcUaRejected.loading = true;
+                    try {
+                        const res = await fetch('/api/opcua-certificates/rejected', { credentials: 'same-origin' });
+                        if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
+                        this.opcUaRejected.items = await res.json();
+                    } catch (e) {
+                        this.opcUaRejected.items = [];
+                    } finally {
+                        this.opcUaRejected.loading = false;
+                    }
+                },
+
+                async trustOpcUaRejected(cert) {
+                    const ok = await this.askConfirm(
+                        'OPC UA 클라이언트 승인',
+                        `${cert.subject}\n\n지문: ${cert.thumbprint}\n\n이 클라이언트의 Agent 접속을 허용할까요?`);
+                    if (!ok) return;
+                    this.opcUaRejected.loading = true;
+                    try {
+                        const res = await fetch(`/api/opcua-certificates/rejected/${encodeURIComponent(cert.thumbprint)}/trust`, {
+                            method: 'POST',
+                            credentials: 'same-origin',
+                        });
+                        if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
+                        this.showToast('OPC UA 클라이언트 인증서를 승인했습니다. Softing에서 다시 연결하세요.', 'success');
+                    } catch (e) {
+                        this.showToast('OPC UA 클라이언트 승인 실패: ' + e.message, 'error');
+                    } finally {
+                        await this.loadOpcUaRejected();
+                    }
                 },
 
                 // ── 이상 알람 배너 데모 미리보기 ── 설정 속도값으로 샘플 메시지를 실제 배너처럼 한 건씩 세로 티커 전환(값 변경 즉시 반영) ──
