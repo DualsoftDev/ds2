@@ -117,21 +117,6 @@ type MonitoringSystemProperties() =
     member val EnableTagMonitoring      = true            with get, set
     member val TagRefreshIntervalMs     = 500             with get, set
 
-    // ========== PLC 연결 정보 ==========
-    //
-    // ⚠ 비-SSOT. 접속 정보를 읽거나 쓰려면 ControlSystemProperties 의 PlcVendor/PlcIpAddress/PlcPort 를 쓸 것.
-    //   아래 필드들은 어떤 런타임 경로도 사용하지 않으며, 구조적으로 사용할 수도 없다:
-    //   ① PlcType 의 타입 Ds2.Core.PlcVendor 는 Mitsubishi|Siemens|RockwellAB|Omron|Generic 이라
-    //      실제 지원 대상인 LS 계열(XGI/XGK)을 표현할 수 없다.
-    //   ② 그 타입은 .NET enum 이 아니라 F# DU 라서 AASX 리플렉션 export 의 IsEnum 분기에 걸리지 않는다
-    //      (Ds2.Aasx/Export/Core.fs) → 값을 넣어도 AASX 에 나가지 않고 조용히 사라진다.
-    //   하위호환(기존 파일 역직렬화)을 위해 형태만 보존한다.
-    member val EnablePlcMonitoring = false with get, set
-    member val PlcIpAddress = "192.168.1.10" with get, set
-    member val PlcPort = 5000 with get, set
-    member val PlcType = Mitsubishi with get, set
-    member val PlcProtocol = "MC Protocol" with get, set
-
     // ========== 폴링 (Polling) 설정 ==========
     member val EnablePolling = true with get, set
     member val PollingInterval = 1000 with get, set                 // 폴링 주기 (ms)

@@ -4,7 +4,6 @@ using System.IO.Compression;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading.Tasks;
-using Promaker.Shared;
 // SSOT 직접 참조 — 같은 네임스페이스(Promaker.Services)에 forwarder SharedPaths(AasxFilePath 만 전달)가
 // 있어 'SharedPaths' alias 는 그 네임스페이스 멤버에 가려진다. 충돌 안 나는 이름(SP)으로 alias.
 using SP = Promaker.Shared.SharedPaths;
@@ -49,8 +48,6 @@ public static class AgentUploadClient
             }
 
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
-            if (!TryAuthorize(http, ip, out var authError))
-                return (false, authError);
             using var content = new ByteArrayContent(await File.ReadAllBytesAsync(tmpZip).ConfigureAwait(false));
             content.Headers.ContentType = new MediaTypeHeaderValue("application/zip");
 
@@ -82,8 +79,6 @@ public static class AgentUploadClient
         try
         {
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
-            if (!TryAuthorize(http, ip, out var authError))
-                return (false, "", authError);
             var resp = await http.GetAsync($"http://{ip}:{Port}/download").ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode)
             {
@@ -101,36 +96,4 @@ public static class AgentUploadClient
         }
     }
 
-    private static bool TryAuthorize(HttpClient http, string host, out string error)
-    {
-        error = "";
-        try
-        {
-            var key = AgentTransferSecurityOptions.ReadClientApiKey();
-            if (string.IsNullOrWhiteSpace(key))
-            {
-                if (!IsLoopbackHost(host))
-                {
-                    error = "원격 Agent 전송에는 DS2_AGENT_TRANSFER_API_KEY_FILE 설정이 필요합니다.";
-                    return false;
-                }
-                return true;
-            }
-            http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", key);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            error = $"Agent 전송 인증 설정 오류: {ex.Message}";
-            return false;
-        }
-    }
-
-    private static bool IsLoopbackHost(string host)
-    {
-        host = host.Trim().Trim('[', ']');
-        if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase)) return true;
-        return System.Net.IPAddress.TryParse(host, out var address)
-               && System.Net.IPAddress.IsLoopback(address);
-    }
 }

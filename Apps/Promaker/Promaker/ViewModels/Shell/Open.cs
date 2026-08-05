@@ -26,7 +26,7 @@ public partial class MainViewModel
         Log.Info($"{kind} opened: {filePath}");
         StatusText = $"Opened: {Path.GetFileName(filePath)}";
 
-        // 프로젝트 파일에 접속 정보가 실려 있으면 PLC 설정에 반영 — AASX/.sdf/Mermaid 공통 진입점.
+        // AID InterfaceXGT endpoint를 PLC 설정 화면에 반영한다.
         ApplyPlcConnectionFromProject();
 
         // 최근 파일 목록에 추가
@@ -37,16 +37,7 @@ public partial class MainViewModel
     }
 
     /// <summary>
-    /// 방금 연 프로젝트에 저장된 PLC 접속 정보(벤더/IP/포트)를 실행 설정에 적용한다.
-    /// AASX 에 IP 가 없어 "이 PC 에 남아 있던 IP" 로 실 PLC 에 붙던 문제의 해소 지점 —
-    /// 이후 Control/Monitoring 의 실 PLC 연결은 프로젝트가 지정한 대상으로 간다.
-    ///
-    /// <para>다음 경우에는 아무것도 하지 않아 기존 동작이 그대로 유지된다 (구 파일 회귀 0):
-    /// ① 프로젝트에 접속 정보가 없음(= 생성자 기본값 그대로인 구 파일),
-    /// ② 이미 같은 값, ③ PlcConnection.json 의 PreferAasxPlcConnection 이 false.</para>
-    ///
-    /// <para>모달을 띄우지 않는다 — 이 경로는 Dispatcher(Background) + TryRunFileOperation 안이라
-    /// 최근파일 자동 열기 / 드래그앤드롭 / 테스트가 모달에서 정지한다. 통지는 상태바와 로그로 한다.</para>
+    /// 방금 연 모델의 AID InterfaceXGT endpoint를 실행 설정 화면에 적용한다.
     /// </summary>
     private void ApplyPlcConnectionFromProject()
     {
@@ -56,32 +47,19 @@ public partial class MainViewModel
             if (sim is null) return;
 
             var current = sim.PlcSettings.ToPoco();
-            if (!current.PreferAasxPlcConnection)
-            {
-                Log.Info("PreferAasxPlcConnection=false — 프로젝트에 저장된 PLC 접속 정보를 적용하지 않습니다.");
-                return;
-            }
-
-            var conn = Promaker.Shared.PlcConnectionResolver.TryReadFromStore(_store);
-            if (conn is null) return;                                              // 미설정 — 로컬 설정 유지
-            if (Promaker.Shared.PlcConnectionResolver.Matches(current, conn)) return;  // 이미 동일
+            var conn = Promaker.Shared.AidXgtEndpointSynchronizer.TryReadFromStore(_store);
+            if (conn is null) return;
+            if (Promaker.Shared.AidXgtEndpointSynchronizer.Matches(current, conn)) return;
 
             var before = $"{current.Vendor} {current.IpAddress}:{current.Port}";
             sim.PlcSettings.ApplyConnection(conn);
 
-            // ⚠ PlcConnection.json 은 여기서 쓰지 않는다. Agent 가 그 파일을 FileSystemWatcher 로 감시해
-            //   변경되면 BackendHost 를 재시작하므로, 무관한 프로젝트를 여는 것만으로 운전 중인 모니터링이
-            //   끊기고(세션 AASX 에 접속 정보가 있는 경우) 심하면 방금 연 프로젝트의 PLC 로 전환된다
-            //   (세션 AASX 에 접속 정보가 없는 경우). sidecar 반영은 Agent 업로드(SaveToSharedLocation)
-            //   시점이 맞다 — Agent 가 새 접속을 채택해야 하는 바로 그 순간이다.
-
-            Log.Info($"PLC 접속 정보를 프로젝트 파일에서 적용: {before} → {conn} (PlcConnection.json 은 업로드 시 반영)");
-            StatusText = $"{StatusText} — PLC 접속 적용 ({conn})";
+            Log.Info($"AID XGT endpoint 적용: {before} → {conn.Vendor} {conn.IpAddress}:{conn.Port}");
+            StatusText = $"{StatusText} — AID PLC 접속 적용 ({conn.IpAddress}:{conn.Port})";
         }
         catch (Exception ex)
         {
-            // 접속 정보 적용 실패가 파일 열기 자체를 막지 않는다.
-            Log.Warn($"프로젝트 PLC 접속 정보 적용 실패 (로컬 설정 유지): {ex.Message}", ex);
+            Log.Warn($"AID XGT endpoint 적용 실패: {ex.Message}", ex);
         }
     }
 

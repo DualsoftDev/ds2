@@ -373,7 +373,7 @@ and SignalHub(
     /// **null(미설정)이면 검증 생략** — localhost 올인원/로컬 개발은 인증 불필요(기존 동작 유지, 회귀 0).
     /// 설정돼 있고 미등록이면 OnConnectedAsync 가 연결을 Abort. Pi5 는 X-Device-Id 헤더로 시리얼을 싣는다
     /// (HubClientPusher 와 헤더 계약 일치). provision_token 은 부트스트랩 전용이라 상시 인증에서 제외.
-    static member val ValidateDeviceCredential : Func<string, string, bool> = null with get, set
+    static member val ValidateDeviceCredential : Func<string, bool> = null with get, set
 
     member private this.IsRemoteCaller =
         let http = this.Context.GetHttpContext()
@@ -771,19 +771,12 @@ and SignalHub(
                     let http = this.Context.GetHttpContext()
                     if not (isNull http) then
                         let deviceId = http.Request.Headers.["X-Device-Id"].ToString()
-                        let authorization = http.Request.Headers.Authorization.ToString()
-                        let credential =
-                            if authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) then
-                                authorization.Substring("Bearer ".Length).Trim()
-                            else
-                                http.Request.Headers.["X-Device-Credential"].ToString().Trim()
                         let hasDeviceId = not (String.IsNullOrWhiteSpace deviceId)
                         let remoteIp = http.Connection.RemoteIpAddress
                         let isLoopback = not (isNull remoteIp) && System.Net.IPAddress.IsLoopback(remoteIp)
                         let credentialValid =
                             hasDeviceId
-                            && not (String.IsNullOrWhiteSpace credential)
-                            && validator.Invoke(deviceId, credential)
+                            && validator.Invoke(deviceId)
                         ok <- SignalHubConnectionPolicy.isAllowed true isLoopback hasDeviceId credentialValid
                 with ex ->
                     log.Warn($"Device credential validation threw: {ex.Message}")

@@ -227,6 +227,53 @@ let ``AID without InterfaceXGT is explicitly distinguishable from invalid XGT`` 
     Assert.NotEmpty(broken.Errors)
 
 [<Fact>]
+let ``Promaker PLC settings update only the AID XGT endpoint`` () =
+    let aid = AssetInterfacesDescription()
+    let interaction : OpcUaInteraction = {
+        IdShort = "Ready"
+        SemanticId = SemanticId "urn:dualsoft:test:ready"
+        ValueType = XsBoolean
+        Unit = None
+        Href = "%MX100"
+        SignalId = SignalId "line1.station01.ready"
+    }
+    aid.Interfaces.Add(Xgt(XgtEndpointMetadata.empty, [interaction]))
+
+    let updated =
+        AidXgtEndpointSettings.updateAll(
+            aid, "LsXgb", "192.168.9.102", 2004, false, true,
+            2uy, 3uy, 7000, 250)
+
+    Assert.Equal(1, updated)
+    let connection = AidXgtEndpointSettings.tryReadFirst aid
+    Assert.NotNull(connection)
+    Assert.Equal("xgt+tcp://192.168.9.102:2004", connection.BaseUri)
+    Assert.Equal("LsXgb", connection.Vendor)
+    Assert.Equal("192.168.9.102", connection.IpAddress)
+    Assert.Equal(2004, connection.Port)
+    Assert.Equal(7000, connection.TimeoutMs)
+    Assert.Equal(250, connection.ScanIntervalMs)
+
+    match aid.Interfaces.[0] with
+    | Xgt (endpoint, interactions) ->
+        Assert.Equal(Xgb, endpoint.CpuModel)
+        Assert.Equal("%MX100", interactions.Head.Href)
+    | _ -> Assert.Fail "expected XGT binding"
+
+[<Fact>]
+let ``AID endpoint update does not create a compatibility binding`` () =
+    let aid = AssetInterfacesDescription()
+    aid.Interfaces.Add(OpcUa(EndpointMetadata.empty, [], []))
+
+    let updated =
+        AidXgtEndpointSettings.updateAll(
+            aid, "LsXgi", "192.168.9.102", 2004, false, true,
+            0uy, 255uy, 3000, 100)
+
+    Assert.Equal(0, updated)
+    Assert.Null(AidXgtEndpointSettings.tryReadFirst aid)
+
+[<Fact>]
 let ``InterfaceXGT rejects mismatched transport credentials and duplicate signal identities`` () =
     let aid = AssetInterfacesDescription()
     let endpoint = {

@@ -40,14 +40,6 @@ type NameTransform =
     | PascalCase    // WorkStart
     | NoTransform   // 원본 유지
 
-/// PLC 벤더
-type PlcVendor =
-    | Mitsubishi    // MC Protocol (MELSEC)
-    | Siemens       // S7 Protocol
-    | RockwellAB    // EtherNet/IP (Allen-Bradley)
-    | Omron         // FINS Protocol
-    | Generic       // Generic Protocol
-
 /// FB Port mapping status (how the port was resolved)
 type MappingStatus =
     | AutoMapped   = 0  // 자동 매핑 성공 (SignalLookup)
@@ -248,54 +240,6 @@ type ControlSystemProperties() =
     member val TagPrefix: string option = None with get, set
     member val TagNamingFormat = "{SystemId}_{WorkId}_{Signal}" with get, set
     member val NameTransform = "UpperCase" with get, set
-
-    // ========== PLC 통신 설정 ==========
-    //
-    // 이 3필드가 프로젝트에 귀속되는 PLC 접속 정보의 SSOT 다 (MonitoringSystemProperties 의 동명 필드가
-    // 아니다 — 그쪽은 LS 계열을 표현할 수 없고 export 도 되지 않는다. 03_Monitoring.fs 주석 참조).
-    // Promaker 가 AASX/.sdf 저장 시 현재 접속 설정을 여기 기록하고, 파일을 열 때 이 값을 실행 설정에
-    // 반영한다 → 파일을 다른 PC 로 옮겨도 그 PC 에 남아 있던 IP 가 아니라 프로젝트의 IP 로 붙는다.
-    //
-    // ⚠ 기본값을 바꾸지 말 것. 세 값이 모두 기본값이면 "사용자가 접속을 지정하지 않음" 으로 판정하는데
-    //   (Promaker.Shared.PlcConnectionResolver.IsUnset), 이 판정이 이미 배포된 구 파일이 현장 접속 설정을
-    //   덮어쓰는 것을 막는 유일한 장치다. 포트 기본값 5000 은 실제 설정 경로(LS 2004 / MX 5007)가
-    //   만들어내지 않는 값이라 판별력이 있다. 또한 기본값 변경은 .sdf 골든과 yaml emit 규칙
-    //   ("type-default 와 다른 leaf 만 emit")을 함께 흔든다.
-    member val PlcVendor = "Mitsubishi" with get, set
-    member val PlcIpAddress = "192.168.0.1" with get, set
-    member val PlcPort = 5000 with get, set
-    /// PLC 통신 타임아웃. 접속 정보가 기록된 프로젝트에서는 실행 설정의 TimeoutMs 가 여기 담긴다.
-    member val CommunicationTimeout = TimeSpan.FromSeconds(5.0) with get, set
-    member val RetryAttempts = 3 with get, set
-
-    // ── 벤더별 접속 파라미터 (PlcProfileVersion >= 1 일 때만 유효) ──────────────
-    //
-    // IP 만 맞고 전송방식/국번이 틀리면 접속은 실패한다 (미쓰비시 UDP 현장이 TCP 로 붙는 등).
-    // 위 3필드만으로는 현장 접속을 재현할 수 없어 함께 기록한다.
-    //
-    // ⚠ byte 가 아니라 int 로 선언할 것. AASX 리플렉션 직렬화(Ds2.Aasx Export/Import Core.fs)의
-    //   타입 지원표에 byte 가 없어, byte 로 두면 export 도 import 도 되지 않고 예외조차 나지 않는다.
-    //   실행 설정(PlcConnectionSettings)의 byte 와는 경계(PlcConnectionResolver)에서만 변환한다.
-
-    /// 미쓰비시 전송방식 — true=UDP, false=TCP. LS 계열은 항상 TCP 라 무시된다.
-    member val PlcIsUdp = false with get, set
-    /// 미쓰비시 네트워크 번호 (0~255).
-    member val PlcNetworkNumber = 0 with get, set
-    /// 미쓰비시 국번 (0~255). 기본 0xFF.
-    member val PlcStationNumber = 255 with get, set
-    /// LS 로컬 이더넷 여부. 미쓰비시에서는 무시된다.
-    member val PlcLocalEthernet = true with get, set
-
-    /// <summary>
-    /// 접속 정보 기록 형식 버전.
-    ///
-    /// <para><c>0</c>(= 필드 부재) — 벤더/IP/포트 3필드만 기록된 구버전 파일. 이 경우 위의
-    /// 전송방식·국번·LocalEthernet 은 <b>읽지 않고</b> 각 PC 의 로컬 설정을 유지한다.
-    /// 이 게이트가 없으면 3필드만 든 기존 파일이 미쓰비시 UDP 현장을 TCP 기본값으로 조용히 덮어쓴다.</para>
-    ///
-    /// <para><c>1</c> — 전 필드 기록됨. 전송방식·국번까지 프로젝트 값을 적용한다.</para>
-    /// </summary>
-    member val PlcProfileVersion = 0 with get, set
 
     // ========== 태그 매칭 설정 ==========
     member val TagMatchMode = "ByAddress" with get, set
@@ -523,4 +467,3 @@ module ControlIoLegacyMigration =
             preset.BaseAddresses <- baseSet
             n <- n + 1
         n
-

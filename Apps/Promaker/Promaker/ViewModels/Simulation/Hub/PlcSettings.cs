@@ -54,15 +54,9 @@ public partial class PlcSettings : ObservableObject
     /// '보정 안함' 이 반영 안 되던 버그). SimulationPanelState.AutoDurationCalibrate(UI/hub) 와 양방향 동기화. 기본 ON.</summary>
     [ObservableProperty] private bool _autoDurationCalibrate = true;
 
-    /// <summary>프로젝트 파일(AASX/.sdf)에 저장된 PLC 접속 정보를 로컬 설정보다 우선 적용할지. 기본 ON.
-    /// OFF 면 파일을 열어도 이 PC 의 설정을 그대로 쓴다 — 기능 도입 이전과 동일 동작으로 되돌리는 킬 스위치.
-    /// PlcConnection.json 에 영속화되어 Agent(PlcConnectionResolver)와 같은 값을 공유한다.
-    /// ToPoco/FromPoco 왕복에서 빠지면 Promaker 저장이 Agent 쪽 설정까지 true 로 되돌리므로 반드시 함께 유지할 것.</summary>
-    [ObservableProperty] private bool _preferAasxPlcConnection = true;
-
     /// <summary>이 PC 에 PLC 설정이 저장된 적 있는가 — 값이 아니라 출처 표식.
     /// false 면 PlcConnection.json 이 아직 없어 생성자 기본값을 쓰고 있는 상태이므로,
-    /// 프로젝트 파일에 접속 정보를 기록하지 않는다(<see cref="PromakerShared.PlcConnectionResolver.StampToStore"/>).
+    /// AID endpoint에 접속 정보를 기록하지 않는다(<see cref="PromakerShared.AidXgtEndpointSynchronizer.StampToStore"/>).
     /// <see cref="Save"/> 가 성공하면 그 시점부터 true.</summary>
     public bool WasPersisted { get; private set; }
 
@@ -86,25 +80,14 @@ public partial class PlcSettings : ObservableObject
     };
 
     /// <summary>
-    /// 프로젝트 파일(AASX/.sdf)에서 읽은 접속 정보를 적용한다. 파일을 다른 PC 로 옮겨도
-    /// 그 PC 에 남아 있던 IP 가 아니라 프로젝트에 저장된 IP 로 붙게 하는 진입점.
-    ///
-    /// <para><b>적용 규칙은 여기 두지 않는다.</b> 벤더 프로파일 복원 · 스캔주기 보존 · 버전 0 게이트는
-    /// <see cref="PromakerShared.PlcConnectionResolver.ApplyToSettings"/> 한 벌뿐이고, Agent(Resolve 경유)와
-    /// Promaker(이 메서드)가 같은 구현을 탄다. 여기에 규칙을 복제하면 두 벌이 조용히 어긋나
-    /// "Promaker 화면과 Agent 실제 접속이 다른" 최악의 진단 불능 상태가 된다.
-    /// 이 메서드가 하는 일은 POCO ↔ 관측 가능 필드 전사뿐이다.</para>
-    ///
-    /// <para>활성 벤더 프로파일 갱신은 <c>ApplyToSettings</c> 말미의 <c>EnsureProfiles()</c> 가 수행한다.
-    /// 이 경로는 <see cref="Save"/> 를 거치지 않으므로(파일 열기가 PlcConnection.json 을 쓰면 Agent 가
-    /// 재시작한다) 그 갱신이 빠지면 벤더를 토글했다 돌아올 때 프로젝트 값이 옛 로컬 값으로 되돌아간다.</para>
+    /// AID InterfaceXGT endpoint를 화면의 PLC 입력값에 적용한다.
     /// </summary>
-    public void ApplyConnection(PromakerShared.AasxPlcConnection conn)
+    public void ApplyConnection(Ds2.Core.StandardSubmodels.AssetInterfacesDescriptionTypes.AidXgtConnectionInfo conn)
     {
         var poco = ToPoco();   // Profiles 는 VendorProfiles 와 동일 참조 — 프로파일 갱신이 그대로 반영된다.
-        PromakerShared.PlcConnectionResolver.ApplyToSettings(poco, conn);
+        PromakerShared.AidXgtEndpointSynchronizer.ApplyToSettings(poco, conn);
 
-        Vendor = (PlcVendorChoice)conn.Vendor;
+        Vendor = System.Enum.Parse<PlcVendorChoice>(conn.Vendor, ignoreCase: true);
         Name = poco.Name;
         IpAddress = poco.IpAddress;
         Port = poco.Port;
@@ -186,7 +169,6 @@ public partial class PlcSettings : ObservableObject
         IsUdp = IsUdp,
         GanttWindowMinutes = GanttWindowMinutes,
         AutoDurationCalibrate = AutoDurationCalibrate,
-        PreferAasxPlcConnection = PreferAasxPlcConnection,
         WasPersisted = WasPersisted,
         Profiles = VendorProfiles,
     };
@@ -201,7 +183,6 @@ public partial class PlcSettings : ObservableObject
             VendorProfiles = d.Profiles,
             GanttWindowMinutes = d.GanttWindowMinutes,
             AutoDurationCalibrate = d.AutoDurationCalibrate,
-            PreferAasxPlcConnection = d.PreferAasxPlcConnection,
             WasPersisted = d.WasPersisted,
         };
 

@@ -88,8 +88,8 @@ public partial class MainViewModel
             StatusText = "Agent 업로드 보류 — 공유 폴더 쓰기 잠금 중";
             return;
         }
-        // Agent 업로드본에도 접속 정보를 실어야 Agent 가 세션 AASX 만 보고 올바른 PLC 에 붙는다.
-        // (TrySaveFile 이 이미 박제했지만, 사용자 파일과 업로드 대상이 다를 수 있어 여기서도 보장.)
+        // 화면에서 확정한 PLC 입력값을 AID endpoint에 반영한 뒤 업로드본을 만든다.
+        Simulation.PlcSettings.Save();
         StampPlcConnection();
 
         bool exported;
@@ -114,19 +114,6 @@ public partial class MainViewModel
             _dialogService.ShowWarning("내보낼 프로젝트가 없습니다.");
             return;
         }
-
-        // PLC 설정 검증 + 공유 경로 저장 — Agent 가 같은 PlcConnection.json 을 읽어 게이트웨이를 구성한다.
-        // 검증 실패면 AASX 까지만 저장 (DSPilot 동기화는 유효) — Agent 세션은 기록하지 않는다.
-        var plcConfig = Simulation.BuildPlcGatewayConfig(out var errors);
-        if (plcConfig is null)
-        {
-            _dialogService.ShowWarning(
-                "PLC 설정 검증 실패 — 모델(AASX)은 저장됐지만 Agent 세션은 기록하지 않았습니다:\n  - "
-                + string.Join("\n  - ", errors));
-            StatusText = "Agent 업로드 실패 — PLC 설정 오류";
-            return;
-        }
-        Simulation.PlcSettings.Save();
 
         // session.RuntimeMode 로 Agent 가 engine 모드를 결정 — Control 이면 read-write, 그 외 read-only.
         var modeName = Simulation.SelectedRuntimeMode == Ds2.Core.RuntimeMode.Control ? "Control" : "Monitoring";
@@ -212,40 +199,25 @@ public partial class MainViewModel
     }
 
     /// <summary>
-    /// 현재 PLC 접속 정보(벤더/IP/포트)를 store 의 ControlSystemProperties 에 기록한다.
-    /// AASX/.sdf 저장 직전에 호출 — 프로젝트 파일이 접속 대상을 함께 들고 다니게 해서,
-    /// 다른 PC 에서 열어도 그 PC 에 남아 있던 IP 가 아니라 프로젝트의 IP 가 적용되게 한다.
-    ///
-    /// <para>AppSettings.EmbedPlcConnectionInAasx 가 OFF 면 기록하지 않고, 앞서 <b>우리가 기록해둔</b>
-    /// 값이 있으면 회수한다 — 내부망 IP 가 외부로 전달되는 파일에 실리지 않게 하는 옵트아웃.
-    /// AasxEditor 등으로 손편집한 값(PlcProfileVersion=0)은 우리 것이 아니므로 보존한다.</para>
-    ///
-    /// <para>저장 실패해도 흐름을 막지 않는다 (Project/ActiveSystem 이 없으면 기록할 곳 자체가 없음).</para>
+    /// 현재 PLC 입력값을 AID InterfaceXGT endpoint에 반영한다.
     /// </summary>
     private void StampPlcConnection()
     {
         try
         {
-            if (AppSettings.EmbedPlcConnectionInAasx)
-            {
-                var settings = Simulation?.PlcSettings.ToPoco();
-                if (settings is not null)
-                    Promaker.Shared.PlcConnectionResolver.StampToStore(_store, settings);
-            }
-            else
-            {
-                Promaker.Shared.PlcConnectionResolver.ClearStampedConnection(_store);
-            }
+            var settings = Simulation?.PlcSettings.ToPoco();
+            if (settings is not null)
+                Promaker.Shared.AidXgtEndpointSynchronizer.StampToStore(_store, settings);
         }
         catch (Exception ex)
         {
-            Log.Warn($"PLC 접속 정보 박제 실패 (무시하고 저장 계속): {ex.Message}", ex);
+            Log.Warn($"AID XGT endpoint 갱신 실패 (무시하고 저장 계속): {ex.Message}", ex);
         }
     }
 
     private bool SaveToPath(string filePath)
     {
-        // 저장 형식(AASX/.sdf/Mermaid) 무관하게 진입부 한 곳에서 박제 — 경로별 누락 방지.
+        // 저장 형식과 무관하게 AID를 먼저 동기화한다.
         StampPlcConnection();
 
         if (FileTypeProbe.IsMermaid(filePath))

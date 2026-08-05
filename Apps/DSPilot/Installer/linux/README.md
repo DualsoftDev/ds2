@@ -26,7 +26,6 @@ cd DSPilot_linux-x64_<버전>
 sudo ./install.sh                 # 포트 8080 기본
 # sudo ./install.sh --port 80     # 80 사용(자동으로 CAP_NET_BIND_SERVICE 부여)
 # sudo ./install.sh --no-cctv     # CCTV 없이
-# sudo ./install.sh --external-agent-transfer  # 원격 Promaker 업로드 포트 공개(API key 강제)
 ```
 
 ## 동작 개요
@@ -37,8 +36,8 @@ sudo ./install.sh                 # 포트 8080 기본
 - CCTV: MediaMTX 가 별도 서비스(`dspilot-mediamtx`), DSPilot 은 제어 API(:9997)로 카메라만 동기화
 - 수집 스택: Linux 기본 설치에서 `promaker-agent`와 `ds2-collector`가 함께 기동된다. Collector는 secure OPC UA `opc.tcp://localhost:62541/Ds2/OpcUa/Server`를 구독하고 `/var/lib/dualsoft/collector`에 typed SQLite 이력을 저장한다.
 - Data API: `http://127.0.0.1:62542` localhost 전용. 방화벽 포트를 열지 않는다.
-- Agent 모델 전송: 기본 `127.0.0.1:5050` 전용이다. `--external-agent-transfer`를 명시한 경우에만 포트를 열고 `/etc/dualsoft/agent-transfer.key` 인증을 강제한다. 이 경우에도 애플리케이션과 설치 방화벽이 RFC1918·링크로컬·IPv6 ULA 요청만 허용한다. Promaker 머신에는 키 파일을 안전한 경로로 복사하고 `DS2_AGENT_TRANSFER_API_KEY_FILE`로 지정한다.
-- 원격 위임 Hub: 단순 장비 ID만으로는 열리지 않는다. `device-credentials.json` version 2의 장비별 SHA-256 자격 증명과 HTTPS가 필요하다. WireGuard 같은 사설망 HTTP는 `DS2_AGENT_HUB_ALLOW_PRIVATE_HTTP=true`를 명시한 경우에만 켜지며, 실제 원격 주소도 사설·링크로컬 범위인지 검사한다.
+- Agent 모델 전송: Promaker에서 지정한 IP의 Agent `:5050`으로 AASX를 바로 업로드·다운로드한다. 별도 API key 설정은 사용하지 않는다.
+- 원격 위임 Hub: Pi5 수집기는 WireGuard 사설망을 통해 Agent Hub에 연결한다. 설치기가 `DS2_AGENT_HUB_ALLOW_PRIVATE_HTTP=true`를 설정한다. 장비 확인은 CloudWorks가 생성하는 `device-credentials.json` version 1의 `deviceIds` 화이트리스트를 사용한다.
 - Collector 저장 한도: 기본 outbox는 2,000,000행/1 GiB이며 sample은 80%에서 멈춰 event 공간을 남긴다. `/etc/dualsoft/dualsoft.env`의 `DS2_OUTBOX_MAX_ROWS`, `DS2_OUTBOX_MAX_PAYLOAD_BYTES`로 조정한다. downsample과 CollectionPolicy retention은 기본 활성화된다.
 - 인증서: 자동 미신뢰 허용은 꺼져 있다. 같은 설치본의 Agent ApplicationUri를 검증하고 공개 인증서만 상호 trusted store에 등록한다.
 - 업그레이드: `install.sh` 재실행 — `appsettings.Production.json`(사용자 설정)·`uploads`·`mediamtx.yml`·공유 데이터 보존

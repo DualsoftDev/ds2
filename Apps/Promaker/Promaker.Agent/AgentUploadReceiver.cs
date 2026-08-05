@@ -50,15 +50,15 @@ public sealed class AgentUploadReceiver : BackgroundService
     private readonly int _requestTimeoutSeconds = ReadIntEnvironment(
         "DS2_AGENT_TRANSFER_REQUEST_TIMEOUT_SECONDS", 600, 30, 3600);
     private long _rateLimitChecks;
-    private AgentTransferSecurityOptions? _security;
-    private AgentTransferApiKeyValidator? _apiKeyValidator;
+    private readonly int _maxUploadBytes = ReadIntEnvironment(
+        "DS2_AGENT_TRANSFER_MAX_UPLOAD_BYTES",
+        AgentTransferSecurityOptions.DefaultMaxUploadBytes,
+        1024 * 1024,
+        1024 * 1024 * 1024);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _security = AgentTransferSecurityOptions.FromEnvironment();
-        if (_security.ApiKeyFile is { } keyFile)
-            _apiKeyValidator = new AgentTransferApiKeyValidator(keyFile);
-        var prefix = _security.ListenerPrefix(Port);
+        var prefix = $"http://*:{Port}/";
         _listener.Prefixes.Add(prefix);
         try
         {
@@ -69,8 +69,7 @@ public sealed class AgentUploadReceiver : BackgroundService
             Log.Error($"모델 업로드 수신구 시작 실패 (포트 {Port}) — 네트워크 업로드 비활성, 로컬/파일 경로는 정상.", ex);
             throw;
         }
-        Log.Info($"모델 업로드 수신구 listen: {prefix}upload external={_security.ExternalBinding} " +
-                 $"authentication={_security.RequireAuthentication} maxUpload={_security.MaxUploadBytes}");
+        Log.Info($"모델 업로드 수신구 listen: {prefix}upload maxUpload={_maxUploadBytes}");
         stoppingToken.Register(() => { try { _listener.Stop(); } catch { /* 종료 중 */ } });
 
         while (!stoppingToken.IsCancellationRequested)
@@ -87,13 +86,6 @@ public sealed class AgentUploadReceiver : BackgroundService
             catch (Exception ex)
             {
                 Log.Warn($"업로드 수신 대기 오류: {ex.Message}");
-                continue;
-            }
-            if (_security is { ExternalBinding: true }
-                && !AgentTransferSecurityOptions.IsPrivateOrLoopbackAddress(ctx.Request.RemoteEndPoint?.Address))
-            {
-                Log.Warn($"Agent transfer rejected from non-private address {ctx.Request.RemoteEndPoint?.Address}.");
-                await WriteAsync(ctx, 403, "private network required").ConfigureAwait(false);
                 continue;
             }
             if (!AllowRequest(ctx))
@@ -129,12 +121,6 @@ public sealed class AgentUploadReceiver : BackgroundService
                 await WriteAsync(ctx, 200, "pong").ConfigureAwait(false);
                 return;
             }
-            if (_security is { RequireAuthentication: true } && !IsAuthorized(req))
-            {
-                Log.Warn($"Agent transfer authentication rejected from {req.RemoteEndPoint?.Address}.");
-                await WriteAsync(ctx, 401, "unauthorized").ConfigureAwait(false);
-                return;
-            }
             // 모델 다운로드 — 'Agent에서 가져오기 ▸ 네트워크' 가 이 머신 공유폴더의 project.aasx 를 받아간다.
             if (req.HttpMethod == "GET" && req.Url?.AbsolutePath == "/download")
             {
@@ -161,7 +147,7 @@ public sealed class AgentUploadReceiver : BackgroundService
                 return;
             }
 
-            var maxUpload = _security?.MaxUploadBytes ?? AgentTransferSecurityOptions.DefaultMaxUploadBytes;
+            var maxUpload = _maxUploadBytes;
             if (req.ContentLength64 > maxUpload)
             {
                 await WriteAsync(ctx, 413, "upload too large").ConfigureAwait(false);
@@ -342,15 +328,6 @@ public sealed class AgentUploadReceiver : BackgroundService
             if (expired)
                 ((ICollection<KeyValuePair<string, RequestWindow>>)_requestWindows).Remove(pair);
         }
-    }
-
-    private bool IsAuthorized(HttpListenerRequest request)
-    {
-        var authorization = request.Headers["Authorization"] ?? "";
-        var credential = authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
-            ? authorization["Bearer ".Length..].Trim()
-            : request.Headers["X-API-Key"]?.Trim();
-        return _apiKeyValidator?.Validate(credential) == true;
     }
 
     private static AgentSession DeserializeSession(string json) =>

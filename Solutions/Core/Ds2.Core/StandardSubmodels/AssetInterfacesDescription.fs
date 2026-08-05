@@ -209,3 +209,99 @@ module AssetInterfacesDescriptionTypes =
         member val SuppressedAutoIdShorts = HashSet<string>() with get, set
 
         static member Empty () = AssetInterfacesDescription()
+
+    /// C# Promaker 경계에서 AID InterfaceXGT endpoint를 읽기 위한 평탄화 DTO.
+    /// PLC 접속정보의 유일한 정본은 AID다.
+    [<AllowNullLiteral>]
+    type AidXgtConnectionInfo
+        (baseUri: string, vendor: string, ipAddress: string, port: int,
+         isUdp: bool, localEthernet: bool, networkNumber: byte, stationNumber: byte,
+         timeoutMs: int, scanIntervalMs: int) =
+        member _.BaseUri = baseUri
+        member _.Vendor = vendor
+        member _.IpAddress = ipAddress
+        member _.Port = port
+        member _.IsUdp = isUdp
+        member _.LocalEthernet = localEthernet
+        member _.NetworkNumber = networkNumber
+        member _.StationNumber = stationNumber
+        member _.TimeoutMs = timeoutMs
+        member _.ScanIntervalMs = scanIntervalMs
+
+    /// Promaker PLC 설정 ↔ AID InterfaceXGT EndpointMetadata 동기화 경계.
+    /// 새 AID 모델은 이 endpoint만 수집 SSOT로 사용한다.
+    [<RequireQualifiedAccess>]
+    module AidXgtEndpointSettings =
+        let private vendorOfCpuModel = function
+            | Xgi -> "LsXgi"
+            | Xgk -> "LsXgk"
+            | Xgb -> "LsXgb"
+
+        let private tryCpuModel (vendor: string) =
+            match if isNull vendor then "" else vendor.Trim().ToUpperInvariant() with
+            | "LSXGI" -> Some Xgi
+            | "LSXGK" -> Some Xgk
+            | "LSXGB" -> Some Xgb
+            | _ -> None
+
+        [<CompiledName("TryReadFirst")>]
+        let tryReadFirst (aid: AssetInterfacesDescription) : AidXgtConnectionInfo =
+            if isNull (box aid) then null
+            else
+                aid.Interfaces
+                |> Seq.tryPick (function
+                    | Xgt (endpoint, _) ->
+                        match Uri.TryCreate(endpoint.Base, UriKind.Absolute) with
+                        | true, uri when not (String.IsNullOrWhiteSpace uri.Host) && uri.Port > 0 ->
+                            Some (AidXgtConnectionInfo(
+                                endpoint.Base,
+                                vendorOfCpuModel endpoint.CpuModel,
+                                uri.Host,
+                                uri.Port,
+                                endpoint.Transport = XgtUdp,
+                                endpoint.LocalEthernet,
+                                endpoint.NetworkNumber,
+                                endpoint.StationNumber,
+                                endpoint.TimeoutMs,
+                                endpoint.ScanIntervalMs))
+                        | _ -> None
+                    | _ -> None)
+                |> Option.defaultValue null
+
+        [<CompiledName("UpdateAll")>]
+        let updateAll
+            (aid: AssetInterfacesDescription,
+             vendor: string,
+             ipAddress: string,
+             port: int,
+             isUdp: bool,
+             localEthernet: bool,
+             networkNumber: byte,
+             stationNumber: byte,
+             timeoutMs: int,
+             scanIntervalMs: int) : int =
+            match tryCpuModel vendor with
+            | None -> 0
+            | Some _ when isNull (box aid) || String.IsNullOrWhiteSpace ipAddress || port <= 0 -> 0
+            | Some cpuModel ->
+                let transport = if isUdp then XgtUdp else XgtTcp
+                let scheme = if isUdp then "xgt+udp" else "xgt+tcp"
+                let baseUri = $"{scheme}://{ipAddress.Trim()}:{port}"
+                let mutable updated = 0
+                for index = 0 to aid.Interfaces.Count - 1 do
+                    match aid.Interfaces.[index] with
+                    | Xgt (endpoint, interactions) ->
+                        let next =
+                            { endpoint with
+                                Base = baseUri
+                                CpuModel = cpuModel
+                                LocalEthernet = localEthernet
+                                NetworkNumber = networkNumber
+                                StationNumber = stationNumber
+                                Transport = transport
+                                TimeoutMs = if timeoutMs > 0 then timeoutMs else endpoint.TimeoutMs
+                                ScanIntervalMs = if scanIntervalMs > 0 then scanIntervalMs else endpoint.ScanIntervalMs }
+                        aid.Interfaces.[index] <- Xgt (next, interactions)
+                        updated <- updated + 1
+                    | _ -> ()
+                updated

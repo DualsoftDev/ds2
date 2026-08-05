@@ -14,7 +14,6 @@ public sealed class MainAppSettings
     private static string SplitDeviceAasxPath        => SettingsPaths.SplitDeviceAasx;
     private static string CreateDefaultEntitiesPath  => SettingsPaths.CreateDefaultEntitiesOnEmptyAasx;
     private static string IriPrefixPath              => SettingsPaths.IriPrefix;
-    private static string EmbedPlcConnectionPath     => SettingsPaths.EmbedPlcConnectionInAasx;
 
     private const string DefaultIriPrefix = "https://dualsoft.com/";
 
@@ -22,18 +21,12 @@ public sealed class MainAppSettings
     public bool   CreateDefaultEntitiesOnEmptyAasx{ get; private set; }
     public string IriPrefix                       { get; private set; } = DefaultIriPrefix;
 
-    /// <summary>AASX/.sdf 저장 시 PLC 접속 정보(벤더/IP/포트)를 프로젝트 파일에 함께 기록할지. 기본 ON.
-    /// 파일을 다른 PC 로 옮겨도 접속 대상이 따라가게 하는 것이 목적이며, OFF 로 두면 내부망 IP 가
-    /// 외부로 전달되는 AASX 에 실리지 않는다.</summary>
-    public bool   EmbedPlcConnectionInAasx        { get; private set; } = true;
-
     /// <summary>MainViewModel ctor 진입 시 한 번 호출 — 디스크에서 설정값 모두 로드.</summary>
     public void LoadAll()
     {
         SplitDeviceAasx                  = AppSettingStore.LoadBoolOrDefault(SplitDeviceAasxPath, false);
         CreateDefaultEntitiesOnEmptyAasx = AppSettingStore.LoadBoolOrDefault(CreateDefaultEntitiesPath, false);
         IriPrefix                        = AppSettingStore.LoadStringOrDefault(IriPrefixPath, DefaultIriPrefix);
-        EmbedPlcConnectionInAasx         = AppSettingStore.LoadBoolOrDefault(EmbedPlcConnectionPath, true);
     }
 
     public void SetSplitDeviceAasx(bool value)
@@ -57,10 +50,4 @@ public sealed class MainAppSettings
         AppSettingStore.SaveString(IriPrefixPath, value);
     }
 
-    public void SetEmbedPlcConnectionInAasx(bool value)
-    {
-        if (EmbedPlcConnectionInAasx == value) return;
-        EmbedPlcConnectionInAasx = value;
-        AppSettingStore.SaveBool(EmbedPlcConnectionPath, value);
-    }
 }

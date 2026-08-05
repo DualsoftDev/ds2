@@ -380,22 +380,23 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
         }
     }
 
-    private static void WireDeviceCredentialValidator(HubDeviceCredentialValidator? policy)
+    private static void WireDeviceCredentialValidator(IReadOnlySet<string>? allowedDeviceIds)
     {
         SignalHub.ValidateDeviceCredential = null;
-        if (policy is null)
+        if (allowedDeviceIds is null)
         {
-            Log.Info("Hub is loopback-only; remote device credential validator is not required.");
+            Log.Info("Device credentials file absent or unreadable — Hub device whitelist disabled.");
             return;
         }
 
-        SignalHub.ValidateDeviceCredential = policy.Validate;
-        Log.Info($"Device credential validator wired — {policy.Count} registered device(s).");
+        SignalHub.ValidateDeviceCredential = deviceId =>
+            !string.IsNullOrWhiteSpace(deviceId) && allowedDeviceIds.Contains(deviceId);
+        Log.Info($"Device whitelist wired — {allowedDeviceIds.Count} registered device(s).");
     }
 
     private static bool TryLoadDeviceCredentialPolicy(
         AgentSession session,
-        out HubDeviceCredentialValidator? policy,
+        out IReadOnlySet<string>? policy,
         out string error)
     {
         policy = null;
@@ -419,20 +420,41 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
         if (string.IsNullOrWhiteSpace(path)) path = DeviceCredentialsPath;
         path = Path.GetFullPath(path);
 
+        if (!File.Exists(path))
+        {
+            Log.Info($"Device credentials file absent ({path}) — Hub device whitelist disabled.");
+            return true;
+        }
+
         try
         {
-            policy = HubDeviceCredentialValidator.FromFile(path);
-            return true;
+            var document = JsonSerializer.Deserialize<DeviceCredentialsFile>(
+                File.ReadAllText(path),
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            var allowed = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var deviceId in document?.DeviceIds ?? Array.Empty<string>())
+            {
+                var id = deviceId?.Trim();
+                if (!string.IsNullOrWhiteSpace(id)) allowed.Add(id);
+            }
+            policy = allowed;
         }
         catch (Exception ex)
         {
-            error = $"Device credential load failed ({path}): {ex.Message}";
-            return false;
+            // 기존 CloudWorks 계약과 동일하게 가용성 우선: 파일 파싱 실패는 Agent 활성화를 막지 않는다.
+            Log.Warn($"Device credential load failed ({path}) — Hub device whitelist disabled.", ex);
         }
+        return true;
     }
 
     /// <summary>cloudinit device-credentials.json 계약 경로 — 쓰는 쪽(cloudinit.py DEVICE_CREDENTIALS_PATH)과 일치.</summary>
     private const string DeviceCredentialsPath = "/etc/agent/device-credentials.json";
+
+    private sealed record DeviceCredentialsFile
+    {
+        public int Version { get; init; }
+        public string[]? DeviceIds { get; init; }
+    }
 
     /// <summary>실행 중인 runtime을 내리기 전에 완성하는 side-effect-free 활성화 계획.</summary>
     private sealed record ActivationPlan(
@@ -442,7 +464,7 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
         AidXgtConfigResult? AidXgtPlan,
         AidSouthboundConfigResult? AidSouthboundPlan,
         OpcUaServerSettings UaSettings,
-        HubDeviceCredentialValidator? DeviceCredentials,
+        IReadOnlySet<string>? DeviceCredentials,
         SimIndex Index,
         string ModelHash);
 
@@ -478,12 +500,6 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
                 error = $"AASX load failed: {importResult.ErrorValue}";
                 return false;
             }
-
-            var ioMap = SignalIOMapModule.build(store);
-            var userTagAddresses = store.GetAllUserTagsForProject()
-                .Select(record => record.TagAddress)
-                .Where(address => !string.IsNullOrWhiteSpace(address))
-                .ToList();
 
             AidXgtConfigResult? aidXgtPlan = null;
             AidSouthboundConfigResult? aidSouthboundPlan = null;
@@ -532,43 +548,16 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
                 }
                 gatewayConfig = aidXgtPlan.Config;
             }
+            else if (aidSouthboundPlan is { HasBinding: true })
+            {
+                gatewayConfig = new PlcGatewayConfig(
+                    Microsoft.FSharp.Collections.ListModule.OfSeq(Array.Empty<PlcConnectionConfig>()));
+                Log.Info("Standard AID southbound adapters own acquisition; XGT gateway is empty.");
+            }
             else
             {
-                var plcSettingsPath = string.IsNullOrWhiteSpace(session.PlcConnectionPath)
-                    ? SharedPaths.PlcConnectionFilePath
-                    : session.PlcConnectionPath;
-                if (File.Exists(plcSettingsPath)
-                    && !PlcConnectionSettings.TryLoadExact(plcSettingsPath, out _, out var plcSettingsError))
-                {
-                    error = $"PLC settings rejected: {plcSettingsError}";
-                    return false;
-                }
-                var resolution = PlcConnectionResolver.Resolve(
-                    store,
-                    plcSettingsPath);
-                foreach (var warning in resolution.Warnings) Log.Warn($"PLC 접속 해석: {warning}");
-                if (resolution.Errors.Count > 0)
-                {
-                    error = $"PLC connection resolution failed: {string.Join(" / ", resolution.Errors)}";
-                    return false;
-                }
-                var legacyConfig = PlcGatewayConfigBuilder.TryBuild(
-                    resolution.Settings, ioMap, out var errors, userTagAddresses);
-                if (legacyConfig is null)
-                {
-                    if (aidSouthboundPlan is { HasBinding: true })
-                    {
-                        gatewayConfig = new PlcGatewayConfig(
-                            Microsoft.FSharp.Collections.ListModule.OfSeq(Array.Empty<PlcConnectionConfig>()));
-                        Log.Info("No legacy PLC IO map; standard AID southbound adapters will own acquisition.");
-                    }
-                    else
-                    {
-                        error = $"Gateway config build failed: {string.Join(" / ", errors)}";
-                        return false;
-                    }
-                }
-                else gatewayConfig = legacyConfig;
+                error = "AID collection binding is required. Define InterfaceXGT, OPC UA, Modbus, MQTT, or HTTP in AssetInterfacesDescription.";
+                return false;
             }
 
             OpcUaServerSettings uaSettings;
@@ -649,10 +638,6 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
     /// <summary>업로드 수신기가 live 파일 교체 전에 동일한 활성화 검증을 재사용한다.</summary>
     internal static bool TryPreflightCandidate(AgentSession session, out string error) =>
         TryBuildActivationPlan(session, out _, out error);
-
-    // cloudinit(plc-connections.json) 접속 override 는 Promaker.Shared.PlcConnectionResolver 로 이관됨.
-    // Promaker WPF 와 Agent 가 동일한 우선순위 규칙(cloudinit → AASX 내장 → 로컬 PlcConnection.json)을
-    // 한 곳에서 공유하기 위함 — 규칙이 앱마다 흩어지면 "왜 이 IP 로 붙었는지" 진단이 불가능해진다.
 
     private Task TryActivateAsync() => TryActivateAsync(forcedPlan: null);
 

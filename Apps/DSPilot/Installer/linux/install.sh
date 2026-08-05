@@ -5,12 +5,10 @@
 #  - 멱등(idempotent): 재실행 시 업그레이드로 동작하며 사용자 설정/데이터를 보존한다.
 #
 #  사용법:
-#    sudo ./install.sh [--port N] [--shared-dir PATH] [--no-cctv] [--no-firewall]
-#                      [--no-agent|--with-agent] [--external-agent-transfer]
+#    sudo ./install.sh [--port N] [--shared-dir PATH] [--no-cctv] [--no-firewall] [--no-agent|--with-agent]
 #
 #  기본값: 포트 8080, 공유 디렉터리 /var/lib/dualsoft/Shared, CCTV/방화벽/Agent 활성.
 #  --no-agent 로 Promaker.Agent(PLC 스캔 백엔드) 제외, --with-agent 로 명시 포함(기본값).
-#  Agent 모델 전송 포트는 기본 loopback 전용이며 --external-agent-transfer 로 명시 공개한다.
 # ============================================================================
 set -euo pipefail
 
@@ -33,8 +31,6 @@ ENABLE_FIREWALL=1
 # Agent = DSPilot 의 데이터 공급원(PLC 스캔 → 5051 SignalR Hub, DSPilot 가 구독). Linux 는 기본 ON.
 ENABLE_AGENT=1
 AGENT_EXPLICIT=0
-ENABLE_EXTERNAL_AGENT_TRANSFER=0
-AGENT_TRANSFER_KEY_FILE="/etc/dualsoft/agent-transfer.key"
 # CCTV WebRTC 포트 (mediamtx.yml 과 일치해야 함): 8889/tcp=WHEP·시그널링, 8189/udp=ICE 미디어, 8189/tcp=UDP 차단망 폴백.
 WEBRTC_TCP_PORT=8889
 WEBRTC_UDP_PORT=8189
@@ -63,7 +59,6 @@ while [[ $# -gt 0 ]]; do
     --no-firewall) ENABLE_FIREWALL=0; shift ;;
     --no-agent)    ENABLE_AGENT=0; AGENT_EXPLICIT=1; shift ;;
     --with-agent)  ENABLE_AGENT=1; AGENT_EXPLICIT=1; shift ;;
-    --external-agent-transfer) ENABLE_EXTERNAL_AGENT_TRANSFER=1; shift ;;
     -h|--help)     usage; exit 0 ;;
     *) echo "알 수 없는 인자: $1" >&2; usage; exit 1 ;;
   esac
@@ -231,25 +226,6 @@ chmod -R u+rwX "$COLLECTOR_DATA_DIR"
 # ── 7b) 공유 디렉터리 단일 출처(SSOT) 기록 ───────────────────────────────────
 # DSPilot·Promaker.Agent 의 systemd 유닛이 EnvironmentFile 로 이 파일을 읽어 동일 폴더로 정합된다.
 mkdir -p "$(dirname "$ENV_FILE")"
-if [[ $ENABLE_EXTERNAL_AGENT_TRANSFER -eq 1 ]]; then
-  if [[ ! -s "$AGENT_TRANSFER_KEY_FILE" ]]; then
-    umask 077
-    if command -v openssl >/dev/null 2>&1; then
-      openssl rand -base64 48 > "$AGENT_TRANSFER_KEY_FILE"
-    else
-      head -c 48 /dev/urandom | base64 > "$AGENT_TRANSFER_KEY_FILE"
-    fi
-  fi
-  chown "$APP_USER:$APP_USER" "$AGENT_TRANSFER_KEY_FILE"
-  chmod 0600 "$AGENT_TRANSFER_KEY_FILE"
-  AGENT_TRANSFER_BIND_HOST="0.0.0.0"
-  AGENT_TRANSFER_ALLOW_PRIVATE_HTTP="true"
-  AGENT_TRANSFER_API_KEY_FILE="$AGENT_TRANSFER_KEY_FILE"
-else
-  AGENT_TRANSFER_BIND_HOST="127.0.0.1"
-  AGENT_TRANSFER_ALLOW_PRIVATE_HTTP="false"
-  AGENT_TRANSFER_API_KEY_FILE=""
-fi
 cat > "$ENV_FILE" <<EOF
 # DualSoft 공유 런타임 디렉터리(단일 출처). DSPilot·Promaker.Agent 가 project.aasx / plc.db / oee.db /
 # PlcConnection.json / agent/active.flag 를 주고받는 폴더. 두 서비스가 이 파일을 EnvironmentFile 로 읽어
@@ -271,10 +247,8 @@ DS2_OUTBOX_MAX_ROWS=2000000
 DS2_OUTBOX_MAX_PAYLOAD_BYTES=1073741824
 DS2_DOWNSAMPLE_ENABLED=true
 DS2_RETENTION_ENABLED=true
-# Agent 모델 업로드/다운로드는 기본 loopback 전용. 외부 공개는 설치 옵션으로 명시하고 API key를 강제한다.
-DS2_AGENT_TRANSFER_BIND_HOST=$AGENT_TRANSFER_BIND_HOST
-DS2_AGENT_TRANSFER_ALLOW_PRIVATE_HTTP=$AGENT_TRANSFER_ALLOW_PRIVATE_HTTP
-DS2_AGENT_TRANSFER_API_KEY_FILE=$AGENT_TRANSFER_API_KEY_FILE
+# Pi5 수집기가 WireGuard 사설망을 통해 이 Agent Hub에 HTTP로 접속하는 위임 구성을 허용한다.
+DS2_AGENT_HUB_ALLOW_PRIVATE_HTTP=true
 EOF
 chmod 0644 "$ENV_FILE"
 
@@ -328,13 +302,7 @@ if [[ $ENABLE_FIREWALL -eq 1 ]]; then
   if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -qi active; then
     echo "==> ufw 방화벽 규칙 추가"
     ufw allow "${WEB_PORT}/tcp" >/dev/null || true
-    if [[ $ENABLE_AGENT -eq 1 && $ENABLE_EXTERNAL_AGENT_TRANSFER -eq 1 ]]; then
-      ufw allow from 10.0.0.0/8 to any port "$AGENT_UPLOAD_PORT" proto tcp >/dev/null || true
-      ufw allow from 172.16.0.0/12 to any port "$AGENT_UPLOAD_PORT" proto tcp >/dev/null || true
-      ufw allow from 192.168.0.0/16 to any port "$AGENT_UPLOAD_PORT" proto tcp >/dev/null || true
-      ufw allow from 169.254.0.0/16 to any port "$AGENT_UPLOAD_PORT" proto tcp >/dev/null || true
-      ufw allow from fc00::/7 to any port "$AGENT_UPLOAD_PORT" proto tcp >/dev/null || true
-    fi
+    [[ $ENABLE_AGENT -eq 1 ]] && ufw allow "${AGENT_UPLOAD_PORT}/tcp" >/dev/null || true
     if [[ $ENABLE_CCTV -eq 1 ]]; then
       ufw allow "${WEBRTC_TCP_PORT}/tcp" >/dev/null || true
       ufw allow "${WEBRTC_UDP_PORT}/udp" >/dev/null || true
@@ -343,13 +311,7 @@ if [[ $ENABLE_FIREWALL -eq 1 ]]; then
   elif command -v firewall-cmd >/dev/null && firewall-cmd --state >/dev/null 2>&1; then
     echo "==> firewalld 방화벽 규칙 추가"
     firewall-cmd --permanent --add-port="${WEB_PORT}/tcp" >/dev/null || true
-    if [[ $ENABLE_AGENT -eq 1 && $ENABLE_EXTERNAL_AGENT_TRANSFER -eq 1 ]]; then
-      firewall-cmd --permanent --add-rich-rule="rule family=\"ipv4\" source address=\"10.0.0.0/8\" port port=\"$AGENT_UPLOAD_PORT\" protocol=\"tcp\" accept" >/dev/null || true
-      firewall-cmd --permanent --add-rich-rule="rule family=\"ipv4\" source address=\"172.16.0.0/12\" port port=\"$AGENT_UPLOAD_PORT\" protocol=\"tcp\" accept" >/dev/null || true
-      firewall-cmd --permanent --add-rich-rule="rule family=\"ipv4\" source address=\"192.168.0.0/16\" port port=\"$AGENT_UPLOAD_PORT\" protocol=\"tcp\" accept" >/dev/null || true
-      firewall-cmd --permanent --add-rich-rule="rule family=\"ipv4\" source address=\"169.254.0.0/16\" port port=\"$AGENT_UPLOAD_PORT\" protocol=\"tcp\" accept" >/dev/null || true
-      firewall-cmd --permanent --add-rich-rule="rule family=\"ipv6\" source address=\"fc00::/7\" port port=\"$AGENT_UPLOAD_PORT\" protocol=\"tcp\" accept" >/dev/null || true
-    fi
+    [[ $ENABLE_AGENT -eq 1 ]] && firewall-cmd --permanent --add-port="${AGENT_UPLOAD_PORT}/tcp" >/dev/null || true
     if [[ $ENABLE_CCTV -eq 1 ]]; then
       firewall-cmd --permanent --add-port="${WEBRTC_TCP_PORT}/tcp" >/dev/null || true
       firewall-cmd --permanent --add-port="${WEBRTC_UDP_PORT}/udp" >/dev/null || true
@@ -386,8 +348,7 @@ echo "    http://localhost:$WEB_PORT"
 [[ -n "${IP_HINT:-}" ]] && echo "    http://$IP_HINT:$WEB_PORT"
 echo ""
 echo "로그 보기:   journalctl -u $SVC_DSPILOT -f"
-[[ $ENABLE_AGENT -eq 1 ]] && echo "Agent:       업로드 수신 $([[ $ENABLE_EXTERNAL_AGENT_TRANSFER -eq 1 ]] && echo ":$AGENT_UPLOAD_PORT 외부/API-key" || echo "127.0.0.1:$AGENT_UPLOAD_PORT") / Hub :$AGENT_PORT (활성 시) — 로그 journalctl -u $SVC_AGENT -f"
-[[ $ENABLE_AGENT -eq 1 && $ENABLE_EXTERNAL_AGENT_TRANSFER -eq 1 ]] && echo "Agent key:   $AGENT_TRANSFER_KEY_FILE (Promaker 머신에 안전하게 복사 후 같은 환경변수로 지정)"
+[[ $ENABLE_AGENT -eq 1 ]] && echo "Agent:       업로드 수신 :$AGENT_UPLOAD_PORT / Hub :$AGENT_PORT (활성 시) — 로그 journalctl -u $SVC_AGENT -f"
 [[ $ENABLE_AGENT -eq 1 ]] && echo "Collector:   API http://127.0.0.1:62542 / 데이터 $COLLECTOR_DATA_DIR — 로그 journalctl -u $SVC_COLLECTOR -f"
 echo "공유 폴더:   $SHARED_DIR  (project.aasx / plc.db / oee.db / PlcConnection.json / active.flag)"
 echo "제거:        sudo ./uninstall.sh"
