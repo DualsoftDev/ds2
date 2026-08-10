@@ -345,7 +345,9 @@ public sealed class SimulationEngineService : IDisposable
         // 진단 — UserTag 정의 주소에 대해서만 hit/miss + enqueue 결과 로깅.
         if (_userTagAddressesForDiag.Contains(address))
         {
-            _logger.LogInformation(
+            // Debug 강등 — Information 이던 시절 하루 ~75만 줄이 journald 를 포화시켜 컨슈머(큐 소비)를
+            // 늦추고 채널 drop 을 유발했다(8/6 실측). 진단 필요 시 로그레벨로 켠다.
+            _logger.LogDebug(
                 "[Engine] UserTag hub signal {Addr}={Val} src={Src} cacheHit={Hit} tagId={Id}",
                 address, value, source, inCache, inCache ? tagId : -1);
         }

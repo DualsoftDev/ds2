@@ -49,8 +49,14 @@ public sealed class HubSubscriberService : BackgroundService
 
     // spec §SignalR — drop rate metric 임계. 누적 drop ≥ 100 + 마지막 Error 후 10s 경과 시 LogError.
     private long _lastDropReportTicks;
-    private const long DropReportIntervalTicks = 10L * TimeSpan.TicksPerSecond;
-    private const long DropReportThreshold = 100;
+    private long _lastReportedDropTotal;
+    private const long DropReportIntervalTicks = 60L * TimeSpan.TicksPerSecond;
+
+    // resync 조기 스킵 상태 — 주소별 마지막 resync 값 + 60초 1회 전체 통과 게이트.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _lastResyncValueByAddress =
+        new(StringComparer.OrdinalIgnoreCase);
+    private long _lastResyncFullPassTicks;
+    private const long ResyncFullPassIntervalTicks = 60L * TimeSpan.TicksPerSecond;
     private const int HandleHubTagMaxRetries = 3;
 
     /// <summary>
@@ -439,8 +445,30 @@ public sealed class HubSubscriberService : BackgroundService
     private void OnHubTagsChanged(TagWrite[] items)
     {
         if (items is null || items.Length == 0 || _processor is null) return;
+
+        // resync(주기 10s baseline 스냅샷) 조기 스킵 — 태그 전수(≈19만 건/h)가 값 변화 없이
+        // 채널·컨슈머를 통과하는 상시 부하가 큐 포화(8/6 실측 28만 drop)의 바탕이 됐다.
+        // 값이 안 바뀐 resync 는 enqueue 전에 버리되, 60초에 1번은 전체를 통과시켜 엔진
+        // baseline 정정(레벨 드리프트 자가치유)을 유지한다. plcTagLog 폭증은 SimulationEngineService
+        // 의 기록 dedupe 가 이중 방어. (실변화·plc 등 다른 source 는 종전대로 전량 통과.)
+        bool resyncFullPass = false, fullPassDecided = false;
         foreach (var it in items)
         {
+            if (string.Equals(it.Source, HubSource.Resync, StringComparison.OrdinalIgnoreCase))
+            {
+                if (!fullPassDecided)
+                {
+                    fullPassDecided = true;
+                    var now = DateTime.UtcNow.Ticks;
+                    var last = Interlocked.Read(ref _lastResyncFullPassTicks);
+                    resyncFullPass = now - last >= ResyncFullPassIntervalTicks
+                        && Interlocked.CompareExchange(ref _lastResyncFullPassTicks, now, last) == last;
+                }
+                var unchanged = _lastResyncValueByAddress.TryGetValue(it.Address, out var lastVal)
+                    && string.Equals(lastVal, it.Value, StringComparison.Ordinal);
+                _lastResyncValueByAddress[it.Address] = it.Value;
+                if (unchanged && !resyncFullPass) continue;
+            }
             // WallClockMs = 원천 관측 시각(Pi5 스캔 직후 각인). plcTagLog 기록 시각으로 관통 —
             // 도착시각으로 찍으면 핑 두절→replay 신호가 복구 순간에 뭉쳐 그래프가 왜곡된다.
             var result = _processor.TryEnqueue(it.Address, it.Value, it.Source, it.WallClockMs);
@@ -461,20 +489,19 @@ public sealed class HubSubscriberService : BackgroundService
     }
 
     /// <summary>Channel write 실패 시 호출 (HubSignalProcessor 의 onDrop 콜백).
-    /// LogWarning 매 drop + 임계 초과 시 LogError 한 번 발화 (10s window CAS gate).</summary>
+    /// ★건별 로그 금지 — 8/6 실측: drop 당 LogWarning 이 28만 줄/일로 journald 를 포화시켜
+    /// 컨슈머를 더 늦추고 drop 을 재생산하는 눈덩이(로깅 피드백 루프)를 만들었다.
+    /// 60초 1회로 묶어 그동안의 증가분만 보고한다(WarnRejectedTimestamp 와 동일 패턴).</summary>
     private void OnChannelDrop(string address, long total)
     {
-        _logger.LogWarning("[Hub] Signal channel write dropped for {Address} (total={Total})", address, total);
-
-        if (total < DropReportThreshold) return;
         var now = DateTime.UtcNow.Ticks;
         var last = Interlocked.Read(ref _lastDropReportTicks);
-        if (now - last <= DropReportIntervalTicks) return;
+        if (now - last < DropReportIntervalTicks) return;
         if (Interlocked.CompareExchange(ref _lastDropReportTicks, now, last) != last) return;
 
-        var windowSec = DropReportIntervalTicks / TimeSpan.TicksPerSecond;
-        _logger.LogError(
-            "[Hub] Channel drop rate 임계 초과 — total={Total} (last report window {WindowSec}s)",
-            total, windowSec);
+        var delta = total - Interlocked.Exchange(ref _lastReportedDropTotal, total);
+        _logger.LogWarning(
+            "[Hub] Signal channel drops — 최근 60s 간 {Delta}건 (누계 {Total}, 예: {Address}) — 컨슈머 포화 신호",
+            delta, total, address);
     }
 }

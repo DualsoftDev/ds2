@@ -22,7 +22,9 @@ public sealed class HubSignalProcessor
     private readonly Action<string, string, string, Exception, long>? _onDeadLetter;
     private readonly int _maxRetries;
     private readonly Func<int, TimeSpan> _retryDelay;
-    private const int DefaultChannelCapacity = 1024;
+    // 1024 → 8192: Pi5 replay 버스트(500건 청크 연속) + resync 스윕이 겹치면 1024 로는 컨슈머가
+    // 따라잡기 전에 넘쳤다(8/6 실측 28만 drop). 8192 ≈ 수 초치 버스트 흡수(항목당 수십 바이트라 메모리 무시 가능).
+    private const int DefaultChannelCapacity = 8192;
 
     public Channel<HubSignal> SignalChannel { get; }
     public long DropCount       => Interlocked.Read(ref _dropCount);
