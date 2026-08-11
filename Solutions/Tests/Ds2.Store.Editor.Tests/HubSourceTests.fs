@@ -76,6 +76,38 @@ let ``Agent가 PLC owner인 모드는 제어 source만 PLC로 전달`` () =
     Assert.False(SignalHubWritePolicy.shouldForwardToPlc false true "" HubSource.Control)
 
 [<Fact>]
+let ``Pi5 delegated ingress preserves the accepted WriteTags batch`` () =
+    let identity =
+        { SessionId = "delegated-session"
+          ModelHash = "model-1"
+          Generation = 3
+          Mode = HubSource.Monitoring }
+    let items =
+        [| { Address = "%IX0.0.1"
+             Value = "true"
+             Source = HubSource.Plc
+             OriginTsMs = 123L
+             WallClockMs = 456L }
+           { Address = "%IX0.0.2"
+             Value = "17"
+             Source = HubSource.Plc
+             OriginTsMs = 124L
+             WallClockMs = 457L } |]
+    let mutable received : RuntimeIOAddressBatchCommand option = None
+
+    SignalHubRuntimeIngress.injectBatch identity items (fun command ->
+        received <- Some command
+        Task.CompletedTask)
+    |> fun pending -> pending.GetAwaiter().GetResult()
+
+    let command = received.Value
+    Assert.Equal(identity.SessionId, command.Envelope.SessionId)
+    Assert.Equal(identity.ModelHash, command.Envelope.ModelHash)
+    Assert.Equal(identity.Generation, command.Envelope.Generation)
+    Assert.Equal(identity.Mode, command.Envelope.Mode)
+    Assert.Same(items, command.Items)
+
+[<Fact>]
 let ``단말 인증 미설정 Hub는 기존 연결을 모두 허용`` () =
     Assert.True(SignalHubConnectionPolicy.isAllowed false false false false)
     Assert.True(SignalHubConnectionPolicy.isAllowed false false true false)
