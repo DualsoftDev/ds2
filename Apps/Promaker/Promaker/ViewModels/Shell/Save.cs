@@ -205,13 +205,18 @@ public partial class MainViewModel
     {
         try
         {
-            var settings = Simulation?.PlcSettings.ToPoco();
-            if (settings is not null)
-                Promaker.Shared.AidXgtEndpointSynchronizer.StampToStore(_store, settings);
+            var sim = Simulation;
+            if (sim is null) return;
+            var settings = sim.PlcSettings.ToPoco();
+            // EnsureToStore: XGT 바인딩이 없으면 IO맵 주소로 새로 생성, 있으면 endpoint 갱신.
+            // (StampToStore 는 갱신만 해서, 바인딩 없던 모델은 IP 를 넣어도 반영이 안 됐다 — 그 구멍을 메움.)
+            var addresses = sim.EnumeratePlcAddresses();
+            var n = Promaker.Shared.AidXgtEndpointSynchronizer.EnsureToStore(_store, settings, addresses);
+            Log.Info($"AID XGT 바인딩 동기화 — interaction={n}, 주소 {addresses.Count}개");
         }
         catch (Exception ex)
         {
-            Log.Warn($"AID XGT endpoint 갱신 실패 (무시하고 저장 계속): {ex.Message}", ex);
+            Log.Warn($"AID XGT endpoint 동기화 실패 (무시하고 저장 계속): {ex.Message}", ex);
         }
     }
 

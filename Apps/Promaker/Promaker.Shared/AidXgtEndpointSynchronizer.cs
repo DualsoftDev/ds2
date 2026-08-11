@@ -54,6 +54,48 @@ public static class AidXgtEndpointSynchronizer
             settings.ScanIntervalMs) > 0;
     }
 
+    /// <summary>
+    /// XGT 수집 바인딩을 보장한다 — 없으면 <paramref name="addresses"/>(모델 IO맵 OUT/IN + UserTag)로
+    /// InteractionMetadata 를 만들어 새로 생성하고, 있으면 endpoint 만 갱신한다. AID 자체가 없으면 만든다.
+    /// bcf9121b 가 "생성" 경로를 빠뜨려 XGT 바인딩 없는 모델이 PLC IP 를 넣어도 반영 안 되던 구멍을 메운다.
+    /// </summary>
+    public static bool EnsureToStore(DsStore? store, PlcConnectionSettings? settings, IEnumerable<string>? addresses)
+    {
+        if (store is null || settings is null || !settings.WasPersisted)
+            return false;
+
+        var project = store.Projects.Values.FirstOrDefault();
+        if (project is null)
+            return false;
+
+        AssetInterfacesDescription aid;
+        var aidOption = project.AssetInterfaces;
+        if (aidOption is not null
+            && Microsoft.FSharp.Core.FSharpOption<AssetInterfacesDescription>.get_IsSome(aidOption))
+        {
+            aid = aidOption.Value;
+        }
+        else
+        {
+            aid = new AssetInterfacesDescription();
+            project.AssetInterfaces =
+                Microsoft.FSharp.Core.FSharpOption<AssetInterfacesDescription>.Some(aid);
+        }
+
+        return AidXgtEndpointSettings.EnsureBinding(
+            aid,
+            settings.Vendor,
+            (settings.IpAddress ?? "").Trim(),
+            settings.Port,
+            settings.IsUdp,
+            settings.LocalEthernet,
+            settings.NetworkNumber,
+            settings.StationNumber,
+            settings.TimeoutMs,
+            settings.ScanIntervalMs,
+            addresses ?? System.Array.Empty<string>()) > 0;
+    }
+
     /// <summary>AID endpoint를 Promaker PLC 입력값에 적용한다.</summary>
     public static void ApplyToSettings(PlcConnectionSettings settings, AidXgtConnectionInfo connection)
     {

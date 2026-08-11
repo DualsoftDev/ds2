@@ -305,3 +305,65 @@ module AssetInterfacesDescriptionTypes =
                         updated <- updated + 1
                     | _ -> ()
                 updated
+
+        /// XGT 수집 바인딩을 보장한다 — 기존 InterfaceXGT 가 있으면 endpoint 만 갱신(updateAll),
+        /// 없으면 addresses(모델 IO맵의 OUT/IN + UserTag 주소)로 InteractionMetadata 를 만들어 새로 생성한다.
+        /// bcf9121b(PLC 접속=AID 정본) 리팩터가 "갱신"만 두고 "생성"을 빠뜨려, XGT 바인딩이 없던 모델은
+        /// PLC IP 를 넣어도 저장 시 바인딩이 안 생기던 구멍을 메운다. 반환 = 생성/갱신된 interaction 수.
+        [<CompiledName("EnsureBinding")>]
+        let ensureBinding
+            (aid: AssetInterfacesDescription,
+             vendor: string,
+             ipAddress: string,
+             port: int,
+             isUdp: bool,
+             localEthernet: bool,
+             networkNumber: byte,
+             stationNumber: byte,
+             timeoutMs: int,
+             scanIntervalMs: int,
+             addresses: seq<string>) : int =
+            match tryCpuModel vendor with
+            | None -> 0
+            | Some _ when isNull (box aid) || String.IsNullOrWhiteSpace ipAddress || port <= 0 -> 0
+            | Some cpuModel ->
+                let hasXgt =
+                    aid.Interfaces |> Seq.exists (fun b -> match b with | Xgt _ -> true | _ -> false)
+                if hasXgt then
+                    // 이미 InterfaceXGT 존재 → endpoint 만 갱신(신호 목록은 보존).
+                    updateAll(
+                        aid, vendor, ipAddress, port, isUdp, localEthernet,
+                        networkNumber, stationNumber, timeoutMs, scanIntervalMs)
+                else
+                    let transport = if isUdp then XgtUdp else XgtTcp
+                    let scheme = if isUdp then "xgt+udp" else "xgt+tcp"
+                    let endpoint =
+                        { XgtEndpointMetadata.empty with
+                            Base = sprintf "%s://%s:%d" scheme (ipAddress.Trim()) port
+                            CpuModel = cpuModel
+                            LocalEthernet = localEthernet
+                            NetworkNumber = networkNumber
+                            StationNumber = stationNumber
+                            Transport = transport
+                            TimeoutMs = (if timeoutMs > 0 then timeoutMs else 3000)
+                            ScanIntervalMs = (if scanIntervalMs > 0 then scanIntervalMs else 100) }
+                    let seen = HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    let interactions =
+                        addresses
+                        |> Seq.choose (fun a ->
+                            if String.IsNullOrWhiteSpace a then None
+                            else
+                                let addr = a.Trim()
+                                if seen.Add addr then Some addr else None)
+                        |> Seq.map (fun addr ->
+                            { IdShort = addr
+                              SemanticId = SemanticId (sprintf "urn:dualsoft:cd:xgt:io:%s:1:0" (addr.ToLowerInvariant()))
+                              ValueType = XsBoolean
+                              Unit = None
+                              Href = addr
+                              SignalId = SignalId addr })
+                        |> List.ofSeq
+                    if List.isEmpty interactions then 0
+                    else
+                        aid.Interfaces.Add(Xgt (endpoint, interactions))
+                        List.length interactions

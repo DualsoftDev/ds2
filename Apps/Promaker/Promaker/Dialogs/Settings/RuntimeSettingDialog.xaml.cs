@@ -34,8 +34,9 @@ public partial class RuntimeSettingDialog : Window
         ModeCombo.SelectedItem = _items.FirstOrDefault(v => v.IsSelected);
         RefreshThumbnails();
 
-        // 현재 VM 의 실 PLC 연결 토글 반영 후, 선택 모드에 맞춰 활성/푸터 상태 갱신.
-        RealPlcCheckBox.IsChecked = vm.Simulation.IsRealPlcConnected;
+        // 현재 VM 의 PLC 읽기 방식 반영(직접=IsRealPlcConnected, 위임=그 반대) 후 모드에 맞춰 상태 갱신.
+        if (vm.Simulation.IsRealPlcConnected) DirectRadio.IsChecked = true;
+        else DelegatedRadio.IsChecked = true;
         UpdateModeDependentState();
     }
 
@@ -70,18 +71,19 @@ public partial class RuntimeSettingDialog : Window
             && (selected.Mode == RuntimeMode.Control || selected.Mode == RuntimeMode.Monitoring);
 
         HubAddressBox.IsEnabled = !isSim;
-        RealPlcCheckBox.IsEnabled = requiresPlc;
-        PlcSettingsButton.IsEnabled = requiresPlc && RealPlcCheckBox.IsChecked == true;
+        // 직접/위임 라디오는 Control/Monitoring 에서만 의미. Control 은 OUT 을 실 PLC 로 써야 하므로
+        // 위임(Edge 수집, read-only) 불가 → Control 이면 위임 비활성 + 직접 강제.
+        var isControl = selected is not null && selected.Mode == RuntimeMode.Control;
+        DirectRadio.IsEnabled = requiresPlc;
+        DelegatedRadio.IsEnabled = requiresPlc && !isControl;
+        if (isControl) DirectRadio.IsChecked = true;
+        // PLC 설정은 직접이든 위임이든 접속정보가 필요하다 → Control/Monitoring 이면 항상 열 수 있게 한다.
+        PlcSettingsButton.IsEnabled = requiresPlc;
 
         UpdatePlcFooter();
     }
 
-    private void RealPlcCheckBox_Toggled(object sender, RoutedEventArgs e)
-    {
-        // 체크박스 상태 → 설정 버튼 활성화 (실 PLC 가 의미 있는 모드에서만)
-        PlcSettingsButton.IsEnabled = RealPlcCheckBox.IsEnabled && RealPlcCheckBox.IsChecked == true;
-        UpdatePlcFooter();
-    }
+    private void PlcReadMode_Changed(object sender, RoutedEventArgs e) => UpdatePlcFooter();
 
     private void PlcSettings_Click(object sender, RoutedEventArgs e)
     {
@@ -107,22 +109,20 @@ public partial class RuntimeSettingDialog : Window
         var selected = _items.FirstOrDefault(v => v.IsSelected);
         var requiresPlc = selected is not null
             && (selected.Mode == RuntimeMode.Control || selected.Mode == RuntimeMode.Monitoring);
-        var enabled = requiresPlc && RealPlcCheckBox.IsChecked == true;
 
-        if (enabled)
+        if (requiresPlc)
         {
             var s = _vm.Simulation.PlcSettings;
             var tagCount = _vm.Simulation.CountAutoImportablePlcAddresses();
+            var mode = DelegatedRadio.IsChecked == true ? "Edge 단말 위임" : "Agent 직접";
             PlcStatusDot.Fill = PlcOnBrush;
             PlcStatusText.Text =
-                $"PLC 연결: 사용  ·  {s.Vendor}  {s.IpAddress}:{s.Port}  ·  IO 자동 import {tagCount}개";
+                $"PLC 읽기: {mode}  ·  {s.Vendor}  {s.IpAddress}:{s.Port}  ·  IO 자동 import {tagCount}개";
         }
         else
         {
             PlcStatusDot.Fill = PlcOffBrush;
-            PlcStatusText.Text = requiresPlc
-                ? "PLC 연결: 사용 안 함"
-                : "PLC 연결: 해당 없음 (시뮬레이션 / 가상 시운전 모드)";
+            PlcStatusText.Text = "PLC 연결: 해당 없음 (시뮬레이션 / 가상 시운전 모드)";
         }
     }
 
@@ -284,10 +284,11 @@ public partial class RuntimeSettingDialog : Window
         if (selected != null)
             _vm.Simulation.SelectedRuntimeMode = selected.Mode;
         // HubAddress 는 TextBox 가 TwoWay 바인딩이라 자동 반영됨.
-        // PLC 토글은 Control/Monitoring 모드에서만 의미가 있음 — 다른 모드 선택 시엔 자동 해제.
+        // PLC 읽기 방식은 Control/Monitoring 에서만 의미. IsRealPlcConnected = "Agent 직접" 선택 여부.
+        // (위임 = Edge 단말 수집 = false. Control 은 항상 직접.)
         var requiresPlc = selected is not null
             && (selected.Mode == RuntimeMode.Control || selected.Mode == RuntimeMode.Monitoring);
-        _vm.Simulation.IsRealPlcConnected = requiresPlc && RealPlcCheckBox.IsChecked == true;
+        _vm.Simulation.IsRealPlcConnected = requiresPlc && DirectRadio.IsChecked == true;
 
         DialogResult = true;
         Close();
