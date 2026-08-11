@@ -556,8 +556,23 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
             }
             else
             {
-                error = "AID collection binding is required. Define InterfaceXGT, OPC UA, Modbus, MQTT, or HTTP in AssetInterfacesDescription.";
-                return false;
+                // 위임 스캔(§10.10 ①): Monitoring 이고 "실제 PLC 연결" 미체크(=위임)면 Agent 는 PLC 에 직접
+                // 접속하지 않고 분리된 Pi5 수집기가 WriteTags 로 IN 을 공급한다(BackendHost delegated 분기 참조).
+                // 이 경우 모델에 AID 수집 바인딩이 없는 것이 정상 — 요구하면 위임 배포가 활성화조차 못 한다.
+                // bcf9121b 의 AID 단일정본 게이트가 위임 모드를 빠뜨려 발생한 회귀 보정(구미 실기).
+                var isControlSession = string.Equals(session.RuntimeMode, "Control", StringComparison.OrdinalIgnoreCase);
+                var delegatedSession = !isControlSession && !session.IsRealPlcConnected;
+                if (delegatedSession)
+                {
+                    gatewayConfig = new PlcGatewayConfig(
+                        Microsoft.FSharp.Collections.ListModule.OfSeq(Array.Empty<PlcConnectionConfig>()));
+                    Log.Info("Delegated scan mode — AID collection binding not required; Pi5 collector supplies IN via WriteTags.");
+                }
+                else
+                {
+                    error = "AID collection binding is required. Define InterfaceXGT, OPC UA, Modbus, MQTT, or HTTP in AssetInterfacesDescription.";
+                    return false;
+                }
             }
 
             OpcUaServerSettings uaSettings;

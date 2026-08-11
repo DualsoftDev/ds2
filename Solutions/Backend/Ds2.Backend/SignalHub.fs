@@ -120,6 +120,19 @@ module SignalHubWritePolicy =
         && not (String.Equals(source, HubSource.Plc, StringComparison.OrdinalIgnoreCase))
         && not (String.Equals(source, HubSource.Resync, StringComparison.OrdinalIgnoreCase))
 
+/// Pi5 delegated WriteTags를 런타임의 batch 입력 경계로 전달한다.
+/// 이 경계에 Monitoring 입력 처리와 AID -> OPC UA observer가 함께 연결돼 있다.
+[<RequireQualifiedAccess>]
+module SignalHubRuntimeIngress =
+    let injectBatch
+            (identity: RuntimeSessionIdentity)
+            (items: TagWrite array)
+            (inject: RuntimeIOAddressBatchCommand -> Task) =
+        let command : RuntimeIOAddressBatchCommand =
+            { Envelope = RuntimeHubDefaults.selfEnvelope identity
+              Items = items }
+        inject command
+
 /// 단말 화이트리스트가 켜진 Hub의 연결 허용 정책.
 /// 같은 인스턴스의 DSPilot 같은 loopback 클라이언트는 헤더 없이 허용하되, 원격(Pi5 포함)은
 /// 반드시 X-Device-Id를 제시해 화이트리스트를 통과해야 한다. 로컬이라도 헤더를 제시했다면 검증한다.
@@ -730,15 +743,18 @@ and SignalHub(
             for it in accepted do
                 tagCache.[it.Address] <- it.Value
                 this.ForwardToPlc(it.Address, it.Value, it.Source)
-                // client write IN 도 engine 으로 forward (WriteTag 와 동일 이유 — VP IN echo 가 engine 에 반영).
-                let injectCmd : RuntimeIOAddressCommand =
-                    { Envelope = RuntimeHubDefaults.selfEnvelope runtimeSession.CurrentIdentity
-                      Address = it.Address; Value = it.Value }
-                runtimeSession.InjectIOValueByAddressAsync(injectCmd) |> ignore
             if accepted.Length = 0 then Task.CompletedTask
             else
                 log.Debug($"WriteTags: accepted={accepted.Length} received={items.Length}")
-                this.Clients.All.SendAsync(HubMethod.OnTagsChanged, accepted)
+                task {
+                    // Pi5 delegated ingress도 직접 PLC scan broadcaster와 같은 batch 경계를 사용한다.
+                    // Monitoring 입력 처리와 AidUaValueBridge observer가 이 경계에 연결돼 있다.
+                    do! SignalHubRuntimeIngress.injectBatch
+                            runtimeSession.CurrentIdentity
+                            accepted
+                            (fun command -> runtimeSession.InjectIOValuesByAddressAsync(command))
+                    do! this.Clients.All.SendAsync(HubMethod.OnTagsChanged, accepted)
+                }
 
     /// 현재 Tag 값 조회 — 캐시에 없으면 빈 문자열
     member _.QueryTag(address: string) : Task<string> =
