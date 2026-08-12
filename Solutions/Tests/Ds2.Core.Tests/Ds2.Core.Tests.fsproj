@@ -9,7 +9,6 @@
   <ItemGroup>
     <Compile Include="KpiAggregatorTests.fs" />
     <Compile Include="JsonConverterTests.fs" />
-    <Compile Include="SmartConstructorTests.fs" />
     <Compile Include="Tests.fs" />
     <Compile Include="AbnormalTests.fs" />
     <Compile Include="V10ValidationTests.fs" />

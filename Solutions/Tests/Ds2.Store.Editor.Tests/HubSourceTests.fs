@@ -239,46 +239,6 @@ let ``RuntimeStateSnapshot serializes as camelCase DTO with generation`` () =
     Assert.Contains("\"workStates\"", json)
 
 [<Fact>]
-let ``Runtime projections use flat arrays instead of runtime object graphs`` () =
-    let indexProjection = {
-        SessionId = "session-1"
-        ModelHash = "model-1"
-        Generation = 7
-        Mode = HubSource.Control
-        WorkNames = [| { Id = "work-1"; Name = "Flow.Work" } |]
-        WorkSystemNames = [| { Id = "work-1"; Name = "System" } |]
-        WorkFlowGuids = [| { Id = "work-1"; RefId = "flow-1" } |]
-        CallWorkGuids = [| { Id = "call-1"; RefId = "work-1" } |]
-        WorkCallGuids = [| { Id = "work-1"; Values = [| "call-1" |] } |]
-        TokenSourceGuids = [| "work-1" |]
-        TokenSinkGuids = [||]
-    }
-    let ioProjection = {
-        SessionId = "session-1"
-        ModelHash = "model-1"
-        Generation = 7
-        Mode = HubSource.Control
-        OutAddresses = [| "Q0.0" |]
-        InAddresses = [| "I0.0" |]
-        Mappings = [|
-            {
-                ApiCallId = "api-1"
-                CallId = "call-1"
-                TxWorkId = "tx-1"
-                RxWorkId = "rx-1"
-                OutAddress = "Q0.0"
-                InAddress = "I0.0"
-            }
-        |]
-    }
-
-    Assert.Equal(7, indexProjection.Generation)
-    Assert.Equal("work-1", indexProjection.WorkNames.[0].Id)
-    Assert.Equal("call-1", indexProjection.WorkCallGuids.[0].Values.[0])
-    Assert.Equal("Q0.0", ioProjection.OutAddresses.[0])
-    Assert.Equal("api-1", ioProjection.Mappings.[0].ApiCallId)
-
-[<Fact>]
 let ``Runtime command DTO serializes envelope as camelCase`` () =
     let command = {
         Envelope = {

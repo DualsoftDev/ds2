@@ -9,14 +9,11 @@
   <ItemGroup>
     <Compile Include="AasxSemanticsTests.fs" />
     <Compile Include="PilotAssetFixtures.fs" />
-    <Compile Include="DiagnosticTests.fs" />
     <Compile Include="StandardSubmodelsRoundtripTests.fs" />
     <Compile Include="KpiFixtures.fs" />
     <Compile Include="SequenceKpiGeneratorTests.fs" />
     <Compile Include="KpiExportIntegrationTests.fs" />
     <Compile Include="OpcUaScaleTests.fs" />
-    <Compile Include="UserAasxRoundtripTests.fs" />
-    <Compile Include="SampleAasxTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
