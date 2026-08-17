@@ -25,20 +25,23 @@ module internal PassiveInferenceWorkCycle =
                     wl.Sequence[wl.Sequence.Count - 1].Split([|'|'|], StringSplitOptions.RemoveEmptyEntries),
                     StringComparer.Ordinal)
 
-            items.Add(token) |> ignore
-            wl.Sequence[wl.Sequence.Count - 1] <-
-                items
-                |> Seq.sortWith (fun left right -> StringComparer.Ordinal.Compare(left, right))
-                |> String.concat "|"
+            let changed = items.Add(token)
+            if changed then
+                wl.Sequence[wl.Sequence.Count - 1] <-
+                    items
+                    |> Seq.sortWith (fun left right -> StringComparer.Ordinal.Compare(left, right))
+                    |> String.concat "|"
+                wl.LastSequenceChangeTick <- observedTick
             wl.GroupEndTicks[wl.GroupEndTicks.Count - 1] <- observedTick
-            false
+            false, changed
         | _ ->
             wl.Sequence.Add(token)
             wl.GroupKeys.Add(dirVal)
             wl.GroupStartTicks.Add(observedTick)
             wl.GroupEndTicks.Add(observedTick)
+            wl.LastSequenceChangeTick <- observedTick
             wl.LearningCurrentKey <- Some dirVal
-            true
+            true, true
 
     let private tryUpdateMonitoringGapHint
         (ctx: PassiveWorkContext)
@@ -195,9 +198,14 @@ module internal PassiveInferenceWorkCycle =
 
                 let wl = getOrCreateWorkLearning ctx workGuid
                 if not wl.Synced then
-                    let createdGroup = appendToWorkSequence wl dirVal token observedTick
+                    let createdGroup, groupChanged = appendToWorkSequence wl dirVal token observedTick
                     if createdGroup then
+                        PassiveInferenceWorkCycleAlignment.trimLearningHistory ctx workGuid wl
                         tryUpdateMonitoringGapHint ctx workGuid wl
-                    PassiveInferenceWorkCycleAlignment.detectWorkPeriod ctx workGuid wl
+                    // 병렬 주소의 마지막 token 이 같은 Out/In group 을 완성할 수 있어 새 group 일 때만
+                    // 검사하면 정상 cycle 을 놓친다. 단, 이미 들어온 token 중복에는 재검사하지 않는다.
+                    // 탐색은 bounded suffix 이므로 group 변경당 비용은 모델 크기에 의해 고정된다.
+                    if groupChanged then
+                        PassiveInferenceWorkCycleAlignment.detectWorkPeriod ctx workGuid wl
                 else
                     PassiveInferenceWorkCycleState.observeSyncedWorkGroup ctx actions overlay workGuid wl dirVal token

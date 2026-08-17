@@ -20,6 +20,45 @@ module internal PassiveInferenceWorkCycleAlignment =
     let getRequiredPassiveCycleMatchCount (ctx: PassiveWorkContext) =
         if ctx.RuntimeMode = RuntimeMode.Monitoring then 3 else 2
 
+    // 한 cycle 의 group 수는 보통 Work 의 고유 방향 토큰 수 이하이나, 같은 Call 이 한 cycle 안에서
+    // 반복되는 모델도 있어 2배까지 허용한다. 모델이 비정상적으로 커도 hot path 탐색량은 고정 상한.
+    let private getMaxLearningPeriod (ctx: PassiveWorkContext) workGuid =
+        let expectedTokenCount =
+            match ctx.WorkPositiveFamilyTokens.TryGetValue(workGuid) with
+            | true, tokenMap -> tokenMap.Values |> Seq.distinct |> Seq.length
+            | _ -> 0
+
+        max 4 (min 512 (expectedTokenCount * 2))
+
+    /// 미동기화 Work 의 학습 이력을 최근 검증 창으로 제한한다.
+    /// 과거 잡음은 자연스럽게 만료되고, 패턴을 영원히 못 찾는 Work 도 메모리/탐색량이 증가하지 않는다.
+    let trimLearningHistory (ctx: PassiveWorkContext) workGuid (wl: WorkLearning) =
+        let requiredMatches = getRequiredPassiveCycleMatchCount ctx
+        let maxPeriod = getMaxLearningPeriod ctx workGuid
+        // requiredMatches cycle + 앞뒤 잡음 2 cycle 분. detect 는 suffix 만 보지만 gap 기반 head
+        // 보정이 최근 cycle 사이 경계를 볼 수 있도록 여유를 둔다.
+        let maxGroups = max 32 (maxPeriod * (requiredMatches + 2))
+        let removeCount = wl.Sequence.Count - maxGroups
+
+        if removeCount > 0 then
+            wl.Sequence.RemoveRange(0, removeCount)
+            wl.GroupKeys.RemoveRange(0, removeCount)
+            wl.GroupStartTicks.RemoveRange(0, removeCount)
+            wl.GroupEndTicks.RemoveRange(0, removeCount)
+
+            let shiftIndex value =
+                value
+                |> Option.bind (fun idx ->
+                    let shifted = idx - removeCount
+                    if shifted >= 0 then Some shifted else None)
+
+            wl.ProvisionalHeadGroupIdx <- shiftIndex wl.ProvisionalHeadGroupIdx
+            wl.ProvisionalTailGroupIdx <- shiftIndex wl.ProvisionalTailGroupIdx
+            if wl.ProvisionalHeadGroupIdx.IsNone || wl.ProvisionalTailGroupIdx.IsNone then
+                wl.ProvisionalHeadGroupIdx <- None
+                wl.ProvisionalTailGroupIdx <- None
+                wl.LargestGapTicks <- 0L
+
     let resolvePassiveLearningLogPrefix (ctx: PassiveWorkContext) =
         match ctx.RuntimeMode with
         | RuntimeMode.Monitoring -> "Mon"
@@ -176,85 +215,105 @@ module internal PassiveInferenceWorkCycleAlignment =
                 tailIdx
                 gapTicks)
 
+    /// 짧은 부분 동작이 우연히 반복됐다고 전체 Work cycle 로 확정하지 않도록, 한 period 가
+    /// 모델에서 이 Work 만의 것으로 판별된 positive family token 을 모두 포함하는지 확인한다.
+    /// 공유 주소는 애초 WorkUniqueAddresses 에서 빠지므로 선택 분기/공유 신호를 억지로 요구하지 않는다.
+    let private candidateCoversExpectedTokens
+        (ctx: PassiveWorkContext)
+        workGuid
+        start
+        period
+        (wl: WorkLearning) =
+        match ctx.WorkPositiveFamilyTokens.TryGetValue(workGuid) with
+        | true, tokenMap when tokenMap.Count > 0 ->
+            let expected = HashSet<string>(tokenMap.Values, StringComparer.Ordinal)
+            let observed = HashSet<string>(StringComparer.Ordinal)
+            for idx in start .. start + period - 1 do
+                for token in wl.Sequence[idx].Split([| '|' |], StringSplitOptions.RemoveEmptyEntries) do
+                    observed.Add(token) |> ignore
+            observed.IsSupersetOf(expected)
+        | _ -> true
+
     let detectWorkPeriod (ctx: PassiveWorkContext) workGuid (wl: WorkLearning) =
         if not wl.Synced then
             let completedCount = wl.Sequence.Count
             if completedCount >= 2 then
                 let requiredMatches = getRequiredPassiveCycleMatchCount ctx
+                let maxPeriod = min (completedCount / requiredMatches) (getMaxLearningPeriod ctx workGuid)
                 let mutable fixedCycle = false
                 let mutable period = 1
-                while not fixedCycle && period <= completedCount / requiredMatches do
-                    let mutable start = 0
-                    while not fixedCycle && start + (period * requiredMatches) <= completedCount do
-                        let mutable matched = true
-                        let mutable repeatIdx = 1
-                        while matched && repeatIdx < requiredMatches do
-                            let mutable i = 0
-                            while matched && i < period do
-                                if wl.Sequence[start + i] <> wl.Sequence[start + (repeatIdx * period) + i] then
-                                    matched <- false
-                                i <- i + 1
-                            repeatIdx <- repeatIdx + 1
+                while not fixedCycle && period <= maxPeriod do
+                    // 전체 과거의 모든 start 를 재탐색하면 미동기화 Work 에서 O(n^2) 이상으로 폭증한다.
+                    // 최근 requiredMatches 개 block 만 비교하면 과거 outlier 는 자동 만료되고 비용은 모델
+                    // 크기(maxPeriod)에만 비례한다.
+                    let start = completedCount - (period * requiredMatches)
+                    let mutable matched = true
+                    let mutable repeatIdx = 1
+                    while matched && repeatIdx < requiredMatches do
+                        let mutable i = 0
+                        while matched && i < period do
+                            if wl.Sequence[start + i] <> wl.Sequence[start + (repeatIdx * period) + i] then
+                                matched <- false
+                            i <- i + 1
+                        repeatIdx <- repeatIdx + 1
 
-                        if matched then
-                            wl.DetectedPeriod <- Some period
-                            wl.CycleSequence.Clear()
-                            wl.CycleGroupKeys.Clear()
-                            wl.Sequence |> Seq.skip start |> Seq.take period |> Seq.iter wl.CycleSequence.Add
-                            wl.GroupKeys |> Seq.skip start |> Seq.take period |> Seq.iter wl.CycleGroupKeys.Add
+                    if matched && candidateCoversExpectedTokens ctx workGuid start period wl then
+                        wl.DetectedPeriod <- Some period
+                        wl.CycleSequence.Clear()
+                        wl.CycleGroupKeys.Clear()
+                        wl.Sequence |> Seq.skip start |> Seq.take period |> Seq.iter wl.CycleSequence.Add
+                        wl.GroupKeys |> Seq.skip start |> Seq.take period |> Seq.iter wl.CycleGroupKeys.Add
 
-                            let mutable workGoingStartIdx = -1
-                            let mutable i = 0
-                            while i < wl.CycleGroupKeys.Count do
-                                let dir, value = wl.CycleGroupKeys[i]
-                                if workGoingStartIdx < 0 && dir = "Out" && value = "true" then
-                                    workGoingStartIdx <- i
-                                i <- i + 1
+                        let mutable workGoingStartIdx = -1
+                        let mutable i = 0
+                        while i < wl.CycleGroupKeys.Count do
+                            let dir, value = wl.CycleGroupKeys[i]
+                            if workGoingStartIdx < 0 && dir = "Out" && value = "true" then
+                                workGoingStartIdx <- i
+                            i <- i + 1
 
-                            let mutable workFinishIdx = -1
-                            let mutable finishSearch = wl.CycleGroupKeys.Count - 1
-                            while finishSearch >= 0 && workFinishIdx < 0 do
-                                let dir, value = wl.CycleGroupKeys[finishSearch]
-                                if dir = "In" && value = "true" then
-                                    workFinishIdx <- finishSearch
-                                finishSearch <- finishSearch - 1
+                        let mutable workFinishIdx = -1
+                        let mutable finishSearch = wl.CycleGroupKeys.Count - 1
+                        while finishSearch >= 0 && workFinishIdx < 0 do
+                            let dir, value = wl.CycleGroupKeys[finishSearch]
+                            if dir = "In" && value = "true" then
+                                workFinishIdx <- finishSearch
+                            finishSearch <- finishSearch - 1
 
-                            let workGoingStartIdx, workFinishIdx =
-                                // Monitoring/VirtualPlant 모두 동일 Work 의 cycle 안 Call 들이 다시 시작되는
-                                // 시간 간격(gap)을 분석해 head/finish boundary 를 보정. VP 가 빠져있던
-                                // 부분 — 학습 완료 후 boundary 가 부정확해 cycle 이 한 단계씩 밀려 보였음.
-                                if ctx.RuntimeMode = RuntimeMode.Monitoring
-                                   || ctx.RuntimeMode = RuntimeMode.VirtualPlant then
-                                    tryResolveMonitoringGapScoredCycleShape ctx workGuid start period requiredMatches wl workGoingStartIdx workFinishIdx
-                                else
-                                    workGoingStartIdx, workFinishIdx
+                        let workGoingStartIdx, workFinishIdx =
+                            // Monitoring/VirtualPlant 모두 동일 Work 의 cycle 안 Call 들이 다시 시작되는
+                            // 시간 간격(gap)을 분석해 head/finish boundary 를 보정. VP 가 빠져있던
+                            // 부분 — 학습 완료 후 boundary 가 부정확해 cycle 이 한 단계씩 밀려 보였음.
+                            if ctx.RuntimeMode = RuntimeMode.Monitoring
+                               || ctx.RuntimeMode = RuntimeMode.VirtualPlant then
+                                tryResolveMonitoringGapScoredCycleShape ctx workGuid start period requiredMatches wl workGoingStartIdx workFinishIdx
+                            else
+                                workGoingStartIdx, workFinishIdx
 
-                            wl.WorkFinishGroupIdx <- if workFinishIdx >= 0 then Some workFinishIdx else None
-                            wl.WorkGoingStartGroupIdx <- if workGoingStartIdx >= 0 then Some workGoingStartIdx else None
-                            wl.Synced <- true
-                            wl.NextExpectedGroupIdx <- (completedCount - start) % period
-                            rotateCycleToCanonicalStart wl period
-                            wl.LiveCurrentKey <- None
-                            wl.LiveCurrentTokens.Clear()
-                            wl.HasObservedSyncedGoing <- false
-                            wl.ProvisionalHeadGroupIdx <- None
-                            wl.ProvisionalTailGroupIdx <- None
-                            wl.LargestGapTicks <- 0L
+                        wl.WorkFinishGroupIdx <- if workFinishIdx >= 0 then Some workFinishIdx else None
+                        wl.WorkGoingStartGroupIdx <- if workGoingStartIdx >= 0 then Some workGoingStartIdx else None
+                        wl.Synced <- true
+                        wl.NextExpectedGroupIdx <- (completedCount - start) % period
+                        rotateCycleToCanonicalStart wl period
+                        wl.LiveCurrentKey <- None
+                        wl.LiveCurrentTokens.Clear()
+                        wl.HasObservedSyncedGoing <- false
+                        wl.ProvisionalHeadGroupIdx <- None
+                        wl.ProvisionalTailGroupIdx <- None
+                        wl.LargestGapTicks <- 0L
 
-                            let seqStr = wl.CycleSequence |> String.concat " | "
-                            ctx.AddLog
-                                PassiveInferenceLogKind.System
-                                (sprintf
-                                    "[%s] %s cycle fixed groups=%d, matches=%d, GoingStart=%s, Finish=%s / Seq[0..%d]=%s"
-                                    (resolvePassiveLearningLogPrefix ctx)
-                                    (resolveWorkName ctx workGuid)
-                                    period
-                                    requiredMatches
-                                    (wl.WorkGoingStartGroupIdx |> Option.map string |> Option.defaultValue "none")
-                                    (wl.WorkFinishGroupIdx |> Option.map string |> Option.defaultValue "none")
-                                    (period - 1)
-                                    seqStr)
-                            fixedCycle <- true
-
-                        start <- start + 1
+                        let seqStr = wl.CycleSequence |> String.concat " | "
+                        ctx.AddLog
+                            PassiveInferenceLogKind.System
+                            (sprintf
+                                "[%s] %s cycle fixed groups=%d, matches=%d, GoingStart=%s, Finish=%s / Seq[0..%d]=%s"
+                                (resolvePassiveLearningLogPrefix ctx)
+                                (resolveWorkName ctx workGuid)
+                                period
+                                requiredMatches
+                                (wl.WorkGoingStartGroupIdx |> Option.map string |> Option.defaultValue "none")
+                                (wl.WorkFinishGroupIdx |> Option.map string |> Option.defaultValue "none")
+                                (period - 1)
+                                seqStr)
+                        fixedCycle <- true
                     period <- period + 1

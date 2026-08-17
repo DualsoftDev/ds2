@@ -7,6 +7,7 @@ using DSPilot.Repositories;
 using DSPilot.Adapters;
 using DSPilot.Infrastructure;
 using System.Data.Common;
+using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Hosting.WindowsServices;
 using Dapper;
@@ -30,6 +31,16 @@ var builder = WebApplication.CreateBuilder(args);
 // 각 확장은 해당 OS(서비스/systemd) 로 기동됐을 때만 활성화되고 그 외에는 no-op 라 함께 호출해도 안전.
 builder.Host.UseWindowsService();
 builder.Host.UseSystemd();
+
+// 콘솔 로거가 신호 소비 스레드를 막지 않도록 — 큐가 차면 대기(기본 Wait)가 아니라 로그를 버린다(DropWrite).
+// 신호별 로그가 폭주하면 journald 적체가 로거 큐를 채우고, 기본 Wait 모드는 로그를 찍는 호출 스레드
+// (=Hub 신호 소비자)를 대기시켜 8192 채널을 포화→drop 시킨다(구미 실기: 오후 신호 ~42% 유실).
+// 로그보다 데이터 소비가 우선 — 큐가 차면 로그를 버려서라도 소비자는 멈추지 않게 한다.
+builder.Logging.AddConsole(o =>
+{
+    o.QueueFullMode = Microsoft.Extensions.Logging.Console.ConsoleLoggerQueueFullMode.DropWrite;
+    o.MaxQueueLength = 8192;
+});
 
 // 호스트 전용 설정(설치 스크립트가 기록하는 바인딩 포트 "Urls" 등)을 사용자 설정 저장소와 분리.
 // appsettings.Production.json 은 AppSettingsService 의 사용자 설정 영속 저장소이므로 재설치(업그레이드) 시

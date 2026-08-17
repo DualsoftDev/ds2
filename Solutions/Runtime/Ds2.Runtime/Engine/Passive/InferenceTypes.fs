@@ -27,11 +27,24 @@ type PassiveInferenceLog = {
     Message: string
 }
 
+/// Passive Work cycle 학습의 운영 진단 스냅샷.
+/// 학습은 신호 hot path 에 있으므로 buffered group 수가 모델 크기에 비례한 상한 안에
+/// 머무는지 외부 호스트/테스트가 확인할 수 있게 한다.
+[<CLIMutable>]
+type PassiveInferenceLearningDiagnostic = {
+    WorkGuid: Guid
+    IsSynced: bool
+    BufferedGroupCount: int
+    DetectedPeriod: int
+    LastSequenceChangeAgeMs: int64
+}
+
 type internal WorkLearning() =
     member val Sequence = ResizeArray<string>() with get
     member val GroupKeys = ResizeArray<string * string>() with get
     member val GroupStartTicks = ResizeArray<int64>() with get
     member val GroupEndTicks = ResizeArray<int64>() with get
+    member val LastSequenceChangeTick = 0L with get, set
     member val LearningCurrentKey: (string * string) option = None with get, set
     member val DetectedPeriod: int option = None with get, set
     member val WorkFinishGroupIdx: int option = None with get, set

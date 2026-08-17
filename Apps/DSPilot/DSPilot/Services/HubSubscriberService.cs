@@ -52,6 +52,10 @@ public sealed class HubSubscriberService : BackgroundService
     private long _lastReportedDropTotal;
     private const long DropReportIntervalTicks = 60L * TimeSpan.TicksPerSecond;
 
+    // Ds2.Runtime 추론 + Hub 채널을 같은 60초 창으로 묶는 운영 진단. 학습 상태의 수명/초기화와는 무관하다.
+    private long _lastRuntimeDiagTickMs;
+    private const long RuntimeDiagIntervalMs = 60_000;
+
     // resync 조기 스킵 상태 — 주소별 마지막 resync 값 + 60초 1회 전체 통과 게이트.
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _lastResyncValueByAddress =
         new(StringComparer.OrdinalIgnoreCase);
@@ -224,6 +228,7 @@ public sealed class HubSubscriberService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _lastRuntimeDiagTickMs = Environment.TickCount64;
         var hubUrl = _configuration["Hub:Url"] ?? "http://localhost:5051/hub/signal";
         // spec §SignalR — DefaultAcceptedSources 가 권위 default. config override 가능.
         var configuredSources = _configuration.GetSection("Hub:AcceptedSources").Get<string[]>()
@@ -244,7 +249,8 @@ public sealed class HubSubscriberService : BackgroundService
             onDeadLetter: (addr, val, src, ex, dl) =>
                 _logger.LogError(ex,
                     "[Hub] Dead-letter — {Address}={Value} from={Source} (총 dead-letter={DL})",
-                    addr, val, src, dl));
+                    addr, val, src, dl),
+            onProcessed: ReportRuntimeDiagnosticsIfDue);
 
         _logger.LogInformation(
             "[Hub] Subscriber starting — url={Url}, acceptedSources={Sources}",
@@ -486,6 +492,51 @@ public sealed class HubSubscriberService : BackgroundService
         _engineService.HandleHubAbnormal(payload);
         try { AbnormalReceived?.Invoke(payload); }
         catch (Exception ex) { _logger.LogDebug(ex, "[Hub] AbnormalReceived subscriber threw"); }
+    }
+
+    private void ReportRuntimeDiagnosticsIfDue()
+    {
+        var now = Environment.TickCount64;
+        var last = Interlocked.Read(ref _lastRuntimeDiagTickMs);
+        if (now - last < RuntimeDiagIntervalMs) return;
+        if (Interlocked.CompareExchange(ref _lastRuntimeDiagTickMs, now, last) != last) return;
+
+        var processor = _processor;
+        if (processor is null) return;
+
+        var hub = processor.TakeIntervalDiagnostics();
+        var passive = _engineService.TakePassiveInferenceIntervalDiagnostics();
+        var synced = passive.Works.Count(work => work.IsSynced);
+        var maxBuffer = passive.Works.Count == 0 ? 0 : passive.Works.Max(work => work.BufferedGroupCount);
+        var unsynced = passive.Works
+            .Where(work => !work.IsSynced)
+            .OrderByDescending(work => work.BufferedGroupCount)
+            .ThenBy(work => work.WorkName, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var unsyncedTop = unsynced.Length == 0
+            ? "-"
+            : string.Join(", ", unsynced.Take(8).Select(work =>
+                $"{work.WorkName}(buffer={work.BufferedGroupCount},period={work.DetectedPeriod}," +
+                $"lastChange={(work.LastSequenceChangeAgeMs < 0 ? "-" : $"{work.LastSequenceChangeAgeMs}ms")})"))
+              + (unsynced.Length > 8 ? $", +{unsynced.Length - 8}" : "");
+
+        var level = hub.Dropped > 0
+                    || hub.DeadLetters > 0
+                    || hub.MaxDepth >= hub.Capacity * 4L / 5L
+                    || passive.MaxMs >= 1000
+            ? LogLevel.Warning
+            : LogLevel.Information;
+
+        _logger.Log(
+            level,
+            "[RuntimeDiag] 최근 60s — hub enqueue={Enqueued} processed={Processed} depth={Depth} peak={Peak}/{Capacity} " +
+            "drop={Dropped} deadLetter={DeadLetters}; passive count={ObserveCount} avg={AverageMs:F3}ms " +
+            "p95<={P95Ms:F3}ms max={MaxMs:F3}ms; work synced={Synced}/{WorkTotal} maxBuffer={MaxBuffer} " +
+            "unsyncedTop={UnsyncedTop}",
+            hub.Enqueued, hub.Processed, hub.CurrentDepth, hub.MaxDepth, hub.Capacity,
+            hub.Dropped, hub.DeadLetters,
+            passive.ObserveCount, passive.AverageMs, passive.P95UpperMs, passive.MaxMs,
+            synced, passive.Works.Count, maxBuffer, unsyncedTop);
     }
 
     /// <summary>Channel write 실패 시 호출 (HubSignalProcessor 의 onDrop 콜백).

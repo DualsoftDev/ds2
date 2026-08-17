@@ -645,11 +645,14 @@ public class LogLevelSettings
     [JsonPropertyName("Microsoft.AspNetCore")]
     public string MicrosoftAspNetCore { get; set; } = "Warning";
 
+    // 신규 설치 기본은 Information — Debug 로 두면 신호별 진단로그(UserTag/Call/Broadcasting 등)가
+    // 운영 중 수십만 줄/시간으로 쏟아져 journald·콘솔 로거를 포화시키고 신호 소비자를 느리게 만든다
+    // (구미 실기). 진단이 필요하면 그때 Debug 로 올린다.
     [JsonPropertyName("DSPilot.Services")]
-    public string DsPilotServices { get; set; } = "Debug";
+    public string DsPilotServices { get; set; } = "Information";
 
     [JsonPropertyName("DSPilot.Repositories")]
-    public string DsPilotRepositories { get; set; } = "Debug";
+    public string DsPilotRepositories { get; set; } = "Information";
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }

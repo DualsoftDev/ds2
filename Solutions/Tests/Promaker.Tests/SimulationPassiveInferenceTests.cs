@@ -127,6 +127,58 @@ public sealed class SimulationPassiveInferenceTests
     }
 
     [Fact]
+    public void Monitoring_passive_learning_rejects_repeated_partial_cycle_and_bounds_history()
+    {
+        var fixture = BuildBatchedCleanupInterleaveFixture();
+        var index = SimIndexModule.build(fixture.Store, 10);
+        using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.Monitoring);
+        var session = new PassiveInferenceSession(index, engine.IOMap, RuntimeMode.Monitoring);
+        var getReady = new Func<Guid, Status4>(_ => Status4.Ready);
+
+        void Observe(string address, string value) =>
+            _ = session.Observe(address, value, getReady, getReady);
+
+        void RunPartialCycle()
+        {
+            Observe(fixture.FirstOutAddress, "true");
+            Observe(fixture.FirstInAddress, "true");
+            Observe(fixture.FirstOutAddress, "false");
+            Observe(fixture.FirstInAddress, "false");
+        }
+
+        // Work 전체에는 두 Call(Out/In 4 token)이 있는데 첫 Call의 2 token만 반복한다.
+        // 이전 구현은 이 짧은 부분 반복을 period=2 cycle 로 오동기화하고, 실패 시에는 이력이
+        // 무제한 증가했다. 충분히 오래 반복해도 미동기 + bounded 상태여야 한다.
+        for (var i = 0; i < 2_000; i++)
+            RunPartialCycle();
+
+        var unsynced = Assert.Single(session.GetLearningDiagnostics(), d => d.WorkGuid == fixture.ActiveWorkId);
+        Assert.False(unsynced.IsSynced);
+        Assert.InRange(unsynced.BufferedGroupCount, 1, 64);
+        Assert.True(unsynced.LastSequenceChangeAgeMs >= 0);
+        Assert.DoesNotContain(session.DrainLogs(), log =>
+            log.Message.Contains("cycle fixed", StringComparison.Ordinal));
+
+        void RunFullCycle()
+        {
+            RunPartialCycle();
+            Observe(fixture.SecondOutAddress, "true");
+            Observe(fixture.SecondInAddress, "true");
+            Observe(fixture.SecondOutAddress, "false");
+            Observe(fixture.SecondInAddress, "false");
+        }
+
+        for (var i = 0; i < 3; i++)
+            RunFullCycle();
+
+        var synced = Assert.Single(session.GetLearningDiagnostics(), d => d.WorkGuid == fixture.ActiveWorkId);
+        Assert.True(synced.IsSynced);
+        Assert.Equal(4, synced.DetectedPeriod);
+        Assert.Contains(session.DrainLogs(), log =>
+            log.Message.Contains("cycle fixed", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Passive_call_inference_allows_shared_multi_and_single_calls_to_light_up_together()
     {
         StaTestRunner.Run(() =>
