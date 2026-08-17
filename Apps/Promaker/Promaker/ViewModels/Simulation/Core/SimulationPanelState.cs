@@ -66,6 +66,9 @@ public partial class SimulationPanelState : ObservableObject
     private readonly Action<string> _setStatusText;
     private ISimulationEngine? _simEngine;
     internal ISimulationEngine? SimEngine => _simEngine;
+    /// <summary>SimEngine 상태 → OPC UA Variable 로 값을 push 하는 브릿지. Start 후 attach, Stop/Dispose 시 detach.
+    /// null 이면 UA 클라이언트가 read 시 <c>BadWaitingForInitialData</c> 를 받는다.</summary>
+    private Promaker.Shared.SimEngineUaBridge? _uaBridge;
     private DateTime _simStartTime = DateTime.Now;
     private TimeSpan? _passiveGanttClockAnchor;
     private DateTime _passiveGanttBaseWall = DateTime.Now;

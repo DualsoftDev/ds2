@@ -9,10 +9,17 @@
   <ItemGroup>
     <Compile Include="KpiAggregatorTests.fs" />
     <Compile Include="JsonConverterTests.fs" />
-    <Compile Include="SmartConstructorTests.fs" />
     <Compile Include="Tests.fs" />
     <Compile Include="AbnormalTests.fs" />
     <Compile Include="V10ValidationTests.fs" />
+    <!-- Phase 0 · Foundation value type tests -->
+    <Compile Include="Base64UrlTests.fs" />
+    <Compile Include="SignalIdTests.fs" />
+    <Compile Include="GlobalAssetIdTests.fs" />
+    <Compile Include="SemanticIdTests.fs" />
+    <!-- Phase 0 · Submodel + service tests -->
+    <Compile Include="CollectionPolicyTests.fs" />
+    <Compile Include="ConceptDescriptionRegistryTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

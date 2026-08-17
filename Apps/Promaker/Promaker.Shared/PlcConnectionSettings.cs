@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Promaker.Shared;
 
@@ -10,6 +11,7 @@ public enum PlcVendorChoice
 {
     LsXgi,
     LsXgk,
+    LsXgb,
     Mitsubishi
 }
 
@@ -93,6 +95,17 @@ public sealed class PlcConnectionSettings
     /// <see cref="EnsureProfiles"/> 가 플랫 필드로부터 채워준다.</summary>
     public Dictionary<string, PlcVendorProfile> Profiles { get; set; } = new();
 
+    /// <summary>
+    /// 이 값들이 실제 파일에서 왔는가(= 이 PC 에 PLC 설정이 저장된 적 있는가). <b>출처 표식이지 설정이 아니다</b> —
+    /// <see cref="JsonIgnoreAttribute"/> 로 직렬화에서 빠지므로 Agent 의 설정 지문에도 영향을 주지 않는다.
+    ///
+    /// <para>false = 파일이 없어 생성자 기본값을 쓰고 있는 상태. 아무도 고른 적 없는 값이므로
+    /// AID endpoint에 기록하면 안 된다(<see cref="AidXgtEndpointSynchronizer.StampToStore"/>).
+    /// 값 비교로는 이 판별을 할 수 없다 — 실제로 192.168.0.10:2004 을 쓰는 현장과 구분되지 않는다.</para>
+    /// </summary>
+    [JsonIgnore]
+    public bool WasPersisted { get; set; }
+
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
         WriteIndented = true,
@@ -104,23 +117,58 @@ public sealed class PlcConnectionSettings
     public static PlcConnectionSettings LoadOrDefault(string path)
     {
         PlcConnectionSettings data;
+        var persisted = false;
         try
         {
             if (!File.Exists(path)) data = new PlcConnectionSettings();
             else
             {
                 var text = File.ReadAllText(path);
-                data = JsonSerializer.Deserialize<PlcConnectionSettings>(text, JsonOpts)
-                       ?? new PlcConnectionSettings();
+                var parsed = JsonSerializer.Deserialize<PlcConnectionSettings>(text, JsonOpts);
+                // 손상되어 내용을 못 읽은 파일은 "존재" 하지만 설정을 잃은 상태다. 그걸 저장 이력으로 인정하면
+                // 화면에 뜬 생성자 기본값이 프로젝트 파일에 기록된다 — 파일 존재가 아니라 내용이 근거여야 한다.
+                data = parsed ?? new PlcConnectionSettings();
+                persisted = parsed is not null;
             }
         }
         catch
         {
             data = new PlcConnectionSettings();
         }
+        data.WasPersisted = persisted;
         data.EnsureProfiles();
         data.UpgradeDefaultScanIntervals();
         return data;
+    }
+
+    /// <summary>존재하는 설정 파일의 손상을 기본값으로 숨기지 않고 읽는다.</summary>
+    public static bool TryLoadExact(string path, out PlcConnectionSettings? settings, out string error)
+    {
+        settings = null;
+        error = "";
+        try
+        {
+            if (!File.Exists(path))
+            {
+                error = $"PLC settings not found at '{path}'.";
+                return false;
+            }
+            settings = JsonSerializer.Deserialize<PlcConnectionSettings>(File.ReadAllText(path), JsonOpts);
+            if (settings is null)
+            {
+                error = "PLC settings JSON was empty.";
+                return false;
+            }
+            settings.WasPersisted = true;
+            settings.EnsureProfiles();
+            settings.UpgradeDefaultScanIntervals();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = $"PLC settings JSON is invalid: {ex.Message}";
+            return false;
+        }
     }
 
     private void UpgradeDefaultScanIntervals()
@@ -192,17 +240,22 @@ public sealed class PlcConnectionSettings
     /// 저장 직전 <see cref="EnsureProfiles"/> 로 활성 벤더 프로파일을 최신 플랫 값으로 동기화.</summary>
     public bool TrySave(string path)
     {
+        string? temp = null;
         try
         {
             EnsureProfiles();
             var dir = Path.GetDirectoryName(path);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
             var text = JsonSerializer.Serialize(this, JsonOpts);
-            File.WriteAllText(path, text);
+            temp = path + $".tmp-{Guid.NewGuid():N}";
+            File.WriteAllText(temp, text);
+            File.Move(temp, path, overwrite: true);
+            WasPersisted = true;
             return true;
         }
         catch
         {
+            try { if (temp is not null && File.Exists(temp)) File.Delete(temp); } catch { }
             return false;
         }
     }

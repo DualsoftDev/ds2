@@ -92,6 +92,10 @@ public partial class SimulationPanelState
             if (!Hub.TryStart())
                 return;
 
+            // OPC UA 서버 인프로세스 기동 — settings.Enabled=false 면 기존 서버를 정지하고 no-op.
+            // PLAY마다 주소공간을 재생성해 Store/AASX 변경을 반영한다.
+            _ = StartOpcUaServerHostAsync();
+
             Action<string, string>? writeTagAction = null;
             if (Hub.Connection is not null && SelectedRuntimeMode == RuntimeMode.Control)
             {
@@ -293,6 +297,11 @@ public partial class SimulationPanelState
                     _simEngine.HomingPhaseCompleted -= OnHomingPhaseCompleted;
             }
 
+            // OPC UA 서버가 이미 기동됐고 engine 이 준비된 뒤 브릿지를 붙인다 —
+            // 이 시점 이후 Work/Call 상태 이벤트와 IOValues 폴링이 UA Variable 로 흐른다.
+            // 서버가 아직 뜨는 중이면 StartOpcUaServerHostAsync 안에서 대신 attach.
+            AttachSimEngineUaBridgeIfReady();
+
             ApplySimStateToCanvas();
             ApplyWarningsToCanvas();
 
@@ -325,4 +334,49 @@ public partial class SimulationPanelState
         (IsAgentDelegationMode && !IsSimulating)
         || SimulationCommandFacade.IsAccepted(
             SimulationCommandFacade.DecideStart(IsSimulating, IsSimPaused, IsHomingPhase));
+
+    private async Task StartOpcUaServerHostAsync()
+    {
+        try
+        {
+            // Store 를 주입해야 EmbeddedUaServer.StartForStoreAsync 가 활성 System 을 Asset 으로,
+            // KPI/Work/Call/IO 를 하위 Variable 로 브라우징 트리에 노출한다. null 이면 Server 표준 노드만 보이고
+            // DS/Assets 폴더가 비어 있어 클라이언트에서 "OPC item 안 보임" 이슈가 된다.
+            var r = await Promaker.Shared.OpcUaServerHost.Instance
+                .RestartFromSettingsAsync(Promaker.Services.SettingsPaths.OpcUaServer, Store)
+                .ConfigureAwait(true);
+            var msg = r.EndpointUrl is null
+                ? $"[OPC UA] {r.Message}"
+                : $"[OPC UA] {r.Message} endpoint={r.EndpointUrl}";
+            AddSimLog(msg, r.Success ? LogSeverity.System : LogSeverity.Warn);
+
+            // 서버가 늦게 뜬 경우엔 engine 이 이미 준비돼 있어도 Start 에서 attach 가 skip 됐을 것 —
+            // 여기서 뒤늦게 attach 를 재시도한다 (idempotent).
+            if (r.Success)
+                AttachSimEngineUaBridgeIfReady();
+        }
+        catch (Exception ex)
+        {
+            AddSimLog($"[OPC UA] 기동 예외: {ex.Message}", LogSeverity.Error);
+        }
+    }
+
+    /// <summary>OPC UA 서버 + Sim engine 모두 준비된 경우에만 브릿지 attach.
+    /// 이미 붙어 있으면 no-op. dispose 시 detach.</summary>
+    private void AttachSimEngineUaBridgeIfReady()
+    {
+        if (_uaBridge is not null) return;
+        var uaServer = Promaker.Shared.OpcUaServerHost.Instance.Server;
+        if (uaServer is null || !uaServer.IsRunning) return;
+        if (_simEngine is null) return;
+        try
+        {
+            _uaBridge = new Promaker.Shared.SimEngineUaBridge(_simEngine, uaServer);
+            AddSimLog("[OPC UA] SimEngine 브릿지 attach — 상태/IO push 시작.", LogSeverity.System);
+        }
+        catch (Exception ex)
+        {
+            AddSimLog($"[OPC UA] 브릿지 attach 예외: {ex.Message}", LogSeverity.Error);
+        }
+    }
 }

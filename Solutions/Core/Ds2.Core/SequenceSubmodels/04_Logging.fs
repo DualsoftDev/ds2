@@ -206,6 +206,177 @@ type UserTag = {
 
 
 // =============================================================================
+// TYPE DEFINITIONS: Signal Collection Policy (Phase 0 · AAS × OPC UA)
+// =============================================================================
+//
+// AID InteractionMetadata 신호별 수집 정책. 원래 별도 DualSoft SM 이었으나,
+// "이력 로깅"과 "샘플링·retention·deadband"가 동일한 관찰 계층에 속하므로
+// SequenceLogging 서브모델의 System-level 속성으로 흡수한다.
+//
+// - UserTag       = 값 변화 이벤트 → 로그 기록  (WHAT to record on change)
+// - SignalPolicy  = 신호별 샘플링·필터 규칙        (HOW to sample continuously)
+//
+// 두 개념은 상호 보완적이며 같은 SequenceLogging AAS Submodel 로 emit 된다.
+
+/// 어댑터가 신호 값을 획득하는 방식.
+type AcquisitionMode =
+    /// 시간 간격 폴링. SamplingIntervalMs 필수.
+    | Sampled
+    /// Deadband 구독. Publishing/Sampling 간격 옵션, Deadband 권장.
+    | ChangeOfValue
+    /// 이벤트 트리거 (OPC UA AutoID 등). 폴링/deadband 무의미.
+    | EventDriven
+
+/// 한 신호의 런타임 수집 정책 (ADR-002 SignalId 로 키).
+type SignalPolicy = {
+    SignalId: SignalId
+    AcquisitionMode: AcquisitionMode
+    SamplingIntervalMs: int option
+    PublishingIntervalMs: int option
+    DeadbandAbsolute: float option
+    DeadbandPercent: float option
+    /// Percent deadband 계산 기준 engineering range. 둘 다 있거나 둘 다 없어야 한다.
+    EngineeringRangeLow: float option
+    EngineeringRangeHigh: float option
+    QueueSize: int option
+    /// ISO-8601 duration (예: `P90D`).
+    Retention: string
+}
+
+/// Agent OPC UA 서버와 Collector 사이에서 CollectionPolicy를 전달하는 UA Property 계약.
+/// 각 signal Variable의 HasProperty 자식 BrowseName으로 사용한다.
+[<RequireQualifiedAccess>]
+module SignalPolicyUaMetadata =
+    [<Literal>]
+    let AcquisitionMode = "AcquisitionMode"
+    [<Literal>]
+    let SamplingIntervalMs = "SamplingIntervalMs"
+    [<Literal>]
+    let PublishingIntervalMs = "PublishingIntervalMs"
+    [<Literal>]
+    let DeadbandAbsolute = "DeadbandAbsolute"
+    [<Literal>]
+    let DeadbandPercent = "DeadbandPercent"
+    [<Literal>]
+    let EngineeringRangeLow = "EngineeringRangeLow"
+    [<Literal>]
+    let EngineeringRangeHigh = "EngineeringRangeHigh"
+    [<Literal>]
+    let QueueSize = "QueueSize"
+    [<Literal>]
+    let Retention = "Retention"
+
+/// Signal Variable 자체의 의미 메타데이터 계약.
+[<RequireQualifiedAccess>]
+module SignalUaMetadata =
+    [<Literal>]
+    let Unit = "Unit"
+
+/// ISO-8601 duration 파서 · 검증.
+///
+/// 지원 형태:
+///   - Weeks: `PnW`
+///   - Date-only: `P[nY][nM][nD]` (최소 한 성분)
+///   - Date + time: `P[nY][nM][nD]T[nH][nM][nS]`
+///   - Time-only: `PT[nH][nM][nS]`
+/// 성분 순서는 강제 (Y < M < D · H < M < S).
+module Iso8601Duration =
+
+    let private isPositiveInt (s: string) =
+        s.Length > 0 && s |> Seq.forall Char.IsDigit
+
+    let private scan (input: string) (units: char array) : bool =
+        let mutable i = 0
+        let mutable ok = true
+        let mutable anyUsed = false
+        let mutable unitIdx = 0
+        while ok && i < input.Length do
+            let start = i
+            while i < input.Length && Char.IsDigit input.[i] do
+                i <- i + 1
+            if i = start then
+                ok <- false
+            elif i >= input.Length then
+                ok <- false
+            else
+                let letter = input.[i]
+                let mutable found = false
+                while unitIdx < units.Length && not found do
+                    if units.[unitIdx] = letter then
+                        found <- true
+                        unitIdx <- unitIdx + 1
+                    else
+                        unitIdx <- unitIdx + 1
+                if found then
+                    anyUsed <- true
+                    i <- i + 1
+                else
+                    ok <- false
+        ok && anyUsed && i = input.Length
+
+    /// True iff `s` is a well-formed positive ISO-8601 duration.
+    let isValid (s: string) : bool =
+        if String.IsNullOrWhiteSpace s then false
+        elif not (s.StartsWith "P") then false
+        else
+            let body = s.Substring 1
+            if body = "" then false
+            elif body.EndsWith "W" then
+                isPositiveInt (body.Substring(0, body.Length - 1))
+            else
+                let tIdx = body.IndexOf 'T'
+                let datePart, timePart =
+                    if tIdx < 0 then body, ""
+                    elif tIdx = 0 then "", body.Substring 1
+                    else body.Substring(0, tIdx), body.Substring(tIdx + 1)
+
+                let dateOk =
+                    if datePart = "" then timePart <> ""
+                    else scan datePart [| 'Y'; 'M'; 'D' |]
+
+                let timeOk =
+                    if timePart = "" then tIdx < 0
+                    else scan timePart [| 'H'; 'M'; 'S' |]
+
+                dateOk && timeOk
+
+/// SignalPolicy 불변 조건 검증.
+module SignalPolicy =
+
+    let validate (p: SignalPolicy) : Result<unit, string> =
+        if p.SignalId = SignalId.empty then Error "SignalPolicy.SignalId is empty"
+        elif not (Iso8601Duration.isValid p.Retention) then
+            Error (sprintf "Retention '%s' is not a valid ISO-8601 duration" p.Retention)
+        elif p.AcquisitionMode = AcquisitionMode.Sampled && p.SamplingIntervalMs.IsNone then
+            Error "Sampled acquisition requires SamplingIntervalMs"
+        elif p.DeadbandAbsolute.IsSome && p.DeadbandPercent.IsSome then
+            Error "DeadbandAbsolute and DeadbandPercent are mutually exclusive"
+        elif p.DeadbandAbsolute |> Option.exists (fun value -> value < 0.0) then
+            Error "DeadbandAbsolute must be non-negative"
+        elif p.DeadbandPercent |> Option.exists (fun value -> value < 0.0 || value > 100.0) then
+            Error "DeadbandPercent must be between 0 and 100"
+        elif p.EngineeringRangeLow.IsSome <> p.EngineeringRangeHigh.IsSome then
+            Error "EngineeringRangeLow and EngineeringRangeHigh must be specified together"
+        elif Option.map2 (>=) p.EngineeringRangeLow p.EngineeringRangeHigh |> Option.defaultValue false then
+            Error "EngineeringRangeLow must be less than EngineeringRangeHigh"
+        elif p.DeadbandPercent.IsSome && p.EngineeringRangeLow.IsNone then
+            Error "DeadbandPercent requires EngineeringRangeLow and EngineeringRangeHigh"
+        else
+            let posOk name v =
+                match v with
+                | Some n when n <= 0 -> Some (sprintf "%s must be positive" name)
+                | _ -> None
+            let errs = [
+                posOk "SamplingIntervalMs" p.SamplingIntervalMs
+                posOk "PublishingIntervalMs" p.PublishingIntervalMs
+                posOk "QueueSize" p.QueueSize
+            ]
+            match errs |> List.choose id with
+            | [] -> Ok ()
+            | msg :: _ -> Error msg
+
+
+// =============================================================================
 // AAS PROPERTIES CLASSES
 // =============================================================================
 
@@ -232,6 +403,10 @@ type LoggingSystemProperties() =
     // 사용자 태그 정의 (System 당 N개, 형식: "이름|로그레벨|태그주소|값타입")
     // 예: "Motor_Overload|Error|M901|Bit", "DoorOpen|Warning|M100|Bit", "CycleStart|Info|M200|Bit"
     member val UserTags = ResizeArray<string>() with get, set
+
+    // Phase 0 · AID InteractionMetadata 신호별 수집 정책.
+    // (원 별도 DualSoft "CollectionPolicy" SM 은 SequenceLogging SM 로 흡수됨.)
+    member val SignalPolicies = ResizeArray<SignalPolicy>() with get, set
 
 /// Flow-level 로깅 속성 (AAS SubmodelElementCollection)
 type LoggingFlowProperties() =

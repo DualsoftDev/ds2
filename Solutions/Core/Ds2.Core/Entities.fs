@@ -2,6 +2,7 @@ namespace Ds2.Core
 
 open System
 open System.Text.Json.Serialization
+open Ds2.Core.StandardSubmodels
 
 // =============================================================================
 // 엔티티 (Entity)
@@ -23,6 +24,19 @@ type Project [<JsonConstructor>] internal (name) =
     /// SequenceSimulation 서브모델로 emit 되는 시뮬레이션 박제 (Meta + KPI 그룹).
     /// 이전에는 TechnicalData.SimulationResult 였음. AAS 표준 SM 분리 정책에 따라 Project 레벨로 이동.
     [<AasxField("SimulationResult",      Skip = true)>] member val SimulationResult      : SimulationScenario option    = None    with get, set
+
+    // ── Phase 0 · AAS × OPC UA 통합 스택 신규 서브모델 ────────────────────────
+    // 모두 별도 AASX Submodel 로 직렬화되므로 Skip = true (Phase 1 Export 가 담당).
+    [<AasxField("AssetInterfacesDescription",           Skip = true)>]
+    member val AssetInterfaces        : AssetInterfacesDescription option              = None with get, set
+
+    [<AasxField("AssetInterfacesMappingConfiguration",  Skip = true)>]
+    member val AssetInterfacesMapping : AssetInterfacesMappingConfiguration option     = None with get, set
+
+    [<AasxField("OperationalData",                      Skip = true)>]
+    member val OperationalDataDef     : OperationalData option                         = None with get, set
+    // NOTE: CollectionPolicy 는 SequenceLogging SM (LoggingSystemProperties.SignalPolicies)
+    //       안으로 흡수되었으므로 Project 레벨의 별도 필드는 없음.
 
     // ── 프로젝트 메타데이터 ──────────────────────────────────────────────────
     [<AasxField("TokenSpecs")>]                         member val TokenSpecs            = ResizeArray<TokenSpec>()              with get, set

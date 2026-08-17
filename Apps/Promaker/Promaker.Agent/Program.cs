@@ -6,6 +6,7 @@ using log4net.Config;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Hosting.WindowsServices;
+using Promaker.Shared;
 
 namespace Promaker.Agent;
 
@@ -59,6 +60,14 @@ public static class Program
 
     private static void InitializeLogging()
     {
+        var logDirectory = Path.Combine(SharedPaths.AgentDirectory, "logs");
+        try { Directory.CreateDirectory(logDirectory); }
+        catch
+        {
+            logDirectory = Path.Combine(AppContext.BaseDirectory, "logs");
+            Directory.CreateDirectory(logDirectory);
+        }
+        GlobalContext.Properties["LogDirectory"] = logDirectory;
         var cfg = new FileInfo(Path.Combine(AppContext.BaseDirectory, "log4net.config"));
         if (cfg.Exists)
         {

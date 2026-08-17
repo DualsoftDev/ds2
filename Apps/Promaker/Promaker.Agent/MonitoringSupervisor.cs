@@ -29,8 +29,7 @@ namespace Promaker.Agent;
 /// Agent 의 idle/active 상태머신.
 /// - active.flag 생성 → Activate (BackendHost 시작)
 /// - active.flag 삭제 → Deactivate (BackendHost 정지)
-/// - session.json / PlcConnection.json 변경 → 활성 중이면 Restart (새 설정 적용)
-/// (project.aasx 자동 재구독은 Phase 5 에서 추가)
+    /// - session.json / PlcConnection.json / project.aasx / OPC UA 설정 변경 → 활성 중이면 Restart
 ///
 /// 모든 상태 전이는 <see cref="_gate"/> SemaphoreSlim 로 직렬화 — race 방지.
 /// FileSystemWatcher 의 잘림/중복 이벤트는 <see cref="_debounce"/> Timer 로 1초 quiet 대기 후 1회 처리.
@@ -48,10 +47,18 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
     // Agent 단일 호스팅: Monitoring engine 을 Agent 가 직접 보유. PLC IN → engine → OnRuntime* push.
     // _app 과 lifecycle 동일 — TryActivate 에서 생성, Deactivate/restart 에서 정리.
     private ISimulationEngine? _engine;
+    // Agent가 OPC UA 서버의 정식 소유자다. WPF 데모 인스턴스와 데이터 루트를 분리한다.
+    private readonly OpcUaServerHost _opcUaHost = new(SharedPaths.AgentOpcUaDataDirectory);
+    private SimEngineUaBridge? _uaBridge;
+    private AidSouthboundRuntime? _aidSouthbound;
+    private AidHttpWebhookRouter? _aidWebhookRouter;
+    // 성공적으로 구동된 마지막 계획. 새 candidate가 stop 이후 실패하면 같은 in-memory 모델로 즉시 복구한다.
+    private ActivationPlan? _activePlan;
     private FileSystemWatcher? _flagWatcher;
     private FileSystemWatcher? _sessionWatcher;
     private FileSystemWatcher? _plcWatcher;
     private FileSystemWatcher? _aasxWatcher;
+    private FileSystemWatcher? _opcUaSettingsWatcher;
     private Timer? _debounce;
     private DebounceReason _pendingReason;
     // OnDebounceFiredAsync 가 실행 중인 동안 ScheduleDebounce 가 새 Timer 를 만들지 않도록 가드.
@@ -87,7 +94,9 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
         // 자동 publish 한다. 활성 상태에서 변경되면 새 IOMap 으로 재구독.
         _aasxWatcher = MakeWatcher(SharedPaths.SharedDirectory, Path.GetFileName(SharedPaths.AasxFilePath),
             (s, e) => ScheduleDebounce(DebounceReason.ConfigChanged, e.ChangeType.ToString(), e.FullPath));
-        Log.Info("FileSystemWatchers started: flag, session, plc, aasx.");
+        _opcUaSettingsWatcher = MakeWatcher(SharedPaths.AgentDirectory, Path.GetFileName(SharedPaths.AgentOpcUaSettingsPath),
+            (s, e) => ScheduleDebounce(DebounceReason.ConfigChanged, e.ChangeType.ToString(), e.FullPath));
+        Log.Info("FileSystemWatchers started: flag, session, plc, aasx, opcua.");
     }
 
     private static FileSystemWatcher MakeWatcher(string dir, string fileName, FileSystemEventHandler onChange)
@@ -102,6 +111,12 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
         w.Changed += onChange;
         w.Deleted += onChange;
         w.Renamed += (s, e) => onChange(s, new FileSystemEventArgs(WatcherChangeTypes.Renamed, dir, fileName));
+        w.Error += (_, e) =>
+        {
+            Log.Error($"FileSystemWatcher overflow/error for '{fileName}'; scheduling a full configuration recheck.",
+                e.GetException());
+            onChange(w, new FileSystemEventArgs(WatcherChangeTypes.All, dir, fileName));
+        };
         return w;
     }
 
@@ -223,13 +238,39 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
     private string _appliedConfigFingerprint = "";
     private int _appliedScanIntervalMs;
 
-    private static (string Fingerprint, int ScanMs) ComputeConfigFingerprint()
+    private static (string Fingerprint, int ScanMs) ComputeConfigFingerprint(
+        AgentSession? selectedSession = null,
+        OpcUaServerSettings? selectedUaSettings = null)
     {
-        var session = AgentSession.TryLoad() ?? AgentSession.ForCurrentDefaults(requestedBy: "agent");
+        var sessionState = "valid";
+        AgentSession session;
+        if (selectedSession is not null)
+            session = selectedSession;
+        else if (File.Exists(SharedPaths.AgentSessionJsonPath))
+        {
+            if (!AgentSession.TryLoadExact(
+                    SharedPaths.AgentSessionJsonPath, out var loadedSession, out var sessionError)
+                || loadedSession is null)
+            {
+                session = AgentSession.ForCurrentDefaults(requestedBy: "agent");
+                sessionState = $"invalid:{sessionError}:{FingerprintFile(SharedPaths.AgentSessionJsonPath)}";
+            }
+            else session = loadedSession;
+        }
+        else session = AgentSession.ForCurrentDefaults(requestedBy: "agent");
         var plcPath = string.IsNullOrWhiteSpace(session.PlcConnectionPath)
             ? SharedPaths.PlcConnectionFilePath
             : session.PlcConnectionPath;
-        var plc = PlcConnectionSettings.LoadOrDefault(plcPath);
+        PlcConnectionSettings plc;
+        var plcState = "valid";
+        if (File.Exists(plcPath)
+            && (!PlcConnectionSettings.TryLoadExact(plcPath, out var loadedPlc, out var plcError)
+                || loadedPlc is null))
+        {
+            plc = new PlcConnectionSettings();
+            plcState = $"invalid:{plcError}:{FingerprintFile(plcPath)}";
+        }
+        else plc = PlcConnectionSettings.LoadOrDefault(plcPath);
         var scanMs = plc.ScanIntervalMs;
 
         // 스캔 주기를 0 으로 밀어 정규화 — 나머지 필드/프로파일이 같으면 "scan-only 변경" 판정.
@@ -238,11 +279,38 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
             profile.ScanIntervalMs = 0;
         var plcNormalized = System.Text.Json.JsonSerializer.Serialize(plc);
 
-        var aasxStamp = File.Exists(session.AasxPath)
-            ? $"{File.GetLastWriteTimeUtc(session.AasxPath).Ticks}:{new FileInfo(session.AasxPath).Length}"
-            : "none";
-        var sessionStamp = $"{session.AasxPath}|{session.PlcConnectionPath}|{session.RuntimeMode}";
-        return ($"{sessionStamp}\n{aasxStamp}\n{plcNormalized}", scanMs);
+        var aasxStamp = FingerprintFile(session.AasxPath);
+        var sessionStamp = $"{session.AasxPath}|{session.PlcConnectionPath}|{session.RuntimeMode}|{session.IsRealPlcConnected}";
+        string opcUaNormalized;
+        var uaState = "valid";
+        if (selectedUaSettings is not null)
+            opcUaNormalized = System.Text.Json.JsonSerializer.Serialize(selectedUaSettings);
+        else if (File.Exists(SharedPaths.AgentOpcUaSettingsPath)
+                 && (!OpcUaServerSettings.TryLoadExact(
+                         SharedPaths.AgentOpcUaSettingsPath, out var loadedUa, out var uaError)
+                     || loadedUa is null))
+        {
+            opcUaNormalized = "";
+            uaState = $"invalid:{uaError}:{FingerprintFile(SharedPaths.AgentOpcUaSettingsPath)}";
+        }
+        else
+            opcUaNormalized = System.Text.Json.JsonSerializer.Serialize(
+                OpcUaServerSettings.LoadAgentOrDefault(SharedPaths.AgentOpcUaSettingsPath));
+        return ($"{sessionState}\n{sessionStamp}\n{aasxStamp}\n{plcState}\n{plcNormalized}\n{uaState}\n{opcUaNormalized}", scanMs);
+    }
+
+    private static string FingerprintFile(string path)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return "none";
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(stream));
+        }
+        catch (Exception ex)
+        {
+            return $"unreadable:{ex.GetType().Name}";
+        }
     }
 
     private void ApplyScanIntervalLive(int ms, bool broadcast)
@@ -273,7 +341,7 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
     {
         try
         {
-            var session = AgentSession.TryLoad();
+            var session = _activePlan?.Session ?? AgentSession.TryLoad();
             var plcPath = string.IsNullOrWhiteSpace(session?.PlcConnectionPath)
                 ? SharedPaths.PlcConnectionFilePath
                 : session!.PlcConnectionPath;
@@ -297,7 +365,7 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
     {
         try
         {
-            var session = AgentSession.TryLoad();
+            var session = _activePlan?.Session ?? AgentSession.TryLoad();
             var plcPath = string.IsNullOrWhiteSpace(session?.PlcConnectionPath)
                 ? SharedPaths.PlcConnectionFilePath
                 : session!.PlcConnectionPath;
@@ -312,41 +380,71 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
         }
     }
 
-    /// <summary>cloudinit 가 내려준 단말 화이트리스트를 로드해 <see cref="SignalHub.ValidateDeviceCredential"/> 훅 주입.
-    /// 계약(쓰는 쪽 Provisioning-server/app/cloudinit.py 와 동일): 경로 <see cref="DeviceCredentialsPath"/>,
-    /// 형식 {"version":1,"deviceIds":[...]}. deviceId=RPi 하드웨어 시리얼(=X-Device-Id 헤더). Pi5 가 제시한
-    /// 시리얼이 이 목록에 있으면 통과(단순 membership). Bearer 토큰 대조 없음(provision_token 은 부트스트랩 전용).
-    /// 파일 없으면(로컬/올인원/Windows) 훅 미설정 = 검증 생략(회귀 0).</summary>
-    private static void WireDeviceCredentialValidator()
+    private static void WireDeviceCredentialValidator(IReadOnlySet<string>? allowedDeviceIds)
     {
-        // 프로세스 내 이전 활성 세션의 static hook이 남아 파일 부재/로드 실패 시 잘못 적용되지 않도록
-        // 매 활성화마다 먼저 해제한 뒤, 현재 cloud-init 파일을 성공적으로 읽은 경우에만 다시 건다.
         SignalHub.ValidateDeviceCredential = null;
+        if (allowedDeviceIds is null)
+        {
+            Log.Info("Device credentials file absent or unreadable — Hub device whitelist disabled.");
+            return;
+        }
+
+        SignalHub.ValidateDeviceCredential = deviceId =>
+            !string.IsNullOrWhiteSpace(deviceId) && allowedDeviceIds.Contains(deviceId);
+        Log.Info($"Device whitelist wired — {allowedDeviceIds.Count} registered device(s).");
+    }
+
+    private static bool TryLoadDeviceCredentialPolicy(
+        AgentSession session,
+        out IReadOnlySet<string>? policy,
+        out string error)
+    {
+        policy = null;
+        error = "";
+        var delegated = !string.Equals(session.RuntimeMode, "Control", StringComparison.OrdinalIgnoreCase)
+                        && !session.IsRealPlcConnected;
+        if (!delegated) return true;
+
+        var hubScheme = Environment.GetEnvironmentVariable("DS2_AGENT_HUB_SCHEME")?.Trim();
+        var secureTransport = string.Equals(hubScheme, "https", StringComparison.OrdinalIgnoreCase);
+        var privateHttpOptIn = bool.TryParse(
+            Environment.GetEnvironmentVariable("DS2_AGENT_HUB_ALLOW_PRIVATE_HTTP"), out var allowPrivateHttp)
+            && allowPrivateHttp;
+        if (!secureTransport && !privateHttpOptIn)
+        {
+            error = "Delegated Hub requires HTTPS, or explicit DS2_AGENT_HUB_ALLOW_PRIVATE_HTTP=true on a private network.";
+            return false;
+        }
+
+        var path = Environment.GetEnvironmentVariable("DS2_AGENT_DEVICE_CREDENTIALS_PATH");
+        if (string.IsNullOrWhiteSpace(path)) path = DeviceCredentialsPath;
+        path = Path.GetFullPath(path);
+
+        if (!File.Exists(path))
+        {
+            Log.Info($"Device credentials file absent ({path}) — Hub device whitelist disabled.");
+            return true;
+        }
+
         try
         {
-            if (!File.Exists(DeviceCredentialsPath))
+            var document = JsonSerializer.Deserialize<DeviceCredentialsFile>(
+                File.ReadAllText(path),
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            var allowed = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var deviceId in document?.DeviceIds ?? Array.Empty<string>())
             {
-                Log.Info($"Device credentials file absent ({DeviceCredentialsPath}) — Hub 단말 인증 생략(로컬/올인원).");
-                return;
+                var id = deviceId?.Trim();
+                if (!string.IsNullOrWhiteSpace(id)) allowed.Add(id);
             }
-            var json = File.ReadAllText(DeviceCredentialsPath);
-            var doc = JsonSerializer.Deserialize<DeviceCredentialsFile>(
-                json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-            var whitelist = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var id in doc?.DeviceIds ?? Array.Empty<string>())
-                if (!string.IsNullOrEmpty(id))
-                    whitelist.Add(id);
-
-            SignalHub.ValidateDeviceCredential = deviceId =>
-                !string.IsNullOrEmpty(deviceId) && whitelist.Contains(deviceId);
-
-            Log.Info($"Device credential validator wired — {whitelist.Count} registered device(s) from {DeviceCredentialsPath}");
+            policy = allowed;
         }
         catch (Exception ex)
         {
-            // 로드 실패 시 훅을 켜지 않는다 — 잘못된 파일로 정상 단말을 막지 않도록(가용성 우선). 이슈 로그만.
-            Log.Warn($"Device credential load failed ({DeviceCredentialsPath}) — Hub 단말 인증 비활성.", ex);
+            // 기존 CloudWorks 계약과 동일하게 가용성 우선: 파일 파싱 실패는 Agent 활성화를 막지 않는다.
+            Log.Warn($"Device credential load failed ({path}) — Hub device whitelist disabled.", ex);
         }
+        return true;
     }
 
     /// <summary>cloudinit device-credentials.json 계약 경로 — 쓰는 쪽(cloudinit.py DEVICE_CREDENTIALS_PATH)과 일치.</summary>
@@ -358,72 +456,243 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
         public string[]? DeviceIds { get; init; }
     }
 
-    /// <summary>cloudinit 이 내려준 PLC 접속(plc-connections.json)으로 접속 설정을 override.
-    /// 분리 아키텍처의 접속 SSOT — 마법사 discovery(현장 실측) → PV → cloudinit → 여기.
-    /// 계약(쓰는 쪽 cloudinit.py PLC_CONNECTIONS_PATH 와 동일): 경로 <see cref="PlcConnectionsPath"/>,
-    /// 형식 {"version":1,"plcs":[{"name","ip","type","enabled"}]}. discovery 는 ip/type 만 주므로
-    /// port/station 은 벤더 기본으로 유추. 파일 없으면(로컬/올인원/Windows) 로컬 plcSettings 유지(회귀 0).
-    /// 현재 빌더가 단일 connection 이라 첫 enabled PLC 만 반영(복수 PLC 는 아래 이슈).</summary>
-    private static void ApplyCloudinitPlcConnection(PlcConnectionSettings settings)
+    /// <summary>실행 중인 runtime을 내리기 전에 완성하는 side-effect-free 활성화 계획.</summary>
+    private sealed record ActivationPlan(
+        AgentSession Session,
+        DsStore Store,
+        PlcGatewayConfig GatewayConfig,
+        AidXgtConfigResult? AidXgtPlan,
+        AidSouthboundConfigResult? AidSouthboundPlan,
+        OpcUaServerSettings UaSettings,
+        IReadOnlySet<string>? DeviceCredentials,
+        SimIndex Index,
+        string ModelHash);
+
+    /// <summary>
+    /// AASX import, AID/PLC 바인딩, runtime index 생성을 모두 선행 검증한다.
+    /// false면 현재 runtime을 그대로 유지할 수 있어 잘못된 AASX가 정상 UA/Backend를 내리지 않는다.
+    /// </summary>
+    private static bool TryBuildActivationPlan(
+        AgentSession session,
+        out ActivationPlan? plan,
+        out string error,
+        OpcUaServerSettings? uaSettingsOverride = null)
     {
+        plan = null;
+        error = "";
         try
         {
-            if (!File.Exists(PlcConnectionsPath))
-                return; // 로컬/올인원 — cloudinit 접속 없음, 기존 설정 유지.
-            var json = File.ReadAllText(PlcConnectionsPath);
-            var doc = JsonSerializer.Deserialize<PlcConnectionsFile>(
-                json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-            var first = doc?.Plcs?.FirstOrDefault(p => p.Enabled && !string.IsNullOrWhiteSpace(p.Ip));
-            if (first is null)
+            if (string.IsNullOrWhiteSpace(session.AasxPath) || !File.Exists(session.AasxPath))
             {
-                Log.Warn($"plc-connections.json 에 enabled PLC 없음 ({PlcConnectionsPath}) — 로컬 plcSettings 유지.");
-                return;
+                error = $"AASX not found at '{session.AasxPath}'.";
+                return false;
             }
-            var (vendor, port) = MapPlcType(first.Type);
-            settings.Vendor = vendor;
-            settings.Port = port;
-            settings.IpAddress = first.Ip!.Trim();
-            if (!string.IsNullOrWhiteSpace(first.Name)) settings.Name = first.Name!;
-            Log.Info($"PLC 접속 = cloudinit SSOT: name={settings.Name} vendor={settings.Vendor} ip={settings.IpAddress}:{settings.Port}");
+            if (!AasxPackageSafety.TryValidate(session.AasxPath, out var packageError))
+            {
+                error = packageError;
+                return false;
+            }
+
+            var store = new DsStore();
+            var importResult = AasxImporter.importIntoStoreWithError(store, session.AasxPath);
+            if (importResult.IsError)
+            {
+                error = $"AASX load failed: {importResult.ErrorValue}";
+                return false;
+            }
+
+            AidXgtConfigResult? aidXgtPlan = null;
+            AidSouthboundConfigResult? aidSouthboundPlan = null;
+            var project = store.Projects.Values.FirstOrDefault();
+            if (project?.AssetInterfaces is { } aid)
+            {
+                aidXgtPlan = AidXgtGatewayConfig.buildForProject(store, project, aid.Value);
+                aidSouthboundPlan = AidSouthboundConfig.buildForProject(store, project, aid.Value);
+                if (aidSouthboundPlan is { HasBinding: true, Success: false })
+                {
+                    error = $"AID southbound config build failed: {string.Join(" / ", aidSouthboundPlan.Errors)}";
+                    return false;
+                }
+                if (aidSouthboundPlan is { HasBinding: true, Success: true }
+                    && !AidSouthboundRuntime.TryValidatePlan(aidSouthboundPlan, out var adapterErrors))
+                {
+                    error = $"AID southbound adapter validation failed: {string.Join(" / ", adapterErrors)}";
+                    return false;
+                }
+
+                var duplicateSignalIds = (aidXgtPlan?.Signals.Select(signal => signal.SignalId)
+                        ?? Enumerable.Empty<string>())
+                    .Concat(aidSouthboundPlan?.Endpoints.SelectMany(endpoint =>
+                        endpoint.Signals.Select(signal => signal.SignalId)
+                            .Concat(endpoint.Events.Select(eventBinding => eventBinding.SignalId)))
+                        ?? Enumerable.Empty<string>())
+                    .GroupBy(signalId => signalId, StringComparer.Ordinal)
+                    .Where(group => group.Count() > 1)
+                    .Select(group => group.Key)
+                    .OrderBy(signalId => signalId, StringComparer.Ordinal)
+                    .ToArray();
+                if (duplicateSignalIds.Length > 0)
+                {
+                    error = $"AID signalId must be unique across every binding: {string.Join(", ", duplicateSignalIds)}";
+                    return false;
+                }
+            }
+
+            PlcGatewayConfig gatewayConfig;
+            if (aidXgtPlan is { HasBinding: true })
+            {
+                if (!aidXgtPlan.Success)
+                {
+                    error = $"AID InterfaceXGT config build failed: {string.Join(" / ", aidXgtPlan.Errors)}";
+                    return false;
+                }
+                gatewayConfig = aidXgtPlan.Config;
+            }
+            else if (aidSouthboundPlan is { HasBinding: true })
+            {
+                gatewayConfig = new PlcGatewayConfig(
+                    Microsoft.FSharp.Collections.ListModule.OfSeq(Array.Empty<PlcConnectionConfig>()));
+                Log.Info("Standard AID southbound adapters own acquisition; XGT gateway is empty.");
+            }
+            else
+            {
+                error = "AID collection binding is required. Define InterfaceXGT, OPC UA, Modbus, MQTT, or HTTP in AssetInterfacesDescription.";
+                return false;
+            }
+
+            OpcUaServerSettings uaSettings;
+            if (uaSettingsOverride is not null)
+            {
+                uaSettings = uaSettingsOverride;
+            }
+            else if (File.Exists(SharedPaths.AgentOpcUaSettingsPath))
+            {
+                if (!OpcUaServerSettings.TryLoadExact(
+                        SharedPaths.AgentOpcUaSettingsPath, out var loadedUaSettings, out var loadError)
+                    || loadedUaSettings is null)
+                {
+                    error = $"Agent OPC UA settings rejected: {loadError}";
+                    return false;
+                }
+                uaSettings = loadedUaSettings;
+            }
+            else
+            {
+                uaSettings = OpcUaServerSettings.LoadAgentOrDefault(SharedPaths.AgentOpcUaSettingsPath);
+            }
+            if (!uaSettings.TryValidateForAgent(out var uaSettingsError))
+            {
+                error = $"Agent OPC UA settings rejected: {uaSettingsError}";
+                return false;
+            }
+            if (!uaSettings.Enabled
+                && (aidXgtPlan is { HasBinding: true } || aidSouthboundPlan is { HasBinding: true }))
+            {
+                error = "AID bindings require the Agent OPC UA server, but it is disabled.";
+                return false;
+            }
+            if (!TryLoadDeviceCredentialPolicy(session, out var deviceCredentials, out var deviceCredentialError))
+            {
+                error = deviceCredentialError;
+                return false;
+            }
+
+            var index = SimIndexModule.build(store, 10);
+            plan = new ActivationPlan(
+                session,
+                store,
+                gatewayConfig,
+                aidXgtPlan,
+                aidSouthboundPlan,
+                uaSettings,
+                deviceCredentials,
+                index,
+                RuntimeModelHash.compute(session.AasxPath));
+            return true;
         }
         catch (Exception ex)
         {
-            Log.Warn($"plc-connections.json 로드 실패 ({PlcConnectionsPath}) — 로컬 plcSettings 유지.", ex);
+            error = $"Activation preflight failed: {ex.Message}";
+            Log.Error(error, ex);
+            return false;
         }
     }
 
-    /// <summary>discovery type("LS"/"MX"/…) → (Vendor enum 이름, 기본 port). discovery 는 ip/type 만 주므로
-    /// port/station 세부는 벤더 기본으로 유추. LS 계열 XGK/XGI 구분 정보가 type 에 없어 LsXgk 기본(아래 이슈).</summary>
-    private static (string vendor, int port) MapPlcType(string? type) =>
-        (type ?? "").Trim().ToUpperInvariant() switch
+    private static bool TryBuildPersistedRecoveryPlan(out ActivationPlan? plan, out string error)
+    {
+        plan = null;
+        if (!AgentLastKnownGoodStore.TryLoad(out var snapshot, out error) || snapshot is null)
+            return false;
+        if (!TryBuildActivationPlan(snapshot.Session, out plan, out error, snapshot.UaSettings)
+            || plan is null)
+            return false;
+        if (!string.Equals(plan.ModelHash, snapshot.ModelHash, StringComparison.OrdinalIgnoreCase))
         {
-            "MX" or "MITSUBISHI" or "MELSEC" => (nameof(PlcVendorChoice.Mitsubishi), 5007),
-            "XGI" or "LSXGI" => (nameof(PlcVendorChoice.LsXgi), 2004),
-            _ => (nameof(PlcVendorChoice.LsXgk), 2004), // "LS"(discovery 기본) 포함
-        };
-
-    /// <summary>cloudinit plc-connections.json 계약 경로 — 쓰는 쪽(cloudinit.py PLC_CONNECTIONS_PATH)과 일치.</summary>
-    private const string PlcConnectionsPath = "/etc/agent/plc-connections.json";
-
-    private sealed record PlcConnectionsFile
-    {
-        public int Version { get; init; }
-        public PlcConnItem[]? Plcs { get; init; }
+            plan = null;
+            error = "The recovered activation plan does not match the saved AASX integrity hash.";
+            return false;
+        }
+        return true;
     }
 
-    private sealed record PlcConnItem
-    {
-        public string? Name { get; init; }
-        public string? Ip { get; init; }
-        public string? Type { get; init; }
-        public bool Enabled { get; init; } = true;
-    }
+    /// <summary>업로드 수신기가 live 파일 교체 전에 동일한 활성화 검증을 재사용한다.</summary>
+    internal static bool TryPreflightCandidate(AgentSession session, out string error) =>
+        TryBuildActivationPlan(session, out _, out error);
 
-    private async Task TryActivateAsync()
+    private Task TryActivateAsync() => TryActivateAsync(forcedPlan: null);
+
+    private async Task TryActivateAsync(ActivationPlan? forcedPlan)
     {
+        ActivationPlan? rollbackPlan = null;
+        var persistentRecovery = false;
         await _gate.WaitAsync().ConfigureAwait(false);
+        var previousPlan = _activePlan;
         try
         {
+            ActivationPlan? candidate = forcedPlan;
+            if (candidate is null)
+            {
+                // Candidate를 import/config/index까지 먼저 완성한다. 실패하면 현재 runtime은 건드리지 않는다.
+                AgentSession? requestedSession = null;
+                var preflightError = "";
+                if (File.Exists(SharedPaths.AgentSessionJsonPath)
+                    && (!AgentSession.TryLoadExact(
+                            SharedPaths.AgentSessionJsonPath, out requestedSession, out preflightError)
+                        || requestedSession is null))
+                {
+                    candidate = null;
+                }
+                else
+                {
+                    requestedSession ??= AgentSession.ForCurrentDefaults(requestedBy: "agent");
+                    Log.Info($"Preflighting session: aasx='{requestedSession.AasxPath}' plc='{requestedSession.PlcConnectionPath}' " +
+                             $"requestedBy={requestedSession.RequestedBy} at={requestedSession.ActivatedAtUtc}");
+                    if (TryBuildActivationPlan(requestedSession, out candidate, out preflightError)
+                        && candidate is not null)
+                        preflightError = "";
+                }
+
+                if (candidate is null)
+                {
+                    if (_app is not null)
+                    {
+                        Log.Error($"Candidate rejected; current Agent runtime remains active. {preflightError}");
+                        return;
+                    }
+
+                    Log.Error($"Activation candidate rejected at boot/idle. {preflightError}");
+                    if (!TryBuildPersistedRecoveryPlan(out candidate, out var recoveryError) || candidate is null)
+                    {
+                        Log.Error($"Last-known-good recovery unavailable; Agent remains idle. {recoveryError}");
+                        return;
+                    }
+                    persistentRecovery = true;
+                    Log.Warn($"Recovering persisted last-known-good activation: aasx='{candidate.Session.AasxPath}'.");
+                }
+            }
+            else
+                Log.Warn("Restoring last-known-good in-memory activation plan after candidate failure.");
+
             if (_app is not null)
             {
                 // 이전엔 silent skip — race 시 새 설정이 누락된 사례 확인됨.
@@ -432,59 +701,29 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
                 try { BackendHost.stop(_app); }
                 catch (Exception ex) { Log.Warn("Exception during BackendHost.stop — ignoring.", ex); }
                 _app = null;
-                DisposeEngine();
             }
+            await StopOpcUaAsync().ConfigureAwait(false);
+            DisposeEngine();
 
-            // 1) session.json 로드 (없으면 기본 경로로 대체 — 첫 부팅 시나리오).
-            var session = AgentSession.TryLoad() ?? AgentSession.ForCurrentDefaults(requestedBy: "agent");
+            var session = candidate.Session;
+            var store = candidate.Store;
+            var gatewayConfig = candidate.GatewayConfig;
+            var aidXgtPlan = candidate.AidXgtPlan;
+            var aidSouthboundPlan = candidate.AidSouthboundPlan;
+            var uaSettings = candidate.UaSettings;
+            var deviceCredentials = candidate.DeviceCredentials;
+            var index = candidate.Index;
             Log.Info($"Activating with session: aasx='{session.AasxPath}' plc='{session.PlcConnectionPath}' " +
                      $"requestedBy={session.RequestedBy} at={session.ActivatedAtUtc}");
-
-            // 2) AASX 로드.
-            if (string.IsNullOrWhiteSpace(session.AasxPath) || !File.Exists(session.AasxPath))
-            {
-                Log.Warn($"AASX not found at '{session.AasxPath}'. Cannot activate — remaining idle.");
-                return;
-            }
-            var store = new DsStore();
-            var importResult = AasxImporter.importIntoStoreWithError(store, session.AasxPath);
-            if (importResult.IsError)
-            {
-                Log.Error($"AASX load failed: {importResult.ErrorValue}");
-                return;
-            }
-            Log.Info($"AASX loaded. Systems={store.Systems.Count} Flows={store.Flows.Count}");
-
-            // 3) IOMap + PlcGatewayConfig 빌드.
-            var ioMap = SignalIOMapModule.build(store);
-            Log.Info($"IOMap built. OUT={ioMap.OutAddressToMappings.Count} IN={ioMap.InAddressToMappings.Count}");
-
-            // UserTag 전용 주소 — IOMap (Call In/Out) 에 안 들어가지만 모니터링/알림 대상이므로 PLC 구독에 포함.
-            // 빠지면 DSPilot 의 UserTag 알림이 plcTagLog 행 부재로 fire 안 됨 (관찰된 증상).
-            var userTagAddresses = store.GetAllUserTagsForProject()
-                .Select(r => r.TagAddress)
-                .Where(a => !string.IsNullOrWhiteSpace(a))
-                .ToList();
-            Log.Info($"UserTag addresses to subscribe: {userTagAddresses.Count} ({string.Join(", ", userTagAddresses.Take(5))})");
-
-            var plcSettings = PlcConnectionSettings.LoadOrDefault(
-                string.IsNullOrWhiteSpace(session.PlcConnectionPath)
-                    ? SharedPaths.PlcConnectionFilePath
-                    : session.PlcConnectionPath);
-            // 분리 아키텍처: 접속 SSOT = PV(마법사 discovery) → cloudinit → 인스턴스.
-            // cloudinit plc-connections.json 이 있으면 그 실측 접속으로 override(없으면 로컬 plcSettings — 올인원 회귀 0).
-            ApplyCloudinitPlcConnection(plcSettings);
-            var gatewayConfig = PlcGatewayConfigBuilder.TryBuild(plcSettings, ioMap, out var errors, userTagAddresses);
-            if (gatewayConfig is null)
-            {
-                Log.Error($"Gateway config build failed: {string.Join(" / ", errors)}");
-                return;
-            }
+            Log.Info($"Candidate accepted. Systems={store.Systems.Count} Flows={store.Flows.Count} " +
+                     $"connections={gatewayConfig.Connections.Length} " +
+                     $"aidXgtSignals={(aidXgtPlan is { Success: true } ? aidXgtPlan.Signals.Length : 0)} " +
+                     $"aidStandardSignals={(aidSouthboundPlan is { Success: true } ? aidSouthboundPlan.SignalCount : 0)} " +
+                     $"aidEvents={(aidSouthboundPlan is { Success: true } ? aidSouthboundPlan.EventCount : 0)}");
 
             // 4) engine 생성 — Agent 단일 호스팅. session.RuntimeMode 로 Control(read-write)/Monitoring(read-only) 분기.
             //    호스팅·proxy·발행 경로는 mode 무관 단일 — RuntimeMode 는 engine 생성 파라미터일 뿐이다.
             //    PLC IN → SignalHubBroadcaster → engine.InjectIOValueByAddress → OnRuntime* push (양 모드 공통).
-            var index = SimIndexModule.build(store, 10);
             var isControl = string.Equals(session.RuntimeMode, "Control", StringComparison.OrdinalIgnoreCase);
             var runtimeMode = isControl ? RuntimeMode.Control : RuntimeMode.Monitoring;
             var readOnly = !isControl;
@@ -510,10 +749,13 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
                 : FSharpOption<FSharpFunc<string, FSharpFunc<string, Unit>>>.None;
             var engine = (ISimulationEngine)new EventDrivenEngine(index, runtimeMode, writeTag);
 
+            // Fail closed before Kestrel begins accepting delegated connections.
+            WireDeviceCredentialValidator(deviceCredentials);
+
             // session identity — client 의 stale guard 가 맞춰 보낼 기준값. ModelHash 는 AASX 내용 해시(결정적).
             var identity = new RuntimeSessionIdentity(
                 Guid.NewGuid().ToString("N"),
-                RuntimeModelHash.compute(session.AasxPath),
+                candidate.ModelHash,
                 1,
                 isControl ? "Control" : "Monitoring");
 
@@ -562,11 +804,18 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
                     Log.Warn($"[Gate] ActionOver 게이트 닫힌 device work {closedCount}건 — 위 목록의 Work 는 시간초과여도 자동 ActionOver 미발행");
             }
 
+            AidUaValueBridge? aidUaValueBridge = null;
+            AidHttpWebhookRouter? webhookRouter = null;
+            if (aidSouthboundPlan is { HasBinding: true, Success: true } webhookPlan)
+            {
+                webhookRouter = new AidHttpWebhookRouter(webhookPlan);
+                _aidWebhookRouter = webhookRouter;
+            }
             Log.Info($"Starting BackendHost on port {Port} " +
                      $"({(readOnly ? "read-only / Monitoring" : "read-write / Control")}, " +
                      $"scan={(delegatedScan ? "위임(Pi5) — PlcScanService off" : "직접(Agent)")}) " +
                      $"with engine session {identity.SessionId}...");
-            _app = BackendHost.startWithBuilderConfig(Port, gatewayConfig, readOnly, delegatedScan, builder =>
+            _app = BackendHost.startWithBuilderAndAppConfig(Port, gatewayConfig, readOnly, delegatedScan, builder =>
             {
                 if (sharedGateway is not null)
                     builder.Services.AddSingleton<IPlcGateway>(sharedGateway);
@@ -574,15 +823,62 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
                 // 미상이면 100. (라이브 스캔주기 변경 시 정밀 동기는 재학습으로 수렴)
                 var scanForMargin = _appliedScanIntervalMs > 0 ? _appliedScanIntervalMs : 100;
                 builder.Services.AddSingleton<IRuntimeHubSession>(sp =>
-                    new EventDrivenEngineRuntimeHubSession(
+                {
+                    var runtimeSession = new EventDrivenEngineRuntimeHubSession(
                         engine,
                         sp.GetRequiredService<IHubContext<SignalHub>>(),
                         identity,
                         scanForMargin,
                         isMinMeasured,
-                        isMaxMeasured));
-            });
+                        isMaxMeasured);
+                    runtimeSession.SetAddressBatchObserver(items => aidUaValueBridge?.Observe(items));
+                    runtimeSession.SetPlcConnectionObserver(status => aidUaValueBridge?.ObserveConnection(status));
+                    return runtimeSession;
+                });
+            }, app => webhookRouter?.Map(app));
             _engine = engine;
+
+            // Agent가 UA 서버를 소유한다. AASX import가 복원한 AID와 현재 DsStore를 주소공간으로 만들고,
+            // 같은 engine을 bridge에 붙인다. AASX watcher 재시작 시 이 전체 구성이 원자적으로 교체된다.
+            var uaResult = await _opcUaHost.StartAsync(uaSettings, store).ConfigureAwait(false);
+            if (!uaResult.Success)
+            {
+                if (aidXgtPlan is { HasBinding: true } || aidSouthboundPlan is { HasBinding: true })
+                    throw new InvalidOperationException($"AID requires the Agent OPC UA server: {uaResult.Message}");
+                Log.Warn($"Agent OPC UA server unavailable: {uaResult.Message}");
+            }
+            else if (_opcUaHost.Server is { IsRunning: true } uaServer)
+            {
+                _uaBridge = new SimEngineUaBridge(engine, uaServer);
+                if (aidXgtPlan is { Success: true } xgt)
+                {
+                    aidUaValueBridge = new AidUaValueBridge(uaServer, xgt.Signals);
+                    var gateway = _app.Services.GetService<IPlcGateway>();
+                    if (gateway is not null)
+                    {
+                        foreach (var status in gateway.GetConnectionStatuses())
+                            aidUaValueBridge.ObserveConnection(status);
+                    }
+                    Log.Info($"AID XGT → OPC UA value bridge active: addresses={aidUaValueBridge.AddressCount}");
+                }
+                if (aidSouthboundPlan is { HasBinding: true, Success: true } southbound)
+                {
+                    webhookRouter?.Attach(uaServer);
+                    _aidSouthbound = new AidSouthboundRuntime(
+                        southbound,
+                        uaServer,
+                        Path.Combine(SharedPaths.AgentDirectory, "aid-southbound"));
+                    await _aidSouthbound.StartAsync().ConfigureAwait(false);
+                    Log.Info($"AID standard southbound active: endpoints={_aidSouthbound.EndpointCount}");
+                }
+                Log.Info($"Agent OPC UA active: endpoint={uaResult.EndpointUrl} assets={uaResult.AssetCount}");
+            }
+            else
+            {
+                if (aidXgtPlan is { HasBinding: true } || aidSouthboundPlan is { HasBinding: true })
+                    throw new InvalidOperationException("AID bindings require OPC UA, but the Agent OPC UA server is disabled.");
+                Log.Info("Agent OPC UA disabled by settings.");
+            }
 
             // Control: engine OUT(writeTag) → 모든 client(OnTagChanged, source="control") broadcast.
             // VP(가상 설비)가 이 OUT 을 받아 가상 IN echo 를 만들고, 그 IN 은 SignalHub.WriteTag→engine forward 로 돌아온다.
@@ -600,9 +896,6 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
             //    이후 ConfigChanged 가 "스캔 주기만 변경" 이면 재시작 없이 ApplyScanIntervalLive 경로.
             SignalHub.PersistScanIntervalMs = PersistScanInterval;
             SignalHub.PersistAutoCalibrate = PersistAutoCalibrate;
-            // 원격 수집 클라이언트(Pi5 edge) 단말 인증 훅 — cloudinit 가 내려준 신원 맵을 로드해 주입.
-            // 파일 없으면(로컬/올인원/Windows) 훅 미설정 = 검증 생략(기존 동작, 회귀 0).
-            WireDeviceCredentialValidator();
 
             // 분리 아키텍처: 조립한 PlcGatewayConfig 를 수집기(Pi5)에 push(server→client) + 캐시.
             //   올인원(Agent 직접 스캔)은 이 push 를 무시하는 게 정상 — 추가 채널이지 기존 스캔 대체 아님(회귀 0).
@@ -619,14 +912,13 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
             }
             catch (Exception ex) { Log.Warn("CollectorConfig push failed — Pi5 는 재연결 시 캐시본 수신.", ex); }
 
-            (_appliedConfigFingerprint, _appliedScanIntervalMs) = ComputeConfigFingerprint();
+            (_appliedConfigFingerprint, _appliedScanIntervalMs) = ComputeConfigFingerprint(session, uaSettings);
 
             // 저장된 자동정합 상태로 엔진 초기화 — OFF 영속 복원(정지 시 AASX 반영→OFF 결과 유지).
             try
             {
-                var sess = AgentSession.TryLoad();
-                var plcP = string.IsNullOrWhiteSpace(sess?.PlcConnectionPath)
-                    ? SharedPaths.PlcConnectionFilePath : sess!.PlcConnectionPath;
+                var plcP = string.IsNullOrWhiteSpace(session.PlcConnectionPath)
+                    ? SharedPaths.PlcConnectionFilePath : session.PlcConnectionPath;
                 var savedAuto = PlcConnectionSettings.LoadOrDefault(plcP).AutoDurationCalibrate;
                 _app.Services.GetRequiredService<IRuntimeHubSession>().SetAutoCalibrate(savedAuto);
                 SignalHub.InitAutoCalibrate(savedAuto);   // hub 캐시도 — DSPilot 연결 직후 pull 정합
@@ -634,12 +926,55 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
             }
             catch (Exception ex) { Log.Warn("AutoCalibrate restore failed — default ON.", ex); }
 
+            _activePlan = candidate;
+            if (forcedPlan is null && !persistentRecovery)
+            {
+                if (AgentLastKnownGoodStore.TrySave(session, uaSettings, candidate.ModelHash, out var snapshotError))
+                    Log.Info("Persisted last-known-good Agent activation snapshot.");
+                else
+                    Log.Error($"Agent is active, but its last-known-good snapshot was not updated. {snapshotError}");
+            }
             Log.Info($"Hub active: {BackendHost.getHubUrl(Port)} — mode={runtimeMode} engine status={engine.Status}");
+        }
+        catch (Exception ex)
+        {
+            Log.Error(forcedPlan is null
+                ? "Candidate activation failed after preflight. Cleaning partial runtime before rollback."
+                : "Last-known-good rollback activation failed.", ex);
+            if (_app is not null)
+            {
+                try { BackendHost.stop(_app); }
+                catch (Exception stopEx) { Log.Warn("Partial BackendHost cleanup failed.", stopEx); }
+                _app = null;
+            }
+            await StopOpcUaAsync().ConfigureAwait(false);
+            DisposeEngine();
+            _activePlan = null;
+            if (forcedPlan is null && previousPlan is not null)
+            {
+                rollbackPlan = previousPlan;
+            }
+            else if (forcedPlan is null && !persistentRecovery)
+            {
+                if (TryBuildPersistedRecoveryPlan(out var persistedPlan, out var recoveryError)
+                    && persistedPlan is not null)
+                {
+                    rollbackPlan = persistedPlan;
+                    Log.Warn("Activation failed after preflight; scheduling persisted last-known-good recovery.");
+                }
+                else
+                {
+                    Log.Error($"Post-preflight recovery unavailable; Agent remains idle. {recoveryError}");
+                }
+            }
         }
         finally
         {
             _gate.Release();
         }
+
+        if (rollbackPlan is not null)
+            await TryActivateAsync(rollbackPlan).ConfigureAwait(false);
     }
 
     private async Task DeactivateAsync()
@@ -648,14 +983,18 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
         try
         {
             SignalHub.ValidateDeviceCredential = null;
-            if (_app is null) return;
-            Log.Info("Stopping BackendHost (deactivate)...");
+            Log.Info("Stopping Agent runtime (deactivate)...");
             SignalHub.PersistScanIntervalMs = null;
-            try { BackendHost.stop(_app); }
-            catch (Exception ex) { Log.Warn("Exception during BackendHost.stop — ignoring.", ex); }
-            _app = null;
+            if (_app is not null)
+            {
+                try { BackendHost.stop(_app); }
+                catch (Exception ex) { Log.Warn("Exception during BackendHost.stop — ignoring.", ex); }
+                _app = null;
+            }
+            await StopOpcUaAsync().ConfigureAwait(false);
             DisposeEngine();
-            Log.Info("BackendHost stopped → idle.");
+            _activePlan = null;
+            Log.Info("Agent runtime stopped → idle.");
         }
         finally
         {
@@ -672,6 +1011,33 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
         _engine = null;
     }
 
+    private async Task StopOpcUaAsync()
+    {
+        var webhookRouter = _aidWebhookRouter;
+        _aidWebhookRouter = null;
+        if (webhookRouter is not null)
+        {
+            try { await webhookRouter.DisposeAsync().ConfigureAwait(false); }
+            catch (Exception ex) { Log.Warn("AidHttpWebhookRouter.DisposeAsync threw — ignoring.", ex); }
+        }
+
+        var southbound = _aidSouthbound;
+        _aidSouthbound = null;
+        if (southbound is not null)
+        {
+            try { await southbound.DisposeAsync().ConfigureAwait(false); }
+            catch (Exception ex) { Log.Warn("AidSouthboundRuntime.DisposeAsync threw — ignoring.", ex); }
+        }
+
+        var bridge = _uaBridge;
+        _uaBridge = null;
+        try { bridge?.Dispose(); }
+        catch (Exception ex) { Log.Warn("SimEngineUaBridge.Dispose threw — ignoring.", ex); }
+
+        try { await _opcUaHost.StopAsync().ConfigureAwait(false); }
+        catch (Exception ex) { Log.Warn("OpcUaServerHost.StopAsync threw — ignoring.", ex); }
+    }
+
     public async ValueTask DisposeAsync()
     {
         _debounce?.Dispose();
@@ -679,7 +1045,9 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
         try { _sessionWatcher?.Dispose(); } catch { }
         try { _plcWatcher?.Dispose(); } catch { }
         try { _aasxWatcher?.Dispose(); } catch { }
+        try { _opcUaSettingsWatcher?.Dispose(); } catch { }
         await DeactivateAsync().ConfigureAwait(false);
+        await _opcUaHost.DisposeAsync().ConfigureAwait(false);
         _gate.Dispose();
     }
 

@@ -1,0 +1,523 @@
+@page "/"
+@rendermode InteractiveServer
+@inject OpcUaLiveClientService Ua
+@implements IDisposable
+
+<PageTitle>외부 OPC UA 클라이언트 연결·구독</PageTitle>
+
+<header class="hero" id="top">
+    <p class="eyebrow">DualSoft · standalone tutorial</p>
+    <h1>외부 OPC UA <span class="no-break">클라이언트</span> <span class="no-break">연결·구독</span></h1>
+    <p class="lead">
+        DSPilot에서 사용자 PFX를 발급하고, Agent가 클라이언트 Application Certificate를 승인한 뒤
+        AID/XGT Variable을 실시간 구독하는 절차입니다.
+    </p>
+    <div class="verdict"><strong>OPC UA 62541에는 API Key가 없습니다.</strong> 인증서로 세션을 열고 같은 세션에서 Browse, Read, Subscribe합니다.</div>
+    <div class="protocol-split">
+        <div><small>OPC UA Binary</small><strong>:62541</strong><span>인증서 · Browse · Read · Subscribe</span></div>
+        <div><small>Collector Data API</small><strong>:62542</strong><span>별도 HTTP API · 외부 노출 시 인증 정책 적용</span></div>
+    </div>
+</header>
+
+<section class="section live-client" id="live-client">
+    <div class="section-head">
+        <div><span class="kicker">Actual OPC UA client</span><h2>실시간 연결·구독</h2></div>
+        <span class="connection-badge @(Ua.IsConnected ? "online" : "offline")">@(Ua.IsConnected ? "Session Active" : "Disconnected")</span>
+    </div>
+
+    <div class="connection-grid">
+        <div class="control-group wide">
+            <label for="live-host">인스턴스 IP 또는 도메인</label>
+            <input id="live-host" class="host-input" @bind="instanceAddress" @bind:event="oninput" placeholder="예: 203.0.113.10 또는 agent.example.com" />
+            <output class="endpoint">@EndpointUrl</output>
+        </div>
+        <div class="control-group">
+            <label>DSPilot 사용자 PFX</label>
+            <InputFile OnChange="LoadPfxAsync" accept=".pfx,.p12,application/x-pkcs12" />
+            <small>@(pfxBytes is null ? "PFX를 선택하세요." : $"선택됨: {pfxFileName} · {pfxBytes.Length:N0} bytes")</small>
+        </div>
+        <div class="control-group">
+            <label for="pfx-password">PFX 암호</label>
+            <input id="pfx-password" class="host-input" type="password" @bind="pfxPassword" autocomplete="current-password" />
+            <small>암호와 PFX는 이 Web 프로세스의 메모리에서만 사용합니다.</small>
+        </div>
+    </div>
+
+    <div class="button-row">
+        <button class="action primary" @onclick="ConnectAsync" disabled="@busy">@(busy ? "처리 중…" : "보안 연결")</button>
+        <button class="action" @onclick="DisconnectAsync" disabled="@(!Ua.IsConnected || busy)">연결 해제</button>
+        <button class="action" @onclick="BrowseAsync" disabled="@(!Ua.IsConnected || busy)">Variable 다시 찾기</button>
+    </div>
+    <div class="runtime-status"><strong>상태</strong><span>@runtimeMessage</span></div>
+
+    <div class="certificate-grid">
+        <article>
+            <small>이 Web 클라이언트의 Application Certificate</small>
+            <b>@Ua.ApplicationCertificateSubject</b>
+            <code>@Ua.ApplicationCertificateThumbprint</code>
+            <p>첫 Agent 접속 후 DSPilot의 접속 승인 대기 목록에서 이 지문을 확인하고 승인합니다.</p>
+            <p>Discovery 광고: <code>@Ua.AdvertisedEndpointUrl</code><br />실제 연결: <code>@Ua.EffectiveEndpointUrl</code></p>
+        </article>
+        @if (Ua.PendingServerCertificate is { } pending)
+        {
+            <article class="pending-certificate">
+                <small>신뢰 대기 중인 Agent 서버 인증서</small>
+                <b>@pending.Subject</b>
+                <code>@pending.Thumbprint</code>
+                <p>@pending.NotBefore.ToString("yyyy-MM-dd") ~ @pending.NotAfter.ToString("yyyy-MM-dd")</p>
+                <button class="action warning" @onclick="TrustServerCertificateAsync" disabled="@busy">이 서버 인증서 신뢰</button>
+            </article>
+        }
+        else
+        {
+            <article>
+                <small>Agent 서버 인증서</small>
+                <b>@(Ua.IsConnected ? "신뢰 확인됨" : "연결 시 확인")</b>
+                <p>처음 보는 서버 인증서는 자동 승인하지 않고 Subject와 thumbprint를 화면에 표시합니다.</p>
+            </article>
+        }
+    </div>
+
+    @if (Ua.IsConnected)
+    {
+        <div class="live-toolbar">
+            <div><label for="node-filter">Variable 검색</label><input id="node-filter" class="host-input" @bind="nodeFilter" @bind:event="oninput" placeholder="XGT, signalId, 자산 이름" /></div>
+            <div><label for="sampling">Sampling ms</label><input id="sampling" class="number-input" type="number" min="10" max="60000" @bind="samplingIntervalMs" /></div>
+            <div><label for="publishing">Publishing ms</label><input id="publishing" class="number-input" type="number" min="50" max="60000" @bind="publishingIntervalMs" /></div>
+        </div>
+
+        <h3 class="subheading">Browse 결과 <span>@VisibleNodes.Count()</span></h3>
+        @if (browseNodes.Count == 0)
+        {
+            <div class="empty-state">`Variable 다시 찾기`를 눌러 Agent 주소공간을 Browse하세요.</div>
+        }
+        else
+        {
+            <div class="table-wrap node-table"><table>
+                <thead><tr><th>Browse Path</th><th>NodeId</th><th>현재 값</th><th>StatusCode</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var node in VisibleNodes.Take(300))
+                    {
+                        var subscribed = Ua.SubscribedNodeIds.Contains(node.NodeId);
+                        <tr>
+                            <td><strong>@node.BrowsePath</strong></td>
+                            <td><code>@node.NodeId</code></td>
+                            <td>@node.Value</td>
+                            <td><code>@node.StatusCode</code></td>
+                            <td><button class="action compact @(subscribed ? "subscribed" : "")" @onclick="() => SubscribeAsync(node)" disabled="@(subscribed || busy)">@(subscribed ? "구독 중" : "구독")</button></td>
+                        </tr>
+                    }
+                </tbody>
+            </table></div>
+        }
+
+        <h3 class="subheading">실시간 최신 값 <span>@Ua.LatestValues.Count</span></h3>
+        @if (Ua.SubscribedNodeIds.Count == 0)
+        {
+            <div class="empty-state">Browse 결과에서 Variable을 선택해 구독하세요.</div>
+        }
+        else if (Ua.LatestValues.Count == 0)
+        {
+            <div class="empty-state active">MonitoredItem이 생성됐습니다. 첫 notification을 기다리는 중입니다.</div>
+        }
+        else
+        {
+            <div class="table-wrap live-table"><table>
+                <thead><tr><th>Variable</th><th>Value</th><th>StatusCode</th><th>SourceTimestamp</th><th>수신 시각</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var value in Ua.LatestValues)
+                    {
+                        <tr class="value-row">
+                            <td><strong>@value.BrowsePath</strong><br /><code>@value.NodeId</code></td>
+                            <td class="live-value">@value.Value</td>
+                            <td><span class="quality @(QualityClass(value.StatusCode))">@value.StatusCode</span></td>
+                            <td>@FormatTimestamp(value.SourceTimestamp)</td>
+                            <td>@value.ReceivedAt.ToString("HH:mm:ss.fff")</td>
+                            <td><button class="action compact" @onclick="() => UnsubscribeAsync(value.NodeId)" disabled="@busy">해제</button></td>
+                        </tr>
+                    }
+                </tbody>
+            </table></div>
+        }
+
+        <h3 class="subheading">Notification 이력 <span>@Ua.History.Count</span></h3>
+        <div class="table-wrap history-table"><table>
+            <thead><tr><th>#</th><th>수신 시각</th><th>Variable</th><th>Value</th><th>StatusCode</th><th>SourceTimestamp</th></tr></thead>
+            <tbody>
+                @foreach (var value in Ua.History.Take(200))
+                {
+                    <tr>
+                        <td>@value.Sequence</td>
+                        <td>@value.ReceivedAt.ToString("HH:mm:ss.fff")</td>
+                        <td>@value.BrowsePath</td>
+                        <td class="live-value">@value.Value</td>
+                        <td><span class="quality @(QualityClass(value.StatusCode))">@value.StatusCode</span></td>
+                        <td>@FormatTimestamp(value.SourceTimestamp)</td>
+                    </tr>
+                }
+            </tbody>
+        </table></div>
+    }
+</section>
+
+<section class="section" id="overview">
+    <div class="section-head"><div><span class="kicker">Overview</span><h2>전체 흐름</h2></div><p>PFX는 사용자 신원, Application Certificate는 클라이언트 프로그램의 신원입니다.</p></div>
+    <div class="flow">
+        <article><span>1</span><b>PFX 발급</b><small>DSPilot 고급 설정</small></article>
+        <article><span>2</span><b>접속 설정</b><small>Endpoint · 보안 · Identity</small></article>
+        <article><span>3</span><b>서버 신뢰</b><small>클라이언트 Trusted Store</small></article>
+        <article><span>4</span><b>앱 승인</b><small>DSPilot 승인 대기 목록</small></article>
+        <article><span>5</span><b>재접속</b><small>Session Active</small></article>
+        <article><span>6</span><b>구독</b><small>XGT MonitoredItem</small></article>
+    </div>
+</section>
+
+<section class="section" id="certificates">
+    <div class="section-head"><div><span class="kicker">Identity</span><h2>인증서 두 종류</h2></div><p>둘을 같은 것으로 취급하면 첫 연결에서 원인을 찾기 어렵습니다.</p></div>
+    <div class="table-wrap"><table>
+        <thead><tr><th>인증서</th><th>증명 대상</th><th>Agent 저장소</th><th>처리</th></tr></thead>
+        <tbody>
+            <tr><td><strong>User Identity Certificate</strong></td><td>접속 사용자</td><td><code>trustedUser/certs</code></td><td>DSPilot PFX 발급 시 공개 인증서 자동 등록</td></tr>
+            <tr><td><strong>Application Certificate</strong></td><td>Softing 또는 자체 프로그램</td><td><code>trusted/certs</code></td><td>최초 접속 후 DSPilot에서 직접 승인</td></tr>
+        </tbody>
+    </table></div>
+    <div class="note good"><strong>개인키 보관:</strong> 다운로드한 PFX에만 들어 있습니다. DSPilot과 Agent에는 공개 인증서만 남습니다.</div>
+</section>
+
+<section class="section" id="issue-pfx">
+    <div class="section-head"><div><span class="step-label">STEP 1</span><h2>DSPilot에서 PFX 발급</h2></div></div>
+    <ol class="check-list">
+        <li>DSPilot에서 <b>설정 → 고급 설정 → OPC UA 외부 클라이언트</b>를 엽니다.</li>
+        <li><b>PFX 암호</b>를 입력합니다.</li>
+        <li><b>Softing용 PFX 발급·다운로드</b>를 누릅니다.</li>
+        <li>다운로드한 <code>.pfx</code>와 암호를 클라이언트가 접근할 수 있는 안전한 위치에 둡니다.</li>
+    </ol>
+    <div class="completion"><span class="completion-dot @(pfxReady ? "done" : "")"></span>@(pfxReady ? "PFX 선택 완료" : "위 실시간 클라이언트에서 PFX를 선택하세요.")</div>
+</section>
+
+<section class="section" id="client-settings">
+    <div class="section-head"><div><span class="step-label">STEP 2</span><h2>클라이언트 접속값 설정</h2></div><p>인스턴스 주소를 입력하면 이 페이지에서 endpoint를 조합합니다.</p></div>
+    <label class="input-label" for="host">인스턴스 IP 또는 도메인</label>
+    <input id="host" class="host-input" @bind="instanceAddress" @bind:event="oninput" placeholder="예: 203.0.113.10 또는 agent.example.com" />
+    <output class="endpoint">@EndpointUrl</output>
+    <div class="settings-grid">
+        <div><small>Security Mode</small><strong>SignAndEncrypt</strong></div>
+        <div><small>Security Policy</small><strong>Basic256Sha256</strong></div>
+        <div><small>Message Encoding</small><strong>Binary</strong></div>
+        <div><small>User Identity</small><strong>Certificate</strong></div>
+        <div><small>Certificate</small><strong>DSPilot PFX</strong></div>
+        <div><small>Password</small><strong>PFX 발급 암호</strong></div>
+    </div>
+    <div class="note"><strong>Softing:</strong> Session Connect → Authentication Settings → User Identity를 <code>Certificate</code>로 선택합니다.</div>
+    <div class="completion"><span class="completion-dot @(clientConfigured ? "done" : "")"></span>@(clientConfigured ? "Endpoint·보안·PFX 설정 확인됨" : "실제 연결 시 설정을 검증합니다.")</div>
+</section>
+
+<section class="section" id="trust-server">
+    <div class="section-head"><div><span class="step-label">STEP 3</span><h2>클라이언트에서 Agent 서버 신뢰</h2></div></div>
+    <ol class="check-list">
+        <li>처음 연결할 때 <b>Certificate is not trusted</b> 창을 확인합니다.</li>
+        <li>인증서 Subject와 현재 접속하려는 Agent가 일치하는지 확인합니다.</li>
+        <li>Softing에서 <b>Add Certificate to Trusted Store</b>를 선택합니다.</li>
+    </ol>
+    <div class="note good">이 단계는 클라이언트가 Agent 서버를 신뢰하도록 만드는 과정입니다.</div>
+    <div class="completion"><span class="completion-dot @(serverTrusted ? "done" : "")"></span>@(serverTrusted ? "Agent 서버 인증서 신뢰 확인됨" : "첫 연결에서 서버 인증서를 확인합니다.")</div>
+</section>
+
+<section class="section" id="approve-client">
+    <div class="section-head"><div><span class="step-label">STEP 4</span><h2>DSPilot에서 Application Certificate 승인</h2></div></div>
+    <ol class="check-list">
+        <li>첫 접속은 <code>BadCertificateUntrusted</code> 또는 <code>BadSecurityChecksFailed</code>로 거절될 수 있습니다.</li>
+        <li>DSPilot의 <b>OPC UA 외부 클라이언트 → 접속 승인 대기 인증서</b>로 이동합니다.</li>
+        <li><b>새로고침</b> 후 방금 접속한 프로그램의 Subject와 thumbprint를 확인합니다.</li>
+        <li>해당 인증서를 승인하고 클라이언트에서 다시 연결합니다.</li>
+    </ol>
+    <div class="store-change"><code>rejected/certs</code><span>→ 승인 →</span><code>trusted/certs</code></div>
+    <div class="completion"><span class="completion-dot @(applicationTrusted ? "done" : "")"></span>@(applicationTrusted ? "Application Certificate 승인 후 세션 연결됨" : "DSPilot 승인 후 다시 연결합니다.")</div>
+</section>
+
+<section class="section" id="subscribe">
+    <div class="section-head"><div><span class="step-label">STEP 5</span><h2>AID/XGT Variable 구독</h2></div></div>
+    <ol class="check-list">
+        <li>클라이언트 세션 상태가 <code>Active</code>인지 확인합니다.</li>
+        <li><code>Objects → DS → Assets → &lt;자산&gt; → AID → XGT</code>를 Browse합니다.</li>
+        <li>폴더가 아니라 값을 가진 Variable을 선택합니다.</li>
+        <li>Subscription을 만들고 Variable의 <code>Value</code>를 MonitoredItem으로 추가합니다.</li>
+        <li>PLC 값이 변할 때 아래 세 항목이 함께 갱신되는지 확인합니다.</li>
+    </ol>
+    <div class="value-grid">
+        <div><b>Value</b><span>typed PLC 값</span></div>
+        <div><b>StatusCode</b><span>Good · Uncertain · Bad</span></div>
+        <div><b>SourceTimestamp</b><span>값 원본 시각</span></div>
+    </div>
+    <div class="note good"><strong>Softing:</strong> Configuration Browse에서 XGT Variable을 찾은 뒤 Data Access 화면의 subscription에 추가합니다.</div>
+    <div class="completion"><span class="completion-dot @(subscriptionReady ? "done" : "")"></span>@(subscriptionReady ? "실제 MonitoredItem 구독 중" : "Browse 결과에서 Variable을 구독하세요.")</div>
+</section>
+
+<section class="section" id="custom-client">
+    <div class="section-head"><div><span class="kicker">SDK contract</span><h2>자체 프로그램에서 연결</h2></div><p>OPC UA SDK가 달라도 세션에 필요한 입력은 같습니다.</p></div>
+    <pre class="code-block">endpoint               = @EndpointUrl
+security               = SignAndEncrypt + Basic256Sha256
+applicationCertificate = 자체 프로그램의 OPC UA Application Certificate
+userIdentity           = DSPilot에서 받은 PFX + 암호
+
+session      = connect(endpoint, security, applicationCertificate, userIdentity)
+subscription = session.createSubscription(publishingInterval)
+subscription.monitor(variableNodeId, Value)</pre>
+    <div class="note warning"><strong>최초 한 번:</strong> 새 프로그램의 Application Certificate를 DSPilot에서 승인합니다. 같은 인증서로 만드는 이후 Read·구독에는 추가 승인이나 API Key가 없습니다.</div>
+</section>
+
+<section class="section" id="troubleshooting">
+    <div class="section-head"><div><span class="kicker">Troubleshooting</span><h2>오류별 확인 위치</h2></div></div>
+    <div class="table-wrap"><table>
+        <thead><tr><th>메시지</th><th>뜻</th><th>처리</th></tr></thead>
+        <tbody>
+            <tr><td><code>BadNotConnected</code></td><td>TCP 또는 endpoint 도달 실패</td><td>주소, 인스턴스 인바운드 TCP 62541, Agent 실행 상태 확인</td></tr>
+            <tr><td><code>BadUserAccessDenied</code><br />identity type</td><td>지원하지 않는 사용자 방식</td><td>User Identity를 Certificate로 바꾸고 DSPilot PFX 지정</td></tr>
+            <tr><td>Certificate is not trusted</td><td>클라이언트가 Agent 서버를 신뢰하지 않음</td><td>접속 대상 확인 후 서버 인증서를 클라이언트 Trusted Store에 추가</td></tr>
+            <tr><td><code>BadCertificateUntrusted</code></td><td>Agent가 클라이언트 앱 인증서를 신뢰하지 않음</td><td>DSPilot 승인 대기 목록에서 해당 인증서 승인 후 재접속</td></tr>
+            <tr><td><code>BadSecurityChecksFailed</code></td><td>인증서 신뢰 또는 보안 협상 실패</td><td>승인 상태와 SignAndEncrypt / Basic256Sha256 설정 확인</td></tr>
+            <tr><td>Active지만 값이 변하지 않음</td><td>폴더 선택 또는 PLC 입력·품질 확인 필요</td><td>XGT Variable의 Value, StatusCode, SourceTimestamp 확인</td></tr>
+        </tbody>
+    </table></div>
+</section>
+
+<aside class="progress-card" aria-label="진행 상황">
+    <div><b>진행 상황</b><span>@CompletedCount / 5</span></div>
+    <div class="progress-track"><span style="@($"width: {ProgressPercent}%")"></span></div>
+    <small>@ProgressMessage</small>
+</aside>
+
+@code {
+    private string instanceAddress = "";
+    private string pfxPassword = "";
+    private string pfxFileName = "";
+    private byte[]? pfxBytes;
+    private string runtimeMessage = "PFX와 인스턴스 주소를 입력한 뒤 보안 연결을 누르세요.";
+    private string nodeFilter = "XGT";
+    private int samplingIntervalMs = 500;
+    private int publishingIntervalMs = 500;
+    private bool busy;
+    private List<UaVariableNode> browseNodes = [];
+    private bool pfxReady;
+    private bool clientConfigured;
+    private bool serverTrusted;
+    private bool applicationTrusted;
+    private bool subscriptionReady => Ua.SubscribedNodeIds.Count > 0;
+
+    private string EndpointUrl
+    {
+        get
+        {
+            var raw = instanceAddress.Trim();
+            if (Uri.TryCreate(raw, UriKind.Absolute, out var endpoint)
+                && endpoint.Scheme.Equals("opc.tcp", StringComparison.OrdinalIgnoreCase))
+                return raw;
+            var host = string.IsNullOrWhiteSpace(raw) ? "<인스턴스 주소>" : raw;
+            return $"opc.tcp://{host}:62541/Ds2/OpcUa/Server";
+        }
+    }
+
+    private int CompletedCount => new[]
+    {
+        pfxReady,
+        clientConfigured,
+        serverTrusted,
+        applicationTrusted,
+        subscriptionReady
+    }.Count(done => done);
+
+    private int ProgressPercent => CompletedCount * 20;
+
+    private string ProgressMessage => CompletedCount switch
+    {
+        0 => "DSPilot에서 PFX 발급부터 시작하세요.",
+        < 4 => "인증서 신뢰 절차를 순서대로 진행하세요.",
+        4 => "재접속 후 XGT Variable을 구독하세요.",
+        _ => "외부 OPC UA 구독 준비가 끝났습니다."
+    };
+
+    private IEnumerable<UaVariableNode> VisibleNodes =>
+        string.IsNullOrWhiteSpace(nodeFilter)
+            ? browseNodes
+            : browseNodes.Where(node =>
+                node.BrowsePath.Contains(nodeFilter, StringComparison.OrdinalIgnoreCase)
+                || node.NodeId.Contains(nodeFilter, StringComparison.OrdinalIgnoreCase)
+                || node.DisplayName.Contains(nodeFilter, StringComparison.OrdinalIgnoreCase));
+
+    protected override void OnInitialized()
+    {
+        Ua.StateChanged += OnUaStateChanged;
+    }
+
+    private async Task LoadPfxAsync(InputFileChangeEventArgs args)
+    {
+        busy = true;
+        try
+        {
+            const long maxBytes = 2 * 1024 * 1024;
+            await using var stream = args.File.OpenReadStream(maxBytes);
+            using var memory = new MemoryStream();
+            await stream.CopyToAsync(memory);
+            if (pfxBytes is not null) Array.Clear(pfxBytes);
+            pfxBytes = memory.ToArray();
+            pfxFileName = args.File.Name;
+            pfxReady = true;
+            runtimeMessage = $"PFX 선택됨: {pfxFileName}";
+        }
+        catch (Exception ex)
+        {
+            pfxReady = false;
+            runtimeMessage = $"PFX 읽기 실패: {ex.Message}";
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task ConnectAsync()
+    {
+        if (string.IsNullOrWhiteSpace(instanceAddress)
+            || instanceAddress.Equals("INSTANCE_IP_OR_HOST", StringComparison.OrdinalIgnoreCase))
+        {
+            runtimeMessage = "인스턴스 IP 또는 도메인을 입력하세요. 예: 49.50.131.178";
+            return;
+        }
+        if (pfxBytes is null)
+        {
+            runtimeMessage = "먼저 DSPilot에서 받은 PFX를 선택하세요.";
+            return;
+        }
+        if (string.IsNullOrEmpty(pfxPassword))
+        {
+            runtimeMessage = "PFX 발급 시 입력한 암호를 입력하세요.";
+            return;
+        }
+
+        busy = true;
+        clientConfigured = true;
+        runtimeMessage = "Agent OPC UA 서버에 연결 중…";
+        try
+        {
+            var result = await Ua.ConnectAsync(EndpointUrl, pfxBytes, pfxPassword);
+            runtimeMessage = result.Message;
+            if (result.Success)
+            {
+                serverTrusted = true;
+                applicationTrusted = true;
+                await BrowseInternalAsync();
+            }
+            else if (Ua.PendingServerCertificate is not null)
+            {
+                serverTrusted = false;
+            }
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task TrustServerCertificateAsync()
+    {
+        busy = true;
+        try
+        {
+            var result = await Ua.TrustPendingServerCertificateAsync();
+            runtimeMessage = result.Message;
+            serverTrusted = result.Success;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task DisconnectAsync()
+    {
+        busy = true;
+        try
+        {
+            await Ua.DisconnectAsync();
+            browseNodes.Clear();
+            runtimeMessage = Ua.Status;
+            applicationTrusted = false;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task BrowseAsync()
+    {
+        busy = true;
+        try
+        {
+            await BrowseInternalAsync();
+        }
+        catch (Exception ex)
+        {
+            runtimeMessage = $"Browse 실패: {ex.Message}";
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task BrowseInternalAsync()
+    {
+        browseNodes = (await Ua.BrowseVariablesAsync()).ToList();
+        runtimeMessage = $"Browse 완료 · Variable {browseNodes.Count:N0}개";
+    }
+
+    private async Task SubscribeAsync(UaVariableNode node)
+    {
+        busy = true;
+        try
+        {
+            var result = await Ua.SubscribeAsync(node, samplingIntervalMs, publishingIntervalMs);
+            runtimeMessage = result.Message;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task UnsubscribeAsync(string nodeId)
+    {
+        busy = true;
+        try
+        {
+            var result = await Ua.UnsubscribeAsync(nodeId);
+            runtimeMessage = result.Message;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private void OnUaStateChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private static string FormatTimestamp(DateTime? timestamp) =>
+        timestamp?.ToString("yyyy-MM-dd HH:mm:ss.fff") ?? "-";
+
+    private static string QualityClass(string statusCode)
+    {
+        if (statusCode.StartsWith("Good", StringComparison.OrdinalIgnoreCase)) return "good";
+        if (statusCode.StartsWith("Uncertain", StringComparison.OrdinalIgnoreCase)) return "uncertain";
+        return "bad";
+    }
+
+    public void Dispose()
+    {
+        Ua.StateChanged -= OnUaStateChanged;
+        if (pfxBytes is not null) Array.Clear(pfxBytes);
+    }
+}

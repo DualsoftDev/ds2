@@ -40,14 +40,6 @@ type NameTransform =
     | PascalCase    // WorkStart
     | NoTransform   // 원본 유지
 
-/// PLC 벤더
-type PlcVendor =
-    | Mitsubishi    // MC Protocol (MELSEC)
-    | Siemens       // S7 Protocol
-    | RockwellAB    // EtherNet/IP (Allen-Bradley)
-    | Omron         // FINS Protocol
-    | Generic       // Generic Protocol
-
 /// FB Port mapping status (how the port was resolved)
 type MappingStatus =
     | AutoMapped   = 0  // 자동 매핑 성공 (SignalLookup)
@@ -248,13 +240,6 @@ type ControlSystemProperties() =
     member val TagPrefix: string option = None with get, set
     member val TagNamingFormat = "{SystemId}_{WorkId}_{Signal}" with get, set
     member val NameTransform = "UpperCase" with get, set
-
-    // ========== PLC 통신 설정 ==========
-    member val PlcVendor = "Mitsubishi" with get, set
-    member val PlcIpAddress = "192.168.0.1" with get, set
-    member val PlcPort = 5000 with get, set
-    member val CommunicationTimeout = TimeSpan.FromSeconds(5.0) with get, set
-    member val RetryAttempts = 3 with get, set
 
     // ========== 태그 매칭 설정 ==========
     member val TagMatchMode = "ByAddress" with get, set
@@ -482,4 +467,3 @@ module ControlIoLegacyMigration =
             preset.BaseAddresses <- baseSet
             n <- n + 1
         n
-

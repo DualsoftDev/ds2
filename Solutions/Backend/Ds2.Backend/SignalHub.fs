@@ -2,6 +2,8 @@ namespace Ds2.Backend
 
 open Microsoft.AspNetCore.SignalR
 open System
+open System.Net
+open System.Net.Sockets
 open System.Threading.Tasks
 open Ds2.Backend.Common
 open Ds2.Backend.Plc
@@ -118,11 +120,44 @@ module SignalHubWritePolicy =
         && not (String.Equals(source, HubSource.Plc, StringComparison.OrdinalIgnoreCase))
         && not (String.Equals(source, HubSource.Resync, StringComparison.OrdinalIgnoreCase))
 
+/// Pi5 delegated WriteTags를 런타임의 batch 입력 경계로 전달한다.
+/// 이 경계에 Monitoring 입력 처리와 AID -> OPC UA observer가 함께 연결돼 있다.
+[<RequireQualifiedAccess>]
+module SignalHubRuntimeIngress =
+    let injectBatch
+            (identity: RuntimeSessionIdentity)
+            (items: TagWrite array)
+            (inject: RuntimeIOAddressBatchCommand -> Task) =
+        let command : RuntimeIOAddressBatchCommand =
+            { Envelope = RuntimeHubDefaults.selfEnvelope identity
+              Items = items }
+        inject command
+
 /// 단말 화이트리스트가 켜진 Hub의 연결 허용 정책.
 /// 같은 인스턴스의 DSPilot 같은 loopback 클라이언트는 헤더 없이 허용하되, 원격(Pi5 포함)은
 /// 반드시 X-Device-Id를 제시해 화이트리스트를 통과해야 한다. 로컬이라도 헤더를 제시했다면 검증한다.
 [<RequireQualifiedAccess>]
 module SignalHubConnectionPolicy =
+    /// Plaintext delegated ingress is limited to loopback, RFC1918 IPv4,
+    /// link-local addresses, and IPv6 ULA (fc00::/7).
+    let isPrivateOrLoopbackAddress (address: IPAddress) =
+        if isNull address then false
+        elif IPAddress.IsLoopback address then true
+        else
+            let normalized =
+                if address.IsIPv4MappedToIPv6 then address.MapToIPv4()
+                else address
+            let bytes = normalized.GetAddressBytes()
+            match normalized.AddressFamily with
+            | AddressFamily.InterNetwork ->
+                bytes.[0] = 10uy
+                || (bytes.[0] = 172uy && bytes.[1] >= 16uy && bytes.[1] <= 31uy)
+                || (bytes.[0] = 192uy && bytes.[1] = 168uy)
+                || (bytes.[0] = 169uy && bytes.[1] = 254uy)
+            | AddressFamily.InterNetworkV6 ->
+                normalized.IsIPv6LinkLocal || (bytes.[0] &&& 0xFEuy) = 0xFCuy
+            | _ -> false
+
     let isAllowed
             (validatorConfigured: bool)
             (isLoopback: bool)
@@ -131,6 +166,12 @@ module SignalHubConnectionPolicy =
         not validatorConfigured
         || (isLoopback && not hasDeviceId)
         || credentialValid
+
+    /// 등록된 원격 수집 단말은 현장 관측 push만 수행할 수 있다.
+    let isRemoteMethodAllowed methodName =
+        match methodName with
+        | "WriteTags" | "ReportScanHeartbeat" | "ReportPlcConnectionStatus" -> true
+        | _ -> false
 
 type NullRuntimeHubSession() =
     interface IRuntimeHubSession with
@@ -242,10 +283,33 @@ type SignalHubBroadcaster(hubContext: IHubContext<SignalHub>, runtimeSession: IR
         member _.BroadcastScanHeartbeat() =
             hubContext.Clients.All.SendAsync(HubMethod.OnScanHeartbeat)
 
-and SignalHub(gateway: IPlcGateway, runtimeSession: IRuntimeHubSession) =
+and SignalHub(
+        gateway: IPlcGateway,
+        runtimeSession: IRuntimeHubSession,
+        gatewayConfig: PlcGatewayConfig) =
     inherit Hub()
 
     static let log = log4net.LogManager.GetLogger("SignalHub")
+    let allowedCollectorTags =
+        let result = System.Collections.Generic.Dictionary<string, PlcTagDef>(StringComparer.OrdinalIgnoreCase)
+        for connection in gatewayConfig.Connections do
+            for tag in connection.Tags do
+                if not (result.ContainsKey tag.HubAddress) then result.[tag.HubAddress] <- tag
+        result
+    let allowedCollectorConnections =
+        let result = System.Collections.Generic.Dictionary<string, PlcConnectionConfig>(StringComparer.OrdinalIgnoreCase)
+        for connection in gatewayConfig.Connections do
+            if not (result.ContainsKey connection.Name) then result.[connection.Name] <- connection
+        result
+    let validRemoteCollectorItem (item: TagWrite) =
+        if isNull item.Address || isNull item.Value || isNull item.Source
+           || item.Address.Length > 1024 || item.Value.Length > 65_536
+           || (not (item.Source.Equals(HubSource.Plc, StringComparison.OrdinalIgnoreCase))
+               && not (item.Source.Equals(HubSource.Resync, StringComparison.OrdinalIgnoreCase))) then false
+        else
+            match allowedCollectorTags.TryGetValue item.Address with
+            | true, tag -> PlcValueIo.canParseTagValue tag item.Value
+            | _ -> false
     /// Tag 값 캐시: 마지막 WriteTag 값을 기억해서 Control 재접속/재시작 시 QueryTag로 복원.
     /// PLC scan service 의 broadcast 도 이 캐시를 갱신해 둠.
     static let tagCache = System.Collections.Concurrent.ConcurrentDictionary<string, string>()
@@ -318,12 +382,25 @@ and SignalHub(gateway: IPlcGateway, runtimeSession: IRuntimeHubSession) =
     static member val PersistAutoCalibrate : Action<bool> = null with get, set
 
     /// 원격 수집 클라이언트(Pi5 엣지 수집기)의 단말 신원 검증 훅 — 호스트(Promaker.Agent)가 주입.
-    /// 시그니처: deviceId → 등록된 단말이면 true. deviceId = RPi 하드웨어 시리얼(device.device_id),
-    /// Agent 가 cloudinit 화이트리스트에 있는지 단순 membership 대조. device_id 는 비밀이 아닌 등록 화이트리스트.
+    /// 시그니처: deviceId, credential → 등록된 단말 자격 증명이면 true.
     /// **null(미설정)이면 검증 생략** — localhost 올인원/로컬 개발은 인증 불필요(기존 동작 유지, 회귀 0).
     /// 설정돼 있고 미등록이면 OnConnectedAsync 가 연결을 Abort. Pi5 는 X-Device-Id 헤더로 시리얼을 싣는다
     /// (HubClientPusher 와 헤더 계약 일치). provision_token 은 부트스트랩 전용이라 상시 인증에서 제외.
     static member val ValidateDeviceCredential : Func<string, bool> = null with get, set
+
+    member private this.IsRemoteCaller =
+        let http = this.Context.GetHttpContext()
+        if isNull http || isNull http.Connection.RemoteIpAddress then true
+        else not (System.Net.IPAddress.IsLoopback(http.Connection.RemoteIpAddress))
+
+    member private this.LocalOnly(methodName: string) =
+        if not this.IsRemoteCaller then true
+        else
+            log.Warn($"Remote SignalR method rejected: method={methodName} connId={this.Context.ConnectionId}")
+            false
+
+    member private this.LocalOnlyFailure(methodName: string) : Task =
+        Task.FromException(HubException($"'{methodName}' is restricted to local Agent clients."))
 
     /// 현재 유효 스캔 주기(ms) — override 우선, 없으면 config 의 최소 주기.
     member _.GetScanIntervalMs() : Task<int> =
@@ -339,14 +416,17 @@ and SignalHub(gateway: IPlcGateway, runtimeSession: IRuntimeHubSession) =
     /// 스캔 주기 변경 (10~500ms clamp) — 게이트웨이 라이브 적용 + 영속화 + 전체 클라이언트 동기화.
     /// Promaker/DSPilot 슬라이더가 호출. 재시작 없음 — scan loop 가 다음 iteration 부터 새 주기 사용.
     member this.SetScanIntervalMs(ms: int) : Task =
-        let clamped = max 10 (min 500 ms)
-        gateway.ScanIntervalOverrideMs <- Some clamped
-        let persist = SignalHub.PersistScanIntervalMs
-        if not (isNull persist) then
-            try persist.Invoke(clamped)
-            with ex -> log.Warn($"PersistScanIntervalMs threw: {ex.Message}")
-        log.Info($"Scan interval set to {clamped}ms (live, requested={ms})")
-        this.Clients.All.SendAsync(HubMethod.OnScanIntervalChanged, clamped)
+        if not (this.LocalOnly("SetScanIntervalMs")) then
+            this.LocalOnlyFailure("SetScanIntervalMs")
+        else
+            let clamped = max 10 (min 500 ms)
+            gateway.ScanIntervalOverrideMs <- Some clamped
+            let persist = SignalHub.PersistScanIntervalMs
+            if not (isNull persist) then
+                try persist.Invoke(clamped)
+                with ex -> log.Warn($"PersistScanIntervalMs threw: {ex.Message}")
+            log.Info($"Scan interval set to {clamped}ms (live, requested={ms})")
+            this.Clients.All.SendAsync(HubMethod.OnScanIntervalChanged, clamped)
 
     /// 자동 duration 정합 ON/OFF — server engine(abnormal 어댑터)에 즉시 적용 + 전 클라이언트 동기화.
     /// ON=실측 학습값 기준 판정, OFF=모델(AASX 확정값) 기준. 정지 시 "AASX 반영" 선택하면 OFF 로 전환.
@@ -354,21 +434,27 @@ and SignalHub(gateway: IPlcGateway, runtimeSession: IRuntimeHubSession) =
     member _.GetAutoCalibrate() : Task<bool> = Task.FromResult autoCalibrateState
 
     member this.SetAutoCalibrate(on: bool) : Task =
-        autoCalibrateState <- on
-        runtimeSession.SetAutoCalibrate(on)
-        let persist = SignalHub.PersistAutoCalibrate
-        if not (isNull persist) then
-            try persist.Invoke(on)
-            with ex -> log.Warn($"PersistAutoCalibrate threw: {ex.Message}")
-        log.Info($"AutoCalibrate set to {on} (live, broadcasting + persisted)")
-        this.Clients.All.SendAsync(HubMethod.OnAutoCalibrateChanged, on)
+        if not (this.LocalOnly("SetAutoCalibrate")) then
+            this.LocalOnlyFailure("SetAutoCalibrate")
+        else
+            autoCalibrateState <- on
+            runtimeSession.SetAutoCalibrate(on)
+            let persist = SignalHub.PersistAutoCalibrate
+            if not (isNull persist) then
+                try persist.Invoke(on)
+                with ex -> log.Warn($"PersistAutoCalibrate threw: {ex.Message}")
+            log.Info($"AutoCalibrate set to {on} (live, broadcasting + persisted)")
+            this.Clients.All.SendAsync(HubMethod.OnAutoCalibrateChanged, on)
 
     /// 건강 기준선 수동 동결 — 상태 없는 릴레이. duration 학습/기준선은 각 클라이언트(Promaker 등)가
     /// 들고 있으므로 hub 는 동결 명령을 전 클라이언트에 fan-out 만 한다 (스캔 주기 동기화 패턴과 동형).
     /// 호출자 자신도 브로드캐스트를 받아 동결한다 — 동결 경로 일원화.
     member this.FreezeHealthBaseline() : Task =
-        log.Info("Health baseline freeze requested — broadcasting to all clients")
-        this.Clients.All.SendAsync(HubMethod.OnHealthBaselineFreeze)
+        if not (this.LocalOnly("FreezeHealthBaseline")) then
+            this.LocalOnlyFailure("FreezeHealthBaseline")
+        else
+            log.Info("Health baseline freeze requested — broadcasting to all clients")
+            this.Clients.All.SendAsync(HubMethod.OnHealthBaselineFreeze)
 
     /// 스캔 생존 heartbeat 리포트 (Client → Server). 수집 주체가 분리(Pi5 엣지 수집기)일 때 Pi5 가
     /// 클라이언트로서 호출 → Hub 가 OnScanHeartbeat 를 fan-out. 올인원의 BroadcastScanHeartbeat(server-origin)
@@ -386,14 +472,32 @@ and SignalHub(gateway: IPlcGateway, runtimeSession: IRuntimeHubSession) =
            || String.IsNullOrWhiteSpace status.Name then
             Task.CompletedTask
         else
-            SignalHub.UpdatePlcStatusCache(status)
-            task {
-                try
-                    do! runtimeSession.NotifyPlcConnectionAsync(status)
-                with ex ->
-                    log.Warn($"ReportPlcConnectionStatus engine notify failed for {status.Name}: {ex.Message}")
-                do! this.Clients.All.SendAsync(HubMethod.OnPlcConnectionStatus, status)
-            } :> Task
+            match allowedCollectorConnections.TryGetValue status.Name with
+            | false, _ ->
+                log.Warn($"ReportPlcConnectionStatus rejected unconfigured connection: {status.Name}")
+                Task.CompletedTask
+            | true, connection ->
+                let lastError =
+                    if isNull status.LastError then ""
+                    elif status.LastError.Length <= 4096 then status.LastError
+                    else status.LastError.Substring(0, 4096)
+                let normalized =
+                    { Name = connection.Name
+                      Vendor = string connection.Vendor
+                      IpAddress = connection.IpAddress
+                      Port = connection.Port
+                      IsConnected = status.IsConnected
+                      LastError = lastError
+                      FailedAttempts = Math.Clamp(status.FailedAttempts, 0, 1_000_000)
+                      AtUtc = DateTime.UtcNow }
+                SignalHub.UpdatePlcStatusCache(normalized)
+                task {
+                    try
+                        do! runtimeSession.NotifyPlcConnectionAsync(normalized)
+                    with ex ->
+                        log.Warn($"ReportPlcConnectionStatus engine notify failed for {normalized.Name}: {ex.Message}")
+                    do! this.Clients.All.SendAsync(HubMethod.OnPlcConnectionStatus, normalized)
+                } :> Task
 
     /// PLC 게이트웨이로 위임 — fire-and-forget.
     /// - source=plc/resync: PLC 관측값이므로 self-echo 차단.
@@ -417,21 +521,28 @@ and SignalHub(gateway: IPlcGateway, runtimeSession: IRuntimeHubSession) =
 
     member private this.ExecuteRuntimeCommand(envelope: RuntimeCommandEnvelope, execute: unit -> Task) : Task =
         task {
-            match RuntimeSessionContract.tryRejectCommand runtimeSession.CurrentIdentity envelope with
-            | Some reason ->
-                do! this.RejectRuntimeCommand(envelope, reason)
-            | None ->
-                do! execute()
+            if not (this.LocalOnly("RuntimeCommand")) then
+                do! this.RejectRuntimeCommand(envelope, "remote-forbidden")
+            else
+                match RuntimeSessionContract.tryRejectCommand runtimeSession.CurrentIdentity envelope with
+                | Some reason ->
+                    do! this.RejectRuntimeCommand(envelope, reason)
+                | None ->
+                    do! execute()
         } :> Task
 
     member private this.QueryRuntime(envelope: RuntimeCommandEnvelope, fallback: 'T, query: unit -> Task<'T>) : Task<'T> =
         task {
-            match RuntimeSessionContract.tryRejectCommand runtimeSession.CurrentIdentity envelope with
-            | Some reason ->
-                do! this.RejectRuntimeCommand(envelope, reason)
+            if not (this.LocalOnly("RuntimeQuery")) then
+                do! this.RejectRuntimeCommand(envelope, "remote-forbidden")
                 return fallback
-            | None ->
-                return! query()
+            else
+                match RuntimeSessionContract.tryRejectCommand runtimeSession.CurrentIdentity envelope with
+                | Some reason ->
+                    do! this.RejectRuntimeCommand(envelope, reason)
+                    return fallback
+                | None ->
+                    return! query()
         }
 
     member private _.EnvelopeOf(command: RuntimeEmptyCommand) =
@@ -582,7 +693,9 @@ and SignalHub(gateway: IPlcGateway, runtimeSession: IRuntimeHubSession) =
         this.QueryRuntime(envelope, RuntimeHubDefaults.emptyIOMapProjection envelope, fun () -> runtimeSession.GetIOMapProjectionAsync(envelope))
 
     member this.WriteTag(address: string, value: string, source: string) : Task =
-        if readOnlyMode then
+        if not (this.LocalOnly("WriteTag")) then
+            this.LocalOnlyFailure("WriteTag")
+        elif readOnlyMode then
             log.Debug($"WriteTag suppressed (read-only): {address}={value} source={source}")
             Task.CompletedTask
         else
@@ -611,18 +724,37 @@ and SignalHub(gateway: IPlcGateway, runtimeSession: IRuntimeHubSession) =
             Task.CompletedTask
         elif isNull items || items.Length = 0 then
             Task.CompletedTask
+        elif items.Length > 10_000 then
+            Task.FromException(HubException("WriteTags batch exceeds 10000 items."))
         else
-            for it in items do
-                if not (isNull it.Address) then
-                    tagCache.[it.Address] <- it.Value
-                    this.ForwardToPlc(it.Address, it.Value, it.Source)
-                    // client write IN 도 engine 으로 forward (WriteTag 와 동일 이유 — VP IN echo 가 engine 에 반영).
-                    let injectCmd : RuntimeIOAddressCommand =
-                        { Envelope = RuntimeHubDefaults.selfEnvelope runtimeSession.CurrentIdentity
-                          Address = it.Address; Value = it.Value }
-                    runtimeSession.InjectIOValueByAddressAsync(injectCmd) |> ignore
-            log.Debug($"WriteTags: count={items.Length}")
-            this.Clients.All.SendAsync(HubMethod.OnTagsChanged, items)
+            let remote = this.IsRemoteCaller
+            let accepted =
+                items
+                |> Array.filter (fun item ->
+                    not (isNull item.Address)
+                    && not (isNull item.Value)
+                    && not (isNull item.Source)
+                    && item.Address.Length <= 1024
+                    && item.Value.Length <= 65_536
+                    && (not remote || validRemoteCollectorItem item))
+            let rejected = items.Length - accepted.Length
+            if rejected > 0 then
+                log.Warn($"WriteTags rejected invalid/unconfigured items: count={rejected} remote={remote}")
+            for it in accepted do
+                tagCache.[it.Address] <- it.Value
+                this.ForwardToPlc(it.Address, it.Value, it.Source)
+            if accepted.Length = 0 then Task.CompletedTask
+            else
+                log.Debug($"WriteTags: accepted={accepted.Length} received={items.Length}")
+                task {
+                    // Pi5 delegated ingress도 직접 PLC scan broadcaster와 같은 batch 경계를 사용한다.
+                    // Monitoring 입력 처리와 AidUaValueBridge observer가 이 경계에 연결돼 있다.
+                    do! SignalHubRuntimeIngress.injectBatch
+                            runtimeSession.CurrentIdentity
+                            accepted
+                            (fun command -> runtimeSession.InjectIOValuesByAddressAsync(command))
+                    do! this.Clients.All.SendAsync(HubMethod.OnTagsChanged, accepted)
+                }
 
     /// 현재 Tag 값 조회 — 캐시에 없으면 빈 문자열
     member _.QueryTag(address: string) : Task<string> =
@@ -658,7 +790,9 @@ and SignalHub(gateway: IPlcGateway, runtimeSession: IRuntimeHubSession) =
                         let hasDeviceId = not (String.IsNullOrWhiteSpace deviceId)
                         let remoteIp = http.Connection.RemoteIpAddress
                         let isLoopback = not (isNull remoteIp) && System.Net.IPAddress.IsLoopback(remoteIp)
-                        let credentialValid = hasDeviceId && validator.Invoke(deviceId)
+                        let credentialValid =
+                            hasDeviceId
+                            && validator.Invoke(deviceId)
                         ok <- SignalHubConnectionPolicy.isAllowed true isLoopback hasDeviceId credentialValid
                 with ex ->
                     log.Warn($"Device credential validation threw: {ex.Message}")

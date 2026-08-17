@@ -49,8 +49,18 @@ public sealed class HubSubscriberService : BackgroundService
 
     // spec §SignalR — drop rate metric 임계. 누적 drop ≥ 100 + 마지막 Error 후 10s 경과 시 LogError.
     private long _lastDropReportTicks;
-    private const long DropReportIntervalTicks = 10L * TimeSpan.TicksPerSecond;
-    private const long DropReportThreshold = 100;
+    private long _lastReportedDropTotal;
+    private const long DropReportIntervalTicks = 60L * TimeSpan.TicksPerSecond;
+
+    // Ds2.Runtime 추론 + Hub 채널을 같은 60초 창으로 묶는 운영 진단. 학습 상태의 수명/초기화와는 무관하다.
+    private long _lastRuntimeDiagTickMs;
+    private const long RuntimeDiagIntervalMs = 60_000;
+
+    // resync 조기 스킵 상태 — 주소별 마지막 resync 값 + 60초 1회 전체 통과 게이트.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _lastResyncValueByAddress =
+        new(StringComparer.OrdinalIgnoreCase);
+    private long _lastResyncFullPassTicks;
+    private const long ResyncFullPassIntervalTicks = 60L * TimeSpan.TicksPerSecond;
     private const int HandleHubTagMaxRetries = 3;
 
     /// <summary>
@@ -218,10 +228,16 @@ public sealed class HubSubscriberService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _lastRuntimeDiagTickMs = Environment.TickCount64;
         var hubUrl = _configuration["Hub:Url"] ?? "http://localhost:5051/hub/signal";
         // spec §SignalR — DefaultAcceptedSources 가 권위 default. config override 가능.
         var configuredSources = _configuration.GetSection("Hub:AcceptedSources").Get<string[]>()
             ?? HubSource.DefaultAcceptedSources;
+        // resync 는 정책 선택지가 아니라 프로토콜 내부 채널(재연결/주기 baseline 스냅샷) — 구버전
+        // AppSettingsModel 이 자동 생성한 appsettings(Hub.AcceptedSources 에 resync 누락)가 코드
+        // 기본값을 영구히 덮어 baseline 이 통째로 버려지던 사고 방지. config 로도 끌 수 없게 항상 포함.
+        if (!configuredSources.Contains(HubSource.Resync, StringComparer.OrdinalIgnoreCase))
+            configuredSources = [.. configuredSources, HubSource.Resync];
 
         _processor = new HubSignalProcessor(
             acceptedSources: configuredSources,
@@ -233,7 +249,8 @@ public sealed class HubSubscriberService : BackgroundService
             onDeadLetter: (addr, val, src, ex, dl) =>
                 _logger.LogError(ex,
                     "[Hub] Dead-letter — {Address}={Value} from={Source} (총 dead-letter={DL})",
-                    addr, val, src, dl));
+                    addr, val, src, dl),
+            onProcessed: ReportRuntimeDiagnosticsIfDue);
 
         _logger.LogInformation(
             "[Hub] Subscriber starting — url={Url}, acceptedSources={Sources}",
@@ -434,8 +451,30 @@ public sealed class HubSubscriberService : BackgroundService
     private void OnHubTagsChanged(TagWrite[] items)
     {
         if (items is null || items.Length == 0 || _processor is null) return;
+
+        // resync(주기 10s baseline 스냅샷) 조기 스킵 — 태그 전수(≈19만 건/h)가 값 변화 없이
+        // 채널·컨슈머를 통과하는 상시 부하가 큐 포화(8/6 실측 28만 drop)의 바탕이 됐다.
+        // 값이 안 바뀐 resync 는 enqueue 전에 버리되, 60초에 1번은 전체를 통과시켜 엔진
+        // baseline 정정(레벨 드리프트 자가치유)을 유지한다. plcTagLog 폭증은 SimulationEngineService
+        // 의 기록 dedupe 가 이중 방어. (실변화·plc 등 다른 source 는 종전대로 전량 통과.)
+        bool resyncFullPass = false, fullPassDecided = false;
         foreach (var it in items)
         {
+            if (string.Equals(it.Source, HubSource.Resync, StringComparison.OrdinalIgnoreCase))
+            {
+                if (!fullPassDecided)
+                {
+                    fullPassDecided = true;
+                    var now = DateTime.UtcNow.Ticks;
+                    var last = Interlocked.Read(ref _lastResyncFullPassTicks);
+                    resyncFullPass = now - last >= ResyncFullPassIntervalTicks
+                        && Interlocked.CompareExchange(ref _lastResyncFullPassTicks, now, last) == last;
+                }
+                var unchanged = _lastResyncValueByAddress.TryGetValue(it.Address, out var lastVal)
+                    && string.Equals(lastVal, it.Value, StringComparison.Ordinal);
+                _lastResyncValueByAddress[it.Address] = it.Value;
+                if (unchanged && !resyncFullPass) continue;
+            }
             // WallClockMs = 원천 관측 시각(Pi5 스캔 직후 각인). plcTagLog 기록 시각으로 관통 —
             // 도착시각으로 찍으면 핑 두절→replay 신호가 복구 순간에 뭉쳐 그래프가 왜곡된다.
             var result = _processor.TryEnqueue(it.Address, it.Value, it.Source, it.WallClockMs);
@@ -455,21 +494,65 @@ public sealed class HubSubscriberService : BackgroundService
         catch (Exception ex) { _logger.LogDebug(ex, "[Hub] AbnormalReceived subscriber threw"); }
     }
 
+    private void ReportRuntimeDiagnosticsIfDue()
+    {
+        var now = Environment.TickCount64;
+        var last = Interlocked.Read(ref _lastRuntimeDiagTickMs);
+        if (now - last < RuntimeDiagIntervalMs) return;
+        if (Interlocked.CompareExchange(ref _lastRuntimeDiagTickMs, now, last) != last) return;
+
+        var processor = _processor;
+        if (processor is null) return;
+
+        var hub = processor.TakeIntervalDiagnostics();
+        var passive = _engineService.TakePassiveInferenceIntervalDiagnostics();
+        var synced = passive.Works.Count(work => work.IsSynced);
+        var maxBuffer = passive.Works.Count == 0 ? 0 : passive.Works.Max(work => work.BufferedGroupCount);
+        var unsynced = passive.Works
+            .Where(work => !work.IsSynced)
+            .OrderByDescending(work => work.BufferedGroupCount)
+            .ThenBy(work => work.WorkName, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var unsyncedTop = unsynced.Length == 0
+            ? "-"
+            : string.Join(", ", unsynced.Take(8).Select(work =>
+                $"{work.WorkName}(buffer={work.BufferedGroupCount},period={work.DetectedPeriod}," +
+                $"lastChange={(work.LastSequenceChangeAgeMs < 0 ? "-" : $"{work.LastSequenceChangeAgeMs}ms")})"))
+              + (unsynced.Length > 8 ? $", +{unsynced.Length - 8}" : "");
+
+        var level = hub.Dropped > 0
+                    || hub.DeadLetters > 0
+                    || hub.MaxDepth >= hub.Capacity * 4L / 5L
+                    || passive.MaxMs >= 1000
+            ? LogLevel.Warning
+            : LogLevel.Information;
+
+        _logger.Log(
+            level,
+            "[RuntimeDiag] 최근 60s — hub enqueue={Enqueued} processed={Processed} depth={Depth} peak={Peak}/{Capacity} " +
+            "drop={Dropped} deadLetter={DeadLetters}; passive count={ObserveCount} avg={AverageMs:F3}ms " +
+            "p95<={P95Ms:F3}ms max={MaxMs:F3}ms; work synced={Synced}/{WorkTotal} maxBuffer={MaxBuffer} " +
+            "unsyncedTop={UnsyncedTop}",
+            hub.Enqueued, hub.Processed, hub.CurrentDepth, hub.MaxDepth, hub.Capacity,
+            hub.Dropped, hub.DeadLetters,
+            passive.ObserveCount, passive.AverageMs, passive.P95UpperMs, passive.MaxMs,
+            synced, passive.Works.Count, maxBuffer, unsyncedTop);
+    }
+
     /// <summary>Channel write 실패 시 호출 (HubSignalProcessor 의 onDrop 콜백).
-    /// LogWarning 매 drop + 임계 초과 시 LogError 한 번 발화 (10s window CAS gate).</summary>
+    /// ★건별 로그 금지 — 8/6 실측: drop 당 LogWarning 이 28만 줄/일로 journald 를 포화시켜
+    /// 컨슈머를 더 늦추고 drop 을 재생산하는 눈덩이(로깅 피드백 루프)를 만들었다.
+    /// 60초 1회로 묶어 그동안의 증가분만 보고한다(WarnRejectedTimestamp 와 동일 패턴).</summary>
     private void OnChannelDrop(string address, long total)
     {
-        _logger.LogWarning("[Hub] Signal channel write dropped for {Address} (total={Total})", address, total);
-
-        if (total < DropReportThreshold) return;
         var now = DateTime.UtcNow.Ticks;
         var last = Interlocked.Read(ref _lastDropReportTicks);
-        if (now - last <= DropReportIntervalTicks) return;
+        if (now - last < DropReportIntervalTicks) return;
         if (Interlocked.CompareExchange(ref _lastDropReportTicks, now, last) != last) return;
 
-        var windowSec = DropReportIntervalTicks / TimeSpan.TicksPerSecond;
-        _logger.LogError(
-            "[Hub] Channel drop rate 임계 초과 — total={Total} (last report window {WindowSec}s)",
-            total, windowSec);
+        var delta = total - Interlocked.Exchange(ref _lastReportedDropTotal, total);
+        _logger.LogWarning(
+            "[Hub] Signal channel drops — 최근 60s 간 {Delta}건 (누계 {Total}, 예: {Address}) — 컨슈머 포화 신호",
+            delta, total, address);
     }
 }

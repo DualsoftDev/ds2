@@ -1,7 +1,9 @@
 namespace Ds2.Backend
 
 open System
+open System.Threading.Tasks
 open Microsoft.AspNetCore.Builder
+open Microsoft.AspNetCore.Http
 open Microsoft.Extensions.DependencyInjection
 open Microsoft.Extensions.DependencyInjection.Extensions
 open Microsoft.Extensions.Hosting
@@ -26,7 +28,8 @@ module BackendHost =
             (plcConfig: PlcGatewayConfig option)
             (readOnly: bool)
             (delegated: bool)
-            (configureBuilder: WebApplicationBuilder -> unit) =
+            (configureBuilder: WebApplicationBuilder -> unit)
+            (configureApp: WebApplication -> unit) =
         SignalHub.ClearTagCache()
         SignalHub.SetReadOnly(readOnly)
         // 위임 스캔: Agent 는 PLC 에 직접 안 붙고 Pi5 수집기가 WriteTags push 로 IN 공급(§10.10 ①).
@@ -43,7 +46,13 @@ module BackendHost =
         // and makes the server close the connection before SignalHub.WriteTags is invoked.
         // Keep a finite ceiling, but size it for collector backlog chunks.
         builder.Services.AddSignalR(fun options ->
-            options.MaximumReceiveMessageSize <- Nullable(1024L * 1024L))
+            options.MaximumReceiveMessageSize <- Nullable(1024L * 1024L)
+            // DSPilot 구독자(HubSubscriberService)는 KeepAliveInterval=2분 — 수신 전용이라 ping 외엔
+            // 보낼 게 없는데, 기본 ClientTimeoutInterval(30s)은 "30초 무수신 = 절단"이라 조용한
+            // 구독자가 31초마다 강제 절단됐다(실측 464회/4h, 부하 무관 정주기). 재연결 틈에
+            // 팬아웃이 유실되고(이 홉은 재전송 없음), Pi5 backlog replay 버스트가 그 틈에 걸리면
+            // 뭉텅이로 증발해 그래프/사이클이 깨진다. 클라이언트 ping 주기(2분)의 2배 이상으로 완화.
+            options.ClientTimeoutInterval <- Nullable(TimeSpan.FromMinutes 5.0))
         |> ignore
 
         let cfg = plcConfig |> Option.defaultValue emptyConfig
@@ -58,10 +67,40 @@ module BackendHost =
             builder.Services.AddHostedService<PlcScanService>() |> ignore
 
         let app = builder.Build()
+        configureApp app
         // 위임(분리) 모드는 원격 Pi5 가 WG 너머로 이 Hub 에 붙어야 하므로 모든 인터페이스에 bind.
         // 직접(올인원)은 로컬 전용 유지 — 외부 노출 없음, 회귀 0.
-        let bindHost = if delegated then "0.0.0.0" else "localhost"
-        app.Urls.Add($"http://{bindHost}:{port}")
+        let bindHost =
+            if delegated then
+                match Environment.GetEnvironmentVariable "DS2_AGENT_HUB_BIND_HOST" with
+                | null | "" -> "0.0.0.0"
+                | value -> value.Trim()
+            else "localhost"
+        let scheme =
+            if delegated then
+                match Environment.GetEnvironmentVariable "DS2_AGENT_HUB_SCHEME" with
+                | value when String.Equals(value, "https", StringComparison.OrdinalIgnoreCase) -> "https"
+                | _ -> "http"
+            else "http"
+        let privateHttp = delegated && scheme = "http"
+        if privateHttp then
+            match Environment.GetEnvironmentVariable "DS2_AGENT_HUB_ALLOW_PRIVATE_HTTP" with
+            | value when String.Equals(value, "true", StringComparison.OrdinalIgnoreCase) -> ()
+            | _ ->
+                invalidOp
+                    "Delegated Hub HTTP requires DS2_AGENT_HUB_ALLOW_PRIVATE_HTTP=true and is restricted to private peers."
+        app.Urls.Add($"{scheme}://{bindHost}:{port}")
+        if privateHttp then
+            app.Use(Func<HttpContext, RequestDelegate, Task>(fun context next ->
+                task {
+                    if SignalHubConnectionPolicy.isPrivateOrLoopbackAddress context.Connection.RemoteIpAddress then
+                        do! next.Invoke(context)
+                    else
+                        context.Response.StatusCode <- StatusCodes.Status403Forbidden
+                        context.Response.ContentType <- "application/json"
+                        do! context.Response.WriteAsync("{\"error\":\"private network required\"}")
+                } :> Task))
+            |> ignore
         app.MapHub<SignalHub>(hubPath) |> ignore
         app.StartAsync() |> Async.AwaitTask |> Async.RunSynchronously
         app
@@ -72,7 +111,7 @@ module BackendHost =
     /// - readOnly: true 면 SignalHub 가 클라이언트 WriteTag/WriteTags 를 거부 — Monitoring 모드용.
     let startWithPlc (port: int option) (plcConfig: PlcGatewayConfig option) (readOnly: bool) =
         let p = port |> Option.defaultValue defaultPort
-        bootstrap p plcConfig readOnly false (fun _ -> ())
+        bootstrap p plcConfig readOnly false (fun _ -> ()) (fun _ -> ())
 
     /// 기존 호출자 호환 entry — PLC 미연결 모드.
     let start (port: int option) =
@@ -97,7 +136,20 @@ module BackendHost =
             (readOnly: bool)
             (delegated: bool)
             (configureBuilder: Action<WebApplicationBuilder>) =
-        bootstrap port (Some plcConfig) readOnly delegated (fun b -> configureBuilder.Invoke(b))
+        bootstrap port (Some plcConfig) readOnly delegated (fun b -> configureBuilder.Invoke(b)) (fun _ -> ())
+
+    /// Agent extension point for routes that must be mapped after Build but
+    /// before StartAsync (for example AID HTTP webhook ingress).
+    let startWithBuilderAndAppConfig
+            (port: int)
+            (plcConfig: PlcGatewayConfig)
+            (readOnly: bool)
+            (delegated: bool)
+            (configureBuilder: Action<WebApplicationBuilder>)
+            (configureApp: Action<WebApplication>) =
+        bootstrap port (Some plcConfig) readOnly delegated
+            (fun b -> configureBuilder.Invoke(b))
+            (fun app -> configureApp.Invoke(app))
 
     let stop (app: WebApplication) =
         SignalHub.ClearTagCache()

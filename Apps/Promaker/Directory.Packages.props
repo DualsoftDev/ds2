@@ -48,4 +48,20 @@
     <PackageVersion Include="Microsoft.Extensions.Hosting.WindowsServices" Version="9.0.0" />
     <PackageVersion Include="System.ServiceProcess.ServiceController" Version="9.0.5" />
   </ItemGroup>
+
+  <!-- OPC UA — Promaker 는 Ds2.OpcUa.Server 의 EmbeddedUaServer 를 인프로세스 구동.
+       Solutions/Runtime/Ds2.OpcUa.Server 와 동일 버전 1.5.375.457 고정. -->
+  <ItemGroup>
+    <PackageVersion Include="OPCFoundation.NetStandard.Opc.Ua.Core" Version="1.5.375.457" />
+    <PackageVersion Include="OPCFoundation.NetStandard.Opc.Ua.Server" Version="1.5.375.457" />
+    <PackageVersion Include="OPCFoundation.NetStandard.Opc.Ua.Configuration" Version="1.5.375.457" />
+    <PackageVersion Include="OPCFoundation.NetStandard.Opc.Ua.Client" Version="1.5.375.457" />
+    <!-- Microsoft.Extensions.Hosting — Ds2.OpcUa.Server 가 Worker SDK 이므로 hosting 스택 필요. -->
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="9.0.5" />
+  </ItemGroup>
+  <!-- AID southbound adapters owned by Promaker.Agent. -->
+  <ItemGroup>
+    <PackageVersion Include="MQTTnet" Version="5.2.0.1603" />
+    <PackageVersion Include="NModbus" Version="3.0.83" />
+  </ItemGroup>
 </Project>

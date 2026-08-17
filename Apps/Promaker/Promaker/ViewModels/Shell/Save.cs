@@ -88,6 +88,10 @@ public partial class MainViewModel
             StatusText = "Agent 업로드 보류 — 공유 폴더 쓰기 잠금 중";
             return;
         }
+        // 화면에서 확정한 PLC 입력값을 AID endpoint에 반영한 뒤 업로드본을 만든다.
+        Simulation.PlcSettings.Save();
+        StampPlcConnection();
+
         bool exported;
         try
         {
@@ -110,19 +114,6 @@ public partial class MainViewModel
             _dialogService.ShowWarning("내보낼 프로젝트가 없습니다.");
             return;
         }
-
-        // PLC 설정 검증 + 공유 경로 저장 — Agent 가 같은 PlcConnection.json 을 읽어 게이트웨이를 구성한다.
-        // 검증 실패면 AASX 까지만 저장 (DSPilot 동기화는 유효) — Agent 세션은 기록하지 않는다.
-        var plcConfig = Simulation.BuildPlcGatewayConfig(out var errors);
-        if (plcConfig is null)
-        {
-            _dialogService.ShowWarning(
-                "PLC 설정 검증 실패 — 모델(AASX)은 저장됐지만 Agent 세션은 기록하지 않았습니다:\n  - "
-                + string.Join("\n  - ", errors));
-            StatusText = "Agent 업로드 실패 — PLC 설정 오류";
-            return;
-        }
-        Simulation.PlcSettings.Save();
 
         // session.RuntimeMode 로 Agent 가 engine 모드를 결정 — Control 이면 read-write, 그 외 read-only.
         var modeName = Simulation.SelectedRuntimeMode == Ds2.Core.RuntimeMode.Control ? "Control" : "Monitoring";
@@ -207,8 +198,33 @@ public partial class MainViewModel
         return SaveToPath(dlg.FileName);
     }
 
+    /// <summary>
+    /// 현재 PLC 입력값을 AID InterfaceXGT endpoint에 반영한다.
+    /// </summary>
+    private void StampPlcConnection()
+    {
+        try
+        {
+            var sim = Simulation;
+            if (sim is null) return;
+            var settings = sim.PlcSettings.ToPoco();
+            // EnsureToStore: XGT 바인딩이 없으면 IO맵 주소로 새로 생성, 있으면 endpoint 갱신.
+            // (StampToStore 는 갱신만 해서, 바인딩 없던 모델은 IP 를 넣어도 반영이 안 됐다 — 그 구멍을 메움.)
+            var addresses = sim.EnumeratePlcAddresses();
+            var n = Promaker.Shared.AidXgtEndpointSynchronizer.EnsureToStore(_store, settings, addresses);
+            Log.Info($"AID XGT 바인딩 동기화 — interaction={n}, 주소 {addresses.Count}개");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"AID XGT endpoint 동기화 실패 (무시하고 저장 계속): {ex.Message}", ex);
+        }
+    }
+
     private bool SaveToPath(string filePath)
     {
+        // 저장 형식과 무관하게 AID를 먼저 동기화한다.
+        StampPlcConnection();
+
         if (FileTypeProbe.IsMermaid(filePath))
         {
             try

@@ -84,6 +84,45 @@ public sealed class PlcConnectionSettingsTests
         }
     }
 
+    /// <summary>출처 표식이 ViewModel 을 거치며 사라지면, 설정을 확정한 PC 에서도 프로젝트에
+    /// 접속 정보가 기록되지 않는다(StampToStore 가 조용히 건너뜀).</summary>
+    [Fact]
+    public void WasPersisted_survives_viewmodel_poco_roundtrip()
+    {
+        var loaded = new PromakerShared.PlcConnectionSettings { WasPersisted = true };
+        Assert.True(PlcSettings.FromPoco(loaded).ToPoco().WasPersisted);
+
+        var fresh = new PromakerShared.PlcConnectionSettings();   // 파일 없음
+        Assert.False(PlcSettings.FromPoco(fresh).ToPoco().WasPersisted);
+    }
+
+    /// <summary>
+    /// AID endpoint를 적용하면 활성 벤더 프로파일도 함께 갱신되어야 한다.
+    /// </summary>
+    [Fact]
+    public void ApplyConnection_updates_active_vendor_profile()
+    {
+        var vm = new PlcSettings();
+        vm.VendorProfiles[nameof(PromakerShared.PlcVendorChoice.LsXgb)] =
+            PromakerShared.PlcVendorProfile.Defaults(PromakerShared.PlcVendorChoice.LsXgb);
+
+        vm.ApplyConnection(new Ds2.Core.StandardSubmodels.AssetInterfacesDescriptionTypes.AidXgtConnectionInfo(
+            "xgt+tcp://10.20.30.40:2004", "LsXgb", "10.20.30.40", 2004,
+            false, true, 3, 12, 7000, 250));
+
+        var profile = vm.VendorProfiles[nameof(PromakerShared.PlcVendorChoice.LsXgb)];
+        Assert.Equal("10.20.30.40", profile.IpAddress);
+        Assert.Equal(2004, profile.Port);
+        Assert.False(profile.IsUdp);
+        Assert.Equal(12, profile.StationNumber);
+
+        // 벤더를 떠났다 돌아와도 프로젝트 값이 복원되어야 한다.
+        vm.ApplyProfile(PromakerShared.PlcVendorProfile.Defaults(PromakerShared.PlcVendorChoice.LsXgi));
+        vm.ApplyProfile(vm.VendorProfiles[nameof(PromakerShared.PlcVendorChoice.LsXgb)]);
+        Assert.Equal("10.20.30.40", vm.IpAddress);
+        Assert.False(vm.IsUdp);
+    }
+
     [Fact]
     public void LoadOrDefault_preserves_user_custom_interval()
     {

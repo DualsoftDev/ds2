@@ -104,7 +104,9 @@ Apps/DSPilot/example.html
 /Apps/DSPilot/DSPilot/sample/db
 Apps/DSPilot/publish/
 Apps/DSPilot/publish-agent/
+Apps/DSPilot/publish-collector/
 Apps/DSPilot/Output/
+Apps/DSPilot/Installer/linux/.stage/
 
 
 /Apps/CostSim/Installer/Output

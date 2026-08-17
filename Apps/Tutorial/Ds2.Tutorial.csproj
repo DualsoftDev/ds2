@@ -6,6 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>Ds2.Tutorial</AssemblyName>
+    <!-- OpcUaExternalClient is an independent Web project below this directory. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);OpcUaExternalClient\**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>

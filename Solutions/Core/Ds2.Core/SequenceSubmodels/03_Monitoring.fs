@@ -117,13 +117,6 @@ type MonitoringSystemProperties() =
     member val EnableTagMonitoring      = true            with get, set
     member val TagRefreshIntervalMs     = 500             with get, set
 
-    // ========== PLC 연결 정보 ==========
-    member val EnablePlcMonitoring = false with get, set
-    member val PlcIpAddress = "192.168.1.10" with get, set
-    member val PlcPort = 5000 with get, set
-    member val PlcType = Mitsubishi with get, set
-    member val PlcProtocol = "MC Protocol" with get, set
-
     // ========== 폴링 (Polling) 설정 ==========
     member val EnablePolling = true with get, set
     member val PollingInterval = 1000 with get, set                 // 폴링 주기 (ms)

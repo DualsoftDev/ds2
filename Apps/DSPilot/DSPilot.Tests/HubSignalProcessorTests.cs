@@ -22,7 +22,8 @@ public class HubSignalProcessorTests
         Func<int, TimeSpan>? retryDelay = null,
         Action<string, long>? onDrop = null,
         Action<string, Exception, int, int>? onRetry = null,
-        Action<string, string, string, Exception, long>? onDeadLetter = null) =>
+        Action<string, string, string, Exception, long>? onDeadLetter = null,
+        Action? onProcessed = null) =>
         new(
             acceptedSources: accepted ?? HubSource.DefaultAcceptedSources,
             handleSignal: handle ?? ((_, _, _, _) => { }),
@@ -31,7 +32,8 @@ public class HubSignalProcessorTests
             retryDelay: retryDelay ?? (_ => TimeSpan.Zero), // 테스트 빠르게
             onDrop: onDrop,
             onRetry: onRetry,
-            onDeadLetter: onDeadLetter);
+            onDeadLetter: onDeadLetter,
+            onProcessed: onProcessed);
 
     // ── 1. Source filter ────────────────────────────────────────────────
 
@@ -226,5 +228,45 @@ public class HubSignalProcessorTests
         // ok1, ok2 처리 성공. fail 은 dead-letter.
         Assert.Equal(new[] { "ok1", "ok2" }, processed);
         Assert.Equal(1L, proc.DeadLetterCount);
+    }
+
+    [Fact]
+    public async Task Interval_diagnostics_track_throughput_depth_peak_and_reset_the_window()
+    {
+        var settled = 0;
+        var proc = CreateProcessor(
+            accepted: new[] { HubSource.Plc },
+            channelCapacity: 2,
+            onProcessed: () => settled++);
+
+        Assert.Equal(EnqueueResult.Accepted, proc.TryEnqueue("addr1", "true", HubSource.Plc));
+        Assert.Equal(EnqueueResult.Accepted, proc.TryEnqueue("addr2", "false", HubSource.Plc));
+        Assert.Equal(EnqueueResult.Dropped, proc.TryEnqueue("addr3", "true", HubSource.Plc));
+
+        var queued = proc.TakeIntervalDiagnostics();
+        Assert.Equal(2, queued.Enqueued);
+        Assert.Equal(0, queued.Processed);
+        Assert.Equal(1, queued.Dropped);
+        Assert.Equal(2, queued.CurrentDepth);
+        Assert.Equal(2, queued.MaxDepth);
+        Assert.Equal(2, queued.Capacity);
+
+        proc.SignalChannel.Writer.Complete();
+        await proc.ConsumeAsync(CancellationToken.None);
+
+        var drained = proc.TakeIntervalDiagnostics();
+        Assert.Equal(0, drained.Enqueued);
+        Assert.Equal(2, drained.Processed);
+        Assert.Equal(0, drained.Dropped);
+        Assert.Equal(0, drained.CurrentDepth);
+        // 새 구간이 시작될 때 이미 쌓여 있던 2건도 그 구간의 peak 로 유지한다.
+        Assert.Equal(2, drained.MaxDepth);
+        Assert.Equal(2, settled);
+
+        var empty = proc.TakeIntervalDiagnostics();
+        Assert.Equal(0, empty.Enqueued);
+        Assert.Equal(0, empty.Processed);
+        Assert.Equal(0, empty.CurrentDepth);
+        Assert.Equal(0, empty.MaxDepth);
     }
 }

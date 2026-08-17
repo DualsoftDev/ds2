@@ -74,6 +74,10 @@
                                  GroupName="Vendor" Margin="0,0,16,0"
                                  Foreground="{DynamicResource PrimaryTextBrush}"
                                  Checked="VendorRadio_Checked"/>
+                    <RadioButton x:Name="RbLsXgb" Content="LS XGB"
+                                 GroupName="Vendor" Margin="0,0,16,0"
+                                 Foreground="{DynamicResource PrimaryTextBrush}"
+                                 Checked="VendorRadio_Checked"/>
                     <RadioButton x:Name="RbMx" Content="Mitsubishi (MELSEC)"
                                  GroupName="Vendor"
                                  Foreground="{DynamicResource PrimaryTextBrush}"

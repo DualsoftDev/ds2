@@ -4,6 +4,7 @@ open System
 open System.IO
 open AasCore.Aas3_1
 open Ds2.Core
+open Ds2.Core.Kpi
 open Ds2.Aasx.AasxSemantics
 open Ds2.Aasx.AasxConceptDescriptions
 open Ds2.Aasx.AasxFileIO
@@ -17,6 +18,7 @@ module AasxExporter =
     open AasxExportGraph
     open AasxExportMetadata
     open AasxExportTechnicalData
+    open AasxExportStandardSubmodels
     open FieldValidation
 
     let private mkSmRef (submodel: ISubmodel) : IReference =
@@ -208,6 +210,48 @@ module AasxExporter =
                         existingCdIds.Add(id) |> ignore
                     | _ -> ()
 
+    /// Convention-Driven KPI 자동 생성 헬퍼 — Project → AID + AIMC + OperationalData 3 SM.
+    /// exportToAasxFile / exportSplitAasx 양쪽에서 공용.
+    /// idempotent — 재실행 시 3-tuple guard 로 skip.
+    let private appendKpiSubmodels (store: DsStore) (project: Project) : Submodel list =
+        let kpiStats = SequenceKpiGenerator.appendForProject store project
+        log.Info(sprintf "[KPI] append: walked=%d aidAdded=%d opdataAdded=%d aimcAdded=%d conflicts=%d"
+                    kpiStats.Walked kpiStats.AidAdded kpiStats.OpDataAdded kpiStats.AimcAdded kpiStats.Conflicts)
+        let aidAssetId = AssetTelemetryIdentity.aidProject project.Id
+        let dataApiEndpoint =
+            match System.Environment.GetEnvironmentVariable("DS2_DATA_API_PUBLIC_URL") with
+            | value when not (String.IsNullOrWhiteSpace value) ->
+                let trimmed = value.Trim().TrimEnd('/')
+                let uri = Uri(trimmed, UriKind.Absolute)
+                if uri.Scheme <> Uri.UriSchemeHttp && uri.Scheme <> Uri.UriSchemeHttps then
+                    invalidOp "DS2_DATA_API_PUBLIC_URL must use http:// or https://."
+                if String.IsNullOrWhiteSpace uri.Host
+                   || not (String.IsNullOrWhiteSpace uri.UserInfo)
+                   || not (String.IsNullOrWhiteSpace uri.Fragment)
+                   || not (String.IsNullOrWhiteSpace uri.Query) then
+                    invalidOp "DS2_DATA_API_PUBLIC_URL must contain a host and must not contain credentials, query, or fragment."
+                if uri.Scheme = Uri.UriSchemeHttp && not uri.IsLoopback then
+                    invalidOp "A non-loopback DS2_DATA_API_PUBLIC_URL must use https://."
+                if uri.AbsolutePath.TrimEnd('/').EndsWith("/v1/series", StringComparison.OrdinalIgnoreCase) then
+                    trimmed
+                else trimmed + "/v1/series"
+            | _ -> "http://127.0.0.1:62542/v1/series"
+        [
+            match project.AssetInterfaces with
+            | Some aid when aid.Interfaces.Count > 0 ->
+                yield aidToSubmodel aid project.Name
+                yield timeSeriesToSubmodel aid aidAssetId project.Id project.Name dataApiEndpoint
+            | _ -> ()
+            match project.AssetInterfacesMapping with
+            | Some aimc when aimc.Mappings.Count > 0 ->
+                yield aimcToSubmodel aimc project.Name
+            | _ -> ()
+            match project.OperationalDataDef with
+            | Some od when od.Items.Count > 0 ->
+                yield operationalDataToSubmodel od project.Name
+            | _ -> ()
+        ]
+
     let private appendProjectMetadataSubmodels (_store: DsStore) (project: Project) (submodels: ResizeArray<ISubmodel>) (smRefs: ResizeArray<IReference>) =
         let nameplate = project.Nameplate |> Option.defaultValue (Nameplate())
         let npSm = nameplateToSubmodel nameplate project.Id
@@ -329,11 +373,22 @@ module AasxExporter =
 
         let sysPropsWithRefs =
             activeSystems |> List.choose (fun sys ->
-                let propElements = PropertyConversion.getEntityElements submodelType sys
+                let propElements =
+                    PropertyConversion.getEntityElements submodelType sys
+                    // SignalPolicy는 JSON Property가 아니라 의미 식별자가 붙은 정식 SMC로 발행한다.
+                    |> fun elements ->
+                        if submodelType = SequenceLogging then
+                            elements |> List.filter (fun element -> element.IdShort <> "SignalPolicies")
+                        else elements
                 let extraElements =
                     match submodelType with
                     | SequenceControl ->
                         sys.GetControlProperties() |> Option.map controlIoConfigElems |> Option.defaultValue []
+                    | SequenceLogging ->
+                        sys.GetLoggingProperties()
+                        |> Option.bind (fun properties ->
+                            signalPoliciesCollectionToSmc properties.SignalPolicies)
+                        |> Option.toList
                     | _ -> []
                 let allElems = propElements @ extraElements
                 if allElems.IsEmpty then None
@@ -477,7 +532,11 @@ module AasxExporter =
             SubmodelType.AllDomains
             |> List.choose (fun submodelType -> tryExportToDomainSubmodel submodelType store project)
 
-        let allNewSubmodels = modelSm :: optionalSubmodels
+        // Convention-Driven KPI 자동 생성 — 시퀀스 서브모델의 System/Work/Call/Arrow/UserTag 로부터
+        // AID + AIMC + OperationalData 를 append (idempotent).
+        let kpiSubmodels = appendKpiSubmodels store project
+
+        let allNewSubmodels = modelSm :: (optionalSubmodels @ kpiSubmodels)
 
         let (finalSubmodels, finalShells, finalConceptDescs) =
             match AasxProjectCache.tryGetEnvironment project with
@@ -492,6 +551,11 @@ module AasxExporter =
                             SubmodelModelIdShort
                             LegacySubmodelIdShort
                             yield! SubmodelType.AllDomains |> List.map (fun t -> t.IdShort)
+                            // KPI 자동생성 서브모델 3종도 매 저장마다 재발행 (사용자 편집물 유실 방지는 KPI 로직 내부 3-tuple guard 로 커버)
+                            AidSubmodelIdShort
+                            AimcSubmodelIdShort
+                            OperationalDataSubmodelIdShort
+                            TimeSeriesSubmodelIdShort
                         ]
 
                     let preservedSubmodels =
@@ -658,7 +722,10 @@ module AasxExporter =
             SubmodelType.AllDomains
             |> List.choose (fun submodelType -> tryExportToDomainSubmodel submodelType store project)
 
-        let allSubmodels = modelSm :: optionalSubmodels
+        // Convention-Driven KPI 자동 생성 (split 저장에서도 동일).
+        let kpiSubmodels = appendKpiSubmodels store project
+
+        let allSubmodels = modelSm :: (optionalSubmodels @ kpiSubmodels)
 
         let submodels = ResizeArray<ISubmodel>(allSubmodels |> List.map (fun sm -> sm :> ISubmodel))
         let smRefs = ResizeArray<IReference>(allSubmodels |> List.map mkSmRef)

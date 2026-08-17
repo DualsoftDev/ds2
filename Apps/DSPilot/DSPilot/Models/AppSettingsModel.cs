@@ -566,7 +566,11 @@ public class HubSettings
 {
     public bool Enabled { get; set; } = true;
     public string Url { get; set; } = "http://localhost:5051/hub/signal";
-    public string[] AcceptedSources { get; set; } = ["control", "virtualplant", "plc"];
+    // resync 필수: PLC 재연결/주기(10s) baseline 스냅샷 채널(HubSource.Resync). 여기서 빠지면 첫 실행 때
+    // 자동 생성되는 appsettings 가 코드 기본값(HubSource.DefaultAcceptedSources, resync 포함)을 영구히
+    // 덮어써 baseline 이 통째로 버려진다 — 펄스 유실 레벨 정정 불능(구미 실기 사고). HubSubscriberService
+    // 도 방어적으로 resync 를 강제 포함하지만, 두 기본값의 정합은 여기서 지킨다.
+    public string[] AcceptedSources { get; set; } = ["control", "virtualplant", "plc", "resync"];
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }
@@ -641,11 +645,14 @@ public class LogLevelSettings
     [JsonPropertyName("Microsoft.AspNetCore")]
     public string MicrosoftAspNetCore { get; set; } = "Warning";
 
+    // 신규 설치 기본은 Information — Debug 로 두면 신호별 진단로그(UserTag/Call/Broadcasting 등)가
+    // 운영 중 수십만 줄/시간으로 쏟아져 journald·콘솔 로거를 포화시키고 신호 소비자를 느리게 만든다
+    // (구미 실기). 진단이 필요하면 그때 Debug 로 올린다.
     [JsonPropertyName("DSPilot.Services")]
-    public string DsPilotServices { get; set; } = "Debug";
+    public string DsPilotServices { get; set; } = "Information";
 
     [JsonPropertyName("DSPilot.Repositories")]
-    public string DsPilotRepositories { get; set; } = "Debug";
+    public string DsPilotRepositories { get; set; } = "Information";
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }

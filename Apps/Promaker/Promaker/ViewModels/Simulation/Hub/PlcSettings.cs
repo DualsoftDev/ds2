@@ -13,6 +13,7 @@ public enum PlcVendorChoice
 {
     LsXgi = PromakerShared.PlcVendorChoice.LsXgi,
     LsXgk = PromakerShared.PlcVendorChoice.LsXgk,
+    LsXgb = PromakerShared.PlcVendorChoice.LsXgb,
     Mitsubishi = PromakerShared.PlcVendorChoice.Mitsubishi,
 }
 
@@ -53,6 +54,12 @@ public partial class PlcSettings : ObservableObject
     /// '보정 안함' 이 반영 안 되던 버그). SimulationPanelState.AutoDurationCalibrate(UI/hub) 와 양방향 동기화. 기본 ON.</summary>
     [ObservableProperty] private bool _autoDurationCalibrate = true;
 
+    /// <summary>이 PC 에 PLC 설정이 저장된 적 있는가 — 값이 아니라 출처 표식.
+    /// false 면 PlcConnection.json 이 아직 없어 생성자 기본값을 쓰고 있는 상태이므로,
+    /// AID endpoint에 접속 정보를 기록하지 않는다(<see cref="PromakerShared.AidXgtEndpointSynchronizer.StampToStore"/>).
+    /// <see cref="Save"/> 가 성공하면 그 시점부터 true.</summary>
+    public bool WasPersisted { get; private set; }
+
     /// <summary>벤더 enum 이름 → 해당 벤더에서 마지막으로 입력했던 프로파일. POCO 와 동일 dict 를
     /// 보유해 다이얼로그 / Save 시점에 동기화. 직접 노출돼 다이얼로그가 토글 중 swap 가능.</summary>
     public Dictionary<string, PromakerShared.PlcVendorProfile> VendorProfiles { get; private set; }
@@ -71,6 +78,27 @@ public partial class PlcSettings : ObservableObject
         StationNumber = StationNumber,
         IsUdp = IsUdp,
     };
+
+    /// <summary>
+    /// AID InterfaceXGT endpoint를 화면의 PLC 입력값에 적용한다.
+    /// </summary>
+    public void ApplyConnection(Ds2.Core.StandardSubmodels.AssetInterfacesDescriptionTypes.AidXgtConnectionInfo conn)
+    {
+        var poco = ToPoco();   // Profiles 는 VendorProfiles 와 동일 참조 — 프로파일 갱신이 그대로 반영된다.
+        PromakerShared.AidXgtEndpointSynchronizer.ApplyToSettings(poco, conn);
+
+        Vendor = System.Enum.Parse<PlcVendorChoice>(conn.Vendor, ignoreCase: true);
+        Name = poco.Name;
+        IpAddress = poco.IpAddress;
+        Port = poco.Port;
+        TimeoutMs = poco.TimeoutMs;
+        ScanIntervalMs = poco.ScanIntervalMs;
+        LocalEthernet = poco.LocalEthernet;
+        NetworkNumber = poco.NetworkNumber;
+        StationNumber = poco.StationNumber;
+        IsUdp = poco.IsUdp;
+        VendorProfiles = poco.Profiles;
+    }
 
     /// <summary>지정 프로파일을 플랫 필드로 적용 (활성 벤더는 별도 인자로 받지 않고 호출자가 Vendor 를
     /// 미리 셋업했다고 가정).</summary>
@@ -120,10 +148,14 @@ public partial class PlcSettings : ObservableObject
     public void Save()
     {
         VendorProfiles[Vendor.ToString()] = CaptureActiveProfile();
-        ToPoco().TrySave(PromakerShared.SharedPaths.PlcConnectionFilePath);
+        // 저장에 성공한 순간부터 "이 PC 가 확정한 설정" 이 된다 — 이후 프로젝트 저장이 접속 정보를 기록한다.
+        if (ToPoco().TrySave(PromakerShared.SharedPaths.PlcConnectionFilePath))
+            WasPersisted = true;
     }
 
-    private PromakerShared.PlcConnectionSettings ToPoco() => new()
+    /// <summary>현재 UI 값을 영속화 POCO 로 스냅샷. 저장 외에도 AASX 박제(Save.StampPlcConnection)와
+    /// 게이트웨이 빌드가 같은 스냅샷을 쓰도록 공개.</summary>
+    public PromakerShared.PlcConnectionSettings ToPoco() => new()
     {
         Vendor = Vendor.ToString(),
         Name = Name,
@@ -137,10 +169,13 @@ public partial class PlcSettings : ObservableObject
         IsUdp = IsUdp,
         GanttWindowMinutes = GanttWindowMinutes,
         AutoDurationCalibrate = AutoDurationCalibrate,
+        WasPersisted = WasPersisted,
         Profiles = VendorProfiles,
     };
 
-    private static PlcSettings FromPoco(PromakerShared.PlcConnectionSettings d)
+    /// <summary>영속화 POCO → ViewModel. <see cref="ToPoco"/> 의 역방향으로, 둘은 항상 짝으로 유지할 것
+    /// (한쪽에만 필드를 추가하면 그 설정은 저장/로드 중 한 방향에서 조용히 유실된다).</summary>
+    public static PlcSettings FromPoco(PromakerShared.PlcConnectionSettings d)
     {
         // POCO 의 EnsureProfiles 가 LoadOrDefault 안에서 호출돼 세 벤더 프로파일이 모두 채워져 있음.
         var s = new PlcSettings
@@ -148,6 +183,7 @@ public partial class PlcSettings : ObservableObject
             VendorProfiles = d.Profiles,
             GanttWindowMinutes = d.GanttWindowMinutes,
             AutoDurationCalibrate = d.AutoDurationCalibrate,
+            WasPersisted = d.WasPersisted,
         };
 
         if (System.Enum.TryParse<PlcVendorChoice>(d.Vendor, ignoreCase: true, out var v))

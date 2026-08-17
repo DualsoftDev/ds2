@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <GenerateProgramFile>false</GenerateProgramFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="AasxSemanticsTests.fs" />
+    <Compile Include="PilotAssetFixtures.fs" />
+    <Compile Include="StandardSubmodelsRoundtripTests.fs" />
+    <Compile Include="KpiFixtures.fs" />
+    <Compile Include="SequenceKpiGeneratorTests.fs" />
+    <Compile Include="KpiExportIntegrationTests.fs" />
+    <Compile Include="OpcUaScaleTests.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Core\Ds2.Core\Ds2.Core.fsproj" />
+    <ProjectReference Include="..\..\Convert\Ds2.Aasx\Ds2.Aasx.fsproj" />
+    <ProjectReference Include="..\..\Backend\Ds2.Backend.Plc\Ds2.Backend.Plc.fsproj" />
+  </ItemGroup>
+
+</Project>

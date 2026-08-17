@@ -126,16 +126,26 @@
                                  ToolTip="host:port — Agent 단일 호스팅이라 Control/Monitoring/VP 모두 localhost:5051"/>
                     </StackPanel>
 
-                    <!-- 실제 PLC 연결 -->
+                    <!-- PLC 읽기 방식 — Agent 직접 vs Edge 단말(Pi5) 위임 택1 -->
                     <StackPanel Grid.Column="4" Orientation="Vertical">
-                        <TextBlock Text="실제 PLC 연결" Style="{StaticResource FieldLabelStyle}"/>
-                        <CheckBox x:Name="RealPlcCheckBox"
-                                  Content="실제 PLC 와 연결"
-                                  Foreground="{DynamicResource PrimaryTextBrush}"
-                                  Height="34"
-                                  VerticalContentAlignment="Center"
-                                  Checked="RealPlcCheckBox_Toggled"
-                                  Unchecked="RealPlcCheckBox_Toggled"/>
+                        <TextBlock Text="PLC 읽기 방식" Style="{StaticResource FieldLabelStyle}"/>
+                        <StackPanel Orientation="Horizontal" Height="34" VerticalAlignment="Center">
+                            <RadioButton x:Name="DirectRadio"
+                                         GroupName="PlcReadMode"
+                                         Content="Agent 직접"
+                                         Foreground="{DynamicResource PrimaryTextBrush}"
+                                         VerticalContentAlignment="Center"
+                                         Margin="0,0,16,0"
+                                         Checked="PlcReadMode_Changed"
+                                         ToolTip="Agent 가 PLC 에 직접 접속해 읽는다 (올인원)."/>
+                            <RadioButton x:Name="DelegatedRadio"
+                                         GroupName="PlcReadMode"
+                                         Content="Edge 단말 위임"
+                                         Foreground="{DynamicResource PrimaryTextBrush}"
+                                         VerticalContentAlignment="Center"
+                                         Checked="PlcReadMode_Changed"
+                                         ToolTip="Edge 단말(Pi5 수집기)이 PLC 를 읽어 Agent 로 전송한다 (분리 수집)."/>
+                        </StackPanel>
                     </StackPanel>
 
                     <!-- PLC 설정 버튼 -->

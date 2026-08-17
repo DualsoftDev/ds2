@@ -100,7 +100,6 @@ module PropertyConversion =
                 ((fun w -> w.GetCostAnalysisProperties()), costAnalysisWorkPropsToElements,   elementsToProps<CostAnalysisWorkProperties>,   CostAnalysisWork)
                 ((fun c -> c.GetCostAnalysisProperties()), costAnalysisCallPropsToElements,   elementsToProps<CostAnalysisCallProperties>,   CostAnalysisCall)
 
-
     let getEntityElements (submodelType: SubmodelType) (entity: obj) =
         let ops = getPropertyOps submodelType
         match entity with

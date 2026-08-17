@@ -21,7 +21,7 @@ public sealed class MainAppSettings
     public bool   CreateDefaultEntitiesOnEmptyAasx{ get; private set; }
     public string IriPrefix                       { get; private set; } = DefaultIriPrefix;
 
-    /// <summary>MainViewModel ctor 진입 시 한 번 호출 — 디스크에서 3 설정값 모두 로드.</summary>
+    /// <summary>MainViewModel ctor 진입 시 한 번 호출 — 디스크에서 설정값 모두 로드.</summary>
     public void LoadAll()
     {
         SplitDeviceAasx                  = AppSettingStore.LoadBoolOrDefault(SplitDeviceAasxPath, false);
@@ -49,4 +49,5 @@ public sealed class MainAppSettings
         IriPrefix = value;
         AppSettingStore.SaveString(IriPrefixPath, value);
     }
+
 }

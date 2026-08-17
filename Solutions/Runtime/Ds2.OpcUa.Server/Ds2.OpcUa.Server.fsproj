@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <UserSecretsId>ds2-opcua-server</UserSecretsId>
+    <!-- Agent/Collector/WPF embed this assembly. Keep the referenced form a library so
+         self-contained publish never tries to copy a second apphost/runtimeconfig.
+         The seed standalone host remains available with -p:Ds2OpcUaStandalone=true. -->
+    <OutputType Condition="'$(Ds2OpcUaStandalone)' == 'true'">Exe</OutputType>
+    <OutputType Condition="'$(Ds2OpcUaStandalone)' != 'true'">Library</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="NodeIds/NamespaceAllocator.fs" />
+    <Compile Include="NodeIds/DeterministicNodeId.fs" />
+    <Compile Include="AasClient/AasFileScanner.fs" />
+    <Compile Include="Server/ServerConfiguration.fs" />
+    <Compile Include="Server/DsNodeManager.fs" />
+    <Compile Include="Server/DsUaServer.fs" />
+    <Compile Include="Server/EmbeddedUaServer.fs" />
+    <Compile Include="Server/DsUaServerService.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Core\Ds2.Core\Ds2.Core.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+    <PackageReference Include="log4net" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="OPCFoundation.NetStandard.Opc.Ua.Core" />
+    <PackageReference Include="OPCFoundation.NetStandard.Opc.Ua.Server" />
+    <PackageReference Include="OPCFoundation.NetStandard.Opc.Ua.Configuration" />
+  </ItemGroup>
+
+</Project>

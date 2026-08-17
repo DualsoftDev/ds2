@@ -32,6 +32,11 @@ public static class SharedPaths
     /// Promaker.Shared.SharedPaths.AgentDirectory 와 동일 경로(SharedDirectory/agent)여야 세 앱이 같은 사이드카를 본다.</summary>
     public static string AgentDirectory { get; } = Path.Combine(SharedDirectory, "agent");
 
+    /// <summary>Agent OPC UA PKI 루트. DSPilot 이 발급한 사용자 공개 인증서와
+    /// 접속 과정에서 거부된 클라이언트 애플리케이션 인증서를 Agent와 같은 저장소에서 관리한다.</summary>
+    public static string AgentOpcUaCertificateDirectory { get; } =
+        Path.Combine(AgentDirectory, "opcua", "certs");
+
     /// <summary>실측 duration 확정 상태 사이드카 — Work 별 "Min 실측 확정(minMeasured)" + 확정 시점 AASX 해시.
     /// ActionUnder(시간 미만) 판정 게이트의 SSOT. DSPilot 실측 보정(FillMin)이 여기에 기록하면 Agent 어댑터가 읽어 게이트를 연다.
     /// Promaker.Shared.SharedPaths.CalibrationStateJsonPath 와 동일 경로여야 한다.</summary>

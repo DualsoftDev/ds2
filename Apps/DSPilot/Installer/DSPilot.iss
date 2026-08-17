@@ -43,7 +43,14 @@
 #define MyAgentPort "5051"
 ; 모델 업로드 수신 포트 (AgentUploadReceiver, 항상 listen) — 원격 Promaker '네트워크 업로드' 대상.
 #define MyAgentUploadPort "5050"
-#define HasAgent FileExists(AddBackslash(AgentPublishDir) + MyAgentExeName)
+; Collector는 Agent UA를 구독해 typed SQLite 이력과 localhost Data API(:62542)를 제공한다.
+; Agent만 설치되면 수집 파이프가 비므로 두 publish 산출물이 모두 있을 때만 옵션을 노출한다.
+#define CollectorPublishDir "..\publish-collector"
+#define MyCollectorExeName "Ds2.Collector.exe"
+#define MyCollectorServiceName "Ds2CollectorService"
+#define MyCollectorServiceDisplay "DualSoft Data Collector"
+#define MyCollectorServiceDesc "Secure OPC UA collector, typed SQLite history and localhost Data API"
+#define HasAgent FileExists(AddBackslash(AgentPublishDir) + MyAgentExeName) && FileExists(AddBackslash(CollectorPublishDir) + MyCollectorExeName)
 
 [Setup]
 AppId={{E8A3F2B1-7C4D-4E5F-9A1B-3D6E8F0C2A4B}
@@ -71,7 +78,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 ; Promaker.Agent 옵션 설치 — 기본 해제(unchecked). Promaker 를 별도로 설치하지 않고 DSPilot 만
 ; 쓰는 PC 에서 PLC 스캔 + 5051 모니터링 Hub 백엔드를 함께 깔고 싶을 때만 체크한다.
 ; Promaker 가 이미 설치된 PC 라면 Promaker 가 동일 서비스(PromakerAgentService)를 관리하므로 체크 불필요.
-Name: "installagent"; Description: "Promaker Agent 모니터링 서비스 함께 설치 (Promaker 미설치 환경용)"; Flags: unchecked
+Name: "installagent"; Description: "Promaker Agent + Data Collector 서비스 함께 설치 (Promaker 미설치 환경용)"; Flags: unchecked
 #endif
 
 [Dirs]
@@ -110,6 +117,8 @@ Source: "ffmpeg\LICENSE*"; DestDir: "{app}\ffmpeg"; Flags: ignoreversion skipifs
 ; Promaker.Agent — "installagent" 태스크 체크 시에만 {app}\Agent 로 번들(self-contained).
 ; 별도 폴더로 분리해 DSPilot.exe 와 dll 충돌 방지 + Agent 로그(logs\promaker-agent.log) 격리.
 Source: "{#AgentPublishDir}\*"; DestDir: "{app}\Agent"; Tasks: installagent; \
+  Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#CollectorPublishDir}\*"; DestDir: "{app}\Collector"; Tasks: installagent; \
   Flags: ignoreversion recursesubdirs createallsubdirs
 #endif
 ; 초기 AASX 는 인스톨러에 번들하지 않음. Promaker 의 "공유 위치에 저장(DSPilot 동기화)" 메뉴로
@@ -219,6 +228,28 @@ Filename: "{sys}\sc.exe"; \
   Parameters: "start {#MyAgentServiceName}"; \
   Flags: runhidden waituntilterminated; Tasks: installagent; \
   StatusMsg: "Promaker Agent 서비스 시작 중..."
+
+; Collector API는 코드 기본값 127.0.0.1:62542만 사용해 방화벽 인바운드를 열지 않는다.
+; DB·클라이언트 인증서는 %ProgramData%\DualSoft\Collector에 보존된다.
+Filename: "{sys}\sc.exe"; \
+  Parameters: "create {#MyCollectorServiceName} binPath=""{app}\Collector\{#MyCollectorExeName}"" start=auto DisplayName=""{#MyCollectorServiceDisplay}"""; \
+  Flags: runhidden waituntilterminated; Tasks: installagent; \
+  StatusMsg: "Data Collector 서비스 등록 중..."
+
+Filename: "{sys}\sc.exe"; \
+  Parameters: "description {#MyCollectorServiceName} ""{#MyCollectorServiceDesc}"""; \
+  Flags: runhidden waituntilterminated; Tasks: installagent; \
+  StatusMsg: "Data Collector 서비스 설명 설정 중..."
+
+Filename: "{sys}\sc.exe"; \
+  Parameters: "failure {#MyCollectorServiceName} reset=86400 actions=restart/10000/restart/10000/restart/30000"; \
+  Flags: runhidden waituntilterminated; Tasks: installagent; \
+  StatusMsg: "Data Collector 서비스 복구 옵션 설정 중..."
+
+Filename: "{sys}\sc.exe"; \
+  Parameters: "start {#MyCollectorServiceName}"; \
+  Flags: runhidden waituntilterminated; Tasks: installagent; \
+  StatusMsg: "Data Collector 서비스 시작 중..."
 #endif
 
 ; Open browser after install (optional)
@@ -234,6 +265,11 @@ Type: files; Name: "{app}\appsettings.Secrets.json"
 
 [UninstallRun]
 #if HasAgent
+; ── Ds2.Collector 서비스 정리 (DB/인증서는 ProgramData에 보존) ──
+Filename: "{sys}\sc.exe"; Parameters: "stop {#MyCollectorServiceName}"; \
+  Flags: runhidden waituntilterminated; Check: ShouldRemoveCollector; RunOnceId: "StopCollectorService"
+Filename: "{sys}\sc.exe"; Parameters: "delete {#MyCollectorServiceName}"; \
+  Flags: runhidden waituntilterminated; Check: ShouldRemoveCollector; RunOnceId: "DeleteCollectorService"
 ; ── Promaker.Agent 서비스 정리 ──
 ; Check=ShouldRemoveAgent: 이 설치본이 {app}\Agent 에 Agent 를 실제로 깔았을 때만 stop/delete.
 ; (Agent 옵션 미선택으로 {app}\Agent 가 없으면 건너뛴다 — 같은 PC 에 Promaker 가 설치돼 있어
@@ -393,6 +429,11 @@ function ShouldRemoveAgent: Boolean;
 begin
   Result := FileExists(ExpandConstant('{app}\Agent\{#MyAgentExeName}'));
 end;
+
+function ShouldRemoveCollector: Boolean;
+begin
+  Result := FileExists(ExpandConstant('{app}\Collector\{#MyCollectorExeName}'));
+end;
 #endif
 
 procedure InitializeWizard();
@@ -433,7 +474,7 @@ begin
   NoticeMemo.Text :=
     '[Windows 서비스]' + #13#10 +
     '  · DSPilot 웹 서비스와 CCTV 중계(MediaMTX) 서비스가 시스템 시작 시 자동 실행됩니다.' + #13#10 +
-    '  · ''Promaker Agent'' 옵션을 선택하면 모니터링 서비스도 함께 등록됩니다.' + #13#10#13#10 +
+    '  · ''Promaker Agent'' 옵션을 선택하면 모니터링 Agent와 Data Collector가 함께 등록됩니다.' + #13#10#13#10 +
     '[방화벽 — 아래 인바운드 규칙이 자동 등록됩니다]' + #13#10 +
     '  · DSPilot 웹: TCP (다음 단계에서 선택한 포트, 기본 8080)' + #13#10 +
     '  · CCTV(WebRTC): TCP 8889, UDP 8189' + #13#10 +
@@ -610,6 +651,9 @@ begin
   // 등록·운영 중인 PromakerAgentService 를 DSPilot 설치가 끊지 않도록 한다.
   if WizardIsTaskSelected('installagent') then
   begin
+    Exec(ExpandConstant('{sys}\sc.exe'), ExpandConstant('stop {#MyCollectorServiceName}'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    WaitForServiceStopped('{#MyCollectorServiceName}', 10);
+    Exec(ExpandConstant('{sys}\sc.exe'), ExpandConstant('delete {#MyCollectorServiceName}'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     Exec(ExpandConstant('{sys}\sc.exe'), ExpandConstant('stop {#MyAgentServiceName}'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     WaitForServiceStopped('{#MyAgentServiceName}', 10);
     Exec(ExpandConstant('{sys}\sc.exe'), ExpandConstant('delete {#MyAgentServiceName}'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);

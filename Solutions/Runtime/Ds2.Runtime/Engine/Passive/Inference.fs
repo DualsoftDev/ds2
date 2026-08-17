@@ -263,6 +263,20 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
         pendingLogs.Clear()
         logs
 
+    member _.GetLearningDiagnostics() =
+        let now = Stopwatch.GetTimestamp()
+        workLearning
+        |> Seq.map (fun kv ->
+            let lastChangeAgeMs =
+                if kv.Value.LastSequenceChangeTick <= 0L then -1L
+                else max 0L ((now - kv.Value.LastSequenceChangeTick) * 1000L / Stopwatch.Frequency)
+            { WorkGuid = kv.Key
+              IsSynced = kv.Value.Synced
+              BufferedGroupCount = kv.Value.Sequence.Count
+              DetectedPeriod = kv.Value.DetectedPeriod |> Option.defaultValue 0
+              LastSequenceChangeAgeMs = lastChangeAgeMs })
+        |> Seq.toArray
+
     member _.IsAbnormalReadyForAddress(address: string) =
         let workGuids = getRelatedWorkGuids address
         workGuids.Length > 0

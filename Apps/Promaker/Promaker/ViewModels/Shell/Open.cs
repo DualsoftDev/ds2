@@ -26,11 +26,41 @@ public partial class MainViewModel
         Log.Info($"{kind} opened: {filePath}");
         StatusText = $"Opened: {Path.GetFileName(filePath)}";
 
+        // AID InterfaceXGT endpoint를 PLC 설정 화면에 반영한다.
+        ApplyPlcConnectionFromProject();
+
         // 최근 파일 목록에 추가
         RecentFilesManager.AddRecentFile(filePath);
         _dispatcher.InvokeAsync(LoadRecentFiles);
 
         RequestRebuildAll(AfterFileLoad);
+    }
+
+    /// <summary>
+    /// 방금 연 모델의 AID InterfaceXGT endpoint를 실행 설정 화면에 적용한다.
+    /// </summary>
+    private void ApplyPlcConnectionFromProject()
+    {
+        try
+        {
+            var sim = Simulation;
+            if (sim is null) return;
+
+            var current = sim.PlcSettings.ToPoco();
+            var conn = Promaker.Shared.AidXgtEndpointSynchronizer.TryReadFromStore(_store);
+            if (conn is null) return;
+            if (Promaker.Shared.AidXgtEndpointSynchronizer.Matches(current, conn)) return;
+
+            var before = $"{current.Vendor} {current.IpAddress}:{current.Port}";
+            sim.PlcSettings.ApplyConnection(conn);
+
+            Log.Info($"AID XGT endpoint 적용: {before} → {conn.Vendor} {conn.IpAddress}:{conn.Port}");
+            StatusText = $"{StatusText} — AID PLC 접속 적용 ({conn.IpAddress}:{conn.Port})";
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"AID XGT endpoint 적용 실패: {ex.Message}", ex);
+        }
     }
 
     private void ReplaceOpenedStore(string filePath, DsStore store, string kind)

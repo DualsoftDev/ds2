@@ -1,6 +1,7 @@
 namespace Ds2.Aasx
 
 open Ds2.Aasx.AasxSemantics
+open Ds2.Core.Kpi
 
 /// CD (ConceptDescription) 카탈로그 — 모든 자체 IRI 는 <see cref="AasxSemantics.CdBaseUrl"/> 를 prefix 로 한다.
 /// 호스팅 위치 변경 시 AasxSemantics.fs 의 CdBaseUrl 한 줄만 수정하면 일괄 전환됨.
@@ -288,8 +289,69 @@ module internal AasxConceptDescriptionCatalog =
           DefinitionKr = "혼류 환경에서 토큰 유형(origin/spec) 별 KPI 분해" }
     ]
 
-    /// 모든 ds2 자체 발급 CD (Entity + Submodel + Simulation) — 외부 표준 CD 는 임베디드 AASX 템플릿에서 로드.
+    // ── Convention-Driven KPI 자동생성 CD (Ds2.Core.Kpi.KpiKits 규약 기반) ─────
+    //    KpiKits.all 을 walk 해서 CD Info 를 자동 생성. 규약 변경 시 여기 재빌드만.
+    let kpiConceptDescriptionInfos: ConceptDescriptionInfo list =
+        KpiKits.all
+        |> List.collect (fun kit ->
+            kit.Metrics
+            |> List.map (fun m ->
+                { Id = m.SemanticId
+                  PreferredNameDe = sprintf "KPI-%s (%s)" m.IdShortSuffix kit.TypeShort
+                  PreferredNameEn = sprintf "KPI %s (%s)" m.IdShortSuffix kit.TypeShort
+                  PreferredNameKr = sprintf "KPI %s (%s)" m.IdShortSuffix kit.TypeShort
+                  ShortName = sprintf "Kpi_%s_%s" kit.TypeShort m.IdShortSuffix
+                  DefinitionDe = m.DescriptionEn
+                  DefinitionEn = m.DescriptionEn
+                  DefinitionKr = m.DescriptionKr }))
+
+    let extensionConceptDescriptionInfos: ConceptDescriptionInfo list = [
+        { Id = SignalIdExtensionSemanticId
+          PreferredNameDe = "Signal-ID"
+          PreferredNameEn = "Signal ID"
+          PreferredNameKr = "신호 식별자"
+          ShortName = "SignalId"
+          DefinitionDe = "Stabile, anlagenweit eindeutige Kennung eines erfassten Signals."
+          DefinitionEn = "Stable identifier of a collected signal, unique within the plant model."
+          DefinitionKr = "수집·저장·OPC UA 노드에서 공통으로 사용하는 안정적인 신호 식별자." }
+        { Id = XgtInterfaceSemanticId
+          PreferredNameDe = "XGT-Schnittstelle"
+          PreferredNameEn = "XGT interface"
+          PreferredNameKr = "XGT 인터페이스"
+          ShortName = "InterfaceXGT"
+          DefinitionDe = "DualSoft-Erweiterung der AID für LS ELECTRIC XGI/XGK Endpunkte."
+          DefinitionEn = "DualSoft-managed AID extension for LS ELECTRIC XGI/XGK endpoints."
+          DefinitionKr = "LS ELECTRIC XGI/XGK 접속정보를 기술하는 DualSoft 관리형 AID 확장." }
+        { Id = VaultReferenceExtensionSemanticId
+          PreferredNameDe = "Vault-Referenz"
+          PreferredNameEn = "Vault reference"
+          PreferredNameKr = "보안 저장소 참조"
+          ShortName = "VaultReference"
+          DefinitionDe = "Referenz auf Anmeldedaten; enthält niemals das Geheimnis selbst."
+          DefinitionEn = "Reference to credential material; never contains the secret itself."
+          DefinitionKr = "비밀값 자체가 아닌 자격 증명 저장 위치를 가리키는 참조." }
+        { Id = SignalPoliciesCollectionSemanticId
+          PreferredNameDe = "Signalerfassungsrichtlinien"
+          PreferredNameEn = "Signal acquisition policies"
+          PreferredNameKr = "신호 수집 정책"
+          ShortName = "SignalPolicies"
+          DefinitionDe = "Sammlung von Abtast-, Deadband- und Aufbewahrungsrichtlinien."
+          DefinitionEn = "Collection of sampling, deadband and retention policies."
+          DefinitionKr = "신호별 수집 주기·Deadband·보존기간 정책 모음." }
+        { Id = SignalAcquisitionModeSemanticId
+          PreferredNameDe = "Erfassungsmodus"
+          PreferredNameEn = "Acquisition mode"
+          PreferredNameKr = "취득 방식"
+          ShortName = "AcquisitionMode"
+          DefinitionDe = "Erfassungsart: sampled, changeOfValue oder eventDriven."
+          DefinitionEn = "Acquisition strategy: sampled, changeOfValue or eventDriven."
+          DefinitionKr = "sampled, changeOfValue, eventDriven 중 하나인 신호 취득 방식." }
+    ]
+
+    /// 모든 ds2 자체 발급 CD (Entity + Submodel + Simulation + KPI) — 외부 표준 CD 는 임베디드 AASX 템플릿에서 로드.
     let allConceptDescriptionInfos: ConceptDescriptionInfo list =
         entityConceptDescriptionInfos
         @ submodelConceptDescriptionInfos
         @ simulationConceptDescriptionInfos
+        @ extensionConceptDescriptionInfos
+        @ kpiConceptDescriptionInfos

@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Threading.Channels;
 using Dapper;
 using DSPilot.Infrastructure;
@@ -20,6 +21,22 @@ using Microsoft.Data.Sqlite;
 using Microsoft.FSharp.Core;
 
 namespace DSPilot.Services;
+
+/// <summary>한 진단 구간 동안의 Ds2.Runtime passive 추론 지연과 Work 학습 상태.</summary>
+public sealed record PassiveInferenceIntervalDiagnostics(
+    long ObserveCount,
+    double AverageMs,
+    double P95UpperMs,
+    double MaxMs,
+    IReadOnlyList<PassiveWorkLearningRuntimeDiagnostic> Works);
+
+public sealed record PassiveWorkLearningRuntimeDiagnostic(
+    Guid WorkGuid,
+    string WorkName,
+    bool IsSynced,
+    int BufferedGroupCount,
+    int DetectedPeriod,
+    long LastSequenceChangeAgeMs);
 
 /// <summary>
 /// Ds2.Runtime 엔진(EventDrivenEngine) + RuntimeModeSession + PassiveInferenceSession 을
@@ -95,10 +112,24 @@ public sealed class SimulationEngineService : IDisposable
     // 사이클 이력(dspFlowHistory)엔 영구 미반영으로 남는다(= 무사이클 정지가 정상가동을 계속 삼킨다).
     private readonly BackfillFloorTracker _backfillFloor = new();
 
+    // tagId → 마지막으로 plcTagLog 에 기록한 값. resync(재연결/주기 baseline 스냅샷) 수용 시
+    // "값이 실제로 바뀐 것"만 기록해 로그 폭증(태그 전수 × 10초 주기)을 막는 dedupe 기준선.
+    private readonly ConcurrentDictionary<int, string> _lastLoggedValueByTagId = new();
+
     // 원천시각 기각 경고 throttle — 송신기 시계가 틀어지면 태그마다 터지므로 60초 1회로 묶어 카운트만 올린다.
     private long _rejectedTsCount;
     private long _rejectedTsWarnAtTicks;
     private static readonly TimeSpan RejectedTsWarnInterval = TimeSpan.FromSeconds(60);
+
+    // PassiveInference.Observe hot path 지연 집계. Stopwatch tick 만 원자 누산하고, 분포는 고정 bucket 을 써
+    // 신호마다 로그/객체 할당을 만들지 않는다. TakePassiveInferenceIntervalDiagnostics 가 60초마다 비운다.
+    private static readonly double[] PassiveLatencyBucketUpperMs =
+        [0.1, 0.25, 0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000];
+    private readonly long[] _passiveLatencyBuckets = new long[PassiveLatencyBucketUpperMs.Length + 1];
+    private long _passiveObserveCount;
+    private long _passiveObserveElapsedTicks;
+    private long _passiveObserveMaxTicks;
+    private IReadOnlyDictionary<Guid, string> _passiveWorkNames = new Dictionary<Guid, string>();
 
     // Flow Ready 전이 디바운스 — Call 들이 순차 실행되며 micro-gap 마다 Ready→Going 토글되는 점멸 방지
     private readonly Dictionary<string, CancellationTokenSource> _flowReadyDebounceCts = new();
@@ -175,6 +206,7 @@ public sealed class SimulationEngineService : IDisposable
 
                 var store = _projectService.GetStore();
                 var index = SimIndexModule.build(store, 10);
+                _passiveWorkNames = store.WorksReadOnly.Values.ToDictionary(work => work.Id, work => work.Name);
 
                 // monitoring 모드 — writeTag 콜백 없음 (DsPilot 은 모니터 전용, Hub 로 쓰지 않음)
                 var noWriteTag = FSharpOption<FSharpFunc<string, FSharpFunc<string, Microsoft.FSharp.Core.Unit>>>.None;
@@ -295,21 +327,34 @@ public sealed class SimulationEngineService : IDisposable
         // 시각 = 원천 관측 시각(TagWrite.WallClockMs, Pi5 스캔 직후 각인). 도착시각(DateTime.Now)으로
         // 찍으면 핑 두절→버퍼 replay 신호가 전부 복구 순간에 뭉쳐 그래프/사이클이 왜곡된다(관찰된 증상).
         // 0(구버전 송신자/단건 OnTagChanged)이면 종전대로 도착시각 폴백.
+        var isResync = string.Equals(source, HubSource.Resync, StringComparison.OrdinalIgnoreCase);
         var inCache = _plcTagIdByAddress.TryGetValue(address, out var tagId);
         if (inCache)
         {
-            // 위생 검사 포함(미래/24h 초과 과거는 기각 후 도착시각 폴백) — 규칙과 근거는
-            // HubLogTimestampPolicy 참조. 송신기 시계가 미동기면 데이터가 조용히 사라진다.
-            var stamp = HubLogTimestampPolicy.Resolve(wallClockMs, DateTime.UtcNow);
-            _logWriter.TryWrite(tagId, value, stamp.AtUtc);
+            // resync(재연결/주기 10s baseline 스냅샷)는 태그 전수를 실어 오므로 그대로 기록하면
+            // plcTagLog 가 하루 수백만 행으로 폭증한다. 값이 마지막 기록과 같으면 기록 생략,
+            // 다르면 = diff 스캔이 놓친 전이(마이크로 핑 스파이크 펄스 유실)의 레벨 정정 →
+            // 원천시각으로 기록해 사이클 재도출·그래프가 참값을 본다. 일반(plc 등) 신호는
+            // 종전대로 무조건 기록 — edge 스트림 dedupe 는 이 변경의 범위 밖.
+            var skipWrite = isResync
+                && _lastLoggedValueByTagId.TryGetValue(tagId, out var lastLogged)
+                && string.Equals(lastLogged, value, StringComparison.Ordinal);
+            if (!skipWrite)
+            {
+                // 위생 검사 포함(미래/24h 초과 과거는 기각 후 도착시각 폴백) — 규칙과 근거는
+                // HubLogTimestampPolicy 참조. 송신기 시계가 미동기면 데이터가 조용히 사라진다.
+                var stamp = HubLogTimestampPolicy.Resolve(wallClockMs, DateTime.UtcNow);
+                _logWriter.TryWrite(tagId, value, stamp.AtUtc);
+                _lastLoggedValueByTagId[tagId] = value;
 
-            // replay 로 과거 구간이 들어왔다 — 사이클 재도출 창을 여기까지 넓히지 않으면 그 구간이
-            // plcTagLog 에만 복원되고 이력엔 안 들어가, 무사이클 정지가 정상가동을 계속 삼킨다.
-            if (stamp.IsBackfill)
-                _backfillFloor.Report(stamp.AtUtc);
+                // replay 로 과거 구간이 들어왔다 — 사이클 재도출 창을 여기까지 넓히지 않으면 그 구간이
+                // plcTagLog 에만 복원되고 이력엔 안 들어가, 무사이클 정지가 정상가동을 계속 삼킨다.
+                if (stamp.IsBackfill)
+                    _backfillFloor.Report(stamp.AtUtc);
 
-            if (stamp.Source is HubLogTimeSource.RejectedFuture or HubLogTimeSource.RejectedTooOld)
-                WarnRejectedTimestamp(address, wallClockMs, stamp.Source);
+                if (stamp.Source is HubLogTimeSource.RejectedFuture or HubLogTimeSource.RejectedTooOld)
+                    WarnRejectedTimestamp(address, wallClockMs, stamp.Source);
+            }
 
             // ★아래 두 도장은 의도적으로 ts 가 아니라 *도착시각*을 쓴다 — 재는 대상이 다르다.
             //   기록 시각(ts)   = "그 신호가 PLC 에서 언제 관측됐나" → 버퍼 replay 도 원래 시각으로 복원.
@@ -328,7 +373,9 @@ public sealed class SimulationEngineService : IDisposable
         // 진단 — UserTag 정의 주소에 대해서만 hit/miss + enqueue 결과 로깅.
         if (_userTagAddressesForDiag.Contains(address))
         {
-            _logger.LogInformation(
+            // Debug 강등 — Information 이던 시절 하루 ~75만 줄이 journald 를 포화시켜 컨슈머(큐 소비)를
+            // 늦추고 채널 drop 을 유발했다(8/6 실측). 진단 필요 시 로그레벨로 켠다.
+            _logger.LogDebug(
                 "[Engine] UserTag hub signal {Addr}={Val} src={Src} cacheHit={Hit} tagId={Id}",
                 address, value, source, inCache, inCache ? tagId : -1);
         }
@@ -669,7 +716,21 @@ public sealed class SimulationEngineService : IDisposable
         switch (effect.Kind)
         {
             case RuntimeHubEffectKind.Log:
-                _logger.LogInformation("[Engine] {Severity}: {Msg}", effect.Severity, effect.Message);
+                // per-signal [Mon] 로그가 Info 심각도로 신호마다 쏟아져(모니터링 관측마다 1건) 콘솔 로거
+                // 큐를 포화시켜 소비자 backpressure→채널 drop 을 유발했다(구미 실기). 심각도별로 매핑해
+                // Warn 이상만 표면화하고, Info/상태전이 노이즈는 Trace(기본 off, 진단 시만 켬)로 내린다.
+                switch (effect.Severity)
+                {
+                    case RuntimeHubLogSeverity.Warn:
+                        _logger.LogWarning("[Engine] {Msg}", effect.Message);
+                        break;
+                    case RuntimeHubLogSeverity.System:
+                        _logger.LogInformation("[Engine] {Msg}", effect.Message);
+                        break;
+                    default:
+                        _logger.LogTrace("[Engine] {Severity}: {Msg}", effect.Severity, effect.Message);
+                        break;
+                }
                 break;
 
             case RuntimeHubEffectKind.InjectIoByAddress:
@@ -706,11 +767,20 @@ public sealed class SimulationEngineService : IDisposable
         // v12 P4 — abnormal timing 판정(cycle 학습과 독립): OutTag On=going / InTag On=finish.
         _monitoringAbnormal?.OnObservedIo(address, value, Environment.TickCount);
 
-        var actions = _passiveInference.Observe(
-            address, value,
-            new Func<Guid, Status4>(GetWorkStateSafe),
-            new Func<Guid, Status4>(GetCallStateSafe),
-            System.Environment.TickCount64);
+        PassiveInferenceAction[] actions;
+        var started = Stopwatch.GetTimestamp();
+        try
+        {
+            actions = _passiveInference.Observe(
+                address, value,
+                new Func<Guid, Status4>(GetWorkStateSafe),
+                new Func<Guid, Status4>(GetCallStateSafe),
+                System.Environment.TickCount64);
+        }
+        finally
+        {
+            RecordPassiveInferenceLatency(Stopwatch.GetTimestamp() - started);
+        }
 
         foreach (var action in actions)
         {
@@ -729,6 +799,80 @@ public sealed class SimulationEngineService : IDisposable
 
         foreach (var log in _passiveInference.DrainLogs())
             _logger.LogDebug("[Engine] passive: {Msg}", log.Message);
+    }
+
+    private void RecordPassiveInferenceLatency(long elapsedTicks)
+    {
+        Interlocked.Increment(ref _passiveObserveCount);
+        Interlocked.Add(ref _passiveObserveElapsedTicks, elapsedTicks);
+
+        var observedMax = Interlocked.Read(ref _passiveObserveMaxTicks);
+        while (elapsedTicks > observedMax)
+        {
+            var previous = Interlocked.CompareExchange(ref _passiveObserveMaxTicks, elapsedTicks, observedMax);
+            if (previous == observedMax) break;
+            observedMax = previous;
+        }
+
+        var elapsedMs = elapsedTicks * 1000d / Stopwatch.Frequency;
+        var bucket = 0;
+        while (bucket < PassiveLatencyBucketUpperMs.Length
+               && elapsedMs > PassiveLatencyBucketUpperMs[bucket])
+            bucket++;
+        Interlocked.Increment(ref _passiveLatencyBuckets[bucket]);
+    }
+
+    /// <summary>직전 호출 이후 PassiveInference.Observe 지연과 현재 Work 학습 상태를 반환한다.
+    /// 호출은 Hub 단일 컨슈머의 처리 완료 콜백에서 이루어져 학습 컬렉션 열거와 Observe 가 겹치지 않는다.</summary>
+    public PassiveInferenceIntervalDiagnostics TakePassiveInferenceIntervalDiagnostics()
+    {
+        var count = Interlocked.Exchange(ref _passiveObserveCount, 0);
+        var totalTicks = Interlocked.Exchange(ref _passiveObserveElapsedTicks, 0);
+        var maxTicks = Interlocked.Exchange(ref _passiveObserveMaxTicks, 0);
+
+        var buckets = new long[_passiveLatencyBuckets.Length];
+        long bucketTotal = 0;
+        for (var i = 0; i < buckets.Length; i++)
+        {
+            buckets[i] = Interlocked.Exchange(ref _passiveLatencyBuckets[i], 0);
+            bucketTotal += buckets[i];
+        }
+
+        var p95Ms = 0d;
+        if (bucketTotal > 0)
+        {
+            var target = (long)Math.Ceiling(bucketTotal * 0.95);
+            long cumulative = 0;
+            for (var i = 0; i < buckets.Length; i++)
+            {
+                cumulative += buckets[i];
+                if (cumulative < target) continue;
+                p95Ms = i < PassiveLatencyBucketUpperMs.Length
+                    ? PassiveLatencyBucketUpperMs[i]
+                    : maxTicks * 1000d / Stopwatch.Frequency;
+                break;
+            }
+        }
+
+        var passive = _passiveInference;
+        var learning = passive?.GetLearningDiagnostics() ?? Array.Empty<PassiveInferenceLearningDiagnostic>();
+        var names = _passiveWorkNames;
+        var works = learning
+            .Select(item => new PassiveWorkLearningRuntimeDiagnostic(
+                item.WorkGuid,
+                names.TryGetValue(item.WorkGuid, out var name) ? name : item.WorkGuid.ToString(),
+                item.IsSynced,
+                item.BufferedGroupCount,
+                item.DetectedPeriod,
+                item.LastSequenceChangeAgeMs))
+            .ToArray();
+
+        return new PassiveInferenceIntervalDiagnostics(
+            count,
+            count > 0 ? totalTicks * 1000d / Stopwatch.Frequency / count : 0,
+            p95Ms,
+            maxTicks * 1000d / Stopwatch.Frequency,
+            works);
     }
 
     /// <summary>
@@ -1400,6 +1544,7 @@ public sealed class SimulationEngineService : IDisposable
             _consumerTask = null;
             _runtimeSession = null;
             _passiveInference = null;
+            _passiveWorkNames = new Dictionary<Guid, string>();
             _initFailed = false;
             // _initSuspended 는 메서드 진입 즉시 set 했다(위 step 0). 여기서 다시 손대지 않는다 —
             // ResumeInitializationAndStart() 가 재구축 종료 시 clear.

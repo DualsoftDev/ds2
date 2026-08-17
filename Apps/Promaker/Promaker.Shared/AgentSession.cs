@@ -60,10 +60,11 @@ public sealed class AgentSession
         try
         {
             Directory.CreateDirectory(SharedPaths.AgentDirectory);
-            File.WriteAllText(SharedPaths.AgentSessionJsonPath,
-                JsonSerializer.Serialize(this, JsonOpts));
+            if (!TrySave(SharedPaths.AgentSessionJsonPath)) return false;
             // flag 는 비어 있는 marker. 존재 여부만 의미가 있고 내용은 무시.
-            File.WriteAllText(SharedPaths.AgentActiveFlagPath, ActivatedAtUtc);
+            var flagTemp = SharedPaths.AgentActiveFlagPath + $".tmp-{Guid.NewGuid():N}";
+            File.WriteAllText(flagTemp, ActivatedAtUtc);
+            File.Move(flagTemp, SharedPaths.AgentActiveFlagPath, overwrite: true);
             return true;
         }
         catch
@@ -105,16 +106,97 @@ public sealed class AgentSession
     /// <summary>session.json 을 읽어 반환. 파일 없거나 손상되면 null.
     /// flag 와 무관 — flag 만 확인하려면 <see cref="IsActive"/>.</summary>
     public static AgentSession? TryLoad()
+        => TryLoad(SharedPaths.AgentSessionJsonPath);
+
+    /// <summary>지정한 경로에서 세션을 읽는다. active.flag 상태에는 영향을 주지 않는다.</summary>
+    public static AgentSession? TryLoad(string path)
     {
         try
         {
-            if (!File.Exists(SharedPaths.AgentSessionJsonPath)) return null;
-            var text = File.ReadAllText(SharedPaths.AgentSessionJsonPath);
+            if (!File.Exists(path)) return null;
+            var text = File.ReadAllText(path);
             return JsonSerializer.Deserialize<AgentSession>(text, JsonOpts);
         }
         catch
         {
             return null;
+        }
+    }
+
+    /// <summary>Agent 운영 경로용 엄격 로드. 손상/미지원 스키마를 기본값으로 숨기지 않는다.</summary>
+    public static bool TryLoadExact(string path, out AgentSession? session, out string error)
+    {
+        session = null;
+        error = "";
+        try
+        {
+            if (!File.Exists(path))
+            {
+                error = $"Session file does not exist: {path}";
+                return false;
+            }
+            session = JsonSerializer.Deserialize<AgentSession>(File.ReadAllText(path), JsonOpts);
+            if (session is null)
+            {
+                error = "Session JSON is empty.";
+                return false;
+            }
+            if (!session.TryValidate(out error))
+            {
+                session = null;
+                return false;
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = $"Session JSON is invalid: {ex.Message}";
+            session = null;
+            return false;
+        }
+    }
+
+    public bool TryValidate(out string error)
+    {
+        if (SchemaVersion != 1)
+            error = $"Unsupported session schemaVersion '{SchemaVersion}'.";
+        else if (string.IsNullOrWhiteSpace(AasxPath))
+            error = "session.aasxPath is required.";
+        else if (!string.Equals(RuntimeMode, "Monitoring", StringComparison.OrdinalIgnoreCase)
+                 && !string.Equals(RuntimeMode, "Control", StringComparison.OrdinalIgnoreCase))
+            error = "session.runtimeMode must be 'Monitoring' or 'Control'.";
+        else if (!DateTimeOffset.TryParse(ActivatedAtUtc, out _))
+            error = "session.activatedAtUtc must be an ISO-8601 timestamp.";
+        else if (string.IsNullOrWhiteSpace(RequestedBy) || RequestedBy.Length > 128)
+            error = "session.requestedBy is required and must be at most 128 characters.";
+        else
+        {
+            RuntimeMode = string.Equals(RuntimeMode, "Control", StringComparison.OrdinalIgnoreCase)
+                ? "Control"
+                : "Monitoring";
+            error = "";
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>세션 JSON만 지정 경로에 원자적으로 저장한다. active.flag는 만들지 않는다.</summary>
+    public bool TrySave(string path)
+    {
+        string? temp = null;
+        try
+        {
+            var directory = Path.GetDirectoryName(path);
+            if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
+            temp = path + $".tmp-{Guid.NewGuid():N}";
+            File.WriteAllText(temp, JsonSerializer.Serialize(this, JsonOpts));
+            File.Move(temp, path, overwrite: true);
+            return true;
+        }
+        catch
+        {
+            try { if (temp is not null && File.Exists(temp)) File.Delete(temp); } catch { }
+            return false;
         }
     }
 

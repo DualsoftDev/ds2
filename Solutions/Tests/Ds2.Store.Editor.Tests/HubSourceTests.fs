@@ -1,6 +1,7 @@
 module Ds2.Store.Editor.Tests.HubSourceTests
 
 open System
+open System.Net
 open System.Reflection
 open System.Text.Json
 open System.Threading.Tasks
@@ -75,6 +76,38 @@ let ``Agent가 PLC owner인 모드는 제어 source만 PLC로 전달`` () =
     Assert.False(SignalHubWritePolicy.shouldForwardToPlc false true "" HubSource.Control)
 
 [<Fact>]
+let ``Pi5 delegated ingress preserves the accepted WriteTags batch`` () =
+    let identity =
+        { SessionId = "delegated-session"
+          ModelHash = "model-1"
+          Generation = 3
+          Mode = HubSource.Monitoring }
+    let items =
+        [| { Address = "%IX0.0.1"
+             Value = "true"
+             Source = HubSource.Plc
+             OriginTsMs = 123L
+             WallClockMs = 456L }
+           { Address = "%IX0.0.2"
+             Value = "17"
+             Source = HubSource.Plc
+             OriginTsMs = 124L
+             WallClockMs = 457L } |]
+    let mutable received : RuntimeIOAddressBatchCommand option = None
+
+    SignalHubRuntimeIngress.injectBatch identity items (fun command ->
+        received <- Some command
+        Task.CompletedTask)
+    |> fun pending -> pending.GetAwaiter().GetResult()
+
+    let command = received.Value
+    Assert.Equal(identity.SessionId, command.Envelope.SessionId)
+    Assert.Equal(identity.ModelHash, command.Envelope.ModelHash)
+    Assert.Equal(identity.Generation, command.Envelope.Generation)
+    Assert.Equal(identity.Mode, command.Envelope.Mode)
+    Assert.Same(items, command.Items)
+
+[<Fact>]
 let ``단말 인증 미설정 Hub는 기존 연결을 모두 허용`` () =
     Assert.True(SignalHubConnectionPolicy.isAllowed false false false false)
     Assert.True(SignalHubConnectionPolicy.isAllowed false false true false)
@@ -90,6 +123,36 @@ let ``원격 단말은 device credential 검증 성공 시에만 허용`` () =
     Assert.False(SignalHubConnectionPolicy.isAllowed true false true false)
     // 로컬이라도 명시적으로 잘못된 헤더를 보냈다면 우회시키지 않는다.
     Assert.False(SignalHubConnectionPolicy.isAllowed true true true false)
+
+[<Fact>]
+let ``원격 단말 메서드는 수집 ingress만 허용`` () =
+    for methodName in [ "WriteTags"; "ReportScanHeartbeat"; "ReportPlcConnectionStatus" ] do
+        Assert.True(SignalHubConnectionPolicy.isRemoteMethodAllowed methodName)
+    for methodName in [ "WriteTag"; "SetScanIntervalMs"; "RuntimeStop"; "RuntimeGetSnapshot" ] do
+        Assert.False(SignalHubConnectionPolicy.isRemoteMethodAllowed methodName)
+
+[<Theory>]
+[<InlineData("127.0.0.1")>]
+[<InlineData("::1")>]
+[<InlineData("10.0.0.1")>]
+[<InlineData("172.16.0.1")>]
+[<InlineData("172.31.255.254")>]
+[<InlineData("192.168.10.20")>]
+[<InlineData("169.254.1.2")>]
+[<InlineData("fc00::1")>]
+[<InlineData("fd12:3456::1")>]
+[<InlineData("fe80::1")>]
+let ``private HTTP peer ranges are accepted`` (value: string) =
+    Assert.True(SignalHubConnectionPolicy.isPrivateOrLoopbackAddress(IPAddress.Parse value))
+
+[<Theory>]
+[<InlineData("8.8.8.8")>]
+[<InlineData("172.15.255.255")>]
+[<InlineData("172.32.0.1")>]
+[<InlineData("192.0.2.10")>]
+[<InlineData("2001:4860:4860::8888")>]
+let ``public HTTP peer ranges are rejected`` (value: string) =
+    Assert.False(SignalHubConnectionPolicy.isPrivateOrLoopbackAddress(IPAddress.Parse value))
 
 [<Fact>]
 let ``Runtime HubMethod names are locked`` () =
@@ -174,46 +237,6 @@ let ``RuntimeStateSnapshot serializes as camelCase DTO with generation`` () =
     Assert.Contains("\"mode\":\"control\"", json)
     Assert.Contains("\"nextEventTimeMs\":1500", json)
     Assert.Contains("\"workStates\"", json)
-
-[<Fact>]
-let ``Runtime projections use flat arrays instead of runtime object graphs`` () =
-    let indexProjection = {
-        SessionId = "session-1"
-        ModelHash = "model-1"
-        Generation = 7
-        Mode = HubSource.Control
-        WorkNames = [| { Id = "work-1"; Name = "Flow.Work" } |]
-        WorkSystemNames = [| { Id = "work-1"; Name = "System" } |]
-        WorkFlowGuids = [| { Id = "work-1"; RefId = "flow-1" } |]
-        CallWorkGuids = [| { Id = "call-1"; RefId = "work-1" } |]
-        WorkCallGuids = [| { Id = "work-1"; Values = [| "call-1" |] } |]
-        TokenSourceGuids = [| "work-1" |]
-        TokenSinkGuids = [||]
-    }
-    let ioProjection = {
-        SessionId = "session-1"
-        ModelHash = "model-1"
-        Generation = 7
-        Mode = HubSource.Control
-        OutAddresses = [| "Q0.0" |]
-        InAddresses = [| "I0.0" |]
-        Mappings = [|
-            {
-                ApiCallId = "api-1"
-                CallId = "call-1"
-                TxWorkId = "tx-1"
-                RxWorkId = "rx-1"
-                OutAddress = "Q0.0"
-                InAddress = "I0.0"
-            }
-        |]
-    }
-
-    Assert.Equal(7, indexProjection.Generation)
-    Assert.Equal("work-1", indexProjection.WorkNames.[0].Id)
-    Assert.Equal("call-1", indexProjection.WorkCallGuids.[0].Values.[0])
-    Assert.Equal("Q0.0", ioProjection.OutAddresses.[0])
-    Assert.Equal("api-1", ioProjection.Mappings.[0].ApiCallId)
 
 [<Fact>]
 let ``Runtime command DTO serializes envelope as camelCase`` () =

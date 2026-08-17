@@ -1,0 +1,39 @@
+# Ds2.Collector systemd 유닛 템플릿. install.sh가 @TOKEN@을 치환한다.
+# Agent의 secure OPC UA endpoint를 localhost로 구독하고 typed SQLite/Data API를 제공한다.
+[Unit]
+Description=DualSoft Data Collector (secure OPC UA to typed SQLite)
+After=network-online.target promaker-agent.service
+Wants=network-online.target promaker-agent.service
+
+[Service]
+Type=simple
+User=@USER@
+Group=@USER@
+WorkingDirectory=@COLLECTOR_WORKDIR@
+ExecStart=@COLLECTOR_EXEC@
+EnvironmentFile=/etc/dualsoft/dualsoft.env
+Restart=on-failure
+RestartSec=10
+KillSignal=SIGINT
+TimeoutStopSec=30
+SyslogIdentifier=ds2-collector
+UMask=0077
+
+# Collector REST API는 localhost 전용이며 외부 방화벽 포트를 열지 않는다.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+ReadWritePaths=@COLLECTOR_DATA_DIR@ @SHARED_DIR@
+
+[Install]
+WantedBy=multi-user.target

@@ -6,6 +6,8 @@
 
   <ItemGroup>
     <Compile Include="Config.fs" />
+    <Compile Include="AidXgtConfig.fs" />
+    <Compile Include="AidSouthboundConfig.fs" />
     <Compile Include="IPlcGateway.fs" />
     <Compile Include="Adapters.fs" />
     <Compile Include="PlcGateway.fs" />
@@ -20,6 +22,7 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\Ds2.Backend.Common\Ds2.Backend.Common.fsproj" />
+    <ProjectReference Include="..\..\Core\Ds2.Core\Ds2.Core.fsproj" />
   </ItemGroup>
 
   <ItemGroup>

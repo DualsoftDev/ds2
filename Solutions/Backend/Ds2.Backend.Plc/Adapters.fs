@@ -47,6 +47,10 @@ module PlcValueIo =
             let parsed = CoreDataTypesModule.PlcValue.TryParse(s, dataType)
             if parsed.IsSome then Some parsed.Value else None
 
+    /// 상위 Backend가 Ev2 PLC 데이터형 어셈블리를 직접 참조하지 않고도 원격 값을 검증하는 경계 helper.
+    let canParseTagValue (tag: PlcTagDef) (value: string) =
+        not (isNull value) && (parseFromHubString tag.DataType value |> Option.isSome)
+
 [<RequireQualifiedAccess>]
 module PlcBatchReadBuffer =
     let private sizeOf (dataType: CoreDataTypesModule.PlcDataType) =
@@ -183,6 +187,7 @@ module LsAdapter =
         let lsModel =
             match cfg.Vendor with
             | PlcVendor.LsXgk -> LsPlcModel.XGK
+            | PlcVendor.LsXgb -> LsPlcModel.XGT
             | _               -> LsPlcModel.XGI
         let lsConnCfg : LsConnectionConfig =
             { IpAddress = cfg.IpAddress
@@ -348,5 +353,6 @@ module Adapter =
     let create (cfg: PlcConnectionConfig) : IPlcConnectorAdapter =
         match cfg.Vendor with
         | PlcVendor.LsXgi
-        | PlcVendor.LsXgk    -> LsAdapter.create cfg
+        | PlcVendor.LsXgk
+        | PlcVendor.LsXgb    -> LsAdapter.create cfg
         | PlcVendor.Mitsubishi -> MxAdapter.create cfg

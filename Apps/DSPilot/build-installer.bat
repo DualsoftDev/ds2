@@ -18,6 +18,9 @@ set "OUTPUT_DIR=%SOLUTION_DIR%Output"
 :: 이 폴더가 비면 DSPilot.iss 의 #if HasAgent 가드가 Agent 옵션을 자동 생략한다.
 set "AGENT_PROJECT=%SOLUTION_DIR%..\Promaker\Promaker.Agent\Promaker.Agent.csproj"
 set "AGENT_PUBLISH_DIR=%SOLUTION_DIR%publish-agent"
+:: Ds2.Collector — Agent OPC UA를 구독해 typed SQLite/Data API를 제공하는 운영 필수 동반 서비스.
+set "COLLECTOR_PROJECT=%SOLUTION_DIR%..\..\Solutions\Runtime\Ds2.Collector\Ds2.Collector.fsproj"
+set "COLLECTOR_PUBLISH_DIR=%SOLUTION_DIR%publish-collector"
 set "ISCC=C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 set "ISS_FILE=%SOLUTION_DIR%Installer\DSPilot.iss"
 set "MTX_DIR=%SOLUTION_DIR%Installer\mediamtx"
@@ -35,6 +38,7 @@ echo [1/4] Cleaning previous build...
 if exist "%PUBLISH_DIR%" rmdir /s /q "%PUBLISH_DIR%"
 if exist "%OUTPUT_DIR%" rmdir /s /q "%OUTPUT_DIR%"
 if exist "%AGENT_PUBLISH_DIR%" rmdir /s /q "%AGENT_PUBLISH_DIR%"
+if exist "%COLLECTOR_PUBLISH_DIR%" rmdir /s /q "%COLLECTOR_PUBLISH_DIR%"
 echo       Done.
 echo.
 
@@ -112,6 +116,21 @@ if exist "%AGENT_PROJECT%" (
 )
 echo.
 
+:: Step 3d: Publish Ds2.Collector (Agent 옵션과 함께 설치되는 self-contained 동반 서비스)
+echo [3d] Publishing Ds2.Collector (self-contained, win-x64)...
+if exist "%COLLECTOR_PROJECT%" (
+    dotnet publish "%COLLECTOR_PROJECT%" -c Release -r win-x64 --self-contained true -o "%COLLECTOR_PUBLISH_DIR%" -p:PublishSingleFile=false -m:1
+    if !errorlevel! neq 0 (
+        echo       [WARN] Ds2.Collector publish FAILED — installer will be built WITHOUT the Agent/Collector option.
+        if exist "%COLLECTOR_PUBLISH_DIR%" rmdir /s /q "%COLLECTOR_PUBLISH_DIR%"
+    ) else (
+        echo       Done.
+    )
+) else (
+    echo       [WARN] Ds2.Collector project not found at "%COLLECTOR_PROJECT%" — skipping Agent/Collector bundle.
+)
+echo.
+
 :: Step 4: Build installer with Inno Setup
 echo [4/4] Building installer with Inno Setup...
 :: ── 시크릿(dsp.conf) 해석 ─────────────────────────────────────────────────
@@ -129,11 +148,11 @@ if not defined DSP_CONF_SRC if exist "%PROJECT_DIR%\appsettings.Secrets.json" se
 if defined DSP_CONF_SRC (
     echo       시크릿 정본 포함: {app}\dsp.conf ^<- "!DSP_CONF_SRC!"
     copy /y "!DSP_CONF_SRC!" "%PUBLISH_DIR%\dsp.conf" >nul
-    :: 정본 파일이 전 섹션을 담으므로 브리핑 키 인라인 주입은 하지 않는다(iss 는 파일 존재 시 잠금만).
+    rem 정본 파일이 전 섹션을 담으므로 브리핑 키 인라인 주입은 하지 않는다. iss는 파일 존재 시 잠금만 수행.
     "%ISCC%" "%ISS_FILE%"
 ) else (
-    :: 폴백: 정본 파일이 없으면 브리핑 API 키만 인라인 주입(구 방식) — CloudAuth 미포함.
-    :: 키 소스: Installer\briefing-apikey.txt(git 미포함) 또는 환경변수 DSP_BRIEFING_API_KEY.
+    rem 폴백: 정본 파일이 없으면 브리핑 API 키만 인라인 주입. CloudAuth는 미포함.
+    rem 키 소스: Installer\briefing-apikey.txt 또는 환경변수 DSP_BRIEFING_API_KEY.
     set "BRIEFING_KEY=%DSP_BRIEFING_API_KEY%"
     if exist "%SOLUTION_DIR%Installer\briefing-apikey.txt" set /p BRIEFING_KEY=<"%SOLUTION_DIR%Installer\briefing-apikey.txt"
     if defined BRIEFING_KEY (

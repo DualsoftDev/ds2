@@ -131,3 +131,86 @@ let [<Literal>] DeviceGuid_          = "DeviceGuid"
 let [<Literal>] DeviceName_          = "DeviceName"
 let [<Literal>] DeviceIRI_           = "DeviceIRI"
 let [<Literal>] DeviceRelativePath_  = "DeviceRelativePath"
+
+
+// =============================================================================
+// Phase 0 · AAS × OPC UA 통합 스택 · IDTA 표준 서브모델 상수
+// =============================================================================
+//
+// 6개 IDTA 표준 SM + 1개 사내 SM.
+// CollectionPolicy 는 별도 SM 아님 — SequenceLogging 흡수 (Phase 0 리팩터).
+
+/// Asset Interfaces Description (IDTA 02017 v1.1) — spec §04-B 핵심
+let [<Literal>] AidSubmodelIdShort  = "AssetInterfacesDescription"
+let [<Literal>] AidSubmodelSemanticId =
+    "https://admin-shell.io/idta/AssetInterfacesDescription/1/1/Submodel"
+
+/// Asset Interfaces Mapping Configuration (IDTA 02027 v2.0) — spec §04-D 선택
+let [<Literal>] AimcSubmodelIdShort = "AssetInterfacesMappingConfiguration"
+let [<Literal>] AimcSubmodelSemanticId =
+    "https://admin-shell.io/idta/AssetInterfacesMappingConfiguration/2/0/Submodel"
+
+/// Operational Data (사내 발행 · AIMC northbound 투영 sink)
+let [<Literal>] OperationalDataSubmodelIdShort = "OperationalData"
+let OperationalDataSubmodelSemanticId = cdId "sm/OperationalData/1/0"
+
+/// Time Series Data (IDTA 02008 v1.1) LinkedSegment access points.
+let [<Literal>] TimeSeriesSubmodelIdShort = "TimeSeries"
+let [<Literal>] TimeSeriesSubmodelSemanticId =
+    "https://admin-shell.io/idta/TimeSeries/1/1"
+let [<Literal>] TimeSeriesMetadataSemanticId =
+    "https://admin-shell.io/idta/TimeSeries/Metadata/1/1"
+let [<Literal>] TimeSeriesSegmentsSemanticId =
+    "https://admin-shell.io/idta/TimeSeries/Segments/1/1"
+let [<Literal>] TimeSeriesLinkedSegmentSemanticId =
+    "https://admin-shell.io/idta/TimeSeries/Segments/LinkedSegment/1/1"
+let [<Literal>] TimeSeriesEndpointSemanticId =
+    "https://admin-shell.io/idta/TimeSeries/Endpoint/1/1"
+let [<Literal>] TimeSeriesQuerySemanticId =
+    "https://admin-shell.io/idta/TimeSeries/Query/1/1"
+let TimeSeriesIdExtensionSemanticId = cdId "cd/ext.time-series-id/1/0"
+
+// -----------------------------------------------------------------------------
+// AID / 신호 확장 요소 CD (ADR-002 · ADR-008 준수)
+// -----------------------------------------------------------------------------
+
+/// AID InteractionMetadata 안에 부착되는 DualSoft 확장: 신호 유일 식별자.
+/// SignalId 는 자산 내 유일, {lineId}.{assetId}.{shortName} kebab-case.
+let SignalIdExtensionSemanticId = cdId "cd/ext.signal-id/1/0"
+
+/// DualSoft-managed AID binding for LS ELECTRIC XGT endpoints.
+let [<Literal>] XgtInterfaceSemanticId = "urn:dualsoft:smc:aid-interface-xgt:1:0"
+
+/// AID EndpointMetadata 의 인증 정보 Vault 참조 필드.
+/// 실제 secret 은 저장하지 않고 `@vault:path` 참조만 (ADR-005).
+let VaultReferenceExtensionSemanticId = cdId "cd/ext.vault-reference/1/0"
+
+/// SequenceLogging 서브모델 안의 신호별 수집 정책 컬렉션 (SubmodelElementCollection).
+/// CollectionPolicy 를 별도 SM 이 아니라 Logging 흡수 형태로 emit 하는 SMC.
+let SignalPoliciesCollectionSemanticId = cdId "sm/SequenceLogging/SignalPoliciesCollection/1/0"
+
+/// AID · CollectionPolicy 안에서 사용되는 acquisitionMode 값의 CD.
+let SignalAcquisitionModeSemanticId = cdId "cd/ext.acquisition-mode/1/0"
+
+/// AutoID (BCR-05 등) 이벤트 상호작용 CD — OPC 30010 OpticalScanEventType 매핑.
+let AutoIdEventBindingSemanticId = cdId "cd/ext.autoid-event/1/0"
+
+/// AAS 자산 소유자 (owner) identity 확장 — ADR-005 자원 인가에 사용.
+let AssetOwnerExtensionSemanticId = cdId "cd/ext.owner/1/0"
+
+// -----------------------------------------------------------------------------
+// Provenance §C — AID/AIMC/OperationalData round-trip 시 auto/user 구분
+//   * Qualifier(type="dualsoft:origin" value="Auto"|"User")  — AAS §5.7.7 HasQualifiers
+//   * Submodel Extension(name="dualsoft:auto-suppressed")    — AAS §5.7.6 HasExtensions
+//
+// IDTA-02017/02027 템플릿 모두 확장/Qualifier 허용. 결정론적 재실행 안전.
+// Origin 이 명시되지 않은 SME (구 aasx 또는 사용자 편집) 는 기본값 User.
+// -----------------------------------------------------------------------------
+
+let [<Literal>] ProvenanceOriginQualifierType = "dualsoft:origin"
+let [<Literal>] ProvenanceOriginAuto          = "Auto"
+let [<Literal>] ProvenanceOriginUser          = "User"
+
+/// Submodel-level Extension 이름 (tombstones 직렬화).
+/// Value 는 세미콜론(`;`) 구분 IdShort 목록 — export 시 알파벳 정렬로 결정론 보장.
+let [<Literal>] ProvenanceSuppressedExtensionName = "dualsoft:auto-suppressed"

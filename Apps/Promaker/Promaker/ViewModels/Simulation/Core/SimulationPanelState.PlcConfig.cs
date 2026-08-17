@@ -18,7 +18,11 @@ public partial class SimulationPanelState
     }
 
     /// <summary>현재 IO 매핑에서 dedup 된 PLC 주소 개수 — PLC 설정 다이얼로그 안내용.</summary>
-    public int CountAutoImportablePlcAddresses()
+    public int CountAutoImportablePlcAddresses() => EnumeratePlcAddresses().Count;
+
+    /// <summary>현재 IO 매핑(OUT/IN) + UserTag 의 dedup 된 PLC 주소 집합.
+    /// AID XGT 바인딩 생성(AidXgtEndpointSynchronizer.EnsureToStore)의 InteractionMetadata 원천.</summary>
+    public IReadOnlyCollection<string> EnumeratePlcAddresses()
     {
         var store = _storeProvider();
         var iomap = SignalIOMapModule.build(store);
@@ -27,7 +31,9 @@ public partial class SimulationPanelState
             if (!string.IsNullOrWhiteSpace(k)) set.Add(k);
         foreach (var k in iomap.InAddressToMappings.Keys)
             if (!string.IsNullOrWhiteSpace(k)) set.Add(k);
-        return set.Count;
+        foreach (var r in store.GetAllUserTagsForProject())
+            if (!string.IsNullOrWhiteSpace(r.TagAddress)) set.Add(r.TagAddress);
+        return set;
     }
 
     /// <summary>현재 IO 매핑 + UI 의 PlcSettings 로 PlcGatewayConfig 를 빌드.
