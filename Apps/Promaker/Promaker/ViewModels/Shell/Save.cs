@@ -208,7 +208,7 @@ public partial class MainViewModel
             var sim = Simulation;
             if (sim is null) return;
             var settings = sim.PlcSettings.ToPoco();
-            // EnsureToStore: XGT 바인딩이 없으면 IO맵 주소로 새로 생성, 있으면 endpoint 갱신.
+            // EnsureToStore: XGT 바인딩이 없으면 IO맵 주소로 새로 생성, 있으면 endpoint 갱신 + 새 주소 병합.
             // (StampToStore 는 갱신만 해서, 바인딩 없던 모델은 IP 를 넣어도 반영이 안 됐다 — 그 구멍을 메움.)
             var addresses = sim.EnumeratePlcAddresses();
             var n = Promaker.Shared.AidXgtEndpointSynchronizer.EnsureToStore(_store, settings, addresses);
@@ -264,14 +264,23 @@ public partial class MainViewModel
                 var userTplFolder = Promaker.Presentation.AppSettingStore.LoadStringOrDefault(
                     Promaker.Services.SettingsPaths.AasxUserTemplatesFolder, "");
                 var prevTplFolder = AasxExporter.UserTemplatesFolder;
-                AasxExporter.UserTemplatesFolder =
-                    string.IsNullOrWhiteSpace(userTplFolder) || !System.IO.Directory.Exists(userTplFolder)
-                        ? Microsoft.FSharp.Core.FSharpOption<string>.None
-                        : Microsoft.FSharp.Core.FSharpOption<string>.Some(userTplFolder);
+                bool exported;
+                try
+                {
+                    AasxExporter.UserTemplatesFolder =
+                        string.IsNullOrWhiteSpace(userTplFolder) || !System.IO.Directory.Exists(userTplFolder)
+                            ? Microsoft.FSharp.Core.FSharpOption<string>.None
+                            : Microsoft.FSharp.Core.FSharpOption<string>.Some(userTplFolder);
 
-                var exported = AasxExporter.exportFromStore(_store, filePath, AppSettings.IriPrefix, AppSettings.SplitDeviceAasx, AppSettings.CreateDefaultEntitiesOnEmptyAasx);
-
-                AasxExporter.UserTemplatesFolder = prevTplFolder;
+                    exported = AasxExporter.exportFromStore(
+                        _store, filePath, AppSettings.IriPrefix,
+                        AppSettings.SplitDeviceAasx, AppSettings.CreateDefaultEntitiesOnEmptyAasx);
+                }
+                finally
+                {
+                    // Export 실패 뒤에도 전역 템플릿 설정이 다음 저장으로 새지 않게 원상복구한다.
+                    AasxExporter.UserTemplatesFolder = prevTplFolder;
+                }
 
                 // 사용자 폴더 SM 이 ds2 표준 SM 을 override 했는지 확인 → 사용자에게 상세 안내.
                 if (exported)

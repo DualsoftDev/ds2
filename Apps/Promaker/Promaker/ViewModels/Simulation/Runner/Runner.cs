@@ -156,18 +156,18 @@ public partial class SimulationPanelState
     /// <summary>Agent 가 push 한 학습 duration 누적(UI 스레드). 정지 시 일괄 반영 대상.</summary>
     private void OnLearnedDurationReceived(Ds2.Backend.Common.LearnedDurationPayload p)
     {
+        if (!AutoDurationCalibrate) return;
         if (Guid.TryParse(p.WorkId, out var workGuid))
             _learnedDurations[workGuid] = (p.AvgMs, p.MinMs, p.MaxMs);
     }
 
-    /// <summary>로컬 실측 duration 학습기 생성 — Simulation 모드는 plan 자체가 실행이라 학습 의미가 없어 제외.
+    /// <summary>로컬 실측 duration 학습기 생성 — Agent proxy 모드에서는 Agent 학습 결과만 소비해 중복 학습하지 않는다.
     /// call(원본·참조 모두) → device Work(RxGuid) 매핑을 PLAY 시점 모델에서 빌드.</summary>
     private void InitDurationLearning()
     {
-        if (SelectedRuntimeMode == RuntimeMode.Simulation)
+        StopLocalDurationLearning();
+        if (!ShouldUseLocalDurationLearning(SelectedRuntimeMode, UsesAgentProxy, AutoDurationCalibrate))
         {
-            _durationLearning = null;
-            _healthBaseline = null;
             return;
         }
 
@@ -195,6 +195,23 @@ public partial class SimulationPanelState
         _healthBaseline = new HealthBaselineTracker(workMaxMs, workNames);
         _durationLearning.SampleRecorded += OnHealthBaselineSample;
     }
+
+    private void StopLocalDurationLearning()
+    {
+        if (_durationLearning is not null)
+            _durationLearning.SampleRecorded -= OnHealthBaselineSample;
+        _durationLearning = null;
+        _healthBaseline = null;
+    }
+
+    /// <summary>
+    /// 학습 실행 소유권 정책. 실제 PLC Monitoring/Control은 Agent가 단일 소유자이고 Promaker는 결과만 받는다.
+    /// </summary>
+    internal static bool ShouldUseLocalDurationLearning(
+        RuntimeMode runtimeMode, bool usesAgentProxy, bool autoDurationCalibrate) =>
+        autoDurationCalibrate
+        && runtimeMode != RuntimeMode.Simulation
+        && !usesAgentProxy;
 
     /// <summary>학습 샘플 1건 → 건강 기준선 추적 + 전이(동결/IQR 경보)만 로그로 승격.
     /// 드리프트 % 자체는 사이클마다 찍지 않는다 — 정지 시 요약과 경보가 사용자 접점.</summary>
@@ -264,8 +281,8 @@ public partial class SimulationPanelState
     //   엔진 전이와 race 하는 것으로 추정. 동작 중 Reload 안전성이 규명되기 전까지 반영은 정지 시에만.
 
     /// <summary>정지 시 학습 duration 을 모델 Work 에 반영 + dirty.
-    /// 소스 = Agent push(_learnedDurations) + 로컬 실측 학습(_durationLearning, Control/VP/Monitoring 공통).
-    /// 둘 다 있으면 로컬 실측이 우선(최신 윈도우 기반). 학습값이 없으면 조용히 통과.
+    /// 소스 = Agent proxy이면 Agent push(_learnedDurations), self-hosted이면 로컬 실측(_durationLearning) 하나만 사용.
+    /// 학습값이 없으면 조용히 통과.
     /// 정상 범위면 묻지 않고 자동 적용(정상 설비 가정) — 학습값이 비정상적으로 흔들릴 때만 확인.
     /// 저장은 기존 Save 흐름이 AASX 로 영속.</summary>
     private void TryApplyLearnedDurationsOnStop()
@@ -281,14 +298,12 @@ public partial class SimulationPanelState
                     AddSimLog($"[건강 요약] {line}", LogSeverity.Warn);
             }
         }
-        _healthBaseline = null;
-
         if (_durationLearning is { HasSamples: true } learning)
         {
             foreach (var kv in learning.Snapshot())
                 _learnedDurations[kv.Key] = kv.Value;
         }
-        _durationLearning = null;
+        StopLocalDurationLearning();
 
         if (_learnedDurations.Count == 0) return;
         var snapshot = System.Linq.Enumerable.ToArray(_learnedDurations);
@@ -347,8 +362,7 @@ public partial class SimulationPanelState
             return;
         _simStartTime = DateTime.Now;
         ResetPassiveGanttClockAnchor();
-        _durationLearning = null;   // 리셋 = 학습 폐기 (정지 시 반영 흐름을 안 탔으므로)
-        _healthBaseline = null;
+        StopLocalDurationLearning();   // 리셋 = 학습 폐기 (정지 시 반영 흐름을 안 탔으므로)
         ResetCommBlackout();
         ApplySimulationResetUiState(clearCollections: false);
         GanttChart.Reset(_simStartTime);

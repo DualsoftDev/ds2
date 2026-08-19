@@ -2,6 +2,8 @@ namespace Ds2.Core.StandardSubmodels
 
 open System
 open System.Collections.Generic
+open System.Security.Cryptography
+open System.Text
 open Ds2.Core
 
 /// Asset Interfaces Description (IDTA 02017 v1.1).
@@ -232,6 +234,30 @@ module AssetInterfacesDescriptionTypes =
     /// 새 AID 모델은 이 endpoint만 수집 SSOT로 사용한다.
     [<RequireQualifiedAccess>]
     module AidXgtEndpointSettings =
+        let private addressHash (address: string) =
+            SHA256.HashData(Encoding.UTF8.GetBytes(address))
+            |> Array.take 6
+            |> Convert.ToHexString
+
+        /// PLC 주소는 `%QX0.1`처럼 AAS idShort/URN에 허용되지 않는 문자를 포함한다.
+        /// 주소 원문은 href/signalId에 보존하고 식별자는 충돌 없는 고정 해시로 분리한다.
+        let private interactionForAddress (address: string) =
+            let hash = addressHash address
+            { IdShort = $"Xgt_{hash}"
+              SemanticId = SemanticId $"urn:dualsoft:cd:xgt:io:{hash.ToLowerInvariant()}:1:0"
+              ValueType = XsBoolean
+              Unit = None
+              Href = address
+              SignalId = SignalId address }
+
+        let private normalizeLegacyGeneratedInteraction (interaction: OpcUaInteraction) =
+            // 구버전 자동 생성본은 IdShort/SignalId/Href가 모두 PLC 주소였다. SDF로 먼저 저장된 모델도
+            // 이후 AASX로 변환할 수 있도록 그 모양만 안전한 신규 식별자로 마이그레이션한다.
+            if String.Equals(interaction.IdShort, interaction.Href, StringComparison.Ordinal)
+               && String.Equals(interaction.SignalId.Value, interaction.Href, StringComparison.Ordinal) then
+                interactionForAddress interaction.Href
+            else interaction
+
         let private vendorOfCpuModel = function
             | Xgi -> "LsXgi"
             | Xgk -> "LsXgk"
@@ -306,7 +332,7 @@ module AssetInterfacesDescriptionTypes =
                     | _ -> ()
                 updated
 
-        /// XGT 수집 바인딩을 보장한다 — 기존 InterfaceXGT 가 있으면 endpoint 만 갱신(updateAll),
+        /// XGT 수집 바인딩을 보장한다 — 기존 InterfaceXGT 가 있으면 endpoint 를 갱신하고 새 주소를 병합하며,
         /// 없으면 addresses(모델 IO맵의 OUT/IN + UserTag 주소)로 InteractionMetadata 를 만들어 새로 생성한다.
         /// bcf9121b(PLC 접속=AID 정본) 리팩터가 "갱신"만 두고 "생성"을 빠뜨려, XGT 바인딩이 없던 모델은
         /// PLC IP 를 넣어도 저장 시 바인딩이 안 생기던 구멍을 메운다. 반환 = 생성/갱신된 interaction 수.
@@ -327,43 +353,63 @@ module AssetInterfacesDescriptionTypes =
             | None -> 0
             | Some _ when isNull (box aid) || String.IsNullOrWhiteSpace ipAddress || port <= 0 -> 0
             | Some cpuModel ->
-                let hasXgt =
-                    aid.Interfaces |> Seq.exists (fun b -> match b with | Xgt _ -> true | _ -> false)
-                if hasXgt then
-                    // 이미 InterfaceXGT 존재 → endpoint 만 갱신(신호 목록은 보존).
-                    updateAll(
-                        aid, vendor, ipAddress, port, isUdp, localEthernet,
-                        networkNumber, stationNumber, timeoutMs, scanIntervalMs)
-                else
-                    let transport = if isUdp then XgtUdp else XgtTcp
-                    let scheme = if isUdp then "xgt+udp" else "xgt+tcp"
-                    let endpoint =
-                        { XgtEndpointMetadata.empty with
-                            Base = sprintf "%s://%s:%d" scheme (ipAddress.Trim()) port
-                            CpuModel = cpuModel
-                            LocalEthernet = localEthernet
-                            NetworkNumber = networkNumber
-                            StationNumber = stationNumber
-                            Transport = transport
-                            TimeoutMs = (if timeoutMs > 0 then timeoutMs else 3000)
-                            ScanIntervalMs = (if scanIntervalMs > 0 then scanIntervalMs else 100) }
+                let normalizedAddresses =
                     let seen = HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                    let interactions =
-                        addresses
-                        |> Seq.choose (fun a ->
-                            if String.IsNullOrWhiteSpace a then None
-                            else
-                                let addr = a.Trim()
-                                if seen.Add addr then Some addr else None)
-                        |> Seq.map (fun addr ->
-                            { IdShort = addr
-                              SemanticId = SemanticId (sprintf "urn:dualsoft:cd:xgt:io:%s:1:0" (addr.ToLowerInvariant()))
-                              ValueType = XsBoolean
-                              Unit = None
-                              Href = addr
-                              SignalId = SignalId addr })
-                        |> List.ofSeq
-                    if List.isEmpty interactions then 0
-                    else
-                        aid.Interfaces.Add(Xgt (endpoint, interactions))
-                        List.length interactions
+                    addresses
+                    |> Seq.choose (fun a ->
+                        if String.IsNullOrWhiteSpace a then None
+                        else
+                            let addr = a.Trim()
+                            if seen.Add addr then Some addr else None)
+                    |> List.ofSeq
+
+                let transport = if isUdp then XgtUdp else XgtTcp
+                let scheme = if isUdp then "xgt+udp" else "xgt+tcp"
+                let endpoint =
+                    { XgtEndpointMetadata.empty with
+                        Base = sprintf "%s://%s:%d" scheme (ipAddress.Trim()) port
+                        CpuModel = cpuModel
+                        LocalEthernet = localEthernet
+                        NetworkNumber = networkNumber
+                        StationNumber = stationNumber
+                        Transport = transport
+                        TimeoutMs = (if timeoutMs > 0 then timeoutMs else 3000)
+                        ScanIntervalMs = (if scanIntervalMs > 0 then scanIntervalMs else 100) }
+
+                let mutable touched = 0
+                let mutable foundXgt = false
+                for index = 0 to aid.Interfaces.Count - 1 do
+                    match aid.Interfaces.[index] with
+                    | Xgt (existingEndpoint, existing) ->
+                        foundXgt <- true
+                        let normalizedExisting = existing |> List.map normalizeLegacyGeneratedInteraction
+                        let seen = HashSet<string>(
+                            normalizedExisting
+                            |> Seq.map (fun i -> i.Href),
+                            StringComparer.OrdinalIgnoreCase)
+                        let added =
+                            normalizedAddresses
+                            |> List.choose (fun addr ->
+                                if seen.Add addr then Some (interactionForAddress addr) else None)
+                        let merged = normalizedExisting @ added
+                        let nextEndpoint =
+                            { existingEndpoint with
+                                Base = endpoint.Base
+                                CpuModel = endpoint.CpuModel
+                                LocalEthernet = endpoint.LocalEthernet
+                                NetworkNumber = endpoint.NetworkNumber
+                                StationNumber = endpoint.StationNumber
+                                Transport = endpoint.Transport
+                                TimeoutMs = if timeoutMs > 0 then timeoutMs else existingEndpoint.TimeoutMs
+                                ScanIntervalMs = if scanIntervalMs > 0 then scanIntervalMs else existingEndpoint.ScanIntervalMs }
+                        aid.Interfaces.[index] <- Xgt (nextEndpoint, merged)
+                        // 반환값은 최종 동기화된 interaction 수. 주소가 추가되지 않아도 endpoint 갱신 성공을 드러낸다.
+                        touched <- touched + List.length merged
+                    | _ -> ()
+
+                if foundXgt then touched
+                elif List.isEmpty normalizedAddresses then 0
+                else
+                    let interactions = normalizedAddresses |> List.map interactionForAddress
+                    aid.Interfaces.Add(Xgt (endpoint, interactions))
+                    List.length interactions

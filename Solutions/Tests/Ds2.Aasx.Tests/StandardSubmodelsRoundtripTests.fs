@@ -261,6 +261,75 @@ let ``Promaker PLC settings update only the AID XGT endpoint`` () =
     | _ -> Assert.Fail "expected XGT binding"
 
 [<Fact>]
+let ``Promaker PLC addresses create exportable AID interactions and preserve raw hrefs`` () =
+    let aid = AssetInterfacesDescription()
+    let created =
+        AidXgtEndpointSettings.ensureBinding(
+            aid, "LsXgi", "192.168.9.102", 2004, false, true,
+            0uy, 255uy, 3000, 100,
+            [ "%QX0.1.13"; "%IX0.1.2"; "%qx0.1.13" ])
+
+    Assert.Equal(2, created)
+    match aid.Interfaces.[0] with
+    | Xgt (_, interactions) ->
+        Assert.Equal<string list>([ "%QX0.1.13"; "%IX0.1.2" ], interactions |> List.map _.Href)
+        Assert.All(interactions, fun i -> Assert.Matches("^[A-Za-z][A-Za-z0-9_]*$", i.IdShort))
+        Assert.Equal(2, interactions |> List.map _.IdShort |> Set.ofList |> Set.count)
+    | _ -> Assert.Fail "expected XGT binding"
+
+    // AASX 변환기의 엄격한 idShort 검증까지 통과해야 새 프로젝트 저장이 성공한다.
+    let submodel = AasxExportStandardSubmodels.aidToSubmodel aid "new-project"
+    let restored = AasxImportStandardSubmodels.submodelToAid submodel
+    match restored.Interfaces.[0] with
+    | Xgt (_, interactions) ->
+        Assert.Equal<string list>([ "%QX0.1.13"; "%IX0.1.2" ], interactions |> List.map _.Href)
+    | _ -> Assert.Fail "expected XGT binding"
+
+[<Fact>]
+let ``Promaker AID synchronization merges addresses added after first save`` () =
+    let aid = AssetInterfacesDescription()
+    AidXgtEndpointSettings.ensureBinding(
+        aid, "LsXgi", "192.168.9.102", 2004, false, true,
+        0uy, 255uy, 3000, 100, [ "%QX0.1" ])
+    |> ignore
+
+    let synchronized =
+        AidXgtEndpointSettings.ensureBinding(
+            aid, "LsXgi", "192.168.9.103", 2004, false, true,
+            0uy, 255uy, 3000, 100, [ "%QX0.1"; "%IX0.2" ])
+
+    Assert.Equal(2, synchronized)
+    match aid.Interfaces.[0] with
+    | Xgt (endpoint, interactions) ->
+        Assert.Equal("xgt+tcp://192.168.9.103:2004", endpoint.Base)
+        Assert.Equal<string list>([ "%QX0.1"; "%IX0.2" ], interactions |> List.map _.Href)
+    | _ -> Assert.Fail "expected XGT binding"
+
+[<Fact>]
+let ``Promaker AID synchronization repairs legacy raw-address idShort`` () =
+    let aid = AssetInterfacesDescription()
+    let legacy : OpcUaInteraction =
+        { IdShort = "%QX0.1"
+          SemanticId = SemanticId "urn:dualsoft:cd:xgt:io:%qx0.1:1:0"
+          ValueType = XsBoolean
+          Unit = None
+          Href = "%QX0.1"
+          SignalId = SignalId "%QX0.1" }
+    aid.Interfaces.Add(Xgt(XgtEndpointMetadata.empty, [ legacy ]))
+
+    AidXgtEndpointSettings.ensureBinding(
+        aid, "LsXgi", "192.168.9.102", 2004, false, true,
+        0uy, 255uy, 3000, 100, [ "%QX0.1" ])
+    |> ignore
+
+    match aid.Interfaces.[0] with
+    | Xgt (_, [ repaired ]) ->
+        Assert.Matches("^[A-Za-z][A-Za-z0-9_]*$", repaired.IdShort)
+        Assert.Equal("%QX0.1", repaired.Href)
+        AasxExportStandardSubmodels.aidToSubmodel aid "legacy-project" |> ignore
+    | _ -> Assert.Fail "expected one repaired XGT interaction"
+
+[<Fact>]
 let ``AID endpoint update does not create a compatibility binding`` () =
     let aid = AssetInterfacesDescription()
     aid.Interfaces.Add(OpcUa(EndpointMetadata.empty, [], []))

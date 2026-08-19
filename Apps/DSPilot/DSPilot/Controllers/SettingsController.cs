@@ -219,7 +219,7 @@ public class SettingsController : ControllerBase
                 return new SaveResultDto(false, "외부 접속 주소가 올바르지 않습니다. 예: http://192.168.0.10 또는 https://dspilot.company.com");
 
             // 현재 디스크 설정을 baseline 으로 로드 후 클라이언트 편집값을 덮어쓴다(load-modify-save 를 단일 잠금으로 원자화 —
-            // 백그라운드 자동보정의 CompletedAt 박제와 경합해도 유실되지 않도록 AppSettingsService.Update 사용).
+            // 수동 보정의 CompletedAt 박제와 경합해도 유실되지 않도록 AppSettingsService.Update 사용).
             // (UI 미노출 섹션 DspTables/Hub/Ui.ShowPlcDebug 등은 baseline 유지 — appsettings.json 으로만 관리)
             _settings.Update(m =>
             {
@@ -246,11 +246,10 @@ public class SettingsController : ControllerBase
                 // 디바이스별 이상감지 차단 규칙(AbnormalAlarm.DeviceFilters)은 uptime 페이지의
                 // 차단 관리(POST abnormal-device-filters)가 소유 — 여기서는 건드리지 않는다(CCTV 카메라와 동일 원칙).
 
-                // 자동 보정 파라미터. CompletedAt(1회성 플래그)은 baseline(m) 값을 보존 — 파라미터 변경만으로
-                // 자동 재실행을 재무장하지 않는다(재실행은 "지금 실측값 채우기" 버튼 = /auto-calibrate/run).
+                // 실측 보정 파라미터. 실행은 "지금 실측값 채우기" 버튼(/auto-calibrate/run)으로만 한다.
                 if (req.AutoCalibration is { } acReq)
                 {
-                    m.AutoCalibration.Enabled = acReq.Enabled;
+                    m.AutoCalibration.Enabled = false; // 구버전 입력 호환: 자동 백그라운드 실행은 폐기.
                     m.AutoCalibration.MinCleanCycles = Math.Max(1, acReq.MinCleanCycles);
                     // null = 구(캐시) 클라이언트가 필드 없이 보낸 경우 — 기존값 보존(0 으로 조여지는 사고 방지).
                     m.AutoCalibration.MedianMarginMaxPct = Math.Clamp(acReq.MedianMarginMaxPct ?? m.AutoCalibration.MedianMarginMaxPct, 0, 5);
@@ -519,7 +518,7 @@ public class SettingsController : ControllerBase
         return p.ExitCode;
     }
 
-    // ── POST: 실측 duration 자동 보정 즉시 실행 ("지금 실측값 채우기(재시도)") ──
+    // ── POST: 실측 duration 수동 보정 즉시 실행 ("지금 실측값 채우기(재시도)") ──
     // CompletedAt(1회성 플래그)을 무시하고 manual 로 즉시 보정한다. 적합 Flow 의 디바이스 duration/min/max 를
     // 현재 실측값으로 재기록(공식 적용) 후, 성공하면 AutoCalibrationService 가 DatabaseRebuilt 를 브로드캐스트한다.
     [HttpPost("auto-calibrate/run")]
@@ -557,16 +556,15 @@ public class SettingsController : ControllerBase
 
     // ── GET: 이상감지 게이트(실측 확정) 상태 — 모델 duration 과 어긋나 닫힌(stale) Work 배지용 ──
     // stale = 확정값 ≠ 현재 모델 duration → ActionOver/Under 가 조용히 안 뜸(모델 재발행 후 재측정 안 한 경우).
-    // autoEnabled=true 면 stale-repair 루프가 데이터 쌓이는 대로 자동 재측정("측정 중"), false 면 수동 "채우기" 필요.
+    // 자동 stale-repair는 폐기됨. stale Work는 사용자가 "지금 실측값 채우기"를 실행해야 한다.
     [HttpGet("calibration-status")]
     public IActionResult GetCalibrationStatus()
     {
         var all = _project.GetCalibrationStatus();
         var stale = all.Where(s => s.StaleMax || s.StaleMin).ToList();
-        var ac = _settings.LoadSettings().AutoCalibration;
         return Ok(new
         {
-            autoEnabled = ac.Enabled,
+            autoEnabled = false,
             loaded = _project.IsLoaded,
             total = all.Count,
             staleCount = stale.Count,
@@ -970,7 +968,7 @@ public record SettingsDto(
     AasxStatusDto AasxStatus,
     int AlarmTickerIntervalSec = 3,
     int AbnormalAlarmResetIntervalHours = 24,
-    // 실측 duration 자동 보정 설정 + 1회성 완료 시각(표시용 로컬 문자열, 미실행이면 null). 기본값으로 기존 호출부 무손상.
+    // 실측 duration 수동 보정 설정 + 최초 완료 시각(표시용 로컬 문자열, 미실행이면 null). 기본값으로 기존 호출부 무손상.
     AutoCalibrationDto? AutoCalibration = null,
     // 배너 표시 레벨(Info/Warning/Error). 기본값으로 기존 호출부 무손상.
     string[]? AbnormalAlarmDisplayLevels = null,
@@ -1010,7 +1008,7 @@ public record UserTagFilterStateDto(List<UserTagFilterInfoDto> Tags);
 // POST 본문 — 차단할 TagAddress 전체 목록 교체(PUT 의미).
 public record UserTagFiltersSaveDto(List<string>? TagAddresses);
 
-// CompletedAt = 자동 1회 실행 완료 시각(고정). LastAppliedAt = 마지막으로 AASX 에 기록한 시각(매 적용 갱신).
+// CompletedAt = 최초 수동 적용 시각(고정). LastAppliedAt = 마지막으로 AASX 에 기록한 시각(매 적용 갱신).
 // 둘 다 로컬 표시 문자열, null = 미실행. MedianMarginMaxPct = Max 여유율(중앙값 대비 분수, 기본 0.60). PercentileMin = Min 백분위수(기본 5).
 public record AutoCalibrationDto(
     bool Enabled,
@@ -1024,7 +1022,7 @@ public record AutoCalibrationDto(
     string? LastAppliedAt,
     string? LastAppliedSummary);
 
-// 자동 보정 저장 입력 — 편집 가능한 필드만(CompletedAt 은 서버 관리, 저장으로 변경 불가).
+// 수동 보정 저장 입력 — 편집 가능한 필드만(CompletedAt 은 서버 관리, 저장으로 변경 불가).
 // MedianMarginMaxPct 는 nullable — 구(캐시) 클라이언트가 이 필드 없이 보내면 서버가 기존값을 보존한다.
 public record AutoCalibrationSaveDto(
     bool Enabled,
@@ -1122,7 +1120,7 @@ public record SaveRequestDto(
     // 동작편차 색상 범례 임계(편차 %). 기본값으로 기존 호출부 무손상.
     double HeatmapCautionPct = 10.0,
     double HeatmapDangerPct = 30.0,
-    // 자동 보정 파라미터(편집 5필드). null 이면 기존 값 보존 — 기존 호출부 무손상.
+    // 수동 보정 파라미터(편집 5필드). null 이면 기존 값 보존 — 기존 호출부 무손상.
     AutoCalibrationSaveDto? AutoCalibration = null,
     // 배너 표시 레벨(Info/Warning/Error). null 이면 기존 값 보존 — 기존 호출부 무손상.
     string[]? AbnormalAlarmDisplayLevels = null,
