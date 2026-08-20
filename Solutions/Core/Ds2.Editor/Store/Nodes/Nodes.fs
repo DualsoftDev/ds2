@@ -467,6 +467,52 @@ type DsStoreNodesExtensions =
                 store.EmitRefreshAndHistory()
                 movables.Length
 
+    /// 여러 Flow 를 다른 System 으로 통째로 이동한다(한 transaction = 1 undo step). 이동한 개수를 반환.
+    /// Work/Call/ApiCall 은 id 그대로 딸려가고(재생성 아님 — 복사와 다름), 화살표는:
+    /// - Flow 내부 Work 끼리의 화살표 → 대상 System 으로 재부모화 (ArrowBetweenWorks.ParentId = systemId 불변식)
+    /// - 소스 System 의 타 Flow Work 와 걸친 화살표 → 제거 (Work 이동과 동일 정책 — cross-flow 연결 끊김)
+    /// 대상 System 에 같은 이름의 Flow 가 있으면 유니크 이름으로 자동 개명하고 Work.FlowPrefix 를 cascade.
+    [<Extension>]
+    static member MoveFlowsToSystem(store: DsStore, flowIds: seq<Guid>, targetSystemId: Guid) : int =
+        match Queries.getSystem targetSystemId store with
+        | None -> 0
+        | Some _ ->
+            let movables =
+                flowIds
+                |> Seq.distinct
+                |> Seq.choose (fun id -> Queries.getFlow id store)
+                |> Seq.filter (fun f -> f.ParentId <> targetSystemId)
+                |> Seq.toList
+            if movables.IsEmpty then 0
+            else
+                store.WithTransaction($"Move {movables.Length} Flow(s) to System", fun () ->
+                    for flow in movables do
+                        let workIds =
+                            Queries.worksOf flow.Id store |> List.map (fun w -> w.Id) |> Set.ofList
+                        let sourceArrows = Queries.arrowWorksOf flow.ParentId store
+                        for arrow in sourceArrows do
+                            let srcIn = workIds.Contains arrow.SourceId
+                            let tgtIn = workIds.Contains arrow.TargetId
+                            if srcIn && tgtIn then
+                                store.TrackMutate(store.ArrowWorks, arrow.Id, fun a ->
+                                    a.ParentId <- targetSystemId)
+                            elif srcIn || tgtIn then
+                                store.TrackRemove(store.ArrowWorks, arrow.Id)
+                        let existingNames =
+                            Queries.flowsOf targetSystemId store |> List.map (fun f -> f.Name)
+                        // oldName 캡처 필수 — TrackMutate 는 같은 인스턴스를 뮤테이트하므로
+                        // 뮤테이트 후 flow.Name 과 비교하면 개명 여부를 판별할 수 없다.
+                        let oldName = flow.Name
+                        let newName = Queries.nextUniqueName oldName existingNames
+                        store.TrackMutate(store.Flows, flow.Id, fun f ->
+                            f.ParentId <- targetSystemId
+                            f.Name <- newName)
+                        if newName <> oldName then
+                            for wid in workIds do
+                                store.TrackMutate(store.Works, wid, fun w -> w.FlowPrefix <- newName))
+                store.EmitRefreshAndHistory()
+                movables.Length
+
     // ─── AutoLayout ────────────────────────────────────────────────────
 
     /// 노드들이 모두 같은 좌표에 몰려있으면 자동 배치 적용 (Mermaid 임포트, 탭 최초 오픈 등).

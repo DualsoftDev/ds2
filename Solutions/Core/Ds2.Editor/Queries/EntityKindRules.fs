@@ -17,7 +17,7 @@ module EntityKindRules =
         | "AddCall"       -> kind = Some EntityKind.Work
         | "ExportCsv"     -> hasProject && not isDeviceTree
         | "Copy"          -> kind = Some EntityKind.Flow || kind = Some EntityKind.Work || kind = Some EntityKind.Call
-        | "Cut"           -> kind = Some EntityKind.Work || kind = Some EntityKind.Call
+        | "Cut"           -> kind = Some EntityKind.Flow || kind = Some EntityKind.Work || kind = Some EntityKind.Call
         | "Paste"         -> kind = Some EntityKind.System || kind = Some EntityKind.Flow || kind = Some EntityKind.Work
         | "FocusCanvas"   -> kind = Some EntityKind.Work || kind = Some EntityKind.Call
         // System 은 양쪽 트리에서 "이름 바꾸기..." 허용. 단 진입 동작은 다름(FocusNameEditor 분기):
