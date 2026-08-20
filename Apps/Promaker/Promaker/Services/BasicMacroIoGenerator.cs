@@ -21,13 +21,26 @@ public static class BasicMacroIoGenerator
 
     public sealed record Input(string IwMacro, string QwMacro, string MwMacro, IReadOnlyList<FlowBase> FlowBases);
 
-    public static List<IoBatchRow> Generate(DsStore store, Input input)
+    public static List<IoBatchRow> Generate(DsStore store, Input input, Guid? systemId = null)
     {
         if (store == null) throw new ArgumentNullException(nameof(store));
         if (input == null) throw new ArgumentNullException(nameof(input));
 
+        // 멀티 PLC — systemId 가 주어지면 그 System 소속 Call 만 대상.
+        // 주소 순번(nth 추적)이 System 스코프로 매겨져야 다른 PLC 의 같은 Flow 명과 섞이지 않는다.
+        HashSet<Guid>? callIdsInSystem = null;
+        if (systemId is { } sid)
+        {
+            callIdsInSystem = new HashSet<Guid>();
+            foreach (var flow in Queries.flowsOf(sid, store))
+                foreach (var work in Queries.worksOf(flow.Id, store))
+                    foreach (var call in Queries.callsOf(work.Id, store))
+                        callIdsInSystem.Add(call.Id);
+        }
+
         // ApiCall 순회 + context 해석(외부 AAStoPLC F# 모듈) → F# 입력 record 시퀀스로 변환.
         var contexts = store.Calls.Values
+            .Where(c => callIdsInSystem == null || callIdsInSystem.Contains(c.Id))
             .SelectMany(c => c.ApiCalls.Select(ac => (call: c, apiCall: ac)))
             .Select(t =>
             {

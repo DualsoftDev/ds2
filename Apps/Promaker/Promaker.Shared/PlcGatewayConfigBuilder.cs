@@ -57,6 +57,7 @@ public static class PlcGatewayConfigBuilder
         var transport = settings.IsUdp ? PlcTransport.Udp : PlcTransport.Tcp;
         var connection = new PlcConnectionConfig(
             settings.Name,
+            FSharpOption<Guid>.None,
             fsVendor,
             settings.IpAddress.Trim(),
             settings.Port,

@@ -12,7 +12,9 @@ open Ds2.Runtime.Engine.Abnormal
 /// 이벤트 기반 시뮬레이션 엔진
 /// H 상태 구현: F->H (내부 Call R 정리) -> H->R (최소 1ms)
 type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (string -> string -> unit) option) =
-    let ioMap = Ds2.Runtime.IO.SignalIOMap.build index.Store
+    // 인덱스에 담긴 Call 로 IO 매핑 스코프를 맞춘다 — System 단위 실행이면 그 System 의 주소만,
+    // 전체 인덱스면 기존과 동일한 전 매핑 (AllCallGuids = 전 Call).
+    let ioMap = Ds2.Runtime.IO.SignalIOMap.buildFiltered index.Store (Some (Set.ofList index.AllCallGuids))
     let writeTagFn = defaultArg writeTag (fun _ _ -> ())
     let mutable status = Stopped
     let mutable isHomingPhase = false

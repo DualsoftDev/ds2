@@ -49,6 +49,7 @@
     <Compile Include="UndoMergeTests.fs" />
     <Compile Include="StoreRevisionTests.fs" />
     <Compile Include="DeviceDurationQueryTests.fs" />
+    <Compile Include="AddTargetQueriesTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

@@ -22,6 +22,10 @@ public partial class RuntimeSettingDialog : Window
     private List<ModeItemVM> _items = new();
     private bool _syncingSelection;   // ComboBox ↔ 카드 선택 동기화 중 재진입 방지
 
+    /// <summary>실행 대상 콤보 인덱스 → SystemId (0 = 라인 전체 = null).</summary>
+    private readonly List<System.Guid?> _targetSystemItems = new();
+    private bool _suppressTargetSystemEvent;
+
     public RuntimeSettingDialog(MainViewModel vm)
     {
         _vm = vm;
@@ -34,10 +38,50 @@ public partial class RuntimeSettingDialog : Window
         ModeCombo.SelectedItem = _items.FirstOrDefault(v => v.IsSelected);
         RefreshThumbnails();
 
+        LoadTargetSystems();
+
         // 현재 VM 의 PLC 읽기 방식 반영(직접=IsRealPlcConnected, 위임=그 반대) 후 모드에 맞춰 상태 갱신.
         if (vm.Simulation.IsRealPlcConnected) DirectRadio.IsChecked = true;
         else DelegatedRadio.IsChecked = true;
         UpdateModeDependentState();
+    }
+
+    /// <summary>실행 대상 콤보 구성 — "라인 전체" + active System 목록. VM 의 선택값 유지.</summary>
+    private void LoadTargetSystems()
+    {
+        _suppressTargetSystemEvent = true;
+        try
+        {
+            _targetSystemItems.Clear();
+            TargetSystemCombo.Items.Clear();
+
+            _targetSystemItems.Add(null);
+            TargetSystemCombo.Items.Add("라인 전체 (프로젝트)");
+
+            foreach (var entry in _vm.Simulation.ListPlcSystemEndpoints())
+            {
+                _targetSystemItems.Add(entry.SystemId);
+                TargetSystemCombo.Items.Add(entry.SystemName);
+            }
+
+            var current = _vm.Simulation.RuntimeTargetSystemId;
+            var index = current is { } sid ? _targetSystemItems.IndexOf(sid) : 0;
+            if (index < 0) { _vm.Simulation.RuntimeTargetSystemId = null; index = 0; }
+            TargetSystemCombo.SelectedIndex = index;
+            TargetSystemCombo.IsEnabled = _targetSystemItems.Count > 2;   // System 1개면 선택 무의미
+        }
+        finally
+        {
+            _suppressTargetSystemEvent = false;
+        }
+    }
+
+    private void TargetSystemCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressTargetSystemEvent) return;
+        var index = TargetSystemCombo.SelectedIndex;
+        _vm.Simulation.RuntimeTargetSystemId =
+            index >= 0 && index < _targetSystemItems.Count ? _targetSystemItems[index] : null;
     }
 
     /// <summary>ComboBox 또는 카드 클릭으로 모드를 선택 — 두 표시를 동기화하고 모드 의존 상태를 갱신.</summary>
@@ -89,7 +133,12 @@ public partial class RuntimeSettingDialog : Window
     {
         // IO 매핑이 비어 있으면 사용자에게 즉시 알려준다 — 다이얼로그 안에서도 안내.
         var tagCount = _vm.Simulation.CountAutoImportablePlcAddresses();
-        var dialog = new PlcSettingsDialog(_vm.Simulation.PlcSettings, tagCount, _vm.Simulation.AutoDurationCalibrate)
+        // 다중 System(멀티 PLC) 프로젝트면 System 목록을 넘겨 System별 endpoint 편집 모드로.
+        // 단일 System 이면 기존 단일 화면 동작 (다이얼로그가 목록 1개를 보고 콤보를 숨김).
+        var systems = _vm.Simulation.ListPlcSystemEndpoints();
+        var dialog = new PlcSettingsDialog(
+            _vm.Simulation.PlcSettings, tagCount, _vm.Simulation.AutoDurationCalibrate,
+            systems, _vm.Simulation.SavePlcEndpointForSystem)
         {
             Owner = this
         };

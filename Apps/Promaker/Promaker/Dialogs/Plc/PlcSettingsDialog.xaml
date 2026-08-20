@@ -61,6 +61,24 @@
             <!-- Body -->
             <StackPanel Grid.Row="1" Margin="24,18,24,12">
 
+                <!-- System 선택 — 다중 System(멀티 PLC) 프로젝트에서만 표시.
+                     System마다 PLC 접속(AID endpoint)을 따로 편집·저장한다. -->
+                <Grid x:Name="SystemSelectPanel" Margin="0,0,0,16" Visibility="Collapsed">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="260"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="System (PLC)" Style="{StaticResource LabelStyle}"/>
+                    <ComboBox Grid.Column="1" x:Name="SystemCombo" Height="28"
+                              VerticalContentAlignment="Center"
+                              SelectionChanged="SystemCombo_SelectionChanged"/>
+                    <TextBlock Grid.Column="2" Margin="12,0,0,0" VerticalAlignment="Center"
+                               FontSize="11" TextWrapping="Wrap"
+                               Foreground="{DynamicResource SecondaryTextBrush}"
+                               Text="System마다 PLC 접속을 따로 저장합니다. 적용 시 편집한 System 전부 반영."/>
+                </Grid>
+
                 <!-- Vendor 선택 -->
                 <TextBlock Text="벤더" FontSize="13" FontWeight="SemiBold"
                            Foreground="{DynamicResource PrimaryTextBrush}"

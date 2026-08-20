@@ -191,6 +191,10 @@ module AasxImportStandardSubmodels =
     let private endpointFromSmc (smc: SubmodelElementCollection) : EndpointMetadata =
         {
             Base = propStr smc "base"
+            SystemId = propOpt smc "systemRef" |> Option.bind (fun value ->
+                match Guid.TryParse value with
+                | true, systemId -> Some systemId
+                | _ -> None)
             Security = propOpt smc "security"
             UnitId = propByte smc "unitId"
             AuthReferenceVault = propOpt smc "authReferenceVault"
@@ -280,6 +284,10 @@ module AasxImportStandardSubmodels =
     let private xgtEndpointFromSmc (smc: SubmodelElementCollection) : XgtEndpointMetadata =
         {
             Base = propStr smc "base"
+            SystemId = propOpt smc "systemRef" |> Option.bind (fun value ->
+                match Guid.TryParse value with
+                | true, systemId -> Some systemId
+                | _ -> None)
             CpuModel =
                 match propStr smc "cpuModel" with
                 | "XGK" -> Xgk

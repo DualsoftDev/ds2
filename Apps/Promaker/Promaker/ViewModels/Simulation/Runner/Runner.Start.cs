@@ -36,7 +36,11 @@ public partial class SimulationPanelState
 
         try
         {
-            var index = SimIndexModule.build(Store, 10);
+            // System 단위 실행 — 대상 System 이 지정되면 그 System + 인과 폐포만 담은 인덱스.
+            // 프로젝트(라인) 전체 실행은 기존 그대로.
+            var index = RuntimeTargetSystemId is { } targetSid
+                ? SimIndexModule.buildForSystem(Store, 10, targetSid)
+                : SimIndexModule.build(Store, 10);
 
             // 토큰 역할이 설정되어 있으면 PLAY 전 자동 검증.
             // 단 원위치(BeginHoming) 세션은 deadman switch 라 모달 다이얼로그와 양립 불가 —

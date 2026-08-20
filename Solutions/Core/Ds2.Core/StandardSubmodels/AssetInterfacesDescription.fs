@@ -67,6 +67,10 @@ module AssetInterfacesDescriptionTypes =
 
     type XgtEndpointMetadata = {
         Base: string
+        /// Active System that owns this connection.  AID itself stays Project-scoped,
+        /// while every southbound endpoint is explicitly scoped to one System.
+        /// None means an imported legacy endpoint whose owner has not been assigned yet.
+        SystemId: Guid option
         CpuModel: XgtCpuModel
         LocalEthernet: bool
         NetworkNumber: byte
@@ -78,6 +82,7 @@ module AssetInterfacesDescriptionTypes =
     }
         with static member empty = {
                     Base = "xgt+tcp://127.0.0.1:2004"
+                    SystemId = None
                     CpuModel = Xgi
                     LocalEthernet = true
                     NetworkNumber = 0uy
@@ -93,6 +98,9 @@ module AssetInterfacesDescriptionTypes =
     type EndpointMetadata = {
         /// Connection base URL (e.g. `opc.tcp://host:4840`, `modbus+tcp://host:502`).
         Base: string
+        /// Active System that owns this endpoint.  Kept optional so pre-systemRef
+        /// AASX files retain their original semantics on import.
+        SystemId: Guid option
         /// Free-form security profile string as it appears in the AID template.
         Security: string option
         /// Modbus slave / unit id (only meaningful for InterfaceMODBUS).
@@ -102,6 +110,7 @@ module AssetInterfacesDescriptionTypes =
     }
         with static member empty = {
                     Base = ""
+                    SystemId = None
                     Security = None
                     UnitId = None
                     AuthReferenceVault = None
@@ -218,7 +227,7 @@ module AssetInterfacesDescriptionTypes =
     type AidXgtConnectionInfo
         (baseUri: string, vendor: string, ipAddress: string, port: int,
          isUdp: bool, localEthernet: bool, networkNumber: byte, stationNumber: byte,
-         timeoutMs: int, scanIntervalMs: int) =
+         timeoutMs: int, scanIntervalMs: int, systemId: Guid option) =
         member _.BaseUri = baseUri
         member _.Vendor = vendor
         member _.IpAddress = ipAddress
@@ -229,6 +238,15 @@ module AssetInterfacesDescriptionTypes =
         member _.StationNumber = stationNumber
         member _.TimeoutMs = timeoutMs
         member _.ScanIntervalMs = scanIntervalMs
+        member _.SystemId = systemId |> Option.toNullable
+        /// Source-compatible constructor for integrations that predate systemRef.
+        new
+            (baseUri: string, vendor: string, ipAddress: string, port: int,
+             isUdp: bool, localEthernet: bool, networkNumber: byte, stationNumber: byte,
+             timeoutMs: int, scanIntervalMs: int) =
+            AidXgtConnectionInfo(
+                baseUri, vendor, ipAddress, port, isUdp, localEthernet, networkNumber,
+                stationNumber, timeoutMs, scanIntervalMs, None)
 
     /// Promaker PLC 설정 ↔ AID InterfaceXGT EndpointMetadata 동기화 경계.
     /// 새 AID 모델은 이 endpoint만 수집 SSOT로 사용한다.
@@ -270,27 +288,43 @@ module AssetInterfacesDescriptionTypes =
             | "LSXGB" -> Some Xgb
             | _ -> None
 
+        let private toConnectionInfo (endpoint: XgtEndpointMetadata) =
+            match Uri.TryCreate(endpoint.Base, UriKind.Absolute) with
+            | true, uri when not (String.IsNullOrWhiteSpace uri.Host) && uri.Port > 0 ->
+                Some (AidXgtConnectionInfo(
+                    endpoint.Base,
+                    vendorOfCpuModel endpoint.CpuModel,
+                    uri.Host,
+                    uri.Port,
+                    endpoint.Transport = XgtUdp,
+                    endpoint.LocalEthernet,
+                    endpoint.NetworkNumber,
+                    endpoint.StationNumber,
+                    endpoint.TimeoutMs,
+                    endpoint.ScanIntervalMs,
+                    endpoint.SystemId))
+            | _ -> None
+
         [<CompiledName("TryReadFirst")>]
         let tryReadFirst (aid: AssetInterfacesDescription) : AidXgtConnectionInfo =
             if isNull (box aid) then null
             else
                 aid.Interfaces
                 |> Seq.tryPick (function
-                    | Xgt (endpoint, _) ->
-                        match Uri.TryCreate(endpoint.Base, UriKind.Absolute) with
-                        | true, uri when not (String.IsNullOrWhiteSpace uri.Host) && uri.Port > 0 ->
-                            Some (AidXgtConnectionInfo(
-                                endpoint.Base,
-                                vendorOfCpuModel endpoint.CpuModel,
-                                uri.Host,
-                                uri.Port,
-                                endpoint.Transport = XgtUdp,
-                                endpoint.LocalEthernet,
-                                endpoint.NetworkNumber,
-                                endpoint.StationNumber,
-                                endpoint.TimeoutMs,
-                                endpoint.ScanIntervalMs))
-                        | _ -> None
+                    | Xgt (endpoint, _) -> toConnectionInfo endpoint
+                    | _ -> None)
+                |> Option.defaultValue null
+
+        /// Reads the XGT endpoint explicitly assigned to one active System.
+        /// Legacy endpoints without a systemRef are deliberately excluded: callers
+        /// must claim them through EnsureBindingForSystem before a multi-System save.
+        [<CompiledName("TryReadForSystem")>]
+        let tryReadForSystem (aid: AssetInterfacesDescription, systemId: Guid) : AidXgtConnectionInfo =
+            if isNull (box aid) || systemId = Guid.Empty then null
+            else
+                aid.Interfaces
+                |> Seq.tryPick (function
+                    | Xgt (endpoint, _) when endpoint.SystemId = Some systemId -> toConnectionInfo endpoint
                     | _ -> None)
                 |> Option.defaultValue null
 
@@ -331,6 +365,55 @@ module AssetInterfacesDescriptionTypes =
                         updated <- updated + 1
                     | _ -> ()
                 updated
+
+        /// Updates only the InterfaceXGT endpoint assigned to `systemId`.
+        /// A single unassigned legacy endpoint is claimed on first update, which
+        /// preserves one-System projects while preventing a multi-System save from
+        /// stamping one PLC profile across every endpoint.
+        [<CompiledName("UpdateForSystem")>]
+        let updateForSystem
+            (aid: AssetInterfacesDescription,
+             systemId: Guid,
+             vendor: string,
+             ipAddress: string,
+             port: int,
+             isUdp: bool,
+             localEthernet: bool,
+             networkNumber: byte,
+             stationNumber: byte,
+             timeoutMs: int,
+             scanIntervalMs: int) : int =
+            match tryCpuModel vendor with
+            | None -> 0
+            | Some _ when isNull (box aid) || systemId = Guid.Empty || String.IsNullOrWhiteSpace ipAddress || port <= 0 -> 0
+            | Some cpuModel ->
+                let transport = if isUdp then XgtUdp else XgtTcp
+                let scheme = if isUdp then "xgt+udp" else "xgt+tcp"
+                let baseUri = $"{scheme}://{ipAddress.Trim()}:{port}"
+                let xgtBindings =
+                    aid.Interfaces
+                    |> Seq.mapi (fun index binding -> index, binding)
+                    |> Seq.choose (function index, Xgt (endpoint, interactions) -> Some (index, endpoint, interactions) | _ -> None)
+                    |> List.ofSeq
+                let assigned = xgtBindings |> List.filter (fun (_, endpoint, _) -> endpoint.SystemId = Some systemId)
+                let targets =
+                    if not assigned.IsEmpty then assigned
+                    elif xgtBindings.Length = 1 && (let _, endpoint, _ = xgtBindings.Head in endpoint.SystemId.IsNone) then xgtBindings
+                    else []
+                for index, endpoint, interactions in targets do
+                    let next =
+                        { endpoint with
+                            SystemId = Some systemId
+                            Base = baseUri
+                            CpuModel = cpuModel
+                            LocalEthernet = localEthernet
+                            NetworkNumber = networkNumber
+                            StationNumber = stationNumber
+                            Transport = transport
+                            TimeoutMs = if timeoutMs > 0 then timeoutMs else endpoint.TimeoutMs
+                            ScanIntervalMs = if scanIntervalMs > 0 then scanIntervalMs else endpoint.ScanIntervalMs }
+                    aid.Interfaces.[index] <- Xgt (next, interactions)
+                targets.Length
 
         /// XGT 수집 바인딩을 보장한다 — 기존 InterfaceXGT 가 있으면 endpoint 를 갱신하고 새 주소를 병합하며,
         /// 없으면 addresses(모델 IO맵의 OUT/IN + UserTag 주소)로 InteractionMetadata 를 만들어 새로 생성한다.
@@ -412,4 +495,87 @@ module AssetInterfacesDescriptionTypes =
                 else
                     let interactions = normalizedAddresses |> List.map interactionForAddress
                     aid.Interfaces.Add(Xgt (endpoint, interactions))
+                    List.length interactions
+
+        /// Ensures a distinct XGT binding for one active System.
+        /// Existing bindings for other systems are intentionally untouched.  A
+        /// one-endpoint legacy AID is upgraded in place; otherwise a new endpoint
+        /// is appended for the selected System.
+        [<CompiledName("EnsureBindingForSystem")>]
+        let ensureBindingForSystem
+            (aid: AssetInterfacesDescription,
+             systemId: Guid,
+             vendor: string,
+             ipAddress: string,
+             port: int,
+             isUdp: bool,
+             localEthernet: bool,
+             networkNumber: byte,
+             stationNumber: byte,
+             timeoutMs: int,
+             scanIntervalMs: int,
+             addresses: seq<string>) : int =
+            match tryCpuModel vendor with
+            | None -> 0
+            | Some _ when isNull (box aid) || systemId = Guid.Empty || String.IsNullOrWhiteSpace ipAddress || port <= 0 -> 0
+            | Some cpuModel ->
+                let normalizedAddresses =
+                    let seen = HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    addresses
+                    |> Seq.choose (fun address ->
+                        if String.IsNullOrWhiteSpace address then None
+                        else
+                            let trimmed = address.Trim()
+                            if seen.Add trimmed then Some trimmed else None)
+                    |> List.ofSeq
+                let transport = if isUdp then XgtUdp else XgtTcp
+                let scheme = if isUdp then "xgt+udp" else "xgt+tcp"
+                let requestedEndpoint =
+                    { XgtEndpointMetadata.empty with
+                        SystemId = Some systemId
+                        Base = sprintf "%s://%s:%d" scheme (ipAddress.Trim()) port
+                        CpuModel = cpuModel
+                        LocalEthernet = localEthernet
+                        NetworkNumber = networkNumber
+                        StationNumber = stationNumber
+                        Transport = transport
+                        TimeoutMs = (if timeoutMs > 0 then timeoutMs else 3000)
+                        ScanIntervalMs = (if scanIntervalMs > 0 then scanIntervalMs else 100) }
+                let xgtBindings =
+                    aid.Interfaces
+                    |> Seq.mapi (fun index binding -> index, binding)
+                    |> Seq.choose (function index, Xgt (endpoint, interactions) -> Some (index, endpoint, interactions) | _ -> None)
+                    |> List.ofSeq
+                let target =
+                    xgtBindings
+                    |> List.tryFind (fun (_, endpoint, _) -> endpoint.SystemId = Some systemId)
+                    |> Option.orElseWith (fun () ->
+                        if xgtBindings.Length = 1 && (let _, endpoint, _ = xgtBindings.Head in endpoint.SystemId.IsNone)
+                        then Some xgtBindings.Head
+                        else None)
+                match target with
+                | Some (index, existingEndpoint, existing) ->
+                    let normalizedExisting = existing |> List.map normalizeLegacyGeneratedInteraction
+                    let seen = HashSet<string>(normalizedExisting |> Seq.map _.Href, StringComparer.OrdinalIgnoreCase)
+                    let added =
+                        normalizedAddresses
+                        |> List.choose (fun address -> if seen.Add address then Some (interactionForAddress address) else None)
+                    let nextEndpoint =
+                        { existingEndpoint with
+                            SystemId = Some systemId
+                            Base = requestedEndpoint.Base
+                            CpuModel = requestedEndpoint.CpuModel
+                            LocalEthernet = requestedEndpoint.LocalEthernet
+                            NetworkNumber = requestedEndpoint.NetworkNumber
+                            StationNumber = requestedEndpoint.StationNumber
+                            Transport = requestedEndpoint.Transport
+                            TimeoutMs = if timeoutMs > 0 then timeoutMs else existingEndpoint.TimeoutMs
+                            ScanIntervalMs = if scanIntervalMs > 0 then scanIntervalMs else existingEndpoint.ScanIntervalMs }
+                    let merged = normalizedExisting @ added
+                    aid.Interfaces.[index] <- Xgt (nextEndpoint, merged)
+                    List.length merged
+                | None when normalizedAddresses.IsEmpty -> 0
+                | None ->
+                    let interactions = normalizedAddresses |> List.map interactionForAddress
+                    aid.Interfaces.Add(Xgt (requestedEndpoint, interactions))
                     List.length interactions

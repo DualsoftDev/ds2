@@ -14,10 +14,13 @@ public sealed class IoBatchRow : BatchRowBase
 {
     public IoBatchRow(Guid callId, Guid apiCallId, string flow, string work, string device, string api,
                       string inAddress, string inSymbol, string outAddress, string outSymbol,
-                      string outDataType = "BOOL", string inDataType = "BOOL")
+                      string outDataType = "BOOL", string inDataType = "BOOL",
+                      Guid systemId = default, string systemName = "")
     {
         CallId = callId;
         ApiCallId = apiCallId;
+        SystemId = systemId;
+        SystemName = systemName;
         Flow = flow;
         Work = work;
         Device = device;
@@ -32,6 +35,11 @@ public sealed class IoBatchRow : BatchRowBase
 
     public Guid CallId { get; }
     public Guid ApiCallId { get; }
+
+    /// <summary>소속 active System(PLC) — 멀티 PLC 에서 System 필터 축.</summary>
+    public Guid SystemId { get; }
+    public string SystemName { get; }
+
     public string Flow { get; }
     public string Work { get; }
     public string Device { get; }

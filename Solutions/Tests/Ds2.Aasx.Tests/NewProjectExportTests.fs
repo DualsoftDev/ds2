@@ -7,6 +7,7 @@ open Xunit
 open AasCore.Aas3_1
 open Ds2.Aasx
 open Ds2.Aasx.AasxSemantics
+open Ds2.Backend.Plc
 open Ds2.Core.StandardSubmodels
 open Ds2.Core.Store
 open Ds2.Editor
@@ -60,6 +61,79 @@ let ``new project with auto-created XGT AID can be saved as AASX`` () =
         | Error error -> Assert.Fail(error)
         let restoredProject = restored.Projects.Values |> Seq.head
         Assert.True(restoredProject.AssetInterfaces.IsSome)
+    finally
+        if File.Exists(path) then File.Delete(path)
+
+[<Fact>]
+let ``multiple active Systems retain distinct AID XGT endpoint ownership`` () =
+    let store = newPromakerProject ()
+    let project = store.Projects.Values |> Seq.head
+    let system1 = project.ActiveSystemIds.[0]
+    let system2 = store.AddSystem("SecondSystem", project.Id, true)
+    store.AddFlow("SecondFlow", system2) |> ignore
+
+    let aid = AssetInterfacesDescription()
+    project.AssetInterfaces <- Some aid
+    AidXgtEndpointSettings.ensureBindingForSystem(
+        aid, system1, "LsXgi", "192.168.0.10", 2004, false, true,
+        0uy, 255uy, 3000, 100, [ "%QX0.1.13" ])
+    |> ignore
+    AidXgtEndpointSettings.ensureBindingForSystem(
+        aid, system2, "LsXgb", "192.168.0.20", 2004, false, true,
+        0uy, 255uy, 3000, 100, [ "%IX0.2.7" ])
+    |> ignore
+
+    let path = Path.Combine(Path.GetTempPath(), $"multi-system-xgt-{Guid.NewGuid():N}.aasx")
+    try
+        Assert.True(AasxExporter.exportFromStore store path "" false false)
+        let restored = DsStore.empty()
+        match AasxImporter.importIntoStoreWithError restored path with
+        | Ok () -> ()
+        | Error error -> Assert.Fail(error)
+
+        let restoredProject = restored.Projects.Values |> Seq.head
+        Assert.Equal(2, restoredProject.ActiveSystemIds.Count)
+        let restoredAid = restoredProject.AssetInterfaces.Value
+        let endpointSystemIds =
+            restoredAid.Interfaces
+            |> Seq.choose (function Xgt (endpoint, _) -> endpoint.SystemId | _ -> None)
+            |> Set.ofSeq
+        Assert.Equal<Set<Guid>>(Set.ofList [ system1; system2 ], endpointSystemIds)
+
+        let plan = AidXgtGatewayConfig.buildForProject(restored, restoredProject, restoredAid)
+        Assert.True(plan.Success, String.Join(" / ", plan.Errors))
+        Assert.Equal(2, plan.Config.Connections.Length)
+        Assert.All(plan.Config.Connections, fun connection -> Assert.True(connection.SystemId.IsSome))
+        Assert.Equal<Set<Guid>>(
+            Set.ofList [ system1; system2 ],
+            plan.Config.Connections |> Seq.choose _.SystemId |> Set.ofSeq)
+    finally
+        if File.Exists(path) then File.Delete(path)
+
+[<Fact>]
+let ``PLC CSV facade creates one active System for each SYSTEM column value`` () =
+    let csv =
+        "Flow,Work,Device,System,Api,InName,InAddress,OutName,OutAddress\n" +
+        "Main,Load,Loader,PLC-1,Advance,Ready,%IX0.0,Run,%QX0.0\n" +
+        "Main,Load,Loader,PLC-2,Advance,Ready,%IX0.1,Run,%QX0.1\n"
+    let bytes = PlcAasxFacade.exportDs2CsvToAasxBytes "KGM-Line" csv ""
+    Assert.NotNull(bytes)
+    Assert.NotEmpty(bytes)
+
+    let path = Path.Combine(Path.GetTempPath(), $"csv-multi-system-{Guid.NewGuid():N}.aasx")
+    try
+        File.WriteAllBytes(path, bytes)
+        let restored = DsStore.empty()
+        match AasxImporter.importIntoStoreWithError restored path with
+        | Ok () -> ()
+        | Error error -> Assert.Fail(error)
+
+        let project = restored.Projects.Values |> Seq.head
+        let names =
+            project.ActiveSystemIds
+            |> Seq.map (fun id -> restored.Systems.[id].Name)
+            |> Set.ofSeq
+        Assert.Equal<Set<string>>(Set.ofList [ "PLC-1"; "PLC-2" ], names)
     finally
         if File.Exists(path) then File.Delete(path)
 

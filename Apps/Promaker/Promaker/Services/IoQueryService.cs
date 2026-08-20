@@ -76,7 +76,9 @@ public static class IoQueryService
                     outAddress:  b.OutAddress ?? "",
                     outSymbol:   b.OutSymbol  ?? "",
                     outDataType: b.OutDataType ?? "BOOL",
-                    inDataType:  b.InDataType  ?? "BOOL");
+                    inDataType:  b.InDataType  ?? "BOOL",
+                    systemId:    b.SystemId,
+                    systemName:  b.SystemName ?? "");
                 row.IsUnmatched = isUnknown;
                 rows.Add(row);
 

@@ -182,6 +182,9 @@ module AasxExportStandardSubmodels =
 
     let private endpointMetadataSmc (ep: EndpointMetadata) : ISubmodelElement =
         let mutable elems : ISubmodelElement list = [ mkProp "base" ep.Base ]
+        match ep.SystemId with
+        | Some systemId -> elems <- elems @ [ mkProp "systemRef" (string systemId) ]
+        | None -> ()
         match ep.Security with
         | Some s when not (String.IsNullOrEmpty s) -> elems <- elems @ [ mkProp "security" s ]
         | _ -> ()
@@ -209,6 +212,9 @@ module AasxExportStandardSubmodels =
             mkIntProp "timeoutMs" ep.TimeoutMs
             mkIntProp "scanIntervalMs" ep.ScanIntervalMs
         ]
+        match ep.SystemId with
+        | Some systemId -> elems <- elems @ [ mkProp "systemRef" (string systemId) ]
+        | None -> ()
         match ep.AuthReferenceVault with
         | Some value ->
             elems <- elems @ [ mkProp "authReferenceVault" value |> withSemId (Some VaultReferenceExtensionSemanticId) ]

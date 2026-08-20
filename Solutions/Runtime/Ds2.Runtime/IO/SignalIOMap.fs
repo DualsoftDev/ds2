@@ -57,11 +57,17 @@ type SignalIOMap with
 
 module SignalIOMap =
 
-    /// DsStore에서 IO 매핑 빌드
-    let build (store: DsStore) : SignalIOMap =
+    /// DsStore에서 IO 매핑 빌드. callFilter 가 Some 이면 그 Call 집합만 —
+    /// System 단위 실행(멀티 PLC)에서 엔진 인덱스에 담긴 Call 로 스코프를 맞춘다.
+    let buildFiltered (store: DsStore) (callFilter: Set<Guid> option) : SignalIOMap =
         let mappings = ResizeArray<SignalMapping>()
 
-        for call in store.Calls.Values do
+        let calls =
+            match callFilter with
+            | Some ids -> store.Calls.Values |> Seq.filter (fun c -> ids.Contains c.Id)
+            | None -> store.Calls.Values :> seq<_>
+
+        for call in calls do
             for apiCall in call.ApiCalls do
                 let apiDef =
                     apiCall.ApiDefId
@@ -131,3 +137,7 @@ module SignalIOMap =
             TxWorkToOutAddresses = txWorkMap
             RxWorkToInAddresses = rxWorkMap
         }
+
+    /// 프로젝트 전체 IO 매핑 (기존 동작 유지용 래퍼).
+    let build (store: DsStore) : SignalIOMap =
+        buildFiltered store None

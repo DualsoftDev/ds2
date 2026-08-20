@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Globalization;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using Promaker.Dialogs;
 using Promaker.ViewModels;
@@ -25,6 +26,20 @@ public partial class PlcSettingsDialog : Window
     /// <summary>다이얼로그 수명 동안 벤더 토글로 옮겨 다니는 작업본. Apply 에서만 VM 으로 commit.</summary>
     private readonly Dictionary<string, PromakerShared.PlcVendorProfile> _workingProfiles;
 
+    /// <summary>다중 System(멀티 PLC) 편집 대상 — null 또는 1개면 기존 단일 화면 동작.</summary>
+    private readonly IReadOnlyList<PlcSystemEndpointEntry>? _systems;
+
+    /// <summary>System별 endpoint 저장 콜백 (systemId, vendor, profile) → 성공 여부. VM 이 AID 에 기록.</summary>
+    private readonly Func<Guid, PlcVendorChoice, PromakerShared.PlcVendorProfile, bool>? _saveEndpoint;
+
+    /// <summary>System별 편집본 — 콤보 전환 시 폼을 스냅샷/복원. Apply 에서 변경분을 저장.</summary>
+    private readonly Dictionary<Guid, (PlcVendorChoice Vendor, PromakerShared.PlcVendorProfile Profile)> _systemEdits = new();
+
+    private Guid _currentSystemId;
+    private bool _suppressSystemSelection;
+
+    private bool MultiSystem => _systems is { Count: > 1 };
+
     /// <summary>다이얼로그 결과 — 자동 duration 정합 체크 상태. 호출자가 닫힌 후 SimulationPanelState 에 적용
     /// (hub 전파). PlcSettings(연결) 와 별개 축이라 VM 에 안 섞고 결과 property 로 노출한다.</summary>
     public bool AutoDurationCalibrate { get; private set; }
@@ -33,9 +48,16 @@ public partial class PlcSettingsDialog : Window
     /// (GanttChart 갱신). 영속화는 Apply 에서 PlcSettings(_vm) 경유로 함께 저장된다.</summary>
     public int GanttWindowMinutes { get; private set; }
 
-    public PlcSettingsDialog(PlcSettings settings, int? autoImportedTagCount = null, bool autoCalibrate = true)
+    public PlcSettingsDialog(
+        PlcSettings settings,
+        int? autoImportedTagCount = null,
+        bool autoCalibrate = true,
+        IReadOnlyList<PlcSystemEndpointEntry>? systems = null,
+        Func<Guid, PlcVendorChoice, PromakerShared.PlcVendorProfile, bool>? saveEndpoint = null)
     {
         _vm = settings;
+        _systems = systems;
+        _saveEndpoint = saveEndpoint;
         InitializeComponent();
 
         AutoDurationCalibrate = autoCalibrate;
@@ -79,8 +101,93 @@ public partial class PlcSettingsDialog : Window
             int n => $"AASX IO 매핑에서 {n}개 주소가 자동 import 됩니다."
         };
 
+        // 다중 System(멀티 PLC) — 콤보 노출 + 첫 System 의 편집본을 폼에 로드.
+        // 단일 System 은 기존 흐름 그대로 (VM 값 로드, Save.cs 가 AID 동기화).
+        if (MultiSystem)
+        {
+            foreach (var entry in _systems!)
+            {
+                _systemEdits[entry.SystemId] = (entry.Vendor, entry.Profile.Clone());
+                SystemCombo.Items.Add(entry.SystemName);
+            }
+            SystemSelectPanel.Visibility = Visibility.Visible;
+
+            _suppressSystemSelection = true;
+            SystemCombo.SelectedIndex = 0;
+            _suppressSystemSelection = false;
+
+            _currentSystemId = _systems[0].SystemId;
+            LoadSystemEditToForm(_currentSystemId);
+        }
+
         UpdateVendorSpecificPanels();
     }
+
+    /// <summary>System 편집본을 폼에 로드 — 벤더 라디오 + 벤더별 작업본을 그 System 기준으로 재설정.</summary>
+    private void LoadSystemEditToForm(Guid systemId)
+    {
+        var (vendor, profile) = _systemEdits[systemId];
+
+        // 태그 안내도 선택 System 기준으로 — 주소의 네임스페이스는 System(PLC)이다.
+        var entry = _systems?.FirstOrDefault(s => s.SystemId == systemId);
+        if (entry is not null)
+        {
+            TagSummaryText.Text = entry.AddressCount > 0
+                ? $"{entry.SystemName}: AASX IO 매핑에서 {entry.AddressCount}개 주소가 자동 import 됩니다."
+                : $"⚠ {entry.SystemName}: 이 System 의 IO 매핑에서 주소가 발견되지 않았습니다. ApiCall 의 OutTag/InTag 주소를 먼저 설정하세요.";
+        }
+
+        // 벤더별 작업본을 이 System 스코프로 리셋 — 이전 System 의 벤더 토글 잔상이 새지 않게.
+        _workingProfiles.Clear();
+        foreach (PlcVendorChoice v in System.Enum.GetValues(typeof(PlcVendorChoice)))
+            _workingProfiles[v.ToString()] = PromakerShared.PlcVendorProfile.Defaults(
+                (PromakerShared.PlcVendorChoice)v);
+        _workingProfiles[vendor.ToString()] = profile.Clone();
+
+        // _loadedVendor 를 먼저 맞춰야 라디오 Checked 핸들러가 스냅샷 경로를 타지 않는다.
+        _loadedVendor = vendor;
+        switch (vendor)
+        {
+            case PlcVendorChoice.LsXgi: RbLsXgi.IsChecked = true; break;
+            case PlcVendorChoice.LsXgk: RbLsXgk.IsChecked = true; break;
+            case PlcVendorChoice.LsXgb: RbLsXgb.IsChecked = true; break;
+            case PlcVendorChoice.Mitsubishi: RbMx.IsChecked = true; break;
+        }
+        LoadProfileToForm(profile);
+        UpdateVendorSpecificPanels();
+    }
+
+    /// <summary>현재 폼 값을 현재 System 의 편집본으로 스냅샷.</summary>
+    private void SnapshotCurrentSystemEdit()
+    {
+        if (!_systemEdits.TryGetValue(_currentSystemId, out var current)) return;
+        _systemEdits[_currentSystemId] = (_loadedVendor, CaptureFormLenient(current.Profile));
+    }
+
+    private void SystemCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressSystemSelection || !MultiSystem) return;
+        var index = SystemCombo.SelectedIndex;
+        if (index < 0) return;
+
+        var next = _systems![index];
+        if (next.SystemId == _currentSystemId) return;
+
+        SnapshotCurrentSystemEdit();
+        _currentSystemId = next.SystemId;
+        LoadSystemEditToForm(_currentSystemId);
+    }
+
+    private static bool ProfilesEqual(PromakerShared.PlcVendorProfile a, PromakerShared.PlcVendorProfile b) =>
+        string.Equals(a.Name, b.Name, System.StringComparison.Ordinal)
+        && string.Equals(a.IpAddress, b.IpAddress, System.StringComparison.OrdinalIgnoreCase)
+        && a.Port == b.Port
+        && a.TimeoutMs == b.TimeoutMs
+        && a.ScanIntervalMs == b.ScanIntervalMs
+        && a.LocalEthernet == b.LocalEthernet
+        && a.NetworkNumber == b.NetworkNumber
+        && a.StationNumber == b.StationNumber
+        && a.IsUdp == b.IsUdp;
 
     private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
@@ -207,6 +314,30 @@ public partial class PlcSettingsDialog : Window
             IsUdp = RbTransportUdp.IsChecked == true,
         };
         _workingProfiles[activeVendor.ToString()] = activeProfile;
+
+        // 다중 System — 현재 폼을 현재 System 편집본으로 확정하고 System별 AID endpoint 저장.
+        // 실패한 System 이 있으면 다이얼로그를 유지해 바로 고칠 수 있게 한다.
+        if (MultiSystem)
+        {
+            _systemEdits[_currentSystemId] = (activeVendor, activeProfile.Clone());
+
+            var failed = new List<string>();
+            foreach (var entry in _systems!)
+            {
+                var edit = _systemEdits[entry.SystemId];
+                var changed = edit.Vendor != entry.Vendor || !ProfilesEqual(edit.Profile, entry.Profile);
+                // 손대지 않은 '미보유' System 은 건드리지 않는다 — 기본값 IP 로 endpoint 가 생기는 사고 방지.
+                if (!entry.HasEndpoint && !changed) continue;
+                if (_saveEndpoint?.Invoke(entry.SystemId, edit.Vendor, edit.Profile) != true)
+                    failed.Add(entry.SystemName);
+            }
+            if (failed.Count > 0)
+            {
+                DialogHelpers.Warn(
+                    $"다음 System 의 PLC 접속 저장에 실패했습니다: {string.Join(", ", failed)}\nIP 등 필수값을 확인하세요.");
+                return;
+            }
+        }
 
         // VM commit — VendorProfiles 교체 → Vendor 변경 → 플랫 필드 활성 프로파일로 적용.
         _vm.VendorProfiles.Clear();
