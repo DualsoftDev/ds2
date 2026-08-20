@@ -677,8 +677,13 @@ public class HistoryViewSettings
 {
     /// <summary>
     /// 사이클 시간 제한(ms). CT가 이 값 초과 시 비가동 사이클로 판정. 0이면 비활성.
+    /// 기본 1시간(2026-08-19, 종전 0=무제한): 무제한이면 IsIdle 이 사실상 죽어 며칠짜리 정지 CT 가
+    /// '클린 사이클'로 CT 임계(14일 평균)·롤링 평균·박제 워치독에 섞여 들어간다(실측: 186,507행 중
+    /// IsIdle 5건, 5.8일 CT 정상 기록). 설정 파일에 키를 명시(0 포함)한 설치본은 그 값이 유지되고,
+    /// 키가 없던 설치본만 이 기본값을 받는다. CT 가 1시간을 넘는 라인은 per-flow 이상치 제외
+    /// (CycleExclusion)로 올려 잡을 것.
     /// </summary>
-    public int MaxCycleTimeMs { get; set; } = 0;
+    public int MaxCycleTimeMs { get; set; } = 3_600_000;
 
     /// <summary>
     /// 사이클 최소 시간(ms). CT가 이 값 미만이면 비가동 사이클로 판정. 0이면 비활성.

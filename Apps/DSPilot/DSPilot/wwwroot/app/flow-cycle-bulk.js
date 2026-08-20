@@ -35,12 +35,16 @@ function bulkCycleApp() {
         controlsOpen: true,
         // 시간/사이클 프리셋 활성 표시 (단일 페이지 call-test-controls 와 동일 UX)
         timePreset: null, cyclePreset: null, rangePopupOpen: false,
+        // 프리셋 앵커(= DB 최신 로그 시각) 와 그 지연 안내 문구 — 단일 Flow 뷰(flowApp) 와 동일 규약.
+        // 템플릿(flow-cycle.html)이 dataAnchorHint 를 x-show/x-text 로 읽으므로 여기 없으면 ReferenceError.
+        dataLatestAt: null,
+        dataAnchorHint: '',
         rt: { connected: false },
         saving: false, saveMsg: '', saveError: false,
         exportingAll: false,
         // 공유 보기/줌 — 상단 툴바가 모든 Flow 간트에 일괄 적용(단일 페이지와 동일한 컨트롤 1벌).
         viewMode: 'bar', zoom: 1,
-        _conn: null, _timer: null,
+        _conn: null, _timer: null, _hintTimer: null,
 
         async init() {
             // 테마는 shell.js 가 <html> 에 적용. 미완료 제외 토글만 복원.
@@ -66,11 +70,13 @@ function bulkCycleApp() {
             // 복원, 없으면 기본 최근 5분 프리셋 (단일 페이지와 동일).
             await this.applyRangeFromUrl();
             this.connectSignalR();
+            // 앵커 지연 문구는 시간이 지나면 커진다 — 30초마다 재계산(숨긴 탭에서는 정지). 단일 뷰와 동일.
+            this._hintTimer = setInterval(() => { if (!document.hidden) this.refreshAnchorHint(); }, 30000);
             // 더티 가드 등록 — 전체 편집에서 미적용 변경 이탈 방지
             window.dspDirtyRegister(() => this.hasPending);
         },
 
-        destroy() { clearTimeout(this._timer); if (this._conn) this._conn.stop(); },
+        destroy() { clearTimeout(this._timer); clearInterval(this._hintTimer); if (this._conn) this._conn.stop(); },
 
         // 브레드크럼/제목 보조
         scopeLabel() { return this.systemName ? this.systemName : '전체 시스템'; },
@@ -817,9 +823,28 @@ function bulkCycleApp() {
             this.startTime = this.dateToInput(new Date(end.getTime() - h * 3600000));
             await this.loadAll();
         },
+        // 프리셋("최근 N분") 의 끝점 = 벽시계 now 가 아니라 *DB 최신 로그 시각*(신호 없는 창에 앵커하면
+        // 빈 화면이 되는 것을 피하는 기존 설계). 그 사실을 dataAnchorHint 로 화면에 노출한다.
         async effectiveLatest() {
-            try { const t = await this.apiGet('/api/call-test/latest-time'); return this.inputToDate(this.toInputValue(t.end)); }
-            catch (e) { return new Date(); }
+            try {
+                const t = await this.apiGet('/api/call-test/latest-time');
+                const d = this.inputToDate(this.toInputValue(t.end));
+                this.dataLatestAt = d;
+                this.refreshAnchorHint();
+                return d;
+            } catch (e) { this.dataLatestAt = null; this.dataAnchorHint = ''; return new Date(); }
+        },
+        // "기준: 신호 마지막 10:19:43 (6분 전)" — 지연 1분 미만이면 표시 생략(실시간과 다름없음).
+        refreshAnchorHint() {
+            const d = this.dataLatestAt;
+            if (!d) { this.dataAnchorHint = ''; return; }
+            const lagSec = Math.floor((Date.now() - d.getTime()) / 1000);
+            const hhmmss = d.toTimeString().slice(0, 8);
+            if (lagSec < 60) { this.dataAnchorHint = ''; return; }
+            const lag = lagSec < 3600
+                ? Math.floor(lagSec / 60) + '분 전'
+                : Math.floor(lagSec / 3600) + '시간 ' + Math.floor((lagSec % 3600) / 60) + '분 전';
+            this.dataAnchorHint = '기준: 신호 마지막 ' + hhmmss + ' (' + lag + ')';
         },
 
         toInputValue(iso) { return iso ? iso.slice(0, 19) : ''; },

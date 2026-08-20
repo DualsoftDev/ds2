@@ -547,10 +547,11 @@ public class OeeMathTests
     // ── 비가동 판정 (doc/22 §3 ①②) ────────────────────────────────────────
 
     [Theory]
-    [InlineData(20000, 30000, 30000, OeeMath.CycleClass.Normal)]   // MT 20s ≤ thr 30s → 정상
-    [InlineData(45000, 50000, 30000, OeeMath.CycleClass.Downtime)] // ① MT 45s > thr → 비가동
-    [InlineData(null, 50000, 30000, OeeMath.CycleClass.Downtime)]  // ② complete=null, CT 50s > thr → 비가동
+    [InlineData(20000, 30000, 30000, OeeMath.CycleClass.Normal)]   // MT 20s ≤ thr, CT 30s ≤ thr(비초과) → 정상
+    [InlineData(45000, 50000, 30000, OeeMath.CycleClass.Downtime)] // CT 50s > thr → 비가동
+    [InlineData(null, 50000, 30000, OeeMath.CycleClass.Downtime)]  // complete=null, CT 50s > thr → 비가동
     [InlineData(null, 20000, 30000, OeeMath.CycleClass.Normal)]    // complete=null 이지만 CT 20s ≤ thr → 정상
+    [InlineData(5000, 500000, 30000, OeeMath.CycleClass.Downtime)] // ① 2026-08-19: mt 정상·wt 폭주(정지 후 재개) → 비가동
     public void ClassifyCycle_marks_downtime_by_mt_or_ct_overrun(int? mt, int? ct, double thr, OeeMath.CycleClass expected)
     {
         Assert.Equal(expected, OeeMath.ClassifyCycle(mt, ct, thr));
@@ -573,10 +574,11 @@ public class OeeMathTests
     // ── 비가동 판정 배수 (2026-07-13 사용자 설정화) — 경계 = thr × idleMultiplier ──
 
     [Theory]
-    [InlineData(45000, 50000, OeeMath.CycleClass.Normal)]    // MT 45s > 1×thr 지만 ≤ 2.5×thr(75s) → 정상(속도 손실 → P)
-    [InlineData(75000, 80000, OeeMath.CycleClass.Normal)]    // 정확히 2.5×thr → 아직 정상(초과 조건)
-    [InlineData(75001, 80000, OeeMath.CycleClass.Downtime)]  // 2.5×thr 초과 → 비가동
-    [InlineData(null, 75001, OeeMath.CycleClass.Downtime)]   // ② 미완료 CT 도 동일 경계
+    [InlineData(45000, 50000, OeeMath.CycleClass.Normal)]    // CT 50s ≤ 2.5×thr(75s) → 정상(속도 손실 → P)
+    [InlineData(74000, 75000, OeeMath.CycleClass.Normal)]    // CT 정확히 2.5×thr → 아직 정상(초과 조건)
+    [InlineData(75000, 80000, OeeMath.CycleClass.Downtime)]  // CT 80s > 2.5×thr → 비가동(2026-08-19 ct 기준 — 종전엔 mt만 봐서 정상)
+    [InlineData(75001, 80000, OeeMath.CycleClass.Downtime)]  // MT 도 CT 도 2.5×thr 초과 → 비가동
+    [InlineData(null, 75001, OeeMath.CycleClass.Downtime)]   // 미완료 CT 도 동일 경계
     public void ClassifyCycle_idle_multiplier_moves_boundary(int? mt, int? ct, OeeMath.CycleClass expected)
         => Assert.Equal(expected, OeeMath.ClassifyCycle(mt, ct, ctThresholdMs: 30000, idleMultiplier: 2.5));
 

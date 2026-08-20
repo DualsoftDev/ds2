@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using Ds2.Core;
@@ -18,6 +18,16 @@ public sealed class FlowAnalysisResult
     public int TailCount { get; init; }
     public string? MovingStartName { get; init; }
     public string? MovingEndName { get; init; }
+
+    /// <summary>
+    /// head 후보(InDegree=0) 전체 — 이름 오름차순. tie-break 가 순수 알파벳순이라 후보가 2개 이상이면
+    /// 선택이 자의적이다(실측: F6 의 <c>Conveyor5.STOP</c>(Going 0건)이 <c>Conveyor6.MOVE</c>(33,145건)를
+    /// 이겨 사이클이 영구 미기록). 동작 증거로 재정렬할 수 있게 후보를 그대로 넘긴다 —
+    /// DB 접근이 없는 이 순수 함수는 판단하지 않고, 호출측(FlowMetricsService)이 goingCount 로 고른다.
+    /// </summary>
+    public IReadOnlyList<string> HeadCandidates { get; init; } = [];
+    /// <summary>tail 후보(OutDegree=0) 전체 — <see cref="HeadCandidates"/> 와 같은 규약.</summary>
+    public IReadOnlyList<string> TailCandidates { get; init; } = [];
 }
 
 internal sealed record CallDagNode(Call Call, int InDegree, int OutDegree);
@@ -65,8 +75,8 @@ public static class FlowAnalyzer
         var flattenedEdges = FlattenGroupArrows(allArrows);
         DetectCycle(dag, flattenedEdges);
 
-        var (headCall, headCount) = FindHeadCall(dag);
-        var (tailCall, tailCount) = FindTailCall(dag);
+        var (headCall, headCount, headCandidates) = FindHeadCall(dag);
+        var (tailCall, tailCount, tailCandidates) = FindTailCall(dag);
 
         if (headCount > 1)
         {
@@ -89,6 +99,8 @@ public static class FlowAnalyzer
             TailCount = tailCount,
             MovingStartName = headCall?.Name,
             MovingEndName = tailCall?.Name,
+            HeadCandidates = headCandidates,
+            TailCandidates = tailCandidates,
         };
     }
 
@@ -236,7 +248,7 @@ public static class FlowAnalyzer
         }
     }
 
-    private static (Call? Call, int Count) FindHeadCall(IReadOnlyCollection<CallDagNode> dag)
+    private static (Call? Call, int Count, IReadOnlyList<string> Candidates) FindHeadCall(IReadOnlyCollection<CallDagNode> dag)
     {
         var heads = dag
             .Where(n => n.InDegree == 0)
@@ -244,10 +256,10 @@ public static class FlowAnalyzer
             .OrderBy(c => c.Name)
             .ToList();
 
-        return (heads.FirstOrDefault(), heads.Count);
+        return (heads.FirstOrDefault(), heads.Count, heads.Select(c => c.Name).ToList());
     }
 
-    private static (Call? Call, int Count) FindTailCall(IReadOnlyCollection<CallDagNode> dag)
+    private static (Call? Call, int Count, IReadOnlyList<string> Candidates) FindTailCall(IReadOnlyCollection<CallDagNode> dag)
     {
         var tails = dag
             .Where(n => n.OutDegree == 0)
@@ -255,6 +267,6 @@ public static class FlowAnalyzer
             .OrderBy(c => c.Name)
             .ToList();
 
-        return (tails.FirstOrDefault(), tails.Count);
+        return (tails.FirstOrDefault(), tails.Count, tails.Select(c => c.Name).ToList());
     }
 }

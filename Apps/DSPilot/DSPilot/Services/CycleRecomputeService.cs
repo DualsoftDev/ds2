@@ -254,7 +254,10 @@ public sealed class CycleRecomputeService
 
     /// <summary>
     /// 사이클 분해 → dspFlowHistory 엔티티. MT=활성, CT=주기, WT=CT−MT(라이브 가산정의와 동일).
-    /// RecordedAt 은 라이브 경로(UtcNow 저장)와 맞추기 위해 완료(없으면 사이클 끝) 시각을 UTC 로 변환해 저장한다.
+    /// RecordedAt 은 라이브 경로와 동일하게 <b>사이클 끝(= Start + Period = 다음 head start)</b> 시각을 UTC 로
+    /// 저장한다 — 라이브는 다음 head start 처리 중 UtcNow 로 찍으므로 같은 시각이고, OEE 의 [rec−ct, rec]
+    /// 복원이 정확히 [Start, 다음 Start] 가 된다. (2026-08-19 이전엔 완료(tail) 시각을 우선해 복원 구간이
+    /// WT 만큼 과거로 밀렸다 — 장기정지 행은 며칠 단위 오정렬. 규약 변경 배포 시 기존 이력 재계산 필요.)
     /// IsIdle 은 현재 유효 비가동 범위(글로벌 + per-flow override)로 재판정(과거를 새 기준으로 다시 가동/비가동 분류).
     /// 삽입 행은 반드시 [fromUtc, toUtc) 안에 들도록 clamp → delete-range 와 정확히 일치(중복/누락 방지).
     /// </summary>
@@ -286,11 +289,11 @@ public sealed class CycleRecomputeService
                 ct = ClampMs(c.PeriodMs.Value); // tail(완료) 미검출: 주기만 기록
             }
 
-            // 기록 시각(Local) — 완료가 있으면 완료, 없으면 사이클 끝(= 다음 시작), 그것도 없으면 시작.
-            DateTime recordedLocal =
-                c.Complete ?? (c.PeriodMs.HasValue
-                    ? c.Start.AddMilliseconds(c.PeriodMs.Value)
-                    : c.Start);
+            // 기록 시각(Local) — 사이클 끝(= 다음 head start) 우선 = 라이브 규약. Period 없는(미완료 마지막)
+            // 행만 완료/시작 폴백 — 그 행은 ct=null → 아래에서 IsIdle=1 로 집계 제외되므로 정렬 무관.
+            DateTime recordedLocal = c.PeriodMs.HasValue
+                ? c.Start.AddMilliseconds(c.PeriodMs.Value)
+                : (c.Complete ?? c.Start);
             var recordedUtc = recordedLocal.ToUniversalTime();
             if (recordedUtc < fromUtc || recordedUtc >= toUtc)
                 continue; // delete-range 와 정확히 일치하도록 경계 밖 행은 제외

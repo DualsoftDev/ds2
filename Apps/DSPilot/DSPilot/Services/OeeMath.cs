@@ -352,21 +352,22 @@ public static class OeeMath
 
     /// <summary>
     /// 한 사이클을 정상/비가동으로 분류 (doc/22 §3 ①②). thr = CT이상치(14일 평균, ms), 판정 경계 = thr × idleMultiplier.
-    ///   ① MT &gt; thr×mult (완료가 늦게 발화 = 정지를 머금은 과주행)
-    ///   ② complete=null(=mt null) AND CT &gt; thr×mult (끝내 완료 못한 CT 폭주)
+    ///   ① CT &gt; thr×mult (완료 여부 무관 — 정지를 머금은 사이클. 2026-08-19: 종전 mt-only 판정이
+    ///      정지 후 재개 사이클(mt 정상·wt=정지 전체)을 정상으로 삼켜 장기정지가 가동에 편입됐다)
+    ///   ② MT &gt; thr×mult (과주행 모션 — ct&lt;mt 비정상 행 방어로 잔존, CT=MT+WT 정상 행에선 ①에 포함)
     /// CT 없는 사이클(마지막 열린)은 Ignore. thr ≤ 0(표본 부족)이면 판정 불가 → 상위에서 산출 게이트.
     /// idleMultiplier 는 사용자 설정 비가동 배수(2026-07-13, 기본 2.5× — 이 함수의 기본 인자는 종전 호환 1.0).
     /// 경계 아래의 느린 사이클은 정상(Σ실측CT 편입 → 성능 P 가 속도 손실로 흡수). 성능 표준치는 여전히 1×thr.
     /// IsIdle(아웃라이어 캡)과는 무관 — IsIdle 은 CT이상치 산출 시만 제외(§3.2).
+    /// ComputeCycleAggregateAsync 인라인 SQL dtCond 와 같은 규칙(SSOT 쌍) — 한쪽만 바꾸지 말 것.
     /// </summary>
     public static CycleClass ClassifyCycle(int? mt, int? ct, double ctThresholdMs, double idleMultiplier = 1.0)
     {
         if (ct is not int c || c <= 0) return CycleClass.Ignore;
         if (ctThresholdMs <= 0) return CycleClass.Normal;
         var boundary = ctThresholdMs * Math.Max(idleMultiplier, 1.0);
-        if (mt is int m)
-            return m > boundary ? CycleClass.Downtime : CycleClass.Normal;   // ①
-        return c > boundary ? CycleClass.Downtime : CycleClass.Normal;        // ② complete=null
+        if (c > boundary) return CycleClass.Downtime;                          // ①
+        return mt is int m && m > boundary ? CycleClass.Downtime : CycleClass.Normal;  // ②
     }
 
     /// <summary>

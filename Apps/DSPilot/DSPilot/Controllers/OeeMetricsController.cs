@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using DSPilot.Infrastructure;
@@ -391,6 +391,21 @@ public class OeeMetricsController : OeeControllerBase
         }
 
         return new OeeDailyResponse(gran, slots, flowCount);
+    }
+
+    // ── GET /api/oee/measurement-quality?from&to&flow ─────────────────────
+    // 계측 품질(사이클 제외·누락률) — OEE 지표(A/P/Q)와 별개 축. 설비효율 페이지 맨 아래 카드 전용.
+    //   OEE = 설비가 어떻게 돌았나 / 계측 품질 = 우리가 얼마나 봤나. 측정 대상·개선 주체가 달라
+    //   A 에 손실로 넣지도, 분모에서 빼지도 않는다(어느 방향으로 섞어도 왜곡).
+    [HttpGet("measurement-quality")]
+    public async Task<ActionResult<OeeMeasureQualityDto>> MeasurementQuality(
+        [FromQuery] DateTime? from, [FromQuery] DateTime? to, [FromQuery] string? flow,
+        CancellationToken ct)
+    {
+        var (fromUtc, toUtc) = ResolveRange(from, to);
+        var flowName = string.IsNullOrWhiteSpace(flow) ? null : flow.Trim();
+        var thresholds = await ResolveCtThresholdsAsync();
+        return await ComputeMeasureQualityAsync(flowName, fromUtc, toUtc, thresholds, ct);
     }
 
 }

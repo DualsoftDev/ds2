@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using Dapper;
@@ -752,6 +752,32 @@ public class DspRepositoryAdapter : IDspRepository
             LIMIT 1";
 
         return await conn.QueryFirstOrDefaultAsync<DspCallEntity>(sql, new { CallId = callId });
+    }
+
+    public async Task<Dictionary<string, int>> GetCallGoingCountsAsync(string flowName)
+    {
+        var empty = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        if (!_enabled || string.IsNullOrWhiteSpace(flowName)) return empty;
+        try
+        {
+            await using var conn = await OpenAsync();
+            if (!await FlowAndCallTablesExistAsync(conn, _flowTable, _callTable)) return empty;
+
+            var rows = await conn.QueryAsync<(string? CallName, long GoingCount)>($@"
+                SELECT CallName, COALESCE(GoingCount, 0) AS GoingCount
+                FROM {_callTable}
+                WHERE FlowName = @Flow AND CallName IS NOT NULL AND CallName <> ''");
+            var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (name, cnt) in rows)
+                if (name is not null)
+                    result[name] = (int)Math.Min(cnt, int.MaxValue);   // 같은 이름 중복 시 마지막 승 — 증거 유무 판단엔 무해
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Dsp] Call goingCount 조회 실패: {Flow}", flowName);
+            return empty;
+        }
     }
 
     public async Task<bool> UpdateCallStateAsync(Guid callId, string state)

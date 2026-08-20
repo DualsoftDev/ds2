@@ -353,6 +353,7 @@
         .up-oee-chip.auto { color: var(--color-primary); border-color: color-mix(in srgb, var(--color-primary) 55%, transparent); background: color-mix(in srgb, var(--color-primary) 10%, transparent); }
         .up-oee-chip.solid { color: var(--color-text-primary); background: var(--color-surface-variant); border-style: solid; }
         /* '샘플 부족' — A·P 가 클린샘플 <5 로 산출된 잠정값(샘플 쌓이면 자동 정상화). 살짝만 경고. */
+        .up-oee-chip.bad { color: var(--red); border-color: color-mix(in srgb, var(--red) 55%, transparent); background: color-mix(in srgb, var(--red) 12%, transparent); border-style: solid; }
         .up-oee-chip.warn { color: var(--amber, #b7791f); border-color: color-mix(in srgb, var(--amber, #b7791f) 55%, transparent); background: color-mix(in srgb, var(--amber, #b7791f) 12%, transparent); border-style: solid; }
         /* MTBF 고장없음 배지 (가짜 max(n,1) 금지 — doc/21 §10) */
         .up-nofault { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 1.05rem; font-weight: 800; color: var(--green); }
@@ -744,3 +745,69 @@
             .up-ptl-edit .up-qeq { display: none; }
             .up-ptl-edit .btn { width: 100%; justify-content: center; }
         }
+
+        /* ══ 계측 품질 (사이클 제외·누락률) — OEE 지표와 별개 축, 페이지 맨 아래 카드 ══
+           톤(주의/위험 색)을 쓰지 않는다 — "몇 %부터 나쁘다"는 보편 기준이 없고, 누락이 지표에 미치는
+           영향은 가용성 누적 정산의 미정산 %로 이미 드러난다. 여기선 중립 톤으로 실측만 보여준다. */
+        .up-mq-top { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+        .up-mq-kpi { padding: 12px 14px; border-radius: 10px; background: var(--color-surface-variant); border-left: 3px solid var(--color-lines-strong); }
+        .up-mq-lbl { font-size: 0.68rem; font-weight: 700; color: var(--color-text-secondary); letter-spacing: 0.01em; }
+        .up-mq-val { font-size: 1.5rem; font-weight: 800; line-height: 1.25; margin-top: 2px; }
+        .up-mq-note { font-size: 0.63rem; color: var(--color-text-secondary); margin-top: 1px; }
+
+        .up-mq-link { margin-top: 12px; padding: 9px 12px; border-radius: 9px; background: var(--color-surface-variant);
+                      font-size: 0.7rem; line-height: 1.55; color: var(--color-text-secondary); }
+        .up-mq-link a { color: var(--color-primary); font-weight: 700; }
+
+        .up-mq-toggle { margin-top: 12px; width: 100%; justify-content: center; }
+
+        /* 설비별 상세 — 5열(설비 / 비중바 / 제외율 / 미검출 / 가동수). 바 열만 가변폭. */
+        .up-mq-rows { margin-top: 10px; display: flex; flex-direction: column; gap: 2px; }
+        .up-mq-row { display: grid; grid-template-columns: minmax(72px, 1.1fr) minmax(90px, 2fr) 66px 62px 68px;
+                     gap: 10px; align-items: center; padding: 7px 9px; border-radius: 7px; font-size: 0.74rem; }
+        .up-mq-row:hover { background: var(--color-surface-variant); }
+        .up-mq-row.is-cur { background: color-mix(in srgb, var(--color-primary) 10%, transparent); }
+        .up-mq-row .num { text-align: right; font-variant-numeric: tabular-nums; }
+        .up-mq-head { font-size: 0.63rem; font-weight: 700; color: var(--color-text-secondary); padding-bottom: 3px; border-bottom: 1px solid var(--color-lines); border-radius: 0; }
+        .up-mq-head:hover { background: none; }
+        .up-mq-name { font-weight: 700; color: var(--color-text-primary); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .up-mq-name:hover { color: var(--color-primary); text-decoration: underline; }
+        .up-mq-bar { position: relative; display: flex; height: 9px; border-radius: 5px; background: var(--color-surface-variant); }
+        .up-mq-bar .seg { height: 100%; flex: 0 0 auto; border-radius: 5px; }
+        .up-mq-bar .seg.ex { background: var(--oee-run); min-width: 3px; }
+        .up-mq-bar .seg.ex.is-warn { background: var(--amber); }
+        .up-mq-bar .seg.ex.is-bad { background: var(--red); }
+        .up-mq-rate { font-weight: 800; }
+
+        .up-mq-foot { margin-top: 12px; font-size: 0.62rem; line-height: 1.6; color: var(--color-text-secondary); }
+
+        @media (max-width: 720px) {
+            .up-mq-top { grid-template-columns: 1fr; }
+            /* 폰: 비중 바를 접고 숫자 3열만 남긴다(가로 스크롤 금지) */
+            .up-mq-row { grid-template-columns: minmax(60px, 1fr) 60px 56px 60px; }
+            .up-mq-bar, .up-mq-bar-h { display: none; }
+        }
+
+        /* ── 가용성 누적 정산: 미정산(계측 누락) ──
+           카테고리 색을 주지 않는다 — "모르는 시간"에 상태를 주장하지 않기 위해 트랙 바탕 + 옅은 사선만 남기고,
+           정산 합계가 100% 에 못 미친 몫이 그대로 빈 꼬리로 보이게 한다. */
+        .up-bar-unacct { background: var(--color-surface-variant);
+                         background-image: repeating-linear-gradient(45deg, var(--color-lines) 0 1px, transparent 1px 7px); }
+        .up-sw-unacct { background: var(--color-surface-variant);
+                        background-image: repeating-linear-gradient(45deg, var(--color-lines-strong) 0 1px, transparent 1px 5px);
+                        border: 1px solid var(--color-lines); }
+        .up-acct-sum { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 7px; font-size: 0.7rem; color: var(--color-text-secondary); }
+        .up-acct-sum b { font-size: 0.82rem; color: var(--color-text-primary); font-variant-numeric: tabular-nums; }
+        .up-acct-sum b.is-short { color: var(--amber); }
+        .up-acct-sum a { color: var(--color-primary); font-weight: 700; }
+
+        /* 측정 불가 설비 — 임계 미보유(클린샘플 0). 경고색이 아니라 '비어 있음'으로 표현한다(고장이 아니라 미측정). */
+        .up-mq-unmeas { display: flex; gap: 10px; align-items: flex-start; margin-top: 12px; padding: 11px 13px; border-radius: 10px;
+                        background: var(--color-surface-variant); border: 1px dashed var(--color-lines-strong);
+                        font-size: 0.72rem; line-height: 1.55; color: var(--color-text-primary); }
+        .up-mq-unmeas .material-icons { font-size: 19px; color: var(--color-text-secondary); flex-shrink: 0; }
+        .up-mq-row.is-unmeas { background: repeating-linear-gradient(45deg, var(--color-surface-variant) 0 6px, transparent 6px 12px); }
+        .up-mq-row.is-unmeas .up-mq-name { color: var(--color-text-secondary); }
+        .up-mq-unmeas-tag { font-size: 0.63rem; color: var(--color-text-secondary); border: 1px dashed var(--color-lines-strong);
+                            border-radius: 999px; padding: 1px 8px; justify-self: start; white-space: nowrap;
+                            overflow: hidden; text-overflow: ellipsis; max-width: 100%; }

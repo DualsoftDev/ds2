@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 namespace DSPilot.Models.Oee;
@@ -423,3 +423,40 @@ public sealed record OeeDailySlotDto(
     long UnclassifiedMs = 0, // 미분류 (category IS NULL)
     long NonProdMs = 0,     // 비생산(제외) — 가동에서 카빙, A 분모 밖 (사이클 10×CT / 수동 시각대)
     long UnmeasuredMs = 0); // 미계측(수신 공백, §3.4) — 최우선 카빙(모르는 시간은 어떤 상태도 주장 안 함)
+
+/// <summary>
+/// 계측 품질 — 설비(Flow)별 사이클 누락/제외 현황 한 행 (OEE 지표와 별개 축, doc/22 §3.2 표본 게이트).
+/// <para>OEE(설비가 어떻게 돌았나)와 계측 품질(우리가 얼마나 봤나)은 측정 대상·개선 주체가 다르므로
+/// A/P/Q 에 섞지 않고 별도 축으로만 보고한다 — 손실로 계상하면 계측 실패가 설비 탓이 되고, 분모에서
+/// 빼면 계측이 나빠질수록 설비가 좋아 보인다.</para>
+/// </summary>
+public sealed record OeeMeasureQualityRowDto(
+    string FlowName,
+    int TotalCycles,        // 기간 내 ct>0 행 수
+    int NormalCycles,       // 정상(가동 편입) = TotalCycles − ExcludedCycles
+    int ExcludedCycles,     // 비가동 판정(DtCondSql)으로 가동에서 빠진 수 — 정지로 계상됨
+    int IncompleteCycles,   // mt IS NULL = 완료(tail) 신호 미검출 → 계측 누락 정황
+    int IdleCycles,         // IsIdle=1 = 이상치 캡(MaxCycleTimeMs/MinCycleTimeMs) 초과
+    double? ExclusionRate,  // ExcludedCycles / TotalCycles (0~1). Total=0 이면 null(가짜 0% 금지)
+    double? IncompleteRate, // IncompleteCycles / TotalCycles (0~1)
+    double ThresholdMs,     // 비가동 경계 = 14일 평균 CT × 비가동 배수. 임계 미보유면 0
+    // false = 이 설비는 아직 측정 자체가 안 되고 있다(클린샘플 0 → CT 임계 미산출 → 사이클기반 A/P·정지·대기
+    //         분류 전부 불가, 가용성은 달력근사 폴백). 실측 사례: 경계 head 가 한 번도 Going 하지 않는 Call 로
+    //         잡혀 dspFlowHistory 가 0행이었다. 목록에서 빼면 "전부 양호"로 읽히므로 반드시 행으로 노출한다.
+    bool Measurable);
+
+/// <summary>
+/// 계측 품질 응답 — 라인 합계 + 설비별 행.
+/// <para>임계(주의/위험 경계)는 두지 않는다 — 하드웨어·환경 한계로 IO 수집이 100% 되지 않는 것은 정상이고,
+/// "몇 %부터 나쁘다"는 보편 기준이 없다. 누락이 지표에 미치는 영향은 가용성 누적 정산의 <b>미정산 %</b>
+/// (합계가 100% 에 못 미치는 몫)로 드러나므로, 이 응답은 실측 수치만 전달한다.</para>
+/// </summary>
+public sealed record OeeMeasureQualityDto(
+    int TotalCycles,
+    int NormalCycles,
+    int ExcludedCycles,
+    int IncompleteCycles,
+    double? ExclusionRate,      // 라인 합계 기준
+    double? IncompleteRate,
+    int UnmeasurableFlowCount,  // 측정 불가(임계 미보유) 설비 수 — 0 이 아니면 라인 지표를 그대로 믿을 수 없다
+    IReadOnlyList<OeeMeasureQualityRowDto> Flows);

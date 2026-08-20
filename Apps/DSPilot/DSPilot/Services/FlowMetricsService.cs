@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using Ds2.Core;
@@ -24,6 +24,11 @@ public class FlowMetricsService : IFlowMetricsService
 
     // Flow별 분석 결과 캐시
     private readonly ConcurrentDictionary<string, FlowAnalysisResult> _flowAnalysisCache = new();
+    /// <summary>
+    /// flow → (callName → 누적 Going 횟수). 사이클 경계 자동선정의 <b>동작 증거</b> 캐시.
+    /// init/reload 때 채우고 <see cref="GetAasxCycleBoundaries"/>(동기)가 읽는다 — 비어 있으면 종전 동작(순수 토폴로지).
+    /// </summary>
+    private readonly ConcurrentDictionary<string, Dictionary<string, int>> _goingEvidence = new();
 
     // Flow별 사이클 상태 추적 (Phase 2)
     private readonly ConcurrentDictionary<string, FlowCycleState> _flowCycleStates = new();
@@ -94,6 +99,10 @@ public class FlowMetricsService : IFlowMetricsService
                             "Flow '{FlowName}' has {TailCount} tail calls. Using first tail only for cycle tracking.",
                             flow.Name, analysisResult.TailCount);
                     }
+
+                    // 동작 증거 적재 — 경계 결정 전에 채워야 head 후보 tie-break 에 반영된다.
+                    try { _goingEvidence[flow.Name] = await _dspRepository.GetCallGoingCountsAsync(flow.Name); }
+                    catch (Exception ex) { _logger.LogDebug(ex, "Flow '{FlowName}' goingCount 적재 실패 — 토폴로지 기본값 사용", flow.Name); }
 
                     var (defaultStartCallName, defaultEndCallName) = GetAasxCycleBoundaries(flow.Name);
                     var overrideConfig = _appSettingsService.GetFlowCycleOverride(flow.Name);
@@ -184,10 +193,46 @@ public class FlowMetricsService : IFlowMetricsService
         // SequenceLabel(Head/Tail) 우선 — 라벨이 박혀 있으면 모델 토폴로지 기본값을 덮어쓴다.
         // 라벨이 없는 경계(전부 Body)는 토폴로지 기본값(analysisResult)으로 폴백.
         var (labelStart, labelEnd) = ResolveSequenceLabelBoundaries(flow);
-        var startName = labelStart ?? analysisResult.MovingStartName;
-        var endName = labelEnd ?? analysisResult.MovingEndName;
+        // 라벨은 명시적 결정이라 그대로 존중하고, 토폴로지 폴백(알파벳 tie-break)만 동작 증거로 보정한다.
+        var startName = labelStart ?? PreferOperatingCandidate(
+            flow.Name, analysisResult.MovingStartName, analysisResult.HeadCandidates, "head");
+        var endName = labelEnd ?? PreferOperatingCandidate(
+            flow.Name, analysisResult.MovingEndName, analysisResult.TailCandidates, "tail");
 
         return (startName, endName);
+    }
+
+    /// <summary>
+    /// 토폴로지 tie-break 보정 — 후보가 여럿인데 선택된 Call 이 <b>한 번도 Going 하지 않았고</b> 실제로 도는
+    /// 후보가 있으면 그쪽으로 바꾼다.
+    /// <para>필요한 이유: <see cref="FlowAnalyzer"/> 의 head/tail 선정은 InDegree/OutDegree 0 후보 중 <b>이름
+    /// 오름차순 첫 번째</b>다. 실측(2026-08-20)에서 F6 의 후보가 {Conveyor5.STOP(Going 0), Conveyor6.MOVE(33,145)}
+    /// 였고 알파벳순으로 STOP 이 이겨 <b>사이클이 영구 미기록</b>(dspFlowHistory 0행)이었다 — 그 결과 CT 임계·
+    /// 가용성·정지 판정·대기 분류가 전부 죽고 달력근사 폴백으로 떨어졌다.</para>
+    /// <para>보수 규칙 — 아래 중 하나라도 걸리면 원래 선택을 유지한다(오작동 방지):
+    /// ① 후보가 1개 이하(자의성 없음) ② 증거 미적재(부팅 직후·신규 설치) ③ 선택된 Call 에 이미 Going 증거 있음
+    /// ④ 어떤 후보에도 증거 없음(전부 0 — 신규 라인이라 판단 근거 없음).</para>
+    /// </summary>
+    private string? PreferOperatingCandidate(
+        string flowName, string? chosen, IReadOnlyList<string> candidates, string role)
+    {
+        if (chosen is null || candidates.Count <= 1) return chosen;
+        if (!_goingEvidence.TryGetValue(flowName, out var evidence) || evidence.Count == 0) return chosen;
+        if (evidence.TryGetValue(chosen, out var chosenGoing) && chosenGoing > 0) return chosen;
+
+        // 증거 있는 후보 중 최다 — 동수면 이름 오름차순(종전 tie-break 와 같은 결정론).
+        var better = candidates
+            .Where(c => evidence.TryGetValue(c, out var g) && g > 0)
+            .OrderByDescending(c => evidence[c])
+            .ThenBy(c => c, StringComparer.Ordinal)
+            .FirstOrDefault();
+        if (better is null) return chosen;
+
+        _logger.LogWarning(
+            "Flow '{FlowName}' {Role} 자동선정 보정: '{Chosen}'(Going {ChosenGoing}건) → '{Better}'(Going {BetterGoing}건) — "
+            + "후보 {CandidateCount}개 중 알파벳순 선택이 동작하지 않는 Call 이었습니다. 의도한 경계가 다르면 설비 화면에서 직접 지정하세요.",
+            flowName, role, chosen, chosenGoing, better, evidence[better], candidates.Count);
+        return better;
     }
 
     /// <summary>
@@ -302,14 +347,24 @@ public class FlowMetricsService : IFlowMetricsService
             if (state.HeadCallName == callName)
             {
                 // 래치 필드(PreviousCycleFinish)는 워치독/교차검증과 공유 — 락으로 캡처.
+                // 완료 1회 = 기록 1회(consume-once, 2026-08-19): CurrentMT 는 캡처 즉시 비운다. 종전엔 tail 을
+                // 놓친 채 다음 head 가 오면 직전 완료의 stale MT + 정지 전체를 머금은 WT 로 오염 행이 나갔고
+                // (다중 Call flow '오염 2행'의 1행째), abandon 해제 후 재시작 사이클도 같은 경로로 오염됐다.
+                // 소비 후엔 다음 tail 완료가 CurrentMT 를 다시 채울 때까지 head start 가 아무 행도 쓰지 않는다.
                 DateTime? prevFinish;
-                lock (state.LatchLock) { prevFinish = state.PreviousCycleFinish; }
+                int? prevCompletedMT;
+                lock (state.LatchLock)
+                {
+                    prevFinish = state.PreviousCycleFinish;
+                    prevCompletedMT = state.CurrentMT;
+                    state.CurrentMT = null;
+                }
 
                 // 이전 사이클이 완료되었고 MT가 계산된 경우 WT/CT 계산 및 DB 업데이트.
                 // (단일/다중 Call Flow 공통 — 기존 로직과 동일. 락 밖에서 수행: 설정 디스크 읽기/누산기 갱신 포함.)
-                if (prevFinish.HasValue && state.CurrentMT.HasValue)
+                if (prevFinish.HasValue && prevCompletedMT.HasValue)
                 {
-                    var prevMT = state.CurrentMT.Value;
+                    var prevMT = prevCompletedMT.Value;
                     var wt = (int)(timestamp - prevFinish.Value).TotalMilliseconds;
                     var ct = prevMT + wt;
 

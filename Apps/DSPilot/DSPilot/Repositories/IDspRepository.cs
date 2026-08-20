@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using DSPilot.Models;
@@ -40,6 +40,13 @@ public interface IDspRepository
     /// Call 전체 데이터 조회 (GoingCount 등 포함, CallId 기반)
     /// </summary>
     Task<DspCallEntity?> GetCallByIdAsync(Guid callId);
+
+    /// <summary>
+    /// flow 하나의 Call 별 누적 Going 횟수(callName → goingCount). 사이클 경계 자동선정의 <b>동작 증거</b> 소스 —
+    /// head 후보가 여럿일 때 "한 번도 안 도는 Call"을 배제하는 데 쓴다.
+    /// <see cref="GetCallStatisticsAsync"/> 와 달리 평균/표준편차 NULL 조건을 걸지 않는다(증거는 횟수만으로 충분).
+    /// </summary>
+    Task<Dictionary<string, int>> GetCallGoingCountsAsync(string flowName);
 
     /// <summary>
     /// Call 상태 업데이트 (CallId 기반)

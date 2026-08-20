@@ -106,6 +106,9 @@
                 // 비생산은 시스템(전역) 단위라 curFlow 필터 없이 조회(설정 타임라인과 동일 규칙). _teepNpSeq=stale 가드.
                 teepNonProd: null, teepNonProdError: null, _teepNpSeq: 0,
                 oeeExporting: false,   // OEE Excel 내보내기 진행 중
+                // 계측 품질 — /api/oee/measurement-quality (사이클 제외·누락률). OEE 지표와 별개 축이라
+                // A/P/Q 에 섞지 않고 페이지 맨 아래 독립 카드로만 보고한다. mqOpen=설비별 상세 펼침.
+                mq: null, mqOpen: false, _mqSeq: 0,
                 planTime: null, // /api/oee/plan-time — 계획시간 폴백 체인 + 14일 히스토그램
                 downtime: [], ranking: [],
                 dtTab: 'down', // 정지 로그 구분 탭: 'down'(비가동=고장/유지보수) | 'nonprod'(비생산) — 보내기 후 대상 탭 자동 이동
@@ -1153,7 +1156,46 @@
                         if (seq !== this._oeeSeq) return;
                         this.oeeError = 'OEE 데이터를 불러오지 못했습니다: ' + e.message;
                     }
+                    this.loadMeasureQuality();   // 별개 축 — OEE 실패와 독립(await 안 함, 카드가 따로 비어 있을 뿐)
                     this.$nextTick(() => this.drawDailyChart());
+                },
+
+                // ── 계측 품질 (/api/oee/measurement-quality) ──────────────────────────
+                // 설비별 사이클 제외·누락률. OEE 카드와 달리 curFlow 필터를 걸지 않는다 — 설비 하나를 보는
+                // 중에도 "다른 설비 IO 가 나빠지고 있다"를 놓치면 안 되고, 개선 주체(수집 인프라)가 라인 단위다.
+                async loadMeasureQuality() {
+                    if (this.view === 'alarm') return;
+                    const r = this.rangeForPeriod();
+                    const seq = ++this._mqSeq;
+                    try {
+                        const dto = await this.apiGet(
+                            `/api/oee/measurement-quality?from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}`);
+                        if (seq !== this._mqSeq) return;
+                        this.mq = dto;
+                    } catch (e) {
+                        if (seq !== this._mqSeq) return;
+                        this.mq = null;   // 조용히 비움 — 계측 품질 실패가 OEE 화면을 막지 않는다
+                    }
+                },
+                // 비율 표기 — null(사이클 0건)은 '—'. "제외 0%"로 보이면 수집 정지와 정상 가동이 같은 화면이 된다.
+                mqPct(v) { return v == null ? '—' : (v * 100 < 0.05 && v > 0 ? '<0.1%' : (v * 100).toFixed(1) + '%'); },
+                // 설비별 바 폭 — 임계선 없이 "이 기간 최댓값 대비"로 그린다(상대 비교 전용 축).
+                //   ① 비례 막대(제외/전체)는 0.5% 에서 1px 미만이라 건강한 평시엔 아무 정보도 못 준다.
+                //   ② 고정 임계선 대비는 "몇 %부터 나쁘다"는 없는 기준을 만들어낸다.
+                //   최댓값 기준이면 기준을 발명하지 않고도 설비 간 편중이 바로 읽힌다(원수치는 옆 열).
+                mqBarW(rate) {
+                    if (rate == null || rate <= 0) return '0%';
+                    const mx = Math.max(...((this.mq && this.mq.flows) || []).map(f => f.exclusionRate || 0), 0);
+                    if (!(mx > 0)) return '0%';
+                    return Math.max(2, rate / mx * 100).toFixed(1) + '%';
+                },
+                // 측정 불가 먼저, 그다음 제외율 내림차순 — 편중된 설비가 위로("어느 설비 IO 부터"를 바로 읽게).
+                // 측정 불가를 맨 위로 올리는 이유: 제외율이 null 이라 정렬 키가 없는데 그게 가장 나쁜 상태다.
+                get mqRows() {
+                    const f = (this.mq && this.mq.flows) || [];
+                    return [...f].sort((a, b) =>
+                        (a.measurable === false ? 0 : 1) - (b.measurable === false ? 0 : 1)
+                        || (b.exclusionRate ?? -1) - (a.exclusionRate ?? -1));
                 },
 
                 // ── 내보내기 (종합효율 현황) ─────────────────────────────────────────────
@@ -1773,28 +1815,31 @@
                         //   시간별 추이는 같은 값을 아예 가동에 포함해 그린다(서버 daily 가 고장=감지 정지만 적재).
                         const maint = Math.min(down, Math.max(0, o.downMaintWallMs || 0));
                         const fault = Math.min(Math.max(0, down - maint), Math.max(0, o.downFaultWallMs || 0));
-                        const slack = Math.max(0, down - maint - fault);
-                        // 대기(고장 여파, doc/25) — 공백 성분 중 "라인 고장으로 서 있던 시간"(기준 미만 형제 정지).
-                        //   계산상 slack 에 포함(A 손실 유지), 툴팁에서만 미세 슬랙과 구분 표기해 진단 가치 보존.
-                        const waitSlack = Math.min(slack, Math.max(0, o.waitSlackWallMs || 0));
-                        // 이벤트성 공백 = 공백 중 하나의 정지에서 온 부분(대기 + 비가동 경계 미만 조각, waitSlack ⊆ 이 값).
-                        //   사이클당 환산에서 이걸 빼야 4분짜리 단기 정지가 '사이클 간 미세 간격' 지표를 희석하지 않는다.
-                        const eventSlack = Math.min(slack, Math.max(waitSlack, Math.max(0, o.eventSlackWallMs || 0)));
+                        const rest = Math.max(0, down - maint - fault);
+                        // 2026-08-19 정산 모델 정리 — 잔여(rest)를 두 갈래로 쪼갠다:
+                        //   ① 대기(공백) = 라인 내 다른 설비 고장으로 이 설비가 서 있던 시간(doc/25 형제 대기).
+                        //      OEE 에서 '공백'이라 부르는 건 이것 하나뿐 — 종전엔 미분류 잔여까지 '가동간 공백'으로
+                        //      뭉쳐 설비 간 빈 시간처럼 읽혔다.
+                        //   ② 미정산 = 계측 품질(사이클 누락·제외) 때문에 어느 칸에도 넣을 수 없는 시간.
+                        //      별도 카테고리(색)로 그리지 않고 정산 합계를 100% 미만으로 떨어뜨려 드러낸다 —
+                        //      "모르는 시간"에 상태를 주장하지 않으면서 누락 규모가 바에서 바로 보인다.
+                        const wait = Math.min(rest, Math.max(0, o.waitSlackWallMs || 0));
+                        const unacct = Math.max(0, rest - wait);
                         const failCount = Math.max(0, o.failureCount || 0);
                         const cycles = Math.max(0, o.normalCycleCount || 0);
                         const runPct = avail > 0 ? r1(run / avail * 100) : 0;
                         const maintPct = avail > 0 ? r1(maint / avail * 100) : 0;
                         const faultPct = avail > 0 ? r1(fault / avail * 100) : 0;
-                        const slackPct = avail > 0 ? r1(slack / avail * 100) : 0;
+                        const waitPct = avail > 0 ? r1(wait / avail * 100) : 0;
+                        const unacctPct = avail > 0 ? r1(unacct / avail * 100) : 0;
                         return {
                             mode: 'wallclock', hasData: avail > 0,
                             runMs: run, stopMs: maint + fault, runPct, stopPct: r1(maintPct + faultPct),
                             faultMs: fault, maintMs: maint, faultPct, maintPct,
-                            slackMs: slack, slackPct, waitSlackMs: waitSlack, eventSlackMs: eventSlack,
-                            // 사이클당 환산(초) — "43m"이 커 보여도 사이클당 0.6s 수준임을 병기해 오해 방지(커지면 그 자체가 경고).
-                            // 이벤트성 공백(대기 여파 + 경계 미만 단기 정지)은 사이클당 환산에서 제외 — 미세 슬랙
-                            // 진단 지표 희석 방지(doc/25 §3.3, 2026-07-30 단기 정지 조각까지 확장).
-                            slackPerCycleS: cycles > 0 ? Math.round((slack - eventSlack) / cycles / 100) / 10 : 0,
+                            waitMs: wait, waitPct,
+                            unacctMs: unacct, unacctPct,
+                            // 정산 합계 — 100% 미만이면 그 차이가 계측 누락(미정산)이다.
+                            accountedPct: r1(runPct + maintPct + faultPct + waitPct),
                             runLabel: '가동 (생산가능시간 내)',
                             stopLabel: '비가동 · 고장',
                             runNote: cycles + '회', stopNote: failCount + '건',
@@ -1813,7 +1858,7 @@
                         mode: 'fallback', hasData: planned > 0,
                         runMs: run, stopMs: stop, runPct, stopPct: planned > 0 ? r1(100 - runPct) : 0,
                         faultMs: stop, maintMs: 0, faultPct: planned > 0 ? r1(100 - runPct) : 0, maintPct: 0,
-                        slackMs: 0, slackPct: 0, slackPerCycleS: 0, eventSlackMs: 0,   // 가동간 공백은 벽시계 모델 전용
+                        waitMs: 0, waitPct: 0, unacctMs: 0, unacctPct: 0, accountedPct: 100,   // 대기·미정산은 벽시계 모델 전용
                         runLabel: '가동시간', stopLabel: '정지 (비계획)',
                         runNote: null, stopNote: null, sourceLabel: srcLabel,
                         subtitle: '가동시간 ÷ 계획생산시간 · 계획시간 폴백(' + srcLabel + ') — 가동 표본 부족',

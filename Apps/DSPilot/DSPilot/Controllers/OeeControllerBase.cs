@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using Dapper;
@@ -28,6 +28,17 @@ public abstract class OeeControllerBase : ControllerBase
     protected readonly OeeNonProdPatternService _nonProdPattern;
     protected readonly HistoryMirrorService _mirror;
     protected readonly ILogger _logger;
+
+    /// <summary>
+    /// 비가동(정지) 사이클 판정 SQL — <c>@Thr</c> = 비가동 경계(flow별 14일 평균 CT × 비가동 배수).
+    /// <para>2026-08-19 ct 기준 추가 — 종전 mt-only 판정은 정지 후 재개 사이클(mt=정상, wt=정지 전체)을 정상으로
+    /// 삼켰다(실측: ct&gt;10×CT 559건 전부 정상 통과, 최대 5.8일 정지가 '사이클 1개'). CT=MT+WT 이므로 완료
+    /// 사이클도 ct 초과면 정지를 머금은 것 — <see cref="OeeMath.ClassifyCycle"/>(doc/22 §3)과 같은 규칙. mt 절은
+    /// ct&lt;mt 비정상 행(시계 역행 등) 방어용으로만 잔존.</para>
+    /// <para>SSOT — 집계(<c>ComputeCycleAggregateAsync</c>)와 계측 품질(<c>/api/oee/measurement-quality</c>)이
+    /// 같은 문자열을 공유한다. 바꾸면 <see cref="OeeMath.ClassifyCycle"/> 도 같이 바꿀 것.</para>
+    /// </summary>
+    protected const string DtCondSql = "ct > 0 AND (ct > @Thr OR (mt IS NOT NULL AND mt > @Thr))";
 
     protected OeeControllerBase(
         IOeeRepository repo,
@@ -792,7 +803,9 @@ public abstract class OeeControllerBase : ControllerBase
         double idleMult, double nonProdMult)
     {
         var sb = new System.Text.StringBuilder(256);
-        sb.Append("v26|");   // 분모/분류 모델 버전 — 모델 변경 배포 직후 L1 캐시 혼재 방지
+        sb.Append("v27|");   // 분모/분류 모델 버전 — 모델 변경 배포 직후 L1 캐시 혼재 방지
+                             // v27(2026-08-19): dtCond ct 기준 추가(정지 후 재개 사이클 비가동 편입) + wt 폭주 행
+                             //                  무변화 정지 분류 편입 + repair 기준 분리
                              // v26(2026-07-30): 유지보수 확정 정지를 고장 건수·MTBF onset·MTTR 에서 제외
         sb.Append(flowName ?? "*").Append('|').Append(fromUtc.Ticks).Append('|')
           .Append(toUtc.Ticks / (TimeSpan.TicksPerSecond * 10)).Append('|')  // 10초 격자
@@ -1040,7 +1053,7 @@ public abstract class OeeControllerBase : ControllerBase
         double periodStartMs = ToMs(fromUtc), periodEndMs = ToMs(toUtc);
         var flowRunByFlow = new Dictionary<string, List<(double S, double E)>>(StringComparer.Ordinal);
 
-        const string dtCond = "ct > 0 AND ((mt IS NOT NULL AND mt > @Thr) OR (mt IS NULL AND ct > @Thr))";
+        const string dtCond = DtCondSql;
         var nonProdStartSql = BuildNonProductionStartSql(plannedWindows);
 
         try
@@ -1220,10 +1233,13 @@ public abstract class OeeControllerBase : ControllerBase
                         measuredMs = Intervals.Total(rowSegs);
                         if (measuredMs <= 0) continue;              // 전 구간 비생산 확정 — 정지 미계상
                     }
-                    // 무변화 정지(미완료 멈춤, Mt=null) 분류 — 신호 기반(doc/25 §1) + 사용자 오버라이드 ② 비가동
-                    // 확정(고장/유지보수 수동 분류 겹침 = 승격/강등 억제). 완료된 MT 과주행(Mt≠null)은 움직인
-                    // 증거이므로 무조건 고장 유지(아래 폴스루).
-                    if (applyLongStop && r.Mt is null && !OverlapsAny(toDownIv, f, startMs, rec))
+                    // 무변화 정지 분류 — 신호 기반(doc/25 §1) + 사용자 오버라이드 ② 비가동 확정(고장/유지보수
+                    // 수동 분류 겹침 = 승격/강등 억제). MT 과주행(mt > 경계)은 움직인 증거이므로 무조건 고장
+                    // 유지(아래 폴스루). 완료됐지만 wt 폭주로 걸린 사이클(mt 정상·ct 초과, 2026-08-19 dtCond
+                    // ct 기준 신설분)은 정지가 사이클 사이에 있는 무변화 정지 — 미완료(Mt=null)와 동일하게
+                    // 분류를 태운다(없으면 주말/야간 장기정지가 전부 '고장'으로 계상돼 10× 비생산 승격이 죽는다).
+                    var mtOverrun = r.Mt is long mtOv && mtOv > thr * idleMult;
+                    if (applyLongStop && !mtOverrun && !OverlapsAny(toDownIv, f, startMs, rec))
                     {
                         var cls = OeeMath.ClassifyStopWindow(signalRulesActive,
                             HasOwnSignal(f, startMs, rec), LineHasCulprit(f, startMs, rec), LineHasAnySignal(startMs, rec),
@@ -1263,8 +1279,9 @@ public abstract class OeeControllerBase : ControllerBase
                     if (OeeMath.IsMaintenanceCovered(measuredMs, maintOverlapMs))
                         continue;                                   // 유지보수 확정 — A 손실은 유지, 고장 통계만 제외
                     onsets.Add(startMs + thr);
-                    // going 회복: complete(MT) 또는 CT 종료. 미계측 카빙된 행은 계측 잔여 기준(공백이 MTTR 을 부풀리지 않게).
-                    double repair = r.Mt is long mtL && measuredMs >= cMs ? (mtL - thr) : (measuredMs - thr);
+                    // going 회복: MT 과주행은 complete(MT) 시점, 그 외(미완료·wt 폭주)는 CT 종료 기준.
+                    // 미계측 카빙된 행은 계측 잔여 기준(공백이 MTTR 을 부풀리지 않게).
+                    double repair = mtOverrun && r.Mt is long mtL && measuredMs >= cMs ? (mtL - thr) : (measuredMs - thr);
                     if (repair >= 0) repairs.Add(repair);
                     dtEventCount++;
                     downtimeCycles?.Add((f, startMs, rec, cMs, false, false));   // 정지 로그 내역 정합 — dtEventCount 와 1:1(대기 행 제외)
@@ -1291,11 +1308,11 @@ public abstract class OeeControllerBase : ControllerBase
                     // (2026-07-29 우진 현장: 사이클 1540건/1시간 구간이 가동 0·비생산 100%).
                     // 모델 전제("가동 = 정상 사이클 ∩ 생산가능")와 같은 판단을 정지 쪽에도 적용하는 방어선 —
                     // 이벤트 소스가 틀려도 실측 사이클이 있는 시간은 정지로 계상되지 않는다.
-                    // ★차감 대상은 "정상 길이" 사이클로 한정한다. dtCond 는 완료 사이클을 MT 로 판정하므로
-                    //   (mt IS NOT NULL AND mt > @Thr), 정지 후 재개 사이클(mt=이전 MT 로 작고 wt=정지 전체)은
-                    //   '정상 사이클'로 분류되고 그 CT 스팬이 정지 구간을 통째로 덮는다. 그것까지 차감하면
-                    //   진짜 정지가 가동으로 뒤집힌다(실측: 20분 정지가 가동으로 계상). 길이 상한은 조각 버림
-                    //   경계와 같은 값(thr×idleMult) — 한 사이클로 설명 가능한 스팬만 "돈 시간"으로 인정한다.
+                    // ★차감 대상은 "정상 길이" 사이클로 한정한다. 2026-08-19 dtCond 에 ct 기준이 들어가 정지 후
+                    //   재개 사이클(mt 정상·wt=정지 전체)은 이제 비가동 행으로 빠지지만(종전엔 '정상'으로 분류돼
+                    //   그 CT 스팬이 정지를 통째로 덮었다 — 실측: 20분 정지가 가동으로 계상), 경계 아래 잔여
+                    //   오차·recordedAt 정렬 오차 방어로 상한은 유지한다 — 한 사이클로 설명 가능한 스팬
+                    //   (thr×idleMult, 조각 버림 경계와 같은 값)만 "돈 시간"으로 인정한다.
                     var maxNormalSpanMs = thrGap > 0 ? thrGap * idleMult : double.MaxValue;
                     var gapDeduct = new List<(double S, double E)>();
                     if (gapFlow is not null)
@@ -1799,6 +1816,120 @@ public abstract class OeeControllerBase : ControllerBase
         DateTimeKind.Local => dt.ToUniversalTime(),
         _ => DateTime.SpecifyKind(dt, DateTimeKind.Local).ToUniversalTime(),
     };
+
+    // ── 계측 품질(사이클 제외·누락률) — OEE 지표와 별개 축 ─────────────────────
+
+    private sealed class MeasureQualityRow
+    {
+        public long Total { get; set; }
+        public long Excluded { get; set; }
+        public long Incomplete { get; set; }
+        public long Idle { get; set; }
+    }
+
+    /// <summary>
+    /// 설비(Flow)별 사이클 제외 현황. 판정은 <see cref="DtCondSql"/> SSOT 를 그대로 재사용해 "가동에서 빠진
+    /// 사이클 수"와 화면 표시가 어긋나지 않게 한다(경계 = flow별 14일 평균 CT × 비가동 배수).
+    /// 임계 보유(14일 평균 &gt; 0) flow 만 모집단 — 임계 없는 flow 는 판정 자체가 불가라 제외율이 무의미하다.
+    /// <para>Total=0 인 flow 는 비율을 null 로 둔다 — 사이클이 없는 기간에 "제외 0%"(=완벽)로 보이면
+    /// 수집 정지와 정상 가동이 같은 화면이 된다(doc/21 §10 정직성).</para>
+    /// </summary>
+    protected async Task<OeeMeasureQualityDto> ComputeMeasureQualityAsync(
+        string? flowName, DateTime fromUtc, DateTime toUtc,
+        Dictionary<string, (double AvgMs, double P10Ms, int Sample)> thresholds,
+        CancellationToken ct)
+    {
+        var (idleMult, _) = ResolveCtMultipliers();
+        var rows = new List<OeeMeasureQualityRowDto>();
+
+        var dbPath = _pathResolver.GetSharedDbPath();
+        if (System.IO.File.Exists(dbPath))
+        {
+            try
+            {
+                await using var conn = await OpenSharedReadAsync(fromUtc);
+                var exists = await conn.ExecuteScalarAsync<long>(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlowHistory'");
+                if (exists > 0)
+                {
+                    // 모집단 = 구성된 flow 전체(dspFlow). 임계 보유분만 세면 "측정이 아예 안 되는 설비"가
+                    // 목록에서 사라져 화면이 '전부 양호'로 읽힌다 — 그게 가장 숨겨선 안 되는 상태다.
+                    var configured = new List<string>();
+                    var flowTableExists = await conn.ExecuteScalarAsync<long>(
+                        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlow'");
+                    if (flowTableExists > 0)
+                        configured = [.. await conn.QueryAsync<string>(
+                            "SELECT flowName FROM dspFlow WHERE flowName IS NOT NULL AND flowName <> ''")];
+                    var targets = configured
+                        .Concat(thresholds.Where(kv => kv.Value.AvgMs > 0).Select(kv => kv.Key))
+                        .Where(f => flowName is null || string.Equals(f, flowName, StringComparison.OrdinalIgnoreCase))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(x => x, StringComparer.Ordinal)
+                        .ToList();
+                    var fromStr = fromUtc.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+                    var toStr = toUtc.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+                    foreach (var f in targets)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        // 임계 미보유(클린샘플 0) = 측정 불가 — 판정 경계가 없어 제외율을 계산할 수 없다.
+                        // 0% 로 채우지 않고 Measurable=false 행으로 남긴다(정상과 구별).
+                        var hasThr = thresholds.TryGetValue(f, out var t) && t.AvgMs > 0;
+                        if (!hasThr)
+                        {
+                            rows.Add(new OeeMeasureQualityRowDto(
+                                FlowName: f, TotalCycles: 0, NormalCycles: 0, ExcludedCycles: 0,
+                                IncompleteCycles: 0, IdleCycles: 0, ExclusionRate: null, IncompleteRate: null,
+                                ThresholdMs: 0, Measurable: false));
+                            continue;
+                        }
+                        var thrMs = thresholds[f].AvgMs * idleMult;
+                        var p = new DynamicParameters();
+                        p.Add("From", fromStr); p.Add("To", toStr); p.Add("Flow", f); p.Add("Thr", thrMs);
+                        var q = await conn.QueryFirstOrDefaultAsync<MeasureQualityRow>($@"
+                            SELECT
+                              COUNT(*)                                                          AS Total,
+                              COALESCE(SUM(CASE WHEN {DtCondSql} THEN 1 ELSE 0 END),0)          AS Excluded,
+                              COALESCE(SUM(CASE WHEN mt IS NULL THEN 1 ELSE 0 END),0)           AS Incomplete,
+                              COALESCE(SUM(CASE WHEN COALESCE(IsIdle,0)=1 THEN 1 ELSE 0 END),0) AS Idle
+                            FROM dspFlowHistory
+                            WHERE recordedAt >= @From AND recordedAt < @To AND flowName = @Flow AND ct > 0", p);
+                        var total = (int)(q?.Total ?? 0);
+                        var excluded = (int)(q?.Excluded ?? 0);
+                        var incomplete = (int)(q?.Incomplete ?? 0);
+                        rows.Add(new OeeMeasureQualityRowDto(
+                            FlowName: f,
+                            TotalCycles: total,
+                            NormalCycles: Math.Max(0, total - excluded),
+                            ExcludedCycles: excluded,
+                            IncompleteCycles: incomplete,
+                            IdleCycles: (int)(q?.Idle ?? 0),
+                            ExclusionRate: total > 0 ? excluded / (double)total : null,
+                            IncompleteRate: total > 0 ? incomplete / (double)total : null,
+                            ThresholdMs: thrMs,
+                            Measurable: true));
+                    }
+                }
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[OEE] 계측 품질 집계 실패");
+            }
+        }
+
+        var sumTotal = rows.Sum(r => r.TotalCycles);
+        var sumExcluded = rows.Sum(r => r.ExcludedCycles);
+        var sumIncomplete = rows.Sum(r => r.IncompleteCycles);
+        return new OeeMeasureQualityDto(
+            TotalCycles: sumTotal,
+            NormalCycles: rows.Sum(r => r.NormalCycles),
+            ExcludedCycles: sumExcluded,
+            IncompleteCycles: sumIncomplete,
+            ExclusionRate: sumTotal > 0 ? sumExcluded / (double)sumTotal : null,
+            IncompleteRate: sumTotal > 0 ? sumIncomplete / (double)sumTotal : null,
+            UnmeasurableFlowCount: rows.Count(r => !r.Measurable),
+            Flows: rows);
+    }
 }
 
 // ── 요청 DTO ─────────────────────────────────────────────────────────────────
