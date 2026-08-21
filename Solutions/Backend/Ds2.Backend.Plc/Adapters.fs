@@ -132,10 +132,12 @@ module LsPackRead =
         |> List.mapi (fun index tag -> TagSpec(tagName index tag, tag.PlcAddress, tag.DataType))
         |> Array.ofList
 
-    let scanAddressesForTags isLocalEthernet plcModel (tags: PlcTagDef list) =
+    let scanAddressesForTags isLocalEthernet (tags: PlcTagDef list) =
         let tagSpecs = toTagSpecs tags
-        let packs = PackModule.packTagSpecsForType("LS", tagSpecs, isLocalEthernet, plcModel)
-        PackModule.getScanAddressesForPacks("LS", packs, isLocalEthernet, plcModel)
+        // 새 Ev2 pack API: CPU 모델은 접속이 아니라 태그 주소별로 판별하므로 plcType="LS" 만 넘긴다.
+        let packs = PackModule.packTagSpecsForType("LS", tagSpecs, isLocalEthernet)
+        // 4번째 인자는 LS-USB 전용 청크 상한 — Ethernet("LS") 경로에선 무시된다.
+        PackModule.getScanAddressesForPacks("LS", packs, isLocalEthernet, 240)
 
     let readTags (connector: LsConnector) (tags: PlcTagDef list) =
         try
@@ -181,20 +183,14 @@ module LsAdapter =
     let private maxReadBatchSize = 16
 
     let create (cfg: PlcConnectionConfig) : IPlcConnectorAdapter =
-        // vendor(LsXgk/LsXgi)를 LsConnectionConfig.PlcModel 로 넘겨 connector 가 자기 CPU 모델을 보유하게 한다.
-        // (태그 주소 파싱 자체는 XgtUtil.resolveTagInfo 의 XGI→XGK 폴백이 이미 처리하지만,
-        //  config 가 모델을 안 넘기면 XGI default 라 connector 상태·로그가 실제 모델과 어긋난다.)
-        let lsModel =
-            match cfg.Vendor with
-            | PlcVendor.LsXgk -> LsPlcModel.XGK
-            | PlcVendor.LsXgb -> LsPlcModel.XGT
-            | _               -> LsPlcModel.XGI
-        let lsConnCfg : LsConnectionConfig =
+        // 새 Ev2(LS)는 CPU 모델(XGK/XGI)을 접속 config 가 아니라 태그 주소별로 판별한다
+        // (XgtUtil.resolveTagInfo 의 XGI↔XGK 폴백). 따라서 LsEthernetConnectionConfig 에는
+        // 모델 필드가 없다. vendor 구분은 어댑터 선택(LsAdapter vs MxAdapter) 단계에서 이미 끝났다.
+        let lsConnCfg : LsEthernetConnectionConfig =
             { IpAddress = cfg.IpAddress
               Name = cfg.Name
               Port = cfg.Port
               EnableScan = true
-              PlcModel = lsModel
               LocalEthernet = cfg.LocalEthernet
               Timeout = TimeSpan.FromMilliseconds(float cfg.TimeoutMs)
               ScanInterval = TimeSpan.FromMilliseconds 100.0 }
