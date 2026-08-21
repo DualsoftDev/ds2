@@ -815,15 +815,11 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
                      $"({(readOnly ? "read-only / Monitoring" : "read-write / Control")}, " +
                      $"scan={(delegatedScan ? "위임(Pi5) — PlcScanService off" : "직접(Agent)")}) " +
                      $"with engine session {identity.SessionId}...");
-            // 위임 스캔: Agent 는 PLC 에 직접 붙지 않으므로(§10.10 ①) BackendHost 게이트웨이는 빈 config 로 시작한다.
-            // full gatewayConfig 로 넣으면 DI PlcGateway 가 공장 PLC(AID-XGT#1)에 직접 연결을 시도하다 실패해
-            // (클라우드 인스턴스는 공장 LAN 192.168.x 못 닿음) CommBlackout 을 남발한다(구미 실기 459회/일 →
-            // 관측 무효화 → 전 Work 사이클 동시 붕괴). collector config 푸시는 아래에서 여전히 full gatewayConfig 로
-            // Pi5 에 태그를 전파하므로 위임 수집은 정상 동작한다.
-            var backendGatewayConfig = delegatedScan
-                ? new PlcGatewayConfig(Microsoft.FSharp.Collections.ListModule.OfSeq(System.Array.Empty<PlcConnectionConfig>()))
-                : gatewayConfig;
-            _app = BackendHost.startWithBuilderAndAppConfig(Port, backendGatewayConfig, readOnly, delegatedScan, builder =>
+            // full gatewayConfig 를 넘긴다 — SignalHub 의 allowedCollectorTags/allowedCollectorConnections
+            // (Pi5 WriteTags·연결상태 보고의 화이트리스트)가 이 config 에서 만들어지므로, 위임 모드라도 비우면
+            // Pi5 의 모든 데이터·상태 보고가 unconfigured 로 거부돼 수집이 죽는다(실측). 위임 모드에서 Agent
+            // 게이트웨이가 PLC 에 직접 연결하지 않는 것은 delegatedScan(PlcScanService off)이 보장한다.
+            _app = BackendHost.startWithBuilderAndAppConfig(Port, gatewayConfig, readOnly, delegatedScan, builder =>
             {
                 if (sharedGateway is not null)
                     builder.Services.AddSingleton<IPlcGateway>(sharedGateway);

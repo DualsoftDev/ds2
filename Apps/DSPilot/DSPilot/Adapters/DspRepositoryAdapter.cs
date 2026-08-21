@@ -766,7 +766,8 @@ public class DspRepositoryAdapter : IDspRepository
             var rows = await conn.QueryAsync<(string? CallName, long GoingCount)>($@"
                 SELECT CallName, COALESCE(GoingCount, 0) AS GoingCount
                 FROM {_callTable}
-                WHERE FlowName = @Flow AND CallName IS NOT NULL AND CallName <> ''");
+                WHERE FlowName = @Flow AND CallName IS NOT NULL AND CallName <> ''",
+                new { Flow = flowName });
             var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             foreach (var (name, cnt) in rows)
                 if (name is not null)
