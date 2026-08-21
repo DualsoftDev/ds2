@@ -19,14 +19,21 @@ public partial class TagWizardBasicDialog : Window
     private readonly ObservableCollection<FlowBaseBasicRow> _flowRows = new();
     private readonly ObservableCollection<IoBatchRow> _previewRows = new();
 
-    public TagWizardBasicDialog(DsStore store)
+    /// <summary>주소를 생성할 대상 System(PLC) — 마법사는 한 번에 한 System 의 주소 공간을 채운다.</summary>
+    private Guid? _selectedSystemId;
+    private readonly List<Guid> _systemItems = new();
+    private bool _suppressSystemEvent;
+
+    public TagWizardBasicDialog(DsStore store, Guid? initialSystemId = null)
     {
         InitializeComponent();
         _store = store ?? throw new ArgumentNullException(nameof(store));
+        _selectedSystemId = initialSystemId;
 
         FlowBaseGrid.ItemsSource = _flowRows;
         PreviewGrid.ItemsSource   = _previewRows;
 
+        LoadSystems();
         LoadFlows();
         RefreshPreview();
 
@@ -36,14 +43,53 @@ public partial class TagWizardBasicDialog : Window
         MwMacroBox.TextChanged += (_, _) => QueuePreviewRefresh();
     }
 
+    /// <summary>active System 목록으로 콤보 구성. 초기 선택 = 생성자 인자(컨텍스트) → 첫 System.</summary>
+    private void LoadSystems()
+    {
+        _suppressSystemEvent = true;
+        try
+        {
+            _systemItems.Clear();
+            SystemCombo.Items.Clear();
+
+            var projects = Queries.allProjects(_store);
+            if (!projects.IsEmpty)
+            {
+                foreach (var sys in Queries.activeSystemsOf(projects.Head.Id, _store))
+                {
+                    _systemItems.Add(sys.Id);
+                    SystemCombo.Items.Add(sys.Name);
+                }
+            }
+
+            var index = _selectedSystemId is { } sid ? _systemItems.IndexOf(sid) : -1;
+            if (index < 0) index = _systemItems.Count > 0 ? 0 : -1;
+            SystemCombo.SelectedIndex = index;
+            _selectedSystemId = index >= 0 ? _systemItems[index] : null;
+            SystemCombo.IsEnabled = _systemItems.Count > 1;
+        }
+        finally
+        {
+            _suppressSystemEvent = false;
+        }
+    }
+
+    private void SystemCombo_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (_suppressSystemEvent) return;
+        var index = SystemCombo.SelectedIndex;
+        _selectedSystemId = index >= 0 && index < _systemItems.Count ? _systemItems[index] : null;
+        LoadFlows();
+        RefreshPreview();
+    }
+
     private void LoadFlows()
     {
         _flowRows.Clear();
-        var projects = Queries.allProjects(_store);
-        if (projects.IsEmpty) return;
+        if (_selectedSystemId is not { } systemId) return;
 
-        var activeFlows = Queries.activeSystemsOf(projects.Head.Id, _store)
-            .SelectMany(sys => Queries.flowsOf(sys.Id, _store))
+        // 선택된 System(PLC) 의 Flow 만 — 다른 System 의 같은 Flow 명과 섞이지 않는다.
+        var activeFlows = Queries.flowsOf(systemId, _store)
             .Select(f => f.Name)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
@@ -70,6 +116,7 @@ public partial class TagWizardBasicDialog : Window
 
     private void ReloadFlows_Click(object sender, RoutedEventArgs e)
     {
+        LoadSystems();   // System 이 추가/삭제됐을 수 있음 — 콤보부터 재구성 (선택 유지)
         LoadFlows();
         RefreshPreview();
     }
@@ -103,7 +150,7 @@ public partial class TagWizardBasicDialog : Window
             MwMacro: MwMacroBox.Text ?? "",
             FlowBases: bases);
 
-        foreach (var row in BasicMacroIoGenerator.Generate(_store, input))
+        foreach (var row in BasicMacroIoGenerator.Generate(_store, input, _selectedSystemId))
             _previewRows.Add(row);
 
         StatusText.Text = $"미리보기 {_previewRows.Count}개 생성됨";

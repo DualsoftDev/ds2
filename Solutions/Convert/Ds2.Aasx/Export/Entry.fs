@@ -25,6 +25,44 @@ module AasxExporter =
         let key = Key(KeyTypes.Submodel, submodel.Id) :> IKey
         Reference(ReferenceTypes.ModelReference, ResizeArray<IKey>([key])) :> IReference
 
+    let private tryReferenceTargetId (reference: IReference) : string option =
+        if isNull (box reference) || isNull reference.Keys || reference.Keys.Count = 0 then None
+        else Option.ofObj reference.Keys.[0].Value
+
+    /// Cache의 원본 객체를 직접 수정하지 않도록 AAS 표준 XML serializer로 deep copy한다.
+    let private cloneEnvironment (source: Environment) : Environment =
+        use stream = new MemoryStream()
+        use writer = System.Xml.XmlWriter.Create(
+            stream,
+            System.Xml.XmlWriterSettings(OmitXmlDeclaration = true, Indent = false))
+        Xmlization.Serialize.``To``(source, writer)
+        writer.Flush()
+        stream.Position <- 0L
+        use reader = System.Xml.XmlReader.Create(stream)
+        reader.MoveToContent() |> ignore
+        Xmlization.Deserialize.EnvironmentFrom(reader)
+
+    let private mergeConceptDescriptions
+            (originals: ResizeArray<IConceptDescription>)
+            (generated: ResizeArray<IConceptDescription>) =
+        let result = ResizeArray<IConceptDescription>()
+        let existingIds = System.Collections.Generic.HashSet<string>(StringComparer.Ordinal)
+
+        if not (isNull originals) then
+            for concept in originals do
+                result.Add(concept)
+                match Option.ofObj concept.Id with
+                | Some id -> existingIds.Add(id) |> ignore
+                | None -> ()
+
+        for concept in generated do
+            match Option.ofObj concept.Id with
+            | Some id when existingIds.Add(id) -> result.Add(concept)
+            | Some _ -> ()
+            | None -> result.Add(concept)
+
+        result
+
     // ─────────────────────────────────────────────────────────────────
     // AASX 검증 통과용 방어적 정리 — 직렬화 직전에 환경 트리를 정규화한다.
     //   • Description / DisplayName / MLP.Value : 동일 language 첫 등장만 보존 (AASd-022 / equiv)
@@ -165,7 +203,8 @@ module AasxExporter =
     let private appendUserTemplateSubmodels
             (project: Project)
             (submodels: ResizeArray<ISubmodel>)
-            (smRefs: ResizeArray<IReference>)
+            (shells: ResizeArray<IAssetAdministrationShell>)
+            (projectSmRefs: ResizeArray<IReference>)
             (extraConcepts: ResizeArray<IConceptDescription>) =
         // 매 export 시작 시 override 기록 비움.
         LastUserTemplateOverrides <- []
@@ -178,7 +217,10 @@ module AasxExporter =
                 // 이미 등록된 idShort 추적 — 충돌 시 사용자 폴더 SM 으로 교체.
                 let existingByIdShort =
                     let d = System.Collections.Generic.Dictionary<string, int>()
-                    submodels |> Seq.iteri (fun i sm -> d.[sm.IdShort] <- i)
+                    submodels
+                    |> Seq.iteri (fun i sm ->
+                        if not (String.IsNullOrWhiteSpace(sm.IdShort)) then
+                            d.[sm.IdShort] <- i)
                     d
                 let overrides = ResizeArray<string * string>()
                 for (fileName, sms) in scanned do
@@ -190,11 +232,18 @@ module AasxExporter =
                         | true, idx ->
                             log.Info($"[UserTemplates] {fileName} → {safeShort} 가 기본 SM 을 override")
                             overrides.Add(fileName, safeShort)
+                            let oldId = submodels.[idx].Id
                             submodels.[idx] <- sm
-                            smRefs.[idx] <- mkSmRef sm
+                            for shell in shells do
+                                if not (isNull shell.Submodels) then
+                                    for i = 0 to shell.Submodels.Count - 1 do
+                                        match tryReferenceTargetId shell.Submodels.[i] with
+                                        | Some id when String.Equals(id, oldId, StringComparison.Ordinal) ->
+                                            shell.Submodels.[i] <- mkSmRef sm
+                                        | _ -> ()
                         | _ ->
                             submodels.Add(sm)
-                            smRefs.Add(mkSmRef sm)
+                            projectSmRefs.Add(mkSmRef sm)
                             log.Info($"[UserTemplates] {fileName} → {safeShort} 첨부")
                 LastUserTemplateOverrides <- overrides |> Seq.toList
                 // CD 도 통합 — id 중복은 첫 정의 우선.
@@ -538,111 +587,196 @@ module AasxExporter =
 
         let allNewSubmodels = modelSm :: (optionalSubmodels @ kpiSubmodels)
 
-        let (finalSubmodels, finalShells, finalConceptDescs) =
+        let makeProjectShell
+                (existingShells: ResizeArray<IAssetAdministrationShell>)
+                (submodelRefs: ResizeArray<IReference>) =
+            let existingIds =
+                System.Collections.Generic.HashSet<string>(
+                    existingShells
+                    |> Seq.choose (fun shell -> Option.ofObj shell.Id),
+                    StringComparer.Ordinal)
+            let baseId = $"{prefix}shell/{project.Name}"
+            let projectIdText = project.Id.ToString("N")
+            let shellId =
+                if existingIds.Contains(baseId) then
+                    $"{baseId}/promaker/{projectIdText}"
+                else baseId
+            let globalAssetId = resolveGlobalAssetId prefix project.Name
+            let assetInfo = AssetInformation(assetKind = AssetKind.Instance, globalAssetId = globalAssetId)
+            let shell = AssetAdministrationShell(id = shellId, assetInformation = assetInfo)
+            shell.IdShort <- "ProjectShell"
+            shell.Submodels <- submodelRefs
+            shell :> IAssetAdministrationShell
+
+        let (finalSubmodels, finalShells, finalConceptDescs, projectSmRefs) =
             match AasxProjectCache.tryGetEnvironment project with
             | Some envObj ->
                 try
-                    let originalEnv = envObj :?> Environment
-                    // ds2 가 진실의 원천 (오버라이트): SequenceModel + 모든 도메인 서브모델만 매번 새로 생성.
-                    // Nameplate / HandoverDocumentation / TechnicalData 는 원본이 있으면 보존 (ds2 변경분 무시).
-                    // 원본에 없는 경우에만 project.* 로부터 신규 생성.
-                    let sequenceIdShorts =
+                    let originalEnv = cloneEnvironment (envObj :?> Environment)
+                    let originalSubmodels =
+                        if isNull originalEnv.Submodels then []
+                        else originalEnv.Submodels |> Seq.toList
+                    let originalShells =
+                        if isNull originalEnv.AssetAdministrationShells then ResizeArray<IAssetAdministrationShell>()
+                        else ResizeArray<IAssetAdministrationShell>(originalEnv.AssetAdministrationShells)
+
+                    let managedIdShorts =
                         Set.ofList [
                             SubmodelModelIdShort
                             LegacySubmodelIdShort
                             yield! SubmodelType.AllDomains |> List.map (fun t -> t.IdShort)
-                            // KPI 자동생성 서브모델 3종도 매 저장마다 재발행 (사용자 편집물 유실 방지는 KPI 로직 내부 3-tuple guard 로 커버)
                             AidSubmodelIdShort
                             AimcSubmodelIdShort
                             OperationalDataSubmodelIdShort
                             TimeSeriesSubmodelIdShort
                         ]
+                    let hasOriginalSequenceModel =
+                        originalSubmodels
+                        |> List.exists (fun sm ->
+                            sm.IdShort = SubmodelModelIdShort || sm.IdShort = LegacySubmodelIdShort)
 
-                    let preservedSubmodels =
-                        if originalEnv.Submodels <> null then
-                            originalEnv.Submodels
-                            |> Seq.filter (fun sm -> not (sequenceIdShorts.Contains(sm.IdShort)))
-                            |> Seq.toList
-                        else []
+                    if not hasOriginalSequenceModel then
+                        // 일반 AASX는 기존 모델 전체를 보존하고 Promaker 모델을 별도 Shell로 추가한다.
+                        let promakerSubmodels =
+                            ResizeArray<ISubmodel>(allNewSubmodels |> List.map (fun sm -> sm :> ISubmodel))
+                        let promakerRefs = ResizeArray<IReference>(allNewSubmodels |> List.map mkSmRef)
+                        appendProjectMetadataSubmodels store project promakerSubmodels promakerRefs
 
-                    let combinedSubmodels = ResizeArray<ISubmodel>()
-                    allNewSubmodels |> List.iter (fun sm -> combinedSubmodels.Add(sm :> ISubmodel))
-                    preservedSubmodels |> List.iter combinedSubmodels.Add
+                        let combinedSubmodels = ResizeArray<ISubmodel>(originalSubmodels)
+                        for sm in promakerSubmodels do combinedSubmodels.Add(sm)
 
-                    // 원본에 메타 서브모델이 이미 존재하면 보존 (ds2 변경분 무시), 없으면 project.* 로부터 신규 생성.
-                    let hasNameplate = combinedSubmodels |> Seq.exists (fun sm -> sm.IdShort = NameplateSubmodelIdShort)
-                    let hasDocumentation = combinedSubmodels |> Seq.exists (fun sm -> sm.IdShort = DocumentationSubmodelIdShort)
-                    let hasTechnicalData = combinedSubmodels |> Seq.exists (fun sm -> sm.IdShort = TechnicalDataSubmodelIdShort)
+                        originalShells.Add(makeProjectShell originalShells promakerRefs)
+                        let concepts =
+                            mergeConceptDescriptions originalEnv.ConceptDescriptions (createAllConceptDescriptions ())
+                        (combinedSubmodels, originalShells, concepts, promakerRefs)
+                    else
+                        // Promaker AASX는 SequenceModel 소유 Shell의 DS submodel만 갱신한다.
+                        let submodelsById = System.Collections.Generic.Dictionary<string, ISubmodel>(StringComparer.Ordinal)
+                        for sm in originalSubmodels do
+                            if not (String.IsNullOrWhiteSpace(sm.Id)) then submodelsById.[sm.Id] <- sm
 
-                    let smRefs = ResizeArray<IReference>()
-                    allNewSubmodels |> List.iter (fun sm -> smRefs.Add(mkSmRef sm))
-                    preservedSubmodels |> List.iter (fun sm -> smRefs.Add(mkSmRef sm))
+                        let sequenceIds = System.Collections.Generic.HashSet<string>(StringComparer.Ordinal)
+                        for sm in originalSubmodels do
+                            if sm.IdShort = SubmodelModelIdShort || sm.IdShort = LegacySubmodelIdShort then
+                                if not (String.IsNullOrWhiteSpace(sm.Id)) then sequenceIds.Add(sm.Id) |> ignore
 
-                    if not hasNameplate then
-                        let nameplate = project.Nameplate |> Option.defaultValue (Nameplate())
-                        let npSm = nameplateToSubmodel nameplate project.Id
-                        combinedSubmodels.Add(npSm :> ISubmodel)
-                        smRefs.Add(mkSmRef npSm)
+                        let ownerShell =
+                            originalShells
+                            |> Seq.tryFind (fun shell ->
+                                not (isNull shell.Submodels)
+                                && shell.Submodels
+                                   |> Seq.exists (fun reference ->
+                                       match tryReferenceTargetId reference with
+                                       | Some id -> sequenceIds.Contains(id)
+                                       | None -> false))
 
-                    if not hasDocumentation then
-                        let documentation = project.HandoverDocumentation |> Option.defaultValue (HandoverDocumentation())
-                        let docSm = documentationToSubmodel documentation project.Id
-                        combinedSubmodels.Add(docSm :> ISubmodel)
-                        smRefs.Add(mkSmRef docSm)
+                        let managedIds = System.Collections.Generic.HashSet<string>(sequenceIds, StringComparer.Ordinal)
+                        match ownerShell with
+                        | Some owner when not (isNull owner.Submodels) ->
+                            for reference in owner.Submodels do
+                                match tryReferenceTargetId reference with
+                                | Some id ->
+                                    match submodelsById.TryGetValue(id) with
+                                    | true, sm when managedIdShorts.Contains(sm.IdShort) ->
+                                        managedIds.Add(id) |> ignore
+                                    | _ -> ()
+                                | None -> ()
+                        | _ -> ()
 
-                    if not hasTechnicalData then
-                        let techData = project.TechnicalData |> Option.defaultValue (TechnicalData())
-                        let tdSm = technicalDataToSubmodel techData project.Id
-                        combinedSubmodels.Add(tdSm :> ISubmodel)
-                        smRefs.Add(mkSmRef tdSm)
+                        let managedIdShortById = System.Collections.Generic.Dictionary<string, string>(StringComparer.Ordinal)
+                        for id in managedIds do
+                            match submodelsById.TryGetValue(id) with
+                            | true, sm -> managedIdShortById.[id] <- sm.IdShort
+                            | _ -> ()
 
-                    let finalShells =
-                        if originalEnv.AssetAdministrationShells <> null && originalEnv.AssetAdministrationShells.Count > 0 then
-                            let originalShell = originalEnv.AssetAdministrationShells.[0]
-                            originalShell.Submodels <- smRefs
-                            ResizeArray<IAssetAdministrationShell>([originalShell])
-                        else
-                            let globalAssetId = resolveGlobalAssetId prefix project.Name
-                            let assetInfo = AssetInformation(assetKind = AssetKind.Instance, globalAssetId = globalAssetId)
-                            let shell = AssetAdministrationShell(id = $"{prefix}shell/{project.Name}", assetInformation = assetInfo)
-                            shell.IdShort <- "ProjectShell"
-                            shell.Submodels <- smRefs
-                            ResizeArray<IAssetAdministrationShell>([shell :> IAssetAdministrationShell])
+                        let preservedSubmodels =
+                            originalSubmodels
+                            |> List.filter (fun sm ->
+                                String.IsNullOrWhiteSpace(sm.Id) || not (managedIds.Contains(sm.Id)))
 
-                    let finalConcepts = createAllConceptDescriptions ()
+                        let combinedSubmodels = ResizeArray<ISubmodel>()
+                        let promakerSubmodels = ResizeArray<ISubmodel>()
+                        let promakerRefs = ResizeArray<IReference>()
+                        for sm in allNewSubmodels do
+                            combinedSubmodels.Add(sm :> ISubmodel)
+                            promakerSubmodels.Add(sm :> ISubmodel)
+                            promakerRefs.Add(mkSmRef sm)
+                        for sm in preservedSubmodels do combinedSubmodels.Add(sm)
 
-                    (combinedSubmodels, finalShells, finalConcepts)
+                        let addMetadataIfMissing idShort create =
+                            if not (combinedSubmodels |> Seq.exists (fun sm -> sm.IdShort = idShort)) then
+                                let sm = create ()
+                                combinedSubmodels.Add(sm)
+                                promakerSubmodels.Add(sm)
+                                promakerRefs.Add(mkSmRef sm)
+
+                        addMetadataIfMissing NameplateSubmodelIdShort (fun () ->
+                            nameplateToSubmodel
+                                (project.Nameplate |> Option.defaultValue (Nameplate()))
+                                project.Id :> ISubmodel)
+                        addMetadataIfMissing DocumentationSubmodelIdShort (fun () ->
+                            documentationToSubmodel
+                                (project.HandoverDocumentation |> Option.defaultValue (HandoverDocumentation()))
+                                project.Id :> ISubmodel)
+                        addMetadataIfMissing TechnicalDataSubmodelIdShort (fun () ->
+                            technicalDataToSubmodel
+                                (project.TechnicalData |> Option.defaultValue (TechnicalData()))
+                                project.Id :> ISubmodel)
+
+                        let newByIdShort = System.Collections.Generic.Dictionary<string, ISubmodel>()
+                        for sm in promakerSubmodels do
+                            if not (String.IsNullOrWhiteSpace(sm.IdShort)) then newByIdShort.[sm.IdShort] <- sm
+
+                        for shell in originalShells do
+                            let rewritten = ResizeArray<IReference>()
+                            if not (isNull shell.Submodels) then
+                                for reference in shell.Submodels do
+                                    match tryReferenceTargetId reference with
+                                    | Some oldId ->
+                                        match managedIdShortById.TryGetValue(oldId) with
+                                        | true, idShort ->
+                                            match newByIdShort.TryGetValue(idShort) with
+                                            | true, replacement -> rewritten.Add(mkSmRef replacement)
+                                            | _ -> ()
+                                        | _ -> rewritten.Add(reference)
+                                    | None -> rewritten.Add(reference)
+                            shell.Submodels <- rewritten
+
+                        let projectRefs =
+                            match ownerShell with
+                            | Some owner ->
+                                let referencedIds = System.Collections.Generic.HashSet<string>(StringComparer.Ordinal)
+                                if not (isNull owner.Submodels) then
+                                    for reference in owner.Submodels do
+                                        match tryReferenceTargetId reference with
+                                        | Some id -> referencedIds.Add(id) |> ignore
+                                        | None -> ()
+                                for reference in promakerRefs do
+                                    match tryReferenceTargetId reference with
+                                    | Some id when referencedIds.Add(id) -> owner.Submodels.Add(reference)
+                                    | _ -> ()
+                                owner.Submodels
+                            | None ->
+                                let shell = makeProjectShell originalShells promakerRefs
+                                originalShells.Add(shell)
+                                promakerRefs
+
+                        let concepts =
+                            mergeConceptDescriptions originalEnv.ConceptDescriptions (createAllConceptDescriptions ())
+                        (combinedSubmodels, originalShells, concepts, projectRefs)
                 with ex ->
-                    log.Warn($"원본 Environment 처리 실패: {ex.Message}. 새로운 Environment를 생성합니다.", ex)
-                    let submodels = ResizeArray<ISubmodel>(allNewSubmodels |> List.map (fun sm -> sm :> ISubmodel))
-                    let smRefs = ResizeArray<IReference>(allNewSubmodels |> List.map mkSmRef)
-                    appendProjectMetadataSubmodels store project submodels smRefs
-
-                    let globalAssetId = resolveGlobalAssetId prefix project.Name
-                    let assetInfo = AssetInformation(assetKind = AssetKind.Instance, globalAssetId = globalAssetId)
-                    let shell = AssetAdministrationShell(id = $"{prefix}shell/{project.Name}", assetInformation = assetInfo)
-                    shell.IdShort <- "ProjectShell"
-                    shell.Submodels <- smRefs
-
-                    (submodels, ResizeArray<IAssetAdministrationShell>([shell :> IAssetAdministrationShell]), createAllConceptDescriptions ())
+                    log.Error($"원본 AASX 보존 병합 실패: {ex}")
+                    raise (InvalidOperationException("원본 AASX 데이터를 안전하게 병합하지 못해 저장을 중단했습니다.", ex))
             | None ->
                 let submodels = ResizeArray<ISubmodel>(allNewSubmodels |> List.map (fun sm -> sm :> ISubmodel))
                 let smRefs = ResizeArray<IReference>(allNewSubmodels |> List.map mkSmRef)
                 appendProjectMetadataSubmodels store project submodels smRefs
-
-                let globalAssetId = resolveGlobalAssetId prefix project.Name
-                let assetInfo = AssetInformation(assetKind = AssetKind.Instance, globalAssetId = globalAssetId)
-                let shell = AssetAdministrationShell(id = $"{prefix}shell/{project.Name}", assetInformation = assetInfo)
-                shell.IdShort <- "ProjectShell"
-                shell.Submodels <- smRefs
-
-                (submodels, ResizeArray<IAssetAdministrationShell>([shell :> IAssetAdministrationShell]), createAllConceptDescriptions ())
+                let shells = ResizeArray<IAssetAdministrationShell>()
+                shells.Add(makeProjectShell shells smRefs)
+                (submodels, shells, createAllConceptDescriptions (), smRefs)
 
         // 사용자 정의 폴더의 추가 .aasx 템플릿 SM/CD 첨부 (UserTemplatesFolder set 시).
-        appendUserTemplateSubmodels project finalSubmodels
-            (finalShells.[0].Submodels)  // shell 의 SM refs 도 동기화
-            finalConceptDescs
-
+        appendUserTemplateSubmodels project finalSubmodels finalShells projectSmRefs finalConceptDescs
         let env =
             Environment(
                 submodels = finalSubmodels,
@@ -650,6 +784,7 @@ module AasxExporter =
                 conceptDescriptions = finalConceptDescs)
         sanitizeEnvironment env
         writeEnvironment env outputPath thumbnail (AasxProjectCache.tryGetEntries project)
+        AasxProjectCache.updateEnvironment project (box env)
 
     let internal exportDeviceAasx (store: DsStore) (project: Project) (device: DsSystem) (iriPrefix: string) (outputPath: string) : unit =
         let prefix = if String.IsNullOrWhiteSpace(iriPrefix) then DefaultIriPrefix else iriPrefix

@@ -36,6 +36,14 @@ public partial class TagInspectorDialog : Window
     private readonly RowFilterDebouncer _filterDebouncer;
     private string _userTagSearch = string.Empty;
 
+    /// <summary>System(PLC) 필터 — null 이면 전체. 멀티 PLC 에서 주소의 네임스페이스는 System 이다.</summary>
+    private Guid? _systemFilterId;
+
+    /// <summary>콤보 인덱스 → SystemId 매핑 (0 = 전체).</summary>
+    private readonly List<Guid?> _systemFilterItems = new();
+
+    private bool _suppressSystemFilterEvent;
+
     private bool _showOnlyUnmatched;
     private int _unmatchedCount;
     private int _errorCount;
@@ -54,11 +62,12 @@ public partial class TagInspectorDialog : Window
     /// <paramref name="openFBTagMapEdit"/> 가 주어지면 진단 카드의 "FBTagMap 편집" 버튼이 활성화되어
     /// SystemType 식별자와 함께 호출자에게 전달한다 (TAG Wizard 진입 등). 호출 후 자동 새로고침된다.
     /// </summary>
-    public TagInspectorDialog(DsStore store, Action<string?>? openFBTagMapEdit = null)
+    public TagInspectorDialog(DsStore store, Action<string?>? openFBTagMapEdit = null, Guid? initialSystemId = null)
     {
         InitializeComponent();
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _openFBTagMapEdit = openFBTagMapEdit;
+        _systemFilterId = initialSystemId;
 
         _view = CollectionViewSource.GetDefaultView(_rows);
         _view.Filter = FilterRow;
@@ -85,6 +94,8 @@ public partial class TagInspectorDialog : Window
         try
         {
             Cursor = Cursors.Wait;
+
+            RebuildSystemFilterItems();
 
             var qr = IoQueryService.Generate(_store);
 
@@ -130,12 +141,60 @@ public partial class TagInspectorDialog : Window
         }
     }
 
+    // ── System(PLC) 필터 ──────────────────────────────────────────────────
+
+    /// <summary>active System 목록으로 콤보 재구성. 기존 선택(_systemFilterId)이 살아 있으면 유지.</summary>
+    private void RebuildSystemFilterItems()
+    {
+        _suppressSystemFilterEvent = true;
+        try
+        {
+            _systemFilterItems.Clear();
+            SystemFilterCombo.Items.Clear();
+
+            _systemFilterItems.Add(null);
+            SystemFilterCombo.Items.Add("전체 System");
+
+            var project = _store.Projects.Values.FirstOrDefault();
+            if (project is not null)
+            {
+                foreach (var sys in Queries.activeSystemsOf(project.Id, _store))
+                {
+                    _systemFilterItems.Add(sys.Id);
+                    SystemFilterCombo.Items.Add(sys.Name);
+                }
+            }
+
+            // System 이 1개뿐이면 필터가 무의미 — 콤보는 남기되 '전체'로 고정해 소음 제거.
+            var selectedIndex = _systemFilterId is { } sid ? _systemFilterItems.IndexOf(sid) : 0;
+            if (selectedIndex < 0) { _systemFilterId = null; selectedIndex = 0; }
+            SystemFilterCombo.SelectedIndex = selectedIndex;
+            SystemFilterCombo.IsEnabled = _systemFilterItems.Count > 2;
+        }
+        finally
+        {
+            _suppressSystemFilterEvent = false;
+        }
+    }
+
+    private void SystemFilterCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressSystemFilterEvent) return;
+        var index = SystemFilterCombo.SelectedIndex;
+        _systemFilterId = index >= 0 && index < _systemFilterItems.Count ? _systemFilterItems[index] : null;
+        _view.Refresh();
+        _userTagView.Refresh();
+        UpdateStatusChips();
+    }
+
     // ── UserTags 탭 ───────────────────────────────────────────────────────
 
     private bool FilterUserTagRow(object obj)
     {
-        if (string.IsNullOrWhiteSpace(_userTagSearch)) return true;
         if (obj is not ProjectUserTagRow r) return false;
+        if (_systemFilterId is { } systemId && r.SystemId != systemId)
+            return false;
+        if (string.IsNullOrWhiteSpace(_userTagSearch)) return true;
         var q = _userTagSearch;
         return (r.SystemName?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)
             || (r.Name?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)
@@ -227,6 +286,9 @@ public partial class TagInspectorDialog : Window
     private bool FilterRow(object obj)
     {
         if (obj is not IoBatchRow row) return false;
+
+        if (_systemFilterId is { } systemId && row.SystemId != systemId)
+            return false;
 
         if (_showOnlyUnmatched && !row.IsUnmatched)
             return false;

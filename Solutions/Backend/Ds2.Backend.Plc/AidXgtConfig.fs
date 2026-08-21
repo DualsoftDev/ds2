@@ -8,8 +8,9 @@ open Ds2.Core.StandardSubmodels
 
 /// AID XGT interaction을 Agent/UA bridge가 소비하기 위한 평탄화 결과.
 [<Sealed>]
-type AidXgtSignalDescriptor internal (connectionName: string, address: string, signalId: string, valueType: string) =
+type AidXgtSignalDescriptor internal (connectionName: string, systemId: Guid option, address: string, signalId: string, valueType: string) =
     member _.ConnectionName = connectionName
+    member _.SystemId = systemId |> Option.toNullable
     member _.Address = address
     member _.SignalId = signalId
     member _.ValueType = valueType
@@ -107,6 +108,7 @@ module AidXgtGatewayConfig =
                                     signals.Add(
                                         AidXgtSignalDescriptor(
                                             connectionName,
+                                            endpoint.SystemId,
                                             address,
                                             interaction.SignalId.Value,
                                             valueTypeName interaction.ValueType))
@@ -134,6 +136,7 @@ module AidXgtGatewayConfig =
                                 | values -> min endpoint.ScanIntervalMs (List.min values)
                             connections.Add {
                                 Name = connectionName
+                                SystemId = endpoint.SystemId
                                 Vendor = vendor
                                 IpAddress = host
                                 Port = port
@@ -169,13 +172,48 @@ module AidXgtGatewayConfig =
             | _ -> ()
         buildCore (sampling :> IReadOnlyDictionary<string, int>) aid
 
+    let private bindLegacyEndpointsToOnlySystem (systems: DsSystem list) (aid: AssetInterfacesDescription) =
+        match systems with
+        | [ system ] ->
+            for index = 0 to aid.Interfaces.Count - 1 do
+                match aid.Interfaces.[index] with
+                | Xgt (endpoint, interactions) when endpoint.SystemId.IsNone ->
+                    aid.Interfaces.[index] <- Xgt ({ endpoint with SystemId = Some system.Id }, interactions)
+                | _ -> ()
+        | _ -> ()
+
+    let private validateEndpointSystemRefs (systems: DsSystem list) (aid: AssetInterfacesDescription) =
+        let activeIds = systems |> Seq.map _.Id |> HashSet
+        [ for binding in aid.Interfaces do
+              match binding with
+              | Xgt (endpoint, _) ->
+                  match endpoint.SystemId with
+                  | None when systems.Length > 1 ->
+                      yield "Project에 active System이 여러 개인 경우 모든 InterfaceXGT EndpointMetadata.systemRef가 필요합니다."
+                  | Some systemId when not (activeIds.Contains systemId) ->
+                      yield $"InterfaceXGT EndpointMetadata.systemRef '{systemId}'가 이 Project의 active System이 아닙니다."
+                  | _ -> ()
+              | _ -> () ]
+
     /// Agent 정식 경로: Project active system의 SequenceLogging 정책을 모아 적용한다.
     let buildForProject
         (store: DsStore, project: Project, aid: AssetInterfacesDescription) : AidXgtConfigResult =
+        let systems = Queries.activeSystemsOf project.Id store
+        // One-System legacy files had no endpoint owner.  The association is
+        // unambiguous there, so normalize it before the plan is built/exported.
+        bindLegacyEndpointsToOnlySystem systems aid
         let policies =
-            Queries.activeSystemsOf project.Id store
+            systems
             |> Seq.collect (fun system ->
                 match system.GetLoggingProperties() with
                 | Some logging -> logging.SignalPolicies :> seq<SignalPolicy>
                 | None -> Seq.empty)
-        buildWithPolicies(aid, policies)
+        let result = buildWithPolicies(aid, policies)
+        let ownershipErrors = validateEndpointSystemRefs systems aid
+        if ownershipErrors.IsEmpty then result
+        else
+            AidXgtConfigResult(
+                Unchecked.defaultof<PlcGatewayConfig>,
+                Array.append result.Errors (ownershipErrors |> List.toArray),
+                result.HasBinding,
+                result.Signals)

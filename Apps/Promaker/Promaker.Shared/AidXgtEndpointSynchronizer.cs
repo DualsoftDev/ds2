@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using Ds2.Core;
 using Ds2.Core.StandardSubmodels;
 using Ds2.Core.Store;
 using AidXgtConnectionInfo = Ds2.Core.StandardSubmodels.AssetInterfacesDescriptionTypes.AidXgtConnectionInfo;
@@ -14,16 +15,37 @@ namespace Promaker.Shared;
 /// </summary>
 public static class AidXgtEndpointSynchronizer
 {
-    /// <summary>첫 번째 AID InterfaceXGT endpoint를 읽는다.</summary>
+    private static Project? FindOwningProject(DsStore? store, Guid systemId) =>
+        store?.Projects.Values.FirstOrDefault(project => project.ActiveSystemIds.Contains(systemId));
+
+    private static Guid? TryGetOnlyActiveSystemId(Project? project) =>
+        project is not null && project.ActiveSystemIds.Count == 1
+            ? project.ActiveSystemIds[0]
+            : null;
+
+    /// <summary>
+    /// 단일 System 프로젝트의 AID InterfaceXGT endpoint를 읽는다.
+    /// 다중 System 프로젝트는 잘못된 PLC 프로필을 임의로 고르지 않도록 null을 반환한다.
+    /// </summary>
     public static AidXgtConnectionInfo? TryReadFromStore(DsStore? store)
     {
         var project = store?.Projects.Values.FirstOrDefault();
+        var systemId = TryGetOnlyActiveSystemId(project);
+        if (systemId is null)
+            return null;
+        return TryReadFromStore(store, systemId.Value);
+    }
+
+    /// <summary>지정한 active System에 연결된 AID InterfaceXGT endpoint를 읽는다.</summary>
+    public static AidXgtConnectionInfo? TryReadFromStore(DsStore? store, Guid systemId)
+    {
+        var project = FindOwningProject(store, systemId);
         var aidOption = project?.AssetInterfaces;
         if (aidOption is null
             || !Microsoft.FSharp.Core.FSharpOption<AssetInterfacesDescription>.get_IsSome(aidOption))
             return null;
 
-        return AidXgtEndpointSettings.TryReadFirst(aidOption.Value);
+        return AidXgtEndpointSettings.TryReadForSystem(aidOption.Value, systemId);
     }
 
     /// <summary>
@@ -36,13 +58,25 @@ public static class AidXgtEndpointSynchronizer
             return false;
 
         var project = store.Projects.Values.FirstOrDefault();
+        var systemId = TryGetOnlyActiveSystemId(project);
+        return systemId is not null && StampToStore(store, systemId.Value, settings);
+    }
+
+    /// <summary>현재 PLC 입력값을 지정 System의 InterfaceXGT endpoint에만 반영한다.</summary>
+    public static bool StampToStore(DsStore? store, Guid systemId, PlcConnectionSettings? settings)
+    {
+        if (store is null || settings is null || !settings.WasPersisted)
+            return false;
+
+        var project = FindOwningProject(store, systemId);
         var aidOption = project?.AssetInterfaces;
         if (aidOption is null
             || !Microsoft.FSharp.Core.FSharpOption<AssetInterfacesDescription>.get_IsSome(aidOption))
             return false;
 
-        return AidXgtEndpointSettings.UpdateAll(
+        return AidXgtEndpointSettings.UpdateForSystem(
             aidOption.Value,
+            systemId,
             settings.Vendor,
             (settings.IpAddress ?? "").Trim(),
             settings.Port,
@@ -56,7 +90,7 @@ public static class AidXgtEndpointSynchronizer
 
     /// <summary>
     /// XGT 수집 바인딩을 보장한다 — 없으면 <paramref name="addresses"/>(모델 IO맵 OUT/IN + UserTag)로
-    /// InteractionMetadata 를 만들어 새로 생성하고, 있으면 endpoint 만 갱신한다. AID 자체가 없으면 만든다.
+    /// InteractionMetadata 를 만들어 새로 생성하고, 있으면 endpoint 갱신과 새 주소 병합을 함께 한다. AID 자체가 없으면 만든다.
     /// bcf9121b 가 "생성" 경로를 빠뜨려 XGT 바인딩 없는 모델이 PLC IP 를 넣어도 반영 안 되던 구멍을 메운다.
     /// </summary>
     public static bool EnsureToStore(DsStore? store, PlcConnectionSettings? settings, IEnumerable<string>? addresses)
@@ -65,6 +99,24 @@ public static class AidXgtEndpointSynchronizer
             return false;
 
         var project = store.Projects.Values.FirstOrDefault();
+        var systemId = TryGetOnlyActiveSystemId(project);
+        return systemId is not null && EnsureToStore(store, systemId.Value, settings, addresses);
+    }
+
+    /// <summary>
+    /// 지정한 active System용 XGT endpoint를 보장한다. 다른 System의 endpoint나
+    /// InteractionMetadata는 변경하지 않는다.
+    /// </summary>
+    public static bool EnsureToStore(
+        DsStore? store,
+        Guid systemId,
+        PlcConnectionSettings? settings,
+        IEnumerable<string>? addresses)
+    {
+        if (store is null || settings is null || !settings.WasPersisted)
+            return false;
+
+        var project = FindOwningProject(store, systemId);
         if (project is null)
             return false;
 
@@ -82,8 +134,9 @@ public static class AidXgtEndpointSynchronizer
                 Microsoft.FSharp.Core.FSharpOption<AssetInterfacesDescription>.Some(aid);
         }
 
-        return AidXgtEndpointSettings.EnsureBinding(
+        return AidXgtEndpointSettings.EnsureBindingForSystem(
             aid,
+            systemId,
             settings.Vendor,
             (settings.IpAddress ?? "").Trim(),
             settings.Port,

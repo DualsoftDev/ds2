@@ -283,6 +283,52 @@ public partial class MainViewModel
         return true;
     }
 
+    /// <summary>다중 Flow 를 target System 으로 drag&drop (또는 cut-paste). copy=복제(PasteEntities),
+    /// move=재부모화 이동(MoveFlowsToSystem — Work/Call id 보존, 내부 화살표 재부모화, 걸친 화살표 제거).
+    /// 이동은 디바이스 참조가 그대로 유지되므로 device 모드 다이얼로그가 필요 없다.</summary>
+    /// <param name="copyMode">true 면 copy(원본 유지), false 면 move(원본 이동).</param>
+    public bool TryMoveFlowsToSystemFromTree(IReadOnlyList<Guid> flowIds, Guid targetSystemId, bool copyMode)
+    {
+        if (flowIds.Count == 0) return false;
+        if (!GuardSimulationSemanticEdit(copyMode ? "Flow 복사" : "Flow 이동")) return false;
+
+        if (!_store.SystemsReadOnly.ContainsKey(targetSystemId)) return false;
+
+        if (copyMode)
+        {
+            if (!TryEditorFunc(
+                    () => _store.PasteEntities(EntityKind.Flow, flowIds, EntityKind.System, targetSystemId, 0),
+                    out PasteResult result,
+                    fallback: PasteResult.NewOk(Microsoft.FSharp.Collections.ListModule.Empty<Guid>()),
+                    warnDialog: true))
+                return false;
+            if (result is PasteResult.Blocked) { _dialogService.ShowWarning("Flow 를 복사할 수 없습니다."); return false; }
+            var ids = ((PasteResult.Ok)result).Item;
+            StatusText = $"Copied {ids.Length} Flow(s).";
+            return ids.Length > 0;
+        }
+
+        TryEditorFunc(
+            () => _store.MoveFlowsToSystem(flowIds, targetSystemId),
+            out int moved, fallback: 0);
+        if (moved > 0) StatusText = $"Moved {moved} Flow(s) to System.";
+        else _dialogService.ShowWarning("이동할 Flow 가 없습니다 (이미 그 System 이거나 잘못된 대상).");
+        return moved > 0;
+    }
+
+    /// <summary>drag-over 표시용 — Flow 를 다른 System 으로 이동/복사 가능한지. 같은 System 드롭은 거부.</summary>
+    public bool CanMoveFlowsToSystemFromTree(IReadOnlyList<Guid> flowIds, Guid targetSystemId)
+    {
+        if (flowIds.Count == 0) return false;
+        if (!_store.SystemsReadOnly.ContainsKey(targetSystemId)) return false;
+        foreach (var fid in flowIds)
+        {
+            if (!_store.FlowsReadOnly.TryGetValue(fid, out var f)) return false;
+            if (f.ParentId == targetSystemId) return false;  // 이미 그 System — 의미 없음
+        }
+        return true;
+    }
+
     public bool TryReconnectArrowFromCanvas(Guid arrowId, bool replaceSource, Guid newEndpointId)
     {
         if (!GuardArrowEditByRuntimeMode("Arrow 재연결")) return false;

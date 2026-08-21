@@ -45,14 +45,18 @@ public sealed class ExplorerPaneTests
                 Assert.True(StaTestRunner.WaitUntil(1000, () => ReferenceEquals(controlTree.ItemsSource, pane.FilteredControlTreeRoots)));
                 Assert.True(StaTestRunner.WaitUntil(1000, () => pane.FilteredControlTreeRoots.Count == 1));
 
-                var systemNode = Assert.Single(pane.FilteredControlTreeRoots);
+                // 멀티 PLC 계층: 필터 결과도 Project 루트(조상 경로)를 유지한다.
+                var projectNode = Assert.Single(pane.FilteredControlTreeRoots);
+                var systemNode = Assert.Single(projectNode.Children);
                 var flowNode = Assert.Single(systemNode.Children);
                 var workNode = Assert.Single(flowNode.Children);
 
+                Assert.Equal(EntityKind.Project, projectNode.EntityType);
                 Assert.Equal(EntityKind.System, systemNode.EntityType);
                 Assert.Equal(EntityKind.Flow, flowNode.EntityType);
                 Assert.Equal(EntityKind.Work, workNode.EntityType);
                 Assert.Equal("SearchTargetWork", workNode.Name);
+                Assert.True(projectNode.IsExpanded);
                 Assert.True(systemNode.IsExpanded);
                 Assert.True(flowNode.IsExpanded);
             }

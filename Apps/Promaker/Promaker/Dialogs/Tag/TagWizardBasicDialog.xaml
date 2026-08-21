@@ -98,11 +98,23 @@
                            Text="📊 Flow 별 선두 주소 (비워두면 주소 미할당)"
                            FontSize="13" FontWeight="SemiBold"
                            Foreground="{DynamicResource PrimaryTextBrush}"/>
-                <Button Grid.Column="1"
-                        Content="🔄 Flow 재로드"
-                        Style="{StaticResource DarkButton}"
-                        Padding="10,4"
-                        Click="ReloadFlows_Click"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <!-- 멀티 PLC — 마법사는 한 번에 System(PLC) 하나의 주소 공간을 채운다. -->
+                    <TextBlock Text="System"
+                               VerticalAlignment="Center"
+                               Margin="0,0,6,0"
+                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                    <ComboBox x:Name="SystemCombo"
+                              MinWidth="150"
+                              Margin="0,0,10,0"
+                              VerticalContentAlignment="Center"
+                              SelectionChanged="SystemCombo_SelectionChanged"
+                              ToolTip="주소를 생성할 System(=PLC 1대). Flow 목록·미리보기·적용이 이 System 으로 한정됩니다"/>
+                    <Button Content="🔄 Flow 재로드"
+                            Style="{StaticResource DarkButton}"
+                            Padding="10,4"
+                            Click="ReloadFlows_Click"/>
+                </StackPanel>
             </Grid>
 
             <!-- Flow 주소 그리드 -->

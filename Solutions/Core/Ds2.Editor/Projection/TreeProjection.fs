@@ -86,16 +86,25 @@ let private buildSystemChildren (store: DsStore) (systemId: Guid) =
 
     flows @ hwAndApi
 
+/// Control 트리 루트 = Project 노드, 그 아래 active System N개.
+/// 멀티 PLC(라인 1개 = PLC N대) 지원으로 Project > System1..N 계층을 복원 —
+/// System 이 루트였던 구 형태는 1 System 제한 시절의 축약이었다.
 let private buildControlRoots (store: DsStore) : TreeNodeInfo list =
     Queries.allProjects store
-    |> List.collect (fun project ->
-        Queries.activeSystemsOf project.Id store
-        |> List.map (fun system ->
-            { Id = system.Id
-              EntityKind = EntityKind.System
-              Name = system.Name
-              ParentId = None
-              Children = buildSystemChildren store system.Id }))
+    |> List.map (fun project ->
+        let systems =
+            Queries.activeSystemsOf project.Id store
+            |> List.map (fun system ->
+                { Id = system.Id
+                  EntityKind = EntityKind.System
+                  Name = system.Name
+                  ParentId = Some project.Id
+                  Children = buildSystemChildren store system.Id })
+        { Id = project.Id
+          EntityKind = EntityKind.Project
+          Name = project.Name
+          ParentId = None
+          Children = systems })
 
 let private buildDeviceTree (store: DsStore) : TreeNodeInfo list =
     let deviceRootId = UiDefaults.DeviceTreeRootId

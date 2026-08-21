@@ -548,7 +548,7 @@ public class DsProjectService
     /// (= ActionOver/ActionUnder 가 조용히 발화 안 하는 상태). 모델 변경(Promaker 재발행 등) 후 실측 재확정을 안 하면 발생.
     /// 판정 규칙: 모델 값이 null(ClearRanges/미설정)이면 "의도적 비활성"으로 보고 stale 로 치지 않는다 —
     /// 모델이 여전히 임계를 원하는데 값만 달라진 경우(non-null 불일치)만 재측정 대상 stale.
-    /// stale-repair 루프(<see cref="AutoCalibrationService"/>)와 설정 페이지 게이트 배지의 단일 소스.
+    /// 설정 페이지 게이트 배지와 수동 재보정 대상 확인의 단일 소스.
     /// </summary>
     public IReadOnlyList<CalibrationWorkStatus> GetCalibrationStatus()
     {

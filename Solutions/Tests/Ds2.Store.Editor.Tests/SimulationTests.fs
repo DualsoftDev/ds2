@@ -89,6 +89,28 @@ module SimIndexTests =
         Assert.Equal<Guid list>([ callIds[0] ], index.CallStartPreds[callIds[1]])
 
     [<Fact>]
+    let ``buildForSystem scopes index to target system and its device closure`` () =
+        let store = createStore ()
+        let project, system1, _, work1 = setupBasicHierarchy store
+        let system2 = addSystem store "System2" project.Id true
+        let flow2 = addFlow store "Flow2" system2.Id
+        let work2 = addWork store "Work2" flow2.Id
+        store.AddCallsWithDevice(project.Id, work1.Id, [ "Dev1.Api" ], true, None)
+        store.AddCallsWithDevice(project.Id, work2.Id, [ "Dev2.Api" ], true, None)
+        let calls1 = Queries.callsOf work1.Id store |> List.map (fun call -> call.Id)
+        let calls2 = Queries.callsOf work2.Id store |> List.map (fun call -> call.Id)
+
+        let index = SimIndex.buildForSystem store 10 system1.Id
+
+        // 대상 System(+참조 device)만 담기고, 다른 active System 은 엔진 범위 밖.
+        Assert.Contains(system1.Name, index.ActiveSystemNames)
+        Assert.DoesNotContain(system2.Name, index.ActiveSystemNames)
+        Assert.Contains(work1.Id, index.AllWorkGuids)
+        Assert.DoesNotContain(work2.Id, index.AllWorkGuids)
+        for callId in calls1 do Assert.Contains(callId, index.AllCallGuids)
+        for callId in calls2 do Assert.DoesNotContain(callId, index.AllCallGuids)
+
+    [<Fact>]
     let ``build maps active work abnormal duration range from device Rx work`` () =
         let store = createStore ()
         let project, _, _, work = setupBasicHierarchy store

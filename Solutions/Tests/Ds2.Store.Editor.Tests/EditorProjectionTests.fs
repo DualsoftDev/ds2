@@ -10,10 +10,11 @@ open Ds2.Store.Editor.Tests.TestHelpers
 module TreeProjectionTests =
 
     [<Fact>]
-    let ``EditorTreeProjection builds control roots as active systems directly`` () =
+    let ``EditorTreeProjection builds project root with active systems as children`` () =
         let store = createStore ()
         let project = addProject store "Project"
         let activeSystem = addSystem store "ActiveSystem" project.Id true
+        let activeSystem2 = addSystem store "ActiveSystem2" project.Id true
         let passiveSystem = addSystem store "PassiveSystem" project.Id false
         let flow = addFlow store "Flow1" activeSystem.Id
         addWork store "Work1" flow.Id |> ignore
@@ -23,10 +24,17 @@ module TreeProjectionTests =
         let controlRoot = Assert.Single(controlRoots)
         let deviceRoot = Assert.Single(deviceRoots)
 
-        Assert.Equal(activeSystem.Id, controlRoot.Id)
-        Assert.Equal(EntityKind.System, controlRoot.EntityKind)
+        // 멀티 PLC 계층: 루트 = Project, 그 아래 active System N개 (System = PLC 1대 매칭)
+        Assert.Equal(project.Id, controlRoot.Id)
+        Assert.Equal(EntityKind.Project, controlRoot.EntityKind)
         Assert.True(controlRoot.ParentId.IsNone)
-        Assert.Contains(controlRoot.Children, fun node -> node.Id = flow.Id)
+        Assert.Equal<Guid list>(
+            [ activeSystem.Id; activeSystem2.Id ],
+            controlRoot.Children |> List.map (fun n -> n.Id))
+        let systemNode = controlRoot.Children |> List.find (fun n -> n.Id = activeSystem.Id)
+        Assert.Equal(EntityKind.System, systemNode.EntityKind)
+        Assert.Equal(Some project.Id, systemNode.ParentId)
+        Assert.Contains(systemNode.Children, fun node -> node.Id = flow.Id)
         Assert.Contains(deviceRoot.Children, fun node -> node.Id = passiveSystem.Id)
 
     [<Fact>]
@@ -39,9 +47,10 @@ module TreeProjectionTests =
 
         let controlRoots, _ = EditorTreeProjection.buildTrees store
         let controlRoot = Assert.Single(controlRoots)
+        let systemNode = Assert.Single(controlRoot.Children)   // Project 루트 아래 System 층
         // 비활성 flow 는 트리에서 빠지고 활성 flowB 만 남는다
-        Assert.DoesNotContain(controlRoot.Children, fun n -> n.Id = flow.Id)
-        Assert.Contains(controlRoot.Children, fun n -> n.Id = flowB.Id)
+        Assert.DoesNotContain(systemNode.Children, fun n -> n.Id = flow.Id)
+        Assert.Contains(systemNode.Children, fun n -> n.Id = flowB.Id)
         // 비활성 flow 는 DisabledFlows 목록에 노출된다
         let disabled = EditorTreeProjection.disabledFlows store
         Assert.Contains(disabled, fun n -> n.Id = flow.Id)

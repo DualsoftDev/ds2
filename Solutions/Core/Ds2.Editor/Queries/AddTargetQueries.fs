@@ -124,7 +124,10 @@ let private firstFlowInSystemTab
 /// 1) 선택된 노드가 Flow 이고 ActiveTab 컨텍스트 안이면 그 Flow
 /// 2) 직전 AddWork 가 사용한 Flow 가 유효 + ActiveTab 컨텍스트 안이면 그 Flow
 /// 3) ActiveTab 이 Flow 탭이면 ActiveTab.RootId
-/// 4) ActiveTab 이 System 탭이면 그 System 의 첫 Flow
+/// 4) 선택된 노드가 Flow 면 ActiveTab 밖이어도 그 Flow — 멀티 System 에서
+///    트리로 새 System/Flow 를 만들고 연속 Work 추가하는 흐름 (AddFlow 의 선택 우선과 일관).
+///    활성 Flow 탭(3)보다는 뒤 — 캔버스 Flow 작업 중 잔상 선택이 가로채지 않게.
+/// 5) ActiveTab 이 System 탭이면 그 System 의 첫 Flow
 let tryResolveAddWorkTargetFlow
     (store: DsStore)
     (selectedEntityKind: EntityKind option)
@@ -154,9 +157,17 @@ let tryResolveAddWorkTargetFlow
         | Some TabKind.Flow, Some rootId -> Some rootId
         | _ -> None
 
+    // 4) 명시적으로 선택한 Flow 는 ActiveTab 밖이어도 존중 (존재 검증만).
+    let fromSelectionOutsideTab =
+        match selectedEntityKind, selectedEntityId with
+        | Some EntityKind.Flow, Some flowId
+            when Queries.getFlow flowId store |> Option.isSome -> Some flowId
+        | _ -> None
+
     fromSelection
     |> Option.orElse fromLast
     |> Option.orElse fromActiveFlowTab
+    |> Option.orElse fromSelectionOutsideTab
     |> Option.orElse (firstFlowInSystemTab store activeTabKind activeTabRootId)
 
 /// C# 호출용 어댑터 — `Nullable<T>` 시그니처. 내부에서 `tryResolveAddWorkTargetFlow` 위임.

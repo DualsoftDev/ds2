@@ -46,6 +46,20 @@ public partial class SimulationPanelState : ObservableObject
         // 영속 SSOT 동기화 — UI 토글이든 hub 수신이든 PlcSettings 에 반영해야 다음 Save/업로드 시
         // PlcConnection.json 에 기록된다(이게 빠져 '보정 안함' 이 파일에 안 담겨 Agent 가 ON 으로 복원하던 버그).
         PlcSettings.AutoDurationCalibrate = value;
+
+        // OFF는 현재 세션의 로컬/원격 누적값까지 즉시 폐기한다. ON 전환 중 실행 중인 self-engine만
+        // 로컬 학습기를 만들며, Agent proxy에서는 Agent가 유일한 학습 소유자다.
+        if (!value)
+        {
+            StopLocalDurationLearning();
+            _learnedDurations.Clear();
+        }
+        else if (IsSimulating
+                 && ShouldUseLocalDurationLearning(SelectedRuntimeMode, UsesAgentProxy, value))
+        {
+            InitDurationLearning();
+        }
+
         if (_suppressAutoCalibratePush) return;
         Hub.TrySetAutoCalibrate(value);   // 사용자 토글 → hub → 엔진 적용 + 전 인스턴스 broadcast
     }

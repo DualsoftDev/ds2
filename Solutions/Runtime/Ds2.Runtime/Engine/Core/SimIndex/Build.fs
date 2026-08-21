@@ -31,17 +31,29 @@ module internal SimIndexBuild =
             |> Seq.toList
         And topExprs
 
-    let build (store: DsStore) (tickMs: int) : SimIndex =
+    /// targetSystemIds 가 Some 이면 그 집합의 시스템만 인덱스에 담는다 (System 단위 실행 — 멀티 PLC).
+    /// 인과가 끊기지 않도록 호출측이 Queries.systemClosureOf 로 폐포를 넘겨야 한다.
+    /// None 이면 프로젝트 전체 (기존 동작).
+    let buildScoped (store: DsStore) (tickMs: int) (targetSystemIds: Set<Guid> option) : SimIndex =
         let project = Queries.allProjects store |> List.tryHead
+
+        let inTarget (systemId: Guid) =
+            match targetSystemIds with
+            | Some ids -> ids.Contains systemId
+            | None -> true
 
         let activeSystemNames =
             match project with
-            | Some p -> Queries.activeSystemsOf p.Id store |> List.map (fun s -> s.Name) |> Set.ofList
+            | Some p ->
+                Queries.activeSystemsOf p.Id store
+                |> List.filter (fun s -> inTarget s.Id)
+                |> List.map (fun s -> s.Name)
+                |> Set.ofList
             | None -> Set.empty
 
         let allSystems =
             match project with
-            | Some p -> Queries.projectSystemsOf p.Id store
+            | Some p -> Queries.projectSystemsOf p.Id store |> List.filter (fun s -> inTarget s.Id)
             | None -> []
 
         let mutable tokenRoleMap = Map.empty<Guid, TokenRole>
@@ -304,3 +316,7 @@ module internal SimIndexBuild =
             CallTypeMap = state.CallTypeMap
             CallTimeoutMap = state.CallTimeoutMap
         }
+
+    /// 프로젝트 전체 인덱스 (기존 동작 유지용 래퍼).
+    let build (store: DsStore) (tickMs: int) : SimIndex =
+        buildScoped store tickMs None

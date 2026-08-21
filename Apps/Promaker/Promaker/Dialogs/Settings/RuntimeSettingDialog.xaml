@@ -113,6 +113,13 @@
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>
                         </ComboBox>
+                        <!-- 실행 대상 — 멀티 PLC: 라인 전체 또는 System(PLC) 하나만 실행 -->
+                        <TextBlock Text="실행 대상" Style="{StaticResource FieldLabelStyle}" Margin="0,10,0,0"/>
+                        <ComboBox x:Name="TargetSystemCombo"
+                                  Width="240" Height="34"
+                                  VerticalContentAlignment="Center"
+                                  SelectionChanged="TargetSystemCombo_SelectionChanged"
+                                  ToolTip="라인 전체 또는 System(=PLC 1대) 하나만 실행합니다. System 단위 실행 시 엔진·IO·PLC 스캔이 그 System(+참조 디바이스)으로 한정됩니다."/>
                     </StackPanel>
 
                     <!-- Hub 주소 -->

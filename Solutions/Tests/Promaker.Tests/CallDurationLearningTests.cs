@@ -10,6 +10,20 @@ namespace Promaker.Tests;
 // 중앙값/min/max 스냅샷, abnormal/비정상 전이 폐기, 최소 표본(3사이클) 게이트 검증.
 public sealed class CallDurationLearningTests
 {
+    [Theory]
+    [InlineData(RuntimeMode.Simulation, false, true, false)]
+    [InlineData(RuntimeMode.Monitoring, true, true, false)]
+    [InlineData(RuntimeMode.Control, true, true, false)]
+    [InlineData(RuntimeMode.Monitoring, false, false, false)]
+    [InlineData(RuntimeMode.Monitoring, false, true, true)]
+    [InlineData(RuntimeMode.VirtualPlant, false, true, true)]
+    public void Local_learning_runs_only_for_enabled_self_hosted_runtime(
+        RuntimeMode mode, bool usesAgentProxy, bool enabled, bool expected)
+    {
+        Assert.Equal(expected,
+            SimulationPanelState.ShouldUseLocalDurationLearning(mode, usesAgentProxy, enabled));
+    }
+
     private static readonly Guid Call = Guid.NewGuid();
     private static readonly Guid DeviceWork = Guid.NewGuid();
     private static readonly Guid ActiveWork = Guid.NewGuid();

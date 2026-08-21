@@ -31,6 +31,9 @@ type PlcTransport =
 
 type PlcConnectionConfig = {
     Name        : string
+    /// Active System that owns this connection when it originated from a
+    /// Project-scoped AID endpoint. None keeps legacy/manual configurations valid.
+    SystemId    : Guid option
     Vendor      : PlcVendor
     IpAddress   : string
     Port        : int
@@ -56,6 +59,7 @@ type PlcGatewayConfig = {
 module PlcConnectionConfig =
     let defaultLs name ip = {
         Name = name
+        SystemId = None
         Vendor = PlcVendor.LsXgi
         IpAddress = ip
         Port = 2004
@@ -70,6 +74,7 @@ module PlcConnectionConfig =
 
     let defaultMx name ip = {
         Name = name
+        SystemId = None
         Vendor = PlcVendor.Mitsubishi
         IpAddress = ip
         Port = 5007

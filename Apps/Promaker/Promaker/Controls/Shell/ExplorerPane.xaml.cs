@@ -20,7 +20,7 @@ public partial class ExplorerPane : UserControl
     private const string TreeMoveCallNodeDataFormat = "TreeMoveCallNode";
     private const string TreeMoveCallIdsDataFormat = "TreeMoveCallIds";
     private const string TreeMoveWorkIdsDataFormat = "TreeMoveWorkIds";  // 트리 Work → 다른 Flow 이동/복사
-    private const string FlowDragIdsFormat = "FlowDragIds";          // 트리 Flow → 비활성화 섹션(=비활성화)
+    private const string FlowDragIdsFormat = "FlowDragIds";          // 트리 Flow → 비활성화 섹션(=비활성화) 또는 타 System 노드(=이동/복사)
     private const string FlowRestoreIdsFormat = "FlowRestoreIds";    // 비활성화 섹션 Flow → 트리(=복원)
 
     private Point _treeDragStartPoint;
@@ -337,14 +337,18 @@ public partial class ExplorerPane : UserControl
     {
         if (e.LeftButton != MouseButtonState.Pressed) return;
 
-        // Flow 노드를 비활성화 섹션으로 드래그 (Call drag-candidate 경로와 독립)
+        // Flow 노드 드래그 — 비활성화 섹션(비활성화) 또는 타 System 노드(이동, Ctrl=복사)
         if (sender is TreeViewItem { DataContext: EntityNode { EntityType: EntityKind.Flow } flowNode } flowItem
             && ReferenceEquals(flowItem, FindAncestor<TreeViewItem>(e.OriginalSource as DependencyObject)))
         {
             var fd = e.GetPosition(null) - _disabledDragStart;
             if (Math.Abs(fd.X) >= SystemParameters.MinimumHorizontalDragDistance
                 || Math.Abs(fd.Y) >= SystemParameters.MinimumVerticalDragDistance)
-                DragDrop.DoDragDrop(flowItem, new DataObject(FlowDragIdsFormat, SelectedFlowIdsForDrag(flowNode)), DragDropEffects.Move);
+            {
+                DragDrop.DoDragDrop(flowItem, new DataObject(FlowDragIdsFormat, SelectedFlowIdsForDrag(flowNode)),
+                    DragDropEffects.Copy | DragDropEffects.Move);
+                ClearTreeMoveDropTarget();
+            }
             return;
         }
 
@@ -419,6 +423,17 @@ public partial class ExplorerPane : UserControl
             return;
         }
 
+        // Flow → 다른 System 이동/복사 (drop 대상 = System 노드) — 멀티 PLC
+        if (TryResolveFlowMoveTarget(sender, e, out var sourceFlowIds, out var targetSystem)
+            && ViewModel?.CanMoveFlowsToSystemFromTree(sourceFlowIds, targetSystem.Id) == true)
+        {
+            SetTreeMoveDropTarget(targetSystem);
+            var flowCopyMode = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
+            e.Effects = flowCopyMode ? DragDropEffects.Copy : DragDropEffects.Move;
+            e.Handled = true;
+            return;
+        }
+
         ClearTreeMoveDropTarget();
         e.Effects = DragDropEffects.None;
         e.Handled = true;
@@ -448,6 +463,19 @@ public partial class ExplorerPane : UserControl
             if (ViewModel?.TryMoveWorksToFlowFromTree(sourceWorkIds, targetFlow.Id, workCopyMode) == true)
             {
                 e.Effects = workCopyMode ? DragDropEffects.Copy : DragDropEffects.Move;
+                e.Handled = true;
+            }
+            return;
+        }
+
+        // Flow → 다른 System 이동/복사
+        if (TryResolveFlowMoveTarget(sender, e, out var sourceFlowIds, out var targetSystem))
+        {
+            ClearTreeMoveDropTarget();
+            var flowCopyMode = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
+            if (ViewModel?.TryMoveFlowsToSystemFromTree(sourceFlowIds, targetSystem.Id, flowCopyMode) == true)
+            {
+                e.Effects = flowCopyMode ? DragDropEffects.Copy : DragDropEffects.Move;
                 e.Handled = true;
             }
             return;
@@ -517,6 +545,31 @@ public partial class ExplorerPane : UserControl
         {
             sourceWorkIds = ids;
             targetFlow = flowNode;
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>Flow 드래그의 drop 대상은 System 노드 — sender 가 System 이고 FlowDragIds 페이로드가 있으면 resolve.</summary>
+    private static bool TryResolveFlowMoveTarget(
+        object sender,
+        DragEventArgs e,
+        out IReadOnlyList<Guid> sourceFlowIds,
+        out EntityNode targetSystem)
+    {
+        sourceFlowIds = Array.Empty<Guid>();
+        targetSystem = null!;
+
+        if (sender is not TreeViewItem { DataContext: EntityNode { EntityType: EntityKind.System } systemNode } item)
+            return false;
+        if (!ReferenceEquals(item, FindAncestor<TreeViewItem>(e.OriginalSource as DependencyObject)))
+            return false;
+
+        if (e.Data.GetDataPresent(FlowDragIdsFormat)
+            && e.Data.GetData(FlowDragIdsFormat) is Guid[] ids && ids.Length > 0)
+        {
+            sourceFlowIds = ids;
+            targetSystem = systemNode;
             return true;
         }
         return false;

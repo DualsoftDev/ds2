@@ -107,6 +107,11 @@ module SimIndex =
     let build (store: DsStore) (tickMs: int) : SimIndex =
         SimIndexBuild.build store tickMs
 
+    /// System 단위 실행(멀티 PLC) — 대상 System + 인과 폐포(참조 디바이스/시스템)만 담은 인덱스.
+    /// 나머지 System 의 Work/Call/Arrow 는 엔진에 존재하지 않는다.
+    let buildForSystem (store: DsStore) (tickMs: int) (systemId: Guid) : SimIndex =
+        SimIndexBuild.buildScoped store tickMs (Some (Queries.systemClosureOf systemId store))
+
     type ConnectionSnapshot = SimIndexConnectionSnapshot
 
     let snapshotConnections (index: SimIndex) : ConnectionSnapshot =

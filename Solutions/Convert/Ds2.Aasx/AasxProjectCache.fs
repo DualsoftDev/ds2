@@ -33,5 +33,12 @@ module AasxProjectCache =
         | true, r -> Some r.Value.Entries
         | _ -> None
 
+    /// Save가 끝난 뒤 병합된 최신 Environment만 갱신한다.
+    /// ZIP 부가 엔트리는 최초 import 때 보관한 값을 계속 유지한다.
+    let updateEnvironment (project: Project) (env: obj) =
+        match table.TryGetValue(project) with
+        | true, r -> r.Value <- { r.Value with Environment = env }
+        | _ -> ()
+
     let clear (project: Project) =
         table.Remove(project) |> ignore

@@ -20,14 +20,9 @@ public partial class MainViewModel
     /// 연속 추가될 때 같은 Flow에 머무르도록 하는 fallback. Reset()에서 초기화.
     private Guid? _lastAddWorkTargetFlowId;
 
-    private bool CanAddSystem()
-    {
-        if (!HasProject) return false;
-        var projects = Queries.allProjects(_store);
-        if (projects.IsEmpty) return true;
-        var activeSystems = Queries.activeSystemsOf(projects.Head.Id, _store);
-        return activeSystems.IsEmpty;
-    }
+    // 멀티 PLC(라인 1개 = PLC N대) 지원 — Project 는 active System 을 여러 개 가질 수 있다.
+    // 과거의 "active System 1개 제한" 가드는 제거됨 (System = PLC 1대 매칭).
+    private bool CanAddSystem() => HasProject;
 
     private bool CanAddWork()
     {

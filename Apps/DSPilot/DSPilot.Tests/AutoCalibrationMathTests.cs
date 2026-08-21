@@ -15,6 +15,13 @@ namespace DSPilot.Tests;
 /// </summary>
 public class AutoCalibrationMathTests
 {
+    [Fact]
+    public void Work_duration_calibration_is_manual_only()
+    {
+        Assert.False(typeof(Microsoft.Extensions.Hosting.IHostedService)
+            .IsAssignableFrom(typeof(AutoCalibrationService)));
+    }
+
     // ── MedianAndCleanMax ──────────────────────────────────────────────────
 
     [Fact]

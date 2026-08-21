@@ -199,14 +199,16 @@ public partial class MainViewModel
     {
         if (!CanCopySelected())
             return false;
-        // Cut(이동)은 Call/Work 지원. (Flow cut 은 cascade 폭이 커서 별도 명세 필요)
+        // Cut(이동)은 Call/Work/Flow 지원. Flow 는 MoveFlowsToSystem 재부모화(id 보존)로 이동.
         var candidates = Selection.OrderedNodeSelection.Count > 0
             ? Selection.OrderedNodeSelection
             : SelectedNode is { } single
                 ? new[] { new SelectionKey(single.Id, single.EntityType) }
                 : Array.Empty<SelectionKey>();
         return candidates.Count > 0
-            && candidates.All(k => k.EntityKind == EntityKind.Call || k.EntityKind == EntityKind.Work);
+            && candidates.All(k => k.EntityKind == EntityKind.Call
+                                || k.EntityKind == EntityKind.Work
+                                || k.EntityKind == EntityKind.Flow);
     }
 
     [RelayCommand(CanExecute = nameof(CanCutSelected))]
@@ -241,9 +243,11 @@ public partial class MainViewModel
         }
 
         var validated = ok.Item;
-        if (validated[0].EntityKind != EntityKind.Call && validated[0].EntityKind != EntityKind.Work)
+        if (validated[0].EntityKind != EntityKind.Call
+            && validated[0].EntityKind != EntityKind.Work
+            && validated[0].EntityKind != EntityKind.Flow)
         {
-            _dialogService.ShowWarning("Cut(이동) 은 Call/Work 만 지원합니다.");
+            _dialogService.ShowWarning("Cut(이동) 은 Call/Work/Flow 만 지원합니다.");
             return;
         }
 
@@ -307,15 +311,15 @@ public partial class MainViewModel
         }
 
         // Cut clipboard: source 엔티티들이 그 동안 삭제되었는지 검증. 사라졌으면 자동 clear + 안내.
-        // Cut 은 Call/Work 둘 다 지원하므로 종류에 맞는 store 맵으로 확인 (Work 를 CallsReadOnly 로
+        // Cut 은 Call/Work/Flow 지원 — 종류에 맞는 store 맵으로 확인 (Work 를 CallsReadOnly 로
         // 보면 항상 missing 으로 판정돼 Work cut/paste 가 통째로 막힌다 — 회귀 가드).
         if (_clipboardIsCut)
         {
             var cutKind = _clipboardSelection[0].EntityKind;
             var missing = _clipboardSelection.Where(k =>
-                cutKind == EntityKind.Work
-                    ? !_store.WorksReadOnly.ContainsKey(k.Id)
-                    : !_store.CallsReadOnly.ContainsKey(k.Id)).ToList();
+                cutKind == EntityKind.Work ? !_store.WorksReadOnly.ContainsKey(k.Id)
+                : cutKind == EntityKind.Flow ? !_store.FlowsReadOnly.ContainsKey(k.Id)
+                : !_store.CallsReadOnly.ContainsKey(k.Id)).ToList();
             if (missing.Count > 0)
             {
                 _clipboardSelection.Clear();
@@ -344,7 +348,10 @@ public partial class MainViewModel
 
         if (batchType == EntityKind.Flow)
         {
-            PasteFlowsWithRename(target.Value);
+            if (_clipboardIsCut)
+                DispatchFlowMove(target.Value);
+            else
+                PasteFlowsWithRename(target.Value);
             return;
         }
 
@@ -543,6 +550,35 @@ public partial class MainViewModel
             _dialogService.ShowWarning($"Prefix 교체 모드 충돌: {conflicts.Item.Length}개 device. Device 복사 모드를 사용하세요.");
         else
             _dialogService.ShowWarning("이동할 수 없습니다.");
+    }
+
+    /// <summary>Cut Flow → target System 으로 재부모화 이동 (MoveFlowsToSystem, 1 undo step).
+    /// Work/Call id 가 보존되므로 디바이스 모드 다이얼로그가 필요 없다.</summary>
+    private void DispatchFlowMove((EntityKind EntityType, Guid EntityId) target)
+    {
+        var targetSystemIdOpt = StoreHierarchyQueries.resolveTarget(
+            _store, EntityKind.System, target.EntityType, target.EntityId);
+        if (targetSystemIdOpt is null)
+        {
+            StatusText = "이동 대상 System 을 선택하세요.";
+            return;
+        }
+
+        TryEditorFunc(
+            () => _store.MoveFlowsToSystem(_clipboardSelection.Select(k => k.Id), targetSystemIdOpt.Value),
+            out int moved, fallback: 0);
+        if (moved > 0)
+        {
+            _clipboardSelection.Clear();
+            _clipboardIsCut = false;
+            Selection.ApplyCutPendingVisuals([]);
+            StatusText = $"Moved {moved} Flow(s) to System.";
+            RefreshEditorCommandStates();
+        }
+        else
+        {
+            StatusText = "Nothing moved (이미 그 System 이거나 잘못된 대상).";
+        }
     }
 
     private void PasteFlowsWithRename((EntityKind EntityType, Guid EntityId) target)

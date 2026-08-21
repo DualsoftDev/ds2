@@ -8,9 +8,8 @@ using Microsoft.AspNetCore.SignalR;
 namespace DSPilot.Services;
 
 /// <summary>
-/// 실측 duration 자동 보정. 첫 설치 후 각 Flow 가 이상치 제외 클린사이클(IsIdle=0 AND CT NOT NULL)을
-/// <c>AutoCalibration.MinCleanCycles</c>(기본 10) 개 이상 모으면, 그 Flow 의 디바이스(Device Work) Duration/Min/MaxDuration 을
-/// 실측값으로 1회 자동 채운다. 공식: Duration=round(mean),
+/// 실측 duration 수동 보정. 설정 화면에서 "지금 실측값 채우기"를 명시적으로 실행하면 각 Flow 의
+/// 디바이스(Device Work) Duration/Min/MaxDuration 을 실측값으로 채운다. 공식: Duration=round(mean),
 /// Max=round(max(중앙값×(1+MedianMarginMaxPct), 클린 실측최대))+MarginMaxAbsMs (<see cref="ComputeMaxThresholdMs"/>),
 /// Min(FillMin=true 일 때만)=round(pPercentileMin×(1−MarginMinPct)). 측정 span 있는 디바이스만 기록.
 ///
@@ -18,11 +17,10 @@ namespace DSPilot.Services;
 /// CallTest 와 공유) + <see cref="ApiSpanMath"/>(apiSpans/apiMeasured 포팅) + <see cref="DsProjectService.WriteWorkDurationCalibrationAndExport"/>
 /// (min≤duration≤max 정규화·distinct·exportFromStore·LastLoadedSha256 갱신 — 단일 writer 경로).</para>
 ///
-/// <para>1회성: <c>AutoCalibration.CompletedAt</c>(Production.json 영속) 가 null 이고 Enabled 일 때만 자동 실행하며,
-/// 성공 시 <see cref="AppSettingsService.RecordAutoCalibrationApplied"/> 로 LastAppliedAt 갱신 + CompletedAt 최초 박제 → 재시작 스킵, 새 PC 는 재실행.
-/// 재진입 가드(<see cref="_gate"/>)로 백그라운드 tick 과 수동 "지금 실측값 채우기" 가 겹치지 않게 직렬화한다.</para>
+/// <para>Head/Tail 저장이나 과거 이력 재계산은 이 서비스를 자동 실행하지 않는다. 재진입 가드(<see cref="_gate"/>)로
+/// 수동 "지금 실측값 채우기" 요청끼리 겹치지 않게 직렬화한다.</para>
 /// </summary>
-public sealed class AutoCalibrationService : BackgroundService
+public sealed class AutoCalibrationService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly AppSettingsService _settings;
@@ -31,15 +29,8 @@ public sealed class AutoCalibrationService : BackgroundService
     private readonly IHubContext<MonitoringHub> _hub;
     private readonly ILogger<AutoCalibrationService> _logger;
 
-    // 백그라운드 tick / 수동 실행 직렬화 — 같은 입력이면 같은 결과(멱등) + 동시 export 충돌 방지.
+    // 수동 실행 직렬화 — 같은 입력이면 같은 결과(멱등) + 동시 export 충돌 방지.
     private readonly SemaphoreSlim _gate = new(1, 1);
-
-    // 부팅 직후 워밍업 — 초기화/첫 사이클 기록과 겹쳐 churn 나지 않게.
-    private static readonly TimeSpan StartupDelay = TimeSpan.FromMinutes(2);
-    // 자동 실행 미완료(arm) 상태에서 적합 Flow 도달을 살피는 주기.
-    private static readonly TimeSpan CheckInterval = TimeSpan.FromMinutes(1);
-    // 비활성/이미 완료 상태에서 설정 변경(재무장)을 살피는 느린 폴링.
-    private static readonly TimeSpan IdlePollInterval = TimeSpan.FromMinutes(5);
 
     // 클린사이클 후보를 가져올 최근 RecordedAt 구간(일). 구버전 IsIdle NULL 행 과대카운트 방지(최근으로 제한).
     private const int RecentDays = 30;
@@ -65,59 +56,11 @@ public sealed class AutoCalibrationService : BackgroundService
         _logger = logger;
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        if (!await DelayAsync(StartupDelay, stoppingToken)) return;
-
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            TimeSpan next;
-            try
-            {
-                var ac = _settings.LoadSettings().AutoCalibration;
-                if (ac.Enabled && ac.CompletedAt is null)
-                {
-                    var result = await RunAsync(manual: false, stoppingToken);
-                    // 보정 실행(완료 박제)됐으면 느린 폴링으로, 아직 적합 Flow 없으면 짧게 재확인.
-                    next = result.Applied ? IdlePollInterval : CheckInterval;
-                }
-                else if (ac.Enabled)
-                {
-                    // 초기 보정 완료 후 — 모델 변경(Promaker 재발행 등)으로 게이트가 stale 된 Work 만 타겟 재측정.
-                    // 확정값 ≠ 현재 모델 duration 인 Work 만 대상(측정 데이터 있는 것부터 게이트 재개방, 없으면 배지 '측정 대기').
-                    var stale = _project.GetCalibrationStatus()
-                        .Where(s => s.StaleMax || s.StaleMin)
-                        .Select(s => s.WorkId)
-                        .ToHashSet();
-                    if (stale.Count > 0)
-                    {
-                        var result = await RunAsync(manual: false, stoppingToken, stale);
-                        _logger.LogInformation("[AutoCal] stale 게이트 {N}개 재측정 시도 (기록 {Applied}건)", stale.Count, result.DevicesApplied);
-                        next = CheckInterval; // 아직 데이터 없는 stale 가 남으면 짧게 재확인.
-                    }
-                    else next = IdlePollInterval;
-                }
-                else
-                {
-                    next = IdlePollInterval; // 비활성 — 아무것도 안 함.
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "[AutoCal] 주기 tick 중 오류");
-                next = IdlePollInterval;
-            }
-
-            if (!await DelayAsync(next, stoppingToken)) return;
-        }
-    }
-
     /// <summary>
-    /// 적합 Flow 의 디바이스 duration 을 실측값으로 보정한다. manual=true(설정 "지금 실측값 채우기")면
-    /// Enabled/CompletedAt 게이트를 무시하고 즉시 실행한다. 재진입 가드로 직렬화되며, 성공 export 후
-    /// CompletedAt 을 1회 박제(멱등)하고 DatabaseRebuilt 를 브로드캐스트한다.
-    /// <paramref name="onlyWorkIds"/> 가 주어지면 그 Work 만 재측정한다(stale-repair) — 이 경우 CompletedAt 1회성
-    /// 게이트를 무시하되(완료 후에도 허용) Enabled 는 여전히 요구한다. null 이면 전체 초기 보정(기존 동작).
+    /// 적합 Flow 의 디바이스 duration 을 실측값으로 보정한다. 설정 화면은 manual=true로 호출해
+    /// Enabled/CompletedAt 레거시 게이트를 무시하고 즉시 실행한다. 재진입 가드로 직렬화되며,
+    /// 성공 export 후 최초/최근 적용 시각을 기록하고 DatabaseRebuilt 를 브로드캐스트한다.
+    /// <paramref name="onlyWorkIds"/> 는 구버전 선택 재측정 호출과의 API 호환을 위해 보존한다.
     /// </summary>
     public async Task<AutoCalibrationRunResult> RunAsync(bool manual, CancellationToken ct, IReadOnlySet<Guid>? onlyWorkIds = null)
     {
@@ -129,9 +72,9 @@ public sealed class AutoCalibrationService : BackgroundService
 
             if (!manual)
             {
-                // ExecuteAsync 가 이미 게이트했으나, 체크~게이트 획득 사이 설정 변경에 대비한 방어(정상 스킵 = 성공/미적용).
+                // 구버전 비수동 호출과의 호환 게이트. 현재 UI/호스트는 이 경로를 호출하지 않는다.
                 if (!ac.Enabled) return Skip("자동 보정 비활성", success: true);
-                // CompletedAt(1회성)은 "전체 초기 보정"에만 적용. stale-repair(onlyWorkIds 지정)는 완료 후에도 허용.
+                // CompletedAt(1회성)은 구버전 "전체 초기 보정"에만 적용. 선택 재측정(onlyWorkIds 지정)은 완료 후에도 허용.
                 if (onlyWorkIds is null && ac.CompletedAt is not null) return Skip($"이미 완료됨 ({ac.CompletedAt:u})", success: true);
             }
             if (!_project.IsLoaded) return Skip("프로젝트(AASX) 미로드 — 보정할 수 없습니다", success: false);
@@ -174,7 +117,7 @@ public sealed class AutoCalibrationService : BackgroundService
 
             if (allChanges.Count == 0)
             {
-                // 적용할 게 없음 = 정상 no-op(성공이되 미적용). 자동 루프는 CheckInterval 로 계속 대기한다.
+                // 적용할 게 없음 = 정상 no-op(성공이되 미적용).
                 var msg = eligible == 0
                     ? $"클린사이클 {minClean}개 도달한 Flow 없음 — 보정 대기"
                     : $"적합 Flow {eligible}개이나 측정 가능한 디바이스 span 없음";
@@ -198,10 +141,7 @@ public sealed class AutoCalibrationService : BackgroundService
                 {
                     try
                     {
-                        // 자동 실행만 토스트 알림(수동은 호출자가 HTTP 응답으로 직접 토스트) — 어느 화면에서든 셸이 띄움.
-                        if (!manual)
-                            await _hub.Clients.All.SendAsync("AutoCalibrationApplied", summary, ct);
-                        // AASX 상태/대시보드 미러 새로고침(자동·수동 공통).
+                        // 수동 호출자는 HTTP 응답으로 결과를 표시하고, 대시보드 미러만 새로고침한다.
                         await _hub.Clients.All.SendAsync("DatabaseRebuilt", ct);
                     }
                     catch (Exception ex) { _logger.LogDebug(ex, "[AutoCal] SignalR broadcast 실패(비치명)"); }
@@ -220,8 +160,8 @@ public sealed class AutoCalibrationService : BackgroundService
     }
 
     /// <summary>
-    /// 모든 디바이스 Work 의 이상감지 MinDuration/MaxDuration 을 전부 비운다(Duration 은 보존). 자동 보정의 역연산.
-    /// 같은 AASX writer 경로를 쓰므로 재진입 가드(<see cref="_gate"/>)로 백그라운드 보정 tick / "지금 실측값 채우기" 와 직렬화한다.
+    /// 모든 디바이스 Work 의 이상감지 MinDuration/MaxDuration 을 전부 비운다(Duration 은 보존). 실측 보정의 역연산.
+    /// 같은 AASX writer 경로를 쓰므로 재진입 가드(<see cref="_gate"/>)로 "지금 실측값 채우기"와 직렬화한다.
     /// 성공 시 DatabaseRebuilt 를 브로드캐스트해 대시보드/AASX 상태 미러를 새로고침한다.
     /// </summary>
     public async Task<AutoCalibrationRunResult> ClearRangesAsync(CancellationToken ct)
@@ -277,7 +217,7 @@ public sealed class AutoCalibrationService : BackgroundService
             foreach (var apiCall in lane.ApiCalls)
             {
                 if (!Guid.TryParse(apiCall.TargetWorkId, out var wid)) continue; // RxGuid 없는 ApiCall 제외.
-                if (onlyWorkIds is not null && !onlyWorkIds.Contains(wid)) continue; // stale-repair: 지정 Work 만.
+                if (onlyWorkIds is not null && !onlyWorkIds.Contains(wid)) continue; // 구버전 선택 재측정: 지정 Work 만.
                 if (!spansByWork.TryGetValue(wid, out var list))
                 {
                     list = new List<double>();
@@ -320,19 +260,13 @@ public sealed class AutoCalibrationService : BackgroundService
     private static AutoCalibrationRunResult Skip(string message, bool success)
         => new(success, false, 0, 0, 0, message);
 
-    /// <summary>취소 시 false 반환(루프 종료용). OperationCanceledException 을 흡수한다.</summary>
-    private static async Task<bool> DelayAsync(TimeSpan delay, CancellationToken ct)
-    {
-        try { await Task.Delay(delay, ct); return true; }
-        catch (OperationCanceledException) { return false; }
-    }
 }
 
 /// <summary>
 /// 자동 보정 1회 실행 결과.
 /// <list type="bullet">
 /// <item><see cref="Success"/> = 오류 없이 끝났는지(적합 Flow 없는 정상 no-op 도 true; export 실패/미로드는 false).</item>
-/// <item><see cref="Applied"/> = 실제로 보정값이 project.aasx 에 기록됐는지(CompletedAt 박제·재무장 중단 판단용).</item>
+/// <item><see cref="Applied"/> = 실제로 보정값이 project.aasx 에 기록됐는지.</item>
 /// </list>
 /// </summary>
 public sealed record AutoCalibrationRunResult(

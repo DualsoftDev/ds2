@@ -18,13 +18,17 @@ type WorkDurationBatchRow(workId: Guid, systemName: string, flowName: string, wo
     member val MaxDurationMs = maxDurationMs
     member val IsDeviceWork = isDeviceWork
 
-/// I/O 일괄편집용 행
+/// I/O 일괄편집용 행. SystemId/SystemName = 소속 active System(PLC 1대 매칭) —
+/// 멀티 PLC 에서 주소 조회를 System 단위로 필터링하기 위한 축.
 type ApiCallIOBatchRow(callId: Guid, apiCallId: Guid, flowName: string, workName: string, callName: string,
                        deviceName: string, apiName: string,
                        inAddress: string, inSymbol: string, outAddress: string, outSymbol: string,
-                       outDataType: string, inDataType: string) =
+                       outDataType: string, inDataType: string,
+                       systemId: Guid, systemName: string) =
     member val CallId = callId
     member val ApiCallId = apiCallId
+    member val SystemId = systemId
+    member val SystemName = systemName
     member val FlowName = flowName
     member val WorkName = workName
     member val CallName = callName
@@ -104,7 +108,7 @@ type DsStorePanelBatchExtensions =
                                     let outDataType = "BOOL"
                                     let inDataType = "BOOL"
 
-                                    rows.[apiCall.Id] <- ApiCallIOBatchRow(call.Id, apiCall.Id, flow.Name, work.LocalName, call.Name, deviceName, apiName, inAddr, inSym, outAddr, outSym, outDataType, inDataType)
+                                    rows.[apiCall.Id] <- ApiCallIOBatchRow(call.Id, apiCall.Id, flow.Name, work.LocalName, call.Name, deviceName, apiName, inAddr, inSym, outAddr, outSym, outDataType, inDataType, sys.Id, sys.Name)
 
         rows.Values |> Seq.toList
 

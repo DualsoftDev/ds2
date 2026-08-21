@@ -131,14 +131,26 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <Button x:Name="RefreshButton"
-                        Grid.Column="0"
-                        Style="{StaticResource DarkButton}"
-                        Content="🔄 새로고침"
-                        MinWidth="110"
-                        Padding="8,4"
-                        Click="Refresh_Click"
-                        ToolTip="현재 store 의 매크로/Preset 으로 IO 신호 재생성"/>
+                <StackPanel Grid.Column="0" Orientation="Horizontal">
+                    <Button x:Name="RefreshButton"
+                            Style="{StaticResource DarkButton}"
+                            Content="🔄 새로고침"
+                            MinWidth="110"
+                            Padding="8,4"
+                            Click="Refresh_Click"
+                            ToolTip="현재 store 의 매크로/Preset 으로 IO 신호 재생성"/>
+                    <!-- System(PLC) 필터 — 멀티 PLC 프로젝트에서 주소 조회를 System 단위로 스코핑.
+                         IO 신호 / 사용자 태그 탭에 공통 적용. -->
+                    <TextBlock Text="System"
+                               VerticalAlignment="Center"
+                               Margin="14,0,6,0"
+                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                    <ComboBox x:Name="SystemFilterCombo"
+                              MinWidth="160"
+                              VerticalContentAlignment="Center"
+                              SelectionChanged="SystemFilterCombo_SelectionChanged"
+                              ToolTip="System(=PLC 1대) 단위로 IO 신호와 사용자 태그를 필터링합니다"/>
+                </StackPanel>
 
                 <!-- 상태 칩: 클릭 시 진단 패널 토글 (오류/경고가 있을 때) -->
                 <StackPanel Grid.Column="1"

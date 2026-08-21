@@ -228,6 +228,43 @@ module Queries =
         |> Option.bind (fun c -> c.ReferenceOf)
         |> Option.defaultValue callId
 
+    /// <summary>System 폐포 — 대상 System + 하위 ApiCall 들이 참조(ApiDef)하는 시스템들을 재귀 수집.</summary>
+    /// System 단위 실행(멀티 PLC)에서 인과(ApiCall→ApiDef)가 끊기지 않는 최소 엔진 범위.
+    let systemClosureOf (systemId: Guid) (store: DsStore) : Set<Guid> =
+        let visited = System.Collections.Generic.HashSet<Guid>()
+        let rec collect (sysId: Guid) =
+            if visited.Add sysId then
+                for flow in flowsOf sysId store do
+                    for work in worksOf flow.Id store do
+                        for call in callsOf work.Id store do
+                            for apiCall in call.ApiCalls do
+                                match apiCall.ApiDefId with
+                                | Some defId ->
+                                    match store.ApiDefs.TryGetValue defId with
+                                    | true, apiDef -> collect apiDef.ParentId
+                                    | _ -> ()
+                                | None -> ()
+        collect systemId
+        Set.ofSeq visited
+
+    /// <summary>특정 System 소속의 PLC 주소 전부 — Flow→Work→Call 체인의 ApiCall Out/In 태그 주소.</summary>
+    /// 다중 System 프로젝트에서 System별 AID XGT 바인딩에 자기 주소만 담기 위한 질의.
+    /// UserTag 주소는 System 스코프 투영(ProjectUserTagRow.SystemId)이 따로 있어 호출측에서 합친다.
+    let plcAddressesOfSystem (systemId: Guid) (store: DsStore) : string list =
+        let seen = System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        let result = ResizeArray<string>()
+        let add (address: string) =
+            if not (String.IsNullOrWhiteSpace address) then
+                let trimmed = address.Trim()
+                if seen.Add trimmed then result.Add trimmed
+        for flow in flowsOf systemId store do
+            for work in worksOf flow.Id store do
+                for call in callsOf work.Id store do
+                    for apiCall in call.ApiCalls do
+                        apiCall.OutTag |> Option.iter (fun t -> add t.Address)
+                        apiCall.InTag  |> Option.iter (fun t -> add t.Address)
+        List.ofSeq result
+
     /// Reference OR 그룹: 원본 Call + 해당 원본을 참조하는 모든 reference Call의 ID
     let callReferenceGroupOf (callId: Guid) (store: DsStore) : Guid list =
         let origId =

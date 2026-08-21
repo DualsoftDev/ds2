@@ -9,10 +9,10 @@ namespace DSPilot.Services;
 /// <summary>
 /// Flow 의 IO 세그먼트를 lane(Call) 단위로 묶고 ON 구간을 병합해 <see cref="CtLaneDto"/> 리스트로 빌드한다.
 /// 원래 <see cref="Controllers.CallTestController"/>.Load 안에 인라인이던 lane/interval 빌드를 추출한 것으로,
-/// CallTest(간트 화면)와 <see cref="AutoCalibrationService"/>(자동 실측 보정)가 동일 코드를 공유한다 → 드리프트 방지.
+/// CallTest(간트 화면)와 <see cref="AutoCalibrationService"/>(수동 실측 보정)가 동일 코드를 공유한다 → 드리프트 방지.
 /// 결과 lane 은 Out/In 인터벌(명령/응답 ON 구간)과 소속 ApiCall(보정 대상 Device Work 포함)을 담아,
 /// 화면 렌더링과 command→response span 집계(<see cref="ApiSpanMath"/>) 양쪽에 쓰인다.
-/// CycleAnalysisService 가 Scoped 이므로 본 서비스도 Scoped — 싱글톤 소비자(백그라운드)는 스코프를 열어 해석한다.
+/// CycleAnalysisService 가 Scoped 이므로 본 서비스도 Scoped — 싱글톤 소비자는 스코프를 열어 해석한다.
 /// </summary>
 public sealed class CallLaneBuilderService
 {

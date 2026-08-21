@@ -56,9 +56,9 @@ module PlcAasxFacade =
             |> Array.toList
 
     // ── DsStore 구축 ──────────────────────────────────────────────────────────
-    // Promaker 구조 일치: active system 1개(sampleName) + passive device 다수.
-    // SYSTEM 컬럼 값이 여러 개여도 모두 단일 active system 아래 flow 로 귀속.
-    // flow 이름 충돌 방지: 서로 다른 SYSTEM 값이 같은 flow 이름을 가지면 "SYS_FLOW" 로 한정.
+    // Promaker 구조 일치: Project 아래 active System N개 + passive device 다수.
+    // Ds2CSV의 SYSTEM 컬럼은 active System의 정본이다. 같은 Flow/Work 이름은
+    // System별 namespace에 안전하게 공존하므로 이름을 임의로 접두하지 않는다.
 
     let private buildStore (sampleName: string) (rows: Row list) : DsStore * Project =
         let store = DsStore()
@@ -66,11 +66,28 @@ module PlcAasxFacade =
         let project = Project(sampleName)
         store.DirectWrite(store.Projects, project)
 
-        // ── Active system: 1개(sampleName) ──────────────────────────────────
-        let activeSystem = DsSystem(sampleName)
-        activeSystem.SystemType <- Some "Cylinder_1"
-        store.DirectWrite(store.Systems, activeSystem)
-        project.ActiveSystemIds.Add(activeSystem.Id)
+        // ── Active System registry (SYSTEM 컬럼) ────────────────────────────
+        let activeSystemReg = System.Collections.Generic.Dictionary<string, DsSystem>(StringComparer.OrdinalIgnoreCase)
+        let normalizeSystemName name =
+            if String.IsNullOrWhiteSpace name then sampleName else name.Trim()
+        let getOrCreateActiveSystem name =
+            let normalized = normalizeSystemName name
+            match activeSystemReg.TryGetValue(normalized) with
+            | true, system -> system
+            | _ ->
+                let system = DsSystem(normalized)
+                system.SystemType <- Some "Cylinder_1"
+                store.DirectWrite(store.Systems, system)
+                activeSystemReg.[normalized] <- system
+                project.ActiveSystemIds.Add(system.Id)
+                system
+
+        // Flow가 비어 있는 SYSTEM도 라인 구성요소로 보존한다.
+        rows
+        |> List.map (fun row -> row.System)
+        |> List.map normalizeSystemName
+        |> List.distinct
+        |> List.iter (fun name -> getOrCreateActiveSystem name |> ignore)
 
         // ── Passive device registry (Device 컬럼) ──────────────────────────
         let deviceReg = System.Collections.Generic.Dictionary<string, DsSystem>(StringComparer.OrdinalIgnoreCase)
@@ -92,9 +109,8 @@ module PlcAasxFacade =
         |> List.distinct
         |> List.iter (fun n -> getOrCreateDevice n |> ignore)
 
-        // ── Flow registry — (sysName * flowName) → Flow (active system 아래) ─
+        // ── Flow registry — (sysName * flowName) → Flow (각 active System 아래) ─
         // 동일 flowName 이 여러 SYSTEM 에 존재할 수 있으므로 key 는 (sys,flow) 쌍.
-        // flow 이름은 sys 가 비어있지 않으면 "SYS_FLOW" 로 한정.
         let flowReg = System.Collections.Generic.Dictionary<string * string, Flow>()
 
         let getOrCreateFlow sysName flowName =
@@ -104,10 +120,8 @@ module PlcAasxFacade =
                 match flowReg.TryGetValue(key) with
                 | true, f -> Some f
                 | _ ->
-                    let qualName =
-                        if String.IsNullOrWhiteSpace sysName then flowName
-                        else $"{sysName}_{flowName}"
-                    let f = Flow(qualName, activeSystem.Id)
+                    let system = getOrCreateActiveSystem sysName
+                    let f = Flow(flowName, system.Id)
                     store.DirectWrite(store.Flows, f)
                     flowReg.[key] <- f
                     Some f
@@ -233,7 +247,7 @@ module PlcAasxFacade =
                     match store.Systems.TryGetValue(id) with
                     | true, s -> Some s
                     | _ -> None
-                // active/ → 단일 active system AASX (1개)
+                // active/ → active System별 AASX
                 project.ActiveSystemIds
                 |> Seq.choose getSystem
                 |> Seq.iter (fun s -> exportDeviceToZip store project s iriPrefix "active" zip)

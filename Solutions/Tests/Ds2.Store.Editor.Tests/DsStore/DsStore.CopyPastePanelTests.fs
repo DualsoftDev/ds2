@@ -7,6 +7,66 @@ open Ds2.Core.Store
 open Ds2.Editor
 open Ds2.Store.Editor.Tests.TestHelpers
 
+module MoveFlowsToSystemTests =
+
+    [<Fact>]
+    let ``MoveFlowsToSystem reparents flow with works and internal arrows preserved`` () =
+        let store = createStore ()
+        let project, system1, flow, work1 = setupBasicHierarchy store
+        let system2 = addSystem store "System2" project.Id true
+        let work2 = addWork store "Work2" flow.Id
+        store.ConnectSelectionInOrder([ work1.Id; work2.Id ], ArrowType.Start) |> ignore
+
+        let moved = store.MoveFlowsToSystem([ flow.Id ], system2.Id)
+
+        Assert.Equal(1, moved)
+        // Flow·Work id 보존 (재생성 아님) + 재부모화
+        Assert.Equal(system2.Id, (Queries.getFlow flow.Id store).Value.ParentId)
+        Assert.Equal(flow.Id, (Queries.getWork work1.Id store).Value.ParentId)
+        // 내부 화살표는 대상 System 소속으로 따라간다
+        let movedArrows = Queries.arrowWorksOf system2.Id store
+        Assert.Equal(1, movedArrows.Length)
+        Assert.Empty(Queries.arrowWorksOf system1.Id store)
+
+    [<Fact>]
+    let ``MoveFlowsToSystem severs arrows crossing to other flows of source system`` () =
+        let store = createStore ()
+        let project, system1, flow1, work1 = setupBasicHierarchy store
+        let system2 = addSystem store "System2" project.Id true
+        let flow2 = addFlow store "Flow2" system1.Id
+        let work2 = addWork store "Work2" flow2.Id
+        // 소스 System 안에서 Flow 경계를 걸친 화살표 — 이동하면 끊긴다 (Work 이동과 동일 정책)
+        store.ConnectSelectionInOrder([ work1.Id; work2.Id ], ArrowType.Start) |> ignore
+
+        let moved = store.MoveFlowsToSystem([ flow1.Id ], system2.Id)
+
+        Assert.Equal(1, moved)
+        Assert.Empty(Queries.arrowWorksOf system1.Id store)
+        Assert.Empty(Queries.arrowWorksOf system2.Id store)
+
+    [<Fact>]
+    let ``MoveFlowsToSystem renames on collision and cascades work FlowPrefix`` () =
+        let store = createStore ()
+        let project, _, flow, work = setupBasicHierarchy store
+        let originalName = flow.Name
+        let system2 = addSystem store "System2" project.Id true
+        addFlow store originalName system2.Id |> ignore   // 대상 System 에 같은 이름 선점
+
+        let moved = store.MoveFlowsToSystem([ flow.Id ], system2.Id)
+
+        Assert.Equal(1, moved)
+        let movedFlow = (Queries.getFlow flow.Id store).Value
+        Assert.Equal(system2.Id, movedFlow.ParentId)
+        Assert.Equal($"{originalName}_1", movedFlow.Name)   // 충돌 → 유니크 개명
+        Assert.Equal(movedFlow.Name, (Queries.getWork work.Id store).Value.FlowPrefix)
+
+    [<Fact>]
+    let ``MoveFlowsToSystem is noop for same system or missing target`` () =
+        let store = createStore ()
+        let _, system, flow, _ = setupBasicHierarchy store
+        Assert.Equal(0, store.MoveFlowsToSystem([ flow.Id ], system.Id))
+        Assert.Equal(0, store.MoveFlowsToSystem([ flow.Id ], Guid.NewGuid()))
+
 module PasteTests =
 
     let private unwrapOk (result: PasteResult) =
