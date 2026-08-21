@@ -175,6 +175,20 @@
         /* ── 세그먼트 컨트롤(.segmented / .ct-seg): swiss.css 공용 규칙이 단일 소스.
            (ds.css 가 swiss.css 를 @import → 프리셋·막대/InOut 토글 모두 통일된 룩 상속)
            기존의 로컬 .ct-seg 오버라이드는 swiss 표준과 통일하기 위해 제거함. */
+        /* ── 간트 조작 = 슬라이더 2개가 유일한 수단 ──
+           휠 확대/축소와 간트 가로 드래그(구간 선택)는 제거됐다. 왼쪽 .ct-pan = 가로 이동,
+           오른쪽 .ct-zoom 안의 .ct-range = 확대/축소. 전체(bulk) 페이지는 이 한 벌이 모든 카드에
+           일괄 적용되고, 개별 페이지는 그 페이지의 간트 하나만 조절한다. */
+        .ct-pan { display: flex; align-items: center; gap: 8px; flex: 1 1 220px; min-width: 120px; }
+        .ct-slider-lbl { font-size: 0.66rem; font-weight: 700; color: var(--color-text-secondary); white-space: nowrap; }
+        .ct-range { -webkit-appearance: none; appearance: none; width: 100%; height: 18px; margin: 0; padding: 0; background: transparent; cursor: pointer; }
+        .ct-range:disabled { opacity: 0.4; cursor: not-allowed; }
+        .ct-range:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; border-radius: 4px; }
+        .ct-range::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: var(--color-lines-strong); }
+        .ct-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; margin-top: -5px; border-radius: 50%; background: var(--color-primary); border: 2px solid var(--color-surface); box-shadow: 0 1px 3px rgba(0,0,0,0.28); }
+        .ct-range::-moz-range-track { height: 6px; border-radius: 3px; background: var(--color-lines-strong); }
+        .ct-range::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--color-primary); border: 2px solid var(--color-surface); box-shadow: 0 1px 3px rgba(0,0,0,0.28); }
+        .ct-zoom .ct-range { width: 112px; flex: 0 0 112px; }
         .ct-zoom { display: inline-flex; align-items: center; gap: 6px; }
         .ct-zoom button { width: 26px; height: 26px; border: 1px solid var(--color-lines-strong); background: var(--color-surface); border-radius: var(--radius-sm); cursor: pointer; font-weight: 800; font-size: 0.85rem; color: var(--color-text-primary); padding: 0; line-height: 1; }
         .ct-zoom button.ct-zoom-reset { width: auto; padding: 0 10px; font-size: 0.7rem; font-weight: 700; }
@@ -327,6 +341,12 @@
             .ct-seg { width: 100%; }
             .ct-seg > button { flex: 1 1 auto; padding: 7px 8px; }
             .ct-zoom { justify-content: center; }
+            /* 슬라이더 2개: 세로 스택에서 풀폭 + 터치 타깃 확대 */
+            .ct-pan { width: 100%; }
+            .ct-zoom .ct-range { flex: 1 1 auto; width: auto; }
+            .ct-range { height: 26px; }
+            .ct-range::-webkit-slider-thumb { width: 22px; height: 22px; margin-top: -8px; }
+            .ct-range::-moz-range-thumb { width: 20px; height: 20px; }
 
             /* 액션 바: 버튼 줄바꿈, 풀폭 가능 */
             .ct-action-bar { padding: 8px 10px; }

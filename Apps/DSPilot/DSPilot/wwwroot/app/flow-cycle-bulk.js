@@ -42,8 +42,12 @@ function bulkCycleApp() {
         rt: { connected: false },
         saving: false, saveMsg: '', saveError: false,
         exportingAll: false,
-        // 공유 보기/줌 — 상단 툴바가 모든 Flow 간트에 일괄 적용(단일 페이지와 동일한 컨트롤 1벌).
+        // 공유 보기/줌/이동 — 상단 툴바가 모든 Flow 간트에 일괄 적용(단일 페이지와 동일한 컨트롤 1벌).
+        // 이동/확대는 이 슬라이더 전담(간트 휠 줌은 제거). 간트 가로 드래그는 "구간 선택" 으로 유지된다.
         viewMode: 'bar', zoom: 1,
+        panPct: 0,          // 이동 슬라이더 값 0~1000 (= 가로 스크롤 비율, 모든 카드 공유)
+        canPan: false,      // 스크롤 여지가 있을 때만 이동 슬라이더 활성
+        _panSync: false,    // 카드 간 스크롤 전파 중 재진입(스크롤 이벤트 되먹임) 차단
         _conn: null, _timer: null, _hintTimer: null,
 
         async init() {
@@ -61,6 +65,7 @@ function bulkCycleApp() {
                     for (const s of this.flows) {
                         if (s.callLanes.length) { this.measurePlotWidth(s); s.svgMarkup = CG.buildSvg(s); }
                     }
+                    this.syncPanAllSoon();
                 }, 180);
             });
 
@@ -90,6 +95,7 @@ function bulkCycleApp() {
                     for (const s of this.flows) {
                         if (s.callLanes.length) { this.measurePlotWidth(s); s.svgMarkup = CG.buildSvg(s); }
                     }
+                    this.syncPanAllSoon();
                 });
             }
         },
@@ -238,7 +244,11 @@ function bulkCycleApp() {
             slice.topGaps = CG.topGapsOf(slice);
             if (slice.selectedGapIndex >= slice.topGaps.length) slice.selectedGapIndex = 0;
             slice.svgMarkup = CG.buildSvg(slice);
-            this.$nextTick(() => { this.measurePlotWidth(slice); slice.svgMarkup = CG.buildSvg(slice); });
+            this.$nextTick(() => {
+                this.measurePlotWidth(slice); slice.svgMarkup = CG.buildSvg(slice);
+                // svgMarkup 은 다음 틱에 DOM 에 붙는다 → 스크롤 폭이 확정된 뒤 이동 슬라이더 동기화.
+                this.syncPanAllSoon();
+            });
         },
 
         // ── 간트 지오메트리 / 줌 ──
@@ -266,22 +276,86 @@ function bulkCycleApp() {
         resetZoomAll() {
             this.zoom = 1;
             for (const s of this.flows) { s.zoom = 1; this.measurePlotWidth(s); if (s.callLanes.length) s.svgMarkup = CG.buildSvg(s); }
-            this.$nextTick(() => { for (const s of this.flows) { const el = this.areaEl(s); if (el) el.scrollLeft = 0; } });
+            this.$nextTick(() => {
+                this._panSync = true;
+                for (const s of this.flows) { const el = this.areaEl(s); if (el) el.scrollLeft = 0; }
+                this.panPct = 0; this.canPan = false;
+                requestAnimationFrame(() => { this._panSync = false; this.syncPanAll(); });
+            });
+        },
+
+        // ── 이동/확대 슬라이더 (일괄) ───────────────────────────────────────────────
+        // 확대는 로그 스케일(0=100%, 1000=MAX_ZOOM) — 선형이면 100~200% 가 왼쪽 끝 몇 px 에 뭉친다.
+        get zoomPct() {
+            const z = Math.min(MAX_ZOOM, Math.max(1, this.zoom));
+            return Math.round(Math.log(z) / Math.log(MAX_ZOOM) * 1000);
+        },
+        onZoomSliderAll(value) {
+            const t = Math.min(1, Math.max(0, Number(value) / 1000));
+            const z = Math.exp(t * Math.log(MAX_ZOOM));
+            // 앵커 카드 = 데이터가 있는 첫 Flow. 그 카드의 화면 중앙을 기준으로 확대하고,
+            // applyZoom 이 나머지 카드를 같은 스크롤 비율로 맞춘다(= 일괄).
+            const slice = this.flows.find(s => s.callLanes.length);
+            if (!slice) { this.zoom = Math.min(MAX_ZOOM, Math.max(1, z)); return; }
+            const el = this.areaEl(slice);
+            if (!el) return;
+            this.applyZoom(slice, z, el.clientWidth / 2, el);
+        },
+        // svgMarkup 반영(다음 틱) 후에도 SVG 폭은 그 프레임의 레이아웃이 끝나야 확정된다.
+        // 틱만으로 재면 scrollWidth 가 아직 옛 값이라 이동 슬라이더 활성 여부가 어긋난다 → 프레임 뒤에 잰다.
+        syncPanAllSoon() { this.$nextTick(() => requestAnimationFrame(() => this.syncPanAll())); },
+        // 폭 확정 시점은 틱/프레임으로 못 박는다 — 사이드바(CALL 목록)가 뒤늦게 넓어지면 차트 영역이
+        // 그만큼 줄어 스크롤 여지가 새로 생긴다. 크기 변화를 직접 관찰해 슬라이더 상태를 맞춘다.
+        observePan(el) {
+            if (!el || !window.ResizeObserver) return;
+            const ro = new ResizeObserver(() => this.syncPanAll());
+            ro.observe(el);
+            if (el.firstElementChild) ro.observe(el.firstElementChild);   // .ct-gantt-wrapper (SVG 폭)
+        },
+        // 기준 카드(첫 번째 로드된 Flow)의 스크롤 위치 → 슬라이더 값/활성 여부.
+        syncPanAll() {
+            const slice = this.flows.find(s => s.callLanes.length);
+            const el = slice ? this.areaEl(slice) : null;
+            if (!el) { this.panPct = 0; this.canPan = false; return; }
+            const max = el.scrollWidth - el.clientWidth;
+            this.canPan = max > 1;
+            this.panPct = max > 1 ? Math.round(el.scrollLeft / max * 1000) : 0;
+        },
+        // 슬라이더 = 비율 → 카드마다 자기 스크롤 폭에 맞춰 같은 지점으로 이동(일괄).
+        onPanSliderAll(value) {
+            const t = Math.min(1, Math.max(0, Number(value) / 1000));
+            this.panPct = Math.round(t * 1000);
+            this._panSync = true;
+            for (const s of this.flows) {
+                const el = this.areaEl(s); if (!el) continue;
+                const max = el.scrollWidth - el.clientWidth;
+                el.scrollLeft = max > 0 ? t * max : 0;
+            }
+            requestAnimationFrame(() => { this._panSync = false; });
+        },
+        // 카드의 네이티브 가로 스크롤바로 움직였을 때도 슬라이더·다른 카드를 따라오게 한다.
+        onAreaScroll(slice) {
+            if (this._panSync) return;
+            const el = this.areaEl(slice); if (!el) return;
+            const max = el.scrollWidth - el.clientWidth;
+            const t = max > 1 ? el.scrollLeft / max : 0;
+            this.canPan = max > 1;
+            this.panPct = Math.round(t * 1000);
+            this._panSync = true;
+            for (const s of this.flows) {
+                if (s === slice) continue;
+                const o = this.areaEl(s); if (!o) continue;
+                const m = o.scrollWidth - o.clientWidth;
+                o.scrollLeft = m > 0 ? t * m : 0;
+            }
+            requestAnimationFrame(() => { this._panSync = false; });
         },
         toggleExpand(slice, callId) {
             slice.expandedCalls = { ...slice.expandedCalls, [callId]: !slice.expandedCalls[callId] };
             slice.svgMarkup = CG.buildSvg(slice);
         },
-        onWheel(e, slice) {
-            if (!slice.callLanes.length) return;
-            const el = e.currentTarget; if (!el) return;
-            e.preventDefault();
-            const screenX = e.clientX - el.getBoundingClientRect().left;
-            const factor = e.deltaY < 0 ? 1.25 : 1 / 1.25;
-            this.applyZoom(slice, this.zoom * factor, screenX, el);
-        },
-        // 휠 줌도 상단 툴바(zoomAll)와 같은 "공유 줌" 하나로 통일 — 모든 카드에 일괄 적용된다.
-        // 앵커(휠 커서 아래 시각) 보존은 이벤트가 난 카드 기준으로 계산하고, 나머지 카드는
+        // 줌은 상단 툴바 하나로 통일 — 모든 카드에 일괄 적용된다.
+        // 앵커(기준 카드의 화면 중앙 시각) 보존은 slice 기준으로 계산하고, 나머지 카드는
         // 같은 스크롤 비율로 맞춰 전 간트가 같은 구간을 보여준다.
         applyZoom(slice, targetZoom, anchorX, el) {
             el = el || this.areaEl(slice); if (!el) return;
@@ -296,6 +370,8 @@ function bulkCycleApp() {
                 if (s.callLanes.length) s.svgMarkup = CG.buildSvg(s);
             }
             this.$nextTick(() => {
+                // 카드 간 스크롤 전파 중에는 onAreaScroll 재진입을 막는다(되먹임 방지).
+                this._panSync = true;
                 const left = frac * slice.plotWidth + LEFT_PAD - anchorX;
                 el.scrollLeft = left;
                 const ratio = slice.plotWidth > 0 ? Math.max(0, left) / slice.plotWidth : 0;
@@ -304,6 +380,7 @@ function bulkCycleApp() {
                     const other = this.areaEl(s);
                     if (other) other.scrollLeft = ratio * s.plotWidth;
                 }
+                requestAnimationFrame(() => { this._panSync = false; this.syncPanAll(); });
             });
         },
         focusMaxGap(slice) {

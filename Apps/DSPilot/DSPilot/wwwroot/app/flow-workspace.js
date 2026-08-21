@@ -91,6 +91,9 @@
                 topGaps: [],
                 selectedGapIndex: 0,
                 selectedRange: null,
+                // 이동/확대는 툴바 슬라이더 전담(간트 휠 줌은 제거). 간트 가로 드래그는 "구간 선택" 으로 유지된다.
+                panPct: 0,          // 이동 슬라이더 값 0~1000 (= 가로 스크롤 비율)
+                canPan: false,      // 스크롤 여지가 있을 때만 이동 슬라이더 활성
                 _geo: null, _drag: null, _timeReloadTimer: null,
 
                 // ── 최근 히스토리 (구 대시보드 하단) ──
@@ -140,7 +143,7 @@
                         clearTimeout(_rt);
                         _rt = setTimeout(() => {
                             if (this._drag) return;
-                            if (this.callLanes.length) { this.measurePlotWidth(); this.svgMarkup = this.buildSvg(); }
+                            if (this.callLanes.length) { this.measurePlotWidth(); this.svgMarkup = this.buildSvg(); this.syncPanSoon(); }
                             _resizeCharts();
                         }, 150);
                     });
@@ -647,7 +650,7 @@
                 //  사이클 분석 (구 cycle-time-analysis @code — 이 Flow 스코프)
                 // ════════════════════════════════════════════════════════════════
                 measurePlotWidth() {
-                    const el = this.$refs.chartArea;
+                    const el = this.chartAreaEl();
                     const avail = el ? el.clientWidth : 1100;
                     const minW = minPlotW();
                     this.baseWidth = Math.max(minW, Math.round(avail - LEFT_PAD - RIGHT_PAD - 4));
@@ -658,29 +661,62 @@
                     this.viewMode = mode;
                     this.svgMarkup = this.buildSvg();
                 },
-                onWheel(e) {
-                    if (!this.callLanes.length) return;
-                    if (this._drag) return;
-                    const el = this.$refs.chartArea;
-                    if (!el) return;
-                    e.preventDefault();
-                    const screenX = e.clientX - el.getBoundingClientRect().left;
-                    const factor = e.deltaY < 0 ? 1.25 : 1 / 1.25;
-                    this.applyZoom(this.zoom * factor, screenX);
+                // ── 간트 이동/확대 슬라이더 ────────────────────────────────────────────
+                // 확대 슬라이더는 로그 스케일(0=100%, 1000=MAX_ZOOM) — 선형이면 100~200% 구간이
+                // 슬라이더 왼쪽 끝 몇 px 에 뭉쳐 실용성이 없다.
+                get zoomPct() {
+                    const z = Math.min(MAX_ZOOM, Math.max(1, this.zoom));
+                    return Math.round(Math.log(z) / Math.log(MAX_ZOOM) * 1000);
                 },
-                zoomBy(factor) {
-                    const el = this.$refs.chartArea;
+                onZoomSlider(value) {
+                    const el = this.chartAreaEl();
                     if (!el || !this.callLanes.length) return;
-                    this.applyZoom(this.zoom * factor, el.clientWidth / 2);
+                    const t = Math.min(1, Math.max(0, Number(value) / 1000));
+                    // 앵커 = 현재 보이는 구간의 가운데 → 확대해도 보던 시각이 화면에 남는다.
+                    this.applyZoom(Math.exp(t * Math.log(MAX_ZOOM)), el.clientWidth / 2);
+                },
+                // svgMarkup 반영(다음 틱) 후에도 SVG 폭은 그 프레임의 레이아웃이 끝나야 확정된다.
+                // 틱만으로 재면 scrollWidth 가 아직 옛 값이라 이동 슬라이더 활성 여부가 어긋난다 → 프레임 뒤에 잰다.
+                syncPanSoon() { this.$nextTick(() => requestAnimationFrame(() => this.syncPan())); },
+                // 폭 확정 시점은 틱/프레임으로 못 박는다 — 사이드바(CALL 목록)가 뒤늦게 넓어지면 차트 영역이
+                // 그만큼 줄어 스크롤 여지가 새로 생긴다. 크기 변화를 직접 관찰해 슬라이더 상태를 맞춘다.
+                observePan(el) {
+                    if (!el || !window.ResizeObserver) return;
+                    // 관찰 대상 el 을 그대로 넘긴다 — 첫 mount 시점엔 $refs.chartArea 가 아직 미등록일 수
+                    // 있어(중첩 x-if 레이스) syncPan 이 빈손으로 돌아가고 슬라이더가 비활성으로 굳는다.
+                    const ro = new ResizeObserver(() => this.syncPan(el));
+                    ro.observe(el);
+                    if (el.firstElementChild) ro.observe(el.firstElementChild);   // .ct-gantt-wrapper (SVG 폭)
+                },
+                // 간트 스크롤 컨테이너. $refs 는 중첩 x-if 안에서 첫 mount 때 비어 있을 수 있어 DOM 조회로 폴백.
+                chartAreaEl() { return this.$refs.chartArea || document.querySelector('.ct-gantt-chart-area'); },
+                // 현재 스크롤 위치 → 이동 슬라이더 값(+ 활성 여부). 스크롤 이벤트/줌/로드 후 호출.
+                syncPan(el) {
+                    el = el || this.chartAreaEl();
+                    if (!el) { this.panPct = 0; this.canPan = false; return; }
+                    const max = el.scrollWidth - el.clientWidth;
+                    this.canPan = max > 1;
+                    this.panPct = max > 1 ? Math.round(el.scrollLeft / max * 1000) : 0;
+                },
+                onPanSlider(value) {
+                    const el = this.chartAreaEl();
+                    if (!el) return;
+                    const t = Math.min(1, Math.max(0, Number(value) / 1000));
+                    const max = el.scrollWidth - el.clientWidth;
+                    this.panPct = Math.round(t * 1000);
+                    el.scrollLeft = max > 0 ? t * max : 0;
                 },
                 resetZoom() {
                     this.zoom = 1;
                     this.measurePlotWidth();
                     this.svgMarkup = this.buildSvg();
-                    this.$nextTick(() => { const el = this.$refs.chartArea; if (el) el.scrollLeft = 0; });
+                    this.$nextTick(() => {
+                        const el = this.chartAreaEl(); if (el) el.scrollLeft = 0;
+                        requestAnimationFrame(() => this.syncPan());
+                    });
                 },
                 applyZoom(targetZoom, anchorX) {
-                    const el = this.$refs.chartArea;
+                    const el = this.chartAreaEl();
                     if (!el) return;
                     const newZoom = Math.min(MAX_ZOOM, Math.max(1, targetZoom));
                     if (Math.abs(newZoom - this.zoom) < 1e-6) return;
@@ -689,7 +725,10 @@
                     this.zoom = newZoom;
                     this.plotWidth = Math.max(minPlotW(), Math.round(this.baseWidth * this.zoom));
                     this.svgMarkup = this.buildSvg();
-                    this.$nextTick(() => { el.scrollLeft = frac * this.plotWidth + LEFT_PAD - anchorX; });
+                    this.$nextTick(() => {
+                        el.scrollLeft = frac * this.plotWidth + LEFT_PAD - anchorX;
+                        requestAnimationFrame(() => this.syncPan());
+                    });
                 },
 
                 // 시각 helper
@@ -1019,7 +1058,12 @@
                     this.applySort();
                     this.recomputeTopGaps();
                     this.svgMarkup = this.buildSvg();
-                    this.$nextTick(() => { this.measurePlotWidth(); this.svgMarkup = this.buildSvg(); if (this.tab === 'cycle' && this.cycleView === 'chart') this.renderCycleChart(); });
+                    this.$nextTick(() => {
+                        this.measurePlotWidth(); this.svgMarkup = this.buildSvg();
+                        // svgMarkup 은 다음 틱에 DOM 에 붙는다 → 스크롤 폭이 확정된 뒤 이동 슬라이더 동기화.
+                        this.syncPanSoon();
+                        if (this.tab === 'cycle' && this.cycleView === 'chart') this.renderCycleChart();
+                    });
                 },
 
                 // 정렬 = Head 맨 위 · Tail 맨 아래 고정. 그 사이는 첫 신호(InTag/OutTag) 시각 순
@@ -1074,7 +1118,7 @@
                     this.$nextTick(() => this.scrollToGap(this.topGaps[0]));
                 },
                 scrollToGap(gap) {
-                    const area = this.$refs.chartArea;
+                    const area = this.chartAreaEl();
                     if (!area || !this._geo || !gap) return;
                     const { cs, xScale } = this._geo;
                     const midX = LEFT_PAD + ((gap.startMs + gap.endMs) / 2 - cs) * xScale;
@@ -1160,7 +1204,7 @@
                 // 마우스/터치 공통 드래그 선택 코어. mode='mouse'|'touch'.
                 _beginDrag(e, clientX, clientY, mode) {
                     if (!this.callLanes.length) return;
-                    const area = this.$refs.chartArea;
+                    const area = this.chartAreaEl();
                     const svg = area && area.querySelector('svg');
                     if (!svg || !this._geo) return;
                     const rectOf = () => svg.getBoundingClientRect();
