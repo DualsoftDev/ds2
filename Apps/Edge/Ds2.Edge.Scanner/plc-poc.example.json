@@ -1,0 +1,32 @@
+{
+  "_comment": "Pi5 Edge Collector config. 실제 현장값으로 채워 plc.json 으로 복사해 쓴다. connections 가 비면 daemon 은 idle. vendor: LsXgk|LsXgi|Mitsubishi, dtype: Bool|Int16|UInt16|Int32|UInt32|Float32|Float64",
+  "connections": [
+    {
+      "name": "XGK-1",
+      "vendor": "LsXgk",
+      "ip": "192.168.250.101",
+      "port": 2004,
+      "localEthernet": true,
+      "timeoutMs": 3000,
+      "scanMs": 100,
+      "tags": [
+        { "hub": "P00900", "plc": "P00900", "dtype": "Bool" },
+        { "hub": "P0064B", "plc": "P0064B", "dtype": "Bool" },
+        { "hub": "P00975", "plc": "P00975", "dtype": "Bool" },
+        { "hub": "P00770", "plc": "P00770", "dtype": "Bool" }
+      ]
+    }
+  ],
+  "_hub_comment": "SignalR Hub(클라우드 Agent 소유). url=연결된 클라우드 인스턴스 주소(프로비저닝이 주입, 비면 push 비활성). deviceId=RPi 하드웨어 시리얼(device.device_id) — X-Device-Id 헤더로 제시, Agent 화이트리스트 membership 대조. 하드코딩 금지 — 값은 배포가 채운다. heartbeat/ack 는 확정 contract(config 불필요).",
+  "hub": {
+    "url": "",
+    "deviceId": ""
+  },
+  "_buffer_comment": "SQLite store-and-forward. dbPath 는 쓰기 가능 경로(골든이미지 /etc/edge 는 ro 라 별도 데이터 경로 권장). retentionMinutes 초과분/로그 수 초과분은 오래된 것부터 삭제(미소비 유실 감수).",
+  "buffer": {
+    "dbPath": "pi5-events.db",
+    "retentionMinutes": 60,
+    "maxRows": 100000,
+    "chunkSize": 200
+  }
+}

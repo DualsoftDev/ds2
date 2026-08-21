@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Ds2.Edge.Scanner — 엣지 단말(Pi5 등 arm64)에서 도는 PLC 수집 데몬.
+    PLC 를 주기 스캔해 store-and-forward 버퍼(SQLite)에 쌓고, WireGuard 너머 Agent Hub 로 WriteTags push.
+    실제 PLC 통신은 Ds2.Backend.Plc(PlcGateway/LsAdapter) → Ev2.PLC(외부 DLL, dsev2 빌드) 가 담당.
+    실행파일명 ds2-edge-scanner — 엣지 데몬(Pi5 등 arm64 리눅스). edge-collector.service ExecStart 및
+    setup-pi.sh 가 이 이름을 참조하며, 개명 시 현장 Pi 서비스 재배포 필요.
+    설계: samples/pi5-edge-scan-design.md (P0)
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <RuntimeIdentifiers>linux-arm64;win-x64</RuntimeIdentifiers>
+    <AssemblyName>ds2-edge-scanner</AssemblyName>
+    <RootNamespace>Pi5ScanPoc</RootNamespace>
+    <!-- Pi5 1GB 메모리 레시피 (CloudWorks README §즉효①) -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 컴파일 순서(F#): Config → EventLog → HubClientPusher → Daemon → Program -->
+    <Compile Include="Config.fs" />
+    <Compile Include="EventLog.fs" />
+    <Compile Include="HubClientPusher.fs" />
+    <Compile Include="Daemon.fs" />
+    <Compile Include="Program.fs" />
+    <None Include="plc-poc.example.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Solutions\Backend\Ds2.Backend.Plc\Ds2.Backend.Plc.fsproj" />
+    <!-- PlcDataType(CoreDataTypesModule) 을 직접 다루므로 명시 참조 필요.
+         Ev2 DLL 은 dsev2 에서 빌드해 ExternalDlls 로 수동 복사한 스냅샷(자동 파이프 없음). -->
+    <Reference Include="Ev2.PLC.Common.FS">
+      <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Common.FS.dll</HintPath>
+    </Reference>
+    <!-- 데몬화 의존성. 버전은 리포 기존 사용본과 정렬(SignalR.Client 9.0.5, Data.Sqlite 9.0.0). -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="9.0.5" />
+  </ItemGroup>
+
+</Project>
