@@ -35,7 +35,7 @@ let ``scanAddressesForTags groups LS XGI Bool bits by LWord parent address`` () 
         @ bitTags "qx" "%QX0.1." 26
 
     let scanAddresses =
-        LsPackRead.scanAddressesForTags true "XGI" tags
+        LsPackRead.scanAddressesForTags true tags
         |> Array.concat
 
     Assert.Equal(tags.Length, scanAddresses.Length)

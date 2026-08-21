@@ -47,18 +47,13 @@ public class PlcConnectionSettings
     {
         if (IsLS)
         {
-            var lsModel = LS.PlcModel switch
-            {
-                "XGK" => LsPlcModel.XGK,
-                "XGT" => LsPlcModel.XGT,
-                _ => LsPlcModel.XGI,
-            };
-            var lsConfig = new LsConnectionConfig
+            // 새 Ev2(LS)는 CPU 모델을 접속 config 가 아니라 태그 주소별로 판별한다
+            // (LsEthernetConnectionConfig 에 PlcModel 필드 없음). LS.PlcModel 문자열은 DisplayName 표시용으로만 유지.
+            var lsConfig = new LsEthernetConnectionConfig
             {
                 IpAddress = LS.IpAddress,
                 Port = LS.Port,
                 Name = LS.Name,
-                PlcModel = lsModel,
                 EnableScan = true,
                 Timeout = TimeSpan.FromSeconds(5),
                 ScanInterval = TimeSpan.FromMilliseconds(500),
