@@ -815,7 +815,15 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
                      $"({(readOnly ? "read-only / Monitoring" : "read-write / Control")}, " +
                      $"scan={(delegatedScan ? "위임(Pi5) — PlcScanService off" : "직접(Agent)")}) " +
                      $"with engine session {identity.SessionId}...");
-            _app = BackendHost.startWithBuilderAndAppConfig(Port, gatewayConfig, readOnly, delegatedScan, builder =>
+            // 위임 스캔: Agent 는 PLC 에 직접 붙지 않으므로(§10.10 ①) BackendHost 게이트웨이는 빈 config 로 시작한다.
+            // full gatewayConfig 로 넣으면 DI PlcGateway 가 공장 PLC(AID-XGT#1)에 직접 연결을 시도하다 실패해
+            // (클라우드 인스턴스는 공장 LAN 192.168.x 못 닿음) CommBlackout 을 남발한다(구미 실기 459회/일 →
+            // 관측 무효화 → 전 Work 사이클 동시 붕괴). collector config 푸시는 아래에서 여전히 full gatewayConfig 로
+            // Pi5 에 태그를 전파하므로 위임 수집은 정상 동작한다.
+            var backendGatewayConfig = delegatedScan
+                ? new PlcGatewayConfig(Microsoft.FSharp.Collections.ListModule.OfSeq(System.Array.Empty<PlcConnectionConfig>()))
+                : gatewayConfig;
+            _app = BackendHost.startWithBuilderAndAppConfig(Port, backendGatewayConfig, readOnly, delegatedScan, builder =>
             {
                 if (sharedGateway is not null)
                     builder.Services.AddSingleton<IPlcGateway>(sharedGateway);
@@ -850,6 +858,9 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
             else if (_opcUaHost.Server is { IsRunning: true } uaServer)
             {
                 _uaBridge = new SimEngineUaBridge(engine, uaServer);
+                // XGT→UA 값 브릿지는 위임/직접 모두 켠다 — Pi5(위임) 또는 게이트웨이(직접)가 준 값을 UA 북향으로
+                // 중계할 뿐 스스로 PLC 에 연결하지 않는다. 위임 모드에선 backendGatewayConfig 가 비어 있어
+                // GetConnectionStatuses 가 빈 결과라 직접 연결 시도가 없다(= blackout 없음).
                 if (aidXgtPlan is { Success: true } xgt)
                 {
                     aidUaValueBridge = new AidUaValueBridge(uaServer, xgt.Signals);
@@ -861,7 +872,10 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
                     }
                     Log.Info($"AID XGT → OPC UA value bridge active: addresses={aidUaValueBridge.AddressCount}");
                 }
-                if (aidSouthboundPlan is { HasBinding: true, Success: true } southbound)
+                // southbound(OPC UA/Modbus/MQTT/HTTP 를 Agent 가 client 로 직접 수집)는 위임 모드에서 끈다 —
+                // Pi5 가 IN 을 공급하므로 Agent 가 field endpoint 에 직접 연결하면 (클라우드는 그 endpoint 를
+                // 못 닿아) BadNotConnected → CommBlackout 을 유발한다(구미 실기 AID-OPCUA#1).
+                if (!delegatedScan && aidSouthboundPlan is { HasBinding: true, Success: true } southbound)
                 {
                     webhookRouter?.Attach(uaServer);
                     _aidSouthbound = new AidSouthboundRuntime(
